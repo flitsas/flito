@@ -34,7 +34,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { PAGES, ROLE_DEFAULT_PAGES, USER_ROLES } from '@operaciones/shared-types';
+import { PAGES, PAGE_GROUPS, ROLE_DEFAULT_PAGES, USER_ROLES } from '@operaciones/shared-types';
 // El guarda de ADR-DB-001 tal como lo aplica el runner, no una reimplementación. Importar
 // `db-apply.ts` no conecta a nada: el cliente de postgres se abre en `main()`.
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
@@ -153,9 +153,14 @@ describe('0159 — grants de la página de conciliación', () => {
       expect(new Set([...porDefaults, ...rolesDelSql])).toEqual(new Set(rolesDelRouter));
     });
 
-    it('`admin` la obtiene por tenerlas todas, sin escribirla en su fila', () => {
-      expect(ROLE_DEFAULT_PAGES.admin).toContain(SLUG);
-      expect(Object.keys(PAGES)).toEqual([...ROLE_DEFAULT_PAGES.admin]);
+    // HU #12081 AC4 — Este caso comprobaba el comodín `admin: Object.keys(PAGES)`, que ya no existe.
+    // Lo que sostiene ahora es la condición sin la cual `admin` perdería la página de verdad: que el
+    // slug es CONCEDIBLE, o sea que está en PAGE_GROUPS y por tanto genera una función `pagina.<slug>`
+    // que el reparto sembrado le da. Que se la da se comprueba contra la base en migracion-0179.
+    it('el slug es concedible, que es de donde `admin` la recibe desde la 0179', () => {
+      expect(ROLE_DEFAULT_PAGES.admin).toBeUndefined();
+      expect(PAGE_GROUPS.flatMap((g) => g.pages)).toContain(SLUG);
+      expect(Object.keys(PAGES)).toContain(SLUG);
     });
   });
 

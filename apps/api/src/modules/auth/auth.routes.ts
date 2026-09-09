@@ -8,7 +8,7 @@ import { clients, users } from '../../db/schema.js';
 import { env } from '../../config/env.js';
 import { authMiddleware, blacklistToken } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
-import { getEffectivePages } from '../../shared/permissions.js';
+import { paginasEfectivasDeUsuario } from '../../shared/permisos-efectivos.js';
 import { checkLockout, registerFailed, clearLockout } from './loginLockout.js';
 import { isUserLaftBlocked } from '../laft/employees/auth-block.service.js';
 import { laftAudit } from '../laft/audit.service.js';
@@ -77,14 +77,40 @@ router.post('/login', async (req: Request, res: Response) => {
   // Login exitoso: limpiar intentos fallidos.
   await clearLockout(username);
 
-  // allowedPages viaja en el JWT para que requirePage lo aplique server-side sin pegarle a BD
-  // por request. Es seguro contra staleness: PATCH /users de role/allowedPages bumpea
-  // sessionInvalidatedAt (ver users.routes.ts), forzando re-login con un token fresco.
+  // Las páginas EFECTIVAS, resueltas contra el reparto sembrado (HU #12081). Antes se calculaban
+  // con `getEffectivePages`, que le daba todo a `admin` por una rama cableada; ese atajo se retiró
+  // en el AC4 y quien repone sus 43 páginas es `permisos_rol_funcion`. Se resuelve UNA vez y sirve
+  // para el JWT y para el sobre de la respuesta: son la misma lista y no pueden divergir.
+  const paginas = await paginasEfectivasDeUsuario(user);
+
+  // allowedPages viaja en el JWT para que requirePage lo aplique server-side sin pegarle a BD por
+  // request. Lo que viaja es la lista RESUELTA y ya no la columna cruda `users.allowed_pages`: sin el
+  // comodín de `admin`, `getEffectivePages` sobre la columna cruda devolvería `[]` para el
+  // administrador y `requirePage` le cerraría todas las páginas.
+  //
+  // ── Hasta dónde llega la frescura, y hasta dónde NO (HU #12081) ────────────────────────────────
+  //
+  // Aquí decía «es seguro contra staleness», y con este cambio deja de ser cierto sin matizar. Antes
+  // en el token viajaban solo los EXTRAS del usuario y los defaults del rol venían compilados, o sea
+  // frescos por definición: bastaba con vigilar los cambios sobre el usuario. Ahora se congela el
+  // conjunto ENTERO en el momento de iniciar sesión.
+  //
+  //   · Lo que SÍ cubre el bump de `session_invalidated_at`: los cambios sobre ESTE usuario — su rol
+  //     y sus páginas. `PATCH /users/:id` lo bumpea (users.routes.ts) y fuerza re-login.
+  //   · Lo que NO cubre: editar la MATRIZ DE UN ROL. Eso alcanza a N usuarios y no toca ni una fila
+  //     de `users`, así que no bumpea nada y esas sesiones seguirían con las páginas viejas. Esa
+  //     mitad la cierra la #12084 AC2, que invalida la sesión de todos los usuarios del rol editado.
+  //     Decisión de producto del 9/09/2026: el efecto es INMEDIATO, no diferido.
+  //
+  // Y el mecanismo entero es TRANSITORIO. La RN-A5 del Feature #12072 exige que el permiso se
+  // resuelva EN CADA PETICIÓN y «nunca de lo que se firmó al iniciar sesión»; quien lo lleva ahí es
+  // la #12082 (motor único, permisos fuera del token). Cuando esa HU entre, esto se retira: no es el
+  // destino, es el puente que mantiene el reparto en pie mientras se construye.
   const token = await new SignJWT({
     sub: String(user.id),
     username: user.username,
     role: user.role,
-    allowedPages: user.allowedPages ?? [],
+    allowedPages: paginas,
     ...(user.transitoCodigo ? { transitoCodigo: user.transitoCodigo } : {}),
   })
     .setProtectedHeader({ alg: 'HS256' })
@@ -101,7 +127,7 @@ router.post('/login', async (req: Request, res: Response) => {
     token,
     user: {
       id: user.id, name: user.name, username: user.username, role: user.role,
-      allowedPages: getEffectivePages(user),
+      allowedPages: paginas,
       transitoCodigo: user.transitoCodigo ?? null,
       puedeSolicitarSoat: await puedeSolicitarSoat({ role: user.role, companiaId: user.companiaId }),
     },
@@ -152,10 +178,12 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   // que ya viaja a un tercero. Lo que sale es el booleano derivado.
   const { companiaId, ...publico } = user;
 
-  // Devuelve allowedPages "efectivas" (rol defaults + custom) para que el frontend filtre UI directamente.
+  // Devuelve allowedPages "efectivas" para que el frontend filtre UI directamente. Desde la
+  // HU #12081 salen del reparto sembrado y no de `getEffectivePages`: el comodín de `admin` ya no
+  // existe y la columna cruda sola no dice qué ve un administrador.
   res.json({
     ...publico,
-    allowedPages: getEffectivePages(user),
+    allowedPages: await paginasEfectivasDeUsuario(user),
     puedeSolicitarSoat: await puedeSolicitarSoat({ role: user.role, companiaId }),
   });
 });

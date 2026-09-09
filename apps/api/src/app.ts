@@ -22,6 +22,7 @@ import ocrRoutes from './modules/vehicles/ocr.routes.js';
 import clientsRoutes from './modules/clients/clients.routes.js';
 import flitoParametrizacionRoutes from './modules/flito-parametrizacion/flito-parametrizacion.routes.js';
 import flitoSyncRoutes from './modules/flito-sync/flito-sync.routes.js';
+import permisosRoutes from './modules/permisos/permisos.routes.js';
 import flitoSoatRoutes from './modules/flito-soat/flito-soat.routes.js';
 import flitoSoatClienteRoutes from './modules/flito-soat/flito-soat-cliente.routes.js';
 import flitoImpuestosRoutes from './modules/flito-impuestos/flito-impuestos.routes.js';
@@ -236,6 +237,8 @@ export function createApp() {
   app.use('/api/files', filesRoutes); // descargas por token HMAC firmado — pública (el token es la auth)
   app.use('/api/auth', authRoutes);
   app.use('/api/users', usersRoutes);
+  // HU #12081 — lectura del catálogo de funciones (AC5). Solo administración.
+  app.use('/api/permisos', permisosRoutes);
   app.use('/api/vehicles', vehiclesRoutes);
   app.use('/api/soat', soatRoutes);
   app.use('/api/runt', runtRoutes);

@@ -25,10 +25,17 @@ describe('AC1 — la página de comparendos tiene clave propia', () => {
     expect(flito?.pages).toContain('flito_comparendos');
   });
 
-  it('admin la tiene por tenerlas todas, sin tocar ROLE_DEFAULT_PAGES', () => {
-    expect(getEffectivePages({ role: 'admin' })).toContain('flito_comparendos');
-    // La fila de admin es `Object.keys(PAGES)`: la página entra sola. Si alguien la escribiera
-    // además a mano en otra fila, el test de abajo lo cazaría.
+  // HU #12081 AC4 — Este caso decía «admin la tiene por tenerlas todas», y esa fila (`admin:
+  // Object.keys(PAGES)`) es la que el AC4 retira. `admin` la sigue teniendo, pero por una fila
+  // sembrada en `permisos_rol_funcion`, y eso se comprueba contra la base en
+  // `apps/api/__tests__/db/migracion-0179.test.ts`, no aquí: este paquete es puro.
+  //
+  // Lo que sí se sostiene aquí, y es la condición para que aquel test la encuentre: la página es
+  // CONCEDIBLE. Si alguien la sacara de PAGE_GROUPS, dejaría de generar función y `admin` la
+  // perdería de verdad; ese es el fallo que este caso protege ahora.
+  it('es concedible, que es lo que hace que el reparto sembrado se la pueda dar a admin', () => {
+    expect(PAGE_GROUPS.flatMap((g) => g.pages)).toContain('flito_comparendos');
+    expect(ROLE_DEFAULT_PAGES.admin).toBeUndefined();
   });
 
   it('ningún rol la recibe por defecto — en particular NO `auditor`', () => {

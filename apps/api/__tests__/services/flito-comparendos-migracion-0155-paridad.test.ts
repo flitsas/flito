@@ -152,10 +152,13 @@ describe('0155 — grants de la página de comparendos', () => {
     });
 
     it('ningún rol recibe la página por `ROLE_DEFAULT_PAGES` salvo los que el backend admite', () => {
-      // El otro camino a la misma pantalla. `admin` la tiene porque su fila es `Object.keys(PAGES)`.
+      // El otro camino a la misma pantalla. Desde la HU #12081 `admin` NO tiene fila en la tabla
+      // (aquella era `Object.keys(PAGES)`, uno de los dos atajos que el AC4 retiró), así que la
+      // comparación se hace contra los roles del router MENOS `admin`: quien se la da a él es el
+      // reparto sembrado en `permisos_rol_funcion`, y eso se comprueba en migracion-0179.test.ts.
       const conLaPagina = (Object.keys(ROLE_DEFAULT_PAGES) as (keyof typeof ROLE_DEFAULT_PAGES)[])
-        .filter((rol) => (ROLE_DEFAULT_PAGES[rol] as readonly string[]).includes(SLUG));
-      expect(new Set(conLaPagina)).toEqual(new Set(rolesDelRouter));
+        .filter((rol) => (ROLE_DEFAULT_PAGES[rol] as readonly string[] | undefined)?.includes(SLUG));
+      expect(new Set(conLaPagina)).toEqual(new Set(rolesDelRouter.filter((r) => r !== 'admin')));
     });
   });
 

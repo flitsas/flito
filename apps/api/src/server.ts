@@ -30,11 +30,24 @@ import {
 import {
   startSoatVigenciaCron, stopSoatVigenciaCron,
 } from './modules/flito-soat/flito-soat-vigencia.cron.js';
+import { verificarCatalogoAlArrancar } from './modules/permisos/permisos.service.js';
 import { closeRedis } from './shared/redis.js';
 import { loggerFor } from './shared/logger.js';
 
 const log = loggerFor('server');
 const app = createApp();
+
+// HU #12081 (AC6) — El catálogo lo declara el PRODUCTO, no el administrador. Aquí se comprueba que
+// lo que el código exige y lo que la base declara son lo mismo, en los dos sentidos, y que `admin`
+// no se ha quedado sin funciones. Es ruidoso porque el fallo silencioso de esto no se ve como un
+// error: se ve como una pantalla que un día desapareció para alguien.
+//
+// No tumba el proceso: registra el error y sigue. Un catálogo desincronizado es grave, pero dejar el
+// API sin arrancar por él convertiría una pantalla mal repartida en una caída del producto entero —y
+// además la #12082 todavía no hace depender ninguna guarda de estas filas.
+verificarCatalogoAlArrancar()
+  .then(() => log.info('catálogo de permisos verificado'))
+  .catch((e: Error) => log.error({ err: e.message }, 'CATÁLOGO DE PERMISOS INCOHERENTE (HU #12081 AC6)'));
 
 const server = app.listen(env.PORT, () => {
   log.info({ port: env.PORT, env: env.NODE_ENV }, 'Operaciones API running');

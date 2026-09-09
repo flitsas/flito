@@ -56,6 +56,55 @@ export const permisosRoles = pgTable('permisos_roles', {
     sql`${t.tipoPrincipal} IN ('interno','externo')`),
 }));
 
+// HU #12081 — El catálogo de FUNCIONES y el reparto rol × función. Migración 0179.
+//
+// `permisos_funciones` la declara el PRODUCTO y la siembra la migración (CF-23): el administrador
+// reparte funciones, no las inventa. De ahí el `ON DELETE RESTRICT` de las dos puentes hacia aquí y
+// el `CASCADE` hacia `permisos_roles`/`users`: borrar un rol o un usuario se lleva SU reparto, pero
+// borrar una función que alguien tiene concedida lo impide la base.
+// Se genera desde el código: `npm run permisos:seed -w apps/api` (modules/permisos/catalogo.ts).
+export const permisosFunciones = pgTable('permisos_funciones', {
+  // `pagina.<slug>` o `<modulo>.<objeto>.<accion>`. PK textual e inmutable, como en permisosRoles.
+  codigo: varchar('codigo', { length: 80 }).primaryKey(),
+  // Agrupa para la pantalla: el grupo de PAGE_GROUPS en las páginas, el módulo en las operaciones.
+  modulo: varchar('modulo', { length: 40 }).notNull(),
+  nombreNegocio: varchar('nombre_negocio', { length: 120 }).notNull(),
+  descripcion: text('descripcion').notNull(),
+  tipo: varchar('tipo', { length: 10 }).notNull(),
+  activo: boolean('activo').notNull().default(true),
+}, (t) => ({
+  tipoChk: check('permisos_funciones_tipo_chk', sql`${t.tipo} IN ('pagina','operacion')`),
+  moduloIdx: index('idx_permisos_funciones_modulo').on(t.modulo),
+}));
+
+/** Lo que un ROL concede: el reparto de partida del AC4, y lo que edita la #12082. */
+export const permisosRolFuncion = pgTable('permisos_rol_funcion', {
+  rolCodigo: varchar('rol_codigo', { length: 40 }).notNull()
+    .references(() => permisosRoles.codigo, { onDelete: 'cascade', onUpdate: 'restrict' }),
+  funcionCodigo: varchar('funcion_codigo', { length: 80 }).notNull()
+    .references(() => permisosFunciones.codigo, { onDelete: 'restrict', onUpdate: 'restrict' }),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.rolCodigo, t.funcionCodigo] }),
+  funcionIdx: index('idx_permisos_rol_funcion_funcion').on(t.funcionCodigo),
+}));
+
+/**
+ * La excepción por USUARIO sobre lo que le da su rol. `efecto` es 'conceder' | 'revocar'.
+ *
+ * Esta HU solo siembra 'conceder' (el backfill de `users.allowed_pages`); 'revocar' no lo escribe
+ * nadie todavía y llega con la HU de permisos por usuario. La columna nace igual: partir el modelo
+ * en dos migraciones obligaría a reescribir la PK.
+ */
+export const permisosUsuarioFuncion = pgTable('permisos_usuario_funcion', {
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  funcionCodigo: varchar('funcion_codigo', { length: 80 }).notNull()
+    .references(() => permisosFunciones.codigo, { onDelete: 'restrict', onUpdate: 'restrict' }),
+  efecto: varchar('efecto', { length: 8 }).notNull(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.userId, t.funcionCodigo] }),
+  efectoChk: check('permisos_usuario_funcion_efecto_chk', sql`${t.efecto} IN ('conceder','revocar')`),
+}));
+
 export const laftKindEnum = pgEnum('laft_kind', ['PN', 'PJ']);
 export const laftRiskLevelEnum = pgEnum('laft_risk_level', ['bajo', 'medio', 'alto']);
 export const laftStatusEnum = pgEnum('laft_status', ['pendiente', 'vinculada', 'bloqueada', 'archivada']);
