@@ -60,9 +60,10 @@ describe('AC1/AC2 — la página de comparendos no se concede a quien el router 
     const admitidos = new Set(rolesQueAdmiteElRouter() ?? []);
     const conLaPagina = USER_ROLES.filter((role) => getEffectivePages({ role }).includes(SLUG));
 
-    // `admin` la tiene por tenerlas todas; el resto solo si alguien lo escribió a mano.
-    expect(conLaPagina.length).toBeGreaterThan(0);
-
+    // HU #12081 AC4: `admin` ya NO la tiene por comodín, así que este conjunto es hoy VACÍO y el
+    // `toBeGreaterThan(0)` de antes ya no se sostiene. Lo que sigue valiendo —y es lo que este caso
+    // protege— es que nadie que el router rechace la reciba. Quien se la da a `admin` es el reparto
+    // sembrado, y su coherencia con el router se comprueba en `__tests__/db/migracion-0179.test.ts`.
     const incoherentes = conLaPagina.filter((role) => !admitidos.has(role));
     expect(
       incoherentes,
@@ -73,9 +74,11 @@ describe('AC1/AC2 — la página de comparendos no se concede a quien el router 
   });
 
   it('el catálogo no concede la página por defecto a ningún rol fuera del router', () => {
-    // Complemento del anterior por el otro lado: sin allowedPages a mano, `admin` es el único.
+    // Complemento del anterior por el otro lado. Antes de la HU #12081 `admin` era el único que
+    // salía aquí, por su comodín; retirado el comodín, el módulo puro no concede la página a NADIE
+    // por defecto —que es lo correcto: la página es de `admin` y solo por reparto sembrado—.
     const porDefecto = USER_ROLES.filter((role) => getEffectivePages({ role }).includes(SLUG));
-    expect(porDefecto).toEqual(['admin']);
+    expect(porDefecto).toEqual([]);
   });
 });
 

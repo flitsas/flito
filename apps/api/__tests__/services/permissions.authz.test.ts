@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { Request, Response } from 'express';
-import { getEffectivePages, paginasPorDefecto, requirePage } from '../../src/shared/permissions.js';
+import { getEffectivePages, isValidPage, paginasPorDefecto, requirePage } from '../../src/shared/permissions.js';
 // HU #12169 — la tabla de defaults y la tupla de los doce, para el caso «ninguna regresión» del AC5.
 import { ROLE_DEFAULT_PAGES, USER_ROLES } from '@operaciones/shared-types';
 import type { UserRole } from '../../src/shared/middleware/auth.js';
@@ -44,12 +44,17 @@ describe('getEffectivePages — unión rol + allowedPages', () => {
     expect(pages).not.toContain('no_existe' as never);
   });
 
-  it('admin → todas las páginas, ignora allowedPages', () => {
-    const all = getEffectivePages({ role: 'admin' });
-    const withCustom = getEffectivePages({ role: 'admin', allowedPages: [] });
-    expect(all).toEqual(withCustom);
-    expect(all).toContain('users');
-    expect(all).toContain('laft');
+  // HU #12081 AC4 — Este caso decía «admin → todas las páginas, ignora allowedPages», y era la
+  // prueba del comodín que esta HU retira. Ahora afirma lo contrario, y a propósito: en el módulo
+  // PURO `admin` ya no es especial. Sus páginas se las repone `permisos_rol_funcion`, y quien lo
+  // comprueba contra la base es `__tests__/db/migracion-0179.test.ts`.
+  it('admin ya NO tiene comodín: en el módulo puro es un rol más', () => {
+    expect(getEffectivePages({ role: 'admin' })).toEqual([]);
+    expect(getEffectivePages({ role: 'admin', allowedPages: ['users', 'laft'] }).sort())
+      .toEqual(['laft', 'users']);
+    // La otra mitad del mismo atajo: la fila `admin` de la tabla tampoco existe.
+    expect(ROLE_DEFAULT_PAGES.admin).toBeUndefined();
+    expect(paginasPorDefecto('admin')).toEqual([]);
   });
 });
 
@@ -157,10 +162,15 @@ describe('paridad de catálogos y roles (anti-drift USR-7)', () => {
   it('los defaults de cada rol son slugs válidos del catálogo', async () => {
     const shared = await import('@operaciones/shared-types');
     for (const role of shared.USER_ROLES) {
-      for (const slug of shared.ROLE_DEFAULT_PAGES[role]) {
+      // HU #12081: la tabla es PARCIAL y `admin` no tiene fila. `?? []` y no un `!`: si mañana falta
+      // otra fila, lo que debe ponerse rojo es el caso de abajo, no reventar aquí con un TypeError.
+      for (const slug of shared.ROLE_DEFAULT_PAGES[role] ?? []) {
         expect(shared.isValidPage(slug)).toBe(true);
       }
     }
+    // Y las once que SÍ están, están: la parcialidad es de `admin` y de nadie más.
+    const sinFila = shared.USER_ROLES.filter((r) => shared.ROLE_DEFAULT_PAGES[r] === undefined);
+    expect(sinFila).toEqual(['admin']);
   });
 
   it('auditor → read-only LAFT (4 páginas) + vistas FLITO de solo lectura (migración D-2)', () => {
@@ -182,10 +192,12 @@ describe('paridad de catálogos y roles (anti-drift USR-7)', () => {
   });
 
   it('roles FLITO → páginas por defecto correctas', () => {
-    // El operador FLITO ES admin: admin obtiene TODAS las páginas (incluidas las FLITO).
-    const admin = getEffectivePages({ role: 'admin' });
+    // El operador FLITO ES admin y sigue obteniendo TODAS las páginas FLITO, pero desde la HU #12081
+    // eso ya no lo dice una rama cableada: lo dice el reparto sembrado. Aquí se comprueba sobre el
+    // catálogo que esas páginas EXISTEN y son concedibles; que `admin` las tiene concedidas una a una
+    // se comprueba contra la base en `__tests__/db/migracion-0179.test.ts`.
     for (const p of ['flito_tramites', 'soat', 'flito_tablero', 'clients', 'transito_organismos']) {
-      expect(admin).toContain(p);
+      expect(isValidPage(p)).toBe(true);
     }
     // Gestor de impuestos: portal acotado.
     const gi = getEffectivePages({ role: 'gestor_impuestos' }).sort();
@@ -247,7 +259,9 @@ describe('paginasPorDefecto — roles como dato (HU #12169, AC5)', () => {
 
   it('los doce de sistema devuelven lo MISMO que la tabla, uno por uno (ninguna regresión)', () => {
     for (const rol of USER_ROLES) {
-      expect(paginasPorDefecto(rol)).toEqual(ROLE_DEFAULT_PAGES[rol]);
+      // HU #12081: `admin` ya no tiene fila, y `paginasPorDefecto` devuelve `[]` por su `?? []`.
+      // `toEqual(undefined)` habría fallado; lo correcto es afirmar la equivalencia REAL.
+      expect(paginasPorDefecto(rol)).toEqual(ROLE_DEFAULT_PAGES[rol] ?? []);
     }
   });
 

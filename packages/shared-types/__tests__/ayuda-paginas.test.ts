@@ -26,9 +26,23 @@ describe('AC1 — el contenedor de Ayuda FLITO no es un permiso concedible', () 
     expect(PAGES).toHaveProperty('siigo_credenciales');
   });
 
-  it('admin la tiene por Object.keys(PAGES), sin escribirla a mano en otra fila', () => {
-    expect(getEffectivePages({ role: 'admin' })).toContain('flito_ayuda');
-    expect(ROLE_DEFAULT_PAGES.admin).toEqual(Object.keys(PAGES));
+  // HU #12081 AC2-bis y AC4 — Este caso decía «admin la tiene por Object.keys(PAGES)», y esa era
+  // justamente la fila que el AC4 retira. Desde la 0179 `admin` NO tiene fila en la tabla y
+  // `flito_ayuda` NO entra al catálogo de funciones: nadie la concede, ni siquiera él.
+  //
+  // Y no pasa nada, que es el punto: su visibilidad nunca dependió de `hasPage`. Medido el 9/09/2026
+  // — el gate de ruta (`App.tsx`, AyudaFlitoGate) y el del menú (`navItems.ts:51`) usan
+  // `puedeVerAyudaFlito`, que es la intersección con el catálogo de fichas. Si alguien "arregla"
+  // esto metiéndola en PAGE_GROUPS o en una fila de rol, el caso de arriba y este se ponen rojos.
+  it('nadie la recibe por defecto, `admin` incluido, y su visibilidad sigue siendo derivada', () => {
+    expect(ROLE_DEFAULT_PAGES.admin).toBeUndefined();
+    expect(getEffectivePages({ role: 'admin' })).not.toContain('flito_ayuda');
+    const conLaPagina = Object.entries(ROLE_DEFAULT_PAGES)
+      .filter(([, pages]) => (pages as readonly string[]).includes('flito_ayuda'))
+      .map(([role]) => role);
+    expect(conLaPagina).toEqual([]);
+    // El catálogo la sigue declarando como slug: lo que no es, es concedible.
+    expect(PAGES).toHaveProperty('flito_ayuda');
   });
 
   it('ningún rol no-admin la recibe por defecto', () => {

@@ -232,10 +232,18 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
 
 // ============================================================================
 // Permisos por defecto por rol — base que se UNE con allowedPages del usuario.
-// Admin tiene acceso a TODO independiente del campo allowed_pages.
+//
+// Aquí decía «Admin tiene acceso a TODO independiente del campo allowed_pages», y desde la HU #12081
+// es FALSO: esa frase describía el comodín que el AC4 retiró. `admin` ya no tiene fila en esta tabla
+// —el objeto de abajo es total sobre los otros once y volver a escribir `admin:` no compila— y sus 43
+// páginas se las da el reparto sembrado en `permisos_rol_funcion`, una a una. El acceso total pasó de
+// ser una rama del programa a ser configuración (CF-13, RN-A1, ADR-0015 §Decisión 4).
+//
+// Quien las resuelve en el servidor es `paginasEfectivasDeUsuario` (apps/api/src/shared/
+// permisos-efectivos.ts); esta tabla es lo que el navegador conoce, y el navegador ya no sabe nada
+// especial de `admin`.
 // ============================================================================
-export const ROLE_DEFAULT_PAGES: Record<UserRole, readonly PageSlug[]> = {
-  admin: Object.keys(PAGES) as PageSlug[],
+const DEFAULTS_POR_ROL: Record<Exclude<UserRole, 'admin'>, readonly PageSlug[]> = {
   compliance: ['dashboard', 'laft', 'laft_unusual', 'laft_trainings', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard', 'privacy', 'pesv', 'pesv_raci', 'pesv_normativa', 'pesv_retencion'],
   // Líder PESV: gestión completa del PESV pero NO acceso a SOAT/RNDC/LAFT.
   lider_pesv: ['dashboard', 'pesv', 'fleet', 'maintenance', 'pesv_raci', 'pesv_normativa', 'pesv_retencion'],
@@ -301,6 +309,26 @@ export const ROLE_DEFAULT_PAGES: Record<UserRole, readonly PageSlug[]> = {
   cliente: ['flito_soat'],
 };
 
+/**
+ * Páginas por defecto de cada rol de sistema. **PARCIAL, y `admin` NO tiene fila** (HU #12081, AC4).
+ *
+ * Hasta la 0179 la primera entrada era `admin: Object.keys(PAGES)`, y era uno de los DOS atajos que
+ * le daban todo. Los dos se retiran juntos —este y el `role === 'admin'` de `getEffectivePages`—
+ * porque retirar solo uno no cambia nada: el otro se lo vuelve a dar. Quien repone sus páginas es el
+ * reparto sembrado en `permisos_rol_funcion`, donde `admin` tiene las 43 marcadas UNA A UNA: el
+ * acceso total pasa a ser configuración y no una rama cableada (CF-13, RN-A1, ADR-0015 §Decisión 4).
+ *
+ * El tipo es `Partial<Record<UserRole, …>>` de cara afuera, pero el objeto de dentro es total sobre
+ * `Exclude<UserRole, 'admin'>`: los otros once siguen dando error de compilación si a un rol nuevo
+ * se le olvida su fila, y volver a escribir `admin:` aquí tampoco compila. Esa es la única parte de
+ * esta decisión que el tipo puede sostener.
+ *
+ * OJO — quien lee esto en el SERVIDOR no debe usarlo para resolver las páginas de un usuario: eso es
+ * `paginasEfectivasDeUsuario()` (apps/api/src/shared/permisos-efectivos.ts), que las lee de la base.
+ * Esta tabla es lo que el navegador conoce, y el navegador no sabe nada de `admin` desde esta HU.
+ */
+export const ROLE_DEFAULT_PAGES: Partial<Record<UserRole, readonly PageSlug[]>> = DEFAULTS_POR_ROL;
+
 // Helpers de permisos PESV: en endpoints de gestión PESV, lider_pesv tiene los mismos
 // derechos que admin. Para el resto del sistema, sigue siendo rol limitado.
 export const PESV_ADMIN_ROLES: readonly UserRole[] = ['admin', 'lider_pesv'];
@@ -329,13 +357,19 @@ export function paginasPorDefecto(role: RoleCode): readonly PageSlug[] {
  * Admin siempre obtiene TODO. Otros roles: union(rol_defaults, user.allowedPages válidas).
  *
  * `role` es `RoleCode` desde la HU #12169: puede ser un rol creado por el administrador, que aporta
- * `[]` de defaults. NOTA DE ALCANCE: el atajo `role === 'admin'` y la fila `admin` de
- * `ROLE_DEFAULT_PAGES` se conservan. El ADR-0015 §Decisión 4 los retira, pero solo puede hacerlo
- * cuando la #12081 haya sembrado las marcas de `admin`; retirarlos antes deja al administrador con
- * cero páginas. Ese cambio pertenece a la #12081, no a esta HU (cuyo AC5 no lo pide).
+ * `[]` de defaults.
+ *
+ * **YA NO HAY COMODÍN DE `admin`** (HU #12081, AC4). Aquí vivía `if (user.role === 'admin') return
+ * Object.keys(PAGES)`, el segundo de los dos atajos cableados; el otro era su fila en
+ * `ROLE_DEFAULT_PAGES`. Los dos se retiraron a la vez que la migración 0179 sembró sus 43 páginas
+ * una a una en `permisos_rol_funcion`.
+ *
+ * La consecuencia práctica, y hay que saberla: para `admin` esta función devuelve exactamente sus
+ * `allowedPages`. En el navegador eso basta porque el sobre de `/login` y `/me` trae ya la lista
+ * RESUELTA CONTRA LA BASE (`paginasEfectivasDeUsuario`), no la columna cruda. Llamar a esta función
+ * en el servidor con la fila pelada de `users` para decidir si un admin entra a algo devolvería `[]`.
  */
 export function getEffectivePages(user: { role: RoleCode; allowedPages?: string[] | null }): PageSlug[] {
-  if (user.role === 'admin') return Object.keys(PAGES) as PageSlug[];
   const fromRole = paginasPorDefecto(user.role);
   const fromUser = (user.allowedPages ?? []).filter(isValidPage);
   return Array.from(new Set([...fromRole, ...fromUser]));

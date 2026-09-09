@@ -157,6 +157,11 @@ describe('POST /api/auth/login — éxito', () => {
     selectMock.mockReturnValueOnce(chain([{
       id: 42, username: 'admin', passwordHash: 'h', active: true, role: 'admin', name: 'Admin User', allowedPages: null,
     }]));
+    // HU #12081: `allowedPages` sale del reparto sembrado y no del comodín de `admin`, que el AC4
+    // retiró. Es una consulta más —`permisos_rol_funcion`— y aquí devuelve `pagina.dashboard` justo
+    // para comprobar que el sobre lleva el SLUG y no el código de la función: si alguien olvidara
+    // quitar el prefijo, el `toContain('dashboard')` de abajo se pondría rojo.
+    selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.dashboard' }]));
     argonVerifyMock.mockResolvedValueOnce(true);
     const app = await buildApp();
     const r = await request(app).post('/api/auth/login').send({ username: 'admin', password: 'OK' });
@@ -173,7 +178,8 @@ describe('POST /api/auth/login — éxito', () => {
     expect(Object.keys(r.body.user)).toContain('puedeSolicitarSoat');
     expect(r.body.user.puedeSolicitarSoat).toBe(false);
     expect(r.body.user.companiaId).toBeUndefined();
-    expect(selectMock).toHaveBeenCalledTimes(1);
+    // Dos: el usuario y la del reparto del rol. La de `clients` sigue sin ocurrir para un admin.
+    expect(selectMock).toHaveBeenCalledTimes(2);
     expect(clearLockoutMock).toHaveBeenCalledWith('admin');
     expect(registerFailedMock).not.toHaveBeenCalled();
     expect(auditMock.mock.calls[0][1].action).toBe('login');
@@ -184,6 +190,7 @@ describe('POST /api/auth/login — éxito', () => {
     selectMock.mockReturnValueOnce(chain([{
       id: 1, username: 'a', passwordHash: 'SECRET-HASH', active: true, role: 'admin', name: 'A', allowedPages: null,
     }]));
+    selectMock.mockReturnValueOnce(chain([]));  // permisos_rol_funcion (HU #12081)
     argonVerifyMock.mockResolvedValueOnce(true);
     const app = await buildApp();
     const r = await request(app).post('/api/auth/login').send({ username: 'a', password: 'p' });
@@ -201,6 +208,7 @@ describe('POST /api/auth/login — `puedeSolicitarSoat` (Bug #11937)', () => {
   it('cliente cuya compañía tiene el flag ENCENDIDO → true y la clave viene', async () => {
     selectMock
       .mockReturnValueOnce(chain([CLIENTE_LOGIN]))
+      .mockReturnValueOnce(chain([{ codigo: 'pagina.flito_soat' }]))  // permisos_rol_funcion
       .mockReturnValueOnce(chain([{ sinTramite: true }]));
     argonVerifyMock.mockResolvedValueOnce(true);
     const r = await request(await buildApp()).post('/api/auth/login')
@@ -210,12 +218,13 @@ describe('POST /api/auth/login — `puedeSolicitarSoat` (Bug #11937)', () => {
     expect(Object.keys(r.body.user)).toContain('puedeSolicitarSoat');
     expect(r.body.user.puedeSolicitarSoat).toBe(true);
     expect(r.body.user.companiaId).toBeUndefined();
-    expect(selectMock).toHaveBeenCalledTimes(2); // usuario + clients
+    expect(selectMock).toHaveBeenCalledTimes(3); // usuario + reparto del rol + clients
   });
 
   it('flag APAGADO → false, y no es «no vino el campo»', async () => {
     selectMock
       .mockReturnValueOnce(chain([CLIENTE_LOGIN]))
+      .mockReturnValueOnce(chain([{ codigo: 'pagina.flito_soat' }]))
       .mockReturnValueOnce(chain([{ sinTramite: false }]));
     argonVerifyMock.mockResolvedValueOnce(true);
     const r = await request(await buildApp()).post('/api/auth/login')
@@ -239,12 +248,15 @@ describe('GET /api/auth/me', () => {
     selectMock.mockReturnValueOnce(chain([{
       id: 1, username: 'admin', name: 'A', role: 'admin', allowedPages: null,
     }]));
+    selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.dashboard' }]));  // permisos_rol_funcion
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
     const r = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(200);
     expect(r.body.id).toBe(1);
     expect(Array.isArray(r.body.allowedPages)).toBe(true);
+    // HU #12081: lo que viaja son SLUGS, resueltos del reparto sembrado.
+    expect(r.body.allowedPages).toEqual(['dashboard']);
   });
 
   it('token válido pero user no existe en BD → 404', async () => {
