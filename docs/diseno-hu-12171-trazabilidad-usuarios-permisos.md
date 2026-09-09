@@ -1,7 +1,7 @@
 # Diseño — HU #12171: trazabilidad de roles, permisos y usuarios
 
 **Feature** [#12072](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/12072) · **HU** [#12171](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/12171)
-**ADR**: [ADR-0014](./adr/ADR-0014-registro-antes-despues-usuarios-y-permisos.md) — **Propuesto**, pendiente del Líder Técnico.
+**ADR**: [ADR-0014](./adr/ADR-0014-registro-antes-despues-usuarios-y-permisos.md) — **Aprobado** el 2026-09-09 por David Chica. Con ello esta HU queda desbloqueada, junto con la #12084, la #12087 y la #12089.
 **Desbloquea**: [#12084](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/12084) (roles), [#12087](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/12087) (permisos por usuario), [#12089](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/12089) (baja lógica).
 **Verificado sobre** `develop` @ `42d889e`, 2026-09-08.
 
@@ -555,9 +555,9 @@ Con `TZ=UTC` en los tests del filtro por fechas: en `-05` un aserto de rango sob
 
 ## 12. Riesgos abiertos y qué NO se toca
 
-1. **Aprobación pendiente.** ADR-0014 está en `Propuesto`. Si el Líder Técnico prefiere la opción (A), cambian §3, §4 y §5 enteros, y el radio de PII pasa a ser un control de revisión permanente sobre 312 puntos de llamada.
-2. **Decisión de producto viva.** El AC3 de la #12084 marca «PENDIENTE DE DECISIÓN DEL PRODUCT OWNER» si los doce roles de sistema se podrán borrar. **No afecta a este diseño**: `rol_afectado_codigo` no tiene FK precisamente para que borrar roles siga siendo posible, se decida lo que se decida.
-3. **Work item de retención por crear.** El AC5 exige nombrar dónde se decide el mecanismo. Hay que **crear** el work item de deuda técnica («Ejecutar la retención declarada: convertir el cron PESV de DRY-RUN a purga real») y escribir su ID aquí, en el ADR y en el PR. No se inventa un número en este documento. **Es requisito de cierre de la #12171.**
+1. ~~**Aprobación pendiente.**~~ **Resuelto el 9/09/2026:** ADR-0014 quedó **Aprobado** con la opción (B) —tabla propia `permisos_auditoria`—, que es la que este diseño desarrolla. §3, §4 y §5 se quedan como están y el radio de PII no se convierte en un control permanente sobre 312 puntos de llamada.
+2. ~~**Decisión de producto viva.**~~ **Resuelta el 9/09/2026:** de los doce roles actuales **solo `admin` es de sistema**; los demás se borran (ADR-0015 §Decisión 5). La previsión de este diseño acertó y no hay que tocar nada: `rol_afectado_codigo` no tiene FK precisamente para que borrar un rol siga siendo posible sin arrastrar la bitácora.
+3. ~~**Work item de retención por crear.**~~ **Creado el 9/09/2026: HU [#12215](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/12215)** — «[BACKEND] – Retención documental – Aplicar la retención declarada en vez de simularla», sin Feature padre y fuera del alcance del #12072, enlazada como *related* a esta HU. Citarla cubre el AC5. **Corrección de enunciado:** no es «convertir el cron a purga real» — de las siete políticas sembradas solo una (`checklist`) es `purgar`; cuatro archivan fuera de línea y dos anonimizan.
 4. **Dos hallazgos que este diseño NO arregla** (ADR-0014, «Deuda que este ADR deja anotada»): `audit_logs` no tiene `REVOKE` pese a que `0132_clients_modelo_fiscal.sql:101` afirma que sí, y su FK `user_id` está en deriva (`set null` en `schema.ts:697` contra `no action` en `0001:16`). Ninguno bloquea: la opción elegida no se apoya en `audit_logs`.
 5. **No se pudo medir contra la base viva.** `localhost:5434` rechazó la conexión en este worktree, así que las comprobaciones de `pg_constraint` y de privilegios de §«Cómo verificar» del ADR quedan **por correr** tras aplicar la migración. Todo lo demás está medido sobre el código.
 6. **Trabajo en paralelo sobre los mismos archivos.** Mientras se escribía este diseño aparecieron en el árbol, sin commitear: el split de `Users.tsx` (#12175) y el par ADR-0015 / `diseno-hu-12169-roles-catalogo-editable.md` (#12169). ADR-0015 fija `permisos_roles` con `codigo varchar(40)` como PK y `users.role` convertida a `varchar(40)` con FK — **compatible** con `rol_afectado_codigo varchar(40)` sin FK de este diseño. Conviene releerlo antes de implementar por si su decisión final se movió.
