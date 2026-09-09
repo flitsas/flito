@@ -531,7 +531,7 @@ export function causaDeCaida(err: unknown): 'timeout' | 'red' | 'circuito' | 'ot
  *
  * **El log no lleva placa, VIN, documento ni nombre de persona, y tampoco el mensaje CRUDO del
  * error** — solo el desenlace, la señal de transporte, un token de causa de vocabulario cerrado
- * ({@link causaDeCaida}) y, en el desenlace `ok`, el nombre del ORGANISMO DE TRÁNSITO con el cruce
+ * ({@link causaDeCaida}) y, en los desenlaces que RESUELVEN organismo, su nombre con el cruce
  * de catálogo (Bug #12179; la justificación de por qué ese campo no es PII está en el cuerpo). Es lo
  * que hace falta para medir en DEV el riesgo de la clasificación (ver {@link esNegativaDeNegocio}) y
  * la causa del organismo vacío, sin abrir una vía de PII en logs.
@@ -554,7 +554,7 @@ export async function consultarYClasificar(vin: string): Promise<DesenlaceRunt> 
 
   const desenlace = await clasificarDesenlaceRunt(respuesta, vin);
 
-  // ── La línea del desenlace `ok`, y por qué existe (Bug #12179) ────────────────────────────────
+  // ── La línea de los desenlaces que resuelven organismo, y por qué existe (Bug #12179) ────────
   //
   // El «—» de la ficha tiene DOS causas posibles y desde fuera son indistinguibles: que el RUNT no
   // mandara el organismo, o que lo mandara y el canal no lo cruzara contra el catálogo. El nombre
@@ -570,10 +570,24 @@ export async function consultarYClasificar(vin: string): Promise<DesenlaceRunt> 
   // libre de una ruta de error: es un campo NOMBRADO del payload, con significado conocido, leído
   // por `alias`. Nada más entra en esta línea: ni el VIN con el que se consultó, ni la placa que el
   // RUNT devolvió, ni el propietario que viaja en el mismo nodo.
-  if (desenlace.clase === 'ok') {
+  //
+  // ── La guarda es por PRESENCIA DEL PAYLOAD, no por lista de clases ──────────────────────────────
+  //
+  // `'organismoCodigo' in desenlace` es exactamente «este desenlace resolvió organismo», que es la
+  // condición que esta línea mide. Estrecha la unión a las dos variantes que llevan `PayloadOk`
+  // —`ok` y `renovacion_anticipada` (HU #12212)— y **cualquier desenlace futuro que lleve el mismo
+  // payload entra solo**. Enumerar las dos clases funcionaría hoy y volvería a dejar fuera a la
+  // siguiente en silencio, que es justo lo que pasó al llegar la renovación anticipada: una familia
+  // entera de altas —que resuelven organismo y persisten `organismo_codigo` igual que las demás—
+  // dejó de loguear sin que nada avisara.
+  //
+  // El `desenlace` va con la clase REAL, para poder separarlas en el log. Y nada más: `venceEl` y
+  // `poliza` viajan en la renovación pero NO entran aquí — el número de póliza es cuasi-PII y no
+  // tiene relación con lo que esta línea mide.
+  if ('organismoCodigo' in desenlace) {
     log.info(
       {
-        desenlace: 'ok',
+        desenlace: desenlace.clase,
         organismoRunt: desenlace.datos.organismoNombre,
         organismoCatalogado: desenlace.organismoCodigo !== null,
       },
