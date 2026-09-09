@@ -256,3 +256,48 @@ test.describe('HU #12094 · AC8 — accesibilidad de la lectura de la factura', 
     esperarSinViolacionesGraves(await correrAxe(page), 'alta del Cliente · banda de sobrescritura');
   });
 });
+
+// ═══════════════ HU #12213 · AC5 — el aviso de vigencia próxima ante un lector y ante axe ════════
+//
+//   QA_AXE_CDN=1 npx playwright test e2e/tests/soat-vin-unico-ficha-runt-a11y.spec.ts
+//
+// Es un quinto estado de la misma vista: `fase: ok` **con** aviso. Vive aquí y no en el spec
+// funcional por lo mismo que los otros cuatro — sin el interruptor de axe, este archivo entero es
+// un rojo de ENTORNO y no puede contaminar el gate de la HU.
+test.describe('HU #12213 · AC5 — accesibilidad del aviso de vigencia próxima', () => {
+  test('se anuncia como status (no alert), no roba el foco y pasa axe', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await montarAlta(page, {
+      status: 200,
+      cuerpo: { ...RUNT_OK, vigenciaProxima: { venceEl: '2026-10-05' } },
+    });
+
+    const consultar = page.getByRole('button', { name: 'Consultar el RUNT' });
+    await page.getByLabel('VIN').fill(VIN);
+    await consultar.click();
+
+    const aviso = page.getByRole('status').filter({ hasText: 'todavía tiene SOAT vigente' });
+    await expect(aviso).toBeVisible();
+    // `status` y no `alert`: `alert` es assertive, interrumpe, y ese registro es el de los fallos.
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    // El botón cambió de rótulo, que es como se sabe que la fase es `ok`.
+    await expect(consultar).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Consultar de nuevo' })).toBeVisible();
+
+    // El foco NO lo mueve el aviso: el efecto de foco de la página solo actúa en `fase === 'fallo'`
+    // y no debe extenderse aquí —no hay nada que corregir y robarlo interrumpiría a quien ya
+    // estuviera escribiendo abajo—. No se afirma sobre el BOTÓN: se deshabilita mientras consulta y
+    // el navegador le quita el foco por su cuenta, así que ese aserto mediría a Chromium y no a la
+    // pantalla. Lo que esta HU tiene prohibido es LLEVAR el foco a algo suyo: ni al VIN (que es lo
+    // que sí hace el 422) ni dentro del propio aviso.
+    await expect(page.getByLabel('VIN')).not.toBeFocused();
+    expect(await aviso.evaluate((el) => el.contains(document.activeElement))).toBe(false);
+
+    // El texto es autosuficiente (SC 1.4.1): quitando el color, las dos frases dicen lo mismo. El
+    // punto del chip es decorativo y `aria-hidden`, así que el lector anuncia solo la etiqueta.
+    await expect(aviso).toContainText('Puede continuar');
+    await expect(aviso).toContainText('sí puede enviar esta solicitud');
+
+    esperarSinViolacionesGraves(await correrAxe(page), 'alta del Cliente · aviso de vigencia próxima');
+  });
+});

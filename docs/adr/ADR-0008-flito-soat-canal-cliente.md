@@ -387,7 +387,7 @@ Y la comprobación que **no** es SQL, porque es la que se rompe en silencio: que
 
 ## Relación con otros ADR
 
-- **ADR-0005** (`Propuesto`) — su regla se hereda en espíritu: la FK `users.compania_id` declara su `ON DELETE` explícitamente (§3), aunque vaya en el sentido contrario al que ese ADR gobierna.
+- **ADR-0005** (`Aprobado` el 2026-09-09) — su regla se hereda en espíritu: la FK `users.compania_id` declara su `ON DELETE` explícitamente (§3), aunque vaya en el sentido contrario al que ese ADR gobierna.
 - **ADR-0006** (`Propuesto`) — comparte tabla (`flito_soat`) y el bloque de soportes. Este ADR **no** concede a `cliente` el comprobante PSE: `ROLES_COMPROBANTE_PSE` no cambia (§6).
 - **ADR-DB-001** (`docs/runbook/adr-db-001-migration-transaction-policy.md`) — la `0167` y la `0168` no llevan control de transacción propio; la partición en dos archivos es consecuencia directa de esa política, no una excepción a ella.
 - Este ADR **no supersede** a ninguno.

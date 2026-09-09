@@ -19,7 +19,7 @@
 // El payload crudo no se persiste (ADR-0008 §1.6, esa frase se conserva). Solo derivados.
 
 import { eq } from 'drizzle-orm';
-import { polizaParaColumna, resolverCodigoOrganismoFlit } from '@operaciones/shared-types';
+import { polizaParaColumna, resolverCodigoOrganismoRunt } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { organismosTransitoConfig } from '../../db/schema.js';
 import { extraerVehiculoRunt, normalizarIdentificador, runtSinRegistro } from '../flito-impuestos/certificacion-runt.js';
@@ -96,6 +96,12 @@ function alias(fuente: Record<string, unknown> | null, claves: readonly string[]
  * habituales por si el tipo de vehículo cambia la forma (una moto o un remolque no traen lo mismo).
  * `datosTecnicos` se mira como segunda vía, igual que ya hacen cilindraje y servicio.
  *
+ * **`organismoNombre` pasa a leerse por las DOS vías (Bug #12179).** Era el único de los trece que se
+ * leía solo de `data.vehiculo`, sin razón que lo distinga de sus cinco vecinos: el RUNT reparte los
+ * campos entre `vehiculo` y `datosTecnicos` sin contrato estable, y esa asimetría convertía «el RUNT
+ * lo mandó en el otro nodo» en «el RUNT no lo mandó». Alinearlo no relaja nada —`alias` sigue
+ * exigiendo un valor no vacío— y quita una de las dos causas posibles del «—» de la ficha.
+ *
  * **`tipoDocPropietario` NO se extrae, y no es un olvido** (HU #12090, AC2). Vive un nivel más
  * arriba (`data.tipoDocPropietario`, hermano de `vehiculo`) y en la modalidad de VIN vale siempre
  * `'C'`: no es lo que el registro dice del propietario, es el tipo con el que la vía directa
@@ -118,7 +124,7 @@ export function extraerDatosCanal(data: unknown): DatosRuntCanal {
     carroceria: dosVias(['tipoCarroceria', 'carroceria', 'nombreCarroceria']),
     pasajerosSentados: dosVias(['pasajerosSentados', 'capacidadPasajeros', 'numeroPasajeros', 'pasajeros']),
     puertas: dosVias(['puertas', 'numeroPuertas', 'numPuertas']),
-    organismoNombre: alias(veh, ['organismoTransito', 'organismoTransitoNombre', 'nombreOrganismoTransito']),
+    organismoNombre: dosVias(['organismoTransito', 'organismoTransitoNombre', 'nombreOrganismoTransito']),
     propietarioNombre: alias(veh, ['nombrePropietario', 'propietario', 'nombreTitular']),
   };
 }
@@ -186,15 +192,91 @@ function fechaValida(anio: number, mes: number, dia: number): string | null {
 }
 
 /**
+ * El día de HOY en Colombia, `yyyy-mm-dd`, sin depender de la zona del proceso (HU #12212).
+ *
+ * El contenedor corre en UTC y el umbral de la renovación anticipada es una regla de negocio
+ * colombiana: a las 19:00 de Bogotá el reloj del proceso ya está en el día siguiente, y con él la
+ * frontera inclusive del AC4 se correría un día entero para todas las solicitudes de la tarde.
+ *
+ * **La receta está DUPLICADA a propósito** (`Intl.DateTimeFormat('en-CA', { timeZone })` +
+ * `formatToParts`): es la misma de `ahoraEnBogota` (`flito-soat-vigencia.cron.ts`) y no se importa
+ * porque `cron → vigencia.service → cliente-runt` ya es una cadena de imports, así que traerla
+ * cerraría un ciclo. Consolidar las dos en un helper compartido es otra HU; mientras tanto, lo que
+ * no puede divergir es el `timeZone` y el locale `en-CA` —que es el que emite `yyyy-mm-dd`—.
+ *
+ * Aquí solo hace falta el día: la hora y el minuto que el cron necesita para su ventana de arranque
+ * no tienen lector en esta regla, y devolverlos invitaría a decidir el umbral con una hora.
+ */
+export function diaEnBogota(ahora: Date = new Date()): string {
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(ahora);
+  const v = (t: string) => partes.find((p) => p.type === t)?.value ?? '';
+  return `${v('year')}-${v('month')}-${v('day')}`;
+}
+
+/**
+ * La última fecha que cuenta como «vence en un mes o menos»: MISMA FECHA DEL MES SIGUIENTE.
+ *
+ * Mes CALENDARIO y no 30 días: es lo que decidió el PO y lo que la persona entiende por «un mes».
+ * Se construye con `Date.UTC(anio, mes, dia)` —igual que {@link fechaValida}— y con **clamp** al
+ * último día del mes siguiente cuando ese día no existe: `2027-01-31` → `2027-02-28`, nunca el
+ * `2027-03-03` al que desbordaría `Date` por su cuenta (AC5). Desbordar ampliaría el umbral en
+ * silencio justo para los días finales de mes.
+ *
+ * El paso al año siguiente sale gratis del índice de mes 0-based: diciembre → `Date.UTC(a, 12, d)`.
+ */
+export function limiteRenovacionAnticipada(hoy: string): string {
+  const anio = Number(hoy.slice(0, 4));
+  const mes = Number(hoy.slice(5, 7));
+  const dia = Number(hoy.slice(8, 10));
+  // `Date.UTC(anio, mes + 1, 0)` es el día CERO del mes que sigue al siguiente, o sea el último del
+  // mes siguiente. De ahí sale el clamp, sin tabla de longitudes ni regla de bisiestos escrita a mano.
+  const ultimoDiaMesSiguiente = new Date(Date.UTC(anio, mes + 1, 0)).getUTCDate();
+  const limite = new Date(Date.UTC(anio, mes, Math.min(dia, ultimoDiaMesSiguiente)));
+  const mm = String(limite.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(limite.getUTCDate()).padStart(2, '0');
+  return `${limite.getUTCFullYear()}-${mm}-${dd}`;
+}
+
+/**
+ * ¿Al SOAT que el RUNT reporta vigente le queda **un mes o menos**? (HU #12212).
+ *
+ * Comparación LEXICOGRÁFICA de cadenas `yyyy-mm-dd` —el mismo criterio que ya usa `vigenciaVista`
+ * en `flito-soat.service.ts`—: sin `Date`, sin husos y sin medianoche del proceso. Con ese formato
+ * el orden alfabético ES el cronológico, y no hay una hora que pueda mover la frontera.
+ *
+ * **La frontera es INCLUSIVE** (`<=`): si vence exactamente dentro de un mes, se permite.
+ *
+ * **Sin fecha, `false`**, y es el defecto seguro del AC3: el RUNT dice «vigente» pero no dice hasta
+ * cuándo, y de ahí no se puede deducir que falte un mes o menos. Se queda en el 409 de siempre.
+ *
+ * Un `venceEl` ANTERIOR a hoy también cae del lado «no bloquea», y es el resultado correcto: es una
+ * póliza que el RUNT sigue reportando y que ya venció.
+ */
+export function esRenovacionAnticipada(venceEl: string | null, hoy: string): boolean {
+  if (!venceEl) return false;
+  return venceEl <= limiteRenovacionAnticipada(hoy);
+}
+
+/**
  * El organismo del RUNT, traducido a código DIVIPOLA y comprobado contra la tabla.
  *
- * Dos comprobaciones: `resolverCodigoOrganismoFlit` cruza el nombre contra el catálogo nacional,
+ * Dos comprobaciones: `resolverCodigoOrganismoRunt` cruza el nombre contra el catálogo nacional,
  * y `organismos_transito_config` es la tabla a la que apunta la FK. Devuelve `null` si no cruza
  * — y `null` NO aborta nada (AC5 de la HU #11966): la fila se crea igual con el organismo vacío y
  * el satélite anotando `organismo_no_catalogado`.
+ *
+ * **Por qué el resolutor TOLERANTE y no `resolverCodigoOrganismoFlit` (Bug #12179).** Aquí solo hay
+ * una cadena, la que redacta el RUNT, y su redacción varía respecto de la del catálogo. La igualdad
+ * exacta solo acertaba cuando el RUNT escribía literalmente la redacción propia de FLIT, así que
+ * organismos que el registro SÍ mandaba acababan en `organismo_no_catalogado` y en un «—» en la
+ * ficha. El resolutor exacto se conserva para el reporte de FLIT, que trae la ciudad aparte y no
+ * debe volverse más laxo. La segunda comprobación —la tabla de la FK— **no se relaja**: un código
+ * que el catálogo nacional conoce pero la tabla no sigue siendo `null`.
  */
 export async function resolverOrganismoCatalogo(nombre: string | null): Promise<string | null> {
-  const codigo = resolverCodigoOrganismoFlit({ nombre });
+  const codigo = resolverCodigoOrganismoRunt(nombre);
   if (!codigo) return null;
   const [fila] = await db.select({ codigo: organismosTransitoConfig.codigo })
     .from(organismosTransitoConfig).where(eq(organismosTransitoConfig.codigo, codigo)).limit(1);
@@ -272,17 +354,35 @@ export async function consultarRuntCrudo(vin: string): Promise<RespuestaKyverum>
 /** Los códigos de la familia «revise los datos», tal como los emite la compuerta. */
 export type CodigoRevise = 'runt_no_cuadra' | 'runt_sin_registro' | 'runt_sin_vin';
 
+/** Lo que hace falta para CREAR la fila. Lo comparten los dos desenlaces que dejan pasar el alta. */
+type PayloadOk = { datos: DatosRuntCanal; vinEfectivo: string; organismoCodigo: string | null };
+
 /**
- * Los CUATRO desenlaces posibles de una consulta al RUNT, y el único vocabulario con el que la
+ * Los CINCO desenlaces posibles de una consulta al RUNT, y el único vocabulario con el que la
  * compuerta habla con los dos endpoints.
  *
  * Es un tipo de dominio y no un `SolicitudSoatError` a propósito: aquí se DECIDE qué pasó, y el
  * servicio traduce a HTTP. Separarlo permite que la preconsulta y el alta compartan la decisión —que
  * es la invariante del AC («los dos endpoints devuelven lo mismo ante el mismo RUNT»)— sin que este
  * archivo tenga que conocer códigos de estado.
+ *
+ * ── Por qué `renovacion_anticipada` es una CLASE y no un campo opcional de `ok` (HU #12212) ──────
+ *
+ * Es la misma razón que ya está escrita en `DESENLACE_HABLA_DEL_VEHICULO`. El `switch` de
+ * `verificarRuntCompuerta` (`flito-soat-cliente.service.ts`) no tiene `default` y la función está
+ * tipada `Promise<ResultadoRunt>`; con `strict:true`, añadir un miembro a esta unión **rompe el
+ * build** hasta que exista su `case`. Un `venceEl?: string` colgado de `ok` habría compilado igual
+ * el día que se añadiera y el aviso se habría perdido en silencio en cualquier rama que no lo
+ * leyera. El compilador es aquí el único lector que no se olvida.
+ *
+ * Lleva el payload de `ok` ENTERO —el alta que la renovación anticipada permite crea la misma fila
+ * que cualquier otra— más las dos cosas que la distinguen: hasta cuándo vence lo que el RUNT reporta
+ * y qué póliza es. La póliza viaja hasta aquí porque se PERSISTE (`poliza_runt`); no se publica en
+ * el 200 de la preconsulta (RN-B1).
  */
 export type DesenlaceRunt =
-  | { clase: 'ok'; datos: DatosRuntCanal; vinEfectivo: string; organismoCodigo: string | null }
+  | ({ clase: 'ok' } & PayloadOk)
+  | ({ clase: 'renovacion_anticipada'; venceEl: string; poliza: string | null } & PayloadOk)
   | { clase: 'vigente'; fechaVencimiento: string | null }
   | { clase: 'revise'; codigo: CodigoRevise; campo?: 'vin' }
   | { clase: 'caido' };
@@ -323,17 +423,24 @@ export function esNegativaDeNegocio(respuesta: RespuestaKyverum): boolean {
  *   2. Sin registro → `runt_sin_registro`. `runtSinRegistro` no se fía del eco de la consulta.
  *   3. El VIN devuelto difiere del tecleado → `runt_no_cuadra` + `campo: 'vin'` (HU #12090, AC3).
  *   4. Sin VIN en la respuesta → `runt_sin_vin`. Sin VIN efectivo no hay fila posible (RN-01).
- *   5. SOAT vigente → `vigente`.
+ *   5. SOAT vigente → `renovacion_anticipada` si vence en un mes o menos; si no, `vigente`.
  *   6. `ok`, con el organismo cruzado contra catálogo (o `null`, que NO aborta — AC5).
  *
- * **El orden se conserva ENTERO** (HU #12090, AC4): lo único que cambia es QUÉ compara el paso 3, no
- * cuándo se compara ni qué produce. La vigencia sigue DESPUÉS de los «revise»: si los datos del RUNT
- * no sirven para identificar el vehículo, decir «ya tiene SOAT vigente» sería afirmar algo sobre un
- * vehículo que no se ha confirmado que sea el que se radica.
+ * **El orden se conserva ENTERO** (HU #12090, AC4; HU #12212, AC7): lo único que cambia es QUÉ
+ * compara el paso 3 y en qué se BIFURCA el paso 5, no cuándo se comparan ni en qué orden. La
+ * vigencia sigue DESPUÉS de los «revise»: si los datos del RUNT no sirven para identificar el
+ * vehículo, decir «ya tiene SOAT vigente» —o abrirle la puerta a un alta por renovación
+ * anticipada— sería afirmar algo sobre un vehículo que no se ha confirmado que sea el que se
+ * radica. Un VIN que no cuadra sigue siendo `422 runt_no_cuadra` aunque el SOAT venza mañana.
+ *
+ * `hoy` es un PARÁMETRO con defecto y no una lectura del reloj dentro del cuerpo: es lo que deja
+ * congelarlo en los tests sin tocar el reloj del proceso ni la zona horaria. El defecto
+ * {@link diaEnBogota} se evalúa en cada llamada, así que en producción es siempre el día de hoy.
  */
 export async function clasificarDesenlaceRunt(
   respuesta: RespuestaKyverum,
   vinTecleado: string,
+  hoy: string = diaEnBogota(),
 ): Promise<DesenlaceRunt> {
   if (!respuesta?.ok) {
     if (esNegativaDeNegocio(respuesta)) return { clase: 'revise', codigo: 'runt_no_cuadra' };
@@ -354,7 +461,21 @@ export async function clasificarDesenlaceRunt(
   if (vinEfectivo === null) return { clase: 'revise', codigo: 'runt_sin_vin' };
 
   if (soatVigenteSegunRunt(respuesta)) {
-    return { clase: 'vigente', fechaVencimiento: fechaVencimientoSoatRunt(respuesta.data) };
+    const venceEl = fechaVencimientoSoatRunt(respuesta.data);
+    // La renovación anticipada NO relaja ninguna otra guarda: se decide aquí, en el mismo paso 5 y
+    // detrás de los cuatro anteriores. Sin fecha, `esRenovacionAnticipada` devuelve `false` y esto
+    // cae en el `vigente` de siempre (AC3).
+    if (esRenovacionAnticipada(venceEl, hoy)) {
+      return {
+        clase: 'renovacion_anticipada',
+        venceEl: venceEl as string,
+        poliza: polizaSoatRunt(respuesta.data),
+        datos,
+        vinEfectivo,
+        organismoCodigo: await resolverOrganismoCatalogo(datos.organismoNombre),
+      };
+    }
+    return { clase: 'vigente', fechaVencimiento: venceEl };
   }
 
   return {
@@ -408,10 +529,12 @@ export function causaDeCaida(err: unknown): 'timeout' | 'red' | 'circuito' | 'ot
  * por eso los dos devuelven exactamente lo mismo ante la misma respuesta. Dos copias divergen y el
  * wizard acaba bloqueando lo que la API acepta, o al revés.
  *
- * **El log no lleva placa, VIN, documento ni nombre, y tampoco el mensaje CRUDO del error** — solo
- * el desenlace, la señal de transporte y un token de causa de vocabulario cerrado
- * ({@link causaDeCaida}). Es lo que hace falta para medir en DEV el riesgo de la clasificación (ver
- * {@link esNegativaDeNegocio}) sin abrir una vía de PII en logs.
+ * **El log no lleva placa, VIN, documento ni nombre de persona, y tampoco el mensaje CRUDO del
+ * error** — solo el desenlace, la señal de transporte, un token de causa de vocabulario cerrado
+ * ({@link causaDeCaida}) y, en los desenlaces que RESUELVEN organismo, su nombre con el cruce
+ * de catálogo (Bug #12179; la justificación de por qué ese campo no es PII está en el cuerpo). Es lo
+ * que hace falta para medir en DEV el riesgo de la clasificación (ver {@link esNegativaDeNegocio}) y
+ * la causa del organismo vacío, sin abrir una vía de PII en logs.
  */
 export async function consultarYClasificar(vin: string): Promise<DesenlaceRunt> {
   let respuesta: RespuestaKyverum;
@@ -430,6 +553,48 @@ export async function consultarYClasificar(vin: string): Promise<DesenlaceRunt> 
   }
 
   const desenlace = await clasificarDesenlaceRunt(respuesta, vin);
+
+  // ── La línea de los desenlaces que resuelven organismo, y por qué existe (Bug #12179) ────────
+  //
+  // El «—» de la ficha tiene DOS causas posibles y desde fuera son indistinguibles: que el RUNT no
+  // mandara el organismo, o que lo mandara y el canal no lo cruzara contra el catálogo. El nombre
+  // crudo no se persistía ni se logueaba en ninguna parte, así que la nota del work item («el campo
+  // llega nulo desde Kyverum») no se podía ni confirmar ni desmentir. Con estas dos claves sí:
+  // `organismoRunt: null` es la primera causa, y un nombre con `organismoCatalogado: false` es la
+  // segunda.
+  //
+  // **Por qué este campo SÍ puede entrar al log** y la placa, el VIN, el documento, el nombre del
+  // propietario y `err.message` no: un organismo de tránsito es una ENTIDAD PÚBLICA —la secretaría
+  // de un municipio—, no un dato de una persona identificada ni identificable, y no está en la
+  // familia que `logPiiAccess` protege. Se distingue además de `err.message` en que no es texto
+  // libre de una ruta de error: es un campo NOMBRADO del payload, con significado conocido, leído
+  // por `alias`. Nada más entra en esta línea: ni el VIN con el que se consultó, ni la placa que el
+  // RUNT devolvió, ni el propietario que viaja en el mismo nodo.
+  //
+  // ── La guarda es por PRESENCIA DEL PAYLOAD, no por lista de clases ──────────────────────────────
+  //
+  // `'organismoCodigo' in desenlace` es exactamente «este desenlace resolvió organismo», que es la
+  // condición que esta línea mide. Estrecha la unión a las dos variantes que llevan `PayloadOk`
+  // —`ok` y `renovacion_anticipada` (HU #12212)— y **cualquier desenlace futuro que lleve el mismo
+  // payload entra solo**. Enumerar las dos clases funcionaría hoy y volvería a dejar fuera a la
+  // siguiente en silencio, que es justo lo que pasó al llegar la renovación anticipada: una familia
+  // entera de altas —que resuelven organismo y persisten `organismo_codigo` igual que las demás—
+  // dejó de loguear sin que nada avisara.
+  //
+  // El `desenlace` va con la clase REAL, para poder separarlas en el log. Y nada más: `venceEl` y
+  // `poliza` viajan en la renovación pero NO entran aquí — el número de póliza es cuasi-PII y no
+  // tiene relación con lo que esta línea mide.
+  if ('organismoCodigo' in desenlace) {
+    log.info(
+      {
+        desenlace: desenlace.clase,
+        organismoRunt: desenlace.datos.organismoNombre,
+        organismoCatalogado: desenlace.organismoCodigo !== null,
+      },
+      'compuerta RUNT del canal Cliente',
+    );
+  }
+
   if (desenlace.clase === 'caido' || desenlace.clase === 'revise') {
     log.info(
       {

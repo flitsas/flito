@@ -230,6 +230,8 @@ export async function registrarAccesoSoat(req: Request, acceso: AccesoSoat): Pro
  */
 export const CAMPOS_PII_PRECONSULTA = ['placa', 'vin'] as const;
 const CAMPO_PROPIETARIO = 'nombre_completo';
+/** El dato que estrena el 200 de la preconsulta con la renovación anticipada (HU #12212). */
+const CAMPO_VENCIMIENTO_SOAT = 'fecha_vencimiento_soat';
 
 /**
  * De cuál de los DOS endpoints salió la consulta al RUNT (HU #11966).
@@ -285,6 +287,20 @@ export async function registrarAccesoRuntCliente(
      */
     placa?: string | null;
     conPropietario: boolean;
+    /**
+     * ¿La respuesta llevó ADEMÁS la fecha de vencimiento del SOAT que el RUNT reporta? (HU #12212).
+     *
+     * Misma mecánica condicional que {@link conPropietario} y por el mismo motivo: desde esta HU el
+     * 200 de la preconsulta puede divulgar un dato que antes no salía —hasta cuándo está vigente la
+     * póliza de un vehículo—, y `campos_accedidos` es la columna con la que se responde al artículo
+     * 17 de la Ley 1581. Si el aviso no viaja, el campo no se declara: declararlo siempre convertiría
+     * el registro en una cuenta de divulgaciones que no ocurrieron, que es justo lo que la lista de
+     * `intento` viene a evitar unas líneas más abajo.
+     *
+     * Opcional porque el alta y los intentos fallidos no lo tienen que pensar; su ausencia es
+     * `false`, y `false` es «no se divulgó», que es el defecto seguro para una lista de divulgaciones.
+     */
+    conVigenciaProxima?: boolean;
     motivo?: 'preconsulta' | 'alta';
     /**
      * El desenlace cuando la consulta **no entregó nada** (409, 422, 503).
@@ -307,13 +323,23 @@ export async function registrarAccesoRuntCliente(
     // nombre del propietario. Escribir la lista de siempre en esas líneas convertiría el registro en
     // una cuenta de divulgaciones que nunca ocurrieron — y es con ese registro con el que se
     // responde al artículo 17.
-    camposAccedidos: intento
-      ? []
-      : (opciones.conPropietario
-        ? [...CAMPOS_PII_PRECONSULTA, CAMPO_PROPIETARIO]
-        : [...CAMPOS_PII_PRECONSULTA]),
+    camposAccedidos: intento ? [] : camposDeLaEntrega(opciones),
     motivo: motivoRunt(opciones),
   });
+}
+
+/**
+ * Los campos que una entrega REAL divulgó: los dos de siempre, más los condicionales que viajaron.
+ *
+ * Los dos añadidos se acumulan y no se excluyen —una respuesta puede traer propietario Y aviso de
+ * vigencia—, y por eso esto es una lista que crece y no un ternario anidado, que es lo que había
+ * cuando el único condicional era el propietario.
+ */
+function camposDeLaEntrega(opciones: { conPropietario: boolean; conVigenciaProxima?: boolean }): string[] {
+  const campos: string[] = [...CAMPOS_PII_PRECONSULTA];
+  if (opciones.conPropietario) campos.push(CAMPO_PROPIETARIO);
+  if (opciones.conVigenciaProxima) campos.push(CAMPO_VENCIMIENTO_SOAT);
+  return campos;
 }
 
 /**

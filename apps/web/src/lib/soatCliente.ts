@@ -94,6 +94,79 @@ export interface PreconsultaRunt {
   organismo: { codigo: string | null; nombre: string | null };
   /** `null` es el caso NORMAL: el RUNT casi nunca trae propietario. No es un fallo y no se avisa. */
   propietario: { nombreCompleto: string } | null;
+  /**
+   * **HU #12213 — renovación anticipada.** `null` cuando no hay nada que avisar; un objeto cuando el
+   * RUNT reporta un SOAT vigente al que le falta **un mes o menos**, y entonces la solicitud SÍ se
+   * puede enviar. La clave viaja SIEMPRE en el `200` (`flito-soat-cliente.service.ts:742`).
+   *
+   * **La pantalla no calcula el umbral** (AC3): no hay resta de fechas aquí. El servidor ya decidió
+   * —mes calendario, frontera inclusive, en hora de Colombia— y esto solo se rotula. Un `venceEl`
+   * a más de un mes sigue siendo el `409 soat_vigente` de siempre, que corta el flujo y no llega
+   * nunca por esta clave.
+   *
+   * **No trae la póliza y no puede traerla**: el servicio la persiste pero la recorta del `200`
+   * (`vigenciaProxima ? { venceEl } : null`, y no un `...spread`), porque desde la HU #12090
+   * cualquiera que conozca un VIN obtiene esta ficha.
+   *
+   * Se declara opcional a la LECTURA aunque el contrato la prometa: en DEV el merge es el deploy,
+   * así que un bundle nuevo puede hablar con una API que todavía no la manda, y en ese caso la
+   * ausencia se comporta como `null` en vez de reventar la pantalla.
+   */
+  vigenciaProxima?: { venceEl: string } | null;
+}
+
+// ───────────────────────────── El aviso de vigencia próxima (HU #12213) ──────────────────────────
+
+/** El chip del aviso. `success` porque es una buena noticia, no un fallo: se puede seguir. */
+export const AVISO_VIGENCIA_CHIP = 'Puede continuar';
+
+/**
+ * La segunda línea del aviso. **Explica** lo que el servidor decidió («falta un mes o menos»), no
+ * lo evalúa: aquí no hay ninguna resta de fechas que pudiera contradecirlo.
+ */
+export const AVISO_VIGENCIA_DETALLE = 'Falta un mes o menos para que venza, así que sí puede enviar esta solicitud.';
+
+/**
+ * La redacción de respaldo, **entera y en una sola frase**, para cuando `venceEl` no es una fecha de
+ * calendario legible. Misma regla que `ModalSoatVigente` (`ModalesBloqueo.tsx:72-79`): sin fecha se
+ * cambia la oración completa; jamás se escribe «hasta el —» ni se inventa un día.
+ */
+export const AVISO_VIGENCIA_SIN_FECHA = 'Este vehículo todavía tiene SOAT vigente y le falta un mes o menos para vencerse, así que sí puede enviar esta solicitud.';
+
+/** Las dos líneas ya resueltas. `detalle: null` en la redacción de respaldo, que ya lo dice todo. */
+export interface AvisoVigencia {
+  titulo: string;
+  detalle: string | null;
+}
+
+const FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * El aviso que se pinta en el bloque 1, o `null` si no hay ninguno.
+ *
+ * Vive aquí y no en la página por lo mismo que `DESENLACE`: es una lectura del contrato, y así se
+ * puede comprobar sin montar el asistente entero.
+ *
+ * El «todavía» y el «sí» **no son adorno**. Sin ellos la primera frase se lee igual que el título
+ * del modal que bloquea («Este vehículo ya tiene SOAT vigente») y la persona abandona creyendo que
+ * no puede pedir el SOAT, que es exactamente lo contrario de lo que esta HU viene a conseguir. Por
+ * la misma razón ninguna de las dos frases dice «revise», «vuelva» ni «no pudimos»: no hay nada que
+ * corregir ni nada que reintentar.
+ */
+export function avisoVigenciaProxima(v: { venceEl: string } | null | undefined): AvisoVigencia | null {
+  if (!v) return null;
+  // `fechaLarga` parte el ISO por componentes y no valida: un `venceEl` vacío o con otro formato
+  // saldría como «Invalid Date» dentro de la oración. Se comprueba ANTES y se cambia la frase.
+  const iso = typeof v.venceEl === 'string' ? v.venceEl.trim() : '';
+  if (!FECHA_ISO.test(iso) || Number.isNaN(new Date(iso).getTime())) {
+    return { titulo: AVISO_VIGENCIA_SIN_FECHA, detalle: null };
+  }
+  // `fechaLarga` y no `fechaCorta`: la fecha va dentro de una oración que se lee una vez, y
+  // `fechaLarga` ya resuelve el huso (`new Date('2026-10-05')` es medianoche UTC y en −05 diría el 4).
+  return {
+    titulo: `Este vehículo todavía tiene SOAT vigente, hasta el ${fechaLarga(iso)}.`,
+    detalle: AVISO_VIGENCIA_DETALLE,
+  };
 }
 
 /** Lo que la pantalla necesita saber de un error del canal, ya separado del `ApiError` genérico. */

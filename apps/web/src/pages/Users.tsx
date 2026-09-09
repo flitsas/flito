@@ -1,110 +1,26 @@
-import { useEffect, useState, FormEvent, useCallback } from 'react';
-import { api, errorMessage } from '../lib/api';
-import { useAuth } from '../lib/auth';
-import { getOrganismoByCodigo } from '@operaciones/shared-types';
-import FlitOrganismoCombobox from '../components/flit/FlitOrganismoCombobox';
-import FlitSelect from '../components/flit/FlitSelect';
-import { PAGES, PAGE_GROUPS, ROLE_DEFAULT_PAGES, ROLE_LABELS, USER_ROLES, isValidPage, PageSlug, UserRole } from '../lib/permissions';
+// FLITO — Gestión de usuarios. La PÁGINA: carga la lista, monta los catálogos que se piden una vez
+// por pantalla y decide qué modal está abierto. Nada más.
+//
+// La tabla, los tres formularios, el selector de permisos y el ámbito viven en `pages/users/`
+// (HU #12175 / Feature #12072). Se partió porque el archivo llegó a 680 líneas efectivas contra el
+// techo `max-lines: 800` de `eslint.config.mjs`, con cuatro historias en cola escribiendo encima.
+
+import { useEffect, useState, useCallback } from 'react';
 import toast from 'react-hot-toast';
+import { api } from '../lib/api';
+import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
-import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
-import FlitModal from '../components/flit/FlitModal';
-import {
-  OrganismosField, ProveedorSoatField, etiquetasOrganismos, nombreProveedor, resumenOrganismos,
-  useOrganismosParametrizados, useProveedoresSoat,
-  ORGANISMOS_RELOGIN, ORGANISMOS_REQUERIDO, PROVEEDOR_RELOGIN, PROVEEDOR_REQUERIDO,
-  type CatalogoOrganismos, type CatalogoProveedores,
-} from './users/AtaduraFields';
-
-interface User {
-  id: number;
-  username: string;
-  name: string;
-  email: string | null;
-  role: UserRole;
-  active: boolean;
-  allowedPages: string[];
-  transitoCodigo?: string | null;
-  /** Compañía del rol `cliente` (Feature #11912). Obligatoria para ese rol y prohibida en el resto. */
-  companiaId?: number | null;
-  /** Proveedor SOAT del rol `proveedor` (HU #12053). Obligatorio para ese rol, prohibido en el resto. */
-  flitoProveedorSoatId: string | null;
-  /**
-   * Organismos del rol `gestor_impuestos` (HU #12053). **Siempre un array**, nunca `null` ni
-   * ausente: `[]` para los once roles que no son gestor. Es invariante del contrato —§3 del diseño—
-   * y por eso aquí no se escribe `?? []`: si algún día llegara vacío de otra forma, el fallo tiene
-   * que verse, no taparse.
-   */
-  organismosCodigos: string[];
-  createdAt: string;
-}
-
-/** Lo que el selector necesita de `GET /flito/parametrizacion/companias`. Nada más. */
-interface Compania { id: number; nombre: string }
-
-// ── Copy del selector de compañía (docs/ux/identidad-rol-cliente-y-soat-sin-tramite.md §1.4) ──
-const COMPANIA_AYUDA = 'Define de qué compañía es este usuario: solo verá y solicitará el SOAT de esa compañía.';
-const COMPANIA_CARGANDO = 'Cargando compañías…';
-const COMPANIA_ERROR = 'No se pudieron cargar las compañías.';
-const COMPANIA_VACIO = 'No hay compañías registradas. Crea una en Clientes y proveedores antes de crear un usuario Cliente.';
-const COMPANIA_REQUERIDA = 'Selecciona la compañía del usuario Cliente.';
-const COMPANIA_RELOGIN = 'El usuario debe volver a iniciar sesión para aplicar la nueva compañía.';
-
-// Lista de roles asignables: derivada de la fuente única (los 8 roles del sistema).
-const ROLES: { value: UserRole; label: string }[] = USER_ROLES.map((r) => ({ value: r, label: ROLE_LABELS[r] }));
-
-// Tono semántico FLIT por rol (sin cambiar la lógica de roles).
-const ROLE_TONE: Record<UserRole, ChipTone> = {
-  admin: 'active',
-  compliance: 'warning',
-  transito: 'active',
-  proveedor: 'neutral',
-  lider_pesv: 'success',
-  supervisor_flota: 'success',
-  conductor: 'neutral',
-  auditor: 'warning',
-  gestor_impuestos: 'neutral',
-  mensajero: 'active',
-  financiera: 'success',
-  // Gris, como `proveedor` y `conductor`: es el tono del perfil acotado y sin mando. `active` y
-  // `success` están reservados a perfiles internos, y el Cliente es el primer rol EXTERNO a FLIT.
-  cliente: 'neutral',
-};
-
-const PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[!@#$%^&*]).{8,}$';
-const PASSWORD_TITLE = 'Mín 8 caracteres con minúscula, mayúscula, número y un especial (!@#$%^&*)';
-// Input FLIT: blanco, borde `--flit-border-input`, foco azul (.flit-focus bajo .flit-app).
-const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
-
-const formatErrors = errorMessage;
-
-/**
- * Catálogo de compañías para el selector del rol Cliente y para la celda «Organismo / Compañía».
- *
- * Se pide UNA vez por página —no por formulario— y de
- * `GET /flito/parametrizacion/companias`, que entrega `{id, nombre, nit, banderas}`. **No** de
- * `GET /clients`, que devuelve 26 columnas con teléfono, correo y dirección de cada compañía: para
- * pintar un desplegable de nombres eso es PII que no hace falta pedir.
- *
- * Los cuatro estados los consume `CompaniaField`: `data === null && !error` es cargando.
- */
-function useCompanias() {
-  const [data, setData] = useState<Compania[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [recarga, setRecarga] = useState(0);
-
-  useEffect(() => {
-    let vivo = true;
-    setData(null); setError(null);
-    api.get<Compania[]>('/flito/parametrizacion/companias')
-      .then((filas) => { if (vivo) setData(filas.map((c) => ({ id: c.id, nombre: c.nombre }))); })
-      .catch((e) => { if (vivo) setError(formatErrors(e)); });
-    return () => { vivo = false; };
-  }, [recarga]);
-
-  return { data, error, recargar: () => setRecarga((n) => n + 1) };
-}
+import { useOrganismosParametrizados, useProveedoresSoat } from './users/AtaduraFields';
+import { useCompanias } from './users/CompaniaField';
+import { formatErrors } from './users/UserFormShared';
+import type { UserRole } from '../lib/permissions';
+import type { ResumenUsuarios, User } from './users/types';
+import UsersTable from './users/UsersTable';
+import UsersToolbar from './users/UsersToolbar';
+import CreateForm from './users/CreateUserForm';
+import EditForm from './users/EditUserForm';
+import PasswordForm from './users/PasswordForm';
 
 export default function Users() {
   const { user: me } = useAuth();
@@ -114,20 +30,80 @@ export default function Users() {
   const nombreCompania = (id: number) => companias.data?.find((c) => c.id === id)?.nombre ?? null;
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [rol, setRol] = useState<UserRole | ''>('');
+  const [total, setTotal] = useState<number | null>(null);
+  const [resumen, setResumen] = useState<ResumenUsuarios | null>(null);
+  const [descargando, setDescargando] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
   const [pwdTarget, setPwdTarget] = useState<User | null>(null);
 
+  /**
+   * La query se arma SOLO con lo que está puesto: sin filtro la ruta vuelve a ser `/users` a secas.
+   * No es cosmética —un `?rol=` vacío es un parámetro que el backend tiene que decidir si ignora, y
+   * es la diferencia entre pedir «todos» y pedir «los de rol vacío»—. La comparten el listado y el
+   * export, que es lo que garantiza que el archivo y la tabla no puedan separarse.
+   *
+   * Aquí NO va `porPagina`: sin ese parámetro el backend no pone `LIMIT` y el listado se comporta
+   * como siempre. Esta pantalla no pagina todavía, y pedir una página sin controles para cambiarla
+   * sería esconder usuarios.
+   */
+  const query = rol ? `?rol=${encodeURIComponent(rol)}` : '';
+
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      const rows = await api.get<User[]>('/users');
+      // `/users` sigue devolviendo un ARRAY PLANO; el total de coincidencias viaja en la cabecera.
+      const cabeceras: { total: string | null } = { total: null };
+      const rows = await api.getConCabeceras<User[]>(`/users${query}`, (leer) => { cabeceras.total = leer('X-Total-Count'); });
       setUsers(rows);
-    } catch (e) { toast.error(formatErrors(e)); }
+      setTotal(totalDeCabecera(cabeceras.total, rows.length));
+    } catch (e) {
+      // Estado de error de la LISTA, no un toast: el toast se va solo y deja la tabla diciendo
+      // «Sin usuarios», que es falso. `users` se vacía para que no queden filas de la carga previa
+      // bajo un mensaje que dice que la carga falló.
+      setError(formatErrors(e));
+      setUsers([]);
+      setTotal(null);
+    }
     finally { setLoading(false); }
+  }, [query]);
+
+  /**
+   * El resumen es información SECUNDARIA y falla en silencio: si no llega, no se pinta el conteo y
+   * la pantalla sigue sirviendo. Robarle el estado de error a la lista por esto pondría un
+   * «Reintentar» sobre una tabla que sí cargó.
+   */
+  const cargarResumen = useCallback(async () => {
+    try {
+      const crudo = await api.get<unknown>('/users/resumen');
+      setResumen(esResumen(crudo) ? crudo : null);
+    }
+    catch { setResumen(null); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  const recargar = useCallback(() => { load(); cargarResumen(); }, [load, cargarResumen]);
+
+  useEffect(() => { recargar(); }, [recargar]);
+
+  /**
+   * Quién ve la descarga. La condición está AQUÍ, con nombre y una sola definición, en vez de
+   * incrustada en el JSX: la HU #12170 la sustituye por la función de permiso y tiene que poder
+   * cambiar una línea. Hoy es el rol que ya gobierna esta pantalla entera.
+   */
+  const puedeExportar = me?.role === 'admin';
+
+  const descargar = async () => {
+    setDescargando(true);
+    try {
+      // Binario por `api.download`, que ya resuelve el blob y la entrega al navegador con el object
+      // URL liberado después de la descarga. Ni `fetch` suelto ni `window.open` con la URL a mano.
+      await api.download(`/users/export${query}`, 'usuarios.xlsx');
+    } catch (e) { toast.error(formatErrors(e)); }
+    finally { setDescargando(false); }
+  };
 
   const handleToggle = async (u: User) => {
     if (u.id === me?.id) { toast.error('No puede desactivarse a sí mismo'); return; }
@@ -135,7 +111,8 @@ export default function Users() {
     try {
       await api.patch(`/users/${u.id}/toggle`);
       toast.success('Estado actualizado');
-      load();
+      // `recargar` y no `load`: activar o desactivar mueve el reparto activos/inactivos del resumen.
+      recargar();
     } catch (e) { toast.error(formatErrors(e)); }
   };
 
@@ -151,658 +128,76 @@ export default function Users() {
         }
       />
 
-      <div
-        className="overflow-hidden bg-white"
-        style={{ borderRadius: 'var(--flit-radius-card)', boxShadow: 'var(--flit-shadow-card)', border: '1px solid var(--flit-border-soft)' }}
-      >
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr>
-                <Th>Usuario</Th>
-                <Th>Nombre</Th>
-                <Th>Email</Th>
-                <Th>Rol</Th>
-                {/* Se RENOMBRA en vez de añadir columnas: la celda ya ramificaba por rol para
-                    decir «a qué ámbito está atado este usuario», y las tres columnas de la
-                    disposición B nacerían vacías para 9 de los 12 roles. Siguen siendo SIETE.
-                    «Ámbito» se lee en pareja con «Rol», que tiene justo a la izquierda: el rol dice
-                    de qué tipo es el ámbito y esta celda dice cuál. */}
-                <Th>Ámbito</Th>
-                <Th>Estado</Th>
-                <ThRight>Acciones</ThRight>
-              </tr>
-            </thead>
-            <tbody>
-              {loading && <tr><td colSpan={7} className="py-10 text-center" style={{ color: 'var(--flit-text-muted)' }}>Cargando...</td></tr>}
-              {!loading && users.length === 0 && <tr><td colSpan={7} className="py-10 text-center" style={{ color: 'var(--flit-text-muted)' }}>Sin usuarios</td></tr>}
-              {!loading && users.map((u) => {
-                const roleLabel = ROLES.find((r) => r.value === u.role)?.label ?? u.role;
-                const isMe = u.id === me?.id;
-                return (
-                  <tr key={u.id} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                    <td className="px-4 py-3 font-mono text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
-                      {u.username}
-                      {isMe && <span className="ml-1.5 text-[9px] font-bold" style={{ color: 'var(--flit-blue)' }}>(tú)</span>}
-                    </td>
-                    <td className="px-4 py-3" style={{ color: 'var(--flit-text-primary)' }}>{u.name}</td>
-                    <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{u.email || '—'}</td>
-                    <td className="px-4 py-3">
-                      <StatusChip tone={ROLE_TONE[u.role] ?? 'neutral'}>{roleLabel}</StatusChip>
-                    </td>
-                    <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-                      {u.role === 'transito' ? (
-                        u.transitoCodigo ? (
-                          (() => {
-                            const org = getOrganismoByCodigo(u.transitoCodigo);
-                            return org ? (
-                              <span title={`${org.nombre} · ${org.codigo}`}>{org.ciudad}</span>
-                            ) : (
-                              <span className="font-mono">{u.transitoCodigo}</span>
-                            );
-                          })()
-                        ) : (
-                          <span style={{ color: 'var(--flit-warning)' }}>Sin asignar</span>
-                        )
-                      ) : u.role === 'cliente' ? (
-                        u.companiaId ? (
-                          // Sin nombre en el catálogo —no cargó, o la compañía ya no está— se pinta
-                          // el id en monoespaciada, igual que hace la rama de tránsito con un código
-                          // fuera de catálogo. Un hueco en blanco se confundiría con «sin asignar».
-                          nombreCompania(u.companiaId)
-                            ? <span>{nombreCompania(u.companiaId)}</span>
-                            : <span className="font-mono">{u.companiaId}</span>
-                        ) : (
-                          <span style={{ color: 'var(--flit-warning)' }}>Sin asignar</span>
-                        )
-                      ) : u.role === 'proveedor' ? (
-                        u.flitoProveedorSoatId ? (
-                          nombreProveedor(proveedores.data, u.flitoProveedorSoatId)
-                            ? <span>{nombreProveedor(proveedores.data, u.flitoProveedorSoatId)}</span>
-                            : <span className="font-mono">{u.flitoProveedorSoatId}</span>
-                        ) : (
-                          <span style={{ color: 'var(--flit-warning)' }}>Sin asignar</span>
-                        )
-                      ) : u.role === 'gestor_impuestos' ? (
-                        u.organismosCodigos.length > 0 ? (
-                          // `title` con la lista completa es COMPLEMENTARIO, nunca el único
-                          // portador: no existe para teclado ni para táctil. La lista entera está a
-                          // un clic, en «Editar», que es además donde se puede cambiar.
-                          <span
-                            className={organismos.data ? undefined : 'font-mono'}
-                            title={etiquetasOrganismos(organismos.data, u.organismosCodigos).join(', ')}
-                          >
-                            {resumenOrganismos(etiquetasOrganismos(organismos.data, u.organismosCodigos))}
-                          </span>
-                        ) : (
-                          <span style={{ color: 'var(--flit-warning)' }}>Sin asignar</span>
-                        )
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusChip tone={u.active ? 'success' : 'danger'}>{u.active ? 'Activo' : 'Inactivo'}</StatusChip>
-                    </td>
-                    <td className="space-x-1 px-4 py-3 text-right">
-                      <RowButton onClick={() => setEditing(u)} tone="active">Editar</RowButton>
-                      <RowButton onClick={() => setPwdTarget(u)} tone="neutral">Contraseña</RowButton>
-                      <RowButton onClick={() => handleToggle(u)} disabled={isMe} tone={u.active ? 'danger' : 'success'}>
-                        {u.active ? 'Desactivar' : 'Activar'}
-                      </RowButton>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <UsersToolbar
+        rol={rol}
+        onRol={setRol}
+        resumen={resumen}
+        total={total}
+        puedeExportar={puedeExportar}
+        descargando={descargando}
+        onDescargar={descargar}
+      />
 
-      {showCreate && <CreateForm companias={companias} proveedores={proveedores} organismos={organismos} onClose={() => setShowCreate(false)} onCreated={load} />}
-      {editing && <EditForm user={editing} companias={companias} proveedores={proveedores} organismos={organismos} onClose={() => setEditing(null)} onSaved={load} />}
+      <UsersTable
+        users={users}
+        loading={loading}
+        error={error}
+        onReintentar={recargar}
+        meId={me?.id}
+        nombreCompania={nombreCompania}
+        proveedores={proveedores}
+        organismos={organismos}
+        onEditar={setEditing}
+        onContrasena={setPwdTarget}
+        onAlternar={handleToggle}
+      />
+
+      {showCreate && <CreateForm companias={companias} proveedores={proveedores} organismos={organismos} onClose={() => setShowCreate(false)} onCreated={recargar} />}
+      {editing && <EditForm user={editing} companias={companias} proveedores={proveedores} organismos={organismos} onClose={() => setEditing(null)} onSaved={recargar} />}
+      {/* La contraseña no cambia rol ni estado: recarga la lista y NO el resumen. */}
       {pwdTarget && <PasswordForm user={pwdTarget} isSelf={pwdTarget.id === me?.id} onClose={() => setPwdTarget(null)} onSaved={load} />}
     </div>
   );
 }
 
-function Th({ children }: { children: React.ReactNode }) {
-  return (
-    <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide"
-      style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>
-      {children}
-    </th>
-  );
+/**
+ * ¿Lo que llegó es un resumen? La comprobación NO sobra por tener el contrato escrito.
+ *
+ * `api.get<ResumenUsuarios>` es una promesa del programador, no del servidor: `request` devuelve lo
+ * que parseó y el tipo solo dice cómo pensamos leerlo. Cuando lo que llega es otra cosa —un proxy
+ * que responde `[]`, una ruta que aún no existe en el entorno, el catch-all de los E2E— leer
+ * `.porRol` de eso lanza dentro del render y la pantalla ENTERA se queda en blanco: se perdería la
+ * tabla de usuarios por un conteo decorativo. Con la guarda, el conteo no se pinta y el resto sigue.
+ *
+ * Se comprueba la forma que desreferencia el ÁRBOL DE COMPONENTES, no solo este archivo: aquí el
+ * objeto se pasa entero a `UsersToolbar`, y su `ConteoPorRol` lee además `activos` e `inactivos`.
+ * Por eso los tres campos son obligatorios. Un `{ porRol: { admin: 7 } }` pelado pasaba la guarda
+ * vieja y pintaba «Administrador: 7 · activos · inactivos»: dos etiquetas sin número, sin error y
+ * sin aviso, que es justo el estado silenciosamente incompleto que esta guarda existe para evitar.
+ * Se exige `number` finito porque un `NaN` no rompería el render pero se leería como un dato.
+ *
+ * `porRol` trae hoy los doce roles y los vacíos en `0`, así que aquí no se rellena ningún hueco: el
+ * resumen llega entero o no se pinta.
+ */
+const esConteo = (valor: unknown): valor is number => typeof valor === 'number' && Number.isFinite(valor);
+
+function esResumen(valor: unknown): valor is ResumenUsuarios {
+  if (typeof valor !== 'object' || valor === null || Array.isArray(valor)) return false;
+  const { porRol, activos, inactivos } = valor as { porRol?: unknown; activos?: unknown; inactivos?: unknown };
+  if (typeof porRol !== 'object' || porRol === null || Array.isArray(porRol)) return false;
+  return esConteo(activos) && esConteo(inactivos);
 }
-function ThRight({ children }: { children: React.ReactNode }) {
-  return (
-    <th scope="col" className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide"
-      style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>
-      {children}
-    </th>
-  );
-}
-
-// Botón de acción de fila (texto exacto preservado para E2E: «Editar», etc.).
-type RowTone = 'active' | 'neutral' | 'success' | 'danger';
-const ROW_TONE: Record<RowTone, { fg: string; bg: string }> = {
-  active: { fg: 'var(--flit-blue)', bg: 'rgba(79, 116, 201, 0.12)' },
-  neutral: { fg: 'var(--flit-text-secondary)', bg: 'rgba(125, 135, 152, 0.12)' },
-  success: { fg: 'var(--flit-success)', bg: 'rgba(112, 207, 58, 0.14)' },
-  danger: { fg: 'var(--flit-danger)', bg: 'rgba(228, 61, 48, 0.12)' },
-};
-function RowButton({ onClick, disabled, tone, children }: { onClick: () => void; disabled?: boolean; tone: RowTone; children: React.ReactNode }) {
-  const c = ROW_TONE[tone];
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="flit-focus rounded-[999px] px-2.5 py-1 text-xs font-semibold transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-30"
-      style={{ color: c.fg, background: c.bg }}
-    >
-      {children}
-    </button>
-  );
-}
-
-function CreateForm({ companias, proveedores, organismos, onClose, onCreated }: {
-  companias: CatalogoCompanias;
-  proveedores: CatalogoProveedores;
-  organismos: CatalogoOrganismos;
-  onClose: () => void;
-  onCreated: () => void;
-}) {
-  const [f, setF] = useState<{
-    username: string;
-    name: string;
-    email: string;
-    password: string;
-    role: User['role'];
-    extraPages: PageSlug[];
-    transitoCodigo: string;
-    companiaId: string;
-    flitoProveedorSoatId: string;
-    organismosCodigos: string[];
-  }>({
-    username: '', name: '', email: '', password: '',
-    role: 'proveedor',
-    extraPages: [],
-    transitoCodigo: '',
-    companiaId: '',
-    flitoProveedorSoatId: '',
-    organismosCodigos: [],
-  });
-  const [submitting, setSubmitting] = useState(false);
-  const [errorCompania, setErrorCompania] = useState<string | null>(null);
-  const [errorProveedor, setErrorProveedor] = useState<string | null>(null);
-  const [errorOrganismos, setErrorOrganismos] = useState<string | null>(null);
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (submitting) return;
-    // AC2 en el cliente, y no solo en el servidor. Dos motivos medidos: el 400 del backend llega
-    // como «companiaId: Compañía requerida para el rol Cliente» —`ApiError.toUserMessage()`
-    // antepone el campo, igual que con `transitoCodigo`, y arreglarlo tocaría el formateador de
-    // errores de todo el producto—, y sobre todo que aquí NO se manda la petición: un usuario a
-    // medio crear no llega a existir.
-    if (f.role === 'cliente' && !f.companiaId) { setErrorCompania(COMPANIA_REQUERIDA); return; }
-    // AC3, con el mismo mecanismo y por los mismos dos motivos: el 400 del servidor llega como
-    // «flitoProveedorSoatId: Proveedor SOAT requerido…» —`ApiError.toUserMessage()` antepone el
-    // nombre del campo—, y aquí NO se manda la petición.
-    if (f.role === 'proveedor' && !f.flitoProveedorSoatId) { setErrorProveedor(PROVEEDOR_REQUERIDO); return; }
-    if (f.role === 'gestor_impuestos' && f.organismosCodigos.length === 0) { setErrorOrganismos(ORGANISMOS_REQUERIDO); return; }
-    setErrorCompania(null); setErrorProveedor(null); setErrorOrganismos(null);
-    setSubmitting(true);
-    try {
-      const body: Record<string, unknown> = { username: f.username.trim(), name: f.name.trim(), password: f.password, role: f.role };
-      if (f.email.trim()) body.email = f.email.trim();
-      if (f.extraPages.length > 0) body.allowedPages = f.extraPages;
-      if (f.role === 'transito') body.transitoCodigo = f.transitoCodigo;
-      // Solo el rol Cliente la manda: el backend rechaza una compañía en cualquier otro rol.
-      if (f.role === 'cliente') body.companiaId = Number(f.companiaId);
-      // Cada ámbito lo manda SOLO su rol: el backend rechaza el campo en cualquier otro.
-      if (f.role === 'proveedor') body.flitoProveedorSoatId = f.flitoProveedorSoatId;
-      if (f.role === 'gestor_impuestos') body.organismosCodigos = f.organismosCodigos;
-      await api.post('/users', body);
-      toast.success('Usuario creado');
-      onCreated();
-      onClose();
-    } catch (err) { toast.error(formatErrors(err)); }
-    finally { setSubmitting(false); }
-  };
-
-  return (
-    <FlitModal title="Nuevo usuario" onClose={onClose}>
-      <form onSubmit={submit} className="space-y-4">
-        <Field label="Username (login)">
-          <input required minLength={3} maxLength={50} pattern="[a-zA-Z0-9_]+" title="Solo letras, números y guion bajo"
-            value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} className={inputCls} />
-        </Field>
-        <Field label="Nombre completo">
-          <input required minLength={1} maxLength={100} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} className={inputCls} />
-        </Field>
-        <Field label="Email (opcional)">
-          <input type="email" maxLength={150} value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} className={inputCls} />
-        </Field>
-        <Field label="Contraseña">
-          <input required type="password" minLength={8} pattern={PASSWORD_PATTERN} title={PASSWORD_TITLE}
-            value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} className={inputCls} />
-          <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>{PASSWORD_TITLE}</p>
-        </Field>
-        <Field label="Rol base">
-          {/* Cambiar de rol limpia los CUATRO ámbitos, y limpia también sus mensajes de rechazo.
-              Sin esto, pasar de Cliente a Proveedor y guardar mandaría una compañía que el backend
-              rechaza con un mensaje que no explica nada; y el error de un campo que ya no se pinta
-              volvería a robar el foco al reaparecer. En el ALTA no se conservan borradores por rol:
-              nada se ha guardado todavía, y un borrador invisible no lo pidió nadie. */}
-          <select
-            value={f.role}
-            onChange={(e) => {
-              setF({ ...f, role: e.target.value as User['role'], transitoCodigo: '', companiaId: '', flitoProveedorSoatId: '', organismosCodigos: [] });
-              setErrorProveedor(null); setErrorOrganismos(null);
-            }}
-            className={inputCls}
-          >
-            {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-          </select>
-          <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>Define los permisos por defecto. Puede ampliar páginas adicionales abajo.</p>
-        </Field>
-        {f.role === 'transito' && (
-          <TransitoOrganismoField value={f.transitoCodigo} onChange={(v) => setF({ ...f, transitoCodigo: v })} required />
-        )}
-        {f.role === 'cliente' && (
-          <CompaniaField
-            companias={companias}
-            value={f.companiaId}
-            onChange={(v) => { setF({ ...f, companiaId: v }); if (v) setErrorCompania(null); }}
-            error={errorCompania}
-            onInvalido={() => setErrorCompania(COMPANIA_REQUERIDA)}
-          />
-        )}
-        {f.role === 'proveedor' && (
-          <ProveedorSoatField
-            proveedores={proveedores}
-            value={f.flitoProveedorSoatId}
-            onChange={(v) => { setF({ ...f, flitoProveedorSoatId: v }); if (v) setErrorProveedor(null); }}
-            error={errorProveedor}
-            onInvalido={() => setErrorProveedor(PROVEEDOR_REQUERIDO)}
-          />
-        )}
-        {f.role === 'gestor_impuestos' && (
-          <OrganismosField
-            organismos={organismos}
-            seleccionados={f.organismosCodigos}
-            onChange={(cs) => { setF({ ...f, organismosCodigos: cs }); if (cs.length > 0) setErrorOrganismos(null); }}
-            error={errorOrganismos}
-          />
-        )}
-        <PermissionsPicker role={f.role} extraPages={f.extraPages} onChange={(pages) => setF({ ...f, extraPages: pages })} />
-        <Footer onClose={onClose} submitting={submitting} label="Crear usuario" />
-      </form>
-    </FlitModal>
-  );
-}
-
-function EditForm({ user, companias, proveedores, organismos, onClose, onSaved }: {
-  user: User;
-  companias: CatalogoCompanias;
-  proveedores: CatalogoProveedores;
-  organismos: CatalogoOrganismos;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [f, setF] = useState({
-    name: user.name,
-    email: user.email ?? '',
-    role: user.role,
-    extraPages: (user.allowedPages ?? []).filter(isValidPage),
-    transitoCodigo: user.transitoCodigo ?? '',
-    companiaId: user.companiaId ? String(user.companiaId) : '',
-    flitoProveedorSoatId: user.flitoProveedorSoatId ?? '',
-    organismosCodigos: user.organismosCodigos,
-  });
-  const [submitting, setSubmitting] = useState(false);
-  const [errorCompania, setErrorCompania] = useState<string | null>(null);
-  const [errorProveedor, setErrorProveedor] = useState<string | null>(null);
-  const [errorOrganismos, setErrorOrganismos] = useState<string | null>(null);
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (submitting) return;
-    // Mismo AC2 que en el alta, y aquí cubre además el ascenso a Cliente de quien no traía compañía.
-    if (f.role === 'cliente' && !f.companiaId) { setErrorCompania(COMPANIA_REQUERIDA); return; }
-    // El AC3 también sobre las filas que YA existen: ascender a Proveedor / Gestor a quien no traía
-    // atadura, y editarle cualquier campo a uno heredado que se quedó sin ella. Es la mitad del AC3
-    // que más se olvida, y la única que ven los usuarios que ya están en la base.
-    if (f.role === 'proveedor' && !f.flitoProveedorSoatId) { setErrorProveedor(PROVEEDOR_REQUERIDO); return; }
-    if (f.role === 'gestor_impuestos' && f.organismosCodigos.length === 0) { setErrorOrganismos(ORGANISMOS_REQUERIDO); return; }
-    setErrorCompania(null); setErrorProveedor(null); setErrorOrganismos(null);
-    setSubmitting(true);
-    try {
-      const body: Record<string, unknown> = {};
-      if (f.name.trim() !== user.name) body.name = f.name.trim();
-      if ((f.email.trim() || null) !== user.email) body.email = f.email.trim() || null;
-      if (f.role !== user.role) body.role = f.role;
-      // Comparar solo slugs VÁLIDOS del catálogo único en ambos lados: así editar
-      // (sin tocar permisos) nunca recorta páginas que el formulario sí conoce, y
-      // un slug inválido/heredado no provoca un diff fantasma que lo borre.
-      const currentExtra = (user.allowedPages ?? []).filter(isValidPage).slice().sort();
-      const nextExtra = f.extraPages.slice().sort();
-      if (JSON.stringify(currentExtra) !== JSON.stringify(nextExtra)) body.allowedPages = f.extraPages;
-      if (f.role === 'transito' && f.transitoCodigo !== (user.transitoCodigo ?? '')) body.transitoCodigo = f.transitoCodigo;
-      // `user.role === 'transito'` es la guarda que faltaba, y no es cosmética: hasta esta HU el
-      // ámbito del gestor de impuestos vivía en esta misma columna, así que editarle el nombre a un
-      // gestor le mandaba `transitoCodigo: null` y lo dejaba con la cola vacía, en silencio. La
-      // 0173 se lleva ese inquilino, pero la regla se escribe igual: un guardado incidental no
-      // borra una atadura que el admin no tocó. Solo se limpia al SALIR del rol que la posee.
-      if (f.role !== 'transito' && user.role === 'transito' && user.transitoCodigo) body.transitoCodigo = null;
-      const companiaPrevia = user.companiaId ? String(user.companiaId) : '';
-      const companiaChanged = f.role === 'cliente' && f.companiaId !== companiaPrevia;
-      if (companiaChanged) body.companiaId = Number(f.companiaId);
-      // Un ex-Cliente no se queda atado a una compañía: el ámbito colgado no lo mira nadie y el
-      // CHECK de la base tampoco lo impide (solo exige compañía CUANDO el rol es cliente).
-      if (f.role !== 'cliente' && user.companiaId) body.companiaId = null;
-      const proveedorPrevio = user.flitoProveedorSoatId ?? '';
-      const proveedorChanged = f.role === 'proveedor' && f.flitoProveedorSoatId !== proveedorPrevio;
-      if (proveedorChanged) body.flitoProveedorSoatId = f.flitoProveedorSoatId;
-      // Degradar desde el rol limpia la atadura, igual que con la compañía: un ex-Proveedor no se
-      // queda atado a una aseguradora que ya nadie vuelve a mirar.
-      if (f.role !== 'proveedor' && user.flitoProveedorSoatId) body.flitoProveedorSoatId = null;
-      // Conjuntos y no arrays: reordenar las marcas no es un cambio, y mandar un PATCH por eso
-      // tiraría la sesión del gestor sin que nada de su ámbito hubiera cambiado.
-      const organismosChanged = f.role === 'gestor_impuestos' && !mismoConjunto(f.organismosCodigos, user.organismosCodigos);
-      if (organismosChanged) body.organismosCodigos = f.organismosCodigos;
-      if (f.role !== 'gestor_impuestos' && user.organismosCodigos.length > 0) body.organismosCodigos = [];
-      if (Object.keys(body).length === 0) { toast('Sin cambios'); setSubmitting(false); return; }
-      const organismoChanged = f.role === 'transito' && f.transitoCodigo !== (user.transitoCodigo ?? '');
-      await api.patch(`/users/${user.id}`, body);
-      toast.success('Usuario actualizado');
-      if (organismoChanged) {
-        toast('El usuario debe volver a iniciar sesión para aplicar el nuevo organismo.', { duration: 6000 });
-      }
-      // La compañía es el ÁMBITO de datos del Cliente: si cambia, su sesión cae en el servidor
-      // (`debeInvalidar`) y el admin tiene que saber por qué al usuario se le cerró la sesión.
-      if (companiaChanged) toast(COMPANIA_RELOGIN, { duration: 6000 });
-      // Los dos ámbitos nuevos entran en `debeInvalidar` del servidor, así que el admin tiene que
-      // saber por qué a ese usuario se le acaba de cerrar la sesión. Solo si CAMBIÓ de verdad.
-      if (proveedorChanged) toast(PROVEEDOR_RELOGIN, { duration: 6000 });
-      if (organismosChanged) toast(ORGANISMOS_RELOGIN, { duration: 6000 });
-      onSaved();
-      onClose();
-    } catch (err) { toast.error(formatErrors(err)); }
-    finally { setSubmitting(false); }
-  };
-
-  return (
-    <FlitModal title={`Editar ${user.username}`} onClose={onClose}>
-      <form onSubmit={submit} className="space-y-4">
-        <Field label="Nombre completo">
-          <input required minLength={1} maxLength={100} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} className={inputCls} />
-        </Field>
-        <Field label="Email">
-          <input type="email" maxLength={150} value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} className={inputCls} />
-        </Field>
-        <Field label="Rol base">
-          {/* Los campos de UN valor se vacían al salir del rol y se vuelven a elegir: es un clic, y
-              tratar al proveedor distinto que a tránsito y a compañía rompería la coherencia del
-              formulario. El MULTIVALOR no: al volver a Gestor reaparecen las marcas GUARDADAS
-              —`user.organismosCodigos`, no las que hubiera marcado sin guardar—, porque rehacer
-              seis casillas por un clic mal dado en el rol no es «un clic». La regla es explícita y
-              acotada al único campo de cardinalidad N. */}
-          <select
-            value={f.role}
-            onChange={(e) => {
-              setF({
-                ...f,
-                role: e.target.value as User['role'],
-                transitoCodigo: e.target.value === 'transito' ? f.transitoCodigo : '',
-                companiaId: e.target.value === 'cliente' ? f.companiaId : '',
-                flitoProveedorSoatId: e.target.value === 'proveedor' ? f.flitoProveedorSoatId : '',
-                organismosCodigos: e.target.value === 'gestor_impuestos' ? user.organismosCodigos : [],
-              });
-              setErrorProveedor(null); setErrorOrganismos(null);
-            }}
-            className={inputCls}
-          >
-            {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-          </select>
-        </Field>
-        {f.role === 'transito' && (
-          <TransitoOrganismoField value={f.transitoCodigo} onChange={(v) => setF({ ...f, transitoCodigo: v })} required />
-        )}
-        {f.role === 'cliente' && (
-          <CompaniaField
-            companias={companias}
-            value={f.companiaId}
-            onChange={(v) => { setF({ ...f, companiaId: v }); if (v) setErrorCompania(null); }}
-            error={errorCompania}
-            onInvalido={() => setErrorCompania(COMPANIA_REQUERIDA)}
-          />
-        )}
-        {f.role === 'proveedor' && (
-          <ProveedorSoatField
-            proveedores={proveedores}
-            value={f.flitoProveedorSoatId}
-            onChange={(v) => { setF({ ...f, flitoProveedorSoatId: v }); if (v) setErrorProveedor(null); }}
-            error={errorProveedor}
-            onInvalido={() => setErrorProveedor(PROVEEDOR_REQUERIDO)}
-            editando
-          />
-        )}
-        {f.role === 'gestor_impuestos' && (
-          <OrganismosField
-            organismos={organismos}
-            seleccionados={f.organismosCodigos}
-            onChange={(cs) => { setF({ ...f, organismosCodigos: cs }); if (cs.length > 0) setErrorOrganismos(null); }}
-            error={errorOrganismos}
-            editando
-          />
-        )}
-        <PermissionsPicker role={f.role} extraPages={f.extraPages} onChange={(pages) => setF({ ...f, extraPages: pages })} />
-        <Footer onClose={onClose} submitting={submitting} label="Guardar cambios" />
-      </form>
-    </FlitModal>
-  );
-}
-
-/** Igualdad de conjuntos: el ORDEN de los códigos no es un cambio de ámbito. */
-function mismoConjunto(a: string[], b: string[]) {
-  return a.length === b.length && a.every((c) => b.includes(c));
-}
-
-function TransitoOrganismoField({ value, onChange, required }: { value: string; onChange: (v: string) => void; required?: boolean }) {
-  return (
-    <Field label="Organismo de tránsito">
-      <FlitOrganismoCombobox value={value} onChange={onChange} required={required} />
-      <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>
-        Define qué bandeja verá este usuario (aislamiento Medellín ≠ Envigado).
-      </p>
-    </Field>
-  );
-}
-
-type CatalogoCompanias = ReturnType<typeof useCompanias>;
 
 /**
- * Compañía del usuario Cliente. **Sus 4 estados están aquí**, no en la página: es la única
- * superficie con datos que esta HU añade.
+ * El total de coincidencias tal y como lo declara `X-Total-Count`, con las filas recibidas de
+ * respaldo.
  *
- * El widget es `FlitSelect` y no un combobox: hay 4 compañías en la base, muy por debajo del umbral
- * (~40 opciones) a partir del cual un `<select>` nativo deja de leerse. Del patrón `transitoCodigo`
- * se calca el MECANISMO —campo condicionado al rol, reset al cambiar de rol, borrado al salir del
- * rol, validación en los dos sentidos e invalidación de sesión—, no el desplegable.
- *
- * El botón de reintento del estado de error no es opcional: un `<select disabled>` no recibe foco,
- * así que su `aria-describedby` es inalcanzable por teclado y el botón es la única salida.
+ * La cabecera puede no venir —un proxy que no la exponga, un backend anterior a la HU #12172— y
+ * puede venir con basura. Se acepta solo un entero no negativo; cualquier otra cosa cae al número de
+ * filas, que es un dato cierto aunque sea el de la página. Lo que no puede pasar es que se pinte
+ * «NaN coinciden con el filtro».
  */
-function CompaniaField({ companias, value, onChange, error, onInvalido }: {
-  companias: CatalogoCompanias;
-  value: string;
-  onChange: (v: string) => void;
-  error: string | null;
-  onInvalido: () => void;
-}) {
-  const { data, error: errorCarga, recargar } = companias;
-  const cargando = data === null && !errorCarga;
-  const vacio = data !== null && data.length === 0;
-  const mensaje = errorCarga ? COMPANIA_ERROR : cargando ? COMPANIA_CARGANDO : vacio ? COMPANIA_VACIO : null;
-
-  return (
-    <FlitSelect
-      label="Compañía"
-      value={value}
-      onChange={onChange}
-      opciones={[
-        { valor: '', etiqueta: 'Seleccione compañía…' },
-        ...(data ?? []).map((c) => ({ valor: String(c.id), etiqueta: c.nombre })),
-      ]}
-      ayuda={COMPANIA_AYUDA}
-      mensaje={mensaje}
-      fallo={!!errorCarga}
-      disabled={cargando || vacio || !!errorCarga}
-      // Solo el error de carga se reintenta. En vacío NO se ofrece: volver a pedir el catálogo no
-      // crea compañías, y un botón que no arregla nada es peor que ninguno.
-      onReintentar={errorCarga ? recargar : undefined}
-      textoReintento="Volver a cargar compañías"
-      required
-      error={error}
-      onInvalido={onInvalido}
-    />
-  );
-}
-
-function PermissionsPicker({ role, extraPages, onChange }: { role: User['role']; extraPages: PageSlug[]; onChange: (pages: PageSlug[]) => void }) {
-  const rolePages = new Set<PageSlug>(ROLE_DEFAULT_PAGES[role] ?? []);
-  const extraSet = new Set<PageSlug>(extraPages);
-
-  if (role === 'admin') {
-    return (
-      <div className="rounded-xl p-3" style={{ border: '1px solid rgba(79,116,201,0.35)', background: 'rgba(79,116,201,0.10)' }}>
-        <p className="text-xs font-semibold" style={{ color: 'var(--flit-blue)' }}>Acceso total</p>
-        <p className="text-[10px]" style={{ color: 'var(--flit-blue)', opacity: 0.85 }}>El rol Administrador tiene acceso a todas las páginas. No requiere permisos individuales.</p>
-      </div>
-    );
-  }
-
-  const toggle = (slug: PageSlug) => {
-    if (rolePages.has(slug)) return;
-    const next = new Set(extraSet);
-    if (next.has(slug)) next.delete(slug); else next.add(slug);
-    onChange(Array.from(next));
-  };
-
-  return (
-    <div>
-      <div className="mb-1 flex items-center justify-between">
-        <span className="block text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Permisos individuales</span>
-        {extraPages.length > 0 && (
-          <button type="button" onClick={() => onChange([])} className="text-[10px] hover:underline" style={{ color: 'var(--flit-blue)' }}>Quitar adicionales</button>
-        )}
-      </div>
-      <div className="max-h-60 space-y-3 overflow-y-auto rounded-xl bg-white p-3" style={{ border: '1px solid var(--flit-border-soft)' }}>
-        {PAGE_GROUPS.map((g) => (
-          <div key={g.label}>
-            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.2em]" style={{ color: 'var(--flit-text-muted)' }}>{g.label}</p>
-            <div className="grid grid-cols-2 gap-1">
-              {g.pages.map((p) => {
-                const fromRole = rolePages.has(p);
-                const isChecked = fromRole || extraSet.has(p);
-                const style = fromRole
-                  ? { color: 'var(--flit-success)', background: 'rgba(112,207,58,0.14)', cursor: 'default' as const }
-                  : isChecked
-                    ? { color: 'var(--flit-blue)', background: 'rgba(79,116,201,0.12)' }
-                    : { color: 'var(--flit-text-secondary)' };
-                return (
-                  <label key={p} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-xs hover:bg-[color:var(--flit-bg-app)]" style={style}>
-                    <input type="checkbox" checked={isChecked} disabled={fromRole}
-                      onChange={() => toggle(p)} className="rounded" style={{ accentColor: 'var(--flit-blue)' }} />
-                    <span className="flex-1">{PAGES[p]}</span>
-                    {fromRole && <span className="text-[9px] font-bold" style={{ color: 'var(--flit-success)' }}>ROL</span>}
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
-      <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>
-        Las páginas marcadas como "ROL" vienen incluidas con el rol base. Marca adicionales para ampliar el acceso.
-      </p>
-    </div>
-  );
-}
-
-function PasswordForm({ user, isSelf, onClose, onSaved }: { user: User; isSelf: boolean; onClose: () => void; onSaved: () => void }) {
-  const [f, setF] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
-  const [submitting, setSubmitting] = useState(false);
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (submitting) return;
-    if (f.newPassword !== f.confirmPassword) { toast.error('Las contraseñas no coinciden'); return; }
-    setSubmitting(true);
-    try {
-      const body: Record<string, string> = { newPassword: f.newPassword };
-      if (isSelf) body.currentPassword = f.currentPassword;
-      else body.currentPassword = 'admin-override';
-      await api.patch(`/users/${user.id}/password`, body);
-      toast.success('Contraseña actualizada');
-      onSaved();
-      onClose();
-    } catch (err) { toast.error(formatErrors(err)); }
-    finally { setSubmitting(false); }
-  };
-
-  return (
-    <FlitModal title={`Contraseña — ${user.username}`} onClose={onClose}>
-      <form onSubmit={submit} className="space-y-4">
-        {isSelf && (
-          <Field label="Contraseña actual">
-            <input required type="password" value={f.currentPassword} onChange={(e) => setF({ ...f, currentPassword: e.target.value })} className={inputCls} />
-          </Field>
-        )}
-        {!isSelf && (
-          <p className="rounded-xl p-3 text-xs" style={{ color: 'var(--flit-warning)', background: 'rgba(240,90,53,0.10)', border: '1px solid rgba(240,90,53,0.30)' }}>
-            Como administrador, está restableciendo la contraseña de otro usuario. Quedará registrado en auditoría.
-          </p>
-        )}
-        <Field label="Contraseña nueva">
-          <input required type="password" minLength={8} pattern={PASSWORD_PATTERN} title={PASSWORD_TITLE}
-            value={f.newPassword} onChange={(e) => setF({ ...f, newPassword: e.target.value })} className={inputCls} />
-          <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>{PASSWORD_TITLE}</p>
-        </Field>
-        <Field label="Confirmar nueva">
-          <input required type="password" minLength={8} value={f.confirmPassword} onChange={(e) => setF({ ...f, confirmPassword: e.target.value })} className={inputCls} />
-        </Field>
-        <Footer onClose={onClose} submitting={submitting} label="Cambiar contraseña" />
-      </form>
-    </FlitModal>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{label}</span>
-      {children}
-    </label>
-  );
-}
-
-function Footer({ onClose, submitting, label }: { onClose: () => void; submitting: boolean; label: string }) {
-  return (
-    <div className="mt-5 flex justify-end gap-2 border-t pt-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
-      <button
-        type="button"
-        onClick={onClose}
-        className="flit-focus inline-flex h-11 items-center rounded-[999px] border bg-white px-5 text-sm font-medium transition-colors"
-        style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}
-      >
-        Cancelar
-      </button>
-      <GradientButton type="submit" disabled={submitting}>
-        {submitting ? 'Guardando...' : label}
-      </GradientButton>
-    </div>
-  );
+function totalDeCabecera(valor: string | null, filas: number): number {
+  const n = Number(valor);
+  return valor !== null && valor.trim() !== '' && Number.isInteger(n) && n >= 0 ? n : filas;
 }

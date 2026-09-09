@@ -68,8 +68,8 @@ import {
   avisoVin, camposLeidos, camposQueViajan, errorApellidos, errorArchivo, errorCelular, errorCorreo,
   errorDepartamento, errorDireccion, errorMunicipio, errorNombreCompleto, errorNombres,
   errorNumeroDocumento, errorRazonSocial, errorTipoDocumento, errorVin, esCampoComprador, esNit,
-  leerFallo, normalizarVin, reaccionA, reaccionALectura,
-  DESENLACE_SIN_RED, DESENLACE_GENERICO, MENSAJE_ARCHIVO_NO_PDF,
+  leerFallo, normalizarVin, reaccionA, reaccionALectura, avisoVigenciaProxima,
+  AVISO_VIGENCIA_CHIP, DESENLACE_SIN_RED, DESENLACE_GENERICO, MENSAJE_ARCHIVO_NO_PDF,
   type CampoComprador, type CampoLeido, type DesenlaceRunt, type FalloCanal, type PreconsultaRunt,
 } from '../lib/soatCliente';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
@@ -750,6 +750,9 @@ function Alta() {
   // accesibilidad que esta pantalla ya tomó y que la HU #12079 conserva.
   const bloqueado = faltantes.length > 0;
   const avisoLongitudVin = avisoVin(vin);
+  // HU #12213. **Solo se lee lo que el servidor mandó**: sin resta de fechas y sin umbral local
+  // (AC3). `null` —o la clave ausente, si la API va por detrás del bundle— no pinta nada.
+  const aviso = consulta.fase === 'ok' ? avisoVigenciaProxima(consulta.datos.vigenciaProxima) : null;
 
   return (
     <div className="space-y-4">
@@ -840,6 +843,37 @@ function Alta() {
           <p role="status" className="mt-3 text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
             Cambió el VIN: vuelva a consultar el RUNT antes de enviar.
           </p>
+        )}
+
+        {/* ── Aviso de vigencia próxima (HU #12213) ──────────────────────────────────────────
+            ENCIMA de la ficha y no dentro: quien acaba de pulsar el botón lee hacia abajo desde él,
+            y la respuesta a «¿puedo seguir?» tiene que llegar antes que once pares etiqueta–valor.
+            La ficha responde «¿es mi carro?»; esto habla del trámite.
+
+            Es el ÚNICO de los cuatro desenlaces SIN tinta de estado en el título: colorearlo
+            —aunque fuera en azul— lo igualaría a las bandas de fallo, y leer esto como un error es
+            justo lo que hace abandonar a quien SÍ puede enviar. Lo verde es solo el chip.
+
+            `role="status"` y no `alert`: no es un fallo y llega después de una acción del usuario;
+            se anuncia al montarse y **no mueve el foco** (el efecto de foco de la página solo actúa
+            en `fase === 'fallo'` y no debe extenderse aquí).
+
+            Nunca coincide con las bandas de error: las fases de `Consulta` son excluyentes, así que
+            esto solo existe en `ok` y aquéllas solo en `fallo`. */}
+        {consulta.fase === 'ok' && aviso && (
+          <div
+            role="status" className="mt-3 space-y-1 rounded-[10px] p-3"
+            style={{ border: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}
+          >
+            <StatusChip tone="success">{AVISO_VIGENCIA_CHIP}</StatusChip>
+            <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+              {aviso.titulo}
+            </p>
+            {/* `null` en la redacción de respaldo, que ya dice las tres cosas en una sola frase. */}
+            {aviso.detalle && (
+              <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{aviso.detalle}</p>
+            )}
+          </div>
         )}
 
         {consulta.fase === 'ok' && (

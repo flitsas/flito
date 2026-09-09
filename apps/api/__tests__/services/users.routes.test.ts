@@ -267,7 +267,7 @@ describe('GET /api/users — listar (solo admin)', () => {
     expect(r.status).toBe(403);
   });
 
-  it('admin → 200 con lista + audit export', async () => {
+  it('admin → 200 con lista + audit view (HU #12172: listar no es exportar)', async () => {
     selectMock.mockReturnValueOnce(chain([
       { id: 1, username: 'admin', name: 'A', email: null, role: 'admin', active: true, allowedPages: null, createdAt: new Date() },
       { id: 2, username: 'prov', name: 'P', email: 'p@x.com', role: 'proveedor', active: true, allowedPages: [], createdAt: new Date() },
@@ -278,7 +278,8 @@ describe('GET /api/users — listar (solo admin)', () => {
     const r = await request(app).get('/api/users').set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(200);
     expect(r.body).toHaveLength(2);
-    expect(auditMock.mock.calls[0][1].action).toBe('export');
+    // Antes de la HU #12172 esto se registraba como `export` SIN generar archivo alguno.
+    expect(auditMock.mock.calls[0][1].action).toBe('view');
   });
 });
 

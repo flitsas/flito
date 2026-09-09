@@ -6,12 +6,14 @@ import { db } from '../../db/client.js';
 import { clients, users } from '../../db/schema.js';
 import { authMiddleware, requireRole, invalidateSessionCacheFor } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { sendExcel } from '../../shared/utils/excel.js';
 import { isValidPage } from '../../shared/permissions.js';
-import { ALL_ROLES, isKnownOrganismoCodigo } from '@operaciones/shared-types';
+import { ALL_ROLES, ROLE_LABELS, isKnownOrganismoCodigo, type UserRole } from '@operaciones/shared-types';
 import { loggerFor } from '../../shared/logger.js';
 import {
-  actualizarUsuario, crearUsuario, organismosDe, organismosDeVarios, organismosInexistentes,
-  proveedorSoatExiste, userSelect,
+  actualizarUsuario, crearUsuario, listarUsuarios, nombresDeAmbito, organismosDe, organismosDeVarios,
+  organismosInexistentes, proveedorSoatExiste, resumenUsuarios, userSelect,
+  type FiltrosUsuarios, type PaginacionUsuarios,
 } from './users.service.js';
 
 const log = loggerFor('users');
@@ -57,8 +59,116 @@ router.patch('/:id/password', authMiddleware, async (req: Request, res: Response
   }
 });
 
+// === Filtros del listado (HU #12172) =========================================
+//
+// Los MISMOS tres filtros los comparten el listado y la descarga: `/export` baja lo que la pantalla
+// está mostrando, no la tabla entera. Por eso el schema es uno solo.
+//
+// `rol` se valida contra `ALL_ROLES` —el catálogo VIVO— y no contra una lista escrita a mano: un
+// código inexistente sale como 400 de validación y no como una lista vacía que parece un dato.
+// `q` vacío (`?q=`) NO es un error: es «sin filtro», que es lo que manda el front al borrar la caja.
+const listadoQuerySchema = z.object({
+  rol: z.enum(ALL_ROLES).optional(),
+  activo: z.enum(['true', 'false']).optional(),
+  q: z.string().max(100).optional(),
+  pagina: z.coerce.number().int().positive().max(100000).optional(),
+  porPagina: z.coerce.number().int().positive().max(500).optional(),
+});
+
+interface ConsultaListado { filtros: FiltrosUsuarios; paginacion: PaginacionUsuarios }
+
+/** `undefined` cuando la query no valida; el llamador ya respondió el 400. */
+function leerConsulta(req: Request, res: Response): ConsultaListado | undefined {
+  const parsed = listadoQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Filtros inválidos', details: parsed.error.flatten() });
+    return undefined;
+  }
+  const { rol, activo, q, pagina, porPagina } = parsed.data;
+  const texto = q?.trim();
+  return {
+    filtros: {
+      rol: rol as UserRole | undefined,
+      activo: activo === undefined ? undefined : activo === 'true',
+      q: texto ? texto : undefined,
+    },
+    paginacion: { pagina, porPagina },
+  };
+}
+
+/** El texto de la columna «Ámbito» del Excel: cada rol tiene el suyo, y la mayoría no tiene ninguno. */
+function textoAmbito(
+  u: { role: string; transitoCodigo: string | null; companiaId: number | null; flitoProveedorSoatId: string | null },
+  organismos: string[], companias: Map<number, string>, proveedores: Map<string, string>,
+): string {
+  if (u.role === 'gestor_impuestos') return organismos.join(', ');
+  if (u.role === 'transito') return u.transitoCodigo ?? '';
+  if (u.role === 'cliente') return u.companiaId ? (companias.get(u.companiaId) ?? `Compañía ${u.companiaId}`) : '';
+  if (u.role === 'proveedor') return u.flitoProveedorSoatId ? (proveedores.get(u.flitoProveedorSoatId) ?? 'Proveedor') : '';
+  return '';
+}
+
 // Resto del módulo — solo admin
 router.use(authMiddleware, requireRole('admin'));
+
+// === ORDEN DE RUTAS ==========================================================
+// `/export` y `/resumen` son LITERALES y van declaradas ANTES que el listado y que CUALQUIER `/:id`.
+// Express casa por orden de declaración: un `router.get('/:id', …)` añadido más arriba se las
+// tragaría y `id` valdría la cadena "export". Quien añada rutas nuevas al módulo: los literales
+// primero, los parámetros después.
+//
+// Van DEBAJO del `router.use` de arriba, así que heredan `authMiddleware` + `requireRole('admin')`
+// igual que el resto del módulo y no llevan guarda propia. El orden literal-antes-de-paramétrica no
+// obliga a estar por encima de la guarda: basta con estar por encima del `/:id`.
+
+// === Descargar el listado en Excel ===========================================
+router.get('/export', async (req: Request, res: Response) => {
+  const consulta = leerConsulta(req, res);
+  if (!consulta) return;
+
+  // Sin paginar: se baja TODO lo que casa con los filtros, no la página que se está viendo. Una
+  // descarga partida en páginas no le sirve a nadie.
+  const { filas, total } = await listarUsuarios(consulta.filtros);
+  const porUsuario = await organismosDeVarios(filas.map((u) => u.id));
+  const { companias, proveedores } = await nombresDeAmbito(
+    filas.map((u) => u.companiaId).filter((c): c is number => c !== null),
+    filas.map((u) => u.flitoProveedorSoatId).filter((p): p is string => p !== null),
+  );
+
+  const rows = filas.map((u) => ({
+    username: u.username,
+    name: u.name,
+    email: u.email ?? '',
+    role: ROLE_LABELS[u.role as UserRole] ?? u.role,
+    estado: u.active ? 'Activo' : 'Inactivo',
+    ambito: textoAmbito(u, porUsuario.get(u.id) ?? [], companias, proveedores),
+    createdAt: u.createdAt,
+  }));
+
+  const { rol, activo, q } = consulta.filtros;
+  await audit(req, {
+    action: 'export',
+    resource: 'user',
+    detail: `Descarga usuarios (${total}) — filtros: rol=${rol ?? '·'} activo=${activo ?? '·'} q=${q ? 'sí' : '·'}`,
+  });
+
+  await sendExcel(res, 'usuarios.xlsx', [
+    { header: 'Usuario', key: 'username', width: 20 },
+    { header: 'Nombre', key: 'name', width: 28 },
+    { header: 'Correo', key: 'email', width: 28 },
+    { header: 'Rol', key: 'role', width: 22 },
+    { header: 'Estado', key: 'estado', width: 12 },
+    { header: 'Ámbito', key: 'ambito', width: 32 },
+    { header: 'Fecha de creación', key: 'createdAt', width: 20 },
+  ], rows);
+});
+
+// === Conteo por rol y por estado =============================================
+router.get('/resumen', async (req: Request, res: Response) => {
+  const resumen = await resumenUsuarios();
+  await audit(req, { action: 'view', resource: 'user', detail: `Resumen usuarios (${resumen.activos + resumen.inactivos})` });
+  res.json(resumen);
+});
 
 const allowedPagesSchema = z.array(z.string()).max(50).transform((arr) => arr.filter(isValidPage));
 
@@ -177,12 +287,21 @@ const updateSchema = z.object({
 // componen en cada respuesta.
 
 // === Listar usuarios =========================================================
+// La respuesta sigue siendo un ARRAY PLANO, igual que antes de la HU #12172: hay consumidores. El
+// total de coincidencias del filtro —que no es el largo del array cuando se pagina— viaja en la
+// cabecera `X-Total-Count`, expuesta por CORS en `app.ts`.
 router.get('/', async (req: Request, res: Response) => {
-  const result = await db.select(userSelect).from(users).orderBy(users.username);
+  const consulta = leerConsulta(req, res);
+  if (!consulta) return;
+
+  const { filas, total } = await listarUsuarios(consulta.filtros, consulta.paginacion);
   // AC5: UNA consulta más para toda la página, agrupada por usuario. Una por fila sería N+1.
-  const porUsuario = await organismosDeVarios(result.map((u) => u.id));
-  await audit(req, { action: 'export', resource: 'user', detail: `Lista usuarios (${result.length})` });
-  res.json(result.map((u) => ({ ...u, organismosCodigos: porUsuario.get(u.id) ?? [] })));
+  const porUsuario = await organismosDeVarios(filas.map((u) => u.id));
+  // `view`, no `export`: esto no genera ningún archivo. La descarga real es `/export`, y allí sí se
+  // audita como `export` (HU #12172 — antes las dos cosas se registraban igual y el rastro mentía).
+  await audit(req, { action: 'view', resource: 'user', detail: `Lista usuarios (${filas.length} de ${total})` });
+  res.setHeader('X-Total-Count', String(total));
+  res.json(filas.map((u) => ({ ...u, organismosCodigos: porUsuario.get(u.id) ?? [] })));
 });
 
 // === Crear usuario ===========================================================

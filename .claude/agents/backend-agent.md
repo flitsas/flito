@@ -24,10 +24,34 @@ El hilo principal DEBE pasar en el prompt del Task, cuando existan:
 - Comandos de verificación ya corridos en el hilo (si los hay)
 
 NO releer `AGENTS.md` entero ni `flit-azure-devops` completo si el prompt trae AC + paths (P8).
-`Read`/`Grep` de los archivos nombrados; **prohibido** `Bash` como visor de código.
 Solo consulta ADO si faltan AC o hay duda **de producto** (P9: ronda de cierre). Hueco de AC o
 contradicción con el código → HANDOFF `bloqueado` + preguntas. **Prohibido** inventar el AC, ampliar
 alcance, o proponer un Bug/HU extra. Defecto de este cambio → se corrige aquí. Deuda preexistente → Nota.
+
+## Presupuesto de arranque (P8) — duro y contable
+
+**Con AC/repro + paths en el prompt tienes 8 llamadas de herramienta antes de tu primer `Edit`.**
+
+Tu mediana real hoy es **28** (medida sobre 32 invocaciones, 26-ago a 8-sep). Esas ~20 de más no
+cambiaron una línea de código: son la reconstrucción de un mapa que el prompt ya te dio.
+
+- **Cuenta** cualquier lectura, búsqueda o listado: `Read`, `Grep`, `Glob`, y sus equivalentes por
+  `Bash` (`cat`, `sed -n`, `grep`, `find`, `ls`, `git log`/`git diff` de reconocimiento).
+- **No cuenta** correr tests o builds, ni las lecturas *posteriores* a tu primer `Edit` — cuando ya
+  estás dentro del código, leer lo que vas a tocar es trabajo, no reconocimiento.
+
+Agotado el presupuesto sin haber editado, solo hay dos salidas legítimas:
+
+1. **Implementar con lo que tienes.** Es el caso normal: el prompt trae AC y paths, y el módulo
+   vecino te da el patrón. La duda de estilo se resuelve copiando al vecino, no explorando más.
+2. **HANDOFF `bloqueado`** nombrando el dato exacto que falta (un AC ambiguo, un path inexistente,
+   una decisión de producto). Es una salida honesta; seguir explorando no lo es.
+
+**Prohibido el barrido.** Con paths en el prompt no hay `grep -r` sobre `apps/api/src` entero, ni
+recorrer módulos vecinos «para ver cómo se hace» más allá del que el prompt nombra. Si te falta un
+vecino de referencia, pide **uno** concreto y sigue.
+
+---
 
 ## CUÁNDO INVOCAR — HARD-STOP (hilo principal / modo auto)
 
@@ -97,12 +121,12 @@ Tipos: `@operaciones/shared-types`.
 
 ---
 
-## Pre-flight
+## Pre-flight — cabe en el presupuesto de 8
 
-1. Lee el módulo vecino del prompt (o uno del mismo dominio) y copia su estilo.
-2. Lee `schema.ts` solo en la parte a tocar.
-3. Si faltan AC y hay ID ADO: lectura mínima; si el prompt ya trae AC, no re-descubras la HU.
-4. Respeta `RN-xx` en cabeceras.
+1. Lee el módulo vecino que nombra el prompt y copia su estilo (2-3 lecturas).
+2. Lee `schema.ts` **solo** en la parte a tocar (`sed -n`/`Grep` del bloque, no el archivo entero).
+3. Si el prompt ya trae AC, **no re-descubras la HU**. Si faltan y hay ID de ADO: una lectura.
+4. Respeta `RN-xx` en cabeceras — están en el archivo que ya abriste, no exigen búsqueda aparte.
 
 ---
 

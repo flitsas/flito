@@ -711,9 +711,10 @@ describe('AC2 — el `tipoDocPropietario` de la vía directa no se persiste ni s
 
     expect(r.status).toBe(200);
     expect(JSON.stringify(r.body)).not.toContain('tipoDocPropietario');
-    // La proyección de la preconsulta es cerrada: vehículo, organismo y propietario. Si alguien
-    // devolviera `datos` entero, esta comparación de claves lo vería antes que ninguna otra.
-    expect(Object.keys(r.body).sort()).toEqual(['organismo', 'propietario', 'vehiculo']);
+    // La proyección de la preconsulta es cerrada: vehículo, organismo, propietario y —desde la
+    // HU #12212— el aviso de vigencia próxima, que va SIEMPRE presente y vale `null` cuando no hay.
+    // Si alguien devolviera `datos` entero, esta comparación de claves lo vería antes que ninguna otra.
+    expect(Object.keys(r.body).sort()).toEqual(['organismo', 'propietario', 'vehiculo', 'vigenciaProxima']);
   });
 
   it('el tipo de documento que SÍ se guarda es el del formulario, no el del RUNT', async () => {
@@ -806,6 +807,12 @@ describe('AC4 — los cuatro desenlaces y su ORDEN de evaluación se conservan e
     return clasificarDesenlaceRunt(respuesta as never, vin);
   };
 
+  /** El mismo, con el DÍA congelado (HU #12212): el umbral no puede depender de cuándo se corra. */
+  const clasificarEn = async (respuesta: unknown, hoy: string, vin = VIN_RUNT) => {
+    const { clasificarDesenlaceRunt } = await import('../../src/modules/flito-soat/flito-soat-cliente-runt.js');
+    return clasificarDesenlaceRunt(respuesta as never, vin, hoy);
+  };
+
   it('**1.º `ok:false` gana sobre todo lo demás**: no se mira el cuerpo aunque venga poblado', async () => {
     // El payload trae un vehículo entero y un VIN que cuadra: si el orden se invirtiera, saldría
     // `ok`. Un `ok:false` con datos dentro no es un desenlace mixto, es un «no».
@@ -844,6 +851,43 @@ describe('AC4 — los cuatro desenlaces y su ORDEN de evaluación se conservan e
     expect(desenlace).toEqual({ clase: 'vigente', fechaVencimiento: '2030-02-01' });
   });
 
+  // ── El paso 5, BIFURCADO desde la HU #12212 ────────────────────────────────────────────────────
+  //
+  // El umbral (frontera inclusive, clamp de fin de mes, `null` ⇒ bloquea) se prueba en
+  // `flito-soat.cliente-renovacion-anticipada.test.ts`, que es donde vive con `hoy` congelado. Aquí
+  // solo se mide lo que esta suite protege: que la bifurcación esté DENTRO del paso 5 y que no haya
+  // movido ni un puesto del orden.
+
+  it('**5.a — vigente a menos de un mes es `renovacion_anticipada`**, y sigue detrás de los cuatro', async () => {
+    escenario();
+    const desenlace = await clasificarEn(
+      runtOk({}, { soat: { estadoSoat: 'VIGENTE', fechaVencimSoat: '2026-10-05', numeroPoliza: '99887766' } }),
+      '2026-09-09',
+    );
+    expect(desenlace).toMatchObject({
+      clase: 'renovacion_anticipada', venceEl: '2026-10-05', poliza: '99887766',
+      vinEfectivo: VIN_RUNT, organismoCodigo: ORGANISMO_FUNZA,
+    });
+  });
+
+  it('**5.b — a más de un mes NO se bifurca**: sigue siendo `vigente` con su fecha', async () => {
+    escenario();
+    expect(await clasificarEn(
+      runtOk({}, { soat: { estadoSoat: 'VIGENTE', fechaVencimSoat: '2026-10-20' } }),
+      '2026-09-09',
+    )).toEqual({ clase: 'vigente', fechaVencimiento: '2026-10-20' });
+  });
+
+  it('**5.c — el orden aguanta la bifurcación**: VIN que no cuadra + vence en 3 días → 422, no aviso', async () => {
+    escenario();
+    // Las dos condiciones a la vez. Si la renovación anticipada se hubiera colado delante de los
+    // «revise», este caso saldría como un alta permitida sobre un vehículo sin confirmar.
+    expect(await clasificarEn(
+      runtOk({ vin: 'OTROVIN000000001' }, { soat: { estadoSoat: 'VIGENTE', fechaVencimSoat: '2026-09-12' } }),
+      '2026-09-09',
+    )).toEqual({ clase: 'revise', codigo: 'runt_no_cuadra', campo: 'vin' });
+  });
+
   it('**el camino feliz es el ÚLTIMO**: `ok` con el VIN del RUNT y el organismo cruzado', async () => {
     escenario();
     const desenlace = await clasificar(runtOk());
@@ -864,16 +908,20 @@ describe('AC4 — los cuatro desenlaces y su ORDEN de evaluación se conservan e
     expect(uploadMock).not.toHaveBeenCalled();
   });
 
-  it('las CUATRO clases son las de siempre: no se estrena ninguna ni se pierde ninguna', async () => {
-    // El vocabulario cerrado, ejercido de una vez. Si alguien añadiera una quinta clase, los dos
-    // endpoints tendrían un desenlace que el servicio no sabe traducir a HTTP.
+  it('las CINCO clases son las que son: no se estrena ninguna ni se pierde ninguna', async () => {
+    // El vocabulario cerrado, ejercido de una vez. Eran cuatro hasta la HU #12212, que añadió
+    // `renovacion_anticipada` —y la añadió como CLASE justamente para que el `switch` sin `default`
+    // de `verificarRuntCompuerta` no compilara hasta traducirla a HTTP—. Si mañana entrara una
+    // sexta, este aserto la ve; y el build la ve antes.
+    escenario();
     const clases = [
       (await clasificar(runtOk())).clase,
       (await clasificar(runtOk({}, { soat: { estadoSoat: 'VIGENTE' } }))).clase,
+      (await clasificarEn(runtOk({}, { soat: { estadoSoat: 'VIGENTE', fechaVencimSoat: '2026-09-12' } }), '2026-09-09')).clase,
       (await clasificar(runtOk({ vin: null }))).clase,
       (await clasificar({ ok: false, message: 'x' })).clase,
     ];
-    expect(clases).toEqual(['ok', 'vigente', 'revise', 'caido']);
+    expect(clases).toEqual(['ok', 'vigente', 'renovacion_anticipada', 'revise', 'caido']);
   });
 });
 

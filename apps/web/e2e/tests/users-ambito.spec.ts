@@ -584,3 +584,35 @@ test.describe('HU #12053 · regresión del rol `transito`', () => {
     expect(patches[0]).toEqual({ role: 'auditor', transitoCodigo: null });
   });
 });
+
+// ──────────── HU #12175 · el ORDEN de los campos, que la extracción no puede mover ───────────────
+
+test.describe('HU #12175 · AC3 — el corte no reordena el formulario', () => {
+  test('TC-12175-01 · en Editar el bloque de ámbito va ANTES que el selector de permisos', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const gestor = usuario({ id: 16, username: 'gestor.orden', name: 'Gestor Orden', role: 'gestor_impuestos', organismosCodigos: ['05001'] });
+    mockUsers(page, [gestor]);
+    await mockCatalogos(page);
+
+    await page.goto('/users');
+    await page.getByRole('button', { name: 'Editar' }).first().click();
+
+    // Los cuatro condicionales de ámbito, antes desperdigados por la página, son ahora UN elemento
+    // arrastrable: `<AmbitoCampos>`. Intercambiarlo con `<PermissionsPicker>` es un diff de +1/−1 que
+    // ninguna otra aserción de la suite ve, porque todas preguntan por presencia y por valor.
+    // Se afirma por posición REAL en el documento —no por un índice de hijo del `<form>`—, con los
+    // dos anclajes estables que ya usan los TCs vecinos: el grupo accesible del ámbito y el rótulo
+    // del selector de permisos.
+    const ambito = grupoOrganismos(page);
+    const permisos = page.getByText('Permisos individuales', { exact: true });
+    await expect(ambito).toBeVisible();
+    await expect(permisos).toBeVisible();
+
+    const ambitoVaPrimero = await ambito.evaluate(
+      (bloqueAmbito, rotuloPermisos) =>
+        !!(bloqueAmbito.compareDocumentPosition(rotuloPermisos) & Node.DOCUMENT_POSITION_FOLLOWING),
+      await permisos.elementHandle(),
+    );
+    expect(ambitoVaPrimero).toBe(true);
+  });
+});
