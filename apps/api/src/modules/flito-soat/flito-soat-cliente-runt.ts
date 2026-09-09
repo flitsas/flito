@@ -19,7 +19,7 @@
 // El payload crudo no se persiste (ADR-0008 §1.6, esa frase se conserva). Solo derivados.
 
 import { eq } from 'drizzle-orm';
-import { polizaParaColumna, resolverCodigoOrganismoFlit } from '@operaciones/shared-types';
+import { polizaParaColumna, resolverCodigoOrganismoRunt } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { organismosTransitoConfig } from '../../db/schema.js';
 import { extraerVehiculoRunt, normalizarIdentificador, runtSinRegistro } from '../flito-impuestos/certificacion-runt.js';
@@ -96,6 +96,12 @@ function alias(fuente: Record<string, unknown> | null, claves: readonly string[]
  * habituales por si el tipo de vehículo cambia la forma (una moto o un remolque no traen lo mismo).
  * `datosTecnicos` se mira como segunda vía, igual que ya hacen cilindraje y servicio.
  *
+ * **`organismoNombre` pasa a leerse por las DOS vías (Bug #12179).** Era el único de los trece que se
+ * leía solo de `data.vehiculo`, sin razón que lo distinga de sus cinco vecinos: el RUNT reparte los
+ * campos entre `vehiculo` y `datosTecnicos` sin contrato estable, y esa asimetría convertía «el RUNT
+ * lo mandó en el otro nodo» en «el RUNT no lo mandó». Alinearlo no relaja nada —`alias` sigue
+ * exigiendo un valor no vacío— y quita una de las dos causas posibles del «—» de la ficha.
+ *
  * **`tipoDocPropietario` NO se extrae, y no es un olvido** (HU #12090, AC2). Vive un nivel más
  * arriba (`data.tipoDocPropietario`, hermano de `vehiculo`) y en la modalidad de VIN vale siempre
  * `'C'`: no es lo que el registro dice del propietario, es el tipo con el que la vía directa
@@ -118,7 +124,7 @@ export function extraerDatosCanal(data: unknown): DatosRuntCanal {
     carroceria: dosVias(['tipoCarroceria', 'carroceria', 'nombreCarroceria']),
     pasajerosSentados: dosVias(['pasajerosSentados', 'capacidadPasajeros', 'numeroPasajeros', 'pasajeros']),
     puertas: dosVias(['puertas', 'numeroPuertas', 'numPuertas']),
-    organismoNombre: alias(veh, ['organismoTransito', 'organismoTransitoNombre', 'nombreOrganismoTransito']),
+    organismoNombre: dosVias(['organismoTransito', 'organismoTransitoNombre', 'nombreOrganismoTransito']),
     propietarioNombre: alias(veh, ['nombrePropietario', 'propietario', 'nombreTitular']),
   };
 }
@@ -256,13 +262,21 @@ export function esRenovacionAnticipada(venceEl: string | null, hoy: string): boo
 /**
  * El organismo del RUNT, traducido a código DIVIPOLA y comprobado contra la tabla.
  *
- * Dos comprobaciones: `resolverCodigoOrganismoFlit` cruza el nombre contra el catálogo nacional,
+ * Dos comprobaciones: `resolverCodigoOrganismoRunt` cruza el nombre contra el catálogo nacional,
  * y `organismos_transito_config` es la tabla a la que apunta la FK. Devuelve `null` si no cruza
  * — y `null` NO aborta nada (AC5 de la HU #11966): la fila se crea igual con el organismo vacío y
  * el satélite anotando `organismo_no_catalogado`.
+ *
+ * **Por qué el resolutor TOLERANTE y no `resolverCodigoOrganismoFlit` (Bug #12179).** Aquí solo hay
+ * una cadena, la que redacta el RUNT, y su redacción varía respecto de la del catálogo. La igualdad
+ * exacta solo acertaba cuando el RUNT escribía literalmente la redacción propia de FLIT, así que
+ * organismos que el registro SÍ mandaba acababan en `organismo_no_catalogado` y en un «—» en la
+ * ficha. El resolutor exacto se conserva para el reporte de FLIT, que trae la ciudad aparte y no
+ * debe volverse más laxo. La segunda comprobación —la tabla de la FK— **no se relaja**: un código
+ * que el catálogo nacional conoce pero la tabla no sigue siendo `null`.
  */
 export async function resolverOrganismoCatalogo(nombre: string | null): Promise<string | null> {
-  const codigo = resolverCodigoOrganismoFlit({ nombre });
+  const codigo = resolverCodigoOrganismoRunt(nombre);
   if (!codigo) return null;
   const [fila] = await db.select({ codigo: organismosTransitoConfig.codigo })
     .from(organismosTransitoConfig).where(eq(organismosTransitoConfig.codigo, codigo)).limit(1);
@@ -515,10 +529,12 @@ export function causaDeCaida(err: unknown): 'timeout' | 'red' | 'circuito' | 'ot
  * por eso los dos devuelven exactamente lo mismo ante la misma respuesta. Dos copias divergen y el
  * wizard acaba bloqueando lo que la API acepta, o al revés.
  *
- * **El log no lleva placa, VIN, documento ni nombre, y tampoco el mensaje CRUDO del error** — solo
- * el desenlace, la señal de transporte y un token de causa de vocabulario cerrado
- * ({@link causaDeCaida}). Es lo que hace falta para medir en DEV el riesgo de la clasificación (ver
- * {@link esNegativaDeNegocio}) sin abrir una vía de PII en logs.
+ * **El log no lleva placa, VIN, documento ni nombre de persona, y tampoco el mensaje CRUDO del
+ * error** — solo el desenlace, la señal de transporte, un token de causa de vocabulario cerrado
+ * ({@link causaDeCaida}) y, en el desenlace `ok`, el nombre del ORGANISMO DE TRÁNSITO con el cruce
+ * de catálogo (Bug #12179; la justificación de por qué ese campo no es PII está en el cuerpo). Es lo
+ * que hace falta para medir en DEV el riesgo de la clasificación (ver {@link esNegativaDeNegocio}) y
+ * la causa del organismo vacío, sin abrir una vía de PII en logs.
  */
 export async function consultarYClasificar(vin: string): Promise<DesenlaceRunt> {
   let respuesta: RespuestaKyverum;
@@ -537,6 +553,34 @@ export async function consultarYClasificar(vin: string): Promise<DesenlaceRunt> 
   }
 
   const desenlace = await clasificarDesenlaceRunt(respuesta, vin);
+
+  // ── La línea del desenlace `ok`, y por qué existe (Bug #12179) ────────────────────────────────
+  //
+  // El «—» de la ficha tiene DOS causas posibles y desde fuera son indistinguibles: que el RUNT no
+  // mandara el organismo, o que lo mandara y el canal no lo cruzara contra el catálogo. El nombre
+  // crudo no se persistía ni se logueaba en ninguna parte, así que la nota del work item («el campo
+  // llega nulo desde Kyverum») no se podía ni confirmar ni desmentir. Con estas dos claves sí:
+  // `organismoRunt: null` es la primera causa, y un nombre con `organismoCatalogado: false` es la
+  // segunda.
+  //
+  // **Por qué este campo SÍ puede entrar al log** y la placa, el VIN, el documento, el nombre del
+  // propietario y `err.message` no: un organismo de tránsito es una ENTIDAD PÚBLICA —la secretaría
+  // de un municipio—, no un dato de una persona identificada ni identificable, y no está en la
+  // familia que `logPiiAccess` protege. Se distingue además de `err.message` en que no es texto
+  // libre de una ruta de error: es un campo NOMBRADO del payload, con significado conocido, leído
+  // por `alias`. Nada más entra en esta línea: ni el VIN con el que se consultó, ni la placa que el
+  // RUNT devolvió, ni el propietario que viaja en el mismo nodo.
+  if (desenlace.clase === 'ok') {
+    log.info(
+      {
+        desenlace: 'ok',
+        organismoRunt: desenlace.datos.organismoNombre,
+        organismoCatalogado: desenlace.organismoCodigo !== null,
+      },
+      'compuerta RUNT del canal Cliente',
+    );
+  }
+
   if (desenlace.clase === 'caido' || desenlace.clase === 'revise') {
     log.info(
       {
