@@ -40,7 +40,11 @@
 // La segunda señal es lo que hace determinista la mutación: sin ella, A podría contar después de que
 // B confirmara y fallar «por casualidad», y el test seguiría en verde con el código roto.
 //
-// No limpia `permisos_auditoria`: se invoca el invariante y `tx.update` directos, no los servicios.
+// Los tres primeros casos invocan el invariante y `tx.update` directos y no dejan auditoría. El cuarto
+// (db-review de la HU #12084, orden de locks) invoca los SERVICIOS `borrarRol` y `guardarCuadro`
+// contra un segundo rol sin usuarios, `zz_prueba12084_b`; sus filas de `permisos_auditoria` se
+// limpian por `rol_afectado_codigo`. Para que los servicios hablen con ESTA base, `DATABASE_URL` se
+// fija a `TEST_DATABASE_URL` antes de importarlos (el `db` de `client.ts` toma la URL al cargar).
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import postgres from 'postgres';
@@ -54,6 +58,8 @@ const ROL = 'zz_prueba12084';
 const FUNCION = 'zz.prueba12084.administrar';
 const X = 'zz_prueba12084_x';
 const Y = 'zz_prueba12084_y';
+/** Rol SIN usuarios para el cruce `borrarRol` × `guardarCuadro`: con usuarios el borrado sería 409 antes de nada. */
+const ROL_B = 'zz_prueba12084_b';
 
 /** Una señal que se puede esperar con tope: `await s.esperar(ms)` resuelve al disparo o al tope. */
 function senal() {
@@ -75,7 +81,8 @@ describe.skipIf(!URL)('AC4 — dos administradores que se retiran el permiso a l
     await sql`DELETE FROM users WHERE username LIKE ${`${ROL}%`}`;
     await sql`DELETE FROM permisos_rol_funcion WHERE funcion_codigo = ${FUNCION}`;
     await sql`DELETE FROM permisos_funciones WHERE codigo = ${FUNCION}`;
-    await sql`DELETE FROM permisos_roles WHERE codigo = ${ROL}`;
+    await sql`DELETE FROM permisos_auditoria WHERE rol_afectado_codigo = ${ROL_B}`;
+    await sql`DELETE FROM permisos_roles WHERE codigo IN (${ROL}, ${ROL_B})`;
   }
 
   beforeAll(async () => {
@@ -162,6 +169,37 @@ describe.skipIf(!URL)('AC4 — dos administradores que se retiran el permiso a l
       expect(await activos()).toBe(2);
     } finally {
       await sql`DELETE FROM permisos_usuario_funcion WHERE user_id = ${idY} AND funcion_codigo = ${FUNCION}`;
+    }
+  });
+
+  // db-review de la HU #12084 (orden de locks). Con el `FOR UPDATE` del rol ANTES de la población P,
+  // `borrarRol('X')` tomaba el rol y luego pedía P mientras `guardarCuadro('X')` tenía P y pedía el
+  // rol: `40P01`, servido como 500. Con población primero, el segundo espera al primero y el desenlace
+  // es uno de dos: el cuadro se guarda y después el rol se borra (los dos «ok»), o el rol se borra y el
+  // cuadro no encuentra rol (`RolNoEncontradoError`, 404). Nunca un error de Postgres.
+  // **Mutante:** devolver el `for('update')` del rol antes del envoltorio en `borrarRol` → `40P01` aquí.
+  it('borrarRol × guardarCuadro sobre el mismo rol, en paralelo y tres veces: ningún 40P01', async () => {
+    process.env.DATABASE_URL = URL;
+    const servicios = await import('../../src/modules/permisos/permisos-roles.service.js');
+    const ACTOR = { userId: null, email: null, rol: null };
+    // El SQLSTATE viaja en `cause` (drizzle envuelve al driver): que el mensaje del rojo diga «40P01».
+    const desenlace = (r: unknown): string => {
+      if (r === 'ok') return 'ok';
+      const causa = (r as { cause?: { code?: string } } | undefined)?.cause;
+      return r instanceof Error ? `${r.name}${causa?.code ? ` [${causa.code}]` : ''}: ${r.message.split('\n')[0]}` : String(r);
+    };
+    for (let i = 0; i < 3; i++) {
+      await sql`INSERT INTO permisos_roles (codigo, nombre, tipo_enlace, tipo_principal) VALUES (${ROL_B}, 'Prueba B', 'ninguno', 'interno')`;
+      const [rb, rg] = await Promise.all([
+        servicios.borrarRol(ROL_B, ACTOR).then(() => 'ok' as const, (e: unknown) => e),
+        servicios.guardarCuadro(ROL_B, [FUNCION], ACTOR).then(() => 'ok' as const, (e: unknown) => e),
+      ]);
+      const admisible = (r: unknown) => r === 'ok' || r instanceof servicios.RolNoEncontradoError;
+      expect(admisible(rb), `vuelta ${i}, borrarRol: ${desenlace(rb)}`).toBe(true);
+      expect(admisible(rg), `vuelta ${i}, guardarCuadro: ${desenlace(rg)}`).toBe(true);
+      // Y el rol se borró siempre: si guardarCuadro llegó primero, la FK ON DELETE CASCADE se llevó su cuadro.
+      expect(rb).toBe('ok');
+      expect((await sql`SELECT count(*)::int AS n FROM permisos_roles WHERE codigo = ${ROL_B}`)[0]!.n).toBe(0);
     }
   });
 });

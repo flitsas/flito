@@ -13,11 +13,37 @@
 // `.for('update')`), M4 (quitar `orderBy(users.id)`), M7 (quitar `tipo_principal = 'interno'`),
 // M8 (quitar la rama `revocar`).
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { drizzle } from 'drizzle-orm/pg-proxy';
+
+/**
+ * db-review de la HU #12084 (orden de locks): el `db` que ven los SERVICIOS es también un pg-proxy
+ * que graba cada sentencia, con `transaction` reducida a «llama al callback con el mismo ejecutor»
+ * (el driver proxy no soporta transacciones). Responde por FORMA de sentencia con lo mínimo para
+ * que `borrarRol`, `editarRol` y `guardarCuadro` lleguen al final; lo que se afirma es el ORDEN en
+ * que se renderizan el `for update of "users"` (la población P) y el `for update` de `permisos_roles`.
+ */
+const servicios = vi.hoisted(() => ({ sentencias: [] as { sql: string; params: unknown[] }[] }));
+vi.mock('../../src/db/client.js', async () => {
+  const { drizzle: proxy } = await import('drizzle-orm/pg-proxy');
+  const AHORA = new Date('2026-09-10T12:00:00Z');
+  const rol = (tipoPrincipal: string) => ['gestor_x', 'Gestor X', null, 'ninguno', tipoPrincipal, false, true, AHORA, AHORA];
+  const base = proxy(async (sql: string, params: unknown[]) => {
+    servicios.sentencias.push({ sql, params });
+    if (/for update of "users"/i.test(sql)) return { rows: [[1]] };
+    if (/count\(\*\) filter/i.test(sql)) return { rows: [[1, 1]] };
+    if (/from "permisos_roles"[\s\S]*for update$/i.test(sql)) return { rows: [rol('interno')] };
+    if (/^update "permisos_roles"/i.test(sql)) return { rows: [rol('externo')] };
+    if (/count\(\*\)::int/i.test(sql)) return { rows: [[0]] };
+    return { rows: [] };
+  });
+  const db = Object.assign(base, { transaction: async (cb: (tx: unknown) => unknown) => cb(base) });
+  return { db, getPoolStats: vi.fn().mockResolvedValue({ utilization: 0, total: 0, idle: 0, waiting: 0 }) };
+});
+vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
 import {
   BloqueoAdministracionError, CONDICION_USUARIO_VIVO, FUNCIONES_DE_ADMINISTRACION, conSeguroAntiBloqueo,
   type EjecutorSeguro,
@@ -156,6 +182,55 @@ describe('AC4 — el parámetro `funciones` existe para el test de concurrencia'
   });
 });
 
+describe('db-review HU #12084 — orden de locks en los servicios de roles: la población P ANTES que la fila del rol', () => {
+  const ACTOR = { userId: 1, email: null, rol: 'admin' };
+  const indiceDe = (re: RegExp) => servicios.sentencias.findIndex((x) => re.test(x.sql));
+  const LOCK_P = /for update of "users"$/i;
+  const LOCK_ROL = /from "permisos_roles"[\s\S]*for update$/i;
+
+  beforeEach(() => { servicios.sentencias.length = 0; });
+
+  // **Mutante:** devolver el `for('update')` del rol antes del envoltorio en `borrarRol` → rojo aquí.
+  it('borrarRol: primero `for update of "users"`, después el `for update` de permisos_roles, y el DELETE tras los dos', async () => {
+    const { borrarRol } = await import('../../src/modules/permisos/permisos-roles.service.js');
+    await borrarRol('gestor_x', ACTOR);
+    const p = indiceDe(LOCK_P);
+    const rol = indiceDe(LOCK_ROL);
+    const del = indiceDe(/^delete from "permisos_roles"/i);
+    expect(p, servicios.sentencias.map((x) => x.sql).join('\n')).toBe(0);
+    expect(rol).toBeGreaterThan(p);
+    expect(del).toBeGreaterThan(rol);
+    expect(indiceDe(/count\(\*\) filter/i)).toBeGreaterThan(del);
+  });
+
+  it('editarRol con `tipoPrincipal`: P primero, el rol después, el UPDATE tras los dos', async () => {
+    const { editarRol } = await import('../../src/modules/permisos/permisos-roles.service.js');
+    const r = await editarRol('gestor_x', { tipoPrincipal: 'externo' }, ACTOR);
+    expect(r.estado).toBe('ok');
+    const p = indiceDe(LOCK_P);
+    const rol = indiceDe(LOCK_ROL);
+    expect(p, servicios.sentencias.map((x) => x.sql).join('\n')).toBe(0);
+    expect(rol).toBeGreaterThan(p);
+    expect(indiceDe(/^update "permisos_roles"/i)).toBeGreaterThan(rol);
+  });
+
+  it('editarRol SIN `tipoPrincipal` (solo nombre) no toma P: el `for update` del rol va solo', async () => {
+    const { editarRol } = await import('../../src/modules/permisos/permisos-roles.service.js');
+    const r = await editarRol('gestor_x', { nombre: 'Otro' }, ACTOR);
+    expect(r.estado).toBe('ok');
+    expect(indiceDe(LOCK_P)).toBe(-1);
+    expect(indiceDe(LOCK_ROL)).toBe(0);
+  });
+
+  it('guardarCuadro: el mismo orden (P → rol), que es la referencia que los otros dos copian', async () => {
+    const { guardarCuadro } = await import('../../src/modules/permisos/permisos-roles.service.js');
+    await guardarCuadro('gestor_x', [], ACTOR);
+    const p = indiceDe(LOCK_P);
+    expect(p).toBeGreaterThanOrEqual(0);
+    expect(indiceDe(LOCK_ROL)).toBeGreaterThan(p);
+  });
+});
+
 describe('AC4 — el invariante vive en UN sitio y lo invocan las cinco operaciones (cuatro hoy + el enganche de la #12089)', () => {
   const aqui = path.dirname(fileURLToPath(import.meta.url));
   const fuente = (rel: string) => readFileSync(path.resolve(aqui, '../../src', rel), 'utf8');
@@ -174,7 +249,9 @@ describe('AC4 — el invariante vive en UN sitio y lo invocan las cinco operacio
   it('permisos-roles.service.ts: borrar el rol y guardar el cuadro lo invocan con su `tx`; crear no (añadir nunca bloquea)', () => {
     const src = sinComentarios(fuente('modules/permisos/permisos-roles.service.ts'));
     expect(src.match(/conSeguroAntiBloqueo\(tx,/g)).toHaveLength(3); // borrar, editar tipoPrincipal, guardar cuadro
-    expect(src).toMatch(/await conSeguroAntiBloqueo\(tx, async \(\) => \{\s*await tx\.delete\(permisosRoles\)/);
+    // Los tres envuelven la transacción ENTERA (población primero; db-review de la HU #12084).
+    expect(src).toMatch(/db\.transaction\(async \(tx\) => conSeguroAntiBloqueo\(tx, async \(\) => \{\s*const \[rol\] = await tx\.select\(\)\.from\(permisosRoles\)/);
+    expect(src).toMatch(/cambios\.tipoPrincipal !== undefined \? conSeguroAntiBloqueo\(tx, \(\) => cuerpo\(tx\)\) : cuerpo\(tx\)/);
     expect(src).toMatch(/db\.transaction\(async \(tx\) => conSeguroAntiBloqueo\(tx, async \(\): Promise<RespuestaGuardarCuadro>/);
     const crear = src.slice(src.indexOf('export async function crearRol'), src.indexOf('export type ResultadoEditarRol'));
     expect(crear).not.toMatch(/conSeguroAntiBloqueo/);
