@@ -27,9 +27,8 @@ import {
   condicionEstadoFacturacion, facturacionDeFila, resumenFacturacionElectronica,
   SELECT_FACTURACION_ELECTRONICA, type FacturacionDeFila,
 } from './finanzas.facturacion-electronica.js';
-import { ExportColaDemasiadoGrandeError } from '../../shared/export/cola-flito-excel.js';
 import {
-  conciliacionDeFila, SELECT_CONCILIACION_SOAT,
+  celdaConciliacionCsv, conciliacionDeFila, SELECT_CONCILIACION_SOAT,
   type ConciliacionSoatDeFila,
 } from './finanzas.conciliacion-soat.js';
 import {
@@ -136,24 +135,19 @@ export interface ReporteCostos {
 // `vigenteEn` es la MISMA expresión que usa `tarifaDe()` en la compuerta: lo estimado es lo que se
 // sella (AC7). Sin parámetros: la referencia es columna + `now()`, no un literal.
 const td = alias(flitoTarifasVigencias, 'td');
-export const lg = alias(flitoTarifasVigencias, 'lg');
+const lg = alias(flitoTarifasVigencias, 'lg');
 
 const TIPO_NORM = sql`UPPER(TRIM(COALESCE(${flitoTramites.tipoTramite}, '')))`;
 
 const JOIN_TD = sql`${td.companiaId} = ${flitoTramites.companiaId} AND ${td.concepto} = 'tramite_digital'
   AND ${td.tipoTramite} = ${TIPO_NORM} AND ${vigenteEn(td, flitoTramites.fechaAprobacion)}`;
-export const JOIN_LG = sql`${lg.companiaId} = ${flitoTramites.companiaId} AND ${lg.concepto} = 'logistica'
+const JOIN_LG = sql`${lg.companiaId} = ${flitoTramites.companiaId} AND ${lg.concepto} = 'logistica'
   AND ${lg.tipoTramite} IS NULL AND ${vigenteEn(lg, flitoTramites.fechaAprobacion)}`;
 
 // ── Expresiones de valor. Sellada manda; si no, se estima. ───────────────────
 //
 // No se usa COALESCE(sellado, estimado): en una liquidación sellada, NULL significa «no aplica», y
 // un COALESCE lo reemplazaría por el estimado, resucitando un concepto que se decidió no cobrar.
-//
-// Las `EXPR_*` se exportan desde la HU #12433 para que el consolidado (`finanzas.consolidado.ts`)
-// sume LAS MISMAS expresiones que alimentan cada celda del detalle: una copia coincidiría hoy y
-// divergiría en cuanto una cambiara, y la divergencia no falla — solo hace que el consolidado deje
-// de cuadrar con el detalle.
 const seLiquido = sql`${flitoLiquidaciones.id} IS NOT NULL`;
 
 // ── Quién gestiona cada concepto. Es la parametrización, y decide TODO lo demás: lo que FLITO
@@ -175,7 +169,7 @@ const EXC_IMPUESTO = sql`COALESCE(${flitoImpuestos.excepcionAutogestion}, false)
 const EXC_LOGISTICA = sql`(${flitoExcepcionesAutogestion.id} IS NOT NULL)`;
 
 const GESTIONA_SOAT = sql`(NOT ${AUTO_SOAT} OR ${EXC_SOAT})`;
-export const GESTIONA_LOGISTICA = sql`(NOT ${AUTO_LOGISTICA} OR ${EXC_LOGISTICA})`;
+const GESTIONA_LOGISTICA = sql`(NOT ${AUTO_LOGISTICA} OR ${EXC_LOGISTICA})`;
 
 /**
  * RN-01 Impuestos, en SQL: es el espejo de `flitoGestionaImpuesto` de shared-types, que es la que
@@ -187,37 +181,32 @@ const GESTIONA_IMPUESTO = sql`((NOT ${AUTO_IMPUESTO}
   AND COALESCE(${flitoOrganismoVigencias.modalidad}, 'autogestionado') = 'requiere_gestion')
   OR ${EXC_IMPUESTO})`;
 
-export const EXPR_SOAT = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorSoat}
+const EXPR_SOAT = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorSoat}
   WHEN NOT ${GESTIONA_SOAT} THEN NULL
   WHEN ${flitoSoat.estado} = 'pagado' THEN ${flitoSoat.valorPagado} END`;
 
-export const EXPR_IMPUESTO = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorImpuesto}
+const EXPR_IMPUESTO = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorImpuesto}
   WHEN NOT ${GESTIONA_IMPUESTO} THEN NULL
   WHEN ${flitoImpuestos.estado} = 'pagado' THEN ${flitoImpuestos.valorPagado} END`;
 
-export const EXPR_DERECHO = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorDerecho}
+const EXPR_DERECHO = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorDerecho}
   ELSE ${flitoDerechosTramite.valor} END`;
 
-export const EXPR_DIGITAL = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorTramiteDigital}
+const EXPR_DIGITAL = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorTramiteDigital}
   ELSE ${td.valor} END`;
 
-// La rama SIN sellar de la logística, UNA instancia compartida por `EXPR_LOGISTICA` (reporte) y
-// `EXPR_LOGISTICA_ESTIMADA` (gastos diarios, HU #12623, RN-02). Saltos de línea del CASE original.
-const RAMAS_LOGISTICA_ESTIMADA = sql`WHEN NOT ${GESTIONA_LOGISTICA} THEN NULL
-  ELSE ${lg.valor}`;
-export const EXPR_LOGISTICA = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorLogistica}
-  ${RAMAS_LOGISTICA_ESTIMADA} END`;
-/** La logística estimada a secas (sin mirar la liquidación): exige los joins `clients`, `JOIN_EXC_LOGISTICA` y `JOIN_LG`. */
-export const EXPR_LOGISTICA_ESTIMADA = sql`CASE ${RAMAS_LOGISTICA_ESTIMADA} END`;
+const EXPR_LOGISTICA = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorLogistica}
+  WHEN NOT ${GESTIONA_LOGISTICA} THEN NULL
+  ELSE ${lg.valor} END`;
 
 // Base del 4x1000: el total de los cinco conceptos del trámite. El GMF se calcula sobre esa suma y
 // se añade encima, así que el total final es la base más su propio gravamen.
 const EXPR_BASE_GMF = sql`COALESCE(${EXPR_SOAT}, 0) + COALESCE(${EXPR_IMPUESTO}, 0) + COALESCE(${EXPR_DERECHO}, 0)
   + COALESCE(${EXPR_DIGITAL}, 0) + COALESCE(${EXPR_LOGISTICA}, 0)`;
-export const EXPR_GMF = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorGmf}
+const EXPR_GMF = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorGmf}
   ELSE ROUND((${EXPR_BASE_GMF}) * ${TASA_GMF}, 2) END`;
 
-export const EXPR_TOTAL = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.total}
+const EXPR_TOTAL = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.total}
   ELSE (${EXPR_BASE_GMF}) + ROUND((${EXPR_BASE_GMF}) * ${TASA_GMF}, 2) END`;
 
 // ── Qué impide liquidar. Es la MISMA regla que aplica `calcular()` en flito-liquidacion, concepto
@@ -254,7 +243,7 @@ const EXPR_BLOQUEADA = sql`(${BLOQUEA_SOAT} OR ${BLOQUEA_IMPUESTO} OR ${BLOQUEA_
  * Una fila está incompleta si algún concepto que SÍ debería tener valor no lo tiene. Las
  * liquidaciones selladas nunca lo están: no se pudieron sellar sin resolverlo todo.
  */
-export const EXPR_INCOMPLETA = sql`(NOT ${seLiquido} AND ${EXPR_BLOQUEADA})`;
+const EXPR_INCOMPLETA = sql`(NOT ${seLiquido} AND ${EXPR_BLOQUEADA})`;
 
 /** Sin liquidar y sin nada pendiente: se puede sellar hoy. Es la cola de trabajo del reporte. */
 const EXPR_LISTA = sql`(NOT ${seLiquido} AND NOT ${EXPR_BLOQUEADA})`;
@@ -340,13 +329,6 @@ export function condiciones(f: FiltrosReporte): SQL[] {
   return conds;
 }
 
-/** La excepción de logística VIGENTE del trámite (la condición del `leftJoin` de `conJoins`, compartida con el dashboard). */
-export const JOIN_EXC_LOGISTICA = and(
-  eq(flitoExcepcionesAutogestion.tramiteId, flitoTramites.id),
-  eq(flitoExcepcionesAutogestion.concepto, 'logistica'),
-  isNull(flitoExcepcionesAutogestion.revocadoEn),
-)!;
-
 /**
  * Todos los joins del reporte, en un solo sitio. Los comparten la página, el conteo, los totales y
  * la exportación: si el conteo y la página no llevan exactamente los mismos joins, el total y las
@@ -369,7 +351,11 @@ export function conJoins<Q extends PgSelect>(q: Q) {
     // Desbloqueo excepcional VIGENTE de la logística (HU #10980). SOAT e impuesto llevan su marca en
     // el propio registro; la logística no tiene registro donde marcarla. El índice parcial impide
     // dos excepciones vivas del mismo concepto, así que no multiplica filas.
-    .leftJoin(flitoExcepcionesAutogestion, JOIN_EXC_LOGISTICA)
+    .leftJoin(flitoExcepcionesAutogestion, and(
+      eq(flitoExcepcionesAutogestion.tramiteId, flitoTramites.id),
+      eq(flitoExcepcionesAutogestion.concepto, 'logistica'),
+      isNull(flitoExcepcionesAutogestion.revocadoEn),
+    ))
     .leftJoin(td, JOIN_TD)
     .leftJoin(lg, JOIN_LG)
     // El alias del organismo (HU #12432). `codigo` es la PK, así que no multiplica filas; LEFT
@@ -619,24 +605,70 @@ export async function resumenFacturacionElectronicaDelReporte(
 /** Todas las filas del filtro, sin paginar, para exportar. Tope duro por si el filtro está vacío. */
 export const TOPE_EXPORTACION = 20_000;
 
-/**
- * Todas las filas del filtro, sin paginar, para el `.xlsx` del detalle (HU #12531).
- *
- * Se piden `tope + 1` y, si llegan más del tope, se LANZA en vez de recortar: el CSV anterior
- * entregaba 20 000 filas con una cabecera `X-Export-Truncado` que nadie lee dentro de un archivo, y
- * un reporte recortado en silencio se concilia mal. El 422 lo emite la ruta, como en SOAT e
- * Impuestos (`ExportColaDemasiadoGrandeError`). El `+ 1` existe para no contar: ni el mensaje ni el
- * registro dicen cuántas filas tiene el filtro.
- *
- * La comprobación va ANTES de `aFila`: no hay que resolver 20 001 filas para saber que sobran.
- */
 export async function filasParaExportar(f: FiltrosReporte = {}): Promise<FilaReporte[]> {
   const conds = condiciones(f);
   const where = conds.length ? and(...conds) : undefined;
   const rows = await conJoins(db.select(SELECT_FILA).from(flitoTramites).$dynamic()).where(where)
-    .orderBy(sql`${flitoTramites.createdAt} DESC`).limit(TOPE_EXPORTACION + 1);
-  if (rows.length > TOPE_EXPORTACION) throw new ExportColaDemasiadoGrandeError(TOPE_EXPORTACION);
+    .orderBy(sql`${flitoTramites.createdAt} DESC`).limit(TOPE_EXPORTACION);
   return rows.map((r: Record<string, unknown>) => aFila(r));
+}
+
+/**
+ * Tres secciones y los nombres canónicos del Excel de Financiero (HU #12432, RN-08). «Flit» es el
+ * identificador del trámite en FLIT —la cabecera vieja «Trámite» se reserva para los pesos del
+ * derecho de tránsito—; «Tipo» pasa a ser el documento del titular y la categoría se llama «Tipo
+ * trámite». «Trámite digital» (el concepto) y «Servicio» (el subtotal) valen lo mismo hoy y van
+ * los dos: la épica #12246 le sumará conceptos al segundo.
+ *
+ * Exportada para que el test afirme el orden entero como un solo array y cada celda por su índice.
+ */
+export const CABECERAS_CSV = [
+  // Identificación
+  'Empresa', 'Flit', 'Placa', 'VIN', 'Nombres', 'Apellidos', 'Razón social', 'Tipo', 'Documento',
+  // Datos del trámite
+  'Tipo trámite', 'Marca', 'Línea', 'OT', 'Estado', 'Creado', 'Aprobado', 'Mes', 'Trimestre',
+  'Estado factura', 'Factura',
+  // Valores
+  'SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística', 'Total reintegro', 'Trámite digital', 'Servicio',
+  'Total', 'Liquidación',
+  // Todo lo que impide liquidar, no solo las tarifas: quien concilia necesita la lista completa de
+  // lo que hay que resolver, le dé igual si es una tarifa, un recibo o un pago pendiente.
+  'Qué falta para liquidar',
+  // HU #11679 (AC4): quien cuadra el cierre necesita distinguir de un vistazo el SOAT que ya se
+  // descontó de bolsa del que sigue por cobrar, y poder ir a la boleta que lo respalda.
+  'SOAT conciliado',
+] as const;
+
+/** Solo el día, en ISO. Excel lo reconoce como fecha; el instante completo lo trata como texto. */
+const soloDia = (iso: string | null): string | null => (iso === null ? null : iso.slice(0, 10));
+
+/** Una celda CSV segura: comillas escapadas y campo entrecomillado si lleva separador o salto. */
+function celda(v: string | number | null): string {
+  if (v === null) return '';
+  const s = String(v);
+  return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/**
+ * CSV con `;` y BOM: es lo que Excel en español abre sin pedir asistente de importación. Con `,`
+ * mete todo en una columna, y sin BOM se comen las tildes.
+ */
+export function aCsv(filas: FilaReporte[]): string {
+  const lineas = [CABECERAS_CSV.join(';')];
+  for (const f of filas) {
+    lineas.push([
+      f.empresa, f.idFlit, f.placa, f.vin, f.titularNombres, f.titularApellidos, f.titularRazonSocial,
+      f.titularTipoDocumento, f.titularDocumento,
+      f.tipoTramite, f.marca, f.linea, f.organismoNombre, f.estado, soloDia(f.fechaCreacion),
+      soloDia(f.fechaAprobacion), f.mes, f.trimestre, f.estadoFacturacion, f.facturaNumero,
+      f.soat, f.impuesto, f.derechoTramite, f.gmf, f.logistica, f.totalReintegro, f.tramiteDigital,
+      f.totalServicio, f.total,
+      f.sellada ? (f.estadoLiquidacion === 'facturado' ? 'Facturado' : 'Liquidado') : 'Estimado',
+      [...f.noConfigurados, ...f.sinRecibo, ...f.pendientesPago].join(' | '),
+      celdaConciliacionCsv(f),
+    ].map(celda).join(';'));
+  }
+  return `﻿${lineas.join('\r\n')}\r\n`;
 }
 
 export interface FacetasReporte {
@@ -674,15 +706,10 @@ const clavesNit = (v: string): string[] => (v.length >= 10 ? [v, v.slice(0, -1)]
  * como el filtro `empresas` los espera—, así que elegirla trae sus trámites hayan llegado como
  * hayan llegado.
  */
-export interface EmpresaMaestro { id: number; nombre: string; documento: string | null }
-
-/** El maestro de clientes indexado por NIT normalizado (y su raíz) y por id, una sola vez. */
-export interface IndiceEmpresas {
-  porClave: Map<string, { id: number; nombre: string }>;
-  porId: Map<number, string>;
-}
-
-export function indiceEmpresas(maestro: EmpresaMaestro[]): IndiceEmpresas {
+export function agruparEmpresas(
+  filas: Array<{ nit: string | null; companiaId: number | null }>,
+  maestro: Array<{ id: number; nombre: string; documento: string | null }>,
+): Array<{ valor: string; nombre: string }> {
   const porClave = new Map<string, { id: number; nombre: string }>();
   for (const c of maestro) {
     if (!c.documento) continue;
@@ -690,47 +717,21 @@ export function indiceEmpresas(maestro: EmpresaMaestro[]): IndiceEmpresas {
       if (!porClave.has(clave)) porClave.set(clave, { id: c.id, nombre: c.nombre });
     }
   }
-  return { porClave, porId: new Map(maestro.map((c) => [c.id, c.nombre])) };
-}
-
-/**
- * La identidad de un cliente a partir de cómo llegó en el trámite: primero la empresa que ya
- * emparejó el sync (`companiaId`), si no la que case por NIT normalizado, y si no la raíz del NIT.
- *
- * Es UNA función porque la comparten la faceta de empresas y el consolidado por cliente
- * (HU #12433, RN-06): dos copias de esta regla harían que el filtro y el consolidado juntaran o
- * separaran las escrituras de un NIT de forma distinta sin que nada fallara.
- *
- * Sin empresa en el maestro no hay nombre que enseñar: se rotula como lo que es, un NIT sin
- * empresa registrada, en vez de disfrazarlo de nombre propio. La clave de agrupación es la raíz
- * del NIT, así que sus dos escrituras siguen cayendo juntas aunque nadie la haya dado de alta.
- * Sin NIT ni empresa (trámites que el sync no pudo atribuir) la clave es `n` y el rótulo lo dice.
- */
-export function claveEmpresa(
-  f: { nit: string | null; companiaId: number | null },
-  indice: IndiceEmpresas,
-): { clave: string; nombre: string } {
-  const propias = f.nit ? clavesNit(digitos(f.nit)) : [];
-  const empresa = (f.companiaId !== null && indice.porId.has(f.companiaId))
-    ? { id: f.companiaId, nombre: indice.porId.get(f.companiaId)! }
-    : propias.map((k) => indice.porClave.get(k)).find(Boolean);
-  if (empresa) return { clave: `c${empresa.id}`, nombre: empresa.nombre };
-  return {
-    clave: `n${propias[propias.length - 1] ?? ''}`,
-    nombre: f.nit ? `NIT ${f.nit} (sin empresa registrada)` : 'Sin NIT (sin empresa registrada)',
-  };
-}
-
-export function agruparEmpresas(
-  filas: Array<{ nit: string | null; companiaId: number | null }>,
-  maestro: EmpresaMaestro[],
-): Array<{ valor: string; nombre: string }> {
-  const indice = indiceEmpresas(maestro);
+  const porId = new Map(maestro.map((c) => [c.id, c.nombre]));
 
   const grupos = new Map<string, { nombre: string; nits: string[] }>();
   for (const f of filas) {
     if (!f.nit) continue;
-    const { clave, nombre } = claveEmpresa(f, indice);
+    const propias = clavesNit(digitos(f.nit));
+    const empresa = (f.companiaId !== null && porId.has(f.companiaId))
+      ? { id: f.companiaId, nombre: porId.get(f.companiaId)! }
+      : propias.map((k) => porClave.get(k)).find(Boolean);
+
+    // Sin empresa en el maestro no hay nombre que enseñar: se rotula como lo que es, un NIT sin
+    // empresa registrada, en vez de disfrazarlo de nombre propio. La clave de agrupación es la raíz
+    // del NIT, así que sus dos escrituras siguen cayendo juntas aunque nadie la haya dado de alta.
+    const clave = empresa ? `c${empresa.id}` : `n${propias[propias.length - 1]}`;
+    const nombre = empresa ? empresa.nombre : `NIT ${f.nit} (sin empresa registrada)`;
     const grupo = grupos.get(clave) ?? { nombre, nits: [] };
     if (!grupo.nits.includes(f.nit)) grupo.nits.push(f.nit);
     grupos.set(clave, grupo);
