@@ -8,15 +8,14 @@
 //
 // Convive con el detalle en un archivo hermano —como `finanzas.facturacion-electronica.ts` y
 // `finanzas.reporte-columnas.ts`— porque `finanzas.service.ts` ya está en el límite de líneas y
-// porque lo que vive aquí (el eje de agregación) no lo usa ninguna otra consulta. Su `.xlsx` vive en
-// `finanzas.export-excel.ts` (HU #12531).
+// porque lo que vive aquí (el eje de agregación y su CSV) no lo usa ninguna otra consulta.
 
 import { and, sql, type SQL } from 'drizzle-orm';
 import type { PgColumn, PgSelect } from 'drizzle-orm/pg-core';
 import { db } from '../../db/client.js';
 import { clients, flitoTramites } from '../../db/schema.js';
 import {
-  claveEmpresa, condiciones, conJoins, indiceEmpresas, SELECT_TOTALES,
+  BOM_CSV, celda, claveEmpresa, condiciones, conJoins, indiceEmpresas, SELECT_TOTALES,
   type EmpresaMaestro, type FiltrosReporte, type TotalesReporte,
 } from './finanzas.service.js';
 
@@ -126,7 +125,7 @@ const totalesEnCero = (): TotalesConsolidado => ({
 });
 
 /** Las sumas vienen de `numeric`; al sumarlas en JS se redondea a centavos como `subtotalesDe`. */
-export const redondear = (v: number): number => Math.round(v * 100) / 100;
+const redondear = (v: number): number => Math.round(v * 100) / 100;
 
 /**
  * Los grupos SQL (compañía, NIT, periodo) plegados a (cliente, periodo).
@@ -186,5 +185,30 @@ export async function consolidadoReporte(
   return { periodo, ...plegarConsolidado(grupos as GrupoConsolidado[], maestro) };
 }
 
-/** Rótulo del periodo `null` en la hoja: el grupo existe, solo que aún nadie lo aprobó. */
+// ── CSV ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Las mismas columnas de valor y con los mismos nombres que el CSV del detalle (CF-14): «Trámite»
+ * son los pesos del derecho de tránsito y «Servicio» el subtotal, como allí. Exportada para que el
+ * test afirme el orden entero como un solo array.
+ */
+export const CABECERAS_CSV_CONSOLIDADO = [
+  'Cliente', 'Periodo', 'Trámites', 'SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística',
+  'Total reintegro', 'Trámite digital', 'Servicio', 'Total', 'Incompletos',
+] as const;
+
+/** Rótulo del periodo `null` en el CSV: el grupo existe, solo que aún nadie lo aprobó. */
 export const SIN_APROBAR = 'Sin aprobar';
+
+/** Mismo `;`, BOM y CRLF que `aCsv`: Excel en español lo abre sin asistente y con tildes. */
+export function aCsvConsolidado(c: ConsolidadoReporte): string {
+  const lineas = [CABECERAS_CSV_CONSOLIDADO.join(';')];
+  for (const f of c.items) {
+    lineas.push([
+      f.clienteNombre, f.periodo ?? SIN_APROBAR, f.tramites, f.soat, f.impuesto, f.derechoTramite,
+      f.gmf, f.logistica, f.totalReintegro, f.tramiteDigital, f.totalServicio, f.total,
+      f.filasIncompletas,
+    ].map(celda).join(';'));
+  }
+  return `${BOM_CSV}${lineas.join('\r\n')}\r\n`;
+}
