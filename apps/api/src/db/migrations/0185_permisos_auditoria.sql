@@ -152,7 +152,7 @@ COMMENT ON COLUMN permisos_auditoria.usuario_afectado_id IS
 COMMENT ON COLUMN permisos_auditoria.rol_afectado_codigo IS
   'Rol afectado. SIN FK a proposito: RESTRICT impediria para siempre borrar un rol con historia (rompe CF-05) y CASCADE borraria justo lo que el auditor busca.';
 COMMENT ON COLUMN permisos_auditoria.actor_email IS
-  'Correo del AUTOR del acto. RN-A10 lo autoriza expresamente. El correo del TITULAR nunca se guarda aqui.';
+  'Identificador de acceso (username, hoy el login) del AUTOR del acto. RN-A10 autoriza guardar el correo del autor; lo que viaja en req.user es el username, no la columna users.email. Del TITULAR nunca se guarda ni correo ni username aqui.';
 COMMENT ON COLUMN permisos_auditoria.origen IS
   'usuario | sistema | auditoria. "sistema" es actor NULL con intencion; "auditoria" queda reservado para un backfill futuro y hoy no se usa.';
 
