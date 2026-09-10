@@ -489,10 +489,10 @@ function frasePesoEnvio(peso: number): string {
 
 /**
  * Cortes en el cliente, **antes** de armar el FormData. `null` si cabe (también si no hay nada).
- * Si fallan varios topes, las frases van en este orden: cantidad de sueltos (50) → entradas del ZIP
+ * Si fallan varios topes, las frases van en este orden: cantidad de sueltos (150) → entradas del ZIP
  * (300) → sueltos > 15 MB → entradas > 15 MB → peso.
  *
- * Los dos techos de cantidad son distintos A PROPÓSITO y su remedio también: 50 es lo que se señala
+ * Los dos techos de cantidad son distintos A PROPÓSITO y su remedio también: 150 es lo que se señala
  * a mano («quite archivos»), 300 es lo que trae un ZIP («divide el ZIP»).
  *
  * El presupuesto de peso (200 MB) se aplica **solo a la selección manual**. Con ZIP ninguna
