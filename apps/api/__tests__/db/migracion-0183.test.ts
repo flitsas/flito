@@ -43,7 +43,9 @@ const SQL_0182 = leerMigracion('0182_tarifas_vigencias.sql');
 const SIN_COMENTARIOS = SQL_0183.replace(/--[^\n]*/g, '');
 
 const EPOCH = '2000-01-01T00:00:00Z';
+/** Respaldo del corte, solo cuando la 0182 no está registrada en _kyverum_applied_migrations. */
 const CORTE = '2026-09-10T18:00:00Z';
+const REGISTRO_0182 = '0182_tarifas_vigencias.sql';
 
 describe('0183 — reglas del archivo (análisis estático)', () => {
   it('no trae control de transacción propio (ADR-DB-001) y el bloque DO lleva dollar-quoting etiquetado', () => {
@@ -68,13 +70,18 @@ describe('0183 — reglas del archivo (análisis estático)', () => {
     expect(sqls[sqls.length - 1]).toBe(ARCHIVO);
   });
 
-  it('un solo UPDATE: al epoch, solo antes del corte, idempotente, sin rangos vacíos, solo la más antigua de la llave; fijado_en intacto', () => {
+  it('un solo UPDATE: al epoch, antes del applied_at de la 0182 (literal solo de respaldo), idempotente, sin rangos vacíos a ambos lados, solo la más antigua de la llave; fijado_en intacto', () => {
     expect(SIN_COMENTARIOS.match(/UPDATE flito_tarifas_vigencias/g)).toHaveLength(1);
     expect(SIN_COMENTARIOS).toMatch(new RegExp(`SET vigente_desde = '${EPOCH}'`));
-    expect(SIN_COMENTARIOS).toMatch(new RegExp(`vigente_desde < '${CORTE}'`));
+    // El corte es el instante en que la 0182 se aplicó EN ESTA BASE; el literal es COALESCE de respaldo.
+    expect(SIN_COMENTARIOS).toMatch(new RegExp(
+      `vigente_desde < COALESCE\\(\\s*\\(SELECT m\\.applied_at FROM _kyverum_applied_migrations m\\s*WHERE m\\.filename = '${REGISTRO_0182}'\\),\\s*'${CORTE}'\\)`,
+    ));
+    expect(SIN_COMENTARIOS).not.toMatch(new RegExp(`vigente_desde < '${CORTE}'`));
     expect(SIN_COMENTARIOS).toMatch(new RegExp(`vigente_desde <> '${EPOCH}'`));
     expect(SIN_COMENTARIOS).toMatch(/vigente_hasta IS NULL OR v\.vigente_hasta > v\.vigente_desde/);
-    expect(SIN_COMENTARIOS).toMatch(/NOT EXISTS \(\s*SELECT 1 FROM flito_tarifas_vigencias o[\s\S]*?o\.vigente_desde < v\.vigente_desde\)/);
+    // La guarda excluye los rangos vacíos igual que el UPDATE: una [t, t) más antigua no bloquea su llave.
+    expect(SIN_COMENTARIOS).toMatch(/NOT EXISTS \(\s*SELECT 1 FROM flito_tarifas_vigencias o[\s\S]*?\(o\.vigente_hasta IS NULL OR o\.vigente_hasta > o\.vigente_desde\)[\s\S]*?o\.vigente_desde < v\.vigente_desde\)/);
     expect(SIN_COMENTARIOS).not.toMatch(/fijado_en\s*=/);
     expect(SIN_COMENTARIOS).not.toMatch(/vigente_hasta\s*=/);
     expect(SIN_COMENTARIOS).toMatch(/RAISE NOTICE '0183: /);
@@ -206,6 +213,34 @@ describe.skipIf(!URL_BASE)('0183 — contra la base real (desde siempre, solape,
       expect(iso(despues[1]!.vigente_desde)).toBe('2026-05-01T00:00:00.000Z');
       expect(despues[1]!.vigente_hasta).toBeNull();
       expect(despues[1]!.valor).toBe(20000);
+    });
+  }, 60_000);
+
+  it('QA/PDN: con la 0182 REGISTRADA en _kyverum_applied_migrations, el corte es su applied_at — una tarifa vieja creada después del literal fijo también pasa a «desde siempre»', async () => {
+    // El código viejo sigue escribiendo flito_tarifas_compania hasta el deploy que aplica la 0182: una
+    // tarifa creada el 2026-09-15 migra con vigente_desde = 2026-09-15 (> literal), y solo el
+    // applied_at real de la 0182 (posterior) la reconoce como migrada. Se simula registrando la 0182
+    // en la tabla del runner dentro de la transacción, con applied_at posterior a esa vigencia.
+    await enTx(sql, async (tx) => {
+      const h = await migrada(tx, 'H', [
+        { concepto: 'tramite_digital', tipo: 'Traspaso', valor: 250000, creada: '2026-09-15T10:00:00Z' },
+      ]);
+      await tx`INSERT INTO _kyverum_applied_migrations (filename, sha256, applied_at)
+        VALUES (${REGISTRO_0182}, 'test', '2026-09-20T12:00:00Z')
+        ON CONFLICT (filename) DO UPDATE SET applied_at = EXCLUDED.applied_at`;
+      // Y una abierta por la API nueva DESPUÉS del applied_at, que no debe tocarse.
+      await tx`INSERT INTO flito_tarifas_vigencias (compania_id, concepto, tipo_tramite, valor, vigente_desde, fijado_en)
+        VALUES (${h}, 'tramite_digital', 'OTROS', 1000, '2026-09-21T09:00:00Z', '2026-09-21T09:00:00Z')`;
+      await tx.unsafe(SQL_0183);
+      const filas = await vigenciasDe(tx, h);
+      const por = Object.fromEntries(filas.map((f) => [f.tipo_tramite, f]));
+      expect(iso(por['TRASPASO']!.vigente_desde)).toBe('2000-01-01T00:00:00.000Z');
+      expect(iso(por['OTROS']!.vigente_desde)).toBe('2026-09-21T09:00:00.000Z');
+      // Segunda pasada: 0 filas (huella idéntica).
+      const huella = async () => (await tx`SELECT md5(string_agg(id::text||vigente_desde::text, ',' ORDER BY id)) AS h FROM flito_tarifas_vigencias`)[0]!.h;
+      const h1 = await huella();
+      await tx.unsafe(SQL_0183);
+      expect(await huella()).toBe(h1);
     });
   }, 60_000);
 

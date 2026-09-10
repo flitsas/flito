@@ -15,10 +15,16 @@
 --   `historial` hacen `toISOString()`, y `-infinity` no es un Date valido en la API) en la vigencia
 --   MAS ANTIGUA de cada llave (compania, concepto, tipo) que fue creada antes del corte.
 --
--- El corte: 2026-09-10T18:00:00Z. La 0182 se mergeo a develop en ab11984 (2026-09-10 18:06Z); ninguna
---   vigencia abierta por la API nueva (`fijarTarifa`/`cambiarOCerrar` usan `now()`) puede tener
---   `vigente_desde` anterior a ese instante, y TODAS las migradas heredan el `created_at` de una
---   tarifa vieja, siempre anterior. Asi la condicion separa migradas de nuevas sin marcar filas.
+-- El corte: el instante en que la 0182 se aplico EN ESTA BASE (`applied_at` de su fila en
+--   _kyverum_applied_migrations; el runner la inserta dentro de la misma transaccion del archivo con
+--   `now()`, que es el inicio de esa transaccion). Toda tarifa vieja tiene `created_at` anterior a
+--   ese instante (el desdoble corre en esa misma transaccion y la tabla vieja cae ahi), y toda
+--   vigencia abierta por la API nueva (`fijarTarifa`/`cambiarOCerrar` usan `now()`) nace despues del
+--   commit, con el binario nuevo. Asi la condicion separa migradas de nuevas sin marcar filas, y
+--   vale en QA y PDN aunque la 0182 se aplique dias despues y el codigo viejo haya seguido creando
+--   tarifas hasta ese deploy (un literal fijo las saltaria en silencio: sin ruta de reparacion).
+--   Respaldo 2026-09-10T18:00:00Z (merge de la 0182, ab11984) SOLO si la 0182 no esta registrada:
+--   tests en transaccion que la corren sin registrarla, o una base marcada con `--mark-all`.
 --
 -- Por que solo la MAS ANTIGUA por llave: la EXCLUDE de la 0182 prohibe solapes dentro de una llave.
 --   Mover hacia atras el inicio de la vigencia mas antigua no puede crear un solape (no hay nada
@@ -40,14 +46,19 @@ DECLARE
 BEGIN
   UPDATE flito_tarifas_vigencias v
      SET vigente_desde = '2000-01-01T00:00:00Z'
-   WHERE v.vigente_desde < '2026-09-10T18:00:00Z'
+   WHERE v.vigente_desde < COALESCE(
+           (SELECT m.applied_at FROM _kyverum_applied_migrations m
+             WHERE m.filename = '0182_tarifas_vigencias.sql'),
+           '2026-09-10T18:00:00Z')
      AND v.vigente_desde <> '2000-01-01T00:00:00Z'
      AND (v.vigente_hasta IS NULL OR v.vigente_hasta > v.vigente_desde)
+     -- Misma exclusion de rangos vacios que arriba: una [t, t) mas antigua no cuenta como «algo antes».
      AND NOT EXISTS (
        SELECT 1 FROM flito_tarifas_vigencias o
         WHERE o.compania_id = v.compania_id
           AND o.concepto = v.concepto
           AND COALESCE(o.tipo_tramite, '') = COALESCE(v.tipo_tramite, '')
+          AND (o.vigente_hasta IS NULL OR o.vigente_hasta > o.vigente_desde)
           AND o.vigente_desde < v.vigente_desde);
   GET DIAGNOSTICS n = ROW_COUNT;
   RAISE NOTICE '0183: % vigencia(s) migrada(s) pasan a regir desde siempre (2000-01-01)', n;
