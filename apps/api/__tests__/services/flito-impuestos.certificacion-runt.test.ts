@@ -199,6 +199,59 @@ describe('extracción de la respuesta cruda', () => {
   });
 });
 
+// ── HU #12401 — motor y serie salen del MISMO extractor, y no se comparan ──────────────────────
+//
+// Se afirma por las dos vías y por cada alias, uno a uno: una cadena de alias solo se prueba
+// recorriéndola, y un mutante que borrara `nroMotor` sobreviviría a un test que usara `numMotor`.
+// El VIN se mira en el mismo bloque a propósito: `numSerie` NO es el VIN y comparte nombre con uno
+// de sus alias (`serie`), así que hay que ver que cada uno cae en su sitio.
+describe('AC5 (HU #12401) — número de motor y de serie', () => {
+  const base = runtOk().vehiculo;
+
+  it.each([['numMotor'], ['numeroMotor'], ['nroMotor']])('motor por el alias `%s` en `vehiculo`', (alias) => {
+    const r = extraerVehiculoRunt({ vehiculo: { ...base, [alias]: ' MTR-123 ' } });
+    expect(r.numMotor).toBe('MTR-123');
+  });
+
+  it.each([['numSerie'], ['numeroSerie'], ['nroSerie']])('serie por el alias `%s` en `vehiculo`', (alias) => {
+    const r = extraerVehiculoRunt({ vehiculo: { ...base, [alias]: 'SER-456' } });
+    expect(r.numSerie).toBe('SER-456');
+  });
+
+  it('los dos se leen también por `datosTecnicos` cuando `vehiculo` no los trae', () => {
+    const r = extraerVehiculoRunt({ vehiculo: base, datosTecnicos: { numeroMotor: 'MTR-T', nroSerie: 'SER-T' } });
+    expect(r.numMotor).toBe('MTR-T');
+    expect(r.numSerie).toBe('SER-T');
+  });
+
+  it('`vehiculo` manda sobre `datosTecnicos`', () => {
+    const r = extraerVehiculoRunt({ vehiculo: { ...base, numMotor: 'MTR-V' }, datosTecnicos: { numMotor: 'MTR-T' } });
+    expect(r.numMotor).toBe('MTR-V');
+  });
+
+  it('ausente, vacío o el texto "null" → `null`, nunca cadena vacía', () => {
+    expect(extraerVehiculoRunt({ vehiculo: base }).numMotor).toBeNull();
+    expect(extraerVehiculoRunt({ vehiculo: { ...base, numMotor: '  ', numSerie: 'null' } })).toMatchObject({ numMotor: null, numSerie: null });
+    expect(extraerVehiculoRunt(undefined).numSerie).toBeNull();
+  });
+
+  it('`numSerie` no es el VIN y el VIN no se lee de `numSerie`: cada uno cae en su campo', () => {
+    // Payload real (2026-07-31): `vin` con valor y `numSerie: null` a la vez. Si el VIN tomara
+    // `numSerie` como alias, o la serie tomara `vin`, este test se cruza.
+    const r = extraerVehiculoRunt({ vehiculo: { ...base, vin: '3KPFF51ABTE156687', numSerie: 'SER-456' } });
+    expect(r.vin).toBe('3KPFF51ABTE156687');
+    expect(r.numSerie).toBe('SER-456');
+    const sinVin = extraerVehiculoRunt({ vehiculo: { ...base, vin: undefined, numSerie: 'SER-456' } });
+    expect(sinVin.vin, 'la lista de alias del VIN no cambia: numSerie no está en ella').toBeNull();
+  });
+
+  it('la certificación NO los compara: dos motores distintos siguen certificando', () => {
+    const v = compararConRunt(FLITO, extraerVehiculoRunt(runtOk({ numMotor: 'OTRO-MOTOR', numSerie: 'OTRA-SERIE' })));
+    expect(v.certificable).toBe(true);
+    expect(v.campos.map((c) => c.campo)).not.toContain('numMotor');
+  });
+});
+
 describe('ficha sin vehículo detrás', () => {
   // El RUNT devuelve el identificador con el que se consultó aunque no encuentre nada. Verificado
   // contra el servicio real (2026-08-03): una placa inexistente responde ok:true con todo en null

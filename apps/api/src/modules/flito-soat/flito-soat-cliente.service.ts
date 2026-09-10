@@ -116,7 +116,9 @@ import { ConceptoHistorial, registrarCambio } from '../../shared/historial/estad
 import { extraerFacturaVenta } from '../flito-ocr/flito-ocr.service.js';
 import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { detectMime } from '../pesv/magic-number.js';
+import { motorYSerieParaVehiculo } from '../runt/vehiculo-motor-serie.js';
 import { uploadEntityDocument } from '../../services/storage.js';
+import { loggerFor } from '../../shared/logger.js';
 import { buscarConAcceso, ORIGEN_CLIENTE, type SoatCtx } from './flito-soat.service.js';
 import {
   consultarYClasificar,
@@ -130,6 +132,9 @@ export {
   soatVigenteSegunRunt,
   type DatosRuntCanal,
 } from './flito-soat-cliente-runt.js';
+
+/** Mismo nombre que el de `flito-soat-cliente-runt.ts`: es el mismo canal visto desde el log. */
+const log = loggerFor('flito-soat-cliente');
 
 /**
  * Error del canal con CÓDIGO además de estado HTTP.
@@ -648,7 +653,12 @@ const MENSAJE_REVISE: Record<CodigoRevise, string> = {
 // ───────────────────────────── Preconsulta ──────────────────────────────────
 
 export interface Preconsulta {
-  vehiculo: Omit<DatosRuntCanal, 'organismoNombre' | 'propietarioNombre'>;
+  /**
+   * Sin `numMotor` ni `numSerie` (HU #12401): se persisten en `vehicles`, no se enseñan. La
+   * pantalla del canal no los pinta y publicarlos aquí sería sacar un dato del RUNT por la API
+   * sin que ninguna HU lo haya pedido. Cuando toque mostrarlos se quitan de este `Omit`.
+   */
+  vehiculo: Omit<DatosRuntCanal, 'organismoNombre' | 'propietarioNombre' | 'numMotor' | 'numSerie'>;
   /**
    * `codigo` es `string | null` desde la HU #11966: el organismo dejó de ser compuerta (AC5) y el
    * `422 organismo_no_catalogado` desapareció de los dos endpoints. Si la preconsulta siguiera
@@ -851,6 +861,9 @@ async function upsertVehiculoRunt(
       ...(datos.carroceria ? { carroceria: datos.carroceria } : {}),
       ...(datos.pasajerosSentados ? { pasajerosSentados: datos.pasajerosSentados } : {}),
       ...(datos.puertas ? { puertas: datos.puertas } : {}),
+      // Motor y serie (HU #12401), con la misma política y el recorte a la columna resuelto en un
+      // solo sitio: si el RUNT no los trajo, las claves NO viajan y la ficha conserva lo que tenía.
+      ...motorYSerieParaVehiculo(datos, log),
       ownerName: nombreCompletoDe(propietario),
       ownerDocument: propietario.numeroDocumento,
       updatedAt: new Date(),
@@ -879,6 +892,10 @@ async function upsertVehiculoRunt(
     carroceria: datos.carroceria,
     pasajerosSentados: datos.pasajerosSentados,
     puertas: datos.puertas,
+    // Aquí la clave ausente vale lo mismo que el `null` explícito de sus vecinos: la fila nace sin
+    // motor cuando el RUNT no lo trajo. Se usa el mismo spread que el UPDATE para no tener DOS
+    // recortes a 50 que un día digan cosas distintas.
+    ...motorYSerieParaVehiculo(datos, log),
     ownerName: nombreCompletoDe(propietario), ownerDocument: propietario.numeroDocumento,
   }).returning({ id: vehicles.id });
   return creado.id;

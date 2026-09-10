@@ -131,9 +131,14 @@ const VIN_B = 'JN1TANT31Z0123456';
 const SOAT_A = 'aaaaaaaa-1111-1111-1111-111111111111';
 const SOAT_B = 'bbbbbbbb-2222-2222-2222-222222222222';
 
-/** El censo que `vehiculosAVerificar` devolverá en esta prueba. */
+/** La FK `flito_soat.vehiculo_id` de cada SOAT del censo. Un entero interno, no un identificador. */
+const VEHICULO_A = 5001;
+const VEHICULO_B = 5002;
+const vehiculoDe: Record<string, number> = { [SOAT_A]: VEHICULO_A, [SOAT_B]: VEHICULO_B };
+
+/** El censo que `vehiculosAVerificar` devolverá en esta prueba. `vehiculoId` sale de la tabla de arriba. */
 function censo(filas: Array<{ soatId: string; vin: string; estadoVigencia: string }>): void {
-  kdb.when.select('flito_soat', filas);
+  kdb.when.select('flito_soat', filas.map((f) => ({ ...f, vehiculoId: vehiculoDe[f.soatId] })));
 }
 
 const updatesDeSoat = () => espia.updatesEn('flito_soat').map((m) => m.datos);
@@ -501,6 +506,163 @@ describe('AC3/AC4 — el recorrido escribe, audita solo lo que cambió y cuenta 
 });
 
 // ─────────────────────── AC6 — ritmo, breaker compartido y tope por vehículo ────────────────────
+
+// ─────────────── HU #12401 — motor y serie del RUNT → la ficha del vehículo ─────────────────────
+//
+// La escritura vive FUERA de `escribirDesenlace` y de `payloadDeDesenlace` (RN-D7 solo gobierna
+// `flito_soat`), así que aquí se mide por partida doble: que `vehicles` recibe motor y serie, Y que
+// lo que va a `flito_soat` es EXACTAMENTE lo de siempre. La segunda mitad es la que un spread mal
+// puesto rompería sin que la primera lo notara.
+
+describe('HU #12401 — motor y serie del RUNT en `vehicles`, y `flito_soat` intacto', () => {
+  const MOTOR = 'MTR-123';
+  const SERIE = 'SER-456';
+  const conMotor = (resp: { ok: boolean; data: { vehiculo: Record<string, unknown>; soat?: unknown } }) => ({
+    ...resp, data: { ...resp.data, vehiculo: { ...resp.data.vehiculo, numMotor: MOTOR, numSerie: SERIE } },
+  });
+  const updatesDeVehiculos = () => espia.updatesEn('vehicles');
+  /**
+   * El id de ficha por el que fue el UPDATE, leído del SQL renderizado. `filtros` del espía solo
+   * recoge parámetros de texto y `vehicles.id` es entero: un aserto sobre `filtros` aquí sería
+   * verde vacío.
+   */
+  const fichaDelUpdate = (u: { condiciones: unknown[] }) => ligadoA(renderizar(u.condiciones[0] as SQL), '"vehicles"."id"');
+
+  it('AC3 — `vigente` con vehículo: UPDATE de `vehicles` por su id con motor y serie', async () => {
+    censo([{ soatId: SOAT_A, vin: VIN_A, estadoVigencia: 'no_verificado' }]);
+    respuestaPorDefecto = conMotor(respVigente('RUNT-777'));
+
+    const r = await recorrerVigenciaSoat({ dia: '2026-09-04', intento: 1 });
+
+    expect(r).toMatchObject({ considerados: 1, verificados: 1, pendientes: 0, cambiaron: 1 });
+    expect(updatesDeVehiculos()).toHaveLength(1);
+    const [u] = updatesDeVehiculos();
+    expect(u!.datos).toMatchObject({ numMotor: MOTOR, numSerie: SERIE });
+    expect(Object.keys(u!.datos).sort(), 'solo motor, serie y updated_at: nada más de la ficha').toEqual(['numMotor', 'numSerie', 'updatedAt']);
+    // Por el id de la FICHA (la FK del SOAT), no por el id del SOAT ni por VIN.
+    expect(fichaDelUpdate(u!)).toBe(VEHICULO_A);
+    expect(renderizar(u!.condiciones[0] as SQL).params).not.toContain(SOAT_A);
+  });
+
+  it('AC3 — `sin_registro` por póliza VENCIDA (el registro sí conoce el vehículo): también escribe', async () => {
+    // El desenlace no vale como criterio: `sin_registro` sale tanto de «no lo conoce» como de «lo
+    // conoce y la póliza está vencida». En el segundo, motor y serie están y se guardan.
+    censo([{ soatId: SOAT_A, vin: VIN_A, estadoVigencia: 'vigente' }]);
+    respuestaPorDefecto = conMotor(respVencido);
+
+    await recorrerVigenciaSoat({ dia: '2026-09-04', intento: 1 });
+
+    expect(updatesDeVehiculos()).toHaveLength(1);
+    expect(updatesDeVehiculos()[0]!.datos).toMatchObject({ numMotor: MOTOR, numSerie: SERIE });
+  });
+
+  it('AC3 — lo que va a `flito_soat` es EXACTAMENTE `payloadDeDesenlace`: RN-D7 intacta', async () => {
+    censo([{ soatId: SOAT_A, vin: VIN_A, estadoVigencia: 'no_verificado' }]);
+    respuestaPorDefecto = conMotor(respVigente('RUNT-777'));
+
+    await recorrerVigenciaSoat({ dia: '2026-09-04', intento: 1 });
+
+    const [set] = updatesDeSoat();
+    const esperado = payloadDeDesenlace(clasificarVigencia(conMotor(respVigente('RUNT-777'))), new Date());
+    // MUTANTE — colar `numMotor` en el payload del SOAT o `vehiculoId` en el SET: las claves del
+    // UPDATE de `flito_soat` tienen que ser las de siempre, ni una más.
+    expect(Object.keys(set!).sort()).toEqual(Object.keys(esperado).sort());
+    expect(set).not.toHaveProperty('numMotor');
+    expect(set).not.toHaveProperty('vehiculoId');
+  });
+
+  it('AC2 — registro sin motor ni serie: CERO escrituras sobre `vehicles` (ni con null)', async () => {
+    // `respVigente()` trae marca, línea y chasis pero ni motor ni serie. La ficha conserva lo suyo
+    // porque el UPDATE no se emite: no hay nada que escribir y `updated_at` no se toca en vano.
+    censo([{ soatId: SOAT_A, vin: VIN_A, estadoVigencia: 'vigente' }]);
+    respuestaPorDefecto = respVigente();
+
+    await recorrerVigenciaSoat({ dia: '2026-09-04', intento: 1 });
+
+    expect(updatesDeSoat(), 'la vigencia sí se escribió').toHaveLength(1);
+    expect(updatesDeVehiculos()).toHaveLength(0);
+  });
+
+  it('AC2 — el registro no conoce el vehículo (`sin_registro` real): no se toca `vehicles`', async () => {
+    censo([{ soatId: SOAT_A, vin: VIN_A, estadoVigencia: 'vigente' }]);
+    // Solo el eco de la consulta. (Un `numMotor` con valor ya contaría como señal de registro en
+    // `runtSinRegistro`, y entonces sí habría ficha que escribir: no es este caso.)
+    respuestaPorDefecto = respSinRegistro;
+
+    await recorrerVigenciaSoat({ dia: '2026-09-04', intento: 1 });
+
+    expect(updatesDeSoat()).toHaveLength(1);
+    expect(updatesDeVehiculos()).toHaveLength(0);
+  });
+
+  it('AC4 — RUNT caído (`no_verificado`): cero escrituras sobre `vehicles`, `flito_soat` como hoy', async () => {
+    censo([{ soatId: SOAT_A, vin: VIN_A, estadoVigencia: 'vigente' }]);
+    respuestaPorDefecto = respTimeout;
+
+    const r = await recorrerVigenciaSoat({ dia: '2026-09-04', intento: 1 });
+
+    expect(r).toMatchObject({ pendientes: 1, verificados: 0 });
+    expect(updatesDeVehiculos()).toHaveLength(0);
+    const [set] = updatesDeSoat();
+    expect(Object.keys(set!).sort()).toEqual(Object.keys(payloadDeDesenlace({ estado: 'no_verificado', motivo: 'timeout' }, new Date())).sort());
+  });
+
+  it('AC4 — con el circuito abierto (no se consultó) tampoco se toca `vehicles`', async () => {
+    censo([{ soatId: SOAT_A, vin: VIN_A, estadoVigencia: 'vigente' }]);
+    circuitoAbiertoAhora = true;
+
+    await recorrerVigenciaSoat({ dia: '2026-09-04', intento: 1 });
+
+    expect(updatesDeVehiculos()).toHaveLength(0);
+  });
+
+  it('AC7 — no hay reconsulta: UNA llamada al RUNT por vehículo aunque se escriba motor y serie', async () => {
+    censo([{ soatId: SOAT_A, vin: VIN_A, estadoVigencia: 'vigente' }, { soatId: SOAT_B, vin: VIN_B, estadoVigencia: 'vigente' }]);
+    respuestaPorDefecto = conMotor(respVigente());
+
+    await recorrerVigenciaSoat({ dia: '2026-09-04', intento: 1 });
+
+    expect(runtMock).toHaveBeenCalledTimes(2);
+    expect(updatesDeVehiculos().map(fichaDelUpdate).sort()).toEqual([VEHICULO_A, VEHICULO_B]);
+    // Nada del payload crudo en la ficha (ADR-0008 §1.6): ni `soat`, ni `data`, ni el chasis.
+    for (const u of updatesDeVehiculos()) expect(Object.keys(u.datos)).toEqual(['numMotor', 'numSerie', 'updatedAt']);
+  });
+
+  it('AC6 — motor de 60: se guarda a 50 y el aviso no lleva valor, VIN ni id del SOAT', async () => {
+    censo([{ soatId: SOAT_A, vin: VIN_A, estadoVigencia: 'vigente' }]);
+    const largo = 'Z'.repeat(60);
+    respuestaPorDefecto = { ...respVigente(), data: { ...respVigente().data, vehiculo: { ...respVigente().data.vehiculo, numMotor: largo } } };
+
+    await recorrerVigenciaSoat({ dia: '2026-09-04', intento: 1 });
+
+    expect(updatesDeVehiculos()[0]!.datos.numMotor).toBe(largo.slice(0, 50));
+    const aviso = registros.find((a) => (a[0] as Record<string, unknown>)?.campo === 'numMotor');
+    expect(aviso).toBeDefined();
+    expect(aviso![0]).toEqual({ campo: 'numMotor', longitud: 60, max: 50 });
+    const texto = JSON.stringify(aviso);
+    expect(texto).not.toContain('ZZZZZ');
+    expect(texto).not.toContain(VIN_A);
+  });
+
+  it('un fallo al escribir `vehicles` NO aborta la corrida ni cambia los conteos; se avisa sin PII', async () => {
+    censo([{ soatId: SOAT_A, vin: VIN_A, estadoVigencia: 'no_verificado' }, { soatId: SOAT_B, vin: VIN_B, estadoVigencia: 'vigente' }]);
+    respuestaPorDefecto = conMotor(respVigente());
+    kdb.when.update('vehicles', () => { throw new Error(`deadlock sobre ${VIN_A}`); });
+
+    // MUTANTE — quitar el try/catch: el primer `vehicles` roto tiraría el censo entero con
+    // `RecorridoVigenciaError`, cuando la vigencia —el dato por el que existe la corrida— ya quedó.
+    const r = await recorrerVigenciaSoat({ dia: '2026-09-04', intento: 1 });
+
+    expect(r).toMatchObject({ considerados: 2, verificados: 2, pendientes: 0, cambiaron: 1 });
+    expect(updatesDeSoat(), 'las dos vigencias se escribieron').toHaveLength(2);
+    const aviso = registros.find((a) => typeof a[1] === 'string' && (a[1] as string).includes('motor y serie'));
+    expect(aviso).toBeDefined();
+    expect(aviso![0]).toMatchObject({ soatId: SOAT_A, error: 'Error' });
+    expect(JSON.stringify(aviso), 'el mensaje del driver, que puede traer el VIN, no sobrevive').not.toContain(VIN_A);
+    // Y no se audita nada por ello: el recorrido audita cambios de vigencia, no fichas.
+    expect(auditorias().filter((a) => a.resource === 'vehicles')).toHaveLength(0);
+  });
+});
 
 describe('AC6 — la corrida no puede degradar las consultas de usuarios', () => {
   it('**con el circuito abierto no consulta NADA** y todo vuelve como pendiente', async () => {
