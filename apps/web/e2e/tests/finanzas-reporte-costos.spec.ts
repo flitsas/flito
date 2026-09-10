@@ -18,11 +18,28 @@ const FILA_ESTIMADA = {
   // Y estas tres desde la HU #11679: la conciliación del SOAT de la fila. El caso normal es que el
   // SOAT NO esté conciliado, y así queda en todas las fixtures salvo en la que lo prueba.
   soatConciliado: false, boletaReferencia: null, soatConciliadoEn: null,
+  // Titular, organismo, periodo y subtotales (HU #12432 → #12434). Persona natural con su OT. Los
+  // dos subtotales los manda el API: 668460 = SOAT + impuesto + derecho + GMF + logística, y
+  // 200000 = trámite digital. La pantalla NO los recalcula, y un test lo comprueba con un valor que
+  // no cuadra.
+  titularNombres: 'Ana María', titularApellidos: 'Pérez Gómez', titularRazonSocial: null,
+  titularTipoDocumento: 'CC', titularDocumento: '1020304050',
+  organismoCodigo: '05266', organismoNombre: 'Envigado', mes: '2026-07', trimestre: '2026-T3',
+  totalReintegro: 668460, totalServicio: 200000,
 };
 const FILA_BLOQUEADA = {
   ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000002', idFlit: 'FLIT-2002',
-  fechaAprobacion: null,
+  fechaAprobacion: null, mes: null, trimestre: null,
   tramiteDigital: null, total: null, noConfigurados: ['Trámite digital'], sinRecibo: [],
+  // El servicio es el trámite digital, y sin tarifa el subtotal viene en null: no es $ 0.
+  totalServicio: null,
+};
+/** Persona jurídica sin organismo: razón social y NIT, nombres vacíos, OT vacía (AC1). */
+const FILA_JURIDICA = {
+  ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000008', idFlit: 'FLIT-2008J',
+  titularNombres: null, titularApellidos: null, titularRazonSocial: 'Transportes Andes SAS',
+  titularTipoDocumento: 'NIT', titularDocumento: '900123456',
+  organismoCodigo: null, organismoNombre: null,
 };
 const FILA_LIQUIDADA = {
   ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000003', idFlit: 'FLIT-2003',
@@ -40,12 +57,13 @@ const FILA_FACTURADA = {
 const FILA_SIN_RECIBO = {
   ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000005', idFlit: 'FLIT-2005',
   derechoTramite: null, total: null, noConfigurados: [], sinRecibo: ['Derecho de tránsito'],
+  totalReintegro: null,
 };
 
 /** SOAT comprado pero aún sin pagar, y un impuesto que la compañía se gestiona sola. */
 const FILA_SIN_PAGAR = {
   ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000006', idFlit: 'FLIT-2006',
-  soat: null, impuesto: null, total: null,
+  soat: null, impuesto: null, total: null, totalReintegro: null,
   pendientesPago: ['SOAT'], autogestionados: ['Impuesto'],
 };
 
@@ -71,6 +89,7 @@ const REPORTE = {
   totales: {
     soat: 1800000, impuesto: 480000, derechoTramite: 320000, logistica: 60000,
     tramiteDigital: 600000, gmf: 10400, total: 3270400, filasIncompletas: 1,
+    totalReintegro: 2670400, totalServicio: 600000,
   },
   resumen: { listo: 1, incompleto: 3, porFacturar: 1, facturado: 1 },
 };
@@ -80,6 +99,8 @@ async function mockFacetas(page: import('@playwright/test').Page, estados: strin
   await page.route(/\/api\/finanzas\/reporte-costos\/facetas/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
       estados, empresas: [{ valor: '900111,9001112', nombre: 'ACME SAS' }], tipos: ['Traspaso', 'Matricula'],
+      // Solo los organismos CON trámites, por código y con el nombre que enseña la columna «OT».
+      organismos: [{ valor: '05266', nombre: 'Envigado' }, { valor: '05001', nombre: 'Medellín' }],
     }) }));
 }
 
@@ -215,12 +236,13 @@ test.describe('Finanzas — Reporte de costos', () => {
     await mock(page);
     await page.goto('/finanzas/reporte-costos');
 
-    // Las mismas tres columnas que las demás tablas: la pregunta «¿de qué trámite hablamos?» se
-    // contestaba distinto en cada pantalla.
+    // Desde la HU #12434 la fila es plana, como el Excel: marca y línea van en columnas propias
+    // (RN-08), y las fechas siguen en su celda apilada de `columnasComunes`.
     const fila = page.getByRole('row').filter({ hasText: 'FLIT-2001' });
     await expect(fila).toContainText('Traspaso');
     await expect(fila).toContainText('LRWYGCEK2TC771456');
-    await expect(fila).toContainText('Chevrolet Onix');
+    await expect(fila.getByRole('cell', { name: 'Chevrolet', exact: true })).toBeVisible();
+    await expect(fila.getByRole('cell', { name: 'Onix', exact: true })).toBeVisible();
     await expect(fila).toContainText('2 de jul de 26');
   });
 
@@ -278,9 +300,12 @@ test.describe('Finanzas — Reporte de costos', () => {
     await expect.poll(() => urls.at(-1) ?? '').toContain('estados=Aprobado');
   });
 
-  test('arranca filtrado por Aprobado y los dos rangos de fecha viajan por separado', async ({ page }) => {
+  test('arranca filtrado por Aprobado y el mes en curso, y los dos rangos de fecha viajan por separado', async ({ page }) => {
     // El estado por defecto se comprueba sobre la petición, no sobre el estilo del control: es
-    // lo que de verdad determina qué filas se traen.
+    // lo que de verdad determina qué filas se traen. Desde la HU #12434 (CF-05) el punto de
+    // partida es Aprobado + el mes en curso, y «en curso» se fija con el reloj para que el aserto
+    // no dependa del día en que corre.
+    await page.clock.setFixedTime(new Date('2026-09-15T12:00:00Z'));
     await loginAs(page, OPERACIONES_USER);
     const urls: string[] = [];
     await mockFacetas(page, ['Aprobado', 'Entregado']);
@@ -291,6 +316,8 @@ test.describe('Finanzas — Reporte de costos', () => {
 
     await page.goto('/finanzas/reporte-costos');
     await expect.poll(() => urls[0] ?? '').toContain('estados=Aprobado');
+    expect(urls[0]).toContain('aprobadoDesde=2026-09-01');
+    expect(urls[0]).toContain('aprobadoHasta=2026-09-30');
 
     // Cada rango es un calendario propio (HU #11026): se elige el tramo y viaja completo.
     const rango = (etiqueta: string) => page.locator('summary').filter({ hasText: etiqueta });
@@ -325,7 +352,8 @@ test.describe('Finanzas — Reporte de costos', () => {
     await expect(estado).toContainText('2 seleccionados');
   });
 
-  test('limpiar filtros vuelve a Aprobado, no a todos los estados', async ({ page }) => {
+  test('limpiar filtros vuelve a Aprobado y al mes en curso, no a todos los estados ni a un rango vacío', async ({ page }) => {
+    await page.clock.setFixedTime(new Date('2026-09-15T12:00:00Z'));
     await loginAs(page, OPERACIONES_USER);
     const urls: string[] = [];
     await mockFacetas(page, ['Aprobado', 'Entregado']);
@@ -335,15 +363,28 @@ test.describe('Finanzas — Reporte de costos', () => {
     });
 
     await page.goto('/finanzas/reporte-costos');
+    // Con el punto de partida puesto no hay nada que limpiar: el botón lo dice.
+    await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toBeDisabled();
     await page.locator('summary').filter({ hasText: 'Estado' }).click();
     await page.getByRole('checkbox', { name: 'Entregado' }).check();
     await page.locator('summary').filter({ hasText: 'Creación' }).click();
     await page.getByRole('button', { name: 'Este mes' }).click();
+    // Y el rango de aprobación a mano, para que «limpiar» tenga que volver al mes en curso, no
+    // conservar lo que había.
+    await page.locator('summary').filter({ hasText: 'Aprobación' }).click();
+    await page.getByRole('button', { name: 'Hoy' }).click();
+    await expect.poll(() => urls.at(-1) ?? '').toContain('aprobadoDesde=2026-09-15');
     await page.getByRole('button', { name: 'Limpiar filtros' }).click();
 
     await expect.poll(() => urls.at(-1) ?? '').toContain('estados=Aprobado');
-    expect(urls.at(-1)).not.toContain('Entregado');
-    expect(urls.at(-1)).not.toContain('desde=');
+    const ultima = urls.at(-1) ?? '';
+    expect(ultima).not.toContain('Entregado');
+    // El rango de CREACIÓN se vacía (`&desde=`, no el `aprobadoDesde=` que sí tiene que quedar)…
+    expect(ultima).not.toMatch(/[?&]desde=/);
+    // …y el de aprobación vuelve al mes en curso, no a un rango vacío (CF-05).
+    expect(ultima).toContain('aprobadoDesde=2026-09-01');
+    expect(ultima).toContain('aprobadoHasta=2026-09-30');
+    await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toBeDisabled();
   });
 
   test('el derecho de tránsito sin recibo NO dice «No configurado»', async ({ page }) => {
@@ -354,7 +395,8 @@ test.describe('Finanzas — Reporte de costos', () => {
     // El derecho no se configura: es un desembolso real que se lee del recibo, como el SOAT y el
     // impuesto. El rótulo viejo mandaba a buscar una parametrización que no existe.
     const fila = page.getByRole('row').filter({ hasText: 'FLIT-2005' });
-    await expect(fila.getByText('Sin recibo')).toBeVisible();
+    // Desde la HU #12434 el motivo se repite en «Total reintegro» (RN-02): el concepto es el primero.
+    await expect(fila.getByText('Sin recibo').first()).toBeVisible();
     await expect(fila.getByText('No configurado')).toHaveCount(0);
     // Y sigue sin poder liquidarse: falta un costo que existe. Se nombra en el aviso.
     await expect(fila.getByRole('button', { name: 'Liquidar' })).toBeDisabled();
@@ -369,7 +411,8 @@ test.describe('Finanzas — Reporte de costos', () => {
     await page.goto('/finanzas/reporte-costos');
 
     const fila = page.getByRole('row').filter({ hasText: 'FLIT-2006' });
-    await expect(fila.getByText('Sin pagar')).toBeVisible();
+    // Desde la HU #12434 el motivo se repite en «Total reintegro» (RN-02): el concepto es el primero.
+    await expect(fila.getByText('Sin pagar').first()).toBeVisible();
     await expect(fila.getByRole('button', { name: 'Liquidar' })).toBeDisabled();
     await expect(fila.getByText('Falta: SOAT')).toBeVisible();
   });
@@ -1235,5 +1278,439 @@ test.describe('Reporte de costos — estado de facturación electrónica (HU #11
     // Lo que no ve es ninguna acción que emita o reenvíe. Auditar es mirar.
     await expect(page.getByRole('button', { name: 'Reenviar correo' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: /Enviar .* a facturación electrónica/ })).toHaveCount(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HU #12434 (Feature #12404) — secciones, titular, organismo, periodo y vista consolidada.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type Pagina = import('@playwright/test').Page;
+
+/** Lo que el API devuelve para el consolidado (HU #12433): las MISMAS sumas del detalle, plegadas. */
+const CONSOLIDADO = {
+  periodo: 'mes',
+  items: [
+    {
+      clienteClave: 'c1', clienteNombre: 'ACME SAS', periodo: '2026-09', tramites: 41,
+      soat: 1800000, impuesto: 480000, derechoTramite: 320000, gmf: 10400, logistica: 60000,
+      tramiteDigital: 600000, totalReintegro: 2670400, totalServicio: 600000, total: 3270400, filasIncompletas: 0,
+    },
+    {
+      clienteClave: 'n900222', clienteNombre: 'Logicargo', periodo: null, tramites: 4,
+      soat: 0, impuesto: 0, derechoTramite: 0, gmf: 0, logistica: 0,
+      tramiteDigital: 0, totalReintegro: 0, totalServicio: 0, total: 0, filasIncompletas: 3,
+    },
+  ],
+  totales: {
+    soat: 1800000, impuesto: 480000, derechoTramite: 320000, gmf: 10400, logistica: 60000,
+    tramiteDigital: 600000, totalReintegro: 2670400, totalServicio: 600000, total: 3270400, filasIncompletas: 3,
+  },
+};
+
+/**
+ * El reporte completo con las peticiones ANOTADAS: `detalle` y `consolidado` guardan las URL en el
+ * orden en que salieron, que es sobre lo que afirman los AC3 a AC7. El consolidado responde con el
+ * `periodo` que se le pidió, como hace el API.
+ */
+async function mockSecciones(page: Pagina, opciones: { consolidadoVacio?: boolean } = {}) {
+  const detalle: string[] = [];
+  const consolidado: string[] = [];
+  await mockFacetas(page, ['Aprobado', 'Entregado']);
+  await mockFacturacion(page);
+  await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) => {
+    detalle.push(route.request().url());
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      ...REPORTE, items: [FILA_ESTIMADA, FILA_BLOQUEADA, FILA_JURIDICA], total: 3,
+    }) });
+  });
+  await page.route(/\/api\/finanzas\/reporte-costos\/consolidado\?/, (route) => {
+    const url = route.request().url();
+    consolidado.push(url);
+    const periodo = new URL(url).searchParams.get('periodo') ?? 'mes';
+    const items = opciones.consolidadoVacio ? [] : CONSOLIDADO.items.map((i) => ({
+      ...i, periodo: i.periodo === null ? null : periodo === 'trimestre' ? '2026-T3' : i.periodo,
+    }));
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      ...CONSOLIDADO, periodo, items,
+    }) });
+  });
+  return { detalle, consolidado };
+}
+
+/** La query de una URL sin los parámetros que se le indiquen, para comparar dos peticiones. */
+const querySin = (url: string, ...claves: string[]) => {
+  const p = new URL(url).searchParams;
+  for (const k of claves) p.delete(k);
+  return p.toString();
+};
+
+/**
+ * Bajo qué GRUPO cae cada columna, leído de la cabecera real: la primera fila del `thead` lleva
+ * los `th[scope=colgroup]` con su `colSpan`, y la segunda los `th[scope=col]` en orden. Se cruzan
+ * por posición, que es lo que un lector de pantalla también hace.
+ */
+async function columnasPorGrupo(page: Pagina): Promise<Record<string, string[]>> {
+  const tabla = page.getByRole('table').first();
+  await expect(tabla.locator('th[scope="colgroup"]').first()).toBeVisible();
+  const grupos = await tabla.locator('thead tr').first().locator('th[scope="colgroup"]').evaluateAll(
+    (ths) => ths.map((th) => ({ titulo: th.textContent?.trim() ?? '', n: Number(th.getAttribute('colspan') ?? 1) })));
+  const columnas = await tabla.locator('thead tr').nth(1).locator('th[scope="col"]').allTextContents();
+  const resultado: Record<string, string[]> = {};
+  let i = 0;
+  for (const g of grupos) {
+    // El título del grupo lleva detrás el contador y el botón («Identificación · 9 de 9Compactar»).
+    const nombre = g.titulo.split('·')[0].replace(/Compactar|Mostrar todas/g, '').trim();
+    resultado[nombre] = columnas.slice(i, i + g.n).map((c) => c.trim());
+    i += g.n;
+  }
+  return resultado;
+}
+
+test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434)', () => {
+  test.beforeEach(async ({ page }) => {
+    // AC4: «el mes en curso» es septiembre de 2026 para todos los casos de este bloque.
+    await page.clock.setFixedTime(new Date('2026-09-15T12:00:00Z'));
+  });
+
+  test('AC1 — tres grupos rotulados y cada columna bajo el suyo', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockSecciones(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    const grupos = await columnasPorGrupo(page);
+    expect(Object.keys(grupos)).toEqual(['Identificación', 'Datos del trámite', 'Valores']);
+    // Pertenencia por rol de columna, no solo presencia: «Trámite» (pesos) bajo Valores y «OT»
+    // bajo Datos. Si se cruzaran, este aserto cae.
+    expect(grupos['Identificación']).toEqual(
+      ['Empresa', 'Flit', 'Placa', 'VIN', 'Nombres', 'Apellidos', 'Razón social', 'Tipo', 'Documento']);
+    expect(grupos['Datos del trámite']).toEqual(
+      ['Tipo trámite', 'Marca', 'Línea', 'OT', 'Estado', 'Fechas', 'Mes', 'Trimestre', 'Factura DIAN']);
+    expect(grupos['Valores']).toEqual(
+      ['SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística', 'Total reintegro', 'Trámite digital', 'Servicio', 'Total', 'Liquidación']);
+  });
+
+  test('AC1 — persona natural y jurídica, con y sin organismo, con y sin aprobación', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockSecciones(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    const grupos = await columnasPorGrupo(page);
+    const todas = [...grupos['Identificación'], ...grupos['Datos del trámite'], ...grupos['Valores']];
+    // La casilla de selección va delante de las columnas para quien puede liquidar.
+    const celda = (fila: import('@playwright/test').Locator, titulo: string) =>
+      fila.getByRole('cell').nth(todas.indexOf(titulo) + 1);
+
+    const natural = filaDe(page, 'FLIT-2001');
+    await expect(celda(natural, 'Nombres')).toHaveText('Ana María');
+    await expect(celda(natural, 'Apellidos')).toHaveText('Pérez Gómez');
+    await expect(celda(natural, 'Razón social')).toHaveText('');
+    await expect(celda(natural, 'Tipo')).toHaveText('CC');
+    await expect(celda(natural, 'Documento')).toHaveText('CC 1020304050');
+    await expect(celda(natural, 'OT')).toHaveText('Envigado');
+    await expect(celda(natural, 'Mes')).toHaveText('2026-07');
+    await expect(celda(natural, 'Trimestre')).toHaveText('2026-T3');
+
+    const juridica = filaDe(page, 'FLIT-2008J');
+    await expect(celda(juridica, 'Nombres')).toHaveText('');
+    await expect(celda(juridica, 'Razón social')).toHaveText('Transportes Andes SAS');
+    await expect(celda(juridica, 'Documento')).toHaveText('NIT 900123456');
+    await expect(celda(juridica, 'OT')).toHaveText('');
+
+    const sinAprobar = filaDe(page, 'FLIT-2002');
+    await expect(celda(sinAprobar, 'Mes')).toHaveText('');
+    await expect(celda(sinAprobar, 'Trimestre')).toHaveText('');
+  });
+
+  test('AC1 — compactar oculta columnas de la sección y se recuerda; arranca ampliada', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockSecciones(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByRole('columnheader', { name: 'VIN' })).toBeVisible();
+
+    const compactar = page.getByRole('button', { name: 'Compactar' }).first();
+    await expect(compactar).toHaveAttribute('aria-expanded', 'true');
+    await compactar.click();
+    await expect(page.getByRole('columnheader', { name: 'VIN' })).toHaveCount(0);
+    await expect(page.getByRole('columnheader', { name: 'Flit' })).toBeVisible();
+    expect((await columnasPorGrupo(page))['Identificación']).toEqual(['Empresa', 'Flit', 'Placa']);
+    // Valores no se compacta: es lo que se vino a ver.
+    await expect(page.getByRole('button', { name: /Compactar|Mostrar todas/ })).toHaveCount(2);
+
+    await page.reload();
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: 'VIN' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Mostrar todas' }).click();
+    await expect(page.getByRole('columnheader', { name: 'VIN' })).toBeVisible();
+  });
+
+  test('AC2 — reintegro y servicio se pintan tal cual llegan, en la fila y en los totales', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const detalle: string[] = [];
+    await mockFacetas(page, ['Aprobado']);
+    await mockFacturacion(page);
+    await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) => {
+      detalle.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        ...REPORTE, total: 2,
+        // `totalReintegro: 1` NO cuadra con los conceptos a propósito: si la pantalla sumara en el
+        // navegador, aquí saldría $ 668.460 y no $ 1.
+        items: [FILA_ESTIMADA, { ...FILA_BLOQUEADA, totalReintegro: 1 }],
+      }) });
+    });
+    await page.goto('/finanzas/reporte-costos');
+
+    const grupos = await columnasPorGrupo(page);
+    const todas = [...grupos['Identificación'], ...grupos['Datos del trámite'], ...grupos['Valores']];
+    const celda = (id: string, titulo: string) => filaDe(page, id).getByRole('cell').nth(todas.indexOf(titulo) + 1);
+
+    await expect(celda('FLIT-2001', 'Total reintegro')).toHaveText('$ 668.460');
+    await expect(celda('FLIT-2001', 'Servicio')).toHaveText('$ 200.000');
+    await expect(celda('FLIT-2001', 'Total')).toHaveText('$ 868.460');
+    await expect(celda('FLIT-2002', 'Total reintegro')).toHaveText('$ 1');
+    // Servicio null con «Trámite digital» sin tarifa → el motivo, nunca $ 0.
+    await expect(celda('FLIT-2002', 'Servicio')).toHaveText('No configurado');
+    await expect(celda('FLIT-2002', 'Servicio')).not.toContainText('$');
+    await expect(filaDe(page, 'FLIT-2002').getByText('Falta: Trámite digital')).toBeVisible();
+
+    // El pie: totales del universo filtrado, con los dos subtotales junto a los conceptos.
+    const pie = page.getByRole('table').first().locator('tfoot tr');
+    await expect(pie.getByRole('cell').nth(todas.indexOf('Total reintegro') + 1)).toHaveText('$ 2.670.400');
+    await expect(pie.getByRole('cell').nth(todas.indexOf('Servicio') + 1)).toHaveText('$ 600.000');
+    await expect(pie.getByRole('cell').nth(todas.indexOf('SOAT') + 1)).toHaveText('$ 1.800.000');
+  });
+
+  test('AC3 — el filtro OT manda los códigos, se lee por nombre y viaja con los demás', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const { detalle } = await mockSecciones(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect.poll(() => detalle.length).toBeGreaterThan(0);
+
+    const ot = page.locator('summary').filter({ hasText: 'OT' });
+    await expect(ot).toContainText('Todos');
+    await ot.click();
+    // Solo lo que ofrece la faceta, con su nombre: el código no se enseña.
+    await expect(page.getByRole('checkbox', { name: 'Envigado' })).toBeVisible();
+    await expect(page.getByRole('checkbox', { name: 'Medellín' })).toBeVisible();
+    await expect(page.getByRole('checkbox', { name: '05266' })).toHaveCount(0);
+
+    await page.getByRole('checkbox', { name: 'Envigado' }).check();
+    await expect.poll(() => detalle.at(-1) ?? '').toContain('organismos=05266');
+    await expect(ot).toContainText('OT');
+    await expect(ot).toContainText('Envigado');
+
+    await page.getByRole('checkbox', { name: 'Medellín' }).check();
+    await expect.poll(() => detalle.at(-1) ?? '').toContain('organismos=05266%2C05001');
+    await expect(ot).toContainText('2 organismos');
+
+    // Combinado con la empresa en la MISMA petición.
+    await page.getByLabel('Empresa', { exact: true }).selectOption({ label: 'ACME SAS' });
+    await expect.poll(() => detalle.at(-1) ?? '').toContain('empresas=');
+    const ultima = detalle.at(-1) ?? '';
+    expect(ultima).toContain('organismos=05266%2C05001');
+    expect(ultima).toContain('estados=Aprobado');
+    expect(ultima).toContain('aprobadoDesde=2026-09-01');
+  });
+
+  test('AC4 — al entrar, el selector dice el mes en curso y la primera petición ya lo lleva', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const { detalle } = await mockSecciones(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    await expect.poll(() => detalle[0] ?? '').toContain('estados=Aprobado');
+    expect(detalle[0]).toContain('aprobadoDesde=2026-09-01');
+    expect(detalle[0]).toContain('aprobadoHasta=2026-09-30');
+    await expect(page.getByRole('status').filter({ hasText: 'Septiembre 2026' })).toBeVisible();
+    await expect(page.getByLabel('Mes', { exact: true })).toHaveValue('8');
+    await expect(page.getByLabel('Año', { exact: true })).toHaveValue('2026');
+    await expect(page.locator('summary').filter({ hasText: 'Aprobación' })).toContainText('1 sep 2026');
+    await expect(page.locator('summary').filter({ hasText: 'Aprobación' })).toContainText('30 sep 2026');
+  });
+
+  test('AC5 — trimestre, rango a mano («Personalizado») y vuelta a un mes', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const { detalle } = await mockSecciones(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect.poll(() => detalle.length).toBeGreaterThan(0);
+
+    // Trimestre → el que contiene septiembre: T3, cerrado el 30 de septiembre (no el 30 de agosto
+    // ni el 1 de octubre).
+    await page.getByRole('button', { name: 'Trimestre' }).click();
+    await expect.poll(() => detalle.at(-1) ?? '').toContain('aprobadoDesde=2026-07-01');
+    expect(detalle.at(-1)).toContain('aprobadoHasta=2026-09-30');
+    await expect(page.getByRole('status').filter({ hasText: 'T3 2026' })).toBeVisible();
+    await expect(page.getByLabel('Trimestre', { exact: true })).toHaveValue('2');
+
+    // A mano → «Personalizado», y el selector NO lo pisa aunque la pantalla se repinte.
+    await page.locator('summary').filter({ hasText: 'Aprobación' }).click();
+    await page.getByRole('button', { name: 'Hoy' }).click();
+    await expect.poll(() => detalle.at(-1) ?? '').toContain('aprobadoDesde=2026-09-15');
+    await expect(page.getByRole('status').filter({ hasText: 'Personalizado' })).toBeVisible();
+    // Un rerender ajeno al periodo: cambiar la etapa. El rango manual sigue.
+    await page.getByRole('button', { name: 'Incompletos' }).click();
+    await expect.poll(() => detalle.at(-1) ?? '').toContain('etapa=incompleto');
+    expect(detalle.at(-1)).toContain('aprobadoDesde=2026-09-15');
+    expect(detalle.at(-1)).toContain('aprobadoHasta=2026-09-15');
+    await expect(page.getByRole('status').filter({ hasText: 'Personalizado' })).toBeVisible();
+
+    // Mes → Octubre 2026.
+    await page.getByRole('button', { name: 'Mes', exact: true }).click();
+    await page.getByLabel('Mes', { exact: true }).selectOption('9');
+    await expect.poll(() => detalle.at(-1) ?? '').toContain('aprobadoDesde=2026-10-01');
+    expect(detalle.at(-1)).toContain('aprobadoHasta=2026-10-31');
+    await expect(page.getByRole('status').filter({ hasText: 'Octubre 2026' })).toBeVisible();
+  });
+
+  test('AC6 — el consolidado pide los mismos parámetros del detalle más el periodo', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const { detalle, consolidado } = await mockSecciones(page);
+    await page.goto('/finanzas/reporte-costos');
+    await page.getByLabel('Empresa', { exact: true }).selectOption({ label: 'ACME SAS' });
+    await expect.poll(() => detalle.at(-1) ?? '').toContain('empresas=');
+    // Nada del consolidado hasta conmutar: se carga solo cuando se mira.
+    expect(consolidado).toHaveLength(0);
+
+    await page.getByRole('tablist', { name: 'Vista del reporte' }).getByRole('button', { name: 'Consolidado' }).click();
+    await expect.poll(() => consolidado.length).toBe(1);
+    expect(new URL(consolidado[0]).searchParams.get('periodo')).toBe('mes');
+    // La MISMA query que el detalle, salvo `page` (del detalle) y `periodo` (del consolidado).
+    expect(querySin(consolidado[0], 'periodo')).toBe(querySin(detalle.at(-1)!, 'page'));
+    expect(page.url()).toContain('vista=consolidado');
+
+    // Una fila por cliente y periodo, con sus columnas y el pie.
+    const tabla = page.getByRole('table');
+    for (const h of ['Cliente', 'Periodo', 'Trámites', 'SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística',
+      'Total reintegro', 'Trámite digital', 'Servicio', 'Total', 'Incompletos']) {
+      await expect(tabla.getByRole('columnheader', { name: h, exact: true })).toBeVisible();
+    }
+    const acme = page.getByRole('row').filter({ hasText: 'ACME SAS' });
+    await expect(acme).toContainText('2026-09');
+    await expect(acme).toContainText('41');
+    await expect(acme).toContainText('$ 3.270.400');
+    // El grupo con incompletas lo señala con el número, no con un color.
+    const logicargo = page.getByRole('row').filter({ hasText: 'Logicargo' });
+    await expect(logicargo).toContainText('Sin aprobar');
+    await expect(logicargo.getByLabel('3 trámites con conceptos sin resolver')).toBeVisible();
+    await expect(tabla.locator('tfoot')).toContainText('$ 2.670.400');
+    // Sin nada que operar: ni casillas ni acciones.
+    await expect(tabla.getByRole('checkbox')).toHaveCount(0);
+    await expect(tabla.getByRole('button')).toHaveCount(0);
+
+    // Cambiar a trimestre RECARGA el consolidado con periodo=trimestre.
+    await page.getByRole('button', { name: 'Trimestre' }).click();
+    await expect.poll(() => consolidado.length).toBe(2);
+    expect(new URL(consolidado[1]).searchParams.get('periodo')).toBe('trimestre');
+    expect(consolidado[1]).toContain('aprobadoDesde=2026-07-01');
+    await expect(page.getByRole('row').filter({ hasText: 'ACME SAS' })).toContainText('2026-T3');
+
+    // De vuelta al detalle con los mismos filtros.
+    await page.getByRole('tablist', { name: 'Vista del reporte' }).getByRole('button', { name: 'Detalle' }).click();
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+    await expect(page.getByLabel('Empresa', { exact: true })).toHaveValue('900111,9001112');
+    expect(page.url()).not.toContain('vista=consolidado');
+  });
+
+  test('AC6 — el consolidado vacío lo dice y ofrece limpiar; ?vista=consolidado abre directo', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const { consolidado } = await mockSecciones(page, { consolidadoVacio: true });
+    await page.goto('/finanzas/reporte-costos?vista=consolidado');
+    // `>= 1` y no `1`: en desarrollo StrictMode monta los efectos dos veces y la carga inicial
+    // puede salir duplicada; lo que importa es que se pidió y qué se pintó.
+    await expect.poll(() => consolidado.length).toBeGreaterThanOrEqual(1);
+    await expect(page.getByText('No hay trámites que coincidan con los filtros.')).toBeVisible();
+    await expect(page.getByRole('table')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toHaveCount(2);
+  });
+
+  test('AC6 — si el consolidado falla se dice, y «Reintentar» repite la petición', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockSecciones(page);
+    let intentos = 0;
+    await page.route(/\/api\/finanzas\/reporte-costos\/consolidado\?/, (route) => {
+      intentos += 1;
+      return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'se cayó la base' }) });
+    });
+    await page.goto('/finanzas/reporte-costos?vista=consolidado');
+    await expect(page.getByRole('alert')).toContainText('No se pudo calcular el consolidado');
+    const antes = intentos;
+    await page.getByRole('button', { name: 'Reintentar' }).click();
+    await expect.poll(() => intentos).toBe(antes + 1);
+  });
+
+  test('AC7 — «Exportar consolidado» abre el CSV del consolidado con los mismos filtros y periodo', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const { consolidado } = await mockSecciones(page);
+    const exportadas: string[] = [];
+    await page.context().route(/\/api\/finanzas\/reporte-costos\/(consolidado\/)?export/, (route) => {
+      exportadas.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'text/csv', body: 'relleno\r\n' });
+    });
+    await page.goto('/finanzas/reporte-costos?vista=consolidado');
+    await expect(page.getByRole('row').filter({ hasText: 'ACME SAS' })).toBeVisible();
+    await page.locator('summary').filter({ hasText: 'OT' }).click();
+    await page.getByRole('checkbox', { name: 'Envigado' }).check();
+    await expect.poll(() => consolidado.at(-1) ?? '').toContain('organismos=05266');
+    await page.getByRole('button', { name: 'Trimestre' }).click();
+    await expect.poll(() => consolidado.at(-1) ?? '').toContain('periodo=trimestre');
+
+    // En el consolidado el botón es «Exportar consolidado», no «Exportar CSV».
+    await expect(page.getByRole('button', { name: 'Exportar CSV' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Exportar consolidado' }).click();
+    await expect.poll(() => exportadas.length).toBe(1);
+    expect(exportadas[0]).toContain('/api/finanzas/reporte-costos/consolidado/export?');
+    expect(exportadas[0]).toContain('periodo=trimestre');
+    expect(exportadas[0]).toContain('organismos=05266');
+    expect(querySin(exportadas[0])).toBe(querySin(consolidado.at(-1)!));
+  });
+
+  test('AC7 — «Exportar CSV» del detalle lleva el filtro por organismo', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const { detalle } = await mockSecciones(page);
+    const exportadas: string[] = [];
+    await page.context().route(/\/api\/finanzas\/reporte-costos\/export/, (route) => {
+      exportadas.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'text/csv', body: 'relleno\r\n' });
+    });
+    await page.goto('/finanzas/reporte-costos');
+    await page.locator('summary').filter({ hasText: 'OT' }).click();
+    await page.getByRole('checkbox', { name: 'Medellín' }).check();
+    await expect.poll(() => detalle.at(-1) ?? '').toContain('organismos=05001');
+
+    await page.getByRole('button', { name: 'Exportar CSV' }).click();
+    await expect.poll(() => exportadas.length).toBe(1);
+    expect(exportadas[0]).toContain('/api/finanzas/reporte-costos/export?');
+    expect(exportadas[0]).not.toContain('/consolidado/');
+    expect(exportadas[0]).toContain('organismos=05001');
+    expect(exportadas[0]).toContain('aprobadoDesde=2026-09-01');
+    expect(querySin(exportadas[0])).toBe(querySin(detalle.at(-1)!, 'page'));
+  });
+
+  test('AC8 — auditor ve las secciones, el titular, la OT, el periodo y el consolidado; sigue sin acciones', async ({ page }) => {
+    await loginAs(page, AUDITOR_USER);
+    const { consolidado } = await mockSecciones(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    const grupos = await columnasPorGrupo(page);
+    expect(Object.keys(grupos)).toEqual(['Identificación', 'Datos del trámite', 'Valores']);
+    expect(grupos['Identificación']).toContain('Documento');
+    expect(grupos['Datos del trámite']).toContain('OT');
+    await expect(filaDe(page, 'FLIT-2001')).toContainText('CC 1020304050');
+    await expect(page.getByRole('status').filter({ hasText: 'Septiembre 2026' })).toBeVisible();
+    await expect(page.locator('summary').filter({ hasText: 'OT' })).toBeVisible();
+
+    // Sin casillas ni acciones, como hoy.
+    const tabla = page.getByRole('table');
+    await expect(tabla.getByRole('checkbox')).toHaveCount(0);
+    await expect(tabla.getByRole('button', { name: 'Liquidar' })).toHaveCount(0);
+    await expect(tabla.getByRole('button', { name: 'Facturar' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Enviar .* a facturación electrónica/ })).toHaveCount(0);
+
+    // Y conmuta al consolidado, que no está detrás de ninguna página nueva: ve filas y exporta.
+    await page.getByRole('tablist', { name: 'Vista del reporte' }).getByRole('button', { name: 'Consolidado' }).click();
+    await expect.poll(() => consolidado.length).toBe(1);
+    await expect(page.getByRole('row').filter({ hasText: 'ACME SAS' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Exportar consolidado' })).toBeVisible();
   });
 });
