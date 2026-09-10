@@ -1,10 +1,10 @@
 import type { PageSlug } from '../../lib/permissions';
 
-// Catálogo de 18 fichas de Ayuda FLITO (HU #11893). Fuente de verdad de QUÉ puede aparecer
+// Catálogo de 19 fichas de Ayuda FLITO (HU #11893; la 19.ª, Roles y permisos, es de la HU #12085). Fuente de verdad de QUÉ puede aparecer
 // en el índice. El orden de cada grupo es el de NAV_ITEMS cuando el ítem existe; si no hay
 // ítem de menú (Compuerta, Tablero FLITO, Credenciales), al final del grupo.
 //
-// Las 18 están publicadas (Gestión #11894; Finanzas y Administración #11895). Ausencia de
+// Las 19 están publicadas (Gestión #11894; Finanzas y Administración #11895). Ausencia de
 // archivo = «Ficha pendiente», no error.
 //
 // `siigo_credenciales` NO es un PageSlug en este worktree (lo añade otra HU). En el catálogo
@@ -32,7 +32,8 @@ export type ClaveAyuda =
   | 'finanzas_reporte_costos'
   | 'siigo_parametrizacion'
   | 'siigo_operacion'
-  | 'siigo_credenciales';
+  | 'siigo_credenciales'
+  | 'roles_permisos';
 
 export interface EntradaAyuda {
   clave: ClaveAyuda;
@@ -77,4 +78,5 @@ export const CATALOGO_AYUDA: readonly EntradaAyuda[] = [
   { clave: 'siigo_parametrizacion', grupo: 'finanzas', etiqueta: 'Facturación electrónica · Parametrización', resumen: 'Catálogos, mapeo de conceptos y emisión.', to: '/siigo/parametrizacion', permiso: 'siigo_parametrizacion' },
   { clave: 'siigo_operacion', grupo: 'finanzas', etiqueta: 'Facturación electrónica · Operación', resumen: 'Bandeja de facturas y acciones del día a día.', to: '/siigo/operacion', permiso: 'siigo_operacion' },
   { clave: 'siigo_credenciales', grupo: 'administracion', etiqueta: 'Facturación electrónica · Credenciales', resumen: 'Credenciales de la integración. Solo administración.' },
+  { clave: 'roles_permisos', grupo: 'administracion', etiqueta: 'Roles y permisos', resumen: 'Qué puede hacer cada rol dentro de FLITO.', to: '/roles-permisos', permiso: 'roles_permisos' },
 ];

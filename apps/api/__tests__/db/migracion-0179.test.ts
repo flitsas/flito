@@ -102,11 +102,11 @@ describe('0179 — el archivo dice lo mismo que schema.ts (análisis estático)'
     expect((SIN_COMENTARIOS.match(/ON CONFLICT[\s\S]{0,60}DO NOTHING/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 
-  it('el seed pegado en la migración, más la 0181, los retiros de la 0182, la página de la 0184, la 0185 y la 0186, es lo que el generador produce HOY', () => {
+  it('el seed pegado en la migración, más la 0181, los retiros de la 0182, la página de la 0184, la 0185, la 0186 y la página de la 0187, es lo que el generador produce HOY', () => {
     // Esta es la comprobación que impide que el código y el seed se separen: si alguien amplía la foto
     // (`inventario.generado.ts`) o el catálogo y no escribe la migración, aquí se ve. Y si el generador
     // se rompe, también. Desde la HU #12083 la foto está congelada y el seed vive en VARIOS archivos
-    // (0179 + 0181 + 0182 + 0184 + 0185, HU #12171, + 0186, HU #12084); desde la HU #12373 ya no es solo aditivo (la 0182 retira `borrar` y quita
+    // (0179 + 0181 + 0182 + 0184 + 0185, HU #12171, + 0186, HU #12084, + 0187, HU #12085); desde la HU #12373 ya no es solo aditivo (la 0182 retira `borrar` y quita
     // al auditor de tarifas), así que se comparan FUNCIONES y REPARTO por separado, PLEGADOS con los
     // helpers (INSERT suma, DELETE resta), y no como líneas crudas: una tupla de un DELETE leída como
     // siembra daría verde falso.
@@ -189,10 +189,11 @@ describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idemp
     }
   });
 
-  it('44 funciones de tipo `pagina` y ninguna es `flito_ayuda` (AC2-bis)', async () => {
-    // 43 → 44 desde la HU #12375 (0184 siembra `pagina.flito_tarifas`): la base ya migrada las tiene todas.
+  it('45 funciones de tipo `pagina` y ninguna es `flito_ayuda` (AC2-bis)', async () => {
+    // 43 → 44 desde la HU #12375 (0184 siembra `pagina.flito_tarifas`); 44 → 45 desde la HU #12085 (0187
+    // siembra `pagina.roles_permisos`): la base ya migrada las tiene todas.
     const [{ n }] = await sql`SELECT count(*)::int AS n FROM permisos_funciones WHERE tipo = 'pagina'`;
-    expect(n).toBe(44);
+    expect(n).toBe(45);
     const [{ hay }] = await sql`
       SELECT count(*)::int AS hay FROM permisos_funciones WHERE codigo = 'pagina.flito_ayuda'`;
     expect(hay).toBe(0);
@@ -227,12 +228,12 @@ describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idemp
     }
   });
 
-  it('AC4 — `admin` tiene las 44 páginas marcadas UNA A UNA (lo que hace neutro retirar los atajos)', async () => {
+  it('AC4 — `admin` tiene las 45 páginas marcadas UNA A UNA (lo que hace neutro retirar los atajos)', async () => {
     const suyas = (await sql`
       SELECT funcion_codigo FROM permisos_rol_funcion
        WHERE rol_codigo = 'admin' AND funcion_codigo LIKE 'pagina.%'
        ORDER BY funcion_codigo`).map((f) => f.funcion_codigo as string);
-    expect(suyas).toHaveLength(44);
+    expect(suyas).toHaveLength(45);
     const todas = (await sql`
       SELECT codigo FROM permisos_funciones WHERE tipo = 'pagina' ORDER BY codigo`)
       .map((f) => f.codigo as string);
