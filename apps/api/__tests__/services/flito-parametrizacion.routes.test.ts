@@ -345,6 +345,27 @@ describe('tarifas — vista por cliente y capacidades por motor (AC12, AC16)', (
   });
 });
 
+describe('tarifas — cuadro compat de la ventana de Clientes (AC17)', () => {
+  it('GET /tarifas?companiaId con rol autorizado → 200 con las vigencias ABIERTAS en la forma que la modal entiende', async () => {
+    selectMock.mockReturnValueOnce(chain([
+      filaTarifa({ id: 'v-1', tipoTramite: 'MATRICULA', valor: '270000.00' }),
+      filaTarifa({ id: 'v-lg', concepto: 'logistica', tipoTramite: null, valor: '45000.00' }),
+    ]));
+    const app = await buildApp();
+    const r = await request(app).get(`${BASE}/tarifas?companiaId=7`).set('Authorization', await auth('financiera'));
+    expect(r.status).toBe(200);
+    expect(r.body).toHaveLength(2);
+    // Lo que `ModalTarifas`/`FormTarifa` leen: id (de la vigencia, para el PATCH), tipoTramite, valor, activo.
+    expect(r.body[0]).toMatchObject({ id: 'v-1', companiaId: 7, companiaNombre: 'ACME', concepto: 'tramite_digital', tipoTramite: 'MATRICULA', valor: 270000, activo: true });
+    expect(r.body[1]).toMatchObject({ id: 'v-lg', concepto: 'logistica', tipoTramite: null, valor: 45000, activo: true });
+    for (const t of r.body) {
+      expect(typeof t.actualizadoEn).toBe('string');
+      expect(t.vigenteDesde).toBe(AHORA_ISO);
+    }
+    expect(intentoDenegadoMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('tarifas — historial (AC13, AC14, AC15)', () => {
   it('admin → 200 con las vigencias; un rango con día inválido → 400 nombrando el campo', async () => {
     selectMock.mockReturnValueOnce(chain([compania7])).mockReturnValueOnce(chain([]));

@@ -10,7 +10,9 @@
 process.env.TZ = 'UTC';
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { SQL } from 'drizzle-orm';
 import { chain, chainReject } from '../helpers/db.js';
+import { renderizar } from '../helpers/sql-ligado.js';
 import { tipoTramiteTarifaDe, valorTarifaValido } from '@operaciones/shared-types';
 
 const selectMock = vi.fn();
@@ -39,6 +41,18 @@ function grabando(rows: unknown[], sobre: { values?: unknown; set?: unknown }) {
   const c = chain(rows) as unknown as Record<string, (a: unknown) => unknown>;
   c.values = (a: unknown) => { sobre.values = a; return c; };
   c.set = (a: unknown) => { sobre.set = a; return c; };
+  return c;
+}
+
+/**
+ * Un chain que GRABA los argumentos de `where()` y `orderBy()`. El mock del repo es passthrough en
+ * los dos (memoria: «el mock ignora orderBy»), así que el orden y el rango solo se prueban leyendo
+ * el SQL renderizado de lo que el servicio le pasó.
+ */
+function espiando(rows: unknown[], sobre: { where?: SQL; orderBy?: SQL[] }) {
+  const c = chain(rows) as unknown as Record<string, (...a: unknown[]) => unknown>;
+  c.where = (a: unknown) => { sobre.where = a as SQL; return c; };
+  c.orderBy = (...a: unknown[]) => { sobre.orderBy = a as SQL[]; return c; };
   return c;
 }
 
@@ -336,5 +350,59 @@ describe('historial — filtros por llave y por rango de días (AC13, AC14)', ()
   it('compañía inexistente → no encontrada', async () => {
     selectMock.mockReturnValueOnce(chain([]));
     await expect(historial(999)).rejects.toBeInstanceOf(TarifaNoEncontradaError);
+  });
+
+  const VD = '"flito_tarifas_vigencias"."vigente_desde"';
+
+  it('ordena del más reciente al más antiguo dentro de cada llave: el último criterio es `vigente_desde desc` (AC13)', async () => {
+    const q: { where?: SQL; orderBy?: SQL[] } = {};
+    selectMock.mockReturnValueOnce(chain([COMPANIA])).mockReturnValueOnce(espiando([], q));
+    await historial(7);
+    const criterios = q.orderBy!.map((o) => renderizar(o).sql);
+    expect(criterios).toEqual([
+      '"flito_tarifas_vigencias"."concepto" asc',
+      '"flito_tarifas_vigencias"."tipo_tramite" asc',
+      `${VD} desc`,
+    ]);
+    expect(criterios[criterios.length - 1]).toBe(`${VD} desc`);
+  });
+
+  it('con rango, el WHERE acota `vigente_desde` a los días de Colombia [desde, hasta + 1 día) y con llave filtra concepto y tipo (AC14)', async () => {
+    const q: { where?: SQL; orderBy?: SQL[] } = {};
+    selectMock.mockReturnValueOnce(chain([COMPANIA])).mockReturnValueOnce(espiando([], q));
+    await historial(7, { concepto: 'tramite_digital', tipoTramite: 'TRASPASO', rango: { desde: '2026-08-01', hasta: '2026-08-31' } });
+    const { sql, params } = renderizar(q.where!);
+    // La forma exacta de createdInRangeCondition: día calendario de Colombia, límite superior exclusivo.
+    const desde = new RegExp(`${VD.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} >= \\(\\$(\\d+)::date AT TIME ZONE \\$(\\d+)\\)`).exec(sql);
+    const hasta = new RegExp(`${VD.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} < \\(\\(\\$(\\d+)::date \\+ interval '1 day'\\) AT TIME ZONE \\$(\\d+)\\)`).exec(sql);
+    expect(desde, sql).not.toBeNull();
+    expect(hasta, sql).not.toBeNull();
+    expect([params[Number(desde![1]) - 1], params[Number(desde![2]) - 1]]).toEqual(['2026-08-01', 'America/Bogota']);
+    expect([params[Number(hasta![1]) - 1], params[Number(hasta![2]) - 1]]).toEqual(['2026-08-31', 'America/Bogota']);
+    // Y la llave: compañía, concepto y tipo, cada uno ligado a su valor.
+    const ligado = (col: string) => params[Number(new RegExp(`"${col}" = \\$(\\d+)`).exec(sql)![1]) - 1];
+    expect(ligado('compania_id')).toBe(7);
+    expect(ligado('concepto')).toBe('tramite_digital');
+    expect(ligado('tipo_tramite')).toBe('TRASPASO');
+  });
+
+  it('sin rango ni llave, el WHERE solo acota la compañía: nada de fechas ni de concepto', async () => {
+    const q: { where?: SQL; orderBy?: SQL[] } = {};
+    selectMock.mockReturnValueOnce(chain([COMPANIA])).mockReturnValueOnce(espiando([], q));
+    await historial(7);
+    const { sql, params } = renderizar(q.where!);
+    expect(sql).toBe('"flito_tarifas_vigencias"."compania_id" = $1');
+    expect(params).toEqual([7]);
+    expect(sql).not.toMatch(/vigente_desde|AT TIME ZONE|concepto|tipo_tramite/);
+  });
+
+  it('logística ignora el tipo: filtra solo por concepto', async () => {
+    const q: { where?: SQL; orderBy?: SQL[] } = {};
+    selectMock.mockReturnValueOnce(chain([COMPANIA])).mockReturnValueOnce(espiando([], q));
+    await historial(7, { concepto: 'logistica', tipoTramite: 'TRASPASO' });
+    const { sql, params } = renderizar(q.where!);
+    expect(sql).toMatch(/"concepto" = \$2/);
+    expect(params).toEqual([7, 'logistica']);
+    expect(sql).not.toMatch(/tipo_tramite/);
   });
 });
