@@ -34,10 +34,11 @@ const paginas = catalogo.filter((f) => f.tipo === 'pagina');
 const operaciones = catalogo.filter((f) => f.tipo === 'operacion');
 
 describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo era', () => {
-  it('`PAGE_GROUPS` trae 44 entradas para 43 slugs únicos: `transito` está dos veces', () => {
+  it('`PAGE_GROUPS` trae 45 entradas para 44 slugs únicos: `transito` está dos veces', () => {
+    // 44 → 45 / 43 → 44 desde la HU #12375: entra `flito_tarifas` en «Finanzas».
     const entradas = PAGE_GROUPS.flatMap((g) => g.pages);
-    expect(entradas).toHaveLength(44);
-    expect(new Set(entradas).size).toBe(43);
+    expect(entradas).toHaveLength(45);
+    expect(new Set(entradas).size).toBe(44);
     const repetidos = entradas.filter((s, i) => entradas.indexOf(s) !== i);
     expect(repetidos).toEqual(['transito']);
   });
@@ -63,9 +64,9 @@ describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo e
     expect(catalogo.map((f) => f.codigo)).not.toContain('pagina.flito_ayuda');
   });
 
-  it('las funciones de tipo `pagina` son 43: los 44 slugs de PAGES menos `flito_ayuda`', () => {
-    expect(Object.keys(PAGES)).toHaveLength(44);
-    expect(paginas).toHaveLength(43);
+  it('las funciones de tipo `pagina` son 44: los 45 slugs de PAGES menos `flito_ayuda`', () => {
+    expect(Object.keys(PAGES)).toHaveLength(45);
+    expect(paginas).toHaveLength(44);
     const esperados = Object.keys(PAGES).filter((s) => s !== 'flito_ayuda').sort();
     expect(paginas.map((f) => f.codigo.replace('pagina.', '')).sort()).toEqual(esperados);
   });
@@ -216,7 +217,7 @@ describe('AC4 — el reparto de partida reproduce el estado de hoy (CF-16)', () 
     // queda sin pantallas el día del merge: no es un test de forma, es el seguro de la HU.
     const suyas = porRol('admin').filter((c) => c.startsWith('pagina.')).sort();
     expect(suyas).toEqual(paginas.map((f) => f.codigo).sort());
-    expect(suyas).toHaveLength(43);
+    expect(suyas).toHaveLength(44);
   });
 
   it('`admin` tiene todas las operaciones salvo las tres del canal Cliente, que son de `cliente`', () => {

@@ -90,6 +90,10 @@ export const NAV_ITEMS: NavItem[] = [
   // recarga, ajusta y cierra el periodo—, aunque el dominio sea FLITO. «prepago» se conserva en las
   // keywords: dejó de ser el nombre visible, pero es como muchos siguen buscándolo.
   { page: 'flito_bolsas', to: '/flito/bolsas',                   section: 'finanzas',      label: 'Bolsas',                  keywords: 'bolsa saldo prepago recarga movimiento manual cierre periodo extracto organismo secretaria transito conciliacion riesgo alerta financiera' },
+  // Tarifas (HU #12375): lo que FLITO le cobra a cada cliente por trámite digital y logística, como
+  // vigencias con historial. Va en Finanzas —su dueño es quien pone precio— y sin `roles`: el slug
+  // `flito_tarifas` ya es de `admin` + `financiera` y repetirlo aquí sería una segunda verdad.
+  { page: 'flito_tarifas', to: '/flito/tarifas',                 section: 'finanzas',      label: 'Tarifas',                 keywords: 'tarifas valor servicio precio tramite digital matricula traspaso otros logistica vigencia historial cliente compania financiera' },
   // Conciliación de boletas SOAT (Feature #11623): va en Finanzas —lo pide el AC1 y además espeja a
   // Bolsas, que también es dominio FLITO con dueño financiero—. Sin `roles`: el slug ya es exclusivo
   // de `admin` + `financiera`, y repetir la regla aquí la pondría en dos sitios que pueden divergir.

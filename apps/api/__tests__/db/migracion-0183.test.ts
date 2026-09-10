@@ -64,10 +64,11 @@ describe('0183 — reglas del archivo (análisis estático)', () => {
     expect(cabecera).toMatch(/RN-10/);
   });
 
-  it('el número es 0183, es max+1 y no colisiona', () => {
+  it('el número es 0183, sigue a la 0182 sin hueco y no colisiona', () => {
+    // No exige «es la última»: eso congela el tip y cayó con la 0184 (#12375). max+1 EN SU MOMENTO.
     const sqls = readdirSync(path.resolve(__dirname, '../../src/db/migrations')).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
     expect(sqls.filter((f) => f.startsWith('0183_'))).toEqual([ARCHIVO]);
-    expect(sqls[sqls.length - 1]).toBe(ARCHIVO);
+    expect(sqls[sqls.indexOf(ARCHIVO) - 1]).toMatch(/^0182_tarifas_vigencias\.sql$/);
   });
 
   it('un solo UPDATE: al epoch, antes del applied_at de la 0182 (literal solo de respaldo), idempotente, sin rangos vacíos a ambos lados, solo la más antigua de la llave; fijado_en intacto', () => {
