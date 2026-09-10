@@ -24,106 +24,13 @@ import type { ResumenMotivosCorrida } from '@operaciones/shared-types';
 // y tampoco entra al catálogo, porque se fusionó en `admin`.)
 export const roleEnum = pgEnum('user_role', ['admin', 'proveedor', 'transito', 'compliance', 'lider_pesv', 'supervisor_flota', 'conductor', 'auditor', 'gestor_impuestos', 'mensajero', 'financiera', 'cliente']);
 
-// HU #12169 — El catálogo de roles. Sustituye al enum `user_role` como fuente de verdad de qué roles
-// existen: aquí una FILA es un rol, y el administrador puede crear y borrar filas (CF-03, CF-05),
-// cosa que sobre un enum de Postgres no es difícil, es imposible.
-//
-// `codigo` es la PK y es INMUTABLE: 276 `requireRole('…')` de `apps/api/src/modules` lo comparan como
-// literal, así que renombrarlo no es editar un rol, es cambiar el sistema. Lo editable es `nombre`; la
-// FK de `users.role` lo declara con `ON UPDATE RESTRICT` para que lo diga la base y no un comentario.
-export const permisosRoles = pgTable('permisos_roles', {
-  codigo: varchar('codigo', { length: 40 }).primaryKey(),
-  nombre: varchar('nombre', { length: 80 }).notNull(),
-  descripcion: text('descripcion'),
-  // 'ninguno' | 'compania' | 'proveedor_soat' | 'organismos_transito'. El ROL dice si se enlaza y a
-  // QUÉ tipo (RN-A3); el usuario dice a cuál. Lo hacen cumplir los dos triggers de la 0178
-  // (`users_ambito_trg` y `users_ambito_organismos_trg`), que Drizzle no sabe declarar.
-  tipoEnlace: varchar('tipo_enlace', { length: 24 }).notNull().default('ninguno'),
-  // 'interno' | 'externo'. Lo consume el motor (HU #12082): `resolverPermisos` lo devuelve cacheado y
-  // `guardiaCanalCliente` dispara la frontera del canal externo por este valor, no por el literal del rol.
-  tipoPrincipal: varchar('tipo_principal', { length: 10 }).notNull().default('interno'),
-  // Candado de BORRADO (ADR-0015 §Decisión 5), no marca de origen: true ⇒ el rol no se borra. Solo
-  // `admin`: el candado temporal de `cliente` lo retiró la 0180 (HU #12082 AC8). Editar sigue permitido (CF-04).
-  esSistema: boolean('es_sistema').notNull().default(false),
-  // Gobierna la ASIGNACIÓN, no la autenticación: un usuario con rol inactivo sigue entrando.
-  activo: boolean('activo').notNull().default(true),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-}, (t) => ({
-  tipoEnlaceChk: check('permisos_roles_tipo_enlace_chk',
-    sql`${t.tipoEnlace} IN ('ninguno','compania','proveedor_soat','organismos_transito')`),
-  tipoPrincipalChk: check('permisos_roles_tipo_principal_chk',
-    sql`${t.tipoPrincipal} IN ('interno','externo')`),
-}));
-
-// HU #12081 — El catálogo de FUNCIONES y el reparto rol × función. Migración 0179.
-//
-// `permisos_funciones` la declara el PRODUCTO y la siembra la migración (CF-23): el administrador
-// reparte funciones, no las inventa. De ahí el `ON DELETE RESTRICT` de las dos puentes hacia aquí y
-// el `CASCADE` hacia `permisos_roles`/`users`: borrar un rol o un usuario se lleva SU reparto, pero
-// borrar una función que alguien tiene concedida lo impide la base.
-// Se genera desde el código: `npm run permisos:seed -w apps/api` (modules/permisos/catalogo.ts).
-export const permisosFunciones = pgTable('permisos_funciones', {
-  // `pagina.<slug>` o `<modulo>.<objeto>.<accion>`. PK textual e inmutable, como en permisosRoles.
-  codigo: varchar('codigo', { length: 80 }).primaryKey(),
-  // Agrupa para la pantalla: el grupo de PAGE_GROUPS en las páginas, el módulo en las operaciones.
-  modulo: varchar('modulo', { length: 40 }).notNull(),
-  nombreNegocio: varchar('nombre_negocio', { length: 120 }).notNull(),
-  descripcion: text('descripcion').notNull(),
-  tipo: varchar('tipo', { length: 10 }).notNull(),
-  activo: boolean('activo').notNull().default(true),
-}, (t) => ({
-  tipoChk: check('permisos_funciones_tipo_chk', sql`${t.tipo} IN ('pagina','operacion')`),
-  moduloIdx: index('idx_permisos_funciones_modulo').on(t.modulo),
-}));
-
-/** Lo que un ROL concede: el reparto de partida del AC4, y lo que edita la #12082. */
-export const permisosRolFuncion = pgTable('permisos_rol_funcion', {
-  rolCodigo: varchar('rol_codigo', { length: 40 }).notNull()
-    .references(() => permisosRoles.codigo, { onDelete: 'cascade', onUpdate: 'restrict' }),
-  funcionCodigo: varchar('funcion_codigo', { length: 80 }).notNull()
-    .references(() => permisosFunciones.codigo, { onDelete: 'restrict', onUpdate: 'restrict' }),
-}, (t) => ({
-  pk: primaryKey({ columns: [t.rolCodigo, t.funcionCodigo] }),
-  funcionIdx: index('idx_permisos_rol_funcion_funcion').on(t.funcionCodigo),
-}));
-
-/**
- * La excepción por USUARIO sobre lo que le da su rol. `efecto` es 'conceder' | 'revocar'.
- *
- * Esta HU solo siembra 'conceder' (el backfill de `users.allowed_pages`); 'revocar' no lo escribe
- * nadie todavía y llega con la HU de permisos por usuario. La columna nace igual: partir el modelo
- * en dos migraciones obligaría a reescribir la PK.
- */
-export const permisosUsuarioFuncion = pgTable('permisos_usuario_funcion', {
-  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  funcionCodigo: varchar('funcion_codigo', { length: 80 }).notNull()
-    .references(() => permisosFunciones.codigo, { onDelete: 'restrict', onUpdate: 'restrict' }),
-  efecto: varchar('efecto', { length: 8 }).notNull(),
-}, (t) => ({
-  pk: primaryKey({ columns: [t.userId, t.funcionCodigo] }),
-  efectoChk: check('permisos_usuario_funcion_efecto_chk', sql`${t.efecto} IN ('conceder','revocar')`),
-}));
-
-/** HU #12082 / ADR-0016 — contador de 403 por (usuario, funcion, hora). Sin PII; sin FK en rol y funcion a propósito. */
-export const permisosIntentosDenegados = pgTable('permisos_intentos_denegados', {
-  id: bigserial('id', { mode: 'number' }).primaryKey(),
-  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'restrict', onUpdate: 'restrict' }),
-  rolCodigo: varchar('rol_codigo', { length: 40 }).notNull(),
-  funcionCodigo: varchar('funcion_codigo', { length: 80 }).notNull(),
-  motivo: varchar('motivo', { length: 16 }).notNull(),
-  metodo: varchar('metodo', { length: 10 }).notNull(),
-  ruta: varchar('ruta', { length: 300 }).notNull(),
-  ventanaInicio: timestamp('ventana_inicio', { withTimezone: true }).notNull(),
-  primeraVez: timestamp('primera_vez', { withTimezone: true }).notNull().defaultNow(),
-  ultimaVez: timestamp('ultima_vez', { withTimezone: true }).notNull().defaultNow(),
-  veces: integer('veces').notNull().default(1),
-}, (t) => ({
-  ventanaUq: uniqueIndex('permisos_intentos_denegados_ventana_uq').on(t.userId, t.funcionCodigo, t.ventanaInicio),
-  funcionIdx: index('idx_permisos_intentos_funcion').on(t.funcionCodigo, desc(t.ultimaVez)),
-  motivoChk: check('permisos_intentos_denegados_motivo_chk', sql`${t.motivo} IN ('sin_funcion','sin_modulo','no_reconocida','no_resuelto')`),
-  vecesChk: check('permisos_intentos_denegados_veces_chk', sql`${t.veces} >= 1`),
-}));
+// Las tablas `permisos_*` (roles, funciones, reparto, excepciones por usuario, bitácora de 403) viven en
+// `./schema/permisos.ts` y se re-exportan desde aquí: este archivo está contra el techo de max-lines (3400)
+// y ese bloque es el que crece con el Feature #12072. Para el resto del código nada cambia: se sigue
+// importando de `db/schema.js`.
+// Import (y no solo `export … from`) porque `users.role` referencia `permisosRoles.codigo` aquí abajo.
+import { permisosRoles, permisosFunciones, permisosRolFuncion, permisosUsuarioFuncion, permisosIntentosDenegados } from './schema/permisos.js';
+export { permisosRoles, permisosFunciones, permisosRolFuncion, permisosUsuarioFuncion, permisosIntentosDenegados };
 
 export const laftKindEnum = pgEnum('laft_kind', ['PN', 'PJ']);
 export const laftRiskLevelEnum = pgEnum('laft_risk_level', ['bajo', 'medio', 'alto']);
