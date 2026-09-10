@@ -27,6 +27,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0184_pagina_flito_tarifas.sql',
   '0185_permisos_auditoria.sql',
   '0186_permisos_roles_mantenimiento.sql',
+  '0187_pagina_roles_permisos.sql',
 ] as const;
 
 function sinComentariosSql(sql: string): string {
