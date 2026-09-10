@@ -9,6 +9,7 @@ import {
   resumenFacturacionElectronicaDelReporte,
   type EtapaReporte, type FiltrosReporte,
 } from './finanzas.service.js';
+import { aCsvConsolidado, consolidadoReporte, periodoConsolidado } from './finanzas.consolidado.js';
 import { esEstadoReporte, type SiigoEstadoReporte } from '@operaciones/shared-types';
 
 const router = Router();
@@ -111,6 +112,27 @@ router.get('/reporte-costos/export', LECTURA, async (req: Request, res: Response
   // Si se alcanzó el tope, el cliente debe saberlo: un CSV truncado en silencio se concilia mal.
   if (filas.length === TOPE_EXPORTACION) res.setHeader('X-Export-Truncado', String(TOPE_EXPORTACION));
   res.send(aCsv(filas));
+});
+
+/**
+ * GET /reporte-costos/consolidado — cliente × periodo de aprobación (HU #12433, CF-12).
+ *
+ * Misma guarda de lectura y los MISMOS filtros que el listado (`filtrosDe`), y por eso suma sobre
+ * el mismo conjunto (CF-13, CF-19). `periodo=mes|trimestre`; uno desconocido cae en `mes` como una
+ * etapa desconocida cae en «todas»: mejor el consolidado entero que un 400 en un enlace guardado.
+ *
+ * Sin registro PII: el consolidado no lleva titular ni placa, solo el cliente (empresa) y cifras.
+ */
+router.get('/reporte-costos/consolidado', LECTURA, async (req: Request, res: Response) => {
+  res.json(await consolidadoReporte(filtrosDe(req.query), periodoConsolidado(req.query.periodo)));
+});
+
+// GET /reporte-costos/consolidado/export — el mismo consolidado, en CSV (CF-14).
+router.get('/reporte-costos/consolidado/export', LECTURA, async (req: Request, res: Response) => {
+  const consolidado = await consolidadoReporte(filtrosDe(req.query), periodoConsolidado(req.query.periodo));
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="consolidado-costos.csv"');
+  res.send(aCsvConsolidado(consolidado));
 });
 
 /**
