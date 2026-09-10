@@ -1,8 +1,8 @@
-// FLITO Impuestos — export a Excel de la cola filtrada (Feature #11908, HU #11909, #11934).
+// FLITO Impuestos — export a Excel de la cola filtrada (Feature #11908, HU #11909, #11934, #12403).
 //
 // Gemelo de `flito-soat.export.service.ts` y con las mismas reglas (RN-E1 lista blanca, RN-E2 tope
 // duro, RN-E3 `tope + 1`, RN-E4 el 422 antes de la primera fila). Lo que comparten de verdad —las
-// veinticinco columnas, el sello del nombre y el error del tope— vive en
+// veintisiete columnas, el sello del nombre y el error del tope— vive en
 // `shared/export/cola-flito-excel.ts`, y cómo se derivan las columnas calculadas, en
 // `shared/export/cola-flito-derivados.ts`. Nada de eso está copiado aquí; lo que cambia entre los dos
 // servicios es de dónde sale cada valor, y eso es justo lo que justifica que haya dos:
@@ -67,6 +67,10 @@ const COLUMNAS_CONSULTA = {
   carroceria: vehicles.carroceria,
   servicio: vehicles.tipoServicio,
   cilindraje: vehicles.cilindraje,
+  // HU #12403: motor y serie, del mismo `innerJoin` con `vehicles` que los tres de arriba. El sync
+  // los aterriza ahí desde la HU #12401; no salen de `flit_raw`.
+  numMotor: vehicles.numMotor,
+  numSerie: vehicles.numSerie,
   // **`flito_impuestos.organismo_codigo` y NO `flit_raw->>'codigoSecretaria'`** — ver
   // `ciudadDeOrganismo`: el del payload llega sin el cero de relleno en la mitad de las filas y
   // dejaría `OrganismoDettoCiudad` vacía sin que nada fallara.
@@ -214,6 +218,9 @@ export async function construirFilasExportImpuestos(
       celular: celdaTexto(p?.celular),
       correo: celdaTexto(p?.correo),
       organismoDettoCiudad: ciudadDeOrganismo(f.organismoCodigo),
+      // HU #12403: de `vehicles`, como `carroceria`. Sin dato, la celda va vacía (AC4).
+      numeroMotor: celdaTexto(f.numMotor),
+      numeroSerie: celdaTexto(f.numSerie),
     };
   });
 }
