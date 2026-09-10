@@ -23,7 +23,7 @@ export default function Users() {
    * Quién gestiona y quién exporta. Las condiciones están AQUÍ, con nombre y una sola definición,
    * en vez de incrustadas en el JSX: la HU #12170 las sustituye por la función de permiso
    * (`/api/permisos/mios`) y tiene que poder cambiar una línea. Hoy es el rol que ya gobierna esta
-   * pantalla entera; el auditor tiene `pagina.users` desde la 0182 pero no `usuarios.usuario.listar`.
+   * pantalla entera; el auditor tiene `pagina.users` desde la 0184 pero no `usuarios.usuario.listar`.
    */
   const puedeGestionar = me?.role === 'admin';
   const puedeExportar = me?.role === 'admin';

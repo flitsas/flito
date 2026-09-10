@@ -284,7 +284,7 @@ const DEFAULTS_POR_ROL: Record<Exclude<UserRole, 'admin'>, readonly PageSlug[]> 
     'siigo_operacion',
     // HU #12171 — el historial de cambios de usuarios, roles y permisos vive en la pantalla de
     // usuarios y el auditor tiene que poder abrirlo (AC3). La PÁGINA sí; las operaciones de listar
-    // usuarios y ver el resumen NO (son PII de todo el censo, AC4): la 0182 le siembra solo
+    // usuarios y ver el resumen NO (son PII de todo el censo, AC4): la 0184 le siembra solo
     // `usuarios.auditoria.ver` y `usuarios.auditoria.filtrar`, y la pantalla le monta solo el historial.
     'users'],
   // FLITO — el operador del dominio ES el admin (despliegue FLITO-only): admin ya obtiene TODAS

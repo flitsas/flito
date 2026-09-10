@@ -17,7 +17,7 @@ export const ACCIONES_AUDITABLES = ['crear', 'editar', 'borrar', 'baja', 'reacti
  *
  * Semántica (decidida el 10/09/2026): `active` es la SUSPENSIÓN temporal (`PATCH /:id/toggle`);
  * `deleted_at` es la BAJA definitiva (HU #12089). `password` es un HECHO sin valor: el CHECK de la
- * 0182 obliga a que sus dos valores sean null.
+ * 0184 obliga a que sus dos valores sean null.
  */
 export const CAMPOS_AUDITABLES = {
   usuario: ['role', 'active', 'deleted_at', 'password', 'funciones', 'allowed_pages',

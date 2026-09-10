@@ -114,7 +114,7 @@ export const permisosIntentosDenegados = pgTable('permisos_intentos_denegados', 
 
 /**
  * La lista blanca de `CAMPOS_AUDITABLES` (shared-types) como literales SQL para el CHECK de abajo.
- * Es la MISMA lista que el tipo `CampoAuditable` y que el CHECK de la 0182 (el test de paridad lo
+ * Es la MISMA lista que el tipo `CampoAuditable` y que el CHECK de la 0184 (el test de paridad lo
  * compara). Solo se renderizan literales del código —ninguna entrada externa—: regla 3 de AGENTS.md.
  */
 const LISTA_CAMPOS_SQL = [...new Set(Object.values(CAMPOS_AUDITABLES).flat())]
@@ -127,9 +127,9 @@ const LISTA_CAMPOS_SQL = [...new Set(Object.values(CAMPOS_AUDITABLES).flat())]
  * funciona una bitácora—; del TITULAR solo su id interno y su rol. Su nombre se resuelve por JOIN
  * al leer y NUNCA se copia aquí.
  * RN-02: un par por CAMPO, nunca el documento entero. La lista blanca vive en shared-types y está
- * duplicada como CHECK en la 0182 y aquí abajo: el tipo impide pasar la fila entera, el CHECK impide
+ * duplicada como CHECK en la 0184 y aquí abajo: el tipo impide pasar la fila entera, el CHECK impide
  * el INSERT crudo.
- * RN-03: inmutable por REVOKE (0182), no por disparador: la retención de 6 años (`archivar_offline`,
+ * RN-03: inmutable por REVOKE (0184), no por disparador: la retención de 6 años (`archivar_offline`,
  * mecanismo HU #12215) tiene que poder ejecutarse.
  *
  * Ver ADR-0014 para por qué no son dos columnas nuevas en `audit_logs`.
@@ -166,7 +166,7 @@ export const permisosAuditoria = pgTable('permisos_auditoria', {
     .where(sql`${t.rolAfectadoCodigo} IS NOT NULL`),
   entidadIdx: index('idx_permisos_auditoria_entidad').on(t.entidad, desc(t.createdAt)),
   createdIdx: index('idx_permisos_auditoria_created').on(desc(t.createdAt)),
-  // Los mismos CHECK que la 0182, con el MISMO nombre: el test de paridad los busca por nombre.
+  // Los mismos CHECK que la 0184, con el MISMO nombre: el test de paridad los busca por nombre.
   entidadChk: check('permisos_auditoria_entidad_chk', sql`${t.entidad} IN ('usuario','rol','rol_funcion','usuario_funcion')`),
   accionChk: check('permisos_auditoria_accion_chk', sql`${t.accion} IN ('crear','editar','borrar','baja','reactivar','activar','desactivar')`),
   origenChk: check('permisos_auditoria_origen_chk', sql`${t.origen} IN ('usuario','sistema','auditoria')`),

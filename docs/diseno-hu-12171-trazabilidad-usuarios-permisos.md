@@ -16,15 +16,15 @@ Medido sobre `develop` @ `be8608f` (worktree `flito-hu12171`). El mecanismo (ADR
 | # | Qué cambió | Efecto sobre este diseño | Sección |
 |---|---|---|---|
 | 1 | **#12083 mergeada:** `users.routes.ts` ya no tiene `router.use(authMiddleware, requireRole('admin'))`. Hoy es `router.use(authMiddleware)` (`:121`) y **cada ruta** lleva `exigirFuncion('usuarios.<objeto>.<accion>')`; la contraseña ajena va en línea con `tieneFuncion` (`:40`). El catálogo tiene **8** funciones `usuarios.*` (no 11: las 11 de la 0181 incluyen 2 de impuestos y 1 de trámites), todas sembradas **solo para `admin`**; `auditor` no tiene ninguna. | El motivo del archivo aparte `users-auditoria.routes.ts` (§7 «Montaje») **desaparece**: el endpoint va **dentro** de `users.routes.ts`, en el bloque de rutas literales (`:123-131` fija el orden literal-antes-de-`/:id`), con `exigirFuncion('usuarios.auditoria.ver')`. **No** `requireRole`: `permisos.reconduccion-cierre.test.ts` pone en rojo cualquier `requireRole(` en `users/` y cualquier `router.<método>(` sin `exigirFuncion` fuera de su lista blanca de 4. | §2, §7, §10, §11 |
-| 2 | **Una función nueva con `exigirFuncion` no es solo una línea:** el invariante «montajes = foto» (`permisos-catalogo.test.ts`) y la paridad (`permisos.paridad-reconduccion.test.ts`) leen **cuatro fuentes** que no derivan una de otra, y el catálogo exige **un código por ruta y códigos únicos** (`catalogo.ts:150-152` lanza «Códigos de función repetidos»). | Esta HU monta **dos rutas**, cada una con su código: `GET /auditoria` → `usuarios.auditoria.ver` y `GET /auditoria/titulares` → `usuarios.auditoria.filtrar` (la fuente del filtro «Usuario», ficha UX §5-2; precedente en el repo: `GET /facetas` → `soat.cola.filtrar`). Cada código nace en **cinco sitios a la vez**: la ruta, `catalogo-operaciones.ts`, la foto `inventario.generado.ts` (con `roles: ["admin","auditor"]`, de donde `repartoDePartida()` y los tokens de prueba sacan quién la tiene), la migración 0182 (función + reparto) y la fixture `permisos-rutas-reconducidas.ts`. Más cuatro tests con cardinales escritos: 228→230, 41→43, `MIGRACIONES_CON_REPARTO` y el lector de la 0179. Lista exacta en §7 «Montaje» y §10. | §7, §10 |
+| 2 | **Una función nueva con `exigirFuncion` no es solo una línea:** el invariante «montajes = foto» (`permisos-catalogo.test.ts`) y la paridad (`permisos.paridad-reconduccion.test.ts`) leen **cuatro fuentes** que no derivan una de otra, y el catálogo exige **un código por ruta y códigos únicos** (`catalogo.ts:150-152` lanza «Códigos de función repetidos»). | Esta HU monta **dos rutas**, cada una con su código: `GET /auditoria` → `usuarios.auditoria.ver` y `GET /auditoria/titulares` → `usuarios.auditoria.filtrar` (la fuente del filtro «Usuario», ficha UX §5-2; precedente en el repo: `GET /facetas` → `soat.cola.filtrar`). Cada código nace en **cinco sitios a la vez**: la ruta, `catalogo-operaciones.ts`, la foto `inventario.generado.ts` (con `roles: ["admin","auditor"]`, de donde `repartoDePartida()` y los tokens de prueba sacan quién la tiene), la migración 0184 (función + reparto) y la fixture `permisos-rutas-reconducidas.ts`. Más cuatro tests con cardinales escritos: 228→230, 41→43, `MIGRACIONES_CON_REPARTO` y el lector de la 0179. Lista exacta en §7 «Montaje» y §10. | §7, §10 |
 | 3 | **#12082 mergeada:** el JWT ya no lleva `allowedPages`; `resolverPermisos` + caché de 60 s viven en `shared/permisos-efectivos.ts`; `invalidarPermisosDe(id)` se llama **después del commit** en las cuatro escrituras de `users.routes.ts` (`:395`, `:559`, `:598`, `:620`). | El diagrama (§2) suma ese paso. El escritor de esta HU **no** invalida nada: escribe dentro de la transacción y la ruta invalida después, como ya hace. | §2 |
 | 4 | **#12082 dejó un vecino en el mismo directorio:** `shared/historial/permisos-intentos-denegados.ts` (bitácora de 403: UPSERT sin `await`, `.catch`, nunca lanza, bandera `PERMISOS_SKIP_BITACORA_INTENTOS` para los specs). | `permisos-auditoria.ts` convive con él y es **su opuesto deliberado**: misma transacción que el cambio, `await`, sin `try/catch`, **sin bandera de entorno**. §5 lo deja escrito en una tabla para que nadie «unifique» los dos por parecerse. | §5 |
 | 5 | **CHORE en curso** (`CHORE/davidchica-partir-schema-permisos`): las tablas `permisos_*` se mueven a `apps/api/src/db/schema/permisos.ts` y `schema.ts` las re-exporta. `schema.ts` está en **3371 sloc contra el techo 3400** (`eslint.config.mjs`, medido hoy con `max-lines`): el modelo de §4 (~30 sloc) **no cabe** en `schema.ts`. | §4 pasa a `schema/permisos.ts`. Si la CHORE no ha mergeado cuando esta HU implemente, la HU la absorbe (o se rebasa sobre ella): no hay tercera opción. Además, el Drizzle del repo (`^0.45.2`) **sí** expresa `check()` (25 usos en `schema.ts`) e índices parciales (`.where(sql…)`, `schema.ts:2769`); la nota de «deriva conocida» de §4 era falsa y se retira: el modelo lleva los CHECK y los `WHERE`, al estilo de `permisosIntentosDenegados`. | §4 |
-| 6 | **Migración libre: 0182.** 0178–0181 ya existen (roles, modelo, motor, reconducción). | §3 renumerada. La 0182 sigue las reglas de la 0180/0181 que sus tests exigen: cabecera con `-- 0182_…`, `-- Autor:`, `Feature #12072`, `HU #12171`; dollar-quoting **etiquetado** (`$revoke0182$`, `$resumen0182$`) y la etiqueta sin nombrar en comentarios; retención condicionada a `role = 'admin'` (no a `users.id = 1`: sobre base limpia ese guard no siembra). | §3 |
+| 6 | **Migración libre: 0184.** 0178–0181 ya existen (roles, modelo, motor, reconducción); la 0182 y la 0183 las tomaron las HU #12373 y #12374 (`tarifas_vigencias`, PR #309 y #311) mientras esta HU se implementaba, así que la de auditoría pasó de 0182 a 0184 al integrar. | §3 renumerada. La 0184 sigue las reglas de la 0180/0181 que sus tests exigen: cabecera con `-- 0184_…`, `-- Autor:`, `Feature #12072`, `HU #12171`; dollar-quoting **etiquetado** (`$revoke0184$`, `$resumen0184$`) y la etiqueta sin nombrar en comentarios; retención condicionada a `role = 'admin'` (no a `users.id = 1`: sobre base limpia ese guard no siembra). | §3 |
 | 7 | **Semántica de #12089 decidida hoy:** desactivar = suspensión temporal (`users.active`), baja = definitiva (`deleted_at`). | Las filas de `entidad='usuario'` distinguen las dos: `campo='active'` con `accion` `activar`/`desactivar` (esta HU, desde `PATCH /:id/toggle`); `campo='deleted_at'` con `baja`/`reactivar` (la #12089 llama al escritor; esta HU no la implementa). El CHECK de `accion` ya admite las cuatro. | §5 «Qué escribe cada historia» |
 | 8 | **#12175 mergeada:** `Users.tsx` tiene 203 líneas / **125 sloc**; la promesa «Quedará registrado en auditoría» está en `apps/web/src/pages/users/PasswordForm.tsx:44`. `apps/web` **no tiene tests unitarios**: sus pruebas son Playwright en `apps/web/e2e/tests/` con el API mockeado por `page.route`. La ficha UX (`docs/ux/usuarios-historial.md`) fija copy, estados y filtros; corrige la frase «lo anterior está en la bitácora de auditoría» (falsa: `FlitoBitacora` filtra por `RECURSOS_FLITO` y no enseña cambios de usuarios). | §9 y §10 corrigen rutas, copy y el test de la pantalla (`e2e/tests/users-historial.spec.ts`, modelo `users-reporte.spec.ts`). | §9, §10 |
-| 9 | **Hueco que el diseño no vio: el auditor no llega a la pantalla** (ficha UX `docs/ux/usuarios-historial.md` §5-1, medido también aquí). `auditor` **no tiene `pagina.users`** (`permissions.ts:261-264`; 0179 `:563` la siembra solo a `admin`), y `usuarios.usuario.listar` / `ver_resumen` son solo de `admin` (0181). Una pestaña dentro de `Users.tsx` la abre solo `admin`: el AC3 («el administrador **o el auditor**») quedaría incumplido por construcción. | Se adopta la propuesta UX: la 0182 siembra `('auditor', 'pagina.users')` y `ROLE_DEFAULT_PAGES.auditor` suma `users`; `Users.tsx` monta para el auditor **solo** el historial (sin listado, sin catálogos, sin modales). Las funciones `listar`/`ver_resumen` **no** se le conceden: son PII de todo el censo (AC4). El filtro «Usuario» tiene fuente propia (`GET /auditoria/titulares`, §7). Se descartó un slug nuevo `users_historial`: más piezas (PAGES 44→45, ruta, ítem de menú) para leer lo mismo. Sigue siendo **decisión de producto** que el auditor vea «Usuarios» en su menú: pendiente humano (§12.8). | §9, §12 |
-| 10 | **Retención (AC5):** ADR-0014 fija **6 años, `archivar_offline`**; el mecanismo es la HU **#12215**. | Ya estaba; ahora va escrito también en el `COMMENT ON TABLE` de la 0182 (patrón 0180: la política en el COMMENT no depende de que exista un admin) y en §3. | §3 |
+| 9 | **Hueco que el diseño no vio: el auditor no llega a la pantalla** (ficha UX `docs/ux/usuarios-historial.md` §5-1, medido también aquí). `auditor` **no tiene `pagina.users`** (`permissions.ts:261-264`; 0179 `:563` la siembra solo a `admin`), y `usuarios.usuario.listar` / `ver_resumen` son solo de `admin` (0181). Una pestaña dentro de `Users.tsx` la abre solo `admin`: el AC3 («el administrador **o el auditor**») quedaría incumplido por construcción. | Se adopta la propuesta UX: la 0184 siembra `('auditor', 'pagina.users')` y `ROLE_DEFAULT_PAGES.auditor` suma `users`; `Users.tsx` monta para el auditor **solo** el historial (sin listado, sin catálogos, sin modales). Las funciones `listar`/`ver_resumen` **no** se le conceden: son PII de todo el censo (AC4). El filtro «Usuario» tiene fuente propia (`GET /auditoria/titulares`, §7). Se descartó un slug nuevo `users_historial`: más piezas (PAGES 44→45, ruta, ítem de menú) para leer lo mismo. Sigue siendo **decisión de producto** que el auditor vea «Usuarios» en su menú: pendiente humano (§12.8). | §9, §12 |
+| 10 | **Retención (AC5):** ADR-0014 fija **6 años, `archivar_offline`**; el mecanismo es la HU **#12215**. | Ya estaba; ahora va escrito también en el `COMMENT ON TABLE` de la 0184 (patrón 0180: la política en el COMMENT no depende de que exista un admin) y en §3. | §3 |
 | 11 | Números de línea del AC caducados: `schema.ts:695-709` (`auditLogs`) es hoy `:811-825`; `:884-885` (`laft_audit_log` before/after) es `:1001-1002`; `audit.ts:37-52` es `:38-51`; `Users.tsx:766` es `pages/users/PasswordForm.tsx:44`. En el cuerpo: `users.routes.ts:252`→`:409`, `:395`→`:563`, `:61`→`:121`, `:181`→listado en `:320`; `users.service.ts:191-192`→`:221-222`; `flito-bitacora.routes.ts:16` (`requireRole`) ya no existe: es `exigirFuncion('bitacora.bitacora.ver')` en `:34`; `app.ts:235`→`:239`; `users_cliente_compania_chk` se **eliminó** (`schema.ts:200` lo cuenta). | Corregidos en sitio. | todas |
 
 **Lo que NO cambia:** ADR-0014 (aprobado) y su decisión; el DDL de §3 salvo número, cabecera, guard de retención y la siembra de funciones y página; la firma del escritor de §5; el contrato HTTP de `GET /auditoria` en §7 (query, DTO, paginación; se **añade** `/titulares`); §8 salvo `TitularAuditoria`; las mutaciones 1, 3, 4 y 5 de §11.
@@ -35,10 +35,10 @@ El mecanismo son **dos piezas separables**, y separarlas es lo que quita el bloq
 
 | Pieza | Qué es | Depende de | Desbloquea |
 |---|---|---|---|
-| **P1 — escritura** | migración 0182 + `schema/permisos.ts` + `shared/historial/permisos-auditoria.ts` + tipos | ~~#12081~~ **ya en `develop`** (0179–0181); solo la CHORE del split de `schema.ts` (delta #5) | **#12084, #12087, #12089** |
+| **P1 — escritura** | migración 0184 + `schema/permisos.ts` + `shared/historial/permisos-auditoria.ts` + tipos | ~~#12081~~ **ya en `develop`** (0179–0181); solo la CHORE del split de `schema.ts` (delta #5) | **#12084, #12087, #12089** |
 | **P2 — lectura** | `GET /api/users/auditoria` + `GET /api/users/auditoria/titulares` + pantalla | P1 | AC2 y AC3 de la #12171 |
 
-**Recomendación:** entregar **P1 primero y solo** (la #12081 ya está en `develop`). Ojo: las funciones `usuarios.auditoria.*` y `pagina.users` para `auditor` van en la **misma** 0182 que la tabla; si P1 y P2 son dos PR, la siembra viaja con P1 y las rutas con P2 — `verificarCatalogoAlArrancar` **tumba el API** si la base declara una función que el código no monta, así que P1 tiene que llevar también las dos rutas guardadas (aunque respondan lo mínimo) **o** la siembra se mueve a P2. Lo segundo es más limpio: **la 0182 solo crea la tabla y la retención; una 0183 de P2 siembra funciones y página.** Si va todo en un PR, una sola 0182. Las tres historias bloqueadas necesitan el escritor, no la pantalla. P2 puede ir en un PR posterior sin retenerlas.
+**Recomendación:** entregar **P1 primero y solo** (la #12081 ya está en `develop`). Ojo: las funciones `usuarios.auditoria.*` y `pagina.users` para `auditor` van en la **misma** 0184 que la tabla; si P1 y P2 son dos PR, la siembra viaja con P1 y las rutas con P2 — `verificarCatalogoAlArrancar` **tumba el API** si la base declara una función que el código no monta, así que P1 tiene que llevar también las dos rutas guardadas (aunque respondan lo mínimo) **o** la siembra se mueve a P2. Lo segundo es más limpio: **la 0184 solo crea la tabla y la retención; una 0185 de P2 siembra funciones y página.** Si va todo en un PR, una sola 0184. Las tres historias bloqueadas necesitan el escritor, no la pantalla. P2 puede ir en un PR posterior sin retenerlas.
 
 La tabla no tiene FK hacia `permisos_roles` (ADR-0014 §5), así que la **migración** podría aplicarse en cualquier orden; lo que depende de la #12081 es el **escritor**, que necesita que exista algo llamado `funciones` que auditar.
 
@@ -91,16 +91,16 @@ sequenceDiagram
     end
 ```
 
-## 3. DDL — migración `0182_permisos_auditoria.sql`
+## 3. DDL — migración `0184_permisos_auditoria.sql`
 
-> **Número: 0182** (delta #6). 0178–0181 existen; la #12089 tomará la siguiente libre cuando llegue.
+> **Número: 0184** (delta #6). 0178–0183 existen (0182 y 0183 son las de tarifas, HU #12373 y #12374); la #12089 tomará la siguiente libre cuando llegue.
 >
-> **Reglas que sus tests hermanos (`migracion-0180.test.ts`, `migracion-0181.test.ts`) exigen y que el borrador de abajo NO cumplía tal cual:** (1) cabecera con la convención 5 del README: primera línea `-- 0182_permisos_auditoria.sql`, luego `Feature #12072`, `HU #12171` y `-- Autor:` en las 12 primeras líneas; (2) **dollar-quoting etiquetado** en todo bloque `DO` (`$revoke0182$`, `$resumen0182$`) y la etiqueta **no se nombra en ningún comentario** (a la 0178 le costó un exit 2); (3) el guard de la retención es `WHERE EXISTS (SELECT 1 FROM users WHERE role = 'admin')` con `created_by = (SELECT min(id) FROM users WHERE role = 'admin')`, como la 0180 `:71-79` — **no** `users.id = 1`, que sobre base limpia no siembra; (4) el `COMMENT ON TABLE` repite la política («Retención declarada: 6 años, archivar_offline; mecanismo HU #12215») porque no depende de que exista un admin; (5) **ninguna línea del archivo empieza por `('` salvo las tuplas de siembra**: `migracion-0179.test.ts:102-119` compara el generador contra las líneas que empiezan así en 0179 + 0181 (+ 0182, ver §7).
+> **Reglas que sus tests hermanos (`migracion-0180.test.ts`, `migracion-0181.test.ts`) exigen y que el borrador de abajo NO cumplía tal cual:** (1) cabecera con la convención 5 del README: primera línea `-- 0184_permisos_auditoria.sql`, luego `Feature #12072`, `HU #12171` y `-- Autor:` en las 12 primeras líneas; (2) **dollar-quoting etiquetado** en todo bloque `DO` (`$revoke0184$`, `$resumen0184$`) y la etiqueta **no se nombra en ningún comentario** (a la 0178 le costó un exit 2); (3) el guard de la retención es `WHERE EXISTS (SELECT 1 FROM users WHERE role = 'admin')` con `created_by = (SELECT min(id) FROM users WHERE role = 'admin')`, como la 0180 `:71-79` — **no** `users.id = 1`, que sobre base limpia no siembra; (4) el `COMMENT ON TABLE` repite la política («Retención declarada: 6 años, archivar_offline; mecanismo HU #12215») porque no depende de que exista un admin; (5) **ninguna línea del archivo empieza por `('` salvo las tuplas de siembra**: `migracion-0179.test.ts:102-119` compara el generador contra las líneas que empiezan así en 0179 + 0181 (+ 0184, ver §7).
 >
-> **Y siembra, además de la tabla** (o en una 0183 si P1 y P2 van en PR distintos, ver §1): las funciones `usuarios.auditoria.ver` y `usuarios.auditoria.filtrar` en `permisos_funciones`, su reparto para `admin` y `auditor`, y `('auditor', 'pagina.users')` en `permisos_rol_funcion`, todo con `ON CONFLICT DO NOTHING` y en el formato exacto de `generar-seed-permisos.ts` (una tupla por línea).
+> **Y siembra, además de la tabla** (o en una 0185 si P1 y P2 van en PR distintos, ver §1): las funciones `usuarios.auditoria.ver` y `usuarios.auditoria.filtrar` en `permisos_funciones`, su reparto para `admin` y `auditor`, y `('auditor', 'pagina.users')` en `permisos_rol_funcion`, todo con `ON CONFLICT DO NOTHING` y en el formato exacto de `generar-seed-permisos.ts` (una tupla por línea).
 
 ```sql
--- 0182_permisos_auditoria.sql
+-- 0184_permisos_auditoria.sql
 -- Feature #12072 — Roles y permisos configurables. HU #12171: historial consultable de cambios de
 --   usuarios, roles y permisos (CF-19, RN-A10). Tabla propia + funciones `usuarios.auditoria.*`
 --   + `pagina.users` para `auditor`.
@@ -236,13 +236,13 @@ CREATE INDEX IF NOT EXISTS idx_permisos_auditoria_created
 -- retención de 6 años que se declara más abajo, incluso desde una migración con superusuario.
 -- Bloque DO ETIQUETADO (la 0011 usa `$$` pelado; desde la 0178 la convención es etiqueta propia).
 REVOKE UPDATE, DELETE ON permisos_auditoria FROM PUBLIC;
-DO $revoke0182$ BEGIN
+DO $revoke0184$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'operaciones_app') THEN
     REVOKE UPDATE, DELETE ON permisos_auditoria FROM operaciones_app;
     GRANT SELECT, INSERT ON permisos_auditoria TO operaciones_app;
     GRANT USAGE, SELECT ON SEQUENCE permisos_auditoria_id_seq TO operaciones_app;
   END IF;
-END $revoke0182$;
+END $revoke0184$;
 
 COMMENT ON TABLE permisos_auditoria IS
   'CF-19: historial consultable de cambios de usuarios, roles y permisos. audit_logs sigue siendo la bitácora de cumplimiento transversal; esta es la que se consulta desde el producto. Ver ADR-0014. Retención declarada: 6 años, archivar_offline (pesv_retencion_politicas.tipo_documento = permisos_auditoria); mecanismo en la HU #12215.';
@@ -275,7 +275,7 @@ ON CONFLICT (tipo_documento) DO NOTHING;
 
 -- ── Las dos funciones que guardan el lector (§7), su reparto, y la página para el auditor ──────
 -- Formato del generador (generar-seed-permisos.ts): una tupla por línea. Es lo que lee el test de la
--- 0179 al comparar «lo sembrado en 0179 + 0181 + 0182» con «lo que produce la foto ampliada».
+-- 0179 al comparar «lo sembrado en 0179 + 0181 + 0184» con «lo que produce la foto ampliada».
 -- Textos de negocio: los de la ficha UX §5-1; si cambian, cambian aquí y en catalogo-operaciones.ts.
 INSERT INTO permisos_funciones (codigo, modulo, nombre_negocio, descripcion, tipo) VALUES
   ('usuarios.auditoria.ver', 'usuarios', 'Ver el historial de cambios', 'Leer quién cambió qué en usuarios, roles y permisos, con el valor anterior y el posterior.', 'operacion'),
@@ -294,16 +294,16 @@ INSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo) VALUES
 ON CONFLICT (rol_codigo, funcion_codigo) DO NOTHING;
 
 -- ── Resumen (patrón 0180/0181) ──────────────────────────────────────────────────────────────────
-DO $resumen0182$
+DO $resumen0184$
 DECLARE n_politica int; n_reparto int;
 BEGIN
   SELECT count(*) INTO n_politica FROM pesv_retencion_politicas WHERE tipo_documento = 'permisos_auditoria';
   SELECT count(*) INTO n_reparto FROM permisos_rol_funcion
    WHERE funcion_codigo IN ('usuarios.auditoria.ver', 'usuarios.auditoria.filtrar')
       OR (rol_codigo = 'auditor' AND funcion_codigo = 'pagina.users');
-  RAISE NOTICE '0182: permisos_auditoria lista; politica de retencion sembrada = %; filas de reparto nuevas = % (esperadas 5)',
+  RAISE NOTICE '0184: permisos_auditoria lista; politica de retencion sembrada = %; filas de reparto nuevas = % (esperadas 5)',
     n_politica, n_reparto;
-END $resumen0182$;
+END $resumen0184$;
 ```
 
 **Sin backfill.** Ni una fila se reconstruye desde `audit_logs`; el porqué está en ADR-0014 («Migración de lo ya escrito»). En corto: el texto que habría que leer es `Cambios: allowedPages` (`users.routes.ts:563`), que nombra el campo y no los valores — el «antes» de los permisos nunca se escribió, y reconstruir solo rol y estado daría una pantalla con aspecto de completa que no lo es.
@@ -312,7 +312,7 @@ END $resumen0182$;
 
 **Cambio del delta #5.** Va al final de `apps/api/src/db/schema/permisos.ts`, detrás de `permisosIntentosDenegados`, y se añade al `import`/`export` de re-exportación de `schema.ts` (en la CHORE: `schema.ts:32-33`). Motivo medido: `schema.ts` está en 3371 sloc contra el techo congelado de 3400 (`eslint.config.mjs`, `FROZEN_CEILINGS`); este modelo son ~40 sloc y el `lint` del CI lo tumbaría. Si la CHORE no ha mergeado al implementar, esta HU la absorbe. **`auditLogs` (hoy `schema.ts:811-825`) no se toca.**
 
-El modelo lleva **los CHECK y los índices parciales**, porque el Drizzle del repo los expresa (`check()` de `drizzle-orm/pg-core`, 25 usos; `.where(sql…)` en índices, `schema.ts:2769`) y `permisosIntentosDenegados` (`schema/permisos.ts:95-112` en la CHORE) ya lo hace así. El test de paridad de la 0182 (modelo `migracion-0180.test.ts:77-94`) compara columnas, nombres de índice y `onDelete`/`onUpdate` con `getTableConfig`.
+El modelo lleva **los CHECK y los índices parciales**, porque el Drizzle del repo los expresa (`check()` de `drizzle-orm/pg-core`, 25 usos; `.where(sql…)` en índices, `schema.ts:2769`) y `permisosIntentosDenegados` (`schema/permisos.ts:95-112` en la CHORE) ya lo hace así. El test de paridad de la 0184 (modelo `migracion-0180.test.ts:77-94`) compara columnas, nombres de índice y `onDelete`/`onUpdate` con `getTableConfig`.
 
 ```ts
 /**
@@ -322,7 +322,7 @@ El modelo lleva **los CHECK y los índices parciales**, porque el Drizzle del re
  * funciona una bitácora—; del TITULAR solo su id interno y su rol. Su nombre se resuelve por JOIN
  * al leer y NUNCA se copia aquí.
  * RN-02: un par por CAMPO, nunca el documento entero. La lista blanca vive en shared-types y está
- * duplicada como CHECK en la 0182 y aquí abajo: el tipo impide pasar la fila entera, el CHECK impide el
+ * duplicada como CHECK en la 0184 y aquí abajo: el tipo impide pasar la fila entera, el CHECK impide el
  * INSERT crudo.
  *
  * Ver ADR-0014 para por qué no son dos columnas nuevas en `audit_logs`.
@@ -359,7 +359,7 @@ export const permisosAuditoria = pgTable('permisos_auditoria', {
     .where(sql`${t.rolAfectadoCodigo} IS NOT NULL`),
   entidadIdx: index('idx_permisos_auditoria_entidad').on(t.entidad, desc(t.createdAt)),
   createdIdx: index('idx_permisos_auditoria_created').on(desc(t.createdAt)),
-  // Los mismos CHECK que la 0182, con el MISMO nombre: el test de paridad los busca por nombre.
+  // Los mismos CHECK que la 0184, con el MISMO nombre: el test de paridad los busca por nombre.
   entidadChk: check('permisos_auditoria_entidad_chk', sql`${t.entidad} IN ('usuario','rol','rol_funcion','usuario_funcion')`),
   accionChk: check('permisos_auditoria_accion_chk', sql`${t.accion} IN ('crear','editar','borrar','baja','reactivar','activar','desactivar')`),
   origenChk: check('permisos_auditoria_origen_chk', sql`${t.origen} IN ('usuario','sistema','auditoria')`),
@@ -372,7 +372,7 @@ export const permisosAuditoria = pgTable('permisos_auditoria', {
 }));
 ```
 
-> `LISTA_CAMPOS_SQL` es la lista blanca de `CAMPOS_AUDITABLES` (§8) renderizada como literales SQL en el propio archivo (`'role','active',…`, sin concatenar entrada externa: regla 3 de AGENTS.md): una sola fuente para el tipo, el CHECK del modelo y —por el test de paridad— el CHECK de la 0182. Los nombres de índice y de CHECK son **idénticos** a los del SQL; `desc()` y `.where()` reproducen el `DESC` y el `WHERE` del índice. Ya no hay «deriva conocida»: la nota anterior citaba `users_cliente_compania_chk` como precedente y esa constraint **se eliminó** (`schema.ts:200`).
+> `LISTA_CAMPOS_SQL` es la lista blanca de `CAMPOS_AUDITABLES` (§8) renderizada como literales SQL en el propio archivo (`'role','active',…`, sin concatenar entrada externa: regla 3 de AGENTS.md): una sola fuente para el tipo, el CHECK del modelo y —por el test de paridad— el CHECK de la 0184. Los nombres de índice y de CHECK son **idénticos** a los del SQL; `desc()` y `.where()` reproducen el `DESC` y el `WHERE` del índice. Ya no hay «deriva conocida»: la nota anterior citaba `users_cliente_compania_chk` como precedente y esa constraint **se eliminó** (`schema.ts:200`).
 
 ## 5. El escritor — `apps/api/src/shared/historial/permisos-auditoria.ts`
 
@@ -488,19 +488,19 @@ Con el código **literal** entre comillas simples: `leerMontajes` (`inventario-g
 
 | Pieza | Qué se añade | Quién lo exige |
 |---|---|---|
-| `modules/permisos/catalogo-operaciones.ts` | `op(\`${USR} GET /auditoria\`, 'usuarios.auditoria.ver', 'Ver el historial de cambios', 'Leer quién cambió qué en usuarios, roles y permisos, con el valor anterior y el posterior.')` y `op(\`${USR} GET /auditoria/titulares\`, 'usuarios.auditoria.filtrar', 'Filtrar el historial por usuario', '…')` en el bloque de Usuarios (`:310-318`); textos = los de la 0182 (`migracion-0179.test.ts:102` compara literal) | `catalogoDeOperaciones`: «guarda SIN función declarada» (`catalogo.ts:104-143`) |
+| `modules/permisos/catalogo-operaciones.ts` | `op(\`${USR} GET /auditoria\`, 'usuarios.auditoria.ver', 'Ver el historial de cambios', 'Leer quién cambió qué en usuarios, roles y permisos, con el valor anterior y el posterior.')` y `op(\`${USR} GET /auditoria/titulares\`, 'usuarios.auditoria.filtrar', 'Filtrar el historial por usuario', '…')` en el bloque de Usuarios (`:310-318`); textos = los de la 0184 (`migracion-0179.test.ts:102` compara literal) | `catalogoDeOperaciones`: «guarda SIN función declarada» (`catalogo.ts:104-143`) |
 | `modules/permisos/inventario.generado.ts` | `{ modulo: "usuarios", fichero: "users/users.routes.ts", metodo: "GET", ruta: "/auditoria", roles: ["admin","auditor"], heredada: false }` y la de `/auditoria/titulares`, al final del bloque de `users/` (`:238-247`). La cabecera lo permite: «se edita a mano solo para añadir funciones nuevas junto con su migración» | `permisos-catalogo.test.ts:119-135` («por fichero, `leerMontajes` cubre exactamente la foto»); y de aquí salen `repartoDePartida()` y las funciones de los **tokens de prueba** (`__tests__/helpers/auth.ts:36-45`): sin `auditor` en `roles`, el auditor de los specs recibe 403 |
-| `db/migrations/0182_permisos_auditoria.sql` | funciones + reparto `admin`/`auditor` + `('auditor','pagina.users')` (§3) | `verificarCatalogoAlArrancar` (arranque); `migracion-0179.test.ts:102-119` (generador vs 0179 + 0181 **+ 0182**: hay que sumar el archivo a `enArchivos`, `:111-112`) |
-| `__tests__/helpers/permisos-seed-sql.ts:16` | `MIGRACIONES_CON_REPARTO` += `'0182_permisos_auditoria.sql'` | `permisos.paridad-reconduccion.test.ts:117-124` («el SQL sembrado conoce cada código de la lista») y `migracion-0181.test.ts:98-102` («0179 + 0181 producen el mismo reparto que el generador»: con la foto ampliada, solo cuadra si el lector también lee la 0182) |
+| `db/migrations/0184_permisos_auditoria.sql` | funciones + reparto `admin`/`auditor` + `('auditor','pagina.users')` (§3) | `verificarCatalogoAlArrancar` (arranque); `migracion-0179.test.ts:102-119` (generador vs 0179 + 0181 **+ 0184**: hay que sumar el archivo a `enArchivos`, `:111-112`) |
+| `__tests__/helpers/permisos-seed-sql.ts:16` | `MIGRACIONES_CON_REPARTO` += `'0184_permisos_auditoria.sql'` | `permisos.paridad-reconduccion.test.ts:117-124` («el SQL sembrado conoce cada código de la lista») y `migracion-0181.test.ts:98-102` («0179 + 0181 producen el mismo reparto que el generador»: con la foto ampliada, solo cuadra si el lector también lee la 0184) |
 | `__tests__/fixtures/permisos-rutas-reconducidas.ts` | dos filas en la oleada 5 (`:271-280`): `GET /auditoria` → `usuarios.auditoria.ver`, `GET /auditoria/titulares` → `usuarios.auditoria.filtrar` | `permisos.paridad-reconduccion.test.ts:99-112` («montajes del código SIN fila en la lista») |
 | `__tests__/services/permisos.reconduccion-cierre.test.ts:152-155` | `228` → `230` (dos veces) y el comentario de `:11` | el propio test |
 | `__tests__/services/permisos.auditor-observa.test.ts:27-39, 56` | `LECTURAS_DEL_AUDITOR` += `usuarios: ['usuarios.auditoria.ver', 'usuarios.auditoria.filtrar']`; `41` → `43` (`:56`); el «41» de la cabecera `:6` y `:10` | el propio test: «(1) el seed le da EXACTAMENTE esos 41» |
-| `packages/shared-types/src/permissions.ts:261` | `ROLE_DEFAULT_PAGES.auditor` += `'users'` | `permisos-catalogo.test.ts:203-212` («cada rol tiene una fila `pagina.<slug>` por cada slug de su tabla»): el seed `('auditor','pagina.users')` de la 0182 solo cuadra con el generador si la tabla también lo dice. `siigo-paginas.test.ts:30` y `:43` usan `toContain`/lista de otra página: no se rompen |
-| `__tests__/db/migracion-0182.test.ts` | nuevo, modelo `migracion-0180.test.ts` (estática siempre; `skipIf(!TEST_DATABASE_URL)` contra base) | AC6 |
+| `packages/shared-types/src/permissions.ts:261` | `ROLE_DEFAULT_PAGES.auditor` += `'users'` | `permisos-catalogo.test.ts:203-212` («cada rol tiene una fila `pagina.<slug>` por cada slug de su tabla»): el seed `('auditor','pagina.users')` de la 0184 solo cuadra con el generador si la tabla también lo dice. `siigo-paginas.test.ts:30` y `:43` usan `toContain`/lista de otra página: no se rompen |
+| `__tests__/db/migracion-0184.test.ts` | nuevo, modelo `migracion-0180.test.ts` (estática siempre; `skipIf(!TEST_DATABASE_URL)` contra base) | AC6 |
 
 `FUNCIONES_SIN_ADMIN` (`permisos.service.ts:48-52`) **no cambia**: `admin` recibe las dos. Ni `ver` ni `filtrar` están en `VERBOS_DE_EJECUCION` (`permisos.auditor-observa.test.ts:45`) y las rutas son `GET`: el aserto «auditoría observa, no ejecuta» sigue verde.
 
-**Por qué `auditor` entra por la 0182 y no por la foto de la 0181.** Hoy `auditor` no tiene ninguna `usuarios.*` (0181 sembró las 8 solo para `admin`). Editar la fila de `GET /` o `GET /resumen` en la foto para darle `auditor` sería reescribir la historia que la paridad protege (y darle el censo entero, AC4); una función **nueva** con sus roles de partida es exactamente lo que la foto admite. Es también la única forma de que el AC2 («admin, auditor») se cumpla sin `requireRole`.
+**Por qué `auditor` entra por la 0184 y no por la foto de la 0181.** Hoy `auditor` no tiene ninguna `usuarios.*` (0181 sembró las 8 solo para `admin`). Editar la fila de `GET /` o `GET /resumen` en la foto para darle `auditor` sería reescribir la historia que la paridad protege (y darle el censo entero, AC4); una función **nueva** con sus roles de partida es exactamente lo que la foto admite. Es también la única forma de que el AC2 («admin, auditor») se cumpla sin `requireRole`.
 
 ### Petición
 
@@ -624,7 +624,7 @@ export interface TitularAuditoria { userId: number; username: string | null; } /
 
 **El auditor entra por `pagina.users` y ve solo el historial** (delta #9, ficha UX §5-1 y §8). Hechos: `auditor` no tiene `pagina.users` (`permissions.ts:261-264`; 0179 `:563`), `App.tsx:243` protege `/users` con `hasPage('users')`, y `navItems.ts:148` muestra «Usuarios» a quien tenga la página (sin `roles:`). Decisión:
 
-- **Datos:** la 0182 siembra `('auditor', 'pagina.users')` y `ROLE_DEFAULT_PAGES.auditor` (`permissions.ts:261`) suma `'users'`. **No** se le conceden `usuarios.usuario.listar` ni `ver_resumen`. Desde la #12082 las páginas **no viajan en el JWT**: `/me` y el login las resuelven contra la base (`paginasEfectivasDeUsuario`), con caché de 60 s por usuario; un auditor con sesión abierta ve la entrada al recargar, sin reiniciar sesión.
+- **Datos:** la 0184 siembra `('auditor', 'pagina.users')` y `ROLE_DEFAULT_PAGES.auditor` (`permissions.ts:261`) suma `'users'`. **No** se le conceden `usuarios.usuario.listar` ni `ver_resumen`. Desde la #12082 las páginas **no viajan en el JWT**: `/me` y el login las resuelven contra la base (`paginasEfectivasDeUsuario`), con caché de 60 s por usuario; un auditor con sesión abierta ve la entrada al recargar, sin reiniciar sesión.
 - **Pantalla:** `Users.tsx` decide por rol qué monta. `admin` → lo de hoy (cabecera, `UsersToolbar`, `UsersTable`, modales) en una pestaña **Usuarios** + pestaña **Historial**. `auditor` → cabecera + `HistorialPermisos` **y nada más**: ni listado, ni `useCompanias`/`useProveedoresSoat`/`useOrganismosParametrizados`, ni modales. Como los hooks no pueden ser condicionales, lo de `admin` baja a un componente (`pages/users/UsersGestion.tsx`) y `Users.tsx` queda como conmutador: sigue lejos del techo de 800.
 - **Condición:** `apps/web` no lee funciones todavía (`Users.tsx:96` decide `puedeExportar` con `me?.role === 'admin'`). Mientras no exista `tieneFuncion` en `lib/auth`, la condición es `me?.role === 'admin'` **con nombre** (`puedeGestionar`), junto a `puedeExportar` y con la misma nota, para que la #12170 cambie una línea.
 - **Descartado:** un slug nuevo `users_historial` (patrón `flito_logistica_ruta`): más piezas —`PAGES` 44→45 y sus tres cardinales en `permisos-catalogo.test.ts`, ruta en `App.tsx`, ítem de menú— para leer lo mismo, y la HU dice «dentro del módulo de usuarios». Si producto rechaza que el auditor vea «Usuarios» en el menú, se vuelve aquí (§12.8).
@@ -648,12 +648,12 @@ Los tests del API viven en `apps/api/__tests__/{services,db,fixtures,helpers}/`,
 
 | Archivo | Qué |
 |---|---|
-| `apps/api/src/db/migrations/0182_permisos_auditoria.sql` | §3: tabla, índices, REVOKE etiquetado, retención, funciones `usuarios.auditoria.ver` / `.filtrar` + reparto `admin`/`auditor` + `('auditor','pagina.users')` (o la siembra en una 0183 si P1 y P2 son PR distintos, §1) |
+| `apps/api/src/db/migrations/0184_permisos_auditoria.sql` | §3: tabla, índices, REVOKE etiquetado, retención, funciones `usuarios.auditoria.ver` / `.filtrar` + reparto `admin`/`auditor` + `('auditor','pagina.users')` (o la siembra en una 0185 si P1 y P2 son PR distintos, §1) |
 | `apps/api/src/shared/historial/permisos-auditoria.ts` | escritor, §5 (vecino de `permisos-intentos-denegados.ts`, criterio opuesto) |
 | `apps/api/src/modules/users/users-auditoria.service.ts` | consulta del historial, JOIN, DTO y `titulares`, §7 |
 | `apps/api/__tests__/services/permisos-auditoria.test.ts` | escritor: lote, lista blanca, `password` sin valor, sin `try/catch` (mutación 5) |
 | `apps/api/__tests__/services/users.auditoria.routes.test.ts` | `/auditoria`: 200 (`admin`, `auditor`) / 403 (`proveedor`, `cliente`) / filtros / paginación / DTO sin PII del titular (mutación 3); `/auditoria/titulares`: 200 con `{ userId, username }` y nada más, 403 |
-| `apps/api/__tests__/db/migracion-0182.test.ts` | modelo `migracion-0180.test.ts`: paridad SQL ↔ Drizzle por `getTableConfig` (columnas, nombres de índice y CHECK, `onDelete: 'restrict'` en las dos FK — mutación 4), REVOKE presente y **sin** `CREATE TRIGGER`, retención 6 años `archivar_offline` + `COMMENT`, siembra de las funciones y de la página; `skipIf(!TEST_DATABASE_URL)` para constraints y privilegios reales |
+| `apps/api/__tests__/db/migracion-0184.test.ts` | modelo `migracion-0180.test.ts`: paridad SQL ↔ Drizzle por `getTableConfig` (columnas, nombres de índice y CHECK, `onDelete: 'restrict'` en las dos FK — mutación 4), REVOKE presente y **sin** `CREATE TRIGGER`, retención 6 años `archivar_offline` + `COMMENT`, siembra de las funciones y de la página; `skipIf(!TEST_DATABASE_URL)` para constraints y privilegios reales |
 
 ### Backend — modificar
 
@@ -665,11 +665,11 @@ Los tests del API viven en `apps/api/__tests__/{services,db,fixtures,helpers}/`,
 | `apps/api/src/modules/users/users.service.ts` | `actualizarUsuario` lee el «antes» **dentro** de la transacción con `FOR UPDATE` (§6) y llama al escritor ahí; `crearUsuario` (`:188`) escribe las filas `crear`; nueva función para el toggle con `tx` |
 | `apps/api/src/modules/permisos/catalogo-operaciones.ts` | + dos `op(...)` en el bloque de Usuarios (`:310-318`) |
 | `apps/api/src/modules/permisos/inventario.generado.ts` | + dos entradas `GET /auditoria`, `GET /auditoria/titulares`, `roles: ["admin","auditor"]` (`:238-247`) |
-| `apps/api/__tests__/helpers/permisos-seed-sql.ts` | `MIGRACIONES_CON_REPARTO` += `0182` (`:16`) |
+| `apps/api/__tests__/helpers/permisos-seed-sql.ts` | `MIGRACIONES_CON_REPARTO` += `0184` (`:16`) |
 | `apps/api/__tests__/fixtures/permisos-rutas-reconducidas.ts` | + dos filas en la oleada 5 (`:271-280`) |
 | `apps/api/__tests__/services/permisos.reconduccion-cierre.test.ts` | `228` → `230` (`:152-155`, comentario `:11`) |
 | `apps/api/__tests__/services/permisos.auditor-observa.test.ts` | `LECTURAS_DEL_AUDITOR.usuarios`, `41` → `43` (`:27-39`, `:56`, cabecera `:6`, `:10`) |
-| `apps/api/__tests__/db/migracion-0179.test.ts` | sumar `0182_permisos_auditoria.sql` a `enArchivos` (`:111-112`) |
+| `apps/api/__tests__/db/migracion-0179.test.ts` | sumar `0184_permisos_auditoria.sql` a `enArchivos` (`:111-112`) |
 | `apps/api/__tests__/services/users.routes.test.ts` | los casos de `POST /`, `PATCH /:id`, `/toggle` y `/password` verán un `insert(permisosAuditoria)` nuevo dentro de `transaction`; asertar orden «insert auditoría → commit → invalidar» sobre `eventos` (mutación 5) |
 
 ### Frontend
@@ -699,7 +699,7 @@ Las tres del AC, con el archivo donde debe caer el rojo, más dos que el ADR añ
 |---|---|---|
 | 1 | dejar de escribir `valorDespues` en el cambio de `conjunto` | test que comprueba que el historial dice **qué funciones quedaron**, no solo que hubo cambio |
 | 2 | quitar `exigirFuncion('usuarios.auditoria.ver')` de `GET /auditoria` en `users.routes.ts` | test de 403 para `proveedor` en `users.auditoria.routes.test.ts`; **y** `permisos.reconduccion-cierre.test.ts` («ruta sin exigirFuncion fuera de la lista blanca») y la paridad («fila sin montaje») |
-| 2b | quitar `('auditor', 'usuarios.auditoria.ver')` de la 0182 | `permisos.auditor-observa.test.ts` («lecturas que el auditor perdió») y `permisos.paridad-reconduccion.test.ts` («rol auditor: antes SÍ, motor NO»); el token `auditor` de los specs sigue teniéndola (sale de la foto, no del SQL), por eso hacen falta estos dos y no basta el 403 |
+| 2b | quitar `('auditor', 'usuarios.auditoria.ver')` de la 0184 | `permisos.auditor-observa.test.ts` («lecturas que el auditor perdió») y `permisos.paridad-reconduccion.test.ts` («rol auditor: antes SÍ, motor NO»); el token `auditor` de los specs sigue teniéndola (sale de la foto, no del SQL), por eso hacen falta estos dos y no basta el 403 |
 | 2c | devolver `email` o `name` en `/auditoria/titulares` | test del DTO de titulares: exactamente `{ userId, username }` |
 | 3 | poner el correo del **titular** en `actorEmail` | test del AC4 sobre el DTO y sobre la fila escrita |
 | 4 | cambiar `ON DELETE RESTRICT` por `SET NULL` en `usuario_afectado_id` | test de paridad esquema/migración **sobre la cláusula**, no sobre la existencia de la columna (ADR-0005, «Notas operativas / qa-agent») |
@@ -717,5 +717,5 @@ Con `TZ=UTC` en los tests del filtro por fechas: en `-05` un aserto de rango sob
 6. ~~**Trabajo en paralelo sobre los mismos archivos.**~~ **Resuelto el 10/09/2026:** #12175 (split de `Users.tsx`), #12169/ADR-0015, #12082 y #12083 están en `develop` @ `be8608f`. `permisos_roles.codigo varchar(40)` es PK (`schema/permisos.ts` en la CHORE): **compatible** con `rol_afectado_codigo varchar(40)` sin FK. Queda **una** pieza en paralelo: la CHORE `CHORE/davidchica-partir-schema-permisos` (worktree `flito-chore-schema`, sin commit aún). Esta HU depende de ella para §4; si no ha mergeado, la absorbe.
 7. **`audit_logs` no se toca, y su retención tampoco.** Ni columnas, ni índices, ni la lista blanca `RECURSOS_FLITO` de `flito-bitacora.routes.ts:19` — el AC2 lo prohíbe expresamente y este diseño no la necesita.
 8. **Pendiente humano (10/09/2026): el auditor gana la entrada «Usuarios» en su menú** (`pagina.users`, §9). Es lo que la ficha UX propone y lo que hace cumplible el AC3; pero es un cambio visible de producto para un rol externo al módulo. Si se rechaza, la alternativa es un slug propio `users_historial` (descartado en §9 por coste) o declarar en el PR que el AC3 para `auditor` queda pendiente.
-9. **Pendiente humano: los textos de negocio de `usuarios.auditoria.ver` y `usuarios.auditoria.filtrar`** (§3, tomados de la ficha UX §5-1). Se leen en la pantalla de permisos (CF-23); si cambian, cambian en la 0182 y en `catalogo-operaciones.ts` a la vez (`migracion-0179.test.ts:102` compara literal).
-10. **Pendiente humano: P1 y P2 en uno o dos PR** (§1). Decide si la siembra de funciones va en la 0182 o en una 0183: con dos PR y una sola migración, el arranque del API falla entre el primero y el segundo.
+9. **Pendiente humano: los textos de negocio de `usuarios.auditoria.ver` y `usuarios.auditoria.filtrar`** (§3, tomados de la ficha UX §5-1). Se leen en la pantalla de permisos (CF-23); si cambian, cambian en la 0184 y en `catalogo-operaciones.ts` a la vez (`migracion-0179.test.ts:102` compara literal).
+10. **Pendiente humano: P1 y P2 en uno o dos PR** (§1). Decide si la siembra de funciones va en la 0184 o en una 0185: con dos PR y una sola migración, el arranque del API falla entre el primero y el segundo.

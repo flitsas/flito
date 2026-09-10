@@ -187,7 +187,7 @@ router.get('/resumen', exigirFuncion('usuarios.usuario.ver_resumen'), async (req
 // Literales también, y por eso viven aquí arriba. `GET` con query y no `POST …/buscar`: ningún
 // filtro es PII ni cuasi-PII (AGENTS.md §14): un entero interno, un enum, un código de rol y dos
 // fechas. Dos rutas con dos códigos porque el catálogo es «una función por ruta» (precedente:
-// `soat.cola.ver` / `soat.cola.filtrar`). `admin` y `auditor` las tienen sembradas por la 0182.
+// `soat.cola.ver` / `soat.cola.filtrar`). `admin` y `auditor` las tienen sembradas por la 0184.
 const auditoriaQuerySchema = z.object({
   titularUserId: z.coerce.number().int().positive().optional(),
   entidad: z.enum(ENTIDADES_AUDITABLES).optional(),

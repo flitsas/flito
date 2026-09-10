@@ -1,4 +1,4 @@
--- 0182_permisos_auditoria.sql
+-- 0184_permisos_auditoria.sql
 -- Feature #12072 — Roles y permisos configurables. HU #12171: historial consultable de cambios de
 --   usuarios, roles y permisos (CF-19, RN-A10). Tabla propia `permisos_auditoria` + funciones
 --   `usuarios.auditoria.ver` / `usuarios.auditoria.filtrar` (admin y auditor) + `pagina.users` para `auditor`.
@@ -11,11 +11,11 @@
 -- Reglas de este archivo:
 --   - Sin BEGIN/COMMIT (ADR-DB-001): el runner envuelve el archivo en su propia transaccion.
 --   - Idempotente en sentido FUERTE: la segunda pasada no toca una fila (users, permisos_funciones,
---     permisos_rol_funcion ni pesv_retencion_politicas). Lo comprueba __tests__/db/migracion-0182.test.ts.
+--     permisos_rol_funcion ni pesv_retencion_politicas). Lo comprueba __tests__/db/migracion-0184.test.ts.
 --   - Nada de ALTER TYPE ni de ADD COLUMN: lo que crea es una tabla nueva.
 --   - Dollar-quoting ETIQUETADO en los bloques DO, y la etiqueta no se nombra en ningun comentario.
 --   - Ninguna linea del archivo empieza por «(» + comilla salvo las tuplas de siembra: el test de la 0179
---     compara esas lineas (0179 + 0181 + 0182) con lo que produce generar-seed-permisos.ts.
+--     compara esas lineas (0179 + 0181 + 0182 + 0184) con lo que produce generar-seed-permisos.ts.
 --
 -- Por que una tabla propia y no `before_state`/`after_state` en `audit_logs`: ADR-0014. En corto:
 -- `audit_logs` la escriben ~312 llamadas en ~80 archivos que manejan conductores, propietarios y
@@ -134,13 +134,13 @@ CREATE INDEX IF NOT EXISTS idx_permisos_auditoria_created
 -- TRUNCATE tambien se revoca: el propietario lo conserva por defecto y vaciaria la tabla entera.
 -- Idempotente: REVOKE y GRANT no fallan si ya estan aplicados.
 REVOKE UPDATE, DELETE, TRUNCATE ON permisos_auditoria FROM PUBLIC;
-DO $revoke0182$ BEGIN
+DO $revoke0184$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'operaciones_app') THEN
     REVOKE UPDATE, DELETE, TRUNCATE ON permisos_auditoria FROM operaciones_app;
     GRANT SELECT, INSERT ON permisos_auditoria TO operaciones_app;
     GRANT USAGE, SELECT ON SEQUENCE permisos_auditoria_id_seq TO operaciones_app;
   END IF;
-END $revoke0182$;
+END $revoke0184$;
 
 COMMENT ON TABLE permisos_auditoria IS
   'CF-19: historial consultable de cambios de usuarios, roles y permisos (HU #12171, ADR-0014). '
@@ -175,7 +175,7 @@ ON CONFLICT (tipo_documento) DO NOTHING;
 
 -- ── Paso 4 — Las dos funciones que guardan el lector, su reparto, y la pagina para el auditor ───
 -- Formato del generador (generar-seed-permisos.ts): una tupla por linea. Es lo que lee el test de la
--- 0179 al comparar «lo sembrado en 0179 + 0181 + 0182» con «lo que produce la foto ampliada».
+-- 0179 al comparar «lo sembrado en 0179 + 0181 + 0182 + 0184» con «lo que produce la foto ampliada».
 -- Textos de negocio fijados el 10/09/2026; si cambian, cambian aqui y en catalogo-operaciones.ts.
 INSERT INTO permisos_funciones (codigo, modulo, nombre_negocio, descripcion, tipo) VALUES
   ('usuarios.auditoria.filtrar', 'usuarios', 'Listar los usuarios para filtrar el historial', 'Leer la lista de usuarios que tienen cambios registrados, para acotar el historial a uno.', 'operacion'),
@@ -194,13 +194,13 @@ INSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo) VALUES
 ON CONFLICT (rol_codigo, funcion_codigo) DO NOTHING;
 
 -- ── Paso 5 — La cuenta, en el log del CD ────────────────────────────────────────────────────────
-DO $resumen0182$
+DO $resumen0184$
 DECLARE n_politica int; n_reparto int;
 BEGIN
   SELECT count(*) INTO n_politica FROM pesv_retencion_politicas WHERE tipo_documento = 'permisos_auditoria';
   SELECT count(*) INTO n_reparto FROM permisos_rol_funcion
    WHERE funcion_codigo IN ('usuarios.auditoria.ver', 'usuarios.auditoria.filtrar')
       OR (rol_codigo = 'auditor' AND funcion_codigo = 'pagina.users');
-  RAISE NOTICE '0182: permisos_auditoria lista; politica de retencion sembrada = %; filas de reparto = % (esperadas 5)',
+  RAISE NOTICE '0184: permisos_auditoria lista; politica de retencion sembrada = %; filas de reparto = % (esperadas 5)',
     n_politica, n_reparto;
-END $resumen0182$;
+END $resumen0184$;
