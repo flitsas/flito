@@ -7,8 +7,13 @@
 // **Ningún número escrito a mano decide nada aquí, salvo el 43.** El enunciado original de esta HU
 // decía «46 constantes requireRole» y lo medido son 217 rutas guardadas; un test que hubiera fijado
 // el 46 habría pasado en verde dejando fuera lo demás. Por eso los asertos de operaciones comparan
-// CONJUNTOS contra el lector de guardas, no cardinales. El 43 sí se escribe: es 44 slugs de PAGES
-// menos `flito_ayuda`, y ahí el número ES la afirmación del AC2-bis.
+// CONJUNTOS contra la foto y contra los montajes leídos del fuente, no cardinales. El 43 sí se
+// escribe: es 44 slugs de PAGES menos `flito_ayuda`, y ahí el número ES la afirmación del AC2-bis.
+//
+// Desde la HU #12083 las rutas ya no llevan `requireRole`: la fuente de los ROLES es la foto histórica
+// `inventario.generado.ts` (congelada; se edita a mano solo con migración) y lo que se lee del fuente
+// es el CÓDIGO montado con `exigirFuncion`/`tieneFuncion`. El invariante de doble sentido pasa a ser:
+// por fichero, los montajes cubren EXACTAMENTE la foto.
 import { describe, it, expect } from 'vitest';
 import { PAGES, PAGE_GROUPS, USER_ROLES, paginasPorDefecto } from '@operaciones/shared-types';
 import {
@@ -16,7 +21,7 @@ import {
   PAGINAS_NO_CONCEDIBLES, CatalogoIncoherenteError,
 } from '../../src/modules/permisos/catalogo.js';
 import {
-  inventarioDeGuardas, llaveDe, FICHEROS_EN_ALCANCE,
+  leerMontajes, llaveDe, FICHEROS_EN_ALCANCE,
 } from '../../src/modules/permisos/inventario-guardas.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import {
@@ -107,25 +112,37 @@ describe('AC2 — el catálogo, nombrado como lo nombra el negocio', () => {
   });
 });
 
-describe('AC2/AC6 — las operaciones salen de las guardas, no de una lista escrita a mano', () => {
-  const guardas = inventarioDeGuardas();
+describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuente la cubren exactamente', () => {
+  const guardas = GUARDAS_MEDIDAS;
+  const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
 
-  it('el snapshot compilado sigue siendo fiel a las guardas del código', () => {
-    // El runtime NO relee los `.ts` —la imagen de producción no los lleva; el Dockerfile copia
-    // `dist`, migraciones, `db/data` y `vendor`—, así que lo que decide en arranque es
-    // `inventario.generado.ts`. Este caso es lo único que impide que esa foto se quede vieja: si
-    // alguien cambia un `requireRole` y no corre `npm run permisos:generar -w apps/api`, aquí se ve.
-    expect(GUARDAS_MEDIDAS).toEqual(guardas);
+  it('por fichero, `leerMontajes` cubre EXACTAMENTE la foto: cada ruta de la foto lleva montado el código que el catálogo le declara, y no hay montaje fuera de la foto', () => {
+    // El runtime NO relee los `.ts` —la imagen de producción no los lleva—, así que lo que decide en
+    // arranque es `inventario.generado.ts`. Este caso es lo único que impide que esa foto se separe del
+    // fuente: una ruta nueva con `exigirFuncion` y sin entrada en la foto (ni migración) se ve aquí;
+    // una ruta de la foto que alguien deje sin guarda, también. Las guardas EN LÍNEA (`condicion`) se
+    // comprueban por código: `tieneFuncion(req, '<codigo>')` aparece en su fichero.
+    for (const f of FICHEROS_EN_ALCANCE) {
+      const esperados = guardas.filter((g) => g.fichero === f.fichero).map((g) => {
+        const codigo = codigoDeLlave.get(llaveDe(g));
+        return g.condicion ? `${g.fichero} tieneFuncion → ${codigo}` : `${llaveDe(g)} → ${codigo}`;
+      }).sort();
+      const leidos = leerMontajes(f).map((m) => (m.metodo === null
+        ? `${m.fichero} tieneFuncion → ${m.codigo}`
+        : `${m.fichero} ${m.metodo} ${m.ruta} → ${m.codigo}`)).sort();
+      expect(leidos, f.fichero).toEqual(esperados);
+    }
   });
 
-  it('hay exactamente una función por ruta guardada, y ninguna de sobra', () => {
+  it('hay exactamente una función por ruta de la foto, y ninguna de sobra', () => {
     // El aserto que el «46» del enunciado habría dejado pasar: conjuntos, no cardinales.
     expect(new Set(OPERACIONES_DECLARADAS.map((o) => o.llave)))
       .toEqual(new Set(guardas.map(llaveDe)));
     expect(operaciones).toHaveLength(guardas.length);
+    expect(new Set(operaciones.map((f) => f.codigo)).size).toBe(guardas.length);
   });
 
-  it('los roles de cada operación son LITERALMENTE los de su guarda', () => {
+  it('los roles de cada operación son LITERALMENTE los de su entrada en la foto', () => {
     const porLlave = new Map(guardas.map((g) => [llaveDe(g), g]));
     const declPorLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o]));
     for (const f of operaciones) {
@@ -134,13 +151,14 @@ describe('AC2/AC6 — las operaciones salen de las guardas, no de una lista escr
     }
   });
 
-  it('el lector cubre el alcance del Feature y NO se cuela `clients`, que queda fuera', () => {
+  it('la foto cubre el alcance del Feature —incluido `users/` desde la #12083— y NO se cuela `clients`, que queda fuera', () => {
     expect(FICHEROS_EN_ALCANCE.some((f) => f.fichero.startsWith('clients/'))).toBe(false);
-    expect(new Set(guardas.map((g) => g.fichero)).size).toBeLessThanOrEqual(FICHEROS_EN_ALCANCE.length);
+    expect(new Set(guardas.map((g) => g.fichero))).toEqual(new Set(FICHEROS_EN_ALCANCE.map((f) => f.fichero)));
+    expect(guardas.some((g) => g.fichero === 'users/users.routes.ts')).toBe(true);
   });
 
   it('una guarda sin nombre declarado revienta, y dice cuál', () => {
-    const sobrante = [...inventarioDeGuardas(), {
+    const sobrante = [...guardas, {
       modulo: 'soat', fichero: 'flito-soat/flito-soat.routes.ts',
       metodo: 'POST' as const, ruta: '/inventada', roles: ['admin'], heredada: false,
     }];
@@ -149,8 +167,18 @@ describe('AC2/AC6 — las operaciones salen de las guardas, no de una lista escr
   });
 
   it('un nombre declarado sin guarda viva revienta también, que es el otro sentido', () => {
-    const faltante = inventarioDeGuardas().filter((g) => g.ruta !== '/enviar');
+    const faltante = guardas.filter((g) => g.ruta !== '/enviar');
     expect(() => catalogoDeOperaciones(faltante)).toThrow(/SIN guarda viva/);
+  });
+
+  it('las dos guardas en línea van con su condición en la llave y no colisionan con la ruta que las contiene', () => {
+    const enLinea = guardas.filter((g) => g.condicion);
+    expect(enLinea.map(llaveDe).sort()).toEqual([
+      'tramites/tramites.routes.ts PATCH /:id [_forzarContinuar]',
+      'users/users.routes.ts PATCH /:id/password [ajena]',
+    ]);
+    expect(codigoDeLlave.get('tramites/tramites.routes.ts PATCH /:id')).toBe('tramite.tramite.editar');
+    expect(codigoDeLlave.get('tramites/tramites.routes.ts PATCH /:id [_forzarContinuar]')).toBe('tramite.tramite.forzar_continuar');
   });
 });
 

@@ -17,9 +17,9 @@
 // mientras existió la revisión de Operaciones (HU #11915). **Ya no.** El Feature #12074 la retira:
 // desde la #12078 el alta despacha al gestor por defecto de la compañía y desde la #12079 la
 // pantalla que revisaba no existe, así que la #12080 borra de aquí `GET /causales-rechazo`,
-// `POST /:id/validar`, `POST /:id/rechazar-solicitud` y `PATCH /:id/solicitud` —y con ellas el
-// último uso de `requireRole('admin')` en este router—. Lo que queda es de un solo rol y de un solo
-// momento, y por eso este archivo ya no cuenta ningún ciclo: cuenta una puerta de entrada.
+// `POST /:id/validar`, `POST /:id/rechazar-solicitud` y `PATCH /:id/solicitud` —y con ellas la
+// última guarda de `admin` en este router—. Lo que queda es de un solo rol y de un solo momento,
+// y por eso este archivo ya no cuenta ningún ciclo: cuenta una puerta de entrada.
 //
 // Lo que sí sigue en pie es la razón de que sea un archivo aparte montado en la MISMA base: el
 // recurso es el mismo (`flito_soat`), el aislamiento por compañía tiene que seguir pasando por
@@ -50,7 +50,8 @@
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { soatClienteLimiter, soatPreconsultaLimiter, soatLecturaFacturaLimiter } from '../../shared/middleware/rateLimiter.js';
 import {
@@ -72,20 +73,21 @@ router.use(authMiddleware);
 /**
  * Solo el `cliente`. Ni siquiera el `admin`: radicar es un acto de la compañía —la solicitud queda
  * atada a `users.compania_id` y firmada con el nombre de quien la radica—, y un admin no tiene
- * compañía, así que su alta acabaría en `SIN_COMPANIA`. Que lo diga `requireRole` y no un error a
- * mitad de camino hace explícito de quién es este canal.
+ * compañía, así que su alta acabaría en `SIN_COMPANIA`. Que lo diga la guarda (`exigirFuncion` con
+ * `soat.runt.preconsultar`, `soat.solicitud.crear` y `soat.factura.leer`, las tres funciones que
+ * `FUNCIONES_SIN_ADMIN` deja fuera del administrador) y no un error a mitad de camino hace explícito
+ * de quién es este canal.
  *
  * Es la SEGUNDA cerradura: la primera es `RUTAS_PERMITIDAS_CLIENTE` (`shared/middleware/
  * canal-cliente.ts`), que niega por defecto todo lo que no esté inscrito allí. Las dos hacen falta
  * y en sentidos opuestos: aquella impide que el `cliente` alcance el resto de la API, esta impide
  * que el resto de los roles alcance el canal.
  */
-const CANAL_CLIENTE = requireRole('cliente');
 
-// Aquí vivía `REVISION_OPERACIONES = requireRole('admin')`, el guarda de las cuatro rutas de la
-// revisión. Se va con ellas (HU #12080): un `requireRole` sin ninguna ruta que lo use no es una
-// cerradura, es una invitación a colgarle la siguiente ruta que aparezca sin volver a pensar quién
-// debería poder llamarla.
+// Aquí vivía `REVISION_OPERACIONES`, la guarda de `admin` de las cuatro rutas de la revisión. Se va
+// con ellas (HU #12080): una guarda sin ninguna ruta que la use no es una cerradura, es una
+// invitación a colgarle la siguiente ruta que aparezca sin volver a pensar quién debería poder
+// llamarla. Desde la HU #12083 cada ruta lleva la suya en la misma línea.
 
 /**
  * El adjunto: UN archivo, campo `facturaVenta`, 15 MB como el resto del módulo.
@@ -258,7 +260,7 @@ const documentoSchema = z.object({
  * escriba nada (AGENTS.md §14): un VIN en la query queda en el log de nginx, en el historial del
  * navegador y en el `Referer`.
  */
-router.post('/cliente/preconsulta', CANAL_CLIENTE, soatClienteLimiter, soatPreconsultaLimiter, async (req: Request, res: Response) => {
+router.post('/cliente/preconsulta', exigirFuncion('soat.runt.preconsultar'), soatClienteLimiter, soatPreconsultaLimiter, async (req: Request, res: Response) => {
   const parsed = preconsultaSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   const { vin } = parsed.data;
@@ -524,7 +526,7 @@ const altaSchema = vehiculoSchema.merge(documentoSchema).extend(titularCampos).e
  * titularidad, y confundir la compuerta del RUNT con esa comprobación es el error que este párrafo
  * existe para evitar.
  */
-router.post('/cliente', CANAL_CLIENTE, soatClienteLimiter, upload.single('facturaVenta'), async (req: Request, res: Response) => {
+router.post('/cliente', exigirFuncion('soat.solicitud.crear'), soatClienteLimiter, upload.single('facturaVenta'), async (req: Request, res: Response) => {
   const parsed = altaSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   if (!req.file) { res.status(400).json({ error: 'Falta la factura de venta (PDF)' }); return; }
@@ -682,7 +684,7 @@ const lecturaFacturaSchema = z.object({
  */
 router.post(
   '/cliente/factura/lectura',
-  CANAL_CLIENTE, soatLecturaFacturaLimiter, upload.single('facturaVenta'),
+  exigirFuncion('soat.factura.leer'), soatLecturaFacturaLimiter, upload.single('facturaVenta'),
   async (req: Request, res: Response) => {
     const parsed = lecturaFacturaSchema.safeParse(req.body ?? {});
     if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }

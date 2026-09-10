@@ -3,7 +3,8 @@ import { eq, sql, and, inArray } from 'drizzle-orm';
 import { ORGANISMOS_TRANSITO, isEstadoSttTraspaso } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { tramitesDigitales, vehicles, soatRequests } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { emitEvento } from './eventos.js';
 import { notifyEstado } from './notificaciones.js';
@@ -13,12 +14,12 @@ import { soatVigenteDeRunt } from './soat-vigencia.js';
 
 /**
  * TRAM-13 + TRAM-MT-01 — Bandeja de tránsito multitenant por organismo.
- * - Router: roles `admin` | `transito`.
+ * - Router: `authMiddleware`; cada ruta exige su función `transito.*` (de partida, `admin` | `transito`).
  * - Scope: usuario tránsito solo ve su organismo; admin ve todos (o ?organismo=).
  * - POST tomar/asignar/confirmar: validación de scope + recibidoPor donde aplica.
  */
 const router = Router();
-router.use(authMiddleware, requireRole('admin', 'transito'));
+router.use(authMiddleware);
 
 function organismoFilter(scopeCodigo: string | null) {
   if (!scopeCodigo) return undefined;
@@ -26,12 +27,12 @@ function organismoFilter(scopeCodigo: string | null) {
 }
 
 // GET /organismos — Catálogo nacional (autenticado tránsito/admin).
-router.get('/organismos', (_req: Request, res: Response) => {
+router.get('/organismos', exigirFuncion('transito.organismos.listar'), (_req: Request, res: Response) => {
   res.json(ORGANISMOS_TRANSITO);
 });
 
 // GET /pendientes — Trámites enviados a tránsito (sin tomar), filtrados por organismo.
-router.get('/pendientes', async (req: Request, res: Response) => {
+router.get('/pendientes', exigirFuncion('transito.bandeja.ver_pendientes'), async (req: Request, res: Response) => {
   try {
     const scope = await resolveTransitoScope(req);
     if (!scope.ok) { res.status(scope.status).json({ error: scope.error }); return; }
@@ -48,7 +49,7 @@ router.get('/pendientes', async (req: Request, res: Response) => {
 });
 
 // GET /mis-tramites — Trámites tomados por este usuario de tránsito (scope organismo).
-router.get('/mis-tramites', async (req: Request, res: Response) => {
+router.get('/mis-tramites', exigirFuncion('transito.bandeja.ver_propios'), async (req: Request, res: Response) => {
   try {
     const scope = await resolveTransitoScope(req);
     if (!scope.ok) { res.status(scope.status).json({ error: scope.error }); return; }
@@ -68,7 +69,7 @@ router.get('/mis-tramites', async (req: Request, res: Response) => {
 });
 
 // GET /traspasos — Bandeja STT de traspasos (modalidad traspaso + estados STT activos).
-router.get('/traspasos', async (req: Request, res: Response) => {
+router.get('/traspasos', exigirFuncion('transito.traspasos.listar'), async (req: Request, res: Response) => {
   try {
     const scope = await resolveTransitoScope(req);
     if (!scope.ok) { res.status(scope.status).json({ error: scope.error }); return; }
@@ -103,7 +104,7 @@ router.get('/traspasos', async (req: Request, res: Response) => {
 });
 
 // GET /traspasos/:id — Detalle STT de un traspaso (scope organismo + modalidad traspaso).
-router.get('/traspasos/:id', async (req: Request, res: Response) => {
+router.get('/traspasos/:id', exigirFuncion('transito.traspasos.ver'), async (req: Request, res: Response) => {
   try {
     const scope = await resolveTransitoScope(req);
     if (!scope.ok) { res.status(scope.status).json({ error: scope.error }); return; }
@@ -142,7 +143,7 @@ router.get('/traspasos/:id', async (req: Request, res: Response) => {
 });
 
 // POST /tomar/:id — Tránsito toma un trámite de su organismo.
-router.post('/tomar/:id', async (req: Request, res: Response) => {
+router.post('/tomar/:id', exigirFuncion('transito.tramite.tomar'), async (req: Request, res: Response) => {
   try {
     const scope = await resolveTransitoScope(req);
     if (!scope.ok) { res.status(scope.status).json({ error: scope.error }); return; }
@@ -183,7 +184,7 @@ router.post('/tomar/:id', async (req: Request, res: Response) => {
 });
 
 // POST /asignar-placa/:id — Tránsito asigna placa
-router.post('/asignar-placa/:id', async (req: Request, res: Response) => {
+router.post('/asignar-placa/:id', exigirFuncion('transito.placa.asignar'), async (req: Request, res: Response) => {
   try {
     const scope = await resolveTransitoScope(req);
     if (!scope.ok) { res.status(scope.status).json({ error: scope.error }); return; }
@@ -225,7 +226,7 @@ router.post('/asignar-placa/:id', async (req: Request, res: Response) => {
 
 // POST /confirmar-placa/:id — Tránsito confirma placa → crea vehículo + (si falta
 // SOAT vigente) solicitud SOAT → solicitud_soat; si ya hay SOAT vigente → soat_verificado.
-router.post('/confirmar-placa/:id', async (req: Request, res: Response) => {
+router.post('/confirmar-placa/:id', exigirFuncion('transito.placa.confirmar'), async (req: Request, res: Response) => {
   try {
     const scope = await resolveTransitoScope(req);
     if (!scope.ok) { res.status(scope.status).json({ error: scope.error }); return; }

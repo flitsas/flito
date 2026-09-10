@@ -5,7 +5,8 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { esAlertaOperativa, TipoSoporteZip } from '@operaciones/shared-types';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { soportesDeTramite } from '../../shared/soportes/soportes-consulta.js';
 import {
@@ -24,8 +25,6 @@ import {
 const router = Router();
 router.use(authMiddleware);
 
-const OPERACIONES = requireRole('admin');
-const LECTURA = requireRole('admin', 'auditor');
 
 function ctxDe(user: { sub: number; username: string; role: string }): TramitesCtx {
   return { userId: user.sub, username: user.username, role: user.role };
@@ -47,7 +46,7 @@ const lista = (v: unknown): string[] | undefined => {
 const fecha = (v: unknown): string | undefined =>
   typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined;
 
-router.get('/', LECTURA, async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('tramites.cola.ver'), async (req: Request, res: Response) => {
   const q = req.query;
   const filtros: FiltrosListado = {
     buscar: str(q.buscar), estados: lista(q.estados), transitos: lista(q.transitos), ciudades: lista(q.ciudades),
@@ -66,12 +65,12 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
 });
 
 // GET /facetas — valores distintos para los dropdowns de filtro.
-router.get('/facetas', LECTURA, async (_req: Request, res: Response) => {
+router.get('/facetas', exigirFuncion('tramites.cola.filtrar'), async (_req: Request, res: Response) => {
   res.json(await facetas());
 });
 
 // GET /:id/historial — auditoría de cambios del trámite (campo por campo). Operaciones/Auditoría.
-router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
+router.get('/:id/historial', exigirFuncion('tramites.tramite.ver_historial'), async (req: Request, res: Response) => {
   res.json(await historial(req.params.id));
 });
 
@@ -83,7 +82,7 @@ router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
  * el rol financiera— o a la tabla de derechos. Es la misma lista que sirve finanzas; lo único
  * propio de aquí es el rol que entra.
  */
-router.get('/:id/soportes', LECTURA, async (req: Request, res: Response) => {
+router.get('/:id/soportes', exigirFuncion('tramites.tramite.ver_soportes'), async (req: Request, res: Response) => {
   const soportes = await soportesDeTramite(req.params.id);
   if (!soportes) { res.status(404).json({ error: 'El trámite no existe' }); return; }
   // Sin caché: un soporte cargado hace un minuto tiene que salir sin recargar la pantalla.
@@ -99,19 +98,19 @@ router.get('/:id/soportes', LECTURA, async (req: Request, res: Response) => {
  * + comprobante del MISMO trámite se llaman los tres `PLACA-ORGANISMO`, así que el `-3` es el caso
  * normal aquí, no el borde.
  *
- * ── El rol es `OPERACIONES`, y **no `LECTURA`** ─────────────────────────────────────────────────
+ * ── La función es `tramites.soportes.descargar` (solo `admin` de partida), **no una de lectura** ─
  *
- * `LECTURA` de este router es `admin` + `auditor`, y el AC7 dice que auditoría **no descarga**.
- * Reusar la constante de al lado —que es lo que pide el cuerpo, porque las demás lecturas la usan—
- * le abriría a auditoría una descarga masiva de documentos con datos del titular, y el error se
- * leería como una coherencia. El mutante `OPERACIONES → LECTURA` tiene su test.
+ * Las funciones de lectura de este router (`tramites.cola.ver`, `.ver_soportes`…) las tiene
+ * `auditor`, y el AC7 dice que auditoría **no descarga**. Concederle esta en el panel le abriría una
+ * descarga masiva de documentos con datos del titular; por eso el reparto de partida se la da solo a
+ * `admin`, y `permisos.auditor-observa.test.ts` fija que ninguna función no-GET sea del auditor.
  *
  * ── Por qué esta ruta existe aparte y no es la de SOAT parametrizada ────────────────────────────
  *
  * Los ids son de OTRO espacio (`flito_tramites.id`, no `flito_soat.id`), el predicado de frontera es
  * otro (aquí no hay ninguno: quien despacha ve el parque entero, y lo que acota es el rol) y el
- * catálogo de tipos es otro. Un endpoint único obligaría a un `requireRole` con la unión de los tres
- * roles y a mover la comprobación al cuerpo del handler, que es donde se olvida.
+ * catálogo de tipos es otro. Un endpoint único obligaría a una guarda con la unión de las tres
+ * funciones y a mover la comprobación al cuerpo del handler, que es donde se olvida.
  */
 const zipSoportesSchema = z.object({
   // Sin `.max()`: el tope se comprueba con `comprobarTopeRegistrosZip`, que responde con
@@ -122,7 +121,7 @@ const zipSoportesSchema = z.object({
   ])).min(1).max(3),
 }).strict();
 
-router.post('/soportes/zip', OPERACIONES, zipSoportesLimiter, async (req: Request, res: Response) => {
+router.post('/soportes/zip', exigirFuncion('tramites.soportes.descargar'), zipSoportesLimiter, async (req: Request, res: Response) => {
   const parsed = zipSoportesSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
@@ -164,7 +163,7 @@ const crearEmpresaSchema = z.object({
   soatAutogestionable: z.boolean().optional(), impuestosAutogestionable: z.boolean().optional(),
   logisticaAutogestionable: z.boolean().optional(),
 });
-router.post('/crear-empresa', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/crear-empresa', exigirFuncion('tramites.empresa.crear'), async (req: Request, res: Response) => {
   const parsed = crearEmpresaSchema.safeParse(req.body);
   if (!parsed.success) { bad(res); return; }
   const d = parsed.data;
@@ -185,7 +184,7 @@ const demoSchema = z.object({
   transitoNombre: z.string().trim().optional(), idFlit: z.string().trim().optional(),
   flitEstado: z.string().trim().optional(),
 });
-router.post('/demo', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/demo', exigirFuncion('tramites.demo.sembrar'), async (req: Request, res: Response) => {
   const parsed = demoSchema.safeParse(req.body);
   if (!parsed.success) { bad(res); return; }
   try {
@@ -198,7 +197,7 @@ router.post('/demo', OPERACIONES, async (req: Request, res: Response) => {
 });
 
 // POST /solicitar-soat — envío al gestor SOAT del lote, fijando proveedor. Solo Operaciones.
-router.post('/solicitar-soat', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/solicitar-soat', exigirFuncion('tramites.solicitud.pedir_soat'), async (req: Request, res: Response) => {
   const parsed = soatSchema.safeParse(req.body);
   if (!parsed.success) { bad(res); return; }
   const r = await solicitarSoat(parsed.data.tramiteIds, parsed.data.proveedorSoatId, ctxDe(req.user!));
@@ -207,7 +206,7 @@ router.post('/solicitar-soat', OPERACIONES, async (req: Request, res: Response) 
 });
 
 // POST /solicitar-impuestos — envío al gestor de impuestos (solo los que tienen factura de venta).
-router.post('/solicitar-impuestos', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/solicitar-impuestos', exigirFuncion('tramites.solicitud.pedir_impuestos'), async (req: Request, res: Response) => {
   const parsed = loteSchema.safeParse(req.body);
   if (!parsed.success) { bad(res); return; }
   const r = await solicitarImpuestos(parsed.data.tramiteIds, ctxDe(req.user!));
@@ -216,7 +215,7 @@ router.post('/solicitar-impuestos', OPERACIONES, async (req: Request, res: Respo
 });
 
 // POST /solicitar-ambos — SOAT y luego impuestos, secuencial.
-router.post('/solicitar-ambos', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/solicitar-ambos', exigirFuncion('tramites.solicitud.pedir_ambos'), async (req: Request, res: Response) => {
   const parsed = soatSchema.safeParse(req.body);
   if (!parsed.success) { bad(res); return; }
   const r = await solicitarAmbos(parsed.data.tramiteIds, parsed.data.proveedorSoatId, ctxDe(req.user!));
@@ -225,7 +224,7 @@ router.post('/solicitar-ambos', OPERACIONES, async (req: Request, res: Response)
 });
 
 // POST /entregar — entrega en lote (delega en compuerta, que revalida cada uno). Solo Operaciones.
-router.post('/entregar', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/entregar', exigirFuncion('tramites.tramite.entregar'), async (req: Request, res: Response) => {
   const parsed = loteSchema.safeParse(req.body);
   if (!parsed.success) { bad(res); return; }
   const r = await entregar(parsed.data.tramiteIds, ctxDe(req.user!));
@@ -242,7 +241,7 @@ const excepcionSchema = z.object({
   motivo: z.string().min(MOTIVO_MINIMO, `El motivo es obligatorio (mínimo ${MOTIVO_MINIMO} caracteres)`),
 });
 
-router.post('/:id/desbloquear-autogestion', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/:id/desbloquear-autogestion', exigirFuncion('tramites.autogestion.desbloquear'), async (req: Request, res: Response) => {
   const parsed = excepcionSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' }); return; }
   try {
@@ -259,7 +258,7 @@ router.post('/:id/desbloquear-autogestion', OPERACIONES, async (req: Request, re
   }
 });
 
-router.post('/:id/revocar-autogestion', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/:id/revocar-autogestion', exigirFuncion('tramites.autogestion.revocar'), async (req: Request, res: Response) => {
   const parsed = excepcionSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' }); return; }
   try {

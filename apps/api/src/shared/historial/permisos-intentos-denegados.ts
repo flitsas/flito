@@ -57,6 +57,11 @@ export function ventanaActual(): Date {
  * `motivo`, `metodo` y `ruta` quedan con lo ÚLTIMO que pasó.
  */
 export async function registrarIntentoDenegado(intento: IntentoDenegado): Promise<void> {
+  // Bandera leída EN CALIENTE (patrón `AUTH_SKIP_SESSION_INVAL_CHECK` de auth.ts): la suite la pone en
+  // `__tests__/setup.ts` para que el `insert` de la bitácora no consuma el mock de base de los specs
+  // que afirman un 403 y un `insert…not.toHaveBeenCalled` en el mismo caso. Los specs que SÍ prueban
+  // la bitácora la borran en su `beforeAll`. En producción no existe.
+  if (process.env.PERMISOS_SKIP_BITACORA_INTENTOS === '1') return;
   const t = permisosIntentosDenegados;
   const fila = {
     userId: intento.userId,

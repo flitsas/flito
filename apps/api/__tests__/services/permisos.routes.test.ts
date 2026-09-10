@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { chain } from '../helpers/db.js';
-import { testToken, registrarUsuarioDePrueba, fuenteDePrueba } from '../helpers/auth.js';
+import { testToken, registrarUsuarioDePrueba, fuenteDePrueba, operacionesDePartida } from '../helpers/auth.js';
 
 const selectMock = vi.fn();
 vi.mock('../../src/db/client.js', () => ({
@@ -144,7 +144,9 @@ describe('TC #12270 AC7 — GET /api/permisos/mios devuelve el mismo conjunto ef
     const res = await request(app()).get('/api/permisos/mios').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
     expect(res.body.tipoPrincipal).toBe('externo');
-    expect(res.body.funciones).toEqual(['pagina.flito_soat']);
+    // HU #12083: el helper carga las operaciones de partida del rol (la foto); `cliente` tiene su
+    // página y sus ocho `soat.*` de lectura y del canal, y nada más.
+    expect(res.body.funciones).toEqual(['pagina.flito_soat', ...operacionesDePartida('cliente')].sort());
   });
 
   it('?userId=8 se ignora: nunca devuelve el conjunto de otro usuario', async () => {

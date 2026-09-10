@@ -11,9 +11,11 @@
 // todos los módulos. `requirePage(slug)` (shared/permissions.ts) es `exigirFuncion('pagina.<slug>')`:
 // páginas y operaciones pasan por el mismo camino (AC7, RN-A4).
 //
-// Se monta siempre DESPUÉS de `authMiddleware`. Esta HU NO lo monta en ninguna ruta de producto:
-// lo entrega, lo prueba con un router de laboratorio y lo usa en `requirePage`; reconducir los
-// `requireRole` es la HU #12083.
+// Se monta siempre DESPUÉS de `authMiddleware` y A NIVEL DE RUTA (ADR-0016 §2): un
+// `exigirFuncion('<codigo>')` en la línea de cada `router.<método>(...)`, nunca en un `router.use`.
+// La #12082 lo entregó con un router de laboratorio y `requirePage`; la #12083 lo montó en las 219
+// rutas de FLITO, trámites y usuarios en lugar de `requireRole`. Cuando la decisión depende del cuerpo
+// o de la identidad (`_forzarContinuar`, contraseña ajena) el handler pregunta con `tieneFuncion`.
 //
 // ── El 403 distingue los casos (AC5, RN-A9, CF-14) ──────────────────────────────────────────────
 //
@@ -130,15 +132,35 @@ export function rutaDe(req: Request): string {
   return path.slice(0, 300);
 }
 
+type Decision = { ok: true } | { ok: false; motivo: MotivoDenegacion };
+
+/**
+ * La decisión, y la bitácora cuando es NO. Compartida por la guarda de ruta y por `tieneFuncion`:
+ * `p.ok && p.funciones.has(codigo)` es la única línea que decide en todo el API.
+ *
+ * El intento rechazado se registra ANTES de responder pero sin bloquear la respuesta a que la
+ * escritura termine bien: quien es rechazado no debe esperar a la bitácora.
+ */
+async function decidir(req: Request, codigo: string): Promise<Decision> {
+  const p = await resolverPermisos(req.user!.sub);
+  if (p.ok && p.funciones.has(codigo)) return { ok: true };
+
+  const motivo: MotivoDenegacion = p.ok ? motivoDenegacionFuncion(p.funciones, codigo) : 'no_resuelto';
+  // El `.catch` es cinturón sobre tirantes: el escritor ya se traga sus errores, pero si algún día
+  // dejara de hacerlo, una promesa rechazada y sin dueño es un `unhandledRejection` que en Node ≥ 15
+  // tumba el proceso entero. Un 403 no puede poder tumbar la API.
+  void registrarIntentoDenegado({
+    userId: req.user!.sub, rol: req.user!.role, codigo, motivo, metodo: req.method, ruta: rutaDe(req),
+  }).catch(() => undefined);
+  return { ok: false, motivo };
+}
+
 /**
  * Guarda HTTP de una función. Se monta DESPUÉS de `authMiddleware`.
  *
  * La evaluación ocurre entera en el servidor y a partir de la identidad del JWT verificado (`sub`)
  * contra la base: un cliente que llame al endpoint saltándose la interfaz, o que manipule cualquier
  * claim del token, recibe el mismo 403, porque aquí no se lee nada que el navegador pueda decidir.
- *
- * El intento rechazado se registra ANTES de responder pero sin bloquear la respuesta a que la
- * escritura termine bien: quien es rechazado no debe esperar a la bitácora.
  */
 export function exigirFuncion(codigo: string): RequestHandler {
   return async (req: Request, res: Response, next: NextFunction) => {
@@ -146,16 +168,19 @@ export function exigirFuncion(codigo: string): RequestHandler {
       res.status(401).json({ error: 'Token requerido' });
       return;
     }
-    const p = await resolverPermisos(req.user.sub);
-    if (p.ok && p.funciones.has(codigo)) { next(); return; }
-
-    const motivo: MotivoDenegacion = p.ok ? motivoDenegacionFuncion(p.funciones, codigo) : 'no_resuelto';
-    // El `.catch` es cinturón sobre tirantes: el escritor ya se traga sus errores, pero si algún día
-    // dejara de hacerlo, una promesa rechazada y sin dueño es un `unhandledRejection` que en Node ≥ 15
-    // tumba el proceso entero. Un 403 no puede poder tumbar la API.
-    void registrarIntentoDenegado({
-      userId: req.user.sub, rol: req.user.role, codigo, motivo, metodo: req.method, ruta: rutaDe(req),
-    }).catch(() => undefined);
-    res.status(403).json({ error: textoDe(motivo, codigo), funcion: codigo, motivo });
+    const d = await decidir(req, codigo);
+    if (d.ok) { next(); return; }
+    res.status(403).json({ error: textoDe(d.motivo, codigo), funcion: codigo, motivo: d.motivo });
   };
+}
+
+/**
+ * La misma decisión que `exigirFuncion`, para usarla DENTRO de un handler cuando el permiso solo se
+ * pide en una rama (un flag del cuerpo, «otro usuario y no yo»). Registra el intento denegado igual
+ * que la guarda; el 403 y su cuerpo los pone el handler, que es quien sabe qué estaba decidiendo.
+ * Sin `req.user` es NO: aquí nadie está autenticado todavía.
+ */
+export async function tieneFuncion(req: Request, codigo: string): Promise<boolean> {
+  if (!req.user) return false;
+  return (await decidir(req, codigo)).ok;
 }

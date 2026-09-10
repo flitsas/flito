@@ -6,7 +6,8 @@ import { mkdir, writeFile, access } from 'fs/promises';
 import path from 'path';
 import { db } from '../../db/client.js';
 import { tramitesDigitales, tramitesDocumentos } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import express from 'express';
 import {
@@ -46,7 +47,10 @@ import { useLocalPdf } from './docs/mode.js';
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
-router.use(authMiddleware, requireRole('admin', 'transito'));
+// Solo `authMiddleware` a nivel de router: la guarda de función va en cada ruta (`exigirFuncion`,
+// HU #12083). De partida, `admin` y `transito` tienen todas las `tramite.*` salvo las que eran
+// solo de `admin` en línea (métricas, reprocesar y resultados de lote, forzar continuar).
+router.use(authMiddleware);
 
 // S4: Sanitizar filename
 const sanitizeFilename = (name: string) => name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 200);
@@ -55,17 +59,17 @@ const VALID_DOC_TYPES = ['factura', 'aduana', 'impronta', 'soat', 'certificado_a
 
 // TRAM-INNOV A5: catálogo de tipologías (estático, desde shared-types). ANTES de
 // /:id para que Express no matchee "tipologias" como un ID.
-router.get('/tipologias', (_req: Request, res: Response) => {
+router.get('/tipologias', exigirFuncion('tramite.tipologias.ver'), (_req: Request, res: Response) => {
   res.json(TRAMITE_TIPOLOGIAS);
 });
 
 // TRAM-OPS-02: catálogo de motivos de rechazo OT (antes de /:id).
-router.get('/motivos-rechazo-ot', (_req: Request, res: Response) => {
+router.get('/motivos-rechazo-ot', exigirFuncion('tramite.motivos_rechazo.ver'), (_req: Request, res: Response) => {
   res.json(MOTIVOS_RECHAZO_OT);
 });
 
 // TRAM-OPS-01: embudo operativo por etapas (antes de /:id).
-router.get('/embudo', async (req: Request, res: Response) => {
+router.get('/embudo', exigirFuncion('tramite.embudo.ver'), async (req: Request, res: Response) => {
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 50));
   const rango = parseFechaRangoQuery(req.query as Record<string, unknown>);
   const modalidadRaw = req.query.modalidadEntrada;
@@ -75,13 +79,13 @@ router.get('/embudo', async (req: Request, res: Response) => {
 });
 
 // TRAM-INNOV A4: capacidades de notificación (para que la UI degrade su mensaje).
-router.get('/notif-config', (_req: Request, res: Response) => {
+router.get('/notif-config', exigirFuncion('tramite.notificaciones.ver_config'), (_req: Request, res: Response) => {
   res.json(notifConfig());
 });
 
-// TRAMITES-ABCD Sprint A: KPIs del epic (panel admin). SOLO admin (route-level
-// requireRole restringe sobre el router-level admin|transito). Literal ANTES de /:id.
-router.get('/metrics/summary', requireRole('admin'), async (req: Request, res: Response) => {
+// TRAMITES-ABCD Sprint A: KPIs del epic (panel admin). SOLO admin de partida
+// (`tramite.metricas.ver_resumen` no la tiene `transito`). Literal ANTES de /:id.
+router.get('/metrics/summary', exigirFuncion('tramite.metricas.ver_resumen'), async (req: Request, res: Response) => {
   const days = Math.min(90, Math.max(1, Number(req.query.days) || 30));
   try {
     const summary = await getTramitesMetrics(days);
@@ -92,7 +96,7 @@ router.get('/metrics/summary', requireRole('admin'), async (req: Request, res: R
 });
 
 // TRAM-DASH-01: KPIs del gestor (solo trámites creados por el usuario autenticado).
-router.get('/metrics/gestor', async (req: Request, res: Response) => {
+router.get('/metrics/gestor', exigirFuncion('tramite.metricas.ver_gestor'), async (req: Request, res: Response) => {
   const days = Math.min(90, Math.max(1, Number(req.query.days) || 30));
   const userId = req.user?.sub;
   if (!userId) { res.status(401).json({ error: 'No autenticado' }); return; }
@@ -105,14 +109,14 @@ router.get('/metrics/gestor', async (req: Request, res: Response) => {
 });
 
 // TRAM-INNOV B4: trámites en lote (CSV de flota). Rutas literales ANTES de /:id.
-router.get('/lote/plantilla.csv', (_req: Request, res: Response) => {
+router.get('/lote/plantilla.csv', exigirFuncion('tramite.lote.descargar_plantilla'), (_req: Request, res: Response) => {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="plantilla_lote_flota.csv"');
   res.send(PLANTILLA_CSV);
 });
 
 // Preview: parsea CSV + pre-vuelo A1 por fila, SIN crear trámites.
-router.post('/lote/preview', upload.single('file'), async (req: Request, res: Response) => {
+router.post('/lote/preview', exigirFuncion('tramite.lote.previsualizar'), upload.single('file'), async (req: Request, res: Response) => {
   if (!req.file) { res.status(400).json({ error: 'Archivo CSV requerido' }); return; }
   const parsed = parseCsv(req.file.buffer.toString('utf-8'));
   if (!parsed.ok) { res.status(400).json({ error: parsed.error }); return; }
@@ -121,14 +125,14 @@ router.post('/lote/preview', upload.single('file'), async (req: Request, res: Re
 });
 
 // LOTE-PLUS-04 (G5): historial paginado de lotes. ANTES de /lote/:id.
-router.get('/lote', async (req: Request, res: Response) => {
+router.get('/lote', exigirFuncion('tramite.lote.listar'), async (req: Request, res: Response) => {
   const page = parseInt(req.query.page as string, 10) || 1;
   const limit = parseInt(req.query.limit as string, 10) || 20;
   res.json(await listLotes({ page, limit }));
 });
 
 // LOTE-PLUS-01: confirmar en background (202). Re-parsea CSV en servidor (G4).
-router.post('/lote/async', upload.single('file'), async (req: Request, res: Response) => {
+router.post('/lote/async', exigirFuncion('tramite.lote.procesar_async'), upload.single('file'), async (req: Request, res: Response) => {
   if (!req.file) { res.status(400).json({ error: 'Archivo CSV requerido' }); return; }
   const nombre = (req.body?.nombre as string | undefined)?.slice(0, 120) || undefined;
   const r = await iniciarLoteAsync(req.file.buffer.toString('utf-8'), nombre, req.user!.sub);
@@ -141,7 +145,7 @@ router.post('/lote/async', upload.single('file'), async (req: Request, res: Resp
 });
 
 // LOTE-PLUS-04 (G4): confirmar re-parseando el CSV EN EL SERVIDOR (síncrono, legacy).
-router.post('/lote/confirm', upload.single('file'), async (req: Request, res: Response) => {
+router.post('/lote/confirm', exigirFuncion('tramite.lote.confirmar'), upload.single('file'), async (req: Request, res: Response) => {
   if (!req.file) { res.status(400).json({ error: 'Archivo CSV requerido' }); return; }
   const nombre = (req.body?.nombre as string | undefined)?.slice(0, 120) || undefined;
   const r = await confirmarLoteDesdeCsv(req.file.buffer.toString('utf-8'), nombre, req.user!.sub);
@@ -168,7 +172,7 @@ const loteConfirmSchema = z.object({
 });
 
 // Confirmar: crea N borradores en chunks de ≤50.
-router.post('/lote', async (req: Request, res: Response) => {
+router.post('/lote', exigirFuncion('tramite.lote.crear'), async (req: Request, res: Response) => {
   const parsed = loteConfirmSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   const result = await confirmarLote(parsed.data, req.user!.sub);
@@ -177,7 +181,7 @@ router.post('/lote', async (req: Request, res: Response) => {
 });
 
 // LOTE-PLUS-01: polling de progreso. ANTES de GET /lote/:id.
-router.get('/lote/:id/estado', async (req: Request, res: Response) => {
+router.get('/lote/:id/estado', exigirFuncion('tramite.lote.ver_estado'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const estado = await getLoteEstado(id);
@@ -185,7 +189,7 @@ router.get('/lote/:id/estado', async (req: Request, res: Response) => {
   res.json(estado);
 });
 
-router.get('/lote/:id', async (req: Request, res: Response) => {
+router.get('/lote/:id', exigirFuncion('tramite.lote.ver'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const lote = await getLote(id);
@@ -194,7 +198,7 @@ router.get('/lote/:id', async (req: Request, res: Response) => {
 });
 
 // LOTE-PLUS-03: reintenta las filas en error del lote (solo admin).
-router.post('/lote/:id/reprocesar-errores', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/lote/:id/reprocesar-errores', exigirFuncion('tramite.lote.reprocesar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const result = await reprocesarErroresLote(id, req.user!.sub);
@@ -204,7 +208,7 @@ router.post('/lote/:id/reprocesar-errores', requireRole('admin'), async (req: Re
 });
 
 // LOTE-PLUS-03: export CSV de resultados del lote (solo admin).
-router.get('/lote/:id/resultados.csv', requireRole('admin'), async (req: Request, res: Response) => {
+router.get('/lote/:id/resultados.csv', exigirFuncion('tramite.lote.descargar_resultados'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const csv = await exportResultadosCsv(id);
@@ -230,7 +234,7 @@ const preflightSchema = z.object({
   tramiteId: z.number().int().positive().optional(),
 }).refine((d) => d.vin || d.placa, { message: 'Se requiere VIN o placa' });
 
-router.post('/preflight', async (req: Request, res: Response) => {
+router.post('/preflight', exigirFuncion('tramite.preflight.evaluar'), async (req: Request, res: Response) => {
   const parsed = preflightSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   const snapshot = await computePreflight(parsed.data, req.user?.sub ?? null);
@@ -247,7 +251,7 @@ const impuestoConsultaSchema = z.object({
 }).strict();
 
 // TRAM-TRASPASO-P1 — consulta impuesto vehicular (integración directa).
-router.post('/impuesto-vehicular/consultar', async (req: Request, res: Response) => {
+router.post('/impuesto-vehicular/consultar', exigirFuncion('tramite.impuesto.consultar'), async (req: Request, res: Response) => {
   const parsed = impuestoConsultaSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   const r = await consultarImpuestoVehicular(parsed.data);
@@ -257,7 +261,7 @@ router.post('/impuesto-vehicular/consultar', async (req: Request, res: Response)
 
 // F9: Stats ANTES de /:id para que Express no lo matchee como ID
 // #19: Métricas temporales de trámites
-router.get('/stats/metricas', async (_req: Request, res: Response) => {
+router.get('/stats/metricas', exigirFuncion('tramite.estadisticas.ver_metricas'), async (_req: Request, res: Response) => {
   try {
     const hoy = new Date();
     const hace30d = new Date(hoy.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -286,7 +290,7 @@ router.get('/stats/metricas', async (_req: Request, res: Response) => {
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
-router.get('/stats/resumen', async (_req: Request, res: Response) => {
+router.get('/stats/resumen', exigirFuncion('tramite.estadisticas.ver_resumen'), async (_req: Request, res: Response) => {
   const result = await db.select({
     estado: tramitesDigitales.estado,
     count: sql<number>`count(*)::int`,
@@ -297,7 +301,7 @@ router.get('/stats/resumen', async (_req: Request, res: Response) => {
 });
 
 // D4: Listar con paginacion + filtros por estado y búsqueda
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('tramite.cola.ver'), async (req: Request, res: Response) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
   const rango = parseFechaRangoQuery(req.query as Record<string, unknown>);
@@ -315,7 +319,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // Obtener tramite por ID
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', exigirFuncion('tramite.tramite.ver'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const t = await getTramiteWithDocs(id);
@@ -325,7 +329,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 // TRAM-INNOV A5: estado computado del checklist de la tipología del trámite.
 // `checklist: null` si el trámite no tiene tipología elegida.
-router.get('/:id/checklist', async (req: Request, res: Response) => {
+router.get('/:id/checklist', exigirFuncion('tramite.checklist.ver'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const result = await getChecklistForTramite(id);
@@ -336,7 +340,7 @@ router.get('/:id/checklist', async (req: Request, res: Response) => {
 // TRAM-INNOV B2 (Sprint D): copiloto IA del checklist (HITL). Sugerencias para
 // priorizar ítems pendientes — NUNCA auto-marca ni envía a tránsito. Sin IA
 // configurada → 503 (degradación). Sin PII en el prompt.
-router.post('/:id/checklist/sugerir', async (req: Request, res: Response) => {
+router.post('/:id/checklist/sugerir', exigirFuncion('tramite.checklist.sugerir'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const result = await getChecklistForTramite(id);
@@ -351,7 +355,7 @@ router.post('/:id/checklist/sugerir', async (req: Request, res: Response) => {
 });
 
 // TRAM-INNOV A1: último snapshot de pre-vuelo del trámite (o null).
-router.get('/:id/preflight', async (req: Request, res: Response) => {
+router.get('/:id/preflight', exigirFuncion('tramite.preflight.ver'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const snapshot = await getLatestPreflight(id);
@@ -366,7 +370,7 @@ const preflightCtaSchema = z.object({
   ctaId: z.string().max(40),
   overall: z.enum(['green', 'yellow', 'red']).optional(),
 });
-router.post('/:id/preflight/cta', async (req: Request, res: Response) => {
+router.post('/:id/preflight/cta', exigirFuncion('tramite.preflight.accionar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = preflightCtaSchema.safeParse(req.body);
@@ -388,7 +392,7 @@ const rechazarOtSchema = z.object({
   nota: z.string().max(2000).optional(),
 });
 
-router.post('/:id/rechazar-ot', async (req: Request, res: Response) => {
+router.post('/:id/rechazar-ot', exigirFuncion('tramite.tramite.rechazar_ot'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = rechazarOtSchema.safeParse(req.body);
@@ -417,7 +421,7 @@ router.post('/:id/rechazar-ot', async (req: Request, res: Response) => {
 });
 
 // TRAM-INNOV A2: timeline del expediente (cronológico).
-router.get('/:id/timeline', async (req: Request, res: Response) => {
+router.get('/:id/timeline', exigirFuncion('tramite.tramite.ver_historial'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   res.json({ eventos: await getTimeline(id) });
@@ -434,7 +438,7 @@ const invitarSchema = z.object({
   })).min(1).max(3),
 });
 
-router.post('/:id/invitar', async (req: Request, res: Response) => {
+router.post('/:id/invitar', exigirFuncion('tramite.participantes.invitar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = invitarSchema.safeParse(req.body);
@@ -447,7 +451,7 @@ router.post('/:id/invitar', async (req: Request, res: Response) => {
 
 // TRAM-COMMS-02: participantes pendientes (no completados) + su último recordatorio.
 // Para que el gestor vea quién falta y cuándo se le recordó por última vez.
-router.get('/:id/participantes-pendientes', async (req: Request, res: Response) => {
+router.get('/:id/participantes-pendientes', exigirFuncion('tramite.participantes.ver_pendientes'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const participantes = await listarParticipantesPendientes(id);
@@ -455,7 +459,7 @@ router.get('/:id/participantes-pendientes', async (req: Request, res: Response) 
 });
 
 // TRAM-INNOV-EXP-PDF: expediente certificado PDF + QR embebido (on-demand).
-router.get('/:id/expediente.pdf', async (req: Request, res: Response) => {
+router.get('/:id/expediente.pdf', exigirFuncion('tramite.expediente.descargar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const tramite = await getTramiteWithDocs(id);
@@ -513,7 +517,7 @@ router.get('/:id/expediente.pdf', async (req: Request, res: Response) => {
 });
 
 // TRAM-INNOV A2: generar token de verificación pública (QR), TTL 7d, revocable.
-router.post('/:id/verify-token', async (req: Request, res: Response) => {
+router.post('/:id/verify-token', exigirFuncion('tramite.participantes.verificar_enlace'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const result = await generateVerifyToken(id, { userId: req.user!.sub, role: req.user!.role });
@@ -536,7 +540,7 @@ const createSchema = z.object({
   { message: 'Matrícula inicial requiere VIN; traspaso requiere placa' },
 );
 
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', exigirFuncion('tramite.tramite.crear'), async (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   let tramite;
@@ -566,7 +570,7 @@ const estadoSttSchema = z.object({
   nota: z.string().max(500).optional(),
 }).strict();
 
-router.patch('/:id/estado', async (req: Request, res: Response) => {
+router.patch('/:id/estado', exigirFuncion('tramite.tramite.cambiar_estado'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = estadoSttSchema.safeParse(req.body);
@@ -604,7 +608,7 @@ const updateSchema = z.object({
   checklistEstado: z.record(z.string(), z.boolean()).optional(),
 });
 
-router.patch('/:id', async (req: Request, res: Response) => {
+router.patch('/:id', exigirFuncion('tramite.tramite.editar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = updateSchema.safeParse(req.body);
@@ -612,7 +616,9 @@ router.patch('/:id', async (req: Request, res: Response) => {
 
   const vehPatch = parsed.data.vehiculo as Record<string, unknown> | undefined;
   if (vehPatch && '_forzarContinuar' in vehPatch) {
-    if (req.user!.role !== 'admin') {
+    // Guarda EN LÍNEA (HU #12083): depende del cuerpo, no de la ruta. Mismo motor que `exigirFuncion`;
+    // el cuerpo del 403 se conserva (`code: 'forzar_admin'`), nadie lo lee hoy y no es esta HU quien lo cambia.
+    if (!(await tieneFuncion(req, 'tramite.tramite.forzar_continuar'))) {
       res.status(403).json({ error: 'Solo administradores pueden forzar continuar', code: 'forzar_admin' });
       return;
     }
@@ -675,7 +681,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
 });
 
 // S4: Subir documento con filename sanitizado
-router.post('/:id/documentos', upload.single('file'), async (req: Request, res: Response) => {
+router.post('/:id/documentos', exigirFuncion('tramite.documentos.cargar'), upload.single('file'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   if (!req.file) { res.status(400).json({ error: 'Archivo requerido' }); return; }
@@ -713,7 +719,7 @@ router.post('/:id/documentos', upload.single('file'), async (req: Request, res: 
   res.status(201).json(doc);
 });
 
-router.get('/:id/documentos', async (req: Request, res: Response) => {
+router.get('/:id/documentos', exigirFuncion('tramite.documentos.listar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const docs = await db.select().from(tramitesDocumentos).where(eq(tramitesDocumentos.tramiteId, id));
@@ -721,7 +727,7 @@ router.get('/:id/documentos', async (req: Request, res: Response) => {
 });
 
 // Descargar archivo de documento
-router.get('/:tramiteId/documentos/:docId/archivo', async (req: Request, res: Response) => {
+router.get('/:tramiteId/documentos/:docId/archivo', exigirFuncion('tramite.documentos.descargar'), async (req: Request, res: Response) => {
   const tramiteId = parseInt(req.params.tramiteId, 10);
   const docId = parseInt(req.params.docId, 10);
   if (!Number.isFinite(tramiteId) || !Number.isFinite(docId)) { res.status(400).json({ error: 'IDs inválidos' }); return; }
@@ -740,7 +746,7 @@ router.get('/:tramiteId/documentos/:docId/archivo', async (req: Request, res: Re
 // Endpoint viejo eliminado — usar DELETE /:tramiteId/documentos/:docId con ownership check
 
 // F1: DELETE documento verifica ownership + gate dual-actor (paridad POST upload).
-router.delete('/:tramiteId/documentos/:docId', async (req: Request, res: Response) => {
+router.delete('/:tramiteId/documentos/:docId', exigirFuncion('tramite.documentos.borrar'), async (req: Request, res: Response) => {
   const tramiteId = parseInt(req.params.tramiteId, 10);
   const docId = parseInt(req.params.docId, 10);
   if (!Number.isFinite(tramiteId) || !Number.isFinite(docId)) { res.status(400).json({ error: 'IDs inválidos' }); return; }
@@ -772,7 +778,7 @@ router.delete('/:tramiteId/documentos/:docId', async (req: Request, res: Respons
 });
 
 // Generar FUR (orquestación en el servicio; resiliencia TRAM-10 preservada)
-router.post('/:id/generar-fur', async (req: Request, res: Response) => {
+router.post('/:id/generar-fur', exigirFuncion('tramite.fur.generar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const gateExp = await assertTraspasoMutacion(id, req.user!.role, 'generar_legal');
@@ -821,7 +827,7 @@ function sendDoc(res: Response, tipo: string, filename: string, result: Awaited<
   return true;
 }
 
-router.post('/:id/generar-contrato', async (req: Request, res: Response) => {
+router.post('/:id/generar-contrato', exigirFuncion('tramite.contrato.generar'), async (req: Request, res: Response) => {
   if (!docsGeneracionHabilitada(res)) return;
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
@@ -837,7 +843,7 @@ router.post('/:id/generar-contrato', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/:id/generar-improntas', async (req: Request, res: Response) => {
+router.post('/:id/generar-improntas', exigirFuncion('tramite.improntas.generar'), async (req: Request, res: Response) => {
   if (!docsGeneracionHabilitada(res)) return;
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }

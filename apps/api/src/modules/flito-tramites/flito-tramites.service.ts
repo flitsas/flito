@@ -681,10 +681,11 @@ export async function facetas(): Promise<FacetasTramites> {
  * ── Por qué aquí no hay predicado de frontera y eso es correcto ──────────────────────────────────
  *
  * Esta pantalla es de Operaciones: `listar()` no aplica ninguna frontera —ni proveedor ni organismo—
- * porque quien despacha ve el parque entero. La frontera de ESTA superficie es el ROL, y la aplica la
- * ruta con `requireRole('admin')`. Es la diferencia que obliga a que sean tres rutas y no un endpoint
- * parametrizado: unificarlas exigiría un `requireRole` con la unión de los tres roles y empujar la
- * comprobación al cuerpo del handler, que es donde se olvida.
+ * porque quien despacha ve el parque entero. La frontera de ESTA superficie es la FUNCIÓN, y la
+ * aplica la ruta con `exigirFuncion('tramites.soportes.descargar')` (de partida, solo `admin`). Es
+ * la diferencia que obliga a que sean tres rutas y no un endpoint parametrizado: unificarlas
+ * exigiría una guarda con la unión de las tres funciones y empujar la comprobación al cuerpo del
+ * handler, que es donde se olvida.
  *
  * ── Las tres anclas, y una que NO es la que parece ───────────────────────────────────────────────
  *

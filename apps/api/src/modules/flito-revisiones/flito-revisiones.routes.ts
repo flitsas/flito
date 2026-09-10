@@ -6,7 +6,8 @@
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { FlujoRevision } from '@operaciones/shared-types';
 import { presignedGetEntityDocument } from '../../services/storage.js';
@@ -18,8 +19,6 @@ import {
 const router = Router();
 router.use(authMiddleware);
 
-const OPERACIONES = requireRole('admin');
-const LECTURA = requireRole('admin', 'auditor');
 
 const MODULOS = Object.values(FlujoRevision) as string[];
 
@@ -33,7 +32,7 @@ function handleError(res: Response, e: unknown): void {
 }
 
 // GET / — cola (?modulo=soat|impuestos|factura_venta&incluirResueltas=true)
-router.get('/', LECTURA, async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('revisiones.cola.ver'), async (req: Request, res: Response) => {
   const moduloRaw = typeof req.query.modulo === 'string' ? req.query.modulo : undefined;
   const modulo = moduloRaw && MODULOS.includes(moduloRaw) ? (moduloRaw as FlujoRevision) : undefined;
   const incluirResueltas = req.query.incluirResueltas === 'true';
@@ -41,7 +40,7 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
 });
 
 // GET /campos/:modulo — campos que la UI debe pedir para ese flujo.
-router.get('/campos/:modulo', LECTURA, (req: Request, res: Response) => {
+router.get('/campos/:modulo', exigirFuncion('revisiones.campos.ver'), (req: Request, res: Response) => {
   const modulo = req.params.modulo;
   if (!MODULOS.includes(modulo)) { res.status(400).json({ error: 'Módulo de revisión desconocido' }); return; }
   res.json(camposEsperados(modulo as FlujoRevision));
@@ -49,7 +48,7 @@ router.get('/campos/:modulo', LECTURA, (req: Request, res: Response) => {
 
 // GET /soporte/:soporteId/archivo — el documento en revisión hay que poder verlo, no solo leer lo que
 // el OCR creyó. Redirige a una URL S3 prefirmada de corta vida (visor PDF, D-3).
-router.get('/soporte/:soporteId/archivo', LECTURA, async (req: Request, res: Response) => {
+router.get('/soporte/:soporteId/archivo', exigirFuncion('revisiones.soporte.descargar'), async (req: Request, res: Response) => {
   const s = await storageKeySoporte(req.params.soporteId);
   if (!s) { res.status(404).json({ error: 'El soporte no existe' }); return; }
   const url = await presignedGetEntityDocument(s.storageKey);
@@ -62,7 +61,7 @@ const resolverSchema = z.object({
   campos: z.record(z.string()),
   motivo: z.string().min(1, 'Deja constancia de qué validaste'),
 });
-router.post('/:id/resolver', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/:id/resolver', exigirFuncion('revisiones.revision.resolver'), async (req: Request, res: Response) => {
   const parsed = resolverSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   try {
@@ -74,7 +73,7 @@ router.post('/:id/resolver', OPERACIONES, async (req: Request, res: Response) =>
 
 // POST /:id/descartar — descarta el documento (soporte huérfano y trazado). Solo Operaciones, motivo ≥5.
 const descartarSchema = z.object({ motivo: z.string().min(5, 'Descartar un documento exige explicar por qué') });
-router.post('/:id/descartar', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/:id/descartar', exigirFuncion('revisiones.revision.descartar'), async (req: Request, res: Response) => {
   const parsed = descartarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Descartar un documento exige explicar por qué' }); return; }
   try {

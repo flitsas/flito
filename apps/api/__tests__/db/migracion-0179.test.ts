@@ -99,19 +99,23 @@ describe('0179 — el archivo dice lo mismo que schema.ts (análisis estático)'
     expect((SIN_COMENTARIOS.match(/ON CONFLICT[\s\S]{0,60}DO NOTHING/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 
-  it('el seed pegado en la migración es el que el generador produce HOY', () => {
-    // Esta es la comprobación que impide que el código y el seed se separen: si alguien cambia un
-    // `requireRole` y no regenera, aquí se ve. Y si el generador se rompe, también.
+  it('el seed pegado en la migración, más el de la 0181, es lo que el generador produce HOY', () => {
+    // Esta es la comprobación que impide que el código y el seed se separen: si alguien amplía la foto
+    // (`inventario.generado.ts`) o el catálogo y no escribe la migración, aquí se ve. Y si el generador
+    // se rompe, también. Desde la HU #12083 la foto está congelada y el seed vive en DOS archivos
+    // (0179 + 0181), así que se comparan como conjuntos de filas y no byte a byte contra la 0179.
     const salida = execFileSync('npx', ['tsx', 'src/scripts/generar-seed-permisos.ts'], {
       cwd: path.resolve(__dirname, '../..'), encoding: 'utf8', maxBuffer: 8 * 1024 * 1024,
     });
-    const enArchivo = SQL_0179
-      .split('-- Catálogo de funciones (AC2). Generado: no editar a mano.')[1]
-      .split('-- ── FIN DEL SEED GENERADO')[0].trimEnd();
-    const generado = salida
-      .split('-- Catálogo de funciones (AC2). Generado: no editar a mano.')[1]
-      .trimEnd();
-    expect(enArchivo).toBe(generado);
+    const filas = (sql: string) => sql.split('\n').map((l) => l.trim()).filter((l) => l.startsWith("('")).map((l) => l.replace(/,$/, ''));
+    const SQL_0181 = readFileSync(path.resolve(path.dirname(RUTA), '0181_permisos_reconduccion.sql'), 'utf8');
+    const enArchivos = [...filas(SQL_0179.split('-- Catálogo de funciones (AC2). Generado: no editar a mano.')[1].split('-- ── FIN DEL SEED GENERADO')[0]), ...filas(SQL_0181)].sort();
+    const generado = filas(salida.split('-- Catálogo de funciones (AC2). Generado: no editar a mano.')[1]).sort();
+    expect(enArchivos).toEqual(generado);
+    // Y la 0179 sola sigue siendo un SUBCONJUNTO exacto de lo generado: nadie la reescribió.
+    for (const f of filas(SQL_0179.split('-- Catálogo de funciones (AC2). Generado: no editar a mano.')[1].split('-- ── FIN DEL SEED GENERADO')[0])) {
+      expect(generado).toContain(f);
+    }
   }, 60_000);
 });
 

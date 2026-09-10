@@ -2,15 +2,14 @@
 // /api/flito/compuerta. Lectura para Operaciones y Auditoría; entregar solo Operaciones.
 
 import { Router, type Request, type Response } from 'express';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { entregar, evaluar, listar, CompuertaError, type CompuertaCtx } from './flito-compuerta.service.js';
 
 const router = Router();
 router.use(authMiddleware);
 
-const OPERACIONES = requireRole('admin');
-const LECTURA = requireRole('admin', 'auditor');
 
 function ctxDe(user: { sub: number; username: string; role: string }): CompuertaCtx {
   return { userId: user.sub, username: user.username, role: user.role };
@@ -22,20 +21,20 @@ function handleError(res: Response, e: unknown): void {
 }
 
 // GET / — trámites en Asignado con veredicto (?soloHabilitados=true filtra a los listos).
-router.get('/', LECTURA, async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('compuerta.cola.ver'), async (req: Request, res: Response) => {
   const soloHabilitados = req.query.soloHabilitados === 'true';
   res.json(await listar(soloHabilitados));
 });
 
 // GET /:tramiteId — veredicto de un trámite (no escribe).
-router.get('/:tramiteId', LECTURA, async (req: Request, res: Response) => {
+router.get('/:tramiteId', exigirFuncion('compuerta.tramite.ver'), async (req: Request, res: Response) => {
   try {
     res.json(await evaluar(req.params.tramiteId));
   } catch (e) { handleError(res, e); }
 });
 
 // POST /:tramiteId/entregar — Asignado → Entregado, revalidando. Solo Operaciones.
-router.post('/:tramiteId/entregar', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/:tramiteId/entregar', exigirFuncion('compuerta.tramite.entregar'), async (req: Request, res: Response) => {
   try {
     const dto = await entregar(req.params.tramiteId, ctxDe(req.user!));
     await audit(req, { action: 'update', resource: 'flito_tramite', resourceId: req.params.tramiteId, detail: `Entrega confirmada (compuerta). FLIT ${dto.idFlit}.` });

@@ -16,7 +16,8 @@ import {
   flitoReglasProveedorSoat,
   organismosTransitoConfig,
 } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
   AmbitoReglaProveedor,
@@ -35,13 +36,9 @@ const router = Router();
 router.use(authMiddleware);
 
 // Lectura: operaciones + auditoría (solo lectura). Escritura: solo operaciones.
-const LECTURA = requireRole('admin', 'auditor');
-const ESCRITURA = requireRole('admin');
 // Las TARIFAS son la parte comercial del cliente: las negocia Finanzas, así que también las escribe.
 // El resto de la parametrización (umbrales de OCR, SLA, modalidad, autogestión) sigue siendo solo de
 // Operaciones — RN-04: un gestor que pudiera mover su propio umbral colaría sus facturas sin revisar.
-const ESCRITURA_TARIFAS = requireRole('admin', 'financiera');
-const LECTURA_TARIFAS = requireRole('admin', 'auditor', 'financiera');
 
 // ───────────────────────────────── Compañías (sobre `clients`) ──────────────
 
@@ -99,7 +96,7 @@ function companiaDto(c: FilaCompania) {
   };
 }
 
-router.get('/companias', LECTURA, async (_req: Request, res: Response) => {
+router.get('/companias', exigirFuncion('parametrizacion.companias.listar'), async (_req: Request, res: Response) => {
   const filas = await db.select().from(clients).orderBy(asc(clients.name));
   res.json(filas.map(companiaDto));
 });
@@ -152,7 +149,7 @@ const CHK_SIN_TRAMITE_GESTOR = 'clients_sin_tramite_gestor_chk';
 // `next` solo para el `catch` del CHECK: lo que NO sea `23514` tiene que seguir su camino hasta
 // `errorHandler` (que ya lo registra y responde 500), no convertirse en un 400 que mande a buscar un
 // problema de configuración donde hay uno de red.
-router.patch('/companias/:id', ESCRITURA, async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/companias/:id', exigirFuncion('parametrizacion.companias.editar'), async (req: Request, res: Response, next: NextFunction) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = actualizarCompaniaSchema.safeParse(req.body);
@@ -292,7 +289,7 @@ function proveedorDto(p: typeof flitoProveedoresSoat.$inferSelect) {
   };
 }
 
-router.get('/proveedores-soat', LECTURA, async (_req: Request, res: Response) => {
+router.get('/proveedores-soat', exigirFuncion('parametrizacion.proveedores.listar'), async (_req: Request, res: Response) => {
   const filas = await db.select().from(flitoProveedoresSoat).orderBy(asc(flitoProveedoresSoat.nombre));
   res.json(filas.map(proveedorDto));
 });
@@ -304,7 +301,7 @@ const crearProveedorSchema = z.object({
   slaHoras: z.number().int().min(1).nullable().optional(),
 });
 
-router.post('/proveedores-soat', ESCRITURA, async (req: Request, res: Response) => {
+router.post('/proveedores-soat', exigirFuncion('parametrizacion.proveedores.crear'), async (req: Request, res: Response) => {
   const parsed = crearProveedorSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   const { nombre, estrategia, umbralOcr, slaHoras } = parsed.data;
@@ -332,7 +329,7 @@ const actualizarProveedorSchema = z.object({
   activo: z.boolean().optional(),
 });
 
-router.patch('/proveedores-soat/:id', ESCRITURA, async (req: Request, res: Response) => {
+router.patch('/proveedores-soat/:id', exigirFuncion('parametrizacion.proveedores.editar'), async (req: Request, res: Response) => {
   const id = req.params.id;
   const parsed = actualizarProveedorSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
@@ -376,7 +373,7 @@ async function organismoDto(codigo: string) {
   };
 }
 
-router.get('/organismos', LECTURA, async (_req: Request, res: Response) => {
+router.get('/organismos', exigirFuncion('parametrizacion.organismos.listar'), async (_req: Request, res: Response) => {
   const filas = await db.select().from(organismosTransitoConfig).orderBy(asc(organismosTransitoConfig.codigo));
   const dtos = await Promise.all(filas.map((o) => organismoDto(o.codigo)));
   res.json(dtos.filter(Boolean));
@@ -400,7 +397,7 @@ async function asegurarConfigOrganismo(codigo: string): Promise<boolean> {
   return true;
 }
 
-router.get('/organismos/:codigo/vigencias', LECTURA, async (req: Request, res: Response) => {
+router.get('/organismos/:codigo/vigencias', exigirFuncion('parametrizacion.organismos.ver_vigencias'), async (req: Request, res: Response) => {
   const codigo = req.params.codigo;
   const filas = await db.select().from(flitoOrganismoVigencias)
     .where(eq(flitoOrganismoVigencias.organismoCodigo, codigo))
@@ -429,7 +426,7 @@ const cambiarModalidadSchema = z.object({
  * impuestos ya sincronizados conservan su estado; los nuevos trámites toman la modalidad vigente en el
  * próximo sync. El motivo es obligatorio para la auditoría.
  */
-router.post('/organismos/:codigo/modalidad', ESCRITURA, async (req: Request, res: Response) => {
+router.post('/organismos/:codigo/modalidad', exigirFuncion('parametrizacion.organismos.fijar_modalidad'), async (req: Request, res: Response) => {
   const codigo = req.params.codigo;
   const parsed = cambiarModalidadSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
@@ -472,7 +469,7 @@ const actualizarOrganismoSchema = z.object({
   driveActivo: z.boolean().optional(),
 });
 
-router.patch('/organismos/:codigo', ESCRITURA, async (req: Request, res: Response) => {
+router.patch('/organismos/:codigo', exigirFuncion('parametrizacion.organismos.editar'), async (req: Request, res: Response) => {
   const codigo = req.params.codigo;
   const parsed = actualizarOrganismoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
@@ -527,12 +524,12 @@ function tarifaFallo(res: Response, e: unknown): void {
   throw e;
 }
 
-router.get('/tarifas', LECTURA_TARIFAS, async (req: Request, res: Response) => {
+router.get('/tarifas', exigirFuncion('parametrizacion.tarifas.listar'), async (req: Request, res: Response) => {
   const companiaId = Number(req.query.companiaId) || undefined;
   res.json(await listarTarifas(companiaId));
 });
 
-router.post('/tarifas', ESCRITURA_TARIFAS, async (req: Request, res: Response) => {
+router.post('/tarifas', exigirFuncion('parametrizacion.tarifas.crear'), async (req: Request, res: Response) => {
   const parsed = tarifaCrearSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   try {
@@ -545,7 +542,7 @@ router.post('/tarifas', ESCRITURA_TARIFAS, async (req: Request, res: Response) =
   } catch (e) { tarifaFallo(res, e); }
 });
 
-router.patch('/tarifas/:id', ESCRITURA_TARIFAS, async (req: Request, res: Response) => {
+router.patch('/tarifas/:id', exigirFuncion('parametrizacion.tarifas.editar'), async (req: Request, res: Response) => {
   const parsed = tarifaEditarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   try {
@@ -558,7 +555,7 @@ router.patch('/tarifas/:id', ESCRITURA_TARIFAS, async (req: Request, res: Respon
   } catch (e) { tarifaFallo(res, e); }
 });
 
-router.delete('/tarifas/:id', ESCRITURA_TARIFAS, async (req: Request, res: Response) => {
+router.delete('/tarifas/:id', exigirFuncion('parametrizacion.tarifas.borrar'), async (req: Request, res: Response) => {
   try {
     await eliminarTarifa(req.params.id);
     await audit(req, { action: 'delete', resource: 'flito_tarifa', resourceId: req.params.id, detail: 'Tarifa eliminada' });

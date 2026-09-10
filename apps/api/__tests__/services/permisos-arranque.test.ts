@@ -133,7 +133,10 @@ describe('AC6 — añadir una función obliga a decidir sobre `admin`', () => {
       .mockReturnValueOnce(chain(filasCatalogo))
       .mockReturnValueOnce(chain(CODIGOS.map((codigo) => ({ rol: 'auditor', codigo }))));
 
+    // Todas las del catálogo menos las tres del canal Cliente: el número sale del catálogo, no se
+    // escribe a mano (la HU #12083 lo subió de 257 a 268 al añadir 11 funciones).
+    const esperadas = CODIGOS.length - FUNCIONES_SIN_ADMIN.length;
     await expect(verificarCatalogoAlArrancar())
-      .rejects.toThrow(/El rol admin no tiene concedidas 257 funciones del catálogo/);
+      .rejects.toThrow(new RegExp(`El rol admin no tiene concedidas ${esperadas} funciones del catálogo`));
   });
 });
