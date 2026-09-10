@@ -9,9 +9,10 @@
 // invocable desde CI. Mock keyed de drizzle (OPS-02b) para que el orden de los SELECT no importe.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getTableName } from 'drizzle-orm';
+import { getTableName, type SQL } from 'drizzle-orm';
 import { MotivoNoElegible, ResultadoCertificacion } from '@operaciones/shared-types';
 import { createKeyedDb } from '../helpers/keyed-db.js';
+import { ligadoA, renderizar } from '../helpers/sql-ligado.js';
 
 const kdb = createKeyedDb();
 
@@ -58,9 +59,14 @@ const T_AUDIT = getTableName(auditLogs);
 
 const CTX = { userId: 7, username: 'gestor@flitsas.io', role: 'admin', organismos: [] };
 const ID = '71030cce-1a4c-4fb6-855d-fcc80aadc4e9';
+/** La FK `flito_tramites.vehiculo_id`: un entero interno, distinto en tipo y valor del uuid del impuesto. */
+const VEHICULO_ID = 5001;
 
 /** Fila de vehículo que devuelve `datosDelVehiculo` (join impuesto→trámite→vehículo). */
 const vehiculoOk = (over: Record<string, unknown> = {}) => ({
+  // `vehiculoId` es la llave a la que la HU #12402 escribe motor y serie: sin él sería
+  // `undefined` en todos los tests y un `where` apuntando a otra columna pasaría en verde.
+  vehiculoId: VEHICULO_ID,
   placa: 'QIU744', vin: '9BWZZZ377VT004251',
   marca: 'CHEVROLET', linea: 'SPARK GT', modelo: 2018, clase: 'AUTOMOVIL',
   ownerName: 'JOSÉ PÉREZ', ownerDocument: '43902633',
@@ -118,6 +124,25 @@ function capturarUpdates(tabla: string): Record<string, unknown>[] {
     if (getTableName(tbl as never) === tabla) {
       const set = cadena.set as (v: unknown) => unknown;
       cadena.set = (v: unknown) => { capturado.push(v as Record<string, unknown>); return set(v); };
+    }
+    return cadena;
+  });
+  return capturado;
+}
+
+/**
+ * Captura la condición del `.where(...)` de los UPDATE a una tabla. El mock keyed la ignora
+ * (`where` es passthrough), así que sin esto un UPDATE a la llave equivocada —o sin llave— pasa en
+ * verde. Se aserta renderizada con `renderizar`/`ligadoA`, igual que en el recorrido del SOAT.
+ */
+function capturarCondicionesUpdates(tabla: string): SQL[] {
+  const capturado: SQL[] = [];
+  const porDefecto = kdb.update.getMockImplementation()!;
+  kdb.update.mockImplementation((tbl: unknown) => {
+    const cadena = porDefecto(tbl) as Record<string, unknown>;
+    if (getTableName(tbl as never) === tabla) {
+      const where = cadena.where as (c: unknown) => unknown;
+      cadena.where = (c: unknown) => { capturado.push(c as SQL); return where(c); };
     }
     return cadena;
   });
@@ -411,6 +436,7 @@ describe('HU #12402 — motor y serie del RUNT se guardan en vehicles al certifi
   it('AC1 — con registro y coincidencia: vehicles recibe motor y serie, y la certificación se guarda como hoy', async () => {
     escenarioBase();
     const enVehicles = capturarUpdates(T_VEHICLES);
+    const condiciones = capturarCondicionesUpdates(T_VEHICLES);
     const certificaciones = capturarInserts(T_CERT);
     consultarVehiculoRuntMock.mockResolvedValue(runtConMotorYSerie('MTR-123', 'SER-456'));
 
@@ -419,6 +445,9 @@ describe('HU #12402 — motor y serie del RUNT se guardan en vehicles al certifi
     expect(r.resultado).toBe(ResultadoCertificacion.CERTIFICADO);
     expect(enVehicles).toHaveLength(1);
     expect(enVehicles[0]).toMatchObject({ numMotor: 'MTR-123', numSerie: 'SER-456' });
+    // A QUÉ vehículo: la ficha del trámite, por su id — no el uuid del impuesto ni toda la tabla.
+    expect(condiciones).toHaveLength(1);
+    expect(ligadoA(renderizar(condiciones[0]!), '"vehicles"."id"')).toBe(VEHICULO_ID);
     // La certificación y su auditoría siguen yendo dentro de la transacción, como antes de la HU.
     expect(kdb.transaction).toHaveBeenCalledTimes(1);
     expect(certificaciones).toHaveLength(1);
@@ -471,6 +500,7 @@ describe('HU #12402 — motor y serie del RUNT se guardan en vehicles al certifi
   it('AC4 — con diferencias: vehicles se actualiza igual, y el resultado sigue siendo con_diferencias sin transacción', async () => {
     escenarioBase();
     const enVehicles = capturarUpdates(T_VEHICLES);
+    const condiciones = capturarCondicionesUpdates(T_VEHICLES);
     const runt = runtConMotorYSerie('MTR-123', 'SER-456');
     runt.data.vehiculo.placa = 'XYZ999';
     consultarVehiculoRuntMock.mockResolvedValue(runt);
@@ -481,6 +511,7 @@ describe('HU #12402 — motor y serie del RUNT se guardan en vehicles al certifi
     // El motor y la serie son un hecho del vehículo, cierto aunque el trámite tenga la placa mal.
     expect(enVehicles).toHaveLength(1);
     expect(enVehicles[0]).toMatchObject({ numMotor: 'MTR-123', numSerie: 'SER-456' });
+    expect(ligadoA(renderizar(condiciones[0]!), '"vehicles"."id"')).toBe(VEHICULO_ID);
     expect(kdb.transaction).not.toHaveBeenCalled();
     expect(kdb.insert).not.toHaveBeenCalled();
   });
