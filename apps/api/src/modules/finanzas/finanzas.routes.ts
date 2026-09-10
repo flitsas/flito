@@ -2,6 +2,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { logPiiAccess } from '../../shared/pii-audit.js';
 import { soportesDeTramite } from '../../shared/soportes/soportes-consulta.js';
 import {
   aCsv, ETAPAS, facetas, filasParaExportar, reporteCostos, TOPE_EXPORTACION,
@@ -17,6 +18,25 @@ router.use(authMiddleware);
 // requireRole, así que un auditor recibía 403 en el reporte mientras sí podía ver los derechos que
 // lo alimentan. Se corrige aquí.
 const LECTURA = requireRole('financiera', 'admin', 'auditor');
+
+/**
+ * Habeas Data (HU #12432, Ley 1581 art. 17): desde esta HU cada fila del reporte y del CSV lleva el
+ * bloque del titular —nombre, razón social, tipo y número de documento—, que es PII y sale del
+ * perímetro en el export. Se registra el acceso como ya hacen los Excel de SOAT e Impuestos, con
+ * los nombres de columna de la base (como `CAMPOS_PII_COLA_EXPORT`). Best-effort: `logPiiAccess`
+ * no lanza, así que un fallo del registro no deja sin reporte a Financiero. Va DESPUÉS de la
+ * consulta y con `await`, como en Impuestos.
+ *
+ * `resourceId` es null: el recurso es el reporte entero, no un trámite, y el filtro puede cubrir
+ * miles. Ningún nombre ni documento va a las trazas de la aplicación.
+ */
+const RECURSO_PII = 'finanzas_reporte_costos';
+const CAMPOS_PII_REPORTE = [
+  'nombres', 'apellidos', 'razon_social', 'numero_documento', 'tipo_documento', 'placa', 'vin',
+] as const;
+const registrarAccesoPii = (req: Request, accion: 'read' | 'export'): Promise<void> => logPiiAccess(req, {
+  resourceTipo: RECURSO_PII, resourceId: null, accion, camposAccedidos: [...CAMPOS_PII_REPORTE],
+});
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined);
 const lista = (v: unknown): string[] | undefined => {
@@ -48,13 +68,18 @@ function filtrosDe(q: Request['query']): FiltrosReporte {
     desde: fecha(q.desde), hasta: fecha(q.hasta),
     aprobadoDesde: fecha(q.aprobadoDesde), aprobadoHasta: fecha(q.aprobadoHasta),
     estadoFacturacion: estadoFe(q.estadoFacturacion),
+    // HU #12432 — códigos de organismo, con el mismo `lista()` que los demás. Llega a las cuatro
+    // rutas porque las cuatro pasan por aquí.
+    organismos: lista(q.organismos),
     page: Number(q.page) || 1, pageSize: Number(q.pageSize) || 50,
   };
 }
 
 // GET /reporte-costos — listado con valores sellados o estimados, y totales del universo filtrado.
 router.get('/reporte-costos', LECTURA, async (req: Request, res: Response) => {
-  res.json(await reporteCostos(filtrosDe(req.query)));
+  const reporte = await reporteCostos(filtrosDe(req.query));
+  await registrarAccesoPii(req, 'read');
+  res.json(reporte);
 });
 
 // GET /reporte-costos/facetas — valores para los filtros (estados, empresas, tipos).
@@ -80,6 +105,7 @@ router.get('/reporte-costos/facturacion-electronica', LECTURA, async (req: Reque
 // GET /reporte-costos/export — CSV de TODO el filtro, no solo de la página visible.
 router.get('/reporte-costos/export', LECTURA, async (req: Request, res: Response) => {
   const filas = await filasParaExportar(filtrosDe(req.query));
+  await registrarAccesoPii(req, 'export');
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="reporte-costos.csv"');
   // Si se alcanzó el tope, el cliente debe saberlo: un CSV truncado en silencio se concilia mal.

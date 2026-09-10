@@ -17,7 +17,8 @@ import { alias, type PgSelect } from 'drizzle-orm/pg-core';
 import { db } from '../../db/client.js';
 import {
   clients, flitoDerechosTramite, flitoExcepcionesAutogestion, flitoImpuestos, flitoLiquidaciones,
-  flitoOrganismoVigencias, flitoSoat, flitoTarifasVigencias, flitoTramites, vehicles,
+  flitoOrganismoVigencias, flitoSoat, flitoTarifasVigencias, flitoTramites, organismosTransitoConfig,
+  vehicles,
 } from '../../db/schema.js';
 import { aIso } from '../../shared/utils/fecha-rango.js';
 import { TASA_GMF } from '../flito-liquidacion/flito-liquidacion.service.js';
@@ -30,6 +31,9 @@ import {
   celdaConciliacionCsv, conciliacionDeFila, SELECT_CONCILIACION_SOAT,
   type ConciliacionSoatDeFila,
 } from './finanzas.conciliacion-soat.js';
+import {
+  columnasDeFila, facetaOrganismos, SELECT_COLUMNAS_REPORTE, subtotalesDe, type ColumnasDeFila,
+} from './finanzas.reporte-columnas.js';
 import type { SiigoEstadoReporte, SiigoResumenReporte } from '@operaciones/shared-types';
 
 /**
@@ -61,6 +65,8 @@ export interface FiltrosReporte {
    * es una condición más en la misma lista.
    */
   estadoFacturacion?: SiigoEstadoReporte;
+  /** Códigos de organismo de tránsito (HU #12432, CF-04). Se compone con los demás, no los anula. */
+  organismos?: string[];
   page?: number; pageSize?: number;
 }
 
@@ -72,7 +78,7 @@ export interface FiltrosReporte {
  * exija que `aFila` los rellene: son datos que la pantalla enseña en una columna propia, y una
  * columna que a veces llega vacía por olvido se lee como «este trámite no tiene factura».
  */
-export interface FilaReporte extends FacturacionDeFila, ConciliacionSoatDeFila {
+export interface FilaReporte extends FacturacionDeFila, ConciliacionSoatDeFila, ColumnasDeFila {
   tramiteId: string; idFlit: string; placa: string | null; estado: string | null; empresa: string | null;
   /** Vehículo, homologado con las demás tablas. */
   vin: string | null; marca: string | null; linea: string | null;
@@ -97,11 +103,19 @@ export interface FilaReporte extends FacturacionDeFila, ConciliacionSoatDeFila {
   autogestionados: string[];
   /** Conceptos que no aplican por el organismo, no por la compañía. Hoy solo el impuesto. */
   noAplican: string[];
+  /**
+   * RN-02 (HU #12432): SOAT + impuesto + derecho + GMF + logística, y solo el trámite digital.
+   * `null` cuando un sumando que FLITO gestiona sigue pendiente: ver `subtotalesDe`.
+   */
+  totalReintegro: number | null;
+  totalServicio: number | null;
 }
 
 export interface TotalesReporte {
   soat: number; impuesto: number; derechoTramite: number; logistica: number; tramiteDigital: number;
   gmf: number; total: number;
+  /** RN-02 sobre el universo filtrado, agregados en SQL como los demás (HU #12432, CF-10). */
+  totalReintegro: number; totalServicio: number;
   /** Cuántas filas del universo filtrado tienen algún concepto sin configurar. */
   filasIncompletas: number;
 }
@@ -288,6 +302,9 @@ export function condiciones(f: FiltrosReporte): SQL[] {
   if (f.estados?.length) conds.push(inArray(flitoTramites.flitEstado, f.estados));
   if (f.empresas?.length) conds.push(inArray(flitoTramites.companiaNit, f.empresas));
   if (f.tipos?.length) conds.push(inArray(flitoTramites.tipoTramite, f.tipos));
+  // La identidad del organismo es su CÓDIGO (HU #12432): es lo que la faceta ofrece y lo que la
+  // columna resuelve a nombre. Un trámite con código nulo no cruza con ningún filtro.
+  if (f.organismos?.length) conds.push(inArray(flitoTramites.organismoCodigo, f.organismos));
   if (f.etapa === 'listo') conds.push(EXPR_LISTA);
   if (f.etapa === 'incompleto') conds.push(EXPR_INCOMPLETA);
   if (f.etapa === 'por_facturar') conds.push(sql`${flitoLiquidaciones.estado} = 'liquidado'`);
@@ -340,7 +357,10 @@ export function conJoins<Q extends PgSelect>(q: Q) {
       isNull(flitoExcepcionesAutogestion.revocadoEn),
     ))
     .leftJoin(td, JOIN_TD)
-    .leftJoin(lg, JOIN_LG);
+    .leftJoin(lg, JOIN_LG)
+    // El alias del organismo (HU #12432). `codigo` es la PK, así que no multiplica filas; LEFT
+    // porque un trámite sin organismo sigue siendo un trámite del reporte, con su «OT» vacía.
+    .leftJoin(organismosTransitoConfig, eq(organismosTransitoConfig.codigo, flitoTramites.organismoCodigo));
 }
 
 /** Exportada para que el test contra base ejecute la proyección REAL del reporte, no una copia. */
@@ -383,6 +403,9 @@ export const SELECT_FILA = {
   // se compone desde su propio archivo, y por subconsultas correlacionadas — un join aquí
   // multiplicaría la fila y con ella los totales. Ver la cabecera de `finanzas.conciliacion-soat.ts`.
   ...SELECT_CONCILIACION_SOAT,
+  // Titular, organismo y documento (HU #12432). Mismo patrón: se compone desde su archivo, y el
+  // documento va por subconsulta correlacionada por el mismo motivo que la conciliación.
+  ...SELECT_COLUMNAS_REPORTE,
 } as const;
 
 const n = (v: string | number | null): number | null => (v === null ? null : Number(v));
@@ -434,27 +457,55 @@ function aFila(r: Record<string, unknown>): FilaReporte {
   const noAplican: string[] = [];
   if (!r.gestionaImpuesto && !r.impuestosAutogestionable) noAplican.push('Impuesto');
 
+  const fechaAprobacion = aIso(r.fechaAprobacion);
+  const conceptos = {
+    soat: n(r.soat as string | null), impuesto: n(r.impuesto as string | null),
+    derechoTramite: derecho, logistica, tramiteDigital: digital,
+    gmf: n(r.gmf as string | null),
+    noConfigurados, sinRecibo, pendientesPago,
+  };
+
   return {
     tramiteId: r.tramiteId as string, idFlit: r.idFlit as string,
     placa: r.placa as string | null, estado: r.estado as string | null,
     empresa: r.empresa as string | null, tipoTramite: r.tipoTramite as string | null,
     vin: r.vin as string | null, marca: r.marca as string | null, linea: r.linea as string | null,
-    fechaAprobacion: aIso(r.fechaAprobacion),
+    fechaAprobacion,
     fechaCreacion: aIso(r.fechaCreacion),
-    soat: n(r.soat as string | null), impuesto: n(r.impuesto as string | null),
-    derechoTramite: derecho, logistica, tramiteDigital: digital,
-    gmf: n(r.gmf as string | null), total: n(r.totalFila as string | null),
+    ...conceptos,
+    total: n(r.totalFila as string | null),
     sellada,
     estadoLiquidacion: (r.estadoLiquidacion as FilaReporte['estadoLiquidacion']) ?? null,
-    noConfigurados,
-    sinRecibo,
-    pendientesPago,
     autogestionados,
     noAplican,
     ...facturacionDeFila(r),
     ...conciliacionDeFila(r),
+    ...columnasDeFila(r, fechaAprobacion),
+    // Sobre los conceptos YA resueltos y sus listas de pendientes: es lo que decide 0 o null.
+    ...subtotalesDe(conceptos),
   };
 }
+
+/**
+ * Exportada por lo mismo que `SELECT_FILA`: para que el test afirme sobre la agregación REAL. El
+ * reintegro y el servicio (RN-02, HU #12432) son la suma de las MISMAS expresiones que alimentan cada
+ * concepto —con el `COALESCE` por término, igual que `EXPR_BASE_GMF`—, así que en un universo sin
+ * filas incompletas reintegro + servicio = total. No son un `reduce` sobre la página: un filtro de
+ * 3.000 trámites rotularía «Totales» la suma de los 50 visibles.
+ */
+export const SELECT_TOTALES = {
+  soat: sql<string>`COALESCE(SUM(${EXPR_SOAT}), 0)`,
+  impuesto: sql<string>`COALESCE(SUM(${EXPR_IMPUESTO}), 0)`,
+  derechoTramite: sql<string>`COALESCE(SUM(${EXPR_DERECHO}), 0)`,
+  tramiteDigital: sql<string>`COALESCE(SUM(${EXPR_DIGITAL}), 0)`,
+  logistica: sql<string>`COALESCE(SUM(${EXPR_LOGISTICA}), 0)`,
+  gmf: sql<string>`COALESCE(SUM(${EXPR_GMF}), 0)`,
+  total: sql<string>`COALESCE(SUM(${EXPR_TOTAL}), 0)`,
+  totalReintegro: sql<string>`COALESCE(SUM(COALESCE(${EXPR_SOAT}, 0) + COALESCE(${EXPR_IMPUESTO}, 0)
+    + COALESCE(${EXPR_DERECHO}, 0) + COALESCE(${EXPR_GMF}, 0) + COALESCE(${EXPR_LOGISTICA}, 0)), 0)`,
+  totalServicio: sql<string>`COALESCE(SUM(${EXPR_DIGITAL}), 0)`,
+  filasIncompletas: sql<number>`COUNT(*) FILTER (WHERE ${EXPR_INCOMPLETA})::int`,
+} as const;
 
 /**
  * Totales del UNIVERSO FILTRADO, agregados en SQL.
@@ -463,21 +514,14 @@ function aFila(r: Record<string, unknown>): FilaReporte {
  * el total de los 50 visibles y lo rotulaba «Totales».
  */
 async function totalesDe(where: SQL | undefined): Promise<TotalesReporte> {
-  const [t] = await conJoins(db.select({
-    soat: sql<string>`COALESCE(SUM(${EXPR_SOAT}), 0)`,
-    impuesto: sql<string>`COALESCE(SUM(${EXPR_IMPUESTO}), 0)`,
-    derechoTramite: sql<string>`COALESCE(SUM(${EXPR_DERECHO}), 0)`,
-    tramiteDigital: sql<string>`COALESCE(SUM(${EXPR_DIGITAL}), 0)`,
-    logistica: sql<string>`COALESCE(SUM(${EXPR_LOGISTICA}), 0)`,
-    gmf: sql<string>`COALESCE(SUM(${EXPR_GMF}), 0)`,
-    total: sql<string>`COALESCE(SUM(${EXPR_TOTAL}), 0)`,
-    filasIncompletas: sql<number>`COUNT(*) FILTER (WHERE ${EXPR_INCOMPLETA})::int`,
-  }).from(flitoTramites).$dynamic()).where(where);
+  const [t] = await conJoins(db.select(SELECT_TOTALES).from(flitoTramites).$dynamic()).where(where);
 
   return {
     soat: Number(t.soat), impuesto: Number(t.impuesto), derechoTramite: Number(t.derechoTramite),
     tramiteDigital: Number(t.tramiteDigital), logistica: Number(t.logistica),
-    gmf: Number(t.gmf), total: Number(t.total), filasIncompletas: Number(t.filasIncompletas),
+    gmf: Number(t.gmf), total: Number(t.total),
+    totalReintegro: Number(t.totalReintegro), totalServicio: Number(t.totalServicio),
+    filasIncompletas: Number(t.filasIncompletas),
   };
 }
 
@@ -569,9 +613,24 @@ export async function filasParaExportar(f: FiltrosReporte = {}): Promise<FilaRep
   return rows.map((r: Record<string, unknown>) => aFila(r));
 }
 
-const CABECERAS_CSV = [
-  'Trámite', 'Placa', 'Estado', 'Empresa', 'Tipo', 'Aprobado', 'SOAT', 'Impuesto',
-  'Derecho de tránsito', 'Trámite digital', 'Logística', 'GMF', 'Total', 'Liquidación',
+/**
+ * Tres secciones y los nombres canónicos del Excel de Financiero (HU #12432, RN-08). «Flit» es el
+ * identificador del trámite en FLIT —la cabecera vieja «Trámite» se reserva para los pesos del
+ * derecho de tránsito—; «Tipo» pasa a ser el documento del titular y la categoría se llama «Tipo
+ * trámite». «Trámite digital» (el concepto) y «Servicio» (el subtotal) valen lo mismo hoy y van
+ * los dos: la épica #12246 le sumará conceptos al segundo.
+ *
+ * Exportada para que el test afirme el orden entero como un solo array y cada celda por su índice.
+ */
+export const CABECERAS_CSV = [
+  // Identificación
+  'Empresa', 'Flit', 'Placa', 'VIN', 'Nombres', 'Apellidos', 'Razón social', 'Tipo', 'Documento',
+  // Datos del trámite
+  'Tipo trámite', 'Marca', 'Línea', 'OT', 'Estado', 'Creado', 'Aprobado', 'Mes', 'Trimestre',
+  'Estado factura', 'Factura',
+  // Valores
+  'SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística', 'Total reintegro', 'Trámite digital', 'Servicio',
+  'Total', 'Liquidación',
   // Todo lo que impide liquidar, no solo las tarifas: quien concilia necesita la lista completa de
   // lo que hay que resolver, le dé igual si es una tarifa, un recibo o un pago pendiente.
   'Qué falta para liquidar',
@@ -598,8 +657,12 @@ export function aCsv(filas: FilaReporte[]): string {
   const lineas = [CABECERAS_CSV.join(';')];
   for (const f of filas) {
     lineas.push([
-      f.idFlit, f.placa, f.estado, f.empresa, f.tipoTramite, soloDia(f.fechaAprobacion),
-      f.soat, f.impuesto, f.derechoTramite, f.tramiteDigital, f.logistica, f.gmf, f.total,
+      f.empresa, f.idFlit, f.placa, f.vin, f.titularNombres, f.titularApellidos, f.titularRazonSocial,
+      f.titularTipoDocumento, f.titularDocumento,
+      f.tipoTramite, f.marca, f.linea, f.organismoNombre, f.estado, soloDia(f.fechaCreacion),
+      soloDia(f.fechaAprobacion), f.mes, f.trimestre, f.estadoFacturacion, f.facturaNumero,
+      f.soat, f.impuesto, f.derechoTramite, f.gmf, f.logistica, f.totalReintegro, f.tramiteDigital,
+      f.totalServicio, f.total,
       f.sellada ? (f.estadoLiquidacion === 'facturado' ? 'Facturado' : 'Liquidado') : 'Estimado',
       [...f.noConfigurados, ...f.sinRecibo, ...f.pendientesPago].join(' | '),
       celdaConciliacionCsv(f),
@@ -616,6 +679,8 @@ export interface FacetasReporte {
    */
   empresas: { valor: string; nombre: string }[];
   tipos: string[];
+  /** Solo los organismos CON trámites, con el nombre que enseña la columna «OT» (HU #12432, CF-08). */
+  organismos: { valor: string; nombre: string }[];
 }
 
 /** Solo los dígitos: FLIT manda el NIT unas veces con puntos y guion y otras pelado. */
@@ -678,17 +743,27 @@ export function agruparEmpresas(
 }
 
 export async function facetas(): Promise<FacetasReporte> {
-  const [estados, filas, tipos, maestro] = await Promise.all([
+  const [estados, filas, tipos, maestro, organismos] = await Promise.all([
     db.selectDistinct({ v: flitoTramites.flitEstado }).from(flitoTramites).where(sql`${flitoTramites.flitEstado} is not null`),
     db.selectDistinct({ nit: flitoTramites.companiaNit, companiaId: flitoTramites.companiaId })
       .from(flitoTramites).where(sql`${flitoTramites.companiaNit} is not null`),
     db.selectDistinct({ v: flitoTramites.tipoTramite }).from(flitoTramites).where(sql`${flitoTramites.tipoTramite} is not null`),
     db.select({ id: clients.id, nombre: clients.name, documento: clients.document }).from(clients),
+    // Los códigos PRESENTES en los trámites, no el catálogo entero: un organismo sin trámites en el
+    // filtro es una opción que siempre devuelve vacío.
+    db.selectDistinct({ codigo: flitoTramites.organismoCodigo, alias: organismosTransitoConfig.alias })
+      .from(flitoTramites)
+      .leftJoin(organismosTransitoConfig, eq(organismosTransitoConfig.codigo, flitoTramites.organismoCodigo))
+      .where(sql`${flitoTramites.organismoCodigo} is not null`),
   ]);
 
   return {
     estados: estados.map((e) => e.v).filter((v): v is string => !!v).sort(),
     empresas: agruparEmpresas(filas, maestro),
     tipos: tipos.map((e) => e.v).filter((v): v is string => !!v).sort(),
+    organismos: facetaOrganismos(organismos),
   };
 }
+
+// Las funciones puras de las columnas nuevas, reexportadas para quien las consuma desde el servicio.
+export { nombreOrganismo, periodoDe, subtotalesDe } from './finanzas.reporte-columnas.js';
