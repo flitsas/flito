@@ -1223,6 +1223,24 @@ describe('POST /api/users — el rol se pregunta al catálogo (HU #12169, AC6)',
     expect(r.body.error).toBe('Datos inválidos');
     expect(rolAsignableMock).not.toHaveBeenCalled();
   });
+
+  // HU #12084 (TC-32 #12466). El trigger `users_ambito_requerido` (0178) rechaza con `23514` un rol
+  // del catálogo que exige compañía y no la trae; antes llegaba a `errorHandler`, que solo conoce el
+  // `23514` de la rúbrica, y salía un 500. **Mutante:** quitar la captura del 23514 del POST → 500.
+  it('el trigger de ámbito rechaza el alta con 23514 (envuelto en `cause`) → 400 con el mensaje del trigger y sin commit', async () => {
+    selectMock.mockReturnValueOnce(chain([])); // username libre
+    const delTrigger = Object.assign(new Error('El rol zz exige compañía y el usuario 7 no la tiene'), { code: '23514' });
+    insertMock.mockImplementationOnce(() => { throw Object.assign(new Error('Failed query: insert into "users"'), { cause: delTrigger }); });
+
+    const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
+      .send({ ...BODY, role: 'zz' });
+
+    expect(r.status).toBe(400);
+    expect(r.body).toEqual({ error: 'El rol zz exige compañía y el usuario 7 no la tiene' });
+    expect(eventos).not.toContain('commit');
+    expect(auditMock).not.toHaveBeenCalled();
+    expect(invalidarPermisosMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('PATCH /api/users/:id — el rol se pregunta al catálogo (HU #12169, AC6)', () => {
@@ -1255,6 +1273,27 @@ describe('PATCH /api/users/:id — el rol se pregunta al catálogo (HU #12169, A
 
     expect(r.status).toBe(200);
     expect(rolAsignableMock).not.toHaveBeenCalled();
+  });
+
+  // HU #12084 (TC-32 #12466), el simétrico del alta: cambiar a un rol del catálogo que exige compañía
+  // sin dársela dispara el mismo trigger en el `UPDATE users SET role`. **Mutante:** quitar la
+  // captura del 23514 del PATCH → 500.
+  it('el trigger de ámbito rechaza el cambio de rol con 23514 → 400 con el mensaje del trigger, sin commit ni invalidación', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'mensajero', active: true }])); // el usuario
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'mensajero', active: true }])); // antes, en la tx con FOR UPDATE
+    selectMock.mockReturnValueOnce(chain([])); // organismos previos
+    updateMock.mockImplementationOnce(() => { throw Object.assign(new Error('El rol zz exige compañía y el usuario 5 no la tiene'), { code: '23514' }); });
+
+    const token = await testToken({ sub: 1, role: 'admin' });
+    const r = await request(await buildApp()).patch('/api/users/5')
+      .set('Authorization', `Bearer ${token}`).send({ role: 'zz' });
+
+    expect(r.status).toBe(400);
+    expect(r.body).toEqual({ error: 'El rol zz exige compañía y el usuario 5 no la tiene' });
+    expect(eventos).not.toContain('commit');
+    expect(invalidarCacheMock).not.toHaveBeenCalled();
+    expect(invalidarPermisosMock).not.toHaveBeenCalled();
+    expect(auditMock).not.toHaveBeenCalled();
   });
 });
 

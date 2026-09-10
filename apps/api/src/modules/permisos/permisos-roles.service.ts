@@ -31,6 +31,7 @@ import {
 } from '../../shared/historial/permisos-auditoria.js';
 import { FUNCIONES_DEL_CANAL_EXTERNO } from '../../shared/middleware/canal-cliente.js';
 import { conSeguroAntiBloqueo } from '../../shared/permisos-anti-bloqueo.js';
+import { esCodigoPg } from '../../shared/utils/pg-error.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -106,16 +107,6 @@ async function funcionesDelRol(ex: Pick<Tx, 'select'>, codigo: string): Promise<
   const filas = await ex.select({ codigo: permisosRolFuncion.funcionCodigo }).from(permisosRolFuncion)
     .where(eq(permisosRolFuncion.rolCodigo, codigo)).orderBy(asc(permisosRolFuncion.funcionCodigo));
   return filas.map((f) => f.codigo);
-}
-
-/** ¿Es este error el código SQLSTATE dado? Sigue la cadena `cause` (drizzle envuelve al driver). */
-function esCodigoPg(e: unknown, codigo: string): boolean {
-  for (let actual: unknown = e, saltos = 0; actual != null && saltos < 5; saltos++) {
-    if (typeof actual !== 'object') break;
-    if ((actual as { code?: unknown }).code === codigo) return true;
-    actual = (actual as { cause?: unknown }).cause;
-  }
-  return false;
 }
 
 /** Los códigos de `funciones` que NO existen en `permisos_funciones`. Lectura, fuera de toda tx. */
@@ -206,11 +197,18 @@ const CAMPOS_ROL = [
 
 /**
  * CF-04. Bloquea la fila del rol, escribe solo lo que cambió y audita un par por campo. Con
- * `tipoPrincipal` en juego, el `UPDATE` va dentro del invariante: `admin → externo` no puede dejar
- * la administración sin rol interno. `tipoEnlace` exige 0 usuarios (cabecera).
+ * `tipoPrincipal` en el cuerpo, TODA la transacción va dentro del invariante: `admin → externo` no
+ * puede dejar la administración sin rol interno. `tipoEnlace` exige 0 usuarios (cabecera).
+ *
+ * Orden de locks (db-review de la HU #12084): la población administradora (P) se bloquea ANTES que la
+ * fila del rol, como en `guardarCuadro` y en el `UPDATE users SET role` de `users.service.ts`. Por eso
+ * se decide por `cambios.tipoPrincipal` (lo que pide el cuerpo) y no por «cambió de verdad»: saberlo
+ * exige leer el rol, y leerlo con `FOR UPDATE` antes de P es el cruce `40P01` que se corrige. Un
+ * `tipoPrincipal` igual al actual paga dos `select` de más y responde «sin cambios» igual. Sin
+ * `tipoPrincipal` no hay invariante que comprobar y P no se toma: el `FOR UPDATE` del rol va solo.
  */
 export async function editarRol(codigo: string, cambios: EditarRolInput, actor: ActorAuditoria): Promise<ResultadoEditarRol> {
-  return db.transaction(async (tx): Promise<ResultadoEditarRol> => {
+  const cuerpo = async (tx: Tx): Promise<ResultadoEditarRol> => {
     const [antes] = await tx.select().from(permisosRoles).where(eq(permisosRoles.codigo, codigo)).limit(1).for('update');
     if (!antes) throw new RolNoEncontradoError(codigo);
 
@@ -233,20 +231,21 @@ export async function editarRol(codigo: string, cambios: EditarRolInput, actor: 
     }
 
     set.updatedAt = new Date();
-    const escribir = async (): Promise<FilaRol> => {
-      const [fila] = await tx.update(permisosRoles).set(set).where(eq(permisosRoles.codigo, codigo)).returning();
-      return fila!;
-    };
-    const despues = set.tipoPrincipal !== undefined ? await conSeguroAntiBloqueo(tx, escribir) : await escribir();
+    const [despues] = await tx.update(permisosRoles).set(set).where(eq(permisosRoles.codigo, codigo)).returning();
 
     await registrarCambiosPermisos(tx, actor, filas);
-    return { estado: 'ok', rol: aRolCatalogo(despues, usuarios), campos: filas.map((f) => f.campo!) };
-  });
+    return { estado: 'ok', rol: aRolCatalogo(despues!, usuarios), campos: filas.map((f) => f.campo!) };
+  };
+  return db.transaction(async (tx) =>
+    (cambios.tipoPrincipal !== undefined ? conSeguroAntiBloqueo(tx, () => cuerpo(tx)) : cuerpo(tx)));
 }
 
 /**
  * CF-05 / RN-A8. Dentro de la transacción y con la fila bloqueada: `es_sistema` → 409; N > 0 → 409
- * con N; luego el `DELETE` dentro del invariante (la FK `ON DELETE CASCADE` se lleva el cuadro).
+ * con N; luego el `DELETE` (la FK `ON DELETE CASCADE` se lleva el cuadro). TODO dentro del invariante,
+ * y el invariante lo primero: la población administradora (P) se bloquea antes que la fila del rol,
+ * en el mismo orden que `guardarCuadro` y que el `UPDATE users SET role` (db-review de la HU #12084:
+ * `borrarRol('X')` contra `guardarCuadro('X')` con el rol primero era un `40P01` servido como 500).
  * Un `23503` que llegue a pesar del conteo (un alta concurrente tomó `KEY SHARE` sobre la fila) se
  * captura FUERA de la transacción —dentro estaría abortada— y responde el mismo 409 con N releído.
  * La auditoría es un par por campo con `valorDespues = null`: `ValorAuditable` no admite la fila
@@ -254,7 +253,7 @@ export async function editarRol(codigo: string, cambios: EditarRolInput, actor: 
  */
 export async function borrarRol(codigo: string, actor: ActorAuditoria): Promise<void> {
   try {
-    await db.transaction(async (tx) => {
+    await db.transaction(async (tx) => conSeguroAntiBloqueo(tx, async () => {
       const [rol] = await tx.select().from(permisosRoles).where(eq(permisosRoles.codigo, codigo)).limit(1).for('update');
       if (!rol) throw new RolNoEncontradoError(codigo);
       const usuarios = await usuariosDelRol(tx, codigo);
@@ -262,9 +261,7 @@ export async function borrarRol(codigo: string, actor: ActorAuditoria): Promise<
       if (motivo !== null) throw new RolConflictoError(motivo, usuarios);
 
       const cuadro = await funcionesDelRol(tx, codigo);
-      await conSeguroAntiBloqueo(tx, async () => {
-        await tx.delete(permisosRoles).where(eq(permisosRoles.codigo, codigo));
-      });
+      await tx.delete(permisosRoles).where(eq(permisosRoles.codigo, codigo));
 
       const par = (campo: CambioAuditable['campo'], valorAntes: CambioAuditable['valorAntes']): CambioAuditable =>
         ({ entidad: 'rol', accion: 'borrar', campo, valorAntes, valorDespues: null, rolAfectadoCodigo: codigo });
@@ -277,7 +274,7 @@ export async function borrarRol(codigo: string, actor: ActorAuditoria): Promise<
         // Orden estable por código, como `diffConjunto`: el orden de lectura no es un dato.
         { ...par('conjunto', { conjunto: [...cuadro].sort() }), entidad: 'rol_funcion' },
       ]);
-    });
+    }));
   } catch (e) {
     if (esCodigoPg(e, '23503')) {
       const n = await usuariosDelRol(db, codigo);

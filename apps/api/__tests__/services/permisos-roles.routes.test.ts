@@ -321,7 +321,8 @@ describe('AC3 — DELETE /roles/:codigo y el listado', () => {
   it('un 23503 que llegue a pesar del conteo (alta concurrente) responde el mismo 409 con N releído', async () => {
     kdb.when.select('permisos_roles', [ROL()]).select('users', [{ n: 0, f0: 1, f1: 1 }]);
     kdb.when.delete('permisos_roles', () => { throw Object.assign(new Error('fk'), { code: '23503' }); });
-    kdb.when.selectOnce('users', [{ n: 0 }]).selectOnce('users', [{ id: 1 }]).selectOnce('users', [{ n: 1 }]);
+    // En orden de ejecución: el lock de la población P (primero, db-review), el conteo del rol dentro, y el N releído fuera.
+    kdb.when.selectOnce('users', [{ id: 1 }]).selectOnce('users', [{ n: 0 }]).selectOnce('users', [{ n: 1 }]);
     const r = await request(app()).delete('/api/permisos/roles/gestor_x').set('Authorization', await admin());
     expect(r.status).toBe(409);
     expect(r.body.error).toMatch(/1 usuarios lo tienen asignado; reasígnalos primero/);

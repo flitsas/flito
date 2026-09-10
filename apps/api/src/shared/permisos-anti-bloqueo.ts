@@ -36,8 +36,19 @@
 // y cuenta cero → 409. Sin `FOR UPDATE` los dos contarían al otro como administrador y los dos
 // confirmarían: cero administradores. El lock va ANTES de la escritura y en orden fijo por `id` para
 // que dos operaciones que bloqueen primero su propio objetivo y después la población no se crucen
-// (`40P01`). Por eso `conSeguroAntiBloqueo` es lo PRIMERO que corre dentro de cada transacción, y el
-// `for('update')` del titular de `actualizarUsuario` queda después (re-bloquear una fila propia es un no-op).
+// (`40P01`).
+//
+// Orden que cumplen los CINCO caminos: POBLACIÓN PRIMERO, el objetivo propio después. Siempre que
+// una transacción vaya a tomar P, `conSeguroAntiBloqueo` es lo PRIMERO que corre dentro de ella, y
+// cualquier `FOR UPDATE` sobre su propio objetivo va DENTRO del envoltorio:
+//   · `actualizarUsuario` y `cambiarActivo` (users.service.ts): P → `for('update')` del titular
+//     (re-bloquear una fila propia es un no-op) → `UPDATE users` (su `KEY SHARE` sobre
+//     `permisos_roles` también queda después de P).
+//   · `guardarCuadro`, `borrarRol` y `editarRol` con `tipoPrincipal` (permisos-roles.service.ts):
+//     P → `for('update')` de la fila de `permisos_roles` → escritura.
+//   · `editarRol` SIN `tipoPrincipal` no toma P: su `FOR UPDATE` del rol va solo y no puede cruzarse.
+// Un `FOR UPDATE` del rol ANTES de P (como tenían `borrarRol` y `editarRol` hasta el db-review de la
+// HU #12084) contra `guardarCuadro` del mismo rol era un `40P01` servido como 500.
 //
 // Descartado: `pg_advisory_xact_lock` (sirve, pero el AC nombra `SELECT … FOR UPDATE` sobre las filas
 // afectadas y la mutación «quitarle el FOR UPDATE» tiene que ser observable) y `SERIALIZABLE`
