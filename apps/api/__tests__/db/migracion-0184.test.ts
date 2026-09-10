@@ -46,10 +46,12 @@ describe('0184 — reglas del archivo y lo que siembra (análisis estático)', (
     expect(cabecera).toMatch(/HU #12375/);
   });
 
-  it('el número 0184 no colisiona, es el último y deja el 0183 anotado para la HU #12374', () => {
+  it('el número es 0184, sigue a la 0183 de la HU #12374 sin hueco y no colisiona', () => {
+    // No exige «es la última»: eso congela el tip y caería con la 0185 de auditoría (#12171).
+    // La convención pide max+1 EN SU MOMENTO: la anterior es la 0183 y nadie más lleva el 0184.
     const sqls = readdirSync(path.dirname(RUTA)).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
     expect(sqls.filter((f) => f.startsWith('0184_'))).toEqual([ARCHIVO]);
-    expect(sqls[sqls.length - 1]).toBe(ARCHIVO);
+    expect(sqls[sqls.indexOf(ARCHIVO) - 1]).toMatch(/^0183_tarifas_vigencias_desde_siempre\.sql$/);
     expect(SQL_0184).toMatch(/0183_tarifas_vigencias_desde_siempre\.sql/);
   });
 
