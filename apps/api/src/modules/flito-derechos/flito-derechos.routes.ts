@@ -6,7 +6,8 @@
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { firmarDescargaEntidad } from '../../services/storage.js';
@@ -23,10 +24,8 @@ import type { ArchivoPlano } from '../../shared/archivos/expandir-zip.js';
 const router = Router();
 router.use(authMiddleware);
 
-const OPERACIONES = requireRole('admin');
 // `financiera` sale de aquí (HU #10979): los derechos de tránsito los gestiona Operaciones, que es
 // quien carga los recibos. Finanzas ve su valor en el reporte de costos, que es lo que necesita.
-const LECTURA = requireRole('admin', 'auditor');
 
 /** Archivos del Drive en curso, para no procesar el mismo dos veces a la vez. */
 const procesando = new Set<string>();
@@ -57,7 +56,7 @@ function handleError(res: Response, e: unknown): void {
 
 // POST /cargar — carga manual: uno o varios PDF/imágenes, un ZIP, o un PDF consolidado con varios
 // recibos. `organismoCodigo` es opcional y solo fija el umbral de OCR y la pista de prompt.
-router.post('/cargar', OPERACIONES, upload.array('archivos', 50), async (req: Request, res: Response) => {
+router.post('/cargar', exigirFuncion('derechos.recibos.cargar'), upload.array('archivos', 50), async (req: Request, res: Response) => {
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (files.length === 0) { res.status(400).json({ error: 'No se adjuntó ningún archivo' }); return; }
   const organismoCodigo = typeof req.body?.organismoCodigo === 'string' && req.body.organismoCodigo.trim()
@@ -85,7 +84,7 @@ const listaQ = (v: unknown): string[] | undefined => {
 const fechaQ = (v: unknown): string | undefined =>
   typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined;
 
-router.get('/', LECTURA, async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('derechos.cola.ver'), async (req: Request, res: Response) => {
   const buscar = typeof req.query.buscar === 'string' ? req.query.buscar : undefined;
   const page = Number(req.query.page) || 1;
   const pageSize = Number(req.query.pageSize) || 50;
@@ -98,7 +97,7 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
 });
 
 // GET /facetas — organismos y orígenes presentes, para no ofrecer filtros vacíos.
-router.get('/facetas', LECTURA, async (_req: Request, res: Response) => {
+router.get('/facetas', exigirFuncion('derechos.cola.filtrar'), async (_req: Request, res: Response) => {
   res.json(await facetasDerechos());
 });
 
@@ -111,7 +110,7 @@ router.get('/facetas', LECTURA, async (_req: Request, res: Response) => {
 // aplicación. El resto cargan sus recibos a mano, que es lo que hacen hoy.
 
 // GET /drive/archivos — los PDF consolidados de la carpeta, para elegir el día.
-router.get('/drive/archivos', LECTURA, async (_req: Request, res: Response) => {
+router.get('/drive/archivos', exigirFuncion('derechos.drive.listar'), async (_req: Request, res: Response) => {
   try {
     res.json(await archivosDelDrive());
   } catch (e) {
@@ -125,14 +124,14 @@ router.get('/drive/archivos', LECTURA, async (_req: Request, res: Response) => {
 //
 // Es el motivo de que el registro exista: la carpeta la manejan personas del organismo y un
 // consolidado puede desaparecer. Consultar el Drive en vivo no serviría justo cuando importa.
-router.get('/drive/registro', LECTURA, async (_req: Request, res: Response) => {
+router.get('/drive/registro', exigirFuncion('derechos.drive.ver_registro'), async (_req: Request, res: Response) => {
   res.json(await registroProcesados());
 });
 
 // POST /drive/procesar — lee un consolidado y asocia sus recibos a los trámites. Bajo demanda:
 // quien opera elige el día. Un barrido automático se comería el OCR de la carpeta entera.
 const procesarSchema = z.object({ fileId: z.string().min(5) });
-router.post('/drive/procesar', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/drive/procesar', exigirFuncion('derechos.drive.procesar'), async (req: Request, res: Response) => {
   const parsed = procesarSchema.safeParse(req.body ?? {});
   if (!parsed.success) { res.status(400).json({ error: 'Falta el archivo a procesar' }); return; }
 
@@ -159,14 +158,14 @@ router.post('/drive/procesar', OPERACIONES, async (req: Request, res: Response) 
 
 // GET /candidatos/:placa — trámites vivos de una placa, para elegir en la cola de revisión.
 const placaSchema = z.string().min(4).max(10);
-router.get('/candidatos/:placa', LECTURA, async (req: Request, res: Response) => {
+router.get('/candidatos/:placa', exigirFuncion('derechos.candidatos.ver'), async (req: Request, res: Response) => {
   const parsed = placaSchema.safeParse(req.params.placa);
   if (!parsed.success) { res.status(400).json({ error: 'Placa inválida' }); return; }
   res.json(await candidatosDePlaca(parsed.data));
 });
 
 // GET /soporte/:id — URL firmada para ver el PDF del recibo sin exponer el storage.
-router.get('/soporte/:id', LECTURA, async (req: Request, res: Response) => {
+router.get('/soporte/:id', exigirFuncion('derechos.soporte.descargar'), async (req: Request, res: Response) => {
   const s = await storageKeySoporte(req.params.id);
   if (!s) { res.status(404).json({ error: 'El soporte no existe' }); return; }
   res.json({ url: firmarDescargaEntidad(s.storageKey), nombreArchivo: s.nombreArchivo, contentType: s.contentType });

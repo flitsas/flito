@@ -5,7 +5,8 @@
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
   calcular, eventosDe, facturar, liquidacionDe, liquidar, liquidarLote, LiquidacionError, reversar,
@@ -14,21 +15,12 @@ import {
 const router = Router();
 router.use(authMiddleware);
 
-const LECTURA = requireRole('admin', 'financiera', 'auditor');
-
-/**
- * Quién puede liquidar y facturar.
- *
- * Se exporta la LISTA, no solo el middleware, porque la emisión electrónica (HU #11328) hereda de
- * aquí: facturar es el botón, emitir ante la DIAN es el paso siguiente, y no tendría sentido que
- * quien no puede lo primero pudiera lo segundo. Con la lista exportada, una prueba comprueba que
- * `ROLES_POR_ACCION.emitir` sigue coincidiendo con esta; sin ella, cambiar una y no la otra no
- * rompería nada y las dos definiciones se separarían en silencio.
- */
-export const ROLES_LIQUIDACION_ESCRITURA = ['admin', 'financiera'] as const;
-const ESCRITURA = requireRole(...ROLES_LIQUIDACION_ESCRITURA);
-// Deshacer un sellado es más delicado que hacerlo: solo administración.
-const REVERSO = requireRole('admin');
+// Quién puede liquidar y facturar lo decide el motor (`exigirFuncion`, HU #12083) con el reparto
+// sembrado: de partida, `admin` y `financiera` (`liquidacion.liquidacion.liquidar`, `.facturar`) y
+// solo `admin` para deshacer un sellado (`.reversar`). La emisión electrónica (HU #11328) hereda de
+// «facturar»: `siigo-facturacion.routes.test.ts` compara `ROLES_POR_ACCION.emitir` con los roles de
+// partida de `liquidacion.liquidacion.facturar` en la foto, para que las dos definiciones no se
+// separen en silencio.
 
 /** LiquidacionError es de negocio (400); lo demás sube al error handler. */
 function fallo(res: Response, e: unknown): void {
@@ -40,7 +32,7 @@ function fallo(res: Response, e: unknown): void {
 }
 
 // GET /:tramiteId — liquidación vigente, o el cálculo previsualizado si aún no está sellada.
-router.get('/:tramiteId', LECTURA, async (req: Request, res: Response) => {
+router.get('/:tramiteId', exigirFuncion('liquidacion.liquidacion.ver'), async (req: Request, res: Response) => {
   try {
     const sellada = await liquidacionDe(req.params.tramiteId);
     if (sellada) { res.json({ sellada: true, liquidacion: sellada }); return; }
@@ -49,12 +41,12 @@ router.get('/:tramiteId', LECTURA, async (req: Request, res: Response) => {
 });
 
 // GET /:tramiteId/eventos — bitácora de liquidar/reversar/facturar.
-router.get('/:tramiteId/eventos', LECTURA, async (req: Request, res: Response) => {
+router.get('/:tramiteId/eventos', exigirFuncion('liquidacion.liquidacion.ver_eventos'), async (req: Request, res: Response) => {
   res.json(await eventosDe(req.params.tramiteId));
 });
 
 // POST /:tramiteId/liquidar — sella los valores.
-router.post('/:tramiteId/liquidar', ESCRITURA, async (req: Request, res: Response) => {
+router.post('/:tramiteId/liquidar', exigirFuncion('liquidacion.liquidacion.liquidar'), async (req: Request, res: Response) => {
   try {
     const l = await liquidar(req.params.tramiteId, req.user?.sub ?? null);
     await audit(req, {
@@ -67,7 +59,7 @@ router.post('/:tramiteId/liquidar', ESCRITURA, async (req: Request, res: Respons
 
 // POST /lote/liquidar — liquidación en lote. Nunca falla entera: reporta cada trámite por separado.
 const loteSchema = z.object({ tramiteIds: z.array(z.string().uuid()).min(1).max(200) });
-router.post('/lote/liquidar', ESCRITURA, async (req: Request, res: Response) => {
+router.post('/lote/liquidar', exigirFuncion('liquidacion.liquidacion.liquidar_lote'), async (req: Request, res: Response) => {
   const parsed = loteSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   const r = await liquidarLote(parsed.data.tramiteIds, req.user?.sub ?? null);
@@ -80,7 +72,7 @@ router.post('/lote/liquidar', ESCRITURA, async (req: Request, res: Response) => 
 
 // POST /:tramiteId/reversar — deshace el sellado. Exige motivo y solo antes de facturar.
 const reversarSchema = z.object({ motivo: z.string().trim().min(5) });
-router.post('/:tramiteId/reversar', REVERSO, async (req: Request, res: Response) => {
+router.post('/:tramiteId/reversar', exigirFuncion('liquidacion.liquidacion.reversar'), async (req: Request, res: Response) => {
   const parsed = reversarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Indica el motivo del reverso (mínimo 5 caracteres)' }); return; }
   try {
@@ -94,7 +86,7 @@ router.post('/:tramiteId/reversar', REVERSO, async (req: Request, res: Response)
 });
 
 // POST /:tramiteId/facturar — congela definitivamente.
-router.post('/:tramiteId/facturar', ESCRITURA, async (req: Request, res: Response) => {
+router.post('/:tramiteId/facturar', exigirFuncion('liquidacion.liquidacion.facturar'), async (req: Request, res: Response) => {
   try {
     const l = await facturar(req.params.tramiteId, req.user?.sub ?? null);
     await audit(req, {

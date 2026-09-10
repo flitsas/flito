@@ -6,7 +6,8 @@ import { uploadPhoto, getPhoto, ensureBucket } from '../../services/storage.js';
 import { eq, and, sql, desc } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { tramitesDigitales, tramitesValidaciones } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { env } from '../../config/env.js';
 import rateLimit from 'express-rate-limit';
@@ -274,7 +275,7 @@ const publicLimiter = rateLimit({ windowMs: 60000, max: 10, message: { ok: false
 const completarLimiter = rateLimit({ windowMs: 60000, max: 5, message: { ok: false, message: 'Demasiadas solicitudes' } });
 
 // #13: GET /sse — Admin se suscribe a notificaciones de validación biométrica en tiempo real
-router.get('/sse', authMiddleware, requireRole('admin'), (req: Request, res: Response) => {
+router.get('/sse', authMiddleware, exigirFuncion('tramite.identidad.seguir'), (req: Request, res: Response) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -284,7 +285,7 @@ router.get('/sse', authMiddleware, requireRole('admin'), (req: Request, res: Res
 });
 
 // POST /iniciar — Admin envia email
-router.post('/iniciar', authMiddleware, requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/iniciar', authMiddleware, exigirFuncion('tramite.identidad.iniciar'), async (req: Request, res: Response) => {
   const { tramiteId } = req.body;
   if (!tramiteId) { res.status(400).json({ error: 'tramiteId requerido' }); return; }
 
@@ -361,7 +362,7 @@ router.post('/iniciar', authMiddleware, requireRole('admin'), async (req: Reques
 });
 
 // POST /iniciar-partes — Traspaso: validación biométrica vendedor + comprador (paridad CEA).
-router.post('/iniciar-partes', authMiddleware, requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/iniciar-partes', authMiddleware, exigirFuncion('tramite.identidad.iniciar_partes'), async (req: Request, res: Response) => {
   const { tramiteId } = req.body;
   if (!tramiteId) { res.status(400).json({ error: 'tramiteId requerido' }); return; }
 
@@ -654,7 +655,7 @@ router.post('/completar/:token', completarLimiter, async (req: Request, res: Res
 });
 
 // GET /estado/:tramiteId — Admin polling
-router.get('/estado/:tramiteId', authMiddleware, requireRole('admin'), async (req: Request, res: Response) => {
+router.get('/estado/:tramiteId', authMiddleware, exigirFuncion('tramite.identidad.ver_estado'), async (req: Request, res: Response) => {
   const tramiteId = parseInt(req.params.tramiteId, 10);
   if (!Number.isFinite(tramiteId)) { res.status(400).json({ ok: false }); return; }
   const records = await db.select({
@@ -671,7 +672,7 @@ router.get('/estado/:tramiteId', authMiddleware, requireRole('admin'), async (re
 });
 
 // GET /documentos/:tramiteId — Obtener fotos y detalle de validación
-router.get('/documentos/:tramiteId', authMiddleware, requireRole('admin'), async (req: Request, res: Response) => {
+router.get('/documentos/:tramiteId', authMiddleware, exigirFuncion('tramite.identidad.ver_documentos'), async (req: Request, res: Response) => {
   const tramiteId = parseInt(req.params.tramiteId, 10);
   if (!Number.isFinite(tramiteId)) { res.status(400).json({ ok: false }); return; }
   const records = await db.select().from(tramitesValidaciones).where(eq(tramitesValidaciones.tramiteId, tramiteId));
@@ -868,7 +869,7 @@ REGLA ANTI-FRAUDE: Si la persona del selfie y la persona del documento son VISIB
 }
 
 // POST /certificado/:tramiteId — Genera PDF de certificación de identidad
-router.post('/certificado/:tramiteId', authMiddleware, requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/certificado/:tramiteId', authMiddleware, exigirFuncion('tramite.identidad.certificar'), async (req: Request, res: Response) => {
   try {
     const tramiteId = parseInt(req.params.tramiteId, 10);
     if (!Number.isFinite(tramiteId)) { res.status(400).json({ error: 'ID inválido' }); return; }

@@ -28,7 +28,8 @@ import {
   CONCILIACION_MAX_BYTES, EstadoBoleta,
 } from '@operaciones/shared-types';
 import { env } from '../../config/env.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import rateLimit from 'express-rate-limit';
@@ -48,7 +49,6 @@ const router = Router();
 router.use(authMiddleware);
 
 /** CF-08: la conciliación mueve dinero de terceros. Roles de `USER_ROLES`, nada inventado. */
-const CONCILIACION = requireRole('admin', 'financiera');
 
 /** El .xlsx del portal. Un xlsx es un zip, así que el MIME declarado no prueba nada por sí solo. */
 const MIME_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -208,7 +208,7 @@ const cargaSchema = z.object({
   fechaPago: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'La fecha de pago debe ser AAAA-MM-DD'),
 }).strict();
 
-router.post('/boletas', CONCILIACION, cargaLimiter, recibirExcel, async (req: Request, res: Response) => {
+router.post('/boletas', exigirFuncion('conciliacion.boleta.cargar'), cargaLimiter, recibirExcel, async (req: Request, res: Response) => {
   const archivo = req.file;
   if (!archivo) {
     res.status(400).json({
@@ -274,7 +274,7 @@ const listadoSchema = z.object({
   limite: z.coerce.number().int().positive().optional(),
 }).strict();
 
-router.get('/boletas', CONCILIACION, async (req: Request, res: Response) => {
+router.get('/boletas', exigirFuncion('conciliacion.boletas.listar'), async (req: Request, res: Response) => {
   const filtro = listadoSchema.safeParse(req.query);
   if (!filtro.success) {
     res.status(400).json({ error: filtro.error.issues[0]?.message ?? 'Filtro inválido' });
@@ -289,7 +289,7 @@ router.get('/boletas', CONCILIACION, async (req: Request, res: Response) => {
 
 // ── GET /boletas/:id — el cuadre ─────────────────────────────────────────────
 
-router.get('/boletas/:id', CONCILIACION, async (req: Request, res: Response) => {
+router.get('/boletas/:id', exigirFuncion('conciliacion.boleta.ver'), async (req: Request, res: Response) => {
   try {
     const boleta = await detalleBoleta(idDe(req));
     await registrarAccesoBoleta(req, {
@@ -316,7 +316,7 @@ function cuerpoVacio(req: Request, res: Response): boolean {
   return true;
 }
 
-router.post('/boletas/:id/recruzar', CONCILIACION, async (req: Request, res: Response) => {
+router.post('/boletas/:id/recruzar', exigirFuncion('conciliacion.boleta.recruzar'), async (req: Request, res: Response) => {
   if (!cuerpoVacio(req, res)) return;
   try {
     const id = idDe(req);
@@ -384,7 +384,7 @@ async function registrarAccesoDelRechazo(req: Request, e: unknown): Promise<void
 // el cuadre ya actualizado, para que la tabla se repinte con lo que hay hoy—, así que lo único que
 // cambia en la pantalla es el número que compara.
 
-router.post('/boletas/:id/conciliar', CONCILIACION, conciliarLimiter, async (req: Request, res: Response) => {
+router.post('/boletas/:id/conciliar', exigirFuncion('conciliacion.boleta.conciliar'), conciliarLimiter, async (req: Request, res: Response) => {
   if (!cuerpoVacio(req, res)) return;
   try {
     const id = idDe(req);
@@ -417,7 +417,7 @@ router.post('/boletas/:id/conciliar', CONCILIACION, conciliarLimiter, async (req
 // conciliada. La respuesta es el RESUMEN, sin líneas: no lleva ni póliza ni placa, así que tampoco
 // registro de acceso a PII.
 
-router.post('/boletas/:id/descartar', CONCILIACION, async (req: Request, res: Response) => {
+router.post('/boletas/:id/descartar', exigirFuncion('conciliacion.boleta.descartar'), async (req: Request, res: Response) => {
   if (!cuerpoVacio(req, res)) return;
   try {
     const id = idDe(req);
@@ -574,18 +574,18 @@ async function subirComprobante(req: Request, res: Response, reemplazar: boolean
 }
 
 router.post(
-  '/boletas/:id/comprobante', CONCILIACION, comprobanteLimiter, recibirComprobante,
+  '/boletas/:id/comprobante', exigirFuncion('conciliacion.comprobante.cargar'), comprobanteLimiter, recibirComprobante,
   async (req: Request, res: Response) => { await subirComprobante(req, res, false); },
 );
 
 router.put(
-  '/boletas/:id/comprobante', CONCILIACION, comprobanteLimiter, recibirComprobante,
+  '/boletas/:id/comprobante', exigirFuncion('conciliacion.comprobante.reemplazar'), comprobanteLimiter, recibirComprobante,
   async (req: Request, res: Response) => { await subirComprobante(req, res, true); },
 );
 
 // GET — firma FRESCA para abrir el archivo. El detalle ya trae una, pero caduca a los cinco
 // minutos: pintarla como href estático deja un enlace muerto en pantalla (docs/ux, «Descargar»).
-router.get('/boletas/:id/comprobante', CONCILIACION, async (req: Request, res: Response) => {
+router.get('/boletas/:id/comprobante', exigirFuncion('conciliacion.comprobante.descargar'), async (req: Request, res: Response) => {
   try {
     res.json(await descargaComprobante(idDe(req)));
   } catch (e) {

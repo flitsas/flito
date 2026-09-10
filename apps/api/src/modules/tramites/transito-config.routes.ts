@@ -1,7 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import multer, { MulterError } from 'multer';
 import { z } from 'zod';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
   deleteEntityDocument,
@@ -83,7 +84,7 @@ function contentTypeFromKey(key: string): string {
   }
 }
 
-router.get('/organismos-config', requireRole('admin'), async (_req: Request, res: Response) => {
+router.get('/organismos-config', exigirFuncion('transito.config.listar'), async (_req: Request, res: Response) => {
   try {
     res.json(await listOrganismosConfig());
   } catch (e: any) {
@@ -91,7 +92,7 @@ router.get('/organismos-config', requireRole('admin'), async (_req: Request, res
   }
 });
 
-router.get('/organismos-config/:codigo', requireRole('admin', 'transito'), async (req: Request, res: Response) => {
+router.get('/organismos-config/:codigo', exigirFuncion('transito.config.ver'), async (req: Request, res: Response) => {
   try {
     const codigo = req.params.codigo.trim();
     const user = req.user!;
@@ -117,7 +118,7 @@ router.get('/organismos-config/:codigo', requireRole('admin', 'transito'), async
 
 router.get(
   '/organismos-config/:codigo/checklist/:tipologia',
-  requireRole('admin', 'transito'),
+  exigirFuncion('transito.checklist.ver'),
   async (req: Request, res: Response) => {
     try {
       const codigo = req.params.codigo.trim();
@@ -146,7 +147,7 @@ router.get(
 
 router.put(
   '/organismos-config/:codigo/checklist/:tipologia',
-  requireRole('admin'),
+  exigirFuncion('transito.checklist.editar'),
   async (req: Request, res: Response) => {
     try {
       const codigo = req.params.codigo.trim();
@@ -179,7 +180,7 @@ router.put(
   },
 );
 
-router.put('/organismos-config/:codigo', requireRole('admin'), async (req: Request, res: Response) => {
+router.put('/organismos-config/:codigo', exigirFuncion('transito.config.editar'), async (req: Request, res: Response) => {
   try {
     const codigo = req.params.codigo.trim();
     const parsed = putSchema.safeParse(req.body);
@@ -215,7 +216,7 @@ router.put('/organismos-config/:codigo', requireRole('admin'), async (req: Reque
 // GET logo subido — sirve la imagen (admin, o transito de su propio organismo).
 router.get(
   '/organismos-config/:codigo/logo',
-  requireRole('admin', 'transito'),
+  exigirFuncion('transito.logo.ver'),
   async (req: Request, res: Response) => {
     try {
       const codigo = req.params.codigo.trim();
@@ -248,7 +249,7 @@ router.get(
 // POST logo — sube/reemplaza (admin). Multipart `file`.
 router.post(
   '/organismos-config/:codigo/logo',
-  requireRole('admin'),
+  exigirFuncion('transito.logo.cargar'),
   handleLogoUpload,
   async (req: Request, res: Response) => {
     try {
@@ -293,7 +294,7 @@ router.post(
 // DELETE logo subido (admin). No toca la URL externa legacy.
 router.delete(
   '/organismos-config/:codigo/logo',
-  requireRole('admin'),
+  exigirFuncion('transito.logo.borrar'),
   async (req: Request, res: Response) => {
     try {
       const codigo = req.params.codigo.trim();

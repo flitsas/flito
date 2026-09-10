@@ -3,7 +3,8 @@ import multer from 'multer';
 import { PDFDocument } from 'pdf-lib';
 import { mkdir, writeFile, readFile } from 'fs/promises';
 import path from 'path';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { env } from '../../config/env.js';
 import { loggerFor } from '../../shared/logger.js';
@@ -18,7 +19,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 // F5: Rate limit propio para OCR (costoso en API)
 const ocrLimiter = rateLimit({ windowMs: 60000, max: 10, message: { ok: false, message: 'Máximo 10 análisis por minuto' } });
 
-router.use(authMiddleware, requireRole('admin'));
+router.use(authMiddleware);
 
 // Instruccion comun para identificar paginas en PDFs multi-documento
 const PAGE_INSTRUCTION = `
@@ -268,7 +269,7 @@ async function extractPages(pdfBuffer: Buffer, pages: number[]): Promise<Buffer>
 }
 
 // POST /ocr/:tipo — Analiza documento, extrae datos y recorta paginas si es multi-doc
-router.post('/ocr/:tipo', ocrLimiter, upload.single('file'), async (req: Request, res: Response) => {
+router.post('/ocr/:tipo', exigirFuncion('tramite.ocr.leer'), ocrLimiter, upload.single('file'), async (req: Request, res: Response) => {
   const tipo = req.params.tipo;
   const prompt = PROMPTS[tipo];
   if (!prompt) { res.status(400).json({ ok: false, message: `Tipo no soportado: ${tipo}` }); return; }
@@ -330,7 +331,7 @@ router.post('/ocr/:tipo', ocrLimiter, upload.single('file'), async (req: Request
 });
 
 // GET /ocr-extracted/:filename — Descarga PDF recortado
-router.get('/ocr-extracted/:filename', async (req: Request, res: Response) => {
+router.get('/ocr-extracted/:filename', exigirFuncion('tramite.ocr.descargar'), async (req: Request, res: Response) => {
   const filename = path.basename(req.params.filename).replace(/[^a-zA-Z0-9._-]/g, '');
   const filePath = path.join(process.cwd(), 'uploads', 'ocr-temp', filename);
   try {

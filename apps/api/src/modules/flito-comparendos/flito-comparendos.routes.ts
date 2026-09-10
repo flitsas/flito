@@ -51,7 +51,8 @@ import {
   COMPARENDOS_OBSERVACION_MAX,
   COMPARENDOS_REGISTROS_LIMIT_MAX,
 } from '@operaciones/shared-types';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { sendExcel } from '../../shared/utils/excel.js';
@@ -104,13 +105,15 @@ import {
 
 const router = Router();
 
-// Los dos guardas van a nivel de ROUTER y no ruta por ruta. El CF-12 fusionó `operaciones` en
-// `admin`, así que no hay en este módulo ni una sola ruta con un rol distinto ni una lectura
-// abierta a `auditor`: la parametrización decide a qué NITs se les consulta la deuda de tránsito y
-// eso no es información de consulta general. Puesto aquí, la próxima ruta que alguien añada nace
-// protegida en vez de depender de que se acuerde del guard.
+// `authMiddleware` va a nivel de ROUTER; la guarda de función va RUTA A RUTA (`exigirFuncion`,
+// HU #12083, ADR-0016 §2): así la bitácora del 403 guarda la plantilla de la ruta y no el NIT o el id
+// del path, y el panel de permisos puede conceder una función de este módulo sin conceder las 21.
+// El CF-12 fusionó `operaciones` en `admin`, así que de partida todas son solo de `admin` y ninguna
+// lectura está abierta a `auditor`: la parametrización decide a qué NITs se les consulta la deuda de
+// tránsito y eso no es información de consulta general. Una ruta nueva sin guarda ya no «nace
+// protegida» por herencia: la detecta `permisos.reconduccion-cierre.test.ts`, que exige un
+// `exigirFuncion` en cada `router.<método>` de este fichero.
 router.use(authMiddleware);
-router.use(requireRole('admin'));
 
 // ─────────────────────────────── Utilidades del borde ───────────────────────────────────────────
 
@@ -135,8 +138,8 @@ function datosInvalidos(res: Response, error: z.ZodError): void {
 
 // ─────────────────────────────── Limitadores de escritura ──────────────────────────────────────
 //
-// Van sobre rutas concretas y después de los guardas del router: quien no pasa `authMiddleware` o
-// `requireRole` ni siquiera consume cuota, así que un 401 en bucle no puede agotarle el cupo a un
+// Van sobre rutas concretas y después de las guardas (`authMiddleware` del router y el
+// `exigirFuncion` de la ruta): quien no las pasa ni siquiera consume cuota, así que un 401 en bucle no puede agotarle el cupo a un
 // administrador legítimo. `userOrIpKey` cuenta por usuario cuando lo hay (y por IP normalizada a
 // /64 cuando no), de modo que dos administradores no se pisan la cuota entre sí.
 
@@ -436,7 +439,7 @@ const actualizarNitSchema = z.object({
  * distingue esta línea del log de una consulta menor, porque aquí no hay ningún otro criterio que
  * anotar: sin filtros ni `:id`, el tamaño ES la lectura.
  */
-router.get('/nits', lecturasPiiLimiter, async (req: Request, res: Response) => {
+router.get('/nits', exigirFuncion('comparendos.nits.listar'), lecturasPiiLimiter, async (req: Request, res: Response) => {
   const nits = await listarNits();
   await registrarAccesoComparendos(req, {
     recurso: RECURSO_NIT,
@@ -477,7 +480,7 @@ router.get('/nits', lecturasPiiLimiter, async (req: Request, res: Response) => {
  * lectura escondida dentro de una escritura. No se cierra aquí porque su punto (el 1 del Bug
  * #11671) está esperando decisión de negocio, no porque el criterio sea distinto.
  */
-router.post('/nits', altaNitLimiter, async (req: Request, res: Response) => {
+router.post('/nits', exigirFuncion('comparendos.nits.crear'), altaNitLimiter, async (req: Request, res: Response) => {
   const parsed = crearNitSchema.safeParse(req.body);
   if (!parsed.success) { datosInvalidos(res, parsed.error); return; }
   try {
@@ -522,7 +525,7 @@ router.post('/nits', altaNitLimiter, async (req: Request, res: Response) => {
  * leer NITs de uno en uno podría pedirlos por aquí sin gastar la cuota de `lecturasPiiLimiter`—. Es
  * preexistente y no es del Bug #11671.
  */
-router.patch('/nits/:id', async (req: Request, res: Response) => {
+router.patch('/nits/:id', exigirFuncion('comparendos.nits.editar'), async (req: Request, res: Response) => {
   const id = leerId(req, res);
   if (id === null) return;
   const parsed = actualizarNitSchema.safeParse(req.body);
@@ -554,7 +557,7 @@ router.patch('/nits/:id', async (req: Request, res: Response) => {
  * existe para el caso de un NIT mal escrito que nunca llegó a sincronizarse, donde desactivarlo
  * dejaría basura para siempre en una pantalla de parametrización.
  */
-router.delete('/nits/:id', async (req: Request, res: Response) => {
+router.delete('/nits/:id', exigirFuncion('comparendos.nits.borrar'), async (req: Request, res: Response) => {
   const id = leerId(req, res);
   if (id === null) return;
   try {
@@ -593,11 +596,11 @@ const actualizarMunicipioSchema = z.object({
   activo: z.boolean().optional(),
 }).refine((d) => d.nombre !== undefined || d.activo !== undefined, { message: 'Nada que actualizar' });
 
-router.get('/municipios', async (_req: Request, res: Response) => {
+router.get('/municipios', exigirFuncion('comparendos.municipios.listar'), async (_req: Request, res: Response) => {
   res.json(await listarMunicipios());
 });
 
-router.post('/municipios', async (req: Request, res: Response) => {
+router.post('/municipios', exigirFuncion('comparendos.municipios.crear'), async (req: Request, res: Response) => {
   const parsed = crearMunicipioSchema.safeParse(req.body);
   if (!parsed.success) { datosInvalidos(res, parsed.error); return; }
   try {
@@ -610,7 +613,7 @@ router.post('/municipios', async (req: Request, res: Response) => {
   } catch (e) { fallo(res, e); }
 });
 
-router.patch('/municipios/:id', async (req: Request, res: Response) => {
+router.patch('/municipios/:id', exigirFuncion('comparendos.municipios.editar'), async (req: Request, res: Response) => {
   const id = leerId(req, res);
   if (id === null) return;
   const parsed = actualizarMunicipioSchema.safeParse(req.body);
@@ -646,11 +649,11 @@ const actualizarCausalSchema = z.object({
   { message: 'Nada que actualizar' },
 );
 
-router.get('/causales', async (_req: Request, res: Response) => {
+router.get('/causales', exigirFuncion('comparendos.causales.listar'), async (_req: Request, res: Response) => {
   res.json(await listarCausales());
 });
 
-router.post('/causales', async (req: Request, res: Response) => {
+router.post('/causales', exigirFuncion('comparendos.causales.crear'), async (req: Request, res: Response) => {
   const parsed = crearCausalSchema.safeParse(req.body);
   if (!parsed.success) { datosInvalidos(res, parsed.error); return; }
   try {
@@ -663,7 +666,7 @@ router.post('/causales', async (req: Request, res: Response) => {
   } catch (e) { fallo(res, e); }
 });
 
-router.patch('/causales/:id', async (req: Request, res: Response) => {
+router.patch('/causales/:id', exigirFuncion('comparendos.causales.editar'), async (req: Request, res: Response) => {
   const id = leerId(req, res);
   if (id === null) return;
   const parsed = actualizarCausalSchema.safeParse(req.body);
@@ -702,7 +705,7 @@ const tokenSimitSchema = z.object({
  * No hay ninguna variante de esta ruta que devuelva el token, ni enmascarado ni por un prefijo. No
  * lleva limitador: es una lectura sin secreto y la pantalla de configuración la pide en cada carga.
  */
-router.get('/config/token-simit', async (_req: Request, res: Response) => {
+router.get('/config/token-simit', exigirFuncion('comparendos.simit.ver_token'), async (_req: Request, res: Response) => {
   res.json(await obtenerMetaTokenSimit());
 });
 
@@ -713,7 +716,7 @@ router.get('/config/token-simit', async (_req: Request, res: Response) => {
  * observable: mandar dos veces el mismo token deja la misma configuración (con dos filas de
  * historial, que es el rastro que CF-03 quiere).
  */
-router.put('/config/token-simit', tokenLimiter, async (req: Request, res: Response) => {
+router.put('/config/token-simit', exigirFuncion('comparendos.simit.guardar_token'), tokenLimiter, async (req: Request, res: Response) => {
   const parsed = tokenSimitSchema.safeParse(req.body);
   // `flatten()` devuelve los MENSAJES de las reglas, nunca el valor que se validó: un token
   // demasiado largo no vuelve al cliente dentro del detalle del error.
@@ -765,7 +768,7 @@ const syncSchema = z.object({
  * `sync_en_curso`, 400 sin NITs o con filtro inválido, 503 `token_no_configurado` /
  * `modo_simulado_en_produccion` / `mapa_homologacion_vacio`. Aquí no se decide ninguno.
  */
-router.post('/sync', syncLimiter, async (req: Request, res: Response) => {
+router.post('/sync', exigirFuncion('comparendos.sync.lanzar'), syncLimiter, async (req: Request, res: Response) => {
   // `req.body` puede no existir si el cliente no manda cuerpo ni `Content-Type`: un sync global se
   // pide con un POST pelado y eso tiene que funcionar.
   const parsed = syncSchema.safeParse(req.body ?? {});
@@ -810,7 +813,7 @@ const runsQuerySchema = z.object({
  * quede escrita en la caché de disco del navegador y siga ahí cuando el usuario cierre sesión o
  * preste el equipo. Son las dos mitades del mismo criterio y aquí solo estaba puesta una.
  */
-router.get('/sync/runs', lecturasPiiLimiter, async (req: Request, res: Response) => {
+router.get('/sync/runs', exigirFuncion('comparendos.sync.ver_corridas'), lecturasPiiLimiter, async (req: Request, res: Response) => {
   const parsed = runsQuerySchema.safeParse(req.query);
   if (!parsed.success) { datosInvalidos(res, parsed.error); return; }
   const runs = await listarSyncRuns(parsed.data.limit);
@@ -825,7 +828,7 @@ router.get('/sync/runs', lecturasPiiLimiter, async (req: Request, res: Response)
 });
 
 /** Detalle de una corrida con sus `steps[]`: qué fuente falló, con qué código y cuánto tardó (AC4). */
-router.get('/sync/runs/:id', lecturasPiiLimiter, async (req: Request, res: Response) => {
+router.get('/sync/runs/:id', exigirFuncion('comparendos.sync.ver_corrida'), lecturasPiiLimiter, async (req: Request, res: Response) => {
   const id = leerId(req, res);
   if (id === null) return;
   try {
@@ -1033,7 +1036,7 @@ async function entregarPagina(req: Request, res: Response, filtro: FiltroRegistr
  * La búsqueda por NIT o placa es la otra ruta, y no hay forma de hacerla desde aquí: `.strict()`
  * convierte `?nit=` en un 400.
  */
-router.get('/registros', registrosLimiter, async (req: Request, res: Response) => {
+router.get('/registros', exigirFuncion('comparendos.registros.listar'), registrosLimiter, async (req: Request, res: Response) => {
   const parsed = registrosQuerySchema.safeParse(req.query);
   if (!parsed.success) { datosInvalidos(res, parsed.error); return; }
 
@@ -1055,7 +1058,7 @@ router.get('/registros', registrosLimiter, async (req: Request, res: Response) =
  * Responde **200**, no 201: no crea nada. El único efecto de esta ruta fuera de la respuesta es la
  * fila del registro de acceso, que es la misma que deja el `GET`.
  */
-router.post('/registros/buscar', registrosLimiter, async (req: Request, res: Response) => {
+router.post('/registros/buscar', exigirFuncion('comparendos.registros.buscar'), registrosLimiter, async (req: Request, res: Response) => {
   const query = registrosQuerySchema.safeParse(req.query);
   if (!query.success) { datosInvalidos(res, query.error); return; }
   // Sin cuerpo es una búsqueda sin filtros de identidad, no un error: `req.body` puede ni existir
@@ -1101,7 +1104,7 @@ router.post('/registros/buscar', registrosLimiter, async (req: Request, res: Res
  * el archivo (RN-42): declarar de más haría que `campos_accedidos` dejara de decir la verdad, que
  * es lo único que ese log tiene que hacer.
  */
-router.post('/registros/export', exportLimiter, async (req: Request, res: Response) => {
+router.post('/registros/export', exigirFuncion('comparendos.registros.exportar'), exportLimiter, async (req: Request, res: Response) => {
   const query = exportQuerySchema.safeParse(req.query);
   if (!query.success) { datosInvalidos(res, query.error); return; }
   // Igual que en `/registros/buscar`: sin cuerpo es un export sin filtros de identidad, no un error.
@@ -1187,7 +1190,7 @@ router.post('/registros/export', exportLimiter, async (req: Request, res: Respon
  * Sigue siendo `GET` con el id en el path: el §14 admite explícitamente los identificadores OPACOS
  * —un UUID no dice nada de nadie— y es lo que separa este caso del filtro por NIT.
  */
-router.get('/registros/:id', registrosLimiter, async (req: Request, res: Response) => {
+router.get('/registros/:id', exigirFuncion('comparendos.registro.ver'), registrosLimiter, async (req: Request, res: Response) => {
   const id = leerId(req, res);
   if (id === null) return;
   try {
@@ -1220,7 +1223,7 @@ router.get('/registros/:id', registrosLimiter, async (req: Request, res: Respons
  * con algo del registro (la placa en el evento, por ejemplo), esta ruta pasa a necesitar
  * `registrarAccesoComparendos` con `RECURSO_REGISTROS` **y** la cabecera.
  */
-router.get('/registros/:id/eventos', registrosLimiter, async (req: Request, res: Response) => {
+router.get('/registros/:id/eventos', exigirFuncion('comparendos.registro.ver_eventos'), registrosLimiter, async (req: Request, res: Response) => {
   const id = leerId(req, res);
   if (id === null) return;
   try {
@@ -1298,8 +1301,8 @@ const gestionSchema = z.object({
  * humano y lento (elegir una causal, escribir una observación), y 30/min sigue siendo un techo que
  * ningún operador real toca.
  *
- * Va después de los guardas del router, como los otros cuatro: quien no pasa `authMiddleware` ni
- * `requireRole` no consume cuota, así que un 401 en bucle no le agota el cupo a nadie.
+ * Va después de las guardas, como los otros cuatro: quien no pasa `authMiddleware` ni
+ * `exigirFuncion` no consume cuota, así que un 401 en bucle no le agota el cupo a nadie.
  */
 const gestionLimiter = rateLimit({
   windowMs: 60_000,
@@ -1323,7 +1326,7 @@ const gestionLimiter = rateLimit({
  * Ni la observación ni la placa ni el NIT entran en ninguno de los dos rastros: el `detail` de la
  * bitácora dice qué campos se tocaron y cuánto medía el texto, nunca el texto (RN-41).
  */
-router.patch('/registros/:id/gestion', gestionLimiter, async (req: Request, res: Response) => {
+router.patch('/registros/:id/gestion', exigirFuncion('comparendos.registro.gestionar'), gestionLimiter, async (req: Request, res: Response) => {
   const id = leerId(req, res);
   if (id === null) return;
   const parsed = gestionSchema.safeParse(req.body ?? {});

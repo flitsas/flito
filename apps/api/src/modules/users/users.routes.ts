@@ -4,7 +4,8 @@ import argon2 from 'argon2';
 import { and, eq, ne, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { clients, users } from '../../db/schema.js';
-import { authMiddleware, requireRole, invalidateSessionCacheFor } from '../../shared/middleware/auth.js';
+import { authMiddleware, invalidateSessionCacheFor } from '../../shared/middleware/auth.js';
+import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { invalidarPermisosDe } from '../../shared/permisos-efectivos.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { sendExcel } from '../../shared/utils/excel.js';
@@ -25,7 +26,8 @@ const router = Router();
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*])/;
 const PASSWORD_MSG = 'Mín 8 caracteres, 1 mayúscula, 1 minúscula, 1 número, 1 especial';
 
-// Cambio de contraseña — auth solo, el handler valida que sea propio o admin.
+// Cambio de contraseña — auth solo; el handler decide: la propia siempre, la AJENA con la función
+// `usuarios.contrasena.cambiar_ajena` (guarda en línea, HU #12083; de partida solo `admin`).
 const passwordSchema = z.object({
   currentPassword: z.string().min(1),
   newPassword: z.string().min(8).regex(PASSWORD_REGEX, PASSWORD_MSG),
@@ -35,7 +37,9 @@ router.patch('/:id/password', authMiddleware, async (req: Request, res: Response
   try {
     const id = parseInt(req.params.id, 10);
     if (!Number.isFinite(id)) { res.status(400).json({ error: 'ID inválido' }); return; }
-    if (req.user!.sub !== id && req.user!.role !== 'admin') { res.status(403).json({ error: 'Sin permisos' }); return; }
+    if (req.user!.sub !== id && !(await tieneFuncion(req, 'usuarios.contrasena.cambiar_ajena'))) {
+      res.status(403).json({ error: 'Sin permisos' }); return;
+    }
 
     const parsed = passwordSchema.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
@@ -112,8 +116,9 @@ function textoAmbito(
   return '';
 }
 
-// Resto del módulo — solo admin
-router.use(authMiddleware, requireRole('admin'));
+// Resto del módulo: `authMiddleware` a nivel de router y la función `usuarios.*` en cada ruta
+// (`exigirFuncion`, HU #12083). De partida todas son solo de `admin` (0181).
+router.use(authMiddleware);
 
 // === ORDEN DE RUTAS ==========================================================
 // `/export` y `/resumen` son LITERALES y van declaradas ANTES que el listado y que CUALQUIER `/:id`.
@@ -121,12 +126,12 @@ router.use(authMiddleware, requireRole('admin'));
 // tragaría y `id` valdría la cadena "export". Quien añada rutas nuevas al módulo: los literales
 // primero, los parámetros después.
 //
-// Van DEBAJO del `router.use` de arriba, así que heredan `authMiddleware` + `requireRole('admin')`
-// igual que el resto del módulo y no llevan guarda propia. El orden literal-antes-de-paramétrica no
-// obliga a estar por encima de la guarda: basta con estar por encima del `/:id`.
+// Van DEBAJO del `router.use` de arriba, así que heredan `authMiddleware`; la guarda de función va
+// en cada una. El orden literal-antes-de-paramétrica no obliga a nada más: basta con estar por
+// encima del `/:id`.
 
 // === Descargar el listado en Excel ===========================================
-router.get('/export', async (req: Request, res: Response) => {
+router.get('/export', exigirFuncion('usuarios.usuario.exportar'), async (req: Request, res: Response) => {
   const consulta = leerConsulta(req, res);
   if (!consulta) return;
 
@@ -168,7 +173,7 @@ router.get('/export', async (req: Request, res: Response) => {
 });
 
 // === Conteo por rol y por estado =============================================
-router.get('/resumen', async (req: Request, res: Response) => {
+router.get('/resumen', exigirFuncion('usuarios.usuario.ver_resumen'), async (req: Request, res: Response) => {
   const resumen = await resumenUsuarios();
   await audit(req, { action: 'view', resource: 'user', detail: `Resumen usuarios (${resumen.activos + resumen.inactivos})` });
   res.json(resumen);
@@ -312,7 +317,7 @@ const updateSchema = z.object({
 // La respuesta sigue siendo un ARRAY PLANO, igual que antes de la HU #12172: hay consumidores. El
 // total de coincidencias del filtro —que no es el largo del array cuando se pagina— viaja en la
 // cabecera `X-Total-Count`, expuesta por CORS en `app.ts`.
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('usuarios.usuario.listar'), async (req: Request, res: Response) => {
   const consulta = leerConsulta(req, res);
   if (!consulta) return;
 
@@ -327,7 +332,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // === Crear usuario ===========================================================
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', exigirFuncion('usuarios.usuario.crear'), async (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
@@ -394,7 +399,7 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 // === Editar usuario (nombre, email, rol) =====================================
-router.patch('/:id', async (req: Request, res: Response) => {
+router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = updateSchema.safeParse(req.body);
@@ -561,7 +566,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
 });
 
 // === Toggle activo/inactivo ==================================================
-router.patch('/:id/toggle', async (req: Request, res: Response) => {
+router.patch('/:id/toggle', exigirFuncion('usuarios.usuario.activar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) { res.status(400).json({ error: 'ID inválido' }); return; }
 
@@ -603,7 +608,7 @@ router.patch('/:id/toggle', async (req: Request, res: Response) => {
 
 // === Forzar logout (admin manual) ============================================
 // Útil cuando se detecta sesión comprometida o tras cambios de seguridad puntuales.
-router.post('/:id/invalidate-sessions', async (req: Request, res: Response) => {
+router.post('/:id/invalidate-sessions', exigirFuncion('usuarios.sesiones.invalidar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [updated] = await db.update(users)

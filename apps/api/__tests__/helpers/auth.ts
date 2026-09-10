@@ -1,6 +1,6 @@
 import { SignJWT } from 'jose';
 import { PAGES, paginasPorDefecto, type RoleCode } from '@operaciones/shared-types';
-import { PAGINAS_NO_CONCEDIBLES } from '../../src/modules/permisos/catalogo.js';
+import { PAGINAS_NO_CONCEDIBLES, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
 import type { FilasPermisos } from '../../src/shared/permisos-efectivos.js';
 
 // Helper para generar JWTs válidos en tests. Firma con JWT_SECRET seteado en __tests__/setup.ts.
@@ -21,6 +21,29 @@ import type { FilasPermisos } from '../../src/shared/permisos-efectivos.js';
 const PAGINAS_DE_ADMIN = Object.keys(PAGES)
   .filter((s) => !(PAGINAS_NO_CONCEDIBLES as readonly string[]).includes(s));
 
+/**
+ * Las OPERACIONES que un rol de prueba tiene DE VERDAD desde la HU #12083.
+ *
+ * Con las rutas reconducidas a `exigirFuncion`, un token de `admin` sin `soat.solicitud.enviar` en su
+ * conjunto recibe 403 en `POST /enviar`: no representa a un administrador real, que las tiene todas
+ * sembradas por la 0179/0181. Se cargan desde `repartoDePartida()` —la foto histórica, que es lo que
+ * la base tiene sembrado— y NO se escriben a mano; `opts.funciones` sigue siendo aditivo. Un rol que
+ * la foto no conoce (`'gestor'` inventado por un spec) no recibe ninguna: 403, como con `requireRole`.
+ *
+ * Se llena en diferido y una sola vez: `repartoDePartida()` cruza foto y catálogo (sin base), pero no
+ * hace falta pagarlo en un fichero que nunca firme un token.
+ */
+const REPARTO_POR_ROL = new Map<string, string[]>();
+export function operacionesDePartida(rol: string): string[] {
+  if (REPARTO_POR_ROL.size === 0) {
+    for (const [r, codigo] of repartoDePartida()) {
+      if (codigo.startsWith('pagina.')) continue;
+      REPARTO_POR_ROL.set(r, [...(REPARTO_POR_ROL.get(r) ?? []), codigo]);
+    }
+  }
+  return REPARTO_POR_ROL.get(rol) ?? [];
+}
+
 export type TestRole = 'admin' | 'proveedor' | 'transito' | 'compliance' | 'lider_pesv' | 'supervisor_flota' | 'conductor' | 'auditor' | 'gestor_impuestos' | 'mensajero' | 'financiera' | 'cliente';
 
 interface TestUserOpts {
@@ -33,7 +56,10 @@ interface TestUserOpts {
    * `resolverPermisos` las lee. El admin sin esta opción recibe `PAGINAS_DE_ADMIN`.
    */
   allowedPages?: string[];
-  /** Funciones `operacion.*` (o `pagina.*`) que el ROL del usuario tiene en el double. */
+  /**
+   * Funciones `operacion.*` (o `pagina.*`) que el ROL del usuario tiene en el double, ADEMÁS de las
+   * operaciones de partida del rol (foto de la #12081 ampliada por la #12083).
+   */
   funciones?: string[];
   transitoCodigo?: string;
 }
@@ -93,6 +119,7 @@ export async function testToken(opts: TestUserOpts = {}): Promise<string> {
     tipoPrincipal: role === 'cliente' ? 'externo' : 'interno',
     allowedPages: opts.allowedPages ?? (role === 'admin' ? PAGINAS_DE_ADMIN : []),
     funcionesDelRol: [
+      ...operacionesDePartida(role),
       ...paginasPorDefecto(role as RoleCode).map((s) => `pagina.${s}`),
       ...(opts.funciones ?? []),
     ],

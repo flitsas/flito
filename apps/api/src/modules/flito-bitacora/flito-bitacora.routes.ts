@@ -6,14 +6,14 @@
 
 import { Router, type Request, type Response } from 'express';
 import { and, desc, asc, eq, inArray } from 'drizzle-orm';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { db } from '../../db/client.js';
 import { auditLogs } from '../../db/schema.js';
 
 const router = Router();
 router.use(authMiddleware);
 
-const LECTURA = requireRole('admin', 'auditor');
 
 // Recursos que pertenecen al dominio FLITO dentro de audit_logs.
 const RECURSOS_FLITO = ['flito_soat', 'flito_impuesto', 'flito_tramite', 'flito_revision'] as const;
@@ -31,7 +31,7 @@ function aItem(r: typeof auditLogs.$inferSelect): BitacoraItem {
 }
 
 // GET / — últimos registros del dominio FLITO (?resource= filtra a uno; ?limite= tope, máx 500).
-router.get('/', LECTURA, async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('bitacora.bitacora.ver'), async (req: Request, res: Response) => {
   const resource = typeof req.query.resource === 'string' && (RECURSOS_FLITO as readonly string[]).includes(req.query.resource)
     ? req.query.resource : undefined;
   const limite = Math.min(Number(req.query.limite) || 100, 500);
@@ -44,7 +44,7 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
 });
 
 // GET /:resource/:resourceId — historia cronológica de una entidad concreta.
-router.get('/:resource/:resourceId', LECTURA, async (req: Request, res: Response) => {
+router.get('/:resource/:resourceId', exigirFuncion('bitacora.bitacora.ver_recurso'), async (req: Request, res: Response) => {
   if (!(RECURSOS_FLITO as readonly string[]).includes(req.params.resource)) {
     res.status(400).json({ error: 'Recurso desconocido' }); return;
   }

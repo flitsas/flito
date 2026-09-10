@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import { SignJWT } from 'jose';
-import { registrarUsuarioDePrueba } from '../helpers/auth.js';
+import { operacionesDePartida, registrarUsuarioDePrueba } from '../helpers/auth.js';
 import { chain } from '../helpers/db.js';
 
 const selectMock = vi.fn();
@@ -53,10 +53,12 @@ beforeEach(async () => {
   executeMock.mockResolvedValue([{ '?column?': 1 }]);
   // Activar check explícitamente en este archivo de tests (la suite global lo desactiva).
   process.env.AUTH_SKIP_SESSION_INVAL_CHECK = '';
-  // HU #12082: la frontera del canal y `requireRole`/`requirePage` resuelven permisos por `sub`. Este
+  // HU #12082: la frontera del canal y `exigirFuncion`/`requirePage` resuelven permisos por `sub`. Este
   // archivo firma sus tokens a mano (necesita gobernar el `iat`), así que registra al usuario 6 en el
   // double del helper para que el resolutor no consuma `selectMock`, que es sobre lo que se afirma.
-  await registrarUsuarioDePrueba(6, { rol: 'admin', tipoPrincipal: 'interno', allowedPages: [], funcionesDelRol: [], excepciones: [] });
+  // HU #12083: `PATCH /users/:id` y `POST /:id/invalidate-sessions` exigen `usuarios.*`; el usuario 6
+  // recibe las operaciones de partida de `admin` (la foto), como haría `testToken`.
+  await registrarUsuarioDePrueba(6, { rol: 'admin', tipoPrincipal: 'interno', allowedPages: [], funcionesDelRol: operacionesDePartida('admin'), excepciones: [] });
   const { createApp } = await import('../../src/app.js');
   app = createApp();
 });

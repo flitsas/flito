@@ -1,8 +1,10 @@
-// HU #12081 — Cómo se llama en el negocio cada operación que hoy protege un `requireRole`.
+// HU #12081 / #12083 — Cómo se llama en el negocio cada operación que una ruta exige con
+// `exigirFuncion('<codigo>')`.
 //
-// Esta tabla es la mitad que ESCRIBE EL PRODUCTO (CF-23). La otra mitad —qué roles exige cada
-// operación— la lee `inventario-guardas.ts` del propio código, y aquí NO se repite ni un rol: si
-// alguien cambia un `requireRole`, el reparto sembrado cambia con él sin tocar este fichero.
+// Esta tabla es la mitad que ESCRIBE EL PRODUCTO (CF-23). La otra mitad —qué roles tenía cada
+// operación el día de partida— está en la foto `inventario.generado.ts`, y aquí NO se repite ni un
+// rol. Desde la #12083 el reparto vive en la base y se edita desde el panel; una función NUEVA entra
+// aquí, en la foto y en una migración, las tres a la vez.
 //
 // La llave es `<fichero> <MÉTODO> <ruta>`, es decir la guarda REAL, y no el código de la función.
 // Eso es lo que permite la comprobación de doble sentido del AC6: una guarda sin entrada aquí es un
@@ -10,10 +12,11 @@
 // («el catálogo declara algo que ya nadie usa»). Con la llave en el código de la función, renombrar
 // una ruta habría pasado en silencio.
 //
-// Medido el 9/09/2026 con `npm run permisos:inventario -w apps/api`: 217 rutas guardadas en los
-// 21 ficheros del alcance. Ese número NO se escribe en ningún test: los tests comparan CONJUNTOS
-// contra el lector, porque un número escrito a mano es justo lo que dejó nueve operaciones fuera
-// del enunciado original de esta HU.
+// Medido el 9/09/2026 con el lector de la #12081: 217 rutas guardadas en 21 ficheros; la #12083
+// añadió 11 (dos de impuestos que el lector no veía, ocho de `users/` y una guarda en línea de
+// trámites). Ningún número se escribe en un test: los tests comparan CONJUNTOS contra la foto y contra
+// los montajes leídos del fuente, porque un número escrito a mano es justo lo que dejó nueve
+// operaciones fuera del enunciado original de la #12081.
 
 export interface OperacionDeclarada {
   /** `<fichero> <MÉTODO> <ruta>` — la guarda real. */
@@ -50,6 +53,7 @@ const OCR = 'tramites/ocr-docs.routes.ts';
 const IDE = 'tramites/identidad.routes.ts';
 const TRN = 'tramites/transito.routes.ts';
 const TRC = 'tramites/transito-config.routes.ts';
+const USR = 'users/users.routes.ts';
 
 export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   // ── SOAT (portal FLITO) ───────────────────────────────────────────────────────────────────────
@@ -89,6 +93,8 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${IMP} POST /:id/rechazar`, 'impuestos.tramite.rechazar', 'Rechazar un trámite de impuestos', 'Devolver el trámite al origen indicando por qué no procede.'),
   op(`${IMP} POST /:id/reactivar`, 'impuestos.tramite.reactivar', 'Reactivar un trámite de impuestos', 'Volver a poner en curso un trámite rechazado o detenido.'),
   op(`${IMP} POST /:id/reversar`, 'impuestos.tramite.reversar', 'Reversar un trámite de impuestos', 'Deshacer el último avance de estado del trámite.'),
+  op(`${IMP} POST /:id/asumir-operaciones`, 'impuestos.tramite.asumir', 'Asumir un trámite de impuestos en Operaciones', 'Sacar el trámite del gestor del organismo y trabajarlo desde Operaciones (traspaso por contingencia).'),
+  op(`${IMP} POST /:id/devolver-gestor`, 'impuestos.tramite.devolver', 'Devolver un trámite de impuestos al gestor', 'Regresar al gestor del organismo un trámite que Operaciones había asumido.'),
   op(`${IMP} POST /recibos`, 'impuestos.recibos.cargar', 'Cargar recibos de impuestos', 'Subir los recibos de pago y repartirlos por trámite.'),
 
   // ── Derechos de tránsito ──────────────────────────────────────────────────────────────────────
@@ -236,6 +242,7 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${TRD} GET /:id`, 'tramite.tramite.ver', 'Ver un trámite', 'Abrir el detalle de un trámite de tránsito.'),
   op(`${TRD} POST /`, 'tramite.tramite.crear', 'Crear un trámite', 'Radicar un trámite de tránsito nuevo.'),
   op(`${TRD} PATCH /:id`, 'tramite.tramite.editar', 'Editar un trámite', 'Corregir los datos de un trámite en curso.'),
+  op(`${TRD} PATCH /:id [_forzarContinuar]`, 'tramite.tramite.forzar_continuar', 'Forzar la continuación de un trámite', 'Al editar, saltarse las validaciones que detendrían el trámite y dejarlo continuar bajo responsabilidad propia.'),
   op(`${TRD} PATCH /:id/estado`, 'tramite.tramite.cambiar_estado', 'Cambiar el estado de un trámite', 'Avanzar o retroceder el trámite en su flujo.'),
   op(`${TRD} GET /:id/timeline`, 'tramite.tramite.ver_historial', 'Ver el historial de un trámite', 'Consultar la línea de tiempo del trámite.'),
   op(`${TRD} GET /tipologias`, 'tramite.tipologias.ver', 'Ver las tipologías de trámite', 'Consultar el catálogo de tipos de trámite.'),
@@ -300,6 +307,16 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${TRC} GET /organismos-config/:codigo/logo`, 'transito.logo.ver', 'Ver el logo de un organismo', 'Abrir la imagen que se imprime en los documentos del organismo.'),
   op(`${TRC} POST /organismos-config/:codigo/logo`, 'transito.logo.cargar', 'Cargar el logo de un organismo', 'Subir la imagen que se imprime en los documentos del organismo.'),
   op(`${TRC} DELETE /organismos-config/:codigo/logo`, 'transito.logo.borrar', 'Quitar el logo de un organismo', 'Retirar la imagen del organismo de los documentos.'),
+  // ── Usuarios (HU #12083: `users/` entra al catálogo) ───────────────────────────────────────────
+  op(`${USR} GET /`, 'usuarios.usuario.listar', 'Ver los usuarios', 'Abrir la pantalla de usuarios y recorrer el listado con sus filtros.'),
+  op(`${USR} GET /resumen`, 'usuarios.usuario.ver_resumen', 'Ver el conteo de usuarios por rol', 'Leer cuántos usuarios activos e inactivos hay por cada rol.'),
+  op(`${USR} GET /export`, 'usuarios.usuario.exportar', 'Exportar los usuarios a Excel', 'Descargar el listado filtrado de usuarios como archivo de Excel.'),
+  op(`${USR} POST /`, 'usuarios.usuario.crear', 'Crear un usuario', 'Dar de alta un usuario con su rol, sus páginas y su ámbito.'),
+  op(`${USR} PATCH /:id`, 'usuarios.usuario.editar', 'Editar un usuario', 'Cambiar el rol, las páginas, el ámbito o los datos de un usuario.'),
+  op(`${USR} PATCH /:id/toggle`, 'usuarios.usuario.activar', 'Activar o desactivar un usuario', 'Bloquear o volver a habilitar la entrada de un usuario sin borrarlo.'),
+  op(`${USR} POST /:id/invalidate-sessions`, 'usuarios.sesiones.invalidar', 'Cerrar las sesiones de un usuario', 'Invalidar todos los tokens vivos de un usuario para que vuelva a iniciar sesión.'),
+  op(`${USR} PATCH /:id/password [ajena]`, 'usuarios.contrasena.cambiar_ajena', 'Cambiar la contraseña de otro usuario', 'Fijar una contraseña nueva a un usuario distinto de uno mismo.'),
+
 ];
 
 /**

@@ -8,7 +8,7 @@
 // Tasks de QA que fija este fichero: #12260, #12261, #12263, #12264, #12265, #12266, #12267,
 // #12274 (M2) y #12275 (M3).
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import express, { type Express, type Request, type Response, type NextFunction } from 'express';
 import request from 'supertest';
 import { SignJWT } from 'jose';
@@ -53,7 +53,7 @@ vi.mock('../../src/shared/permisos-efectivos.js', () => ({
   paginasEfectivasDeUsuario: vi.fn().mockResolvedValue([]),
 }));
 
-const { exigirFuncion, motivoDenegacionFuncion, textoDe } = await import('../../src/shared/middleware/exigir-funcion.js');
+const { exigirFuncion, tieneFuncion, motivoDenegacionFuncion, textoDe } = await import('../../src/shared/middleware/exigir-funcion.js');
 const { VENTANA_DEDUP_MS } = await import('../../src/shared/historial/permisos-intentos-denegados.js');
 const { authMiddleware } = await import('../../src/shared/middleware/auth.js');
 const { catalogoCompleto } = await import('../../src/modules/permisos/catalogo.js');
@@ -81,6 +81,11 @@ function laboratorio(user: Partial<Request['user']> | null = {}): Express {
   app.post('/inventada', como(user), exigirFuncion('soat.inventada.hacer'), handler);
   return app;
 }
+
+// La suite apaga la bitácora del 403 (`PERMISOS_SKIP_BITACORA_INTENTOS` en setup.ts, HU #12083) para que
+// los specs de los módulos reconducidos no vean consumido su `insert`. ESTE fichero sí la prueba: la enciende.
+beforeAll(() => { delete process.env.PERMISOS_SKIP_BITACORA_INTENTOS; });
+afterAll(() => { process.env.PERMISOS_SKIP_BITACORA_INTENTOS = '1'; });
 
 beforeEach(() => {
   resolverMock.mockReset();
@@ -127,8 +132,9 @@ describe('TC #12260 AC2 — exigirFuncion: 403 sin ejecutar el handler, next() c
     const aqui = path.dirname(fileURLToPath(import.meta.url));
     const fuente = readFileSync(path.resolve(aqui, '../../src/shared/middleware/exigir-funcion.ts'), 'utf8');
     expect(fuente).toMatch(/Se monta DESPUÉS de `authMiddleware`/);
-    // La ruta de producto NO se toca en esta HU: nadie monta la guarda fuera de requirePage.
-    expect(fuente).toMatch(/NO lo monta en ninguna ruta de producto/);
+    // Desde la HU #12083 se monta en las rutas de producto, y SIEMPRE a nivel de ruta (ADR-0016 §2).
+    expect(fuente).toMatch(/A NIVEL DE RUTA \(ADR-0016 §2\)/);
+    expect(fuente).toMatch(/nunca en un `router\.use`/);
   });
 
   it('no decide con req.user.role contra un mapa fijo: el mismo rol con dos conjuntos recibe dos respuestas', async () => {
@@ -136,6 +142,39 @@ describe('TC #12260 AC2 — exigirFuncion: 403 sin ejecutar el handler, next() c
     expect((await request(laboratorio()).post('/x').send({})).status).toBe(200);
     resolverMock.mockResolvedValueOnce(ok([], { rol: 'gestor' }));
     expect((await request(laboratorio()).post('/x').send({})).status).toBe(403);
+  });
+});
+
+describe('HU #12083 — tieneFuncion(req, codigo): la misma decisión, dentro de un handler', () => {
+  const reqCon = (user: Partial<Request['user']> | null) => ({
+    user: user ? { sub: 7, username: 'ana.perez@ejemplo.test', role: 'gestor', ...user } : undefined,
+    method: 'PATCH', baseUrl: '/api/tramites', route: { path: '/:id' }, originalUrl: '/api/tramites/123',
+  }) as unknown as Request;
+
+  it('SÍ cuando el conjunto tiene el código; NO (y bitácora con la plantilla, sin dato) cuando no; NO sin req.user y sin consultar', async () => {
+    resolverMock.mockResolvedValueOnce(ok(['tramite.tramite.forzar_continuar']));
+    expect(await tieneFuncion(reqCon({}), 'tramite.tramite.forzar_continuar')).toBe(true);
+    expect(insertMock).not.toHaveBeenCalled();
+
+    resolverMock.mockResolvedValueOnce(ok(['tramite.tramite.editar']));
+    expect(await tieneFuncion(reqCon({}), 'tramite.tramite.forzar_continuar')).toBe(false);
+    await tick();
+    expect(insertMock).toHaveBeenCalledTimes(1);
+    expect(escrituras[0]!.fila).toMatchObject({
+      userId: 7, rolCodigo: 'gestor', funcionCodigo: 'tramite.tramite.forzar_continuar', motivo: 'sin_funcion',
+      metodo: 'PATCH', ruta: '/api/tramites/:id',
+    });
+
+    resolverMock.mockClear();
+    expect(await tieneFuncion(reqCon(null), 'tramite.tramite.forzar_continuar')).toBe(false);
+    expect(resolverMock).not.toHaveBeenCalled();
+  });
+
+  it('el fallo del resolutor es NO, no una excepción: el handler responde su 403 y no un 500', async () => {
+    resolverMock.mockResolvedValueOnce(fallo);
+    await expect(tieneFuncion(reqCon({}), 'tramite.tramite.forzar_continuar')).resolves.toBe(false);
+    await tick();
+    expect(escrituras[0]!.fila).toMatchObject({ motivo: 'no_resuelto' });
   });
 });
 

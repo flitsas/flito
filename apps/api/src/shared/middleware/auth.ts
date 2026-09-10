@@ -182,9 +182,17 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
   }
 }
 
-export function requireRole(...roles: string[]) {
+/**
+ * Guarda de rol CABLEADA de los módulos legacy (PESV, mantenimiento, LAFT, flota, conductores, rutas,
+ * SOAT legacy, RNDC, vehículos, jornadas, Siigo). Los módulos FLITO, trámites y usuarios ya no la usan:
+ * preguntan al motor con `exigirFuncion` (HU #12083). Tipada a `UserRole[]` y no a `RoleCode[]`:
+ * `RoleCode` es abierto a propósito (roles configurables, #12169) y no detectaría `'admn'`; aquí un
+ * literal fuera de `USER_ROLES` es siempre un error de tecleo. `req.user.role` sí es `RoleCode`, de
+ * ahí el `readonly string[]` en el `includes`.
+ */
+export function requireRole(...roles: UserRole[]) {
   return (req: Request, res: Response, next: NextFunction) => {
-    if (!req.user || !roles.includes(req.user.role)) {
+    if (!req.user || !(roles as readonly string[]).includes(req.user.role)) {
       res.status(403).json({ error: 'Sin permisos' });
       return;
     }

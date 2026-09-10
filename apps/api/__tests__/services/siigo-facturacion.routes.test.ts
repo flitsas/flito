@@ -147,16 +147,19 @@ describe('AC6 — quién puede emitir lo decide UNA constante compartida', () =>
     expect([...ROLES_POR_ACCION.emitir].sort()).toEqual(['admin', 'financiera']);
   });
 
-  it('y lo compara contra la guarda REAL del botón, no contra un literal copiado', async () => {
+  it('y lo compara contra el reparto de PARTIDA del botón «Facturar», no contra un literal copiado', async () => {
     // La versión anterior de este test afirmaba `['admin','financiera']` escrito a mano, así que
     // cambiar la guarda de «Facturar» no rompía nada y las dos definiciones se separaban en
-    // silencio — que es exactamente lo que el comentario decía estar impidiendo. Ahora se compara
-    // contra la lista que ese módulo exporta: editar una sin la otra falla aquí.
-    const { ROLES_LIQUIDACION_ESCRITURA } = await import(
-      '../../src/modules/flito-liquidacion/flito-liquidacion.routes.js');
+    // silencio. Desde la HU #12083 esa guarda es `exigirFuncion('liquidacion.liquidacion.facturar')`
+    // y sus roles de partida están en la foto `inventario.generado.ts` (lo que la 0179 sembró): se
+    // compara contra eso. Siigo conserva su `puedeEjecutar` compilado (AC4: referencia, no se mueve).
+    const { GUARDAS_MEDIDAS } = await import('../../src/modules/permisos/inventario.generado.js');
+    const { OPERACIONES_DECLARADAS } = await import('../../src/modules/permisos/catalogo-operaciones.js');
+    const { llaveDe } = await import('../../src/modules/permisos/inventario-guardas.js');
+    const llave = OPERACIONES_DECLARADAS.find((o) => o.codigo === 'liquidacion.liquidacion.facturar')!.llave;
+    const facturar = GUARDAS_MEDIDAS.find((g) => llaveDe(g) === llave)!;
 
-    expect([...ROLES_POR_ACCION.emitir].sort())
-      .toEqual([...ROLES_LIQUIDACION_ESCRITURA].sort());
+    expect([...ROLES_POR_ACCION.emitir].sort()).toEqual([...facturar.roles].sort());
   });
 
   it('reactivar lo dado por perdido exige la acción `reactivar`, no la de `emitir`', async () => {

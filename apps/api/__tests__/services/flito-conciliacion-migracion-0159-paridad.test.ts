@@ -16,11 +16,12 @@
 //     `packages/shared-types/src/permissions.ts`, que es el catálogo real.
 //
 //   · **La página concedida a un rol al que el backend le responde 403.** Las nueve rutas de
-//     `/flito/conciliacion` llevan la misma constante, `requireRole('admin', 'financiera')` (CF-08).
-//     Añadir `auditor` al `UPDATE` —o a `ROLE_DEFAULT_PAGES`, que es el otro camino a la misma
-//     pantalla— no filtraría datos, pero le pondría en el menú una vista que revienta al abrirla.
-//     Los roles permitidos se leen del ROUTER, no se copian aquí: si mañana el módulo se abre o se
-//     cierra a un rol, este test sigue exigiendo que los dos caminos digan lo mismo.
+//     `/flito/conciliacion` exigían la misma constante, `requireRole('admin', 'financiera')` (CF-08);
+//     desde la HU #12083 cada una lleva `exigirFuncion('conciliacion.<objeto>.<accion>')` y los
+//     roles de partida están en la foto `inventario.generado.ts` (lo que la 0179 sembró). Añadir
+//     `auditor` al `UPDATE` —o a `ROLE_DEFAULT_PAGES`, que es el otro camino a la misma pantalla— no
+//     filtraría datos, pero le pondría en el menú una vista que revienta al abrirla. Los roles se
+//     leen del ROUTER (qué códigos monta) y de la foto (qué roles los tenían), no se copian aquí.
 //
 //   · **La guarda de idempotencia borrada.** Sin `AND NOT (<slug> = ANY(allowed_pages))` la
 //     migración sigue sin fallar en la segunda pasada... y con `array_append` DUPLICA el slug en la
@@ -33,6 +34,9 @@
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
+import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
+import { llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
 import { fileURLToPath } from 'node:url';
 import { PAGES, PAGE_GROUPS, ROLE_DEFAULT_PAGES, USER_ROLES } from '@operaciones/shared-types';
 // El guarda de ADR-DB-001 tal como lo aplica el runner, no una reimplementación. Importar
@@ -73,9 +77,15 @@ const routesCodigo = routes
   .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
   .split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n');
 
-const guard = routesCodigo.match(/const\s+(\w+)\s*=\s*requireRole\(([^)]*)\)/);
-const nombreGuard = guard?.[1];
-const rolesDelRouter = guard ? [...guard[2].matchAll(/'([a-z_]+)'/g)].map((r) => r[1]) : [];
+// Las guardas del router, con su código; y los roles de partida de cada código, desde la foto.
+const guardas = [...routesCodigo.matchAll(
+  /router\.(get|post|put|patch|delete)\(\s*'[^']*'\s*,\s*exigirFuncion\('([a-z_.]+)'\)/g,
+)].map((m) => ({ metodo: m[1].toUpperCase(), codigo: m[2] }));
+const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
+const rolesPorCodigo = new Map(GUARDAS_MEDIDAS
+  .filter((g) => g.fichero === 'flito-conciliacion/flito-conciliacion.routes.ts')
+  .map((g) => [codigoDeLlave.get(llaveDe(g))!, g.roles]));
+const rolesDelRouter = [...new Set(guardas.flatMap((g) => rolesPorCodigo.get(g.codigo) ?? []))];
 
 describe('0159 — grants de la página de conciliación', () => {
   describe('ADR-DB-001', () => {
@@ -102,24 +112,30 @@ describe('0159 — grants de la página de conciliación', () => {
   });
 
   describe('a quién se le concede', () => {
-    it('el router del módulo exige `admin` y `financiera` (premisa del resto)', () => {
-      // Si el guard desapareciera, `rolesDelRouter` sería `[]` y todo lo de abajo se volvería
-      // vacuo: por eso se afirma que existe ANTES de usarlo como referencia.
-      expect(guard, 'el módulo perdió su constante `requireRole(...)`').not.toBeNull();
+    it('el router del módulo exige `admin` y `financiera` de partida en TODAS sus funciones (premisa del resto)', () => {
+      // Si las guardas desaparecieran, `rolesDelRouter` sería `[]` y todo lo de abajo se volvería
+      // vacuo: por eso se afirma que existen ANTES de usarlas como referencia.
+      expect(guardas.length, 'el módulo perdió sus guardas `exigirFuncion(...)`').toBeGreaterThan(0);
       expect(new Set(rolesDelRouter)).toEqual(new Set(['admin', 'financiera']));
+      for (const g of guardas) {
+        expect(new Set(rolesPorCodigo.get(g.codigo)), g.codigo).toEqual(new Set(['admin', 'financiera']));
+      }
     });
 
-    it('ninguna ruta del módulo se salta ese guard', () => {
-      // Una constante de rol que solo se aplica a ocho de nueve rutas convierte la premisa de
-      // arriba en una media verdad, y la novena en un agujero.
+    it('ninguna ruta del módulo se salta la guarda', () => {
+      // Una guarda que solo se aplica a ocho de nueve rutas convierte la premisa de arriba en una
+      // media verdad, y la novena en un agujero.
       const rutas = [...routesCodigo.matchAll(
-        /router\.(get|post|put|patch|delete)\(\s*'[^']*'\s*,\s*(\w+)/g,
+        /router\.(get|post|put|patch|delete)\(\s*'[^']*'\s*,\s*([\w.]+(?:\('[^']*'\))?)/g,
       )];
       expect(rutas.length, 'no se encontró ninguna ruta en el router').toBeGreaterThan(0);
+      expect(rutas).toHaveLength(guardas.length);
       for (const r of rutas) {
-        expect(r[2], `la ruta ${r[1].toUpperCase()} no arranca con ${nombreGuard}`)
-          .toBe(nombreGuard);
+        expect(r[2], `la ruta ${r[1].toUpperCase()} no arranca con exigirFuncion('conciliacion.…')`)
+          .toMatch(/^exigirFuncion\('conciliacion\.[a-z_]+\.[a-z_]+'\)$/);
       }
+      // Y todos los códigos montados son de la foto: uno inventado no tendría roles de partida.
+      for (const g of guardas) expect(rolesPorCodigo.has(g.codigo), g.codigo).toBe(true);
     });
 
     it('la migración solo toca filas de roles que el backend admite', () => {
