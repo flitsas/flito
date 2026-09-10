@@ -50,6 +50,11 @@ const TIPO_ENLACE_ESPERADO: Record<string, string> = {
 };
 /** El candado de borrado va en DOS filas y solo dos (ADR-0015 §Decisión 5). */
 const CON_CANDADO = ['admin', 'cliente'];
+// Lo que la BASE debe tener HOY, en la punta de la cadena: la 0180 (HU #12082) retiró el candado de
+// `cliente` al pasar la frontera del canal externo de su literal a `tipo_principal`. La mitad estática
+// de este spec sigue leyendo el archivo 0178, que sí lo sembraba; la mitad contra base mira el resultado
+// de toda la cadena y por eso usa esta constante y no la de arriba.
+const CON_CANDADO_HOY = ['admin'];
 /** El único rol externo de hoy. */
 const EXTERNOS = ['cliente'];
 
@@ -301,7 +306,7 @@ describe.skipIf(!URL_BASE)('0178 — contra la base real (FK, triggers e idempot
       expect(f.tipo_enlace).toBe(TIPO_ENLACE_ESPERADO[f.codigo]);
       // Mutación 3: `tipo_principal='interno'` en `cliente` deja este aserto en rojo.
       expect(f.tipo_principal).toBe(EXTERNOS.includes(f.codigo) ? 'externo' : 'interno');
-      expect(f.es_sistema).toBe(CON_CANDADO.includes(f.codigo));
+      expect(f.es_sistema).toBe(CON_CANDADO_HOY.includes(f.codigo));
       expect(f.activo).toBe(true);
     }
   });

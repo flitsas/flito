@@ -1,4 +1,5 @@
-// Negación por defecto para el rol `cliente` (Feature #11912, HU #11913).
+// Negación por defecto para los roles EXTERNOS (Feature #11912, HU #11913; por `tipo_principal`
+// desde la HU #12082).
 //
 // ── Por qué existe ───────────────────────────────────────────────────────────────────────────────
 //
@@ -13,17 +14,32 @@
 // `cliente` es el primer principal EXTERNO: entra desde fuera, es de una empresa tercera y ve una
 // sola pantalla. La frontera de confianza la mueve este PR, así que el hueco se cierra en este PR.
 //
+// ── Quién es «externo» (HU #12082, AC8) ─────────────────────────────────────────────────────────
+//
+// Ya no es el literal `'cliente'`: es `permisos_roles.tipo_principal = 'externo'`, que el resolutor
+// único (`resolverPermisos`, permisos-efectivos.ts) devuelve cacheado junto al conjunto de funciones
+// —la misma foto que luego usa `exigirFuncion`, así que la frontera no paga ninguna consulta extra—.
+// Un rol nuevo creado desde el panel con ese tipo queda dentro de esta frontera sin tocar código. Y
+// si el resolutor NO PUEDE leer el tipo (`ok:false`), el usuario se trata como externo: un fallo de
+// base niega todo lo que no esté en la lista blanca, la dirección del AC4 aplicada aquí, y la
+// contraria a la de `getSessionInvalidatedMs`. Durante una caída de base los internos reciben 403 en
+// vez de 500 fuera de estas rutas: es un cambio de código de error durante un incidente, no una
+// pérdida de servicio nueva.
+//
+// Marcarle TODAS las funciones a un rol externo NO lo saca de su canal: esta frontera corre ANTES de
+// `exigirFuncion` y no mira el conjunto. Las dos capas se suman, nunca se sustituyen.
+//
 // ── Por qué una allowlist y no parchear router por router ────────────────────────────────────────
 //
 // Decisión de David en la sesión del 2026-08-29. Parchear los ~115 routers con un `requireRole` que
-// excluya a `cliente` es una LISTA NEGRA repartida en 115 sitios: el router número 116 —el que
+// excluya al rol externo es una LISTA NEGRA repartida en 115 sitios: el router número 116 —el que
 // escriba dentro de tres meses quien no sepa que este rol existe— nace ABIERTO, y nadie se entera
-// hasta que alguien lo mida. Con esto nace CERRADO, sin que nadie tenga que acordarse: para que el
-// `cliente` alcance una ruta nueva hay que escribirla aquí, a la vista, con su motivo.
+// hasta que alguien lo mida. Con esto nace CERRADO, sin que nadie tenga que acordarse: para que un
+// rol externo alcance una ruta nueva hay que escribirla aquí, a la vista, con su motivo.
 //
 // ── Dónde se aplica, y por qué no es un `app.use` en `app.ts` ────────────────────────────────────
 //
-// El guarda tiene que correr DESPUÉS de la autenticación (necesita `req.user.role`) y ANTES del
+// El guarda tiene que correr DESPUÉS de la autenticación (necesita `req.user.sub`) y ANTES del
 // handler. En esta aplicación **la autenticación no está en `app.ts`**: cada router monta
 // `authMiddleware` por su cuenta (115 de los 121 ficheros `*.routes.ts`; los 6 restantes son los
 // públicos —`files`, el webhook de firma, el portal de participantes y la verificación por QR—, que
@@ -47,11 +63,13 @@
 //
 // Tampoco es el sitio donde se decide QUÉ CAMPOS ve el `cliente` de lo que sí puede pedir: eso es la
 // proyección por rol de `flito-soat.service.ts` y `soportes-consulta.ts`.
+//
+// La lista blanca es CÓDIGO y no configuración: no se lee de ninguna tabla, no existe ruta que la
+// modifique, y está congelada (`Object.freeze` del array y de cada entrada) para poder afirmarlo en
+// una prueba.
 
 import type { Request, Response, NextFunction } from 'express';
-
-/** El rol del canal Cliente. Literal en un solo sitio para que el grep lo encuentre entero. */
-export const ROL_CLIENTE = 'cliente';
+import { resolverPermisos } from '../permisos-efectivos.js';
 
 export type MetodoHttp = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -70,7 +88,7 @@ export interface RutaCliente {
 }
 
 /**
- * Lo ÚNICO que un `cliente` puede pedir a la API. Todo lo demás → 403.
+ * Lo ÚNICO que un rol externo puede pedir a la API. Todo lo demás → 403.
  *
  * **Medida, no adivinada.** Sale de recorrer la sesión completa de un `cliente` en la SPA —login →
  * `/auth/me` → shell → `/flito/soat`— sobre `apps/web/src/lib/auth.tsx`, `pages/FlitoSoat.tsx`,
@@ -93,10 +111,16 @@ export interface RutaCliente {
  *     autenticación; tampoco pasa por `authMiddleware`.
  *   · `POST /api/rum` — Web Vitals, público y pre-login.
  */
-export const RUTAS_PERMITIDAS_CLIENTE: readonly RutaCliente[] = [
+export const RUTAS_PERMITIDAS_CLIENTE: readonly RutaCliente[] = congelar([
   {
     metodo: 'GET', patron: '/api/auth/me',
     porque: 'Sin esto no hay sesión: `AuthProvider` la pide al montar y un fallo lo desloguea.',
+  },
+  {
+    metodo: 'GET', patron: '/api/permisos/mios',
+    porque: 'La SPA (HU #12083) lee de aquí qué pintar; sin esta entrada el canal externo se queda sin '
+      + 'menú en cuanto la pantalla deje de usar /auth/me. Devuelve SOLO el conjunto del propio usuario '
+      + '—para un rol externo, las funciones del canal—, no expone nada de otros usuarios ni del catálogo.',
   },
   {
     metodo: 'POST', patron: '/api/auth/logout',
@@ -176,7 +200,15 @@ export const RUTAS_PERMITIDAS_CLIENTE: readonly RutaCliente[] = [
   // causales-rechazo`, `POST /api/flito/soat/:id/validar` y `POST /api/flito/soat/:id/
   // rechazar-solicitud`. Nunca estuvieron en esta lista —eran de Operaciones— y desde la #12080
   // tampoco existen en ningún router.
-];
+]);
+
+/**
+ * `Object.freeze` es SUPERFICIAL: congelar solo el array deja `lista[0].patron = '.*'` sin lanzar y
+ * abriendo la API entera. Se congela el array Y cada entrada.
+ */
+function congelar(lista: RutaCliente[]): readonly RutaCliente[] {
+  return Object.freeze(lista.map((r) => Object.freeze({ ...r })));
+}
 
 const escapar = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -211,16 +243,20 @@ export function rutaPermitidaParaCliente(metodo: string, ruta: string): boolean 
 /**
  * El guarda. Se invoca desde el final de `authMiddleware`, con `req.user` ya resuelto.
  *
- * Para los 11 roles internos es un `next()` y nada más: ni una consulta, ni una lectura de la
- * lista, ni un cambio de comportamiento. Es el requisito duro de esta corrección y lo primero que
- * hace la función.
+ * Para un rol interno es resolver sus permisos —acierto de caché salvo una vez por minuto— y un
+ * `next()`: ni una lectura de la lista ni un cambio de comportamiento. Externo es `tipo_principal =
+ * 'externo'` según el resolutor, o un resolutor que no pudo decidir (`ok:false`): el fallo no abre
+ * la puerta.
  *
  * El 403 es literalmente el mismo cuerpo que devuelve `requireRole` (`{ error: 'Sin permisos' }`):
  * quien sondee no puede distinguir «esta ruta no está en mi lista» de «esta ruta exige otro rol», y
  * por tanto no puede usar la diferencia para mapear la API.
  */
-export function guardiaCanalCliente(req: Request, res: Response, next: NextFunction): void {
-  if (req.user?.role !== ROL_CLIENTE) { next(); return; }
+export async function guardiaCanalCliente(req: Request, res: Response, next: NextFunction): Promise<void> {
+  if (!req.user) { res.status(401).json({ error: 'Token requerido' }); return; }
+  const p = await resolverPermisos(req.user.sub);
+  const externo = !p.ok || p.tipoPrincipal === 'externo';
+  if (!externo) { next(); return; }
 
   // `originalUrl` y no `req.path`: cuando esto corre, la petición está DENTRO del router montado, y
   // ahí `req.path` es el resto relativo (`/` para la cola). Lo que hay que comparar es la ruta

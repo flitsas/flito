@@ -74,6 +74,20 @@ vi.mock('../../src/shared/middleware/auth.js', async (importOriginal) => {
  * La consulta REAL de `rolAsignable` (qué tabla, con qué condición, y el `activo = true`) se vigila
  * aparte, en `users.rol-asignable.test.ts`. Un mock aquí no podría probarla: probaría el mock.
  */
+/**
+ * HU #12082 (AC4, TC #12262) — la caché de PERMISOS se invalida DESPUÉS del commit. Se envuelve el
+ * módulo —no se sustituye— para que `fijarFuenteDePermisos` siga siendo real: es lo que el helper de
+ * tokens usa para que `requireRole`/`requirePage` de este archivo no consuman `selectMock`. La secuencia
+ * de eventos (`commit` cuando el callback de la transacción resuelve, `invalidar-permisos` cuando se
+ * llama al spy) es lo que fija el orden.
+ */
+const eventos: string[] = [];
+const invalidarPermisosMock = vi.fn((id: number) => { eventos.push(`invalidar-permisos:${id}`); });
+vi.mock('../../src/shared/permisos-efectivos.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/shared/permisos-efectivos.js')>();
+  return { ...actual, invalidarPermisosDe: (id: number) => invalidarPermisosMock(id) };
+});
+
 const rolAsignableMock = vi.fn();
 vi.mock('../../src/modules/users/users.service.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/modules/users/users.service.js')>();
@@ -137,9 +151,15 @@ beforeEach(() => {
   insertMock.mockReset();
   updateMock.mockReset();
   deleteMock.mockReset().mockImplementation(deletePorDefecto);
-  transactionMock.mockReset().mockImplementation(async (cb: (tx: unknown) => unknown) => cb(dbMock));
+  transactionMock.mockReset().mockImplementation(async (cb: (tx: unknown) => unknown) => {
+    const r = await cb(dbMock);
+    eventos.push('commit');
+    return r;
+  });
   insertMock.mockImplementation(insertPorDefecto);
-  invalidarCacheMock.mockReset();
+  invalidarCacheMock.mockReset().mockImplementation((id: number) => { eventos.push(`invalidar-sesion:${id}`); });
+  invalidarPermisosMock.mockClear();
+  eventos.length = 0;
   escrituras.length = 0;
   borrados.length = 0;
   filaInsertada = {};
@@ -447,6 +467,79 @@ describe('PATCH /api/users/:id — editar', () => {
       .send({ name: 'Nuevo' });
     expect(r.status).toBe(200);
   });
+});
+
+describe('TC #12262 AC4 — caché de 60 s por user_id; la escritura del administrador (usuario o rol) la invalida después del commit y el retiro de acceso marca sessionInvalidatedAt', () => {
+  const filaProveedor = { id: 5, role: 'proveedor', active: true, flitoProveedorSoatId: PROVEEDOR };
+  const devuelto = { id: 5, name: 'P', username: 'p', email: null, role: 'proveedor', active: true, allowedPages: [], createdAt: new Date() };
+
+  it('PATCH /users/5 que le retira una página: invalidarPermisosDe(5) DESPUÉS del commit, sessionInvalidatedAt marcado e invalidateSessionCacheFor(5)', async () => {
+    selectMock.mockReturnValueOnce(chain([{ ...filaProveedor, allowedPages: ['transito'] }]));
+    selectMock.mockReturnValueOnce(chain([])); // organismos del usuario (HU #12053)
+    let capturado: any = null;
+    updateMock.mockReturnValueOnce({
+      set: (v: any) => { capturado = v; return { where: () => ({ returning: () => Promise.resolve([devuelto]) }) }; },
+    });
+    const token = await testToken({ sub: 1, role: 'admin' });
+    eventos.length = 0; // el helper invalida al admin al registrarlo; lo que se mide es lo del PATCH
+    const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', `Bearer ${token}`)
+      .send({ allowedPages: [] });
+    expect(r.status).toBe(200);
+    expect(capturado.sessionInvalidatedAt).toBeInstanceOf(Date);
+    expect(invalidarCacheMock).toHaveBeenCalledWith(5);
+    expect(invalidarPermisosMock).toHaveBeenCalledWith(5);
+    // El orden: la transacción confirmó ANTES de tocar cualquier caché. Mutante: invalidar dentro
+    // del tx deja que una petición concurrente rellene la caché con la foto vieja durante 60 s.
+    expect(eventos.indexOf('commit')).toBeGreaterThanOrEqual(0);
+    expect(eventos.indexOf('invalidar-permisos:5')).toBeGreaterThan(eventos.indexOf('commit'));
+    expect(eventos.indexOf('invalidar-sesion:5')).toBeGreaterThan(eventos.indexOf('commit'));
+  });
+
+  it('PATCH /users/5 de solo nombre: la caché de permisos se invalida igual (barato y seguro), sin bumpear la sesión', async () => {
+    selectMock.mockReturnValueOnce(chain([filaProveedor]));
+    selectMock.mockReturnValueOnce(chain([]));
+    let capturado: any = null;
+    updateMock.mockReturnValueOnce({
+      set: (v: any) => { capturado = v; return { where: () => ({ returning: () => Promise.resolve([{ ...devuelto, name: 'Nuevo' }]) }) }; },
+    });
+    const token = await testToken({ sub: 1, role: 'admin' });
+    eventos.length = 0;
+    const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', `Bearer ${token}`).send({ name: 'Nuevo' });
+    expect(r.status).toBe(200);
+    expect(capturado.sessionInvalidatedAt).toBeUndefined();
+    expect(invalidarCacheMock).not.toHaveBeenCalled();
+    expect(eventos).toEqual(['commit', 'invalidar-permisos:5']);
+  });
+
+  it('un PATCH sin cambios (400) o sobre un usuario que no existe (404) NO invalida nada', async () => {
+    selectMock.mockReturnValueOnce(chain([]));
+    const token = await testToken({ sub: 1, role: 'admin' });
+    invalidarPermisosMock.mockClear();
+    const r = await request(await buildApp()).patch('/api/users/77').set('Authorization', `Bearer ${token}`).send({ name: 'X' });
+    expect(r.status).toBe(404);
+    expect(invalidarPermisosMock).not.toHaveBeenCalled();
+  });
+
+  it('PATCH /:id/toggle y POST /:id/invalidate-sessions también invalidan la caché de permisos', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'proveedor', active: false }]));
+    selectMock.mockReturnValueOnce(chain([]));
+    updateMock.mockReturnValueOnce({
+      set: () => ({ where: () => ({ returning: () => Promise.resolve([{ ...devuelto, active: true }]) }) }),
+    });
+    const token = await testToken({ sub: 1, role: 'admin' });
+    expect((await request(await buildApp()).patch('/api/users/5/toggle').set('Authorization', `Bearer ${token}`)).status).toBe(200);
+    expect(invalidarPermisosMock).toHaveBeenCalledWith(5);
+
+    invalidarPermisosMock.mockClear();
+    updateMock.mockReturnValueOnce({
+      set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 5, username: 'p' }]) }) }),
+    });
+    expect((await request(await buildApp()).post('/api/users/5/invalidate-sessions').set('Authorization', `Bearer ${token}`)).status).toBe(200);
+    expect(invalidarPermisosMock).toHaveBeenCalledWith(5);
+  });
+
+  // La invalidación por ROL (`invalidarPermisosDeRol`, la llamará la #12084) se prueba en
+  // `permisos-resolutor.test.ts`: aquí el seam del helper es el que manda y no se toca.
 });
 
 describe('PATCH /:id/toggle — activar/desactivar', () => {
