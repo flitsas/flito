@@ -1,15 +1,15 @@
-// HU #12083 — El CIERRE de la reconducción (AC1, AC2, AC3): en los 19 directorios de FLITO, trámites
-// y usuarios ya no decide ningún `requireRole`; decide el motor, ruta a ruta, con `exigirFuncion`.
+// HU #12083 — El CIERRE de la reconducción (AC1, AC2, AC3): en los 20 directorios de FLITO, trámites,
+// usuarios y permisos (HU #12084) ya no decide ningún `requireRole`; decide el motor, ruta a ruta, con `exigirFuncion`.
 //
-//   · AC1/AC2: cero `requireRole(` en los 19 directorios (fuera de comentarios con `sinComentarios`, y
+//   · AC1/AC2: cero `requireRole(` en los 20 directorios (fuera de comentarios con `sinComentarios`, y
 //     también dentro: el AC dice «ninguna aparición»); cero `import … requireRole`.
-//   · Los 22 ficheros de rutas importan `exigirFuncion`; conservan `router.use(authMiddleware)` o, en
+//   · Los 23 ficheros de rutas importan `exigirFuncion`; conservan `router.use(authMiddleware)` o, en
 //     `identidad.routes.ts`, `authMiddleware` en cada ruta que lo llevaba (lista explícita de 7).
-//   · Cada `router.<método>(` de los 22 ficheros lleva `exigirFuncion('…')` O está en la lista blanca
-//     de 4 rutas sin guarda de función. Es la red que sustituye a los `router.use(requireRole)`
+//   · Cada `router.<método>(` de los 23 ficheros lleva `exigirFuncion('…')` O está en la lista blanca
+//     de 5 rutas sin guarda de función. Es la red que sustituye a los `router.use(requireRole)`
 //     retirados: una ruta nueva sin guarda no «nace protegida» por herencia, nace aquí en rojo.
-//   · `leerMontajes` cubre la foto entera (230 = 217 de la #12081 + 11 de esta HU, dos en línea, + 2 del
-//     historial de la #12171).
+//   · `leerMontajes` cubre la foto entera (238 = 217 de la #12081 + 11 de esta HU, dos en línea, + 2 − 1 de
+//     la #12373, + 2 del historial de la #12171, + 7 de los roles de la #12084).
 //   · AC3: las comparaciones de ÁMBITO siguen existiendo (15 medidas el 10/09/2026; el diseño contó
 //     14 porque agrupó los dos `esGestor`/`esCliente` de soat), enumeradas por fichero (regex por
 //     contenido, no por número de línea): cambian QUÉ filas ve alguien, no QUIÉN puede ejecutar. Las 27
@@ -28,20 +28,22 @@ import {
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
 
-/** Los 19 directorios del enunciado (cadena SOAT + resto de FLITO, trámites incluidos, y usuarios). */
+/** Los 20 directorios: los 19 del enunciado (cadena SOAT + resto de FLITO, trámites incluidos, y usuarios) + permisos (HU #12084). */
 export const DIRECTORIOS_RECONDUCIDOS = [
   'flito-soat', 'flito-parametrizacion', 'flito-compuerta', 'flito-bolsas', 'flito-revisiones', 'flito-sync',
   'flito-excepciones', 'flito-ocr',
   'tramites', 'flito-tramites', 'flito-impuestos', 'flito-comparendos', 'flito-conciliacion',
   'flito-liquidacion', 'flito-logistica', 'flito-tablero', 'flito-bitacora', 'flito-derechos', 'users',
+  'permisos',
 ] as const;
 
-/** Rutas de los 22 ficheros que NO llevan guarda de función y siguen igual (§4 del diseño). */
+/** Rutas de los 23 ficheros que NO llevan guarda de función y siguen igual (§4 del diseño; `/mios`: HU #12084). */
 const LISTA_BLANCA = new Set([
   'tramites/identidad.routes.ts GET /info/:token',        // pública con limitador
   'tramites/identidad.routes.ts POST /completar/:token',  // pública con limitador
   'tramites/identidad.routes.ts POST /recortar-cedula',   // solo authMiddleware
   'users/users.routes.ts PATCH /:id/password',            // authMiddleware; la AJENA es guarda en línea
+  'permisos/permisos.routes.ts GET /mios',                // authMiddleware: cada uno ve SU conjunto
 ]);
 
 /** En identidad no hay `router.use(authMiddleware)`: lo llevan estas 7 rutas, una a una. */
@@ -74,7 +76,7 @@ function ficherosTs(dir: string): string[] {
 const leer = (rel: string) => readFileSync(join(RAIZ_MODULOS, rel), 'utf8');
 const FICHEROS_DE_RUTAS = FICHEROS_EN_ALCANCE.map((f) => f.fichero);
 
-describe('AC1/AC2 — en los 19 directorios ya no decide ningún requireRole', () => {
+describe('AC1/AC2 — en los 20 directorios ya no decide ningún requireRole', () => {
   for (const dir of DIRECTORIOS_RECONDUCIDOS) {
     it(`${dir}/: cero requireRole( (fuera y dentro de comentarios) y cero import de requireRole`, () => {
       const conAparicion: string[] = [];
@@ -87,9 +89,9 @@ describe('AC1/AC2 — en los 19 directorios ya no decide ningún requireRole', (
     });
   }
 
-  it('los directorios del enunciado son 19 y los 22 ficheros de rutas del alcance viven en ellos', () => {
-    expect(DIRECTORIOS_RECONDUCIDOS).toHaveLength(19);
-    expect(FICHEROS_DE_RUTAS).toHaveLength(22);
+  it('los directorios son 20 (19 del enunciado + permisos) y los 23 ficheros de rutas del alcance viven en ellos', () => {
+    expect(DIRECTORIOS_RECONDUCIDOS).toHaveLength(20);
+    expect(FICHEROS_DE_RUTAS).toHaveLength(23);
     for (const f of FICHEROS_DE_RUTAS) {
       expect((DIRECTORIOS_RECONDUCIDOS as readonly string[]).includes(f.split('/')[0]!), f).toBe(true);
     }
@@ -115,7 +117,7 @@ describe('AC1/AC2 — cada fichero de rutas importa exigirFuncion y ninguna ruta
   }
 });
 
-describe('AC1/AC2 — cada router.<método>( de los 22 ficheros lleva exigirFuncion o está en la lista blanca', () => {
+describe('AC1/AC2 — cada router.<método>( de los 23 ficheros lleva exigirFuncion o está en la lista blanca', () => {
   const RUTA = /router\.(get|post|put|patch|delete)\(\s*'([^']*)'\s*,([\s\S]{0,500}?)(?:async\s*\(|\(\s*_?req\b|\(\s*\)\s*=>|\);)/g;
 
   for (const fichero of FICHEROS_DE_RUTAS) {
@@ -131,8 +133,8 @@ describe('AC1/AC2 — cada router.<método>( de los 22 ficheros lleva exigirFunc
     });
   }
 
-  it('la lista blanca son exactamente 4 rutas, y todas existen sin guarda de función', () => {
-    expect(LISTA_BLANCA.size).toBe(4);
+  it('la lista blanca son exactamente 5 rutas, y todas existen sin guarda de función', () => {
+    expect(LISTA_BLANCA.size).toBe(5);
     for (const llave of LISTA_BLANCA) {
       const [fichero, metodo, ruta] = llave.split(' ');
       const fuente = sinComentarios(leer(fichero!));
@@ -150,10 +152,10 @@ describe('AC1/AC2 — cada router.<método>( de los 22 ficheros lleva exigirFunc
 });
 
 describe('el lector de montajes cubre la foto entera', () => {
-  it('231 montajes = 217 de la #12081 + 11 de esta HU + 2 − 1 de la #12373 + 2 de la #12171; los códigos son exactamente los de la foto', () => {
+  it('238 montajes = 217 de la #12081 + 11 de esta HU + 2 − 1 de la #12373 + 2 de la #12171 + 7 de la #12084; los códigos son exactamente los de la foto', () => {
     const montajes = montajesDeFunciones();
-    expect(GUARDAS_MEDIDAS).toHaveLength(231);
-    expect(montajes).toHaveLength(231);
+    expect(GUARDAS_MEDIDAS).toHaveLength(238);
+    expect(montajes).toHaveLength(238);
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     expect(montajes.filter((m) => m.metodo === null)).toHaveLength(2);

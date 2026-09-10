@@ -1,7 +1,7 @@
 // HU #12081 / #12083 — El LECTOR de montajes: qué código del catálogo exige cada ruta de los módulos
 // FLITO y de trámites, leído del propio fuente.
 //
-// Hasta la #12083 este fichero leía `requireRole(...)` y devolvía ROLES: era la mitad automática del
+// Hasta la #12083 este fichero leía `requireRole` y devolvía ROLES: era la mitad automática del
 // catálogo. Desde la #12083 ninguna ruta de los ficheros en alcance lleva `requireRole`; llevan
 // `exigirFuncion('<codigo>')` (o `tieneFuncion(req, '<codigo>')` dentro de un handler) y lo que se
 // lee es el CÓDIGO montado. Los roles de partida ya no están en el fuente: están en la foto histórica
@@ -90,6 +90,8 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'transito', fichero: 'tramites/transito.routes.ts' },
   { modulo: 'transito', fichero: 'tramites/transito-config.routes.ts' },
   { modulo: 'usuarios', fichero: 'users/users.routes.ts' },
+  // HU #12084: el mantenimiento de roles entra al alcance con sus siete guardas.
+  { modulo: 'permisos', fichero: 'permisos/permisos.routes.ts' },
 ];
 
 /** Quita comentarios de bloque y de línea sin tocar el contenido de las cadenas simples. */

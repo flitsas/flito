@@ -88,6 +88,25 @@ vi.mock('../../src/shared/permisos-efectivos.js', async (importOriginal) => {
   return { ...actual, invalidarPermisosDe: (id: number) => invalidarPermisosMock(id) };
 });
 
+/**
+ * HU #12084 (AC4) — el invariante anti-bloqueo envuelve el `UPDATE` de `cambiarActivo` y el cuerpo de
+ * `actualizarUsuario` cuando cambia el rol. Se envuelve el módulo —no se sustituye— con un
+ * PASSTHROUGH por defecto: el invariante real hace dos `select` (lock y cuenta) que desordenarían la
+ * cola posicional de `selectMock` de la veintena larga de casos de PATCH. Lo que el invariante
+ * consulta se prueba en `permisos-anti-bloqueo.test.ts` (SQL real) y en `db/permisos-anti-bloqueo.
+ * concurrencia.test.ts` (dos sesiones). Aquí se prueba que las dos rutas LO INVOCAN dentro de su
+ * transacción y mapean su excepción a 409 sin confirmar.
+ */
+const seguroMock = vi.fn(async (_tx: unknown, escritura: () => Promise<unknown>) => escritura());
+vi.mock('../../src/shared/permisos-anti-bloqueo.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/shared/permisos-anti-bloqueo.js')>();
+  return {
+    ...actual,
+    conSeguroAntiBloqueo: (tx: unknown, escritura: () => Promise<unknown>, funciones?: readonly string[]) =>
+      seguroMock(tx, escritura, funciones),
+  };
+});
+
 const rolAsignableMock = vi.fn();
 vi.mock('../../src/modules/users/users.service.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/modules/users/users.service.js')>();
@@ -166,6 +185,7 @@ beforeEach(() => {
   insertMock.mockImplementation(insertPorDefecto);
   invalidarCacheMock.mockReset().mockImplementation((id: number) => { eventos.push(`invalidar-sesion:${id}`); });
   invalidarPermisosMock.mockClear();
+  seguroMock.mockReset().mockImplementation(async (_tx: unknown, escritura: () => Promise<unknown>) => escritura());
   eventos.length = 0;
   escrituras.length = 0;
   borrados.length = 0;
@@ -1476,5 +1496,78 @@ describe('HU #12171 — permisos_auditoria: antes/después de cada cambio, en la
     expect(eventos).not.toContain('commit');
     expect(invalidarPermisosMock).not.toHaveBeenCalled();
     expect(invalidarCacheMock).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────── HU #12084 (AC4): las dos rutas pasan por el invariante anti-bloqueo, dentro de su tx ───────────
+const { BloqueoAdministracionError } = await import('../../src/shared/permisos-anti-bloqueo.js');
+
+describe('HU #12084 AC4 — el invariante anti-bloqueo envuelve cambiar el rol y desactivar', () => {
+
+  it('PATCH /:id con `role`: el invariante se invoca con el `tx` de la transacción y envuelve el UPDATE', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'admin', active: true }])); // before
+    selectMock.mockReturnValueOnce(chain([{ count: 1 }])); // pre-check: hay otro admin
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'admin', active: true, allowedPages: null }])); // anterior (tx, FOR UPDATE)
+    selectMock.mockReturnValueOnce(chain([])); // organismos
+    updateMock.mockReturnValueOnce(updateProyectado({ id: 5, role: 'admin', active: true, name: 'A', username: 'a', email: null, allowedPages: null, createdAt: new Date() }, () => {}));
+    rolAsignableMock.mockResolvedValueOnce({ tipoEnlace: 'ninguno' });
+    const token = await testToken({ sub: 1, role: 'admin' });
+    const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', `Bearer ${token}`).send({ role: 'auditor' });
+    expect(r.status).toBe(200);
+    expect(seguroMock).toHaveBeenCalledTimes(1);
+    expect(seguroMock.mock.calls[0][0]).toBe(dbMock); // el `tx` (la transacción corre contra dbMock)
+    // El UPDATE ocurrió DENTRO de la escritura envuelta: antes de invocar el seguro no había ninguno.
+    expect(updateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('PATCH /:id SIN `role` (solo el nombre) no paga el lock: el invariante no se invoca', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'auditor', active: true }]));
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'auditor', active: true, allowedPages: null }]));
+    selectMock.mockReturnValueOnce(chain([]));
+    updateMock.mockReturnValueOnce(updateProyectado({ id: 5, role: 'auditor', active: true, name: 'A', username: 'a', email: null, allowedPages: null, createdAt: new Date() }, () => {}));
+    const token = await testToken({ sub: 1, role: 'admin' });
+    const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', `Bearer ${token}`).send({ name: 'Nuevo nombre' });
+    expect(r.status).toBe(200);
+    expect(seguroMock).not.toHaveBeenCalled();
+  });
+
+  it('PATCH /:id: si el invariante lanza, 409 con el motivo, sin commit y sin invalidar nada', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'admin', active: true }]));
+    selectMock.mockReturnValueOnce(chain([{ count: 1 }]));
+    seguroMock.mockImplementationOnce(async () => { throw new BloqueoAdministracionError('usuarios.usuario.editar'); });
+    rolAsignableMock.mockResolvedValueOnce({ tipoEnlace: 'ninguno' });
+    const token = await testToken({ sub: 1, role: 'admin' });
+    const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', `Bearer ${token}`).send({ role: 'auditor' });
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: 'Dejaría cero usuarios activos capaces de administrar usuarios', funcion: 'usuarios.usuario.editar' });
+    expect(eventos).not.toContain('commit');
+    expect(invalidarPermisosMock).not.toHaveBeenCalled();
+    expect(invalidarCacheMock).not.toHaveBeenCalled();
+  });
+
+  it('PATCH /:id/toggle: el invariante envuelve el UPDATE y su excepción es 409 sin commit', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 9, role: 'admin', active: true }]));
+    selectMock.mockReturnValueOnce(chain([{ count: 2 }])); // pre-check: hay otro admin
+    seguroMock.mockImplementationOnce(async () => { throw new BloqueoAdministracionError('permisos.cuadro.guardar'); });
+    const token = await testToken({ sub: 1, role: 'admin' });
+    const r = await request(await buildApp()).patch('/api/users/9/toggle').set('Authorization', `Bearer ${token}`);
+    expect(r.status).toBe(409);
+    expect(r.body.error).toMatch(/administrar permisos/);
+    expect(seguroMock).toHaveBeenCalledTimes(1);
+    expect(seguroMock.mock.calls[0][0]).toBe(dbMock);
+    expect(eventos).not.toContain('commit');
+    expect(invalidarCacheMock).not.toHaveBeenCalled();
+  });
+
+  it('PATCH /:id/toggle: reactivar también pasa por el invariante (se envuelve siempre)', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'proveedor', active: false }]));
+    selectMock.mockReturnValueOnce(chain([]));
+    updateMock.mockReturnValueOnce({
+      set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 5, active: true, name: 'P', username: 'p', email: null, role: 'proveedor', allowedPages: null, createdAt: new Date() }]) }) }),
+    });
+    const token = await testToken({ sub: 1, role: 'admin' });
+    const r = await request(await buildApp()).patch('/api/users/5/toggle').set('Authorization', `Bearer ${token}`);
+    expect(r.status).toBe(200);
+    expect(seguroMock).toHaveBeenCalledTimes(1);
   });
 });

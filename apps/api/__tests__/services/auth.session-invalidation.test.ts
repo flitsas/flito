@@ -132,8 +132,10 @@ describe('PATCH /users/:id invalida sesiones cuando cambia role/allowedPages', (
   it('cambiar role → updates incluye sessionInvalidatedAt', async () => {
     selectMock.mockReturnValueOnce(chain([{ s: null }]));        // middleware
     selectMock.mockReturnValueOnce(chain([{ id: 6, role: 'lider_pesv' }])); // before
+    selectMock.mockReturnValueOnce(chain([{ id: 6 }])); // HU #12084: lock de la población administradora (FOR UPDATE), primero en la tx
     selectMock.mockReturnValueOnce(chain([{ id: 6, role: 'lider_pesv', allowedPages: [] }])); // antes, dentro de la tx con FOR UPDATE (HU #12171)
     selectMock.mockReturnValueOnce(chain([])); // organismos del usuario, dentro de la tx (HU #12053)
+    selectMock.mockReturnValueOnce(chain([{ f0: 1, f1: 1 }])); // HU #12084: la cuenta del invariante tras el UPDATE (≥1 en las dos)
     // HU #12171: el cambio de rol deja su fila en permisos_auditoria dentro de la misma transacción.
     insertMock.mockImplementation(() => chain([]));
     let capturedSet: any = null;
