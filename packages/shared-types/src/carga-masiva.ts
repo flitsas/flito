@@ -1,5 +1,5 @@
 // FLITO — topes de la carga masiva de facturas SOAT y recibos de impuestos
-// (HU #12050 / #12051 / #12056).
+// (HU #12050 / #12051 / #12056 / #12494).
 //
 // Viven aquí y no en cada módulo porque los leen tres sitios que tienen que decir el mismo número:
 //
@@ -8,14 +8,15 @@
 //   · nginx del contenedor web (`client_max_body_size` = `CARGA_MASIVA_MAX_BYTES_CUERPO`);
 //   · el cliente de tandas (HU #12051), que parte el lote con `partirCargaMasivaEnTandas`.
 //
-// Los valores de archivo (50 × 15 MB) no cambian: el 50 es el techo del picker; el HTTP por
-// petición es 5. El cuerpo HTTP (250 MB) y el presupuesto de bytes crudos (200 MB) son el techo
-// real del lote; 50 × 15 MB = 750 MB es el producto teórico, no lo que nginx deja pasar.
+// Los 15 MB por archivo y los 5 por petición HTTP no cambian. El techo del picker es 150 desde la
+// HU #12494 (antes 50): 150 × 15 MB = 2,25 GB es el producto teórico, no lo que nginx deja pasar.
+// El techo real del lote manual sigue siendo el cuerpo HTTP (250 MB) y el presupuesto de bytes
+// crudos (200 MB); el 150 cabe porque desde la HU #12051 todo va en tandas de 5.
 //
 // Desde la HU #12056 el navegador ABRE el ZIP y manda sus entradas por esas mismas tandas de 5, así
 // que hay DOS cantidades distintas a propósito y ninguna sustituye a la otra:
 //
-//   · `CARGA_MASIVA_MAX_ARCHIVOS` (50) — lo que el operador escoge a mano en el picker;
+//   · `CARGA_MASIVA_MAX_ARCHIVOS` (150) — lo que el operador escoge a mano en el picker;
 //   · `CARGA_MASIVA_MAX_ENTRADAS_ZIP` (300) — lo que puede traer DENTRO un ZIP.
 //
 // El 300 es más alto porque el ZIP ya no viaja en una sola petición: sus entradas se reparten en
@@ -26,15 +27,18 @@
 // entero iba en un solo POST y había que caber en el cuerpo de nginx. Con tandas, ninguna petición
 // pasa de 5 × 15 = 75 MB, así que la pared ya no existe; mantenerlo sobre un ZIP bloquearía 300
 // recibos de 1 MB con un «quite archivos» que es exactamente el trabajo que la HU #12056 vino a
-// quitar. La selección MANUAL sí lo conserva sin cambio, igual que conserva su techo de 50: en los
-// dos casos el sujeto que se mide es otro. Un ZIP se limita por sus 300 entradas y por los 15 MB de
+// quitar. La selección MANUAL sí lo conserva sin cambio, igual que conserva su techo de 150 sueltos:
+// en los dos casos el sujeto que se mide es otro. Un ZIP se limita por sus 300 entradas y por los 15 MB de
 // CADA entrada extraída (nunca por el peso del `.zip`, que es la suma de todos los comprobantes).
 //
 // Los 15 MB por archivo, en cambio, sí valen para todo: suelto o entrada de ZIP, es lo que multer
 // acepta por archivo.
 
-/** Tope del picker / lote completo. El tope HTTP por petición es `CARGA_MASIVA_ARCHIVOS_POR_PETICION`. */
-export const CARGA_MASIVA_MAX_ARCHIVOS = 50;
+/**
+ * Tope del picker / lote completo: 150 desde la HU #12494 (antes 50). El tope HTTP por petición es
+ * `CARGA_MASIVA_ARCHIVOS_POR_PETICION`.
+ */
+export const CARGA_MASIVA_MAX_ARCHIVOS = 150;
 
 /**
  * Tope de entradas útiles DENTRO de un ZIP que el navegador abre (HU #12056). Distinto —y mayor—
