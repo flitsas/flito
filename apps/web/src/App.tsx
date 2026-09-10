@@ -23,6 +23,7 @@ const FlitoCompuerta = lazy(() => import('./pages/FlitoCompuerta'));
 const FlitoLogistica = lazy(() => import('./pages/FlitoLogistica'));
 const FlitoRuta = lazy(() => import('./pages/FlitoRuta'));
 const FlitoBolsas = lazy(() => import('./pages/FlitoBolsas'));
+const FlitoTarifas = lazy(() => import('./pages/FlitoTarifas'));
 const FlitoConciliacion = lazy(() => import('./pages/FlitoConciliacion'));
 const FlitoConciliacionBoleta = lazy(() => import('./pages/FlitoConciliacionBoleta'));
 const FlitoComparendos = lazy(() => import('./pages/FlitoComparendos'));
@@ -228,6 +229,8 @@ function AppRoutes() {
             persona; partirlo obligaría a conceder dos permisos para una sola tarea. El detalle va en
             ruta propia —con el uuid opaco en el path— porque el reporte de costos tiene que poder
             enlazar a una boleta, y un modal no es enlazable. */}
+        <Route path="/flito/tarifas" element={<ProtectedRoute page="flito_tarifas"><Lazy><FlitoTarifas /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/tarifas/:companiaId" element={<ProtectedRoute page="flito_tarifas"><Lazy><FlitoTarifas /></Lazy></ProtectedRoute>} />
         <Route path="/flito/conciliacion" element={<ProtectedRoute page="flito_conciliacion"><Lazy><FlitoConciliacion /></Lazy></ProtectedRoute>} />
         <Route path="/flito/conciliacion/:boletaId" element={<ProtectedRoute page="flito_conciliacion"><Lazy><FlitoConciliacionBoleta /></Lazy></ProtectedRoute>} />
         <Route path="/siigo/parametrizacion" element={<ProtectedRoute page="siigo_parametrizacion"><Lazy><SiigoParametrizacion /></Lazy></ProtectedRoute>} />

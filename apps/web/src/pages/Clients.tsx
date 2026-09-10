@@ -4,20 +4,21 @@
 // compañía: en una se marcaba si autogestiona, en la otra se le ponían las tarifas — y el toggle de
 // autogestión ya llamaba al endpoint de parametrización. Todo lo que es del cliente vive aquí.
 //
-// Las tarifas se abren por fila, en modal: cada compañía puede tener varias (por concepto y por tipo
-// de trámite) y meterlas como columnas habría hecho ilegible una tabla que ya tiene nueve.
+// Las tarifas ya NO viven aquí (HU #12375): el botón «Tarifas» de la fila lleva al configurador de
+// valores (`/flito/tarifas/:companiaId`), que modela cada valor como una vigencia con historial. La
+// ventana emergente que dejaba escribir el tipo a mano y marcar «Inactiva» se retiró con esa HU.
 //
 // Quién puede qué:
 //   admin       — todo.
-//   financiera  — tarifas sí, autogestión no: qué gestiona FLITO es decisión de Operaciones.
+//   financiera  — tarifas sí (en su pantalla), autogestión no: qué gestiona FLITO es decisión de Operaciones.
 //   auditor     — solo lectura.
 
 import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { CONCEPTOS_TARIFA, CONCEPTO_TARIFA_LABEL, type ConceptoTarifa } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { puedeOperar } from '../lib/permissions';
+import { hasPage, puedeOperar } from '../lib/permissions';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import FlitModal from '../components/flit/FlitModal';
@@ -79,10 +80,6 @@ interface Proveedor {
   id: string; nombre: string; estrategia: string | null;
   umbralOcr: number | null; slaHoras: number | null; activo: boolean;
 }
-interface Tarifa {
-  id: string; companiaId: number; companiaNombre: string | null;
-  concepto: ConceptoTarifa; tipoTramite: string | null; valor: number; activo: boolean;
-}
 
 // «SOAT sin trámite» YA NO está aquí (HU #12079): dejó de ser un booleano suelto con `PATCH`
 // optimista para ser una decisión con un parámetro obligatorio —el gestor—, y un PATCH por control
@@ -90,14 +87,13 @@ interface Tarifa {
 type FlagCampo = 'soatAutogestionable' | 'impuestosAutogestionable' | 'logisticaAutogestionable' | 'logisticaPermiteParcial';
 type Tab = 'clientes' | 'proveedores';
 
-const pesos = (v: number) =>
-  new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
-
 export default function Clients() {
   const { user } = useAuth();
   // Operaciones decide qué gestiona FLITO; Finanzas solo pone precio.
   const editaAutogestion = puedeOperar(user?.role);
-  const editaTarifas = user?.role === 'admin' || user?.role === 'financiera';
+  // El enlace al configurador se decide por la PÁGINA, no por el nombre del rol: es el mismo gate
+  // que la ruta de destino, así que nadie llega a un `NoAccess` desde aquí.
+  const veTarifas = hasPage(user, 'flito_tarifas');
   const [tab, setTab] = useState<Tab>('clientes');
 
   return (
@@ -113,7 +109,7 @@ export default function Clients() {
       </FlitPillGroup>
 
       {tab === 'clientes'
-        ? <TabClientes editaAutogestion={editaAutogestion} editaTarifas={editaTarifas} />
+        ? <TabClientes editaAutogestion={editaAutogestion} veTarifas={veTarifas} />
         : <TabProveedores editable={editaAutogestion} />}
     </div>
   );
@@ -121,7 +117,7 @@ export default function Clients() {
 
 // ───────────────────────────── Clientes ─────────────────────────────────────
 
-function TabClientes({ editaAutogestion, editaTarifas }: { editaAutogestion: boolean; editaTarifas: boolean }) {
+function TabClientes({ editaAutogestion, veTarifas }: { editaAutogestion: boolean; veTarifas: boolean }) {
   // `null` = cargando. Antes era `[]` desde el primer render y el `catch` ponía `[]` también, así
   // que un fallo del servidor se leía «No hay clientes.» y no había estado de carga: tres de los
   // cuatro estados colapsados en uno. Se paga aquí porque es sobre ESTA tabla donde se verifica que
@@ -130,7 +126,6 @@ function TabClientes({ editaAutogestion, editaTarifas }: { editaAutogestion: boo
   const [clients, setClients] = useState<Client[] | null>(null);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [tarifasDe, setTarifasDe] = useState<Client | null>(null);
   const [fiscalDe, setFiscalDe] = useState<Client | null>(null);
   const [canalDe, setCanalDe] = useState<Client | null>(null);
   const [veredictos, setVeredictos] = useState<Map<number, VeredictoCliente>>(new Map());
@@ -273,8 +268,10 @@ function TabClientes({ editaAutogestion, editaTarifas }: { editaAutogestion: boo
                   <td className="px-3 py-2"><ChipFacturable veredicto={veredictos.get(c.id)} /></td>
                   <td className="px-3 py-2">
                     <div className="flex gap-2">
-                      <button className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-                        onClick={() => setTarifasDe(c)}>Tarifas</button>
+                      {veTarifas && (
+                        <Link to={`/flito/tarifas/${c.id}`} className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+                          aria-label={`Tarifas de ${c.name}`}>Tarifas</Link>
+                      )}
                       <button className={flitBtnSecondary} style={flitBtnSecondaryStyle}
                         aria-label={`Datos fiscales de ${c.name}`}
                         onClick={() => setFiscalDe(c)}>Datos fiscales</button>
@@ -299,10 +296,6 @@ function TabClientes({ editaAutogestion, editaTarifas }: { editaAutogestion: boo
           </p>
         )}
       </FlitCard>
-
-      {tarifasDe && (
-        <ModalTarifas cliente={tarifasDe} editable={editaTarifas} onClose={() => setTarifasDe(null)} />
-      )}
 
       {canalDe && (
         <ModalCanalSoat
@@ -566,150 +559,6 @@ function ModalCanalSoat({ cliente, proveedores, onClose, onGuardado }: {
           </GradientButton>
         </div>
       </form>
-    </FlitModal>
-  );
-}
-
-// ───────────────────────────── Tarifas del cliente ──────────────────────────
-
-function ModalTarifas({ cliente, editable, onClose }: { cliente: Client; editable: boolean; onClose: () => void }) {
-  const [tarifas, setTarifas] = useState<Tarifa[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [recarga, setRecarga] = useState(0);
-  const [crear, setCrear] = useState(false);
-  const [editar, setEditar] = useState<Tarifa | null>(null);
-
-  useEffect(() => {
-    setTarifas(null); setError(null);
-    api.get<Tarifa[]>(`/flito/parametrizacion/tarifas?companiaId=${cliente.id}`)
-      .then(setTarifas).catch((e) => setError(errorMessage(e)));
-  }, [cliente.id, recarga]);
-
-  const refrescar = () => setRecarga((n) => n + 1);
-
-  return (
-    <FlitModal title={`Tarifas de ${cliente.name}`} onClose={onClose}>
-      <div className="space-y-3">
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        {!tarifas && !error && <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</p>}
-
-        {tarifas && tarifas.length === 0 && (
-          // Sin tarifas el trámite no se puede liquidar: decirlo aquí evita descubrirlo en el reporte.
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-            Esta compañía no tiene tarifas configuradas. Sus trámites mostrarán «No configurado» en el
-            reporte de costos y no podrán liquidarse.
-          </p>
-        )}
-
-        {tarifas && tarifas.length > 0 && (
-          <FlitTable>
-            <thead>
-              <FlitTr>
-                <FlitTh>Concepto</FlitTh><FlitTh>Tipo de trámite</FlitTh>
-                <FlitTh>Valor</FlitTh><FlitTh>Estado</FlitTh><FlitTh />
-              </FlitTr>
-            </thead>
-            <tbody>
-              {tarifas.map((t) => (
-                <FlitTr key={t.id}>
-                  <td className="px-3 py-2 text-sm">{CONCEPTO_TARIFA_LABEL[t.concepto]}</td>
-                  <td className="px-3 py-2 text-sm">{t.tipoTramite ?? 'Genérica (cualquier tipo)'}</td>
-                  <td className="px-3 py-2 text-sm tabular-nums">{pesos(t.valor)}</td>
-                  <td className="px-3 py-2"><StatusChip tone={t.activo ? 'success' : 'neutral'}>{t.activo ? 'Activa' : 'Inactiva'}</StatusChip></td>
-                  <td className="px-3 py-2">
-                    {editable && <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setEditar(t)}>Editar</button>}
-                  </td>
-                </FlitTr>
-              ))}
-            </tbody>
-          </FlitTable>
-        )}
-
-        {editable && (
-          <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setCrear(true)}>Nueva tarifa</button>
-        )}
-      </div>
-
-      {crear && (
-        <FormTarifa cliente={cliente} onClose={() => setCrear(false)}
-          onGuardado={() => { setCrear(false); refrescar(); }} />
-      )}
-      {editar && (
-        <FormTarifa cliente={cliente} tarifa={editar} onClose={() => setEditar(null)}
-          onGuardado={() => { setEditar(null); refrescar(); }} />
-      )}
-    </FlitModal>
-  );
-}
-
-function FormTarifa({ cliente, tarifa, onClose, onGuardado }: {
-  cliente: Client; tarifa?: Tarifa; onClose: () => void; onGuardado: () => void;
-}) {
-  const [concepto, setConcepto] = useState<ConceptoTarifa>(tarifa?.concepto ?? 'tramite_digital');
-  const [tipoTramite, setTipoTramite] = useState(tarifa?.tipoTramite ?? '');
-  const [valor, setValor] = useState(tarifa ? String(tarifa.valor) : '');
-  const [activo, setActivo] = useState(tarifa?.activo ?? true);
-  const [error, setError] = useState<string | null>(null);
-  const [guardando, setGuardando] = useState(false);
-
-  const valorNum = Number(valor);
-  const valorInvalido = valor.trim() === '' || !Number.isFinite(valorNum) || valorNum < 0;
-
-  const guardar = async () => {
-    setGuardando(true); setError(null);
-    try {
-      if (tarifa) await api.patch(`/flito/parametrizacion/tarifas/${tarifa.id}`, { valor: valorNum, activo });
-      else await api.post('/flito/parametrizacion/tarifas', {
-        companiaId: cliente.id, concepto,
-        tipoTramite: tipoTramite.trim() || null, valor: valorNum,
-      });
-      onGuardado();
-    } catch (e) { setError(errorMessage(e)); }
-    finally { setGuardando(false); }
-  };
-
-  return (
-    <FlitModal title={tarifa ? 'Editar tarifa' : `Nueva tarifa · ${cliente.name}`} onClose={onClose}>
-      <div className="space-y-3">
-        {/* La llave (compañía + concepto + tipo) no se mueve al editar: cambiarla sería otra tarifa. */}
-        {tarifa ? (
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-            {CONCEPTO_TARIFA_LABEL[tarifa.concepto]} · {tarifa.tipoTramite ?? 'Genérica'}
-          </p>
-        ) : (
-          <>
-            <FlitField label="Concepto *">
-              <select className={flitInp} value={concepto} onChange={(e) => setConcepto(e.target.value as ConceptoTarifa)}>
-                {CONCEPTOS_TARIFA.map((c) => <option key={c} value={c}>{CONCEPTO_TARIFA_LABEL[c]}</option>)}
-              </select>
-            </FlitField>
-            <FlitField label="Tipo de trámite (vacío = aplica a todos)">
-              <input className={flitInp} value={tipoTramite} placeholder="Matricula, Traspaso…"
-                onChange={(e) => setTipoTramite(e.target.value)} />
-            </FlitField>
-          </>
-        )}
-        <FlitField label="Valor (COP) *">
-          <input className={flitInp} type="number" min="0" step="1" value={valor} onChange={(e) => setValor(e.target.value)} />
-        </FlitField>
-        {valor.trim() !== '' && valorInvalido && (
-          <p className="text-sm text-red-600">El valor debe ser un número mayor o igual a cero.</p>
-        )}
-        {tarifa && (
-          <label className="flex items-center justify-between gap-3 text-sm">
-            <span>Activa</span>
-            <input type="checkbox" checked={activo} onChange={(e) => setActivo(e.target.checked)} />
-          </label>
-        )}
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <div className="flex gap-2">
-          <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
-            disabled={guardando || valorInvalido} onClick={guardar}>
-            {guardando ? 'Guardando…' : tarifa ? 'Guardar' : 'Crear'}
-          </button>
-          <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>Cancelar</button>
-        </div>
-      </div>
     </FlitModal>
   );
 }
