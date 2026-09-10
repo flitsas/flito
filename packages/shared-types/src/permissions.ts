@@ -209,6 +209,14 @@ export const PAGES = {
   // regalarles una pantalla que responde 403 en cada petición. El permiso de página y la autoridad
   // del router son dos puertas distintas, y aquí solo se puede abrir una.
   siigo_credenciales: 'Facturación electrónica — Credenciales',
+  // Roles y permisos (Feature #12072, HU #12085): el panel de administración del motor de permisos —
+  // el cuadro rol × función, la creación de roles y su mantenimiento. Clave PROPIA en «Administración»
+  // y, como `siigo_credenciales`, **NO se añade a ninguna fila de `ROLE_DEFAULT_PAGES`**: `admin` la
+  // obtiene por el catálogo (`rolesQueConcedenLaPagina` → `['admin']`) y nadie más la recibe por
+  // defecto. Las siete operaciones `permisos.*` que la pantalla consume (0186) son solo de `admin`;
+  // conceder la página a otro rol sería regalarle una pantalla que responde 403 en cada petición.
+  // Lo siembra la 0187 (`pagina.roles_permisos`, reparto `admin`).
+  roles_permisos: 'Roles y permisos',
   // Ayuda FLITO (HU #11893): contenedor del índice in-app. El slug existe SOLO para el label de
   // NoAccess y el ítem de nav. NO entra en `PAGE_GROUPS` (Users no debe ofrecer concederlo a mano)
   // ni en ninguna fila de `ROLE_DEFAULT_PAGES`: la visibilidad es derivada (`hasPage` de ≥1 slug
@@ -235,7 +243,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   // grupos —una rareza que nadie sabía explicar— porque el portal la tenía prestada.
   { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'flito_soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta', 'flito_bolsas', 'flito_comparendos', 'flito_conciliacion'] },
   { label: 'Finanzas', pages: ['finanzas_reporte_costos', 'siigo_parametrizacion', 'siigo_operacion', 'flito_tarifas'] },
-  { label: 'Administración', pages: ['users', 'privacy', 'siigo_credenciales'] },
+  { label: 'Administración', pages: ['users', 'privacy', 'siigo_credenciales', 'roles_permisos'] },
 ];
 
 // ============================================================================
