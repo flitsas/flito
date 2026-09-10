@@ -9,9 +9,10 @@
 // invocable desde CI. Mock keyed de drizzle (OPS-02b) para que el orden de los SELECT no importe.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getTableName } from 'drizzle-orm';
+import { getTableName, type SQL } from 'drizzle-orm';
 import { MotivoNoElegible, ResultadoCertificacion } from '@operaciones/shared-types';
 import { createKeyedDb } from '../helpers/keyed-db.js';
+import { ligadoA, renderizar } from '../helpers/sql-ligado.js';
 
 const kdb = createKeyedDb();
 
@@ -32,6 +33,19 @@ vi.mock('../../src/modules/runt/runt.service.js', () => ({
   consultarVehiculoRunt: (...a: unknown[]) => consultarVehiculoRuntMock(...a),
 }));
 
+// Logger capturado (HU #12402): el aviso de recorte de motor/serie y el de fallo al escribir en
+// `vehicles` tienen que salir por el logger de ESTE servicio y sin PII. Mismo patrón que el
+// recorrido del SOAT (`flito-soat-vigencia.recorrido.test.ts`).
+const registros: unknown[][] = [];
+const loggerFalso = {
+  debug: (...a: unknown[]) => { registros.push(a); },
+  info: (...a: unknown[]) => { registros.push(a); },
+  warn: (...a: unknown[]) => { registros.push(['warn', ...a]); },
+  error: (...a: unknown[]) => { registros.push(a); },
+  child: () => loggerFalso,
+};
+vi.mock('../../src/shared/logger.js', () => ({ logger: loggerFalso, loggerFor: () => loggerFalso }));
+
 const { certificarImpuesto, ESTADOS_IMPUESTO_CERTIFICABLES } =
   await import('../../src/modules/flito-impuestos/certificacion.service.js');
 const { flitoImpuestos, flitoImpuestoCertificaciones, vehicles, auditLogs } =
@@ -45,9 +59,14 @@ const T_AUDIT = getTableName(auditLogs);
 
 const CTX = { userId: 7, username: 'gestor@flitsas.io', role: 'admin', organismos: [] };
 const ID = '71030cce-1a4c-4fb6-855d-fcc80aadc4e9';
+/** La FK `flito_tramites.vehiculo_id`: un entero interno, distinto en tipo y valor del uuid del impuesto. */
+const VEHICULO_ID = 5001;
 
 /** Fila de vehículo que devuelve `datosDelVehiculo` (join impuesto→trámite→vehículo). */
 const vehiculoOk = (over: Record<string, unknown> = {}) => ({
+  // `vehiculoId` es la llave a la que la HU #12402 escribe motor y serie: sin él sería
+  // `undefined` en todos los tests y un `where` apuntando a otra columna pasaría en verde.
+  vehiculoId: VEHICULO_ID,
   placa: 'QIU744', vin: '9BWZZZ377VT004251',
   marca: 'CHEVROLET', linea: 'SPARK GT', modelo: 2018, clase: 'AUTOMOVIL',
   ownerName: 'JOSÉ PÉREZ', ownerDocument: '43902633',
@@ -93,6 +112,43 @@ function capturarInserts(tabla: string): Record<string, unknown>[] {
   return capturado;
 }
 
+/**
+ * Captura los `.set(...)` de los UPDATE a una tabla. Lo que se ESCRIBE es lo único afirmable: el
+ * mock keyed devuelve la fila que se le configure, sin mirar lo que se pidió.
+ */
+function capturarUpdates(tabla: string): Record<string, unknown>[] {
+  const capturado: Record<string, unknown>[] = [];
+  const porDefecto = kdb.update.getMockImplementation()!;
+  kdb.update.mockImplementation((tbl: unknown) => {
+    const cadena = porDefecto(tbl) as Record<string, unknown>;
+    if (getTableName(tbl as never) === tabla) {
+      const set = cadena.set as (v: unknown) => unknown;
+      cadena.set = (v: unknown) => { capturado.push(v as Record<string, unknown>); return set(v); };
+    }
+    return cadena;
+  });
+  return capturado;
+}
+
+/**
+ * Captura la condición del `.where(...)` de los UPDATE a una tabla. El mock keyed la ignora
+ * (`where` es passthrough), así que sin esto un UPDATE a la llave equivocada —o sin llave— pasa en
+ * verde. Se aserta renderizada con `renderizar`/`ligadoA`, igual que en el recorrido del SOAT.
+ */
+function capturarCondicionesUpdates(tabla: string): SQL[] {
+  const capturado: SQL[] = [];
+  const porDefecto = kdb.update.getMockImplementation()!;
+  kdb.update.mockImplementation((tbl: unknown) => {
+    const cadena = porDefecto(tbl) as Record<string, unknown>;
+    if (getTableName(tbl as never) === tabla) {
+      const where = cadena.where as (c: unknown) => unknown;
+      cadena.where = (c: unknown) => { capturado.push(c as SQL); return where(c); };
+    }
+    return cadena;
+  });
+  return capturado;
+}
+
 /** Prepara el camino feliz: impuesto solicitado + vehículo completo. */
 function escenarioBase(over: { estado?: string; vehiculo?: Record<string, unknown> } = {}) {
   buscarConAccesoMock.mockResolvedValue({ id: ID, estado: over.estado ?? 'solicitado' });
@@ -109,6 +165,7 @@ function escenarioBase(over: { estado?: string; vehiculo?: Record<string, unknow
 
 beforeEach(() => {
   kdb.reset();
+  registros.length = 0;
   buscarConAccesoMock.mockReset();
   consultarVehiculoRuntMock.mockReset();
 });
@@ -363,5 +420,170 @@ describe('AC8 — recertificación', () => {
     // rechazaría el INSERT si no.
     expect(kdb.update).toHaveBeenCalled();
     expect(kdb.insert).toHaveBeenCalled();
+  });
+});
+
+describe('HU #12402 — motor y serie del RUNT se guardan en vehicles al certificar', () => {
+  /** Respuesta del RUNT con motor y serie, encima de la ficha que coincide con FLITO. */
+  const runtConMotorYSerie = (motor: string | null, serie: string | null) => {
+    const r = runtOk();
+    (r.data.vehiculo as Record<string, unknown>).numMotor = motor;
+    (r.data.vehiculo as Record<string, unknown>).numSerie = serie;
+    return r;
+  };
+  const avisos = () => registros.filter((r) => r[0] === 'warn');
+
+  it('AC1 — con registro y coincidencia: vehicles recibe motor y serie, y la certificación se guarda como hoy', async () => {
+    escenarioBase();
+    const enVehicles = capturarUpdates(T_VEHICLES);
+    const condiciones = capturarCondicionesUpdates(T_VEHICLES);
+    const certificaciones = capturarInserts(T_CERT);
+    consultarVehiculoRuntMock.mockResolvedValue(runtConMotorYSerie('MTR-123', 'SER-456'));
+
+    const r = await certificarImpuesto(ID, CTX);
+
+    expect(r.resultado).toBe(ResultadoCertificacion.CERTIFICADO);
+    expect(enVehicles).toHaveLength(1);
+    expect(enVehicles[0]).toMatchObject({ numMotor: 'MTR-123', numSerie: 'SER-456' });
+    // A QUÉ vehículo: la ficha del trámite, por su id — no el uuid del impuesto ni toda la tabla.
+    expect(condiciones).toHaveLength(1);
+    expect(ligadoA(renderizar(condiciones[0]!), '"vehicles"."id"')).toBe(VEHICULO_ID);
+    // La certificación y su auditoría siguen yendo dentro de la transacción, como antes de la HU.
+    expect(kdb.transaction).toHaveBeenCalledTimes(1);
+    expect(certificaciones).toHaveLength(1);
+    expect(kdb.insert.mock.calls.map((c) => getTableName(c[0] as never))).toEqual([T_CERT, T_AUDIT]);
+  });
+
+  it('AC2 — RUNT sin registro: cero escrituras en vehicles y error de servicio', async () => {
+    escenarioBase();
+    const enVehicles = capturarUpdates(T_VEHICLES);
+    // La ficha vacía real: `numMotor` es una señal de registro (`SENALES_REGISTRO`), así que un
+    // RUNT sin registro tampoco trae motor. Lo que se afirma es que NO se toca `vehicles` ni
+    // se llega a la transacción.
+    consultarVehiculoRuntMock.mockResolvedValue({
+      ok: true,
+      data: { vehiculo: { placa: 'QIU744', vin: null, marca: null, linea: null, modelo: null, clase: null, idAutomotor: null, numMotor: null, numSerie: null } },
+    });
+
+    const r = await certificarImpuesto(ID, CTX);
+
+    expect(r.resultado).toBe(ResultadoCertificacion.ERROR_SERVICIO);
+    expect(enVehicles).toHaveLength(0);
+    expect(kdb.update).not.toHaveBeenCalled();
+    expect(kdb.transaction).not.toHaveBeenCalled();
+  });
+
+  it('AC3 — solo motor: la clave numSerie NO viaja en el SET', async () => {
+    escenarioBase();
+    const enVehicles = capturarUpdates(T_VEHICLES);
+    consultarVehiculoRuntMock.mockResolvedValue(runtConMotorYSerie('MTR-NEW', null));
+
+    await certificarImpuesto(ID, CTX);
+
+    expect(enVehicles).toHaveLength(1);
+    expect(enVehicles[0].numMotor).toBe('MTR-NEW');
+    // Ni `null` ni `''`: la clave ausente es lo que deja la serie que ya se sabía como estaba.
+    expect(Object.keys(enVehicles[0])).not.toContain('numSerie');
+  });
+
+  it('AC3 — sin motor ni serie no hay UPDATE a vehicles', async () => {
+    escenarioBase();
+    const enVehicles = capturarUpdates(T_VEHICLES);
+    consultarVehiculoRuntMock.mockResolvedValue(runtConMotorYSerie(null, '   '));
+
+    const r = await certificarImpuesto(ID, CTX);
+
+    expect(r.resultado).toBe(ResultadoCertificacion.CERTIFICADO);
+    expect(enVehicles).toHaveLength(0);
+  });
+
+  it('AC4 — con diferencias: vehicles se actualiza igual, y el resultado sigue siendo con_diferencias sin transacción', async () => {
+    escenarioBase();
+    const enVehicles = capturarUpdates(T_VEHICLES);
+    const condiciones = capturarCondicionesUpdates(T_VEHICLES);
+    const runt = runtConMotorYSerie('MTR-123', 'SER-456');
+    runt.data.vehiculo.placa = 'XYZ999';
+    consultarVehiculoRuntMock.mockResolvedValue(runt);
+
+    const r = await certificarImpuesto(ID, CTX);
+
+    expect(r.resultado).toBe(ResultadoCertificacion.CON_DIFERENCIAS);
+    // El motor y la serie son un hecho del vehículo, cierto aunque el trámite tenga la placa mal.
+    expect(enVehicles).toHaveLength(1);
+    expect(enVehicles[0]).toMatchObject({ numMotor: 'MTR-123', numSerie: 'SER-456' });
+    expect(ligadoA(renderizar(condiciones[0]!), '"vehicles"."id"')).toBe(VEHICULO_ID);
+    expect(kdb.transaction).not.toHaveBeenCalled();
+    expect(kdb.insert).not.toHaveBeenCalled();
+  });
+
+  it('AC5 — runt.ok=false: cero escrituras en vehicles', async () => {
+    escenarioBase();
+    const enVehicles = capturarUpdates(T_VEHICLES);
+    consultarVehiculoRuntMock.mockResolvedValue({
+      ok: false, message: 'Error comunicando con servicio RUNT',
+      data: { vehiculo: { numMotor: 'MTR-123', numSerie: 'SER-456' } },
+    });
+
+    const r = await certificarImpuesto(ID, CTX);
+
+    expect(r.resultado).toBe(ResultadoCertificacion.ERROR_SERVICIO);
+    expect(enVehicles).toHaveLength(0);
+    expect(kdb.update).not.toHaveBeenCalled();
+  });
+
+  it('AC6 — serie de 60 caracteres: se guardan 50 y el aviso lleva campo y longitud, sin valor ni PII', async () => {
+    escenarioBase();
+    const enVehicles = capturarUpdates(T_VEHICLES);
+    const serie60 = 'S'.repeat(60);
+    consultarVehiculoRuntMock.mockResolvedValue(runtConMotorYSerie('MTR-123', serie60));
+
+    const r = await certificarImpuesto(ID, CTX);
+
+    expect(r.resultado).toBe(ResultadoCertificacion.CERTIFICADO);
+    expect(enVehicles[0].numSerie).toBe(serie60.slice(0, 50));
+    expect((enVehicles[0].numSerie as string).length).toBe(50);
+
+    const recorte = avisos().find((a) => (a[1] as Record<string, unknown>)?.campo === 'numSerie');
+    expect(recorte).toBeDefined();
+    expect(recorte![1]).toMatchObject({ campo: 'numSerie', longitud: 60 });
+    const texto = JSON.stringify(recorte);
+    for (const pii of [serie60, 'QIU744', '9BWZZZ377VT004251', 'JOSÉ PÉREZ', '43902633']) {
+      expect(texto).not.toContain(pii);
+    }
+  });
+
+  it('AC7 — a vehicles solo van motor, serie y updatedAt; audit sin RUNT; snapshotRunt intacto', async () => {
+    escenarioBase();
+    const enVehicles = capturarUpdates(T_VEHICLES);
+    const certificaciones = capturarInserts(T_CERT);
+    const auditoria = capturarInserts(T_AUDIT);
+    const runt = runtConMotorYSerie('MTR-123', 'SER-456');
+    consultarVehiculoRuntMock.mockResolvedValue(runt);
+
+    await certificarImpuesto(ID, CTX);
+
+    expect(Object.keys(enVehicles[0]).sort()).toEqual(['numMotor', 'numSerie', 'updatedAt']);
+    expect(enVehicles[0].updatedAt).toBeInstanceOf(Date);
+    // La certificación ya audita; el motor y la serie no son un cambio de estado y no se auditan
+    // aparte ni se cuelan en el detalle.
+    expect(auditoria).toHaveLength(1);
+    expect(JSON.stringify(auditoria[0])).not.toMatch(/MTR-123|SER-456|numMotor|numSerie/);
+    // El snapshot es el mismo objeto de siempre: ni ampliado ni recortado por esta HU.
+    expect(certificaciones[0].snapshotRunt).toBe(runt.data);
+  });
+
+  it('un fallo al escribir en vehicles NO tumba la certificación y se avisa sin el mensaje del error', async () => {
+    escenarioBase();
+    class ErrorDeBase extends Error { override name = 'ErrorDeBase'; }
+    kdb.when.update(T_VEHICLES, () => { throw new ErrorDeBase('detail: QIU744 duplicate key'); });
+    consultarVehiculoRuntMock.mockResolvedValue(runtConMotorYSerie('MTR-123', 'SER-456'));
+
+    const r = await certificarImpuesto(ID, CTX);
+
+    expect(r.resultado).toBe(ResultadoCertificacion.CERTIFICADO);
+    const aviso = avisos().find((a) => (a[1] as Record<string, unknown>)?.error === 'ErrorDeBase');
+    expect(aviso).toBeDefined();
+    expect(aviso![1]).toMatchObject({ impuestoId: ID, error: 'ErrorDeBase' });
+    expect(JSON.stringify(aviso)).not.toContain('duplicate key');
   });
 });
