@@ -373,7 +373,7 @@ export async function cambiarActivo(id: number, actor: ActorAuditoria): Promise<
 /**
  * Restablecer la contraseña (HU #12171): el hash nuevo y la fila de historial en la misma
  * transacción. La fila dice que PASÓ, y nada más: `campo = 'password'` con los dos valores en null
- * (el CHECK de la 0184 lo obliga). Ni el hash ni un fragmento entran jamás en el historial.
+ * (el CHECK de la 0185 lo obliga). Ni el hash ni un fragmento entran jamás en el historial.
  */
 export async function restablecerContrasena(
   id: number, rolTitular: string, passwordHash: string, actor: ActorAuditoria,

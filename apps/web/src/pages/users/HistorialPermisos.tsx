@@ -343,7 +343,7 @@ const esConjunto = (v: ValorAuditable | null): v is { conjunto: string[]; conced
   typeof v === 'object' && v !== null && Array.isArray(v.conjunto);
 
 function Cambio({ item }: { item: ItemAuditoriaPermisos }) {
-  // El hecho sin valor: el CHECK de la 0184 obliga a que sus dos valores sean null. Que no haya
+  // El hecho sin valor: el CHECK de la 0185 obliga a que sus dos valores sean null. Que no haya
   // «→» es el diseño, no un hueco.
   if (item.campo === 'password') return <span>Contraseña restablecida</span>;
   if (item.accion === 'borrar') {

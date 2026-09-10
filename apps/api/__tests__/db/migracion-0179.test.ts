@@ -102,11 +102,11 @@ describe('0179 — el archivo dice lo mismo que schema.ts (análisis estático)'
     expect((SIN_COMENTARIOS.match(/ON CONFLICT[\s\S]{0,60}DO NOTHING/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 
-  it('el seed pegado en la migración, más la 0181, los retiros de la 0182 y la 0184, es lo que el generador produce HOY', () => {
+  it('el seed pegado en la migración, más la 0181, los retiros de la 0182, la página de la 0184 y la 0185, es lo que el generador produce HOY', () => {
     // Esta es la comprobación que impide que el código y el seed se separen: si alguien amplía la foto
     // (`inventario.generado.ts`) o el catálogo y no escribe la migración, aquí se ve. Y si el generador
     // se rompe, también. Desde la HU #12083 la foto está congelada y el seed vive en VARIOS archivos
-    // (0179 + 0181 + 0182 + 0184, HU #12171); desde la HU #12373 ya no es solo aditivo (la 0182 retira `borrar` y quita
+    // (0179 + 0181 + 0182 + 0184 + 0185, HU #12171); desde la HU #12373 ya no es solo aditivo (la 0182 retira `borrar` y quita
     // al auditor de tarifas), así que se comparan FUNCIONES y REPARTO por separado, PLEGADOS con los
     // helpers (INSERT suma, DELETE resta), y no como líneas crudas: una tupla de un DELETE leída como
     // siembra daría verde falso.

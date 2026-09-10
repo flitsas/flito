@@ -1,4 +1,4 @@
-// HU #12171 — La 0184: la tabla `permisos_auditoria` (ADR-0014), su inmutabilidad por REVOKE, la
+// HU #12171 — La 0185: la tabla `permisos_auditoria` (ADR-0014), su inmutabilidad por REVOKE, la
 // retención declarada (AC5) y la siembra de `usuarios.auditoria.*` + `pagina.users` para `auditor`.
 //
 // Dos mitades, igual que la 0180:
@@ -11,7 +11,7 @@
 //     PII y el `password` con valor, la ACL sin UPDATE/DELETE/TRUNCATE, la política de retención, la
 //     siembra y la idempotencia fuerte. Se activa con la URL de una base con la cadena al día:
 //         TEST_DATABASE_URL='postgres://operaciones_app:…@127.0.0.1:5434/operaciones_db' \
-//         npm run test -w apps/api -- __tests__/db/migracion-0184.test.ts
+//         npm run test -w apps/api -- __tests__/db/migracion-0185.test.ts
 //     Sin esa variable se SALTA en vez de fallar: el CI no levanta Postgres.
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -26,10 +26,10 @@ import { scanForTxControl } from '../../src/scripts/db-apply.js';
 import { permisosAuditoria, users } from '../../src/db/schema.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ARCHIVO = '0184_permisos_auditoria.sql';
+const ARCHIVO = '0185_permisos_auditoria.sql';
 const RUTA = path.resolve(__dirname, '../../src/db/migrations', ARCHIVO);
-const SQL_0184 = readFileSync(RUTA, 'utf8');
-const SIN_COMENTARIOS = SQL_0184.replace(/--[^\n]*/g, '');
+const SQL_0185 = readFileSync(RUTA, 'utf8');
+const SIN_COMENTARIOS = SQL_0185.replace(/--[^\n]*/g, '');
 
 const CHECKS = [
   'permisos_auditoria_entidad_chk', 'permisos_auditoria_accion_chk', 'permisos_auditoria_origen_chk',
@@ -40,20 +40,20 @@ const INDICES = [
   'idx_permisos_auditoria_titular', 'idx_permisos_auditoria_rol', 'idx_permisos_auditoria_entidad', 'idx_permisos_auditoria_created',
 ];
 
-describe('0184 — el archivo dice lo mismo que schema/permisos.ts (análisis estático)', () => {
+describe('0185 — el archivo dice lo mismo que schema/permisos.ts (análisis estático)', () => {
   it('no trae control de transacción propio (ADR-DB-001) y los DO llevan dollar-quoting etiquetado, sin nombrar la etiqueta en comentarios', () => {
-    expect(scanForTxControl(ARCHIVO, SQL_0184)).toEqual([]);
-    expect(SQL_0184).toMatch(/DO \$revoke0184\$ BEGIN/);
-    expect(SQL_0184).toMatch(/END \$revoke0184\$;/);
-    expect(SQL_0184).toMatch(/DO \$resumen0184\$/);
-    expect(SQL_0184).toMatch(/END \$resumen0184\$;/);
+    expect(scanForTxControl(ARCHIVO, SQL_0185)).toEqual([]);
+    expect(SQL_0185).toMatch(/DO \$revoke0185\$ BEGIN/);
+    expect(SQL_0185).toMatch(/END \$revoke0185\$;/);
+    expect(SQL_0185).toMatch(/DO \$resumen0185\$/);
+    expect(SQL_0185).toMatch(/END \$resumen0185\$;/);
     expect(SIN_COMENTARIOS).not.toMatch(/\$\$/);
-    const comentarios = SQL_0184.split('\n').filter((l) => l.trim().startsWith('--')).join('\n');
-    expect(comentarios).not.toMatch(/\$revoke0184\$|\$resumen0184\$/);
+    const comentarios = SQL_0185.split('\n').filter((l) => l.trim().startsWith('--')).join('\n');
+    expect(comentarios).not.toMatch(/\$revoke0185\$|\$resumen0185\$/);
   });
 
   it('la cabecera cumple la convención 5 del README: archivo, motivo y autor', () => {
-    const cabecera = SQL_0184.split('\n').slice(0, 12).join('\n');
+    const cabecera = SQL_0185.split('\n').slice(0, 12).join('\n');
     expect(cabecera.split('\n')[0]).toBe(`-- ${ARCHIVO}`);
     expect(cabecera).toMatch(/^-- Autor: /m);
     expect(cabecera).toMatch(/Feature #12072/);
@@ -61,9 +61,9 @@ describe('0184 — el archivo dice lo mismo que schema/permisos.ts (análisis es
     expect(cabecera).toMatch(/ADR-0014/);
   });
 
-  it('el número es 0184 y no colisiona con ningún otro archivo', () => {
-    const con0184 = readdirSync(path.dirname(RUTA)).filter((f) => f.startsWith('0184_'));
-    expect(con0184).toEqual([ARCHIVO]);
+  it('el número es 0185 y no colisiona con ningún otro archivo', () => {
+    const con0185 = readdirSync(path.dirname(RUTA)).filter((f) => f.startsWith('0185_'));
+    expect(con0185).toEqual([ARCHIVO]);
   });
 
   it('nada de ALTER TYPE, ADD COLUMN ni CREATE TRIGGER: crea una tabla nueva, inmutable por REVOKE y no por disparador', () => {
@@ -153,7 +153,7 @@ describe('0184 — el archivo dice lo mismo que schema/permisos.ts (análisis es
     expect(SIN_COMENTARIOS).toMatch(/INSERT INTO permisos_funciones \(codigo, modulo, nombre_negocio, descripcion, tipo\) VALUES/);
     expect(SIN_COMENTARIOS).toMatch(/\('usuarios\.auditoria\.ver', 'usuarios', 'Ver el historial de cambios de usuarios y permisos', '[^']+', 'operacion'\)/);
     expect(SIN_COMENTARIOS).toMatch(/\('usuarios\.auditoria\.filtrar', 'usuarios', 'Listar los usuarios para filtrar el historial', '[^']+', 'operacion'\)/);
-    const tuplas = SQL_0184.split('\n').map((l) => l.trim()).filter((l) => l.startsWith("('")).map((l) => l.replace(/,$/, ''));
+    const tuplas = SQL_0185.split('\n').map((l) => l.trim()).filter((l) => l.startsWith("('")).map((l) => l.replace(/,$/, ''));
     expect(tuplas.filter((t) => t.split(',').length === 2).sort()).toEqual([
       "('admin', 'usuarios.auditoria.filtrar')",
       "('admin', 'usuarios.auditoria.ver')",
@@ -173,7 +173,7 @@ describe('0184 — el archivo dice lo mismo que schema/permisos.ts (análisis es
 const URL_BASE = process.env.TEST_DATABASE_URL;
 const ROLLBACK = Symbol('rollback');
 
-describe.skipIf(!URL_BASE)('0184 — contra la base real (constraints, ACL, retención, siembra e idempotencia)', () => {
+describe.skipIf(!URL_BASE)('0185 — contra la base real (constraints, ACL, retención, siembra e idempotencia)', () => {
   let sql: postgres.Sql;
 
   beforeAll(() => { sql = postgres(URL_BASE!, { max: 1, onnotice: () => {} }); });
@@ -192,9 +192,9 @@ describe.skipIf(!URL_BASE)('0184 — contra la base real (constraints, ACL, rete
   async function insertar(tx: postgres.TransactionSql, extra: Record<string, unknown>): Promise<{ code?: string } | null> {
     const [admin] = await tx`SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1`;
     const fila = {
-      lote_id: '00000000-0000-4000-8000-000000000184', entidad: 'usuario', accion: 'editar', campo: 'role',
+      lote_id: '00000000-0000-4000-8000-000000000185', entidad: 'usuario', accion: 'editar', campo: 'role',
       valor_antes: 'a', valor_despues: 'b', usuario_afectado_id: admin!.id, usuario_afectado_rol: 'admin',
-      rol_afectado_codigo: null, actor_user_id: admin!.id, actor_email: 'prueba@0184', actor_rol: 'admin', origen: 'usuario',
+      rol_afectado_codigo: null, actor_user_id: admin!.id, actor_email: 'prueba@0185', actor_rol: 'admin', origen: 'usuario',
       ...extra,
     };
     // En un SAVEPOINT: un INSERT rechazado no aborta la transacción entera y el siguiente caso sigue.
@@ -289,7 +289,7 @@ describe.skipIf(!URL_BASE)('0184 — contra la base real (constraints, ACL, rete
           (SELECT count(*)::int FROM permisos_auditoria) AS n
       `)[0];
       const a = await huella();
-      await tx.unsafe(SQL_0184);
+      await tx.unsafe(SQL_0185);
       const d = await huella();
       return { antes: a, despues: d };
     });
