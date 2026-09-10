@@ -318,6 +318,11 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${USR} PATCH /:id/toggle`, 'usuarios.usuario.activar', 'Activar o desactivar un usuario', 'Bloquear o volver a habilitar la entrada de un usuario sin borrarlo.'),
   op(`${USR} POST /:id/invalidate-sessions`, 'usuarios.sesiones.invalidar', 'Cerrar las sesiones de un usuario', 'Invalidar todos los tokens vivos de un usuario para que vuelva a iniciar sesión.'),
   op(`${USR} PATCH /:id/password [ajena]`, 'usuarios.contrasena.cambiar_ajena', 'Cambiar la contraseña de otro usuario', 'Fijar una contraseña nueva a un usuario distinto de uno mismo.'),
+  // HU #12171 — el historial de cambios (CF-19). Dos codigos y no uno: el catalogo es «una funcion por
+  // ruta» y los codigos son unicos (precedente: `soat.cola.ver` / `soat.cola.filtrar`). Textos de
+  // negocio fijados el 10/09/2026; los mismos que siembra la 0185 (el test de la 0179 compara literal).
+  op(`${USR} GET /auditoria`, 'usuarios.auditoria.ver', 'Ver el historial de cambios de usuarios y permisos', 'Leer quién cambió qué en usuarios, roles y permisos, con el valor anterior y el posterior.'),
+  op(`${USR} GET /auditoria/titulares`, 'usuarios.auditoria.filtrar', 'Listar los usuarios para filtrar el historial', 'Leer la lista de usuarios que tienen cambios registrados, para acotar el historial a uno.'),
 
 ];
 

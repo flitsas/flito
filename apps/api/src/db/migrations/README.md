@@ -40,3 +40,13 @@ Modos:
 
 64 migrations en disco, todas aplicadas en VPS Dev2 (`operaciones_db`). El runner
 fue introducido tras detectar que `drizzle-kit migrate` solo aplicaría 5 de 64.
+
+## Herramientas: drizzle-kit y el esquema partido
+
+El esquema Drizzle se reparte entre `src/db/schema.ts` y `src/db/schema/permisos.ts` (las tablas
+`permisos_*`, re-exportadas desde `schema.ts`; techo de `max-lines`). `drizzle-kit generate` y
+`drizzle-kit migrate` **siguen prohibidos** (arriba). Si alguien necesita `push`/`check` para revalidar
+la deriva de tipos, el cargador embebido de drizzle-kit (esbuild-register) no remapea el import
+`./schema/permisos.js` → `.ts` y falla con `MODULE_NOT_FOUND`: hay que invocarlo bajo `tsx`, p. ej.
+`npx tsx node_modules/drizzle-kit/bin.cjs check --config apps/api/drizzle.config.ts` desde la raíz
+(comprobar primero que arranca con el Node del repo: el CI no lo usa).
