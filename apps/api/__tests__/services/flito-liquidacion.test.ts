@@ -3,13 +3,21 @@
 // Lo que se prueba aquí: qué bloquea, qué se considera «no aplica», y sobre qué se calcula el
 // 4x1000. El comportamiento transaccional (sellar, reversar, facturar) se verifica además contra
 // Postgres real, porque los mocks no detectan un constraint mal escrito.
+//
+// HU #12374 (RN-07): la compuerta resuelve la tarifa con la FECHA DE APROBACIÓN del trámite. Aquí
+// se afirma que las DOS llamadas a `tarifaDe` llevan esa fecha (mutantes M1/M3) y que sellar con un
+// faltante lanza `LiquidacionBloqueadaError` sin abrir transacción ni insertar (AC9).
+// TZ=UTC: el faltante nombra el día en Colombia y se compara como texto.
+process.env.TZ = 'UTC';
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { chain } from '../helpers/db.js';
 
 const selectMock = vi.fn();
+const insertMock = vi.fn();
+const transactionMock = vi.fn();
 vi.mock('../../src/db/client.js', () => ({
-  db: { select: selectMock, insert: vi.fn(), update: vi.fn(), delete: vi.fn(), transaction: vi.fn(), execute: vi.fn() },
+  db: { select: selectMock, insert: insertMock, update: vi.fn(), delete: vi.fn(), transaction: transactionMock, execute: vi.fn() },
   getPoolStats: vi.fn(),
 }));
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
@@ -19,7 +27,8 @@ vi.mock('../../src/modules/flito-parametrizacion/flito-tarifas.service.js', () =
   tarifaDe: tarifaDeMock,
 }));
 
-const { calcular, TASA_GMF } = await import('../../src/modules/flito-liquidacion/flito-liquidacion.service.js');
+const { calcular, liquidar, LiquidacionBloqueadaError, LiquidacionError, TASA_GMF } =
+  await import('../../src/modules/flito-liquidacion/flito-liquidacion.service.js');
 
 /**
  * Fila del trámite con todo pagado, una compañía que no autogestiona nada y un organismo que sí
@@ -28,6 +37,7 @@ const { calcular, TASA_GMF } = await import('../../src/modules/flito-liquidacion
 function filaCompleta(over: Record<string, unknown> = {}) {
   return {
     tramiteId: 't1', idFlit: 'FLIT-1', tipoTramite: 'Traspaso', companiaId: 7,
+    fechaAprobacion: null,
     logisticaAutogestionable: false, soatAutogestionable: false, impuestosAutogestionable: false,
     modalidadOrganismo: 'requiere_gestion',
     // Sin desbloqueos excepcionales: la parametrización de la compañía decide sola (HU #10980).
@@ -49,8 +59,69 @@ function tarifasConfiguradas() {
 
 beforeEach(() => {
   selectMock.mockReset();
+  insertMock.mockReset();
+  transactionMock.mockReset();
   tarifaDeMock.mockReset();
   tarifasConfiguradas();
+});
+
+// ───────── HU #12374: la tarifa que se congela es la vigente en la FECHA DE APROBACIÓN ─────────
+
+describe('calcular — resuelve la tarifa con la fecha de aprobación del trámite (RN-07, AC7)', () => {
+  const FECHA = new Date('2026-07-15T12:00:00Z');
+
+  it('las DOS tarifas (trámite digital y logística) se piden con la fecha de aprobación, en ese orden', async () => {
+    selectMock.mockReturnValueOnce(chain([filaCompleta({ fechaAprobacion: FECHA })]));
+    await calcular('t1');
+    expect(tarifaDeMock).toHaveBeenCalledTimes(2);
+    expect(tarifaDeMock).toHaveBeenNthCalledWith(1, 7, 'tramite_digital', 'Traspaso', FECHA);
+    expect(tarifaDeMock).toHaveBeenNthCalledWith(2, 7, 'logistica', 'Traspaso', FECHA);
+  });
+
+  it('sin fecha de aprobación se resuelve con «ahora»: el cuarto argumento es null en las dos (AC3)', async () => {
+    selectMock.mockReturnValueOnce(chain([filaCompleta({ fechaAprobacion: null })]));
+    await calcular('t1');
+    expect(tarifaDeMock).toHaveBeenNthCalledWith(1, 7, 'tramite_digital', 'Traspaso', null);
+    expect(tarifaDeMock).toHaveBeenNthCalledWith(2, 7, 'logistica', 'Traspaso', null);
+  });
+
+  it('el faltante nombra la fecha de aprobación (día en Colombia) cuando la hay (AC9)', async () => {
+    tarifaDeMock.mockResolvedValue({ valor: null, origen: 'no_configurada' });
+    // 2026-08-21T03:00Z es todavía el 20 de agosto en Colombia: el día que se nombra es el de allá.
+    selectMock.mockReturnValueOnce(chain([filaCompleta({ fechaAprobacion: new Date('2026-08-21T03:00:00Z') })]));
+    const c = await calcular('t1');
+    expect(c.faltantes).toContain('Tarifa de trámite digital no configurada para la compañía en la fecha de aprobación (2026-08-20)');
+    expect(c.faltantes).toContain('Tarifa de logística no configurada para la compañía en la fecha de aprobación (2026-08-20)');
+    expect(c.tramiteDigital.valor).toBeNull();
+  });
+});
+
+describe('liquidar — sellar con un faltante se bloquea SIN crear liquidación (AC9)', () => {
+  it('lanza LiquidacionBloqueadaError (subclase de LiquidacionError) con los faltantes, y no abre transacción ni inserta', async () => {
+    tarifaDeMock.mockResolvedValue({ valor: null, origen: 'no_configurada' });
+    selectMock
+      .mockReturnValueOnce(chain([]))                                    // liquidacionDe: no hay sellada
+      .mockReturnValueOnce(chain([filaCompleta({ fechaAprobacion: new Date('2026-08-20T12:00:00Z') })]));
+    const e = await liquidar('t1', 1).then(() => null, (x: unknown) => x);
+    expect(e).toBeInstanceOf(LiquidacionBloqueadaError);
+    expect(e).toBeInstanceOf(LiquidacionError);
+    expect((e as InstanceType<typeof LiquidacionBloqueadaError>).faltantes).toEqual([
+      'Tarifa de trámite digital no configurada para la compañía en la fecha de aprobación (2026-08-20)',
+      'Tarifa de logística no configurada para la compañía en la fecha de aprobación (2026-08-20)',
+    ]);
+    expect(transactionMock).not.toHaveBeenCalled();
+    expect(insertMock).not.toHaveBeenCalled();
+  });
+
+  it('un trámite ya liquidado sigue siendo LiquidacionError a secas (400), no «bloqueado»', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([{ id: 'l1', tramiteId: 't1', estado: 'liquidado', detalle: {}, total: '1', liquidadoEn: new Date(), facturadoEn: null }]))
+      .mockReturnValueOnce(chain([{ idFlit: 'FLIT-1' }]));
+    const e = await liquidar('t1', 1).then(() => null, (x: unknown) => x);
+    expect(e).toBeInstanceOf(LiquidacionError);
+    expect(e).not.toBeInstanceOf(LiquidacionBloqueadaError);
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('calcular — el 4x1000 va sobre el total del trámite', () => {

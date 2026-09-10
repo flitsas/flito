@@ -14,8 +14,10 @@ vi.mock('../../src/db/client.js', () => ({
 }));
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
 
-const { aCsv, agruparEmpresas, conJoins } = await import('../../src/modules/finanzas/finanzas.service.js');
+const { aCsv, agruparEmpresas, condiciones, conJoins } = await import('../../src/modules/finanzas/finanzas.service.js');
 const { flitoTramites } = await import('../../src/db/schema.js');
+const { and } = await import('drizzle-orm');
+const { renderizar } = await import('../helpers/sql-ligado.js');
 
 type Fila = Parameters<typeof aCsv>[0][number];
 
@@ -161,23 +163,55 @@ describe('agruparEmpresas — el desplegable de empresas del filtro', () => {
   });
 });
 
-// ───────── HU #12373: las tarifas son VIGENCIAS; el reporte lee la ABIERTA ─────────
+// ───────── HU #12374: el reporte resuelve la tarifa por la FECHA DE APROBACIÓN (RN-07) ─────────
 //
 // Se afirma sobre el SQL RENDERIZADO y no sobre el mock: el mock `chain` devuelve la fila entera y
-// descarta las condiciones del join, así que un `activo` fantasma pasaría en verde.
+// descarta las condiciones del join, así que un `vigente_hasta IS NULL` fantasma (o un `now()` a
+// secas: mutante M1) pasaría en verde. El fragmento que se busca es el MISMO que renderiza
+// `vigenteEn` en flito-tarifas.test.ts: es la guarda de paridad reporte ↔ compuerta (AC7).
 
-describe('conJoins — la tarifa estimada sale de la vigencia abierta (HU #12373)', () => {
-  it('los cuatro joins de tarifa van contra flito_tarifas_vigencias con `vigente_hasta IS NULL` y sin `activo`', () => {
-    const q = conJoins(new QueryBuilder().select({ id: flitoTramites.id }).from(flitoTramites).$dynamic());
-    const { sql } = q.toSQL();
-    for (const alias of ['td_esp', 'td_gen', 'lg_esp', 'lg_gen']) {
-      expect(sql).toContain(`"flito_tarifas_vigencias" "${alias}"`);
-      expect(sql).toMatch(new RegExp(`"${alias}"\\."vigente_hasta" IS NULL`));
-      expect(sql).not.toMatch(new RegExp(`"${alias}"\\."activo"`));
-    }
+const VIGENTE_EN = (a: string) =>
+  `tstzrange("${a}"."vigente_desde", "${a}"."vigente_hasta", '[)') @> COALESCE("flito_tramites"."fecha_aprobacion", now())::timestamptz`;
+
+describe('conJoins — la tarifa estimada es la vigencia que CONTIENE la fecha de aprobación (HU #12374)', () => {
+  const q = () => conJoins(new QueryBuilder().select({ id: flitoTramites.id }).from(flitoTramites).$dynamic());
+
+  it('exactamente DOS alias de vigencia (td, lg) contra flito_tarifas_vigencias; los _esp/_gen del modelo viejo ya no existen', () => {
+    const { sql } = q().toSQL();
+    expect(sql.match(/"flito_tarifas_vigencias" "/g)).toHaveLength(2);
+    expect(sql).toContain('"flito_tarifas_vigencias" "td"');
+    expect(sql).toContain('"flito_tarifas_vigencias" "lg"');
+    for (const viejo of ['td_esp', 'td_gen', 'lg_esp', 'lg_gen']) expect(sql).not.toContain(`"${viejo}"`);
     expect(sql).not.toContain('flito_tarifas_compania');
-    // La específica casa por tipo normalizado del trámite; la genérica solo con tipo NULL (logística).
-    expect(sql).toMatch(/"td_esp"\."tipo_tramite" = UPPER\(TRIM\(COALESCE\("flito_tramites"\."tipo_tramite", ''\)\)\)/);
-    expect(sql).toMatch(/"lg_gen"\."tipo_tramite" IS NULL/);
+    expect(sql).not.toMatch(/"(td|lg)"\."activo"/);
+  });
+
+  it('cada alias casa la vigencia que contiene COALESCE(fecha_aprobacion, now()) en rango [), no la abierta ni la de ahora (AC1, AC2, AC6; mutantes M1 y M3)', () => {
+    const { sql, params } = q().toSQL();
+    expect(sql).toContain(VIGENTE_EN('td'));
+    expect(sql).toContain(VIGENTE_EN('lg'));
+    // Ni «abierta» (el modelo del eslabón 1) ni «ahora» a secas (M1): la referencia es la aprobación.
+    expect(sql).not.toMatch(/"(td|lg)"\."vigente_hasta" IS NULL/);
+    expect(sql).not.toMatch(/@> now\(\)::timestamptz/);
+    // La referencia es columna + now(): NINGÚN Date viaja como parámetro (Drizzle no deduplica literales).
+    expect(params.filter((p) => p instanceof Date)).toHaveLength(0);
+  });
+
+  it('la llave: trámite digital por tipo normalizado del trámite, logística sin tipo (RN-02, RN-03)', () => {
+    const { sql } = q().toSQL();
+    expect(sql).toMatch(/"td"\."concepto" = 'tramite_digital'/);
+    expect(sql).toMatch(/"td"\."tipo_tramite" = UPPER\(TRIM\(COALESCE\("flito_tramites"\."tipo_tramite", ''\)\)\)/);
+    expect(sql).toMatch(/"lg"\."concepto" = 'logistica'/);
+    expect(sql).toMatch(/"lg"\."tipo_tramite" IS NULL/);
+  });
+
+  it('AC10 (forma estática): la cola de listos/incompletos lee el MISMO alias del join, sin segunda definición', () => {
+    const listo = renderizar(and(...condiciones({ etapa: 'listo' }))!).sql;
+    const incompleto = renderizar(and(...condiciones({ etapa: 'incompleto' }))!).sql;
+    for (const sql of [listo, incompleto]) {
+      expect(sql).toContain('"td"."valor" IS NULL');
+      expect(sql).toContain('"lg"."valor" IS NULL');
+      expect(sql).not.toMatch(/COALESCE\("td_esp"|COALESCE\("lg_esp"/);
+    }
   });
 });
