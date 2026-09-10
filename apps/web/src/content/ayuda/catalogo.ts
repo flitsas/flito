@@ -27,6 +27,7 @@ export type ClaveAyuda =
   | 'flito_comparendos'
   | 'clients'
   | 'flito_bolsas'
+  | 'flito_tarifas'
   | 'flito_conciliacion'
   | 'finanzas_reporte_costos'
   | 'siigo_parametrizacion'
@@ -68,8 +69,9 @@ export const CATALOGO_AYUDA: readonly EntradaAyuda[] = [
   { clave: 'flito_logistica', grupo: 'gestion', etiqueta: 'Logística', resumen: 'Actas, despacho y trazabilidad por documento.', to: '/flito/logistica', permiso: 'flito_logistica' },
   { clave: 'flito_logistica_ruta', grupo: 'gestion', etiqueta: 'Mi ruta', resumen: 'Recogidas y entregas asignadas al mensajero.', to: '/flito/ruta', permiso: 'flito_logistica_ruta' },
   { clave: 'flito_comparendos', grupo: 'gestion', etiqueta: 'Comparendos', resumen: 'Lo que SIMIT y los municipios reportan de los NIT vigilados.', to: '/flito/comparendos', permiso: 'flito_comparendos' },
-  { clave: 'clients', grupo: 'gestion', etiqueta: 'Clientes y proveedores', resumen: 'Empresas, tarifas y datos comerciales.', to: '/clients', permiso: 'clients' },
+  { clave: 'clients', grupo: 'gestion', etiqueta: 'Clientes y proveedores', resumen: 'Empresas, autogestión y datos comerciales.', to: '/clients', permiso: 'clients' },
   { clave: 'flito_bolsas', grupo: 'finanzas', etiqueta: 'Bolsas', resumen: 'Saldos, recargas y cierres.', to: '/flito/bolsas', permiso: 'flito_bolsas' },
+  { clave: 'flito_tarifas', grupo: 'finanzas', etiqueta: 'Tarifas', resumen: 'Cuánto se le cobra a cada cliente por trámite y logística.', to: '/flito/tarifas', permiso: 'flito_tarifas' },
   { clave: 'flito_conciliacion', grupo: 'finanzas', etiqueta: 'Conciliación', resumen: 'Cruce del recaudo SOAT contra lo emitido.', to: '/flito/conciliacion', permiso: 'flito_conciliacion' },
   { clave: 'finanzas_reporte_costos', grupo: 'finanzas', etiqueta: 'Reporte de costos', resumen: 'Costos por trámite para contabilidad y cobros.', to: '/finanzas/reporte-costos', permiso: 'finanzas_reporte_costos' },
   { clave: 'siigo_parametrizacion', grupo: 'finanzas', etiqueta: 'Facturación electrónica · Parametrización', resumen: 'Catálogos, mapeo de conceptos y emisión.', to: '/siigo/parametrizacion', permiso: 'siigo_parametrizacion' },

@@ -434,7 +434,7 @@ describe('AC2 — un campo que el RUNT no trajo NO es «no cuadra»: la solicitu
     const datos = (over: Record<string, unknown> = {}) => ({
       placa: PLACA, vin: VIN_RUNT, marca: null, linea: null, modelo: null, clase: null,
       cilindraje: null, tipoServicio: null, carroceria: null, pasajerosSentados: null,
-      puertas: null, organismoNombre: null, propietarioNombre: null, ...over,
+      puertas: null, numMotor: null, numSerie: null, organismoNombre: null, propietarioNombre: null, ...over,
     });
 
     expect(campoQueNoCuadra(VIN_RUNT, datos()), 'los dos coinciden').toBeNull();
@@ -454,6 +454,98 @@ describe('AC2 — un campo que el RUNT no trajo NO es «no cuadra»: la solicitu
 });
 
 // ═══════════════ La FORMA del log de la compuerta (PII en logs) ══════════════
+
+// ── HU #12401 — motor y serie del RUNT aterrizan en `vehicles` ─────────────────────────────────
+//
+// Se mide sobre el payload REAL del `set()` / `values()` (espia-drizzle), nunca sobre la fila que el
+// mock devuelve: el `chain` del keyed-db devuelve la fila entera aunque el UPDATE no la hubiera
+// tocado, y un aserto sobre ella sobreviviría al mutante que borra el spread.
+describe('HU #12401 — número de motor y de serie del RUNT en la ficha del vehículo', () => {
+  const MOTOR = 'MTR-123';
+  const SERIE = 'SER-456';
+
+  it('AC1 — ficha existente: el UPDATE lleva `numMotor` y `numSerie`, y el resto sigue igual', async () => {
+    escenario({ vehicles: [{ id: VEHICULO_ID, clientId: COMPANIA }] });
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ numMotor: MOTOR, numSerie: SERIE }));
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(201);
+    const set = espia.updatesEn('vehicles').at(-1)!.datos;
+    expect(set).toMatchObject({ numMotor: MOTOR, numSerie: SERIE });
+    // «El resto se guarda como hoy»: la placa y los tres de la #11966 no se movieron de sitio.
+    expect(set).toMatchObject({ plate: PLACA, brand: 'MAZDA', carroceria: 'WAGON', puertas: '5' });
+  });
+
+  it('AC1 — ficha NUEVA: el INSERT nace con motor y serie', async () => {
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ numMotor: MOTOR, numSerie: SERIE }));
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(201);
+    expect(espia.ultimoInsertEn('vehicles')).toMatchObject({ vin: VIN_RUNT, numMotor: MOTOR, numSerie: SERIE });
+  });
+
+  it('AC2 — el RUNT trae registro pero ni motor ni serie: las claves NO entran en el SET', async () => {
+    // La ficha tiene `MTR-OLD` / `SER-OLD` de otra fuente (OCR de la tarjeta, sync). Un `null` a
+    // pelo los borraría; con la clave ausente Postgres no toca la columna. Se afirma sobre las
+    // CLAVES: `toMatchObject({ numMotor: undefined })` pasaría también con la clave presente.
+    escenario({ vehicles: [{ id: VEHICULO_ID, clientId: COMPANIA, numMotor: 'MTR-OLD', numSerie: 'SER-OLD' }] });
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ numMotor: null, numSerie: '' }));
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(201);
+    const claves = Object.keys(espia.updatesEn('vehicles').at(-1)!.datos);
+    expect(claves).not.toContain('numMotor');
+    expect(claves).not.toContain('numSerie');
+    expect(claves, 'el UPDATE sí ocurrió, con el resto').toContain('plate');
+  });
+
+  it('AC2 — fila nueva sin motor ni serie: tampoco se escribe cadena vacía', async () => {
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ numMotor: '   ' }));
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(201);
+    const fila = espia.ultimoInsertEn('vehicles');
+    expect(fila.numMotor ?? null).toBeNull();
+    expect(fila.numSerie ?? null).toBeNull();
+  });
+
+  it('AC6 — un motor de 60 caracteres se guarda a 50 y el aviso no lleva el valor, la placa ni el VIN', async () => {
+    escenario({ vehicles: [{ id: VEHICULO_ID, clientId: COMPANIA }] });
+    const largo = 'X'.repeat(60);
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ numMotor: largo }));
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(201);
+    expect(espia.updatesEn('vehicles').at(-1)!.datos.numMotor).toBe(largo.slice(0, 50));
+    const aviso = logMock.warn.mock.calls.find((c) => (c[0] as Record<string, unknown>)?.campo === 'numMotor');
+    expect(aviso, 'hay un warn por el recorte').toBeDefined();
+    expect(aviso![0]).toEqual({ campo: 'numMotor', longitud: 60, max: 50 });
+    const texto = JSON.stringify(aviso);
+    expect(texto).not.toContain('XXXXX');
+    expect(texto).not.toContain(PLACA);
+    expect(texto).not.toContain(VIN_RUNT);
+    expect(texto).not.toContain('PEREZ');
+  });
+
+  it('la preconsulta NO publica motor ni serie: se persisten, no se enseñan', async () => {
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ numMotor: MOTOR, numSerie: SERIE }));
+
+    const r = await preconsultar(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(200);
+    expect(r.body.vehiculo).toMatchObject({ vin: VIN_RUNT, placa: PLACA });
+    expect(Object.keys(r.body.vehiculo)).not.toContain('numMotor');
+    expect(Object.keys(r.body.vehiculo)).not.toContain('numSerie');
+  });
+});
 
 describe('el log de la compuerta no lleva PII, en NINGUNA de sus dos ramas', () => {
   /** Todo lo que se escribió al log, aplanado, para buscar lo que no puede estar. */

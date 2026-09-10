@@ -6,7 +6,8 @@
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { historialDe } from '../../shared/historial/estado-historial.js';
 import { sendExcel } from '../../shared/utils/excel.js';
@@ -45,9 +46,6 @@ import { getFlitAdapter } from '../flito-sync/flit.adapter.js';
 const router = Router();
 router.use(authMiddleware);
 
-const OPERACIONES = requireRole('admin');
-const LECTURA = requireRole('admin', 'gestor_impuestos', 'auditor');
-const OPS_O_GESTOR = requireRole('admin', 'gestor_impuestos');
 const ESTADOS = ['pendiente', 'solicitado', 'con_novedad', 'pagado'] as const;
 
 const MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'application/zip', 'application/x-zip-compressed'];
@@ -108,7 +106,7 @@ function handleError(res: Response, e: unknown): void {
  *
  * Operaciones o gestor de impuestos (respeta la frontera del gestor). Integración FLIT.
  */
-router.get('/:id/factura-venta', OPS_O_GESTOR, async (req: Request, res: Response) => {
+router.get('/:id/factura-venta', exigirFuncion('impuestos.factura.ver'), async (req: Request, res: Response) => {
   const ctx = await contextoImpuesto(req.user!);
   const factura = await facturaVentaFlitConAcceso(req.params.id, ctx);
   if (!factura) { res.status(404).json({ error: 'El trámite no tiene factura de venta en FLIT' }); return; }
@@ -151,9 +149,9 @@ router.get('/:id/factura-venta', OPS_O_GESTOR, async (req: Request, res: Respons
  * único productor es `flito-recibos.service.ts`, que escribe siempre el marcado, así que **el camino
  * real es la caída** — la preferencia está para cuando el limpio exista.
  *
- * ── Roles: `OPS_O_GESTOR`, no `LECTURA` ─────────────────────────────────────────────────────────
+ * ── La función: `impuestos.soportes.descargar` (admin + gestor de partida), no la de ver ─────────
  *
- * `LECTURA` incluye `auditor`, y el AC7 dice que auditoría no descarga. 403.
+ * `impuestos.tramite.ver_soportes` la tiene `auditor`, y el AC7 dice que auditoría no descarga. 403.
  */
 const zipSoportesSchema = z.object({
   // Sin `.max()`: el tope se comprueba con `comprobarTopeRegistrosZip`, que responde con
@@ -163,7 +161,7 @@ const zipSoportesSchema = z.object({
     .min(1).max(2),
 }).strict();
 
-router.post('/soportes/zip', OPS_O_GESTOR, zipSoportesLimiter, async (req: Request, res: Response) => {
+router.post('/soportes/zip', exigirFuncion('impuestos.soportes.descargar'), zipSoportesLimiter, async (req: Request, res: Response) => {
   const parsed = zipSoportesSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
@@ -242,7 +240,7 @@ const fechaSchema = z.string().regex(FORMATO_FECHA, 'La fecha debe ser yyyy-mm-d
 // logPiiAccess` sobre sus ocho archivos daba 0—. Se cierra aquí y no solo en el export para no dejar
 // la ruta interactiva sin rastro mientras la de al lado lo escribe todo. Va DESPUÉS de la consulta y
 // con `await`, como en SOAT: `filas` no se sabe antes.
-router.get('/', LECTURA, async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('impuestos.cola.ver'), async (req: Request, res: Response) => {
   const ctx = await contextoImpuesto(req.user!);
   const estadoRaw = typeof req.query.estado === 'string' ? req.query.estado : undefined;
   const estados = estadoRaw
@@ -339,9 +337,9 @@ const exportSchema = colaFiltrosCampos
  * nginx, en el historial del navegador y en el `Referer`. **No existe variante GET de este
  * endpoint** — un `router.get` aquí devolvería la cédula a la URL sin romper ningún otro test.
  *
- * ── El rol: `OPS_O_GESTOR`, no `LECTURA` ────────────────────────────────────────────────────────
+ * ── La función: `impuestos.excel.exportar` (admin + gestor de partida), no la de ver la cola ─────
  *
- * `LECTURA` incluye `auditor`. Un archivo con la cédula, el correo y la dirección de los titulares
+ * `impuestos.cola.ver` la tiene `auditor`. Un archivo con la cédula, el correo y la dirección de los titulares
  * es otra cosa que una pantalla de consulta, y la HU nombra a admin y gestor. `auditor` recibe 403.
  *
  * ── Orden de la respuesta ───────────────────────────────────────────────────────────────────────
@@ -353,7 +351,7 @@ const exportSchema = colaFiltrosCampos
  * Va declarada antes que `GET /:id` por costumbre del router; no hay ambigüedad de todas formas —es
  * un POST y no existe `POST /:id` a secas—.
  */
-router.post('/export', OPS_O_GESTOR, exportColaLimiter, async (req: Request, res: Response) => {
+router.post('/export', exigirFuncion('impuestos.excel.exportar'), exportColaLimiter, async (req: Request, res: Response) => {
   const parsed = exportSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
     res.status(400).json({ error: 'Filtro inválido', details: parsed.error.flatten() });
@@ -403,12 +401,12 @@ router.post('/export', OPS_O_GESTOR, exportColaLimiter, async (req: Request, res
 
 // GET /facetas — valores disponibles para los filtros, acotados a lo que el gestor puede ver.
 // Antes de `/:id` para que «facetas» no se interprete como un identificador.
-router.get('/facetas', LECTURA, async (req: Request, res: Response) => {
+router.get('/facetas', exigirFuncion('impuestos.cola.filtrar'), async (req: Request, res: Response) => {
   res.json(await facetasColaImpuestos(await contextoImpuesto(req.user!)));
 });
 
 // GET /:id — detalle (404-no-403 para el gestor ajeno)
-router.get('/:id', LECTURA, async (req: Request, res: Response) => {
+router.get('/:id', exigirFuncion('impuestos.tramite.ver'), async (req: Request, res: Response) => {
   const ctx = await contextoImpuesto(req.user!);
   const d = await detalleImpuesto(req.params.id, ctx);
   if (!d) { res.status(404).json({ error: 'El impuesto no existe' }); return; }
@@ -419,7 +417,7 @@ router.get('/:id', LECTURA, async (req: Request, res: Response) => {
 //
 // Pasa por `detalleImpuesto()` antes de leer el historial: es lo que aplica la frontera del gestor
 // (CA-10). Ir directo a la tabla dejaría que un gestor leyera la historia de otro organismo.
-router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
+router.get('/:id/historial', exigirFuncion('impuestos.tramite.ver_historial'), async (req: Request, res: Response) => {
   const ctx = await contextoImpuesto(req.user!);
   const d = await detalleImpuesto(req.params.id, ctx);
   if (!d) { res.status(404).json({ error: 'El impuesto no existe' }); return; }
@@ -433,7 +431,7 @@ router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
  * ver el recibo que respalda un impuesto pagado había que salir al reporte de costos, al que el
  * gestor del organismo no entra. Misma frontera que el historial —vía `detalleImpuesto()`, CA-10.
  */
-router.get('/:id/soportes', LECTURA, async (req: Request, res: Response) => {
+router.get('/:id/soportes', exigirFuncion('impuestos.tramite.ver_soportes'), async (req: Request, res: Response) => {
   const ctx = await contextoImpuesto(req.user!);
   const d = await detalleImpuesto(req.params.id, ctx);
   if (!d) { res.status(404).json({ error: 'El impuesto no existe' }); return; }
@@ -458,7 +456,7 @@ router.get('/:id/soportes', LECTURA, async (req: Request, res: Response) => {
  * ahora», pero el campo `code` los separa sin ambigüedad: la interfaz NO debe distinguirlos por el
  * texto del mensaje.
  */
-router.post('/:id/certificar', OPS_O_GESTOR, async (req: Request, res: Response) => {
+router.post('/:id/certificar', exigirFuncion('impuestos.tramite.certificar'), async (req: Request, res: Response) => {
   try {
     const ctx = await contextoImpuesto(req.user!);
     const r = await certificarImpuesto(req.params.id, ctx);
@@ -511,7 +509,7 @@ router.post('/:id/certificar', OPS_O_GESTOR, async (req: Request, res: Response)
  * colisionan porque tienen distinto número de segmentos.
  */
 const certificarLoteSchema = z.object({ ids: z.array(z.string().uuid()).min(1) });
-router.post('/certificar', OPS_O_GESTOR, async (req: Request, res: Response) => {
+router.post('/certificar', exigirFuncion('impuestos.tramite.certificar_lote'), async (req: Request, res: Response) => {
   const parsed = certificarLoteSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'No se seleccionó ningún impuesto.' }); return; }
   try {
@@ -541,7 +539,7 @@ router.post('/certificar', OPS_O_GESTOR, async (req: Request, res: Response) => 
  * 409 y no 404 cuando el impuesto existe pero no está certificado: el registro está ahí, lo que falta
  * es el paso previo. El 404 queda para lo que de verdad no es accesible.
  */
-router.get('/:id/certificado', OPS_O_GESTOR, async (req: Request, res: Response) => {
+router.get('/:id/certificado', exigirFuncion('impuestos.certificado.descargar'), async (req: Request, res: Response) => {
   try {
     const ctx = await contextoImpuesto(req.user!);
     const cert = await certificacionVigenteConAcceso(req.params.id, ctx);
@@ -584,7 +582,7 @@ const enviarSchema = z.object({
   // sale del organismo. La contingencia es solo una marca más sobre el mismo envío.
   gestionOperaciones: z.boolean().optional(),
 });
-router.post('/enviar', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/enviar', exigirFuncion('impuestos.tramite.enviar'), async (req: Request, res: Response) => {
   const parsed = enviarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   const ctx = await contextoImpuesto(req.user!);
@@ -600,29 +598,33 @@ router.post('/enviar', OPERACIONES, async (req: Request, res: Response) => {
 // POST /:id/asumir-operaciones y POST /:id/devolver-gestor — traspaso por contingencia (HU #11155).
 // Solo Operaciones, motivo ≥5 como la reversa. El de devolver NO recibe destinatario: el organismo
 // nunca cambió, así que quitar la marca ya lo devuelve a quien le corresponde.
+//
+// Dos `router.post` explícitos y no un `for` con template literal (HU #12083): la guarda va con su
+// código literal en la línea de la ruta, que es lo que el lector del catálogo y `rutaDe` de la
+// bitácora necesitan ver; el `for` era justamente lo que dejó estas dos rutas fuera de la foto.
 const traspasoSchema = z.object({
   motivo: z.string().min(5, 'El traspaso de gestión exige un motivo que explique el porqué'),
 });
-for (const [ruta, accion, etiqueta] of [
-  ['asumir-operaciones', asumirEnOperaciones, 'Gestión asumida por Operaciones'],
-  ['devolver-gestor', devolverAlGestor, 'Gestión devuelta al gestor del organismo'],
-] as const) {
-  router.post(`/:id/${ruta}`, OPERACIONES, async (req: Request, res: Response) => {
-    const parsed = traspasoSchema.safeParse(req.body);
-    if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
-    try {
-      const ctx = await contextoImpuesto(req.user!);
-      const imp = await accion(req.params.id, parsed.data.motivo, ctx);
-      await audit(req, { action: 'update', resource: 'flito_impuesto', resourceId: imp.id, detail: `${etiqueta}: ${parsed.data.motivo.trim()}` });
-      await responderDetalle(res, ctx, imp);
-    } catch (e) { handleError(res, e); }
-  });
-}
+const traspaso = (
+  accion: typeof asumirEnOperaciones,
+  etiqueta: string,
+) => async (req: Request, res: Response) => {
+  const parsed = traspasoSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
+  try {
+    const ctx = await contextoImpuesto(req.user!);
+    const imp = await accion(req.params.id, parsed.data.motivo, ctx);
+    await audit(req, { action: 'update', resource: 'flito_impuesto', resourceId: imp.id, detail: `${etiqueta}: ${parsed.data.motivo.trim()}` });
+    await responderDetalle(res, ctx, imp);
+  } catch (e) { handleError(res, e); }
+};
+router.post('/:id/asumir-operaciones', exigirFuncion('impuestos.tramite.asumir'), traspaso(asumirEnOperaciones, 'Gestión asumida por Operaciones'));
+router.post('/:id/devolver-gestor', exigirFuncion('impuestos.tramite.devolver'), traspaso(devolverAlGestor, 'Gestión devuelta al gestor del organismo'));
 
 const motivoSchema = z.object({ motivo: z.string().min(1, 'El motivo es obligatorio') });
 
 // POST /:id/rechazar — rechazo del gestor. Operaciones o gestor.
-router.post('/:id/rechazar', OPS_O_GESTOR, async (req: Request, res: Response) => {
+router.post('/:id/rechazar', exigirFuncion('impuestos.tramite.rechazar'), async (req: Request, res: Response) => {
   const parsed = motivoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
   try {
@@ -634,7 +636,7 @@ router.post('/:id/rechazar', OPS_O_GESTOR, async (req: Request, res: Response) =
 });
 
 // POST /:id/reactivar — Rechazado → Pendiente. Solo Operaciones.
-router.post('/:id/reactivar', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/:id/reactivar', exigirFuncion('impuestos.tramite.reactivar'), async (req: Request, res: Response) => {
   const parsed = motivoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
   try {
@@ -650,7 +652,7 @@ const reversarSchema = z.object({
   estadoDestino: z.enum([EstadoImpuesto.PENDIENTE, EstadoImpuesto.SOLICITADO, EstadoImpuesto.CON_NOVEDAD, EstadoImpuesto.PAGADO]),
   motivo: z.string().min(5, 'La reversa exige un motivo que explique el porqué'),
 });
-router.post('/:id/reversar', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/:id/reversar', exigirFuncion('impuestos.tramite.reversar'), async (req: Request, res: Response) => {
   const parsed = reversarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   try {
@@ -669,7 +671,7 @@ router.post('/:id/reversar', OPERACIONES, async (req: Request, res: Response) =>
 // viaja un valor de texto por archivo, en el mismo orden, con la ruta relativa dentro del ZIP
 // (`SIN MARCA/ABC123.pdf`). Sin ese dato la deducción por carpeta moriría en silencio —todo al
 // defecto del checkbox—. El ZIP subido como archivo se sigue expandiendo en el API (AC7).
-router.post('/recibos', OPS_O_GESTOR, upload.array('archivos', CARGA_MASIVA_ARCHIVOS_POR_PETICION), async (req: Request, res: Response) => {
+router.post('/recibos', exigirFuncion('impuestos.recibos.cargar'), upload.array('archivos', CARGA_MASIVA_ARCHIVOS_POR_PETICION), async (req: Request, res: Response) => {
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (files.length === 0) { res.status(400).json({ error: 'No se adjuntó ningún archivo' }); return; }
   const sinMarca = req.body?.sinMarcaDeAgua === 'true' || req.body?.sinMarcaDeAgua === true;

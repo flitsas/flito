@@ -34,3 +34,9 @@ process.env.AUTH_SKIP_SESSION_INVAL_CHECK = '1';
 // evita consumir selectMock del handler y que su caché en memoria filtre estado entre
 // archivos. Tests específicos (laft.auth-block.test.ts) lo desactivan.
 process.env.AUTH_SKIP_LAFT_BLOCK_CHECK = '1';
+// La bitácora de intentos denegados (HU #12082) hace `db.insert` en cada 403 de `exigirFuncion`. Desde
+// la HU #12083 los 21 ficheros de rutas de FLITO/trámites/usuarios pasan por ahí, y un spec que afirme
+// un 403 y un `insert…not.toHaveBeenCalled` en el mismo caso vería consumido su mock. Se apaga en toda
+// la suite; `permisos-exigir-funcion.test.ts` y el aserto de plantilla de `flito-derechos.test.ts`
+// la encienden a propósito.
+process.env.PERMISOS_SKIP_BITACORA_INTENTOS = '1';

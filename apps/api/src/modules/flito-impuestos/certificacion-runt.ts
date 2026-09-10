@@ -44,6 +44,22 @@ export function normalizarTexto(v: unknown): string | null {
   return s.length > 0 ? s : null;
 }
 
+/**
+ * Lo que `extraerVehiculoRunt` devuelve: los campos comparables de la certificación MÁS motor y
+ * serie (HU #12401), que se persisten en `vehicles` pero no se comparan. Es asignable a
+ * `DatosVehiculoRunt`, así que `compararConRunt` sigue recibiéndolo sin cambios.
+ */
+export interface DatosVehiculoRuntExtraido extends DatosVehiculoRunt {
+  /** `vehiculo.numMotor` (medido en la consulta real). `null` = el RUNT no lo trajo. */
+  numMotor: string | null;
+  /** `vehiculo.numSerie`. NO es el VIN: en el payload real conviven `vin` con valor y `numSerie: null`. */
+  numSerie: string | null;
+}
+
+/** Alias del número de motor y del de serie (AC5 de la HU #12401). Separados de los del VIN. */
+const ALIAS_MOTOR = ['numMotor', 'numeroMotor', 'nroMotor'] as const;
+const ALIAS_SERIE = ['numSerie', 'numeroSerie', 'nroSerie'] as const;
+
 /** Primer alias con valor útil. El RUNT no es consistente con los nombres de sus campos. */
 function primero(fuente: Record<string, unknown> | null | undefined, claves: readonly string[]): string | null {
   if (!fuente) return null;
@@ -77,8 +93,17 @@ function primero(fuente: Record<string, unknown> | null | undefined, claves: rea
  * El VIN se busca además en `datosTecnicos` por si algún tipo de vehículo lo publica solo ahí. Si no
  * aparece por ninguna vía se devuelve `null` y el campo se marca NO_VERIFICABLE: no bloquea (AC4).
  * Preferimos no certificar el VIN a inventarnos que coincide.
+ *
+ * **Motor y serie (HU #12401) se extraen aquí pero NO se comparan.** Van a `vehicles.num_motor` y
+ * `vehicles.num_serie` desde el alta del canal Cliente y el recorrido de vigencia del SOAT (y la
+ * HU #12402 desde Impuestos); la certificación no los mira —no están en `ORDEN_CAMPOS`— y por eso
+ * el tipo que los lleva es {@link DatosVehiculoRuntExtraido}, local a este módulo, y no
+ * `DatosVehiculoRunt` de shared-types, que es el contrato de la comparación y no cambia. Alias por
+ * las DOS vías, como los demás. `numSerie` es un campo distinto del VIN aunque comparta nombre con
+ * uno de sus alias (`serie`): en la consulta real de 2026-07-31 el vehículo traía `vin` y
+ * `numSerie: null` a la vez. La lista de alias del VIN no se toca.
  */
-export function extraerVehiculoRunt(data: unknown): DatosVehiculoRunt {
+export function extraerVehiculoRunt(data: unknown): DatosVehiculoRuntExtraido {
   const d = (data ?? {}) as Record<string, unknown>;
   const veh = (d.vehiculo ?? {}) as Record<string, unknown>;
   const tec = (d.datosTecnicos ?? {}) as Record<string, unknown>;
@@ -91,6 +116,8 @@ export function extraerVehiculoRunt(data: unknown): DatosVehiculoRunt {
     linea: primero(veh, ['linea', 'nombreLinea']) ?? primero(tec, ['linea', 'nombreLinea']),
     modelo: primero(veh, ['modelo', 'anioModelo', 'anoModelo']) ?? primero(tec, ['modelo', 'anioModelo', 'anoModelo']),
     clase: primero(veh, ['claseVehiculo', 'clase', 'nombreClase']) ?? primero(tec, ['claseVehiculo', 'clase', 'nombreClase']),
+    numMotor: primero(veh, ALIAS_MOTOR) ?? primero(tec, ALIAS_MOTOR),
+    numSerie: primero(veh, ALIAS_SERIE) ?? primero(tec, ALIAS_SERIE),
   };
 }
 

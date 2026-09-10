@@ -28,7 +28,11 @@ describe('AC5 — la pantalla de operación tiene clave propia', () => {
     // Auditoría VE la bandeja; que no pueda ejecutar nada lo garantiza la tabla de acciones del
     // backend (siigo.permisos.ts), no el catálogo de páginas.
     expect(ROLE_DEFAULT_PAGES.auditor).toContain('siigo_operacion');
-    expect(getEffectivePages({ role: 'admin' })).toContain('siigo_operacion');
+    // HU #12081 AC4: `admin` ya no la obtiene por comodín —su fila de ROLE_DEFAULT_PAGES se retiró—
+    // sino por una fila sembrada en `permisos_rol_funcion`. Aquí solo se puede sostener que la
+    // página es concedible; que la tiene concedida lo comprueba `__tests__/db/migracion-0179.test.ts`.
+    expect(ROLE_DEFAULT_PAGES.admin).toBeUndefined();
+    expect(PAGE_GROUPS.flatMap((g) => g.pages)).toContain('siigo_operacion');
   });
 
   it('ningún otro rol la recibe por defecto', () => {

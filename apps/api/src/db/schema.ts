@@ -24,37 +24,13 @@ import type { ResumenMotivosCorrida } from '@operaciones/shared-types';
 // y tampoco entra al catálogo, porque se fusionó en `admin`.)
 export const roleEnum = pgEnum('user_role', ['admin', 'proveedor', 'transito', 'compliance', 'lider_pesv', 'supervisor_flota', 'conductor', 'auditor', 'gestor_impuestos', 'mensajero', 'financiera', 'cliente']);
 
-// HU #12169 — El catálogo de roles. Sustituye al enum `user_role` como fuente de verdad de qué roles
-// existen: aquí una FILA es un rol, y el administrador puede crear y borrar filas (CF-03, CF-05),
-// cosa que sobre un enum de Postgres no es difícil, es imposible.
-//
-// `codigo` es la PK y es INMUTABLE: 276 `requireRole('…')` de `apps/api/src/modules` lo comparan como
-// literal, así que renombrarlo no es editar un rol, es cambiar el sistema. Lo editable es `nombre`; la
-// FK de `users.role` lo declara con `ON UPDATE RESTRICT` para que lo diga la base y no un comentario.
-export const permisosRoles = pgTable('permisos_roles', {
-  codigo: varchar('codigo', { length: 40 }).primaryKey(),
-  nombre: varchar('nombre', { length: 80 }).notNull(),
-  descripcion: text('descripcion'),
-  // 'ninguno' | 'compania' | 'proveedor_soat' | 'organismos_transito'. El ROL dice si se enlaza y a
-  // QUÉ tipo (RN-A3); el usuario dice a cuál. Lo hacen cumplir los dos triggers de la 0178
-  // (`users_ambito_trg` y `users_ambito_organismos_trg`), que Drizzle no sabe declarar.
-  tipoEnlace: varchar('tipo_enlace', { length: 24 }).notNull().default('ninguno'),
-  // 'interno' | 'externo'. Esta HU lo PERSISTE; quien lo consume es el motor de la #12082/#12083.
-  // Hasta entonces la frontera del canal Cliente sigue colgando del literal de `canal-cliente.ts`.
-  tipoPrincipal: varchar('tipo_principal', { length: 10 }).notNull().default('interno'),
-  // Candado de BORRADO (ADR-0015 §Decisión 5), no marca de origen: true ⇒ el rol no se borra. Solo
-  // `admin` (permanente) y `cliente` (temporal, hasta la #12082 AC8). Editar sigue permitido (CF-04).
-  esSistema: boolean('es_sistema').notNull().default(false),
-  // Gobierna la ASIGNACIÓN, no la autenticación: un usuario con rol inactivo sigue entrando.
-  activo: boolean('activo').notNull().default(true),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-}, (t) => ({
-  tipoEnlaceChk: check('permisos_roles_tipo_enlace_chk',
-    sql`${t.tipoEnlace} IN ('ninguno','compania','proveedor_soat','organismos_transito')`),
-  tipoPrincipalChk: check('permisos_roles_tipo_principal_chk',
-    sql`${t.tipoPrincipal} IN ('interno','externo')`),
-}));
+// Las tablas `permisos_*` (roles, funciones, reparto, excepciones por usuario, bitácora de 403) viven en
+// `./schema/permisos.ts` y se re-exportan desde aquí: este archivo está contra el techo de max-lines (3400)
+// y ese bloque es el que crece con el Feature #12072. Para el resto del código nada cambia: se sigue
+// importando de `db/schema.js`.
+// Import (y no solo `export … from`) porque `users.role` referencia `permisosRoles.codigo` aquí abajo.
+import { permisosRoles, permisosFunciones, permisosRolFuncion, permisosUsuarioFuncion, permisosIntentosDenegados, permisosAuditoria } from './schema/permisos.js';
+export { permisosRoles, permisosFunciones, permisosRolFuncion, permisosUsuarioFuncion, permisosIntentosDenegados, permisosAuditoria };
 
 export const laftKindEnum = pgEnum('laft_kind', ['PN', 'PJ']);
 export const laftRiskLevelEnum = pgEnum('laft_risk_level', ['bajo', 'medio', 'alto']);
@@ -3511,26 +3487,42 @@ export const flitoLogisticaActaEstadoEnum = pgEnum('flito_logistica_acta_estado'
 export const flitoLogisticaTipoDocEnum = pgEnum('flito_logistica_tipo_doc', ['licencia_transito', 'placa', 'otro']);
 
 /**
- * Tarifa negociada con una compañía gestora (HU #10963). Sustituye a las constantes quemadas
- * `COSTOS_FIJOS.tramiteDigital` y `COSTOS_FIJOS.logistica`, que eran iguales para todos los clientes.
+ * Vigencias de tarifa por compañía (HU #12373). Sustituye a `flito_tarifas_compania` (0110): cada
+ * (compañía × concepto × tipo) es una SECUENCIA de vigencias `[vigente_desde, vigente_hasta)`; la
+ * abierta (`vigente_hasta IS NULL`) es la que se cobra. Cambiar un valor = cerrar la abierta y abrir
+ * otra en la misma transacción; dejar de cobrar = cerrar sin abrir. NUNCA se borra ni se sobreescribe.
  *
- * `tipoTramite` NULL = tarifa genérica del concepto, la que se usa cuando no hay una específica.
- * Se guarda normalizado (mayúsculas, sin espacios) porque en `flito_tramites.tipoTramite` es texto
- * libre de FLIT. La unicidad real la impone `idx_flito_tarifas_unica`, con COALESCE sobre el tipo:
- * en un índice único normal NULL no colisiona con NULL y habría varias tarifas genéricas.
+ * Tipos cerrados: `tramite_digital` exige tipo ∈ TIPOS_TRAMITE_TARIFA ('MATRICULA'|'TRASPASO'|'OTROS',
+ * shared-types/flito-tarifas.ts); `logistica` va SIEMPRE con tipo NULL (un valor por compañía).
+ * Lo imponen los CHECK de abajo. Lo que Drizzle no declara y vive solo en la 0182: la EXCLUDE con
+ * btree_gist (sin solapes entre vigencias de una misma llave).
  */
-export const flitoTarifasCompania = pgTable('flito_tarifas_compania', {
+export const flitoTarifasVigencias = pgTable('flito_tarifas_vigencias', {
   id: uuid('id').primaryKey().defaultRandom(),
-  companiaId: integer('compania_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+  // RESTRICT, como el resto de las tablas financieras de FLITO (bolsas, movimientos, boletas): el
+  // historial de lo que se cobró no desaparece con la compañía. Hoy es inerte (el borrado de clientes
+  // es lógico), pero un CASCADE heredado de la 0110 contradecía el «nunca se borra» de arriba.
+  companiaId: integer('compania_id').notNull().references(() => clients.id, { onDelete: 'restrict' }),
   concepto: varchar('concepto', { length: 30 }).notNull(),
-  tipoTramite: varchar('tipo_tramite', { length: 60 }),
+  tipoTramite: varchar('tipo_tramite', { length: 20 }),
   valor: numeric('valor', { precision: 14, scale: 2 }).notNull(),
-  activo: boolean('activo').notNull().default(true),
-  actualizadoPorId: integer('actualizado_por_id').references(() => users.id),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  vigenteDesde: timestamp('vigente_desde', { withTimezone: true }).notNull().defaultNow(),
+  vigenteHasta: timestamp('vigente_hasta', { withTimezone: true }),
+  fijadoPorId: integer('fijado_por_id').references(() => users.id),
+  fijadoEn: timestamp('fijado_en', { withTimezone: true }).notNull().defaultNow(),
+  cerradoPorId: integer('cerrado_por_id').references(() => users.id),
+  cerradoEn: timestamp('cerrado_en', { withTimezone: true }),
 }, (t) => ({
-  companiaConceptoIdx: index('idx_flito_tarifas_compania_concepto').on(t.companiaId, t.concepto),
+  companiaConceptoIdx: index('idx_flito_tarifas_vigencias_compania_concepto').on(t.companiaId, t.concepto),
+  // Una sola abierta por llave. El COALESCE es imprescindible: NULL no colisiona con NULL.
+  abiertaUq: uniqueIndex('idx_flito_tarifas_vigencias_abierta')
+    .on(t.companiaId, t.concepto, sql`COALESCE(${t.tipoTramite}, '')`).where(sql`${t.vigenteHasta} IS NULL`),
+  conceptoChk: check('flito_tarifas_vigencias_concepto_chk', sql`${t.concepto} IN ('tramite_digital', 'logistica')`),
+  tipoChk: check('flito_tarifas_vigencias_tipo_chk', sql`(${t.concepto} = 'tramite_digital' AND ${t.tipoTramite} IS NOT NULL AND ${t.tipoTramite} IN ('MATRICULA', 'TRASPASO', 'OTROS')) OR (${t.concepto} = 'logistica' AND ${t.tipoTramite} IS NULL)`),
+  valorChk: check('flito_tarifas_vigencias_valor_chk', sql`${t.valor} >= 0`),
+  // >= y no >: una tarifa creada inactiva y nunca activada migra como rango vacío [t, t).
+  rangoChk: check('flito_tarifas_vigencias_rango_chk', sql`${t.vigenteHasta} IS NULL OR ${t.vigenteHasta} >= ${t.vigenteDesde}`),
+  cierreChk: check('flito_tarifas_vigencias_cierre_chk', sql`(${t.vigenteHasta} IS NULL) = (${t.cerradoEn} IS NULL)`),
 }));
 
 /**
@@ -4192,7 +4184,7 @@ export const siigoOperaciones = pgTable('siigo_operaciones', {
  * hereden confirmaciones del otro, cosa imposible con una sola fila por concepto.
  *
  * `tipoTramite` NULL = configuración genérica; con tipo de trámite, precedencia sobre la genérica.
- * Misma convención ya probada en `flitoTarifasCompania`.
+ * Misma convención que usaba `flito_tarifas_compania` (0110) y que hereda `flitoTarifasVigencias`.
  *
  * NO modela retenciones (AC7): no está confirmado si ReteICA, ReteIVA o autorretención aplican a
  * las facturas de FLIT. Incorporarlas sería añadir columnas aquí, no rehacer el modelo.

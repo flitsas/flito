@@ -47,8 +47,14 @@ async function buildApp() {
  */
 function conUsuario(usuario: Record<string, unknown>, compania?: Record<string, unknown>[]) {
   selectMock.mockReturnValueOnce(chain([usuario]));        // el usuario
+  // HU #12082: `allowedPages` es una vista del resolutor único (`resolverPermisos`, cacheado por
+  // usuario), que en estos tests lee del registro del helper (`testToken` registra al `sub`): no
+  // consume `selectMock`. En producción son tres consultas por usuario por minuto, no por petición.
   if (compania) selectMock.mockReturnValueOnce(chain(compania)); // clients
 }
+
+/** Las consultas fijas de `/me` desde la HU #12082: la del usuario. El reparto lo sirve el resolutor. */
+const CONSULTAS_BASE = 1;
 
 const token = async (role: string, sub = 5) => `Bearer ${await testToken({ sub, username: 'u@empresa.co', role: role as never })}`;
 
@@ -79,7 +85,8 @@ describe('GET /api/auth/me — `puedeSolicitarSoat`', () => {
     const r = await request(await buildApp()).get('/api/auth/me').set('Authorization', await token('cliente'));
 
     expect(r.body.puedeSolicitarSoat).toBe(false);
-    expect(selectMock).toHaveBeenCalledTimes(1); // solo la del usuario: `clients` no se consulta
+    // Las tres de siempre y ni una más: `clients` no se consulta.
+    expect(selectMock).toHaveBeenCalledTimes(CONSULTAS_BASE);
   });
 
   it('**admin → false y NI UNA consulta de más**: los otros once roles no pagan este dato', async () => {
@@ -87,7 +94,7 @@ describe('GET /api/auth/me — `puedeSolicitarSoat`', () => {
     const r = await request(await buildApp()).get('/api/auth/me').set('Authorization', await token('admin'));
 
     expect(r.body.puedeSolicitarSoat).toBe(false);
-    expect(selectMock).toHaveBeenCalledTimes(1);
+    expect(selectMock).toHaveBeenCalledTimes(CONSULTAS_BASE);
   });
 
   it('`companiaId` NO sale en la respuesta: viaja el booleano derivado, no el identificador interno', async () => {

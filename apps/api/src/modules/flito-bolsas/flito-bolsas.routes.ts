@@ -12,7 +12,8 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db/client.js';
 import { clients } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { carpetaDe } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { checkMagicNumber } from '../pesv/magic-number.js';
@@ -32,7 +33,6 @@ import {
 const router = Router();
 router.use(authMiddleware);
 
-const BOLSAS = requireRole('admin', 'financiera');
 
 /**
  * El comprobante de una recarga es un PDF o una imagen del soporte bancario. La lista blanca la
@@ -84,7 +84,7 @@ function companiaIdDe(req: Request): number {
 
 // GET /consolidado — saldo agregado de todas las bolsas. Antes de /:companiaId para que
 // «consolidado» no se lea como un id de compañía.
-router.get('/consolidado', BOLSAS, async (_req: Request, res: Response) => {
+router.get('/consolidado', exigirFuncion('bolsas.consolidado.ver'), async (_req: Request, res: Response) => {
   res.json(await saldoConsolidado());
 });
 
@@ -94,14 +94,14 @@ router.get('/consolidado', BOLSAS, async (_req: Request, res: Response) => {
 // segmentos, pero estas no.
 
 // GET /riesgo — todas las bolsas con su nivel, las de peor riesgo primero. Alimenta el tablero.
-router.get('/riesgo', BOLSAS, async (req: Request, res: Response) => {
+router.get('/riesgo', exigirFuncion('bolsas.riesgo.ver'), async (req: Request, res: Response) => {
   const parsed = filtroSchema.safeParse(req.query);
   if (!parsed.success) { res.status(400).json({ error: 'Filtros inválidos' }); return; }
   res.json(await bolsasConRiesgo(parsed.data.periodo));
 });
 
 // GET /alertas — saldo y conciliación, lo que Financiera necesita mirar hoy.
-router.get('/alertas', BOLSAS, async (_req: Request, res: Response) => {
+router.get('/alertas', exigirFuncion('bolsas.alertas.ver'), async (_req: Request, res: Response) => {
   const [saldo, conciliacion] = await Promise.all([alertasDeSaldo(), alertasDeConciliacion()]);
   res.json({ saldo, conciliacion });
 });
@@ -111,7 +111,7 @@ router.get('/alertas', BOLSAS, async (_req: Request, res: Response) => {
 // VA ANTES de `GET /:companiaId` a propósito, y no es cosmético: Express resuelve por orden de
 // registro, así que declarada después, «transito» entraría como id de compañía y esta ruta no se
 // alcanzaría nunca.
-router.get('/transito', BOLSAS, async (_req: Request, res: Response) => {
+router.get('/transito', exigirFuncion('bolsas.transito.listar'), async (_req: Request, res: Response) => {
   res.json(await bolsasTransito());
 });
 
@@ -128,7 +128,7 @@ const bolsaTransitoSchema = z.object({
 });
 
 // POST /transito — crea una bolsa con su cobertura (HU #11161, ajuste 0124).
-router.post('/transito', BOLSAS, async (req: Request, res: Response) => {
+router.post('/transito', exigirFuncion('bolsas.transito.crear'), async (req: Request, res: Response) => {
   const parsed = bolsaTransitoSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
@@ -148,7 +148,7 @@ router.post('/transito', BOLSAS, async (req: Request, res: Response) => {
 });
 
 // GET /:companiaId — bolsa y saldo del cliente.
-router.get('/:companiaId', BOLSAS, async (req: Request, res: Response) => {
+router.get('/:companiaId', exigirFuncion('bolsas.bolsa.ver'), async (req: Request, res: Response) => {
   try {
     const bolsa = await bolsaConRiesgoDe(companiaIdDe(req));
     // Sin bolsa no es un error: es un cliente que todavía no ha recibido su primera recarga.
@@ -162,7 +162,7 @@ const filtroSchema = z.object({
   periodo: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional(),
   limite: z.coerce.number().int().positive().max(500).optional(),
 });
-router.get('/:companiaId/movimientos', BOLSAS, async (req: Request, res: Response) => {
+router.get('/:companiaId/movimientos', exigirFuncion('bolsas.movimientos.ver'), async (req: Request, res: Response) => {
   const parsed = filtroSchema.safeParse(req.query);
   if (!parsed.success) { res.status(400).json({ error: 'Filtros inválidos' }); return; }
   try {
@@ -190,7 +190,7 @@ const recargaSchema = z.object({
   observacion: z.string().trim().max(1000).optional(),
 });
 
-router.post('/:companiaId/recargas', BOLSAS, recibirSoporte, async (req: Request, res: Response) => {
+router.post('/:companiaId/recargas', exigirFuncion('bolsas.recarga.registrar'), recibirSoporte, async (req: Request, res: Response) => {
   const parsed = recargaSchema.safeParse(req.body);
   if (!parsed.success) {
     const msg = parsed.error.issues[0]?.message ?? 'Datos inválidos';
@@ -277,7 +277,7 @@ function claveIdempotencia(req: Request): string | null {
 // que el soporte esté referenciado por un movimiento de alguno de los dos libros; lo que no lo
 // esté —incluido el comprobante PSE de una boleta, que cuelga de la boleta y no de un movimiento—
 // sale por 404, el mismo desenlace que un id inexistente.
-router.get('/soportes/:soporteId', BOLSAS, async (req: Request, res: Response) => {
+router.get('/soportes/:soporteId', exigirFuncion('bolsas.soporte.descargar'), async (req: Request, res: Response) => {
   const s = await storageKeySoporteDeBolsa(req.params.soporteId);
   if (!s) { res.status(404).json({ error: 'El soporte no existe' }); return; }
   res.json({
@@ -288,14 +288,14 @@ router.get('/soportes/:soporteId', BOLSAS, async (req: Request, res: Response) =
 });
 
 // GET /transito/:bolsaId — saldo de la bolsa con su nivel y su cobertura (HU #11161).
-router.get('/transito/:bolsaId', BOLSAS, async (req: Request, res: Response) => {
+router.get('/transito/:bolsaId', exigirFuncion('bolsas.transito.ver'), async (req: Request, res: Response) => {
   const bolsa = await bolsaTransitoDe(req.params.bolsaId);
   if (!bolsa) { res.status(404).json({ error: 'La bolsa no existe' }); return; }
   res.json(bolsa);
 });
 
 // PATCH /transito/:bolsaId — redefine nombre y cobertura. El saldo no se toca: es dinero real.
-router.patch('/transito/:bolsaId', BOLSAS, async (req: Request, res: Response) => {
+router.patch('/transito/:bolsaId', exigirFuncion('bolsas.transito.editar'), async (req: Request, res: Response) => {
   const parsed = bolsaTransitoSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
@@ -316,7 +316,7 @@ router.patch('/transito/:bolsaId', BOLSAS, async (req: Request, res: Response) =
 });
 
 // GET /transito/:bolsaId/movimientos — libro de la bolsa.
-router.get('/transito/:bolsaId/movimientos', BOLSAS, async (req: Request, res: Response) => {
+router.get('/transito/:bolsaId/movimientos', exigirFuncion('bolsas.transito.ver_movimientos'), async (req: Request, res: Response) => {
   res.json(await movimientosTransitoDe(req.params.bolsaId));
 });
 
@@ -332,7 +332,7 @@ const cargaTransitoSchema = z.object({
   observacion: z.string().trim().max(1000).optional(),
 });
 
-router.post('/transito/:bolsaId/cargas', BOLSAS, recibirSoporte, async (req: Request, res: Response) => {
+router.post('/transito/:bolsaId/cargas', exigirFuncion('bolsas.transito.cargar'), recibirSoporte, async (req: Request, res: Response) => {
   const parsed = cargaTransitoSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
@@ -379,7 +379,7 @@ router.post('/transito/:bolsaId/cargas', BOLSAS, recibirSoporte, async (req: Req
 });
 
 // GET /:companiaId/extracto — saldo con el consumo desglosado por organismo y por concepto.
-router.get('/:companiaId/extracto', BOLSAS, async (req: Request, res: Response) => {
+router.get('/:companiaId/extracto', exigirFuncion('bolsas.extracto.descargar'), async (req: Request, res: Response) => {
   const parsed = filtroSchema.safeParse(req.query);
   if (!parsed.success) { res.status(400).json({ error: 'Filtros inválidos' }); return; }
   try {
@@ -403,7 +403,7 @@ const manualSchema = z.object({
   organismoCodigo: z.string().trim().max(5).optional(),
 });
 
-router.post('/:companiaId/movimientos-manuales', BOLSAS, recibirSoporte, async (req: Request, res: Response) => {
+router.post('/:companiaId/movimientos-manuales', exigirFuncion('bolsas.movimiento.registrar'), recibirSoporte, async (req: Request, res: Response) => {
   const parsed = manualSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
@@ -461,7 +461,7 @@ const correccionSchema = z.object({
   motivo: z.string().trim().min(5, { message: 'Indica el motivo del movimiento' }).max(1000),
 });
 
-router.post('/:companiaId/movimientos/:movimientoId/correccion', BOLSAS, async (req: Request, res: Response) => {
+router.post('/:companiaId/movimientos/:movimientoId/correccion', exigirFuncion('bolsas.movimiento.corregir'), async (req: Request, res: Response) => {
   const parsed = correccionSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
@@ -483,7 +483,7 @@ router.post('/:companiaId/movimientos/:movimientoId/correccion', BOLSAS, async (
 });
 
 // GET /:companiaId/cierres — reportes de cierre del cliente, del más reciente al más antiguo.
-router.get('/:companiaId/cierres', BOLSAS, async (req: Request, res: Response) => {
+router.get('/:companiaId/cierres', exigirFuncion('bolsas.cierres.ver'), async (req: Request, res: Response) => {
   try {
     res.json(await cierresDe(companiaIdDe(req)));
   } catch (e) { fallo(res, e); }
@@ -498,7 +498,7 @@ const cierreSchema = z.object({
   periodo: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'El periodo debe tener la forma AAAA-MM' }),
   observaciones: z.string().trim().max(2000).optional(),
 });
-router.post('/:companiaId/cierres', BOLSAS, async (req: Request, res: Response) => {
+router.post('/:companiaId/cierres', exigirFuncion('bolsas.cierre.crear'), async (req: Request, res: Response) => {
   const parsed = cierreSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });

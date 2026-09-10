@@ -65,21 +65,22 @@ const SENAL_REAPERTURA_MB = 150;
 /** AC3 de la HU #11651: el event loop se degrada durante la generación, pero no se DETIENE. */
 const ATENCION_MINIMA = 0.15;
 
-describe('la hoja de 25 columnas cabe en el presupuesto de heap (ADR-0004 §Coste)', () => {
+describe('la hoja de 27 columnas cabe en el presupuesto de heap (ADR-0004 §Coste)', () => {
   it('el generador produce **todas** las columnas del archivo real', () => {
     // Sin esto, la medición mediría una hoja más estrecha que la de producción y diría que el export
     // es barato. Es literalmente lo que pasó entre la HU #11712 y la #11651 en comparendos: el
     // generador se quedó en 19 claves, el archivo pasó a 21 y nadie tocó la medición. Se compara
     // contra la constante de PRODUCCIÓN, no contra un número escrito a mano.
     expect(columnasFaltantes(COLUMNAS_COLA_EXPORT, filaCola(0))).toEqual([]);
-    expect(COLUMNAS_COLA_EXPORT).toHaveLength(25);
+    // 27 desde la HU #12403 (`NumeroMotor`, `NumeroSerie`); antes 25 (HU #11934).
+    expect(COLUMNAS_COLA_EXPORT).toHaveLength(27);
   });
 
   // `retry: 0`: el reintento del config global correría sobre el proceso que acaba de fallar, con el
   // RSS ya crecido, y convertiría cualquier aserción de memoria en un pase gratis.
   it('UN export al tope: duración, memoria y lag', { timeout: 120_000, retry: 0 }, async () => {
     const m = await medirExports([filasCola(FILAS)], COLUMNAS_COLA_EXPORT);
-    reportar('cola FLITO · 25 columnas · 1 export', FILAS, m);
+    reportar('cola FLITO · 27 columnas · 1 export', FILAS, m);
 
     expect(m.bytesPorExport[0]).toBeGreaterThan(0);
     expect(m.rssDeltaMB).toBeLessThan(SENAL_REAPERTURA_MB);
@@ -107,6 +108,13 @@ describe('la hoja de 25 columnas cabe en el presupuesto de heap (ADR-0004 §Cost
     //     número OPTIMISTA —el RSS no se devuelve al sistema operativo entre escenarios— y por eso
     //     no es el que se cita.
     //
+    // ── LO MEDIDO (2026-09-10, HU #12403: 27 columnas, `NumeroMotor` y `NumeroSerie`) ──────────
+    //
+    //   · UN export al tope: **+97 MB** de RSS, heap pico 153,7 MB, 600 ms, archivo 0,3 MB.
+    //   · CINCO simultáneos, en la misma corrida del archivo (proceso calentado): **178,7 MB**, heap
+    //     pico 252,2 MB. Dos identificadores únicos por fila —no se deduplican en la tabla de
+    //     cadenas— y el delta sigue dentro del rango 165–220 medido con 25. El margen no se mueve.
+    //
     // **La hoja de 25 columnas cuesta MENOS que los 239 MB que ADR-0004 midió con quince**, y no es
     // una paradoja: aquella hoja es la de comparendos, con una columna de observación de hasta mil
     // caracteres; esta tiene 25 columnas ESTRECHAS, la mitad de ellas constantes o repetidas
@@ -120,7 +128,7 @@ describe('la hoja de 25 columnas cabe en el presupuesto de heap (ADR-0004 §Cost
     // PRESUPUESTO, que es lo que separa al API de un reinicio de PM2.
     const lotes = Array.from({ length: SIMULTANEOS }, () => filasCola(FILAS));
     const m = await medirExports(lotes, COLUMNAS_COLA_EXPORT);
-    reportar('cola FLITO · 25 columnas · 5 simultáneos', FILAS, m);
+    reportar('cola FLITO · 27 columnas · 5 simultáneos', FILAS, m);
 
     // Los cinco archivos tienen que salir ENTEROS: un export que se quedara a medias bajaría el pico
     // y haría pasar la medición por el motivo contrario al que se busca.

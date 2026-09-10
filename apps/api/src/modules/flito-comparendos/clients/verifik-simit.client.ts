@@ -120,7 +120,7 @@ export async function consultarComparendosSimit(
   // URLs de páginas de `apps/web`, nuestros access logs y los filtros de nuestra API autenticada—, y
   // ahí su default de diseño (PII en el cuerpo de un `POST …/buscar`, no en la query) se sigue
   // cumpliendo entero: el API de comparendos busca por NIT en body. Esto de aquí es una llamada
-  // SALIENTE a un tercero, que §14 no regula; sus mitigaciones (`auth`, `requireRole`,
+  // SALIENTE a un tercero, que §14 no regula; sus mitigaciones (`auth`, `exigirFuncion`,
   // `logPiiAccess`) son de una lectura nuestra y no tienen dónde aplicarse en un GET a Verifik.
   //
   // Lo que sí aplica es la **Ley 1581**: remitir el NIT monitoreado a Verifik —y al UTS— es una

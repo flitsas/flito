@@ -44,7 +44,7 @@ import { and, eq, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
 import type { MotivoCaidaRunt, ResumenMotivosCorrida } from '@operaciones/shared-types';
 import { env } from '../../config/env.js';
 import { db } from '../../db/client.js';
-import { auditLogs, flitoSoat } from '../../db/schema.js';
+import { auditLogs, flitoSoat, vehicles } from '../../db/schema.js';
 import { circuitoAbierto } from '../../services/circuitBreaker.js';
 import { loggerFor } from '../../shared/logger.js';
 import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
@@ -53,7 +53,8 @@ import {
   causaDeCaida, consultarRuntCrudo, fechaVencimientoSoatRunt, polizaSoatRunt, soatVigenteSegunRunt,
   type RespuestaKyverum,
 } from './flito-soat-cliente-runt.js';
-import { runtSinRegistro } from '../flito-impuestos/certificacion-runt.js';
+import { extraerVehiculoRunt, runtSinRegistro } from '../flito-impuestos/certificacion-runt.js';
+import { motorYSerieParaVehiculo } from '../runt/vehiculo-motor-serie.js';
 
 const log = loggerFor('flito-soat-vigencia');
 
@@ -130,6 +131,11 @@ export interface ResultadoRecorridoVigencia {
 export interface VehiculoAVerificar {
   soatId: string;
   vin: string;
+  /**
+   * La ficha a la que van motor y serie (HU #12401). Es la FK `flito_soat.vehiculo_id`, NOT NULL:
+   * un entero interno, no un identificador del vehículo ante nadie.
+   */
+  vehiculoId: number;
   /**
    * Estado de vigencia ANTERIOR, y no es un dato de más.
    *
@@ -215,6 +221,7 @@ export async function vehiculosAVerificar(dia: string): Promise<VehiculoAVerific
     .select({
       soatId: flitoSoat.id,
       vin: flitoSoat.vin,
+      vehiculoId: flitoSoat.vehiculoId,
       estadoVigencia: flitoSoat.estadoVigencia,
     })
     .from(flitoSoat)
@@ -383,6 +390,41 @@ async function escribirDesenlace(
   return true;
 }
 
+/**
+ * Motor y serie del RUNT → la ficha del vehículo (HU #12401). Aprovecha la respuesta que la
+ * verificación YA pidió: aquí no se reconsulta nada (AC7).
+ *
+ * Vive FUERA de `escribirDesenlace` / `payloadDeDesenlace`, y no es por comodidad: RN-D7 gobierna
+ * lo que el recorrido escribe en `flito_soat` —qué claves viajan por desenlace y cuáles no—, y ese
+ * payload tiene su contrato medido clave a clave. Esto escribe en OTRA tabla, `vehicles`, con otra
+ * política (la del sync: un vacío no borra) y sin auditoría propia: el recorrido audita cambios de
+ * VIGENCIA, y el número de motor no es un estado que cambie, es un dato de la ficha que faltaba.
+ *
+ * Solo cuando el RUNT respondió Y hay vehículo detrás. `desenlace.estado` no vale como criterio:
+ * `sin_registro` sale tanto de «el registro no lo conoce» como de «lo conoce y la póliza está
+ * vencida», y en el segundo caso motor y serie sí están. Se mira la respuesta, no el desenlace.
+ *
+ * Un fallo aquí NO aborta la corrida ni toca los conteos: la vigencia ya quedó escrita y ese es el
+ * dato por el que existe el recorrido; se avisa con el id del SOAT —que es la llave interna, no
+ * placa ni VIN— y se sigue con el siguiente. El reintento horario no lo recoge (la fila ya cuenta
+ * como verificada), y está bien: la próxima corrida diaria vuelve a pasar por aquí.
+ */
+async function guardarMotorYSerie(
+  v: VehiculoAVerificar, respuesta: RespuestaKyverum | null, params: RecorridoVigenciaParams,
+): Promise<void> {
+  if (respuesta?.ok !== true || runtSinRegistro(respuesta.data)) return;
+  const payload = motorYSerieParaVehiculo(extraerVehiculoRunt(respuesta.data), log);
+  if (Object.keys(payload).length === 0) return;
+  try {
+    await db.update(vehicles).set({ ...payload, updatedAt: new Date() }).where(eq(vehicles.id, v.vehiculoId));
+  } catch (err) {
+    log.warn(
+      { dia: params.dia, intento: params.intento, soatId: v.soatId, error: (err as Error)?.name ?? 'Error' },
+      'corrida de vigencia: no se pudo guardar motor y serie en la ficha del vehículo; la vigencia sí quedó escrita',
+    );
+  }
+}
+
 /** La fila de auditoría de la corrida: los totales, una vez. Sin identificadores de vehículo. */
 async function auditarCorrida(params: RecorridoVigenciaParams, r: ResultadoRecorridoVigencia): Promise<void> {
   const motivos = Object.entries(r.motivos).map(([k, n]) => `${k}=${n}`).join(', ') || 'ninguno';
@@ -481,6 +523,8 @@ export async function recorrerVigenciaSoat(
       } catch {
         throw new RecorridoVigenciaError('no se pudo escribir el desenlace de la verificación');
       }
+
+      await guardarMotorYSerie(v, respuesta, params);
     }
   }
 

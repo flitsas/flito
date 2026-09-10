@@ -58,6 +58,9 @@ export const CONCEPTO_TARIFA_LABEL: Record<ConceptoTarifa, string> = {
  * Cómo normalizar el tipo de trámite antes de compararlo. En `flito_tramites.tipo_tramite` es texto
  * libre de FLIT ("Matricula", "matrícula ", "TRASPASO"), así que sin normalizar la misma tarifa se
  * configuraría tres veces y ninguna coincidiría.
+ *
+ * Para TARIFAS usar `tipoTramiteTarifaDe` (flito-tarifas.ts): catálogo cerrado, sin tildes y sin
+ * adivinar. Esta sigue sirviendo a siigo/mapeo-conceptos, que sí trabaja con texto libre.
  */
 export function normalizarTipoTramite(v: string | null | undefined): string | null {
   const s = (v ?? '').trim().toUpperCase();

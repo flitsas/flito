@@ -310,6 +310,29 @@ describe('derechos — RBAC', () => {
     expect((await cargar('auditor')).status).toBe(403);
   });
 
+  it('HU #12083 §11.4 — la bitácora del 403 guarda la PLANTILLA de la ruta (/candidatos/:placa), nunca la placa', async () => {
+    // La suite apaga la bitácora (setup.ts); aquí se enciende a propósito: es la primera ruta con un
+    // dato en el path que pasa por `exigirFuncion`, y la garantía de ADR-0016 §2 es que, montada a
+    // nivel de RUTA, `rutaDe` escribe `req.baseUrl + req.route.path` y no `originalUrl`.
+    delete process.env.PERMISOS_SKIP_BITACORA_INTENTOS;
+    const fila: Record<string, unknown>[] = [];
+    insertMock.mockReturnValueOnce({
+      values: (v: Record<string, unknown>) => { fila.push(v); return { onConflictDoUpdate: () => Promise.resolve([]) }; },
+    });
+    try {
+      const r = await request(await buildApp())
+        .get('/api/flito/derechos/candidatos/QTP701').set('Authorization', await auth('mensajero'));
+      expect(r.status).toBe(403);
+      expect(r.body).toMatchObject({ funcion: 'derechos.candidatos.ver', motivo: 'sin_modulo' });
+      await new Promise((res) => setImmediate(res));
+      expect(fila).toHaveLength(1);
+      expect(fila[0]).toMatchObject({ funcionCodigo: 'derechos.candidatos.ver', metodo: 'GET', ruta: '/api/flito/derechos/candidatos/:placa' });
+      expect(JSON.stringify(fila[0])).not.toContain('QTP701');
+    } finally {
+      process.env.PERMISOS_SKIP_BITACORA_INTENTOS = '1';
+    }
+  });
+
   it('sin archivos → 400', async () => {
     const r = await request(await buildApp())
       .post('/api/flito/derechos/cargar').set('Authorization', await auth('admin'));

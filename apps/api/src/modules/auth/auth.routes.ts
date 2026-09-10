@@ -8,7 +8,7 @@ import { clients, users } from '../../db/schema.js';
 import { env } from '../../config/env.js';
 import { authMiddleware, blacklistToken } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
-import { getEffectivePages } from '../../shared/permissions.js';
+import { paginasEfectivasDeUsuario } from '../../shared/permisos-efectivos.js';
 import { checkLockout, registerFailed, clearLockout } from './loginLockout.js';
 import { isUserLaftBlocked } from '../laft/employees/auth-block.service.js';
 import { laftAudit } from '../laft/audit.service.js';
@@ -77,14 +77,15 @@ router.post('/login', async (req: Request, res: Response) => {
   // Login exitoso: limpiar intentos fallidos.
   await clearLockout(username);
 
-  // allowedPages viaja en el JWT para que requirePage lo aplique server-side sin pegarle a BD
-  // por request. Es seguro contra staleness: PATCH /users de role/allowedPages bumpea
-  // sessionInvalidatedAt (ver users.routes.ts), forzando re-login con un token fresco.
+  // Las páginas EFECTIVAS, como vista del resolutor único (HU #12082). Ya no viajan en el token:
+  // cada petición resuelve contra la base (`resolverPermisos`, RN-A5). El sobre las lleva solo para
+  // pintar el menú; la decisión la toma `exigirFuncion` en cada ruta.
+  const paginas = await paginasEfectivasDeUsuario(user.id);
+
   const token = await new SignJWT({
     sub: String(user.id),
     username: user.username,
     role: user.role,
-    allowedPages: user.allowedPages ?? [],
     ...(user.transitoCodigo ? { transitoCodigo: user.transitoCodigo } : {}),
   })
     .setProtectedHeader({ alg: 'HS256' })
@@ -101,7 +102,7 @@ router.post('/login', async (req: Request, res: Response) => {
     token,
     user: {
       id: user.id, name: user.name, username: user.username, role: user.role,
-      allowedPages: getEffectivePages(user),
+      allowedPages: paginas,
       transitoCodigo: user.transitoCodigo ?? null,
       puedeSolicitarSoat: await puedeSolicitarSoat({ role: user.role, companiaId: user.companiaId }),
     },
@@ -152,10 +153,12 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   // que ya viaja a un tercero. Lo que sale es el booleano derivado.
   const { companiaId, ...publico } = user;
 
-  // Devuelve allowedPages "efectivas" (rol defaults + custom) para que el frontend filtre UI directamente.
+  // Devuelve allowedPages "efectivas" para que el frontend filtre UI directamente. Desde la
+  // HU #12082 salen del resolutor único (`resolverPermisos`, cacheado 60 s por usuario), el mismo
+  // que decide en el servidor: el menú y el 403 no pueden divergir.
   res.json({
     ...publico,
-    allowedPages: getEffectivePages(user),
+    allowedPages: await paginasEfectivasDeUsuario(req.user!.sub),
     puedeSolicitarSoat: await puedeSolicitarSoat({ role: user.role, companiaId }),
   });
 });

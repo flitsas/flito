@@ -7,7 +7,8 @@
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { soportesDeSoat } from '../../shared/soportes/soportes-consulta.js';
 import { sendExcel } from '../../shared/utils/excel.js';
@@ -54,13 +55,12 @@ const aArchivo = (f: Express.Multer.File): ArchivoSubido => ({
   originalname: f.originalname, mimetype: f.mimetype, buffer: f.buffer, size: f.size,
 });
 
-// `cliente` entra en LECTURA y en NINGUNA de las otras dos constantes (Feature #11912): ve la cola,
-// el detalle, el historial y los soportes —siempre acotados a su compañía por `contextoSoat()` →
-// `condicionesCola()` / `buscarConAcceso()`— y no puede mover nada. Las acciones de su canal
-// (radicar, subsanar) son rutas propias en un módulo aparte y llegan en la HU #11914.
-const LECTURA = requireRole('admin', 'proveedor', 'auditor', 'cliente');
-const OPERACIONES = requireRole('admin');
-const OPS_O_GESTOR = requireRole('admin', 'proveedor');
+// `cliente` tiene de partida SOLO las cinco funciones de lectura (`soat.cola.ver`, `soat.cola.filtrar`,
+// `soat.solicitud.ver`, `.ver_historial`, `.ver_soportes`; Feature #11912): ve la cola, el detalle,
+// el historial y los soportes —siempre acotados a su compañía por `contextoSoat()` →
+// `condicionesCola()` / `buscarConAcceso()`— y no puede mover nada. Quién puede qué lo decide el
+// motor (`exigirFuncion`, HU #12083) con el reparto sembrado; el ámbito lo sigue decidiendo el
+// servicio. Las acciones de su canal (radicar) son rutas propias en `flito-soat-cliente.routes.ts`.
 
 // Los estados que el filtro de la cola acepta.
 //
@@ -125,7 +125,7 @@ const fechaSchema = z.string().regex(FORMATO_FECHA, 'La fecha debe ser yyyy-mm-d
 // tercera. El registro va DESPUÉS de la consulta y con `await`, como en `clients.routes.ts`:
 // `filas` no se sabe antes, y esperar cuesta una inserción best-effort a cambio de que el rastro
 // esté escrito antes de que la respuesta salga.
-router.get('/', LECTURA, async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('soat.cola.ver'), async (req: Request, res: Response) => {
   const ctx = await contextoSoat(req.user!);
   const estados = lista(req.query.estado)
     ?.filter((s): s is EstadoSoat => (ESTADOS as readonly string[]).includes(s));
@@ -229,9 +229,9 @@ const exportSchema = colaFiltrosCampos
  * **No existe variante GET de este endpoint** — un `router.get` aquí devolvería la cédula a la URL
  * sin romper ningún otro test.
  *
- * ── El rol: `OPS_O_GESTOR`, no `LECTURA` ────────────────────────────────────────────────────────
+ * ── La función: `soat.excel.exportar` (admin + proveedor de partida), no la de ver la cola ──────
  *
- * `LECTURA` incluye `auditor` y `cliente`. Un archivo con la cédula, el correo y la dirección de los
+ * `soat.cola.ver` la tienen `auditor` y `cliente`. Un archivo con la cédula, el correo y la dirección de los
  * titulares no se le entrega a una empresa tercera (el `cliente`, Feature #11912) por el hecho de
  * que pueda ver la cola de sus propios trámites en pantalla: ver una fila con su propietario y
  * descargar el padrón entero en un fichero reenviable son dos gestos distintos. `auditor` queda
@@ -245,7 +245,7 @@ const exportSchema = colaFiltrosCampos
  * a mitad del archivo no es aceptable. `Cache-Control: no-store` antes de `sendExcel` porque lo que
  * sale no se guarda en ningún intermedio.
  */
-router.post('/export', OPS_O_GESTOR, exportColaLimiter, async (req: Request, res: Response) => {
+router.post('/export', exigirFuncion('soat.excel.exportar'), exportColaLimiter, async (req: Request, res: Response) => {
   const parsed = exportSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
     res.status(400).json({ error: 'Filtro inválido', details: parsed.error.flatten() });
@@ -321,9 +321,9 @@ router.post('/export', OPS_O_GESTOR, exportColaLimiter, async (req: Request, res
  * tipo. Añadir un `NOT tipo = 'comprobante_pse'` defensivo sugeriría que el ancla no basta —y quien
  * lo leyera podría quitar el otro—; lo que sí hay es un test que fija las dos garantías.
  *
- * ── Roles: `OPS_O_GESTOR` (admin + proveedor), no `LECTURA` ──────────────────────────────────────
+ * ── La función: `soat.soportes.descargar` (admin + proveedor de partida), no la de ver ──────────
  *
- * `LECTURA` incluye `auditor` y `cliente`. El AC7 dice expresamente que auditoría no descarga, y el
+ * `soat.solicitud.ver_soportes` la tienen `auditor` y `cliente`. El AC7 dice expresamente que auditoría no descarga, y el
  * canal Cliente tiene su propia puerta con su propia allowlist (`TIPOS_SOPORTE_VISIBLES_CLIENTE`):
  * una descarga masiva por ids no pasa por ella. Los dos reciben 403.
  *
@@ -343,7 +343,7 @@ const zipSoportesSchema = z.object({
   ids: z.array(z.string().uuid()).min(1),
 }).strict();
 
-router.post('/soportes/zip', OPS_O_GESTOR, zipSoportesLimiter, async (req: Request, res: Response) => {
+router.post('/soportes/zip', exigirFuncion('soat.soportes.descargar'), zipSoportesLimiter, async (req: Request, res: Response) => {
   const parsed = zipSoportesSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
@@ -391,7 +391,7 @@ router.post('/soportes/zip', OPS_O_GESTOR, zipSoportesLimiter, async (req: Reque
 
 // GET /facetas — valores disponibles para los filtros, acotados a lo que el usuario puede ver.
 // Va antes de `/:id` para que «facetas» no se interprete como un identificador.
-router.get('/facetas', LECTURA, async (req: Request, res: Response) => {
+router.get('/facetas', exigirFuncion('soat.cola.filtrar'), async (req: Request, res: Response) => {
   res.json(await facetasCola(await contextoSoat(req.user!)));
 });
 
@@ -434,7 +434,7 @@ router.get('/facetas', LECTURA, async (req: Request, res: Response) => {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // GET /:id — detalle (404-no-403 para el gestor ajeno)
-router.get('/:id', LECTURA, async (req: Request, res: Response) => {
+router.get('/:id', exigirFuncion('soat.solicitud.ver'), async (req: Request, res: Response) => {
   if (!UUID_RE.test(req.params.id)) { res.status(404).json({ error: 'El SOAT no existe' }); return; }
   const ctx = await contextoSoat(req.user!);
   const d = await detalle(req.params.id, ctx);
@@ -463,7 +463,7 @@ router.get('/:id', LECTURA, async (req: Request, res: Response) => {
 // trabajador) y SIN el motivo (texto libre escrito para lectores internos, que además arrastraba el
 // importe pagado y el uuid del proveedor); al GESTOR de una solicitud del canal, sin el empleado de
 // la compañía que la radicó. El porqué de cada recorte, en `OpcionesHistorial`.
-router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
+router.get('/:id/historial', exigirFuncion('soat.solicitud.ver_historial'), async (req: Request, res: Response) => {
   const items = await historialConAcceso(req.params.id, await contextoSoat(req.user!));
   if (!items) { res.status(404).json({ error: 'El SOAT no existe' }); return; }
   res.json(items);
@@ -493,7 +493,7 @@ router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
  * entrada nueva en `canal-cliente.ts` — `GET /api/flito/soat/:id/soportes` ya estaba inscrita desde
  * la #11913, y el archivo se descarga por `GET /api/files?…`, que es público y va firmado.
  */
-router.get('/:id/soportes', LECTURA, async (req: Request, res: Response) => {
+router.get('/:id/soportes', exigirFuncion('soat.solicitud.ver_soportes'), async (req: Request, res: Response) => {
   const ctx = await contextoSoat(req.user!);
   const d = await detalle(req.params.id, ctx);
   if (!d) { res.status(404).json({ error: 'El SOAT no existe' }); return; }
@@ -517,7 +517,7 @@ const enviarSchema = z.object({
   (d) => Boolean(d.proveedorSoatId) !== Boolean(d.gestionOperaciones),
   { message: 'Elige el proveedor al que se envía, o marca que lo gestiona Operaciones. Una de las dos, no ambas.' },
 );
-router.post('/enviar', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/enviar', exigirFuncion('soat.solicitud.enviar'), async (req: Request, res: Response) => {
   const parsed = enviarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   const { ids, proveedorSoatId, gestionOperaciones } = parsed.data;
@@ -533,7 +533,7 @@ router.post('/enviar', OPERACIONES, async (req: Request, res: Response) => {
 const motivoSchema = z.object({ motivo: z.string().min(1, 'El motivo es obligatorio') });
 
 // POST /:id/rechazar — rechazo del proveedor (CA-08). Operaciones o gestor.
-router.post('/:id/rechazar', OPS_O_GESTOR, async (req: Request, res: Response) => {
+router.post('/:id/rechazar', exigirFuncion('soat.solicitud.rechazar'), async (req: Request, res: Response) => {
   const parsed = motivoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
   try {
@@ -545,7 +545,7 @@ router.post('/:id/rechazar', OPS_O_GESTOR, async (req: Request, res: Response) =
 });
 
 // POST /:id/reactivar — Rechazado → Pendiente (CA-08). Solo Operaciones.
-router.post('/:id/reactivar', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/:id/reactivar', exigirFuncion('soat.solicitud.reactivar'), async (req: Request, res: Response) => {
   const parsed = motivoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
   try {
@@ -570,7 +570,7 @@ const reversarSchema = z.object({
   estadoDestino: z.enum([EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD]),
   motivo: z.string().min(5, 'La reversa exige un motivo que explique el porqué'),
 });
-router.post('/:id/reversar', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/:id/reversar', exigirFuncion('soat.solicitud.reversar'), async (req: Request, res: Response) => {
   const parsed = reversarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   try {
@@ -583,7 +583,7 @@ router.post('/:id/reversar', OPERACIONES, async (req: Request, res: Response) =>
 
 // POST /:id/proveedor — cambio de proveedor (RN-05). Solo Operaciones.
 const cambiarProveedorSchema = z.object({ proveedorSoatId: z.string().uuid(), motivo: z.string().min(1) });
-router.post('/:id/proveedor', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/:id/proveedor', exigirFuncion('soat.proveedor.cambiar'), async (req: Request, res: Response) => {
   const parsed = cambiarProveedorSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   try {
@@ -604,7 +604,7 @@ router.post('/:id/proveedor', OPERACIONES, async (req: Request, res: Response) =
 const traspasoSchema = z.object({
   motivo: z.string().min(5, 'El traspaso de gestión exige un motivo que explique el porqué'),
 });
-router.post('/:id/asumir-operaciones', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/:id/asumir-operaciones', exigirFuncion('soat.solicitud.asumir'), async (req: Request, res: Response) => {
   const parsed = traspasoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   try {
@@ -616,7 +616,7 @@ router.post('/:id/asumir-operaciones', OPERACIONES, async (req: Request, res: Re
 });
 
 const devolverSchema = traspasoSchema.extend({ proveedorSoatId: z.string().uuid() });
-router.post('/:id/devolver-gestor', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/:id/devolver-gestor', exigirFuncion('soat.solicitud.devolver'), async (req: Request, res: Response) => {
   const parsed = devolverSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   try {
@@ -629,7 +629,7 @@ router.post('/:id/devolver-gestor', OPERACIONES, async (req: Request, res: Respo
 
 // POST /:id/factura — carga de UNA factura de un SOAT puntual. Única vía a Pagado (RN-03).
 // Operaciones o el gestor del proveedor. Campo de archivo: "archivo".
-router.post('/:id/factura', OPS_O_GESTOR, upload.single('archivo'), async (req: Request, res: Response) => {
+router.post('/:id/factura', exigirFuncion('soat.comprobante.cargar'), upload.single('archivo'), async (req: Request, res: Response) => {
   if (!req.file) { res.status(400).json({ error: 'Falta el archivo de la factura' }); return; }
   try {
     const ctx = await contextoSoat(req.user!);
@@ -641,7 +641,7 @@ router.post('/:id/factura', OPS_O_GESTOR, upload.single('archivo'), async (req: 
 
 // POST /facturas — carga MASIVA (varios archivos o un ZIP). El OCR enruta cada comprobante a un SOAT
 // en adquisición; los que cruzan y superan el umbral se pagan, el resto va a revisión (CA-06).
-router.post('/facturas', OPS_O_GESTOR, upload.array('archivos', CARGA_MASIVA_ARCHIVOS_POR_PETICION), async (req: Request, res: Response) => {
+router.post('/facturas', exigirFuncion('soat.masiva.cargar'), upload.array('archivos', CARGA_MASIVA_ARCHIVOS_POR_PETICION), async (req: Request, res: Response) => {
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (files.length === 0) { res.status(400).json({ error: 'No se adjuntó ningún archivo' }); return; }
   try {

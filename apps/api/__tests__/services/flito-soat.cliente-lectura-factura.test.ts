@@ -299,18 +299,20 @@ describe('la ruta es del `cliente` y está inscrita en la allowlist del canal', 
   });
 
   it('**un `admin` recibe 403**: radicar y leer la factura del titular es del canal, no de Operaciones', async () => {
+    // Desde la HU #12083 la guarda es `exigirFuncion('soat.factura.leer')` y el 403 viene explicado
+    // (#12082 AC5): el admin tiene OTRAS funciones `soat.*`, así que el motivo es `sin_funcion`.
     escenario();
     const r = await lectura(await buildApp(), await auth('admin', siguienteUsuario()));
     expect(r.status).toBe(403);
-    expect(r.body).toEqual({ error: 'Sin permisos' });
+    expect(r.body).toMatchObject({ funcion: 'soat.factura.leer', motivo: 'sin_funcion' });
     expect(anthropicMock).not.toHaveBeenCalled();
   });
 
-  it('un `gestor` recibe el MISMO 403, indistinguible del anterior', async () => {
+  it('un `gestor` (rol que la foto no conoce) recibe 403 `sin_modulo`: ninguna función de SOAT', async () => {
     escenario();
     const r = await lectura(await buildApp(), await auth('gestor', siguienteUsuario()));
     expect(r.status).toBe(403);
-    expect(r.body).toEqual({ error: 'Sin permisos' });
+    expect(r.body).toMatchObject({ funcion: 'soat.factura.leer', motivo: 'sin_modulo' });
   });
 
   it('sin token → 401', async () => {

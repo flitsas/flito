@@ -1,11 +1,34 @@
 import { Page } from '@playwright/test';
+import { PAGES } from '@operaciones/shared-types';
+
+/**
+ * Las páginas que `/auth/me` devuelve DE VERDAD para un admin de producción.
+ *
+ * Aquí decía `['*']`. Nunca fue un comodín: `getEffectivePages` filtra con `isValidPage`
+ * (`slug in PAGES`), así que `'*'` se cae siempre. Funcionaba de rebote porque `permissions.ts`
+ * tenía dos atajos cableados para `admin` —la fila `admin: Object.keys(PAGES)` de
+ * `ROLE_DEFAULT_PAGES` y un `if (user.role === 'admin') return Object.keys(PAGES)`— que devolvían
+ * todo antes de mirar el `'*'`. La HU #12081 los retiró: `admin` ya no es un caso especial del
+ * código, sus 43 páginas se las da el reparto sembrado en base y el sobre de `/login` y `/me` viaja
+ * ya resuelto. Como `loginAs` MOCKEA `/api/auth/me` y nunca toca el API, el fixture es el servidor:
+ * si miente, el admin se queda con cero páginas y la pantalla no monta.
+ *
+ * Va `Object.keys(PAGES)` menos `flito_ayuda` porque eso es lo que el servidor reparte:
+ * `flito_ayuda` existe solo para el label de `NoAccess` y el ítem de nav, su visibilidad es
+ * derivada (`hasPage` de ≥1 slug del catálogo de fichas) y por eso no se concede a mano ni entra en
+ * el catálogo de funciones.
+ *
+ * Si vuelve a aparecer un `['*']` en un fixture de admin, no es un atajo cómodo: es alguien tapando
+ * un fallo de permisos en vez de verlo.
+ */
+export const ADMIN_ALLOWED_PAGES = Object.keys(PAGES).filter((slug) => slug !== 'flito_ayuda');
 
 export const ADMIN_USER = {
   id: 1,
   username: 'e2e_admin',
   name: 'Admin E2E',
   role: 'admin' as const,
-  allowedPages: ['*'],
+  allowedPages: ADMIN_ALLOWED_PAGES,
 };
 
 export const PROVEEDOR_USER = {
@@ -18,12 +41,15 @@ export const PROVEEDOR_USER = {
 
 // FLITO — el operador del dominio ES admin (despliegue FLITO-only; el rol `operaciones` se
 // fusionó en `admin`). Se conserva el nombre OPERACIONES_USER para no tocar los specs.
+//
+// Mismo reparto que `ADMIN_USER` porque es el mismo rol: ver `ADMIN_ALLOWED_PAGES` para por qué ya
+// no hay `['*']` aquí.
 export const OPERACIONES_USER = {
   id: 7,
   username: 'e2e_operaciones',
   name: 'Operaciones E2E',
   role: 'admin' as const,
-  allowedPages: ['*'],
+  allowedPages: ADMIN_ALLOWED_PAGES,
 };
 
 // FLITO — Auditoría: mismas vistas FLITO pero solo lectura.

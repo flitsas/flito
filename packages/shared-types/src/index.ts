@@ -52,6 +52,8 @@ export type SoatStatus = z.infer<typeof SoatStatus>;
 // ── FLITO (migración packages/ → Operaciones) ──────────────────────────────
 // Dominio de estados SOAT/Impuestos, modalidad de organismo, soportes y reglas.
 export * from './flito-estados.js';
+// Tarifas como vigencias (HU #12373): catálogo cerrado de tipos y reglas del valor.
+export * from './flito-tarifas.js';
 // Dominio del módulo de Logística: estados por documento, actas, tipos y proveedores.
 export * from './flito-logistica.js';
 export * from './flito-logistica-barcode.js';
@@ -112,3 +114,6 @@ export * from './flito-conciliacion.js';
 export * from './flito-cola-export.js';
 // Carga masiva SOAT/impuestos: topes de archivos, bytes, cuerpo HTTP y tandas (HU #12050 / #12051).
 export * from './carga-masiva.js';
+// Historial consultable de cambios de usuarios, roles y permisos (HU #12171, ADR-0014): lista
+// blanca de campos, forma del par antes/después y el DTO que sirve `GET /api/users/auditoria`.
+export * from './permisos-auditoria.js';

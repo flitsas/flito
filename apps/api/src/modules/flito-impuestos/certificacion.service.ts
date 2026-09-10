@@ -28,6 +28,7 @@ import { auditLogs, flitoCompradores, flitoImpuestoCertificaciones, flitoImpuest
 import { loggerFor } from '../../shared/logger.js';
 import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
 import { consultarVehiculoRunt } from '../runt/runt.service.js';
+import { motorYSerieParaVehiculo, type MotorYSerieRunt } from '../runt/vehiculo-motor-serie.js';
 import { compararConRunt, esTraspasoEnSincronizacion, extraerVehiculoRunt, runtSinRegistro } from './certificacion-runt.js';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import { buscarConAcceso } from './flito-impuestos.service.js';
@@ -68,12 +69,16 @@ export type ResultadoCertificar =
 
 /** Datos del vehículo del trámite, que son los que se contrastan con el RUNT. */
 interface DatosImpuesto extends DatosVehiculoFlito {
+  vehiculoId: typeof vehicles.$inferSelect['id'];
   ownerName: string | null;
   ownerDocument: string | null;
 }
 
 async function datosDelVehiculo(impuestoId: string): Promise<DatosImpuesto | null> {
   const [row] = await db.select({
+    // El id va aparte de lo que se compara: es la llave con la que se le devuelve al vehículo lo
+    // que el RUNT sabe de él (motor y serie, HU #12402).
+    vehiculoId: vehicles.id,
     placa: vehicles.plate,
     vin: vehicles.vin,
     // `brand`/`model` en la tabla son marca y LÍNEA, no marca y año: el año vive en `year`. Mismo
@@ -109,6 +114,28 @@ async function datosDelVehiculo(impuestoId: string): Promise<DatosImpuesto | nul
     ownerName: vehiculo.ownerName ?? compradorNombre ?? null,
     ownerDocument: vehiculo.ownerDocument ?? compradorDocumento ?? null,
   };
+}
+
+/**
+ * Lleva a `vehicles` el número de motor y de serie que trajo el RUNT (HU #12402).
+ *
+ * Va FUERA de la transacción de la certificación y ANTES de comparar, a propósito: el motor y la
+ * serie son un hecho del vehículo, cierto aunque los datos del trámite difieran de los del RUNT
+ * (AC4), y la rama `con_diferencias` no abre transacción ni deja fila. Tampoco se audita aparte:
+ * la certificación ya deja su rastro en `audit_logs`, y completar la ficha del vehículo con lo que
+ * el RUNT sabe de él no es un cambio de estado. Un fallo aquí no tumba la certificación —el dato
+ * es accesorio— y se avisa sin `message` para que nada de la fila acabe en el log.
+ */
+async function guardarMotorYSerie(impuestoId: string, vehiculoId: DatosImpuesto['vehiculoId'], runt: MotorYSerieRunt): Promise<void> {
+  const persistible = motorYSerieParaVehiculo(runt, log);
+  if (!Object.keys(persistible).length) return;
+  try {
+    await db.update(vehicles)
+      .set({ ...persistible, updatedAt: new Date() })
+      .where(eq(vehicles.id, vehiculoId));
+  } catch (e) {
+    log.warn({ impuestoId, error: (e as Error)?.name ?? 'Error' }, 'certificacion: no se pudo guardar motor/serie en vehicles');
+  }
 }
 
 /**
@@ -205,7 +232,10 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
     };
   }
 
-  const veredicto = compararConRunt(datos, extraerVehiculoRunt(runt.data));
+  const vehiculoRunt = extraerVehiculoRunt(runt.data);
+  await guardarMotorYSerie(id, datos.vehiculoId, vehiculoRunt);
+
+  const veredicto = compararConRunt(datos, vehiculoRunt);
 
   if (!veredicto.certificable) {
     // Un intento con diferencias NO deja fila: el registro conserva la certificación anterior si la

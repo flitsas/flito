@@ -3,8 +3,10 @@
 // Cada fila es de una de dos naturalezas, y la diferencia importa:
 //   SELLADA   — el trámite está liquidado: se muestran los valores congelados. Aunque hoy la tarifa
 //               de la compañía sea otra, lo que se cobró fue eso.
-//   ESTIMADA  — aún sin liquidar: se calcula en vivo con lo pagado y las tarifas vigentes. Puede
-//               cambiar mañana, y por eso viaja marcada como estimada.
+//   ESTIMADA  — aún sin liquidar: se calcula en vivo con lo pagado y la tarifa vigente EN SU FECHA
+//               DE APROBACIÓN (o ahora, si no está aprobado; RN-07, HU #12374). Puede cambiar
+//               mañana —una fecha de aprobación que se mueva en el resync, un trámite sin aprobar
+//               cuya tarifa cambie—, y por eso viaja marcada como estimada.
 //
 // Ya no hay conceptos inventados. Antes existía `COSTOS_FIJOS = { derechoTramite: 75000,
 // logistica: 15000, tramiteDigital: 300000, gmf: 7000 }`, cuatro constantes iguales para todos los
@@ -15,10 +17,11 @@ import { alias, type PgSelect } from 'drizzle-orm/pg-core';
 import { db } from '../../db/client.js';
 import {
   clients, flitoDerechosTramite, flitoExcepcionesAutogestion, flitoImpuestos, flitoLiquidaciones,
-  flitoOrganismoVigencias, flitoSoat, flitoTarifasCompania, flitoTramites, vehicles,
+  flitoOrganismoVigencias, flitoSoat, flitoTarifasVigencias, flitoTramites, vehicles,
 } from '../../db/schema.js';
 import { aIso } from '../../shared/utils/fecha-rango.js';
 import { TASA_GMF } from '../flito-liquidacion/flito-liquidacion.service.js';
+import { vigenteEn } from '../flito-parametrizacion/flito-tarifas.service.js';
 import {
   condicionEstadoFacturacion, facturacionDeFila, resumenFacturacionElectronica,
   SELECT_FACTURACION_ELECTRONICA, type FacturacionDeFila,
@@ -110,23 +113,22 @@ export interface ReporteCostos {
   totales: TotalesReporte; resumen: ResumenEtapas;
 }
 
-// Alias para resolver la tarifa: la específica del tipo y la genérica. Cada join casa a lo sumo una
-// fila gracias al índice único, así que un COALESCE entre ambas da la que manda, sin LATERAL.
-const tdEsp = alias(flitoTarifasCompania, 'td_esp');
-const tdGen = alias(flitoTarifasCompania, 'td_gen');
-const lgEsp = alias(flitoTarifasCompania, 'lg_esp');
-const lgGen = alias(flitoTarifasCompania, 'lg_gen');
+// Alias para resolver la tarifa VIGENTE EN LA FECHA DE APROBACIÓN del trámite (HU #12374, RN-07):
+// la vigencia que contiene `COALESCE(fecha_aprobacion, now())`. La EXCLUDE de la 0182 garantiza a
+// lo sumo una por llave e instante, así que el join no multiplica filas aunque la llave tenga
+// varias vigencias históricas (AC10). Trámite digital va por tipo y la logística sin tipo: un alias
+// por concepto (los `_gen`/`_esp` del modelo viejo ya no casaban nada desde la 0182).
+// `vigenteEn` es la MISMA expresión que usa `tarifaDe()` en la compuerta: lo estimado es lo que se
+// sella (AC7). Sin parámetros: la referencia es columna + `now()`, no un literal.
+const td = alias(flitoTarifasVigencias, 'td');
+const lg = alias(flitoTarifasVigencias, 'lg');
 
 const TIPO_NORM = sql`UPPER(TRIM(COALESCE(${flitoTramites.tipoTramite}, '')))`;
 
-// Cada alias tiene su propio nombre literal en el tipo, así que no son intercambiables sin la unión.
-type AliasTarifa = typeof tdEsp | typeof tdGen | typeof lgEsp | typeof lgGen;
-
-function joinTarifa(a: AliasTarifa, concepto: string, especifica: boolean): SQL {
-  return especifica
-    ? sql`${a.companiaId} = ${flitoTramites.companiaId} AND ${a.concepto} = ${concepto} AND ${a.activo} AND ${a.tipoTramite} = ${TIPO_NORM}`
-    : sql`${a.companiaId} = ${flitoTramites.companiaId} AND ${a.concepto} = ${concepto} AND ${a.activo} AND ${a.tipoTramite} IS NULL`;
-}
+const JOIN_TD = sql`${td.companiaId} = ${flitoTramites.companiaId} AND ${td.concepto} = 'tramite_digital'
+  AND ${td.tipoTramite} = ${TIPO_NORM} AND ${vigenteEn(td, flitoTramites.fechaAprobacion)}`;
+const JOIN_LG = sql`${lg.companiaId} = ${flitoTramites.companiaId} AND ${lg.concepto} = 'logistica'
+  AND ${lg.tipoTramite} IS NULL AND ${vigenteEn(lg, flitoTramites.fechaAprobacion)}`;
 
 // ── Expresiones de valor. Sellada manda; si no, se estima. ───────────────────
 //
@@ -177,11 +179,11 @@ const EXPR_DERECHO = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorD
   ELSE ${flitoDerechosTramite.valor} END`;
 
 const EXPR_DIGITAL = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorTramiteDigital}
-  ELSE COALESCE(${tdEsp.valor}, ${tdGen.valor}) END`;
+  ELSE ${td.valor} END`;
 
 const EXPR_LOGISTICA = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorLogistica}
   WHEN NOT ${GESTIONA_LOGISTICA} THEN NULL
-  ELSE COALESCE(${lgEsp.valor}, ${lgGen.valor}) END`;
+  ELSE ${lg.valor} END`;
 
 // Base del 4x1000: el total de los cinco conceptos del trámite. El GMF se calcula sobre esa suma y
 // se añade encima, así que el total final es la base más su propio gravamen.
@@ -217,8 +219,8 @@ const BLOQUEA_IMPUESTO = sql`(${GESTIONA_IMPUESTO} AND NOT COALESCE(${IMPUESTO_P
 const BLOQUEA_DERECHO = sql`${flitoDerechosTramite.valor} IS NULL`;
 
 /** Honorarios de FLITO: sin tarifa negociada no hay nada que cobrar sin inventárselo. */
-const BLOQUEA_DIGITAL = sql`COALESCE(${tdEsp.valor}, ${tdGen.valor}) IS NULL`;
-const BLOQUEA_LOGISTICA = sql`(${GESTIONA_LOGISTICA} AND COALESCE(${lgEsp.valor}, ${lgGen.valor}) IS NULL)`;
+const BLOQUEA_DIGITAL = sql`${td.valor} IS NULL`;
+const BLOQUEA_LOGISTICA = sql`(${GESTIONA_LOGISTICA} AND ${lg.valor} IS NULL)`;
 
 const EXPR_BLOQUEADA = sql`(${BLOQUEA_SOAT} OR ${BLOQUEA_IMPUESTO} OR ${BLOQUEA_DERECHO}
   OR ${BLOQUEA_DIGITAL} OR ${BLOQUEA_LOGISTICA})`;
@@ -337,13 +339,12 @@ export function conJoins<Q extends PgSelect>(q: Q) {
       eq(flitoExcepcionesAutogestion.concepto, 'logistica'),
       isNull(flitoExcepcionesAutogestion.revocadoEn),
     ))
-    .leftJoin(tdEsp, joinTarifa(tdEsp, 'tramite_digital', true))
-    .leftJoin(tdGen, joinTarifa(tdGen, 'tramite_digital', false))
-    .leftJoin(lgEsp, joinTarifa(lgEsp, 'logistica', true))
-    .leftJoin(lgGen, joinTarifa(lgGen, 'logistica', false));
+    .leftJoin(td, JOIN_TD)
+    .leftJoin(lg, JOIN_LG);
 }
 
-const SELECT_FILA = {
+/** Exportada para que el test contra base ejecute la proyección REAL del reporte, no una copia. */
+export const SELECT_FILA = {
   tramiteId: flitoTramites.id, idFlit: flitoTramites.idFlit,
   placa: vehicles.plate, estado: flitoTramites.flitEstado, empresa: clients.name,
   // Homologación con las demás tablas: al vehículo le faltaban VIN, marca y línea; al trámite, la

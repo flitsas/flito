@@ -54,6 +54,14 @@ export interface DatosRuntCanal {
    */
   pasajerosSentados: string | null;
   puertas: string | null;
+  /**
+   * Número de motor y de serie (HU #12401). Llegan por `...base` del extractor común; van a
+   * `vehicles.num_motor` / `num_serie` con la política de «un vacío no borra» y recorte a la
+   * columna (`runt/vehiculo-motor-serie.ts`). NO se publican en la preconsulta: la pantalla no los
+   * muestra y todo lo que sale por ahí es «dato del RUNT» que alguien acaba enseñando.
+   */
+  numMotor: string | null;
+  numSerie: string | null;
   organismoNombre: string | null;
   /**
    * Nombre del propietario SI el RUNT lo trae.
@@ -84,12 +92,12 @@ function alias(fuente: Record<string, unknown> | null, claves: readonly string[]
 /**
  * Los TRECE campos del canal, a partir de la respuesta cruda.
  *
- * Los seis primeros salen de `extraerVehiculoRunt`, que es el extractor que ya resuelve los alias
- * del RUNT y está verificado contra una consulta real (`certificacion-runt.ts`). NO se reescribe:
- * duplicar las cadenas de alias es garantizar que dentro de un mes digan cosas distintas. Los
- * siete que faltan —cilindraje, servicio, carrocería, pasajeros, puertas, organismo y propietario—
- * no están en `DatosVehiculoRunt` porque la certificación de impuestos no los compara, y se leen
- * aquí con el mismo criterio.
+ * Los seis primeros —y motor y serie, desde la HU #12401— salen de `extraerVehiculoRunt`, que es
+ * el extractor que ya resuelve los alias del RUNT y está verificado contra una consulta real
+ * (`certificacion-runt.ts`). NO se reescribe: duplicar las cadenas de alias es garantizar que
+ * dentro de un mes digan cosas distintas. Los siete que faltan —cilindraje, servicio, carrocería,
+ * pasajeros, puertas, organismo y propietario— no están en `DatosVehiculoRunt` porque la
+ * certificación de impuestos no los compara, y se leen aquí con el mismo criterio.
  *
  * Las cadenas de alias de los tres nuevos (HU #11966) siguen la nomenclatura medida del payload:
  * `tipoCarroceria`, `pasajerosSentados` y `puertas` dentro de `data.vehiculo`, con los sinónimos

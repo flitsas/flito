@@ -298,10 +298,15 @@ describe('AC2 · B — `GET /:id/soportes` con el token del cliente', () => {
     // #12074). Que un centinela así se ponga rojo al QUITAR una entrada es tan valioso como que se
     // ponga rojo al añadirla: obliga a que la retirada de una puerta sea una decisión escrita.
     //
+    // **Y CRECE con la HU #12082**: entra `GET /api/permisos/mios`, el conjunto efectivo del propio
+    // usuario, para que el canal externo tenga menú cuando la SPA (#12083) deje de leerlo de
+    // `/auth/me`. Devuelve solo lo del usuario que pregunta; el catálogo (`/funciones`) sigue fuera.
+    //
     // El orden es el de declaración del middleware —lecturas, luego escrituras por HU—: se afirma
     // tal cual para que el diff del rojo señale el sitio exacto de la lista.
     expect(RUTAS_PERMITIDAS_CLIENTE.map((r) => `${r.metodo} ${r.patron}`)).toEqual([
       'GET /api/auth/me',
+      'GET /api/permisos/mios',
       'POST /api/auth/logout',
       'GET /api/flito/soat',
       'GET /api/flito/soat/facetas',
