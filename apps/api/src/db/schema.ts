@@ -3592,7 +3592,10 @@ export const flitoLogisticaTipoDocEnum = pgEnum('flito_logistica_tipo_doc', ['li
  */
 export const flitoTarifasVigencias = pgTable('flito_tarifas_vigencias', {
   id: uuid('id').primaryKey().defaultRandom(),
-  companiaId: integer('compania_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+  // RESTRICT, como el resto de las tablas financieras de FLITO (bolsas, movimientos, boletas): el
+  // historial de lo que se cobró no desaparece con la compañía. Hoy es inerte (el borrado de clientes
+  // es lógico), pero un CASCADE heredado de la 0110 contradecía el «nunca se borra» de arriba.
+  companiaId: integer('compania_id').notNull().references(() => clients.id, { onDelete: 'restrict' }),
   concepto: varchar('concepto', { length: 30 }).notNull(),
   tipoTramite: varchar('tipo_tramite', { length: 20 }),
   valor: numeric('valor', { precision: 14, scale: 2 }).notNull(),

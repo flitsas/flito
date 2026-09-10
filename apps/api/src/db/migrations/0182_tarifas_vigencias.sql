@@ -31,7 +31,7 @@ END $ext0182$;
 -- ── Paso 1 — La tabla de vigencias ───────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS flito_tarifas_vigencias (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  compania_id    integer NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  compania_id    integer NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,
   concepto       varchar(30) NOT NULL,
   -- 'MATRICULA' | 'TRASPASO' | 'OTROS' para tramite_digital; NULL siempre para logistica.
   tipo_tramite   varchar(20),
@@ -53,8 +53,9 @@ CREATE TABLE IF NOT EXISTS flito_tarifas_vigencias (
   CONSTRAINT flito_tarifas_vigencias_rango_chk  CHECK (vigente_hasta IS NULL OR vigente_hasta >= vigente_desde),
   CONSTRAINT flito_tarifas_vigencias_cierre_chk CHECK ((vigente_hasta IS NULL) = (cerrado_en IS NULL)),
   -- Sin solapes dentro de una llave. Dos abiertas [a,inf) y [b,inf) siempre solapan, asi que esta
-  -- constraint tambien garantiza «una sola abierta»; el indice parcial de abajo es redundante a
-  -- proposito: es el que el servicio atrapa como 23505 y convierte en 409 (esta da 23P01).
+  -- constraint tambien garantiza «una sola abierta» y es la que habla primero (23P01: se comprueba
+  -- antes que el indice parcial de abajo, que queda como segunda guarda y daria 23505). El servicio
+  -- traduce los dos codigos a 409.
   CONSTRAINT flito_tarifas_vigencias_sin_solape EXCLUDE USING gist (
     compania_id WITH =,
     concepto WITH =,
