@@ -11,6 +11,7 @@
 process.env.TZ = 'UTC';
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { getTableName } from 'drizzle-orm';
 import { chain } from '../helpers/db.js';
 
 const selectMock = vi.fn();
@@ -111,6 +112,48 @@ describe('liquidar — sellar con un faltante se bloquea SIN crear liquidación 
     ]);
     expect(transactionMock).not.toHaveBeenCalled();
     expect(insertMock).not.toHaveBeenCalled();
+  });
+
+  it('AC7: lo que se ESCRIBE en flito_liquidaciones es la tarifa vigente en la fecha de aprobación, no la de hoy', async () => {
+    // El double de `tarifaDe` solo devuelve 270000/45000 cuando la fecha pedida es EXACTAMENTE la de
+    // aprobación; con cualquier otra (hoy, null) devuelve la tarifa «de hoy» 300000/50000. Así, si la
+    // compuerta dejara de pasar la fecha, la fila sellada llevaría '300000' y este test lo nombra.
+    const FECHA = new Date('2026-07-15T12:00:00Z');
+    tarifaDeMock.mockImplementation(async (_c: unknown, concepto: string, _t: unknown, enFecha: unknown) => {
+      const enAprobacion = enFecha instanceof Date && enFecha.getTime() === FECHA.getTime();
+      return concepto === 'tramite_digital'
+        ? { valor: enAprobacion ? 270000 : 300000, origen: 'especifica' }
+        : { valor: enAprobacion ? 45000 : 50000, origen: 'generica' };
+    });
+    selectMock
+      .mockReturnValueOnce(chain([]))                                                        // liquidacionDe
+      .mockReturnValueOnce(chain([filaCompleta({ fechaAprobacion: FECHA })]))               // calcular
+      .mockReturnValueOnce(chain([{ companiaId: null, soatId: null, soatOrganismo: null, impuestoId: null, impuestoOrganismo: null, derechoId: null, derechoOrganismo: null }])); // identificadoresDe: sin bolsa
+
+    // Espía del insert DENTRO de la transacción (patrón de flito-bolsas-transito.test.ts): tabla + values.
+    const escritas: Array<{ tabla: string; datos: Record<string, unknown> }> = [];
+    const filaSellada = {
+      id: 'l1', tramiteId: 't1', estado: 'liquidado', detalle: {}, valorSoat: null, valorImpuesto: null, valorDerecho: '80000',
+      valorTramiteDigital: '270000', valorLogistica: '45000', baseGmf: '1', tasaGmf: '0.004', valorGmf: '0', total: '1',
+      liquidadoEn: new Date(), facturadoEn: null,
+    };
+    const txInsert = vi.fn((tabla: unknown) => {
+      const c = chain(escritas.length === 0 ? [filaSellada] : []) as unknown as Record<string, (a: unknown) => unknown>;
+      c.values = (datos: unknown) => { escritas.push({ tabla: getTableName(tabla as never), datos: datos as Record<string, unknown> }); return c; };
+      return c;
+    });
+    transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb({ insert: txInsert }));
+
+    await liquidar('t1', 1);
+
+    const liquidacion = escritas.find((e) => e.tabla === 'flito_liquidaciones');
+    expect(liquidacion, 'insert en flito_liquidaciones').toBeDefined();
+    expect(liquidacion!.datos).toMatchObject({ tramiteId: 't1', valorTramiteDigital: '270000', valorLogistica: '45000' });
+    expect(liquidacion!.datos.valorTramiteDigital).not.toBe('300000');
+    // La bitácora también congela lo mismo (es lo que el reporte enseña como sellado, AC7).
+    const evento = escritas.find((e) => e.tabla === 'flito_liquidacion_eventos');
+    expect(evento!.datos.snapshot).toMatchObject({ tramiteDigital: { valor: 270000 }, logistica: { valor: 45000 } });
+    expect(insertMock).not.toHaveBeenCalled(); // nada se escribe fuera de la transacción
   });
 
   it('un trámite ya liquidado sigue siendo LiquidacionError a secas (400), no «bloqueado»', async () => {

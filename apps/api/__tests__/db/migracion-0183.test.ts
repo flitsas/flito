@@ -12,7 +12,9 @@
 //     la guarda NOT EXISTS y que `fijado_en` no se toca.
 //   · Contra PostgreSQL (solo con TEST_DATABASE_URL, en tx con ROLLBACK): 0110 con fixtures + 0182 +
 //     0183 dos veces; un trámite aprobado en 2026-05 resuelve el valor migrado con la expresión REAL
-//     (`vigenteEn`); y el caso del solape: una migrada CERRADA más una abierta por la API nueva.
+//     (`vigenteEn`); el solape: una migrada CERRADA más una abierta por la API nueva; y la guarda
+//     «más antigua por llave» con DOS vigencias anteriores al corte en la misma llave (insertadas a
+//     mano, porque la 0182 nunca deja dos por llave).
 //
 // TZ=UTC: se comparan instantes como ISO.
 process.env.TZ = 'UTC';
@@ -175,6 +177,35 @@ describe.skipIf(!URL_BASE)('0183 — contra la base real (desde siempre, solape,
       expect(iso(filas[0]!.vigente_hasta)).toBe('2026-04-01T00:00:00.000Z');
       expect(iso(filas[1]!.vigente_desde)).toBe('2026-09-11T10:00:00.000Z');
       expect(filas[1]!.vigente_hasta).toBeNull();
+    });
+  }, 60_000);
+
+  it('la guarda «más antigua por llave» de verdad: DOS vigencias anteriores al corte en la MISMA llave → solo la más antigua se mueve y la EXCLUDE no dispara', async () => {
+    // La 0182 deja a lo sumo UNA vigencia por llave (elige por prioridad), así que este estado no sale
+    // del desdoble: se inserta a mano en flito_tarifas_vigencias DESPUÉS de la 0182 y ANTES de la 0183,
+    // con los dos `vigente_desde` anteriores al corte. Es el estado que la guarda NOT EXISTS protege:
+    // sin ella el UPDATE llevaría las dos a 2000-01-01 y la EXCLUDE (23P01) tumbaría la migración.
+    await enTx(sql, async (tx) => {
+      const g = await migrada(tx, 'G', [
+        { concepto: 'logistica', tipo: null, valor: 15000, activo: false, creada: '2026-03-01T00:00:00Z', actualizada: '2026-04-01T00:00:00Z' },
+      ]);
+      // Segunda de la misma llave (logistica, sin tipo), abierta desde el 05-01: anterior al corte, sin solape.
+      await tx`INSERT INTO flito_tarifas_vigencias (compania_id, concepto, tipo_tramite, valor, vigente_desde, fijado_en)
+        VALUES (${g}, 'logistica', NULL, 20000, '2026-05-01T00:00:00Z', '2026-05-01T00:00:00Z')`;
+      const antes = await vigenciasDe(tx, g);
+      expect(antes.map((f) => iso(f.vigente_desde))).toEqual(['2026-03-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z']);
+
+      const codigo = await tx.unsafe(SQL_0183).then(() => null, (e: { code?: string }) => e.code ?? 'sin código');
+      expect(codigo, 'la 0183 no debe fallar (23P01 = las dos se movieron y solaparon)').toBeNull();
+
+      const despues = await vigenciasDe(tx, g);
+      expect(despues).toHaveLength(2);
+      expect(iso(despues[0]!.vigente_desde)).toBe('2000-01-01T00:00:00.000Z');
+      expect(iso(despues[0]!.vigente_hasta)).toBe('2026-04-01T00:00:00.000Z');
+      expect(despues[0]!.valor).toBe(15000);
+      expect(iso(despues[1]!.vigente_desde)).toBe('2026-05-01T00:00:00.000Z');
+      expect(despues[1]!.vigente_hasta).toBeNull();
+      expect(despues[1]!.valor).toBe(20000);
     });
   }, 60_000);
 
