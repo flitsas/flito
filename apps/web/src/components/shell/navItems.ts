@@ -150,6 +150,7 @@ export const NAV_ITEMS: NavItem[] = [
   { page: 'laft_audit_plan',to: '/laft/plan-auditorias',          section: 'laft',          label: 'Plan de auditorías',      keywords: 'plan auditoria interna externa sarlaft' },
   { page: 'laft_dashboard', to: '/laft/tablero',                  section: 'laft',          label: 'Tablero LAFT',            keywords: 'tablero dashboard indicadores kpi cumplimiento' },
   { page: 'users',       to: '/users',                           section: 'admin',         label: 'Usuarios',                keywords: 'admin usuarios roles permisos' },
+  { page: 'roles_permisos', to: '/roles-permisos',               section: 'admin',         label: 'Roles y permisos',        keywords: 'roles permisos funciones cuadro' },
   { page: 'drive',       to: '/drive',                           section: 'admin',         label: 'Google Drive',            keywords: 'archivos drive folder' },
   { page: 'privacy',     to: '/privacy',                         section: 'admin',         label: 'Privacidad y datos',      keywords: 'ley 1581 forget anonimizar' },
   // Credenciales de Siigo (HU #11890) — en `admin` y NO en `finanzas`, donde viven las otras dos

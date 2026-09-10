@@ -1,3 +1,5 @@
+import type { CrearRolInput, CuadroRol, EditarRolInput, RespuestaGuardarCuadro, RolCatalogo, TipoPrincipalRol } from '@operaciones/shared-types';
+
 const BASE = '/api';
 
 // Tope duro de tiempo por petición. Sin esto, un fetch contra una dependencia
@@ -493,3 +495,55 @@ export function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return 'Error desconocido';
 }
+
+// ---------------------------------------------------------------------------
+// Roles y permisos (HU #12085, Feature #12072): las siete llamadas de `/api/permisos/*` que consume
+// `pages/RolesPermisos.tsx`, tipadas contra `@operaciones/shared-types` y entregadas por la #12084.
+//
+// Diferencias con la ficha UX (`docs/ux/roles-y-permisos-panel.md` §7), que se escribió antes de
+// que existiera el contrato y se DECLARAN aquí en vez de acomodarse:
+//   · No existe `GET /api/permisos/cuadro`. El cuadro se compone: `/funciones` + `/roles` en
+//     paralelo al montar, y `/roles/:codigo/funciones` al seleccionar un rol (la pantalla lo
+//     cachea por código en estado).
+//   · El `PUT` no tiene 409 de «conflicto de versión»: el último que guarda gana (§11-4).
+//   · `canalExterno` por función no viaja en el catálogo. Para un rol externo se pinta el aviso
+//     general de §8.1 y, tras guardar, `aviso.funciones` de la respuesta del `PUT`.
+//   · Los tipos de `/funciones` no los exporta shared-types: se declaran aquí.
+// ---------------------------------------------------------------------------
+
+/** Una función del catálogo, tal como llega dentro de su grupo. `descripcion` puede venir nula. */
+export interface FuncionDeGrupo {
+  codigo: string;
+  nombreNegocio: string;
+  descripcion: string | null;
+  tipo: 'pagina' | 'operacion';
+}
+
+/** Un módulo del catálogo. `modulo` es la CLAVE (`flito_soat_e_impuestos`), no la etiqueta. */
+export interface GrupoDeFunciones {
+  modulo: string;
+  funciones: FuncionDeGrupo[];
+}
+
+/** Lo que devuelve `GET /api/permisos/mios`: el conjunto efectivo de quien pregunta. */
+export interface PermisosMios {
+  funciones: string[];
+  rol: string;
+  tipoPrincipal: TipoPrincipalRol;
+  version: number;
+  resueltoEn: string;
+}
+
+export const permisosApi = {
+  funciones: () => api.get<{ grupos: GrupoDeFunciones[] }>('/permisos/funciones'),
+  roles: () => api.get<{ roles: RolCatalogo[] }>('/permisos/roles'),
+  crearRol: (input: CrearRolInput) => api.post<{ rol: RolCatalogo }>('/permisos/roles', input),
+  editarRol: (codigo: string, input: EditarRolInput) =>
+    api.patch<{ rol: RolCatalogo }>(`/permisos/roles/${encodeURIComponent(codigo)}`, input),
+  borrarRol: (codigo: string) => api.delete<void>(`/permisos/roles/${encodeURIComponent(codigo)}`),
+  cuadroDelRol: (codigo: string) => api.get<CuadroRol>(`/permisos/roles/${encodeURIComponent(codigo)}/funciones`),
+  /** Conjunto COMPLETO, no el delta (ADR-0014 §Decisión 3). */
+  guardarCuadro: (codigo: string, funciones: string[]) =>
+    api.put<RespuestaGuardarCuadro>(`/permisos/roles/${encodeURIComponent(codigo)}/funciones`, { funciones }),
+  mios: () => api.get<PermisosMios>('/permisos/mios'),
+};
