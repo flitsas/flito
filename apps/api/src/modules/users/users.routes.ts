@@ -7,6 +7,7 @@ import { clients, users } from '../../db/schema.js';
 import { authMiddleware, invalidateSessionCacheFor } from '../../shared/middleware/auth.js';
 import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { invalidarPermisosDe } from '../../shared/permisos-efectivos.js';
+import { BloqueoAdministracionError } from '../../shared/permisos-anti-bloqueo.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { sendExcel } from '../../shared/utils/excel.js';
 import { isValidPage } from '../../shared/permissions.js';
@@ -604,7 +605,16 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
     || data.transitoCodigo !== undefined || data.companiaId !== undefined
     || data.flitoProveedorSoatId !== undefined;
 
-  const r = await actualizarUsuario(id, { updates, organismosDestino, invalidarPorCampos }, actorDeRequest(req));
+  // HU #12084 (AC4): la guarda de «último admin» de arriba es el pre-check con mensaje claro; la
+  // verdad la decide el invariante DENTRO de la transacción (dos administradores a la vez, roles que
+  // no se llaman `admin`). Su 409 llega como excepción y se mapea aquí.
+  let r;
+  try {
+    r = await actualizarUsuario(id, { updates, organismosDestino, invalidarPorCampos }, actorDeRequest(req));
+  } catch (e) {
+    if (e instanceof BloqueoAdministracionError) { res.status(409).json({ error: e.message, funcion: e.funcion }); return; }
+    throw e;
+  }
   if (r.estado === 'sin_cambios') { res.status(400).json({ error: 'Sin cambios' }); return; }
   if (r.estado === 'no_encontrado') { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
 
@@ -644,7 +654,14 @@ router.patch('/:id/toggle', exigirFuncion('usuarios.usuario.activar'), async (re
 
   // HU #12171: el `UPDATE` y su fila de historial (`active`, antes/después) van en una transacción
   // del servicio; el «antes» sale del propio UPDATE atómico, no del `before` de las guardas.
-  const updated = await cambiarActivo(id, actorDeRequest(req));
+  let updated;
+  try {
+    updated = await cambiarActivo(id, actorDeRequest(req));
+  } catch (e) {
+    // HU #12084 (AC4): el invariante decide dentro de la transacción; el Guard 2 es el pre-check.
+    if (e instanceof BloqueoAdministracionError) { res.status(409).json({ error: e.message, funcion: e.funcion }); return; }
+    throw e;
+  }
   if (!updated) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
 
   // Al desactivar/reactivar también invalidamos sesiones para que un usuario reactivado

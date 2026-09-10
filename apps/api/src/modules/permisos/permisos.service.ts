@@ -39,14 +39,14 @@ export async function catalogoAgrupado(): Promise<GrupoDeFunciones[]> {
 /**
  * Las funciones del catálogo que NO se le conceden a `admin`, y por qué está bien (AC6).
  *
- * Son las tres del canal Cliente, guardadas con `requireRole('cliente')` a secas: `admin` NO entra a
+ * Son las tres del canal Cliente, guardadas con `requireRole` de `cliente` a secas: `admin` NO entra a
  * ellas hoy, y sembrárselas para que la cuenta cuadre sería inventar un permiso que el código no da.
  * El AC6 pedía «falla si alguna función no está concedida a admin»; medido contra el código, eso es
  * falso para estas tres, así que la comprobación las nombra una a una en vez de aflojarse. Añadir una
  * función nueva sigue obligando a decidir: o se le concede a `admin`, o se escribe aquí y se explica.
  */
 export const FUNCIONES_SIN_ADMIN: readonly string[] = [
-  'soat.solicitud.crear',   // POST /flito/soat/cliente          — requireRole('cliente')
+  'soat.solicitud.crear',   // POST /flito/soat/cliente          — requireRole de cliente
   'soat.runt.preconsultar', // POST /flito/soat/cliente/preconsulta
   'soat.factura.leer',      // POST /flito/soat/cliente/factura/lectura
 ];

@@ -15,9 +15,10 @@
 //   for d in <dirs>; do grep -rho "requireRole(" apps/api/src/modules/$d | wc -l; done — y restados
 //   los que están en comentarios. Quien vuelva a medir, cambia el número aquí y lo dice en el PR.
 //
-// Una segunda lista, rotulada «fuera del enunciado», cubre los 8 directorios con `requireRole` que el
+// Una segunda lista, rotulada «fuera del enunciado», cubre los 7 directorios con `requireRole` que el
 // AC4 no nombra ni la HU reconduce (decisión del 10/09/2026): misma regla, para que tampoco se muevan
-// sin decisión. `siigo/` conserva además su `puedeEjecutar` compilado (AC4: «referencia, no se mueve»).
+// sin decisión. `permisos/` estuvo aquí (1 guarda) hasta la HU #12084, que lo reconduce y lo lleva a
+// `DIRECTORIOS_RECONDUCIDOS` (permisos.reconduccion-cierre.test.ts). `siigo/` conserva además su `puedeEjecutar` compilado (AC4: «referencia, no se mueve»).
 
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -30,9 +31,9 @@ export const VALLA_AC4: Record<string, number> = {
   soat: 11, vehicles: 10, fleet: 10, rndc: 3, jornadas: 3,
 };
 
-/** Fuera del enunciado: ni en el AC4 ni en los 19 reconducidos. Misma regla. */
+/** Fuera del enunciado: ni en el AC4 ni en los 20 reconducidos. Misma regla. */
 export const VALLA_FUERA_DEL_ENUNCIADO: Record<string, number> = {
-  permisos: 1, clients: 3, privacy: 3, firma: 2, drive: 2, rum: 1, liquidacion: 1, finanzas: 1,
+  clients: 3, privacy: 3, firma: 2, drive: 2, rum: 1, liquidacion: 1, finanzas: 1,
 };
 
 function ficherosTs(dir: string): string[] {
@@ -69,7 +70,7 @@ function valla(titulo: string, tabla: Record<string, number>) {
 }
 
 valla('AC4/AC5 — los once directorios fuera de alcance quedan vallados, no reconducidos', VALLA_AC4);
-valla('fuera del enunciado — los ocho directorios que ni el AC4 nombra ni la HU reconduce', VALLA_FUERA_DEL_ENUNCIADO);
+valla('fuera del enunciado — los siete directorios que ni el AC4 nombra ni la HU reconduce', VALLA_FUERA_DEL_ENUNCIADO);
 
 describe('AC4 — siigo/ se toma como referencia y no se mueve', () => {
   it('`exigirAccionSiigo` sigue decidiendo con el `puedeEjecutar` / `ROLES_POR_ACCION` compilados de shared-types, no con el motor', () => {
@@ -79,11 +80,11 @@ describe('AC4 — siigo/ se toma como referencia y no se mueve', () => {
     expect(fuente).not.toMatch(/exigirFuncion|resolverPermisos|tieneFuncion/);
   });
 
-  it('la medición cubre exactamente 19 directorios y ninguno de los reconducidos', () => {
+  it('la medición cubre exactamente 18 directorios (11 + 7; `permisos/` salió con la HU #12084) y ninguno de los reconducidos', () => {
     const todos = { ...VALLA_AC4, ...VALLA_FUERA_DEL_ENUNCIADO };
-    expect(Object.keys(todos)).toHaveLength(19);
+    expect(Object.keys(todos)).toHaveLength(18);
     for (const d of Object.keys(todos)) {
-      expect(d.startsWith('flito-') || d === 'tramites' || d === 'users', d).toBe(false);
+      expect(d.startsWith('flito-') || d === 'tramites' || d === 'users' || d === 'permisos', d).toBe(false);
     }
   });
 });
