@@ -148,6 +148,11 @@ const JOIN_LG = sql`${lg.companiaId} = ${flitoTramites.companiaId} AND ${lg.conc
 //
 // No se usa COALESCE(sellado, estimado): en una liquidación sellada, NULL significa «no aplica», y
 // un COALESCE lo reemplazaría por el estimado, resucitando un concepto que se decidió no cobrar.
+//
+// Las `EXPR_*` se exportan desde la HU #12433 para que el consolidado (`finanzas.consolidado.ts`)
+// sume LAS MISMAS expresiones que alimentan cada celda del detalle: una copia coincidiría hoy y
+// divergiría en cuanto una cambiara, y la divergencia no falla — solo hace que el consolidado deje
+// de cuadrar con el detalle.
 const seLiquido = sql`${flitoLiquidaciones.id} IS NOT NULL`;
 
 // ── Quién gestiona cada concepto. Es la parametrización, y decide TODO lo demás: lo que FLITO
@@ -181,21 +186,21 @@ const GESTIONA_IMPUESTO = sql`((NOT ${AUTO_IMPUESTO}
   AND COALESCE(${flitoOrganismoVigencias.modalidad}, 'autogestionado') = 'requiere_gestion')
   OR ${EXC_IMPUESTO})`;
 
-const EXPR_SOAT = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorSoat}
+export const EXPR_SOAT = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorSoat}
   WHEN NOT ${GESTIONA_SOAT} THEN NULL
   WHEN ${flitoSoat.estado} = 'pagado' THEN ${flitoSoat.valorPagado} END`;
 
-const EXPR_IMPUESTO = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorImpuesto}
+export const EXPR_IMPUESTO = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorImpuesto}
   WHEN NOT ${GESTIONA_IMPUESTO} THEN NULL
   WHEN ${flitoImpuestos.estado} = 'pagado' THEN ${flitoImpuestos.valorPagado} END`;
 
-const EXPR_DERECHO = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorDerecho}
+export const EXPR_DERECHO = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorDerecho}
   ELSE ${flitoDerechosTramite.valor} END`;
 
-const EXPR_DIGITAL = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorTramiteDigital}
+export const EXPR_DIGITAL = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorTramiteDigital}
   ELSE ${td.valor} END`;
 
-const EXPR_LOGISTICA = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorLogistica}
+export const EXPR_LOGISTICA = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorLogistica}
   WHEN NOT ${GESTIONA_LOGISTICA} THEN NULL
   ELSE ${lg.valor} END`;
 
@@ -203,10 +208,10 @@ const EXPR_LOGISTICA = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valo
 // se añade encima, así que el total final es la base más su propio gravamen.
 const EXPR_BASE_GMF = sql`COALESCE(${EXPR_SOAT}, 0) + COALESCE(${EXPR_IMPUESTO}, 0) + COALESCE(${EXPR_DERECHO}, 0)
   + COALESCE(${EXPR_DIGITAL}, 0) + COALESCE(${EXPR_LOGISTICA}, 0)`;
-const EXPR_GMF = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorGmf}
+export const EXPR_GMF = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorGmf}
   ELSE ROUND((${EXPR_BASE_GMF}) * ${TASA_GMF}, 2) END`;
 
-const EXPR_TOTAL = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.total}
+export const EXPR_TOTAL = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.total}
   ELSE (${EXPR_BASE_GMF}) + ROUND((${EXPR_BASE_GMF}) * ${TASA_GMF}, 2) END`;
 
 // ── Qué impide liquidar. Es la MISMA regla que aplica `calcular()` en flito-liquidacion, concepto
@@ -243,7 +248,7 @@ const EXPR_BLOQUEADA = sql`(${BLOQUEA_SOAT} OR ${BLOQUEA_IMPUESTO} OR ${BLOQUEA_
  * Una fila está incompleta si algún concepto que SÍ debería tener valor no lo tiene. Las
  * liquidaciones selladas nunca lo están: no se pudieron sellar sin resolverlo todo.
  */
-const EXPR_INCOMPLETA = sql`(NOT ${seLiquido} AND ${EXPR_BLOQUEADA})`;
+export const EXPR_INCOMPLETA = sql`(NOT ${seLiquido} AND ${EXPR_BLOQUEADA})`;
 
 /** Sin liquidar y sin nada pendiente: se puede sellar hoy. Es la cola de trabajo del reporte. */
 const EXPR_LISTA = sql`(NOT ${seLiquido} AND NOT ${EXPR_BLOQUEADA})`;
@@ -642,8 +647,11 @@ export const CABECERAS_CSV = [
 /** Solo el día, en ISO. Excel lo reconoce como fecha; el instante completo lo trata como texto. */
 const soloDia = (iso: string | null): string | null => (iso === null ? null : iso.slice(0, 10));
 
+/** El BOM que hace que Excel en español abra el CSV con tildes. Lo comparte el consolidado. */
+export const BOM_CSV = '\uFEFF';
+
 /** Una celda CSV segura: comillas escapadas y campo entrecomillado si lleva separador o salto. */
-function celda(v: string | number | null): string {
+export function celda(v: string | number | null): string {
   if (v === null) return '';
   const s = String(v);
   return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -668,7 +676,7 @@ export function aCsv(filas: FilaReporte[]): string {
       celdaConciliacionCsv(f),
     ].map(celda).join(';'));
   }
-  return `﻿${lineas.join('\r\n')}\r\n`;
+  return `${BOM_CSV}${lineas.join('\r\n')}\r\n`;
 }
 
 export interface FacetasReporte {
@@ -706,10 +714,15 @@ const clavesNit = (v: string): string[] => (v.length >= 10 ? [v, v.slice(0, -1)]
  * como el filtro `empresas` los espera—, así que elegirla trae sus trámites hayan llegado como
  * hayan llegado.
  */
-export function agruparEmpresas(
-  filas: Array<{ nit: string | null; companiaId: number | null }>,
-  maestro: Array<{ id: number; nombre: string; documento: string | null }>,
-): Array<{ valor: string; nombre: string }> {
+export interface EmpresaMaestro { id: number; nombre: string; documento: string | null }
+
+/** El maestro de clientes indexado por NIT normalizado (y su raíz) y por id, una sola vez. */
+export interface IndiceEmpresas {
+  porClave: Map<string, { id: number; nombre: string }>;
+  porId: Map<number, string>;
+}
+
+export function indiceEmpresas(maestro: EmpresaMaestro[]): IndiceEmpresas {
   const porClave = new Map<string, { id: number; nombre: string }>();
   for (const c of maestro) {
     if (!c.documento) continue;
@@ -717,21 +730,47 @@ export function agruparEmpresas(
       if (!porClave.has(clave)) porClave.set(clave, { id: c.id, nombre: c.nombre });
     }
   }
-  const porId = new Map(maestro.map((c) => [c.id, c.nombre]));
+  return { porClave, porId: new Map(maestro.map((c) => [c.id, c.nombre])) };
+}
+
+/**
+ * La identidad de un cliente a partir de cómo llegó en el trámite: primero la empresa que ya
+ * emparejó el sync (`companiaId`), si no la que case por NIT normalizado, y si no la raíz del NIT.
+ *
+ * Es UNA función porque la comparten la faceta de empresas y el consolidado por cliente
+ * (HU #12433, RN-06): dos copias de esta regla harían que el filtro y el consolidado juntaran o
+ * separaran las escrituras de un NIT de forma distinta sin que nada fallara.
+ *
+ * Sin empresa en el maestro no hay nombre que enseñar: se rotula como lo que es, un NIT sin
+ * empresa registrada, en vez de disfrazarlo de nombre propio. La clave de agrupación es la raíz
+ * del NIT, así que sus dos escrituras siguen cayendo juntas aunque nadie la haya dado de alta.
+ * Sin NIT ni empresa (trámites que el sync no pudo atribuir) la clave es `n` y el rótulo lo dice.
+ */
+export function claveEmpresa(
+  f: { nit: string | null; companiaId: number | null },
+  indice: IndiceEmpresas,
+): { clave: string; nombre: string } {
+  const propias = f.nit ? clavesNit(digitos(f.nit)) : [];
+  const empresa = (f.companiaId !== null && indice.porId.has(f.companiaId))
+    ? { id: f.companiaId, nombre: indice.porId.get(f.companiaId)! }
+    : propias.map((k) => indice.porClave.get(k)).find(Boolean);
+  if (empresa) return { clave: `c${empresa.id}`, nombre: empresa.nombre };
+  return {
+    clave: `n${propias[propias.length - 1] ?? ''}`,
+    nombre: f.nit ? `NIT ${f.nit} (sin empresa registrada)` : 'Sin NIT (sin empresa registrada)',
+  };
+}
+
+export function agruparEmpresas(
+  filas: Array<{ nit: string | null; companiaId: number | null }>,
+  maestro: EmpresaMaestro[],
+): Array<{ valor: string; nombre: string }> {
+  const indice = indiceEmpresas(maestro);
 
   const grupos = new Map<string, { nombre: string; nits: string[] }>();
   for (const f of filas) {
     if (!f.nit) continue;
-    const propias = clavesNit(digitos(f.nit));
-    const empresa = (f.companiaId !== null && porId.has(f.companiaId))
-      ? { id: f.companiaId, nombre: porId.get(f.companiaId)! }
-      : propias.map((k) => porClave.get(k)).find(Boolean);
-
-    // Sin empresa en el maestro no hay nombre que enseñar: se rotula como lo que es, un NIT sin
-    // empresa registrada, en vez de disfrazarlo de nombre propio. La clave de agrupación es la raíz
-    // del NIT, así que sus dos escrituras siguen cayendo juntas aunque nadie la haya dado de alta.
-    const clave = empresa ? `c${empresa.id}` : `n${propias[propias.length - 1]}`;
-    const nombre = empresa ? empresa.nombre : `NIT ${f.nit} (sin empresa registrada)`;
+    const { clave, nombre } = claveEmpresa(f, indice);
     const grupo = grupos.get(clave) ?? { nombre, nits: [] };
     if (!grupo.nits.includes(f.nit)) grupo.nits.push(f.nit);
     grupos.set(clave, grupo);

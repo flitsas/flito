@@ -582,11 +582,16 @@ describe('AC11 — el acceso al titular queda registrado (Ley 1581)', () => {
 // ───────────────────────────── AC12 — la guarda no cambia ─────────────────────────────
 
 describe('AC12 — sin permisos nuevos', () => {
-  it('las cuatro rutas siguen bajo requireRole(financiera, admin, auditor)', async () => {
+  it('todas las rutas /reporte-costos* siguen bajo requireRole(financiera, admin, auditor)', async () => {
     const { readFileSync } = await import('node:fs');
     const fuente = readFileSync(new URL('../../src/modules/finanzas/finanzas.routes.js', import.meta.url).pathname.replace(/\.js$/, '.ts'), 'utf8');
     expect(fuente).toContain("const LECTURA = requireRole('financiera', 'admin', 'auditor');");
     expect(fuente).not.toContain('exigirFuncion');
-    expect(fuente.match(/router\.get\('\/reporte-costos[^']*', LECTURA,/g)).toHaveLength(4);
+    // No se congela el número (la HU #12433 sumó el consolidado y su export bajo la MISMA guarda):
+    // lo que se afirma es que ninguna ruta del reporte se registra con otra guarda o sin ella.
+    const rutas = fuente.match(/router\.get\('\/reporte-costos[^']*',/g) ?? [];
+    const bajoLectura = fuente.match(/router\.get\('\/reporte-costos[^']*', LECTURA,/g) ?? [];
+    expect(rutas.length).toBeGreaterThanOrEqual(4);
+    expect(bajoLectura).toHaveLength(rutas.length);
   });
 });
