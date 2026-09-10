@@ -216,13 +216,16 @@ describe.skipIf(!URL_BASE)('0182 — contra la base real (desdoble, aborto, cons
       const b = await companiaVieja(tx, 'B', [
         { concepto: 'tramite_digital', tipo: null, valor: 100000, creada: '2026-06-01T00:00:00Z' },
         { concepto: 'tramite_digital', tipo: 'traspaso', valor: 250000, creada: '2026-06-02T00:00:00Z' },
+        // Con tilde y espacios a propósito: el plegado va con translate() (no unaccent, que en DEV no
+        // resolvía); si no pliega, la 0182 aborta por «tipo fuera del catálogo» y este test cae.
+        { concepto: 'tramite_digital', tipo: ' Matrícula ', valor: 180000, creada: '2026-06-04T00:00:00Z' },
         { concepto: 'tramite_digital', tipo: 'OTROS', valor: 50000, activo: false, creada: '2026-05-01T00:00:00Z', actualizada: '2026-05-20T00:00:00Z' },
         { concepto: 'logistica', tipo: 'Matricula', valor: 30000, creada: '2026-06-03T00:00:00Z' },
       ]);
       await tx.unsafe(SQL_0182);
       const filas = await vigenciasDe(tx, b);
       const porLlave = Object.fromEntries(filas.map((f) => [`${f.concepto}:${f.tipo_tramite}`, f]));
-      expect(porLlave['tramite_digital:MATRICULA']).toMatchObject({ valor: 100000, vigente_hasta: null });
+      expect(porLlave['tramite_digital:MATRICULA']).toMatchObject({ valor: 180000, vigente_hasta: null });
       expect(porLlave['tramite_digital:TRASPASO']).toMatchObject({ valor: 250000, vigente_hasta: null });
       expect(porLlave['tramite_digital:OTROS']).toMatchObject({ valor: 100000, vigente_hasta: null });
       expect(porLlave['logistica:null']).toMatchObject({ valor: 30000, vigente_hasta: null });
