@@ -55,10 +55,10 @@ describe('0182 — reglas del archivo y lo que siembra/retira (análisis estáti
     expect(cabecera).toMatch(/HU #12373/);
   });
 
-  it('el número es 0182, es max+1 y no colisiona', () => {
+  it('el número es 0182 y no colisiona con ningún otro archivo (la 0183 de la HU #12374 va detrás)', () => {
     const sqls = readdirSync(path.dirname(RUTA)).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
     expect(sqls.filter((f) => f.startsWith('0182_'))).toEqual([ARCHIVO]);
-    expect(sqls[sqls.length - 1]).toBe(ARCHIVO);
+    expect(sqls[sqls.indexOf(ARCHIVO) + 1]).toMatch(/^0183_/);
   });
 
   it('el modelo: EXCLUDE con btree_gist sobre tstzrange [), índice único PARCIAL sobre las abiertas y los CHECK del catálogo cerrado', () => {

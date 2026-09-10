@@ -9,7 +9,8 @@ import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
-  calcular, eventosDe, facturar, liquidacionDe, liquidar, liquidarLote, LiquidacionError, reversar,
+  calcular, eventosDe, facturar, liquidacionDe, liquidar, liquidarLote, LiquidacionBloqueadaError,
+  LiquidacionError, reversar,
 } from './flito-liquidacion.service.js';
 
 const router = Router();
@@ -22,8 +23,18 @@ router.use(authMiddleware);
 // partida de `liquidacion.liquidacion.facturar` en la foto, para que las dos definiciones no se
 // separen en silencio.
 
-/** LiquidacionError es de negocio (400); lo demás sube al error handler. */
+/**
+ * LiquidacionError es de negocio (400); lo demás sube al error handler.
+ *
+ * 422 = la petición es válida pero el trámite no es procesable en este estado: le falta un valor
+ * (una tarifa sin vigencia en su fecha de aprobación, AC9 de la HU #12374). Mismo cuerpo
+ * `{ error, faltantes }` que el 400 (precedente de 422 por estado: LAFT `aros.routes.ts`).
+ */
 function fallo(res: Response, e: unknown): void {
+  if (e instanceof LiquidacionBloqueadaError) {
+    res.status(422).json({ error: e.message, faltantes: e.faltantes });
+    return;
+  }
   if (e instanceof LiquidacionError) {
     res.status(400).json({ error: e.message, faltantes: e.faltantes });
     return;

@@ -12,7 +12,7 @@ process.env.TZ = 'UTC';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SQL } from 'drizzle-orm';
 import { chain, chainReject } from '../helpers/db.js';
-import { renderizar } from '../helpers/sql-ligado.js';
+import { ligadoA, renderizar } from '../helpers/sql-ligado.js';
 import { tipoTramiteTarifaDe, valorTarifaValido } from '@operaciones/shared-types';
 
 const selectMock = vi.fn();
@@ -32,9 +32,10 @@ vi.mock('../../src/db/client.js', () => ({
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
 
 const {
-  tarifaDe, fijarTarifa, cambiarOCerrar, historial,
+  tarifaDe, vigenteEn, fijarTarifa, cambiarOCerrar, historial,
   TarifaError, TarifaCeroSinConfirmarError, TarifaConflictoError, TarifaNoEncontradaError,
 } = await import('../../src/modules/flito-parametrizacion/flito-tarifas.service.js');
+const { flitoTarifasVigencias, flitoTramites } = await import('../../src/db/schema.js');
 
 /** Un chain que además GRABA lo que recibió `values()` / `set()`: el mock del repo los descarta. */
 function grabando(rows: unknown[], sobre: { values?: unknown; set?: unknown }) {
@@ -101,11 +102,69 @@ describe('valorTarifaValido — la regla del valor (AC9)', () => {
   });
 });
 
-describe('tarifaDe — resuelve la vigencia ABIERTA de la llave exacta', () => {
-  it('trámite digital: la abierta del tipo pedido, comparado normalizado', async () => {
+// ───────── HU #12374: la resolución es «la vigencia que CONTIENE la fecha de aprobación» ─────────
+//
+// `vigenteEn` es UNA expresión con tres formas (columna / Date / null) y la comparten el reporte y
+// la compuerta (AC7). Se afirma el texto renderizado, incluido el `'[)'` (mutante M2): con `'[]'`
+// el instante del cambio caería en DOS vigencias y el join del reporte duplicaría la fila.
+
+const RANGO = `tstzrange("flito_tarifas_vigencias"."vigente_desde", "flito_tarifas_vigencias"."vigente_hasta", '[)')`;
+
+describe('vigenteEn — el rango semiabierto [desde, hasta) contiene la referencia (RN-07, S-01)', () => {
+  it('con la columna del trámite: COALESCE(fecha_aprobacion, now()) y CERO parámetros', () => {
+    const { sql, params } = renderizar(vigenteEn(flitoTarifasVigencias, flitoTramites.fechaAprobacion));
+    expect(sql).toBe(`${RANGO} @> COALESCE("flito_tramites"."fecha_aprobacion", now())::timestamptz`);
+    expect(params).toEqual([]);
+  });
+
+  it('con un Date (compuerta): el Date viaja como parámetro UNA sola vez, y es el mismo objeto', () => {
+    const fecha = new Date('2026-07-15T12:00:00Z');
+    const { sql, params } = renderizar(vigenteEn(flitoTarifasVigencias, fecha));
+    expect(sql).toBe(`${RANGO} @> $1::timestamptz`);
+    expect(params).toHaveLength(1);
+    expect(params[0]).toBe(fecha);
+  });
+
+  it('con null (trámite sin aprobar): now() del servidor, sin parámetros (AC3)', () => {
+    const { sql, params } = renderizar(vigenteEn(flitoTarifasVigencias, null));
+    expect(sql).toBe(`${RANGO} @> now()::timestamptz`);
+    expect(params).toEqual([]);
+  });
+});
+
+describe('tarifaDe — resuelve la vigencia que CONTIENE la fecha de aprobación de la llave exacta (RN-07)', () => {
+  it('trámite digital: el tipo pedido, comparado normalizado', async () => {
     selectMock.mockReturnValueOnce(chain([{ valor: '250000' }]));
     const r = await tarifaDe(7, 'tramite_digital', '  traspaso ');
     expect(r).toEqual({ valor: 250000, origen: 'especifica' });
+  });
+
+  it('con fecha (AC1, AC2, AC7): el WHERE liga compañía, concepto y tipo, contiene la fecha en el rango [) y NO exige la abierta', async () => {
+    const q: { where?: SQL } = {};
+    selectMock.mockReturnValueOnce(espiando([{ valor: '270000' }], q));
+    const fecha = new Date('2026-07-15T12:00:00Z');
+    const r = await tarifaDe(7, 'tramite_digital', 'Matricula', fecha);
+    expect(r).toEqual({ valor: 270000, origen: 'especifica' });
+    const rend = renderizar(q.where!);
+    expect(ligadoA(rend, '"compania_id"')).toBe(7);
+    expect(ligadoA(rend, '"concepto"')).toBe('tramite_digital');
+    expect(ligadoA(rend, '"tipo_tramite"')).toBe('MATRICULA');
+    const m = new RegExp(`${RANGO.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} @> \\$(\\d+)::timestamptz`).exec(rend.sql);
+    expect(m, rend.sql).not.toBeNull();
+    expect(rend.params[Number(m![1]) - 1]).toBe(fecha);
+    // Si además quedara el filtro de abierta, una fecha dentro de una vigencia CERRADA nunca resolvería (AC1).
+    expect(rend.sql).not.toMatch(/vigente_hasta" is null/i);
+    expect(rend.params.filter((p) => p instanceof Date)).toHaveLength(1);
+  });
+
+  it('sin fecha (AC3): la referencia es now() del servidor y ningún Date viaja como parámetro', async () => {
+    const q: { where?: SQL } = {};
+    selectMock.mockReturnValueOnce(espiando([{ valor: '150000' }], q));
+    await tarifaDe(7, 'tramite_digital', 'Otros');
+    const rend = renderizar(q.where!);
+    expect(rend.sql).toContain(`${RANGO} @> now()::timestamptz`);
+    expect(rend.params.filter((p) => p instanceof Date)).toHaveLength(0);
+    expect(rend.sql).not.toMatch(/vigente_hasta" is null/i);
   });
 
   it('un tipo desconocido es «no configurada», no «OTROS» ni una genérica, y ni siquiera consulta', async () => {
@@ -114,10 +173,10 @@ describe('tarifaDe — resuelve la vigencia ABIERTA de la llave exacta', () => {
     expect(selectMock).not.toHaveBeenCalled();
   });
 
-  it('sin vigencia abierta devuelve «no configurada», nunca cero', async () => {
+  it('sin vigencia en la fecha (fuera de todas o en un hueco) devuelve «no configurada», nunca cero (AC4, AC5, AC9)', async () => {
     // Un cero aquí sumaría un total falso en el reporte y nadie lo notaría.
     selectMock.mockReturnValueOnce(chain([]));
-    const r = await tarifaDe(7, 'tramite_digital', 'Matricula');
+    const r = await tarifaDe(7, 'tramite_digital', 'Matricula', new Date('2026-08-10T12:00:00Z'));
     expect(r).toEqual({ valor: null, origen: 'no_configurada' });
     expect(r.valor).not.toBe(0);
   });

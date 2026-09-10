@@ -13,11 +13,14 @@
 // RN-03 — `logistica` lleva SIEMPRE tipo NULL: un solo valor por compañía.
 // RN-04 — No existe eliminar ni desactivar; «dejar de cobrar» es cerrar sin abrir.
 //
-// `tarifaDe()` conserva su firma y resuelve «vigente ahora» (`vigente_hasta IS NULL`); la resolución
-// por fecha de aprobación es el eslabón 2 (HU #12374).
+// RN-07 — (HU #12374, eslabón 2) Un trámite sin liquidar se valora con la vigencia que CONTIENE su
+//         fecha de aprobación; sin aprobar, la vigente ahora (S-01). Rango `[)`: el instante del
+//         cambio pertenece a la vigencia NUEVA. La expresión es `vigenteEn()`, y la usan tanto
+//         `tarifaDe()` (compuerta de liquidación) como el reporte de costos: lo que se muestra
+//         estimado es lo que se sella (AC7). Lo ya sellado no se recalcula nunca (AC8).
 
-import { and, asc, desc, eq, isNull, type SQL } from 'drizzle-orm';
-import { alias } from 'drizzle-orm/pg-core';
+import { and, asc, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
+import { alias, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import {
   CONCEPTOS_TARIFA, LLAVES_TARIFA, tipoTramiteTarifaDe, valorTarifaValido,
   type ConceptoTarifa, type TipoTramiteTarifa,
@@ -73,30 +76,53 @@ export interface ValorTarifa {
 
 export const NO_CONFIGURADA: ValorTarifa = { valor: null, origen: 'no_configurada' };
 
+/** Las dos columnas del rango; `AnyPgColumn` porque las de un `alias()` llevan otro nombre de tabla en el tipo. */
+export interface ColumnasVigencia { vigenteDesde: AnyPgColumn; vigenteHasta: AnyPgColumn }
+
+/**
+ * Vigencia que CONTIENE la fecha de referencia del trámite (RN-07, S-01): la aprobación; sin
+ * aprobar, ahora. Rango semiabierto `[vigente_desde, vigente_hasta)` — la misma expresión de la
+ * EXCLUDE de la 0182, así que a lo sumo UNA vigencia por llave contiene un instante dado y el
+ * join nunca multiplica filas. `vigente_hasta IS NULL` es `[desde, ∞)`; `[t, t)` es vacío.
+ *
+ * La regla «sin fecha → ahora» se escribe UNA vez: recibe la columna (reporte, en SQL), un `Date`
+ * (compuerta) o `null` (compuerta, trámite sin aprobar). La referencia se interpola una sola vez a
+ * propósito: un `Date` es un parámetro y Drizzle no deduplica literales. El `::timestamptz` es
+ * obligatorio en la rama parámetro (`anyrange @> unknown` es ambiguo) e inocuo en las otras dos.
+ */
+export function vigenteEn(t: ColumnasVigencia, fechaAprobacion: AnyPgColumn | Date | null): SQL {
+  const ref = fechaAprobacion === null ? sql`now()`
+    : fechaAprobacion instanceof Date ? sql`${fechaAprobacion}`
+      : sql`COALESCE(${fechaAprobacion}, now())`;
+  return sql`tstzrange(${t.vigenteDesde}, ${t.vigenteHasta}, '[)') @> ${ref}::timestamptz`;
+}
+
 /** La condición de llave (concepto + tipo) sobre la tabla; NULL se compara con IS NULL. */
 function llave(concepto: ConceptoTarifa, tipo: TipoTramiteTarifa | null): SQL {
   return and(eq(v.concepto, concepto), tipo === null ? isNull(v.tipoTramite) : eq(v.tipoTramite, tipo))!;
 }
 
 /**
- * Resuelve la tarifa VIGENTE AHORA: la vigencia abierta de la llave exacta. Un tipo fuera del
- * catálogo (o vacío) en trámite digital es «no configurado»: falla cerrado en vez de adivinar.
+ * Resuelve la tarifa VIGENTE EN `enFecha` (la fecha de aprobación del trámite; `null` = ahora, RN-07)
+ * para la llave exacta. Un tipo fuera del catálogo (o vacío) en trámite digital es «no configurado»:
+ * falla cerrado en vez de adivinar; una fecha fuera de toda vigencia (o en un hueco) también.
  * Para logística el tipo se ignora (RN-03) y el origen sigue rotulándose `generica`, que es lo que
  * la liquidación muestra como «Tarifa genérica».
  */
 export async function tarifaDe(
   companiaId: number | null, concepto: ConceptoTarifa, tipoTramite: string | null,
+  enFecha: Date | null = null,
 ): Promise<ValorTarifa> {
   if (companiaId === null) return NO_CONFIGURADA;
   const tipo = concepto === 'logistica' ? null : tipoTramiteTarifaDe(tipoTramite);
   if (concepto === 'tramite_digital' && tipo === null) return NO_CONFIGURADA;
 
-  const [abierta] = await db.select({ valor: v.valor })
+  const [vigente] = await db.select({ valor: v.valor })
     .from(v)
-    .where(and(eq(v.companiaId, companiaId), llave(concepto, tipo), isNull(v.vigenteHasta)))
+    .where(and(eq(v.companiaId, companiaId), llave(concepto, tipo), vigenteEn(v, enFecha)))
     .limit(1);
-  if (!abierta) return NO_CONFIGURADA;
-  return { valor: Number(abierta.valor), origen: concepto === 'logistica' ? 'generica' : 'especifica' };
+  if (!vigente) return NO_CONFIGURADA;
+  return { valor: Number(vigente.valor), origen: concepto === 'logistica' ? 'generica' : 'especifica' };
 }
 
 const COLUMNAS_TARIFA = {
