@@ -14,7 +14,7 @@ vi.mock('../../src/db/client.js', () => ({
 }));
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
 
-const { aCsv, agruparEmpresas, condiciones, conJoins } = await import('../../src/modules/finanzas/finanzas.service.js');
+const { aCsv, agruparEmpresas, CABECERAS_CSV, condiciones, conJoins } = await import('../../src/modules/finanzas/finanzas.service.js');
 const { flitoTramites } = await import('../../src/db/schema.js');
 const { and } = await import('drizzle-orm');
 const { renderizar } = await import('../helpers/sql-ligado.js');
@@ -24,20 +24,34 @@ type Fila = Parameters<typeof aCsv>[0][number];
 function fila(over: Partial<Fila> = {}): Fila {
   return {
     tramiteId: 't1', idFlit: 'FLIT-1', placa: 'ABC123', estado: 'Aprobado', empresa: 'ACME',
+    vin: 'VIN1', marca: 'CHEVROLET', linea: 'ONIX',
     tipoTramite: 'Traspaso', fechaAprobacion: '2026-07-14T15:30:00.000Z',
+    fechaCreacion: '2026-07-01T10:00:00.000Z',
     soat: 450000, impuesto: 120000, derechoTramite: 80000,
     logistica: 15000, tramiteDigital: 200000, gmf: 3460, total: 868460,
     sellada: true, estadoLiquidacion: 'liquidado', noConfigurados: [],
-    sinRecibo: [], pendientesPago: [], autogestionados: [],
+    sinRecibo: [], pendientesPago: [], autogestionados: [], noAplican: [],
+    estadoFacturacion: 'no_enviado', facturaNumero: null, facturaRequiereRevision: false,
+    soatConciliado: false, boletaReferencia: null, soatConciliadoEn: null,
+    // HU #12432 — titular, organismo, periodo y subtotales.
+    titularNombres: 'ANA MARÍA', titularApellidos: 'PÉREZ', titularRazonSocial: null,
+    titularTipoDocumento: 'CC', titularDocumento: '1020304050',
+    organismoCodigo: '05266', organismoNombre: 'Envigado', mes: '2026-07', trimestre: '2026-T3',
+    totalReintegro: 668460, totalServicio: 200000,
     ...over,
-  };
+  } as Fila;
 }
+
+/** La celda de UNA fila del CSV por el NOMBRE de su cabecera: el índice se lee de la cabecera real. */
+const columna = (csv: string, cabecera: (typeof CABECERAS_CSV)[number], linea = 1): string =>
+  csv.trim().split('\r\n')[linea].split(';')[CABECERAS_CSV.indexOf(cabecera)];
 
 describe('aCsv — el archivo que abre contabilidad', () => {
   it('usa punto y coma y BOM, que es lo que Excel en español abre sin asistente', () => {
     const csv = aCsv([fila()]);
     expect(csv.startsWith('﻿')).toBe(true);
-    expect(csv.split('\r\n')[0]).toContain('Trámite;Placa');
+    // HU #12432: la sección de identificación abre el archivo; «Flit» es el identificador del trámite.
+    expect(csv.split('\r\n')[0]).toContain('Empresa;Flit;Placa');
   });
 
   it('distingue sellado, facturado y estimado', () => {
@@ -56,13 +70,13 @@ describe('aCsv — el archivo que abre contabilidad', () => {
     // Con el instante completo Excel lo trata como texto y no deja ordenar ni filtrar por fecha.
     const csv = aCsv([fila()]);
     expect(csv.split('\r\n')[0]).toContain('Aprobado');
-    expect(csv.split('\r\n')[1]).toContain('2026-07-14');
+    expect(columna(csv, 'Aprobado')).toBe('2026-07-14');
     expect(csv).not.toContain('T15:30:00');
   });
 
   it('un trámite sin aprobar deja la celda vacía', () => {
     const csv = aCsv([fila({ fechaAprobacion: null })]);
-    expect(csv.split('\r\n')[1].split(';')[5]).toBe('');
+    expect(columna(csv, 'Aprobado')).toBe('');
   });
 
   it('un concepto no configurado sale vacío, no como cero', () => {

@@ -195,6 +195,13 @@ const FILA_BASE = {
   noConfigurados: [], sinRecibo: [], pendientesPago: [], autogestionados: [],
   noAplican: ['Impuesto'],
   estadoFacturacion: 'no_enviado', facturaNumero: null, facturaRequiereRevision: false,
+  // HU #12432 — titular, organismo, periodo y subtotales. El fixture crudo no trae titular ni
+  // organismo, así que van vacíos; el periodo sale de la aprobación y RN-02 reparte el total
+  // (impuesto «no aplica» cuenta 0: 450000 + 80000 + 2980 + 15000 = 547980; + 200000 = 747980).
+  titularNombres: null, titularApellidos: null, titularRazonSocial: null,
+  titularTipoDocumento: null, titularDocumento: null,
+  organismoCodigo: null, organismoNombre: null, mes: '2026-07', trimestre: '2026-T3',
+  totalReintegro: 547980, totalServicio: 200000,
 };
 
 /** La fila servida sin las tres claves de esta historia: lo que el AC2 dice que no cambia. */
@@ -352,9 +359,11 @@ describe('El join que no se hizo — por qué la fila no se multiplica', () => {
     // a dos (`td`/`lg`, uno por concepto, resueltos por fecha de aprobación); los `_gen`/`_esp` no
     // casaban ninguna fila desde la 0182 (CHECK `tipo_chk`), así que filas y totales no cambian
     // (AC10; db/tarifas-por-fecha.test.ts lo mide contra la base).
+    // 9 → 10 en la HU #12432: `organismos_transito_config` por su PK (`codigo`) para el alias del
+    // organismo; una fila por trámite como mucho, así que filas y totales no cambian.
     const texto = await sqlDeConJoins();
     expect((texto.match(/ inner join /g) ?? []).length).toBe(1);
-    expect((texto.match(/ left join /g) ?? []).length).toBe(9);
+    expect((texto.match(/ left join /g) ?? []).length).toBe(10);
   });
 
   it.each(['boletaReferencia', 'boletaConciliadaEn'] as const)(
@@ -510,8 +519,9 @@ describe('AC4 — el CSV distingue los dos casos y nombra la boleta', () => {
   it('la columna nueva va al final: ninguna de las anteriores se desplaza', () => {
     const cabeceras = aCsv([]).trim().split(';');
     expect(cabeceras[cabeceras.length - 1]).toBe('SOAT conciliado');
-    expect(cabeceras[0]).toContain('Trámite');
-    expect(cabeceras[6]).toBe('SOAT');
+    // HU #12432: la sección de identificación abre el archivo y los valores empiezan en «SOAT».
+    expect(cabeceras[0]).toContain('Empresa');
+    expect(cabeceras[20]).toBe('SOAT');
   });
 
   it('cada fila tiene tantas celdas como cabeceras', () => {
