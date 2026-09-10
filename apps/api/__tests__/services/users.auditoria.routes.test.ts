@@ -224,7 +224,11 @@ describe('GET /api/users/auditoria — filtros y paginación (AC2), afirmados so
   it.each([
     ['limite=0', 'limite'], ['limite=201', 'limite'], ['offset=-1', 'offset'], ['entidad=persona', 'entidad'],
     ['rolCodigo=Admin!', 'rolCodigo'], ['desde=10/09/2026', 'desde'], ['titularUserId=abc', 'titularUserId'],
-  ])('%s → 400 con details de Zod y sin consultar', async (query, campo) => {
+    ['desde=2026-09-10&hasta=2026-09-01', 'hasta'], // rango invertido (TC-09a): pasa Zod y lo para el handler
+  ])('%s → 400 con details y sin consultar', async (query, campo) => {
+    // Con la base «lista»: si la guarda desaparece, el rango invertido responde 200 con `items: []`
+    // y el caso cae por el código, no por un timeout del handler sin mocks.
+    mockListado([], 0);
     const r = await request(await buildApp()).get(`/api/users/auditoria?${query}`).set('Authorization', await auth('admin'));
     expect(r.status).toBe(400);
     expect(r.body.details.fieldErrors).toHaveProperty(campo);

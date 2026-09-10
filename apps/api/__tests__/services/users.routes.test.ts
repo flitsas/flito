@@ -1328,6 +1328,38 @@ describe('HU #12171 — permisos_auditoria: antes/después de cada cambio, en la
     expect(filasAuditoria().map((f) => f.campo)).toEqual(['allowed_pages']);
   });
 
+  it('TC-05: el «antes» es el de la fila bloqueada en la tx (FOR UPDATE), no el `before` de la ruta; y el bloqueo va antes del UPDATE y del historial', async () => {
+    // La ruta leyó ['transito'] (el «viejo») para sus guardas; entre esa lectura y la transacción otro
+    // administrador dejó ['soat'] (el «vigente»). Lo que el historial debe afirmar como anterior es
+    // ['soat']. Códigos reales de página: `allowedPagesSchema` filtra con `isValidPage`.
+    const base = { id: 5, role: 'auditor', active: true, flitoProveedorSoatId: null, companiaId: null, transitoCodigo: null };
+    selectMock.mockReturnValueOnce(chain([{ ...base, allowedPages: ['transito'] }])); // before (ruta): el viejo
+    const enTx = chain([{ ...base, allowedPages: ['soat'] }]); // antes (tx, FOR UPDATE): el vigente
+    const forOriginal = enTx.for;
+    enTx.for = (...args: unknown[]) => { eventos.push('select:users:for-update'); return (forOriginal as (...a: unknown[]) => typeof enTx)(...args); };
+    selectMock.mockReturnValueOnce(enTx); // antes (tx)
+    selectMock.mockReturnValueOnce(chain([])); // organismos
+    updateMock.mockReturnValueOnce(updateProyectado(
+      { id: 5, role: 'auditor', name: 'A', username: 'a', email: null, active: true, allowedPages: ['soat', 'clients'], createdAt: new Date() },
+      () => { eventos.push('update:users'); },
+    ));
+    eventos.length = 0;
+    const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', await cabeceraActor())
+      .send({ allowedPages: ['soat', 'clients'] });
+    expect(r.status).toBe(200);
+
+    const fila = porCampo('allowed_pages');
+    expect(fila).toBeDefined();
+    // Mutante 1: usar el `before` de la ruta como `valorAntes` → aquí saldría ['transito'].
+    expect(fila!.valorAntes).toEqual({ conjunto: ['soat'] });
+    expect(fila!.valorDespues).toEqual({ conjunto: ['clients', 'soat'], concedidas: ['clients'], revocadas: [] });
+    // Mutante 2: quitar `.for('update')` → el evento no existe y los índices dan -1.
+    expect(eventos.indexOf('select:users:for-update')).toBeGreaterThanOrEqual(0);
+    expect(eventos.indexOf('select:users:for-update')).toBeLessThan(eventos.indexOf('update:users'));
+    expect(eventos.indexOf('update:users')).toBeLessThan(eventos.indexOf('insert-auditoria'));
+    expect(eventos.indexOf('insert-auditoria')).toBeLessThan(eventos.indexOf('commit'));
+  });
+
   it('el mismo conjunto de páginas en otro orden NO deja fila: el orden no es un cambio', async () => {
     const antes = { id: 5, role: 'auditor', active: true, allowedPages: ['soat', 'transito'], flitoProveedorSoatId: null, companiaId: null, transitoCodigo: null };
     selectMock.mockReturnValueOnce(chain([antes]));

@@ -220,6 +220,11 @@ router.get('/auditoria', exigirFuncion('usuarios.auditoria.ver'), async (req: Re
     if (hastaF === null) fieldErrors.hasta = ['Fecha inexistente'];
     res.status(400).json({ error: 'Filtros inválidos', details: { fieldErrors } }); return;
   }
+  // Rango invertido: 400 sin tocar la base. Un `[desde, hasta)` vacío daría 200 con `items: []`, que
+  // es indistinguible de «no hubo cambios» y esconde el error de quien escribió las fechas.
+  if (desdeF && hastaF && desdeF > hastaF) {
+    res.status(400).json({ error: 'Filtros inválidos', details: { fieldErrors: { hasta: ['Debe ser posterior o igual a desde'] } } }); return;
+  }
   const respuesta = await listarAuditoria(
     { titularUserId, entidad, rolCodigo, desde: desdeF, hasta: hastaF },
     { limite, offset },

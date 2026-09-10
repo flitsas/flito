@@ -217,7 +217,16 @@ test.describe('Usuarios — Historial de cambios (HU #12171)', () => {
   });
 
   test('TC-17a: el auditor ve solo el historial y no dispara GET a las cinco rutas de la gestión', async ({ page }) => {
-    const prohibidas = [/\/api\/users(\?.*)?$/, /\/api\/users\/resumen/, /\/api\/companias/, /\/api\/flito\/proveedores/, /\/api\/organismos/];
+    // Las cinco rutas REALES de la gestión (`UsersGestion.tsx`, `CompaniaField.tsx`, `AtaduraFields.tsx`):
+    // el listado, el resumen y los tres catálogos de `/api/flito/parametrizacion/…`. Un patrón que no
+    // casa con la URL real es un centinela que nunca dispara: se midieron con `grep api.get`.
+    const prohibidas = [
+      /\/api\/users(\?.*)?$/,
+      /\/api\/users\/resumen/,
+      /\/api\/flito\/parametrizacion\/companias/,
+      /\/api\/flito\/parametrizacion\/proveedores-soat/,
+      /\/api\/flito\/parametrizacion\/organismos/,
+    ];
     const disparos: string[] = [];
     page.on('request', (req) => {
       const { pathname, search } = new URL(req.url());
