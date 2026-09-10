@@ -15,6 +15,9 @@
 --     fuera del catalogo, o dos logisticas ACTIVAS con valor distinto en la misma compania.
 --   - Los DELETE/INSERT de permisos van en forma parseable por __tests__/helpers/permisos-seed-sql.ts.
 --     Es el PRIMER retiro de funcion que ve el motor: `parametrizacion.tarifas.borrar` desaparece.
+--   - El plegado de tildes va con translate(), no con unaccent(): unaccent es una EXTENSION y en la
+--     base de DEV no resolvia como unaccent(text) (CD run 34512277390, 2026-09-10). Mismo criterio
+--     que la 0165: una migracion que solo compara texto no debe depender de una extension.
 --   - Requiere btree_gist (contrib). Antes del merge, contra la base del ambiente:
 --       SELECT installed_version, default_version FROM pg_available_extensions WHERE name='btree_gist';
 --     Si default_version es NULL, instalar postgresql-16-contrib en el host; el paso 0 lo dice.
@@ -103,7 +106,7 @@ BEGIN
     INTO n, lista
     FROM flito_tarifas_compania
    WHERE concepto = 'tramite_digital' AND tipo_tramite IS NOT NULL
-     AND upper(unaccent(trim(tipo_tramite))) NOT IN ('MATRICULA', 'TRASPASO', 'OTROS');
+     AND upper(translate(trim(tipo_tramite), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN')) NOT IN ('MATRICULA', 'TRASPASO', 'OTROS');
   IF n > 0 THEN
     RAISE EXCEPTION '0182: % tarifa(s) de tramite_digital con tipo fuera del catalogo (Matricula, Traspaso, Otros): %. Corrija o retire esas filas y relance.', n, lista;
   END IF;
@@ -119,7 +122,7 @@ BEGIN
 
   -- 2b. Tramite digital: candidatas = especificas (tal cual) + genericas (x3 tipos), una elegida por llave.
   WITH candidatas AS (
-    SELECT compania_id, upper(unaccent(trim(tipo_tramite))) AS tipo, valor, activo,
+    SELECT compania_id, upper(translate(trim(tipo_tramite), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN')) AS tipo, valor, activo,
            created_at, updated_at, actualizado_por_id,
            CASE WHEN activo THEN 1 ELSE 3 END AS prioridad
       FROM flito_tarifas_compania
