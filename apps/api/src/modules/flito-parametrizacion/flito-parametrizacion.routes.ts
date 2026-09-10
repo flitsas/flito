@@ -557,7 +557,13 @@ function tarifaFallo(res: Response, e: unknown): void {
 const rotulo = (t: { concepto: string; tipoTramite: string | null; companiaNombre: string | null; companiaId: number }) =>
   `Tarifa ${t.concepto}${t.tipoTramite ? ` (${t.tipoTramite})` : ''} de ${t.companiaNombre ?? t.companiaId}`;
 
-const idCompania = (raw: string): number | null => (/^\d+$/.test(raw) ? Number(raw) : null);
+// Acotado a int4 positivo: un id de 11+ dígitos pasaría el regex y Postgres respondería 22003 (500)
+// en vez del 404 que corresponde a «esa compañía no existe».
+const idCompania = (raw: string): number | null => {
+  if (!/^\d+$/.test(raw)) return null;
+  const n = Number(raw);
+  return n > 0 && n <= 2147483647 ? n : null;
+};
 
 router.get('/tarifas', exigirFuncion('parametrizacion.tarifas.listar'), async (req: Request, res: Response) => {
   const companiaId = Number(req.query.companiaId) || undefined;
