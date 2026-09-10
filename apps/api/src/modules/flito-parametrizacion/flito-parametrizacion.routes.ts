@@ -17,7 +17,7 @@ import {
   organismosTransitoConfig,
 } from '../../db/schema.js';
 import { authMiddleware } from '../../shared/middleware/auth.js';
-import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
+import { exigirFuncion, funcionesConcedidas } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
   AmbitoReglaProveedor,
@@ -26,10 +26,14 @@ import {
   ModalidadOrganismo,
   ORGANISMOS_TRANSITO,
   PRIORIDAD_POR_AMBITO,
+  TARIFA_VALOR_MAX,
+  tipoTramiteTarifaDe,
 } from '@operaciones/shared-types';
 import { modalidadVigente } from './flito-parametrizacion.service.js';
+import { parseFechaQuery } from '../../shared/utils/fecha-rango.js';
 import {
-  actualizarTarifa, crearTarifa, eliminarTarifa, listarTarifas, TarifaError,
+  cambiarOCerrar, fijarTarifa, historial, listarTarifas, vistaPorCompania,
+  TarifaCeroSinConfirmarError, TarifaConflictoError, TarifaError, TarifaNoEncontradaError,
 } from './flito-tarifas.service.js';
 
 const router = Router();
@@ -502,41 +506,118 @@ router.patch('/organismos/:codigo', exigirFuncion('parametrizacion.organismos.ed
 
 // ───────────────────────────────── Tarifas por compañía ────────────────────
 //
-// El valor negociado del trámite digital y de la logística. Antes eran constantes iguales para
-// todos los clientes; el requerimiento cita $200.000 en una compañía y $1.500 en otra.
+// El valor negociado del trámite digital y de la logística, como VIGENCIAS (HU #12373): fijar abre la
+// primera, cambiar cierra la abierta y abre otra, dejar de cobrar cierra sin abrir. No hay DELETE ni
+// «inactiva» (RN-04): un `DELETE /tarifas/:id` recibe el 404 genérico de Express.
+//
+// Una ruta ⇔ una función del catálogo. La ventana de Clientes (AC17) sigue usando GET/POST/PATCH sin
+// cambios: `PATCH { activo:false }` es «dejar de cobrar» y `POST` es «fijar».
 
+const valorSchema = z.number({ required_error: 'es obligatorio', invalid_type_error: 'debe ser un número' })
+  .finite('debe ser un número finito')
+  .nonnegative('debe ser mayor o igual a cero')
+  .max(TARIFA_VALOR_MAX, 'supera el máximo admitido (12 enteros y 2 decimales)')
+  .refine((n) => Math.round(n * 100) / 100 === n, 'admite a lo sumo dos decimales');
 const tarifaCrearSchema = z.object({
   companiaId: z.number().int().positive(),
   concepto: z.enum(CONCEPTOS_TARIFA),
-  // Vacío o ausente = tarifa genérica del concepto.
+  // Se normaliza en el servicio (`tipoTramiteTarifaDe`): obligatorio en trámite digital, prohibido en logística.
   tipoTramite: z.string().trim().max(60).optional().nullable(),
-  valor: z.number().nonnegative(),
-  activo: z.boolean().optional(),
+  valor: valorSchema,
+  confirmarCero: z.boolean().optional(),
 });
 const tarifaEditarSchema = z.object({
-  valor: z.number().nonnegative().optional(),
+  valor: valorSchema.optional(),
   activo: z.boolean().optional(),
-}).refine((d) => d.valor !== undefined || d.activo !== undefined, { message: 'Nada que actualizar' });
+  cerrar: z.literal(true).optional(),
+  confirmarCero: z.boolean().optional(),
+}).refine((d) => d.valor !== undefined || d.activo !== undefined || d.cerrar, { message: 'Nada que actualizar' });
+const fechaQuerySchema = z.string().refine((f) => parseFechaQuery(f) !== null, 'debe ser un día YYYY-MM-DD').optional();
+const historialQuerySchema = z.object({
+  concepto: z.enum(CONCEPTOS_TARIFA).optional(),
+  tipoTramite: z.string().optional(),
+  desde: fechaQuerySchema,
+  hasta: fechaQuerySchema,
+});
 
-/** TarifaError es de negocio (400); cualquier otra cosa sube y la maneja el error handler. */
+/** «campo: regla» por cada problema, para que el 400 diga QUÉ campo y QUÉ regla (AC9). */
+function mensajeDe(e: z.ZodError): string {
+  return `Datos inválidos: ${e.issues.map((i) => (i.path.length ? `${i.path.join('.')} ${i.message}` : i.message)).join('; ')}`;
+}
+
+/** La clase del error decide el código: no encontrada 404, conflicto 409, cero sin confirmar y negocio 400. */
 function tarifaFallo(res: Response, e: unknown): void {
+  if (e instanceof TarifaNoEncontradaError) { res.status(404).json({ error: e.message }); return; }
+  if (e instanceof TarifaConflictoError) { res.status(409).json({ error: e.message, vigenciaId: e.vigenciaId }); return; }
+  if (e instanceof TarifaCeroSinConfirmarError) { res.status(400).json({ error: e.message, requiereConfirmacion: 'cero' }); return; }
   if (e instanceof TarifaError) { res.status(400).json({ error: e.message }); return; }
   throw e;
 }
+
+const rotulo = (t: { concepto: string; tipoTramite: string | null; companiaNombre: string | null; companiaId: number }) =>
+  `Tarifa ${t.concepto}${t.tipoTramite ? ` (${t.tipoTramite})` : ''} de ${t.companiaNombre ?? t.companiaId}`;
+
+// Acotado a int4 positivo: un id de 11+ dígitos pasaría el regex y Postgres respondería 22003 (500)
+// en vez del 404 que corresponde a «esa compañía no existe».
+const idCompania = (raw: string): number | null => {
+  if (!/^\d+$/.test(raw)) return null;
+  const n = Number(raw);
+  return n > 0 && n <= 2147483647 ? n : null;
+};
 
 router.get('/tarifas', exigirFuncion('parametrizacion.tarifas.listar'), async (req: Request, res: Response) => {
   const companiaId = Number(req.query.companiaId) || undefined;
   res.json(await listarTarifas(companiaId));
 });
 
+// Vista por cliente: las cuatro llaves fijas y las CAPACIDADES calculadas con el motor de permisos
+// (AC12): la pantalla decide por esto, nunca por el nombre del rol. `editar` exige las dos funciones
+// de escritura porque la vista escribe por las dos rutas (POST fija, PATCH cambia/cierra).
+router.get('/tarifas/companias/:id', exigirFuncion('parametrizacion.tarifas.ver_por_cliente'), async (req: Request, res: Response) => {
+  const companiaId = idCompania(req.params.id);
+  if (companiaId === null) { res.status(400).json({ error: 'Datos inválidos: id debe ser numérico' }); return; }
+  try {
+    const vista = await vistaPorCompania(companiaId);
+    const concedidas = await funcionesConcedidas(req, [
+      'parametrizacion.tarifas.crear', 'parametrizacion.tarifas.editar', 'parametrizacion.tarifas.historial',
+    ]);
+    res.json({
+      ...vista,
+      capacidades: {
+        editar: concedidas.has('parametrizacion.tarifas.crear') && concedidas.has('parametrizacion.tarifas.editar'),
+        verHistorial: concedidas.has('parametrizacion.tarifas.historial'),
+      },
+    });
+  } catch (e) { tarifaFallo(res, e); }
+});
+
+router.get('/tarifas/companias/:id/historial', exigirFuncion('parametrizacion.tarifas.historial'), async (req: Request, res: Response) => {
+  const companiaId = idCompania(req.params.id);
+  if (companiaId === null) { res.status(400).json({ error: 'Datos inválidos: id debe ser numérico' }); return; }
+  const parsed = historialQuerySchema.safeParse(req.query);
+  if (!parsed.success) { res.status(400).json({ error: mensajeDe(parsed.error) }); return; }
+  const { concepto, tipoTramite, desde, hasta } = parsed.data;
+  let tipo: ReturnType<typeof tipoTramiteTarifaDe> | undefined;
+  if (tipoTramite !== undefined && concepto !== 'logistica') {
+    tipo = tipoTramiteTarifaDe(tipoTramite);
+    if (tipo === null) { res.status(400).json({ error: 'Datos inválidos: tipoTramite debe ser Matricula, Traspaso u Otros' }); return; }
+  }
+  try {
+    res.json(await historial(companiaId, {
+      concepto, tipoTramite: tipo,
+      rango: desde || hasta ? { desde: desde ?? null, hasta: hasta ?? null } : undefined,
+    }));
+  } catch (e) { tarifaFallo(res, e); }
+});
+
 router.post('/tarifas', exigirFuncion('parametrizacion.tarifas.crear'), async (req: Request, res: Response) => {
   const parsed = tarifaCrearSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+  if (!parsed.success) { res.status(400).json({ error: mensajeDe(parsed.error) }); return; }
   try {
-    const t = await crearTarifa(parsed.data, req.user?.sub ?? null);
+    const t = await fijarTarifa(parsed.data, req.user?.sub ?? null);
     await audit(req, {
-      action: 'create', resource: 'flito_tarifa', resourceId: t.id,
-      detail: `Tarifa ${t.concepto}${t.tipoTramite ? ` (${t.tipoTramite})` : ' (genérica)'} = ${t.valor} para ${t.companiaNombre ?? t.companiaId}`,
+      action: 'create', resource: 'flito_tarifa_vigencia', resourceId: t.id,
+      detail: `${rotulo(t)} = ${t.valor}, vigente desde ${t.vigenteDesde}`,
     });
     res.status(201).json(t);
   } catch (e) { tarifaFallo(res, e); }
@@ -544,22 +625,18 @@ router.post('/tarifas', exigirFuncion('parametrizacion.tarifas.crear'), async (r
 
 router.patch('/tarifas/:id', exigirFuncion('parametrizacion.tarifas.editar'), async (req: Request, res: Response) => {
   const parsed = tarifaEditarSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+  if (!parsed.success) { res.status(400).json({ error: mensajeDe(parsed.error) }); return; }
   try {
-    const t = await actualizarTarifa(req.params.id, parsed.data, req.user?.sub ?? null);
-    await audit(req, {
-      action: 'update', resource: 'flito_tarifa', resourceId: t.id,
-      detail: `Tarifa ${t.concepto}${t.tipoTramite ? ` (${t.tipoTramite})` : ' (genérica)'} = ${t.valor}, activa=${t.activo}`,
-    });
-    res.json(t);
-  } catch (e) { tarifaFallo(res, e); }
-});
-
-router.delete('/tarifas/:id', exigirFuncion('parametrizacion.tarifas.borrar'), async (req: Request, res: Response) => {
-  try {
-    await eliminarTarifa(req.params.id);
-    await audit(req, { action: 'delete', resource: 'flito_tarifa', resourceId: req.params.id, detail: 'Tarifa eliminada' });
-    res.status(204).end();
+    const r = await cambiarOCerrar(req.params.id, parsed.data, req.user?.sub ?? null);
+    if (r.accion !== 'sin_cambio') {
+      await audit(req, {
+        action: 'update', resource: 'flito_tarifa_vigencia', resourceId: r.tarifa.id,
+        detail: r.accion === 'cerrada'
+          ? `${rotulo(r.tarifa)} cerrada (dejar de cobrar); valor anterior ${r.valorAnterior}`
+          : `${rotulo(r.tarifa)} de ${r.valorAnterior} a ${r.valorNuevo} (vigencia ${r.tarifa.id})`,
+      });
+    }
+    res.json({ ...r.tarifa, valorAnterior: r.valorAnterior, valorNuevo: r.valorNuevo });
   } catch (e) { tarifaFallo(res, e); }
 });
 

@@ -11,7 +11,7 @@
 // `permisos-catalogo.test.ts` comprueba que los montajes del fuente cubren exactamente esta foto.
 import type { GuardaLeida } from './inventario-guardas.js';
 
-/** 217 rutas guardadas medidas el 9/09/2026 + 11 añadidas por la HU #12083 (dos en línea). */
+/** 217 rutas guardadas medidas el 9/09/2026 + 11 añadidas por la HU #12083 (dos en línea); +2 −1 por la HU #12373 (tarifas). */
 export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor","cliente","proveedor"], heredada: false },
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "POST", ruta: "/export", roles: ["admin","proveedor"], heredada: false },
@@ -161,10 +161,12 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "GET", ruta: "/organismos/:codigo/vigencias", roles: ["admin","auditor"], heredada: false },
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "POST", ruta: "/organismos/:codigo/modalidad", roles: ["admin"], heredada: false },
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "PATCH", ruta: "/organismos/:codigo", roles: ["admin"], heredada: false },
-  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "GET", ruta: "/tarifas", roles: ["admin","auditor","financiera"], heredada: false },
+  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "GET", ruta: "/tarifas", roles: ["admin","financiera"], heredada: false }, // HU #12373: el auditor deja de ver tarifas
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "POST", ruta: "/tarifas", roles: ["admin","financiera"], heredada: false },
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "PATCH", ruta: "/tarifas/:id", roles: ["admin","financiera"], heredada: false },
-  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "DELETE", ruta: "/tarifas/:id", roles: ["admin","financiera"], heredada: false },
+  // HU #12373: DELETE /tarifas/:id retirada (una vigencia se cierra, no se borra); +2 GET nuevas.
+  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "GET", ruta: "/tarifas/companias/:id", roles: ["admin","financiera"], heredada: false },
+  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "GET", ruta: "/tarifas/companias/:id/historial", roles: ["admin","financiera"], heredada: false },
   { modulo: "sync", fichero: "flito-sync/flito-sync.routes.ts", metodo: "GET", ruta: "/estado", roles: ["admin"], heredada: false },
   { modulo: "sync", fichero: "flito-sync/flito-sync.routes.ts", metodo: "POST", ruta: "/sincronizar", roles: ["admin"], heredada: false },
   { modulo: "tramite", fichero: "tramites/tramites.routes.ts", metodo: "GET", ruta: "/tipologias", roles: ["admin","transito"], heredada: true },

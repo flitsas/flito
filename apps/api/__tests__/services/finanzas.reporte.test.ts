@@ -6,6 +6,7 @@
 // distingue un CASE bien escrito de uno que devuelve siempre NULL.
 
 import { describe, it, expect, vi } from 'vitest';
+import { QueryBuilder } from 'drizzle-orm/pg-core';
 
 vi.mock('../../src/db/client.js', () => ({
   db: { select: vi.fn(), insert: vi.fn(), update: vi.fn(), delete: vi.fn(), transaction: vi.fn(), execute: vi.fn() },
@@ -13,7 +14,8 @@ vi.mock('../../src/db/client.js', () => ({
 }));
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
 
-const { aCsv, agruparEmpresas } = await import('../../src/modules/finanzas/finanzas.service.js');
+const { aCsv, agruparEmpresas, conJoins } = await import('../../src/modules/finanzas/finanzas.service.js');
+const { flitoTramites } = await import('../../src/db/schema.js');
 
 type Fila = Parameters<typeof aCsv>[0][number];
 
@@ -156,5 +158,26 @@ describe('agruparEmpresas — el desplegable de empresas del filtro', () => {
       { nit: '890903938-8', companiaId: 2 },
     ], MAESTRO);
     expect(r.map((e) => e.nombre)).toEqual(['BANCOLOMBIA S.A.', 'RENTING S.A.S']);
+  });
+});
+
+// ───────── HU #12373: las tarifas son VIGENCIAS; el reporte lee la ABIERTA ─────────
+//
+// Se afirma sobre el SQL RENDERIZADO y no sobre el mock: el mock `chain` devuelve la fila entera y
+// descarta las condiciones del join, así que un `activo` fantasma pasaría en verde.
+
+describe('conJoins — la tarifa estimada sale de la vigencia abierta (HU #12373)', () => {
+  it('los cuatro joins de tarifa van contra flito_tarifas_vigencias con `vigente_hasta IS NULL` y sin `activo`', () => {
+    const q = conJoins(new QueryBuilder().select({ id: flitoTramites.id }).from(flitoTramites).$dynamic());
+    const { sql } = q.toSQL();
+    for (const alias of ['td_esp', 'td_gen', 'lg_esp', 'lg_gen']) {
+      expect(sql).toContain(`"flito_tarifas_vigencias" "${alias}"`);
+      expect(sql).toMatch(new RegExp(`"${alias}"\\."vigente_hasta" IS NULL`));
+      expect(sql).not.toMatch(new RegExp(`"${alias}"\\."activo"`));
+    }
+    expect(sql).not.toContain('flito_tarifas_compania');
+    // La específica casa por tipo normalizado del trámite; la genérica solo con tipo NULL (logística).
+    expect(sql).toMatch(/"td_esp"\."tipo_tramite" = UPPER\(TRIM\(COALESCE\("flito_tramites"\."tipo_tramite", ''\)\)\)/);
+    expect(sql).toMatch(/"lg_gen"\."tipo_tramite" IS NULL/);
   });
 });

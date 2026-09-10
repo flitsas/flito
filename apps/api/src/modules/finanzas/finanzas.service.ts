@@ -15,7 +15,7 @@ import { alias, type PgSelect } from 'drizzle-orm/pg-core';
 import { db } from '../../db/client.js';
 import {
   clients, flitoDerechosTramite, flitoExcepcionesAutogestion, flitoImpuestos, flitoLiquidaciones,
-  flitoOrganismoVigencias, flitoSoat, flitoTarifasCompania, flitoTramites, vehicles,
+  flitoOrganismoVigencias, flitoSoat, flitoTarifasVigencias, flitoTramites, vehicles,
 } from '../../db/schema.js';
 import { aIso } from '../../shared/utils/fecha-rango.js';
 import { TASA_GMF } from '../flito-liquidacion/flito-liquidacion.service.js';
@@ -110,12 +110,15 @@ export interface ReporteCostos {
   totales: TotalesReporte; resumen: ResumenEtapas;
 }
 
-// Alias para resolver la tarifa: la específica del tipo y la genérica. Cada join casa a lo sumo una
-// fila gracias al índice único, así que un COALESCE entre ambas da la que manda, sin LATERAL.
-const tdEsp = alias(flitoTarifasCompania, 'td_esp');
-const tdGen = alias(flitoTarifasCompania, 'td_gen');
-const lgEsp = alias(flitoTarifasCompania, 'lg_esp');
-const lgGen = alias(flitoTarifasCompania, 'lg_gen');
+// Alias para resolver la tarifa VIGENTE AHORA (HU #12373: vigencia abierta = `vigente_hasta IS NULL`;
+// la resolución por fecha de aprobación es el eslabón 2). Cada join casa a lo sumo una fila gracias
+// al índice único parcial sobre las abiertas, así que un COALESCE entre ambas da la que manda, sin
+// LATERAL. Trámite digital va siempre por tipo (`td_gen` ya no casa filas: no hay tipo NULL) y la
+// logística siempre sin tipo (`lg_esp` tampoco): se conservan los cuatro para no tocar las expresiones.
+const tdEsp = alias(flitoTarifasVigencias, 'td_esp');
+const tdGen = alias(flitoTarifasVigencias, 'td_gen');
+const lgEsp = alias(flitoTarifasVigencias, 'lg_esp');
+const lgGen = alias(flitoTarifasVigencias, 'lg_gen');
 
 const TIPO_NORM = sql`UPPER(TRIM(COALESCE(${flitoTramites.tipoTramite}, '')))`;
 
@@ -124,8 +127,8 @@ type AliasTarifa = typeof tdEsp | typeof tdGen | typeof lgEsp | typeof lgGen;
 
 function joinTarifa(a: AliasTarifa, concepto: string, especifica: boolean): SQL {
   return especifica
-    ? sql`${a.companiaId} = ${flitoTramites.companiaId} AND ${a.concepto} = ${concepto} AND ${a.activo} AND ${a.tipoTramite} = ${TIPO_NORM}`
-    : sql`${a.companiaId} = ${flitoTramites.companiaId} AND ${a.concepto} = ${concepto} AND ${a.activo} AND ${a.tipoTramite} IS NULL`;
+    ? sql`${a.companiaId} = ${flitoTramites.companiaId} AND ${a.concepto} = ${concepto} AND ${a.vigenteHasta} IS NULL AND ${a.tipoTramite} = ${TIPO_NORM}`
+    : sql`${a.companiaId} = ${flitoTramites.companiaId} AND ${a.concepto} = ${concepto} AND ${a.vigenteHasta} IS NULL AND ${a.tipoTramite} IS NULL`;
 }
 
 // ── Expresiones de valor. Sellada manda; si no, se estima. ───────────────────

@@ -54,7 +54,9 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'GET', ruta: '/tarifas', codigo: 'parametrizacion.tarifas.listar' },
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'POST', ruta: '/tarifas', codigo: 'parametrizacion.tarifas.crear' },
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'PATCH', ruta: '/tarifas/:id', codigo: 'parametrizacion.tarifas.editar' },
-  { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'DELETE', ruta: '/tarifas/:id', codigo: 'parametrizacion.tarifas.borrar' },
+  // HU #12373: DELETE /tarifas/:id retirada; dos lecturas nuevas.
+  { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'GET', ruta: '/tarifas/companias/:id', codigo: 'parametrizacion.tarifas.ver_por_cliente' },
+  { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'GET', ruta: '/tarifas/companias/:id/historial', codigo: 'parametrizacion.tarifas.historial' },
   // flito-compuerta/flito-compuerta.routes.ts
   { fichero: 'flito-compuerta/flito-compuerta.routes.ts', metodo: 'GET', ruta: '/', codigo: 'compuerta.cola.ver' },
   { fichero: 'flito-compuerta/flito-compuerta.routes.ts', metodo: 'GET', ruta: '/:tramiteId', codigo: 'compuerta.tramite.ver' },

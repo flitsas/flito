@@ -149,10 +149,10 @@ describe('AC1/AC2 — cada router.<método>( de los 22 ficheros lleva exigirFunc
 });
 
 describe('el lector de montajes cubre la foto entera', () => {
-  it('228 montajes = 217 de la #12081 + 11 de esta HU; los códigos son exactamente los de la foto', () => {
+  it('229 montajes = 217 de la #12081 + 11 de esta HU + 2 − 1 de la #12373; los códigos son exactamente los de la foto', () => {
     const montajes = montajesDeFunciones();
-    expect(GUARDAS_MEDIDAS).toHaveLength(228);
-    expect(montajes).toHaveLength(228);
+    expect(GUARDAS_MEDIDAS).toHaveLength(229);
+    expect(montajes).toHaveLength(229);
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     expect(montajes.filter((m) => m.metodo === null)).toHaveLength(2);

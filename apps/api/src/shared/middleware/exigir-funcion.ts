@@ -184,3 +184,17 @@ export async function tieneFuncion(req: Request, codigo: string): Promise<boolea
   if (!req.user) return false;
   return (await decidir(req, codigo)).ok;
 }
+
+/**
+ * SONDA DE CAPACIDAD, no decisión (HU #12373): qué códigos de la lista tiene el usuario, para que una
+ * vista devuelva `capacidades` calculadas con el mismo motor y la pantalla decida por eso y no por el
+ * nombre del rol. A diferencia de `tieneFuncion`, NO registra intento denegado: preguntar «¿podría?»
+ * al pintar una pantalla no es intentar nada. Sin `req.user` o con el resolutor en `ok:false` el
+ * conjunto es vacío (falla cerrado).
+ */
+export async function funcionesConcedidas(req: Request, codigos: readonly string[]): Promise<ReadonlySet<string>> {
+  if (!req.user) return new Set();
+  const p = await resolverPermisos(req.user.sub);
+  if (!p.ok) return new Set();
+  return new Set(codigos.filter((c) => p.funciones.has(c)));
+}
