@@ -1,6 +1,6 @@
 // FLITO — el archivo `.xlsx` de las colas de SOAT e Impuestos (Feature #11908, HU #11909, #11934).
 //
-// Las dos colas exportan LA MISMA hoja: veinticinco columnas del vehículo y de su titular. Vive aquí
+// Las dos colas exportan LA MISMA hoja: veintisiete columnas del vehículo y de su titular. Vive aquí
 // y no duplicado en cada módulo por el motivo que la HU deja escrito y que ya se ha cumplido antes
 // en este repo: dos listas de columnas copiadas divergen en el cambio siguiente —alguien añade una
 // columna donde está trabajando y no en la otra— y a partir de ahí el mismo botón produce dos
@@ -23,7 +23,8 @@ import { makeStore, userOrIpKey } from '../middleware/rateLimiter.js';
 import { TZ_COLOMBIA } from '../utils/fecha-rango.js';
 
 /**
- * Las VEINTICINCO columnas del archivo, en su orden exacto (HU #11934; antes eran once, HU #11909).
+ * Las VEINTISIETE columnas del archivo, en su orden exacto (HU #12403; antes eran veinticinco, HU
+ * #11934, y antes once, HU #11909).
  *
  * Es una LISTA BLANCA escrita a mano, igual que `COLUMNAS_EXPORT` de comparendos y por lo mismo: una
  * columna personal que alguien añada mañana a la proyección de la cola no puede aparecer en un
@@ -48,7 +49,14 @@ import { TZ_COLOMBIA } from '../utils/fecha-rango.js';
  * **`key` es lo que empareja el valor con su columna, no `header`.** ExcelJS escribe cada fila
  * buscando `fila[col.key]`, así que permutar dos `header` sin permutar sus `key` produce un archivo
  * con las cabeceras correctas y los VALORES cruzados: el aserto de cabeceras sigue verde. Por eso la
- * suite comprueba además cada valor bajo su propia cabecera, con 25 centinelas distinguibles.
+ * suite comprueba además cada valor bajo su propia cabecera, con 27 centinelas distinguibles.
+ *
+ * **`NumeroMotor` y `NumeroSerie` van AL FINAL (HU #12403), y no junto a `Vin`, que es donde un
+ * lector las buscaría.** Es la plantilla del cliente otra vez: empareja por texto, pero las 25
+ * anteriores ya están cargadas en su sistema y lo que menos cuesta es añadir por la derecha. Las
+ * dos salen de `vehicles.num_motor` / `vehicles.num_serie` en las DOS colas y para los DOS
+ * orígenes del SOAT —las escribe el RUNT (HU #12401 en SOAT, #12402 en Impuestos) en la misma
+ * tabla; FLIT no las manda—, así que no dependen de `flit_raw` ni de la bifurcación por `origen`.
  */
 export const COLUMNAS_COLA_EXPORT: { header: string; key: string; width: number }[] = [
   { header: 'Vin', key: 'vin', width: 20 },
@@ -76,6 +84,8 @@ export const COLUMNAS_COLA_EXPORT: { header: string; key: string; width: number 
   { header: 'Celular', key: 'celular', width: 16 },
   { header: 'Correo', key: 'correo', width: 32 },
   { header: 'OrganismoDettoCiudad', key: 'organismoDettoCiudad', width: 22 },
+  { header: 'NumeroMotor', key: 'numeroMotor', width: 18 },
+  { header: 'NumeroSerie', key: 'numeroSerie', width: 22 },
 ];
 
 /**
@@ -147,6 +157,10 @@ export interface FilaColaExport extends Record<string, string | null> {
   celular: string | null;
   correo: string | null;
   organismoDettoCiudad: string | null;
+  /** `vehicles.num_motor` (HU #12403). Tal cual lo dejó el RUNT; vacío si no hay dato. */
+  numeroMotor: string | null;
+  /** `vehicles.num_serie` (HU #12403). NO es el VIN: son dos identificadores distintos del RUNT. */
+  numeroSerie: string | null;
 }
 
 /**
@@ -199,11 +213,16 @@ export interface FilaColaExport extends Record<string, string | null> {
  * personal, no un formato—. Se declara con el nombre de columna del resto del `pii_access_log`
  * (`flito_compradores.tipo_documento`), no con el de la cabecera del archivo, por lo mismo que
  * `ciudad`: esta lista se cruza con la base, no con la plantilla del cliente.
+ *
+ * **`num_motor` y `num_serie` ENTRAN con la HU #12403, por lo mismo que `placa` y `vin`.** Son
+ * identificadores del vehículo que el RUNT ata a su propietario: indirectos, pero identificadores
+ * (Ley 1581, dato personal = el que permite asociar a una persona). Se declaran con el nombre de
+ * columna de `vehicles`, no con la cabecera del archivo.
  */
 export const CAMPOS_PII_COLA_EXPORT = [
   'nombre_completo', 'nombres', 'apellidos', 'razon_social',
   'numero_documento', 'tipo_documento', 'correo', 'celular', 'direccion', 'placa',
-  'vin', 'ciudad', 'municipio', 'departamento',
+  'vin', 'ciudad', 'municipio', 'departamento', 'num_motor', 'num_serie',
 ] as const;
 
 /**
@@ -215,7 +234,7 @@ export const CAMPOS_PII_COLA_EXPORT = [
  * el que sirve al lector: primero cómo se llama, y solo si no se sabe, cómo se identifica.
  *
  * **Desde la HU #11934 su único llamador es el ZIP de soportes** (`shared/soportes/soportes-zip.ts`,
- * que nombra las carpetas por organismo): la hoja de 25 columnas ya no lleva el alias configurado en
+ * que nombra las carpetas por organismo): la hoja de las colas ya no lleva el alias configurado en
  * FLITO, sino `OrganismoDetto` —el nombre CRUDO que manda FLIT, `flito_tramites.transito_nombre_flit`—
  * y `OrganismoDettoCiudad`, del catálogo. Se queda aquí y no se mueve al ZIP porque el ZIP la importa
  * a propósito para no divergir del `.xlsx`, y ese acuerdo tiene su propio test.
@@ -326,8 +345,8 @@ export class ExportColaDemasiadoGrandeError extends Error {
  * vuelo, y la cuota es por usuario sin cota global: **una sola sesión** puede tener los cinco
  * construyéndose a la vez. Con dos bolsas nuevas, esa misma sesión pasa de 5 a 10 concurrentes
  * posibles y se come el margen entero. **Y desde la HU #11934 la hoja ya no tiene once columnas sino
- * veinticinco**, que es 1,67 veces la de quince con la que ADR-0004 hizo su medición: el argumento de
- * la bolsa única no se ha aflojado con el cambio, se ha apretado. El propio ADR advierte además que a
+ * veinticinco** —y veintisiete desde la #12403—, que es 1,8 veces la de quince con la que ADR-0004
+ * hizo su medición: el argumento de la bolsa única no se ha aflojado con el cambio, se ha apretado. El propio ADR advierte además que a
  * esa escala manda el ruido del allocator y del GC tanto como el número de columnas.
  *
  * El segundo motivo es de privacidad, y es el mismo con el que comparendos razona su 5/min: la cuota

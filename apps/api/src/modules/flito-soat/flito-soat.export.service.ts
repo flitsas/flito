@@ -1,7 +1,7 @@
-// FLITO SOAT — export a Excel de la cola filtrada (Feature #11908, HU #11909, #11934).
+// FLITO SOAT — export a Excel de la cola filtrada (Feature #11908, HU #11909, #11934, #12403).
 //
 // La segunda lectura de `flito_soat` del módulo, y no es la de `cola()`: aquella pagina y devuelve el
-// DTO que pinta una pantalla; esta entrega el conjunto entero una sola vez y con las veinticinco
+// DTO que pinta una pantalla; esta entrega el conjunto entero una sola vez y con las veintisiete
 // columnas del archivo. Lo único que comparten —y por eso vive en el servicio del listado, no aquí— es
 // `condicionesCola`/`conJoinsCola`: qué significa cada filtro y qué ve cada rol se decide en un solo
 // sitio, o el `.xlsx` acabaría conteniendo algo distinto de lo que el visor enseña y nadie se
@@ -83,6 +83,12 @@ const COLUMNAS_CONSULTA = {
   carroceria: vehicles.carroceria,
   servicio: vehicles.tipoServicio,
   cilindraje: vehicles.cilindraje,
+  // HU #12403: motor y serie van por la MISMA vía que los tres de arriba —`vehicles`, para los dos
+  // orígenes— y no por `flit_raw`: FLIT no los manda; los escribe el RUNT desde la HU #12401 (el
+  // canal Cliente al radicar y el recorrido de vigencia para los de trámite). Fuera de
+  // `DatosDeTramite` a propósito: no dependen de la bifurcación por `origen`.
+  numMotor: vehicles.numMotor,
+  numSerie: vehicles.numSerie,
   /**
    * Los SEIS de `vehicles` que la HU #11966 añade a la proyección, y que **solo se leen para filas
    * `origen = 'cliente'`** (ver `datosDeCanal`).
@@ -524,6 +530,10 @@ export async function construirFilasExportSoat(
       celular: celdaTexto(p?.celular),
       correo: celdaTexto(p?.correo),
       organismoDettoCiudad: ciudadDeOrganismo(f.organismoCodigo),
+      // Las dos de la HU #12403 se leen de `vehicles` sin mirar `origen`, igual que `carroceria`:
+      // el trámite y el canal escriben la misma columna. Sin dato, la celda va vacía.
+      numeroMotor: celdaTexto(f.numMotor),
+      numeroSerie: celdaTexto(f.numSerie),
     };
   });
 }

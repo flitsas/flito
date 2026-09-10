@@ -1,4 +1,4 @@
-// FLITO Impuestos — export a Excel de la cola filtrada (Feature #11908, HU #11909, HU #11934).
+// FLITO Impuestos — export a Excel de la cola filtrada (Feature #11908, HU #11909, HU #11934, HU #12403).
 //
 // Gemelo de `flito-soat-export.test.ts` y con la misma doctrina: lo que se afirma es el WORKBOOK
 // REAL, no la constante que lo generó. Las diferencias con el de SOAT son las que hacen que este
@@ -140,6 +140,9 @@ const filaImpuesto = (over: Record<string, unknown> = {}) => ({
   carroceria: 'FURGON',
   servicio: 'Publico',
   cilindraje: '2400',
+  // HU #12403: `vehicles.num_motor` / `num_serie`. Distintos entre sí para ver un cruce en la celda.
+  numMotor: 'MTR-I1',
+  numSerie: 'SER-I1',
   organismoCodigo: ORGANISMO,
   marca: 'KIA',
   linea: 'STONIC',     // `flit_raw->>'modelo'` — la LÍNEA
@@ -311,7 +314,7 @@ async function libro(cuerpo: Buffer): Promise<ExcelJS.Worksheet> {
 }
 
 /**
- * Las VEINTICINCO cabeceras ESCRITAS A MANO, igual que en la suite de SOAT.
+ * Las VEINTISIETE cabeceras ESCRITAS A MANO, igual que en la suite de SOAT (27 desde la HU #12403).
  *
  * Se repiten a propósito en los dos archivos en vez de sacarlas a un helper compartido: si vivieran
  * en un solo sitio, ese sitio sería una segunda constante de producción disfrazada de test y las dos
@@ -327,6 +330,7 @@ const CABECERAS = [
   'CapacidadCargaOPasajeros', 'Puertas', 'OrganismoDetto', 'N_I', 'ClaseDeInterlocutor',
   'NombrePila', 'Apellidos', 'RazonSocial', 'ClaseId', 'NumeroId', 'Direccion', 'Municipio',
   'Departamento', 'Celular', 'Correo', 'OrganismoDettoCiudad',
+  'NumeroMotor', 'NumeroSerie',
 ];
 
 const cabecerasDe = (hoja: ExcelJS.Worksheet): string[] =>
@@ -370,8 +374,8 @@ beforeEach(() => {
 
 // ─────────────────────────── Las once columnas ───────────────────────────────────────────────────
 
-describe('el archivo tiene EXACTAMENTE veinticinco columnas, en su orden', () => {
-  it('las 25 cabeceras en CamelCase literal, y `columnCount === 25`', async () => {
+describe('el archivo tiene EXACTAMENTE veintisiete columnas, en su orden', () => {
+  it('las 27 cabeceras en CamelCase literal, y `columnCount === 27`', async () => {
     kdb.when.scenario({ flito_impuestos: filas(2), flito_compradores: [] });
 
     const r = await exportar(await sesion());
@@ -379,7 +383,9 @@ describe('el archivo tiene EXACTAMENTE veinticinco columnas, en su orden', () =>
     const hoja = await libro(r.body as Buffer);
 
     expect(cabecerasDe(hoja)).toEqual(CABECERAS);
-    expect(hoja.columnCount).toBe(25);
+    expect(hoja.columnCount).toBe(27);
+    // AC1 de la HU #12403: las dos nuevas van AL FINAL, por posición y no solo por presencia.
+    expect(cabecerasDe(hoja).slice(-2)).toEqual(['NumeroMotor', 'NumeroSerie']);
   });
 
   it('NO hay columna de fecha de creación, ni de valor pagado, ni de proveedor', async () => {
@@ -413,7 +419,7 @@ describe('el archivo tiene EXACTAMENTE veinticinco columnas, en su orden', () =>
 
 // ─────────────────────────── Cada valor bajo SU cabecera ─────────────────────────────────────────
 
-describe('cada valor cae bajo la cabecera que le toca — 25 centinelas distinguibles', () => {
+describe('cada valor cae bajo la cabecera que le toca — 27 centinelas distinguibles', () => {
   /** Dos filas: el bloque del titular tiene formas EXCLUYENTES (natural y jurídica). */
   const escenarioDeDosFormas = () => kdb.when.scenario({
     flito_impuestos: [
@@ -434,7 +440,7 @@ describe('cada valor cae bajo la cabecera que le toca — 25 centinelas distingu
     ],
   });
 
-  it('**las 25 celdas de la fila natural, una por una**', async () => {
+  it('**las 27 celdas de la fila natural, una por una**', async () => {
     // El mutante que SOLO este caso mata: permutar dos `header` de `COLUMNAS_COLA_EXPORT` sin
     // permutar sus `key`. ExcelJS escribe cada fila buscando `fila[col.key]`, así que el archivo
     // saldría con las cabeceras nuevas y los VALORES cruzados, y el aserto de cabeceras de arriba
@@ -469,6 +475,28 @@ describe('cada valor cae bajo la cabecera que le toca — 25 centinelas distingu
     expect(c('Celular')).toBe('3109876543');
     expect(c('Correo')).toBe('pedro@empresa.co');
     expect(c('OrganismoDettoCiudad')).toBe(CIUDAD_ORGANISMO);
+    // HU #12403 (AC3): de `vehicles`, y cada una bajo la suya — cruzarlas es el mutante barato.
+    expect(c('NumeroMotor')).toBe('MTR-I1');
+    expect(c('NumeroSerie')).toBe('SER-I1');
+  });
+
+  it('**sin motor ni serie en `vehicles`, las dos celdas van VACÍAS — nunca «null» ni «—»** (HU #12403, AC4)', async () => {
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto({ numMotor: null, numSerie: ' ' })],
+      flito_compradores: [comprador()],
+    });
+
+    const r = await exportar(await sesion());
+    expect(r.status).toBe(200);
+    const hoja = await libro(r.body as Buffer);
+
+    expect(celda(hoja, 2, 'NumeroMotor') ?? null).toBeNull();
+    expect(celda(hoja, 2, 'NumeroSerie') ?? null).toBeNull();
+    expect(celda(hoja, 2, 'Placa')).toBe(PLACA);
+    const texto = textoDe(hoja);
+    expect(texto).not.toContain('null');
+    expect(texto).not.toContain('undefined');
+    expect(texto).not.toContain('—');
   });
 
   it('las tres celdas que solo tiene la fila JURÍDICA, y sus dos contrarias vacías', async () => {
@@ -1198,6 +1226,10 @@ describe('rastro — Ley 1581 art. 17 (el módulo no registraba NADA hasta esta 
     // `PP`, `CE`— y sale también en el DTO de la cola. `CE` en un archivo que cruza el perímetro dice
     // que el titular es extranjero: es un dato del titular, no un formato.
     expect(campos).toContain('tipo_documento');
+    // **Y la HU #12403 añade `num_motor` y `num_serie`**, por lo mismo que `placa` y `vin`:
+    // identificadores del vehículo que el RUNT ata a su propietario, con el nombre de la columna.
+    expect(campos).toContain('num_motor');
+    expect(campos).toContain('num_serie');
     // Y sigue siendo la lista del ARCHIVO, no la de la tabla: lo que no se publica, no se declara.
     expect(campos).not.toContain('valor_liquidado');
     expect(campos).not.toContain('motivo_rechazo');
