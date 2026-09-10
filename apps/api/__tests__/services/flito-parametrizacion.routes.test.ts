@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { chain } from '../helpers/db.js';
-import { testToken } from '../helpers/auth.js';
+import { registrarUsuarioDePrueba, testToken } from '../helpers/auth.js';
 
 const selectMock = vi.fn();
 const insertMock = vi.fn();
@@ -25,6 +25,14 @@ vi.mock('../../src/db/client.js', () => ({
 const auditMock = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../src/shared/middleware/audit.js', () => ({ audit: auditMock }));
 
+// HU #12373: la sonda de capacidades NO debe registrar intentos denegados (no es un intento).
+const intentoDenegadoMock = vi.fn().mockResolvedValue(undefined);
+vi.mock('../../src/shared/historial/permisos-intentos-denegados.js', () => ({
+  registrarIntentoDenegado: intentoDenegadoMock,
+  ventanaActual: () => new Date(),
+  VENTANA_DEDUP_MS: 3_600_000,
+}));
+
 vi.mock('../../src/shared/redis.js', () => ({
   getRedis: () => null,
   closeRedis: vi.fn().mockResolvedValue(undefined),
@@ -38,6 +46,7 @@ beforeEach(() => {
   deleteMock.mockReset();
   transactionMock.mockReset();
   auditMock.mockClear();
+  intentoDenegadoMock.mockClear();
 });
 
 async function buildApp() {
@@ -48,7 +57,7 @@ async function buildApp() {
   return app;
 }
 
-const auth = async (role: 'admin' | 'auditor' | 'gestor_impuestos' | 'proveedor') =>
+const auth = async (role: 'admin' | 'auditor' | 'gestor_impuestos' | 'proveedor' | 'financiera') =>
   `Bearer ${await testToken({ sub: 1, username: 'u', role })}`;
 
 // ───────────────────────────── RBAC (D-2: gestores no entran) ────────────────
@@ -237,5 +246,252 @@ describe('compañías — flag «SOAT sin trámite» (AC3 de la HU #11913)', () 
       .set('Authorization', await auth('auditor')).send({ soatSinTramite: true });
     expect(r.status).toBe(403);
     expect(updateMock).not.toHaveBeenCalled();
+  });
+});
+
+// ───────── HU #12373 (Feature #12365): tarifas como VIGENCIAS — contrato HTTP ─────────
+//
+// Lo que se prueba aquí es el CONTRATO: códigos, forma de la respuesta y, sobre todo, que las
+// `capacidades` de la vista salen del MOTOR de permisos (AC12) y que el acceso se decide por REPARTO
+// (AC16): se le quita la función a un rol y cae el 200, sin mirar el nombre del rol. El servicio va
+// mockeado a nivel de `db`; la lógica de vigencias se prueba en flito-tarifas.test.ts.
+
+const BASE = '/api/flito/parametrizacion';
+const AHORA_ISO = '2026-09-10T15:00:00.000Z';
+const compania7 = { id: 7, name: 'ACME', logisticaAutogestionable: false };
+const abierta = (over: Record<string, unknown> = {}) => ({
+  id: 'v-1', concepto: 'tramite_digital', tipoTramite: 'MATRICULA', valor: '270000.00',
+  vigenteDesde: new Date(AHORA_ISO), fijadoPorId: 2, fijadoPorNombre: 'Ana P.', ...over,
+});
+const filaTarifa = (over: Record<string, unknown> = {}) => ({
+  id: 'v-2', companiaId: 7, companiaNombre: 'ACME', concepto: 'tramite_digital', tipoTramite: 'TRASPASO',
+  valor: '320000.00', vigenteDesde: new Date(AHORA_ISO), vigenteHasta: null, fijadoEn: new Date(AHORA_ISO), ...over,
+});
+
+/** Un usuario cuyo ROL tiene exactamente estas funciones de tarifas (y nada más): la prueba por reparto. */
+async function tokenConFunciones(sub: number, role: 'financiera' | 'auditor' | 'admin', funciones: string[]) {
+  const token = `Bearer ${await testToken({ sub, role })}`;
+  await registrarUsuarioDePrueba(sub, { rol: role, tipoPrincipal: 'interno', allowedPages: [], funcionesDelRol: funciones, excepciones: [] });
+  return token;
+}
+
+describe('tarifas — vista por cliente y capacidades por motor (AC12, AC16)', () => {
+  it('financiera (reparto de partida) → 200 con las 4 filas fijas, null donde no hay vigencia y capacidades true', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([compania7]))
+      .mockReturnValueOnce(chain([abierta(), abierta({ id: 'v-lg', concepto: 'logistica', tipoTramite: null, valor: '45000.00' })]));
+    const app = await buildApp();
+    const r = await request(app).get(`${BASE}/tarifas/companias/7`).set('Authorization', await auth('financiera'));
+    expect(r.status).toBe(200);
+    expect(r.body.companiaId).toBe(7);
+    expect(r.body.tarifas.map((t: { concepto: string; tipoTramite: string | null }) => `${t.concepto}:${t.tipoTramite}`)).toEqual([
+      'tramite_digital:MATRICULA', 'tramite_digital:TRASPASO', 'tramite_digital:OTROS', 'logistica:null',
+    ]);
+    expect(r.body.tarifas[0]).toEqual({
+      concepto: 'tramite_digital', tipoTramite: 'MATRICULA', vigenciaId: 'v-1', valor: 270000,
+      vigenteDesde: AHORA_ISO, fijadoPor: { id: 2, nombre: 'Ana P.' },
+    });
+    expect(r.body.tarifas[1]).toMatchObject({ tipoTramite: 'TRASPASO', vigenciaId: null, valor: null, vigenteDesde: null, fijadoPor: null });
+    expect(r.body.tarifas[2].valor).toBeNull();
+    expect(r.body.tarifas[3]).toMatchObject({ concepto: 'logistica', valor: 45000, flitoGestionaLogistica: true });
+    // Ningún «no configurado» viene como 0.
+    expect(r.body.tarifas.filter((t: { valor: number | null }) => t.valor === 0)).toHaveLength(0);
+    expect(r.body.capacidades).toEqual({ editar: true, verHistorial: true });
+    expect(intentoDenegadoMock).not.toHaveBeenCalled();
+  });
+
+  it('las capacidades salen del motor, no del nombre del rol: financiera con SOLO ver_por_cliente → false/false (mutante M3)', async () => {
+    selectMock.mockReturnValueOnce(chain([compania7])).mockReturnValueOnce(chain([]));
+    const token = await tokenConFunciones(71, 'financiera', ['parametrizacion.tarifas.ver_por_cliente']);
+    const app = await buildApp();
+    const r = await request(app).get(`${BASE}/tarifas/companias/7`).set('Authorization', token);
+    expect(r.status).toBe(200);
+    expect(r.body.capacidades).toEqual({ editar: false, verHistorial: false });
+    // Una sonda de capacidad no es un intento: nada en la bitácora de denegados.
+    expect(intentoDenegadoMock).not.toHaveBeenCalled();
+  });
+
+  it('`editar` exige las DOS funciones de escritura (la vista fija por POST y cambia por PATCH)', async () => {
+    selectMock.mockReturnValueOnce(chain([compania7])).mockReturnValueOnce(chain([]));
+    const token = await tokenConFunciones(72, 'admin', ['parametrizacion.tarifas.ver_por_cliente', 'parametrizacion.tarifas.editar', 'parametrizacion.tarifas.historial']);
+    const app = await buildApp();
+    const r = await request(app).get(`${BASE}/tarifas/companias/7`).set('Authorization', token);
+    expect(r.body.capacidades).toEqual({ editar: false, verHistorial: true });
+  });
+
+  it('por REPARTO: quitarle la función al rol hace caer el 200 a 403 con el motivo del motor', async () => {
+    const token = await tokenConFunciones(73, 'financiera', ['parametrizacion.tarifas.listar']);
+    const app = await buildApp();
+    const r = await request(app).get(`${BASE}/tarifas/companias/7`).set('Authorization', token);
+    expect(r.status).toBe(403);
+    expect(r.body).toMatchObject({ funcion: 'parametrizacion.tarifas.ver_por_cliente', motivo: 'sin_funcion' });
+    expect(selectMock).not.toHaveBeenCalled();
+  });
+
+  it('auditor (reparto tras la 0182) → 403 también en la LECTURA del cuadro de tarifas', async () => {
+    const app = await buildApp();
+    const lista = await request(app).get(`${BASE}/tarifas`).set('Authorization', await auth('auditor'));
+    expect(lista.status).toBe(403);
+    const vista = await request(app).get(`${BASE}/tarifas/companias/7`).set('Authorization', await auth('auditor'));
+    expect(vista.status).toBe(403);
+    expect(vista.body.motivo).toBeDefined();
+  });
+
+  it('compañía inexistente → 404; id no numérico → 400', async () => {
+    selectMock.mockReturnValueOnce(chain([]));
+    const app = await buildApp();
+    expect((await request(app).get(`${BASE}/tarifas/companias/999`).set('Authorization', await auth('admin'))).status).toBe(404);
+    expect((await request(app).get(`${BASE}/tarifas/companias/abc`).set('Authorization', await auth('admin'))).status).toBe(400);
+  });
+});
+
+describe('tarifas — historial (AC13, AC14, AC15)', () => {
+  it('admin → 200 con las vigencias; un rango con día inválido → 400 nombrando el campo', async () => {
+    selectMock.mockReturnValueOnce(chain([compania7])).mockReturnValueOnce(chain([]));
+    const app = await buildApp();
+    const ok = await request(app).get(`${BASE}/tarifas/companias/7/historial?concepto=tramite_digital&tipoTramite=traspaso&desde=2026-08-01&hasta=2026-08-31`)
+      .set('Authorization', await auth('admin'));
+    expect(ok.status).toBe(200);
+    expect(ok.body).toEqual([]);
+    const mal = await request(app).get(`${BASE}/tarifas/companias/7/historial?desde=2026-13-01`).set('Authorization', await auth('admin'));
+    expect(mal.status).toBe(400);
+    expect(mal.body.error).toMatch(/desde/);
+    const tipo = await request(app).get(`${BASE}/tarifas/companias/7/historial?concepto=tramite_digital&tipoTramite=Cancelacion`).set('Authorization', await auth('admin'));
+    expect(tipo.status).toBe(400);
+    expect(tipo.body.error).toMatch(/Matricula, Traspaso u Otros/);
+  });
+
+  it('el historial no se edita ni se borra: no existe ruta (404) y nada se escribe', async () => {
+    const app = await buildApp();
+    const token = await auth('admin');
+    for (const [metodo, ruta] of [
+      ['delete', `${BASE}/tarifas/v-1`], ['delete', `${BASE}/tarifas/companias/7/historial/v-1`],
+      ['patch', `${BASE}/tarifas/companias/7/historial/v-1`], ['put', `${BASE}/tarifas/companias/7/historial/v-1`],
+    ] as const) {
+      const r = await request(app)[metodo](ruta).set('Authorization', token).send({ valor: 1 });
+      expect(r.status, `${metodo.toUpperCase()} ${ruta}`).toBe(404);
+    }
+    expect(updateMock).not.toHaveBeenCalled();
+    expect(deleteMock).not.toHaveBeenCalled();
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('tarifas — fijar (POST) y cambiar/cerrar (PATCH) (AC4, AC5, AC8, AC9, AC10, AC11)', () => {
+  it('financiera fija Traspaso en 320000 → 201 con la vigencia y auditoría create', async () => {
+    selectMock.mockReturnValueOnce(chain([compania7])).mockReturnValueOnce(chain([filaTarifa()]));
+    insertMock.mockReturnValueOnce(chain([{ id: 'v-2' }]));
+    const app = await buildApp();
+    const r = await request(app).post(`${BASE}/tarifas`).set('Authorization', await auth('financiera'))
+      .send({ companiaId: 7, concepto: 'tramite_digital', tipoTramite: 'Traspaso', valor: 320000 });
+    expect(r.status).toBe(201);
+    expect(r.body).toMatchObject({ id: 'v-2', tipoTramite: 'TRASPASO', valor: 320000, activo: true, vigenteDesde: AHORA_ISO });
+    expect(auditMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ action: 'create', resourceId: 'v-2', detail: expect.stringContaining('320000') }));
+  });
+
+  it('valores inválidos → 400 que nombra `valor` y la regla; nada se inserta (AC9)', async () => {
+    const app = await buildApp();
+    const token = await auth('financiera');
+    const base = { companiaId: 7, concepto: 'tramite_digital', tipoTramite: 'Matricula' };
+    for (const [cuerpo, regla] of [
+      [{ ...base, valor: -1 }, /mayor o igual a cero/],
+      [{ ...base, valor: 'texto' }, /debe ser un número/],
+      [{ ...base, valor: 1.005 }, /dos decimales/],
+      [{ ...base }, /obligatorio/],
+    ] as const) {
+      const r = await request(app).post(`${BASE}/tarifas`).set('Authorization', token).send(cuerpo);
+      expect(r.status, JSON.stringify(cuerpo)).toBe(400);
+      expect(r.body.error).toMatch(/valor/);
+      expect(r.body.error).toMatch(regla);
+    }
+    expect(insertMock).not.toHaveBeenCalled();
+  });
+
+  it('cero exige confirmación explícita (AC10)', async () => {
+    const app = await buildApp();
+    const sin = await request(app).post(`${BASE}/tarifas`).set('Authorization', await auth('admin'))
+      .send({ companiaId: 7, concepto: 'logistica', valor: 0 });
+    expect(sin.status).toBe(400);
+    expect(sin.body).toMatchObject({ requiereConfirmacion: 'cero' });
+    expect(insertMock).not.toHaveBeenCalled();
+
+    selectMock.mockReturnValueOnce(chain([compania7])).mockReturnValueOnce(chain([filaTarifa({ concepto: 'logistica', tipoTramite: null, valor: '0.00' })]));
+    insertMock.mockReturnValueOnce(chain([{ id: 'v-2' }]));
+    const con = await request(app).post(`${BASE}/tarifas`).set('Authorization', await auth('admin'))
+      .send({ companiaId: 7, concepto: 'logistica', valor: 0, confirmarCero: true });
+    expect(con.status).toBe(201);
+    expect(con.body.valor).toBe(0);
+  });
+
+  it('tipo fuera del catálogo o vacío → 400; «matrícula» se acepta y se guarda como MATRICULA (AC11)', async () => {
+    const app = await buildApp();
+    const token = await auth('admin');
+    for (const tipoTramite of ['Cancelacion', '']) {
+      const r = await request(app).post(`${BASE}/tarifas`).set('Authorization', token)
+        .send({ companiaId: 7, concepto: 'tramite_digital', tipoTramite, valor: 1000 });
+      expect(r.status).toBe(400);
+      expect(r.body.error).toMatch(/Matricula, Traspaso u Otros/);
+    }
+    selectMock.mockReturnValueOnce(chain([compania7])).mockReturnValueOnce(chain([filaTarifa({ tipoTramite: 'MATRICULA' })]));
+    let grabado: unknown;
+    insertMock.mockReturnValueOnce({ values: (v: unknown) => { grabado = v; return chain([{ id: 'v-2' }]); } });
+    const ok = await request(app).post(`${BASE}/tarifas`).set('Authorization', token)
+      .send({ companiaId: 7, concepto: 'tramite_digital', tipoTramite: 'matrícula', valor: 1000 });
+    expect(ok.status).toBe(201);
+    expect(grabado).toMatchObject({ tipoTramite: 'MATRICULA' });
+  });
+
+  it('PATCH cambia el valor → 200 con valorAnterior/valorNuevo y auditoría update (AC5)', async () => {
+    const tx = {
+      select: vi.fn().mockReturnValueOnce(chain([{ id: 'v-1', companiaId: 7, concepto: 'tramite_digital', tipoTramite: 'MATRICULA', valor: '270000.00', vigenteHasta: null }])),
+      update: vi.fn().mockReturnValueOnce(chain([])),
+      insert: vi.fn().mockReturnValueOnce(chain([{ id: 'v-2' }])),
+    };
+    transactionMock.mockImplementationOnce(async (cb: (t: unknown) => Promise<unknown>) => cb(tx));
+    selectMock.mockReturnValueOnce(chain([filaTarifa({ tipoTramite: 'MATRICULA', valor: '300000.00' })]));
+    const app = await buildApp();
+    const r = await request(app).patch(`${BASE}/tarifas/v-1`).set('Authorization', await auth('admin')).send({ valor: 300000, activo: true });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ id: 'v-2', valor: 300000, valorAnterior: 270000, valorNuevo: 300000, activo: true });
+    expect(auditMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ action: 'update', detail: expect.stringMatching(/de 270000 a 300000/) }));
+  });
+
+  it('PATCH sobre una vigencia ya cerrada → 409 con la abierta de su llave', async () => {
+    const tx = {
+      select: vi.fn()
+        .mockReturnValueOnce(chain([{ id: 'v-1', companiaId: 7, concepto: 'logistica', tipoTramite: null, valor: '45000.00', vigenteHasta: new Date(AHORA_ISO) }]))
+        .mockReturnValueOnce(chain([{ id: 'v-viva' }])),
+      update: vi.fn(), insert: vi.fn(),
+    };
+    transactionMock.mockImplementationOnce(async (cb: (t: unknown) => Promise<unknown>) => cb(tx));
+    const app = await buildApp();
+    const r = await request(app).patch(`${BASE}/tarifas/v-1`).set('Authorization', await auth('financiera')).send({ valor: 50000 });
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: expect.stringMatching(/cerrada/), vigenciaId: 'v-viva' });
+    expect(tx.update).not.toHaveBeenCalled();
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+
+  it('PATCH inexistente → 404; cuerpo vacío → 400; DELETE → 404 (la operación no existe, AC8)', async () => {
+    transactionMock.mockImplementationOnce(async (cb: (t: unknown) => Promise<unknown>) => cb({ select: vi.fn().mockReturnValueOnce(chain([])), update: vi.fn(), insert: vi.fn() }));
+    const app = await buildApp();
+    const token = await auth('admin');
+    expect((await request(app).patch(`${BASE}/tarifas/nada`).set('Authorization', token).send({ valor: 1 })).status).toBe(404);
+    expect((await request(app).patch(`${BASE}/tarifas/v-1`).set('Authorization', token).send({})).status).toBe(400);
+    expect((await request(app).delete(`${BASE}/tarifas/v-1`).set('Authorization', token)).status).toBe(404);
+    expect(deleteMock).not.toHaveBeenCalled();
+  });
+
+  it('escritura por reparto: financiera sin `crear` → 403 en POST; auditor → 403 en PATCH', async () => {
+    const app = await buildApp();
+    const sinCrear = await tokenConFunciones(74, 'financiera', ['parametrizacion.tarifas.listar', 'parametrizacion.tarifas.editar']);
+    const post = await request(app).post(`${BASE}/tarifas`).set('Authorization', sinCrear)
+      .send({ companiaId: 7, concepto: 'logistica', valor: 1000 });
+    expect(post.status).toBe(403);
+    expect(post.body.funcion).toBe('parametrizacion.tarifas.crear');
+    const patch = await request(app).patch(`${BASE}/tarifas/v-1`).set('Authorization', await auth('auditor')).send({ valor: 1 });
+    expect(patch.status).toBe(403);
+    expect(insertMock).not.toHaveBeenCalled();
+    expect(transactionMock).not.toHaveBeenCalled();
   });
 });

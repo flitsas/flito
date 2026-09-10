@@ -3,11 +3,12 @@
 // «Lectura» y «ejecución» se derivan del MÉTODO HTTP de la foto (`inventario.generado.ts`), no del
 // sufijo del código: es lo que había (`LECTURA = requireRole('admin','auditor')` protegía solo `GET`
 // en los 11 módulos donde el auditor existía) y lo único medible sin interpretar nombres. Medido el
-// 10/09/2026: 41 rutas `GET` con `auditor`, 0 no-GET.
+// 10/09/2026: 41 rutas `GET` con `auditor`, 0 no-GET. La HU #12373 retiró la única lectura de tarifas
+// (`parametrizacion.tarifas.listar`, DELETE en la 0182): quedan 40.
 //
 // Tres asertos sobre el auditor, contra el SEED parseado (0179 + 0181, `helpers/permisos-seed-sql.ts`),
 // no contra la foto ni el catálogo: lo que decide en producción es lo sembrado.
-//   1. tiene EXACTAMENTE los 41 códigos de las rutas GET que la foto le concede (lista explícita,
+//   1. tiene EXACTAMENTE los 40 códigos de las rutas GET que la foto le concede (lista explícita,
 //      agrupada por módulo);
 //   2. ninguno de sus códigos corresponde a una ruta no-GET de la foto ni a una guarda en línea;
 //   3. secundario: ninguno termina en verbo de ejecución. Redundante con 2 a propósito: si mañana un
@@ -23,7 +24,7 @@ import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
 import { llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
 
-/** Los 41 códigos de lectura del auditor, fijados a mano desde la foto y agrupados por módulo. */
+/** Los 40 códigos de lectura del auditor, fijados a mano desde la foto y agrupados por módulo. */
 export const LECTURAS_DEL_AUDITOR = {
   soat: ['soat.cola.ver', 'soat.cola.filtrar', 'soat.solicitud.ver', 'soat.solicitud.ver_historial', 'soat.solicitud.ver_soportes'],
   impuestos: ['impuestos.cola.ver', 'impuestos.cola.filtrar', 'impuestos.tramite.ver', 'impuestos.tramite.ver_historial', 'impuestos.tramite.ver_soportes'],
@@ -35,7 +36,8 @@ export const LECTURAS_DEL_AUDITOR = {
   bitacora: ['bitacora.bitacora.ver', 'bitacora.bitacora.ver_recurso'],
   logistica: ['logistica.consola.ver', 'logistica.consola.filtrar', 'logistica.actas.listar', 'logistica.actas.ver', 'logistica.actas.descargar', 'logistica.documento.ver'],
   liquidacion: ['liquidacion.liquidacion.ver', 'liquidacion.liquidacion.ver_eventos'],
-  parametrizacion: ['parametrizacion.companias.listar', 'parametrizacion.proveedores.listar', 'parametrizacion.organismos.listar', 'parametrizacion.organismos.ver_vigencias', 'parametrizacion.tarifas.listar'],
+  // HU #12373 retiró `parametrizacion.tarifas.listar`: el auditor ya no ve el cuadro de tarifas.
+  parametrizacion: ['parametrizacion.companias.listar', 'parametrizacion.proveedores.listar', 'parametrizacion.organismos.listar', 'parametrizacion.organismos.ver_vigencias'],
 } as const;
 
 /**
@@ -52,13 +54,13 @@ const operacionesDe = (rol: string) => [...(sembrado.get(rol) ?? [])].filter((c)
 describe('AC6 — el auditor conserva todas las lecturas y ninguna ejecución', () => {
   const esperadas: string[] = Object.values(LECTURAS_DEL_AUDITOR).flat().slice().sort();
 
-  it('la lista fijada son 41 códigos, todos de rutas GET de la foto con `auditor`', () => {
-    expect(esperadas).toHaveLength(41);
+  it('la lista fijada son 40 códigos, todos de rutas GET de la foto con `auditor`', () => {
+    expect(esperadas).toHaveLength(40);
     const enFoto = new Set(GUARDAS_MEDIDAS.filter((g) => g.metodo === 'GET' && g.roles.includes('auditor')).map(codigoDe));
     expect([...enFoto].sort()).toEqual(esperadas);
   });
 
-  it('(1) el seed le da EXACTAMENTE esos 41: ni uno más, ni uno menos', () => {
+  it('(1) el seed le da EXACTAMENTE esos 40: ni uno más, ni uno menos', () => {
     const suyas = operacionesDe('auditor');
     const deMas = suyas.filter((c) => !esperadas.includes(c));
     const deMenos = esperadas.filter((c) => !suyas.includes(c));

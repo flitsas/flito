@@ -3580,26 +3580,39 @@ export const flitoLogisticaActaEstadoEnum = pgEnum('flito_logistica_acta_estado'
 export const flitoLogisticaTipoDocEnum = pgEnum('flito_logistica_tipo_doc', ['licencia_transito', 'placa', 'otro']);
 
 /**
- * Tarifa negociada con una compañía gestora (HU #10963). Sustituye a las constantes quemadas
- * `COSTOS_FIJOS.tramiteDigital` y `COSTOS_FIJOS.logistica`, que eran iguales para todos los clientes.
+ * Vigencias de tarifa por compañía (HU #12373). Sustituye a `flito_tarifas_compania` (0110): cada
+ * (compañía × concepto × tipo) es una SECUENCIA de vigencias `[vigente_desde, vigente_hasta)`; la
+ * abierta (`vigente_hasta IS NULL`) es la que se cobra. Cambiar un valor = cerrar la abierta y abrir
+ * otra en la misma transacción; dejar de cobrar = cerrar sin abrir. NUNCA se borra ni se sobreescribe.
  *
- * `tipoTramite` NULL = tarifa genérica del concepto, la que se usa cuando no hay una específica.
- * Se guarda normalizado (mayúsculas, sin espacios) porque en `flito_tramites.tipoTramite` es texto
- * libre de FLIT. La unicidad real la impone `idx_flito_tarifas_unica`, con COALESCE sobre el tipo:
- * en un índice único normal NULL no colisiona con NULL y habría varias tarifas genéricas.
+ * Tipos cerrados: `tramite_digital` exige tipo ∈ TIPOS_TRAMITE_TARIFA ('MATRICULA'|'TRASPASO'|'OTROS',
+ * shared-types/flito-tarifas.ts); `logistica` va SIEMPRE con tipo NULL (un valor por compañía).
+ * Lo imponen los CHECK de abajo. Lo que Drizzle no declara y vive solo en la 0182: la EXCLUDE con
+ * btree_gist (sin solapes entre vigencias de una misma llave).
  */
-export const flitoTarifasCompania = pgTable('flito_tarifas_compania', {
+export const flitoTarifasVigencias = pgTable('flito_tarifas_vigencias', {
   id: uuid('id').primaryKey().defaultRandom(),
   companiaId: integer('compania_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
   concepto: varchar('concepto', { length: 30 }).notNull(),
-  tipoTramite: varchar('tipo_tramite', { length: 60 }),
+  tipoTramite: varchar('tipo_tramite', { length: 20 }),
   valor: numeric('valor', { precision: 14, scale: 2 }).notNull(),
-  activo: boolean('activo').notNull().default(true),
-  actualizadoPorId: integer('actualizado_por_id').references(() => users.id),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  vigenteDesde: timestamp('vigente_desde', { withTimezone: true }).notNull().defaultNow(),
+  vigenteHasta: timestamp('vigente_hasta', { withTimezone: true }),
+  fijadoPorId: integer('fijado_por_id').references(() => users.id),
+  fijadoEn: timestamp('fijado_en', { withTimezone: true }).notNull().defaultNow(),
+  cerradoPorId: integer('cerrado_por_id').references(() => users.id),
+  cerradoEn: timestamp('cerrado_en', { withTimezone: true }),
 }, (t) => ({
-  companiaConceptoIdx: index('idx_flito_tarifas_compania_concepto').on(t.companiaId, t.concepto),
+  companiaConceptoIdx: index('idx_flito_tarifas_vigencias_compania_concepto').on(t.companiaId, t.concepto),
+  // Una sola abierta por llave. El COALESCE es imprescindible: NULL no colisiona con NULL.
+  abiertaUq: uniqueIndex('idx_flito_tarifas_vigencias_abierta')
+    .on(t.companiaId, t.concepto, sql`COALESCE(${t.tipoTramite}, '')`).where(sql`${t.vigenteHasta} IS NULL`),
+  conceptoChk: check('flito_tarifas_vigencias_concepto_chk', sql`${t.concepto} IN ('tramite_digital', 'logistica')`),
+  tipoChk: check('flito_tarifas_vigencias_tipo_chk', sql`(${t.concepto} = 'tramite_digital' AND ${t.tipoTramite} IS NOT NULL AND ${t.tipoTramite} IN ('MATRICULA', 'TRASPASO', 'OTROS')) OR (${t.concepto} = 'logistica' AND ${t.tipoTramite} IS NULL)`),
+  valorChk: check('flito_tarifas_vigencias_valor_chk', sql`${t.valor} >= 0`),
+  // >= y no >: una tarifa creada inactiva y nunca activada migra como rango vacío [t, t).
+  rangoChk: check('flito_tarifas_vigencias_rango_chk', sql`${t.vigenteHasta} IS NULL OR ${t.vigenteHasta} >= ${t.vigenteDesde}`),
+  cierreChk: check('flito_tarifas_vigencias_cierre_chk', sql`(${t.vigenteHasta} IS NULL) = (${t.cerradoEn} IS NULL)`),
 }));
 
 /**
@@ -4261,7 +4274,7 @@ export const siigoOperaciones = pgTable('siigo_operaciones', {
  * hereden confirmaciones del otro, cosa imposible con una sola fila por concepto.
  *
  * `tipoTramite` NULL = configuración genérica; con tipo de trámite, precedencia sobre la genérica.
- * Misma convención ya probada en `flitoTarifasCompania`.
+ * Misma convención que usaba `flito_tarifas_compania` (0110) y que hereda `flitoTarifasVigencias`.
  *
  * NO modela retenciones (AC7): no está confirmado si ReteICA, ReteIVA o autorretención aplican a
  * las facturas de FLIT. Incorporarlas sería añadir columnas aquí, no rehacer el modelo.

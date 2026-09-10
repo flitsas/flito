@@ -231,7 +231,9 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${PAR} GET /tarifas`, 'parametrizacion.tarifas.listar', 'Ver las tarifas', 'Consultar lo que se le cobra a cada compañía por cada concepto.'),
   op(`${PAR} POST /tarifas`, 'parametrizacion.tarifas.crear', 'Crear una tarifa', 'Fijar el precio de un concepto para una compañía.'),
   op(`${PAR} PATCH /tarifas/:id`, 'parametrizacion.tarifas.editar', 'Editar una tarifa', 'Cambiar el precio o la vigencia de una tarifa.'),
-  op(`${PAR} DELETE /tarifas/:id`, 'parametrizacion.tarifas.borrar', 'Borrar una tarifa', 'Retirar una tarifa del cuadro de precios.'),
+  // HU #12373: `DELETE /tarifas/:id` (parametrizacion.tarifas.borrar) se retiró — una vigencia no se borra, se cierra.
+  op(`${PAR} GET /tarifas/companias/:id`, 'parametrizacion.tarifas.ver_por_cliente', 'Ver las tarifas de una compañía', 'Consultar el valor vigente de cada concepto de una compañía y quién lo fijó.'),
+  op(`${PAR} GET /tarifas/companias/:id/historial`, 'parametrizacion.tarifas.historial', 'Ver el historial de tarifas de una compañía', 'Consultar las vigencias pasadas y presentes de cada concepto, con quién las fijó y quién las cerró.'),
 
   // ── Sincronización FLITO ──────────────────────────────────────────────────────────────────────
   op(`${SYN} GET /estado`, 'sync.sync.ver_estado', 'Ver el estado de la sincronización', 'Consultar cuándo corrió la última sincronización y cómo fue.'),

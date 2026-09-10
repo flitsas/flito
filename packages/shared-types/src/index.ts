@@ -52,6 +52,8 @@ export type SoatStatus = z.infer<typeof SoatStatus>;
 // ── FLITO (migración packages/ → Operaciones) ──────────────────────────────
 // Dominio de estados SOAT/Impuestos, modalidad de organismo, soportes y reglas.
 export * from './flito-estados.js';
+// Tarifas como vigencias (HU #12373): catálogo cerrado de tipos y reglas del valor.
+export * from './flito-tarifas.js';
 // Dominio del módulo de Logística: estados por documento, actas, tipos y proveedores.
 export * from './flito-logistica.js';
 export * from './flito-logistica-barcode.js';
