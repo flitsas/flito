@@ -117,3 +117,6 @@ export * from './carga-masiva.js';
 // Historial consultable de cambios de usuarios, roles y permisos (HU #12171, ADR-0014): lista
 // blanca de campos, forma del par antes/después y el DTO que sirve `GET /api/users/auditoria`.
 export * from './permisos-auditoria.js';
+// Mantenimiento de roles y cuadro rol × función (HU #12084): tipos de enlace y principal, la fila
+// del listado de roles (con `borrable`/`motivoNoBorrable`) y las respuestas del cuadro.
+export * from './permisos-roles.js';

@@ -7,8 +7,10 @@ import { clients, users } from '../../db/schema.js';
 import { authMiddleware, invalidateSessionCacheFor } from '../../shared/middleware/auth.js';
 import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { invalidarPermisosDe } from '../../shared/permisos-efectivos.js';
+import { BloqueoAdministracionError } from '../../shared/permisos-anti-bloqueo.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { sendExcel } from '../../shared/utils/excel.js';
+import { errorPg } from '../../shared/utils/pg-error.js';
 import { isValidPage } from '../../shared/permissions.js';
 import { ALL_ROLES, ENTIDADES_AUDITABLES, ROLE_LABELS, isKnownOrganismoCodigo, type UserRole } from '@operaciones/shared-types';
 import { loggerFor } from '../../shared/logger.js';
@@ -389,6 +391,19 @@ router.get('/', exigirFuncion('usuarios.usuario.listar'), async (req: Request, r
 });
 
 // === Crear usuario ===========================================================
+/**
+ * HU #12084 (TC-32 #12466): los triggers de ámbito de la 0178 (`users_ambito_requerido` y el de
+ * organismos) rechazan con `23514` un usuario cuyo rol exige compañía/proveedor/organismos y no la
+ * trae. El `superRefine` de arriba lo cubre para los cuatro roles compilados; para un rol del catálogo
+ * con `tipo_enlace` distinto de `ninguno` la última palabra la tiene la base, y su mensaje («El rol X
+ * exige compañía y el usuario N no la tiene») es la respuesta: se devuelve tal cual, en 400, sin
+ * inventar texto. `errorHandler` solo conoce el `23514` de la rúbrica; cualquier otro sería un 500.
+ */
+function ambitoRechazado(e: unknown): string | null {
+  const pg = errorPg(e, '23514');
+  return pg?.message ?? null;
+}
+
 router.post('/', exigirFuncion('usuarios.usuario.crear'), async (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -439,14 +454,21 @@ router.post('/', exigirFuncion('usuarios.usuario.crear'), async (req: Request, r
   //
   // Los tres ternarios de ámbito hacen lo mismo: el `superRefine` ya rechazó las combinaciones
   // inválidas, y esto impide que un rol distinto conserve un ámbito por un cuerpo con campos de más.
-  const user = await crearUsuario({
-    username, name, email: email ?? null, passwordHash, role,
-    allowedPages: allowedPages ?? [],
-    transitoCodigo: role === 'transito' ? transitoCodigo! : null,
-    companiaId: role === 'cliente' ? companiaId! : null,
-    flitoProveedorSoatId: role === 'proveedor' ? flitoProveedorSoatId! : null,
-    organismosCodigos: role === 'gestor_impuestos' ? organismosCodigos! : [],
-  }, actorDeRequest(req));
+  let user;
+  try {
+    user = await crearUsuario({
+      username, name, email: email ?? null, passwordHash, role,
+      allowedPages: allowedPages ?? [],
+      transitoCodigo: role === 'transito' ? transitoCodigo! : null,
+      companiaId: role === 'cliente' ? companiaId! : null,
+      flitoProveedorSoatId: role === 'proveedor' ? flitoProveedorSoatId! : null,
+      organismosCodigos: role === 'gestor_impuestos' ? organismosCodigos! : [],
+    }, actorDeRequest(req));
+  } catch (e) {
+    const ambito = ambitoRechazado(e);
+    if (ambito) { res.status(400).json({ error: ambito }); return; }
+    throw e;
+  }
   // Por simetría con la edición: un id nuevo no tiene entrada en la caché de permisos que borrar,
   // pero si la tuviera (ids reciclados en pruebas) sería una foto de otro usuario.
   invalidarPermisosDe(user.id);
@@ -604,7 +626,18 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
     || data.transitoCodigo !== undefined || data.companiaId !== undefined
     || data.flitoProveedorSoatId !== undefined;
 
-  const r = await actualizarUsuario(id, { updates, organismosDestino, invalidarPorCampos }, actorDeRequest(req));
+  // HU #12084 (AC4): la guarda de «último admin» de arriba es el pre-check con mensaje claro; la
+  // verdad la decide el invariante DENTRO de la transacción (dos administradores a la vez, roles que
+  // no se llaman `admin`). Su 409 llega como excepción y se mapea aquí.
+  let r;
+  try {
+    r = await actualizarUsuario(id, { updates, organismosDestino, invalidarPorCampos }, actorDeRequest(req));
+  } catch (e) {
+    if (e instanceof BloqueoAdministracionError) { res.status(409).json({ error: e.message, funcion: e.funcion }); return; }
+    const ambito = ambitoRechazado(e);
+    if (ambito) { res.status(400).json({ error: ambito }); return; }
+    throw e;
+  }
   if (r.estado === 'sin_cambios') { res.status(400).json({ error: 'Sin cambios' }); return; }
   if (r.estado === 'no_encontrado') { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
 
@@ -644,7 +677,14 @@ router.patch('/:id/toggle', exigirFuncion('usuarios.usuario.activar'), async (re
 
   // HU #12171: el `UPDATE` y su fila de historial (`active`, antes/después) van en una transacción
   // del servicio; el «antes» sale del propio UPDATE atómico, no del `before` de las guardas.
-  const updated = await cambiarActivo(id, actorDeRequest(req));
+  let updated;
+  try {
+    updated = await cambiarActivo(id, actorDeRequest(req));
+  } catch (e) {
+    // HU #12084 (AC4): el invariante decide dentro de la transacción; el Guard 2 es el pre-check.
+    if (e instanceof BloqueoAdministracionError) { res.status(409).json({ error: e.message, funcion: e.funcion }); return; }
+    throw e;
+  }
   if (!updated) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
 
   // Al desactivar/reactivar también invalidamos sesiones para que un usuario reactivado

@@ -32,7 +32,8 @@ vi.mock('../../src/shared/permisos-efectivos.js', () => ({
 }));
 
 const { authMiddleware } = await import('../../src/shared/middleware/auth.js');
-const { RUTAS_PERMITIDAS_CLIENTE, rutaPermitidaParaCliente } = await import('../../src/shared/middleware/canal-cliente.js');
+const { FUNCIONES_DEL_CANAL_EXTERNO, RUTAS_PERMITIDAS_CLIENTE, rutaPermitidaParaCliente } = await import('../../src/shared/middleware/canal-cliente.js');
+const { montajesDeFunciones } = await import('../../src/modules/permisos/inventario-guardas.js');
 const { catalogoCompleto } = await import('../../src/modules/permisos/catalogo.js');
 
 const aqui = path.dirname(fileURLToPath(import.meta.url));
@@ -156,12 +157,54 @@ describe('TC #12272 AC8 — marcarle TODAS las funciones a un rol externo (CF-13
     expect(src).not.toMatch(/db\/client|db\/schema|permisosRolFuncion/);
   });
 
-  it('ninguna ruta de permisos.routes.ts referencia la lista: el panel no la puede ampliar', () => {
+  it('ninguna ruta de permisos referencia la lista: el panel no la puede ampliar', () => {
     const src = fuente('../../src/modules/permisos/permisos.routes.ts');
     // El comentario de la ruta la NOMBRA (dice que entra en la lista); lo que no puede haber es un
-    // import del módulo ni una escritura.
+    // import del módulo ni una escritura. Desde la HU #12084 el fichero SÍ tiene POST/PATCH/PUT/DELETE
+    // (roles y su cuadro): lo que sigue vedado es tocar la lista, no escribir.
     expect(src).not.toMatch(/import .*canal-cliente/);
     expect(src).not.toMatch(/RUTAS_PERMITIDAS_CLIENTE\s*[.=[]/);
-    expect(src).not.toMatch(/router\.(post|patch|put|delete)\(/);
+    // El servicio de roles la LEE (la constante derivada, para el aviso RN-A1) y nada más.
+    const servicio = fuente('../../src/modules/permisos/permisos-roles.service.ts');
+    expect(servicio).toMatch(/import \{ FUNCIONES_DEL_CANAL_EXTERNO \} from '\.\.\/\.\.\/shared\/middleware\/canal-cliente\.js';/);
+    expect(servicio).not.toMatch(/RUTAS_PERMITIDAS_CLIENTE/);
+  });
+});
+
+// ─────────── HU #12084 (RN-A1): la lista de funciones del canal externo, atada al montaje real ───────────
+//
+// `PUT /api/permisos/roles/:codigo/funciones` avisa «fuera de su canal» con `FUNCIONES_DEL_CANAL_EXTERNO`,
+// que se DERIVA del `funcion` que cada entrada de `RUTAS_PERMITIDAS_CLIENTE` declara. Lo que este bloque
+// fija: cada código declarado existe en el catálogo y es EXACTAMENTE el que `exigirFuncion` monta en la
+// ruta correspondiente del fuente (por método y ruta relativa a `/api/flito/soat`); las tres entradas
+// sin guarda (`/auth/me`, `/permisos/mios`, `/auth/logout`) no declaran ninguna; y son ocho.
+// Mutación M12: quitar `funcion: 'soat.cola.ver'` de la lista → rojo aquí (y el PUT empieza a avisar de más).
+describe('HU #12084 RN-A1 — FUNCIONES_DEL_CANAL_EXTERNO se deriva de la lista y coincide con la guarda montada', () => {
+  const PREFIJO = '/api/flito/soat';
+  const conFuncion = RUTAS_PERMITIDAS_CLIENTE.filter((r) => r.funcion !== undefined);
+  const sinFuncion = RUTAS_PERMITIDAS_CLIENTE.filter((r) => r.funcion === undefined);
+
+  it('son ocho rutas con función y tres sin ella, y el conjunto derivado son esas ocho', () => {
+    expect(conFuncion).toHaveLength(8);
+    expect(sinFuncion.map((r) => r.patron).sort()).toEqual(['/api/auth/logout', '/api/auth/me', '/api/permisos/mios']);
+    expect([...FUNCIONES_DEL_CANAL_EXTERNO].sort()).toEqual(conFuncion.map((r) => r.funcion!).sort());
+    expect(FUNCIONES_DEL_CANAL_EXTERNO.size).toBe(8);
+  });
+
+  it('cada función declarada existe en el catálogo como operación', () => {
+    const catalogo = new Map(catalogoCompleto().map((f) => [f.codigo, f]));
+    for (const r of conFuncion) {
+      expect(catalogo.get(r.funcion!)?.tipo, `${r.metodo} ${r.patron} → ${r.funcion}`).toBe('operacion');
+    }
+  });
+
+  it('cada función declarada es la que exigirFuncion monta en esa ruta del fuente (mismo método, misma ruta)', () => {
+    const montajes = montajesDeFunciones().filter((m) => m.fichero.startsWith('flito-soat/'));
+    for (const r of conFuncion) {
+      const ruta = r.patron.slice(PREFIJO.length) || '/';
+      const montaje = montajes.find((m) => m.metodo === r.metodo && m.ruta === ruta);
+      expect(montaje, `${r.metodo} ${r.patron}: hay una ruta guardada en flito-soat/`).toBeDefined();
+      expect(montaje!.codigo, `${r.metodo} ${r.patron}`).toBe(r.funcion);
+    }
   });
 });

@@ -25,6 +25,7 @@ import {
   diffConjunto, mismoConjunto, registrarCambiosPermisos, registrarCambioPermisos,
   type ActorAuditoria, type CambioAuditable,
 } from '../../shared/historial/permisos-auditoria.js';
+import { conSeguroAntiBloqueo } from '../../shared/permisos-anti-bloqueo.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -248,43 +249,52 @@ export async function actualizarUsuario(
   return db.transaction(async (tx): Promise<ResultadoActualizar> => {
     if (Object.keys(updates).length === 0 && organismosDestino === null) return { estado: 'sin_cambios' };
 
-    // HU #12171 (§6 del diseño): el «antes» del historial se lee AQUÍ, dentro de la transacción y con
-    // la fila bloqueada, no del `before` que la ruta leyó para sus guardas. Dos administradores
-    // editando al mismo usuario a la vez quedan serializados y el registro nunca afirma un valor
-    // anterior que ya no era el vigente. Solo las columnas auditables: nada de correo ni de hash.
-    const [anterior] = await tx.select(estadoAuditable).from(users).where(eq(users.id, id)).limit(1).for('update');
-    if (!anterior) return { estado: 'no_encontrado' };
+    // HU #12084 (AC4): cambiar el ROL es uno de los cinco caminos que pueden dejar el sistema sin
+    // administradores. El invariante envuelve el cuerpo entero y va PRIMERO en la transacción: bloquea
+    // la población administradora ANTES que al titular, en orden fijo, para que dos administradores
+    // que se degraden mutuamente no se crucen (deadlock) y uno de los dos reciba 409. Editarle el
+    // nombre a alguien no paga el lock. Re-bloquear al titular después es un no-op si ya estaba en la
+    // población.
+    const cuerpo = async (): Promise<ResultadoActualizar> => {
+      // HU #12171 (§6 del diseño): el «antes» del historial se lee AQUÍ, dentro de la transacción y con
+      // la fila bloqueada, no del `before` que la ruta leyó para sus guardas. Dos administradores
+      // editando al mismo usuario a la vez quedan serializados y el registro nunca afirma un valor
+      // anterior que ya no era el vigente. Solo las columnas auditables: nada de correo ni de hash.
+      const [anterior] = await tx.select(estadoAuditable).from(users).where(eq(users.id, id)).limit(1).for('update');
+      if (!anterior) return { estado: 'no_encontrado' };
 
-    const anteriores = await organismosDe(id, tx);
-    // Conjuntos, no arrays: el orden no es un cambio.
-    const organismosCambiaron = organismosDestino !== null && !mismoConjunto(anteriores, organismosDestino);
+      const anteriores = await organismosDe(id, tx);
+      // Conjuntos, no arrays: el orden no es un cambio.
+      const organismosCambiaron = organismosDestino !== null && !mismoConjunto(anteriores, organismosDestino);
 
-    const set = { ...updates };
-    if (Object.keys(set).length === 0 && !organismosCambiaron) return { estado: 'sin_cambios' };
+      const set = { ...updates };
+      if (Object.keys(set).length === 0 && !organismosCambiaron) return { estado: 'sin_cambios' };
 
-    const invalidada = invalidarPorCampos || organismosCambiaron;
-    // Cuando lo ÚNICO que cambia son los organismos, es esta marca la que mantiene el UPDATE no
-    // vacío: por eso `db.update(...).set(set)` no necesita ninguna rama especial.
-    if (invalidada) set.sessionInvalidatedAt = new Date();
+      const invalidada = invalidarPorCampos || organismosCambiaron;
+      // Cuando lo ÚNICO que cambia son los organismos, es esta marca la que mantiene el UPDATE no
+      // vacío: por eso `db.update(...).set(set)` no necesita ninguna rama especial.
+      if (invalidada) set.sessionInvalidatedAt = new Date();
 
-    const [updated] = await tx.update(users).set(set).where(eq(users.id, id)).returning(userSelect);
-    if (!updated) return { estado: 'no_encontrado' };
+      const [updated] = await tx.update(users).set(set).where(eq(users.id, id)).returning(userSelect);
+      if (!updated) return { estado: 'no_encontrado' };
 
-    if (organismosCambiaron) await escribirOrganismos(tx, id, organismosDestino!);
+      if (organismosCambiaron) await escribirOrganismos(tx, id, organismosDestino!);
 
-    // El historial va en la MISMA transacción y sin try/catch: si no se puede escribir, el cambio
-    // tampoco se confirma (ADR-0014). Solo los campos que de verdad cambiaron de valor.
-    await registrarCambiosPermisos(tx, actor, cambiosDeLaEdicion(id, anterior, updates, {
-      anteriores, destino: organismosCambiaron ? organismosDestino! : null,
-    }));
+      // El historial va en la MISMA transacción y sin try/catch: si no se puede escribir, el cambio
+      // tampoco se confirma (ADR-0014). Solo los campos que de verdad cambiaron de valor.
+      await registrarCambiosPermisos(tx, actor, cambiosDeLaEdicion(id, anterior, updates, {
+        anteriores, destino: organismosCambiaron ? organismosDestino! : null,
+      }));
 
-    const finales = organismosDestino !== null ? [...organismosDestino].sort() : anteriores;
-    return {
-      estado: 'ok',
-      usuario: { ...updated, organismosCodigos: finales } as UsuarioConAmbito,
-      invalidada,
-      camposCambiados: [...Object.keys(updates), ...(organismosCambiaron ? ['organismosCodigos'] : [])],
+      const finales = organismosDestino !== null ? [...organismosDestino].sort() : anteriores;
+      return {
+        estado: 'ok',
+        usuario: { ...updated, organismosCodigos: finales } as UsuarioConAmbito,
+        invalidada,
+        camposCambiados: [...Object.keys(updates), ...(organismosCambiaron ? ['organismosCodigos'] : [])],
+      };
     };
+    return updates.role !== undefined ? conSeguroAntiBloqueo(tx, cuerpo) : cuerpo();
   });
 }
 
@@ -351,10 +361,12 @@ function cambiosDeLaEdicion(
  */
 export async function cambiarActivo(id: number, actor: ActorAuditoria): Promise<UsuarioConAmbito | null> {
   return db.transaction(async (tx) => {
-    const [updated] = await tx.update(users)
+    // HU #12084 (AC4): desactivar es otro de los cinco caminos. Se envuelve SIEMPRE: reactivar nunca
+    // falla la cuenta y la comprobación cuesta una consulta; distinguirlo sería una rama más.
+    const [updated] = await conSeguroAntiBloqueo(tx, () => tx.update(users)
       .set({ active: sql`NOT active`, sessionInvalidatedAt: new Date() })
       .where(eq(users.id, id))
-      .returning(userSelect);
+      .returning(userSelect));
     if (!updated) return null;
     await registrarCambioPermisos(tx, actor, {
       entidad: 'usuario',
@@ -369,6 +381,10 @@ export async function cambiarActivo(id: number, actor: ActorAuditoria): Promise<
     return { ...updated, organismosCodigos: await organismosDe(id, tx) } as UsuarioConAmbito;
   });
 }
+
+// #12089 (baja definitiva, `deleted_at`): la función que la escriba envuelve su `UPDATE` con
+// `conSeguroAntiBloqueo(tx, …)` como `cambiarActivo`, y `CONDICION_USUARIO_VIVO` pasa a
+// `deleted_at IS NULL`. Es el quinto camino del AC4 de la #12084; esta HU deja el enganche, no lo implementa.
 
 /**
  * Restablecer la contraseña (HU #12171): el hash nuevo y la fila de historial en la misma

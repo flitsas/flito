@@ -283,4 +283,14 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   // HU #12171 — el historial de cambios: dos rutas nuevas con codigo propio (admin y auditor).
   { fichero: 'users/users.routes.ts', metodo: 'GET', ruta: '/auditoria', codigo: 'usuarios.auditoria.ver' },
   { fichero: 'users/users.routes.ts', metodo: 'GET', ruta: '/auditoria/titulares', codigo: 'usuarios.auditoria.filtrar' },
+
+  // ── Oleada 6 — permisos/ (HU #12084: `GET /funciones` reconducida + 6 rutas nuevas de roles) ──
+  // permisos/permisos.routes.ts
+  { fichero: 'permisos/permisos.routes.ts', metodo: 'GET', ruta: '/funciones', codigo: 'permisos.catalogo.ver' },
+  { fichero: 'permisos/permisos.routes.ts', metodo: 'GET', ruta: '/roles', codigo: 'permisos.rol.listar' },
+  { fichero: 'permisos/permisos.routes.ts', metodo: 'POST', ruta: '/roles', codigo: 'permisos.rol.crear' },
+  { fichero: 'permisos/permisos.routes.ts', metodo: 'PATCH', ruta: '/roles/:codigo', codigo: 'permisos.rol.editar' },
+  { fichero: 'permisos/permisos.routes.ts', metodo: 'DELETE', ruta: '/roles/:codigo', codigo: 'permisos.rol.borrar' },
+  { fichero: 'permisos/permisos.routes.ts', metodo: 'GET', ruta: '/roles/:codigo/funciones', codigo: 'permisos.cuadro.ver' },
+  { fichero: 'permisos/permisos.routes.ts', metodo: 'PUT', ruta: '/roles/:codigo/funciones', codigo: 'permisos.cuadro.guardar' },
 ];
