@@ -55,8 +55,8 @@ import { TZ_COLOMBIA } from '../utils/fecha-rango.js';
  * lector las buscaría.** Es la plantilla del cliente otra vez: empareja por texto, pero las 25
  * anteriores ya están cargadas en su sistema y lo que menos cuesta es añadir por la derecha. Las
  * dos salen de `vehicles.num_motor` / `vehicles.num_serie` en las DOS colas y para los DOS
- * orígenes del SOAT —el sync (HU #12401) y el RUNT las aterrizan en la misma tabla—, así que no
- * dependen de `flit_raw` ni de la bifurcación por `origen`.
+ * orígenes del SOAT —las escribe el RUNT (HU #12401 en SOAT, #12402 en Impuestos) en la misma
+ * tabla; FLIT no las manda—, así que no dependen de `flit_raw` ni de la bifurcación por `origen`.
  */
 export const COLUMNAS_COLA_EXPORT: { header: string; key: string; width: number }[] = [
   { header: 'Vin', key: 'vin', width: 20 },
@@ -157,7 +157,7 @@ export interface FilaColaExport extends Record<string, string | null> {
   celular: string | null;
   correo: string | null;
   organismoDettoCiudad: string | null;
-  /** `vehicles.num_motor` (HU #12403). Tal cual lo dejó el sync o el RUNT; vacío si no hay dato. */
+  /** `vehicles.num_motor` (HU #12403). Tal cual lo dejó el RUNT; vacío si no hay dato. */
   numeroMotor: string | null;
   /** `vehicles.num_serie` (HU #12403). NO es el VIN: son dos identificadores distintos del RUNT. */
   numeroSerie: string | null;

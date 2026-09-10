@@ -67,8 +67,9 @@ const COLUMNAS_CONSULTA = {
   carroceria: vehicles.carroceria,
   servicio: vehicles.tipoServicio,
   cilindraje: vehicles.cilindraje,
-  // HU #12403: motor y serie, del mismo `innerJoin` con `vehicles` que los tres de arriba. El sync
-  // los aterriza ahí desde la HU #12401; no salen de `flit_raw`.
+  // HU #12403: motor y serie, del mismo `innerJoin` con `vehicles` que los tres de arriba. Los
+  // escribe el RUNT —la certificación (HU #12402) y las consultas del SOAT (HU #12401)—, no el sync
+  // de FLIT: no salen de `flit_raw`.
   numMotor: vehicles.numMotor,
   numSerie: vehicles.numSerie,
   // **`flito_impuestos.organismo_codigo` y NO `flit_raw->>'codigoSecretaria'`** — ver

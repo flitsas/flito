@@ -84,8 +84,9 @@ const COLUMNAS_CONSULTA = {
   servicio: vehicles.tipoServicio,
   cilindraje: vehicles.cilindraje,
   // HU #12403: motor y serie van por la MISMA vía que los tres de arriba —`vehicles`, para los dos
-  // orígenes— y no por `flit_raw`: el sync los aterriza ahí desde la HU #12401 y el canal desde el
-  // RUNT. Fuera de `DatosDeTramite` a propósito: no dependen de la bifurcación por `origen`.
+  // orígenes— y no por `flit_raw`: FLIT no los manda; los escribe el RUNT desde la HU #12401 (el
+  // canal Cliente al radicar y el recorrido de vigencia para los de trámite). Fuera de
+  // `DatosDeTramite` a propósito: no dependen de la bifurcación por `origen`.
   numMotor: vehicles.numMotor,
   numSerie: vehicles.numSerie,
   /**
