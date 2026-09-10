@@ -55,10 +55,13 @@ describe('0182 — reglas del archivo y lo que siembra/retira (análisis estáti
     expect(cabecera).toMatch(/HU #12373/);
   });
 
-  it('el número es 0182 y no colisiona con ningún otro archivo (la 0183 de la HU #12374 va detrás)', () => {
+  it('el número es 0182, sigue a la 0181 sin hueco y no colisiona', () => {
+    // Antes exigía «es la última»: eso congela el tip y cae con la primera migración posterior
+    // (la 0183 de la HU #12374 y la 0184 de la #12375 lo midieron). Lo que la convención pide es
+    // max+1 EN SU MOMENTO: la inmediatamente anterior es la 0181 y nadie más lleva el 0182.
     const sqls = readdirSync(path.dirname(RUTA)).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
     expect(sqls.filter((f) => f.startsWith('0182_'))).toEqual([ARCHIVO]);
-    expect(sqls[sqls.indexOf(ARCHIVO) + 1]).toMatch(/^0183_/);
+    expect(sqls[sqls.indexOf(ARCHIVO) - 1]).toMatch(/^0181_/);
   });
 
   it('el modelo: EXCLUDE con btree_gist sobre tstzrange [), índice único PARCIAL sobre las abiertas y los CHECK del catálogo cerrado', () => {

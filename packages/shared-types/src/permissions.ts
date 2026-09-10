@@ -191,6 +191,14 @@ export const PAGES = {
   // facturas todos los días, y el reporte de costos es otro trabajo con otra audiencia. Unirlas
   // obligaría a conceder la operación diaria a quien solo debe parametrizar, o al revés.
   siigo_operacion: 'Facturación electrónica — Operación',
+  // Parametrización — configurador de tarifas (Feature #12365, HU #12375): el cuadro de valores por
+  // compañía y el historial de vigencias de cada concepto. Clave PROPIA y en «Finanzas», no en el
+  // grupo FLITO: las tarifas son de donde salen los valores del reporte de costos y quien las fija
+  // es Financiera. Mismo reparto que las operaciones `parametrizacion.tarifas.*` que la pantalla
+  // consume (0182): `admin` y `financiera`. `auditor` queda fuera a propósito —la 0182 le retiró
+  // `parametrizacion.tarifas.listar` (AC16 de la HU #12373)— y concederle la página sería regalarle
+  // una pantalla que responde 403 en cada petición.
+  flito_tarifas: 'Finanzas — Tarifas',
   // Facturación electrónica (HU #11890): las CREDENCIALES de la integración — con qué usuario se
   // conecta FLITO a Siigo en cada ambiente, y la prueba de conexión.
   //
@@ -226,7 +234,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   // aparece arriba en «Operaciones». Hasta el Feature #11912 la misma clave salía en los dos
   // grupos —una rareza que nadie sabía explicar— porque el portal la tenía prestada.
   { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'flito_soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta', 'flito_bolsas', 'flito_comparendos', 'flito_conciliacion'] },
-  { label: 'Finanzas', pages: ['finanzas_reporte_costos', 'siigo_parametrizacion', 'siigo_operacion'] },
+  { label: 'Finanzas', pages: ['finanzas_reporte_costos', 'siigo_parametrizacion', 'siigo_operacion', 'flito_tarifas'] },
   { label: 'Administración', pages: ['users', 'privacy', 'siigo_credenciales'] },
 ];
 
@@ -295,7 +303,11 @@ const DEFAULTS_POR_ROL: Record<Exclude<UserRole, 'admin'>, readonly PageSlug[]> 
   // La conciliación del recaudo SOAT es suya por el mismo motivo que las bolsas: es plata del
   // cliente que Financiera cuadra y cierra. El router de `/flito/conciliacion` solo admite
   // `admin` y `financiera` (CF-08), así que la página va aquí y NO en `auditor`.
-  financiera: ['dashboard', 'finanzas_reporte_costos', 'clients', 'flito_bolsas', 'flito_conciliacion', 'siigo_parametrizacion', 'siigo_operacion'],
+  // El configurador de tarifas (HU #12375) es suyo por lo mismo que `clients`: fijar el valor de cada
+  // concepto es la administración comercial del cliente, y el router de `parametrizacion.tarifas.*`
+  // ya le admite (0182). Si esta línea no está, el catálogo del código diría «solo admin» y la
+  // migración 0184 que la siembra a `financiera` chocaría con la paridad de migracion-0179.test.ts.
+  financiera: ['dashboard', 'finanzas_reporte_costos', 'clients', 'flito_bolsas', 'flito_conciliacion', 'siigo_parametrizacion', 'siigo_operacion', 'flito_tarifas'],
   // FLITO — Cliente (Feature #11912): UNA sola página, y a propósito SIN `dashboard`.
   //
   // El tablero es de la operación: consolida trámites, SOAT e impuestos de TODAS las compañías, así
