@@ -59,67 +59,87 @@ describe('getEffectivePages — unión rol + allowedPages', () => {
 });
 
 describe('requirePage — autorización server-side por página', () => {
+  // HU #12082: `requirePage` es `exigirFuncion('pagina.<slug>')` y decide con `resolverPermisos(sub)`,
+  // que aquí lee del registro del helper (`testToken` registra al usuario). Ya no hay `allowedPages`
+  // en `req.user` que mirar: el mutante «volver a getEffectivePages(req.user)» deja estos casos rojos.
   const next = vi.fn();
 
-  it('user con la página vía allowedPages → next()', () => {
+  it('user con la página vía allowedPages (users.allowed_pages) → next()', async () => {
     next.mockClear();
-    const req = { user: { sub: 1, username: 'u', role: 'proveedor' as UserRole, allowedPages: ['transito'] } } as unknown as Request;
+    await testToken({ sub: 31, role: 'proveedor', allowedPages: ['transito'] });
+    const req = { user: { sub: 31, username: 'u', role: 'proveedor' as UserRole } } as unknown as Request;
     const res = mockRes();
-    requirePage('transito')(req, res, next);
+    await requirePage('transito')(req, res, next);
     expect(next).toHaveBeenCalledOnce();
     expect(res.status).not.toHaveBeenCalled();
   });
 
-  it('user SIN la página (ni rol ni allowedPages) → 403', () => {
+  it('user SIN la página (ni rol ni allowedPages) → 403 con el cuerpo unificado de exigirFuncion', async () => {
     next.mockClear();
-    const req = { user: { sub: 1, username: 'u', role: 'proveedor' as UserRole, allowedPages: [] } } as unknown as Request;
+    await testToken({ sub: 32, role: 'proveedor', allowedPages: [] });
+    const req = { user: { sub: 32, username: 'u', role: 'proveedor' as UserRole } } as unknown as Request;
     const res = mockRes();
-    requirePage('transito')(req, res, next);
+    await requirePage('transito')(req, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toMatchObject({ funcion: 'pagina.transito', motivo: expect.any(String) });
+  });
+
+  it('un `allowedPages` en req.user (token viejo) NO decide: el registro manda', async () => {
+    next.mockClear();
+    await testToken({ sub: 33, role: 'proveedor', allowedPages: [] });
+    const req = { user: { sub: 33, username: 'u', role: 'proveedor' as UserRole, allowedPages: ['transito'] } } as unknown as Request;
+    const res = mockRes();
+    await requirePage('transito')(req, res, next);
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(403);
   });
 
-  it('sin req.user → 401', () => {
+  it('sin req.user → 401', async () => {
     next.mockClear();
     const req = {} as Request;
     const res = mockRes();
-    requirePage('transito')(req, res, next);
+    await requirePage('transito')(req, res, next);
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(401);
   });
 });
 
-describe('authMiddleware — propaga allowedPages del JWT a req.user', () => {
-  it('token con allowedPages → req.user.allowedPages poblado y requirePage permite', async () => {
+describe('authMiddleware — el JWT ya no lleva allowedPages y, si lo trae, se ignora (HU #12082)', () => {
+  it('token del helper → req.user SIN allowedPages; requirePage decide con el registro y permite', async () => {
     const { authMiddleware } = await import('../../src/shared/middleware/auth.js');
-    const token = await testToken({ role: 'proveedor', allowedPages: ['transito'] });
+    const token = await testToken({ sub: 34, role: 'proveedor', allowedPages: ['transito'] });
     const req = { headers: { authorization: `Bearer ${token}` } } as unknown as Request;
     const res = mockRes();
     const next = vi.fn();
     await authMiddleware(req, res, next);
     expect(next).toHaveBeenCalledOnce();
-    expect(req.user?.allowedPages).toEqual(['transito']);
+    expect(req.user).not.toHaveProperty('allowedPages');
 
     const res2 = mockRes();
     const next2 = vi.fn();
-    requirePage('transito')(req, res2, next2);
+    await requirePage('transito')(req, res2, next2);
     expect(next2).toHaveBeenCalledOnce();
   });
 
-  it('token viejo SIN allowedPages → req.user.allowedPages undefined → solo defaults del rol', async () => {
+  it('token con un claim allowedPages manipulado → el claim no llega a req.user y la página se niega igual', async () => {
     const { authMiddleware } = await import('../../src/shared/middleware/auth.js');
-    const token = await testToken({ role: 'proveedor' }); // sin allowedPages
-    const req = { headers: { authorization: `Bearer ${token}` } } as unknown as Request;
+    const { SignJWT } = await import('jose');
+    await testToken({ sub: 35, role: 'proveedor', allowedPages: [] }); // lo que la base dice
+    const secret = new TextEncoder().encode(process.env.JWT_SECRET);
+    const manipulado = await new SignJWT({ username: 'u', role: 'proveedor', allowedPages: ['transito'] })
+      .setProtectedHeader({ alg: 'HS256' }).setSubject('35').setExpirationTime('1h').sign(secret);
+    const req = { headers: { authorization: `Bearer ${manipulado}` } } as unknown as Request;
     const res = mockRes();
     const next = vi.fn();
     await authMiddleware(req, res, next);
     expect(next).toHaveBeenCalledOnce();
-    expect(req.user?.allowedPages).toBeUndefined();
+    expect(req.user).not.toHaveProperty('allowedPages');
 
-    // 'transito' NO está en defaults de proveedor → 403
+    // 'transito' NO está en defaults de proveedor ni en el registro → 403
     const res2 = mockRes();
     const next2 = vi.fn();
-    requirePage('transito')(req, res2, next2);
+    await requirePage('transito')(req, res2, next2);
     expect(next2).not.toHaveBeenCalled();
     expect((res2 as Response & { statusCode?: number }).statusCode).toBe(403);
   });

@@ -24,9 +24,9 @@ export interface JwtPayload {
   // así que las 276 guardas siguen siendo listas blancas de códigos de sistema y siguen negando por
   // defecto a cualquier rol nuevo — la dirección correcta mientras la #12083 no las reconduzca.
   role: RoleCode;
-  // Páginas custom concedidas al usuario (además de los defaults del rol). Embebidas en el
-  // JWT al login. Ausente en tokens viejos → requirePage cae a defaults del rol (degradación segura).
-  allowedPages?: string[];
+  // HU #12082 (RN-A5): las páginas YA NO viajan en el token. Un claim `allowedPages` de un token
+  // emitido antes de esta HU se ignora como cualquier claim desconocido: cada petición resuelve
+  // contra la base (`resolverPermisos`), así que un token viejo decide exactamente igual que uno nuevo.
   // TRAM-MT-01: código DIVIPOLA del organismo asignado (rol transito).
   transitoCodigo?: string;
 }
@@ -160,24 +160,23 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       sub: userId,
       username: payload.username as string,
       role: payload.role as UserRole,
-      allowedPages: Array.isArray(payload.allowedPages)
-        ? (payload.allowedPages as string[])
-        : undefined,
       transitoCodigo: typeof payload.transitoCodigo === 'string' && payload.transitoCodigo.trim()
         ? payload.transitoCodigo.trim()
         : undefined,
     };
-    // Negación por defecto para el rol `cliente` (Feature #11912). Va AQUÍ, y no como un `app.use`
-    // en `app.ts`, porque este es el único punto de la aplicación en el que la autenticación
-    // TERMINA: cada router monta `authMiddleware` por su cuenta, así que un middleware montado antes
-    // de los routers vería `req.user === undefined` y tendría que verificar el JWT una segunda vez
-    // en cada petición para saber a quién está mirando. El porqué completo —y la allowlist con el
-    // motivo de cada entrada— están en `canal-cliente.ts`.
+    // Negación por defecto para los roles EXTERNOS (Feature #11912; por `tipo_principal` desde la
+    // HU #12082). Va AQUÍ, y no como un `app.use` en `app.ts`, porque este es el único punto de la
+    // aplicación en el que la autenticación TERMINA: cada router monta `authMiddleware` por su
+    // cuenta, así que un middleware montado antes de los routers vería `req.user === undefined` y
+    // tendría que verificar el JWT una segunda vez en cada petición para saber a quién está mirando.
+    // El porqué completo —y la allowlist con el motivo de cada entrada— están en `canal-cliente.ts`.
     //
-    // Para los 11 roles internos esto es un `next()` y nada más: `guardiaCanalCliente` sale por su
-    // primera línea sin tocar nada. Lo que se consigue poniéndolo aquí es que un router NUEVO nazca
-    // CERRADO para el `cliente` sin que su autor tenga que saber que este rol existe.
-    guardiaCanalCliente(req, res, next);
+    // Para un rol interno esto es resolver sus permisos (acierto de caché tras la primera petición
+    // del minuto; la misma foto que luego usa `exigirFuncion`) y un `next()`. Lo que se consigue
+    // poniéndolo aquí es que un router NUEVO nazca CERRADO para cualquier rol externo —incluido uno
+    // creado desde el panel— sin que su autor tenga que saber que existe. El resolutor no rechaza,
+    // así que el `catch` de abajo sigue siendo solo el del token.
+    await guardiaCanalCliente(req, res, next);
   } catch {
     res.status(401).json({ error: 'Token inválido o expirado' });
   }

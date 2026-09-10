@@ -39,11 +39,11 @@ export const permisosRoles = pgTable('permisos_roles', {
   // QUÉ tipo (RN-A3); el usuario dice a cuál. Lo hacen cumplir los dos triggers de la 0178
   // (`users_ambito_trg` y `users_ambito_organismos_trg`), que Drizzle no sabe declarar.
   tipoEnlace: varchar('tipo_enlace', { length: 24 }).notNull().default('ninguno'),
-  // 'interno' | 'externo'. Esta HU lo PERSISTE; quien lo consume es el motor de la #12082/#12083.
-  // Hasta entonces la frontera del canal Cliente sigue colgando del literal de `canal-cliente.ts`.
+  // 'interno' | 'externo'. Lo consume el motor (HU #12082): `resolverPermisos` lo devuelve cacheado y
+  // `guardiaCanalCliente` dispara la frontera del canal externo por este valor, no por el literal del rol.
   tipoPrincipal: varchar('tipo_principal', { length: 10 }).notNull().default('interno'),
   // Candado de BORRADO (ADR-0015 §Decisión 5), no marca de origen: true ⇒ el rol no se borra. Solo
-  // `admin` (permanente) y `cliente` (temporal, hasta la #12082 AC8). Editar sigue permitido (CF-04).
+  // `admin`: el candado temporal de `cliente` lo retiró la 0180 (HU #12082 AC8). Editar sigue permitido (CF-04).
   esSistema: boolean('es_sistema').notNull().default(false),
   // Gobierna la ASIGNACIÓN, no la autenticación: un usuario con rol inactivo sigue entrando.
   activo: boolean('activo').notNull().default(true),
@@ -103,6 +103,26 @@ export const permisosUsuarioFuncion = pgTable('permisos_usuario_funcion', {
 }, (t) => ({
   pk: primaryKey({ columns: [t.userId, t.funcionCodigo] }),
   efectoChk: check('permisos_usuario_funcion_efecto_chk', sql`${t.efecto} IN ('conceder','revocar')`),
+}));
+
+/** HU #12082 / ADR-0016 — contador de 403 por (usuario, funcion, hora). Sin PII; sin FK en rol y funcion a propósito. */
+export const permisosIntentosDenegados = pgTable('permisos_intentos_denegados', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'restrict', onUpdate: 'restrict' }),
+  rolCodigo: varchar('rol_codigo', { length: 40 }).notNull(),
+  funcionCodigo: varchar('funcion_codigo', { length: 80 }).notNull(),
+  motivo: varchar('motivo', { length: 16 }).notNull(),
+  metodo: varchar('metodo', { length: 10 }).notNull(),
+  ruta: varchar('ruta', { length: 300 }).notNull(),
+  ventanaInicio: timestamp('ventana_inicio', { withTimezone: true }).notNull(),
+  primeraVez: timestamp('primera_vez', { withTimezone: true }).notNull().defaultNow(),
+  ultimaVez: timestamp('ultima_vez', { withTimezone: true }).notNull().defaultNow(),
+  veces: integer('veces').notNull().default(1),
+}, (t) => ({
+  ventanaUq: uniqueIndex('permisos_intentos_denegados_ventana_uq').on(t.userId, t.funcionCodigo, t.ventanaInicio),
+  funcionIdx: index('idx_permisos_intentos_funcion').on(t.funcionCodigo, desc(t.ultimaVez)),
+  motivoChk: check('permisos_intentos_denegados_motivo_chk', sql`${t.motivo} IN ('sin_funcion','sin_modulo','no_reconocida','no_resuelto')`),
+  vecesChk: check('permisos_intentos_denegados_veces_chk', sql`${t.veces} >= 1`),
 }));
 
 export const laftKindEnum = pgEnum('laft_kind', ['PN', 'PJ']);

@@ -5,6 +5,7 @@ import { and, eq, ne, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { clients, users } from '../../db/schema.js';
 import { authMiddleware, requireRole, invalidateSessionCacheFor } from '../../shared/middleware/auth.js';
+import { invalidarPermisosDe } from '../../shared/permisos-efectivos.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { sendExcel } from '../../shared/utils/excel.js';
 import { isValidPage } from '../../shared/permissions.js';
@@ -384,6 +385,9 @@ router.post('/', async (req: Request, res: Response) => {
     flitoProveedorSoatId: role === 'proveedor' ? flitoProveedorSoatId! : null,
     organismosCodigos: role === 'gestor_impuestos' ? organismosCodigos! : [],
   });
+  // Por simetría con la edición: un id nuevo no tiene entrada en la caché de permisos que borrar,
+  // pero si la tuviera (ids reciclados en pruebas) sería una foto de otro usuario.
+  invalidarPermisosDe(user.id);
 
   await audit(req, { action: 'create', resource: 'user', resourceId: String(user.id), detail: `Usuario creado: ${username} (${role})` });
   res.status(201).json(user);
@@ -528,8 +532,9 @@ router.patch('/:id', async (req: Request, res: Response) => {
     : (data.role !== undefined && data.role !== 'gestor_impuestos' ? [] : null);
 
   // Si cambian role, allowedPages, transitoCodigo, companiaId o el proveedor SOAT, invalidar
-  // sesiones — el JWT cachea scope. Los ámbitos NO viajan en el token (se leen de la BD), pero el
-  // ROL sí, y cambiar un ámbito cambia qué datos ve esa persona: que vuelva a entrar limpia.
+  // sesiones — el JWT cachea el ROL (las páginas ya no: desde la HU #12082 se resuelven en cada
+  // petición contra la base). Los ámbitos NO viajan en el token (se leen de la BD), pero el ROL sí,
+  // y cambiar un ámbito cambia qué datos ve esa persona: que vuelva a entrar limpia.
   //
   // Lo de los organismos no se decide aquí: `actualizarUsuario` compara el conjunto anterior con el
   // destino DENTRO de la transacción y suma su veredicto a este (AC4).
@@ -542,8 +547,11 @@ router.patch('/:id', async (req: Request, res: Response) => {
   if (r.estado === 'no_encontrado') { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
 
   // DESPUÉS del commit, como ya se hacía: invalidar la caché de una transacción que luego revierte
-  // deja fuera a quien no había que sacar.
+  // deja fuera a quien no había que sacar. La caché de PERMISOS (HU #12082) se invalida siempre que
+  // hubo cambios: la siguiente petición de este usuario decide con la configuración nueva, sin
+  // reiniciar el API y sin esperar los 60 s del TTL.
   if (r.invalidada) invalidateSessionCacheFor(id);
+  invalidarPermisosDe(id);
 
   await audit(req, {
     action: 'update', resource: 'user', resourceId: String(id),
@@ -582,6 +590,7 @@ router.patch('/:id/toggle', async (req: Request, res: Response) => {
   // Al desactivar/reactivar también invalidamos sesiones para que un usuario reactivado
   // vuelva a entrar limpio y un desactivado pierda acceso inmediatamente.
   invalidateSessionCacheFor(id);
+  invalidarPermisosDe(id);
 
   await audit(req, {
     action: 'update', resource: 'user', resourceId: String(id),
@@ -603,6 +612,7 @@ router.post('/:id/invalidate-sessions', async (req: Request, res: Response) => {
     .returning({ id: users.id, username: users.username });
   if (!updated) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
   invalidateSessionCacheFor(id);
+  invalidarPermisosDe(id);
   await audit(req, { action: 'update', resource: 'user_session', resourceId: String(id), detail: 'Sesiones invalidadas manualmente' });
   res.json({ ok: true, user: updated });
 });
