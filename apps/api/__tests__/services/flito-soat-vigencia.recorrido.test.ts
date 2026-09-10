@@ -607,6 +607,21 @@ describe('HU #12401 — motor y serie del RUNT en `vehicles`, y `flito_soat` int
     expect(Object.keys(set!).sort()).toEqual(Object.keys(payloadDeDesenlace({ estado: 'no_verificado', motivo: 'timeout' }, new Date())).sort());
   });
 
+  it('AC4 — `ok:false` que SÍ trae `data` con vehículo y motor: sigue sin tocarse `vehicles`', async () => {
+    // `RespuestaKyverum` admite `ok:false` con cuerpo (la pasarela devuelve su negativa con HTTP 200 y
+    // el vehículo dentro). La guarda tiene que mirar `ok`, no «hay data»: con `respuesta == null`
+    // como única condición, este caso superaría `runtSinRegistro` y escribiría motor sobre un
+    // desenlace `no_verificado` — justo lo que el AC4 prohíbe. Sin este caso, ese mutante sobrevive.
+    censo([{ soatId: SOAT_A, vin: VIN_A, estadoVigencia: 'vigente' }]);
+    respuestaPorDefecto = { ok: false, message: 'ETIMEDOUT: negativa con cuerpo', data: conMotor(respVigente()).data };
+
+    await recorrerVigenciaSoat({ dia: '2026-09-04', intento: 1 });
+
+    expect(updatesDeVehiculos()).toHaveLength(0);
+    const [set] = updatesDeSoat();
+    expect(Object.keys(set!).sort()).toEqual(Object.keys(payloadDeDesenlace({ estado: 'no_verificado', motivo: 'timeout' }, new Date())).sort());
+  });
+
   it('AC4 — con el circuito abierto (no se consultó) tampoco se toca `vehicles`', async () => {
     censo([{ soatId: SOAT_A, vin: VIN_A, estadoVigencia: 'vigente' }]);
     circuitoAbiertoAhora = true;
