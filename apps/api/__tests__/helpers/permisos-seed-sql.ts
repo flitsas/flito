@@ -19,7 +19,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRACIONES = path.resolve(__dirname, '../../src/db/migrations');
 
 /** Las migraciones que siembran (o retiran) el reparto rol × función, en orden de aplicación. */
-export const MIGRACIONES_CON_REPARTO = ['0179_permisos_modelo.sql', '0181_permisos_reconduccion.sql', '0182_tarifas_vigencias.sql', '0184_pagina_flito_tarifas.sql'] as const;
+export const MIGRACIONES_CON_REPARTO = [
+  '0179_permisos_modelo.sql',
+  '0181_permisos_reconduccion.sql',
+  '0182_tarifas_vigencias.sql',
+  '0184_pagina_flito_tarifas.sql',
+  '0182_permisos_auditoria.sql',
+] as const;
 
 function sinComentariosSql(sql: string): string {
   return sql.replace(/--[^\n]*/g, '');

@@ -10,13 +10,15 @@ import { invalidarPermisosDe } from '../../shared/permisos-efectivos.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { sendExcel } from '../../shared/utils/excel.js';
 import { isValidPage } from '../../shared/permissions.js';
-import { ALL_ROLES, ROLE_LABELS, isKnownOrganismoCodigo, type UserRole } from '@operaciones/shared-types';
+import { ALL_ROLES, ENTIDADES_AUDITABLES, ROLE_LABELS, isKnownOrganismoCodigo, type UserRole } from '@operaciones/shared-types';
 import { loggerFor } from '../../shared/logger.js';
+import { actorDeRequest } from '../../shared/historial/permisos-auditoria.js';
 import {
-  actualizarUsuario, crearUsuario, listarUsuarios, nombresDeAmbito, organismosDe, organismosDeVarios,
-  organismosInexistentes, proveedorSoatExiste, resumenUsuarios, rolAsignable, userSelect,
+  actualizarUsuario, cambiarActivo, crearUsuario, listarUsuarios, nombresDeAmbito, organismosDe, organismosDeVarios,
+  organismosInexistentes, proveedorSoatExiste, restablecerContrasena, resumenUsuarios, rolAsignable,
   type FiltrosUsuarios, type PaginacionUsuarios,
 } from './users.service.js';
+import { listarAuditoria, titularesAuditoria } from './users-auditoria.service.js';
 
 const log = loggerFor('users');
 
@@ -55,7 +57,8 @@ router.patch('/:id/password', authMiddleware, async (req: Request, res: Response
     }
 
     const newHash = await argon2.hash(parsed.data.newPassword);
-    await db.update(users).set({ passwordHash: newHash }).where(eq(users.id, id));
+    // HU #12171: el hash y la fila del historial (`password`, sin valores) entran en una transacción.
+    await restablecerContrasena(id, user.role, newHash, actorDeRequest(req));
     await audit(req, { action: 'update', resource: 'user', resourceId: String(id), detail: 'Contraseña actualizada' });
     res.json({ ok: true });
   } catch (e) {
@@ -177,6 +180,55 @@ router.get('/resumen', exigirFuncion('usuarios.usuario.ver_resumen'), async (req
   const resumen = await resumenUsuarios();
   await audit(req, { action: 'view', resource: 'user', detail: `Resumen usuarios (${resumen.activos + resumen.inactivos})` });
   res.json(resumen);
+});
+
+// === Historial de cambios de usuarios, roles y permisos (HU #12171, CF-19) ====
+//
+// Literales también, y por eso viven aquí arriba. `GET` con query y no `POST …/buscar`: ningún
+// filtro es PII ni cuasi-PII (AGENTS.md §14): un entero interno, un enum, un código de rol y dos
+// fechas. Dos rutas con dos códigos porque el catálogo es «una función por ruta» (precedente:
+// `soat.cola.ver` / `soat.cola.filtrar`). `admin` y `auditor` las tienen sembradas por la 0182.
+const auditoriaQuerySchema = z.object({
+  titularUserId: z.coerce.number().int().positive().optional(),
+  entidad: z.enum(ENTIDADES_AUDITABLES).optional(),
+  rolCodigo: z.string().regex(/^[a-z0-9_]{1,40}$/).optional(),
+  desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD').optional(),
+  hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD').optional(),
+  limite: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+/**
+ * `YYYY-MM-DD` → medianoche UTC, o `null` si el día no existe (V8 convierte «2026-02-31» en marzo
+ * sin quejarse: se exige que la fecha vuelva a escribirse igual). El rango es medio abierto `[desde, hasta)`.
+ */
+function fechaUtc(d: string | undefined): Date | null | undefined {
+  if (d === undefined) return undefined;
+  const fecha = new Date(`${d}T00:00:00.000Z`);
+  return Number.isNaN(fecha.getTime()) || fecha.toISOString().slice(0, 10) !== d ? null : fecha;
+}
+
+router.get('/auditoria', exigirFuncion('usuarios.auditoria.ver'), async (req: Request, res: Response) => {
+  const parsed = auditoriaQuerySchema.safeParse(req.query);
+  if (!parsed.success) { res.status(400).json({ error: 'Filtros inválidos', details: parsed.error.flatten() }); return; }
+  const { titularUserId, entidad, rolCodigo, desde, hasta, limite, offset } = parsed.data;
+  const desdeF = fechaUtc(desde);
+  const hastaF = fechaUtc(hasta);
+  if (desdeF === null || hastaF === null) {
+    const fieldErrors: Record<string, string[]> = {};
+    if (desdeF === null) fieldErrors.desde = ['Fecha inexistente'];
+    if (hastaF === null) fieldErrors.hasta = ['Fecha inexistente'];
+    res.status(400).json({ error: 'Filtros inválidos', details: { fieldErrors } }); return;
+  }
+  const respuesta = await listarAuditoria(
+    { titularUserId, entidad, rolCodigo, desde: desdeF, hasta: hastaF },
+    { limite, offset },
+  );
+  res.json(respuesta);
+});
+
+router.get('/auditoria/titulares', exigirFuncion('usuarios.auditoria.filtrar'), async (_req: Request, res: Response) => {
+  res.json(await titularesAuditoria());
 });
 
 const allowedPagesSchema = z.array(z.string()).max(50).transform((arr) => arr.filter(isValidPage));
@@ -389,7 +441,7 @@ router.post('/', exigirFuncion('usuarios.usuario.crear'), async (req: Request, r
     companiaId: role === 'cliente' ? companiaId! : null,
     flitoProveedorSoatId: role === 'proveedor' ? flitoProveedorSoatId! : null,
     organismosCodigos: role === 'gestor_impuestos' ? organismosCodigos! : [],
-  });
+  }, actorDeRequest(req));
   // Por simetría con la edición: un id nuevo no tiene entrada en la caché de permisos que borrar,
   // pero si la tuviera (ids reciclados en pruebas) sería una foto de otro usuario.
   invalidarPermisosDe(user.id);
@@ -547,7 +599,7 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
     || data.transitoCodigo !== undefined || data.companiaId !== undefined
     || data.flitoProveedorSoatId !== undefined;
 
-  const r = await actualizarUsuario(id, { updates, organismosDestino, invalidarPorCampos });
+  const r = await actualizarUsuario(id, { updates, organismosDestino, invalidarPorCampos }, actorDeRequest(req));
   if (r.estado === 'sin_cambios') { res.status(400).json({ error: 'Sin cambios' }); return; }
   if (r.estado === 'no_encontrado') { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
 
@@ -585,15 +637,13 @@ router.patch('/:id/toggle', exigirFuncion('usuarios.usuario.activar'), async (re
     if (count === 0) { res.status(409).json({ error: 'No se puede desactivar al último admin activo' }); return; }
   }
 
-  const [updated] = await db.update(users)
-    .set({ active: sql`NOT active`, sessionInvalidatedAt: new Date() })
-    .where(eq(users.id, id))
-    .returning(userSelect);
-
+  // HU #12171: el `UPDATE` y su fila de historial (`active`, antes/después) van en una transacción
+  // del servicio; el «antes» sale del propio UPDATE atómico, no del `before` de las guardas.
+  const updated = await cambiarActivo(id, actorDeRequest(req));
   if (!updated) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
 
   // Al desactivar/reactivar también invalidamos sesiones para que un usuario reactivado
-  // vuelva a entrar limpio y un desactivado pierda acceso inmediatamente.
+  // vuelva a entrar limpio y un desactivado pierda acceso inmediatamente. DESPUÉS del commit.
   invalidateSessionCacheFor(id);
   invalidarPermisosDe(id);
 
@@ -601,9 +651,7 @@ router.patch('/:id/toggle', exigirFuncion('usuarios.usuario.activar'), async (re
     action: 'update', resource: 'user', resourceId: String(id),
     detail: `Estado: ${before.active ? 'activo' : 'inactivo'} → ${updated.active ? 'activo' : 'inactivo'} [sesiones invalidadas]`,
   });
-  // Aquí SÍ hay que leerlos: devolver `[]` haría que el front borrase de la fila los organismos del
-  // gestor con solo activarlo o desactivarlo. Una consulta puntual por `user_id`; la PK la sirve.
-  res.json({ ...updated, organismosCodigos: await organismosDe(id) });
+  res.json(updated);
 });
 
 // === Forzar logout (admin manual) ============================================

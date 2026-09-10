@@ -6,8 +6,9 @@
 // Import circular a propósito: `users.role` referencia `permisosRoles.codigo` y `permisos_usuario_funcion`
 // / `permisos_intentos_denegados` referencian `users.id`. Las FK de Drizzle son callbacks perezosos,
 // así que el ciclo ESM resuelve sin problema (`migracion-0178.test.ts` lo comprueba con `getTableConfig`).
-import { pgTable, varchar, text, boolean, timestamp, integer, index, uniqueIndex, bigserial, primaryKey, check } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, text, boolean, timestamp, integer, index, uniqueIndex, bigserial, primaryKey, check, jsonb, uuid } from 'drizzle-orm/pg-core';
 import { sql, desc } from 'drizzle-orm';
+import { CAMPOS_AUDITABLES } from '@operaciones/shared-types';
 import { users } from '../schema.js';
 
 // HU #12169 — El catálogo de roles. Sustituye al enum `user_role` como fuente de verdad de qué roles
@@ -109,4 +110,70 @@ export const permisosIntentosDenegados = pgTable('permisos_intentos_denegados', 
   funcionIdx: index('idx_permisos_intentos_funcion').on(t.funcionCodigo, desc(t.ultimaVez)),
   motivoChk: check('permisos_intentos_denegados_motivo_chk', sql`${t.motivo} IN ('sin_funcion','sin_modulo','no_reconocida','no_resuelto')`),
   vecesChk: check('permisos_intentos_denegados_veces_chk', sql`${t.veces} >= 1`),
+}));
+
+/**
+ * La lista blanca de `CAMPOS_AUDITABLES` (shared-types) como literales SQL para el CHECK de abajo.
+ * Es la MISMA lista que el tipo `CampoAuditable` y que el CHECK de la 0182 (el test de paridad lo
+ * compara). Solo se renderizan literales del código —ninguna entrada externa—: regla 3 de AGENTS.md.
+ */
+const LISTA_CAMPOS_SQL = [...new Set(Object.values(CAMPOS_AUDITABLES).flat())]
+  .map((c) => `'${c}'`).join(',');
+
+/**
+ * HU #12171 / ADR-0014 — CF-19: historial consultable de cambios de usuarios, roles y permisos.
+ *
+ * RN-01 (RN-A10 del Feature #12072): del ACTOR se guarda el correo —es el autor del acto y así
+ * funciona una bitácora—; del TITULAR solo su id interno y su rol. Su nombre se resuelve por JOIN
+ * al leer y NUNCA se copia aquí.
+ * RN-02: un par por CAMPO, nunca el documento entero. La lista blanca vive en shared-types y está
+ * duplicada como CHECK en la 0182 y aquí abajo: el tipo impide pasar la fila entera, el CHECK impide
+ * el INSERT crudo.
+ * RN-03: inmutable por REVOKE (0182), no por disparador: la retención de 6 años (`archivar_offline`,
+ * mecanismo HU #12215) tiene que poder ejecutarse.
+ *
+ * Ver ADR-0014 para por qué no son dos columnas nuevas en `audit_logs`.
+ */
+export const permisosAuditoria = pgTable('permisos_auditoria', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  /** Agrupa las N filas de un mismo acto: un PATCH de 3 campos son 3 filas y 1 lote. */
+  loteId: uuid('lote_id').notNull(),
+  /** 'usuario' | 'rol' | 'rol_funcion' | 'usuario_funcion'. */
+  entidad: varchar('entidad', { length: 20 }).notNull(),
+  accion: varchar('accion', { length: 12 }).notNull(),
+  /** Null solo en 'borrar'. */
+  campo: varchar('campo', { length: 40 }),
+  valorAntes: jsonb('valor_antes'),
+  valorDespues: jsonb('valor_despues'),
+  /** Auditoría (ADR-0005): RESTRICT. Con SET NULL la fila afirma un cambio sin sujeto. */
+  usuarioAfectadoId: integer('usuario_afectado_id').references(() => users.id, { onDelete: 'restrict', onUpdate: 'restrict' }),
+  usuarioAfectadoRol: varchar('usuario_afectado_rol', { length: 40 }),
+  /** Sin `.references()` A PROPÓSITO: una FK aquí rompe CF-05. Ver el COMMENT de la migración. */
+  rolAfectadoCodigo: varchar('rol_afectado_codigo', { length: 40 }),
+  /** Auditoría (ADR-0005): RESTRICT. Null = sistema, no «se desconoce» — lo fija `origen`. */
+  actorUserId: integer('actor_user_id').references(() => users.id, { onDelete: 'restrict', onUpdate: 'restrict' }),
+  actorEmail: varchar('actor_email', { length: 150 }),
+  actorRol: varchar('actor_rol', { length: 40 }),
+  ipAddress: varchar('ip_address', { length: 45 }),
+  userAgent: varchar('user_agent', { length: 500 }),
+  origen: varchar('origen', { length: 20 }).notNull().default('usuario'),
+  motivo: text('motivo'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  titularIdx: index('idx_permisos_auditoria_titular').on(t.usuarioAfectadoId, desc(t.createdAt))
+    .where(sql`${t.usuarioAfectadoId} IS NOT NULL`),
+  rolIdx: index('idx_permisos_auditoria_rol').on(t.rolAfectadoCodigo, desc(t.createdAt))
+    .where(sql`${t.rolAfectadoCodigo} IS NOT NULL`),
+  entidadIdx: index('idx_permisos_auditoria_entidad').on(t.entidad, desc(t.createdAt)),
+  createdIdx: index('idx_permisos_auditoria_created').on(desc(t.createdAt)),
+  // Los mismos CHECK que la 0182, con el MISMO nombre: el test de paridad los busca por nombre.
+  entidadChk: check('permisos_auditoria_entidad_chk', sql`${t.entidad} IN ('usuario','rol','rol_funcion','usuario_funcion')`),
+  accionChk: check('permisos_auditoria_accion_chk', sql`${t.accion} IN ('crear','editar','borrar','baja','reactivar','activar','desactivar')`),
+  origenChk: check('permisos_auditoria_origen_chk', sql`${t.origen} IN ('usuario','sistema','auditoria')`),
+  sujetoChk: check('permisos_auditoria_sujeto_chk', sql`(${t.usuarioAfectadoId} IS NOT NULL) <> (${t.rolAfectadoCodigo} IS NOT NULL)`),
+  titularRolChk: check('permisos_auditoria_titular_rol_chk', sql`(${t.usuarioAfectadoId} IS NULL) = (${t.usuarioAfectadoRol} IS NULL)`),
+  actorChk: check('permisos_auditoria_actor_chk', sql`(${t.origen} = 'usuario') = (${t.actorUserId} IS NOT NULL)`),
+  campoChk: check('permisos_auditoria_campo_chk', sql`${t.campo} IS NOT NULL OR ${t.accion} = 'borrar'`),
+  campoListaChk: check('permisos_auditoria_campo_lista_chk', sql`${t.campo} IS NULL OR ${t.campo} IN (${sql.raw(LISTA_CAMPOS_SQL)})`),
+  passwordSinValorChk: check('permisos_auditoria_password_sin_valor_chk', sql`${t.campo} <> 'password' OR (${t.valorAntes} IS NULL AND ${t.valorDespues} IS NULL)`),
 }));

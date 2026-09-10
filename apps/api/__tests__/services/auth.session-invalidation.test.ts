@@ -132,7 +132,10 @@ describe('PATCH /users/:id invalida sesiones cuando cambia role/allowedPages', (
   it('cambiar role → updates incluye sessionInvalidatedAt', async () => {
     selectMock.mockReturnValueOnce(chain([{ s: null }]));        // middleware
     selectMock.mockReturnValueOnce(chain([{ id: 6, role: 'lider_pesv' }])); // before
+    selectMock.mockReturnValueOnce(chain([{ id: 6, role: 'lider_pesv', allowedPages: [] }])); // antes, dentro de la tx con FOR UPDATE (HU #12171)
     selectMock.mockReturnValueOnce(chain([])); // organismos del usuario, dentro de la tx (HU #12053)
+    // HU #12171: el cambio de rol deja su fila en permisos_auditoria dentro de la misma transacción.
+    insertMock.mockImplementation(() => chain([]));
     let capturedSet: any = null;
     updateMock.mockImplementationOnce(() => ({
       set: (s: any) => { capturedSet = s; return { where: () => ({ returning: () => Promise.resolve([{ id: 6, name: 'Edison', role: 'admin' }]) }) }; },
@@ -149,6 +152,7 @@ describe('PATCH /users/:id invalida sesiones cuando cambia role/allowedPages', (
   it('cambiar solo nombre → NO bumpea sessionInvalidatedAt', async () => {
     selectMock.mockReturnValueOnce(chain([{ s: null }]));
     selectMock.mockReturnValueOnce(chain([{ id: 6, role: 'admin' }]));
+    selectMock.mockReturnValueOnce(chain([{ id: 6, role: 'admin', allowedPages: [] }])); // antes, dentro de la tx con FOR UPDATE (HU #12171)
     selectMock.mockReturnValueOnce(chain([])); // organismos del usuario, dentro de la tx (HU #12053)
     let capturedSet: any = null;
     updateMock.mockImplementationOnce(() => ({

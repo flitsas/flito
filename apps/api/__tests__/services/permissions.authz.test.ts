@@ -208,6 +208,9 @@ describe('paridad de catálogos y roles (anti-drift USR-7)', () => {
       // HU #11342: la bandeja de operación de facturación electrónica. VER las facturas y su línea
       // de tiempo es auditar; las acciones que las mueven se las niega la tabla de siigo.permisos.ts.
       'siigo_operacion',
+      // HU #12171: el historial de cambios de usuarios y permisos vive en la pantalla de usuarios;
+      // el auditor la abre y ve SOLO el historial (sin `usuarios.usuario.listar`: AC4).
+      'users',
     ].sort());
   });
 

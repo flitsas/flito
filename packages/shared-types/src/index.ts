@@ -114,3 +114,6 @@ export * from './flito-conciliacion.js';
 export * from './flito-cola-export.js';
 // Carga masiva SOAT/impuestos: topes de archivos, bytes, cuerpo HTTP y tandas (HU #12050 / #12051).
 export * from './carga-masiva.js';
+// Historial consultable de cambios de usuarios, roles y permisos (HU #12171, ADR-0014): lista
+// blanca de campos, forma del par antes/después y el DTO que sirve `GET /api/users/auditoria`.
+export * from './permisos-auditoria.js';

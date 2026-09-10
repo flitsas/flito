@@ -280,4 +280,7 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'users/users.routes.ts', metodo: 'PATCH', ruta: '/:id/toggle', codigo: 'usuarios.usuario.activar' },
   { fichero: 'users/users.routes.ts', metodo: 'POST', ruta: '/:id/invalidate-sessions', codigo: 'usuarios.sesiones.invalidar' },
   { fichero: 'users/users.routes.ts', metodo: 'PATCH', ruta: '/:id/password', condicion: 'ajena', codigo: 'usuarios.contrasena.cambiar_ajena' },
+  // HU #12171 — el historial de cambios: dos rutas nuevas con codigo propio (admin y auditor).
+  { fichero: 'users/users.routes.ts', metodo: 'GET', ruta: '/auditoria', codigo: 'usuarios.auditoria.ver' },
+  { fichero: 'users/users.routes.ts', metodo: 'GET', ruta: '/auditoria/titulares', codigo: 'usuarios.auditoria.filtrar' },
 ];

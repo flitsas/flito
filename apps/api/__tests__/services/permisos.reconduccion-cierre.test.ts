@@ -8,7 +8,8 @@
 //   · Cada `router.<método>(` de los 22 ficheros lleva `exigirFuncion('…')` O está en la lista blanca
 //     de 4 rutas sin guarda de función. Es la red que sustituye a los `router.use(requireRole)`
 //     retirados: una ruta nueva sin guarda no «nace protegida» por herencia, nace aquí en rojo.
-//   · `leerMontajes` cubre la foto entera (228 = 217 de la #12081 + 11 de esta HU, dos en línea).
+//   · `leerMontajes` cubre la foto entera (230 = 217 de la #12081 + 11 de esta HU, dos en línea, + 2 del
+//     historial de la #12171).
 //   · AC3: las comparaciones de ÁMBITO siguen existiendo (15 medidas el 10/09/2026; el diseño contó
 //     14 porque agrupó los dos `esGestor`/`esCliente` de soat), enumeradas por fichero (regex por
 //     contenido, no por número de línea): cambian QUÉ filas ve alguien, no QUIÉN puede ejecutar. Las 27
@@ -149,10 +150,10 @@ describe('AC1/AC2 — cada router.<método>( de los 22 ficheros lleva exigirFunc
 });
 
 describe('el lector de montajes cubre la foto entera', () => {
-  it('229 montajes = 217 de la #12081 + 11 de esta HU + 2 − 1 de la #12373; los códigos son exactamente los de la foto', () => {
+  it('231 montajes = 217 de la #12081 + 11 de esta HU + 2 − 1 de la #12373 + 2 de la #12171; los códigos son exactamente los de la foto', () => {
     const montajes = montajesDeFunciones();
-    expect(GUARDAS_MEDIDAS).toHaveLength(229);
-    expect(montajes).toHaveLength(229);
+    expect(GUARDAS_MEDIDAS).toHaveLength(231);
+    expect(montajes).toHaveLength(231);
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     expect(montajes.filter((m) => m.metodo === null)).toHaveLength(2);

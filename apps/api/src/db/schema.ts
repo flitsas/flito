@@ -29,8 +29,8 @@ export const roleEnum = pgEnum('user_role', ['admin', 'proveedor', 'transito', '
 // y ese bloque es el que crece con el Feature #12072. Para el resto del código nada cambia: se sigue
 // importando de `db/schema.js`.
 // Import (y no solo `export … from`) porque `users.role` referencia `permisosRoles.codigo` aquí abajo.
-import { permisosRoles, permisosFunciones, permisosRolFuncion, permisosUsuarioFuncion, permisosIntentosDenegados } from './schema/permisos.js';
-export { permisosRoles, permisosFunciones, permisosRolFuncion, permisosUsuarioFuncion, permisosIntentosDenegados };
+import { permisosRoles, permisosFunciones, permisosRolFuncion, permisosUsuarioFuncion, permisosIntentosDenegados, permisosAuditoria } from './schema/permisos.js';
+export { permisosRoles, permisosFunciones, permisosRolFuncion, permisosUsuarioFuncion, permisosIntentosDenegados, permisosAuditoria };
 
 export const laftKindEnum = pgEnum('laft_kind', ['PN', 'PJ']);
 export const laftRiskLevelEnum = pgEnum('laft_risk_level', ['bajo', 'medio', 'alto']);
