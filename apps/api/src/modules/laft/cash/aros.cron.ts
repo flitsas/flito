@@ -1,5 +1,5 @@
 import os from 'os';
-import { and, eq, isNotNull } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull } from 'drizzle-orm';
 import { db } from '../../../db/client.js';
 import {
   laftReportesUiaf,
@@ -43,7 +43,7 @@ async function getDiaCorte(): Promise<number> {
 
 async function adminUserId(): Promise<number | null> {
   const [row] = await db.select({ id: users.id }).from(users)
-    .where(and(eq(users.role, 'admin'), eq(users.active, true)))
+    .where(and(eq(users.role, 'admin'), eq(users.active, true), isNull(users.deletedAt)))
     .limit(1);
   return row?.id ?? null;
 }
@@ -51,7 +51,7 @@ async function adminUserId(): Promise<number | null> {
 async function adminEmails(): Promise<string[]> {
   if (laftComplianceRecipients.length) return laftComplianceRecipients;
   const rows = await db.select({ email: users.email }).from(users)
-    .where(and(eq(users.role, 'admin'), eq(users.active, true), isNotNull(users.email)));
+    .where(and(eq(users.role, 'admin'), eq(users.active, true), isNotNull(users.email), isNull(users.deletedAt)));
   return rows.map((r) => r.email!).filter(Boolean);
 }
 

@@ -60,6 +60,13 @@ function filtrarSegunSql(filas: Fila[], cond: unknown): Fila[] {
   const { sql, params } = render(cond);
   let out = filas;
 
+  // HU #12089: default del listado / resumen.
+  if (/deleted_at" is null/i.test(sql)) {
+    out = out.filter((f) => f.deletedAt == null);
+  } else if (/deleted_at" is not null/i.test(sql)) {
+    out = out.filter((f) => f.deletedAt != null);
+  }
+
   const rol = /"role" = \$(\d+)/.exec(sql);
   if (rol) out = out.filter((f) => f.role === params[Number(rol[1]) - 1]);
 
@@ -107,7 +114,7 @@ interface Escenario {
   rolesEnlace?: { codigo: string; tipoEnlace: string }[];
   companias?: { id: number; name: string }[];
   proveedores?: { id: string; nombre: string }[];
-  grupos?: { role: string; active: boolean; total: number }[];
+  grupos?: { role: string; active: boolean; esBaja?: boolean; total: number }[];
 }
 
 function instalarBd(esc: Escenario): Espia {
@@ -160,6 +167,15 @@ function instalarBd(esc: Escenario): Espia {
     if (claves === 'codigo,tipoEnlace') return chain(esc.rolesEnlace ?? []);
     if (claves === 'id,name') { espia.lecturasDeCompania++; return chain(esc.companias ?? []); }
     if (claves === 'id,nombre') return chain(esc.proveedores ?? []);
+    // Export (HU #12088 / #12089): tipoEnlace por rol — no debe pisar el WHERE del listado.
+    if (claves === 'codigo,tipoEnlace') {
+      const roles = [...new Set(esc.filas.map((f) => String(f.role)))];
+      const enlace: Record<string, string> = {
+        admin: 'ninguno', gestor_impuestos: 'organismos_transito', proveedor: 'proveedor_soat',
+        cliente: 'compania',
+      };
+      return chain(roles.map((codigo) => ({ codigo, tipoEnlace: enlace[codigo] ?? 'ninguno' })));
+    }
 
     // El `count(*)::int` del total.
     if (claves === 'total') {
@@ -167,9 +183,11 @@ function instalarBd(esc: Escenario): Espia {
       return constructor(sel, (cond) => [{ total: filtrarSegunSql(esc.filas, cond).length }]);
     }
 
-    // El `GROUP BY role, active` del resumen.
-    if (claves === 'active,role,total') {
-      return constructor(sel, () => (esc.grupos ?? []) as unknown as Fila[]);
+    // El `GROUP BY role, active, (deleted_at is not null)` del resumen (HU #12089).
+    if (claves === 'active,esBaja,role,total' || claves === 'active,role,total') {
+      return constructor(sel, () => (esc.grupos ?? []).map((g) => ({
+        ...g, esBaja: g.esBaja ?? false,
+      })) as unknown as Fila[]);
     }
 
     // El listado: filtra por el WHERE real, y luego pagina.
@@ -189,10 +207,10 @@ const ORG_A = '05001';
 const ORG_B = '11001';
 
 const FILAS: Fila[] = [
-  { id: 1, username: 'admin_juan', name: 'Juan Admin', email: 'juan@flit.io', role: 'admin', active: true, allowedPages: [], transitoCodigo: null, companiaId: null, flitoProveedorSoatId: null, createdAt: new Date('2026-01-02T10:00:00Z') },
-  { id: 2, username: 'gestora', name: 'Gestora Perez', email: 'gestora@flit.io', role: 'gestor_impuestos', active: true, allowedPages: [], transitoCodigo: null, companiaId: null, flitoProveedorSoatId: null, createdAt: new Date('2026-02-03T10:00:00Z') },
-  { id: 3, username: 'prov_ana', name: 'Ana Proveedora', email: 'ana@x.com', role: 'proveedor', active: false, allowedPages: [], transitoCodigo: null, companiaId: null, flitoProveedorSoatId: PROVEEDOR, createdAt: new Date('2026-03-04T10:00:00Z') },
-  { id: 4, username: 'cliente_zeta', name: 'Zeta Cliente', email: 'zeta@x.com', role: 'cliente', active: true, allowedPages: [], transitoCodigo: null, companiaId: 7, flitoProveedorSoatId: null, createdAt: new Date('2026-04-05T10:00:00Z') },
+  { id: 1, username: 'admin_juan', name: 'Juan Admin', email: 'juan@flit.io', role: 'admin', active: true, allowedPages: [], transitoCodigo: null, companiaId: null, flitoProveedorSoatId: null, createdAt: new Date('2026-01-02T10:00:00Z'), deletedAt: null, deletedBy: null },
+  { id: 2, username: 'gestora', name: 'Gestora Perez', email: 'gestora@flit.io', role: 'gestor_impuestos', active: true, allowedPages: [], transitoCodigo: null, companiaId: null, flitoProveedorSoatId: null, createdAt: new Date('2026-02-03T10:00:00Z'), deletedAt: null, deletedBy: null },
+  { id: 3, username: 'prov_ana', name: 'Ana Proveedora', email: 'ana@x.com', role: 'proveedor', active: false, allowedPages: [], transitoCodigo: null, companiaId: null, flitoProveedorSoatId: PROVEEDOR, createdAt: new Date('2026-03-04T10:00:00Z'), deletedAt: null, deletedBy: null },
+  { id: 4, username: 'cliente_zeta', name: 'Zeta Cliente', email: 'zeta@x.com', role: 'cliente', active: true, allowedPages: [], transitoCodigo: null, companiaId: 7, flitoProveedorSoatId: null, createdAt: new Date('2026-04-05T10:00:00Z'), deletedAt: null, deletedBy: null },
 ];
 
 const ESCENARIO: Escenario = {
@@ -303,7 +321,8 @@ describe('GET /api/users — filtros (HU #12172)', () => {
 
     expect(r.status).toBe(200);
     expect(r.body).toHaveLength(4);
-    expect(espia.whereSql).toBe('');
+    // HU #12089: el default siempre lleva `deleted_at IS NULL` (antes el WHERE vacío era «sin filtro»).
+    expect(espia.whereSql).toMatch(/deleted_at" is null/i);
   });
 });
 
@@ -496,8 +515,10 @@ describe('GET /api/users/resumen — conteo por rol y estado (HU #12172)', () =>
     expect(r.body.inactivos).toBe(5);
     // Una consulta, no una por rol.
     expect(espia.llamadas).toBe(1);
-    // Agrupada por las DOS columnas, que es lo que permite sacar las tres cifras del mismo barrido.
-    expect(espia.agrupadoPor).toEqual(['role', 'active']);
+    // Agrupada por role/active/(es baja) — HU #12089 añade el booleano de deleted_at.
+    expect(espia.agrupadoPor).toContain('role');
+    expect(espia.agrupadoPor).toContain('active');
+    expect(r.body.dadosDeBaja).toBe(0);
   });
 
   it('TC-12172-20: los roles sin usuarios salen en 0, no ausentes', async () => {

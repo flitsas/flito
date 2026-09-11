@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { eq, and, desc, sql, inArray } from 'drizzle-orm';
+import { eq, and, desc, sql, inArray, isNull } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { safetyTrainings, trainingAttendees, users } from '../../db/schema.js';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
@@ -89,7 +89,12 @@ router.post('/:id/attendees', requireRole('admin'), async (req: Request, res: Re
 
   // Verifica que todos sean conductores activos.
   const valid = await db.select({ id: users.id }).from(users)
-    .where(and(inArray(users.id, parsed.data.userIds), eq(users.esConductor, true), eq(users.active, true)));
+    .where(and(
+      inArray(users.id, parsed.data.userIds),
+      eq(users.esConductor, true),
+      eq(users.active, true),
+      isNull(users.deletedAt),
+    ));
   const validIds = valid.map((u) => u.id);
 
   for (const userId of validIds) {

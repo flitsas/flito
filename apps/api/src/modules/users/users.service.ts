@@ -26,7 +26,7 @@
 //   · Un `revocar` puede dejar el sistema sin administradores: `actualizarUsuario` se envuelve con
 //     `conSeguroAntiBloqueo` también cuando vienen `funciones`, no solo cuando cambia el rol.
 
-import { and, eq, ilike, inArray, notInArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, eq, ilike, inArray, isNotNull, isNull, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import {
   ALL_ROLES, codificarExcepcion, type FuncionDeUsuario, type RoleCode, type UserRole,
 } from '@operaciones/shared-types';
@@ -66,6 +66,9 @@ export const userSelect = {
   // tabla lo pinta sin abrir el formulario.
   flitoProveedorSoatId: users.flitoProveedorSoatId,
   createdAt: users.createdAt,
+  // HU #12089: baja lógica. El listado y el DTO la exponen; el chip UI distingue «Dado de baja».
+  deletedAt: users.deletedAt,
+  deletedBy: users.deletedBy,
 };
 
 /** El usuario tal como lo sirve la API. `organismosCodigos` es SIEMPRE un array, nunca null. */
@@ -82,6 +85,10 @@ export interface UsuarioConAmbito {
   companiaId: number | null;
   flitoProveedorSoatId: string | null;
   createdAt: Date;
+  /** HU #12089: ISO de la baja, o null si está en alta. */
+  deletedAt: Date | null;
+  /** Id numérico del actor de la baja (sin join de PII). */
+  deletedBy: number | null;
   /** CA-10: los organismos del `gestor_impuestos`. `[]` para los otros once roles. */
   organismosCodigos: string[];
   /** HU #12087: las excepciones sobre lo que da su rol. SIEMPRE un array, ordenado por código. */
@@ -550,9 +557,107 @@ export async function cambiarActivo(id: number, actor: ActorAuditoria): Promise<
   });
 }
 
-// #12089 (baja definitiva, `deleted_at`): la función que la escriba envuelve su `UPDATE` con
-// `conSeguroAntiBloqueo(tx, …)` como `cambiarActivo`, y `CONDICION_USUARIO_VIVO` pasa a
-// `deleted_at IS NULL`. Es el quinto camino del AC4 de la #12084; esta HU deja el enganche, no lo implementa.
+// #12089 (baja definitiva, `deleted_at`): `darDeBaja` / `reactivarUsuario` abajo. Baja envuelve el
+// `UPDATE` con `conSeguroAntiBloqueo`; `CONDICION_USUARIO_VIVO` = `deleted_at IS NULL`.
+
+/**
+ * Dar de baja (HU #12089). NO toca `active`. Escribe `deleted_at`, `deleted_by` y
+ * `sessionInvalidatedAt` dentro de `conSeguroAntiBloqueo`. Idempotente: si ya estaba de baja,
+ * devuelve el DTO actual sin reescribir.
+ *
+ * NUNCA hace `db.delete(users)` ni `DELETE FROM users`.
+ */
+export async function darDeBaja(id: number, actor: ActorAuditoria): Promise<UsuarioConAmbito | null> {
+  const ahora = new Date();
+  return db.transaction(async (tx) => {
+    const resultado = await conSeguroAntiBloqueo(tx, async () => {
+      const [antes] = await tx.select({
+        deletedAt: users.deletedAt, role: users.role,
+      }).from(users).where(eq(users.id, id)).limit(1).for('update');
+      if (!antes) return null as UsuarioConAmbito | null | 'noop';
+      if (antes.deletedAt) return 'noop' as const;
+
+      const [updated] = await tx.update(users)
+        .set({
+          deletedAt: ahora,
+          deletedBy: actor.userId,
+          sessionInvalidatedAt: ahora,
+        })
+        .where(eq(users.id, id))
+        .returning(userSelect);
+      if (!updated) return null;
+
+      await registrarCambioPermisos(tx, actor, {
+        entidad: 'usuario',
+        accion: 'baja',
+        campo: 'deleted_at',
+        valorAntes: null,
+        valorDespues: ahora.toISOString(),
+        usuarioAfectado: { id, rol: updated.role },
+      });
+      return {
+        ...updated,
+        organismosCodigos: await organismosDe(id, tx),
+        funciones: await funcionesDe(id, tx),
+      } as UsuarioConAmbito;
+    });
+
+    if (resultado === 'noop') {
+      const [fila] = await tx.select(userSelect).from(users).where(eq(users.id, id)).limit(1);
+      if (!fila) return null;
+      return {
+        ...fila,
+        organismosCodigos: await organismosDe(id, tx),
+        funciones: await funcionesDe(id, tx),
+      } as UsuarioConAmbito;
+    }
+    return resultado;
+  });
+}
+
+/**
+ * Reactivar (HU #12089). Solo limpia `deleted_at` / `deleted_by`; conserva `active`, permisos y
+ * ámbito. Idempotente si ya estaba en alta. No exige el invariante (añade capacidad).
+ */
+export async function reactivarUsuario(id: number, actor: ActorAuditoria): Promise<UsuarioConAmbito | null> {
+  return db.transaction(async (tx) => {
+    const [antes] = await tx.select({
+      deletedAt: users.deletedAt, role: users.role,
+    }).from(users).where(eq(users.id, id)).limit(1).for('update');
+    if (!antes) return null;
+
+    if (!antes.deletedAt) {
+      const [fila] = await tx.select(userSelect).from(users).where(eq(users.id, id)).limit(1);
+      if (!fila) return null;
+      return {
+        ...fila,
+        organismosCodigos: await organismosDe(id, tx),
+        funciones: await funcionesDe(id, tx),
+      } as UsuarioConAmbito;
+    }
+
+    const isoAntes = antes.deletedAt.toISOString();
+    const [updated] = await tx.update(users)
+      .set({ deletedAt: null, deletedBy: null })
+      .where(eq(users.id, id))
+      .returning(userSelect);
+    if (!updated) return null;
+
+    await registrarCambioPermisos(tx, actor, {
+      entidad: 'usuario',
+      accion: 'reactivar',
+      campo: 'deleted_at',
+      valorAntes: isoAntes,
+      valorDespues: null,
+      usuarioAfectado: { id, rol: updated.role },
+    });
+    return {
+      ...updated,
+      organismosCodigos: await organismosDe(id, tx),
+      funciones: await funcionesDe(id, tx),
+    } as UsuarioConAmbito;
+  });
+}
 
 /**
  * Restablecer la contraseña (HU #12171): el hash nuevo y la fila de historial en la misma
@@ -579,13 +684,20 @@ export async function restablecerContrasena(
 // tiene que bajar exactamente lo que la pantalla está mostrando, no la tabla entera— y así el
 // predicado se puede probar contra el SQL que de verdad se ejecuta.
 
-/** Los tres filtros del listado. Todos opcionales: sin ninguno, el comportamiento es el de antes. */
+/** Los filtros del listado. Sin ninguno (salvo bajas), el comportamiento histórico + exclusión de bajas. */
 export interface FiltrosUsuarios {
   /** Código de rol EXACTO. La ruta ya lo validó contra `ALL_ROLES`; aquí llega vivo o no llega. */
   rol?: UserRole;
   activo?: boolean;
   /** Texto libre sobre `username`, `name` y `email`. Sin distinguir mayúsculas ni acentos de más. */
   q?: string;
+  /**
+   * HU #12089 — default `false`: el listado excluye `deleted_at IS NOT NULL`.
+   * `true` = incluir bajas (la UI puede filtrar solo bajas en cliente o con `soloBajas`).
+   */
+  incluirBajas?: boolean;
+  /** Mutuamente excluyente con el default: solo filas con `deleted_at IS NOT NULL`. */
+  soloBajas?: boolean;
 }
 
 /**
@@ -600,14 +712,16 @@ export function escaparComodines(texto: string): string {
 }
 
 /**
- * El `WHERE` del listado, o `undefined` cuando no hay ningún filtro (y entonces la consulta es
- * literalmente la de antes de esta HU).
+ * El `WHERE` del listado. Por defecto exige `deleted_at IS NULL` (HU #12089). Con `incluirBajas`
+ * no añade ese predicado; con `soloBajas` exige la marca.
  *
  * Se exporta para poder renderizarlo, pero eso NO basta como prueba: el test tiene que afirmar sobre
  * la condición que llegó a `.where()`, no sobre el resultado de llamar a esta función.
  */
 export function condicionesUsuarios(f: FiltrosUsuarios): SQL | undefined {
   const cs: (SQL | undefined)[] = [];
+  if (f.soloBajas) cs.push(isNotNull(users.deletedAt));
+  else if (!f.incluirBajas) cs.push(isNull(users.deletedAt));
   if (f.rol) cs.push(eq(users.role, f.rol));
   if (f.activo !== undefined) cs.push(eq(users.active, f.activo));
   if (f.q) {
@@ -663,6 +777,8 @@ export interface ResumenUsuarios {
   porRol: Record<string, number>;
   activos: number;
   inactivos: number;
+  /** HU #12089: cuántos tienen `deleted_at` (solo con `incluirBajas`; si no, 0 y no cuentan en activos/inactivos). */
+  dadosDeBaja: number;
 }
 
 /**
@@ -675,25 +791,37 @@ export interface ResumenUsuarios {
  *
  * Los roles sin usuarios salen en 0 y no ausentes: así el front pinta el catálogo completo sin
  * escribir `?? 0` en cada celda.
+ *
+ * HU #12089: por defecto solo cuenta vivos (`deleted_at IS NULL`). Con `incluirBajas` cuenta todos y
+ * rellena `dadosDeBaja`.
  */
-export async function resumenUsuarios(): Promise<ResumenUsuarios> {
+export async function resumenUsuarios(f: Pick<FiltrosUsuarios, 'incluirBajas' | 'soloBajas'> = {}): Promise<ResumenUsuarios> {
+  const cond = condicionesUsuarios(f);
+  // Agrupar por «¿es baja?» (booleano), no por el timestamp: cada baja tendría su propio grupo.
+  const esBajaExpr = sql<boolean>`(${users.deletedAt} is not null)`;
   const filas = await db.select({
     role: users.role,
     active: users.active,
+    esBaja: esBajaExpr,
     total: sql<number>`count(*)::int`,
-  }).from(users).groupBy(users.role, users.active);
+  }).from(users).where(cond).groupBy(users.role, users.active, esBajaExpr);
 
   const porRol: Record<string, number> = {};
   for (const rol of ALL_ROLES) porRol[rol] = 0;
 
   let activos = 0;
   let inactivos = 0;
-  for (const f of filas) {
-    const n = Number(f.total) || 0;
-    porRol[f.role] = (porRol[f.role] ?? 0) + n;
-    if (f.active) activos += n; else inactivos += n;
+  let dadosDeBaja = 0;
+  for (const fila of filas) {
+    const n = Number(fila.total) || 0;
+    porRol[fila.role] = (porRol[fila.role] ?? 0) + n;
+    if (fila.esBaja) {
+      dadosDeBaja += n;
+      continue;
+    }
+    if (fila.active) activos += n; else inactivos += n;
   }
-  return { porRol, activos, inactivos };
+  return { porRol, activos, inactivos, dadosDeBaja };
 }
 
 /**

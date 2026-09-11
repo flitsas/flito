@@ -65,7 +65,7 @@
 // Vive en `shared/` y no en `modules/permisos/`: lo invocan `users.service.ts` y
 // `permisos-roles.service.ts`, y colgarlo de un módulo crearía la dependencia entre hermanos que
 // `shared/historial/permisos-auditoria.ts` evitó con el mismo argumento.
-import { and, eq, or, sql, type SQL } from 'drizzle-orm';
+import { and, eq, isNull, or, sql, type SQL } from 'drizzle-orm';
 import type { db } from '../db/client.js';
 import { permisosRoles, permisosRolFuncion, permisosUsuarioFuncion, users } from '../db/schema.js';
 
@@ -81,11 +81,10 @@ export type EjecutorSeguro = Pick<Tx, 'select'>;
 export const FUNCIONES_DE_ADMINISTRACION = ['permisos.cuadro.guardar', 'usuarios.usuario.editar'] as const;
 
 /**
- * Enganche para la HU #12089 (baja definitiva): cuando `users.deleted_at` exista, esto pasa a ser
- * `${users.deletedAt} IS NULL`. Hoy es `true` a propósito: la columna no existe y un usuario dado de
- * baja no puede contar como administrador. Se usa en el lock y en la cuenta.
+ * HU #12089 — un usuario «vivo» es el que no está dado de baja. Se usa en el lock y en la cuenta del
+ * invariante anti-bloqueo: quien tiene `deleted_at` no sostiene la administración.
  */
-export const CONDICION_USUARIO_VIVO: SQL = sql`true`;
+export const CONDICION_USUARIO_VIVO: SQL = isNull(users.deletedAt);
 
 const MENSAJE: Record<string, string> = {
   'permisos.cuadro.guardar': 'Dejaría cero usuarios activos capaces de administrar permisos',
