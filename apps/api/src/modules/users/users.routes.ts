@@ -11,64 +11,75 @@ import { BloqueoAdministracionError } from '../../shared/permisos-anti-bloqueo.j
 import { audit } from '../../shared/middleware/audit.js';
 import { sendExcel } from '../../shared/utils/excel.js';
 import { errorPg } from '../../shared/utils/pg-error.js';
-import { isValidPage } from '../../shared/permissions.js';
-import { ALL_ROLES, ENTIDADES_AUDITABLES, ROLE_LABELS, isKnownOrganismoCodigo, type UserRole } from '@operaciones/shared-types';
+import {
+  ALL_ROLES, EFECTOS_PERMISO_USUARIO, ENTIDADES_AUDITABLES, ROLE_LABELS,
+  codificarExcepcion, isKnownOrganismoCodigo, type FuncionDeUsuario, type UserRole,
+} from '@operaciones/shared-types';
 import { loggerFor } from '../../shared/logger.js';
 import { actorDeRequest } from '../../shared/historial/permisos-auditoria.js';
 import {
-  actualizarUsuario, cambiarActivo, crearUsuario, listarUsuarios, nombresDeAmbito, organismosDe, organismosDeVarios,
-  organismosInexistentes, proveedorSoatExiste, restablecerContrasena, resumenUsuarios, rolAsignable,
+  actualizarUsuario, cambiarActivo, crearUsuario, funcionesDeVarios, listarUsuarios, nombresDeAmbito,
+  organismosDe, organismosDeVarios, organismosInexistentes, proveedorSoatExiste, restablecerContrasena,
+  resumenUsuarios, rolAsignable,
   type FiltrosUsuarios, type PaginacionUsuarios,
 } from './users.service.js';
+// HU #12087: la existencia de los códigos se pregunta al mismo sitio que el cuadro del rol
+// (dependencia en un solo sentido: `users` → `permisos`; `permisos` no importa nada de aquí).
+import { FuncionesInexistentesError, funcionesInexistentes } from '../permisos/permisos-roles.service.js';
 import { listarAuditoria, titularesAuditoria } from './users-auditoria.service.js';
 
 const log = loggerFor('users');
-
 const router = Router();
-
 // Roles asignables: fuente única en @operaciones/shared-types (incluye 'auditor').
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*])/;
 const PASSWORD_MSG = 'Mín 8 caracteres, 1 mayúscula, 1 minúscula, 1 número, 1 especial';
-
 // Cambio de contraseña — auth solo; el handler decide: la propia siempre, la AJENA con la función
 // `usuarios.contrasena.cambiar_ajena` (guarda en línea, HU #12083; de partida solo `admin`).
 const passwordSchema = z.object({
-  currentPassword: z.string().min(1),
-  newPassword: z.string().min(8).regex(PASSWORD_REGEX, PASSWORD_MSG),
+    currentPassword: z.string().min(1),
+    newPassword: z.string().min(8).regex(PASSWORD_REGEX, PASSWORD_MSG),
 });
-
 router.patch('/:id/password', authMiddleware, async (req: Request, res: Response) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (!Number.isFinite(id)) { res.status(400).json({ error: 'ID inválido' }); return; }
-    if (req.user!.sub !== id && !(await tieneFuncion(req, 'usuarios.contrasena.cambiar_ajena'))) {
-      res.status(403).json({ error: 'Sin permisos' }); return;
+    try {
+        const id = parseInt(req.params.id, 10);
+        if (!Number.isFinite(id)) {
+            res.status(400).json({ error: 'ID inválido' });
+            return;
+        }
+        if (req.user!.sub !== id && !(await tieneFuncion(req, 'usuarios.contrasena.cambiar_ajena'))) {
+            res.status(403).json({ error: 'Sin permisos' });
+            return;
+        }
+        const parsed = passwordSchema.safeParse(req.body);
+        if (!parsed.success) {
+            res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+            return;
+        }
+        const [user] = await db.select().from(users).where(eq(users.id, id)).limit(1);
+        if (!user) {
+            res.status(404).json({ error: 'Usuario no encontrado' });
+            return;
+        }
+        // Si el admin cambia la contraseña de otro, no necesita la actual; si la cambia propia, sí.
+        const requiresCurrent = req.user!.sub === id;
+        if (requiresCurrent) {
+            const valid = await argon2.verify(user.passwordHash, parsed.data.currentPassword);
+            if (!valid) {
+                res.status(401).json({ error: 'Contraseña actual incorrecta' });
+                return;
+            }
+        }
+        const newHash = await argon2.hash(parsed.data.newPassword);
+        // HU #12171: el hash y la fila del historial (`password`, sin valores) entran en una transacción.
+        await restablecerContrasena(id, user.role, newHash, actorDeRequest(req));
+        await audit(req, { action: 'update', resource: 'user', resourceId: String(id), detail: 'Contraseña actualizada' });
+        res.json({ ok: true });
     }
-
-    const parsed = passwordSchema.safeParse(req.body);
-    if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
-
-    const [user] = await db.select().from(users).where(eq(users.id, id)).limit(1);
-    if (!user) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
-
-    // Si el admin cambia la contraseña de otro, no necesita la actual; si la cambia propia, sí.
-    const requiresCurrent = req.user!.sub === id;
-    if (requiresCurrent) {
-      const valid = await argon2.verify(user.passwordHash, parsed.data.currentPassword);
-      if (!valid) { res.status(401).json({ error: 'Contraseña actual incorrecta' }); return; }
+    catch (e) {
+        log.error({ err: e, userId: req.params.id }, 'password update failed');
+        res.status(500).json({ error: 'Error interno' });
     }
-
-    const newHash = await argon2.hash(parsed.data.newPassword);
-    // HU #12171: el hash y la fila del historial (`password`, sin valores) entran en una transacción.
-    await restablecerContrasena(id, user.role, newHash, actorDeRequest(req));
-    await audit(req, { action: 'update', resource: 'user', resourceId: String(id), detail: 'Contraseña actualizada' });
-    res.json({ ok: true });
-  } catch (e) {
-    log.error({ err: e, userId: req.params.id }, 'password update failed');
-    res.status(500).json({ error: 'Error interno' });
-  }
 });
-
 // === Filtros del listado (HU #12172) =========================================
 //
 // Los MISMOS tres filtros los comparten el listado y la descarga: `/export` baja lo que la pantalla
@@ -81,50 +92,50 @@ router.patch('/:id/password', authMiddleware, async (req: Request, res: Response
 // la pantalla que ofrece el catálogo completo es la #12085, y ella trae este `z.enum` con ella.
 // `q` vacío (`?q=`) NO es un error: es «sin filtro», que es lo que manda el front al borrar la caja.
 const listadoQuerySchema = z.object({
-  rol: z.enum(ALL_ROLES).optional(),
-  activo: z.enum(['true', 'false']).optional(),
-  q: z.string().max(100).optional(),
-  pagina: z.coerce.number().int().positive().max(100000).optional(),
-  porPagina: z.coerce.number().int().positive().max(500).optional(),
+    rol: z.enum(ALL_ROLES).optional(),
+    activo: z.enum(['true', 'false']).optional(),
+    q: z.string().max(100).optional(),
+    pagina: z.coerce.number().int().positive().max(100000).optional(),
+    porPagina: z.coerce.number().int().positive().max(500).optional(),
 });
-
-interface ConsultaListado { filtros: FiltrosUsuarios; paginacion: PaginacionUsuarios }
-
 /** `undefined` cuando la query no valida; el llamador ya respondió el 400. */
-function leerConsulta(req: Request, res: Response): ConsultaListado | undefined {
-  const parsed = listadoQuerySchema.safeParse(req.query);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Filtros inválidos', details: parsed.error.flatten() });
-    return undefined;
-  }
-  const { rol, activo, q, pagina, porPagina } = parsed.data;
-  const texto = q?.trim();
-  return {
-    filtros: {
-      rol: rol as UserRole | undefined,
-      activo: activo === undefined ? undefined : activo === 'true',
-      q: texto ? texto : undefined,
-    },
-    paginacion: { pagina, porPagina },
-  };
+function leerConsulta(req: Request, res: Response): { filtros: FiltrosUsuarios; paginacion: PaginacionUsuarios } | undefined {
+    const parsed = listadoQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+        res.status(400).json({ error: 'Filtros inválidos', details: parsed.error.flatten() });
+        return undefined;
+    }
+    const { rol, activo, q, pagina, porPagina } = parsed.data;
+    const texto = q?.trim();
+    return {
+        filtros: {
+            rol: rol,
+            activo: activo === undefined ? undefined : activo === 'true',
+            q: texto ? texto : undefined,
+        },
+        paginacion: { pagina, porPagina },
+    };
 }
-
 /** El texto de la columna «Ámbito» del Excel: cada rol tiene el suyo, y la mayoría no tiene ninguno. */
 function textoAmbito(
   u: { role: string; transitoCodigo: string | null; companiaId: number | null; flitoProveedorSoatId: string | null },
-  organismos: string[], companias: Map<number, string>, proveedores: Map<string, string>,
+  organismos: string[],
+  companias: Map<number, string>,
+  proveedores: Map<string, string>,
 ): string {
-  if (u.role === 'gestor_impuestos') return organismos.join(', ');
-  if (u.role === 'transito') return u.transitoCodigo ?? '';
-  if (u.role === 'cliente') return u.companiaId ? (companias.get(u.companiaId) ?? `Compañía ${u.companiaId}`) : '';
-  if (u.role === 'proveedor') return u.flitoProveedorSoatId ? (proveedores.get(u.flitoProveedorSoatId) ?? 'Proveedor') : '';
-  return '';
+    if (u.role === 'gestor_impuestos')
+        return organismos.join(', ');
+    if (u.role === 'transito')
+        return u.transitoCodigo ?? '';
+    if (u.role === 'cliente')
+        return u.companiaId ? (companias.get(u.companiaId) ?? `Compañía ${u.companiaId}`) : '';
+    if (u.role === 'proveedor')
+        return u.flitoProveedorSoatId ? (proveedores.get(u.flitoProveedorSoatId) ?? 'Proveedor') : '';
+    return '';
 }
-
 // Resto del módulo: `authMiddleware` a nivel de router y la función `usuarios.*` en cada ruta
 // (`exigirFuncion`, HU #12083). De partida todas son solo de `admin` (0181).
 router.use(authMiddleware);
-
 // === ORDEN DE RUTAS ==========================================================
 // `/export` y `/resumen` son LITERALES y van declaradas ANTES que el listado y que CUALQUIER `/:id`.
 // Express casa por orden de declaración: un `router.get('/:id', …)` añadido más arriba se las
@@ -134,56 +145,47 @@ router.use(authMiddleware);
 // Van DEBAJO del `router.use` de arriba, así que heredan `authMiddleware`; la guarda de función va
 // en cada una. El orden literal-antes-de-paramétrica no obliga a nada más: basta con estar por
 // encima del `/:id`.
-
 // === Descargar el listado en Excel ===========================================
 router.get('/export', exigirFuncion('usuarios.usuario.exportar'), async (req: Request, res: Response) => {
-  const consulta = leerConsulta(req, res);
-  if (!consulta) return;
-
-  // Sin paginar: se baja TODO lo que casa con los filtros, no la página que se está viendo. Una
-  // descarga partida en páginas no le sirve a nadie.
-  const { filas, total } = await listarUsuarios(consulta.filtros);
-  const porUsuario = await organismosDeVarios(filas.map((u) => u.id));
-  const { companias, proveedores } = await nombresDeAmbito(
-    filas.map((u) => u.companiaId).filter((c): c is number => c !== null),
-    filas.map((u) => u.flitoProveedorSoatId).filter((p): p is string => p !== null),
-  );
-
-  const rows = filas.map((u) => ({
-    username: u.username,
-    name: u.name,
-    email: u.email ?? '',
-    role: ROLE_LABELS[u.role as UserRole] ?? u.role,
-    estado: u.active ? 'Activo' : 'Inactivo',
-    ambito: textoAmbito(u, porUsuario.get(u.id) ?? [], companias, proveedores),
-    createdAt: u.createdAt,
-  }));
-
-  const { rol, activo, q } = consulta.filtros;
-  await audit(req, {
-    action: 'export',
-    resource: 'user',
-    detail: `Descarga usuarios (${total}) — filtros: rol=${rol ?? '·'} activo=${activo ?? '·'} q=${q ? 'sí' : '·'}`,
-  });
-
-  await sendExcel(res, 'usuarios.xlsx', [
-    { header: 'Usuario', key: 'username', width: 20 },
-    { header: 'Nombre', key: 'name', width: 28 },
-    { header: 'Correo', key: 'email', width: 28 },
-    { header: 'Rol', key: 'role', width: 22 },
-    { header: 'Estado', key: 'estado', width: 12 },
-    { header: 'Ámbito', key: 'ambito', width: 32 },
-    { header: 'Fecha de creación', key: 'createdAt', width: 20 },
-  ], rows);
+    const consulta = leerConsulta(req, res);
+    if (!consulta)
+        return;
+    // Sin paginar: se baja TODO lo que casa con los filtros, no la página que se está viendo. Una
+    // descarga partida en páginas no le sirve a nadie.
+    const { filas, total } = await listarUsuarios(consulta.filtros);
+    const porUsuario = await organismosDeVarios(filas.map((u) => u.id));
+    const { companias, proveedores } = await nombresDeAmbito(filas.map((u) => u.companiaId).filter((c) => c !== null), filas.map((u) => u.flitoProveedorSoatId).filter((p) => p !== null));
+    const rows = filas.map((u) => ({
+        username: u.username,
+        name: u.name,
+        email: u.email ?? '',
+        role: ROLE_LABELS[u.role as UserRole] ?? u.role,
+        estado: u.active ? 'Activo' : 'Inactivo',
+        ambito: textoAmbito(u, porUsuario.get(u.id) ?? [], companias, proveedores),
+        createdAt: u.createdAt,
+    }));
+    const { rol, activo, q } = consulta.filtros;
+    await audit(req, {
+        action: 'export',
+        resource: 'user',
+        detail: `Descarga usuarios (${total}) — filtros: rol=${rol ?? '·'} activo=${activo ?? '·'} q=${q ? 'sí' : '·'}`,
+    });
+    await sendExcel(res, 'usuarios.xlsx', [
+        { header: 'Usuario', key: 'username', width: 20 },
+        { header: 'Nombre', key: 'name', width: 28 },
+        { header: 'Correo', key: 'email', width: 28 },
+        { header: 'Rol', key: 'role', width: 22 },
+        { header: 'Estado', key: 'estado', width: 12 },
+        { header: 'Ámbito', key: 'ambito', width: 32 },
+        { header: 'Fecha de creación', key: 'createdAt', width: 20 },
+    ], rows);
 });
-
 // === Conteo por rol y por estado =============================================
 router.get('/resumen', exigirFuncion('usuarios.usuario.ver_resumen'), async (req: Request, res: Response) => {
-  const resumen = await resumenUsuarios();
-  await audit(req, { action: 'view', resource: 'user', detail: `Resumen usuarios (${resumen.activos + resumen.inactivos})` });
-  res.json(resumen);
+    const resumen = await resumenUsuarios();
+    await audit(req, { action: 'view', resource: 'user', detail: `Resumen usuarios (${resumen.activos + resumen.inactivos})` });
+    res.json(resumen);
 });
-
 // === Historial de cambios de usuarios, roles y permisos (HU #12171, CF-19) ====
 //
 // Literales también, y por eso viven aquí arriba. `GET` con query y no `POST …/buscar`: ningún
@@ -191,60 +193,95 @@ router.get('/resumen', exigirFuncion('usuarios.usuario.ver_resumen'), async (req
 // fechas. Dos rutas con dos códigos porque el catálogo es «una función por ruta» (precedente:
 // `soat.cola.ver` / `soat.cola.filtrar`). `admin` y `auditor` las tienen sembradas por la 0185.
 const auditoriaQuerySchema = z.object({
-  titularUserId: z.coerce.number().int().positive().optional(),
-  entidad: z.enum(ENTIDADES_AUDITABLES).optional(),
-  rolCodigo: z.string().regex(/^[a-z0-9_]{1,40}$/).optional(),
-  desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD').optional(),
-  hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD').optional(),
-  limite: z.coerce.number().int().min(1).max(200).default(50),
-  offset: z.coerce.number().int().min(0).default(0),
+    titularUserId: z.coerce.number().int().positive().optional(),
+    entidad: z.enum(ENTIDADES_AUDITABLES).optional(),
+    rolCodigo: z.string().regex(/^[a-z0-9_]{1,40}$/).optional(),
+    desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD').optional(),
+    hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD').optional(),
+    limite: z.coerce.number().int().min(1).max(200).default(50),
+    offset: z.coerce.number().int().min(0).default(0),
 });
-
 /**
  * `YYYY-MM-DD` → medianoche UTC, o `null` si el día no existe (V8 convierte «2026-02-31» en marzo
  * sin quejarse: se exige que la fecha vuelva a escribirse igual). El rango es medio abierto `[desde, hasta)`.
  */
 function fechaUtc(d: string | undefined): Date | null | undefined {
-  if (d === undefined) return undefined;
-  const fecha = new Date(`${d}T00:00:00.000Z`);
-  return Number.isNaN(fecha.getTime()) || fecha.toISOString().slice(0, 10) !== d ? null : fecha;
+    if (d === undefined)
+        return undefined;
+    const fecha = new Date(`${d}T00:00:00.000Z`);
+    return Number.isNaN(fecha.getTime()) || fecha.toISOString().slice(0, 10) !== d ? null : fecha;
 }
-
 router.get('/auditoria', exigirFuncion('usuarios.auditoria.ver'), async (req: Request, res: Response) => {
-  const parsed = auditoriaQuerySchema.safeParse(req.query);
-  if (!parsed.success) { res.status(400).json({ error: 'Filtros inválidos', details: parsed.error.flatten() }); return; }
-  const { titularUserId, entidad, rolCodigo, desde, hasta, limite, offset } = parsed.data;
-  const desdeF = fechaUtc(desde);
-  const hastaF = fechaUtc(hasta);
-  if (desdeF === null || hastaF === null) {
-    const fieldErrors: Record<string, string[]> = {};
-    if (desdeF === null) fieldErrors.desde = ['Fecha inexistente'];
-    if (hastaF === null) fieldErrors.hasta = ['Fecha inexistente'];
-    res.status(400).json({ error: 'Filtros inválidos', details: { fieldErrors } }); return;
-  }
-  // Rango invertido: 400 sin tocar la base. Un `[desde, hasta)` vacío daría 200 con `items: []`, que
-  // es indistinguible de «no hubo cambios» y esconde el error de quien escribió las fechas.
-  if (desdeF && hastaF && desdeF > hastaF) {
-    res.status(400).json({ error: 'Filtros inválidos', details: { fieldErrors: { hasta: ['Debe ser posterior o igual a desde'] } } }); return;
-  }
-  const respuesta = await listarAuditoria(
-    { titularUserId, entidad, rolCodigo, desde: desdeF, hasta: hastaF },
-    { limite, offset },
-  );
-  res.json(respuesta);
+    const parsed = auditoriaQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+        res.status(400).json({ error: 'Filtros inválidos', details: parsed.error.flatten() });
+        return;
+    }
+    const { titularUserId, entidad, rolCodigo, desde, hasta, limite, offset } = parsed.data;
+    const desdeF = fechaUtc(desde);
+    const hastaF = fechaUtc(hasta);
+    if (desdeF === null || hastaF === null) {
+        const fieldErrors: Record<string, string[]> = {};
+        if (desdeF === null)
+            fieldErrors.desde = ['Fecha inexistente'];
+        if (hastaF === null)
+            fieldErrors.hasta = ['Fecha inexistente'];
+        res.status(400).json({ error: 'Filtros inválidos', details: { fieldErrors } });
+        return;
+    }
+    // Rango invertido: 400 sin tocar la base. Un `[desde, hasta)` vacío daría 200 con `items: []`, que
+    // es indistinguible de «no hubo cambios» y esconde el error de quien escribió las fechas.
+    if (desdeF && hastaF && desdeF > hastaF) {
+        res.status(400).json({ error: 'Filtros inválidos', details: { fieldErrors: { hasta: ['Debe ser posterior o igual a desde'] } } });
+        return;
+    }
+    const respuesta = await listarAuditoria({ titularUserId, entidad, rolCodigo, desde: desdeF, hasta: hastaF }, { limite, offset });
+    res.json(respuesta);
 });
-
 router.get('/auditoria/titulares', exigirFuncion('usuarios.auditoria.filtrar'), async (_req: Request, res: Response) => {
-  res.json(await titularesAuditoria());
+    res.json(await titularesAuditoria());
 });
-
-const allowedPagesSchema = z.array(z.string()).max(50).transform((arr) => arr.filter(isValidPage));
-
+/**
+ * HU #12087 — las excepciones por usuario. Presente = REEMPLAZO COMPLETO del conjunto (`[]` = quitar
+ * todas); ausente = no tocar. Es la semántica de `organismosCodigos` y de `PUT …/roles/:codigo/funciones`.
+ *
+ * Capa 1 de 3 (las otras: `funcionesInexistentes` en el handler y la PK + CHECK de la 0179): un mismo
+ * código con DOS efectos es un 400 de validación, no un 23505 servido en un 500; el mismo par repetido
+ * se pliega a uno. Los `z.enum` se construyen desde `EFECTOS_PERMISO_USUARIO` (patrón `USER_ROLES`).
+ *
+ * `allowedPages` ya NO está en ningún esquema: obsoleto, no roto (AC6). Los esquemas no son `.strict()`,
+ * así que un cliente viejo que lo mande recibe 200 y la clave se descarta; el handler lo registra con
+ * `log.warn` para verlo. NO se traduce a `conceder pagina.*`: en un PATCH pisaría las excepciones
+ * `operacion.*` que ese cliente no conoce.
+ */
+const funcionesSchema = z.array(z.object({
+    codigo: z.string().min(1).max(80),
+    efecto: z.enum(EFECTOS_PERMISO_USUARIO),
+})).max(1000).superRefine((fs, ctx) => {
+    const efectoPor = new Map<string, FuncionDeUsuario['efecto']>();
+    fs.forEach((f, i) => {
+        const ya = efectoPor.get(f.codigo);
+        if (ya !== undefined && ya !== f.efecto) {
+            ctx.addIssue({ code: 'custom', path: [i, 'efecto'], message: `La función ${f.codigo} no puede concederse y revocarse a la vez` });
+        }
+        efectoPor.set(f.codigo, f.efecto);
+    });
+}).transform((fs) => {
+    const porClave = new Map<string, FuncionDeUsuario>();
+    for (const f of fs)
+        porClave.set(codificarExcepcion(f), f);
+    return [...porClave.values()];
+}).optional();
+/** El aviso de AC6: el cliente mandó la clave obsoleta. Sin 400 y sin escribirla. */
+function avisarAllowedPagesObsoleto(req: Request, verbo: string): void {
+    if (req.body && typeof req.body === 'object' && 'allowedPages' in req.body) {
+        log.warn({ verbo, actor: req.user?.sub }, 'allowedPages obsoleto en el body (HU #12087): se descarta');
+    }
+}
 const transitoCodigoSchema = z.string().regex(/^\d{5}$/, 'Código DIVIPOLA de 5 dígitos')
-  .refine((c) => isKnownOrganismoCodigo(c), 'Organismo de tránsito desconocido')
-  .nullable()
-  .optional();
-
+    .refine((c) => isKnownOrganismoCodigo(c), 'Organismo de tránsito desconocido')
+    .nullable()
+    .optional();
 // FLITO — Cliente (Feature #11912): la compañía del usuario `cliente`. Mismo patrón que
 // `transitoCodigo` —nullable + optional, con la obligatoriedad CONDICIONAL AL ROL resuelta en el
 // `superRefine`— porque es la misma idea: un ámbito que solo tiene sentido para un rol.
@@ -252,12 +289,10 @@ const transitoCodigoSchema = z.string().regex(/^\d{5}$/, 'Código DIVIPOLA de 5 
 // Que el id EXISTA no lo puede comprobar un schema: lo comprueba el handler contra `clients` antes
 // de escribir, para que una compañía inventada no salga como un 23503 servido en un 500.
 const companiaIdSchema = z.number().int().positive('Compañía inválida').nullable().optional();
-
 // FLITO (HU #12053) — el proveedor SOAT del rol `proveedor`. Mismo patrón que `companiaId`: la
 // obligatoriedad es CONDICIONAL AL ROL y vive en el `superRefine`; que el uuid EXISTA lo comprueba
 // el handler contra `flito_proveedores_soat`.
 const proveedorSoatIdSchema = z.string().uuid('Proveedor SOAT inválido').nullable().optional();
-
 /**
  * Los organismos del `gestor_impuestos`. Es una LISTA y no un código porque el AC2 pide varios.
  *
@@ -268,18 +303,14 @@ const proveedorSoatIdSchema = z.string().uuid('Proveedor SOAT inválido').nullab
  * Se DEDUPLICA antes de escribir: sin esto, `["05001","05001"]` choca con la PK compuesta y devuelve
  * un 23505 servido en un 500.
  */
-const organismosCodigosSchema = z.array(
-  z.string().regex(/^\d{5}$/, 'Código DIVIPOLA de 5 dígitos')
-    .refine((c) => isKnownOrganismoCodigo(c), 'Organismo de tránsito desconocido'),
-).max(200).transform((arr) => [...new Set(arr)]).optional();
-
+const organismosCodigosSchema = z.array(z.string().regex(/^\d{5}$/, 'Código DIVIPOLA de 5 dígitos')
+    .refine((c) => isKnownOrganismoCodigo(c), 'Organismo de tránsito desconocido')).max(200).transform((arr) => [...new Set(arr)]).optional();
 // Literales del copy de UX (docs/ux/identidad-rol-cliente-y-soat-sin-tramite.md §1.4). El front los
 // muestra prefijados con el nombre del campo (`ApiError.toUserMessage`): es el comportamiento que ya
 // tiene `transitoCodigo` y no se arregla en esta HU.
 const MSG_COMPANIA_REQUERIDA = 'Compañía requerida para el rol Cliente';
 const MSG_COMPANIA_SOBRA = 'Solo los usuarios Cliente pueden tener compañía asignada';
 const MSG_COMPANIA_NO_EXISTE = 'La compañía no existe';
-
 // FLITO — ámbito del Proveedor y del Gestor de Impuestos (HU #12053). Literales de
 // docs/ux/usuarios-ambito-proveedor-y-gestor-impuestos.md §5.2, con el mismo tratamiento que los de
 // arriba: el front los muestra prefijados con el nombre del campo (`ApiError.toUserMessage`).
@@ -289,11 +320,9 @@ const MSG_PROVEEDOR_NO_EXISTE = 'El proveedor SOAT no existe';
 const MSG_ORGANISMOS_REQUERIDOS = 'Organismos requeridos para el rol Gestor de Impuestos';
 const MSG_ORGANISMOS_SOBRAN = 'Solo los usuarios Gestor de Impuestos pueden tener organismos asignados';
 const MSG_ORGANISMOS_NO_EXISTE = 'Alguno de los organismos no existe';
-
 // HU #12169 — el rol es DATO, no una constante compilada. Mismo tratamiento que la compañía y el
 // proveedor: el mensaje lo lee el admin en la pantalla, y el 400 sale antes de escribir nada.
 const MSG_ROL_NO_ASIGNABLE = 'El rol no existe o está inactivo';
-
 /**
  * El código de un rol: FORMA, no pertenencia (HU #12169, AC6). Sustituye a `z.enum(ALL_ROLES)`, que
  * cerraba la lista en tiempo de compilación y hacía imposible asignar un rol recién creado (CF-03).
@@ -306,90 +335,89 @@ const MSG_ROL_NO_ASIGNABLE = 'El rol no existe o está inactivo';
  * minúsculas, dígitos y guion bajo, empezando por letra. `max(40)` es el ancho de la PK.
  */
 const codigoRolSchema = z.string().min(1).max(40)
-  .regex(/^[a-z][a-z0-9_]*$/, 'El código de rol solo admite minúsculas, números y guion bajo');
-
+    .regex(/^[a-z][a-z0-9_]*$/, 'El código de rol solo admite minúsculas, números y guion bajo');
 /** ¿Existe esa compañía? Sin esto, un id inventado sería un 23503 sin mensaje útil. */
 async function companiaExiste(id: number): Promise<boolean> {
-  const [c] = await db.select({ id: clients.id }).from(clients).where(eq(clients.id, id)).limit(1);
-  return !!c;
+    const [c] = await db.select({ id: clients.id }).from(clients).where(eq(clients.id, id)).limit(1);
+    return !!c;
 }
-
 const createSchema = z.object({
-  username: z.string().min(3).max(50).regex(/^[a-zA-Z0-9_]+$/, 'Solo letras, números y guion bajo'),
-  name: z.string().min(1).max(100),
-  email: z.string().email().max(150).optional().or(z.literal('').transform(() => undefined)),
-  password: z.string().min(8).regex(PASSWORD_REGEX, PASSWORD_MSG),
-  role: codigoRolSchema,
-  allowedPages: allowedPagesSchema.optional(),
-  transitoCodigo: transitoCodigoSchema,
-  companiaId: companiaIdSchema,
-  flitoProveedorSoatId: proveedorSoatIdSchema,
-  organismosCodigos: organismosCodigosSchema,
+    username: z.string().min(3).max(50).regex(/^[a-zA-Z0-9_]+$/, 'Solo letras, números y guion bajo'),
+    name: z.string().min(1).max(100),
+    email: z.string().email().max(150).optional().or(z.literal('').transform(() => undefined)),
+    password: z.string().min(8).regex(PASSWORD_REGEX, PASSWORD_MSG),
+    role: codigoRolSchema,
+    funciones: funcionesSchema,
+    transitoCodigo: transitoCodigoSchema,
+    companiaId: companiaIdSchema,
+    flitoProveedorSoatId: proveedorSoatIdSchema,
+    organismosCodigos: organismosCodigosSchema,
 }).superRefine((d, ctx) => {
-  if (d.role === 'transito' && !d.transitoCodigo) {
-    ctx.addIssue({ code: 'custom', path: ['transitoCodigo'], message: 'Organismo de tránsito requerido para rol tránsito' });
-  }
-  if (d.role !== 'transito' && d.transitoCodigo) {
-    ctx.addIssue({ code: 'custom', path: ['transitoCodigo'], message: 'Solo usuarios tránsito pueden tener organismo asignado' });
-  }
-  // AC2, capa 1 de 3 (las otras dos: el CHECK de la migración 0168 y el `return null` de
-  // `contextoSoat`). Esta es la que produce el mensaje que el admin lee en la pantalla.
-  if (d.role === 'cliente' && !d.companiaId) {
-    ctx.addIssue({ code: 'custom', path: ['companiaId'], message: MSG_COMPANIA_REQUERIDA });
-  }
-  if (d.role !== 'cliente' && d.companiaId) {
-    ctx.addIssue({ code: 'custom', path: ['companiaId'], message: MSG_COMPANIA_SOBRA });
-  }
-  // AC3 de la #12053, las dos ataduras y sus dos inversos. Esta es la capa que produce el mensaje
-  // que el admin lee, y la que garantiza que un alta inválida NO escriba nada: el 400 sale antes de
-  // consultar siquiera si el username está libre.
-  if (d.role === 'proveedor' && !d.flitoProveedorSoatId) {
-    ctx.addIssue({ code: 'custom', path: ['flitoProveedorSoatId'], message: MSG_PROVEEDOR_REQUERIDO });
-  }
-  if (d.role !== 'proveedor' && d.flitoProveedorSoatId) {
-    ctx.addIssue({ code: 'custom', path: ['flitoProveedorSoatId'], message: MSG_PROVEEDOR_SOBRA });
-  }
-  if (d.role === 'gestor_impuestos' && !d.organismosCodigos?.length) {
-    ctx.addIssue({ code: 'custom', path: ['organismosCodigos'], message: MSG_ORGANISMOS_REQUERIDOS });
-  }
-  if (d.role !== 'gestor_impuestos' && d.organismosCodigos?.length) {
-    ctx.addIssue({ code: 'custom', path: ['organismosCodigos'], message: MSG_ORGANISMOS_SOBRAN });
-  }
+    if (d.role === 'transito' && !d.transitoCodigo) {
+        ctx.addIssue({ code: 'custom', path: ['transitoCodigo'], message: 'Organismo de tránsito requerido para rol tránsito' });
+    }
+    if (d.role !== 'transito' && d.transitoCodigo) {
+        ctx.addIssue({ code: 'custom', path: ['transitoCodigo'], message: 'Solo usuarios tránsito pueden tener organismo asignado' });
+    }
+    // AC2, capa 1 de 3 (las otras dos: el CHECK de la migración 0168 y el `return null` de
+    // `contextoSoat`). Esta es la que produce el mensaje que el admin lee en la pantalla.
+    if (d.role === 'cliente' && !d.companiaId) {
+        ctx.addIssue({ code: 'custom', path: ['companiaId'], message: MSG_COMPANIA_REQUERIDA });
+    }
+    if (d.role !== 'cliente' && d.companiaId) {
+        ctx.addIssue({ code: 'custom', path: ['companiaId'], message: MSG_COMPANIA_SOBRA });
+    }
+    // AC3 de la #12053, las dos ataduras y sus dos inversos. Esta es la capa que produce el mensaje
+    // que el admin lee, y la que garantiza que un alta inválida NO escriba nada: el 400 sale antes de
+    // consultar siquiera si el username está libre.
+    if (d.role === 'proveedor' && !d.flitoProveedorSoatId) {
+        ctx.addIssue({ code: 'custom', path: ['flitoProveedorSoatId'], message: MSG_PROVEEDOR_REQUERIDO });
+    }
+    if (d.role !== 'proveedor' && d.flitoProveedorSoatId) {
+        ctx.addIssue({ code: 'custom', path: ['flitoProveedorSoatId'], message: MSG_PROVEEDOR_SOBRA });
+    }
+    if (d.role === 'gestor_impuestos' && !d.organismosCodigos?.length) {
+        ctx.addIssue({ code: 'custom', path: ['organismosCodigos'], message: MSG_ORGANISMOS_REQUERIDOS });
+    }
+    if (d.role !== 'gestor_impuestos' && d.organismosCodigos?.length) {
+        ctx.addIssue({ code: 'custom', path: ['organismosCodigos'], message: MSG_ORGANISMOS_SOBRAN });
+    }
 });
-
 const updateSchema = z.object({
-  name: z.string().min(1).max(100).optional(),
-  email: z.string().email().max(150).optional().or(z.literal('').transform(() => null)).nullable(),
-  role: codigoRolSchema.optional(),
-  allowedPages: allowedPagesSchema.optional(),
-  transitoCodigo: transitoCodigoSchema,
-  companiaId: companiaIdSchema,
-  flitoProveedorSoatId: proveedorSoatIdSchema,
-  organismosCodigos: organismosCodigosSchema,
+    name: z.string().min(1).max(100).optional(),
+    email: z.string().email().max(150).optional().or(z.literal('').transform(() => null)).nullable(),
+    role: codigoRolSchema.optional(),
+    funciones: funcionesSchema,
+    transitoCodigo: transitoCodigoSchema,
+    companiaId: companiaIdSchema,
+    flitoProveedorSoatId: proveedorSoatIdSchema,
+    organismosCodigos: organismosCodigosSchema,
 });
-
 // `userSelect` vive en el servicio: lo comparten las cuatro respuestas y las dos escrituras
 // transaccionales. Los organismos NO están ahí —son otra tabla y `.returning()` no hace join— y se
 // componen en cada respuesta.
-
 // === Listar usuarios =========================================================
 // La respuesta sigue siendo un ARRAY PLANO, igual que antes de la HU #12172: hay consumidores. El
 // total de coincidencias del filtro —que no es el largo del array cuando se pagina— viaja en la
 // cabecera `X-Total-Count`, expuesta por CORS en `app.ts`.
 router.get('/', exigirFuncion('usuarios.usuario.listar'), async (req: Request, res: Response) => {
-  const consulta = leerConsulta(req, res);
-  if (!consulta) return;
-
-  const { filas, total } = await listarUsuarios(consulta.filtros, consulta.paginacion);
-  // AC5: UNA consulta más para toda la página, agrupada por usuario. Una por fila sería N+1.
-  const porUsuario = await organismosDeVarios(filas.map((u) => u.id));
-  // `view`, no `export`: esto no genera ningún archivo. La descarga real es `/export`, y allí sí se
-  // audita como `export` (HU #12172 — antes las dos cosas se registraban igual y el rastro mentía).
-  await audit(req, { action: 'view', resource: 'user', detail: `Lista usuarios (${filas.length} de ${total})` });
-  res.setHeader('X-Total-Count', String(total));
-  res.json(filas.map((u) => ({ ...u, organismosCodigos: porUsuario.get(u.id) ?? [] })));
+    const consulta = leerConsulta(req, res);
+    if (!consulta)
+        return;
+    const { filas, total } = await listarUsuarios(consulta.filtros, consulta.paginacion);
+    // AC5: UNA consulta más para toda la página, agrupada por usuario. Una por fila sería N+1. HU #12087:
+    // lo mismo para las excepciones (`funciones`), que el formulario de edición lee de la fila cargada.
+    const ids = filas.map((u) => u.id);
+    const porUsuario = await organismosDeVarios(ids);
+    const funcionesPorUsuario = await funcionesDeVarios(ids);
+    // `view`, no `export`: esto no genera ningún archivo. La descarga real es `/export`, y allí sí se
+    // audita como `export` (HU #12172 — antes las dos cosas se registraban igual y el rastro mentía).
+    await audit(req, { action: 'view', resource: 'user', detail: `Lista usuarios (${filas.length} de ${total})` });
+    res.setHeader('X-Total-Count', String(total));
+    res.json(filas.map((u) => ({
+        ...u, organismosCodigos: porUsuario.get(u.id) ?? [], funciones: funcionesPorUsuario.get(u.id) ?? [],
+    })));
 });
-
 // === Crear usuario ===========================================================
 /**
  * HU #12084 (TC-32 #12466): los triggers de ámbito de la 0178 (`users_ambito_requerido` y el de
@@ -400,319 +428,369 @@ router.get('/', exigirFuncion('usuarios.usuario.listar'), async (req: Request, r
  * inventar texto. `errorHandler` solo conoce el `23514` de la rúbrica; cualquier otro sería un 500.
  */
 function ambitoRechazado(e: unknown): string | null {
-  const pg = errorPg(e, '23514');
-  return pg?.message ?? null;
+    const pg = errorPg(e, '23514');
+    return pg?.message ?? null;
 }
-
 router.post('/', exigirFuncion('usuarios.usuario.crear'), async (req: Request, res: Response) => {
-  const parsed = createSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-    return;
-  }
-
-  const {
-    username, name, email, password, role, allowedPages, transitoCodigo, companiaId,
-    flitoProveedorSoatId, organismosCodigos,
-  } = parsed.data;
-
-  // AC6: la pertenencia se pregunta al CATÁLOGO, no a una constante. Va lo primero porque un rol que
-  // no existe no merece ni la consulta del username, y porque la FK `users_role_fkey` lo rechazaría
-  // igual pero como un 23503 servido en un 500.
-  if (!(await rolAsignable(role))) {
-    res.status(400).json({ error: MSG_ROL_NO_ASIGNABLE });
-    return;
-  }
-
-  const existing = await db.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1);
-  if (existing.length > 0) {
-    res.status(409).json({ error: 'Username ya registrado' });
-    return;
-  }
-
-  if (role === 'cliente' && !(await companiaExiste(companiaId!))) {
-    res.status(400).json({ error: MSG_COMPANIA_NO_EXISTE });
-    return;
-  }
-
-  if (role === 'proveedor' && !(await proveedorSoatExiste(flitoProveedorSoatId!))) {
-    res.status(400).json({ error: MSG_PROVEEDOR_NO_EXISTE });
-    return;
-  }
-
-  if (role === 'gestor_impuestos') {
-    const faltan = await organismosInexistentes(organismosCodigos!);
-    if (faltan.length > 0) {
-      res.status(400).json({ error: `${MSG_ORGANISMOS_NO_EXISTE}: ${faltan.join(', ')}` });
-      return;
+    const parsed = createSchema.safeParse(req.body);
+    if (!parsed.success) {
+        res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+        return;
     }
-  }
-
-  const passwordHash = await argon2.hash(password);
-  // Si no envía allowedPages, queda vacío y el backend usa defaults del rol vía getEffectivePages.
-  // Si envía un array (incluso vacío), se respeta y SOLO se aplican los defaults del rol al unir.
-  //
-  // Los tres ternarios de ámbito hacen lo mismo: el `superRefine` ya rechazó las combinaciones
-  // inválidas, y esto impide que un rol distinto conserve un ámbito por un cuerpo con campos de más.
-  let user;
-  try {
-    user = await crearUsuario({
-      username, name, email: email ?? null, passwordHash, role,
-      allowedPages: allowedPages ?? [],
-      transitoCodigo: role === 'transito' ? transitoCodigo! : null,
-      companiaId: role === 'cliente' ? companiaId! : null,
-      flitoProveedorSoatId: role === 'proveedor' ? flitoProveedorSoatId! : null,
-      organismosCodigos: role === 'gestor_impuestos' ? organismosCodigos! : [],
-    }, actorDeRequest(req));
-  } catch (e) {
-    const ambito = ambitoRechazado(e);
-    if (ambito) { res.status(400).json({ error: ambito }); return; }
-    throw e;
-  }
-  // Por simetría con la edición: un id nuevo no tiene entrada en la caché de permisos que borrar,
-  // pero si la tuviera (ids reciclados en pruebas) sería una foto de otro usuario.
-  invalidarPermisosDe(user.id);
-
-  await audit(req, { action: 'create', resource: 'user', resourceId: String(user.id), detail: `Usuario creado: ${username} (${role})` });
-  res.status(201).json(user);
+    const { username, name, email, password, role, funciones, transitoCodigo, companiaId, flitoProveedorSoatId, organismosCodigos, } = parsed.data;
+    avisarAllowedPagesObsoleto(req, 'POST');
+    // AC6: la pertenencia se pregunta al CATÁLOGO, no a una constante. Va lo primero porque un rol que
+    // no existe no merece ni la consulta del username, y porque la FK `users_role_fkey` lo rechazaría
+    // igual pero como un 23503 servido en un 500.
+    if (!(await rolAsignable(role))) {
+        res.status(400).json({ error: MSG_ROL_NO_ASIGNABLE });
+        return;
+    }
+    const existing = await db.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1);
+    if (existing.length > 0) {
+        res.status(409).json({ error: 'Username ya registrado' });
+        return;
+    }
+    if (role === 'cliente' && !(await companiaExiste(companiaId!))) {
+        res.status(400).json({ error: MSG_COMPANIA_NO_EXISTE });
+        return;
+    }
+    if (role === 'proveedor' && !(await proveedorSoatExiste(flitoProveedorSoatId!))) {
+        res.status(400).json({ error: MSG_PROVEEDOR_NO_EXISTE });
+        return;
+    }
+    if (role === 'gestor_impuestos') {
+        const faltan = await organismosInexistentes(organismosCodigos!);
+        if (faltan.length > 0) {
+            res.status(400).json({ error: `${MSG_ORGANISMOS_NO_EXISTE}: ${faltan.join(', ')}` });
+            return;
+        }
+    }
+    // HU #12087 (AC1): los códigos se comprueban ANTES de abrir la transacción, como `guardarCuadro`:
+    // un 400 por función inexistente no escribe nada.
+    if (funciones?.length) {
+        const faltan = await funcionesInexistentes(funciones.map((f) => f.codigo));
+        if (faltan.length > 0) {
+            res.status(400).json({ error: 'Funciones inexistentes', funciones: faltan });
+            return;
+        }
+    }
+    const passwordHash = await argon2.hash(password);
+    // Los tres ternarios de ámbito hacen lo mismo: el `superRefine` ya rechazó las combinaciones
+    // inválidas, y esto impide que un rol distinto conserve un ámbito por un cuerpo con campos de más.
+    let user;
+    try {
+        user = await crearUsuario({
+            username, name, email: email ?? null, passwordHash, role,
+            funciones: funciones ?? [],
+            transitoCodigo: role === 'transito' ? transitoCodigo! : null,
+            companiaId: role === 'cliente' ? companiaId! : null,
+            flitoProveedorSoatId: role === 'proveedor' ? flitoProveedorSoatId! : null,
+            organismosCodigos: role === 'gestor_impuestos' ? organismosCodigos! : [],
+        }, actorDeRequest(req));
+    }
+    catch (e) {
+        if (e instanceof FuncionesInexistentesError) {
+            res.status(400).json({ error: e.message, funciones: e.funciones });
+            return;
+        }
+        const ambito = ambitoRechazado(e);
+        if (ambito) {
+            res.status(400).json({ error: ambito });
+            return;
+        }
+        throw e;
+    }
+    // Por simetría con la edición: un id nuevo no tiene entrada en la caché de permisos que borrar,
+    // pero si la tuviera (ids reciclados en pruebas) sería una foto de otro usuario.
+    invalidarPermisosDe(user.id);
+    await audit(req, { action: 'create', resource: 'user', resourceId: String(user.id), detail: `Usuario creado: ${username} (${role})` });
+    res.status(201).json(user);
 });
-
 // === Editar usuario (nombre, email, rol) =====================================
 router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Request, res: Response) => {
-  const id = parseInt(req.params.id, 10);
-  if (!Number.isFinite(id)) { res.status(400).json({ error: 'ID inválido' }); return; }
-  const parsed = updateSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
-  const data = parsed.data;
-
-  const [before] = await db.select().from(users).where(eq(users.id, id)).limit(1);
-  if (!before) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
-
-  // AC6, misma comprobación que en el alta y SOLO si el cuerpo trae `role`: editarle el nombre a un
-  // usuario cuyo rol se desactivó después no puede fallar por un campo que el admin no tocó.
-  if (data.role !== undefined && !(await rolAsignable(data.role))) {
-    res.status(400).json({ error: MSG_ROL_NO_ASIGNABLE });
-    return;
-  }
-
-  // Si se está degradando a un admin, asegurar que quede al menos otro admin activo.
-  if (data.role && data.role !== 'admin' && before.role === 'admin') {
-    const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(users)
-      .where(and(eq(users.role, 'admin'), eq(users.active, true), ne(users.id, id)));
-    if (count === 0) { res.status(409).json({ error: 'No se puede cambiar el rol del último admin activo' }); return; }
-  }
-
-  const roleEfectivo = data.role ?? before.role;
-  if (roleEfectivo === 'transito' && data.transitoCodigo === null) {
-    res.status(400).json({ error: 'Organismo de tránsito requerido para rol tránsito' });
-    return;
-  }
-  if (data.transitoCodigo && roleEfectivo !== 'transito') {
-    res.status(400).json({ error: 'Solo usuarios tránsito pueden tener organismo asignado' });
-    return;
-  }
-  if (roleEfectivo === 'transito' && data.role === 'transito' && data.transitoCodigo === undefined && !before.transitoCodigo) {
-    res.status(400).json({ error: 'Organismo de tránsito requerido para rol tránsito' });
-    return;
-  }
-
-  // Las mismas tres guardas que `transitoCodigo`, para la compañía del `cliente` (AC2):
-  //   1. quitarle la compañía a un cliente;
-  //   2. ponerle compañía a quien no es cliente;
-  //   3. ascender a `cliente` a alguien que no traía compañía en el cuerpo ni la tenía antes.
-  // La tercera es la que de verdad importa: sin ella, un PATCH que solo cambia el rol dejaría un
-  // `cliente` sin compañía — el usuario que el AC2 declara imposible.
-  if (roleEfectivo === 'cliente' && data.companiaId === null) {
-    res.status(400).json({ error: MSG_COMPANIA_REQUERIDA });
-    return;
-  }
-  if (data.companiaId && roleEfectivo !== 'cliente') {
-    res.status(400).json({ error: MSG_COMPANIA_SOBRA });
-    return;
-  }
-  if (roleEfectivo === 'cliente' && data.companiaId === undefined && !before.companiaId) {
-    res.status(400).json({ error: MSG_COMPANIA_REQUERIDA });
-    return;
-  }
-  if (data.companiaId && !(await companiaExiste(data.companiaId))) {
-    res.status(400).json({ error: MSG_COMPANIA_NO_EXISTE });
-    return;
-  }
-
-  // Las MISMAS cuatro guardas, para las dos ataduras de la HU #12053. La tercera —ascender al rol
-  // sin traer la atadura en el cuerpo ni tenerla antes— es la que de verdad importa: sin ella un
-  // PATCH que solo cambia el rol crea el usuario que el AC3 declara imposible.
-  if (roleEfectivo === 'proveedor' && data.flitoProveedorSoatId === null) {
-    res.status(400).json({ error: MSG_PROVEEDOR_REQUERIDO });
-    return;
-  }
-  if (data.flitoProveedorSoatId && roleEfectivo !== 'proveedor') {
-    res.status(400).json({ error: MSG_PROVEEDOR_SOBRA });
-    return;
-  }
-  if (roleEfectivo === 'proveedor' && data.flitoProveedorSoatId === undefined && !before.flitoProveedorSoatId) {
-    res.status(400).json({ error: MSG_PROVEEDOR_REQUERIDO });
-    return;
-  }
-  if (data.flitoProveedorSoatId && !(await proveedorSoatExiste(data.flitoProveedorSoatId))) {
-    res.status(400).json({ error: MSG_PROVEEDOR_NO_EXISTE });
-    return;
-  }
-
-  const organismosPedidos = data.organismosCodigos;
-  // Una lista VACÍA sobre un gestor es «quitarle todos los organismos»: el mismo 400 que quitarle la
-  // compañía a un cliente. El `[]` no es «sin cambios»: es un ámbito vacío, y un gestor sin ámbito
-  // no ve nada.
-  if (roleEfectivo === 'gestor_impuestos' && organismosPedidos !== undefined && organismosPedidos.length === 0) {
-    res.status(400).json({ error: MSG_ORGANISMOS_REQUERIDOS });
-    return;
-  }
-  if (organismosPedidos?.length && roleEfectivo !== 'gestor_impuestos') {
-    res.status(400).json({ error: MSG_ORGANISMOS_SOBRAN });
-    return;
-  }
-  if (roleEfectivo === 'gestor_impuestos' && organismosPedidos === undefined
-      && (await organismosDe(id)).length === 0) {
-    res.status(400).json({ error: MSG_ORGANISMOS_REQUERIDOS });
-    return;
-  }
-  if (organismosPedidos?.length) {
-    const faltan = await organismosInexistentes(organismosPedidos);
-    if (faltan.length > 0) {
-      res.status(400).json({ error: `${MSG_ORGANISMOS_NO_EXISTE}: ${faltan.join(', ')}` });
-      return;
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
     }
-  }
-
-  const updates: Record<string, unknown> = {};
-  if (data.name !== undefined) updates.name = data.name;
-  if (data.email !== undefined) updates.email = data.email;
-  if (data.role !== undefined) updates.role = data.role;
-  if (data.allowedPages !== undefined) updates.allowedPages = data.allowedPages;
-  if (data.transitoCodigo !== undefined) updates.transitoCodigo = data.transitoCodigo;
-  if (data.role !== undefined && data.role !== 'transito' && data.transitoCodigo === undefined) {
-    updates.transitoCodigo = null;
-  }
-  if (data.companiaId !== undefined) updates.companiaId = data.companiaId;
-  // Degradar a un `cliente` le quita la compañía, igual que degradar a un `transito` le quita el
-  // organismo: dejársela sería un ámbito colgado que nadie vuelve a mirar. El CHECK de la base no lo
-  // impediría (solo exige compañía CUANDO el rol es cliente), así que la limpieza es cosa de aquí.
-  if (data.role !== undefined && data.role !== 'cliente' && data.companiaId === undefined) {
-    updates.companiaId = null;
-  }
-  if (data.flitoProveedorSoatId !== undefined) updates.flitoProveedorSoatId = data.flitoProveedorSoatId;
-  // Degradar desde `proveedor` le quita el proveedor SOAT, igual que degradar a un `cliente` le
-  // quita la compañía: dejárselo sería un ámbito colgado que nadie vuelve a mirar.
-  if (data.role !== undefined && data.role !== 'proveedor' && data.flitoProveedorSoatId === undefined) {
-    updates.flitoProveedorSoatId = null;
-  }
-
-  /**
-   * Conjunto destino de organismos, o `null` para no tocarlo. Degradar desde `gestor_impuestos`
-   * lo VACÍA (`[]`), por el mismo motivo que las otras dos ataduras.
-   */
-  const organismosDestino: string[] | null = organismosPedidos !== undefined
-    ? organismosPedidos
-    : (data.role !== undefined && data.role !== 'gestor_impuestos' ? [] : null);
-
-  // Si cambian role, allowedPages, transitoCodigo, companiaId o el proveedor SOAT, invalidar
-  // sesiones — el JWT cachea el ROL (las páginas ya no: desde la HU #12082 se resuelven en cada
-  // petición contra la base). Los ámbitos NO viajan en el token (se leen de la BD), pero el ROL sí,
-  // y cambiar un ámbito cambia qué datos ve esa persona: que vuelva a entrar limpia.
-  //
-  // Lo de los organismos no se decide aquí: `actualizarUsuario` compara el conjunto anterior con el
-  // destino DENTRO de la transacción y suma su veredicto a este (AC4).
-  const invalidarPorCampos = data.role !== undefined || data.allowedPages !== undefined
-    || data.transitoCodigo !== undefined || data.companiaId !== undefined
-    || data.flitoProveedorSoatId !== undefined;
-
-  // HU #12084 (AC4): la guarda de «último admin» de arriba es el pre-check con mensaje claro; la
-  // verdad la decide el invariante DENTRO de la transacción (dos administradores a la vez, roles que
-  // no se llaman `admin`). Su 409 llega como excepción y se mapea aquí.
-  let r;
-  try {
-    r = await actualizarUsuario(id, { updates, organismosDestino, invalidarPorCampos }, actorDeRequest(req));
-  } catch (e) {
-    if (e instanceof BloqueoAdministracionError) { res.status(409).json({ error: e.message, funcion: e.funcion }); return; }
-    const ambito = ambitoRechazado(e);
-    if (ambito) { res.status(400).json({ error: ambito }); return; }
-    throw e;
-  }
-  if (r.estado === 'sin_cambios') { res.status(400).json({ error: 'Sin cambios' }); return; }
-  if (r.estado === 'no_encontrado') { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
-
-  // DESPUÉS del commit, como ya se hacía: invalidar la caché de una transacción que luego revierte
-  // deja fuera a quien no había que sacar. La caché de PERMISOS (HU #12082) se invalida siempre que
-  // hubo cambios: la siguiente petición de este usuario decide con la configuración nueva, sin
-  // reiniciar el API y sin esperar los 60 s del TTL.
-  if (r.invalidada) invalidateSessionCacheFor(id);
-  invalidarPermisosDe(id);
-
-  await audit(req, {
-    action: 'update', resource: 'user', resourceId: String(id),
-    detail: `Cambios: ${r.camposCambiados.join(', ')}${data.role ? ` (rol: ${before.role}→${data.role})` : ''}${r.invalidada ? ' [sesiones invalidadas]' : ''}`,
-  });
-  res.json(r.usuario);
+    const parsed = updateSchema.safeParse(req.body);
+    if (!parsed.success) {
+        res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+        return;
+    }
+    const data = parsed.data;
+    avisarAllowedPagesObsoleto(req, 'PATCH');
+    const [before] = await db.select().from(users).where(eq(users.id, id)).limit(1);
+    if (!before) {
+        res.status(404).json({ error: 'Usuario no encontrado' });
+        return;
+    }
+    // AC6, misma comprobación que en el alta y SOLO si el cuerpo trae `role`: editarle el nombre a un
+    // usuario cuyo rol se desactivó después no puede fallar por un campo que el admin no tocó.
+    if (data.role !== undefined && !(await rolAsignable(data.role))) {
+        res.status(400).json({ error: MSG_ROL_NO_ASIGNABLE });
+        return;
+    }
+    // Si se está degradando a un admin, asegurar que quede al menos otro admin activo.
+    if (data.role && data.role !== 'admin' && before.role === 'admin') {
+        const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(users)
+            .where(and(eq(users.role, 'admin'), eq(users.active, true), ne(users.id, id)));
+        if (count === 0) {
+            res.status(409).json({ error: 'No se puede cambiar el rol del último admin activo' });
+            return;
+        }
+    }
+    const roleEfectivo = data.role ?? before.role;
+    if (roleEfectivo === 'transito' && data.transitoCodigo === null) {
+        res.status(400).json({ error: 'Organismo de tránsito requerido para rol tránsito' });
+        return;
+    }
+    if (data.transitoCodigo && roleEfectivo !== 'transito') {
+        res.status(400).json({ error: 'Solo usuarios tránsito pueden tener organismo asignado' });
+        return;
+    }
+    if (roleEfectivo === 'transito' && data.role === 'transito' && data.transitoCodigo === undefined && !before.transitoCodigo) {
+        res.status(400).json({ error: 'Organismo de tránsito requerido para rol tránsito' });
+        return;
+    }
+    // Las mismas tres guardas que `transitoCodigo`, para la compañía del `cliente` (AC2):
+    //   1. quitarle la compañía a un cliente;
+    //   2. ponerle compañía a quien no es cliente;
+    //   3. ascender a `cliente` a alguien que no traía compañía en el cuerpo ni la tenía antes.
+    // La tercera es la que de verdad importa: sin ella, un PATCH que solo cambia el rol dejaría un
+    // `cliente` sin compañía — el usuario que el AC2 declara imposible.
+    if (roleEfectivo === 'cliente' && data.companiaId === null) {
+        res.status(400).json({ error: MSG_COMPANIA_REQUERIDA });
+        return;
+    }
+    if (data.companiaId && roleEfectivo !== 'cliente') {
+        res.status(400).json({ error: MSG_COMPANIA_SOBRA });
+        return;
+    }
+    if (roleEfectivo === 'cliente' && data.companiaId === undefined && !before.companiaId) {
+        res.status(400).json({ error: MSG_COMPANIA_REQUERIDA });
+        return;
+    }
+    if (data.companiaId && !(await companiaExiste(data.companiaId))) {
+        res.status(400).json({ error: MSG_COMPANIA_NO_EXISTE });
+        return;
+    }
+    // Las MISMAS cuatro guardas, para las dos ataduras de la HU #12053. La tercera —ascender al rol
+    // sin traer la atadura en el cuerpo ni tenerla antes— es la que de verdad importa: sin ella un
+    // PATCH que solo cambia el rol crea el usuario que el AC3 declara imposible.
+    if (roleEfectivo === 'proveedor' && data.flitoProveedorSoatId === null) {
+        res.status(400).json({ error: MSG_PROVEEDOR_REQUERIDO });
+        return;
+    }
+    if (data.flitoProveedorSoatId && roleEfectivo !== 'proveedor') {
+        res.status(400).json({ error: MSG_PROVEEDOR_SOBRA });
+        return;
+    }
+    if (roleEfectivo === 'proveedor' && data.flitoProveedorSoatId === undefined && !before.flitoProveedorSoatId) {
+        res.status(400).json({ error: MSG_PROVEEDOR_REQUERIDO });
+        return;
+    }
+    if (data.flitoProveedorSoatId && !(await proveedorSoatExiste(data.flitoProveedorSoatId))) {
+        res.status(400).json({ error: MSG_PROVEEDOR_NO_EXISTE });
+        return;
+    }
+    const organismosPedidos = data.organismosCodigos;
+    // Una lista VACÍA sobre un gestor es «quitarle todos los organismos»: el mismo 400 que quitarle la
+    // compañía a un cliente. El `[]` no es «sin cambios»: es un ámbito vacío, y un gestor sin ámbito
+    // no ve nada.
+    if (roleEfectivo === 'gestor_impuestos' && organismosPedidos !== undefined && organismosPedidos.length === 0) {
+        res.status(400).json({ error: MSG_ORGANISMOS_REQUERIDOS });
+        return;
+    }
+    if (organismosPedidos?.length && roleEfectivo !== 'gestor_impuestos') {
+        res.status(400).json({ error: MSG_ORGANISMOS_SOBRAN });
+        return;
+    }
+    if (roleEfectivo === 'gestor_impuestos' && organismosPedidos === undefined
+        && (await organismosDe(id)).length === 0) {
+        res.status(400).json({ error: MSG_ORGANISMOS_REQUERIDOS });
+        return;
+    }
+    if (organismosPedidos?.length) {
+        const faltan = await organismosInexistentes(organismosPedidos);
+        if (faltan.length > 0) {
+            res.status(400).json({ error: `${MSG_ORGANISMOS_NO_EXISTE}: ${faltan.join(', ')}` });
+            return;
+        }
+    }
+    // HU #12087 (AC1): antes de la transacción, como en el alta. Un código inexistente → 400 sin escribir.
+    if (data.funciones?.length) {
+        const faltan = await funcionesInexistentes(data.funciones.map((f) => f.codigo));
+        if (faltan.length > 0) {
+            res.status(400).json({ error: 'Funciones inexistentes', funciones: faltan });
+            return;
+        }
+    }
+    const updates: Record<string, unknown> = {};
+    if (data.name !== undefined)
+        updates.name = data.name;
+    if (data.email !== undefined)
+        updates.email = data.email;
+    if (data.role !== undefined)
+        updates.role = data.role;
+    if (data.transitoCodigo !== undefined)
+        updates.transitoCodigo = data.transitoCodigo;
+    if (data.role !== undefined && data.role !== 'transito' && data.transitoCodigo === undefined) {
+        updates.transitoCodigo = null;
+    }
+    if (data.companiaId !== undefined)
+        updates.companiaId = data.companiaId;
+    // Degradar a un `cliente` le quita la compañía, igual que degradar a un `transito` le quita el
+    // organismo: dejársela sería un ámbito colgado que nadie vuelve a mirar. El CHECK de la base no lo
+    // impediría (solo exige compañía CUANDO el rol es cliente), así que la limpieza es cosa de aquí.
+    if (data.role !== undefined && data.role !== 'cliente' && data.companiaId === undefined) {
+        updates.companiaId = null;
+    }
+    if (data.flitoProveedorSoatId !== undefined)
+        updates.flitoProveedorSoatId = data.flitoProveedorSoatId;
+    // Degradar desde `proveedor` le quita el proveedor SOAT, igual que degradar a un `cliente` le
+    // quita la compañía: dejárselo sería un ámbito colgado que nadie vuelve a mirar.
+    if (data.role !== undefined && data.role !== 'proveedor' && data.flitoProveedorSoatId === undefined) {
+        updates.flitoProveedorSoatId = null;
+    }
+    /**
+     * Conjunto destino de organismos, o `null` para no tocarlo. Degradar desde `gestor_impuestos`
+     * lo VACÍA (`[]`), por el mismo motivo que las otras dos ataduras.
+     */
+    const organismosDestino = organismosPedidos !== undefined
+        ? organismosPedidos
+        : (data.role !== undefined && data.role !== 'gestor_impuestos' ? [] : null);
+    // Si cambian role, transitoCodigo, companiaId o el proveedor SOAT, invalidar sesiones — el JWT
+    // cachea el ROL (las páginas ya no: desde la HU #12082 se resuelven en cada petición contra la
+    // base). Los ámbitos NO viajan en el token (se leen de la BD), pero el ROL sí, y cambiar un ámbito
+    // cambia qué datos ve esa persona: que vuelva a entrar limpia.
+    //
+    // Ni los organismos ni las excepciones se deciden aquí: `actualizarUsuario` compara el conjunto
+    // anterior con el destino DENTRO de la transacción y suma su veredicto a este (AC4; HU #12087:
+    // `retiraAcceso` — solo un retiro de acceso tira la sesión).
+    const invalidarPorCampos = data.role !== undefined
+        || data.transitoCodigo !== undefined || data.companiaId !== undefined
+        || data.flitoProveedorSoatId !== undefined;
+    // HU #12084 (AC4): la guarda de «último admin» de arriba es el pre-check con mensaje claro; la
+    // verdad la decide el invariante DENTRO de la transacción (dos administradores a la vez, roles que
+    // no se llaman `admin`). Su 409 llega como excepción y se mapea aquí.
+    let r;
+    try {
+        r = await actualizarUsuario(id, {
+            updates, organismosDestino, funcionesDestino: data.funciones ?? null, invalidarPorCampos,
+        }, actorDeRequest(req));
+    }
+    catch (e) {
+        if (e instanceof BloqueoAdministracionError) {
+            res.status(409).json({ error: e.message, funcion: e.funcion });
+            return;
+        }
+        if (e instanceof FuncionesInexistentesError) {
+            res.status(400).json({ error: e.message, funciones: e.funciones });
+            return;
+        }
+        const ambito = ambitoRechazado(e);
+        if (ambito) {
+            res.status(400).json({ error: ambito });
+            return;
+        }
+        throw e;
+    }
+    if (r.estado === 'sin_cambios') {
+        res.status(400).json({ error: 'Sin cambios' });
+        return;
+    }
+    if (r.estado === 'no_encontrado') {
+        res.status(404).json({ error: 'Usuario no encontrado' });
+        return;
+    }
+    // DESPUÉS del commit, como ya se hacía: invalidar la caché de una transacción que luego revierte
+    // deja fuera a quien no había que sacar. La caché de PERMISOS (HU #12082) se invalida siempre que
+    // hubo cambios: la siguiente petición de este usuario decide con la configuración nueva, sin
+    // reiniciar el API y sin esperar los 60 s del TTL.
+    if (r.invalidada)
+        invalidateSessionCacheFor(id);
+    invalidarPermisosDe(id);
+    await audit(req, {
+        action: 'update', resource: 'user', resourceId: String(id),
+        detail: `Cambios: ${r.camposCambiados.join(', ')}${data.role ? ` (rol: ${before.role}→${data.role})` : ''}${r.invalidada ? ' [sesiones invalidadas]' : ''}`,
+    });
+    res.json(r.usuario);
 });
-
 // === Toggle activo/inactivo ==================================================
 router.patch('/:id/toggle', exigirFuncion('usuarios.usuario.activar'), async (req: Request, res: Response) => {
-  const id = parseInt(req.params.id, 10);
-  if (!Number.isFinite(id)) { res.status(400).json({ error: 'ID inválido' }); return; }
-
-  // Guard 1: el admin no puede desactivarse a sí mismo (prevenir lock-out).
-  if (id === req.user!.sub) {
-    res.status(400).json({ error: 'No puede desactivarse a sí mismo' }); return;
-  }
-
-  const [before] = await db.select().from(users).where(eq(users.id, id)).limit(1);
-  if (!before) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
-
-  // Guard 2: si va a desactivar a un admin activo, asegurar que quede al menos otro admin activo.
-  if (before.active && before.role === 'admin') {
-    const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(users)
-      .where(and(eq(users.role, 'admin'), eq(users.active, true), ne(users.id, id)));
-    if (count === 0) { res.status(409).json({ error: 'No se puede desactivar al último admin activo' }); return; }
-  }
-
-  // HU #12171: el `UPDATE` y su fila de historial (`active`, antes/después) van en una transacción
-  // del servicio; el «antes» sale del propio UPDATE atómico, no del `before` de las guardas.
-  let updated;
-  try {
-    updated = await cambiarActivo(id, actorDeRequest(req));
-  } catch (e) {
-    // HU #12084 (AC4): el invariante decide dentro de la transacción; el Guard 2 es el pre-check.
-    if (e instanceof BloqueoAdministracionError) { res.status(409).json({ error: e.message, funcion: e.funcion }); return; }
-    throw e;
-  }
-  if (!updated) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
-
-  // Al desactivar/reactivar también invalidamos sesiones para que un usuario reactivado
-  // vuelva a entrar limpio y un desactivado pierda acceso inmediatamente. DESPUÉS del commit.
-  invalidateSessionCacheFor(id);
-  invalidarPermisosDe(id);
-
-  await audit(req, {
-    action: 'update', resource: 'user', resourceId: String(id),
-    detail: `Estado: ${before.active ? 'activo' : 'inactivo'} → ${updated.active ? 'activo' : 'inactivo'} [sesiones invalidadas]`,
-  });
-  res.json(updated);
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+    }
+    // Guard 1: el admin no puede desactivarse a sí mismo (prevenir lock-out).
+    if (id === req.user!.sub) {
+        res.status(400).json({ error: 'No puede desactivarse a sí mismo' });
+        return;
+    }
+    const [before] = await db.select().from(users).where(eq(users.id, id)).limit(1);
+    if (!before) {
+        res.status(404).json({ error: 'Usuario no encontrado' });
+        return;
+    }
+    // Guard 2: si va a desactivar a un admin activo, asegurar que quede al menos otro admin activo.
+    if (before.active && before.role === 'admin') {
+        const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(users)
+            .where(and(eq(users.role, 'admin'), eq(users.active, true), ne(users.id, id)));
+        if (count === 0) {
+            res.status(409).json({ error: 'No se puede desactivar al último admin activo' });
+            return;
+        }
+    }
+    // HU #12171: el `UPDATE` y su fila de historial (`active`, antes/después) van en una transacción
+    // del servicio; el «antes» sale del propio UPDATE atómico, no del `before` de las guardas.
+    let updated;
+    try {
+        updated = await cambiarActivo(id, actorDeRequest(req));
+    }
+    catch (e) {
+        // HU #12084 (AC4): el invariante decide dentro de la transacción; el Guard 2 es el pre-check.
+        if (e instanceof BloqueoAdministracionError) {
+            res.status(409).json({ error: e.message, funcion: e.funcion });
+            return;
+        }
+        throw e;
+    }
+    if (!updated) {
+        res.status(404).json({ error: 'Usuario no encontrado' });
+        return;
+    }
+    // Al desactivar/reactivar también invalidamos sesiones para que un usuario reactivado
+    // vuelva a entrar limpio y un desactivado pierda acceso inmediatamente. DESPUÉS del commit.
+    invalidateSessionCacheFor(id);
+    invalidarPermisosDe(id);
+    await audit(req, {
+        action: 'update', resource: 'user', resourceId: String(id),
+        detail: `Estado: ${before.active ? 'activo' : 'inactivo'} → ${updated.active ? 'activo' : 'inactivo'} [sesiones invalidadas]`,
+    });
+    res.json(updated);
 });
-
 // === Forzar logout (admin manual) ============================================
 // Útil cuando se detecta sesión comprometida o tras cambios de seguridad puntuales.
 router.post('/:id/invalidate-sessions', exigirFuncion('usuarios.sesiones.invalidar'), async (req: Request, res: Response) => {
-  const id = parseInt(req.params.id, 10);
-  if (!Number.isFinite(id)) { res.status(400).json({ error: 'ID inválido' }); return; }
-  const [updated] = await db.update(users)
-    .set({ sessionInvalidatedAt: new Date() })
-    .where(eq(users.id, id))
-    .returning({ id: users.id, username: users.username });
-  if (!updated) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
-  invalidateSessionCacheFor(id);
-  invalidarPermisosDe(id);
-  await audit(req, { action: 'update', resource: 'user_session', resourceId: String(id), detail: 'Sesiones invalidadas manualmente' });
-  res.json({ ok: true, user: updated });
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+    }
+    const [updated] = await db.update(users)
+        .set({ sessionInvalidatedAt: new Date() })
+        .where(eq(users.id, id))
+        .returning({ id: users.id, username: users.username });
+    if (!updated) {
+        res.status(404).json({ error: 'Usuario no encontrado' });
+        return;
+    }
+    invalidateSessionCacheFor(id);
+    invalidarPermisosDe(id);
+    await audit(req, { action: 'update', resource: 'user_session', resourceId: String(id), detail: 'Sesiones invalidadas manualmente' });
+    res.json({ ok: true, user: updated });
 });
-
 export default router;

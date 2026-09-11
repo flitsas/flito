@@ -161,7 +161,7 @@ describe('POST /api/auth/login — éxito', () => {
     // HU #12082: `allowedPages` es una vista del resolutor único. Aquí el resolutor lee del registro
     // del helper (no de `selectMock`): el reparto del rol trae `pagina.dashboard` justo para comprobar
     // que el sobre lleva el SLUG y no el código de la función.
-    await registrarUsuarioDePrueba(42, { rol: 'admin', tipoPrincipal: 'interno', allowedPages: [], funcionesDelRol: ['pagina.dashboard'], excepciones: [] });
+    await registrarUsuarioDePrueba(42, { rol: 'admin', tipoPrincipal: 'interno', funcionesDelRol: ['pagina.dashboard'], excepciones: [] });
     argonVerifyMock.mockResolvedValueOnce(true);
     const app = await buildApp();
     const r = await request(app).post('/api/auth/login').send({ username: 'admin', password: 'OK' });

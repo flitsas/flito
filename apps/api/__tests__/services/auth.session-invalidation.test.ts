@@ -58,7 +58,7 @@ beforeEach(async () => {
   // double del helper para que el resolutor no consuma `selectMock`, que es sobre lo que se afirma.
   // HU #12083: `PATCH /users/:id` y `POST /:id/invalidate-sessions` exigen `usuarios.*`; el usuario 6
   // recibe las operaciones de partida de `admin` (la foto), como haría `testToken`.
-  await registrarUsuarioDePrueba(6, { rol: 'admin', tipoPrincipal: 'interno', allowedPages: [], funcionesDelRol: operacionesDePartida('admin'), excepciones: [] });
+  await registrarUsuarioDePrueba(6, { rol: 'admin', tipoPrincipal: 'interno', funcionesDelRol: operacionesDePartida('admin'), excepciones: [] });
   const { createApp } = await import('../../src/app.js');
   app = createApp();
 });

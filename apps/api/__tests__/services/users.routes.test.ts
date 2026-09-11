@@ -51,6 +51,13 @@ vi.mock('../../src/shared/redis.js', () => ({
   redisHealthy: vi.fn().mockResolvedValue(false),
 }));
 
+/** HU #12087 AC6 — `allowedPages` en el body dispara `log.warn` y se descarta. */
+const logWarnMock = vi.fn();
+vi.mock('../../src/shared/logger.js', () => ({
+  logger: { warn: logWarnMock, info: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() },
+  loggerFor: () => ({ warn: logWarnMock, info: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() }),
+}));
+
 /**
  * AC4 tiene DOS mitades y esta es la segunda: `session_invalidated_at` en la fila (que se afirma
  * sobre el `set` capturado) y el purgado de la caché de sesiones. El módulo se envuelve —no se
@@ -193,6 +200,7 @@ beforeEach(() => {
   argonHashMock.mockReset().mockResolvedValue('HASHED');
   argonVerifyMock.mockReset();
   auditMock.mockClear();
+  logWarnMock.mockClear();
   // Por defecto, el rol del cuerpo existe y está activo: es el caso de los ~25 tests que ya había y
   // que no van de esto. Los casos del AC6 lo sobrescriben con `mockResolvedValueOnce(null)`.
   rolAsignableMock.mockReset().mockResolvedValue({ tipoEnlace: 'ninguno' });
@@ -336,10 +344,11 @@ describe('GET /api/users — listar (solo admin)', () => {
 
   it('admin → 200 con lista + audit view (HU #12172: listar no es exportar)', async () => {
     selectMock.mockReturnValueOnce(chain([
-      { id: 1, username: 'admin', name: 'A', email: null, role: 'admin', active: true, allowedPages: null, createdAt: new Date() },
-      { id: 2, username: 'prov', name: 'P', email: 'p@x.com', role: 'proveedor', active: true, allowedPages: [], createdAt: new Date() },
+      { id: 1, username: 'admin', name: 'A', email: null, role: 'admin', active: true, createdAt: new Date() },
+      { id: 2, username: 'prov', name: 'P', email: 'p@x.com', role: 'proveedor', active: true, createdAt: new Date() },
     ]));
     selectMock.mockReturnValueOnce(chain([])); // los organismos de la página (HU #12053)
+    selectMock.mockReturnValueOnce(chain([])); // las funciones de la página (HU #12087)
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
     const r = await request(app).get('/api/users').set('Authorization', `Bearer ${token}`);
@@ -353,7 +362,7 @@ describe('GET /api/users — listar (solo admin)', () => {
 describe('POST /api/users — crear', () => {
   const VALID_BODY = {
     username: 'nuevo_user', name: 'Nuevo', email: 'n@x.com',
-    password: STRONG_PWD, role: 'proveedor', allowedPages: [],
+    password: STRONG_PWD, role: 'proveedor',
     flitoProveedorSoatId: PROVEEDOR,
   };
 
@@ -407,7 +416,7 @@ describe('POST /api/users — crear', () => {
     insertMock.mockReturnValueOnce({
       values: (v: any) => {
         capturedValues = v;
-        return { returning: () => Promise.resolve([{ id: 99, ...v, allowedPages: v.allowedPages, active: true, createdAt: new Date() }]) };
+        return { returning: () => Promise.resolve([{ id: 99, ...v, active: true, createdAt: new Date() }]) };
       },
     });
 
@@ -420,7 +429,7 @@ describe('POST /api/users — crear', () => {
     expect(argonHashMock).toHaveBeenCalledWith(STRONG_PWD);
     expect(capturedValues.passwordHash).toBe('HASHED');
     expect(capturedValues.email).toBeNull(); // empty string → null
-    expect(capturedValues.allowedPages).toEqual([]);
+    expect(capturedValues.allowedPages).toBeUndefined(); // HU #12087: ya no se escribe
     expect(auditMock.mock.calls[0][1].action).toBe('create');
   });
 });
@@ -446,6 +455,7 @@ describe('PATCH /api/users/:id — editar', () => {
   it('body sin cambios → 400', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 1, role: 'admin', active: true }]));
     selectMock.mockReturnValueOnce(chain([])); // organismos del usuario (HU #12053)
+    selectMock.mockReturnValueOnce(chain([])); // funciones del usuario (HU #12087)
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
     const r = await request(app).patch('/api/users/1').set('Authorization', `Bearer ${token}`).send({});
@@ -468,10 +478,11 @@ describe('PATCH /api/users/:id — editar', () => {
   it('degradar admin cuando hay OTRO admin activo → 200', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 1, role: 'admin', active: true }]));
     selectMock.mockReturnValueOnce(chain([{ count: 1 }])); // hay otro admin
-    selectMock.mockReturnValueOnce(chain([{ id: 1, role: 'admin', active: true, allowedPages: [] }])); // antes, dentro de la tx y con FOR UPDATE (HU #12171)
+    selectMock.mockReturnValueOnce(chain([{ id: 1, role: 'admin', active: true }])); // antes, dentro de la tx y con FOR UPDATE (HU #12171)
     selectMock.mockReturnValueOnce(chain([])); // organismos del usuario (HU #12053)
+    selectMock.mockReturnValueOnce(chain([])); // funciones del usuario (HU #12087)
     updateMock.mockReturnValueOnce({
-      set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 1, role: 'auditor', name: 'A', username: 'a', email: null, active: true, allowedPages: null, createdAt: new Date() }]) }) }),
+      set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 1, role: 'auditor', name: 'A', username: 'a', email: null, active: true, createdAt: new Date() }]) }) }),
     });
 
     const token = await testToken({ sub: 99, role: 'admin' });
@@ -487,8 +498,9 @@ describe('PATCH /api/users/:id — editar', () => {
     selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'proveedor', active: true, flitoProveedorSoatId: PROVEEDOR }]));
     selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'proveedor', active: true, flitoProveedorSoatId: PROVEEDOR }])); // antes, dentro de la tx y con FOR UPDATE (HU #12171)
     selectMock.mockReturnValueOnce(chain([])); // organismos del usuario (HU #12053)
+    selectMock.mockReturnValueOnce(chain([])); // funciones del usuario (HU #12087)
     updateMock.mockReturnValueOnce({
-      set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 5, name: 'Nuevo', username: 'p', email: null, role: 'proveedor', active: true, allowedPages: null, createdAt: new Date() }]) }) }),
+      set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 5, name: 'Nuevo', username: 'p', email: null, role: 'proveedor', active: true, createdAt: new Date() }]) }) }),
     });
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
@@ -500,12 +512,14 @@ describe('PATCH /api/users/:id — editar', () => {
 
 describe('TC #12262 AC4 — caché de 60 s por user_id; la escritura del administrador (usuario o rol) la invalida después del commit y el retiro de acceso marca sessionInvalidatedAt', () => {
   const filaProveedor = { id: 5, role: 'proveedor', active: true, flitoProveedorSoatId: PROVEEDOR };
-  const devuelto = { id: 5, name: 'P', username: 'p', email: null, role: 'proveedor', active: true, allowedPages: [], createdAt: new Date() };
+  const devuelto = { id: 5, name: 'P', username: 'p', email: null, role: 'proveedor', active: true, createdAt: new Date() };
 
-  it('PATCH /users/5 que le retira una página: invalidarPermisosDe(5) DESPUÉS del commit, sessionInvalidatedAt marcado e invalidateSessionCacheFor(5)', async () => {
-    selectMock.mockReturnValueOnce(chain([{ ...filaProveedor, allowedPages: ['transito'] }]));
-    selectMock.mockReturnValueOnce(chain([{ ...filaProveedor, allowedPages: ['transito'] }])); // antes, dentro de la tx y con FOR UPDATE (HU #12171)
+  it('PATCH /users/5 que le retira acceso (revocar): invalidarPermisosDe(5) DESPUÉS del commit, sessionInvalidatedAt marcado e invalidateSessionCacheFor(5)', async () => {
+    selectMock.mockReturnValueOnce(chain([filaProveedor])); // before
+    selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.transito' }])); // funcionesInexistentes
+    selectMock.mockReturnValueOnce(chain([filaProveedor])); // antes, dentro de la tx y con FOR UPDATE (HU #12171)
     selectMock.mockReturnValueOnce(chain([])); // organismos del usuario (HU #12053)
+    selectMock.mockReturnValueOnce(chain([])); // funciones previas (ninguna)
     let capturado: any = null;
     updateMock.mockReturnValueOnce({
       set: (v: any) => { capturado = v; return { where: () => ({ returning: () => Promise.resolve([devuelto]) }) }; },
@@ -513,7 +527,7 @@ describe('TC #12262 AC4 — caché de 60 s por user_id; la escritura del adminis
     const token = await testToken({ sub: 1, role: 'admin' });
     eventos.length = 0; // el helper invalida al admin al registrarlo; lo que se mide es lo del PATCH
     const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', `Bearer ${token}`)
-      .send({ allowedPages: [] });
+      .send({ funciones: [{ codigo: 'pagina.transito', efecto: 'revocar' }] });
     expect(r.status).toBe(200);
     expect(capturado.sessionInvalidatedAt).toBeInstanceOf(Date);
     expect(invalidarCacheMock).toHaveBeenCalledWith(5);
@@ -528,7 +542,8 @@ describe('TC #12262 AC4 — caché de 60 s por user_id; la escritura del adminis
   it('PATCH /users/5 de solo nombre: la caché de permisos se invalida igual (barato y seguro), sin bumpear la sesión', async () => {
     selectMock.mockReturnValueOnce(chain([filaProveedor]));
     selectMock.mockReturnValueOnce(chain([filaProveedor])); // antes, dentro de la tx y con FOR UPDATE (HU #12171)
-    selectMock.mockReturnValueOnce(chain([]));
+    selectMock.mockReturnValueOnce(chain([])); // organismos
+    selectMock.mockReturnValueOnce(chain([])); // funciones (HU #12087)
     let capturado: any = null;
     updateMock.mockReturnValueOnce({
       set: (v: any) => { capturado = v; return { where: () => ({ returning: () => Promise.resolve([{ ...devuelto, name: 'Nuevo' }]) }) }; },
@@ -553,7 +568,8 @@ describe('TC #12262 AC4 — caché de 60 s por user_id; la escritura del adminis
 
   it('PATCH /:id/toggle y POST /:id/invalidate-sessions también invalidan la caché de permisos', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'proveedor', active: false }]));
-    selectMock.mockReturnValueOnce(chain([]));
+    selectMock.mockReturnValueOnce(chain([])); // organismos
+    selectMock.mockReturnValueOnce(chain([])); // funciones (HU #12087)
     updateMock.mockReturnValueOnce({
       set: () => ({ where: () => ({ returning: () => Promise.resolve([{ ...devuelto, active: true }]) }) }),
     });
@@ -605,8 +621,9 @@ describe('PATCH /:id/toggle — activar/desactivar', () => {
     selectMock.mockReturnValueOnce(chain([{ id: 9, role: 'admin', active: true }]));
     selectMock.mockReturnValueOnce(chain([{ count: 2 }]));
     selectMock.mockReturnValueOnce(chain([])); // organismos del usuario (HU #12053)
+    selectMock.mockReturnValueOnce(chain([])); // funciones del usuario (HU #12087)
     updateMock.mockReturnValueOnce({
-      set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 9, active: false, name: 'A', username: 'a', email: null, role: 'admin', allowedPages: null, createdAt: new Date() }]) }) }),
+      set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 9, active: false, name: 'A', username: 'a', email: null, role: 'admin', createdAt: new Date() }]) }) }),
     });
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
@@ -619,8 +636,9 @@ describe('PATCH /:id/toggle — activar/desactivar', () => {
   it('reactivar (proveedor inactivo): no toca guard de admin', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'proveedor', active: false }]));
     selectMock.mockReturnValueOnce(chain([])); // organismos del usuario (HU #12053)
+    selectMock.mockReturnValueOnce(chain([])); // funciones del usuario (HU #12087)
     updateMock.mockReturnValueOnce({
-      set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 5, active: true, name: 'P', username: 'p', email: null, role: 'proveedor', allowedPages: null, createdAt: new Date() }]) }) }),
+      set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 5, active: true, name: 'P', username: 'p', email: null, role: 'proveedor', createdAt: new Date() }]) }) }),
     });
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
@@ -640,7 +658,7 @@ describe('PATCH /:id/toggle — activar/desactivar', () => {
 describe('POST /api/users — rol cliente y compañía (AC1/AC2 de la HU #11913)', () => {
   const BODY_CLIENTE = {
     username: 'cliente_uno', name: 'Cliente Uno', email: 'c@x.com',
-    password: STRONG_PWD, role: 'cliente', allowedPages: [],
+    password: STRONG_PWD, role: 'cliente',
   };
 
   it('rol cliente SIN compañía → 400 con el mensaje del copy, y NADA escrito (AC2)', async () => {
@@ -748,9 +766,10 @@ describe('PATCH /api/users/:id — compañía del cliente (AC2 por la puerta de 
     selectMock.mockReturnValueOnce(chain([{ id: 9 }])); // la compañía nueva existe
     selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'cliente', active: true, companiaId: 3 }])); // antes, dentro de la tx y con FOR UPDATE (HU #12171)
     selectMock.mockReturnValueOnce(chain([])); // organismos del usuario (HU #12053)
+    selectMock.mockReturnValueOnce(chain([])); // funciones del usuario (HU #12087)
     let capturado: any = null;
     updateMock.mockReturnValueOnce({
-      set: (v: any) => { capturado = v; return { where: () => ({ returning: () => Promise.resolve([{ id: 5, role: 'cliente', companiaId: 9, name: 'C', username: 'c', email: null, active: true, allowedPages: [], createdAt: new Date() }]) }) }; },
+      set: (v: any) => { capturado = v; return { where: () => ({ returning: () => Promise.resolve([{ id: 5, role: 'cliente', companiaId: 9, name: 'C', username: 'c', email: null, active: true, createdAt: new Date() }]) }) }; },
     });
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
@@ -767,9 +786,10 @@ describe('PATCH /api/users/:id — compañía del cliente (AC2 por la puerta de 
     selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'cliente', active: true, companiaId: 3 }]));
     selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'cliente', active: true, companiaId: 3 }])); // antes, dentro de la tx y con FOR UPDATE (HU #12171)
     selectMock.mockReturnValueOnce(chain([])); // organismos del usuario (HU #12053)
+    selectMock.mockReturnValueOnce(chain([])); // funciones del usuario (HU #12087)
     let capturado: any = null;
     updateMock.mockReturnValueOnce({
-      set: (v: any) => { capturado = v; return { where: () => ({ returning: () => Promise.resolve([{ id: 5, role: 'auditor', companiaId: null, name: 'C', username: 'c', email: null, active: true, allowedPages: [], createdAt: new Date() }]) }) }; },
+      set: (v: any) => { capturado = v; return { where: () => ({ returning: () => Promise.resolve([{ id: 5, role: 'auditor', companiaId: null, name: 'C', username: 'c', email: null, active: true, createdAt: new Date() }]) }) }; },
     });
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
@@ -807,11 +827,11 @@ const cabecera = async () => `Bearer ${await testToken({ sub: 1, role: 'admin' }
 
 const BODY_PROVEEDOR = {
   username: 'prov_uno', name: 'Proveedor Uno', email: 'p@x.com',
-  password: STRONG_PWD, role: 'proveedor', allowedPages: [],
+  password: STRONG_PWD, role: 'proveedor',
 };
 const BODY_GESTOR = {
   username: 'gestor_uno', name: 'Gestor Uno', email: 'g@x.com',
-  password: STRONG_PWD, role: 'gestor_impuestos', allowedPages: [],
+  password: STRONG_PWD, role: 'gestor_impuestos',
 };
 
 const filasDe = (tabla: string) => escrituras.filter((e) => e.tabla === tabla);
@@ -983,9 +1003,10 @@ describe('PATCH /api/users/:id — editar el ámbito (AC3/AC4)', () => {
     selectMock.mockReturnValueOnce(chain([{ codigo: ORG_A }, { codigo: ORG_B }])); // existen los dos
     selectMock.mockReturnValueOnce(chain([GESTOR_BEFORE]));                      // antes, en la tx con FOR UPDATE (HU #12171)
     selectMock.mockReturnValueOnce(chain([{ codigo: ORG_A }]));                  // anteriores (en la tx)
+    selectMock.mockReturnValueOnce(chain([])); // funciones previas (HU #12087)
     let capturado: Record<string, unknown> = {};
     updateMock.mockReturnValueOnce(updateProyectado(
-      { id: 5, role: 'gestor_impuestos', name: 'G', username: 'g', email: null, active: true, allowedPages: [], createdAt: new Date() },
+      { id: 5, role: 'gestor_impuestos', name: 'G', username: 'g', email: null, active: true, createdAt: new Date() },
       (v) => { capturado = v; },
     ));
 
@@ -1006,6 +1027,7 @@ describe('PATCH /api/users/:id — editar el ámbito (AC3/AC4)', () => {
     selectMock.mockReturnValueOnce(chain([{ codigo: ORG_A }, { codigo: ORG_B }]));
     selectMock.mockReturnValueOnce(chain([GESTOR_BEFORE])); // antes, en la tx con FOR UPDATE (HU #12171)
     selectMock.mockReturnValueOnce(chain([{ codigo: ORG_B }, { codigo: ORG_A }])); // anteriores
+    selectMock.mockReturnValueOnce(chain([])); // funciones previas (HU #12087)
 
     const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', await cabecera())
       .send({ organismosCodigos: [ORG_A, ORG_B] });
@@ -1022,8 +1044,9 @@ describe('PATCH /api/users/:id — editar el ámbito (AC3/AC4)', () => {
     selectMock.mockReturnValueOnce(chain([{ codigo: ORG_B }]));                   // existe
     selectMock.mockReturnValueOnce(chain([GESTOR_BEFORE]));                       // antes, en la tx con FOR UPDATE (HU #12171)
     selectMock.mockReturnValueOnce(chain([{ codigo: ORG_A }, { codigo: ORG_B }])); // anteriores: DOS
+    selectMock.mockReturnValueOnce(chain([])); // funciones previas (HU #12087)
     updateMock.mockReturnValueOnce(updateProyectado(
-      { id: 5, role: 'gestor_impuestos', name: 'G', username: 'g', email: null, active: true, allowedPages: [], createdAt: new Date() },
+      { id: 5, role: 'gestor_impuestos', name: 'G', username: 'g', email: null, active: true, createdAt: new Date() },
       () => { /* el `set` no importa aquí */ },
     ));
 
@@ -1074,8 +1097,9 @@ describe('PATCH /api/users/:id — editar el ámbito (AC3/AC4)', () => {
     selectMock.mockReturnValueOnce(chain([GESTOR_BEFORE]));
     selectMock.mockReturnValueOnce(chain([GESTOR_BEFORE])); // antes, en la tx con FOR UPDATE (HU #12171)
     selectMock.mockReturnValueOnce(chain([{ codigo: ORG_A }, { codigo: ORG_B }])); // anteriores (tx)
+    selectMock.mockReturnValueOnce(chain([])); // funciones previas (HU #12087)
     updateMock.mockReturnValueOnce(updateProyectado(
-      { id: 5, role: 'auditor', name: 'G', username: 'g', email: null, active: true, allowedPages: [], createdAt: new Date() },
+      { id: 5, role: 'auditor', name: 'G', username: 'g', email: null, active: true, createdAt: new Date() },
       () => { /* — */ },
     ));
 
@@ -1095,9 +1119,10 @@ describe('PATCH /api/users/:id — editar el ámbito (AC3/AC4)', () => {
     selectMock.mockReturnValueOnce(chain([{ id: 6, role: 'proveedor', active: true, companiaId: null, flitoProveedorSoatId: PROVEEDOR }]));
     selectMock.mockReturnValueOnce(chain([{ id: 6, role: 'proveedor', active: true, companiaId: null, flitoProveedorSoatId: PROVEEDOR }])); // antes, en la tx con FOR UPDATE (HU #12171)
     selectMock.mockReturnValueOnce(chain([])); // anteriores (tx): ninguno
+    selectMock.mockReturnValueOnce(chain([])); // funciones previas (HU #12087)
     let capturado: Record<string, unknown> = {};
     updateMock.mockReturnValueOnce(updateProyectado(
-      { id: 6, role: 'auditor', name: 'P', username: 'p', email: null, active: true, allowedPages: [], createdAt: new Date() },
+      { id: 6, role: 'auditor', name: 'P', username: 'p', email: null, active: true, createdAt: new Date() },
       (v) => { capturado = v; },
     ));
 
@@ -1124,8 +1149,8 @@ describe('PATCH /api/users/:id — editar el ámbito (AC3/AC4)', () => {
 describe('GET /api/users — el listado trae las DOS ataduras (AC5)', () => {
   it('TC-12053-18: cada fila sale con su proveedor y sus organismos, y `[]` cuando no aplica', async () => {
     const filas = [
-      { id: 3, username: 'prov', name: 'P', email: null, role: 'proveedor', active: true, allowedPages: [], transitoCodigo: null, companiaId: null, flitoProveedorSoatId: PROVEEDOR, createdAt: new Date() },
-      { id: 5, username: 'gestor', name: 'G', email: null, role: 'gestor_impuestos', active: true, allowedPages: [], transitoCodigo: null, companiaId: null, flitoProveedorSoatId: null, createdAt: new Date() },
+      { id: 3, username: 'prov', name: 'P', email: null, role: 'proveedor', active: true, transitoCodigo: null, companiaId: null, flitoProveedorSoatId: PROVEEDOR, createdAt: new Date() },
+      { id: 5, username: 'gestor', name: 'G', email: null, role: 'gestor_impuestos', active: true, transitoCodigo: null, companiaId: null, flitoProveedorSoatId: null, createdAt: new Date() },
     ];
     // Proyectado: si `flitoProveedorSoatId` no estuviera en `userSelect`, no llegaría a la respuesta.
     selectMock.mockImplementationOnce((sel: Record<string, unknown>) => chain(filas.map((f) => proyectar(f, sel))));
@@ -1133,6 +1158,7 @@ describe('GET /api/users — el listado trae las DOS ataduras (AC5)', () => {
       { userId: 5, codigo: ORG_B },
       { userId: 5, codigo: ORG_A },
     ]));
+    selectMock.mockReturnValueOnce(chain([])); // funciones de la página (HU #12087)
 
     const r = await request(await buildApp()).get('/api/users').set('Authorization', await cabecera());
 
@@ -1142,16 +1168,19 @@ describe('GET /api/users — el listado trae las DOS ataduras (AC5)', () => {
     // escribe `?? []` en ningún sitio.
     expect(r.body[0].organismosCodigos).toEqual([]);
     expect(r.body[1].organismosCodigos).toEqual([ORG_A, ORG_B]);
-    // Una sola consulta más para TODA la página, no una por fila.
-    expect(selectMock).toHaveBeenCalledTimes(2);
+    expect(r.body[0].funciones).toEqual([]);
+    expect(r.body[1].funciones).toEqual([]);
+    // Dos consultas más para TODA la página (organismos + funciones), no una por fila.
+    expect(selectMock).toHaveBeenCalledTimes(3);
   });
 
   it('TC-12053-18 (bis): el toggle NO borra la lista de la fila al refrescar', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'gestor_impuestos', active: true }]));
     selectMock.mockReturnValueOnce(chain([{ codigo: ORG_A }, { codigo: ORG_B }])); // se LEEN
+    selectMock.mockReturnValueOnce(chain([])); // funciones previas (HU #12087)
     updateMock.mockReturnValueOnce({
       set: () => ({ where: () => ({ returning: (sel: Record<string, unknown>) => Promise.resolve([proyectar(
-        { id: 5, username: 'g', name: 'G', email: null, role: 'gestor_impuestos', active: false, allowedPages: [], transitoCodigo: null, companiaId: null, flitoProveedorSoatId: null, createdAt: new Date() },
+        { id: 5, username: 'g', name: 'G', email: null, role: 'gestor_impuestos', active: false, transitoCodigo: null, companiaId: null, flitoProveedorSoatId: null, createdAt: new Date() },
         sel,
       )]) }) }),
     });
@@ -1176,7 +1205,7 @@ describe('GET /api/users — el listado trae las DOS ataduras (AC5)', () => {
 describe('POST /api/users — el rol se pregunta al catálogo (HU #12169, AC6)', () => {
   const BODY = {
     username: 'rol_nuevo_user', name: 'Usuario de rol nuevo', email: 'rn@x.com',
-    password: STRONG_PWD, role: 'consulta_cliente', allowedPages: [],
+    password: STRONG_PWD, role: 'consulta_cliente',
   };
 
   it('rol inexistente en el catálogo → 400 con mensaje, y no se escribe NADA', async () => {
@@ -1264,6 +1293,7 @@ describe('PATCH /api/users/:id — el rol se pregunta al catálogo (HU #12169, A
     selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'mensajero', active: true }]));
     selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'mensajero', active: true }])); // antes, en la tx con FOR UPDATE (HU #12171)
     selectMock.mockReturnValueOnce(chain([])); // organismos previos
+    selectMock.mockReturnValueOnce(chain([])); // funciones previas (HU #12087)
     updateMock.mockReturnValueOnce(updateProyectado({ id: 5, role: 'mensajero' }, () => {}));
     selectMock.mockReturnValueOnce(chain([])); // organismos finales
 
@@ -1282,6 +1312,7 @@ describe('PATCH /api/users/:id — el rol se pregunta al catálogo (HU #12169, A
     selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'mensajero', active: true }])); // el usuario
     selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'mensajero', active: true }])); // antes, en la tx con FOR UPDATE
     selectMock.mockReturnValueOnce(chain([])); // organismos previos
+    selectMock.mockReturnValueOnce(chain([])); // funciones previas (HU #12087)
     updateMock.mockImplementationOnce(() => { throw Object.assign(new Error('El rol zz exige compañía y el usuario 5 no la tiene'), { code: '23514' }); });
 
     const token = await testToken({ sub: 1, role: 'admin' });
@@ -1332,19 +1363,28 @@ describe('HU #12171 — permisos_auditoria: antes/después de cada cambio, en la
     expect(new Set(filas.map((f) => f.loteId)).size).toBe(1);
   }
 
-  it('alta (POST /): filas `crear` con rol, páginas y el ámbito; sin antes; dentro de la tx y antes de invalidar', async () => {
+  it('alta (POST /): filas `crear` con rol, excepciones y el ámbito; sin antes; dentro de la tx y antes de invalidar', async () => {
     selectMock.mockReturnValueOnce(chain([])); // username libre
     selectMock.mockReturnValueOnce(chain([{ id: PROVEEDOR }])); // el proveedor existe
+    selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.soat' }])); // funcionesInexistentes
     eventos.length = 0;
     const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabeceraActor())
-      .send({ ...BODY_PROVEEDOR, flitoProveedorSoatId: PROVEEDOR, allowedPages: ['soat'] });
+      .send({
+        ...BODY_PROVEEDOR, flitoProveedorSoatId: PROVEEDOR,
+        funciones: [{ codigo: 'pagina.soat', efecto: 'conceder' }],
+      });
     expect(r.status).toBe(201);
 
     const filas = filasAuditoria();
     sinPiiDelTitular(filas);
-    expect(filas.every((f) => f.entidad === 'usuario' && f.accion === 'crear' && f.valorAntes === null)).toBe(true);
-    expect(porCampo('role')).toMatchObject({ valorDespues: 'proveedor', usuarioAfectadoId: 99, usuarioAfectadoRol: 'proveedor' });
-    expect(porCampo('allowed_pages')).toMatchObject({ valorDespues: { conjunto: ['soat'], concedidas: ['soat'], revocadas: [] } });
+    expect(filas.every((f) => f.accion === 'crear' && f.valorAntes === null)).toBe(true);
+    expect(porCampo('role')).toMatchObject({ entidad: 'usuario', valorDespues: 'proveedor', usuarioAfectadoId: 99, usuarioAfectadoRol: 'proveedor' });
+    const exc = filasAuditoria().find((f) => f.entidad === 'usuario_funcion' && f.campo === 'conjunto');
+    expect(exc).toMatchObject({
+      accion: 'crear',
+      valorDespues: { conjunto: ['conceder:pagina.soat'], concedidas: ['conceder:pagina.soat'], revocadas: [] },
+    });
+    expect(porCampo('allowed_pages')).toBeUndefined();
     expect(porCampo('flito_proveedor_soat_id')).toMatchObject({ valorDespues: PROVEEDOR });
     expect(porCampo('compania_id')).toBeUndefined();
     expect(eventos.indexOf('insert-auditoria')).toBeLessThan(eventos.indexOf('commit'));
@@ -1353,9 +1393,10 @@ describe('HU #12171 — permisos_auditoria: antes/después de cada cambio, en la
 
   it('cambio de rol (PATCH /:id): una fila `role` con el antes y el después; el rol del titular es el del momento', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'proveedor', active: true, flitoProveedorSoatId: PROVEEDOR }])); // before (ruta)
-    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'proveedor', active: true, allowedPages: [], flitoProveedorSoatId: PROVEEDOR, companiaId: null, transitoCodigo: null }])); // antes (tx, FOR UPDATE)
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'proveedor', active: true, flitoProveedorSoatId: PROVEEDOR, companiaId: null, transitoCodigo: null }])); // antes (tx, FOR UPDATE)
     selectMock.mockReturnValueOnce(chain([])); // organismos
-    updateMock.mockReturnValueOnce(updateProyectado({ id: 5, role: 'auditor', name: 'P', username: 'p', email: null, active: true, allowedPages: [], createdAt: new Date() }, () => {}));
+    selectMock.mockReturnValueOnce(chain([])); // funciones (HU #12087)
+    updateMock.mockReturnValueOnce(updateProyectado({ id: 5, role: 'auditor', name: 'P', username: 'p', email: null, active: true, createdAt: new Date() }, () => {}));
     eventos.length = 0;
     const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', await cabeceraActor()).send({ role: 'auditor' });
     expect(r.status).toBe(200);
@@ -1368,50 +1409,73 @@ describe('HU #12171 — permisos_auditoria: antes/después de cada cambio, en la
     expect(eventos.indexOf('commit')).toBeLessThan(eventos.indexOf('invalidar-permisos:5'));
   });
 
-  it('cambio de páginas permitidas: el historial dice QUÉ páginas había y QUÉ páginas quedaron (mutación 1 del AC6)', async () => {
-    const antes = { id: 5, role: 'auditor', active: true, allowedPages: ['soat', 'transito'], flitoProveedorSoatId: null, companiaId: null, transitoCodigo: null };
-    selectMock.mockReturnValueOnce(chain([antes]));
-    selectMock.mockReturnValueOnce(chain([antes]));
-    selectMock.mockReturnValueOnce(chain([]));
-    updateMock.mockReturnValueOnce(updateProyectado({ id: 5, role: 'auditor', name: 'A', username: 'a', email: null, active: true, allowedPages: ['soat', 'clients'], createdAt: new Date() }, () => {}));
+  it('cambio de excepciones: el historial dice QUÉ había y QUÉ quedó (usuario_funcion/conjunto)', async () => {
+    const antes = { id: 5, role: 'auditor', active: true, flitoProveedorSoatId: null, companiaId: null, transitoCodigo: null };
+    selectMock.mockReturnValueOnce(chain([antes])); // before
+    selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.clients' }, { codigo: 'pagina.soat' }])); // funcionesInexistentes
+    selectMock.mockReturnValueOnce(chain([antes])); // FOR UPDATE
+    selectMock.mockReturnValueOnce(chain([])); // organismos
+    selectMock.mockReturnValueOnce(chain([
+      { codigo: 'pagina.soat', efecto: 'conceder' },
+      { codigo: 'pagina.transito', efecto: 'conceder' },
+    ])); // funciones previas
+    updateMock.mockReturnValueOnce(updateProyectado({ id: 5, role: 'auditor', name: 'A', username: 'a', email: null, active: true, createdAt: new Date() }, () => {}));
     const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', await cabeceraActor())
-      .send({ allowedPages: ['clients', 'soat'] });
+      .send({
+        funciones: [
+          { codigo: 'pagina.clients', efecto: 'conceder' },
+          { codigo: 'pagina.soat', efecto: 'conceder' },
+        ],
+      });
     expect(r.status).toBe(200);
 
-    const fila = porCampo('allowed_pages');
+    const fila = filasAuditoria().find((f) => f.entidad === 'usuario_funcion' && f.campo === 'conjunto');
     expect(fila).toBeDefined();
-    expect(fila!.valorAntes).toEqual({ conjunto: ['soat', 'transito'] });
-    // El «después» es lo que la mutación 1 borra: sin él la fila solo diría «hubo un cambio».
-    expect(fila!.valorDespues).toEqual({ conjunto: ['clients', 'soat'], concedidas: ['clients'], revocadas: ['transito'] });
-    // Y NO hay fila de rol ni de ámbito: solo lo que cambió.
-    expect(filasAuditoria().map((f) => f.campo)).toEqual(['allowed_pages']);
+    expect(fila!.valorAntes).toEqual({ conjunto: ['conceder:pagina.soat', 'conceder:pagina.transito'] });
+    expect(fila!.valorDespues).toEqual({
+      conjunto: ['conceder:pagina.clients', 'conceder:pagina.soat'],
+      concedidas: ['conceder:pagina.clients'],
+      revocadas: ['conceder:pagina.transito'],
+    });
+    expect(filasAuditoria().map((f) => f.campo)).toEqual(['conjunto']);
   });
 
-  it('TC-05: el «antes» es el de la fila bloqueada en la tx (FOR UPDATE), no el `before` de la ruta; y el bloqueo va antes del UPDATE y del historial', async () => {
-    // La ruta leyó ['transito'] (el «viejo») para sus guardas; entre esa lectura y la transacción otro
-    // administrador dejó ['soat'] (el «vigente»). Lo que el historial debe afirmar como anterior es
-    // ['soat']. Códigos reales de página: `allowedPagesSchema` filtra con `isValidPage`.
+  it('TC-05: el «antes» de las excepciones es el de la tx (FOR UPDATE), no el `before` de la ruta; y el bloqueo va antes del UPDATE y del historial', async () => {
+    // La ruta no lee las excepciones; entre la lectura del before y la tx otro administrador dejó
+    // conceder:pagina.soat. Lo que el historial afirma como anterior es lo de la fila bloqueada.
     const base = { id: 5, role: 'auditor', active: true, flitoProveedorSoatId: null, companiaId: null, transitoCodigo: null };
-    selectMock.mockReturnValueOnce(chain([{ ...base, allowedPages: ['transito'] }])); // before (ruta): el viejo
-    const enTx = chain([{ ...base, allowedPages: ['soat'] }]); // antes (tx, FOR UPDATE): el vigente
+    selectMock.mockReturnValueOnce(chain([base])); // before (ruta)
+    selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.soat' }, { codigo: 'pagina.clients' }])); // funcionesInexistentes
+    const enTx = chain([base]); // antes (tx, FOR UPDATE)
     const forOriginal = enTx.for;
     enTx.for = (...args: unknown[]) => { eventos.push('select:users:for-update'); return (forOriginal as (...a: unknown[]) => typeof enTx)(...args); };
     selectMock.mockReturnValueOnce(enTx); // antes (tx)
     selectMock.mockReturnValueOnce(chain([])); // organismos
+    selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.soat', efecto: 'conceder' }])); // funciones vigentes en la tx
     updateMock.mockReturnValueOnce(updateProyectado(
-      { id: 5, role: 'auditor', name: 'A', username: 'a', email: null, active: true, allowedPages: ['soat', 'clients'], createdAt: new Date() },
+      { id: 5, role: 'auditor', name: 'A', username: 'a', email: null, active: true, createdAt: new Date() },
       () => { eventos.push('update:users'); },
     ));
     eventos.length = 0;
     const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', await cabeceraActor())
-      .send({ allowedPages: ['soat', 'clients'] });
+      .send({
+        name: 'A', // fuerza UPDATE de users; solo conceder no marca sessionInvalidatedAt
+        funciones: [
+          { codigo: 'pagina.soat', efecto: 'conceder' },
+          { codigo: 'pagina.clients', efecto: 'conceder' },
+        ],
+      });
     expect(r.status).toBe(200);
 
-    const fila = porCampo('allowed_pages');
+    const fila = filasAuditoria().find((f) => f.entidad === 'usuario_funcion' && f.campo === 'conjunto');
     expect(fila).toBeDefined();
-    // Mutante 1: usar el `before` de la ruta como `valorAntes` → aquí saldría ['transito'].
-    expect(fila!.valorAntes).toEqual({ conjunto: ['soat'] });
-    expect(fila!.valorDespues).toEqual({ conjunto: ['clients', 'soat'], concedidas: ['clients'], revocadas: [] });
+    // Mutante 1: usar un «antes» inventado fuera de la tx → aquí saldría [] o el de la ruta.
+    expect(fila!.valorAntes).toEqual({ conjunto: ['conceder:pagina.soat'] });
+    expect(fila!.valorDespues).toEqual({
+      conjunto: ['conceder:pagina.clients', 'conceder:pagina.soat'],
+      concedidas: ['conceder:pagina.clients'],
+      revocadas: [],
+    });
     // Mutante 2: quitar `.for('update')` → el evento no existe y los índices dan -1.
     expect(eventos.indexOf('select:users:for-update')).toBeGreaterThanOrEqual(0);
     expect(eventos.indexOf('select:users:for-update')).toBeLessThan(eventos.indexOf('update:users'));
@@ -1419,15 +1483,26 @@ describe('HU #12171 — permisos_auditoria: antes/después de cada cambio, en la
     expect(eventos.indexOf('insert-auditoria')).toBeLessThan(eventos.indexOf('commit'));
   });
 
-  it('el mismo conjunto de páginas en otro orden NO deja fila: el orden no es un cambio', async () => {
-    const antes = { id: 5, role: 'auditor', active: true, allowedPages: ['soat', 'transito'], flitoProveedorSoatId: null, companiaId: null, transitoCodigo: null };
+  it('el mismo conjunto de excepciones en otro orden NO deja fila: el orden no es un cambio', async () => {
+    const antes = { id: 5, role: 'auditor', active: true, flitoProveedorSoatId: null, companiaId: null, transitoCodigo: null };
     selectMock.mockReturnValueOnce(chain([antes]));
+    selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.soat' }, { codigo: 'pagina.transito' }]));
     selectMock.mockReturnValueOnce(chain([antes]));
-    selectMock.mockReturnValueOnce(chain([]));
-    updateMock.mockReturnValueOnce(updateProyectado({ id: 5, role: 'auditor', name: 'A', username: 'a', email: null, active: true, allowedPages: ['transito', 'soat'], createdAt: new Date() }, () => {}));
+    selectMock.mockReturnValueOnce(chain([])); // organismos
+    selectMock.mockReturnValueOnce(chain([
+      { codigo: 'pagina.soat', efecto: 'conceder' },
+      { codigo: 'pagina.transito', efecto: 'conceder' },
+    ]));
+    updateMock.mockReturnValueOnce(updateProyectado({ id: 5, role: 'auditor', name: 'A', username: 'a', email: null, active: true, createdAt: new Date() }, () => {}));
     const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', await cabeceraActor())
-      .send({ allowedPages: ['transito', 'soat'] });
-    expect(r.status).toBe(200);
+      .send({
+        funciones: [
+          { codigo: 'pagina.transito', efecto: 'conceder' },
+          { codigo: 'pagina.soat', efecto: 'conceder' },
+        ],
+      });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/sin cambios/i);
     expect(filasAuditoria()).toEqual([]);
   });
 
@@ -1435,9 +1510,10 @@ describe('HU #12171 — permisos_auditoria: antes/después de cada cambio, en la
     // Compañía 3 → 9.
     selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'cliente', active: true, companiaId: 3 }]));
     selectMock.mockReturnValueOnce(chain([{ id: 9 }])); // la compañía nueva existe
-    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'cliente', active: true, allowedPages: [], companiaId: 3, flitoProveedorSoatId: null, transitoCodigo: null }]));
-    selectMock.mockReturnValueOnce(chain([]));
-    updateMock.mockReturnValueOnce(updateProyectado({ id: 5, role: 'cliente', name: 'C', username: 'c', email: null, active: true, allowedPages: [], companiaId: 9, createdAt: new Date() }, () => {}));
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'cliente', active: true, companiaId: 3, flitoProveedorSoatId: null, transitoCodigo: null }]));
+    selectMock.mockReturnValueOnce(chain([])); // organismos
+    selectMock.mockReturnValueOnce(chain([])); // funciones (HU #12087)
+    updateMock.mockReturnValueOnce(updateProyectado({ id: 5, role: 'cliente', name: 'C', username: 'c', email: null, active: true, companiaId: 9, createdAt: new Date() }, () => {}));
     let r = await request(await buildApp()).patch('/api/users/5').set('Authorization', await cabeceraActor()).send({ companiaId: 9 });
     expect(r.status).toBe(200);
     expect(porCampo('compania_id')).toMatchObject({ valorAntes: 3, valorDespues: 9, usuarioAfectadoId: 5, usuarioAfectadoRol: 'cliente' });
@@ -1448,9 +1524,10 @@ describe('HU #12171 — permisos_auditoria: antes/después de cada cambio, en la
     const GESTOR_BEFORE = { id: 5, role: 'gestor_impuestos', active: true, companiaId: null, flitoProveedorSoatId: null };
     selectMock.mockReturnValueOnce(chain([GESTOR_BEFORE]));
     selectMock.mockReturnValueOnce(chain([{ codigo: ORG_A }, { codigo: ORG_B }])); // existen
-    selectMock.mockReturnValueOnce(chain([{ ...GESTOR_BEFORE, allowedPages: [], transitoCodigo: null }]));
+    selectMock.mockReturnValueOnce(chain([{ ...GESTOR_BEFORE, transitoCodigo: null }]));
     selectMock.mockReturnValueOnce(chain([{ codigo: ORG_A }])); // anteriores
-    updateMock.mockReturnValueOnce(updateProyectado({ id: 5, role: 'gestor_impuestos', name: 'G', username: 'g', email: null, active: true, allowedPages: [], createdAt: new Date() }, () => {}));
+    selectMock.mockReturnValueOnce(chain([])); // funciones previas (HU #12087)
+    updateMock.mockReturnValueOnce(updateProyectado({ id: 5, role: 'gestor_impuestos', name: 'G', username: 'g', email: null, active: true, createdAt: new Date() }, () => {}));
     r = await request(await buildApp()).patch('/api/users/5').set('Authorization', await cabeceraActor()).send({ organismosCodigos: [ORG_B, ORG_A] });
     expect(r.status).toBe(200);
     expect(porCampo('organismos_codigos')).toMatchObject({
@@ -1464,8 +1541,9 @@ describe('HU #12171 — permisos_auditoria: antes/después de cada cambio, en la
     selectMock.mockReturnValueOnce(chain([{ id: 9, role: 'admin', active: true }]));
     selectMock.mockReturnValueOnce(chain([{ count: 2 }]));
     selectMock.mockReturnValueOnce(chain([])); // organismos (tx)
+    selectMock.mockReturnValueOnce(chain([])); // funciones (tx, HU #12087)
     updateMock.mockReturnValueOnce({
-      set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 9, active: false, name: 'A', username: 'a', email: null, role: 'admin', allowedPages: null, createdAt: new Date() }]) }) }),
+      set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 9, active: false, name: 'A', username: 'a', email: null, role: 'admin', createdAt: new Date() }]) }) }),
     });
     eventos.length = 0;
     const r = await request(await buildApp()).patch('/api/users/9/toggle').set('Authorization', await cabeceraActor());
@@ -1478,9 +1556,10 @@ describe('HU #12171 — permisos_auditoria: antes/después de cada cambio, en la
 
   it('reactivar: fila `active` con `activar`, false → true', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'proveedor', active: false }]));
-    selectMock.mockReturnValueOnce(chain([]));
+    selectMock.mockReturnValueOnce(chain([])); // organismos
+    selectMock.mockReturnValueOnce(chain([])); // funciones (HU #12087)
     updateMock.mockReturnValueOnce({
-      set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 5, active: true, name: 'P', username: 'p', email: null, role: 'proveedor', allowedPages: null, createdAt: new Date() }]) }) }),
+      set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 5, active: true, name: 'P', username: 'p', email: null, role: 'proveedor', createdAt: new Date() }]) }) }),
     });
     const r = await request(await buildApp()).patch('/api/users/5/toggle').set('Authorization', await cabeceraActor());
     expect(r.status).toBe(200);
@@ -1518,20 +1597,26 @@ describe('HU #12171 — permisos_auditoria: antes/después de cada cambio, en la
         ? { values: () => chainReject(new Error('permisos_auditoria: fuera de servicio')) }
         : insertPorDefecto(tabla)
     ));
-    const antes = { id: 5, role: 'auditor', active: true, allowedPages: ['soat'], flitoProveedorSoatId: null, companiaId: null, transitoCodigo: null };
-    selectMock.mockReturnValueOnce(chain([antes]));
-    selectMock.mockReturnValueOnce(chain([]));
+    const antes = { id: 5, role: 'auditor', active: true, flitoProveedorSoatId: null, companiaId: null, transitoCodigo: null };
+    selectMock.mockReturnValueOnce(chain([antes])); // FOR UPDATE
+    selectMock.mockReturnValueOnce(chain([])); // organismos
+    selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.soat', efecto: 'conceder' }])); // funciones previas
     let capturado: Record<string, unknown> = {};
-    updateMock.mockReturnValueOnce(updateProyectado({ id: 5, role: 'auditor', name: 'A', username: 'a', email: null, active: true, allowedPages: [], createdAt: new Date() }, (v) => { capturado = v; }));
+    updateMock.mockReturnValueOnce(updateProyectado({ id: 5, role: 'auditor', name: 'A', username: 'a', email: null, active: true, createdAt: new Date() }, (v) => { capturado = v; }));
     eventos.length = 0;
 
     await expect(actualizarUsuario(
-      5, { updates: { allowedPages: [] }, organismosDestino: null, invalidarPorCampos: true },
+      5, {
+        updates: { name: 'A' },
+        organismosDestino: null,
+        funcionesDestino: [],
+        invalidarPorCampos: true,
+      },
       { userId: 1, email: ACTOR, rol: 'admin' },
     )).rejects.toThrow(/fuera de servicio/);
 
     // El UPDATE llegó a ejecutarse dentro de la transacción… y la transacción NO confirmó.
-    expect(capturado.allowedPages).toEqual([]);
+    expect(capturado.sessionInvalidatedAt).toBeInstanceOf(Date);
     expect(eventos).not.toContain('commit');
     expect(invalidarPermisosMock).not.toHaveBeenCalled();
     expect(invalidarCacheMock).not.toHaveBeenCalled();
@@ -1546,9 +1631,10 @@ describe('HU #12084 AC4 — el invariante anti-bloqueo envuelve cambiar el rol y
   it('PATCH /:id con `role`: el invariante se invoca con el `tx` de la transacción y envuelve el UPDATE', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'admin', active: true }])); // before
     selectMock.mockReturnValueOnce(chain([{ count: 1 }])); // pre-check: hay otro admin
-    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'admin', active: true, allowedPages: null }])); // anterior (tx, FOR UPDATE)
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'admin', active: true }])); // anterior (tx, FOR UPDATE)
     selectMock.mockReturnValueOnce(chain([])); // organismos
-    updateMock.mockReturnValueOnce(updateProyectado({ id: 5, role: 'admin', active: true, name: 'A', username: 'a', email: null, allowedPages: null, createdAt: new Date() }, () => {}));
+    selectMock.mockReturnValueOnce(chain([])); // funciones (HU #12087)
+    updateMock.mockReturnValueOnce(updateProyectado({ id: 5, role: 'admin', active: true, name: 'A', username: 'a', email: null, createdAt: new Date() }, () => {}));
     rolAsignableMock.mockResolvedValueOnce({ tipoEnlace: 'ninguno' });
     const token = await testToken({ sub: 1, role: 'admin' });
     const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', `Bearer ${token}`).send({ role: 'auditor' });
@@ -1561,13 +1647,30 @@ describe('HU #12084 AC4 — el invariante anti-bloqueo envuelve cambiar el rol y
 
   it('PATCH /:id SIN `role` (solo el nombre) no paga el lock: el invariante no se invoca', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'auditor', active: true }]));
-    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'auditor', active: true, allowedPages: null }]));
-    selectMock.mockReturnValueOnce(chain([]));
-    updateMock.mockReturnValueOnce(updateProyectado({ id: 5, role: 'auditor', active: true, name: 'A', username: 'a', email: null, allowedPages: null, createdAt: new Date() }, () => {}));
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'auditor', active: true }]));
+    selectMock.mockReturnValueOnce(chain([])); // organismos
+    selectMock.mockReturnValueOnce(chain([])); // funciones
+    updateMock.mockReturnValueOnce(updateProyectado({ id: 5, role: 'auditor', active: true, name: 'A', username: 'a', email: null, createdAt: new Date() }, () => {}));
     const token = await testToken({ sub: 1, role: 'admin' });
     const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', `Bearer ${token}`).send({ name: 'Nuevo nombre' });
     expect(r.status).toBe(200);
     expect(seguroMock).not.toHaveBeenCalled();
+  });
+
+  it('PATCH /:id solo con `funciones`: el invariante SÍ se invoca (HU #12087 §4-6)', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'auditor', active: true }])); // before
+    selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.soat' }])); // funcionesInexistentes
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'auditor', active: true }])); // FOR UPDATE
+    selectMock.mockReturnValueOnce(chain([])); // organismos
+    selectMock.mockReturnValueOnce(chain([])); // funciones previas
+    // Solo conceder: no hay set en users → relectura con userSelect (no UPDATE).
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'auditor', active: true, name: 'A', username: 'a', email: null, createdAt: new Date() }]));
+    const token = await testToken({ sub: 1, role: 'admin' });
+    const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', `Bearer ${token}`)
+      .send({ funciones: [{ codigo: 'pagina.soat', efecto: 'conceder' }] });
+    expect(r.status).toBe(200);
+    expect(seguroMock).toHaveBeenCalledTimes(1);
+    expect(seguroMock.mock.calls[0][0]).toBe(dbMock);
   });
 
   it('PATCH /:id: si el invariante lanza, 409 con el motivo, sin commit y sin invalidar nada', async () => {
@@ -1600,13 +1703,213 @@ describe('HU #12084 AC4 — el invariante anti-bloqueo envuelve cambiar el rol y
 
   it('PATCH /:id/toggle: reactivar también pasa por el invariante (se envuelve siempre)', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'proveedor', active: false }]));
-    selectMock.mockReturnValueOnce(chain([]));
+    selectMock.mockReturnValueOnce(chain([])); // organismos
+    selectMock.mockReturnValueOnce(chain([])); // funciones
     updateMock.mockReturnValueOnce({
-      set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 5, active: true, name: 'P', username: 'p', email: null, role: 'proveedor', allowedPages: null, createdAt: new Date() }]) }) }),
+      set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 5, active: true, name: 'P', username: 'p', email: null, role: 'proveedor', createdAt: new Date() }]) }) }),
     });
     const token = await testToken({ sub: 1, role: 'admin' });
     const r = await request(await buildApp()).patch('/api/users/5/toggle').set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(200);
     expect(seguroMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─────────── HU #12087 — excepciones por usuario (`funciones`) ───────────
+describe('HU #12087 — contrato funciones en POST/PATCH (§4-8)', () => {
+  const cabecera = async () => `Bearer ${await testToken({ sub: 1, role: 'admin' })}`;
+  const BODY = {
+    username: 'exc_user', name: 'Exc', email: 'e@x.com',
+    password: STRONG_PWD, role: 'auditor' as const,
+  };
+
+  it('POST con funciones → insert en permisos_usuario_funcion dentro de la tx + fila usuario_funcion/conjunto/crear', async () => {
+    selectMock.mockReturnValueOnce(chain([])); // username libre
+    selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.soat' }])); // funcionesInexistentes
+    eventos.length = 0;
+    const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
+      .send({ ...BODY, funciones: [{ codigo: 'pagina.soat', efecto: 'conceder' }] });
+    expect(r.status).toBe(201);
+    expect(r.body.funciones).toEqual([{ codigo: 'pagina.soat', efecto: 'conceder' }]);
+
+    const insertsUf = escrituras.filter((e) => e.tabla === 'permisos_usuario_funcion');
+    expect(insertsUf).toHaveLength(1);
+    expect(insertsUf[0]!.valores).toEqual([
+      { userId: 99, funcionCodigo: 'pagina.soat', efecto: 'conceder' },
+    ]);
+    const audit = escrituras.filter((e) => e.tabla === 'permisos_auditoria')
+      .flatMap((e) => e.valores as Record<string, unknown>[])
+      .find((f) => f.entidad === 'usuario_funcion' && f.campo === 'conjunto');
+    expect(audit).toMatchObject({ accion: 'crear', valorAntes: null });
+    expect(eventos.indexOf('insert-auditoria')).toBeLessThan(eventos.indexOf('commit'));
+  });
+
+  it('código inexistente → 400 con la lista y cero inserts', async () => {
+    selectMock.mockReturnValueOnce(chain([])); // username libre
+    selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.soat' }])); // solo soat existe; falta fantasma
+    const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
+      .send({
+        ...BODY,
+        funciones: [
+          { codigo: 'pagina.soat', efecto: 'conceder' },
+          { codigo: 'pagina.fantasma', efecto: 'conceder' },
+        ],
+      });
+    expect(r.status).toBe(400);
+    expect(r.body).toEqual({ error: 'Funciones inexistentes', funciones: ['pagina.fantasma'] });
+    expect(escrituras.filter((e) => e.tabla === 'users')).toHaveLength(0);
+    expect(escrituras.filter((e) => e.tabla === 'permisos_usuario_funcion')).toHaveLength(0);
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('mutante AC1: mismo código conceder+revocar → 400 (Zod superRefine)', async () => {
+    const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
+      .send({
+        ...BODY,
+        funciones: [
+          { codigo: 'pagina.soat', efecto: 'conceder' },
+          { codigo: 'pagina.soat', efecto: 'revocar' },
+        ],
+      });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('Datos inválidos');
+    expect(transactionMock).not.toHaveBeenCalled();
+    expect(escrituras).toHaveLength(0);
+  });
+
+  it('PATCH con funciones = delete+insert; sin funciones = ni un delete de la tabla', async () => {
+    const base = { id: 5, role: 'auditor', active: true, flitoProveedorSoatId: null, companiaId: null, transitoCodigo: null };
+    // Con funciones: delete + insert.
+    selectMock.mockReturnValueOnce(chain([base]));
+    selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.users' }]));
+    selectMock.mockReturnValueOnce(chain([base]));
+    selectMock.mockReturnValueOnce(chain([]));
+    selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.soat', efecto: 'conceder' }]));
+    updateMock.mockReturnValueOnce(updateProyectado({ ...base, name: 'A', username: 'a', email: null, createdAt: new Date() }, () => {}));
+    let r = await request(await buildApp()).patch('/api/users/5').set('Authorization', await cabecera())
+      .send({ funciones: [{ codigo: 'pagina.users', efecto: 'conceder' }] });
+    expect(r.status).toBe(200);
+    expect(borrados.some((b) => b.tabla === 'permisos_usuario_funcion')).toBe(true);
+    expect(escrituras.some((e) => e.tabla === 'permisos_usuario_funcion')).toBe(true);
+
+    // Sin funciones: no toca la tabla.
+    borrados.length = 0;
+    escrituras.length = 0;
+    selectMock.mockReturnValueOnce(chain([base]));
+    selectMock.mockReturnValueOnce(chain([base]));
+    selectMock.mockReturnValueOnce(chain([]));
+    selectMock.mockReturnValueOnce(chain([]));
+    updateMock.mockReturnValueOnce(updateProyectado({ ...base, name: 'Nuevo', username: 'a', email: null, createdAt: new Date() }, () => {}));
+    r = await request(await buildApp()).patch('/api/users/5').set('Authorization', await cabecera())
+      .send({ name: 'Nuevo' });
+    expect(r.status).toBe(200);
+    expect(borrados.filter((b) => b.tabla === 'permisos_usuario_funcion')).toHaveLength(0);
+    expect(escrituras.filter((e) => e.tabla === 'permisos_usuario_funcion')).toHaveLength(0);
+  });
+
+  it('revocar nuevo → sessionInvalidatedAt; solo conceder → no', async () => {
+    const base = { id: 5, role: 'auditor', active: true, flitoProveedorSoatId: null, companiaId: null, transitoCodigo: null };
+
+    // Solo conceder: no hay columna que escribir → select en lugar de update con sessionInvalidatedAt.
+    selectMock.mockReturnValueOnce(chain([base]));
+    selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.soat' }]));
+    selectMock.mockReturnValueOnce(chain([base]));
+    selectMock.mockReturnValueOnce(chain([]));
+    selectMock.mockReturnValueOnce(chain([])); // sin excepciones previas
+    selectMock.mockReturnValueOnce(chain([{ ...base, name: 'A', username: 'a', email: null, createdAt: new Date() }])); // relectura userSelect
+    let r = await request(await buildApp()).patch('/api/users/5').set('Authorization', await cabecera())
+      .send({ funciones: [{ codigo: 'pagina.soat', efecto: 'conceder' }] });
+    expect(r.status).toBe(200);
+    expect(updateMock).not.toHaveBeenCalled();
+    expect(invalidarCacheMock).not.toHaveBeenCalled();
+
+    // Revocar nuevo: sí marca sesión.
+    updateMock.mockReset();
+    invalidarCacheMock.mockClear();
+    let capturado: Record<string, unknown> = {};
+    selectMock.mockReturnValueOnce(chain([base]));
+    selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.users' }]));
+    selectMock.mockReturnValueOnce(chain([base]));
+    selectMock.mockReturnValueOnce(chain([]));
+    selectMock.mockReturnValueOnce(chain([]));
+    updateMock.mockReturnValueOnce(updateProyectado(
+      { ...base, name: 'A', username: 'a', email: null, createdAt: new Date() },
+      (v) => { capturado = v; },
+    ));
+    r = await request(await buildApp()).patch('/api/users/5').set('Authorization', await cabecera())
+      .send({ funciones: [{ codigo: 'pagina.users', efecto: 'revocar' }] });
+    expect(r.status).toBe(200);
+    expect(capturado.sessionInvalidatedAt).toBeInstanceOf(Date);
+    expect(invalidarCacheMock).toHaveBeenCalledWith(5);
+  });
+
+  it('PATCH solo con funciones pasa por FOR UPDATE OF users', async () => {
+    const base = { id: 5, role: 'auditor', active: true, flitoProveedorSoatId: null, companiaId: null, transitoCodigo: null };
+    selectMock.mockReturnValueOnce(chain([base]));
+    selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.soat' }]));
+    const enTx = chain([base]);
+    const forOriginal = enTx.for;
+    enTx.for = (...args: unknown[]) => {
+      eventos.push(`for-update:${JSON.stringify(args)}`);
+      return (forOriginal as (...a: unknown[]) => typeof enTx)(...args);
+    };
+    selectMock.mockReturnValueOnce(enTx);
+    selectMock.mockReturnValueOnce(chain([]));
+    selectMock.mockReturnValueOnce(chain([]));
+    selectMock.mockReturnValueOnce(chain([{ ...base, name: 'A', username: 'a', email: null, createdAt: new Date() }]));
+    eventos.length = 0;
+    const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', await cabecera())
+      .send({ funciones: [{ codigo: 'pagina.soat', efecto: 'conceder' }] });
+    expect(r.status).toBe(200);
+    // drizzle: .for('update') — el mock keyed ignora orderBy; afirmamos que se pidió el lock.
+    expect(eventos.some((e) => e.startsWith('for-update:') && e.includes('"update"'))).toBe(true);
+  });
+
+  it('role + funciones → motivo en las dos filas de auditoría', async () => {
+    const base = { id: 5, role: 'auditor', active: true, flitoProveedorSoatId: null, companiaId: null, transitoCodigo: null };
+    selectMock.mockReturnValueOnce(chain([base]));
+    selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.soat' }]));
+    selectMock.mockReturnValueOnce(chain([base]));
+    selectMock.mockReturnValueOnce(chain([]));
+    selectMock.mockReturnValueOnce(chain([
+      { codigo: 'pagina.soat', efecto: 'conceder' },
+      { codigo: 'pagina.transito', efecto: 'revocar' },
+    ]));
+    updateMock.mockReturnValueOnce(updateProyectado(
+      { ...base, role: 'mensajero', name: 'A', username: 'a', email: null, createdAt: new Date() },
+      () => {},
+    ));
+    const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', await cabecera())
+      .send({
+        role: 'mensajero',
+        funciones: [{ codigo: 'pagina.soat', efecto: 'conceder' }],
+      });
+    expect(r.status).toBe(200);
+    const filas = escrituras.filter((e) => e.tabla === 'permisos_auditoria')
+      .flatMap((e) => e.valores as Record<string, unknown>[]);
+    const role = filas.find((f) => f.campo === 'role');
+    const conjunto = filas.find((f) => f.entidad === 'usuario_funcion' && f.campo === 'conjunto');
+    expect(role?.motivo).toBe('excepciones revisadas: 1 conservadas, 1 retiradas');
+    expect(conjunto?.motivo).toBe('cambio_de_rol');
+  });
+
+  it('allowedPages en el body → se ignora (ni update.set.allowedPages ni insert), log.warn', async () => {
+    const base = { id: 5, role: 'auditor', active: true, flitoProveedorSoatId: null, companiaId: null, transitoCodigo: null };
+    selectMock.mockReturnValueOnce(chain([base]));
+    selectMock.mockReturnValueOnce(chain([base]));
+    selectMock.mockReturnValueOnce(chain([]));
+    selectMock.mockReturnValueOnce(chain([]));
+    let capturado: Record<string, unknown> = {};
+    updateMock.mockReturnValueOnce(updateProyectado(
+      { ...base, name: 'Nuevo', username: 'a', email: null, createdAt: new Date() },
+      (v) => { capturado = v; },
+    ));
+    const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', await cabecera())
+      .send({ name: 'Nuevo', allowedPages: ['soat', 'users'] });
+    expect(r.status).toBe(200);
+    expect(capturado.allowedPages).toBeUndefined();
+    expect(escrituras.filter((e) => e.tabla === 'permisos_usuario_funcion')).toHaveLength(0);
+    expect(logWarnMock).toHaveBeenCalled();
+    expect(String(logWarnMock.mock.calls[0]?.[1] ?? logWarnMock.mock.calls[0]?.[0])).toMatch(/allowedPages obsoleto/);
   });
 });

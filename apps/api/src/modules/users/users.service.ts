@@ -13,13 +13,27 @@
 //     la MISMA transacción. Partirlos deja al gestor con organismos nuevos y su sesión vieja viva.
 //   · El conjunto se REEMPLAZA, no se une: `DELETE` de lo que sobra + `INSERT ... ON CONFLICT DO
 //     NOTHING` de lo que falta, que además preserva el `created_at` de lo que no cambió.
+//
+// HU #12087 (Feature #12072): las EXCEPCIONES por usuario (`permisos_usuario_funcion`, efecto
+// `conceder`/`revocar`) siguen el mismo patrón que los organismos —otra tabla, compuestas en cada
+// respuesta, reemplazo completo en la misma transacción— con dos diferencias que se pagan aquí:
+//   · `users.allowed_pages` queda CONGELADA (0188): no se escribe, no se lee para decidir, no se
+//     borra. La fuente de las páginas por usuario es la tabla; el resolutor (`permisos-efectivos`)
+//     ya la lee.
+//   · El reemplazo es `DELETE` por `user_id` + `INSERT` completo (no el `notInArray` de los
+//     organismos): sobre la misma PK `(user_id, funcion_codigo)` el EFECTO puede cambiar, y un
+//     `ON CONFLICT DO NOTHING` dejaría el efecto viejo.
+//   · Un `revocar` puede dejar el sistema sin administradores: `actualizarUsuario` se envuelve con
+//     `conSeguroAntiBloqueo` también cuando vienen `funciones`, no solo cuando cambia el rol.
 
 import { and, eq, ilike, inArray, notInArray, or, sql, type SQL } from 'drizzle-orm';
-import { ALL_ROLES, type RoleCode, type UserRole } from '@operaciones/shared-types';
+import {
+  ALL_ROLES, codificarExcepcion, type FuncionDeUsuario, type RoleCode, type UserRole,
+} from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
   clients, flitoGestorOrganismos, flitoProveedoresSoat, organismosTransitoConfig, permisosRoles,
-  users,
+  permisosUsuarioFuncion, users,
 } from '../../db/schema.js';
 import {
   diffConjunto, mismoConjunto, registrarCambiosPermisos, registrarCambioPermisos,
@@ -41,6 +55,8 @@ export const userSelect = {
   email: users.email,
   role: users.role,
   active: users.active,
+  // HU #12087: columna CONGELADA (0188). Sigue saliendo en la fila por compatibilidad; ni se escribe ni
+  // decide nada. Lo vivo es `funciones` (compuesto aparte, como los organismos).
   allowedPages: users.allowedPages,
   transitoCodigo: users.transitoCodigo,
   // La lista de usuarios la necesita para decir a qué compañía pertenece un `cliente`: sin ella, el
@@ -60,6 +76,7 @@ export interface UsuarioConAmbito {
   email: string | null;
   role: string;
   active: boolean;
+  /** @deprecated HU #12087: foto congelada de la 0188; la fuente de las páginas por usuario es `funciones`. */
   allowedPages: string[];
   transitoCodigo: string | null;
   companiaId: number | null;
@@ -67,6 +84,8 @@ export interface UsuarioConAmbito {
   createdAt: Date;
   /** CA-10: los organismos del `gestor_impuestos`. `[]` para los otros once roles. */
   organismosCodigos: string[];
+  /** HU #12087: las excepciones sobre lo que da su rol. SIEMPRE un array, ordenado por código. */
+  funciones: FuncionDeUsuario[];
 }
 
 // ── Existencia de las dos ataduras ───────────────────────────────────────────────────────────────
@@ -149,7 +168,79 @@ export async function organismosDeVarios(userIds: number[]): Promise<Map<number,
   return mapa;
 }
 
+// ── Lectura de las excepciones por usuario (HU #12087) ───────────────────────────────────────────
+
+/** Las excepciones de UN usuario. Orden estable por código, como `organismosDe`. */
+export async function funcionesDe(userId: number, ejecutor: Tx | typeof db = db): Promise<FuncionDeUsuario[]> {
+  const filas = await ejecutor
+    .select({ codigo: permisosUsuarioFuncion.funcionCodigo, efecto: permisosUsuarioFuncion.efecto })
+    .from(permisosUsuarioFuncion).where(eq(permisosUsuarioFuncion.userId, userId));
+  return conjuntoDeFunciones(filas.map(aFuncionDeUsuario));
+}
+
+/** Las excepciones de VARIOS usuarios en UNA consulta: el listado las pinta sin N+1. */
+export async function funcionesDeVarios(userIds: number[]): Promise<Map<number, FuncionDeUsuario[]>> {
+  const mapa = new Map<number, FuncionDeUsuario[]>();
+  if (userIds.length === 0) return mapa; // `inArray` con lista vacía no produce SQL válido
+  const filas = await db.select({
+    userId: permisosUsuarioFuncion.userId,
+    codigo: permisosUsuarioFuncion.funcionCodigo,
+    efecto: permisosUsuarioFuncion.efecto,
+  }).from(permisosUsuarioFuncion).where(inArray(permisosUsuarioFuncion.userId, userIds));
+  for (const f of filas) {
+    const ya = mapa.get(f.userId);
+    const fila = aFuncionDeUsuario(f);
+    if (ya) ya.push(fila); else mapa.set(f.userId, [fila]);
+  }
+  for (const [id, lista] of mapa) mapa.set(id, conjuntoDeFunciones(lista));
+  return mapa;
+}
+
+/** El CHECK de la 0179 solo admite dos literales; cualquier otra cosa en la fila es `conceder` nunca. */
+function aFuncionDeUsuario(f: { codigo: string; efecto: string }): FuncionDeUsuario {
+  return { codigo: f.codigo, efecto: f.efecto === 'revocar' ? 'revocar' : 'conceder' };
+}
+
+/**
+ * Duplicados plegados y orden estable por código (y efecto): el orden de llegada no es un cambio.
+ * NO resuelve un mismo código con dos efectos —eso lo rechaza el `superRefine` de la ruta— así que
+ * si llegan los dos, salen los dos y la PK responde 23505 (un bug de validación, no un 409).
+ */
+export function conjuntoDeFunciones(fs: FuncionDeUsuario[]): FuncionDeUsuario[] {
+  const porClave = new Map<string, FuncionDeUsuario>();
+  for (const f of fs) porClave.set(codificarExcepcion(f), { codigo: f.codigo, efecto: f.efecto });
+  return [...porClave.values()].sort((a, b) => a.codigo.localeCompare(b.codigo) || a.efecto.localeCompare(b.efecto));
+}
+
+/** Las excepciones tal como viajan en `permisos_auditoria`: `<efecto>:<codigo>`, ordenadas. */
+const codificadas = (fs: FuncionDeUsuario[]): string[] => fs.map(codificarExcepcion).sort();
+
+/**
+ * ¿El cambio de excepciones le QUITA acceso a alguien? Sí cuando sale un `conceder` o entra un
+ * `revocar`. Conceder, o levantar un `revocar`, no tira la sesión: los permisos se resuelven por
+ * petición (HU #12082) y el JWT no los lleva. Es el predicado que decide `sessionInvalidatedAt`; la
+ * SPA calcula el mismo sobre lo que mandó para avisar «debe volver a iniciar sesión».
+ */
+export function retiraAcceso(diff: { concedidas?: string[]; revocadas?: string[] }): boolean {
+  return (diff.revocadas ?? []).some((x) => x.startsWith('conceder:'))
+    || (diff.concedidas ?? []).some((x) => x.startsWith('revocar:'));
+}
+
 // ── Escritura ────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Deja las excepciones del usuario EXACTAMENTE en `destino`: `DELETE` por `user_id` + `INSERT`
+ * completo. No vale el `DELETE` acotado de `escribirOrganismos`: sobre la misma PK el EFECTO puede
+ * cambiar y un `ON CONFLICT DO NOTHING` conservaría el viejo. Los códigos ya existen (la ruta llamó
+ * a `funcionesInexistentes` ANTES de abrir la transacción); un 23503 aquí es un bug, no un 400.
+ */
+export async function escribirFunciones(tx: Tx, userId: number, destino: FuncionDeUsuario[]): Promise<void> {
+  await tx.delete(permisosUsuarioFuncion).where(eq(permisosUsuarioFuncion.userId, userId));
+  const filas = conjuntoDeFunciones(destino);
+  if (filas.length === 0) return;
+  await tx.insert(permisosUsuarioFuncion)
+    .values(filas.map((f) => ({ userId, funcionCodigo: f.codigo, efecto: f.efecto })));
+}
 
 /**
  * Deja el conjunto de organismos del usuario EXACTAMENTE en `destino`. Reemplaza, no une: lo que no
@@ -181,45 +272,59 @@ export interface CrearUsuarioInput {
    * `rolAsignable()` en la ruta, y por debajo la FK `users_role_fkey`.
    */
   role: RoleCode;
-  allowedPages: string[];
   transitoCodigo: string | null;
   companiaId: number | null;
   flitoProveedorSoatId: string | null;
   /** El conjunto del gestor; `[]` para el resto de roles (AC3 ya lo validó antes de llegar aquí). */
   organismosCodigos: string[];
+  /** HU #12087: las excepciones iniciales; `[]` si no vienen. Los códigos ya pasaron `funcionesInexistentes`. */
+  funciones: FuncionDeUsuario[];
 }
 
 /**
- * Alta (AC1/AC2): el usuario y sus organismos, o ninguna de las dos cosas (AC3).
+ * Alta (AC1/AC2): el usuario, sus organismos y sus excepciones, o ninguna de las tres cosas (AC3).
  *
  * HU #12171: en la MISMA transacción se escribe el historial (`permisos_auditoria`) con el estado
- * inicial, una fila por campo y `accion = 'crear'`: rol, páginas y el ámbito que traiga. Del titular
- * solo su id y su rol; ni el correo ni el hash entran ahí (RN-A10).
+ * inicial, una fila por campo y `accion = 'crear'`: rol, el ámbito que traiga y, si las hay, las
+ * excepciones. Del titular solo su id y su rol; ni el correo ni el hash entran ahí (RN-A10).
+ * `allowed_pages` no se escribe: nace con su default `'{}'` y ahí se queda (congelada, 0188).
  */
 export async function crearUsuario(input: CrearUsuarioInput, actor: ActorAuditoria): Promise<UsuarioConAmbito> {
-  const { organismosCodigos, ...fila } = input;
+  const { organismosCodigos, funciones, ...fila } = input;
   return db.transaction(async (tx) => {
     const [user] = await tx.insert(users).values(fila).returning(userSelect);
     if (organismosCodigos.length > 0) await escribirOrganismos(tx, user.id, organismosCodigos);
+    if (funciones.length > 0) await escribirFunciones(tx, user.id, funciones);
     await registrarCambiosPermisos(tx, actor, cambiosDelAlta(user.id, input));
     // El conjunto recién escrito, sin releer: es el mismo que acaba de entrar.
-    return { ...user, organismosCodigos: [...organismosCodigos].sort() } as UsuarioConAmbito;
+    return {
+      ...user, organismosCodigos: [...organismosCodigos].sort(), funciones: conjuntoDeFunciones(funciones),
+    } as UsuarioConAmbito;
   });
 }
 
-/** Las filas `crear` del alta: el estado inicial, campo a campo, sin `valorAntes`. */
+/**
+ * Las filas `crear` del alta: el estado inicial, campo a campo, sin `valorAntes`. Las excepciones van
+ * en su propia entidad (`usuario_funcion`/`conjunto`), codificadas `<efecto>:<codigo>`, y SOLO si
+ * hay alguna (espejo de `crearRol`). La fila `allowed_pages` que había hasta la #12087 se retiró:
+ * la columna ya no se escribe.
+ */
 function cambiosDelAlta(id: number, input: CrearUsuarioInput): CambioAuditable[] {
   const titular = { id, rol: input.role };
   const fila = (campo: CambioAuditable['campo'], valorDespues: CambioAuditable['valorDespues']): CambioAuditable =>
     ({ entidad: 'usuario', accion: 'crear', campo, valorAntes: null, valorDespues, usuarioAfectado: titular });
-  const cambios: CambioAuditable[] = [
-    fila('role', input.role),
-    fila('allowed_pages', diffConjunto([], input.allowedPages).despues),
-  ];
+  const cambios: CambioAuditable[] = [fila('role', input.role)];
   if (input.transitoCodigo !== null) cambios.push(fila('transito_codigo', input.transitoCodigo));
   if (input.companiaId !== null) cambios.push(fila('compania_id', input.companiaId));
   if (input.flitoProveedorSoatId !== null) cambios.push(fila('flito_proveedor_soat_id', input.flitoProveedorSoatId));
   if (input.organismosCodigos.length > 0) cambios.push(fila('organismos_codigos', diffConjunto([], input.organismosCodigos).despues));
+  if (input.funciones.length > 0) {
+    cambios.push({
+      entidad: 'usuario_funcion', accion: 'crear', campo: 'conjunto',
+      valorAntes: null, valorDespues: diffConjunto([], codificadas(input.funciones)).despues,
+      usuarioAfectado: titular,
+    });
+  }
   return cambios;
 }
 
@@ -228,7 +333,12 @@ export interface ActualizarUsuarioInput {
   updates: Record<string, unknown>;
   /** Conjunto destino de organismos, o `null` para no tocarlo. `[]` = quitárselos todos. */
   organismosDestino: string[] | null;
-  /** ¿Hay que invalidar sesiones por lo que cambia en `users` (rol, páginas, ámbitos)? */
+  /**
+   * HU #12087: conjunto destino de excepciones, o `null` para no tocarlo. `[]` = quitarlas todas.
+   * Presente = REEMPLAZO COMPLETO. Los códigos ya pasaron `funcionesInexistentes` en la ruta.
+   */
+  funcionesDestino: FuncionDeUsuario[] | null;
+  /** ¿Hay que invalidar sesiones por lo que cambia en `users` (rol, ámbitos)? */
   invalidarPorCampos: boolean;
 }
 
@@ -244,10 +354,13 @@ export type ResultadoActualizar =
  * `invalidateSessionCacheFor()` NO se llama aquí: va DESPUÉS del commit, en la ruta, como ya se hacía.
  */
 export async function actualizarUsuario(
-  id: number, { updates, organismosDestino, invalidarPorCampos }: ActualizarUsuarioInput, actor: ActorAuditoria,
+  id: number, { updates, organismosDestino, funcionesDestino, invalidarPorCampos }: ActualizarUsuarioInput,
+  actor: ActorAuditoria,
 ): Promise<ResultadoActualizar> {
   return db.transaction(async (tx): Promise<ResultadoActualizar> => {
-    if (Object.keys(updates).length === 0 && organismosDestino === null) return { estado: 'sin_cambios' };
+    if (Object.keys(updates).length === 0 && organismosDestino === null && funcionesDestino === null) {
+      return { estado: 'sin_cambios' };
+    }
 
     // HU #12084 (AC4): cambiar el ROL es uno de los cinco caminos que pueden dejar el sistema sin
     // administradores. El invariante envuelve el cuerpo entero y va PRIMERO en la transacción: bloquea
@@ -267,34 +380,58 @@ export async function actualizarUsuario(
       // Conjuntos, no arrays: el orden no es un cambio.
       const organismosCambiaron = organismosDestino !== null && !mismoConjunto(anteriores, organismosDestino);
 
-      const set = { ...updates };
-      if (Object.keys(set).length === 0 && !organismosCambiaron) return { estado: 'sin_cambios' };
+      // HU #12087: las excepciones, leídas también dentro de la tx. El «cambió» se decide sobre las
+      // excepciones CODIFICADAS (`<efecto>:<codigo>`): cambiar el efecto de un código es un cambio.
+      const funcionesAnteriores = await funcionesDe(id, tx);
+      const antesCod = codificadas(funcionesAnteriores);
+      const despuesCod = funcionesDestino !== null ? codificadas(funcionesDestino) : null;
+      const funcionesCambiaron = despuesCod !== null && !mismoConjunto(antesCod, despuesCod);
+      const diffFunciones = funcionesCambiaron ? diffConjunto(antesCod, despuesCod!) : null;
 
-      const invalidada = invalidarPorCampos || organismosCambiaron;
-      // Cuando lo ÚNICO que cambia son los organismos, es esta marca la que mantiene el UPDATE no
-      // vacío: por eso `db.update(...).set(set)` no necesita ninguna rama especial.
+      const set = { ...updates };
+      if (Object.keys(set).length === 0 && !organismosCambiaron && !funcionesCambiaron) return { estado: 'sin_cambios' };
+
+      // Un cambio de excepciones tira la sesión SOLO si retira acceso (§4-5 del diseño): conceder, o
+      // levantar un `revocar`, no obliga a volver a entrar — los permisos se resuelven por petición.
+      const retira = diffFunciones !== null && retiraAcceso(diffFunciones.despues as { concedidas?: string[]; revocadas?: string[] });
+      const invalidada = invalidarPorCampos || organismosCambiaron || retira;
+      // Cuando lo ÚNICO que cambia son los organismos (o se retira acceso por excepciones), es esta
+      // marca la que mantiene el UPDATE no vacío.
       if (invalidada) set.sessionInvalidatedAt = new Date();
 
-      const [updated] = await tx.update(users).set(set).where(eq(users.id, id)).returning(userSelect);
+      // Solo conceder (o levantar un revocar) sin nada más: no hay columna de `users` que escribir y
+      // drizzle rechaza un `set({})`; la fila ya está bloqueada, se relee con la misma proyección.
+      const [updated] = Object.keys(set).length > 0
+        ? await tx.update(users).set(set).where(eq(users.id, id)).returning(userSelect)
+        : await tx.select(userSelect).from(users).where(eq(users.id, id)).limit(1);
       if (!updated) return { estado: 'no_encontrado' };
 
       if (organismosCambiaron) await escribirOrganismos(tx, id, organismosDestino!);
+      if (funcionesCambiaron) await escribirFunciones(tx, id, funcionesDestino!);
 
       // El historial va en la MISMA transacción y sin try/catch: si no se puede escribir, el cambio
       // tampoco se confirma (ADR-0014). Solo los campos que de verdad cambiaron de valor.
       await registrarCambiosPermisos(tx, actor, cambiosDeLaEdicion(id, anterior, updates, {
         anteriores, destino: organismosCambiaron ? organismosDestino! : null,
-      }));
+      }, { antes: antesCod, destino: despuesCod, diff: diffFunciones }));
 
       const finales = organismosDestino !== null ? [...organismosDestino].sort() : anteriores;
+      const funciones = funcionesDestino !== null ? conjuntoDeFunciones(funcionesDestino) : funcionesAnteriores;
       return {
         estado: 'ok',
-        usuario: { ...updated, organismosCodigos: finales } as UsuarioConAmbito,
+        usuario: { ...updated, organismosCodigos: finales, funciones } as UsuarioConAmbito,
         invalidada,
-        camposCambiados: [...Object.keys(updates), ...(organismosCambiaron ? ['organismosCodigos'] : [])],
+        camposCambiados: [
+          ...Object.keys(updates),
+          ...(organismosCambiaron ? ['organismosCodigos'] : []),
+          ...(funcionesCambiaron ? ['funciones'] : []),
+        ],
       };
     };
-    return updates.role !== undefined ? conSeguroAntiBloqueo(tx, cuerpo) : cuerpo();
+    // HU #12087 (§4-6): también cuando vienen excepciones. `tiene()` cuenta `conceder` y `revocar`, así
+    // que un `revocar permisos.cuadro.guardar` sobre el último administrador, o retirar el `conceder
+    // usuarios.usuario.editar` al único titular de un rol no-admin, dejan la cuenta en cero → 409.
+    return updates.role !== undefined || funcionesDestino !== null ? conSeguroAntiBloqueo(tx, cuerpo) : cuerpo();
   });
 }
 
@@ -306,46 +443,71 @@ const estadoAuditable = {
   id: users.id,
   role: users.role,
   active: users.active,
-  allowedPages: users.allowedPages,
   transitoCodigo: users.transitoCodigo,
   companiaId: users.companiaId,
   flitoProveedorSoatId: users.flitoProveedorSoatId,
 };
 type EstadoAuditable = {
-  id: number; role: string; active: boolean; allowedPages: string[] | null;
+  id: number; role: string; active: boolean;
   transitoCodigo: string | null; companiaId: number | null; flitoProveedorSoatId: string | null;
 };
+
+/** Las excepciones del PATCH, ya codificadas: el «antes», el destino (o null) y su diff (o null). */
+interface FuncionesDeLaEdicion {
+  antes: string[];
+  destino: string[] | null;
+  diff: ReturnType<typeof diffConjunto> | null;
+}
+
+/** El `motivo` de la fila del conjunto cuando la revisión viene de un cambio de rol (§4-3, filtrable). */
+export const MOTIVO_CAMBIO_DE_ROL = 'cambio_de_rol';
+
+/**
+ * El `motivo` de la fila `role` cuando el rol y las excepciones vienen juntos (AC3): «conservar todo»
+ * también deja rastro. Conservadas = las de antes que siguen; retiradas = las de antes que salen. Las
+ * que ENTRAN nuevas no se cuentan aquí: van en `concedidas` de la fila del conjunto.
+ */
+export function motivoExcepcionesRevisadas(antes: string[], destino: string[]): string {
+  const d = new Set(destino);
+  const conservadas = antes.filter((x) => d.has(x)).length;
+  return `excepciones revisadas: ${conservadas} conservadas, ${antes.length - conservadas} retiradas`;
+}
 
 /**
  * Las filas `editar` de un PATCH: una por campo auditable cuyo valor CAMBIÓ. `name` y `email` no
  * están —no son campos de la lista blanca: son datos personales del titular (RN-A10)—. Los conjuntos
- * (páginas, organismos) van con el conjunto completo y con `concedidas`/`revocadas`.
+ * (organismos, excepciones) van con el conjunto completo y con `concedidas`/`revocadas`; las
+ * excepciones en su propia entidad (`usuario_funcion`/`conjunto`) y codificadas `<efecto>:<codigo>`.
  */
 function cambiosDeLaEdicion(
   id: number, anterior: EstadoAuditable, updates: Record<string, unknown>,
   organismos: { anteriores: string[]; destino: string[] | null },
+  funciones: FuncionesDeLaEdicion,
 ): CambioAuditable[] {
   const titular = { id, rol: anterior.role };
   const cambios: CambioAuditable[] = [];
-  const par = (campo: CambioAuditable['campo'], valorAntes: CambioAuditable['valorAntes'], valorDespues: CambioAuditable['valorDespues']) => {
+  const par = (campo: CambioAuditable['campo'], valorAntes: CambioAuditable['valorAntes'], valorDespues: CambioAuditable['valorDespues'], motivo?: string) => {
     if (valorAntes === valorDespues) return;
-    cambios.push({ entidad: 'usuario', accion: 'editar', campo, valorAntes, valorDespues, usuarioAfectado: titular });
+    cambios.push({ entidad: 'usuario', accion: 'editar', campo, valorAntes, valorDespues, usuarioAfectado: titular, motivo: motivo ?? null });
   };
-  if ('role' in updates) par('role', anterior.role, updates.role as string);
+  const rolCambia = 'role' in updates && updates.role !== anterior.role;
+  if ('role' in updates) {
+    par('role', anterior.role, updates.role as string,
+      funciones.destino !== null ? motivoExcepcionesRevisadas(funciones.antes, funciones.destino) : undefined);
+  }
   if ('transitoCodigo' in updates) par('transito_codigo', anterior.transitoCodigo, updates.transitoCodigo as string | null);
   if ('companiaId' in updates) par('compania_id', anterior.companiaId, updates.companiaId as number | null);
   if ('flitoProveedorSoatId' in updates) par('flito_proveedor_soat_id', anterior.flitoProveedorSoatId, updates.flitoProveedorSoatId as string | null);
-  if ('allowedPages' in updates) {
-    const antes = anterior.allowedPages ?? [];
-    const despues = updates.allowedPages as string[];
-    if (!mismoConjunto(antes, despues)) {
-      const d = diffConjunto(antes, despues);
-      cambios.push({ entidad: 'usuario', accion: 'editar', campo: 'allowed_pages', valorAntes: d.antes, valorDespues: d.despues, usuarioAfectado: titular });
-    }
-  }
   if (organismos.destino !== null) {
     const d = diffConjunto(organismos.anteriores, organismos.destino);
     cambios.push({ entidad: 'usuario', accion: 'editar', campo: 'organismos_codigos', valorAntes: d.antes, valorDespues: d.despues, usuarioAfectado: titular });
+  }
+  if (funciones.diff !== null) {
+    cambios.push({
+      entidad: 'usuario_funcion', accion: 'editar', campo: 'conjunto',
+      valorAntes: funciones.diff.antes, valorDespues: funciones.diff.despues, usuarioAfectado: titular,
+      motivo: rolCambia ? MOTIVO_CAMBIO_DE_ROL : null,
+    });
   }
   return cambios;
 }
@@ -377,8 +539,10 @@ export async function cambiarActivo(id: number, actor: ActorAuditoria): Promise<
       usuarioAfectado: { id, rol: updated.role },
     });
     // Aquí SÍ hay que leerlos: devolver `[]` haría que el front borrase de la fila los organismos del
-    // gestor con solo activarlo o desactivarlo. Una consulta puntual por `user_id`; la PK la sirve.
-    return { ...updated, organismosCodigos: await organismosDe(id, tx) } as UsuarioConAmbito;
+    // gestor (o sus excepciones) con solo activarlo o desactivarlo. Dos consultas por `user_id`.
+    return {
+      ...updated, organismosCodigos: await organismosDe(id, tx), funciones: await funcionesDe(id, tx),
+    } as UsuarioConAmbito;
   });
 }
 
@@ -460,7 +624,8 @@ export interface PaginacionUsuarios {
 }
 
 export interface ListadoUsuarios {
-  filas: Omit<UsuarioConAmbito, 'organismosCodigos'>[];
+  /** Sin los dos conjuntos: la ruta los compone por lote (`organismosDeVarios`, `funcionesDeVarios`). */
+  filas: Omit<UsuarioConAmbito, 'organismosCodigos' | 'funciones'>[];
   /** Coincidencias TOTALES del filtro, no las de la página. Es lo que viaja en `X-Total-Count`. */
   total: number;
 }

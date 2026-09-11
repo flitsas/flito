@@ -5,6 +5,8 @@
 // ÚNICA fuente de la lista blanca de campos: el tipo impide pasar la fila entera del usuario y el
 // CHECK de la base impide el INSERT crudo. Los dos tienen que ceder para que entre un dato personal.
 
+import { EFECTOS_PERMISO_USUARIO, type EfectoPermisoUsuario, type FuncionDeUsuario } from './permisos-roles.js';
+
 export const ENTIDADES_AUDITABLES = ['usuario', 'rol', 'rol_funcion', 'usuario_funcion'] as const;
 export const ACCIONES_AUDITABLES = ['crear', 'editar', 'borrar', 'baja', 'reactivar', 'activar', 'desactivar'] as const;
 
@@ -98,3 +100,24 @@ export interface RespuestaAuditoriaPermisos {
 
 /** Usuarios con al menos una fila en permisos_auditoria como TITULAR. Sin nombre, sin correo. */
 export interface TitularAuditoria { userId: number; username: string | null }
+
+// ── HU #12087 — Cómo viaja una excepción por usuario dentro de `conjunto` ───────────────────────
+// La fila `usuario_funcion`/`conjunto` reutiliza `ValorAuditable` sin abrirlo (ADR-0014 §2): cada
+// excepción es UN string `<efecto>:<codigo>`, y un cambio de efecto sobre el mismo código sale como
+// un retiro + un alta, que es lo que ocurrió. En SQL sigue siendo consultable:
+// `valor_despues->'concedidas' ? 'revocar:pagina.users'`.
+
+/** `conceder:soat.cola.exportar` / `revocar:pagina.users`. */
+export function codificarExcepcion(f: FuncionDeUsuario): string {
+  return `${f.efecto}:${f.codigo}`;
+}
+
+/** La inversa. `null` ante un prefijo que no es un efecto conocido o un código vacío. */
+export function decodificarExcepcion(s: string): FuncionDeUsuario | null {
+  const i = s.indexOf(':');
+  if (i <= 0) return null;
+  const efecto = s.slice(0, i);
+  const codigo = s.slice(i + 1);
+  if (!(EFECTOS_PERMISO_USUARIO as readonly string[]).includes(efecto) || codigo === '') return null;
+  return { codigo, efecto: efecto as EfectoPermisoUsuario };
+}

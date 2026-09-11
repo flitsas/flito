@@ -89,7 +89,7 @@ describe('AC5 — GET /api/permisos/funciones', () => {
 describe('TC #12270 AC7 — GET /api/permisos/mios devuelve el mismo conjunto efectivo que usa el servidor, ya resuelto, con un identificador de versión que cambia cuando el administrador escribe', () => {
   /** El resolutor real (regla, hash y caché) sobre el registro del helper; espiado, no sustituido. */
   const gestor7 = async (funcionesDelRol: string[]) => registrarUsuarioDePrueba(7, {
-    rol: 'gestor', tipoPrincipal: 'interno', allowedPages: ['dashboard'], funcionesDelRol, excepciones: [],
+    rol: 'gestor', tipoPrincipal: 'interno', funcionesDelRol, excepciones: [{ codigo: 'pagina.dashboard', efecto: 'conceder' }],
   });
 
   it('sin token → 401', async () => {
@@ -150,7 +150,7 @@ describe('TC #12270 AC7 — GET /api/permisos/mios devuelve el mismo conjunto ef
   });
 
   it('?userId=8 se ignora: nunca devuelve el conjunto de otro usuario', async () => {
-    await registrarUsuarioDePrueba(8, { rol: 'admin', tipoPrincipal: 'interno', allowedPages: [], funcionesDelRol: ['pagina.users'], excepciones: [] });
+    await registrarUsuarioDePrueba(8, { rol: 'admin', tipoPrincipal: 'interno', funcionesDelRol: ['pagina.users'], excepciones: [] });
     const token = await testToken({ sub: 7, role: 'gestor_impuestos' });
     await gestor7(['soat.cola.ver']);
     const res = await request(app()).get('/api/permisos/mios?userId=8').set('Authorization', `Bearer ${token}`);
