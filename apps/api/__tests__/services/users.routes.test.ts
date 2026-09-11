@@ -391,7 +391,8 @@ describe('POST /api/users — crear', () => {
   });
 
   it('rol auditor → 201 (USR-2: auditor ahora asignable vía ALL_ROLES)', async () => {
-    selectMock.mockReturnValueOnce(chain([])); // no existe previo
+    selectMock.mockReturnValueOnce(chain([])); // username libre
+    selectMock.mockReturnValueOnce(chain([])); // email libre (HU #12089 AC6)
     let captured: any = null;
     insertMock.mockReturnValueOnce({
       values: (v: any) => {
@@ -684,6 +685,7 @@ describe('POST /api/users — rol cliente y compañía (AC1/AC2 de la HU #11913)
 
   it('rol cliente CON compañía existente → 201 y la FK queda escrita (AC1)', async () => {
     selectMock.mockReturnValueOnce(chain([]));            // username libre
+    selectMock.mockReturnValueOnce(chain([]));            // email libre (HU #12089 AC6)
     selectMock.mockReturnValueOnce(chain([{ id: 3 }]));   // la compañía existe
     let captured: any = null;
     insertMock.mockReturnValueOnce({
@@ -705,6 +707,7 @@ describe('POST /api/users — rol cliente y compañía (AC1/AC2 de la HU #11913)
 
   it('rol cliente con una compañía que NO existe → 400 y no un 500 de FK', async () => {
     selectMock.mockReturnValueOnce(chain([]));   // username libre
+    selectMock.mockReturnValueOnce(chain([]));   // email libre (HU #12089 AC6)
     selectMock.mockReturnValueOnce(chain([]));   // la compañía no está
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
@@ -846,6 +849,7 @@ const organismosEscritos = () => filasDe('flito_gestor_organismos').flatMap((e) 
 describe('POST /api/users — las dos ataduras al crear (AC1/AC2/AC3)', () => {
   it('TC-12053-01: proveedor CON proveedor SOAT → 201, la FK se escribe y VUELVE en la respuesta', async () => {
     selectMock.mockReturnValueOnce(chain([]));                      // username libre
+    selectMock.mockReturnValueOnce(chain([]));                      // email libre (HU #12089 AC6)
     selectMock.mockReturnValueOnce(chain([{ id: PROVEEDOR }]));     // el proveedor existe
 
     const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
@@ -865,7 +869,8 @@ describe('POST /api/users — las dos ataduras al crear (AC1/AC2/AC3)', () => {
   it('TC-12053-02: DOS usuarios con el MISMO proveedor SOAT → los dos 201 (no hay unicidad)', async () => {
     const app = await buildApp();
     const crear = async (username: string) => {
-      selectMock.mockReturnValueOnce(chain([]));
+      selectMock.mockReturnValueOnce(chain([])); // username libre
+      selectMock.mockReturnValueOnce(chain([])); // email libre (HU #12089 AC6)
       selectMock.mockReturnValueOnce(chain([{ id: PROVEEDOR }]));
       return request(app).post('/api/users').set('Authorization', await cabecera())
         .send({ ...BODY_PROVEEDOR, username, flitoProveedorSoatId: PROVEEDOR });
@@ -884,6 +889,7 @@ describe('POST /api/users — las dos ataduras al crear (AC1/AC2/AC3)', () => {
 
   it('TC-12053-05: gestor con DOS organismos → quedan los DOS, y los DOS vuelven', async () => {
     selectMock.mockReturnValueOnce(chain([]));                                  // username libre
+    selectMock.mockReturnValueOnce(chain([]));                                  // email libre (HU #12089 AC6)
     selectMock.mockReturnValueOnce(chain([{ codigo: ORG_A }, { codigo: ORG_B }])); // los dos existen
 
     const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
@@ -897,7 +903,8 @@ describe('POST /api/users — las dos ataduras al crear (AC1/AC2/AC3)', () => {
   });
 
   it('TC-12053-05 (bis): el mismo organismo repetido se DEDUPLICA (la PK compuesta no lo perdona)', async () => {
-    selectMock.mockReturnValueOnce(chain([]));
+    selectMock.mockReturnValueOnce(chain([])); // username libre
+    selectMock.mockReturnValueOnce(chain([])); // email libre (HU #12089 AC6)
     selectMock.mockReturnValueOnce(chain([{ codigo: ORG_A }]));
 
     const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
@@ -910,6 +917,7 @@ describe('POST /api/users — las dos ataduras al crear (AC1/AC2/AC3)', () => {
 
   it('TC-12053-07: un organismo fuera del catálogo PARAMETRIZADO → 400, no un 23503 en un 500', async () => {
     selectMock.mockReturnValueOnce(chain([]));                       // username libre
+    selectMock.mockReturnValueOnce(chain([]));                       // email libre (HU #12089 AC6)
     selectMock.mockReturnValueOnce(chain([{ codigo: ORG_A }]));      // solo uno de los dos está
 
     const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
@@ -972,6 +980,7 @@ describe('POST /api/users — las dos ataduras al crear (AC1/AC2/AC3)', () => {
 
   it('TC-12053-12: proveedor SOAT inexistente (llamada directa a la API) → 400 y no un 500 de FK', async () => {
     selectMock.mockReturnValueOnce(chain([]));   // username libre
+    selectMock.mockReturnValueOnce(chain([]));   // email libre (HU #12089 AC6)
     selectMock.mockReturnValueOnce(chain([]));   // el proveedor no está
 
     const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
@@ -986,7 +995,8 @@ describe('POST /api/users — las dos ataduras al crear (AC1/AC2/AC3)', () => {
     // Decisión 9 de UX, deliberada y escrita en el contrato §3: el backend acepta lo que EXISTE. Si
     // rechazara los inactivos, editarle el nombre a un usuario atado a un proveedor desactivado
     // fallaría por un campo que el admin no tocó, y guardar le desharía la atadura.
-    selectMock.mockReturnValueOnce(chain([]));
+    selectMock.mockReturnValueOnce(chain([])); // username libre
+    selectMock.mockReturnValueOnce(chain([])); // email libre (HU #12089 AC6)
     selectMock.mockReturnValueOnce(chain([{ id: PROVEEDOR }])); // existe (activo=false, no se mira)
 
     const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
@@ -1235,6 +1245,7 @@ describe('POST /api/users — el rol se pregunta al catálogo (HU #12169, AC6)',
     // USER_ROLES y no lo estará nunca; es una fila del catálogo.
     rolAsignableMock.mockReset().mockResolvedValue({ tipoEnlace: 'ninguno' });
     selectMock.mockReturnValueOnce(chain([])); // username libre
+    selectMock.mockReturnValueOnce(chain([])); // email libre (HU #12089 AC6)
 
     const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
       .send(BODY);
@@ -1258,6 +1269,7 @@ describe('POST /api/users — el rol se pregunta al catálogo (HU #12169, AC6)',
     expect(insertMock).not.toHaveBeenCalled();
 
     selectMock.mockReturnValueOnce(chain([])); // username libre
+    selectMock.mockReturnValueOnce(chain([])); // email libre (HU #12089 AC6)
     selectMock.mockReturnValueOnce(chain([{ id: 3 }])); // compañía existe
     const con = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
       .send({ ...BODY, username: 'cliente_ext_ok', role: 'cliente_externo_ac1', companiaId: 3 });
@@ -1295,6 +1307,7 @@ describe('POST /api/users — el rol se pregunta al catálogo (HU #12169, AC6)',
   // `23514` de la rúbrica, y salía un 500. **Mutante:** quitar la captura del 23514 del POST → 500.
   it('el trigger de ámbito rechaza el alta con 23514 (envuelto en `cause`) → 400 con el mensaje del trigger y sin commit', async () => {
     selectMock.mockReturnValueOnce(chain([])); // username libre
+    selectMock.mockReturnValueOnce(chain([])); // email libre (HU #12089 AC6)
     const delTrigger = Object.assign(new Error('El rol zz exige compañía y el usuario 7 no la tiene'), { code: '23514' });
     insertMock.mockImplementationOnce(() => { throw Object.assign(new Error('Failed query: insert into "users"'), { cause: delTrigger }); });
 
@@ -1402,6 +1415,7 @@ describe('HU #12171 — permisos_auditoria: antes/después de cada cambio, en la
 
   it('alta (POST /): filas `crear` con rol, excepciones y el ámbito; sin antes; dentro de la tx y antes de invalidar', async () => {
     selectMock.mockReturnValueOnce(chain([])); // username libre
+    selectMock.mockReturnValueOnce(chain([])); // email libre (HU #12089 AC6)
     selectMock.mockReturnValueOnce(chain([{ id: PROVEEDOR }])); // el proveedor existe
     selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.soat' }])); // funcionesInexistentes
     eventos.length = 0;
@@ -1762,6 +1776,7 @@ describe('HU #12087 — contrato funciones en POST/PATCH (§4-8)', () => {
 
   it('POST con funciones → insert en permisos_usuario_funcion dentro de la tx + fila usuario_funcion/conjunto/crear', async () => {
     selectMock.mockReturnValueOnce(chain([])); // username libre
+    selectMock.mockReturnValueOnce(chain([])); // email libre (HU #12089 AC6)
     selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.soat' }])); // funcionesInexistentes
     eventos.length = 0;
     const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
@@ -1783,6 +1798,7 @@ describe('HU #12087 — contrato funciones en POST/PATCH (§4-8)', () => {
 
   it('código inexistente → 400 con la lista y cero inserts', async () => {
     selectMock.mockReturnValueOnce(chain([])); // username libre
+    selectMock.mockReturnValueOnce(chain([])); // email libre (HU #12089 AC6)
     selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.soat' }])); // solo soat existe; falta fantasma
     const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
       .send({
