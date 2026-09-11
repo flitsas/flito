@@ -58,7 +58,7 @@ beforeEach(async () => {
   // double del helper para que el resolutor no consuma `selectMock`, que es sobre lo que se afirma.
   // HU #12083: `PATCH /users/:id` y `POST /:id/invalidate-sessions` exigen `usuarios.*`; el usuario 6
   // recibe las operaciones de partida de `admin` (la foto), como haría `testToken`.
-  await registrarUsuarioDePrueba(6, { rol: 'admin', tipoPrincipal: 'interno', allowedPages: [], funcionesDelRol: operacionesDePartida('admin'), excepciones: [] });
+  await registrarUsuarioDePrueba(6, { rol: 'admin', tipoPrincipal: 'interno', funcionesDelRol: operacionesDePartida('admin'), excepciones: [] });
   const { createApp } = await import('../../src/app.js');
   app = createApp();
 });
@@ -135,6 +135,7 @@ describe('PATCH /users/:id invalida sesiones cuando cambia role/allowedPages', (
     selectMock.mockReturnValueOnce(chain([{ id: 6 }])); // HU #12084: lock de la población administradora (FOR UPDATE), primero en la tx
     selectMock.mockReturnValueOnce(chain([{ id: 6, role: 'lider_pesv', allowedPages: [] }])); // antes, dentro de la tx con FOR UPDATE (HU #12171)
     selectMock.mockReturnValueOnce(chain([])); // organismos del usuario, dentro de la tx (HU #12053)
+    selectMock.mockReturnValueOnce(chain([])); // funciones del usuario, dentro de la tx (HU #12087)
     selectMock.mockReturnValueOnce(chain([{ f0: 1, f1: 1 }])); // HU #12084: la cuenta del invariante tras el UPDATE (≥1 en las dos)
     // HU #12171: el cambio de rol deja su fila en permisos_auditoria dentro de la misma transacción.
     insertMock.mockImplementation(() => chain([]));
@@ -156,6 +157,7 @@ describe('PATCH /users/:id invalida sesiones cuando cambia role/allowedPages', (
     selectMock.mockReturnValueOnce(chain([{ id: 6, role: 'admin' }]));
     selectMock.mockReturnValueOnce(chain([{ id: 6, role: 'admin', allowedPages: [] }])); // antes, dentro de la tx con FOR UPDATE (HU #12171)
     selectMock.mockReturnValueOnce(chain([])); // organismos del usuario, dentro de la tx (HU #12053)
+    selectMock.mockReturnValueOnce(chain([])); // funciones del usuario, dentro de la tx (HU #12087)
     let capturedSet: any = null;
     updateMock.mockImplementationOnce(() => ({
       set: (s: any) => { capturedSet = s; return { where: () => ({ returning: () => Promise.resolve([{ id: 6, name: 'Edison Nuevo', role: 'admin' }]) }) }; },

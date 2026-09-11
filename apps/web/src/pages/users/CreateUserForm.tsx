@@ -1,24 +1,23 @@
 // FLITO — formulario de ALTA de usuario. Extraído de `pages/Users.tsx` sin cambios.
-// HU #12175 / Feature #12072.
-//
-// **Esto NO es kit.** Props tipadas, sin estado global, un único consumidor: la página de usuarios.
+// HU #12175 / Feature #12072. HU #12087: `funciones`; cambiar de rol vacía excepciones (sin modal).
 
-import { useState, type FormEvent } from 'react';
+import { useCallback, useState, type FormEvent } from 'react';
 import toast from 'react-hot-toast';
+import type { FuncionDeUsuario } from '@operaciones/shared-types';
 import { api } from '../../lib/api';
 import FlitModal from '../../components/flit/FlitModal';
-import type { PageSlug } from '../../lib/permissions';
 import { ROLES, type User } from './types';
 import { Field, Footer, formatErrors, inputCls, PASSWORD_PATTERN, PASSWORD_TITLE } from './UserFormShared';
 import { COMPANIA_REQUERIDA, type CatalogoCompanias } from './CompaniaField';
 import { AmbitoCampos } from './Ambito';
-import PermissionsPicker from './PermissionsPicker';
+import PermissionsPicker, { type CatalogoFuncionesEstado } from './PermissionsPicker';
 import { ORGANISMOS_REQUERIDO, PROVEEDOR_REQUERIDO, type CatalogoOrganismos, type CatalogoProveedores } from './AtaduraFields';
 
-export default function CreateForm({ companias, proveedores, organismos, onClose, onCreated }: {
+export default function CreateForm({ companias, proveedores, organismos, catalogo, onClose, onCreated }: {
   companias: CatalogoCompanias;
   proveedores: CatalogoProveedores;
   organismos: CatalogoOrganismos;
+  catalogo: CatalogoFuncionesEstado;
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -28,7 +27,7 @@ export default function CreateForm({ companias, proveedores, organismos, onClose
     email: string;
     password: string;
     role: User['role'];
-    extraPages: PageSlug[];
+    excepciones: FuncionDeUsuario[];
     transitoCodigo: string;
     companiaId: string;
     flitoProveedorSoatId: string;
@@ -36,29 +35,24 @@ export default function CreateForm({ companias, proveedores, organismos, onClose
   }>({
     username: '', name: '', email: '', password: '',
     role: 'proveedor',
-    extraPages: [],
+    excepciones: [],
     transitoCodigo: '',
     companiaId: '',
     flitoProveedorSoatId: '',
     organismosCodigos: [],
   });
   const [submitting, setSubmitting] = useState(false);
+  const [funcionesOk, setFuncionesOk] = useState(false);
   const [errorCompania, setErrorCompania] = useState<string | null>(null);
   const [errorProveedor, setErrorProveedor] = useState<string | null>(null);
   const [errorOrganismos, setErrorOrganismos] = useState<string | null>(null);
 
+  const onDisponible = useCallback((ok: boolean) => setFuncionesOk(ok), []);
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (submitting) return;
-    // AC2 en el cliente, y no solo en el servidor. Dos motivos medidos: el 400 del backend llega
-    // como «companiaId: Compañía requerida para el rol Cliente» —`ApiError.toUserMessage()`
-    // antepone el campo, igual que con `transitoCodigo`, y arreglarlo tocaría el formateador de
-    // errores de todo el producto—, y sobre todo que aquí NO se manda la petición: un usuario a
-    // medio crear no llega a existir.
     if (f.role === 'cliente' && !f.companiaId) { setErrorCompania(COMPANIA_REQUERIDA); return; }
-    // AC3, con el mismo mecanismo y por los mismos dos motivos: el 400 del servidor llega como
-    // «flitoProveedorSoatId: Proveedor SOAT requerido…» —`ApiError.toUserMessage()` antepone el
-    // nombre del campo—, y aquí NO se manda la petición.
     if (f.role === 'proveedor' && !f.flitoProveedorSoatId) { setErrorProveedor(PROVEEDOR_REQUERIDO); return; }
     if (f.role === 'gestor_impuestos' && f.organismosCodigos.length === 0) { setErrorOrganismos(ORGANISMOS_REQUERIDO); return; }
     setErrorCompania(null); setErrorProveedor(null); setErrorOrganismos(null);
@@ -66,11 +60,9 @@ export default function CreateForm({ companias, proveedores, organismos, onClose
     try {
       const body: Record<string, unknown> = { username: f.username.trim(), name: f.name.trim(), password: f.password, role: f.role };
       if (f.email.trim()) body.email = f.email.trim();
-      if (f.extraPages.length > 0) body.allowedPages = f.extraPages;
+      if (funcionesOk && f.excepciones.length > 0) body.funciones = f.excepciones;
       if (f.role === 'transito') body.transitoCodigo = f.transitoCodigo;
-      // Solo el rol Cliente la manda: el backend rechaza una compañía en cualquier otro rol.
       if (f.role === 'cliente') body.companiaId = Number(f.companiaId);
-      // Cada ámbito lo manda SOLO su rol: el backend rechaza el campo en cualquier otro.
       if (f.role === 'proveedor') body.flitoProveedorSoatId = f.flitoProveedorSoatId;
       if (f.role === 'gestor_impuestos') body.organismosCodigos = f.organismosCodigos;
       await api.post('/users', body);
@@ -100,22 +92,26 @@ export default function CreateForm({ companias, proveedores, organismos, onClose
           <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>{PASSWORD_TITLE}</p>
         </Field>
         <Field label="Rol base">
-          {/* Cambiar de rol limpia los CUATRO ámbitos, y limpia también sus mensajes de rechazo.
-              Sin esto, pasar de Cliente a Proveedor y guardar mandaría una compañía que el backend
-              rechaza con un mensaje que no explica nada; y el error de un campo que ya no se pinta
-              volvería a robar el foco al reaparecer. En el ALTA no se conservan borradores por rol:
-              nada se ha guardado todavía, y un borrador invisible no lo pidió nadie. */}
+          {/* En el alta, cambiar de rol vacía las excepciones: no hay nada guardado que arrastrar. */}
           <select
             value={f.role}
             onChange={(e) => {
-              setF({ ...f, role: e.target.value as User['role'], transitoCodigo: '', companiaId: '', flitoProveedorSoatId: '', organismosCodigos: [] });
+              setF({
+                ...f,
+                role: e.target.value as User['role'],
+                excepciones: [],
+                transitoCodigo: '',
+                companiaId: '',
+                flitoProveedorSoatId: '',
+                organismosCodigos: [],
+              });
               setErrorProveedor(null); setErrorOrganismos(null);
             }}
             className={inputCls}
           >
             {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
-          <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>Define los permisos por defecto. Puede ampliar páginas adicionales abajo.</p>
+          <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>Define los permisos por defecto. Puede ampliar o quitar funciones abajo.</p>
         </Field>
         <AmbitoCampos
           role={f.role}
@@ -131,7 +127,13 @@ export default function CreateForm({ companias, proveedores, organismos, onClose
           errorOrganismos={errorOrganismos}
           setErrorOrganismos={setErrorOrganismos}
         />
-        <PermissionsPicker role={f.role} extraPages={f.extraPages} onChange={(pages) => setF({ ...f, extraPages: pages })} />
+        <PermissionsPicker
+          role={f.role}
+          catalogo={catalogo}
+          excepciones={f.excepciones}
+          onChange={(exc) => setF({ ...f, excepciones: exc })}
+          onDisponibleChange={onDisponible}
+        />
         <Footer onClose={onClose} submitting={submitting} label="Crear usuario" />
       </form>
     </FlitModal>

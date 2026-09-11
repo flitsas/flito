@@ -43,6 +43,16 @@ const ITEMS_DIFF: Item[] = [
   fila({ id: 6, loteId: 'L4', origen: 'auditoria', campo: 'transito_codigo', valorAntes: '11001', valorDespues: '05001' }),
   fila({ id: 7, loteId: 'L5', entidad: 'rol_funcion', accion: 'crear', campo: 'conjunto', valorAntes: null, valorDespues: { conjunto: Array.from({ length: 20 }, (_, i) => `f.${String(i).padStart(2, '0')}`) }, titular: null, rolAfectado: 'financiera' }),
   fila({ id: 8, loteId: 'L6', campo: 'deleted_at', valorAntes: null, valorDespues: '2026-09-08T09:10:00.000Z', accion: 'baja', actor: { userId: null, email: null, rol: null } }),
+  // HU #12087: excepciones codificadas se leen como «Excepciones nuevas / retiradas» + Añadido/Quitado.
+  fila({
+    id: 9, loteId: 'L7', entidad: 'usuario_funcion', accion: 'editar', campo: 'conjunto',
+    valorAntes: { conjunto: ['conceder:pagina.rndc'] },
+    valorDespues: {
+      conjunto: ['revocar:pagina.users'],
+      concedidas: ['revocar:pagina.users'],
+      revocadas: ['conceder:pagina.rndc'],
+    },
+  }),
 ];
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
@@ -173,9 +183,9 @@ test.describe('Usuarios — Historial de cambios (HU #12171)', () => {
     await abrirHistorial(page);
 
     const filas = panel(page).locator('tbody tr');
-    // 8 items → 8 <tr>: el lote L1 (3 filas) NO se agrupa.
-    await expect(filas).toHaveCount(8);
-    for (let i = 0; i < 8; i++) {
+    // 9 items → 9 <tr>: el lote L1 (3 filas) NO se agrupa.
+    await expect(filas).toHaveCount(9);
+    for (let i = 0; i < 9; i++) {
       const celdas = filas.nth(i).locator('td');
       await expect(celdas).toHaveCount(4);
       for (let c = 0; c < 4; c++) expect((await celdas.nth(c).innerText()).trim()).not.toBe('');
@@ -212,6 +222,11 @@ test.describe('Usuarios — Historial de cambios (HU #12171)', () => {
     // Sistema, baja y la fecha en `medium`.
     await expect(filas.nth(7)).toContainText('Sistema');
     await expect(filas.nth(7)).toContainText('En alta → Dado de baja');
+    // HU #12087: usuario_funcion decodifica excepciones.
+    await expect(filas.nth(8)).toContainText('Excepciones nuevas (1)');
+    await expect(filas.nth(8)).toContainText(/Quitado ·/);
+    await expect(filas.nth(8)).toContainText('Excepciones retiradas (1)');
+    await expect(filas.nth(8)).toContainText(/Añadido ·/);
     // Chromium/es-CO: «9 de sept de 2026, 14:32» — día, mes abreviado, año completo y hora de 24 h.
     await expect(filas.nth(0)).toContainText(/9 de sept\.? de 2026, 14:32/);
   });

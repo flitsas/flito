@@ -11,7 +11,7 @@
 
 import { useEffect, useState, useCallback, useRef, type KeyboardEvent } from 'react';
 import toast from 'react-hot-toast';
-import { api } from '../../lib/api';
+import { api, errorMessage, permisosApi, type GrupoDeFunciones } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import PageHeaderCard from '../../components/flit/PageHeaderCard';
 import GradientButton from '../../components/flit/GradientButton';
@@ -21,6 +21,7 @@ import { useCompanias } from './CompaniaField';
 import { formatErrors } from './UserFormShared';
 import type { UserRole } from '../../lib/permissions';
 import type { ResumenUsuarios, User } from './types';
+import type { CatalogoFuncionesEstado } from './PermissionsPicker';
 import UsersTable from './UsersTable';
 import UsersToolbar from './UsersToolbar';
 import CreateForm from './CreateUserForm';
@@ -43,6 +44,7 @@ export default function UsersGestion({ puedeExportar }: {
   const companias = useCompanias();
   const proveedores = useProveedoresSoat();
   const organismos = useOrganismosParametrizados();
+  const catalogo = useCatalogoFunciones();
   const nombreCompania = (id: number) => companias.data?.find((c) => c.id === id)?.nombre ?? null;
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -258,12 +260,28 @@ export default function UsersGestion({ puedeExportar }: {
         {seccion === 'historial' && <HistorialPermisos />}
       </div>
 
-      {showCreate && <CreateForm companias={companias} proveedores={proveedores} organismos={organismos} onClose={() => setShowCreate(false)} onCreated={recargar} />}
-      {editing && <EditForm user={editing} companias={companias} proveedores={proveedores} organismos={organismos} onClose={() => setEditing(null)} onSaved={recargar} />}
+      {showCreate && <CreateForm companias={companias} proveedores={proveedores} organismos={organismos} catalogo={catalogo} onClose={() => setShowCreate(false)} onCreated={recargar} />}
+      {editing && <EditForm user={editing} companias={companias} proveedores={proveedores} organismos={organismos} catalogo={catalogo} onClose={() => setEditing(null)} onSaved={recargar} />}
       {/* La contraseña no cambia rol ni estado: recarga la lista y NO el resumen. */}
       {pwdTarget && <PasswordForm user={pwdTarget} isSelf={pwdTarget.id === me?.id} onClose={() => setPwdTarget(null)} onSaved={load} />}
     </div>
   );
+}
+
+/** Catálogo de funciones UNA vez por página (HU #12087), igual que compañías / proveedores. */
+function useCatalogoFunciones(): CatalogoFuncionesEstado {
+  const [grupos, setGrupos] = useState<GrupoDeFunciones[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [recarga, setRecarga] = useState(0);
+  useEffect(() => {
+    let vivo = true;
+    setGrupos(null); setError(null);
+    permisosApi.funciones()
+      .then((r) => { if (vivo) setGrupos(Array.isArray(r?.grupos) ? r.grupos : []); })
+      .catch((e) => { if (vivo) setError(errorMessage(e)); });
+    return () => { vivo = false; };
+  }, [recarga]);
+  return { grupos, error, recargar: () => setRecarga((n) => n + 1) };
 }
 
 /**

@@ -50,12 +50,18 @@ beforeEach(() => {
   fijarFuenteDePermisos(null); // fuente real y caché vacía en cada caso
 });
 
-/** La tanda: fila de users⋈permisos_roles, reparto del rol, filas propias (ninguna aquí). */
-function usuario(role: string, allowedPages: string[] | null, ...reparto: string[]) {
+type Excepcion = { codigo: string; efecto: 'conceder' | 'revocar' };
+
+/**
+ * La tanda: fila de users⋈permisos_roles, reparto del rol, filas propias de `permisos_usuario_funcion`.
+ * HU #12087: las páginas propias ya NO vienen de `users.allowed_pages` (congelada, 0188) sino de la
+ * tabla como `conceder pagina.<slug>`; `propias` admite slugs (→ `conceder`) o excepciones completas.
+ */
+function usuario(role: string, propias: (string | Excepcion)[] | null, ...reparto: string[]) {
   respuestas = [
-    [{ rol: role, allowedPages, tipoPrincipal: 'interno' }],
+    [{ rol: role, tipoPrincipal: 'interno' }],
     reparto.map((codigo) => ({ codigo })),
-    [],
+    (propias ?? []).map((p) => (typeof p === 'string' ? { codigo: `pagina.${p}`, efecto: 'conceder' } : p)),
   ];
 }
 
@@ -88,14 +94,32 @@ describe('paginasEfectivasDeUsuario — del reparto sembrado a la lista de slugs
     expect(await paginasEfectivasDeUsuario(1)).toEqual(['dashboard']);
   });
 
-  it('suma las páginas propias del usuario (users.allowed_pages), sin repetir', async () => {
+  it('suma las páginas propias del usuario (`conceder pagina.*` de permisos_usuario_funcion), sin repetir', async () => {
     usuario('conductor', ['dashboard', 'pesv'], 'pagina.dashboard');
     expect((await paginasEfectivasDeUsuario(9)).sort()).toEqual(['dashboard', 'pesv']);
   });
 
-  it('filtra las páginas propias inválidas, igual que hacía `getEffectivePages`', async () => {
+  it('filtra las páginas propias que ya no están en el catálogo, igual que las del rol', async () => {
     usuario('x', ['no_existe', 'laft']);
     expect(await paginasEfectivasDeUsuario(9)).toEqual(['laft']);
+  });
+
+  // AC2 de la HU #12087, para páginas. Mutante nombrado (AC8): quitar el bucle de `revocar` de
+  // `conjuntoEfectivo` deja `fleet` en la lista y este caso cae.
+  it('`revocar pagina.fleet` contra `pagina.fleet` del rol → la página NO está: revocar manda sobre el rol', async () => {
+    usuario('gestor', [{ codigo: 'pagina.fleet', efecto: 'revocar' }], 'pagina.dashboard', 'pagina.fleet');
+    expect(await paginasEfectivasDeUsuario(9)).toEqual(['dashboard']);
+  });
+
+  it('`revocar` de una página que el rol NO da tampoco la añade (no es un conceder disfrazado)', async () => {
+    usuario('gestor', [{ codigo: 'pagina.fleet', efecto: 'revocar' }], 'pagina.dashboard');
+    expect(await paginasEfectivasDeUsuario(9)).toEqual(['dashboard']);
+  });
+
+  it('de `users` pide `role` y el tipo del rol, y NO `allowed_pages`: la columna está congelada (0188)', async () => {
+    usuario('auditor', ['pesv'], 'pagina.dashboard');
+    await paginasEfectivasDeUsuario(1);
+    expect(Object.keys(selectMock.mock.calls[0]![0] as object).sort()).toEqual(['rol', 'tipoPrincipal']);
   });
 
   it('un rol sin reparto y sin páginas propias no ve NADA: el fallo por defecto es cerrado', async () => {

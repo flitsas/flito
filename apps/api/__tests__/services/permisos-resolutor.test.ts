@@ -49,15 +49,18 @@ const {
 
 const render = (c: unknown) => new PgDialect().sqlToQuery(c as never);
 
-/** La tanda entera: fila de users⋈permisos_roles, filas del rol, filas del usuario. */
+/**
+ * La tanda entera: fila de users⋈permisos_roles, filas del rol, filas del usuario. HU #12087: la fila
+ * de `users` ya no trae `allowed_pages` (congelada, 0188); las páginas propias son filas `conceder
+ * pagina.<slug>` de `permisos_usuario_funcion`, en `propias` como cualquier otra excepción.
+ */
 function base(opts: {
-  usuario?: { rol: string; allowedPages?: string[] | null; tipoPrincipal?: string } | null;
+  usuario?: { rol: string; tipoPrincipal?: string } | null;
   rol?: string[];
   propias?: { codigo: string; efecto: string }[];
 }) {
   const u = opts.usuario === null ? [] : [{
     rol: opts.usuario?.rol ?? 'gestor',
-    allowedPages: opts.usuario?.allowedPages ?? null,
     tipoPrincipal: opts.usuario?.tipoPrincipal ?? 'interno',
   }];
   respuestas = [u, (opts.rol ?? []).map((codigo) => ({ codigo })), opts.propias ?? []];
@@ -115,23 +118,23 @@ describe('TC #12258 AC1 — resolverPermisos: (rol ∪ conceder) \\ revocar, con
     expect(render(condiciones[4]).params).toEqual(['compliance']);
   });
 
-  it('de users pide role, allowed_pages y el tipo del rol; NUNCA email, name, username ni password_hash', async () => {
+  it('de users pide role y el tipo del rol; NUNCA allowed_pages (congelada, HU #12087), email, name, username ni password_hash', async () => {
     base({ usuario: { rol: 'gestor' } });
     await resolverPermisos(7);
     const columnas = selecciones.map((s) => Object.keys(s as object));
-    expect(columnas[0]).toEqual(['rol', 'allowedPages', 'tipoPrincipal']);
+    expect(columnas[0]).toEqual(['rol', 'tipoPrincipal']);
     expect(columnas[1]).toEqual(['codigo']);
     expect(columnas[2]).toEqual(['codigo', 'efecto']);
     // Las columnas reales que cada campo del select apunta, por si alguien renombra el alias.
     const sql = selecciones.map((s) => Object.values(s as Record<string, { name?: string }>).map((c) => c.name)).flat();
-    expect(sql).toEqual(['role', 'allowed_pages', 'tipo_principal', 'funcion_codigo', 'funcion_codigo', 'efecto']);
-    for (const prohibida of ['email', 'name', 'username', 'password_hash', 'documento', 'telefono']) {
+    expect(sql).toEqual(['role', 'tipo_principal', 'funcion_codigo', 'funcion_codigo', 'efecto']);
+    for (const prohibida of ['allowed_pages', 'email', 'name', 'username', 'password_hash', 'documento', 'telefono']) {
       expect(sql).not.toContain(prohibida);
     }
   });
 });
 
-describe('TC #12259 AC1 — borde: rol sin funciones devuelve vacío sin lanzar; revocar lo que el rol no da no lanza; pagina.* sale de users.allowed_pages y operacion.* de permisos_usuario_funcion', () => {
+describe('TC #12259 AC1 — borde: rol sin funciones devuelve vacío sin lanzar; revocar lo que el rol no da no lanza; pagina.* y operacion.* salen las dos de permisos_usuario_funcion (HU #12087)', () => {
   it('(a) un rol nuevo_desde_panel sin filas y un usuario sin filas propias → Set vacío, sin rechazar, sin log', async () => {
     base({ usuario: { rol: 'nuevo_desde_panel' } });
     const p = await resolverPermisos(11);
@@ -145,23 +148,22 @@ describe('TC #12259 AC1 — borde: rol sin funciones devuelve vacío sin lanzar;
     expect(await conjunto(12)).toEqual([]);
   });
 
-  it('(c) pagina.* se concede desde users.allowed_pages (la columna es la fuente viva) y operacion.* desde permisos_usuario_funcion; un `conceder pagina.*` de la tabla se IGNORA', async () => {
+  it('(c) `conceder pagina.*` y `conceder operacion.*` de permisos_usuario_funcion CUENTAN los dos: la tabla es la única fuente de las excepciones (HU #12087, AC6)', async () => {
     base({
-      usuario: { rol: 'gestor', allowedPages: ['users'] },
+      usuario: { rol: 'gestor' },
       rol: ['pagina.dashboard'],
       propias: [
-        { codigo: 'pagina.reportes', efecto: 'conceder' },   // la 0179 la copió; nadie la escribe
+        { codigo: 'pagina.users', efecto: 'conceder' },
         { codigo: 'tramite.lote.crear', efecto: 'conceder' },
       ],
     });
-    const c = await conjunto(13);
-    expect(c).toContain('pagina.users');
-    expect(c).toContain('tramite.lote.crear');
-    expect(c).not.toContain('pagina.reportes');
+    expect(await conjunto(13)).toEqual(['pagina.dashboard', 'pagina.users', 'tramite.lote.crear']);
   });
 
-  it('un slug de allowed_pages que ya no está en el catálogo no concede nada', async () => {
-    base({ usuario: { rol: 'gestor', allowedPages: ['no_existe', 'laft'] } });
+  it('un `conceder pagina.<slug>` cuyo slug ya no está en el catálogo no concede nada', async () => {
+    base({ usuario: { rol: 'gestor' }, propias: [
+      { codigo: 'pagina.no_existe', efecto: 'conceder' }, { codigo: 'pagina.laft', efecto: 'conceder' },
+    ] });
     expect(await conjunto(14)).toEqual(['pagina.laft']);
   });
 
@@ -197,14 +199,14 @@ describe('TC #12273 AC9 M1 — colisión conceder/revocar: la resta va ÚLTIMA y
     expect(await conjunto(7)).toEqual(['soat.cola.ver']);
   });
 
-  it('un slug en users.allowed_pages contra una fila `revocar pagina.<slug>` en la tabla → la página NO está', async () => {
+  it('`revocar pagina.fleet` contra `pagina.fleet` del ROL → la página NO está (AC2 de la #12087; mutante AC8: quitar el bucle de revocar)', async () => {
     base({
-      usuario: { rol: 'gestor', allowedPages: ['fleet'] },
-      rol: [],
+      usuario: { rol: 'gestor' },
+      rol: ['pagina.fleet', 'pagina.dashboard'],
       propias: [{ codigo: 'pagina.fleet', efecto: 'revocar' }],
     });
-    expect(await conjunto(8)).toEqual([]);
-    expect(await paginasEfectivasDeUsuario(8)).toEqual([]);
+    expect(await conjunto(8)).toEqual(['pagina.dashboard']);
+    expect(await paginasEfectivasDeUsuario(8)).toEqual(['dashboard']);
   });
 });
 
@@ -286,7 +288,7 @@ describe('TC #12263 AC4 — el fallo de base NO abre la puerta: niega de forma d
   });
 
   it('un fallo en la SEGUNDA o TERCERA consulta también niega (no se decide con media tanda)', async () => {
-    respuestas = [[{ rol: 'gestor', allowedPages: null, tipoPrincipal: 'interno' }], new Error('timeout') as unknown as unknown[]];
+    respuestas = [[{ rol: 'gestor', tipoPrincipal: 'interno' }], new Error('timeout') as unknown as unknown[]];
     expect(await resolverPermisos(7)).toEqual({ ok: false, userId: 7, motivo: 'resolucion' });
   });
 
@@ -309,8 +311,8 @@ describe('el seam de pruebas', () => {
 
   it('sustituye las FILAS y no la regla: la resta sigue ganando sobre el double', async () => {
     fijarFuenteDePermisos(async () => ({
-      rol: 'gestor', tipoPrincipal: 'interno', allowedPages: ['fleet'],
-      funcionesDelRol: ['soat.cola.ver'], excepciones: [{ codigo: 'pagina.fleet', efecto: 'revocar' }],
+      rol: 'gestor', tipoPrincipal: 'interno',
+      funcionesDelRol: ['soat.cola.ver', 'pagina.fleet'], excepciones: [{ codigo: 'pagina.fleet', efecto: 'revocar' }],
     }));
     expect(await conjunto(7)).toEqual(['soat.cola.ver']);
     expect(selectMock).not.toHaveBeenCalled();

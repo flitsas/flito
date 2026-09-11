@@ -15,16 +15,36 @@ const json = (body: unknown, status = 200) => ({
 });
 
 test.describe('Usuarios — gestión y permisos', () => {
+  test.beforeEach(async ({ page }) => {
+    const F = (codigo: string, nombreNegocio: string) => ({ codigo, nombreNegocio, descripcion: null, tipo: 'pagina' });
+    await page.route(/\/api\/permisos\/funciones$/, (route) => route.fulfill(json({
+      grupos: [
+        { modulo: 'usuarios', funciones: [F('pagina.users', 'Entrar a Usuarios'), F('pagina.rndc', 'RNDC y manifiestos')] },
+        { modulo: 'general', funciones: [F('pagina.dashboard', 'Entrar al tablero')] },
+      ],
+    })));
+    await page.route(/\/api\/permisos\/roles\/[^/]+\/funciones$/, (route) => {
+      const codigo = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-2) ?? '');
+      const cuadros: Record<string, string[]> = {
+        compliance: ['pagina.users', 'pagina.dashboard'],
+        auditor: ['pagina.dashboard'],
+        admin: ['pagina.users', 'pagina.dashboard', 'pagina.rndc'],
+        proveedor: ['pagina.dashboard'],
+      };
+      return route.fulfill(json({ codigo, tipoPrincipal: 'interno', funciones: cuadros[codigo] ?? ['pagina.dashboard'] }));
+    });
+  });
+
   test('admin crea usuario con rol auditor → aparece en el listado', async ({ page }) => {
     const users: any[] = [
-      { id: 1, username: 'admin', name: 'Admin', email: null, role: 'admin', active: true, allowedPages: [], flitoProveedorSoatId: null, organismosCodigos: [], createdAt: new Date().toISOString() },
+      { id: 1, username: 'admin', name: 'Admin', email: null, role: 'admin', active: true, allowedPages: [], funciones: [], flitoProveedorSoatId: null, organismosCodigos: [], createdAt: new Date().toISOString() },
     ];
 
     await page.route('**/api/users', async (route) => {
       const req = route.request();
       if (req.method() === 'POST') {
         const b = req.postDataJSON();
-        const created = { id: 99, username: b.username, name: b.name, email: b.email ?? null, role: b.role, active: true, allowedPages: b.allowedPages ?? [], flitoProveedorSoatId: null, organismosCodigos: [], createdAt: new Date().toISOString() };
+        const created = { id: 99, username: b.username, name: b.name, email: b.email ?? null, role: b.role, active: true, allowedPages: [], funciones: b.funciones ?? [], flitoProveedorSoatId: null, organismosCodigos: [], createdAt: new Date().toISOString() };
         users.push(created);
         return route.fulfill(json(created, 201));
       }
@@ -57,8 +77,12 @@ test.describe('Usuarios — gestión y permisos', () => {
     await expect(page.getByRole('table').getByText('Auditor (revisor fiscal)')).toBeVisible();
   });
 
-  test('editar usuario conserva/añade allowedPages (USR-4: no se recortan)', async ({ page }) => {
-    const compliance = { id: 2, username: 'cumplimiento', name: 'Cumplimiento', email: null, role: 'compliance', active: true, allowedPages: [] as string[], flitoProveedorSoatId: null, organismosCodigos: [] as string[], createdAt: new Date().toISOString() };
+  test('editar usuario conserva/añade funciones (HU #12087)', async ({ page }) => {
+    const compliance = {
+      id: 2, username: 'cumplimiento', name: 'Cumplimiento', email: null, role: 'compliance', active: true,
+      allowedPages: [] as string[], funciones: [] as { codigo: string; efecto: string }[],
+      flitoProveedorSoatId: null, organismosCodigos: [] as string[], createdAt: new Date().toISOString(),
+    };
 
     await page.route('**/api/users', async (route) => {
       if (route.request().method() === 'GET') return route.fulfill(json([compliance]));
@@ -69,7 +93,7 @@ test.describe('Usuarios — gestión y permisos', () => {
     await page.route('**/api/users/2', async (route) => {
       if (route.request().method() === 'PATCH') {
         patchBody = route.request().postDataJSON();
-        return route.fulfill(json({ ...compliance, allowedPages: patchBody.allowedPages ?? [] }));
+        return route.fulfill(json({ ...compliance, funciones: patchBody.funciones ?? [] }));
       }
       return route.fulfill(json({}, 405));
     });
@@ -78,12 +102,15 @@ test.describe('Usuarios — gestión y permisos', () => {
     await page.goto('/users');
 
     await page.getByRole('button', { name: /^editar$/i }).first().click();
-    // 'RNDC y manifiestos' NO está en los defaults de compliance → checkbox habilitable.
+    await page.getByRole('button', { name: /^Usuarios/i }).first().click();
     await page.getByRole('checkbox', { name: /RNDC y manifiestos/i }).check();
     await page.getByRole('button', { name: /guardar cambios/i }).click();
 
     await expect.poll(() => patchBody, { timeout: 5000 }).not.toBeNull();
-    expect(patchBody.allowedPages).toContain('rndc');
+    expect(patchBody.funciones).toEqual(expect.arrayContaining([
+      { codigo: 'pagina.rndc', efecto: 'conceder' },
+    ]));
+    expect(patchBody.allowedPages).toBeUndefined();
   });
 
   test('usuario restringido no accede a /users (NoAccess) pero sí a páginas permitidas', async ({ page }) => {

@@ -11,17 +11,16 @@
 // ── La regla: (R ∪ C) \ V, y qué fuente decide cada familia ─────────────────────────────────────
 //
 //   · R — `permisos_rol_funcion` del rol del usuario (páginas y operaciones).
-//   · C — lo concedido al USUARIO: `pagina.*` sale de `users.allowed_pages` (la columna sigue siendo
-//     la fuente viva: `users.routes.ts` la escribe en el alta y en la edición, y `permisos_usuario_
-//     funcion` solo tiene la foto que copió la 0179 —leerla congelaría los permisos por usuario en el
-//     día de la migración—); `operacion.*` sale de `permisos_usuario_funcion` con efecto `conceder`.
-//     Las filas `conceder pagina.*` de la tabla se IGNORAN a propósito hasta que la HU #12087 mueva
-//     el camino de escritura.
-//   · V — `permisos_usuario_funcion` con efecto `revocar`, para las dos familias.
+//   · C — lo concedido al USUARIO: TODAS las filas `conceder` de `permisos_usuario_funcion`, páginas
+//     (`pagina.*`, filtradas por `esPaginaViva`) y operaciones por igual. Desde la HU #12087 la tabla
+//     es la ÚNICA fuente de las excepciones por usuario: `users.allowed_pages` está congelada (0188),
+//     no se escribe ni se lee aquí (`leerFilasDePermisos` no pide la columna).
+//   · V — `permisos_usuario_funcion` con efecto `revocar`, para las dos familias. Un `revocar
+//     pagina.<slug>` saca la página del menú y de `requirePage` aunque el rol la dé (AC2).
 //
-// La resta va ÚLTIMA: ante una colisión entre fuentes (un slug en la columna y una fila `revocar
-// pagina.<slug>` en la tabla) **revocar gana**. Es la lectura de RN-A6 coherente con negar por defecto,
-// y es lo único que hace observable la mutación M1 del AC9 (`(R \ V) ∪ C`).
+// La resta va ÚLTIMA: ante una colisión (una fila `conceder` del rol y una `revocar` del usuario sobre
+// el mismo código) **revocar gana**. Es la lectura de RN-A6 coherente con negar por defecto, y es lo
+// que hace observable el mutante del AC8 de la #12087 (quitar el bucle de `revocar`).
 //
 // ── Fail-closed, al contrario que `getSessionInvalidatedMs` ─────────────────────────────────────
 //
@@ -79,7 +78,6 @@ export type PermisosResueltos =
 export interface FilasPermisos {
   rol: string;
   tipoPrincipal: TipoPrincipal;
-  allowedPages: string[];
   funcionesDelRol: string[];
   excepciones: { codigo: string; efecto: 'conceder' | 'revocar' }[];
 }
@@ -93,13 +91,12 @@ const cache = new Map<number, { valor: PermisosOk; expiraEn: number }>();
 /**
  * Las tres consultas, en secuencia y con `db.select` (no un CTE): el `chainEspia` de las pruebas
  * captura cada `where` por separado y afirma que el de `permisos_rol_funcion` lleva el rol LEÍDO de
- * la fila de `users` y el de `permisos_usuario_funcion` el `userId`. De `users` se piden `role` y
- * `allowed_pages` y nada más: ni correo, ni nombre, ni documento.
+ * la fila de `users` y el de `permisos_usuario_funcion` el `userId`. De `users` se pide `role` y
+ * nada más: ni `allowed_pages` (congelada, HU #12087), ni correo, ni nombre, ni documento.
  */
 async function leerFilasDePermisos(userId: number): Promise<FilasPermisos | null> {
   const [fila] = await db.select({
     rol: users.role,
-    allowedPages: users.allowedPages,
     tipoPrincipal: permisosRoles.tipoPrincipal,
   })
     .from(users)
@@ -122,7 +119,6 @@ async function leerFilasDePermisos(userId: number): Promise<FilasPermisos | null
   return {
     rol: fila.rol,
     tipoPrincipal: fila.tipoPrincipal === 'externo' ? 'externo' : 'interno',
-    allowedPages: fila.allowedPages ?? [],
     funcionesDelRol: delRol.map((r) => r.codigo),
     excepciones: propias.map((p) => ({
       codigo: p.codigo,
@@ -162,12 +158,11 @@ function conjuntoEfectivo(filas: FilasPermisos): Set<string> {
     if (codigo.startsWith(PREFIJO)) { if (esPaginaViva(codigo)) conjunto.add(codigo); }
     else conjunto.add(codigo);
   }
-  for (const slug of filas.allowedPages) {
-    if (isValidPage(slug)) conjunto.add(PREFIJO + slug);
-  }
   for (const e of filas.excepciones) {
-    // `conceder pagina.*` de la tabla se ignora: la fuente viva de las páginas es la columna.
-    if (e.efecto === 'conceder' && !e.codigo.startsWith(PREFIJO)) conjunto.add(e.codigo);
+    if (e.efecto !== 'conceder') continue;
+    // Una página concedida cuenta solo si su slug sigue en el catálogo, igual que las del rol.
+    if (e.codigo.startsWith(PREFIJO)) { if (esPaginaViva(e.codigo)) conjunto.add(e.codigo); }
+    else conjunto.add(e.codigo);
   }
   for (const e of filas.excepciones) {
     if (e.efecto === 'revocar') conjunto.delete(e.codigo);

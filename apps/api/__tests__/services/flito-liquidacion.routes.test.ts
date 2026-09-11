@@ -49,7 +49,7 @@ async function buildApp() {
 async function tokenFinanciera() {
   const token = `Bearer ${await testToken({ sub: 31, role: 'financiera' })}`;
   await registrarUsuarioDePrueba(31, {
-    rol: 'financiera', tipoPrincipal: 'interno', allowedPages: [],
+    rol: 'financiera', tipoPrincipal: 'interno',
     funcionesDelRol: ['liquidacion.liquidacion.liquidar'], excepciones: [],
   });
   return token;

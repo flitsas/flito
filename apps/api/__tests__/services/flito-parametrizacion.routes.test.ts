@@ -271,7 +271,7 @@ const filaTarifa = (over: Record<string, unknown> = {}) => ({
 /** Un usuario cuyo ROL tiene exactamente estas funciones de tarifas (y nada más): la prueba por reparto. */
 async function tokenConFunciones(sub: number, role: 'financiera' | 'auditor' | 'admin', funciones: string[]) {
   const token = `Bearer ${await testToken({ sub, role })}`;
-  await registrarUsuarioDePrueba(sub, { rol: role, tipoPrincipal: 'interno', allowedPages: [], funcionesDelRol: funciones, excepciones: [] });
+  await registrarUsuarioDePrueba(sub, { rol: role, tipoPrincipal: 'interno', funcionesDelRol: funciones, excepciones: [] });
   return token;
 }
 
