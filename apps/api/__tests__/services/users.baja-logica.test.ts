@@ -126,8 +126,13 @@ describe('HU #12089 — schema y anti-hard-delete', () => {
       path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src/db/schema.ts'),
       'utf8',
     );
-    // Bloque users (líneas cercanas a sessionInvalidatedAt): onDelete restrict en deleted_by.
-    expect(src).toMatch(/deletedBy:\s*integer\('deleted_by'\)\.references\([\s\S]*?onDelete:\s*'restrict'/);
+    // Solo deletedBy/deleted_by: exige onDelete 'restrict' en ESE references (no otro del archivo).
+    // Mutar a 'set null' debe matar el aserto.
+    const refs = src.match(
+      /deletedBy:\s*integer\(\s*['"]deleted_by['"]\s*\)\.references\(([\s\S]*?)\)\s*,/,
+    );
+    expect(refs).not.toBeNull();
+    expect(refs![1]).toMatch(/onDelete:\s*['"]restrict['"]/);
   });
 
   it('ningún fuente de producto hace db.delete(users) ni DELETE FROM users', () => {

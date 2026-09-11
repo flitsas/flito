@@ -73,6 +73,7 @@ export async function handleReactivar(req: Request, res: Response): Promise<void
     return;
   }
 
+  invalidateSessionCacheFor(id);
   invalidarPermisosDe(id);
   await audit(req, {
     action: 'update', resource: 'user', resourceId: String(id),
