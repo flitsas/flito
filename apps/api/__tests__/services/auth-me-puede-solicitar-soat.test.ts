@@ -37,24 +37,28 @@ async function buildApp() {
 }
 
 /**
- * Encola las consultas de `GET /me` en orden: la del usuario y —solo para un `cliente` con
- * compañía— la de `clients`.
+ * Encola las consultas de `GET /me` en orden: usuario → puente (`flito_gestor_organismos`) y
+ * —solo para un `cliente` con compañía— `clients`.
  *
  * `authMiddleware` NO consulta nada aquí: `__tests__/setup.ts` pone
  * `AUTH_SKIP_SESSION_INVAL_CHECK=1`, así que su lectura de `sessionInvalidatedAt` no ocurre. Por eso
- * el conteo de llamadas de abajo empieza en 1 y no en 2, y por eso vale como medida de «no hay una
- * consulta de más».
+ * el conteo de llamadas de abajo empieza en 2 (usuario + puente) y no en 3, y por eso vale como
+ * medida de «no hay una consulta de más».
+ *
+ * HU #12088: `transitoCodigo` sale de la puente; sin este mock `select()` devuelve `undefined` y
+ * `transitoCodigoDesdePuente` lanza al leer `.from`.
  */
 function conUsuario(usuario: Record<string, unknown>, compania?: Record<string, unknown>[]) {
   selectMock.mockReturnValueOnce(chain([usuario]));        // el usuario
+  selectMock.mockReturnValueOnce(chain([]));               // puente vacía → transitoCodigo null
   // HU #12082: `allowedPages` es una vista del resolutor único (`resolverPermisos`, cacheado por
   // usuario), que en estos tests lee del registro del helper (`testToken` registra al `sub`): no
   // consume `selectMock`. En producción son tres consultas por usuario por minuto, no por petición.
   if (compania) selectMock.mockReturnValueOnce(chain(compania)); // clients
 }
 
-/** Las consultas fijas de `/me` desde la HU #12082: la del usuario. El reparto lo sirve el resolutor. */
-const CONSULTAS_BASE = 1;
+/** Fijas de `/me` tras #12088: usuario + puente. El reparto lo sirve el resolutor. */
+const CONSULTAS_BASE = 2;
 
 const token = async (role: string, sub = 5) => `Bearer ${await testToken({ sub, username: 'u@empresa.co', role: role as never })}`;
 
@@ -85,7 +89,7 @@ describe('GET /api/auth/me — `puedeSolicitarSoat`', () => {
     const r = await request(await buildApp()).get('/api/auth/me').set('Authorization', await token('cliente'));
 
     expect(r.body.puedeSolicitarSoat).toBe(false);
-    // Las tres de siempre y ni una más: `clients` no se consulta.
+    // Usuario + puente y ni una más: `clients` no se consulta.
     expect(selectMock).toHaveBeenCalledTimes(CONSULTAS_BASE);
   });
 
