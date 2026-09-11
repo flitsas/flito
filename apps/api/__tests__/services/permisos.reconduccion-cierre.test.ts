@@ -180,11 +180,13 @@ describe('AC3 — el ámbito no se toca: las 15 comparaciones de rol que deciden
     });
   }
 
-  it('son 15 en total, y fuera de ellas solo quedan las del superRefine de users (HU #12088)', () => {
+  it('son 15 en total, y fuera de ellas solo quedan 3 de validación en users (HU #12088)', () => {
     expect(AMBITO.reduce((n, a) => n + a.veces, 0)).toBe(15);
     const enUsers = sinComentarios(leer('users/users.routes.ts')).match(/\brole (===|!==) '[a-z_]+'/g) ?? [];
-    expect(enUsers.length).toBe(27);
-    // Ninguna de las 26 compara `req.user`: son sobre el usuario EDITADO (`d.role`, `data.role`…).
+    // Antes #12088 había ~27 (superRefine + filtros de ámbito por rol). El ámbito del gestor
+    // pasó a la puente `flito_gestor_organismos`; quedan 3 comparaciones de validación
+    // (`role !== 'admin'`, `role === 'admin'` ×2) sobre el usuario editado, no sobre `req.user`.
+    expect(enUsers.length).toBe(3);
     expect(sinComentarios(leer('users/users.routes.ts'))).not.toMatch(/req\.user!?\.role (===|!==)/);
   });
 });
