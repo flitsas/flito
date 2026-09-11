@@ -101,6 +101,8 @@ interface Espia {
 interface Escenario {
   filas: Fila[];
   organismos?: { userId: number; codigo: string }[];
+  /** HU #12087: excepciones por usuario (`permisos_usuario_funcion`) que el listado pide en lote. */
+  funciones?: { userId: number; codigo: string; efecto: string }[];
   companias?: { id: number; name: string }[];
   proveedores?: { id: string; nombre: string }[];
   grupos?: { role: string; active: boolean; total: number }[];
@@ -147,6 +149,10 @@ function instalarBd(esc: Escenario): Espia {
     const claves = Object.keys(sel ?? {}).sort().join(',');
 
     if (claves === 'codigo,userId') return chain(esc.organismos ?? []);
+    // HU #12087: `funcionesDeVarios` — misma forma que organismos (lote por `user_id`), sin pasar por
+    // el constructor del listado: si cae ahí, pisa `whereSql`/`whereParams` con el `inArray` y rompe
+    // los asertos del filtro de rol/activo.
+    if (claves === 'codigo,efecto,userId') return chain(esc.funciones ?? []);
     if (claves === 'id,name') { espia.lecturasDeCompania++; return chain(esc.companias ?? []); }
     if (claves === 'id,nombre') return chain(esc.proveedores ?? []);
 
@@ -328,8 +334,9 @@ describe('GET /api/users — paginación y X-Total-Count (HU #12172)', () => {
     // Ni una consulta de más sobre el camino que usan los consumidores de siempre.
     expect(espia.conteos).toBe(0);
     expect(r.headers['x-total-count']).toBe('4');
-    // El listado + los organismos de TODA la página: una sola consulta más, no una por fila.
-    expect(espia.llamadas).toBe(2);
+    // El listado + organismos + funciones (HU #12087) de TODA la página: dos consultas de lote, no
+    // una por fila.
+    expect(espia.llamadas).toBe(3);
   });
 });
 
