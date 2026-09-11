@@ -27,6 +27,7 @@ import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import type { RolCatalogo } from '@operaciones/shared-types';
 import { ApiError, errorMessage, permisosApi, type GrupoDeFunciones } from '../lib/api';
+import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import { FlitCard, FlitEmpty, flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
@@ -50,6 +51,7 @@ const porNombre = (a: RolCatalogo, b: RolCatalogo) => a.nombre.localeCompare(b.n
 
 export default function RolesPermisos() {
   const navigate = useNavigate();
+  const { refrescarFunciones } = useAuth();
   const tituloRef = useRef<HTMLHeadingElement>(null);
   const [carga, setCarga] = useState<'cargando' | 'error' | 'ok'>('cargando');
   const [errorCarga, setErrorCarga] = useState('');
@@ -169,6 +171,8 @@ export default function RolesPermisos() {
         const mios = await permisosApi.mios();
         if (versionMia !== null && mios.version !== versionMia) setAvisoPropio(COPY_PROPIO_CAMBIO);
         setVersionMia(mios.version);
+        // HU #12170: la sesión obedece el mismo `/mios` que pinta botones.
+        await refrescarFunciones();
       } catch { /* sin `/mios` no hay comparación que hacer; el guardado ya está aplicado */ }
     } catch (e) {
       const anti = e instanceof ApiError && e.status === 409;

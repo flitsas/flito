@@ -18,7 +18,7 @@ import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { hasPage, puedeOperar } from '../lib/permissions';
+import { hasPage } from '../lib/permissions';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import FlitModal from '../components/flit/FlitModal';
@@ -88,9 +88,10 @@ type FlagCampo = 'soatAutogestionable' | 'impuestosAutogestionable' | 'logistica
 type Tab = 'clientes' | 'proveedores';
 
 export default function Clients() {
-  const { user } = useAuth();
+  const { user, hasFuncion } = useAuth();
   // Operaciones decide qué gestiona FLITO; Finanzas solo pone precio.
-  const editaAutogestion = puedeOperar(user?.role);
+  // HU #12170
+  const editaAutogestion = hasFuncion('tramites.autogestion.desbloquear');
   // El enlace al configurador se decide por la PÁGINA, no por el nombre del rol: es el mismo gate
   // que la ruta de destino, así que nadie llega a un `NoAccess` desde aquí.
   const veTarifas = hasPage(user, 'flito_tarifas');

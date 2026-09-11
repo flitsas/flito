@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { puedeOperar } from '../lib/permissions';
 import FlitoTablero from './FlitoTablero';
 import { useCountUp } from '../lib/useCountUp';
 import Sparkline from '../components/flit/Sparkline';
@@ -34,7 +33,7 @@ const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform
 //   fila de atajos). Datos/API/links conservados sin cambios.
 // =============================================================
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { user, hasFuncion } = useAuth();
   const [soat, setSoat] = useState<SoatStats | null>(null);
   const [expiring, setExpiring] = useState<FleetExpiring | null>(null);
   const [rndcErrors, setRndcErrors] = useState<number | null>(null);
@@ -104,7 +103,8 @@ export default function Dashboard() {
 
   // ---------- Inicio del dominio FLITO: admin/operaciones ven el tablero FLITO como home. ----------
   // (§correcciones-UX punto 4: el tablero de inicio, antes vacío, ahora es el tablero de Operaciones.)
-  if (puedeOperar(user?.role)) return <FlitoTablero />;
+  // HU #12170: tablero FLITO por función, no por rol admin.
+  if (hasFuncion('tablero.tablero.ver')) return <FlitoTablero />;
 
   // ---------- Vista no-admin: header + tarjeta guía ⌘K. ----------
   if (user?.role !== 'admin') {

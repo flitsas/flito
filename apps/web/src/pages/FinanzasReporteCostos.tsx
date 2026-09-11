@@ -29,7 +29,6 @@ import {
   type ConsolidadoReporte, type Facetas, type Fila, type FiltrosDetalle, type Reporte,
 } from '../components/finanzas/tiposReporteCostos';
 import {
-  puedeEjecutar,
   type MotivoElegibilidad, type SiigoEnvioTramite, type SiigoEstadoReporte, type SiigoResumenEnvio,
 } from '@operaciones/shared-types';
 import {
@@ -60,14 +59,13 @@ const claveDe = (f: FiltrosDetalle) => [
 ].join('|');
 
 export default function FinanzasReporteCostos() {
-  const { user } = useAuth();
-  // Auditoría observa la conciliación; no la ejecuta.
-  const puedeLiquidar = user?.role === 'admin' || user?.role === 'financiera';
-  const puedeReversar = user?.role === 'admin';
-  // LA MISMA tabla que usa el servidor para decidir el 403 (HU #11329), no `puedeLiquidar`: hoy
-  // resuelven a la misma lista, pero son dos definiciones de cosas distintas.
-  const puedeEmitir = puedeEjecutar(user?.role, 'emitir');
-  const puedeReactivar = puedeEjecutar(user?.role, 'reactivar');
+  const { user, hasFuncion } = useAuth();
+  // HU #12170: botones por función del catálogo (`/permisos/mios`), no por rol literal.
+  const puedeLiquidar = hasFuncion('liquidacion.liquidacion.liquidar');
+  const puedeReversar = hasFuncion('liquidacion.liquidacion.reversar');
+  // Emisión FE: Feature #12072 no absorbe Siigo; el proxy en el catálogo FLITO es facturar.
+  const puedeEmitir = hasFuncion('liquidacion.liquidacion.facturar');
+  const puedeReactivar = hasFuncion('liquidacion.liquidacion.facturar');
 
   const [data, setData] = useState<Reporte | null>(null);
   const [facetas, setFacetas] = useState<Facetas | null>(null);
@@ -476,8 +474,8 @@ export default function FinanzasReporteCostos() {
           idFlit={detalleDe.idFlit}
           estadoFila={estadoFeDe(detalleDe)}
           requiereRevision={detalleDe.facturaRequiereRevision}
-          // LA MISMA tabla que usa el servidor para decidir el 403, no una regla paralela.
-          puedeOperar={puedeEjecutar(user?.role, 'reenviar_correo')}
+          // HU #12170: proxy FE en catálogo = facturar (Siigo no absorbido aún).
+          puedeOperar={puedeEmitir}
           onClose={() => setDetalleDe(null)}
           onCambio={refrescar}
         />
