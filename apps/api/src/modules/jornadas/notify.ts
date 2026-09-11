@@ -7,7 +7,7 @@
 
 import { db } from '../../db/client.js';
 import { notificationOutbox, users } from '../../db/schema.js';
-import { eq, and, isNotNull } from 'drizzle-orm';
+import { eq, and, isNotNull, isNull } from 'drizzle-orm';
 import { pesvAlertRecipients } from '../../config/env.js';
 import { loggerFor } from '../../shared/logger.js';
 
@@ -26,7 +26,7 @@ export async function getAdminEmails(): Promise<string[]> {
   if (pesvAlertRecipients.length) return pesvAlertRecipients;
   const rows = await db.select({ email: users.email })
     .from(users)
-    .where(and(eq(users.role, 'admin'), eq(users.active, true), isNotNull(users.email)));
+    .where(and(eq(users.role, 'admin'), eq(users.active, true), isNotNull(users.email), isNull(users.deletedAt)));
   return rows.map((r) => r.email!).filter(Boolean);
 }
 

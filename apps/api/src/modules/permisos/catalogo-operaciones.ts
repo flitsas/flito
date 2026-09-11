@@ -317,6 +317,8 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${USR} POST /`, 'usuarios.usuario.crear', 'Crear un usuario', 'Dar de alta un usuario con su rol, sus páginas y su ámbito.'),
   op(`${USR} PATCH /:id`, 'usuarios.usuario.editar', 'Editar un usuario', 'Cambiar el rol, las páginas, el ámbito o los datos de un usuario.'),
   op(`${USR} PATCH /:id/toggle`, 'usuarios.usuario.activar', 'Activar o desactivar un usuario', 'Bloquear o volver a habilitar la entrada de un usuario sin borrarlo.'),
+  op(`${USR} DELETE /:id`, 'usuarios.usuario.baja', 'Dar de baja un usuario', 'Marcar un usuario como dado de baja sin borrarlo. Conserva username, permisos y ámbito.'),
+  op(`${USR} POST /:id/reactivar`, 'usuarios.usuario.reactivar', 'Reactivar un usuario dado de baja', 'Quitar la marca de baja de un usuario para que vuelva a poder iniciar sesión.'),
   op(`${USR} POST /:id/invalidate-sessions`, 'usuarios.sesiones.invalidar', 'Cerrar las sesiones de un usuario', 'Invalidar todos los tokens vivos de un usuario para que vuelva a iniciar sesión.'),
   op(`${USR} PATCH /:id/password [ajena]`, 'usuarios.contrasena.cambiar_ajena', 'Cambiar la contraseña de otro usuario', 'Fijar una contraseña nueva a un usuario distinto de uno mismo.'),
   // HU #12171 — el historial de cambios (CF-19). Dos codigos y no uno: el catalogo es «una funcion por

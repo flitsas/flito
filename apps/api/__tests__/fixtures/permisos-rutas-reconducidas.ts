@@ -278,6 +278,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'users/users.routes.ts', metodo: 'POST', ruta: '/', codigo: 'usuarios.usuario.crear' },
   { fichero: 'users/users.routes.ts', metodo: 'PATCH', ruta: '/:id', codigo: 'usuarios.usuario.editar' },
   { fichero: 'users/users.routes.ts', metodo: 'PATCH', ruta: '/:id/toggle', codigo: 'usuarios.usuario.activar' },
+  { fichero: 'users/users.routes.ts', metodo: 'DELETE', ruta: '/:id', codigo: 'usuarios.usuario.baja' },
+  { fichero: 'users/users.routes.ts', metodo: 'POST', ruta: '/:id/reactivar', codigo: 'usuarios.usuario.reactivar' },
   { fichero: 'users/users.routes.ts', metodo: 'POST', ruta: '/:id/invalidate-sessions', codigo: 'usuarios.sesiones.invalidar' },
   { fichero: 'users/users.routes.ts', metodo: 'PATCH', ruta: '/:id/password', condicion: 'ajena', codigo: 'usuarios.contrasena.cambiar_ajena' },
   // HU #12171 — el historial de cambios: dos rutas nuevas con codigo propio (admin y auditor).

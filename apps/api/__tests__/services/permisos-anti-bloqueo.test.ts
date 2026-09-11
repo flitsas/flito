@@ -118,17 +118,20 @@ describe('AC4 — el predicado es el del resolutor: (rol ∪ concedida) ∖ revo
     // Correlación con la fila exterior: por el rol del usuario y por su id.
     expect(cuenta.sql).toMatch(/"permisos_rol_funcion"\."rol_codigo" = "users"\."role"/);
     expect(cuenta.sql).toMatch(/"permisos_usuario_funcion"\."user_id" = "users"\."id"/);
-    // Y la población: activos, internos.
-    expect(cuenta.sql).toMatch(/where \("users"\."active" = \$\d+ and "permisos_roles"\."tipo_principal" = \$\d+ and true\)/);
+    // Y la población: activos, internos y vivos (deleted_at IS NULL, HU #12089).
+    expect(cuenta.sql).toMatch(/where \("users"\."active" = \$\d+ and "permisos_roles"\."tipo_principal" = \$\d+ and "users"\."deleted_at" is null\)/);
     expect(cuenta.params).toContain('interno');
   });
 
-  it('CONDICION_USUARIO_VIVO es `true` hasta la #12089 y ya está en el lock y en la cuenta', async () => {
-    expect(CONDICION_USUARIO_VIVO.queryChunks.map((c) => (c as { value?: string[] }).value?.join('') ?? '').join('')).toBe('true');
+  it('CONDICION_USUARIO_VIVO es deleted_at IS NULL (HU #12089) y ya está en el lock y en la cuenta', async () => {
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    const dialecto = new PgDialect();
+    const renderizado = dialecto.sqlToQuery(CONDICION_USUARIO_VIVO);
+    expect(renderizado.sql).toMatch(/"deleted_at" is null/i);
     const { tx, sentencias } = ejecutor();
     await conSeguroAntiBloqueo(tx, async () => undefined);
-    expect(lockDe(sentencias).sql).toMatch(/ and true\)/);
-    expect(cuentaDe(sentencias).sql).toMatch(/ and true\)/);
+    expect(lockDe(sentencias).sql).toMatch(/"users"\."deleted_at" is null/);
+    expect(cuentaDe(sentencias).sql).toMatch(/"users"\."deleted_at" is null/);
   });
 });
 
@@ -249,14 +252,14 @@ describe('AC4 — el invariante vive en UN sitio y lo invocan las cinco operacio
   const fuente = (rel: string) => readFileSync(path.resolve(aqui, '../../src', rel), 'utf8');
   const sinComentarios = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1');
 
-  it('users.service.ts: cambiar el rol o las funciones (actualizarUsuario) y desactivar (cambiarActivo) lo invocan con su `tx`', () => {
+  it('users.service.ts: actualizarUsuario, cambiarActivo y darDeBaja invocan conSeguroAntiBloqueo(tx, …)', () => {
     const src = sinComentarios(fuente('modules/users/users.service.ts'));
     expect(src).toMatch(/import \{ conSeguroAntiBloqueo \} from '\.\.\/\.\.\/shared\/permisos-anti-bloqueo\.js';/);
-    expect(src.match(/conSeguroAntiBloqueo\(tx,/g)).toHaveLength(2);
+    // Tres caminos: rol/funciones, desactivar, baja (#12089).
+    expect(src.match(/conSeguroAntiBloqueo\(tx,/g)).toHaveLength(3);
     expect(src).toMatch(/updates\.role !== undefined \|\| funcionesDestino !== null \? conSeguroAntiBloqueo\(tx, cuerpo\) : cuerpo\(\)/);
     expect(src).toMatch(/await conSeguroAntiBloqueo\(tx, \(\) => tx\.update\(users\)\s*\.set\(\{ active: sql`NOT active`/);
-    // El quinto camino (baja definitiva, #12089) deja el enganche escrito con nombre.
-    expect(fuente('modules/users/users.service.ts')).toMatch(/#12089[\s\S]{0,200}conSeguroAntiBloqueo/);
+    expect(src).toMatch(/export async function darDeBaja[\s\S]*?conSeguroAntiBloqueo\(tx,/);
   });
 
   it('permisos-roles.service.ts: borrar el rol y guardar el cuadro lo invocan con su `tx`; crear no (añadir nunca bloquea)', () => {

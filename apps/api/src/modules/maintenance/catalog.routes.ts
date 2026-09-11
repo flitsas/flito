@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { eq, ilike, and, asc, sql } from 'drizzle-orm';
+import { eq, ilike, and, asc, sql, isNull } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { maintenanceSystems, maintenanceSubsystems, maintenanceJobs, users } from '../../db/schema.js';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
@@ -115,7 +115,7 @@ router.get('/mechanics', async (_req, res: Response) => {
     active: users.active,
   })
     .from(users)
-    .where(and(eq(users.esMecanico, true), eq(users.active, true)))
+    .where(and(eq(users.esMecanico, true), eq(users.active, true), isNull(users.deletedAt)))
     .orderBy(asc(users.name));
   res.json({ data: rows });
 });

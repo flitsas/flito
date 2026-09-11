@@ -246,6 +246,8 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "usuarios", fichero: "users/users.routes.ts", metodo: "POST", ruta: "/", roles: ["admin"], heredada: true },
   { modulo: "usuarios", fichero: "users/users.routes.ts", metodo: "PATCH", ruta: "/:id", roles: ["admin"], heredada: true },
   { modulo: "usuarios", fichero: "users/users.routes.ts", metodo: "PATCH", ruta: "/:id/toggle", roles: ["admin"], heredada: true },
+  { modulo: "usuarios", fichero: "users/users.routes.ts", metodo: "DELETE", ruta: "/:id", roles: ["admin"], heredada: false },
+  { modulo: "usuarios", fichero: "users/users.routes.ts", metodo: "POST", ruta: "/:id/reactivar", roles: ["admin"], heredada: false },
   { modulo: "usuarios", fichero: "users/users.routes.ts", metodo: "POST", ruta: "/:id/invalidate-sessions", roles: ["admin"], heredada: true },
   { modulo: "usuarios", fichero: "users/users.routes.ts", metodo: "GET", ruta: "/auditoria", roles: ["admin","auditor"], heredada: false },
   { modulo: "usuarios", fichero: "users/users.routes.ts", metodo: "GET", ruta: "/auditoria/titulares", roles: ["admin","auditor"], heredada: false },

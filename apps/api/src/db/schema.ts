@@ -133,6 +133,13 @@ export const users = pgTable('users', {
   companiaId: integer('compania_id').references((): any => clients.id, { onDelete: 'restrict' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   sessionInvalidatedAt: timestamp('session_invalidated_at', { withTimezone: true }),
+  /**
+   * HU #12089 — baja lógica. NULL = en alta. Independiente de `active` (suspensión temporal).
+   * La fila sigue existiendo: username/email NO se liberan. Nunca hard-delete de `users`.
+   */
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  /** Actor de la baja; `ON DELETE RESTRICT` = nadie borra la fila del actor mientras haya bajas suyas. */
+  deletedBy: integer('deleted_by').references((): any => users.id, { onDelete: 'restrict' }),
 }, (t) => ({
   // Sirve al listado de usuarios por compañía y, sobre todo, al `ON DELETE RESTRICT`: sin él, borrar
   // una compañía escanea `users` entera para comprobar que nadie la referencia.
