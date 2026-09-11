@@ -155,9 +155,12 @@ describe('POST /api/auth/login — password incorrecto', () => {
 
 describe('POST /api/auth/login — éxito', () => {
   it('argon2.verify=true → 200 + token JWT + clearLockout + audit', async () => {
-    selectMock.mockReturnValueOnce(chain([{
-      id: 42, username: 'admin', passwordHash: 'h', active: true, role: 'admin', name: 'Admin User', allowedPages: null,
-    }]));
+    selectMock
+      .mockReturnValueOnce(chain([{
+        id: 42, username: 'admin', passwordHash: 'h', active: true, role: 'admin', name: 'Admin User', allowedPages: null,
+      }]))
+      // HU #12088: tras login exitoso, `transitoCodigoDesdePuente` lee `flito_gestor_organismos`.
+      .mockReturnValueOnce(chain([]));
     // HU #12082: `allowedPages` es una vista del resolutor único. Aquí el resolutor lee del registro
     // del helper (no de `selectMock`): el reparto del rol trae `pagina.dashboard` justo para comprobar
     // que el sobre lleva el SLUG y no el código de la función.
@@ -178,9 +181,8 @@ describe('POST /api/auth/login — éxito', () => {
     expect(Object.keys(r.body.user)).toContain('puedeSolicitarSoat');
     expect(r.body.user.puedeSolicitarSoat).toBe(false);
     expect(r.body.user.companiaId).toBeUndefined();
-    // Una: el usuario. El reparto lo sirve el resolutor (aquí, el registro); la de `clients` sigue sin
-    // ocurrir para un admin.
-    expect(selectMock).toHaveBeenCalledTimes(1);
+    // Dos: usuario + puente. El reparto lo sirve el resolutor; `clients` no ocurre para admin.
+    expect(selectMock).toHaveBeenCalledTimes(2);
     // TC #12261 (AC3, retirada heredada 2): el JWT emitido YA NO lleva `allowedPages` ni ningún claim
     // de permisos. Del token, el servidor solo usa `sub` y `role`.
     const claims = decodeJwt(r.body.token);
@@ -194,9 +196,11 @@ describe('POST /api/auth/login — éxito', () => {
   });
 
   it('NO devuelve passwordHash en respuesta (PII protection)', async () => {
-    selectMock.mockReturnValueOnce(chain([{
-      id: 1, username: 'a', passwordHash: 'SECRET-HASH', active: true, role: 'admin', name: 'A', allowedPages: null,
-    }]));
+    selectMock
+      .mockReturnValueOnce(chain([{
+        id: 1, username: 'a', passwordHash: 'SECRET-HASH', active: true, role: 'admin', name: 'A', allowedPages: null,
+      }]))
+      .mockReturnValueOnce(chain([])); // puente #12088
     argonVerifyMock.mockResolvedValueOnce(true);
     const app = await buildApp();
     const r = await request(app).post('/api/auth/login').send({ username: 'a', password: 'p' });
@@ -215,6 +219,7 @@ describe('POST /api/auth/login — `puedeSolicitarSoat` (Bug #11937)', () => {
     await registrarUsuarioDePrueba(5, { rol: 'cliente', tipoPrincipal: 'externo', allowedPages: [], funcionesDelRol: ['pagina.flito_soat'], excepciones: [] });
     selectMock
       .mockReturnValueOnce(chain([CLIENTE_LOGIN]))
+      .mockReturnValueOnce(chain([])) // puente #12088
       .mockReturnValueOnce(chain([{ sinTramite: true }]));
     argonVerifyMock.mockResolvedValueOnce(true);
     const r = await request(await buildApp()).post('/api/auth/login')
@@ -224,13 +229,14 @@ describe('POST /api/auth/login — `puedeSolicitarSoat` (Bug #11937)', () => {
     expect(Object.keys(r.body.user)).toContain('puedeSolicitarSoat');
     expect(r.body.user.puedeSolicitarSoat).toBe(true);
     expect(r.body.user.companiaId).toBeUndefined();
-    expect(selectMock).toHaveBeenCalledTimes(2); // usuario + clients (el reparto lo sirve el resolutor)
+    expect(selectMock).toHaveBeenCalledTimes(3); // usuario + puente + clients
   });
 
   it('flag APAGADO → false, y no es «no vino el campo»', async () => {
     await registrarUsuarioDePrueba(5, { rol: 'cliente', tipoPrincipal: 'externo', allowedPages: [], funcionesDelRol: ['pagina.flito_soat'], excepciones: [] });
     selectMock
       .mockReturnValueOnce(chain([CLIENTE_LOGIN]))
+      .mockReturnValueOnce(chain([])) // puente #12088
       .mockReturnValueOnce(chain([{ sinTramite: false }]));
     argonVerifyMock.mockResolvedValueOnce(true);
     const r = await request(await buildApp()).post('/api/auth/login')
@@ -251,9 +257,11 @@ describe('GET /api/auth/me', () => {
   });
 
   it('token válido + user existe → 200 con allowedPages efectivas', async () => {
-    selectMock.mockReturnValueOnce(chain([{
-      id: 1, username: 'admin', name: 'A', role: 'admin', allowedPages: null,
-    }]));
+    selectMock
+      .mockReturnValueOnce(chain([{
+        id: 1, username: 'admin', name: 'A', role: 'admin', allowedPages: null,
+      }]))
+      .mockReturnValueOnce(chain([])); // puente #12088 → transitoCodigo null
     // HU #12082: las páginas las sirve el resolutor (el registro del helper); `allowedPages` del helper
     // es `users.allowed_pages`, y el admin no tiene fila de defaults, así que sale exactamente esto.
     const token = await testToken({ sub: 1, role: 'admin', allowedPages: ['dashboard'] });
@@ -264,7 +272,7 @@ describe('GET /api/auth/me', () => {
     expect(Array.isArray(r.body.allowedPages)).toBe(true);
     // Lo que viaja son SLUGS, resueltos por el mismo resolutor que decide en el servidor.
     expect(r.body.allowedPages).toEqual(['dashboard']);
-    expect(selectMock).toHaveBeenCalledTimes(1);
+    expect(selectMock).toHaveBeenCalledTimes(2); // usuario + puente
   });
 
   it('token válido pero user no existe en BD → 404', async () => {

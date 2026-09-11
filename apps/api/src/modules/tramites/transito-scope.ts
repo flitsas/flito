@@ -1,12 +1,23 @@
-import { eq } from 'drizzle-orm';
+import { eq, asc } from 'drizzle-orm';
 import type { Request } from 'express';
 import { isKnownOrganismoCodigo } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import { users } from '../../db/schema.js';
+import { flitoGestorOrganismos, users } from '../../db/schema.js';
 
 export type TransitoScope =
   | { ok: true; codigo: string | null }
   | { ok: false; status: number; error: string };
+
+/** Primer código de la puente, ordenado; o null si no hay filas. */
+async function primerOrganismoPuente(userId: number): Promise<string | null> {
+  const [row] = await db
+    .select({ c: flitoGestorOrganismos.organismoCodigo })
+    .from(flitoGestorOrganismos)
+    .where(eq(flitoGestorOrganismos.userId, userId))
+    .orderBy(asc(flitoGestorOrganismos.organismoCodigo))
+    .limit(1);
+  return row?.c?.trim() || null;
+}
 
 /** Admin: null = todas las bandejas; query ?organismo=05001 filtra. Tránsito: scope fijo. */
 export async function resolveTransitoScope(req: Request): Promise<TransitoScope> {
@@ -26,10 +37,14 @@ export async function resolveTransitoScope(req: Request): Promise<TransitoScope>
     return { ok: false, status: 403, error: 'Sin permisos' };
   }
 
-  let codigo = user.transitoCodigo?.trim();
+  // HU #12088: fuente = puente; fallback a la columna mientras queden filas legacy sin migrar.
+  let codigo = await primerOrganismoPuente(user.sub);
+  if (!codigo) {
+    codigo = user.transitoCodigo?.trim() || null;
+  }
   if (!codigo) {
     const [row] = await db.select({ c: users.transitoCodigo }).from(users).where(eq(users.id, user.sub)).limit(1);
-    codigo = row?.c?.trim() ?? undefined;
+    codigo = row?.c?.trim() || null;
   }
 
   if (!codigo || !isKnownOrganismoCodigo(codigo)) {

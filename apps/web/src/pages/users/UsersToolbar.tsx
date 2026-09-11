@@ -1,5 +1,6 @@
 // FLITO — la barra del listado de usuarios: filtro por rol, conteo por rol y descarga del `.xlsx`.
 // HU #12172 / Feature #12072.
+// HU #12088: el filtro usa roles del catálogo API (activos), no solo USER_ROLES compilado.
 //
 // Vive aparte de `UsersTable` porque no es la tabla: sobrevive a los cuatro estados de la lista —se
 // sigue pudiendo quitar el filtro con la tabla en error o vacía—, y meterla dentro obligaría a
@@ -12,18 +13,21 @@
 // texto con los mismos chips de la columna «Rol», no tarjetas nuevas.
 
 import StatusChip from '../../components/flit/StatusChip';
-import { ROLES, ROLE_TONE, type ResumenUsuarios } from './types';
-import type { UserRole } from '../../lib/permissions';
+import { ROLES, ROLE_TONE, etiquetaRol, type ResumenUsuarios, type RolOpcion } from './types';
 
-export default function UsersToolbar({ rol, onRol, resumen, total, puedeExportar, descargando, onDescargar }: {
-  rol: UserRole | '';
-  onRol: (r: UserRole | '') => void;
+export default function UsersToolbar({ rol, onRol, rolesCatalogo, resumen, total, puedeExportar, descargando, onDescargar }: {
+  rol: string;
+  onRol: (r: string) => void;
+  rolesCatalogo: RolOpcion[] | null;
   resumen: ResumenUsuarios | null;
   total: number | null;
   puedeExportar: boolean;
   descargando: boolean;
   onDescargar: () => void;
 }) {
+  const opcionesFiltro = (rolesCatalogo ?? []).filter((r) => r.activo);
+  const fallback = opcionesFiltro.length === 0 ? ROLES : opcionesFiltro;
+
   return (
     <div
       className="flex flex-col gap-4 bg-white px-4 py-4"
@@ -37,12 +41,12 @@ export default function UsersToolbar({ rol, onRol, resumen, total, puedeExportar
           <select
             id="filtro-rol"
             value={rol}
-            onChange={(e) => onRol(e.target.value as UserRole | '')}
+            onChange={(e) => onRol(e.target.value)}
             className="flit-focus min-w-[220px] rounded-[10px] border px-3 py-2 text-sm"
             style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-text-primary)' }}
           >
             <option value="">Todos los roles</option>
-            {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+            {fallback.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
         </div>
 
@@ -70,7 +74,7 @@ export default function UsersToolbar({ rol, onRol, resumen, total, puedeExportar
         )}
       </div>
 
-      <ConteoPorRol resumen={resumen} total={total} filtrado={rol !== ''} />
+      <ConteoPorRol resumen={resumen} total={total} filtrado={rol !== ''} rolesCatalogo={rolesCatalogo} />
     </div>
   );
 }
@@ -81,13 +85,19 @@ export default function UsersToolbar({ rol, onRol, resumen, total, puedeExportar
  * (`X-Total-Count`). Mezclar ambos números en una sola línea haría que «Admin 3» significara una
  * cosa distinta según el filtro puesto.
  *
- * `porRol` trae los DOCE roles siempre, los vacíos en `0`. Los ceros no se pintan: doce chips para
- * decir que nueve de ellos no tienen a nadie es ruido, y el que busca «cuántos admin hay» tendría
- * que encontrarlo entre ellos. Por eso el filtro es `> 0` y no «la clave existe».
+ * Los ceros no se pintan. Las etiquetas salen del catálogo API cuando está disponible.
  */
-function ConteoPorRol({ resumen, total, filtrado }: { resumen: ResumenUsuarios | null; total: number | null; filtrado: boolean }) {
+function ConteoPorRol({ resumen, total, filtrado, rolesCatalogo }: {
+  resumen: ResumenUsuarios | null;
+  total: number | null;
+  filtrado: boolean;
+  rolesCatalogo: RolOpcion[] | null;
+}) {
   if (!resumen) return null;
-  const conUsuarios = ROLES.filter((r) => (resumen.porRol[r.value] ?? 0) > 0);
+  const conUsuarios = Object.entries(resumen.porRol)
+    .filter(([, n]) => (n ?? 0) > 0)
+    .map(([codigo, n]) => ({ codigo, n: n as number, label: etiquetaRol(codigo, rolesCatalogo) }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'es'));
   return (
     <div className="flex flex-wrap items-center gap-2" aria-label="Usuarios por rol">
       <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>
@@ -96,8 +106,8 @@ function ConteoPorRol({ resumen, total, filtrado }: { resumen: ResumenUsuarios |
       {conUsuarios.length === 0
         ? <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Sin usuarios registrados</span>
         : conUsuarios.map((r) => (
-          <StatusChip key={r.value} tone={ROLE_TONE[r.value] ?? 'neutral'}>
-            {r.label}: {resumen.porRol[r.value]}
+          <StatusChip key={r.codigo} tone={ROLE_TONE[r.codigo] ?? 'neutral'}>
+            {r.label}: {r.n}
           </StatusChip>
         ))}
       <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>

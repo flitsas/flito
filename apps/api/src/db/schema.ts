@@ -89,7 +89,11 @@ export const users = pgTable('users', {
    * listado la sigue devolviendo tal cual y la SPA ya no la lee.
    */
   allowedPages: text('allowed_pages').array().notNull().default(sql`'{}'::text[]`),
-  // TRAM-MT-01: organismo DIVIPOLA asignado a usuarios rol `transito` (bandeja aislada).
+  /**
+   * OBSOLETA desde HU #12088. Fuente única de organismos_transito = `flito_gestor_organismos`.
+   * Se conserva NULL tras backfill 0189; no DROP. JWT/bandeja leen el 1.er código de la puente.
+   * No se escribe más desde la API (writes fuerzan null).
+   */
   transitoCodigo: varchar('transito_codigo', { length: 5 }),
   esMecanico: boolean('es_mecanico').notNull().default(false),
   especialidades: text('especialidades').array().notNull().default(sql`'{}'::text[]`),

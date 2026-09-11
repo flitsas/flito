@@ -1,42 +1,51 @@
 // FLITO — formulario de ALTA de usuario. Extraído de `pages/Users.tsx` sin cambios.
 // HU #12175 / Feature #12072. HU #12087: `funciones`; cambiar de rol vacía excepciones (sin modal).
+// HU #12088: ámbito por `tipoEnlace`; body sin `transitoCodigo`; organismos vía `organismosCodigos`.
 
-import { useCallback, useState, type FormEvent } from 'react';
+import { useCallback, useMemo, useState, type FormEvent } from 'react';
 import toast from 'react-hot-toast';
 import type { FuncionDeUsuario } from '@operaciones/shared-types';
 import { api } from '../../lib/api';
 import FlitModal from '../../components/flit/FlitModal';
-import { ROLES, type User } from './types';
+import { tipoEnlaceDe, type RolOpcion } from './types';
 import { Field, Footer, formatErrors, inputCls, PASSWORD_PATTERN, PASSWORD_TITLE } from './UserFormShared';
 import { COMPANIA_REQUERIDA, type CatalogoCompanias } from './CompaniaField';
 import { AmbitoCampos } from './Ambito';
 import PermissionsPicker, { type CatalogoFuncionesEstado } from './PermissionsPicker';
 import { ORGANISMOS_REQUERIDO, PROVEEDOR_REQUERIDO, type CatalogoOrganismos, type CatalogoProveedores } from './AtaduraFields';
 
-export default function CreateForm({ companias, proveedores, organismos, catalogo, onClose, onCreated }: {
+export default function CreateForm({ companias, proveedores, organismos, catalogo, rolesCatalogo, onClose, onCreated }: {
   companias: CatalogoCompanias;
   proveedores: CatalogoProveedores;
   organismos: CatalogoOrganismos;
   catalogo: CatalogoFuncionesEstado;
+  /** Catálogo completo (mapa tipoEnlace); el select solo lista activos. */
+  rolesCatalogo: RolOpcion[] | null;
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const rolesActivos = useMemo(
+    () => (rolesCatalogo ?? []).filter((r) => r.activo),
+    [rolesCatalogo],
+  );
+  const rolInicial = rolesActivos.find((r) => r.value === 'proveedor')?.value
+    ?? rolesActivos[0]?.value
+    ?? 'proveedor';
+
   const [f, setF] = useState<{
     username: string;
     name: string;
     email: string;
     password: string;
-    role: User['role'];
+    role: string;
     excepciones: FuncionDeUsuario[];
-    transitoCodigo: string;
     companiaId: string;
     flitoProveedorSoatId: string;
     organismosCodigos: string[];
   }>({
     username: '', name: '', email: '', password: '',
-    role: 'proveedor',
+    role: rolInicial,
     excepciones: [],
-    transitoCodigo: '',
     companiaId: '',
     flitoProveedorSoatId: '',
     organismosCodigos: [],
@@ -47,24 +56,24 @@ export default function CreateForm({ companias, proveedores, organismos, catalog
   const [errorProveedor, setErrorProveedor] = useState<string | null>(null);
   const [errorOrganismos, setErrorOrganismos] = useState<string | null>(null);
 
+  const enlace = tipoEnlaceDe(f.role, rolesCatalogo);
   const onDisponible = useCallback((ok: boolean) => setFuncionesOk(ok), []);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (submitting) return;
-    if (f.role === 'cliente' && !f.companiaId) { setErrorCompania(COMPANIA_REQUERIDA); return; }
-    if (f.role === 'proveedor' && !f.flitoProveedorSoatId) { setErrorProveedor(PROVEEDOR_REQUERIDO); return; }
-    if (f.role === 'gestor_impuestos' && f.organismosCodigos.length === 0) { setErrorOrganismos(ORGANISMOS_REQUERIDO); return; }
+    if (enlace === 'compania' && !f.companiaId) { setErrorCompania(COMPANIA_REQUERIDA); return; }
+    if (enlace === 'proveedor_soat' && !f.flitoProveedorSoatId) { setErrorProveedor(PROVEEDOR_REQUERIDO); return; }
+    if (enlace === 'organismos_transito' && f.organismosCodigos.length === 0) { setErrorOrganismos(ORGANISMOS_REQUERIDO); return; }
     setErrorCompania(null); setErrorProveedor(null); setErrorOrganismos(null);
     setSubmitting(true);
     try {
       const body: Record<string, unknown> = { username: f.username.trim(), name: f.name.trim(), password: f.password, role: f.role };
       if (f.email.trim()) body.email = f.email.trim();
       if (funcionesOk && f.excepciones.length > 0) body.funciones = f.excepciones;
-      if (f.role === 'transito') body.transitoCodigo = f.transitoCodigo;
-      if (f.role === 'cliente') body.companiaId = Number(f.companiaId);
-      if (f.role === 'proveedor') body.flitoProveedorSoatId = f.flitoProveedorSoatId;
-      if (f.role === 'gestor_impuestos') body.organismosCodigos = f.organismosCodigos;
+      if (enlace === 'compania') body.companiaId = Number(f.companiaId);
+      if (enlace === 'proveedor_soat') body.flitoProveedorSoatId = f.flitoProveedorSoatId;
+      if (enlace === 'organismos_transito') body.organismosCodigos = f.organismosCodigos;
       await api.post('/users', body);
       toast.success('Usuario creado');
       onCreated();
@@ -95,26 +104,27 @@ export default function CreateForm({ companias, proveedores, organismos, catalog
           {/* En el alta, cambiar de rol vacía las excepciones: no hay nada guardado que arrastrar. */}
           <select
             value={f.role}
+            disabled={!rolesCatalogo}
             onChange={(e) => {
               setF({
                 ...f,
-                role: e.target.value as User['role'],
+                role: e.target.value,
                 excepciones: [],
-                transitoCodigo: '',
                 companiaId: '',
                 flitoProveedorSoatId: '',
                 organismosCodigos: [],
               });
-              setErrorProveedor(null); setErrorOrganismos(null);
+              setErrorCompania(null); setErrorProveedor(null); setErrorOrganismos(null);
             }}
             className={inputCls}
           >
-            {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+            {!rolesCatalogo && <option value={f.role}>Cargando roles…</option>}
+            {rolesActivos.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
           <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>Define los permisos por defecto. Puede ampliar o quitar funciones abajo.</p>
         </Field>
         <AmbitoCampos
-          role={f.role}
+          tipoEnlace={enlace}
           companias={companias}
           proveedores={proveedores}
           organismos={organismos}
