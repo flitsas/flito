@@ -13,11 +13,20 @@
 // texto con los mismos chips de la columna «Rol», no tarjetas nuevas.
 
 import StatusChip from '../../components/flit/StatusChip';
-import { ROLES, ROLE_TONE, etiquetaRol, type ResumenUsuarios, type RolOpcion } from './types';
+import { ROLES, ROLE_TONE, etiquetaRol, type ResumenUsuarios, type RolOpcion, type VistaBajas } from './types';
 
-export default function UsersToolbar({ rol, onRol, rolesCatalogo, resumen, total, puedeExportar, descargando, onDescargar }: {
+const VISTAS_BAJA: { value: VistaBajas; label: string }[] = [
+  { value: 'en_alta', label: 'En alta' },
+  { value: 'dados_de_baja', label: 'Dados de baja' },
+  { value: 'todos', label: 'Todos' },
+];
+
+export default function UsersToolbar({ rol, onRol, vistaBajas, onVistaBajas, rolesCatalogo, resumen, total, puedeExportar, descargando, onDescargar }: {
   rol: string;
   onRol: (r: string) => void;
+  /** HU #12089: En alta (default) / Dados de baja / Todos. */
+  vistaBajas: VistaBajas;
+  onVistaBajas: (v: VistaBajas) => void;
   rolesCatalogo: RolOpcion[] | null;
   resumen: ResumenUsuarios | null;
   total: number | null;
@@ -27,6 +36,7 @@ export default function UsersToolbar({ rol, onRol, rolesCatalogo, resumen, total
 }) {
   const opcionesFiltro = (rolesCatalogo ?? []).filter((r) => r.activo);
   const fallback = opcionesFiltro.length === 0 ? ROLES : opcionesFiltro;
+  const filtrado = rol !== '' || vistaBajas !== 'en_alta';
 
   return (
     <div
@@ -34,20 +44,37 @@ export default function UsersToolbar({ rol, onRol, rolesCatalogo, resumen, total
       style={{ borderRadius: 'var(--flit-radius-card)', boxShadow: 'var(--flit-shadow-card)', border: '1px solid var(--flit-border-soft)' }}
     >
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <label htmlFor="filtro-rol" className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>
-            Rol
-          </label>
-          <select
-            id="filtro-rol"
-            value={rol}
-            onChange={(e) => onRol(e.target.value)}
-            className="flit-focus min-w-[220px] rounded-[10px] border px-3 py-2 text-sm"
-            style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-text-primary)' }}
-          >
-            <option value="">Todos los roles</option>
-            {fallback.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-          </select>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex flex-col gap-1">
+            <label htmlFor="filtro-rol" className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>
+              Rol
+            </label>
+            <select
+              id="filtro-rol"
+              value={rol}
+              onChange={(e) => onRol(e.target.value)}
+              className="flit-focus min-w-[220px] rounded-[10px] border px-3 py-2 text-sm"
+              style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-text-primary)' }}
+            >
+              <option value="">Todos los roles</option>
+              {fallback.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label htmlFor="filtro-vista-bajas" className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>
+              Vista
+            </label>
+            <select
+              id="filtro-vista-bajas"
+              value={vistaBajas}
+              onChange={(e) => onVistaBajas(e.target.value as VistaBajas)}
+              className="flit-focus min-w-[180px] rounded-[10px] border px-3 py-2 text-sm"
+              style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-text-primary)' }}
+            >
+              {VISTAS_BAJA.map((v) => <option key={v.value} value={v.value}>{v.label}</option>)}
+            </select>
+          </div>
         </div>
 
         {/* La condición de quién ve la descarga la decide la PÁGINA (ver `Users.tsx`); aquí solo se
@@ -74,7 +101,7 @@ export default function UsersToolbar({ rol, onRol, rolesCatalogo, resumen, total
         )}
       </div>
 
-      <ConteoPorRol resumen={resumen} total={total} filtrado={rol !== ''} rolesCatalogo={rolesCatalogo} />
+      <ConteoPorRol resumen={resumen} total={total} filtrado={filtrado} rolesCatalogo={rolesCatalogo} />
     </div>
   );
 }

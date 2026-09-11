@@ -8,6 +8,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Worktrees comparten `node_modules` con el checkout principal: sin este alias Vite
+      // resuelve `@operaciones/shared-types` al paquete del padre y rompe si la rama adelanta exports.
+      '@operaciones/shared-types': path.resolve(__dirname, '../../packages/shared-types/src/index.ts'),
     },
   },
   build: {

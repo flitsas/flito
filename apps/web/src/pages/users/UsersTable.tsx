@@ -13,12 +13,14 @@ import { etiquetaRol, ROLE_TONE, tipoEnlaceDe, type RolOpcion, type User } from 
 import { AmbitoCelda } from './Ambito';
 import type { CatalogoOrganismos, CatalogoProveedores } from './AtaduraFields';
 
-export default function UsersTable({ users, loading, error, onReintentar, meId, rolesCatalogo, nombreCompania, proveedores, organismos, onEditar, onContrasena, onAlternar }: {
+export default function UsersTable({ users, loading, error, onReintentar, vacioMensaje, meId, rolesCatalogo, nombreCompania, proveedores, organismos, onEditar, onContrasena, onAlternar, onDarDeBaja, onReactivar }: {
   users: User[];
   loading: boolean;
   /** Mensaje del fallo de carga, o `null`. Es el CUARTO estado (HU #12172): ver `EstadoError`. */
   error: string | null;
   onReintentar: () => void;
+  /** Texto del vacío (HU #12089: distinto si el filtro es «Dados de baja»). */
+  vacioMensaje?: string;
   meId: number | undefined;
   rolesCatalogo: RolOpcion[] | null;
   nombreCompania: (id: number) => string | null;
@@ -26,7 +28,10 @@ export default function UsersTable({ users, loading, error, onReintentar, meId, 
   organismos: CatalogoOrganismos;
   onEditar: (u: User) => void;
   onContrasena: (u: User) => void;
+  /** Toggle `active` (suspensión). No es baja lógica. */
   onAlternar: (u: User) => void;
+  onDarDeBaja: (u: User) => void;
+  onReactivar: (u: User) => void;
 }) {
   return (
     <div
@@ -71,10 +76,17 @@ export default function UsersTable({ users, loading, error, onReintentar, meId, 
                 </button>
               </td></tr>
             )}
-            {!loading && !error && users.length === 0 && <tr><td colSpan={7} className="py-10 text-center" style={{ color: 'var(--flit-text-muted)' }}>Sin usuarios</td></tr>}
+            {!loading && !error && users.length === 0 && (
+              <tr>
+                <td colSpan={7} className="py-10 text-center" style={{ color: 'var(--flit-text-muted)' }}>
+                  {vacioMensaje ?? 'Sin usuarios'}
+                </td>
+              </tr>
+            )}
             {!loading && !error && users.map((u) => {
               const roleLabel = etiquetaRol(u.role, rolesCatalogo);
               const isMe = u.id === meId;
+              const dadoDeBaja = u.deletedAt != null;
               return (
                 <tr key={u.id} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
                   <td className="px-4 py-3 font-mono text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
@@ -94,14 +106,25 @@ export default function UsersTable({ users, loading, error, onReintentar, meId, 
                     organismos={organismos}
                   />
                   <td className="px-4 py-3">
-                    <StatusChip tone={u.active ? 'success' : 'danger'}>{u.active ? 'Activo' : 'Inactivo'}</StatusChip>
+                    {dadoDeBaja
+                      ? <StatusChip tone="danger">Dado de baja</StatusChip>
+                      : <StatusChip tone={u.active ? 'success' : 'danger'}>{u.active ? 'Activo' : 'Inactivo'}</StatusChip>}
                   </td>
                   <td className="space-x-1 px-4 py-3 text-right">
-                    <RowButton onClick={() => onEditar(u)} tone="active">Editar</RowButton>
-                    <RowButton onClick={() => onContrasena(u)} tone="neutral">Contraseña</RowButton>
-                    <RowButton onClick={() => onAlternar(u)} disabled={isMe} tone={u.active ? 'danger' : 'success'}>
-                      {u.active ? 'Desactivar' : 'Activar'}
-                    </RowButton>
+                    {dadoDeBaja ? (
+                      <RowButton onClick={() => onReactivar(u)} tone="success">Reactivar</RowButton>
+                    ) : (
+                      <>
+                        <RowButton onClick={() => onEditar(u)} tone="active">Editar</RowButton>
+                        <RowButton onClick={() => onContrasena(u)} tone="neutral">Contraseña</RowButton>
+                        <RowButton onClick={() => onAlternar(u)} disabled={isMe} tone={u.active ? 'danger' : 'success'}>
+                          {u.active ? 'Desactivar' : 'Activar'}
+                        </RowButton>
+                        <RowButton onClick={() => onDarDeBaja(u)} disabled={isMe} tone="danger">
+                          Dar de baja
+                        </RowButton>
+                      </>
+                    )}
                   </td>
                 </tr>
               );

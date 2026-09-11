@@ -38,7 +38,15 @@ export interface User {
    */
   organismosCodigos: string[];
   createdAt: string;
+  /**
+   * Baja lógica (HU #12089). `null` = en alta. Independiente de `active` (suspensión).
+   * Chip «Dado de baja» cuando viene ISO; acciones Baja/Reactivar según este campo.
+   */
+  deletedAt: string | null;
 }
+
+/** Vista del listado respecto a bajas (HU #12089). Dispara `incluirBajas` / `soloBajas` en la query. */
+export type VistaBajas = 'en_alta' | 'dados_de_baja' | 'todos';
 
 /** Opción del `<select>` de rol: `codigo` + `nombre` del catálogo API. */
 export interface RolOpcion {
