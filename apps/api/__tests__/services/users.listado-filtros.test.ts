@@ -103,6 +103,8 @@ interface Escenario {
   organismos?: { userId: number; codigo: string }[];
   /** HU #12087: excepciones por usuario (`permisos_usuario_funcion`) que el listado pide en lote. */
   funciones?: { userId: number; codigo: string; efecto: string }[];
+  /** HU #12088: `tipo_enlace` por rol para la columna Ámbito del Excel (y no pisar whereSql). */
+  rolesEnlace?: { codigo: string; tipoEnlace: string }[];
   companias?: { id: number; name: string }[];
   proveedores?: { id: string; nombre: string }[];
   grupos?: { role: string; active: boolean; total: number }[];
@@ -153,6 +155,9 @@ function instalarBd(esc: Escenario): Espia {
     // el constructor del listado: si cae ahí, pisa `whereSql`/`whereParams` con el `inArray` y rompe
     // los asertos del filtro de rol/activo.
     if (claves === 'codigo,efecto,userId') return chain(esc.funciones ?? []);
+    // HU #12088: export pide `permisos_roles.(codigo, tipoEnlace)` por lote. Sin este branch cae al
+    // constructor del listado, pisa whereSql con el `inArray` y deja Ámbito vacío.
+    if (claves === 'codigo,tipoEnlace') return chain(esc.rolesEnlace ?? []);
     if (claves === 'id,name') { espia.lecturasDeCompania++; return chain(esc.companias ?? []); }
     if (claves === 'id,nombre') return chain(esc.proveedores ?? []);
 
@@ -193,6 +198,12 @@ const FILAS: Fila[] = [
 const ESCENARIO: Escenario = {
   filas: FILAS,
   organismos: [{ userId: 2, codigo: ORG_B }, { userId: 2, codigo: ORG_A }],
+  rolesEnlace: [
+    { codigo: 'admin', tipoEnlace: 'ninguno' },
+    { codigo: 'gestor_impuestos', tipoEnlace: 'organismos_transito' },
+    { codigo: 'proveedor', tipoEnlace: 'proveedor_soat' },
+    { codigo: 'cliente', tipoEnlace: 'compania' },
+  ],
   companias: [{ id: 7, name: 'Transportes Zeta S.A.S.' }],
   proveedores: [{ id: PROVEEDOR, nombre: 'Seguros Del Estado' }],
 };
