@@ -2,16 +2,16 @@
 // /api/flito/tablero. Lectura para Operaciones y Auditoría.
 
 import { Router, type Request, type Response } from 'express';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { resumen } from './flito-tablero.service.js';
 
 const router = Router();
 router.use(authMiddleware);
 
-const LECTURA = requireRole('admin', 'auditor');
 
 // GET / — resumen de indicadores.
-router.get('/', LECTURA, async (_req: Request, res: Response) => {
+router.get('/', exigirFuncion('tablero.tablero.ver'), async (_req: Request, res: Response) => {
   res.json(await resumen());
 });
 

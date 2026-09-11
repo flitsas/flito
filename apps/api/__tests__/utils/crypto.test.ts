@@ -5,6 +5,7 @@ import {
   Redacted, redact,
   newUuid, hashRequest, generateNewKey,
   normalizeDocument, hmacCedula,
+  hmacVin, hmacPlaca, tokenPii, PII_HMAC_VERSION_ACTUAL,
   type AadParts, type CipherBundle,
 } from '../../src/shared/utils/crypto.js';
 
@@ -236,5 +237,63 @@ describe('crypto — hmacCedula', () => {
   it('cédula vacía produce HMAC válido (no throw, normaliza a "")', () => {
     const h = hmacCedula('');
     expect(h.length).toBe(32);
+  });
+});
+
+// ── Identificadores de VEHÍCULO seudonimizados (ADR-0012, HU #12090) ────────────────────────────
+
+describe('crypto — hmacVin / hmacPlaca: por qué NO se reutiliza hmacCedula', () => {
+  const VIN = '9FKRG2222T2042405';
+  /** El mismo VIN con UNA letra distinta: el vecino de flota. */
+  const VIN_VECINO = '9FKRG2222X2042405';
+
+  it('**dos VIN que difieren SOLO en una letra dan HMAC distintos**', () => {
+    // El caso que existe todo este bloque para cerrar. `hmacCedula` normaliza con
+    // `replace(/\D/g,'')` —solo dígitos—, así que sobre un VIN borra las letras y estos dos
+    // colisionan. Un registro de acceso que empareja el vehículo de un titular con el de otro es
+    // peor que no tener correlación. El mutante que mata: cambiar `hmacVin` por `hmacCedula`.
+    expect(hmacVin(VIN)).not.toBe(hmacVin(VIN_VECINO));
+  });
+
+  it('y se demuestra que la primitiva vieja SÍ los confunde: la diferencia no es teórica', () => {
+    // Se afirma sobre `hmacCedula` a propósito. Sin este caso, el de arriba podría pasar por una
+    // precaución de manual; con él queda escrito que el fallo era real y medido.
+    expect(normalizeDocument(VIN)).toBe(normalizeDocument(VIN_VECINO));
+    expect(hmacCedula(VIN).equals(hmacCedula(VIN_VECINO))).toBe(true);
+  });
+
+  it('determinístico y en hex de 64 caracteres', () => {
+    expect(hmacVin(VIN)).toBe(hmacVin(VIN));
+    expect(hmacVin(VIN)).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('**normaliza ALFANUMÉRICAMENTE: separadores y minúsculas dan el MISMO token**', () => {
+    // La regla de `normalizarId` del canal, que es la que decide lo que sale hacia Kyverum. Si el
+    // HMAC se calculara sobre una forma y se buscara sobre otra, el registro sería inútil sin que
+    // nadie lo notara. El mutante que mata: quitar la normalización antes del HMAC.
+    expect(hmacVin('9FKRG-2222-T2042405')).toBe(hmacVin(VIN));
+    expect(hmacVin('9fkrg2222t2042405')).toBe(hmacVin(VIN));
+    expect(hmacVin('  9fkrg-2222 t2042405 ')).toBe(hmacVin(VIN));
+  });
+
+  it('**separación de dominio: el mismo valor como VIN, como placa y como cédula da tres HMAC**', () => {
+    // Los tres comparten `PII_HMAC_KEY`; lo que los separa es la etiqueta. Sin ella, un VIN de solo
+    // dígitos colisionaría con la cédula de esos mismos dígitos.
+    const soloDigitos = '1036640908';
+    expect(hmacVin(soloDigitos)).not.toBe(hmacPlaca(soloDigitos));
+    expect(hmacVin(soloDigitos)).not.toBe(hmacCedula(soloDigitos).toString('hex'));
+    expect(hmacPlaca(soloDigitos)).not.toBe(hmacCedula(soloDigitos).toString('hex'));
+  });
+
+  it('`tokenPii` versiona en banda y trunca a 32 hex, en un solo sitio', () => {
+    // El truncado es el contrato: quien escribe y quien busca tienen que recortar igual. Que la
+    // versión viaje en la fila es lo que hace sobrevivible una rotación de clave con seis años de
+    // retención por delante.
+    const token = tokenPii(hmacVin(VIN));
+    expect(token).toMatch(/^v1:[0-9a-f]{32}$/);
+    expect(token.startsWith(`v${PII_HMAC_VERSION_ACTUAL}:`)).toBe(true);
+    expect(token).toHaveLength(35);
+    // Y sigue distinguiendo al vecino de flota después de truncar: 128 bits son de sobra.
+    expect(tokenPii(hmacVin(VIN))).not.toBe(tokenPii(hmacVin(VIN_VECINO)));
   });
 });

@@ -164,3 +164,212 @@ export function resolverCodigoOrganismoFlit(params: { ciudad?: string | null; no
   if (nombre && NOMBRE_INDEX.has(nombre)) return NOMBRE_INDEX.get(nombre)!;
   return null;
 }
+
+// ── Emparejamiento TOLERANTE, para quien SOLO tiene el nombre del RUNT ───────────────────────────
+//
+// **DOS niveles, y por qué exactamente dos (Bug #12179).**
+//
+// `resolverCodigoOrganismoFlit` es para el reporte de FLIT, que trae `Ciudad` en una COLUMNA APARTE:
+// ahí la ciudad es un dato limpio y la igualdad exacta es la comprobación correcta — relajarla haría
+// más laxo un emparejamiento que hoy no falla, y por eso esa función se conserva intacta.
+//
+// El RUNT no manda ciudad. Manda UNA cadena, `data.vehiculo.organismoTransito`, con la redacción de
+// la secretaría, y esa redacción VARÍA respecto de la del catálogo («STRIA DE TTOyTTE MEDELLIN» vs
+// «STRIA TTEyTTO MEDELLIN»). Contra `NOMBRE_INDEX` la igualdad exacta falla siempre que el RUNT no
+// use LITERALMENTE la redacción propia de FLIT, y el resultado es un `null` que la ficha del wizard
+// pinta como «—» aunque el registro SÍ haya mandado el organismo. Eso es el Bug #12179.
+//
+//   1. **Igualdad exacta normalizada** (delegada, sin cambios). Lo más específico primero. Cubre
+//      además CUALQUIER variación de espaciado o puntuación del nombre de catálogo, porque `norm`
+//      borra todos los separadores: «STRIATTEYTTOMEDELLIN» es igualdad exacta, no una tolerancia.
+//   2. **Contención de la CIUDAD, por PALABRA COMPLETA.** Es el nivel estable: la ciudad no la
+//      redacta nadie.
+//
+// ── Por qué el nivel 2 casa por palabra completa, y no es un detalle de estilo ───────────────────
+//
+// `norm` quita los espacios, así que sobre la forma pegada `includes` compara subcadenas y cualquier
+// municipio que EMPIECE por el nombre de uno del catálogo se lo lleva. Medido sobre municipios
+// reales que NO están en los 119:
+//
+//   · CALIMA EL DARIEN → Cali · CALIFORNIA → Cali · TAMESIS → Tame · BUGALAGRANDE → Buga
+//
+// Eso no es un «—»: es un `flito_soat.organismo_codigo` EQUIVOCADO, con FK a una fila real, y esa
+// columna es el ámbito de bandeja («organismo destino al enviar a tránsito», `schema.ts:390-391`).
+// Un SOAT de Támesis acabaría en la bandeja de Tame, Arauca. Un `null` honesto que Operaciones
+// completa a mano es estrictamente mejor: este Bug viene a dejar de PERDER organismos, no a empezar
+// a inventarlos. La cota de longitud no cubre esto —el problema no es lo corta que sea la clave, es
+// que no hay frontera—, así que el nivel 2 compara sobre {@link normPal}: la misma normalización
+// pero colapsando los separadores a UN espacio y con espacio al principio y al final, de modo que
+// « CALI » no está dentro de « CALIMA EL DARIEN » y « LA CALERA », que son dos palabras, sí casa.
+//
+// ── Por qué NO hay un tercer nivel, y qué haría falta para añadirlo ─────────────────────────────
+//
+// Lo hubo: contención del sufijo de 12 caracteres del NOMBRE de catálogo sobre la forma pegada, que
+// es lo que hace el picker del traspaso. Se **retiró** en este mismo Bug, y la razón está medida:
+//
+//   · 119 organismos × 7 plantillas de redacción realistas (literal, todo pegado, «STRIA DE
+//     TTOyTTE …», «SECRETARIA DE TRANSITO Y TRANSPORTE DE …», «ORGANISMO DE TRANSITO DE …»,
+//     «<nombre> - <ciudad>», espacios comidos) = **833 entradas, CERO alcanzaban el nivel 3**: el
+//     nivel 1 se queda con las pegadas y el nivel 2 con todo lo demás.
+//   · Su única clase restante —texto extra por delante Y la ciudad pegada por la izquierda,
+//     «ORGANISMO STRIA TTEyTTOMEDELLIN»— no tiene UNA sola evidencia en el payload del RUNT.
+//   · Y para que dejara de inventar organismos hubo que anclarlo al final: con `includes` resucitaba
+//     los cuatro de arriba en cuanto la cadena traía la redacción literal de FLIT delante
+//     (`norm('STRIA TTEyTTO TAMESIS')` contiene `'ATTEYTTOTAME'`), que es el patrón MÁS probable.
+//
+// Un nivel que no acierta nada comprobable pero sí puede fallar es coste neto, y además es código
+// que este Bug AÑADÍA. **La vía de vuelta está abierta y es barata**: la línea de log del desenlace
+// `ok` publica `organismoRunt: <nombre crudo>` y `organismoCatalogado: false`, así que una redacción
+// que hoy no cruce se ve en DEV con el caso real delante. Se añade entonces, con el dato, y no ahora
+// a ciegas. Ese instrumento es justo lo que faltaba para que este Bug fuera diagnosticable.
+//
+// ── Ambigüedad: lo medido, lo resuelto y lo que se paga ─────────────────────────────────────────
+//
+// El recorrido va de MÁS LARGO A MÁS CORTO. Los dos únicos pares que se contienen entre sí en el
+// catálogo son Florida (76275) ⊂ Floridablanca (68276) y Girardot (25307) ⊂ Girardota (05308), y
+// los separa la FRONTERA DE PALABRA, no el orden: « FLORIDA » no está dentro de « FLORIDABLANCA »,
+// que es una sola palabra. (Comprobado con el mutante del orden ascendente: esos asertos siguen
+// verdes.) El orden por longitud se conserva porque es la defensa que queda si mañana entra un
+// municipio compuesto que contenga a otro como secuencia de palabras («LA UNION» dentro de «LA UNION
+// DEL SUR»).
+//
+// ── «<municipio> - <departamento>»: la familia que el gate B encontró ───────────────────────────
+//
+// Una versión anterior de este comentario afirmaba que la única ambigüedad era «… TAME ARAUCA» y que
+// «en el catálogo actual eso ocurre en UN caso». **Era falso, y el error de método importa más que
+// el caso**: se midieron los pares INTERNOS del catálogo —ciudad contra ciudad de los 119— y se
+// concluyó sobre el mundo. La familia real es otra y es grande: cadenas «<municipio> -
+// <departamento>» donde el MUNICIPIO está fuera del catálogo y el DEPARTAMENTO se llama como una
+// ciudad que sí está. Con 19 municipios de Caldas y 5 de Arauca × 2 plantillas de redacción son 48
+// atribuciones equivocadas medidas, todas a un organismo de otro departamento:
+//
+//     'STRIA DE TRANSITO MUNICIPAL DE SUPIA - CALDAS'  →  05129, que es Caldas ANTIOQUIA
+//     'STRIA DE TTOyTTE ARAUQUITA ARAUCA'              →  81001, que es Arauca capital
+//
+// Y no es una plantilla inventada: «<municipio> - <departamento>» es el fixture del propio spec
+// («… SOACHA - CUNDINAMARCA»). Otra vez, medir dentro del conjunto conocido y concluir sobre el
+// mundo — la misma trampa que los fixtures copiados del catálogo, que fueron lo que ocultó el Bug.
+//
+// **La regla:** una ciudad del catálogo que se llama como un DEPARTAMENTO no puede ganar por
+// contención (ver {@link DEPARTAMENTOS_COLOMBIA}). Se salta en el recorrido, con dos consecuencias:
+//
+//   · Si hay otra coincidencia, gana esa. «… TAME ARAUCA» → **Tame (81794)**, que además es lo
+//     CORRECTO: Tame es el municipio y Arauca el departamento. Deja de ser una ambigüedad aceptada
+//     y pasa a estar bien resuelto.
+//   · Si la única coincidencia era el departamento, `null`. No hay forma de distinguir «Caldas el
+//     municipio» de «Caldas el departamento», y ante la duda el `null` honesto —un «—» que
+//     Operaciones completa a mano— es estrictamente mejor que un código ajeno y silencioso en una
+//     columna que es ámbito de bandeja.
+//
+// **El precio, escrito:** una redacción VARIADA del organismo propio de Caldas o de Arauca
+// («STRIA DE TTOyTTE CALDAS») pasa a devolver `null` en vez de su código. Son dos organismos de 119
+// y el fallo es el honesto; la alternativa era aceptar 48 atribuciones equivocadas. La redacción
+// LITERAL de esos dos —«STRIA TTEyTTO CALDAS», «STRIA TTEyTTO ARAUCA»— sigue resolviendo por el
+// nivel 1, que no toca esta regla, y es como llegan cuando de verdad son ellos.
+//
+// La lista de departamentos va ENTERA y no solo las dos que hoy chocan, para que la regla siga
+// siendo correcta si mañana entra al catálogo un Córdoba, un Santander, un Sucre o un Bolívar
+// —municipios reales homónimos de departamento—. Hoy la intersección medida es de dos: Caldas
+// (05129) y Arauca (81001).
+//
+// ── Relación con el picker del traspaso, dicha con precisión ────────────────────────────────────
+//
+// Esto **no es «la lógica del picker promovida»**, y desde que se retiró el nivel 3 lo es menos:
+// `resolveOrgFromRuntName` (`apps/web/src/pages/tramite/TraspasoOrganismoPicker.tsx`) tiene DOS
+// niveles —sufijo del nombre y ciudad— y aquí queda solo el de ciudad, además ACOTADO a palabra
+// completa, que es una condición que el picker no impone. De él viene la idea de emparejar por
+// ciudad sobre el mismo campo del mismo payload; el resto diverge a propósito y con la medición de
+// arriba detrás.
+//
+// Por eso tampoco se sustituye la copia del traspaso por esta función: el picker normaliza
+// CONSERVANDO espacios y puntuación (solo quita tildes), devuelve el `OrgTransito` entero para el
+// FUR y conserva su nivel de sufijo. Cambiarlo por esta sería alterar el comportamiento de un flujo
+// que hoy funciona en producción; este Bug no es el sitio, y la unificación pendiente es del lado
+// web.
+/**
+ * Como `norm`, pero conservando la FRONTERA entre palabras: separadores colapsados a un espacio y la
+ * cadena rodeada de espacios, para que `includes(' CALI ')` no case dentro de « CALIMA EL DARIEN ».
+ *
+ * Las tildes se quitan ANTES de colapsar (`\u0300-\u036f`, como el picker del traspaso) y no se
+ * dejan caer en el reemplazo general: si una marca de combinación llegara al `[^A-Z0-9]+`,
+ * «MEDELLÍN» se partiría en dos palabras («MEDELLI N») y el nivel 2 dejaría de casar justo el caso
+ * que abre este Bug.
+ */
+const normPal = (s: string): string =>
+  ` ${s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim()} `;
+
+/**
+ * Los 32 departamentos, para poder distinguir «Caldas el municipio» de «Caldas el departamento».
+ *
+ * Va la lista ENTERA y no solo las dos que hoy chocan con el catálogo, porque la regla tiene que
+ * seguir siendo correcta el día que se añada un organismo de Córdoba (Quindío), Santander
+ * (Cauca), Sucre (Santander) o Bolívar (Cauca) — municipios reales que se llaman como un
+ * departamento y que hoy no están en los 119. Con la lista corta, ese día el error volvería
+ * silencioso.
+ *
+ * **Hoy la intersección con el catálogo es de DOS**: Caldas (05129, que es el de Antioquia) y
+ * Arauca (81001). Medido cruzando `norm` de cada ciudad del catálogo contra esta lista, no a ojo.
+ */
+export const DEPARTAMENTOS_COLOMBIA: readonly string[] = [
+  'Amazonas', 'Antioquia', 'Arauca', 'Atlántico', 'Bolívar', 'Boyacá', 'Caldas', 'Caquetá',
+  'Casanare', 'Cauca', 'Cesar', 'Chocó', 'Córdoba', 'Cundinamarca', 'Guainía', 'Guaviare',
+  'Huila', 'La Guajira', 'Magdalena', 'Meta', 'Nariño', 'Norte de Santander', 'Putumayo',
+  'Quindío', 'Risaralda', 'San Andrés y Providencia', 'Santander', 'Sucre', 'Tolima',
+  'Valle del Cauca', 'Vaupés', 'Vichada',
+] as const;
+
+const DEPARTAMENTOS_NORM = new Set(DEPARTAMENTOS_COLOMBIA.map((d) => norm(d)));
+
+/**
+ * ¿Este nombre es el de un departamento? Con la MISMA normalización que las ciudades del catálogo.
+ *
+ * Se exporta para que la garantía sea comprobable, y esa es toda su razón de ser. Con el catálogo de
+ * HOY, construir el índice con `toUpperCase()` en vez de `norm()` es un mutante **equivalente**:
+ * ninguna de las 119 ciudades cambia de veredicto, porque las dos que intersecan —Caldas y Arauca—
+ * son de una sola palabra y sin tilde. Pero dejaría INERTES 14 de las 32 entradas (Atlántico,
+ * Bolívar, Boyacá, Caquetá, Chocó, Córdoba, Guainía, La Guajira, Nariño, Norte de Santander,
+ * Quindío, San Andrés y Providencia, Valle del Cauca, Vaupés), y la lista de 32 existe justamente
+ * para el futuro: el día que entre al catálogo una ciudad Córdoba o Quindío, el error volvería en
+ * silencio. Afirmando sobre esta función —la misma que alimenta el índice, no una copia— el mutante
+ * deja de ser equivalente.
+ */
+export function esNombreDeDepartamento(nombre: string): boolean {
+  return DEPARTAMENTOS_NORM.has(norm(nombre));
+}
+
+const CIUDADES_POR_LONGITUD = [...ORGANISMOS_TRANSITO]
+  .map((o) => ({ codigo: o.codigo, clave: normPal(o.ciudad), esDepartamento: esNombreDeDepartamento(o.ciudad) }))
+  .sort((a, b) => b.clave.length - a.clave.length);
+
+/**
+ * El código DIVIPOLA a partir del nombre de organismo **tal como lo redacta el RUNT**, o `null`.
+ *
+ * Dos niveles: igualdad exacta normalizada → contención de la CIUDAD por palabra completa, con las
+ * ciudades homónimas de un departamento excluidas de la contención. Ver el bloque de arriba para el
+ * porqué de cada uno, por qué NO hay un tercero, y qué se gana y qué se paga con la regla de
+ * departamentos.
+ *
+ * NO se usa para el reporte de FLIT: ese trae la ciudad en su propia columna y se empareja con
+ * {@link resolverCodigoOrganismoFlit}, que sigue siendo exacto a propósito.
+ */
+export function resolverCodigoOrganismoRunt(nombreRunt: string | null | undefined): string | null {
+  const exacto = resolverCodigoOrganismoFlit({ nombre: nombreRunt ?? null });
+  if (exacto) return exacto;
+
+  const crudo = nombreRunt ?? '';
+  // Sin una sola letra o dígito no hay nada que emparejar.
+  if (norm(crudo).length === 0) return null;
+
+  // Nivel 2, por PALABRA COMPLETA: claves y objetivo van rodeados de espacios, así que « CALI » no
+  // casa dentro de « CALIMA EL DARIEN » y « LA CALERA » sí casa entera. La cota son los 3 caracteres
+  // del picker más los dos espacios: una clave de una o dos letras sería ruido.
+  const objetivo = normPal(crudo);
+  for (const c of CIUDADES_POR_LONGITUD) {
+    // Una ciudad que se llama como un DEPARTAMENTO no puede ganar por contención: en
+    // «… SUPIA - CALDAS» lo que casa es el departamento, no el municipio. Se salta, así que si hay
+    // otra coincidencia gana esa («… TAME ARAUCA» → Tame) y si era la única el resultado es `null`.
+    if (c.esDepartamento) continue;
+    if (c.clave.length >= 5 && objetivo.includes(c.clave)) return c.codigo;
+  }
+  return null;
+}

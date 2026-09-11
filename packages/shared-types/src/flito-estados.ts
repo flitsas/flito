@@ -58,6 +58,9 @@ export const CONCEPTO_TARIFA_LABEL: Record<ConceptoTarifa, string> = {
  * Cómo normalizar el tipo de trámite antes de compararlo. En `flito_tramites.tipo_tramite` es texto
  * libre de FLIT ("Matricula", "matrícula ", "TRASPASO"), así que sin normalizar la misma tarifa se
  * configuraría tres veces y ninguna coincidiría.
+ *
+ * Para TARIFAS usar `tipoTramiteTarifaDe` (flito-tarifas.ts): catálogo cerrado, sin tildes y sin
+ * adivinar. Esta sigue sirviendo a siigo/mapeo-conceptos, que sí trabaja con texto libre.
  */
 export function normalizarTipoTramite(v: string | null | undefined): string | null {
   const s = (v ?? '').trim().toUpperCase();
@@ -131,34 +134,26 @@ export const ALERTA_OPERATIVA_LABEL: Record<AlertaOperativa, string> = {
  * y no genera registro (se muestra "Autogestionado").
  * Independiente del ciclo del trámite — eso resuelve el riesgo de doble adquisición (RN-01).
  */
+/**
+ * ── El canal Cliente vuelve a los CUATRO estados de siempre (Feature #12074, HU #12080) ──────────
+ *
+ * Entre el Feature #11912 y hoy hubo dos estados más —`pendiente_revision` y `rechazada`— que solo
+ * alcanzaba un SOAT con `origen = 'cliente'`: la solicitud nacía en cuarentena y una persona de
+ * Operaciones la validaba o la devolvía. Ese circuito se retira entero: desde la HU #12078 el alta
+ * nace en `solicitado` con el gestor de la compañía ya escrito, y desde la #12079 la pantalla que
+ * lo revisaba ya no existe. Dos estados a los que ya nadie llega no son un ciclo, son una trampa:
+ * cualquier `Record<EstadoSoat, X>` obligaba a inventarles un color y una etiqueta, y `reversar()`
+ * tenía que seguir defendiéndose de un destino inalcanzable.
+ *
+ * La migración 0176 los saca también del tipo de Postgres, y lo hace ABORTANDO si queda alguna fila
+ * en ellos. Por eso quitarlos de aquí no es «limpieza de tipos»: es el contrato compartido diciendo
+ * lo mismo que la base.
+ */
 export const EstadoSoat = {
   PENDIENTE: 'pendiente',
   SOLICITADO: 'solicitado',
   CON_NOVEDAD: 'con_novedad',
   PAGADO: 'pagado',
-  /**
-   * Los DOS estados del canal Cliente (Feature #11912, ADR-0008 §2). Solo los alcanza un SOAT con
-   * `origen = 'cliente'`: el que nace del sync de trámites sigue entrando en `pendiente` y su ciclo
-   * no cambia en nada.
-   *
-   *   pendiente_revision ── un cliente radicó la solicitud y Operaciones aún no la ha revisado.
-   *                         NO es `pendiente`: `POST /enviar` filtra por `pendiente`, así que un
-   *                         admin despachando la cola enviaría al gestor solicitudes sin validar.
-   *   rechazada          ── Operaciones la devolvió con causal y observación; el cliente subsana y
-   *                         vuelve a `pendiente_revision`.
-   *
-   * Van al MISMO enum (`flito_soat_estado`) y no a una columna aparte de la tabla satélite, para
-   * que una fila tenga un solo estado y `POST /enviar` siga siendo correcto sin tocarlo.
-   *
-   * Quien los ESCRIBE es la HU #11914 (alta) y la #11915 (revisión). La #11913 solo los declara —y
-   * eso ya obliga al compilador a completar cada `Record<EstadoSoat, X>`, que es la red que impide
-   * que una pantalla pinte un estado en blanco.
-   *
-   * El gestor del proveedor NO los ve, y no por una regla nueva: `ESTADOS_SOAT_VISIBLES_GESTOR` es
-   * una lista blanca que sigue siendo `['solicitado', 'pagado']`.
-   */
-  PENDIENTE_REVISION: 'pendiente_revision',
-  RECHAZADA: 'rechazada',
 } as const;
 
 export type EstadoSoat = (typeof EstadoSoat)[keyof typeof EstadoSoat];
@@ -168,17 +163,14 @@ export const ESTADO_SOAT_LABEL: Record<EstadoSoat, string> = {
   solicitado: 'Solicitado',
   con_novedad: 'Con novedad',
   pagado: 'Pagado',
-  pendiente_revision: 'Pendiente de revisión',
-  rechazada: 'Rechazada',
 };
 
 /**
  * RN-01: un SOAT se adquiere una sola vez por VIN. Solicitado y Pagado bloquean el reencolado;
  * Con novedad NO (se comporta como Pendiente: se corrige y se reenvía).
  *
- * Los dos estados del canal Cliente NO entran aquí, y es decisión escrita (ADR-0008 §2 y riesgo
- * abierto 1): ampliar esta lista cambia el contador de auditoría del sync, que no es alcance del
- * Feature #11912.
+ * Desde la HU #12080 no hay más estados que estos cuatro, así que la lista no tiene que declarar
+ * ninguna exclusión: los dos del canal Cliente que el ADR-0008 §2 dejaba fuera ya no existen.
  */
 export const ESTADOS_SOAT_BLOQUEAN_REENCOLADO: readonly EstadoSoat[] = [
   'solicitado', 'pagado',
@@ -191,36 +183,12 @@ export function soatBloqueaReencolado(estado: EstadoSoat): boolean {
 /**
  * Estados del SOAT visibles para el gestor (nunca `Pendiente`). Ver DECISIONES.md §6.
  *
- * Es una LISTA BLANCA, y por eso los dos estados del canal Cliente quedan fuera sin escribir nada:
- * el gestor no ve lo que un cliente radicó hasta que Operaciones lo valida y pasa a `solicitado`.
+ * Sigue siendo una LISTA BLANCA y sigue diciendo lo mismo que antes de la HU #12080: el gestor ve
+ * lo que está en su cola y lo ya pagado. Lo que cambia es que una solicitud del canal entra en
+ * `solicitado` desde el alta (HU #12078), sin pasar por ninguna cuarentena previa.
  */
 export const ESTADOS_SOAT_VISIBLES_GESTOR: readonly EstadoSoat[] = [
   'solicitado', 'pagado',
-];
-
-/**
- * Los dos estados que SOLO existen en el canal Cliente (Feature #11912, HU #11915).
- *
- * Nombrados una vez y no repetidos como literales, porque de esta lista dependen tres reglas que
- * tienen que decir lo mismo o el ciclo se abre por la costura:
- *
- *   1. **`reversar()` no sale de ellos.** Sin esa guarda, un admin lleva una solicitud de
- *      `pendiente_revision` a `pendiente` y `POST /enviar` la despacha al gestor sin que nadie la
- *      haya validado — el AC1 saltado por la puerta de al lado.
- *   2. **`reversar()` no entra en ellos.** Lo prohíbe el ADR-0008 §8: devolver a `pendiente_revision`
- *      un SOAT ya validado deja al gestor sin la fila y al cliente con una solicitud que creía
- *      resuelta.
- *   3. **La pantalla no puede ofrecerlos como destino de reversa.** `ESTADOS_OPERACIONES` de
- *      `FlitoSoat.tsx` alimenta a la vez las pills de la cola Y el selector «Estado destino» de la
- *      reversa; añadir ahí los dos estados para que la pill funcione abriría el destino sin que
- *      nadie lo decidiera. La UI necesita las dos listas separadas, y esta es la que dice cuáles no
- *      son destino.
- *
- * NO es lo mismo que «estados que el gestor no ve»: eso ya lo dice `ESTADOS_SOAT_VISIBLES_GESTOR`,
- * que es una lista blanca y responde otra pregunta.
- */
-export const ESTADOS_SOAT_CANAL_CLIENTE: readonly EstadoSoat[] = [
-  'pendiente_revision', 'rechazada',
 ];
 
 /** Estado de Impuestos: mismos cuatro estados que SOAT (ver EstadoSoat). */
@@ -619,20 +587,79 @@ export const ESTADOS_VERIFICACION_SOLICITUD_SOAT = [
 export type EstadoVerificacionSolicitudSoat =
   (typeof ESTADOS_VERIFICACION_SOLICITUD_SOAT)[number];
 
+// `CausalRechazoSoat` vivía aquí: el catálogo que servía `GET /flito/soat/causales-rechazo`
+// (Feature #11912, HU #11915). Se retira con la HU #12080 junto al endpoint que lo publicaba y a la
+// tabla `flito_soat_causales_rechazo` que lo guardaba (migración 0176). No queda ningún productor
+// ni ningún consumidor del tipo, y dejarlo declarado invitaría a escribir una pantalla contra un
+// catálogo que ya no existe en la base.
+
+// ─────────────── Verificación diaria de vigencia contra el RUNT (Feature #12075) ─────────────────
+
 /**
- * Una causal del catálogo de rechazo, tal como la sirve `GET /flito/soat/causales-rechazo`
- * (Feature #11912, HU #11915).
+ * Lo que la verificación de las 00:10 escribe en `flito_soat.estado_vigencia` (HU #12096).
  *
- * Catálogo GENERAL: no hay causales por compañía, ni aquí ni en la tabla. Lo dice el AC2 y es además
- * el precedente del repo (`flito_comparendos_causales`).
+ * **Tres valores, no cuatro**, y esa es la decisión que hay que entender antes de tocar nada:
+ * `vencido` NO se persiste. Se DERIVA en el servidor comparando `vence_el` contra el día de Bogotá,
+ * porque un SOAT que hoy está vigente mañana está vencido sin que nadie lo haya tocado — guardarlo
+ * como estado obligaría a reescribir filas cada medianoche para que la columna dejara de mentir.
+ * El vocabulario de pantalla (con `vencido` dentro) es {@link VIGENCIAS_SOAT_VISTA}.
  *
- * `activo` viaja aunque el endpoint solo devuelva las activas, y no es redundante: el detalle de un
- * rechazo YA REGISTRADO tiene que poder rotular una causal que se desactivó después, y sin el campo
- * la pantalla no distinguiría «esta causal ya no se ofrece» de «esta causal no existe».
+ * **No se confunde con `ESTADOS_VERIFICACION_SOLICITUD_SOAT`**, que es la compuerta RUNT del ALTA
+ * del canal Cliente (`pendiente|caido|sin_registro|no_cuadra|ok`), otro momento y otro dueño. El
+ * parecido de `sin_registro` es superficial: allí significa «el registro no conoce el vehículo que
+ * se está radicando» y aquí «el RUNT no reporta SOAT vigente para un vehículo que FLITO ya pagó».
+ *
+ *   · `vigente`       — el RUNT respondió y reporta póliza vigente.
+ *   · `sin_registro`  — el RUNT respondió y NO la reporta (vencida, sin póliza, o sin vehículo).
+ *   · `no_verificado` — no hubo respuesta. **No dice nada del vehículo**, y por eso no es un «no».
  */
-export interface CausalRechazoSoat {
-  id: string;
-  nombre: string;
-  activo: boolean;
-  orden: number;
-}
+export const ESTADOS_VIGENCIA_SOAT = ['vigente', 'sin_registro', 'no_verificado'] as const;
+
+export type EstadoVigenciaSoat = (typeof ESTADOS_VIGENCIA_SOAT)[number];
+
+export const esEstadoVigenciaSoat = (v: unknown): v is EstadoVigenciaSoat =>
+  typeof v === 'string' && (ESTADOS_VIGENCIA_SOAT as readonly string[]).includes(v);
+
+/**
+ * El vocabulario de PANTALLA: los tres persistidos más `vencido`, que el servidor deriva.
+ *
+ * Es también el de los tres filtros de la cola (`vencido`, `sin_registro`, `no_verificado`); no se
+ * ofrece filtrar por `vigente` porque nadie barre la cola buscando lo que está bien.
+ */
+export const VIGENCIAS_SOAT_VISTA = ['vigente', 'vencido', 'sin_registro', 'no_verificado'] as const;
+
+export type VigenciaSoatVista = (typeof VIGENCIAS_SOAT_VISTA)[number];
+
+/** Los tres que la cola acepta como filtro. `vigente` no está: ver {@link VIGENCIAS_SOAT_VISTA}. */
+export const FILTROS_VIGENCIA_COLA = ['vencido', 'sin_registro', 'no_verificado'] as const;
+
+export type FiltroVigenciaCola = (typeof FILTROS_VIGENCIA_COLA)[number];
+
+export const esFiltroVigenciaCola = (v: unknown): v is FiltroVigenciaCola =>
+  typeof v === 'string' && (FILTROS_VIGENCIA_COLA as readonly string[]).includes(v);
+
+/**
+ * Por qué no se pudo consultar. **Vocabulario CERRADO**, y ese es todo el punto.
+ *
+ * Son las mismas cuatro clases que `causaDeCaida()` del canal Cliente produce a partir del mensaje
+ * de la pasarela. Que sean cuatro tokens fijos —y no el `err.message`— es lo que permite guardarlas
+ * en `flito_soat_verificacion_corridas.motivos` y loguearlas sin abrir una vía de PII: el mensaje de
+ * un tercero puede traer dentro la placa o el VIN con los que se consultó, y `logger` no redacta lo
+ * que no reconoce.
+ */
+export const MOTIVOS_CAIDA_RUNT = ['timeout', 'red', 'circuito', 'otro'] as const;
+
+export type MotivoCaidaRunt = (typeof MOTIVOS_CAIDA_RUNT)[number];
+
+/**
+ * El `jsonb` de `flito_soat_verificacion_corridas.motivos`: cuántas caídas de cada clase, más
+ * cuántos reintentos POR VEHÍCULO se gastaron en la corrida (un total, no un mapa por vehículo —
+ * eso sería una lista de identificadores en una columna que nadie necesita para operar).
+ *
+ * Todas las claves son opcionales y su ausencia significa CERO. Un `Record` completo obligaría a
+ * escribir los cuatro ceros en cada corrida buena, que es ruido con forma de dato.
+ */
+export type ResumenMotivosCorrida = Partial<Record<MotivoCaidaRunt, number>> & {
+  /** Consultas repetidas por un mismo vehículo dentro de la corrida (tope `MAX_REINTENTOS_VEHICULO`). */
+  reintentos?: number;
+};

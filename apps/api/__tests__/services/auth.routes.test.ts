@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { chain } from '../helpers/db.js';
-import { testToken } from '../helpers/auth.js';
+import { testToken, registrarUsuarioDePrueba } from '../helpers/auth.js';
+import { decodeJwt } from 'jose';
 
 const selectMock = vi.fn();
 
@@ -157,6 +158,10 @@ describe('POST /api/auth/login — éxito', () => {
     selectMock.mockReturnValueOnce(chain([{
       id: 42, username: 'admin', passwordHash: 'h', active: true, role: 'admin', name: 'Admin User', allowedPages: null,
     }]));
+    // HU #12082: `allowedPages` es una vista del resolutor único. Aquí el resolutor lee del registro
+    // del helper (no de `selectMock`): el reparto del rol trae `pagina.dashboard` justo para comprobar
+    // que el sobre lleva el SLUG y no el código de la función.
+    await registrarUsuarioDePrueba(42, { rol: 'admin', tipoPrincipal: 'interno', allowedPages: [], funcionesDelRol: ['pagina.dashboard'], excepciones: [] });
     argonVerifyMock.mockResolvedValueOnce(true);
     const app = await buildApp();
     const r = await request(app).post('/api/auth/login').send({ username: 'admin', password: 'OK' });
@@ -173,7 +178,15 @@ describe('POST /api/auth/login — éxito', () => {
     expect(Object.keys(r.body.user)).toContain('puedeSolicitarSoat');
     expect(r.body.user.puedeSolicitarSoat).toBe(false);
     expect(r.body.user.companiaId).toBeUndefined();
+    // Una: el usuario. El reparto lo sirve el resolutor (aquí, el registro); la de `clients` sigue sin
+    // ocurrir para un admin.
     expect(selectMock).toHaveBeenCalledTimes(1);
+    // TC #12261 (AC3, retirada heredada 2): el JWT emitido YA NO lleva `allowedPages` ni ningún claim
+    // de permisos. Del token, el servidor solo usa `sub` y `role`.
+    const claims = decodeJwt(r.body.token);
+    expect(claims).not.toHaveProperty('allowedPages');
+    expect(claims).not.toHaveProperty('funciones');
+    expect(Object.keys(claims).sort()).toEqual(['exp', 'iat', 'role', 'sub', 'username']);
     expect(clearLockoutMock).toHaveBeenCalledWith('admin');
     expect(registerFailedMock).not.toHaveBeenCalled();
     expect(auditMock.mock.calls[0][1].action).toBe('login');
@@ -199,6 +212,7 @@ const CLIENTE_LOGIN = {
 
 describe('POST /api/auth/login — `puedeSolicitarSoat` (Bug #11937)', () => {
   it('cliente cuya compañía tiene el flag ENCENDIDO → true y la clave viene', async () => {
+    await registrarUsuarioDePrueba(5, { rol: 'cliente', tipoPrincipal: 'externo', allowedPages: [], funcionesDelRol: ['pagina.flito_soat'], excepciones: [] });
     selectMock
       .mockReturnValueOnce(chain([CLIENTE_LOGIN]))
       .mockReturnValueOnce(chain([{ sinTramite: true }]));
@@ -210,10 +224,11 @@ describe('POST /api/auth/login — `puedeSolicitarSoat` (Bug #11937)', () => {
     expect(Object.keys(r.body.user)).toContain('puedeSolicitarSoat');
     expect(r.body.user.puedeSolicitarSoat).toBe(true);
     expect(r.body.user.companiaId).toBeUndefined();
-    expect(selectMock).toHaveBeenCalledTimes(2); // usuario + clients
+    expect(selectMock).toHaveBeenCalledTimes(2); // usuario + clients (el reparto lo sirve el resolutor)
   });
 
   it('flag APAGADO → false, y no es «no vino el campo»', async () => {
+    await registrarUsuarioDePrueba(5, { rol: 'cliente', tipoPrincipal: 'externo', allowedPages: [], funcionesDelRol: ['pagina.flito_soat'], excepciones: [] });
     selectMock
       .mockReturnValueOnce(chain([CLIENTE_LOGIN]))
       .mockReturnValueOnce(chain([{ sinTramite: false }]));
@@ -239,12 +254,17 @@ describe('GET /api/auth/me', () => {
     selectMock.mockReturnValueOnce(chain([{
       id: 1, username: 'admin', name: 'A', role: 'admin', allowedPages: null,
     }]));
-    const token = await testToken({ sub: 1, role: 'admin' });
+    // HU #12082: las páginas las sirve el resolutor (el registro del helper); `allowedPages` del helper
+    // es `users.allowed_pages`, y el admin no tiene fila de defaults, así que sale exactamente esto.
+    const token = await testToken({ sub: 1, role: 'admin', allowedPages: ['dashboard'] });
     const app = await buildApp();
     const r = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(200);
     expect(r.body.id).toBe(1);
     expect(Array.isArray(r.body.allowedPages)).toBe(true);
+    // Lo que viaja son SLUGS, resueltos por el mismo resolutor que decide en el servidor.
+    expect(r.body.allowedPages).toEqual(['dashboard']);
+    expect(selectMock).toHaveBeenCalledTimes(1);
   });
 
   it('token válido pero user no existe en BD → 404', async () => {

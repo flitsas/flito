@@ -12,7 +12,7 @@ Monorepo **npm workspaces** (nunca pnpm, nunca yarn, nunca dotnet):
 
 | Workspace | Qué es |
 |---|---|
-| `apps/api` | Express 4 + TypeScript **ESM** + **Drizzle ORM** + PostgreSQL + **Zod**. Módulos en `src/modules/<modulo>/` con el par `.routes.ts` / `.service.ts` (más `.cron.ts` opcional). Esquema en `src/db/schema.ts`, migraciones en `src/db/migrations/`. Transversales en `src/shared/` (middleware `auth.ts`, `audit.ts`, `rateLimiter.ts`, `errorHandler.ts`, `pii-audit.ts`, `redis.ts`, `logger.ts` con pino, `metrics.ts`). Tests **Vitest + supertest** en `__tests__/` |
+| `apps/api` | Express 4 + TypeScript **ESM** + **Drizzle ORM** + PostgreSQL + **Zod**. Módulos en `src/modules/<modulo>/` con el par `.routes.ts` / `.service.ts` (más `.cron.ts` opcional). Esquema en `src/db/schema.ts` (las tablas `permisos_*` viven en `src/db/schema/permisos.ts` y `schema.ts` las re-exporta; el resto sigue ahí), migraciones en `src/db/migrations/`. Transversales en `src/shared/` (middleware `auth.ts`, `audit.ts`, `rateLimiter.ts`, `errorHandler.ts`, `pii-audit.ts`, `redis.ts`, `logger.ts` con pino, `metrics.ts`). Tests **Vitest + supertest** en `__tests__/` |
 | `apps/web` | Vite 5 + React 18.3 + **react-router-dom 6** + **Tailwind CSS 4** (`@tailwindcss/vite`). Páginas en `src/pages/`, cliente HTTP único en `src/lib/api.ts` (`BASE = '/api'`, token en `localStorage`, timeout 90 s). **No hay TanStack Query, ni Vitest, ni RTL**: los tests son **Playwright E2E** en `e2e/tests/` + `tsc --noEmit` |
 | `packages/shared-types` | Contrato de tipos entre ambos, importado como `@operaciones/shared-types`. **No hay OpenAPI**: el contrato vive aquí y en los documentos de diseño |
 
@@ -84,7 +84,7 @@ Las reglas de negocio documentadas viven en comentarios de cabecera de los módu
   Prefijo en MAYÚSCULAS, ID de ADO sin `#`, descripción en kebab-case sin acentos, rama ≤ 80 caracteres. **Sin sufijo de ambiente** (`-dev`/`-qa`/`-pdn`): la rama de trabajo siempre va a `develop` y el ambiente ya se registra en ADO (`Deploy DEV/QA/PDN`). Título ≤ 100 caracteres, descriptivo del cambio y su para qué (un «Ajustes» no cumple), sin punto final. La convención vieja `feat/flito-hu<ID>-*` queda **derogada** para ramas nuevas. Verificación local antes del push y del PR: `node scripts/check-naming.mjs --branch "$(git branch --show-current)" --title "<título>"`.
 - **Nunca `git add -A` ni `git add .`**: el working tree puede tener parches de demo. Archivos explícitos + `git status --short` antes de commitear.
 - `.claude/` **sí está versionado** (es el equipo de agentes/skills del repo): sus cambios se commitean como cualquier archivo. Lo que no se commitea: parches locales de demo (stubs de OCR, MinIO local).
-- **Monitoreo del PR:** tras **cada** `create_pull_request`, el hilo principal invoca el subagente **`pr-monitor-agent`** (recomendado en background). Él vigila los checks, lee el log de los jobs rojos (clasificando flake de infraestructura —relanza **uno** solo— vs código), detecta conflictos (**no** los resuelve: nombra al agente dueño) y **mergea a `develop`** cuando el CI está verde y no hay conflictos. Un PR verde a `develop` que se queda abierto es fallo del monitor, no un «gate pendiente» de QA/SHA/«sí» en el prompt. Termina en el merge: `flit-integration-ado` Modo B y `devops-agent` M1 los sigue ejecutando el hilo principal.
+- **Monitoreo del PR:** tras **cada** `create_pull_request`, el hilo principal invoca el subagente **`pr-monitor-agent`** (**en background, obligatorio** — en primer plano el CI para el hilo). Él vigila los checks, lee el log de los jobs rojos (clasificando flake de infraestructura —relanza **uno** solo— vs código), detecta conflictos (**no** los resuelve: nombra al agente dueño) y **mergea a `develop`** cuando el CI está verde y no hay conflictos. Un PR verde a `develop` que se queda abierto es fallo del monitor, no un «gate pendiente» de QA/SHA/«sí» en el prompt. Termina en el merge: `flit-integration-ado` Modo B y `devops-agent` M1 los sigue ejecutando el hilo principal.
 - **Merge a `develop`:** lo ejecuta el **`pr-monitor-agent`** (o el hilo si el subagente no pudo) vía MCP `github` (`merge_pull_request`, merge commit) cuando: base exactamente `develop`, CI `build + test` + `dependency-audit` + `secret-scan` + `naming` en verde, sin conflictos. Abrir el PR a `develop` durante el desarrollo **es** la autorización; no se espera un segundo «sí». Opt-out: el humano dijo «no mergees». `flit-code-review` y `qa-agent` B son **pre-PR** (no se abre el PR sin `OK`/`PASS`); el monitor **no** espera un HANDOFF de QA porque ese gate ya cerró. Tras merge → `flit-gestion-hu` `Resolved` + `flit-integration-ado` Modo B (Deploy DEV). En **cadena apilada**, si el CI de merges intermedios queda `cancelled` por concurrency, el gate de Deploy es el tip de `develop` que ya incluye la cadena (detalle en la skill).
 - **Merge a `staging` / `release`:** siempre humano (`flit-release`). Ningún agente mergea promociones.
 - Cerrar un Feature es exclusivo del Product Owner.
@@ -201,10 +201,35 @@ Si falla un test que este diff no toca (umbral RSS/`export-coste`, flake conocid
 medir GC, no «arreglar el instrumento», no stash+baseline, salvo que `git stash` demuestre que
 **este** diff lo empeoró.
 
-### P8. Cold-start: el prompt trae AC + paths → implementar
+### P8. Cold-start: presupuesto de reconocimiento, no elección de herramienta
 
-Si el Task trae AC y paths: `Read` de esos archivos e implementar. **Prohibido** usar `Bash` como
-visor de código (`Read`/`Grep` sí) y prohibido re-leer `AGENTS.md` o skills de ADO «por si acaso».
+Si el Task trae AC/repro y paths: leer esos archivos e **implementar**. Lo que se controla es
+**cuánto** se explora antes de producir, no con qué herramienta se lee.
+
+| Agente | Presupuesto antes de la primera acción productiva | Mediana real medida (26-ago a 8-sep) |
+|---|---|---|
+| `backend-agent` | **8** llamadas | 28 |
+| `frontend-agent` | **8** llamadas | 24 |
+| `security-agent` (diff-scoped) | **6** llamadas | 31 |
+| `qa-agent` (modo B) | **6** llamadas | 11 |
+
+Cuenta toda lectura, búsqueda o listado —`Read`, `Grep`, `Glob`, `cat`, `sed -n`, `grep`, `find`,
+`ls`, `git log`/`git diff` de reconocimiento—. **No** cuentan los tests, los builds, ni lo que se
+lea *después* de la primera edición: eso ya es trabajo, no reconocimiento.
+
+Agotado el presupuesto sin haber producido, hay dos salidas legítimas: implementar con lo que se
+tiene, o `HANDOFF bloqueado` nombrando el dato exacto que falta. Seguir explorando no es una de ellas.
+
+**Prohibido el barrido** con paths en el prompt: nada de `grep -r` sobre `apps/api/src` o
+`apps/web/src` enteros, ni recorrer módulos vecinos «para ver cómo se hace» más allá del que el
+prompt nombra. Y prohibido re-leer `AGENTS.md` o skills de ADO «por si acaso».
+
+> **Derogado el 2026-09-08:** la versión anterior de P8 prohibía «usar `Bash` como visor de código»
+> y exigía `Read`/`Grep`. Era inaplicable: la sesión inyecta en **cada subagente** la instrucción de
+> hacer el trabajo por `Bash` (leer con `cat`/`sed -n`, buscar con `grep`/`find`). Comprobado en los
+> transcripts de subagentes. Dos reglas opuestas, y ganaba siempre la del harness — así que la regla
+> del repo era letra muerta que solo servía para dar por incumplido a quien obedecía. El coste real
+> nunca estuvo en la herramienta: estaba en el número de pasos, y eso es lo que ahora se mide.
 
 ### P9. Cerrar vacíos **antes** de crear HUs o de codear
 

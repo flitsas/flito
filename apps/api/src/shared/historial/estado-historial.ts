@@ -101,6 +101,26 @@ export interface ItemHistorial {
  */
 export const AUTOR_INTERNO_ANONIMO = 'FLITO';
 
+/**
+ * La imagen ESPEJO del anterior (HU #12078): cómo se nombra al actor cuando la fila la movió un
+ * empleado de la COMPAÑÍA CLIENTE y quien lee no es de esa compañía.
+ *
+ * Mismo criterio que `AUTOR_INTERNO_ANONIMO` y por eso mismo no es `null`: la fila la movió alguien
+ * y se sabe quién; lo que pasa es que a este lector no le corresponde el nombre de un trabajador de
+ * otra empresa. Decirlo así conserva la única parte que sí le sirve —de qué lado vino el cambio— sin
+ * entregar a la persona.
+ */
+export const AUTOR_COMPANIA_ANONIMO = 'La compañía';
+
+/**
+ * El único rol de `USER_ROLES` que pertenece a una COMPAÑÍA CLIENTE (Feature #11912).
+ *
+ * No es «el único rol externo a FLIT»: `proveedor` —el gestor— también es de otra empresa, y es
+ * justamente quien LEE en el caso que motiva este recorte. Lo que distingue a `cliente` es de qué
+ * lado del encargo está: el gestor y FLIT trabajan la solicitud, la compañía la radica.
+ */
+const ROL_COMPANIA_CLIENTE = 'cliente';
+
 export interface OpcionesHistorial {
   /**
    * true → quien lee esta respuesta NO es de FLIT, así que la fila se sirve recortada: el actor sale
@@ -126,32 +146,77 @@ export interface OpcionesHistorial {
    * ── La alternativa que se descartó, y por qué ───────────────────────────────────────────────────
    *
    * Se valoró servirle al cliente un motivo ACOTADO A UN CATÁLOGO de códigos en vez de callarlo. Se
-   * descarta porque ese catálogo ya existe y no es este: lo que el cliente tiene que poder leer es
-   * la causal de rechazo de SU solicitud, y eso vive en `flito_soat_causales_rechazo` +
-   * `flito_soat_solicitud.observacion_rechazo`, que sirve la HU #11915 por su propia ruta. Inventar
-   * aquí un segundo catálogo daría dos maneras de responder la misma pregunta y ninguna completa;
-   * además obligaría a codificar los ~8 puntos de llamada de `registrarCambio` para una audiencia
-   * que hoy no lee ninguno.
+   * descarta porque codificar los ~8 puntos de llamada de `registrarCambio` para una audiencia que
+   * hoy no lee ninguno es trabajo a cuenta de una necesidad que nadie ha expresado — y porque el
+   * motivo, tal como se escribe, no es un código: es una frase que un empleado redacta sobre un caso.
+   *
+   * **Aquí decía otra cosa hasta la HU #12080**, y conviene dejar dicho qué se cayó: el argumento
+   * era «ese catálogo ya existe y no es este — lo que el cliente tiene que poder leer es la causal de
+   * rechazo de SU solicitud, en `flito_soat_causales_rechazo` + `flito_soat_solicitud.
+   * observacion_rechazo`». Esas dos cosas ya no existen (Feature #12074, migración 0176): el canal no
+   * tiene revisión, así que no hay ningún rechazo de Operaciones que rotular. El corte se mantiene
+   * por su primera razón, que nunca dependió de aquel catálogo: el motivo es texto libre interno.
    *
    * Lo que el cliente conserva es la línea de tiempo entera: qué estado, desde cuál, cuándo y que lo
    * movió FLITO.
    *
-   * ── Corrección de una frase que estuvo aquí y era FALSA (HU #11915) ─────────────────────────────
+   * ── `flito_soat.motivo_rechazo` es del GESTOR, y sigue siéndolo ─────────────────────────────────
    *
-   * Decía que «el motivo del rechazo del gestor le sigue llegando por `motivoRechazo` en el DTO del
-   * detalle … lo necesita la #11915 para subsanar». **No lo necesita, y creerlo lleva a escribir el
-   * rechazo del canal en la columna equivocada.** `flito_soat.motivo_rechazo` es el rechazo del
-   * GESTOR, el que lleva a `con_novedad` (`rechazar()` en `flito-soat.service.ts`): otro actor, otro
-   * estado destino y otra audiencia. El rechazo del ADMIN sobre una solicitud del canal va a
-   * `flito_soat_solicitud` —causal del catálogo general + observación— y le llega al Cliente por el
-   * bloque `solicitud` del detalle, con su propia proyección por rol. La HU #11915 no lee ni escribe
-   * `motivo_rechazo` en ninguna parte.
+   * Merece decirse porque la confusión ya costó una corrección: esa columna es el rechazo del GESTOR,
+   * el que lleva a `con_novedad` (`rechazar()` en `flito-soat.service.ts`), y no tiene nada que ver
+   * con el rechazo del ADMIN que hubo entre la #11915 y la #12080. Aquel se escribía en
+   * `flito_soat_solicitud` y hoy no se escribe en ninguna parte. `POST /:id/rechazar` no cambia.
    *
    * Desde la HU #11914 el `cliente` radica, así que sus PROPIAS acciones ya aparecen en este
    * historial y habrá que distinguirlas cuando la pantalla quiera hacerlo: la fila guarda
    * `usuario_id`, así que se resuelve ahí, no aquí.
    */
   lectorExterno?: boolean;
+
+  /**
+   * true → el actor se NOMBRA solo si consta que NO es de la compañía cliente. El resto de la fila
+   * —el estado, el motivo, la fecha— no se toca: esto NO es `lectorExterno` en pequeño.
+   *
+   * ── El agujero que cierra (HU #12078, segunda puerta del bloqueante) ────────────────────────────
+   *
+   * `GET /flito/soat/:id/historial` es la MISMA respuesta para el admin y para el gestor del
+   * proveedor. Antes de la #12078 eso no entregaba nada de nadie: una solicitud del canal Cliente
+   * nacía en `pendiente_revision`, estado que no está en `ESTADOS_SOAT_VISIBLES_GESTOR`, así que
+   * `buscarConAcceso` le devolvía 404 y la fila de historial que escribe el RADICADOR —con su
+   * `usuarioId` y su `usuarioEmail`— era inalcanzable para él. Desde la #12078 la solicitud nace en
+   * `solicitado` y entra derecha a su cola: **la HU no creó el endpoint, le quitó el cerrojo**. Por
+   * ahí salía el mismo nombre que el DTO acababa de recortar (`enviadoPorNombreVisible`), un endpoint
+   * más allá, y con el CORREO CORPORATIVO como alternativa cuando el usuario ya no existe, que es
+   * peor: un identificador con el que se puede escribir a la persona.
+   *
+   * ── Por qué NO se resolvió encendiendo `lectorExterno` para el rol `proveedor` ──────────────────
+   *
+   * Porque ese interruptor recorta por ROL y vale para la respuesta entera, y el gestor no es un
+   * lector externo en el mismo sentido que el `cliente`: FLIT le encarga el trabajo, y saber QUÉ
+   * PERSONA de FLIT le devolvió un SOAT o se lo reasignó es su interlocutor legítimo. Encenderlo le
+   * dejaría todas las filas de trámite —el 100 % de lo que hay hoy— con «FLITO» y sin motivo. Sería
+   * una amputación, no una proyección.
+   *
+   * Este recorte es POR FILA y mira quién la escribió, no quién la lee. Lo enciende
+   * `historialConAcceso` solo para el gestor Y solo sobre una solicitud de `origen = 'cliente'`: la
+   * misma condición doble de `enviadoPorNombreVisible`, y por eso el historial de un SOAT de trámite
+   * le llega byte a byte como antes.
+   *
+   * ── Los cuatro desenlaces, y ninguno es un descuido ────────────────────────────────────────────
+   *
+   *   · Actor con rol conocido distinto de `cliente` → se nombra. Es de FLIT o del propio proveedor
+   *     que lee: en los dos casos, alguien de su lado del encargo.
+   *   · Actor `cliente` → `AUTOR_COMPANIA_ANONIMO`.
+   *   · Actor con nombre o correo pero SIN rol → tampoco se nombra, y sale `null`. `usuario_id` es
+   *     `ON DELETE SET NULL`, así que borrar al usuario deja la fila con el `usuario_email` copiado y
+   *     sin forma de saber de qué lado estaba: si se emitiera «por si acaso es de FLIT», bastaría
+   *     dar de baja al radicador para que su correo volviera a salir. `null` —«Usuario desconocido»
+   *     en la pantalla— es lo que esa fila puede afirmar de verdad, y no se disfraza de compañía
+   *     porque eso sí sería inventarse un lado.
+   *   · Fila SIN actor (`origen: 'sistema'`, o un `usuario_id` que nunca hubo) → `null`, que es
+   *     exactamente lo que devuelve hoy. Un cron no se etiqueta como «La compañía».
+   */
+  ocultarActoresDelCliente?: boolean;
 }
 
 /**
@@ -175,6 +240,10 @@ export async function historialDe(
     // El nombre del usuario si sigue existiendo; si no, el correo copiado en su momento.
     usuarioNombre: users.name,
     usuarioEmail: flitoEstadoHistorial.usuarioEmail,
+    // De qué LADO estaba quien movió la fila. No se emite nunca —no es un campo del DTO— y solo se
+    // consulta para decidir `ocultarActoresDelCliente`. Sale del mismo `leftJoin` que ya estaba, así
+    // que no añade ni una consulta ni cambia el plan; `null` cuando el usuario ya no existe.
+    usuarioRol: users.role,
     creadoEn: flitoEstadoHistorial.createdAt,
   }).from(flitoEstadoHistorial)
     .leftJoin(users, eq(flitoEstadoHistorial.usuarioId, users.id))
@@ -190,8 +259,32 @@ export async function historialDe(
     estadoNuevo: f.estadoNuevo,
     // Los dos recortes van juntos y a la vista, no repartidos: son la misma decisión.
     motivo: opciones.lectorExterno ? null : f.motivo,
-    usuario: opciones.lectorExterno ? AUTOR_INTERNO_ANONIMO : (f.usuarioNombre ?? f.usuarioEmail),
+    usuario: actorVisible(f, opciones),
     origen: f.origen,
     creadoEn: f.creadoEn.toISOString(),
   }));
+}
+
+/** Lo que el historial guarda del actor, antes de decidir si se nombra. */
+type ActorFila = { usuarioNombre: string | null; usuarioEmail: string | null; usuarioRol: string | null };
+
+/**
+ * Cómo se nombra al actor de UNA fila para ESTE lector. Los dos recortes conviven aquí y no se
+ * anidan: `lectorExterno` mira a quién LEE y vale para toda la respuesta;
+ * `ocultarActoresDelCliente` mira quién ESCRIBIÓ cada fila. El porqué de cada uno, en
+ * `OpcionesHistorial`.
+ */
+function actorVisible(f: ActorFila, opciones: OpcionesHistorial): string | null {
+  // El nombre del usuario si sigue existiendo; si no, el correo copiado en su momento. Es el valor
+  // de siempre, y el que los dos recortes tapan.
+  const actor = f.usuarioNombre ?? f.usuarioEmail;
+  if (opciones.lectorExterno) return AUTOR_INTERNO_ANONIMO;
+  if (!opciones.ocultarActoresDelCliente) return actor;
+  // Una fila sin actor no tiene a quién ocultar: `origen: 'sistema'` sigue saliendo `null`, y no se
+  // convierte en «La compañía» por pasar por aquí.
+  if (actor === null) return null;
+  if (f.usuarioRol === ROL_COMPANIA_CLIENTE) return AUTOR_COMPANIA_ANONIMO;
+  // Rol desconocido = usuario dado de baja (`ON DELETE SET NULL`). No consta de qué lado estaba, así
+  // que no se nombra: lo contrario haría del borrado de un usuario la forma de sacar su correo.
+  return f.usuarioRol ? actor : null;
 }

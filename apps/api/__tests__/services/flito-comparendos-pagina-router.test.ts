@@ -2,8 +2,8 @@
 //
 // El hecho «quién puede entrar a comparendos» está escrito en DOS sitios y en dos lenguajes: el
 // catálogo de páginas de `packages/shared-types/src/permissions.ts`, que decide qué ve la interfaz,
-// y el `requireRole(...)` de nivel de router de `flito-comparendos.routes.ts`, que decide quién
-// obtiene datos. Conceder la página a un rol que el router no admite no rompe nada al compilar: crea
+// y las guardas `exigirFuncion('comparendos.…')` de cada ruta de `flito-comparendos.routes.ts` (con
+// los roles de partida de la foto `inventario.generado.ts`, HU #12083), que deciden quién obtiene datos. Conceder la página a un rol que el router no admite no rompe nada al compilar: crea
 // una pantalla que carga y responde 403 en cada petición, que es la peor de las dos opciones —peor
 // incluso que no dársela— porque el usuario cree que el permiso está y el administrador también.
 //
@@ -24,6 +24,9 @@
 
 import { describe, it, expect } from 'vitest';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
+import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
+import { llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
 import { fileURLToPath } from 'node:url';
 import { USER_ROLES, getEffectivePages, type UserRole } from '@operaciones/shared-types';
 
@@ -36,23 +39,32 @@ const RUTA_PAGINA = fileURLToPath(new URL('../../../web/src/pages/FlitoComparend
 const SLUG = 'flito_comparendos';
 
 /**
- * Roles que el router del módulo admite, leídos de su `router.use(requireRole(...))`.
- *
- * Se busca la forma de nivel de ROUTER —`router.use(requireRole(…))`— y no cualquier `requireRole`,
- * porque un guard puesto en una ruta suelta no dice nada sobre el módulo entero. Si el módulo
- * dejara de tener guard de rol a nivel de router, la función devuelve `null` y el test falla
- * pidiendo que alguien mire por qué: perder el guard es justo el cambio que no puede pasar callado.
+ * Roles que el router del módulo admite: la unión de los roles de PARTIDA (foto) de los códigos que
+ * cada ruta monta con `exigirFuncion('comparendos.…')` (HU #12083: la guarda va ruta a ruta, ya no
+ * hay `router.use(requireRole(...))`). Si alguna ruta del fichero no llevara guarda, o montara un
+ * código que la foto no conoce, la función devuelve `null` y el test falla pidiendo que alguien
+ * mire por qué: perder una guarda es justo el cambio que no puede pasar callado.
  */
 function rolesQueAdmiteElRouter(): UserRole[] | null {
-  const fuente = readFileSync(RUTA_ROUTER, 'utf8');
-  const m = fuente.match(/router\.use\(\s*requireRole\(([^)]*)\)\s*\)/);
-  if (!m) return null;
-  const roles = [...m[1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1] as UserRole);
-  return roles.length > 0 ? roles : null;
+  const fuente = readFileSync(RUTA_ROUTER, 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ').split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n');
+  const rutas = [...fuente.matchAll(/router\.(get|post|put|patch|delete)\(\s*'[^']*'\s*,\s*([\w.]+(?:\('[^']*'\))?)/g)];
+  if (rutas.length === 0) return null;
+  const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
+  const rolesPorCodigo = new Map(GUARDAS_MEDIDAS
+    .filter((g) => g.fichero === 'flito-comparendos/flito-comparendos.routes.ts')
+    .map((g) => [codigoDeLlave.get(llaveDe(g))!, g.roles]));
+  const roles = new Set<UserRole>();
+  for (const r of rutas) {
+    const m = /^exigirFuncion\('(comparendos\.[a-z_]+\.[a-z_]+)'\)$/.exec(r[2]);
+    if (!m || !rolesPorCodigo.has(m[1])) return null;
+    for (const rol of rolesPorCodigo.get(m[1])!) roles.add(rol as UserRole);
+  }
+  return roles.size > 0 ? [...roles] : null;
 }
 
 describe('AC1/AC2 — la página de comparendos no se concede a quien el router rechaza', () => {
-  it('el router declara su guard de rol a nivel de router', () => {
+  it('cada ruta del router declara su guarda de función, con un código que la foto conoce', () => {
     expect(rolesQueAdmiteElRouter()).not.toBeNull();
   });
 
@@ -60,22 +72,25 @@ describe('AC1/AC2 — la página de comparendos no se concede a quien el router 
     const admitidos = new Set(rolesQueAdmiteElRouter() ?? []);
     const conLaPagina = USER_ROLES.filter((role) => getEffectivePages({ role }).includes(SLUG));
 
-    // `admin` la tiene por tenerlas todas; el resto solo si alguien lo escribió a mano.
-    expect(conLaPagina.length).toBeGreaterThan(0);
-
+    // HU #12081 AC4: `admin` ya NO la tiene por comodín, así que este conjunto es hoy VACÍO y el
+    // `toBeGreaterThan(0)` de antes ya no se sostiene. Lo que sigue valiendo —y es lo que este caso
+    // protege— es que nadie que el router rechace la reciba. Quien se la da a `admin` es el reparto
+    // sembrado, y su coherencia con el router se comprueba en `__tests__/db/migracion-0179.test.ts`.
     const incoherentes = conLaPagina.filter((role) => !admitidos.has(role));
     expect(
       incoherentes,
       `Estos roles reciben la página "${SLUG}" pero /flito/comparendos solo admite `
       + `[${[...admitidos].join(', ')}]: verían una pantalla que responde 403 en cada petición. `
-      + 'Si el acceso se quiere abrir de verdad, se cambia primero el requireRole del router.',
+      + 'Si el acceso se quiere abrir de verdad, se concede primero la función en el panel de permisos.',
     ).toEqual([]);
   });
 
   it('el catálogo no concede la página por defecto a ningún rol fuera del router', () => {
-    // Complemento del anterior por el otro lado: sin allowedPages a mano, `admin` es el único.
+    // Complemento del anterior por el otro lado. Antes de la HU #12081 `admin` era el único que
+    // salía aquí, por su comodín; retirado el comodín, el módulo puro no concede la página a NADIE
+    // por defecto —que es lo correcto: la página es de `admin` y solo por reparto sembrado—.
     const porDefecto = USER_ROLES.filter((role) => getEffectivePages({ role }).includes(SLUG));
-    expect(porDefecto).toEqual(['admin']);
+    expect(porDefecto).toEqual([]);
   });
 });
 

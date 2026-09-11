@@ -4,7 +4,7 @@
 // `medirExports` tenía `COLUMNAS_EXPORT` de comparendos incrustado, así que medir cualquier otra hoja
 // era imposible sin estimar por analogía. Ahora la lista de columnas es un PARÁMETRO, con esa misma
 // constante como valor por defecto para que las dos suites de comparendos no cambien ni una línea.
-// La hoja de las colas de SOAT e Impuestos —25 columnas— se mide en
+// La hoja de las colas de SOAT e Impuestos —27 columnas desde la HU #12403— se mide en
 // `cola-flito-export-coste.test.ts` con este mismo instrumento y no con una regla de tres.
 //
 // Vive aquí y no dentro de un `.test.ts` desde la HU #11651: la medición dejó de ser un solo
@@ -134,7 +134,7 @@ export interface ColumnaMedida { header: string; key: string; width?: number }
  * medición se quedó corta, que es exactamente lo que pasó entre la HU #11712 y la HU #11651.
  *
  * Los dos argumentos tienen defecto de comparendos para no tocar sus dos suites; cualquier otra hoja
- * pasa los suyos. La comprobación importa MÁS cuanto más ancha es la hoja: en una de 25 columnas,
+ * pasa los suyos. La comprobación importa MÁS cuanto más ancha es la hoja: en una de 27 columnas,
  * olvidarse de generar seis se lee como «el export es barato».
  */
 export function columnasFaltantes(
@@ -181,17 +181,17 @@ export function filasPeorCaso(n: number): Record<string, unknown>[] {
   return Array.from({ length: n }, (_, i) => fila(i, observacionLarga(i)));
 }
 
-// ── La hoja de las colas de SOAT e Impuestos (HU #11934) ─────────────────────────────────────────
+// ── La hoja de las colas de SOAT e Impuestos (HU #11934, HU #12403) ─────────────────────────────────────────
 
 /**
- * Una fila del `.xlsx` de las colas, con **las 25 claves** de `COLUMNAS_COLA_EXPORT`.
+ * Una fila del `.xlsx` de las colas, con **las 27 claves** de `COLUMNAS_COLA_EXPORT`.
  *
  * Se escribe aquí y no en el archivo de test por lo mismo que la de comparendos: la medición de un
  * export y la de varios simultáneos viven en procesos distintos y un generador copiado divergiría.
  *
  * Los textos cambian por fila a propósito. `exceljs` guarda las cadenas en una tabla compartida, así
  * que 2 000 filas idénticas comprimirían como una y la medición saldría optimista — y en una hoja de
- * 25 columnas eso importa más, no menos: la mitad de sus valores (`Puertas`, `N_I`, `ClaseId`,
+ * 27 columnas eso importa más, no menos: la mitad de sus valores (`Puertas`, `N_I`, `ClaseId`,
  * `ClaseDeInterlocutor`, `Servicio`, `Clase`…) SON repetitivos de verdad, y los que no lo son hay que
  * generarlos variados o se mide un archivo que no existe.
  *
@@ -230,6 +230,10 @@ export function filaCola(i: number): Record<string, unknown> {
     celular: `31${String(i % 100000000).padStart(8, '0')}`,
     correo: `titular.numero.${i}@empresadetransportes${i % 40}.com.co`,
     organismoDettoCiudad: ['Funza', 'Mosquera', 'Palmira', 'Envigado'][i % 4],
+    // HU #12403. Distintos por fila y de la longitud real (varchar(50), en la práctica 10-17
+    // caracteres): dos identificadores únicos por vehículo no se deduplican en la tabla de cadenas.
+    numeroMotor: `MTR${String(i * 7919).padStart(11, '0')}`,
+    numeroSerie: `9BWZZZ377VT${String(i * 31).padStart(6, '0')}S`,
   };
 }
 

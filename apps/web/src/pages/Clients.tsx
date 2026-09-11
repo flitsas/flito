@@ -4,20 +4,21 @@
 // compañía: en una se marcaba si autogestiona, en la otra se le ponían las tarifas — y el toggle de
 // autogestión ya llamaba al endpoint de parametrización. Todo lo que es del cliente vive aquí.
 //
-// Las tarifas se abren por fila, en modal: cada compañía puede tener varias (por concepto y por tipo
-// de trámite) y meterlas como columnas habría hecho ilegible una tabla que ya tiene nueve.
+// Las tarifas ya NO viven aquí (HU #12375): el botón «Tarifas» de la fila lleva al configurador de
+// valores (`/flito/tarifas/:companiaId`), que modela cada valor como una vigencia con historial. La
+// ventana emergente que dejaba escribir el tipo a mano y marcar «Inactiva» se retiró con esa HU.
 //
 // Quién puede qué:
 //   admin       — todo.
-//   financiera  — tarifas sí, autogestión no: qué gestiona FLITO es decisión de Operaciones.
+//   financiera  — tarifas sí (en su pantalla), autogestión no: qué gestiona FLITO es decisión de Operaciones.
 //   auditor     — solo lectura.
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { CONCEPTOS_TARIFA, CONCEPTO_TARIFA_LABEL, type ConceptoTarifa } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { puedeOperar } from '../lib/permissions';
+import { hasPage, puedeOperar } from '../lib/permissions';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import FlitModal from '../components/flit/FlitModal';
@@ -30,6 +31,12 @@ import {
 // tiene dos pestañas, un modal y dos formularios, y no cabe más sin acercarse al techo de 800.
 import FichaFiscal, { ChipFacturable } from '../components/clientes/FichaFiscal';
 import type { VeredictoCliente } from '../components/clientes/tipos';
+// El catálogo de gestores de SOAT y su selector con los cuatro estados (HU #12053). Se REUTILIZA y
+// no se copia: `ProveedorSoatField` ya resuelve el caso que aquí también hace falta —reinyectar el
+// gestor asignado aunque esté desactivado, para que guardar otra cosa no se lo quite a la compañía
+// por la espalda— y su copy vive junto al de Usuarios.
+import FlitSelect from '../components/flit/FlitSelect';
+import { useProveedoresSoat, type CatalogoProveedores } from './users/AtaduraFields';
 
 // Un cliente ES una compañía FLITO: misma tabla. Por eso la autogestión, las tarifas y los datos de
 // contacto se administran en el mismo sitio.
@@ -54,27 +61,39 @@ interface Client {
    * las de al lado, porque `financiera` ve esta pantalla y NO entra a parametrización.
    */
   soatSinTramite: boolean;
+  /**
+   * A qué gestor salen las solicitudes de ese canal, ya RESUELTO por `GET /clients` (HU #12079).
+   *
+   * `null` = la compañía no tiene ninguno configurado. El uuid **sí viaja** dentro de este objeto —el
+   * `<select>` lo necesita para preseleccionar—; lo que no sale es la columna de `clients` a secas,
+   * sin resolver. El listado la une con `flito_proveedores_soat` y entrega nombre y estado, porque `financiera` y `auditor` ven
+   * esta pantalla y **no** pueden leer `GET /flito/parametrizacion/proveedores-soat` con el que
+   * cruzarlo.
+   *
+   * `activo: false` no es un detalle: significa que las solicitudes NUEVAS de esa compañía están
+   * cayendo en la contingencia de Operaciones, y esta pantalla es el único sitio donde alguien
+   * puede enterarse.
+   */
+  gestorSoatSinTramite: { id: string; nombre: string; activo: boolean } | null;
 }
 interface Proveedor {
   id: string; nombre: string; estrategia: string | null;
   umbralOcr: number | null; slaHoras: number | null; activo: boolean;
 }
-interface Tarifa {
-  id: string; companiaId: number; companiaNombre: string | null;
-  concepto: ConceptoTarifa; tipoTramite: string | null; valor: number; activo: boolean;
-}
 
-type FlagCampo = 'soatAutogestionable' | 'impuestosAutogestionable' | 'logisticaAutogestionable' | 'logisticaPermiteParcial' | 'soatSinTramite';
+// «SOAT sin trámite» YA NO está aquí (HU #12079): dejó de ser un booleano suelto con `PATCH`
+// optimista para ser una decisión con un parámetro obligatorio —el gestor—, y un PATCH por control
+// no sabe expresar «abre el canal y manda a SURA» de una sola vez. Vive en `ModalCanalSoat`.
+type FlagCampo = 'soatAutogestionable' | 'impuestosAutogestionable' | 'logisticaAutogestionable' | 'logisticaPermiteParcial';
 type Tab = 'clientes' | 'proveedores';
-
-const pesos = (v: number) =>
-  new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
 
 export default function Clients() {
   const { user } = useAuth();
   // Operaciones decide qué gestiona FLITO; Finanzas solo pone precio.
   const editaAutogestion = puedeOperar(user?.role);
-  const editaTarifas = user?.role === 'admin' || user?.role === 'financiera';
+  // El enlace al configurador se decide por la PÁGINA, no por el nombre del rol: es el mismo gate
+  // que la ruta de destino, así que nadie llega a un `NoAccess` desde aquí.
+  const veTarifas = hasPage(user, 'flito_tarifas');
   const [tab, setTab] = useState<Tab>('clientes');
 
   return (
@@ -90,7 +109,7 @@ export default function Clients() {
       </FlitPillGroup>
 
       {tab === 'clientes'
-        ? <TabClientes editaAutogestion={editaAutogestion} editaTarifas={editaTarifas} />
+        ? <TabClientes editaAutogestion={editaAutogestion} veTarifas={veTarifas} />
         : <TabProveedores editable={editaAutogestion} />}
     </div>
   );
@@ -98,7 +117,7 @@ export default function Clients() {
 
 // ───────────────────────────── Clientes ─────────────────────────────────────
 
-function TabClientes({ editaAutogestion, editaTarifas }: { editaAutogestion: boolean; editaTarifas: boolean }) {
+function TabClientes({ editaAutogestion, veTarifas }: { editaAutogestion: boolean; veTarifas: boolean }) {
   // `null` = cargando. Antes era `[]` desde el primer render y el `catch` ponía `[]` también, así
   // que un fallo del servidor se leía «No hay clientes.» y no había estado de carga: tres de los
   // cuatro estados colapsados en uno. Se paga aquí porque es sobre ESTA tabla donde se verifica que
@@ -107,10 +126,19 @@ function TabClientes({ editaAutogestion, editaTarifas }: { editaAutogestion: boo
   const [clients, setClients] = useState<Client[] | null>(null);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [tarifasDe, setTarifasDe] = useState<Client | null>(null);
   const [fiscalDe, setFiscalDe] = useState<Client | null>(null);
+  const [canalDe, setCanalDe] = useState<Client | null>(null);
   const [veredictos, setVeredictos] = useState<Map<number, VeredictoCliente>>(new Map());
   const [form, setForm] = useState({ name: '', document: '', documentType: 'NIT', phone: '', email: '', address: '', city: '', notes: '' });
+
+  /**
+   * El catálogo de gestores, **una vez por pestaña y solo para quien lo puede leer**.
+   *
+   * No al abrir cada modal: reabrirlo compañía tras compañía repetiría el `GET` sin que el catálogo
+   * haya cambiado. Y no para todos: la ruta es `admin`+`auditor`, así que `financiera` —que ve esta
+   * pantalla— recibiría un 403 por un catálogo que ni siquiera se le ofrece.
+   */
+  const proveedores = useProveedoresSoat(editaAutogestion);
 
   const load = () => {
     setClients(null); setErrorCarga(null);
@@ -236,16 +264,14 @@ function TabClientes({ editaAutogestion, editaTarifas }: { editaAutogestion: boo
                   <CeldaFlag c={c} campo="impuestosAutogestionable" label="Impuestos" />
                   <CeldaFlag c={c} campo="logisticaAutogestionable" label="Logística" />
                   <CeldaFlag c={c} campo="logisticaPermiteParcial" label="Parcial" aria={`Entregas parciales de ${c.name}`} />
-                  {/* `aria` explícito, como «Parcial». El nombre por defecto sería «Autogestión SOAT
-                      sin trámite de X», una frase que afirma lo CONTRARIO de lo que hace la casilla
-                      —autogestionar es no pedírselo a FLITO— y que además la confundiría con la
-                      casilla «SOAT» de tres columnas antes. */}
-                  <CeldaFlag c={c} campo="soatSinTramite" label="SOAT sin trámite" aria={`SOAT sin trámite de ${c.name}`} />
+                  <CeldaCanalSoat c={c} editable={editaAutogestion} onAbrir={() => setCanalDe(c)} />
                   <td className="px-3 py-2"><ChipFacturable veredicto={veredictos.get(c.id)} /></td>
                   <td className="px-3 py-2">
                     <div className="flex gap-2">
-                      <button className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-                        onClick={() => setTarifasDe(c)}>Tarifas</button>
+                      {veTarifas && (
+                        <Link to={`/flito/tarifas/${c.id}`} className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+                          aria-label={`Tarifas de ${c.name}`}>Tarifas</Link>
+                      )}
                       <button className={flitBtnSecondary} style={flitBtnSecondaryStyle}
                         aria-label={`Datos fiscales de ${c.name}`}
                         onClick={() => setFiscalDe(c)}>Datos fiscales</button>
@@ -266,12 +292,21 @@ function TabClientes({ editaAutogestion, editaTarifas }: { editaAutogestion: boo
           <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
             «SOAT» marca que la compañía compra su SOAT por su cuenta y FLITO no lo gestiona. «SOAT sin trámite» dice otra cosa:
             que sus usuarios Cliente pueden pedirle un SOAT a FLITO sin que haya un trámite abierto. Son independientes — marcar una no cambia la otra.
+            Para abrir «SOAT sin trámite» hay que decir a qué gestor salen las solicitudes de esa compañía.
           </p>
         )}
       </FlitCard>
 
-      {tarifasDe && (
-        <ModalTarifas cliente={tarifasDe} editable={editaTarifas} onClose={() => setTarifasDe(null)} />
+      {canalDe && (
+        <ModalCanalSoat
+          cliente={canalDe} proveedores={proveedores}
+          onClose={() => setCanalDe(null)}
+          // Se recarga el listado entero, como hace la ficha fiscal, en vez de parchear la fila con
+          // lo que el modal cree haber guardado: el nombre y el `activo` del gestor los resuelve el
+          // servidor, y adivinarlos aquí sería una segunda verdad que se desincroniza en cuanto
+          // alguien desactive un proveedor desde la otra pestaña.
+          onGuardado={() => { setCanalDe(null); load(); }}
+        />
       )}
 
       {fiscalDe && (
@@ -288,146 +323,242 @@ function TabClientes({ editaAutogestion, editaTarifas }: { editaAutogestion: boo
   );
 }
 
-// ───────────────────────────── Tarifas del cliente ──────────────────────────
+// ─────────────────── «SOAT sin trámite» y su gestor por defecto (HU #12079) ─────────────────────
+//
+// Diseño: `docs/ux/soat-envio-directo-al-gestor-y-gestor-por-defecto.md` §1.
+//
+// **Por qué un modal y no una 13.ª columna**, que es lo que el AC0 describe al pie de la letra:
+//
+//   1. `FlitSelect` monta una región `role="status"` POR INSTANCIA. Este listado se pide sin
+//      paginar y la ficha fiscal ya lo trae con `limit=500`: serían cientos de regiones vivas
+//      anunciando el mismo «Cargando gestores…» y una parada de tabulador más por fila.
+//   2. Sin botón de guardar, cada control haría su propio `PATCH` optimista y **el orden de los dos
+//      se volvería una adivinanza**: encender primero es un 400 seguro; elegir gestor primero
+//      funciona. Es exactamente la trampa que el pedido manda evitar.
+//   3. La tabla ya tiene 12 columnas y es la más densa del producto.
+//
+// La fila ya abre dos modales propios («Tarifas», «Datos fiscales»), así que el patrón no es nuevo.
+// Dentro, el interruptor y el gestor son **un borrador que se valida y se guarda de una vez**: el
+// orden deja de importar y ninguna combinación imposible llega a existir.
+//
+// **Divergencia declarada con la letra del AC0.** El AC pide que el motivo que se lea sea «el que
+// devuelve el servidor». Con el modal se cumple el EFECTO —el canal no se abre, el interruptor
+// queda como estaba y el motivo se lee—, pero el primero que se ve es el del cliente. El del
+// servidor sigue apareciendo literal cuando la petición sí sale y la rechazan (una carrera: alguien
+// desactivó el gestor entre medias). El motivo es medible: `errorMessage()` antepone el nombre del
+// campo cuando el 400 trae `fieldErrors`, así que lo que el admin leería sería
+// «proveedorSoatSinTramiteId: …» — un mensaje con un nombre de columna delante es peor que el
+// genérico.
 
-function ModalTarifas({ cliente, editable, onClose }: { cliente: Client; editable: boolean; onClose: () => void }) {
-  const [tarifas, setTarifas] = useState<Tarifa[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [recarga, setRecarga] = useState(0);
-  const [crear, setCrear] = useState(false);
-  const [editar, setEditar] = useState<Tarifa | null>(null);
+const CANAL_ETIQUETA = 'Canal abierto';
+const CANAL_AYUDA = 'Sus usuarios Cliente pueden pedirle un SOAT a FLITO sin que haya un trámite abierto.';
+const GESTOR_LABEL = 'Gestor por defecto';
+const GESTOR_VACIA = 'Seleccione gestor…';
+const GESTOR_AYUDA = 'A este gestor salen las solicitudes NUEVAS del canal. Las ya radicadas conservan el gestor que tienen.';
+const GESTOR_CARGANDO = 'Cargando gestores…';
+const GESTOR_ERROR = 'No se pudieron cargar los gestores.';
+const GESTOR_VACIO = 'No hay gestores de SOAT activos. Cree uno en la pestaña Proveedores antes de abrir el canal de esta compañía.';
+const GESTOR_REINTENTO = 'Volver a cargar gestores';
+const GESTOR_REQUERIDO = 'Elija el gestor por defecto antes de abrir el canal.';
+const TOAST_CON_GESTOR = 'Gestor por defecto actualizado. Las solicitudes ya radicadas conservan el suyo.';
+const TOAST_SIN_GESTOR = 'Compañía actualizada.';
 
-  useEffect(() => {
-    setTarifas(null); setError(null);
-    api.get<Tarifa[]>(`/flito/parametrizacion/tarifas?companiaId=${cliente.id}`)
-      .then(setTarifas).catch((e) => setError(errorMessage(e)));
-  }, [cliente.id, recarga]);
+/**
+ * Lo que la celda dice, en una sola frase y sin depender del color.
+ *
+ * «(inactivo)» va en el TEXTO porque es el aviso de que esa compañía está radicando en la
+ * contingencia de Operaciones sin que nadie se haya enterado; el color (`--flit-warning-ink`, no
+ * `--flit-warning`: ver abajo) es refuerzo.
+ *
+ * «Abierto · sin gestor» no lo nombra el diseño y hace falta igual: el gate del servidor es de la
+ * HU #12078 y las filas anteriores a ella pueden tener el canal encendido sin gestor. Pintar solo
+ * «Abierto» ahí sería callar el mismo problema que «(inactivo)» existe para contar.
+ */
+function textoCanal(c: Client): { texto: string; aviso: boolean } {
+  if (!c.soatSinTramite) return { texto: 'Cerrado', aviso: false };
+  const g = c.gestorSoatSinTramite;
+  if (!g) return { texto: 'Abierto · sin gestor', aviso: true };
+  return g.activo
+    ? { texto: `Abierto · ${g.nombre}`, aviso: false }
+    : { texto: `Abierto · ${g.nombre} (inactivo)`, aviso: true };
+}
 
-  const refrescar = () => setRecarga((n) => n + 1);
-
+/**
+ * La celda: **un solo control**, la misma cuenta de paradas de tabulador que la casilla que
+ * sustituye, y la tabla sigue teniendo 12 encabezados.
+ *
+ * Sin permiso de edición no se pinta un botón muerto sino el mismo texto en un `<span>`: hoy
+ * `financiera` y `auditor` ven una casilla gris que no dice cuál es el gestor; con esto leen el
+ * estado completo y no ganan una parada de tabulador inútil.
+ *
+ * ⚠ El nombre accesible **contiene el texto visible** (WCAG 2.5.3, «Label in Name»). Un
+ * `aria-label="Configurar SOAT sin trámite de X"` sobre un botón que dice «Abierto · SURA» deja a
+ * quien maneja el producto por voz diciendo «Abierto» sin que pase nada. Y lleva el NOMBRE de la
+ * compañía, nunca su NIT: los selectores de axe arrastran valores de atributo y acabarían en el
+ * informe.
+ */
+function CeldaCanalSoat({ c, editable, onAbrir }: { c: Client; editable: boolean; onAbrir: () => void }) {
+  const { texto, aviso } = textoCanal(c);
+  // `--flit-warning-ink` y no `--flit-warning`, que es lo que dice el diseño: el naranja de
+  // superficie se queda en 3,4:1 sobre tarjeta blanca y esto es TEXTO. Es la lección del Bug #11604,
+  // la misma por la que `FlitSelect` pinta sus errores con `--flit-danger-ink`.
+  const color = aviso ? 'var(--flit-warning-ink)' : 'var(--flit-text-secondary)';
   return (
-    <FlitModal title={`Tarifas de ${cliente.name}`} onClose={onClose}>
-      <div className="space-y-3">
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        {!tarifas && !error && <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</p>}
-
-        {tarifas && tarifas.length === 0 && (
-          // Sin tarifas el trámite no se puede liquidar: decirlo aquí evita descubrirlo en el reporte.
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-            Esta compañía no tiene tarifas configuradas. Sus trámites mostrarán «No configurado» en el
-            reporte de costos y no podrán liquidarse.
-          </p>
-        )}
-
-        {tarifas && tarifas.length > 0 && (
-          <FlitTable>
-            <thead>
-              <FlitTr>
-                <FlitTh>Concepto</FlitTh><FlitTh>Tipo de trámite</FlitTh>
-                <FlitTh>Valor</FlitTh><FlitTh>Estado</FlitTh><FlitTh />
-              </FlitTr>
-            </thead>
-            <tbody>
-              {tarifas.map((t) => (
-                <FlitTr key={t.id}>
-                  <td className="px-3 py-2 text-sm">{CONCEPTO_TARIFA_LABEL[t.concepto]}</td>
-                  <td className="px-3 py-2 text-sm">{t.tipoTramite ?? 'Genérica (cualquier tipo)'}</td>
-                  <td className="px-3 py-2 text-sm tabular-nums">{pesos(t.valor)}</td>
-                  <td className="px-3 py-2"><StatusChip tone={t.activo ? 'success' : 'neutral'}>{t.activo ? 'Activa' : 'Inactiva'}</StatusChip></td>
-                  <td className="px-3 py-2">
-                    {editable && <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setEditar(t)}>Editar</button>}
-                  </td>
-                </FlitTr>
-              ))}
-            </tbody>
-          </FlitTable>
-        )}
-
-        {editable && (
-          <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setCrear(true)}>Nueva tarifa</button>
-        )}
-      </div>
-
-      {crear && (
-        <FormTarifa cliente={cliente} onClose={() => setCrear(false)}
-          onGuardado={() => { setCrear(false); refrescar(); }} />
+    <td className="px-3 py-2 text-center">
+      {editable ? (
+        <button
+          type="button"
+          className={flitBtnSecondary}
+          style={{ ...flitBtnSecondaryStyle, color }}
+          aria-label={`SOAT sin trámite de ${c.name}: ${texto}`}
+          onClick={onAbrir}
+        >
+          {texto}
+        </button>
+      ) : (
+        <span className="text-sm" style={{ color }}>{texto}</span>
       )}
-      {editar && (
-        <FormTarifa cliente={cliente} tarifa={editar} onClose={() => setEditar(null)}
-          onGuardado={() => { setEditar(null); refrescar(); }} />
-      )}
-    </FlitModal>
+    </td>
   );
 }
 
-function FormTarifa({ cliente, tarifa, onClose, onGuardado }: {
-  cliente: Client; tarifa?: Tarifa; onClose: () => void; onGuardado: () => void;
+/**
+ * El par completo, en un borrador local que se valida al **Guardar**.
+ *
+ * **El interruptor NUNCA se deshabilita y el gestor NUNCA se pide en un segundo paso.** Dentro del
+ * modal, «canal encendido + gestor vacío» no es un estado inválido: es un borrador a medias. Lo que
+ * se valida es la pulsación de «Guardar», y cuando falta el gestor **no sale ninguna petición** y el
+ * interruptor del borrador se queda encendido —para que solo haya que elegir el gestor y volver a
+ * guardar, no rehacer dos clics—.
+ *
+ * Los descartes: un interruptor deshabilitado no recibe foco (quien navega con teclado llega y el
+ * control no existe, sin explicación), y pedir el gestor en un segundo diálogo sobre este modal es
+ * la pila de tres niveles que ya rompió el visor de soportes del detalle de SOAT.
+ *
+ * Sin `confirm` al cambiar de gestor: la consecuencia no es destructiva —las radicadas no se
+ * mueven—, la pantalla lo dice ANTES en la ayuda del campo y lo repite DESPUÉS en el toast.
+ */
+function ModalCanalSoat({ cliente, proveedores, onClose, onGuardado }: {
+  cliente: Client; proveedores: CatalogoProveedores; onClose: () => void; onGuardado: () => void;
 }) {
-  const [concepto, setConcepto] = useState<ConceptoTarifa>(tarifa?.concepto ?? 'tramite_digital');
-  const [tipoTramite, setTipoTramite] = useState(tarifa?.tipoTramite ?? '');
-  const [valor, setValor] = useState(tarifa ? String(tarifa.valor) : '');
-  const [activo, setActivo] = useState(tarifa?.activo ?? true);
-  const [error, setError] = useState<string | null>(null);
+  const idAyudaCanal = useId();
+  const [abierto, setAbierto] = useState(cliente.soatSinTramite);
+  const [gestorId, setGestorId] = useState(cliente.gestorSoatSinTramite?.id ?? '');
+  const [errorGestor, setErrorGestor] = useState<string | null>(null);
+  const [errorServidor, setErrorServidor] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
 
-  const valorNum = Number(valor);
-  const valorInvalido = valor.trim() === '' || !Number.isFinite(valorNum) || valorNum < 0;
+  const { data, error: errorCarga, recargar } = proveedores;
+  const cargando = data === null && !errorCarga;
 
-  const guardar = async () => {
-    setGuardando(true); setError(null);
+  /**
+   * Los ACTIVOS más el asignado actual si ya no lo está.
+   *
+   * Filtrar por `activo` a secas dejaría el `<select>` en blanco y **guardar cualquier otra cosa le
+   * quitaría el gestor a la compañía por la espalda** — el mismo fallo que la HU #12053 documentó
+   * para el proveedor de un usuario. El asignado se conoce por `gestorSoatSinTramite`, que el
+   * listado ya resuelve, así que se reinyecta aunque el catálogo no lo traiga.
+   */
+  const ofrecidos = useMemo(() => {
+    const activos = (data ?? []).filter((p) => p.activo);
+    const asignado = cliente.gestorSoatSinTramite;
+    return asignado && !activos.some((p) => p.id === asignado.id)
+      ? [...activos, { id: asignado.id, nombre: asignado.nombre, activo: asignado.activo }]
+      : activos;
+  }, [data, cliente.gestorSoatSinTramite]);
+
+  const vacio = data !== null && ofrecidos.length === 0;
+  const mensaje = errorCarga ? GESTOR_ERROR : cargando ? GESTOR_CARGANDO : vacio ? GESTOR_VACIO : null;
+  const selectorInutil = cargando || vacio || !!errorCarga;
+
+  const guardar = async (e: FormEvent) => {
+    e.preventDefault();
+    // La guarda propia, ADEMÁS del `required` nativo: un control `disabled` queda fuera de la
+    // validación del navegador, así que con el catálogo caído o vacío el `required` no dispararía y
+    // el formulario se enviaría con el canal abierto y el gestor en blanco.
+    if (abierto && !gestorId) { setErrorGestor(GESTOR_REQUERIDO); return; }
+    setErrorGestor(null); setErrorServidor(null); setGuardando(true);
     try {
-      if (tarifa) await api.patch(`/flito/parametrizacion/tarifas/${tarifa.id}`, { valor: valorNum, activo });
-      else await api.post('/flito/parametrizacion/tarifas', {
-        companiaId: cliente.id, concepto,
-        tipoTramite: tipoTramite.trim() || null, valor: valorNum,
+      // **Las dos claves en la MISMA petición**: es lo que hace que el orden de los controles deje
+      // de importar. El servidor valida el par sobre el estado RESULTANTE (HU #12078), no sobre el
+      // previo, así que «abre el canal y manda a SURA» pasa aunque la compañía no tuviera gestor.
+      await api.patch(`/flito/parametrizacion/companias/${cliente.id}`, {
+        soatSinTramite: abierto,
+        proveedorSoatSinTramiteId: gestorId || null,
       });
+      toast.success(gestorId === (cliente.gestorSoatSinTramite?.id ?? '') ? TOAST_SIN_GESTOR : TOAST_CON_GESTOR);
       onGuardado();
-    } catch (e) { setError(errorMessage(e)); }
-    finally { setGuardando(false); }
+    } catch (err) {
+      // Literal y sobre la botonera. El modal **no se cierra** y el borrador **no se pierde**: si el
+      // rechazo es una carrera —alguien desactivó ese gestor hace un segundo—, lo que hay que hacer
+      // es cambiar el gestor, no volver a llenar el modal.
+      setErrorServidor(errorMessage(err));
+    } finally {
+      setGuardando(false);
+    }
   };
 
   return (
-    <FlitModal title={tarifa ? 'Editar tarifa' : `Nueva tarifa · ${cliente.name}`} onClose={onClose}>
-      <div className="space-y-3">
-        {/* La llave (compañía + concepto + tipo) no se mueve al editar: cambiarla sería otra tarifa. */}
-        {tarifa ? (
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-            {CONCEPTO_TARIFA_LABEL[tarifa.concepto]} · {tarifa.tipoTramite ?? 'Genérica'}
-          </p>
-        ) : (
-          <>
-            <FlitField label="Concepto *">
-              <select className={flitInp} value={concepto} onChange={(e) => setConcepto(e.target.value as ConceptoTarifa)}>
-                {CONCEPTOS_TARIFA.map((c) => <option key={c} value={c}>{CONCEPTO_TARIFA_LABEL[c]}</option>)}
-              </select>
-            </FlitField>
-            <FlitField label="Tipo de trámite (vacío = aplica a todos)">
-              <input className={flitInp} value={tipoTramite} placeholder="Matricula, Traspaso…"
-                onChange={(e) => setTipoTramite(e.target.value)} />
-            </FlitField>
-          </>
-        )}
-        <FlitField label="Valor (COP) *">
-          <input className={flitInp} type="number" min="0" step="1" value={valor} onChange={(e) => setValor(e.target.value)} />
-        </FlitField>
-        {valor.trim() !== '' && valorInvalido && (
-          <p className="text-sm text-red-600">El valor debe ser un número mayor o igual a cero.</p>
-        )}
-        {tarifa && (
-          <label className="flex items-center justify-between gap-3 text-sm">
-            <span>Activa</span>
-            <input type="checkbox" checked={activo} onChange={(e) => setActivo(e.target.checked)} />
+    <FlitModal title={`SOAT sin trámite · ${cliente.name}`} onClose={onClose}>
+      <form onSubmit={guardar} className="space-y-4">
+        <div>
+          <label className="flex items-start gap-2 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+            <input
+              type="checkbox" className="mt-0.5 h-4 w-4 cursor-pointer"
+              checked={abierto}
+              aria-describedby={idAyudaCanal}
+              onChange={(e) => {
+                setAbierto(e.target.checked);
+                // El rechazo del cliente se retira en cuanto el borrador deja de tenerlo: apagar el
+                // canal es una de las dos formas de resolverlo.
+                if (!e.target.checked) setErrorGestor(null);
+              }}
+            />
+            <span className="font-semibold">{CANAL_ETIQUETA}</span>
           </label>
-        )}
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <div className="flex gap-2">
-          <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
-            disabled={guardando || valorInvalido} onClick={guardar}>
-            {guardando ? 'Guardando…' : tarifa ? 'Guardar' : 'Crear'}
-          </button>
-          <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>Cancelar</button>
+          <p id={idAyudaCanal} className="mt-1 pl-6 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+            {CANAL_AYUDA}
+          </p>
         </div>
-      </div>
+
+        <FlitSelect
+          label={GESTOR_LABEL}
+          value={gestorId}
+          onChange={(v) => { setGestorId(v); setErrorGestor(null); }}
+          opciones={[
+            { valor: '', etiqueta: GESTOR_VACIA },
+            ...ofrecidos.map((p) => ({ valor: p.id, etiqueta: p.nombre, ...(p.activo ? {} : { nota: 'inactivo' }) })),
+          ]}
+          ayuda={GESTOR_AYUDA}
+          mensaje={mensaje}
+          fallo={!!errorCarga}
+          disabled={selectorInutil}
+          // Solo el fallo de carga se reintenta. En vacío NO: volver a pedir la lista no crea
+          // gestores, y el mensaje ya nombra la pantalla donde se crean.
+          onReintentar={errorCarga ? recargar : undefined}
+          textoReintento={GESTOR_REINTENTO}
+          // Validación NATIVA, con el globo del navegador suprimido y el texto en español puesto por
+          // nosotros. `FlitSelect` lleva el foco al control en cuanto recibe `error`.
+          required={abierto}
+          error={errorGestor}
+          onInvalido={() => setErrorGestor(GESTOR_REQUERIDO)}
+        />
+
+        {errorServidor && (
+          <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>
+            {errorServidor}
+          </p>
+        )}
+
+        <div className="flex flex-wrap justify-end gap-2">
+          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>
+            Cancelar
+          </button>
+          <GradientButton type="submit" disabled={guardando}>
+            {guardando ? 'Guardando…' : 'Guardar'}
+          </GradientButton>
+        </div>
+      </form>
     </FlitModal>
   );
 }

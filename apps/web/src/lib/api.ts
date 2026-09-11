@@ -355,6 +355,24 @@ async function errorVestidoDeArchivo(status: number, blob: Blob): Promise<ApiErr
 
 export const api = {
   get: <T>(path: string, extraHeaders?: Record<string, string>) => request<T>('GET', path, undefined, extraHeaders),
+  /**
+   * GET que además deja LEER las cabeceras de la respuesta (HU #12172).
+   *
+   * Existe por lo mismo que `alLeerCabeceras` en `downloadPostNamed`: hay listados cuyo TOTAL de
+   * coincidencias no viaja en el cuerpo —`GET /users` devuelve un array plano y pone el total en
+   * `X-Total-Count`— y `get` se queda solo con lo parseado. Sin esto, la pantalla tendría que
+   * contar las filas de la página, que es otro número.
+   *
+   * Recibe un LECTOR y no el `Response`, por la misma razón que allí: con el objeto en la mano
+   * cualquier llamador podría intentar releer un cuerpo que aquí ya se está consumiendo. Se invoca
+   * también en las respuestas de ERROR —el gancho es previo al `!res.ok`—, así que quien lea una
+   * cabecera debe asumir que puede no estar.
+   */
+  getConCabeceras: <T>(
+    path: string,
+    alLeerCabeceras: (leer: (cabecera: string) => string | null) => void,
+    extraHeaders?: Record<string, string>,
+  ) => request<T>('GET', path, undefined, extraHeaders, (res) => alLeerCabeceras((c) => res.headers.get(c))),
   post: <T>(path: string, body?: unknown, extraHeaders?: Record<string, string>) => request<T>('POST', path, body, extraHeaders),
   /**
    * POST que puede esperar MÁS (o menos) que el tope compartido, acotado por `TIMEOUT_MAX_MS`.

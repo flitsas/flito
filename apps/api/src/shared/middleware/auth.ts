@@ -7,21 +7,26 @@ import { db } from '../../db/client.js';
 import { users } from '../../db/schema.js';
 import { loggerFor } from '../logger.js';
 import { guardiaCanalCliente } from './canal-cliente.js';
-import type { UserRole } from '@operaciones/shared-types';
+import type { RoleCode, UserRole } from '@operaciones/shared-types';
 
 const log = loggerFor('auth');
 
 // Re-export para compatibilidad: módulos que importaban UserRole desde aquí siguen
 // funcionando. La definición canónica vive en @operaciones/shared-types.
-export type { UserRole };
+// `RoleCode` se re-exporta por lo mismo: es el tipo del rol de UN USUARIO desde la HU #12169.
+export type { UserRole, RoleCode };
 
 export interface JwtPayload {
   sub: number;
   username: string;
-  role: UserRole;
-  // Páginas custom concedidas al usuario (además de los defaults del rol). Embebidas en el
-  // JWT al login. Ausente en tokens viejos → requirePage cae a defaults del rol (degradación segura).
-  allowedPages?: string[];
+  // HU #12169: el rol del token es el CÓDIGO de una fila de `permisos_roles`, que puede ser uno que
+  // creó el administrador. `requireRole(...roles: string[])` no se toca: ya compara con `includes`,
+  // así que las 276 guardas siguen siendo listas blancas de códigos de sistema y siguen negando por
+  // defecto a cualquier rol nuevo — la dirección correcta mientras la #12083 no las reconduzca.
+  role: RoleCode;
+  // HU #12082 (RN-A5): las páginas YA NO viajan en el token. Un claim `allowedPages` de un token
+  // emitido antes de esta HU se ignora como cualquier claim desconocido: cada petición resuelve
+  // contra la base (`resolverPermisos`), así que un token viejo decide exactamente igual que uno nuevo.
   // TRAM-MT-01: código DIVIPOLA del organismo asignado (rol transito).
   transitoCodigo?: string;
 }
@@ -155,32 +160,39 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       sub: userId,
       username: payload.username as string,
       role: payload.role as UserRole,
-      allowedPages: Array.isArray(payload.allowedPages)
-        ? (payload.allowedPages as string[])
-        : undefined,
       transitoCodigo: typeof payload.transitoCodigo === 'string' && payload.transitoCodigo.trim()
         ? payload.transitoCodigo.trim()
         : undefined,
     };
-    // Negación por defecto para el rol `cliente` (Feature #11912). Va AQUÍ, y no como un `app.use`
-    // en `app.ts`, porque este es el único punto de la aplicación en el que la autenticación
-    // TERMINA: cada router monta `authMiddleware` por su cuenta, así que un middleware montado antes
-    // de los routers vería `req.user === undefined` y tendría que verificar el JWT una segunda vez
-    // en cada petición para saber a quién está mirando. El porqué completo —y la allowlist con el
-    // motivo de cada entrada— están en `canal-cliente.ts`.
+    // Negación por defecto para los roles EXTERNOS (Feature #11912; por `tipo_principal` desde la
+    // HU #12082). Va AQUÍ, y no como un `app.use` en `app.ts`, porque este es el único punto de la
+    // aplicación en el que la autenticación TERMINA: cada router monta `authMiddleware` por su
+    // cuenta, así que un middleware montado antes de los routers vería `req.user === undefined` y
+    // tendría que verificar el JWT una segunda vez en cada petición para saber a quién está mirando.
+    // El porqué completo —y la allowlist con el motivo de cada entrada— están en `canal-cliente.ts`.
     //
-    // Para los 11 roles internos esto es un `next()` y nada más: `guardiaCanalCliente` sale por su
-    // primera línea sin tocar nada. Lo que se consigue poniéndolo aquí es que un router NUEVO nazca
-    // CERRADO para el `cliente` sin que su autor tenga que saber que este rol existe.
-    guardiaCanalCliente(req, res, next);
+    // Para un rol interno esto es resolver sus permisos (acierto de caché tras la primera petición
+    // del minuto; la misma foto que luego usa `exigirFuncion`) y un `next()`. Lo que se consigue
+    // poniéndolo aquí es que un router NUEVO nazca CERRADO para cualquier rol externo —incluido uno
+    // creado desde el panel— sin que su autor tenga que saber que existe. El resolutor no rechaza,
+    // así que el `catch` de abajo sigue siendo solo el del token.
+    await guardiaCanalCliente(req, res, next);
   } catch {
     res.status(401).json({ error: 'Token inválido o expirado' });
   }
 }
 
-export function requireRole(...roles: string[]) {
+/**
+ * Guarda de rol CABLEADA de los módulos legacy (PESV, mantenimiento, LAFT, flota, conductores, rutas,
+ * SOAT legacy, RNDC, vehículos, jornadas, Siigo). Los módulos FLITO, trámites y usuarios ya no la usan:
+ * preguntan al motor con `exigirFuncion` (HU #12083). Tipada a `UserRole[]` y no a `RoleCode[]`:
+ * `RoleCode` es abierto a propósito (roles configurables, #12169) y no detectaría `'admn'`; aquí un
+ * literal fuera de `USER_ROLES` es siempre un error de tecleo. `req.user.role` sí es `RoleCode`, de
+ * ahí el `readonly string[]` en el `includes`.
+ */
+export function requireRole(...roles: UserRole[]) {
   return (req: Request, res: Response, next: NextFunction) => {
-    if (!req.user || !roles.includes(req.user.role)) {
+    if (!req.user || !(roles as readonly string[]).includes(req.user.role)) {
       res.status(403).json({ error: 'Sin permisos' });
       return;
     }

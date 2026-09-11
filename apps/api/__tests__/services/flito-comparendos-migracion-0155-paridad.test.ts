@@ -36,6 +36,9 @@
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
+import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
+import { llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
 import { fileURLToPath } from 'node:url';
 import { PAGES, ROLE_DEFAULT_PAGES, USER_ROLES } from '@operaciones/shared-types';
 // El guarda de ADR-DB-001 tal como lo aplica el runner, no una reimplementación. Importar
@@ -106,25 +109,31 @@ describe('0155 — grants de la página de comparendos', () => {
     // El rol exigido no se copia: se lee del router, que es quien de verdad decide quién recibe
     // algo distinto de un 403.
     //
-    // Se ancla en la forma de nivel de ROUTER —`router.use(requireRole(…))`—, igual que
-    // `flito-comparendos-pagina-router.test.ts`, y no en cualquier `requireRole` suelto: un guard
-    // puesto en una ruta concreta no dice nada sobre el módulo entero. Y se lee sobre el archivo
-    // SIN comentarios, por la misma razón por la que se podan los del `.sql`: hoy este test caería
-    // en rojo, sin causa real, ante un comentario tan plausible como
-    // `// ojo: no usar requireRole('auditor') aquí`.
+    // Desde la HU #12083 la guarda va RUTA A RUTA (`exigirFuncion('comparendos.…')`) y los roles de
+    // partida de cada código están en la foto `inventario.generado.ts`, igual que en
+    // `flito-comparendos-pagina-router.test.ts`. Se lee sobre el archivo SIN comentarios, por la
+    // misma razón por la que se podan los del `.sql`: hoy este test caería en rojo, sin causa real,
+    // ante un comentario tan plausible como `// ojo: no conceder 'auditor' aquí`.
     const routesCodigo = routes
       .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
       .split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n');
 
-    const guardDelRouter = routesCodigo.match(/router\.use\(\s*requireRole\(([^)]*)\)\s*\)/);
-    const rolesDelRouter = guardDelRouter
-      ? [...guardDelRouter[1].matchAll(/'([a-z_]+)'/g)].map((r) => r[1])
-      : [];
+    const guardas = [...routesCodigo.matchAll(
+      /router\.(get|post|put|patch|delete)\(\s*'[^']*'\s*,\s*exigirFuncion\('(comparendos\.[a-z_]+\.[a-z_]+)'\)/g,
+    )].map((m) => m[2]);
+    const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
+    const rolesPorCodigo = new Map(GUARDAS_MEDIDAS
+      .filter((g) => g.fichero === 'flito-comparendos/flito-comparendos.routes.ts')
+      .map((g) => [codigoDeLlave.get(llaveDe(g))!, g.roles]));
+    const rolesDelRouter = [...new Set(guardas.flatMap((c) => rolesPorCodigo.get(c) ?? []))];
 
-    it('el router del módulo exige `admin` y solo `admin` (premisa del resto)', () => {
-      // Si el guard de router desapareciera, `rolesDelRouter` sería `[]` y todo lo de abajo se
-      // volvería vacuo: por eso se afirma que existe ANTES de usarlo como referencia.
-      expect(guardDelRouter, 'el módulo perdió su `router.use(requireRole(...))`').not.toBeNull();
+    it('el router del módulo exige `admin` y solo `admin` de partida, en cada una de sus rutas (premisa del resto)', () => {
+      // Si las guardas desaparecieran, `rolesDelRouter` sería `[]` y todo lo de abajo se volvería
+      // vacuo: por eso se afirma que existen ANTES de usarlas como referencia.
+      const rutas = routesCodigo.match(/router\.(get|post|put|patch|delete)\(/g) ?? [];
+      expect(guardas.length, 'el módulo perdió guardas `exigirFuncion(...)`').toBe(rutas.length);
+      expect(guardas.length).toBeGreaterThan(0);
+      for (const c of guardas) expect(rolesPorCodigo.get(c), c).toEqual(['admin']);
       expect(new Set(rolesDelRouter)).toEqual(new Set(['admin']));
     });
 
@@ -152,10 +161,13 @@ describe('0155 — grants de la página de comparendos', () => {
     });
 
     it('ningún rol recibe la página por `ROLE_DEFAULT_PAGES` salvo los que el backend admite', () => {
-      // El otro camino a la misma pantalla. `admin` la tiene porque su fila es `Object.keys(PAGES)`.
+      // El otro camino a la misma pantalla. Desde la HU #12081 `admin` NO tiene fila en la tabla
+      // (aquella era `Object.keys(PAGES)`, uno de los dos atajos que el AC4 retiró), así que la
+      // comparación se hace contra los roles del router MENOS `admin`: quien se la da a él es el
+      // reparto sembrado en `permisos_rol_funcion`, y eso se comprueba en migracion-0179.test.ts.
       const conLaPagina = (Object.keys(ROLE_DEFAULT_PAGES) as (keyof typeof ROLE_DEFAULT_PAGES)[])
-        .filter((rol) => (ROLE_DEFAULT_PAGES[rol] as readonly string[]).includes(SLUG));
-      expect(new Set(conLaPagina)).toEqual(new Set(rolesDelRouter));
+        .filter((rol) => (ROLE_DEFAULT_PAGES[rol] as readonly string[] | undefined)?.includes(SLUG));
+      expect(new Set(conLaPagina)).toEqual(new Set(rolesDelRouter.filter((r) => r !== 'admin')));
     });
   });
 

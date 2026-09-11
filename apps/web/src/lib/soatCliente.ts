@@ -1,4 +1,5 @@
-// FLITO — canal Cliente del SOAT: contrato, catálogo y validaciones del alta (HU #11914, #11967).
+// FLITO — canal Cliente del SOAT: contrato, catálogo y validaciones del alta (HU #11914, #11967,
+// #12091).
 //
 // Vive en `lib/` y no dentro de la página porque lo comparten la página del formulario, los dos
 // modales de bloqueo y la cola: si el catálogo de tipos de documento o la lectura del código de
@@ -12,8 +13,9 @@
 
 import { ApiError } from './api';
 import {
-  CODIGOS_REVISE_LOS_DATOS, CodigoErrorSolicitudSoat, TIPOS_DOCUMENTO_RUNT,
-  type EstadoSoat, type TipoDocumentoRunt,
+  CAMPOS_COMPRADOR_FACTURA, CODIGOS_REVISE_LOS_DATOS, CodigoErrorSolicitudSoat,
+  TIPOS_DOCUMENTO_RUNT,
+  type CampoCompradorFactura, type EstadoSoat, type ExtraccionFacturaVenta, type TipoDocumentoRunt,
 } from '@operaciones/shared-types';
 
 // ───────────────────────────── Verificación RUNT post-alta (HU #11935 / #11936) ──────────────────
@@ -48,22 +50,21 @@ export function fechaLarga(iso: string): string {
  * Respuesta de `POST /flito/soat/cliente/preconsulta`, con la MISMA forma que
  * `flito-soat-cliente.service.ts` (`interface Preconsulta`).
  *
- * El body de la petición es `{ placa, vin, tipoDocumento, numeroDocumento }` (PII en cuerpo,
- * nunca en query). La ficha no pinta placa ni VIN: son los normalizados de la petición, no un
- * dato que el RUNT confirme. La pasarela devuelve el identificador con el que se consultó aunque
- * no reconozca el vehículo, así que enseñarlos bajo el rótulo «Datos del RUNT» sería presentar el
- * eco de lo que el usuario tecleó como una confirmación. Se quedan arriba, en el bloque 1, que es
- * donde él los escribió — junto con el documento, que la pasarela exige cuando va la placa.
+ * El body de la petición es **`{ vin }` y nada más** desde la HU #12090 (PII en cuerpo, nunca en
+ * query): la modalidad de VIN del RUNT no pide ni placa ni documento del propietario.
+ *
+ * **Y por eso los ONCE datos se pintan, placa incluida** (HU #12091, AC3). Hasta la #12090 la
+ * consulta iba POR PLACA y la pasarela devolvía el identificador consultado aunque no reconociera
+ * el vehículo: enseñar el VIN entonces habría convertido la pantalla en un lector de VIN por placa
+ * para quien sondeara placas ajenas. Invertida la dirección, las dos premisas caen — el VIN es lo
+ * que el Cliente acaba de teclear (su propio dato) y la placa es lo que el registro devuelve, la
+ * única prueba visible de que el RUNT habla de su vehículo.
  */
 export interface PreconsultaRunt {
   vehiculo: {
+    /** Lo que devuelve el registro, jamás un eco: el Cliente ya no teclea placa (HU #12091, AC1). */
     placa: string | null;
-    /**
-     * **El VIN del RUNT**, no el eco de lo tecleado (HU #11966 §2.1): es la única fuente posible
-     * cuando el Cliente no escribe VIN, y es el que se persiste. Aun así **no se pinta en el alta**
-     * —ver el comentario de arriba y `FichaRunt`—: enseñarlo convertiría la pantalla en un lector
-     * de VIN por placa para quien sondee placas ajenas.
-     */
+    /** **El VIN del RUNT** (HU #11966 §2.1): es el que se persiste en `vehicles.vin`. */
     vin: string | null;
     marca: string | null;
     linea: string | null;
@@ -75,8 +76,10 @@ export interface PreconsultaRunt {
     /** HU #11966: ayuda a reconocer el vehículo, y por eso SÍ entra a la ficha. */
     carroceria: string | null;
     /**
-     * Los dos llegan en la respuesta y la ficha **no los pinta** (HU #11967, decisión 10): son datos
-     * del archivo de Operaciones y no responden a la pregunta «¿es mi vehículo?».
+     * Los dos llegaban en la respuesta y la ficha los tiraba (HU #11967, decisión 10). **Desde la
+     * HU #12091 se pintan** (AC3): con la ficha completa el Cliente ya no comprueba solo «¿es mi
+     * vehículo?», sino también lo que decide la tarifa del SOAT, que es lo que nadie sabe de
+     * memoria. Cuando el RUNT no los trae se pinta «—»; no se omite la línea.
      */
     pasajerosSentados: string | null;
     puertas: string | null;
@@ -91,6 +94,79 @@ export interface PreconsultaRunt {
   organismo: { codigo: string | null; nombre: string | null };
   /** `null` es el caso NORMAL: el RUNT casi nunca trae propietario. No es un fallo y no se avisa. */
   propietario: { nombreCompleto: string } | null;
+  /**
+   * **HU #12213 — renovación anticipada.** `null` cuando no hay nada que avisar; un objeto cuando el
+   * RUNT reporta un SOAT vigente al que le falta **un mes o menos**, y entonces la solicitud SÍ se
+   * puede enviar. La clave viaja SIEMPRE en el `200` (`flito-soat-cliente.service.ts:742`).
+   *
+   * **La pantalla no calcula el umbral** (AC3): no hay resta de fechas aquí. El servidor ya decidió
+   * —mes calendario, frontera inclusive, en hora de Colombia— y esto solo se rotula. Un `venceEl`
+   * a más de un mes sigue siendo el `409 soat_vigente` de siempre, que corta el flujo y no llega
+   * nunca por esta clave.
+   *
+   * **No trae la póliza y no puede traerla**: el servicio la persiste pero la recorta del `200`
+   * (`vigenciaProxima ? { venceEl } : null`, y no un `...spread`), porque desde la HU #12090
+   * cualquiera que conozca un VIN obtiene esta ficha.
+   *
+   * Se declara opcional a la LECTURA aunque el contrato la prometa: en DEV el merge es el deploy,
+   * así que un bundle nuevo puede hablar con una API que todavía no la manda, y en ese caso la
+   * ausencia se comporta como `null` en vez de reventar la pantalla.
+   */
+  vigenciaProxima?: { venceEl: string } | null;
+}
+
+// ───────────────────────────── El aviso de vigencia próxima (HU #12213) ──────────────────────────
+
+/** El chip del aviso. `success` porque es una buena noticia, no un fallo: se puede seguir. */
+export const AVISO_VIGENCIA_CHIP = 'Puede continuar';
+
+/**
+ * La segunda línea del aviso. **Explica** lo que el servidor decidió («falta un mes o menos»), no
+ * lo evalúa: aquí no hay ninguna resta de fechas que pudiera contradecirlo.
+ */
+export const AVISO_VIGENCIA_DETALLE = 'Falta un mes o menos para que venza, así que sí puede enviar esta solicitud.';
+
+/**
+ * La redacción de respaldo, **entera y en una sola frase**, para cuando `venceEl` no es una fecha de
+ * calendario legible. Misma regla que `ModalSoatVigente` (`ModalesBloqueo.tsx:72-79`): sin fecha se
+ * cambia la oración completa; jamás se escribe «hasta el —» ni se inventa un día.
+ */
+export const AVISO_VIGENCIA_SIN_FECHA = 'Este vehículo todavía tiene SOAT vigente y le falta un mes o menos para vencerse, así que sí puede enviar esta solicitud.';
+
+/** Las dos líneas ya resueltas. `detalle: null` en la redacción de respaldo, que ya lo dice todo. */
+export interface AvisoVigencia {
+  titulo: string;
+  detalle: string | null;
+}
+
+const FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * El aviso que se pinta en el bloque 1, o `null` si no hay ninguno.
+ *
+ * Vive aquí y no en la página por lo mismo que `DESENLACE`: es una lectura del contrato, y así se
+ * puede comprobar sin montar el asistente entero.
+ *
+ * El «todavía» y el «sí» **no son adorno**. Sin ellos la primera frase se lee igual que el título
+ * del modal que bloquea («Este vehículo ya tiene SOAT vigente») y la persona abandona creyendo que
+ * no puede pedir el SOAT, que es exactamente lo contrario de lo que esta HU viene a conseguir. Por
+ * la misma razón ninguna de las dos frases dice «revise», «vuelva» ni «no pudimos»: no hay nada que
+ * corregir ni nada que reintentar.
+ */
+export function avisoVigenciaProxima(v: { venceEl: string } | null | undefined): AvisoVigencia | null {
+  if (!v) return null;
+  // `fechaLarga` parte el ISO por componentes y no valida: un `venceEl` vacío o con otro formato
+  // saldría como «Invalid Date» dentro de la oración. Se comprueba ANTES y se cambia la frase.
+  const iso = typeof v.venceEl === 'string' ? v.venceEl.trim() : '';
+  if (!FECHA_ISO.test(iso) || Number.isNaN(new Date(iso).getTime())) {
+    return { titulo: AVISO_VIGENCIA_SIN_FECHA, detalle: null };
+  }
+  // `fechaLarga` y no `fechaCorta`: la fecha va dentro de una oración que se lee una vez, y
+  // `fechaLarga` ya resuelve el huso (`new Date('2026-10-05')` es medianoche UTC y en −05 diría el 4).
+  return {
+    titulo: `Este vehículo todavía tiene SOAT vigente, hasta el ${fechaLarga(iso)}.`,
+    detalle: AVISO_VIGENCIA_DETALLE,
+  };
 }
 
 /** Lo que la pantalla necesita saber de un error del canal, ya separado del `ApiError` genérico. */
@@ -120,11 +196,14 @@ export interface FalloCanal {
   fechaVencimiento?: string;
   /**
    * Qué campo señala el desenlace, en el `422 runt_no_cuadra` (HU #11966 §2.3). Hoy solo `'vin'`:
-   * lo que no cuadra es el VIN que el Cliente tecleó, no la placa ni el documento.
+   * lo que no cuadra es el VIN que el Cliente tecleó — y desde la HU #12091 **no hay otro campo que
+   * pueda no cuadrar**, porque el bloque 1 pide un solo dato. Se sigue leyendo del cuerpo para que
+   * un valor nuevo servido por una API futura no marque como inválido un campo que no existe.
    *
-   * **Y nunca trae el VIN que el RUNT tiene.** El servidor lo omite a propósito: un Cliente puede
-   * sondear placas ajenas, y un desenlace que respondiera «el bueno es este» convertiría el
-   * endpoint en un lector de VIN por placa. Si alguien «mejora» el copy con ese dato, abre la fuga.
+   * **Y nunca trae el VIN que el RUNT tiene.** El servidor lo omite a propósito y el copy no lo
+   * reintroduce: un desenlace que respondiera «el bueno es este» convertiría el 422 en un corrector
+   * de VINes —los de una flota son consecutivos, así que se acierta a fuerza de intentos—. Si
+   * alguien «mejora» el copy con ese dato, abre la fuga.
    */
   campo?: 'vin';
 }
@@ -182,8 +261,9 @@ export function leerFallo(e: unknown): FalloCanal {
  * Lo que el Cliente lee cuando el RUNT resuelve que NO, en cualquiera de los dos endpoints.
  *
  * `tono` no es decoración: `danger` dice «hay algo suyo que corregir» y `warning` dice «el servicio
- * falló». Colapsarlos manda al Cliente a revisar una placa que está bien —o a esperar por un dato
- * que nunca se va a arreglar solo—, que es literalmente lo que el AC3 prohíbe.
+ * falló». Colapsarlos manda al Cliente a revisar un VIN que está bien —o a esperar por un dato que
+ * nunca se va a arreglar solo—, que es literalmente lo que el AC3 de la #11967 prohíbe y lo que el
+ * AC4 de la #12091 vuelve a pedir: un mensaje distinto por desenlace.
  */
 export interface DesenlaceRunt {
   tono: 'danger' | 'warning';
@@ -227,21 +307,25 @@ export type ReaccionCanal =
 const DESENLACE: Record<(typeof CODIGOS_REVISE_LOS_DATOS)[number] | typeof CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE, DesenlaceRunt> = {
   [CodigoErrorSolicitudSoat.RUNT_NO_CUADRA]: {
     tono: 'danger',
-    titulo: 'Revise los datos: el RUNT no encuentra ese vehículo a nombre de ese documento.',
-    detalle: 'Compruebe la placa y el documento del propietario en la tarjeta de propiedad, y vuelva a consultar.',
-    foco: 'boton',
+    titulo: 'Revise el VIN: no coincide con el que el RUNT tiene registrado.',
+    detalle: 'Compruébelo en la tarjeta de propiedad o en la factura de venta, y vuelva a consultar.',
+    // Al VIN, y no al botón: hay exactamente un campo que corregir y es el que la frase nombra.
+    foco: 'vin',
   },
   [CodigoErrorSolicitudSoat.RUNT_SIN_REGISTRO]: {
     tono: 'danger',
-    titulo: 'Revise los datos: el RUNT no tiene ningún vehículo registrado con esa placa.',
-    detalle: 'Compruebe la placa en la tarjeta de propiedad. Si el vehículo es nuevo, puede que el RUNT todavía no lo haya indexado.',
-    foco: 'boton',
+    titulo: 'El RUNT no tiene registrado ningún vehículo con ese VIN.',
+    detalle: 'Compruébelo en la tarjeta de propiedad. Si el vehículo es nuevo, puede que el RUNT todavía no lo haya indexado.',
+    // Su copy dice «compruébelo» y solo hay un dato que comprobar: mandar el foco al botón
+    // contradiría la instrucción que se acaba de dar.
+    foco: 'vin',
   },
   [CodigoErrorSolicitudSoat.RUNT_SIN_VIN]: {
     tono: 'danger',
-    titulo: 'El RUNT no publica el número de chasis (VIN) de este vehículo, y sin ese dato FLITO no puede radicar la solicitud.',
-    // Sin promesa de que reintentar sirva: no hay nada que el Cliente pueda corregir aquí.
-    detalle: 'No es un error suyo. Escríbale a su contacto en FLIT con la placa del vehículo.',
+    titulo: 'El RUNT respondió sin el número de chasis, y sin ese dato FLITO no puede radicar la solicitud.',
+    // Sin promesa de que reintentar sirva: no hay nada que el Cliente pueda corregir aquí. Y sin
+    // pedirle la placa, que desde la HU #12091 no teclea y puede no tener a mano.
+    detalle: 'No es un error suyo. Escríbale a su contacto en FLIT.',
     foco: 'boton',
   },
   [CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE]: {
@@ -252,14 +336,6 @@ const DESENLACE: Record<(typeof CODIGOS_REVISE_LOS_DATOS)[number] | typeof Codig
   },
 };
 
-/** El `422 runt_no_cuadra` con `campo: 'vin'`: misma familia, otra frase y el foco al campo VIN. */
-const DESENLACE_VIN: DesenlaceRunt = {
-  tono: 'danger',
-  titulo: 'Revise los datos: el VIN que escribió no es el que el RUNT tiene para esa placa.',
-  detalle: 'Compruébelo en la tarjeta de propiedad, o déjelo vacío para que FLITO use el del registro.',
-  foco: 'vin',
-};
-
 /**
  * La banda de la **rama por defecto**: un código que esta pantalla no conoce.
  *
@@ -268,14 +344,21 @@ const DESENLACE_VIN: DesenlaceRunt = {
  * HU #11966— llegaría aquí. Sin esta rama la pantalla se queda MUDA con el envío bloqueado, que es
  * el peor de los estados posibles: el Cliente no sabe ni qué pasó ni qué hacer.
  *
- * Se enseña el `mensaje` del servidor, que está escrito para una persona, y se ofrece reintentar.
+ * ── Y **ya no se pinta el `mensaje` del servidor** (HU #12091, decisión 6 del UX) ────────────────
+ *
+ * Era la única superficie de esta pantalla donde el copy no lo escribía el producto, y el API
+ * **tutea** («Revisa el VIN que escribiste»): un solo tratamiento por pantalla, y el canal Cliente
+ * habla de usted. Peor todavía: el mensaje de una API desfasada nombra campos que esta pantalla ya
+ * no tiene («revisa la placa»), y mandaría a corregir un dato que no existe. El `mensaje` sigue
+ * viajando en `ReaccionCanal` porque el ENVÍO —otra superficie— lo usa; lo que cambia es que la
+ * banda de la consulta no lo interpola.
  */
-export const desenlaceGenerico = (mensaje: string): DesenlaceRunt => ({
+export const DESENLACE_GENERICO: DesenlaceRunt = {
   tono: 'warning',
-  titulo: mensaje.trim() || 'No pudimos consultar el RUNT en este momento.',
+  titulo: 'No pudimos consultar el RUNT en este momento.',
   detalle: 'Vuelva a consultar. Si sigue pasando, escríbale a su contacto en FLIT.',
   foco: 'boton',
-});
+};
 
 /** Ni respondió ni se sabe si llegó, en una CONSULTA: no se creó nada, así que reintentar es seguro. */
 export const DESENLACE_SIN_RED: DesenlaceRunt = {
@@ -309,11 +392,10 @@ export function reaccionA(f: FalloCanal): ReaccionCanal {
     default:
       break;
   }
-  // El VIN tecleado que no cuadra es el MISMO código con una clave más, así que se mira antes de
-  // repartir por familia: cambia la frase y, sobre todo, a dónde va el foco.
-  if (f.codigo === CodigoErrorSolicitudSoat.RUNT_NO_CUADRA && f.campo === 'vin') {
-    return { tipo: 'runt', desenlace: DESENLACE_VIN };
-  }
+  // El `campo` del `422 runt_no_cuadra` ya no reparte nada, y eso es la HU #12091: con un bloque 1
+  // de un solo dato, lo único que puede no cuadrar es el VIN, así que su desenlace es el de
+  // `RUNT_NO_CUADRA` venga o no venga la clave. Antes había dos frases —una por placa+documento y
+  // otra por VIN— y solo la segunda mandaba el foco al campo.
   if (esReviseLosDatos(f.codigo) || f.codigo === CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE) {
     return { tipo: 'runt', desenlace: DESENLACE[f.codigo] };
   }
@@ -363,15 +445,9 @@ export const OPCIONES_TIPO_DOC = [
   ...TIPOS_DOCUMENTO_RUNT.map((t) => ({ valor: t, etiqueta: ETIQUETA_TIPO_DOC[t] })),
 ];
 
-/**
- * El rótulo del tipo elegido, para la línea «Documento: …» del bloque 2 (HU #11967).
- *
- * Cadena vacía si todavía no eligió, y el propio valor si llegara uno que no está en el catálogo
- * —una fila vieja, un tipo retirado—: enseñar `CC` crudo es peor que enseñar su etiqueta, pero es
- * mucho mejor que enseñar un hueco.
- */
-export const etiquetaTipoDoc = (t: string): string =>
-  ETIQUETA_TIPO_DOC[t as TipoDocumentoRunt] ?? t;
+// `etiquetaTipoDoc` se retiró en la HU #12091 con su único consumidor: la línea «Documento: … · se
+// cambia en el bloque 1» del eco. Tipo y número vuelven a ser controles del bloque del propietario,
+// así que el rótulo del tipo lo pinta el `<option>` del selector y no hay nada que traducir a mano.
 
 /** `NIT` ⇒ razón social; el resto del catálogo ⇒ nombre/s y apellido/s. Misma regla que el backend. */
 export const esNit = (tipoDocumento: string): boolean => tipoDocumento === 'NIT';
@@ -379,56 +455,61 @@ export const esNit = (tipoDocumento: string): boolean => tipoDocumento === 'NIT'
 // ───────────────────────────── Normalización y validación ────────────────────────────────────────
 
 /**
- * La placa se sube a mayúsculas **y nada más**.
+ * El VIN se limpia entero: mayúsculas y solo alfanuméricos, **la misma `normalizarId` del
+ * servidor**. Y por eso un VIN tecleado con separadores (`9FKRG-2222-T2042405`, 19 crudos y 17 al
+ * normalizar) es legítimo aquí y allí: los dos miden lo mismo, la cadena que se le manda al RUNT.
  *
- * No se le quitan los guiones al vuelo a propósito: el producto tiene copy para «la placa se
- * escribe sin espacios ni guiones», y una normalización silenciosa dejaría ese mensaje muerto y al
- * usuario sin enterarse de cómo se escribe. El VIN sí se limpia entero (abajo) porque para él no
- * hay ningún mensaje equivalente y un carácter raro solo sería ruido.
+ * La placa ya no se normaliza porque ya no se teclea (HU #12091, AC1): la única que existe en esta
+ * pantalla es la que devuelve el registro, y esa llega hecha.
  */
-export const normalizarPlaca = (v: string): string => v.toUpperCase();
-
-/** El VIN se limpia entero: mayúsculas y solo alfanuméricos, como `normalizarId` del servidor. */
 export const normalizarVin = (v: string): string => v.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-const ALFANUMERICO = /^[A-Z0-9]+$/;
 const CORREO = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-/** Longitud canónica de un VIN. Se AVISA al desviarse, nunca se bloquea: hay chasis más cortos. */
+/** Longitud canónica de un VIN. Se AVISA al desviarse por debajo, nunca por encima del piso. */
 export const VIN_LARGO = 17;
+
+/**
+ * El piso del VIN, **el mismo `VIN_MIN` del borde** (`flito-soat-cliente.routes.ts`) y medido sobre
+ * el valor NORMALIZADO, como allí.
+ *
+ * Aquí no es una duplicación de la regla del servidor por gusto: desde la HU #12090 el VIN es LA
+ * clave de la consulta, y un VIN de diez caracteres que se deja salir vuelve como un
+ * `400 Datos inválidos` genérico —el error de esquema, no un desenlace del canal— que el Cliente no
+ * sabe leer y que esta pantalla no puede explicar. Frenarlo aquí cuesta una comparación y ahorra
+ * una petición a un registro nacional de pago.
+ */
+export const VIN_MIN = 11;
 
 export const MAX_MB_FACTURA = 15;
 
 /**
- * Error de un campo del bloque 1. `null` = válido.
+ * El VIN, **obligatorio desde la HU #12091** (AC1): es el único dato del vehículo que se teclea, y
+ * sin él no hay nada que preguntarle al RUNT. Deja de ser el opcional de la #11966, donde la
+ * consulta iba por placa + documento y el VIN solo se contrastaba.
  *
- * Se ejecuta al salir del campo y otra vez en el envío; el servidor las repite todas y la suya es
- * la que manda.
+ * Se mide sobre el NORMALIZADO y no sobre el crudo, igual que el borde: con `.trim()` a secas, un
+ * `9FKRG-2222-T2042405` mediría 19 y saldría rechazado por largo cuando el servidor lo acepta.
+ *
+ * Se ejecuta al salir del campo y otra vez al consultar y al enviar; el servidor las repite todas y
+ * la suya es la que manda.
  */
-export function errorPlaca(v: string): string | null {
-  const t = v.trim();
-  if (!t) return 'Escriba la placa del vehículo.';
-  if (!ALFANUMERICO.test(t)) return 'La placa se escribe con letras y números, sin espacios ni guiones. Ejemplo: ABC123.';
+export function errorVin(v: string): string | null {
+  const t = normalizarVin(v);
+  if (!t) return 'Escriba el VIN del vehículo.';
+  if (t.length > VIN_LARGO) return `El VIN no puede tener más de ${VIN_LARGO} caracteres.`;
+  if (/[IOQ]/.test(t)) return 'El VIN no lleva las letras I, O ni Q. Revise si son unos o ceros.';
+  if (t.length < VIN_MIN) return `El VIN tiene ${t.length} caracteres y hacen falta al menos ${VIN_MIN}. Revíselo en la tarjeta de propiedad.`;
   return null;
 }
 
 /**
- * **El VIN es OPCIONAL desde la HU #11966** (AC1): vacío es válido y ya no hay «Escriba el VIN».
- *
- * Lo que se escribe sí se valida, porque un VIN a medias frena la solicitud en el servidor con un
- * 400 que el Cliente no sabe leer. Las dos reglas de forma se quedan tal cual.
+ * Aviso NO bloqueante para el tramo que el servidor sí acepta (11 a 16): un VIN más corto de 17
+ * puede ser legítimo —motos y chasis antiguos—, así que se avisa y se deja consultar. Por debajo
+ * del piso ya no es un aviso sino un error, y lo pone `errorVin`.
  */
-export function errorVin(v: string): string | null {
-  const t = v.trim();
-  if (!t) return null;
-  if (t.length > VIN_LARGO) return `El VIN no puede tener más de ${VIN_LARGO} caracteres.`;
-  if (/[IOQ]/.test(t)) return 'El VIN no lleva las letras I, O ni Q. Revise si son unos o ceros.';
-  return null;
-}
-
-/** Aviso NO bloqueante: un VIN corto puede ser legítimo (motos y chasis antiguos). */
 export function avisoVin(v: string): string | null {
-  const t = v.trim();
+  const t = normalizarVin(v);
   if (!t || t.length === VIN_LARGO || errorVin(t)) return null;
   return `El VIN suele tener 17 caracteres y este tiene ${t.length}. Revíselo en la tarjeta de propiedad.`;
 }
@@ -516,3 +597,176 @@ export function errorArchivo(f: File): string | null {
 
 /** «1,2 MB» para el rótulo del archivo ya elegido. */
 export const tamanoMb = (bytes: number): string => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+
+// ─────────────── La lectura de la factura por OCR (HU #12094) ───────────────────────────────────
+//
+// Diseño: docs/ux/flito-soat-factura-leida-y-propietario-prellenado.md. Aquí vive lo que se puede
+// decidir SIN pintar: qué campos viajan, cómo se clasifica un fallo de la lectura y cuál es su copy.
+// La página se queda con el estado y el DOM.
+
+/**
+ * Los NUEVE campos del comprador, tal como los nombran el OCR (`CAMPOS_COMPRADOR_FACTURA`) y el
+ * mapa de procedencia del alta.
+ *
+ * **`correo` NO está entre ellos y no puede estarlo**: el esquema del borde es `.strict()` sobre
+ * exactamente esas nueve claves, así que declarar la procedencia del correo es un `400`. Es el error
+ * que se comete solo con construir el mapa desde `Object.keys(propietario)`, que tiene diez.
+ */
+export type CampoComprador = CampoCompradorFactura;
+
+/** Los nueve, en el orden de shared-types. Reexportado para no re-listarlos en la página. */
+export const CAMPOS_COMPRADOR = CAMPOS_COMPRADOR_FACTURA;
+
+const ES_COMPRADOR: ReadonlySet<string> = new Set(CAMPOS_COMPRADOR_FACTURA);
+
+/** ¿Es uno de los nueve? Estrecha el tipo para poder indexar el mapa de procedencia sin castos. */
+export const esCampoComprador = (c: string): c is CampoComprador => ES_COMPRADOR.has(c);
+
+/**
+ * Los campos del comprador que VIAJAN en el alta con el tipo de documento vigente — RN-B5, la misma
+ * excluyencia que `refinarTitular` aplica en el borde.
+ *
+ * Manda **el tipo elegido en el formulario**, nunca el que trajo la lectura: si el OCR devuelve
+ * `tipoDocumento: 'NIT'` y además `nombres`, enviar los dos es un `400` explícito («Un NIT no lleva
+ * nombres»). Y por lo mismo el mapa de procedencia se construye sobre esta lista: declarar
+ * `'factura'` sobre un campo que no se envía afirma el origen de un dato que no existe.
+ */
+export function camposQueViajan(tipoDocumento: string): CampoComprador[] {
+  const juridica = esNit(tipoDocumento);
+  return CAMPOS_COMPRADOR_FACTURA.filter((c) => (juridica
+    ? c !== 'nombres' && c !== 'apellidos'
+    : c !== 'razonSocial'));
+}
+
+/**
+ * La cota del DERIVADO `nombreCompleto`, **la misma del borde** (`MAX_NOMBRE_COMPLETO`).
+ *
+ * `nombres` y `apellidos` son dos cotas independientes de 200 sobre una columna de 200: el máximo
+ * alcanzable es 401. El servidor lo rechaza con un `400` que cuelga de los DOS campos, y sin esta
+ * guarda ese 400 aterrizaba en el aviso genérico de la tarjeta de envío —que no marca ningún campo—
+ * después de resubir el PDF entero.
+ */
+export const MAX_NOMBRE_COMPLETO = 200;
+
+/**
+ * El error de la cota combinada, **para los dos campos a la vez**.
+ *
+ * Se compone igual que `nombreCompletoDe` en el servidor —los dos recortados y unidos por un solo
+ * espacio— y no como `nombres.length + apellidos.length + 1`: el día que cambie el separador, la
+ * cota lo sigue sola.
+ */
+export function errorNombreCompleto(nombres: string, apellidos: string): string | null {
+  const n = nombres.trim();
+  const a = apellidos.trim();
+  if (!n || !a) return null;
+  return `${n} ${a}`.length > MAX_NOMBRE_COMPLETO
+    ? `El nombre y los apellidos juntos no pueden pasar de ${MAX_NOMBRE_COMPLETO} caracteres.`
+    : null;
+}
+
+/**
+ * Lo que el Cliente lee cuando la lectura NO sale. Misma forma que `DesenlaceRunt` menos el `foco`:
+ * aquí no hay ningún campo que corregir y el foco no se mueve solo (UX §8).
+ */
+export interface DesenlaceLectura {
+  titulo: string;
+  detalle: string;
+}
+
+/** El lector no respondió (`503 OcrNoDisponibleError`, que llega SIN `codigo`). */
+export const LECTURA_NO_DISPONIBLE: DesenlaceLectura = {
+  titulo: 'No pudimos leer la factura.',
+  detalle: 'No es un problema de su archivo: el lector no respondió. Puede volver a leerla, o escribir los datos del propietario a mano y enviar igual.',
+};
+
+/** `status === 0`: ni respondió ni llegó. */
+export const LECTURA_SIN_RED: DesenlaceLectura = {
+  titulo: 'No pudimos comunicarnos con FLITO para leer la factura.',
+  detalle: 'Compruebe su conexión y pulse Volver a leer la factura. También puede escribir los datos a mano y enviar igual.',
+};
+
+/**
+ * `429`. **Mensaje propio, y desde la HU #12214 ya no dice que releer cueste el envío.**
+ *
+ * Hasta esa HU esto era cierto y por eso estaba escrito aquí: el limitador del canal eran 20
+ * peticiones por 15 minutos COMPARTIDAS entre preconsulta, lectura y alta, así que cada re-lectura le
+ * quitaba presupuesto al envío y ofrecer «vuelva a leerla» era empujar al Cliente contra su propio
+ * alta. **La lectura tiene ahora contador propio** (`soatLecturaFacturaLimiter`, 12/15min/usuario,
+ * aparte del compartido), así que agotarla no toca el presupuesto del alta: quien vea este 429 puede
+ * enviar la solicitud AHORA mismo con los datos a mano.
+ *
+ * Sigue sin haber reintento automático, y ahora por un motivo distinto: la ventana es de quince
+ * minutos, así que un reintento inmediato volvería a dar 429. Lo que se ofrece es la salida que no
+ * depende del reloj —escribirlos a mano— dicha ya sin la advertencia que dejó de ser verdad.
+ */
+export const LECTURA_LIMITE: DesenlaceLectura = {
+  titulo: 'Ha hecho varias lecturas seguidas y toca esperar unos minutos.',
+  detalle: 'Puede escribir los datos del propietario a mano y enviar la solicitud ahora: el envío no se ve afectado por este límite.',
+};
+
+/** La rama por defecto: un estado que esta pantalla no conoce. Nunca en silencio. */
+export const LECTURA_GENERICA: DesenlaceLectura = {
+  titulo: 'No pudimos leer la factura en este momento.',
+  detalle: 'Vuelva a leerla, o escriba los datos del propietario a mano y envíe igual.',
+};
+
+/** El motivo del rechazo del adjunto, en un solo sitio: lo pintan la lectura y el alta. */
+export const MENSAJE_ARCHIVO_NO_PDF = 'Ese archivo no es un PDF válido, aunque se llame así. Si lo exportó desde el celular, vuelva a guardarlo como PDF y súbalo otra vez.';
+
+export type ReaccionLectura =
+  /** `400 archivo_no_pdf`: no es un fallo de la lectura sino del ARCHIVO, y su sitio es la caja. */
+  | { tipo: 'archivo' }
+  /** Todo lo demás: banda dentro del bloque 2, con «Volver a leer la factura». */
+  | { tipo: 'fallo'; desenlace: DesenlaceLectura };
+
+/**
+ * Clasifica un fallo de la lectura, **por `codigo` y por estado, jamás por el texto**.
+ *
+ * El `503` del lector llega SIN `codigo` (`OcrNoDisponibleError` responde `{error}` pelado), así que
+ * aquí el estado sí discrimina: no hay otro 503 en esta ruta. El `429` lo pone el limitador de la
+ * LECTURA —el suyo propio desde la HU #12214, ya no el compartido del canal—, que tampoco pone
+ * código.
+ */
+export function reaccionALectura(f: FalloCanal): ReaccionLectura {
+  if (f.codigo === CodigoErrorSolicitudSoat.ARCHIVO_NO_PDF) return { tipo: 'archivo' };
+  if (f.status === 0) return { tipo: 'fallo', desenlace: LECTURA_SIN_RED };
+  if (f.status === 429) return { tipo: 'fallo', desenlace: LECTURA_LIMITE };
+  if (f.status === 503) return { tipo: 'fallo', desenlace: LECTURA_NO_DISPONIBLE };
+  return { tipo: 'fallo', desenlace: LECTURA_GENERICA };
+}
+
+/**
+ * Lo que la pantalla usa de un `200`: los NUEVE del comprador, ya sin los cinco documentales.
+ *
+ * `placa`, `vin`, `numeroFactura`, `fechaFactura` y `valorVehiculo` se descartan aquí y no más
+ * abajo: son de la cola de Operaciones y ninguno tiene campo en esta pantalla. El VIN leído **no**
+ * se compara con el tecleado ni prellena el bloque 1 — sería reabrir la compuerta del RUNT desde un
+ * PDF.
+ *
+ * `valor` llega ya normalizado por el servidor (mayúsculas del documento, celular a dígitos, tipo
+ * cruzado contra el catálogo del RUNT o `null`): **aquí no se vuelve a normalizar**. Repetirlo sería
+ * una segunda regla que diverge de la primera en la próxima corrección.
+ */
+export interface CampoLeido {
+  valor: string;
+  /** `confianza >= umbral` en el momento de la extracción. `false` con valor ⇒ hay que revisarlo. */
+  confiable: boolean;
+}
+
+/**
+ * Los campos leídos **con valor**, y solo esos.
+ *
+ * Un `{ valor: null }` no entra al mapa, y esa omisión es la regla que sostiene el AC5: cuando el
+ * lector no saca nada devuelve las nueve claves en `{valor: null, confianza: 0, confiable: false}`, y
+ * marcarlas por `confiable` a secas pondría nueve avisos ámbar y el envío bloqueado sin nada que
+ * confirmar — el AC3 tumbando al AC5. Un campo sin valor es un campo que NO SE LEYÓ.
+ */
+export function camposLeidos(extraccion: ExtraccionFacturaVenta): Partial<Record<CampoComprador, CampoLeido>> {
+  const leidos: Partial<Record<CampoComprador, CampoLeido>> = {};
+  for (const campo of CAMPOS_COMPRADOR_FACTURA) {
+    const dato = extraccion[campo];
+    if (!dato || dato.valor === null || dato.valor === '') continue;
+    leidos[campo] = { valor: dato.valor, confiable: dato.confiable };
+  }
+  return leidos;
+}

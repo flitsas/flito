@@ -21,6 +21,15 @@
 // Ninguno de los dos dispara una segunda llamada: se abren con los datos ya en la mano.
 // Por eso no tienen estado de carga ni de error. El de VIN en cola sale del 409 de
 // `POST /cliente` (RN-01). El de SOAT vigente ya no se abre desde el alta (HU #11936).
+//
+// ── Ninguno de los dos nombra ya el vehículo, y es una decisión (HU #12091) ─────────────────────
+//
+// Los dos interpolaban la PLACA, que el Cliente tecleaba. Desde la #12091 no la teclea y la pantalla
+// **no la tiene** cuando estos dos desenlaces se disparan: la RN-01 corre ANTES de llamar al RUNT,
+// así que en `vin_ya_tiene_soat` no hay respuesta de la que sacarla. Tampoco se sustituye por el
+// VIN: en una pantalla que trata de UN vehículo, «este vehículo» dice lo mismo sin meter 17
+// caracteres dentro de una frase — ni dentro del `aria-label` del diálogo, que es de donde los
+// selectores de axe arrastran los valores a los informes.
 
 import type { RefObject } from 'react';
 import { Link } from 'react-router-dom';
@@ -33,7 +42,6 @@ import { fechaLarga } from '../../../lib/soatCliente';
 const COLA = '/flito/soat';
 
 interface ComunProps {
-  placa: string;
   onClose: () => void;
   /**
    * Dónde dejar el foco al cerrar. `FlitModal` lo devuelve al disparador si sigue vivo, pero
@@ -50,7 +58,7 @@ interface ComunProps {
  * noticia —su vehículo está cubierto—, no un fallo suyo. Un modal rojo le diría que hizo algo mal.
  */
 export function ModalSoatVigente(
-  { placa, fechaVencimiento, onConsultarOtro, onClose, restoreFocusRef }: ComunProps & {
+  { fechaVencimiento, onConsultarOtro, onClose, restoreFocusRef }: ComunProps & {
     /** Del RUNT, **si viene**. Ver `FalloCanal.fechaVencimiento`: hoy el 409 no la trae. */
     fechaVencimiento?: string;
     onConsultarOtro: () => void;
@@ -66,8 +74,8 @@ export function ModalSoatVigente(
             medio de una oración. */}
         <p>
           {fechaVencimiento
-            ? `Según el RUNT, la póliza del vehículo ${placa} está vigente hasta el ${fechaLarga(fechaVencimiento)}.`
-            : `Según el RUNT, el vehículo ${placa} tiene una póliza SOAT vigente.`}
+            ? `Según el RUNT, este vehículo tiene la póliza vigente hasta el ${fechaLarga(fechaVencimiento)}.`
+            : 'Según el RUNT, este vehículo tiene una póliza SOAT vigente.'}
         </p>
 
         {/* Ni la aseguradora ni el número de póliza, aunque el RUNT los traiga: no hacen falta para
@@ -100,13 +108,18 @@ export function ModalSoatVigente(
  * salvo que `propia === true`; esto es la tercera cerradura: **sin `estado` no se escribe estado**.
  */
 export function ModalVinEnCola(
-  { placa, propia, estado, id, onClose, restoreFocusRef }: ComunProps & {
+  { propia, estado, id, onClose, restoreFocusRef }: ComunProps & {
     propia: boolean;
     estado?: EstadoSoat;
     id?: string;
   },
 ) {
-  const rechazada = propia && estado === EstadoSoat.RECHAZADA;
+  // Hasta la HU #12079 había una TERCERA variante: si el choque era contra una solicitud PROPIA y
+  // rechazada, el primario era «Abrir la solicitud rechazada» y llevaba a `/flito/soat/solicitud/:id`.
+  // Esa ruta se retiró con la subsanación, así que ese botón aterrizaría en el comodín `*` — un
+  // primario roto en el sitio exacto donde el Cliente ya está bloqueado. `rechazada` deja de ser
+  // un caso: el estado se sigue NOMBRANDO en la frase (una fila antigua puede llegar así hasta que
+  // la HU #12081 las migre) y la salida es la misma que para cualquier otra solicitud propia.
   return (
     <FlitModal title="Ese vehículo ya está en la cola de FLITO" onClose={onClose} restoreFocusRef={restoreFocusRef}>
       <div className="space-y-3 text-sm">
@@ -114,29 +127,21 @@ export function ModalVinEnCola(
 
         <p>
           {propia && estado
-            ? `El vehículo ${placa} ya tiene una solicitud de SOAT en FLITO, en estado ${ESTADO_SOAT_LABEL[estado]}. Cada vehículo puede tener una sola.`
-            : `El vehículo ${placa} ya tiene una solicitud de SOAT en FLITO. Cada vehículo puede tener una sola.`}
+            ? `Este vehículo ya tiene una solicitud de SOAT en FLITO, en estado ${ESTADO_SOAT_LABEL[estado]}. Cada vehículo puede tener una sola.`
+            : 'Este vehículo ya tiene una solicitud de SOAT en FLITO. Cada vehículo puede tener una sola.'}
         </p>
 
         <p>
-          {rechazada
-            ? 'Esa solicitud fue rechazada. Para volver a enviarla, corrija lo que se le indica en ella; no cree una nueva.'
-            : propia
-              ? 'Puede seguir su estado desde sus SOAT.'
-              : 'Escríbale a su contacto en FLIT si cree que es un error.'}
+          {propia
+            ? 'Puede seguir su estado desde sus SOAT.'
+            : 'Escríbale a su contacto en FLIT si cree que es un error.'}
         </p>
 
         <div className="flex flex-wrap justify-end gap-2 pt-1">
-          {/* El destino lleva el uuid OPACO en el path y nada más: ni la placa ni el VIN viajan por
-              query «para ahorrar una llamada» (AGENTS.md §14). */}
-          {rechazada && id && (
-            <Link to={`${COLA}/solicitud/${id}`} className={flitBtnPrimary} style={flitBtnPrimaryStyle}>
-              Abrir la solicitud rechazada
-            </Link>
-          )}
-          {propia && !rechazada && id && (
+          {propia && id && (
             // Sin dirección propia: el detalle de la cola es un modal. El id viaja en el estado de
             // navegación —no en la URL— y la cola lo abre si esa fila está en la página cargada.
+            // Así **ninguna PII y ningún identificador viajan por el query** (AGENTS.md §14).
             <Link to={COLA} state={{ verSoatId: id }} className={flitBtnPrimary} style={flitBtnPrimaryStyle}>
               Ver la solicitud
             </Link>

@@ -17,7 +17,7 @@ de glob del módulo, mutar en dos capas o relanzar un gate por una Nota.
 | **P5** | Gate que no dispara, no se ejecuta | Copy/CSS/tests-only → security N/A; M1 **una vez al tip**, no por HU |
 | **P6** | Migración nueva = ese SQL, dos veces, BD ya migrada | Prohibido `CREATE DATABASE` + `db:apply` de las N históricas |
 | **P7** | Test ajeno rojo (RSS/`export-coste`) se declara | No se convierte en el trabajo de esta HU; no medir GC |
-| **P8** | Task con AC + paths → `Read` e implementar | Prohibido Bash como visor de código; no re-leer `AGENTS.md` |
+| **P8** | Task con AC + paths → leer e implementar | Presupuesto de reconocimiento: 8 llamadas (backend/frontend), 6 (security/qa) antes de producir; prohibido el barrido y re-leer `AGENTS.md` |
 | **P9** | Cerrar vacíos **antes** de HUs/código (ronda de cierre; corte = ítems del pedido) | Prohibido «máximo una pregunta» y seguir; prohibido HU/Bug de hallazgo en desarrollo |
 
 `*-CON-OBSERVACIONES` no es éxito. Un nit es **Nota + OK/PASS**, no un loop.

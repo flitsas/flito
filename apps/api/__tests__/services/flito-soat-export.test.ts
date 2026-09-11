@@ -1,4 +1,4 @@
-// FLITO SOAT — export a Excel de la cola filtrada (Feature #11908, HU #11909, HU #11934).
+// FLITO SOAT — export a Excel de la cola filtrada (Feature #11908, HU #11909, HU #11934, HU #12403).
 //
 // `POST /api/flito/soat/export` es la única ruta del módulo que entrega un ARCHIVO, y eso cambia qué
 // puede salir mal: una respuesta binaria no se equivoca «un poco», o es un `.xlsx` abrible con los
@@ -7,11 +7,11 @@
 //
 // Lo que se demuestra aquí, por orden de lo que costaría más caro si dejara de ser verdad:
 //
-//   1. **Las veinticinco columnas, en su orden, afirmadas sobre el WORKBOOK REAL.** El aserto NO se
+//   1. **Las veintisiete columnas, en su orden, afirmadas sobre el WORKBOOK REAL.** El aserto NO se
 //      hace contra la constante `COLUMNAS_COLA_EXPORT`: si se hiciera, renombrar la constante movería
-//      el test y el código a la vez y el test dejaría de probar nada. Se escriben los 25 literales a
+//      el test y el código a la vez y el test dejaría de probar nada. Se escriben los 27 literales a
 //      mano, en CamelCase — es la plantilla del CLIENTE, no una convención nuestra.
-//   2. **Cada valor bajo SU cabecera, con 25 centinelas distinguibles.** ExcelJS empareja por `key`,
+//   2. **Cada valor bajo SU cabecera, con 27 centinelas distinguibles.** ExcelJS empareja por `key`,
 //      así que permutar dos `header` sin permutar sus `key` deja el archivo con las cabeceras
 //      correctas y los VALORES cruzados: el caso 1 sigue verde. Este es el único que lo ve.
 //   3. **`Modelo` es el AÑO y `Linea` la línea.** Lo que FLIT llama `modelo` es la línea comercial,
@@ -172,6 +172,10 @@ const filaSoat = (over: Record<string, unknown> = {}) => ({
   carroceria: 'CAMIONETA',
   servicio: 'Particular',
   cilindraje: '1598',
+  // HU #12403: `vehicles.num_motor` / `num_serie`, que el sync aterriza desde la #12401. Centinelas
+  // de la fila de TRÁMITE; los del canal son otros (`CAMPOS_VEHICULO_CANAL`) para ver cualquier cruce.
+  numMotor: 'MTR-T1',
+  numSerie: 'SER-T1',
   organismoCodigo: ORGANISMO,
   // Lo que la proyección del export NO pide. El mock keyed devuelve la fila entera aunque el
   // `select` pidiera menos, así que estas tres viajan igual y sirven de centinela.
@@ -268,6 +272,10 @@ const CAMPOS_VEHICULO_CANAL = {
   pasajerosSentados: '5',
   puertas: '3',
   organismoAlias: 'FUNZA-ALIAS',
+  // HU #12403: los del RUNT. Distintos de `MTR-T1`/`SER-T1` y distintos ENTRE SÍ, para que un cruce
+  // motor↔serie o trámite↔canal se vea en la celda.
+  numMotor: 'MTR-C1',
+  numSerie: 'SER-C1',
 } as const;
 
 /**
@@ -439,10 +447,10 @@ async function libro(cuerpo: Buffer): Promise<ExcelJS.Worksheet> {
 }
 
 /**
- * Las VEINTICINCO cabeceras ESCRITAS A MANO, en CamelCase literal.
+ * Las VEINTISIETE cabeceras ESCRITAS A MANO, en CamelCase literal (27 desde la HU #12403).
  *
  * No se importan de `COLUMNAS_COLA_EXPORT` a propósito: comparar el archivo contra la constante que
- * lo generó es una tautología —cambiar la constante movería las dos cosas a la vez—. Estos 25
+ * lo generó es una tautología —cambiar la constante movería las dos cosas a la vez—. Estos 27
  * literales son el contrato con el CLIENTE, y romperlos tiene que costar editar este archivo.
  *
  * Van tal cual, sin «normalizar»: `N_I` con guion bajo, `CapacidadCargaOPasajeros` y
@@ -455,6 +463,7 @@ const CABECERAS = [
   'CapacidadCargaOPasajeros', 'Puertas', 'OrganismoDetto', 'N_I', 'ClaseDeInterlocutor',
   'NombrePila', 'Apellidos', 'RazonSocial', 'ClaseId', 'NumeroId', 'Direccion', 'Municipio',
   'Departamento', 'Celular', 'Correo', 'OrganismoDettoCiudad',
+  'NumeroMotor', 'NumeroSerie',
 ];
 
 const cabecerasDe = (hoja: ExcelJS.Worksheet): string[] =>
@@ -464,7 +473,7 @@ const cabecerasDe = (hoja: ExcelJS.Worksheet): string[] =>
  * El valor de una celda por el TEXTO de su cabecera, leído del ARCHIVO y no de la lista de arriba.
  *
  * El índice se busca en las cabeceras REALES del workbook (no en `CABECERAS`) a propósito: así este
- * ayudante sigue diciendo la verdad aunque el orden del archivo se mueva, y es el caso de los 25
+ * ayudante sigue diciendo la verdad aunque el orden del archivo se mueva, y es el caso de los 27
  * centinelas —«cada valor bajo su cabecera»— el que decide si el emparejamiento `header`/`key` está
  * bien. Con el índice sacado de la lista escrita a mano, una permutación de `header` sin permutar
  * `key` se leería «corregida» por el propio test.
@@ -504,8 +513,8 @@ beforeEach(() => {
 
 // ─────────────────────────── Las once columnas ───────────────────────────────────────────────────
 
-describe('el archivo tiene EXACTAMENTE veinticinco columnas, en su orden', () => {
-  it('las 25 cabeceras en CamelCase literal, y `columnCount === 25`', async () => {
+describe('el archivo tiene EXACTAMENTE veintisiete columnas, en su orden', () => {
+  it('las 27 cabeceras en CamelCase literal, y `columnCount === 27`', async () => {
     kdb.when.scenario({
       flito_soat: filas(2),
       flito_tramites: [tramite()],
@@ -520,7 +529,9 @@ describe('el archivo tiene EXACTAMENTE veinticinco columnas, en su orden', () =>
     // El conteo se afirma aparte del `toEqual`: una columna de más CON su cabecera pasaría el
     // `toEqual` si alguien la insertara al final y actualizara la lista de arriba a la vez; el
     // número es lo que obliga a mirar el contrato.
-    expect(hoja.columnCount).toBe(25);
+    expect(hoja.columnCount).toBe(27);
+    // AC1 de la HU #12403: las dos nuevas van AL FINAL, por posición y no solo por presencia.
+    expect(cabecerasDe(hoja).slice(-2)).toEqual(['NumeroMotor', 'NumeroSerie']);
   });
 
   it('NO hay columna de fecha de creación, ni de valor pagado, ni de proveedor', async () => {
@@ -554,10 +565,10 @@ describe('el archivo tiene EXACTAMENTE veinticinco columnas, en su orden', () =>
 
 // ─────────────────────────── Cada valor bajo SU cabecera ─────────────────────────────────────────
 
-describe('cada valor cae bajo la cabecera que le toca — 25 centinelas distinguibles', () => {
+describe('cada valor cae bajo la cabecera que le toca — 27 centinelas distinguibles', () => {
   /**
    * Dos filas porque el bloque del titular tiene formas EXCLUYENTES: una natural (con `NombrePila`
-   * y `Apellidos`, sin `RazonSocial`) y una jurídica (al revés). Con una sola fila, tres de las 25
+   * y `Apellidos`, sin `RazonSocial`) y una jurídica (al revés). Con una sola fila, tres de las 27
    * columnas no tendrían nunca un centinela que comprobar.
    */
   const escenarioDeDosFormas = () => kdb.when.scenario({
@@ -577,7 +588,7 @@ describe('cada valor cae bajo la cabecera que le toca — 25 centinelas distingu
     flito_compradores: [comprador(), comprador({ id: 'c2', tramiteId: TRAMITE_JUR, numeroDocumento: '9001234561' })],
   });
 
-  it('**las 25 celdas de la fila natural, una por una**', async () => {
+  it('**las 27 celdas de la fila natural, una por una**', async () => {
     // El mutante que SOLO este caso mata: permutar dos `header` de `COLUMNAS_COLA_EXPORT` sin
     // permutar sus `key`. ExcelJS escribe cada fila buscando `fila[col.key]`, así que el archivo
     // saldría con las cabeceras en el orden nuevo y los VALORES en el viejo: el aserto de cabeceras
@@ -615,6 +626,30 @@ describe('cada valor cae bajo la cabecera que le toca — 25 centinelas distingu
     expect(c('Celular')).toBe('3001234567');
     expect(c('Correo')).toBe('juana@empresa.co');
     expect(c('OrganismoDettoCiudad')).toBe(CIUDAD_ORGANISMO);
+    // HU #12403 (AC2): de `vehicles`, y cada una bajo la suya — cruzarlas es el mutante barato.
+    expect(c('NumeroMotor')).toBe('MTR-T1');
+    expect(c('NumeroSerie')).toBe('SER-T1');
+  });
+
+  it('**sin motor ni serie en `vehicles`, las dos celdas van VACÍAS — nunca «null» ni «—»** (HU #12403, AC4)', async () => {
+    kdb.when.scenario({
+      flito_soat: [filaSoat({ numMotor: null, numSerie: ' ' })],
+      flito_tramites: [tramite()],
+      flito_compradores: [comprador()],
+    });
+
+    const r = await exportar(await sesion());
+    expect(r.status).toBe(200);
+    const hoja = await libro(r.body as Buffer);
+
+    expect(celda(hoja, 2, 'NumeroMotor') ?? null).toBeNull();
+    expect(celda(hoja, 2, 'NumeroSerie') ?? null).toBeNull();
+    // Y la fila sale entera, con el resto en su sitio.
+    expect(celda(hoja, 2, 'Placa')).toBe(PLACA);
+    const texto = textoDe(hoja);
+    expect(texto).not.toContain('null');
+    expect(texto).not.toContain('undefined');
+    expect(texto).not.toContain('—');
   });
 
   it('las tres celdas que solo tiene la fila JURÍDICA, y sus dos contrarias vacías', async () => {
@@ -923,8 +958,8 @@ describe('los DOS archivos salen de la MISMA lista de columnas', () => {
       const deSoat = await pedir(RUTA);
       const deImpuestos = await pedir('/api/flito/impuestos/export');
 
-      expect(deSoat.indexOf(CENTINELA_COLUMNA), 'SOAT no trajo la columna compartida').toBe(25);
-      expect(deImpuestos.indexOf(CENTINELA_COLUMNA), 'Impuestos no trajo la columna compartida').toBe(25);
+      expect(deSoat.indexOf(CENTINELA_COLUMNA), 'SOAT no trajo la columna compartida').toBe(27);
+      expect(deImpuestos.indexOf(CENTINELA_COLUMNA), 'Impuestos no trajo la columna compartida').toBe(27);
       expect(deSoat).toEqual(deImpuestos);
     } finally {
       // Restaurar en un `finally` y no en un `afterEach`: si un aserto falla a media prueba, el
@@ -1348,7 +1383,7 @@ describe('un SOAT sirve a VARIOS trámites — sin join en la lectura principal 
     // La HU #11934 le pide al archivo nueve columnas del trámite, y el atajo es añadir el join a
     // `conJoinsCola`. Sería el defecto más caro del cambio: un SOAT es por VIN y puede servir a
     // varios trámites (RN-01), así que ese join multiplicaría la fila del SOAT una vez por trámite.
-    // El `.xlsx` traería 800 filas para 500 SOAT —con las 25 columnas correctas, así que ningún
+    // El `.xlsx` traería 800 filas para 500 SOAT —con las 27 columnas correctas, así que ningún
     // aserto de cabeceras se enteraría— y el conteo contra el tope contaría duplicados, de modo que
     // un filtro legítimo podría recibir un 422. Los datos del trámite se leen por LOTE, aparte.
     kdb.when.scenario({
@@ -1423,7 +1458,7 @@ describe('un SOAT sirve a VARIOS trámites — sin join en la lectura principal 
     // Dos trámites que coinciden en `nombres` y difieren en `apellidos`. Con dos `comun()`
     // independientes esta fila saldría con el nombre y el apellido en blanco, y **se clasificaría
     // como JURÍDICA metiendo el nombre de pila de una persona en `RazonSocial`**, con su `ClaseId`
-    // diciendo `NIT`. No lanza, no avisa, y las 25 cabeceras siguen en su sitio.
+    // diciendo `NIT`. No lanza, no avisa, y las 27 cabeceras siguen en su sitio.
     kdb.when.scenario({
       flito_soat: [filaSoat()],
       flito_tramites: [
@@ -1509,7 +1544,7 @@ describe('canal Cliente — la fila lee LO PERSISTIDO, no el trámite que no tie
     id: SOAT_CANAL, origen: 'cliente', ...CAMPOS_VEHICULO_CANAL, ...over,
   });
 
-  it('**las VEINTICINCO celdas de una fila del canal, y las nueve que ANTES iban vacías** (INVERTIDO)', async () => {
+  it('**las VEINTISIETE celdas de una fila del canal, y las nueve que ANTES iban vacías** (INVERTIDO)', async () => {
     // ── Qué afirmaba este caso hasta la HU #11966 ────────────────────────────────────────────────
     //
     // «las CINCO del titular vacías y las DOCE que no dependen del payload, llenas». Era correcto
@@ -1571,6 +1606,10 @@ describe('canal Cliente — la fila lee LO PERSISTIDO, no el trámite que no tie
     expect(celda(hoja, 2, 'Correo')).toBe('juana@empresa.co');
     expect(celda(hoja, 2, 'OrganismoDettoCiudad')).toBe(CIUDAD_ORGANISMO);
     expect(celda(hoja, 2, 'N_I')).toBe('IMPORTADO');
+    // HU #12403 (AC2): el canal publica lo que el RUNT dejó en `vehicles`, no lo del trámite —que no
+    // tiene— ni una celda vacía. Los centinelas son los del canal, no `MTR-T1`/`SER-T1`.
+    expect(celda(hoja, 2, 'NumeroMotor')).toBe('MTR-C1');
+    expect(celda(hoja, 2, 'NumeroSerie')).toBe('SER-C1');
 
     // Y la cadena FUNDIDA sigue SIN publicarse: el nombre sale de las columnas partidas, nunca de
     // `nombre_completo` cortado por el espacio. Esa prohibición no se invierte.
@@ -1606,6 +1645,19 @@ describe('canal Cliente — la fila lee LO PERSISTIDO, no el trámite que no tie
     const hoja = await libro((await exportar(await sesion())).body as Buffer);
     expect(celda(hoja, 2, 'Puertas') ?? null).toBeNull();
     expect(celda(hoja, 2, 'CapacidadCargaOPasajeros') ?? null).toBeNull();
+  });
+
+  it('sin motor ni serie del RUNT, las dos celdas del canal van VACÍAS (HU #12403, AC4)', async () => {
+    kdb.when.scenario({
+      flito_soat: [filaCanal({ numMotor: null, numSerie: null })],
+      flito_tramites: [],
+      flito_compradores: [compradorCanal()],
+    });
+
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+    expect(celda(hoja, 2, 'NumeroMotor') ?? null).toBeNull();
+    expect(celda(hoja, 2, 'NumeroSerie') ?? null).toBeNull();
+    expect(textoDe(hoja)).not.toContain('null');
   });
 
   it('un año nulo en `vehicles` deja `Modelo` vacío, no la cadena «null»', async () => {
@@ -1821,6 +1873,12 @@ describe('rastro — Ley 1581 art. 17', () => {
     expect(campos).toContain('nombres');
     expect(campos).toContain('apellidos');
     expect(campos).toContain('razon_social');
+
+    // **Y la HU #12403 añade `num_motor` y `num_serie`**, por lo mismo que `placa` y `vin` ya
+    // estaban: identificadores del vehículo que el RUNT ata a su propietario. Con el nombre de la
+    // COLUMNA de `vehicles`, no con la cabecera del archivo.
+    expect(campos).toContain('num_motor');
+    expect(campos).toContain('num_serie');
 
     // Y sigue siendo la lista del ARCHIVO y no la de la tabla: lo que no se publica, no se declara.
     expect(campos).not.toContain('porcentaje_participacion');

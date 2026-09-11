@@ -22,6 +22,7 @@ import ocrRoutes from './modules/vehicles/ocr.routes.js';
 import clientsRoutes from './modules/clients/clients.routes.js';
 import flitoParametrizacionRoutes from './modules/flito-parametrizacion/flito-parametrizacion.routes.js';
 import flitoSyncRoutes from './modules/flito-sync/flito-sync.routes.js';
+import permisosRoutes from './modules/permisos/permisos.routes.js';
 import flitoSoatRoutes from './modules/flito-soat/flito-soat.routes.js';
 import flitoSoatClienteRoutes from './modules/flito-soat/flito-soat-cliente.routes.js';
 import flitoImpuestosRoutes from './modules/flito-impuestos/flito-impuestos.routes.js';
@@ -177,7 +178,10 @@ export function createApp() {
     // Hoy no es load-bearing —el front va same-origin por el proxy de Vite en desarrollo y por nginx
     // en producción—, y por eso se deja escrito: es una defensa contra el día que un cliente entre
     // por `corsOrigins`, que existe precisamente para eso.
-    exposedHeaders: [CABECERAS_ZIP_SOPORTES.incluidos, CABECERAS_ZIP_SOPORTES.registros],
+    // `X-Total-Count` (HU #12172): el listado de usuarios sigue devolviendo un array plano y el
+    // total de coincidencias del filtro viaja en la cabecera. Sin exponerla, la paginación del
+    // front cross-origin no tendría de dónde leer el total.
+    exposedHeaders: [CABECERAS_ZIP_SOPORTES.incluidos, CABECERAS_ZIP_SOPORTES.registros, 'X-Total-Count'],
   }));
 
   // F6: Limite mayor para validacion biometrica (3 fotos base64) — debe ir ANTES del global
@@ -233,6 +237,8 @@ export function createApp() {
   app.use('/api/files', filesRoutes); // descargas por token HMAC firmado — pública (el token es la auth)
   app.use('/api/auth', authRoutes);
   app.use('/api/users', usersRoutes);
+  // HU #12081 — lectura del catálogo de funciones (AC5). Solo administración.
+  app.use('/api/permisos', permisosRoutes);
   app.use('/api/vehicles', vehiclesRoutes);
   app.use('/api/soat', soatRoutes);
   app.use('/api/runt', runtRoutes);

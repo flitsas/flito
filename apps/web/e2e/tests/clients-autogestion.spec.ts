@@ -2,7 +2,7 @@
 // (SOAT/Impuestos/Logística) inline. Un cliente ES una compañía FLITO (§correcciones-UX).
 // Solo Operaciones/admin lo ven; backend mockeado.
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, OPERACIONES_USER } from '../helpers/auth';
+import { loginAs, OPERACIONES_USER, AUDITOR_USER } from '../helpers/auth';
 
 const CLIENTES = [
   {
@@ -55,24 +55,18 @@ test.describe('Clientes · autogestión FLITO', () => {
 
 // ─────────────────────── Módulo fusionado (HU #10979) ───────────────────────
 //
-// «Clientes y proveedores» absorbió la antigua Parametrización: las tarifas se abren por fila y los
-// proveedores SOAT viven en su propia pestaña. Estos casos vienen del spec de Parametrización, que
-// se retiró con la página.
+// «Clientes y proveedores» absorbió la antigua Parametrización: los proveedores SOAT viven en su
+// propia pestaña. Las tarifas ya NO se abren aquí (HU #12375): el botón «Tarifas» de la fila es un
+// enlace al configurador de valores, y la ventana emergente se retiró con todo su código.
 
 const PROVEEDORES = [
   { id: 'p1', nombre: 'Seguros Alfa', estrategia: 'portal', umbralOcr: 0.8, slaHoras: 24, activo: true },
 ];
-const TARIFAS = [
-  { id: 't1', companiaId: 1, companiaNombre: 'Concesionario Norte', concepto: 'tramite_digital', tipoTramite: 'TRASPASO', valor: 250000, activo: true },
-  { id: 't2', companiaId: 1, companiaNombre: 'Concesionario Norte', concepto: 'logistica', tipoTramite: null, valor: 15000, activo: true },
-];
 
-async function mockModulo(page: import('@playwright/test').Page, tarifas = TARIFAS) {
+async function mockModulo(page: import('@playwright/test').Page) {
   await mock(page);
   await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROVEEDORES) }));
-  await page.route(/\/api\/flito\/parametrizacion\/tarifas/, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tarifas) }));
 }
 
 test.describe('Clientes y proveedores · módulo fusionado', () => {
@@ -89,39 +83,25 @@ test.describe('Clientes y proveedores · módulo fusionado', () => {
     await expect(page.getByRole('cell', { name: 'portal' })).toBeVisible();
   });
 
-  test('las tarifas se abren desde la fila del cliente y distinguen la genérica', async ({ page }) => {
+  test('«Tarifas» de la fila es un enlace al configurador y ya no abre ninguna ventana (AC11 #12375)', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockModulo(page);
 
     await page.goto('/clients');
-    await page.getByRole('button', { name: 'Tarifas' }).click();
-
-    await expect(page.getByText('Tarifas de Concesionario Norte')).toBeVisible();
-    await expect(page.getByRole('cell', { name: 'TRASPASO' })).toBeVisible();
-    // Una tarifa sin tipo aplica a cualquiera: decirlo evita leerla como un hueco.
-    await expect(page.getByRole('cell', { name: 'Genérica (cualquier tipo)' })).toBeVisible();
+    const enlace = page.getByRole('link', { name: 'Tarifas de Concesionario Norte' });
+    await expect(enlace).toHaveAttribute('href', '/flito/tarifas/1');
+    // Ni botón ni ventana: la tarifa se administra en su pantalla.
+    await expect(page.getByRole('button', { name: /^Tarifas/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Nueva tarifa' })).toHaveCount(0);
   });
 
-  test('un cliente sin tarifas avisa de que no se podrá liquidar', async ({ page }) => {
-    await loginAs(page, OPERACIONES_USER);
-    await mockModulo(page, []);
-
-    await page.goto('/clients');
-    await page.getByRole('button', { name: 'Tarifas' }).click();
-    await expect(page.getByText(/no podrán liquidarse/)).toBeVisible();
-  });
-
-  test('el formulario de tarifa rechaza un valor negativo antes de enviarlo', async ({ page }) => {
-    await loginAs(page, OPERACIONES_USER);
+  test('auditoría ve Clientes pero no el enlace a Tarifas: no tiene esa página', async ({ page }) => {
+    await loginAs(page, { ...AUDITOR_USER, allowedPages: ['clients'] });
     await mockModulo(page);
 
     await page.goto('/clients');
-    await page.getByRole('button', { name: 'Tarifas' }).click();
-    await page.getByRole('button', { name: 'Nueva tarifa' }).click();
-
-    await page.getByLabel('Valor (COP) *').fill('-5');
-    await expect(page.getByText(/mayor o igual a cero/)).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Crear' })).toBeDisabled();
+    await expect(page.getByText('Concesionario Norte')).toBeVisible();
+    await expect(page.getByRole('link', { name: /Tarifas de/ })).toHaveCount(0);
   });
 
   test('ya no existe la pestaña de reglas de enrutamiento', async ({ page }) => {

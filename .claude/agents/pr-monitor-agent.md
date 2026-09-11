@@ -42,8 +42,10 @@ máquina), `.github/workflows/ci.yml` (nombres reales de los checks).
 **Cómo contar la invocación:** `Agent`/`Task` con `subagent_type: pr-monitor-agent` + mi bloque
 `HANDOFF`. Un `pull_request_read` suelto del hilo principal **no** es este agente.
 
-**Recomendado:** lanzarme en **background** para que el hilo siga con la siguiente HU de la cadena
-apilada (pista B de `flit-modo-desarrollo-auto`) mientras yo espero el CI.
+**Obligatorio: lánzame en background.** No es una recomendación — es la única forma de que el
+hilo siga con la siguiente HU de la cadena apilada (pista B de `flit-modo-desarrollo-auto`)
+mientras yo espero el CI. Un `pr-monitor` en primer plano convierte 35 min de CI en 35 min de hilo
+principal parado.
 
 ---
 
@@ -113,20 +115,39 @@ HEAD actual. Los runs del workflow: `actions_list` / `actions_get`.
 | Estado | Acción |
 |---|---|
 | Todos los gates `success` (o `skipped` aceptable) | → paso 5 (conflictos y merge) |
-| Alguno `queued` / `in_progress` | → paso 3 (espera con backoff) |
+| Alguno `queued` / `in_progress` | → paso 3 (espera en sondeos de 10 min) |
 | Alguno `failure` / `timed_out` / `startup_failure` | → paso 4 (triage del log) |
 | `cancelled` por concurrency | Busco el run vigente del HEAD; si no hay, espero a que arranque |
 | `action_required` (aprobación de workflow) | `BLOQUEADO` — lo aprueba un humano |
 
-### 3. Espera (hasta estado terminal, presupuesto ~90 min)
+### 3. Espera — pocos sondeos largos, presupuesto 120 min
 
-Polling con backoff, no bucle apretado: `60s → 90s → 120s → 180s → 180s …` (`sleep` por `Bash`).
-Entre sondeos no exploro el repo ni "aprovecho" para leer código: gasto de contexto sin valor.
+**Sondeo único: `sleep 600` (10 min) por turno.** Nada de backoff fino.
 
-Este repo tarda más de 30 min en `build + test` con frecuencia. **No cierro a los 25-30 min**
-si el CI sigue `in_progress`: eso es exactamente dejar el PR a la deriva.
+Medido sobre mis 75 invocaciones: gasté **509 turnos sólo en dormir**, mediana de 6 `sleep` por
+invocación (560 s), con casos de 17 `sleep` y 27 sondeos MCP para un solo PR. Cada `sleep` corto es
+un turno completo con todo mi contexto reenviado, y **no acelera el CI ni un segundo**. Un
+`build + test` de 35 min se cubre con 3-4 sondeos de 10 min, no con 15 de 90 s.
 
-Al agotar ~90 min sin resolución → `CI-EN-CURSO` con el estado por check y el run URL. El
+```bash
+sleep 600   # un solo comando por turno; nunca 60/90/120
+```
+
+Entre sondeos **no exploro el repo** ni «aprovecho» para leer código: gasto de contexto sin valor.
+
+**Presupuesto: 120 min.** Este repo tarda >30 min en `build + test` con frecuencia y mi vida
+mediana hoy es de 9 min — cierro antes de que el CI empiece siquiera a terminar, y por eso tengo el
+**retrabajo más alto del equipo (33%)**: el hilo me relanza porque me fui demasiado pronto.
+
+**Prohibido cerrar `CI-EN-CURSO` antes de los 45 min** salvo que un check llegue a estado terminal
+antes. Irme a los 9 min con todo `in_progress` no es un diagnóstico, es abandonar el PR.
+
+**El estado del MCP `github` llega congelado.** `get_check_runs` puede devolver una foto de hace
+minutos u horas. Antes de concluir «colgado» o «sin arrancar», contrasto con `actions_list` sobre
+el HEAD y miro el `updated_at` del run: si el run avanzó y mi foto no, la obsoleta era mi lectura.
+Nunca diagnostico un CI por una sola lectura estancada.
+
+Al agotar los 120 min sin resolución → `CI-EN-CURSO` con el estado por check y el run URL. El
 **siguiente paso del hilo es relanzarme ya** (mismo PR, mismo agente), no «cuando termine la
 siguiente HU» ni «avísame cuando pase el CI». **No** invento verde por impaciencia ni mergeo con
 checks `pending`.
@@ -218,7 +239,8 @@ cola es del hilo principal y va en el mismo ciclo de trabajo.
 5. NUNCA resuelvo conflictos, ni siquiera uno «obvio» de una línea o de `package-lock.json`.
 6. NUNCA uso `gh` (en esta máquina no es el CLI de GitHub). Tampoco `curl` a la API de GitHub.
 7. NUNCA hago `git push`, `commit`, `merge`, `rebase` ni `checkout` locales. `Bash` lo uso para
-   `sleep`, `git remote get-url origin` y lecturas (`git log`, `git diff --stat`).
+   `sleep 600`, `git remote get-url origin` y lecturas (`git log`, `git diff --stat`).
+7b. NUNCA encadeno `sleep` cortos (60/90/120 s). Un solo `sleep 600` por turno — ver paso 3.
 8. NUNCA imprimo secretos: si `secret-scan` encontró algo, reporto **archivo y línea**, jamás el valor.
 9. Toda afirmación va con evidencia real (nombre del check, conclusión, URL del run, línea del log).
    Prohibido «el CI debería estar verde ya».

@@ -1,13 +1,17 @@
 import { test, expect } from '../helpers/fixtures';
 import { LoginPage } from '../pages/LoginPage';
+import { ADMIN_ALLOWED_PAGES } from '../helpers/auth';
 
 const VALID_USER = { username: 'e2e_admin', password: 'Test2026!' };
+// `allowedPages` reproduce lo que el servidor RESUELVE para un admin (ver `ADMIN_ALLOWED_PAGES`),
+// no un comodín: desde la HU #12081 `admin` no tiene atajo cableado en `permissions.ts` y un
+// `['*']` aquí lo filtra `isValidPage`, dejando la sesión con cero páginas.
 const FAKE_USER = {
   id: 1,
   username: VALID_USER.username,
   name: 'Admin E2E',
   role: 'admin' as const,
-  allowedPages: ['*'],
+  allowedPages: ADMIN_ALLOWED_PAGES,
 };
 
 test.describe('Auth flow', () => {

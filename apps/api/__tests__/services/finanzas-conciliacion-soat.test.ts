@@ -348,9 +348,13 @@ describe('El join que no se hizo — por qué la fila no se multiplica', () => {
     // Canario deliberado: si alguien añade un join a la cadena compartida, este test se pone rojo y
     // obliga a demostrar que los otros seis llamadores siguen dando el mismo resultado. No es que
     // añadir un join esté prohibido; es que no puede hacerse de pasada.
+    // 11 → 9 en la HU #12374: los cuatro joins de tarifa (`td_esp`/`td_gen`/`lg_esp`/`lg_gen`) pasan
+    // a dos (`td`/`lg`, uno por concepto, resueltos por fecha de aprobación); los `_gen`/`_esp` no
+    // casaban ninguna fila desde la 0182 (CHECK `tipo_chk`), así que filas y totales no cambian
+    // (AC10; db/tarifas-por-fecha.test.ts lo mide contra la base).
     const texto = await sqlDeConJoins();
     expect((texto.match(/ inner join /g) ?? []).length).toBe(1);
-    expect((texto.match(/ left join /g) ?? []).length).toBe(11);
+    expect((texto.match(/ left join /g) ?? []).length).toBe(9);
   });
 
   it.each(['boletaReferencia', 'boletaConciliadaEn'] as const)(

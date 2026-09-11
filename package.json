@@ -17,6 +17,7 @@
     "build": "npm run build:api && npm run build:web",
     "check:bundle": "node scripts/check-bundle-budget.mjs",
     "check:contraste": "node scripts/check-contraste-paleta.mjs",
+    "check:favicon": "node scripts/check-favicon.mjs",
     "check:hooks": "node scripts/scan-rules-of-hooks.mjs",
     "check:pdf-worker": "node scripts/check-pdf-worker.mjs",
     "check:exemptions": "node scripts/check-exemptions.mjs",

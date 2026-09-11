@@ -4,7 +4,7 @@
 // NO entran: un gestor que pudiera cambiar el umbral de OCR de su proveedor podría hacer
 // que sus propias facturas pasaran sin revisión (RN-04).
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
@@ -16,7 +16,8 @@ import {
   flitoReglasProveedorSoat,
   organismosTransitoConfig,
 } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion, funcionesConcedidas } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
   AmbitoReglaProveedor,
@@ -25,27 +26,56 @@ import {
   ModalidadOrganismo,
   ORGANISMOS_TRANSITO,
   PRIORIDAD_POR_AMBITO,
+  TARIFA_VALOR_MAX,
+  tipoTramiteTarifaDe,
 } from '@operaciones/shared-types';
 import { modalidadVigente } from './flito-parametrizacion.service.js';
+import { parseFechaQuery } from '../../shared/utils/fecha-rango.js';
 import {
-  actualizarTarifa, crearTarifa, eliminarTarifa, listarTarifas, TarifaError,
+  cambiarOCerrar, fijarTarifa, historial, listarTarifas, vistaPorCompania,
+  TarifaCeroSinConfirmarError, TarifaConflictoError, TarifaError, TarifaNoEncontradaError,
 } from './flito-tarifas.service.js';
 
 const router = Router();
 router.use(authMiddleware);
 
 // Lectura: operaciones + auditoría (solo lectura). Escritura: solo operaciones.
-const LECTURA = requireRole('admin', 'auditor');
-const ESCRITURA = requireRole('admin');
 // Las TARIFAS son la parte comercial del cliente: las negocia Finanzas, así que también las escribe.
 // El resto de la parametrización (umbrales de OCR, SLA, modalidad, autogestión) sigue siendo solo de
 // Operaciones — RN-04: un gestor que pudiera mover su propio umbral colaría sus facturas sin revisar.
-const ESCRITURA_TARIFAS = requireRole('admin', 'financiera');
-const LECTURA_TARIFAS = requireRole('admin', 'auditor', 'financiera');
 
 // ───────────────────────────────── Compañías (sobre `clients`) ──────────────
 
-function companiaDto(c: typeof clients.$inferSelect) {
+/**
+ * Las columnas de `clients` que el DTO publica, para poder PROYECTAR las lecturas y escrituras.
+ *
+ * `clients` es la tabla con más PII del esquema (nombre de contacto, correo, teléfono, dirección,
+ * notas: ver `CLIENTS_COLUMNAS_PII`). Un `returning()` desnudo trae las 25 columnas y solo el DTO
+ * impide que salgan; con esta constante, un `res.json(updated)` por descuido publicaría exactamente
+ * lo mismo que `res.json(companiaDto(updated))`. Es el patrón que las otras cuatro escrituras del
+ * cambio ya siguen.
+ */
+const COLUMNAS_COMPANIA_DTO = {
+  id: clients.id,
+  name: clients.name,
+  document: clients.document,
+  soatAutogestionable: clients.soatAutogestionable,
+  soatSinTramite: clients.soatSinTramite,
+  flitoProveedorSoatSinTramiteId: clients.flitoProveedorSoatSinTramiteId,
+  impuestosAutogestionable: clients.impuestosAutogestionable,
+  logisticaAutogestionable: clients.logisticaAutogestionable,
+  logisticaPermiteParcial: clients.logisticaPermiteParcial,
+  flitoCarpetaStorage: clients.flitoCarpetaStorage,
+  flitoToleranciaValorImpuesto: clients.flitoToleranciaValorImpuesto,
+} as const;
+
+/**
+ * Lo mínimo que `companiaDto` necesita. Se deriva de la constante de arriba y no se escribe a mano:
+ * añadir una clave al DTO obliga a añadirla a la proyección, o no compila.
+ */
+type FilaCompania = Pick<typeof clients.$inferSelect, keyof typeof COLUMNAS_COMPANIA_DTO>;
+
+function companiaDto(c: FilaCompania) {
   return {
     id: c.id,
     nombre: c.name,
@@ -56,6 +86,12 @@ function companiaDto(c: typeof clients.$inferSelect) {
     // `soatAutogestionable`: son dos preguntas distintas y las dos encendidas a la vez es una
     // combinación válida (AC3).
     soatSinTramite: c.soatSinTramite,
+    // Feature #12074, HU #12078 — el gestor por defecto AL QUE VAN las solicitudes de ese canal.
+    // Va en el DTO para que la pantalla pueda pintarlo (el selector es la HU #12079) y para que
+    // quien encienda el flag sepa contra qué lo está encendiendo. Es el uuid de una aseguradora, no
+    // un dato personal. **Solo del canal sin trámite**: el SOAT por trámite elige gestor en cada
+    // `POST /flito/soat/enviar` y no lee esta columna (AC2e).
+    proveedorSoatSinTramiteId: c.flitoProveedorSoatSinTramiteId,
     impuestosAutogestionable: c.impuestosAutogestionable,
     logisticaAutogestionable: c.logisticaAutogestionable,
     logisticaPermiteParcial: c.logisticaPermiteParcial,
@@ -64,7 +100,7 @@ function companiaDto(c: typeof clients.$inferSelect) {
   };
 }
 
-router.get('/companias', LECTURA, async (_req: Request, res: Response) => {
+router.get('/companias', exigirFuncion('parametrizacion.companias.listar'), async (_req: Request, res: Response) => {
   const filas = await db.select().from(clients).orderBy(asc(clients.name));
   res.json(filas.map(companiaDto));
 });
@@ -77,15 +113,99 @@ const actualizarCompaniaSchema = z.object({
   logisticaPermiteParcial: z.boolean().optional(),
   carpetaStorage: z.string().max(300).nullable().optional(),
   toleranciaValorImpuesto: z.number().min(0, 'La tolerancia no puede ser negativa').optional(),
+  // HU #12078. Sin el prefijo `flito` en el cuerpo, como `carpetaStorage` ↔ `flitoCarpetaStorage`.
+  // `null` explícito SÍ se acepta: es cómo se desconfigura el destino, y solo pasa la guarda del
+  // estado resultante si el canal queda apagado.
+  proveedorSoatSinTramiteId: z.string().uuid().nullable().optional(),
 });
 
-router.patch('/companias/:id', ESCRITURA, async (req: Request, res: Response) => {
+/**
+ * Lo que hay que configurar antes de abrir el canal, dicho entero (AC2c).
+ *
+ * El mensaje importa más de lo normal y conviene dejar escrito por qué: entre el merge de la HU
+ * #12078 y el de la #12079 —que trae el selector— la casilla «SOAT sin trámite» de `Clients.tsx`
+ * llama a este PATCH con un solo campo, así que encenderla responde 400 y este texto es LO ÚNICO
+ * que el usuario va a ver. Tiene que decir qué falta y dónde se arregla, no «datos inválidos».
+ */
+const FALTA_GESTOR =
+  'Para abrir el canal «SOAT sin trámite» hay que decir a qué gestor van sus solicitudes: '
+  + 'configure el gestor por defecto de la compañía (proveedorSoatSinTramiteId) en la misma '
+  + 'operación o antes de encender el canal.';
+
+/** Violación de CHECK en PostgreSQL. */
+const CHECK_VIOLATION = '23514';
+
+/**
+ * El CHECK de la migración 0175, POR NOMBRE.
+ *
+ * `clients` tiene otros seis CHECK y el `catch` de abajo atribuía a este cualquier `23514` del
+ * UPDATE. Hoy la atribución sería correcta —ninguno de los otros cubre lo que este PATCH escribe—,
+ * pero el día que la tabla gane una restricción sobre un campo fiscal, quien la violara recibiría
+ * «configure el gestor por defecto» y se iría a buscar un problema de configuración del canal SOAT
+ * donde hay uno de otra cosa. Mismo criterio que el `catch` estrecho por `code`, un nivel más abajo.
+ *
+ * `constraint_name` es el nombre del campo tal como lo expone `postgres` (porsager): el driver copia
+ * los campos del error de PostgreSQL con sus nombres largos, y drizzle-orm 0.45 no envuelve el error
+ * —lo deja subir tal cual—, que es lo mismo que ya hace posible leer `code`.
+ */
+const CHK_SIN_TRAMITE_GESTOR = 'clients_sin_tramite_gestor_chk';
+
+// `next` solo para el `catch` del CHECK: lo que NO sea `23514` tiene que seguir su camino hasta
+// `errorHandler` (que ya lo registra y responde 500), no convertirse en un 400 que mande a buscar un
+// problema de configuración donde hay uno de red.
+router.patch('/companias/:id', exigirFuncion('parametrizacion.companias.editar'), async (req: Request, res: Response, next: NextFunction) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = actualizarCompaniaSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
 
   const cambios = parsed.data;
+
+  // ── Se lee la fila previa ANTES de construir el `set` (HU #12078) ──────────────────────────────
+  //
+  // Hasta ahora no se leía y el 404 salía del `returning()`. Sin el estado previo no se puede
+  // validar el estado RESULTANTE cuando el PATCH trae solo una de las dos cosas —y «encender el
+  // flag a secas» es el caso normal—. Es el gesto que `clients.routes.ts` ya hace para
+  // `incoherenciasFiscales`. Proyección explícita: de esta fila solo hacen falta las dos columnas
+  // que deciden, y ninguna sale por HTTP.
+  const [previo] = await db
+    .select({
+      id: clients.id,
+      soatSinTramite: clients.soatSinTramite,
+      proveedorSinTramiteId: clients.flitoProveedorSoatSinTramiteId,
+    })
+    .from(clients).where(eq(clients.id, id)).limit(1);
+  if (!previo) { res.status(404).json({ error: 'La compañía no existe' }); return; }
+
+  // El proveedor tiene que existir y estar ACTIVO (AC2b). «Válida incluye vigente»: aceptar un
+  // proveedor apagado —que la pantalla ya no ofrece— convertiría el catálogo en una lista de
+  // sugerencias, y el alta del canal Cliente lo mandaría todo a contingencia sin que nadie lo
+  // hubiera decidido.
+  if (cambios.proveedorSoatSinTramiteId) {
+    const [proveedor] = await db
+      .select({ id: flitoProveedoresSoat.id, activo: flitoProveedoresSoat.activo })
+      .from(flitoProveedoresSoat)
+      .where(eq(flitoProveedoresSoat.id, cambios.proveedorSoatSinTramiteId)).limit(1);
+    if (!proveedor || proveedor.activo !== true) {
+      res.status(400).json({
+        error: 'El gestor por defecto no existe o está inactivo',
+        campo: 'proveedorSoatSinTramiteId',
+      });
+      return;
+    }
+  }
+
+  // Sobre el estado RESULTANTE y no sobre lo que llega: `cambios.x ?? previo.x` en las DOS claves.
+  // Encender el flag sin tocar el gestor y quitar el gestor sin tocar el flag llegan aquí igual.
+  const flagResultante = cambios.soatSinTramite ?? previo.soatSinTramite;
+  const gestorResultante = cambios.proveedorSoatSinTramiteId !== undefined
+    ? cambios.proveedorSoatSinTramiteId
+    : previo.proveedorSinTramiteId;
+  if (flagResultante && gestorResultante == null) {
+    res.status(400).json({ error: FALTA_GESTOR, campo: 'proveedorSoatSinTramiteId' });
+    return;
+  }
+
   const set: Partial<typeof clients.$inferInsert> = {};
   if (cambios.soatAutogestionable !== undefined) set.soatAutogestionable = cambios.soatAutogestionable;
   // Cada bandera se escribe SOLA. Un `set.soatSinTramite = false` colgado del `if` de la autogestión
@@ -96,17 +216,66 @@ router.patch('/companias/:id', ESCRITURA, async (req: Request, res: Response) =>
   if (cambios.logisticaPermiteParcial !== undefined) set.logisticaPermiteParcial = cambios.logisticaPermiteParcial;
   if (cambios.carpetaStorage !== undefined) set.flitoCarpetaStorage = cambios.carpetaStorage;
   if (cambios.toleranciaValorImpuesto !== undefined) set.flitoToleranciaValorImpuesto = String(cambios.toleranciaValorImpuesto);
+  // Cada bandera se escribe SOLA, y el gestor también: **apagar el canal NO borra el gestor**
+  // (AC2c), se conserva por si se vuelve a encender. Colgar un `set.flitoProveedorSoatSinTramiteId
+  // = null` del `if` del flag sería exactamente lo que el comentario de arriba prohíbe entre
+  // banderas, y además obligaría a reconfigurar cada vez.
+  if (cambios.proveedorSoatSinTramiteId !== undefined) {
+    set.flitoProveedorSoatSinTramiteId = cambios.proveedorSoatSinTramiteId;
+  }
 
   if (Object.keys(set).length === 0) { res.status(400).json({ error: 'Nada que actualizar' }); return; }
 
-  const [updated] = await db.update(clients).set(set).where(eq(clients.id, id)).returning();
+  let updated: FilaCompania | undefined;
+  try {
+    // `returning()` PROYECTADO a lo que el DTO publica: ver `COLUMNAS_COMPANIA_DTO`.
+    [updated] = await db.update(clients).set(set).where(eq(clients.id, id))
+      .returning(COLUMNAS_COMPANIA_DTO);
+  } catch (e) {
+    // `clients_sin_tramite_gestor_chk` (migración 0175), Y NO CUALQUIER `23514`. Con las dos guardas
+    // de arriba no debería llegar aquí desde una sola petición; SÍ puede llegar desde dos PATCH
+    // concurrentes —uno que enciende el flag y otro que quita el gestor, cada uno legal contra el
+    // estado que leyó—, que es justo el caso que motiva el CHECK. Sin esta traducción sale como 500;
+    // sin la comprobación del NOMBRE, cualquier otra restricción de `clients` saldría como un consejo
+    // equivocado.
+    const err = e as { code?: string; constraint_name?: string };
+    if (err?.code === CHECK_VIOLATION && err.constraint_name === CHK_SIN_TRAMITE_GESTOR) {
+      res.status(400).json({ error: FALTA_GESTOR, campo: 'proveedorSoatSinTramiteId' });
+      return;
+    }
+    next(e);
+    return;
+  }
   if (!updated) { res.status(404).json({ error: 'La compañía no existe' }); return; }
+
+  // ── El QUÉ, y no solo el quién y el cuándo (HU #12078) ─────────────────────────────────────────
+  //
+  // «Operaciones redirigió el canal de esta compañía a otra aseguradora» es una decisión de
+  // ENRUTAMIENTO: de ella depende a qué gestor van a parar todas las solicitudes que esa compañía
+  // radique a partir de ese instante. `clients` no versiona su configuración —guarda el estado
+  // actual y nada más—, así que si el registro de auditoría solo dice actor e instante, el cambio no
+  // es reconstruible después: no hay dónde mirar de qué gestor a cuál se movió.
+  //
+  // Solo lo que VINO en el patch (`cambios.x !== undefined`), no el estado resultante: un PATCH de la
+  // carpeta de storage no puede dejar escrito «gestor por defecto: …» sin que nadie lo haya tocado.
+  // El uuid del proveedor identifica una EMPRESA, no a una persona — es el mismo dato que ya viaja en
+  // el `detail` del alta del canal.
+  const cambiosDelCanal: string[] = [];
+  if (cambios.soatSinTramite !== undefined) {
+    cambiosDelCanal.push(`SOAT sin trámite ${cambios.soatSinTramite ? 'activado' : 'desactivado'}`);
+  }
+  if (cambios.proveedorSoatSinTramiteId !== undefined) {
+    cambiosDelCanal.push(
+      `gestor por defecto: ${cambios.proveedorSoatSinTramiteId ?? 'sin configurar'}`,
+    );
+  }
 
   await audit(req, {
     action: 'update',
     resource: 'flito_compania',
     resourceId: String(id),
-    detail: `Parametrización compañía ${updated.name}`,
+    detail: `Parametrización compañía ${updated.name}`
+      + (cambiosDelCanal.length ? ` — ${cambiosDelCanal.join('; ')}` : ''),
   });
   res.json(companiaDto(updated));
 });
@@ -124,7 +293,7 @@ function proveedorDto(p: typeof flitoProveedoresSoat.$inferSelect) {
   };
 }
 
-router.get('/proveedores-soat', LECTURA, async (_req: Request, res: Response) => {
+router.get('/proveedores-soat', exigirFuncion('parametrizacion.proveedores.listar'), async (_req: Request, res: Response) => {
   const filas = await db.select().from(flitoProveedoresSoat).orderBy(asc(flitoProveedoresSoat.nombre));
   res.json(filas.map(proveedorDto));
 });
@@ -136,7 +305,7 @@ const crearProveedorSchema = z.object({
   slaHoras: z.number().int().min(1).nullable().optional(),
 });
 
-router.post('/proveedores-soat', ESCRITURA, async (req: Request, res: Response) => {
+router.post('/proveedores-soat', exigirFuncion('parametrizacion.proveedores.crear'), async (req: Request, res: Response) => {
   const parsed = crearProveedorSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   const { nombre, estrategia, umbralOcr, slaHoras } = parsed.data;
@@ -164,7 +333,7 @@ const actualizarProveedorSchema = z.object({
   activo: z.boolean().optional(),
 });
 
-router.patch('/proveedores-soat/:id', ESCRITURA, async (req: Request, res: Response) => {
+router.patch('/proveedores-soat/:id', exigirFuncion('parametrizacion.proveedores.editar'), async (req: Request, res: Response) => {
   const id = req.params.id;
   const parsed = actualizarProveedorSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
@@ -208,7 +377,7 @@ async function organismoDto(codigo: string) {
   };
 }
 
-router.get('/organismos', LECTURA, async (_req: Request, res: Response) => {
+router.get('/organismos', exigirFuncion('parametrizacion.organismos.listar'), async (_req: Request, res: Response) => {
   const filas = await db.select().from(organismosTransitoConfig).orderBy(asc(organismosTransitoConfig.codigo));
   const dtos = await Promise.all(filas.map((o) => organismoDto(o.codigo)));
   res.json(dtos.filter(Boolean));
@@ -232,7 +401,7 @@ async function asegurarConfigOrganismo(codigo: string): Promise<boolean> {
   return true;
 }
 
-router.get('/organismos/:codigo/vigencias', LECTURA, async (req: Request, res: Response) => {
+router.get('/organismos/:codigo/vigencias', exigirFuncion('parametrizacion.organismos.ver_vigencias'), async (req: Request, res: Response) => {
   const codigo = req.params.codigo;
   const filas = await db.select().from(flitoOrganismoVigencias)
     .where(eq(flitoOrganismoVigencias.organismoCodigo, codigo))
@@ -261,7 +430,7 @@ const cambiarModalidadSchema = z.object({
  * impuestos ya sincronizados conservan su estado; los nuevos trámites toman la modalidad vigente en el
  * próximo sync. El motivo es obligatorio para la auditoría.
  */
-router.post('/organismos/:codigo/modalidad', ESCRITURA, async (req: Request, res: Response) => {
+router.post('/organismos/:codigo/modalidad', exigirFuncion('parametrizacion.organismos.fijar_modalidad'), async (req: Request, res: Response) => {
   const codigo = req.params.codigo;
   const parsed = cambiarModalidadSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
@@ -304,7 +473,7 @@ const actualizarOrganismoSchema = z.object({
   driveActivo: z.boolean().optional(),
 });
 
-router.patch('/organismos/:codigo', ESCRITURA, async (req: Request, res: Response) => {
+router.patch('/organismos/:codigo', exigirFuncion('parametrizacion.organismos.editar'), async (req: Request, res: Response) => {
   const codigo = req.params.codigo;
   const parsed = actualizarOrganismoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
@@ -337,64 +506,137 @@ router.patch('/organismos/:codigo', ESCRITURA, async (req: Request, res: Respons
 
 // ───────────────────────────────── Tarifas por compañía ────────────────────
 //
-// El valor negociado del trámite digital y de la logística. Antes eran constantes iguales para
-// todos los clientes; el requerimiento cita $200.000 en una compañía y $1.500 en otra.
+// El valor negociado del trámite digital y de la logística, como VIGENCIAS (HU #12373): fijar abre la
+// primera, cambiar cierra la abierta y abre otra, dejar de cobrar cierra sin abrir. No hay DELETE ni
+// «inactiva» (RN-04): un `DELETE /tarifas/:id` recibe el 404 genérico de Express.
+//
+// Una ruta ⇔ una función del catálogo. La ventana de Clientes (AC17) sigue usando GET/POST/PATCH sin
+// cambios: `PATCH { activo:false }` es «dejar de cobrar» y `POST` es «fijar».
 
+const valorSchema = z.number({ required_error: 'es obligatorio', invalid_type_error: 'debe ser un número' })
+  .finite('debe ser un número finito')
+  .nonnegative('debe ser mayor o igual a cero')
+  .max(TARIFA_VALOR_MAX, 'supera el máximo admitido (12 enteros y 2 decimales)')
+  .refine((n) => Math.round(n * 100) / 100 === n, 'admite a lo sumo dos decimales');
 const tarifaCrearSchema = z.object({
   companiaId: z.number().int().positive(),
   concepto: z.enum(CONCEPTOS_TARIFA),
-  // Vacío o ausente = tarifa genérica del concepto.
+  // Se normaliza en el servicio (`tipoTramiteTarifaDe`): obligatorio en trámite digital, prohibido en logística.
   tipoTramite: z.string().trim().max(60).optional().nullable(),
-  valor: z.number().nonnegative(),
-  activo: z.boolean().optional(),
+  valor: valorSchema,
+  confirmarCero: z.boolean().optional(),
 });
 const tarifaEditarSchema = z.object({
-  valor: z.number().nonnegative().optional(),
+  valor: valorSchema.optional(),
   activo: z.boolean().optional(),
-}).refine((d) => d.valor !== undefined || d.activo !== undefined, { message: 'Nada que actualizar' });
+  cerrar: z.literal(true).optional(),
+  confirmarCero: z.boolean().optional(),
+}).refine((d) => d.valor !== undefined || d.activo !== undefined || d.cerrar, { message: 'Nada que actualizar' });
+const fechaQuerySchema = z.string().refine((f) => parseFechaQuery(f) !== null, 'debe ser un día YYYY-MM-DD').optional();
+const historialQuerySchema = z.object({
+  concepto: z.enum(CONCEPTOS_TARIFA).optional(),
+  tipoTramite: z.string().optional(),
+  desde: fechaQuerySchema,
+  hasta: fechaQuerySchema,
+});
 
-/** TarifaError es de negocio (400); cualquier otra cosa sube y la maneja el error handler. */
+/** «campo: regla» por cada problema, para que el 400 diga QUÉ campo y QUÉ regla (AC9). */
+function mensajeDe(e: z.ZodError): string {
+  return `Datos inválidos: ${e.issues.map((i) => (i.path.length ? `${i.path.join('.')} ${i.message}` : i.message)).join('; ')}`;
+}
+
+/** La clase del error decide el código: no encontrada 404, conflicto 409, cero sin confirmar y negocio 400. */
 function tarifaFallo(res: Response, e: unknown): void {
+  if (e instanceof TarifaNoEncontradaError) { res.status(404).json({ error: e.message }); return; }
+  if (e instanceof TarifaConflictoError) { res.status(409).json({ error: e.message, vigenciaId: e.vigenciaId }); return; }
+  if (e instanceof TarifaCeroSinConfirmarError) { res.status(400).json({ error: e.message, requiereConfirmacion: 'cero' }); return; }
   if (e instanceof TarifaError) { res.status(400).json({ error: e.message }); return; }
   throw e;
 }
 
-router.get('/tarifas', LECTURA_TARIFAS, async (req: Request, res: Response) => {
+const rotulo = (t: { concepto: string; tipoTramite: string | null; companiaNombre: string | null; companiaId: number }) =>
+  `Tarifa ${t.concepto}${t.tipoTramite ? ` (${t.tipoTramite})` : ''} de ${t.companiaNombre ?? t.companiaId}`;
+
+// Acotado a int4 positivo: un id de 11+ dígitos pasaría el regex y Postgres respondería 22003 (500)
+// en vez del 404 que corresponde a «esa compañía no existe».
+const idCompania = (raw: string): number | null => {
+  if (!/^\d+$/.test(raw)) return null;
+  const n = Number(raw);
+  return n > 0 && n <= 2147483647 ? n : null;
+};
+
+router.get('/tarifas', exigirFuncion('parametrizacion.tarifas.listar'), async (req: Request, res: Response) => {
   const companiaId = Number(req.query.companiaId) || undefined;
   res.json(await listarTarifas(companiaId));
 });
 
-router.post('/tarifas', ESCRITURA_TARIFAS, async (req: Request, res: Response) => {
-  const parsed = tarifaCrearSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+// Vista por cliente: las cuatro llaves fijas y las CAPACIDADES calculadas con el motor de permisos
+// (AC12): la pantalla decide por esto, nunca por el nombre del rol. `editar` exige las dos funciones
+// de escritura porque la vista escribe por las dos rutas (POST fija, PATCH cambia/cierra).
+router.get('/tarifas/companias/:id', exigirFuncion('parametrizacion.tarifas.ver_por_cliente'), async (req: Request, res: Response) => {
+  const companiaId = idCompania(req.params.id);
+  if (companiaId === null) { res.status(400).json({ error: 'Datos inválidos: id debe ser numérico' }); return; }
   try {
-    const t = await crearTarifa(parsed.data, req.user?.sub ?? null);
+    const vista = await vistaPorCompania(companiaId);
+    const concedidas = await funcionesConcedidas(req, [
+      'parametrizacion.tarifas.crear', 'parametrizacion.tarifas.editar', 'parametrizacion.tarifas.historial',
+    ]);
+    res.json({
+      ...vista,
+      capacidades: {
+        editar: concedidas.has('parametrizacion.tarifas.crear') && concedidas.has('parametrizacion.tarifas.editar'),
+        verHistorial: concedidas.has('parametrizacion.tarifas.historial'),
+      },
+    });
+  } catch (e) { tarifaFallo(res, e); }
+});
+
+router.get('/tarifas/companias/:id/historial', exigirFuncion('parametrizacion.tarifas.historial'), async (req: Request, res: Response) => {
+  const companiaId = idCompania(req.params.id);
+  if (companiaId === null) { res.status(400).json({ error: 'Datos inválidos: id debe ser numérico' }); return; }
+  const parsed = historialQuerySchema.safeParse(req.query);
+  if (!parsed.success) { res.status(400).json({ error: mensajeDe(parsed.error) }); return; }
+  const { concepto, tipoTramite, desde, hasta } = parsed.data;
+  let tipo: ReturnType<typeof tipoTramiteTarifaDe> | undefined;
+  if (tipoTramite !== undefined && concepto !== 'logistica') {
+    tipo = tipoTramiteTarifaDe(tipoTramite);
+    if (tipo === null) { res.status(400).json({ error: 'Datos inválidos: tipoTramite debe ser Matricula, Traspaso u Otros' }); return; }
+  }
+  try {
+    res.json(await historial(companiaId, {
+      concepto, tipoTramite: tipo,
+      rango: desde || hasta ? { desde: desde ?? null, hasta: hasta ?? null } : undefined,
+    }));
+  } catch (e) { tarifaFallo(res, e); }
+});
+
+router.post('/tarifas', exigirFuncion('parametrizacion.tarifas.crear'), async (req: Request, res: Response) => {
+  const parsed = tarifaCrearSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: mensajeDe(parsed.error) }); return; }
+  try {
+    const t = await fijarTarifa(parsed.data, req.user?.sub ?? null);
     await audit(req, {
-      action: 'create', resource: 'flito_tarifa', resourceId: t.id,
-      detail: `Tarifa ${t.concepto}${t.tipoTramite ? ` (${t.tipoTramite})` : ' (genérica)'} = ${t.valor} para ${t.companiaNombre ?? t.companiaId}`,
+      action: 'create', resource: 'flito_tarifa_vigencia', resourceId: t.id,
+      detail: `${rotulo(t)} = ${t.valor}, vigente desde ${t.vigenteDesde}`,
     });
     res.status(201).json(t);
   } catch (e) { tarifaFallo(res, e); }
 });
 
-router.patch('/tarifas/:id', ESCRITURA_TARIFAS, async (req: Request, res: Response) => {
+router.patch('/tarifas/:id', exigirFuncion('parametrizacion.tarifas.editar'), async (req: Request, res: Response) => {
   const parsed = tarifaEditarSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+  if (!parsed.success) { res.status(400).json({ error: mensajeDe(parsed.error) }); return; }
   try {
-    const t = await actualizarTarifa(req.params.id, parsed.data, req.user?.sub ?? null);
-    await audit(req, {
-      action: 'update', resource: 'flito_tarifa', resourceId: t.id,
-      detail: `Tarifa ${t.concepto}${t.tipoTramite ? ` (${t.tipoTramite})` : ' (genérica)'} = ${t.valor}, activa=${t.activo}`,
-    });
-    res.json(t);
-  } catch (e) { tarifaFallo(res, e); }
-});
-
-router.delete('/tarifas/:id', ESCRITURA_TARIFAS, async (req: Request, res: Response) => {
-  try {
-    await eliminarTarifa(req.params.id);
-    await audit(req, { action: 'delete', resource: 'flito_tarifa', resourceId: req.params.id, detail: 'Tarifa eliminada' });
-    res.status(204).end();
+    const r = await cambiarOCerrar(req.params.id, parsed.data, req.user?.sub ?? null);
+    if (r.accion !== 'sin_cambio') {
+      await audit(req, {
+        action: 'update', resource: 'flito_tarifa_vigencia', resourceId: r.tarifa.id,
+        detail: r.accion === 'cerrada'
+          ? `${rotulo(r.tarifa)} cerrada (dejar de cobrar); valor anterior ${r.valorAnterior}`
+          : `${rotulo(r.tarifa)} de ${r.valorAnterior} a ${r.valorNuevo} (vigencia ${r.tarifa.id})`,
+      });
+    }
+    res.json({ ...r.tarifa, valorAnterior: r.valorAnterior, valorNuevo: r.valorNuevo });
   } catch (e) { tarifaFallo(res, e); }
 });
 

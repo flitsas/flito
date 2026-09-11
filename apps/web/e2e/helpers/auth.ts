@@ -1,11 +1,34 @@
 import { Page } from '@playwright/test';
+import { PAGES } from '@operaciones/shared-types';
+
+/**
+ * Las páginas que `/auth/me` devuelve DE VERDAD para un admin de producción.
+ *
+ * Aquí decía `['*']`. Nunca fue un comodín: `getEffectivePages` filtra con `isValidPage`
+ * (`slug in PAGES`), así que `'*'` se cae siempre. Funcionaba de rebote porque `permissions.ts`
+ * tenía dos atajos cableados para `admin` —la fila `admin: Object.keys(PAGES)` de
+ * `ROLE_DEFAULT_PAGES` y un `if (user.role === 'admin') return Object.keys(PAGES)`— que devolvían
+ * todo antes de mirar el `'*'`. La HU #12081 los retiró: `admin` ya no es un caso especial del
+ * código, sus 43 páginas se las da el reparto sembrado en base y el sobre de `/login` y `/me` viaja
+ * ya resuelto. Como `loginAs` MOCKEA `/api/auth/me` y nunca toca el API, el fixture es el servidor:
+ * si miente, el admin se queda con cero páginas y la pantalla no monta.
+ *
+ * Va `Object.keys(PAGES)` menos `flito_ayuda` porque eso es lo que el servidor reparte:
+ * `flito_ayuda` existe solo para el label de `NoAccess` y el ítem de nav, su visibilidad es
+ * derivada (`hasPage` de ≥1 slug del catálogo de fichas) y por eso no se concede a mano ni entra en
+ * el catálogo de funciones.
+ *
+ * Si vuelve a aparecer un `['*']` en un fixture de admin, no es un atajo cómodo: es alguien tapando
+ * un fallo de permisos en vez de verlo.
+ */
+export const ADMIN_ALLOWED_PAGES = Object.keys(PAGES).filter((slug) => slug !== 'flito_ayuda');
 
 export const ADMIN_USER = {
   id: 1,
   username: 'e2e_admin',
   name: 'Admin E2E',
   role: 'admin' as const,
-  allowedPages: ['*'],
+  allowedPages: ADMIN_ALLOWED_PAGES,
 };
 
 export const PROVEEDOR_USER = {
@@ -18,12 +41,15 @@ export const PROVEEDOR_USER = {
 
 // FLITO — el operador del dominio ES admin (despliegue FLITO-only; el rol `operaciones` se
 // fusionó en `admin`). Se conserva el nombre OPERACIONES_USER para no tocar los specs.
+//
+// Mismo reparto que `ADMIN_USER` porque es el mismo rol: ver `ADMIN_ALLOWED_PAGES` para por qué ya
+// no hay `['*']` aquí.
 export const OPERACIONES_USER = {
   id: 7,
   username: 'e2e_operaciones',
   name: 'Operaciones E2E',
   role: 'admin' as const,
-  allowedPages: ['*'],
+  allowedPages: ADMIN_ALLOWED_PAGES,
 };
 
 // FLITO — Auditoría: mismas vistas FLITO pero solo lectura.
@@ -101,6 +127,18 @@ export const CLIENTE_USER = {
 // del AC5 pasaría por vacío el día que alguien invirtiera el valor por defecto.
 export const CLIENTE_CON_CANAL = { ...CLIENTE_USER, puedeSolicitarSoat: true };
 
+const TOKEN_E2E = 'fake.jwt.e2e';
+
+/**
+ * Deja la pestaña autenticada como `user` y aterrizada en `/login`.
+ *
+ * **Contrato que cambió con el Bug #12141:** desde que siembra el token con `addInitScript`, tras
+ * llamar a `loginAs` ya **no se puede devolver la pestaña a un estado sin sesión** borrando el
+ * token y navegando: el init script lo replanta en el documento siguiente. Un helper que quiera la
+ * pantalla de login de verdad —como `irALoginConTema` en `kit-flit-tema-oscuro.spec.ts`— tiene que
+ * usarse ANTES del primer `loginAs` de ese test. Hoy los tres que lo hacen ya lo cumplen; invertir
+ * ese orden da un rojo desconcertante, con la app en `/` y sin formulario de login.
+ */
 export async function loginAs(page: Page, user = ADMIN_USER) {
   // /me responde 200 con el user — necesario para que useAuth() considere la sesión válida.
   await page.route('**/api/auth/me', async (route) =>
@@ -108,5 +146,41 @@ export async function loginAs(page: Page, user = ADMIN_USER) {
   );
   // Pasamos por /login para tener un origin válido y poder escribir en localStorage.
   await page.goto('/login');
-  await page.evaluate(() => localStorage.setItem('token', 'fake.jwt.e2e'));
+  await page.evaluate((token) => localStorage.setItem('token', token), TOKEN_E2E);
+
+  // Y volvemos a sembrarlo ANTES de cada documento futuro (Bug #12141).
+  //
+  // Sin esto, la sesión se caía a mitad de test —5 de cada 6 corridas bajo carga— por esta cadena,
+  // medida con `page.on('requestfailed')` y el token leído a cada paso:
+  //
+  //   1. Este `goto('/login')` resuelve en `load`. Si YA había token (todo re-login lo tiene, puesto
+  //      por el `loginAs` anterior), `AuthProvider` dispara `GET /auth/me` al montar…
+  //   2. …y `goto` no espera a esa petición: devuelve el control con ella EN VUELO.
+  //   3. El siguiente `page.goto(...)` del test la aborta → `net::ERR_ABORTED`.
+  //   4. Ese fallo entra por el `.catch(() => { clearToken(); … })` de `AuthProvider`
+  //      (`src/lib/auth.tsx`), que hace `localStorage.removeItem('token')`. El `localStorage` es del
+  //      ORIGEN, así que el borrado del documento que muere alcanza al que viene.
+  //   5. El documento nuevo arranca sin token → `user` null → `ProtectedRoute` → pantalla de login.
+  //
+  // `addInitScript` corre antes que cualquier script de la página, en CADA documento: aunque el
+  // documento anterior borre el token al morir, el siguiente lo encuentra puesto cuando
+  // `AuthProvider` lo lee. Esperar aquí a que la sesión cuaje solo taparía el caso de este `goto`;
+  // la carrera reaparece en cualquier navegación que pille un `/auth/me` en vuelo.
+  //
+  // Se registra DESPUÉS del `goto` a propósito: hacerlo antes daría token al propio documento de
+  // /login, y `App.tsx` manda a `/` a quien ya tiene sesión — `loginAs` dejaría de aterrizar en
+  // /login. Y eso importa porque **/login es una pantalla INERTE**: los specs registran sus mocks
+  // DESPUÉS de llamar a `loginAs`, así que aterrizar en `/` hace que la pantalla de inicio pida
+  // datos antes de que esos mocks existan. Medido: mover este `addInitScript` antes del `goto`
+  // tumba `laft-smoke-vistas.spec.ts:86` (smoke 217/219). El mismo motivo está escrito en
+  // `flito-conciliacion.spec.ts:1015`.
+  //
+  // (Aquí decía que /login era «donde varios specs siembran sessionStorage». Es falso y está
+  // medido: `sessionStorage` es del ORIGEN, no de la ruta, así que se siembra igual desde `/` —
+  // `flito-conciliacion` pasa 33/33 con el orden invertido. La razón buena es la de arriba.)
+  await page.addInitScript((token) => {
+    // El origen opaco (about:blank, iframes de otro origen) no da localStorage: ahí no hay sesión
+    // que sembrar y el throw ensuciaría la página con un error no capturado.
+    try { localStorage.setItem('token', token); } catch { /* sin storage: nada que hacer */ }
+  }, TOKEN_E2E);
 }

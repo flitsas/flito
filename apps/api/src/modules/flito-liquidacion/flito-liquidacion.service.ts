@@ -4,6 +4,10 @@
 // negociada con la compañía o la tasa del GMF, un trámite ya liquidado sigue mostrando lo que se
 // cobró. Por eso los valores se copian a `flito_liquidaciones` en vez de recalcularse al leer.
 //
+// RN-07 (HU #12374): la tarifa que se congela es la VIGENTE EN LA FECHA DE APROBACIÓN del trámite,
+// no la de hoy; sin fecha de aprobación, la de ahora. Es la misma resolución (`vigenteEn`) que usa
+// el reporte de costos para la fila estimada: lo que se muestra es lo que se sella (AC7).
+//
 // No confundir con `apps/api/src/modules/liquidacion/`, que es del subsistema antiguo
 // (`tramites_digitales` con id entero + órdenes de trabajo) y no tiene relación con FLITO.
 
@@ -32,6 +36,19 @@ export class LiquidacionError extends Error {
   constructor(message: string, readonly faltantes: string[] = []) {
     super(message);
     this.name = 'LiquidacionError';
+  }
+}
+
+/**
+ * El trámite existe y la petición es válida, pero su estado no permite sellar: `faltantes` no está
+ * vacío (una tarifa sin vigencia en su fecha de aprobación, un SOAT sin pagar, un recibo que falta).
+ * La ruta lo traduce a 422 (AC9 de la HU #12374); sigue siendo `LiquidacionError` para que el lote
+ * lo reporte igual que antes.
+ */
+export class LiquidacionBloqueadaError extends LiquidacionError {
+  constructor(message: string, faltantes: string[] = []) {
+    super(message, faltantes);
+    this.name = 'LiquidacionBloqueadaError';
   }
 }
 
@@ -100,6 +117,8 @@ interface FilaCalculo {
   tramiteId: string;
   idFlit: string;
   tipoTramite: string | null;
+  /** Fecha de referencia para la tarifa (RN-07). null = sin aprobar: se resuelve con «ahora». */
+  fechaAprobacion: Date | null;
   companiaId: number | null;
   logisticaAutogestionable: boolean | null;
   soatId: string | null;
@@ -126,6 +145,7 @@ function proyeccionCalculo() {
     tramiteId: flitoTramites.id,
     idFlit: flitoTramites.idFlit,
     tipoTramite: flitoTramites.tipoTramite,
+    fechaAprobacion: flitoTramites.fechaAprobacion,
     companiaId: flitoTramites.companiaId,
     logisticaAutogestionable: clients.logisticaAutogestionable,
     soatAutogestionable: clients.soatAutogestionable,
@@ -246,21 +266,25 @@ async function calcularDeFila(f: FilaCalculo): Promise<CalculoLiquidacion> {
     : { valor: null, origen: 'Sin recibo de derecho de tránsito', bloquea: true };
 
   const etiquetaTipo = f.tipoTramite ?? 'tipo';
+  // RN-07: la vigencia que contiene la fecha de aprobación; sin aprobar, la de ahora (null).
   const tramiteDigital = deTarifa(
-    await tarifaDe(f.companiaId, 'tramite_digital', f.tipoTramite), etiquetaTipo,
+    await tarifaDe(f.companiaId, 'tramite_digital', f.tipoTramite, f.fechaAprobacion), etiquetaTipo,
   );
 
   // La logística se cobra a toda compañía que no la autogestione, haya habido entrega o no —y a la
   // que sí la autogestiona, en los trámites que le haya encargado a FLITO.
   const logistica: ConceptoLiquidado = !gestionaLogistica
     ? { valor: null, origen: 'La compañía autogestiona su logística', bloquea: false }
-    : deTarifa(await tarifaDe(f.companiaId, 'logistica', f.tipoTramite), etiquetaTipo);
+    : deTarifa(await tarifaDe(f.companiaId, 'logistica', f.tipoTramite, f.fechaAprobacion), etiquetaTipo);
 
   if (soat.bloquea) faltantes.push(soat.origen);
   if (impuesto.bloquea) faltantes.push(impuesto.origen);
   if (derecho.bloquea) faltantes.push(derecho.origen);
-  if (tramiteDigital.bloquea) faltantes.push('Tarifa de trámite digital no configurada para la compañía');
-  if (logistica.bloquea) faltantes.push('Tarifa de logística no configurada para la compañía');
+  // El faltante nombra la fecha (AC9): «no configurada» a secas haría buscar la tarifa de hoy, que
+  // puede existir; lo que falta es la vigencia de ESA fecha.
+  const enFecha = f.fechaAprobacion ? ` en la fecha de aprobación (${diaColombia(f.fechaAprobacion)})` : '';
+  if (tramiteDigital.bloquea) faltantes.push(`Tarifa de trámite digital no configurada para la compañía${enFecha}`);
+  if (logistica.bloquea) faltantes.push(`Tarifa de logística no configurada para la compañía${enFecha}`);
 
   // Base del 4x1000: el total de los cinco conceptos. El gravamen se calcula sobre esa suma y se
   // añade encima, de modo que el total es la base más su propio GMF. Los conceptos que no aplican
@@ -429,7 +453,7 @@ export async function liquidar(tramiteId: string, usuarioId: number | null): Pro
 
   const calculo = await calcular(tramiteId);
   if (calculo.faltantes.length > 0) {
-    throw new LiquidacionError('El trámite no puede liquidarse todavía', calculo.faltantes);
+    throw new LiquidacionBloqueadaError('El trámite no puede liquidarse todavía', calculo.faltantes);
   }
 
   const detalle = {
@@ -522,11 +546,16 @@ function esConceptoDeTransito(concepto: string): concepto is ConceptoBolsaTransi
   return esConceptoBolsaTransito(concepto);
 }
 
-/** Hoy en Colombia: la fecha con la que se imputa el descuento al periodo contable. */
-function fechaContable(): string {
+/** Un instante como día calendario de Colombia (yyyy-mm-dd). */
+function diaColombia(instante: Date): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: TZ_COLOMBIA, year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date());
+  }).format(instante);
+}
+
+/** Hoy en Colombia: la fecha con la que se imputa el descuento al periodo contable. */
+function fechaContable(): string {
+  return diaColombia(new Date());
 }
 
 /**

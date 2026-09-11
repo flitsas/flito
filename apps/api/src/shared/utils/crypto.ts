@@ -356,3 +356,99 @@ export function hmacCedula(cedula: string): Buffer {
   const key = Buffer.from(env.PII_HMAC_KEY, 'hex');
   return crypto.createHmac('sha256', key).update(normalizeDocument(cedula)).digest();
 }
+
+// ── Identificadores de VEHÍCULO seudonimizados (ADR-0012, HU #12090) ────────────────────────────
+//
+// El canal Cliente de SOAT consulta el RUNT **solo por VIN**, y el registro del artículo 17
+// (`pii_access_log`) tenía que poder responder «¿qué líneas afectan a este vehículo?» sin guardar el
+// VIN. Se guarda un HMAC en `motivo`. El porqué entero está en
+// `docs/adr/ADR-0012-flito-soat-hmac-vin-en-pii-access-log.md`; aquí vive la primitiva.
+
+/**
+ * **`hmacCedula` NO SIRVE para un VIN ni para una placa, y por eso existe todo este bloque.**
+ *
+ * Aplica `normalizeDocument()` por dentro, que es `replace(/\D/g,'')` — **solo dígitos**—, así que
+ * sobre un identificador de vehículo borra todas las letras. Medido con la clave real de la suite:
+ *
+ *     normalizeDocument('9FKRG2222T2042405') → '922222042405'
+ *     normalizeDocument('9FKRG2222X2042405') → '922222042405'
+ *     hmacCedula(A) === hmacCedula(B)        →  true
+ *
+ * Dos VIN distintos, el MISMO hash. Y no es un caso de laboratorio: son los VIN consecutivos de una
+ * flota, que es justo lo que este rastro existe para poder distinguir. Un registro de acceso que
+ * empareja el vehículo de un titular con el de otro es PEOR que no tener correlación, porque nadie
+ * sabe que hay que desconfiar de él.
+ *
+ * De ahí las dos diferencias de `hmacIdentificadorVehiculo`:
+ *
+ *   1. **Normalización ALFANUMÉRICA** (`toUpperCase()` + `[^A-Z0-9]`), la misma regla que
+ *      `normalizarId` del canal — la que decide lo que sale hacia Kyverum y lo que se persiste—, de
+ *      modo que `'9FKRG-2222-T2042405'` y `'9fkrg2222t2042405'` den el MISMO token. Si el HMAC se
+ *      calculara sobre una forma y se buscara sobre otra, el registro sería inútil sin que nadie lo
+ *      notara.
+ *   2. **Etiqueta de dominio** (`'vin:'` / `'placa:'`) delante del valor. Sin ella, un VIN compuesto
+ *      solo de dígitos podría colisionar con la cédula de esos mismos dígitos —comparten clave— y
+ *      una placa con un VIN que se normalizara igual. Es una garantía estructural y barata que no
+ *      depende de que los valores reales lleven letras.
+ *
+ * Comparte `PII_HMAC_KEY` con `hmacCedula` y no inventa una variable de entorno nueva: es el criterio
+ * que ya sentó `counterpartyDocHash` («reusa `hmacCedula()` para no inventar otra key»), y la
+ * separación entre dominios la da la etiqueta, no la clave.
+ */
+function hmacIdentificadorVehiculo(dominio: 'vin' | 'placa', valor: string): string {
+  if (!env.PII_HMAC_KEY) throw new Error('PII_HMAC_KEY es requerido');
+  const key = Buffer.from(env.PII_HMAC_KEY, 'hex');
+  const normalizado = String(valor ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return crypto.createHmac('sha256', key).update(`${dominio}:${normalizado}`).digest('hex');
+}
+
+/** HMAC-SHA256 del VIN normalizado, en hex. Ver {@link hmacIdentificadorVehiculo}. */
+export function hmacVin(vin: string): string {
+  return hmacIdentificadorVehiculo('vin', vin);
+}
+
+/** HMAC-SHA256 de la placa normalizada, en hex. Dominio distinto del VIN: nunca colisionan. */
+export function hmacPlaca(placa: string): string {
+  return hmacIdentificadorVehiculo('placa', placa);
+}
+
+/**
+ * Versión de la clave con la que se escribió un token, EN BANDA (ADR-0012 §4).
+ *
+ * Cuesta tres caracteres y es lo único que separa «rotar `PII_HMAC_KEY`» de «perder retroactivamente
+ * seis años de correlación» (esa es la retención declarada de `pii_access_log`). Con la versión
+ * escrita en la fila, una búsqueda posterior calcula el token con cada clave conocida y hace `OR` de
+ * los prefijos; sin ella, las filas viejas quedan mudas para siempre.
+ *
+ * Es una constante de CÓDIGO y no una variable de entorno, igual que `COMPARENDOS_KEY_VERSION_CURRENT`:
+ * estrenar una `v2` tiene que ser un cambio de código con su ADR, no un despiste de despliegue.
+ *
+ * **No existe hoy una política de rotación de `PII_HMAC_KEY`** y este bloque no la inventa: queda
+ * como deuda con dueño humano (ADR-0012 §8.4). Rotarla hoy ya rompe `driver_profile.cedula_hash`,
+ * `laft_counterparties.doc_number_hash` y el emparejamiento de `POST /privacy/forget` (art. 15), que
+ * son problemas mayores y anteriores a este ADR.
+ */
+export const PII_HMAC_VERSION_ACTUAL = 1;
+
+/**
+ * Cuántos caracteres hex del HMAC se guardan. **128 bits**, no los 256 completos.
+ *
+ * `pii_access_log.motivo` es `varchar(200)` y ahí conviven DOS tokens (VIN y placa) más la prosa que
+ * ya estaba. Medido: con los dos a 64 hex el motivo mide 227 y NO cabe; a 32 hex mide 163 y sobran
+ * 37. 128 bits son de sobra para un token de búsqueda cuyo espacio de entrada son los VIN de un
+ * país, y el repo ya trunca un sha256 a 64 bits en `privacy.routes.ts`. El truncado vive AQUÍ y en un
+ * solo sitio: quien escribe y quien busca tienen que recortar igual o no se encuentran.
+ */
+const PII_HMAC_HEX_TOKEN = 32;
+
+/**
+ * El token tal como se GUARDA: `v<version>:<hex truncado>`.
+ *
+ * Se exporta la forma final y no solo el hash porque la forma final ES el contrato: el buscador
+ * recompone el token con esta misma función y compara por prefijo. Si el truncado o el prefijo
+ * vivieran en el llamador, escritor y lector podrían discrepar sin que nada se pusiera rojo — el
+ * mismo argumento por el que el piso del VIN y la consulta a Kyverum comparten `normalizarId`.
+ */
+export function tokenPii(hmacHex: string): string {
+  return `v${PII_HMAC_VERSION_ACTUAL}:${hmacHex.slice(0, PII_HMAC_HEX_TOKEN)}`;
+}

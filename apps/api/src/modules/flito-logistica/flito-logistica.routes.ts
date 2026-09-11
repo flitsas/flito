@@ -5,7 +5,8 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { EstadoDocumentoLogistica } from '@operaciones/shared-types';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
   actaDetalle, buscarIdempotencia, cerrarLote, despachar, entregar, escanearLt, facetas,
@@ -16,9 +17,6 @@ import {
 const router = Router();
 router.use(authMiddleware);
 
-const OPERACIONES = requireRole('admin');
-const CAMPO = requireRole('admin', 'mensajero');
-const LECTURA = requireRole('admin', 'auditor');
 
 function ctxDe(user: { sub: number; username: string; role: string }): LogisticaCtx {
   return { userId: user.sub, username: user.username, role: user.role };
@@ -61,7 +59,7 @@ async function conIdempotencia(req: Request, res: Response, run: () => Promise<{
 }
 
 // GET / — listado paginado con filtros multiselect (CA-07).
-router.get('/', LECTURA, async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('logistica.consola.ver'), async (req: Request, res: Response) => {
   const q = req.query;
   const filtros: FiltrosLogistica = {
     buscar: str(q.buscar), estados: lista(q.estados),
@@ -72,34 +70,34 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
 });
 
 // GET /facetas — valores para los dropdowns de filtro, compañías cerrables y mensajeros.
-router.get('/facetas', LECTURA, async (_req: Request, res: Response) => {
+router.get('/facetas', exigirFuncion('logistica.consola.filtrar'), async (_req: Request, res: Response) => {
   res.json(await facetas());
 });
 
 // GET /mi-ruta — ruta del mensajero (PWA): recogidas por organismo + entregas asignadas (CA-11).
-router.get('/mi-ruta', CAMPO, async (req: Request, res: Response) => {
+router.get('/mi-ruta', exigirFuncion('logistica.ruta.ver'), async (req: Request, res: Response) => {
   res.json(await miRuta(ctxDe(req.user!)));
 });
 
 // GET /actas — panel de despacho/entrega (todas las actas con su estado y mensajero).
-router.get('/actas', LECTURA, async (_req: Request, res: Response) => {
+router.get('/actas', exigirFuncion('logistica.actas.listar'), async (_req: Request, res: Response) => {
   res.json(await listarActas());
 });
 
 // GET /actas/:id — detalle del acta: documentos + bitácora del despacho (CA-13).
-router.get('/actas/:id', LECTURA, async (req: Request, res: Response) => {
+router.get('/actas/:id', exigirFuncion('logistica.actas.ver'), async (req: Request, res: Response) => {
   const r = await ejecutar(res, () => actaDetalle(req.params.id));
   if (r !== undefined) res.json(r);
 });
 
 // GET /actas/:id/pdf — URL prefirmada del PDF base del acta (se genera si falta).
-router.get('/actas/:id/pdf', LECTURA, async (req: Request, res: Response) => {
+router.get('/actas/:id/pdf', exigirFuncion('logistica.actas.descargar'), async (req: Request, res: Response) => {
   const url = await ejecutar(res, () => urlActaPdf(req.params.id));
   if (url !== undefined) res.json({ url });
 });
 
 // GET /:id — detalle del trámite aprobado + su LT + bitácora (CA-07).
-router.get('/:id', LECTURA, async (req: Request, res: Response) => {
+router.get('/:id', exigirFuncion('logistica.documento.ver'), async (req: Request, res: Response) => {
   const r = await ejecutar(res, () => tramiteDetalle(req.params.id));
   if (r !== undefined) res.json(r);
 });
@@ -107,7 +105,7 @@ router.get('/:id', LECTURA, async (req: Request, res: Response) => {
 // POST /validar-lt — valida el match de una LT SIN persistir (el mensajero escanea en lote; solo al
 // confirmar se llama a /escanear por cada LT relacionada). Solo lectura → sin idempotencia ni auditoría.
 const validarSchema = z.object({ rawValue: z.string().min(1) });
-router.post('/validar-lt', CAMPO, async (req: Request, res: Response) => {
+router.post('/validar-lt', exigirFuncion('logistica.lt.validar'), async (req: Request, res: Response) => {
   const parsed = validarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   const r = await ejecutar(res, () => validarLt(parsed.data.rawValue));
@@ -118,7 +116,7 @@ router.post('/validar-lt', CAMPO, async (req: Request, res: Response) => {
 const escanearSchema = z.object({
   rawValue: z.string().min(1), numeroLt: z.string().optional(), lat: z.string().optional(), lng: z.string().optional(),
 });
-router.post('/escanear', CAMPO, async (req: Request, res: Response) => {
+router.post('/escanear', exigirFuncion('logistica.documento.escanear'), async (req: Request, res: Response) => {
   const parsed = escanearSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   await conIdempotencia(req, res, async () => {
@@ -130,7 +128,7 @@ router.post('/escanear', CAMPO, async (req: Request, res: Response) => {
 
 // POST /documentos/:id/novedad — motivo obligatorio; bloquea el avance (RN-04).
 const motivoSchema = z.object({ motivo: z.string().trim().min(1) });
-router.post('/documentos/:id/novedad', CAMPO, async (req: Request, res: Response) => {
+router.post('/documentos/:id/novedad', exigirFuncion('logistica.documento.reportar_novedad'), async (req: Request, res: Response) => {
   const parsed = motivoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
   await conIdempotencia(req, res, async () => {
@@ -142,7 +140,7 @@ router.post('/documentos/:id/novedad', CAMPO, async (req: Request, res: Response
 
 // POST /cerrar-lote — genera el acta de una empresa con sus documentos clasificados (CA-04/08/09).
 const cerrarLoteSchema = z.object({ companiaId: z.number().int().positive() });
-router.post('/cerrar-lote', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/cerrar-lote', exigirFuncion('logistica.lote.cerrar'), async (req: Request, res: Response) => {
   const parsed = cerrarLoteSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   const r = await ejecutar(res, () => cerrarLote(parsed.data.companiaId, ctxDe(req.user!)));
@@ -156,7 +154,7 @@ router.post('/cerrar-lote', OPERACIONES, async (req: Request, res: Response) => 
 const despacharSchema = z.object({
   mensajeroId: z.number().int().positive(), firmaEntrega: z.string().min(1), entregaNombre: z.string().optional(),
 });
-router.post('/actas/:id/despachar', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/actas/:id/despachar', exigirFuncion('logistica.actas.despachar'), async (req: Request, res: Response) => {
   const parsed = despacharSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'La firma de quien entrega es obligatoria' }); return; }
   const r = await ejecutar(res, () => despachar(req.params.id, parsed.data, ctxDe(req.user!)));
@@ -170,7 +168,7 @@ const entregarSchema = z.object({
   receptorNombre: z.string().trim().min(1), receptorDocumento: z.string().trim().min(1),
   firma: z.string().min(1), foto: z.string().optional(), lat: z.string().optional(), lng: z.string().optional(),
 });
-router.post('/actas/:id/entregar', CAMPO, async (req: Request, res: Response) => {
+router.post('/actas/:id/entregar', exigirFuncion('logistica.actas.entregar'), async (req: Request, res: Response) => {
   const parsed = entregarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   await conIdempotencia(req, res, async () => {
@@ -181,7 +179,7 @@ router.post('/actas/:id/entregar', CAMPO, async (req: Request, res: Response) =>
 });
 
 // POST /actas/:id/devolucion — receptor ausente/rechazo; motivo obligatorio (CA-10).
-router.post('/actas/:id/devolucion', CAMPO, async (req: Request, res: Response) => {
+router.post('/actas/:id/devolucion', exigirFuncion('logistica.actas.devolver'), async (req: Request, res: Response) => {
   const parsed = motivoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
   await conIdempotencia(req, res, async () => {
@@ -193,7 +191,7 @@ router.post('/actas/:id/devolucion', CAMPO, async (req: Request, res: Response) 
 
 // POST /documentos/:id/reversar — reversa con justificación (RN-08). Solo Operaciones.
 const reversarSchema = z.object({ estadoDestino: z.nativeEnum(EstadoDocumentoLogistica), motivo: z.string().trim().min(1) });
-router.post('/documentos/:id/reversar', OPERACIONES, async (req: Request, res: Response) => {
+router.post('/documentos/:id/reversar', exigirFuncion('logistica.documento.reversar'), async (req: Request, res: Response) => {
   const parsed = reversarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   const r = await ejecutar(res, () => reversar(req.params.id, parsed.data.estadoDestino, parsed.data.motivo, ctxDe(req.user!)));

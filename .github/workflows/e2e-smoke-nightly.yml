@@ -17,9 +17,9 @@ jobs:
     # 14 → 15 en la HU #11774 (visor-pdf-real.spec.ts).
     # 15 → 16 en la HU #11914 (soat-cliente-solicitud.spec.ts): el canal Cliente es el primer camino
     # de ESCRITURA de un rol externo, y el CI de PR solo corre el spec del visor.
-    # 16 → 17 en la HU #11915 (soat-revision-rechazo.spec.ts): la revisión de Operaciones decide si
-    # una solicitud del canal entra en la cola del gestor, y el rechazo escribe el único texto que
-    # una empresa tercera lee literal.
+    # 16 → 17 en la HU #11915, y SUSTITUIDO en la #12079: la revisión de Operaciones se retiró, y su
+    # sitio lo ocupa soat-envio-directo-gestor.spec.ts, que cubre lo que ahora decide a qué gestor
+    # sale una solicitud del canal y qué ve de ella la empresa externa.
     name: playwright smoke (17 specs)
     runs-on: ubuntu-latest
     timeout-minutes: 15

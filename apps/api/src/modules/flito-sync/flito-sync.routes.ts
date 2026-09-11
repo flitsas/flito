@@ -2,7 +2,8 @@
 // inicial; la final es hoy). Integración de solo lectura. Ver docs/integracion/integracionFlit.md.
 
 import { Router, type Request, type Response } from 'express';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { loggerFor } from '../../shared/logger.js';
 import { sincronizar, leerUltimaSincronizacion, guardarUltimaSincronizacion, hayTramites } from './flito-sync.service.js';
@@ -23,7 +24,7 @@ function hoyYyyymmdd(): string {
 }
 
 // Estado de sincronización: para mostrar "última actualización" y decidir si es la primera vez.
-router.get('/estado', requireRole('admin'), async (_req: Request, res: Response) => {
+router.get('/estado', exigirFuncion('sync.sync.ver_estado'), async (_req: Request, res: Response) => {
   const [ultimaSincronizacion, tramites] = await Promise.all([leerUltimaSincronizacion(), hayTramites()]);
   res.json({ ultimaSincronizacion, hayTramites: tramites });
 });
@@ -31,7 +32,7 @@ router.get('/estado', requireRole('admin'), async (_req: Request, res: Response)
 // Dispara una sincronización. initialDate: si viene en el body se respeta (modo manual); si no, se usa
 // la fecha del último sync (incremental). La primera vez (sin fecha previa) exige elegir fecha. finalDate
 // = hoy. Solo admin. Al terminar, persiste la fecha/hora del sync como "última actualización".
-router.post('/sincronizar', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/sincronizar', exigirFuncion('sync.sync.lanzar'), async (req: Request, res: Response) => {
   const manual = aYyyymmdd(req.body?.initialDate);
   const ultima = await leerUltimaSincronizacion();
   const initialDate = manual ?? (ultima ? aYyyymmdd(ultima) : null);

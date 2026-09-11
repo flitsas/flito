@@ -1,8 +1,13 @@
 import { z } from 'zod';
 
-// Roles, catálogo de páginas y permisos por defecto (fuente única).
-// Exporta UserRole, USER_ROLES, ALL_ROLES, userRoleSchema, ROLE_LABELS,
-// PAGES, PAGE_GROUPS, PageSlug, ROLE_DEFAULT_PAGES, getEffectivePages, isValidPage, ...
+// Roles de SISTEMA, catálogo de páginas y permisos por defecto (fuente única).
+// Desde la HU #12169 la lista de roles que EXISTEN vive en la tabla `permisos_roles`;
+// lo de aquí son los doce que el código conoce por su nombre (ver la frontera escrita
+// sobre `USER_ROLES`). Para el rol de un usuario, el tipo es `RoleCode`.
+// Exporta UserRole, RoleCode, USER_ROLES, ALL_ROLES, ROLE_LABELS, PAGES, PAGE_GROUPS,
+// PageSlug, ROLE_DEFAULT_PAGES, paginasPorDefecto, getEffectivePages, isValidPage, ...
+// (no exporta ningún `userRoleSchema`: este módulo es puro y no tiene zod; el comentario
+// que lo anunciaba llevaba años sin definición detrás.)
 export * from './permissions.js';
 
 // EPIC TRAM-INNOV · A5 — catálogo de tipologías de trámite + checklist dinámico.
@@ -47,11 +52,15 @@ export type SoatStatus = z.infer<typeof SoatStatus>;
 // ── FLITO (migración packages/ → Operaciones) ──────────────────────────────
 // Dominio de estados SOAT/Impuestos, modalidad de organismo, soportes y reglas.
 export * from './flito-estados.js';
+// Tarifas como vigencias (HU #12373): catálogo cerrado de tipos y reglas del valor.
+export * from './flito-tarifas.js';
 // Dominio del módulo de Logística: estados por documento, actas, tipos y proveedores.
 export * from './flito-logistica.js';
 export * from './flito-logistica-barcode.js';
 // Campos OCR (SOAT / impuesto / factura de venta) con confianza por campo y motivos de revisión.
 export * from './flito-ocr.js';
+// Canal Cliente del SOAT: de dónde salió cada dato del propietario (factura / RUNT / manual).
+export * from './flito-soat-procedencia.js';
 // Mapeo de roles FLITO → roles Operaciones y ataduras de visibilidad del gestor.
 export * from './flito-roles.js';
 // Bolsas prepago del cliente: tipos de movimiento, conceptos que consumen saldo y periodo contable.
@@ -105,3 +114,6 @@ export * from './flito-conciliacion.js';
 export * from './flito-cola-export.js';
 // Carga masiva SOAT/impuestos: topes de archivos, bytes, cuerpo HTTP y tandas (HU #12050 / #12051).
 export * from './carga-masiva.js';
+// Historial consultable de cambios de usuarios, roles y permisos (HU #12171, ADR-0014): lista
+// blanca de campos, forma del par antes/después y el DTO que sirve `GET /api/users/auditoria`.
+export * from './permisos-auditoria.js';

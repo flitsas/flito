@@ -1,4 +1,5 @@
-// Negación por defecto para el rol `cliente` (Feature #11912, HU #11913).
+// Negación por defecto para los roles EXTERNOS (Feature #11912, HU #11913; por `tipo_principal`
+// desde la HU #12082).
 //
 // ── Por qué existe ───────────────────────────────────────────────────────────────────────────────
 //
@@ -13,17 +14,32 @@
 // `cliente` es el primer principal EXTERNO: entra desde fuera, es de una empresa tercera y ve una
 // sola pantalla. La frontera de confianza la mueve este PR, así que el hueco se cierra en este PR.
 //
+// ── Quién es «externo» (HU #12082, AC8) ─────────────────────────────────────────────────────────
+//
+// Ya no es el literal `'cliente'`: es `permisos_roles.tipo_principal = 'externo'`, que el resolutor
+// único (`resolverPermisos`, permisos-efectivos.ts) devuelve cacheado junto al conjunto de funciones
+// —la misma foto que luego usa `exigirFuncion`, así que la frontera no paga ninguna consulta extra—.
+// Un rol nuevo creado desde el panel con ese tipo queda dentro de esta frontera sin tocar código. Y
+// si el resolutor NO PUEDE leer el tipo (`ok:false`), el usuario se trata como externo: un fallo de
+// base niega todo lo que no esté en la lista blanca, la dirección del AC4 aplicada aquí, y la
+// contraria a la de `getSessionInvalidatedMs`. Durante una caída de base los internos reciben 403 en
+// vez de 500 fuera de estas rutas: es un cambio de código de error durante un incidente, no una
+// pérdida de servicio nueva.
+//
+// Marcarle TODAS las funciones a un rol externo NO lo saca de su canal: esta frontera corre ANTES de
+// `exigirFuncion` y no mira el conjunto. Las dos capas se suman, nunca se sustituyen.
+//
 // ── Por qué una allowlist y no parchear router por router ────────────────────────────────────────
 //
 // Decisión de David en la sesión del 2026-08-29. Parchear los ~115 routers con un `requireRole` que
-// excluya a `cliente` es una LISTA NEGRA repartida en 115 sitios: el router número 116 —el que
+// excluya al rol externo es una LISTA NEGRA repartida en 115 sitios: el router número 116 —el que
 // escriba dentro de tres meses quien no sepa que este rol existe— nace ABIERTO, y nadie se entera
-// hasta que alguien lo mida. Con esto nace CERRADO, sin que nadie tenga que acordarse: para que el
-// `cliente` alcance una ruta nueva hay que escribirla aquí, a la vista, con su motivo.
+// hasta que alguien lo mida. Con esto nace CERRADO, sin que nadie tenga que acordarse: para que un
+// rol externo alcance una ruta nueva hay que escribirla aquí, a la vista, con su motivo.
 //
 // ── Dónde se aplica, y por qué no es un `app.use` en `app.ts` ────────────────────────────────────
 //
-// El guarda tiene que correr DESPUÉS de la autenticación (necesita `req.user.role`) y ANTES del
+// El guarda tiene que correr DESPUÉS de la autenticación (necesita `req.user.sub`) y ANTES del
 // handler. En esta aplicación **la autenticación no está en `app.ts`**: cada router monta
 // `authMiddleware` por su cuenta (115 de los 121 ficheros `*.routes.ts`; los 6 restantes son los
 // públicos —`files`, el webhook de firma, el portal de participantes y la verificación por QR—, que
@@ -47,11 +63,13 @@
 //
 // Tampoco es el sitio donde se decide QUÉ CAMPOS ve el `cliente` de lo que sí puede pedir: eso es la
 // proyección por rol de `flito-soat.service.ts` y `soportes-consulta.ts`.
+//
+// La lista blanca es CÓDIGO y no configuración: no se lee de ninguna tabla, no existe ruta que la
+// modifique, y está congelada (`Object.freeze` del array y de cada entrada) para poder afirmarlo en
+// una prueba.
 
 import type { Request, Response, NextFunction } from 'express';
-
-/** El rol del canal Cliente. Literal en un solo sitio para que el grep lo encuentre entero. */
-export const ROL_CLIENTE = 'cliente';
+import { resolverPermisos } from '../permisos-efectivos.js';
 
 export type MetodoHttp = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -70,7 +88,7 @@ export interface RutaCliente {
 }
 
 /**
- * Lo ÚNICO que un `cliente` puede pedir a la API. Todo lo demás → 403.
+ * Lo ÚNICO que un rol externo puede pedir a la API. Todo lo demás → 403.
  *
  * **Medida, no adivinada.** Sale de recorrer la sesión completa de un `cliente` en la SPA —login →
  * `/auth/me` → shell → `/flito/soat`— sobre `apps/web/src/lib/auth.tsx`, `pages/FlitoSoat.tsx`,
@@ -78,10 +96,13 @@ export interface RutaCliente {
  * el shell (`components/shell/*`, `App.tsx`) no pide nada al API, la ayuda in-app es markdown del
  * bundle y `/flito/parametrizacion/proveedores-soat` está detrás de `if (!esOperaciones) return`.
  *
- * **Creció con la HU #11914 (radicar) y con la #11915 (subsanar)**, que son las que le dan al canal
- * sus rutas de escritura. Añadir una entrada aquí es una decisión de exposición: se escribe con su
- * `porque` o no se escribe. La #11915 añadió UNA —la subsanación— y dejó fuera las tres de la
- * revisión, que son de Operaciones; el bloque del final de la lista dice por qué de cada una.
+ * **Creció con la HU #11914 (radicar) y con la #12092 (leer la factura)**, que son las que le dan al
+ * canal sus rutas de escritura. Añadir una entrada aquí es una decisión de exposición: se escribe
+ * con su `porque` o no se escribe.
+ *
+ * **Y también ENCOGE.** La HU #12080 retiró la de la subsanación al retirar el circuito de revisión
+ * que le daba sentido; el bloque del final de la lista dice cuál era y por qué se fue. Una entrada
+ * que sobrevive a su flujo es una puerta abierta cuya justificación ya no se puede comprobar.
  *
  * Fuera a propósito, aunque el `cliente` las use:
  *   · `POST /api/auth/login` — no pasa por `authMiddleware` (todavía no hay usuario); este guarda no
@@ -90,10 +111,16 @@ export interface RutaCliente {
  *     autenticación; tampoco pasa por `authMiddleware`.
  *   · `POST /api/rum` — Web Vitals, público y pre-login.
  */
-export const RUTAS_PERMITIDAS_CLIENTE: readonly RutaCliente[] = [
+export const RUTAS_PERMITIDAS_CLIENTE: readonly RutaCliente[] = congelar([
   {
     metodo: 'GET', patron: '/api/auth/me',
     porque: 'Sin esto no hay sesión: `AuthProvider` la pide al montar y un fallo lo desloguea.',
+  },
+  {
+    metodo: 'GET', patron: '/api/permisos/mios',
+    porque: 'La SPA (HU #12083) lee de aquí qué pintar; sin esta entrada el canal externo se queda sin '
+      + 'menú en cuanto la pantalla deje de usar /auth/me. Devuelve SOLO el conjunto del propio usuario '
+      + '—para un rol externo, las funciones del canal—, no expone nada de otros usuarios ni del catálogo.',
   },
   {
     metodo: 'POST', patron: '/api/auth/logout',
@@ -136,20 +163,52 @@ export const RUTAS_PERMITIDAS_CLIENTE: readonly RutaCliente[] = [
     metodo: 'POST', patron: '/api/flito/soat/cliente',
     porque: 'Radicar la solicitud. Es la razón de ser del canal; sin ella el rol solo mira.',
   },
-  // ── La TERCERA ruta de escritura del canal (HU #11915). Cierra el ciclo que la #11914 dejó a
-  // medias: hasta aquí el `cliente` podía radicar y ver, pero no responder a un rechazo.
+  // ── La TERCERA ruta de escritura del canal (HU #12092, Feature #12073). Es la primera que no
+  // escribe NADA en FLITO —lee un PDF y devuelve lo que dice—, pero entra por la misma puerta que las
+  // otras dos: `POST` con adjunto, `requireRole('cliente')`, rate limit del canal por delante de la
+  // carga del archivo y validación del MIME real.
+  //
+  // Su cuerpo admite un `solicitudId` OPCIONAL que hoy ningún llamador manda: lo usaba la
+  // subsanación, retirada por la HU #12080. Se conserva el campo —opcional y con su
+  // `buscarConAcceso` de 404-no-403— y se cuenta aquí, FUERA del `porque`: el `porque` tiene que
+  // decir qué se rompe HOY si esta entrada desaparece, y una explicación histórica dentro de esa
+  // cadena la vuelve imposible de auditar de un vistazo.
   {
-    metodo: 'PATCH', patron: '/api/flito/soat/:id/solicitud',
-    porque: 'Subsanar y reenviar una solicitud RECHAZADA (AC3). Sin esta entrada el botón «Reenviar la solicitud» —que ya existe en el front— responde 403 y el rechazo se convierte en un callejón sin salida: el Cliente ve por qué se le devolvió y no tiene forma de corregirlo. La ruta edita la MISMA fila (mismo id, mismo VIN, ni placa ni VIN en el cuerpo) y solo desde `rechazada`; la pertenencia la resuelve `buscarConAcceso()` con 404-no-403 y lleva el rate limit del canal más la validación del MIME real del adjunto.',
+    metodo: 'POST', patron: '/api/flito/soat/cliente/factura/lectura',
+    porque: 'Leer con OCR el COMPRADOR de la factura de venta para prellenar el formulario del alta '
+      + '(AC6). Sin esta entrada, el paso del wizard que evita reteclear nueve campos —nombres, '
+      + 'apellidos o razón social, tipo y número de documento, dirección, municipio, departamento y '
+      + 'celular— responde 403 y el cliente vuelve a escribirlos a mano desde el PDF que acaba de '
+      + 'adjuntar. NO persiste ni archiva nada: ni objeto en storage, ni soporte, ni fila; el buffer '
+      + 'muere con la petición. Nada identificable viaja en la URL: lo que la ruta necesita saber va '
+      + 'en el CUERPO del multipart.',
   },
-  // Fuera a propósito, aunque sean del mismo Feature: `GET /api/flito/soat/causales-rechazo`,
-  // `POST /api/flito/soat/:id/validar` y `POST /api/flito/soat/:id/rechazar-solicitud`. Las tres son
-  // de Operaciones (AC4) y al `cliente` se le niegan DOS veces —aquí por no estar, y en su router por
-  // `requireRole('admin')`—. La del catálogo tampoco se le abre aunque sea una lectura sin PII: recibe
-  // el nombre de SU causal ya resuelto dentro de su detalle, así que la lista completa de lo que FLITO
-  // rechaza no le hace falta para nada, y una entrada de menos aquí es una decisión de exposición
-  // menos que justificar.
-];
+  // ── Lo que estuvo aquí y ya no está: `PATCH /api/flito/soat/:id/solicitud` ────────────────────
+  //
+  // Era la subsanación: la ruta con la que el `cliente` respondía a un rechazo de Operaciones. La HU
+  // #12080 retira ese circuito entero —ya no hay revisión que rechace, ni estado `rechazada` al que
+  // responder— y con él sale esta entrada. Es la única forma de que la lista siga siendo lo que dice
+  // ser: una entrada cuyo `porque` describe un flujo que no existe no es documentación vieja, es una
+  // exposición que nadie puede evaluar.
+  //
+  // **El `cliente` que llame ahí recibe 403 y no 404**, y conviene saberlo antes de leer un test que
+  // lo afirme: este guarda corre al final de `authMiddleware`, o sea ANTES del enrutado de Express,
+  // así que la petición muere aquí y nunca llega al router que ya no tiene la ruta. Los demás roles,
+  // que no pasan por esta lista, sí ven el 404 de Express.
+  //
+  // Fuera a propósito y por lo mismo, aunque fueran del mismo Feature: `GET /api/flito/soat/
+  // causales-rechazo`, `POST /api/flito/soat/:id/validar` y `POST /api/flito/soat/:id/
+  // rechazar-solicitud`. Nunca estuvieron en esta lista —eran de Operaciones— y desde la #12080
+  // tampoco existen en ningún router.
+]);
+
+/**
+ * `Object.freeze` es SUPERFICIAL: congelar solo el array deja `lista[0].patron = '.*'` sin lanzar y
+ * abriendo la API entera. Se congela el array Y cada entrada.
+ */
+function congelar(lista: RutaCliente[]): readonly RutaCliente[] {
+  return Object.freeze(lista.map((r) => Object.freeze({ ...r })));
+}
 
 const escapar = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -184,16 +243,20 @@ export function rutaPermitidaParaCliente(metodo: string, ruta: string): boolean 
 /**
  * El guarda. Se invoca desde el final de `authMiddleware`, con `req.user` ya resuelto.
  *
- * Para los 11 roles internos es un `next()` y nada más: ni una consulta, ni una lectura de la
- * lista, ni un cambio de comportamiento. Es el requisito duro de esta corrección y lo primero que
- * hace la función.
+ * Para un rol interno es resolver sus permisos —acierto de caché salvo una vez por minuto— y un
+ * `next()`: ni una lectura de la lista ni un cambio de comportamiento. Externo es `tipo_principal =
+ * 'externo'` según el resolutor, o un resolutor que no pudo decidir (`ok:false`): el fallo no abre
+ * la puerta.
  *
  * El 403 es literalmente el mismo cuerpo que devuelve `requireRole` (`{ error: 'Sin permisos' }`):
  * quien sondee no puede distinguir «esta ruta no está en mi lista» de «esta ruta exige otro rol», y
  * por tanto no puede usar la diferencia para mapear la API.
  */
-export function guardiaCanalCliente(req: Request, res: Response, next: NextFunction): void {
-  if (req.user?.role !== ROL_CLIENTE) { next(); return; }
+export async function guardiaCanalCliente(req: Request, res: Response, next: NextFunction): Promise<void> {
+  if (!req.user) { res.status(401).json({ error: 'Token requerido' }); return; }
+  const p = await resolverPermisos(req.user.sub);
+  const externo = !p.ok || p.tipoPrincipal === 'externo';
+  if (!externo) { next(); return; }
 
   // `originalUrl` y no `req.path`: cuando esto corre, la petición está DENTRO del router montado, y
   // ahí `req.path` es el resto relativo (`/` para la cola). Lo que hay que comparar es la ruta

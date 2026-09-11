@@ -85,6 +85,14 @@ jobs:
       - name: Build web (typecheck + vite)
         run: npm run build:web
 
+      # HU #12222 — gate del favicon. Va DESPUÉS del build a propósito: compara `apps/web/public/`
+      # contra el `apps/web/dist/` recién generado. El defecto que atrapa no produce 404 —nginx
+      # responde el index.html del SPA con estado 200 para cualquier ruta que no exista— así que
+      # ningún build, lint, typecheck ni E2E lo veía: es la misma clase de fallo silencioso que la
+      # copia manual del worker de pdfjs.
+      - name: Favicon declarado ≡ servido (web)
+        run: npm run check:favicon
+
       # FIONA F3 — gate de presupuesto de bundle: falla si el chunk `index`
       # (entry de /login) supera su budget gzip. Atrapa regresiones de tamaño
       # (imports estáticos pesados, pérdida de code-splitting).

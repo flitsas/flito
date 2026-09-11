@@ -17,6 +17,22 @@
 //   6. **El rastro de PII del alta**, que la #11935 no necesitaba porque no consultaba el RUNT dentro
 //      de la petición y la #11966 sí.
 //
+// ── Lo que la HU #12090 INVIERTE aquí, y por qué se reescribe en su sitio ────────────────────────
+//
+// El contrato se da la vuelta: el VIN pasa de opcional a OBLIGATORIO y único identificador, y la
+// placa deja de ser entrada para pasar a ser un dato DEVUELTO. Seis casos de este archivo afirmaban
+// lo contrario y se reescriben con su nombre, no se borran — un verde por borrado no demuestra que
+// la regla nueva se cumpla, demuestra que ya nadie la mira:
+//
+//   1. «alta SIN VIN → 201»                          → 400: sin VIN no hay nada que consultar.
+//   2. «la consulta sale por placa + documento»      → sale por VIN, con documento y tipo VACÍOS.
+//   3. «sin VIN tecleado, la RN-01 sobre el efectivo» → el VIN siempre viene; lo que se conserva es
+//      que la pareja AUTORITATIVA corre DESPUÉS del RUNT (AC5), y ahora se mide con `selectOnce`.
+//   4. «placa presente y distinta → 422 no cuadra»   → 201: la placa ya no se contrasta (AC3).
+//   5. «el RUNT no trae placa → 201 con la tecleada» → 201 con `plate` NULL, que es el hueco que el
+//      HANDOFF de la HU deja declarado: no hay desenlace «el RUNT no publica placa».
+//   6. «`campoQueNoCuadra`, la tabla de las dos guardas» → una sola guarda, la del VIN.
+//
 // Montaje: el router real, `authMiddleware` real (así el guarda de negación por defecto está vivo) y
 // el INSERT medido con `espia-drizzle` — afirmar sobre el cuerpo de la respuesta probaría el mock.
 // Un `sub` distinto por caso: el limitador del canal es por usuario y su ventana dura 15 minutos.
@@ -66,7 +82,16 @@ const PDF = Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n%%EOF\n');
 
 /** VIN sintético. Ni una cédula ni un VIN reales en esta suite. */
 const VIN_RUNT = '9FKRG2222T2042405';
+/** La placa que DEVUELVE el RUNT. Desde la HU #12090 es la única que existe. */
 const PLACA = 'JNH38H';
+/**
+ * Una placa que el formulario todavía manda y que la ruta tiene que IGNORAR (HU #12090, AC1).
+ *
+ * Es DISTINTA de la del RUNT a propósito: si valiera lo mismo, ningún aserto de este archivo podría
+ * distinguir «se guardó la del RUNT» de «se guardó la tecleada», y el mutante que devolviera la
+ * placa a la entrada sobreviviría entero. El front sigue mandándola hasta la HU #12091.
+ */
+const PLACA_TECLEADA = 'ZZZ999';
 /** Documento sintético: diez dígitos que no son la cédula de nadie. */
 const DOCUMENTO = '1020304050';
 
@@ -117,7 +142,13 @@ const auth = async (id: number) => `Bearer ${await testToken({ sub: id, username
 function escenario(over: Partial<Record<string, unknown[]>> = {}) {
   kdb.when.scenario({
     users: [{ c: COMPANIA, s: null }],
-    clients: [{ id: COMPANIA, sinTramite: true, carpeta: 'clientes/acme' }],
+    // `proveedorId`/`activo`: lo que devuelve el `LEFT JOIN` de `resolverDestinoCanalCliente`
+    // (HU #12078). Van aquí porque el resolutor entra por `.from(clients)` y el mock keyed responde
+    // por tabla. Sin ellas, las altas que SÍ pasan la compuerta caerían en contingencia sin decirlo.
+    clients: [{
+      id: COMPANIA, sinTramite: true, carpeta: 'clientes/acme',
+      proveedorId: '55555555-5555-4555-8555-555555555555', activo: true,
+    }],
     flito_soat: [],
     organismos_transito_config: [{ codigo: ORGANISMO_FUNZA, alias: 'FUNZA' }],
     vehicles: [],
@@ -126,9 +157,16 @@ function escenario(over: Partial<Record<string, unknown[]>> = {}) {
   kdb.when.insert('vehicles', [{ id: VEHICULO_ID }]);
 }
 
-/** El formulario del alta, con el propietario PARTIDO (AC5) y sin `nombreCompleto`. */
+/**
+ * El formulario del alta, con el propietario PARTIDO (AC5) y sin `nombreCompleto`.
+ *
+ * **`placa` sigue viajando y vale `ZZZ999`**, que no es la del RUNT: es el cuerpo que el formulario
+ * manda hoy y que seguirá mandando hasta la HU #12091. Que TODA esta suite pase con esa placa
+ * inservible en el cuerpo es, por sí solo, la prueba de que el schema la descarta sin error y de que
+ * ninguna escritura la usa (HU #12090, AC1).
+ */
 const CAMPOS: Record<string, string> = {
-  placa: PLACA.toLowerCase(), vin: VIN_RUNT.toLowerCase(),
+  placa: PLACA_TECLEADA.toLowerCase(), vin: VIN_RUNT.toLowerCase(),
   tipoDocumento: 'CC', numeroDocumento: DOCUMENTO,
   nombres: 'JUANA', apellidos: 'PEREZ',
   correo: 'juana@empresa.co', celular: '3001234567', direccion: 'CALLE 1 # 2-3',
@@ -145,8 +183,14 @@ function alta(app: express.Express, token: string, campos: Record<string, string
   return req.attach('facturaVenta', PDF, { filename: 'factura.pdf', contentType: 'application/pdf' });
 }
 
+/**
+ * El cuerpo por defecto de la preconsulta conserva las TRES claves que la HU #12090 saca del
+ * contrato, y eso no es inercia: es el cuerpo que el formulario manda hoy. Si el schema las
+ * rechazara en vez de descartarlas, la simetría de abajo saldría 400 en la preconsulta y otra cosa
+ * en el alta, que es exactamente la rotura del canal que esta HU no puede provocar.
+ */
 const preconsultar = (app: express.Express, token: string, cuerpo: Record<string, string> = {
-  placa: PLACA, vin: VIN_RUNT, tipoDocumento: 'CC', numeroDocumento: DOCUMENTO,
+  placa: PLACA_TECLEADA, vin: VIN_RUNT, tipoDocumento: 'CC', numeroDocumento: DOCUMENTO,
 }) => request(app).post('/api/flito/soat/cliente/preconsulta').set('Authorization', token).send(cuerpo);
 
 beforeEach(() => {
@@ -278,10 +322,17 @@ describe('AC2 — un campo que el RUNT no trajo NO es «no cuadra»: la solicitu
    * `422 runt_no_cuadra`, es decir, le diría al Cliente que «revise los datos» cuando lo que falta
    * es un campo que el REGISTRO no publica y que él no puede corregir.
    */
-  it('**TC #11976: el RUNT no trae `placa` → 201, no 422** (la guarda de ausencia)', async () => {
-    escenario();
+  it('**TC #11976 (HU #12090): el RUNT no trae `placa` → 201 y `vehicles.plate` NULO**', async () => {
     // `placa: null` con el resto del vehículo poblado: `runtSinRegistro` ve `idAutomotor`, `marca`,
     // `linea`… y concluye —bien— que el vehículo SÍ está registrado.
+    //
+    // **Este caso es el HUECO que la HU deja declarado y no tapa.** Bajo la #11966 la placa era un
+    // campo tecleado y obligatorio, así que «el RUNT no la trajo» se resolvía guardando la de la
+    // petición. Desde la #12090 no hay petición que valga: no existe un desenlace «el RUNT no
+    // publica la placa» —`runt_sin_vin`, su simétrico, sí existe— y la fila NACE SIN PLACA. Se fija
+    // en verde lo que hoy ocurre de verdad, para que el día que se decida un 422 o un valor por
+    // defecto haya un test que lo diga en vez de un cambio silencioso.
+    escenario();
     consultarVehiculoRuntMock.mockResolvedValue(runtOk({ placa: null }));
 
     const r = await alta(await buildApp(), await auth(siguienteUsuario()));
@@ -289,8 +340,47 @@ describe('AC2 — un campo que el RUNT no trajo NO es «no cuadra»: la solicitu
     expect(r.status, 'un campo NO VERIFICABLE no puede bloquear el alta').toBe(201);
     expect(r.body.codigo).toBeUndefined();
     expect(espia.insertsEn('flito_soat')).toHaveLength(1);
-    // Y la placa que se persiste es la NORMALIZADA de la petición, que es la única que hay.
+    expect(espia.ultimoInsertEn('vehicles').plate, 'la fila nace sin placa: es el hueco declarado').toBeNull();
+    // Y NO se cae en la tentación de rellenarla con lo que el formulario mandó, que es lo único que
+    // habría a mano. `ZZZ999` no es un dato de nadie: es lo que tecleó quien radica.
+    expect(espia.ultimoInsertEn('vehicles').plate).not.toBe(PLACA_TECLEADA);
+  });
+
+  it('**AC5: `vehicles.plate` se llena con la placa del RUNT, no con la del formulario**', async () => {
+    // El caso central del AC5 y el que mata el mutante de volver a `plate: entrada.placa`. El
+    // formulario manda `ZZZ999` y el RUNT dice `JNH38H`: solo uno de los dos puede acabar en la
+    // ficha, y el AC dice cuál.
+    escenario();
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(201);
     expect(espia.ultimoInsertEn('vehicles').plate).toBe(PLACA);
+    expect(espia.ultimoInsertEn('vehicles').plate).not.toBe(PLACA_TECLEADA);
+  });
+
+  it('**una ficha que YA existía no pierde su placa cuando el RUNT no la publica**', async () => {
+    // La otra mitad del hueco, y la que sí se tapa: en la rama del UPDATE, `plate` pasa a la política
+    // de §1.4 —«un campo vacío no borra lo que ya se sabía»— porque desde esta HU puede llegar vacío.
+    // Sin el condicional, radicar sobre una ficha del sync le borraría la placa que ya tenía.
+    escenario({ vehicles: [{ id: VEHICULO_ID, clientId: COMPANIA }] });
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ placa: null }));
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(201);
+    const set = espia.updatesEn('vehicles').at(-1)!.datos;
+    expect(Object.keys(set), 'con placa nula del RUNT, `plate` no entra en el SET').not.toContain('plate');
+  });
+
+  it('con placa del RUNT, el UPDATE de una ficha existente SÍ la escribe', async () => {
+    // La mitad positiva: el condicional de arriba tiene que ser de AUSENCIA, no un «ya no se toca».
+    escenario({ vehicles: [{ id: VEHICULO_ID, clientId: COMPANIA }] });
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(201);
+    expect(espia.updatesEn('vehicles').at(-1)!.datos.plate).toBe(PLACA);
   });
 
   it('**TC #11976 (simetría): el RUNT no trae `vin` pero el Cliente sí lo tecleó → no es «no cuadra»**', async () => {
@@ -310,44 +400,152 @@ describe('AC2 — un campo que el RUNT no trajo NO es «no cuadra»: la solicitu
     expect(r.body.campo).toBeUndefined();
   });
 
-  it('la guarda es de AUSENCIA, no de laxitud: un valor presente y distinto SÍ es «no cuadra»', async () => {
+  it('la guarda es de AUSENCIA, no de laxitud: un VIN presente y distinto SÍ es «no cuadra»', async () => {
     // La otra mitad, y hace falta: un test que solo mirara el caso nulo pasaría igual con
     // `campoQueNoCuadra` devolviendo `null` siempre —el mutante contrario—, que dejaría entrar altas
-    // sobre un vehículo que no es el que se radica.
+    // sobre un vehículo que no es el que se radica. Ejerce el VIN y no la placa porque desde la HU
+    // #12090 la placa ya no se contrasta: ver el caso de abajo.
     escenario();
-    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ placa: 'XXX999' }));
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ vin: 'OTROVIN000000001' }));
 
     const r = await alta(await buildApp(), await auth(siguienteUsuario()));
     expect(r.status).toBe(422);
     expect(r.body.codigo).toBe('runt_no_cuadra');
   });
 
-  it('`campoQueNoCuadra`, llamada directamente: la tabla de verdad de las dos guardas', async () => {
+  it('**AC3 (INVERTIDO): una placa del RUNT distinta de la tecleada YA NO bloquea — 201**', async () => {
+    // Decía «placa presente y distinta → 422». Ya no: la placa dejó de ser entrada, así que no hay
+    // nada que contrastar. Lo que antes era un 422 hoy es un alta correcta que guarda la placa del
+    // RUNT — y el caso importa porque el formulario SIGUE mandando la suya (`ZZZ999`) hasta la
+    // #12091. El mutante que mata: restaurar la comparación de placa en `campoQueNoCuadra`.
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ placa: 'XXX999' }));
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+    expect(r.status, 'la placa dejó de ser entrada: no hay nada que contrastar').toBe(201);
+    expect(r.body.codigo).toBeUndefined();
+    expect(espia.ultimoInsertEn('vehicles').plate).toBe('XXX999');
+  });
+
+  it('`campoQueNoCuadra`, llamada directamente: la tabla de verdad de la ÚNICA guarda', async () => {
     // El predicado, sin pasar por HTTP. Es donde se ve que la regla es «lo que el RUNT no trajo no
     // se compara», y no «a veces sale null».
     const { campoQueNoCuadra } = await import('../../src/modules/flito-soat/flito-soat-cliente-runt.js');
     const datos = (over: Record<string, unknown> = {}) => ({
       placa: PLACA, vin: VIN_RUNT, marca: null, linea: null, modelo: null, clase: null,
       cilindraje: null, tipoServicio: null, carroceria: null, pasajerosSentados: null,
-      puertas: null, organismoNombre: null, propietarioNombre: null, ...over,
+      puertas: null, numMotor: null, numSerie: null, organismoNombre: null, propietarioNombre: null, ...over,
     });
 
-    const entrada = { placa: PLACA, vin: VIN_RUNT };
-    expect(campoQueNoCuadra(entrada, datos()), 'los dos coinciden').toBeNull();
-    expect(campoQueNoCuadra(entrada, datos({ placa: null })), 'el RUNT no trajo placa').toBeNull();
-    expect(campoQueNoCuadra(entrada, datos({ vin: null })), 'el RUNT no trajo VIN').toBeNull();
-    expect(campoQueNoCuadra(entrada, datos({ placa: null, vin: null })), 'no trajo ninguno').toBeNull();
-    // Y la entrada sin VIN tecleado tampoco compara: no hay nada que contrastar (AC1).
-    expect(campoQueNoCuadra({ placa: PLACA, vin: null }, datos({ vin: 'OTROVIN000000001' }))).toBeNull();
-    // Presentes y distintos: SÍ.
-    expect(campoQueNoCuadra(entrada, datos({ placa: 'XXX999' }))).toBe('placa');
-    expect(campoQueNoCuadra(entrada, datos({ vin: 'OTROVIN000000001' }))).toBe('vin');
-    // La placa manda sobre el VIN cuando fallan las dos: el 422 sin `campo` es el más genérico.
-    expect(campoQueNoCuadra(entrada, datos({ placa: 'XXX999', vin: 'OTROVIN000000001' }))).toBe('placa');
+    expect(campoQueNoCuadra(VIN_RUNT, datos()), 'los dos coinciden').toBeNull();
+    expect(campoQueNoCuadra(VIN_RUNT, datos({ vin: null })), 'el RUNT no trajo VIN').toBeNull();
+    // Presente y distinto: SÍ.
+    expect(campoQueNoCuadra(VIN_RUNT, datos({ vin: 'OTROVIN000000001' }))).toBe('vin');
+    // Y la normalización es la misma de certificación: minúsculas y separadores no son «no cuadra».
+    expect(campoQueNoCuadra(VIN_RUNT.toLowerCase(), datos())).toBeNull();
+    // **La placa ya NO entra en la decisión**, ni presente y distinta ni ausente. Es el aserto que
+    // muere si alguien vuelve a meterla, y por eso se prueban las dos formas.
+    expect(campoQueNoCuadra(VIN_RUNT, datos({ placa: 'XXX999' })), 'la placa no se contrasta').toBeNull();
+    expect(campoQueNoCuadra(VIN_RUNT, datos({ placa: null })), 'ni su ausencia').toBeNull();
+    // La firma tampoco la acepta: `campoQueNoCuadra` recibe una cadena, no `{ placa, vin }`. El
+    // aserto de tipo lo hace el build; este de aquí fija que el valor devuelto solo puede ser 'vin'.
+    expect(['vin', null]).toContain(campoQueNoCuadra(VIN_RUNT, datos({ vin: 'OTROVIN000000001' })));
   });
 });
 
 // ═══════════════ La FORMA del log de la compuerta (PII en logs) ══════════════
+
+// ── HU #12401 — motor y serie del RUNT aterrizan en `vehicles` ─────────────────────────────────
+//
+// Se mide sobre el payload REAL del `set()` / `values()` (espia-drizzle), nunca sobre la fila que el
+// mock devuelve: el `chain` del keyed-db devuelve la fila entera aunque el UPDATE no la hubiera
+// tocado, y un aserto sobre ella sobreviviría al mutante que borra el spread.
+describe('HU #12401 — número de motor y de serie del RUNT en la ficha del vehículo', () => {
+  const MOTOR = 'MTR-123';
+  const SERIE = 'SER-456';
+
+  it('AC1 — ficha existente: el UPDATE lleva `numMotor` y `numSerie`, y el resto sigue igual', async () => {
+    escenario({ vehicles: [{ id: VEHICULO_ID, clientId: COMPANIA }] });
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ numMotor: MOTOR, numSerie: SERIE }));
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(201);
+    const set = espia.updatesEn('vehicles').at(-1)!.datos;
+    expect(set).toMatchObject({ numMotor: MOTOR, numSerie: SERIE });
+    // «El resto se guarda como hoy»: la placa y los tres de la #11966 no se movieron de sitio.
+    expect(set).toMatchObject({ plate: PLACA, brand: 'MAZDA', carroceria: 'WAGON', puertas: '5' });
+  });
+
+  it('AC1 — ficha NUEVA: el INSERT nace con motor y serie', async () => {
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ numMotor: MOTOR, numSerie: SERIE }));
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(201);
+    expect(espia.ultimoInsertEn('vehicles')).toMatchObject({ vin: VIN_RUNT, numMotor: MOTOR, numSerie: SERIE });
+  });
+
+  it('AC2 — el RUNT trae registro pero ni motor ni serie: las claves NO entran en el SET', async () => {
+    // La ficha tiene `MTR-OLD` / `SER-OLD` de otra fuente (OCR de la tarjeta, sync). Un `null` a
+    // pelo los borraría; con la clave ausente Postgres no toca la columna. Se afirma sobre las
+    // CLAVES: `toMatchObject({ numMotor: undefined })` pasaría también con la clave presente.
+    escenario({ vehicles: [{ id: VEHICULO_ID, clientId: COMPANIA, numMotor: 'MTR-OLD', numSerie: 'SER-OLD' }] });
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ numMotor: null, numSerie: '' }));
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(201);
+    const claves = Object.keys(espia.updatesEn('vehicles').at(-1)!.datos);
+    expect(claves).not.toContain('numMotor');
+    expect(claves).not.toContain('numSerie');
+    expect(claves, 'el UPDATE sí ocurrió, con el resto').toContain('plate');
+  });
+
+  it('AC2 — fila nueva sin motor ni serie: tampoco se escribe cadena vacía', async () => {
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ numMotor: '   ' }));
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(201);
+    const fila = espia.ultimoInsertEn('vehicles');
+    expect(fila.numMotor ?? null).toBeNull();
+    expect(fila.numSerie ?? null).toBeNull();
+  });
+
+  it('AC6 — un motor de 60 caracteres se guarda a 50 y el aviso no lleva el valor, la placa ni el VIN', async () => {
+    escenario({ vehicles: [{ id: VEHICULO_ID, clientId: COMPANIA }] });
+    const largo = 'X'.repeat(60);
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ numMotor: largo }));
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(201);
+    expect(espia.updatesEn('vehicles').at(-1)!.datos.numMotor).toBe(largo.slice(0, 50));
+    const aviso = logMock.warn.mock.calls.find((c) => (c[0] as Record<string, unknown>)?.campo === 'numMotor');
+    expect(aviso, 'hay un warn por el recorte').toBeDefined();
+    expect(aviso![0]).toEqual({ campo: 'numMotor', longitud: 60, max: 50 });
+    const texto = JSON.stringify(aviso);
+    expect(texto).not.toContain('XXXXX');
+    expect(texto).not.toContain(PLACA);
+    expect(texto).not.toContain(VIN_RUNT);
+    expect(texto).not.toContain('PEREZ');
+  });
+
+  it('la preconsulta NO publica motor ni serie: se persisten, no se enseñan', async () => {
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ numMotor: MOTOR, numSerie: SERIE }));
+
+    const r = await preconsultar(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(200);
+    expect(r.body.vehiculo).toMatchObject({ vin: VIN_RUNT, placa: PLACA });
+    expect(Object.keys(r.body.vehiculo)).not.toContain('numMotor');
+    expect(Object.keys(r.body.vehiculo)).not.toContain('numSerie');
+  });
+});
 
 describe('el log de la compuerta no lleva PII, en NINGUNA de sus dos ramas', () => {
   /** Todo lo que se escribió al log, aplanado, para buscar lo que no puede estar. */
@@ -407,14 +605,206 @@ describe('el log de la compuerta no lleva PII, en NINGUNA de sus dos ramas', () 
     expect(causaDeCaida('ETIMEDOUT')).toBe('timeout');
   });
 
-  it('un alta que SALE BIEN no escribe nada en el log de la compuerta', async () => {
-    // El log es para medir los desenlaces que preocupan (ADR-0010). Escribir una línea por alta
-    // correcta lo llenaría de ruido y, sobre todo, multiplicaría por N las ocasiones de fuga.
+  it('**un alta que SALE BIEN escribe UNA línea, y solo el organismo** (INVERTIDO por Bug #12179)', async () => {
+    // ── Este caso decía «no escribe nada en el log», y era cierto y era el problema ───────────────
+    //
+    // El argumento original —el log es para medir los desenlaces que preocupan, y una línea por alta
+    // correcta es ruido y ocasiones de fuga— se sostenía mientras el desenlace `ok` no tuviera nada
+    // que medir. El Bug #12179 demuestra que sí lo tiene: el «—» de «Organismo de tránsito» tiene
+    // DOS causas indistinguibles desde la UI (el RUNT no lo mandó / el canal no lo cruzó), el nombre
+    // crudo no se persiste en ninguna fila —ADR-0008 §1.6— y por eso la nota del work item («llega
+    // nulo desde Kyverum») no se pudo ni confirmar ni desmentir en su momento.
+    //
+    // Lo que NO cambia, y por eso el caso se reescribe con su nombre en vez de borrarse: la línea
+    // sigue sin poder llevar PII. Las claves se afirman EXACTAS —no `toMatchObject`— porque lo que
+    // decide si esto es una fuga es lo que NO está.
     escenario();
     await alta(await buildApp(), await auth(siguienteUsuario()));
 
-    expect(logMock.info).not.toHaveBeenCalled();
+    expect(logMock.info).toHaveBeenCalledTimes(1);
+    expect(Object.keys(ultimoLog('info')).sort()).toEqual(['desenlace', 'organismoCatalogado', 'organismoRunt']);
+    expect(ultimoLog('info')).toEqual({
+      desenlace: 'ok',
+      organismoRunt: 'STRIA TTOyTTE MCPAL FUNZA',
+      organismoCatalogado: true,
+    });
     expect(logMock.warn).not.toHaveBeenCalled();
+
+    // Un organismo de tránsito es una entidad pública; la placa, el VIN, el documento y el nombre
+    // del propietario viajan en el MISMO nodo del payload y ninguno puede acompañarlo.
+    const escrito = JSON.stringify(logMock.info.mock.calls);
+    for (const pii of [PLACA, VIN_RUNT, DOCUMENTO, 'JUANA', 'juana@empresa.co']) {
+      expect(escrito, `${pii} no puede acabar en el log`).not.toContain(pii);
+    }
+  });
+});
+
+// ═══════════════ Bug #12179 — el organismo que el RUNT SÍ manda ══════════════
+
+/**
+ * **El defecto: «Organismo de tránsito: —» con el RUNT respondiendo el organismo.**
+ *
+ * `resolverOrganismoCatalogo` cruzaba el nombre con `resolverCodigoOrganismoFlit`, que exige
+ * IGUALDAD EXACTA normalizada contra la redacción propia de FLIT. El RUNT redacta distinto, así que
+ * el canal escribía `organismo_codigo = NULL` y `verificacion_codigo = 'organismo_no_catalogado'`
+ * aunque el registro hubiera mandado el organismo.
+ *
+ * **Por qué ninguno de los cinco specs del canal lo vio**: todos los fixtures del camino feliz
+ * mandan `organismoTransito: 'STRIA TTOyTTE MCPAL FUNZA'`, una cadena copiada LITERAL del catálogo
+ * —la única forma que garantiza el match exacto—. De ahí que aquí no se use ni una sola cadena
+ * copiada del catálogo: con una copia, estos casos pasarían igual con el resolutor roto.
+ *
+ * El código resuelto se afirma sobre `espia.filtrosUsados()`, el valor ENLAZADO del `where` con el
+ * que se consulta `organismos_transito_config`. La fila que ese SELECT devuelve la pone el mock —que
+ * ignora el filtro—, así que afirmar sobre ella probaría el mock; el parámetro, no.
+ */
+describe('Bug #12179 — la redacción del RUNT cruza el catálogo, y cuando no cruza el alta SIGUE', () => {
+  const MEDELLIN = '05001';
+  /** La variante que el propio `organismos-transito.ts` documenta. NO es la redacción del catálogo. */
+  const COMO_LO_DICE_EL_RUNT = 'STRIA DE TTOyTTE MEDELLIN';
+  /** El negativo real: un organismo que no existe. */
+  const NO_CATALOGADO = 'STRIA TTO DE MARTE';
+
+  it('**una redacción del RUNT distinta de la del catálogo SÍ resuelve código**', async () => {
+    // El caso que reproduce el bug de QA. Con el resolutor exacto de antes esto sale `null`, el log
+    // dice `organismoCatalogado: false` y la ficha pinta «—». Es el mutante (a) del HANDOFF.
+    escenario({ organismos_transito_config: [{ codigo: MEDELLIN, alias: 'MEDELLIN' }] });
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: COMO_LO_DICE_EL_RUNT }));
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(201);
+    expect(espia.filtrosUsados(), 'el código que salió del emparejador, no el que devolvió el mock')
+      .toContain(MEDELLIN);
+    expect(espia.ultimoInsertEn('flito_soat').organismoCodigo).toBe(MEDELLIN);
+    expect(espia.ultimoInsertEn('flito_soat_solicitud').verificacionCodigo).toBeNull();
+    expect(ultimoLog('info')).toEqual({
+      desenlace: 'ok', organismoRunt: COMO_LO_DICE_EL_RUNT, organismoCatalogado: true,
+    });
+  });
+
+  it('**la PRECONSULTA publica el organismo resuelto: es la pantalla LITERAL del repro**', async () => {
+    // El TC que QA echó en falta. El reporte del Bug es «Organismo de tránsito: —» en la ficha
+    // «Datos del RUNT» del wizard, y esa ficha se pinta con lo que devuelve ESTE endpoint. Lo único
+    // que lo cubría era un caso preexistente cuyo fixture es la cadena copiada del catálogo — el
+    // mismo vicio que ocultó el defecto—, así que el repro no estaba cerrado en su propia pantalla.
+    escenario({ organismos_transito_config: [{ codigo: MEDELLIN, alias: 'MEDELLIN' }] });
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: COMO_LO_DICE_EL_RUNT }));
+
+    const r = await preconsultar(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(200);
+    expect(r.body.organismo).toEqual({ codigo: MEDELLIN, nombre: 'MEDELLIN' });
+
+    // ── Por qué se CUENTAN dos enlaces y no basta con `toContain` ────────────────────────────────
+    //
+    // El `nombre` del cuerpo NO prueba nada por sí solo: lo fabrica `keyed-db`, que ignora el
+    // `where` y devuelve la fila registrada para la tabla. Con la consulta del alias rota —su
+    // `where` apuntando a un literal constante— el cuerpo sale IDÉNTICO, la ficha volvería a pintar
+    // «—» en producción y este caso seguiría verde. `toContain(MEDELLIN)` tampoco alcanzaba: ese
+    // enlace ya lo produce la OTRA consulta, la de la comprobación de la FK en
+    // `resolverOrganismoCatalogo`, así que se satisface aunque la del alias no exista.
+    //
+    // Lo que sí es del código y el mock no puede fabricar son los valores ENLAZADOS de cada `where`.
+    // Son DOS consultas distintas y las dos tienen que preguntar por el código RESUELTO: la de la FK
+    // y la del alias. Contarlas es lo que fija que el alias se busca POR ese código y no se hereda
+    // de la fila que el mock tenga registrada.
+    expect(espia.filtrosUsados().filter((f) => f === MEDELLIN)).toHaveLength(2);
+  });
+
+  it('**`datosTecnicos` es la SEGUNDA VÍA del organismo, como para sus cinco vecinos**', async () => {
+    // El organismo era el único de los trece que se leía solo de `data.vehiculo`. El RUNT reparte
+    // los campos entre los dos nodos sin contrato estable. El mutante que mata: volver a `alias(veh, …)`.
+    const base = runtOk({ organismoTransito: null });
+    escenario({ organismos_transito_config: [{ codigo: MEDELLIN, alias: 'MEDELLIN' }] });
+    consultarVehiculoRuntMock.mockResolvedValue({
+      ...base,
+      data: { ...(base.data as Record<string, unknown>), datosTecnicos: { organismoTransito: COMO_LO_DICE_EL_RUNT } },
+    });
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(201);
+    expect(espia.filtrosUsados()).toContain(MEDELLIN);
+    expect(espia.ultimoInsertEn('flito_soat').organismoCodigo).toBe(MEDELLIN);
+  });
+
+  it('el nodo `vehiculo` GANA cuando los dos traen organismo: la segunda vía es respaldo', async () => {
+    const base = runtOk({ organismoTransito: COMO_LO_DICE_EL_RUNT });
+    escenario({ organismos_transito_config: [{ codigo: MEDELLIN, alias: 'MEDELLIN' }] });
+    consultarVehiculoRuntMock.mockResolvedValue({
+      ...base,
+      data: { ...(base.data as Record<string, unknown>), datosTecnicos: { organismoTransito: 'STRIA DE TTOyTTE CALI' } },
+    });
+
+    expect((await alta(await buildApp(), await auth(siguienteUsuario()))).status).toBe(201);
+    expect(espia.filtrosUsados()).toContain(MEDELLIN);
+    expect(espia.filtrosUsados(), 'Cali es el respaldo, y aquí no hacía falta').not.toContain('76001');
+  });
+
+  it('**un organismo que NO existe sigue siendo `null` y NO aborta el alta** (AC5 de la HU #11966)', async () => {
+    // La otra mitad, y es la que impide que el emparejador tolerante se vuelva «lo primero que haya».
+    // El mutante que mata: devolver el primer organismo del catálogo cuando no hay coincidencia.
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: NO_CATALOGADO }));
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status, 'el organismo NO es compuerta del alta').toBe(201);
+    expect(r.body.codigo).toBeUndefined();
+    expect(espia.insertsEn('flito_soat')).toHaveLength(1);
+    expect(espia.ultimoInsertEn('flito_soat').organismoCodigo).toBeNull();
+    expect(espia.ultimoInsertEn('flito_soat_solicitud').verificacionCodigo).toBe('organismo_no_catalogado');
+    // Ni siquiera se preguntó por la tabla: sin código del catálogo no hay nada que comprobar.
+    expect(espia.filtrosUsados()).not.toContain(ORGANISMO_FUNZA);
+    // Y el log dice CUÁL de las dos causas fue: el RUNT lo mandó, el catálogo no lo reconoce.
+    expect(ultimoLog('info')).toEqual({
+      desenlace: 'ok', organismoRunt: NO_CATALOGADO, organismoCatalogado: false,
+    });
+  });
+
+  it('**el RUNT sin organismo: `null` sin romper, y el log lo distingue del no catalogado**', async () => {
+    // La causa que la nota del work item daba por sentada. Con esta línea deja de ser una premisa:
+    // `organismoRunt: null` es «Kyverum no lo mandó» y solo eso.
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: null }));
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(201);
+    expect(espia.ultimoInsertEn('flito_soat').organismoCodigo).toBeNull();
+    expect(ultimoLog('info')).toEqual({
+      desenlace: 'ok', organismoRunt: null, organismoCatalogado: false,
+    });
+  });
+
+  it('los dos pares ambiguos del catálogo, extremo a extremo: Floridablanca no es Florida', async () => {
+    // La ambigüedad se decide en `shared-types` y allí está el recorrido de los 119; aquí se
+    // comprueba que el canal usa ESE emparejador y no otro, con el par que más fácil se rompe.
+    const app = await buildApp();
+
+    escenario({ organismos_transito_config: [{ codigo: '68276', alias: 'FLORIDABLANCA' }] });
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: 'STRIA DE TTOyTTE FLORIDABLANCA' }));
+    expect((await alta(app, await auth(siguienteUsuario()))).status).toBe(201);
+    expect(espia.filtrosUsados()).toContain('68276');
+    expect(espia.filtrosUsados(), 'Floridablanca no puede resolver a Florida').not.toContain('76275');
+
+    espia.reiniciar();
+    escenario({ organismos_transito_config: [{ codigo: '76275', alias: 'FLORIDA' }] });
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: 'STRIA DE TTOyTTE FLORIDA' }));
+    expect((await alta(app, await auth(siguienteUsuario()))).status).toBe(201);
+    expect(espia.filtrosUsados()).toContain('76275');
+    expect(espia.filtrosUsados()).not.toContain('68276');
+  });
+
+  it('**el nombre crudo del organismo NO se persiste en ninguna fila** (ADR-0008 §1.6 sigue en pie)', async () => {
+    // Lo que se guarda es el CÓDIGO. El nombre crudo solo va al log, que es lo que el Bug necesita
+    // para poder medir y lo que el ADR no prohíbe.
+    escenario({ organismos_transito_config: [{ codigo: MEDELLIN, alias: 'MEDELLIN' }] });
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: COMO_LO_DICE_EL_RUNT }));
+
+    expect((await alta(await buildApp(), await auth(siguienteUsuario()))).status).toBe(201);
+    expect(JSON.stringify(espia.inserts.map((m) => m.datos))).not.toContain(COMO_LO_DICE_EL_RUNT);
   });
 });
 
@@ -422,18 +812,28 @@ describe('el log de la compuerta no lleva PII, en NINGUNA de sus dos ramas', () 
 
 describe('los DOS endpoints devuelven lo mismo ante el mismo RUNT (una sola compuerta)', () => {
   /**
-   * Los cinco desenlaces con los que la compuerta puede cortar, y el par (status, codigo) esperado.
+   * Los SEIS desenlaces con los que la compuerta puede cortar, y el par (status, codigo) esperado.
    *
    * Se recorren contra `POST /cliente` y contra `POST /cliente/preconsulta` con el MISMO mock: si
    * alguien copiara la compuerta en uno de los dos, la copia divergiría en el primer cambio y este
    * bloque lo vería. El wizard bloqueando lo que la API acepta es el fallo que esto previene.
+   *
+   * **La HU #12212 no quita ninguno**: el 409 `soat_vigente` sigue vivo, y lo que cambia es cuándo
+   * se emite. Los dos casos de vigencia de abajo son los que lo fijan —vencimiento a MÁS de un mes,
+   * y vigente SIN fecha—, que son justo las dos formas en las que la renovación anticipada NO
+   * aplica. El alta que sí permite está en `flito-soat.cliente-renovacion-anticipada.test.ts`.
    */
   const DESENLACES = [
     { nombre: 'RUNT caído', runt: () => CAIDO_SIN_STATUS, status: 503, codigo: 'runt_no_disponible' },
     { nombre: 'negativa de negocio', runt: () => NEGATIVA_DE_NEGOCIO, status: 422, codigo: 'runt_no_cuadra' },
     { nombre: 'sin registro', runt: () => ({ ok: true, data: { vehiculo: { placa: PLACA, vin: VIN_RUNT } } }), status: 422, codigo: 'runt_sin_registro' },
     { nombre: 'VIN que no cuadra', runt: () => runtOk({ vin: 'VINQUENOCUADRA01' }), status: 422, codigo: 'runt_no_cuadra' },
-    { nombre: 'SOAT vigente', runt: () => runtOk({}, { estadoSoat: 'VIGENTE', fechaVencimSoat: '01/02/2030' }), status: 409, codigo: 'soat_vigente' },
+    // 2030 es una fecha que está a más de un mes de cualquier día en el que esta suite pueda correr,
+    // así que el caso no caduca ni se vuelve verde por el calendario.
+    { nombre: 'SOAT vigente a más de un mes', runt: () => runtOk({}, { estadoSoat: 'VIGENTE', fechaVencimSoat: '01/02/2030' }), status: 409, codigo: 'soat_vigente' },
+    // Defecto seguro del AC3 de la #12212: «vigente» sin fecha no permite afirmar que falta un mes
+    // o menos, así que se queda en el 409 de siempre.
+    { nombre: 'SOAT vigente SIN fecha', runt: () => runtOk({}, { estadoSoat: 'VIGENTE' }), status: 409, codigo: 'soat_vigente' },
   ] as const;
 
   it.each(DESENLACES)('$nombre → $status `$codigo` en el ALTA y en la PRECONSULTA', async ({ runt, status, codigo }) => {
@@ -458,63 +858,97 @@ describe('los DOS endpoints devuelven lo mismo ante el mismo RUNT (una sola comp
 
 // ═══════════════ AC1 — VIN opcional y VIN efectivo ═══════════════════════════
 
-describe('AC1 — el VIN es opcional en la entrada y el que se guarda es el del RUNT', () => {
-  it('**alta SIN VIN → 201, y `flito_soat.vin` es el del RUNT**', async () => {
+describe('AC1 (HU #12090) — el VIN es OBLIGATORIO y es lo único que se teclea del vehículo', () => {
+  it('**alta SIN VIN → 400 (INVERTIDO), y no se consulta el RUNT ni se sube nada**', async () => {
+    // Decía «alta SIN VIN → 201». Con la consulta por VIN, un alta sin VIN no tiene por dónde
+    // empezar: es un 400 del borde y no un 503 ni un 422 de la compuerta, porque el RUNT no llega a
+    // enterarse. El mutante que mata: devolver `vin` a `.optional()`.
     escenario();
     const r = await alta(await buildApp(), await auth(siguienteUsuario()), { vin: null });
 
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('Datos inválidos');
+    expect(r.body.details?.fieldErrors ?? {}).toHaveProperty('vin');
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
+    expect(uploadMock).not.toHaveBeenCalled();
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+  });
+
+  it('un VIN demasiado corto sigue siendo 400: `min(5)` no se relaja al volverse obligatorio', async () => {
+    escenario();
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()), { vin: 'AB' });
+
+    expect(r.status).toBe(400);
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
+  });
+
+  it('**AC2: la consulta sale por VIN, con placa `undefined` y documento y tipo VACÍOS**', async () => {
+    // Los cuatro argumentos, y cuál es cuál. `undefined` en la placa NO es cosmético: es lo que
+    // activa la modalidad de VIN en `runt-direct.service.ts` (`vinNorm = (!placa && vin)`), de donde
+    // sale el `tipoConsulta: '2'` del AC. Un mutante que volviera a mandar la placa —aunque mandara
+    // también el VIN— apagaría esa modalidad y este aserto lo ve.
+    //
+    // `CAMPOS` manda el VIN en minúsculas a propósito, que es como llega de un formulario: el
+    // identificador sale a Kyverum ya en mayúsculas.
+    escenario();
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
     expect(r.status).toBe(201);
-    expect(espia.ultimoInsertEn('flito_soat').vin).toBe(VIN_RUNT);
-    expect(espia.ultimoInsertEn('vehicles').vin).toBe(VIN_RUNT);
-    // Y la consulta salió por placa + documento, sin VIN.
-    expect(consultarVehiculoRuntMock).toHaveBeenCalledWith(PLACA, undefined, DOCUMENTO, 'C');
+    expect(consultarVehiculoRuntMock).toHaveBeenCalledTimes(1);
+    expect(consultarVehiculoRuntMock).toHaveBeenCalledWith(undefined, VIN_RUNT, '', '');
+    // Y la cédula del propietario NO viaja al registro nacional por ninguna de las cuatro ranuras.
+    expect(JSON.stringify(consultarVehiculoRuntMock.mock.calls[0])).not.toContain(DOCUMENTO);
   });
 
   it('el VIN tecleado se NORMALIZA antes de contrastarlo: minúsculas no son «no cuadra»', async () => {
-    // `CAMPOS` manda el VIN en minúsculas a propósito, que es como llega de un formulario. Si el
-    // contraste comparara la cadena cruda contra la del RUNT, TODA esta suite saldría 422 — así que
-    // el caso fija además que la consulta a Kyverum sale con el identificador ya en mayúsculas.
+    // Si el contraste comparara la cadena cruda contra la del RUNT, TODA esta suite saldría 422.
     // (Un VIN con guiones no llega hasta aquí: `max(17)` lo corta en Zod, y eso no cambia con esta HU.)
     escenario();
     const r = await alta(await buildApp(), await auth(siguienteUsuario()), { vin: VIN_RUNT.toLowerCase() });
 
     expect(r.status).toBe(201);
     expect(espia.ultimoInsertEn('flito_soat').vin).toBe(VIN_RUNT);
-    expect(consultarVehiculoRuntMock).toHaveBeenCalledWith(PLACA, VIN_RUNT, DOCUMENTO, 'C');
+    expect(espia.ultimoInsertEn('vehicles').vin).toBe(VIN_RUNT);
   });
 
-  it('**sin VIN tecleado, la RN-01 se comprueba sobre el VIN EFECTIVO** (o el UNIQUE saldría como 500)', async () => {
-    // Sin VIN no hay clave por la que buscar antes de consultar, así que la comprobación temprana no
-    // corre. Si la autoritativa tampoco corriera, la RN-01 la aplicaría el UNIQUE de la base y el
-    // cliente vería un 500 en vez de «este vehículo ya tiene SOAT».
-    escenario({ flito_soat: [{ id: 'aaaa', estado: 'pagado', companiaId: COMPANIA }] });
-
-    const r = await alta(await buildApp(), await auth(siguienteUsuario()), { vin: null });
-    expect(r.status).toBe(409);
-    expect(r.body.codigo).toBe('vin_ya_tiene_soat');
-    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
-    // El RUNT SÍ se consultó —no había forma de saberlo antes—, y ese es el coste declarado de que
-    // el VIN sea opcional.
-    expect(consultarVehiculoRuntMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('con VIN tecleado, la RN-01 corta ANTES de gastar la consulta a Kyverum', async () => {
+  it('**la RN-01 corta ANTES de gastar la consulta a Kyverum** (el VIN ya está desde el borde)', async () => {
+    // Bajo la #11966 esto solo pasaba «si vino VIN»; ahora pasa siempre, y es lo que la HU se ahorra.
     escenario({ flito_soat: [{ id: 'aaaa', estado: 'pagado', companiaId: COMPANIA }] });
 
     const r = await alta(await buildApp(), await auth(siguienteUsuario()));
     expect(r.status).toBe(409);
+    expect(r.body.codigo).toBe('vin_ya_tiene_soat');
     expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
     expect(uploadMock).not.toHaveBeenCalled();
   });
 
+  it('**AC5: la RN-01 AUTORITATIVA vuelve a correr DESPUÉS del RUNT, sobre el VIN efectivo**', async () => {
+    // La pareja previa y la autoritativa consultan lo mismo, así que un test que montara un único
+    // escenario no podría distinguirlas: pasaría igual si alguien borrara la segunda. Aquí la
+    // PRIMERA lectura de `flito_soat` devuelve vacío (la previa deja pasar) y la SEGUNDA devuelve la
+    // fila — que es justo la carrera que la pareja autoritativa cubre: entre las dos hay una llamada
+    // de red al RUNT, y en esos segundos cabe otra petición radicando el mismo VIN.
+    escenario({ flito_soat: [{ id: 'aaaa', estado: 'pagado', companiaId: COMPANIA }] });
+    kdb.when.selectOnce('flito_soat', []);
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status, 'sin la pareja autoritativa esto sería un 23505 → 500').toBe(409);
+    expect(r.body.codigo).toBe('vin_ya_tiene_soat');
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+    // Y el RUNT SÍ se consultó: la previa dejó pasar, luego lo que cortó fue la de después.
+    expect(consultarVehiculoRuntMock).toHaveBeenCalledTimes(1);
+  });
+
   it('**el RUNT sin VIN → 422 `runt_sin_vin`, un código PROPIO y no «revise los datos»**', async () => {
-    // AC5: «sin VIN en la respuesta del RUNT no se crea (RN-01)». Es un código aparte porque «revise
-    // los datos» le pediría al usuario que corrija algo suyo, y aquí no hay nada que corregir: el
-    // registro no publica el VIN.
+    // AC5 de la #11966: «sin VIN en la respuesta del RUNT no se crea (RN-01)». Es un código aparte
+    // porque «revise los datos» le pediría al usuario que corrija algo suyo, y aquí no hay nada que
+    // corregir: el registro no publica el VIN. Sigue vivo con la #12090 y ahora es además el
+    // desenlace que separa «no lo publica» de «no cuadra» cuando el VIN sí se tecleó.
     escenario();
     consultarVehiculoRuntMock.mockResolvedValue(runtOk({ vin: null }));
 
-    const r = await alta(await buildApp(), await auth(siguienteUsuario()), { vin: null });
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
     expect(r.status).toBe(422);
     expect(r.body.codigo).toBe('runt_sin_vin');
     expect(r.body.codigo).not.toBe('runt_no_cuadra');
@@ -708,14 +1142,25 @@ describe('PII — el alta consulta el RUNT dentro de la petición, y deja rastro
     expect(piiMock.mock.calls[0][1].camposAccedidos).not.toContain('nombre_completo');
   });
 
-  it('un alta que la compuerta RECHAZA no escribe rastro de acceso… ni deja objeto en el bucket', async () => {
+  it('**un alta que la compuerta RECHAZA escribe un INTENTO, no un acceso** (INVERTIDO por ADR-0012)', async () => {
+    // Decía «no escribe rastro de acceso», y era cierto y era el problema: enumerando VIN la mayoría
+    // de los intentos fallan, así que el registro veía justo lo que NO era sondeo. Desde ADR-0012
+    // §8.2 la línea se escribe — pero es una línea de INTENTO y la diferencia está en la columna que
+    // decide: `campos_accedidos` va VACÍO porque un 503 no entregó ni la placa, ni el VIN, ni el
+    // nombre. Lo que NO cambia, y por eso el caso se conserva entero: sigue sin haber objeto en el
+    // bucket y sigue sin haber fila.
     escenario();
     consultarVehiculoRuntMock.mockResolvedValue(CAIDO_SIN_STATUS);
 
     expect((await alta(await buildApp(), await auth(siguienteUsuario()))).status).toBe(503);
-    // El rastro va DESPUÉS del 201 y solo cuando la solicitud se creó. Un 503 no entregó nada.
-    expect(piiMock).not.toHaveBeenCalled();
+
+    expect(piiMock).toHaveBeenCalledTimes(1);
+    const registro = piiMock.mock.calls[0][1];
+    expect(registro.camposAccedidos, 'un intento no accedió a ningún campo').toEqual([]);
+    expect(String(registro.motivo)).toContain('resultado=runt_no_disponible');
+    // Y lo de siempre: nada escrito y nada subido.
     expect(uploadMock).not.toHaveBeenCalled();
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
   });
 
   it('**el payload crudo del RUNT no se persiste en ninguna fila** (ADR-0008 §1.6, conservado)', async () => {

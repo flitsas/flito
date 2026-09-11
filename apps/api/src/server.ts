@@ -27,11 +27,27 @@ import { startSiigoColaCron, stopSiigoColaCron } from './modules/siigo/siigo.col
 import {
   startComparendosPurgaCron, stopComparendosPurgaCron,
 } from './modules/flito-comparendos/flito-comparendos-purga.cron.js';
+import {
+  startSoatVigenciaCron, stopSoatVigenciaCron,
+} from './modules/flito-soat/flito-soat-vigencia.cron.js';
+import { verificarCatalogoAlArrancar } from './modules/permisos/permisos.service.js';
 import { closeRedis } from './shared/redis.js';
 import { loggerFor } from './shared/logger.js';
 
 const log = loggerFor('server');
 const app = createApp();
+
+// HU #12081 (AC6) — El catálogo lo declara el PRODUCTO, no el administrador. Aquí se comprueba que
+// lo que el código exige y lo que la base declara son lo mismo, en los dos sentidos, y que `admin`
+// no se ha quedado sin funciones. Es ruidoso porque el fallo silencioso de esto no se ve como un
+// error: se ve como una pantalla que un día desapareció para alguien.
+//
+// No tumba el proceso: registra el error y sigue. Un catálogo desincronizado es grave, pero dejar el
+// API sin arrancar por él convertiría una pantalla mal repartida en una caída del producto entero —y
+// además la #12082 todavía no hace depender ninguna guarda de estas filas.
+verificarCatalogoAlArrancar()
+  .then(() => log.info('catálogo de permisos verificado'))
+  .catch((e: Error) => log.error({ err: e.message }, 'CATÁLOGO DE PERMISOS INCOHERENTE (HU #12081 AC6)'));
 
 const server = app.listen(env.PORT, () => {
   log.info({ port: env.PORT, env: env.NODE_ENV }, 'Operaciones API running');
@@ -82,6 +98,10 @@ const server = app.listen(env.PORT, () => {
     // FLITO: purga por retención de comparendos (HU #11511, Ley 1581). Consume
     // COMPARENDOS_RETENTION_MONTHS. Noop si COMPARENDOS_PURGA_CRON_ENABLED!=1.
     startComparendosPurgaCron();
+    // FLITO SOAT: verificación diaria de vigencia a las 00:10 de Colombia (HU #12095). Noop si
+    // SOAT_VIGENCIA_CRON_ENABLED!=1. Un solo servidor la ejecuta (candado `flito-soat-vigencia`) y
+    // un intento que deja vehículos sin verificar se reprograma cada hora, hasta tres veces.
+    startSoatVigenciaCron();
   }
 });
 
@@ -120,6 +140,7 @@ function shutdown(signal: string) {
   stopSiigoDianCron();
   stopSiigoColaCron();
   stopComparendosPurgaCron();
+  stopSoatVigenciaCron();
 
   const forceExitTimer = setTimeout(() => {
     log.error('grace expirado — forzando salida');
