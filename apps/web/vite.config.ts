@@ -1,16 +1,37 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 
+const sharedTypesEntry = path.resolve(
+  __dirname,
+  '../../packages/shared-types/src/index.ts',
+);
+
+/**
+ * Alias a un `.ts` salta `package.json#sideEffects: false`. Sin eso Rollup conserva
+ * el barrel (zod + schemas) en el entry `/login` y rompe `check:bundle`.
+ * Este plugin restaura el tree-shake solo para el paquete local.
+ */
+function sharedTypesNoSideEffects(): Plugin {
+  const marker = `${path.sep}packages${path.sep}shared-types${path.sep}`;
+  return {
+    name: 'shared-types-no-side-effects',
+    transform(code, id) {
+      if (!id.includes(marker)) return null;
+      return { code, moduleSideEffects: false, map: null };
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), sharedTypesNoSideEffects()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      // Worktrees comparten `node_modules` con el checkout principal: sin este alias Vite
-      // resuelve `@operaciones/shared-types` al paquete del padre y rompe si la rama adelanta exports.
-      '@operaciones/shared-types': path.resolve(__dirname, '../../packages/shared-types/src/index.ts'),
+      // Worktrees comparten `node_modules` con el checkout principal: sin este alias
+      // Vite resuelve `@operaciones/shared-types` al paquete del padre.
+      '@operaciones/shared-types': sharedTypesEntry,
     },
   },
   build: {
