@@ -8,8 +8,6 @@ import type { EfectoPermisoUsuario, FuncionDeUsuario } from '@operaciones/shared
 import { errorMessage, permisosApi, type GrupoDeFunciones } from '../../lib/api';
 import FlitAcordeon from '../../components/flit/FlitAcordeon';
 import { etiquetaModulo, modulosVisibles } from '../roles-permisos/modulos';
-import type { UserRole } from '../../lib/permissions';
-
 export type CatalogoFuncionesEstado = {
   grupos: GrupoDeFunciones[] | null;
   error: string | null;
@@ -51,7 +49,8 @@ export function mapaExcepciones(lista: FuncionDeUsuario[]): Map<string, EfectoPe
 export default function PermissionsPicker({
   role, catalogo, excepciones, onChange, onDisponibleChange,
 }: {
-  role: UserRole;
+  /** Código del rol en `permisos_roles` (sistema o personalizado). */
+  role: string;
   catalogo: CatalogoFuncionesEstado;
   excepciones: FuncionDeUsuario[];
   onChange: (next: FuncionDeUsuario[]) => void;

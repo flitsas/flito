@@ -1,24 +1,19 @@
 // FLITO — el ÁMBITO del usuario: todo lo que ramifica por el tipo de enlace del rol, en un solo
-// archivo. Extraído de `pages/Users.tsx` sin cambios. HU #12175 / Feature #12072.
-//
-// Aquí viven las DOS caras del ámbito, que hasta ahora estaban a 400 líneas de distancia dentro de
-// la página y siempre se cambiaban juntas:
-//   · `AmbitoCelda`  — la celda «Ámbito» de la tabla (organismo, compañía, proveedor, organismos).
-//   · `AmbitoCampos` — el bloque de campos condicionados al rol, idéntico en alta y en edición
-//                      salvo el `editando` que añade el aviso de re-login.
-//
-// Las cadenas `role === '…'` que hay dentro son el rol del usuario EDITADO —no guardas de
-// autorización—, y se mueven tal cual: quien las convierta en un enlace declarado es la HU #12088,
-// y este archivo es el único que tiene que abrir para hacerlo.
-//
-// **Esto NO es kit.** Mismo criterio que `AtaduraFields.tsx`: props tipadas, sin estado global, y
-// un único consumidor (la pantalla de usuarios).
+ // archivo. Extraído de `pages/Users.tsx` sin cambios. HU #12175 / Feature #12072.
+ // HU #12088: el switch es por `tipoEnlace` (catálogo `permisos_roles`), no por `role ===`.
+ // Organismos unificados en `OrganismosField` (ex-`transito` deja de usar `FlitOrganismoCombobox`).
+ //
+ // Aquí viven las DOS caras del ámbito, que hasta ahora estaban a 400 líneas de distancia dentro de
+ // la página y siempre se cambiaban juntas:
+ //   · `AmbitoCelda`  — la celda «Ámbito» de la tabla (organismo, compañía, proveedor, organismos).
+ //   · `AmbitoCampos` — el bloque de campos condicionados al enlace, idéntico en alta y en edición
+ //                      salvo el `editando` que añade el aviso de re-login.
+ //
+ // **Esto NO es kit.** Mismo criterio que `AtaduraFields.tsx`: props tipadas, sin estado global, y
+ // un único consumidor (la pantalla de usuarios).
 
-import { getOrganismoByCodigo } from '@operaciones/shared-types';
-import FlitOrganismoCombobox from '../../components/flit/FlitOrganismoCombobox';
-import type { UserRole } from '../../lib/permissions';
+import type { TipoEnlace } from '@operaciones/shared-types';
 import type { User } from './types';
-import { Field } from './UserFormShared';
 import { CompaniaField, COMPANIA_REQUERIDA, type CatalogoCompanias } from './CompaniaField';
 import {
   OrganismosField, ProveedorSoatField, etiquetasOrganismos, nombreProveedor, resumenOrganismos,
@@ -28,47 +23,17 @@ import {
 
 // ─────────────────────────── Cara 1 · La celda «Ámbito» de la tabla ──────────────────────────────
 
-export function AmbitoCelda({ user: u, nombreCompania, proveedores, organismos }: {
+export function AmbitoCelda({ user: u, tipoEnlace, nombreCompania, proveedores, organismos }: {
   user: User;
+  /** Del mapa `codigo → tipoEnlace` cargado en `UsersGestion`. Si falta el rol, `ninguno`. */
+  tipoEnlace: TipoEnlace;
   nombreCompania: (id: number) => string | null;
   proveedores: CatalogoProveedores;
   organismos: CatalogoOrganismos;
 }) {
   return (
     <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-      {u.role === 'transito' ? (
-        u.transitoCodigo ? (
-          (() => {
-            const org = getOrganismoByCodigo(u.transitoCodigo);
-            return org ? (
-              <span title={`${org.nombre} · ${org.codigo}`}>{org.ciudad}</span>
-            ) : (
-              <span className="font-mono">{u.transitoCodigo}</span>
-            );
-          })()
-        ) : (
-          <span style={{ color: 'var(--flit-warning)' }}>Sin asignar</span>
-        )
-      ) : u.role === 'cliente' ? (
-        u.companiaId ? (
-          // Sin nombre en el catálogo —no cargó, o la compañía ya no está— se pinta
-          // el id en monoespaciada, igual que hace la rama de tránsito con un código
-          // fuera de catálogo. Un hueco en blanco se confundiría con «sin asignar».
-          nombreCompania(u.companiaId)
-            ? <span>{nombreCompania(u.companiaId)}</span>
-            : <span className="font-mono">{u.companiaId}</span>
-        ) : (
-          <span style={{ color: 'var(--flit-warning)' }}>Sin asignar</span>
-        )
-      ) : u.role === 'proveedor' ? (
-        u.flitoProveedorSoatId ? (
-          nombreProveedor(proveedores.data, u.flitoProveedorSoatId)
-            ? <span>{nombreProveedor(proveedores.data, u.flitoProveedorSoatId)}</span>
-            : <span className="font-mono">{u.flitoProveedorSoatId}</span>
-        ) : (
-          <span style={{ color: 'var(--flit-warning)' }}>Sin asignar</span>
-        )
-      ) : u.role === 'gestor_impuestos' ? (
+      {tipoEnlace === 'organismos_transito' ? (
         u.organismosCodigos.length > 0 ? (
           // `title` con la lista completa es COMPLEMENTARIO, nunca el único
           // portador: no existe para teclado ni para táctil. La lista entera está a
@@ -82,6 +47,24 @@ export function AmbitoCelda({ user: u, nombreCompania, proveedores, organismos }
         ) : (
           <span style={{ color: 'var(--flit-warning)' }}>Sin asignar</span>
         )
+      ) : tipoEnlace === 'compania' ? (
+        u.companiaId ? (
+          // Sin nombre en el catálogo —no cargó, o la compañía ya no está— se pinta
+          // el id en monoespaciada. Un hueco en blanco se confundiría con «sin asignar».
+          nombreCompania(u.companiaId)
+            ? <span>{nombreCompania(u.companiaId)}</span>
+            : <span className="font-mono">{u.companiaId}</span>
+        ) : (
+          <span style={{ color: 'var(--flit-warning)' }}>Sin asignar</span>
+        )
+      ) : tipoEnlace === 'proveedor_soat' ? (
+        u.flitoProveedorSoatId ? (
+          nombreProveedor(proveedores.data, u.flitoProveedorSoatId)
+            ? <span>{nombreProveedor(proveedores.data, u.flitoProveedorSoatId)}</span>
+            : <span className="font-mono">{u.flitoProveedorSoatId}</span>
+        ) : (
+          <span style={{ color: 'var(--flit-warning)' }}>Sin asignar</span>
+        )
       ) : (
         '—'
       )}
@@ -89,38 +72,24 @@ export function AmbitoCelda({ user: u, nombreCompania, proveedores, organismos }
   );
 }
 
-// ───────────────────── Cara 2 · Los campos condicionados al rol del formulario ───────────────────
+// ───────────────────── Cara 2 · Los campos condicionados al enlace del formulario ─────────────────
 
-function TransitoOrganismoField({ value, onChange, required }: { value: string; onChange: (v: string) => void; required?: boolean }) {
-  return (
-    <Field label="Organismo de tránsito">
-      <FlitOrganismoCombobox value={value} onChange={onChange} required={required} />
-      <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>
-        Define qué bandeja verá este usuario (aislamiento Medellín ≠ Envigado).
-      </p>
-    </Field>
-  );
-}
-
-/** Los cuatro valores de ámbito que el formulario mantiene en su estado. */
+/** Los tres valores de ámbito que el formulario mantiene en su estado (HU #12088: sin `transitoCodigo`). */
 export interface ValoresAmbito {
-  transitoCodigo: string;
   companiaId: string;
   flitoProveedorSoatId: string;
   organismosCodigos: string[];
 }
 
 /**
- * El bloque de ámbito del formulario: exactamente los mismos cuatro campos condicionados al rol que
- * el alta y la edición pintaban por separado. La única diferencia entre las dos pantallas era
- * `editando`, y sigue siéndolo: es el prop que añade el aviso de re-login en los dos campos que lo
- * traen del kit de ataduras.
+ * El bloque de ámbito del formulario: campos condicionados a `tipoEnlace`. La única diferencia
+ * entre alta y edición es `editando` (aviso de re-login en proveedor / organismos).
  */
 export function AmbitoCampos({
-  role, editando, companias, proveedores, organismos, valores, onValores,
+  tipoEnlace, editando, companias, proveedores, organismos, valores, onValores,
   errorCompania, setErrorCompania, errorProveedor, setErrorProveedor, errorOrganismos, setErrorOrganismos,
 }: {
-  role: UserRole;
+  tipoEnlace: TipoEnlace;
   editando?: boolean;
   companias: CatalogoCompanias;
   proveedores: CatalogoProveedores;
@@ -136,10 +105,7 @@ export function AmbitoCampos({
 }) {
   return (
     <>
-      {role === 'transito' && (
-        <TransitoOrganismoField value={valores.transitoCodigo} onChange={(v) => onValores({ transitoCodigo: v })} required />
-      )}
-      {role === 'cliente' && (
+      {tipoEnlace === 'compania' && (
         <CompaniaField
           companias={companias}
           value={valores.companiaId}
@@ -148,7 +114,7 @@ export function AmbitoCampos({
           onInvalido={() => setErrorCompania(COMPANIA_REQUERIDA)}
         />
       )}
-      {role === 'proveedor' && (
+      {tipoEnlace === 'proveedor_soat' && (
         <ProveedorSoatField
           proveedores={proveedores}
           value={valores.flitoProveedorSoatId}
@@ -158,7 +124,7 @@ export function AmbitoCampos({
           editando={editando}
         />
       )}
-      {role === 'gestor_impuestos' && (
+      {tipoEnlace === 'organismos_transito' && (
         <OrganismosField
           organismos={organismos}
           seleccionados={valores.organismosCodigos}

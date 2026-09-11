@@ -55,9 +55,45 @@ function usuario(over: Fila): Fila {
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
-async function mockCatalogos(page: Page, opts: { proveedores?: unknown[]; organismos?: unknown[] } = {}) {
+/** Fila mínima de `GET /permisos/roles` (HU #12088: el select y el ámbito leen `tipoEnlace`). */
+function rolCatalogo(over: Fila): Fila {
+  return {
+    codigo: 'x', nombre: 'X', descripcion: null, tipoEnlace: 'ninguno', tipoPrincipal: 'interno',
+    esSistema: true, activo: true, usuarios: 0, borrable: false, motivoNoBorrable: null,
+    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', ...over,
+  };
+}
+
+/** Catálogo de roles del sistema + uno personalizado para AC1 (enlace sin tocar el front). */
+const ROLES_CATALOGO = [
+  rolCatalogo({ codigo: 'admin', nombre: 'Administrador' }),
+  rolCatalogo({ codigo: 'compliance', nombre: 'Compliance' }),
+  rolCatalogo({ codigo: 'transito', nombre: 'Tránsito', tipoEnlace: 'organismos_transito' }),
+  rolCatalogo({ codigo: 'proveedor', nombre: 'Proveedor', tipoEnlace: 'proveedor_soat', tipoPrincipal: 'externo' }),
+  rolCatalogo({ codigo: 'lider_pesv', nombre: 'Líder PESV' }),
+  rolCatalogo({ codigo: 'supervisor_flota', nombre: 'Supervisor de flota' }),
+  rolCatalogo({ codigo: 'conductor', nombre: 'Conductor' }),
+  rolCatalogo({ codigo: 'auditor', nombre: 'Auditor' }),
+  rolCatalogo({ codigo: 'gestor_impuestos', nombre: 'Gestor de Impuestos', tipoEnlace: 'organismos_transito' }),
+  rolCatalogo({ codigo: 'mensajero', nombre: 'Mensajero' }),
+  rolCatalogo({ codigo: 'financiera', nombre: 'Financiera' }),
+  rolCatalogo({ codigo: 'cliente', nombre: 'Cliente', tipoEnlace: 'compania', tipoPrincipal: 'externo' }),
+  // Rol nuevo: mismo enlace que gestor/tránsito — la UI no hardcodea el código.
+  rolCatalogo({
+    codigo: 'consulta_organismos', nombre: 'Consulta organismos', tipoEnlace: 'organismos_transito',
+    esSistema: false, borrable: true,
+  }),
+];
+
+async function mockCatalogos(page: Page, opts: {
+  proveedores?: unknown[];
+  organismos?: unknown[];
+  roles?: unknown[];
+} = {}) {
   await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat$/, (r) => r.fulfill(json(opts.proveedores ?? PROVEEDORES)));
   await page.route(/\/api\/flito\/parametrizacion\/organismos$/, (r) => r.fulfill(json(opts.organismos ?? ORGANISMOS)));
+  // HU #12088: select de rol + mapa tipoEnlace.
+  await page.route(/\/api\/permisos\/roles$/, (r) => r.fulfill(json({ roles: opts.roles ?? ROLES_CATALOGO })));
   // HU #12087: el picker pide catálogo + cuadro; sin esto queda en error y el form cambia de forma.
   await page.route(/\/api\/permisos\/funciones$/, (r) => r.fulfill(json({
     grupos: [{ modulo: 'general', funciones: [{ codigo: 'pagina.dashboard', nombreNegocio: 'Entrar al tablero', descripcion: null, tipo: 'pagina' }] }],
@@ -103,24 +139,27 @@ async function abrirAlta(page: Page, role: string) {
   await page.getByLabel('Username (login)').fill('nuevo_e2e');
   await page.getByLabel('Nombre completo').fill('Nuevo E2E');
   await page.getByLabel(/^Contraseña/).fill('Abcdef1!');
-  await page.getByLabel('Rol base').selectOption(role);
+  const select = page.getByLabel('Rol base');
+  // HU #12088: el select espera `permisosApi.roles()`; sin esto `selectOption` choca con «Cargando…».
+  await expect(select).toBeEnabled();
+  await select.selectOption(role);
 }
 
-// ───────────────────────── AC1 · el campo aparece con el rol, y solo con él ──────────────────────
+// ───────────────────────── AC1 · el campo aparece con el enlace, y solo con él ───────────────────
 
-test.describe('HU #12053 · AC1 — un rol, un campo de ámbito', () => {
-  test('TC-12053-01 · el rol Proveedor trae su selector y NO el grupo de organismos', async ({ page }) => {
+test.describe('HU #12088 · AC1 — un tipoEnlace, un campo de ámbito', () => {
+  test('TC-12088-01 · proveedor_soat trae su selector y NO el grupo de organismos', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     mockUsers(page);
     await mockCatalogos(page);
     await abrirAlta(page, 'proveedor');
 
     await expect(page.getByLabel('Proveedor SOAT')).toBeVisible();
-    // El aserto negativo es el único que mata «pintar los dos campos sin condicionar al rol».
+    // El aserto negativo es el único que mata «pintar los dos campos sin condicionar al enlace».
     await expect(grupoOrganismos(page)).toHaveCount(0);
   });
 
-  test('TC-12053-02 · el rol Gestor de Impuestos trae el grupo y NO el selector de proveedor', async ({ page }) => {
+  test('TC-12088-02 · organismos_transito (gestor) trae el grupo y NO el selector de proveedor', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     mockUsers(page);
     await mockCatalogos(page);
@@ -128,10 +167,26 @@ test.describe('HU #12053 · AC1 — un rol, un campo de ámbito', () => {
 
     await expect(grupoOrganismos(page)).toBeVisible();
     await expect(page.getByLabel('Proveedor SOAT')).toHaveCount(0);
-    // Y los ocho roles sin ámbito no traen ninguno de los dos.
+    // Roles con enlace `ninguno` no traen ninguno de los dos.
     await page.getByLabel('Rol base').selectOption('auditor');
     await expect(grupoOrganismos(page)).toHaveCount(0);
     await expect(page.getByLabel('Proveedor SOAT')).toHaveCount(0);
+  });
+
+  test('TC-12088-02b · un rol NUEVO con organismos_transito usa el mismo OrganismosField', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const { posts } = mockUsers(page);
+    await mockCatalogos(page);
+    await abrirAlta(page, 'consulta_organismos');
+
+    await expect(grupoOrganismos(page)).toBeVisible();
+    await expect(page.getByLabel('Proveedor SOAT')).toHaveCount(0);
+    await casilla(page, 'Medellín · 05001').check();
+    await page.getByRole('button', { name: 'Crear usuario' }).click();
+    await expect.poll(() => posts.length).toBe(1);
+    expect(posts[0].role).toBe('consulta_organismos');
+    expect(posts[0].organismosCodigos).toEqual(['05001']);
+    expect(posts[0].transitoCodigo).toBeUndefined();
   });
 });
 
@@ -279,7 +334,7 @@ test.describe('HU #12053 · AC3 — el rechazo se ve, se enfoca y NO viaja', () 
 
     await abrirAlta(page, 'proveedor');
     await page.getByRole('button', { name: 'Crear usuario' }).click();
-    await expect(page.getByRole('alert')).toHaveText('Selecciona el proveedor SOAT del usuario Proveedor.');
+    await expect(page.getByRole('alert')).toHaveText('Selecciona el proveedor SOAT para este rol.');
     await expect(page.getByLabel('Proveedor SOAT')).toBeFocused();
     await expect(page.getByLabel('Proveedor SOAT')).toHaveAttribute('aria-invalid', 'true');
 
@@ -289,7 +344,7 @@ test.describe('HU #12053 · AC3 — el rechazo se ve, se enfoca y NO viaja', () 
     await expect(page.getByRole('alert')).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Crear usuario' }).click();
-    await expect(page.getByRole('alert')).toHaveText('Marca al menos un organismo para el usuario Gestor de Impuestos.');
+    await expect(page.getByRole('alert')).toHaveText('Marca al menos un organismo para este rol.');
     await expect(casilla(page, 'Cali · 76001')).toBeFocused();
     await expect(grupoOrganismos(page)).toHaveAttribute('aria-invalid', 'true');
 
@@ -309,7 +364,7 @@ test.describe('HU #12053 · AC3 — el rechazo se ve, se enfoca y NO viaja', () 
     await page.getByRole('button', { name: 'Guardar cambios' }).click();
 
     // Mutante: validar solo en el alta. Es la mitad del AC3, y la que ven los usuarios que YA están.
-    await expect(page.getByRole('alert')).toHaveText('Marca al menos un organismo para el usuario Gestor de Impuestos.');
+    await expect(page.getByRole('alert')).toHaveText('Marca al menos un organismo para este rol.');
     expect(patches).toHaveLength(0);
   });
 });
@@ -406,8 +461,9 @@ test.describe('HU #12053 · el ida y vuelta entre roles', () => {
 
     await expect.poll(() => patches.length).toBe(1);
     // Un ex-Gestor no se queda con organismos colgados que nadie vuelve a mirar. Y `[]`, no `null`:
-    // el contrato dice que este campo es SIEMPRE un array.
-    expect(patches[0]).toEqual({ role: 'auditor', organismosCodigos: [] });
+    // el contrato dice que este campo es SIEMPRE un array. Con cambio de rol, `funciones` viaja
+    // siempre (HU #12087 §4-3) aunque quede vacío.
+    expect(patches[0]).toEqual({ role: 'auditor', organismosCodigos: [], funciones: [] });
   });
 });
 
@@ -418,6 +474,14 @@ test.describe('HU #12053 · los 4 estados, los dos catálogos', () => {
     await loginAs(page, OPERACIONES_USER);
     const { posts } = mockUsers(page);
     await page.route(/\/api\/flito\/parametrizacion\/organismos$/, (r) => r.fulfill(json(ORGANISMOS)));
+    await page.route(/\/api\/permisos\/roles$/, (r) => r.fulfill(json({ roles: ROLES_CATALOGO })));
+    await page.route(/\/api\/permisos\/funciones$/, (r) => r.fulfill(json({
+      grupos: [{ modulo: 'general', funciones: [{ codigo: 'pagina.dashboard', nombreNegocio: 'Entrar al tablero', descripcion: null, tipo: 'pagina' }] }],
+    })));
+    await page.route(/\/api\/permisos\/roles\/[^/]+\/funciones$/, (r) => {
+      const codigo = decodeURIComponent(new URL(r.request().url()).pathname.split('/').at(-2) ?? '');
+      return r.fulfill(json({ codigo, tipoPrincipal: 'interno', funciones: ['pagina.dashboard'] }));
+    });
 
     // UNA sola ruta con un interruptor, y no tres `page.route` encadenados: el catálogo se pide dos
     // veces al montar (`React.StrictMode`), y con varias rutas del mismo patrón lo que decide la
@@ -450,7 +514,7 @@ test.describe('HU #12053 · los 4 estados, los dos catálogos', () => {
     // Estado 3 — vacío. Mensaje DISTINTO del de error, y sin reintento: recargar no crea nada.
     estado = 'vacio';
     await page.getByRole('button', { name: 'Volver a cargar proveedores' }).click();
-    await expect(page.getByText('No hay proveedores SOAT activos. Crea uno en Clientes y proveedores antes de crear un usuario Proveedor.')).toBeVisible();
+    await expect(page.getByText('No hay proveedores SOAT activos. Crea uno en Clientes y proveedores antes de asignar este ámbito.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Volver a cargar proveedores' })).toHaveCount(0);
     await expect(page.getByLabel('Proveedor SOAT')).toBeDisabled();
   });
@@ -459,6 +523,14 @@ test.describe('HU #12053 · los 4 estados, los dos catálogos', () => {
     await loginAs(page, OPERACIONES_USER);
     const { posts } = mockUsers(page);
     await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat$/, (r) => r.fulfill(json(PROVEEDORES)));
+    await page.route(/\/api\/permisos\/roles$/, (r) => r.fulfill(json({ roles: ROLES_CATALOGO })));
+    await page.route(/\/api\/permisos\/funciones$/, (r) => r.fulfill(json({
+      grupos: [{ modulo: 'general', funciones: [{ codigo: 'pagina.dashboard', nombreNegocio: 'Entrar al tablero', descripcion: null, tipo: 'pagina' }] }],
+    })));
+    await page.route(/\/api\/permisos\/roles\/[^/]+\/funciones$/, (r) => {
+      const codigo = decodeURIComponent(new URL(r.request().url()).pathname.split('/').at(-2) ?? '');
+      return r.fulfill(json({ codigo, tipoPrincipal: 'interno', funciones: ['pagina.dashboard'] }));
+    });
 
     let estado: 'error' | 'vacio' | 'lleno' = 'error';
     await page.route(/\/api\/flito\/parametrizacion\/organismos$/, (route) => {
@@ -477,7 +549,7 @@ test.describe('HU #12053 · los 4 estados, los dos catálogos', () => {
     // Estado 3 — vacío: mensaje que NOMBRA la pantalla donde se desbloquea, y sin reintento.
     estado = 'vacio';
     await page.getByRole('button', { name: 'Volver a cargar organismos' }).click();
-    await expect(page.getByText('No hay organismos parametrizados. Parametriza uno en Organismos STT antes de crear un usuario Gestor de Impuestos.')).toBeVisible();
+    await expect(page.getByText('No hay organismos parametrizados. Parametriza uno en Organismos STT antes de asignar este ámbito.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Volver a cargar organismos' })).toHaveCount(0);
     await expect(grupoOrganismos(page).getByRole('checkbox')).toHaveCount(0);
   });
@@ -539,27 +611,29 @@ test.describe('HU #12053 · AC5 — la columna «Ámbito»', () => {
   });
 });
 
-// ─────────────────── Regresión · el rol `transito` no se toca, y ya no se le borra ───────────────
+// ─────────── HU #12088 · organismos_transito unificado (ex-transito + gestor) ─────────────────────
 
-test.describe('HU #12053 · regresión del rol `transito`', () => {
-  test('TC-12053-21 · el combobox de tránsito sigue igual y no aparece ningún selector nuevo', async ({ page }) => {
+test.describe('HU #12088 · organismos_transito unifica tránsito y gestor', () => {
+  test('TC-12088-21 · tránsito usa OrganismosField (no FlitOrganismoCombobox) y manda organismosCodigos', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
-    mockUsers(page);
+    const { posts } = mockUsers(page);
     await mockCatalogos(page);
     await abrirAlta(page, 'transito');
 
-    await expect(page.getByText('Organismo de tránsito', { exact: true })).toBeVisible();
-    await expect(page.getByText('Define qué bandeja verá este usuario (aislamiento Medellín ≠ Envigado).')).toBeVisible();
-    // Su campo es de UN valor y sigue siendo el suyo: ni grupo de casillas ni selector de proveedor.
-    await expect(grupoOrganismos(page)).toHaveCount(0);
+    await expect(grupoOrganismos(page)).toBeVisible();
+    // Ya no existe el rótulo/ayuda del combobox nacional de un solo código.
+    await expect(page.getByText('Define qué bandeja verá este usuario (aislamiento Medellín ≠ Envigado.)')).toHaveCount(0);
     await expect(page.getByLabel('Proveedor SOAT')).toHaveCount(0);
+
+    await casilla(page, 'Medellín · 05001').check();
+    await page.getByRole('button', { name: 'Crear usuario' }).click();
+    await expect.poll(() => posts.length).toBe(1);
+    expect(posts[0].organismosCodigos).toEqual(['05001']);
+    expect(posts[0].transitoCodigo).toBeUndefined();
   });
 
-  test('TC-12053-22 · editarle el nombre a un gestor NO le manda `transitoCodigo: null`', async ({ page }) => {
+  test('TC-12088-22 · editarle el nombre a un gestor NO manda claves de ámbito de más', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
-    // El defecto vivo en `develop`: `if (f.role !== 'transito' && user.transitoCodigo)` le borraba
-    // el ámbito al gestor —que vivía en esa misma columna— con solo cambiarle el nombre, en
-    // silencio. Aquí se fija la regla: solo se limpia al SALIR del rol que posee la atadura.
     const gestor = usuario({
       id: 14, username: 'gestor.medellin', name: 'Gestor Medellín', role: 'gestor_impuestos',
       transitoCodigo: '05001', organismosCodigos: ['05001'],
@@ -573,13 +647,15 @@ test.describe('HU #12053 · regresión del rol `transito`', () => {
     await page.getByRole('button', { name: 'Guardar cambios' }).click();
 
     await expect.poll(() => patches.length).toBe(1);
-    // `toEqual` y no `toMatchObject`: lo que se comprueba es que NO viaja ninguna clave más.
     expect(patches[0]).toEqual({ name: 'Gestor Medellín corregido' });
   });
 
-  test('TC-12053-23 · un usuario `transito` degradado SÍ pierde su código, como siempre', async ({ page }) => {
+  test('TC-12088-23 · degradar un `transito` limpia organismosCodigos (no transitoCodigo)', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
-    const transito = usuario({ id: 15, username: 'transito.med', name: 'Ana Ruiz', role: 'transito', transitoCodigo: '05001' });
+    const transito = usuario({
+      id: 15, username: 'transito.med', name: 'Ana Ruiz', role: 'transito',
+      organismosCodigos: ['05001'],
+    });
     const { patches } = mockUsers(page, [transito]);
     await mockCatalogos(page);
 
@@ -589,7 +665,21 @@ test.describe('HU #12053 · regresión del rol `transito`', () => {
     await page.getByRole('button', { name: 'Guardar cambios' }).click();
 
     await expect.poll(() => patches.length).toBe(1);
-    expect(patches[0]).toEqual({ role: 'auditor', transitoCodigo: null });
+    expect(patches[0]).toEqual({ role: 'auditor', organismosCodigos: [], funciones: [] });
+    expect(patches[0].transitoCodigo).toBeUndefined();
+  });
+
+  test('TC-12088-24 · celda Ámbito de tránsito lee organismosCodigos (post-backfill)', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    mockUsers(page, [
+      usuario({ id: 2, username: 'transito.med', name: 'Ana', role: 'transito', organismosCodigos: ['05001'] }),
+      usuario({ id: 3, username: 'transito.huerfano', name: 'Sin org', role: 'transito', organismosCodigos: [] }),
+    ]);
+    await mockCatalogos(page);
+
+    await page.goto('/users');
+    await expect(celdaAmbito(page, 'transito.med')).toHaveText('Medellín');
+    await expect(celdaAmbito(page, 'transito.huerfano')).toHaveText('Sin asignar');
   });
 });
 

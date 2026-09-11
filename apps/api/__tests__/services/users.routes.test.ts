@@ -201,9 +201,17 @@ beforeEach(() => {
   argonVerifyMock.mockReset();
   auditMock.mockClear();
   logWarnMock.mockClear();
-  // Por defecto, el rol del cuerpo existe y está activo: es el caso de los ~25 tests que ya había y
-  // que no van de esto. Los casos del AC6 lo sobrescriben con `mockResolvedValueOnce(null)`.
-  rolAsignableMock.mockReset().mockResolvedValue({ tipoEnlace: 'ninguno' });
+  // HU #12088: el mock debe devolver el tipoEnlace coherente con el rol del body.
+  // Si siempre devolviera `ninguno`, los 400 de ámbito no dispararían (o dispararían al revés).
+  const TIPO_ENLACE_POR_ROL: Record<string, string> = {
+    admin: 'ninguno', proveedor: 'proveedor_soat', transito: 'organismos_transito',
+    compliance: 'ninguno', lider_pesv: 'ninguno', supervisor_flota: 'ninguno', conductor: 'ninguno',
+    auditor: 'ninguno', gestor_impuestos: 'organismos_transito', mensajero: 'ninguno',
+    financiera: 'ninguno', cliente: 'compania', consulta_cliente: 'ninguno',
+  };
+  rolAsignableMock.mockReset().mockImplementation(async (codigo: string) => ({
+    tipoEnlace: TIPO_ENLACE_POR_ROL[codigo] ?? 'ninguno',
+  }));
 });
 
 async function buildApp() {
@@ -667,9 +675,8 @@ describe('POST /api/users — rol cliente y compañía (AC1/AC2 de la HU #11913)
     const r = await request(app).post('/api/users').set('Authorization', `Bearer ${token}`)
       .send(BODY_CLIENTE);
     expect(r.status).toBe(400);
-    // El campo importa tanto como el texto: `ApiError.toUserMessage` antepone el nombre del campo,
-    // así que el admin lee «companiaId: Compañía requerida para el rol Cliente».
-    expect(r.body.details.fieldErrors.companiaId).toContain('Compañía requerida para el rol Cliente');
+    // HU #12088: el 400 sale del handler por tipoEnlace (no del superRefine / fieldErrors).
+    expect(r.body.error).toBe('Compañía requerida para este rol');
     // «No queda un usuario cliente usable»: ni siquiera se consultó si el username estaba libre.
     expect(insertMock).not.toHaveBeenCalled();
     expect(selectMock).not.toHaveBeenCalled();
@@ -708,14 +715,13 @@ describe('POST /api/users — rol cliente y compañía (AC1/AC2 de la HU #11913)
     expect(insertMock).not.toHaveBeenCalled();
   });
 
-  it('otro rol CON compañía → 400 (la compañía es del cliente y de nadie más)', async () => {
+  it('otro rol CON compañía → 400 (la compañía es del enlace compania y de nadie más)', async () => {
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
     const r = await request(app).post('/api/users').set('Authorization', `Bearer ${token}`)
       .send({ ...BODY_CLIENTE, role: 'proveedor', companiaId: 3 });
     expect(r.status).toBe(400);
-    expect(r.body.details.fieldErrors.companiaId)
-      .toContain('Solo los usuarios Cliente pueden tener compañía asignada');
+    expect(r.body.error).toBe('Solo los roles con ámbito de compañía pueden tener compañía asignada');
     expect(insertMock).not.toHaveBeenCalled();
   });
 
@@ -746,7 +752,7 @@ describe('PATCH /api/users/:id — compañía del cliente (AC2 por la puerta de 
     const r = await request(app).patch('/api/users/5').set('Authorization', `Bearer ${token}`)
       .send({ companiaId: null });
     expect(r.status).toBe(400);
-    expect(r.body.error).toBe('Compañía requerida para el rol Cliente');
+    expect(r.body.error).toBe('Compañía requerida para este rol');
     expect(updateMock).not.toHaveBeenCalled();
   });
 
@@ -757,7 +763,7 @@ describe('PATCH /api/users/:id — compañía del cliente (AC2 por la puerta de 
     const r = await request(app).patch('/api/users/5').set('Authorization', `Bearer ${token}`)
       .send({ role: 'cliente' });
     expect(r.status).toBe(400);
-    expect(r.body.error).toBe('Compañía requerida para el rol Cliente');
+    expect(r.body.error).toBe('Compañía requerida para este rol');
     expect(updateMock).not.toHaveBeenCalled();
   });
 
@@ -806,7 +812,7 @@ describe('PATCH /api/users/:id — compañía del cliente (AC2 por la puerta de 
     const r = await request(app).patch('/api/users/5').set('Authorization', `Bearer ${token}`)
       .send({ companiaId: 3 });
     expect(r.status).toBe(400);
-    expect(r.body.error).toBe('Solo los usuarios Cliente pueden tener compañía asignada');
+    expect(r.body.error).toBe('Solo los roles con ámbito de compañía pueden tener compañía asignada');
     expect(updateMock).not.toHaveBeenCalled();
   });
 });
@@ -923,8 +929,7 @@ describe('POST /api/users — las dos ataduras al crear (AC1/AC2/AC3)', () => {
       .send(BODY_PROVEEDOR);
 
     expect(r.status).toBe(400);
-    expect(r.body.details.fieldErrors.flitoProveedorSoatId)
-      .toContain('Proveedor SOAT requerido para el rol Proveedor');
+    expect(r.body.error).toBe('Proveedor SOAT requerido para este rol');
     // «No queda un usuario proveedor usable»: ni se consultó si el username estaba libre.
     expect(insertMock).not.toHaveBeenCalled();
     expect(selectMock).not.toHaveBeenCalled();
@@ -935,8 +940,7 @@ describe('POST /api/users — las dos ataduras al crear (AC1/AC2/AC3)', () => {
       .send({ ...BODY_GESTOR, organismosCodigos: [] });
 
     expect(r.status).toBe(400);
-    expect(r.body.details.fieldErrors.organismosCodigos)
-      .toContain('Organismos requeridos para el rol Gestor de Impuestos');
+    expect(r.body.error).toBe('Organismos requeridos para este rol');
     expect(insertMock).not.toHaveBeenCalled();
     expect(selectMock).not.toHaveBeenCalled();
   });
@@ -946,8 +950,7 @@ describe('POST /api/users — las dos ataduras al crear (AC1/AC2/AC3)', () => {
       .send(BODY_GESTOR);
 
     expect(r.status).toBe(400);
-    expect(r.body.details.fieldErrors.organismosCodigos)
-      .toContain('Organismos requeridos para el rol Gestor de Impuestos');
+    expect(r.body.error).toBe('Organismos requeridos para este rol');
     expect(insertMock).not.toHaveBeenCalled();
   });
 
@@ -957,14 +960,12 @@ describe('POST /api/users — las dos ataduras al crear (AC1/AC2/AC3)', () => {
     const conProveedor = await request(app).post('/api/users').set('Authorization', await cabecera())
       .send({ ...BODY_GESTOR, organismosCodigos: [ORG_A], flitoProveedorSoatId: PROVEEDOR });
     expect(conProveedor.status).toBe(400);
-    expect(conProveedor.body.details.fieldErrors.flitoProveedorSoatId)
-      .toContain('Solo los usuarios Proveedor pueden tener proveedor SOAT asignado');
+    expect(conProveedor.body.error).toBe('Solo los roles con ámbito de proveedor SOAT pueden tener proveedor asignado');
 
     const conOrganismos = await request(app).post('/api/users').set('Authorization', await cabecera())
       .send({ ...BODY_PROVEEDOR, flitoProveedorSoatId: PROVEEDOR, organismosCodigos: [ORG_A] });
     expect(conOrganismos.status).toBe(400);
-    expect(conOrganismos.body.details.fieldErrors.organismosCodigos)
-      .toContain('Solo los usuarios Gestor de Impuestos pueden tener organismos asignados');
+    expect(conOrganismos.body.error).toBe('Solo los roles con ámbito de organismos pueden tener organismos asignados');
 
     expect(insertMock).not.toHaveBeenCalled();
   });
@@ -1075,7 +1076,7 @@ describe('PATCH /api/users/:id — editar el ámbito (AC3/AC4)', () => {
     // Paridad exacta con «quitarle la compañía a un cliente»: el ámbito vacío deja un usuario que no
     // ve nada, que es justo lo que el AC3 declara imposible.
     expect(r.status).toBe(400);
-    expect(r.body.error).toBe('Organismos requeridos para el rol Gestor de Impuestos');
+    expect(r.body.error).toBe('Organismos requeridos para este rol');
     expect(updateMock).not.toHaveBeenCalled();
     expect(deleteMock).not.toHaveBeenCalled();
   });
@@ -1089,7 +1090,7 @@ describe('PATCH /api/users/:id — editar el ámbito (AC3/AC4)', () => {
 
     // El hueco que deja un PATCH de solo rol: sin esta guarda queda un gestor sin ámbito.
     expect(r.status).toBe(400);
-    expect(r.body.error).toBe('Organismos requeridos para el rol Gestor de Impuestos');
+    expect(r.body.error).toBe('Organismos requeridos para este rol');
     expect(updateMock).not.toHaveBeenCalled();
   });
 
@@ -1141,7 +1142,7 @@ describe('PATCH /api/users/:id — editar el ámbito (AC3/AC4)', () => {
       .send({ organismosCodigos: [ORG_A] });
 
     expect(r.status).toBe(400);
-    expect(r.body.error).toBe('Solo los usuarios Gestor de Impuestos pueden tener organismos asignados');
+    expect(r.body.error).toBe('Solo los roles con ámbito de organismos pueden tener organismos asignados');
     expect(updateMock).not.toHaveBeenCalled();
   });
 });
@@ -1243,6 +1244,42 @@ describe('POST /api/users — el rol se pregunta al catálogo (HU #12169, AC6)',
     expect(r.body.role).toBe('consulta_cliente');
     const [escrito] = filasDe('users');
     expect((escrito.valores as { role: string }).role).toBe('consulta_cliente');
+  });
+
+  // HU #12088 AC1: un rol NUEVO con tipo_enlace=compania exige compañía SIN tocar el superRefine
+  // (ya no hay literales de rol ahí). Mutante AC6: volver a `role === 'cliente'` en Zod deja esto en rojo.
+  it('HU #12088 AC1: rol nuevo tipo_enlace=compania SIN compañía → 400; CON compañía → 201', async () => {
+    rolAsignableMock.mockReset().mockResolvedValue({ tipoEnlace: 'compania' });
+
+    const sin = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
+      .send({ ...BODY, role: 'cliente_externo_ac1' });
+    expect(sin.status).toBe(400);
+    expect(sin.body.error).toBe('Compañía requerida para este rol');
+    expect(insertMock).not.toHaveBeenCalled();
+
+    selectMock.mockReturnValueOnce(chain([])); // username libre
+    selectMock.mockReturnValueOnce(chain([{ id: 3 }])); // compañía existe
+    const con = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
+      .send({ ...BODY, username: 'cliente_ext_ok', role: 'cliente_externo_ac1', companiaId: 3 });
+    expect(con.status).toBe(201);
+    expect(con.body.companiaId).toBe(3);
+    expect((filasDe('users')[0].valores as { transitoCodigo: unknown }).transitoCodigo).toBeNull();
+  });
+
+  it('HU #12088: transitoCodigo en el body → warn + se descarta (no se traduce a organismos)', async () => {
+    rolAsignableMock.mockReset().mockResolvedValue({ tipoEnlace: 'organismos_transito' });
+    selectMock.mockReturnValueOnce(chain([]));
+    selectMock.mockReturnValueOnce(chain([{ codigo: ORG_A }]));
+
+    const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
+      .send({
+        username: 'transito_nuevo', name: 'T', password: STRONG_PWD, role: 'transito',
+        transitoCodigo: ORG_A, organismosCodigos: [ORG_A],
+      });
+    expect(r.status).toBe(201);
+    expect(logWarnMock).toHaveBeenCalled();
+    expect((filasDe('users')[0].valores as { transitoCodigo: unknown }).transitoCodigo).toBeNull();
+    expect(organismosEscritos().map((f) => f.organismoCodigo)).toEqual([ORG_A]);
   });
 
   it('la FORMA sigue siendo cosa de Zod: un código con mayúsculas o espacios ni llega al catálogo', async () => {

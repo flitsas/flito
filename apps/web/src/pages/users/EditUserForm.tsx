@@ -1,12 +1,13 @@
 // FLITO — formulario de EDICIÓN de usuario. Extraído de `pages/Users.tsx` sin cambios.
 // HU #12175 / Feature #12072. HU #12087: `funciones` + modal de cambio de rol.
+// HU #12088: ámbito por `tipoEnlace`; body sin `transitoCodigo`; organismos vía `organismosCodigos`.
 
 import { useCallback, useMemo, useState, type FormEvent } from 'react';
 import toast from 'react-hot-toast';
 import type { FuncionDeUsuario } from '@operaciones/shared-types';
 import { api } from '../../lib/api';
 import FlitModal from '../../components/flit/FlitModal';
-import { ROLES, type User } from './types';
+import { tipoEnlaceDe, type RolOpcion, type User } from './types';
 import { Field, Footer, formatErrors, inputCls } from './UserFormShared';
 import { COMPANIA_REQUERIDA, COMPANIA_RELOGIN, type CatalogoCompanias } from './CompaniaField';
 import { AmbitoCampos } from './Ambito';
@@ -36,12 +37,13 @@ function claveFunciones(lista: FuncionDeUsuario[]): string {
   return [...lista].map((f) => `${f.efecto}:${f.codigo}`).sort().join('|');
 }
 
-export default function EditForm({ user, companias, proveedores, organismos, catalogo, onClose, onSaved }: {
+export default function EditForm({ user, companias, proveedores, organismos, catalogo, rolesCatalogo, onClose, onSaved }: {
   user: User;
   companias: CatalogoCompanias;
   proveedores: CatalogoProveedores;
   organismos: CatalogoOrganismos;
   catalogo: CatalogoFuncionesEstado;
+  rolesCatalogo: RolOpcion[] | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -50,7 +52,6 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
     email: user.email ?? '',
     role: user.role,
     excepciones: user.funciones ?? [],
-    transitoCodigo: user.transitoCodigo ?? '',
     companiaId: user.companiaId ? String(user.companiaId) : '',
     flitoProveedorSoatId: user.flitoProveedorSoatId ?? '',
     organismosCodigos: user.organismosCodigos,
@@ -61,6 +62,20 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
   const [errorCompania, setErrorCompania] = useState<string | null>(null);
   const [errorProveedor, setErrorProveedor] = useState<string | null>(null);
   const [errorOrganismos, setErrorOrganismos] = useState<string | null>(null);
+
+  const enlace = tipoEnlaceDe(f.role, rolesCatalogo);
+  const enlaceUsuario = tipoEnlaceDe(user.role, rolesCatalogo);
+
+  /** Activos + el rol actual si quedó inactivo (no perderlo al abrir el select). */
+  const opcionesRol = useMemo(() => {
+    const activos = (rolesCatalogo ?? []).filter((r) => r.activo);
+    if (!rolesCatalogo) return [];
+    const actual = rolesCatalogo.find((r) => r.value === user.role);
+    if (actual && !actual.activo && !activos.some((r) => r.value === actual.value)) {
+      return [...activos, { ...actual, label: `${actual.label} (inactivo)` }];
+    }
+    return activos;
+  }, [rolesCatalogo, user.role]);
 
   const nombres = useMemo(() => {
     const m = new Map<string, string>();
@@ -89,26 +104,25 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
         }
       }
 
-      if (f.role === 'transito' && f.transitoCodigo !== (user.transitoCodigo ?? '')) body.transitoCodigo = f.transitoCodigo;
-      if (f.role !== 'transito' && user.role === 'transito' && user.transitoCodigo) body.transitoCodigo = null;
       const companiaPrevia = user.companiaId ? String(user.companiaId) : '';
-      const companiaChanged = f.role === 'cliente' && f.companiaId !== companiaPrevia;
+      const companiaChanged = enlace === 'compania' && f.companiaId !== companiaPrevia;
       if (companiaChanged) body.companiaId = Number(f.companiaId);
-      if (f.role !== 'cliente' && user.companiaId) body.companiaId = null;
+      if (enlace !== 'compania' && user.companiaId) body.companiaId = null;
+
       const proveedorPrevio = user.flitoProveedorSoatId ?? '';
-      const proveedorChanged = f.role === 'proveedor' && f.flitoProveedorSoatId !== proveedorPrevio;
+      const proveedorChanged = enlace === 'proveedor_soat' && f.flitoProveedorSoatId !== proveedorPrevio;
       if (proveedorChanged) body.flitoProveedorSoatId = f.flitoProveedorSoatId;
-      if (f.role !== 'proveedor' && user.flitoProveedorSoatId) body.flitoProveedorSoatId = null;
-      const organismosChanged = f.role === 'gestor_impuestos' && !mismoConjunto(f.organismosCodigos, user.organismosCodigos);
+      if (enlace !== 'proveedor_soat' && user.flitoProveedorSoatId) body.flitoProveedorSoatId = null;
+
+      const organismosChanged = enlace === 'organismos_transito' && !mismoConjunto(f.organismosCodigos, user.organismosCodigos);
       if (organismosChanged) body.organismosCodigos = f.organismosCodigos;
-      if (f.role !== 'gestor_impuestos' && user.organismosCodigos.length > 0) body.organismosCodigos = [];
+      if (enlace !== 'organismos_transito' && (user.organismosCodigos.length > 0 || enlaceUsuario === 'organismos_transito')) {
+        body.organismosCodigos = [];
+      }
+
       if (Object.keys(body).length === 0) { toast('Sin cambios'); setSubmitting(false); return; }
-      const organismoChanged = f.role === 'transito' && f.transitoCodigo !== (user.transitoCodigo ?? '');
       await api.patch(`/users/${user.id}`, body);
       toast.success('Usuario actualizado');
-      if (organismoChanged) {
-        toast('El usuario debe volver a iniciar sesión para aplicar el nuevo organismo.', { duration: 6000 });
-      }
       if (companiaChanged) toast(COMPANIA_RELOGIN, { duration: 6000 });
       if (proveedorChanged) toast(PROVEEDOR_RELOGIN, { duration: 6000 });
       if (organismosChanged) toast(ORGANISMOS_RELOGIN, { duration: 6000 });
@@ -124,9 +138,9 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (submitting) return;
-    if (f.role === 'cliente' && !f.companiaId) { setErrorCompania(COMPANIA_REQUERIDA); return; }
-    if (f.role === 'proveedor' && !f.flitoProveedorSoatId) { setErrorProveedor(PROVEEDOR_REQUERIDO); return; }
-    if (f.role === 'gestor_impuestos' && f.organismosCodigos.length === 0) { setErrorOrganismos(ORGANISMOS_REQUERIDO); return; }
+    if (enlace === 'compania' && !f.companiaId) { setErrorCompania(COMPANIA_REQUERIDA); return; }
+    if (enlace === 'proveedor_soat' && !f.flitoProveedorSoatId) { setErrorProveedor(PROVEEDOR_REQUERIDO); return; }
+    if (enlace === 'organismos_transito' && f.organismosCodigos.length === 0) { setErrorOrganismos(ORGANISMOS_REQUERIDO); return; }
     setErrorCompania(null); setErrorProveedor(null); setErrorOrganismos(null);
 
     // Modal solo al Guardar si cambió el rol Y hay excepciones en edición (§4-3).
@@ -150,24 +164,30 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
           <Field label="Rol base">
             <select
               value={f.role}
+              disabled={!rolesCatalogo}
               onChange={(e) => {
+                const nuevo = e.target.value;
+                const nuevoEnlace = tipoEnlaceDe(nuevo, rolesCatalogo);
                 setF({
                   ...f,
-                  role: e.target.value as User['role'],
-                  transitoCodigo: e.target.value === 'transito' ? f.transitoCodigo : '',
-                  companiaId: e.target.value === 'cliente' ? f.companiaId : '',
-                  flitoProveedorSoatId: e.target.value === 'proveedor' ? f.flitoProveedorSoatId : '',
-                  organismosCodigos: e.target.value === 'gestor_impuestos' ? user.organismosCodigos : [],
+                  role: nuevo,
+                  // Limpiar ataduras que ya no aplican; conservar las del mismo tipo de enlace.
+                  companiaId: nuevoEnlace === 'compania' ? f.companiaId : '',
+                  flitoProveedorSoatId: nuevoEnlace === 'proveedor_soat' ? f.flitoProveedorSoatId : '',
+                  organismosCodigos: nuevoEnlace === 'organismos_transito'
+                    ? (enlaceUsuario === 'organismos_transito' ? user.organismosCodigos : [])
+                    : [],
                 });
-                setErrorProveedor(null); setErrorOrganismos(null);
+                setErrorCompania(null); setErrorProveedor(null); setErrorOrganismos(null);
               }}
               className={inputCls}
             >
-              {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+              {!rolesCatalogo && <option value={f.role}>Cargando roles…</option>}
+              {opcionesRol.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
           </Field>
           <AmbitoCampos
-            role={f.role}
+            tipoEnlace={enlace}
             editando
             companias={companias}
             proveedores={proveedores}
