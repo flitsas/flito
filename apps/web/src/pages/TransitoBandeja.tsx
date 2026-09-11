@@ -64,8 +64,9 @@ function placaInputCls(invalid: boolean): string {
 }
 
 export default function TransitoBandeja() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const { user, hasFuncion } = useAuth();
+  // HU #12170: alcance multi-organismo = `transito.config.listar` (solo Operaciones en el seed).
+  const isAdmin = hasFuncion('transito.config.listar');
   const [adminScope, setAdminScope] = useState(readAdminScope);
   const [pendientes, setPendientes] = useState<Tramite[]>([]);
   const [misTramites, setMisTramites] = useState<Tramite[]>([]);
@@ -119,7 +120,7 @@ export default function TransitoBandeja() {
       }
     } catch (e) {
       const msg = errorMessage(e);
-      if (user?.role === 'transito' && /organismo/i.test(msg)) {
+      if (!isAdmin && hasFuncion('transito.bandeja.ver_pendientes') && /organismo/i.test(msg)) {
         setScopeError(msg);
       } else {
         toast.error(msg);
@@ -127,7 +128,7 @@ export default function TransitoBandeja() {
     } finally {
       setLoading(false);
     }
-  }, [adminScope, isAdmin, tab, user?.role]);
+  }, [adminScope, isAdmin, tab, hasFuncion]);
 
   useEffect(() => { load(); }, [load]);
 

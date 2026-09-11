@@ -11,7 +11,6 @@ import { useEffect, useState } from 'react';
 import { ESTADO_LOGISTICA_SIMPLE_LABEL, type EstadoLogisticaSimple } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { puedeOperar } from '../lib/permissions';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, FlitField, flitInp, flitBtnPrimary, flitBtnPrimaryStyle,
@@ -56,8 +55,9 @@ const fecha = (iso: string | null) => (iso ? new Date(iso).toLocaleString('es-CO
 type Tab = 'tramites' | 'actas-gen' | 'actas';
 
 export default function FlitoLogistica() {
-  const { user } = useAuth();
-  const esOperaciones = puedeOperar(user?.role);
+  const { hasFuncion } = useAuth();
+  // HU #12170
+  const esOperaciones = hasFuncion('logistica.lote.cerrar');
 
   const [tab, setTab] = useState<Tab>('tramites');
   const [data, setData] = useState<Listado | null>(null);
