@@ -82,6 +82,12 @@ export const users = pgTable('users', {
   role: varchar('role', { length: 40 }).notNull()
     .references(() => permisosRoles.codigo, { onDelete: 'restrict', onUpdate: 'restrict' }),
   active: boolean('active').notNull().default(true),
+  /**
+   * OBSOLETA desde la HU #12087: congelada en la foto de la 0188. NO se escribe más, NO se lee para
+   * decidir; la fuente de las páginas por usuario es `permisos_usuario_funcion` (filas `conceder`/
+   * `revocar pagina.<slug>`), que lee `shared/permisos-efectivos.ts`. No se borra (AC6): la fila del
+   * listado la sigue devolviendo tal cual y la SPA ya no la lee.
+   */
   allowedPages: text('allowed_pages').array().notNull().default(sql`'{}'::text[]`),
   // TRAM-MT-01: organismo DIVIPOLA asignado a usuarios rol `transito` (bandeja aislada).
   transitoCodigo: varchar('transito_codigo', { length: 5 }),

@@ -166,6 +166,19 @@ describe('AC4 — cero titulares en cualquiera de las dos → lanza con la funci
     await expect(conSeguroAntiBloqueo(tx, async () => { throw new Error('boom'); })).rejects.toThrow('boom');
     expect(eventos).toEqual(['lock']);
   });
+  it('un usuario con `revocar permisos.cuadro.guardar` no cuenta como administrador (HU #12087)', async () => {
+    // `tiene(F)` = (rol ∪ concedida) ∖ revocada. Sin el NOT EXISTS de `revocar`, un admin al que
+    // se le quitó la función seguiría contando y el invariante no bloquearía el último retiro.
+    const { tx, sentencias } = ejecutor();
+    await conSeguroAntiBloqueo(tx, async () => undefined);
+    const cuenta = cuentaDe(sentencias);
+    expect(cuenta.sql.match(/not exists \(select 1 from "permisos_usuario_funcion"/g)).toHaveLength(2);
+    expect(cuenta.params.filter((p) => p === 'revocar')).toHaveLength(2);
+    expect(cuenta.params).toContain('permisos.cuadro.guardar');
+    // La exclusión va atada al mismo user_id / funcion_codigo que la concesión.
+    expect(cuenta.sql).toMatch(/"permisos_usuario_funcion"\."user_id" = "users"\."id"/);
+    expect(cuenta.sql).toMatch(/"permisos_usuario_funcion"\."efecto" = \$\d+/);
+  });
 });
 
 describe('AC4 — el parámetro `funciones` existe para el test de concurrencia', () => {
@@ -236,11 +249,11 @@ describe('AC4 — el invariante vive en UN sitio y lo invocan las cinco operacio
   const fuente = (rel: string) => readFileSync(path.resolve(aqui, '../../src', rel), 'utf8');
   const sinComentarios = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1');
 
-  it('users.service.ts: cambiar el rol (actualizarUsuario, solo si viene `role`) y desactivar (cambiarActivo) lo invocan con su `tx`', () => {
+  it('users.service.ts: cambiar el rol o las funciones (actualizarUsuario) y desactivar (cambiarActivo) lo invocan con su `tx`', () => {
     const src = sinComentarios(fuente('modules/users/users.service.ts'));
     expect(src).toMatch(/import \{ conSeguroAntiBloqueo \} from '\.\.\/\.\.\/shared\/permisos-anti-bloqueo\.js';/);
     expect(src.match(/conSeguroAntiBloqueo\(tx,/g)).toHaveLength(2);
-    expect(src).toMatch(/updates\.role !== undefined \? conSeguroAntiBloqueo\(tx, cuerpo\) : cuerpo\(\)/);
+    expect(src).toMatch(/updates\.role !== undefined \|\| funcionesDestino !== null \? conSeguroAntiBloqueo\(tx, cuerpo\) : cuerpo\(\)/);
     expect(src).toMatch(/await conSeguroAntiBloqueo\(tx, \(\) => tx\.update\(users\)\s*\.set\(\{ active: sql`NOT active`/);
     // El quinto camino (baja definitiva, #12089) deja el enganche escrito con nombre.
     expect(fuente('modules/users/users.service.ts')).toMatch(/#12089[\s\S]{0,200}conSeguroAntiBloqueo/);

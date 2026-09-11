@@ -76,3 +76,20 @@ export interface RespuestaGuardarCuadro {
   revocadas: string[];
   aviso: AvisoFueraDelCanal | null;
 }
+
+// ── HU #12087 — Excepciones por usuario sobre lo que da su rol ──────────────────────────────────
+// Los literales son los del CHECK `permisos_usuario_funcion_efecto_chk` (0179). Los leen las rutas de
+// `users.routes.ts` (el `z.enum` se construye desde aquí) y el picker de `pages/users`.
+
+export const EFECTOS_PERMISO_USUARIO = ['conceder', 'revocar'] as const;
+export type EfectoPermisoUsuario = (typeof EFECTOS_PERMISO_USUARIO)[number];
+
+/**
+ * Una excepción por usuario sobre lo que da su rol. PK real: `(user_id, funcion_codigo)`, así que un
+ * mismo código nunca lleva los dos efectos. `revocar` manda sobre el rol (AC2): la función sale del
+ * conjunto efectivo aunque el rol la incluya.
+ */
+export interface FuncionDeUsuario {
+  codigo: string;
+  efecto: EfectoPermisoUsuario;
+}

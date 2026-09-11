@@ -114,16 +114,20 @@ export async function testToken(opts: TestUserOpts = {}): Promise<string> {
   };
   if (opts.transitoCodigo !== undefined) payload.transitoCodigo = opts.transitoCodigo;
 
+  // HU #12087: `opts.allowedPages` sigue significando «páginas propias de este usuario», pero desde
+  // esta HU viajan como excepciones `conceder pagina.<slug>` de `permisos_usuario_funcion`, que es la
+  // única fuente que el resolutor lee. La firma de `testToken` no cambia: los ficheros que la usan
+  // no se tocan.
+  const paginasPropias = opts.allowedPages ?? (role === 'admin' ? PAGINAS_DE_ADMIN : []);
   await registrarUsuarioDePrueba(sub, {
     rol: role,
     tipoPrincipal: role === 'cliente' ? 'externo' : 'interno',
-    allowedPages: opts.allowedPages ?? (role === 'admin' ? PAGINAS_DE_ADMIN : []),
     funcionesDelRol: [
       ...operacionesDePartida(role),
       ...paginasPorDefecto(role as RoleCode).map((s) => `pagina.${s}`),
       ...(opts.funciones ?? []),
     ],
-    excepciones: [],
+    excepciones: paginasPropias.map((slug) => ({ codigo: `pagina.${slug}`, efecto: 'conceder' as const })),
   });
 
   return await new SignJWT(payload)

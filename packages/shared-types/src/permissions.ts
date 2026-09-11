@@ -393,6 +393,12 @@ export function paginasPorDefecto(role: RoleCode): readonly PageSlug[] {
  * `allowedPages`. En el navegador eso basta porque el sobre de `/login` y `/me` trae ya la lista
  * RESUELTA CONTRA LA BASE (`paginasEfectivasDeUsuario`), no la columna cruda. Llamar a esta función
  * en el servidor con la fila pelada de `users` para decidir si un admin entra a algo devolvería `[]`.
+ *
+ * **La SPA ya no la llama** (HU #12087): `effectivePages` del web devuelve exactamente lo que trae
+ * `/me` (resuelto contra la base), sin unir los defaults compilados. Unirlos volvía a pintar en el
+ * menú una página que el administrador quitó del cuadro del rol o revocó al usuario. Esta función
+ * queda como el oráculo de catálogo en tiempo de compilación que usan el seed (`catalogo.ts`) y los
+ * tests de paridad; su cuerpo no cambia.
  */
 export function getEffectivePages(user: { role: RoleCode; allowedPages?: string[] | null }): PageSlug[] {
   const fromRole = paginasPorDefecto(user.role);
