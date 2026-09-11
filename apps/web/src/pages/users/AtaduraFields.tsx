@@ -27,18 +27,18 @@ const PROVEEDOR_VACIA = 'Seleccione proveedor…';
 const PROVEEDOR_AYUDA = 'Define qué cola de SOAT ve este usuario: solo los trámites de ese proveedor.';
 const PROVEEDOR_CARGANDO = 'Cargando proveedores SOAT…';
 const PROVEEDOR_ERROR = 'No se pudieron cargar los proveedores SOAT.';
-const PROVEEDOR_VACIO = 'No hay proveedores SOAT activos. Crea uno en Clientes y proveedores antes de crear un usuario Proveedor.';
+const PROVEEDOR_VACIO = 'No hay proveedores SOAT activos. Crea uno en Clientes y proveedores antes de asignar este ámbito.';
 const PROVEEDOR_REINTENTO = 'Volver a cargar proveedores';
-export const PROVEEDOR_REQUERIDO = 'Selecciona el proveedor SOAT del usuario Proveedor.';
+export const PROVEEDOR_REQUERIDO = 'Selecciona el proveedor SOAT para este rol.';
 export const PROVEEDOR_RELOGIN = 'El usuario debe volver a iniciar sesión para aplicar el nuevo proveedor.';
 
 export const ORGANISMOS_LABEL = 'Organismos de tránsito';
-const ORGANISMOS_AYUDA = 'Define qué impuestos ve este usuario: solo los de los organismos marcados.';
+const ORGANISMOS_AYUDA = 'Define a qué organismos de tránsito queda atado este usuario.';
 const ORGANISMOS_CARGANDO = 'Cargando organismos…';
 const ORGANISMOS_ERROR = 'No se pudieron cargar los organismos.';
-const ORGANISMOS_VACIO = 'No hay organismos parametrizados. Parametriza uno en Organismos STT antes de crear un usuario Gestor de Impuestos.';
+const ORGANISMOS_VACIO = 'No hay organismos parametrizados. Parametriza uno en Organismos STT antes de asignar este ámbito.';
 const ORGANISMOS_REINTENTO = 'Volver a cargar organismos';
-export const ORGANISMOS_REQUERIDO = 'Marca al menos un organismo para el usuario Gestor de Impuestos.';
+export const ORGANISMOS_REQUERIDO = 'Marca al menos un organismo para este rol.';
 export const ORGANISMOS_RELOGIN = 'El usuario debe volver a iniciar sesión para aplicar los nuevos organismos.';
 
 /** Solo en `EditForm`: en el alta sería falsa, porque no hay sesión que cerrar (UX §5.4). */

@@ -17,8 +17,8 @@ interface Compania { id: number; nombre: string }
 const COMPANIA_AYUDA = 'Define de qué compañía es este usuario: solo verá y solicitará el SOAT de esa compañía.';
 const COMPANIA_CARGANDO = 'Cargando compañías…';
 const COMPANIA_ERROR = 'No se pudieron cargar las compañías.';
-const COMPANIA_VACIO = 'No hay compañías registradas. Crea una en Clientes y proveedores antes de crear un usuario Cliente.';
-export const COMPANIA_REQUERIDA = 'Selecciona la compañía del usuario Cliente.';
+const COMPANIA_VACIO = 'No hay compañías registradas. Crea una en Clientes y proveedores antes de asignar este ámbito.';
+export const COMPANIA_REQUERIDA = 'Selecciona la compañía para este rol.';
 export const COMPANIA_RELOGIN = 'El usuario debe volver a iniciar sesión para aplicar la nueva compañía.';
 
 /**

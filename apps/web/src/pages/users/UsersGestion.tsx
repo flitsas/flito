@@ -7,10 +7,13 @@
 // condicionales dentro de un componente, así que lo de admin vive en ESTE componente y `Users.tsx`
 // queda como conmutador. Si el auditor montara esto, cada hook le respondería 403 en silencio.
 //
+// HU #12088: carga `permisosApi.roles()` → mapa tipoEnlace + lista activa para el select de rol.
+//
 // **Esto NO es kit.** Un único consumidor: la página de usuarios.
 
 import { useEffect, useState, useCallback, useRef, type KeyboardEvent } from 'react';
 import toast from 'react-hot-toast';
+import type { RolCatalogo } from '@operaciones/shared-types';
 import { api, errorMessage, permisosApi, type GrupoDeFunciones } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import PageHeaderCard from '../../components/flit/PageHeaderCard';
@@ -19,8 +22,7 @@ import { FlitPillGroup, flitPillBtn, flitPillBtnClase } from '../../components/f
 import { useOrganismosParametrizados, useProveedoresSoat } from './AtaduraFields';
 import { useCompanias } from './CompaniaField';
 import { formatErrors } from './UserFormShared';
-import type { UserRole } from '../../lib/permissions';
-import type { ResumenUsuarios, User } from './types';
+import type { ResumenUsuarios, RolOpcion, User } from './types';
 import type { CatalogoFuncionesEstado } from './PermissionsPicker';
 import UsersTable from './UsersTable';
 import UsersToolbar from './UsersToolbar';
@@ -45,11 +47,12 @@ export default function UsersGestion({ puedeExportar }: {
   const proveedores = useProveedoresSoat();
   const organismos = useOrganismosParametrizados();
   const catalogo = useCatalogoFunciones();
+  const rolesCatalogo = useCatalogoRoles();
   const nombreCompania = (id: number) => companias.data?.find((c) => c.id === id)?.nombre ?? null;
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [rol, setRol] = useState<UserRole | ''>('');
+  const [rol, setRol] = useState<string>('');
   const [total, setTotal] = useState<number | null>(null);
   const [resumen, setResumen] = useState<ResumenUsuarios | null>(null);
   const [descargando, setDescargando] = useState(false);
@@ -234,6 +237,7 @@ export default function UsersGestion({ puedeExportar }: {
             <UsersToolbar
               rol={rol}
               onRol={setRol}
+              rolesCatalogo={rolesCatalogo}
               resumen={resumen}
               total={total}
               puedeExportar={puedeExportar}
@@ -247,6 +251,7 @@ export default function UsersGestion({ puedeExportar }: {
               error={error}
               onReintentar={recargar}
               meId={me?.id}
+              rolesCatalogo={rolesCatalogo}
               nombreCompania={nombreCompania}
               proveedores={proveedores}
               organismos={organismos}
@@ -260,8 +265,29 @@ export default function UsersGestion({ puedeExportar }: {
         {seccion === 'historial' && <HistorialPermisos />}
       </div>
 
-      {showCreate && <CreateForm companias={companias} proveedores={proveedores} organismos={organismos} catalogo={catalogo} onClose={() => setShowCreate(false)} onCreated={recargar} />}
-      {editing && <EditForm user={editing} companias={companias} proveedores={proveedores} organismos={organismos} catalogo={catalogo} onClose={() => setEditing(null)} onSaved={recargar} />}
+      {showCreate && (
+        <CreateForm
+          companias={companias}
+          proveedores={proveedores}
+          organismos={organismos}
+          catalogo={catalogo}
+          rolesCatalogo={rolesCatalogo}
+          onClose={() => setShowCreate(false)}
+          onCreated={recargar}
+        />
+      )}
+      {editing && (
+        <EditForm
+          user={editing}
+          companias={companias}
+          proveedores={proveedores}
+          organismos={organismos}
+          catalogo={catalogo}
+          rolesCatalogo={rolesCatalogo}
+          onClose={() => setEditing(null)}
+          onSaved={recargar}
+        />
+      )}
       {/* La contraseña no cambia rol ni estado: recarga la lista y NO el resumen. */}
       {pwdTarget && <PasswordForm user={pwdTarget} isSelf={pwdTarget.id === me?.id} onClose={() => setPwdTarget(null)} onSaved={load} />}
     </div>
@@ -282,6 +308,30 @@ function useCatalogoFunciones(): CatalogoFuncionesEstado {
     return () => { vivo = false; };
   }, [recarga]);
   return { grupos, error, recargar: () => setRecarga((n) => n + 1) };
+}
+
+/**
+ * Catálogo de roles UNA vez por página (HU #12088): mapa `codigo → tipoEnlace` + lista para el
+ * `<select>`. Incluye inactivos en el mapa (celda / edición con rol heredado).
+ */
+function useCatalogoRoles(): RolOpcion[] | null {
+  const [roles, setRoles] = useState<RolOpcion[] | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    permisosApi.roles()
+      .then((r) => {
+        if (!vivo) return;
+        const lista = Array.isArray(r?.roles) ? r.roles : [];
+        setRoles(lista.map(rolAOpcion));
+      })
+      .catch(() => { if (vivo) setRoles([]); });
+    return () => { vivo = false; };
+  }, []);
+  return roles;
+}
+
+function rolAOpcion(r: RolCatalogo): RolOpcion {
+  return { value: r.codigo, label: r.nombre, tipoEnlace: r.tipoEnlace, activo: r.activo };
 }
 
 /**

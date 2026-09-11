@@ -2,9 +2,9 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import argon2 from 'argon2';
 import { SignJWT } from 'jose';
-import { eq, sql } from 'drizzle-orm';
+import { asc, eq, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
-import { clients, users } from '../../db/schema.js';
+import { clients, flitoGestorOrganismos, users } from '../../db/schema.js';
 import { env } from '../../config/env.js';
 import { authMiddleware, blacklistToken } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
@@ -12,6 +12,20 @@ import { paginasEfectivasDeUsuario } from '../../shared/permisos-efectivos.js';
 import { checkLockout, registerFailed, clearLockout } from './loginLockout.js';
 import { isUserLaftBlocked } from '../laft/employees/auth-block.service.js';
 import { laftAudit } from '../laft/audit.service.js';
+
+/**
+ * HU #12088: `transitoCodigo` del JWT/me = 1.er código ordenado de la puente
+ * (`flito_gestor_organismos`). Compat con bandeja de trámites (un solo código).
+ */
+async function transitoCodigoDesdePuente(userId: number): Promise<string | null> {
+  const [row] = await db
+    .select({ c: flitoGestorOrganismos.organismoCodigo })
+    .from(flitoGestorOrganismos)
+    .where(eq(flitoGestorOrganismos.userId, userId))
+    .orderBy(asc(flitoGestorOrganismos.organismoCodigo))
+    .limit(1);
+  return row?.c ?? null;
+}
 
 const router = Router();
 const secret = new TextEncoder().encode(env.JWT_SECRET);
@@ -81,12 +95,14 @@ router.post('/login', async (req: Request, res: Response) => {
   // cada petición resuelve contra la base (`resolverPermisos`, RN-A5). El sobre las lleva solo para
   // pintar el menú; la decisión la toma `exigirFuncion` en cada ruta.
   const paginas = await paginasEfectivasDeUsuario(user.id);
+  // HU #12088: el código del token sale de la puente, no de users.transito_codigo (obsoleta).
+  const transitoCodigo = await transitoCodigoDesdePuente(user.id);
 
   const token = await new SignJWT({
     sub: String(user.id),
     username: user.username,
     role: user.role,
-    ...(user.transitoCodigo ? { transitoCodigo: user.transitoCodigo } : {}),
+    ...(transitoCodigo ? { transitoCodigo } : {}),
   })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
@@ -103,7 +119,7 @@ router.post('/login', async (req: Request, res: Response) => {
     user: {
       id: user.id, name: user.name, username: user.username, role: user.role,
       allowedPages: paginas,
-      transitoCodigo: user.transitoCodigo ?? null,
+      transitoCodigo,
       puedeSolicitarSoat: await puedeSolicitarSoat({ role: user.role, companiaId: user.companiaId }),
     },
   });
@@ -139,7 +155,6 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
     name: users.name,
     role: users.role,
     allowedPages: users.allowedPages,
-    transitoCodigo: users.transitoCodigo,
     companiaId: users.companiaId,
   }).from(users).where(eq(users.id, req.user!.sub)).limit(1);
 
@@ -151,13 +166,16 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   // `companiaId` se saca del objeto y NO se devuelve: la web no lo usa —el aislamiento lo aplica el
   // servidor en cada consulta— y publicarlo solo añadiría un identificador interno a una respuesta
   // que ya viaja a un tercero. Lo que sale es el booleano derivado.
+  // HU #12088: `transitoCodigo` = 1.er código de la puente (no la columna obsoleta).
   const { companiaId, ...publico } = user;
+  const transitoCodigo = await transitoCodigoDesdePuente(req.user!.sub);
 
   // Devuelve allowedPages "efectivas" para que el frontend filtre UI directamente. Desde la
   // HU #12082 salen del resolutor único (`resolverPermisos`, cacheado 60 s por usuario), el mismo
   // que decide en el servidor: el menú y el 403 no pueden divergir.
   res.json({
     ...publico,
+    transitoCodigo,
     allowedPages: await paginasEfectivasDeUsuario(req.user!.sub),
     puedeSolicitarSoat: await puedeSolicitarSoat({ role: user.role, companiaId }),
   });

@@ -272,10 +272,14 @@ export interface CrearUsuarioInput {
    * `rolAsignable()` en la ruta, y por debajo la FK `users_role_fkey`.
    */
   role: RoleCode;
+  /**
+   * HU #12088: siempre `null` en escrituras. La fuente de organismos es `flito_gestor_organismos`.
+   * Se conserva en el input para no romper el shape de auditoría/`crearUsuario`; la ruta lo fuerza.
+   */
   transitoCodigo: string | null;
   companiaId: number | null;
   flitoProveedorSoatId: string | null;
-  /** El conjunto del gestor; `[]` para el resto de roles (AC3 ya lo validó antes de llegar aquí). */
+  /** Conjunto de organismos para tipo_enlace=organismos_transito; `[]` para el resto. */
   organismosCodigos: string[];
   /** HU #12087: las excepciones iniciales; `[]` si no vienen. Los códigos ya pasaron `funcionesInexistentes`. */
   funciones: FuncionDeUsuario[];
