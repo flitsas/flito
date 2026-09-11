@@ -18,7 +18,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  CAMPO_LABELS, PAGES, ROLE_LABELS,
+  CAMPO_LABELS, PAGES, ROLE_LABELS, decodificarExcepcion,
   type EntidadAuditable, type ItemAuditoriaPermisos, type RespuestaAuditoriaPermisos,
   type TitularAuditoria, type ValorAuditable,
 } from '@operaciones/shared-types';
@@ -349,7 +349,9 @@ function Cambio({ item }: { item: ItemAuditoriaPermisos }) {
   if (item.accion === 'borrar') {
     return <span><span aria-hidden="true">—</span><span className="sr-only">Sin valor</span></span>;
   }
-  if (esConjunto(item.valorDespues)) return <Conjunto antes={item.valorAntes} despues={item.valorDespues} campo={item.campo} />;
+  if (esConjunto(item.valorDespues)) {
+    return <Conjunto antes={item.valorAntes} despues={item.valorDespues} campo={item.campo} entidad={item.entidad} />;
+  }
   return (
     <span>
       {escalar(item.campo, item.valorAntes)}
@@ -388,15 +390,19 @@ const MAX_LISTADOS = 12;
  * pero no tienen variante oscura y sobre `#1E2F4C` dan 2,61 y 2,35. Se aplica la salida que la
  * ficha dejó escrita.
  */
-function Conjunto({ antes, despues, campo }: {
+function Conjunto({ antes, despues, campo, entidad }: {
   antes: ValorAuditable | null;
   despues: { conjunto: string[]; concedidas?: string[]; revocadas?: string[] };
   campo: ItemAuditoriaPermisos['campo'];
+  entidad: EntidadAuditable;
 }) {
+  const esUsuarioFuncion = entidad === 'usuario_funcion';
   const concedidas = despues.concedidas ?? [];
   const revocadas = despues.revocadas ?? [];
+  const labelNuevas = esUsuarioFuncion ? 'Excepciones nuevas' : 'Añadidas';
+  const labelRetiradas = esUsuarioFuncion ? 'Excepciones retiradas' : 'Quitadas';
   const etiquetar = (codigos: string[]) => [...codigos].sort().map((c, i) => (
-    <span key={c}>{i > 0 && ' · '}<Codigo codigo={c} campo={campo} /></span>
+    <span key={c}>{i > 0 && ' · '}<Codigo codigo={c} campo={campo} entidad={entidad} /></span>
   ));
 
   if (concedidas.length === 0 && revocadas.length === 0) {
@@ -414,10 +420,10 @@ function Conjunto({ antes, despues, campo }: {
   return (
     <ul className="space-y-0.5">
       {concedidas.length > 0 && (
-        <li><span className="font-semibold">Añadidas ({concedidas.length}):</span> {etiquetar(concedidas)}</li>
+        <li><span className="font-semibold">{labelNuevas} ({concedidas.length}):</span> {etiquetar(concedidas)}</li>
       )}
       {revocadas.length > 0 && (
-        <li><span className="font-semibold">Quitadas ({revocadas.length}):</span> {etiquetar(revocadas)}</li>
+        <li><span className="font-semibold">{labelRetiradas} ({revocadas.length}):</span> {etiquetar(revocadas)}</li>
       )}
       <li style={{ color: 'var(--flit-text-muted)' }}>Quedan {despues.conjunto.length}</li>
     </ul>
@@ -428,11 +434,33 @@ function Conjunto({ antes, despues, campo }: {
  * La etiqueta si se conoce y el código en monoespaciada si no (ficha UX §5-3). Las páginas se
  * resuelven con `PAGES`; las operaciones no tienen catálogo en el web y se leen como código: cierto,
  * feo, y no falso. Los organismos se pintan tal cual, que es lo que la lista de al lado ya enseña.
+ * HU #12087: `usuario_funcion` decodifica `conceder:X` / `revocar:X` → «Añadido · Nombre» / «Quitado · Nombre».
  */
-function Codigo({ codigo, campo }: { codigo: string; campo: ItemAuditoriaPermisos['campo'] }) {
+function Codigo({ codigo, campo, entidad }: {
+  codigo: string;
+  campo: ItemAuditoriaPermisos['campo'];
+  entidad: EntidadAuditable;
+}) {
   if (campo === 'organismos_codigos') return <span>{codigo}</span>;
+  if (entidad === 'usuario_funcion') {
+    const exc = decodificarExcepcion(codigo);
+    if (exc) {
+      const nombre = nombreDeFuncion(exc.codigo);
+      const prefijo = exc.efecto === 'conceder' ? 'Añadido' : 'Quitado';
+      return <span>{prefijo} · {nombre}</span>;
+    }
+  }
   const slug = codigo.startsWith('pagina.') ? codigo.slice('pagina.'.length) : codigo;
   const etiqueta = (PAGES as Record<string, string>)[slug];
   if (etiqueta && (campo === 'allowed_pages' || codigo.startsWith('pagina.'))) return <span>{etiqueta}</span>;
   return <code className="font-mono text-xs">{codigo}</code>;
+}
+
+function nombreDeFuncion(codigo: string): string {
+  if (codigo.startsWith('pagina.')) {
+    const slug = codigo.slice('pagina.'.length);
+    const etiqueta = (PAGES as Record<string, string>)[slug];
+    if (etiqueta) return etiqueta;
+  }
+  return codigo;
 }

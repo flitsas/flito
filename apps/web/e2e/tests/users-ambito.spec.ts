@@ -47,7 +47,7 @@ type Fila = Record<string, unknown>;
 function usuario(over: Fila): Fila {
   return {
     id: 2, username: 'u', name: 'Usuario', email: null, role: 'admin', active: true,
-    allowedPages: [], transitoCodigo: null, companiaId: null,
+    allowedPages: [], funciones: [], transitoCodigo: null, companiaId: null,
     flitoProveedorSoatId: null, organismosCodigos: [],
     createdAt: '2026-01-01T00:00:00.000Z', ...over,
   };
@@ -58,6 +58,14 @@ const json = (body: unknown, status = 200) => ({ status, contentType: 'applicati
 async function mockCatalogos(page: Page, opts: { proveedores?: unknown[]; organismos?: unknown[] } = {}) {
   await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat$/, (r) => r.fulfill(json(opts.proveedores ?? PROVEEDORES)));
   await page.route(/\/api\/flito\/parametrizacion\/organismos$/, (r) => r.fulfill(json(opts.organismos ?? ORGANISMOS)));
+  // HU #12087: el picker pide catálogo + cuadro; sin esto queda en error y el form cambia de forma.
+  await page.route(/\/api\/permisos\/funciones$/, (r) => r.fulfill(json({
+    grupos: [{ modulo: 'general', funciones: [{ codigo: 'pagina.dashboard', nombreNegocio: 'Entrar al tablero', descripcion: null, tipo: 'pagina' }] }],
+  })));
+  await page.route(/\/api\/permisos\/roles\/[^/]+\/funciones$/, (r) => {
+    const codigo = decodeURIComponent(new URL(r.request().url()).pathname.split('/').at(-2) ?? '');
+    return r.fulfill(json({ codigo, tipoPrincipal: 'interno', funciones: ['pagina.dashboard'] }));
+  });
 }
 
 /** Listado + captura de lo que viaja en el POST y en el PATCH. */

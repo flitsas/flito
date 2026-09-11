@@ -1,5 +1,5 @@
 import { Page } from '@playwright/test';
-import { PAGES } from '@operaciones/shared-types';
+import { PAGES, isValidPage, paginasPorDefecto, type UserRole } from '@operaciones/shared-types';
 
 /**
  * Las páginas que `/auth/me` devuelve DE VERDAD para un admin de producción.
@@ -22,6 +22,16 @@ import { PAGES } from '@operaciones/shared-types';
  * un fallo de permisos en vez de verlo.
  */
 export const ADMIN_ALLOWED_PAGES = Object.keys(PAGES).filter((slug) => slug !== 'flito_ayuda');
+
+/**
+ * Reproduce lo que el servidor pone en `/me`: ∪(defaults del rol, allowedPages del fixture).
+ * HU #12087: la SPA ya no une en el cliente; el mock de `/me` tiene que traer la lista resuelta.
+ */
+export function sobreDeMe<T extends { role: string; allowedPages?: string[] | null }>(user: T): T & { allowedPages: string[] } {
+  const fromRole = paginasPorDefecto(user.role as UserRole);
+  const fromUser = (user.allowedPages ?? []).filter(isValidPage);
+  return { ...user, allowedPages: Array.from(new Set([...fromRole, ...fromUser])) };
+}
 
 export const ADMIN_USER = {
   id: 1,
@@ -140,9 +150,11 @@ const TOKEN_E2E = 'fake.jwt.e2e';
  * ese orden da un rojo desconcertante, con la app en `/` y sin formulario de login.
  */
 export async function loginAs(page: Page, user = ADMIN_USER) {
+  const me = sobreDeMe(user);
   // /me responde 200 con el user — necesario para que useAuth() considere la sesión válida.
+  // HU #12087: lista resuelta como el servidor (`sobreDeMe`).
   await page.route('**/api/auth/me', async (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(user) })
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(me) })
   );
   // Pasamos por /login para tener un origin válido y poder escribir en localStorage.
   await page.goto('/login');

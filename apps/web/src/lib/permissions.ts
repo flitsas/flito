@@ -1,8 +1,10 @@
 // Catálogo de páginas, roles y permisos: FUENTE ÚNICA en @operaciones/shared-types
-// (compartida con el backend). Este módulo solo re-exporta + añade los helpers
-// `effectivePages`/`hasPage` (forma Set, conveniente para la UI) sobre el
-// `getEffectivePages` compartido. NO redefinir catálogos aquí.
-import { getEffectivePages, type PageSlug, type UserRole } from '@operaciones/shared-types';
+// (compartida con el backend). Este módulo re-exporta + añade `effectivePages`/`hasPage`.
+//
+// HU #12087: `effectivePages` devuelve exactamente `user.allowedPages` filtrado por `isValidPage`
+// (lo que ya resolvió `/me`). La SPA ya no une con `getEffectivePages` / defaults compilados.
+
+import { isValidPage, type PageSlug, type UserRole } from '@operaciones/shared-types';
 // `rutaInicio` (abajo) deriva el destino del catálogo de navegación. El import es de VALOR y va en
 // este sentido; el que `navItems.ts` hace de este módulo es `import type` y se borra al compilar,
 // así que no hay ciclo en ejecución. Ver la nota de `lib/ayudaFlito.ts`.
@@ -23,10 +25,13 @@ export type { PageSlug, UserRole } from '@operaciones/shared-types';
 /** Lo mínimo que hay que saber de un usuario para resolver sus permisos. */
 export type UsuarioPermisos = { role: string; allowedPages?: string[] | null };
 
+/**
+ * Páginas efectivas en el menú: exactamente lo que trajo `/me` (ya resuelto en servidor).
+ * Sin unión con defaults compilados — eso tapaba `revocar` / cuadros editados (#12085+#12087).
+ */
 export function effectivePages(user: UsuarioPermisos | null): Set<PageSlug> {
   if (!user) return new Set();
-  // role llega como string desde el JWT/me; getEffectivePages valida internamente.
-  return new Set(getEffectivePages(user as { role: import('@operaciones/shared-types').UserRole; allowedPages?: string[] | null }));
+  return new Set((user.allowedPages ?? []).filter(isValidPage));
 }
 
 export function hasPage(user: UsuarioPermisos | null, page: PageSlug): boolean {
