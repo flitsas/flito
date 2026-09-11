@@ -271,6 +271,7 @@ describe('POST /api/users/:id/reactivar', () => {
     expect(res.status).toBe(200);
     expect(res.body.deletedAt).toBeNull();
     expect(res.body.active).toBe(false);
+    expect(invalidarCacheMock).toHaveBeenCalledWith(OTRO);
     const cambio = auditoriaMock.mock.calls[0][2];
     expect(cambio.accion).toBe('reactivar');
     expect(cambio.campo).toBe('deleted_at');
