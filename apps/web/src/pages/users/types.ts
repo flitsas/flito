@@ -1,10 +1,8 @@
 // FLITO — el usuario tal y como lo ve la pantalla de gestión de usuarios, y su presentación por rol.
 // Extraído de `pages/Users.tsx` sin cambios. HU #12175 / Feature #12072.
-//
-// Aquí no hay lógica: es el contrato de `GET /users` recortado a lo que la pantalla usa, más las
-// dos tablas de presentación que la tabla y los formularios comparten. Vive aparte para que
-// añadir un rol o una columna no obligue a abrir la página.
+// HU #12087: `funciones` (excepciones) es la fuente; `allowedPages` queda @deprecated.
 
+import type { FuncionDeUsuario } from '@operaciones/shared-types';
 import type { ChipTone } from '../../components/flit/StatusChip';
 import { ROLE_LABELS, USER_ROLES, type UserRole } from '../../lib/permissions';
 
@@ -15,7 +13,13 @@ export interface User {
   email: string | null;
   role: UserRole;
   active: boolean;
-  allowedPages: string[];
+  /**
+   * Excepciones sobre el cuadro del rol (`conceder` / `revocar`). **Siempre array**, como
+   * `organismosCodigos`: `[]` si no hay ninguna.
+   */
+  funciones: FuncionDeUsuario[];
+  /** @deprecated HU #12087: congelada; la SPA no la lee ni la escribe. Fuente: `funciones`. */
+  allowedPages?: string[];
   transitoCodigo?: string | null;
   /** Compañía del rol `cliente` (Feature #11912). Obligatoria para ese rol y prohibida en el resto. */
   companiaId?: number | null;

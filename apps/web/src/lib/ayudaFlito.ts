@@ -1,10 +1,8 @@
 import { CATALOGO_AYUDA, type ClaveAyuda, type EntradaAyuda } from '../content/ayuda/catalogo';
-// `getEffectivePages` se toma de la fuente única y NO el `hasPage` de `lib/permissions`, aunque sea
-// el mismo cálculo: desde la HU #11913 `permissions.ts` consume `NAV_ITEMS` para `rutaInicio`, y
-// `navItems.ts` consume este módulo. Importar `hasPage` cerraría el ciclo
-// permissions → navItems → ayudaFlito → permissions en tiempo de EJECUCIÓN (el import que
-// `navItems.ts` hace de `permissions.ts` es `import type`, y se borra al compilar).
-import { getEffectivePages, type UserRole } from '@operaciones/shared-types';
+// HU #12087: se mira `allowedPages` del sobre `/me` (ya resuelto). NO se importa `hasPage` de
+// `lib/permissions`: desde la HU #11913 ese módulo consume `NAV_ITEMS` para `rutaInicio`, y
+// `navItems.ts` consume este — importar `hasPage` cerraría el ciclo en tiempo de ejecución.
+import { isValidPage, type UserRole } from '@operaciones/shared-types';
 
 export type UsuarioAyuda = { role: UserRole; allowedPages?: string[] | null };
 
@@ -27,7 +25,7 @@ export function puedeVerEntradaAyuda(user: UsuarioAyuda | null, entrada: Entrada
   if (user.role === 'cliente') return false;
   if (entrada.clave === 'siigo_credenciales') return user.role === 'admin';
   if (!entrada.permiso) return false;
-  return getEffectivePages(user).includes(entrada.permiso);
+  return (user.allowedPages ?? []).filter(isValidPage).includes(entrada.permiso);
 }
 
 /** Menú, paleta, índice y gate de `/flito/ayuda`: ≥1 ficha del catálogo visible. */
