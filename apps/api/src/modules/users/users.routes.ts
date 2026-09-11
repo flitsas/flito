@@ -23,6 +23,7 @@ import {
   resumenUsuarios, rolAsignable,
   type FiltrosUsuarios, type PaginacionUsuarios,
 } from './users.service.js';
+import { handleDarDeBaja, handleReactivar } from './users-baja.js';
 // HU #12087: la existencia de los códigos se pregunta al mismo sitio que el cuadro del rol
 // (dependencia en un solo sentido: `users` → `permisos`; `permisos` no importa nada de aquí).
 import { FuncionesInexistentesError, funcionesInexistentes } from '../permisos/permisos-roles.service.js';
@@ -57,6 +58,10 @@ router.patch('/:id/password', authMiddleware, async (req: Request, res: Response
         }
         const [user] = await db.select().from(users).where(eq(users.id, id)).limit(1);
         if (!user) {
+            res.status(404).json({ error: 'Usuario no encontrado' });
+            return;
+        }
+        if (user.deletedAt) {
             res.status(404).json({ error: 'Usuario no encontrado' });
             return;
         }
@@ -97,6 +102,9 @@ const listadoQuerySchema = z.object({
     q: z.string().max(100).optional(),
     pagina: z.coerce.number().int().positive().max(100000).optional(),
     porPagina: z.coerce.number().int().positive().max(500).optional(),
+    // HU #12089: default excluye bajas; `incluirBajas` las trae; `soloBajas` = solo con deleted_at.
+    incluirBajas: z.enum(['true', 'false']).optional(),
+    soloBajas: z.enum(['true', 'false']).optional(),
 });
 /** `undefined` cuando la query no valida; el llamador ya respondió el 400. */
 function leerConsulta(req: Request, res: Response): { filtros: FiltrosUsuarios; paginacion: PaginacionUsuarios } | undefined {
@@ -105,13 +113,16 @@ function leerConsulta(req: Request, res: Response): { filtros: FiltrosUsuarios; 
         res.status(400).json({ error: 'Filtros inválidos', details: parsed.error.flatten() });
         return undefined;
     }
-    const { rol, activo, q, pagina, porPagina } = parsed.data;
+    const { rol, activo, q, pagina, porPagina, incluirBajas, soloBajas } = parsed.data;
     const texto = q?.trim();
+    const solo = soloBajas === 'true';
     return {
         filtros: {
             rol: rol,
             activo: activo === undefined ? undefined : activo === 'true',
             q: texto ? texto : undefined,
+            incluirBajas: solo ? true : incluirBajas === 'true',
+            soloBajas: solo || undefined,
         },
         paginacion: { pagina, porPagina },
     };
@@ -166,7 +177,7 @@ router.get('/export', exigirFuncion('usuarios.usuario.exportar'), async (req: Re
         name: u.name,
         email: u.email ?? '',
         role: ROLE_LABELS[u.role as UserRole] ?? u.role,
-        estado: u.active ? 'Activo' : 'Inactivo',
+        estado: u.deletedAt ? 'Dado de baja' : (u.active ? 'Activo' : 'Inactivo'),
         ambito: textoAmbito(enlacePorRol.get(u.role) ?? 'ninguno', u, porUsuario.get(u.id) ?? [], companias, proveedores),
         createdAt: u.createdAt,
     }));
@@ -181,15 +192,18 @@ router.get('/export', exigirFuncion('usuarios.usuario.exportar'), async (req: Re
         { header: 'Nombre', key: 'name', width: 28 },
         { header: 'Correo', key: 'email', width: 28 },
         { header: 'Rol', key: 'role', width: 22 },
-        { header: 'Estado', key: 'estado', width: 12 },
+        { header: 'Estado', key: 'estado', width: 14 },
         { header: 'Ámbito', key: 'ambito', width: 32 },
         { header: 'Fecha de creación', key: 'createdAt', width: 20 },
     ], rows);
 });
 // === Conteo por rol y por estado =============================================
 router.get('/resumen', exigirFuncion('usuarios.usuario.ver_resumen'), async (req: Request, res: Response) => {
-    const resumen = await resumenUsuarios();
-    await audit(req, { action: 'view', resource: 'user', detail: `Resumen usuarios (${resumen.activos + resumen.inactivos})` });
+    const consulta = leerConsulta(req, res);
+    if (!consulta)
+        return;
+    const resumen = await resumenUsuarios(consulta.filtros);
+    await audit(req, { action: 'view', resource: 'user', detail: `Resumen usuarios (${resumen.activos + resumen.inactivos + resumen.dadosDeBaja})` });
     res.json(resumen);
 });
 // === Historial de cambios de usuarios, roles y permisos (HU #12171, CF-19) ====
@@ -465,8 +479,18 @@ router.post('/', exigirFuncion('usuarios.usuario.crear'), async (req: Request, r
     }
     const existing = await db.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1);
     if (existing.length > 0) {
-        res.status(409).json({ error: 'Username ya registrado' });
+        // AC6: 409 también si la fila está de baja (username no se libera). Mensaje sugiere reactivar
+        // sin confirmar el estado (evita enumeración fina).
+        res.status(409).json({ error: 'Username ya registrado. Si corresponde a un usuario dado de baja, use reactivar.' });
         return;
+    }
+    if (email) {
+        const [porEmail] = await db.select({ id: users.id }).from(users)
+            .where(sql`lower(${users.email}) = lower(${email})`).limit(1);
+        if (porEmail) {
+            res.status(409).json({ error: 'Email ya registrado. Si corresponde a un usuario dado de baja, use reactivar.' });
+            return;
+        }
     }
     if (rol.tipoEnlace === 'compania' && !(await companiaExiste(companiaId!))) {
         res.status(400).json({ error: MSG_COMPANIA_NO_EXISTE });
@@ -540,6 +564,11 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
     avisarTransitoCodigoObsoleto(req, 'PATCH');
     const [before] = await db.select().from(users).where(eq(users.id, id)).limit(1);
     if (!before) {
+        res.status(404).json({ error: 'Usuario no encontrado' });
+        return;
+    }
+    // HU #12089: operaciones de escritura sobre baja → 404 (salvo reactivar).
+    if (before.deletedAt) {
         res.status(404).json({ error: 'Usuario no encontrado' });
         return;
     }
@@ -722,6 +751,11 @@ router.patch('/:id/toggle', exigirFuncion('usuarios.usuario.activar'), async (re
         res.status(404).json({ error: 'Usuario no encontrado' });
         return;
     }
+    // HU #12089: no se suspende (toggle) a quien ya está de baja.
+    if (before.deletedAt) {
+        res.status(404).json({ error: 'Usuario no encontrado' });
+        return;
+    }
     // Guard 2: si va a desactivar a un admin activo, asegurar que quede al menos otro admin activo.
     if (before.active && before.role === 'admin') {
         const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(users)
@@ -769,7 +803,7 @@ router.post('/:id/invalidate-sessions', exigirFuncion('usuarios.sesiones.invalid
     }
     const [updated] = await db.update(users)
         .set({ sessionInvalidatedAt: new Date() })
-        .where(eq(users.id, id))
+        .where(and(eq(users.id, id), sql`${users.deletedAt} is null`))
         .returning({ id: users.id, username: users.username });
     if (!updated) {
         res.status(404).json({ error: 'Usuario no encontrado' });
@@ -780,4 +814,10 @@ router.post('/:id/invalidate-sessions', exigirFuncion('usuarios.sesiones.invalid
     await audit(req, { action: 'update', resource: 'user_session', resourceId: String(id), detail: 'Sesiones invalidadas manualmente' });
     res.json({ ok: true, user: updated });
 });
+
+// HU #12089: baja lógica (DELETE) y reactivación. Handlers en users-baja.ts (techo 800 líneas).
+// Literales `exigirFuncion('…')` aquí: el lector de montajes de permisos lee este fichero.
+router.delete('/:id', exigirFuncion('usuarios.usuario.baja'), handleDarDeBaja);
+router.post('/:id/reactivar', exigirFuncion('usuarios.usuario.reactivar'), handleReactivar);
+
 export default router;

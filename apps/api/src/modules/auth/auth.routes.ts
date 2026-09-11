@@ -55,8 +55,8 @@ router.post('/login', async (req: Request, res: Response) => {
   // Los conductores tipean en móvil y los usernames se crearon con mayúsculas mixtas.
   const [user] = await db.select().from(users).where(sql`lower(${users.username}) = lower(${username})`).limit(1);
 
-  if (!user || !user.active) {
-    await audit(req, { action: 'login_failed', resource: 'auth', detail: `Username: ${username.slice(0, 3)}*** - no encontrado o inactivo` });
+  if (!user || !user.active || user.deletedAt) {
+    await audit(req, { action: 'login_failed', resource: 'auth', detail: `Username: ${username.slice(0, 3)}*** - no encontrado, inactivo o de baja` });
     await registerFailed(username);
     res.status(401).json({ error: 'Credenciales inválidas' });
     return;
