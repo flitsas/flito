@@ -4,7 +4,6 @@
 // La visibilidad la impone el servidor: Operaciones ve todo; el gestor solo su proveedor y nunca
 // los Pendiente; Auditoría es solo lectura.
 
-import { puedeOperar } from '../lib/permissions';
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ANS_OPERATIVO, ESTADO_SOAT_LABEL, EstadoSoat, type FiltroVigenciaCola } from '@operaciones/shared-types';
@@ -156,20 +155,21 @@ const ESTADOS_CLIENTE: EstadoSoat[] = [
 ];
 
 export default function FlitoSoat() {
-  const { user } = useAuth();
-  const esOperaciones = puedeOperar(user?.role);
-  const esGestor = user?.role === 'proveedor';
-  const soloLectura = user?.role === 'auditor';
-  // Usuario de una compañía cliente (Feature #11912). No ve nada de la trastienda: ni con qué
-  // proveedor trabaja FLITO, ni quién lo despachó, ni lo que FLITO pagó por la póliza. El backend
-  // ya no se lo manda —esa es la garantía—; esto es lo que evita que la pantalla pinte columnas
-  // vacías de datos que para él no existen.
-  const esCliente = user?.role === 'cliente';
+  const { user, hasFuncion, funciones } = useAuth();
+  // HU #12170: modos de UI derivados de funciones del catálogo, no de `role ===`.
+  const esOperaciones = hasFuncion('soat.solicitud.enviar');
+  const esGestor = hasFuncion('soat.comprobante.cargar') && !esOperaciones;
+  const soloLectura = hasFuncion('soat.cola.ver') && !hasFuncion('soat.comprobante.cargar') && !esOperaciones;
+  // Canal cliente: tiene radicar y no envía a gestor (admin tiene ambas → operaciones).
+  const esCliente = hasFuncion('soat.solicitud.crear') && !esOperaciones;
   // La capacidad de radicar (HU #11914). Sale de `/auth/me`, así que resuelve ANTES que la cola y el
   // botón no parpadea de «puedo» a «no puedo». No es la frontera: los dos endpoints del canal la
   // vuelven a comprobar y responden 403.
   const puedeSolicitar = puedeSolicitarSoat(user);
   const { state: estadoNavegacion } = useLocation();
+  // AC4 / CF-21 (se pinta abajo, tras los hooks).
+  const sinFuncionesPantalla = funciones !== null
+    && !hasFuncion('soat.cola.ver') && !hasFuncion('soat.solicitud.crear');
 
   const estadosDisponibles = esGestor ? ESTADOS_GESTOR : esCliente ? ESTADOS_CLIENTE : ESTADOS_ADMIN;
   const [estado, setEstado] = useState<EstadoSoat | 'todos'>(esGestor ? EstadoSoat.SOLICITADO : 'todos');
@@ -385,6 +385,15 @@ export default function FlitoSoat() {
 
   return (
     <div className="space-y-4">
+      {sinFuncionesPantalla ? (
+        <>
+          <PageHeaderCard title="SOAT" />
+          <p className="rounded-[10px] px-4 py-3 text-sm" style={{ background: 'var(--flit-bg-app)', color: 'var(--flit-text-primary)' }}>
+            Su usuario no tiene ninguna función habilitada en esta pantalla. Si cree que debería operar aquí, pida a un administrador que revise el cuadro de su rol.
+          </p>
+        </>
+      ) : (
+      <>
       <PageHeaderCard
         title="SOAT"
         // El subtítulo de siempre es vocabulario de Operaciones —«cola de adquisición», «RN-01»— y le
@@ -682,6 +691,8 @@ export default function FlitoSoat() {
 
       {cargaMasiva && (
         <CargaMasiva onClose={() => setCargaMasiva(false)} onListo={() => { setCargaMasiva(false); refrescar(); }} />
+      )}
+      </>
       )}
     </div>
   );

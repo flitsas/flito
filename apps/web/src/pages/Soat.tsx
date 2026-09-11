@@ -88,7 +88,12 @@ const ESTADO_LABEL: Record<string, { label: string; desc: string }> = {
 const inp = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-3 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
 
 export default function Soat() {
-  const { user } = useAuth();
+  // HU #12170: botones por función efectiva (`/permisos/mios`), no por `role === 'admin'`.
+  // El SOAT legacy aún guarda con `requireRole` en el API; en el catálogo el proxy de «operar»
+  // (crear / exportar / verificar RUNT) es `soat.solicitud.enviar`, que solo trae Operaciones.
+  const { hasFuncion } = useAuth();
+  const puedeOperarSoat = hasFuncion('soat.solicitud.enviar');
+  const puedeListarUsuarios = hasFuncion('usuarios.usuario.listar');
   const [requests, setRequests] = useState<SoatRequest[]>([]);
   const [filterStatus, setFilterStatus] = useState('');
   const [showCreate, setShowCreate] = useState(false);
@@ -109,7 +114,11 @@ export default function Soat() {
   useEffect(() => { load(); }, [filterStatus]);
 
   const openCreate = async () => {
-    const [v, u] = await Promise.all([api.get<Vehicle[]>('/vehicles'), user?.role === 'admin' ? api.get<UserOption[]>('/users') : Promise.resolve([])]);
+    // HU #12170: listar proveedores exige `usuarios.usuario.listar` (misma guarda que GET /users).
+    const [v, u] = await Promise.all([
+      api.get<Vehicle[]>('/vehicles'),
+      puedeListarUsuarios ? api.get<UserOption[]>('/users') : Promise.resolve([]),
+    ]);
     setVehicles(v); setProviders((u as UserOption[]).filter((u) => u.role === 'proveedor')); setSelectedVehicles([]); setShowCreate(true);
   };
 
@@ -200,7 +209,7 @@ export default function Soat() {
         subtitle={`${requests.length} solicitudes`}
         actions={
           <>
-            {user?.role === 'admin' && (
+            {puedeOperarSoat && (
               <GradientButton type="button" onClick={openCreate}>Nueva solicitud</GradientButton>
             )}
             <label className="flit-focus inline-flex cursor-pointer items-center gap-2 rounded-[999px] border bg-white px-4 py-2.5 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>
@@ -208,7 +217,7 @@ export default function Soat() {
               Registrar compras
               <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleUpload} />
             </label>
-            {user?.role === 'admin' && (
+            {puedeOperarSoat && (
               <button onClick={() => api.download(`/soat/export${filterStatus ? `?status=${filterStatus}` : ''}`, 'soat.xlsx')} className="flit-focus inline-flex items-center gap-2 rounded-[999px] border bg-white px-4 py-2.5 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>
                 <svg className="h-4 w-4" style={{ color: 'var(--flit-text-muted)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
                 Exportar
@@ -336,7 +345,7 @@ export default function Soat() {
                         Registrar compra
                       </button>
                     )}
-                    {r.status === 'comprado' && user?.role === 'admin' && isPolicyPlaceholder(r.policyNumber) && (
+                    {r.status === 'comprado' && puedeOperarSoat && isPolicyPlaceholder(r.policyNumber) && (
                       <button onClick={async () => {
                         const t = toast.loading('Consultando RUNT...');
                         try {
@@ -351,7 +360,7 @@ export default function Soat() {
                         Actualizar desde RUNT
                       </button>
                     )}
-                    {r.status === 'comprado' && user?.role === 'admin' && !isPolicyPlaceholder(r.policyNumber) && (
+                    {r.status === 'comprado' && puedeOperarSoat && !isPolicyPlaceholder(r.policyNumber) && (
                       <button onClick={async () => {
                         try {
                           const res = await fetch(`/api/soat/${r.id}/verify`, { method: 'PATCH', headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
