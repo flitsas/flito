@@ -1,6 +1,6 @@
 ## Qué es
 
-La pantalla donde se decide **qué puede hacer cada rol** dentro de FLITO. Muestra la lista de roles con cuántas funciones tiene cada uno y, al lado, el cuadro del rol seleccionado: sus módulos plegados con la cuenta de funciones marcadas. Desde aquí también se crean, editan y borran roles.
+La pantalla donde se decide **qué puede hacer cada rol** dentro de FLITO. Muestra la lista de roles con cuántas funciones tiene cada uno y, al lado, el cuadro del rol seleccionado: sus módulos plegados, repartidos en tres secciones según de dónde viene cada módulo: **FLITO**, **Ya existía y FLITO lo usa** y **Existe pero no se usa**. Cada sección y cada módulo llevan la cuenta de funciones marcadas. Desde aquí también se crean, editan y borran roles.
 
 ## Para quién
 
@@ -13,7 +13,7 @@ Menú **Administración**, ítem **Roles y permisos**, junto a **Usuarios**.
 ## Pasos
 
 1. Elija el rol en la lista de la izquierda (o en el selector **Rol** en pantallas pequeñas).
-2. Abra el módulo que quiera ajustar y marque o desmarque sus funciones. La cuenta del módulo cambia al momento; la de la lista de roles solo cambia al guardar.
+2. Busque el módulo en su sección y ábralo para marcar o desmarcar sus funciones. La cuenta del módulo y la de su sección cambian al momento; la de la lista de roles solo cambia al guardar. Los módulos de **Existe pero no se usa** son anteriores a FLITO: si se marcan, el rol sí entra a esas pantallas, solo que FLITO no las usa hoy.
 3. Pulse **Guardar cambios**. El cambio queda aplicado en la siguiente acción de cada usuario con ese rol; nadie tiene que volver a entrar.
 4. Para repartirlo todo de una vez, use **Marcar todas las funciones**; **Desmarcar todas** hace lo contrario. Ninguno de los dos guarda por sí solo.
 5. **Descartar** devuelve el cuadro a lo guardado y pide confirmación.
@@ -26,7 +26,7 @@ Menú **Administración**, ítem **Roles y permisos**, junto a **Usuarios**.
 - **Cargando**: esqueleto de dos columnas.
 - **Error**: «No se pudo cargar el catálogo de roles y funciones.» con el detalle y **Reintentar**.
 - **Vacío**: sin roles se ofrece **Nuevo rol**; si el catálogo de funciones llega vacío se ofrece **Reintentar**; un rol sin funciones marcadas avisa de que quien lo tenga no verá nada al entrar.
-- **Lleno**: lista de roles y cuadro del rol seleccionado. Con cambios pendientes aparece la barra **Sin guardar** con **Descartar** y **Guardar cambios**.
+- **Lleno**: lista de roles y cuadro del rol seleccionado con sus tres secciones; una sección sin módulos no se muestra. Con cambios pendientes aparece la barra **Sin guardar** con **Descartar** y **Guardar cambios**.
 
 ## Qué no hace
 
@@ -34,4 +34,5 @@ Menú **Administración**, ítem **Roles y permisos**, junto a **Usuarios**.
 - Si dos administradores guardan el mismo rol a la vez, se aplica el último guardado sin aviso.
 - No muestra ni edita usuarios: para cambiarle el rol a alguien vaya a **Usuarios**.
 - No asigna permisos a una persona en particular ni muestra el historial de cambios; eso vive en **Usuarios**.
+- Las secciones solo ordenan la pantalla: no cambian qué se guarda ni qué permisos tiene el rol. Por eso **Tránsito**, **Derechos de tránsito** y **Privacidad y datos** muestran alguna función que en otras pantallas aparece bajo otro nombre de módulo.
 - La dirección de la pantalla no lleva el rol seleccionado: al recargar se vuelve al primero de la lista.
