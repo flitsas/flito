@@ -18,16 +18,17 @@
 // `bloqueTitular` además absorbe S-05 (apellidos que llegan como `' '`) y el descarte de valores no
 // escalares, que son garantías que no hay que volver a ganar aquí.
 //
-// ── El documento: subconsulta correlacionada, NO un join ─────────────────────────────────────────
+// ── El documento y el contacto: subconsulta correlacionada, NO un join ───────────────────────────
 //
-// El número de documento no viaja en `flit_raw`: está en `flito_compradores`, que puede tener VARIAS
-// filas por trámite. Un `leftJoin` en `conJoins` multiplicaría la fila del trámite y con ella los
+// El número de documento —y desde la HU #12531 el correo, el celular y la dirección— no viajan en
+// `flit_raw`: están en `flito_compradores`, que puede tener VARIAS filas por trámite. Un `leftJoin` en `conJoins` multiplicaría la fila del trámite y con ella los
 // totales de dinero, el `count(distinct)` de la paginación y el CSV — el mismo abanico que
 // `SELECT_CONCILIACION_SOAT` explica en su cabecera. La subconsulta devuelve exactamente un valor por
 // fila POR CONSTRUCCIÓN (`ORDER BY id LIMIT 1`: el primer comprador), y no toca a ninguno de los
 // otros llamadores de `conJoins`.
 
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
+import type { PgColumn } from 'drizzle-orm/pg-core';
 import { flitoCompradores, flitoTramites, organismosTransitoConfig } from '../../db/schema.js';
 import {
   bloqueTitular, CLASE_ID, ciudadDeOrganismo, expresionesFlitRaw,
@@ -48,6 +49,10 @@ export interface ColumnasDeFila {
   titularTipoDocumento: TipoDocumentoTitular | null;
   /** Se muestra SIEMPRE que exista, aunque el tipo no clasifique: el número no depende del tipo. */
   titularDocumento: string | null;
+  /** Contacto del PRIMER comprador (HU #12531), por la misma subconsulta que el documento. */
+  titularCorreo: string | null;
+  titularTelefono: string | null;
+  titularDireccion: string | null;
   organismoCodigo: string | null;
   organismoNombre: string | null;
   /** `YYYY-MM` de la fecha de aprobación, en UTC. null sin aprobar. */
@@ -65,12 +70,24 @@ const raw = expresionesFlitRaw(flitoTramites.flitRaw);
  * payload, todavía sin clasificar: la fila expone `titularNombres`/`titularRazonSocial` ya repartidos
  * por `columnasDeFila`, y un nombre igual en la proyección y en la fila invitaría a leer el crudo.
  */
+/**
+ * UNA columna del PRIMER comprador del trámite, por subconsulta correlacionada (ver cabecera). Las
+ * cuatro que se piden llevan exactamente la misma forma —`ORDER BY id LIMIT 1`— para que las cuatro
+ * hablen del MISMO comprador: si cada una eligiera el suyo, el correo podría ser de un titular y el
+ * documento de otro.
+ */
+const delPrimerComprador = (col: PgColumn): SQL<string | null> => sql<string | null>`(SELECT ${col} FROM ${flitoCompradores}
+    WHERE ${flitoCompradores.tramiteId} = ${flitoTramites.id} ORDER BY ${flitoCompradores.id} LIMIT 1)`;
+
 export const SELECT_COLUMNAS_REPORTE = {
   titularTipoFlit: raw.tipo,
   titularNombresFlit: raw.nombres,
   titularApellidosFlit: raw.apellidos,
-  titularDocumento: sql<string | null>`(SELECT ${flitoCompradores.numeroDocumento} FROM ${flitoCompradores}
-    WHERE ${flitoCompradores.tramiteId} = ${flitoTramites.id} ORDER BY ${flitoCompradores.id} LIMIT 1)`,
+  titularDocumento: delPrimerComprador(flitoCompradores.numeroDocumento),
+  // HU #12531 — el contacto del titular, del mismo comprador que el documento.
+  titularCorreo: delPrimerComprador(flitoCompradores.correo),
+  titularTelefono: delPrimerComprador(flitoCompradores.celular),
+  titularDireccion: delPrimerComprador(flitoCompradores.direccion),
   organismoCodigo: flitoTramites.organismoCodigo,
   // Solo existe `alias` en `organismos_transito_config`; el nombre se resuelve en `nombreOrganismo`.
   organismoAlias: organismosTransitoConfig.alias,
@@ -167,6 +184,9 @@ export function columnasDeFila(r: Record<string, unknown>, fechaAprobacionIso: s
     titularRazonSocial: titular.razonSocial,
     titularTipoDocumento: esTipoDocumento(titular.claseId) ? titular.claseId : null,
     titularDocumento: celdaTexto(r.titularDocumento as string | null),
+    titularCorreo: celdaTexto(r.titularCorreo as string | null),
+    titularTelefono: celdaTexto(r.titularTelefono as string | null),
+    titularDireccion: celdaTexto(r.titularDireccion as string | null),
     organismoCodigo: codigo,
     organismoNombre: nombreOrganismo(codigo, r.organismoAlias as string | null),
     ...periodoDe(fechaAprobacionIso),
