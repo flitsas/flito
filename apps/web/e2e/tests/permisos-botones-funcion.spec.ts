@@ -5,7 +5,10 @@
 //   · Con `soat.solicitud.crear` (+ canal) y SIN `soat.solicitud.enviar` → el botón SÍ se pinta
 //     (mutante «helper siempre vacío» lo quitaría).
 //
-// `/permisos/mios` se mockea ANTES de `loginAs`: AuthProvider lo pide al cuajar la sesión.
+// `/permisos/mios` lo mockea `loginAs` con las `funciones` que se le pasan (AuthProvider lo pide al
+// cuajar la sesión). Aquí decía «se mockea ANTES de loginAs» con un `page.route` propio: desde que
+// `loginAs` registra el suyo por defecto, uno registrado antes quedaría tapado (Playwright evalúa
+// las rutas en orden inverso de registro), así que el conjunto viaja por la opción del helper.
 //
 //   npx playwright test e2e/tests/permisos-botones-funcion.spec.ts --reporter=line
 
@@ -17,14 +20,7 @@ const json = (body: unknown, status = 200) => ({
   status, contentType: 'application/json', body: JSON.stringify(body),
 });
 
-async function mockMiosYCola(page: Page, funciones: string[]) {
-  await page.route(/\/api\/permisos\/mios$/, (route) => route.fulfill(json({
-    funciones,
-    rol: 'cliente',
-    tipoPrincipal: 'externo',
-    version: 1,
-    resueltoEn: new Date().toISOString(),
-  })));
+async function mockCola(page: Page) {
   await page.route(/\/api\/flito\/soat(\?|$)/, (route) => {
     if (route.request().method() !== 'GET') return route.fallback();
     return route.fulfill(json({
@@ -38,8 +34,8 @@ async function mockMiosYCola(page: Page, funciones: string[]) {
 
 test.describe('HU #12170 — botones por función efectiva', () => {
   test('conjunto vacío: no pinta «Solicitar SOAT» (AC4 / mutante siempre-true)', async ({ page }) => {
-    await mockMiosYCola(page, []);
-    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCola(page);
+    await loginAs(page, CLIENTE_CON_CANAL, { funciones: [] });
     await page.goto('/flito/soat');
     await expect(page.getByRole('heading', { name: 'SOAT' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Solicitar SOAT' })).toHaveCount(0);
@@ -47,11 +43,11 @@ test.describe('HU #12170 — botones por función efectiva', () => {
   });
 
   test('con soat.solicitud.crear: pinta «Solicitar SOAT» (mutante siempre-vacío)', async ({ page }) => {
-    await mockMiosYCola(page, [
+    await mockCola(page);
+    await loginAs(page, CLIENTE_CON_CANAL, { funciones: [
       'soat.cola.ver', 'soat.cola.filtrar', 'soat.solicitud.crear',
       'soat.solicitud.ver', 'soat.runt.preconsultar', 'soat.factura.leer',
-    ]);
-    await loginAs(page, CLIENTE_CON_CANAL);
+    ] });
     await page.goto('/flito/soat');
     await expect(page.getByRole('link', { name: 'Solicitar SOAT' }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: /Cargar facturas/i })).toHaveCount(0);
