@@ -23,6 +23,8 @@ import FiltrosReporteCostos from '../components/finanzas/FiltrosReporteCostos';
 import TablaReporteCostos from '../components/finanzas/TablaReporteCostos';
 import ConsolidadoReporteCostos from '../components/finanzas/ConsolidadoReporteCostos';
 import { periodoEnCurso, rangoDeMes } from '../components/finanzas/SelectorPeriodo';
+import { cuerpoDeExport, paramsDeCriterios, useExportReporteCostos, type VistaExport } from '../components/finanzas/ExportarReporteCostos';
+import { AvisoVisible } from '../components/flito/ExportarCola';
 import type { FacturacionTramite, ResumenFacturacion } from '../components/finanzas/tiposFacturacion';
 import {
   ESTADO_POR_DEFECTO, faltantes,
@@ -126,24 +128,15 @@ export default function FinanzasReporteCostos() {
   const [consolidadoError, setConsolidadoError] = useState<string | null>(null);
   const [recargaConsolidado, setRecargaConsolidado] = useState(0);
 
-  const params = () => {
-    const p = new URLSearchParams();
-    const f = filtros;
-    if (f.buscar.trim()) p.set('buscar', f.buscar.trim());
-    if (f.empresa) p.set('empresas', f.empresa);
-    if (f.tipo) p.set('tipos', f.tipo);
-    if (f.etapa) p.set('etapa', f.etapa);
-    if (f.desde) p.set('desde', f.desde);
-    if (f.hasta) p.set('hasta', f.hasta);
-    if (f.aprobadoDesde) p.set('aprobadoDesde', f.aprobadoDesde);
-    if (f.aprobadoHasta) p.set('aprobadoHasta', f.aprobadoHasta);
-    if (f.estados.length) p.set('estados', f.estados.join(','));
-    // Por CÓDIGO, que es la identidad del organismo en el API (CF-04); el nombre es para leer.
-    if (f.organismos.length) p.set('organismos', f.organismos.join(','));
-    if (f.docCompleta) p.set('documentacionCompleta', 'si');
-    if (estadoFe) p.set('estadoFacturacion', estadoFe);
-    return p;
-  };
+  // Un solo constructor de criterios (HU #12532, D-04): el objeto es lo que viaja en el cuerpo del
+  // export y `params()` es ese mismo objeto vertido a la query de los GET. Que la tabla y el archivo
+  // digan lo mismo depende de que no haya un segundo sitio donde se decida qué filtro viaja.
+  const criterios = (vista: VistaExport = 'detalle') => ({
+    ...cuerpoDeExport(filtros, estadoFe),
+    // El eje del consolidado. Solo él lo manda: el esquema del export del detalle es `.strict()`.
+    ...(vista === 'consolidado' ? { periodo: filtros.tipoPeriodo } : {}),
+  });
+  const params = () => paramsDeCriterios(criterios());
 
   const limpiarFiltros = () => {
     setFiltros(filtrosIniciales());
@@ -182,9 +175,7 @@ export default function FinanzasReporteCostos() {
     if (vista !== 'consolidado') return;
     setConsolidadoCargando(true);
     setConsolidadoError(null);
-    const p = params();
-    p.set('periodo', filtros.tipoPeriodo);
-    api.get<ConsolidadoReporte>(`/finanzas/reporte-costos/consolidado?${p.toString()}`)
+    api.get<ConsolidadoReporte>(`/finanzas/reporte-costos/consolidado?${paramsDeCriterios(criterios('consolidado')).toString()}`)
       .then(setConsolidado)
       .catch((e) => { setConsolidado(null); setConsolidadoError(errorMessage(e)); })
       .finally(() => setConsolidadoCargando(false));
@@ -319,17 +310,11 @@ export default function FinanzasReporteCostos() {
     return `Liquidación de ${f.idFlit} reversada.`;
   });
 
-  // La exportación cubre TODO el filtro, no la página: se abre en una pestaña para que el
-  // navegador gestione la descarga con su propio indicador de progreso. El orden de las columnas
-  // lo decide el API; la pantalla no lo transforma (CF-17).
-  const exportar = () => {
-    window.open(`/api/finanzas/reporte-costos/export?${params().toString()}`, '_blank');
-  };
-  const exportarConsolidado = () => {
-    const p = params();
-    p.set('periodo', filtros.tipoPeriodo);
-    window.open(`/api/finanzas/reporte-costos/consolidado/export?${p.toString()}`, '_blank');
-  };
+  // La exportación cubre TODO el filtro, no la página, y sale con la sesión del usuario: un POST
+  // con el criterio en el cuerpo (HU #12532), no una pestaña nueva. El orden de las columnas lo
+  // decide el API; la pantalla no lo transforma (CF-17). Estado propio, compartido por los dos
+  // botones e independiente de `enProceso`: exportar no bloquea Liquidar (D-05).
+  const exportacion = useExportReporteCostos(criterios, setAnuncio);
 
   const enConsolidado = vista === 'consolidado';
 
@@ -346,11 +331,38 @@ export default function FinanzasReporteCostos() {
               <FlitPillButton active={!enConsolidado} pressed={!enConsolidado} onClick={() => cambiarVista('detalle')}>Detalle</FlitPillButton>
               <FlitPillButton active={enConsolidado} pressed={enConsolidado} onClick={() => cambiarVista('consolidado')}>Consolidado</FlitPillButton>
             </FlitPillGroup>
+            {/* `aria-busy` además del rótulo: quien navega con lector no ve que el texto cambió.
+                El candado real del doble clic es la `ref` del hook; `disabled` es lo visible. */}
             {enConsolidado
-              ? <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={exportarConsolidado}>Exportar consolidado</button>
-              : <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={exportar}>Exportar CSV</button>}
+              ? (
+                <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+                  onClick={() => exportacion.exportar('consolidado')}
+                  disabled={exportacion.ocupado} aria-busy={exportacion.ocupado || undefined}>
+                  {exportacion.ocupado ? 'Generando…' : 'Exportar consolidado'}
+                </button>
+              )
+              : (
+                <div className="flex flex-col items-end gap-1">
+                  <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+                    onClick={() => exportacion.exportar('detalle')}
+                    disabled={exportacion.ocupado} aria-busy={exportacion.ocupado || undefined}>
+                    {exportacion.ocupado ? 'Generando…' : 'Exportar a Excel'}
+                  </button>
+                  {/* Lo único que no se deduce del botón: la tabla pagina y compacta; el archivo no. */}
+                  <span className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+                    Todo el filtro con todas sus columnas, no solo esta página.
+                  </span>
+                </div>
+              )}
           </div>
         )} />
+
+      {/* El resultado del export, en las dos vistas y aparte del `aviso`/`error` de `ejecutar`, que
+          solo se monta en Detalle y no distingue un 429 del export de un fallo de carga (D-06). El
+          error se anuncia por el `role="alert"` de la tarjeta; el éxito, por la región de estado. */}
+      {!exportacion.ocupado && exportacion.aviso && (
+        <AvisoVisible aviso={exportacion.aviso} onReintentar={exportacion.reintentar} onDescartar={exportacion.descartar} />
+      )}
 
       <FiltrosReporteCostos filtros={filtros} onCambio={cambiarFiltros} facetas={facetas} facetasCargando={facetasCargando}
         resumen={data?.resumen ?? null} hayFiltros={hayFiltros} onLimpiar={limpiarFiltros} />

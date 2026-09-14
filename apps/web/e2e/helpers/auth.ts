@@ -137,7 +137,8 @@ export const CLIENTE_USER = {
 // del AC5 pasaría por vacío el día que alguien invirtiera el valor por defecto.
 export const CLIENTE_CON_CANAL = { ...CLIENTE_USER, puedeSolicitarSoat: true };
 
-const TOKEN_E2E = 'fake.jwt.e2e';
+/** El token que `loginAs` siembra en `localStorage`: lo que un test afirma en `Authorization: Bearer …`. */
+export const TOKEN_E2E = 'fake.jwt.e2e';
 
 /**
  * Deja la pestaña autenticada como `user` y aterrizada en `/login`.
