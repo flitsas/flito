@@ -540,6 +540,9 @@ test.describe('FLITO — Servicios adicionales · editar (AC4)', () => {
 
     // Vaciar la descripción viaja como null, no como ''.
     await page.getByRole('button', { name: 'Editar · Diagnóstico' }).click();
+    // Esperar el foco inicial en Nombre: el formulario lo toma en un requestAnimationFrame y un
+    // fill() anterior perdería la carrera (el select+Delete caería en Nombre).
+    await expect(nombreDe(page)).toBeFocused();
     await descripcionDe(page).fill('');
     await page.getByRole('button', { name: 'Guardar cambios' }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -557,6 +560,7 @@ test.describe('FLITO — Servicios adicionales · editar (AC4)', () => {
     const antes = catalogo.veces();
 
     await page.getByRole('button', { name: 'Editar · Diagnóstico' }).click();
+    await expect(nombreDe(page)).toBeFocused(); // misma carrera que en TC-10
     await valorDe(page).fill('90000');
     catalogo.lista = catalogo.lista.filter((t) => t.id !== 'sa-1');
     await page.getByRole('button', { name: 'Guardar cambios' }).click();
