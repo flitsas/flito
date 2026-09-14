@@ -1,5 +1,5 @@
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, OPERACIONES_USER, AUDITOR_USER } from '../helpers/auth';
+import { loginAs, OPERACIONES_USER, AUDITOR_USER, TOKEN_E2E } from '../helpers/auth';
 
 // HU #10967 — Reporte de costos. Liquidar, facturar y consultar soportes sin salir de la pantalla.
 // Las filas liquidadas muestran valores sellados; el resto, un estimado. Backend mockeado.
@@ -103,6 +103,51 @@ async function mockFacetas(page: import('@playwright/test').Page, estados: strin
       organismos: [{ valor: '05266', nombre: 'Envigado' }, { valor: '05001', nombre: 'Medellín' }],
     }) }));
 }
+
+// ── Exportación a Excel (HU #12532) ──────────────────────────────────────────
+
+const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+type Peticion = import('@playwright/test').Request;
+
+/**
+ * El mock de los dos POST de export. Responde un `.xlsx` de relleno con el nombre que se le pida
+ * —o el error que se le pida— y devuelve la lista de peticiones que llegaron, que es sobre lo que
+ * se afirma: método, cabecera de sesión y cuerpo. **Sin `$` en la ruta pasaría una URL con query**,
+ * y la HU existe para que el criterio no vaya ahí.
+ */
+async function mockExport(
+  page: import('@playwright/test').Page,
+  opciones: { nombre?: string; status?: number; cuerpo?: object; demoraMs?: number } = {},
+) {
+  const peticiones: Peticion[] = [];
+  await page.route(/\/api\/finanzas\/reporte-costos\/(consolidado\/)?export$/, async (route) => {
+    peticiones.push(route.request());
+    if (opciones.demoraMs) await new Promise((r) => setTimeout(r, opciones.demoraMs));
+    if (opciones.status && opciones.status !== 200) {
+      return route.fulfill({ status: opciones.status, contentType: 'application/json', body: JSON.stringify(opciones.cuerpo ?? {}) });
+    }
+    return route.fulfill({
+      status: 200, contentType: XLSX, body: Buffer.from('relleno'),
+      headers: { 'content-disposition': `attachment; filename="${opciones.nombre ?? 'reporte-costos_20260914-1530.xlsx'}"` },
+    });
+  });
+  return peticiones;
+}
+
+/**
+ * La banda VISIBLE del resultado. El mismo texto viaja también por la región `role="status"`
+ * sr-only de la página (es lo que oye el lector, D-08), así que `getByText` a secas resuelve dos
+ * nodos; este locator se queda con el que se ve.
+ */
+const bandaExport = (page: import('@playwright/test').Page, texto: string | RegExp) =>
+  page.getByText(texto).and(page.locator(':not(.sr-only)'));
+
+/** El cuerpo del POST vertido a query, tal como la pantalla arma los GET: para comparar los dos. */
+const queryDeCuerpo = (cuerpo: Record<string, unknown>) => {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(cuerpo)) p.set(k, v === true ? 'si' : Array.isArray(v) ? v.join(',') : String(v));
+  return p.toString();
+};
 
 /**
  * Facturación electrónica (HU #11337). Se mockea SIEMPRE, aunque el test no la mire: la pantalla la
@@ -782,7 +827,7 @@ test.describe('Reporte de costos — facturación electrónica', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HU #11681 — la marca de conciliado en la celda de SOAT, y de dónde sale el CSV.
+// HU #11681 — la marca de conciliado en la celda de SOAT, y de dónde sale el archivo exportado.
 //
 // Describe propio: estos casos no comparten el reporte de seis filas de los de arriba. Se montan
 // sobre DOS filas idénticas salvo por la conciliación, que es lo que permite atribuirle a la marca
@@ -875,31 +920,24 @@ test.describe('Reporte de costos — conciliación del SOAT', () => {
     expect(await centro(importe(celdaConciliada))).toBeLessThan(await centro(celdaConciliada));
   });
 
-  test('AC3 — la pantalla PIDE el CSV al servidor con sus filtros, no lo arma por su cuenta', async ({ page }) => {
+  test('AC3 — la pantalla PIDE el archivo al servidor con sus filtros, no lo arma por su cuenta', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockConciliacion(page);
-
-    // A nivel de CONTEXTO: la exportación se abre en una pestaña nueva, y `page.route` no la ve.
-    //
     // El cuerpo que devuelve el mock es de relleno: lo escribe este mismo archivo y **no se afirma
-    // nada sobre él**. Afirmarlo sería comprobar el mock. La columna «SOAT conciliado» la añadió la
-    // HU #11679 en `aCsv`, y quien la comprueba es la prueba de la API, no esta.
-    const pedidas: string[] = [];
-    await page.context().route(/\/api\/finanzas\/reporte-costos\/export/, (route) => {
-      pedidas.push(route.request().url());
-      return route.fulfill({ status: 200, contentType: 'text/csv', body: 'relleno\r\n' });
-    });
+    // nada sobre él**. La columna «SOAT conciliado» la comprueba la prueba de la API, no esta.
+    const pedidas = await mockExport(page);
 
     await page.goto('/finanzas/reporte-costos');
-    await page.getByRole('button', { name: 'Exportar CSV' }).click();
+    await page.getByRole('button', { name: 'Exportar a Excel' }).click();
 
     // Lo que esta pantalla tiene que garantizar es que no se adelanta armando el archivo por su
-    // cuenta —con las 50 filas de la página en vez de las del filtro, y sin la columna—, así que lo
-    // que se afirma es el PEDIDO: que sale, que sale una sola vez, y que lleva los filtros de la
-    // pantalla en la query. `estados=Aprobado` es el valor POR DEFECTO del filtro de estado, no uno
-    // puesto a mano en este caso: lo que prueba es que los filtros viajan, no que se cambió alguno.
+    // cuenta —con las 50 filas de la página en vez de las del filtro—, así que lo que se afirma es
+    // el PEDIDO: que sale, una sola vez, como POST con la sesión y con los filtros en el cuerpo.
+    // `estados: ['Aprobado']` es el valor POR DEFECTO del filtro, no uno puesto a mano.
     await expect.poll(() => pedidas.length).toBe(1);
-    expect(pedidas[0]).toContain('estados=Aprobado');
+    expect(pedidas[0].method()).toBe('POST');                        // mutante: volver al GET
+    expect(pedidas[0].postDataJSON()).toMatchObject({ estados: ['Aprobado'] });
+    expect(pedidas[0].postDataJSON()).not.toHaveProperty('page');    // mutante: colar `page` en el cuerpo
   });
 });
 
@@ -1235,11 +1273,7 @@ test.describe('Reporte de costos — estado de facturación electrónica (HU #11
       urls.push(route.request().url());
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(REPORTE_FE) });
     });
-    const exportadas: string[] = [];
-    await page.context().route(/\/api\/finanzas\/reporte-costos\/export/, (route) => {
-      exportadas.push(route.request().url());
-      return route.fulfill({ status: 200, contentType: 'text/csv', body: 'Trámite\r\n' });
-    });
+    const exportadas = await mockExport(page);
 
     await page.goto('/finanzas/reporte-costos');
     await page.getByRole('button', { name: 'Falló al emitir 1' }).click();
@@ -1248,11 +1282,12 @@ test.describe('Reporte de costos — estado de facturación electrónica (HU #11
     // Convive con los que ya estaban: el filtro nuevo no borra el estado del trámite ni la etapa.
     expect(urls.at(-1)).toContain('estados=Aprobado');
 
-    // Y el archivo sale del MISMO filtro que la tabla. Un CSV que ignore el filtro puesto es peor
-    // que no exportar: parece el listado que se está viendo y no lo es.
-    await page.getByRole('button', { name: 'Exportar CSV' }).click();
+    // Y el archivo sale del MISMO filtro que la tabla. Un archivo que ignore el filtro puesto es
+    // peor que no exportar: parece el listado que se está viendo y no lo es.
+    await page.getByRole('button', { name: 'Exportar a Excel' }).click();
     await expect.poll(() => exportadas.length).toBe(1);
-    expect(exportadas[0]).toContain('estadoFacturacion=fallido');
+    // mutante: quitar `estadoFacturacion` de `cuerpoDeExport`
+    expect(exportadas[0].postDataJSON()).toMatchObject({ estadoFacturacion: 'fallido', estados: ['Aprobado'] });
   });
 
   test('AC1 — un rol de solo lectura ve estado, filtro y detalle, y ninguna acción de emisión', async ({ page }) => {
@@ -1638,52 +1673,56 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     await expect.poll(() => intentos).toBe(antes + 1);
   });
 
-  test('AC7 — «Exportar consolidado» abre el CSV del consolidado con los mismos filtros y periodo', async ({ page }) => {
+  test('AC7 — «Exportar consolidado» pide el archivo del consolidado con los mismos filtros y periodo', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     const { consolidado } = await mockSecciones(page);
-    const exportadas: string[] = [];
-    await page.context().route(/\/api\/finanzas\/reporte-costos\/(consolidado\/)?export/, (route) => {
-      exportadas.push(route.request().url());
-      return route.fulfill({ status: 200, contentType: 'text/csv', body: 'relleno\r\n' });
-    });
+    const exportadas = await mockExport(page, { nombre: 'consolidado-costos_20260914-1530.xlsx' });
     await page.goto('/finanzas/reporte-costos?vista=consolidado');
     await expect(page.getByRole('row').filter({ hasText: 'ACME SAS' })).toBeVisible();
+    await page.getByRole('combobox', { name: 'Empresa' }).selectOption('900111,9001112');
     await page.locator('summary').filter({ hasText: 'OT' }).click();
     await page.getByRole('checkbox', { name: 'Envigado' }).check();
     await expect.poll(() => consolidado.at(-1) ?? '').toContain('organismos=05266');
     await page.getByRole('button', { name: 'Trimestre' }).click();
     await expect.poll(() => consolidado.at(-1) ?? '').toContain('periodo=trimestre');
 
-    // En el consolidado el botón es «Exportar consolidado», no «Exportar CSV».
-    await expect(page.getByRole('button', { name: 'Exportar CSV' })).toHaveCount(0);
+    // En el consolidado el botón es «Exportar consolidado», el único; no hay «Exportar a Excel».
+    await expect(page.getByRole('button', { name: 'Exportar a Excel' })).toHaveCount(0);
     await page.getByRole('button', { name: 'Exportar consolidado' }).click();
     await expect.poll(() => exportadas.length).toBe(1);
-    expect(exportadas[0]).toContain('/api/finanzas/reporte-costos/consolidado/export?');
-    expect(exportadas[0]).toContain('periodo=trimestre');
-    expect(exportadas[0]).toContain('organismos=05266');
-    expect(querySin(exportadas[0])).toBe(querySin(consolidado.at(-1)!));
+    const peticion = exportadas[0];
+    expect(new URL(peticion.url()).pathname).toBe('/api/finanzas/reporte-costos/consolidado/export');
+    expect(new URL(peticion.url()).search).toBe('');                 // mutante: criterio en la query
+    expect(peticion.method()).toBe('POST');
+    expect(peticion.headers()['authorization']).toBe(`Bearer ${TOKEN_E2E}`); // mutante: quitar Authorization
+    // La faceta trae los NIT de la empresa en un solo valor con coma; el cuerpo los manda partidos,
+    // que es lo que el esquema `.strict()` del API entiende como lista.
+    // mutante: `empresas: [f.empresa]` sin partir
+    expect(peticion.postDataJSON()).toMatchObject({ periodo: 'trimestre', empresas: ['900111', '9001112'], organismos: ['05266'] });
+    // Y el cuerpo es EXACTAMENTE el criterio de la vista: el mismo que el último GET del consolidado.
+    expect(queryDeCuerpo(peticion.postDataJSON())).toBe(querySin(consolidado.at(-1)!));
+    await expect(bandaExport(page, 'Archivo descargado: consolidado-costos_20260914-1530.xlsx')).toBeVisible();
   });
 
-  test('AC7 — «Exportar CSV» del detalle lleva el filtro por organismo', async ({ page }) => {
+  test('AC7 — «Exportar a Excel» del detalle lleva el filtro por organismo', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     const { detalle } = await mockSecciones(page);
-    const exportadas: string[] = [];
-    await page.context().route(/\/api\/finanzas\/reporte-costos\/export/, (route) => {
-      exportadas.push(route.request().url());
-      return route.fulfill({ status: 200, contentType: 'text/csv', body: 'relleno\r\n' });
-    });
+    const exportadas = await mockExport(page);
     await page.goto('/finanzas/reporte-costos');
     await page.locator('summary').filter({ hasText: 'OT' }).click();
     await page.getByRole('checkbox', { name: 'Medellín' }).check();
     await expect.poll(() => detalle.at(-1) ?? '').toContain('organismos=05001');
 
-    await page.getByRole('button', { name: 'Exportar CSV' }).click();
+    await page.getByRole('button', { name: 'Exportar a Excel' }).click();
     await expect.poll(() => exportadas.length).toBe(1);
-    expect(exportadas[0]).toContain('/api/finanzas/reporte-costos/export?');
-    expect(exportadas[0]).not.toContain('/consolidado/');
-    expect(exportadas[0]).toContain('organismos=05001');
-    expect(exportadas[0]).toContain('aprobadoDesde=2026-09-01');
-    expect(querySin(exportadas[0])).toBe(querySin(detalle.at(-1)!, 'page'));
+    const peticion = exportadas[0];
+    expect(new URL(peticion.url()).pathname).toBe('/api/finanzas/reporte-costos/export');
+    expect(peticion.method()).toBe('POST');
+    // mutante: quitar `organismos` de `cuerpoDeExport`
+    expect(peticion.postDataJSON()).toMatchObject({ organismos: ['05001'], aprobadoDesde: '2026-09-01' });
+    expect(peticion.postDataJSON()).not.toHaveProperty('periodo');   // mutante: mandar `periodo` al detalle (400 por `.strict()`)
+    // Sin `page`: el archivo es el filtro entero, la tabla es una página de él.
+    expect(queryDeCuerpo(peticion.postDataJSON())).toBe(querySin(detalle.at(-1)!, 'page'));
   });
 
   test('AC8 — auditor ve las secciones, el titular, la OT, el periodo y el consolidado; sigue sin acciones', async ({ page }) => {
@@ -1712,5 +1751,135 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     await expect.poll(() => consolidado.length).toBe(1);
     await expect(page.getByRole('row').filter({ hasText: 'ACME SAS' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Exportar consolidado' })).toBeVisible();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HU #12532 — descargar el Excel del reporte de costos con la sesión del usuario.
+//
+// Lo que se afirma es la PETICIÓN (método, cabecera, cuerpo, cuántas) y lo que la pantalla dice
+// después; el contenido del `.xlsx` es del API y lo prueba su spec. Backend mockeado.
+test.describe('HU #12532 — exportar a Excel con la sesión', () => {
+  test('AC1/AC3/AC6 — un POST con la sesión, sin pestaña nueva; se guarda con el nombre del servidor', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockSecciones(page);
+    const exportadas = await mockExport(page, { nombre: 'reporte-costos_20260914-1530.xlsx' });
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    // AC6: un solo botón de exportar en Detalle y ningún «CSV» en la pantalla.
+    await expect(page.getByRole('button', { name: /Exportar/ })).toHaveCount(1);
+    await expect(page.getByText(/CSV/)).toHaveCount(0);
+
+    const [descarga] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('button', { name: 'Exportar a Excel' }).click(),
+    ]);
+    await expect.poll(() => exportadas.length).toBe(1);
+    const peticion = exportadas[0];
+    expect(peticion.method()).toBe('POST');                          // mutante: `window.open` / GET
+    expect(new URL(peticion.url()).search).toBe('');                 // mutante: criterio en la query
+    expect(peticion.headers()['authorization']).toBe(`Bearer ${TOKEN_E2E}`); // mutante: quitar Authorization
+    expect(peticion.postDataJSON()).toMatchObject({ estados: ['Aprobado'] });
+    expect(peticion.postDataJSON()).not.toHaveProperty('page');
+    // Sin pestaña nueva: la descarga la hace la propia página.
+    expect(page.context().pages()).toHaveLength(1);                  // mutante: `window.open`
+
+    // AC3: el archivo se guarda con el nombre que declaró el servidor, y el aviso lo repite.
+    expect(descarga.suggestedFilename()).toBe('reporte-costos_20260914-1530.xlsx'); // mutante: nombre fabricado en el cliente
+    await expect(bandaExport(page, 'Archivo descargado: reporte-costos_20260914-1530.xlsx')).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: 'Archivo descargado: reporte-costos_20260914-1530.xlsx' })).toHaveCount(1);
+    // El aviso de éxito no es un `alert`, y se puede quitar.
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Cerrar el aviso' }).click();
+    await expect(bandaExport(page, /Archivo descargado/)).toHaveCount(0);
+  });
+
+  test('AC3 — un nombre que no tiene la forma esperada cae al respaldo', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockSecciones(page);
+    // Un NIT con forma de sello: ocho cifras que no son una fecha.
+    await mockExport(page, { nombre: 'reporte-costos_900123456.xlsx' });
+    await page.goto('/finanzas/reporte-costos');
+    const [descarga] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('button', { name: 'Exportar a Excel' }).click(),
+    ]);
+    expect(descarga.suggestedFilename()).toBe('reporte-costos.xlsx');   // mutante: aceptar cualquier nombre
+    await expect(bandaExport(page, 'Archivo descargado: reporte-costos.xlsx')).toBeVisible();
+  });
+
+  test('AC4 — «Generando…» y deshabilitado en vuelo; un segundo clic no dispara otra petición', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockSecciones(page);
+    const exportadas = await mockExport(page, { demoraMs: 800 });
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    const boton = page.getByRole('button', { name: 'Exportar a Excel' });
+    // Dos clics en el MISMO tick: el segundo llega antes de que React escriba `disabled` en el DOM.
+    // Lo que lo para es la `ref` del hook, no el atributo. mutante: quitar la `ref` y dejar `disabled`
+    await boton.evaluate((b: HTMLButtonElement) => { b.click(); b.click(); });
+
+    const generando = page.getByRole('button', { name: 'Generando…' });
+    await expect(generando).toBeVisible();
+    await expect(generando).toBeDisabled();
+    await expect(generando).toHaveAttribute('aria-busy', 'true');
+    await expect(page.getByRole('status').filter({ hasText: 'Generando el archivo del reporte de costos.' })).toHaveCount(1);
+    // El candado NO es el de liquidar: exportar no enciende `enProceso` (mutante: reutilizar `ejecutar`).
+    await expect(page.getByRole('button', { name: 'Liquidar' }).first()).toBeEnabled();
+
+    await expect(bandaExport(page, /Archivo descargado/)).toBeVisible();
+    expect(exportadas).toHaveLength(1);
+    await expect(page.getByRole('button', { name: 'Exportar a Excel' })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Exportar a Excel' })).not.toHaveAttribute('aria-busy', 'true');
+  });
+
+  test('AC5 — el 422 del tope se ve en pantalla con el texto del servidor y no se guarda nada', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockSecciones(page);
+    await mockExport(page, { status: 422, cuerpo: {
+      codigo: 'export_demasiado_grande', error: 'El filtro trae más de 20000 filas; acota el periodo o el filtro.',
+    } });
+    let descargas = 0;
+    page.on('download', () => { descargas += 1; });
+    await page.goto('/finanzas/reporte-costos');
+    await page.getByRole('button', { name: 'Exportar a Excel' }).click();
+
+    const alerta = page.getByRole('alert');
+    // Eco del servidor y no un copy propio: el tope es del entorno del API. mutante: decidir por texto
+    await expect(alerta).toContainText('El filtro trae más de 20000 filas; acota el periodo o el filtro.');
+    // Repetir daría el mismo 422: sin reintento. mutante: decidir solo por `status` (el 422 genérico sí reintenta)
+    await expect(alerta.getByRole('button', { name: 'Reintentar la descarga' })).toHaveCount(0);
+    await expect(alerta.getByRole('button', { name: 'Cerrar el aviso' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Exportar a Excel' })).toBeEnabled();
+    expect(descargas).toBe(0);                                       // mutante: entregar el blob aunque `!res.ok`
+  });
+
+  test('AC5 — el 429 pide esperar y «Reintentar la descarga» repite el mismo POST', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockSecciones(page);
+    const exportadas = await mockExport(page, { status: 429, cuerpo: { error: 'Demasiados exports seguidos, espera 1 minuto' } });
+    await page.goto('/finanzas/reporte-costos');
+    await page.getByRole('button', { name: 'Exportar a Excel' }).click();
+
+    const alerta = page.getByRole('alert');
+    await expect(alerta).toContainText('Demasiados exports seguidos, espera 1 minuto');
+    await alerta.getByRole('button', { name: 'Reintentar la descarga' }).click();
+    await expect.poll(() => exportadas.length).toBe(2);
+    expect(exportadas[1].method()).toBe('POST');
+    expect(exportadas[1].postData()).toBe(exportadas[0].postData()); // mutante: reintentar sin criterio
+  });
+
+  test('AC7 — el auditor ve «Exportar a Excel» y exporta con su sesión', async ({ page }) => {
+    await loginAs(page, AUDITOR_USER);
+    await mockSecciones(page);
+    const exportadas = await mockExport(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+    await page.getByRole('button', { name: 'Exportar a Excel' }).click();   // mutante: ocultar al auditor
+    await expect.poll(() => exportadas.length).toBe(1);
+    expect(exportadas[0].headers()['authorization']).toBe(`Bearer ${TOKEN_E2E}`);
+    await expect(bandaExport(page, /Archivo descargado: reporte-costos_/)).toBeVisible();
   });
 });
