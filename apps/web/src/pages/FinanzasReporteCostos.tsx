@@ -343,7 +343,9 @@ export default function FinanzasReporteCostos() {
               )
               : (
                 <div className="flex flex-col items-end gap-1">
-                  <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+                  {/* `id`: el enlace «Exportar a Excel» de la línea del conteo de la tabla lleva el
+                      foco aquí (HU #12537); el disparador del export sigue siendo solo este botón. */}
+                  <button type="button" id="exportar-excel" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
                     onClick={() => exportacion.exportar('detalle')}
                     disabled={exportacion.ocupado} aria-busy={exportacion.ocupado || undefined}>
                     {exportacion.ocupado ? 'Generando…' : 'Exportar a Excel'}
@@ -466,6 +468,7 @@ export default function FinanzasReporteCostos() {
                 seleccion={seleccion} onSeleccion={setSeleccion} accionable={accionable}
                 fichasFe={fichasFe} estadoFeDe={estadoFeDe} onAbrirDetalle={setDetalleDe}
                 onLiquidar={liquidarUno} onFacturar={facturarUno} onReversar={reversarUno} onSoportes={setSoportesDe}
+                anunciar={setAnuncio}
                 // Va al final de la celda: el orden de foco es Soporte → Enviar → ¿Por qué no?, la
                 // acción antes que su explicación.
                 accionEnvio={(f) => puedeEmitir && esCandidato(f) && (
