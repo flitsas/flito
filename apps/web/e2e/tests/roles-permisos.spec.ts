@@ -11,7 +11,7 @@
 //      rojo TC-h.
 //   3. `TZ=UTC QA_AXE_CDN=1 npx playwright test e2e/tests/roles-permisos.spec.ts` (memoria: sin
 //      `QA_AXE_CDN=1` salen rojos de axe que no son regresión).
-import type { Page, Request } from '@playwright/test';
+import type { Locator, Page, Request } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER } from '../helpers/auth';
 import { cargarAxe, correrAxe, esperarSinViolacionesGraves } from '../helpers/axe';
@@ -129,6 +129,49 @@ const casilla = (page: Page, codigo: string) => page.locator(`input[type="checkb
 const urlLimpia = (page: Page) => { const u = new URL(page.url()); return { pathname: u.pathname, search: u.search, hash: u.hash }; };
 /** Los encabezados de módulo: el único botón de la pantalla cuyo nombre lleva «(N)». */
 const acordeones = (page: Page) => page.locator('main').getByRole('button', { name: /\(\d+\)/ });
+
+// ─── HU #12533 — tres secciones por origen del módulo (ficha §13) ────────────────────────────────
+/** Los rótulos de sección: los únicos `h3` de la pantalla. Texto «Título · k de n marcadas». */
+const rotulos = (page: Page) => page.locator('main h3');
+/**
+ * La región de una sección, nombrada por su h3 (`aria-labelledby`): el nombre INCLUYE la cuenta
+ * (§13.6), así que se ancla por regex; «FLITO» no confunde con el módulo «FLITO (SOAT e Impuestos)».
+ */
+const seccion = (page: Page, titulo: string) => page.getByRole('region', { name: new RegExp(`^${titulo} · \\d+ de \\d+ marcadas?$`) });
+/** El panel abierto de un módulo, buscado DENTRO de una sección (región anidada). */
+const panel = (ambito: Page | Locator, nombre: string) => ambito.getByRole('region', { name: new RegExp(`^${nombre}\\s?\\(\\d+\\)`) });
+/** `{ k, n }` de cada rótulo, en orden de DOM. */
+const cuentas = async (page: Page) => (await rotulos(page).allTextContents()).map((t) => {
+  const m = /· (\d+) de (\d+) marcadas?$/.exec(t);
+  if (!m) throw new Error(`Rótulo sin cuenta: «${t}»`);
+  return { k: Number(m[1]), n: Number(m[2]) };
+});
+const TITULOS = ['FLITO', 'Ya existía y FLITO lo usa', 'Existe pero no se usa'] as const;
+
+/** Catálogo con las tres reubicaciones por código (AC3), un módulo desconocido y `pesv` vacío. */
+const GRUPOS_SECCIONES = [
+  { modulo: 'operaciones', funciones: [
+    F('pagina.vehiculos', 'Vehículos'), F('pagina.soat', 'SOAT'), F('pagina.tramite_digital', 'Trámite Digital'),
+    F('pagina.lectura_impuestos', 'Lectura de Impuestos'), F('pagina.transito', 'Tránsito'), F('pagina.drive', 'Drive'),
+  ] },
+  { modulo: 'administracion', funciones: [F('pagina.privacy', 'Privacidad y datos'), F('pagina.admin', 'Administración')] },
+  { modulo: 'transito', funciones: [F('transito.bandeja', 'Ver la bandeja de tránsito')] },
+  { modulo: 'derechos', funciones: [F('derechos.consultar', 'Consultar derechos de tránsito', null, 'operacion')] },
+  { modulo: 'impuestos', funciones: GRUPOS[1].funciones },
+  { modulo: 'modulo_nuevo_xyz', funciones: [F('nuevo.entrar', 'Entrar al módulo nuevo')] },
+  { modulo: 'pesv', funciones: [] },
+];
+const TODAS_SEC = GRUPOS_SECCIONES.flatMap((g) => g.funciones.map((f) => f.codigo));
+const OPERACIONES_PROPIAS = ['pagina.vehiculos', 'pagina.soat', 'pagina.tramite_digital', 'pagina.lectura_impuestos'];
+const CUADROS_SEC: Record<string, string[]> = { admin: [...TODAS_SEC], gestor_impuestos: ['pagina.flito_impuestos', 'pagina.drive'] };
+
+/** Las 29 claves del AC2, por sección; `GRUPOS_29` trae una función `x.<clave>` por cada una. */
+const CLAVES_29: Record<(typeof TITULOS)[number], string[]> = {
+  'FLITO': ['flito_soat_e_impuestos', 'finanzas', 'soat', 'tramites', 'impuestos', 'derechos', 'revisiones', 'compuerta', 'tablero', 'bitacora', 'logistica', 'bolsas', 'comparendos', 'conciliacion', 'liquidacion', 'parametrizacion', 'sync'],
+  'Ya existía y FLITO lo usa': ['general', 'administracion', 'usuarios', 'permisos', 'transito'],
+  'Existe pero no se usa': ['flota', 'mantenimiento', 'pesv', 'rndc', 'cumplimiento_laft', 'tramite', 'operaciones'],
+};
+const GRUPOS_29 = Object.values(CLAVES_29).flat().map((clave) => ({ modulo: clave, funciones: [F(`x.${clave}`, `Función de ${clave}`)] }));
 
 test.describe('Roles y permisos — cuadro rol × función (HU #12085)', () => {
   test('TC-a (AC1): catálogo agrupado por módulo con total y cuenta; el módulo vacío no se pinta; el código no sale en pantalla', async ({ page }) => {
@@ -596,5 +639,244 @@ test.describe('Roles y permisos — cuadro rol × función (HU #12085)', () => {
     await expect(page.getByRole('button', { name: 'Reintentar' })).toBeVisible();
     await expect(page.getByText(/Todavía no hay roles/)).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Nuevo rol' })).toHaveCount(0);
+  });
+  // ─── HU #12533 — tres secciones por origen del módulo ─────────────────────────────────────────
+  test('TC-l (AC1): tres rótulos en orden fijo con la cuenta de sus módulos; acordeones alfabéticos dentro, plegados; el rótulo no es botón', async ({ page }) => {
+    mockPermisos(page);
+    await abrir(page);
+    // Administrador: todo marcado. GRUPOS reparte impuestos → FLITO; general/permisos/usuarios → 2; pesv → 3.
+    await expect(rotulos(page)).toHaveText(['FLITO · 3 de 3 marcadas', 'Ya existía y FLITO lo usa · 5 de 5 marcadas', 'Existe pero no se usa · 2 de 2 marcadas']);
+    await botonRol(page, 'Gestor de Impuestos').click();
+    await expect(rotulos(page)).toHaveText(['FLITO · 2 de 3 marcadas', 'Ya existía y FLITO lo usa · 0 de 5 marcadas', 'Existe pero no se usa · 0 de 2 marcadas']);
+    // Acordeones dentro de su sección, alfabéticos; el total de acordeones no cambia y siguen plegados.
+    await expect(seccion(page, 'FLITO').getByRole('button', { name: /\(\d+\)/ })).toHaveText([/Impuestos/]);
+    await expect(seccion(page, 'Ya existía y FLITO lo usa').getByRole('button', { name: /\(\d+\)/ })).toHaveText([/General/, /Roles y permisos/, /Usuarios/]);
+    await expect(seccion(page, 'Existe pero no se usa').getByRole('button', { name: /\(\d+\)/ })).toHaveText([/PESV/]);
+    await expect(acordeones(page)).toHaveCount(5);
+    await expect(page.locator('input[type="checkbox"]')).toHaveCount(0);
+    // El rótulo: h3, no botón, sin «(N)»; en el DOM va en caja de frase (la mayúscula es CSS).
+    await expect(rotulos(page)).toHaveCount(3);
+    for (const t of await rotulos(page).allTextContents()) expect(t).not.toMatch(/\(\d+\)/);
+    await expect(page.getByRole('button', { name: /^Ya existía/ })).toHaveCount(0);
+    // La ayuda: una línea, solo bajo la sección 3.
+    await expect(seccion(page, 'Existe pero no se usa').getByText('Si se marcan, el rol sí entra a esas pantallas. FLITO no las usa hoy.')).toBeVisible();
+    await expect(page.getByText(/Si se marcan, el rol sí entra/)).toHaveCount(1);
+    // La cuenta se mueve con el borrador y SOLO en su sección (decisión 24; mutante: contar el catálogo entero).
+    await modulo(page, 'PESV').click();
+    await casilla(page, 'pagina.pesv').check();
+    await expect(rotulos(page)).toHaveText(['FLITO · 2 de 3 marcadas', 'Ya existía y FLITO lo usa · 0 de 5 marcadas', 'Existe pero no se usa · 1 de 2 marcada']);
+  });
+
+  test('TC-m (AC1 borde): una sección sin módulos no se pinta —ausente o vacío—; con solo FLITO queda un rótulo', async ({ page }) => {
+    const sinPesv = GRUPOS.filter((g) => g.modulo !== 'pesv');
+    mockPermisos(page, { grupos: sinPesv });
+    await abrir(page);
+    await expect(rotulos(page)).toHaveText([/^FLITO · /, /^Ya existía y FLITO lo usa · /]);
+    await expect(page.getByText('Existe pero no se usa')).toHaveCount(0);
+    await expect(page.getByText(/Si se marcan, el rol sí entra/)).toHaveCount(0);
+    await expect(page.getByText(/0 de 0/)).toHaveCount(0);
+
+    // `pesv: []` es lo mismo que no traerlo (vacío D + vacío E). La ruta registrada después manda.
+    mockPermisos(page, { grupos: [...sinPesv, { modulo: 'pesv', funciones: [] }] });
+    await page.goto('/roles-permisos');
+    await expect(rotulos(page)).toHaveText([/^FLITO · /, /^Ya existía y FLITO lo usa · /]);
+    await expect(page.getByText('Existe pero no se usa')).toHaveCount(0);
+
+    mockPermisos(page, { grupos: GRUPOS.filter((g) => g.modulo === 'impuestos') });
+    await page.goto('/roles-permisos');
+    await expect(rotulos(page)).toHaveText(['FLITO · 3 de 3 marcadas']);
+    await expect(acordeones(page)).toHaveCount(1);
+  });
+
+  test('TC-n (AC2): cada una de las 29 claves cae en su sección y en ninguna otra', async ({ page }) => {
+    mockPermisos(page, { grupos: GRUPOS_29, cuadros: { admin: [] } });
+    await abrir(page);
+    await expect(acordeones(page)).toHaveCount(29);
+    await expect(rotulos(page)).toHaveText(['FLITO · 0 de 17 marcadas', 'Ya existía y FLITO lo usa · 0 de 5 marcadas', 'Existe pero no se usa · 0 de 7 marcadas']);
+    for (let i = 0; i < 29; i++) await acordeones(page).nth(i).click();
+    await expect(page.locator('input[type="checkbox"]')).toHaveCount(29);
+    for (const titulo of TITULOS) {
+      for (const clave of CLAVES_29[titulo]) {
+        await expect(seccion(page, titulo).locator(`input[data-codigo="x.${clave}"]`), `x.${clave} en «${titulo}»`).toHaveCount(1);
+        for (const otro of TITULOS.filter((t) => t !== titulo)) {
+          await expect(seccion(page, otro).locator(`input[data-codigo="x.${clave}"]`), `x.${clave} NO en «${otro}»`).toHaveCount(0);
+        }
+      }
+    }
+  });
+
+  test('TC-o (AC2 negativo): un módulo desconocido cae en FLITO con su etiqueta, sin error de página y con la casilla operable', async ({ page }) => {
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(e.message));
+    mockPermisos(page, { grupos: GRUPOS_SECCIONES, cuadros: CUADROS_SEC });
+    await abrir(page);
+    const nuevo = seccion(page, 'FLITO').getByRole('button', { name: /^Modulo nuevo xyz\s?\(1\)/ });
+    await expect(nuevo).toHaveCount(1);
+    await expect(seccion(page, 'Existe pero no se usa').getByRole('button', { name: /Modulo nuevo xyz/ })).toHaveCount(0);
+    await expect(seccion(page, 'Ya existía y FLITO lo usa').getByRole('button', { name: /Modulo nuevo xyz/ })).toHaveCount(0);
+    await nuevo.click();
+    await casilla(page, 'nuevo.entrar').uncheck();
+    await expect(page.getByText('Sin guardar: 1 desmarcada')).toBeVisible();
+    await expect(rotulos(page).nth(0)).toHaveText('FLITO · 5 de 6 marcadas');
+    expect(errores).toEqual([]);
+  });
+
+  test('TC-p (AC3): transito, drive y privacy se pintan en su acordeón destino, una sola vez; Operaciones y Administración conservan lo suyo', async ({ page }) => {
+    mockPermisos(page, { grupos: GRUPOS_SECCIONES, cuadros: CUADROS_SEC });
+    await abrir(page);
+    await expect(modulo(page, 'Operaciones')).toContainText('(4)');
+    await expect(modulo(page, 'Tránsito')).toContainText('(2)');
+    await expect(modulo(page, 'Derechos de tránsito')).toContainText('(2)');
+    await expect(modulo(page, 'Privacidad y datos')).toContainText('(1)');
+    await expect(modulo(page, 'Administración')).toContainText('(1)');
+    for (const m of ['Operaciones', 'Tránsito', 'Derechos de tránsito', 'Privacidad y datos', 'Administración']) await modulo(page, m).click();
+
+    const flito = seccion(page, 'FLITO');
+    const enUso = seccion(page, 'Ya existía y FLITO lo usa');
+    const sinUso = seccion(page, 'Existe pero no se usa');
+    await expect(panel(enUso, 'Tránsito').locator('input[data-codigo="pagina.transito"]')).toHaveCount(1);
+    await expect(panel(flito, 'Derechos de tránsito').locator('input[data-codigo="pagina.drive"]')).toHaveCount(1);
+    await expect(casilla(page, 'pagina.drive')).toBeChecked();
+    await expect(panel(sinUso, 'Privacidad y datos').locator('input[data-codigo="pagina.privacy"]')).toHaveCount(1);
+    await expect(panel(sinUso, 'Operaciones').locator('input[type="checkbox"]')).toHaveCount(4);
+    for (const c of OPERACIONES_PROPIAS) await expect(panel(sinUso, 'Operaciones').locator(`input[data-codigo="${c}"]`)).toHaveCount(1);
+    await expect(panel(enUso, 'Administración').locator('input[type="checkbox"]')).toHaveCount(1);
+    await expect(panel(enUso, 'Administración').locator('input[data-codigo="pagina.admin"]')).toHaveCount(1);
+    // Una sola vez en toda la página (mutante: pintarla en origen y destino).
+    for (const c of ['pagina.transito', 'pagina.drive', 'pagina.privacy']) await expect(casilla(page, c)).toHaveCount(1);
+  });
+
+  test('TC-p2 (AC3 borde): si el destino no viene se crea; si el origen queda vacío no se pinta', async ({ page }) => {
+    mockPermisos(page, {
+      grupos: [
+        { modulo: 'operaciones', funciones: [F('pagina.transito', 'Tránsito'), F('pagina.drive', 'Drive')] },
+        { modulo: 'administracion', funciones: [F('pagina.privacy', 'Privacidad y datos')] },
+      ],
+      cuadros: {},
+    });
+    await abrir(page);
+    await expect(modulo(page, 'Tránsito')).toContainText('(1)');
+    await expect(modulo(page, 'Derechos de tránsito')).toContainText('(1)');
+    await expect(modulo(page, 'Privacidad y datos')).toContainText('(1)');
+    await expect(modulo(page, 'Operaciones')).toHaveCount(0);
+    await expect(modulo(page, 'Administración')).toHaveCount(0);
+    await expect(acordeones(page)).toHaveCount(3);
+    await expect(rotulos(page)).toHaveText(['FLITO · 0 de 1 marcadas', 'Ya existía y FLITO lo usa · 0 de 1 marcadas', 'Existe pero no se usa · 0 de 1 marcadas']);
+    for (let i = 0; i < 3; i++) await acordeones(page).nth(i).click();
+    await expect(page.locator('input[type="checkbox"]')).toHaveCount(3);
+  });
+
+  test('TC-q (AC4): el PUT manda los códigos de siempre —la reubicación no llega al servidor— y «Marcar todas» cubre el catálogo sin duplicados', async ({ page }) => {
+    const { pedidos } = mockPermisos(page, { grupos: GRUPOS_SECCIONES, cuadros: CUADROS_SEC });
+    await abrir(page);
+    await botonRol(page, 'Gestor de Impuestos').click();
+    for (const m of ['Tránsito', 'Derechos de tránsito', 'Privacidad y datos']) await modulo(page, m).click();
+    await casilla(page, 'derechos.consultar').check();
+    await casilla(page, 'pagina.transito').check();
+    await casilla(page, 'pagina.privacy').check();
+    await casilla(page, 'pagina.drive').uncheck();
+    await expect(page.getByText('Sin guardar: 3 marcadas, 1 desmarcada')).toBeVisible();
+    await page.getByRole('button', { name: 'Guardar cambios' }).click();
+    await expect(page.getByText(/ya está aplicado/)).toBeVisible();
+    expect(pedidos).toHaveLength(1);
+    expect(pedidos[0].method()).toBe('PUT');
+    expect(new URL(pedidos[0].url()).pathname).toBe('/api/permisos/roles/gestor_impuestos/funciones');
+    expect(pedidos[0].postDataJSON()).toEqual({ funciones: ['derechos.consultar', 'pagina.flito_impuestos', 'pagina.privacy', 'pagina.transito'] });
+
+    await page.getByRole('button', { name: 'Marcar todas las funciones', exact: true }).click();
+    await expect(page.getByText(`Sin guardar: ${TODAS_SEC.length - 4} marcadas`)).toBeVisible();
+    await page.getByRole('button', { name: 'Guardar cambios' }).click();
+    await expect.poll(() => pedidos.length).toBe(2);
+    const enviadas = (pedidos[1].postDataJSON() as { funciones: string[] }).funciones;
+    expect(enviadas).toEqual([...TODAS_SEC].sort());
+    expect(new Set(enviadas).size).toBe(TODAS_SEC.length);
+  });
+
+  test('TC-r (AC4 suma): Σn de los rótulos == total del catálogo; Σk == marcadas del rol; con todo abierto, un checkbox por código y sin duplicados', async ({ page }) => {
+    mockPermisos(page, { grupos: GRUPOS_SECCIONES, cuadros: CUADROS_SEC });
+    await abrir(page);
+    await expect(rotulos(page)).toHaveCount(3);
+    const total = TODAS_SEC.length;
+    let c = await cuentas(page);
+    expect(c.reduce((s, x) => s + x.n, 0)).toBe(total);
+    expect(c.reduce((s, x) => s + x.k, 0)).toBe(total);
+    await expect(botonRol(page, 'Administrador')).toContainText(`${total}/${total}`);
+    const n = await acordeones(page).count();
+    for (let i = 0; i < n; i++) await acordeones(page).nth(i).click();
+    await expect(page.locator('input[type="checkbox"]')).toHaveCount(total);
+    const codigos = await page.locator('input[type="checkbox"]').evaluateAll((ns) => ns.map((x) => x.getAttribute('data-codigo') ?? ''));
+    expect([...codigos].sort()).toEqual([...TODAS_SEC].sort());
+    expect(new Set(codigos).size).toBe(codigos.length);
+
+    await botonRol(page, 'Gestor de Impuestos').click();
+    await expect(page.getByRole('heading', { name: 'Gestor de Impuestos', level: 2 })).toBeVisible();
+    await expect(rotulos(page).nth(0)).toHaveText(/· 2 de \d+ marcadas$/);
+    c = await cuentas(page);
+    expect(c.reduce((s, x) => s + x.k, 0)).toBe(2);
+    expect(c.reduce((s, x) => s + x.n, 0)).toBe(total);
+  });
+
+  test('TC-s (AC4 por acordeón): «Marcar/Desmarcar todas» de un módulo actúa solo sobre sus funciones; las reubicadas pertenecen al destino', async ({ page }) => {
+    const { pedidos } = mockPermisos(page, { grupos: GRUPOS_SECCIONES, cuadros: CUADROS_SEC });
+    await abrir(page);
+    await botonRol(page, 'Sin funciones').click();
+    // Vacío C: el copy sigue y las tres secciones se pintan en «0 de n» (decisión 25).
+    await expect(page.getByText(/quien lo tenga no verá nada al entrar/)).toBeVisible();
+    await expect(rotulos(page)).toHaveText(['FLITO · 0 de 6 marcadas', 'Ya existía y FLITO lo usa · 0 de 3 marcadas', 'Existe pero no se usa · 0 de 5 marcadas']);
+
+    await modulo(page, 'Derechos de tránsito').click();
+    await page.getByRole('button', { name: 'Marcar todas las funciones de Derechos de tránsito', exact: true }).click();
+    await expect(casilla(page, 'pagina.drive')).toBeChecked();
+    await expect(casilla(page, 'derechos.consultar')).toBeChecked();
+    await expect(rotulos(page).nth(0)).toHaveText('FLITO · 2 de 6 marcadas');
+
+    await modulo(page, 'Operaciones').click();
+    await modulo(page, 'Tránsito').click();
+    await page.getByRole('button', { name: 'Desmarcar todas las funciones de Operaciones', exact: true }).click();
+    await expect(casilla(page, 'pagina.drive')).toBeChecked();
+    await page.getByRole('button', { name: 'Marcar todas las funciones de Operaciones', exact: true }).click();
+    await expect(modulo(page, 'Operaciones')).toContainText('4 de 4 marcadas');
+    for (const c of OPERACIONES_PROPIAS) await expect(casilla(page, c)).toBeChecked();
+    await expect(casilla(page, 'pagina.transito')).not.toBeChecked();
+    await expect(casilla(page, 'pagina.drive')).toBeChecked();
+    await expect(rotulos(page)).toHaveText(['FLITO · 2 de 6 marcadas', 'Ya existía y FLITO lo usa · 0 de 3 marcadas', 'Existe pero no se usa · 4 de 5 marcadas']);
+    expect(pedidos).toHaveLength(0);
+  });
+
+  test('TC-t (AC5): una región por sección nombrada por su h3, h1→h2→h3, foco = orden visual sin paradas nuevas, axe sin graves', async ({ page }) => {
+    mockPermisos(page);
+    await abrir(page);
+    await cargarAxe(page);
+    esperarSinViolacionesGraves(await correrAxe(page), 'roles y permisos · tres secciones plegadas');
+
+    for (const t of TITULOS) {
+      const region = seccion(page, t);
+      await expect(region).toHaveCount(1);
+      const h3 = region.getByRole('heading', { level: 3 });
+      await expect(h3).toHaveCount(1);
+      await expect(h3).toHaveText(new RegExp(`^${t} · \\d+ de \\d+ marcadas?$`));
+      await expect(h3).not.toHaveAttribute('tabindex', /.*/);
+      await expect(region.getByText(t, { exact: true })).toHaveCount(0); // el título vive dentro del h3, no suelto
+    }
+    await expect(page.getByRole('heading', { level: 1, name: 'Roles y permisos' })).toHaveCount(1);
+    await expect(page.getByRole('heading', { level: 2, name: 'Administrador' })).toHaveCount(1);
+    await expect(page.getByRole('heading', { level: 3 })).toHaveCount(3);
+    // El h3 no recibe foco.
+    await rotulos(page).first().focus();
+    await expect(rotulos(page).first()).not.toBeFocused();
+
+    // Orden de tabulación = visual, cruzando secciones, un acordeón plegado = una parada.
+    await modulo(page, 'Impuestos').focus();
+    for (const nombre of ['General', 'Roles y permisos', 'Usuarios', 'PESV']) {
+      await page.keyboard.press('Tab');
+      await expect(modulo(page, nombre)).toBeFocused();
+    }
+    // Compat TC-i: con Impuestos abierto, Tab ×3 desde su encabezado llega a la primera casilla.
+    await modulo(page, 'Impuestos').click();
+    await modulo(page, 'Impuestos').focus();
+    for (let i = 0; i < 3; i++) await page.keyboard.press('Tab');
+    await expect(casilla(page, 'pagina.flito_impuestos')).toBeFocused();
+    await cargarAxe(page);
+    esperarSinViolacionesGraves(await correrAxe(page), 'roles y permisos · sección con módulo abierto');
   });
 });

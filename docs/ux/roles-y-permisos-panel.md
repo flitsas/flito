@@ -1034,3 +1034,299 @@ añade sin que el PO lo diga**: es alcance que el CF no pide y esta ficha no lo 
 | 18 | La descripción del rol es **obligatoria al crear y opcional al editar** | Obligarla también al editar: el backfill de la 0178 deja los 12 con `descripcion` NULL, y entonces corregirle el nombre a un rol heredado quedaría secuestrado por un campo que nadie pidió tocar. La cabecera enseña «Sin descripción» y ya |
 | 19 | En la UI se dice **«función»**, **«ámbito»** y **«tipo de acceso»** | «Permiso» para la función (ya significa otra cosa en `allowedPages`), «entidad de enlace» (jerga del modelo) y «canal» a secas para interno/externo. «Ámbito» se elige porque **ya es el nombre de la columna de `Users.tsx`** y así las dos pantallas dicen lo mismo |
 | 20 | Se **declaran** los cinco choques del §11 en vez de acomodarlos | Escribir el copy de «externo» como si ya funcionara: es la frase con más consecuencias de la pantalla y hoy, para un rol nuevo, **es falsa** (`canal-cliente.ts:54`). ADR-0015 §8.3 ya lo advirtió; esta ficha se niega a ser el sitio donde se olvide |
+
+
+---
+
+## 13. Delta HU #12533 — el cuadro se divide en tres secciones por origen del módulo
+
+> **Modo slim.** Extiende la columna derecha (`CuadroRol.tsx`) sin ruta, slug, endpoint ni componente
+> nuevo. Este apartado **sustituye** la parte «módulos plegados» del wireframe §6.1 y añade un quinto
+> vacío al §6.4. Todo lo demás de la ficha sigue vigente. La decisión de producto (tres secciones, su
+> orden, qué módulo va en cuál y las tres reubicaciones por función) la tomó David Chica el
+> 14/09/2026 y aquí no se reabre.
+
+### 13.0 Oficio del delta
+
+| Pregunta | Respuesta |
+|---|---|
+| ¿Qué vino a hacer quien abre esto? | Lo mismo que en §0: **ajustar qué puede hacer un rol**. Lo que cambia es que hoy, con 29 módulos en una lista alfabética, no sabe **cuáles conceder**: PESV y Bolsas pesan igual en la lista y no son lo mismo. |
+| ¿Qué se ve primero? | Debajo de la cabecera del rol, **tres rótulos con su cuenta**: «FLITO · k de n marcadas», «Ya existía y FLITO lo usa · k de n», «Existe pero no se usa · k de n». En tres líneas el administrador sabe si el rol tiene algo marcado fuera del producto. Después, los mismos acordeones plegados de siempre, ahora dentro de su sección. |
+| ¿Qué se calla y dónde vive? | Igual que §3. Se añade una cosa que se calla a propósito: **por qué** un módulo está en la sección 3 (historia del producto). No va en pantalla; una línea de ayuda bajo el rótulo dice la única consecuencia que importa. |
+| ¿Cuál es la única primaria? | **Sin cambio**: «Guardar cambios», solo con cambios pendientes. Las secciones no traen botones. Ni «Marcar toda la sección» ni «Desmarcar la sección 3»: lo pediría el PO, y no lo pidió. |
+| ¿El vacío y el error dicen el siguiente paso? | Sí. El vacío C conserva su copy y **sigue pintando las tres secciones** (el siguiente paso es «abre un módulo», y para eso tienen que estar). Una **sección sin módulos no se pinta** (vacío E, §13.4). Error: no cambia, es de página entera. |
+| ¿Hay efectos o un patrón nuevo injustificado? | No. El rótulo de sección calca `MiJornada.tsx:150` (mismo público). Cero tokens, cero componentes, cero animaciones. |
+
+### 13.1 Delta de claridad — por qué tres bloques y no dos
+
+**Hoy** la columna derecha lista 29 acordeones por orden alfabético: «Administración, Bitácora,
+Bolsas, Comparendos, Compuerta de entrega, Conciliación, Cumplimiento (LAFT), Derechos de tránsito,
+Finanzas, FLITO (SOAT e Impuestos), Flota…». El orden alfabético es neutral, y ese es el problema:
+pone al mismo nivel lo que el administrador **debe** repartir (SOAT, Impuestos, Bolsas), lo que
+**tiene** que repartir aunque no sea de FLITO (Usuarios, Tránsito, Roles y permisos) y lo que **no
+debería** tocar salvo que sepa lo que hace (PESV, Flota, Mantenimiento). Nada en la pantalla le dice
+cuál es cuál.
+
+**Con el delta**, lo primero que se lee bajo la cabecera del rol son tres cuentas:
+
+```
+FLITO · 12 de 41 marcadas
+YA EXISTÍA Y FLITO LO USA · 3 de 14 marcadas
+EXISTE PERO NO SE USA · 0 de 13 marcadas
+```
+
+Eso contesta de un vistazo la pregunta que motiva la visita —*«¿a este rol le he dado algo que no
+debería?»*— sin abrir ningún acordeón: si la tercera cuenta no es `0 de n`, hay algo que revisar.
+
+**Por qué tres y no dos.** La tentación es «FLITO / lo demás». Pero «lo demás» mezcla dos cosas
+opuestas: **Usuarios** y **Tránsito** (sin ellos un rol operativo no funciona: es donde se crean las
+personas y los organismos que FLITO usa) y **PESV** o **Mantenimiento** (conceden pantallas de un
+producto que nadie opera). Juntarlas en un bloque obligaría a leer el bloque entero módulo a módulo,
+que es justo lo que hay hoy. Con tres, cada bloque tiene una instrucción implícita distinta:
+
+| Sección | Lo que le dice al administrador sin decírselo |
+|---|---|
+| **FLITO** | Reparte aquí. Es el producto. |
+| **Ya existía y FLITO lo usa** | También hace falta; está separado para que no lo confunda con el producto ni con lo muerto. |
+| **Existe pero no se usa** | Normalmente todo en 0. Si marca algo, sabe que está abriendo pantallas que FLITO no usa. |
+
+**Densidad: aliviada, no empeora.** Mismas 29 barras de acordeón (30 con «Privacidad y datos»), tres
+rótulos no enfocables encima. Cero paradas de tabulador nuevas. La lectura pasa de una lista de 29 a
+tres listas de 17 / 5 / 8 con nombre, que es lo que hace que una lista larga se pueda escanear.
+
+**Orden dentro de cada sección: alfabético por etiqueta**, que es el criterio que ya existe
+(`modulosVisibles()`). No se introduce un orden «por importancia» dentro de la sección: pediría un
+número de orden por módulo que mantener a mano, y la sección ya hace el trabajo de importancia. Si el
+PO quiere que dentro de FLITO «FLITO (SOAT e Impuestos)» vaya primero, es un campo `orden` en el mapa
+y se decide entonces, no aquí de tapadillo.
+
+### 13.2 Reparto de módulos (decidido; se transcribe para que el mapa del código lo calque)
+
+| Sección | Claves de módulo (etiqueta que ya existe en `ETIQUETAS_MODULO`) |
+|---|---|
+| **1 · FLITO** | `flito_soat_e_impuestos`, `finanzas`, `soat`, `tramites`, `impuestos`, `derechos`, `revisiones`, `compuerta`, `tablero`, `bitacora`, `logistica`, `bolsas`, `comparendos`, `conciliacion`, `liquidacion`, `parametrizacion`, `sync`. **Un módulo desconocido cae aquí** (y su etiqueta sigue saliendo del repliegue de `etiquetaModulo`). |
+| **2 · Ya existía y FLITO lo usa** | `general`, `administracion`, `usuarios`, `permisos`, `transito` |
+| **3 · Existe pero no se usa** | `flota`, `mantenimiento`, `pesv`, `rndc`, `cumplimiento_laft`, `tramite` (Trámite digital), `operaciones`, y el acordeón nuevo **`privacidad`** |
+
+**Tres reubicaciones por función**, no por módulo. El API sigue devolviendo la función en su grupo de
+origen y **el `PUT` sigue mandando los mismos códigos**; la pantalla solo la pinta en otro acordeón:
+
+| Código | Llega en | Se pinta en | Sección |
+|---|---|---|---|
+| `pagina.transito` | `operaciones` | acordeón **Tránsito** | 2 |
+| `pagina.drive` | (su grupo actual) | acordeón **Derechos de tránsito** | 1 |
+| `pagina.privacy` | `administracion` | acordeón propio **Privacidad y datos** | 3 |
+
+Consecuencia que hay que saber pintar: si tras mover `pagina.transito` el grupo `operaciones` queda
+sin funciones, **ese acordeón no se pinta** (vacío D de §6.4). Igual con `administracion` si solo
+traía `pagina.privacy`. La regla de «módulo vacío no se pinta» ya existía; las reubicaciones solo la
+hacen más probable.
+
+**Etiqueta nueva, y única línea que se añade a `ETIQUETAS_MODULO`:** `privacidad: 'Privacidad y datos'`.
+
+### 13.3 Jerarquía tipográfica — cómo se distingue el rótulo de la barra de un acordeón
+
+Las dos cosas que hay que separar a simple vista son **el rótulo de sección** (agrupa) y **la barra del
+acordeón** (se pulsa). Hoy la barra ya es `text-sm font-bold` en `--flit-blue-text`, con chevron, dentro
+de tarjeta. El rótulo tiene que ser **más pequeño, no más grande**, y estar **fuera de la tarjeta**:
+un título más grande que las barras las convertiría en subordinadas de algo que parece pulsable y no
+lo es.
+
+| | Rótulo de sección (`<h3>`) | Barra de acordeón (existente, no se toca) |
+|---|---|---|
+| Dónde | **Sobre el fondo de la app**, fuera de cualquier `FlitCard` | Dentro de la tarjeta del acordeón |
+| Tamaño y caja | `text-xs font-semibold uppercase tracking-wide` (calca `MiJornada.tsx:150`) | `text-sm font-bold`, caja normal |
+| Color | `--flit-text-secondary` (el mismo que los rótulos de `UsersToolbar.tsx:49`) | `--flit-blue-text` |
+| Cuenta | `<span class="normal-case tabular-nums">` en `--flit-text-muted`, separada por ` · ` — **en caja normal** para que no salga «12 DE 41 MARCADAS» | `(n)` y «k de n marcadas» debajo, como hoy |
+| Chevron | Ninguno. Nada que sugiera que se pulsa | Sí |
+| Enfocable | No | Sí (es el botón del acordeón) |
+
+**La mayúscula la pone CSS (`uppercase`), no el literal.** En el DOM el texto va en caja de frase
+(«Ya existía y FLITO lo usa»): un lector de pantalla con un literal todo en mayúsculas puede
+deletrearlo, y el h3 es el nombre accesible de la sección (§13.6).
+
+**Separación vertical.** El contenedor de la columna es hoy `flex flex-col gap-4`. Cada sección es un
+`<section class="flex flex-col gap-4">` con el h3 como primer hijo; **entre secciones** va el
+doble, `gap-8` en el contenedor padre (o `mt-4` adicional en cada sección a partir de la segunda).
+Regla: el hueco entre la última barra de una sección y el rótulo de la siguiente tiene que ser
+**visiblemente mayor** que el hueco entre dos barras de la misma sección, o el rótulo parece pegado
+al acordeón de arriba. Es el único ajuste de espaciado del delta y no toca tokens.
+
+**Una línea de ayuda, solo en la sección 3.** Bajo el h3, `<p class="text-sm">` en
+`--flit-text-secondary`, tratamiento impersonal (§8.6):
+
+> **Si se marcan, el rol sí entra a esas pantallas. FLITO no las usa hoy.**
+
+Es una frase, dice la única consecuencia (se conceden de verdad) y no alarma. Las secciones 1 y 2
+**no llevan ayuda**: su rótulo ya lo dice todo, y una ayuda que repite el título es de lo que la tabla
+de §Carácter de los principios manda quitar.
+
+### 13.4 Wireframe — columna derecha, estado lleno, todo plegado
+
+Cifras ilustrativas; la pantalla cuenta lo que llega (§2).
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│ Gestor de Impuestos                                                │
+│ Interno · Se atan a organismos de tránsito · 2 usuarios            │
+│ Atiende la cola de impuestos de los organismos que se le asignen.  │
+│                                                                    │
+│  [Editar rol] [Borrar rol] [Marcar todas las funciones] [Desmarcar todas]
+└────────────────────────────────────────────────────────────────────┘
+                              (barra «Sin guardar…» aquí, solo con cambios)
+
+FLITO · 12 de 41 marcadas
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Bitácora (2)                                     0 de 2 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Bolsas (3)                                       0 de 3 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Derechos de tránsito (2)                         1 de 2 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ FLITO (SOAT e Impuestos) (14)                   9 de 14 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Impuestos (4)                                    2 de 4 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+  … 12 módulos más de FLITO, plegados
+
+
+YA EXISTÍA Y FLITO LO USA · 3 de 14 marcadas
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Administración (3)                               0 de 3 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ General (1)                                      1 de 1 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Roles y permisos (2)                             0 de 2 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Tránsito (5)                                     2 de 5 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Usuarios (3)                                     0 de 3 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+
+
+EXISTE PERO NO SE USA · 0 de 13 marcadas
+Si se marcan, el rol sí entra a esas pantallas. FLITO no las usa hoy.
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Cumplimiento (LAFT) (2)                          0 de 2 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Flota (3)                                        0 de 3 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Mantenimiento (2)                                0 de 2 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ PESV (4)                                         0 de 4 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Privacidad y datos (1)                           0 de 1 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+  … 3 módulos más, plegados
+```
+
+Lo que **no** cambia y se ve en el wireframe: la cabecera del rol, la barra `sticky` de guardado (sigue
+antes de la primera sección en el DOM, §Decisión 5), la barra de cada acordeón con su `(n)` y su
+«k de n marcadas», y los botones «Marcar todas / Desmarcar todas» dentro del acordeón abierto.
+
+La cuenta del rótulo **se mueve con el borrador**, igual que la de cada acordeón (es estado en
+edición). La cuenta de la lista izquierda sigue sin moverse hasta guardar (§Decisión 6).
+
+### 13.5 Estados (4)
+
+| Estado | Qué cambia respecto a §6.3 |
+|---|---|
+| **Cargando** | El esqueleto propio de dos columnas (`RolesPermisos.tsx:303`) cambia su lado derecho: hoy es «cabecera `h-24` + 4 barras `h-6`». Pasa a **cabecera `h-24` + 3 grupos**, cada grupo una barra corta de rótulo (`h-3`, ancho ~35 %, sin tarjeta) y 2 barras `h-6` en tarjeta. Total 3 rótulos + 6 barras: al llegar los datos la estructura no salta. `role="status"`, `aria-busy`, `aria-label="Cargando roles y permisos"`: sin cambio. |
+| **Error** | **No cambia.** Es de página entera («No se pudo cargar el catálogo de roles y funciones.» + «Reintentar»), no llega a pintar secciones. |
+| **Vacío C** — rol sin ninguna función marcada | **Copy sin cambio** (`COPY_VACIO_ROL_SIN_FUNCIONES`). **Se pintan las tres secciones**, todas en «0 de n marcadas»: el siguiente paso del copy es «abre un módulo», y los módulos tienen que estar a la vista. Esconder las secciones porque el rol está en cero dejaría el copy sin dónde ir. |
+| **Vacío D** — módulo sin funciones | Sin cambio: no se pinta. Ahora también ocurre por las reubicaciones (§13.2). |
+| **Vacío E (nuevo)** — sección sin módulos | **No se pinta nada de ella**: ni rótulo, ni cuenta, ni la ayuda. Un rótulo con «0 de 0 marcadas» encima de nada es un rectángulo que promete algo, igual que el acordeón vacío. Ocurre si el catálogo no trae ningún módulo de esa sección (p. ej. un despliegue que ya retiró PESV, Flota, etc.). Con una sola sección viva, **su rótulo se pinta igual**: sigue diciendo el origen. |
+| **Lleno** | El wireframe de §13.4. |
+
+### 13.6 Accesibilidad
+
+- **Cada sección es un `<section aria-labelledby={idH3}>`** que envuelve el h3, la ayuda (si la hay)
+  y sus acordeones. Con nombre, la `<section>` es un landmark `region`: quien navega por regiones
+  salta de sección en sección y oye su nombre completo.
+- **Encabezados:** `h1` (`PageHeaderCard`) → `h2` nombre del rol (`CuadroRol.tsx:77`) → **`h3` por
+  sección**. La barra de `FlitAcordeon` es un `<span>` dentro de un `<button>`, no un heading: el h3
+  no compite con ella y no hay que tocar el kit. No se salta ningún nivel.
+- **El nombre accesible de la sección incluye la cuenta**, porque el h3 la contiene: al entrar en la
+  región se anuncia **«FLITO · 12 de 41 marcadas»**. Así es como se anuncia «k de n marcadas» de la
+  sección: como parte del nombre, **no como región viva** (§Decisión 17: la casilla ya anuncia su
+  cambio; una `aria-live` en la cuenta leería lo mismo dos veces por clic).
+- **Caja de texto:** el literal del DOM va en caja de frase; `uppercase` es CSS (§13.3). El `·` que
+  separa título y cuenta se lee como «punto medio» en algunos lectores; aceptable, y es el mismo
+  separador que ya usa la cabecera del rol («Interno · Se atan a… · 2 usuarios»).
+- **Orden de tabulación: cero paradas nuevas.** El h3 y la ayuda no son enfocables. Un acordeón
+  plegado sigue siendo **una** parada; con 30 acordeones plegados, 30 paradas, exactamente como
+  antes del delta. La barra `sticky` sigue siendo la primera parada tras la cabecera.
+- **La ayuda de la sección 3** es texto visible dentro de la `<section>`, justo después del h3. No
+  necesita `aria-describedby`: quien lee la región en orden la encuentra; quien salta por
+  encabezados llega al h3 y la siguiente línea es la ayuda.
+- **`role="status"` del cambio de rol** (§9): sin cambio. Sigue anunciando «Cuadro del rol X. k de n
+  funciones marcadas.» con el total del rol, no por sección.
+- **Contraste:** `--flit-text-secondary` sobre `--flit-bg-app` para un `text-xs` semibold ya está en
+  producción en `UsersToolbar.tsx`; no se introduce ninguna combinación nueva. `check:contraste` no
+  lo mide (alcance real: ⌘K y gradientes).
+
+### 13.7 Copy exacto
+
+| Elemento | Literal |
+|---|---|
+| h3 sección 1 | **FLITO** |
+| h3 sección 2 | **Ya existía y FLITO lo usa** |
+| h3 sección 3 | **Existe pero no se usa** |
+| Cuenta en cada h3 | **· {k} de {n} marcadas** · con `k = 1`: **· 1 de {n} marcada** |
+| Ayuda, solo bajo la sección 3 | **Si se marcan, el rol sí entra a esas pantallas. FLITO no las usa hoy.** |
+| Etiqueta del acordeón nuevo | **Privacidad y datos** |
+
+Tratamiento: impersonal, como el resto de ayudas de la pantalla (§8.6). Ningún «usted», ningún «tú»
+en el delta.
+
+### 13.8 Notas para QA
+
+1. **Tres rótulos, en ese orden.** Con el catálogo completo: `getAllByRole('heading', { level: 3 })`
+   devuelve exactamente 3 y sus nombres empiezan por «FLITO», «Ya existía y FLITO lo usa», «Existe
+   pero no se usa», en ese orden de DOM. *Mutante:* ordenar las secciones alfabéticamente.
+2. **La cuenta del rótulo suma sus módulos.** Para cada sección, `k` = casillas marcadas de sus
+   módulos y `n` = total de funciones de sus módulos; marcar una casilla dentro de un módulo de la
+   sección 3 sube su `k` en 1 y no toca las otras dos. *Mutante:* contar sobre el catálogo entero.
+3. **`pagina.transito` está en «Tránsito» (sección 2) y una sola vez.** Abrir «Tránsito» → la casilla
+   `data-codigo="pagina.transito"` está ahí; abrir «Operaciones» (si existe) → no está. Total en el
+   DOM con todo abierto: **1**. *Mutante:* pintarla en los dos.
+4. **`pagina.privacy` está en «Privacidad y datos» (sección 3)** y no en «Administración».
+   *Mutante:* dejarla en su grupo de origen.
+5. **`pagina.drive` está en «Derechos de tránsito» (sección 1).**
+6. **El `PUT` no cambia.** Marcar `pagina.transito` desde «Tránsito» y guardar → el cuerpo lleva
+   `pagina.transito` con el mismo código de siempre. Nada de la reubicación llega al servidor.
+   *Mutante:* reescribir el código o el módulo al mover la función.
+7. **Sección sin módulos no se pinta.** Catálogo sin ningún módulo de la sección 3 → **2** h3, y no
+   existe el texto «Existe pero no se usa» ni la ayuda. *Mutante:* pintar «0 de 0 marcadas».
+8. **Módulo desconocido cae en FLITO.** Un grupo `modulo: 'xyz'` con funciones aparece bajo el h3
+   «FLITO» con etiqueta «Xyz». *Mutante:* descartarlo o mandarlo a la sección 3.
+9. **Cero paradas nuevas.** Con todo plegado, `tab` recorre exactamente los botones de acordeón que
+   había antes del delta (los h3 no reciben foco).
+10. **Los asertos antiguos que contaban `region`** (nota QA 1 de §10: «un `region` por módulo») ahora
+    encuentran también las 3 secciones con nombre. Filtrar por nombre o contar
+    `aria-expanded` en vez de `region`, y no «arreglar» el test quitando el `aria-labelledby`.
+
+### 13.9 Decisiones del delta
+
+| # | Decisión | Descarte |
+|---|---|---|
+| 21 | Tres secciones y no dos | «FLITO / lo demás» mezcla Usuarios (imprescindible) con PESV (muerto) en el mismo bloque, que es el problema de hoy con otro nombre |
+| 22 | Rótulo **más pequeño** que la barra del acordeón y fuera de tarjeta (`text-xs uppercase`, precedente `MiJornada.tsx:150`) | Un título grande en `--flit-blue-text`: parecería pulsable y haría que las barras de acordeón se leyeran como hijas de un botón que no existe |
+| 23 | Ayuda de una línea **solo en la sección 3** | Ayuda en las tres: dos de ellas repetirían el título. Ninguna: la 3 deja abierta la pregunta «¿y si la marco pasa algo?» |
+| 24 | La cuenta de la sección se mueve con el borrador | Congelarla al conjunto guardado: diría lo contrario que los acordeones de dentro |
+| 25 | Vacío C sigue pintando las tres secciones | Esconderlas con el rol en cero: el copy dice «abre un módulo» y no habría módulo que abrir |
+| 26 | Orden alfabético dentro de cada sección (criterio existente) | Orden «por importancia» a mano: un número que mantener por módulo; la sección ya reparte la importancia. Si el PO lo quiere, es un `orden` en el mapa |
+| 27 | Sin «Marcar toda la sección» | No lo pide la HU; sería un botón por rótulo y tres controles nuevos en reposo |
+| 28 | Las reubicaciones viven en la pantalla, no en el API | Nada cambia en lo que se guarda (decidido). Mover el grupo en el servidor sería tocar el catálogo de la #12081 por una cuestión de presentación |

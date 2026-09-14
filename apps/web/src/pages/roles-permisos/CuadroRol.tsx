@@ -1,15 +1,21 @@
 // HU #12085 — El cuadro del rol seleccionado (columna derecha de la disposición A, ficha §6).
 //
 // Cabecera del rol → barra de guardado (sticky, SOLO con cambios, antes de los módulos en el DOM
-// para que sea la primera parada de tabulador tras la cabecera) → un `FlitAcordeon` por módulo,
-// todos plegados al montar. El padre remonta este componente con `key={rol.codigo}` para que el
-// estado de apertura no se arrastre de un rol a otro (ficha §6.1).
+// para que sea la primera parada de tabulador tras la cabecera) → tres secciones por origen del
+// módulo (HU #12533, ficha §13), cada una con un `FlitAcordeon` por módulo, todos plegados al
+// montar. El padre remonta este componente con `key={rol.codigo}` para que el estado de apertura no
+// se arrastre de un rol a otro (ficha §6.1).
+//
+// El rótulo de sección es un `h3` (h1 → h2 rol → h3 sección) dentro de un `<section
+// aria-labelledby>`: la región se llama «FLITO · k de n marcadas» y el h3 NO recibe foco (§13.6).
+// Las tres reubicaciones por código (`pagina.transito`, `pagina.drive`, `pagina.privacy`) las hace
+// `seccionesVisibles`; el `PUT` sigue mandando los mismos códigos.
 //
 // La casilla (ficha §9): `<label>` envolvente con el nombre visible + `sr-only` «· rol {nombre}»,
 // explicación por `aria-describedby`, código técnico SOLO en `data-codigo` (§3). Sin `aria-label`,
 // sin `keydown` a mano, sin `role="grid"`.
 
-import { useId, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import type { RolCatalogo } from '@operaciones/shared-types';
 import type { GrupoDeFunciones } from '../../lib/api';
 import FlitAcordeon from '../../components/flit/FlitAcordeon';
@@ -17,7 +23,8 @@ import GradientButton from '../../components/flit/GradientButton';
 import StatusChip from '../../components/flit/StatusChip';
 import { FlitCard, flitBtnSecondary, flitBtnSecondarySm, flitBtnSecondaryStyle } from '../../components/flit/flitPageKit';
 import {
-  ENLACE_EN_CABECERA, ETIQUETA_ACCESO, desmarcadas, etiquetaModulo, funcionesFueraDelCanal, marcadas,
+  ENLACE_EN_CABECERA, ETIQUETA_ACCESO, desmarcadas, etiquetaModulo, funcionesFueraDelCanal, kDeNMarcadas, marcadas,
+  seccionesVisibles,
 } from './modulos';
 
 export const COPY_VACIO_ROL_SIN_FUNCIONES =
@@ -54,7 +61,10 @@ export default function CuadroRol({
 }: Props) {
   const [abiertos, setAbiertos] = useState<Set<string>>(() => new Set());
   const idMotivo = useId();
+  const idSeccion = useId();
+  const secciones = useMemo(() => seccionesVisibles(grupos), [grupos]);
   const todas = grupos.flatMap((g) => g.funciones.map((f) => f.codigo));
+  const marcadasDe = (codigos: string[]) => codigos.filter((c) => borrador.has(c)).length;
   const nuevas = [...borrador].filter((c) => !base.has(c)).length;
   const quitadas = [...base].filter((c) => !borrador.has(c)).length;
   const hayCambios = nuevas + quitadas > 0;
@@ -155,48 +165,69 @@ export default function CuadroRol({
         <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{COPY_VACIO_ROL_SIN_FUNCIONES}</p>
       )}
 
-      {grupos.map((g) => {
-        const codigos = g.funciones.map((f) => f.codigo);
-        const k = codigos.filter((c) => borrador.has(c)).length;
-        const etiqueta = etiquetaModulo(g.modulo);
-        return (
-          <FlitAcordeon
-            key={g.modulo}
-            titulo={etiqueta}
-            cantidad={g.funciones.length}
-            descripcion={`${k} de ${g.funciones.length} marcadas`}
-            abierto={abiertos.has(g.modulo)}
-            onToggle={() => alternar(g.modulo)}
-            // Solo con el módulo abierto: plegado, cada módulo es UNA parada de tabulador (ficha §9).
-            accion={abiertos.has(g.modulo) ? (
-              <div className="flex shrink-0 gap-2">
-                <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => onMarcarConjunto(codigos, true)}>
-                  Marcar todas<span className="sr-only"> las funciones de {etiqueta}</span>
-                </button>
-                <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => onMarcarConjunto(codigos, false)}>
-                  Desmarcar todas<span className="sr-only"> las funciones de {etiqueta}</span>
-                </button>
-              </div>
-            ) : undefined}
-          >
-            <fieldset className="flex flex-col gap-3">
-              <legend className="sr-only">Funciones de {etiqueta} para el rol {rol.nombre}</legend>
-              {g.funciones.map((f) => (
-                <Casilla
-                  key={f.codigo}
-                  codigo={f.codigo}
-                  nombre={f.nombreNegocio}
-                  descripcion={f.descripcion}
-                  rol={rol.nombre}
-                  marcada={borrador.has(f.codigo)}
-                  noAplica={externo && borrador.has(f.codigo) && avisoFueraDelCanal.includes(f.codigo)}
-                  onToggle={onToggle}
-                />
-              ))}
-            </fieldset>
-          </FlitAcordeon>
-        );
-      })}
+      {/* `gap-8` entre secciones: el hueco rótulo↔sección anterior tiene que ser mayor que el de dos
+          barras de la misma sección, o el rótulo parece pegado al acordeón de arriba (§13.3). */}
+      <div className="flex flex-col gap-8">
+        {secciones.map((s) => {
+          const codigosSeccion = s.grupos.flatMap((g) => g.funciones.map((f) => f.codigo));
+          const idH3 = `${idSeccion}-${s.clave}`;
+          return (
+            <section key={s.clave} aria-labelledby={idH3} className="flex flex-col gap-4">
+              {/* La mayúscula la pone CSS: el nombre accesible de la región va en caja de frase. */}
+              <h3 id={idH3} className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>
+                {s.titulo}
+                <span className="normal-case tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>
+                  {' · '}{kDeNMarcadas(marcadasDe(codigosSeccion), codigosSeccion.length)}
+                </span>
+              </h3>
+              {s.ayuda && (
+                <p className="-mt-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{s.ayuda}</p>
+              )}
+              {s.grupos.map((g) => {
+                const codigos = g.funciones.map((f) => f.codigo);
+                const etiqueta = etiquetaModulo(g.modulo);
+                return (
+                  <FlitAcordeon
+                    key={g.modulo}
+                    titulo={etiqueta}
+                    cantidad={g.funciones.length}
+                    descripcion={`${marcadasDe(codigos)} de ${g.funciones.length} marcadas`}
+                    abierto={abiertos.has(g.modulo)}
+                    onToggle={() => alternar(g.modulo)}
+                    // Solo con el módulo abierto: plegado, cada módulo es UNA parada de tabulador (ficha §9).
+                    accion={abiertos.has(g.modulo) ? (
+                      <div className="flex shrink-0 gap-2">
+                        <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => onMarcarConjunto(codigos, true)}>
+                          Marcar todas<span className="sr-only"> las funciones de {etiqueta}</span>
+                        </button>
+                        <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => onMarcarConjunto(codigos, false)}>
+                          Desmarcar todas<span className="sr-only"> las funciones de {etiqueta}</span>
+                        </button>
+                      </div>
+                    ) : undefined}
+                  >
+                    <fieldset className="flex flex-col gap-3">
+                      <legend className="sr-only">Funciones de {etiqueta} para el rol {rol.nombre}</legend>
+                      {g.funciones.map((f) => (
+                        <Casilla
+                          key={f.codigo}
+                          codigo={f.codigo}
+                          nombre={f.nombreNegocio}
+                          descripcion={f.descripcion}
+                          rol={rol.nombre}
+                          marcada={borrador.has(f.codigo)}
+                          noAplica={externo && borrador.has(f.codigo) && avisoFueraDelCanal.includes(f.codigo)}
+                          onToggle={onToggle}
+                        />
+                      ))}
+                    </fieldset>
+                  </FlitAcordeon>
+                );
+              })}
+            </section>
+          );
+        })}
+      </div>
     </div>
   );
 }

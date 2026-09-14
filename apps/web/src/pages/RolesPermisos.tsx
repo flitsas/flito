@@ -312,7 +312,18 @@ function Esqueleto() {
       </FlitCard>
       <div className="flex flex-col gap-4">
         <FlitCard><div className={`${barra} h-24`} style={tono} /></FlitCard>
-        {Array.from({ length: 4 }, (_, i) => <FlitCard key={i}><div className={`${barra} h-6`} style={tono} /></FlitCard>)}
+        {/* HU #12533 (ficha §13.5): tres secciones —rótulo corto sin tarjeta + 2 barras— para que la
+            estructura no salte al llegar los datos. El rótulo va sobre el fondo de la app, así que
+            su tono es el del borde y no el del fondo. */}
+        <div className="flex flex-col gap-8">
+          {Array.from({ length: 3 }, (_, i) => (
+            <div key={i} className="flex flex-col gap-4">
+              <div className={`${barra} h-3 w-[35%]`} style={{ background: 'var(--flit-border-soft)' }} />
+              <FlitCard><div className={`${barra} h-6`} style={tono} /></FlitCard>
+              <FlitCard><div className={`${barra} h-6`} style={tono} /></FlitCard>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
