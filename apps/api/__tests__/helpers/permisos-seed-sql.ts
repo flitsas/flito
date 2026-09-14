@@ -30,6 +30,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0187_pagina_roles_permisos.sql',
   '0190_users_baja_logica.sql',
   '0191_servicios_adicionales_tipos.sql',
+  '0192_pagina_flito_servicios_adicionales.sql',
 ] as const;
 
 function sinComentariosSql(sql: string): string {

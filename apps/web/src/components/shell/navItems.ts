@@ -94,6 +94,10 @@ export const NAV_ITEMS: NavItem[] = [
   // vigencias con historial. Va en Finanzas —su dueño es quien pone precio— y sin `roles`: el slug
   // `flito_tarifas` ya es de `admin` + `financiera` y repetirlo aquí sería una segunda verdad.
   { page: 'flito_tarifas', to: '/flito/tarifas',                 section: 'finanzas',      label: 'Tarifas',                 keywords: 'tarifas valor servicio precio tramite digital matricula traspaso otros logistica vigencia historial cliente compania financiera' },
+  // Servicios adicionales (HU #12542): el catálogo global de lo que FLITO cobra aparte del trámite,
+  // con su valor. Va justo después de Tarifas —mismo dueño, misma zona— y sin `roles`: el slug
+  // `flito_servicios_adicionales` ya es de `admin` + `financiera`.
+  { page: 'flito_servicios_adicionales', to: '/flito/servicios-adicionales', section: 'finanzas', label: 'Servicios adicionales', keywords: 'servicios adicionales catalogo tipo valor precio paz y salvo diagnostico derecho de peticion financiera tarifa' },
   // Conciliación de boletas SOAT (Feature #11623): va en Finanzas —lo pide el AC1 y además espeja a
   // Bolsas, que también es dominio FLITO con dueño financiero—. Sin `roles`: el slug ya es exclusivo
   // de `admin` + `financiera`, y repetir la regla aquí la pondría en dos sitios que pueden divergir.
