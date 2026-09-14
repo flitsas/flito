@@ -119,11 +119,17 @@ export function FlitTable({ children, label }: { children: ReactNode; label?: st
   );
 }
 
-export function FlitTh({ children, center, className = '' }: { children?: ReactNode; center?: boolean; className?: string }) {
+/**
+ * `estrecha` baja el relleno horizontal a `px-3`, para tablas que tienen que caber en un portátil
+ * (reporte de costos, HU #12539). Es prop y no `className="px-3"` porque en el orden de Tailwind
+ * `px-3` no vence a `px-4`: las dos utilidades pesan igual y gana la que va después en la hoja,
+ * no en el atributo.
+ */
+export function FlitTh({ children, center, estrecha, className = '' }: { children?: ReactNode; center?: boolean; estrecha?: boolean; className?: string }) {
   return (
     <th
       scope="col"
-      className={`px-4 py-2.5 ${center ? 'text-center' : 'text-left'} text-[11px] font-semibold uppercase tracking-wide ${className}`}
+      className={`${estrecha ? 'px-3' : 'px-4'} py-2.5 ${center ? 'text-center' : 'text-left'} text-[11px] font-semibold uppercase tracking-wide ${className}`}
       style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}
     >
       {children}

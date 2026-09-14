@@ -1,4 +1,4 @@
-// Finanzas — el reporte de costos y su consolidado, en `.xlsx` (HU #12531, Feature #12530).
+// Finanzas — el reporte de costos y su consolidado, en `.xlsx` (HU #12531 y #12536, Feature #12530).
 //
 // Sustituye al CSV (`aCsv`/`aCsvConsolidado`, HU #12432/#12433). Lo que cambia no es el separador:
 // es que cada celda lleva su TIPO. El CSV entregaba «450000» y «2026-09-14» como texto y Excel en
@@ -10,15 +10,33 @@
 // `finanzas.reporte-columnas.ts`): el archivo principal ya ronda el `max-lines`, y lo que hay aquí
 // —la forma de dos hojas— no lo usa ninguna consulta.
 //
-// ── Qué campo alimenta cada columna ──────────────────────────────────────────────────────────────
+// ── El detalle replica LITERALMENTE el Excel de Financiero (HU #12536) ────────────────────────────
 //
-// El mapeo es el que hacía `aCsv` para las 32 columnas que ya existían (fuente de verdad: HU #12432,
-// RN-08), más las cuatro del titular que estrena esta HU (Nombre completo, Correo, Teléfono,
-// Dirección). «Flit» es el identificador del trámite en FLIT; «Trámite» son los pesos del derecho de
-// tránsito; «Tipo» es el documento del titular y la categoría se llama «Tipo trámite».
+// Desde la decisión del PO del 2026-09-14 el detalle ya no lleva las 36 columnas canónicas de la
+// HU #12432: lleva las 31 del archivo con el que Financiero trabaja hoy, con sus cabeceras tal cual
+// —«cliente» en minúscula, «Tramite» sin tilde, «Vin», «Columna1»/«Columna2»— y en su orden, para que
+// el archivo descargado se pegue sobre el suyo sin remapear nada. Qué campo alimenta cada columna:
+//
+//   cliente ← empresa · Mes/Trimestre ← trimestre · FLIT ← idFlit · Placa y Placa2 ← placa (dos
+//   veces, como en el adjunto) · Tipo ← titularTipoDocumento (CC/NIT) · CC-NIT ← titularDocumento
+//   COMO TEXTO · Nombres/Apellidos/Correo/Teléfono/Dirección ← titular* · Nombre completo ←
+//   nombreCompletoTitular · Estado ← estado · OT ← organismoNombre · Tipo Trámite y Tramite ←
+//   tipoTramite (la misma categoría, dos veces) · SOAT/Impuesto/GMF ← el concepto · Trámite ←
+//   derechoTramite (pesos) · Total Reintegro ← totalReintegro · Servicio ← totalServicio · Factura ←
+//   facturaNumero · Vin ← vin · fecha_aprobacion ← fechaExcel(fechaAprobacion) · Filtromes ← mes.
+//
+// Dos columnas no se llaman como lo que llevan, y es a propósito:
+//   · «Modelo» ← linea. En el Excel de Financiero «Modelo» es la LÍNEA del vehículo (ONIX, LOGAN),
+//     no el año-modelo ni la marca: así lo usa Financiero y así lo decidió el PO (épica #12243).
+//   · «Columna1» ← logistica. Es la columna sin nombre que en el adjunto contiene la logística.
+// Y dos van siempre vacías: «Columna2» (formato de dinero en la columna, como el adjunto) y
+// «Factura Terceros» (FLITO no la conoce; se deja para que Financiero la rellene a mano).
+//
+// Salen del archivo: Marca, Creado, Estado factura, Trámite digital, Total, Liquidación, Qué falta
+// para liquidar, SOAT conciliado y Razón social como columna aparte (va dentro de Nombre completo).
+// El consolidado (13 columnas) no cambia.
 
 import type { ExcelColumn } from '../../shared/utils/excel.js';
-import { celdaConciliacion } from './finanzas.conciliacion-soat.js';
 import { SIN_APROBAR, type ConsolidadoReporte } from './finanzas.consolidado.js';
 import type { FilaReporte } from './finanzas.service.js';
 
@@ -37,57 +55,46 @@ export const FORMATO_ENTERO = '0';
 export const HOJA_DETALLE = 'Reporte de costos';
 export const HOJA_CONSOLIDADO = 'Consolidado';
 
-/** Rótulo de la columna «Liquidación» cuando la fila NO está sellada: sus valores son un estimado. */
-export const ESTIMADO = 'Estimado';
-
 const dinero = (header: string, key: string): ExcelColumn => ({ header, key, width: 16, numFmt: FORMATO_DINERO });
 
 /**
- * Las 36 columnas del detalle, en el orden del Excel de Financiero (tres secciones: identificación,
- * datos del trámite, valores). Exportada para que el test afirme el orden entero como un solo array.
+ * Las 31 columnas del detalle, con las cabeceras LITERALES del Excel de Financiero y en su orden
+ * (HU #12536). Las claves son únicas aunque la fuente se repita —`placa`/`placa2`,
+ * `tipoTramite`/`tramiteCategoria`— porque ExcelJS pisa las claves repetidas en `addRow`.
+ * Exportada para que el test afirme el orden entero como un solo array.
  */
 export const COLUMNAS_EXPORT_DETALLE: readonly ExcelColumn[] = [
-  // Identificación
-  { header: 'Empresa', key: 'empresa', width: 28 },
-  { header: 'Flit', key: 'flit', width: 12 },
+  { header: 'cliente', key: 'cliente', width: 28 },
+  { header: 'Mes/Trimestre', key: 'mesTrimestre', width: 14 },
+  { header: 'FLIT', key: 'flit', width: 12 },
   { header: 'Placa', key: 'placa', width: 10 },
-  { header: 'VIN', key: 'vin', width: 20 },
+  { header: 'Tipo', key: 'tipo', width: 8 },
+  { header: 'CC-NIT', key: 'ccNit', width: 14 },
   { header: 'Nombres', key: 'nombres', width: 22 },
   { header: 'Apellidos', key: 'apellidos', width: 22 },
-  { header: 'Razón social', key: 'razonSocial', width: 28 },
   { header: 'Nombre completo', key: 'nombreCompleto', width: 32 },
-  { header: 'Tipo', key: 'tipoDocumento', width: 8 },
-  { header: 'Documento', key: 'documento', width: 14 },
-  { header: 'Correo', key: 'correo', width: 26 },
-  { header: 'Teléfono', key: 'telefono', width: 14 },
-  { header: 'Dirección', key: 'direccion', width: 30 },
-  // Datos del trámite
-  { header: 'Tipo trámite', key: 'tipoTramite', width: 16 },
-  { header: 'Marca', key: 'marca', width: 14 },
-  { header: 'Línea', key: 'linea', width: 14 },
-  { header: 'OT', key: 'ot', width: 18 },
+  { header: 'Modelo', key: 'modelo', width: 14 },
   { header: 'Estado', key: 'estado', width: 14 },
-  { header: 'Creado', key: 'creado', width: 12, numFmt: FORMATO_FECHA },
-  { header: 'Aprobado', key: 'aprobado', width: 12, numFmt: FORMATO_FECHA },
-  { header: 'Mes', key: 'mes', width: 9 },
-  { header: 'Trimestre', key: 'trimestre', width: 10 },
-  { header: 'Estado factura', key: 'estadoFactura', width: 16 },
-  { header: 'Factura', key: 'factura', width: 14 },
-  // Valores
+  { header: 'Correo', key: 'correo', width: 26 },
+  { header: 'OT', key: 'ot', width: 18 },
+  { header: 'Tipo Trámite', key: 'tipoTramite', width: 16 },
+  { header: 'Teléfono/Celular', key: 'telefono', width: 16 },
+  { header: 'Dirección', key: 'direccion', width: 30 },
   dinero('SOAT', 'soat'),
-  dinero('Impuesto', 'impuesto'),
   dinero('Trámite', 'tramite'),
+  dinero('Impuesto', 'impuesto'),
+  dinero('Columna1', 'columna1'),
+  dinero('Columna2', 'columna2'),
   dinero('GMF', 'gmf'),
-  dinero('Logística', 'logistica'),
-  dinero('Total reintegro', 'totalReintegro'),
-  dinero('Trámite digital', 'tramiteDigital'),
+  dinero('Total Reintegro', 'totalReintegro'),
   dinero('Servicio', 'servicio'),
-  dinero('Total', 'total'),
-  { header: 'Liquidación', key: 'liquidacion', width: 12 },
-  // Todo lo que impide liquidar, no solo las tarifas: quien concilia necesita la lista completa.
-  { header: 'Qué falta para liquidar', key: 'queFalta', width: 36 },
-  // HU #11679 (AC4): el SOAT ya descontado de bolsa frente al que sigue por cobrar, con su boleta.
-  { header: 'SOAT conciliado', key: 'soatConciliado', width: 18 },
+  { header: 'Factura', key: 'factura', width: 14 },
+  { header: 'Factura Terceros', key: 'facturaTerceros', width: 16 },
+  { header: 'Vin', key: 'vin', width: 20 },
+  { header: 'Placa2', key: 'placa2', width: 10 },
+  { header: 'Tramite', key: 'tramiteCategoria', width: 16 },
+  { header: 'fecha_aprobacion', key: 'fechaAprobacion', width: 16, numFmt: FORMATO_FECHA },
+  { header: 'Filtromes', key: 'filtromes', width: 10 },
 ];
 
 /**
@@ -118,36 +125,24 @@ export function nombreCompletoTitular(f: Pick<FilaReporte, 'titularNombres' | 't
   return junto === '' ? null : junto;
 }
 
-/** Texto de la columna «Liquidación»: sellada → «Liquidado»/«Facturado»; sin sellar → «Estimado». */
-export function rotuloLiquidacion(f: Pick<FilaReporte, 'sellada' | 'estadoLiquidacion'>): string {
-  if (!f.sellada) return ESTIMADO;
-  return f.estadoLiquidacion === 'facturado' ? 'Facturado' : 'Liquidado';
-}
-
-/** Una lista vacía es una celda VACÍA, no una cadena vacía: `null` es lo que ExcelJS deja sin escribir. */
-const listaOVacia = (partes: string[]): string | null => (partes.length === 0 ? null : partes.join(' | '));
-
 /**
  * Las filas del detalle con las CLAVES de `COLUMNAS_EXPORT_DETALLE`. El dinero va como número —GMF y
  * los totales incluidos, como VALOR y no como fórmula: sellado en las liquidadas y estimado en el
- * resto, que es exactamente lo que `aFila` ya resolvió—; los `null` se quedan `null`.
+ * resto, que es exactamente lo que `aFila` ya resolvió—; los `null` se quedan `null`. El documento
+ * va como TEXTO: un NIT o una cédula no es una cifra y Excel le quitaría los ceros a la izquierda.
  */
 export function filasExcelDetalle(filas: FilaReporte[]): Record<string, unknown>[] {
   return filas.map((f) => ({
-    empresa: f.empresa, flit: f.idFlit, placa: f.placa, vin: f.vin,
-    nombres: f.titularNombres, apellidos: f.titularApellidos, razonSocial: f.titularRazonSocial,
-    nombreCompleto: nombreCompletoTitular(f),
-    tipoDocumento: f.titularTipoDocumento, documento: f.titularDocumento,
-    correo: f.titularCorreo, telefono: f.titularTelefono, direccion: f.titularDireccion,
-    tipoTramite: f.tipoTramite, marca: f.marca, linea: f.linea, ot: f.organismoNombre, estado: f.estado,
-    creado: fechaExcel(f.fechaCreacion), aprobado: fechaExcel(f.fechaAprobacion),
-    mes: f.mes, trimestre: f.trimestre,
-    estadoFactura: f.estadoFacturacion, factura: f.facturaNumero,
-    soat: f.soat, impuesto: f.impuesto, tramite: f.derechoTramite, gmf: f.gmf, logistica: f.logistica,
-    totalReintegro: f.totalReintegro, tramiteDigital: f.tramiteDigital, servicio: f.totalServicio, total: f.total,
-    liquidacion: rotuloLiquidacion(f),
-    queFalta: listaOVacia([...f.noConfigurados, ...f.sinRecibo, ...f.pendientesPago]),
-    soatConciliado: celdaConciliacion(f),
+    cliente: f.empresa, mesTrimestre: f.trimestre, flit: f.idFlit, placa: f.placa,
+    tipo: f.titularTipoDocumento, ccNit: f.titularDocumento,
+    nombres: f.titularNombres, apellidos: f.titularApellidos, nombreCompleto: nombreCompletoTitular(f),
+    modelo: f.linea, estado: f.estado, correo: f.titularCorreo, ot: f.organismoNombre,
+    tipoTramite: f.tipoTramite, telefono: f.titularTelefono, direccion: f.titularDireccion,
+    soat: f.soat, tramite: f.derechoTramite, impuesto: f.impuesto, columna1: f.logistica, columna2: null,
+    gmf: f.gmf, totalReintegro: f.totalReintegro, servicio: f.totalServicio,
+    factura: f.facturaNumero, facturaTerceros: null,
+    vin: f.vin, placa2: f.placa, tramiteCategoria: f.tipoTramite,
+    fechaAprobacion: fechaExcel(f.fechaAprobacion), filtromes: f.mes,
   }));
 }
 

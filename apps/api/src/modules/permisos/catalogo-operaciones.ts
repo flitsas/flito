@@ -235,6 +235,11 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   // HU #12373: `DELETE /tarifas/:id` (parametrizacion.tarifas.borrar) se retiró — una vigencia no se borra, se cierra.
   op(`${PAR} GET /tarifas/companias/:id`, 'parametrizacion.tarifas.ver_por_cliente', 'Ver las tarifas de una compañía', 'Consultar el valor vigente de cada concepto de una compañía y quién lo fijó.'),
   op(`${PAR} GET /tarifas/companias/:id/historial`, 'parametrizacion.tarifas.historial', 'Ver el historial de tarifas de una compañía', 'Consultar las vigencias pasadas y presentes de cada concepto, con quién las fijó y quién las cerró.'),
+  // HU #12541: catálogo de tipos de servicio adicional (baja lógica: sin DELETE ni reactivación).
+  op(`${PAR} GET /servicios-adicionales`, 'parametrizacion.servicios_adicionales.listar', 'Ver los tipos de servicio adicional', 'Consultar el catálogo de tipos de servicio adicional y su valor.'),
+  op(`${PAR} POST /servicios-adicionales`, 'parametrizacion.servicios_adicionales.crear', 'Crear un tipo de servicio adicional', 'Dar de alta un tipo de servicio adicional con su nombre, descripción y valor.'),
+  op(`${PAR} PATCH /servicios-adicionales/:id`, 'parametrizacion.servicios_adicionales.editar', 'Editar un tipo de servicio adicional', 'Cambiar el nombre, la descripción o el valor de un tipo activo.'),
+  op(`${PAR} POST /servicios-adicionales/:id/baja`, 'parametrizacion.servicios_adicionales.dar_de_baja', 'Dar de baja un tipo de servicio adicional', 'Retirar un tipo del catálogo sin borrarlo. No se reactiva y su nombre queda libre.'),
 
   // ── Sincronización FLITO ──────────────────────────────────────────────────────────────────────
   op(`${SYN} GET /estado`, 'sync.sync.ver_estado', 'Ver el estado de la sincronización', 'Consultar cuándo corrió la última sincronización y cómo fue.'),
