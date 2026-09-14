@@ -29,6 +29,7 @@ const ETIQUETAS_MODULO: Record<string, string> = {
   parametrizacion: 'Parametrización',
   permisos: 'Roles y permisos',
   pesv: 'PESV',
+  privacidad: 'Privacidad y datos',
   revisiones: 'Revisiones OCR',
   rndc: 'RNDC',
   soat: 'SOAT',
@@ -58,6 +59,118 @@ export function modulosVisibles(grupos: GrupoDeFunciones[]): GrupoDeFunciones[] 
     .map((g) => ({ ...g, etiqueta: etiquetaModulo(g.modulo) }))
     .sort((a, b) => a.etiqueta.localeCompare(b.etiqueta, 'es'))
     .map(({ etiqueta: _e, ...g }) => g);
+}
+
+// HU #12533 — Tres secciones por origen del módulo (ficha §13). El reparto y las tres reubicaciones
+// son decisión de producto (§13.2); aquí solo se calcan. Todo es presentación: el `PUT` sigue
+// mandando los mismos códigos, la función solo se PINTA en otro acordeón.
+
+export type Seccion = 'flito' | 'previo_en_uso' | 'previo_sin_uso';
+
+export interface DefinicionSeccion {
+  clave: Seccion;
+  titulo: string;
+  /** Una línea bajo el rótulo; solo la sección 3 la lleva (§13.3, decisión 23). */
+  ayuda?: string;
+}
+
+/** Orden fijo de las secciones (§13.1). No se ordenan alfabéticamente. */
+export const SECCIONES: readonly DefinicionSeccion[] = [
+  { clave: 'flito', titulo: 'FLITO' },
+  { clave: 'previo_en_uso', titulo: 'Ya existía y FLITO lo usa' },
+  { clave: 'previo_sin_uso', titulo: 'Existe pero no se usa', ayuda: 'Si se marcan, el rol sí entra a esas pantallas. FLITO no las usa hoy.' },
+];
+
+/** Clave de módulo del API → sección. Una clave que no esté aquí cae en FLITO (§13.2). */
+const SECCION_DE_MODULO: Record<string, Seccion> = {
+  flito_soat_e_impuestos: 'flito',
+  finanzas: 'flito',
+  soat: 'flito',
+  tramites: 'flito',
+  impuestos: 'flito',
+  derechos: 'flito',
+  revisiones: 'flito',
+  compuerta: 'flito',
+  tablero: 'flito',
+  bitacora: 'flito',
+  logistica: 'flito',
+  bolsas: 'flito',
+  comparendos: 'flito',
+  conciliacion: 'flito',
+  liquidacion: 'flito',
+  parametrizacion: 'flito',
+  sync: 'flito',
+  general: 'previo_en_uso',
+  administracion: 'previo_en_uso',
+  usuarios: 'previo_en_uso',
+  permisos: 'previo_en_uso',
+  transito: 'previo_en_uso',
+  flota: 'previo_sin_uso',
+  mantenimiento: 'previo_sin_uso',
+  pesv: 'previo_sin_uso',
+  rndc: 'previo_sin_uso',
+  cumplimiento_laft: 'previo_sin_uso',
+  tramite: 'previo_sin_uso',
+  operaciones: 'previo_sin_uso',
+  privacidad: 'previo_sin_uso',
+};
+
+export function seccionDeModulo(clave: string): Seccion {
+  return SECCION_DE_MODULO[clave] ?? 'flito';
+}
+
+/** Código de función → clave del módulo en el que se pinta (§13.2). El API no se entera. */
+const REUBICACIONES: Record<string, string> = {
+  'pagina.transito': 'transito',
+  'pagina.drive': 'derechos',
+  'pagina.privacy': 'privacidad',
+};
+
+export interface SeccionVisible extends DefinicionSeccion {
+  grupos: GrupoDeFunciones[];
+}
+
+/**
+ * Reparte el catálogo en las tres secciones, en orden fijo:
+ *   1. reubica las funciones de `REUBICACIONES` en su módulo destino (se crea si no vino);
+ *   2. descarta módulos sin funciones (vacío D, también el origen que quedó vacío al mover);
+ *   3. ordena alfabéticamente por etiqueta dentro de cada sección (`modulosVisibles`);
+ *   4. clave desconocida → FLITO;
+ *   5. una sección sin módulos no se devuelve (vacío E).
+ * Σ funciones de lo devuelto == Σ funciones de `grupos`: no se pierde ni se duplica ninguna.
+ */
+export function seccionesVisibles(grupos: GrupoDeFunciones[]): SeccionVisible[] {
+  const porModulo = new Map<string, GrupoDeFunciones>();
+  const moduloDe = (clave: string): GrupoDeFunciones => {
+    let g = porModulo.get(clave);
+    if (!g) { g = { modulo: clave, funciones: [] }; porModulo.set(clave, g); }
+    return g;
+  };
+  // Dos pasadas: primero lo propio de cada módulo, después lo reubicado, para que una función
+  // movida se pinte detrás de las que ya eran del destino y no por delante según el orden del API.
+  const reubicadas: { destino: string; funcion: GrupoDeFunciones['funciones'][number] }[] = [];
+  for (const g of grupos) {
+    const propio = moduloDe(g.modulo);
+    for (const f of g.funciones) {
+      const destino = REUBICACIONES[f.codigo];
+      if (destino) reubicadas.push({ destino, funcion: f }); else propio.funciones.push(f);
+    }
+  }
+  for (const { destino, funcion } of reubicadas) moduloDe(destino).funciones.push(funcion);
+  const porSeccion = new Map<Seccion, GrupoDeFunciones[]>();
+  for (const g of modulosVisibles([...porModulo.values()])) {
+    const s = seccionDeModulo(g.modulo);
+    porSeccion.set(s, [...(porSeccion.get(s) ?? []), g]);
+  }
+  return SECCIONES.flatMap((s) => {
+    const suyos = porSeccion.get(s.clave);
+    return suyos && suyos.length > 0 ? [{ ...s, grupos: suyos }] : [];
+  });
+}
+
+/** «0 de 5 marcadas» / «1 de 5 marcada» (cuenta del rótulo de sección, §13.7). */
+export function kDeNMarcadas(k: number, n: number): string {
+  return `${k} de ${n} ${k === 1 ? 'marcada' : 'marcadas'}`;
 }
 
 export const ETIQUETA_ENLACE: Record<TipoEnlace, string> = {
