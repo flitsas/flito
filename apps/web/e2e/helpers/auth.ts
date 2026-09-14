@@ -160,6 +160,15 @@ const SOAT_LEER = [
 ] as const;
 
 /**
+ * Las cuatro del catálogo de servicios adicionales (0191, HU #12541): `admin` y `financiera` las
+ * tienen; el auditor NO (AC6 de la HU #12542). La página decide cada botón con `hasFuncion`.
+ */
+const SERVICIOS_ADICIONALES = [
+  'parametrizacion.servicios_adicionales.listar', 'parametrizacion.servicios_adicionales.crear',
+  'parametrizacion.servicios_adicionales.editar', 'parametrizacion.servicios_adicionales.dar_de_baja',
+] as const;
+
+/**
  * Reparto por rol, como lo devuelve el servidor para cada fixture de arriba (0179 + 0181), acotado
  * a los códigos que alguna pantalla pregunta (`grep -rn "hasFuncion('" apps/web/src`). Admin =
  * operaciones: todos menos los tres del canal cliente (`soat.solicitud.crear`, `runt.preconsultar`,
@@ -179,12 +188,13 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     'liquidacion.liquidacion.liquidar', 'liquidacion.liquidacion.reversar',
     'liquidacion.liquidacion.facturar',
     'usuarios.usuario.listar',
+    ...SERVICIOS_ADICIONALES,
   ],
   proveedor: [...SOAT_LEER, 'soat.comprobante.cargar'],
   cliente: [...SOAT_LEER, 'soat.solicitud.crear', 'soat.runt.preconsultar', 'soat.factura.leer'],
   gestor_impuestos: ['impuestos.cola.ver', 'impuestos.recibos.cargar'],
   auditor: [...SOAT_LEER, 'impuestos.cola.ver', 'tablero.tablero.ver'],
-  financiera: ['liquidacion.liquidacion.liquidar', 'liquidacion.liquidacion.facturar'],
+  financiera: ['liquidacion.liquidacion.liquidar', 'liquidacion.liquidacion.facturar', ...SERVICIOS_ADICIONALES],
   transito: ['transito.tramite.tomar', 'transito.bandeja.ver_pendientes'],
   mensajero: [],
   conductor: [],
