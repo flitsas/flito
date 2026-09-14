@@ -378,13 +378,14 @@ describe('AC6 — faceta de organismos', () => {
 // ───────────────────────────── AC7 — mes y trimestre ─────────────────────────────
 
 describe('AC7 — mes y trimestre desde la fecha de aprobación, en UTC', () => {
-  it('2026-09-14T15:30Z → 2026-09 / 2026-T3, y el archivo los pone en «Mes» y «Trimestre» como texto', async () => {
+  it('2026-09-14T15:30Z → 2026-09 / 2026-T3, y el archivo los pone en «Filtromes» y «Mes/Trimestre» como texto (HU #12536)', async () => {
     expect(periodoDe('2026-09-14T15:30:00.000Z')).toEqual({ mes: '2026-09', trimestre: '2026-T3' });
     const f = await filaDe();
     expect(f.mes).toBe('2026-09');
     expect(f.trimestre).toBe('2026-T3');
-    expect(celda(f, 'mes')).toBe('2026-09');
-    expect(celda(f, 'trimestre')).toBe('2026-T3');
+    // Mutante «Filtromes con el trimestre» / «Mes/Trimestre con el mes»: se cruzarían.
+    expect(celda(f, 'filtromes')).toBe('2026-09');
+    expect(celda(f, 'mesTrimestre')).toBe('2026-T3');
   });
 
   it('2026-10-01T04:30Z (23:30 del 30-sep en Colombia) → 2026-10 / 2026-T4: se deriva en UTC', () => {
@@ -398,9 +399,9 @@ describe('AC7 — mes y trimestre desde la fecha de aprobación, en UTC', () => 
     const f = await filaDe({ fechaAprobacion: null });
     expect(f.mes).toBeNull();
     expect(f.trimestre).toBeNull();
-    expect(celda(f, 'mes')).toBeNull();
-    expect(celda(f, 'trimestre')).toBeNull();
-    expect(celda(f, 'aprobado')).toBeNull();
+    expect(celda(f, 'filtromes')).toBeNull();
+    expect(celda(f, 'mesTrimestre')).toBeNull();
+    expect(celda(f, 'fechaAprobacion')).toBeNull();
   });
 
   it.each([
@@ -511,14 +512,16 @@ describe('AC9 — totales del universo filtrado, en SQL', () => {
 
 // ───────────────────────────── AC10 — el archivo ─────────────────────────────
 
-describe('AC10 — el archivo en tres secciones con nombres canónicos (RN-08; .xlsx desde la HU #12531)', () => {
-  const CABECERA = 'Empresa;Flit;Placa;VIN;Nombres;Apellidos;Razón social;Nombre completo;Tipo;Documento;Correo;Teléfono;Dirección;Tipo trámite;Marca;Línea;OT;Estado;Creado;Aprobado;Mes;Trimestre;Estado factura;Factura;SOAT;Impuesto;Trámite;GMF;Logística;Total reintegro;Trámite digital;Servicio;Total;Liquidación;Qué falta para liquidar;SOAT conciliado';
+describe('AC10 — el archivo con las 31 columnas literales del Excel de Financiero (HU #12536; .xlsx desde la HU #12531)', () => {
+  // Las 31 cabeceras tal cual las tiene Financiero: «cliente» en minúscula, «Tramite» sin tilde, «Vin».
+  const CABECERA = 'cliente;Mes/Trimestre;FLIT;Placa;Tipo;CC-NIT;Nombres;Apellidos;Nombre completo;Modelo;Estado;Correo;OT;Tipo Trámite;Teléfono/Celular;Dirección;SOAT;Trámite;Impuesto;Columna1;Columna2;GMF;Total Reintegro;Servicio;Factura;Factura Terceros;Vin;Placa2;Tramite;fecha_aprobacion;Filtromes';
 
-  it('las 36 cabeceras son exactamente las canónicas y en ese orden (como un solo array, no «contiene»)', () => {
+  it('las 31 cabeceras son exactamente las literales y en ese orden (como un solo array, no «contiene»)', () => {
+    // Mutante «cabecera 'Cliente' con mayúscula», «Vin como VIN», «Tramite con tilde»: el `toEqual` cae.
     expect(COLUMNAS_EXPORT_DETALLE.map((c) => c.header)).toEqual(CABECERA.split(';'));
-    expect(COLUMNAS_EXPORT_DETALLE).toHaveLength(36);
-    // Cada clave es única: dos columnas con la misma clave se pisarían en `addRow`.
-    expect(new Set(COLUMNAS_EXPORT_DETALLE.map((c) => c.key)).size).toBe(36);
+    expect(COLUMNAS_EXPORT_DETALLE).toHaveLength(31);
+    // Cada clave es única: dos columnas con la misma clave se pisarían en `addRow` (Placa/Placa2, Tipo Trámite/Tramite).
+    expect(new Set(COLUMNAS_EXPORT_DETALLE.map((c) => c.key)).size).toBe(31);
   });
 
   it('cada celda por su CLAVE, con su tipo: texto, número y Date de día', async () => {
@@ -527,37 +530,45 @@ describe('AC10 — el archivo en tres secciones con nombres canónicos (RN-08; .
       sellada: true, estadoLiquidacion: 'facturado',
     });
     const fila = filasExcelDetalle([f])[0]!;
+    // Mutante «Modelo ← marca» (CHEVROLET), «Placa2 ← vin» (VIN1), «Tramite ← tipo de documento» (CC),
+    // «Columna1 ← tramiteDigital» (200000), «Filtromes con el trimestre» (2026-T3): el `toEqual` cae.
     expect(fila).toEqual({
-      empresa: 'ACME', flit: 'FLIT-1', placa: 'ABC123', vin: 'VIN1', nombres: 'ANA MARÍA', apellidos: 'PÉREZ',
-      razonSocial: null, nombreCompleto: 'ANA MARÍA PÉREZ', tipoDocumento: 'CC', documento: '1020304050',
-      correo: 'ana@correo.co', telefono: '3001234567', direccion: 'CL 10 # 20-30',
-      tipoTramite: 'Traspaso', marca: 'CHEVROLET', linea: 'ONIX', ot: 'Envigado', estado: 'Aprobado',
-      creado: new Date('2026-09-01T00:00:00.000Z'), aprobado: new Date('2026-09-14T00:00:00.000Z'),
-      mes: '2026-09', trimestre: '2026-T3', estadoFactura: 'emitido', factura: 'FV-1-123',
-      soat: 450000, impuesto: 120000, tramite: 80000, gmf: 3460, logistica: 15000,
-      totalReintegro: 668460, tramiteDigital: 200000, servicio: 200000, total: 868460,
-      liquidacion: 'Facturado', queFalta: null, soatConciliado: 'No',
+      cliente: 'ACME', mesTrimestre: '2026-T3', flit: 'FLIT-1', placa: 'ABC123', tipo: 'CC', ccNit: '1020304050',
+      nombres: 'ANA MARÍA', apellidos: 'PÉREZ', nombreCompleto: 'ANA MARÍA PÉREZ', modelo: 'ONIX',
+      estado: 'Aprobado', correo: 'ana@correo.co', ot: 'Envigado', tipoTramite: 'Traspaso',
+      telefono: '3001234567', direccion: 'CL 10 # 20-30',
+      soat: 450000, tramite: 80000, impuesto: 120000, columna1: 15000, columna2: null, gmf: 3460,
+      totalReintegro: 668460, servicio: 200000, factura: 'FV-1-123', facturaTerceros: null,
+      vin: 'VIN1', placa2: 'ABC123', tramiteCategoria: 'Traspaso',
+      fechaAprobacion: new Date('2026-09-14T00:00:00.000Z'), filtromes: '2026-09',
     });
     // Mutante «String(soat)»: el `toEqual` de arriba ya cae; esto deja el tipo explícito.
     expect(typeof fila.soat).toBe('number');
-    expect(fila.aprobado).toBeInstanceOf(Date);
+    // Mutante «Number(titularDocumento)»: el documento es texto, con sus ceros a la izquierda.
+    expect(typeof fila.ccNit).toBe('string');
+    // Mutante «fecha_aprobacion como texto ISO».
+    expect(fila.fechaAprobacion).toBeInstanceOf(Date);
     // Y todas las claves de la fila existen en las columnas, y viceversa.
     expect(Object.keys(fila).sort()).toEqual(COLUMNAS_EXPORT_DETALLE.map((c) => c.key).sort());
   });
 
-  it('«Tipo» es el documento del titular y «Trámite» los pesos del derecho; «Flit» el identificador', async () => {
+  it('«Tipo» es el documento del titular y «Trámite» los pesos del derecho; «FLIT» el identificador; la razón social va en Nombre completo', async () => {
     const f = await filaDe({ titularTipoFlit: 'n', titularNombresFlit: 'ABC SAS', derechoTramite: '81000' });
-    expect(celda(f, 'tipoDocumento')).toBe('NIT');
+    expect(celda(f, 'tipo')).toBe('NIT');
     expect(celda(f, 'tipoTramite')).toBe('Traspaso');
+    // Mutante «Tramite ← derechoTramite»: la categoría duplicada sería un número.
+    expect(celda(f, 'tramiteCategoria')).toBe('Traspaso');
     expect(celda(f, 'tramite')).toBe(81000);
     expect(celda(f, 'flit')).toBe('FLIT-1');
-    expect(celda(f, 'razonSocial')).toBe('ABC SAS');
+    // HU #12536: «Razón social» ya no es columna; la jurídica se lee en Nombre completo con Nombres vacío.
     expect(celda(f, 'nombreCompleto')).toBe('ABC SAS');
+    expect(celda(f, 'nombres')).toBeNull();
+    expect(COLUMNAS_EXPORT_DETALLE.map((c) => c.key)).not.toContain('razonSocial');
   });
 
   it('un texto con «;» o comillas va tal cual: en xlsx no hay separador que escapar', async () => {
     const f = await filaDe({ empresa: 'GÓMEZ; HIJOS', placa: 'A"B' });
-    expect(celda(f, 'empresa')).toBe('GÓMEZ; HIJOS');
+    expect(celda(f, 'cliente')).toBe('GÓMEZ; HIJOS');
     expect(celda(f, 'placa')).toBe('A"B');
   });
 });

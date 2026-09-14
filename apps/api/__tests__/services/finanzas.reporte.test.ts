@@ -49,56 +49,68 @@ function fila(over: Partial<Fila> = {}): Fila {
 const celda = (f: Fila, clave: string): unknown => filasExcelDetalle([f])[0]![clave];
 
 describe('filasExcelDetalle — el archivo que abre contabilidad', () => {
-  it('la sección de identificación abre el archivo; «Flit» es el identificador del trámite (HU #12432)', () => {
-    expect(COLUMNAS_EXPORT_DETALLE.slice(0, 3).map((c) => c.header)).toEqual(['Empresa', 'Flit', 'Placa']);
+  it('abre con las columnas literales del Excel de Financiero: «cliente», «Mes/Trimestre», «FLIT» (HU #12536)', () => {
+    // Mutante «cabecera 'Cliente' con mayúscula» o «'Flit'» como en la HU #12432: cae.
+    expect(COLUMNAS_EXPORT_DETALLE.slice(0, 3).map((c) => c.header)).toEqual(['cliente', 'Mes/Trimestre', 'FLIT']);
   });
 
-  it('distingue sellado, facturado y estimado', () => {
-    // Mutante «'Liquidado' para todo» o «Estimado por estadoLiquidacion null aunque esté sellada».
-    expect(celda(fila({ estadoLiquidacion: 'liquidado' }), 'liquidacion')).toBe('Liquidado');
-    expect(celda(fila({ estadoLiquidacion: 'facturado' }), 'liquidacion')).toBe('Facturado');
-    expect(celda(fila({ sellada: false, estadoLiquidacion: null }), 'liquidacion')).toBe('Estimado');
+  it('sellada, facturada o estimada exportan sus valores igual: ya no hay columna «Liquidación» (HU #12536)', () => {
+    // Mutante «sin sellar → dinero vacío»: el estimado es lo que Financiero cuadra.
+    expect(celda(fila({ estadoLiquidacion: 'liquidado' }), 'soat')).toBe(450000);
+    expect(celda(fila({ estadoLiquidacion: 'facturado' }), 'soat')).toBe(450000);
+    expect(celda(fila({ sellada: false, estadoLiquidacion: null }), 'soat')).toBe(450000);
+    expect(COLUMNAS_EXPORT_DETALLE.map((c) => c.key)).not.toContain('liquidacion');
   });
 
   it('la fecha de aprobación sale como Date del DÍA en UTC, que es lo que Excel ordena y filtra', () => {
     // Con el instante completo Excel enseñaría la hora; con texto no dejaría ordenar por fecha.
-    const v = celda(fila(), 'aprobado');
+    const v = celda(fila(), 'fechaAprobacion');
     expect(v).toBeInstanceOf(Date);
     expect((v as Date).toISOString()).toBe('2026-07-14T00:00:00.000Z');
   });
 
-  it('un trámite sin aprobar deja la celda vacía (null)', () => {
-    expect(celda(fila({ fechaAprobacion: null }), 'aprobado')).toBeNull();
+  it('un trámite sin aprobar deja la celda vacía (null), y con ella Filtromes y Mes/Trimestre', () => {
+    const f = filasExcelDetalle([fila({ fechaAprobacion: null, mes: null, trimestre: null })])[0]!;
+    expect(f.fechaAprobacion).toBeNull();
+    // Mutante «?? ''» en filtromes o mesTrimestre: dejaría de ser null.
+    expect(f.filtromes).toBeNull();
+    expect(f.mesTrimestre).toBeNull();
   });
 
-  it('un concepto no configurado sale vacío, no como cero', () => {
+  it('un concepto no configurado sale vacío, no como cero; Columna2 y Factura Terceros también van vacías', () => {
     // Un cero en la hoja se sumaría y cuadraría un total que no existe.
-    const f = filasExcelDetalle([fila({ tramiteDigital: null, noConfigurados: ['Trámite digital'] })])[0]!;
-    expect(f.tramiteDigital).toBeNull();
-    expect(f.queFalta).toBe('Trámite digital');
+    const f = filasExcelDetalle([fila({ logistica: null, noConfigurados: ['Logística'] })])[0]!;
+    // Mutante «Columna1 ← tramiteDigital»: sería 200000, no null.
+    expect(f.columna1).toBeNull();
+    expect(f.columna2).toBeNull();
+    expect(f.facturaTerceros).toBeNull();
     expect(Object.values(f).filter((c) => c === 0)).toHaveLength(0);
+    expect(Object.values(f).filter((c) => c === '')).toHaveLength(0);
   });
 
   it('un texto con el separador o comillas va tal cual: en xlsx no hay nada que escapar', () => {
     const f = filasExcelDetalle([fila({ empresa: 'GÓMEZ; HIJOS', placa: 'A"B' })])[0]!;
-    expect(f.empresa).toBe('GÓMEZ; HIJOS');
+    expect(f.cliente).toBe('GÓMEZ; HIJOS');
     expect(f.placa).toBe('A"B');
+    // Mutante «Placa2 ← vin»: la placa duplicada es la misma placa.
+    expect(f.placa2).toBe('A"B');
   });
 
-  it('lista los conceptos sin configurar en su propia columna', () => {
+  it('«Modelo» es la LÍNEA del vehículo y «Columna1» la logística, como en el Excel de Financiero', () => {
+    const f = filasExcelDetalle([fila({ marca: 'RENAULT', linea: 'LOGAN', logistica: 17000 })])[0]!;
+    // Mutante «Modelo ← marca»: saldría RENAULT.
+    expect(f.modelo).toBe('LOGAN');
+    expect(f.columna1).toBe(17000);
+    // Mutante «Marca sigue en el archivo»: no hay clave para ella.
+    expect(COLUMNAS_EXPORT_DETALLE.map((c) => c.key)).not.toContain('marca');
+    expect(COLUMNAS_EXPORT_DETALLE.find((c) => c.key === 'modelo')?.header).toBe('Modelo');
+    expect(COLUMNAS_EXPORT_DETALLE.find((c) => c.key === 'columna1')?.header).toBe('Columna1');
+  });
+
+  it('la lista de faltantes ya no viaja en el archivo (HU #12536): no hay clave queFalta', () => {
     const f = fila({ sellada: false, estadoLiquidacion: null, noConfigurados: ['Derecho de tránsito', 'Logística'] });
-    expect(celda(f, 'queFalta')).toBe('Derecho de tránsito | Logística');
-  });
-
-  it('la columna de faltantes recoge los tres motivos, no solo las tarifas', () => {
-    // A quien concilia le da igual si lo que falta es una tarifa, un recibo o un pago: lo que
-    // necesita es la lista completa de lo que hay que resolver para poder liquidar.
-    const f = fila({
-      sellada: false, estadoLiquidacion: null,
-      noConfigurados: ['Logística'], sinRecibo: ['Derecho de tránsito'], pendientesPago: ['SOAT'],
-    });
-    expect(COLUMNAS_EXPORT_DETALLE.find((c) => c.key === 'queFalta')?.header).toBe('Qué falta para liquidar');
-    expect(celda(f, 'queFalta')).toBe('Logística | Derecho de tránsito | SOAT');
+    expect(filasExcelDetalle([f])[0]).not.toHaveProperty('queFalta');
+    expect(COLUMNAS_EXPORT_DETALLE.map((c) => c.header)).not.toContain('Qué falta para liquidar');
   });
 
   it('sin filas devuelve una lista vacía (la cabecera la pone sendExcel)', () => {
