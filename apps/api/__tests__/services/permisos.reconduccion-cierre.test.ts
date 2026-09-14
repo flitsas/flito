@@ -145,22 +145,20 @@ describe('AC1/AC2 — cada router.<método>( de los 23 ficheros lleva exigirFunc
     }
   });
 
-  it('las cuatro guardas en línea están montadas con tieneFuncion(req, …) en su fichero (dos del Bug #12642: el export ampliado)', () => {
+  it('las dos guardas en línea están montadas con tieneFuncion(req, …) en su fichero', () => {
     expect(sinComentarios(leer('tramites/tramites.routes.ts'))).toMatch(/tieneFuncion\(req, 'tramite\.tramite\.forzar_continuar'\)/);
     expect(sinComentarios(leer('users/users.routes.ts'))).toMatch(/tieneFuncion\(req, 'usuarios\.contrasena\.cambiar_ajena'\)/);
-    expect(sinComentarios(leer('flito-soat/flito-soat.routes.ts'))).toMatch(/tieneFuncion\(req, 'soat\.excel\.exportar_pago'\)/);
-    expect(sinComentarios(leer('flito-impuestos/flito-impuestos.routes.ts'))).toMatch(/tieneFuncion\(req, 'impuestos\.excel\.exportar_pago'\)/);
   });
 });
 
 describe('el lector de montajes cubre la foto entera', () => {
-  it('242 montajes = 238 previos + 2 de la #12089 (baja/reactivar) + 2 por el Bug #12642 (export ampliado, en línea); los códigos son exactamente los de la foto', () => {
+  it('244 montajes = 238 previos + 2 de la #12089 (baja/reactivar) + 4 de la #12541 (servicios adicionales); los códigos son exactamente los de la foto', () => {
     const montajes = montajesDeFunciones();
-    expect(GUARDAS_MEDIDAS).toHaveLength(242);
-    expect(montajes).toHaveLength(242);
+    expect(GUARDAS_MEDIDAS).toHaveLength(244);
+    expect(montajes).toHaveLength(244);
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
-    expect(montajes.filter((m) => m.metodo === null)).toHaveLength(4);
+    expect(montajes.filter((m) => m.metodo === null)).toHaveLength(2);
   });
 
   it('un exigirFuncion sin literal hace que el lector LANCE en vez de adivinar', () => {

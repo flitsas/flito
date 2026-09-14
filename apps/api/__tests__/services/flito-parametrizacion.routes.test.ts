@@ -516,3 +516,217 @@ describe('tarifas — fijar (POST) y cambiar/cerrar (PATCH) (AC4, AC5, AC8, AC9,
     expect(transactionMock).not.toHaveBeenCalled();
   });
 });
+
+// ───────── HU #12541 (Feature #12540): catálogo de tipos de servicio adicional — contrato HTTP ─────────
+//
+// Códigos, forma de la respuesta, auditoría y, sobre todo, que el acceso se decide por FUNCIÓN (AC9):
+// admin y financiera entran por el reparto de la 0191; auditor y cliente reciben 403 ANTES de tocar la
+// base. La lógica del servicio (plegado, 23505, baja lógica) está en flito-servicios-adicionales.test.ts.
+
+const SA = `${BASE}/servicios-adicionales`;
+const ID_SA = '3f1c2b7e-9d4a-4c8e-8f0b-1a2b3c4d5e6f';
+const filaTipo = (over: Record<string, unknown> = {}) => ({
+  id: ID_SA, nombre: 'Peritaje', descripcion: 'Avalúo técnico', valor: '85000.00', activo: true,
+  dadoDeBajaEn: null, dadoDeBajaPorId: null, creadoPorId: 1, creadoEn: new Date(AHORA_ISO),
+  actualizadoPorId: 1, actualizadoEn: new Date(AHORA_ISO), ...over,
+});
+const rechazo23505 = () => {
+  const p = Promise.reject(Object.assign(new Error('dup'), { code: '23505' }));
+  p.catch(() => { /* noop */ });
+  return { values: () => ({ returning: () => p }), set: () => ({ where: () => ({ returning: () => p }) }) };
+};
+
+describe('servicios adicionales — listar y crear (AC4, AC5, AC6)', () => {
+  it('financiera lista → 200 con el DTO (valor numérico, fechas ISO); ?incluirBajas=1 devuelve también las bajas', async () => {
+    selectMock.mockReturnValueOnce(chain([filaTipo()]));
+    const app = await buildApp();
+    const r = await request(app).get(SA).set('Authorization', await auth('financiera'));
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual([{
+      id: ID_SA, nombre: 'Peritaje', descripcion: 'Avalúo técnico', valor: 85000, activo: true,
+      dadoDeBajaEn: null, dadoDeBajaPorId: null, creadoEn: AHORA_ISO, creadoPorId: 1, actualizadoEn: AHORA_ISO, actualizadoPorId: 1,
+    }]);
+    selectMock.mockReturnValueOnce(chain([filaTipo(), filaTipo({ id: 'b', nombre: 'Viejo', activo: false, dadoDeBajaEn: new Date(AHORA_ISO), dadoDeBajaPorId: 1 })]));
+    const conBajas = await request(app).get(`${SA}?incluirBajas=1`).set('Authorization', await auth('admin'));
+    expect(conBajas.status).toBe(200);
+    expect(conBajas.body).toHaveLength(2);
+    expect(conBajas.body[1]).toMatchObject({ activo: false, dadoDeBajaEn: AHORA_ISO });
+  });
+
+  it('financiera crea → 201 con el tipo y auditoría create sobre flito_servicio_adicional_tipo', async () => {
+    insertMock.mockReturnValueOnce(chain([filaTipo()]));
+    const app = await buildApp();
+    const r = await request(app).post(SA).set('Authorization', await auth('financiera'))
+      .send({ nombre: 'Peritaje', descripcion: 'Avalúo técnico', valor: 85000 });
+    expect(r.status).toBe(201);
+    expect(r.body).toMatchObject({ id: ID_SA, nombre: 'Peritaje', valor: 85000, activo: true, creadoPorId: 1 });
+    expect(auditMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      action: 'create', resource: 'flito_servicio_adicional_tipo', resourceId: ID_SA,
+    }));
+  });
+
+  it('400 nombra el campo: nombre vacío, nombre de 121, valor -1, valor con 3 decimales, descripcion numérica; nada se inserta', async () => {
+    const app = await buildApp();
+    const token = await auth('financiera');
+    for (const [cuerpo, campo] of [
+      [{ nombre: '   ', valor: 1 }, 'nombre'],
+      [{ nombre: 'x'.repeat(121), valor: 1 }, 'nombre'],
+      [{ valor: 1 }, 'nombre'],
+      [{ nombre: 'Peritaje', valor: -1 }, 'valor'],
+      [{ nombre: 'Peritaje', valor: 1.005 }, 'valor'],
+      [{ nombre: 'Peritaje', valor: '100' }, 'valor'],
+      [{ nombre: 'Peritaje' }, 'valor'],
+      [{ nombre: 'Peritaje', valor: 1, descripcion: 5 }, 'descripcion'],
+    ] as const) {
+      const r = await request(app).post(SA).set('Authorization', token).send(cuerpo);
+      expect(r.status, JSON.stringify(cuerpo)).toBe(400);
+      expect(r.body.error, JSON.stringify(cuerpo)).toMatch(new RegExp(`Datos inválidos: .*${campo} `));
+    }
+    expect(insertMock).not.toHaveBeenCalled();
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+
+  it('el nombre llega RECORTADO al servicio y descripcion: null se acepta', async () => {
+    let values: unknown;
+    insertMock.mockReturnValueOnce({ values: (v: unknown) => { values = v; return chain([filaTipo({ descripcion: null })]); } });
+    const app = await buildApp();
+    const r = await request(app).post(SA).set('Authorization', await auth('admin')).send({ nombre: '  Peritaje  ', descripcion: null, valor: 0 });
+    expect(r.status).toBe(201);
+    expect(values).toMatchObject({ nombre: 'Peritaje', descripcion: null, valor: '0' });
+  });
+
+  it('nombre duplicado entre activos → 409 NOMBRE_DUPLICADO con el tipo que choca, sin auditoría', async () => {
+    insertMock.mockReturnValueOnce(rechazo23505());
+    selectMock.mockReturnValueOnce(chain([{ id: 'd-1', nombre: 'Diagnóstico' }]));
+    const app = await buildApp();
+    const r = await request(app).post(SA).set('Authorization', await auth('financiera')).send({ nombre: 'DIAGNÓSTICO', valor: 1 });
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: expect.stringMatching(/ese nombre/), codigo: 'NOMBRE_DUPLICADO', choca: { id: 'd-1', nombre: 'Diagnóstico' } });
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('servicios adicionales — editar y dar de baja (AC7, AC8)', () => {
+  it('PATCH {valor} → 200 con el tipo refrescado y auditoría update', async () => {
+    updateMock.mockReturnValueOnce(chain([filaTipo({ valor: '90000.00' })]));
+    const app = await buildApp();
+    const r = await request(app).patch(`${SA}/${ID_SA}`).set('Authorization', await auth('financiera')).send({ valor: 90000 });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ id: ID_SA, valor: 90000, actualizadoPorId: 1 });
+    expect(auditMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      action: 'update', resource: 'flito_servicio_adicional_tipo', resourceId: ID_SA, detail: expect.stringMatching(/valor/),
+    }));
+  });
+
+  it('PATCH con cuerpo vacío → 400 «Nada que actualizar»; con nombre de 121 → 400 nombre; nada se escribe', async () => {
+    const app = await buildApp();
+    const token = await auth('admin');
+    const vacio = await request(app).patch(`${SA}/${ID_SA}`).set('Authorization', token).send({});
+    expect(vacio.status).toBe(400);
+    expect(vacio.body.error).toMatch(/Nada que actualizar/);
+    const largo = await request(app).patch(`${SA}/${ID_SA}`).set('Authorization', token).send({ nombre: 'x'.repeat(121) });
+    expect(largo.status).toBe(400);
+    expect(largo.body.error).toMatch(/nombre /);
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it('PATCH a un nombre que ya usa otro activo → 409 NOMBRE_DUPLICADO', async () => {
+    updateMock.mockReturnValueOnce(rechazo23505());
+    selectMock.mockReturnValueOnce(chain([{ id: 'd-1', nombre: 'Diagnóstico' }]));
+    const app = await buildApp();
+    const r = await request(app).patch(`${SA}/${ID_SA}`).set('Authorization', await auth('financiera')).send({ nombre: 'diagnostico' });
+    expect(r.status).toBe(409);
+    expect(r.body).toMatchObject({ codigo: 'NOMBRE_DUPLICADO', choca: { id: 'd-1' } });
+  });
+
+  it('PATCH a inexistente o dado de baja → 404 (cero filas); a un id que no es uuid → 404 SIN tocar la base', async () => {
+    updateMock.mockReturnValueOnce(chain([]));
+    const app = await buildApp();
+    const token = await auth('admin');
+    const noHay = await request(app).patch(`${SA}/${ID_SA}`).set('Authorization', token).send({ valor: 1 });
+    expect(noHay.status).toBe(404);
+    expect(updateMock).toHaveBeenCalledTimes(1);
+    const noUuid = await request(app).patch(`${SA}/no-es-uuid`).set('Authorization', token).send({ valor: 1 });
+    expect(noUuid.status).toBe(404);
+    expect(updateMock).toHaveBeenCalledTimes(1);
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+
+  it('POST /:id/baja → 200 con activo=false y dadoDeBajaEn; auditoría update «dado de baja»; segunda baja → 404', async () => {
+    updateMock
+      .mockReturnValueOnce(chain([filaTipo({ activo: false, dadoDeBajaEn: new Date(AHORA_ISO), dadoDeBajaPorId: 1 })]))
+      .mockReturnValueOnce(chain([]));
+    const app = await buildApp();
+    const token = await auth('financiera');
+    const r = await request(app).post(`${SA}/${ID_SA}/baja`).set('Authorization', token);
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ id: ID_SA, activo: false, dadoDeBajaEn: AHORA_ISO, dadoDeBajaPorId: 1 });
+    expect(auditMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      action: 'update', resource: 'flito_servicio_adicional_tipo', resourceId: ID_SA, detail: expect.stringMatching(/dado de baja/),
+    }));
+    const otraVez = await request(app).post(`${SA}/${ID_SA}/baja`).set('Authorization', token);
+    expect(otraVez.status).toBe(404);
+    expect(deleteMock).not.toHaveBeenCalled();
+  });
+
+  it('baja sobre un id que no es uuid → 404 sin tocar la base; DELETE y reactivar NO existen (404 de ruta)', async () => {
+    const app = await buildApp();
+    const token = await auth('admin');
+    expect((await request(app).post(`${SA}/nada/baja`).set('Authorization', token)).status).toBe(404);
+    expect((await request(app).delete(`${SA}/${ID_SA}`).set('Authorization', token)).status).toBe(404);
+    expect((await request(app).post(`${SA}/${ID_SA}/reactivar`).set('Authorization', token)).status).toBe(404);
+    expect((await request(app).patch(`${SA}/${ID_SA}`).set('Authorization', token).send({ activo: true })).status).toBe(400);
+    expect(updateMock).not.toHaveBeenCalled();
+    expect(deleteMock).not.toHaveBeenCalled();
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('servicios adicionales — acceso por función, no por rol (AC9)', () => {
+  const llamadas = (app: express.Express, token: string) => [
+    ['GET', request(app).get(SA).set('Authorization', token)],
+    ['POST', request(app).post(SA).set('Authorization', token).send({ nombre: 'X', valor: 1 })],
+    ['PATCH', request(app).patch(`${SA}/${ID_SA}`).set('Authorization', token).send({ valor: 1 })],
+    ['BAJA', request(app).post(`${SA}/${ID_SA}/baja`).set('Authorization', token)],
+  ] as const;
+
+  it('auditor y cliente → 403 en los cuatro endpoints, antes de tocar la base', async () => {
+    const app = await buildApp();
+    const cliente = `Bearer ${await testToken({ sub: 1, username: 'u', role: 'cliente' })}`;
+    for (const token of [await auth('auditor'), cliente]) {
+      for (const [nombre, req] of llamadas(app, token)) {
+        const r = await req;
+        expect(r.status, nombre).toBe(403);
+        expect(r.body.funcion, nombre).toMatch(/^parametrizacion\.servicios_adicionales\./);
+      }
+    }
+    expect(selectMock).not.toHaveBeenCalled();
+    expect(insertMock).not.toHaveBeenCalled();
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it('cada ruta exige SU función: financiera con solo `listar` → 200 en GET y 403 con la función exacta en las escrituras', async () => {
+    selectMock.mockReturnValueOnce(chain([]));
+    const app = await buildApp();
+    const soloListar = await tokenConFunciones(75, 'financiera', ['parametrizacion.servicios_adicionales.listar']);
+    const [[, get], [, post], [, patch], [, baja]] = llamadas(app, soloListar);
+    expect((await get).status).toBe(200);
+    expect((await post).body).toMatchObject({ funcion: 'parametrizacion.servicios_adicionales.crear' });
+    expect((await patch).body).toMatchObject({ funcion: 'parametrizacion.servicios_adicionales.editar' });
+    expect((await baja).body).toMatchObject({ funcion: 'parametrizacion.servicios_adicionales.dar_de_baja' });
+    expect(insertMock).not.toHaveBeenCalled();
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it('admin (reparto de la 0191) → nunca 403: 200 en GET, 201 en POST, 200 en PATCH y en baja', async () => {
+    selectMock.mockReturnValueOnce(chain([]));
+    insertMock.mockReturnValueOnce(chain([filaTipo()]));
+    updateMock.mockReturnValueOnce(chain([filaTipo()])).mockReturnValueOnce(chain([filaTipo({ activo: false, dadoDeBajaEn: new Date(AHORA_ISO), dadoDeBajaPorId: 1 })]));
+    const app = await buildApp();
+    const [[, get], [, post], [, patch], [, baja]] = llamadas(app, await auth('admin'));
+    expect((await get).status).toBe(200);
+    expect((await post).status).toBe(201);
+    expect((await patch).status).toBe(200);
+    expect((await baja).status).toBe(200);
+  });
+});

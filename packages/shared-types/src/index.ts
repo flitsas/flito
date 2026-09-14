@@ -54,6 +54,8 @@ export type SoatStatus = z.infer<typeof SoatStatus>;
 export * from './flito-estados.js';
 // Tarifas como vigencias (HU #12373): catálogo cerrado de tipos y reglas del valor.
 export * from './flito-tarifas.js';
+// Catálogo de tipos de servicio adicional con baja lógica (HU #12541).
+export * from './flito-servicios-adicionales.js';
 // Dominio del módulo de Logística: estados por documento, actas, tipos y proveedores.
 export * from './flito-logistica.js';
 export * from './flito-logistica-barcode.js';

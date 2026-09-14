@@ -3543,6 +3543,33 @@ export const flitoTarifasVigencias = pgTable('flito_tarifas_vigencias', {
 }));
 
 /**
+ * Catálogo de tipos de servicio adicional (HU #12541, Feature #12540). Baja LÓGICA: un tipo se da de
+ * baja (`activo=false` + `dadoDeBajaEn` + actor) y nunca se borra ni se reactiva; el índice único
+ * parcial sobre el nombre PLEGADO (minúsculas, sin tilde, `translate()` y no `unaccent()`) solo cuenta
+ * los activos, así que dar de baja libera el nombre. La misma expresión vive en `nombrePlegado()` del
+ * servicio y en la 0191. FKs a users RESTRICT (ADR-0005: FK en pareja con marca de tiempo).
+ */
+export const flitoServiciosAdicionalesTipos = pgTable('flito_servicios_adicionales_tipos', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  nombre: varchar('nombre', { length: 120 }).notNull(),
+  descripcion: text('descripcion'),
+  valor: numeric('valor', { precision: 14, scale: 2 }).notNull(),
+  activo: boolean('activo').notNull().default(true),
+  dadoDeBajaEn: timestamp('dado_de_baja_en', { withTimezone: true }),
+  dadoDeBajaPorId: integer('dado_de_baja_por_id').references(() => users.id, { onDelete: 'restrict' }),
+  creadoPorId: integer('creado_por_id').references(() => users.id, { onDelete: 'restrict' }),
+  creadoEn: timestamp('creado_en', { withTimezone: true }).notNull().defaultNow(),
+  actualizadoPorId: integer('actualizado_por_id').references(() => users.id, { onDelete: 'restrict' }),
+  actualizadoEn: timestamp('actualizado_en', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  nombreActivoUq: uniqueIndex('idx_flito_serv_adic_tipos_nombre_activo')
+    .on(sql`lower(translate(${t.nombre}, 'áéíóúÁÉÍÓÚñÑüÜ', 'aeiouAEIOUnNuU'))`).where(sql`${t.activo}`),
+  valorChk: check('flito_serv_adic_tipos_valor_chk', sql`${t.valor} >= 0`),
+  nombreChk: check('flito_serv_adic_tipos_nombre_chk', sql`btrim(${t.nombre}) <> ''`),
+  bajaChk: check('flito_serv_adic_tipos_baja_chk', sql`${t.activo} = (${t.dadoDeBajaEn} IS NULL)`),
+}));
+
+/**
  * Liquidación SELLADA de un trámite (HU #10965). Sellar es congelar: si mañana cambia la tarifa de
  * la compañía o la tasa del GMF, un trámite ya liquidado sigue mostrando lo que se cobró.
  *

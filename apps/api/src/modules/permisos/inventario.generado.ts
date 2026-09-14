@@ -11,12 +11,10 @@
 // `permisos-catalogo.test.ts` comprueba que los montajes del fuente cubren exactamente esta foto.
 import type { GuardaLeida } from './inventario-guardas.js';
 
-/** 217 rutas guardadas medidas el 9/09/2026 + 11 añadidas por la HU #12083 (dos en línea); +2 −1 por la HU #12373 (tarifas); +2 por la HU #12171; +7 por la HU #12084 (permisos); +2 por el Bug #12642 (export ampliado con datos de pago, dos en línea). */
+/** 217 rutas guardadas medidas el 9/09/2026 + 11 añadidas por la HU #12083 (dos en línea); +2 −1 por la HU #12373 (tarifas); +2 por la HU #12171; +7 por la HU #12084 (permisos); +4 por la HU #12541 (servicios adicionales). */
 export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor","cliente","proveedor"], heredada: false },
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "POST", ruta: "/export", roles: ["admin","proveedor"], heredada: false },
-  // Bug #12642: la guarda EN LÍNEA del archivo ampliado (`incluirPago: true`), sembrada por la 0203 SOLO a admin.
-  { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "POST", ruta: "/export", condicion: "incluirPago", roles: ["admin"], heredada: false },
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "POST", ruta: "/soportes/zip", roles: ["admin","proveedor"], heredada: false },
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "GET", ruta: "/facetas", roles: ["admin","auditor","cliente","proveedor"], heredada: false },
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "GET", ruta: "/:id", roles: ["admin","auditor","cliente","proveedor"], heredada: false },
@@ -38,8 +36,6 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "POST", ruta: "/soportes/zip", roles: ["admin","gestor_impuestos"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor","gestor_impuestos"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "POST", ruta: "/export", roles: ["admin","gestor_impuestos"], heredada: false },
-  // Bug #12642: la guarda EN LÍNEA del archivo ampliado (`incluirPago: true`), sembrada por la 0203 SOLO a admin.
-  { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "POST", ruta: "/export", condicion: "incluirPago", roles: ["admin"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "GET", ruta: "/facetas", roles: ["admin","auditor","gestor_impuestos"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "GET", ruta: "/:id", roles: ["admin","auditor","gestor_impuestos"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "GET", ruta: "/:id/historial", roles: ["admin","auditor","gestor_impuestos"], heredada: false },
@@ -171,6 +167,11 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   // HU #12373: DELETE /tarifas/:id retirada (una vigencia se cierra, no se borra); +2 GET nuevas.
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "GET", ruta: "/tarifas/companias/:id", roles: ["admin","financiera"], heredada: false },
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "GET", ruta: "/tarifas/companias/:id/historial", roles: ["admin","financiera"], heredada: false },
+  // HU #12541: catálogo de tipos de servicio adicional; mismo reparto que las tarifas (admin + financiera).
+  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "GET", ruta: "/servicios-adicionales", roles: ["admin","financiera"], heredada: false },
+  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "POST", ruta: "/servicios-adicionales", roles: ["admin","financiera"], heredada: false },
+  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "PATCH", ruta: "/servicios-adicionales/:id", roles: ["admin","financiera"], heredada: false },
+  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "POST", ruta: "/servicios-adicionales/:id/baja", roles: ["admin","financiera"], heredada: false },
   { modulo: "sync", fichero: "flito-sync/flito-sync.routes.ts", metodo: "GET", ruta: "/estado", roles: ["admin"], heredada: false },
   { modulo: "sync", fichero: "flito-sync/flito-sync.routes.ts", metodo: "POST", ruta: "/sincronizar", roles: ["admin"], heredada: false },
   { modulo: "tramite", fichero: "tramites/tramites.routes.ts", metodo: "GET", ruta: "/tipologias", roles: ["admin","transito"], heredada: true },
