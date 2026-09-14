@@ -26,6 +26,8 @@ import {
   ModalidadOrganismo,
   ORGANISMOS_TRANSITO,
   PRIORIDAD_POR_AMBITO,
+  SERVICIO_ADICIONAL_DESCRIPCION_MAX,
+  SERVICIO_ADICIONAL_NOMBRE_MAX,
   TARIFA_VALOR_MAX,
   tipoTramiteTarifaDe,
 } from '@operaciones/shared-types';
@@ -35,6 +37,10 @@ import {
   cambiarOCerrar, fijarTarifa, historial, listarTarifas, vistaPorCompania,
   TarifaCeroSinConfirmarError, TarifaConflictoError, TarifaError, TarifaNoEncontradaError,
 } from './flito-tarifas.service.js';
+import {
+  crearTipo, darDeBajaTipo, editarTipo, listarTipos,
+  ServicioAdicionalConflictoError, ServicioAdicionalError, ServicioAdicionalNoEncontradoError,
+} from './flito-servicios-adicionales.service.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -638,6 +644,85 @@ router.patch('/tarifas/:id', exigirFuncion('parametrizacion.tarifas.editar'), as
     }
     res.json({ ...r.tarifa, valorAnterior: r.valorAnterior, valorNuevo: r.valorNuevo });
   } catch (e) { tarifaFallo(res, e); }
+});
+
+// ───────────────────────────── Servicios adicionales: catálogo de tipos ─────────────
+//
+// HU #12541 (Feature #12540). Lo que FLIT cobra aparte del trámite, como catálogo editable por
+// Finanzas (mismo reparto que las tarifas: admin + financiera). Baja LÓGICA: no hay `DELETE` (recibe
+// el 404 genérico de Express) ni reactivación; dar de baja libera el nombre. El nombre es único entre
+// los activos comparado plegado; lo garantiza el índice de la 0191 y aquí se traduce a 409.
+//
+// Una ruta ⇔ una función del catálogo. `valorSchema` es el mismo de las tarifas: la misma columna
+// `numeric(14,2)` y las mismas reglas (AC5).
+
+const servicioAdicionalCrearSchema = z.object({
+  nombre: z.string({ required_error: 'es obligatorio', invalid_type_error: 'debe ser texto' }).trim()
+    .min(1, 'es obligatorio').max(SERVICIO_ADICIONAL_NOMBRE_MAX, `admite a lo sumo ${SERVICIO_ADICIONAL_NOMBRE_MAX} caracteres`),
+  descripcion: z.string({ invalid_type_error: 'debe ser texto' }).trim()
+    .max(SERVICIO_ADICIONAL_DESCRIPCION_MAX, `admite a lo sumo ${SERVICIO_ADICIONAL_DESCRIPCION_MAX} caracteres`).nullable().optional(),
+  valor: valorSchema,
+});
+const servicioAdicionalEditarSchema = servicioAdicionalCrearSchema.partial()
+  .refine((d) => d.nombre !== undefined || d.descripcion !== undefined || d.valor !== undefined, { message: 'Nada que actualizar' });
+
+const uuidSchema = z.string().uuid();
+/** Un id que no es uuid es «no existe» (404), no 400 ni 500 (22P02): el id es opaco para el cliente. */
+const idUuid = (raw: string): string | null => (uuidSchema.safeParse(raw).success ? raw : null);
+
+/** La clase del error decide el código: no encontrado 404, conflicto 409 (`NOMBRE_DUPLICADO`), negocio 400. */
+function servicioAdicionalFallo(res: Response, e: unknown): void {
+  if (e instanceof ServicioAdicionalNoEncontradoError) { res.status(404).json({ error: e.message }); return; }
+  if (e instanceof ServicioAdicionalConflictoError) { res.status(409).json({ error: e.message, codigo: 'NOMBRE_DUPLICADO', choca: e.choca }); return; }
+  if (e instanceof ServicioAdicionalError) { res.status(400).json({ error: e.message }); return; }
+  throw e;
+}
+
+router.get('/servicios-adicionales', exigirFuncion('parametrizacion.servicios_adicionales.listar'), async (req: Request, res: Response) => {
+  const incluirBajas = req.query.incluirBajas === '1' || req.query.incluirBajas === 'true';
+  res.json(await listarTipos(incluirBajas));
+});
+
+router.post('/servicios-adicionales', exigirFuncion('parametrizacion.servicios_adicionales.crear'), async (req: Request, res: Response) => {
+  const parsed = servicioAdicionalCrearSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: mensajeDe(parsed.error) }); return; }
+  try {
+    const tipo = await crearTipo(parsed.data, req.user?.sub ?? null);
+    await audit(req, {
+      action: 'create', resource: 'flito_servicio_adicional_tipo', resourceId: tipo.id,
+      detail: `Tipo «${tipo.nombre}» creado con valor ${tipo.valor}`,
+    });
+    res.status(201).json(tipo);
+  } catch (e) { servicioAdicionalFallo(res, e); }
+});
+
+router.patch('/servicios-adicionales/:id', exigirFuncion('parametrizacion.servicios_adicionales.editar'), async (req: Request, res: Response) => {
+  const parsed = servicioAdicionalEditarSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: mensajeDe(parsed.error) }); return; }
+  const id = idUuid(req.params.id);
+  if (id === null) { res.status(404).json({ error: 'El tipo de servicio adicional no existe o ya está dado de baja' }); return; }
+  try {
+    const tipo = await editarTipo(id, parsed.data, req.user?.sub ?? null);
+    await audit(req, {
+      action: 'update', resource: 'flito_servicio_adicional_tipo', resourceId: tipo.id,
+      detail: `Tipo «${tipo.nombre}» editado (${Object.keys(parsed.data).join(', ')}); valor ${tipo.valor}`,
+    });
+    res.json(tipo);
+  } catch (e) { servicioAdicionalFallo(res, e); }
+});
+
+// Baja LÓGICA (RN-01 del servicio): `update`, no `delete`, en la auditoría — no se amplía `AuditAction`.
+router.post('/servicios-adicionales/:id/baja', exigirFuncion('parametrizacion.servicios_adicionales.dar_de_baja'), async (req: Request, res: Response) => {
+  const id = idUuid(req.params.id);
+  if (id === null) { res.status(404).json({ error: 'El tipo de servicio adicional no existe o ya está dado de baja' }); return; }
+  try {
+    const tipo = await darDeBajaTipo(id, req.user?.sub ?? null);
+    await audit(req, {
+      action: 'update', resource: 'flito_servicio_adicional_tipo', resourceId: tipo.id,
+      detail: `Tipo «${tipo.nombre}» dado de baja`,
+    });
+    res.json(tipo);
+  } catch (e) { servicioAdicionalFallo(res, e); }
 });
 
 export default router;

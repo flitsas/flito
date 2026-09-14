@@ -57,6 +57,11 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   // HU #12373: DELETE /tarifas/:id retirada; dos lecturas nuevas.
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'GET', ruta: '/tarifas/companias/:id', codigo: 'parametrizacion.tarifas.ver_por_cliente' },
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'GET', ruta: '/tarifas/companias/:id/historial', codigo: 'parametrizacion.tarifas.historial' },
+  // HU #12541: catálogo de tipos de servicio adicional (sin DELETE: baja lógica).
+  { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'GET', ruta: '/servicios-adicionales', codigo: 'parametrizacion.servicios_adicionales.listar' },
+  { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'POST', ruta: '/servicios-adicionales', codigo: 'parametrizacion.servicios_adicionales.crear' },
+  { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'PATCH', ruta: '/servicios-adicionales/:id', codigo: 'parametrizacion.servicios_adicionales.editar' },
+  { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'POST', ruta: '/servicios-adicionales/:id/baja', codigo: 'parametrizacion.servicios_adicionales.dar_de_baja' },
   // flito-compuerta/flito-compuerta.routes.ts
   { fichero: 'flito-compuerta/flito-compuerta.routes.ts', metodo: 'GET', ruta: '/', codigo: 'compuerta.cola.ver' },
   { fichero: 'flito-compuerta/flito-compuerta.routes.ts', metodo: 'GET', ruta: '/:tramiteId', codigo: 'compuerta.tramite.ver' },
