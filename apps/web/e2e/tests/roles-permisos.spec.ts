@@ -116,7 +116,9 @@ function mockPermisos(page: Page, o: Opciones = {}) {
 }
 
 async function abrir(page: Page) {
-  await loginAs(page, ADMIN_USER);
+  // `funciones: null`: `/mios` lo trae `mockPermisos` (cuenta las peticiones y sirve `o.mios`); el
+  // mock por defecto de `loginAs` lo taparía al registrarse después.
+  await loginAs(page, ADMIN_USER, { funciones: null });
   await page.goto('/roles-permisos');
   await expect(page.getByRole('heading', { name: 'Roles y permisos', level: 1 })).toBeVisible();
 }
@@ -208,11 +210,13 @@ test.describe('Roles y permisos — cuadro rol × función (HU #12085)', () => {
     await expect(casilla(page, 'pagina.flito_impuestos')).toBeChecked();
     // Lo que se pidió: catálogo, roles, mios y el cuadro de CADA rol. En `dev` React monta dos
     // veces (StrictMode), así que se afirma la PROPORCIÓN y no el 1: por cada carga, un GET de cada
-    // catálogo y un cuadro por rol.
+    // catálogo y un cuadro por rol. `/mios` no va exacto: desde la HU #12170 `AuthProvider` lo pide
+    // también por su cuenta al cuajar la sesión (mismo URL, no se puede filtrar), así que se afirma
+    // que la pantalla pidió AL MENOS el suyo por carga.
     const cargas = gets.filter((g) => g === 'funciones').length;
     expect(cargas).toBeGreaterThanOrEqual(1);
     expect(gets.filter((g) => g === 'roles')).toHaveLength(cargas);
-    expect(gets.filter((g) => g === 'mios')).toHaveLength(cargas);
+    expect(gets.filter((g) => g === 'mios').length).toBeGreaterThanOrEqual(cargas);
     expect(gets.filter((g) => g.startsWith('cuadro:'))).toHaveLength(cargas * ROLES.length);
     // En reposo no hay ninguna primaria (decisión 4).
     await expect(page.getByRole('button', { name: 'Guardar cambios' })).toHaveCount(0);
@@ -500,8 +504,11 @@ test.describe('Roles y permisos — cuadro rol × función (HU #12085)', () => {
     // Sin cambios pendientes: la línea base es la del servidor.
     await expect(page.getByText(/Sin guardar/)).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Guardar cambios' })).toHaveCount(0);
-    // AC5 / RN-A4: se volvió a pedir /mios y, como la versión cambió, se avisa.
-    await expect.poll(() => gets.filter((g) => g === 'mios').length).toBe(miosAntes + 1);
+    // AC5 / RN-A4: se volvió a pedir /mios y, como la versión cambió, se avisa. Tras guardar salen
+    // DOS: el de la pantalla (compara `version`) y el de `refrescarFunciones` de `AuthProvider`
+    // (HU #12170). Se afirma «más que antes» y no el número, para no atar el test a cuántas
+    // capas releen el mismo endpoint.
+    await expect.poll(() => gets.filter((g) => g === 'mios').length).toBeGreaterThan(miosAntes);
     await expect(page.getByRole('status').filter({ hasText: 'Este guardado cambió tu propio conjunto de funciones. Ya está aplicado en esta sesión, sin volver a entrar.' })).toBeVisible();
     // Cambiar de rol y volver: el cuadro sigue siendo el del servidor (cache por código).
     await botonRol(page, 'Administrador').click();

@@ -22,12 +22,27 @@ const GRUPOS = [
 const CUADRO_COMPLIANCE = ['pagina.users', 'pagina.dashboard'];
 const CUADRO_AUDITOR = ['pagina.dashboard'];
 
+/** Fila mínima de `GET /permisos/roles`: el `<select>` «Rol base» es del catálogo (HU #12088). */
+const rolCatalogo = (codigo: string, nombre: string) => ({
+  codigo, nombre, descripcion: null, tipoEnlace: 'ninguno', tipoPrincipal: 'interno',
+  esSistema: true, activo: true, usuarios: 0, borrable: false, motivoNoBorrable: null,
+  createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+});
+
+/** Solo los roles que estos tests ponen en el select; sin catálogo el select queda deshabilitado. */
+const ROLES_CATALOGO = [
+  rolCatalogo('admin', 'Administrador'),
+  rolCatalogo('compliance', 'Compliance'),
+  rolCatalogo('auditor', 'Auditor'),
+];
+
 function mockPermisos(page: Page, cuadros: Record<string, string[]> = {
   compliance: CUADRO_COMPLIANCE,
   auditor: CUADRO_AUDITOR,
   admin: [...CUADRO_COMPLIANCE, 'pagina.rndc', 'usuarios.usuario.exportar'],
 }) {
   page.route(/\/api\/permisos\/funciones$/, (route) => route.fulfill(json({ grupos: GRUPOS })));
+  page.route(/\/api\/permisos\/roles$/, (route) => route.fulfill(json({ roles: ROLES_CATALOGO })));
   page.route(/\/api\/permisos\/roles\/([^/]+)\/funciones$/, (route) => {
     const codigo = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-2) ?? '');
     return route.fulfill(json({
