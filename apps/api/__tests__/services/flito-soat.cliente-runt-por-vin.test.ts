@@ -32,7 +32,7 @@
 // `espia-drizzle` —afirmar sobre el cuerpo de la respuesta probaría el mock—. Un `sub` distinto por
 // caso: el limitador del canal es por usuario y su ventana dura 15 minutos.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { createKeyedDb } from '../helpers/keyed-db.js';
@@ -972,6 +972,16 @@ describe('HU #12093 · el mapa de procedencia no certifica como «del RUNT» un 
 // ═══════════ AC4 — el ORDEN de evaluación, con dos condiciones a la vez ══════
 
 describe('AC4 — los cuatro desenlaces y su ORDEN de evaluación se conservan enteros', () => {
+  // El paso 5 pasa por `soatVigenteSegunRunt` → `derivePreflightChecks`, que compara la póliza con el
+  // reloj REAL (`ISO_NOW()`), no con el `hoy` que inyectan los casos 5.x. Sin congelarlo, las pólizas
+  // de estos fixtures caducan con el calendario y el clasificador devuelve `ok` en vez de bifurcar.
+  // Solo se falsea `Date`: el caso `caido` levanta la app con supertest y necesita los timers reales.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-09T12:00:00Z'));
+  });
+  afterEach(() => { vi.useRealTimers(); });
+
   /** El clasificador, que es donde se DECIDE. La traducción a HTTP es del servicio. */
   const clasificar = async (respuesta: unknown, vin = VIN_RUNT) => {
     const { clasificarDesenlaceRunt } = await import('../../src/modules/flito-soat/flito-soat-cliente-runt.js');
