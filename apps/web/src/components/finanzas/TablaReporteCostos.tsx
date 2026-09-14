@@ -1,5 +1,5 @@
 // La tabla del detalle del reporte de costos, en tres secciones (HU #12434, CF-16; compacta por
-// defecto desde la HU #12537).
+// defecto desde la HU #12537; compacta de NUEVE columnas que cabe en un portátil desde la #12539).
 //
 // La cabecera lleva dos filas: arriba el GRUPO —Identificación, Datos del trámite, Valores— y debajo
 // cada columna. Es el Excel en pantalla, y el Excel no cabe en un portátil: por eso la tabla ARRANCA
@@ -11,13 +11,23 @@
 // sea `todas`— es compacta. Las tres claves por sección de la #12434 se ignoran: no se migran ni se
 // borran.
 //
+// La compacta de la #12537 (12 columnas) medía 1628 px con 10 filas con acciones frente a 1258 px de
+// contenedor en 1366×768: seguía habiendo scroll. La de la #12539 recorta a nueve —Empresa, Flit,
+// Placa · Aprobación, Factura DIAN · Total reintegro, Servicio, Total, Liquidación— y aprieta lo que
+// queda: `px-3` en las celdas de datos (D-21), Empresa con tope y `title` (D-16), el tipo de trámite
+// en segundo renglón bajo el Flit (D-17), una sola fecha (D-18) y el rótulo del pie fuera de la
+// columna Empresa (D-15). OT, Estado y Creado siguen en la ampliada, en los filtros y en el Excel.
+//
 // Las columnas son DATOS (`COLUMNAS`), no JSX suelto: la fila de grupos, la de columnas, cada
 // celda y el pie de totales se recorren de la misma lista, así que una columna no puede aparecer
-// en la cabecera y faltar en el cuerpo, ni caer bajo un grupo distinto del que declara.
+// en la cabecera y faltar en el cuerpo, ni caer bajo un grupo distinto del que declara. Una columna
+// que en compacta se pinta DISTINTO (Flit con el tipo debajo, Fechas → Aprobación) lo declara con
+// `celdaCompacta` / `tituloCompacto` en la misma entrada: sigue siendo una columna, con un solo sitio
+// en el orden y un solo `key`.
 
 import { Fragment, useState, type CSSProperties, type ReactNode } from 'react';
 import StatusChip from '../flit/StatusChip';
-import { CeldaFechas, documentoConTipo } from '../flit/columnasComunes';
+import { CeldaFechas, documentoConTipo, fechaCorta } from '../flit/columnasComunes';
 import { FlitTable, FlitTh, FlitTr, flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
 import CeldaFacturacion from './CeldaFacturacion';
 import MarcaSoatConciliado from './MarcaSoatConciliado';
@@ -42,21 +52,62 @@ interface Contexto {
 export interface Columna {
   titulo: string;
   grupo: Grupo;
-  /** Sigue a la vista en la vista compacta (D-02: las 12 que deciden «liquido / no»). */
+  /** Sigue a la vista en la vista compacta (D-14: las 9 que deciden «liquido / no» y caben en 1366). */
   compacta?: boolean;
   center?: boolean;
   /** La celda ENTERA (`<td>`), para que `CeldaFechas` —que ya es un td— entre sin envolverla. */
   celda: (f: Fila, ctx: Contexto) => ReactNode;
+  /** Solo si en compacta la columna se pinta distinto (D-17, D-18). Sin él, `celda` en los dos modos. */
+  celdaCompacta?: (f: Fila, ctx: Contexto) => ReactNode;
+  /** Solo si en compacta la columna se titula distinto («Fechas» → «Aprobación», D-18). */
+  tituloCompacto?: string;
   /** Qué va en el pie de totales bajo esta columna. Sin él, la celda del pie queda vacía. */
   total?: (t: Totales) => ReactNode;
 }
 
+// `px-3` y no `px-4` en TODAS las celdas de datos, en los dos modos (D-21): un punto menos de
+// relleno por lado son ≈ 50 px en nueve columnas, y son los que faltaban para caber en 1366.
 const texto = (v: string | null, extra = '') =>
-  <td className={`px-4 py-2 whitespace-nowrap ${extra}`}>{v ?? ''}</td>;
+  <td className={`px-3 py-2 whitespace-nowrap ${extra}`}>{v ?? ''}</td>;
 const monto = (n: ReactNode, extra?: CSSProperties) =>
-  <td className="px-4 py-2 text-right tabular-nums" style={extra}>{n}</td>;
+  <td className="px-3 py-2 text-right tabular-nums" style={extra}>{n}</td>;
 const pie = (n: ReactNode, extra?: CSSProperties) =>
   <span className="font-semibold" style={extra}>{n}</span>;
+
+const SECUNDARIO = { color: 'var(--flit-text-secondary)' } as const;
+const TENUE = { color: 'var(--flit-text-muted)' } as const;
+
+/**
+ * Un texto con tope de ancho: recorta con puntos suspensivos y deja el entero en el `title` (y en el
+ * DOM, que es lo que lee un lector de pantalla). Sin tope, una razón social larga decidía sola si la
+ * tabla cabía (D-16). `8rem` y no `9rem`: es la palanca de D-21, aplicada porque en 1280×720 la
+ * compacta medía 1192 px frente a 1172 de contenedor (medido con facturadas «Aceptada por la DIAN»
+ * con su número, que es lo ancho de verdad). No es enfocable: cero paradas de tabulador nuevas.
+ */
+const truncado = (v: string | null) =>
+  <td className="px-3 py-2 whitespace-nowrap"><span className="block max-w-[8rem] truncate" title={v ?? undefined}>{v ?? ''}</span></td>;
+
+/**
+ * En compacta el tipo de trámite va debajo del Flit, como `CeldaTramite` en las otras cinco tablas
+ * (D-17); no se reutiliza porque aquella lleva `px-4` y `align-top`, y aquí la fila se alinea al
+ * centro como el resto de celdas. El tipo es texto libre de FLIT (hasta 60 caracteres): con tope de
+ * `7rem` la columna nunca pasa de 136 px, venga el tipo que venga; el entero queda en el `title`.
+ */
+const celdaFlitConTipo = (f: Fila) => (
+  <td className="px-3 py-2 whitespace-nowrap">
+    <div className="font-semibold tabular-nums">{f.idFlit ?? ''}</div>
+    <div className="max-w-[7rem] truncate text-xs" style={SECUNDARIO} title={f.tipoTramite ?? undefined}>{f.tipoTramite ?? ''}</div>
+  </td>
+);
+
+/** Una sola fecha en compacta (D-18): la de aprobación, que es la que define el periodo. */
+const celdaAprobacion = (f: Fila) => (
+  <td className="px-3 py-2 text-xs whitespace-nowrap" style={SECUNDARIO}>
+    {f.fechaAprobacion
+      ? fechaCorta(f.fechaAprobacion)
+      : <span className="italic" style={TENUE}>Sin aprobar</span>}
+  </td>
+);
 
 /** Un subtotal en null se dice con su motivo y con qué falta en el `title` (RN-02), nunca «$ 0». */
 function subtotal(f: Fila, v: number | null, conceptos: readonly string[]): ReactNode {
@@ -68,8 +119,8 @@ const AZUL = { color: 'var(--flit-blue-text)' } as const;
 
 /** En el orden de la HU (AC1). Los títulos son los de RN-08: «Flit», «Línea», «Trámite», «Tipo», «OT». */
 export const COLUMNAS: Columna[] = [
-  { titulo: 'Empresa', grupo: 'identificacion', compacta: true, celda: (f) => texto(f.empresa) },
-  { titulo: 'Flit', grupo: 'identificacion', compacta: true, celda: (f) => texto(f.idFlit, 'font-semibold') },
+  { titulo: 'Empresa', grupo: 'identificacion', compacta: true, celda: (f) => truncado(f.empresa) },
+  { titulo: 'Flit', grupo: 'identificacion', compacta: true, celda: (f) => texto(f.idFlit, 'font-semibold tabular-nums'), celdaCompacta: celdaFlitConTipo },
   { titulo: 'Placa', grupo: 'identificacion', compacta: true, celda: (f) => texto(f.placa, 'font-mono') },
   { titulo: 'VIN', grupo: 'identificacion', celda: (f) => texto(f.vin, 'font-mono text-xs') },
   { titulo: 'Nombres', grupo: 'identificacion', celda: (f) => texto(f.titularNombres) },
@@ -80,12 +131,18 @@ export const COLUMNAS: Columna[] = [
   // titular: la regla del null vive allí y solo allí.
   { titulo: 'Documento', grupo: 'identificacion', celda: (f) => texto(f.titularDocumento ? documentoConTipo(f.titularTipoDocumento, f.titularDocumento) : null, 'tabular-nums') },
 
-  { titulo: 'Tipo trámite', grupo: 'datos', compacta: true, celda: (f) => texto(f.tipoTramite) },
+  // En compacta el tipo va bajo el Flit (D-17); OT y Estado se callan (D-19, D-20): la OT es
+  // contexto, no decide «liquido / no», y el estado lo acota el filtro (Aprobado por defecto).
+  { titulo: 'Tipo trámite', grupo: 'datos', celda: (f) => texto(f.tipoTramite) },
   { titulo: 'Marca', grupo: 'datos', celda: (f) => texto(f.marca) },
   { titulo: 'Línea', grupo: 'datos', celda: (f) => texto(f.linea) },
-  { titulo: 'OT', grupo: 'datos', compacta: true, celda: (f) => texto(f.organismoNombre) },
-  { titulo: 'Estado', grupo: 'datos', compacta: true, celda: (f) => texto(f.estado) },
-  { titulo: 'Fechas', grupo: 'datos', compacta: true, celda: (f) => <CeldaFechas creado={f.fechaCreacion} aprobado={f.fechaAprobacion} /> },
+  { titulo: 'OT', grupo: 'datos', celda: (f) => texto(f.organismoNombre) },
+  { titulo: 'Estado', grupo: 'datos', celda: (f) => texto(f.estado) },
+  {
+    titulo: 'Fechas', grupo: 'datos', compacta: true, tituloCompacto: 'Aprobación',
+    celda: (f) => <CeldaFechas creado={f.fechaCreacion} aprobado={f.fechaAprobacion} />,
+    celdaCompacta: celdaAprobacion,
+  },
   { titulo: 'Mes', grupo: 'datos', celda: (f) => texto(f.mes, 'tabular-nums') },
   { titulo: 'Trimestre', grupo: 'datos', celda: (f) => texto(f.trimestre, 'tabular-nums') },
   {
@@ -104,7 +161,7 @@ export const COLUMNAS: Columna[] = [
     // SOAT e impuesto nunca entran en `noConfigurados`: no hay tarifa que configurar. Su celda vacía
     // puede ser un pago pendiente, una compañía que los autogestiona o un trámite exento.
     celda: (f) => (
-      <td className="px-4 py-2 text-right tabular-nums">
+      <td className="px-3 py-2 text-right tabular-nums">
         <Monto v={f.soat} falta={faltaDe(f, CONCEPTO.soat)} />
         {/* Debajo del valor, y solo si está conciliado: el componente no pinta nada cuando no. */}
         <MarcaSoatConciliado conciliado={f.soatConciliado} referencia={f.boletaReferencia} conciliadoEn={f.soatConciliadoEn} />
@@ -124,7 +181,7 @@ export const COLUMNAS: Columna[] = [
   {
     titulo: 'Liquidación', grupo: 'valores', compacta: true,
     celda: (f) => (
-      <td className="px-4 py-2 whitespace-nowrap">
+      <td className="px-3 py-2 whitespace-nowrap">
         {f.estadoLiquidacion === 'facturado'
           ? <StatusChip tone="success">Facturado</StatusChip>
           : f.sellada
@@ -242,56 +299,60 @@ export default function TablaReporteCostos({
   return (
     <>
       <div className="mb-3">{paginacion({ control, nota })}</div>
-      <div className="overflow-x-auto">
-        <FlitTable>
-          <thead>
-            <tr>
-              {puedeLiquidar && (
-                <ThGrupo rowSpan={2}>
-                  {/* Selecciona TODO lo accionable de la página, no solo lo liquidable: desde la
-                      HU #11329 hay dos acciones sobre la selección. */}
-                  <input type="checkbox" aria-label="Seleccionar los trámites con acciones de esta página"
-                    checked={accionables.length > 0 && accionables.every((f) => seleccion.has(f.tramiteId))}
-                    onChange={(e) => onSeleccion(e.target.checked ? new Set(accionables.map((f) => f.tramiteId)) : new Set())} />
-                </ThGrupo>
-              )}
-              {/* La fila de grupos solo titula: sin botones ni «n de m» (D-03). El `colSpan` es el
-                  de las columnas visibles del grupo, así que sigue la vista. */}
-              {GRUPOS.map((g) => (
-                <ThGrupo key={g.clave} scope="colgroup" colSpan={delGrupo(g.clave)}>{g.titulo}</ThGrupo>
-              ))}
-              <ThGrupo rowSpan={2} />
-            </tr>
-            <FlitTr>
-              {visibles.map((c) => <FlitTh key={c.titulo} center={c.center}>{c.titulo}</FlitTh>)}
-            </FlitTr>
-          </thead>
-          <tbody>
-            {filas.map((f) => (
-              <FlitTr key={f.tramiteId}>
-                {puedeLiquidar && (
-                  <td className="px-3 py-2">
-                    {/* Sin casilla en las filas sobre las que no hay ninguna acción. No es un
-                        hueco: es que ahí no hay nada que marcar. */}
-                    {accionable(f) && (
-                      <input type="checkbox" aria-label={`Seleccionar ${f.idFlit}`}
-                        checked={seleccion.has(f.tramiteId)} onChange={() => alternarFila(f.tramiteId)} />
-                    )}
-                  </td>
-                )}
-                {visibles.map((c) => <Fragment key={c.titulo}>{c.celda(f, ctx)}</Fragment>)}
-                <td className="px-3 py-2">
-                  <Acciones fila={f} puedeLiquidar={puedeLiquidar} puedeReversar={puedeReversar} enProceso={enProceso}
-                    onLiquidar={() => onLiquidar(f)} onFacturar={() => onFacturar(f)}
-                    onReversar={(m) => onReversar(f, m)} onSoportes={() => onSoportes(f)}
-                    accionEnvio={accionEnvio(f)} />
-                </td>
-              </FlitTr>
+      {/* UNA región de scroll, la de `FlitTable` (D-23): es la que mide `useDesbordaX` y la que gana
+          `tabindex` cuando desborda. Un `div.overflow-x-auto` alrededor era una segunda que el usuario
+          desplazaba sin que la primera se enterase. */}
+      <FlitTable label="Reporte de costos, detalle">
+        <thead>
+          <tr>
+            {puedeLiquidar && (
+              <ThGrupo rowSpan={2}>
+                {/* Selecciona TODO lo accionable de la página, no solo lo liquidable: desde la
+                    HU #11329 hay dos acciones sobre la selección. */}
+                <input type="checkbox" aria-label="Seleccionar los trámites con acciones de esta página"
+                  checked={accionables.length > 0 && accionables.every((f) => seleccion.has(f.tramiteId))}
+                  onChange={(e) => onSeleccion(e.target.checked ? new Set(accionables.map((f) => f.tramiteId)) : new Set())} />
+              </ThGrupo>
+            )}
+            {/* La fila de grupos solo titula: sin botones ni «n de m» (D-03). El `colSpan` es el
+                de las columnas visibles del grupo, así que sigue la vista. */}
+            {GRUPOS.map((g) => (
+              <ThGrupo key={g.clave} scope="colgroup" colSpan={delGrupo(g.clave)}>{g.titulo}</ThGrupo>
             ))}
-          </tbody>
-          <TotalesReporteCostos columnas={visibles} totales={data.totales} total={data.total} conCasilla={puedeLiquidar} />
-        </FlitTable>
-      </div>
+            <ThGrupo rowSpan={2} />
+          </tr>
+          <FlitTr>
+            {/* `estrecha` (px-3) en los dos modos, D-21; el título compacto solo si la columna lo declara. */}
+            {visibles.map((c) => (
+              <FlitTh key={c.titulo} center={c.center} estrecha>{ampliada ? c.titulo : (c.tituloCompacto ?? c.titulo)}</FlitTh>
+            ))}
+          </FlitTr>
+        </thead>
+        <tbody>
+          {filas.map((f) => (
+            <FlitTr key={f.tramiteId}>
+              {puedeLiquidar && (
+                <td className="px-3 py-2">
+                  {/* Sin casilla en las filas sobre las que no hay ninguna acción. No es un
+                      hueco: es que ahí no hay nada que marcar. */}
+                  {accionable(f) && (
+                    <input type="checkbox" aria-label={`Seleccionar ${f.idFlit}`}
+                      checked={seleccion.has(f.tramiteId)} onChange={() => alternarFila(f.tramiteId)} />
+                  )}
+                </td>
+              )}
+              {visibles.map((c) => <Fragment key={c.titulo}>{(ampliada ? c.celda : (c.celdaCompacta ?? c.celda))(f, ctx)}</Fragment>)}
+              <td className="px-3 py-2">
+                <Acciones fila={f} puedeLiquidar={puedeLiquidar} puedeReversar={puedeReversar} enProceso={enProceso}
+                  onLiquidar={() => onLiquidar(f)} onFacturar={() => onFacturar(f)}
+                  onReversar={(m) => onReversar(f, m)} onSoportes={() => onSoportes(f)}
+                  accionEnvio={accionEnvio(f)} />
+              </td>
+            </FlitTr>
+          ))}
+        </tbody>
+        <TotalesReporteCostos columnas={visibles} totales={data.totales} total={data.total} conCasilla={puedeLiquidar} />
+      </FlitTable>
       <div className="mt-3">{paginacion()}</div>
     </>
   );
@@ -306,7 +367,7 @@ function ThGrupo({ children, scope, colSpan, rowSpan }: {
 }) {
   return (
     <th scope={scope} colSpan={colSpan} rowSpan={rowSpan}
-      className="px-4 py-2 text-left text-[11px] font-semibold uppercase tracking-wide"
+      className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide"
       style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)', borderBottom: '1px solid var(--flit-border-input)' }}>
       {children}
     </th>
