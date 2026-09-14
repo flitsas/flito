@@ -66,7 +66,11 @@ function deLaBoletaDelSoat(proyeccion: SQL): SQL {
 )`;
 }
 
-/** Lo que el reporte añade a cada fila sobre la conciliación de su SOAT (CF-05). */
+/**
+ * Lo que el reporte añade a cada fila sobre la conciliación de su SOAT (CF-05). Se lee en pantalla
+ * y en el JSON; el `.xlsx` del detalle dejó de llevar la columna «SOAT conciliado» en la HU #12536
+ * (el archivo replica literalmente el Excel de Financiero).
+ */
 export interface ConciliacionSoatDeFila {
   /** `true` = ese SOAT ya se descontó de la bolsa en una boleta. Nunca `null`: o pasó o no pasó. */
   soatConciliado: boolean;
@@ -137,17 +141,3 @@ function texto(v: unknown): string | null {
   return typeof v === 'string' && v.trim() !== '' ? v : null;
 }
 
-/**
- * La celda «SOAT conciliado» que distingue los dos casos y nombra la boleta (AC4). Desde la HU
- * #12531 va en el `.xlsx`; el nombre dejó de decir «Csv» por eso.
- *
- * Una sola columna, y con la referencia DENTRO del valor: en una hoja de cálculo eso permite filtrar
- * por «No» para quedarse con lo que todavía hay que cobrar, y ordenar por la columna agrupa los
- * trámites de una misma boleta. Dejar la celda vacía para los no conciliados —la alternativa
- * evidente— se lee igual que un dato que no se pudo calcular, que es lo contrario de lo que el
- * archivo tiene que dejar claro cuando se usa para cuadrar un cierre.
- */
-export function celdaConciliacion(f: ConciliacionSoatDeFila): string {
-  if (!f.soatConciliado) return 'No';
-  return f.boletaReferencia === null ? 'Sí' : `Sí (${f.boletaReferencia})`;
-}
