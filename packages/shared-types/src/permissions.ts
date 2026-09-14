@@ -179,9 +179,6 @@ export const PAGES = {
   flito_conciliacion: 'FLITO — Conciliación',
   // Finanzas — reporte de costos por trámite (contabilidad / facturación / cobros).
   finanzas_reporte_costos: 'Finanzas — Reporte de costos',
-  // Finanzas — gastos diarios por categoría (HU #12623/#12624): serie por día del evento y GMF
-  // estimado. Página propia, sin reparto por defecto: la concede el admin desde el panel de roles.
-  finanzas_gastos_diarios: 'Finanzas — Gastos diarios',
   // Facturación electrónica (Feature #11240): parametrización de la integración con Siigo —
   // catálogos, mapeo de conceptos a productos y configuración global de emisión. UNA sola clave
   // para toda la parametrización: son pantallas del mismo trabajo y de la misma persona, y
@@ -202,6 +199,14 @@ export const PAGES = {
   // `parametrizacion.tarifas.listar` (AC16 de la HU #12373)— y concederle la página sería regalarle
   // una pantalla que responde 403 en cada petición.
   flito_tarifas: 'Finanzas — Tarifas',
+  // Parametrización — catálogo de servicios adicionales (Feature #12540, HU #12542): los tipos de
+  // servicio (nombre, descripción, valor) que la operación cobrará sobre un trámite. Clave PROPIA y
+  // en «Finanzas», junto a `flito_tarifas`, por el mismo motivo: es la parte comercial y quien fija
+  // el valor es Financiera. Mismo reparto que las operaciones `parametrizacion.servicios_adicionales.*`
+  // que la pantalla consume (0191): `admin` y `financiera`. `auditor` queda fuera a propósito —la
+  // 0191 no le concede ni `parametrizacion.servicios_adicionales.listar`— y concederle la página
+  // sería regalarle una pantalla que responde 403 en cada petición.
+  flito_servicios_adicionales: 'Finanzas — Servicios adicionales',
   // Facturación electrónica (HU #11890): las CREDENCIALES de la integración — con qué usuario se
   // conecta FLITO a Siigo en cada ambiente, y la prueba de conexión.
   //
@@ -245,7 +250,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   // aparece arriba en «Operaciones». Hasta el Feature #11912 la misma clave salía en los dos
   // grupos —una rareza que nadie sabía explicar— porque el portal la tenía prestada.
   { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'flito_soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta', 'flito_bolsas', 'flito_comparendos', 'flito_conciliacion'] },
-  { label: 'Finanzas', pages: ['finanzas_reporte_costos', 'finanzas_gastos_diarios', 'siigo_parametrizacion', 'siigo_operacion', 'flito_tarifas'] },
+  { label: 'Finanzas', pages: ['finanzas_reporte_costos', 'siigo_parametrizacion', 'siigo_operacion', 'flito_tarifas', 'flito_servicios_adicionales'] },
   { label: 'Administración', pages: ['users', 'privacy', 'siigo_credenciales', 'roles_permisos'] },
 ];
 
@@ -323,7 +328,10 @@ const DEFAULTS_POR_ROL: Record<Exclude<UserRole, 'admin'>, readonly PageSlug[]> 
   // concepto es la administración comercial del cliente, y el router de `parametrizacion.tarifas.*`
   // ya le admite (0182). Si esta línea no está, el catálogo del código diría «solo admin» y la
   // migración 0184 que la siembra a `financiera` chocaría con la paridad de migracion-0179.test.ts.
-  financiera: ['dashboard', 'finanzas_reporte_costos', 'clients', 'flito_bolsas', 'flito_conciliacion', 'siigo_parametrizacion', 'siigo_operacion', 'flito_tarifas'],
+  // El catálogo de servicios adicionales (HU #12542) va aquí por lo mismo que las tarifas: la 0191
+  // reparte `parametrizacion.servicios_adicionales.*` a `admin` y `financiera`, y la 0192 siembra la
+  // página a los mismos dos roles; sin esta línea la paridad con el catálogo del código se rompe.
+  financiera: ['dashboard', 'finanzas_reporte_costos', 'clients', 'flito_bolsas', 'flito_conciliacion', 'siigo_parametrizacion', 'siigo_operacion', 'flito_tarifas', 'flito_servicios_adicionales'],
   // FLITO — Cliente (Feature #11912): UNA sola página, y a propósito SIN `dashboard`.
   //
   // El tablero es de la operación: consolida trámites, SOAT e impuestos de TODAS las compañías, así
