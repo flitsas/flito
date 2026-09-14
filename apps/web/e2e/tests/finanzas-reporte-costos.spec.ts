@@ -232,11 +232,12 @@ async function mock(page: import('@playwright/test').Page) {
 }
 
 /**
- * Desde la HU #12537 la tabla ARRANCA COMPACTA (12 de 28 columnas). Los casos que leen una columna
- * de las que se callan —VIN, marca, línea, el titular, un concepto suelto— la piden ampliada ANTES
- * del `goto`, por la misma clave que escribe el control: así prueban su columna, no el control.
- * Los que leen «No configurado» / «Sin recibo» en Servicio / Total reintegro o «Falta: …» junto a
- * Liquidar NO la llaman: eso tiene que seguir a la vista en compacta (AC5 de la #12537).
+ * Desde la HU #12537 la tabla ARRANCA COMPACTA (9 de 28 columnas desde la #12539). Los casos que
+ * leen una columna de las que se callan —VIN, marca, línea, el titular, OT, Estado, la fecha de
+ * creación, un concepto suelto— la piden ampliada ANTES del `goto`, por la misma clave que escribe
+ * el control: así prueban su columna, no el control. Los que leen «No configurado» / «Sin recibo»
+ * en Servicio / Total reintegro o «Falta: …» junto a Liquidar NO la llaman: eso tiene que seguir a
+ * la vista en compacta (AC7 de la #12539).
  */
 async function ampliarColumnas(page: import('@playwright/test').Page) {
   await page.addInitScript(() => {
@@ -1432,7 +1433,7 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
   test('AC1 — tres grupos rotulados y cada columna bajo el suyo', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockSecciones(page);
-    await ampliarColumnas(page);   // las 28: este caso es de la ampliada; su gemelo compacto está en el bloque de la #12537
+    await ampliarColumnas(page);   // las 28: este caso es de la ampliada; su gemelo compacto está en el bloque de la #12539
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText('FLIT-2001')).toBeVisible();
 
@@ -1511,11 +1512,15 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     await expect(celda('FLIT-2002', 'Servicio')).not.toContainText('$');
     await expect(filaDe(page, 'FLIT-2002').getByText('Falta: Trámite digital')).toBeVisible();
 
-    // El pie: totales del universo filtrado, con los dos subtotales junto a los conceptos.
+    // El pie: totales del universo filtrado, con los dos subtotales junto a los conceptos. Desde la
+    // HU #12539 el rótulo va en un `th[scope=row]` que se come las columnas sin total: las `td` del
+    // pie empiezan en la primera con total, y ese `colSpan` se resta al índice.
     const pie = page.getByRole('table').first().locator('tfoot tr');
-    await expect(pie.getByRole('cell').nth(todas.indexOf('Total reintegro') + 1)).toHaveText('$ 2.670.400');
-    await expect(pie.getByRole('cell').nth(todas.indexOf('Servicio') + 1)).toHaveText('$ 600.000');
-    await expect(pie.getByRole('cell').nth(todas.indexOf('SOAT') + 1)).toHaveText('$ 1.800.000');
+    const rotulo = Number(await pie.locator('th[scope="row"]').getAttribute('colspan'));
+    const celdaPie = (titulo: string) => pie.getByRole('cell').nth(todas.indexOf(titulo) - rotulo + 1);
+    await expect(celdaPie('Total reintegro')).toHaveText('$ 2.670.400');
+    await expect(celdaPie('Servicio')).toHaveText('$ 600.000');
+    await expect(celdaPie('SOAT')).toHaveText('$ 1.800.000');
   });
 
   test('AC3 — el filtro OT manda los códigos, se lee por nombre y viaja con los demás', async ({ page }) => {
@@ -1730,7 +1735,7 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
   test('AC8 — auditor ve las secciones, el titular, la OT, el periodo y el consolidado; sigue sin acciones', async ({ page }) => {
     await loginAs(page, AUDITOR_USER);
     const { consolidado } = await mockSecciones(page);
-    await ampliarColumnas(page);   // Documento se calla en compacta; el control lo prueba el AC6 de la #12537
+    await ampliarColumnas(page);   // Documento y OT se callan en compacta; el control lo prueba el AC7 de la #12539
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText('FLIT-2001')).toBeVisible();
 
@@ -1758,18 +1763,21 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HU #12537 — la tabla ARRANCA COMPACTA (12 de 28 columnas) y se amplía con UN solo control.
+// HU #12539 — la compacta se recorta a NUEVE columnas para que quepa en la pantalla de un portátil.
 //
-// Sustituye al «AC1 — compactar oculta columnas de la sección y se recuerda; arranca ampliada» de
-// la #12434, que asumía arranque ampliado y tres botones. Lo que se afirma es la cabecera real
-// (`th[scope=col]` en orden y el `colSpan` de los `th[scope=colgroup]`), el único botón, lo que
-// anuncia la región `role="status"` de la página y lo que llega —o no— al servidor.
+// Sustituye al bloque de la #12537 (12 columnas, colSpan 3/5/4), que solo medía que la compacta
+// fuera menor que la ampliada: en 1366×768 seguía desbordando (1628 px frente a 1258). Ahora lo que
+// se afirma es que CABE —`scrollWidth === clientWidth` en la región de scroll de `FlitTable`, y sin
+// `tabindex`, que es como el kit dice que no desborda—, la cabecera real (`th[scope=col]` en orden y
+// el `colSpan` de los grupos), el pie en un `th[scope=row]`, el tipo bajo el Flit, una sola fecha,
+// y lo de la #12537 que no cambia: un control, anuncio, `localStorage`, la frase del Excel.
+// Cada aserto lleva su mutante en una línea. Backend mockeado.
 // ─────────────────────────────────────────────────────────────────────────────
-test.describe('Reporte de costos — tabla compacta por defecto (HU #12537)', () => {
+test.describe('Reporte de costos — compacta de nueve columnas que cabe en pantalla (HU #12539)', () => {
   const CLAVE = 'flito.reporteCostos.columnas';
   const COMPACTA: Record<string, string[]> = {
     'Identificación': ['Empresa', 'Flit', 'Placa'],
-    'Datos del trámite': ['Tipo trámite', 'OT', 'Estado', 'Fechas', 'Factura DIAN'],
+    'Datos del trámite': ['Aprobación', 'Factura DIAN'],
     'Valores': ['Total reintegro', 'Servicio', 'Total', 'Liquidación'],
   };
   const AMPLIADA: Record<string, string[]> = {
@@ -1777,42 +1785,299 @@ test.describe('Reporte de costos — tabla compacta por defecto (HU #12537)', ()
     'Datos del trámite': ['Tipo trámite', 'Marca', 'Línea', 'OT', 'Estado', 'Fechas', 'Mes', 'Trimestre', 'Factura DIAN'],
     'Valores': ['SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística', 'Total reintegro', 'Trámite digital', 'Servicio', 'Total', 'Liquidación'],
   };
+  // Las cifras que la pantalla tiene que decir salen de ESTAS listas, no se escriben: si mañana
+  // entra una columna, el test cambia con ella y un «9» literal en el código se delata.
+  const N_COMPACTA = Object.values(COMPACTA).flat().length;
+  const N_AMPLIADA = Object.values(AMPLIADA).flat().length;
+  const planas = (g: Record<string, string[]>) => Object.values(g).flat();
+  /** Cuántas columnas visibles hay ANTES de la primera con total —la primera de Valores—: el `colSpan` del rótulo del pie. */
+  const antesDelPrimerTotal = (g: Record<string, string[]>) => planas(g).indexOf(g['Valores'][0]);
+  /** Una razón social de 40 caracteres: la que decidía sola si la tabla cabía. */
+  const EMPRESA_LARGA = 'Transportes y Logística del Norte S.A.S.';
 
   const tabla = (page: Pagina) => page.getByRole('table').first();
+  /** La región de scroll de `FlitTable`: el padre directo de la `<table>`. Es la que mide `useDesbordaX`. */
+  const region = (page: Pagina) => tabla(page).locator('xpath=..');
   const columnas = (page: Pagina) => tabla(page).locator('thead tr').nth(1).locator('th[scope="col"]');
   const colSpans = (page: Pagina) => tabla(page).locator('th[scope="colgroup"]')
     .evaluateAll((ths) => ths.map((th) => Number(th.getAttribute('colspan'))));
-  /** EL control: uno para la tabla entera. Su nombre cambia con el estado, el elemento no. */
   const control = (page: Pagina) => page.getByRole('button', { name: /columnas/ });
   const anuncio = (page: Pagina, texto: string) => page.getByRole('status').filter({ hasText: texto });
   const fraseExcel = (page: Pagina) => page.getByText('Las demás van en el Excel');
   const enlaceExcel = (page: Pagina) => page.locator('a[href="#exportar-excel"]');
+  const rotuloPie = (page: Pagina) => tabla(page).locator('tfoot th[scope="row"]');
+  /** Un `th[scope=col]` por su título EXACTO («OT» no es «Total»). */
+  const cabecera = (page: Pagina, titulo: string) => columnas(page).filter({ has: page.getByText(titulo, { exact: true }) });
+  /** La celda de una columna por su título, contando la casilla que va delante para quien liquida. */
+  const celda = (fila: import('@playwright/test').Locator, titulo: string, vista: Record<string, string[]>, conCasilla = true) =>
+    fila.getByRole('cell').nth(planas(vista).indexOf(titulo) + (conCasilla ? 1 : 0));
+  /**
+   * Ancho de la región y de su contenido —«cabe» es que los dos midan lo mismo— y el ancho MÍNIMO
+   * de la tabla: lo que pide como poco (`min-content`, con Acciones y los títulos de dos palabras
+   * plegados), que es lo que mide `scrollWidth` cuando desborda y por tanto la cifra comparable con
+   * los 1628 px de la #12537. Es la que la HU pide registrar y la que dice el margen. Se mide y se
+   * restaura en el mismo paso.
+   */
+  const medida = (page: Pagina) => region(page).evaluate((el) => {
+    const t = el.querySelector('table') as HTMLTableElement;
+    const antes = t.style.width;
+    t.style.width = 'min-content';
+    const minimo = t.offsetWidth;
+    t.style.width = antes;
+    return { scroll: el.scrollWidth, cliente: el.clientWidth, minimo };
+  });
+  const elegibilidad = (items: Array<{ tramiteId: string; elegible: boolean; motivos: Array<{ motivo: string; detalle: string }> }>) => ({
+    items,
+    resumen: {
+      total: items.length, elegibles: items.filter((i) => i.elegible).length, noElegibles: items.filter((i) => !i.elegible).length,
+      anterioresAlCorte: 0,
+      porMotivo: {
+        liquidacion_no_facturada: 0, documentacion_incompleta: 0, anterior_al_corte: 0,
+        sin_compania: 0, tercero_sin_vincular: 0, cliente_no_facturable: 0, compuerta_cerrada: 0, ya_facturado: 0,
+      },
+    },
+  });
 
-  test('AC1 — sin preferencia guardada arranca compacta: 12 columnas en su orden, y un solo control', async ({ page }) => {
+  /**
+   * Las diez filas del gate de ancho (nota QA 1): las tres combinaciones de acciones alternadas
+   * —Soporte + Liquidar + «Falta: SOAT»; Soporte + Facturar + Reversar; Soporte + Enviar a
+   * facturación (o ¿Por qué no?)— y la empresa de 40 caracteres en todas.
+   */
+  async function mockDiezFilasAnchas(page: Pagina) {
+    await mockFacetas(page, ['Aprobado']);
+    await mockFacturacion(page);
+    // Las facturadas van «Aceptada por la DIAN» con su número, que es lo que llevan en la práctica
+    // y lo más ancho que pinta Factura DIAN; un «Sin enviar» en todas mediría de menos.
+    const base = [FILA_SIN_PAGAR, FILA_LIQUIDADA, { ...FILA_FACTURADA, estadoFacturacion: 'aceptado', facturaNumero: 'FV-1-100' }];
+    const filas = Array.from({ length: 10 }, (_, i) => ({
+      ...base[i % 3], empresa: EMPRESA_LARGA,
+      tramiteId: `aaaa0000-0000-0000-0000-0000000000${20 + i}`, idFlit: `FLIT-30${i}`,
+    }));
+    await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...REPORTE, items: filas, total: 10 }) }));
+    // La última ruta registrada gana: las facturadas son elegibles salvo la última, que lleva
+    // «¿Por qué no?» —la otra forma de la tercera combinación—.
+    const facturadas = filas.filter((f) => f.estadoLiquidacion === 'facturado');
+    await page.route(/\/api\/siigo\/elegibilidad\/tramites/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(elegibilidad(
+        facturadas.map((f, i) => i === facturadas.length - 1
+          ? { tramiteId: f.tramiteId, elegible: false, motivos: [{ motivo: 'documentacion_incompleta', detalle: 'Faltan soportes' }] }
+          : { tramiteId: f.tramiteId, elegible: true, motivos: [] }),
+      )) }));
+    return filas;
+  }
+
+  /**
+   * El montaje del gate de ancho (notas QA 1 y 2): viewport, las diez filas, y la prueba de que las
+   * tres combinaciones de acciones están de verdad en la tabla (el lote «Liquidar N» no cuenta).
+   * Devuelve las medidas de la compacta; el aserto lo pone cada viewport, porque no dicen lo mismo.
+   */
+  async function montarGateDeAncho(page: Pagina, width: number, height: number) {
+    await page.setViewportSize({ width, height });
+    await loginAs(page, OPERACIONES_USER);
+    await mockDiezFilasAnchas(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-309')).toBeVisible();
+    const t = tabla(page);
+    await expect(t.getByRole('button', { name: 'Liquidar', exact: true })).toHaveCount(4);
+    await expect(t.getByText('Falta: SOAT')).toHaveCount(4);
+    await expect(t.getByRole('button', { name: 'Facturar' })).toHaveCount(3);
+    await expect(t.getByRole('button', { name: 'Reversar' })).toHaveCount(3);
+    await expect(t.getByRole('button', { name: /Enviar .* a facturación electrónica/ })).toHaveCount(3);
+    await expect(t.getByRole('button', { name: /^Por qué .* no se puede enviar/ })).toHaveCount(1);
+    await expect(t.getByRole('button', { name: 'Soporte' })).toHaveCount(10);
+    await expect(t.getByText('Factura FV-1-100')).toHaveCount(3);
+    await expect(columnas(page)).toHaveCount(N_COMPACTA);
+
+    const compacta = await medida(page);
+    // Se deja escrito en la salida del test: es el dato que la HU pide registrar.
+    console.log(`[HU #12539] ${width}×${height} compacta: mínimo ${compacta.minimo} px · contenedor ${compacta.cliente} px · contenido ${compacta.scroll} px`);
+    if (process.env.MEDIR_COLUMNAS) {
+      // Qué pide cada columna, para volver a repartir el presupuesto del doc UX sin adivinar.
+      console.log(await region(page).evaluate((el) => {
+        const tb = el.querySelector('table') as HTMLTableElement;
+        tb.style.width = 'min-content';
+        const ths = [...tb.querySelectorAll('thead tr:nth-child(2) th, thead tr:first-child th[rowspan]')] as HTMLElement[];
+        const r = ths.map((th) => `${th.textContent?.trim() || '(sin título)'}=${th.offsetWidth}`).join(' · ');
+        tb.style.width = '';
+        return r;
+      }));
+    }
+    await page.screenshot({ path: test.info().outputPath(`compacta-${width}.png`), fullPage: true });
+    return compacta;
+  }
+
+  test('AC1 — en 1366×768 la compacta cabe: diez filas con las tres acciones y una empresa de 40 caracteres', async ({ page }) => {
+    const compacta = await montarGateDeAncho(page, 1366, 768);
+    // mutante: «OT con compacta: true» (+105 px) → el contenido supera al contenedor y hay scroll. A «px-4 de
+    // vuelta» este aserto NO lo mata (medido: 1256 frente a 1258, quedan 2 px); lo matan el caso de 1280 y el AC5.
+    expect(compacta.scroll, `compacta desborda: ${compacta.scroll} > ${compacta.cliente}`).toBe(compacta.cliente);
+    expect(compacta.minimo).toBeLessThanOrEqual(compacta.cliente);
+    // mutante: dejar el `div.overflow-x-auto` exterior → el que desplaza es otro y `FlitTable` no lo sabe
+    await expect(region(page)).toHaveAttribute('role', 'region');
+    await expect(region(page)).not.toHaveAttribute('tabindex', /.*/);
+    await expect(page.locator('[data-desborde]')).toHaveCount(0);
+
+    // Control positivo: la ampliada sí desborda, y entonces el kit sí marca la región.
+    await control(page).click();
+    await expect(columnas(page)).toHaveCount(N_AMPLIADA);
+    const ampliada = await medida(page);
+    console.log(`[HU #12539] 1366×768 ampliada: mínimo ${ampliada.minimo} px · contenedor ${ampliada.cliente} px · contenido ${ampliada.scroll} px`);
+    expect(ampliada.scroll).toBeGreaterThan(ampliada.cliente);
+    await expect(region(page)).toHaveAttribute('tabindex', '0');
+  });
+
+  /**
+   * 1280×720 queda AL LÍMITE, como preveía el doc UX. Medido el 2026-09-14 con estas diez filas
+   * (facturadas «Aceptada por la DIAN» con su número, que es lo ancho de verdad): 1192 px frente a
+   * 1172 de contenedor; con la palanca D-21 ya aplicada (Empresa a 8rem, −16) quedan 1176: 4 px de
+   * desborde. Lo que sigue —alternativa C— no es del frontend sino del PO, y hasta entonces este
+   * caso guarda el estado registrado: cualquier columna de vuelta (OT +105, Estado +105, `px-4`
+   * +48, el tipo en su columna +110) lo pone en rojo, y si mañana cabe del todo también sigue en verde.
+   */
+  const DESBORDE_REGISTRADO_1280 = 4;
+
+  test(`AC1 — en 1280×720 queda al límite: con la palanca D-21 desborda ${DESBORDE_REGISTRADO_1280} px (registrado en la HU)`, async ({ page }) => {
+    const compacta = await montarGateDeAncho(page, 1280, 720);
+    // mutante: OT con `compacta: true` → +105 px
+    expect(compacta.minimo - compacta.cliente, `mínimo ${compacta.minimo} px frente a ${compacta.cliente} px de contenedor`)
+      .toBeLessThanOrEqual(DESBORDE_REGISTRADO_1280);
+  });
+
+  test('AC2 — sin preferencia guardada: nueve columnas en su orden, grupos 3/2/4 y un solo control', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockSecciones(page);
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText('FLIT-2001')).toBeVisible();
 
     // mutante: estado inicial ampliado (`useState(() => true)`) → aquí salen las 28
+    // mutante: OT con `compacta: true` → cuatro bajo Datos del trámite y colSpan 3/3/4
     expect(await columnasPorGrupo(page)).toEqual(COMPACTA);
-    // mutante: Valores con `compactable: false` → colSpan 3/5/10
-    expect(await colSpans(page)).toEqual([3, 5, 4]);
-    // mutante: Liquidación sin `compacta: true` → 11
-    await expect(columnas(page)).toHaveCount(12);
+    expect(await colSpans(page)).toEqual(Object.values(COMPACTA).map((c) => c.length));
+    await expect(columnas(page)).toHaveCount(N_COMPACTA);
+    await expect(columnas(page)).toHaveText(planas(COMPACTA));
+    for (const titulo of ['OT', 'Estado', 'Tipo trámite', 'Fechas']) {
+      await expect(cabecera(page, titulo), `«${titulo}» no es columna en compacta`).toHaveCount(0);
+    }
 
-    // mutante: dejar los botones por sección → tres botones «Compactar»/«Mostrar todas» (o cuatro)
+    // mutante: dejar los botones por sección → tres botones (o cuatro)
     await expect(page.getByRole('button', { name: /Compactar|Mostrar todas/ })).toHaveCount(1);
     await expect(control(page)).toHaveText('Mostrar todas las columnas');
     await expect(control(page)).toHaveAttribute('aria-expanded', 'false');
-    // La fila de grupos solo titula: ni «n de m» ni botón dentro del `th`.
     await expect(tabla(page).locator('th[scope="colgroup"]')).toHaveText(['Identificación', 'Datos del trámite', 'Valores']);
     await expect(tabla(page).locator('th[scope="colgroup"] button')).toHaveCount(0);
-    // El conteo tras «página 1 de 1», con las dos cifras que la cabecera acaba de contar.
-    await expect(page.getByText('12 de 28 columnas', { exact: true })).toBeVisible();
+    // mutante: «9» escrito como literal — con una columna más en la lista seguiría diciendo 9
+    await expect(page.getByText(`${await columnas(page).count()} de ${N_AMPLIADA} columnas`, { exact: true })).toBeVisible();
   });
 
-  test('AC2 — un clic amplía a 28 y otro vuelve a 12; el foco no se mueve y el cambio se anuncia', async ({ page }) => {
+  test('AC3 — el tipo de trámite va bajo el Flit en compacta; al ampliar vuelve a su columna', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockSecciones(page);
+    await page.goto('/finanzas/reporte-costos');
+    const fila = filaDe(page, 'FLIT-2001');
+    await expect(fila).toBeVisible();
+
+    const flitCompacta = celda(fila, 'Flit', COMPACTA);
+    // mutante: tipo pintado en los dos modos (`celda` con los dos renglones) → la ampliada de abajo cae
+    // mutante: tipo en su propia columna también en compacta → habría `th` «Tipo trámite»
+    await expect(flitCompacta).toContainText('FLIT-2001');
+    await expect(flitCompacta).toContainText('Traspaso');
+    // Dos renglones: el Flit arriba y el tipo debajo, en su propio bloque con el texto entero en `title`.
+    await expect(flitCompacta.locator('div').nth(0)).toHaveText('FLIT-2001');
+    await expect(flitCompacta.locator('div').nth(1)).toHaveText('Traspaso');
+    await expect(flitCompacta.locator('div').nth(1)).toHaveAttribute('title', 'Traspaso');
+    await expect(cabecera(page, 'Tipo trámite')).toHaveCount(0);
+    // Y sin paradas de tabulador nuevas: la celda es texto.
+    await expect(flitCompacta.locator('[tabindex], a, button')).toHaveCount(0);
+
+    await control(page).click();
+    await expect(columnas(page)).toHaveCount(N_AMPLIADA);
+    await expect(cabecera(page, 'Tipo trámite')).toHaveCount(1);
+    await expect(celda(fila, 'Flit', AMPLIADA)).toHaveText('FLIT-2001');
+    await expect(celda(fila, 'Tipo trámite', AMPLIADA)).toHaveText('Traspaso');
+  });
+
+  test('AC4 — una sola fecha en compacta: «Aprobación», con «Sin aprobar» y sin «Creado»; al ampliar, «Fechas» con las dos', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockSecciones(page);   // FLIT-2001 aprobado el 14 de julio; FLIT-2002 sin fecha
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    // mutante: `CeldaFechas` también en compacta → «Creado» aparece y la cabecera sigue diciendo «Fechas»
+    await expect(cabecera(page, 'Aprobación')).toHaveCount(1);
+    await expect(cabecera(page, 'Fechas')).toHaveCount(0);
+    await expect(celda(filaDe(page, 'FLIT-2001'), 'Aprobación', COMPACTA)).toHaveText('14 de jul de 26');
+    await expect(celda(filaDe(page, 'FLIT-2002'), 'Aprobación', COMPACTA)).toHaveText('Sin aprobar');
+    await expect(tabla(page).getByText('Creado')).toHaveCount(0);
+    await expect(tabla(page).getByText('02 de jul de 26')).toHaveCount(0);
+
+    await control(page).click();
+    await expect(columnas(page)).toHaveCount(N_AMPLIADA);
+    await expect(cabecera(page, 'Fechas')).toHaveCount(1);
+    await expect(cabecera(page, 'Aprobación')).toHaveCount(0);
+    const fechas = celda(filaDe(page, 'FLIT-2001'), 'Fechas', AMPLIADA);
+    await expect(fechas).toContainText('Creado 02 de jul de 26');
+    await expect(fechas).toContainText('Aprob. 14 de jul de 26');
+    await expect(celda(filaDe(page, 'FLIT-2002'), 'Fechas', AMPLIADA)).toContainText('Sin aprobar');
+  });
+
+  test('AC5 — el rótulo del pie va en un th[scope=row] con colSpan 5 / 18, y Empresa no pasa de 168 px', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockFacetas(page, ['Aprobado']);
+    await mockFacturacion(page);
+    await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        ...REPORTE, total: 3, items: [{ ...FILA_ESTIMADA, empresa: EMPRESA_LARGA }, FILA_BLOQUEADA, FILA_JURIDICA],
+      }) }));
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    const pie = tabla(page).locator('tfoot tr');
+    const totalesDelPie = pie.getByRole('cell').filter({ hasText: '$' });
+    /** La celda del pie bajo una columna: detrás de la casilla y del rótulo, que se come `colSpan` columnas. */
+    const celdaPie = (titulo: string, vista: Record<string, string[]>) =>
+      pie.getByRole('cell').nth(planas(vista).indexOf(titulo) - antesDelPrimerTotal(vista) + 1);
+
+    // mutante: rótulo en la primera `td` (como en la #12537) → no hay `th[scope=row]`
+    await expect(rotuloPie(page)).toHaveCount(1);
+    await expect(rotuloPie(page)).toHaveText('Totales (3 trámites del filtro)');
+    await expect(pie.getByRole('rowheader')).toHaveText('Totales (3 trámites del filtro)');
+    await expect(pie.getByRole('cell').filter({ hasText: 'Totales' })).toHaveCount(0);
+    // mutante: `colSpan` escrito (5) → al ampliar seguiría siendo 5 y los totales se corren
+    expect(antesDelPrimerTotal(COMPACTA)).toBe(5);
+    await expect(rotuloPie(page)).toHaveAttribute('colspan', String(antesDelPrimerTotal(COMPACTA)));
+    // mutante: pie recorriendo `COLUMNAS` en vez de `visibles` → nueve importes
+    await expect(totalesDelPie).toHaveCount(3);
+    await expect(celdaPie('Total reintegro', COMPACTA)).toHaveText('$ 2.670.400');
+    await expect(celdaPie('Servicio', COMPACTA)).toHaveText('$ 600.000');
+    await expect(celdaPie('Total', COMPACTA)).toHaveText('$ 3.270.400');
+    await expect(celdaPie('Liquidación', COMPACTA)).toHaveText('');
+
+    // Empresa: tope de ancho con el nombre entero en el `title` y en el DOM (D-16). El AC pide
+    // ≤ 168 px (9rem + px-3); con la palanca D-21 aplicada (8rem) son 152, y es eso lo que se guarda.
+    // mutante: quitar el `max-w` → la celda mide lo que mida la razón social (> 168); volver a 9rem → 168
+    const TOPE_EMPRESA = 8 * 16 + 2 * 12;
+    const empresa = celda(filaDe(page, 'FLIT-2001'), 'Empresa', COMPACTA);
+    await expect(empresa).toHaveText(EMPRESA_LARGA);
+    await expect(empresa.locator('[title]')).toHaveAttribute('title', EMPRESA_LARGA);
+    const ancho = (await empresa.boundingBox())?.width ?? Infinity;
+    expect(ancho, `Empresa mide ${ancho} px`).toBeLessThanOrEqual(TOPE_EMPRESA);
+    await expect(empresa.locator('[tabindex], a, button')).toHaveCount(0);
+
+    await control(page).click();
+    await expect(columnas(page)).toHaveCount(N_AMPLIADA);
+    expect(antesDelPrimerTotal(AMPLIADA)).toBe(18);
+    await expect(rotuloPie(page)).toHaveAttribute('colspan', String(antesDelPrimerTotal(AMPLIADA)));
+    await expect(totalesDelPie).toHaveCount(9);
+    await expect(celdaPie('SOAT', AMPLIADA)).toHaveText('$ 1.800.000');
+    await expect(celdaPie('Total reintegro', AMPLIADA)).toHaveText('$ 2.670.400');
+    await expect(celdaPie('Total', AMPLIADA)).toHaveText('$ 3.270.400');
+    // El tope de Empresa es el mismo en los dos modos: no hay dos anchos para la misma celda.
+    const anchoAmpliada = (await celda(filaDe(page, 'FLIT-2001'), 'Empresa', AMPLIADA).boundingBox())?.width ?? Infinity;
+    expect(anchoAmpliada).toBeLessThanOrEqual(TOPE_EMPRESA);
+  });
+
+  test('AC6 — un clic amplía a 28 y otro vuelve a 9; el foco no se mueve, se anuncia y se recuerda en UNA clave', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     // Dos filas, una con el SOAT conciliado: la marca vive en la celda SOAT, que se calla en compacta.
     await mockConciliacion(page);
@@ -1821,88 +2086,51 @@ test.describe('Reporte de costos — tabla compacta por defecto (HU #12537)', ()
 
     const boton = control(page);
     const marca = page.getByTestId('marca-soat-conciliado');
-    const pie = tabla(page).locator('tfoot tr');
-    const totalesDelPie = pie.getByRole('cell').filter({ hasText: '$' });
-
-    await expect(columnas(page)).toHaveCount(12);
+    await expect(columnas(page)).toHaveCount(N_COMPACTA);
     await expect(marca).toHaveCount(0);
-    // Pie en compacta: Total reintegro, Servicio y Total, y el rótulo en la primera columna.
-    // mutante: pie recorriendo `COLUMNAS` en vez de `visibles` → 9 celdas con importe
-    await expect(totalesDelPie).toHaveCount(3);
-    // El rótulo cae en la primera columna VISIBLE (Empresa), detrás de la celda de la casilla.
-    await expect(pie.getByRole('cell').nth(1)).toHaveText('Totales (2 trámites del filtro)');
 
     // Por TECLADO, para que «el foco se queda en el botón» sea una afirmación y no un efecto del clic.
     await boton.focus();
     await boton.press('Enter');
-    await expect(columnas(page)).toHaveCount(28);
+    await expect(columnas(page)).toHaveCount(N_AMPLIADA);
+    // mutante: cambiar el orden o quitar una de las 28 al ampliar
     expect(await columnasPorGrupo(page)).toEqual(AMPLIADA);
-    expect(await colSpans(page)).toEqual([9, 9, 10]);
+    expect(await colSpans(page)).toEqual(Object.values(AMPLIADA).map((c) => c.length));
     await expect(boton).toHaveText('Compactar columnas');
     await expect(boton).toHaveAttribute('aria-expanded', 'true');
     // mutante: mover el foco a la tabla al ampliar
     await expect(boton).toBeFocused();
     // mutante: segunda región `role="status"` para el anuncio → 2 nodos (D-07)
-    await expect(anuncio(page, 'Todas las columnas: 28.')).toHaveCount(1);
-    // mutante: «28» escrito como literal — lo delata solo añadir una columna; aquí la cifra se
-    // compara con lo que la cabecera cuenta, y con 28 en `COLUMNAS` el literal coincide.
+    await expect(anuncio(page, `Todas las columnas: ${N_AMPLIADA}.`)).toHaveCount(1);
     await expect(page.getByText(`${await columnas(page).count()} columnas`, { exact: true })).toBeVisible();
     await expect(marca).toBeVisible();
-    // Los nueve totales de Valores (Liquidación es un chip, no lleva total).
-    await expect(totalesDelPie).toHaveCount(9);
+    // mutante: no escribir la clave (o escribir otra) → tras el reload vuelve a 9
+    expect(await page.evaluate((k) => localStorage.getItem(k), CLAVE)).toBe('todas');
 
     await boton.press('Enter');
-    await expect(columnas(page)).toHaveCount(12);
-    expect(await colSpans(page)).toEqual([3, 5, 4]);
+    await expect(columnas(page)).toHaveCount(N_COMPACTA);
+    expect(await colSpans(page)).toEqual(Object.values(COMPACTA).map((c) => c.length));
     await expect(boton).toHaveText('Mostrar todas las columnas');
     await expect(boton).toHaveAttribute('aria-expanded', 'false');
     await expect(boton).toBeFocused();
-    await expect(anuncio(page, 'Vista compacta: 12 de 28 columnas.')).toHaveCount(1);
+    // mutante: «9» escrito como literal en el anuncio
+    await expect(anuncio(page, `Vista compacta: ${N_COMPACTA} de ${N_AMPLIADA} columnas.`)).toHaveCount(1);
     await expect(marca).toHaveCount(0);
-    await expect(totalesDelPie).toHaveCount(3);
-  });
+    expect(await page.evaluate((k) => localStorage.getItem(k), CLAVE)).toBe('compacta');
 
-  test('AC3 — la elección se recuerda en UNA clave; las claves por sección de la #12434 se ignoran', async ({ page }) => {
-    await loginAs(page, OPERACIONES_USER);
-    await mockSecciones(page);
-    await page.goto('/finanzas/reporte-costos');
-    await expect(page.getByText('FLIT-2001')).toBeVisible();
-
-    await control(page).click();
-    await expect(columnas(page)).toHaveCount(28);
-    // mutante: no escribir la clave (o escribir otra) → tras el reload vuelve a 12
-    expect(await page.evaluate((k) => localStorage.getItem(k), CLAVE)).toBe('todas');
+    // La preferencia sobrevive al reload, y cualquier valor que no sea `todas` es compacta (D-06).
+    await page.evaluate((k) => localStorage.setItem(k, 'todas'), CLAVE);
     await page.reload();
-    await expect(page.getByText('FLIT-2001')).toBeVisible();
-    await expect(columnas(page)).toHaveCount(28);
-    await expect(control(page)).toHaveText('Compactar columnas');
-
-    await control(page).click();
-    await expect(columnas(page)).toHaveCount(12);
-    await page.reload();
-    await expect(page.getByText('FLIT-2001')).toBeVisible();
-    await expect(columnas(page)).toHaveCount(12);
-
-    // Las tres claves viejas en «ampliada» y la nueva ausente: compacta igual (D-06).
-    // mutante: leer `flito.reporteCostos.seccion.*` → 28
-    await page.evaluate((k) => {
-      localStorage.removeItem(k);
-      for (const g of ['identificacion', 'datos', 'valores']) localStorage.setItem(`flito.reporteCostos.seccion.${g}`, 'ampliada');
-    }, CLAVE);
-    await page.reload();
-    await expect(page.getByText('FLIT-2001')).toBeVisible();
-    await expect(columnas(page)).toHaveCount(12);
-    // Y las viejas siguen ahí: ni se migran ni se borran.
-    expect(await page.evaluate(() => localStorage.getItem('flito.reporteCostos.seccion.valores'))).toBe('ampliada');
-
-    // Cualquier valor que no sea `todas` es compacta. mutante: `!== 'compacta'` como condición
+    await expect(page.getByText('FLIT-2007')).toBeVisible();
+    await expect(columnas(page)).toHaveCount(N_AMPLIADA);
+    // mutante: `!== 'compacta'` como condición → «ampliada» abriría las 28
     await page.evaluate((k) => localStorage.setItem(k, 'ampliada'), CLAVE);
     await page.reload();
-    await expect(page.getByText('FLIT-2001')).toBeVisible();
-    await expect(columnas(page)).toHaveCount(12);
+    await expect(page.getByText('FLIT-2007')).toBeVisible();
+    await expect(columnas(page)).toHaveCount(N_COMPACTA);
   });
 
-  test('AC4 — «Las demás van en el Excel» solo en compacta; el enlace lleva al botón y NO exporta', async ({ page }) => {
+  test('AC7 — lo que no cambia: «Las demás van en el Excel» solo en compacta, el enlace lleva al botón y NO exporta', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockSecciones(page);
     const pedidas = await mockExport(page);
@@ -1920,115 +2148,82 @@ test.describe('Reporte de costos — tabla compacta por defecto (HU #12537)', ()
     await expect(boton).toBeFocused();
     // mutante: segundo disparador del export en el enlace → 1
     expect(pedidas.length).toBe(0);
-    // Control positivo: el contador sí cuenta — el botón de la cabecera sigue siendo el disparador.
     await boton.click();
     await expect.poll(() => pedidas.length).toBe(1);
 
     // Ampliada: nada oculto que explicar → ni frase ni enlace. mutante: frase permanente
     await control(page).click();
-    await expect(columnas(page)).toHaveCount(28);
+    await expect(columnas(page)).toHaveCount(N_AMPLIADA);
     await expect(fraseExcel(page)).toHaveCount(0);
     await expect(enlace).toHaveCount(0);
-    await expect(page.getByText('28 columnas', { exact: true })).toBeVisible();
-    // Y de vuelta a compacta, la frase vuelve.
     await control(page).click();
     await expect(fraseExcel(page)).toBeVisible();
   });
 
-  test('AC5 — en compacta se sigue leyendo por qué no se puede liquidar: el motivo en el subtotal y «Falta:» junto al botón', async ({ page }) => {
+  test('AC7 — lo que no cambia: en compacta se sigue leyendo por qué no se puede liquidar, y los filtros OT y Estado siguen', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page);   // seis filas: FLIT-2002 sin tarifa digital, FLIT-2005 sin recibo, FLIT-2006 sin pagar
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText('FLIT-2001')).toBeVisible();
-
-    const grupos = await columnasPorGrupo(page);
-    expect(grupos).toEqual(COMPACTA);
-    const todas = [...grupos['Identificación'], ...grupos['Datos del trámite'], ...grupos['Valores']];
-    const celda = (id: string, titulo: string) => filaDe(page, id).getByRole('cell').nth(todas.indexOf(titulo) + 1);
+    expect(await columnasPorGrupo(page)).toEqual(COMPACTA);
 
     // mutante: Servicio fuera de la compacta → la celda es otra
-    await expect(celda('FLIT-2002', 'Servicio')).toHaveText('No configurado');
+    await expect(celda(filaDe(page, 'FLIT-2002'), 'Servicio', COMPACTA)).toHaveText('No configurado');
     // mutante: Total reintegro fuera de la compacta
-    await expect(celda('FLIT-2005', 'Total reintegro')).toHaveText('Sin recibo');
-    await expect(celda('FLIT-2006', 'Total reintegro')).toHaveText('Sin pagar');
-    // El «Falta: …» vive en la celda de acciones, que no se compacta.
+    await expect(celda(filaDe(page, 'FLIT-2005'), 'Total reintegro', COMPACTA)).toHaveText('Sin recibo');
+    await expect(celda(filaDe(page, 'FLIT-2006'), 'Total reintegro', COMPACTA)).toHaveText('Sin pagar');
     await expect(filaDe(page, 'FLIT-2002').getByText('Falta: Trámite digital')).toBeVisible();
     await expect(filaDe(page, 'FLIT-2005').getByText('Falta: Derecho de tránsito')).toBeVisible();
     await expect(filaDe(page, 'FLIT-2006').getByRole('button', { name: 'Liquidar' })).toBeDisabled();
-    // Y ninguna celda dice $ 0 por haberse ocultado el concepto que faltaba.
     await expect(filaDe(page, 'FLIT-2005').getByText('$ 0')).toHaveCount(0);
+    // Liquidación y Factura DIAN siguen en la fila, con sus textos.
+    await expect(celda(filaDe(page, 'FLIT-2003'), 'Liquidación', COMPACTA)).toHaveText('Liquidado');
+    await expect(celda(filaDe(page, 'FLIT-2001'), 'Factura DIAN', COMPACTA)).toContainText('Sin enviar');
+    await expect(filaDe(page, 'FLIT-2003').getByRole('button', { name: 'Facturar' })).toBeVisible();
+    await expect(filaDe(page, 'FLIT-2003').getByRole('button', { name: 'Reversar' })).toBeVisible();
+    await expect(filaDe(page, 'FLIT-2001').getByRole('button', { name: 'Soporte' })).toBeVisible();
+    // OT y Estado salen de la fila, no del filtro (D-19, D-20).
+    await expect(page.locator('summary').filter({ hasText: 'OT' })).toBeVisible();
+    await expect(page.locator('summary').filter({ hasText: 'Estado' })).toBeVisible();
+    // El lote: marcar una fila enseña la barra con «Liquidar N».
+    await page.getByRole('checkbox', { name: 'Seleccionar FLIT-2001' }).check();
+    await expect(page.getByRole('button', { name: /^Liquidar \d+$/ })).toBeVisible();
   });
 
-  test('AC6 — el auditor ve el control, amplía y compacta, y sigue sin casillas ni acciones', async ({ page }) => {
+  test('AC7 — el auditor ve las nueve, el control y el enlace al Excel; sin casillas ni acciones, y en 1366 le cabe', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 768 });
     await loginAs(page, AUDITOR_USER);
-    await mockSecciones(page);
+    await mockDiezFilasAnchas(page);
     await page.goto('/finanzas/reporte-costos');
-    await expect(page.getByText('FLIT-2001')).toBeVisible();
+    await expect(page.getByText('FLIT-309')).toBeVisible();
 
-    await expect(columnas(page)).toHaveCount(12);
+    expect(await columnasPorGrupo(page)).toEqual(COMPACTA);
     await expect(fraseExcel(page)).toBeVisible();
     await expect(enlaceExcel(page)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Exportar a Excel' })).toBeVisible();
     // mutante: esconder el control a quien no liquida (es lectura: lo ven los tres roles)
     await expect(control(page)).toHaveCount(1);
-    await control(page).click();
-    await expect(columnas(page)).toHaveCount(28);
-    await expect(anuncio(page, 'Todas las columnas: 28.')).toHaveCount(1);
-    await control(page).click();
-    await expect(columnas(page)).toHaveCount(12);
+    // Sin casilla: la primera celda de la fila es Empresa.
+    await expect(celda(filaDe(page, 'FLIT-300'), 'Empresa', COMPACTA, false)).toHaveText(EMPRESA_LARGA);
 
     const t = tabla(page);
     await expect(t.getByRole('checkbox')).toHaveCount(0);
     await expect(t.getByRole('button', { name: 'Liquidar' })).toHaveCount(0);
     await expect(t.getByRole('button', { name: 'Facturar' })).toHaveCount(0);
+    await expect(t.getByRole('button', { name: 'Reversar' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: /Enviar .* a facturación electrónica/ })).toHaveCount(0);
-  });
+    await expect(t.getByRole('button', { name: 'Soporte' })).toHaveCount(10);
 
-  test('AC7 — en 1366×768 la compacta mide menos de la mitad que la ampliada, con diez filas con acciones', async ({ page }) => {
-    // Medido el 2026-09-14 con este caso: la compacta de 12 columnas mide 1628 px de contenido frente a
-    // 1258 px de contenedor (con D-10, Estado fuera, 1523). Qué columnas caen es decisión del PO, registrada en la HU.
-    await page.setViewportSize({ width: 1366, height: 768 });
-    await loginAs(page, OPERACIONES_USER);
-    await mockFacetas(page, ['Aprobado']);
-    await mockFacturacion(page);
-    // Lo más ancho que puede llevar la celda de acciones, alternado: bloqueadas (Soporte + Liquidar
-    // + «Falta: SOAT») y facturadas elegibles (Soporte + Enviar a facturación).
-    const filas = Array.from({ length: 10 }, (_, i) => ({
-      ...(i % 2 ? FILA_FACTURADA : FILA_SIN_PAGAR),
-      tramiteId: `aaaa0000-0000-0000-0000-0000000000${20 + i}`, idFlit: `FLIT-30${i}`,
-    }));
-    await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...REPORTE, items: filas, total: 10 }) }));
-    // La última ruta registrada gana: todas las facturadas son elegibles, para que cada una lleve «Enviar».
-    await page.route(/\/api\/siigo\/elegibilidad\/tramites/, (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
-        items: filas.filter((f) => f.estadoLiquidacion === 'facturado').map((f) => ({ tramiteId: f.tramiteId, elegible: true, motivos: [] })),
-        resumen: {
-          total: 5, elegibles: 5, noElegibles: 0, anterioresAlCorte: 0,
-          porMotivo: {
-            liquidacion_no_facturada: 0, documentacion_incompleta: 0, anterior_al_corte: 0,
-            sin_compania: 0, tercero_sin_vincular: 0, cliente_no_facturable: 0,
-            compuerta_cerrada: 0, ya_facturado: 0,
-          },
-        },
-      }) }));
-    await page.goto('/finanzas/reporte-costos');
-    await expect(page.getByText('FLIT-309')).toBeVisible();
-    // Las de la tabla: el lote de la cabecera («Liquidar N») no cuenta.
-    await expect(tabla(page).getByRole('button', { name: 'Liquidar', exact: true })).toHaveCount(5);
-    await expect(tabla(page).getByRole('button', { name: /Enviar .* a facturación electrónica/ })).toHaveCount(5);
+    const m = await medida(page);
+    console.log(`[HU #12539] auditor 1366×768 compacta: mínimo ${m.minimo} px · contenedor ${m.cliente} px · contenido ${m.scroll} px`);
+    expect(m.scroll).toBe(m.cliente);
+    await expect(region(page)).not.toHaveAttribute('tabindex', /.*/);
 
-    // El que desplaza es el envoltorio de `FlitTable`, el padre directo de la `<table>`.
-    const ancho = () => tabla(page).locator('xpath=..').evaluate((el) => el.scrollWidth);
-    await expect(columnas(page)).toHaveCount(12);
-    const compacta = await ancho();
     await control(page).click();
-    await expect(columnas(page)).toHaveCount(28);
-    const ampliada = await ancho();
-
-    // mutante: estado inicial ampliado → las dos medidas son la misma
-    expect(compacta, `compacta ${compacta} px vs ampliada ${ampliada} px`).toBeLessThan(ampliada);
-    // mutante: Valores con `compactable: false` → seis conceptos más en la compacta y se pasa del 55 %
-    expect(compacta, `compacta ${compacta} px > 55 % de ${ampliada} px`).toBeLessThanOrEqual(0.55 * ampliada);
+    await expect(columnas(page)).toHaveCount(N_AMPLIADA);
+    await expect(anuncio(page, `Todas las columnas: ${N_AMPLIADA}.`)).toHaveCount(1);
+    await control(page).click();
+    await expect(columnas(page)).toHaveCount(N_COMPACTA);
   });
 });
 
