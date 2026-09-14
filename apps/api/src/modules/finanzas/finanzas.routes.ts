@@ -1,16 +1,25 @@
 // Finanzas (HTTP). Montado en /api/finanzas. Lectura para el rol `financiera` (+ admin/auditor).
+// Los dos exports son POST con el filtro en el cuerpo y devuelven `.xlsx` (HU #12531).
 
 import { Router, type Request, type Response } from 'express';
+import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { logPiiAccess } from '../../shared/pii-audit.js';
 import { soportesDeTramite } from '../../shared/soportes/soportes-consulta.js';
+import { sendExcel } from '../../shared/utils/excel.js';
 import {
-  aCsv, ETAPAS, facetas, filasParaExportar, reporteCostos, TOPE_EXPORTACION,
-  resumenFacturacionElectronicaDelReporte,
+  ExportColaDemasiadoGrandeError, exportColaLimiter, nombreArchivoColaExport,
+} from '../../shared/export/cola-flito-excel.js';
+import {
+  ETAPAS, facetas, filasParaExportar, reporteCostos, resumenFacturacionElectronicaDelReporte,
   type EtapaReporte, type FiltrosReporte,
 } from './finanzas.service.js';
-import { aCsvConsolidado, consolidadoReporte, periodoConsolidado } from './finanzas.consolidado.js';
-import { esEstadoReporte, type SiigoEstadoReporte } from '@operaciones/shared-types';
+import { consolidadoReporte, PERIODOS_CONSOLIDADO, periodoConsolidado } from './finanzas.consolidado.js';
+import {
+  COLUMNAS_EXPORT_CONSOLIDADO, COLUMNAS_EXPORT_DETALLE, filasExcelConsolidado, filasExcelDetalle,
+  HOJA_CONSOLIDADO, HOJA_DETALLE,
+} from './finanzas.export-excel.js';
+import { esEstadoReporte, SIIGO_ESTADOS_REPORTE, type SiigoEstadoReporte } from '@operaciones/shared-types';
 
 const router = Router();
 router.use(authMiddleware);
@@ -21,22 +30,34 @@ router.use(authMiddleware);
 const LECTURA = requireRole('financiera', 'admin', 'auditor');
 
 /**
- * Habeas Data (HU #12432, Ley 1581 art. 17): desde esta HU cada fila del reporte y del CSV lleva el
- * bloque del titular —nombre, razón social, tipo y número de documento—, que es PII y sale del
+ * Habeas Data (HU #12432, Ley 1581 art. 17): desde esa HU cada fila del reporte y del archivo lleva
+ * el bloque del titular —nombre, razón social, tipo y número de documento—, que es PII y sale del
  * perímetro en el export. Se registra el acceso como ya hacen los Excel de SOAT e Impuestos, con
  * los nombres de columna de la base (como `CAMPOS_PII_COLA_EXPORT`). Best-effort: `logPiiAccess`
  * no lanza, así que un fallo del registro no deja sin reporte a Financiero. Va DESPUÉS de la
  * consulta y con `await`, como en Impuestos.
  *
+ * **HU #12531: el `.xlsx` del detalle añade el contacto del primer comprador** —`correo`, `celular`,
+ * `direccion`—, y la lista lo declara en la misma edición que lo entrega (la regla de
+ * `flito-soat.pii.ts`: declarar de más fue un bloqueante; declarar de menos hace que el registro
+ * mienta por omisión). El JSON del `GET /reporte-costos` también proyecta esas tres columnas desde
+ * esta HU (viajan en `FilaReporte`), así que la misma lista vale para `read` y para `export`.
+ *
  * `resourceId` es null: el recurso es el reporte entero, no un trámite, y el filtro puede cubrir
- * miles. Ningún nombre ni documento va a las trazas de la aplicación.
+ * miles. Ningún nombre, documento ni correo va a las trazas de la aplicación; en `motivo` solo el
+ * NÚMERO de filas entregadas, que es lo que permite recalibrar el tope (ADR-0004), como hace
+ * `registrarAccesoSoat`.
  */
 const RECURSO_PII = 'finanzas_reporte_costos';
 const CAMPOS_PII_REPORTE = [
   'nombres', 'apellidos', 'razon_social', 'numero_documento', 'tipo_documento', 'placa', 'vin',
+  'correo', 'celular', 'direccion',
 ] as const;
-const registrarAccesoPii = (req: Request, accion: 'read' | 'export'): Promise<void> => logPiiAccess(req, {
+const registrarAccesoPii = (
+  req: Request, accion: 'read' | 'export', acceso: { filas?: number } = {},
+): Promise<void> => logPiiAccess(req, {
   resourceTipo: RECURSO_PII, resourceId: null, accion, camposAccedidos: [...CAMPOS_PII_REPORTE],
+  motivo: acceso.filas === undefined ? undefined : `Reporte de costos — filas=${acceso.filas}`,
 });
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined);
@@ -103,17 +124,6 @@ router.get('/reporte-costos/facturacion-electronica', LECTURA, async (req: Reque
   res.json(await resumenFacturacionElectronicaDelReporte(filtrosDe(req.query)));
 });
 
-// GET /reporte-costos/export — CSV de TODO el filtro, no solo de la página visible.
-router.get('/reporte-costos/export', LECTURA, async (req: Request, res: Response) => {
-  const filas = await filasParaExportar(filtrosDe(req.query));
-  await registrarAccesoPii(req, 'export');
-  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', 'attachment; filename="reporte-costos.csv"');
-  // Si se alcanzó el tope, el cliente debe saberlo: un CSV truncado en silencio se concilia mal.
-  if (filas.length === TOPE_EXPORTACION) res.setHeader('X-Export-Truncado', String(TOPE_EXPORTACION));
-  res.send(aCsv(filas));
-});
-
 /**
  * GET /reporte-costos/consolidado — cliente × periodo de aprobación (HU #12433, CF-12).
  *
@@ -127,12 +137,123 @@ router.get('/reporte-costos/consolidado', LECTURA, async (req: Request, res: Res
   res.json(await consolidadoReporte(filtrosDe(req.query), periodoConsolidado(req.query.periodo)));
 });
 
-// GET /reporte-costos/consolidado/export — el mismo consolidado, en CSV (CF-14).
-router.get('/reporte-costos/consolidado/export', LECTURA, async (req: Request, res: Response) => {
-  const consolidado = await consolidadoReporte(filtrosDe(req.query), periodoConsolidado(req.query.periodo));
-  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', 'attachment; filename="consolidado-costos.csv"');
-  res.send(aCsvConsolidado(consolidado));
+// ── Exportación a Excel (HU #12531) ──────────────────────────────────────────
+
+/** Solo yyyy-mm-dd: el valor entra en un cast a `date` y no puede ser texto libre (como `fecha()`). */
+const fechaSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'La fecha debe ser yyyy-mm-dd');
+// Topes de tamaño (security diff-scoped, HU #12531): con la query la URL acotaba sola; con
+// `express.json` de 5 MB un cuerpo podría traer miles de elementos y reventar el `IN` de Postgres.
+const listaSchema = z.array(z.string().trim().min(1).max(120)).max(200).optional();
+
+/**
+ * Cuerpo del `POST /reporte-costos/export`: los MISMOS filtros que `filtrosDe` lee de la query, con
+ * listas como arrays y `.strict()`.
+ *
+ * `.strict()` a propósito y con más motivo que en la query: un `{"organismo": "05001"}` —en
+ * singular— se ignoraría en silencio y devolvería el reporte ENTERO a quien pidió el de un organismo.
+ * En un archivo con nombre, documento, correo y dirección de los titulares, un filtro mal escrito
+ * tiene que ser un 400 y no un export de más. Por lo mismo aquí una etapa, un estado de facturación o
+ * un periodo desconocidos son 400 y no «todas»: el GET tolera el enlace guardado con un valor viejo;
+ * el archivo no se guarda en favoritos, se pide desde la pantalla con lo que la pantalla enseña.
+ *
+ * Sin `page`/`pageSize`: el archivo es todo el filtro, no una página.
+ */
+const exportDetalleSchema = z.object({
+  buscar: z.string().trim().min(1).max(120).optional(),
+  estados: listaSchema, empresas: listaSchema, tipos: listaSchema, organismos: listaSchema,
+  etapa: z.enum(ETAPAS).optional(),
+  documentacionCompleta: z.boolean().optional(),
+  desde: fechaSchema.optional(), hasta: fechaSchema.optional(),
+  aprobadoDesde: fechaSchema.optional(), aprobadoHasta: fechaSchema.optional(),
+  estadoFacturacion: z.enum(SIIGO_ESTADOS_REPORTE).optional(),
+}).strict();
+
+/** El consolidado añade el eje: `periodo` (mes por defecto, como el GET). */
+const exportConsolidadoSchema = exportDetalleSchema.extend({
+  periodo: z.enum(PERIODOS_CONSOLIDADO).optional(),
+}).strict();
+
+/** `FiltrosReporte` a partir del cuerpo ya validado. Una lista vacía no filtra, como en `lista()`. */
+function filtrosDeCuerpo(b: z.infer<typeof exportDetalleSchema>): FiltrosReporte {
+  const noVacia = (l: string[] | undefined) => (l && l.length > 0 ? l : undefined);
+  return {
+    buscar: b.buscar, estados: noVacia(b.estados), empresas: noVacia(b.empresas), tipos: noVacia(b.tipos),
+    etapa: b.etapa, documentacionCompleta: b.documentacionCompleta === true,
+    desde: b.desde, hasta: b.hasta, aprobadoDesde: b.aprobadoDesde, aprobadoHasta: b.aprobadoHasta,
+    estadoFacturacion: b.estadoFacturacion, organismos: noVacia(b.organismos),
+  };
+}
+
+/** El 400 de un cuerpo que no pasa el esquema, igual en las dos rutas. */
+const responderCuerpoInvalido = (res: Response, e: z.ZodError): void => {
+  res.status(400).json({ error: 'Filtro inválido', details: e.flatten() });
+};
+
+/**
+ * POST /reporte-costos/export — el detalle filtrado, en `.xlsx` (HU #12531). Sustituye al GET del
+ * CSV: no existe variante GET —un `router.get` aquí devolvería `buscar` (placa, VIN, nombre,
+ * documento) a la URL, a los logs de nginx y al `Referer` (AGENTS.md §14)—.
+ *
+ * Misma guarda de lectura que el resto del reporte (`LECTURA`): quien puede ver el reporte puede
+ * llevárselo, y nadie más. `exportColaLimiter` es la MISMA bolsa de 5/min por usuario que SOAT e
+ * Impuestos, y es una decisión, no un descuido: el recurso que se raciona es el heap del único
+ * proceso —`sendExcel` arma el libro entero en memoria— y una bolsa propia le daría a una sesión el
+ * doble de exports simultáneos sobre el presupuesto que ADR-0004 midió para cinco. Lo que se paga:
+ * quien acaba de bajar cinco archivos de SOAT espera un minuto para el reporte de costos.
+ *
+ * Orden: validar → consultar (el tope lanza dentro) → `await` del rastro PII con el número de filas
+ * → `Cache-Control: no-store` → archivo. El rastro va ANTES del primer byte (Ley 1581 art. 17).
+ */
+router.post('/reporte-costos/export', LECTURA, exportColaLimiter, async (req: Request, res: Response) => {
+  const parsed = exportDetalleSchema.safeParse(req.body ?? {});
+  if (!parsed.success) { responderCuerpoInvalido(res, parsed.error); return; }
+
+  try {
+    const filas = await filasParaExportar(filtrosDeCuerpo(parsed.data));
+    // `filas.length` = las REALMENTE entregadas, no el tope ni lo pedido.
+    await registrarAccesoPii(req, 'export', { filas: filas.length });
+    res.set('Cache-Control', 'no-store');
+    await sendExcel(
+      res, nombreArchivoColaExport('reporte-costos'), [...COLUMNAS_EXPORT_DETALLE], filasExcelDetalle(filas),
+      { nombreHoja: HOJA_DETALLE, autofiltro: true, fijarCabecera: true },
+    );
+  } catch (e) {
+    // Con la respuesta ya empezada, responder reventaría con ERR_HTTP_HEADERS_SENT y taparía la
+    // causa real: se relanza al manejador global.
+    if (res.headersSent) throw e;
+    if (e instanceof ExportColaDemasiadoGrandeError) {
+      // 422 y no 400: la petición está bien formada; lo que no cabe es el RESULTADO. Sin cuerpo
+      // xlsx y sin decir cuántas filas hay (el `tope + 1` existe para no contarlas).
+      res.status(e.status).json({ error: e.message, codigo: e.codigo });
+      return;
+    }
+    throw e;
+  }
+});
+
+/**
+ * POST /reporte-costos/consolidado/export — el consolidado cliente × periodo, en `.xlsx` (HU #12531).
+ *
+ * **Sin tope de filas, y es una decisión**: el consolidado agrupa EN SQL por (cliente, periodo), así
+ * que lo que llega al proceso son los grupos —decenas de clientes por unos pocos periodos, cientos
+ * de filas en el peor caso—, no los trámites. `TOPE_EXPORTACION` acota trámites y aquí no hay
+ * trámites que acotar; un tope sobre grupos sería un número inventado sin medición detrás. Lo que
+ * sí comparte es la bolsa de `exportColaLimiter`, por el mismo motivo que el detalle.
+ *
+ * Sin registro PII: el consolidado no lleva titular ni placa, solo el cliente (empresa) y cifras
+ * (la misma decisión que su GET, HU #12433).
+ */
+router.post('/reporte-costos/consolidado/export', LECTURA, exportColaLimiter, async (req: Request, res: Response) => {
+  const parsed = exportConsolidadoSchema.safeParse(req.body ?? {});
+  if (!parsed.success) { responderCuerpoInvalido(res, parsed.error); return; }
+
+  const consolidado = await consolidadoReporte(filtrosDeCuerpo(parsed.data), periodoConsolidado(parsed.data.periodo));
+  res.set('Cache-Control', 'no-store');
+  await sendExcel(
+    res, nombreArchivoColaExport('consolidado-costos'), [...COLUMNAS_EXPORT_CONSOLIDADO],
+    filasExcelConsolidado(consolidado),
+    { nombreHoja: HOJA_CONSOLIDADO, autofiltro: true, fijarCabecera: true },
+  );
 });
 
 /**

@@ -4,7 +4,11 @@
 // columnas, joins, `where` y `orderBy`. Por eso lo que vive en SQL —las columnas nuevas de
 // `SELECT_FILA`, el join al catálogo, el predicado del filtro y las sumas de `SELECT_TOTALES`— se
 // afirma sobre el SQL RENDERIZADO; lo puro (`bloqueTitular` vía `aFila`, `periodoDe`, `subtotalesDe`,
-// `nombreOrganismo`, `aCsv`) se prueba llamándolo. Cada aserto lleva el mutante que lo pone rojo.
+// `nombreOrganismo`, `filasExcelDetalle`) se prueba llamándolo. Cada aserto lleva el mutante que lo pone rojo.
+//
+// HU #12531: el CSV se sustituyó por `.xlsx`. Lo que aquí se afirma del archivo es la FILA serializada
+// por clave (`filasExcelDetalle`); el libro real, sus tipos de celda y las rutas POST viven en
+// `finanzas.export-excel.test.ts`.
 //
 // Este archivo se ejecuta ADEMÁS bajo `TZ=America/Bogota` (AC13): `periodoDe` con getters locales
 // sobrevive en UTC y cae en -05.
@@ -58,9 +62,10 @@ vi.mock('../../src/modules/finanzas/finanzas.service.js', async (importOriginal)
 
 const servicio = await import('../../src/modules/finanzas/finanzas.service.js');
 const {
-  aCsv, CABECERAS_CSV, condiciones, conJoins, facetas, filasParaExportar, nombreOrganismo, periodoDe,
+  condiciones, conJoins, facetas, filasParaExportar, nombreOrganismo, periodoDe,
   reporteCostos, resumenFacturacionElectronicaDelReporte, SELECT_FILA, SELECT_TOTALES, subtotalesDe,
 } = servicio;
+const { COLUMNAS_EXPORT_DETALLE, filasExcelDetalle } = await import('../../src/modules/finanzas/finanzas.export-excel.js');
 const { facetaOrganismos } = await import('../../src/modules/finanzas/finanzas.reporte-columnas.js');
 const { flitoTramites, organismosTransitoConfig } = await import('../../src/db/schema.js');
 const { getTableName, and } = await import('drizzle-orm');
@@ -91,6 +96,8 @@ function cruda(over: Record<string, unknown> = {}): Record<string, unknown> {
     // HU #12432
     titularTipoFlit: 'cc', titularNombresFlit: 'ANA MARÍA', titularApellidosFlit: 'PÉREZ',
     titularDocumento: '1020304050', organismoCodigo: '05266', organismoAlias: 'Envigado',
+    // HU #12531 — contacto del primer comprador, por la misma subconsulta que el documento.
+    titularCorreo: 'ana@correo.co', titularTelefono: '3001234567', titularDireccion: 'CL 10 # 20-30',
     // Para `totalesDe` (la misma fila sirve a las cuatro consultas del mock).
     total: '868460', totalReintegro: '668460', totalServicio: '200000', filasIncompletas: 0,
     ...over,
@@ -104,16 +111,20 @@ async function filaDe(over: Record<string, unknown> = {}): Promise<Fila> {
   return r.items[0];
 }
 
-const columna = (csv: string, cabecera: (typeof CABECERAS_CSV)[number]): string =>
-  csv.trim().split('\r\n')[1].split(';')[CABECERAS_CSV.indexOf(cabecera)];
+/** La celda de la fila serializada por su CLAVE de `COLUMNAS_EXPORT_DETALLE` (HU #12531). */
+const celda = (f: Fila, clave: string): unknown => filasExcelDetalle([f])[0]![clave];
 
 async function buildApp() {
   const app = express();
+  app.use(express.json());
   const { default: router } = await import('../../src/modules/finanzas/finanzas.routes.js');
   app.use('/api/finanzas', router);
   return app;
 }
 const auth = async () => `Bearer ${await testToken({ sub: 3, username: 'fin@flit.io', role: 'financiera' })}`;
+/** El export pasa por `exportColaLimiter` (5/min y usuario): `sub` nuevo por llamada para no agotar la bolsa. */
+let subExport = 4100;
+const authExport = async () => `Bearer ${await testToken({ sub: subExport++, username: 'fin@flit.io', role: 'financiera' })}`;
 
 // Drizzle no pone `as "alias"` a los campos `sql`: la proyección se lee por posición. Por eso lo que
 // hay que aislar por campo se renderiza campo a campo (`renderizar(SELECT_X.campo)`).
@@ -160,6 +171,26 @@ describe('AC1 — titular persona natural (RN-01)', () => {
     // Mutante «leftJoin a compradores»: la tabla NO aparece en la lista de JOIN de `conJoins`.
     expect(SQL_JOINS().sql).not.toMatch(/join "flito_compradores"/i);
   });
+
+  it('HU #12531: correo, celular y dirección van por la MISMA subconsulta (ORDER BY id LIMIT 1), sin join', async () => {
+    const { sql } = SQL_FILA();
+    for (const col of ['correo', 'celular', 'direccion']) {
+      // Mutante «join a compradores para el contacto» o «subconsulta sin ORDER BY/LIMIT»: no casaría.
+      expect(sql, col).toMatch(new RegExp(`\\(SELECT "flito_compradores"\\."${col}" FROM "flito_compradores"\\s+WHERE "flito_compradores"\\."tramite_id" = "flito_tramites"\\."id" ORDER BY "flito_compradores"\\."id" LIMIT 1\\)`));
+    }
+    expect(renderizar(SELECT_FILA.titularCorreo).sql).toContain('"flito_compradores"."correo"');
+    expect(renderizar(SELECT_FILA.titularTelefono).sql).toContain('"flito_compradores"."celular"');
+    expect(renderizar(SELECT_FILA.titularDireccion).sql).toContain('"flito_compradores"."direccion"');
+    expect(SQL_JOINS().sql).not.toMatch(/join "flito_compradores"/i);
+    // Y la fila los expone normalizados: «␠» y '' son null, como el documento.
+    const f = await filaDe({ titularDireccion: ' ' });
+    expect(f.titularCorreo).toBe('ana@correo.co');
+    expect(f.titularTelefono).toBe('3001234567');
+    expect(f.titularDireccion).toBeNull();
+    expect(celda(f, 'correo')).toBe('ana@correo.co');
+    expect(celda(f, 'telefono')).toBe('3001234567');
+    expect(celda(f, 'direccion')).toBeNull();
+  });
 });
 
 describe('AC2 — titular persona jurídica (RN-01)', () => {
@@ -175,11 +206,13 @@ describe('AC2 — titular persona jurídica (RN-01)', () => {
 });
 
 describe('AC3 — apellidos en blanco y tipo desconocido (S-05)', () => {
-  it('apellidos «␠» → null en la fila y celda vacía EXACTA en el CSV; sigue siendo natural CC', async () => {
+  it('apellidos «␠» → null en la fila y celda VACÍA (null) en el archivo; el nombre completo no arrastra el espacio', async () => {
     const f = await filaDe({ titularApellidosFlit: ' ' });
     expect(f.titularApellidos).toBeNull();
     expect(f.titularTipoDocumento).toBe('CC');
-    expect(columna(aCsv([f]), 'Apellidos')).toBe('');
+    // Mutante «'' en vez de null»: Excel escribiría una celda con cadena vacía.
+    expect(celda(f, 'apellidos')).toBeNull();
+    expect(celda(f, 'nombreCompleto')).toBe('ANA MARÍA');
   });
 
   it.each([null, 'xx'])('tipo %s: el bloque del titular va vacío pero el documento se muestra igual', async (tipo) => {
@@ -223,7 +256,7 @@ describe('AC4 — organismo con nombre y sin organismo', () => {
     const f = await filaDe();
     expect(f.organismoCodigo).toBe('05266');
     expect(f.organismoNombre).toBe('Envigado');
-    expect(columna(aCsv([f]), 'OT')).toBe('Envigado');
+    expect(celda(f, 'ot')).toBe('Envigado');
   });
 
   it('sin alias configurado sale la ciudad del catálogo compartido', async () => {
@@ -235,7 +268,7 @@ describe('AC4 — organismo con nombre y sin organismo', () => {
     const f = await filaDe({ organismoCodigo: null, organismoAlias: null });
     expect(f.organismoCodigo).toBeNull();
     expect(f.organismoNombre).toBeNull();
-    expect(columna(aCsv([f]), 'OT')).toBe('');
+    expect(celda(f, 'ot')).toBeNull();
   });
 
   it('conJoins: exactamente UN LEFT JOIN a organismos_transito_config por código', () => {
@@ -278,7 +311,7 @@ describe('AC5 — filtro por organismos, combinable', () => {
     expect(condiciones({ organismos: [] })).toHaveLength(0);
   });
 
-  it('filtrosDe() lo entrega a /reporte-costos, /export y /facturacion-electronica (espías)', async () => {
+  it('filtrosDe() lo entrega a /reporte-costos y /facturacion-electronica; el POST /export lo recibe del cuerpo (espías)', async () => {
     const app = await buildApp();
     reporteCostosMock.mockResolvedValueOnce({ items: [], total: 0, page: 1, pageSize: 50 } as never);
     filasParaExportarMock.mockResolvedValueOnce([]);
@@ -286,7 +319,9 @@ describe('AC5 — filtro por organismos, combinable', () => {
     const q = '?organismos=05266,%2005001&empresas=811011779';
 
     expect((await request(app).get(`/api/finanzas/reporte-costos${q}`).set('Authorization', await auth())).status).toBe(200);
-    expect((await request(app).get(`/api/finanzas/reporte-costos/export${q}`).set('Authorization', await auth())).status).toBe(200);
+    // HU #12531: el export es POST con arrays en el cuerpo (no hay GET).
+    expect((await request(app).post('/api/finanzas/reporte-costos/export').set('Authorization', await authExport())
+      .send({ organismos: ['05266', '05001'], empresas: ['811011779'] })).status).toBe(200);
     expect((await request(app).get(`/api/finanzas/reporte-costos/facturacion-electronica${q}`).set('Authorization', await auth())).status).toBe(200);
 
     // Mutante «filtrosDe olvida el parámetro»: llegaría undefined.
@@ -343,14 +378,13 @@ describe('AC6 — faceta de organismos', () => {
 // ───────────────────────────── AC7 — mes y trimestre ─────────────────────────────
 
 describe('AC7 — mes y trimestre desde la fecha de aprobación, en UTC', () => {
-  it('2026-09-14T15:30Z → 2026-09 / 2026-T3, y el CSV los pone en «Mes» y «Trimestre»', async () => {
+  it('2026-09-14T15:30Z → 2026-09 / 2026-T3, y el archivo los pone en «Mes» y «Trimestre» como texto', async () => {
     expect(periodoDe('2026-09-14T15:30:00.000Z')).toEqual({ mes: '2026-09', trimestre: '2026-T3' });
     const f = await filaDe();
     expect(f.mes).toBe('2026-09');
     expect(f.trimestre).toBe('2026-T3');
-    const csv = aCsv([f]);
-    expect(columna(csv, 'Mes')).toBe('2026-09');
-    expect(columna(csv, 'Trimestre')).toBe('2026-T3');
+    expect(celda(f, 'mes')).toBe('2026-09');
+    expect(celda(f, 'trimestre')).toBe('2026-T3');
   });
 
   it('2026-10-01T04:30Z (23:30 del 30-sep en Colombia) → 2026-10 / 2026-T4: se deriva en UTC', () => {
@@ -364,9 +398,9 @@ describe('AC7 — mes y trimestre desde la fecha de aprobación, en UTC', () => 
     const f = await filaDe({ fechaAprobacion: null });
     expect(f.mes).toBeNull();
     expect(f.trimestre).toBeNull();
-    const csv = aCsv([f]);
-    expect(columna(csv, 'Mes')).toBe('');
-    expect(columna(csv, 'Trimestre')).toBe('');
+    expect(celda(f, 'mes')).toBeNull();
+    expect(celda(f, 'trimestre')).toBeNull();
+    expect(celda(f, 'aprobado')).toBeNull();
   });
 
   it.each([
@@ -475,72 +509,81 @@ describe('AC9 — totales del universo filtrado, en SQL', () => {
   });
 });
 
-// ───────────────────────────── AC10 — el CSV ─────────────────────────────
+// ───────────────────────────── AC10 — el archivo ─────────────────────────────
 
-describe('AC10 — CSV en tres secciones con nombres canónicos (RN-08)', () => {
-  const CABECERA = 'Empresa;Flit;Placa;VIN;Nombres;Apellidos;Razón social;Tipo;Documento;Tipo trámite;Marca;Línea;OT;Estado;Creado;Aprobado;Mes;Trimestre;Estado factura;Factura;SOAT;Impuesto;Trámite;GMF;Logística;Total reintegro;Trámite digital;Servicio;Total;Liquidación;Qué falta para liquidar;SOAT conciliado';
+describe('AC10 — el archivo en tres secciones con nombres canónicos (RN-08; .xlsx desde la HU #12531)', () => {
+  const CABECERA = 'Empresa;Flit;Placa;VIN;Nombres;Apellidos;Razón social;Nombre completo;Tipo;Documento;Correo;Teléfono;Dirección;Tipo trámite;Marca;Línea;OT;Estado;Creado;Aprobado;Mes;Trimestre;Estado factura;Factura;SOAT;Impuesto;Trámite;GMF;Logística;Total reintegro;Trámite digital;Servicio;Total;Liquidación;Qué falta para liquidar;SOAT conciliado';
 
-  it('la primera línea es exactamente la cabecera canónica (como un solo array, no «contiene»)', async () => {
-    const csv = aCsv([await filaDe()]);
-    expect(csv.split('\r\n')[0].replace(/^\uFEFF/, '').split(';')).toEqual(CABECERA.split(';'));
-    expect([...CABECERAS_CSV]).toEqual(CABECERA.split(';'));
+  it('las 36 cabeceras son exactamente las canónicas y en ese orden (como un solo array, no «contiene»)', () => {
+    expect(COLUMNAS_EXPORT_DETALLE.map((c) => c.header)).toEqual(CABECERA.split(';'));
+    expect(COLUMNAS_EXPORT_DETALLE).toHaveLength(36);
+    // Cada clave es única: dos columnas con la misma clave se pisarían en `addRow`.
+    expect(new Set(COLUMNAS_EXPORT_DETALLE.map((c) => c.key)).size).toBe(36);
   });
 
-  it('cada celda por su ÍNDICE en la cabecera', async () => {
+  it('cada celda por su CLAVE, con su tipo: texto, número y Date de día', async () => {
     const f = await filaDe({
       facturaDatos: { numero: 'FV-1-123', requiereRevision: false }, estadoFacturacion: 'emitido',
       sellada: true, estadoLiquidacion: 'facturado',
     });
-    const csv = aCsv([f]);
-    const esperado: Record<(typeof CABECERAS_CSV)[number], string> = {
-      Empresa: 'ACME', Flit: 'FLIT-1', Placa: 'ABC123', VIN: 'VIN1', Nombres: 'ANA MARÍA', Apellidos: 'PÉREZ',
-      'Razón social': '', Tipo: 'CC', Documento: '1020304050',
-      'Tipo trámite': 'Traspaso', Marca: 'CHEVROLET', Línea: 'ONIX', OT: 'Envigado', Estado: 'Aprobado',
-      Creado: '2026-09-01', Aprobado: '2026-09-14', Mes: '2026-09', Trimestre: '2026-T3',
-      'Estado factura': 'emitido', Factura: 'FV-1-123',
-      SOAT: '450000', Impuesto: '120000', Trámite: '80000', GMF: '3460', Logística: '15000',
-      'Total reintegro': '668460', 'Trámite digital': '200000', Servicio: '200000', Total: '868460',
-      Liquidación: 'Facturado', 'Qué falta para liquidar': '', 'SOAT conciliado': 'No',
-    };
-    for (const cab of CABECERAS_CSV) expect(columna(csv, cab), cab).toBe(esperado[cab]);
+    const fila = filasExcelDetalle([f])[0]!;
+    expect(fila).toEqual({
+      empresa: 'ACME', flit: 'FLIT-1', placa: 'ABC123', vin: 'VIN1', nombres: 'ANA MARÍA', apellidos: 'PÉREZ',
+      razonSocial: null, nombreCompleto: 'ANA MARÍA PÉREZ', tipoDocumento: 'CC', documento: '1020304050',
+      correo: 'ana@correo.co', telefono: '3001234567', direccion: 'CL 10 # 20-30',
+      tipoTramite: 'Traspaso', marca: 'CHEVROLET', linea: 'ONIX', ot: 'Envigado', estado: 'Aprobado',
+      creado: new Date('2026-09-01T00:00:00.000Z'), aprobado: new Date('2026-09-14T00:00:00.000Z'),
+      mes: '2026-09', trimestre: '2026-T3', estadoFactura: 'emitido', factura: 'FV-1-123',
+      soat: 450000, impuesto: 120000, tramite: 80000, gmf: 3460, logistica: 15000,
+      totalReintegro: 668460, tramiteDigital: 200000, servicio: 200000, total: 868460,
+      liquidacion: 'Facturado', queFalta: null, soatConciliado: 'No',
+    });
+    // Mutante «String(soat)»: el `toEqual` de arriba ya cae; esto deja el tipo explícito.
+    expect(typeof fila.soat).toBe('number');
+    expect(fila.aprobado).toBeInstanceOf(Date);
+    // Y todas las claves de la fila existen en las columnas, y viceversa.
+    expect(Object.keys(fila).sort()).toEqual(COLUMNAS_EXPORT_DETALLE.map((c) => c.key).sort());
   });
 
   it('«Tipo» es el documento del titular y «Trámite» los pesos del derecho; «Flit» el identificador', async () => {
-    const csv = aCsv([await filaDe({ titularTipoFlit: 'n', titularNombresFlit: 'ABC SAS', derechoTramite: '81000' })]);
-    expect(columna(csv, 'Tipo')).toBe('NIT');
-    expect(columna(csv, 'Tipo trámite')).toBe('Traspaso');
-    expect(columna(csv, 'Trámite')).toBe('81000');
-    expect(columna(csv, 'Flit')).toBe('FLIT-1');
-    expect(columna(csv, 'Razón social')).toBe('ABC SAS');
+    const f = await filaDe({ titularTipoFlit: 'n', titularNombresFlit: 'ABC SAS', derechoTramite: '81000' });
+    expect(celda(f, 'tipoDocumento')).toBe('NIT');
+    expect(celda(f, 'tipoTramite')).toBe('Traspaso');
+    expect(celda(f, 'tramite')).toBe(81000);
+    expect(celda(f, 'flit')).toBe('FLIT-1');
+    expect(celda(f, 'razonSocial')).toBe('ABC SAS');
+    expect(celda(f, 'nombreCompleto')).toBe('ABC SAS');
   });
 
-  it('formato intacto: punto y coma, BOM, CRLF y comillas solo cuando hacen falta', async () => {
-    const csv = aCsv([await filaDe({ empresa: 'GÓMEZ; HIJOS', placa: 'A"B' })]);
-    expect(csv.startsWith('﻿')).toBe(true);
-    expect(csv.endsWith('\r\n')).toBe(true);
-    expect(csv).toContain('"GÓMEZ; HIJOS"');
-    expect(csv).toContain('"A""B"');
-    expect(csv.split('\r\n')[1].startsWith('"GÓMEZ; HIJOS";FLIT-1;"A""B";VIN1;')).toBe(true);
+  it('un texto con «;» o comillas va tal cual: en xlsx no hay separador que escapar', async () => {
+    const f = await filaDe({ empresa: 'GÓMEZ; HIJOS', placa: 'A"B' });
+    expect(celda(f, 'empresa')).toBe('GÓMEZ; HIJOS');
+    expect(celda(f, 'placa')).toBe('A"B');
   });
 });
 
 // ───────────────────────────── AC11 — Habeas Data ─────────────────────────────
 
 describe('AC11 — el acceso al titular queda registrado (Ley 1581)', () => {
-  const CAMPOS = ['nombres', 'apellidos', 'razon_social', 'numero_documento', 'tipo_documento', 'placa', 'vin'];
+  // HU #12531: el contacto del primer comprador también sale, y se declara.
+  const CAMPOS = [
+    'nombres', 'apellidos', 'razon_social', 'numero_documento', 'tipo_documento', 'placa', 'vin',
+    'correo', 'celular', 'direccion',
+  ];
 
-  it('/export registra accion «export» con los siete campos', async () => {
+  it('POST /export registra accion «export» con los diez campos', async () => {
     const app = await buildApp();
     kdb.when.select('flito_tramites', [cruda()]);
-    const r = await request(app).get('/api/finanzas/reporte-costos/export').set('Authorization', await auth());
+    const r = await request(app).post('/api/finanzas/reporte-costos/export').set('Authorization', await authExport())
+      .responseType('blob').send({});
     expect(r.status).toBe(200);
-    expect(r.headers['content-type']).toContain('text/csv');
+    expect(r.headers['content-type']).toContain('spreadsheetml');
 
     // Mutante «se quita la llamada en export»: cero llamadas.
     expect(logPiiMock).toHaveBeenCalledTimes(1);
     const [, opts] = logPiiMock.mock.calls[0];
     expect(opts).toMatchObject({ resourceTipo: 'finanzas_reporte_costos', accion: 'export' });
-    expect(opts.camposAccedidos).toEqual(expect.arrayContaining(CAMPOS));
+    expect([...opts.camposAccedidos].sort()).toEqual([...CAMPOS].sort());
   });
 
   it('/reporte-costos registra accion «read» con los mismos campos', async () => {
@@ -563,10 +606,12 @@ describe('AC11 — el acceso al titular queda registrado (Ley 1581)', () => {
     kdb.when.select('flito_tramites', [cruda()]);
 
     const app = await buildApp();
-    const r = await request(app).get('/api/finanzas/reporte-costos/export').set('Authorization', await auth());
+    const r = await request(app).post('/api/finanzas/reporte-costos/export').set('Authorization', await authExport())
+      .responseType('blob').send({});
     expect(r.status).toBe(200);
     expect(kdb.insert).toHaveBeenCalled();
-    expect(r.text).toContain('ANA MARÍA');
+    expect(r.headers['content-type']).toContain('spreadsheetml');
+    expect((r.body as Buffer).length).toBeGreaterThan(0);
   });
 
   it('las facetas y los contadores no registran: no exponen titulares', async () => {
@@ -587,11 +632,13 @@ describe('AC12 — sin permisos nuevos', () => {
     const fuente = readFileSync(new URL('../../src/modules/finanzas/finanzas.routes.js', import.meta.url).pathname.replace(/\.js$/, '.ts'), 'utf8');
     expect(fuente).toContain("const LECTURA = requireRole('financiera', 'admin', 'auditor');");
     expect(fuente).not.toContain('exigirFuncion');
-    // No se congela el número (la HU #12433 sumó el consolidado y su export bajo la MISMA guarda):
-    // lo que se afirma es que ninguna ruta del reporte se registra con otra guarda o sin ella.
-    const rutas = fuente.match(/router\.get\('\/reporte-costos[^']*',/g) ?? [];
-    const bajoLectura = fuente.match(/router\.get\('\/reporte-costos[^']*', LECTURA,/g) ?? [];
-    expect(rutas.length).toBeGreaterThanOrEqual(4);
+    // No se congela el número (la HU #12433 sumó el consolidado y la #12531 pasó los exports a POST
+    // bajo la MISMA guarda): lo que se afirma es que ninguna ruta del reporte —GET o POST— se
+    // registra con otra guarda o sin ella.
+    const rutas = fuente.match(/router\.(get|post)\('\/reporte-costos[^']*',/g) ?? [];
+    const bajoLectura = fuente.match(/router\.(get|post)\('\/reporte-costos[^']*', LECTURA,/g) ?? [];
+    expect(rutas.length).toBeGreaterThanOrEqual(6);
     expect(bajoLectura).toHaveLength(rutas.length);
+    expect(fuente.match(/requireRole\(/g)).toHaveLength(1);
   });
 });

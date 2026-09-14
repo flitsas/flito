@@ -5,8 +5,12 @@
 // claves del GROUP BY, el `COUNT(DISTINCT`, las `SUM` de cada expresión, el periodo con `to_char`/
 // `EXTRACT(QUARTER` y sin ningún `$n` en el GROUP BY (guarda del 42803)— se afirma sobre el SQL
 // RENDERIZADO con `QueryBuilder`, y la igualdad con el detalle (CF-13) comparando byte a byte el
-// WHERE y la lista de JOIN. Lo puro (`plegarConsolidado`, `periodoConsolidado`, `aCsvConsolidado`,
+// WHERE y la lista de JOIN. Lo puro (`plegarConsolidado`, `periodoConsolidado`, `filasExcelConsolidado`,
 // `claveEmpresa`) se prueba llamándolo. Cada aserto lleva el mutante que lo pone rojo.
+//
+// HU #12531: el CSV se sustituyó por `.xlsx` y el export es POST con el filtro en el cuerpo. El libro
+// real (tipos de celda, hoja, autofiltro) se afirma en `finanzas.export-excel.test.ts`; aquí, la fila
+// serializada por clave y la guarda de la ruta.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
@@ -36,9 +40,10 @@ vi.mock('../../src/modules/finanzas/finanzas.consolidado.js', async (importOrigi
 
 const consolidado = await import('../../src/modules/finanzas/finanzas.consolidado.js');
 const {
-  aCsvConsolidado, CABECERAS_CSV_CONSOLIDADO, consolidadoReporte, ensamblarConsolidado, EXPR_PERIODO,
+  consolidadoReporte, ensamblarConsolidado, EXPR_PERIODO,
   periodoConsolidado, plegarConsolidado, selectConsolidado, SIN_APROBAR,
 } = consolidado;
+const { COLUMNAS_EXPORT_CONSOLIDADO, filasExcelConsolidado } = await import('../../src/modules/finanzas/finanzas.export-excel.js');
 const servicio = await import('../../src/modules/finanzas/finanzas.service.js');
 const { agruparEmpresas, claveEmpresa, condiciones, conJoins, indiceEmpresas, SELECT_FILA, SELECT_TOTALES } = servicio;
 type FiltrosReporte = Parameters<typeof condiciones>[0];
@@ -52,12 +57,17 @@ const logPiiMock = vi.mocked(logPiiAccess);
 
 async function buildApp() {
   const app = express();
+  app.use(express.json());
   const { default: router } = await import('../../src/modules/finanzas/finanzas.routes.js');
   app.use('/api/finanzas', router);
   return app;
 }
 const auth = async (role: TestRole = 'financiera') =>
   `Bearer ${await testToken({ sub: 3, username: `${role}@flit.io`, role })}`;
+/** El export pasa por `exportColaLimiter` (5/min y usuario): `sub` nuevo por llamada para no agotar la bolsa. */
+let subExport = 5200;
+const authExport = async (role: TestRole = 'financiera') =>
+  `Bearer ${await testToken({ sub: subExport++, username: `${role}@flit.io`, role })}`;
 
 /** Un select abierto con `QueryBuilder` (sin base): rinde el mismo SQL que el de `db`, pero no ejecuta. */
 const abrir = (campos: Record<string, unknown>): PgSelect =>
@@ -293,10 +303,10 @@ describe('AC4 — sin filas en cero y sin fecha de aprobación (CF-15)', () => {
     expect(items[2]).toMatchObject({ periodo: null, tramites: 3, filasIncompletas: 2 });
   });
 
-  it('el CSV rotula el periodo null como «Sin aprobar»', () => {
+  it('el archivo rotula el periodo null como «Sin aprobar»', () => {
     const { items, totales } = plegarConsolidado([grupo({ periodo: null })], MAESTRO);
-    const csv = aCsvConsolidado({ periodo: 'mes', items, totales });
-    expect(csv.split('\r\n')[1]!.split(';')[1]).toBe(SIN_APROBAR);
+    // Mutante «periodo tal cual»: la celda iría vacía.
+    expect(filasExcelConsolidado({ periodo: 'mes', items, totales })[0]!.periodo).toBe(SIN_APROBAR);
     expect(SIN_APROBAR).toBe('Sin aprobar');
   });
 });
@@ -359,9 +369,9 @@ describe('AC5 — identidad del cliente por NIT (RN-06)', () => {
 
 // ───────────────────────────── AC6 — exportación ─────────────────────────────
 
-describe('AC6 — exportación del consolidado (CF-14)', () => {
-  it('cabecera exacta como array, BOM, «;» y CRLF; cada fila del CSV es una fila del consolidado en el mismo orden', () => {
-    expect([...CABECERAS_CSV_CONSOLIDADO]).toEqual([
+describe('AC6 — exportación del consolidado (CF-14; .xlsx desde la HU #12531)', () => {
+  it('cabecera exacta como array; cada fila serializada es una fila del consolidado en el mismo orden, con números', () => {
+    expect(COLUMNAS_EXPORT_CONSOLIDADO.map((c) => c.header)).toEqual([
       'Cliente', 'Periodo', 'Trámites', 'SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística',
       'Total reintegro', 'Trámite digital', 'Servicio', 'Total', 'Incompletos',
     ]);
@@ -369,39 +379,49 @@ describe('AC6 — exportación del consolidado (CF-14)', () => {
       grupo({ companiaId: 9, companiaNit: '900555111', periodo: '2026-10', tramites: 1, filasIncompletas: 1 }),
       grupo({ periodo: '2026-09' }),
     ], MAESTRO);
-    const csv = aCsvConsolidado({ periodo: 'mes', items, totales });
-    expect(csv.charCodeAt(0)).toBe(0xFEFF);
-    expect(csv.endsWith('\r\n')).toBe(true);
-    const lineas = csv.slice(1).split('\r\n').filter(Boolean);
-    expect(lineas[0]).toBe('Cliente;Periodo;Trámites;SOAT;Impuesto;Trámite;GMF;Logística;Total reintegro;Trámite digital;Servicio;Total;Incompletos');
-    expect(lineas).toHaveLength(1 + items.length);
-    expect(lineas[1]!.split(';')).toEqual(['ACME', '2026-09', '2', '900000', '240000', '160000', '6920', '30000', '1336920', '400000', '400000', '1736920', '0']);
-    expect(lineas[2]!.split(';')).toEqual(['BETA', '2026-10', '1', '900000', '240000', '160000', '6920', '30000', '1336920', '400000', '400000', '1736920', '1']);
+    const filas = filasExcelConsolidado({ periodo: 'mes', items, totales });
+    expect(filas).toHaveLength(items.length);
+    // Mutante «servicio = logística» o «tramite = tramiteDigital»: cambiaría el valor de la clave.
+    expect(filas[0]).toEqual({
+      cliente: 'ACME', periodo: '2026-09', tramites: 2, soat: 900000, impuesto: 240000, tramite: 160000,
+      gmf: 6920, logistica: 30000, totalReintegro: 1336920, tramiteDigital: 400000, servicio: 400000,
+      total: 1736920, incompletos: 0,
+    });
+    expect(filas[1]).toMatchObject({ cliente: 'BETA', periodo: '2026-10', tramites: 1, incompletos: 1 });
+    // Números, no texto: es lo que hace que Excel sume.
+    expect(typeof filas[0]!.soat).toBe('number');
+    expect(Object.keys(filas[0]!).sort()).toEqual(COLUMNAS_EXPORT_CONSOLIDADO.map((c) => c.key).sort());
   });
 
-  it('un nombre con «;» va entrecomillado: el mismo celda() del detalle', () => {
+  it('un nombre con «;» va tal cual: en xlsx no hay separador que escapar', () => {
     const { items, totales } = plegarConsolidado([grupo()], [{ id: 7, nombre: 'ACME; S.A.S.', documento: null }]);
-    const csv = aCsvConsolidado({ periodo: 'mes', items, totales });
-    expect(csv.split('\r\n')[1]!.startsWith('"ACME; S.A.S.";2026-09;')).toBe(true);
+    expect(filasExcelConsolidado({ periodo: 'mes', items, totales })[0]!.cliente).toBe('ACME; S.A.S.');
   });
 
-  it('ruta /consolidado/export: text/csv, consolidado-costos.csv, y recibe organismos y periodo por filtrosDe (espía)', async () => {
+  it('ruta POST /consolidado/export: xlsx, consolidado-costos_….xlsx, y recibe organismos y periodo del cuerpo (espía)', async () => {
     const app = await buildApp();
     kdb.when.select('flito_tramites', [grupo()]).select('clients', MAESTRO);
     const r = await request(app)
-      .get('/api/finanzas/reporte-costos/consolidado/export?organismos=05266,%2005001&empresas=811011779&periodo=trimestre')
-      .set('Authorization', await auth());
+      .post('/api/finanzas/reporte-costos/consolidado/export')
+      .set('Authorization', await authExport())
+      .responseType('blob')
+      .send({ organismos: ['05266', '05001'], empresas: ['811011779'], periodo: 'trimestre' });
     expect(r.status).toBe(200);
-    expect(r.headers['content-type']).toMatch(/^text\/csv/);
-    expect(r.headers['content-disposition']).toBe('attachment; filename="consolidado-costos.csv"');
+    expect(r.headers['content-type']).toContain('spreadsheetml');
+    expect(r.headers['content-disposition']).toMatch(/^attachment; filename="consolidado-costos_\d{8}-\d{4}\.xlsx"$/);
     // Mutante «otro parser de filtros» o «periodo perdido».
     expect(consolidadoMock).toHaveBeenCalledTimes(1);
     expect(consolidadoMock.mock.calls[0]![0]).toMatchObject({ organismos: ['05266', '05001'], empresas: ['811011779'] });
     expect(consolidadoMock.mock.calls[0]![1]).toBe('trimestre');
-    expect(r.text.split('\r\n')[0]).toBe(`\uFEFF${CABECERAS_CSV_CONSOLIDADO.join(';')}`);
-    expect(r.text.split('\r\n')[1]).toContain('ACME;2026-09;2;');
     // Sin titular no hay PII que registrar.
     expect(logPiiMock).not.toHaveBeenCalled();
+  });
+
+  it('el GET antiguo /consolidado/export ya no existe', async () => {
+    const app = await buildApp();
+    const r = await request(app).get('/api/finanzas/reporte-costos/consolidado/export?periodo=mes').set('Authorization', await auth());
+    expect(r.status).toBe(404);
+    expect(consolidadoMock).not.toHaveBeenCalled();
   });
 
   it('ruta /consolidado (JSON) también recibe organismos por filtrosDe', async () => {
@@ -418,35 +438,47 @@ describe('AC6 — exportación del consolidado (CF-14)', () => {
 // ───────────────────────────── AC7 — misma guarda de lectura ─────────────────────────────
 
 describe('AC7 — misma guarda de lectura (CF-19)', () => {
-  const RUTAS = ['/api/finanzas/reporte-costos/consolidado', '/api/finanzas/reporte-costos/consolidado/export'];
+  const RUTAS = [
+    { metodo: 'get', ruta: '/api/finanzas/reporte-costos/consolidado' },
+    { metodo: 'post', ruta: '/api/finanzas/reporte-costos/consolidado/export' },
+  ] as const;
   const ROLES_SIN_LECTURA: TestRole[] = [
     'proveedor', 'transito', 'compliance', 'lider_pesv', 'supervisor_flota', 'conductor', 'gestor_impuestos', 'mensajero',
+    // HU #12531: el rol externo tampoco se lleva el consolidado.
+    'cliente',
   ];
+  const pedir = async (app: express.Express, r: (typeof RUTAS)[number], cabecera?: string) => {
+    const req = request(app)[r.metodo](r.ruta);
+    if (cabecera) req.set('Authorization', cabecera);
+    return r.metodo === 'post' ? req.send({}) : req;
+  };
 
-  it.each(RUTAS)('%s sin token → 401', async (ruta) => {
+  it.each(RUTAS)('$metodo $ruta sin token → 401', async (r) => {
     const app = await buildApp();
-    expect((await request(app).get(ruta)).status).toBe(401);
+    expect((await pedir(app, r)).status).toBe(401);
   });
 
   it.each(ROLES_SIN_LECTURA)('%s → 403 en las dos rutas', async (role) => {
     const app = await buildApp();
-    for (const ruta of RUTAS) {
-      expect((await request(app).get(ruta).set('Authorization', await auth(role))).status, ruta).toBe(403);
+    for (const r of RUTAS) {
+      expect((await pedir(app, r, await auth(role))).status, r.ruta).toBe(403);
     }
     expect(consolidadoMock).not.toHaveBeenCalled();
   });
 
   it.each(['admin', 'financiera', 'auditor'] as TestRole[])('%s lee las dos rutas', async (role) => {
     const app = await buildApp();
-    for (const ruta of RUTAS) {
-      expect((await request(app).get(ruta).set('Authorization', await auth(role))).status, ruta).toBe(200);
+    for (const r of RUTAS) {
+      expect((await pedir(app, r, await authExport(role))).status, r.ruta).toBe(200);
     }
   });
 
   it('las dos rutas se registran bajo LECTURA y el archivo no añade otro requireRole( ni exigirFuncion', () => {
     const fuente = readFileSync(new URL('../../src/modules/finanzas/finanzas.routes.ts', import.meta.url), 'utf8');
     expect(fuente).toMatch(/router\.get\('\/reporte-costos\/consolidado', LECTURA,/);
-    expect(fuente).toMatch(/router\.get\('\/reporte-costos\/consolidado\/export', LECTURA,/);
+    // HU #12531: POST, bajo la misma guarda y con la bolsa compartida del limitador delante del handler.
+    expect(fuente).toMatch(/router\.post\('\/reporte-costos\/consolidado\/export', LECTURA, exportColaLimiter,/);
+    expect(fuente).not.toMatch(/router\.get\('\/reporte-costos\/consolidado\/export'/);
     expect(fuente.match(/requireRole\(/g)).toHaveLength(1);
     expect(fuente).not.toContain('exigirFuncion');
     expect(fuente).not.toContain('exigir-funcion');
