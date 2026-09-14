@@ -34,9 +34,10 @@ vi.mock('../../src/shared/redis.js', () => ({
 }));
 
 const {
-  celdaConciliacionCsv, conciliacionDeFila, SELECT_CONCILIACION_SOAT,
+  celdaConciliacion, conciliacionDeFila, SELECT_CONCILIACION_SOAT,
 } = await import('../../src/modules/finanzas/finanzas.conciliacion-soat.js');
-const { aCsv, conJoins } = await import('../../src/modules/finanzas/finanzas.service.js');
+const { conJoins } = await import('../../src/modules/finanzas/finanzas.service.js');
+const { COLUMNAS_EXPORT_DETALLE, filasExcelDetalle } = await import('../../src/modules/finanzas/finanzas.export-excel.js');
 
 const RUTA = '/api/finanzas/reporte-costos';
 
@@ -200,6 +201,8 @@ const FILA_BASE = {
   // (impuesto «no aplica» cuenta 0: 450000 + 80000 + 2980 + 15000 = 547980; + 200000 = 747980).
   titularNombres: null, titularApellidos: null, titularRazonSocial: null,
   titularTipoDocumento: null, titularDocumento: null,
+  // HU #12531 — contacto del primer comprador, por la misma subconsulta: el fixture no lo trae.
+  titularCorreo: null, titularTelefono: null, titularDireccion: null,
   organismoCodigo: null, organismoNombre: null, mes: '2026-07', trimestre: '2026-T3',
   totalReintegro: 547980, totalServicio: 200000,
 };
@@ -478,9 +481,9 @@ describe('AC3 — la marca convive con la fila sellada', () => {
 
 // ── AC4 ─────────────────────────────────────────────────────────────────────
 
-describe('AC4 — el CSV distingue los dos casos y nombra la boleta', () => {
-  /** Una fila del reporte tal como llega a `aCsv`. */
-  function fila(over: Record<string, unknown> = {}): Parameters<typeof aCsv>[0][number] {
+describe('AC4 — el archivo distingue los dos casos y nombra la boleta (.xlsx desde la HU #12531)', () => {
+  /** Una fila del reporte tal como llega a `filasExcelDetalle`. */
+  function fila(over: Record<string, unknown> = {}): Parameters<typeof filasExcelDetalle>[0][number] {
     return {
       tramiteId: 't1', idFlit: 'FLIT-1', placa: 'ABC123', estado: 'Aprobado', empresa: 'ACME',
       vin: 'VIN1', marca: 'RENAULT', linea: 'LOGAN', tipoTramite: 'Traspaso',
@@ -492,46 +495,45 @@ describe('AC4 — el CSV distingue los dos casos y nombra la boleta', () => {
       estadoFacturacion: 'no_enviado', facturaNumero: null, facturaRequiereRevision: false,
       soatConciliado: false, boletaReferencia: null, soatConciliadoEn: null,
       ...over,
-    } as Parameters<typeof aCsv>[0][number];
+    } as unknown as Parameters<typeof filasExcelDetalle>[0][number];
   }
 
   it('hay una columna propia, y distingue conciliado de no conciliado nombrando la boleta', () => {
-    const csv = aCsv([
+    const [conciliada, sinConciliar] = filasExcelDetalle([
       fila({ soatConciliado: true, boletaReferencia: 'BOL-000123' }),
       fila(),
     ]);
-    const [cabecera, conciliada, sinConciliar] = csv.trim().split('\r\n');
-
-    expect(cabecera.split(';')).toContain('SOAT conciliado');
-    const i = cabecera.split(';').indexOf('SOAT conciliado');
-    expect(conciliada.split(';')[i]).toBe('Sí (BOL-000123)');
-    expect(sinConciliar.split(';')[i]).toBe('No');
+    expect(COLUMNAS_EXPORT_DETALLE.map((c) => c.header)).toContain('SOAT conciliado');
+    // Mutante «celda vacía para el no conciliado» o «sin la boleta»: cambiaría uno de los dos.
+    expect(conciliada!.soatConciliado).toBe('Sí (BOL-000123)');
+    expect(sinConciliar!.soatConciliado).toBe('No');
   });
 
   it('la celda del no conciliado NO se deja vacía', () => {
-    // Una celda vacía se lee igual que un dato que no se pudo calcular, y este CSV se usa para
+    // Una celda vacía se lee igual que un dato que no se pudo calcular, y este archivo se usa para
     // decidir a quién se le cobra: «no consta» y «no está conciliado» no son lo mismo.
-    const csv = aCsv([fila()]);
-    const i = csv.split('\r\n')[0].split(';').indexOf('SOAT conciliado');
-    expect(csv.split('\r\n')[1].split(';')[i]).not.toBe('');
+    expect(filasExcelDetalle([fila()])[0]!.soatConciliado).not.toBeNull();
+    expect(filasExcelDetalle([fila()])[0]!.soatConciliado).not.toBe('');
   });
 
-  it('la columna nueva va al final: ninguna de las anteriores se desplaza', () => {
-    const cabeceras = aCsv([]).trim().split(';');
+  it('la columna va al final: ninguna de las anteriores se desplaza', () => {
+    const cabeceras = COLUMNAS_EXPORT_DETALLE.map((c) => c.header);
     expect(cabeceras[cabeceras.length - 1]).toBe('SOAT conciliado');
-    // HU #12432: la sección de identificación abre el archivo y los valores empiezan en «SOAT».
-    expect(cabeceras[0]).toContain('Empresa');
-    expect(cabeceras[20]).toBe('SOAT');
+    // HU #12432: la sección de identificación abre el archivo; HU #12531: cuatro columnas más del
+    // titular, así que los valores empiezan en la 25.ª (índice 24).
+    expect(cabeceras[0]).toBe('Empresa');
+    expect(cabeceras[24]).toBe('SOAT');
   });
 
-  it('cada fila tiene tantas celdas como cabeceras', () => {
-    const csv = aCsv([fila({ soatConciliado: true, boletaReferencia: 'BOL-000999' }), fila()]);
-    const [cabecera, ...filas] = csv.trim().split('\r\n');
-    for (const f of filas) expect(f.split(';')).toHaveLength(cabecera.split(';').length);
+  it('cada fila tiene una clave por cabecera', () => {
+    const claves = COLUMNAS_EXPORT_DETALLE.map((c) => c.key).sort();
+    for (const f of filasExcelDetalle([fila({ soatConciliado: true, boletaReferencia: 'BOL-000999' }), fila()])) {
+      expect(Object.keys(f).sort()).toEqual(claves);
+    }
   });
 
   it('sin referencia —que la base impide— la celda sigue diciendo que está conciliado', () => {
-    expect(celdaConciliacionCsv({
+    expect(celdaConciliacion({
       soatConciliado: true, boletaReferencia: null, soatConciliadoEn: null,
     })).toBe('Sí');
   });
