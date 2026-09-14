@@ -1,11 +1,15 @@
-// La tabla del detalle del reporte de costos, en tres secciones (HU #12434, CF-16).
+// La tabla del detalle del reporte de costos, en tres secciones (HU #12434, CF-16; compacta por
+// defecto desde la HU #12537).
 //
 // La cabecera lleva dos filas: arriba el GRUPO —Identificación, Datos del trámite, Valores— y debajo
-// cada columna. Es el Excel de 31 columnas en pantalla, y por eso las dos primeras secciones se
-// pueden compactar: quien concilia no necesita el VIN ni el documento del titular en cada fila, y
-// quien cierra el mes con el Excel abierto sí. La preferencia se guarda por sección en
-// `localStorage`; arranca ampliada (todas las columnas a la vista). Valores no se compacta: es lo
-// que se vino a ver.
+// cada columna. Es el Excel en pantalla, y el Excel no cabe en un portátil: por eso la tabla ARRANCA
+// COMPACTA —lo que hace falta para decidir «abro esta fila / liquido / no»— y se amplía con UN solo
+// control («Mostrar todas las columnas» / «Compactar columnas») en la línea del conteo. Quien
+// concilia no necesita el VIN ni el documento del titular en cada fila; quien quiere todos los campos
+// los tiene en el Excel (las 31 columnas de Financiero, HU #12536) o a un clic (las 28 de la
+// tabla). La preferencia es una sola clave de `localStorage`; su ausencia —o cualquier valor que no
+// sea `todas`— es compacta. Las tres claves por sección de la #12434 se ignoran: no se migran ni se
+// borran.
 //
 // Las columnas son DATOS (`COLUMNAS`), no JSX suelto: la fila de grupos, la de columnas, cada
 // celda y el pie de totales se recorren de la misma lista, así que una columna no puede aparecer
@@ -38,7 +42,7 @@ interface Contexto {
 export interface Columna {
   titulo: string;
   grupo: Grupo;
-  /** Sigue a la vista con la sección compactada. Valores lo lleva entero. */
+  /** Sigue a la vista en la vista compacta (D-02: las 12 que deciden «liquido / no»). */
   compacta?: boolean;
   center?: boolean;
   /** La celda ENTERA (`<td>`), para que `CeldaFechas` —que ya es un td— entre sin envolverla. */
@@ -113,12 +117,12 @@ export const COLUMNAS: Columna[] = [
   { titulo: 'Trámite', grupo: 'valores', center: true, total: (t) => pie(<Monto v={t.derechoTramite} />), celda: (f) => monto(<Monto v={f.derechoTramite} falta={faltaDe(f, CONCEPTO.derecho)} />) },
   { titulo: 'GMF', grupo: 'valores', center: true, total: (t) => pie(<Monto v={t.gmf} />), celda: (f) => monto(<Monto v={f.gmf} />) },
   { titulo: CONCEPTO.logistica, grupo: 'valores', center: true, total: (t) => pie(<Monto v={t.logistica} />), celda: (f) => monto(<Monto v={f.logistica} falta={faltaDe(f, CONCEPTO.logistica)} />) },
-  { titulo: 'Total reintegro', grupo: 'valores', center: true, total: (t) => pie(<Monto v={t.totalReintegro} />), celda: (f) => monto(subtotal(f, f.totalReintegro, CONCEPTOS_REINTEGRO)) },
+  { titulo: 'Total reintegro', grupo: 'valores', compacta: true, center: true, total: (t) => pie(<Monto v={t.totalReintegro} />), celda: (f) => monto(subtotal(f, f.totalReintegro, CONCEPTOS_REINTEGRO)) },
   { titulo: CONCEPTO.digital, grupo: 'valores', center: true, total: (t) => pie(<Monto v={t.tramiteDigital} />), celda: (f) => monto(<Monto v={f.tramiteDigital} falta={faltaDe(f, CONCEPTO.digital)} />) },
-  { titulo: 'Servicio', grupo: 'valores', center: true, total: (t) => pie(<Monto v={t.totalServicio} />), celda: (f) => monto(subtotal(f, f.totalServicio, CONCEPTOS_SERVICIO)) },
-  { titulo: 'Total', grupo: 'valores', center: true, total: (t) => pie(<Monto v={t.total} />, AZUL), celda: (f) => monto(<Monto v={f.total} negrita />, AZUL) },
+  { titulo: 'Servicio', grupo: 'valores', compacta: true, center: true, total: (t) => pie(<Monto v={t.totalServicio} />), celda: (f) => monto(subtotal(f, f.totalServicio, CONCEPTOS_SERVICIO)) },
+  { titulo: 'Total', grupo: 'valores', compacta: true, center: true, total: (t) => pie(<Monto v={t.total} />, AZUL), celda: (f) => monto(<Monto v={f.total} negrita />, AZUL) },
   {
-    titulo: 'Liquidación', grupo: 'valores',
+    titulo: 'Liquidación', grupo: 'valores', compacta: true,
     celda: (f) => (
       <td className="px-4 py-2 whitespace-nowrap">
         {f.estadoLiquidacion === 'facturado'
@@ -131,36 +135,45 @@ export const COLUMNAS: Columna[] = [
   },
 ];
 
+/**
+ * Un grupo que no fuera `compactable` seguiría entero en la vista compacta. Desde la HU #12537 los
+ * tres lo son: Valores también se calla (los conceptos sueltos van al Excel o a un clic).
+ */
 const GRUPOS: Array<{ clave: Grupo; titulo: string; compactable: boolean }> = [
   { clave: 'identificacion', titulo: 'Identificación', compactable: true },
   { clave: 'datos', titulo: 'Datos del trámite', compactable: true },
-  { clave: 'valores', titulo: 'Valores', compactable: false },
+  { clave: 'valores', titulo: 'Valores', compactable: true },
 ];
 
-const CLAVE_ALMACEN = (g: Grupo) => `flito.reporteCostos.seccion.${g}`;
+/** Las que se ven en compacta: la misma lista, en el mismo orden, con las demás quitadas. */
+const COMPACTAS = COLUMNAS.filter((c) => c.compacta || !GRUPOS.find((g) => g.clave === c.grupo)?.compactable);
 
-/** Compacta/ampliada por sección, recordada en `localStorage`. Arranca ampliada (AC1). */
-function useSecciones() {
-  const [compactas, setCompactas] = useState<Set<Grupo>>(() => {
-    const s = new Set<Grupo>();
-    try {
-      for (const g of GRUPOS) if (localStorage.getItem(CLAVE_ALMACEN(g.clave)) === 'compacta') s.add(g.clave);
-    } catch { /* sin almacenamiento (modo privado): arranca ampliada y no se recuerda */ }
-    return s;
+/** Una clave; solo `todas` amplía. Las `flito.reporteCostos.seccion.*` de la #12434 no se leen. */
+const CLAVE_ALMACEN = 'flito.reporteCostos.columnas';
+
+/**
+ * Compacta/ampliada para la tabla entera, recordada en `localStorage`. Arranca compacta (D-01):
+ * la preferencia se lee en el `useState` inicial, así que no hay parpadeo ampliada → compacta.
+ */
+function useColumnas(anunciar: (texto: string) => void) {
+  const [ampliada, setAmpliada] = useState<boolean>(() => {
+    try { return localStorage.getItem(CLAVE_ALMACEN) === 'todas'; }
+    catch { return false; /* sin almacenamiento (modo privado): compacta y no se recuerda */ }
   });
-  const alternar = (g: Grupo) => setCompactas((prev) => {
-    const n = new Set(prev);
-    if (n.has(g)) n.delete(g); else n.add(g);
-    try { localStorage.setItem(CLAVE_ALMACEN(g), n.has(g) ? 'compacta' : 'ampliada'); } catch { /* idem */ }
-    return n;
-  });
-  return { compactas, alternar };
+  const alternar = () => {
+    const n = !ampliada;
+    setAmpliada(n);
+    try { localStorage.setItem(CLAVE_ALMACEN, n ? 'todas' : 'compacta'); } catch { /* idem */ }
+    // Las cifras salen de las listas, nunca escritas: añadir una columna las mueve solas.
+    anunciar(n ? `Todas las columnas: ${COLUMNAS.length}.` : `Vista compacta: ${COMPACTAS.length} de ${COLUMNAS.length} columnas.`);
+  };
+  return { ampliada, visibles: ampliada ? COLUMNAS : COMPACTAS, alternar };
 }
 
 export default function TablaReporteCostos({
   data, puedeLiquidar, puedeReversar, enProceso, seleccion, onSeleccion, accionable,
   fichasFe, estadoFeDe, onAbrirDetalle, onLiquidar, onFacturar, onReversar, onSoportes, accionEnvio,
-  onPrev, onNext,
+  onPrev, onNext, anunciar,
 }: {
   data: Reporte; puedeLiquidar: boolean; puedeReversar: boolean; enProceso: boolean;
   seleccion: Set<string>; onSeleccion: (s: Set<string>) => void;
@@ -173,16 +186,17 @@ export default function TablaReporteCostos({
   /** La acción de facturación electrónica de la fila, cuando aplica (HU #11329). */
   accionEnvio: (f: Fila) => ReactNode;
   onPrev: () => void; onNext: () => void;
+  /** La región `role="status"` de la página (D-07): el cambio de columnas se anuncia por ahí, no por una segunda. */
+  anunciar: (texto: string) => void;
 }) {
-  const { compactas, alternar } = useSecciones();
+  const { ampliada, visibles, alternar } = useColumnas(anunciar);
   const filas = data.items;
   const accionables = filas.filter(accionable);
   const totalPaginas = Math.max(1, Math.ceil(data.total / data.pageSize));
   const ctx: Contexto = { fichasFe, estadoFeDe, onAbrirDetalle };
 
-  // Compactar OCULTA columnas enteras, no las apila: la lista visible es la que recorren las tres
-  // filas de la tabla.
-  const visibles = COLUMNAS.filter((c) => !compactas.has(c.grupo) || c.compacta);
+  // Compactar OCULTA columnas enteras, no las apila: `visibles` es la lista que recorren la fila de
+  // columnas, el cuerpo y el pie de totales; la fila de grupos la cuenta para su `colSpan`.
   const delGrupo = (g: Grupo) => visibles.filter((c) => c.grupo === g).length;
 
   const alternarFila = (id: string) => {
@@ -191,13 +205,43 @@ export default function TablaReporteCostos({
     onSeleccion(n);
   };
 
-  const paginacion = (
-    <Paginacion total={data.total} page={data.page} totalPaginas={totalPaginas} onPrev={onPrev} onNext={onNext} />
+  const paginacion = (extra?: { control: ReactNode; nota?: ReactNode }) => (
+    <Paginacion total={data.total} page={data.page} totalPaginas={totalPaginas} onPrev={onPrev} onNext={onNext} {...extra} />
+  );
+
+  // UN control para la tabla entera (D-03/D-04), tras el conteo de la línea superior. Botón de
+  // texto con `aria-expanded`: controla columnas, no un panel, así que no hay `aria-controls` que
+  // apuntar; el foco se queda en él y solo cambia su texto.
+  const control = (
+    <>
+      <span className="tabular-nums">{ampliada ? `${COLUMNAS.length} columnas` : `${visibles.length} de ${COLUMNAS.length} columnas`}</span>
+      {' · '}
+      <button type="button" className="flit-focus font-semibold underline" style={AZUL} aria-expanded={ampliada} onClick={alternar}>
+        {ampliada ? 'Compactar columnas' : 'Mostrar todas las columnas'}
+      </button>
+    </>
+  );
+  // Solo en compacta: en ampliada no hay nada oculto que explicar. El enlace LLEVA al botón de la
+  // cabecera (`id="exportar-excel"`), no es un segundo disparador del export (D-05): un solo botón,
+  // un solo «Generando…», una sola banda de resultado.
+  const nota = ampliada ? undefined : (
+    <span className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+      Las demás van en el Excel ·{' '}
+      <a href="#exportar-excel" className="flit-focus underline" style={AZUL}
+        onClick={(e) => {
+          // Lo que haría el navegador con el fragmento, pero sin dejar `#exportar-excel` en la URL
+          // del SPA. `focus()` ya desplaza hasta el botón.
+          const boton = document.getElementById('exportar-excel');
+          if (boton) { e.preventDefault(); boton.focus(); }
+        }}>
+        Exportar a Excel
+      </a>
+    </span>
   );
 
   return (
     <>
-      <div className="mb-3">{paginacion}</div>
+      <div className="mb-3">{paginacion({ control, nota })}</div>
       <div className="overflow-x-auto">
         <FlitTable>
           <thead>
@@ -211,31 +255,11 @@ export default function TablaReporteCostos({
                     onChange={(e) => onSeleccion(e.target.checked ? new Set(accionables.map((f) => f.tramiteId)) : new Set())} />
                 </ThGrupo>
               )}
-              {GRUPOS.map((g) => {
-                const total = COLUMNAS.filter((c) => c.grupo === g.clave).length;
-                const compacta = compactas.has(g.clave);
-                return (
-                  <ThGrupo key={g.clave} scope="colgroup" colSpan={delGrupo(g.clave)}>
-                    <span className="inline-flex items-center gap-2">
-                      {g.titulo}
-                      {g.compactable && (
-                        <>
-                          <span className="font-normal normal-case tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>
-                            · {delGrupo(g.clave)} de {total}
-                          </span>
-                          {/* Un botón de texto con `aria-expanded`: controla columnas, no un panel,
-                              así que no hay `aria-controls` que apuntar. El foco se queda en él. */}
-                          <button type="button" className="flit-focus text-[11px] font-semibold normal-case underline"
-                            style={{ color: 'var(--flit-blue-text)' }} aria-expanded={!compacta}
-                            onClick={() => alternar(g.clave)}>
-                            {compacta ? 'Mostrar todas' : 'Compactar'}
-                          </button>
-                        </>
-                      )}
-                    </span>
-                  </ThGrupo>
-                );
-              })}
+              {/* La fila de grupos solo titula: sin botones ni «n de m» (D-03). El `colSpan` es el
+                  de las columnas visibles del grupo, así que sigue la vista. */}
+              {GRUPOS.map((g) => (
+                <ThGrupo key={g.clave} scope="colgroup" colSpan={delGrupo(g.clave)}>{g.titulo}</ThGrupo>
+              ))}
               <ThGrupo rowSpan={2} />
             </tr>
             <FlitTr>
@@ -268,7 +292,7 @@ export default function TablaReporteCostos({
           <TotalesReporteCostos columnas={visibles} totales={data.totales} total={data.total} conCasilla={puedeLiquidar} />
         </FlitTable>
       </div>
-      <div className="mt-3">{paginacion}</div>
+      <div className="mt-3">{paginacion()}</div>
     </>
   );
 }
@@ -339,16 +363,24 @@ function Acciones({ fila, puedeLiquidar, puedeReversar, enProceso, onLiquidar, o
   );
 }
 
-export function Paginacion({ total, page, totalPaginas, onPrev, onNext }: {
+export function Paginacion({ total, page, totalPaginas, onPrev, onNext, control, nota }: {
   total: number; page: number; totalPaginas: number; onPrev: () => void; onNext: () => void;
+  /** Lo que sigue al conteo en la línea superior (el control de columnas); la inferior no lo lleva. */
+  control?: ReactNode;
+  /** Una segunda frase bajo el conteo, `text-xs`; baja de línea sola en una ventana estrecha. */
+  nota?: ReactNode;
 }) {
   const btn = 'rounded-lg border px-3 py-1.5 text-sm font-semibold disabled:opacity-40';
   const btnStyle = { borderColor: 'var(--flit-border-input)', color: 'var(--flit-blue-text)' } as const;
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <span className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-        <strong style={{ color: 'var(--flit-text-primary)' }}>{total.toLocaleString('es-CO')}</strong> trámites · página {page} de {totalPaginas}
-      </span>
+      <div className="flex flex-col gap-0.5">
+        <span className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <strong style={{ color: 'var(--flit-text-primary)' }}>{total.toLocaleString('es-CO')}</strong> trámites · página {page} de {totalPaginas}
+          {control && <> · {control}</>}
+        </span>
+        {nota}
+      </div>
       <div className="flex gap-2">
         <button className={btn} style={btnStyle} disabled={page <= 1} onClick={onPrev}>← Anterior</button>
         <button className={btn} style={btnStyle} disabled={page >= totalPaginas} onClick={onNext}>Siguiente →</button>
