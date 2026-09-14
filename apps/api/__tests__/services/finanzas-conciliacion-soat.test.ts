@@ -33,9 +33,7 @@ vi.mock('../../src/shared/redis.js', () => ({
   getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false),
 }));
 
-const {
-  celdaConciliacion, conciliacionDeFila, SELECT_CONCILIACION_SOAT,
-} = await import('../../src/modules/finanzas/finanzas.conciliacion-soat.js');
+const { conciliacionDeFila, SELECT_CONCILIACION_SOAT } = await import('../../src/modules/finanzas/finanzas.conciliacion-soat.js');
 const { conJoins } = await import('../../src/modules/finanzas/finanzas.service.js');
 const { COLUMNAS_EXPORT_DETALLE, filasExcelDetalle } = await import('../../src/modules/finanzas/finanzas.export-excel.js');
 
@@ -481,7 +479,10 @@ describe('AC3 — la marca convive con la fila sellada', () => {
 
 // ── AC4 ─────────────────────────────────────────────────────────────────────
 
-describe('AC4 — el archivo distingue los dos casos y nombra la boleta (.xlsx desde la HU #12531)', () => {
+describe('AC4 — el archivo ya no lleva «SOAT conciliado» (HU #12536: el detalle replica el Excel de Financiero)', () => {
+  // La HU #11679 la puso como última columna del CSV/.xlsx; la decisión del PO del 2026-09-14 deja
+  // el detalle con las 31 columnas literales de Financiero, y la conciliación se lee en pantalla
+  // (`soatConciliado`/`boletaReferencia` siguen en el JSON del reporte, AC3 arriba).
   /** Una fila del reporte tal como llega a `filasExcelDetalle`. */
   function fila(over: Record<string, unknown> = {}): Parameters<typeof filasExcelDetalle>[0][number] {
     return {
@@ -498,31 +499,12 @@ describe('AC4 — el archivo distingue los dos casos y nombra la boleta (.xlsx d
     } as unknown as Parameters<typeof filasExcelDetalle>[0][number];
   }
 
-  it('hay una columna propia, y distingue conciliado de no conciliado nombrando la boleta', () => {
-    const [conciliada, sinConciliar] = filasExcelDetalle([
-      fila({ soatConciliado: true, boletaReferencia: 'BOL-000123' }),
-      fila(),
-    ]);
-    expect(COLUMNAS_EXPORT_DETALLE.map((c) => c.header)).toContain('SOAT conciliado');
-    // Mutante «celda vacía para el no conciliado» o «sin la boleta»: cambiaría uno de los dos.
-    expect(conciliada!.soatConciliado).toBe('Sí (BOL-000123)');
-    expect(sinConciliar!.soatConciliado).toBe('No');
-  });
-
-  it('la celda del no conciliado NO se deja vacía', () => {
-    // Una celda vacía se lee igual que un dato que no se pudo calcular, y este archivo se usa para
-    // decidir a quién se le cobra: «no consta» y «no está conciliado» no son lo mismo.
-    expect(filasExcelDetalle([fila()])[0]!.soatConciliado).not.toBeNull();
-    expect(filasExcelDetalle([fila()])[0]!.soatConciliado).not.toBe('');
-  });
-
-  it('la columna va al final: ninguna de las anteriores se desplaza', () => {
-    const cabeceras = COLUMNAS_EXPORT_DETALLE.map((c) => c.header);
-    expect(cabeceras[cabeceras.length - 1]).toBe('SOAT conciliado');
-    // HU #12432: la sección de identificación abre el archivo; HU #12531: cuatro columnas más del
-    // titular, así que los valores empiezan en la 25.ª (índice 24).
-    expect(cabeceras[0]).toBe('Empresa');
-    expect(cabeceras[24]).toBe('SOAT');
+  it('ninguna cabecera ni clave habla de conciliación, y la boleta no se cuela en otra celda', () => {
+    const [conciliada] = filasExcelDetalle([fila({ soatConciliado: true, boletaReferencia: 'BOL-000123' })]);
+    // Mutante «SOAT conciliado sigue al final»: cae.
+    expect(COLUMNAS_EXPORT_DETALLE.map((c) => c.header)).not.toContain('SOAT conciliado');
+    expect(conciliada).not.toHaveProperty('soatConciliado');
+    expect(JSON.stringify(conciliada)).not.toContain('BOL-000123');
   });
 
   it('cada fila tiene una clave por cabecera', () => {
@@ -530,12 +512,6 @@ describe('AC4 — el archivo distingue los dos casos y nombra la boleta (.xlsx d
     for (const f of filasExcelDetalle([fila({ soatConciliado: true, boletaReferencia: 'BOL-000999' }), fila()])) {
       expect(Object.keys(f).sort()).toEqual(claves);
     }
-  });
-
-  it('sin referencia —que la base impide— la celda sigue diciendo que está conciliado', () => {
-    expect(celdaConciliacion({
-      soatConciliado: true, boletaReferencia: null, soatConciliadoEn: null,
-    })).toBe('Sí');
   });
 });
 
