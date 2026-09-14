@@ -4,7 +4,7 @@ Costos reales por trámite para contabilidad y cobros. Las filas **Liquidadas** 
 
 ## Para quién
 
-Financiera y Administrador (liquidan, facturan y envían a emisión). Auditor (solo lectura: ve la tabla con sus tres secciones, el titular, la **OT**, el selector de **Periodo**, el **Consolidado**, los contadores y el detalle de **Factura DIAN**, y puede exportar; no hay casillas ni **Liquidar** / **Facturar** / **Enviar a facturación**).
+Financiera y Administrador (liquidan, facturan y envían a emisión). Auditor (solo lectura: ve la tabla con sus tres secciones, el titular, la **OT**, el selector de **Periodo**, el **Consolidado**, los contadores y el detalle de **Factura DIAN**, y puede **exportar a Excel**; no hay casillas ni **Liquidar** / **Facturar** / **Enviar a facturación**).
 
 ## Cómo se entra
 
@@ -18,12 +18,12 @@ En el menú lateral, sección **Finanzas**, ítem **Reporte de costos**. Ruta `/
 4. En **Valores**, **Total reintegro** suma SOAT, impuesto, **Trámite** (derecho de tránsito), GMF y logística; **Servicio** es el trámite digital. Los dos vienen calculados del servidor, también en el pie de totales. Lea los contadores de **Facturación electrónica** (pastillas por estado).
 5. Para sellar: marque filas o pulse **Liquidar**. El lote dice cuántos **se pueden liquidar**. Un estimado bloqueado muestra **Falta:** al lado del botón. Con estado **Liquidado**, pulse **Facturar** (congela; no emite ante la DIAN). Con estado **Facturado**, use **Envío a facturación electrónica** o **Enviar a facturación** en la fila; si no aplica, **¿Por qué no?**. **Soporte** abre los documentos. El Administrador puede **Reversar** un liquidado (no un facturado).
 6. Conmute entre **Detalle** y **Consolidado** en la cabecera. El **Consolidado** agrupa por cliente y periodo (el tipo del selector) con los mismos filtros, y marca en **Incompletos** cuántos trámites de cada grupo tienen conceptos sin resolver.
-7. Exporte: en **Detalle**, **Exportar CSV** descarga el filtro con todas las columnas; en **Consolidado**, **Exportar consolidado** descarga el agrupado. Los dos respetan los filtros y el periodo puestos.
+7. Exporte a Excel. En **Detalle**, **Exportar a Excel** descarga un archivo `.xlsx` con **todos** los trámites del filtro y del periodo puestos —no solo la página que ve— y con las tres secciones completas, aunque en pantalla tenga alguna compactada. En **Consolidado**, **Exportar consolidado** descarga el agrupado por cliente y periodo (sin fila de totales: los totales del filtro siguen en pantalla). Mientras se genera, el botón dice **Generando…** y no admite otro clic; al terminar, un aviso bajo la cabecera dice **Archivo descargado:** con el nombre (`reporte-costos_AAAAMMDD-HHmm.xlsx` o `consolidado-costos_AAAAMMDD-HHmm.xlsx`, hora de Colombia). Si el filtro supera el número de filas que admite un archivo, no se descarga nada y el aviso le pide acotar el periodo o el filtro. Si descarga varios archivos seguidos, espere un minuto y use **Reintentar la descarga**. Si la sesión venció, FLITO lo lleva a ingresar de nuevo; vuelva a la pantalla y exporte otra vez.
 
 ## Estados
 
 - Cargando: filtros visibles; los contadores dicen **Consultando el estado de la facturación electrónica…**; la tarjeta de envío, **Comprobando cuáles se pueden facturar…**. En **Consolidado**, **Calculando el consolidado…**.
-- Error: mensaje en rojo sobre la tarjeta. Los contadores: **No se pudo consultar el estado de la facturación** con **Reintentar**. En **Consolidado**: **No se pudo calcular el consolidado** con **Reintentar**.
+- Error: mensaje en rojo sobre la tarjeta. Los contadores: **No se pudo consultar el estado de la facturación** con **Reintentar**. En **Consolidado**: **No se pudo calcular el consolidado** con **Reintentar**. Al exportar, el aviso bajo la cabecera dice qué falló y ofrece **Reintentar la descarga** cuando repetir tiene sentido; **Cerrar el aviso** lo quita.
 - Vacío: **No hay trámites que coincidan con los filtros.** En **Consolidado** además ofrece **Limpiar filtros**. Contadores: ningún trámite del filtro se ha enviado todavía a facturación electrónica. El filtro **OT** sin organismos dice **Sin organismos que ofrecer**.
 - Lleno: tabla en tres secciones con **Liquidación** (**Estimado** / **Liquidado** / **Facturado**), conceptos, **Total reintegro**, **Servicio**, **Factura DIAN** y acciones. Un total incompleto ofrece **Ver cuáles**. En **Consolidado**, una fila por cliente y periodo con su pie de totales; un periodo sin fecha de aprobación se rotula **Sin aprobar**.
 
