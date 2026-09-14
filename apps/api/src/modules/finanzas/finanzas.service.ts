@@ -27,8 +27,9 @@ import {
   condicionEstadoFacturacion, facturacionDeFila, resumenFacturacionElectronica,
   SELECT_FACTURACION_ELECTRONICA, type FacturacionDeFila,
 } from './finanzas.facturacion-electronica.js';
+import { ExportColaDemasiadoGrandeError } from '../../shared/export/cola-flito-excel.js';
 import {
-  celdaConciliacionCsv, conciliacionDeFila, SELECT_CONCILIACION_SOAT,
+  conciliacionDeFila, SELECT_CONCILIACION_SOAT,
   type ConciliacionSoatDeFila,
 } from './finanzas.conciliacion-soat.js';
 import {
@@ -610,73 +611,24 @@ export async function resumenFacturacionElectronicaDelReporte(
 /** Todas las filas del filtro, sin paginar, para exportar. Tope duro por si el filtro está vacío. */
 export const TOPE_EXPORTACION = 20_000;
 
+/**
+ * Todas las filas del filtro, sin paginar, para el `.xlsx` del detalle (HU #12531).
+ *
+ * Se piden `tope + 1` y, si llegan más del tope, se LANZA en vez de recortar: el CSV anterior
+ * entregaba 20 000 filas con una cabecera `X-Export-Truncado` que nadie lee dentro de un archivo, y
+ * un reporte recortado en silencio se concilia mal. El 422 lo emite la ruta, como en SOAT e
+ * Impuestos (`ExportColaDemasiadoGrandeError`). El `+ 1` existe para no contar: ni el mensaje ni el
+ * registro dicen cuántas filas tiene el filtro.
+ *
+ * La comprobación va ANTES de `aFila`: no hay que resolver 20 001 filas para saber que sobran.
+ */
 export async function filasParaExportar(f: FiltrosReporte = {}): Promise<FilaReporte[]> {
   const conds = condiciones(f);
   const where = conds.length ? and(...conds) : undefined;
   const rows = await conJoins(db.select(SELECT_FILA).from(flitoTramites).$dynamic()).where(where)
-    .orderBy(sql`${flitoTramites.createdAt} DESC`).limit(TOPE_EXPORTACION);
+    .orderBy(sql`${flitoTramites.createdAt} DESC`).limit(TOPE_EXPORTACION + 1);
+  if (rows.length > TOPE_EXPORTACION) throw new ExportColaDemasiadoGrandeError(TOPE_EXPORTACION);
   return rows.map((r: Record<string, unknown>) => aFila(r));
-}
-
-/**
- * Tres secciones y los nombres canónicos del Excel de Financiero (HU #12432, RN-08). «Flit» es el
- * identificador del trámite en FLIT —la cabecera vieja «Trámite» se reserva para los pesos del
- * derecho de tránsito—; «Tipo» pasa a ser el documento del titular y la categoría se llama «Tipo
- * trámite». «Trámite digital» (el concepto) y «Servicio» (el subtotal) valen lo mismo hoy y van
- * los dos: la épica #12246 le sumará conceptos al segundo.
- *
- * Exportada para que el test afirme el orden entero como un solo array y cada celda por su índice.
- */
-export const CABECERAS_CSV = [
-  // Identificación
-  'Empresa', 'Flit', 'Placa', 'VIN', 'Nombres', 'Apellidos', 'Razón social', 'Tipo', 'Documento',
-  // Datos del trámite
-  'Tipo trámite', 'Marca', 'Línea', 'OT', 'Estado', 'Creado', 'Aprobado', 'Mes', 'Trimestre',
-  'Estado factura', 'Factura',
-  // Valores
-  'SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística', 'Total reintegro', 'Trámite digital', 'Servicio',
-  'Total', 'Liquidación',
-  // Todo lo que impide liquidar, no solo las tarifas: quien concilia necesita la lista completa de
-  // lo que hay que resolver, le dé igual si es una tarifa, un recibo o un pago pendiente.
-  'Qué falta para liquidar',
-  // HU #11679 (AC4): quien cuadra el cierre necesita distinguir de un vistazo el SOAT que ya se
-  // descontó de bolsa del que sigue por cobrar, y poder ir a la boleta que lo respalda.
-  'SOAT conciliado',
-] as const;
-
-/** Solo el día, en ISO. Excel lo reconoce como fecha; el instante completo lo trata como texto. */
-const soloDia = (iso: string | null): string | null => (iso === null ? null : iso.slice(0, 10));
-
-/** El BOM que hace que Excel en español abra el CSV con tildes. Lo comparte el consolidado. */
-export const BOM_CSV = '\uFEFF';
-
-/** Una celda CSV segura: comillas escapadas y campo entrecomillado si lleva separador o salto. */
-export function celda(v: string | number | null): string {
-  if (v === null) return '';
-  const s = String(v);
-  return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
-/**
- * CSV con `;` y BOM: es lo que Excel en español abre sin pedir asistente de importación. Con `,`
- * mete todo en una columna, y sin BOM se comen las tildes.
- */
-export function aCsv(filas: FilaReporte[]): string {
-  const lineas = [CABECERAS_CSV.join(';')];
-  for (const f of filas) {
-    lineas.push([
-      f.empresa, f.idFlit, f.placa, f.vin, f.titularNombres, f.titularApellidos, f.titularRazonSocial,
-      f.titularTipoDocumento, f.titularDocumento,
-      f.tipoTramite, f.marca, f.linea, f.organismoNombre, f.estado, soloDia(f.fechaCreacion),
-      soloDia(f.fechaAprobacion), f.mes, f.trimestre, f.estadoFacturacion, f.facturaNumero,
-      f.soat, f.impuesto, f.derechoTramite, f.gmf, f.logistica, f.totalReintegro, f.tramiteDigital,
-      f.totalServicio, f.total,
-      f.sellada ? (f.estadoLiquidacion === 'facturado' ? 'Facturado' : 'Liquidado') : 'Estimado',
-      [...f.noConfigurados, ...f.sinRecibo, ...f.pendientesPago].join(' | '),
-      celdaConciliacionCsv(f),
-    ].map(celda).join(';'));
-  }
-  return `${BOM_CSV}${lineas.join('\r\n')}\r\n`;
 }
 
 export interface FacetasReporte {

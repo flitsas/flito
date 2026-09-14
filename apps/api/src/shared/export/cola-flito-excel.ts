@@ -288,8 +288,13 @@ const FORMATO_SELLO = new Intl.DateTimeFormat('en-CA', {
  * **No lleva NADA del filtro**, y aquí eso pesa más que en comparendos: el filtro `buscar` de estas
  * colas casa contra placa, VIN, nombre y cédula, así que meterlo en el nombre escribiría la cédula
  * de un titular en el sistema de archivos de quien descarga y en cualquier adjunto que reenvíe.
+ *
+ * Los dos prefijos de Finanzas (HU #12531) usan el mismo sello: mismo huso, misma forma, mismo
+ * motivo para no llevar nada del filtro (`buscar` casa contra placa, VIN, nombre y documento).
  */
-export function nombreArchivoColaExport(prefijo: 'soat' | 'impuestos', ahora: Date = new Date()): string {
+export type PrefijoExport = 'soat' | 'impuestos' | 'reporte-costos' | 'consolidado-costos';
+
+export function nombreArchivoColaExport(prefijo: PrefijoExport, ahora: Date = new Date()): string {
   const p: Record<string, string> = {};
   for (const parte of FORMATO_SELLO.formatToParts(ahora)) p[parte.type] = parte.value;
   return `${prefijo}_${p.year}${p.month}${p.day}-${p.hour}${p.minute}.xlsx`;

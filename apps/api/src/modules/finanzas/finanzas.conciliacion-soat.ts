@@ -138,15 +138,16 @@ function texto(v: unknown): string | null {
 }
 
 /**
- * La celda del CSV que distingue los dos casos y nombra la boleta (AC4).
+ * La celda «SOAT conciliado» que distingue los dos casos y nombra la boleta (AC4). Desde la HU
+ * #12531 va en el `.xlsx`; el nombre dejó de decir «Csv» por eso.
  *
  * Una sola columna, y con la referencia DENTRO del valor: en una hoja de cálculo eso permite filtrar
  * por «No» para quedarse con lo que todavía hay que cobrar, y ordenar por la columna agrupa los
  * trámites de una misma boleta. Dejar la celda vacía para los no conciliados —la alternativa
- * evidente— se lee igual que un dato que no se pudo calcular, que es lo contrario de lo que el CSV
- * tiene que dejar claro cuando se usa para cuadrar un cierre.
+ * evidente— se lee igual que un dato que no se pudo calcular, que es lo contrario de lo que el
+ * archivo tiene que dejar claro cuando se usa para cuadrar un cierre.
  */
-export function celdaConciliacionCsv(f: ConciliacionSoatDeFila): string {
+export function celdaConciliacion(f: ConciliacionSoatDeFila): string {
   if (!f.soatConciliado) return 'No';
   return f.boletaReferencia === null ? 'Sí' : `Sí (${f.boletaReferencia})`;
 }
