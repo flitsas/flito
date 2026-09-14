@@ -191,51 +191,51 @@ export interface AvisoExport {
  * consultando. Un 500 no lo es: su texto sí puede llevar dentro el documento del comprador, así que
  * ahí manda el copy propio.
  */
-export function avisoDeError(e: unknown): AvisoExport {
+export function avisoDeError(e: unknown, redacciones: Partial<RedaccionesExport> = {}): AvisoExport {
+  const r = { ...REDACCIONES_COLA, ...redacciones };
   if (e instanceof ApiError) {
     // 422 del tope: repetir la misma petición daría el mismo 422, así que no se ofrece reintento —
     // lo que hay que cambiar es el filtro, y eso lo dice el propio mensaje.
     if (e.status === 422 && codigoDe(e) === 'export_demasiado_grande') {
-      return {
-        tono: 'error',
-        reintentable: false,
-        texto: textoDelServidor(e)
-          ?? 'El filtro que tienes puesto trae más filas de las que admite un archivo. Acota la '
-            + 'búsqueda —por ejemplo, con un rango de "Creado en FLITO" más corto— y vuelve a exportar.',
-      };
+      return { tono: 'error', reintentable: false, texto: textoDelServidor(e) ?? r.tope };
     }
     // 429 del limitador del export, que es cuota SEPARADA de la del listado.
     if (e.status === 429) {
-      return {
-        tono: 'error',
-        reintentable: true,
-        texto: textoDelServidor(e)
-          ?? 'Se descargaron demasiados archivos seguidos. Espera 1 minuto y vuelve a intentarlo.',
-      };
+      return { tono: 'error', reintentable: true, texto: textoDelServidor(e) ?? r.limite };
     }
     if (e.status === 403) {
-      return {
-        tono: 'error',
-        reintentable: false,
-        texto: 'Tu usuario ya no puede exportar. Habla con un administrador.',
-      };
+      return { tono: 'error', reintentable: false, texto: r.sinPermiso };
     }
     // `status === 0` es a la vez «no me respondió a tiempo» y «no llegué a preguntar»: el cliente no
     // los distingue y quien lo consume trata ambos igual.
     if (e.status === 0) {
-      return {
-        tono: 'error',
-        reintentable: true,
-        texto: 'El archivo tardó demasiado en generarse. Vuelve a intentarlo con un filtro más estrecho.',
-      };
+      return { tono: 'error', reintentable: true, texto: r.tiempo };
     }
   }
-  return {
-    tono: 'error',
-    reintentable: true,
-    texto: 'No se pudo generar el archivo. Vuelve a intentarlo; si sigue fallando, avisa a soporte.',
-  };
+  return { tono: 'error', reintentable: true, texto: r.otro };
 }
+
+/**
+ * Los cinco textos propios del cliente, uno por caso. Son RESPALDOS: en 422 y 429 manda el eco del
+ * servidor y estos solo entran cuando no trae texto. Una pantalla los redacta para su público
+ * (el reporte de costos no tiene «Creado en FLITO», HU #12532) sin tocar cómo se DECIDE el caso.
+ */
+export interface RedaccionesExport {
+  tope: string;
+  limite: string;
+  sinPermiso: string;
+  tiempo: string;
+  otro: string;
+}
+
+const REDACCIONES_COLA: RedaccionesExport = {
+  tope: 'El filtro que tienes puesto trae más filas de las que admite un archivo. Acota la '
+    + 'búsqueda —por ejemplo, con un rango de "Creado en FLITO" más corto— y vuelve a exportar.',
+  limite: 'Se descargaron demasiados archivos seguidos. Espera 1 minuto y vuelve a intentarlo.',
+  sinPermiso: 'Tu usuario ya no puede exportar. Habla con un administrador.',
+  tiempo: 'El archivo tardó demasiado en generarse. Vuelve a intentarlo con un filtro más estrecho.',
+  otro: 'No se pudo generar el archivo. Vuelve a intentarlo; si sigue fallando, avisa a soporte.',
+};
 
 export interface EstadoExport {
   ocupado: boolean;

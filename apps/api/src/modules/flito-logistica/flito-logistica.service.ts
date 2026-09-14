@@ -9,7 +9,7 @@
 // en consola, al despachar) y recibe (receptor, en campo). El PDF del acta combina ambas.
 // Ojo (§9.7): el 'entregado' de logística ≠ EstadoTramiteFlito.ENTREGADO (compuerta SOAT+Impuestos).
 
-import { and, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import {
   EstadoActaLogistica, EstadoDocumentoLogistica, ESTADO_ACTA_LOGISTICA_LABEL,
   ESTADO_DOCUMENTO_LOGISTICA_LABEL, ESTADO_LOGISTICA_SIMPLE_LABEL, EstadoLogisticaSimple,
@@ -569,7 +569,8 @@ export async function facetas(): Promise<FacetasLogistica> {
       .from(flitoLogisticaDocumentos).leftJoin(clients, eq(flitoLogisticaDocumentos.companiaId, clients.id))
       .where(and(eq(flitoLogisticaDocumentos.estado, EstadoDocumentoLogistica.CLASIFICADO), gestionable, sql`${flitoLogisticaDocumentos.companiaId} is not null`))
       .groupBy(flitoLogisticaDocumentos.companiaId, clients.name),
-    db.select({ id: users.id, nombre: users.name }).from(users).where(eq(users.role, 'mensajero')),
+    db.select({ id: users.id, nombre: users.name }).from(users)
+      .where(and(eq(users.role, 'mensajero'), isNull(users.deletedAt))),
   ]);
   return {
     // Vocabulario SIMPLE (5 estados) para los filtros de la consola.

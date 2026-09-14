@@ -54,6 +54,7 @@ const IDE = 'tramites/identidad.routes.ts';
 const TRN = 'tramites/transito.routes.ts';
 const TRC = 'tramites/transito-config.routes.ts';
 const USR = 'users/users.routes.ts';
+const PER = 'permisos/permisos.routes.ts';
 
 export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   // ── SOAT (portal FLITO) ───────────────────────────────────────────────────────────────────────
@@ -316,6 +317,8 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${USR} POST /`, 'usuarios.usuario.crear', 'Crear un usuario', 'Dar de alta un usuario con su rol, sus páginas y su ámbito.'),
   op(`${USR} PATCH /:id`, 'usuarios.usuario.editar', 'Editar un usuario', 'Cambiar el rol, las páginas, el ámbito o los datos de un usuario.'),
   op(`${USR} PATCH /:id/toggle`, 'usuarios.usuario.activar', 'Activar o desactivar un usuario', 'Bloquear o volver a habilitar la entrada de un usuario sin borrarlo.'),
+  op(`${USR} DELETE /:id`, 'usuarios.usuario.baja', 'Dar de baja un usuario', 'Marcar un usuario como dado de baja sin borrarlo. Conserva username, permisos y ámbito.'),
+  op(`${USR} POST /:id/reactivar`, 'usuarios.usuario.reactivar', 'Reactivar un usuario dado de baja', 'Quitar la marca de baja de un usuario para que vuelva a poder iniciar sesión.'),
   op(`${USR} POST /:id/invalidate-sessions`, 'usuarios.sesiones.invalidar', 'Cerrar las sesiones de un usuario', 'Invalidar todos los tokens vivos de un usuario para que vuelva a iniciar sesión.'),
   op(`${USR} PATCH /:id/password [ajena]`, 'usuarios.contrasena.cambiar_ajena', 'Cambiar la contraseña de otro usuario', 'Fijar una contraseña nueva a un usuario distinto de uno mismo.'),
   // HU #12171 — el historial de cambios (CF-19). Dos codigos y no uno: el catalogo es «una funcion por
@@ -323,7 +326,16 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   // negocio fijados el 10/09/2026; los mismos que siembra la 0185 (el test de la 0179 compara literal).
   op(`${USR} GET /auditoria`, 'usuarios.auditoria.ver', 'Ver el historial de cambios de usuarios y permisos', 'Leer quién cambió qué en usuarios, roles y permisos, con el valor anterior y el posterior.'),
   op(`${USR} GET /auditoria/titulares`, 'usuarios.auditoria.filtrar', 'Listar los usuarios para filtrar el historial', 'Leer la lista de usuarios que tienen cambios registrados, para acotar el historial a uno.'),
-
+  // ── Permisos (HU #12084: `permisos/` entra al catálogo) ─────────────────────────────────────────
+  // Siete códigos y no cuatro: el catálogo es «una función por ruta» y los códigos son únicos. Ninguno
+  // va al auditor: el cuadro de roles es administración, no observación. Textos = los de la 0186.
+  op(`${PER} GET /funciones`, 'permisos.catalogo.ver', 'Ver el catálogo de funciones', 'Leer la lista de funciones que existen en el sistema, agrupadas por módulo, para repartirlas entre los roles.'),
+  op(`${PER} GET /roles`, 'permisos.rol.listar', 'Ver los roles', 'Abrir la lista de roles con cuántos usuarios tiene cada uno y si se puede borrar.'),
+  op(`${PER} POST /roles`, 'permisos.rol.crear', 'Crear un rol', 'Dar de alta un rol nuevo con su tipo de enlace, su tipo principal y su cuadro de funciones.'),
+  op(`${PER} PATCH /roles/:codigo`, 'permisos.rol.editar', 'Editar un rol', 'Cambiar el nombre, la descripción, el tipo de enlace, el tipo principal o el estado de un rol.'),
+  op(`${PER} DELETE /roles/:codigo`, 'permisos.rol.borrar', 'Borrar un rol', 'Eliminar un rol que ningún usuario tiene asignado, junto con su cuadro de funciones.'),
+  op(`${PER} GET /roles/:codigo/funciones`, 'permisos.cuadro.ver', 'Ver el cuadro de funciones de un rol', 'Leer qué funciones concede un rol a quienes lo tienen asignado.'),
+  op(`${PER} PUT /roles/:codigo/funciones`, 'permisos.cuadro.guardar', 'Guardar el cuadro de funciones de un rol', 'Reescribir el conjunto completo de funciones que concede un rol.'),
 ];
 
 /**

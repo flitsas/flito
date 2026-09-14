@@ -3,7 +3,6 @@
 // Es la vista de quien despacha (Operaciones); Auditoría entra en solo lectura. Los gestores NO entran:
 // cada uno sigue en su propia cola. Las reglas viven en el backend; aquí solo se orquesta y reporta.
 
-import { puedeOperar } from '../lib/permissions';
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
@@ -111,8 +110,9 @@ function useDebounce<T>(valor: T, ms: number): T {
 }
 
 export default function FlitoTramites() {
-  const { user } = useAuth();
-  const esOperaciones = puedeOperar(user?.role);
+  const { hasFuncion } = useAuth();
+  // HU #12170
+  const esOperaciones = hasFuncion('tramites.solicitud.pedir_soat');
 
   // Semilla desde la URL, solo al montar, para que un enlace de otra pantalla (el detalle del
   // reintento de derechos) llegue con la búsqueda ya aplicada. A partir de ahí manda el usuario.

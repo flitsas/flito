@@ -4,7 +4,6 @@
 // (→ Pagado) y rechazo/reactivación/reversa. Operaciones ve todo; el gestor solo su organismo y
 // nunca los Pendiente; Auditoría es solo lectura.
 
-import { puedeOperar } from '../lib/permissions';
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   ESTADO_IMPUESTO_LABEL, ESTADOS_IMPUESTO_CERTIFICABLES, EstadoImpuesto, ResultadoCertificacion,
@@ -102,10 +101,11 @@ function aResultadoIntento(e: unknown): ResultadoIntento {
 }
 
 export default function FlitoImpuestos() {
-  const { user } = useAuth();
-  const esOperaciones = puedeOperar(user?.role);
-  const esGestor = user?.role === 'gestor_impuestos';
-  const soloLectura = user?.role === 'auditor';
+  const { hasFuncion } = useAuth();
+  // HU #12170: modos por función efectiva, no por rol literal.
+  const esOperaciones = hasFuncion('impuestos.tramite.enviar');
+  const esGestor = hasFuncion('impuestos.recibos.cargar') && !esOperaciones;
+  const soloLectura = hasFuncion('impuestos.cola.ver') && !hasFuncion('impuestos.recibos.cargar') && !esOperaciones;
 
   const estadosDisponibles = esGestor ? ESTADOS_GESTOR : ESTADOS_OPERACIONES;
   const [estado, setEstado] = useState<EstadoImpuesto | 'todos'>(esGestor ? EstadoImpuesto.SOLICITADO : 'todos');

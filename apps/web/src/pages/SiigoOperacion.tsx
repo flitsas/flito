@@ -5,17 +5,12 @@
 // totales, ni el listado completo de trámites. Solo lo que quedó detenido y el detalle de un caso.
 // En la cabecera va el enlace al reporte de costos, que es donde se busca *una* factura concreta.
 //
-// **La decisión de permiso se lee de una sola tabla y no se reimplementa**: siempre
-// `puedeEjecutar(user?.role, '<accion>')` de `@operaciones/shared-types`, nunca
-// `role === 'admin' || role === 'financiera'` escrito a mano. `auditor` tiene `consultar` y nada
-// más, así que ve la lista, los filtros, el detalle y la línea de tiempo enteros — y **cero
-// casillas, cero columna de acciones, cero botones**. Un botón inhabilitado *es* una acción presente
-// que no se puede usar, y en una lista de cincuenta filas serían cientos; el aviso de la cabecera es
-// lo que evita que «no hay botones» se lea como «la pantalla está rota».
+// HU #12170: botones por función efectiva (`/permisos/mios`). Siigo sigue fuera del catálogo FLITO;
+// el proxy de escritura es `liquidacion.liquidacion.facturar` / `.reversar`. Quien solo consulta ve
+// lista y detalle sin acciones — el aviso de cabecera evita leerlo como pantalla rota.
 
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { puedeEjecutar } from '@operaciones/shared-types';
 import type {
   SiigoBandejaItem, SiigoBandejaRespuestaDescarte, SiigoBandejaRespuestaReactivacion,
 } from '@operaciones/shared-types';
@@ -57,14 +52,18 @@ function aCasoLote(item: SiigoBandejaItem): CasoLote {
 }
 
 export default function SiigoOperacion() {
-  const { user } = useAuth();
+  const { hasFuncion } = useAuth();
+  // HU #12170: Siigo no está en el catálogo FLITO (Feature #12072); el proxy de escritura FE
+  // es `liquidacion.liquidacion.facturar` (admin+financiera). Reactivar el freno exige admin
+  // en el API → `liquidacion.liquidacion.reversar` (solo admin en el seed).
+  const puedeEscribirFe = hasFuncion('liquidacion.liquidacion.facturar');
   const permisos = useMemo(() => ({
-    reintentar: puedeEjecutar(user?.role, 'reintentar'),
-    reenviarCorreo: puedeEjecutar(user?.role, 'reenviar_correo'),
-    marcarFallido: puedeEjecutar(user?.role, 'marcar_fallido'),
-    reactivar: puedeEjecutar(user?.role, 'reactivar'),
-    corregir: puedeEjecutar(user?.role, 'corregir'),
-  }), [user?.role]);
+    reintentar: puedeEscribirFe,
+    reenviarCorreo: puedeEscribirFe,
+    marcarFallido: puedeEscribirFe,
+    reactivar: puedeEscribirFe,
+    corregir: puedeEscribirFe,
+  }), [puedeEscribirFe]);
   const soloConsulta = !permisos.reintentar && !permisos.reenviarCorreo
     && !permisos.marcarFallido && !permisos.reactivar && !permisos.corregir;
 
@@ -204,7 +203,7 @@ export default function SiigoOperacion() {
 
       <BannerFreno
         freno={freno}
-        esAdmin={user?.role === 'admin'}
+        esAdmin={hasFuncion('liquidacion.liquidacion.reversar')}
         onReactivado={() => setRecargaGlobal((n) => n + 1)}
       />
 

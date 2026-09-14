@@ -375,7 +375,7 @@ async function encolarNotificacion(
 ): Promise<void> {
   // Buscar admins activos.
   const admins = await db.select({ email: users.email })
-    .from(users).where(and(eq(users.role, 'admin'), eq(users.active, true)));
+    .from(users).where(and(eq(users.role, 'admin'), eq(users.active, true), isNull(users.deletedAt)));
   const emails = admins.map((a) => a.email).filter(Boolean);
   if (emails.length === 0) return;
 

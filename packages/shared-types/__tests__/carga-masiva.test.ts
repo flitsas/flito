@@ -10,15 +10,23 @@ import {
 } from '../src/carga-masiva';
 import * as barrel from '../src/index';
 
-// Topes de la carga masiva SOAT/impuestos (HU #12050 / #12051).
+// Topes de la carga masiva SOAT/impuestos (HU #12050 / #12051 / #12494).
 //
 // Viven en shared-types porque multer, nginx y el cliente de tandas tienen que citar el
-// mismo número. Estos tests fijan NOMBRE y VALOR: si alguien “ajusta” el 50 o el 15 MB en un solo
+// mismo número. Estos tests fijan NOMBRE y VALOR: si alguien “ajusta” el 150 o el 15 MB en un solo
 // sitio, el contrato se parte sin que TypeScript se queje.
 
 describe('HU #12050 — nombres y valores de los topes de carga masiva', () => {
-  it('CARGA_MASIVA_MAX_ARCHIVOS es 50', () => {
-    expect(CARGA_MASIVA_MAX_ARCHIVOS).toBe(50);
+  it('CARGA_MASIVA_MAX_ARCHIVOS es 150 (HU #12494; antes 50)', () => {
+    expect(CARGA_MASIVA_MAX_ARCHIVOS).toBe(150);
+  });
+
+  it('HU #12494 — el picker lleno (CARGA_MASIVA_MAX_ARCHIVOS sueltos) se parte en 30 tandas de 5, completas y en orden', () => {
+    const sueltos = Array.from({ length: CARGA_MASIVA_MAX_ARCHIVOS }, (_, i) => `f${i}.pdf`);
+    const tandas = partirCargaMasivaEnTandas(sueltos);
+    expect(tandas).toHaveLength(30);
+    expect(tandas.map((t) => t.length)).toEqual(Array.from({ length: 30 }, () => 5));
+    expect(tandas.flat()).toEqual(sueltos);
   });
 
   it('CARGA_MASIVA_MAX_BYTES_ARCHIVO es 15 MiB', () => {
@@ -49,7 +57,7 @@ describe('HU #12050 — nombres y valores de los topes de carga masiva', () => {
 });
 
 // HU #12056 — el navegador abre el ZIP y sus entradas viajan por las tandas de 5 que ya existían.
-// Eso parte en dos la cantidad admitida: el picker sigue en 50 y el ZIP tiene techo propio. Que
+// Eso parte en dos la cantidad admitida: el picker tiene su techo (150 desde la HU #12494) y el ZIP el suyo. Que
 // sean dos números DISTINTOS es la decisión, no un descuido: si alguien los iguala «para
 // simplificar», o el ZIP de 90 comprobantes deja de caber, o el picker admite 300 en una sola
 // petición. Este bloque fija los dos y su relación.

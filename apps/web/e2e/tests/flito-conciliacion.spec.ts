@@ -21,7 +21,7 @@ import type { Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import {
   loginAs, FINANCIERA_USER, OPERACIONES_USER, AUDITOR_USER, PROVEEDOR_USER,
-  GESTOR_IMPUESTOS_USER, CONDUCTOR_USER,
+  GESTOR_IMPUESTOS_USER, CONDUCTOR_USER, sobreDeMe,
 } from '../helpers/auth';
 
 const BOLETA_ID = 'bbbb0000-0000-0000-0000-000000000001';
@@ -970,7 +970,7 @@ test.describe('FLITO — Conciliación · el aviso no sobrevive a la sesión', (
     // por bueno sin que la rama que se quiere probar hubiera corrido.
     const otra = await context.newPage();
     await otra.route('**/api/**', (route) => route.fulfill(json([])));
-    await otra.route('**/api/auth/me', (route) => route.fulfill(json(FINANCIERA_USER)));
+    await otra.route('**/api/auth/me', (route) => route.fulfill(json(sobreDeMe(FINANCIERA_USER))));
     await mockLista(otra, [RESUMEN]);
     await otra.goto('/flito/conciliacion');
     await expect(otra.getByRole('heading', { name: 'Conciliación', level: 1 })).toBeVisible();

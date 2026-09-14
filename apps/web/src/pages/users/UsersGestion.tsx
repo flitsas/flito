@@ -7,11 +7,14 @@
 // condicionales dentro de un componente, así que lo de admin vive en ESTE componente y `Users.tsx`
 // queda como conmutador. Si el auditor montara esto, cada hook le respondería 403 en silencio.
 //
+// HU #12088: carga `permisosApi.roles()` → mapa tipoEnlace + lista activa para el select de rol.
+//
 // **Esto NO es kit.** Un único consumidor: la página de usuarios.
 
 import { useEffect, useState, useCallback, useRef, type KeyboardEvent } from 'react';
 import toast from 'react-hot-toast';
-import { api } from '../../lib/api';
+import type { RolCatalogo } from '@operaciones/shared-types';
+import { api, errorMessage, permisosApi, type GrupoDeFunciones } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import PageHeaderCard from '../../components/flit/PageHeaderCard';
 import GradientButton from '../../components/flit/GradientButton';
@@ -19,8 +22,8 @@ import { FlitPillGroup, flitPillBtn, flitPillBtnClase } from '../../components/f
 import { useOrganismosParametrizados, useProveedoresSoat } from './AtaduraFields';
 import { useCompanias } from './CompaniaField';
 import { formatErrors } from './UserFormShared';
-import type { UserRole } from '../../lib/permissions';
-import type { ResumenUsuarios, User } from './types';
+import type { ResumenUsuarios, RolOpcion, User, VistaBajas } from './types';
+import type { CatalogoFuncionesEstado } from './PermissionsPicker';
 import UsersTable from './UsersTable';
 import UsersToolbar from './UsersToolbar';
 import CreateForm from './CreateUserForm';
@@ -43,11 +46,14 @@ export default function UsersGestion({ puedeExportar }: {
   const companias = useCompanias();
   const proveedores = useProveedoresSoat();
   const organismos = useOrganismosParametrizados();
+  const catalogo = useCatalogoFunciones();
+  const rolesCatalogo = useCatalogoRoles();
   const nombreCompania = (id: number) => companias.data?.find((c) => c.id === id)?.nombre ?? null;
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [rol, setRol] = useState<UserRole | ''>('');
+  const [rol, setRol] = useState<string>('');
+  const [vistaBajas, setVistaBajas] = useState<VistaBajas>('en_alta');
   const [total, setTotal] = useState<number | null>(null);
   const [resumen, setResumen] = useState<ResumenUsuarios | null>(null);
   const [descargando, setDescargando] = useState(false);
@@ -96,11 +102,20 @@ export default function UsersGestion({ puedeExportar }: {
    * es la diferencia entre pedir «todos» y pedir «los de rol vacío»—. La comparten el listado y el
    * export, que es lo que garantiza que el archivo y la tabla no puedan separarse.
    *
+   * HU #12089: `en_alta` = sin flags (default API); `dados_de_baja` → soloBajas; `todos` → incluirBajas.
+   *
    * Aquí NO va `porPagina`: sin ese parámetro el backend no pone `LIMIT` y el listado se comporta
    * como siempre. Esta pantalla no pagina todavía, y pedir una página sin controles para cambiarla
    * sería esconder usuarios.
    */
-  const query = rol ? `?rol=${encodeURIComponent(rol)}` : '';
+  const query = (() => {
+    const params = new URLSearchParams();
+    if (rol) params.set('rol', rol);
+    if (vistaBajas === 'dados_de_baja') params.set('soloBajas', 'true');
+    else if (vistaBajas === 'todos') params.set('incluirBajas', 'true');
+    const qs = params.toString();
+    return qs ? `?${qs}` : '';
+  })();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -159,6 +174,28 @@ export default function UsersGestion({ puedeExportar }: {
       recargar();
     } catch (e) { toast.error(formatErrors(e)); }
   };
+
+  /** Baja lógica (`deleted_at`). Independiente de Desactivar (`active`). */
+  const handleDarDeBaja = async (u: User) => {
+    if (u.id === me?.id) { toast.error('No puede darse de baja a sí mismo'); return; }
+    if (!confirm(`¿Dar de baja a ${u.name}? Dejará de poder iniciar sesión. Puede reactivarlo después.`)) return;
+    try {
+      await api.delete(`/users/${u.id}`);
+      toast.success('Usuario dado de baja');
+      recargar();
+    } catch (e) { toast.error(formatErrors(e)); }
+  };
+
+  const handleReactivar = async (u: User) => {
+    if (!confirm(`¿Reactivar a ${u.name}?`)) return;
+    try {
+      await api.post(`/users/${u.id}/reactivar`);
+      toast.success('Usuario reactivado');
+      recargar();
+    } catch (e) { toast.error(formatErrors(e)); }
+  };
+
+  const vacioMensaje = vistaBajas === 'dados_de_baja' ? 'Nadie dado de baja' : 'Sin usuarios';
 
   const activa = SECCIONES.find((s) => s.valor === seccion) ?? SECCIONES[0];
 
@@ -232,6 +269,9 @@ export default function UsersGestion({ puedeExportar }: {
             <UsersToolbar
               rol={rol}
               onRol={setRol}
+              vistaBajas={vistaBajas}
+              onVistaBajas={setVistaBajas}
+              rolesCatalogo={rolesCatalogo}
               resumen={resumen}
               total={total}
               puedeExportar={puedeExportar}
@@ -244,13 +284,17 @@ export default function UsersGestion({ puedeExportar }: {
               loading={loading}
               error={error}
               onReintentar={recargar}
+              vacioMensaje={vacioMensaje}
               meId={me?.id}
+              rolesCatalogo={rolesCatalogo}
               nombreCompania={nombreCompania}
               proveedores={proveedores}
               organismos={organismos}
               onEditar={setEditing}
               onContrasena={setPwdTarget}
               onAlternar={handleToggle}
+              onDarDeBaja={handleDarDeBaja}
+              onReactivar={handleReactivar}
             />
           </>
         )}
@@ -258,12 +302,73 @@ export default function UsersGestion({ puedeExportar }: {
         {seccion === 'historial' && <HistorialPermisos />}
       </div>
 
-      {showCreate && <CreateForm companias={companias} proveedores={proveedores} organismos={organismos} onClose={() => setShowCreate(false)} onCreated={recargar} />}
-      {editing && <EditForm user={editing} companias={companias} proveedores={proveedores} organismos={organismos} onClose={() => setEditing(null)} onSaved={recargar} />}
+      {showCreate && (
+        <CreateForm
+          companias={companias}
+          proveedores={proveedores}
+          organismos={organismos}
+          catalogo={catalogo}
+          rolesCatalogo={rolesCatalogo}
+          onClose={() => setShowCreate(false)}
+          onCreated={recargar}
+        />
+      )}
+      {editing && (
+        <EditForm
+          user={editing}
+          companias={companias}
+          proveedores={proveedores}
+          organismos={organismos}
+          catalogo={catalogo}
+          rolesCatalogo={rolesCatalogo}
+          onClose={() => setEditing(null)}
+          onSaved={recargar}
+        />
+      )}
       {/* La contraseña no cambia rol ni estado: recarga la lista y NO el resumen. */}
       {pwdTarget && <PasswordForm user={pwdTarget} isSelf={pwdTarget.id === me?.id} onClose={() => setPwdTarget(null)} onSaved={load} />}
     </div>
   );
+}
+
+/** Catálogo de funciones UNA vez por página (HU #12087), igual que compañías / proveedores. */
+function useCatalogoFunciones(): CatalogoFuncionesEstado {
+  const [grupos, setGrupos] = useState<GrupoDeFunciones[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [recarga, setRecarga] = useState(0);
+  useEffect(() => {
+    let vivo = true;
+    setGrupos(null); setError(null);
+    permisosApi.funciones()
+      .then((r) => { if (vivo) setGrupos(Array.isArray(r?.grupos) ? r.grupos : []); })
+      .catch((e) => { if (vivo) setError(errorMessage(e)); });
+    return () => { vivo = false; };
+  }, [recarga]);
+  return { grupos, error, recargar: () => setRecarga((n) => n + 1) };
+}
+
+/**
+ * Catálogo de roles UNA vez por página (HU #12088): mapa `codigo → tipoEnlace` + lista para el
+ * `<select>`. Incluye inactivos en el mapa (celda / edición con rol heredado).
+ */
+function useCatalogoRoles(): RolOpcion[] | null {
+  const [roles, setRoles] = useState<RolOpcion[] | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    permisosApi.roles()
+      .then((r) => {
+        if (!vivo) return;
+        const lista = Array.isArray(r?.roles) ? r.roles : [];
+        setRoles(lista.map(rolAOpcion));
+      })
+      .catch(() => { if (vivo) setRoles([]); });
+    return () => { vivo = false; };
+  }, []);
+  return roles;
+}
+
+function rolAOpcion(r: RolCatalogo): RolOpcion {
+  return { value: r.codigo, label: r.nombre, tipoEnlace: r.tipoEnlace, activo: r.activo };
 }
 
 /**

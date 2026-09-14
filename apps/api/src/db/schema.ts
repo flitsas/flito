@@ -82,8 +82,18 @@ export const users = pgTable('users', {
   role: varchar('role', { length: 40 }).notNull()
     .references(() => permisosRoles.codigo, { onDelete: 'restrict', onUpdate: 'restrict' }),
   active: boolean('active').notNull().default(true),
+  /**
+   * OBSOLETA desde la HU #12087: congelada en la foto de la 0188. NO se escribe más, NO se lee para
+   * decidir; la fuente de las páginas por usuario es `permisos_usuario_funcion` (filas `conceder`/
+   * `revocar pagina.<slug>`), que lee `shared/permisos-efectivos.ts`. No se borra (AC6): la fila del
+   * listado la sigue devolviendo tal cual y la SPA ya no la lee.
+   */
   allowedPages: text('allowed_pages').array().notNull().default(sql`'{}'::text[]`),
-  // TRAM-MT-01: organismo DIVIPOLA asignado a usuarios rol `transito` (bandeja aislada).
+  /**
+   * OBSOLETA desde HU #12088. Fuente única de organismos_transito = `flito_gestor_organismos`.
+   * Se conserva NULL tras backfill 0189; no DROP. JWT/bandeja leen el 1.er código de la puente.
+   * No se escribe más desde la API (writes fuerzan null).
+   */
   transitoCodigo: varchar('transito_codigo', { length: 5 }),
   esMecanico: boolean('es_mecanico').notNull().default(false),
   especialidades: text('especialidades').array().notNull().default(sql`'{}'::text[]`),
@@ -123,6 +133,13 @@ export const users = pgTable('users', {
   companiaId: integer('compania_id').references((): any => clients.id, { onDelete: 'restrict' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   sessionInvalidatedAt: timestamp('session_invalidated_at', { withTimezone: true }),
+  /**
+   * HU #12089 — baja lógica. NULL = en alta. Independiente de `active` (suspensión temporal).
+   * La fila sigue existiendo: username/email NO se liberan. Nunca hard-delete de `users`.
+   */
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  /** Actor de la baja; `ON DELETE RESTRICT` = nadie borra la fila del actor mientras haya bajas suyas. */
+  deletedBy: integer('deleted_by').references((): any => users.id, { onDelete: 'restrict' }),
 }, (t) => ({
   // Sirve al listado de usuarios por compañía y, sobre todo, al `ON DELETE RESTRICT`: sin él, borrar
   // una compañía escanea `users` entera para comprobar que nadie la referencia.

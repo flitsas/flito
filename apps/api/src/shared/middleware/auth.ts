@@ -78,51 +78,78 @@ export async function isBlacklisted(token: string): Promise<boolean> {
   return memoryBlacklist.has(token);
 }
 
-// Cache de session_invalidated_at por user_id. TTL 60s evita pegarle a BD por cada request.
-const sessInvalMemCache = new Map<number, { value: number | null; expiresAt: number }>();
+// Cache del gate de sesión (invalidación + baja lógica) por user_id. TTL 60s.
 const SESS_INVAL_CACHE_TTL_MS = 60_000;
 const SESS_INVAL_REDIS_TTL = 60;
 const sessInvalRedisKey = (userId: number) => `auth:sess_inval:${userId}`;
 
-// Flag para deshabilitar el check en tests sin mockear cada selectMock. Producción siempre on.
+// Flag para deshabilitar el check de invalidación en tests sin mockear cada selectMock.
+// La baja lógica (deleted_at) SÍ se comprueba siempre cuando la fila viene de BD.
 function sessionInvalCheckEnabled(): boolean {
   return process.env.AUTH_SKIP_SESSION_INVAL_CHECK !== '1';
 }
 
-async function getSessionInvalidatedMs(userId: number): Promise<number | null> {
-  if (!sessionInvalCheckEnabled()) return null;
+/** Resultado del gate de sesión: baja lógica o marca de invalidación. */
+type SessionGate = { deleted: true } | { deleted: false; invalAt: number | null };
+
+type SessCacheEntry = SessionGate & { expiresAt: number };
+const sessInvalMemCache = new Map<number, SessCacheEntry>();
+
+async function getSessionGate(userId: number): Promise<SessionGate> {
+  // Tests: sin check de invalidación ni de baja (no mockean el SELECT del gate).
+  // Producción nunca define AUTH_SKIP_SESSION_INVAL_CHECK.
+  if (!sessionInvalCheckEnabled()) {
+    return { deleted: false, invalAt: null };
+  }
+
   const now = Date.now();
   const memHit = sessInvalMemCache.get(userId);
-  if (memHit && memHit.expiresAt > now) return memHit.value;
+  if (memHit && memHit.expiresAt > now) {
+    return memHit.deleted ? { deleted: true } : { deleted: false, invalAt: memHit.invalAt };
+  }
 
   const r = getRedis();
   if (r) {
     try {
       const cached = await r.get(sessInvalRedisKey(userId));
       if (cached !== null) {
-        const value = cached === '0' ? null : Number(cached);
-        sessInvalMemCache.set(userId, { value, expiresAt: now + SESS_INVAL_CACHE_TTL_MS });
-        return value;
+        if (cached === 'D') {
+          sessInvalMemCache.set(userId, { deleted: true, expiresAt: now + SESS_INVAL_CACHE_TTL_MS });
+          return { deleted: true };
+        }
+        const invalAt = cached === '0' ? null : Number(cached);
+        sessInvalMemCache.set(userId, { deleted: false, invalAt, expiresAt: now + SESS_INVAL_CACHE_TTL_MS });
+        return { deleted: false, invalAt };
       }
     } catch { /* Redis caído, leemos BD */ }
   }
 
-  // Fail-soft: si la consulta falla, asumimos null (no invalidación) para no convertir
-  // un hipotético outage de BD en cierre total del servicio.
-  let value: number | null = null;
+  // Fail-soft SOLO si la consulta falla: no convertir un outage de BD en cierre total.
+  // Si la fila viene con deletedAt, se rechaza (HU #12089) — no se asume «vivo».
+  let gate: SessionGate = { deleted: false, invalAt: null };
   try {
-    const [row] = await db.select({ s: users.sessionInvalidatedAt }).from(users).where(eq(users.id, userId)).limit(1);
-    value = row?.s ? row.s.getTime() : null;
+    const [row] = await db.select({
+      s: users.sessionInvalidatedAt,
+      deletedAt: users.deletedAt,
+    }).from(users).where(eq(users.id, userId)).limit(1);
+    if (row?.deletedAt) {
+      gate = { deleted: true };
+    } else {
+      gate = { deleted: false, invalAt: row?.s ? row.s.getTime() : null };
+    }
   } catch (err) {
-    log.warn({ err: (err as Error)?.message, userId }, 'session_invalidated_at fetch fail — fail-soft');
-    return null;
+    log.warn({ err: (err as Error)?.message, userId }, 'session gate fetch fail — fail-soft');
+    return { deleted: false, invalAt: null };
   }
-  sessInvalMemCache.set(userId, { value, expiresAt: now + SESS_INVAL_CACHE_TTL_MS });
+
+  sessInvalMemCache.set(userId, { ...gate, expiresAt: now + SESS_INVAL_CACHE_TTL_MS });
   if (r) {
-    try { await r.set(sessInvalRedisKey(userId), value === null ? '0' : String(value), 'EX', SESS_INVAL_REDIS_TTL); }
-    catch { /* ignorar */ }
+    try {
+      const payload = gate.deleted ? 'D' : (gate.invalAt === null ? '0' : String(gate.invalAt));
+      await r.set(sessInvalRedisKey(userId), payload, 'EX', SESS_INVAL_REDIS_TTL);
+    } catch { /* ignorar */ }
   }
-  return value;
+  return gate;
 }
 
 export function invalidateSessionCacheFor(userId: number): void {
@@ -149,10 +176,14 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     const { payload } = await jwtVerify(token, secret);
     const userId = Number(payload.sub);
     const iat = typeof payload.iat === 'number' ? payload.iat * 1000 : 0;
-    const invalAt = await getSessionInvalidatedMs(userId);
+    const gate = await getSessionGate(userId);
+    if (gate.deleted) {
+      res.status(401).json({ error: 'Sesión invalidada — vuelva a iniciar sesión' });
+      return;
+    }
     // Si el token fue emitido ANTES de que se invalidaran las sesiones del user, rechazar.
     // Tokens viejos (sin iat o con iat=0) siempre fallan si el user tiene marca de invalidación.
-    if (invalAt !== null && iat <= invalAt) {
+    if (gate.invalAt !== null && iat <= gate.invalAt) {
       res.status(401).json({ error: 'Sesión invalidada — vuelva a iniciar sesión' });
       return;
     }

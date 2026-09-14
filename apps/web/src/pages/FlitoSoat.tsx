@@ -4,7 +4,6 @@
 // La visibilidad la impone el servidor: Operaciones ve todo; el gestor solo su proveedor y nunca
 // los Pendiente; Auditoría es solo lectura.
 
-import { puedeOperar } from '../lib/permissions';
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ANS_OPERATIVO, ESTADO_SOAT_LABEL, EstadoSoat, type FiltroVigenciaCola } from '@operaciones/shared-types';
@@ -34,8 +33,9 @@ import {
 // Ni `CeldaTramite` ni `ENCABEZADOS_COMUNES`: desde la HU #11905 esta cola dejó de girar sobre el
 // trámite (RN-01: un SOAT es por VIN, no por trámite). Las otras tres tablas que comparten ese
 // archivo —impuestos, derechos y el reporte de costos— lo siguen enseñando igual, y por eso el
-// cambio se queda aquí y no allí. El vehículo lo pinta `CeldaVehiculoSoat`, local a esta página.
+// cambio se queda aquí y no allí. El vehículo lo pinta `CeldaVehiculoSoat` (hermano en flito/).
 import { CeldaFechas, documentoConTipo } from '../components/flit/columnasComunes';
+import CeldaVehiculoSoat from '../components/flito/CeldaVehiculoSoat';
 import Paginacion from '../components/flit/Paginacion';
 import VisorSoportes from '../components/flit/VisorSoportes';
 import useDebounce from '../lib/useDebounce';
@@ -105,9 +105,6 @@ const TONO: Record<EstadoSoat, ChipTone> = {
 };
 const pesos = (v: number | null | undefined) => v === null || v === undefined ? '—'
   : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
-/** Un dato de texto de FLIT, tal cual llega. Ausente —`null` o vacío— se pinta «—» (HU #11906, AC2):
-    un hueco en blanco se confunde con un fallo de carga, y esto no lo es. No transforma el valor. */
-const dato = (v: string | null) => (v && v.trim() ? v : '—');
 const fecha = (iso: string | null) => iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—';
 
 /**
@@ -156,20 +153,21 @@ const ESTADOS_CLIENTE: EstadoSoat[] = [
 ];
 
 export default function FlitoSoat() {
-  const { user } = useAuth();
-  const esOperaciones = puedeOperar(user?.role);
-  const esGestor = user?.role === 'proveedor';
-  const soloLectura = user?.role === 'auditor';
-  // Usuario de una compañía cliente (Feature #11912). No ve nada de la trastienda: ni con qué
-  // proveedor trabaja FLITO, ni quién lo despachó, ni lo que FLITO pagó por la póliza. El backend
-  // ya no se lo manda —esa es la garantía—; esto es lo que evita que la pantalla pinte columnas
-  // vacías de datos que para él no existen.
-  const esCliente = user?.role === 'cliente';
+  const { user, hasFuncion, funciones } = useAuth();
+  // HU #12170: modos de UI derivados de funciones del catálogo, no de `role ===`.
+  const esOperaciones = hasFuncion('soat.solicitud.enviar');
+  const esGestor = hasFuncion('soat.comprobante.cargar') && !esOperaciones;
+  const soloLectura = hasFuncion('soat.cola.ver') && !hasFuncion('soat.comprobante.cargar') && !esOperaciones;
+  // Canal cliente: tiene radicar y no envía a gestor (admin tiene ambas → operaciones).
+  const esCliente = hasFuncion('soat.solicitud.crear') && !esOperaciones;
   // La capacidad de radicar (HU #11914). Sale de `/auth/me`, así que resuelve ANTES que la cola y el
   // botón no parpadea de «puedo» a «no puedo». No es la frontera: los dos endpoints del canal la
   // vuelven a comprobar y responden 403.
   const puedeSolicitar = puedeSolicitarSoat(user);
   const { state: estadoNavegacion } = useLocation();
+  // AC4 / CF-21 (se pinta abajo, tras los hooks).
+  const sinFuncionesPantalla = funciones !== null
+    && !hasFuncion('soat.cola.ver') && !hasFuncion('soat.solicitud.crear');
 
   const estadosDisponibles = esGestor ? ESTADOS_GESTOR : esCliente ? ESTADOS_CLIENTE : ESTADOS_ADMIN;
   const [estado, setEstado] = useState<EstadoSoat | 'todos'>(esGestor ? EstadoSoat.SOLICITADO : 'todos');
@@ -385,6 +383,15 @@ export default function FlitoSoat() {
 
   return (
     <div className="space-y-4">
+      {sinFuncionesPantalla ? (
+        <>
+          <PageHeaderCard title="SOAT" />
+          <p className="rounded-[10px] px-4 py-3 text-sm" style={{ background: 'var(--flit-bg-app)', color: 'var(--flit-text-primary)' }}>
+            Su usuario no tiene ninguna función habilitada en esta pantalla. Si cree que debería operar aquí, pida a un administrador que revise el cuadro de su rol.
+          </p>
+        </>
+      ) : (
+      <>
       <PageHeaderCard
         title="SOAT"
         // El subtítulo de siempre es vocabulario de Operaciones —«cola de adquisición», «RN-01»— y le
@@ -683,51 +690,9 @@ export default function FlitoSoat() {
       {cargaMasiva && (
         <CargaMasiva onClose={() => setCargaMasiva(false)} onListo={() => { setCargaMasiva(false); refrescar(); }} />
       )}
-    </div>
-  );
-}
-
-/**
- * El vehículo, en la versión de esta cola: lo mismo que pinta `CeldaVehiculo` de
- * `components/flit/columnasComunes` MÁS «Múltiple propietario».
- *
- * Es una copia local a propósito (HU #11905). Ese aviso es un atributo del SOAT
- * (`esMultiplePropietario`), no del trámite: viajaba como `extra` de `CeldaTramite` solo porque esa
- * columna era la que tenía sitio, y al retirarla se habría perdido un dato que ningún AC pidió
- * quitar. La alternativa —añadir una prop a la celda compartida— dejaría el aislamiento de las otras
- * tres tablas (impuestos, derechos, reporte de costos) dependiendo de que nadie pase el argumento;
- * aquí depende de que no exista. El precio, ~10 líneas duplicadas del kit, se acepta y se declara.
- *
- * Si el kit cambia el vehículo, esta celda NO lo hereda: es justo lo que la HU #11905 pide, y el
- * eslabón 2 (HU #11906) añadió aquí cilindraje, carrocería y tipo de servicio sin tocar el kit.
- */
-function CeldaVehiculoSoat({ placa, vin, marca, linea, cilindraje, carroceria, tipoServicio, multiplePropietario }: {
-  placa: string | null; vin: string | null; marca: string | null; linea: string | null;
-  cilindraje: string | null; carroceria: string | null; tipoServicio: string | null;
-  multiplePropietario: boolean;
-}) {
-  const vehiculo = [marca, linea].filter(Boolean).join(' ');
-  return (
-    <td className="px-4 py-2 align-top">
-      <div className="text-sm font-semibold">{placa ?? '—'}</div>
-      {/* El VIN en monoespaciado: son diecisiete caracteres que se comparan de un vistazo. */}
-      <div className="font-mono text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>{vin ?? '—'}</div>
-      {vehiculo && <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{vehiculo}</div>}
-      {/* HU #11906 — cilindraje, carrocería y tipo de servicio en UNA línea dentro de esta celda, no
-          en tres columnas nuevas: serían 13 columnas, más ancha que antes de la HU #11905, que vino
-          justo a aligerarla. Las tres ranuras se pintan SIEMPRE y en orden fijo, con rótulo corto;
-          la que falta dice «—» en su sitio y la línea no se colapsa, porque `— · — · —` con rótulos
-          dice QUÉ falta y sin ellos no diría nada.
-          Los valores se pintan tal como llegan: nada de `parseInt` ni separador de miles sobre el
-          cilindraje (ver el comentario de `SoatItem`). */}
-      <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
-        Cil. {dato(cilindraje)} · Carr. {dato(carroceria)} · Serv. {dato(tipoServicio)}
-      </div>
-      {/* Mismo tratamiento tipográfico que tenía como `extra` del trámite: ni más ni menos énfasis. */}
-      {multiplePropietario && (
-        <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Múltiple propietario</div>
+      </>
       )}
-    </td>
+    </div>
   );
 }
 

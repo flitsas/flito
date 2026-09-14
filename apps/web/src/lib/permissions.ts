@@ -1,12 +1,20 @@
 // Catálogo de páginas, roles y permisos: FUENTE ÚNICA en @operaciones/shared-types
-// (compartida con el backend). Este módulo solo re-exporta + añade los helpers
-// `effectivePages`/`hasPage` (forma Set, conveniente para la UI) sobre el
-// `getEffectivePages` compartido. NO redefinir catálogos aquí.
-import { getEffectivePages, type PageSlug, type UserRole } from '@operaciones/shared-types';
+// (compartida con el backend). Este módulo re-exporta + añade `effectivePages`/`hasPage` y, desde
+// la HU #12170, `effectiveFunctions`/`hasFuncion` sobre el conjunto que entrega
+// `GET /api/permisos/mios` (HU #12082). La SPA no recalcula (R ∪ C) \ V: obedece lo ya resuelto.
+
+import { isValidPage, type PageSlug, type UserRole } from '@operaciones/shared-types';
 // `rutaInicio` (abajo) deriva el destino del catálogo de navegación. El import es de VALOR y va en
 // este sentido; el que `navItems.ts` hace de este módulo es `import type` y se borra al compilar,
 // así que no hay ciclo en ejecución. Ver la nota de `lib/ayudaFlito.ts`.
 import { NAV_ITEMS, navItemPermitido } from '../components/shell/navItems';
+import {
+  COPY_SIN_FUNCIONES_PANTALLA,
+  effectiveFunctions,
+  hasFuncion,
+  motivoSinFuncion,
+  type FuncionesEfectivas,
+} from './permissions-funciones';
 
 export {
   PAGES,
@@ -19,25 +27,28 @@ export {
   isValidPage,
 } from '@operaciones/shared-types';
 export type { PageSlug, UserRole } from '@operaciones/shared-types';
+export {
+  COPY_SIN_FUNCIONES_PANTALLA,
+  effectiveFunctions,
+  hasFuncion,
+  motivoSinFuncion,
+};
+export type { FuncionesEfectivas };
 
-/** Lo mínimo que hay que saber de un usuario para resolver sus permisos. */
+/** Lo mínimo que hay que saber de un usuario para resolver sus páginas. */
 export type UsuarioPermisos = { role: string; allowedPages?: string[] | null };
 
+/**
+ * Páginas efectivas en el menú: exactamente lo que trajo `/me` (ya resuelto en servidor).
+ * Sin unión con defaults compilados — eso tapaba `revocar` / cuadros editados (#12085+#12087).
+ */
 export function effectivePages(user: UsuarioPermisos | null): Set<PageSlug> {
   if (!user) return new Set();
-  // role llega como string desde el JWT/me; getEffectivePages valida internamente.
-  return new Set(getEffectivePages(user as { role: import('@operaciones/shared-types').UserRole; allowedPages?: string[] | null }));
+  return new Set((user.allowedPages ?? []).filter(isValidPage));
 }
 
 export function hasPage(user: UsuarioPermisos | null, page: PageSlug): boolean {
   return effectivePages(user).has(page);
-}
-
-// FLITO: `operaciones` es funcionalmente el mismo perfil que `admin` (superusuario del dominio).
-// Ambos operan/mutan; los gestores y auditoría son roles acotados aparte.
-export function puedeOperar(role: string | undefined): boolean {
-  // El operador FLITO ES el admin (despliegue FLITO-only; el rol `operaciones` se fusionó en `admin`).
-  return role === 'admin';
 }
 
 // ────────────────────────── Dónde empieza un usuario (HU #11913) ────────────────────────────────

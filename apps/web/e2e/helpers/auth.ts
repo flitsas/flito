@@ -1,5 +1,5 @@
 import { Page } from '@playwright/test';
-import { PAGES } from '@operaciones/shared-types';
+import { PAGES, isValidPage, paginasPorDefecto, type UserRole } from '@operaciones/shared-types';
 
 /**
  * Las páginas que `/auth/me` devuelve DE VERDAD para un admin de producción.
@@ -22,6 +22,16 @@ import { PAGES } from '@operaciones/shared-types';
  * un fallo de permisos en vez de verlo.
  */
 export const ADMIN_ALLOWED_PAGES = Object.keys(PAGES).filter((slug) => slug !== 'flito_ayuda');
+
+/**
+ * Reproduce lo que el servidor pone en `/me`: ∪(defaults del rol, allowedPages del fixture).
+ * HU #12087: la SPA ya no une en el cliente; el mock de `/me` tiene que traer la lista resuelta.
+ */
+export function sobreDeMe<T extends { role: string; allowedPages?: string[] | null }>(user: T): T & { allowedPages: string[] } {
+  const fromRole = paginasPorDefecto(user.role as UserRole);
+  const fromUser = (user.allowedPages ?? []).filter(isValidPage);
+  return { ...user, allowedPages: Array.from(new Set([...fromRole, ...fromUser])) };
+}
 
 export const ADMIN_USER = {
   id: 1,
@@ -127,7 +137,94 @@ export const CLIENTE_USER = {
 // del AC5 pasaría por vacío el día que alguien invirtiera el valor por defecto.
 export const CLIENTE_CON_CANAL = { ...CLIENTE_USER, puedeSolicitarSoat: true };
 
-const TOKEN_E2E = 'fake.jwt.e2e';
+/** El token que `loginAs` siembra en `localStorage`: lo que un test afirma en `Authorization: Bearer …`. */
+export const TOKEN_E2E = 'fake.jwt.e2e';
+
+// ─── HU #12170 — `GET /api/permisos/mios` ────────────────────────────────────────────────────────
+//
+// Desde la HU #12170 las pantallas FLITO (SOAT, Impuestos, Trámites, la cola SOAT legacy y Roles y
+// permisos) no preguntan `role ===`: preguntan `hasFuncion('código')` sobre el conjunto que
+// `AuthProvider` pide a `/permisos/mios` al cuajar la sesión. `null` = no llegó (fail-closed);
+// `[]` = llegó y no puede nada, y FlitoSoat pinta «Su usuario no tiene ninguna función habilitada».
+//
+// Como `loginAs` MOCKEA la sesión y nunca toca el API, el catch-all de `fixtures.ts` respondía
+// `200 []` a `/mios` y toda cola se quedaba en el vacío del CF-21 (51 rojos del smoke el 14-sep).
+// Igual que `sobreDeMe` reproduce el reparto de páginas, este mapa reproduce el reparto de
+// FUNCIONES sembrado en `0179_permisos_modelo.sql` — solo las que alguna pantalla pregunta. Si una
+// pantalla nueva pregunta un código nuevo, entra aquí, no en el spec.
+
+/** Lo que cualquiera que entra a la cola SOAT puede: verla, filtrarla y abrir una solicitud. */
+const SOAT_LEER = [
+  'soat.cola.ver', 'soat.cola.filtrar', 'soat.solicitud.ver', 'soat.solicitud.ver_historial',
+  'soat.solicitud.ver_soportes',
+] as const;
+
+/**
+ * Reparto por rol, como lo devuelve el servidor para cada fixture de arriba (0179 + 0181), acotado
+ * a los códigos que alguna pantalla pregunta (`grep -rn "hasFuncion('" apps/web/src`). Admin =
+ * operaciones: todos menos los tres del canal cliente (`soat.solicitud.crear`, `runt.preconsultar`,
+ * `factura.leer` son SOLO del cliente; admin nunca radica por ese canal). El proveedor (gestor
+ * SOAT) carga comprobantes; el auditor solo lee; financiera liquida y factura; los de campo no
+ * tienen ninguna. Un rol que no esté aquí recibe `[]`, lo mismo que daba el catch-all.
+ */
+export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
+  admin: [
+    ...SOAT_LEER, 'soat.comprobante.cargar', 'soat.solicitud.enviar',
+    'impuestos.cola.ver', 'impuestos.recibos.cargar', 'impuestos.tramite.enviar',
+    'tramites.solicitud.pedir_soat', 'tramites.autogestion.desbloquear',
+    'tramite.tramite.forzar_continuar', 'compuerta.tramite.entregar', 'logistica.lote.cerrar',
+    'tablero.tablero.ver', 'sync.sync.lanzar',
+    'transito.tramite.tomar', 'transito.bandeja.ver_pendientes', 'transito.config.listar',
+    'transito.config.editar',
+    'liquidacion.liquidacion.liquidar', 'liquidacion.liquidacion.reversar',
+    'liquidacion.liquidacion.facturar',
+    'usuarios.usuario.listar',
+  ],
+  proveedor: [...SOAT_LEER, 'soat.comprobante.cargar'],
+  cliente: [...SOAT_LEER, 'soat.solicitud.crear', 'soat.runt.preconsultar', 'soat.factura.leer'],
+  gestor_impuestos: ['impuestos.cola.ver', 'impuestos.recibos.cargar'],
+  auditor: [...SOAT_LEER, 'impuestos.cola.ver', 'tablero.tablero.ver'],
+  financiera: ['liquidacion.liquidacion.liquidar', 'liquidacion.liquidacion.facturar'],
+  transito: ['transito.tramite.tomar', 'transito.bandeja.ver_pendientes'],
+  mensajero: [],
+  conductor: [],
+};
+
+/** Forma de un fixture de usuario: lo que `sobreDeMe` necesita más `funciones` opcional. */
+export interface UsuarioFixture {
+  id: number;
+  username: string;
+  name: string;
+  role: string;
+  allowedPages?: string[] | null;
+  /** Sustituye el reparto de `FUNCIONES_POR_ROL` para ESTE usuario (excepciones por usuario). */
+  funciones?: readonly string[];
+  [extra: string]: unknown;
+}
+
+/** Lo que `/mios` devuelve para `user`: sus `funciones` si las trae, si no las de su rol. */
+export function funcionesDe(user: UsuarioFixture): string[] {
+  return [...(user.funciones ?? FUNCIONES_POR_ROL[user.role] ?? [])];
+}
+
+/** Cuerpo de `GET /api/permisos/mios` como lo arma el servidor (HU #12170). */
+export function sobreDeMios(user: UsuarioFixture, funciones = funcionesDe(user)) {
+  const externo = user.role === 'cliente' || user.role === 'proveedor';
+  return {
+    funciones, rol: user.role, tipoPrincipal: externo ? 'externo' : 'interno',
+    version: 1, resueltoEn: '2026-09-14T12:00:00.000Z',
+  };
+}
+
+export interface OpcionesLogin {
+  /**
+   * Qué responde `/mios` en esta sesión. Por defecto, `funcionesDe(user)`. `null` = NO registrar el
+   * mock: el spec trae el suyo (p. ej. `roles-permisos` cuenta las peticiones y `permisos-botones-
+   * funcion` certifica los dos extremos). Hace falta porque Playwright evalúa `page.route` en orden
+   * INVERSO de registro: el que registre `loginAs` taparía a uno registrado antes por el spec.
+   */
+  funciones?: readonly string[] | null;
+}
 
 /**
  * Deja la pestaña autenticada como `user` y aterrizada en `/login`.
@@ -139,11 +236,22 @@ const TOKEN_E2E = 'fake.jwt.e2e';
  * usarse ANTES del primer `loginAs` de ese test. Hoy los tres que lo hacen ya lo cumplen; invertir
  * ese orden da un rojo desconcertante, con la app en `/` y sin formulario de login.
  */
-export async function loginAs(page: Page, user = ADMIN_USER) {
+export async function loginAs(page: Page, user: UsuarioFixture = ADMIN_USER, opciones: OpcionesLogin = {}) {
+  const me = sobreDeMe(user);
   // /me responde 200 con el user — necesario para que useAuth() considere la sesión válida.
+  // HU #12087: lista resuelta como el servidor (`sobreDeMe`).
   await page.route('**/api/auth/me', async (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(user) })
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(me) })
   );
+  // HU #12170: `AuthProvider` pide `/permisos/mios` al cuajar la sesión y las pantallas FLITO
+  // preguntan `hasFuncion` sobre esa respuesta. Sin esto, el catch-all responde `[]` y la cola se
+  // queda en «no tiene ninguna función habilitada». `funciones: null` deja que el spec lo mockee.
+  if (opciones.funciones !== null) {
+    const mios = sobreDeMios(user, opciones.funciones ? [...opciones.funciones] : undefined);
+    await page.route(/\/api\/permisos\/mios$/, async (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mios) })
+    );
+  }
   // Pasamos por /login para tener un origin válido y poder escribir en localStorage.
   await page.goto('/login');
   await page.evaluate((token) => localStorage.setItem('token', token), TOKEN_E2E);

@@ -206,9 +206,10 @@ function ProgresoTraspasoPills({ step, pasoActivo, pasoSoloLectura, pasoNavHabil
 export default function TramiteTraspaso() {
   const [params] = useSearchParams();
   const resumeId = params.get('id');
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
-  const isTransito = user?.role === 'transito';
+  const { hasFuncion } = useAuth();
+  // HU #12170: forzar continuidad = función del catálogo; bandeja de tránsito sin forzar = gestor OT.
+  const isAdmin = hasFuncion('tramite.tramite.forzar_continuar');
+  const isTransito = hasFuncion('transito.tramite.tomar') && !isAdmin;
 
   const [step, setStep] = useState(1);
   const [tramiteId, setTramiteId] = useState<number | null>(resumeId ? Number(resumeId) : null);
