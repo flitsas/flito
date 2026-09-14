@@ -37,8 +37,8 @@ CREATE TABLE IF NOT EXISTS flito_servicios_adicionales_tipos (
 );
 
 COMMENT ON TABLE flito_servicios_adicionales_tipos IS 'HU #12541 catálogo de tipos de servicio adicional. Baja LÓGICA (activo=false + dado_de_baja_en); nunca DELETE ni reactivación. El nombre plegado es único entre los activos.';
-COMMENT ON COLUMN flito_servicios_adicionales_tipos.dado_de_baja_por_id IS 'Actor de la baja; FK RESTRICT (nunca hard-delete de users). Va en pareja con dado_de_baja_en (CHECK baja_chk).';
-COMMENT ON COLUMN flito_servicios_adicionales_tipos.creado_por_id IS 'Actor del alta; FK RESTRICT. NULL solo en las filas sembradas por esta migración.';
+COMMENT ON COLUMN flito_servicios_adicionales_tipos.dado_de_baja_por_id IS 'Actor de la baja; FK RESTRICT (nunca hard-delete de users). Acompaña a dado_de_baja_en; el CHECK baja_chk ata activo con la fecha, no con el actor.';
+COMMENT ON COLUMN flito_servicios_adicionales_tipos.creado_por_id IS 'Actor del alta; FK RESTRICT. NULL en las filas sembradas por esta migración (sin actor).';
 COMMENT ON COLUMN flito_servicios_adicionales_tipos.actualizado_por_id IS 'Último actor que editó nombre, descripción o valor; FK RESTRICT.';
 
 -- ── Paso 2 — Un nombre plegado por tipo ACTIVO ──────────────────────────────────────────────────
