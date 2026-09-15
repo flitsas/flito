@@ -151,7 +151,7 @@ Las demás van en el Excel · Exportar a Excel
 
 Copys fijos: **«Mostrar todas las columnas»** / **«Compactar columnas»**; «9 de 29 columnas» / «29 columnas»
 (cifras de `COMPACTAS.length` / `COLUMNAS.length`, nunca escritas); anuncios **«Vista compacta: 9 de 29
-columnas.»** / **«Todas las columnas: 28.»**; cabecera **«Aprobación»** (compacta) y **«Fechas»** (ampliada);
+columnas.»** / **«Todas las columnas: 29.»**; cabecera **«Aprobación»** (compacta) y **«Fechas»** (ampliada);
 sin fecha: **«Sin aprobar»** en cursiva tenue, igual que `CeldaFechas`; rótulo del pie **«Totales (N trámites
 del filtro)»** sin cambio.
 

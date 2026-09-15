@@ -2110,7 +2110,7 @@ test.describe('Reporte de costos — compacta de nueve columnas que cabe en pant
     expect(anchoAmpliada).toBeLessThanOrEqual(TOPE_EMPRESA);
   });
 
-  test('AC6 — un clic amplía a 28 y otro vuelve a 9; el foco no se mueve, se anuncia y se recuerda en UNA clave', async ({ page }) => {
+  test('AC6 — un clic amplía a 29 y otro vuelve a 9; el foco no se mueve, se anuncia y se recuerda en UNA clave', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     // Dos filas, una con el SOAT conciliado: la marca vive en la celda SOAT, que se calla en compacta.
     await mockConciliacion(page);
@@ -2744,6 +2744,10 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     await expect(panelServicios(page).getByText('¿Quitar «Diagnóstico» ($ 85.000)?')).toBeVisible();
     // No es un diálogo encima del diálogo: sigue habiendo UN solo `role="dialog"` (§12-D2).
     await expect(page.getByRole('dialog')).toHaveCount(1);
+    // El foco entra en «Cancelar», NO en el «Quitar» que confirma: en una acción sin vuelta el foco
+    // no se pone por defecto sobre la que la ejecuta. Sin este aserto, mover el foco al botón
+    // destructivo —o dejarlo en `<body>` al desmontarse el que abrió— no lo vería nadie.
+    await expect(panelServicios(page).getByRole('button', { name: 'Cancelar' })).toBeFocused();
 
     await panelServicios(page).getByRole('button', { name: 'Cancelar' }).click();
     await expect(panelServicios(page).getByText('¿Quitar «Diagnóstico»')).toHaveCount(0);
