@@ -169,6 +169,19 @@ const SERVICIOS_ADICIONALES = [
 ] as const;
 
 /**
+ * Las TRES de la 0193 (HU #12545), que son de otro módulo que las cuatro de arriba: aquellas son el
+ * CATÁLOGO de tipos (`parametrizacion.*`), estas son la ASIGNACIÓN a un trámite (`finanzas.*`).
+ *
+ * El reparto no es simétrico y por eso van separadas: `…ver` la tiene TAMBIÉN el auditor —el panel
+ * de la HU #12548 es de solo lectura para él, y sin la función no podría ni abrirlo—, mientras que
+ * `…asignar` y `…quitar` son de admin y financiera.
+ */
+const SERVICIOS_DE_TRAMITE_VER = 'finanzas.servicios_adicionales.ver';
+const SERVICIOS_DE_TRAMITE_ESCRIBIR = [
+  'finanzas.servicios_adicionales.asignar', 'finanzas.servicios_adicionales.quitar',
+] as const;
+
+/**
  * Reparto por rol, como lo devuelve el servidor para cada fixture de arriba (0179 + 0181), acotado
  * a los códigos que alguna pantalla pregunta (`grep -rn "hasFuncion('" apps/web/src`). Admin =
  * operaciones: todos menos los tres del canal cliente (`soat.solicitud.crear`, `runt.preconsultar`,
@@ -189,12 +202,16 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     'liquidacion.liquidacion.facturar',
     'usuarios.usuario.listar',
     ...SERVICIOS_ADICIONALES,
+    SERVICIOS_DE_TRAMITE_VER, ...SERVICIOS_DE_TRAMITE_ESCRIBIR,
   ],
   proveedor: [...SOAT_LEER, 'soat.comprobante.cargar'],
   cliente: [...SOAT_LEER, 'soat.solicitud.crear', 'soat.runt.preconsultar', 'soat.factura.leer'],
   gestor_impuestos: ['impuestos.cola.ver', 'impuestos.recibos.cargar'],
-  auditor: [...SOAT_LEER, 'impuestos.cola.ver', 'tablero.tablero.ver'],
-  financiera: ['liquidacion.liquidacion.liquidar', 'liquidacion.liquidacion.facturar', ...SERVICIOS_ADICIONALES],
+  auditor: [...SOAT_LEER, 'impuestos.cola.ver', 'tablero.tablero.ver', SERVICIOS_DE_TRAMITE_VER],
+  financiera: [
+    'liquidacion.liquidacion.liquidar', 'liquidacion.liquidacion.facturar', ...SERVICIOS_ADICIONALES,
+    SERVICIOS_DE_TRAMITE_VER, ...SERVICIOS_DE_TRAMITE_ESCRIBIR,
+  ],
   transito: ['transito.tramite.tomar', 'transito.bandeja.ver_pendientes'],
   mensajero: [],
   conductor: [],

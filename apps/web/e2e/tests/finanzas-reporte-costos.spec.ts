@@ -1,5 +1,5 @@
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, OPERACIONES_USER, AUDITOR_USER, TOKEN_E2E } from '../helpers/auth';
+import { loginAs, funcionesDe, OPERACIONES_USER, AUDITOR_USER, TOKEN_E2E } from '../helpers/auth';
 
 // HU #10967 — Reporte de costos. Liquidar, facturar y consultar soportes sin salir de la pantalla.
 // Las filas liquidadas muestran valores sellados; el resto, un estimado. Backend mockeado.
@@ -26,6 +26,12 @@ const FILA_ESTIMADA = {
   titularTipoDocumento: 'CC', titularDocumento: '1020304050',
   organismoCodigo: '05266', organismoNombre: 'Envigado', mes: '2026-07', trimestre: '2026-T3',
   totalReintegro: 668460, totalServicio: 200000,
+  // Servicios adicionales (HU #12546 los manda, la #12548 los pinta). Los DOS campos, porque la
+  // celda la gobierna la CANTIDAD: sin ellos en las fixtures la columna sale vacía en todos los
+  // casos y media docena de asertos pasarían en verde vacío. El importe NO está sumado en
+  // `totalServicio` a propósito (200000 es solo el trámite digital): así un cálculo local de la
+  // pantalla se delata en vez de coincidir por casualidad.
+  serviciosAdicionales: 125000, serviciosAdicionalesCantidad: 2,
 };
 const FILA_BLOQUEADA = {
   ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000002', idFlit: 'FLIT-2002',
@@ -33,6 +39,8 @@ const FILA_BLOQUEADA = {
   tramiteDigital: null, total: null, noConfigurados: ['Trámite digital'], sinRecibo: [],
   // El servicio es el trámite digital, y sin tarifa el subtotal viene en null: no es $ 0.
   totalServicio: null,
+  // Sin ningún servicio adicional, y eso es una AFIRMACIÓN: cantidad 0 → «—», el vacío del reporte.
+  serviciosAdicionales: null, serviciosAdicionalesCantidad: 0,
 };
 /** Persona jurídica sin organismo: razón social y NIT, nombres vacíos, OT vacía (AC1). */
 const FILA_JURIDICA = {
@@ -41,9 +49,15 @@ const FILA_JURIDICA = {
   titularTipoDocumento: 'NIT', titularDocumento: '900123456',
   organismoCodigo: null, organismoNombre: null,
 };
+/**
+ * Liquidada ANTES de la HU #12546: el sello no lleva la clave y el servidor no la inventa, así que
+ * la cantidad es `null`. No es lo mismo que «no tiene ninguno» y no se puede pintar igual: aquí va
+ * «Sin dato», y en la fila de arriba va «—».
+ */
 const FILA_LIQUIDADA = {
   ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000003', idFlit: 'FLIT-2003',
   sellada: true, estadoLiquidacion: 'liquidado',
+  serviciosAdicionales: null, serviciosAdicionalesCantidad: null,
 };
 const FILA_FACTURADA = {
   ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000004', idFlit: 'FLIT-2004',
@@ -65,6 +79,9 @@ const FILA_SIN_PAGAR = {
   ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000006', idFlit: 'FLIT-2006',
   soat: null, impuesto: null, total: null, totalReintegro: null,
   pendientesPago: ['SOAT'], autogestionados: ['Impuesto'],
+  // DOS servicios que valen cero: un cobro legítimo de $ 0. Es el caso que separa «no hay nada» de
+  // «hay dos cosas y suman cero», y el que mata tanto `pesos(valor ?? 0)` como `if (!valor) vacío`.
+  serviciosAdicionales: 0, serviciosAdicionalesCantidad: 2,
 };
 
 /**
@@ -90,6 +107,10 @@ const REPORTE = {
     soat: 1800000, impuesto: 480000, derechoTramite: 320000, logistica: 60000,
     tramiteDigital: 600000, gmf: 10400, total: 3270400, filasIncompletas: 1,
     totalReintegro: 2670400, totalServicio: 600000,
+    // A PROPÓSITO incoherente con los sumandos de `items` (125.000 × 3 + 0 = 375.000): el pie lo
+    // agrega el SQL sobre el universo filtrado, no sobre la página, y una pantalla que lo sumara
+    // ella misma pintaría 375.000 y caería aquí.
+    serviciosAdicionales: 890000,
   },
   resumen: { listo: 1, incompleto: 3, porFacturar: 1, facturado: 1 },
 };
@@ -232,7 +253,8 @@ async function mock(page: import('@playwright/test').Page) {
 }
 
 /**
- * Desde la HU #12537 la tabla ARRANCA COMPACTA (9 de 28 columnas desde la #12539). Los casos que
+ * Desde la HU #12537 la tabla ARRANCA COMPACTA (9 de 29 columnas: nueve desde la #12539, y la 29ª
+ * es «Serv. adic.» de la #12548, que no entra en la compacta). Los casos que
  * leen una columna de las que se callan —VIN, marca, línea, el titular, OT, Estado, la fecha de
  * creación, un concepto suelto— la piden ampliada ANTES del `goto`, por la misma clave que escribe
  * el control: así prueban su columna, no el control. Los que leen «No configurado» / «Sin recibo»
@@ -1351,17 +1373,20 @@ const CONSOLIDADO = {
     {
       clienteClave: 'c1', clienteNombre: 'ACME SAS', periodo: '2026-09', tramites: 41,
       soat: 1800000, impuesto: 480000, derechoTramite: 320000, gmf: 10400, logistica: 60000,
-      tramiteDigital: 600000, totalReintegro: 2670400, totalServicio: 600000, total: 3270400, filasIncompletas: 0,
+      tramiteDigital: 600000, serviciosAdicionales: 890000,
+      totalReintegro: 2670400, totalServicio: 600000, total: 3270400, filasIncompletas: 0,
     },
     {
       clienteClave: 'n900222', clienteNombre: 'Logicargo', periodo: null, tramites: 4,
       soat: 0, impuesto: 0, derechoTramite: 0, gmf: 0, logistica: 0,
-      tramiteDigital: 0, totalReintegro: 0, totalServicio: 0, total: 0, filasIncompletas: 3,
+      tramiteDigital: 0, serviciosAdicionales: 0,
+      totalReintegro: 0, totalServicio: 0, total: 0, filasIncompletas: 3,
     },
   ],
   totales: {
     soat: 1800000, impuesto: 480000, derechoTramite: 320000, gmf: 10400, logistica: 60000,
-    tramiteDigital: 600000, totalReintegro: 2670400, totalServicio: 600000, total: 3270400, filasIncompletas: 3,
+    tramiteDigital: 600000, serviciosAdicionales: 890000,
+    totalReintegro: 2670400, totalServicio: 600000, total: 3270400, filasIncompletas: 3,
   },
 };
 
@@ -1433,7 +1458,7 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
   test('AC1 — tres grupos rotulados y cada columna bajo el suyo', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockSecciones(page);
-    await ampliarColumnas(page);   // las 28: este caso es de la ampliada; su gemelo compacto está en el bloque de la #12539
+    await ampliarColumnas(page);   // las 29: este caso es de la ampliada; su gemelo compacto está en el bloque de la #12539
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText('FLIT-2001')).toBeVisible();
 
@@ -1446,7 +1471,7 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     expect(grupos['Datos del trámite']).toEqual(
       ['Tipo trámite', 'Marca', 'Línea', 'OT', 'Estado', 'Fechas', 'Mes', 'Trimestre', 'Factura DIAN']);
     expect(grupos['Valores']).toEqual(
-      ['SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística', 'Total reintegro', 'Trámite digital', 'Servicio', 'Total', 'Liquidación']);
+      ['SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística', 'Total reintegro', 'Trámite digital', 'Serv. adic.', 'Servicio', 'Total', 'Liquidación']);
   });
 
   test('AC1 — persona natural y jurídica, con y sin organismo, con y sin aprobación', async ({ page }) => {
@@ -1764,6 +1789,8 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HU #12539 — la compacta se recorta a NUEVE columnas para que quepa en la pantalla de un portátil.
+// (La #12548 añade «Serv. adic.» a la AMPLIADA —29— y un botón más a Acciones; la compacta sigue en
+// nueve y este bloque es el que lo vigila.)
 //
 // Sustituye al bloque de la #12537 (12 columnas, colSpan 3/5/4), que solo medía que la compacta
 // fuera menor que la ampliada: en 1366×768 seguía desbordando (1628 px frente a 1258). Ahora lo que
@@ -1783,7 +1810,10 @@ test.describe('Reporte de costos — compacta de nueve columnas que cabe en pant
   const AMPLIADA: Record<string, string[]> = {
     'Identificación': ['Empresa', 'Flit', 'Placa', 'VIN', 'Nombres', 'Apellidos', 'Razón social', 'Tipo', 'Documento'],
     'Datos del trámite': ['Tipo trámite', 'Marca', 'Línea', 'OT', 'Estado', 'Fechas', 'Mes', 'Trimestre', 'Factura DIAN'],
-    'Valores': ['SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística', 'Total reintegro', 'Trámite digital', 'Servicio', 'Total', 'Liquidación'],
+    // «Serv. adic.» va entre «Trámite digital» y «Servicio» (HU #12548, AC6): la fila se lee como
+    // la cuenta que es. Va DESPUÉS de la primera de Valores, así que `antesDelPrimerTotal` —y con
+    // él el `colSpan` del rótulo del pie— no se mueve; ponerla antes de SOAT lo arrastraría.
+    'Valores': ['SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística', 'Total reintegro', 'Trámite digital', 'Serv. adic.', 'Servicio', 'Total', 'Liquidación'],
   };
   // Las cifras que la pantalla tiene que decir salen de ESTAS listas, no se escriben: si mañana
   // entra una columna, el test cambia con ella y un «9» literal en el código se delata.
@@ -1886,6 +1916,9 @@ test.describe('Reporte de costos — compacta de nueve columnas que cabe en pant
     await expect(t.getByRole('button', { name: /Enviar .* a facturación electrónica/ })).toHaveCount(3);
     await expect(t.getByRole('button', { name: /^Por qué .* no se puede enviar/ })).toHaveCount(1);
     await expect(t.getByRole('button', { name: 'Soporte' })).toHaveCount(10);
+    // El sexto control de la celda (HU #12548). Se afirma AQUÍ, dentro del montaje del gate de
+    // ancho: sin esto el gate mediría una tabla sin el botón nuevo y pasaría en verde vacío.
+    await expect(t.getByRole('button', { name: /^Servicios adicionales de/ })).toHaveCount(10);
     await expect(t.getByText('Factura FV-1-100')).toHaveCount(3);
     await expect(columnas(page)).toHaveCount(N_COMPACTA);
 
@@ -1950,7 +1983,7 @@ test.describe('Reporte de costos — compacta de nueve columnas que cabe en pant
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText('FLIT-2001')).toBeVisible();
 
-    // mutante: estado inicial ampliado (`useState(() => true)`) → aquí salen las 28
+    // mutante: estado inicial ampliado (`useState(() => true)`) → aquí salen las 29
     // mutante: OT con `compacta: true` → cuatro bajo Datos del trámite y colSpan 3/3/4
     expect(await columnasPorGrupo(page)).toEqual(COMPACTA);
     expect(await colSpans(page)).toEqual(Object.values(COMPACTA).map((c) => c.length));
@@ -2068,7 +2101,7 @@ test.describe('Reporte de costos — compacta de nueve columnas que cabe en pant
     await expect(columnas(page)).toHaveCount(N_AMPLIADA);
     expect(antesDelPrimerTotal(AMPLIADA)).toBe(18);
     await expect(rotuloPie(page)).toHaveAttribute('colspan', String(antesDelPrimerTotal(AMPLIADA)));
-    await expect(totalesDelPie).toHaveCount(9);
+    await expect(totalesDelPie).toHaveCount(10);
     await expect(celdaPie('SOAT', AMPLIADA)).toHaveText('$ 1.800.000');
     await expect(celdaPie('Total reintegro', AMPLIADA)).toHaveText('$ 2.670.400');
     await expect(celdaPie('Total', AMPLIADA)).toHaveText('$ 3.270.400');
@@ -2093,7 +2126,7 @@ test.describe('Reporte de costos — compacta de nueve columnas que cabe en pant
     await boton.focus();
     await boton.press('Enter');
     await expect(columnas(page)).toHaveCount(N_AMPLIADA);
-    // mutante: cambiar el orden o quitar una de las 28 al ampliar
+    // mutante: cambiar el orden o quitar una de las 29 al ampliar
     expect(await columnasPorGrupo(page)).toEqual(AMPLIADA);
     expect(await colSpans(page)).toEqual(Object.values(AMPLIADA).map((c) => c.length));
     await expect(boton).toHaveText('Compactar columnas');
@@ -2123,7 +2156,7 @@ test.describe('Reporte de costos — compacta de nueve columnas que cabe en pant
     await page.reload();
     await expect(page.getByText('FLIT-2007')).toBeVisible();
     await expect(columnas(page)).toHaveCount(N_AMPLIADA);
-    // mutante: `!== 'compacta'` como condición → «ampliada» abriría las 28
+    // mutante: `!== 'compacta'` como condición → «ampliada» abriría las 29
     await page.evaluate((k) => localStorage.setItem(k, 'ampliada'), CLAVE);
     await page.reload();
     await expect(page.getByText('FLIT-2007')).toBeVisible();
@@ -2354,5 +2387,587 @@ test.describe('HU #12532 — exportar a Excel con la sesión', () => {
     await expect.poll(() => exportadas.length).toBe(1);
     expect(exportadas[0].headers()['authorization']).toBe(`Bearer ${TOKEN_E2E}`);
     await expect(bandaExport(page, /Archivo descargado: reporte-costos_/)).toBeVisible();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HU #12548 — panel de servicios adicionales del trámite, y la columna «Serv. adic.».
+//
+// Diseño: `docs/ux/finanzas-reporte-costos-servicios-adicionales.md`. Lo que se afirma aquí está
+// escrito para que un mutante MUERA, no para que la pantalla «se vea bien»:
+//   · el refresco se mide contando peticiones AL REPORTE y comprobando que cambian la celda y el
+//     pie — que el panel se repinte a sí mismo no prueba nada;
+//   · el foco, con `toBeFocused()` sobre el botón que abrió el panel;
+//   · «Cancelar» de la confirmación, con el contador de DELETE en 0 sobre estado ya asentado;
+//   · los totales del reporte van a propósito INCOHERENTES con los sumandos, para que una pantalla
+//     que sumara por su cuenta cayera;
+//   · el panel se abre con el importe del SNAPSHOT (85.000), distinto del vigente del catálogo
+//     (120.000): pintar el del catálogo se delata.
+// Backend mockeado.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const HORA = '2026-09-12T14:14:00.000Z';
+const tipo = (id: string, nombre: string, valor: number, descripcion: string | null = null) => ({
+  id, nombre, descripcion, valor, activo: true, dadoDeBajaEn: null, dadoDeBajaPorId: null,
+  creadoEn: HORA, creadoPorId: null, actualizadoEn: HORA, actualizadoPorId: null,
+});
+const TIPO_DIAGNOSTICO = tipo('tttt0000-0000-0000-0000-000000000001', 'Diagnóstico', 120000, 'Revisión visual del vehículo en sede.');
+const TIPO_PETICION = tipo('tttt0000-0000-0000-0000-000000000002', 'Derecho de petición', 40000);
+const TIPO_GRUA = tipo('tttt0000-0000-0000-0000-000000000003', 'Grúa', 85000, 'Traslado en grúa hasta el organismo.');
+const CATALOGO = [TIPO_DIAGNOSTICO, TIPO_PETICION, TIPO_GRUA];
+
+/** El valor es el del INSTANTE de asignar (85.000), no el vigente del catálogo (120.000). */
+const ASIGNADO_DIAGNOSTICO = {
+  id: 'ssss0000-0000-0000-0000-000000000001', tipoId: TIPO_DIAGNOSTICO.id, nombre: 'Diagnóstico',
+  descripcion: TIPO_DIAGNOSTICO.descripcion, valor: 85000,
+  asignadoPorId: 7, asignadoPorNombre: 'Ana Pérez', asignadoEn: HORA,
+};
+const ASIGNADO_PETICION = {
+  id: 'ssss0000-0000-0000-0000-000000000002', tipoId: TIPO_PETICION.id, nombre: 'Derecho de petición',
+  descripcion: null, valor: 40000,
+  asignadoPorId: 7, asignadoPorNombre: 'Ana Pérez', asignadoEn: '2026-09-12T14:15:00.000Z',
+};
+
+interface EstadoPanel {
+  items: Array<typeof ASIGNADO_DIAGNOSTICO>;
+  total: number;
+  liquidado: boolean;
+  getStatus?: number; getCuerpo?: object; getDemoraMs?: number;
+  postStatus?: number; postCuerpo?: object;
+  borrarStatus?: number; borrarCuerpo?: object;
+}
+
+const estadoLleno = (): EstadoPanel => ({
+  items: [{ ...ASIGNADO_DIAGNOSTICO }, { ...ASIGNADO_PETICION }], total: 125000, liquidado: false,
+});
+
+/**
+ * Los tres verbos del trámite sobre la MISMA ruta, con contadores. El POST y el DELETE mutan
+ * `estado`, así que el GET siguiente —y el reporte, que se deriva del mismo estado— dicen lo nuevo.
+ */
+async function mockPanelServicios(page: Pagina, estado: EstadoPanel) {
+  const peticiones = { get: 0, post: 0, borrar: 0 };
+  await page.route(/\/api\/finanzas\/tramites\/[^/]+\/servicios-adicionales/, async (route) => {
+    const metodo = route.request().method();
+    const json = (status: number, cuerpo: unknown) =>
+      route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(cuerpo) });
+
+    if (metodo === 'GET') {
+      peticiones.get += 1;
+      if (estado.getDemoraMs) await new Promise((r) => setTimeout(r, estado.getDemoraMs));
+      if (estado.getStatus) return json(estado.getStatus, estado.getCuerpo ?? { error: 'Error del servidor' });
+      return json(200, { items: estado.items, total: estado.total, liquidado: estado.liquidado });
+    }
+    if (metodo === 'POST') {
+      peticiones.post += 1;
+      if (estado.postStatus) return json(estado.postStatus, estado.postCuerpo ?? { error: 'Error del servidor' });
+      const { tipoId } = JSON.parse(route.request().postData() ?? '{}') as { tipoId: string };
+      const t = CATALOGO.find((c) => c.id === tipoId)!;
+      const nuevo = {
+        id: `ssss0000-0000-0000-0000-9999${t.id.slice(-4)}`, tipoId: t.id, nombre: t.nombre,
+        descripcion: t.descripcion, valor: t.valor,
+        asignadoPorId: 7, asignadoPorNombre: 'Operaciones E2E', asignadoEn: '2026-09-15T10:00:00.000Z',
+      };
+      estado.items = [...estado.items, nuevo];
+      estado.total += t.valor;
+      return json(201, nuevo);
+    }
+    peticiones.borrar += 1;
+    if (estado.borrarStatus) return json(estado.borrarStatus, estado.borrarCuerpo ?? { error: 'Error del servidor' });
+    const id = route.request().url().split('/').pop()!;
+    const fuera = estado.items.find((i) => i.id === id);
+    estado.items = estado.items.filter((i) => i.id !== id);
+    if (fuera) estado.total -= fuera.valor;
+    // 204 SIN CUERPO: si la pantalla intentara `res.json()` aquí, reventaría.
+    return route.fulfill({ status: 204, body: '' });
+  });
+  return peticiones;
+}
+
+/** El catálogo de tipos ACTIVOS, con las URL que llegaron (para afirmar que no se pide al abrir). */
+async function mockCatalogoTipos(page: Pagina, opciones: { tipos?: typeof CATALOGO; status?: number; cuerpo?: object } = {}) {
+  const peticiones: string[] = [];
+  await page.route(/\/api\/flito\/parametrizacion\/servicios-adicionales/, (route) => {
+    peticiones.push(route.request().url());
+    if (opciones.status) {
+      return route.fulfill({ status: opciones.status, contentType: 'application/json',
+        body: JSON.stringify(opciones.cuerpo ?? { error: 'Sin permisos para esta operación' }) });
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(opciones.tipos ?? CATALOGO) });
+  });
+  return peticiones;
+}
+
+/**
+ * El reporte se DERIVA del estado del panel: así, tras un 201 o un 204, lo que cambia en la fila y
+ * en el pie es consecuencia de la escritura y no de un segundo mock escrito a mano.
+ *
+ * El pie NO es la suma de las filas de la página (es el agregado del filtro, que el SQL calcula
+ * sobre todo el universo): se mantiene deliberadamente descuadrado para que una pantalla que lo
+ * sumara ella misma pintara otra cifra y cayera aquí.
+ */
+async function mockReporteDelPanel(
+  page: Pagina,
+  estado: EstadoPanel,
+  { fila = FILA_ESTIMADA, otras = [FILA_BLOQUEADA, FILA_LIQUIDADA] }: { fila?: typeof FILA_ESTIMADA; otras?: unknown[] } = {},
+) {
+  const peticiones: string[] = [];
+  await mockFacetas(page, ['Aprobado']);
+  await mockFacturacion(page);
+  await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) => {
+    peticiones.push(route.request().url());
+    const n = estado.items.length;
+    const items = [
+      { ...fila, serviciosAdicionales: n === 0 ? null : estado.total, serviciosAdicionalesCantidad: n },
+      ...otras,
+    ];
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      ...REPORTE, items, total: items.length,
+      totales: { ...REPORTE.totales, serviciosAdicionales: 890000 + estado.total },
+    }) });
+  });
+  return peticiones;
+}
+
+const botonServicios = (page: Pagina, flit: string) =>
+  page.getByRole('button', { name: new RegExp(`^Servicios adicionales de ${flit}:`) });
+const panelServicios = (page: Pagina) => page.getByRole('dialog', { name: /^Servicios adicionales · / });
+
+test.describe('Reporte de costos — panel de servicios adicionales del trámite (HU #12548)', () => {
+  test('AC1 — el botón lleva el contador de la fila, el panel se identifica y Escape devuelve el foco', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const estado = estadoLleno();
+    await mockReporteDelPanel(page, estado);
+    const panelPeticiones = await mockPanelServicios(page, estado);
+    const catalogo = await mockCatalogoTipos(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    // mutante: contador con `?? 0` → «Servicios · 0» en las dos de abajo
+    await expect(botonServicios(page, 'FLIT-2001')).toHaveText('Servicios · 2');
+    await expect(botonServicios(page, 'FLIT-2002')).toHaveText('Servicios');   // cantidad 0
+    await expect(botonServicios(page, 'FLIT-2003')).toHaveText('Servicios');   // cantidad null
+    await expect(botonServicios(page, 'FLIT-2002')).toHaveAccessibleName('Servicios adicionales de FLIT-2002: ninguno');
+    // El contador NO cuesta una petición: viaja en la fila del reporte.
+    expect(panelPeticiones.get).toBe(0);
+
+    await botonServicios(page, 'FLIT-2001').click();
+    // mutante: título sin la placa → este nombre accesible cambia
+    await expect(panelServicios(page)).toHaveAttribute('aria-label', 'Servicios adicionales · FLIT-2001 · ABC123');
+    // El catálogo NO se precarga al abrir el panel (§12-D5).
+    expect(catalogo).toHaveLength(0);
+
+    await page.keyboard.press('Escape');
+    await expect(panelServicios(page)).toHaveCount(0);
+    // mutante: quitar `useFocusTrap` / no restaurar → el foco se queda en <body>
+    await expect(botonServicios(page, 'FLIT-2001')).toBeFocused();
+  });
+
+  test('AC1 — sin placa el título no deja un « · » colgando, y la ✕ también cierra y devuelve el foco', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const estado = estadoLleno();
+    await mockReporteDelPanel(page, estado, { fila: { ...FILA_ESTIMADA, placa: null } });
+    await mockPanelServicios(page, estado);
+    await page.goto('/finanzas/reporte-costos');
+    await botonServicios(page, 'FLIT-2001').click();
+
+    // mutante: `[...].join(' · ')` sin filtrar nulos → «… · FLIT-2001 · »
+    await expect(panelServicios(page)).toHaveAttribute('aria-label', 'Servicios adicionales · FLIT-2001');
+    await panelServicios(page).getByRole('button', { name: 'Cerrar' }).click();
+    await expect(panelServicios(page)).toHaveCount(0);
+    await expect(botonServicios(page, 'FLIT-2001')).toBeFocused();
+  });
+
+  test('AC2 — los cuatro estados: esqueleto, error con Reintentar que repite el GET, vacío y lleno', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const estado: EstadoPanel = { items: [], total: 0, liquidado: false, getDemoraMs: 1200 };
+    await mockReporteDelPanel(page, estado);
+    const peticiones = await mockPanelServicios(page, estado);
+    await mockCatalogoTipos(page);
+    await page.goto('/finanzas/reporte-costos');
+    await botonServicios(page, 'FLIT-2001').click();
+
+    // Cargando: esqueleto con la FORMA de la lista, no un spinner (mutante: quitar `aria-busy`).
+    const esqueleto = panelServicios(page).getByRole('status', { name: 'Cargando los servicios adicionales del trámite' });
+    await expect(esqueleto).toHaveAttribute('aria-busy', 'true');
+
+    // Vacío: el texto dice cómo se añade el primero, y la primaria está a la vista una sola vez.
+    await expect(panelServicios(page).getByText('Este trámite no tiene servicios adicionales.')).toBeVisible();
+    await expect(panelServicios(page).getByText(/Añade el primero desde el catálogo/)).toBeVisible();
+    await expect(panelServicios(page).getByRole('button', { name: 'Añadir servicio' })).toHaveCount(1);
+    await expect(panelServicios(page).getByText('Sin servicios')).toBeVisible();
+    // En el PIE el cero sí se escribe: es el total del panel, no un concepto ausente de la tabla.
+    await expect(panelServicios(page).getByText('$ 0')).toBeVisible();
+
+    // Error del GET: mensaje + Reintentar que REPITE la petición (mutante: Reintentar que no repide).
+    await panelServicios(page).getByRole('button', { name: 'Cerrar' }).click();
+    estado.getDemoraMs = undefined;
+    estado.getStatus = 500;
+    estado.getCuerpo = { error: 'La base de datos no responde' };
+    await botonServicios(page, 'FLIT-2001').click();
+    const antes = peticiones.get;
+    await expect(panelServicios(page).getByRole('alert')).toContainText('No se pudieron cargar los servicios adicionales de este trámite.');
+    await expect(panelServicios(page).getByRole('alert')).toContainText('La base de datos no responde');
+    estado.getStatus = undefined;
+    estado.items = [{ ...ASIGNADO_DIAGNOSTICO }, { ...ASIGNADO_PETICION }];
+    estado.total = 125000;
+    await panelServicios(page).getByRole('button', { name: 'Reintentar' }).click();
+    expect(peticiones.get).toBe(antes + 1);
+
+    // Lleno: dos renglones por servicio —valor SNAPSHOT, no el del catálogo— y el total al pie.
+    await expect(panelServicios(page).getByText('Diagnóstico', { exact: true })).toBeVisible();
+    // mutante: pintar el valor vigente del catálogo → $ 120.000
+    await expect(panelServicios(page).getByText('$ 85.000')).toBeVisible();
+    await expect(panelServicios(page).getByText(/^Añadió Ana Pérez · /).first()).toBeVisible();
+    await expect(panelServicios(page).getByText('2 servicios')).toBeVisible();
+    // mutante: sumar en la pantalla en vez de pintar el `total` del servidor → coincidiría igual,
+    // por eso el caso que lo mata es el del pie del reporte (AC6) y el del 201 de más abajo.
+    await expect(panelServicios(page).getByText('$ 125.000')).toBeVisible();
+  });
+
+  test('AC3 — el buscador filtra sin tildes, excluye lo asignado, y el 201 refresca la fila y el pie sin aviso global', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const estado = estadoLleno();
+    const reporte = await mockReporteDelPanel(page, estado);
+    const panelPeticiones = await mockPanelServicios(page, estado);
+    const catalogo = await mockCatalogoTipos(page);
+    // Ampliada desde el arranque: la celda «Serv. adic.» se comprueba EN VIVO tras el 201. Un
+    // `page.reload()` a mitad probaría otra cosa —y de paso borraría la selección, que es justo lo
+    // que este test tiene que ver intacta—.
+    await ampliarColumnas(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    // La selección de filas marcadas para liquidar, que `ejecutar()` vaciaría (§12-D11).
+    await page.getByRole('checkbox', { name: 'Seleccionar FLIT-2001' }).check();
+    await expect(page.getByText(/1 seleccionado\(s\)/)).toBeVisible();
+    const peticionesIniciales = reporte.length;
+
+    await botonServicios(page, 'FLIT-2001').click();
+    await expect(panelServicios(page).getByText('Diagnóstico', { exact: true })).toBeVisible();
+    await panelServicios(page).getByRole('button', { name: 'Añadir servicio' }).click();
+    // El catálogo se pide AL PULSAR, no al abrir el panel.
+    // `>= 1` y no `=== 1`: en desarrollo `StrictMode` monta dos veces y el efecto sale dos veces.
+    // Lo que importa es que SALIÓ, y que salió SIN `incluirBajas` (un tipo dado de baja no se cobra).
+    await expect.poll(() => catalogo.length).toBeGreaterThanOrEqual(1);
+    expect(catalogo.every((u) => new URL(u).searchParams.get('incluirBajas') === null)).toBe(true);
+
+    const opciones = panelServicios(page).getByRole('option');
+    // Los dos ya asignados quedan fuera: de tres tipos activos solo Grúa es asignable (AC3).
+    await expect(opciones).toHaveCount(1);
+    await expect(opciones).toHaveText(/Grúa/);
+    // Sin tildes ni mayúsculas, y desde el primer carácter (mutante: `includes` sin normalizar).
+    await panelServicios(page).getByRole('combobox').fill('GRUA');
+    await expect(opciones).toHaveCount(1);
+    await panelServicios(page).getByRole('combobox').fill('diagnost');
+    await expect(opciones).toHaveCount(0);
+    await expect(panelServicios(page).getByText('Ningún tipo activo coincide con «diagnost».')).toBeVisible();
+
+    await panelServicios(page).getByRole('combobox').fill('');
+    await opciones.first().click();
+    await expect.poll(() => panelPeticiones.post).toBe(1);
+
+    // El buscador sigue abierto y limpio, con el foco en el campo, y el añadido desaparece.
+    await expect(panelServicios(page).getByRole('combobox')).toHaveValue('');
+    await expect(panelServicios(page).getByRole('combobox')).toBeFocused();
+    await expect(panelServicios(page).getByText('Este trámite ya tiene todos los tipos activos del catálogo.')).toBeVisible();
+    await expect(panelServicios(page).getByText('3 servicios')).toBeVisible();
+
+    // SIN RECARGAR: el reporte se repide y cambian la celda, el contador del botón y el pie.
+    // mutante: no llamar a `refrescar()` tras el 201 → sigue en «$ 125.000 / 2 servicios».
+    await expect.poll(() => reporte.length).toBe(peticionesIniciales + 1);
+    const fila = page.getByRole('row').filter({ hasText: 'FLIT-2001' });
+    // mutante: pintar la celda con una suma local en vez del dato que trae el servidor.
+    await expect(fila.getByText('$ 210.000')).toBeVisible();
+    await expect(fila.getByText('3 servicios')).toBeVisible();
+    // Y el pie de totales: 890.000 + 210.000, que NO es la suma de las filas de la página.
+    await expect(page.getByRole('table').first().locator('tfoot')).toContainText('$ 1.100.000');
+    await panelServicios(page).getByRole('button', { name: 'Cerrar' }).click();
+    await expect(botonServicios(page, 'FLIT-2001')).toHaveText('Servicios · 3');
+
+    // Ni aviso global de la página —el resultado y el error viven DENTRO del panel—, ni selección
+    // perdida: `ejecutar()` habría hecho las dos cosas (AC3, §12-D11).
+    await expect(page.getByText(/1 seleccionado\(s\)/)).toBeVisible();
+    await expect(page.locator('main').getByText('Grúa añadido.')).toHaveCount(0);
+  });
+
+  test('AC3 — los errores del alta se dicen EN LÍNEA, y el 403 del catálogo nombra la función que falta', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const estado = estadoLleno();
+    await mockReporteDelPanel(page, estado);
+    await mockPanelServicios(page, estado);
+    await mockCatalogoTipos(page, { status: 403 });
+    await page.goto('/finanzas/reporte-costos');
+    await botonServicios(page, 'FLIT-2001').click();
+    await panelServicios(page).getByRole('button', { name: 'Añadir servicio' }).click();
+
+    // mutante: un 403 tratado como error genérico → saldría «No se pudo cargar…» y un Reintentar
+    await expect(panelServicios(page).getByRole('alert')).toContainText('Pídele a un administrador la función «Ver el catálogo de servicios adicionales».');
+    await expect(panelServicios(page).getByRole('button', { name: 'Reintentar' })).toHaveCount(0);
+    // Y nada de esto sube al aviso global de la pantalla.
+    await expect(page.locator('main').getByText(/Pídele a un administrador/)).toHaveCount(0);
+  });
+
+  test('AC3 — el 409 de «ya asignado» se explica en línea y recarga la lista; el buscador sigue abierto', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const estado = estadoLleno();
+    await mockReporteDelPanel(page, estado);
+    const peticiones = await mockPanelServicios(page, estado);
+    await mockCatalogoTipos(page);
+    await page.goto('/finanzas/reporte-costos');
+    await botonServicios(page, 'FLIT-2001').click();
+    await panelServicios(page).getByRole('button', { name: 'Añadir servicio' }).click();
+    await expect(panelServicios(page).getByRole('option')).toHaveCount(1);
+
+    const gets = peticiones.get;
+    estado.postStatus = 409;
+    estado.postCuerpo = { error: 'Ese servicio ya está asignado a este trámite', codigo: 'SERVICIO_YA_ASIGNADO' };
+    await panelServicios(page).getByRole('option').first().click();
+
+    await expect(panelServicios(page).getByRole('alert')).toContainText('Ese servicio ya está asignado a este trámite.');
+    // mutante: no repedir la lista → el contador de GET no se mueve
+    await expect.poll(() => peticiones.get).toBe(gets + 1);
+    await expect(panelServicios(page).getByRole('combobox')).toBeVisible();
+  });
+
+  test('AC4 — la confirmación de «Quitar» va en línea con nombre y valor; Cancelar no envía nada', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const estado = estadoLleno();
+    await mockReporteDelPanel(page, estado);
+    const peticiones = await mockPanelServicios(page, estado);
+    await page.goto('/finanzas/reporte-costos');
+    await botonServicios(page, 'FLIT-2001').click();
+    await expect(panelServicios(page).getByText('Diagnóstico', { exact: true })).toBeVisible();
+
+    await panelServicios(page).getByRole('button', { name: 'Quitar · Diagnóstico' }).click();
+    // mutante: confirmación sin el valor → este texto exacto falla
+    await expect(panelServicios(page).getByText('¿Quitar «Diagnóstico» ($ 85.000)?')).toBeVisible();
+    // No es un diálogo encima del diálogo: sigue habiendo UN solo `role="dialog"` (§12-D2).
+    await expect(page.getByRole('dialog')).toHaveCount(1);
+
+    await panelServicios(page).getByRole('button', { name: 'Cancelar' }).click();
+    await expect(panelServicios(page).getByText('¿Quitar «Diagnóstico»')).toHaveCount(0);
+    // El foco vuelve al «Quitar» de esa fila, y sobre ESTADO ASENTADO no salió ninguna petición.
+    await expect(panelServicios(page).getByRole('button', { name: 'Quitar · Diagnóstico' })).toBeFocused();
+    expect(peticiones.borrar).toBe(0);
+    await expect(panelServicios(page).getByText('$ 125.000')).toBeVisible();
+  });
+
+  test('AC4 — confirmar quita la fila, baja el total y refresca el reporte sin recargar', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const estado = estadoLleno();
+    const reporte = await mockReporteDelPanel(page, estado);
+    const peticiones = await mockPanelServicios(page, estado);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(botonServicios(page, 'FLIT-2001')).toHaveText('Servicios · 2');
+    const iniciales = reporte.length;
+
+    await botonServicios(page, 'FLIT-2001').click();
+    await panelServicios(page).getByRole('button', { name: 'Quitar · Diagnóstico' }).click();
+    await panelServicios(page).getByRole('button', { name: 'Quitar', exact: true }).click();
+
+    await expect.poll(() => peticiones.borrar).toBe(1);
+    await expect(panelServicios(page).getByText('Diagnóstico', { exact: true })).toHaveCount(0);
+    await expect(panelServicios(page).getByText('1 servicio', { exact: true })).toBeVisible();
+    // El TOTAL del pie, que es el único `<strong>` del panel: bajó de 125.000 a 40.000.
+    await expect(panelServicios(page).locator('strong')).toHaveText('$ 40.000');
+    // El foco no se queda en el aire: el botón que lo abrió ya no existe, así que va a la primaria.
+    await expect(panelServicios(page).getByRole('button', { name: 'Añadir servicio' })).toBeFocused();
+    // mutante: no llamar a `refrescar()` tras el 204
+    await expect.poll(() => reporte.length).toBe(iniciales + 1);
+    await panelServicios(page).getByRole('button', { name: 'Cerrar' }).click();
+    await expect(botonServicios(page, 'FLIT-2001')).toHaveText('Servicios · 1');
+  });
+
+  test('AC5 — liquidado: sin botones (no apagados) y con la instrucción de reversar para quien opera', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const estado: EstadoPanel = { ...estadoLleno(), liquidado: true };
+    await mockReporteDelPanel(page, estado, { fila: FILA_LIQUIDADA, otras: [] });
+    await mockPanelServicios(page, estado);
+    await page.goto('/finanzas/reporte-costos');
+    await botonServicios(page, 'FLIT-2003').click();
+
+    await expect(panelServicios(page).getByText(/Liquidado: estos servicios quedaron sellados\./)).toBeVisible();
+    await expect(panelServicios(page).getByText(/Reversa la liquidación para cambiarlos\./)).toBeVisible();
+    // NO existen: no se pintan apagados (mutante: `disabled` en vez de no montarlos).
+    await expect(panelServicios(page).getByRole('button', { name: 'Añadir servicio' })).toHaveCount(0);
+    await expect(panelServicios(page).getByRole('button', { name: /^Quitar · / })).toHaveCount(0);
+    // Y sigue siendo la única forma de ver qué se le cobró: la lista y el total están.
+    await expect(panelServicios(page).getByText('$ 125.000')).toBeVisible();
+    // No es un error: ni `role="alert"` ni icono de alerta bajo el título.
+    await expect(panelServicios(page).getByRole('alert')).toHaveCount(0);
+  });
+
+  test('AC5 — el auditor ve el panel en solo lectura y NUNCA la frase de reversar', async ({ page }) => {
+    await loginAs(page, AUDITOR_USER);
+    const estado: EstadoPanel = { ...estadoLleno(), liquidado: true };
+    await mockReporteDelPanel(page, estado, { fila: FILA_LIQUIDADA, otras: [] });
+    await mockPanelServicios(page, estado);
+    await page.goto('/finanzas/reporte-costos');
+    await botonServicios(page, 'FLIT-2003').click();
+
+    await expect(panelServicios(page).getByText(/Liquidado: estos servicios quedaron sellados\./)).toBeVisible();
+    // mutante: pintar la segunda frase sin mirar las funciones → reversar no es su trabajo (AC5)
+    await expect(panelServicios(page).getByText(/Reversa la liquidación/)).toHaveCount(0);
+    await expect(panelServicios(page).getByRole('button', { name: 'Añadir servicio' })).toHaveCount(0);
+  });
+
+  test('AC5 — el auditor sobre un trámite NO liquidado: sin botones y sin línea de estado', async ({ page }) => {
+    await loginAs(page, AUDITOR_USER);
+    const estado = estadoLleno();
+    await mockReporteDelPanel(page, estado);
+    await mockPanelServicios(page, estado);
+    await page.goto('/finanzas/reporte-costos');
+    await botonServicios(page, 'FLIT-2001').click();
+
+    await expect(panelServicios(page).getByText('Diagnóstico', { exact: true })).toBeVisible();
+    // mutante: línea de estado por «no puede operar» en vez de por «liquidado»
+    await expect(panelServicios(page).getByText(/quedaron sellados/)).toHaveCount(0);
+    await expect(panelServicios(page).getByRole('button', { name: 'Añadir servicio' })).toHaveCount(0);
+    await expect(panelServicios(page).getByRole('button', { name: /^Quitar · / })).toHaveCount(0);
+  });
+
+  test('AC5 — tras reversar en la fila, el panel vuelve a ser editable sin recargar la página', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const estado: EstadoPanel = { ...estadoLleno(), liquidado: true };
+    // La fila vive en el mismo estado que el panel: reversar la desella para los dos.
+    const sellada = { ...FILA_LIQUIDADA, serviciosAdicionales: 125000, serviciosAdicionalesCantidad: 2 };
+    await mockFacetas(page, ['Aprobado']);
+    await mockFacturacion(page);
+    await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({
+        ...REPORTE, total: 1,
+        items: [estado.liquidado
+          ? sellada
+          : { ...sellada, sellada: false, estadoLiquidacion: null }],
+      }),
+    }));
+    await page.route(/\/api\/flito\/liquidacion\/[^/]+\/reversar/, (route) => {
+      estado.liquidado = false;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    });
+    await mockPanelServicios(page, estado);
+    await page.goto('/finanzas/reporte-costos');
+
+    await botonServicios(page, 'FLIT-2003').click();
+    await expect(panelServicios(page).getByRole('button', { name: 'Añadir servicio' })).toHaveCount(0);
+    await panelServicios(page).getByRole('button', { name: 'Cerrar' }).click();
+
+    await page.getByRole('button', { name: 'Reversar' }).click();
+    await page.getByLabel('Motivo del reverso').fill('Se cobró de más');
+    await page.getByRole('button', { name: 'Confirmar' }).click();
+    await expect(page.getByText(/reversada\./)).toBeVisible();
+
+    // Sin F5: el panel repide y `liquidado: false` lo devuelve a editable.
+    await botonServicios(page, 'FLIT-2003').click();
+    await expect(panelServicios(page).getByRole('button', { name: 'Añadir servicio' })).toBeVisible();
+    await expect(panelServicios(page).getByRole('button', { name: 'Quitar · Diagnóstico' })).toBeVisible();
+  });
+
+  test('AC5 — carrera del sello: el 409 al quitar lo dice en línea y deja el panel de solo lectura', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const estado = estadoLleno();
+    await mockReporteDelPanel(page, estado);
+    await mockPanelServicios(page, estado);
+    await page.goto('/finanzas/reporte-costos');
+    await botonServicios(page, 'FLIT-2001').click();
+    await panelServicios(page).getByRole('button', { name: 'Quitar · Diagnóstico' }).click();
+
+    estado.borrarStatus = 409;
+    estado.borrarCuerpo = { error: 'Reversa la liquidación para cambiar los servicios', codigo: 'TRAMITE_LIQUIDADO' };
+    estado.liquidado = true;
+    await panelServicios(page).getByRole('button', { name: 'Quitar', exact: true }).click();
+
+    // El literal del servidor, en línea dentro del panel, nunca en el aviso global.
+    await expect(panelServicios(page).getByRole('alert')).toContainText('Reversa la liquidación para cambiar los servicios');
+    await expect(panelServicios(page).getByRole('button', { name: 'Añadir servicio' })).toHaveCount(0);
+    await expect(panelServicios(page).getByRole('button', { name: /^Quitar · / })).toHaveCount(0);
+  });
+
+  test('§9 — Escape por capas: cancela la confirmación, luego cierra el buscador, y solo al final el panel', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const estado = estadoLleno();
+    await mockReporteDelPanel(page, estado);
+    await mockPanelServicios(page, estado);
+    await mockCatalogoTipos(page);
+    await page.goto('/finanzas/reporte-costos');
+    await botonServicios(page, 'FLIT-2001').click();
+
+    // 1) La confirmación de «Quitar» (mutante: quitar el `stopPropagation` → se cierra el panel).
+    await panelServicios(page).getByRole('button', { name: 'Quitar · Diagnóstico' }).click();
+    await page.keyboard.press('Escape');
+    await expect(panelServicios(page).getByText('¿Quitar «Diagnóstico»')).toHaveCount(0);
+    await expect(panelServicios(page)).toHaveCount(1);
+
+    // 2) El buscador.
+    await panelServicios(page).getByRole('button', { name: 'Añadir servicio' }).click();
+    await expect(panelServicios(page).getByRole('combobox')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(panelServicios(page).getByRole('combobox')).toHaveCount(0);
+    await expect(panelServicios(page)).toHaveCount(1);
+    await expect(panelServicios(page).getByRole('button', { name: 'Añadir servicio' })).toBeFocused();
+
+    // 3) Sin nada abierto, el panel.
+    await page.keyboard.press('Escape');
+    await expect(panelServicios(page)).toHaveCount(0);
+  });
+
+  test('AC1/permisos — sin `finanzas.servicios_adicionales.ver` el botón no existe', async ({ page }) => {
+    const sinVer = funcionesDe(OPERACIONES_USER).filter((f) => f !== 'finanzas.servicios_adicionales.ver');
+    await loginAs(page, OPERACIONES_USER, { funciones: sinVer });
+    const estado = estadoLleno();
+    await mockReporteDelPanel(page, estado);
+    await mockPanelServicios(page, estado);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    // mutante: pintar el botón apagado en vez de no pintarlo
+    await expect(page.getByRole('button', { name: /^Servicios adicionales de/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Soporte' }).first()).toBeVisible();
+  });
+
+  test('AC6 — la columna «Serv. adic.»: fuera de la compacta, entre Trámite digital y Servicio, y sus cuatro lecturas', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockFacetas(page, ['Aprobado']);
+    await mockFacturacion(page);
+    await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({
+        ...REPORTE, total: 4,
+        items: [FILA_ESTIMADA, FILA_BLOQUEADA, FILA_LIQUIDADA, FILA_SIN_PAGAR],
+      }),
+    }));
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    // En compacta NO está (mutante: `compacta: true` en la entrada de COLUMNAS).
+    const cabeceras = page.getByRole('table').first().locator('thead tr').nth(1).locator('th[scope="col"]');
+    await expect(cabeceras).toHaveCount(9);
+    await expect(cabeceras.filter({ hasText: 'Serv. adic.' })).toHaveCount(0);
+
+    await page.getByRole('button', { name: /Mostrar todas las columnas/ }).click();
+    await expect(cabeceras).toHaveCount(29);
+    // `allTextContents` y no `allInnerTexts`: la cabecera va en versalitas por CSS y `innerText`
+    // devolvería «SERV. ADIC.», que no es lo que dice el DOM ni lo que lee un lector de pantalla.
+    const titulos = await cabeceras.allTextContents();
+    // mutante: ponerla después de «Servicio» → la cuenta deja de leerse como tal
+    expect(titulos.indexOf('Serv. adic.')).toBe(titulos.indexOf('Trámite digital') + 1);
+    expect(titulos.indexOf('Servicio')).toBe(titulos.indexOf('Serv. adic.') + 1);
+
+    const celdaDe = (flit: string) => page.getByRole('row').filter({ hasText: flit })
+      .getByRole('cell').nth(titulos.indexOf('Serv. adic.') + 1);
+    // Con servicios: dos renglones y el nombre accesible completo.
+    await expect(celdaDe('FLIT-2001')).toHaveText('$ 125.0002 servicios');
+    await expect(celdaDe('FLIT-2001')).toHaveAttribute('aria-label', '$ 125.000 en 2 servicios adicionales');
+    // cantidad 0 → el guion; cantidad null → «Sin dato» con su explicación. No son lo mismo.
+    // mutante: `if (!valor) vacío` → FLIT-2006 perdería su cobro legítimo de cero.
+    await expect(celdaDe('FLIT-2002')).toHaveText('—');
+    await expect(celdaDe('FLIT-2003')).toHaveText('Sin dato');
+    await expect(celdaDe('FLIT-2003').getByTitle('Se liquidó antes de que FLITO cobrara servicios adicionales.')).toBeVisible();
+    // importe 0 con cantidad 2: el cero SÍ se pinta (mutante: `pesos(valor ?? 0)` pondría «$ 0» en las tres de arriba).
+    await expect(celdaDe('FLIT-2006')).toHaveText('$ 02 servicios');
+
+    // El pie trae su total, y es el del SERVIDOR: 890.000 no es la suma de las filas de la página.
+    const pie = page.getByRole('table').first().locator('tfoot tr').first();
+    await expect(pie.getByRole('cell').nth(titulos.indexOf('Serv. adic.') - titulos.indexOf('SOAT') + 1)).toHaveText('$ 890.000');
   });
 });

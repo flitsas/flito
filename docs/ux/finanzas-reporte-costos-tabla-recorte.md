@@ -115,7 +115,7 @@ flowchart TD
 ### Wireframe
 
 ```
-312 trámites · página 1 de 7 · 9 de 28 columnas · Mostrar todas las columnas          [← Anterior] [Siguiente →]
+312 trámites · página 1 de 7 · 9 de 29 columnas · Mostrar todas las columnas          [← Anterior] [Siguiente →]
 Las demás van en el Excel · Exportar a Excel
 ┌──┬────────────────────────────────┬────────────────────────────┬────────────────────────────────────────────────────┬──────────────────────┐
 │  │ IDENTIFICACIÓN                 │ DATOS DEL TRÁMITE          │ VALORES                                            │                      │
@@ -146,11 +146,11 @@ Las demás van en el Excel · Exportar a Excel
 | **Cargando** | Como hoy (sin esqueleto del detalle; deuda de la #12434). Preferencia leída en el `useState` inicial: sin parpadeo | Ninguno. Si se paga el esqueleto, lleva **9** columnas |
 | **Error** | Banda roja del detalle + **Reintentar** de los contadores. La tabla no se monta | Ninguno |
 | **Vacío** | `FlitEmpty` **«No hay trámites que coincidan con los filtros.»**; siguiente paso = **Limpiar filtros** en la tarjeta de encima. Sin tabla, sin control | Ninguno |
-| **Lleno · compacta** (por defecto) | Wireframe de arriba. Línea «9 de 28 columnas · Mostrar todas las columnas» + «Las demás van en el Excel · Exportar a Excel». Pie: rótulo con `colSpan` y totales bajo Total reintegro, Servicio y Total | **Nuevo**: 9 columnas, Trámite a dos renglones, Aprobación, `px-3`, rótulo fuera de Empresa, sin scroll en 1366 |
-| **Lleno · ampliada** | 28 columnas, «28 columnas · Compactar columnas», Flit y Tipo trámite en columnas separadas, `CeldaFechas` con las dos fechas, OT y Estado, `px-3`, pie con rótulo `colSpan=18` y los diez totales. Desborda: región con `tabindex` y nombre | Solo `px-3` y el rótulo del pie |
+| **Lleno · compacta** (por defecto) | Wireframe de arriba. Línea «9 de 29 columnas · Mostrar todas las columnas» + «Las demás van en el Excel · Exportar a Excel». Pie: rótulo con `colSpan` y totales bajo Total reintegro, Servicio y Total | **Nuevo**: 9 columnas, Trámite a dos renglones, Aprobación, `px-3`, rótulo fuera de Empresa, sin scroll en 1366 |
+| **Lleno · ampliada** | 29 columnas, «29 columnas · Compactar columnas», Flit y Tipo trámite en columnas separadas, `CeldaFechas` con las dos fechas, OT y Estado, `px-3`, pie con rótulo `colSpan=18` y los diez totales (once desde la #12548). Desborda: región con `tabindex` y nombre | Solo `px-3` y el rótulo del pie |
 
-Copys fijos: **«Mostrar todas las columnas»** / **«Compactar columnas»**; «9 de 28 columnas» / «28 columnas»
-(cifras de `COMPACTAS.length` / `COLUMNAS.length`, nunca escritas); anuncios **«Vista compacta: 9 de 28
+Copys fijos: **«Mostrar todas las columnas»** / **«Compactar columnas»**; «9 de 29 columnas» / «29 columnas»
+(cifras de `COMPACTAS.length` / `COLUMNAS.length`, nunca escritas); anuncios **«Vista compacta: 9 de 29
 columnas.»** / **«Todas las columnas: 28.»**; cabecera **«Aprobación»** (compacta) y **«Fechas»** (ampliada);
 sin fecha: **«Sin aprobar»** en cursiva tenue, igual que `CeldaFechas`; rótulo del pie **«Totales (N trámites
 del filtro)»** sin cambio.
@@ -217,7 +217,7 @@ Pasos 1, 2, 4-7 y «Para quién» no cambian (el auditor sigue viendo la OT: en 
 4. Fila con `tipoTramite: 'Traspaso'`: en compacta el texto «Traspaso» está en la **misma celda** que el Flit y no hay `th` «Tipo trámite»; al ampliar, hay `th` «Tipo trámite» y la celda del Flit solo lleva el Flit. *Mutante:* tipo pintado en los dos modos.
 5. Fila con `fechaAprobacion: null`: la celda Aprobación dice «Sin aprobar»; con fecha, `fechaCorta` y **sin** el texto «Creado». Al ampliar, la columna se titula «Fechas» y trae «Creado …» y «Aprob. …».
 6. Pie: `tfoot th[scope=row]` con `colSpan=5` en compacta y `18` en ampliada, texto «Totales (N trámites del filtro)»; los totales caen bajo Total reintegro, Servicio y Total (y los siete conceptos al ampliar). *Mutante:* rótulo en la primera `td`.
-7. Control: «9 de 28 columnas · Mostrar todas las columnas» → al pulsar «28 columnas · Compactar columnas», `aria-expanded` true, 28 `th[scope=col]`, anuncio «Todas las columnas: 28.». Las cifras salen de las listas. *Mutante:* `9` escrito.
+7. Control: «9 de 29 columnas · Mostrar todas las columnas» → al pulsar «29 columnas · Compactar columnas», `aria-expanded` true, 29 `th[scope=col]`, anuncio «Todas las columnas: 29.». Las cifras salen de las listas. *Mutante:* `9` escrito.
 8. Empresa de 40 caracteres: la celda no supera **168 px** de ancho y el `td` (o su `span`) tiene `title` con el nombre completo; el texto completo está en el DOM.
 9. `auditor` en 1366: sin casilla ni Acciones, cabe; ve el control y el enlace «Exportar a Excel». Lo que **no cambia** se prueba que no cambia: filtros OT y Estado, Liquidar/Facturar/Reversar/Soporte/Enviar/¿Por qué no?, lote, export.
 10. El E2E de la #12537 que asume 12 columnas y `colSpan` 3/5/4 se reescribe con los puntos 3-7, no se parchea.
@@ -236,7 +236,7 @@ Pasos 1, 2, 4-7 y «Para quién» no cambian (el auditor sigue viendo la OT: en 
 | D-21 | `px-3` en `th`, `td` y pie de **las columnas de datos** en ambos modos (Casilla, Factura DIAN y Acciones ya lo llevan). `FlitTh` recibe la clase por prop o una variante compacta: `className="px-3"` no vence a `px-4` en el orden de Tailwind. Palanca si 1280 desborda: tope de Empresa a `8rem` (−16 px) y luego, solo con el PO, la alternativa C | `px-2` (los montos se pegan); `text-xs` en los montos (es lo que se vino a ver) |
 | D-22 | Acciones **sin cambio**: mismos botones, mismos textos, `flex-wrap`. Sin menú «⋯», sin «solo primaria», sin acortar «Enviar a facturación» | Menú por fila: patrón nuevo que el kit no tiene, esconde la primaria tras un clic por fila y añade una parada de tabulador |
 | D-23 | Se retira el `div.overflow-x-auto` exterior a `FlitTable`: una sola región de scroll, con `label` (p. ej. «Reporte de costos, detalle») | Dos contenedores anidados (el `tabIndex` de `FlitTable` mide uno y el usuario desplaza el otro) |
-| D-24 | Control y anuncios: mismos copys de D-04/D-07 con las cifras calculadas («9 de 28 columnas»). `localStorage` D-06 sin cambio | — |
+| D-24 | Control y anuncios: mismos copys de D-04/D-07 con las cifras calculadas («9 de 29 columnas»). `localStorage` D-06 sin cambio | — |
 | D-25 | Ficha de ayuda: paso 3 y viñeta «Lleno» con el copy de arriba | — |
 | D-26 | Lo que no cambia y se prueba que no cambia: filtros, periodo, consolidado, casillas, lote, Soporte/Liquidar/Facturar/Reversar/Enviar/¿Por qué no?, contadores FE, tarjeta de envío, export y su banda, `Paginacion` inferior, ampliada (salvo `px-3` y el rótulo del pie) | — |
 
