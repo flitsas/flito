@@ -105,6 +105,8 @@ function filaTramite(over: Record<string, unknown> = {}) {
     valorTramiteDigital: '50000.00',
     valorLogistica: null,
     valorGmf: null,
+    valorServiciosAdicionales: null,
+    serviciosAdicionales: null,
     ...over,
   };
 }

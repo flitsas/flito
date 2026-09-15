@@ -20,6 +20,7 @@
 import {
   CONCEPTOS_FACTURABLES,
   CONCEPTO_FACTURABLE_COLUMNA_LIQUIDACION,
+  CONCEPTO_FACTURABLE_LABEL,
   type ConceptoFacturable,
   type EstadoCompuerta,
   type MotivoCompuerta,
@@ -108,7 +109,12 @@ async function evaluar(
   if (noListos.length > 0) {
     motivos.push({
       tipo: 'concepto_no_listo',
-      detalle: `Falta elegir el producto de Siigo en: ${noListos.join(', ')}.`,
+      // CH-1 — la ETIQUETA, no la clave cruda. Este detalle lo lee Financiera, y decía
+      // «tramite_digital, servicio_adicional»: nombres de columna de nuestra base en un mensaje
+      // dirigido a quien parametriza. `CONCEPTO_FACTURABLE_LABEL` ya es la traducción canónica y la
+      // usa el resto del módulo.
+      detalle: 'Falta elegir el producto de Siigo en: '
+        + `${noListos.map((c) => CONCEPTO_FACTURABLE_LABEL[c]).join(', ')}.`,
       conceptos: noListos,
     });
   }

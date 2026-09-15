@@ -183,6 +183,10 @@ async function cargarFilas(tramiteIds: string[], ambiente: SiigoAmbiente): Promi
       valorTramiteDigital: flitoLiquidaciones.valorTramiteDigital,
       valorLogistica: flitoLiquidaciones.valorLogistica,
       valorGmf: flitoLiquidaciones.valorGmf,
+      // HU #12547 — solo la SUMA sellada. El desglose por item (`detalle->'serviciosAdicionales'`)
+      // NO se lee aquí: esta consulta corre en cada carga del reporte y la elegibilidad solo
+      // necesita saber si el concepto aplica. Los items los lee la emisión, que sí los factura.
+      valorServiciosAdicionales: flitoLiquidaciones.valorServiciosAdicionales,
       documentacionCompleta: sql<boolean>`${EXPR_DOC_COMPLETA}`,
       // B1 — la configuración VIGENTE del ambiente. `ORDER BY id` sobre una PK uuid aleatoria es un
       // orden al azar, y además ignoraba `ambiente` y `vigente`: podía aplicar el corte de `pruebas`
@@ -216,6 +220,7 @@ async function cargarFilas(tramiteIds: string[], ambiente: SiigoAmbiente): Promi
       valorTramiteDigital: (f.valorTramiteDigital as string | null) ?? null,
       valorLogistica: (f.valorLogistica as string | null) ?? null,
       valorGmf: (f.valorGmf as string | null) ?? null,
+      valorServiciosAdicionales: (f.valorServiciosAdicionales as string | null) ?? null,
     },
   }));
 }

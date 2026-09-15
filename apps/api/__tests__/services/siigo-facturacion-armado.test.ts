@@ -8,7 +8,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  agrupadorPorTramite, armarFactura, claveIdempotencia,
+  agrupadorPorTramite, armarFactura, claveIdempotencia, conceptosFacturados,
   emisionVacia, huellaDeLote, huellaDeTramites, FacturaNoArmableError, SIN_EMISION_ELEGIDA,
   type EntradaArmado, type MapeoPorConcepto, type TramiteFacturable,
 } from '../../src/modules/siigo/facturacion.armado.js';
@@ -38,7 +38,11 @@ const TRAMITE: TramiteFacturable = {
     valorTramiteDigital: null,
     valorLogistica: null,
     valorGmf: '600.00',
+    // HU #12547 — `null` = el trámite se selló sin servicios adicionales: el concepto NO aplica y
+    // esta fixture sigue produciendo exactamente las mismas tres líneas que antes.
+    valorServiciosAdicionales: null,
   },
+  serviciosAdicionales: [],
 };
 
 const MAPEO_BASE: MapeoPorConcepto = {
@@ -231,7 +235,9 @@ describe('AC7 — trazabilidad y validación de sanidad', () => {
   it('un total que no es mayor que cero se rechaza', () => {
     const t = {
       ...TRAMITE,
-      liquidacion: { ...TRAMITE.liquidacion, valorSoat: '0.00', valorDerecho: '0.00', valorGmf: '0.00' },
+      liquidacion: {
+        ...TRAMITE.liquidacion, valorSoat: '0.00', valorDerecho: '0.00', valorGmf: '0.00',
+      },
     };
     expect(() => armarFactura(entrada({ tramites: [t] })))
       .toThrow(expect.objectContaining({ motivo: 'total_no_positivo' }));
@@ -243,6 +249,7 @@ describe('AC7 — trazabilidad y validación de sanidad', () => {
       liquidacion: {
         valorSoat: null, valorImpuesto: null, valorDerecho: null,
         valorTramiteDigital: null, valorLogistica: null, valorGmf: null,
+        valorServiciosAdicionales: null,
       },
     };
     expect(() => armarFactura(entrada({ tramites: [t] })))
@@ -498,5 +505,195 @@ describe('A2 — la emisión elegida también identifica al lote', () => {
   it('el centro de costo nulo y el centro de costo puesto no son el mismo lote', () => {
     expect(huellaDeLote(['t-1'], ['soat'], EMISION))
       .not.toBe(huellaDeLote(['t-1'], ['soat'], { ...EMISION, centroCostoCodigo: '25732' }));
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────────
+// HU #12547 — el séptimo concepto: `servicio_adicional`, el único con DESGLOSE sellado.
+//
+// Lo que estas pruebas vigilan, por orden de daño si se rompe:
+//   1. **Una línea por item**, con el NOMBRE del servicio como descripción. Un `toHaveLength(2)`
+//      sobrevive a «emitir dos veces la línea del primero» y a «usar `nombreProducto`»: por eso se
+//      asserta por proyección ordenada de `[description, price, quantity]`.
+//   2. **Control positivo en cada caso**: `build:api` no typechequea `__tests__`, así que un
+//      fixture al que le faltara `valorServiciosAdicionales` llegaría `undefined`, el concepto «no
+//      aplicaría» y el test pasaría sin ejercer NADA. Cada caso afirma primero que el concepto
+//      está en los facturados.
+//   3. **El cuadre nunca por comparación de cadenas.** El mismo importe tiene dos formas —`'125000'`
+//      escrita por `liquidar()` y `'125000.00'` que devuelve la base al releer—, y sumar floats da
+//      `125000.30000000001`. Hay un caso por cada trampa.
+const SA_MAPEO = mapeo({
+  concepto: 'servicio_adicional', codigoProducto: 'SA-01',
+  // A propósito DISTINTO de los nombres de los servicios: si alguien usa `nombreProducto` como
+  // descripción, la proyección de abajo lo canta.
+  nombreProducto: 'Servicios adicionales FLIT',
+});
+
+const ITEMS_SELLADOS = [
+  { tipoId: 'ta-1', nombre: 'Cambio de placa', valor: 85000 },
+  { tipoId: 'ta-2', nombre: 'Duplicado de licencia', valor: 40000 },
+];
+
+/** Un trámite con servicios adicionales sellados. `valor` en la forma textual que se le pida. */
+function conServicios(
+  valor: string | null,
+  items: { tipoId: string; nombre: string; valor: number }[] = ITEMS_SELLADOS,
+): TramiteFacturable {
+  return {
+    ...TRAMITE,
+    liquidacion: { ...TRAMITE.liquidacion, valorServiciosAdicionales: valor },
+    serviciosAdicionales: items,
+  };
+}
+
+const MAPEO_CON_SA: MapeoPorConcepto = { ...MAPEO_BASE, servicio_adicional: SA_MAPEO };
+
+/** Lo que importa de las líneas de servicios: qué dicen, cuánto valen y cuántas unidades. */
+function lineasSa(f: ReturnType<typeof armarFactura>) {
+  return f.items.filter((i) => i.code === 'SA-01').map((i) => [i.description, i.price, i.quantity]);
+}
+
+describe('HU #12547 AC4 — una línea por servicio adicional sellado', () => {
+  it('cada item sellado produce su línea, con el NOMBRE del servicio como descripción', () => {
+    const t = conServicios('125000.00');
+    // Control positivo: el concepto de verdad aplica a este trámite.
+    expect(conceptosFacturados(t.liquidacion, [])).toContain('servicio_adicional');
+
+    const f = armarFactura(entrada({ tramites: [t], mapeo: MAPEO_CON_SA }));
+
+    expect(lineasSa(f)).toEqual([
+      ['Cambio de placa', 85000, 1],
+      ['Duplicado de licencia', 40000, 1],
+    ]);
+    // El código es el del MAPEO —uno solo para todos los servicios—, y los otros conceptos siguen
+    // produciendo su línea única.
+    expect(f.items.map((i) => i.code)).toEqual(['P-SOAT', 'P-DER', 'P-GMF', 'SA-01', 'SA-01']);
+    expect(f._total).toBe(150000 + 50000 + 600 + 125000);
+  });
+
+  it('el mismo importe en sus DOS formas textuales arma igual: el cuadre no compara cadenas', () => {
+    // `liquidar()` escribe `String(redondear(Σ))` → '125000'; la base al releer devuelve
+    // '125000.00'. Un `String(suma) === valor` fallaría en una de las dos… en CADA factura.
+    for (const forma of ['125000', '125000.00', '125000.0000']) {
+      const t = conServicios(forma);
+      expect(conceptosFacturados(t.liquidacion, [])).toContain('servicio_adicional');
+      const f = armarFactura(entrada({ tramites: [t], mapeo: MAPEO_CON_SA }));
+      expect(lineasSa(f)).toEqual([
+        ['Cambio de placa', 85000, 1],
+        ['Duplicado de licencia', 40000, 1],
+      ]);
+    }
+  });
+
+  it('la suma de floats no tumba una factura correcta: tolerancia de medio centavo', () => {
+    // 85000.1 + 40000.2 === 125000.30000000001 en IEEE-754. Con `!==` esto era un
+    // `servicios_no_cuadran` en una factura impecable.
+    const t = conServicios('125000.30', [
+      { tipoId: 'ta-1', nombre: 'Cambio de placa', valor: 85000.1 },
+      { tipoId: 'ta-2', nombre: 'Duplicado de licencia', valor: 40000.2 },
+    ]);
+    expect(conceptosFacturados(t.liquidacion, [])).toContain('servicio_adicional');
+    const f = armarFactura(entrada({ tramites: [t], mapeo: MAPEO_CON_SA }));
+    expect(lineasSa(f)).toEqual([
+      ['Cambio de placa', 85000.1, 1],
+      ['Duplicado de licencia', 40000.2, 1],
+    ]);
+  });
+
+  it('un servicio de valor CERO genera su línea con precio 0', () => {
+    // Lleva los demás conceptos a propósito: si el único concepto fuera este y todo valiera 0, el
+    // total quedaría en 0 y saltaría `total_no_positivo`, que es OTRA regla.
+    const t = conServicios('0.00', [{ tipoId: 'ta-3', nombre: 'Revisión documental', valor: 0 }]);
+    expect(conceptosFacturados(t.liquidacion, [])).toContain('servicio_adicional');
+
+    const f = armarFactura(entrada({ tramites: [t], mapeo: MAPEO_CON_SA }));
+    expect(lineasSa(f)).toEqual([['Revisión documental', 0, 1]]);
+  });
+
+  it('una suma que no cuadra con el valor sellado rechaza la factura', () => {
+    const t = conServicios('130000.00'); // los items suman 125.000
+    expect(conceptosFacturados(t.liquidacion, [])).toContain('servicio_adicional');
+    expect(() => armarFactura(entrada({ tramites: [t], mapeo: MAPEO_CON_SA })))
+      .toThrow(expect.objectContaining({ motivo: 'servicios_no_cuadran' }));
+  });
+
+  it('un valor sellado mayor que cero SIN items sellados rechaza la factura', () => {
+    // Mismo camino que el descuadre —suma 0 contra valor positivo—, no un `if` aparte.
+    const t = conServicios('125000.00', []);
+    expect(conceptosFacturados(t.liquidacion, [])).toContain('servicio_adicional');
+    expect(() => armarFactura(entrada({ tramites: [t], mapeo: MAPEO_CON_SA })))
+      .toThrow(expect.objectContaining({ motivo: 'servicios_no_cuadran' }));
+  });
+
+  it('un item con valor sucio se rechaza por `parametro_no_numerico`, no por descuadre', () => {
+    // El orden de las guardas: `aNumero` primero. Con un `Number()` a secas, `Math.abs(NaN - v)`
+    // no es mayor que la tolerancia —toda comparación con NaN es false— y la factura habría salido
+    // con `price: NaN`.
+    const t = conServicios('125000.00', [
+      { tipoId: 'ta-1', nombre: 'Cambio de placa', valor: 'ochenta mil' as unknown as number },
+    ]);
+    expect(() => armarFactura(entrada({ tramites: [t], mapeo: MAPEO_CON_SA })))
+      .toThrow(expect.objectContaining({ motivo: 'parametro_no_numerico' }));
+  });
+
+  it('sin valor sellado el concepto no aplica: la factura es IDÉNTICA a la de antes de esta HU', () => {
+    const conItemsHuerfanos = { ...TRAMITE, serviciosAdicionales: ITEMS_SELLADOS };
+    expect(conceptosFacturados(conItemsHuerfanos.liquidacion, [])).not.toContain('servicio_adicional');
+
+    const f = armarFactura(entrada({ tramites: [conItemsHuerfanos], mapeo: MAPEO_CON_SA }));
+    expect(lineasSa(f)).toEqual([]);
+    expect(f.items.map((i) => i.code)).toEqual(['P-SOAT', 'P-DER', 'P-GMF']);
+  });
+});
+
+describe('HU #12547 AC5 — la selección del lote manda, y el descarte no lanza', () => {
+  it('elegir solo `servicio_adicional` deja la factura con las líneas de los items y nada más', () => {
+    const t = conServicios('125000.00');
+    const f = armarFactura(entrada({
+      tramites: [t], mapeo: MAPEO_CON_SA, conceptos: ['servicio_adicional'],
+    }));
+    expect(lineasSa(f)).toEqual([
+      ['Cambio de placa', 85000, 1],
+      ['Duplicado de licencia', 40000, 1],
+    ]);
+    expect(f.items).toHaveLength(2);
+    expect(f.payments[0]!.value).toBe(125000);
+  });
+
+  it('no elegirlo lo deja fuera aunque el trámite lo tenga sellado', () => {
+    const t = conServicios('125000.00');
+    const f = armarFactura(entrada({ tramites: [t], mapeo: MAPEO_CON_SA, conceptos: ['soat'] }));
+    expect(f.items.map((i) => i.code)).toEqual(['P-SOAT']);
+  });
+
+  it('`factura_linea_propia = false` descarta ANTES de validar producto: no lanza, no factura', () => {
+    // El orden importa: si el descarte fuera después, este trámite —con el concepto apagado y sin
+    // producto— se caería con `concepto_sin_producto` por un producto que jamás iba a usarse.
+    const apagado = mapeo({
+      concepto: 'servicio_adicional', codigoProducto: null, facturaLineaPropia: false,
+    });
+    const t = conServicios('125000.00');
+    const f = armarFactura(entrada({
+      tramites: [t], mapeo: { ...MAPEO_BASE, servicio_adicional: apagado },
+    }));
+    expect(lineasSa(f)).toEqual([]);
+    expect(f.items.map((i) => i.code)).toEqual(['P-SOAT', 'P-DER', 'P-GMF']);
+  });
+
+  it('sin mapeo o sin producto sí lanza, con el motivo de siempre y la ETIQUETA del concepto', () => {
+    const t = conServicios('125000.00');
+    expect(() => armarFactura(entrada({ tramites: [t], mapeo: MAPEO_BASE })))
+      .toThrow(expect.objectContaining({ motivo: 'concepto_sin_mapeo' }));
+
+    const sinProducto = mapeo({ concepto: 'servicio_adicional', codigoProducto: null });
+    try {
+      armarFactura(entrada({
+        tramites: [t], mapeo: { ...MAPEO_BASE, servicio_adicional: sinProducto },
+      }));
+      expect.unreachable('debía lanzar');
+    } catch (e) {
+      expect((e as FacturaNoArmableError).motivo).toBe('concepto_sin_producto');
+      expect((e as Error).message).toContain('Servicio adicional');
+    }
   });
 });

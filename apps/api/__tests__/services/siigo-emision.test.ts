@@ -11,8 +11,13 @@
 // idempotencia daría por bueno un reintento que en producción crearía la segunda factura.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
+
+const RAIZ_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../src');
 
 const kdb = createKeyedDb();
 const espia = crearEspia(kdb);
@@ -140,6 +145,10 @@ function filaTramite(over: Record<string, unknown> = {}) {
     valorTramiteDigital: '50000.00',
     valorLogistica: null,
     valorGmf: null,
+    // HU #12547 — la fila real trae las dos columnas. `null` en ambas = trámite sellado sin
+    // servicios adicionales, que es el escenario de todo este spec.
+    valorServiciosAdicionales: null,
+    serviciosAdicionales: null,
     ...over,
   };
 }
@@ -1738,6 +1747,49 @@ describe('preparar el armado', () => {
       tramiteIds: [TRAMITE], tramites: await cargarTramites([TRAMITE]),
       ambiente: 'pruebas', tercero: TERCERO, ahora: AHORA,
     })).rejects.toThrow(/vuelve a enviar los trámites/);
+  });
+
+  // ── HU #12547 — el desglose sellado de servicios adicionales ──────────────
+  //
+  // Lo que se factura es lo SELLADO. `cargarTramites` lo lee del jsonb de la liquidación, no de la
+  // tabla puente `flito_tramite_servicios_adicionales`: la puente diría lo que hay HOY —un servicio
+  // quitado después de sellar se facturaría— y, al ser 1 trámite × N servicios, un join a ella
+  // duplicaría el trámite entero en el `.map()` y con él todas sus demás líneas.
+  it('los items sellados llegan tal cual desde el jsonb de la liquidación', async () => {
+    const items = [
+      { tipoId: 'ta-1', nombre: 'Cambio de placa', valor: 85000 },
+      { tipoId: 'ta-2', nombre: 'Duplicado de licencia', valor: 40000 },
+    ];
+    kdb.when.select('flito_tramites', [filaTramite({
+      valorServiciosAdicionales: '125000.00', serviciosAdicionales: items,
+    })]);
+
+    const [t] = await cargarTramites([TRAMITE]);
+
+    expect(t!.valores.valorServiciosAdicionales).toBe('125000.00');
+    expect(t!.serviciosAdicionales).toEqual(items);
+  });
+
+  it.each([
+    ['la liquidación no tiene `detalle`', null],
+    ['el `detalle` no trae la clave', undefined],
+    ['el jsonb no es una lista', { items: 'lo que sea' }],
+  ])('%s → lista vacía, nunca un reventón', async (_caso, crudo) => {
+    kdb.when.select('flito_tramites', [filaTramite({ serviciosAdicionales: crudo })]);
+    const [t] = await cargarTramites([TRAMITE]);
+    expect(t!.serviciosAdicionales).toEqual([]);
+  });
+
+  it('la consulta lee el jsonb de la liquidación y NO la tabla puente de servicios', async () => {
+    // El `.map()` de arriba se ejercita contra un mock que ignora el `select`, así que de dónde
+    // sale el dato solo lo afirma el fuente. Sin esto, cambiar el origen a la puente dejaría todo
+    // en verde y facturaría servicios quitados después del sello.
+    const fuente = readFileSync(
+      resolve(RAIZ_SRC, 'modules/siigo/facturacion.emision.service.ts'), 'utf8',
+    );
+    const consulta = fuente.slice(fuente.indexOf('export async function cargarTramites'));
+    expect(consulta).toContain("->'serviciosAdicionales'->'items'");
+    expect(consulta).not.toContain('flitoTramiteServiciosAdicionales');
   });
 
   it('la clave de idempotencia no depende del orden de los trámites', async () => {
