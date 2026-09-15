@@ -300,4 +300,9 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'permisos/permisos.routes.ts', metodo: 'DELETE', ruta: '/roles/:codigo', codigo: 'permisos.rol.borrar' },
   { fichero: 'permisos/permisos.routes.ts', metodo: 'GET', ruta: '/roles/:codigo/funciones', codigo: 'permisos.cuadro.ver' },
   { fichero: 'permisos/permisos.routes.ts', metodo: 'PUT', ruta: '/roles/:codigo/funciones', codigo: 'permisos.cuadro.guardar' },
+
+  // ── HU #12545 — finanzas-servicios-adicionales/ (módulo nuevo, nace reconducido; 3 rutas) ──
+  { fichero: 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts', metodo: 'GET', ruta: '/tramites/:id/servicios-adicionales', codigo: 'finanzas.servicios_adicionales.ver' },
+  { fichero: 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts', metodo: 'POST', ruta: '/tramites/:id/servicios-adicionales', codigo: 'finanzas.servicios_adicionales.asignar' },
+  { fichero: 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts', metodo: 'DELETE', ruta: '/tramites/:id/servicios-adicionales/:asignacionId', codigo: 'finanzas.servicios_adicionales.quitar' },
 ];

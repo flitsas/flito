@@ -13,6 +13,7 @@ import { useAuth } from '../lib/auth';
 import { hasPage } from '../lib/permissions';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import VisorSoportes from '../components/flit/VisorSoportes';
+import PanelServiciosAdicionales from '../components/finanzas/PanelServiciosAdicionales';
 import ContadoresFacturacion from '../components/finanzas/ContadoresFacturacion';
 import DetalleFacturacion from '../components/finanzas/DetalleFacturacion';
 import TarjetaEnvioFacturacion from '../components/finanzas/TarjetaEnvioFacturacion';
@@ -68,6 +69,12 @@ export default function FinanzasReporteCostos() {
   // Emisión FE: Feature #12072 no absorbe Siigo; el proxy en el catálogo FLITO es facturar.
   const puedeEmitir = hasFuncion('liquidacion.liquidacion.facturar');
   const puedeReactivar = hasFuncion('liquidacion.liquidacion.facturar');
+  // Servicios adicionales del trámite (HU #12548, Feature #12544). Las TRES funciones las sembró la
+  // 0193: `…ver` a admin, financiera Y auditor —que mira el panel en solo lectura—; `…asignar` y
+  // `…quitar` solo a admin y financiera. Nunca por nombre de rol: los permisos no viajan en el JWT.
+  const puedeVerServicios = hasFuncion('finanzas.servicios_adicionales.ver');
+  const puedeAsignarServicios = hasFuncion('finanzas.servicios_adicionales.asignar');
+  const puedeQuitarServicios = hasFuncion('finanzas.servicios_adicionales.quitar');
 
   const [data, setData] = useState<Reporte | null>(null);
   const [facetas, setFacetas] = useState<Facetas | null>(null);
@@ -77,6 +84,8 @@ export default function FinanzasReporteCostos() {
   const [recarga, setRecarga] = useState(0);
   const [enProceso, setEnProceso] = useState(false);
   const [soportesDe, setSoportesDe] = useState<Fila | null>(null);
+  /** La fila cuyo panel de servicios adicionales está abierto (HU #12548). Gemelo de `soportesDe`. */
+  const [serviciosDe, setServiciosDe] = useState<Fila | null>(null);
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
 
   // Facturación electrónica (HU #11337). Se carga aparte del reporte a propósito: si un fallo del
@@ -102,6 +111,12 @@ export default function FinanzasReporteCostos() {
   /** Lo que salva a quien cerró el diálogo sin leerlo; también anuncia el cambio de vista. */
   const [anuncio, setAnuncio] = useState('');
   const tarjetaEnvioRef = useRef<HTMLHeadingElement>(null);
+  /**
+   * Respaldo de foco del panel de servicios: `useFocusTrap` devuelve el foco al botón «Servicios»
+   * de la fila, pero si un refresco sacó esa fila de la página `.focus()` sobre un nodo desmontado
+   * es un no-op y el foco se queda en `<body>`. El encabezado de la pantalla es el rescate.
+   */
+  const tituloRef = useRef<HTMLHeadingElement>(null);
 
   const [filtros, setFiltros] = useState<FiltrosDetalle>(filtrosIniciales);
   const [page, setPage] = useState(1);
@@ -318,9 +333,14 @@ export default function FinanzasReporteCostos() {
 
   const enConsolidado = vista === 'consolidado';
 
+  /** La fila del panel, releída de los datos vivos: `sellada` cambia bajo él al reversar (AC5). */
+  const panelServicios = serviciosDe
+    ? (filas.find((f) => f.tramiteId === serviciosDe.tramiteId) ?? serviciosDe)
+    : null;
+
   return (
     <div className="space-y-4">
-      <PageHeaderCard title="Reporte de costos"
+      <PageHeaderCard title="Reporte de costos" titleRef={tituloRef}
         subtitle="Costos reales por trámite. Las filas liquidadas muestran valores sellados; el resto, un estimado con las tarifas vigentes."
         actions={(
           <div className="flex flex-wrap items-center gap-3">
@@ -465,9 +485,11 @@ export default function FinanzasReporteCostos() {
           {data && filas.length > 0 && (
             <FlitCard>
               <TablaReporteCostos data={data} puedeLiquidar={puedeLiquidar} puedeReversar={puedeReversar} enProceso={enProceso}
+                puedeVerServicios={puedeVerServicios}
                 seleccion={seleccion} onSeleccion={setSeleccion} accionable={accionable}
                 fichasFe={fichasFe} estadoFeDe={estadoFeDe} onAbrirDetalle={setDetalleDe}
                 onLiquidar={liquidarUno} onFacturar={facturarUno} onReversar={reversarUno} onSoportes={setSoportesDe}
+                onServicios={setServiciosDe}
                 anunciar={setAnuncio}
                 // Va al final de la celda: el orden de foco es Soporte → Enviar → ¿Por qué no?, la
                 // acción antes que su explicación.
@@ -499,6 +521,25 @@ export default function FinanzasReporteCostos() {
       {soportesDe && (
         <VisorSoportes ruta={`/finanzas/tramites/${soportesDe.tramiteId}/soportes`} titulo={soportesDe.idFlit}
           onClose={() => setSoportesDe(null)} />
+      )}
+
+      {/* El panel se lleva `sellada` de la fila VIVA, no del objeto que se guardó al abrirlo:
+          reversar desde la fila cambia el estado y la instantánea de entonces seguiría diciendo que
+          está liquidada. De todos modos manda el `liquidado` del GET, que el panel repide cuando
+          `recarga` cambia. NO recibe `ejecutar()`: su error se pinta en línea, dentro del panel. */}
+      {panelServicios && (
+        <PanelServiciosAdicionales
+          tramiteId={panelServicios.tramiteId}
+          idFlit={panelServicios.idFlit}
+          placa={panelServicios.placa}
+          sellada={panelServicios.sellada}
+          puedeAsignar={puedeAsignarServicios}
+          puedeQuitar={puedeQuitarServicios}
+          recargaPagina={recarga}
+          onClose={() => setServiciosDe(null)}
+          onCambio={refrescar}
+          restoreFocusRef={tituloRef}
+        />
       )}
 
       {envio && envio.tramites.length > 0 && (

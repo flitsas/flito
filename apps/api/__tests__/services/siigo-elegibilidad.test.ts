@@ -29,6 +29,7 @@ function fila(over: Record<string, unknown> = {}) {
     valores: {
       valorSoat: '450000.00', valorImpuesto: null, valorDerecho: '80000.00',
       valorTramiteDigital: '200000.00', valorLogistica: null, valorGmf: '3460.00',
+      valorServiciosAdicionales: null,
     },
     cliente: null,
     ...over,
@@ -330,5 +331,44 @@ describe('Correcciones de la auditoría', () => {
     expect(fuente).not.toMatch(/siigo_config_emision\s+ORDER BY id/);
     expect(fuente).toContain('WHERE ambiente =');
     expect(fuente).toContain('AND vigente');
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────────
+// HU #12547 — el séptimo concepto en la carga del reporte.
+//
+// `cargarFilas` es SQL, y aquí no hay base: lo que se puede afirmar es que la consulta proyecta la
+// columna y que el objeto que se arma con ella la lleva. No es cosmético en ninguna de las dos
+// direcciones — sin la columna, `valorServiciosAdicionales` llega `undefined`, el concepto «no
+// aplica» NUNCA y el reporte declara elegible un trámite cuyo servicio adicional no tiene producto
+// de Siigo; con el jsonb de más, la consulta que corre en cada carga de pantalla arrastraría un
+// desglose que la elegibilidad no usa.
+describe('HU #12547 — la elegibilidad lee la suma sellada, y solo la suma', () => {
+  it('proyecta `valor_servicios_adicionales` y la copia al objeto de valores', async () => {
+    const { readFileSync } = await import('node:fs');
+    const fuente = readFileSync(
+      new URL('../../src/modules/siigo/facturacion.elegibilidad.service.ts', import.meta.url), 'utf8');
+
+    expect(fuente).toContain('valorServiciosAdicionales: flitoLiquidaciones.valorServiciosAdicionales');
+    expect(fuente).toContain("valorServiciosAdicionales: (f.valorServiciosAdicionales as string | null) ?? null");
+  });
+
+  it('NO lee el desglose por item: eso es trabajo de la emisión', async () => {
+    const { readFileSync } = await import('node:fs');
+    const fuente = readFileSync(
+      new URL('../../src/modules/siigo/facturacion.elegibilidad.service.ts', import.meta.url), 'utf8');
+    // Sin los comentarios: el archivo EXPLICA por qué no lee el jsonb, y esa explicación nombra la
+    // clave. Lo que se prohíbe es el código, no el párrafo que lo justifica.
+    const codigo = fuente.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+
+    expect(codigo).not.toContain("'serviciosAdicionales'");
+    expect(codigo).not.toContain('flitoTramiteServiciosAdicionales');
+  });
+
+  it('el concepto pesa en el veredicto como cualquier otro: la fixture sellada sin servicios no lo trae', () => {
+    // Control positivo del control: si mañana la fixture perdiera el campo, este aserto seguiría
+    // verde… por eso el que importa está en el spec de la compuerta, donde `conceptosAplicables`
+    // sí se ejecuta. Aquí solo se fija que el tipo obliga a declararlo.
+    expect(fila().valores).toHaveProperty('valorServiciosAdicionales', null);
   });
 });

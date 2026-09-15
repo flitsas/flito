@@ -20,6 +20,19 @@ interface FlitModalProps {
    */
   full?: boolean;
   /**
+   * Panel LATERAL: mismo diálogo modal (portal, velo, Esc del de más arriba, trampa y restauración
+   * de foco), pegado al borde derecho y a alto completo. Lo único que cambia es la COLOCACIÓN.
+   *
+   * Es una variante de sitio, no un motor de diálogos nuevo (HU #12548, `docs/ux/
+   * finanzas-reporte-costos-servicios-adicionales.md` §3.1): un panel propio duplicaría la trampa
+   * de foco y sería la segunda de la app que hay que mantener en pareja. Por defecto `false`, así
+   * que los ~90 ficheros que ya usan `FlitModal` pintan exactamente igual.
+   *
+   * Gana sobre `wide` y sobre `full`. Como en `full`, el cuerpo pierde el scroll propio: lo
+   * gestiona el hijo, que es quien sabe qué parte suya desplaza (aquí la lista, no el pie).
+   */
+  lateral?: boolean;
+  /**
    * Dónde dejar el foco al cerrar si el elemento que abrió el modal **ya no está en el DOM**
    * (HU #11562, AC8). Opcional: sin él, el comportamiento es el de siempre.
    *
@@ -31,7 +44,7 @@ interface FlitModalProps {
 }
 
 export default function FlitModal(
-  { title, onClose, children, wide = false, full = false, restoreFocusRef }: FlitModalProps,
+  { title, onClose, children, wide = false, full = false, lateral = false, restoreFocusRef }: FlitModalProps,
 ) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -59,7 +72,10 @@ export default function FlitModal(
       // `flit-modal` repone el color de tinta que se pierde al colgar del <body>: fuera de
       // `.flit-app` el texto sin color propio heredaba el del tema Aura, que en oscuro es casi
       // blanco, sobre un modal cuyo fondo es claro pase lo que pase.
-      className="flit-modal fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto p-4 sm:p-6"
+      className={
+        'flit-modal fixed inset-0 z-[60] flex overflow-y-auto '
+        + (lateral ? 'items-stretch justify-end' : 'items-center justify-center p-4 sm:p-6')
+      }
       style={{ background: 'rgba(22, 39, 68, 0.45)', backdropFilter: 'blur(6px)' }}
       {...useBackdropClose(onClose)}
     >
@@ -71,14 +87,18 @@ export default function FlitModal(
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         className={
-          'flit-focus my-auto flex w-full flex-col '
-          + (full
-            ? 'h-[calc(100dvh-3rem)] max-w-[min(96rem,96vw)] overflow-hidden'
-            : `max-h-[min(90vh,calc(100dvh-2rem))] overflow-y-auto ${wide ? 'max-w-2xl' : 'max-w-md'}`)
+          'flit-focus flex w-full flex-col '
+          + (lateral
+            ? 'h-[100dvh] max-w-[min(30rem,100vw)] overflow-hidden'
+            : full
+              ? 'my-auto h-[calc(100dvh-3rem)] max-w-[min(96rem,96vw)] overflow-hidden'
+              : `my-auto max-h-[min(90vh,calc(100dvh-2rem))] overflow-y-auto ${wide ? 'max-w-2xl' : 'max-w-md'}`)
         }
         style={{
           background: 'var(--flit-bg-modal)',
-          borderRadius: 'var(--flit-radius-xl)',
+          // Pegado al borde derecho, las esquinas de ese lado no existen: redondearlas dejaría dos
+          // medias lunas de velo contra el borde de la ventana.
+          borderRadius: lateral ? 'var(--flit-radius-xl) 0 0 var(--flit-radius-xl)' : 'var(--flit-radius-xl)',
           boxShadow: 'var(--flit-shadow-modal)',
           border: '1px solid var(--flit-border-soft)',
         }}
@@ -95,7 +115,7 @@ export default function FlitModal(
             <IconClose className="h-5 w-5" />
           </button>
         </div>
-        <div className={full ? 'min-h-0 flex-1 px-6 py-4' : 'px-6 py-5'}>{children}</div>
+        <div className={full || lateral ? 'min-h-0 flex-1 px-6 py-4' : 'px-6 py-5'}>{children}</div>
       </div>
     </div>
     </ModalPortal>

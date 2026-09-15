@@ -6,8 +6,8 @@
 // COMPACTA —lo que hace falta para decidir «abro esta fila / liquido / no»— y se amplía con UN solo
 // control («Mostrar todas las columnas» / «Compactar columnas») en la línea del conteo. Quien
 // concilia no necesita el VIN ni el documento del titular en cada fila; quien quiere todos los campos
-// los tiene en el Excel (las 31 columnas de Financiero, HU #12536) o a un clic (las 28 de la
-// tabla). La preferencia es una sola clave de `localStorage`; su ausencia —o cualquier valor que no
+// los tiene en el Excel (las 32 columnas de Financiero, HU #12536 + #12546) o a un clic (las 29 de
+// la tabla). La preferencia es una sola clave de `localStorage`; su ausencia —o cualquier valor que no
 // sea `todas`— es compacta. Las tres claves por sección de la #12434 se ignoran: no se migran ni se
 // borran.
 //
@@ -38,6 +38,7 @@ import {
   CONCEPTO, CONCEPTOS_REINTEGRO, CONCEPTOS_SERVICIO, faltaDe, faltaDeSubtotal, faltantes,
   type Fila, type Reporte, type Totales,
 } from './tiposReporteCostos';
+import { TITULO_SIN_DATO, textoCeldaServicios } from '../../lib/serviciosAdicionalesTramite';
 import type { SiigoEstadoReporte } from '@operaciones/shared-types';
 
 export type Grupo = 'identificacion' | 'datos' | 'valores';
@@ -109,6 +110,35 @@ const celdaAprobacion = (f: Fila) => (
   </td>
 );
 
+/**
+ * La celda «Serv. adic.» (HU #12548, AC6). Dos renglones —importe arriba, cuántos debajo—, que es el
+ * gesto que esta tabla ya usa tres veces: `$ 125.000 · 2` en una línea se lee como un número roto.
+ *
+ * Lo que decide QUÉ se pinta es la CANTIDAD, no el importe, y los tres desenlaces son afirmaciones
+ * distintas que la pantalla no puede confundir (`textoCeldaServicios`): «—» es «no lleva ninguno»,
+ * «Sin dato» es «se selló antes de que esto existiera» y un importe con su conteo es el cobro —que
+ * puede ser de «$ 0» si los servicios valen cero, y ahí el cero SÍ es el dato.
+ */
+const celdaServiciosAdicionales = (f: Fila) => {
+  const celda = textoCeldaServicios(f);
+  if (celda.clase === 'vacio') return monto(<Monto v={null} />);
+  if (celda.clase === 'sin_dato') {
+    return (
+      <td className="px-3 py-2 text-right">
+        {/* Misma pinta que el guion, y un texto propio: `title` explica, no lo hace el color. */}
+        <span className="text-xs italic" style={TENUE} title={TITULO_SIN_DATO}>Sin dato</span>
+      </td>
+    );
+  }
+  return (
+    // El nombre accesible completo, porque la cabecera va abreviada y la celda tiene dos renglones.
+    <td className="px-3 py-2 text-right tabular-nums" aria-label={celda.accesible}>
+      <div><Monto v={celda.valor} /></div>
+      <div className="text-xs" style={SECUNDARIO}>{celda.etiqueta}</div>
+    </td>
+  );
+};
+
 /** Un subtotal en null se dice con su motivo y con qué falta en el `title` (RN-02), nunca «$ 0». */
 function subtotal(f: Fila, v: number | null, conceptos: readonly string[]): ReactNode {
   const { falta, faltan } = faltaDeSubtotal(f, conceptos);
@@ -176,6 +206,11 @@ export const COLUMNAS: Columna[] = [
   { titulo: CONCEPTO.logistica, grupo: 'valores', center: true, total: (t) => pie(<Monto v={t.logistica} />), celda: (f) => monto(<Monto v={f.logistica} falta={faltaDe(f, CONCEPTO.logistica)} />) },
   { titulo: 'Total reintegro', grupo: 'valores', compacta: true, center: true, total: (t) => pie(<Monto v={t.totalReintegro} />), celda: (f) => monto(subtotal(f, f.totalReintegro, CONCEPTOS_REINTEGRO)) },
   { titulo: CONCEPTO.digital, grupo: 'valores', center: true, total: (t) => pie(<Monto v={t.tramiteDigital} />), celda: (f) => monto(<Monto v={f.tramiteDigital} falta={faltaDe(f, CONCEPTO.digital)} />) },
+  // Entre «Trámite digital» y «Servicio» porque así la fila se lee como la cuenta que es:
+  // trámite digital + servicios adicionales = Servicio. NO entra en la compacta (AC6, D-09): las
+  // nueve son las que caben en 1366 px y las midió la #12539. En el pie el cero SÍ se pinta, como
+  // en SOAT o GMF: `Totales.serviciosAdicionales` es un número, no un concepto que pueda faltar.
+  { titulo: 'Serv. adic.', grupo: 'valores', center: true, total: (t) => pie(<Monto v={t.serviciosAdicionales} />), celda: celdaServiciosAdicionales },
   { titulo: 'Servicio', grupo: 'valores', compacta: true, center: true, total: (t) => pie(<Monto v={t.totalServicio} />), celda: (f) => monto(subtotal(f, f.totalServicio, CONCEPTOS_SERVICIO)) },
   { titulo: 'Total', grupo: 'valores', compacta: true, center: true, total: (t) => pie(<Monto v={t.total} />, AZUL), celda: (f) => monto(<Monto v={f.total} negrita />, AZUL) },
   {
@@ -228,11 +263,13 @@ function useColumnas(anunciar: (texto: string) => void) {
 }
 
 export default function TablaReporteCostos({
-  data, puedeLiquidar, puedeReversar, enProceso, seleccion, onSeleccion, accionable,
-  fichasFe, estadoFeDe, onAbrirDetalle, onLiquidar, onFacturar, onReversar, onSoportes, accionEnvio,
+  data, puedeLiquidar, puedeReversar, puedeVerServicios, enProceso, seleccion, onSeleccion, accionable,
+  fichasFe, estadoFeDe, onAbrirDetalle, onLiquidar, onFacturar, onReversar, onSoportes, onServicios, accionEnvio,
   onPrev, onNext, anunciar,
 }: {
   data: Reporte; puedeLiquidar: boolean; puedeReversar: boolean; enProceso: boolean;
+  /** `finanzas.servicios_adicionales.ver`. Sin ella el botón «Servicios» NO se pinta, ni apagado. */
+  puedeVerServicios: boolean;
   seleccion: Set<string>; onSeleccion: (s: Set<string>) => void;
   /** Sobre qué filas hay alguna acción: solo esas llevan casilla. */
   accionable: (f: Fila) => boolean;
@@ -240,6 +277,8 @@ export default function TablaReporteCostos({
   onAbrirDetalle: (f: Fila) => void;
   onLiquidar: (f: Fila) => void; onFacturar: (f: Fila) => void; onReversar: (f: Fila, motivo: string) => void;
   onSoportes: (f: Fila) => void;
+  /** Abre el panel de servicios adicionales de esa fila (HU #12548). */
+  onServicios: (f: Fila) => void;
   /** La acción de facturación electrónica de la fila, cuando aplica (HU #11329). */
   accionEnvio: (f: Fila) => ReactNode;
   onPrev: () => void; onNext: () => void;
@@ -343,9 +382,11 @@ export default function TablaReporteCostos({
               )}
               {visibles.map((c) => <Fragment key={c.titulo}>{(ampliada ? c.celda : (c.celdaCompacta ?? c.celda))(f, ctx)}</Fragment>)}
               <td className="px-3 py-2">
-                <Acciones fila={f} puedeLiquidar={puedeLiquidar} puedeReversar={puedeReversar} enProceso={enProceso}
+                <Acciones fila={f} puedeLiquidar={puedeLiquidar} puedeReversar={puedeReversar}
+                  puedeVerServicios={puedeVerServicios} enProceso={enProceso}
                   onLiquidar={() => onLiquidar(f)} onFacturar={() => onFacturar(f)}
                   onReversar={(m) => onReversar(f, m)} onSoportes={() => onSoportes(f)}
+                  onServicios={() => onServicios(f)}
                   accionEnvio={accionEnvio(f)} />
               </td>
             </FlitTr>
@@ -356,6 +397,12 @@ export default function TablaReporteCostos({
       <div className="mt-3">{paginacion()}</div>
     </>
   );
+}
+
+/** «2 asignados» · «1 asignado» · «ninguno» (también con `null`: no se sabe, no se cuenta). */
+function nombreDeCantidad(n: number | null): string {
+  if (n === null || n <= 0) return 'ninguno';
+  return n === 1 ? '1 asignado' : `${n} asignados`;
 }
 
 /**
@@ -374,9 +421,10 @@ function ThGrupo({ children, scope, colSpan, rowSpan }: {
   );
 }
 
-function Acciones({ fila, puedeLiquidar, puedeReversar, enProceso, onLiquidar, onFacturar, onReversar, onSoportes, accionEnvio }: {
-  fila: Fila; puedeLiquidar: boolean; puedeReversar: boolean; enProceso: boolean;
+function Acciones({ fila, puedeLiquidar, puedeReversar, puedeVerServicios, enProceso, onLiquidar, onFacturar, onReversar, onSoportes, onServicios, accionEnvio }: {
+  fila: Fila; puedeLiquidar: boolean; puedeReversar: boolean; puedeVerServicios: boolean; enProceso: boolean;
   onLiquidar: () => void; onFacturar: () => void; onReversar: (motivo: string) => void; onSoportes: () => void;
+  onServicios: () => void;
   accionEnvio?: ReactNode;
 }) {
   const [reversando, setReversando] = useState(false);
@@ -389,6 +437,20 @@ function Acciones({ fila, puedeLiquidar, puedeReversar, enProceso, onLiquidar, o
   return (
     <div className="flex flex-wrap items-center gap-1">
       <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onSoportes}>Soporte</button>
+      {/* Pegado a «Soporte» y con su MISMO peso (AC1): consultar antes que operar, y sin competir
+          con Liquidar/Facturar. Se pinta en TODAS las filas, selladas incluidas: el panel de una
+          liquidada es la única forma de ver qué se le cobró. El contador no cuesta una petición —
+          `serviciosAdicionalesCantidad` ya viaja en la fila— y con 0 o con null no se pinta: «· 0»
+          sería una cuenta, y `null` no sabe cuántos hubo. */}
+      {puedeVerServicios && (
+        <button className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+          aria-label={`Servicios adicionales de ${fila.idFlit}: ${nombreDeCantidad(fila.serviciosAdicionalesCantidad)}`}
+          onClick={onServicios}>
+          {fila.serviciosAdicionalesCantidad && fila.serviciosAdicionalesCantidad > 0
+            ? `Servicios · ${fila.serviciosAdicionalesCantidad}`
+            : 'Servicios'}
+        </button>
+      )}
 
       {puedeLiquidar && !fila.sellada && (
         <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enProceso || bloqueado}
