@@ -65,7 +65,9 @@ describe('0195 — análisis estático', () => {
 
   it('idempotente por el índice único PARCIAL: ON CONFLICT DO NOTHING sin target (M-01)', () => {
     expect(SIN_COMENTARIOS).toMatch(/ON CONFLICT DO NOTHING;/);
-    // Con target sobre un índice parcial Postgres no la aceptaría; que nadie lo «arregle».
+    // Sin target a propósito: con el `index_predicate` Postgres SÍ admite un índice parcial como
+    // target, pero obligaría a repetir la expresión del índice y a mantenerla en sincronía. Que
+    // nadie lo «arregle» creyendo que es obligatorio.
     expect(SIN_COMENTARIOS).not.toMatch(/ON CONFLICT\s*\(/);
     expect(SIN_COMENTARIOS).not.toMatch(/DO UPDATE/i);
   });

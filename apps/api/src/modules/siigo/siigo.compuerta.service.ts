@@ -137,9 +137,10 @@ async function evaluar(
 }
 
 /**
- * AC5 — Estado de la compuerta para un ambiente, evaluado sobre los SEIS conceptos.
+ * AC5 — Estado de la compuerta para un ambiente, evaluado sobre TODOS los conceptos facturables
+ * (siete desde la HU #12547; el número lo manda `CONCEPTOS_FACTURABLES`, no este comentario).
  *
- * Los seis y no los de un trámite concreto: esto lo consume la pantalla de parametrización, que
+ * Todos y no los de un trámite concreto: esto lo consume la pantalla de parametrización, que
  * pregunta «¿está todo listo para facturar?», no «¿puedo emitir este trámite?».
  */
 export async function estadoCompuerta(ambiente: SiigoAmbiente): Promise<EstadoCompuerta> {
