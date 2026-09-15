@@ -68,7 +68,8 @@ export interface EstadoCompuerta {
   /** Vacío cuando `emisionRealHabilitada` es true. */
   motivos: MotivoCompuerta[];
   /**
-   * Conceptos que se evaluaron. Para el estado global son los seis; para un trámite concreto, solo
+   * Conceptos que se evaluaron. Para el estado global son todos los del catálogo; para un trámite
+   * concreto, solo
    * los que su liquidación sellada trae con valor.
    */
   conceptosEvaluados: ConceptoFacturable[];

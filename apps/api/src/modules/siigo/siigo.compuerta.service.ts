@@ -20,6 +20,7 @@
 import {
   CONCEPTOS_FACTURABLES,
   CONCEPTO_FACTURABLE_COLUMNA_LIQUIDACION,
+  CONCEPTO_FACTURABLE_LABEL,
   type ConceptoFacturable,
   type EstadoCompuerta,
   type MotivoCompuerta,
@@ -108,7 +109,12 @@ async function evaluar(
   if (noListos.length > 0) {
     motivos.push({
       tipo: 'concepto_no_listo',
-      detalle: `Falta elegir el producto de Siigo en: ${noListos.join(', ')}.`,
+      // CH-1 — la ETIQUETA, no la clave cruda. Este detalle lo lee Financiera, y decía
+      // «tramite_digital, servicio_adicional»: nombres de columna de nuestra base en un mensaje
+      // dirigido a quien parametriza. `CONCEPTO_FACTURABLE_LABEL` ya es la traducción canónica y la
+      // usa el resto del módulo.
+      detalle: 'Falta elegir el producto de Siigo en: '
+        + `${noListos.map((c) => CONCEPTO_FACTURABLE_LABEL[c]).join(', ')}.`,
       conceptos: noListos,
     });
   }
@@ -131,9 +137,10 @@ async function evaluar(
 }
 
 /**
- * AC5 — Estado de la compuerta para un ambiente, evaluado sobre los SEIS conceptos.
+ * AC5 — Estado de la compuerta para un ambiente, evaluado sobre TODOS los conceptos facturables
+ * (siete desde la HU #12547; el número lo manda `CONCEPTOS_FACTURABLES`, no este comentario).
  *
- * Los seis y no los de un trámite concreto: esto lo consume la pantalla de parametrización, que
+ * Todos y no los de un trámite concreto: esto lo consume la pantalla de parametrización, que
  * pregunta «¿está todo listo para facturar?», no «¿puedo emitir este trámite?».
  */
 export async function estadoCompuerta(ambiente: SiigoAmbiente): Promise<EstadoCompuerta> {

@@ -24,6 +24,12 @@ export const CONCEPTOS_FACTURABLES = [
   'tramite_digital',
   'logistica',
   'gmf',
+  // CUIDADO — `servicio_adicional` en SINGULAR. `ConceptoBolsa.SERVICIOS_ADICIONALES`
+  // (flito-bolsas, HU #12546) vale `'servicios_adicionales'`, en PLURAL, y son dos vocabularios
+  // distintos: este es una línea de la factura electrónica, aquel es un rubro de la bolsa. Un typo
+  // cruzado COMPILA —ambos son `string`— y solo lo caza un `z.enum` en tiempo de ejecución. No se
+  // unifican: renombrar el de bolsas obligaría a migrar filas ya asentadas (HU #12547).
+  'servicio_adicional',
 ] as const;
 
 export type ConceptoFacturable = (typeof CONCEPTOS_FACTURABLES)[number];
@@ -38,12 +44,13 @@ export const CONCEPTO_FACTURABLE_LABEL: Record<ConceptoFacturable, string> = {
   tramite_digital: 'Trámite digital FLIT',
   logistica: 'Logística',
   gmf: 'GMF (4x1000)',
+  servicio_adicional: 'Servicio adicional',
 };
 
 /**
  * Valores de una liquidación sellada, uno por concepto facturable.
  *
- * Los seis campos son OBLIGATORIOS a propósito. Con ellos opcionales, un `{}` —un `select` parcial,
+ * Los campos son OBLIGATORIOS a propósito. Con ellos opcionales, un `{}` —un `select` parcial,
  * una fila no encontrada resuelta como objeto vacío, un DTO recortado— compilaba sin una queja, y
  * aguas abajo eso significa «ningún concepto aplica», que en una compuerta de emisión es abrir sin
  * haber comprobado nada. Exigirlos convierte ese caso en un error de compilación.
@@ -58,6 +65,17 @@ export interface ValoresLiquidacion {
   valorTramiteDigital: string | null;
   valorLogistica: string | null;
   valorGmf: string | null;
+  /**
+   * HU #12547 — la SUMA sellada de los servicios adicionales (`valor_servicios_adicionales`, 0194).
+   *
+   * `null` = el trámite se selló sin servicios adicionales, o se selló antes de la HU #12546; el
+   * concepto NO aplica. `'0.00'` —o `'0'`— sí aplica: hubo servicios y sumaron cero.
+   *
+   * Es la suma, no el desglose: el desglose por item vive en
+   * `detalle->'serviciosAdicionales'->'items'` y viaja aparte (`TramiteFacturable.serviciosAdicionales`),
+   * porque de él salen VARIAS líneas de factura y esta interfaz describe un valor por concepto.
+   */
+  valorServiciosAdicionales: string | null;
 }
 
 /**
@@ -80,6 +98,7 @@ Record<ConceptoFacturable, keyof ValoresLiquidacion> = {
   tramite_digital: 'valorTramiteDigital',
   logistica: 'valorLogistica',
   gmf: 'valorGmf',
+  servicio_adicional: 'valorServiciosAdicionales',
 };
 
 /**
