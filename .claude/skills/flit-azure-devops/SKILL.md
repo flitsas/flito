@@ -83,6 +83,8 @@ Las tools son **action-based** (un tool + `action`), no un tool por verbo. Antes
 
 ### Tipos de work item — HU y Bug
 
+Por encima de ellos: **Epic** (la escribe el PO; los agentes solo la leen y le mueven el estado) → **Feature** (hijo de la Epic). `Resolved` en cualquier nivel significa «en QA = `staging`»; la cascada de estados está en `AGENTS.md` «Jerarquía Épica → Feature → HU/Bug» y la ejecuta `flit-gestion-hu`.
+
 Ambos son work items de desarrollo con el **mismo ciclo** (`New → Active → Resolved → Closed`) y las
 mismas skills (`flit-crear-hu`, `flit-gestion-hu`, `flit-integration-ado`). Diferencias de campos:
 la HU usa `System.Description` + `Microsoft.VSTS.Common.AcceptanceCriteria` + Story Points; el Bug

@@ -18,7 +18,8 @@ Orden fijo:
 3. Solo si el veredicto lo permite (`OK` / `PASS` / `SANO`) → commit/push (si faltan) → MCP `github` `create_pull_request`.
 4. Luego **Skill** `flit-integration-ado` Modo A (si hay HU **o Bug** en ADO) — Discussion sola no basta.
 5. **Agent** `pr-monitor-agent` sobre el PR recién abierto (**siempre**, también en `CHORE/`/`DOCS/`): vigila los checks, hace triage del log rojo, detecta conflictos y **mergea a `develop`** cuando el CI está verde y no hay conflictos. Lanzarlo en background y seguir trabajando. Éxito = `MERGED`.
-6. Tras `MERGED`: **Skill** `flit-gestion-hu` Paso 3 (`Resolved`). El comentario notifica al QA **humano** de ambiente. **Prohibido** lanzar `qa-agent` B aquí: ese gate ya es pre-PR (paso 2).
+6. Tras `MERGED`: **Skill** `flit-integration-ado` Modo B (`DeployDEV`). El WI **sigue `Active`** (está en DEV; el QA humano prueba en `staging`). El `Resolved` + aviso al QA es el Paso 3 de `flit-gestion-hu` **tras la promoción a `staging`** (`flit-release`), seguido de la cascada Feature → Épica (Paso 4). **Prohibido** lanzar `qa-agent` B aquí: ese gate ya es pre-PR (paso 2).
+7. En el mismo turno del paso 5: **arrancar la siguiente HU** de la cadena (no esperar el `MERGED`). Si el monitor devuelve `CI-ROJO` de código → «Pausa por CI rojo» de `flit-modo-desarrollo-auto`.
 
 **HU y Bug se tratan igual** en todo lo anterior (regla «Paridad HU ↔ Bug» de `AGENTS.md`): mismos
 gates, mismo Modo A/B, mismo cierre a `Resolved` vía `flit-gestion-hu`. Un PR de Bug no es una vía

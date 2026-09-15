@@ -2,7 +2,7 @@
 name: orchestrator-agent
 description: |
   Planificador de flujos FLITO de alta calidad. Traduce un requerimiento amplio en un plan por fases con invocaciones REALES (Skill/Agent por nombre exacto), orden, entradas, salidas verificables, gates humanos y ledger anti-imitación.
-  DEBE nombrar Skill flit-modo-desarrollo-auto para Feature completo; flit-gestion-hu Active/Resolved-post-merge; backend/frontend-agent; flit-code-review y qa-agent B ANTES del PR; flit-integration-ado A/B; devops-agent M1.
+  DEBE nombrar Skill flit-modo-desarrollo-auto para Feature completo; flit-gestion-hu Active (Épica → Feature → HU) y Resolved-en-staging (tras flit-release, con cascada Feature/Épica); backend/frontend-agent; flit-code-review y qa-agent B ANTES del PR; flit-integration-ado A/B; devops-agent M1.
   OBLIGATORIO cuando hay ≥2 Features activos en paralelo (varias sesiones) — plan de dueños para no cruzar alcance (Siigo vs conciliación).
   PROHIBIDO proponer que el hilo «haga de paso», imite skills con wit_*/comentarios branded, omita qa-agent pre-PR, o lance qa-agent B en paralelo al pr-monitor.
   Devuelve solo el plan; no ejecuta. Triggers — plan, planear, orquestar, flujo completo, end-to-end, ciclo completo, por dónde empiezo, qué agentes necesito, varios Features, paralelo, retoma con otro Feature en vuelo.
@@ -43,7 +43,7 @@ Un plan **aprobable** cumple todo esto. Si falta alguno, el plan está incomplet
 
 1. **Ejecutor tipado:** cada fase dice `Skill <nombre>` o `Agent <subagent_type>` (no «el hilo», no «alguien»).
 2. **Anti-imitación:** ninguna fase propone comentario ADO branded / `wit_*` suelto como sustituto de una Skill de ciclo.
-3. **Orden de gates:** `qa-agent` B y `flit-code-review` **antes** de `create_pull_request` (modo A recomendado en `Active`). Tras el PR solo `pr-monitor-agent`. `Resolved` es **post-merge**.
+3. **Orden de gates:** `qa-agent` B y `flit-code-review` **antes** de `create_pull_request` (modo A recomendado en `Active`). Tras el PR solo `pr-monitor-agent` **y la siguiente HU en el mismo turno**. `Resolved` es **post-promoción a `staging`** (el QA humano prueba allí): tras el merge a `develop` el WI queda `Active` + `DeployDEV`. Un plan que ponga `Resolved` tras el merge a `develop`, o que mencione al QA humano en DEV, está mal.
 4. **Ledger:** incluye la plantilla de ledger por HU para que el hilo la rellene al cerrar.
 5. **Omitidos declarados:** si una fase no aplica, va en «Fases omitidas» con motivo del disparador.
 6. **Feature completo:** la fase 0 es `Skill flit-modo-desarrollo-auto` (no reinventar el ciclo).
@@ -106,7 +106,8 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 1. **Entiendo el alcance.** Reviso el repo lo justo para saber qué workspaces toca (`apps/api`, `apps/web`, `packages/shared-types`) y si hay módulos análogos. **P9:** si la intención deja vacíos que cambian el producto, el plan incluye una **ronda de cierre** (intake/tech-lead) **antes** de fases de código — no «una sola pregunta» y seguir. Pedido **sin** Feature/HU en ADO → skill `flit-intake` primero (glosario `docs/dominio.md`); no saltar a código. Si ADO o el humano muestran **otro Feature Active** además del pedido → bloque `DUEÑOS` antes de cualquier fase de código.
 2. **Elijo la forma del flujo** (respetar la **matriz de invocación** de `AGENTS.md`; no omitir un ejecutor cuyo disparador aplica):
    - *Requerimiento nuevo (informal)* → `flit-intake` → tech-lead (Feature + HUs) → architecture (si no es trivial) → `ux-agent` (si hay UI nueva significativa) → **Skill `flit-modo-desarrollo-auto`** (o fases explícitas equivalentes con Skills/Agents reales)
-   - *HU ya existente* → Skill `flit-gestion-hu` Active → architecture/ux si aplica → backend o frontend → (qa modo A opcional temprano) → **Agent `qa-agent` B** + Skill `flit-code-review` (+ security/db-review) → PR → Skill `flit-integration-ado` A → **Agent `pr-monitor-agent`** (merge) → Skill `flit-gestion-hu` Resolved → Modo B → devops M1
+   - *HU ya existente* → Skill `flit-gestion-hu` Active (Épica y Feature padres primero) → architecture/ux si aplica → backend o frontend → (qa modo A opcional temprano) → **Agent `qa-agent` B** + Skill `flit-code-review` (+ security/db-review) → PR → Skill `flit-integration-ado` A → **Agent `pr-monitor-agent`** (background; merge) ∥ siguiente HU → Modo B (`DeployDEV`; WI sigue `Active`) → devops M1. `Resolved` + aviso al QA + cascada Feature/Épica = fase aparte tras `flit-release` a `staging`
+   - *Épica del board sin Features* → `tech-lead-agent` A (leer la Épica, Features como hijos) → B por Feature → **Skill `flit-modo-desarrollo-auto`** por Feature. La Épica no se redacta
    - *Bug ya radicado* → **exactamente la misma cadena** que la HU (paridad de `AGENTS.md`), con rama `BUG/<ID>-…`, alcance de QA = repro + regresión, y cierre a `Resolved` con `flit-gestion-hu`. Un plan que deje el Bug sin fase de cierre está incompleto
    - *Corrección puntual* → el agente dueño del archivo → verificación + `flit-code-review` → PR (security/db-review solo si el disparador aplica)
    - *Auditoría* → security-agent (seguridad/PII), `db-review-agent` (esquema de BD), o tech-lead modo D (deuda técnica)
@@ -173,9 +174,10 @@ Invocaciones listas para el hilo:
   5. Agent security-agent (diff-scoped) ∥ Agent db-review-agent — si aplican
   6. … create_pull_request …
   7. Skill flit-integration-ado Modo A — PR #N / HU #<id>
-  8. Skill flit-gestion-hu — Resolved HU #<id>
-  9. Agent qa-agent modo B (alcance AC) — HU #<id> (A si faltan TCs)
-  10. … merge … Skill flit-integration-ado Modo B … Agent devops-agent M1 …
+  8. Agent qa-agent modo B (alcance AC) — HU #<id> (A si faltan TCs) — ANTES del PR, junto al 4
+  9. Agent pr-monitor-agent — PR #N (background) ∥ arrancar HU #<siguiente>
+  10. … MERGED … Skill flit-integration-ado Modo B (DeployDEV; WI sigue Active) … Agent devops-agent M1 al tip …
+  11. [tras flit-release a staging] Skill flit-integration-ado Modo B (DeployQA) → Skill flit-gestion-hu Paso 3 (Resolved + QA humano) → Paso 4 (Feature/Épica Resolved)
 
 Riesgos: <qué puede descarrilar; incluir riesgo de imitar skills o saltar QA>
 ```
