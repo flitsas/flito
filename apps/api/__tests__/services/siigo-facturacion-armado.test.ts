@@ -617,6 +617,19 @@ describe('HU #12547 AC4 — una línea por servicio adicional sellado', () => {
       .toThrow(expect.objectContaining({ motivo: 'servicios_no_cuadran' }));
   });
 
+  it('un descuadre de UN CENTAVO también rechaza la factura', () => {
+    // El TC de arriba descuadra en 5.000 pesos, y con eso la tolerancia solo queda fijada por
+    // arriba en 5.000: `TOLERANCIA_SERVICIOS = 0.5` lo pasaría sin inmutarse. Los centavos son la
+    // única escala a la que el importe sellado (numeric(14,2)) y la suma de los items (números)
+    // pueden discrepar de verdad, así que es la que hay que fijar. Con este caso el intervalo
+    // válido de la tolerancia queda en (ruido de float, 0.01) y el 0.005 cae en el centro: no
+    // se puede subir sin poner esto en rojo, ni bajar a cero sin romper el de 125000.30.
+    const t = conServicios('125000.01'); // los items suman 125.000 exactos
+    expect(conceptosFacturados(t.liquidacion, [])).toContain('servicio_adicional');
+    expect(() => armarFactura(entrada({ tramites: [t], mapeo: MAPEO_CON_SA })))
+      .toThrow(expect.objectContaining({ motivo: 'servicios_no_cuadran' }));
+  });
+
   it('un valor sellado mayor que cero SIN items sellados rechaza la factura', () => {
     // Mismo camino que el descuadre —suma 0 contra valor positivo—, no un `if` aparte.
     const t = conServicios('125000.00', []);
