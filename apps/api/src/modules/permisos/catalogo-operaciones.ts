@@ -55,6 +55,7 @@ const TRN = 'tramites/transito.routes.ts';
 const TRC = 'tramites/transito-config.routes.ts';
 const USR = 'users/users.routes.ts';
 const PER = 'permisos/permisos.routes.ts';
+const FSA = 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts';
 
 export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   // ── SOAT (portal FLITO) ───────────────────────────────────────────────────────────────────────
@@ -240,6 +241,11 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${PAR} POST /servicios-adicionales`, 'parametrizacion.servicios_adicionales.crear', 'Crear un tipo de servicio adicional', 'Dar de alta un tipo de servicio adicional con su nombre, descripción y valor.'),
   op(`${PAR} PATCH /servicios-adicionales/:id`, 'parametrizacion.servicios_adicionales.editar', 'Editar un tipo de servicio adicional', 'Cambiar el nombre, la descripción o el valor de un tipo activo.'),
   op(`${PAR} POST /servicios-adicionales/:id/baja`, 'parametrizacion.servicios_adicionales.dar_de_baja', 'Dar de baja un tipo de servicio adicional', 'Retirar un tipo del catálogo sin borrarlo. No se reactiva y su nombre queda libre.'),
+
+  // ── Finanzas — servicios adicionales por trámite (HU #12545; textos byte a byte con la 0193) ──
+  op(`${FSA} GET /tramites/:id/servicios-adicionales`, 'finanzas.servicios_adicionales.ver', 'Ver los servicios adicionales de un trámite', 'Consultar los servicios adicionales asignados a un trámite y su total.'),
+  op(`${FSA} POST /tramites/:id/servicios-adicionales`, 'finanzas.servicios_adicionales.asignar', 'Asignar un servicio adicional a un trámite', 'Añadir a un trámite no liquidado un servicio adicional del catálogo, copiando su nombre y valor en ese instante.'),
+  op(`${FSA} DELETE /tramites/:id/servicios-adicionales/:asignacionId`, 'finanzas.servicios_adicionales.quitar', 'Quitar un servicio adicional de un trámite', 'Retirar de un trámite no liquidado un servicio adicional asignado.'),
 
   // ── Sincronización FLITO ──────────────────────────────────────────────────────────────────────
   op(`${SYN} GET /estado`, 'sync.sync.ver_estado', 'Ver el estado de la sincronización', 'Consultar cuándo corrió la última sincronización y cómo fue.'),
