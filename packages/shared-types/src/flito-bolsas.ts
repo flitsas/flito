@@ -45,6 +45,17 @@ export type OrigenMovimientoBolsa = (typeof OrigenMovimientoBolsa)[keyof typeof 
  * calcula sobre la suma de los otros cinco. Consume bolsa igual que ellos porque al cliente se le
  * factura el total CON gravamen (HU #11160); si no se descontara, el saldo mostraría un 0,4 % de
  * más en cada trámite. No lleva organismo: es un gravamen, no un desembolso a una secretaría.
+ *
+ * `servicios_adicionales` es el séptimo (HU #12546) y va por la SUMA de los servicios asignados al
+ * trámite, no uno por servicio: la bolsa lleva el dinero y el desglose por tipo vive en el detalle
+ * sellado de la liquidación. Sin él, los servicios entrarían en la base del GMF y en el total
+ * facturado pero no se asentarían en ninguna salida, y la bolsa descontaría `total − Σ servicios`
+ * en cada trámite con servicios. Tampoco lleva organismo: es un honorario de FLIT, como el trámite
+ * digital y la logística.
+ *
+ * A diferencia de `origen`, `flito_bolsa_movimientos.concepto` es un `varchar(30)` SIN CHECK en la
+ * base, así que un valor nuevo aquí NO necesita migración: el único CHECK que enumera conceptos es
+ * el de la bolsa de TRÁNSITO (0124), y este concepto no llega a ella (no lleva organismo).
  */
 export const ConceptoBolsa = {
   DERECHO: 'derecho',
@@ -52,6 +63,7 @@ export const ConceptoBolsa = {
   IMPUESTO: 'impuesto',
   TRAMITE_DIGITAL: 'tramite_digital',
   LOGISTICA: 'logistica',
+  SERVICIOS_ADICIONALES: 'servicios_adicionales',
   GMF: 'gmf',
 } as const;
 
@@ -63,6 +75,7 @@ export const CONCEPTO_BOLSA_LABEL: Record<ConceptoBolsa, string> = {
   impuesto: 'Impuesto',
   tramite_digital: 'Trámite digital',
   logistica: 'Logística',
+  servicios_adicionales: 'Servicios adicionales',
   gmf: 'GMF (4x1000)',
 };
 

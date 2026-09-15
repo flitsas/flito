@@ -233,15 +233,23 @@ function tarifasConfiguradas(digital = 200000, logistica = 15000): void {
 }
 
 /**
- * Deja el mock listo para un sellado. Los dos SELECT sobre `flito_tramites` van encolados porque el
- * sellado consulta la misma tabla dos veces con proyecciones distintas: primero el cálculo, después
- * los identificadores.
+ * Deja el mock listo para un sellado. Los TRES SELECT sobre `flito_tramites` van encolados porque el
+ * sellado consulta la misma tabla tres veces con proyecciones distintas: primero el cálculo, después
+ * los identificadores y, ya dentro de la transacción, el `FOR UPDATE` de la HU #12546.
+ *
+ * `flito_tramite_servicios_adicionales` no se registra: sin registro el mock keyed devuelve `[]`,
+ * que es «este trámite no lleva servicios» — el escenario por defecto de estos AC.
  */
-function escenarioSellado(calculo: Fila = {}, ids: Fila = {}): void {
+function escenarioSellado(calculo: Fila = {}, ids: Fila = {}, servicios: Fila[] = []): void {
   kdb.when
+    .select('flito_tramite_servicios_adicionales', servicios)
     .select('flito_liquidaciones', [])
     .selectOnce('flito_tramites', [filaCalculo(calculo)])
     .selectOnce('flito_tramites', [filaIdentificadores(ids)])
+    // HU #12546 — el TERCER SELECT sobre `flito_tramites`: el `FOR UPDATE` que `liquidar()` toma
+    // DENTRO de la transacción antes de releer los servicios adicionales. Sin esta entrada la cola
+    // se agota, `bloquearTramite` no encuentra el trámite y ningún sellado llega a la bolsa.
+    .selectOnce('flito_tramites', [{ id: TRAMITE, idFlit: 'FLIT-1' }])
     .select('flito_bolsa_movimientos', consultaMovimientos)
     .select('flito_bolsas', bolsaVigente)
     .insert('flito_liquidaciones', [filaLiquidacion])
@@ -386,6 +394,79 @@ describe('liquidar — AC2: lo que la compañía autogestiona no consume bolsa',
     await liquidar(TRAMITE, 9);
 
     expect(salidasEscritas().map((s) => s.concepto)).toEqual(['soat', 'derecho', 'tramite_digital', 'logistica', 'gmf']);
+  });
+});
+
+// ────────────── Servicios adicionales (HU #12546) ────────────────────────────
+
+/** Dos servicios asignados al trámite, tal como los devuelve la puente. */
+const SERVICIOS = [
+  { id: 'sa-1', tipoId: 'tipo-1', nombre: 'Paz y salvo', descripcion: null, valor: '50000',
+    asignadoPorId: 9, asignadoPorNombre: 'Ana', asignadoEn: AHORA },
+  { id: 'sa-2', tipoId: 'tipo-2', nombre: 'Diagnóstico', descripcion: null, valor: '35000',
+    asignadoPorId: 9, asignadoPorNombre: 'Ana', asignadoEn: AHORA },
+];
+
+describe('liquidar — los servicios adicionales asientan su propia salida (HU #12546)', () => {
+  // Sin esta salida la bolsa quedaría DESCUADRADA y de una forma que no salta a la vista: los
+  // servicios entran en la base del GMF —así que el gravamen crece— y en el total facturado, pero
+  // su importe no se asentaría en ninguna línea. El cliente vería descontado `total − Σ servicios`
+  // y el extracto seguiría cuadrando consigo mismo.
+
+  it('UNA salida por la SUMA de los servicios, con llave por trámite y sin organismo, justo antes del GMF', async () => {
+    escenarioSellado({}, {}, SERVICIOS);
+    await liquidar(TRAMITE, 9);
+
+    const salidas = salidasEscritas();
+    expect(salidas.map((s) => s.concepto))
+      .toEqual(['soat', 'impuesto', 'derecho', 'tramite_digital', 'logistica', 'servicios_adicionales', 'gmf']);
+    const servicios = salidas.find((s) => s.concepto === 'servicios_adicionales');
+    // 50.000 + 35.000 = 85.000 en UNA línea, no dos: la bolsa lleva el dinero y el desglose por tipo
+    // vive en el detalle sellado. Una llave por asignación no sobreviviría a quitar y reasignar.
+    expect(servicios).toMatchObject({
+      valor: '85000', organismoCodigo: null, tramiteId: TRAMITE, origen: 'automatico',
+      llaveIdempotencia: `salida:tramite:${TRAMITE}:servicios_adicionales`,
+    });
+    // El gravamen sigue siendo el último asiento del libro (HU #11160).
+    expect(salidas.at(-1)?.concepto).toBe('gmf');
+  });
+
+  it('la suma de TODAS las salidas es exactamente el total sellado: la bolsa no pierde ni un peso', async () => {
+    escenarioSellado({}, {}, SERVICIOS);
+    await liquidar(TRAMITE, 9);
+
+    // 450.000 + 120.000 + 80.000 + 200.000 + 15.000 + 85.000 = 950.000 de base; ×0,004 = 3.800.
+    const base = 450000 + 120000 + 80000 + 200000 + 15000 + 85000;
+    const total = base + 3800;
+    const asentado = salidasEscritas().reduce((a, s) => a + Number(s.valor), 0);
+    expect(asentado).toBe(total);
+    expect(1_000_000 - saldoBolsa).toBe(total);
+    // Y el gravamen es el de la base CON servicios: 3.460 sería el de la base sin ellos.
+    expect(salidasEscritas().find((s) => s.concepto === 'gmf')?.valor).toBe('3800');
+  });
+
+  it('un trámite sin servicios no asienta la línea ni cambia el gravamen', async () => {
+    escenarioSellado({}, {}, []);
+    await liquidar(TRAMITE, 9);
+
+    expect(salidasEscritas().map((s) => s.concepto)).not.toContain('servicios_adicionales');
+    expect(1_000_000 - saldoBolsa).toBe(868460);
+  });
+
+  it('el reverso devuelve también los servicios adicionales y NO toca la puente', async () => {
+    // La reversa barre por trámite y origen `automatico`, así que cubre el concepto nuevo sin código
+    // nuevo; el test lo fija para que nadie lo excluya. Y la puente no se toca: los servicios siguen
+    // asignados al trámite, que es justo lo que permite volver a liquidar igual (AC4).
+    escenarioSellado({}, {}, SERVICIOS);
+    await liquidar(TRAMITE, 9);
+    escenarioReverso();
+    await reversar(TRAMITE, 'Error en el valor del derecho', 9);
+
+    const contra = entradasEscritas().find((c) => c.concepto === 'servicios_adicionales');
+    expect(contra).toMatchObject({ tipo: 'entrada', valor: '85000', organismoCodigo: null });
+    expect(saldoBolsa).toBe(1_000_000);
+    expect(inserts.filter((m) => m.tabla === 'flito_tramite_servicios_adicionales')).toEqual([]);
+    expect(updates.filter((m) => m.tabla === 'flito_tramite_servicios_adicionales')).toEqual([]);
   });
 });
 

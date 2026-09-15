@@ -218,6 +218,10 @@ function escenarioSellado(calculo: Fila = {}, ids: Fila = {}): void {
     .select('flito_liquidaciones', [])
     .selectOnce('flito_tramites', [filaCalculo(calculo)])
     .selectOnce('flito_tramites', [filaIdentificadores(ids)])
+    // HU #12546 — el TERCER SELECT sobre `flito_tramites`: el `FOR UPDATE` que `liquidar()` toma
+    // DENTRO de la transacción antes de releer los servicios adicionales. Sin esta entrada la cola
+    // se agota, `bloquearTramite` no encuentra el trámite y ningún sellado llega a la bolsa.
+    .selectOnce('flito_tramites', [{ id: TRAMITE, idFlit: 'FLIT-1' }])
     .select('flito_bolsas', [{ id: 'bolsa-cliente', saldo: '99000000' }])
     .select('flito_bolsa_movimientos', [])
     .select('flito_bolsa_transito_cobertura', consultaCobertura)

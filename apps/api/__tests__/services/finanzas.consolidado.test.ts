@@ -97,7 +97,8 @@ function grupo(over: Partial<GrupoConsolidado> = {}): GrupoConsolidado {
   return {
     companiaId: 7, companiaNit: '811011779', periodo: '2026-09', tramites: 2,
     soat: '900000', impuesto: '240000', derechoTramite: '160000', gmf: '6920', logistica: '30000',
-    tramiteDigital: '400000', totalReintegro: '1336920', totalServicio: '400000', total: '1736920',
+    tramiteDigital: '400000', serviciosAdicionales: '0', totalReintegro: '1336920',
+    totalServicio: '400000', total: '1736920',
     filasIncompletas: 0,
     ...over,
   };
@@ -138,7 +139,16 @@ describe('AC1 — consolidado por cliente y mes (CF-12, RN-02, RN-06)', () => {
       expect(sel[k], k).toBe(SELECT_TOTALES[k]);
     }
     const { select } = trozos(SQL_CONSOLIDADO('mes').sql);
-    expect(select.match(/SUM\(/g)!.length).toBeGreaterThanOrEqual(9);
+    // Número EXACTO, no «≥ 9» (un centinela débil que ni ve una suma que desaparece): 16.
+    //   · 10 agregados de `SELECT_TOTALES` (los seis conceptos —con `serviciosAdicionales` de la
+    //     HU #12546—, el GMF, el total y los dos subtotales de RN-02);
+    //   · 6 `SUM("valor")` de la SUBCONSULTA correlacionada de servicios, que se renderiza una vez
+    //     por cada expresión que la embebe: la propia columna, `gmf` (vía la base), `totalReintegro`
+    //     (que lleva el GMF, y con él la base), `total` (que lleva la base DOS veces) y
+    //     `totalServicio`.
+    // Si alguien convierte esa subconsulta en un LEFT JOIN + GROUP BY, este número baja y el aserto
+    // de joins byte a byte de más abajo también cae.
+    expect(select.match(/SUM\(/g)!.length).toBe(16);
     expect(select).toContain('COUNT(*) FILTER (WHERE');
   });
 
@@ -290,13 +300,18 @@ describe('AC4 — sin filas en cero y sin fecha de aprobación (CF-15)', () => {
   it('la suma de totales del consolidado incluye el grupo Sin aprobar (periodo null), y va al final del cliente', () => {
     const { items, totales } = plegarConsolidado([
       grupo({ periodo: '2026-10', tramites: 1, total: '100', totalReintegro: '100', totalServicio: '0', soat: '100', impuesto: '0', derechoTramite: '0', gmf: '0', logistica: '0', tramiteDigital: '0' }),
-      grupo({ periodo: null, tramites: 3, total: '250.5', totalReintegro: '50.5', totalServicio: '200', soat: '50.5', impuesto: '0', derechoTramite: '0', gmf: '0', logistica: '0', tramiteDigital: '200', filasIncompletas: 2 }),
+      // Este grupo lleva servicios adicionales (HU #12546): 120 que van DENTRO de `totalServicio`
+      // (200 = 80 de trámite digital + 120), no aparte, y que por tanto no cambian el total.
+      grupo({ periodo: null, tramites: 3, total: '250.5', totalReintegro: '50.5', totalServicio: '200', soat: '50.5', impuesto: '0', derechoTramite: '0', gmf: '0', logistica: '0', tramiteDigital: '80', serviciosAdicionales: '120', filasIncompletas: 2 }),
       grupo({ periodo: '2026-09', tramites: 1, total: '1000', totalReintegro: '1000', totalServicio: '0', soat: '1000', impuesto: '0', derechoTramite: '0', gmf: '0', logistica: '0', tramiteDigital: '0' }),
     ], MAESTRO);
     // Mutante «descartar periodo null»: faltarían 250,5 y 3 trámites.
     expect(items.map((i) => i.periodo)).toEqual(['2026-09', '2026-10', null]);
+    // Mutante «`serviciosAdicionales` fuera de NUMERICOS o de `totalesEnCero`»: `Number(undefined)`
+    // deja NaN en la columna y el `toEqual` cae (los tests no los typechequea `build:api`).
     expect(totales).toEqual({
-      soat: 1150.5, impuesto: 0, derechoTramite: 0, gmf: 0, logistica: 0, tramiteDigital: 200,
+      soat: 1150.5, impuesto: 0, derechoTramite: 0, gmf: 0, logistica: 0, tramiteDigital: 80,
+      serviciosAdicionales: 120,
       totalReintegro: 1150.5, totalServicio: 200, total: 1350.5, filasIncompletas: 2,
     });
     expect(items.reduce((s, i) => s + i.tramites, 0)).toBe(5);

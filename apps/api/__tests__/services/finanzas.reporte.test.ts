@@ -30,6 +30,8 @@ function fila(over: Partial<Fila> = {}): Fila {
     fechaCreacion: '2026-07-01T10:00:00.000Z',
     soat: 450000, impuesto: 120000, derechoTramite: 80000,
     logistica: 15000, tramiteDigital: 200000, gmf: 3460, total: 868460,
+    // HU #12546 — la fila las trae siempre; `null` = el trámite no lleva servicios adicionales.
+    serviciosAdicionales: null, serviciosAdicionalesCantidad: 0,
     sellada: true, estadoLiquidacion: 'liquidado', noConfigurados: [],
     sinRecibo: [], pendientesPago: [], autogestionados: [], noAplican: [],
     estadoFacturacion: 'no_enviado', facturaNumero: null, facturaRequiereRevision: false,

@@ -1,8 +1,9 @@
 // HU #12531 y #12536 — el reporte de costos y su consolidado, en `.xlsx` (Feature #12530, épica #12243).
 //
 // Lo que se afirma es el LIBRO REAL que sale por la ruta, abierto con ExcelJS —como hacen las suites
-// de SOAT e Impuestos—, no la constante que lo generó: nombre de hoja, las 31/13 cabeceras escritas a
-// mano (las 31 del detalle son las LITERALES del Excel de Financiero, HU #12536), el TIPO de cada celda (número con formato contable, `Date` de día, vacía para `null`), el
+// de SOAT e Impuestos—, no la constante que lo generó: nombre de hoja, las 32/13 cabeceras escritas a
+// mano (las 32 del detalle son las LITERALES del Excel de Financiero, HU #12536, más «Servicios
+// adicionales» de la HU #12546), el TIPO de cada celda (número con formato contable, `Date` de día, vacía para `null`), el
 // autofiltro y la fila fija. El CI no levanta Postgres y `keyed-db` devuelve la fila entera e ignora
 // `limit`, así que el tope se prueba con TOPE+1 filas de fixture (el servicio lanza antes de
 // resolverlas) y con un espía sobre `limit`. Cada aserto lleva el mutante que lo pone rojo.
@@ -78,6 +79,9 @@ function cruda(over: Record<string, unknown> = {}): Record<string, unknown> {
     sellada: true, estadoLiquidacion: 'liquidado',
     soat: '450000', impuesto: '120000', derechoTramite: '80000', tramiteDigital: '200000',
     logistica: '15000', gmf: '3460', totalFila: '868460',
+    // HU #12546 — la proyección trae la clave siempre; `null` = sin servicios (`Number(undefined)`
+    // sería NaN y este archivo no lo vería: `build:api` no typechequea `__tests__`).
+    serviciosAdicionales: null, serviciosAdicionalesCantidad: 0,
     soatPendiente: false, impuestoPendiente: false,
     gestionaSoat: true, gestionaImpuesto: true, gestionaLogistica: true,
     soatAutogestionable: false, impuestosAutogestionable: false, logisticaAutogestionable: false,
@@ -95,7 +99,7 @@ function cruda(over: Record<string, unknown> = {}): Record<string, unknown> {
 const grupo = (over: Record<string, unknown> = {}) => ({
   companiaId: 7, companiaNit: '811011779', periodo: '2026-09', tramites: 2,
   soat: '900000', impuesto: '240000', derechoTramite: '160000', gmf: '6920', logistica: '30000',
-  tramiteDigital: '400000', totalReintegro: '1336920', totalServicio: '400000', total: '1736920',
+  tramiteDigital: '400000', serviciosAdicionales: '0', totalReintegro: '1336920', totalServicio: '400000', total: '1736920',
   filasIncompletas: 1,
   ...over,
 });
@@ -148,13 +152,14 @@ function celda(hoja: ExcelJS.Worksheet, cabecera: string, n = 2): ExcelJS.Cell {
 }
 
 /**
- * Las 31 cabeceras ESCRITAS A MANO, literales del Excel de Financiero (HU #12536): si vivieran en la
- * constante de producción, un cambio de orden o de mayúscula pasaría en verde. Mutante «cabecera
- * 'Cliente' con mayúscula», «Vin como VIN», «Tramite con tilde», «Teléfono sin /Celular»: cae aquí.
+ * Las 32 cabeceras ESCRITAS A MANO, literales del Excel de Financiero (HU #12536) más «Servicios
+ * adicionales» (HU #12546, justo después de «Modelo»): si vivieran en la constante de producción, un
+ * cambio de orden o de mayúscula pasaría en verde. Mutante «cabecera 'Cliente' con mayúscula», «Vin
+ * como VIN», «Tramite con tilde», «Teléfono sin /Celular», «Servicios adicionales al final»: cae aquí.
  */
 const CABECERAS_DETALLE = [
   'cliente', 'Mes/Trimestre', 'FLIT', 'Placa', 'Tipo', 'CC-NIT', 'Nombres', 'Apellidos', 'Nombre completo',
-  'Modelo', 'Estado', 'Correo', 'OT', 'Tipo Trámite', 'Teléfono/Celular', 'Dirección',
+  'Modelo', 'Servicios adicionales', 'Estado', 'Correo', 'OT', 'Tipo Trámite', 'Teléfono/Celular', 'Dirección',
   'SOAT', 'Trámite', 'Impuesto', 'Columna1', 'Columna2', 'GMF', 'Total Reintegro', 'Servicio',
   'Factura', 'Factura Terceros', 'Vin', 'Placa2', 'Tramite', 'fecha_aprobacion', 'Filtromes',
 ];
@@ -164,8 +169,8 @@ const CABECERAS_CONSOLIDADO = [
 ];
 /** Las nueve de dinero del CONSOLIDADO (AC2, sin cambios en la HU #12536). */
 const DINERO = ['SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística', 'Total reintegro', 'Trámite digital', 'Servicio', 'Total'];
-/** Las siete de dinero del DETALLE con valor; «Columna2» va aparte: lleva el formato pero siempre vacía. */
-const DINERO_DETALLE = ['SOAT', 'Trámite', 'Impuesto', 'Columna1', 'GMF', 'Total Reintegro', 'Servicio'];
+/** Las ocho de dinero del DETALLE con valor; «Columna2» va aparte: lleva el formato pero siempre vacía. */
+const DINERO_DETALLE = ['SOAT', 'Trámite', 'Impuesto', 'Columna1', 'GMF', 'Total Reintegro', 'Servicio', 'Servicios adicionales'];
 const NUMFMT_DINERO = '_-"$" * #,##0.00_-;-"$" * #,##0.00_-;_-"$" * "-"??_-;_-@_-';
 
 beforeEach(() => {
@@ -181,7 +186,7 @@ beforeEach(() => {
 // ───────────────────────────── AC1 — el detalle ─────────────────────────────
 
 describe('AC1 — POST /reporte-costos/export entrega el detalle entero en .xlsx', () => {
-  it('200, xlsx, nombre con sello de Colombia, no-store, hoja «Reporte de costos» y las 31 cabeceras literales en orden', async () => {
+  it('200, xlsx, nombre con sello de Colombia, no-store, hoja «Reporte de costos» y las 32 cabeceras literales en orden', async () => {
     kdb.when.select('flito_tramites', [cruda(), cruda({ tramiteId: 't2', idFlit: 'FLIT-2' }), cruda({ tramiteId: 't3', idFlit: 'FLIT-3' })]);
     const r = await exportar(RUTA_DETALLE, await sesion());
     expect(r.status).toBe(200);
@@ -195,8 +200,10 @@ describe('AC1 — POST /reporte-costos/export entrega el detalle entero en .xlsx
     expect(hoja.name).toBe('Reporte de costos');
     // Mutante «una columna de más» (p. ej. Marca o Liquidación): el `toEqual` es del array entero.
     expect((hoja.getRow(1).values as unknown[]).slice(1)).toEqual(CABECERAS_DETALLE);
-    expect(CABECERAS_DETALLE).toHaveLength(31);
-    expect(hoja.getRow(1).cellCount).toBe(31);
+    expect(CABECERAS_DETALLE).toHaveLength(32);
+    expect(hoja.getRow(1).cellCount).toBe(32);
+    // La 32.ª va PEGADA a «Modelo» (CF-10 de la HU #12546), no al final del archivo.
+    expect(CABECERAS_DETALLE[CABECERAS_DETALLE.indexOf('Modelo') + 1]).toBe('Servicios adicionales');
     expect(COLUMNAS_EXPORT_DETALLE.map((c) => c.header)).toEqual(CABECERAS_DETALLE);
     // Todas las filas del filtro, no una página: 1 cabecera + 3 filas.
     expect(hoja.rowCount).toBe(4);
@@ -288,8 +295,9 @@ describe('AC5 — Nombre completo y contacto del primer comprador', () => {
 // ───────────────────────────── AC3 y AC4 — tipos de celda ─────────────────────────────
 
 describe('AC3 — el dinero es número con el formato contable, nunca texto ni fórmula', () => {
-  it('las siete columnas de dinero son number con el numFmt exacto; Columna1 es la logística; GMF y totales llevan el valor', async () => {
-    kdb.when.select('flito_tramites', [cruda()]);
+  it('las ocho columnas de dinero son number con el numFmt exacto; Columna1 es la logística; GMF y totales llevan el valor', async () => {
+    // Con servicios adicionales: la 32.ª columna solo puede ser `Number` si la fila lleva importe.
+    kdb.when.select('flito_tramites', [cruda({ serviciosAdicionales: '85000', serviciosAdicionalesCantidad: 2 })]);
     const hoja = await libro((await exportar(RUTA_DETALLE, await sesion())).body as Buffer);
     for (const cab of DINERO_DETALLE) {
       const c = celda(hoja, cab);
@@ -306,7 +314,22 @@ describe('AC3 — el dinero es número con el formato contable, nunca texto ni f
     // Mutante «fórmula =SUM(...)»: el tipo sería Formula.
     expect(celda(hoja, 'GMF').value).toBe(3460);
     expect(celda(hoja, 'Total Reintegro').value).toBe(668460);
-    expect(celda(hoja, 'Servicio').value).toBe(200000);
+    // «Servicio» = trámite digital + servicios adicionales (RN-02 con la HU #12546): 200.000 + 85.000.
+    // Mutante «subtotalesDe se queda con el trámite digital»: 200000, y el pie dejaría de cuadrar.
+    expect(celda(hoja, 'Servicio').value).toBe(285000);
+    // HU #12546 — el IMPORTE, no la cantidad (2): un mutante «cantidad» pondría 2 aquí.
+    expect(celda(hoja, 'Servicios adicionales').value).toBe(85000);
+  });
+
+  it('sin servicios adicionales la celda va VACÍA, no en cero (HU #12546)', async () => {
+    // Mutante «?? 0»: el tipo sería Number y el 0 cuadraría un promedio que no existe.
+    kdb.when.select('flito_tramites', [cruda({ serviciosAdicionales: null })]);
+    const hoja = await libro((await exportar(RUTA_DETALLE, await sesion())).body as Buffer);
+    expect(celda(hoja, 'Servicios adicionales').type).toBe(ExcelJS.ValueType.Null);
+    expect(celda(hoja, 'Servicios adicionales').value).toBeNull();
+    // Y la COLUMNA conserva el formato contable aunque la celda esté vacía.
+    const i = CABECERAS_DETALLE.indexOf('Servicios adicionales') + 1;
+    expect(hoja.getColumn(i).numFmt).toBe(NUMFMT_DINERO);
   });
 
   it('Columna2 va vacía pero con la columna en formato de dinero; Factura es texto y Factura Terceros vacía', async () => {
@@ -384,13 +407,14 @@ describe('AC4 — fechas como Date de día en UTC, periodos como texto, null com
       titularNombres: null, titularApellidos: null, titularRazonSocial: null, titularTipoDocumento: null,
       titularDocumento: null, titularCorreo: null, titularTelefono: null, titularDireccion: null,
       organismoCodigo: null, organismoNombre: null, mes: null, trimestre: null, totalReintegro: null, totalServicio: null,
+      serviciosAdicionales: null, serviciosAdicionalesCantidad: null,
     }])[0]!;
     const noNulos = Object.entries(f).filter(([, v]) => v !== null).map(([k]) => k).sort();
     // Solo lo que de verdad tiene valor: el id. Mutante «columna2: ''» o «facturaTerceros: ''»: aparecerían aquí.
     expect(noNulos).toEqual(['flit']);
     expect(f.columna2).toBeNull();
     expect(f.facturaTerceros).toBeNull();
-    expect(Object.keys(f)).toHaveLength(31);
+    expect(Object.keys(f)).toHaveLength(32);
   });
 });
 
@@ -405,7 +429,8 @@ describe('AC6 — cabecera negrita con relleno, autofiltro y primera fila fija',
     // Mutante «sin opciones»: `autoFilter` undefined y `views` sin frozen.
     const af = hoja.autoFilter as unknown;
     const ref = typeof af === 'string' ? af : JSON.stringify(af);
-    expect(ref).toMatch(/A1:AE1|"row":1,"column":31/);
+    // 32 columnas: A..Z son 26 y la 32.ª es AF. Mutante «una columna menos»: AE1.
+    expect(ref).toMatch(/A1:AF1|"row":1,"column":32/);
     expect(hoja.views[0]).toMatchObject({ state: 'frozen', ySplit: 1 });
   });
 });

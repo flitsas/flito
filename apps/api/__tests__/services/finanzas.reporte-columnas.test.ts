@@ -88,6 +88,11 @@ function cruda(over: Record<string, unknown> = {}): Record<string, unknown> {
     sellada: false, estadoLiquidacion: null,
     soat: '450000', impuesto: '120000', derechoTramite: '80000', tramiteDigital: '200000',
     logistica: '15000', gmf: '3460', totalFila: '868460',
+    // HU #12546 — la proyección SIEMPRE trae la clave (null = el trámite no lleva servicios). Sin
+    // ella, `aFila` haría `Number(undefined)` = NaN y el subtotal de servicio saldría NaN, que es
+    // justo el fallo que `build:api` no ve: el tsconfig de la API no typechequea `__tests__`.
+    // La misma clave sirve a `SELECT_TOTALES` (`Number(null)` = 0).
+    serviciosAdicionales: null, serviciosAdicionalesCantidad: 0,
     soatPendiente: false, impuestoPendiente: false,
     gestionaSoat: true, gestionaImpuesto: true, gestionaLogistica: true,
     soatAutogestionable: false, impuestosAutogestionable: false, logisticaAutogestionable: false,
@@ -419,6 +424,7 @@ describe('AC7 — mes y trimestre desde la fecha de aprobación, en UTC', () => 
 describe('AC8 — Total reintegro y Servicio por fila (RN-02)', () => {
   const completa = {
     soat: 450000, impuesto: 120000, derechoTramite: 80000, logistica: 15000, tramiteDigital: 200000, gmf: 3460,
+    serviciosAdicionales: null as number | null,
     noConfigurados: [] as string[], sinRecibo: [] as string[], pendientesPago: [] as string[],
   };
 
@@ -429,6 +435,28 @@ describe('AC8 — Total reintegro y Servicio por fila (RN-02)', () => {
     expect(f.totalReintegro).toBe(668460);
     expect(f.totalServicio).toBe(200000);
     expect(Math.round((f.totalReintegro! + f.totalServicio!) * 100) / 100).toBe(f.total);
+  });
+
+  it('los servicios adicionales entran en el SERVICIO, no en el reintegro (HU #12546)', async () => {
+    // Mutante «servicios dentro del reintegro»: reintegro 753460 y servicio 200000.
+    // Mutante «subtotalesDe se queda con el trámite digital»: servicio 200000 y la identidad de
+    // abajo (reintegro + servicio = total) se rompe en toda fila con servicios.
+    expect(subtotalesDe({ ...completa, serviciosAdicionales: 85000 }))
+      .toEqual({ totalReintegro: 668460, totalServicio: 285000 });
+
+    // Y de punta a punta: la fila trae el total CON servicios (base 950.000 + 3.800 de gravamen).
+    const f = await filaDe({ serviciosAdicionales: '85000', serviciosAdicionalesCantidad: 2, gmf: '3800', totalFila: '953800' });
+    expect(f.serviciosAdicionales).toBe(85000);
+    expect(f.serviciosAdicionalesCantidad).toBe(2);
+    expect(f.totalServicio).toBe(285000);
+    expect(f.totalReintegro).toBe(668800);
+    expect(Math.round((f.totalReintegro! + f.totalServicio!) * 100) / 100).toBe(f.total);
+  });
+
+  it('un servicio adicional NUNCA deja el servicio en null: no hay tarifa que configurar ni recibo que esperar', () => {
+    // Solo el trámite digital pendiente anula el subtotal; los servicios son su propio valor.
+    expect(subtotalesDe({ ...completa, tramiteDigital: null, serviciosAdicionales: 85000, noConfigurados: ['Trámite digital'] }).totalServicio).toBeNull();
+    expect(subtotalesDe({ ...completa, serviciosAdicionales: 0 }).totalServicio).toBe(200000);
   });
 
   it('SOAT autogestionado (null, en autogestionados) cuenta 0', () => {
@@ -510,18 +538,101 @@ describe('AC9 — totales del universo filtrado, en SQL', () => {
   });
 });
 
+// ────────────── HU #12546 — la expresión de servicios adicionales ──────────────
+
+describe('HU #12546 — `serviciosAdicionales` en el SQL del reporte (AC5, AC6)', () => {
+  const SQL_SERVICIOS = () => renderizar(SELECT_FILA.serviciosAdicionales);
+  const SQL_CANTIDAD = () => renderizar(SELECT_FILA.serviciosAdicionalesCantidad);
+
+  it('sellada manda: la columna `valor_servicios_adicionales`; sin sellar, la SUMA de la puente', () => {
+    const { sql } = SQL_SERVICIOS();
+    // Mutante «COALESCE(sellado, estimado)»: en una sellada, NULL significa «no aplica» y el
+    // COALESCE resucitaría servicios que se decidió no cobrar.
+    expect(sql).toContain('CASE WHEN "flito_liquidaciones"."id" IS NOT NULL THEN "flito_liquidaciones"."valor_servicios_adicionales"');
+    expect(sql).not.toContain('COALESCE("flito_liquidaciones"."valor_servicios_adicionales"');
+    expect(sql).toContain('SELECT SUM("flito_tramite_servicios_adicionales"."valor")');
+  });
+
+  it('es una SUBCONSULTA CORRELACIONADA, no un join: la fila del trámite no se multiplica', () => {
+    // Un `leftJoin` en `conJoins` multiplicaría la fila por cada servicio del trámite, y con ella el
+    // dinero de los totales, el `count(distinct)` de la paginación y el Excel. Y en el consolidado,
+    // que agrupa, la expresión tendría que entrar en el GROUP BY → 42803 en toda llamada.
+    expect(SQL_SERVICIOS().sql).toContain('"flito_tramite_servicios_adicionales"."tramite_id" = "flito_tramites"."id"');
+    expect(SQL_JOINS().sql).not.toContain('flito_tramite_servicios_adicionales');
+  });
+
+  it('la expresión NO liga ni un parámetro: los literales van como texto del template', () => {
+    // Drizzle no deduplica literales: el mismo literal interpolado dos veces son DOS parámetros, y
+    // en el GROUP BY del consolidado eso es un 42803 (Bug #12058). La forma de que no pueda pasar es
+    // que la expresión no tenga parámetros en absoluto.
+    expect(SQL_SERVICIOS().params).toEqual([]);
+    expect(SQL_CANTIDAD().params).toEqual([]);
+    expect(renderizar(SELECT_TOTALES.serviciosAdicionales).params).toEqual([]);
+    expect(renderizar(SELECT_TOTALES.totalServicio).params).toEqual([]);
+  });
+
+  it('la CANTIDAD sale del array del detalle en lo sellado y de la puente en lo estimado', () => {
+    const { sql } = SQL_CANTIDAD();
+    expect(sql).toContain("jsonb_array_length(\"flito_liquidaciones\".\"detalle\" -> 'serviciosAdicionales' -> 'items')");
+    // La guarda de tipo no es adorno: `jsonb_array_length` de un escalar lanza 22023 y tumbaría el
+    // reporte entero, no una celda.
+    expect(sql).toContain("jsonb_typeof(\"flito_liquidaciones\".\"detalle\" -> 'serviciosAdicionales' -> 'items') = 'array'");
+    expect(sql).toContain('SELECT COUNT(*)::int FROM "flito_tramite_servicios_adicionales"');
+  });
+
+  it('la base del GMF y el total incluyen los servicios con COALESCE(…, 0) (AC5)', () => {
+    const total = renderizar(SELECT_FILA.totalFila).sql;
+    const gmf = renderizar(SELECT_FILA.gmf).sql;
+    // Mutante «servicios fuera de la base»: el gravamen del estimado no crecería con ellos y el
+    // total estimado dejaría de coincidir con el que sella `calcular()`.
+    expect(total).toContain('COALESCE(CASE WHEN "flito_liquidaciones"."id" IS NOT NULL THEN "flito_liquidaciones"."valor_servicios_adicionales"');
+    expect(gmf).toContain('"valor_servicios_adicionales"');
+  });
+
+  it('el reintegro NO suma los servicios: solo los ve a través del GMF de la fila estimada', () => {
+    // Un servicio adicional es un HONORARIO de FLIT, no un desembolso que se reintegre; va en
+    // `totalServicio`. Lo que sí crece es el gravamen —el 4x1000 se cobra sobre el total—, y por eso
+    // la expresión aparece UNA vez en el reintegro: dentro del `ROUND(base × tasa)` del GMF
+    // estimado. Mutante «servicios como sexto sumando del reintegro»: aparecería dos veces, y
+    // `totalReintegro + totalServicio` pasaría a sumar más que el total.
+    const reintegro = renderizar(SELECT_TOTALES.totalReintegro).sql;
+    expect(reintegro.match(/valor_servicios_adicionales/g)).toHaveLength(1);
+    const [antes] = reintegro.split('valor_servicios_adicionales');
+    expect(antes).toContain('ROUND(');
+  });
+
+  it('`totalServicio` suma trámite digital Y servicios adicionales, con COALESCE por término (AC6)', () => {
+    const servicio = renderizar(SELECT_TOTALES.totalServicio).sql;
+    // Mutante «se queda con el trámite digital»: no contendría la puente, y reintegro + servicio
+    // dejaría de dar el total en toda fila con servicios.
+    expect(servicio).toContain('"flito_liquidaciones"."valor_tramite_digital"');
+    expect(servicio).toContain('"flito_tramite_servicios_adicionales"."valor"');
+    expect(servicio).toContain('COALESCE(');
+    expect(servicio).not.toContain('"lg"."valor"');
+  });
+
+  it('`filasIncompletas` NO cambia: un servicio adicional nunca deja la fila incompleta (AC5)', () => {
+    // No hay tarifa que configurar ni recibo que esperar: lo asignado ES su valor.
+    expect(renderizar(SELECT_TOTALES.filasIncompletas).sql).not.toContain('flito_tramite_servicios_adicionales');
+  });
+});
+
 // ───────────────────────────── AC10 — el archivo ─────────────────────────────
 
-describe('AC10 — el archivo con las 31 columnas literales del Excel de Financiero (HU #12536; .xlsx desde la HU #12531)', () => {
-  // Las 31 cabeceras tal cual las tiene Financiero: «cliente» en minúscula, «Tramite» sin tilde, «Vin».
-  const CABECERA = 'cliente;Mes/Trimestre;FLIT;Placa;Tipo;CC-NIT;Nombres;Apellidos;Nombre completo;Modelo;Estado;Correo;OT;Tipo Trámite;Teléfono/Celular;Dirección;SOAT;Trámite;Impuesto;Columna1;Columna2;GMF;Total Reintegro;Servicio;Factura;Factura Terceros;Vin;Placa2;Tramite;fecha_aprobacion;Filtromes';
+describe('AC10 — el archivo con las 32 columnas literales del Excel de Financiero (HU #12536; .xlsx desde la HU #12531; «Servicios adicionales» desde la #12546)', () => {
+  // Las 32 cabeceras tal cual las tiene Financiero: «cliente» en minúscula, «Tramite» sin tilde, «Vin».
+  // «Servicios adicionales» va inmediatamente después de «Modelo» (CF-10 de la HU #12546).
+  const CABECERA = 'cliente;Mes/Trimestre;FLIT;Placa;Tipo;CC-NIT;Nombres;Apellidos;Nombre completo;Modelo;Servicios adicionales;Estado;Correo;OT;Tipo Trámite;Teléfono/Celular;Dirección;SOAT;Trámite;Impuesto;Columna1;Columna2;GMF;Total Reintegro;Servicio;Factura;Factura Terceros;Vin;Placa2;Tramite;fecha_aprobacion;Filtromes';
 
-  it('las 31 cabeceras son exactamente las literales y en ese orden (como un solo array, no «contiene»)', () => {
+  it('las 32 cabeceras son exactamente las literales y en ese orden (como un solo array, no «contiene»)', () => {
     // Mutante «cabecera 'Cliente' con mayúscula», «Vin como VIN», «Tramite con tilde»: el `toEqual` cae.
     expect(COLUMNAS_EXPORT_DETALLE.map((c) => c.header)).toEqual(CABECERA.split(';'));
-    expect(COLUMNAS_EXPORT_DETALLE).toHaveLength(31);
+    expect(COLUMNAS_EXPORT_DETALLE).toHaveLength(32);
     // Cada clave es única: dos columnas con la misma clave se pisarían en `addRow` (Placa/Placa2, Tipo Trámite/Tramite).
-    expect(new Set(COLUMNAS_EXPORT_DETALLE.map((c) => c.key)).size).toBe(31);
+    expect(new Set(COLUMNAS_EXPORT_DETALLE.map((c) => c.key)).size).toBe(32);
+    // Y va PEGADA a «Modelo», no al final: el archivo se pega sobre el de Financiero (CF-10).
+    const cabeceras = COLUMNAS_EXPORT_DETALLE.map((c) => c.header);
+    expect(cabeceras[cabeceras.indexOf('Modelo') + 1]).toBe('Servicios adicionales');
   });
 
   it('cada celda por su CLAVE, con su tipo: texto, número y Date de día', async () => {
@@ -535,6 +646,8 @@ describe('AC10 — el archivo con las 31 columnas literales del Excel de Financi
     expect(fila).toEqual({
       cliente: 'ACME', mesTrimestre: '2026-T3', flit: 'FLIT-1', placa: 'ABC123', tipo: 'CC', ccNit: '1020304050',
       nombres: 'ANA MARÍA', apellidos: 'PÉREZ', nombreCompleto: 'ANA MARÍA PÉREZ', modelo: 'ONIX',
+      // Sin servicios la celda va VACÍA (`null`), no en cero: un 0 diría «se le cobraron $0».
+      serviciosAdicionales: null,
       estado: 'Aprobado', correo: 'ana@correo.co', ot: 'Envigado', tipoTramite: 'Traspaso',
       telefono: '3001234567', direccion: 'CL 10 # 20-30',
       soat: 450000, tramite: 80000, impuesto: 120000, columna1: 15000, columna2: null, gmf: 3460,

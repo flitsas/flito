@@ -3614,6 +3614,12 @@ export const flitoLiquidaciones = pgTable('flito_liquidaciones', {
   valorDerecho: numeric('valor_derecho', { precision: 14, scale: 2 }),
   valorTramiteDigital: numeric('valor_tramite_digital', { precision: 14, scale: 2 }),
   valorLogistica: numeric('valor_logistica', { precision: 14, scale: 2 }),
+  /**
+   * Suma de los servicios adicionales sellados (HU #12546, 0194). NULL = «no aplica»: el trámite se
+   * selló sin servicios, o se selló ANTES de esta HU. Nunca cero implícito. El desglose por tipo va
+   * en `detalle.serviciosAdicionales.items`.
+   */
+  valorServiciosAdicionales: numeric('valor_servicios_adicionales', { precision: 14, scale: 2 }),
   baseGmf: numeric('base_gmf', { precision: 14, scale: 2 }).notNull(),
   tasaGmf: numeric('tasa_gmf', { precision: 6, scale: 5 }).notNull().default('0.004'),
   valorGmf: numeric('valor_gmf', { precision: 14, scale: 2 }).notNull(),
