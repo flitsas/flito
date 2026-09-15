@@ -33,6 +33,10 @@ type Filtros = Parameters<typeof condiciones>[0];
 
 const SQL_0182 = leerMigracion('0182_tarifas_vigencias.sql');
 const SQL_0183 = leerMigracion('0183_tarifas_vigencias_desde_siempre.sql');
+// La HU #12546 metió la puente de servicios adicionales y su columna sellada en SELECT_FILA:
+// sin ellas, la proyección real que ejecuta este spec falla con «column ... does not exist».
+const SQL_0193 = leerMigracion('0193_tramite_servicios_adicionales.sql');
+const SQL_0194 = leerMigracion('0194_liquidaciones_valor_servicios_adicionales.sql');
 
 // Drizzle proyecta SIN alias y mapea la fila por POSICIÓN, en el orden de las claves del objeto.
 // Aquí se hace lo mismo: `.values()` de postgres.js y el índice de cada clave en SELECT_FILA.
@@ -81,11 +85,13 @@ describe.skipIf(!URL_BASE)('reporte de costos — la tarifa estimada es la vigen
     }));
   }
 
-  /** Base: 0110 recreada + 0182 + 0183 sobre lo que haya, un vehículo desechable. */
+  /** Base: 0110 recreada + 0182 + 0183 + 0193 + 0194 sobre lo que haya, un vehículo desechable. */
   async function preparar(tx: postgres.TransactionSql) {
     await tx.unsafe(DDL_0110);
     await tx.unsafe(SQL_0182);
     await tx.unsafe(SQL_0183);
+    await tx.unsafe(SQL_0193);
+    await tx.unsafe(SQL_0194);
     const [v] = await tx`INSERT INTO vehicles (plate, vin) VALUES ('HU12374', ${`VIN12374${String(Date.now()).slice(-9)}`}) RETURNING id`;
     vehiculoId = v!.id as number;
   }
