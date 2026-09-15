@@ -38,6 +38,7 @@ import flitoBolsasRoutes from './modules/flito-bolsas/flito-bolsas.routes.js';
 import flitoComparendosRoutes from './modules/flito-comparendos/flito-comparendos.routes.js';
 import flitoConciliacionRoutes from './modules/flito-conciliacion/flito-conciliacion.routes.js';
 import finanzasRoutes from './modules/finanzas/finanzas.routes.js';
+import finanzasServiciosAdicionalesRoutes from './modules/finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.js';
 import siigoCredencialesRoutes from './modules/siigo/credenciales.routes.js';
 import siigoCompuertaRoutes from './modules/siigo/compuerta.routes.js';
 import siigoMapeoConceptosRoutes from './modules/siigo/mapeo-conceptos.routes.js';
@@ -269,6 +270,9 @@ export function createApp() {
   // el incidente PESV `comparendo` — ver ADR-0001.
   app.use('/api/flito/comparendos', flitoComparendosRoutes);
   app.use('/api/finanzas', finanzasRoutes);
+  // Servicios adicionales de un trámite (HU #12545): misma URL base, módulo propio reconducido al
+  // motor de permisos (finanzas/ es legacy y no admite exigirFuncion; ADR-0017).
+  app.use('/api/finanzas', finanzasServiciosAdicionalesRoutes);
   app.use('/api/siigo/credenciales', siigoCredencialesRoutes);
   app.use('/api/siigo/compuerta', siigoCompuertaRoutes);
   app.use('/api/siigo/mapeo-conceptos', siigoMapeoConceptosRoutes);
