@@ -305,8 +305,11 @@ export function conceptosFacturados(
  *
  * El mismo criterio y el mismo número que `TOLERANCIA_TOTAL` de `facturacion.emision.service.ts`,
  * que compara nuestro total con el que devuelve Siigo. **No es celo excesivo**: lo sellado llega
- * como cadena de `numeric(14,2)` y los `items[].valor` son números JS, así que `85000.1 + 40000.2`
- * vale `125000.30000000001`. Con `!==` esa factura —correcta— se caía con `servicios_no_cuadran`.
+ * como cadena de `numeric(14,2)` y los `items[].valor` son números JS, así que `85000.1 + 40000.1`
+ * vale `125000.20000000001164` mientras que `Number('125000.20')` vale `125000.19999999999709`:
+ * se separan en 1.45e-11. Con `!==` esa factura —correcta— se caía con `servicios_no_cuadran`.
+ * (Ojo con el ejemplo: `85000.1 + 40000.2` NO sirve para ilustrarlo, porque da bit a bit el mismo
+ * double que `Number('125000.30')`. El spec tiene un caso por cada borde de esta constante.)
  */
 const TOLERANCIA_SERVICIOS = 0.005;
 
