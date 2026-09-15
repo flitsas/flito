@@ -60,6 +60,19 @@ export interface Fila {
    */
   totalReintegro: number | null;
   totalServicio: number | null;
+  /**
+   * Servicios adicionales del trámite (HU #12546, Feature #12544). Los DOS campos hacen falta y NO
+   * dicen lo mismo:
+   *   · `serviciosAdicionales` es el importe, ya sumado dentro de `totalServicio` y de `total`.
+   *   · `serviciosAdicionalesCantidad` es cuántos son, y es lo que GOBIERNA la celda:
+   *       `0`    → el trámite no lleva ninguno (es una afirmación).
+   *       `null` → liquidación sellada ANTES de la #12546: el `detalle` no lleva la clave y el
+   *                servidor no la inventa. No es lo mismo que «no lleva ninguno».
+   * Un importe `0` con cantidad ≥ 1 es legítimo (dos servicios a valor cero) y ahí el cero SÍ se
+   * pinta: ver `textoCeldaServicios` en `lib/serviciosAdicionalesTramite.ts`.
+   */
+  serviciosAdicionales: number | null;
+  serviciosAdicionalesCantidad: number | null;
 }
 
 export interface Totales {
@@ -67,6 +80,11 @@ export interface Totales {
   gmf: number; total: number; filasIncompletas: number;
   /** RN-02 sobre el universo filtrado, agregados en SQL como los demás (CF-10). */
   totalReintegro: number; totalServicio: number;
+  /**
+   * El agregado de los servicios adicionales del filtro (HU #12546). Es `number` —0, nunca null— y
+   * ya está DENTRO de `totalServicio` y de `total`: el pie no lo vuelve a sumar.
+   */
+  serviciosAdicionales: number;
 }
 export interface Resumen { listo: number; incompleto: number; porFacturar: number; facturado: number }
 export interface Reporte {

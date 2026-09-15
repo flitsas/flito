@@ -1,5 +1,11 @@
 # UX slim — Reporte de costos: tabla compacta por defecto (HU FRONTEND del Feature #12530, épica #12243)
 
+> **Nota de vigencia (2026-09-15).** Este documento describe la compacta de DOCE columnas de la
+> HU #12537, que la HU #12539 sustituyó por la de nueve (`-tabla-recorte.md`). Las cifras «12 de 28»
+> que siguen abajo son las de entonces: hoy la tabla arranca en **9 de 29** —la 29ª es «Serv. adic.»
+> de la HU #12548, que no entra en la compacta—. Se deja como está, sin reescribir, porque es el
+> registro de una decisión que ya se tomó; lo vigente es el otro documento.
+
 > Modo **slim**: la pantalla existe (`apps/web/src/pages/FinanzasReporteCostos.tsx`, tabla en
 > `apps/web/src/components/finanzas/TablaReporteCostos.tsx`; specs previas en
 > `docs/ux/finanzas-reporte-costos-secciones-consolidado.md` y `…-exportar-excel.md`) y cambia **qué
