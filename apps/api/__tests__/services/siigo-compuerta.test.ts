@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CONCEPTOS_FACTURABLES } from '@operaciones/shared-types';
+import { CONCEPTOS_FACTURABLES, CONCEPTO_FACTURABLE_LABEL } from '@operaciones/shared-types';
 import type { ValoresLiquidacion } from '@operaciones/shared-types';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -53,7 +53,7 @@ function mapeoSano(ambiente = 'pruebas') {
 }
 
 /**
- * Liquidación sellada completa. Los seis campos son obligatorios en `ValoresLiquidacion`: un objeto
+ * Liquidación sellada completa. Todos los campos son obligatorios en `ValoresLiquidacion`: un objeto
  * parcial ya no compila, que es justo la red que faltaba.
  */
 function liquidacion(over: Partial<ValoresLiquidacion> = {}): ValoresLiquidacion {
@@ -64,6 +64,7 @@ function liquidacion(over: Partial<ValoresLiquidacion> = {}): ValoresLiquidacion
     valorTramiteDigital: null,
     valorLogistica: null,
     valorGmf: null,
+    valorServiciosAdicionales: null,
     ...over,
   };
 }
@@ -88,8 +89,15 @@ describe('AC1 — un concepto sin confirmar bloquea la emisión real', () => {
     const motivo = e.motivos.find((m) => m.tipo === 'concepto_no_listo')!;
     // Enumera, no dice «faltan 2».
     expect(motivo.conceptos).toEqual(['logistica', 'gmf']);
-    expect(motivo.detalle).toContain('logistica');
-    expect(motivo.detalle).toContain('gmf');
+    // CH-1 (HU #12547) — el detalle lleva la ETIQUETA, no la clave cruda: lo lee Financiera, no
+    // quien escribió el enum. `conceptos` sigue llevando las claves, que es lo que la pantalla
+    // usa para enlazar. Antes decía 'logistica' y ahora 'Logística'; el aserto se mueve con él y
+    // sigue afirmando lo mismo —enumera los dos, no dice «faltan 2»—.
+    expect(motivo.detalle).toContain(CONCEPTO_FACTURABLE_LABEL.logistica);
+    expect(motivo.detalle).toContain(CONCEPTO_FACTURABLE_LABEL.gmf);
+    // Y ya no se filtra ninguna clave de base de datos al mensaje.
+    expect(motivo.detalle).not.toContain('logistica');
+    expect(motivo.detalle).not.toContain('gmf');
   });
 
   it('A7 — la firma de contabilidad YA NO bloquea', async () => {
@@ -461,5 +469,65 @@ describe('la elegibilidad de un trámite no depende de con qué se vaya a emitir
 
     expect(e.motivos).toEqual([]);
     expect(e.emisionRealHabilitada).toBe(true);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────────
+// HU #12547 AC3 — `servicio_adicional` se comporta como los otros seis en la compuerta.
+//
+// El riesgo que cubren: el concepto es el único que llega desde una columna nueva
+// (`valor_servicios_adicionales`, migración 0194). Si la columna no se leyera —o se leyera como
+// `undefined`—, el concepto «no aplicaría» NUNCA y la compuerta abriría sin haberlo evaluado, que
+// es emitir ante la DIAN algo que nadie comprobó. Por eso cada caso afirma primero que el concepto
+// SÍ entra en `conceptosAplicables`.
+describe('HU #12547 AC3 — el séptimo concepto en la compuerta', () => {
+  it('aplica cuando la liquidación selló un valor, y NO aplica cuando es null', async () => {
+    const { conceptosAplicables } = await import('../../src/modules/siigo/siigo.compuerta.service.js');
+
+    expect(conceptosAplicables(liquidacion({ valorServiciosAdicionales: '125000.00' })))
+      .toEqual(['servicio_adicional']);
+    // Cero es «hubo servicios y sumaron cero», no «no hubo».
+    expect(conceptosAplicables(liquidacion({ valorServiciosAdicionales: '0.00' })))
+      .toEqual(['servicio_adicional']);
+    expect(conceptosAplicables(liquidacion({ valorSoat: '150000.00' })))
+      .not.toContain('servicio_adicional');
+  });
+
+  it('sin producto de Siigo la compuerta cierra con el motivo de siempre y la ETIQUETA', async () => {
+    mapeoPorAmbiente.pruebas = CONCEPTOS_FACTURABLES.map((c) => mapeo(c, {
+      listoParaFacturar: c !== 'servicio_adicional',
+    }));
+
+    const { exigirCompuertaAbierta, SiigoCompuertaCerradaError, conceptosAplicables } =
+      await import('../../src/modules/siigo/siigo.compuerta.service.js');
+
+    const valores = liquidacion({ valorSoat: '150000.00', valorServiciosAdicionales: '125000.00' });
+    expect(conceptosAplicables(valores)).toContain('servicio_adicional'); // control positivo
+
+    const e = await exigirCompuertaAbierta('pruebas', valores).catch((x) => x);
+
+    expect(e).toBeInstanceOf(SiigoCompuertaCerradaError);
+    expect(e.motivos[0].tipo).toBe('concepto_no_listo');
+    expect(e.motivos[0].conceptos).toEqual(['servicio_adicional']);
+    // CH-1 — lo que lee Financiera es la etiqueta, no la clave de la base.
+    expect(e.motivos[0].detalle).toContain('Servicio adicional');
+    expect(e.motivos[0].detalle).not.toContain('servicio_adicional');
+  });
+
+  it('un trámite sellado SIN servicios adicionales no espera a que nadie configure el concepto', async () => {
+    // El resultado es idéntico al de antes de esta HU: el concepto no aplica y no se evalúa.
+    mapeoPorAmbiente.pruebas = CONCEPTOS_FACTURABLES.map((c) => mapeo(c, {
+      listoParaFacturar: c !== 'servicio_adicional',
+    }));
+
+    const { exigirCompuertaAbierta } =
+      await import('../../src/modules/siigo/siigo.compuerta.service.js');
+
+    const estado = await exigirCompuertaAbierta('pruebas', liquidacion({
+      valorSoat: '150000.00', valorGmf: '600.00',
+    }));
+
+    expect(estado.emisionRealHabilitada).toBe(true);
+    expect(estado.conceptosEvaluados).not.toContain('servicio_adicional');
   });
 });

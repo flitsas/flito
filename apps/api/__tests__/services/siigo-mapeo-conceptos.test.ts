@@ -51,6 +51,15 @@ const USUARIO = 77;
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const MIGRACION = readFileSync(resolve(RAIZ, 'src/db/migrations/0128_siigo_mapeo_conceptos.sql'), 'utf8');
+// La 0195 (HU #12547) siembra el séptimo concepto, `servicio_adicional`. El catálogo facturable ya
+// no cabe en un solo archivo: mirar solo la 0128 haría que CADA concepto nuevo pusiera rojo el
+// centinela de abajo aunque su semilla existiera. Lo que el aserto afirma NO cambia —constante y
+// semillas no pueden divergir—; cambia de dónde lee las semillas. Un concepto añadido a
+// `CONCEPTOS_FACTURABLES` sin su migración sigue cayendo aquí.
+const MIGRACION_0195 = readFileSync(
+  resolve(RAIZ, 'src/db/migrations/0195_siigo_mapeo_servicio_adicional.sql'), 'utf8',
+);
+const SEMILLAS = `${MIGRACION}\n${MIGRACION_0195}`;
 const SERVICIO_SRC = readFileSync(resolve(RAIZ, 'src/modules/siigo/mapeo-conceptos.service.ts'), 'utf8');
 
 /** Fila del mapeo tal como la devuelve drizzle. Los tests solo sobreescriben lo que les importa. */
@@ -138,9 +147,9 @@ function capturarValues(filaDevuelta: Record<string, unknown>) {
 beforeEach(() => { kdb.reset(); });
 
 // ───────────────────────────────────────────────────────────────────────────────
-describe('AC1 — los seis conceptos existen desde el primer día', () => {
-  it('la semilla de la migración 0128 siembra exactamente los seis conceptos facturables', () => {
-    const sembrados = [...MIGRACION.matchAll(/^\s*\('([a-z_]+)',\s+(?:true|false),/gm)].map((m) => m[1]);
+describe('AC1 — todo concepto facturable existe en el mapeo desde el primer día', () => {
+  it('las semillas (0128 + 0195) siembran exactamente los conceptos de CONCEPTOS_FACTURABLES', () => {
+    const sembrados = [...SEMILLAS.matchAll(/^\s*\('([a-z_]+)',\s+(?:true|false),/gm)].map((m) => m[1]);
     expect(new Set(sembrados)).toEqual(new Set(CONCEPTOS_FACTURABLES));
     expect(sembrados).toHaveLength(CONCEPTOS_FACTURABLES.length);
   });

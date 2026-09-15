@@ -33,7 +33,7 @@
 
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type {
-  ConceptoFacturable, MotivoElegibilidad, SiigoDestinatario,
+  ConceptoFacturable, ItemServicioSellado, MotivoElegibilidad, SiigoDestinatario,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
@@ -261,6 +261,8 @@ export interface FilaTramiteEmision {
   companiaId: number | null;
   liquidacionId: string | null;
   valores: TramiteFacturable['liquidacion'];
+  /** El desglose SELLADO de servicios adicionales (HU #12547). `[]` = no hubo ninguno. */
+  serviciosAdicionales: TramiteFacturable['serviciosAdicionales'];
 }
 
 /** Los datos de los trámites que van en la factura. Una consulta, sin los joins del reporte. */
@@ -278,6 +280,12 @@ export async function cargarTramites(tramiteIds: string[]): Promise<FilaTramiteE
     valorTramiteDigital: flitoLiquidaciones.valorTramiteDigital,
     valorLogistica: flitoLiquidaciones.valorLogistica,
     valorGmf: flitoLiquidaciones.valorGmf,
+    valorServiciosAdicionales: flitoLiquidaciones.valorServiciosAdicionales,
+    // HU #12547 — el desglose sellado, del MISMO jsonb de la liquidación. Las claves del path van
+    // inline (son literales de este archivo, no entrada de nadie) y no por `sql.param`. Se lee de
+    // aquí y NUNCA de `flito_tramite_servicios_adicionales`: la puente diría lo que hay hoy —un
+    // servicio quitado después del sello se facturaría— y además multiplicaría filas por trámite.
+    serviciosAdicionales: sql<ItemServicioSellado[] | null>`${flitoLiquidaciones.detalle}->'serviciosAdicionales'->'items'`,
   })
     .from(flitoTramites)
     .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
@@ -298,7 +306,12 @@ export async function cargarTramites(tramiteIds: string[]): Promise<FilaTramiteE
       valorTramiteDigital: f.valorTramiteDigital ?? null,
       valorLogistica: f.valorLogistica ?? null,
       valorGmf: f.valorGmf ?? null,
+      valorServiciosAdicionales: f.valorServiciosAdicionales ?? null,
     },
+    // `detalle` NULL, sin la clave o con algo que no es lista → SQL NULL → `[]`. postgres.js ya
+    // entrega el jsonb parseado: no hay `JSON.parse` que hacer ni que envolver en try.
+    serviciosAdicionales: Array.isArray(f.serviciosAdicionales)
+      ? (f.serviciosAdicionales as ItemServicioSellado[]) : [],
   }));
 }
 
@@ -462,6 +475,7 @@ export async function prepararEmision(entrada: EntradaPreparacion): Promise<Prep
       placa: t.placa,
       tipoTramite: t.tipoTramite,
       liquidacion: t.valores,
+      serviciosAdicionales: t.serviciosAdicionales,
     })),
     tercero,
     parametros: {
