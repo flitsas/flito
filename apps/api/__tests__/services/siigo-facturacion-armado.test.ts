@@ -586,17 +586,20 @@ describe('HU #12547 AC4 — una línea por servicio adicional sellado', () => {
   });
 
   it('la suma de floats no tumba una factura correcta: tolerancia de medio centavo', () => {
-    // 85000.1 + 40000.2 === 125000.30000000001 en IEEE-754. Con `!==` esto era un
-    // `servicios_no_cuadran` en una factura impecable.
-    const t = conServicios('125000.30', [
+    // 85000.1 + 40000.1 = 125000.20000000001164 y Number('125000.20') = 125000.19999999999709:
+    // se separan en 1.45e-11, que es el ruido que la tolerancia existe para absorber. Con `!==`
+    // esto era un `servicios_no_cuadran` en una factura impecable.
+    // Ojo al elegir los sumandos: 85000.1 + 40000.2 NO sirve, porque da bit a bit el mismo double
+    // que Number('125000.30') y el caso pasaría igual con la tolerancia en cero.
+    const t = conServicios('125000.20', [
       { tipoId: 'ta-1', nombre: 'Cambio de placa', valor: 85000.1 },
-      { tipoId: 'ta-2', nombre: 'Duplicado de licencia', valor: 40000.2 },
+      { tipoId: 'ta-2', nombre: 'Duplicado de licencia', valor: 40000.1 },
     ]);
     expect(conceptosFacturados(t.liquidacion, [])).toContain('servicio_adicional');
     const f = armarFactura(entrada({ tramites: [t], mapeo: MAPEO_CON_SA }));
     expect(lineasSa(f)).toEqual([
       ['Cambio de placa', 85000.1, 1],
-      ['Duplicado de licencia', 40000.2, 1],
+      ['Duplicado de licencia', 40000.1, 1],
     ]);
   });
 
@@ -622,8 +625,8 @@ describe('HU #12547 AC4 — una línea por servicio adicional sellado', () => {
     // arriba en 5.000: `TOLERANCIA_SERVICIOS = 0.5` lo pasaría sin inmutarse. Los centavos son la
     // única escala a la que el importe sellado (numeric(14,2)) y la suma de los items (números)
     // pueden discrepar de verdad, así que es la que hay que fijar. Con este caso el intervalo
-    // válido de la tolerancia queda en (ruido de float, 0.01) y el 0.005 cae en el centro: no
-    // se puede subir sin poner esto en rojo, ni bajar a cero sin romper el de 125000.30.
+    // válido de la tolerancia queda en (1.45e-11, 0.01) y el 0.005 cae en el centro: no se puede
+    // subir sin poner esto en rojo, ni bajar a cero sin romper el TC de la suma de floats.
     const t = conServicios('125000.01'); // los items suman 125.000 exactos
     expect(conceptosFacturados(t.liquidacion, [])).toContain('servicio_adicional');
     expect(() => armarFactura(entrada({ tramites: [t], mapeo: MAPEO_CON_SA })))
