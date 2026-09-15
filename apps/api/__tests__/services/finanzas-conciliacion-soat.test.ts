@@ -147,6 +147,8 @@ function filaCruda(over: Record<string, unknown> = {}): Record<string, unknown> 
     sellada: false, estadoLiquidacion: null,
     soat: '450000.00', impuesto: null, derechoTramite: '80000.00',
     tramiteDigital: '200000.00', logistica: '15000.00', gmf: '2980.00', totalFila: '747980.00',
+    // HU #12546 — la proyección trae la clave siempre; null = el trámite no lleva servicios.
+    serviciosAdicionales: null, serviciosAdicionalesCantidad: 0,
     soatPendiente: false, impuestoPendiente: false,
     gestionaSoat: true, gestionaImpuesto: false, gestionaLogistica: true,
     soatAutogestionable: false, impuestosAutogestionable: false, logisticaAutogestionable: false,
@@ -190,6 +192,9 @@ const FILA_BASE = {
   fechaCreacion: '2026-07-01T00:00:00.000Z',
   soat: 450000, impuesto: null, derechoTramite: 80000,
   logistica: 15000, tramiteDigital: 200000, gmf: 2980, total: 747980,
+  // HU #12546 — la fila las trae SIEMPRE, con o sin servicios: una clave que aparece solo a veces se
+  // lee como un dato que se perdió. Sin servicios, importe `null` («no aplica») y cantidad 0.
+  serviciosAdicionales: null, serviciosAdicionalesCantidad: 0,
   sellada: false, estadoLiquidacion: null,
   noConfigurados: [], sinRecibo: [], pendientesPago: [], autogestionados: [],
   noAplican: ['Impuesto'],
@@ -481,7 +486,8 @@ describe('AC3 — la marca convive con la fila sellada', () => {
 
 describe('AC4 — el archivo ya no lleva «SOAT conciliado» (HU #12536: el detalle replica el Excel de Financiero)', () => {
   // La HU #11679 la puso como última columna del CSV/.xlsx; la decisión del PO del 2026-09-14 deja
-  // el detalle con las 31 columnas literales de Financiero, y la conciliación se lee en pantalla
+  // el detalle con las 32 columnas literales de Financiero (31 + «Servicios adicionales» de la
+  // HU #12546), y la conciliación se lee en pantalla
   // (`soatConciliado`/`boletaReferencia` siguen en el JSON del reporte, AC3 arriba).
   /** Una fila del reporte tal como llega a `filasExcelDetalle`. */
   function fila(over: Record<string, unknown> = {}): Parameters<typeof filasExcelDetalle>[0][number] {
@@ -489,7 +495,7 @@ describe('AC4 — el archivo ya no lleva «SOAT conciliado» (HU #12536: el deta
       tramiteId: 't1', idFlit: 'FLIT-1', placa: 'ABC123', estado: 'Aprobado', empresa: 'ACME',
       vin: 'VIN1', marca: 'RENAULT', linea: 'LOGAN', tipoTramite: 'Traspaso',
       fechaAprobacion: '2026-07-14T15:30:00.000Z', fechaCreacion: '2026-07-01T00:00:00.000Z',
-      soat: 450000, impuesto: 120000, derechoTramite: 80000,
+      soat: 450000, impuesto: 120000, derechoTramite: 80000, serviciosAdicionales: null, serviciosAdicionalesCantidad: 0,
       logistica: 15000, tramiteDigital: 200000, gmf: 3460, total: 868460,
       sellada: true, estadoLiquidacion: 'liquidado',
       noConfigurados: [], sinRecibo: [], pendientesPago: [], autogestionados: [], noAplican: [],

@@ -17,8 +17,8 @@ import { alias, type PgSelect } from 'drizzle-orm/pg-core';
 import { db } from '../../db/client.js';
 import {
   clients, flitoDerechosTramite, flitoExcepcionesAutogestion, flitoImpuestos, flitoLiquidaciones,
-  flitoOrganismoVigencias, flitoSoat, flitoTarifasVigencias, flitoTramites, organismosTransitoConfig,
-  vehicles,
+  flitoOrganismoVigencias, flitoSoat, flitoTarifasVigencias, flitoTramiteServiciosAdicionales,
+  flitoTramites, organismosTransitoConfig, vehicles,
 } from '../../db/schema.js';
 import { aIso } from '../../shared/utils/fecha-rango.js';
 import { TASA_GMF } from '../flito-liquidacion/flito-liquidacion.service.js';
@@ -90,6 +90,13 @@ export interface FilaReporte extends FacturacionDeFila, ConciliacionSoatDeFila, 
   fechaCreacion: string | null;
   soat: number | null; impuesto: number | null;
   derechoTramite: number | null; logistica: number | null; tramiteDigital: number | null;
+  /** Suma de los servicios adicionales (HU #12546). `null` = el trámite no lleva ninguno. */
+  serviciosAdicionales: number | null;
+  /**
+   * Cuántos servicios lleva. `null` solo en una liquidación sellada ANTES de la HU #12546, donde no
+   * se sabe; `0` es una afirmación: se selló sin servicios.
+   */
+  serviciosAdicionalesCantidad: number | null;
   gmf: number | null; total: number | null;
   /** true = valores congelados por una liquidación; false = estimados en vivo. */
   sellada: boolean;
@@ -105,7 +112,8 @@ export interface FilaReporte extends FacturacionDeFila, ConciliacionSoatDeFila, 
   /** Conceptos que no aplican por el organismo, no por la compañía. Hoy solo el impuesto. */
   noAplican: string[];
   /**
-   * RN-02 (HU #12432): SOAT + impuesto + derecho + GMF + logística, y solo el trámite digital.
+   * RN-02 (HU #12432): SOAT + impuesto + derecho + GMF + logística el reintegro; el trámite digital
+   * MÁS los servicios adicionales el servicio (HU #12546).
    * `null` cuando un sumando que FLITO gestiona sigue pendiente: ver `subtotalesDe`.
    */
   totalReintegro: number | null;
@@ -114,6 +122,8 @@ export interface FilaReporte extends FacturacionDeFila, ConciliacionSoatDeFila, 
 
 export interface TotalesReporte {
   soat: number; impuesto: number; derechoTramite: number; logistica: number; tramiteDigital: number;
+  /** Suma de los servicios adicionales del universo filtrado (HU #12546). */
+  serviciosAdicionales: number;
   gmf: number; total: number;
   /** RN-02 sobre el universo filtrado, agregados en SQL como los demás (HU #12432, CF-10). */
   totalReintegro: number; totalServicio: number;
@@ -205,10 +215,48 @@ export const EXPR_LOGISTICA = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidacion
   WHEN NOT ${GESTIONA_LOGISTICA} THEN NULL
   ELSE ${lg.valor} END`;
 
-// Base del 4x1000: el total de los cinco conceptos del trámite. El GMF se calcula sobre esa suma y
-// se añade encima, así que el total final es la base más su propio gravamen.
+// ── Servicios adicionales (HU #12546) ───────────────────────────────────────
+//
+// Sellada manda, como los otros cinco: la columna `valor_servicios_adicionales` de la liquidación.
+// Sin sellar, la SUMA de la puente `flito_tramite_servicios_adicionales`, y por SUBCONSULTA
+// CORRELACIONADA —el mismo patrón que `SELECT_CONCILIACION_SOAT` y `delPrimerComprador`—, nunca por
+// un `leftJoin` en `conJoins`: la puente tiene N filas por trámite, así que un join multiplicaría la
+// fila del trámite y con ella el dinero de los totales, el `count(distinct)` de la paginación y el
+// Excel; y en el consolidado, que agrupa, la expresión tendría que entrar en el `GROUP BY` (42803).
+//
+// `SUM` sin `COALESCE` por dentro a propósito: un trámite sin servicios da NULL = «no aplica», que
+// es lo mismo que dice la columna sellada en NULL. El cero lo pone quien suma, fuera.
+//
+// SIN PARÁMETROS: la referencia es columna contra columna. Las claves jsonb de la cantidad van como
+// texto del template y no interpoladas — Drizzle no deduplica literales, y dos `$n` iguales en el
+// SELECT y en el GROUP BY del consolidado serían 42803 en toda llamada (Bug #12058).
+const SA = flitoTramiteServiciosAdicionales;
+
+export const EXPR_SERVICIOS_ADICIONALES = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorServiciosAdicionales}
+  ELSE (SELECT SUM(${SA.valor}) FROM ${SA} WHERE ${SA.tramiteId} = ${flitoTramites.id}) END`;
+
+/**
+ * CUÁNTOS servicios lleva la fila, que no se puede deducir del importe (tres servicios de $0 y
+ * ninguno suman igual). Sellada: la longitud del array del detalle. Sin sellar: las filas de la
+ * puente.
+ *
+ * El `jsonb_typeof` no es adorno: `jsonb_array_length` de un escalar lanza 22023 y tumbaría el
+ * reporte ENTERO, no una celda. En una liquidación sellada ANTES de esta HU la clave no existe, el
+ * `->` devuelve NULL y la cantidad sale NULL —«no se sabe»—, que es distinto de 0 («se selló sin
+ * servicios»); por eso `liquidar()` escribe la clave siempre, también vacía.
+ */
+export const EXPR_SERVICIOS_ADICIONALES_CANTIDAD = sql`CASE WHEN ${seLiquido}
+    THEN CASE WHEN jsonb_typeof(${flitoLiquidaciones.detalle} -> 'serviciosAdicionales' -> 'items') = 'array'
+      THEN jsonb_array_length(${flitoLiquidaciones.detalle} -> 'serviciosAdicionales' -> 'items') END
+  ELSE (SELECT COUNT(*)::int FROM ${SA} WHERE ${SA.tramiteId} = ${flitoTramites.id}) END`;
+
+// Base del 4x1000: el total de los SEIS conceptos del trámite. El GMF se calcula sobre esa suma y
+// se añade encima, así que el total final es la base más su propio gravamen. Los servicios
+// adicionales entran aquí desde la HU #12546, igual que en `calcular()`: lo que se factura al
+// cliente incluye su gravamen.
 const EXPR_BASE_GMF = sql`COALESCE(${EXPR_SOAT}, 0) + COALESCE(${EXPR_IMPUESTO}, 0) + COALESCE(${EXPR_DERECHO}, 0)
-  + COALESCE(${EXPR_DIGITAL}, 0) + COALESCE(${EXPR_LOGISTICA}, 0)`;
+  + COALESCE(${EXPR_DIGITAL}, 0) + COALESCE(${EXPR_LOGISTICA}, 0)
+  + COALESCE(${EXPR_SERVICIOS_ADICIONALES}, 0)`;
 export const EXPR_GMF = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorGmf}
   ELSE ROUND((${EXPR_BASE_GMF}) * ${TASA_GMF}, 2) END`;
 
@@ -387,6 +435,8 @@ export const SELECT_FILA = {
   derechoTramite: sql<string | null>`${EXPR_DERECHO}`,
   tramiteDigital: sql<string | null>`${EXPR_DIGITAL}`,
   logistica: sql<string | null>`${EXPR_LOGISTICA}`,
+  serviciosAdicionales: sql<string | null>`${EXPR_SERVICIOS_ADICIONALES}`,
+  serviciosAdicionalesCantidad: sql<number | null>`${EXPR_SERVICIOS_ADICIONALES_CANTIDAD}`,
   gmf: sql<string | null>`${EXPR_GMF}`,
   totalFila: sql<string | null>`${EXPR_TOTAL}`,
   // Por qué falta cada cosa. Se resuelve en SQL —donde ya está la regla— y no en el cliente
@@ -467,6 +517,9 @@ function aFila(r: Record<string, unknown>): FilaReporte {
   const conceptos = {
     soat: n(r.soat as string | null), impuesto: n(r.impuesto as string | null),
     derechoTramite: derecho, logistica, tramiteDigital: digital,
+    // Nunca están «pendientes»: lo asignado es su propio valor, sin tarifa que configurar ni recibo
+    // que esperar. Por eso no añaden motivo a ninguna de las tres listas de arriba.
+    serviciosAdicionales: n(r.serviciosAdicionales as string | null),
     gmf: n(r.gmf as string | null),
     noConfigurados, sinRecibo, pendientesPago,
   };
@@ -479,6 +532,7 @@ function aFila(r: Record<string, unknown>): FilaReporte {
     fechaAprobacion,
     fechaCreacion: aIso(r.fechaCreacion),
     ...conceptos,
+    serviciosAdicionalesCantidad: n(r.serviciosAdicionalesCantidad as number | null),
     total: n(r.totalFila as string | null),
     sellada,
     estadoLiquidacion: (r.estadoLiquidacion as FilaReporte['estadoLiquidacion']) ?? null,
@@ -505,11 +559,17 @@ export const SELECT_TOTALES = {
   derechoTramite: sql<string>`COALESCE(SUM(${EXPR_DERECHO}), 0)`,
   tramiteDigital: sql<string>`COALESCE(SUM(${EXPR_DIGITAL}), 0)`,
   logistica: sql<string>`COALESCE(SUM(${EXPR_LOGISTICA}), 0)`,
+  serviciosAdicionales: sql<string>`COALESCE(SUM(${EXPR_SERVICIOS_ADICIONALES}), 0)`,
   gmf: sql<string>`COALESCE(SUM(${EXPR_GMF}), 0)`,
   total: sql<string>`COALESCE(SUM(${EXPR_TOTAL}), 0)`,
   totalReintegro: sql<string>`COALESCE(SUM(COALESCE(${EXPR_SOAT}, 0) + COALESCE(${EXPR_IMPUESTO}, 0)
     + COALESCE(${EXPR_DERECHO}, 0) + COALESCE(${EXPR_GMF}, 0) + COALESCE(${EXPR_LOGISTICA}, 0)), 0)`,
-  totalServicio: sql<string>`COALESCE(SUM(${EXPR_DIGITAL}), 0)`,
+  // El servicio de FLIT: el trámite digital MÁS los servicios adicionales (HU #12546), con el
+  // `COALESCE` POR TÉRMINO igual que el reintegro — si no, una fila con servicios y sin tarifa de
+  // trámite digital (o al revés) no sumaría nada en vez de sumar lo que sí tiene, y reintegro +
+  // servicio dejaría de dar el total.
+  totalServicio: sql<string>`COALESCE(SUM(COALESCE(${EXPR_DIGITAL}, 0)
+    + COALESCE(${EXPR_SERVICIOS_ADICIONALES}, 0)), 0)`,
   filasIncompletas: sql<number>`COUNT(*) FILTER (WHERE ${EXPR_INCOMPLETA})::int`,
 } as const;
 
@@ -525,6 +585,7 @@ async function totalesDe(where: SQL | undefined): Promise<TotalesReporte> {
   return {
     soat: Number(t.soat), impuesto: Number(t.impuesto), derechoTramite: Number(t.derechoTramite),
     tramiteDigital: Number(t.tramiteDigital), logistica: Number(t.logistica),
+    serviciosAdicionales: Number(t.serviciosAdicionales),
     gmf: Number(t.gmf), total: Number(t.total),
     totalReintegro: Number(t.totalReintegro), totalServicio: Number(t.totalServicio),
     filasIncompletas: Number(t.filasIncompletas),

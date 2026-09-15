@@ -132,6 +132,8 @@ export function periodoDe(fechaAprobacionIso: string | null): { mes: string | nu
 export interface ConceptosDeFila {
   soat: number | null; impuesto: number | null; derechoTramite: number | null;
   gmf: number | null; logistica: number | null; tramiteDigital: number | null;
+  /** Suma de los servicios adicionales de la fila (HU #12546). `null` = el trámite no lleva. */
+  serviciosAdicionales: number | null;
   noConfigurados: string[]; sinRecibo: string[]; pendientesPago: string[];
 }
 
@@ -145,8 +147,9 @@ const redondear = (v: number): number => Math.round(v * 100) / 100;
 
 /**
  * «Total reintegro» y «Servicio» de UNA fila (RN-02): reintegro = SOAT + impuesto + derecho de
- * tránsito + GMF + logística; servicio = trámite digital. Se calcula en JS sobre los valores que
- * `aFila` ya resolvió, no con una expresión SQL nueva: la fila ya sabe qué falta y por qué.
+ * tránsito + GMF + logística; servicio = trámite digital + servicios adicionales (HU #12546). Se
+ * calcula en JS sobre los valores que `aFila` ya resolvió, no con una expresión SQL nueva: la fila
+ * ya sabe qué falta y por qué.
  *
  * Un concepto en `null` significa dos cosas distintas, y el subtotal las trata distinto:
  *   - autogestionado o «no aplica»: FLITO no lo desembolsó ni lo espera → cuenta 0.
@@ -165,7 +168,17 @@ export function subtotalesDe(f: ConceptosDeFila): { totalReintegro: number | nul
   const totalReintegro = reintegroPendiente
     ? null
     : redondear((f.soat ?? 0) + (f.impuesto ?? 0) + (f.derechoTramite ?? 0) + (f.gmf ?? 0) + (f.logistica ?? 0));
-  const totalServicio = pendiente(ETIQUETA.tramiteDigital) ? null : redondear(f.tramiteDigital ?? 0);
+  // Los servicios adicionales entran en el SERVICIO, no en el reintegro: FLIT los cobra por hacer
+  // algo, no reintegra un desembolso. Y nunca están pendientes —no hay tarifa que configurar ni
+  // recibo que esperar—, así que no pueden anular el subtotal: solo suman.
+  //
+  // Sumarlos aquí no es opcional. `EXPR_TOTAL` ya los mete en el total de la fila y `SELECT_TOTALES`
+  // en el agregado; si este subtotal se quedara con el trámite digital, `totalReintegro +
+  // totalServicio` dejaría de dar `total` en toda fila con servicios (RN-02), la columna «Servicio»
+  // del Excel no cuadraría con su pie y el detalle no cuadraría con el consolidado.
+  const totalServicio = pendiente(ETIQUETA.tramiteDigital)
+    ? null
+    : redondear((f.tramiteDigital ?? 0) + (f.serviciosAdicionales ?? 0));
   return { totalReintegro, totalServicio };
 }
 

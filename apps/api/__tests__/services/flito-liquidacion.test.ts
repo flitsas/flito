@@ -28,8 +28,20 @@ vi.mock('../../src/modules/flito-parametrizacion/flito-tarifas.service.js', () =
   tarifaDe: tarifaDeMock,
 }));
 
-const { calcular, liquidar, LiquidacionBloqueadaError, LiquidacionError, TASA_GMF } =
+const { calcular, facturar, liquidacionDe, liquidar, reversar, LiquidacionBloqueadaError, LiquidacionError, TASA_GMF } =
   await import('../../src/modules/flito-liquidacion/flito-liquidacion.service.js');
+
+/**
+ * Una fila de la puente de servicios adicionales, tal como la devuelve `serviciosAsignadosDe`
+ * (HU #12545): `valor` llega como texto porque la columna es `numeric`.
+ */
+function servicio(over: Record<string, unknown> = {}) {
+  return {
+    id: 'sa-1', tipoId: 'tipo-1', nombre: 'Paz y salvo', descripcion: null, valor: '50000',
+    asignadoPorId: 9, asignadoPorNombre: 'Ana', asignadoEn: new Date('2026-07-30T15:00:00Z'),
+    ...over,
+  };
+}
 
 /**
  * Fila del trámite con todo pagado, una compañía que no autogestiona nada y un organismo que sí
@@ -64,7 +76,27 @@ beforeEach(() => {
   transactionMock.mockReset();
   tarifaDeMock.mockReset();
   tarifasConfiguradas();
+  // HU #12546 — `calcular()` hace un SELECT más (los servicios adicionales del trámite). Este
+  // fallback lo deja en «sin servicios» para los casos que no hablan de ellos, DESPUÉS de los
+  // `mockReturnValueOnce` que cada test encola: la cola se consume primero y esto responde al resto.
+  //
+  // Cuidado con lo que este fallback compra: convierte un mock AUSENTE en `[]` en vez de reventar.
+  // Por eso los casos de `liquidar` siguen encolando su SELECT de servicios EN SU POSICIÓN —entre
+  // el cálculo y los identificadores—: si no, la fila de identificadores la consumiría la consulta
+  // de servicios y el test afirmaría sobre otra cosa.
+  selectMock.mockReturnValue(chain([]));
 });
+
+/**
+ * El `select` del `tx` (HU #12546). Dentro de la transacción, `liquidar()` consulta DOS veces y en
+ * este orden: el `FOR UPDATE` sobre el trámite y, con el bloqueo tomado, la puente de servicios.
+ * Invertir el orden dejaría de serializar contra asignar/quitar, y es lo que este doble fija.
+ */
+function txSelect(servicios: unknown[]) {
+  return vi.fn()
+    .mockReturnValueOnce(chain([{ id: 't1', idFlit: 'FLIT-1' }]))
+    .mockReturnValue(chain(servicios));
+}
 
 // ───────── HU #12374: la tarifa que se congela es la vigente en la FECHA DE APROBACIÓN ─────────
 
@@ -128,6 +160,7 @@ describe('liquidar — sellar con un faltante se bloquea SIN crear liquidación 
     selectMock
       .mockReturnValueOnce(chain([]))                                                        // liquidacionDe
       .mockReturnValueOnce(chain([filaCompleta({ fechaAprobacion: FECHA })]))               // calcular
+      .mockReturnValueOnce(chain([]))                                                        // serviciosAsignadosDe (previsualización)
       .mockReturnValueOnce(chain([{ companiaId: null, soatId: null, soatOrganismo: null, impuestoId: null, impuestoOrganismo: null, derechoId: null, derechoOrganismo: null }])); // identificadoresDe: sin bolsa
 
     // Espía del insert DENTRO de la transacción (patrón de flito-bolsas-transito.test.ts): tabla + values.
@@ -142,7 +175,7 @@ describe('liquidar — sellar con un faltante se bloquea SIN crear liquidación 
       c.values = (datos: unknown) => { escritas.push({ tabla: getTableName(tabla as never), datos: datos as Record<string, unknown> }); return c; };
       return c;
     });
-    transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb({ insert: txInsert }));
+    transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb({ insert: txInsert, select: txSelect([]) }));
 
     await liquidar('t1', 1);
 
@@ -368,5 +401,301 @@ describe('calcular — redondeo', () => {
     // 333.333 + 1 + 200.000 (digital) + 15.000 (logística) = 548.334; × 0,004 = 2.193,336
     expect(c.baseGmf).toBe(548334);
     expect(c.valorGmf).toBe(2193.34);
+  });
+});
+
+
+// ───────── HU #12546: servicios adicionales en el cálculo y en el sello ─────────
+//
+// Mutantes que estos casos matan:
+//   · M-SA1 — dejar los servicios fuera de `baseGmf`: cae la base y el gravamen de «con servicios».
+//   · M-SA2 — devolver `valor: 0` en vez de `null` sin servicios: cae «null, nunca cero».
+//   · M-SA3 — meter los servicios en `faltantes` o poner `bloquea: true`: cae «no bloquea».
+//   · M-SA4 — leer la puente con `db` en vez de con `tx` (o antes del `FOR UPDATE`): cae el orden
+//     dentro de la transacción y cae «lo que se sella es la lectura bajo bloqueo».
+//   · M-SA5 — no escribir la clave cuando no hay servicios: cae `items: []` en el detalle sellado.
+//   · M-SA6 — recalcular desde la puente al leer una liquidación sellada: cae el conteo de SELECT.
+
+describe('calcular — los servicios adicionales suman a la base y nunca bloquean (AC2)', () => {
+  it('con servicios: la suma va en `valor`, el desglose en `items` y el 4x1000 se calcula CON ellos (M-SA1)', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([filaCompleta()]))
+      .mockReturnValueOnce(chain([servicio(), servicio({ id: 'sa-2', tipoId: 'tipo-2', nombre: 'Diagnóstico', valor: '35000' })]));
+    const c = await calcular('t1');
+
+    expect(c.serviciosAdicionales).toEqual({
+      valor: 85000, origen: 'asignacion', bloquea: false,
+      items: [
+        { tipoId: 'tipo-1', nombre: 'Paz y salvo', valor: 50000 },
+        { tipoId: 'tipo-2', nombre: 'Diagnóstico', valor: 35000 },
+      ],
+    });
+    // 865.000 de los cinco conceptos + 85.000 de servicios = 950.000; ×0,004 = 3.800.
+    expect(c.baseGmf).toBe(950000);
+    expect(c.valorGmf).toBe(3800);
+    expect(c.total).toBe(953800);
+    expect(c.faltantes).toEqual([]);
+  });
+
+  it('sin servicios: `valor` null (nunca cero), `items` vacío, no bloquea y no entra en faltantes (M-SA2, M-SA3)', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([filaCompleta()]))
+      .mockReturnValueOnce(chain([]));
+    const c = await calcular('t1');
+
+    expect(c.serviciosAdicionales.valor).toBeNull();
+    expect(c.serviciosAdicionales.items).toEqual([]);
+    expect(c.serviciosAdicionales.bloquea).toBe(false);
+    expect(c.faltantes).toEqual([]);
+    // La base es la de siempre: un `0` disfrazado la dejaría igual, pero el gravamen de 3.460 y el
+    // `null` de arriba juntos sí distinguen «no aplica» de «cero».
+    expect(c.baseGmf).toBe(865000);
+    expect(c.valorGmf).toBe(3460);
+  });
+
+  it('los items conservan el ORDEN de la puente (asignado_en ASC, id ASC): no se reordenan por valor ni por nombre', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([filaCompleta()]))
+      .mockReturnValueOnce(chain([
+        servicio({ id: 'sa-9', tipoId: 'tipo-9', nombre: 'Zeta', valor: '10000' }),
+        servicio({ id: 'sa-1', tipoId: 'tipo-1', nombre: 'Alfa', valor: '90000' }),
+      ]));
+    const c = await calcular('t1');
+    expect(c.serviciosAdicionales.items.map((i) => i.nombre)).toEqual(['Zeta', 'Alfa']);
+  });
+});
+
+/** Espía del sellado: devuelve el `tx`, lo escrito y el orden de las consultas de dentro. */
+function espiarSellado(serviciosEnTx: unknown[]) {
+  const escritas: Array<{ tabla: string; datos: Record<string, unknown> }> = [];
+  const orden: string[] = [];
+  const filaSellada = {
+    id: 'l1', tramiteId: 't1', estado: 'liquidado', detalle: {}, valorSoat: '450000',
+    valorImpuesto: '120000', valorDerecho: '80000', valorTramiteDigital: '200000',
+    valorLogistica: '15000', valorServiciosAdicionales: null, baseGmf: '1', tasaGmf: '0.004',
+    valorGmf: '0', total: '1', liquidadoEn: new Date(), facturadoEn: null,
+  };
+  const insert = vi.fn((tabla: unknown) => {
+    const c = chain(escritas.length === 0 ? [filaSellada] : []) as unknown as Record<string, (a: unknown) => unknown>;
+    c.values = (datos: unknown) => { escritas.push({ tabla: getTableName(tabla as never), datos: datos as Record<string, unknown> }); return c; };
+    return c;
+  });
+  let n = 0;
+  const select = vi.fn(() => {
+    const esBloqueo = n++ === 0;
+    const c = chain(esBloqueo ? [{ id: 't1', idFlit: 'FLIT-1' }] : serviciosEnTx) as unknown as Record<string, unknown>;
+    // El bloqueo tiene que ser `FOR UPDATE` DE VERDAD: sin `.for('update')` no serializa nada.
+    c.for = (modo: unknown) => { orden.push(`bloqueo:for:${String(modo)}`); return c; };
+    if (!esBloqueo) orden.push('servicios');
+    return c;
+  });
+  return { tx: { insert, select }, escritas, orden };
+}
+
+describe('liquidar — sella los servicios adicionales leyéndolos DENTRO de la transacción (AC3)', () => {
+  const sinBolsa = { companiaId: null, soatId: null, soatOrganismo: null, impuestoId: null, impuestoOrganismo: null, derechoId: null, derechoOrganismo: null };
+
+  function encolarSellado(serviciosPrevios: unknown[] = []) {
+    selectMock
+      .mockReturnValueOnce(chain([]))                            // liquidacionDe: no hay sellada
+      .mockReturnValueOnce(chain([filaCompleta()]))              // calcular
+      .mockReturnValueOnce(chain(serviciosPrevios))              // serviciosAsignadosDe (previsualización)
+      .mockReturnValueOnce(chain([sinBolsa]));                   // identificadoresDe
+  }
+
+  it('la columna y el detalle llevan la suma y los items; el total sellado incluye su gravamen', async () => {
+    encolarSellado([servicio()]);
+    const espia = espiarSellado([servicio(), servicio({ id: 'sa-2', tipoId: 'tipo-2', nombre: 'Diagnóstico', valor: '35000' })]);
+    transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(espia.tx));
+
+    await liquidar('t1', 1);
+
+    const liquidacion = espia.escritas.find((e) => e.tabla === 'flito_liquidaciones')!;
+    expect(liquidacion.datos.valorServiciosAdicionales).toBe('85000');
+    expect(liquidacion.datos.detalle).toMatchObject({
+      serviciosAdicionales: {
+        valor: 85000, origen: 'asignacion', bloquea: false,
+        items: [
+          { tipoId: 'tipo-1', nombre: 'Paz y salvo', valor: 50000 },
+          { tipoId: 'tipo-2', nombre: 'Diagnóstico', valor: 35000 },
+        ],
+      },
+    });
+    // 950.000 de base y 3.800 de gravamen: si el sellado hubiera usado el cálculo de la
+    // previsualización (un solo servicio, 915.000), estos tres números serían otros.
+    expect(liquidacion.datos.baseGmf).toBe('950000');
+    expect(liquidacion.datos.valorGmf).toBe('3800');
+    expect(liquidacion.datos.total).toBe('953800');
+  });
+
+  it('primero el FOR UPDATE del trámite y DESPUÉS la puente, las dos con el `tx` (M-SA4)', async () => {
+    encolarSellado();
+    const espia = espiarSellado([servicio()]);
+    transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(espia.tx));
+
+    await liquidar('t1', 1);
+
+    expect(espia.orden).toEqual(['bloqueo:for:update', 'servicios']);
+    expect(espia.tx.select).toHaveBeenCalledTimes(2);
+  });
+
+  it('sin servicios, la columna va NULL y la clave del detalle se escribe igual, con items vacío (M-SA5)', async () => {
+    encolarSellado();
+    const espia = espiarSellado([]);
+    transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(espia.tx));
+
+    await liquidar('t1', 1);
+
+    const liquidacion = espia.escritas.find((e) => e.tabla === 'flito_liquidaciones')!;
+    expect(liquidacion.datos.valorServiciosAdicionales).toBeNull();
+    // La clave EXISTE aunque esté vacía: es lo que hace que `jsonb_array_length` responda 0 en el
+    // reporte y no NULL, y así se distinga de una liquidación sellada antes de esta HU.
+    expect(liquidacion.datos.detalle).toMatchObject({
+      serviciosAdicionales: { valor: null, origen: 'asignacion', bloquea: false, items: [] },
+    });
+    expect(liquidacion.datos.total).toBe('868460');
+  });
+
+  it('la bitácora del sellado congela el mismo desglose que la fila', async () => {
+    encolarSellado();
+    const espia = espiarSellado([servicio()]);
+    transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(espia.tx));
+
+    await liquidar('t1', 1);
+
+    const evento = espia.escritas.find((e) => e.tabla === 'flito_liquidacion_eventos')!;
+    expect(evento.datos.snapshot).toMatchObject({
+      serviciosAdicionales: { valor: 50000, items: [{ tipoId: 'tipo-1', nombre: 'Paz y salvo', valor: 50000 }] },
+      total: 918660,
+    });
+  });
+});
+
+describe('leer una liquidación sellada — lo sellado NO se recalcula desde la puente (AC4)', () => {
+  const base = {
+    id: 'l1', tramiteId: 't1', estado: 'liquidado', valorSoat: '450000', valorImpuesto: '120000',
+    valorDerecho: '80000', valorTramiteDigital: '200000', valorLogistica: '15000',
+    baseGmf: '950000', tasaGmf: '0.004', valorGmf: '3800', total: '953800',
+    liquidadoEn: new Date('2026-08-01T10:00:00Z'), facturadoEn: null,
+  };
+
+  it('devuelve los items del detalle aunque el tipo se haya dado de baja después, y sin consultar la puente (M-SA6)', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([{
+        ...base, valorServiciosAdicionales: '85000',
+        detalle: {
+          serviciosAdicionales: {
+            valor: 85000, origen: 'asignacion', bloquea: false,
+            items: [{ tipoId: 'tipo-1', nombre: 'Paz y salvo', valor: 50000 }, { tipoId: 'tipo-2', nombre: 'Diagnóstico', valor: 35000 }],
+          },
+        },
+      }]))
+      .mockReturnValueOnce(chain([{ idFlit: 'FLIT-1' }]));
+
+    const dto = await liquidacionDe('t1');
+
+    expect(dto!.serviciosAdicionales.valor).toBe(85000);
+    expect(dto!.serviciosAdicionales.items.map((i) => i.nombre)).toEqual(['Paz y salvo', 'Diagnóstico']);
+    // DOS consultas y ninguna más: la liquidación y el idFlit. Una tercera sería la puente, y eso es
+    // exactamente lo que no puede pasar — quitar el servicio después no cambia lo sellado.
+    expect(selectMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('una liquidación sellada ANTES de esta HU se lee sin romper: valor de la columna e items vacío', async () => {
+    // Sin la clave en el detalle y con la columna en NULL (la 0194 no hace backfill). El respaldo por
+    // columna es el patrón vigente de `aDto`, y aquí es lo único que hay.
+    selectMock
+      .mockReturnValueOnce(chain([{ ...base, valorServiciosAdicionales: null, detalle: { soat: { valor: 450000, origen: 'Valor pagado del SOAT', bloquea: false } } }]))
+      .mockReturnValueOnce(chain([{ idFlit: 'FLIT-1' }]));
+
+    const dto = await liquidacionDe('t1');
+
+    expect(dto!.serviciosAdicionales).toEqual({ valor: null, origen: 'Sellado', bloquea: false, items: [] });
+    expect(dto!.total).toBe(953800);
+  });
+});
+
+describe('facturar — no toca la columna sellada ni la puente (AC4)', () => {
+  it('el UPDATE solo cambia estado, actor y fechas; no se consulta la puente', async () => {
+    const filaSellada = {
+      id: 'l1', tramiteId: 't1', estado: 'liquidado', detalle: {}, valorSoat: null, valorImpuesto: null,
+      valorDerecho: null, valorTramiteDigital: null, valorLogistica: null,
+      valorServiciosAdicionales: '85000', baseGmf: '85000', tasaGmf: '0.004', valorGmf: '340',
+      total: '85340', liquidadoEn: new Date(), facturadoEn: null,
+    };
+    selectMock
+      .mockReturnValueOnce(chain([filaSellada]))          // la liquidación a facturar
+      .mockReturnValueOnce(chain([{ idFlit: 'FLIT-1' }])); // el idFlit del DTO
+
+    const sets: Array<Record<string, unknown>> = [];
+    const txUpdate = vi.fn(() => {
+      const c = chain([{ ...filaSellada, estado: 'facturado', facturadoEn: new Date() }]) as unknown as Record<string, unknown>;
+      c.set = (datos: unknown) => { sets.push(datos as Record<string, unknown>); return c; };
+      return c;
+    });
+    const txSelectPuente = vi.fn(() => chain([]));
+    transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) =>
+      cb({ update: txUpdate, insert: () => chain([]), select: txSelectPuente }));
+
+    const dto = await facturar('t1', 7);
+
+    expect(Object.keys(sets[0]!).sort()).toEqual(['estado', 'facturadoEn', 'facturadoPorId', 'updatedAt']);
+    expect(txSelectPuente).not.toHaveBeenCalled();
+    // Y lo sellado sigue ahí: facturar no recalcula ni un peso.
+    expect(dto.serviciosAdicionales.valor).toBe(85000);
+  });
+});
+
+describe('reversar — el evento conserva el snapshot CON items y la puente no se toca (AC4)', () => {
+  it('la bitácora guarda el desglose sellado, se borra la liquidación y nadie consulta la puente', async () => {
+    const detalle = {
+      derecho: { valor: 80000, origen: 'Recibo de derecho de tránsito', bloquea: false },
+      serviciosAdicionales: {
+        valor: 85000, origen: 'asignacion', bloquea: false,
+        items: [{ tipoId: 'tipo-1', nombre: 'Paz y salvo', valor: 50000 }, { tipoId: 'tipo-2', nombre: 'Diagnóstico', valor: 35000 }],
+      },
+    };
+    selectMock.mockReturnValueOnce(chain([{
+      id: 'l1', tramiteId: 't1', estado: 'liquidado', detalle,
+      baseGmf: '165000', tasaGmf: '0.004', valorGmf: '660', total: '165660',
+      liquidadoEn: new Date('2026-08-01T10:00:00Z'), facturadoEn: null,
+    }]));
+
+    const eventos: Array<Record<string, unknown>> = [];
+    const borrados: unknown[] = [];
+    const txSelects: unknown[] = [];
+    const txInsert = vi.fn(() => {
+      const c = chain([]) as unknown as Record<string, unknown>;
+      c.values = (datos: unknown) => { eventos.push(datos as Record<string, unknown>); return c; };
+      return c;
+    });
+    // Se anota de QUÉ TABLA lee cada select de dentro de la transacción: el nombre del `from` es lo
+    // único que demuestra que la puente no se consulta (los argumentos del `select` no lo dicen).
+    const txSel = vi.fn(() => {
+      const c = chain([]) as unknown as Record<string, unknown>;
+      c.from = (tbl: unknown) => { txSelects.push(getTableName(tbl as never)); return c; };
+      return c;
+    });
+    transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb({
+      insert: txInsert, select: txSel, update: () => chain([]),
+      delete: (t: unknown) => { borrados.push(t); return chain([]); },
+    }));
+
+    await reversar('t1', 'Error en el valor del derecho', 9);
+
+    // El snapshot es el detalle ENTERO más el total: los items sellados sobreviven al reverso, que
+    // es lo único que permite auditar después qué servicios se cobraron en ese sellado.
+    expect(eventos[0]!.accion).toBe('reversar');
+    expect(eventos[0]!.snapshot).toMatchObject({
+      serviciosAdicionales: { valor: 85000, items: [{ nombre: 'Paz y salvo', valor: 50000 }, { nombre: 'Diagnóstico', valor: 35000 }] },
+      total: 165660,
+    });
+    expect(borrados).toHaveLength(1);
+    // Los `select` de dentro son los del barrido de las bolsas (movimientos); ninguno va a la puente:
+    // reversar NO devuelve, quita ni toca los servicios asignados al trámite.
+    // Mutante «releer la puente al reversar»: aparecería `flito_tramite_servicios_adicionales`.
+    expect(txSelects.length).toBeGreaterThan(0);
+    expect(txSelects).not.toContain('flito_tramite_servicios_adicionales');
+    expect(txSelects).toContain('flito_bolsa_movimientos');
   });
 });

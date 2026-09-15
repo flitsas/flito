@@ -397,13 +397,17 @@ function escenarioConciliacion(): void {
     .update('flito_conciliacion_boletas', []);
 }
 
-/** Y para sellar: los dos SELECT sobre `flito_tramites` van encolados, con proyecciones distintas. */
+/** Y para sellar: los TRES SELECT sobre `flito_tramites` van encolados, con proyecciones distintas. */
 function escenarioSellado(calculo: Fila = {}, ids: Fila = {}): void {
   escenarioConciliacion();
   kdb.when
     .select('flito_liquidaciones', () => bd.liquidaciones.map((l) => ({ ...l })))
     .selectOnce('flito_tramites', [filaCalculo(calculo)])
     .selectOnce('flito_tramites', [filaIdentificadores(ids)])
+    // HU #12546 — el TERCER SELECT sobre `flito_tramites`: el `FOR UPDATE` que `liquidar()` toma
+    // DENTRO de la transacción antes de releer los servicios adicionales. Sin esta entrada la cola
+    // se agota, `bloquearTramite` no encuentra el trámite y ningún sellado llega a la bolsa.
+    .selectOnce('flito_tramites', [{ id: TRAMITE, idFlit: 'FLIT-1' }])
     .insert('flito_liquidaciones', () => { bd.liquidaciones = [filaLiquidacion]; return [filaLiquidacion]; })
     .insert('flito_liquidacion_eventos', [])
     .delete('flito_liquidaciones', () => { bd.liquidaciones = []; return []; });
