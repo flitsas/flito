@@ -73,6 +73,11 @@ function calculoSellado(fila: FilaLiquidacion): CalculoLiquidacion {
     derecho: concepto(fila.valorDerecho),
     tramiteDigital: concepto(fila.valorTramiteDigital),
     logistica: concepto(fila.valorLogistica),
+    // HU #12546 — desde la 0194 la liquidación puede llevar servicios adicionales, y su salida usa
+    // la llave `tramite:{id}:servicios_adicionales`. Se reconstruye desde la COLUMNA sellada, no
+    // desde la puente: la puente puede haber cambiado (o vaciarse) después del sello. `items` va
+    // vacío porque `salidasDe` solo mira el importe; el desglose vive en el detalle de la fila.
+    serviciosAdicionales: { ...concepto(fila.valorServiciosAdicionales), items: [] },
     baseGmf: Number(fila.baseGmf),
     tasaGmf: Number(fila.tasaGmf ?? TASA_GMF),
     valorGmf: Number(fila.valorGmf),
@@ -91,6 +96,7 @@ interface FilaLiquidacion {
   valorDerecho: string | null;
   valorTramiteDigital: string | null;
   valorLogistica: string | null;
+  valorServiciosAdicionales: string | null;
   baseGmf: string;
   tasaGmf: string;
   valorGmf: string;
@@ -115,6 +121,7 @@ async function liquidacionesHasta(corte: string): Promise<FilaLiquidacion[]> {
     valorDerecho: flitoLiquidaciones.valorDerecho,
     valorTramiteDigital: flitoLiquidaciones.valorTramiteDigital,
     valorLogistica: flitoLiquidaciones.valorLogistica,
+    valorServiciosAdicionales: flitoLiquidaciones.valorServiciosAdicionales,
     baseGmf: flitoLiquidaciones.baseGmf,
     tasaGmf: flitoLiquidaciones.tasaGmf,
     valorGmf: flitoLiquidaciones.valorGmf,

@@ -14,7 +14,7 @@
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import {
   type ConceptoBolsaTransito, esConceptoBolsaTransito, EstadoImpuesto, EstadoSoat,
-  flitoGestionaImpuesto, ModalidadOrganismo,
+  flitoGestionaImpuesto, type ItemServicioSellado, ModalidadOrganismo,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
@@ -31,6 +31,14 @@ import {
 import { TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
 // AC5 de la HU #11343: qué se puede hacer con la factura de un trámite que alguien intenta reversar.
 import { viaDeCorreccionDeTramite } from '../siigo/correcciones.service.js';
+// HU #12546 — los servicios adicionales del trámite se LEEN de su módulo, no se reconsultan aquí:
+// `serviciosAsignadosDe` ya fija el orden (`asignado_en ASC, id ASC`) y la proyección, y
+// `bloquearTramite` es el MISMO `SELECT … FOR UPDATE` que toman asignar y quitar (ADR-0017, RN-03).
+// Duplicar cualquiera de las dos abriría la puerta a que el sellado leyera un orden o una instantánea
+// distintos de los que ve la pantalla que asigna.
+import {
+  bloquearTramite, type FilaAsignacion, serviciosAsignadosDe, TramiteNoEncontradoError,
+} from '../finanzas-servicios-adicionales/finanzas-servicios-adicionales.service.js';
 
 export class LiquidacionError extends Error {
   constructor(message: string, readonly faltantes: string[] = []) {
@@ -76,6 +84,25 @@ export interface ConceptoLiquidado {
   bloquea: boolean;
 }
 
+/**
+ * El concepto de los servicios adicionales (HU #12546). Es un `ConceptoLiquidado` con el DESGLOSE:
+ * `valor` es la suma —lo que entra en la base del GMF y en la bolsa— e `items` es de qué se compone,
+ * en el orden en que la puente los devuelve.
+ *
+ * Se declara aquí y no en shared-types porque la web no consume el cálculo de la liquidación; lo que
+ * sí comparte —`ItemServicioSellado`— ya vive allí y se reutiliza tal cual (HU #12545).
+ */
+export interface ConceptoServiciosAdicionales extends ConceptoLiquidado {
+  items: ItemServicioSellado[];
+}
+
+/**
+ * Origen de los servicios adicionales: vienen de lo ASIGNADO al trámite (`flito_tramite_servicios_
+ * adicionales`), no de una tarifa ni de un recibo. Es el mismo con y sin servicios: el porqué del
+ * valor no cambia porque la lista esté vacía.
+ */
+export const ORIGEN_SERVICIOS_ADICIONALES = 'asignacion';
+
 export interface CalculoLiquidacion {
   tramiteId: string;
   idFlit: string;
@@ -84,6 +111,11 @@ export interface CalculoLiquidacion {
   derecho: ConceptoLiquidado;
   tramiteDigital: ConceptoLiquidado;
   logistica: ConceptoLiquidado;
+  /**
+   * Los servicios adicionales del trámite. Nunca bloquea: un trámite sin servicios es lo normal, y
+   * `valor: null` dice «no aplica», no «falta algo» — por eso no entra en `faltantes` (AC2).
+   */
+  serviciosAdicionales: ConceptoServiciosAdicionales;
   baseGmf: number;
   tasaGmf: number;
   valorGmf: number;
@@ -220,10 +252,51 @@ function proyeccionCalculo() {
 export async function calcular(tramiteId: string): Promise<CalculoLiquidacion> {
   const [f] = await proyeccionCalculo().where(eq(flitoTramites.id, tramiteId)).limit(1) as FilaCalculo[];
   if (!f) throw new LiquidacionError('El trámite no existe');
-  return calcularDeFila(f);
+  // Fuera de transacción: esto es la PREVISUALIZACIÓN. `liquidar()` vuelve a leer la puente con su
+  // propio `tx` después de bloquear el trámite y recompone la base con esa lectura (AC3).
+  const servicios = await serviciosAsignadosDe(db, tramiteId);
+  return calcularDeFila(f, conceptoServicios(servicios));
 }
 
-async function calcularDeFila(f: FilaCalculo): Promise<CalculoLiquidacion> {
+/**
+ * Las filas de la puente como CONCEPTO: la suma en `valor` y el desglose en `items`, en el orden que
+ * da `serviciosAsignadosDe` (`asignado_en ASC, id ASC`).
+ *
+ * Sin servicios, `valor` es null y NO cero: es la misma regla que el resto de conceptos —null es «no
+ * aplica»— y es lo que deja la columna sellada en NULL en vez de fingir un cobro de 0. `items` en
+ * cambio SIEMPRE es un array (vacío si no hay), para que `jsonb_array_length` sobre el detalle
+ * sellado por esta HU responda 0 y no NULL.
+ */
+export function conceptoServicios(filas: FilaAsignacion[]): ConceptoServiciosAdicionales {
+  const items: ItemServicioSellado[] = filas.map((f) => ({
+    tipoId: f.tipoId, nombre: f.nombre, valor: Number(f.valor),
+  }));
+  const valor = items.length === 0 ? null : redondear(items.reduce((a, i) => a + i.valor, 0));
+  return { valor, origen: ORIGEN_SERVICIOS_ADICIONALES, bloquea: false, items };
+}
+
+/**
+ * Recompone base, gravamen y total del cálculo con OTRO concepto de servicios adicionales.
+ *
+ * Existe porque `liquidar()` relee la puente dentro de su transacción: el cálculo que se previsualizó
+ * puede ser de hace unos segundos, y lo que se sella tiene que ser lo que estaba asignado bajo el
+ * bloqueo. Es UNA función y no dos sumas parecidas para que la base del sellado y la del cálculo no
+ * puedan divergir.
+ */
+function totalizar(c: CalculoLiquidacion, servicios: ConceptoServiciosAdicionales): CalculoLiquidacion {
+  const baseGmf = redondear(sumar(
+    c.soat.valor, c.impuesto.valor, c.derecho.valor, c.tramiteDigital.valor, c.logistica.valor,
+    servicios.valor,
+  ));
+  const valorGmf = redondear(baseGmf * TASA_GMF);
+  return {
+    ...c, serviciosAdicionales: servicios, baseGmf, valorGmf, total: redondear(baseGmf + valorGmf),
+  };
+}
+
+async function calcularDeFila(
+  f: FilaCalculo, servicios: ConceptoServiciosAdicionales,
+): Promise<CalculoLiquidacion> {
   const faltantes: string[] = [];
 
   // Modalidad vigente del organismo; sin vigencia abierta, el default del dominio es autogestionado.
@@ -286,20 +359,16 @@ async function calcularDeFila(f: FilaCalculo): Promise<CalculoLiquidacion> {
   if (tramiteDigital.bloquea) faltantes.push(`Tarifa de trámite digital no configurada para la compañía${enFecha}`);
   if (logistica.bloquea) faltantes.push(`Tarifa de logística no configurada para la compañía${enFecha}`);
 
-  // Base del 4x1000: el total de los cinco conceptos. El gravamen se calcula sobre esa suma y se
-  // añade encima, de modo que el total es la base más su propio GMF. Los conceptos que no aplican
-  // valen null y `sumar` los ignora: no entran a la base como cero disfrazado.
-  const baseGmf = redondear(
-    sumar(soat.valor, impuesto.valor, derecho.valor, tramiteDigital.valor, logistica.valor),
-  );
-  const valorGmf = redondear(baseGmf * TASA_GMF);
-  const total = redondear(baseGmf + valorGmf);
-
-  return {
+  // Base del 4x1000: el total de los SEIS conceptos (los servicios adicionales entran desde la
+  // HU #12546). El gravamen se calcula sobre esa suma y se añade encima, de modo que el total es la
+  // base más su propio GMF. Los conceptos que no aplican valen null y `sumar` los ignora: no entran
+  // a la base como cero disfrazado. La suma vive en `totalizar` para que el sellado —que relee los
+  // servicios bajo bloqueo— use exactamente la misma.
+  return totalizar({
     tramiteId: f.tramiteId, idFlit: f.idFlit,
-    soat, impuesto, derecho, tramiteDigital, logistica,
-    baseGmf, tasaGmf: TASA_GMF, valorGmf, total, faltantes,
-  };
+    soat, impuesto, derecho, tramiteDigital, logistica, serviciosAdicionales: servicios,
+    baseGmf: 0, tasaGmf: TASA_GMF, valorGmf: 0, total: 0, faltantes,
+  }, servicios);
 }
 
 /**
@@ -397,6 +466,18 @@ export function salidasDe(calculo: CalculoLiquidacion, ids: IdentificadoresTrami
       organismoCodigo: null, llave: porTramite('logistica'),
     });
   }
+  // Los servicios adicionales, por su SUMA y no uno por servicio (HU #12546): la bolsa lleva el
+  // dinero y el desglose por tipo va en el detalle sellado. Una salida por servicio obligaría a una
+  // llave por asignación, y esa llave no sobrevive a quitar y volver a asignar el mismo tipo.
+  // Sin esta línea la bolsa descontaría `total − Σ servicios`: los servicios ya entran en la base
+  // del GMF y en el total, así que el gravamen crece solo y el importe de los servicios no se
+  // asentaría en ninguna parte. No lleva organismo: es un honorario de FLIT.
+  if (cobrable(calculo.serviciosAdicionales.valor)) {
+    salidas.push({
+      concepto: 'servicios_adicionales', valor: calculo.serviciosAdicionales.valor,
+      organismoCodigo: null, llave: porTramite('servicios_adicionales'),
+    });
+  }
   // El gravamen, al final y sobre la base ya calculada. Si todos los conceptos no aplicaran o
   // valieran cero, `valorGmf` sería cero y `cobrable` lo descarta igual que a cualquier otro: un
   // trámite de cortesía completo se sella sin mover un peso de la bolsa.
@@ -420,9 +501,25 @@ export async function liquidacionDe(tramiteId: string): Promise<LiquidacionDto |
 }
 
 function aDto(l: typeof flitoLiquidaciones.$inferSelect, idFlit: string): LiquidacionDto {
-  const d = (l.detalle ?? {}) as Partial<Record<string, ConceptoLiquidado>>;
+  const d = (l.detalle ?? {}) as Partial<Record<string, ConceptoLiquidado>>
+    & { serviciosAdicionales?: Partial<ConceptoServiciosAdicionales> };
   const concepto = (k: string, valor: string | null): ConceptoLiquidado =>
     d[k] ?? { valor: num(valor), origen: 'Sellado', bloquea: false };
+  // Los servicios adicionales no pasan por `concepto()`: llevan `items`, que la columna no guarda.
+  // El detalle manda y la columna es el respaldo, igual que los otros cinco — una liquidación
+  // sellada ANTES de la HU #12546 no tiene la clave y su columna es NULL, y así se lee sin romper.
+  // Lo que NO se hace en ningún caso es recalcular desde la puente: los servicios pueden haberse
+  // quitado o su tipo haberse dado de baja después del sello, y lo sellado no se mueve (AC4).
+  const serviciosAdicionales: ConceptoServiciosAdicionales = d.serviciosAdicionales
+    ? {
+      valor: d.serviciosAdicionales.valor ?? null,
+      origen: d.serviciosAdicionales.origen ?? ORIGEN_SERVICIOS_ADICIONALES,
+      bloquea: false,
+      items: d.serviciosAdicionales.items ?? [],
+    }
+    : {
+      valor: num(l.valorServiciosAdicionales), origen: 'Sellado', bloquea: false, items: [],
+    };
   return {
     id: l.id,
     tramiteId: l.tramiteId,
@@ -433,6 +530,7 @@ function aDto(l: typeof flitoLiquidaciones.$inferSelect, idFlit: string): Liquid
     derecho: concepto('derecho', l.valorDerecho),
     tramiteDigital: concepto('tramiteDigital', l.valorTramiteDigital),
     logistica: concepto('logistica', l.valorLogistica),
+    serviciosAdicionales,
     baseGmf: Number(l.baseGmf), tasaGmf: Number(l.tasaGmf), valorGmf: Number(l.valorGmf),
     total: Number(l.total),
     faltantes: [],
@@ -451,34 +549,53 @@ export async function liquidar(tramiteId: string, usuarioId: number | null): Pro
     throw new LiquidacionError('El trámite ya está liquidado. Reversa la liquidación antes de volver a liquidar.');
   }
 
-  const calculo = await calcular(tramiteId);
-  if (calculo.faltantes.length > 0) {
-    throw new LiquidacionBloqueadaError('El trámite no puede liquidarse todavía', calculo.faltantes);
+  const previo = await calcular(tramiteId);
+  if (previo.faltantes.length > 0) {
+    throw new LiquidacionBloqueadaError('El trámite no puede liquidarse todavía', previo.faltantes);
   }
 
-  const detalle = {
-    soat: calculo.soat, impuesto: calculo.impuesto, derecho: calculo.derecho,
-    tramiteDigital: calculo.tramiteDigital, logistica: calculo.logistica,
-  };
-  const valores = {
-    tramiteId,
-    estado: ESTADO_LIQUIDACION.LIQUIDADO,
-    valorSoat: calculo.soat.valor === null ? null : String(calculo.soat.valor),
-    valorImpuesto: calculo.impuesto.valor === null ? null : String(calculo.impuesto.valor),
-    valorDerecho: calculo.derecho.valor === null ? null : String(calculo.derecho.valor),
-    valorTramiteDigital: calculo.tramiteDigital.valor === null ? null : String(calculo.tramiteDigital.valor),
-    valorLogistica: calculo.logistica.valor === null ? null : String(calculo.logistica.valor),
-    baseGmf: String(calculo.baseGmf), tasaGmf: String(calculo.tasaGmf), valorGmf: String(calculo.valorGmf),
-    total: String(calculo.total), detalle, liquidadoPorId: usuarioId,
-  };
-
   const ids = await identificadoresDe(tramiteId);
-  // Se calculan UNA vez y alimentan los dos libros: el del cliente por lo que se le cobra, y el de
-  // tránsito por lo que se paga ante la secretaría. Recalcularlas por separado abriría la puerta a
-  // que los dos lados del asiento dejaran de cuadrar entre sí.
-  const salidas = ids ? salidasDe(calculo, ids) : [];
 
   const dto = await db.transaction(async (tx) => {
+    // El MISMO bloqueo que toman asignar y quitar (ADR-0017, RN-03 de la HU #12545): a partir de
+    // aquí nadie mete ni saca un servicio de este trámite hasta el COMMIT. Se toma ANTES de leer la
+    // puente, que es lo único que hace que lo sellado sea lo que estaba asignado.
+    await bloquearTramite(tx, tramiteId).catch(traducirTramiteNoEncontrado);
+    const servicios = conceptoServicios(await serviciosAsignadosDe(tx, tramiteId));
+    // Base, gravamen y total se RECOMPONEN con lo que se acaba de leer bajo bloqueo. El cálculo de
+    // arriba solo decidió que no faltaba nada; si alguien asignó un servicio entre medias, lo que se
+    // sella —y lo que alimenta las bolsas— es el importe de esta lectura, no el de aquella.
+    const calculo = totalizar(previo, servicios);
+
+    const detalle = {
+      soat: calculo.soat, impuesto: calculo.impuesto, derecho: calculo.derecho,
+      tramiteDigital: calculo.tramiteDigital, logistica: calculo.logistica,
+      // Se escribe SIEMPRE, también vacía: así `detalle->'serviciosAdicionales'->'items'` existe en
+      // todo lo sellado por esta HU y el reporte puede distinguir «cero servicios» (0) de «sellada
+      // antes de la HU» (sin clave), en vez de leer lo mismo en los dos casos.
+      serviciosAdicionales: calculo.serviciosAdicionales,
+    };
+    const valores = {
+      tramiteId,
+      estado: ESTADO_LIQUIDACION.LIQUIDADO,
+      valorSoat: calculo.soat.valor === null ? null : String(calculo.soat.valor),
+      valorImpuesto: calculo.impuesto.valor === null ? null : String(calculo.impuesto.valor),
+      valorDerecho: calculo.derecho.valor === null ? null : String(calculo.derecho.valor),
+      valorTramiteDigital: calculo.tramiteDigital.valor === null ? null : String(calculo.tramiteDigital.valor),
+      valorLogistica: calculo.logistica.valor === null ? null : String(calculo.logistica.valor),
+      valorServiciosAdicionales: calculo.serviciosAdicionales.valor === null
+        ? null
+        : String(calculo.serviciosAdicionales.valor),
+      baseGmf: String(calculo.baseGmf), tasaGmf: String(calculo.tasaGmf), valorGmf: String(calculo.valorGmf),
+      total: String(calculo.total), detalle, liquidadoPorId: usuarioId,
+    };
+    // Se calculan UNA vez y alimentan los dos libros: el del cliente por lo que se le cobra, y el de
+    // tránsito por lo que se paga ante la secretaría. Recalcularlas por separado abriría la puerta a
+    // que los dos lados del asiento dejaran de cuadrar entre sí. Y se calculan DENTRO de la
+    // transacción, sobre el cálculo ya recompuesto: si se hicieran fuera, la bolsa descontaría el
+    // importe viejo y el sellado guardaría el nuevo.
+    const salidas = ids ? salidasDe(calculo, ids) : [];
+
     const [fila] = await tx.insert(flitoLiquidaciones).values(valores).returning();
     await tx.insert(flitoLiquidacionEventos).values({
       tramiteId, accion: 'liquidar', usuarioId, snapshot: { ...detalle, total: calculo.total },
@@ -533,6 +650,15 @@ export async function liquidar(tramiteId: string, usuarioId: number | null): Pro
     return aDto(fila, calculo.idFlit);
   });
   return dto;
+}
+
+/**
+ * `TramiteNoEncontradoError` es del módulo de servicios adicionales; la ruta de liquidación no lo
+ * conoce y lo traduciría a 500. Se convierte al error de dominio de aquí, que ya sabe salir por 404.
+ */
+function traducirTramiteNoEncontrado(e: unknown): never {
+  if (e instanceof TramiteNoEncontradoError) throw new LiquidacionError('El trámite no existe');
+  throw e;
 }
 
 /**
