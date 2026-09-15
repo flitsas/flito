@@ -1789,7 +1789,11 @@ describe('preparar el armado', () => {
     );
     const consulta = fuente.slice(fuente.indexOf('export async function cargarTramites'));
     expect(consulta).toContain("->'serviciosAdicionales'->'items'");
-    expect(consulta).not.toContain('flitoTramiteServiciosAdicionales');
+    // El «no» se mira sobre el ARCHIVO entero, no sobre el trozo de la función: el estilo de la
+    // casa en los módulos hermanos es aliasar la tabla arriba (`const SA = flitoTramiteServicios…`),
+    // y con un alias un join dentro de la función se escaparía de un `slice`. El mock ignora los
+    // joins, así que ningún otro test lo vería.
+    expect(fuente).not.toContain('flitoTramiteServiciosAdicionales');
   });
 
   it('la clave de idempotencia no depende del orden de los trámites', async () => {
