@@ -264,4 +264,9 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "permisos", fichero: "permisos/permisos.routes.ts", metodo: "DELETE", ruta: "/roles/:codigo", roles: ["admin"], heredada: false },
   { modulo: "permisos", fichero: "permisos/permisos.routes.ts", metodo: "GET", ruta: "/roles/:codigo/funciones", roles: ["admin"], heredada: false },
   { modulo: "permisos", fichero: "permisos/permisos.routes.ts", metodo: "PUT", ruta: "/roles/:codigo/funciones", roles: ["admin"], heredada: false },
+  // HU #12545: servicios adicionales por trámite (+3). `ver` con el alcance de LECTURA del reporte
+  // (admin, auditor, financiera); asignar/quitar solo admin y financiera.
+  { modulo: "finanzas", fichero: "finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts", metodo: "GET", ruta: "/tramites/:id/servicios-adicionales", roles: ["admin","auditor","financiera"], heredada: false },
+  { modulo: "finanzas", fichero: "finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts", metodo: "POST", ruta: "/tramites/:id/servicios-adicionales", roles: ["admin","financiera"], heredada: false },
+  { modulo: "finanzas", fichero: "finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts", metodo: "DELETE", ruta: "/tramites/:id/servicios-adicionales/:asignacionId", roles: ["admin","financiera"], heredada: false },
 ];

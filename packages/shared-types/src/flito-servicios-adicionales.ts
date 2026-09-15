@@ -7,7 +7,8 @@
 //     reactiva. Su nombre queda libre para un tipo nuevo.
 //   · El nombre es único entre los ACTIVOS comparado plegado (minúsculas, sin tilde): «Diagnóstico»
 //     y «diagnostico» son el mismo tipo.
-// La asignación de servicios a trámites NO va aquí (Feature 2 de la épica).
+// La ASIGNACIÓN a un trámite (HU #12545, Feature #12544) vive al final del archivo: la fila puente
+// lleva el SNAPSHOT del tipo (nombre, descripción, valor) en el instante de asignar.
 import { TARIFA_VALOR_MAX } from './flito-tarifas.js';
 
 /** Largo máximo del nombre (`varchar(120)` en la 0191). */
@@ -52,3 +53,55 @@ export interface ServicioAdicionalNombreDuplicado {
   /** El tipo activo que ya lleva ese nombre. */
   choca: { id: string; nombre: string };
 }
+
+// ── Asignación a un trámite (HU #12545, Feature #12544) ─────────────────────────────────────────
+
+/**
+ * Un servicio adicional ASIGNADO a un trámite, tal como lo publica
+ * `GET /api/finanzas/tramites/:id/servicios-adicionales`. `nombre`, `descripcion` y `valor` son la
+ * copia del tipo en el instante de asignar: editar o dar de baja el tipo después no los cambia.
+ */
+export interface TramiteServicioAdicional {
+  id: string;
+  tipoId: string;
+  nombre: string;
+  descripcion: string | null;
+  valor: number;
+  asignadoPorId: number | null;
+  asignadoPorNombre: string | null;
+  /** ISO. */
+  asignadoEn: string;
+}
+
+/** Cuerpo de `POST /api/finanzas/tramites/:id/servicios-adicionales`. */
+export interface AsignarServicioAdicionalInput {
+  tipoId: string;
+}
+
+/** Respuesta del GET: los asignados en orden de asignación, su suma y si el trámite ya está liquidado. */
+export interface ServiciosAdicionalesDeTramite {
+  items: TramiteServicioAdicional[];
+  /** Suma de `items[].valor` redondeada a centavos. */
+  total: number;
+  /** true = hay liquidación sellada: la lista es de solo lectura hasta reversarla. */
+  liquidado: boolean;
+}
+
+/** Lo que la liquidación sella por servicio (HU #12546) y lo que Siigo convierte en línea (HU #12547). */
+export interface ItemServicioSellado {
+  tipoId: string;
+  nombre: string;
+  valor: number;
+}
+
+/** Códigos del cuerpo de error de la asignación (`{ error, codigo }`). */
+export const CODIGO_SERVICIO_ADICIONAL_TRAMITE = {
+  /** 404: el tipo no existe o está dado de baja. */
+  TIPO_NO_DISPONIBLE: 'TIPO_NO_DISPONIBLE',
+  /** 409: ese tipo ya está asignado al trámite (UNIQUE tramite_id, tipo_id). */
+  SERVICIO_YA_ASIGNADO: 'SERVICIO_YA_ASIGNADO',
+  /** 409: el trámite está liquidado; hay que reversar la liquidación para cambiar los servicios. */
+  TRAMITE_LIQUIDADO: 'TRAMITE_LIQUIDADO',
+} as const;
+export type CodigoServicioAdicionalTramite =
+  (typeof CODIGO_SERVICIO_ADICIONAL_TRAMITE)[keyof typeof CODIGO_SERVICIO_ADICIONAL_TRAMITE];

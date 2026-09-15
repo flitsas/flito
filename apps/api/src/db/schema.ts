@@ -3570,6 +3570,31 @@ export const flitoServiciosAdicionalesTipos = pgTable('flito_servicios_adicional
 }));
 
 /**
+ * Servicios adicionales ASIGNADOS a un trámite (HU #12545, Feature #12544). Fila VIVA: se crea al
+ * asignar y se borra físicamente al quitar (CF-04); mientras el trámite no está liquidado nadie la
+ * referencia, y al sellar la liquidación copia nombre/valor a su propio `detalle`. `nombre`,
+ * `descripcion` y `valor` son el SNAPSHOT del tipo en el instante de asignar: editar o dar de baja el
+ * tipo después no los cambia (CF-03). FK al tipo RESTRICT (el catálogo no borra: baja lógica) y a
+ * users RESTRICT por ADR-0005 (`asignado_por_id` va en pareja con `asignado_en`). El UNIQUE
+ * (tramite_id, tipo_id) es una CONSTRAINT en la 0193 (`flito_tramite_serv_adic_tramite_tipo_uq`):
+ * su 23505 es lo que el servicio traduce a 409 SERVICIO_YA_ASIGNADO.
+ */
+export const flitoTramiteServiciosAdicionales = pgTable('flito_tramite_servicios_adicionales', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tramiteId: uuid('tramite_id').notNull().references(() => flitoTramites.id, { onDelete: 'cascade' }),
+  tipoId: uuid('tipo_id').notNull().references(() => flitoServiciosAdicionalesTipos.id, { onDelete: 'restrict' }),
+  nombre: varchar('nombre', { length: 120 }).notNull(),
+  descripcion: text('descripcion'),
+  valor: numeric('valor', { precision: 14, scale: 2 }).notNull(),
+  asignadoPorId: integer('asignado_por_id').references(() => users.id, { onDelete: 'restrict' }),
+  asignadoEn: timestamp('asignado_en', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  tramiteTipoUq: uniqueIndex('flito_tramite_serv_adic_tramite_tipo_uq').on(t.tramiteId, t.tipoId),
+  tramiteIdx: index('idx_flito_tramite_serv_adic_tramite').on(t.tramiteId),
+  valorChk: check('flito_tramite_serv_adic_valor_chk', sql`${t.valor} >= 0`),
+}));
+
+/**
  * Liquidación SELLADA de un trámite (HU #10965). Sellar es congelar: si mañana cambia la tarifa de
  * la compañía o la tasa del GMF, un trámite ya liquidado sigue mostrando lo que se cobró.
  *

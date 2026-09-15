@@ -92,6 +92,8 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'usuarios', fichero: 'users/users.routes.ts' },
   // HU #12084: el mantenimiento de roles entra al alcance con sus siete guardas.
   { modulo: 'permisos', fichero: 'permisos/permisos.routes.ts' },
+  // HU #12545: servicios adicionales por trámite; módulo propio bajo /api/finanzas (finanzas/ sigue legacy).
+  { modulo: 'finanzas', fichero: 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts' },
 ];
 
 /** Quita comentarios de bloque y de línea sin tocar el contenido de las cadenas simples. */
