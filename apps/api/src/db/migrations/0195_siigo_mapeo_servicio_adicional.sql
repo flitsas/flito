@@ -12,7 +12,11 @@
 --   - Sin BEGIN/COMMIT: el runner envuelve el archivo. El bloque DO lleva dollar-quoting etiquetado.
 --   - Idempotente: ON CONFLICT DO NOTHING SIN target, porque lo que ataja es el indice unico
 --     PARCIAL idx_siigo_mapeo_unico_activo (ambiente, concepto, COALESCE(tipo_tramite,'')) WHERE
---     activo — un indice parcial no se puede nombrar como conflict target. La 2a pasada no duplica
+--     activo. SIN target a proposito, no porque sea imposible: un indice parcial SI se puede
+--     nombrar dando su index_predicate, pero eso obliga a repetir la expresion COALESCE(...) de
+--     forma que la inferencia la case, y cualquier cambio futuro del indice rompe este INSERT en
+--     mitad del CD. Sin target no hay nada que casar, y es lo que ya hace la 0128. La 2a pasada
+--     no duplica
 --     filas ni pisa la configuracion que ya hizo quien parametriza.
 --   - factura_linea_propia = true y linea_propia_pendiente = false: no hay decision abierta como la
 --     del GMF. Un servicio adicional es un cobro identificable que el cliente pidio; se factura

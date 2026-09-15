@@ -39,7 +39,7 @@ function ambienteDe(req: Request): SiigoAmbiente | null {
   return parsed.data.ambiente ?? env.SIIGO_AMBIENTE;
 }
 
-// GET / — estado de la compuerta (AC5). Evalúa sobre los seis conceptos facturables.
+// GET / — estado de la compuerta (AC5). Evalúa sobre todos los conceptos facturables del catálogo.
 router.get('/', LECTURA, async (req: Request, res: Response) => {
   const ambiente = ambienteDe(req);
   if (ambiente === null) {
