@@ -50,12 +50,20 @@ const leerMock = vi.fn();
 vi.mock('../../src/modules/flito-comprobantes/flito-comprobantes.ocr.js', () => ({ particionar: particionarMock, leerSubDocumento: leerMock }));
 
 const { fijarFuenteDePermisos, invalidarPermisosDe } = await import('../../src/shared/permisos-efectivos.js');
-const { flitoComprobantes, flitoSoportes } = await import('../../src/db/schema.js');
+const { flitoComprobantes, flitoSoportes, flitoTramites } = await import('../../src/db/schema.js');
 const { condicionesListado, ordenListado, PROYECCION_LISTA, nivelDe } = await import('../../src/modules/flito-comprobantes/flito-comprobantes.service.js');
 
 const T_COMP = getTableName(flitoComprobantes);
 const T_SOP = getTableName(flitoSoportes);
+const T_TRAM = getTableName(flitoTramites);
 const BASE = '/api/flito/comprobantes';
+/** HU #12629: la carga cruza; este trámite es el que alcanzan las llaves de `lectura()` (el mock ignora el where: lo fija id_flit). */
+const TRAMITE = '5a3c4c2e-0f9b-4e6e-9a1d-2c3b4a5d6e7f';
+const candidato = () => ({
+  tramiteId: TRAMITE, idFlit: 'FLIT-1', placa: 'ABC123', vin: null, tipoTramite: 'MATRICULA', empresa: 'Acme', flitEstado: 'Aprobado',
+  soatId: 'soat-1', soatEstado: 'solicitado', impuestoEstado: null, derechoId: null, liquidacionId: null,
+  docTramiteDigital: false, docLogistica: false, docServiciosAdicionales: false, createdAt: new Date('2026-09-01T00:00:00Z'),
+});
 const LOTE = '9c1d4d5e-3b7a-4c2e-9f0a-1b2c3d4e5f60';
 const ID = '71030cce-1a4c-4fb6-855d-fcc80aadc4e9';
 const PDF = Buffer.from('%PDF-1.4\n%comprobante\n');
@@ -110,7 +118,7 @@ beforeEach(() => {
   particionarMock.mockImplementation(async (a: { buffer: Buffer; nombre: string; contentType: string }) =>
     ({ documentos: [{ buffer: a.buffer, contentType: a.contentType, paginas: null, nombre: a.nombre }], paginasNoLeidas: [], metodo: 'unico' }));
   leerMock.mockResolvedValue(lectura());
-  kdb.when.select(T_SOP, []).select(T_COMP, []).insert(T_SOP, [{ id: 'sop-1' }]).insert(T_COMP, () => [{ id: `c-${++nComp}` }]);
+  kdb.when.select(T_SOP, []).select(T_COMP, []).select(T_TRAM, [candidato()]).insert(T_SOP, [{ id: 'sop-1' }]).insert(T_COMP, () => [{ id: `c-${++nComp}` }]);
 });
 afterEach(() => { fijarFuenteDePermisos(fuenteDePrueba); });
 
@@ -321,7 +329,8 @@ describe('AC7 — GET /:id', () => {
     const res = await request(app).get(`${BASE}/${ID}`).set('Authorization', await auth('financiera'));
     expect(res.status).toBe(200);
     expect(res.headers['cache-control']).toBe('no-store');
-    expect(res.body.candidatos).toEqual([]);
+    // HU #12629 AC5: en un pendiente, `candidatos[]` trae los trámites que alcanzan las llaves leídas (sin persona).
+    expect(res.body.candidatos).toEqual([expect.objectContaining({ tramiteId: TRAMITE, idFlit: 'FLIT-1', placa: 'ABC123', admite: expect.any(Object) })]);
     expect(res.body.tramite).toBeNull();
     expect(res.body).not.toHaveProperty('extraccion');
     const campos = res.body.campos as { campo: string; nivel: string | null; confianza: number; valor: string | null }[];
@@ -414,15 +423,17 @@ describe('AC6 — ninguna ruta del módulo escribe en los destinos ni en el repo
     const fuentes = readdirSync(dir).filter((f) => f.endsWith('.ts')).map((f) => readFileSync(join(dir, f), 'utf8'));
     expect(fuentes.length).toBeGreaterThanOrEqual(4); // ocr, service, carga, routes
     const todo = fuentes.join('\n');
+    // Desde la HU #12629 el cruce LEE flito_soat / flito_impuestos / flito_derechos_tramite / flito_liquidaciones
+    // (para `admite`), pero el módulo sigue sin ESCRIBIR en ningún destino; las tarifas ni se leen (F3).
     for (const tabla of ['flitoSoat', 'flitoImpuestos', 'flitoDerechosTramite', 'flitoTarifas', 'flitoLiquidaciones']) {
       expect(todo, tabla).not.toMatch(new RegExp(`(insert|update|delete)\\(${tabla}\\b`));
-      expect(todo, tabla).not.toMatch(new RegExp(`\\b${tabla}\\b`));
     }
+    expect(todo).not.toMatch(/\bflitoTarifas\b/);
     expect(todo).not.toMatch(/modules\/finanzas\//);
     expect(todo).not.toMatch(/requireRole\(/);
-    // Lo único que se escribe: el soporte y el comprobante (carga) y el comprobante (releer).
+    // Lo único que se escribe: el soporte y el comprobante (carga, aplicar) y el comprobante (releer, descartar).
     // Solo los builders de drizzle (`db.`/`tx.`): `createHash().update(buf)` no es una escritura.
     const escrituras = [...todo.matchAll(/\b(?:db|tx)\.(insert|update|delete)\((\w+)\)/g)].map((m) => `${m[1]}(${m[2]})`).sort();
-    expect([...new Set(escrituras)]).toEqual(['insert(flitoComprobantes)', 'insert(flitoSoportes)', 'update(flitoComprobantes)']);
+    expect([...new Set(escrituras)]).toEqual(['insert(flitoComprobantes)', 'insert(flitoSoportes)', 'update(flitoComprobantes)', 'update(flitoSoportes)']);
   });
 });

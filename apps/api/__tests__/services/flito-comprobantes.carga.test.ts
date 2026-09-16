@@ -48,10 +48,18 @@ const { cargarLote, contentTypePorCabecera, puertaDelSoporte, textoNoLeidas, DET
 const { motivoPendienteDe, columnasDeLectura } = await import('../../src/modules/flito-comprobantes/flito-comprobantes.service.js');
 const { OcrNoDisponibleError } = await import('../../src/modules/flito-ocr/flito-ocr.service.js');
 const { PdfDemasiadoGrandeError } = await import('../../src/shared/pdf/separar-paginas.js');
-const { flitoComprobantes, flitoSoportes } = await import('../../src/db/schema.js');
+const { flitoComprobantes, flitoSoportes, flitoTramites } = await import('../../src/db/schema.js');
 
 const T_SOP = getTableName(flitoSoportes);
 const T_COMP = getTableName(flitoComprobantes);
+const T_TRAM = getTableName(flitoTramites);
+/** El trámite que las llaves de `lecturaCompleta` alcanzan (HU #12629: el cruce corre en la carga; el mock ignora el where, así que lo fija la primera llave: id_flit). */
+const TRAMITE = '5a3c4c2e-0f9b-4e6e-9a1d-2c3b4a5d6e7f';
+const candidato = () => ({
+  tramiteId: TRAMITE, idFlit: 'FLIT-ARHZZ1', placa: 'ABC123', vin: null, tipoTramite: 'MATRICULA', empresa: 'Acme', flitEstado: 'Aprobado',
+  soatId: 'soat-1', soatEstado: 'solicitado', impuestoEstado: null, derechoId: null, liquidacionId: null,
+  docTramiteDigital: false, docLogistica: false, docServiciosAdicionales: false, createdAt: new Date('2026-09-01T00:00:00Z'),
+});
 const LOTE = '9c1d4d5e-3b7a-4c2e-9f0a-1b2c3d4e5f60';
 const CTX = { userId: 7, username: 'fin@flitsas.io' };
 
@@ -87,6 +95,7 @@ function armarBase() {
   kdb.when
     .select(T_SOP, [])
     .select(T_COMP, [])
+    .select(T_TRAM, [candidato()])
     .insert(T_SOP, [{ id: 'sop-1' }])
     .insert(T_COMP, () => [{ id: `c-${++nComp}` }]);
 }
@@ -198,8 +207,9 @@ describe('AC3 — un soporte por archivo, S3 antes de BD', () => {
     expect(comps.map((c) => c.datos.paginas)).toEqual([[1], [2, 3], [5]]);
     for (const c of comps) {
       expect(c.datos).toMatchObject({ soporteId: 'sop-1', loteId: LOTE, estado: 'pendiente', subidoPorId: 7, subidoPorNombre: 'fin@flitsas.io' });
-      expect(c.datos.tramiteId).toBeUndefined();
-      expect(c.datos.cruce).toBeUndefined();
+      // HU #12629 AC4: el cruce único deja la SUGERENCIA escrita; nadie aplica (`aplicados` sigue vacío).
+      expect(c.datos.tramiteId).toBe(TRAMITE);
+      expect(c.datos.cruce).toBe('id_flit');
     }
     expect(res.documentos).toBe(3);
     expect(res.pendientes.map((p) => p.comprobanteId)).toEqual(['c-1', 'c-2', 'c-3']);
@@ -315,6 +325,7 @@ describe('AC5 — motivo por precedencia y columnas de lectura', () => {
       tipoDocumento: 'factura_soat', esPago: true, concepto: 'soat',
       placaLeida: 'ABC123', vinLeido: null, idFlitLeido: 'FLIT-ARHZZ1', valor: '350000', fechaDocumento: '2026-09-10',
       numeroDocumento: 'POL-778', emisor: 'Seguros Sura', motivoPendiente: MotivoPendienteComprobante.LEIDO,
+      tramiteId: TRAMITE, cruce: 'id_flit',
     });
 
     const cols = columnasDeLectura({

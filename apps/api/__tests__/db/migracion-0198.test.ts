@@ -158,9 +158,11 @@ describe('0198 — análisis estático', () => {
     }
   });
 
-  it('los cardinales del catálogo: 5 operaciones de comprobantes, y las 5 llaves del fichero de rutas', () => {
-    expect(catalogoCompleto().filter((c) => c.tipo === 'operacion' && c.modulo === 'comprobantes')).toHaveLength(5);
-    expect(OPERACIONES_DECLARADAS.filter((o) => o.llave.startsWith('flito-comprobantes/flito-comprobantes.routes.ts '))).toHaveLength(5);
+  it('los cardinales del catálogo: 8 operaciones de comprobantes (5 de la 0198 + 3 de la 0201, HU #12629), y las 8 llaves del fichero de rutas', () => {
+    // 5 → 8 desde la HU #12629 (F2 #12606: buscar trámites, aplicar, descartar). Las cinco de ESTA migración siguen siendo las de `OPS`.
+    expect(catalogoCompleto().filter((c) => c.tipo === 'operacion' && c.modulo === 'comprobantes')).toHaveLength(8);
+    expect(OPERACIONES_DECLARADAS.filter((o) => o.llave.startsWith('flito-comprobantes/flito-comprobantes.routes.ts '))).toHaveLength(8);
+    for (const codigo of OPS) expect(OPERACIONES_DECLARADAS.find((o) => o.codigo === codigo), codigo).toBeDefined();
   });
 
   it('no retira nada y el helper de paridad la lee justo después de la 0197; plegado, admin y financiera sí y auditor no', () => {

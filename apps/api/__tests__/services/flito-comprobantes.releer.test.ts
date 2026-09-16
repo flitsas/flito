@@ -47,10 +47,18 @@ vi.mock('../../src/modules/flito-comprobantes/flito-comprobantes.ocr.js', () => 
 
 const { fijarFuenteDePermisos } = await import('../../src/shared/permisos-efectivos.js');
 const { OcrNoDisponibleError } = await import('../../src/modules/flito-ocr/flito-ocr.service.js');
-const { flitoComprobantes, flitoSoportes } = await import('../../src/db/schema.js');
+const { flitoComprobantes, flitoSoportes, flitoTramites } = await import('../../src/db/schema.js');
 
 const T_COMP = getTableName(flitoComprobantes);
 const T_SOP = getTableName(flitoSoportes);
+const T_TRAM = getTableName(flitoTramites);
+/** HU #12629: la relectura también cruza; este trámite es el que la placa XYZ789 alcanza (id_flit y vin van vacíos en la lectura). */
+const TRAMITE = '5a3c4c2e-0f9b-4e6e-9a1d-2c3b4a5d6e7f';
+const candidato = () => ({
+  tramiteId: TRAMITE, idFlit: 'FLIT-XYZ', placa: 'XYZ789', vin: null, tipoTramite: 'TRASPASO', empresa: 'Acme', flitEstado: 'Aprobado',
+  soatId: null, soatEstado: null, impuestoEstado: 'solicitado', derechoId: null, liquidacionId: null,
+  docTramiteDigital: false, docLogistica: false, docServiciosAdicionales: false, createdAt: new Date('2026-09-01T00:00:00Z'),
+});
 const BASE = '/api/flito/comprobantes';
 const ID = '71030cce-1a4c-4fb6-855d-fcc80aadc4e9';
 const RUTA = `${BASE}/${ID}/releer`;
@@ -104,6 +112,7 @@ function armar(over: Record<string, unknown> = {}) {
     .selectOnce(T_SOP, [soporte])
     .selectOnce(T_COMP, [filaDetalle()])
     .selectOnce(T_COMP, [{ extraccion: lecturaCompleta().extraccion, extraccionDestino: lecturaCompleta().extraccionDestino }])
+    .select(T_TRAM, [candidato()])
     .update(T_COMP, [{ id: ID }]);
 }
 
@@ -123,7 +132,7 @@ describe('AC9 — POST /:id/releer', () => {
     const res = await request(app).post(RUTA).set('Authorization', await auth());
     expect(res.status).toBe(200);
     expect(res.headers['cache-control']).toBe('no-store');
-    expect(res.body).toMatchObject({ id: ID, motivoPendiente: 'leido', placaLeida: 'XYZ789', candidatos: [] });
+    expect(res.body).toMatchObject({ id: ID, motivoPendiente: 'leido', placaLeida: 'XYZ789', candidatos: [expect.objectContaining({ tramiteId: TRAMITE, idFlit: 'FLIT-XYZ' })] });
     expect(res.body.campos).toHaveLength(11); // 10 universales + destino.numeroRecibo
     expect(res.body).not.toHaveProperty('extraccion');
 
@@ -140,10 +149,12 @@ describe('AC9 — POST /:id/releer', () => {
       extraccion: lecturaCompleta().extraccion, extraccionDestino: { numeroRecibo: campo('R-9', 0.95) },
       motivoPendiente: MotivoPendienteComprobante.LEIDO, detallePendiente: null,
       tipoDocumento: 'recibo_impuesto', esPago: true, concepto: 'impuesto', placaLeida: 'XYZ789', valor: '120000', fechaDocumento: '2026-09-12',
+      // HU #12629: la relectura cruza de nuevo y deja la sugerencia (único por placa).
+      tramiteId: TRAMITE, cruce: 'placa',
     });
     expect(updates[0]!.datos.updatedAt).toBeInstanceOf(Date);
-    // Sin tocar estado, trámite ni cruce.
-    for (const k of ['estado', 'tramiteId', 'cruce', 'aplicadoEn', 'soporteId', 'paginas', 'loteId']) expect(updates[0]!.datos[k]).toBeUndefined();
+    // Sin tocar estado ni nada de la aplicación: la sugerencia no aplica.
+    for (const k of ['estado', 'aplicadoEn', 'aplicadoPorId', 'soporteId', 'paginas', 'loteId']) expect(updates[0]!.datos[k]).toBeUndefined();
     const q = renderizar(updates[0]!.condiciones[0] as never);
     expect(ligadoA(q, '"flito_comprobantes"."id"')).toBe(ID);
     expect(auditMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ action: 'update', resource: 'flito_comprobante', resourceId: ID }));
