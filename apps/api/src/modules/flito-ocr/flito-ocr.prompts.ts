@@ -16,11 +16,12 @@ export interface CampoCrudo {
   confianza: ConfianzaCategorica;
 }
 
-// Sistema común a los tres extractores. Reglas anti-alucinación + transcripción exacta. Lo último
+// Sistema común a todos los extractores. La primera línea enumera los documentos que el motor conoce
+// (la Épica #12245 añadió derechos, servicios y comprobantes de pago); las reglas no cambian con ella. Reglas anti-alucinación + transcripción exacta. Lo último
 // es crítico para FLITO: el pequeño leía de la capa de texto del PDF ("copia, no lee"), y con
 // Anthropic se pierde esa exactitud salvo que se pida explícitamente NO normalizar separadores
 // (el caso real "FLIT-ARHZZ1" vs "FLITARHZZ1"). Ver §8.4.
-export const SISTEMA_OCR = `Eres un extractor OCR profesional de documentos oficiales colombianos (pólizas de SOAT, declaraciones/recibos del impuesto vehicular y facturas de venta de vehículos).
+export const SISTEMA_OCR = `Eres un extractor OCR profesional de documentos oficiales colombianos (pólizas de SOAT, declaraciones/recibos del impuesto vehicular, facturas de venta de vehículos, recibos de derechos de tránsito, facturas de servicios y comprobantes de pago).
 
 REGLAS ABSOLUTAS:
 1. Extrae SOLO lo que veas LITERALMENTE en el documento. Usa ÚNICAMENTE lo visible, NUNCA tu conocimiento general ni ejemplos típicos.
@@ -166,3 +167,63 @@ Campos:
 
 Devuelve EXCLUSIVAMENTE este JSON:
 {"placa":{"valor":null,"confianza":null},"valorTotal":{"valor":null,"confianza":null},"fechaPago":{"valor":null,"confianza":null},"numeroRadicado":{"valor":null,"confianza":null},"organismo":{"valor":null,"confianza":null},"tipoTramite":{"valor":null,"confianza":null}}`;
+
+// ─────────────────────────── Comprobante universal (Épica #12245) ────────────
+// UN prompt para CUALQUIER documento de la cola de comprobantes: primero dice QUÉ es (catálogo
+// cerrado de `TipoDocumentoComprobante`), si acredita un pago, y de qué CONCEPTO de costo es; luego
+// las llaves de cruce (placa, VIN, ID FLIT) y el valor. Los tipos con extractor propio (SOAT,
+// impuesto, caja, derecho) se releen después con su prompt de siempre: este no los sustituye, los
+// clasifica. Sin datos de personas (Habeas Data, ADR-0008): no se piden y el extractor descarta
+// cualquier clave fuera del catálogo.
+export const PROMPT_COMPROBANTE_UNIVERSAL = `Clasifica y extrae los datos de este documento colombiano relacionado con un trámite vehicular. Puede ser una póliza/factura de SOAT, un recibo o declaración del impuesto vehicular (con o sin sello PAGADO), un recibo de caja de una hacienda, un recibo/cuenta de cobro de derechos de tránsito de un organismo, una factura de un servicio (trámite digital, logística/mensajería, servicio adicional), un comprobante de transferencia o consignación bancaria, o un documento que NO es un pago (formulario, certificado, licencia, tarjeta de propiedad, carta, fotografía de un vehículo).
+
+NO leas ni devuelvas datos de personas (nombres, cédulas, direcciones, teléfonos): no se piden y no debes incluirlos.
+
+Campos:
+- tipoDocumento: UNO de exactamente estos valores: factura_soat, recibo_impuesto, recibo_caja_impuesto, recibo_derecho, factura_servicio, comprobante_transferencia, cuenta_cobro, otro_pago, documento_no_pago.
+    * factura_soat: póliza o factura de SOAT (aseguradora, número de póliza, vigencia).
+    * recibo_impuesto: declaración/recibo del impuesto vehicular de una gobernación o secretaría de hacienda.
+    * recibo_caja_impuesto: comprobante de ventanilla de una hacienda (consecutivo de caja, sin placa).
+    * recibo_derecho: cuenta de cobro o recibo de un organismo de tránsito por radicar un trámite.
+    * factura_servicio: factura o cuenta de cobro de un servicio prestado (mensajería, gestión, trámite digital).
+    * comprobante_transferencia: soporte bancario de una transferencia, PSE o consignación.
+    * cuenta_cobro: cuenta de cobro que no encaja en las anteriores.
+    * otro_pago: acredita un pago pero no encaja en ninguno de los tipos anteriores.
+    * documento_no_pago: cualquier documento que no acredite un pago.
+    * Si dudas entre dos, elige el más específico con confianza "media"; si no puedes, null.
+- esComprobantePago: "true" si el documento ACREDITA un pago hecho (sello PAGADO, "recibo", "pagado", soporte bancario, factura con "total pagado"); "false" si es una liquidación sin pagar, una cotización o un documento que no es de dinero. null si no puedes saberlo.
+- concepto: UNO de: soat, impuesto, derecho, tramite_digital, logistica, servicios_adicionales. Qué se pagó.
+    * soat ↔ póliza; impuesto ↔ impuesto vehicular; derecho ↔ organismo de tránsito por el trámite; tramite_digital ↔ honorario de gestión digital del trámite; logistica ↔ mensajería/entrega/recogida; servicios_adicionales ↔ cualquier otro servicio facturado sobre el trámite.
+    * Si el documento es un comprobante bancario sin decir qué se pagó, concepto = null.
+- placa: la placa del vehículo si aparece (3 letras + 3 dígitos, o 3 letras + 2 dígitos + 1 letra). Tal cual.
+- vin: VIN / chasis / serie de 17 caracteres si aparece. EXACTO, sin normalizar.
+- idFlit: la referencia del trámite de FLIT si aparece (empieza por "FLIT", con guiones o sin ellos, p. ej. "FLIT-ARHZZ1"). Transcribe EXACTO, con sus separadores.
+- valorTotal: el valor EFECTIVAMENTE pagado o a pagar por este documento ("TOTAL A PAGAR", "TOTAL", "VALOR PAGADO", "PRIMA TOTAL"). Entero en pesos, sin puntos, comas ni "$".
+    * CRÍTICO (SOAT): "VALOR ASEGURADO" es cobertura, NO el precio.
+    * CRÍTICO (impuesto): "TOTAL A CARGO" no es lo pagado; lo pagado es "TOTAL A PAGAR" (= cargo + servicio).
+    * CRÍTICO: si el documento es un resumen de varias placas, valorTotal = null y placa = null.
+- fechaPago: fecha del pago o, si no hay, de emisión (ISO YYYY-MM-DD).
+- numeroDocumento: número de póliza / recibo / factura / referencia de la transferencia. EXACTO.
+- emisor: quién emite el documento (aseguradora, gobernación, organismo, empresa, banco). Solo el nombre.
+
+Devuelve EXCLUSIVAMENTE este JSON (cada campo con valor y confianza alta|media|baja|null):
+{"tipoDocumento":{"valor":null,"confianza":null},"esComprobantePago":{"valor":null,"confianza":null},"concepto":{"valor":null,"confianza":null},"placa":{"valor":null,"confianza":null},"vin":{"valor":null,"confianza":null},"idFlit":{"valor":null,"confianza":null},"valorTotal":{"valor":null,"confianza":null},"fechaPago":{"valor":null,"confianza":null},"numeroDocumento":{"valor":null,"confianza":null},"emisor":{"valor":null,"confianza":null}}`;
+
+// ─────────────────────────── Partición de consolidados (Épica #12245) ────────
+// No extrae nada: solo dice qué páginas forman cada documento de un PDF que trae varios. La salida
+// NO es el mapa campo→{valor,confianza} de los demás prompts, así que no pasa por `pasada`; la lee
+// `particionConsolidado` en flito-ocr.service.ts y la valida quien parte (rango, solapes,
+// cobertura). Si el modelo falla, el consolidado se parte una página por documento.
+export const PROMPT_PARTICION_CONSOLIDADO = `Este PDF puede contener VARIOS documentos independientes, uno detrás de otro (facturas de SOAT, recibos de impuesto vehicular, recibos de derechos de tránsito, facturas de servicios, comprobantes de transferencia, cuentas de cobro, y también hojas que no son ningún documento: portadas, resúmenes, índices, páginas en blanco).
+
+Tu única tarea es DELIMITAR los documentos: decir qué páginas forman cada uno. No extraigas datos. No leas ni devuelvas datos de personas.
+
+Reglas:
+- Un documento puede ocupar varias páginas consecutivas (p. ej. una póliza de dos hojas, una factura con anexo).
+- Una página nueva con un encabezado nuevo (otro emisor, otro número de documento, otra placa) empieza otro documento.
+- Las páginas que sean portada, índice, resumen consolidado de varias placas o estén en blanco NO van en ningún documento.
+- Numera las páginas desde 1, como las ve un lector de PDF. total_paginas es el total del archivo.
+- Si no puedes decidir, prefiere partir (un documento por página) antes que juntar dos documentos distintos.
+
+Devuelve EXCLUSIVAMENTE este JSON:
+{"total_paginas":0,"documentos":[{"paginas":[1,2],"tipo_probable":"factura_soat|recibo_impuesto|recibo_derecho|factura_servicio|comprobante_transferencia|cuenta_cobro|otro","confianza":"alta|media|baja"}]}`;
