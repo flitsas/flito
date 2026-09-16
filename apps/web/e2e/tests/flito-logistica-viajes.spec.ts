@@ -314,7 +314,7 @@ test.describe('FLITO — Logística · viajes adicionales', () => {
     let fase: 'caido' | 'ok' | 'prohibido' = 'caido';
     await page.route(RUTA_VIAJES, (route) => {
       if (fase === 'caido') return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Se cayó' }) });
-      if (fase === 'ok') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tramiteId: 'tr-2', idFlit: 'FLIT-2002', gestionaLogistica: true, liquidado: false, tarifaVigente: 45000, items: [VIAJE_2], totalViajes: 2, totalAdicionales: 45000 }) });
+      if (fase === 'ok') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tramiteId: 'tr-2', idFlit: 'FLIT-2002', gestionaLogistica: true, liquidado: false, tarifaVigente: 45000, items: [VIAJE_2], totalViajes: 4, totalAdicionales: 99000 }) });
       return route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: 'Sin permiso' }) });
     });
     await abrirDetalle(page);
@@ -324,7 +324,10 @@ test.describe('FLITO — Logística · viajes adicionales', () => {
     await expect(page.getByRole('dialog')).toContainText('Bitácora');
     fase = 'ok';
     await s.getByRole('button', { name: 'Reintentar' }).click();
-    await expect(s.getByText('Viajes: 2 (incluye el viaje 1)')).toBeVisible();
+    // Totales NO derivables del único item (1 viaje de 45.000): si la sección los pintara sumando
+    // en el cliente diría «Viajes: 2» y «$ 45.000». Es el mutante nombrado del AC3.
+    await expect(s.getByText('Viajes: 4 (incluye el viaje 1)')).toBeVisible();
+    await expect(s.getByText(/Adicionales:\s*\$\s*99\.000/)).toBeVisible();
 
     // Reabrir: ahora el GET responde 403.
     fase = 'prohibido';
