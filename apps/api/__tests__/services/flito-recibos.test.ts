@@ -1,13 +1,17 @@
 // FLITO Impuestos — carga de recibos → Pagado (Fase 4 P3). Verifica evaluarReciboImpuesto (puro),
 // dedup CA-08 por hash, cruce contra EN_GESTION, conciliación → PAGADO y revisión. drizzle + OCR +
 // storage mockeados; invariantes de BD además con smoke.
+//
+// Desde la HU #12590 la conciliación es la fase PAGO (el pago con marca): los casos de aquí llaman
+// a `cargarRecibos` con `FaseRecibo.PAGO`. La fase LIQUIDACION vive en flito-recibos.fases.test.ts;
+// aquí solo el dedup por hash en esa fase (AC7).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { chain } from '../helpers/db.js';
 import { testToken } from '../helpers/auth.js';
-import { CampoImpuesto, MotivoRevision, type ExtraccionImpuesto } from '@operaciones/shared-types';
+import { CampoImpuesto, FaseRecibo, MotivoRevision, type ExtraccionImpuesto } from '@operaciones/shared-types';
 
 const selectMock = vi.fn();
 const insertMock = vi.fn();
@@ -93,7 +97,7 @@ const UUID = '00000000-0000-0000-0000-0000000000dd';
 
 const candidato = {
   impuestoId: UUID, estado: 'solicitado', organismoCodigo: '08001', tramiteIdFlit: 'FLIT-1', placa: 'QTQ100',
-  companiaId: 1, document: '900', carpeta: null, valorLiquidado: '500000',
+  companiaId: 1, document: '900', carpeta: null, valorLiquidado: '500000', liquidadoEn: null,
 };
 const reciboOk = { [CampoImpuesto.PLACA]: campo('QTQ100', 0.95), [CampoImpuesto.VALOR_TOTAL]: campo('634900', 0.95), [CampoImpuesto.NUMERO_RECIBO]: campo('R-1', 0.95) };
 
@@ -111,6 +115,18 @@ describe('recibos — flujo', () => {
     expect(r.status).toBe(200);
     expect(r.body.duplicados).toHaveLength(1);
     expect(extraerMock).not.toHaveBeenCalled();
+  });
+
+  it("AC7 (HU #12590): el mismo hash con fase='liquidacion' también es duplicado, sin OCR ni transacción", async () => {
+    selectMock.mockReturnValueOnce(chain([{ impuestoId: UUID }])); // dedup por hash, antes de bifurcar por fase
+    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin'))
+      .field('fase', 'liquidacion').attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
+    expect(r.status).toBe(200);
+    expect(r.body.duplicados).toHaveLength(1);
+    expect(r.body.liquidados).toHaveLength(0);
+    expect(extraerMock).not.toHaveBeenCalled();
+    expect(transactionMock).not.toHaveBeenCalled();
+    expect(uploadMock).not.toHaveBeenCalled();
   });
 
   it('placa que no cruza con ningún en gestión (ni pagado) → se DESCARTA', async () => {
@@ -195,7 +211,7 @@ const umbralesDelLote = () => chain([{ codigo: ORG_LAXO, u: '0.600' }, { codigo:
 const candidatoDe = (organismoCodigo: string, impuestoId = UUID) => ({
   impuestoId, estado: 'solicitado', organismoCodigo, tramiteIdFlit: 'FLIT-1', tramiteId: 'TR-1',
   placa: 'QTQ100', companiaId: 1, carpeta: null, valorLiquidado: '500000',
-  diferenciaActiva: false, tolerancia: '0',
+  diferenciaActiva: false, tolerancia: '0', liquidadoEn: null,
 });
 
 const pdf = (nombre: string, contenido: string) => ({ originalname: nombre, mimetype: 'application/pdf', buffer: Buffer.from(contenido), size: contenido.length });
@@ -251,7 +267,7 @@ describe('recibos — el umbral de OCR es el del organismo del candidato (HU #12
     extraerMock.mockResolvedValueOnce(reciboMedio());
     const { update, persistida } = txQueCaptura();
 
-    const res = await cargarRecibos([pdf('QTQ100.pdf', '%PDF-estricto')], true, GESTOR);
+    const res = await cargarRecibos([pdf('QTQ100.pdf', '%PDF-estricto')], FaseRecibo.PAGO, GESTOR);
 
     // Con el umbral por defecto (0.85) este recibo se habría pagado solo. El organismo que emite el
     // documento pide 0.95, así que va a revisión: es dinero que no se mueve sin que alguien mire.
@@ -279,7 +295,7 @@ describe('recibos — el umbral de OCR es el del organismo del candidato (HU #12
     extraerMock.mockResolvedValueOnce(reciboMedio());
     const { update, persistida } = txQueCaptura();
 
-    const res = await cargarRecibos([pdf('QTQ100.pdf', '%PDF-laxo')], true, GESTOR);
+    const res = await cargarRecibos([pdf('QTQ100.pdf', '%PDF-laxo')], FaseRecibo.PAGO, GESTOR);
 
     expect(res.enRevision).toHaveLength(0);
     expect(res.conciliados).toHaveLength(1);
@@ -307,7 +323,7 @@ describe('recibos — el umbral de OCR es el del organismo del candidato (HU #12
     });
     const { update, persistida } = txQueCaptura();
 
-    const res = await cargarRecibos([pdf('QTQ100.pdf', '%PDF-bajo-defecto')], true, GESTOR);
+    const res = await cargarRecibos([pdf('QTQ100.pdf', '%PDF-bajo-defecto')], FaseRecibo.PAGO, GESTOR);
 
     expect(res.enRevision).toHaveLength(0);
     expect(res.conciliados).toHaveLength(1);
@@ -330,7 +346,7 @@ describe('recibos — el umbral de OCR es el del organismo del candidato (HU #12
     extraerMock.mockResolvedValue(reciboMedio());
     txQueCaptura();
 
-    const res = await cargarRecibos([pdf('a.pdf', '%PDF-a'), pdf('b.pdf', '%PDF-b')], true, GESTOR);
+    const res = await cargarRecibos([pdf('a.pdf', '%PDF-a'), pdf('b.pdf', '%PDF-b')], FaseRecibo.PAGO, GESTOR);
 
     // Los dos archivos se procesaron —y con umbral distinto cada uno, que es lo que hace que el
     // conteo signifique algo: el mapa sirvió para los dos sin volver a la BD.
