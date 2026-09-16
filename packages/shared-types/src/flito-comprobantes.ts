@@ -1,11 +1,12 @@
 // Comprobantes universales (Épica #12245, Feature #12605, ADR-0018) — parte de EXTRACCIÓN.
 //
-// Esta HU (#12610) trae solo lo que la lectura necesita: el catálogo cerrado de tipos de documento,
-// los diez campos que el prompt universal devuelve y la forma del sub-documento que sale de partir
-// un consolidado. Estados, motivos de pendiente, DTOs y errores del módulo llegan con la HU del
-// modelo y las rutas, que es donde se usan.
+// La HU #12610 trajo lo que la lectura necesita: el catálogo cerrado de tipos de documento, los diez
+// campos que el prompt universal devuelve y la forma del sub-documento que sale de partir un
+// consolidado. La HU #12611 (modelo, página y carga en lotes) añade estados, motivos de pendiente,
+// DTOs y errores del módulo, que es donde se usan.
 
-import type { CampoExtraido } from './flito-ocr.js';
+import { MotivoRevision, MOTIVO_REVISION_LABEL, type CampoExtraido } from './flito-ocr.js';
+import type { ConceptoCosto } from './flito-conceptos.js';
 
 /**
  * Qué documento es. Catálogo CERRADO: el normalizador del OCR devuelve `null` ante cualquier literal
@@ -76,4 +77,226 @@ export interface SubDocumento<B = Uint8Array> {
   contentType: string;
   paginas: number[] | null;
   nombre: string;
+}
+
+// ─── HU #12611 — estados, motivos, DTOs y errores del módulo ───────────────────────────────────────
+
+/** Ciclo de vida de un comprobante. En F1 (#12605) todo queda en `pendiente`: nadie cruza ni aplica. */
+export const EstadoComprobante = {
+  PENDIENTE: 'pendiente',
+  APLICADO: 'aplicado',
+  DESCARTADO: 'descartado',
+} as const;
+
+export type EstadoComprobante = (typeof EstadoComprobante)[keyof typeof EstadoComprobante];
+
+export const ESTADOS_COMPROBANTE: readonly EstadoComprobante[] = Object.values(EstadoComprobante);
+
+/** Cómo se llegó al trámite. NULL mientras nadie lo haya asociado (F2). */
+export const CruceComprobante = {
+  ID_FLIT: 'id_flit',
+  VIN: 'vin',
+  PLACA: 'placa',
+  MANUAL: 'manual',
+} as const;
+
+export type CruceComprobante = (typeof CruceComprobante)[keyof typeof CruceComprobante];
+
+/**
+ * Por qué un comprobante está pendiente. Hereda los cinco motivos de la cola de revisión OCR y añade
+ * los que solo existen en la puerta universal. `leido` es el «no pasa nada»: la lectura fue completa
+ * y solo falta que alguien (o F2) lo asocie; existe porque `flito_comprobantes_pendiente_chk` exige
+ * un motivo en todo pendiente, y «sin motivo» sería mentir con NULL.
+ */
+export const MotivoPendienteComprobante = {
+  ...MotivoRevision,
+  TIPO_NO_IDENTIFICADO: 'tipo_no_identificado',
+  CONCEPTO_DESCONOCIDO: 'concepto_desconocido',
+  OCR_NO_DISPONIBLE: 'ocr_no_disponible',
+  DESTINO_NO_ADMITE: 'destino_no_admite',
+  LEIDO: 'leido',
+} as const;
+
+export type MotivoPendienteComprobante = (typeof MotivoPendienteComprobante)[keyof typeof MotivoPendienteComprobante];
+
+export const MOTIVOS_PENDIENTE_COMPROBANTE: readonly MotivoPendienteComprobante[] = Object.values(MotivoPendienteComprobante);
+
+/** Los cinco heredados reutilizan `MOTIVO_REVISION_LABEL` tal cual; los nuevos, el copy de la ficha UX §5.3. */
+export const MOTIVO_PENDIENTE_COMPROBANTE_LABEL: Record<MotivoPendienteComprobante, string> = {
+  ...MOTIVO_REVISION_LABEL,
+  tipo_no_identificado: 'Tipo de documento sin identificar',
+  concepto_desconocido: 'Concepto sin identificar',
+  ocr_no_disponible: 'Sin lectura (OCR no disponible)',
+  destino_no_admite: 'El trámite no admite este concepto',
+  leido: 'Leído, pendiente de asociar',
+};
+
+/** Copy de los diez campos universales para el detalle. `Record` exhaustivo: ampliar el enum sin label deja el build en rojo. */
+export const CAMPO_COMPROBANTE_LABEL: Record<CampoComprobante, string> = {
+  tipoDocumento: 'Tipo de documento',
+  esComprobantePago: 'Acredita un pago',
+  concepto: 'Concepto',
+  placa: 'Placa',
+  vin: 'VIN',
+  idFlit: 'ID FLIT',
+  valorTotal: 'Valor total',
+  fechaPago: 'Fecha',
+  numeroDocumento: 'Número de documento',
+  emisor: 'Emisor',
+};
+
+/**
+ * Nivel de confianza de un campo, calculado en el SERVIDOR (donde vive `umbralPara`); el front lo
+ * pinta y no deriva nada. `null` cuando la confianza es 0 (el OCR no leyó el campo).
+ */
+export type NivelConfianza = 'alta' | 'media' | 'baja' | null;
+
+/** Códigos de error del módulo. La pantalla decide por `codigo`, no por el texto (calco de `CodigoErrorReciboCaja`). */
+export const CodigoErrorComprobante = {
+  /** 400: más archivos que el tope, uno por encima del peso, o ninguno. */
+  ARCHIVO_INVALIDO: 'archivo_invalido',
+  /** 400: Zod (loteId que no es uuid, filtros fuera de catálogo). */
+  DATOS_INVALIDOS: 'datos_invalidos',
+  /** 400: es_pago y sin valor confirmado (F2). */
+  VALOR_REQUERIDO: 'valor_requerido',
+  /** 404. */
+  NO_ENCONTRADO: 'no_encontrado',
+  /** 409: el comprobante no está pendiente. */
+  YA_RESUELTO: 'ya_resuelto',
+  /** 409 (F2): el destino ya está pagado; `puedeAdjuntar: true`. */
+  YA_PAGADO: 'ya_pagado',
+  /** 409 (F2). */
+  TRAMITE_LIQUIDADO: 'tramite_liquidado',
+  /** 409 (F2): SOAT/impuesto fuera de `solicitado`, trámite no aprobado (derecho), concepto no gestionado. */
+  DESTINO_NO_ADMITE: 'destino_no_admite',
+  /** 409 (F2): otro comprobante aplicado del mismo (trámite, concepto); descartar primero. */
+  VALOR_YA_DOCUMENTADO: 'valor_ya_documentado',
+  /** 409 (F3): aceptar diferencia sobre un comprobante sin marca. */
+  SIN_DIFERENCIA: 'sin_diferencia',
+  /** 409: releer sobre un pendiente cuyo motivo no es `ocr_no_disponible`. */
+  SIN_RELECTURA: 'sin_relectura',
+  /** 503: el OCR sigue caído al releer; la fila no cambia. */
+  OCR_NO_DISPONIBLE: 'ocr_no_disponible',
+} as const;
+
+export type CodigoErrorComprobante = (typeof CodigoErrorComprobante)[keyof typeof CodigoErrorComprobante];
+
+/** Cuerpo de todo error del módulo: `{ error, codigo }` y, según el código, los campos extra. */
+export interface ErrorComprobanteDto {
+  error: string;
+  codigo: CodigoErrorComprobante;
+  /** Texto legible para la persona («Ese SOAT ya está pagado», «Liquidación sellada»). */
+  detalle?: string;
+  /** `ya_pagado` y `destino_no_admite`: true cuando la misma petición con `esPago: false` sería aceptada. */
+  puedeAdjuntar?: boolean;
+  /** `valor_ya_documentado`: el comprobante aplicado que ocupa (trámite, concepto). */
+  comprobanteAnteriorId?: string;
+}
+
+/** Un archivo (o sub-documento) del resultado de una carga. */
+export interface ItemCargaComprobante {
+  archivo: string;
+  /** El comprobante creado; en `duplicados`, el del ORIGINAL o null si el original entró por otra puerta sin comprobante. */
+  comprobanteId: string | null;
+  paginas: number[] | null;
+  tipoDocumento: TipoDocumentoComprobante | null;
+  concepto: ConceptoCosto | null;
+  idFlit: string | null;
+  placa: string | null;
+  motivo: MotivoPendienteComprobante | null;
+  /**
+   * Copy FIJADO por la ficha UX §6.2 como contrato; lo escribe el servidor y el front lo pinta tal cual:
+   *  · pendiente:  `{MOTIVO_PENDIENTE_COMPROBANTE_LABEL[motivo]}` y, si hay detalle, `: {detalle}`
+   *  · duplicado:  `Ya cargado el {fecha}` (con `comprobanteId` del original) o
+   *                `Ya cargado el {fecha} en {SOAT | Impuestos | Derechos}` (sin comprobante, sin placa)
+   *  · fallido:    `No es PDF ni imagen admitida` | `PDF de más de 150 páginas: pártelo` |
+   *                `El archivo está dañado o cifrado` | `Pesa más de 15 MB`
+   *  · aplicado (F2): `{Concepto} · {idFlit} · {pesos(valor)}`
+   */
+  detalle: string;
+}
+
+/** Calco de `ResultadoRecibos`: claves-arreglo que `fusionarResultadoCarga` acumula entre tandas. */
+export interface ResultadoCargaComprobantes {
+  /** Siempre vacío en F1 (#12605): la puerta no aplica. */
+  aplicados: ItemCargaComprobante[];
+  pendientes: ItemCargaComprobante[];
+  duplicados: ItemCargaComprobante[];
+  fallidos: ItemCargaComprobante[];
+  /** Cuántos documentos se reconocieron en el envío (archivos + sub-documentos de consolidados). */
+  documentos: number;
+}
+
+/** Fila de la cola. SIN `extraccion` ni `extraccionDestino` (ADR-0008 §1.2): eso solo sale en el detalle, como `campos`. */
+export interface ComprobanteListaDto {
+  id: string;
+  loteId: string;
+  estado: EstadoComprobante;
+  motivoPendiente: MotivoPendienteComprobante | null;
+  detallePendiente: string | null;
+  tipoDocumento: TipoDocumentoComprobante | null;
+  esPago: boolean | null;
+  concepto: ConceptoCosto | null;
+  /** F2. Siempre null en F1. */
+  tramite: { id: string; idFlit: string; placa: string | null } | null;
+  cruce: CruceComprobante | null;
+  placaLeida: string | null;
+  vinLeido: string | null;
+  idFlitLeido: string | null;
+  valor: number | null;
+  fechaDocumento: string | null;
+  numeroDocumento: string | null;
+  emisor: string | null;
+  marcadoPorDiferencia: boolean;
+  diferenciaTarifa: number | null;
+  diferenciaAceptada: boolean;
+  paginas: number[] | null;
+  archivo: { nombre: string; contentType: string };
+  createdAt: string;
+  aplicadoEn: string | null;
+  aplicadoAutomaticamente: boolean;
+  descartadoEn: string | null;
+  subidoPorNombre: string;
+  /** null si está pendiente o fue automático (LEFT JOIN a `users` por id, sin columna nueva). */
+  aplicadoPorNombre: string | null;
+  descartadoPorNombre: string | null;
+}
+
+export interface CampoComprobanteDto {
+  campo: string;
+  valor: string | null;
+  confianza: number;
+  confiable: boolean;
+  /** Lo calcula el servidor con `nivelDe(confianza, umbral)`. */
+  nivel: NivelConfianza;
+  confirmadoPor?: string | null;
+}
+
+export type AdmisionConcepto = 'admite' | 'ya_pagado' | 'no_gestionado' | 'estado_no_permitido' | 'liquidado' | 'ya_documentado';
+
+/** F2: un trámite que la llave leída alcanza y qué concepto admite. Sin datos de persona. */
+export interface CandidatoTramiteDto {
+  tramiteId: string;
+  idFlit: string;
+  placa: string | null;
+  vin: string | null;
+  tipoTramite: string | null;
+  empresa: string | null;
+  flitEstado: string | null;
+  liquidado: boolean;
+  admite: Record<ConceptoCosto, AdmisionConcepto>;
+}
+
+export interface ComprobanteDetalleDto extends ComprobanteListaDto {
+  /** Los diez campos universales y, si hubo extracción del destino, los suyos. `nivel` viene del servidor. */
+  campos: CampoComprobanteDto[];
+  /** Solo en pendientes y solo desde F2: en F1 siempre `[]`. */
+  candidatos: CandidatoTramiteDto[];
+}
+
+export interface ListaComprobantesDto {
+  items: ComprobanteListaDto[];
+  total: number;
+  page: number;
+  pageSize: number;
 }

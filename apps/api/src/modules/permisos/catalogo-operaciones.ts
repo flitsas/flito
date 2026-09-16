@@ -56,6 +56,7 @@ const TRC = 'tramites/transito-config.routes.ts';
 const USR = 'users/users.routes.ts';
 const PER = 'permisos/permisos.routes.ts';
 const FSA = 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts';
+const CPR = 'flito-comprobantes/flito-comprobantes.routes.ts';
 
 export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   // ── SOAT (portal FLITO) ───────────────────────────────────────────────────────────────────────
@@ -348,6 +349,15 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${PER} DELETE /roles/:codigo`, 'permisos.rol.borrar', 'Borrar un rol', 'Eliminar un rol que ningún usuario tiene asignado, junto con su cuadro de funciones.'),
   op(`${PER} GET /roles/:codigo/funciones`, 'permisos.cuadro.ver', 'Ver el cuadro de funciones de un rol', 'Leer qué funciones concede un rol a quienes lo tienen asignado.'),
   op(`${PER} PUT /roles/:codigo/funciones`, 'permisos.cuadro.guardar', 'Guardar el cuadro de funciones de un rol', 'Reescribir el conjunto completo de funciones que concede un rol.'),
+  // ── Comprobantes (Épica #12245, HU #12611: `flito-comprobantes/` nace reconducido) ────────────
+  // Las CINCO de F1 (#12605): cargar, ver la cola, ver uno, abrir el archivo y releer. Textos byte a
+  // byte con la 0198 (el test de la 0198 los compara literal). Asociar/aplicar/descartar (F2) y
+  // aceptar diferencia (F3) llegan con la 0199 y la 0200.
+  op(`${CPR} POST /`, 'comprobantes.lote.cargar', 'Cargar comprobantes', 'Subir documentos (PDF/imagen) para leerlos y asociarlos a un trámite y concepto.'),
+  op(`${CPR} GET /`, 'comprobantes.cola.ver', 'Ver la cola de comprobantes', 'Listar los comprobantes pendientes, aplicados y descartados.'),
+  op(`${CPR} GET /:id`, 'comprobantes.comprobante.ver', 'Ver un comprobante', 'Abrir el detalle de un comprobante con lo que el OCR leyó y sus candidatos.'),
+  op(`${CPR} GET /:id/archivo`, 'comprobantes.archivo.descargar', 'Abrir el archivo de un comprobante', 'Ver el documento original del que salió la lectura.'),
+  op(`${CPR} POST /:id/releer`, 'comprobantes.comprobante.releer', 'Releer un comprobante', 'Volver a pasar por el OCR un comprobante que quedó pendiente de lectura porque el servicio no estuvo disponible.'),
 ];
 
 /**

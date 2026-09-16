@@ -279,6 +279,15 @@ export const TipoSoporte = {
   // detalle del impuesto sobre una liquidación ya registrada. Es la segunda vía a `pagado` (la
   // primera es el pago con marca de la carga masiva). No entra en el ZIP de soportes (`TipoSoporteZip`).
   RECIBO_CAJA_IMPUESTO: 'recibo_caja_impuesto',
+  // Épica #12245, HU #12611 — la puerta universal de comprobantes. Un soporte por ARCHIVO cargado:
+  // `comprobante_pago` cuando el archivo es un solo documento; `consolidado_comprobantes` cuando un
+  // PDF trae varios (N filas de `flito_comprobantes` comparten el soporte y se distinguen por
+  // `paginas`); `documento_tramite` cuando se adjunta como documentación (es_pago = false) a un
+  // honorario, que no tiene destino con soportes. Sin CHECK en la base (la columna no lo tiene) y
+  // fuera de `TipoSoporteZip`.
+  CONSOLIDADO_COMPROBANTES: 'consolidado_comprobantes',
+  COMPROBANTE_PAGO: 'comprobante_pago',
+  DOCUMENTO_TRAMITE: 'documento_tramite',
 } as const;
 
 export type TipoSoporte = (typeof TipoSoporte)[keyof typeof TipoSoporte];
