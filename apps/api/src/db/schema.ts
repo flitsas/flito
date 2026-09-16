@@ -3130,6 +3130,12 @@ export const flitoImpuestos = pgTable('flito_impuestos', {
   enviadoPorId: integer('enviado_por_id').references(() => users.id),
   enviadoEn: timestamp('enviado_en', { withTimezone: true }),
   pagadoEn: timestamp('pagado_en', { withTimezone: true }),
+  /**
+   * HU #12590: fecha-hora en que se cargó la liquidación del impuesto (el documento de la hacienda
+   * sin marca). Marca «liquidado» sobre `solicitado`; el estado NO cambia. No es
+   * `flito_liquidaciones.liquidado_en` (esa es la Liquidación de FLITO, el total a cobrar).
+   */
+  liquidadoEn: timestamp('liquidado_en', { withTimezone: true }),
   motivoRechazo: text('motivo_rechazo'),
   extraccion: jsonb('extraccion').$type<ExtraccionImpuesto>(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -3345,6 +3351,9 @@ export const flitoSoportes = pgTable('flito_soportes', {
   // del censo recorría `flito_soportes` entera una vez por SOAT candidato.
   soatTipoIdx: index('idx_flito_soportes_soat_tipo').on(t.soatId, t.tipo)
     .where(sql`${t.soatId} IS NOT NULL AND ${t.descartado} = false`),
+  // HU #12590 (migración 0196): calcado del anterior para `impuesto_id` — la cola de impuestos lee los documentos de cada página con `impuesto_id IN (...) AND tipo IN (...)`.
+  impuestoTipoIdx: index('idx_flito_soportes_impuesto_tipo').on(t.impuestoId, t.tipo)
+    .where(sql`${t.impuestoId} IS NOT NULL AND ${t.descartado} = false`),
   // «Uno y solo uno» para las DOS FK nuevas del patrón. Lo escribió la 0139 para `siigo_factura_id`
   // y lo ensancha la 0157 con `conciliacion_boleta_id`: sin ensancharlo, un soporte podía colgar de
   // una factura Y de una boleta a la vez, contar como comprobante vivo en los dos índices parciales

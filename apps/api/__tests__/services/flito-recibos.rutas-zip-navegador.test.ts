@@ -2,10 +2,12 @@
 // ruta de carpeta dentro del ZIP deja de ser un dato que solo el API conoce: viaja en el campo
 // opcional `rutas` del multipart, uno por archivo y en el mismo orden.
 //
-// Lo que se vigila aquí es justo el fallo silencioso que este cambio puede provocar: que la marca
-// de agua se deduzca del checkbox en vez de la carpeta y NADIE se entere (200, sin error, y
-// mintiendo). Por eso el aserto no mira la respuesta —que no dice nada de la marca— sino el `tipo`
-// con el que el soporte se PERSISTE: `recibo_impuesto_sin_marca` vs `recibo_impuesto`.
+// Lo que se vigila aquí es justo el fallo silencioso que este cambio puede provocar: que la fase
+// (HU #12590: liquidación del impuesto = sin marca; pago con marca) se deduzca del defecto en vez
+// de la carpeta y NADIE se entere (200, sin error, y mintiendo). Por eso el aserto no mira la
+// respuesta sino el `tipo` con el que el soporte se PERSISTE, con las constantes del catálogo:
+// `TipoSoporte.RECIBO_IMPUESTO_SIN_MARCA_AGUA` (liquidación) vs `TipoSoporte.RECIBO_IMPUESTO` (pago).
+// El defecto sigue viajando como `sinMarcaDeAgua` por compatibilidad con el navegador de hoy.
 //
 // Cubre: (a) rutas emparejadas → manda la carpeta, en las dos direcciones; (b) sin rutas → defecto
 // del checkbox, como hoy; (c) cardinalidad desalineada → defecto, sin excepción; (d) ZIP subido al
@@ -18,7 +20,7 @@ import express from 'express';
 import JSZip from 'jszip';
 import { chain } from '../helpers/db.js';
 import { testToken } from '../helpers/auth.js';
-import { CampoImpuesto, CampoSoat } from '@operaciones/shared-types';
+import { CampoImpuesto, CampoSoat, TipoSoporte } from '@operaciones/shared-types';
 
 const selectMock = vi.fn();
 const insertMock = vi.fn();
@@ -51,14 +53,15 @@ beforeEach(() => {
   insertados = [];
 });
 
-const TIPO_CON_MARCA = 'recibo_impuesto';
-const TIPO_SIN_MARCA = 'recibo_impuesto_sin_marca';
+const TIPO_CON_MARCA: string = TipoSoporte.RECIBO_IMPUESTO;
+const TIPO_SIN_MARCA: string = TipoSoporte.RECIBO_IMPUESTO_SIN_MARCA_AGUA;
 
 const campo = (valor: string | null, confianza: number) => ({ valor, confianza, confiable: confianza >= 0.85 });
 const UUID = '00000000-0000-0000-0000-0000000000dd';
 const candidato = {
   impuestoId: UUID, estado: 'solicitado', organismoCodigo: '08001', tramiteIdFlit: 'FLIT-1', tramiteId: 't1',
   placa: 'QTQ100', companiaId: 1, carpeta: null, valorLiquidado: '500000', diferenciaActiva: false, tolerancia: '0',
+  liquidadoEn: null,
 };
 const reciboOk = {
   [CampoImpuesto.PLACA]: campo('QTQ100', 0.95),

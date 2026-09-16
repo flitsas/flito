@@ -315,10 +315,13 @@ function asomarse(s: Readable): Promise<Buffer | null> {
 /**
  * Los tipos de `flito_soportes` que resuelven cada tipo del catálogo del ZIP.
  *
- * `RECIBO_IMPUESTO` mapea a DOS y el orden importa: **solo el limpio**
- * (`recibo_impuesto_sin_marca_agua`, que es con el que se concilia) y, si ese impuesto no lo tiene,
- * el marcado. **Nunca los dos**: son el mismo pago y el ZIP los llamaría igual, así que el archivo
- * traería dos copias del mismo recibo con sufijos `-2` que el AC5 no reserva para eso.
+ * `RECIBO_IMPUESTO` mapea a DOS y el orden importa. Son las dos fases de la HU #12590: la
+ * **liquidación del impuesto** (`recibo_impuesto_sin_marca_agua`, el documento de la hacienda sin
+ * marca, que deja `liquidado_en`) y el **pago con marca** (`recibo_impuesto`, el mismo documento con
+ * el sello PAGADO, la única vía a `pagado`). Se prefiere la liquidación y, si ese impuesto no la
+ * tiene, el pago. **Nunca los dos**: son el mismo documento y el ZIP los llamaría igual, así que el
+ * archivo traería dos copias con sufijos `-2` que el AC5 no reserva para eso. Desde la 0196 el
+ * servicio escribe el MISMO literal que este catálogo, así que el limpio sí se encuentra.
  *
  * `FACTURA_VENTA` no está: no vive en `flito_soportes`.
  */

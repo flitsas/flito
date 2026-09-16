@@ -1,10 +1,17 @@
-// FLITO Impuestos — carga de recibos de pago → Pagado (Fase 4 P3). Porta procesarRecibo/conciliar/
-// evaluarExtraccion de impuestos.servicio.ts sobre drizzle + OCR Anthropic (extraerReciboImpuesto).
+// FLITO Impuestos — carga de recibos por fase (Fase 4 P3 + HU #12590). Porta procesarRecibo/
+// conciliar/evaluarExtraccion de impuestos.servicio.ts sobre drizzle + OCR Anthropic
+// (extraerReciboImpuesto).
 //
-// El recibo validado por OCR es la vía a PAGADO. Dedup CA-08 en dos frentes: por hash (mismo archivo)
-// y por número de recibo (mismo pago, PDF reexportado). El cruce es SOLO contra EN_GESTION de los
-// organismos del gestor (CA-07/CA-10). Recibos con/sin marca de agua: el limpio (sin marca) concilia;
-// el de marca "PAGADO" se adjunta como comprobante al pago ya hecho.
+// Dos fases, y la declara quien carga (o la carpeta del ZIP), NUNCA la marca de agua del documento:
+//   · **Liquidación del impuesto** (`FaseRecibo.LIQUIDACION`): el documento de la hacienda sin marca.
+//     Deja el impuesto `solicitado` con la marca `liquidado_en` y, si el OCR lo leyó con confianza,
+//     el `valorLiquidado`. No cambia el estado y NUNCA abre revisión. No es la «Liquidación» de FLITO
+//     (`flito_liquidaciones`, el total a cobrar).
+//   · **Pago con marca** (`FaseRecibo.PAGO`): el mismo documento con el sello PAGADO. Es la ÚNICA vía
+//     a `pagado`: validado por OCR concilia; con lectura dudosa va a revisión.
+// Dedup CA-08 en dos frentes y para las dos fases: por hash (mismo archivo) y por número de recibo
+// (mismo pago, PDF reexportado). El cruce es SOLO contra EN_GESTION de los organismos del gestor
+// (CA-07/CA-10). Sobre un impuesto ya PAGADO cualquiera de las dos copias se adjunta como complemento.
 //
 // ── Qué cambió en la HU #12053 ───────────────────────────────────────────────────────────────────
 // El gestor está atado a VARIOS organismos (`flito_gestor_organismos`), así que `ctx.organismos` es
@@ -35,8 +42,8 @@ import {
 } from '../../db/schema.js';
 import { registrarCambio } from '../../shared/historial/estado-historial.js';
 import {
-  CampoImpuesto, CARGA_MASIVA_ARCHIVOS_POR_PETICION, EstadoImpuesto, FlujoRevision, MotivoRevision,
-  type ExtraccionImpuesto,
+  CampoImpuesto, CARGA_MASIVA_ARCHIVOS_POR_PETICION, EstadoImpuesto, FaseRecibo, FlujoRevision, MotivoRevision,
+  TipoSoporte, type ExtraccionImpuesto,
 } from '@operaciones/shared-types';
 import { extraerReciboImpuesto, placaDesdeNombre, type DocumentoAAnalizar } from '../flito-ocr/flito-ocr.service.js';
 import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
@@ -46,9 +53,17 @@ import type { ArchivoSubido, ImpuestoCtx } from './flito-factura-venta.service.j
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-const TIPO_RECIBO = 'recibo_impuesto';
-const TIPO_RECIBO_SIN_MARCA = 'recibo_impuesto_sin_marca';
-const TIPOS_RECIBO = [TIPO_RECIBO, TIPO_RECIBO_SIN_MARCA];
+/**
+ * Los dos tipos de soporte, uno por fase, y SIEMPRE desde el catálogo compartido: hasta la HU #12590
+ * aquí vivía el literal `'recibo_impuesto_sin_marca'` mientras `soportes-zip.ts` buscaba
+ * `recibo_impuesto_sin_marca_agua`, y el ZIP no encontraba la copia limpia (la 0196 renombró lo ya
+ * escrito). El hash se evalúa contra los DOS, antes de bifurcar por fase (AC7).
+ */
+const TIPO_POR_FASE: Record<FaseRecibo, TipoSoporte> = {
+  [FaseRecibo.LIQUIDACION]: TipoSoporte.RECIBO_IMPUESTO_SIN_MARCA_AGUA,
+  [FaseRecibo.PAGO]: TipoSoporte.RECIBO_IMPUESTO,
+};
+const TIPOS_RECIBO: readonly TipoSoporte[] = [TipoSoporte.RECIBO_IMPUESTO, TipoSoporte.RECIBO_IMPUESTO_SIN_MARCA_AGUA];
 /** Concurrencia del OCR en la carga masiva. Detalle de ejecución: no vive en shared-types. */
 const OCR_CONCURRENCIA_CARGA_MASIVA = 5;
 
@@ -84,7 +99,11 @@ async function auditEnTx(tx: Tx, ctx: ImpuestoCtx, resourceId: string, detail: s
 const aNumero = (v: string | null | undefined): string | null => (v == null || v === '' ? null : v);
 
 export interface ItemRecibo { archivo: string; placa: string | null; idFlit: string | null; registroId: string | null; detalle: string }
-export interface ResultadoRecibos { conciliados: ItemRecibo[]; enRevision: ItemRecibo[]; duplicados: ItemRecibo[]; complementos: ItemRecibo[]; noAsociados: ItemRecibo[] }
+export interface ResultadoRecibos {
+  conciliados: ItemRecibo[]; enRevision: ItemRecibo[]; duplicados: ItemRecibo[]; complementos: ItemRecibo[]; noAsociados: ItemRecibo[];
+  /** HU #12590: liquidaciones del impuesto registradas sobre un `solicitado` (marca, no transición). */
+  liquidados: ItemRecibo[];
+}
 
 // Datos de un impuesto candidato para conciliar/archivar.
 interface Candidato {
@@ -93,11 +112,14 @@ interface Candidato {
   placa: string | null; companiaId: number; carpeta: string | null; valorLiquidado: string | null;
   // D-5 (Fase 7): activación de diferencia de valor por organismo + tolerancia de la compañía.
   diferenciaActiva: boolean; tolerancia: string;
+  /** HU #12590: cuándo se cargó la liquidación del impuesto; null = todavía no. */
+  liquidadoEn: Date | null;
 }
 const SELECT_CAND = {
   impuestoId: flitoImpuestos.id, estado: flitoImpuestos.estado, organismoCodigo: flitoImpuestos.organismoCodigo,
   tramiteIdFlit: flitoTramites.idFlit, tramiteId: flitoTramites.id, placa: vehicles.plate, companiaId: clients.id,
   carpeta: clients.flitoCarpetaStorage, valorLiquidado: flitoImpuestos.valorLiquidado,
+  liquidadoEn: flitoImpuestos.liquidadoEn,
   diferenciaActiva: organismosTransitoConfig.flitoDiferenciaValorActiva,
   tolerancia: clients.flitoToleranciaValorImpuesto,
 } as const;
@@ -110,24 +132,24 @@ function fromCandidatos() {
 }
 
 /**
- * Carga masiva de recibos. `sinMarcaDeAgua` es el interruptor por defecto para archivos sueltos; en
- * un ZIP la copia (con/sin marca) se deduce de la carpeta. El limpio se procesa primero (concilia);
- * el de marca se adjunta al pago. Un archivo que falla no tumba el lote.
+ * Carga masiva de recibos. `fase` (HU #12590) es la fase por defecto para archivos sueltos; en un
+ * ZIP la fase se deduce de la carpeta. Las liquidaciones del impuesto se procesan primero: así, si el
+ * pago con marca del mismo impuesto viene en el mismo lote, ya encuentra `valorLiquidado` escrito y
+ * la diferencia de valor (AC5) se evalúa contra él. Un archivo que falla no tumba el lote.
  *
  * `rutas` (HU #12056) es la ruta relativa DENTRO del ZIP de cada archivo, para las tandas que el
  * navegador arma abriendo el ZIP él mismo. Sin ella, la deducción por carpeta moriría en silencio y
- * todo caería al defecto del checkbox. Es opcional y solo informativa: quien decide la marca sigue
+ * todo caería a la fase por defecto. Es opcional y solo informativa: quien decide la fase sigue
  * siendo `esSinMarcaDeAgua`, una sola vez, dentro de `expandir`.
  */
-export async function cargarRecibos(archivos: ArchivoSubido[], sinMarcaDeAgua: boolean, ctx: ImpuestoCtx, rutas?: readonly string[]): Promise<ResultadoRecibos> {
-  const res: ResultadoRecibos = { conciliados: [], enRevision: [], duplicados: [], complementos: [], noAsociados: [] };
-  const expandidos = await expandir(archivos, sinMarcaDeAgua, rutas);
-  // El SIN marca primero: es el limpio con el que se concilia; el de marca se adjunta después.
-  expandidos.sort((a, b) => Number(b.sinMarca) - Number(a.sinMarca));
+export async function cargarRecibos(archivos: ArchivoSubido[], fase: FaseRecibo, ctx: ImpuestoCtx, rutas?: readonly string[]): Promise<ResultadoRecibos> {
+  const res: ResultadoRecibos = { conciliados: [], enRevision: [], duplicados: [], complementos: [], noAsociados: [], liquidados: [] };
+  const expandidos = await expandir(archivos, fase, rutas);
+  // La liquidación primero: escribe `valorLiquidado` y el pago del mismo lote lo relee del candidato.
+  expandidos.sort((a, b) => Number(b.fase === FaseRecibo.LIQUIDACION) - Number(a.fase === FaseRecibo.LIQUIDACION));
 
   const lote = await abrirLote(ctx);
 
-  type Expandido = typeof expandidos[number];
   const pendientes: { archivo: Expandido; hash: string }[] = [];
   const hashesVistos = new Set<string>();
   for (const archivo of expandidos) {
@@ -161,12 +183,28 @@ export async function cargarRecibos(archivos: ArchivoSubido[], sinMarcaDeAgua: b
       if ('error' in item && item.error) throw item.error;
       const extraido = 'extraccion' in item ? item.extraccion : undefined;
       if (!extraido) throw new Error('Error procesando el archivo.');
-      await procesarRecibo(item.archivo, item.archivo.sinMarca, lote, ctx, res, extraido, item.hash);
+      await procesarRecibo(item.archivo, lote, ctx, res, extraido, item.hash);
     } catch (e) {
       res.noAsociados.push({ archivo: item.archivo.originalname, placa: null, idFlit: null, registroId: null, detalle: (e as Error).message });
     }
   }
+  consolidarMismoLote(res);
   return res;
+}
+
+/**
+ * AC4: si la liquidación y el pago con marca del MISMO impuesto vinieron en el mismo lote, el
+ * resumen cuenta ese impuesto una sola vez, en `conciliados`. La liquidación ya quedó escrita en BD
+ * (se procesó primero); solo se pliega el renglón del resumen y se deja constancia en el detalle.
+ */
+function consolidarMismoLote(res: ResultadoRecibos): void {
+  const pagados = new Map(res.conciliados.map((c) => [c.registroId, c]));
+  res.liquidados = res.liquidados.filter((l) => {
+    const c = l.registroId ? pagados.get(l.registroId) : undefined;
+    if (!c) return true;
+    c.detalle += ` Incluye la liquidación del mismo lote (${l.archivo}).`;
+    return false;
+  });
 }
 
 /**
@@ -226,17 +264,19 @@ async function hashReciboYaCargado(hash: string): Promise<string | null> {
  * Recibe la extracción YA hecha (el OCR corre en tandas, fuera) y el `lote`, que trae la frontera del
  * actor y sus umbrales. `extraido` viene marcado con el umbral por defecto: se re-marca abajo, con el
  * organismo del candidato ya conocido.
+ *
+ * Lo común a las dos fases va primero (placa, candidato, remarca, dedup por número de recibo); la
+ * bifurcación por `archivo.fase` es lo último, y cada fase escribe en su propia transacción.
  */
 async function procesarRecibo(
-  archivo: ArchivoSubido & { sinMarca: boolean },
-  sinMarca: boolean,
+  archivo: Expandido,
   lote: LoteRecibos,
   ctx: ImpuestoCtx,
   res: ResultadoRecibos,
   extraido: ExtraccionImpuesto,
   hash: string,
 ): Promise<void> {
-  const tipo = sinMarca ? TIPO_RECIBO_SIN_MARCA : TIPO_RECIBO;
+  const tipo = TIPO_POR_FASE[archivo.fase];
   const placa = extraido[CampoImpuesto.PLACA]?.valor ?? placaDesdeNombre(archivo.originalname);
   if (!placa) {
     // Sin placa no hay llave de cruce. Se descarta con el aviso: el fichero original sigue en manos
@@ -249,8 +289,8 @@ async function procesarRecibo(
   // Cruce SOLO contra EN_GESTION de los organismos del gestor (CA-07/CA-10).
   const candidato = await buscarCandidato(placa, EstadoImpuesto.SOLICITADO, lote);
   if (!candidato) {
-    // ¿Es la segunda copia (la otra marca) de un pago ya conciliado? Se adjunta, no se rechaza.
-    if (await adjuntarComplemento(archivo, placa, tipo, lote, hash, ctx, res)) return;
+    // ¿Es la otra fase (o una copia) de un pago ya conciliado? Se adjunta, no se rechaza (AC6).
+    if (await adjuntarComplemento(archivo, placa, archivo.fase, lote, hash, ctx, res)) return;
     // Se descarta con el aviso. La bandeja de pendientes que antes lo guardaba se retiró: acumulaba
     // recibos que no llegaban a cruzar, y el fichero original sigue en manos de quien lo cargó.
     res.noAsociados.push({ archivo: archivo.originalname, placa, idFlit: null, registroId: null,
@@ -275,6 +315,22 @@ async function procesarRecibo(
     }
   }
 
+  if (archivo.fase === FaseRecibo.LIQUIDACION) {
+    // Liquidación del impuesto (AC2/AC3): marca `liquidado_en` sobre el `solicitado`, sin veredicto
+    // y sin revisión. Un valor dudoso simplemente no se escribe; el documento queda archivado igual.
+    const storageKey = await archivar(candidato, archivo);
+    const valorLiquidado = await db.transaction(async (tx) => {
+      const soporteId = await insertarSoporte(tx, candidato.impuestoId, archivo, tipo, ctx, storageKey, hash);
+      return marcarLiquidado(tx, candidato, extraccion, soporteId, ctx);
+    });
+    res.liquidados.push({ archivo: archivo.originalname, placa, idFlit: candidato.tramiteIdFlit, registroId: candidato.impuestoId,
+      detalle: valorLiquidado !== undefined
+        ? `Liquidación del impuesto registrada. Valor liquidado ${valorLiquidado}; el impuesto sigue en gestión hasta el pago con marca.`
+        : 'Liquidación del impuesto registrada; el valor no se leyó con confianza y no se escribió. El impuesto sigue en gestión hasta el pago con marca.' });
+    return;
+  }
+
+  // Pago con marca (AC4): la única vía a PAGADO. Validado por OCR concilia; dudoso, a revisión.
   const veredicto = evaluarReciboImpuesto(extraccion, umbral);
   const storageKey = await archivar(candidato, archivo);
 
@@ -315,23 +371,58 @@ async function buscarCandidato(placa: string, estado: EstadoImpuesto, lote: Lote
 }
 
 /**
- * La factura de venta ya no cruza con un EN_GESTION: puede ser la segunda copia (otra marca) de un
- * pago ya conciliado. Se adjunta al PAGADO si ese impuesto no tiene ya esa misma copia. Devuelve
- * true si se adjuntó.
+ * El recibo ya no cruza con un EN_GESTION: puede ser la otra fase (o una copia) de un pago ya
+ * conciliado. Se adjunta al PAGADO si ese impuesto no tiene ya esa misma copia. Devuelve true si se
+ * adjuntó.
+ *
+ * AC6: una liquidación del impuesto que llega DESPUÉS del pago deja `liquidado_en` si estaba vacío
+ * (el impuesto sí tiene su liquidación, aunque llegara tarde), pero NO toca el estado, el pago ni
+ * `valorLiquidado`: el impuesto ya está pagado y la diferencia de valor ya se evaluó.
  */
-async function adjuntarComplemento(archivo: ArchivoSubido, placa: string, tipo: string, lote: LoteRecibos, hash: string, ctx: ImpuestoCtx, res: ResultadoRecibos): Promise<boolean> {
+async function adjuntarComplemento(archivo: ArchivoSubido, placa: string, fase: FaseRecibo, lote: LoteRecibos, hash: string, ctx: ImpuestoCtx, res: ResultadoRecibos): Promise<boolean> {
+  const tipo = TIPO_POR_FASE[fase];
   const pagado = await buscarCandidato(placa, EstadoImpuesto.PAGADO, lote);
   if (!pagado) return false;
   const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(flitoSoportes).where(and(eq(flitoSoportes.impuestoId, pagado.impuestoId), eq(flitoSoportes.tipo, tipo), eq(flitoSoportes.descartado, false)));
   if (Number(n) > 0) return false; // ya tiene esa copia: es duplicado, no complemento
-  const cual = tipo === TIPO_RECIBO_SIN_MARCA ? 'sin' : 'con';
+  const cual = fase === FaseRecibo.LIQUIDACION ? 'la liquidación del impuesto (sin marca)' : 'el pago con marca';
+  const marcaLiquidado = fase === FaseRecibo.LIQUIDACION && pagado.liquidadoEn === null;
   const storageKey = await archivar(pagado, archivo);
   await db.transaction(async (tx) => {
     const soporteId = await insertarSoporte(tx, pagado.impuestoId, archivo, tipo, ctx, storageKey, hash);
-    await auditEnTx(tx, ctx, pagado.impuestoId, `Comprobante complementario (${cual} marca de agua) adjuntado al pago de ${pagado.tramiteIdFlit}. Soporte ${soporteId}.`);
+    if (marcaLiquidado) await tx.update(flitoImpuestos).set({ liquidadoEn: new Date(), updatedAt: new Date() }).where(eq(flitoImpuestos.id, pagado.impuestoId));
+    await auditEnTx(tx, ctx, pagado.impuestoId, `Comprobante complementario (${cual}) adjuntado al pago de ${pagado.tramiteIdFlit}.${marcaLiquidado ? ' Queda marcado como liquidado.' : ''} Soporte ${soporteId}.`);
   });
-  res.complementos.push({ archivo: archivo.originalname, placa, idFlit: pagado.tramiteIdFlit, registroId: pagado.impuestoId, detalle: `Comprobante ${cual} marca de agua adjuntado al pago de ${pagado.tramiteIdFlit}.` });
+  res.complementos.push({ archivo: archivo.originalname, placa, idFlit: pagado.tramiteIdFlit, registroId: pagado.impuestoId, detalle: `Comprobante de ${cual} adjuntado al pago de ${pagado.tramiteIdFlit}.` });
   return true;
+}
+
+/**
+ * Liquidación del impuesto (HU #12590, AC2/AC3): la marca `liquidado_en` sobre un `solicitado`.
+ * Escribe `valorLiquidado` SOLO si el OCR lo leyó con confianza (`confiable` ya re-marcado con el
+ * umbral del organismo); si no, la clave no entra en el `set` y se conserva el anterior. No toca
+ * `estado`, `pagadoEn`, `valorPagado`, `marcadoPorDiferencia`, `motivoRechazo` ni `extraccion` (esa
+ * columna es la lectura del pago). El historial registra el hecho sin transición
+ * (`estadoAnterior === estadoNuevo`), como `asumirEnOperaciones`. Devuelve el valor escrito, o
+ * `undefined` si no se escribió.
+ */
+async function marcarLiquidado(tx: Tx, cand: Candidato, extraccion: ExtraccionImpuesto, soporteId: string, ctx: ImpuestoCtx): Promise<string | undefined> {
+  const total = extraccion[CampoImpuesto.VALOR_TOTAL];
+  const valorLiquidado = total?.confiable ? aNumero(total.valor) ?? undefined : undefined;
+  await tx.update(flitoImpuestos).set({
+    liquidadoEn: new Date(), ...(valorLiquidado !== undefined ? { valorLiquidado } : {}), updatedAt: new Date(),
+  }).where(eq(flitoImpuestos.id, cand.impuestoId));
+  const valorTexto = valorLiquidado ?? '— (OCR no confiable; se conserva el anterior)';
+  await auditEnTx(tx, ctx, cand.impuestoId,
+    `Liquidación del impuesto cargada (fase liquidacion). Valor liquidado ${valorTexto}, ` +
+    `recibo ${extraccion[CampoImpuesto.NUMERO_RECIBO]?.valor ?? '—'}. Soporte ${soporteId}. Trámite ${cand.tramiteIdFlit}.`);
+  await registrarCambio(tx, {
+    concepto: 'impuesto', registroId: cand.impuestoId,
+    estadoAnterior: cand.estado, estadoNuevo: cand.estado,
+    motivo: `Liquidación del impuesto cargada. Valor ${valorLiquidado ?? '—'}.`,
+    usuarioId: ctx.userId, usuarioEmail: ctx.username,
+  });
+  return valorLiquidado;
 }
 
 /**
@@ -419,22 +510,28 @@ export function normalizarRutas(valor: unknown): string[] | undefined {
   return lista as string[];
 }
 
+/** Un archivo del lote con su fase ya decidida (HU #12590). */
+type Expandido = ArchivoSubido & { fase: FaseRecibo };
+
 /**
- * Expande ZIP marcando cada recibo con/sin marca de agua por su carpeta; sueltos usan la ruta
- * declarada por el cliente (tandas de ZIP abierto en el navegador) y, a falta de ella, el defecto.
+ * Expande ZIP marcando cada recibo con su fase por la carpeta; sueltos usan la ruta declarada por el
+ * cliente (tandas de ZIP abierto en el navegador) y, a falta de ella, la fase por defecto.
  *
- * La ruta declarada es TEXTO DEL CLIENTE y no sale de aquí: solo alimenta `esSinMarcaDeAgua`. El
- * nombre con el que se archiva y se persiste sigue siendo el `originalname` de multer.
+ * La ruta declarada es TEXTO DEL CLIENTE y no sale de aquí: solo alimenta `esSinMarcaDeAgua`, que
+ * sigue siendo la regla de carpetas de siempre («sin marca» = liquidación; «con marca»/«pagado» =
+ * pago). El nombre con el que se archiva y se persiste sigue siendo el `originalname` de multer.
  */
-async function expandir(archivos: ArchivoSubido[], defectoSinMarca: boolean, rutasCrudas?: readonly string[]): Promise<Array<ArchivoSubido & { sinMarca: boolean }>> {
+async function expandir(archivos: ArchivoSubido[], faseDefecto: FaseRecibo, rutasCrudas?: readonly string[]): Promise<Expandido[]> {
   // Cardinalidad que no cuadra → como si no hubieran llegado rutas. Sin excepción y sin a medias.
   const rutas = rutasCrudas && rutasCrudas.length === archivos.length ? rutasCrudas : undefined;
-  const salida: Array<ArchivoSubido & { sinMarca: boolean }> = [];
+  const faseDe = (ruta: string): FaseRecibo =>
+    esSinMarcaDeAgua(ruta, faseDefecto === FaseRecibo.LIQUIDACION) ? FaseRecibo.LIQUIDACION : FaseRecibo.PAGO;
+  const salida: Expandido[] = [];
   for (const [i, archivo] of archivos.entries()) {
     const esZip = archivo.mimetype.includes('zip') || archivo.originalname.toLowerCase().endsWith('.zip');
     // El ZIP subido al API se sigue expandiendo aquí (AC7): sus entradas traen su propia ruta y
     // cualquier `rutas` que viniera para él se ignora.
-    if (!esZip) { salida.push({ ...archivo, sinMarca: esSinMarcaDeAgua(rutas?.[i] ?? '', defectoSinMarca) }); continue; }
+    if (!esZip) { salida.push({ ...archivo, fase: faseDe(rutas?.[i] ?? '') }); continue; }
     const zip = await JSZip.loadAsync(archivo.buffer);
     for (const entrada of Object.values(zip.files)) {
       if (entrada.dir) continue;
@@ -444,7 +541,7 @@ async function expandir(archivos: ArchivoSubido[], defectoSinMarca: boolean, rut
       const buffer = Buffer.from(await entrada.async('nodebuffer'));
       const lower = base.toLowerCase();
       const mimetype = lower.endsWith('.pdf') ? 'application/pdf' : /\.(jpg|jpeg)$/.test(lower) ? 'image/jpeg' : lower.endsWith('.png') ? 'image/png' : 'application/octet-stream';
-      salida.push({ originalname: base, mimetype, buffer, size: buffer.length, sinMarca: esSinMarcaDeAgua(entrada.name, defectoSinMarca) });
+      salida.push({ originalname: base, mimetype, buffer, size: buffer.length, fase: faseDe(entrada.name) });
     }
   }
   return salida;
