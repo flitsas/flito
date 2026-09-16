@@ -145,6 +145,8 @@ export const CampoImpuesto = {
   NUMERO_RECIBO: 'numeroRecibo',
   FECHA_PAGO: 'fechaPago',
   ANIO_GRAVABLE: 'anioGravable',
+  /** HU #12614: sello o marca de agua PAGADO leído del documento (`"true"` | `"false"` | null). */
+  SELLO_PAGADO: 'selloPagado',
 } as const;
 
 export type CampoImpuesto = (typeof CampoImpuesto)[keyof typeof CampoImpuesto];
@@ -206,6 +208,7 @@ export const CAMPO_IMPUESTO_LABEL: Record<CampoImpuesto, string> = {
   numeroRecibo: 'Número de recibo',
   fechaPago: 'Fecha de pago',
   anioGravable: 'Año gravable',
+  selloPagado: 'Sello PAGADO',
 };
 
 export const CAMPO_DERECHO_TRAMITE_LABEL: Record<CampoDerechoTramite, string> = {

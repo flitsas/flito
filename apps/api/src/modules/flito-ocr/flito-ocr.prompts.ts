@@ -75,9 +75,11 @@ Campos:
 - numeroRecibo: número del recibo/comprobante/referencia de pago. Transcribe exacto.
 - fechaPago: fecha en que se pagó (ISO YYYY-MM-DD).
 - anioGravable: el año gravable / vigencia fiscal del impuesto (4 dígitos, ej. 2026).
+- selloPagado: "true" si el documento lleva el sello o la marca de agua PAGADO (también "PAGO" o "CANCELADO": el timbre de pago de la hacienda, normalmente superpuesto en diagonal o como etiqueta); "false" si es la declaración/liquidación sin ese sello; null si no puedes verlo o decidirlo.
+    * CRÍTICO: la palabra "PAGAR" de "TOTAL A PAGAR" NO es el sello. Solo cuenta la marca superpuesta al documento.
 
 Devuelve EXCLUSIVAMENTE este JSON:
-{"placa":{"valor":null,"confianza":null},"valorTotal":{"valor":null,"confianza":null},"numeroRecibo":{"valor":null,"confianza":null},"fechaPago":{"valor":null,"confianza":null},"anioGravable":{"valor":null,"confianza":null}}`;
+{"placa":{"valor":null,"confianza":null},"valorTotal":{"valor":null,"confianza":null},"numeroRecibo":{"valor":null,"confianza":null},"fechaPago":{"valor":null,"confianza":null},"anioGravable":{"valor":null,"confianza":null},"selloPagado":{"valor":null,"confianza":null}}`;
 
 // ─────────────────────────────── Recibo de caja (HU #12591) ─────────────────
 // El comprobante que entrega la ventanilla de la hacienda al pagar en efectivo o con tarjeta. Es un

@@ -62,6 +62,14 @@ const reciboOk = {
   [CampoImpuesto.VALOR_TOTAL]: campo('634900', 0.95),
   [CampoImpuesto.NUMERO_RECIBO]: campo('R-1', 0.95),
 };
+/**
+ * Una placa por archivo (`r0.pdf` → QTQ000, `r1.pdf` → QTQ001…): estas pruebas miden tandas y
+ * concurrencia, no el cruce, y con la MISMA placa en todo el lote la HU #12614 (AC5) los trataría
+ * como el par liquidación/pago de un solo impuesto y, sin sello legible, los rechazaría.
+ */
+const reciboDe = async (doc: { nombreArchivo: string }) => ({
+  ...reciboOk, [CampoImpuesto.PLACA]: campo(`QTQ${doc.nombreArchivo.replace(/\D/g, '').padStart(3, '0')}`, 0.95),
+});
 
 async function buildApp() {
   const app = express();
@@ -109,7 +117,7 @@ describe('HU #12051 — carga masiva recibos tandas', () => {
 
   it('5 attach + mocks → 200', async () => {
     mockHashesLibresLuegoCandidato(5);
-    extraerMock.mockResolvedValue(reciboOk);
+    extraerMock.mockImplementation(reciboDe);
     mockTxOk();
     const r = await postRecibos(5);
     expect(r.status).toBe(200);
@@ -129,12 +137,12 @@ describe('HU #12051 — carga masiva recibos tandas', () => {
     mockTxOk();
     let inflight = 0;
     let maxInflight = 0;
-    extraerMock.mockImplementation(async () => {
+    extraerMock.mockImplementation(async (doc: { nombreArchivo: string }) => {
       inflight += 1;
       maxInflight = Math.max(maxInflight, inflight);
       await new Promise((r) => setTimeout(r, 40));
       inflight -= 1;
-      return reciboOk;
+      return reciboDe(doc);
     });
     const r = await postRecibos(3);
     expect(r.status).toBe(200);
@@ -143,7 +151,7 @@ describe('HU #12051 — carga masiva recibos tandas', () => {
 
   it('upload/tx: maxInflight === 1 (persist serial)', async () => {
     mockHashesLibresLuegoCandidato(3);
-    extraerMock.mockResolvedValue(reciboOk);
+    extraerMock.mockImplementation(reciboDe);
     let inflight = 0;
     let maxInflight = 0;
     const track = async <T>(fn: () => Promise<T>): Promise<T> => {
@@ -192,7 +200,7 @@ describe('HU #12051 — carga masiva recibos tandas', () => {
 describe('HU #12590 (AC1) — la fase la declara quien carga', () => {
   it("fase='liquidacion' llega al servicio y cada suelto va como liquidación", async () => {
     mockHashesLibresLuegoCandidato(2);
-    extraerMock.mockResolvedValue(reciboOk);
+    extraerMock.mockImplementation(reciboDe);
     mockTxOk();
     const r = await postRecibos(2, { fase: 'liquidacion' });
     expect(r.status).toBe(200);

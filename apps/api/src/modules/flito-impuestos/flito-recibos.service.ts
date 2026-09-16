@@ -2,7 +2,11 @@
 // conciliar/evaluarExtraccion de impuestos.servicio.ts sobre drizzle + OCR Anthropic
 // (extraerReciboImpuesto).
 //
-// Dos fases, y la declara quien carga (o la carpeta del ZIP), NUNCA la marca de agua del documento:
+// Dos fases, y la declara quien carga (o la carpeta del ZIP). La marca de agua del documento NO la
+// decide: la VIGILA (HU #12614, reglas puras en `flito-recibos.fase.ts`): el sello PAGADO que lee el
+// OCR rechaza un pago sin sello o una liquidación con sello ANTES de escribir nada; ante la duda se
+// respeta lo declarado. Y si dos archivos de la misma placa vienen en el lote con la misma fase, el
+// sello dice cuál es la liquidación y cuál el pago (AC5).
 //   · **Liquidación del impuesto** (`FaseRecibo.LIQUIDACION`): el documento de la hacienda sin marca.
 //     Deja el impuesto `solicitado` con la marca `liquidado_en` y, si el OCR lo leyó con confianza,
 //     el `valorLiquidado`. No cambia el estado y NUNCA abre revisión. No es la «Liquidación» de FLITO
@@ -58,6 +62,9 @@ import {
   extraerReciboCaja, extraerReciboImpuesto, placaDesdeNombre, type DocumentoAAnalizar,
 } from '../flito-ocr/flito-ocr.service.js';
 import { buscarConAcceso } from './flito-impuestos.service.js';
+import {
+  carpetaRaiz, faseDeCarpeta, leerSello, liquidacionPrimero, resolverPlacaRepetida, vigilarFase, type EntradaPlaca,
+} from './flito-recibos.fase.js';
 import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { uploadEntityDocument } from '../../services/storage.js';
 import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
@@ -128,8 +135,9 @@ export class ReciboCajaError extends Error {
   constructor(public status: number, public codigo: CodigoErrorReciboCaja, message: string) { super(message); }
 }
 
-async function auditEnTx(tx: Tx, ctx: ImpuestoCtx, resourceId: string, detail: string): Promise<void> {
-  await tx.insert(auditLogs).values({ userId: ctx.userId, userEmail: ctx.username, action: 'update', resource: 'flito_impuesto', resourceId, detail });
+/** Escribe en `audit_logs` con la tx abierta o, para un rechazo que no abre ninguna, con `db` directo. */
+async function auditEnTx(escritor: Pick<typeof db, 'insert'>, ctx: ImpuestoCtx, resourceId: string, detail: string): Promise<void> {
+  await escritor.insert(auditLogs).values({ userId: ctx.userId, userEmail: ctx.username, action: 'update', resource: 'flito_impuesto', resourceId, detail });
 }
 
 const aNumero = (v: string | null | undefined): string | null => (v == null || v === '' ? null : v);
@@ -139,6 +147,10 @@ export interface ResultadoRecibos {
   conciliados: ItemRecibo[]; enRevision: ItemRecibo[]; duplicados: ItemRecibo[]; complementos: ItemRecibo[]; noAsociados: ItemRecibo[];
   /** HU #12590: liquidaciones del impuesto registradas sobre un `solicitado` (marca, no transición). */
   liquidados: ItemRecibo[];
+  /** HU #12614: rechazados porque el sello PAGADO contradice la fase declarada (nada escrito). */
+  faseNoCoincide: ItemRecibo[];
+  /** HU #12614 (AC6): primer segmento de las carpetas sin palabra de fase (sin repetidos, por tanda). */
+  carpetasSinFase: string[];
 }
 
 // Datos de un impuesto candidato para conciliar/archivar.
@@ -176,13 +188,16 @@ function fromCandidatos() {
  * `rutas` (HU #12056) es la ruta relativa DENTRO del ZIP de cada archivo, para las tandas que el
  * navegador arma abriendo el ZIP él mismo. Sin ella, la deducción por carpeta moriría en silencio y
  * todo caería a la fase por defecto. Es opcional y solo informativa: quien decide la fase sigue
- * siendo `esSinMarcaDeAgua`, una sola vez, dentro de `expandir`.
+ * siendo `faseDeCarpeta`, una sola vez, dentro de `expandir`.
  */
 export async function cargarRecibos(archivos: ArchivoSubido[], fase: FaseRecibo, ctx: ImpuestoCtx, rutas?: readonly string[]): Promise<ResultadoRecibos> {
-  const res: ResultadoRecibos = { conciliados: [], enRevision: [], duplicados: [], complementos: [], noAsociados: [], liquidados: [] };
-  const expandidos = await expandir(archivos, fase, rutas);
+  const res: ResultadoRecibos = {
+    conciliados: [], enRevision: [], duplicados: [], complementos: [], noAsociados: [], liquidados: [], faseNoCoincide: [], carpetasSinFase: [],
+  };
+  const { archivos: expandidos, carpetasSinFase } = await expandir(archivos, fase, rutas);
+  res.carpetasSinFase = carpetasSinFase;
   // La liquidación primero: escribe `valorLiquidado` y el pago del mismo lote lo relee del candidato.
-  expandidos.sort((a, b) => Number(b.fase === FaseRecibo.LIQUIDACION) - Number(a.fase === FaseRecibo.LIQUIDACION));
+  liquidacionPrimero(expandidos, (a) => a.fase);
 
   const lote = await abrirLote(ctx);
 
@@ -214,7 +229,13 @@ export async function cargarRecibos(archivos: ArchivoSubido[], fase: FaseRecibo,
     }
   });
 
-  for (const item of extraidos) {
+  // AC5 (HU #12614): la misma placa dos veces en el lote con la misma fase declarada → el sello
+  // reparte liquidación/pago (o rechaza si no se distingue). Se decide ANTES de cruzar y sin
+  // consultas: la llave es la misma que usará `procesarRecibo` (placa del OCR, o del nombre a falta
+  // de ella), y el `confiable` del sello es el del umbral por defecto del lote (ver `flito-recibos.fase.ts`).
+  const aProcesar = await repartirPorSello(extraidos, ctx, res);
+
+  for (const item of aProcesar) {
     try {
       if ('error' in item && item.error) throw item.error;
       const extraido = 'extraccion' in item ? item.extraccion : undefined;
@@ -226,6 +247,35 @@ export async function cargarRecibos(archivos: ArchivoSubido[], fase: FaseRecibo,
   }
   consolidarMismoLote(res);
   return res;
+}
+
+type Extraido = { archivo: Expandido; hash: string } & ({ extraccion: ExtraccionImpuesto } | { error: unknown });
+
+/**
+ * AC5: aplica `resolverPlacaRepetida` al lote ya leído. Devuelve los que siguen a `procesarRecibo`
+ * —con la fase que dictó el sello y otra vez liquidaciones primero— y empuja al resumen los
+ * rechazados (`faseNoCoincide`, auditados con la placa como recurso: no hubo cruce) y los
+ * `duplicados` (mismo sello repetido; nada que auditar, no se escribió nada).
+ */
+async function repartirPorSello(extraidos: Extraido[], ctx: ImpuestoCtx, res: ResultadoRecibos): Promise<Extraido[]> {
+  const entradas: EntradaPlaca[] = extraidos.map((item) => {
+    const ex = 'extraccion' in item ? item.extraccion : undefined;
+    const llave = ex ? normalizarLlave(ex[CampoImpuesto.PLACA]?.valor ?? placaDesdeNombre(item.archivo.originalname)) : '';
+    return { archivo: item.archivo.originalname, llave: llave || null, fase: item.archivo.fase, sello: ex ? leerSello(ex) : null };
+  });
+  const decisiones = resolverPlacaRepetida(entradas);
+  const siguen: Extraido[] = [];
+  for (const [i, item] of extraidos.entries()) {
+    const decision = decisiones[i]!;
+    const placa = entradas[i]!.llave;
+    if (decision.accion === 'procesar') { siguen.push({ ...item, archivo: { ...item.archivo, fase: decision.fase } }); continue; }
+    const renglon: ItemRecibo = { archivo: item.archivo.originalname, placa, idFlit: null, registroId: null, detalle: decision.detalle };
+    if (decision.accion === 'duplicado') { res.duplicados.push(renglon); continue; }
+    res.faseNoCoincide.push(renglon);
+    await auditEnTx(db, ctx, placa ?? '—',
+      `Recibo rechazado por fase (declarada ${item.archivo.fase}; placa ${placa ?? '—'} repetida en el lote). ${decision.detalle} Archivo ${item.archivo.originalname}.`);
+  }
+  return liquidacionPrimero(siguen, (item) => item.archivo.fase);
 }
 
 /**
@@ -339,6 +389,19 @@ async function procesarRecibo(
   // mismo campo que mandó el recibo a revisión.
   const umbral = umbralDelCandidato(lote, candidato.organismoCodigo);
   const extraccion = remarcarConfiable(extraido, umbral);
+
+  // HU #12614 (AC2/AC3): el sello PAGADO, ya `confiable` con el umbral del organismo, vigila la fase
+  // declarada. El rechazo sale ANTES de archivar y de abrir transacción: nada en storage ni en BD
+  // salvo la auditoría. Ante la duda (sello ilegible o bajo el umbral) se respeta lo declarado (AC4).
+  const rechazo = vigilarFase(archivo.fase, leerSello(extraccion));
+  if (rechazo) {
+    const lectura = extraccion[CampoImpuesto.SELLO_PAGADO];
+    await auditEnTx(db, ctx, candidato.impuestoId,
+      `Recibo rechazado por fase (declarada ${archivo.fase}; sello PAGADO leído ${lectura?.valor ?? '—'} con confianza ${lectura?.confianza ?? 0}, umbral ${umbral}). ` +
+      `${rechazo.detalle} Archivo ${archivo.originalname}. Trámite ${candidato.tramiteIdFlit}.`);
+    res.faseNoCoincide.push({ archivo: archivo.originalname, placa, idFlit: candidato.tramiteIdFlit, registroId: candidato.impuestoId, detalle: rechazo.detalle });
+    return;
+  }
 
   // CA-08 (2): mismo número de recibo en otro impuesto (PDF reexportado, bytes distintos).
   const numeroRecibo = extraccion[CampoImpuesto.NUMERO_RECIBO]?.valor ?? null;
@@ -560,15 +623,23 @@ type Expandido = ArchivoSubido & { fase: FaseRecibo };
  * Expande ZIP marcando cada recibo con su fase por la carpeta; sueltos usan la ruta declarada por el
  * cliente (tandas de ZIP abierto en el navegador) y, a falta de ella, la fase por defecto.
  *
- * La ruta declarada es TEXTO DEL CLIENTE y no sale de aquí: solo alimenta `esSinMarcaDeAgua`, que
- * sigue siendo la regla de carpetas de siempre («sin marca» = liquidación; «con marca»/«pagado» =
- * pago). El nombre con el que se archiva y se persiste sigue siendo el `originalname` de multer.
+ * La ruta declarada es TEXTO DEL CLIENTE y casi no sale de aquí: alimenta `faseDeCarpeta` (la regla
+ * de carpetas: «sin marca»/«original»/«liquidac…» = liquidación; «con marca»/«pagad…» = pago, y el
+ * pago manda si la carpeta dice las dos cosas) y, cuando la carpeta no nombra ninguna fase, su
+ * PRIMER segmento se devuelve en `carpetasSinFase` para que quien cargó sepa que ahí aplicó la fase
+ * por defecto (AC6). El nombre con el que se archiva y se persiste sigue siendo el `originalname`.
  */
-async function expandir(archivos: ArchivoSubido[], faseDefecto: FaseRecibo, rutasCrudas?: readonly string[]): Promise<Expandido[]> {
+async function expandir(archivos: ArchivoSubido[], faseDefecto: FaseRecibo, rutasCrudas?: readonly string[]): Promise<{ archivos: Expandido[]; carpetasSinFase: string[] }> {
   // Cardinalidad que no cuadra → como si no hubieran llegado rutas. Sin excepción y sin a medias.
   const rutas = rutasCrudas && rutasCrudas.length === archivos.length ? rutasCrudas : undefined;
-  const faseDe = (ruta: string): FaseRecibo =>
-    esSinMarcaDeAgua(ruta, faseDefecto === FaseRecibo.LIQUIDACION) ? FaseRecibo.LIQUIDACION : FaseRecibo.PAGO;
+  const sinFase = new Set<string>();
+  const faseDe = (ruta: string): FaseRecibo => {
+    const declarada = faseDeCarpeta(ruta);
+    if (declarada) return declarada;
+    const raiz = carpetaRaiz(ruta);
+    if (raiz !== null) sinFase.add(raiz);
+    return faseDefecto;
+  };
   const salida: Expandido[] = [];
   for (const [i, archivo] of archivos.entries()) {
     const esZip = archivo.mimetype.includes('zip') || archivo.originalname.toLowerCase().endsWith('.zip');
@@ -587,15 +658,7 @@ async function expandir(archivos: ArchivoSubido[], faseDefecto: FaseRecibo, ruta
       salida.push({ originalname: base, mimetype, buffer, size: buffer.length, fase: faseDe(entrada.name) });
     }
   }
-  return salida;
-}
-
-/** Copia sin marca de agua a partir de la ruta dentro del ZIP; si nada lo indica, el defecto. */
-function esSinMarcaDeAgua(ruta: string, defecto: boolean): boolean {
-  const t = ruta.toLowerCase();
-  if (/sin[\s_-]*marca|sin[\s_-]*agua|limpi|original/.test(t)) return true;
-  if (/con[\s_-]*marca|marca[\s_-]*de[\s_-]*agua|con[\s_-]*agua|pagad/.test(t)) return false;
-  return defecto;
+  return { archivos: salida, carpetasSinFase: [...sinFase] };
 }
 
 // ─────────────────────────── Recibo de caja (HU #12591) ─────────────────────
