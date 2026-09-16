@@ -1,5 +1,6 @@
 // Comprobantes universales (Épica #12245, Feature #12606, ADR-0018 §4) — HU #12629: APLICAR (esqueleto
-// común) y DESCARTAR; HU #12630: los pagos de SOAT / impuesto / derecho a través de sus dueños.
+// común) y DESCARTAR; HU #12630: los pagos de SOAT / impuesto / derecho a través de sus dueños;
+// HU #12631: la fila documental de los honorarios (trámite digital, logística, servicios adicionales).
 //
 // El esqueleto de `aplicar` es todo lo que NO depende del concepto: las guardas (404 → 409 ya_resuelto
 // → 400 datos_invalidos), la confirmación de campos por la persona (`confirmar` de revisiones: los
@@ -12,9 +13,11 @@
 // destino (409 `ya_pagado` / `destino_no_admite` con `puedeAdjuntar`, ANTES de subir nada a S3 y otra
 // vez bajo el bloqueo del trámite) y la escritura del dueño —`conciliar` dentro de la tx (impuesto);
 // `aplicarFacturaSoat` → `marcarPagado` y `registrarDesdeRevision` tras el commit (abren su propia tx
-// y necesitan ver el soporte atado)—. Los honorarios (HU-3) siguen saliendo por `aplicarPago`: 409
-// `destino_no_admite` con `puedeAdjuntar: true`. `esPago = false` (adjuntar documentación, D3) se
-// cierra aquí entero, aunque el destino esté pagado (AC4).
+// y necesitan ver el soporte atado)—. Los HONORARIOS no tienen dueño: el pago vive en la propia fila
+// (`flito-comprobantes.honorarios.ts`, HU #12631): 400 `valor_requerido` antes de S3, 409
+// `tramite_liquidado` bajo el bloqueo del trámite, tarifa de referencia + diferencia al cerrar, y el
+// 23505 del índice único parcial traducido a 409 `valor_ya_documentado`. `esPago = false` (adjuntar
+// documentación, D3) se cierra aquí entero, aunque el destino esté pagado (AC4).
 //
 // Si el dueño falla TRAS el commit (carrera contra otro pago del mismo SOAT, por ejemplo), la fila del
 // comprobante vuelve a `pendiente` (compensación) y la persona recibe el 409 con lo que dijo el dueño:
@@ -39,6 +42,8 @@ import { bloquearTramite, TramiteNoEncontradoError, type Tx } from '../finanzas-
 import { columnasDeLectura, ComprobanteError, detalle, type ComprobanteCtx } from './flito-comprobantes.service.js';
 import { CARPETA_COMPROBANTES } from './flito-comprobantes.carga.js';
 import { comprobarDestinoPago, pagarEnTx, pagarTrasCommit, tieneDueno, type DestinoPago, type PagoArgs } from './flito-comprobantes.duenos.js';
+import { esHonorario } from './flito-comprobantes.expr.js';
+import { exigirNoLiquidado, traducirDuplicado, valorDocumentalDe, valorRequerido, type ValorDocumental } from './flito-comprobantes.honorarios.js';
 
 const log = loggerFor('flito-comprobantes-aplicar');
 
@@ -75,17 +80,6 @@ export const motivoSchema = z.object({ motivo: z.string().trim().min(5).max(500)
 const noEncontrado = (que = 'El comprobante no existe') => new ComprobanteError(404, CodigoErrorComprobante.NO_ENCONTRADO, que);
 const yaResuelto = () => new ComprobanteError(409, CodigoErrorComprobante.YA_RESUELTO, 'El comprobante ya no está pendiente');
 const datosInvalidos = (msg: string) => new ComprobanteError(400, CodigoErrorComprobante.DATOS_INVALIDOS, msg);
-
-/**
- * El eslabón declarado de la HU #12629, que la #12630 cerró para SOAT / impuesto / derecho: los
- * HONORARIOS siguen respondiendo 409 con `puedeAdjuntar: true` hasta HU-3, que sustituye esta salida
- * por su fila documental sin tocar el esqueleto.
- */
-export function aplicarPago(concepto: ConceptoCosto): never {
-  throw new ComprobanteError(409, CodigoErrorComprobante.DESTINO_NO_ADMITE, `El pago de ${concepto} aún no se aplica desde aquí`, {
-    detalle: 'Los pagos se aplican en la siguiente entrega', puedeAdjuntar: true,
-  });
-}
 
 // ─────────────────────────── Confirmación de campos ──────────────────────────
 
@@ -194,13 +188,14 @@ function fechaPagoDe(fechaDocumento: string | null): Date | null {
 }
 
 /**
- * `POST /:id/aplicar` (AC7 de #12629; pagos de #12630). Orden: 404 → 409 `ya_resuelto` → 400 (Zod +
- * «trámite ≠ sugerido exige motivo») → pago: guarda del dueño con `db` (409 `ya_pagado` /
- * `destino_no_admite`, ANTES de S3; honorarios: eslabón) → recorte y subida del hijo (fuera de la tx)
- * → tx: `FOR UPDATE` sobre el comprobante (sigue pendiente, o 409), `FOR UPDATE` sobre el trámite,
- * guarda del dueño otra vez bajo el bloqueo, soporte del destino, impuesto: `conciliar`, cierre de la
- * fila → tras el commit: SOAT / derecho escriben en su propia tx. Devuelve el detalle. Si la carrera
- * se pierde tras subir el hijo, el objeto de S3 queda huérfano (aceptado: la fila no lo referencia).
+ * `POST /:id/aplicar` (AC7 de #12629; pagos de #12630; honorarios de #12631). Orden: 404 → 409
+ * `ya_resuelto` → 400 (Zod + «trámite ≠ sugerido exige motivo») → pago: guarda del dueño con `db` (409
+ * `ya_pagado` / `destino_no_admite`) o 400 `valor_requerido` del honorario, ANTES de S3 → recorte y
+ * subida del hijo (fuera de la tx) → tx: `FOR UPDATE` sobre el comprobante (sigue pendiente, o 409),
+ * `FOR UPDATE` sobre el trámite, guarda del dueño otra vez bajo el bloqueo (o 409 `tramite_liquidado`
+ * del honorario), soporte del destino, impuesto: `conciliar` / honorario: tarifa + diferencia, cierre
+ * de la fila → tras el commit: SOAT / derecho escriben en su propia tx. Devuelve el detalle. Si la
+ * carrera se pierde tras subir el hijo, el objeto de S3 queda huérfano (aceptado: la fila no lo referencia).
  */
 export async function aplicar(id: string, cuerpo: unknown, ctx: ComprobanteCtx): Promise<ComprobanteDetalleDto> {
   const [c] = await db.select({
@@ -227,10 +222,11 @@ export async function aplicar(id: string, cuerpo: unknown, ctx: ComprobanteCtx):
   const lectura = columnasDeLectura({ extraccion, extraccionDestino: extraccionDestino as never, tipoDestino: null });
   const tipoDocumento = lectura.tipoDocumento ?? c.tipoDocumento ?? null;
 
-  // El dispatcher por concepto (AC4): la guarda del dueño ANTES de subir nada a S3; honorarios → eslabón.
-  const destinoPago: DestinoPago | null = !body.esPago ? null
-    : tieneDueno(body.concepto) ? await comprobarDestinoPago(db, body.tramiteId, body.concepto, tipoDocumento)
-      : aplicarPago(body.concepto);
+  // El dispatcher por concepto (AC4): la guarda del dueño ANTES de subir nada a S3; el honorario exige valor.
+  const honorario = body.esPago && esHonorario(body.concepto) ? body.concepto : null;
+  if (honorario && !lectura.valor) throw valorRequerido();
+  const destinoPago: DestinoPago | null = body.esPago && tieneDueno(body.concepto)
+    ? await comprobarDestinoPago(db, body.tramiteId, body.concepto, tipoDocumento) : null;
 
   const [soporte] = await db.select({ id: flitoSoportes.id, storageKey: flitoSoportes.storageKey, nombreArchivo: flitoSoportes.nombreArchivo, contentType: flitoSoportes.contentType })
     .from(flitoSoportes).where(eq(flitoSoportes.id, c.soporteId)).limit(1);
@@ -241,7 +237,18 @@ export async function aplicar(id: string, cuerpo: unknown, ctx: ComprobanteCtx):
   const cruce = esSugerido ? (c.cruce ?? CruceComprobante.MANUAL) : CruceComprobante.MANUAL;
   const argsBase = { tramiteId: body.tramiteId, extraccionDestino: extraccionDestino ?? {}, motivo: body.motivo ?? null, fechaPago: fechaPagoDe(lectura.fechaDocumento), ctx };
   let args: PagoArgs | null = null;
-  await db.transaction(async (tx) => {
+  try {
+    await db.transaction(async (tx) => { await aplicarEnTx(tx); });
+  } catch (e) {
+    // El 23505 del índice único parcial (otro comprobante ya documenta ese trámite × concepto): 409, no 500.
+    throw honorario ? await traducirDuplicado(e, body.tramiteId, honorario) : e;
+  }
+  if (destinoPago && args) await pagarDespuesDelCommit(id, destinoPago, args);
+  log.info({ comprobanteId: id, tramiteId: body.tramiteId, concepto: body.concepto, esPago: body.esPago, cruce, hijo: hijo !== null, por: ctx.userId },
+    body.esPago ? 'Comprobante aplicado como pago' : 'Comprobante adjuntado como documentación');
+  return detalle(id);
+
+  async function aplicarEnTx(tx: Tx): Promise<void> {
     await bloquearComprobantePendiente(tx, id);
     let tramite: { id: string; idFlit: string };
     try {
@@ -251,24 +258,28 @@ export async function aplicar(id: string, cuerpo: unknown, ctx: ComprobanteCtx):
       throw e;
     }
     // Bajo el bloqueo del trámite, el estado REAL del destino: la carrera con otro pago se pierde aquí.
+    if (honorario) await exigirNoLiquidado(tx, tramite.id);
     const enTx = destinoPago ? await comprobarDestinoPago(tx, tramite.id, destinoPago.concepto, tipoDocumento) : null;
     const fk = enTx ? enTx.fk : await fkDestino(tx, tramite.id, body.concepto);
-    const soporteAplicadoId = await soporteDelDestino(tx, soporte, hijo, fk, enTx?.tipoSoporte ?? TipoSoporte.DOCUMENTO_TRAMITE, ctx);
+    const tipoSoporte = enTx?.tipoSoporte ?? (honorario ? TipoSoporte.COMPROBANTE_PAGO : TipoSoporte.DOCUMENTO_TRAMITE);
+    const soporteAplicadoId = await soporteDelDestino(tx, soporte, hijo, fk, tipoSoporte, ctx);
     const cierre: CierreComprobante = {
       tramiteId: tramite.id, concepto: body.concepto, cruce, motivo: body.motivo ?? null, soporteAplicadoId,
       extraccion, extraccionDestino, tipoDocumento,
       placaLeida: lectura.placaLeida, vinLeido: lectura.vinLeido, idFlitLeido: lectura.idFlitLeido,
       fechaDocumento: lectura.fechaDocumento, numeroDocumento: lectura.numeroDocumento, emisor: lectura.emisor,
     };
+    if (honorario) {
+      // La fila documental (AC1): valor copiado + tarifa de referencia + diferencia; el 23505 del índice se traduce abajo.
+      const documental = await valorDocumentalDe(tx, tramite.id, honorario, lectura.valor!);
+      await cerrarComoPago(tx, id, cierre, lectura.valor, ctx, documental);
+      return;
+    }
     if (!enTx) { await adjuntarDocumentacion(tx, id, cierre, ctx); return; }
     args = { ...argsBase, tramiteId: tramite.id, soporteAplicadoId };
     const pago = await pagarEnTx(tx, enTx, args);
     await cerrarComoPago(tx, id, cierre, pago?.valorPagado ?? lectura.valor, ctx);
-  });
-  if (destinoPago && args) await pagarDespuesDelCommit(id, destinoPago, args);
-  log.info({ comprobanteId: id, tramiteId: body.tramiteId, concepto: body.concepto, esPago: body.esPago, cruce, hijo: hijo !== null, por: ctx.userId },
-    destinoPago ? 'Comprobante aplicado como pago' : 'Comprobante adjuntado como documentación');
-  return detalle(id);
+  }
 }
 
 /**
@@ -309,11 +320,11 @@ interface CierreComprobante {
   emisor: string | null;
 }
 
-/** La fila `aplicado`: lo común a documentar y pagar; `esPago` y `valor` los pone cada camino. */
-async function cerrar(tx: Tx, id: string, d: CierreComprobante, pago: { esPago: boolean; valor: string | null }, ctx: ComprobanteCtx): Promise<void> {
+/** La fila `aplicado`: lo común a documentar y pagar; `esPago`, `valor` y la fila documental los pone cada camino. */
+async function cerrar(tx: Tx, id: string, d: CierreComprobante, pago: { esPago: boolean; valor: string | null }, ctx: ComprobanteCtx, documental?: ValorDocumental): Promise<void> {
   await tx.update(flitoComprobantes).set({
     estado: EstadoComprobante.APLICADO, motivoPendiente: null, detallePendiente: null,
-    tramiteId: d.tramiteId, concepto: d.concepto, cruce: d.cruce, esPago: pago.esPago, valor: pago.valor,
+    tramiteId: d.tramiteId, concepto: d.concepto, cruce: d.cruce, esPago: pago.esPago, valor: pago.valor, ...documental,
     soporteAplicadoId: d.soporteAplicadoId, extraccion: d.extraccion, extraccionDestino: d.extraccionDestino,
     tipoDocumento: d.tipoDocumento, placaLeida: d.placaLeida, vinLeido: d.vinLeido, idFlitLeido: d.idFlitLeido,
     fechaDocumento: d.fechaDocumento, numeroDocumento: d.numeroDocumento, emisor: d.emisor,
@@ -333,10 +344,11 @@ async function adjuntarDocumentacion(tx: Tx, id: string, d: CierreComprobante, c
 
 /**
  * `esPago = true` (AC5): `es_pago = true` y `valor` como COPIA («valor al aplicar»: lo que el dueño
- * concilió, o lo leído/confirmado). El reporte de costos y la liquidación NO lo leen (F3).
+ * concilió, o lo leído/confirmado). Los honorarios añaden su fila documental (tarifa de referencia,
+ * diferencia y marca; HU #12631). El reporte de costos y la liquidación NO lo leen todavía (F3).
  */
-async function cerrarComoPago(tx: Tx, id: string, d: CierreComprobante, valor: string | null, ctx: ComprobanteCtx): Promise<void> {
-  await cerrar(tx, id, d, { esPago: true, valor }, ctx);
+async function cerrarComoPago(tx: Tx, id: string, d: CierreComprobante, valor: string | null, ctx: ComprobanteCtx, documental?: ValorDocumental): Promise<void> {
+  await cerrar(tx, id, d, { esPago: true, valor }, ctx, documental);
 }
 
 // ─────────────────────────── descartar ───────────────────────────────────────
