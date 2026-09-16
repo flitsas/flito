@@ -17,7 +17,7 @@ salió esta semana?». Es una pantalla de **lectura**: no liquida, no exporta, n
 | Público | Operador de Finanzas / Administrador (escritorio ≥ 1366×768, tema claro y oscuro) |
 | Quién la ve | Quien tenga la página `finanzas_gastos_diarios` (reparto inicial: solo `admin`; el admin la concede desde Roles y permisos). Nunca por nombre de rol |
 | Qué NO es | No es el consolidado del Reporte de costos por día: aquel agrupa por aprobación y manda la liquidación; aquí manda el **día del pago/evento** y no se lee la liquidación (RN-01/RN-03). La ficha lo dice |
-| Gráfica | Reservada a la HU #12625: aquí solo el hueco rotulado |
+| Gráfica | HU #12625 (esta misma pantalla, bajo el total): barras apiladas por día, SVG propio. Ver «Gráfica de evolución diaria» |
 
 ## Qué se ve / qué se calla
 
@@ -50,7 +50,7 @@ flowchart TD
   V -- no --> E1[Error junto al campo · no consulta]
   V -- sí --> L[Skeleton 5 tarjetas + total] --> R{GET gastos-diarios}
   R -- 200 y todo en 0 --> Z[Vacío: Sin gastos entre … · Últimos 30 días]
-  R -- 200 --> F[Cinco tarjetas + rango + Total del periodo + hueco gráfica]
+  R -- 200 --> F[Cinco tarjetas + rango + Total del periodo + gráfica diaria]
   R -- 400 --> E1
   R -- 403 --> N
   R -- otro --> E2[Error con Reintentar]
@@ -84,24 +84,33 @@ flowchart TD
 │ Total con GMF                $ 8.664.520     │                                             │
 │ Incluye todas las categorías (solo si hay tipos desmarcados)                              │
 └──────────────────────────────────────────────────────────────────────────────────────────┘
-┌ FlitCard (HuecoGrafica) ─────────────────────────────────────────────────────────────────┐
-│ Evolución diaria: próximamente                                              (alto fijo 160)│
+┌ FlitCard (GraficaGastosDiarios) ─────────────────────────────────────────────────────────┐
+│ EVOLUCIÓN DIARIA        [■ SOAT] [▨ Impuestos] [⋰ Derechos] [≡ Logística] [╬ Servicios] │
+│ 400.000 ┤                      ▐▌                                                        │
+│ 300.000 ┤          ▐▌          ▐▌      ▐▌                                                │
+│ 200.000 ┤    ▐▌    ▐▌    ▐▌    ▐▌      ▐▌   ▐▌                                (svg 280 px) │
+│ 100.000 ┤ ▐▌ ▐▌ ▐▌ ▐▌ ▐▌ ▐▌ ▐▌ ▐▌ ▐▌   ▐▌   ▐▌ ▐▌                                          │
+│       0 ┼─────────────────────────────────────────────────────────────────────────────   │
+│         18 ago  20 ago  22 ago  …                                                 16 sep │
+│ 3 sep 2026  SOAT 2 · $ 115.000  Derechos 1 · $ 90.000  Logística 3 · $ 135.000  Total del día $ 340.000 │
+│ [Ver como tabla]                                                                         │
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 Tarjeta `TarjetaGasto`: rótulo arriba (`text-[10px] uppercase`, `--flit-text-muted`), cifra `text-2xl
 font-bold tabular-nums` en `--flit-text-primary`, cantidad y valor en la **misma línea** separados por «·»,
-debajo el rótulo de qué cuenta (`text-xs`, `--flit-text-secondary`). Sin color por categoría (ver Descartes).
+debajo el rótulo de qué cuenta (`text-xs`, `--flit-text-secondary`). La tarjeta no lleva color: el color y el
+patrón por categoría son de la gráfica (ver «Gráfica de evolución diaria»).
 
 ### Estados (4)
 
 | Estado | Qué se pinta | Copy exacto |
 |---|---|---|
-| Cargando | `SkeletonGastos`: 5 tarjetas + banda de total con barras (`--flit-border-soft`, `animate-pulse motion-reduce:animate-none`), `role="status" aria-busy="true"`. Filtros ya visibles y operables | `aria-label="Cargando gastos diarios"` |
-| Vacío (200 y las cinco `cantidad` en 0) | `FlitEmpty` en lugar de las tarjetas; el bloque Total **no** se pinta (sería $ 0 tres veces); el hueco de la gráfica sí | «Sin gastos entre el 18 ago y el 16 sep 2026 para **Transportes Andina**.» + botón secundario **Últimos 30 días** (quita `desde/hasta` y `empresas`). Si los filtros ya son los de entrada: «Sin gastos en los últimos 30 días. Cambia el rango o la empresa arriba.» sin botón |
-| Error (5xx/red) | `FlitCard role="alert"` en lugar de tarjetas y total; hueco de la gráfica sigue | «No se pudo cargar el gasto diario.» + `errorMessage(e)` en segunda línea + **Reintentar** (secundario; repite la misma petición) |
+| Cargando | `SkeletonGastos`: 5 tarjetas + banda de total + bloque de la gráfica (alto del svg) con barras (`--flit-border-soft`, `animate-pulse motion-reduce:animate-none`), `role="status" aria-busy="true"`. Filtros ya visibles y operables | `aria-label="Cargando gastos diarios"` |
+| Vacío (200 y las cinco `cantidad` en 0) | `FlitEmpty` en lugar de las tarjetas; el bloque Total **no** se pinta (sería $ 0 tres veces); la tarjeta de la gráfica sí, con «Sin gastos en el rango» centrado | «Sin gastos entre el 18 ago y el 16 sep 2026 para **Transportes Andina**.» + botón secundario **Últimos 30 días** (quita `desde/hasta` y `empresas`). Si los filtros ya son los de entrada: «Sin gastos en los últimos 30 días. Cambia el rango o la empresa arriba.» sin botón |
+| Error (5xx/red) | `FlitCard role="alert"` en lugar de tarjetas y total; la gráfica **no** se pinta (el error se dice una vez) | «No se pudo cargar el gasto diario.» + `errorMessage(e)` en segunda línea + **Reintentar** (secundario; repite la misma petición) |
 | 403 | `NoAccess page="finanzas_gastos_diarios"` a pantalla completa (también si la página se revoca con la pantalla abierta). Sin Reintentar | El de `NoAccess`: «No tienes acceso a Finanzas — Gastos diarios» |
-| Lleno | Cinco tarjetas en orden fijo, línea de rango, Total del periodo, hueco de gráfica | Ver wireframe |
+| Lleno | Cinco tarjetas en orden fijo, línea de rango, Total del periodo, gráfica de evolución diaria | Ver wireframe |
 
 **400 no es «error»:** el cliente valida antes y no consulta. Si aun así llega un 400 (URL a mano),
 `parametro` se mapea al campo Periodo y se pinta como validación, no como alerta global.
@@ -113,7 +122,7 @@ debajo el rótulo de qué cuenta (`text-xs`, `--flit-text-secondary`). Sin color
 | Empresa (`<select className={flitInp}>`) | Opciones de `GET /finanzas/reporte-costos/facetas` (`empresas[].valor` = NITs separados por coma, `nombre` visible). «Todas las empresas» = sin `empresas` en la URL. Mientras cargan: «Cargando empresas…»; si la faceta falla: solo «Todas las empresas» y sin romper la pantalla |
 | Periodo (`RangoFechas etiqueta="Periodo"`) | Un solo rango; el calendario invierte si el fin cae antes del inicio. Con inicio y sin fin («→ …») **no se consulta**. «Quitar el rango» = volver a los últimos 30 días (sin `desde/hasta`) |
 | Validación del rango (bajo el campo, `role="alert"`, `--flit-danger`, `aria-describedby`) | `hasta < desde` (solo posible por URL): «La fecha final es anterior a la inicial.» · más de 366 días: «El periodo no puede superar 366 días. Acorta el rango.» Mientras es inválido, las tarjetas conservan el **último resultado válido** y la línea de rango sigue diciendo el rango cargado |
-| Tipo de gasto (`FlitPillGroup` + `FlitPillButton pressed`) | Cinco pills, todas `aria-pressed="true"` al entrar. Desmarcar oculta su tarjeta **sin petición**; el total no cambia y aparece «Incluye todas las categorías». Con las cinco desmarcadas: en el hueco de tarjetas «Ningún tipo de gasto marcado.» + botón secundario **Ver los cinco** |
+| Tipo de gasto (`FlitPillGroup` + `FlitPillButton pressed`) | Cinco pills, todas `aria-pressed="true"` al entrar. Desmarcar oculta su tarjeta y su segmento en la gráfica **sin petición** (la leyenda de la gráfica es el mismo control); el total no cambia y aparece «Incluye todas las categorías». Con las cinco desmarcadas: en el hueco de tarjetas «Ningún tipo de gasto marcado.» + botón secundario **Ver los cinco** |
 | Limpiar filtros (`flitBtnSecondary`, `ml-auto`) | Habilitado solo si algo difiere del arranque; vuelve a Todas / últimos 30 días / cinco marcadas |
 | ¿Qué cuenta cada categoría? (`Link` de texto en `actions` del header) | A `/flito/ayuda/finanzas_gastos_diarios`; solo si `puedeVerEntradaAyuda` |
 | URL (`useSearchParams`, `replace`) | `desde`, `hasta` (`YYYY-MM-DD`), `empresas` (NITs), `tipos` (subconjunto de `soat,impuesto,derecho,logistica,serviciosAdicionales`; omitido = las cinco). Sin PII: los NITs son de empresas y ya viajan igual en el reporte |
@@ -141,7 +150,7 @@ Reporte de costos, con el mismo `hasPage`. No hay funciones (`hasFuncion`) porqu
 
 | Reusa | Nace en `apps/web/src/components/finanzas/gastos-diarios/` |
 |---|---|
-| `flit/PageHeaderCard`, `flit/flitPageKit` (`FlitCard`, `FlitEmpty`, `FlitPillGroup`, `FlitPillButton`, `flitInp`, `flitBtnSecondary`), `flit/RangoFechas`, `components/NoAccess`, `lib/pesos`, `lib/api.errorMessage`, `finanzas/tiposReporteCostos` (`Facetas`, `ALTO_CONTROL`) | `tiposGastosDiarios.ts` (las cinco categorías en orden: clave, rótulo, rótulo de conteo, `aria` en singular/plural, y tipos de filtros), `FiltrosGastosDiarios.tsx`, `TarjetaGasto.tsx`, `TotalPeriodo.tsx`, `HuecoGrafica.tsx`, `SkeletonGastos.tsx`, `useGastosDiarios.ts` (URL ↔ estado, validación, fetch, reintento) |
+| `flit/PageHeaderCard`, `flit/flitPageKit` (`FlitCard`, `FlitEmpty`, `FlitPillGroup`, `FlitPillButton`, `flitInp`, `flitBtnSecondary`), `flit/RangoFechas`, `components/NoAccess`, `lib/pesos`, `lib/api.errorMessage`, `finanzas/tiposReporteCostos` (`Facetas`, `ALTO_CONTROL`) | `tiposGastosDiarios.ts` (las cinco categorías en orden: clave, rótulo, rótulo de conteo, `aria` en singular/plural, y tipos de filtros), `FiltrosGastosDiarios.tsx`, `TarjetaGasto.tsx`, `TotalPeriodo.tsx`, `SkeletonGastos.tsx`, `useGastosDiarios.ts` (URL ↔ estado, validación, fetch, reintento); gráfica (HU #12625): `geometriaGrafica.ts` (puro), `GraficaGastosDiarios.tsx`, `PatronesSerie.tsx`, `BarrasDias.tsx`, `DetalleDia.tsx`, `LeyendaGrafica.tsx`, `TablaGrafica.tsx` |
 | Página | `apps/web/src/pages/FinanzasGastosDiarios.tsx` (orquesta, como `FinanzasReporteCostos`) |
 | Ayuda | `content/ayuda/catalogo.ts`: entrada `finanzas_gastos_diarios` (grupo finanzas, tras Reporte de costos) + `content/ayuda/finanzas_gastos_diarios.md` |
 
@@ -156,7 +165,40 @@ el dato:** del pago o del evento, **no de la liquidación**; por eso puede no co
 costos, que agrupa por fecha de aprobación y usa los valores sellados. (3) **El GMF es estimado:** 4×1000
 sobre la suma; el banco lo causa por movimiento y el valor real está en el extracto. (4) Los cuatro estados.
 
+### Gráfica de evolución diaria (HU #12625)
+
+Ocupa el sitio del antiguo hueco, en una `FlitCard` bajo el total, y lee la MISMA respuesta y los MISMOS
+filtros que las tarjetas (ninguna petición propia).
+
+- **Forma:** una barra apilada por día del rango (el día en 0 es una barra vacía en su sitio; el eje no se
+  comprime), segmentos de abajo arriba en el orden fijo SOAT · Impuestos · Derechos · Logística · Servicios.
+  Eje Y en pesos con miles (marcas redondas), eje X con una etiqueta cada N días (`pasoEtiquetas`: a 366 días
+  y 1366 px, cada ~17). SVG propio con `viewBox` al ancho medido; alto fijo 280 px.
+- **Color + patrón + rótulo:** un token por serie en `flit-tokens.css` (`--flit-serie-soat|impuesto|derecho|
+  logistica|servicios`), derivado por `var()` de `--flit-blue-ink`, `--flit-cyan-ink`, `--flit-success-ink`,
+  `--flit-warning-ink`, `--flit-draft` (claro) y `--flit-blue-text`, `--flit-cyan`, `--flit-green`,
+  `--flit-warning`, `--flit-draft` (oscuro); todos ≥ 3,97:1 sobre `--flit-bg-card`. Cada serie lleva además
+  su patrón (sólido, rayas, puntos, líneas, cruz): se distingue sin color. Ejes y rejilla en
+  `--flit-border-soft` / `--flit-border-input`; rótulos en `--flit-text-muted`.
+- **Leyenda = filtro:** cinco `FlitPillButton pressed` con la muestra del patrón; pulsar una llama al mismo
+  `alternarTipo` que las pills del filtro (`tipos` en la URL, sin petición). Oculta → pill inactiva con la
+  muestra atenuada, el segmento desaparece de todas las barras y el eje Y se reescala a lo visible.
+- **Detalle por día:** puntero (un solo `mousemove` en el svg) o foco de teclado resaltan la ranura del día y
+  pintan debajo día, cantidad · valor por categoría visible y total del día (`Monto`). Alto mínimo fijo.
+- **Vacío / cargando / error:** «Sin gastos en el rango» centrado al alto del svg; skeleton del bloque en
+  `SkeletonGastos`; en error la tarjeta no se pinta.
+
 ## Accesibilidad
+
+- Gráfica (HU #12625): `<figure aria-label="Gastos diarios del 18 ago al 16 sep 2026: 5 categorías, total
+  $ 5.873.400" aria-describedby="gastos-grafica-tabla">` (es `figure`, no `role="img"`: dentro hay controles
+  y `role="img"` los volvería presentacionales). Barras en `role="group" aria-label="Barras por día"`, un
+  `<g role="img" aria-label="3 sep 2026: SOAT 2 pagados, $ 115.000; … Total del día $ 340.000" tabindex>` por
+  día con roving tabindex (Tab entra a UN día; ←/→ recorren; Home/End extremos; foco visible con
+  `--flit-border-focus`). El día activo se anuncia en `<p role="status" aria-live="polite">` fuera del svg.
+  Leyenda: `role="group" aria-label="Leyenda"`, pills `aria-pressed`. Tabla equivalente (día × visibles +
+  total) SIEMPRE en el DOM: botón «Ver como tabla» `aria-expanded aria-controls`, cerrada es `sr-only`
+  (no `<details>`, que la esconde al lector). axe sin violaciones con `QA_AXE_CDN=1`.
 
 - Cada tarjeta: `<section role="region" aria-label="SOAT: 12 pagados, 3.450.000 pesos">`; el contenido
   visible va `aria-hidden` para no leerse dos veces. Rótulos aria por categoría: «Impuestos: 7 pagados, … pesos»,
@@ -190,14 +232,17 @@ sobre la suma; el banco lo causa por movimiento y el valor real está en el extr
 - **Pills y no `FiltroMulti` para el tipo de gasto.** `FiltroMulti` lee «vacío = todos», y aquí el arranque es
   «las cinco marcadas» con desmarcado local sin petición; cinco opciones caben en una línea y sirven de
   leyenda para la gráfica que viene. Es kit (`FlitPillButton`), no patrón nuevo.
-- **Sin color por categoría.** Cinco tonos serían adorno; la lectura la da el orden fijo y el rótulo. Si la
-  gráfica (#12625) necesita paleta, se define ahí en tokens y la tarjeta podrá llevar la marca entonces.
+- **Color por categoría, solo en la gráfica** (revierte el descarte de la #12624). Apilar cinco series exige
+  distinguirlas: hay un token por serie con par claro/oscuro, y el color es secundario —cada una lleva
+  patrón y rótulo—. Las tarjetas siguen sin marca de color: allí el orden fijo y el rótulo bastan.
+- **SVG propio, sin dependencia** (decisión slim del architecture-agent para la #12625): una gráfica de
+  barras apiladas no justifica una librería en el presupuesto de `check:bundle`, y el svg sigue el tema
+  con `var()` sin adaptador.
 - **Total como banda, no sexta tarjeta** (disposición B): cabe a 1366 y deja el total en segundo plano
   respecto a las cinco cifras, que son la visita.
 - **Vacío sin bloque Total:** tres «$ 0» no dicen nada; el mensaje ya lo dice.
 - **Validación en cliente, sin consultar:** el 400 del API queda como red de seguridad para URLs a mano.
-- **`serie` no se pinta:** el hueco rotulado evita que la gráfica de la #12625 mueva el layout al llegar.
-- **Sin exportar, sin tabla por día:** no lo pide la HU; la tabla diaria sería la gráfica en peor.
+- **Sin exportar.** La tabla por día existe solo como equivalente accesible de la gráfica («Ver como tabla»).
 
 ```
 HANDOFF

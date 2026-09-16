@@ -1,10 +1,13 @@
 // HU #12624 — Finanzas · Gastos diarios: cinco tarjetas por categoría, total con GMF estimado,
-// filtros en la URL y ficha de ayuda. Backend mockeado con `page.route`; el fixture base responde
+// filtros en la URL y ficha de ayuda. HU #12625 (abajo): la gráfica de evolución diaria apilada por
+// categoría, su leyenda ligada al filtro, teclado, tabla equivalente y axe.
+// Backend mockeado con `page.route`; el fixture base responde
 // `200 []` a lo no mockeado. La página `finanzas_gastos_diarios` la reparte la 0200 solo a `admin`
 // (el fixture admin lleva todas las de `PAGES`); financiera entra sin ella hasta que el admin la
 // conceda desde Roles y permisos (AC2).
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER, FINANCIERA_USER } from '../helpers/auth';
+import { correrAxe, esperarSinViolacionesGraves } from '../helpers/axe';
 
 const celda = (cantidad: number, valor: string) => ({ cantidad, valor });
 /** Totales del AC3/AC4: base 5.850.000 = 3.450.000 + 1.200.000 + 810.000 + 315.000 + 75.000. */
@@ -15,7 +18,22 @@ const TOTALES = {
 };
 const CERO = celda(0, '0.00');
 const TOTALES_CERO = { soat: CERO, impuesto: CERO, derecho: CERO, logistica: CERO, serviciosAdicionales: CERO, base: '0.00', gmfEstimado: '0.00', total: '0.00' };
-const RESPUESTA = { desde: '2026-08-18', hasta: '2026-09-16', serie: [], totales: TOTALES };
+/**
+ * La serie de la gráfica (HU #12625): `n` días desde `desde`, ascendentes. Cada día lleva las cinco
+ * categorías (405.000 en total) salvo el tercero, que va en 0 para probar que conserva su posición.
+ */
+function serieDe(desde: string, n: number) {
+  const [y, m, d] = desde.split('-').map(Number);
+  return Array.from({ length: n }, (_, i) => {
+    const dia = new Date(Date.UTC(y, m - 1, d + i)).toISOString().slice(0, 10);
+    if (i === 2) return { dia, soat: CERO, impuesto: CERO, derecho: CERO, logistica: CERO, serviciosAdicionales: CERO };
+    return {
+      dia, soat: celda(2, '115000.00'), impuesto: celda(1, '50000.00'), derecho: celda(1, '90000.00'),
+      logistica: celda(3, '135000.00'), serviciosAdicionales: celda(1, '15000.00'),
+    };
+  });
+}
+const RESPUESTA = { desde: '2026-08-18', hasta: '2026-09-16', serie: serieDe('2026-08-18', 30), totales: TOTALES };
 const FACETAS = {
   estados: [], tipos: [], organismos: [],
   empresas: [{ valor: '900123456', nombre: 'Transportes Andina' }, { valor: '800111222,800111223', nombre: 'ACME SAS' }],
@@ -114,7 +132,7 @@ test.describe('FLITO — Finanzas · Gastos diarios (HU #12624)', () => {
     await expect(total.getByRole('definition').nth(2)).toHaveText('$ 5.873.400');
     await expect(total.getByText('Incluye todas las categorías')).toHaveCount(0);
 
-    await expect(page.getByText('Evolución diaria: próximamente')).toBeVisible();
+    await expect(page.getByRole('figure', { name: /^Gastos diarios del 18 ago al 16 sep 2026/ })).toBeVisible();
     // Cabe en 1366×768 sin scroll horizontal.
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     // El enlace a la ficha, en la cabecera.
@@ -223,7 +241,10 @@ test.describe('FLITO — Finanzas · Gastos diarios (HU #12624)', () => {
     await page.goto('/finanzas/gastos-diarios?desde=2026-08-18&hasta=2026-09-16&empresas=900123456');
     await expect(page.getByText('Sin gastos entre el 18 ago y el 16 sep 2026 para Transportes Andina.')).toBeVisible();
     await expect(page.getByRole('region', { name: 'Total del periodo' })).toHaveCount(0);
-    await expect(page.getByText('Evolución diaria: próximamente')).toBeVisible();
+    // La gráfica en vacío: solo el mensaje, sin barras ni tabla (HU #12625, AC5).
+    await expect(page.getByText('Sin gastos en el rango')).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Barras por día' })).toHaveCount(0);
+    await expect(page.locator('#gastos-grafica-tabla')).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Últimos 30 días' }).click();
     await expect(page).toHaveURL(/\/finanzas\/gastos-diarios$/);
@@ -267,7 +288,8 @@ test.describe('FLITO — Finanzas · Gastos diarios (HU #12624)', () => {
     await expect(alerta).toContainText('No se pudo cargar el gasto diario.');
     await expect(alerta).toContainText('Base no disponible');
     await expect(tarjetas(page)).toHaveCount(0);
-    await expect(page.getByText('Evolución diaria: próximamente')).toBeVisible();
+    // En error la gráfica no se pinta: el error se dice una vez (HU #12625, AC5).
+    await expect(page.getByRole('figure')).toHaveCount(0);
 
     const antes = peticiones.length;
     fallar = false;
@@ -310,5 +332,179 @@ test.describe('FLITO — Finanzas · Gastos diarios (HU #12624)', () => {
     await expect(articulo).toContainText('el día del pago del SOAT');
     await expect(articulo).toContainText('el día de aprobación del trámite');
     await expect(page.getByRole('link', { name: 'Ir a la pantalla Gastos diarios' })).toHaveAttribute('href', '/finanzas/gastos-diarios');
+  });
+});
+
+test.describe('FLITO — Finanzas · Gastos diarios: gráfica de evolución diaria (HU #12625)', () => {
+  test.use({ viewport: { width: 1366, height: 768 } });
+
+  const figura = (page: Pagina) => page.getByRole('figure', { name: /^Gastos diarios del / });
+  const barras = (page: Pagina) => figura(page).getByRole('group', { name: 'Barras por día' }).getByRole('img');
+  /** Los rótulos del eje de días («18 ago»): `<text>` del svg con día y mes. */
+  const etiquetasEjeX = (page: Pagina) => figura(page).locator('svg text').filter({ hasText: /^\d{1,2} [a-z]{3}$/ });
+  const textosEjeY = async (page: Pagina) => (await figura(page).locator('svg text').allTextContents()).filter((t) => /^\d[\d.]*$/.test(t));
+
+  test('AC1 — una barra por día en orden, apilada por categoría; el día en 0 conserva su posición', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockGastos(page);
+    await page.goto('/finanzas/gastos-diarios');
+    // `pesos` separa el símbolo con NBSP: `\s` lo cubre; un espacio literal no.
+    await expect(figura(page)).toHaveAttribute('aria-label', /^Gastos diarios del 18 ago al 16 sep 2026: 5 categorías, total \$\s5\.873\.400$/);
+
+    const dias = barras(page);
+    await expect(dias).toHaveCount(30);
+    await expect(dias.nth(0)).toHaveAttribute('aria-label', /^18 ago 2026: SOAT 2 pagados, \$\s115\.000; Impuestos 1 pagado, \$\s50\.000; Derechos de trámite 1 pagado, \$\s90\.000; Logística 3 trámites con logística, \$\s135\.000; Servicios adicionales 1 asignado, \$\s15\.000\. Total del día \$\s405\.000$/);
+    await expect(dias.nth(29)).toHaveAttribute('aria-label', /^16 sep 2026:/);
+    // El tercero está en 0: sigue en el índice 2, con su rótulo y sin segmentos (solo la ranura).
+    await expect(dias.nth(2)).toHaveAttribute('aria-label', '20 ago 2026: sin gastos');
+    await expect(dias.nth(2).locator('rect')).toHaveCount(1);
+    await expect(dias.nth(3)).toHaveAttribute('aria-label', /^21 ago 2026:/);
+    // Cinco segmentos apilados (más la ranura) en un día con las cinco; SOAT abajo, Servicios arriba.
+    const rects = dias.nth(0).locator('rect');
+    await expect(rects).toHaveCount(6);
+    const ys = await rects.evaluateAll((els) => els.slice(1).map((r) => Number(r.getAttribute('y'))));
+    expect(ys[0]).toBeGreaterThan(ys[1]);
+    expect(ys[3]).toBeGreaterThan(ys[4]);
+    const rellenos = await rects.evaluateAll((els) => els.slice(1).map((r) => r.getAttribute('fill')));
+    expect(rellenos).toEqual(['url(#gastos-patron-soat)', 'url(#gastos-patron-impuesto)', 'url(#gastos-patron-derecho)', 'url(#gastos-patron-logistica)', 'url(#gastos-patron-serviciosAdicionales)']);
+    // Eje de valor en pesos con miles y eje de días rotulado.
+    expect(await textosEjeY(page)).toContain('600.000');
+    await expect(etiquetasEjeX(page).first()).toHaveText('18 ago');
+    // Sin hex fijo: las series y los ejes se pintan con tokens del tema (AC5).
+    const trazos = await figura(page).locator('svg pattern *, svg line').evaluateAll((els) => els.map((e) => `${e.getAttribute('fill') ?? ''}|${e.getAttribute('stroke') ?? ''}`));
+    expect(trazos.every((t) => !/#[0-9a-f]{3,8}/i.test(t))).toBe(true);
+    expect(trazos.some((t) => t.includes('var(--flit-serie-soat)'))).toBe(true);
+  });
+
+  test('AC2 — la leyenda es el filtro: ocultar «Logística» quita el segmento, atenúa, reescala el eje y NO consulta', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const peticiones = await mockGastos(page);
+    await page.goto('/finanzas/gastos-diarios');
+    await expect(barras(page)).toHaveCount(30);
+    const alMontar = peticiones.length;
+    expect(await textosEjeY(page)).toContain('600.000');
+
+    const leyenda = figura(page).getByRole('group', { name: 'Leyenda' });
+    const filtro = page.getByRole('group', { name: 'Tipo de gasto' });
+    await leyenda.getByRole('button', { name: 'Logística' }).click();
+    await expect(leyenda.getByRole('button', { name: 'Logística' })).toHaveAttribute('aria-pressed', 'false');
+    await expect(filtro.getByRole('button', { name: 'Logística' })).toHaveAttribute('aria-pressed', 'false');
+    await expect(page).toHaveURL(/[?&]tipos=soat%2Cimpuesto%2Cderecho%2CserviciosAdicionales/);
+    await expect(barras(page).nth(0).locator('rect')).toHaveCount(5);
+    await expect(barras(page).nth(0)).toHaveAttribute('aria-label', /Total del día \$\s270\.000$/);
+    await expect(figura(page)).toHaveAttribute('aria-label', /4 categorías, total \$\s5\.873\.400$/);
+    await expect(tarjeta(page, /^Logística:/)).toHaveCount(0);
+    // Reescalado a lo visible: el techo baja de 600.000 a 300.000.
+    await expect.poll(async () => (await textosEjeY(page)).includes('300.000')).toBe(true);
+    expect(await textosEjeY(page)).not.toContain('600.000');
+    expect(peticiones, 'la leyenda no consulta').toHaveLength(alMontar);
+
+    // Y al revés: marcarla en el FILTRO la devuelve a la gráfica y a la leyenda. Un solo estado.
+    await filtro.getByRole('button', { name: 'Logística' }).click();
+    await expect(leyenda.getByRole('button', { name: 'Logística' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(barras(page).nth(0).locator('rect')).toHaveCount(6);
+    await expect(page).not.toHaveURL(/tipos=/);
+    expect(peticiones).toHaveLength(alMontar);
+  });
+
+  test('AC3 — detalle por día: el puntero y el teclado (Tab, →, End) muestran y anuncian el día', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockGastos(page);
+    await page.goto('/finanzas/gastos-diarios');
+    await expect(barras(page)).toHaveCount(30);
+    const estado = figura(page).getByRole('status');
+    await expect(estado).toHaveText('');
+
+    // Puntero sobre la barra del 2026-09-03 (índice 16): un solo listener en el svg. La gráfica
+    // queda bajo el pliegue a 768: hay que traerla a la vista, el ratón no llega fuera del viewport.
+    await barras(page).nth(16).scrollIntoViewIfNeeded();
+    const caja = await barras(page).nth(16).boundingBox();
+    if (!caja) throw new Error('la barra del 3 sep no tiene caja');
+    await page.mouse.move(caja.x + caja.width / 2, caja.y + caja.height / 2);
+    await expect(estado).toHaveText(/^3 sep 2026: SOAT 2 pagados, \$\s115\.000; .* Total del día \$\s405\.000$/);
+    const detalle = figura(page).getByRole('definition');
+    await expect(detalle.first()).toHaveText('3 sep 2026');
+    await expect(detalle.nth(1)).toHaveText('2 · $ 115.000');
+    await expect(detalle.nth(6)).toHaveText('$ 405.000');
+    await page.mouse.move(0, 0);
+    await expect(estado).toHaveText('');
+
+    // Teclado: Tab desde la última pill de la leyenda cae en UNA barra (la primera); → recorre.
+    await figura(page).getByRole('group', { name: 'Leyenda' }).getByRole('button', { name: 'Servicios adicionales' }).focus();
+    await page.keyboard.press('Tab');
+    const enfocada = () => page.evaluate(() => document.activeElement?.getAttribute('aria-label'));
+    expect(await enfocada()).toMatch(/^18 ago 2026:/);
+    await expect(estado).toHaveText(/^18 ago 2026:/);
+    await page.keyboard.press('ArrowRight');
+    expect(await enfocada()).toMatch(/^19 ago 2026:/);
+    await expect(estado).toHaveText(/^19 ago 2026:/);
+    await page.keyboard.press('ArrowRight');
+    await expect(estado).toHaveText('20 ago 2026: sin gastos');
+    await page.keyboard.press('End');
+    await expect(estado).toHaveText(/^16 sep 2026:/);
+    await page.keyboard.press('Home');
+    await expect(estado).toHaveText(/^18 ago 2026:/);
+    // Tab sale de las barras (roving tabindex): el siguiente es «Ver como tabla», no la segunda barra.
+    await page.keyboard.press('Tab');
+    expect(await page.evaluate(() => document.activeElement?.textContent)).toBe('Ver como tabla');
+  });
+
+  test('AC4 — tabla equivalente siempre en el DOM, enlazada por aria-describedby y visible con «Ver como tabla»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockGastos(page);
+    await page.goto('/finanzas/gastos-diarios?tipos=soat,logistica');
+    await expect(figura(page)).toHaveAttribute('aria-describedby', 'gastos-grafica-tabla');
+    const tabla = page.locator('#gastos-grafica-tabla');
+    await expect(tabla).toBeAttached();
+    // Cerrada es `sr-only`: 1×1 px para la vista, entera para el lector (no `display:none`).
+    const anchoCaja = async () => (await tabla.locator('xpath=..').boundingBox())?.width ?? -1;
+    expect(await anchoCaja()).toBeLessThanOrEqual(1);
+    await expect(tabla.locator('tbody tr')).toHaveCount(30);
+
+    const boton = figura(page).getByRole('button', { name: 'Ver como tabla' });
+    await expect(boton).toHaveAttribute('aria-expanded', 'false');
+    await expect(boton).toHaveAttribute('aria-controls', 'gastos-grafica-tabla');
+    await boton.click();
+    await expect(tabla).toBeVisible();
+    expect(await anchoCaja()).toBeGreaterThan(300);
+    await expect(figura(page).getByRole('button', { name: 'Ocultar tabla' })).toHaveAttribute('aria-expanded', 'true');
+    await expect(tabla.locator('thead th')).toHaveText(['Día', 'SOAT', 'Logística', 'Total del día']);
+    const fila = tabla.locator('tbody tr').nth(0);
+    await expect(fila.locator('th')).toHaveText('18 ago 2026');
+    await expect(fila.locator('td')).toHaveText(['2 · $ 115.000', '3 · $ 135.000', '$ 250.000']);
+    await expect(tabla.locator('tbody tr').nth(2).locator('td').last()).toHaveText('$ 0');
+    await figura(page).getByRole('button', { name: 'Ocultar tabla' }).click();
+    await expect(tabla).toBeAttached();
+    await expect.poll(anchoCaja).toBeLessThanOrEqual(1);
+  });
+
+  test('AC1 — 366 días: una barra por día, etiquetas espaciadas y cabe en 1366 sin scroll horizontal', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockGastos(page, { body: { desde: '2025-09-16', hasta: '2026-09-16', serie: serieDe('2025-09-16', 366), totales: TOTALES } });
+    await page.goto('/finanzas/gastos-diarios?desde=2025-09-16&hasta=2026-09-16');
+    await expect(barras(page)).toHaveCount(366);
+    await expect(figura(page)).toHaveAttribute('aria-label', /^Gastos diarios del 16 sep 2025 al 16 sep 2026:/);
+    const etiquetas = etiquetasEjeX(page);
+    const n = await etiquetas.count();
+    expect(n).toBeGreaterThanOrEqual(10);
+    expect(n).toBeLessThanOrEqual(30);
+    // Ninguna etiqueta pisa a la siguiente.
+    const cajas = await etiquetas.evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((r) => ({ x: r.left, fin: r.right })));
+    for (let i = 1; i < cajas.length; i += 1) expect(cajas[i].x).toBeGreaterThan(cajas[i - 1].fin);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    const svg = figura(page).locator('svg').first();
+    const caja = await svg.boundingBox();
+    expect(caja && caja.x + caja.width <= 1366).toBe(true);
+  });
+
+  test('AC4 — axe (QA_AXE_CDN=1) no reporta violaciones en la página con la gráfica y la tabla abierta', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockGastos(page);
+    await page.goto('/finanzas/gastos-diarios');
+    await expect(barras(page)).toHaveCount(30);
+    await figura(page).getByRole('button', { name: 'Ver como tabla' }).click();
+    const violaciones = await correrAxe(page);
+    esperarSinViolacionesGraves(violaciones, 'Gastos diarios con gráfica');
+    expect(violaciones, 'ninguna violación, ni leve').toEqual([]);
   });
 });
