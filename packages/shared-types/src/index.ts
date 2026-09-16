@@ -121,6 +121,8 @@ export * from './flito-conciliacion.js';
 export * from './flito-cola-export.js';
 // Carga masiva SOAT/impuestos: topes de archivos, bytes, cuerpo HTTP y tandas (HU #12050 / #12051).
 export * from './carga-masiva.js';
+// La carpeta del ZIP declara la fase del recibo de impuesto (HU #12614 / #12615): la MISMA regla en el API y en el navegador.
+export * from './flito-recibos-carpetas.js';
 // Historial consultable de cambios de usuarios, roles y permisos (HU #12171, ADR-0014): lista
 // blanca de campos, forma del par antes/después y el DTO que sirve `GET /api/users/auditoria`.
 export * from './permisos-auditoria.js';

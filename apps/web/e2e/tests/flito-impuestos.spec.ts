@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import JSZip from 'jszip';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER, AUDITOR_USER, GESTOR_IMPUESTOS_USER, FUNCIONES_POR_ROL } from '../helpers/auth';
 
@@ -952,9 +953,10 @@ test.describe('FLITO — Impuestos · fases del recibo (HU #12592)', () => {
     await expect(modal.getByRole('checkbox', { name: /sin marca de agua/i })).toHaveCount(0);
     await expect(modal.getByText(/detect/i)).toHaveCount(0);
     await expect(modal.getByText(/los que cuadran pasan a Pagado, el resto va a revisión/)).toHaveCount(0);
-    // La ayuda del ZIP va SIEMPRE bajo el selector, antes de elegir nada (ux slim).
+    // La ayuda del ZIP va SIEMPRE bajo el selector, antes de elegir nada (ux slim). Desde la HU
+    // #12615 nombra las carpetas reales del organismo.
     await expect(modal.getByText(/En un ZIP manda la carpeta de cada recibo/)).toBeVisible();
-    await expect(modal.getByText(/sin carpeta reconocible/)).toBeVisible();
+    await expect(modal.getByText(/carpetas que no digan ninguna de las dos/)).toBeVisible();
 
     // Teclado: con el foco en el radio marcado, la flecha cambia de valor en un solo gesto.
     await grupo.getByRole('radio', { name: 'Pago' }).focus();
@@ -1332,6 +1334,162 @@ test.describe('FLITO — Impuestos · recibo de caja (HU #12592)', () => {
   });
 });
 
+// ─────────────────────── HU #12615 — «Fase no coincide», aviso de carpetas y copy ───────────────────────
+
+/** ZIP de verdad, comprimido en el proceso de test: el navegador lo abre con su propio JSZip. */
+async function zipCon(entradas: Record<string, string>): Promise<Buffer> {
+  const zip = new JSZip();
+  for (const [ruta, contenido] of Object.entries(entradas)) zip.file(ruta, contenido);
+  return zip.generateAsync({ type: 'nodebuffer' });
+}
+
+const archivoZip = (nombre: string, buffer: Buffer) => ({ name: nombre, mimeType: 'application/zip', buffer });
+
+const DETALLE_PAGO_SIN_SELLO = 'No se ve el sello PAGADO; súbelo con la fase Liquidación.';
+const DETALLE_LIQUIDACION_CON_SELLO = 'Tiene sello PAGADO; súbelo con la fase Pago.';
+const AVISO_CARPETA = /no dice si son liquidaciones o pagos/;
+
+async function abrirModalCarga(page: import('@playwright/test').Page) {
+  await loginAs(page, OPERACIONES_USER);
+  await mock(page);
+  await page.goto('/flito/impuestos');
+  await page.getByRole('button', { name: 'Cargar recibos (masivo)' }).click();
+  return page.getByRole('dialog', { name: 'Carga masiva de recibos de impuesto' });
+}
+
+test.describe('FLITO — Impuestos · «Fase no coincide», aviso de carpetas y copy (HU #12615)', () => {
+  test('AC2 · TC-06 · el chip «Fase no coincide N» es el séptimo, se acumula entre tandas y cada fila trae el motivo del servidor tal cual', async ({ page }) => {
+    const modal = await abrirModalCarga(page);
+    let tanda = 0;
+    await page.route(/\/api\/flito\/impuestos\/recibos$/, (route) => {
+      tanda += 1;
+      const faseNoCoincide = tanda === 1
+        ? [{ archivo: 'f1.pdf', detalle: DETALLE_PAGO_SIN_SELLO }]
+        : [{ archivo: 'f6.pdf', detalle: DETALLE_LIQUIDACION_CON_SELLO }];
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...OCR_VACIO, faseNoCoincide }) });
+    });
+    await modal.locator('input[type="file"]').setInputFiles(
+      Array.from({ length: 6 }, (_, i) => ({ name: `f${i + 1}.pdf`, mimeType: 'application/pdf' as const, buffer: Buffer.from('%PDF-1.4 x') })),
+    );
+    await modal.getByRole('button', { name: 'Subir y procesar' }).click();
+    await expect(modal.getByRole('button', { name: 'Listo' })).toBeVisible();
+    expect(tanda).toBe(2);
+
+    // Acumulado entre tandas (mutante M-acumula: fusionar sin `faseNoCoincide` → «Fase no coincide 1»).
+    await expect(modal.getByText('Fase no coincide 2', { exact: true })).toBeVisible();
+    // Séptimo chip, tras «Sin asociar»: el orden de los chips es el de las filas.
+    const chips = modal.locator('.flex.flex-wrap > *');
+    await expect(chips).toHaveCount(7);
+    await expect(chips.nth(5)).toHaveText('Sin asociar 0');
+    await expect(chips.nth(6)).toHaveText('Fase no coincide 2');
+    // Filas con el `detalle` literal, con su punto final; sin texto propio ni botón.
+    const filas = modal.getByRole('row').filter({ hasText: 'Fase no coincide' }).filter({ hasText: /\.pdf/ });
+    await expect(filas).toHaveCount(2);
+    await expect(modal.getByRole('row').filter({ hasText: 'f1.pdf' })).toContainText(DETALLE_PAGO_SIN_SELLO);
+    await expect(modal.getByRole('row').filter({ hasText: 'f6.pdf' })).toContainText(DETALLE_LIQUIDACION_CON_SELLO);
+    await expect(modal.getByRole('button', { name: /reintentar|otra fase/i })).toHaveCount(0);
+  });
+
+  test('AC2 · TC-07 · «Fase no coincide 0» se pinta como las demás, también si la respuesta no trae la clave', async ({ page }) => {
+    const modal = await abrirModalCarga(page);
+    // Mock VIEJO: sin `faseNoCoincide` ni `carpetasSinFase` (servidor sin desplegar) → 0 y sin nota, sin crash.
+    await page.route(/\/api\/flito\/impuestos\/recibos$/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(OCR_VACIO) }));
+    await modal.locator('input[type="file"]').setInputFiles([{ name: 'uno.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 x') }]);
+    await modal.getByRole('button', { name: 'Subir y procesar' }).click();
+    await expect(modal.getByText('Fase no coincide 0', { exact: true })).toBeVisible();
+    await expect(modal.getByText('No se procesó ningún archivo.')).toBeVisible();
+    await expect(modal.getByText(/no decían? si eran liquidaciones o pagos/)).toHaveCount(0);
+  });
+
+  test('AC3 · TC-08 · el aviso por carpeta no reconocida sale antes de enviar, una línea por carpeta raíz, no bloquea y sigue al selector', async ({ page }) => {
+    const modal = await abrirModalCarga(page);
+    await page.route(/\/api\/flito\/impuestos\/recibos$/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...OCR_VACIO, faseNoCoincide: [], carpetasSinFase: [] }) }));
+    const zip = await zipCon({
+      'otros/a.pdf': '%PDF-1.4 a', '2026/b.pdf': '%PDF-1.4 b', 'SIN MARCA/c.pdf': '%PDF-1.4 c', 'otros/d.pdf': '%PDF-1.4 d',
+      'liquidaciones_pagadas/e.pdf': '%PDF-1.4 e', 'SIN MARCA DE AGUA/f.pdf': '%PDF-1.4 f',
+    });
+    await modal.locator('input[type="file"]').setInputFiles([archivoZip('agosto.zip', zip)]);
+    await expect(modal.getByText(/^6 archivos de «agosto\.zip» · /)).toBeVisible();
+
+    // Una línea por carpeta RAÍZ (otros aparece dos veces → una línea); las reconocidas y la
+    // negación («SIN MARCA DE AGUA») no avisan. Con Pago (defecto) el paréntesis dice (Pago).
+    const avisos = modal.getByText(AVISO_CARPETA);
+    await expect(avisos).toHaveCount(2);
+    await expect(avisos.nth(0)).toHaveText('La carpeta «otros» no dice si son liquidaciones o pagos: sus recibos tomarán la fase seleccionada (Pago).');
+    await expect(avisos.nth(1)).toHaveText('La carpeta «2026» no dice si son liquidaciones o pagos: sus recibos tomarán la fase seleccionada (Pago).');
+    // Región `status`/`polite`, no `alert`: nada falló y la primaria sigue habilitada.
+    await expect(modal.getByRole('status').filter({ hasText: AVISO_CARPETA })).toHaveCount(1);
+    await expect(modal.getByRole('alert')).toHaveCount(0);
+    await expect(modal.getByRole('button', { name: 'Subir y procesar' })).toBeEnabled();
+
+    // Derivado del selector (mutante M-aviso: aviso fijo en «Pago» → cae aquí). El foco no se mueve.
+    await modal.getByRole('radio', { name: 'Liquidación' }).check();
+    await expect(modal.getByRole('radio', { name: 'Liquidación' })).toBeFocused();
+    await expect(avisos.nth(0)).toHaveText(/tomarán la fase seleccionada \(Liquidación\)\.$/);
+    await expect(avisos.nth(1)).toHaveText(/tomarán la fase seleccionada \(Liquidación\)\.$/);
+    await expect(avisos).toHaveCount(2);
+
+    await modal.getByRole('button', { name: 'Subir y procesar' }).click();
+    await expect(modal.getByRole('button', { name: 'Listo' })).toBeVisible();
+    await expect(modal.getByText(AVISO_CARPETA)).toHaveCount(0);
+  });
+
+  test('AC3 · TC-09 · sin carpetas no reconocidas no hay aviso: carpetas reconocidas, ZIP plano y sueltos', async ({ page }) => {
+    const modal = await abrirModalCarga(page);
+    const input = modal.locator('input[type="file"]');
+
+    await input.setInputFiles([archivoZip('a.zip', await zipCon({ 'CON MARCA/1.pdf': '%PDF-1.4', 'SIN MARCA/2.pdf': '%PDF-1.4' }))]);
+    await expect(modal.getByText(/^2 archivos de «a\.zip» · /)).toBeVisible();
+    await expect(modal.getByText(AVISO_CARPETA)).toHaveCount(0);
+
+    await input.setInputFiles([archivoZip('b.zip', await zipCon({ 'recibo-1.pdf': '%PDF-1.4', 'recibo-2.pdf': '%PDF-1.4' }))]);
+    await expect(modal.getByText(/^2 archivos de «b\.zip» · /)).toBeVisible();
+    await expect(modal.getByText(AVISO_CARPETA)).toHaveCount(0);
+
+    await input.setInputFiles([
+      { name: 'uno.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4') },
+      { name: 'pagado.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4') },
+    ]);
+    await expect(modal.getByText(/^2 archivos · /)).toBeVisible();
+    await expect(modal.getByText(AVISO_CARPETA)).toHaveCount(0);
+    await expect(modal.getByRole('button', { name: 'Subir y procesar' })).toBeEnabled();
+  });
+
+  test('AC3 · TC-10 · la nota del resumen nombra cada carpeta sin fase UNA vez aunque venga en cada tanda', async ({ page }) => {
+    const modal = await abrirModalCarga(page);
+    let tandas = 0;
+    await page.route(/\/api\/flito\/impuestos\/recibos$/, (route) => {
+      tandas += 1;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...OCR_VACIO, faseNoCoincide: [], carpetasSinFase: ['otros'] }) });
+    });
+    const entradas: Record<string, string> = {};
+    for (let i = 1; i <= 12; i++) entradas[`otros/recibo-${i}.pdf`] = `%PDF-1.4 ${i}`;
+    await modal.locator('input[type="file"]').setInputFiles([archivoZip('agosto.zip', await zipCon(entradas))]);
+    await modal.getByRole('radio', { name: 'Liquidación' }).check();
+    await modal.getByRole('button', { name: 'Subir y procesar' }).click();
+    await expect(modal.getByRole('button', { name: 'Listo' })).toBeVisible();
+    expect(tandas).toBe(3);
+    // Deduplicado al pintar (mutante M5: pintar `carpetasSinFase` tal cual → «otros», «otros» y 1 más).
+    const nota = modal.getByText(/no decía si eran liquidaciones o pagos/);
+    await expect(nota).toHaveCount(1);
+    await expect(nota).toHaveText('La carpeta «otros» no decía si eran liquidaciones o pagos: sus recibos se cargaron con la fase Liquidación.');
+    await expect(modal.getByText(/«otros»/)).toHaveCount(1);
+  });
+
+  test('AC4 · TC-11/12 · el intro dice qué se puede subir y qué hace cada fase, sin describir el proceso; la ayuda del ZIP nombra las carpetas reales', async ({ page }) => {
+    const modal = await abrirModalCarga(page);
+    const intro = modal.getByTestId('intro-carga-recibos');
+    await expect(intro).toHaveText('Se admiten PDF, imágenes (JPG, PNG) o un ZIP: hasta 150 archivos sueltos o 300 dentro de un ZIP, de máximo 15 MB cada uno. Con la fase Liquidación el impuesto queda liquidado (valor y fecha) sin pagarlo. Con la fase Pago el recibo con sello PAGADO lo deja en Pagado.');
+    await expect(intro).not.toHaveText(/5 en 5|computador|tanda|OCR|placa/i);
+    // Énfasis real en los nombres de fase: nombran el valor del selector.
+    await expect(intro.locator('strong')).toHaveText(['Liquidación', 'Pago']);
+    const ayuda = modal.getByRole('group', { name: 'Fase del recibo' }).locator('p');
+    await expect(ayuda).toHaveText('En un ZIP manda la carpeta de cada recibo: «liquidaciones_originales» o «sin marca» → Liquidación; «liquidaciones_pagadas», «pagadas» o «con marca» → Pago. La fase elegida aplica a los archivos sueltos y a las carpetas que no digan ninguna de las dos.');
+  });
+});
+
 test.describe('FLITO — Impuestos · ficha de ayuda (HU #12592, AC7)', () => {
   // Ningún otro test lee el CONTENIDO de la ficha (flito-ayuda-fichas-gestion vigila plantilla y
   // publicación); este es el que la ata a la HU. *Mutante:* dejar la ficha como estaba → cae por
@@ -1340,10 +1498,10 @@ test.describe('FLITO — Impuestos · ficha de ayuda (HU #12592, AC7)', () => {
     const raiz = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../..');
     const md = readFileSync(resolve(raiz, 'apps/web/src/content/ayuda/flito_impuestos.md'), 'utf8');
     expect(md).toMatch(/dos fases/i);
-    expect(md).toMatch(/liquidación del impuesto/i);
-    expect(md).toMatch(/pago con marca/i);
+    expect(md).toMatch(/La \*\*liquidación\*\* es el documento de la hacienda sin sello/);
+    expect(md).toMatch(/El \*\*pago\*\* es el mismo documento con el sello de pagado/);
     expect(md).toMatch(/\*\*Fase del recibo\*\*/);
-    expect(md).toMatch(/\*\*Liquidación\*\* o \*\*Pago\*\*/);
+    expect(md).toMatch(/\(\*\*Pago\*\* viene marcado\)/);
     expect(md).toMatch(/carpeta/i);
     expect(md).toMatch(/\*\*Liquidados\*\*/);
     expect(md).toMatch(/\*\*Liquidado, pendiente de pago\*\*/);
@@ -1353,6 +1511,18 @@ test.describe('FLITO — Impuestos · ficha de ayuda (HU #12592, AC7)', () => {
     expect(md).toMatch(/solo en un impuesto \*\*Solicitado\*\*/);
     expect(md).toMatch(/Si el valor no se pudo leer/);
     expect(md).not.toMatch(/sin marca de agua/i);
+    // HU #12615 (AC5, TC-13): la ficha dice qué subir, las carpetas reales y la categoría nueva, y
+    // ya no describe el proceso. *Mutante:* dejar el paso 6 anterior → cae por «5 en 5» y
+    // «computador» presentes y «Fase no coincide» ausente.
+    expect(md).not.toMatch(/5 en 5|computador|comprimido|tanda/i);
+    expect(md).toMatch(/\*\*150 archivos sueltos\*\*/);
+    expect(md).toMatch(/\*\*300 dentro de un ZIP\*\*/);
+    expect(md).toMatch(/\*\*liquidaciones_originales\*\* o \*\*sin marca\*\* es Liquidación/);
+    expect(md).toMatch(/\*\*liquidaciones_pagadas\*\*, \*\*pagadas\*\* o \*\*con marca\*\* es Pago/);
+    expect(md).toMatch(/se lo avisa antes de enviar/);
+    expect(md).toMatch(/\*\*Sin asociar\*\* y \*\*Fase no coincide\*\*/);
+    expect(md).toMatch(/\*\*Fase no coincide\*\* significa que el sello del documento contradice la fase elegida/);
+    expect(md).toMatch(/\*\*no se guardaron\*\*; vuelva a subirlos/);
     // Sigue en plantilla: 6 secciones, forma «usted», sin tabla ni captura ni endpoint.
     for (const h of ['Qué es', 'Para quién', 'Cómo se entra', 'Pasos', 'Estados', 'Qué no hace']) expect(md).toContain(`## ${h}`);
     expect(md).toMatch(/\busted\b/i);

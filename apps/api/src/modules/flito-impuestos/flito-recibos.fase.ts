@@ -7,7 +7,8 @@
 //      Los tokens de pago mandan sobre los de liquidación («liquidaciones_pagadas» es pago), pero
 //      una negación explícita («sin marca», «sin agua») va antes que todo: «SIN MARCA DE AGUA»
 //      contiene «marca de agua» y aun así es liquidación. Sin token → `null` (fase por defecto, y
-//      `carpetaRaiz` la reporta como carpeta sin fase).
+//      `carpetaRaiz` la reporta como carpeta sin fase). Desde la HU #12615 la regla vive en
+//      `@operaciones/shared-types` (el navegador la comparte); aquí solo se re-exporta.
 //   2. `resolverPlacaRepetida` — dos (o más) archivos de la MISMA placa y la MISMA fase declarada en
 //      un lote (AC5): el sello decide cuál es la liquidación y cuál el pago, sea cual sea la fase
 //      declarada. Con un sello ilegible en el grupo no se adivina: todos a «fase no coincide».
@@ -104,29 +105,11 @@ export function resolverPlacaRepetida(entradas: readonly EntradaPlaca[]): Decisi
   return salida;
 }
 
-/** Solo el directorio de la ruta: el nombre del archivo no declara fase («pagado.pdf» suelto). */
-const directorioDe = (ruta: string): string[] => ruta.split('/').slice(0, -1).filter((s) => s !== '');
-
-// Orden de evaluación (AC6): la negación explícita primero, luego los tokens de pago, luego los de
-// liquidación. `pagos?(?![a-z])` para no casar «propagó»; `pagad` cubre pagado/pagada/pagados.
-const NEGACION = /sin[\s_-]*(?:marca|agua)/;
-const TOKENS_PAGO = /pagad|pagos?(?![a-z])|con[\s_-]*marca|marca[\s_-]*de[\s_-]*agua|con[\s_-]*agua/;
-const TOKENS_LIQUIDACION = /limpi|original|liquidac/;
-
-/** La fase que DECLARA la carpeta de la ruta, o `null` si ninguna palabra la nombra. */
-export function faseDeCarpeta(ruta: string): FaseRecibo | null {
-  const t = directorioDe(ruta).join('/').toLowerCase();
-  if (t === '') return null;
-  if (NEGACION.test(t)) return FaseRecibo.LIQUIDACION;
-  if (TOKENS_PAGO.test(t)) return FaseRecibo.PAGO;
-  if (TOKENS_LIQUIDACION.test(t)) return FaseRecibo.LIQUIDACION;
-  return null;
-}
-
-/** Primer segmento de carpeta de la ruta (`liquidaciones/2026/ABC.pdf` → `liquidaciones`); sin carpeta → `null`. */
-export function carpetaRaiz(ruta: string): string | null {
-  return directorioDe(ruta)[0] ?? null;
-}
+// La regla de carpetas (`faseDeCarpeta`, `carpetaRaiz`) vive desde la HU #12615 en
+// `@operaciones/shared-types`: el navegador la necesita con las MISMAS regex para avisar antes de
+// enviar y para ordenar las liquidaciones delante. Se re-exporta para que el servicio y sus tests
+// sigan leyéndola de aquí.
+export { carpetaRaiz, faseDeCarpeta } from '@operaciones/shared-types';
 
 /** Liquidaciones primero, en sitio y estable (Node conserva el orden relativo del resto). */
 export function liquidacionPrimero<T>(items: T[], faseDe: (item: T) => FaseRecibo): T[] {
