@@ -98,6 +98,10 @@ export const NAV_ITEMS: NavItem[] = [
   // con su valor. Va justo después de Tarifas —mismo dueño, misma zona— y sin `roles`: el slug
   // `flito_servicios_adicionales` ya es de `admin` + `financiera`.
   { page: 'flito_servicios_adicionales', to: '/flito/servicios-adicionales', section: 'finanzas', label: 'Servicios adicionales', keywords: 'servicios adicionales catalogo tipo valor precio paz y salvo diagnostico derecho de peticion financiera tarifa' },
+  // Comprobantes (HU #12612): la puerta única por la que entra cualquier comprobante o soporte de un
+  // trámite y la cola de lo que FLITO leyó. Va en Finanzas —su dueño es quien revisa pagos y
+  // soportes— y sin `roles`: el slug `flito_comprobantes` ya es de `admin` + `financiera` (0198).
+  { page: 'flito_comprobantes', to: '/flito/comprobantes',     section: 'finanzas',      label: 'Comprobantes',            keywords: 'comprobantes comprobante soporte pago factura recibo transferencia ocr lectura carga lote cola pendientes consolidado documento financiera' },
   // Conciliación de boletas SOAT (Feature #11623): va en Finanzas —lo pide el AC1 y además espeja a
   // Bolsas, que también es dominio FLITO con dueño financiero—. Sin `roles`: el slug ya es exclusivo
   // de `admin` + `financiera`, y repetir la regla aquí la pondría en dos sitios que pueden divergir.
