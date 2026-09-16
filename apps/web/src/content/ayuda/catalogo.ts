@@ -1,6 +1,6 @@
 import type { PageSlug } from '../../lib/permissions';
 
-// Catálogo de 19 fichas de Ayuda FLITO (HU #11893; la 19.ª, Roles y permisos, es de la HU #12085). Fuente de verdad de QUÉ puede aparecer
+// Catálogo de 20 fichas de Ayuda FLITO (HU #11893; la 19.ª, Roles y permisos, es de la HU #12085; la 20.ª, Gastos diarios, de la HU #12624). Fuente de verdad de QUÉ puede aparecer
 // en el índice. El orden de cada grupo es el de NAV_ITEMS cuando el ítem existe; si no hay
 // ítem de menú (Compuerta, Tablero FLITO, Credenciales), al final del grupo.
 //
@@ -30,6 +30,7 @@ export type ClaveAyuda =
   | 'flito_tarifas'
   | 'flito_conciliacion'
   | 'finanzas_reporte_costos'
+  | 'finanzas_gastos_diarios'
   | 'siigo_parametrizacion'
   | 'siigo_operacion'
   | 'siigo_credenciales'
@@ -75,6 +76,7 @@ export const CATALOGO_AYUDA: readonly EntradaAyuda[] = [
   { clave: 'flito_tarifas', grupo: 'finanzas', etiqueta: 'Tarifas', resumen: 'Cuánto se le cobra a cada cliente por trámite y logística.', to: '/flito/tarifas', permiso: 'flito_tarifas' },
   { clave: 'flito_conciliacion', grupo: 'finanzas', etiqueta: 'Conciliación', resumen: 'Cruce del recaudo SOAT contra lo emitido.', to: '/flito/conciliacion', permiso: 'flito_conciliacion' },
   { clave: 'finanzas_reporte_costos', grupo: 'finanzas', etiqueta: 'Reporte de costos', resumen: 'Costos por trámite para contabilidad y cobros.', to: '/finanzas/reporte-costos', permiso: 'finanzas_reporte_costos' },
+  { clave: 'finanzas_gastos_diarios', grupo: 'finanzas', etiqueta: 'Gastos diarios', resumen: 'Cuánto se pagó cada día por SOAT, impuestos, derechos, logística y servicios adicionales.', to: '/finanzas/gastos-diarios', permiso: 'finanzas_gastos_diarios' },
   { clave: 'siigo_parametrizacion', grupo: 'finanzas', etiqueta: 'Facturación electrónica · Parametrización', resumen: 'Catálogos, mapeo de conceptos y emisión.', to: '/siigo/parametrizacion', permiso: 'siigo_parametrizacion' },
   { clave: 'siigo_operacion', grupo: 'finanzas', etiqueta: 'Facturación electrónica · Operación', resumen: 'Bandeja de facturas y acciones del día a día.', to: '/siigo/operacion', permiso: 'siigo_operacion' },
   { clave: 'siigo_credenciales', grupo: 'administracion', etiqueta: 'Facturación electrónica · Credenciales', resumen: 'Credenciales de la integración. Solo administración.' },

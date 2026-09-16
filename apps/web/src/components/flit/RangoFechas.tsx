@@ -54,10 +54,12 @@ function huecoInicial(y: number, m: number): number {
 
 const diasDelMes = (y: number, m: number): number => new Date(y, m + 1, 0).getDate();
 
-export default function RangoFechas({ etiqueta, valor, onCambio }: {
+export default function RangoFechas({ etiqueta, valor, onCambio, describedBy }: {
   etiqueta: string;
   valor: Rango;
   onCambio: (r: Rango) => void;
+  /** `aria-describedby` del campo: la validación que una pantalla pinta bajo él (HU #12624). */
+  describedBy?: string;
 }) {
   const hoy = hoyIso();
   // El mes que se ve al abrir: el del inicio elegido, o el actual.
@@ -114,6 +116,7 @@ export default function RangoFechas({ etiqueta, valor, onCambio }: {
         className="flex h-10 cursor-pointer list-none items-center gap-2 rounded-lg border bg-flit-card px-3 text-sm"
         style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
         aria-label={etiqueta}
+        aria-describedby={describedBy}
       >
         <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-muted)' }}>{etiqueta}</span>
         <span className="tabular-nums">{resumen}</span>
