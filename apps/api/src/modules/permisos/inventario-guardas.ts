@@ -96,6 +96,8 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'finanzas', fichero: 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts' },
   // HU #12611: la puerta universal de comprobantes; módulo propio bajo /api/flito/comprobantes.
   { modulo: 'comprobantes', fichero: 'flito-comprobantes/flito-comprobantes.routes.ts' },
+  // HU #12619: viajes adicionales de logística; fichero hermano bajo /api/flito/logistica.
+  { modulo: 'logistica', fichero: 'flito-logistica/flito-logistica-viajes.routes.ts' },
 ];
 
 /** Quita comentarios de bloque y de línea sin tocar el contenido de las cadenas simples. */

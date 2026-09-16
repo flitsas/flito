@@ -129,3 +129,6 @@ export * from './permisos-auditoria.js';
 // Mantenimiento de roles y cuadro rol × función (HU #12084): tipos de enlace y principal, la fila
 // del listado de roles (con `borrable`/`motivoNoBorrable`) y las respuestas del cuadro.
 export * from './permisos-roles.js';
+// Viajes adicionales de logística por trámite (HU #12619): modos de precio, motivos, la fila y el
+// cuerpo del GET, y los códigos de error de sus rutas.
+export * from './flito-viajes-logistica.js';

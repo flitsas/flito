@@ -313,4 +313,9 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'GET', ruta: '/:id', codigo: 'comprobantes.comprobante.ver' },
   { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'GET', ruta: '/:id/archivo', codigo: 'comprobantes.archivo.descargar' },
   { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'POST', ruta: '/:id/releer', codigo: 'comprobantes.comprobante.releer' },
+
+  // ── HU #12619 — flito-logistica/flito-logistica-viajes.routes.ts (fichero hermano, nace reconducido; 3 rutas) ──
+  { fichero: 'flito-logistica/flito-logistica-viajes.routes.ts', metodo: 'GET', ruta: '/tramites/:tramiteId/viajes', codigo: 'logistica.viajes.ver' },
+  { fichero: 'flito-logistica/flito-logistica-viajes.routes.ts', metodo: 'POST', ruta: '/tramites/:tramiteId/viajes', codigo: 'logistica.viajes.registrar' },
+  { fichero: 'flito-logistica/flito-logistica-viajes.routes.ts', metodo: 'DELETE', ruta: '/tramites/:tramiteId/viajes/:viajeId', codigo: 'logistica.viajes.quitar' },
 ];
