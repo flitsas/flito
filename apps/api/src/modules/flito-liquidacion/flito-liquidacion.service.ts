@@ -14,7 +14,7 @@
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import {
   type ConceptoBolsaTransito, esConceptoBolsaTransito, EstadoImpuesto, EstadoSoat,
-  flitoGestionaImpuesto, type ItemServicioSellado, ModalidadOrganismo,
+  flitoGestionaImpuesto, type ItemServicioSellado, ModalidadOrganismo, type ViajeLogisticaSellado,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
@@ -40,6 +40,11 @@ import { viaDeCorreccionDeTramite } from '../siigo/correcciones.service.js';
 import {
   bloquearTramite, type FilaAsignacion, serviciosAsignadosDe, TramiteNoEncontradoError,
 } from '../finanzas-servicios-adicionales/finanzas-servicios-adicionales.service.js';
+// HU #12626 — los viajes ADICIONALES de logística se leen de su módulo con el mismo criterio que los
+// servicios: `viajesDe` fija el orden (`numero ASC`) y la proyección, y dentro de `liquidar()` se
+// lee con el `tx` que ya tomó el `FOR UPDATE` que registrar/quitar también toman (RN-04 de la HU
+// #12619). Leerlos con `db` sellaría un viaje que otro registró entre la previsualización y el sello.
+import { aDto as aDtoViaje, type FilaViaje, viajesDe } from '../flito-logistica/flito-logistica-viajes.service.js';
 
 export class LiquidacionError extends Error {
   constructor(message: string, readonly faltantes: string[] = []) {
@@ -104,6 +109,24 @@ export interface ConceptoServiciosAdicionales extends ConceptoLiquidado {
  */
 export const ORIGEN_SERVICIOS_ADICIONALES = 'asignacion';
 
+/**
+ * El concepto de logística (HU #12626): la tarifa de la compañía es el viaje 1, y cada viaje
+ * ADICIONAL registrado en `flito_tramite_viajes_logistica` se suma con el precio con que se
+ * registró (RN-02 de la HU #12619), no con la tarifa de hoy. `valor` es la SUMA —lo que entra en la
+ * base del GMF, en la bolsa y en la factura—, `tarifa` es el viaje 1 por separado y `viajes` el
+ * desglose congelado de los adicionales.
+ *
+ * `viajes` y `totalViajes` solo valen null al LEER un sello anterior a esta HU (sin snapshot en el
+ * detalle): `calcular` y `liquidar` siempre producen array y número, también vacío y 1.
+ */
+export interface ConceptoLogistica extends ConceptoLiquidado {
+  /** El viaje 1: la tarifa de logística vigente en la fecha de aprobación. null si no aplica o falta. */
+  tarifa: number | null;
+  viajes: ViajeLogisticaSellado[] | null;
+  /** 1 (el incluido) + adicionales; 0 si la compañía autogestiona su logística. */
+  totalViajes: number | null;
+}
+
 export interface CalculoLiquidacion {
   tramiteId: string;
   idFlit: string;
@@ -111,7 +134,7 @@ export interface CalculoLiquidacion {
   impuesto: ConceptoLiquidado;
   derecho: ConceptoLiquidado;
   tramiteDigital: ConceptoLiquidado;
-  logistica: ConceptoLiquidado;
+  logistica: ConceptoLogistica;
   /**
    * Los servicios adicionales del trámite. Nunca bloquea: un trámite sin servicios es lo normal, y
    * `valor: null` dice «no aplica», no «falta algo» — por eso no entra en `faltantes` (AC2).
@@ -244,7 +267,8 @@ function proyeccionCalculo() {
  *  - SOAT / impuesto: el valor pagado. Pendientes o inexistentes, bloquean.
  *  - Derecho de tránsito: el valor real del recibo. Sin recibo, bloquea.
  *  - Trámite digital: tarifa de la compañía. Sin tarifa, «No configurado» y bloquea.
- *  - Logística: tarifa de la compañía, salvo que la compañía autogestione su logística.
+ *  - Logística: tarifa de la compañía, salvo que la compañía autogestione su logística. La tarifa
+ *    es el viaje 1; los viajes adicionales registrados se suman con su precio (HU #12626).
  */
 export async function calcular(tramiteId: string): Promise<CalculoLiquidacion> {
   const [f] = await proyeccionCalculo().where(eq(flitoTramites.id, tramiteId)).limit(1) as FilaCalculo[];
@@ -252,7 +276,10 @@ export async function calcular(tramiteId: string): Promise<CalculoLiquidacion> {
   // Fuera de transacción: esto es la PREVISUALIZACIÓN. `liquidar()` vuelve a leer la puente con su
   // propio `tx` después de bloquear el trámite y recompone la base con esa lectura (AC3).
   const servicios = await serviciosAsignadosDe(db, tramiteId);
-  return calcularDeFila(f, conceptoServicios(servicios));
+  // Los viajes se leen SIEMPRE, gestione o no la logística: quién decide si cuentan es
+  // `conceptoLogistica`, no esta consulta (un autogestionable con filas las ignora).
+  const viajes = await viajesDe(db, tramiteId);
+  return calcularDeFila(f, conceptoServicios(servicios), viajes);
 }
 
 /**
@@ -272,27 +299,78 @@ export function conceptoServicios(filas: FilaAsignacion[]): ConceptoServiciosAdi
   return { valor, origen: ORIGEN_SERVICIOS_ADICIONALES, bloquea: false, items };
 }
 
+/** El sufijo que el origen de la logística lleva cuando hay viajes adicionales; vacío con cero. */
+function sufijoViajes(n: number): string {
+  return n === 0 ? '' : ` + ${n} viaje${n > 1 ? 's' : ''} adicional${n > 1 ? 'es' : ''}`;
+}
+
 /**
- * Recompone base, gravamen y total del cálculo con OTRO concepto de servicios adicionales.
+ * La tarifa de logística (viaje 1) MÁS los viajes adicionales, como concepto (HU #12626).
+ *
+ * `base` es lo que la tarifa resolvió sola —`deTarifa` o «la compañía autogestiona»— y decide qué
+ * hacer con las filas:
+ *  - no gestiona (valor null sin bloquear): las filas se IGNORAN. Un autogestionable no paga
+ *    logística, y si quedaron viajes de una excepción que ya venció, tampoco: `viajes: []`, 0 viajes.
+ *  - bloquea (sin tarifa vigente en la fecha de aprobación): sigue bloqueando con el mismo faltante,
+ *    `valor` null; el desglose se conserva para que la previsualización enseñe qué hay registrado.
+ *  - normal: `valor = tarifa + Σ valor de cada viaje`, con el precio CON QUE SE REGISTRÓ cada uno
+ *    (su `valor`, nunca `tarifaVigente` ni la tarifa de hoy).
+ *
+ * Es pura para poder afirmarla sola; `totalizar` la vuelve a aplicar dentro del sellado.
+ */
+export function conceptoLogistica(base: ConceptoLiquidado, filas: FilaViaje[]): ConceptoLogistica {
+  if (base.valor === null && !base.bloquea) return { ...base, tarifa: null, viajes: [], totalViajes: 0 };
+  const viajes: ViajeLogisticaSellado[] = filas.map((f) => {
+    const { registradoPorId: _interno, ...v } = aDtoViaje(f);
+    return v;
+  });
+  const totalViajes = 1 + viajes.length;
+  if (base.bloquea) return { ...base, valor: null, tarifa: null, viajes, totalViajes };
+  const tarifa = base.valor as number;
+  return {
+    valor: redondear(viajes.reduce((a, v) => a + v.valor, tarifa)),
+    origen: `${base.origen}${sufijoViajes(viajes.length)}`,
+    bloquea: false, tarifa, viajes, totalViajes,
+  };
+}
+
+/**
+ * La inversa exacta de `conceptoLogistica` sobre su propio resultado: la tarifa vuelve a ser el
+ * valor y al origen se le quita el sufijo que `sufijoViajes` le puso (por longitud, no por regex: es
+ * el mismo texto que se compuso, así que no hay ambigüedad). Existe para que `totalizar` pueda
+ * recomponer la logística desde el cálculo previo sin arrastrar un campo interno hasta el detalle.
+ */
+function baseDeLogistica(l: ConceptoLogistica): ConceptoLiquidado {
+  // Solo el caso normal (con tarifa) lleva sufijo: bloqueado y autogestionado conservan su origen.
+  const sufijo = l.tarifa === null ? '' : sufijoViajes(l.viajes?.length ?? 0);
+  return { valor: l.tarifa, origen: l.origen.slice(0, l.origen.length - sufijo.length), bloquea: l.bloquea };
+}
+
+/**
+ * Recompone base, gravamen y total del cálculo con OTRO concepto de servicios adicionales y OTRAS
+ * filas de viajes.
  *
  * Existe porque `liquidar()` relee la puente dentro de su transacción: el cálculo que se previsualizó
  * puede ser de hace unos segundos, y lo que se sella tiene que ser lo que estaba asignado bajo el
  * bloqueo. Es UNA función y no dos sumas parecidas para que la base del sellado y la del cálculo no
  * puedan divergir.
  */
-function totalizar(c: CalculoLiquidacion, servicios: ConceptoServiciosAdicionales): CalculoLiquidacion {
+function totalizar(
+  c: CalculoLiquidacion, servicios: ConceptoServiciosAdicionales, viajes: FilaViaje[],
+): CalculoLiquidacion {
+  const logistica = conceptoLogistica(baseDeLogistica(c.logistica), viajes);
   const baseGmf = redondear(sumar(
-    c.soat.valor, c.impuesto.valor, c.derecho.valor, c.tramiteDigital.valor, c.logistica.valor,
+    c.soat.valor, c.impuesto.valor, c.derecho.valor, c.tramiteDigital.valor, logistica.valor,
     servicios.valor,
   ));
   const valorGmf = redondear(baseGmf * TASA_GMF);
   return {
-    ...c, serviciosAdicionales: servicios, baseGmf, valorGmf, total: redondear(baseGmf + valorGmf),
+    ...c, logistica, serviciosAdicionales: servicios, baseGmf, valorGmf, total: redondear(baseGmf + valorGmf),
   };
 }
 
 async function calcularDeFila(
-  f: FilaCalculo, servicios: ConceptoServiciosAdicionales,
+  f: FilaCalculo, servicios: ConceptoServiciosAdicionales, viajes: FilaViaje[],
 ): Promise<CalculoLiquidacion> {
   const faltantes: string[] = [];
 
@@ -343,9 +421,11 @@ async function calcularDeFila(
 
   // La logística se cobra a toda compañía que no la autogestione, haya habido entrega o no —y a la
   // que sí la autogestiona, en los trámites que le haya encargado a FLITO.
-  const logistica: ConceptoLiquidado = !gestionaLogistica
+  const baseLogistica: ConceptoLiquidado = !gestionaLogistica
     ? { valor: null, origen: 'La compañía autogestiona su logística', bloquea: false }
     : deTarifa(await tarifaDe(f.companiaId, 'logistica', f.tipoTramite, f.fechaAprobacion), etiquetaTipo);
+  // La tarifa es el viaje 1; los adicionales se suman con su precio congelado (HU #12626).
+  const logistica = conceptoLogistica(baseLogistica, viajes);
 
   if (soat.bloquea) faltantes.push(soat.origen);
   if (impuesto.bloquea) faltantes.push(impuesto.origen);
@@ -365,7 +445,7 @@ async function calcularDeFila(
     tramiteId: f.tramiteId, idFlit: f.idFlit,
     soat, impuesto, derecho, tramiteDigital, logistica, serviciosAdicionales: servicios,
     baseGmf: 0, tasaGmf: TASA_GMF, valorGmf: 0, total: 0, faltantes,
-  }, servicios);
+  }, servicios, viajes);
 }
 
 /**
@@ -499,9 +579,24 @@ export async function liquidacionDe(tramiteId: string): Promise<LiquidacionDto |
 
 function aDto(l: typeof flitoLiquidaciones.$inferSelect, idFlit: string): LiquidacionDto {
   const d = (l.detalle ?? {}) as Partial<Record<string, ConceptoLiquidado>>
-    & { serviciosAdicionales?: Partial<ConceptoServiciosAdicionales> };
+    & { serviciosAdicionales?: Partial<ConceptoServiciosAdicionales>; logistica?: Partial<ConceptoLogistica> };
   const concepto = (k: string, valor: string | null): ConceptoLiquidado =>
     d[k] ?? { valor: num(valor), origen: 'Sellado', bloquea: false };
+  // La logística tampoco pasa por `concepto()`: lleva `tarifa` y `viajes` (HU #12626). Un sello
+  // anterior a esta HU no tiene `viajes` en su detalle y se lee con `viajes: null` / `totalViajes:
+  // null` — NUNCA `[]` ni 1, que afirmarían «se selló sin viajes» sobre algo que no se sabe. Y en
+  // ningún caso se reconsulta `flito_tramite_viajes_logistica`: tras un reverso los viajes cambian y
+  // lo sellado no.
+  const logistica: ConceptoLogistica = Array.isArray(d.logistica?.viajes)
+    ? {
+      valor: d.logistica.valor ?? null, origen: d.logistica.origen ?? 'Sellado', bloquea: false,
+      tarifa: d.logistica.tarifa ?? null, viajes: d.logistica.viajes,
+      totalViajes: d.logistica.totalViajes ?? null,
+    }
+    : {
+      valor: num(l.valorLogistica), origen: d.logistica?.origen ?? 'Sellado', bloquea: false,
+      tarifa: null, viajes: null, totalViajes: null,
+    };
   // Los servicios adicionales no pasan por `concepto()`: llevan `items`, que la columna no guarda.
   // El detalle manda y la columna es el respaldo, igual que los otros cinco — una liquidación
   // sellada ANTES de la HU #12546 no tiene la clave y su columna es NULL, y así se lee sin romper.
@@ -526,7 +621,7 @@ function aDto(l: typeof flitoLiquidaciones.$inferSelect, idFlit: string): Liquid
     impuesto: concepto('impuesto', l.valorImpuesto),
     derecho: concepto('derecho', l.valorDerecho),
     tramiteDigital: concepto('tramiteDigital', l.valorTramiteDigital),
-    logistica: concepto('logistica', l.valorLogistica),
+    logistica,
     serviciosAdicionales,
     baseGmf: Number(l.baseGmf), tasaGmf: Number(l.tasaGmf), valorGmf: Number(l.valorGmf),
     total: Number(l.total),
@@ -559,14 +654,20 @@ export async function liquidar(tramiteId: string, usuarioId: number | null): Pro
     // puente, que es lo único que hace que lo sellado sea lo que estaba asignado.
     await bloquearTramite(tx, tramiteId).catch(traducirTramiteNoEncontrado);
     const servicios = conceptoServicios(await serviciosAsignadosDe(tx, tramiteId));
+    // Los viajes adicionales, con el MISMO `tx` y bajo el mismo bloqueo (HU #12626): registrar y
+    // quitar lo toman también, así que nadie mete un viaje entre esta lectura y el COMMIT.
+    const viajes = await viajesDe(tx, tramiteId);
     // Base, gravamen y total se RECOMPONEN con lo que se acaba de leer bajo bloqueo. El cálculo de
-    // arriba solo decidió que no faltaba nada; si alguien asignó un servicio entre medias, lo que se
-    // sella —y lo que alimenta las bolsas— es el importe de esta lectura, no el de aquella.
-    const calculo = totalizar(previo, servicios);
+    // arriba solo decidió que no faltaba nada; si alguien asignó un servicio o registró un viaje
+    // entre medias, lo que se sella —y lo que alimenta las bolsas— es el importe de esta lectura.
+    const calculo = totalizar(previo, servicios, viajes);
 
     const detalle = {
       soat: calculo.soat, impuesto: calculo.impuesto, derecho: calculo.derecho,
-      tramiteDigital: calculo.tramiteDigital, logistica: calculo.logistica,
+      tramiteDigital: calculo.tramiteDigital,
+      // Con `tarifa`, `viajes` (SIEMPRE array, también vacío) y `totalViajes`: el desglose por viaje
+      // se congela aquí y `aDto` lo lee sin volver a la tabla (HU #12626).
+      logistica: calculo.logistica,
       // Se escribe SIEMPRE, también vacía: así `detalle->'serviciosAdicionales'->'items'` existe en
       // todo lo sellado por esta HU y el reporte puede distinguir «cero servicios» (0) de «sellada
       // antes de la HU» (sin clave), en vez de leer lo mismo en los dos casos.
