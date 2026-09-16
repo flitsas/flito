@@ -306,4 +306,11 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts', metodo: 'GET', ruta: '/tramites/:id/servicios-adicionales', codigo: 'finanzas.servicios_adicionales.ver' },
   { fichero: 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts', metodo: 'POST', ruta: '/tramites/:id/servicios-adicionales', codigo: 'finanzas.servicios_adicionales.asignar' },
   { fichero: 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts', metodo: 'DELETE', ruta: '/tramites/:id/servicios-adicionales/:asignacionId', codigo: 'finanzas.servicios_adicionales.quitar' },
+
+  // ── HU #12611 — flito-comprobantes/ (módulo nuevo, nace reconducido; 5 rutas) ──
+  { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'POST', ruta: '/', codigo: 'comprobantes.lote.cargar' },
+  { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'GET', ruta: '/', codigo: 'comprobantes.cola.ver' },
+  { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'GET', ruta: '/:id', codigo: 'comprobantes.comprobante.ver' },
+  { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'GET', ruta: '/:id/archivo', codigo: 'comprobantes.archivo.descargar' },
+  { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'POST', ruta: '/:id/releer', codigo: 'comprobantes.comprobante.releer' },
 ];
