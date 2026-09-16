@@ -78,6 +78,23 @@ Campos:
 Devuelve EXCLUSIVAMENTE este JSON:
 {"placa":{"valor":null,"confianza":null},"valorTotal":{"valor":null,"confianza":null},"numeroRecibo":{"valor":null,"confianza":null},"fechaPago":{"valor":null,"confianza":null},"anioGravable":{"valor":null,"confianza":null}}`;
 
+// ─────────────────────────────── Recibo de caja (HU #12591) ─────────────────
+// El comprobante que entrega la ventanilla de la hacienda al pagar en efectivo o con tarjeta. Es un
+// documento distinto de la declaración: trae el valor recibido, la fecha y un consecutivo de caja, y
+// NO trae la placa (el impuesto ya está identificado: se carga desde su detalle). Sin `placa` en la
+// lista para no invitar al modelo a inventarla.
+export const PROMPT_RECIBO_CAJA = `Extrae los datos de este RECIBO DE CAJA emitido por la ventanilla de una hacienda colombiana al pagar un IMPUESTO VEHICULAR.
+
+Campos:
+- valorTotal: el valor EFECTIVAMENTE RECIBIDO / PAGADO. Búscalo como "TOTAL", "VALOR RECIBIDO", "VALOR PAGADO" o "TOTAL PAGADO".
+    * Si hay varios importes (efectivo, cambio, tarjeta), el que vale es el TOTAL del pago, no el efectivo entregado ni el cambio devuelto.
+    * Entero en pesos, sin puntos, sin comas, sin "$".
+- fechaPago: fecha en que se hizo el pago (ISO YYYY-MM-DD).
+- numeroRecibo: número / consecutivo del recibo de caja. Transcribe exacto.
+
+Devuelve EXCLUSIVAMENTE este JSON:
+{"valorTotal":{"valor":null,"confianza":null},"fechaPago":{"valor":null,"confianza":null},"numeroRecibo":{"valor":null,"confianza":null}}`;
+
 // ─────────────────────────────── Factura de venta ───────────────────────────
 // Porta PATRONES_NUMERO_FACTURA/FECHA_FACTURA/VALOR_VEHICULO. Doble llave: placa Y vin (§8.3). El
 // valorVehiculo es la base gravable — no confundir con el IVA ni el total con impuestos.

@@ -167,7 +167,8 @@ describe('recibos — flujo', () => {
     extraerMock.mockResolvedValueOnce({ ...reciboOk, [CampoImpuesto.VALOR_TOTAL]: campo('634900', 0.3) });
     selectMock.mockReturnValueOnce(chain([candidato]));  // candidato EN_GESTION
     selectMock.mockReturnValueOnce(chain([]));           // dedup por número de recibo
-    const txInsert = vi.fn().mockReturnValueOnce(chain([{ id: 'sop1' }])).mockReturnValueOnce(chain([])).mockReturnValueOnce(chain([])); // soporte + revisión + audit
+    // HU #12591: `aRevision` devuelve el id de la revisión (RETURNING), como el soporte.
+    const txInsert = vi.fn().mockReturnValueOnce(chain([{ id: 'sop1' }])).mockReturnValueOnce(chain([{ id: 'rev1' }])).mockReturnValueOnce(chain([])); // soporte + revisión + audit
     const txUpdate = vi.fn().mockReturnValue(chain([]));
     transactionMock.mockImplementation(async (cb: (tx: unknown) => unknown) => cb({ insert: txInsert, update: txUpdate }));
 

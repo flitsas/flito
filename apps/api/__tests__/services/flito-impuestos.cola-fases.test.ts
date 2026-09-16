@@ -7,7 +7,7 @@
 //         por el MISMO `ensamblar` que la cola (calco de flito-impuestos.cola-certificacion.test.ts; la
 //         cola lanza conteo y página en un `Promise.all` sobre la misma tabla y encolar dos respuestas
 //         para un par sin orden garantizado es el flake que el mock keyed evita).
-//   (iii) El mock keyed ignora el `where`, así que «no cuenta descartados» y «solo los dos tipos» se
+//   (iii) El mock keyed ignora el `where`, así que «no cuenta descartados» y «solo los tipos del catálogo» se
 //         afirman sobre el SQL RENDERIZADO de la consulta a `flito_soportes`, con `ligadosA`.
 //   (iv)  El filtro `liquidadoPendientePago` también se lee del SQL (`espia.condicionesLeidas()`):
 //         el mock devolvería las mismas filas con o sin la condición. Mutante M6 (sin `IS NOT NULL`)
@@ -81,6 +81,12 @@ describe('documentosDe — de los tipos presentes al valor del DTO', () => {
     expect(documentosDe(new Set())).toBeNull();
   });
 
+  it('HU #12591: el recibo de caja cuenta como pago (solo → pago; con liquidación → ambos; con el pago con marca → pago)', () => {
+    expect(documentosDe(new Set([TipoSoporte.RECIBO_CAJA_IMPUESTO]))).toBe('pago');
+    expect(documentosDe(new Set([TipoSoporte.RECIBO_IMPUESTO_SIN_MARCA_AGUA, TipoSoporte.RECIBO_CAJA_IMPUESTO]))).toBe('ambos');
+    expect(documentosDe(new Set([TipoSoporte.RECIBO_CAJA_IMPUESTO, TipoSoporte.RECIBO_IMPUESTO]))).toBe('pago');
+  });
+
   it('un tipo ajeno (factura de venta, comprobante) no cuenta como documento de la hacienda', () => {
     expect(documentosDe(new Set(['factura_venta', 'comprobante_pse']))).toBeNull();
     // Y el literal VIEJO tampoco: la 0196 lo renombró y el servicio ya no lo escribe.
@@ -121,8 +127,10 @@ describe('la cola expone liquidadoEn y documentos (por `ensamblar`, común a col
 
 // ═════════════════ (iii) la consulta a flito_soportes ═══════════════════════════════════════════
 
-describe('la consulta de documentos: solo los dos tipos y sin descartados (leído del SQL)', () => {
-  it('el WHERE liga los dos tipos del catálogo y `descartado = false`', async () => {
+describe('la consulta de documentos: solo los tres tipos y sin descartados (leído del SQL)', () => {
+  // HU #12591 (M-F): sin `RECIBO_CAJA_IMPUESTO` en `TIPOS_DOCUMENTO_IMPUESTO` el set nunca traería
+  // el tipo y `documentosDe` no lo vería, aunque la función pura lo cuente.
+  it('el WHERE liga los tres tipos del catálogo (liquidación, pago con marca, recibo de caja) y `descartado = false`', async () => {
     const espia = crearEspia(kdb);
     escenario([soporte(TipoSoporte.RECIBO_IMPUESTO)]);
 
@@ -134,7 +142,7 @@ describe('la consulta de documentos: solo los dos tipos y sin descartados (leíd
     const deDocumentos = consultas.find((q) => /"flito_soportes"\."tipo"\s+in\s*\(/i.test(q.sql));
     expect(deDocumentos, 'no se encontró la consulta de documentos por tipo').toBeDefined();
     expect(ligadosA(deDocumentos!, '"flito_soportes"."tipo"').sort()).toEqual(
-      [TipoSoporte.RECIBO_IMPUESTO_SIN_MARCA_AGUA, TipoSoporte.RECIBO_IMPUESTO].sort(),
+      [TipoSoporte.RECIBO_IMPUESTO_SIN_MARCA_AGUA, TipoSoporte.RECIBO_IMPUESTO, TipoSoporte.RECIBO_CAJA_IMPUESTO].sort(),
     );
     expect(ligadoA(deDocumentos!, '"flito_soportes"."descartado"')).toBe(false);
     expect(ligadosA(deDocumentos!, '"flito_soportes"."impuesto_id"')).toEqual([ID]);
