@@ -313,6 +313,10 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'GET', ruta: '/:id', codigo: 'comprobantes.comprobante.ver' },
   { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'GET', ruta: '/:id/archivo', codigo: 'comprobantes.archivo.descargar' },
   { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'POST', ruta: '/:id/releer', codigo: 'comprobantes.comprobante.releer' },
+  // HU #12629 — F2 #12606: buscar trámites, aplicar y descartar (+3; 0201).
+  { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'POST', ruta: '/tramites/buscar', codigo: 'comprobantes.tramites.buscar' },
+  { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'POST', ruta: '/:id/aplicar', codigo: 'comprobantes.comprobante.aplicar' },
+  { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'POST', ruta: '/:id/descartar', codigo: 'comprobantes.comprobante.descartar' },
 
   // ── HU #12619 — flito-logistica/flito-logistica-viajes.routes.ts (fichero hermano, nace reconducido; 3 rutas) ──
   { fichero: 'flito-logistica/flito-logistica-viajes.routes.ts', metodo: 'GET', ruta: '/tramites/:tramiteId/viajes', codigo: 'logistica.viajes.ver' },
