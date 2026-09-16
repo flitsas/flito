@@ -18,7 +18,7 @@ import { db } from '../../db/client.js';
 import {
   clients, flitoDerechosTramite, flitoExcepcionesAutogestion, flitoImpuestos, flitoLiquidaciones,
   flitoOrganismoVigencias, flitoSoat, flitoTarifasVigencias, flitoTramiteServiciosAdicionales,
-  flitoTramites, organismosTransitoConfig, vehicles,
+  flitoTramites, flitoTramiteViajesLogistica, organismosTransitoConfig, vehicles,
 } from '../../db/schema.js';
 import { aIso } from '../../shared/utils/fecha-rango.js';
 import { TASA_GMF } from '../flito-liquidacion/flito-liquidacion.service.js';
@@ -118,6 +118,12 @@ export interface FilaReporte extends FacturacionDeFila, ConciliacionSoatDeFila, 
    */
   totalReintegro: number | null;
   totalServicio: number | null;
+  /**
+   * Cuántos viajes de logística lleva la fila, contando el 1 incluido en la tarifa (HU #12627).
+   * `null` solo en una liquidación sellada ANTES del Feature #12617, donde no se sabe; `0` = la
+   * compañía no gestiona logística por FLITO; `>= 1` = el incluido más los adicionales.
+   */
+  logisticaViajesCantidad: number | null;
 }
 
 export interface TotalesReporte {
@@ -211,10 +217,20 @@ export const EXPR_DERECHO = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones
 export const EXPR_DIGITAL = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorTramiteDigital}
   ELSE ${td.valor} END`;
 
+/** `flito_tramite_viajes_logistica`: los viajes ADICIONALES (numero >= 2) del trámite (HU #12619). */
+const VL = flitoTramiteViajesLogistica;
+
+// Logística = la tarifa (viaje 1) MÁS los viajes adicionales registrados (HU #12627), cada uno con el
+// precio con que se registró. Subconsulta correlacionada y no `leftJoin`, por lo mismo que los
+// servicios adicionales de abajo: la tabla tiene N filas por trámite. `lg.valor` NULL sigue dando
+// NULL —«no configurado»— aunque haya viajes: NULL + x es NULL, y `BLOQUEA_LOGISTICA` no cambia.
+//
 // La rama SIN sellar de la logística, UNA instancia compartida por `EXPR_LOGISTICA` (reporte) y
 // `EXPR_LOGISTICA_ESTIMADA` (gastos diarios, HU #12623, RN-02). Saltos de línea del CASE original.
+// La suma de viajes (HU #12627) entra en la instancia compartida a propósito: gastos diarios y
+// reporte deben estimar exactamente lo mismo (tarifa + Σ viajes, regla D5 de la Épica #12244).
 const RAMAS_LOGISTICA_ESTIMADA = sql`WHEN NOT ${GESTIONA_LOGISTICA} THEN NULL
-  ELSE ${lg.valor}`;
+  ELSE ${lg.valor} + COALESCE((SELECT SUM(${VL.valor}) FROM ${VL} WHERE ${VL.tramiteId} = ${flitoTramites.id}), 0)`;
 export const EXPR_LOGISTICA = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorLogistica}
   ${RAMAS_LOGISTICA_ESTIMADA} END`;
 /** La logística estimada a secas (sin mirar la liquidación): exige los joins `clients`, `JOIN_EXC_LOGISTICA` y `JOIN_LG`. */
@@ -254,6 +270,23 @@ export const EXPR_SERVICIOS_ADICIONALES_CANTIDAD = sql`CASE WHEN ${seLiquido}
     THEN CASE WHEN jsonb_typeof(${flitoLiquidaciones.detalle} -> 'serviciosAdicionales' -> 'items') = 'array'
       THEN jsonb_array_length(${flitoLiquidaciones.detalle} -> 'serviciosAdicionales' -> 'items') END
   ELSE (SELECT COUNT(*)::int FROM ${SA} WHERE ${SA.tramiteId} = ${flitoTramites.id}) END`;
+
+// ── Viajes de logística (HU #12627) ──────────────────────────────────────────
+//
+// CUÁNTOS viajes lleva la fila, contando el 1 incluido en la tarifa: no se deduce del importe (dos
+// viajes manuales de $0 y ninguno suman igual). Sellada: `totalViajes` del snapshot que la HU #12626
+// congela en `detalle.logistica`; una liquidación sellada ANTES no tiene `viajes` y la cantidad sale
+// NULL —«no se sabe»—, distinto del 0 («no gestiona») y del 1 («solo el incluido»). Sin sellar: 1 más
+// las filas de `flito_tramite_viajes_logistica`; 0 si la compañía autogestiona (las filas huérfanas
+// de una excepción vencida no cuentan, como en `conceptoLogistica`).
+//
+// El `jsonb_typeof` es la misma guarda que arriba: un detalle escalar haría 22023 y tumbaría el
+// reporte entero. Claves como texto del template, sin parámetros (Bug #12058).
+export const EXPR_LOGISTICA_VIAJES_CANTIDAD = sql`CASE WHEN ${seLiquido}
+    THEN CASE WHEN jsonb_typeof(${flitoLiquidaciones.detalle} -> 'logistica' -> 'viajes') = 'array'
+      THEN (${flitoLiquidaciones.detalle} -> 'logistica' ->> 'totalViajes')::int END
+  WHEN NOT ${GESTIONA_LOGISTICA} THEN 0
+  ELSE 1 + (SELECT COUNT(*)::int FROM ${VL} WHERE ${VL.tramiteId} = ${flitoTramites.id}) END`;
 
 // Base del 4x1000: el total de los SEIS conceptos del trámite. El GMF se calcula sobre esa suma y
 // se añade encima, así que el total final es la base más su propio gravamen. Los servicios
@@ -470,6 +503,8 @@ export const SELECT_FILA = {
   // Titular, organismo y documento (HU #12432). Mismo patrón: se compone desde su archivo, y el
   // documento va por subconsulta correlacionada por el mismo motivo que la conciliación.
   ...SELECT_COLUMNAS_REPORTE,
+  // Viajes de logística (HU #12627): cuántos, incluido el 1 de la tarifa. Al final, append-only.
+  logisticaViajesCantidad: sql<number | null>`${EXPR_LOGISTICA_VIAJES_CANTIDAD}`,
 } as const;
 
 const n = (v: string | number | null): number | null => (v === null ? null : Number(v));
@@ -551,6 +586,7 @@ function aFila(r: Record<string, unknown>): FilaReporte {
     ...columnasDeFila(r, fechaAprobacion),
     // Sobre los conceptos YA resueltos y sus listas de pendientes: es lo que decide 0 o null.
     ...subtotalesDe(conceptos),
+    logisticaViajesCantidad: n(r.logisticaViajesCantidad as number | null),
   };
 }
 
