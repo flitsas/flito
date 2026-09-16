@@ -42,7 +42,8 @@ export class ComprobanteError extends Error {
   cuerpo(): ErrorComprobanteDto { return { error: this.message, codigo: this.codigo, ...this.extra }; }
 }
 
-export interface ComprobanteCtx { userId: number; username: string }
+/** HU #12630: `role` porque los dueños (SoatCtx / ImpuestoCtx / DerechoCtx / RevisionCtx) lo exigen. */
+export interface ComprobanteCtx { userId: number; username: string; role: string }
 
 // ─────────────────────────── Nivel de confianza (R2) ─────────────────────────
 
