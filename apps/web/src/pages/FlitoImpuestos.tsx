@@ -10,18 +10,13 @@ import {
   TOPE_LOTE_CERTIFICACION,
 } from '@operaciones/shared-types';
 import { ApiError, api, errorMessage } from '../lib/api';
-import { enviarCargaEnTandas, validarCargaMasiva } from '../lib/carga-masiva';
-import useSeleccionCargaMasiva from '../lib/useSeleccionCargaMasiva';
-import RanuraCargaMasiva from '../components/flito/RanuraCargaMasiva';
 import {
   AccionCertificacion, ModalResultadoCertificacion, ModalResultadoLote,
   type CertificacionCola, type ResultadoIntento, type ResultadoLote,
 } from '../components/flit/CertificacionRunt';
 import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
-import FlitModal from '../components/flit/FlitModal';
-import HistorialEstados from '../components/flit/HistorialEstados';
-import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
+import StatusChip from '../components/flit/StatusChip';
 import AntiguedadPill from '../components/flit/AntiguedadPill';
 import ThFiltroMulti from '../components/flit/ThFiltroMulti';
 import ChipSinGestion from '../components/flit/ChipSinGestion';
@@ -33,48 +28,22 @@ import {
 import {
   AvisoSoportesZip, DescargarSoportesZip, ZIP_IMPUESTOS, useDescargaZip,
 } from '../components/flito/DescargarSoportesZip';
-import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES, documentoConTipo } from '../components/flit/columnasComunes';
+import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
 import Paginacion from '../components/flit/Paginacion';
-import VisorSoportes from '../components/flit/VisorSoportes';
-import ModalFacturaVenta, { esNombrePlacaOrganismo, nombreFacturaVenta } from '../components/flit/ModalFacturaVenta';
+import DetalleImpuesto from '../components/flito/DetalleImpuesto';
+import CargaRecibosImpuestos from '../components/flito/CargaRecibosImpuestos';
+import { ChipDocumentos, TONO_IMPUESTO as TONO, fecha, pesos, type ImpuestoItem } from '../components/flito/ImpuestoCola';
 import useDebounce from '../lib/useDebounce';
 import {
-  FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty, FlitPillGroup, FlitPillButton,
+  FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, FlitPillGroup, FlitPillButton,
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../components/flit/flitPageKit';
 
-interface ImpuestoItem {
-  id: string; tramiteId: string; idFlit: string; placa: string | null; vin: string;
-  marca: string | null; linea: string | null;
-  tipoTramite: string | null; fechaAprobacion: string | null; fechaCreacion: string | null;
-  estado: EstadoImpuesto; compradorNombre: string | null; compradorDocumento: string | null;
-  /**
-   * CÓDIGO de tipo de documento ya resuelto por el API (`'CC' | 'NIT' | 'PP' | 'CE'`) o null. NO es
-   * el `tipo` crudo de FLIT: la tabla de mapeo es del backend y el front no la duplica (HU #11947).
-   */
-  compradorTipoDocumento: string | null;
-  companiaNombre: string; organismoCodigo: string; organismoNombre: string | null;
-  valorLiquidado: number | null; valorPagado: number | null; marcadoPorDiferencia: boolean;
-  tieneFacturaVenta: boolean; enviadoPorNombre: string | null; enviadoEn: string | null; pagadoEn: string | null;
-  estancado: boolean; motivoRechazo: string | null; creadoEn: string;
-  /** true = lo gestiona Operaciones por contingencia, en vez del gestor del organismo. El impuesto
-   *  se sigue pagando ante el mismo organismo: lo que cambia es quién lo tramita. */
-  gestionOperaciones: boolean;
-  /** Certificación vigente contra el RUNT, o null si el registro no está certificado (HU #11168). */
-  certificacion: CertificacionCola | null;
-}
 interface ColaImpuestos { items: ImpuestoItem[]; total: number; page: number; pageSize: number }
 interface FacetasImpuestos {
   companias: { id: number; nombre: string }[];
   organismos: { codigo: string; nombre: string | null }[];
 }
-
-const TONO: Record<EstadoImpuesto, ChipTone> = {
-  pendiente: 'draft', solicitado: 'active', con_novedad: 'danger', pagado: 'success',
-};
-const pesos = (v: number | null) => v === null ? '—'
-  : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
-const fecha = (iso: string | null) => iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—';
 
 const ESTADOS_OPERACIONES: EstadoImpuesto[] = [
   EstadoImpuesto.PENDIENTE, EstadoImpuesto.SOLICITADO, EstadoImpuesto.CON_NOVEDAD, EstadoImpuesto.PAGADO,
@@ -134,6 +103,10 @@ export default function FlitoImpuestos() {
   const [creadoDesde, setCreadoDesde] = useState('');
   const [creadoHasta, setCreadoHasta] = useState('');
   const [soloEstancado, setSoloEstancado] = useState(false);
+  // «Liquidado, pendiente de pago» (HU #12592): el servidor lo restringe a `solicitado AND
+  // liquidado_en IS NOT NULL`, así que combinado con la píldora «Pagado» devuelve vacío. Es correcto
+  // y el vacío lo explica.
+  const [liquidadoPendiente, setLiquidadoPendiente] = useState(false);
   const [gestionSel, setGestionSel] = useState<'' | 'operaciones' | 'organismo'>('');
   const [preset, setPreset] = useState<string | null>(null);
   const [page, setPage] = useState(1);
@@ -145,13 +118,13 @@ export default function FlitoImpuestos() {
   // «Limpiar filtros», que es la única salida de ese vacío.
   const hayFiltros = companiasSel.length > 0 || organismosSel.length > 0
     || !!solicitadoDesde || !!solicitadoHasta || !!pagadoDesde || !!pagadoHasta
-    || !!creadoDesde || !!creadoHasta || soloEstancado || !!gestionSel;
+    || !!creadoDesde || !!creadoHasta || soloEstancado || liquidadoPendiente || !!gestionSel;
 
   const limpiarFiltros = () => {
     setCompaniasSel([]); setOrganismosSel([]);
     setSolicitadoDesde(''); setSolicitadoHasta(''); setPagadoDesde(''); setPagadoHasta('');
     setCreadoDesde(''); setCreadoHasta('');
-    setSoloEstancado(false); setGestionSel(''); setTexto(''); setPreset(null);
+    setSoloEstancado(false); setLiquidadoPendiente(false); setGestionSel(''); setTexto(''); setPreset(null);
     setEstado(esGestor ? EstadoImpuesto.SOLICITADO : 'todos');
   };
 
@@ -184,7 +157,7 @@ export default function FlitoImpuestos() {
   };
 
   // Cualquier cambio de filtro vuelve a la página 1: si no, se queda en una página que ya no existe.
-  useEffect(() => { setPage(1); }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, gestionSel]);
+  useEffect(() => { setPage(1); }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, liquidadoPendiente, gestionSel]);
 
   useEffect(() => {
     setError(null); setSeleccion(new Set());
@@ -200,11 +173,12 @@ export default function FlitoImpuestos() {
     if (creadoDesde) q.set('creadoDesde', creadoDesde);
     if (creadoHasta) q.set('creadoHasta', creadoHasta);
     if (soloEstancado) q.set('estancado', 'si');
+    if (liquidadoPendiente) q.set('liquidadoPendientePago', 'true');
     if (gestionSel) q.set('gestion', gestionSel);
     q.set('page', String(page));
     api.get<ColaImpuestos>(`/flito/impuestos?${q}`).then(setData).catch((e) => setError(errorMessage(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, gestionSel, page, recarga]);
+  }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, liquidadoPendiente, gestionSel, page, recarga]);
 
   useEffect(() => {
     api.get<FacetasImpuestos>('/flito/impuestos/facetas').then(setFacetas).catch(() => setFacetas(null));
@@ -252,6 +226,7 @@ export default function FlitoImpuestos() {
     ...(creadoDesde ? { creadoDesde } : {}),
     ...(creadoHasta ? { creadoHasta } : {}),
     ...(soloEstancado ? { estancado: true } : {}),
+    ...(liquidadoPendiente ? { liquidadoPendientePago: true } : {}),
   };
   // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
   const exportacion = useExportCola(COLA_IMPUESTOS, filtrosExport);
@@ -422,6 +397,10 @@ export default function FlitoImpuestos() {
             <input type="checkbox" checked={soloEstancado} onChange={(e) => setSoloEstancado(e.target.checked)} />
             Solo sin gestión
           </label>
+          <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+            <input type="checkbox" checked={liquidadoPendiente} onChange={(e) => setLiquidadoPendiente(e.target.checked)} />
+            Liquidado, pendiente de pago
+          </label>
 
           {(hayFiltros || !!texto) && (
             <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={limpiarFiltros}>Limpiar filtros</button>
@@ -466,9 +445,11 @@ export default function FlitoImpuestos() {
       {data && filas.length === 0 && (
         <FlitCard>
           <FlitEmpty>
-            {hayFiltros || texto.trim()
-              ? 'Ningún impuesto coincide con los filtros.'
-              : 'No hay impuestos en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.'}
+            {liquidadoPendiente
+              ? 'No hay impuestos liquidados pendientes de pago con estos filtros. Quita el filtro o carga liquidaciones desde «Cargar recibos (masivo)».'
+              : hayFiltros || texto.trim()
+                ? 'Ningún impuesto coincide con los filtros.'
+                : 'No hay impuestos en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.'}
           </FlitEmpty>
         </FlitCard>
       )}
@@ -529,6 +510,7 @@ export default function FlitoImpuestos() {
                       <StatusChip tone={TONO[f.estado]}>{ESTADO_IMPUESTO_LABEL[f.estado]}</StatusChip>
                       {f.estancado && <ChipSinGestion desde={f.enviadoEn} />}
                       {f.marcadoPorDiferencia && <StatusChip tone="warning">Diferencia de valor</StatusChip>}
+                      <ChipDocumentos imp={f} />
                     </div>
                   </td>
                   <td className="px-3 py-2 text-sm">
@@ -563,12 +545,13 @@ export default function FlitoImpuestos() {
 
       {detalle && (
         <DetalleImpuesto imp={detalle} esOperaciones={esOperaciones} esGestor={esGestor} soloLectura={soloLectura}
+          puedeCargarCaja={hasFuncion('impuestos.recibos.cargar_caja')}
           onClose={() => setDetalleId(null)} onCambio={() => { setDetalleId(null); refrescar(); }}
           onTraspaso={refrescar} />
       )}
 
       {cargaRecibos && (
-        <CargaRecibos onClose={() => setCargaRecibos(false)} onListo={() => { setCargaRecibos(false); refrescar(); }} />
+        <CargaRecibosImpuestos onClose={() => setCargaRecibos(false)} onListo={() => { setCargaRecibos(false); refrescar(); }} />
       )}
     </div>
   );
@@ -719,311 +702,5 @@ function CeldaGestion({ imp }: { imp: ImpuestoItem }) {
         ? <StatusChip tone="warning">Operaciones</StatusChip>
         : <span style={{ color: 'var(--flit-text-secondary)' }}>Gestor del organismo</span>}
     </td>
-  );
-}
-
-type Accion = 'idle' | 'rechazar' | 'reactivar' | 'reversar' | 'asumir' | 'devolver';
-
-function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, onCambio, onTraspaso }: {
-  imp: ImpuestoItem; esOperaciones: boolean; esGestor: boolean; soloLectura: boolean;
-  onClose: () => void; onCambio: () => void; onTraspaso: () => void;
-}) {
-  const [accion, setAccion] = useState<Accion>('idle');
-  const [motivo, setMotivo] = useState('');
-  const [estadoDestino, setEstadoDestino] = useState<EstadoImpuesto>(EstadoImpuesto.PENDIENTE);
-  const [error, setError] = useState<string | null>(null);
-  const [enviando, setEnviando] = useState(false);
-  // Visor de los recibos de ESTE impuesto, encima del detalle.
-  const [verSoportes, setVerSoportes] = useState(false);
-  // Visor de la factura de venta (modal): blob url + nombre para descargar.
-  const [factura, setFactura] = useState<{ url: string; nombre: string } | null>(null);
-
-  const enGestion = imp.estado === EstadoImpuesto.SOLICITADO;
-  const rechazado = imp.estado === EstadoImpuesto.CON_NOVEDAD;
-  // El traspaso de gestión solo tiene sentido mientras el impuesto está en gestión y sin pagar:
-  // sobre uno Pagado no queda nada que gestionar, y uno Pendiente aún no se ha enviado a nadie.
-  const traspasable = enGestion || rechazado;
-
-  const ejecutar = async (fn: () => Promise<unknown>) => {
-    setEnviando(true); setError(null);
-    try { await fn(); onCambio(); }
-    catch (e) { setError(errorMessage(e)); }
-    finally { setEnviando(false); }
-  };
-
-  /**
-   * El traspaso de gestión no cierra el detalle: quien lo asume suele querer seguir en el mismo
-   * impuesto, y ver ahí mismo que ya lo gestiona Operaciones es la confirmación de que funcionó.
-   * Si el traspaso lo saca de la vista filtrada, la fila desaparece y el detalle se cierra solo.
-   */
-  const traspasar = async (ruta: string) => {
-    setEnviando(true); setError(null);
-    try {
-      await api.post(`/flito/impuestos/${imp.id}/${ruta}`, { motivo });
-      setAccion('idle'); setMotivo(''); onTraspaso();
-    }
-    catch (e) { setError(errorMessage(e)); }
-    finally { setEnviando(false); }
-  };
-
-  /**
-   * Factura de venta: viene de FLIT y la sirve la API. Integración FLIT (Fase 8).
-   *
-   * Antes se abría con `window.open(URL.createObjectURL(blob))`. Una URL `blob:` no lleva nombre,
-   * así que el navegador guardaba el archivo con un identificador interno y SIN extensión: no abría
-   * con doble clic y había que renombrarlo a mano. Ahora se muestra en el visor, que descarga con
-   * un nombre de verdad y en `.pdf`.
-   */
-  // El nombre lo pone el SERVIDOR desde la HU #11910 (AC5): `PLACA-ORGANISMO.<ext>`, el mismo con el
-  // que sale dentro del ZIP, para que las dos descargas se puedan emparejar en la misma carpeta. El
-  // cliente valida la forma y cae al respaldo si no encaja.
-  const verFactura = async () => {
-    setError(null);
-    try {
-      const { blob, nombre } = await api.getBlobNamed(
-        `/flito/impuestos/${imp.id}/factura-venta`,
-        nombreFacturaVenta(imp.idFlit),
-        esNombrePlacaOrganismo,
-      );
-      setFactura({ url: URL.createObjectURL(blob), nombre });
-    } catch (e) { setError(errorMessage(e)); }
-  };
-  const cerrarFactura = () => { if (factura) URL.revokeObjectURL(factura.url); setFactura(null); };
-
-  return (
-    <FlitModal title={`Impuesto · ${imp.placa ?? imp.vin}`} onClose={onClose} wide>
-      <div className="space-y-3 text-sm">
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusChip tone={TONO[imp.estado]}>{ESTADO_IMPUESTO_LABEL[imp.estado]}</StatusChip>
-          {imp.estancado && <ChipSinGestion desde={imp.enviadoEn} />}
-          {imp.marcadoPorDiferencia && <StatusChip tone="warning">Diferencia de valor</StatusChip>}
-        </div>
-
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-          <Dato k="VIN" v={imp.vin} /><Dato k="Trámite FLIT" v={imp.idFlit} />
-          <Dato k="Compañía" v={imp.companiaNombre} /><Dato k="Organismo" v={imp.organismoNombre ?? imp.organismoCodigo} />
-          <Dato k="Gestiona" v={imp.gestionOperaciones ? 'Operaciones (contingencia)' : 'Gestor del organismo'} />
-          <Dato k="Comprador" v={imp.compradorNombre ?? '—'} /><Dato k="Documento" v={documentoConTipo(imp.compradorTipoDocumento, imp.compradorDocumento)} />
-          <Dato k="Valor liquidado" v={pesos(imp.valorLiquidado)} /><Dato k="Valor pagado" v={pesos(imp.valorPagado)} />
-          <div>
-            <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Factura de venta</dt>
-            <dd className="text-sm">
-              {imp.tieneFacturaVenta
-                ? <button className="font-semibold underline" style={{ color: 'var(--flit-blue-text)' }} onClick={verFactura}>En FLIT · Ver / descargar</button>
-                : <span style={{ color: 'var(--flit-warning)' }}>Sin factura en FLIT</span>}
-            </dd>
-          </div>
-          {/* El recibo del organismo se carga desde esta pantalla, pero para verlo había que irse
-              al reporte de costos, en el que el gestor del organismo no entra. Es la evidencia del
-              pago: se mira desde donde se gestiona. */}
-          <div>
-            <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Soporte</dt>
-            <dd className="text-sm">
-              <button type="button" className="font-semibold underline" style={{ color: 'var(--flit-blue-text)' }}
-                onClick={() => setVerSoportes(true)}>Ver soporte</button>
-            </dd>
-          </div>
-          <Dato k="Enviado por" v={imp.enviadoPorNombre ?? '—'} /><Dato k="Enviado" v={fecha(imp.enviadoEn)} />
-        </dl>
-
-        {verSoportes && (
-          <VisorSoportes ruta={`/flito/impuestos/${imp.id}/soportes`} titulo={`Impuesto ${imp.placa ?? imp.vin}`}
-            vacio="Este impuesto no tiene ningún recibo cargado todavía."
-            onClose={() => setVerSoportes(false)} />
-        )}
-
-        {factura && <ModalFacturaVenta url={factura.url} nombre={factura.nombre} onCerrar={cerrarFactura} />}
-
-        <HistorialEstados concepto="impuesto" registroId={imp.id} />
-
-        {imp.motivoRechazo && <p className="rounded-md bg-red-50 p-2 text-red-700">Motivo de rechazo: {imp.motivoRechazo}</p>}
-        {soloLectura && <div className="rounded-md bg-blue-50 p-2 text-blue-800">Solo lectura · Auditoría observa, no ejecuta acciones.</div>}
-        {error && <p className="text-sm text-red-600">{error}</p>}
-
-        {!soloLectura && accion === 'idle' && (
-          <div className="flex flex-wrap gap-2 pt-1">
-            {enGestion && (esOperaciones || esGestor) && (
-              <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('rechazar')}>Rechazar</button>
-            )}
-            {rechazado && esOperaciones && (
-              <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('reactivar')}>Reactivar</button>
-            )}
-            {esOperaciones && traspasable && !imp.gestionOperaciones && (
-              <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('asumir')}>Asumir en Operaciones</button>
-            )}
-            {esOperaciones && traspasable && imp.gestionOperaciones && (
-              <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('devolver')}>Devolver al gestor</button>
-            )}
-            {esOperaciones && (
-              <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('reversar')}>Reversar</button>
-            )}
-          </div>
-        )}
-
-        {/* Devolver no pide destinatario: el gestor sale del organismo del trámite, que no cambia. */}
-        {(accion === 'asumir' || accion === 'devolver') && (
-          <FormMotivo etiqueta={accion === 'asumir'
-            ? 'Motivo para asumirlo en Operaciones (mín. 5 caracteres)'
-            : 'Motivo de la devolución al gestor (mín. 5 caracteres)'}
-            motivo={motivo} setMotivo={setMotivo} enviando={enviando} minLen={5}
-            onCancelar={() => { setAccion('idle'); setMotivo(''); }}
-            onConfirmar={() => traspasar(accion === 'asumir' ? 'asumir-operaciones' : 'devolver-gestor')} />
-        )}
-
-        {(accion === 'rechazar' || accion === 'reactivar') && (
-          <FormMotivo etiqueta={accion === 'rechazar' ? 'Motivo del rechazo' : 'Motivo de la corrección'}
-            motivo={motivo} setMotivo={setMotivo} enviando={enviando} onCancelar={() => { setAccion('idle'); setMotivo(''); }}
-            onConfirmar={() => ejecutar(() => api.post(`/flito/impuestos/${imp.id}/${accion}`, { motivo }))} />
-        )}
-
-        {accion === 'reversar' && (
-          <div className="rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-            <FlitField label="Estado destino">
-              <select className={flitInp} value={estadoDestino} onChange={(e) => setEstadoDestino(e.target.value as EstadoImpuesto)}>
-                {ESTADOS_OPERACIONES.map((e) => <option key={e} value={e}>{ESTADO_IMPUESTO_LABEL[e]}</option>)}
-              </select>
-            </FlitField>
-            <FormMotivo etiqueta="Motivo de la reversa (mín. 5 caracteres)" motivo={motivo} setMotivo={setMotivo}
-              enviando={enviando} minLen={5} onCancelar={() => { setAccion('idle'); setMotivo(''); }}
-              onConfirmar={() => ejecutar(() => api.post(`/flito/impuestos/${imp.id}/reversar`, { estadoDestino, motivo }))} />
-          </div>
-        )}
-      </div>
-    </FlitModal>
-  );
-}
-
-function Dato({ k, v }: { k: string; v: string }) {
-  return (
-    <div className="flex flex-col">
-      <dt className="text-[11px] uppercase" style={{ color: 'var(--flit-text-muted)' }}>{k}</dt>
-      <dd className="font-medium">{v}</dd>
-    </div>
-  );
-}
-
-function FormMotivo({ etiqueta, motivo, setMotivo, enviando, minLen = 1, onConfirmar, onCancelar }: {
-  etiqueta: string; motivo: string; setMotivo: (v: string) => void; enviando: boolean; minLen?: number;
-  onConfirmar: () => void; onCancelar: () => void;
-}) {
-  return (
-    <div className="mt-2 space-y-2">
-      <FlitField label={etiqueta}>
-        <textarea className={`${flitInp} min-h-[64px]`} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
-      </FlitField>
-      <div className="flex gap-2">
-        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
-          disabled={enviando || motivo.trim().length < minLen} onClick={onConfirmar}>
-          {enviando ? 'Enviando…' : 'Confirmar'}
-        </button>
-        <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onCancelar}>Cancelar</button>
-      </div>
-    </div>
-  );
-}
-
-interface ResultadoRecibos {
-  conciliados: { archivo: string; detalle: string }[]; enRevision: { archivo: string; detalle: string }[];
-  complementos: { archivo: string; detalle: string }[]; duplicados: { archivo: string; detalle: string }[];
-  noAsociados: { archivo: string; detalle: string }[];
-}
-
-// El ZIP se abre en el navegador (HU #12056): lo que se cuenta, se pesa, se valida y se envía son
-// sus ENTRADAS, no el ZIP. Aquí la carpeta de cada entrada SÍ decide algo —con o sin marca de
-// agua—, y el `originalname` ya no la lleva, así que la ruta relativa viaja aparte en el campo
-// `rutas` de cada tanda. Si ese emparejamiento se rompe el API no falla: responde 200 y archiva
-// todo con el defecto del checkbox. Por eso lo arma `enviarCargaEnTandas` en un solo recorrido.
-function CargaRecibos({ onClose, onListo }: { onClose: () => void; onListo: () => void }) {
-  const { seleccion, abriendo, error, setError, elegir } = useSeleccionCargaMasiva();
-  const [sinMarca, setSinMarca] = useState(false);
-  const [progreso, setProgreso] = useState<{ desde: number; total: number } | null>(null);
-  const [resultado, setResultado] = useState<ResultadoRecibos | null>(null);
-  const errorValidacion = validarCargaMasiva(seleccion);
-  const enviando = progreso !== null;
-
-  const subir = async () => {
-    if (seleccion.items.length === 0 || validarCargaMasiva(seleccion)) return;
-    setError(null);
-    const { resultado: r, error: err } = await enviarCargaEnTandas<ResultadoRecibos>(
-      '/flito/impuestos/recibos', seleccion.items, (desde, total) => setProgreso({ desde, total }),
-      { sinMarcaDeAgua: String(sinMarca) },
-    );
-    if (r) setResultado(r);
-    if (err) setError(err);
-    setProgreso(null);
-  };
-
-  return (
-    <FlitModal title="Carga masiva de recibos de impuesto" onClose={resultado ? onListo : onClose} wide>
-      {!resultado ? (
-        <div className="space-y-3">
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-            Sube varios PDF/imágenes o un ZIP. FLITO abre el ZIP en tu computador y sube sus recibos de 5 en 5, conservando la carpeta de cada uno. El OCR cruza cada recibo con su impuesto en gestión por la placa; los que cuadran pasan a Pagado, el resto va a revisión.
-          </p>
-          <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.zip" className={flitInp} disabled={enviando}
-            aria-label="Recibos o ZIP de la carga masiva"
-            onChange={(e) => { void elegir(Array.from(e.target.files ?? [])); }} />
-          <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-            <input type="checkbox" checked={sinMarca} disabled={enviando} onChange={(e) => setSinMarca(e.target.checked)} />
-            Archivos sueltos sin marca de agua (en ZIP se deduce por carpeta)
-          </label>
-          <RanuraCargaMasiva seleccion={seleccion} abriendo={abriendo}
-            errorValidacion={errorValidacion} error={error} progreso={progreso} />
-          <div className="flex gap-2">
-            <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
-              disabled={enviando || abriendo !== null || seleccion.items.length === 0 || !!errorValidacion} onClick={subir}>
-              {enviando ? 'Procesando…' : 'Subir y procesar'}
-            </button>
-            <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enviando} onClick={onClose}>Cancelar</button>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-          <div className="flex flex-wrap gap-2">
-            <StatusChip tone="success">Conciliados {resultado.conciliados.length}</StatusChip>
-            <StatusChip tone="warning">En revisión {resultado.enRevision.length}</StatusChip>
-            <StatusChip tone="active">Complementos {resultado.complementos.length}</StatusChip>
-            <StatusChip tone="neutral">Duplicados {resultado.duplicados.length}</StatusChip>
-            <StatusChip tone="danger">Sin asociar {resultado.noAsociados.length}</StatusChip>
-          </div>
-          <TablaResultadoOcr resultado={resultado} />
-          <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={onListo}>Listo</button>
-        </div>
-      )}
-    </FlitModal>
-  );
-}
-
-// Resultado del OCR masivo en TABLA: cada recibo analizado en su propia fila.
-function TablaResultadoOcr({ resultado }: { resultado: ResultadoRecibos }) {
-  const filas: { archivo: string; detalle: string; resultado: string; tono: ChipTone }[] = [
-    ...resultado.conciliados.map((i) => ({ ...i, resultado: 'Conciliado', tono: 'success' as ChipTone })),
-    ...resultado.enRevision.map((i) => ({ ...i, resultado: 'En revisión', tono: 'warning' as ChipTone })),
-    ...resultado.complementos.map((i) => ({ ...i, resultado: 'Complemento', tono: 'active' as ChipTone })),
-    ...resultado.duplicados.map((i) => ({ ...i, resultado: 'Duplicado', tono: 'neutral' as ChipTone })),
-    ...resultado.noAsociados.map((i) => ({ ...i, resultado: 'Sin asociar', tono: 'danger' as ChipTone })),
-  ];
-  if (filas.length === 0) return <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>No se procesó ningún archivo.</p>;
-  const th = 'px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide';
-  return (
-    <div className="max-h-[55vh] overflow-auto rounded-lg border" style={{ borderColor: 'var(--flit-border-soft)' }}>
-      <table className="w-full text-sm">
-        <thead>
-          <tr style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>
-            <th className={th}>Archivo</th><th className={th}>Resultado</th><th className={th}>Detalle del análisis OCR</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filas.map((f, idx) => (
-            <tr key={idx} className="border-t" style={{ borderColor: 'var(--flit-border-soft)' }}>
-              <td className="px-3 py-2 font-medium align-top" style={{ color: 'var(--flit-text-primary)' }}>{f.archivo}</td>
-              <td className="px-3 py-2 align-top"><StatusChip tone={f.tono}>{f.resultado}</StatusChip></td>
-              <td className="px-3 py-2 align-top" style={{ color: 'var(--flit-text-secondary)' }}>{f.detalle}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
   );
 }

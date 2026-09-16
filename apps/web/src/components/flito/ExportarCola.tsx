@@ -55,6 +55,8 @@ export interface FiltrosExportCola {
   creadoDesde?: string;
   creadoHasta?: string;
   estancado?: boolean;
+  /** Solo Impuestos: Solicitados con liquidación cargada y sin pagar (HU #12592). */
+  liquidadoPendientePago?: boolean;
   /**
    * Vigencia frente al RUNT (HU #12097). Solo SOAT, y **valor máquina**
    * (`vencido|sin_registro|no_verificado`), que es lo que valida el esquema del endpoint.
