@@ -15,7 +15,7 @@ process.env.TZ = 'UTC';
 //   · (3) reescribir el tipo del soporte compartido cuando paginas ≠ null → «consolidado: INSERT del hijo, cero UPDATE del original» cae.
 //   · (6) esPago=false escribiendo `valor` → «valor NULL» cae.
 //   · AC6-M `descartado = true` siempre → «consolidado compartido: el soporte NO se libera» cae.
-//   · AC7-M `esPago: true` de un HONORARIO aplicando en vez de 409 → «honorarios → 409 destino_no_admite» cae.
+//   · AC7-M `esPago: true` de un HONORARIO sin valor leído aplicando en vez de 400 → «400 valor_requerido» cae (HU #12631).
 //   · AC7-M2 aceptar `tramiteId ≠ sugerido` sin motivo → «400 datos_invalidos» cae.
 //   · AC9-M quitar `esUuid` → «id = 'abc' → 404» recibe 500 (fallback) y cae.
 //   · AC9-M2 `motivo: z.string()` → «motivo fuera de catálogo → 400» cae.
@@ -82,11 +82,16 @@ const logMock = { info: (...a: unknown[]) => logLineas.push(a), warn: (...a: unk
 vi.mock('../../src/shared/logger.js', () => ({ loggerFor: () => logMock, logger: logMock }));
 
 const { fijarFuenteDePermisos } = await import('../../src/shared/permisos-efectivos.js');
-const { flitoComprobantes, flitoSoportes, flitoTramites, flitoImpuestos, flitoDerechosTramite, flitoSoat, flitoEstadoHistorial, auditLogs } = await import('../../src/db/schema.js');
+const {
+  flitoComprobantes, flitoSoportes, flitoTramites, flitoImpuestos, flitoDerechosTramite, flitoSoat, flitoEstadoHistorial, auditLogs,
+  flitoLiquidaciones, flitoTarifasVigencias, flitoTramiteServiciosAdicionales,
+} = await import('../../src/db/schema.js');
 const { DerechoError } = await import('../../src/modules/flito-derechos/flito-derechos.service.js');
-const { aplicarSchema, repartirCampos, aplicarPago, CARPETA_APLICADOS } = await import('../../src/modules/flito-comprobantes/flito-comprobantes.aplicar.js');
+const { aplicar, aplicarSchema, repartirCampos, CARPETA_APLICADOS } = await import('../../src/modules/flito-comprobantes/flito-comprobantes.aplicar.js');
 const { ComprobanteError } = await import('../../src/modules/flito-comprobantes/flito-comprobantes.service.js');
 const { CONCEPTOS_CON_DUENO, tieneDueno } = await import('../../src/modules/flito-comprobantes/flito-comprobantes.duenos.js');
+const expr = await import('../../src/modules/flito-comprobantes/flito-comprobantes.expr.js');
+const { calcularDiferencia, esDuplicadoDocumental, INDICE_VALOR_DOCUMENTAL } = await import('../../src/modules/flito-comprobantes/flito-comprobantes.honorarios.js');
 
 const T_COMP = getTableName(flitoComprobantes);
 const T_SOP = getTableName(flitoSoportes);
@@ -96,6 +101,9 @@ const T_DER = getTableName(flitoDerechosTramite);
 const T_SOAT = getTableName(flitoSoat);
 const T_HIST = getTableName(flitoEstadoHistorial);
 const T_AUDIT = getTableName(auditLogs);
+const T_LIQ = getTableName(flitoLiquidaciones);
+const T_TAR = getTableName(flitoTarifasVigencias);
+const T_SA = getTableName(flitoTramiteServiciosAdicionales);
 const BASE = '/api/flito/comprobantes';
 const ID = '71030cce-1a4c-4fb6-855d-fcc80aadc4e9';
 const LOTE = '9c1d4d5e-3b7a-4c2e-9f0a-1b2c3d4e5f60';
@@ -296,14 +304,12 @@ describe('AC7 — aplicarSchema y repartirCampos', () => {
     expect(() => repartirCampos({ 'destino.': 'x' })).toThrow(ComprobanteError);
   });
 
-  it('aplicarPago: el eslabón que queda — 409 destino_no_admite, detalle fijo, puedeAdjuntar: true, para los HONORARIOS (HU-3); SOAT/impuesto/derecho ya no salen por aquí', () => {
-    for (const concepto of ['tramite_digital', 'logistica', 'servicios_adicionales'] as const) {
-      try { aplicarPago(concepto); expect.unreachable(); } catch (e) {
-        expect(e).toBeInstanceOf(ComprobanteError);
-        expect((e as InstanceType<typeof ComprobanteError>).cuerpo()).toMatchObject({ codigo: 'destino_no_admite', detalle: 'Los pagos se aplican en la siguiente entrega', puedeAdjuntar: true });
-        expect((e as InstanceType<typeof ComprobanteError>).status).toBe(409);
-      }
-    }
+  it('el dispatcher cubre los seis conceptos: SOAT/impuesto/derecho tienen dueño; tramite_digital/logistica/servicios_adicionales son honorarios (HU #12631: ya no queda eslabón provisional)', async () => {
+    const aplicarMod = await import('../../src/modules/flito-comprobantes/flito-comprobantes.aplicar.js');
+    expect('aplicarPago' in aplicarMod).toBe(false);
+    expect(expr.CONCEPTOS_HONORARIO).toEqual(['tramite_digital', 'logistica', 'servicios_adicionales']);
+    for (const concepto of expr.CONCEPTOS_HONORARIO) expect(expr.esHonorario(concepto)).toBe(true);
+    for (const concepto of CONCEPTOS_CON_DUENO) expect(expr.esHonorario(concepto)).toBe(false);
     expect(CONCEPTOS_CON_DUENO).toEqual(['soat', 'impuesto', 'derecho']);
     for (const concepto of CONCEPTOS_CON_DUENO) expect(tieneDueno(concepto)).toBe(true);
     for (const concepto of ['tramite_digital', 'logistica', 'servicios_adicionales'] as const) expect(tieneDueno(concepto)).toBe(false);
@@ -344,13 +350,16 @@ describe('AC7 — POST /:id/aplicar', () => {
     expect(auditMock).not.toHaveBeenCalled();
   });
 
-  it('AC7-M: esPago=true de un HONORARIO (tramite_digital / logistica / servicios_adicionales) → 409 destino_no_admite { detalle, puedeAdjuntar: true } sin tx, sin S3, sin escribir (eslabón hasta HU-3)', async () => {
+  it('AC7-M (HU #12631 AC2): esPago=true de un HONORARIO (tramite_digital / logistica / servicios_adicionales) SIN valorTotal leído → 400 valor_requerido sin tx, sin S3, sin escribir; ya no existe el 409 provisional', async () => {
     const app = await buildApp();
     for (const concepto of ['tramite_digital', 'logistica', 'servicios_adicionales']) {
-      kdb.when.selectOnce(T_COMP, [cabecera()]);
+      const sinValor = extraccion();
+      sinValor[CampoComprobante.VALOR_TOTAL] = campo(null, 0);
+      kdb.when.selectOnce(T_COMP, [cabecera({ extraccion: sinValor })]);
       const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send(body({ concepto, esPago: true }));
-      expect(res.status, concepto).toBe(409);
-      expect(res.body).toEqual({ error: expect.any(String), codigo: 'destino_no_admite', detalle: 'Los pagos se aplican en la siguiente entrega', puedeAdjuntar: true });
+      expect(res.status, concepto).toBe(400);
+      expect(res.body).toMatchObject({ codigo: 'valor_requerido' });
+      expect(res.body.codigo).not.toBe('destino_no_admite');
     }
     expect(kdb.transaction).not.toHaveBeenCalled();
     expect(uploadMock).not.toHaveBeenCalled();
@@ -750,6 +759,251 @@ describe('HU #12630 — POST /:id/aplicar con esPago=true: SOAT / impuesto / der
 });
 
 // ═════════════════ AC9 · deuda de #12611 cerrada en routes.ts ═══════════════════════════════════
+
+// ═════════════════ HU #12631 · honorarios: fila documental ═════════════════════════════════════════
+
+describe('HU #12631 — POST /:id/aplicar con esPago=true: fila documental de tramite_digital / logistica / servicios_adicionales', () => {
+  const pago = (over: Record<string, unknown> = {}) => ({ tramiteId: T1, concepto: 'tramite_digital', esPago: true, ...over });
+  const conValor = (valor: string) => { const e = extraccion(); e[CampoComprobante.VALOR_TOTAL] = campo(valor, 0.95); e[CampoComprobante.CONCEPTO] = campo('tramite_digital', 0.9); return e; };
+  const APROBADO = new Date('2026-08-01T15:00:00Z');
+  /** El trámite con lo que `tarifaDe` necesita: compañía, tipo y fecha de aprobación (el mock keyed entrega la fila entera). */
+  const tramHonorario = (over: Record<string, unknown> = {}) => tramite({ companiaId: 1, tipoTramite: 'MATRICULA', fechaAprobacion: APROBADO, ...over });
+
+  /** Escenario: cabecera con valor leído, soporte, relectura FOR UPDATE, trámite, liquidación (vacía), tarifa, servicios, detalle. */
+  function armarHonorario(cab: Record<string, unknown>, extra: { liq?: unknown[] | (() => unknown[]); tarifa?: unknown[]; servicios?: unknown[]; tram?: Record<string, unknown> } = {}) {
+    kdb.when
+      .selectOnce(T_COMP, [cabecera({ extraccion: conValor('350000'), extraccionDestino: null, ...cab })])
+      .selectOnce(T_SOP, [soporte])
+      .selectOnce(T_COMP, [{ estado: 'pendiente' }])
+      .select(T_TRAM, [tramHonorario(extra.tram ?? {})])
+      .select(T_LIQ, extra.liq ?? [])
+      .select(T_TAR, extra.tarifa ?? [{ valor: '350000.00' }])
+      .select(T_SA, extra.servicios ?? [{ total: null }])
+      .selectOnce(T_COMP, [filaAplicada({ esPago: true, valor: '350000', concepto: (cab.concepto as string | undefined) ?? 'tramite_digital', tipoDocumento: 'comprobante_pago' })])
+      .selectOnce(T_COMP, [{ extraccion: conValor('350000'), extraccionDestino: null }])
+      .insert(T_SOP, [{ id: 'sop-hijo' }])
+      .update(T_SOP, [{ id: 'sop-1' }])
+      .update(T_COMP, [{ id: ID }]);
+  }
+  const cierre = () => espia.updatesEn(T_COMP)[0]!.datos;
+  /** Todas las condiciones `where` de la petición, renderizadas a SQL (qué tablas se leyeron y con qué predicado). */
+  const leido = () => espia.condicionesLeidas().map((c) => renderizar(c as never).sql).join('\n');
+
+  // ── AC1 · tarifa de referencia y diferencia ──
+  it('AC1 — tramite_digital con tarifa vigente igual al valor: fila aplicado es_pago=true, valor/fecha/número copiados, tarifa_referencia=valor, diferencia 0, NO marcado; soporte tipo comprobante_pago sin FK; tarifaDe con (companiaId, concepto, tipoTramite, fechaAprobacion)', async () => {
+    const app = await buildApp();
+    armarHonorario({});
+    const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send(pago({ motivo: 'Pago del trámite digital' }));
+    expect(res.status).toBe(200);
+    expect(res.body.resultado).toBe('aplicado');
+    expect(res.body.comprobante).toMatchObject({ id: ID, estado: 'aplicado', esPago: true });
+
+    // Orden de bloqueo: comprobante → trámite, en la única tx.
+    expect(bloqueos.map((b) => b.tabla)).toEqual(['flito_comprobantes', 'flito_tramites']);
+    expect(bloqueos.every((b) => b.modo === 'update')).toBe(true);
+    expect(ligadoA(renderizar(bloqueos[1]!.condicion as never), '"flito_tramites"."id"')).toBe(T1);
+
+    // La fila documental.
+    expect(cierre()).toMatchObject({
+      estado: 'aplicado', esPago: true, concepto: 'tramite_digital', tramiteId: T1, valor: '350000',
+      fechaDocumento: '2026-09-10', numeroDocumento: 'POL-1',
+      tarifaReferencia: '350000.00', diferenciaTarifa: '0.00', marcadoPorDiferencia: false,
+      aplicadoPorId: 7, aplicadoMotivo: 'Pago del trámite digital',
+    });
+    // El soporte que ve el trámite: tipo comprobante_pago, sin FK de destino (ni soat_id, ni impuesto_id, ni derecho_id).
+    const sop = espia.updatesEn(T_SOP)[0]!.datos;
+    expect(sop).toEqual({ tipo: 'comprobante_pago' });
+    expect(espia.insertsEn(T_SOP)).toEqual([]);
+    // La lectura del trámite PROYECTA compania_id / tipo_tramite / fecha_aprobacion (el mock keyed entrega la fila
+    // entera aunque el select pida menos: sin esta afirmación, tarifaDe(undefined, …) pasaría verde).
+    const proyecciones = kdb.select.mock.calls.map((c) => c[0] as Record<string, unknown> | undefined);
+    expect(proyecciones.some((p) => p?.companiaId === flitoTramites.companiaId && p?.tipoTramite === flitoTramites.tipoTramite && p?.fechaAprobacion === flitoTramites.fechaAprobacion)).toBe(true);
+    // tarifaDe con la llave exacta: compañía, concepto, tipo MATRICULA, y la vigencia (tstzrange) en la fecha de aprobación (no «ahora»).
+    const tarifa = espia.condicionesLeidas().map((c) => renderizar(c as never)).find((q) => q.sql.includes('"flito_tarifas_vigencias"."compania_id"'))!;
+    expect(tarifa).toBeDefined();
+    expect(ligadoA(tarifa, '"flito_tarifas_vigencias"."compania_id"')).toBe(1);
+    expect(ligadoA(tarifa, '"flito_tarifas_vigencias"."concepto"')).toBe('tramite_digital');
+    expect(ligadoA(tarifa, '"flito_tarifas_vigencias"."tipo_tramite"')).toBe('MATRICULA');
+    expect(tarifa.sql).toContain('tstzrange("flito_tarifas_vigencias"."vigente_desde", "flito_tarifas_vigencias"."vigente_hasta", \'[)\') @>');
+    expect(tarifa.params).toContainEqual(APROBADO);
+    expect(tarifa.sql).not.toContain('now()');
+    // Nada de dueños: ni SOAT ni derecho ni impuesto.
+    expect(marcarPagadoMock).not.toHaveBeenCalled();
+    expect(registrarDerechoMock).not.toHaveBeenCalled();
+    expect(espia.updatesEn(T_IMP)).toEqual([]);
+    expect(auditMock).toHaveBeenCalledTimes(1);
+    expect(logLineas.some((l) => JSON.stringify(l).includes('aplicado como pago'))).toBe(true);
+  });
+
+  it('AC1 — logistica con tarifa distinta del valor: diferencia = valor − tarifa (≠ 0 → marcado, tolerancia 0); tarifaDe ignora el tipo (tipo_tramite IS NULL)', async () => {
+    const app = await buildApp();
+    armarHonorario({ concepto: 'logistica' }, { tarifa: [{ valor: '300000.00' }] });
+    const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send(pago({ concepto: 'logistica' }));
+    expect(res.status).toBe(200);
+    expect(cierre()).toMatchObject({ concepto: 'logistica', esPago: true, valor: '350000', tarifaReferencia: '300000.00', diferenciaTarifa: '50000.00', marcadoPorDiferencia: true });
+    const tarifa = espia.condicionesLeidas().map((c) => renderizar(c as never)).find((q) => q.sql.includes('"flito_tarifas_vigencias"."compania_id"'))!;
+    expect(ligadoA(tarifa, '"flito_tarifas_vigencias"."concepto"')).toBe('logistica');
+    expect(tarifa.sql).toContain('"flito_tarifas_vigencias"."tipo_tramite" is null');
+  });
+
+  it('AC1-M — sin tarifa configurada (tarifaDe → no_configurada): tarifa_referencia NULL, diferencia = valor, y MARCADO aunque la diferencia sea 0 (valor 0)', async () => {
+    const app = await buildApp();
+    armarHonorario({ extraccion: conValor('0') }, { tarifa: [] });
+    const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send(pago());
+    expect(res.status).toBe(200);
+    expect(cierre()).toMatchObject({ esPago: true, valor: '0', tarifaReferencia: null, diferenciaTarifa: '0.00', marcadoPorDiferencia: true });
+    // La regla pura: tarifa NULL ⇒ marcado, con diferencia 0 o no (el mutante «solo si |diferencia| > 0» cae aquí).
+    expect(calcularDiferencia('0', null)).toEqual({ tarifaReferencia: null, diferenciaTarifa: '0.00', marcadoPorDiferencia: true });
+    expect(calcularDiferencia('350000', null)).toEqual({ tarifaReferencia: null, diferenciaTarifa: '350000.00', marcadoPorDiferencia: true });
+    expect(calcularDiferencia('350000', 350000)).toEqual({ tarifaReferencia: '350000.00', diferenciaTarifa: '0.00', marcadoPorDiferencia: false });
+    expect(calcularDiferencia('349999.5', 350000)).toEqual({ tarifaReferencia: '350000.00', diferenciaTarifa: '-0.50', marcadoPorDiferencia: true });
+  });
+
+  it('AC1 — tramite_digital con tipo fuera del catálogo o compañía nula: «no configurada» → marcado (falla cerrado, no adivina)', async () => {
+    const app = await buildApp();
+    armarHonorario({}, { tram: { tipoTramite: 'RARO' } });
+    const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send(pago());
+    expect(res.status).toBe(200);
+    expect(cierre()).toMatchObject({ tarifaReferencia: null, marcadoPorDiferencia: true });
+    expect(leido()).not.toContain('"flito_tarifas_vigencias"');
+  });
+
+  it('AC1 — servicios_adicionales: tarifa_referencia = SUM(valor) de flito_tramite_servicios_adicionales del trámite (no tarifaDe); la fila se escribe igual (valor copiado, diferencia, marca)', async () => {
+    const app = await buildApp();
+    armarHonorario({ concepto: 'servicios_adicionales' }, { servicios: [{ total: '120000.00' }] });
+    const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send(pago({ concepto: 'servicios_adicionales' }));
+    expect(res.status).toBe(200);
+    expect(cierre()).toMatchObject({ concepto: 'servicios_adicionales', esPago: true, valor: '350000', tarifaReferencia: '120000.00', diferenciaTarifa: '230000.00', marcadoPorDiferencia: true });
+    const sql = leido();
+    expect(sql).toContain('"flito_tramite_servicios_adicionales"."tramite_id"');
+    expect(sql).not.toContain('"flito_tarifas_vigencias"');
+    const suma = espia.condicionesLeidas().map((c) => renderizar(c as never)).find((q) => q.sql.includes('"flito_tramite_servicios_adicionales"."tramite_id"'))!;
+    expect(ligadoA(suma, '"flito_tramite_servicios_adicionales"."tramite_id"')).toBe(T1);
+  });
+
+  it('AC1 — servicios_adicionales sin servicios asignados: SUM = NULL → tarifa_referencia NULL y marcado', async () => {
+    const app = await buildApp();
+    armarHonorario({ concepto: 'servicios_adicionales' }, { servicios: [{ total: null }] });
+    const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send(pago({ concepto: 'servicios_adicionales' }));
+    expect(res.status).toBe(200);
+    expect(cierre()).toMatchObject({ tarifaReferencia: null, diferenciaTarifa: '350000.00', marcadoPorDiferencia: true });
+  });
+
+  it('AC1 — consolidado (paginas [2]): el hijo recortado se inserta con tipo comprobante_pago bajo el trámite y la fila lo referencia; el original no se toca', async () => {
+    const app = await buildApp();
+    armarHonorario({ paginas: [2] });
+    const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send(pago());
+    expect(res.status).toBe(200);
+    expect(uploadMock).toHaveBeenCalledWith(CARPETA_APLICADOS, T1, expect.any(String), RECORTE, 'application/pdf');
+    expect(espia.ultimoInsertEn(T_SOP)).toMatchObject({ tipo: 'comprobante_pago', storageKey: 'flito/comprobantes/tramites/hijo.pdf', subidoPorId: 7 });
+    expect(espia.updatesEn(T_SOP)).toEqual([]);
+    expect(cierre()).toMatchObject({ soporteAplicadoId: 'sop-hijo', esPago: true, tarifaReferencia: '350000.00' });
+  });
+
+  // ── AC2 · guardas dentro de la tx ──
+  it('AC2 — trámite con fila en flito_liquidaciones → 409 tramite_liquidado { detalle: "Liquidación sellada" } evaluado DENTRO de la tx, tras los dos FOR UPDATE, y nada se escribe (mutante: quitar la guarda)', async () => {
+    const app = await buildApp();
+    let bloqueosAlLeerLiquidacion = -1;
+    armarHonorario({}, { liq: () => { bloqueosAlLeerLiquidacion = bloqueos.length; return [{ id: 'liq-1' }]; } });
+    const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send(pago());
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: expect.any(String), codigo: 'tramite_liquidado', detalle: 'Liquidación sellada' });
+    expect(kdb.transaction).toHaveBeenCalledTimes(1);
+    expect(bloqueosAlLeerLiquidacion).toBe(2);
+    expect(bloqueos.map((b) => b.tabla)).toEqual(['flito_comprobantes', 'flito_tramites']);
+    const liq = espia.condicionesLeidas().map((c) => renderizar(c as never)).find((q) => q.sql.includes('"flito_liquidaciones"."tramite_id"'))!;
+    expect(ligadoA(liq, '"flito_liquidaciones"."tramite_id"')).toBe(T1);
+    expect(espia.updates).toEqual([]);
+    expect(espia.inserts).toEqual([]);
+    expect(auditMock).not.toHaveBeenCalled();
+    expect(leido()).not.toContain('"flito_tarifas_vigencias"');
+  });
+
+  it('AC2 — la guarda de liquidación es de los HONORARIOS: adjuntar documentación (esPago=false) de un trámite liquidado sigue aplicando (D3)', async () => {
+    const app = await buildApp();
+    armarHonorario({ tipoDocumento: 'documento_no_pago' }, { liq: [{ id: 'liq-1' }] });
+    const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send(pago({ esPago: false }));
+    expect(res.status).toBe(200);
+    expect(cierre()).toMatchObject({ esPago: false, valor: null });
+    expect(cierre()).not.toHaveProperty('tarifaReferencia');
+    expect(leido()).not.toContain('"flito_liquidaciones"');
+  });
+
+  it('AC2-M — el 23505 del índice idx_flito_comprobantes_valor_documental se traduce a 409 valor_ya_documentado { comprobanteAnteriorId } buscando el anterior por (trámite, concepto, aplicado, es_pago) FUERA de la tx abortada (mutante: propagar el 23505 crudo → 500)', async () => {
+    const app = await buildApp();
+    const pgError = Object.assign(new Error('duplicate key value violates unique constraint "idx_flito_comprobantes_valor_documental"'), { code: '23505', constraint: INDICE_VALOR_DOCUMENTAL });
+    // Sin las filas del detalle: la tercera lectura de flito_comprobantes es la búsqueda del anterior, fuera de la tx.
+    kdb.when
+      .selectOnce(T_COMP, [cabecera({ extraccion: conValor('350000'), extraccionDestino: null })])
+      .selectOnce(T_SOP, [soporte])
+      .selectOnce(T_COMP, [{ estado: 'pendiente' }])
+      .select(T_TRAM, [tramHonorario()])
+      .select(T_LIQ, []).select(T_TAR, [{ valor: '350000.00' }])
+      .update(T_SOP, [{ id: 'sop-1' }])
+      .update(T_COMP, () => { throw pgError; })
+      .selectOnce(T_COMP, [{ id: 'comp-anterior' }]);
+    const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send(pago());
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: expect.any(String), codigo: 'valor_ya_documentado', comprobanteAnteriorId: 'comp-anterior' });
+    expect(auditMock).not.toHaveBeenCalled();
+    const anterior = espia.condicionesLeidas().map((c) => renderizar(c as never)).filter((q) => q.sql.includes('"flito_comprobantes"."concepto"')).at(-1)!;
+    expect(anterior).toBeDefined();
+    expect(ligadoA(anterior, '"flito_comprobantes"."tramite_id"')).toBe(T1);
+    expect(ligadoA(anterior, '"flito_comprobantes"."concepto"')).toBe('tramite_digital');
+    expect(ligadoA(anterior, '"flito_comprobantes"."estado"')).toBe('aplicado');
+    expect(ligadoA(anterior, '"flito_comprobantes"."es_pago"')).toBe(true);
+    // Solo ESE 23505: otro índice único, u otro código, se propaga tal cual.
+    expect(esDuplicadoDocumental(pgError)).toBe(true);
+    expect(esDuplicadoDocumental({ cause: pgError })).toBe(true);
+    expect(esDuplicadoDocumental(Object.assign(new Error('x'), { code: '23505', constraint: 'otro_indice' }))).toBe(false);
+    expect(esDuplicadoDocumental(Object.assign(new Error('x'), { code: '23503', constraint: INDICE_VALOR_DOCUMENTAL }))).toBe(false);
+  });
+
+  it('AC2-M — otro error en la tx (no el 23505 documental) NO se traduce: `aplicar` lo relanza tal cual y no busca ningún anterior', async () => {
+    const otro = Object.assign(new Error('deadlock detected'), { code: '40P01' });
+    armarHonorario({});
+    kdb.when.update(T_COMP, () => { throw otro; });
+    await expect(aplicar(ID, pago(), { userId: 7, username: 'u@flitsas.io', role: 'financiera' })).rejects.toBe(otro);
+    expect(espia.condicionesLeidas().map((c) => renderizar(c as never)).filter((q) => q.sql.includes('"flito_comprobantes"."es_pago"'))).toEqual([]);
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+
+  it('AC2 — 400 valor_requerido ANTES de S3 (consolidado): sin valorTotal ni tras confirmar campos, no se recorta, no se sube, no hay tx; con el valor confirmado por la persona sí aplica', async () => {
+    const app = await buildApp();
+    const sinValor = extraccion();
+    sinValor[CampoComprobante.VALOR_TOTAL] = campo(null, 0);
+    kdb.when.selectOnce(T_COMP, [cabecera({ extraccion: sinValor, extraccionDestino: null, paginas: [2] })]);
+    const r400 = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send(pago());
+    expect(r400.status).toBe(400);
+    expect(r400.body).toMatchObject({ codigo: 'valor_requerido' });
+    expect(uploadMock).not.toHaveBeenCalled();
+    expect(recortarMock).not.toHaveBeenCalled();
+    expect(kdb.transaction).not.toHaveBeenCalled();
+    expect(espia.updates).toEqual([]);
+
+    armarHonorario({ extraccion: sinValor, paginas: [2] });
+    const r200 = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth())
+      .send(pago({ campos: { [CampoComprobante.VALOR_TOTAL]: '350000' }, motivo: 'Valor tomado del documento' }));
+    expect(r200.status).toBe(200);
+    expect(cierre()).toMatchObject({ valor: '350000', tarifaReferencia: '350000.00', diferenciaTarifa: '0.00', marcadoPorDiferencia: false });
+  });
+
+  // ── AC3 · autogestión no bloquea ──
+  it('AC3 — compañía con logistica_autogestionable=true: aplicar logistica con esPago=true → 200 aplicado; aplicar NO consulta la autogestión (ni clients.logistica_autogestionable ni flito_excepciones_autogestion) ni la convierte en 409 (mutante: no_gestionado → 409)', async () => {
+    const app = await buildApp();
+    kdb.when.select('clients', [{ id: 1, logisticaAutogestionable: true }]).select('flito_excepciones_autogestion', []);
+    armarHonorario({ concepto: 'logistica' }, { tram: { logisticaAutogestionable: true } });
+    const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send(pago({ concepto: 'logistica' }));
+    expect(res.status).toBe(200);
+    expect(res.body.resultado).toBe('aplicado');
+    expect(cierre()).toMatchObject({ concepto: 'logistica', esPago: true, valor: '350000', tarifaReferencia: '350000.00', marcadoPorDiferencia: false });
+    const sql = leido();
+    expect(sql).not.toContain('logistica_autogestionable');
+    expect(sql).not.toContain('flito_excepciones_autogestion');
+    expect(auditMock).toHaveBeenCalledTimes(1);
+  });
+
+});
 
 describe('AC9 — :id no-UUID → 404; motivo como enum; limitador delante de multer', () => {
   it('AC9-M: id = "abc" → 404 no_encontrado en GET /:id, GET /:id/archivo, POST /:id/releer, POST /:id/aplicar y POST /:id/descartar, sin tocar la base', async () => {
