@@ -32,6 +32,9 @@ const FILA_ESTIMADA = {
   // `totalServicio` a propósito (200000 es solo el trámite digital): así un cálculo local de la
   // pantalla se delata en vez de coincidir por casualidad.
   serviciosAdicionales: 125000, serviciosAdicionalesCantidad: 2,
+  // Viajes de logística (HU #12627 lo manda, la #12628 lo pinta): el 1 incluido más dos adicionales.
+  // Va en la fixture base para que el botón «Viajes · 3» pese en la medida de ancho de la compacta.
+  logisticaViajesCantidad: 3,
 };
 const FILA_BLOQUEADA = {
   ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000002', idFlit: 'FLIT-2002',
@@ -41,6 +44,8 @@ const FILA_BLOQUEADA = {
   totalServicio: null,
   // Sin ningún servicio adicional, y eso es una AFIRMACIÓN: cantidad 0 → «—», el vacío del reporte.
   serviciosAdicionales: null, serviciosAdicionalesCantidad: 0,
+  // Solo el viaje incluido: «1» en la celda y «Viajes» sin contador en el botón.
+  logisticaViajesCantidad: 1,
 };
 /** Persona jurídica sin organismo: razón social y NIT, nombres vacíos, OT vacía (AC1). */
 const FILA_JURIDICA = {
@@ -58,6 +63,8 @@ const FILA_LIQUIDADA = {
   ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000003', idFlit: 'FLIT-2003',
   sellada: true, estadoLiquidacion: 'liquidado',
   serviciosAdicionales: null, serviciosAdicionalesCantidad: null,
+  // Y tampoco sabe cuántos viajes llevaba (HU #12628): «Sin dato», nunca «0».
+  logisticaViajesCantidad: null,
 };
 const FILA_FACTURADA = {
   ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000004', idFlit: 'FLIT-2004',
@@ -253,8 +260,8 @@ async function mock(page: import('@playwright/test').Page) {
 }
 
 /**
- * Desde la HU #12537 la tabla ARRANCA COMPACTA (9 de 29 columnas: nueve desde la #12539, y la 29ª
- * es «Serv. adic.» de la #12548, que no entra en la compacta). Los casos que
+ * Desde la HU #12537 la tabla ARRANCA COMPACTA (9 de 30 columnas: nueve desde la #12539, la 29ª
+ * es «Serv. adic.» de la #12548 y la 30ª «Viajes» de la #12628; ninguna entra en la compacta). Los casos que
  * leen una columna de las que se callan —VIN, marca, línea, el titular, OT, Estado, la fecha de
  * creación, un concepto suelto— la piden ampliada ANTES del `goto`, por la misma clave que escribe
  * el control: así prueban su columna, no el control. Los que leen «No configurado» / «Sin recibo»
@@ -1458,7 +1465,7 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
   test('AC1 — tres grupos rotulados y cada columna bajo el suyo', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockSecciones(page);
-    await ampliarColumnas(page);   // las 29: este caso es de la ampliada; su gemelo compacto está en el bloque de la #12539
+    await ampliarColumnas(page);   // las 30: este caso es de la ampliada; su gemelo compacto está en el bloque de la #12539
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText('FLIT-2001')).toBeVisible();
 
@@ -1471,7 +1478,7 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     expect(grupos['Datos del trámite']).toEqual(
       ['Tipo trámite', 'Marca', 'Línea', 'OT', 'Estado', 'Fechas', 'Mes', 'Trimestre', 'Factura DIAN']);
     expect(grupos['Valores']).toEqual(
-      ['SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística', 'Total reintegro', 'Trámite digital', 'Serv. adic.', 'Servicio', 'Total', 'Liquidación']);
+      ['SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística', 'Viajes', 'Total reintegro', 'Trámite digital', 'Serv. adic.', 'Servicio', 'Total', 'Liquidación']);
   });
 
   test('AC1 — persona natural y jurídica, con y sin organismo, con y sin aprobación', async ({ page }) => {
@@ -1789,8 +1796,8 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HU #12539 — la compacta se recorta a NUEVE columnas para que quepa en la pantalla de un portátil.
-// (La #12548 añade «Serv. adic.» a la AMPLIADA —29— y un botón más a Acciones; la compacta sigue en
-// nueve y este bloque es el que lo vigila.)
+// (La #12548 añade «Serv. adic.» a la AMPLIADA —29— y un botón más a Acciones; la #12628 añade
+// «Viajes» —30— y otro botón; la compacta sigue en nueve y este bloque es el que lo vigila.)
 //
 // Sustituye al bloque de la #12537 (12 columnas, colSpan 3/5/4), que solo medía que la compacta
 // fuera menor que la ampliada: en 1366×768 seguía desbordando (1628 px frente a 1258). Ahora lo que
@@ -1813,7 +1820,8 @@ test.describe('Reporte de costos — compacta de nueve columnas que cabe en pant
     // «Serv. adic.» va entre «Trámite digital» y «Servicio» (HU #12548, AC6): la fila se lee como
     // la cuenta que es. Va DESPUÉS de la primera de Valores, así que `antesDelPrimerTotal` —y con
     // él el `colSpan` del rótulo del pie— no se mueve; ponerla antes de SOAT lo arrastraría.
-    'Valores': ['SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística', 'Total reintegro', 'Trámite digital', 'Serv. adic.', 'Servicio', 'Total', 'Liquidación'],
+    // «Viajes» va justo tras «Logística» (HU #12628, AC1): es la explicación de ese importe.
+    'Valores': ['SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística', 'Viajes', 'Total reintegro', 'Trámite digital', 'Serv. adic.', 'Servicio', 'Total', 'Liquidación'],
   };
   // Las cifras que la pantalla tiene que decir salen de ESTAS listas, no se escriben: si mañana
   // entra una columna, el test cambia con ella y un «9» literal en el código se delata.
@@ -1983,7 +1991,7 @@ test.describe('Reporte de costos — compacta de nueve columnas que cabe en pant
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText('FLIT-2001')).toBeVisible();
 
-    // mutante: estado inicial ampliado (`useState(() => true)`) → aquí salen las 29
+    // mutante: estado inicial ampliado (`useState(() => true)`) → aquí salen las 30
     // mutante: OT con `compacta: true` → cuatro bajo Datos del trámite y colSpan 3/3/4
     expect(await columnasPorGrupo(page)).toEqual(COMPACTA);
     expect(await colSpans(page)).toEqual(Object.values(COMPACTA).map((c) => c.length));
@@ -2110,7 +2118,7 @@ test.describe('Reporte de costos — compacta de nueve columnas que cabe en pant
     expect(anchoAmpliada).toBeLessThanOrEqual(TOPE_EMPRESA);
   });
 
-  test('AC6 — un clic amplía a 29 y otro vuelve a 9; el foco no se mueve, se anuncia y se recuerda en UNA clave', async ({ page }) => {
+  test('AC6 — un clic amplía a 30 y otro vuelve a 9; el foco no se mueve, se anuncia y se recuerda en UNA clave', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     // Dos filas, una con el SOAT conciliado: la marca vive en la celda SOAT, que se calla en compacta.
     await mockConciliacion(page);
@@ -2126,7 +2134,7 @@ test.describe('Reporte de costos — compacta de nueve columnas que cabe en pant
     await boton.focus();
     await boton.press('Enter');
     await expect(columnas(page)).toHaveCount(N_AMPLIADA);
-    // mutante: cambiar el orden o quitar una de las 29 al ampliar
+    // mutante: cambiar el orden o quitar una de las 30 al ampliar
     expect(await columnasPorGrupo(page)).toEqual(AMPLIADA);
     expect(await colSpans(page)).toEqual(Object.values(AMPLIADA).map((c) => c.length));
     await expect(boton).toHaveText('Compactar columnas');
@@ -2156,7 +2164,7 @@ test.describe('Reporte de costos — compacta de nueve columnas que cabe en pant
     await page.reload();
     await expect(page.getByText('FLIT-2007')).toBeVisible();
     await expect(columnas(page)).toHaveCount(N_AMPLIADA);
-    // mutante: `!== 'compacta'` como condición → «ampliada» abriría las 29
+    // mutante: `!== 'compacta'` como condición → «ampliada» abriría las 30
     await page.evaluate((k) => localStorage.setItem(k, 'ampliada'), CLAVE);
     await page.reload();
     await expect(page.getByText('FLIT-2007')).toBeVisible();
@@ -2949,7 +2957,7 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     await expect(cabeceras.filter({ hasText: 'Serv. adic.' })).toHaveCount(0);
 
     await page.getByRole('button', { name: /Mostrar todas las columnas/ }).click();
-    await expect(cabeceras).toHaveCount(29);
+    await expect(cabeceras).toHaveCount(30);
     // `allTextContents` y no `allInnerTexts`: la cabecera va en versalitas por CSS y `innerText`
     // devolvería «SERV. ADIC.», que no es lo que dice el DOM ni lo que lee un lector de pantalla.
     const titulos = await cabeceras.allTextContents();
@@ -2973,5 +2981,377 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     // El pie trae su total, y es el del SERVIDOR: 890.000 no es la suma de las filas de la página.
     const pie = page.getByRole('table').first().locator('tfoot tr').first();
     await expect(pie.getByRole('cell').nth(titulos.indexOf('Serv. adic.') - titulos.indexOf('SOAT') + 1)).toHaveText('$ 890.000');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HU #12628 — columna «Viajes» en la ampliada y panel de SOLO LECTURA con el desglose por viaje.
+// Diseño: `docs/ux/finanzas-reporte-costos-viajes.md`. Cada aserto lleva su mutante:
+//   · la celda la gobierna `logisticaViajesCantidad` de la fila (nunca `items.length`): 0 y null
+//     son afirmaciones distintas («—» / «Sin dato») y ningún «0» se cuela;
+//   · el contador del botón solo con n ≥ 2, en TODAS las filas y para el auditor, sin función nueva;
+//   · el pie del panel pinta `totalLogistica` DEL SERVIDOR: la fixture va descuadrada a propósito
+//     (35.000 + 35.000 + 62.000 = 132.000, pero el servidor dice 99.000) para que sumar en cliente caiga;
+//   · 403 sin Reintentar, 404 con «Actualizar el reporte», red con Reintentar que repite el GET;
+//   · el foco vuelve al botón «Viajes» de la misma fila. Backend mockeado.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const viaje = (
+  numero: number, valor: number, modo: 'inicial' | 'manual', tarifaVigente: number | null,
+  motivo: 'devolucion' | 'segunda_entrega' | 'documento_faltante' | 'otro', motivoDetalle: string | null = null,
+  registradoPorNombre: string | null = 'Ana Ríos',
+) => ({
+  id: `vvvv0000-0000-0000-0000-00000000000${numero}`, numero, modo, valor, tarifaVigente, motivo, motivoDetalle,
+  registradoPorNombre, registradoEn: '2026-09-15T15:12:00.000Z',
+});
+
+/** El desglose vigente de FLIT-2001: tarifa 35.000, un viaje a tarifa y uno manual; el total NO cuadra a propósito. */
+const DESGLOSE_VIGENTE = {
+  tramiteId: FILA_ESTIMADA.tramiteId, idFlit: 'FLIT-2001', placa: 'ABC123',
+  gestionaLogistica: true, liquidado: false, liquidadoEn: null, origen: 'vigente' as const,
+  tarifa: 35000, totalViajes: 3, totalLogistica: 99000,
+  items: [
+    viaje(2, 35000, 'inicial', 35000, 'devolucion'),
+    viaje(3, 62000, 'manual', 45000, 'otro', 'cliente pidió entrega en sede norte', 'L. Mora'),
+  ],
+};
+
+/** Las filas del reporte de este bloque: 3 viajes, solo el incluido, autogestiona y sellada sin desglose. */
+const FILA_AUTOGESTIONA = {
+  ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000031', idFlit: 'FLIT-2031',
+  logistica: null, autogestionados: ['Logística'], logisticaViajesCantidad: 0,
+};
+const FILAS_VIAJES = [FILA_ESTIMADA, FILA_BLOQUEADA, FILA_AUTOGESTIONA, FILA_LIQUIDADA];
+
+async function mockReporteViajes(page: Pagina, filas: unknown[] = FILAS_VIAJES) {
+  const peticiones: string[] = [];
+  await mockFacetas(page, ['Aprobado']);
+  await mockFacturacion(page);
+  await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) => {
+    peticiones.push(route.request().url());
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      ...REPORTE, items: filas, total: filas.length,
+    }) });
+  });
+  return peticiones;
+}
+
+/**
+ * El GET del desglose, con contador y con la respuesta que se le diga (cuerpo, código o demora).
+ * `opciones` se lee EN CADA petición: el test puede mutarlo (quitar el `status`) para que el
+ * siguiente GET —el de «Reintentar»— responda bien. Los contadores se comparan por «creció», no por
+ * un número exacto: en dev `StrictMode` monta dos veces y el primer GET se descarta (`vivo = false`).
+ */
+async function mockDesglose(
+  page: Pagina,
+  opciones: { cuerpo?: unknown; status?: number; error?: object; demoraMs?: number } = {},
+) {
+  const peticiones = { get: 0 };
+  await page.route(/\/api\/finanzas\/tramites\/[^/]+\/viajes-logistica/, async (route) => {
+    peticiones.get += 1;
+    if (opciones.demoraMs) await new Promise((r) => setTimeout(r, opciones.demoraMs));
+    const json = (status: number, cuerpo: unknown) =>
+      route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(cuerpo) });
+    if (opciones.status) return json(opciones.status, opciones.error ?? { error: 'Error del servidor' });
+    return json(200, opciones.cuerpo ?? DESGLOSE_VIGENTE);
+  });
+  return peticiones;
+}
+
+const botonViajes = (page: Pagina, flit: string) =>
+  page.getByRole('button', { name: new RegExp(`^Viajes de logística de ${flit}:`) });
+const panelViajes = (page: Pagina) => page.getByRole('dialog', { name: /^Viajes de logística · / });
+
+test.describe('HU #12628 — columna «Viajes» en la ampliada y panel de solo lectura por viaje', () => {
+  const cabeceras = (page: Pagina) => page.getByRole('table').first().locator('thead tr').nth(1).locator('th[scope="col"]');
+
+  test('AC1 — «Viajes» va tras «Logística» solo en la ampliada (30), sin pie; la compacta sigue en 9 de 30', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockReporteViajes(page);
+    await ampliarColumnas(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    await expect(cabeceras(page)).toHaveCount(30);
+    const titulos = await cabeceras(page).allTextContents();
+    // mutante: ponerla tras «Serv. adic.» → deja de leerse como la explicación de Logística
+    expect(titulos.indexOf('Viajes')).toBe(titulos.indexOf('Logística') + 1);
+    expect(titulos.indexOf('Total reintegro')).toBe(titulos.indexOf('Viajes') + 1);
+    // mutante: `total` añadido a la entrada → el pie deja de estar vacío bajo «Viajes»
+    const pie = page.getByRole('table').first().locator('tfoot tr').first();
+    await expect(pie.getByRole('cell').nth(titulos.indexOf('Viajes') - titulos.indexOf('SOAT') + 1)).toHaveText('');
+    await expect(pie.getByRole('cell').nth(titulos.indexOf('Logística') - titulos.indexOf('SOAT') + 1)).not.toHaveText('');
+
+    // mutante: `compacta: true` → aparece en la compacta y el anuncio dice 10 de 30
+    await page.getByRole('button', { name: /Compactar columnas/ }).click();
+    await expect(cabeceras(page)).toHaveCount(9);
+    await expect(cabeceras(page).filter({ hasText: 'Viajes' })).toHaveCount(0);
+    await expect(page.getByRole('status').filter({ hasText: 'Vista compacta: 9 de 30 columnas.' })).toHaveCount(1);
+  });
+
+  test('AC2 — la celda: «3» y «1» con su nombre accesible, «—» para 0 y «Sin dato» para null; ningún «0»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockReporteViajes(page);
+    await ampliarColumnas(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    const titulos = await cabeceras(page).allTextContents();
+    const celdaDe = (flit: string) => page.getByRole('row').filter({ hasText: flit })
+      .getByRole('cell').nth(titulos.indexOf('Viajes') + 1);
+
+    await expect(celdaDe('FLIT-2001')).toHaveText('3');
+    await expect(celdaDe('FLIT-2001')).toHaveAttribute('aria-label', '3 viajes de logística');
+    // mutante: plural fijo → «1 viajes de logística»
+    await expect(celdaDe('FLIT-2002')).toHaveText('1');
+    await expect(celdaDe('FLIT-2002')).toHaveAttribute('aria-label', '1 viaje de logística');
+    // 0 = autogestiona → el guion del reporte, con su `title`
+    await expect(celdaDe('FLIT-2031')).toHaveText('—');
+    await expect(celdaDe('FLIT-2031').getByTitle('Autogestiona')).toBeVisible();
+    // null = sellada antes del concepto → «Sin dato» (mutante: `?? 0` → «0»)
+    await expect(celdaDe('FLIT-2003')).toHaveText('Sin dato');
+    await expect(celdaDe('FLIT-2003').getByTitle('Se liquidó antes de que FLITO cobrara viajes adicionales.')).toBeVisible();
+    await expect(celdaDe('FLIT-2003')).not.toHaveText(/0/);
+  });
+
+  test('AC3 — el botón «Viajes» en todas las filas: contador solo con n ≥ 2, tras «Servicios», y el auditor lo ve', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockReporteViajes(page);
+    const desglose = await mockDesglose(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    // mutante: contador con `n >= 1` → «Viajes · 1» en FLIT-2002; con `?? 0` → «· 0» en la sellada
+    await expect(botonViajes(page, 'FLIT-2001')).toHaveText('Viajes · 3');
+    await expect(botonViajes(page, 'FLIT-2002')).toHaveText('Viajes');
+    await expect(botonViajes(page, 'FLIT-2031')).toHaveText('Viajes');
+    await expect(botonViajes(page, 'FLIT-2003')).toHaveText('Viajes');   // sellada: también lo lleva
+    await expect(botonViajes(page, 'FLIT-2001')).toHaveAccessibleName('Viajes de logística de FLIT-2001: 3 viajes');
+    await expect(botonViajes(page, 'FLIT-2002')).toHaveAccessibleName('Viajes de logística de FLIT-2002: 1 viaje');
+    await expect(botonViajes(page, 'FLIT-2031')).toHaveAccessibleName('Viajes de logística de FLIT-2031: autogestiona');
+    await expect(botonViajes(page, 'FLIT-2003')).toHaveAccessibleName('Viajes de logística de FLIT-2003: sin dato');
+    // El contador NO cuesta una petición: viaja en la fila.
+    expect(desglose.get).toBe(0);
+
+    // Orden: Soporte → Servicios → Viajes → Liquidar (consultar antes que operar).
+    const botones = await page.getByRole('row').filter({ hasText: 'FLIT-2001' }).getByRole('button').allTextContents();
+    expect(botones.indexOf('Viajes · 3')).toBe(botones.indexOf('Servicios · 2') + 1);
+    expect(botones.indexOf('Liquidar')).toBeGreaterThan(botones.indexOf('Viajes · 3'));
+  });
+
+  test('AC3 — el auditor SIN la función de servicios ve «Viajes» en todas las filas y abre el panel', async ({ page }) => {
+    // Se le quita `finanzas.servicios_adicionales.ver` a propósito: el fixture del auditor la trae, y con
+    // ella un gating por `puedeVerServicios` pasaría desapercibido. Sin la función, «Servicios» no se
+    // pinta y «Viajes» tiene que seguir ahí, justo tras «Soporte».
+    const sinVerServicios = funcionesDe(AUDITOR_USER).filter((f) => f !== 'finanzas.servicios_adicionales.ver');
+    await loginAs(page, AUDITOR_USER, { funciones: sinVerServicios });
+    await mockReporteViajes(page);
+    await mockDesglose(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    // mutante: gating por `puedeVerServicios` → el auditor se queda sin botón
+    await expect(botonViajes(page, 'FLIT-2001')).toBeVisible();
+    await expect(botonViajes(page, 'FLIT-2003')).toBeVisible();
+    const botones = await page.getByRole('row').filter({ hasText: 'FLIT-2001' }).getByRole('button').allTextContents();
+    expect(botones).not.toContain('Servicios · 2');
+    expect(botones.indexOf('Viajes · 3')).toBe(botones.indexOf('Soporte') + 1);
+    // Y sin Liquidar ni Facturar: el auditor solo consulta.
+    expect(botones).not.toContain('Liquidar');
+
+    await botonViajes(page, 'FLIT-2001').click();
+    await expect(panelViajes(page)).toBeVisible();
+    await expect(panelViajes(page).getByText('Total logística')).toBeVisible();
+  });
+
+  test('AC4 — el panel lleno: título, origen, Viaje 1, cada viaje con su modo y motivo, y el total DEL SERVIDOR; cero acciones', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockReporteViajes(page);
+    const desglose = await mockDesglose(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    await botonViajes(page, 'FLIT-2001').click();
+    const panel = panelViajes(page);
+    // mutante: título sin la placa
+    await expect(panel).toHaveAttribute('aria-label', 'Viajes de logística · FLIT-2001 · ABC123');
+    expect(desglose.get).toBeGreaterThanOrEqual(1);
+    await expect(panel.getByText('Estimado con los viajes registrados')).toBeVisible();
+    await expect(panel.getByText('Viaje 1 · incluido en la tarifa · $ 35.000')).toBeVisible();
+
+    const filas = panel.getByRole('listitem');
+    await expect(filas).toHaveCount(2);
+    await expect(filas.nth(0)).toContainText('Viaje 2');
+    await expect(filas.nth(0)).toContainText('$ 35.000');
+    await expect(filas.nth(0)).toContainText('Tarifa · Tarifa del momento $ 35.000');
+    await expect(filas.nth(0)).toContainText('Devolución · Ana Ríos · 15 sep 2026');
+    await expect(filas.nth(1)).toContainText('Viaje 3');
+    await expect(filas.nth(1)).toContainText('$ 62.000');
+    // mutante: modo sin la tarifa del momento → no se ve la desviación
+    await expect(filas.nth(1)).toContainText('Precio manual · Tarifa del momento $ 45.000');
+    await expect(filas.nth(1)).toContainText('Otro: cliente pidió entrega en sede norte · L. Mora');
+    // Los uuid van en `data-id`, nunca en pantalla.
+    await expect(filas.nth(0)).toHaveAttribute('data-id', DESGLOSE_VIGENTE.items[0].id);
+    await expect(panel).not.toContainText('vvvv0000');
+
+    // mutante: sumar en cliente → 132.000. El servidor dice 99.000 y eso es lo que se pinta.
+    await expect(panel.getByText('3 viajes', { exact: true })).toBeVisible();
+    await expect(panel.getByText('$ 99.000')).toBeVisible();
+    await expect(panel).not.toContainText('132.000');
+
+    // Solo lectura: el único botón del diálogo es el ✕ del kit; ningún input.
+    await expect(panel.getByRole('button')).toHaveCount(1);
+    await expect(panel.getByRole('button', { name: 'Cerrar' })).toBeVisible();
+    await expect(panel.locator('input, select, textarea')).toHaveCount(0);
+    await expect(panel.getByRole('button', { name: /Registrar|Quitar|Añadir/ })).toHaveCount(0);
+  });
+
+  test('AC4 — el foco: entra al ✕, y Esc y el ✕ lo devuelven al botón «Viajes» de la misma fila', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockReporteViajes(page);
+    await mockDesglose(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    await botonViajes(page, 'FLIT-2002').focus();
+    await page.keyboard.press('Enter');
+    await expect(panelViajes(page)).toBeVisible();
+    await page.keyboard.press('Tab');
+    await expect(panelViajes(page).getByRole('button', { name: 'Cerrar' })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(panelViajes(page)).toHaveCount(0);
+    // mutante: devolver el foco al título → aquí cae
+    await expect(botonViajes(page, 'FLIT-2002')).toBeFocused();
+
+    await botonViajes(page, 'FLIT-2001').click();
+    await expect(panelViajes(page)).toBeVisible();
+    await panelViajes(page).getByRole('button', { name: 'Cerrar' }).click();
+    await expect(panelViajes(page)).toHaveCount(0);
+    await expect(botonViajes(page, 'FLIT-2001')).toBeFocused();
+  });
+
+  test('AC5 — sin_desglose: «Sin dato…», «Sellado el …», el total sellado y SIN «Viaje 1»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockReporteViajes(page);
+    await mockDesglose(page, { cuerpo: {
+      ...DESGLOSE_VIGENTE, tramiteId: FILA_LIQUIDADA.tramiteId, idFlit: 'FLIT-2003',
+      liquidado: true, liquidadoEn: '2026-09-12T14:14:00.000Z', origen: 'sin_desglose',
+      tarifa: null, totalViajes: null, totalLogistica: 15000, items: null,
+    } });
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2003')).toBeVisible();
+
+    await botonViajes(page, 'FLIT-2003').click();
+    const panel = panelViajes(page);
+    await expect(panel.getByText('Sin dato: se liquidó antes de que FLITO cobrara viajes adicionales.')).toBeVisible();
+    await expect(panel.getByText(/^Sellado el 12 sep 2026, \d{1,2}:\d{2}/)).toBeVisible();
+    await expect(panel.getByText('$ 15.000')).toBeVisible();
+    // mutante: pintar la cabecera del viaje 1 en sin_desglose
+    await expect(panel.getByText(/Viaje 1/)).toHaveCount(0);
+    await expect(panel.getByRole('listitem')).toHaveCount(0);
+  });
+
+  test('AC5 — autogestiona: «La logística de esta compañía la gestiona el cliente…» y ningún «$ 0»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockReporteViajes(page);
+    await mockDesglose(page, { cuerpo: {
+      ...DESGLOSE_VIGENTE, tramiteId: FILA_AUTOGESTIONA.tramiteId, idFlit: 'FLIT-2031',
+      gestionaLogistica: false, tarifa: null, totalViajes: 0, totalLogistica: null, items: [],
+    } });
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2031')).toBeVisible();
+
+    await botonViajes(page, 'FLIT-2031').click();
+    const panel = panelViajes(page);
+    await expect(panel.getByText('La logística de esta compañía la gestiona el cliente: no hay viajes que cobrar.')).toBeVisible();
+    await expect(panel.getByText(/Viaje 1/)).toHaveCount(0);
+    await expect(panel.getByText('Total logística')).toHaveCount(0);
+    await expect(panel).not.toContainText('$ 0');
+    await expect(panel).not.toContainText('0 viajes');
+  });
+
+  test('AC5 — solo el incluido: Viaje 1 arriba, «Sin viajes adicionales.» y «1 viaje»; sin tarifa, «Sin tarifa configurada»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockReporteViajes(page);
+    const desglose = await mockDesglose(page, { cuerpo: {
+      ...DESGLOSE_VIGENTE, tramiteId: FILA_BLOQUEADA.tramiteId, idFlit: 'FLIT-2002',
+      totalViajes: 1, totalLogistica: 35000, items: [],
+    } });
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2002')).toBeVisible();
+
+    await botonViajes(page, 'FLIT-2002').click();
+    const panel = panelViajes(page);
+    await expect(panel.getByText('Viaje 1 · incluido en la tarifa · $ 35.000')).toBeVisible();
+    await expect(panel.getByText('Sin viajes adicionales.')).toBeVisible();
+    await expect(panel.getByText('1 viaje', { exact: true })).toBeVisible();
+    await expect(panel.getByText('$ 35.000')).toHaveCount(2);   // cabecera y total
+    await page.keyboard.press('Escape');
+
+    // Sin tarifa configurada: la cabecera lo dice con palabras, sin «$ 0».
+    await page.unroute(/\/api\/finanzas\/tramites\/[^/]+\/viajes-logistica/);
+    await mockDesglose(page, { cuerpo: {
+      ...DESGLOSE_VIGENTE, tramiteId: FILA_BLOQUEADA.tramiteId, idFlit: 'FLIT-2002',
+      tarifa: null, totalViajes: 1, totalLogistica: null, items: [],
+    } });
+    await botonViajes(page, 'FLIT-2002').click();
+    await expect(panelViajes(page).getByText('Viaje 1 · incluido en la tarifa · Sin tarifa configurada')).toBeVisible();
+    await expect(panelViajes(page)).not.toContainText('$ 0');
+    // La segunda apertura pintó lo del mock nuevo: cada apertura repide, no cachea.
+    expect(desglose.get).toBeGreaterThanOrEqual(1);
+  });
+
+  test('AC5 — 403 sin Reintentar; 404 con «Actualizar el reporte» que cierra y refresca', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const reporte = await mockReporteViajes(page);
+    await mockDesglose(page, { status: 403, error: { error: 'Sin permisos para esta operación' } });
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+    const pedidasAntes = reporte.length;
+
+    await botonViajes(page, 'FLIT-2001').click();
+    const panel = panelViajes(page);
+    await expect(panel.getByRole('alert')).toHaveText('Tu usuario ya no puede ver los viajes de este trámite. Vuelve a entrar para actualizar tus permisos.');
+    // mutante: Reintentar en 403
+    await expect(panel.getByRole('button', { name: 'Reintentar' })).toHaveCount(0);
+    await expect(panel.getByRole('button', { name: 'Actualizar el reporte' })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    await page.unroute(/\/api\/finanzas\/tramites\/[^/]+\/viajes-logistica/);
+    await mockDesglose(page, { status: 404, error: { error: 'Trámite no encontrado' } });
+    await botonViajes(page, 'FLIT-2001').click();
+    await expect(panelViajes(page).getByRole('alert')).toHaveText('El trámite ya no existe.');
+    await expect(panelViajes(page).getByRole('button', { name: 'Reintentar' })).toHaveCount(0);
+    await panelViajes(page).getByRole('button', { name: 'Actualizar el reporte' }).click();
+    // mutante: no cerrar, o no refrescar (`window.location.reload` también caería: el mock cuenta URLs del reporte)
+    await expect(panelViajes(page)).toHaveCount(0);
+    await expect.poll(() => reporte.length).toBe(pedidasAntes + 1);
+  });
+
+  test('AC5 — red/5xx: esqueleto mientras carga, `role="alert"` y Reintentar que repite el mismo GET', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockReporteViajes(page);
+    const opciones = { status: 500, error: { error: 'Se cayó la base' }, demoraMs: 300 };
+    const desglose = await mockDesglose(page, opciones);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    await botonViajes(page, 'FLIT-2001').click();
+    const panel = panelViajes(page);
+    // mutante: spinner sin `role="status"` o sin `aria-busy`
+    const esqueleto = panel.getByRole('status', { name: 'Consultando los viajes…' });
+    await expect(esqueleto).toBeVisible();
+    await expect(esqueleto).toHaveAttribute('aria-busy', 'true');
+
+    await expect(panel.getByRole('alert')).toContainText('No se pudieron cargar los viajes de este trámite.');
+    await expect(panel.getByRole('alert')).toContainText('Se cayó la base');
+    await expect(panel.getByText('Total logística')).toHaveCount(0);
+    const antes = desglose.get;
+    // El servidor se recupera; «Reintentar» tiene que REPEDIR para enterarse (mutante: no repide).
+    opciones.status = 0;
+    await panel.getByRole('button', { name: 'Reintentar' }).click();
+    await expect(panel.getByText('Viaje 1 · incluido en la tarifa · $ 35.000')).toBeVisible();
+    expect(desglose.get).toBeGreaterThan(antes);
+    await expect(panel.getByRole('alert')).toHaveCount(0);
   });
 });
