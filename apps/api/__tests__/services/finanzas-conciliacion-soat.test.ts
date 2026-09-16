@@ -149,6 +149,8 @@ function filaCruda(over: Record<string, unknown> = {}): Record<string, unknown> 
     tramiteDigital: '200000.00', logistica: '15000.00', gmf: '2980.00', totalFila: '747980.00',
     // HU #12546 — la proyección trae la clave siempre; null = el trámite no lleva servicios.
     serviciosAdicionales: null, serviciosAdicionalesCantidad: 0,
+    // HU #12627 — también siempre: 1 = solo el viaje incluido en la tarifa.
+    logisticaViajesCantidad: 1,
     soatPendiente: false, impuestoPendiente: false,
     gestionaSoat: true, gestionaImpuesto: false, gestionaLogistica: true,
     soatAutogestionable: false, impuestosAutogestionable: false, logisticaAutogestionable: false,
@@ -195,6 +197,8 @@ const FILA_BASE = {
   // HU #12546 — la fila las trae SIEMPRE, con o sin servicios: una clave que aparece solo a veces se
   // lee como un dato que se perdió. Sin servicios, importe `null` («no aplica») y cantidad 0.
   serviciosAdicionales: null, serviciosAdicionalesCantidad: 0,
+  // HU #12627 — cuántos viajes de logística, contando el incluido: siempre viaja, aquí 1.
+  logisticaViajesCantidad: 1,
   sellada: false, estadoLiquidacion: null,
   noConfigurados: [], sinRecibo: [], pendientesPago: [], autogestionados: [],
   noAplican: ['Impuesto'],

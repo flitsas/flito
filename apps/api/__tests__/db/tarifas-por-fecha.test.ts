@@ -37,6 +37,8 @@ const SQL_0183 = leerMigracion('0183_tarifas_vigencias_desde_siempre.sql');
 // sin ellas, la proyección real que ejecuta este spec falla con «column ... does not exist».
 const SQL_0193 = leerMigracion('0193_tramite_servicios_adicionales.sql');
 const SQL_0194 = leerMigracion('0194_liquidaciones_valor_servicios_adicionales.sql');
+// Y la 0199 (HU #12627): `EXPR_LOGISTICA` suma los viajes de `flito_tramite_viajes_logistica` en toda fila.
+const SQL_0199 = leerMigracion('0199_tramite_viajes_logistica.sql');
 
 // Drizzle proyecta SIN alias y mapea la fila por POSICIÓN, en el orden de las claves del objeto.
 // Aquí se hace lo mismo: `.values()` de postgres.js y el índice de cada clave en SELECT_FILA.
@@ -92,6 +94,7 @@ describe.skipIf(!URL_BASE)('reporte de costos — la tarifa estimada es la vigen
     await tx.unsafe(SQL_0183);
     await tx.unsafe(SQL_0193);
     await tx.unsafe(SQL_0194);
+    await tx.unsafe(SQL_0199);
     const [v] = await tx`INSERT INTO vehicles (plate, vin) VALUES ('HU12374', ${`VIN12374${String(Date.now()).slice(-9)}`}) RETURNING id`;
     vehiculoId = v!.id as number;
   }

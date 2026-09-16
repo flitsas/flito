@@ -72,3 +72,34 @@ export type CodigoViajeLogistica = (typeof CODIGO_VIAJE_LOGISTICA)[keyof typeof 
  * anterior sigue enseñando lo que se cobró.
  */
 export type ViajeLogisticaSellado = Omit<ViajeLogistica, 'registradoPorId'>;
+
+/**
+ * Respuesta de `GET /api/finanzas/tramites/:id/viajes-logistica` (HU #12627): el desglose de solo
+ * lectura de la logística que el reporte de costos enseña por trámite.
+ *
+ * `origen` dice de dónde sale lo que se muestra:
+ *   - `vigente`      — sin liquidar: la tarifa de hoy (en la fecha de aprobación) y las filas vivas.
+ *   - `sellado`      — liquidado por la HU #12626 o después: el snapshot congelado en el detalle;
+ *                      la tabla viva NO se reconsulta (tras un reverso cambia, lo sellado no).
+ *   - `sin_desglose` — liquidado ANTES de la HU #12626: solo se sabe el total (`valor_logistica`);
+ *                      `items`, `totalViajes` y `tarifa` van en null («no se sabe», nunca `[]`/1).
+ */
+export interface DesgloseViajesLogistica {
+  tramiteId: string;
+  idFlit: string;
+  placa: string | null;
+  /** false = la compañía autogestiona y no hay excepción viva (o el sello no cobró logística). */
+  gestionaLogistica: boolean;
+  liquidado: boolean;
+  /** ISO 8601; null sin liquidar. */
+  liquidadoEn: string | null;
+  origen: 'vigente' | 'sellado' | 'sin_desglose';
+  /** El viaje 1 (la tarifa de logística). null si no gestiona, no está configurada o no se sabe. */
+  tarifa: number | null;
+  /** 1 (el incluido) + adicionales; 0 si no gestiona; null si no se sabe (`sin_desglose`). */
+  totalViajes: number | null;
+  /** tarifa + Σ viajes: lo que el reporte enseña en «Logística». null si no gestiona o falta la tarifa. */
+  totalLogistica: number | null;
+  /** ORDER BY numero. `[]` si no gestiona o no hay adicionales; null si no se sabe (`sin_desglose`). */
+  items: ViajeLogisticaSellado[] | null;
+}

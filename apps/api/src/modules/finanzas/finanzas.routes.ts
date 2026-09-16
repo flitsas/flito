@@ -17,6 +17,7 @@ import {
 } from './finanzas.service.js';
 import { consolidadoReporte, PERIODOS_CONSOLIDADO, periodoConsolidado } from './finanzas.consolidado.js';
 import { gastosDiarios, resolverRango } from './finanzas.gastos-diarios.js';
+import { desgloseViajesLogistica, TramiteNoEncontradoError } from './finanzas.viajes-logistica.js';
 import {
   COLUMNAS_EXPORT_CONSOLIDADO, COLUMNAS_EXPORT_DETALLE, filasExcelConsolidado, filasExcelDetalle,
   HOJA_CONSOLIDADO, HOJA_DETALLE,
@@ -294,6 +295,27 @@ router.get('/tramites/:id/soportes', LECTURA, async (req: Request, res: Response
   // Sin caché: un soporte cargado hace un minuto tiene que salir sin recargar la pantalla.
   res.set('Cache-Control', 'no-store');
   res.json(soportes);
+});
+
+/**
+ * GET /tramites/:id/viajes-logistica — de qué se compone la celda «Logística» del reporte (HU #12627):
+ * la tarifa (viaje 1) y cada viaje adicional, con su precio. Solo lectura.
+ *
+ * La MISMA guarda `LECTURA` que el reporte: quien puede ver la celda puede ver su desglose, y nadie
+ * más. No se inventa una función del motor —el módulo `finanzas/` sigue vallado por rol
+ * (`permisos.valla-legacy.test.ts`)—; registrar y quitar viajes viven en `flito-logistica` con las
+ * suyas. Un id que no es uuid o que no existe es 404: el id es opaco.
+ */
+router.get('/tramites/:id/viajes-logistica', LECTURA, async (req: Request, res: Response) => {
+  try {
+    const desglose = await desgloseViajesLogistica(req.params.id);
+    // Sin caché: un viaje registrado hace un minuto tiene que salir sin recargar la pantalla.
+    res.set('Cache-Control', 'no-store');
+    res.json(desglose);
+  } catch (e) {
+    if (e instanceof TramiteNoEncontradoError) { res.status(404).json({ error: e.message }); return; }
+    throw e;
+  }
 });
 
 export default router;

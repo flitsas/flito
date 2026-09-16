@@ -262,9 +262,11 @@ describe('AC5 — EXPR_LOGISTICA_ESTIMADA compartida con el reporte (RN-02)', ()
   // compartida `RAMAS_LOGISTICA_ESTIMADA`— saldría `"lg"."valor"` donde antes salía `"valor"`; ese
   // contexto no existe en producción (la expresión referencia `clients`, `lg` y `flito_liquidaciones`,
   // que solo están tras `conJoins`).
+  // Desde la HU #12627 el ELSE sin sellar es tarifa + Σ viajes adicionales (D5, Épica #12244), y entra
+  // en la instancia compartida a propósito: gastos diarios y reporte siguen estimando lo mismo (RN-02).
   const EXPR_LOGISTICA_BASE = `select CASE WHEN "flito_liquidaciones"."id" IS NOT NULL THEN "flito_liquidaciones"."valor_logistica"
   WHEN NOT (NOT COALESCE("clients"."logistica_autogestionable", false) OR ("flito_excepciones_autogestion"."id" IS NOT NULL)) THEN NULL
-  ELSE "lg"."valor" END`;
+  ELSE "lg"."valor" + COALESCE((SELECT SUM("flito_tramite_viajes_logistica"."valor") FROM "flito_tramite_viajes_logistica" WHERE "flito_tramite_viajes_logistica"."tramite_id" = "flito_tramites"."id"), 0) END`;
 
   it('EXPR_LOGISTICA renderiza EXACTAMENTE igual que antes del refactor en el contexto del reporte (no regresión)', () => {
     const sql = conJoins(abrir({ x: EXPR_LOGISTICA }, flitoTramites)).toSQL().sql;
@@ -272,10 +274,10 @@ describe('AC5 — EXPR_LOGISTICA_ESTIMADA compartida con el reporte (RN-02)', ()
     // Mutante «cambiar el salto de línea o el orden de las ramas»: cae aquí byte a byte.
   });
 
-  it('EXPR_LOGISTICA_ESTIMADA es la rama sin sellar: CASE WHEN NOT gestiona THEN NULL ELSE lg.valor END', () => {
+  it('EXPR_LOGISTICA_ESTIMADA es la rama sin sellar: CASE WHEN NOT gestiona THEN NULL ELSE lg.valor + Σ viajes END', () => {
     expect(render(EXPR_LOGISTICA_ESTIMADA)).toBe(
       `CASE WHEN NOT (NOT COALESCE("clients"."logistica_autogestionable", false) OR ("flito_excepciones_autogestion"."id" IS NOT NULL)) THEN NULL
-  ELSE "lg"."valor" END`,
+  ELSE "lg"."valor" + COALESCE((SELECT SUM("flito_tramite_viajes_logistica"."valor") FROM "flito_tramite_viajes_logistica" WHERE "flito_tramite_viajes_logistica"."tramite_id" = "flito_tramites"."id"), 0) END`,
     );
     expect(render(EXPR_LOGISTICA_ESTIMADA)).not.toContain('flito_liquidaciones');
     // Y es la MISMA instancia que compone EXPR_LOGISTICA: su render está contenido en el del reporte.
