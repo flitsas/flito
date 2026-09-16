@@ -86,6 +86,9 @@ export const NAV_ITEMS: NavItem[] = [
   { page: 'flito_soat',     to: '/flito/soat',                   section: 'gestion',       label: 'SOAT',                    roles: ['proveedor', 'admin', 'cliente'], keywords: 'flito soat cola adquisicion factura poliza gestor proveedor pagado operaciones contingencia cliente solicitud' },
   { page: 'flito_impuestos', to: '/flito/impuestos',            section: 'gestion',       label: 'Impuestos',               roles: ['gestor_impuestos', 'admin'], keywords: 'flito impuesto organismo recibo factura venta gestion pagado conciliacion operaciones contingencia' },
   { page: 'finanzas_reporte_costos', to: '/finanzas/reporte-costos', section: 'finanzas',  label: 'Reporte de costos',       keywords: 'finanzas contabilidad facturacion cobros costos reporte soat impuesto gmf derecho tramite logistica digital total' },
+  // Gastos diarios (HU #12624): cuánto salió de caja por día y por categoría, contado el día del
+  // pago. Va justo tras el reporte porque es su lectura de caja, no su consolidado.
+  { page: 'finanzas_gastos_diarios', to: '/finanzas/gastos-diarios', section: 'finanzas',  label: 'Gastos diarios',          keywords: 'gastos diarios soat impuestos derechos logistica servicios adicionales gmf dashboard' },
   // Bolsas: va en Finanzas y no en Gestión porque su dueño es el área financiera —es quien
   // recarga, ajusta y cierra el periodo—, aunque el dominio sea FLITO. «prepago» se conserva en las
   // keywords: dejó de ser el nombre visible, pero es como muchos siguen buscándolo.
