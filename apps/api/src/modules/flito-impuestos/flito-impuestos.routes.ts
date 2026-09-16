@@ -724,7 +724,7 @@ router.post('/recibos', exigirFuncion('impuestos.recibos.cargar'), upload.array(
   try {
     const ctx = await contextoImpuesto(req.user!);
     const resultado = await cargarRecibos(files.map(aArchivo), fase as FaseRecibo, ctx, rutas);
-    await audit(req, { action: 'upload', resource: 'flito_impuesto', detail: `Carga masiva recibos (fase ${fase}): ${resultado.liquidados.length} liquidados, ${resultado.conciliados.length} conciliados, ${resultado.enRevision.length} en revisión, ${resultado.complementos.length} complementos, ${resultado.duplicados.length} duplicados, ${resultado.noAsociados.length} sin asociar` });
+    await audit(req, { action: 'upload', resource: 'flito_impuesto', detail: `Carga masiva recibos (fase ${fase}): ${resultado.liquidados.length} liquidados, ${resultado.conciliados.length} conciliados, ${resultado.enRevision.length} en revisión, ${resultado.complementos.length} complementos, ${resultado.duplicados.length} duplicados, ${resultado.noAsociados.length} sin asociar, ${resultado.faseNoCoincide.length} fase no coincide` });
     res.json(resultado);
   } catch (e) { handleError(res, e); }
 });
