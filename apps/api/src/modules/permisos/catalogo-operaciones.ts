@@ -57,6 +57,7 @@ const USR = 'users/users.routes.ts';
 const PER = 'permisos/permisos.routes.ts';
 const FSA = 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts';
 const CPR = 'flito-comprobantes/flito-comprobantes.routes.ts';
+const LOGV = 'flito-logistica/flito-logistica-viajes.routes.ts';
 
 export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   // ── SOAT (portal FLITO) ───────────────────────────────────────────────────────────────────────
@@ -248,6 +249,11 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${FSA} GET /tramites/:id/servicios-adicionales`, 'finanzas.servicios_adicionales.ver', 'Ver los servicios adicionales de un trámite', 'Consultar los servicios adicionales asignados a un trámite y su total.'),
   op(`${FSA} POST /tramites/:id/servicios-adicionales`, 'finanzas.servicios_adicionales.asignar', 'Asignar un servicio adicional a un trámite', 'Añadir a un trámite no liquidado un servicio adicional del catálogo, copiando su nombre y valor en ese instante.'),
   op(`${FSA} DELETE /tramites/:id/servicios-adicionales/:asignacionId`, 'finanzas.servicios_adicionales.quitar', 'Quitar un servicio adicional de un trámite', 'Retirar de un trámite no liquidado un servicio adicional asignado.'),
+
+  // ── Logística — viajes adicionales por trámite (HU #12619; textos byte a byte con la 0199; solo admin) ──
+  op(`${LOGV} GET /tramites/:tramiteId/viajes`, 'logistica.viajes.ver', 'Ver los viajes adicionales de un trámite', 'Consultar los viajes adicionales de logística de un trámite y su total.'),
+  op(`${LOGV} POST /tramites/:tramiteId/viajes`, 'logistica.viajes.registrar', 'Registrar un viaje adicional en un trámite', 'Añadir a un trámite no liquidado un viaje adicional de logística, copiando la tarifa vigente o fijando el precio a mano.'),
+  op(`${LOGV} DELETE /tramites/:tramiteId/viajes/:viajeId`, 'logistica.viajes.quitar', 'Quitar un viaje adicional de un trámite', 'Retirar de un trámite no liquidado un viaje adicional de logística registrado.'),
 
   // ── Sincronización FLITO ──────────────────────────────────────────────────────────────────────
   op(`${SYN} GET /estado`, 'sync.sync.ver_estado', 'Ver el estado de la sincronización', 'Consultar cuándo corrió la última sincronización y cómo fue.'),
