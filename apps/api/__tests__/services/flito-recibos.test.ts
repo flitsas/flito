@@ -344,7 +344,10 @@ describe('recibos — el umbral de OCR es el del organismo del candidato (HU #12
     selectMock.mockReturnValueOnce(chain([]));                          // archivo 1: dedup nº recibo
     selectMock.mockReturnValueOnce(chain([candidatoDe(ORG_ESTRICTO, '00000000-0000-0000-0000-0000000000de')]));
     selectMock.mockReturnValueOnce(chain([]));                          // archivo 2: dedup nº recibo
-    extraerMock.mockResolvedValue(reciboMedio());
+    // Dos placas distintas: con la misma, la HU #12614 (AC5) los trataría como el par de un impuesto.
+    extraerMock.mockImplementation(async (doc: { nombreArchivo: string }) => ({
+      ...reciboMedio(), [CampoImpuesto.PLACA]: campo(doc.nombreArchivo === 'a.pdf' ? 'QTQ100' : 'QTQ200', 0.9),
+    }));
     txQueCaptura();
 
     const res = await cargarRecibos([pdf('a.pdf', '%PDF-a'), pdf('b.pdf', '%PDF-b')], FaseRecibo.PAGO, GESTOR);

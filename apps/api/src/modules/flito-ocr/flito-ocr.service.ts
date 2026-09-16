@@ -338,17 +338,23 @@ export async function extraerFacturaSoat(doc: DocumentoAAnalizar): Promise<Extra
   return r as ExtraccionSoat;
 }
 
-/** Recibo de impuesto. Solo valorTotal bloquea el avance a pagado (§8.3). */
+/**
+ * Recibo de impuesto. Solo valorTotal bloquea el avance a pagado (§8.3).
+ *
+ * HU #12614: `selloPagado` se lee en la MISMA llamada (`"true"` | `"false"` | null; fuera de catálogo
+ * → null con confianza 0). No entra en `escalacion`: el sello es un veto y ante la duda se respeta
+ * la fase declarada, así que una lectura floja no justifica la segunda pasada por archivo.
+ */
 export async function extraerReciboImpuesto(doc: DocumentoAAnalizar): Promise<ExtraccionImpuesto> {
   const campos = [
     CampoImpuesto.PLACA, CampoImpuesto.VALOR_TOTAL, CampoImpuesto.NUMERO_RECIBO,
-    CampoImpuesto.FECHA_PAGO, CampoImpuesto.ANIO_GRAVABLE,
+    CampoImpuesto.FECHA_PAGO, CampoImpuesto.ANIO_GRAVABLE, CampoImpuesto.SELLO_PAGADO,
   ] as const;
   const escalacion = [CampoImpuesto.PLACA, CampoImpuesto.VALOR_TOTAL];
   const r = await extraer(doc, PROMPT_RECIBO_IMPUESTO, campos, escalacion, {
     [CampoImpuesto.PLACA]: placaN, [CampoImpuesto.VALOR_TOTAL]: normalizarPesos,
     [CampoImpuesto.NUMERO_RECIBO]: textoExactoN, [CampoImpuesto.FECHA_PAGO]: normalizarFecha,
-    [CampoImpuesto.ANIO_GRAVABLE]: anioN,
+    [CampoImpuesto.ANIO_GRAVABLE]: anioN, [CampoImpuesto.SELLO_PAGADO]: booleanoN,
   });
   return r as ExtraccionImpuesto;
 }
