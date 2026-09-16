@@ -11,7 +11,7 @@
 // `permisos-catalogo.test.ts` comprueba que los montajes del fuente cubren exactamente esta foto.
 import type { GuardaLeida } from './inventario-guardas.js';
 
-/** 217 rutas guardadas medidas el 9/09/2026 + 11 añadidas por la HU #12083 (dos en línea); +2 −1 por la HU #12373 (tarifas); +2 por la HU #12171; +7 por la HU #12084 (permisos); +4 por la HU #12541 (servicios adicionales); +1 por la HU #12591 (recibo de caja); +5 por la HU #12611 (comprobantes). */
+/** 217 rutas guardadas medidas el 9/09/2026 + 11 añadidas por la HU #12083 (dos en línea); +2 −1 por la HU #12373 (tarifas); +2 por la HU #12171; +7 por la HU #12084 (permisos); +4 por la HU #12541 (servicios adicionales); +1 por la HU #12591 (recibo de caja); +5 por la HU #12611 (comprobantes); +3 por la HU #12619 (viajes de logística). */
 export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor","cliente","proveedor"], heredada: false },
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "POST", ruta: "/export", roles: ["admin","proveedor"], heredada: false },
@@ -276,4 +276,9 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "comprobantes", fichero: "flito-comprobantes/flito-comprobantes.routes.ts", metodo: "GET", ruta: "/:id", roles: ["admin","financiera"], heredada: false },
   { modulo: "comprobantes", fichero: "flito-comprobantes/flito-comprobantes.routes.ts", metodo: "GET", ruta: "/:id/archivo", roles: ["admin","financiera"], heredada: false },
   { modulo: "comprobantes", fichero: "flito-comprobantes/flito-comprobantes.routes.ts", metodo: "POST", ruta: "/:id/releer", roles: ["admin","financiera"], heredada: false },
+  // HU #12619: viajes adicionales de logística por trámite (+3), sembradas por la 0199 SOLO a admin
+  // (el administrador reparte a los demás roles desde el panel).
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica-viajes.routes.ts", metodo: "GET", ruta: "/tramites/:tramiteId/viajes", roles: ["admin"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica-viajes.routes.ts", metodo: "POST", ruta: "/tramites/:tramiteId/viajes", roles: ["admin"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica-viajes.routes.ts", metodo: "DELETE", ruta: "/tramites/:tramiteId/viajes/:viajeId", roles: ["admin"], heredada: false },
 ];

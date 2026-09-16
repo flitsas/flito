@@ -34,6 +34,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0193_tramite_servicios_adicionales.sql',
   '0197_permiso_recibo_caja.sql',
   '0198_flito_comprobantes.sql',
+  '0199_tramite_viajes_logistica.sql',
 ] as const;
 
 function sinComentariosSql(sql: string): string {

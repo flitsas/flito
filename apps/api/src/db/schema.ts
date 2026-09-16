@@ -34,6 +34,9 @@ export { permisosRoles, permisosFunciones, permisosRolFuncion, permisosUsuarioFu
 // Épica #12245: `flito_comprobantes` vive en `./schema/flito-comprobantes.ts` por el mismo techo (HU #12611).
 import { flitoComprobantes } from './schema/flito-comprobantes.js';
 export { flitoComprobantes };
+// HU #12619: `flito_tramite_viajes_logistica` vive en `./schema/flito-logistica-viajes.ts` por el mismo techo.
+import { flitoTramiteViajesLogistica } from './schema/flito-logistica-viajes.js';
+export { flitoTramiteViajesLogistica };
 
 export const laftKindEnum = pgEnum('laft_kind', ['PN', 'PJ']);
 export const laftRiskLevelEnum = pgEnum('laft_risk_level', ['bajo', 'medio', 'alto']);

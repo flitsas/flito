@@ -22,6 +22,7 @@ import {
   flitoLiquidacionEventos, flitoLiquidaciones, flitoOrganismoVigencias, flitoSoat, flitoTramites,
 } from '../../db/schema.js';
 import { tarifaDe, type ValorTarifa } from '../flito-parametrizacion/flito-tarifas.service.js';
+import { excepcionLogisticaViva, gestionaLogistica as flitoGestionaLogistica } from './gestiona-logistica.js';
 import {
   registrarSalidasLiquidacion, reversarSalidasLiquidacion, type SalidaConcepto,
 } from '../flito-bolsas/flito-bolsas.service.js';
@@ -205,11 +206,7 @@ function proyeccionCalculo() {
     ))
     // La logística desbloqueada excepcionalmente. Un trámite no puede tener dos excepciones vivas
     // del mismo concepto (índice parcial), así que tampoco multiplica filas.
-    .leftJoin(flitoExcepcionesAutogestion, and(
-      eq(flitoExcepcionesAutogestion.tramiteId, flitoTramites.id),
-      eq(flitoExcepcionesAutogestion.concepto, 'logistica'),
-      isNull(flitoExcepcionesAutogestion.revocadoEn),
-    ))
+    .leftJoin(flitoExcepcionesAutogestion, excepcionLogisticaViva())
     .leftJoin(flitoDerechosTramite, eq(flitoDerechosTramite.tramiteId, flitoTramites.id));
 }
 
@@ -307,7 +304,7 @@ async function calcularDeFila(
   const gestionaSoat = !f.soatAutogestionable || Boolean(f.soatExcepcion);
   const gestionaImpuesto = flitoGestionaImpuesto(Boolean(f.impuestosAutogestionable), modalidad)
     || Boolean(f.impuestoExcepcion);
-  const gestionaLogistica = !f.logisticaAutogestionable || Boolean(f.logisticaExcepcion);
+  const gestionaLogistica = flitoGestionaLogistica(f.logisticaAutogestionable, f.logisticaExcepcion);
 
   const soat: ConceptoLiquidado = !gestionaSoat
     ? { valor: null, origen: 'La compañía autogestiona el SOAT', bloquea: false }
