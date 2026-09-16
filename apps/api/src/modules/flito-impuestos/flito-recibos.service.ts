@@ -154,7 +154,7 @@ export interface ResultadoRecibos {
 }
 
 // Datos de un impuesto candidato para conciliar/archivar.
-interface Candidato {
+export interface Candidato {
   impuestoId: string; estado: string; organismoCodigo: string; tramiteIdFlit: string; tramiteId: string;
   // `document` NO se trae (HU #11770): la carpeta se nombra con el id de la compañía, no con su NIT.
   placa: string | null; companiaId: number; carpeta: string | null; valorLiquidado: string | null;
@@ -331,7 +331,8 @@ function umbralDelCandidato(lote: LoteRecibos, organismoCodigo: string): number 
  * Vuelve a marcar `confiable` con el umbral que de verdad aplica. Es recorrer campos ya extraídos
  * recalculando un booleano: no vuelve a llamar al OCR ni cambia ningún valor ni ninguna confianza.
  */
-function remarcarConfiable(extraccion: ExtraccionImpuesto, umbral: number): ExtraccionImpuesto {
+/** Reevalúa `confiable` de cada campo contra el umbral del organismo. Exportada para comprobantes (HU #12630). */
+export function remarcarConfiable(extraccion: ExtraccionImpuesto, umbral: number): ExtraccionImpuesto {
   const salida: ExtraccionImpuesto = {};
   for (const [campo, dato] of Object.entries(extraccion) as [CampoImpuesto, ExtraccionImpuesto[CampoImpuesto]][]) {
     salida[campo] = dato ? { ...dato, confiable: dato.confianza >= umbral } : dato;
@@ -531,7 +532,12 @@ async function marcarLiquidado(tx: Tx, cand: Candidato, extraccion: ExtraccionIm
  * |pagado - liquidado| supera la tolerancia de la compañía, se MARCA para revisión (marcadoPorDiferencia)
  * pero NO bloquea el pago. El valor se guarda siempre (lo consume Liquidaciones).
  */
-async function conciliar(
+/**
+ * La ÚNICA vía a `pagado` de un impuesto por documento (ADR-0018 §4, D1 de la Épica #12245): carga
+ * masiva, recibo de caja y comprobantes universales (HU #12630) pasan por aquí. Escribe estado,
+ * `valor_pagado`, `marcado_por_diferencia` (D-5), la auditoría y la fila de `flito_estado_historial`.
+ */
+export async function conciliar(
   tx: Tx, cand: Candidato, extraccion: ExtraccionImpuesto, soporteId: string, ctx: ImpuestoCtx,
   // HU #12591: la carga masiva sigue pagando «hoy»; el recibo de caja pasa la fecha leída del recibo.
   pagadoEn: Date = new Date(),
@@ -678,8 +684,8 @@ function fechaDelRecibo(extraccion: ExtraccionImpuesto): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-/** El `Candidato` (datos para archivar y conciliar) de un impuesto concreto, por id. */
-async function candidatoPorId(id: string): Promise<Candidato | null> {
+/** El `Candidato` (datos para archivar y conciliar) de un impuesto concreto, por id. Exportado para comprobantes (HU #12630). */
+export async function candidatoPorImpuestoId(id: string): Promise<Candidato | null> {
   const [cand] = await fromCandidatos().where(eq(flitoImpuestos.id, id)).limit(1);
   return cand ?? null;
 }
@@ -713,7 +719,7 @@ export async function cargarReciboCaja(impuestoId: string, archivo: ArchivoSubid
   if (await hashReciboYaCargado(hash)) {
     throw new ReciboCajaError(409, CodigoErrorReciboCaja.DUPLICADO, 'Ese recibo ya está registrado: el archivo es idéntico a uno cargado antes.');
   }
-  const cand = await candidatoPorId(impuestoId);
+  const cand = await candidatoPorImpuestoId(impuestoId);
   if (!cand) throw new ReciboCajaError(404, CodigoErrorReciboCaja.NO_ENCONTRADO, 'El impuesto no existe');
 
   const lote = await abrirLote(ctx);

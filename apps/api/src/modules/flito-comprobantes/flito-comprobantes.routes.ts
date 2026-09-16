@@ -5,7 +5,7 @@
 // y el buscador (llaves de vehículo y URL prefirmada).
 //
 // F2 (0201): `POST /tramites/buscar` por BODY (la llave no va en la URL ni en los logs de acceso),
-// `POST /:id/aplicar` (esqueleto: adjuntar documentación; los pagos responden 409 hasta HU-2/HU-3) y
+// `POST /:id/aplicar` (adjuntar documentación; pagos de SOAT/impuesto/derecho vía sus dueños, HU #12630; honorarios 409 hasta HU-3) y
 // `POST /:id/descartar`. Aceptar diferencia (F3) llega con su migración y su ruta.
 
 import { Router, type Request, type Response } from 'express';
@@ -31,7 +31,7 @@ export { aplicarSchema } from './flito-comprobantes.aplicar.js';
 const router = Router();
 router.use(authMiddleware);
 
-const ctxDe = (user: { sub: number; username: string }): ComprobanteCtx => ({ userId: user.sub, username: user.username });
+const ctxDe = (user: { sub: number; username: string; role: string }): ComprobanteCtx => ({ userId: user.sub, username: user.username, role: user.role });
 
 /**
  * `:id` sin forma de uuid → 404 `no_encontrado` (AC9): antes llegaba a la base y moría en 22P02 como
@@ -145,12 +145,15 @@ router.post('/:id/releer', exigirFuncion('comprobantes.comprobante.releer'), exi
   } catch (e) { handleError(res, e); }
 });
 
-// ── Aplicar: 404 → 409 ya_resuelto → 400 → (pago: 409 destino_no_admite, eslabón) → tx con FOR UPDATE ─
+// ── Aplicar: 404 → 409 ya_resuelto → 400 → (pago: guarda del dueño 409 ya_pagado/destino_no_admite) → tx con FOR UPDATE ─
 router.post('/:id/aplicar', exigirFuncion('comprobantes.comprobante.aplicar'), exigirIdUuid, async (req: Request, res: Response) => {
   try {
     const comprobante = await aplicar(req.params.id, req.body, ctxDe(req.user!));
-    await audit(req, { action: 'update', resource: 'flito_comprobante', resourceId: req.params.id,
-      detail: `Comprobante adjuntado como documentación del trámite ${comprobante.tramite?.idFlit ?? '—'} (${comprobante.concepto}, cruce ${comprobante.cruce}).` });
+    const motivo = typeof req.body?.motivo === 'string' && req.body.motivo.trim() ? ` Motivo: ${req.body.motivo.trim()}` : '';
+    const detail = comprobante.esPago
+      ? `Comprobante aplicado como pago de ${comprobante.concepto} al trámite ${comprobante.tramite?.idFlit ?? '—'} (cruce ${comprobante.cruce}).${motivo}`
+      : `Comprobante adjuntado como documentación del trámite ${comprobante.tramite?.idFlit ?? '—'} (${comprobante.concepto}, cruce ${comprobante.cruce}).${motivo}`;
+    await audit(req, { action: 'update', resource: 'flito_comprobante', resourceId: req.params.id, detail });
     res.setHeader('Cache-Control', 'no-store');
     res.json({ resultado: 'aplicado', comprobante });
   } catch (e) { handleError(res, e); }

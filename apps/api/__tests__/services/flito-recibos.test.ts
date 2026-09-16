@@ -363,3 +363,33 @@ describe('recibos — el umbral de OCR es el del organismo del candidato (HU #12
     expect(selectMock).toHaveBeenCalledTimes(7); // 1 del lote + 3 por archivo
   });
 });
+
+// ═════════════════ HU #12630 · lo que comprobantes reutiliza de recibos (ADR-0018 §4, D1) ═══════════
+
+describe('HU #12630 — candidatoPorImpuestoId, conciliar y remarcarConfiable exportadas para comprobantes', () => {
+  it('candidatoPorImpuestoId(id): la consulta de candidatos (flito_impuestos ⋈ trámite ⋈ vehículo ⋈ compañía ⋈ organismo) filtrada por flito_impuestos.id = $; null si no hay fila', async () => {
+    const { candidatoPorImpuestoId, conciliar, remarcarConfiable } = await import('../../src/modules/flito-impuestos/flito-recibos.service.js');
+    const { renderizar, ligadoA } = await import('../helpers/sql-ligado.js');
+    expect(typeof conciliar).toBe('function');
+    expect(typeof remarcarConfiable).toBe('function');
+    const joins: string[] = [];
+    let condicion: unknown;
+    const fila = { impuestoId: 'imp-9', estado: 'solicitado', organismoCodigo: 'BOG', tramiteIdFlit: 'FLIT-1', tramiteId: 't-1', placa: 'QTQ100', companiaId: 1, carpeta: null, valorLiquidado: '10', diferenciaActiva: false, tolerancia: '0', liquidadoEn: null };
+    const armar = (rows: unknown[]) => {
+      const c: Record<string, unknown> = {
+        from: () => c, innerJoin: () => { joins.push('inner'); return c; }, leftJoin: () => { joins.push('left'); return c; },
+        where: (w: unknown) => { condicion = w; return c; }, limit: () => Promise.resolve(rows),
+      };
+      return c;
+    };
+    selectMock.mockReturnValueOnce(armar([fila]));
+    expect(await candidatoPorImpuestoId('imp-9')).toEqual(fila);
+    expect(joins).toEqual(['inner', 'inner', 'inner', 'inner']);
+    const q = renderizar(condicion as never);
+    expect(q.sql).toContain('"flito_impuestos"."id" = $');
+    expect(ligadoA(q, '"flito_impuestos"."id"')).toBe('imp-9');
+
+    selectMock.mockReturnValueOnce(armar([]));
+    expect(await candidatoPorImpuestoId('imp-0')).toBeNull();
+  });
+});
