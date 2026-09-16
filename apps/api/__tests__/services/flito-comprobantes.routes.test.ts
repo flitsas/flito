@@ -372,6 +372,62 @@ describe('AC7 — GET /:id', () => {
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ error: 'El comprobante no existe', codigo: 'no_encontrado' });
   });
+
+  // HU #12634 AC6: la ficha pinta «Motivo: «…»» y «Ver el soporte aplicado ↗» solo con `soporteAplicadoId`.
+  // El mock devuelve la fila entera aunque el select pida menos: por eso se afirma TAMBIÉN la proyección
+  // que la consulta pidió (`kdb.select.mock.calls`), no solo el cuerpo.
+  const proyeccionesPedidas = () => kdb.select.mock.calls.map((c) => Object.keys((c[0] as Record<string, unknown> | undefined) ?? {}));
+  const filaAplicada = (over: Record<string, unknown> = {}) => filaLista({
+    estado: 'aplicado', motivoPendiente: null, tramiteId: TRAMITE, tramiteIdFlit: 'FLIT-1', tramitePlaca: 'ABC123',
+    aplicadoEn: new Date('2026-09-16T10:00:00Z'), aplicadoPorNombre: 'fin@flitsas.io', ...over,
+  });
+
+  it('AC6 (HU #12634): aplicado a mano → aplicadoMotivo, soporteAplicadoId del hijo y descartadoMotivo null; la consulta los pidió', async () => {
+    const app = await buildApp();
+    kdb.when.selectOnce(T_COMP, [filaAplicada()]).selectOnce(T_COMP, [{
+      extraccion: lectura().extraccion, extraccionDestino: null,
+      aplicadoMotivo: 'Cruce manual: la placa del PDF es ABC123', descartadoMotivo: null, soporteAplicadoId: 'sop-hijo-1',
+    }]);
+    const res = await request(app).get(`${BASE}/${ID}`).set('Authorization', await auth('financiera'));
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      estado: 'aplicado', aplicadoMotivo: 'Cruce manual: la placa del PDF es ABC123', descartadoMotivo: null, soporteAplicadoId: 'sop-hijo-1', candidatos: [],
+    });
+    const deDetalle = proyeccionesPedidas().find((k) => k.includes('extraccion'));
+    expect(deDetalle).toEqual(expect.arrayContaining(['aplicadoMotivo', 'descartadoMotivo', 'soporteAplicadoId']));
+  });
+
+  it('AC6 (HU #12634): aplicado automático sin hijo → los tres en null (nunca undefined: la ficha decide por null)', async () => {
+    const app = await buildApp();
+    kdb.when.selectOnce(T_COMP, [filaAplicada({ aplicadoAutomaticamente: true, aplicadoPorNombre: null })])
+      .selectOnce(T_COMP, [{ extraccion: lectura().extraccion, extraccionDestino: null, aplicadoMotivo: null, descartadoMotivo: null, soporteAplicadoId: null }]);
+    const res = await request(app).get(`${BASE}/${ID}`).set('Authorization', await auth('financiera'));
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('aplicadoMotivo', null);
+    expect(res.body).toHaveProperty('descartadoMotivo', null);
+    expect(res.body).toHaveProperty('soporteAplicadoId', null);
+  });
+
+  it('AC6 (HU #12634): descartado → descartadoMotivo con texto, aplicadoMotivo y soporteAplicadoId null, candidatos []', async () => {
+    const app = await buildApp();
+    kdb.when.selectOnce(T_COMP, [filaLista({ estado: 'descartado', motivoPendiente: null, descartadoEn: new Date('2026-09-16T11:00:00Z'), descartadoPorNombre: 'fin@flitsas.io' })])
+      .selectOnce(T_COMP, [{ extraccion: lectura().extraccion, extraccionDestino: null, aplicadoMotivo: null, descartadoMotivo: 'Duplicado del POL-1', soporteAplicadoId: null }]);
+    const res = await request(app).get(`${BASE}/${ID}`).set('Authorization', await auth('financiera'));
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ estado: 'descartado', descartadoMotivo: 'Duplicado del POL-1', aplicadoMotivo: null, soporteAplicadoId: null, candidatos: [] });
+  });
+
+  it('AC6 (HU #12634): la LISTA no trae aplicadoMotivo/descartadoMotivo/soporteAplicadoId ni su proyección los pide', async () => {
+    const app = await buildApp();
+    kdb.when.selectOnce(T_COMP, [{ total: 1 }]).selectOnce(T_COMP, [filaAplicada({ aplicadoMotivo: 'x', descartadoMotivo: 'y', soporteAplicadoId: 'sop-hijo-1' })]);
+    const res = await request(app).get(BASE).set('Authorization', await auth('financiera'));
+    expect(res.status).toBe(200);
+    const item = res.body.items[0];
+    expect(item).not.toHaveProperty('aplicadoMotivo');
+    expect(item).not.toHaveProperty('descartadoMotivo');
+    expect(item).not.toHaveProperty('soporteAplicadoId');
+    for (const k of ['aplicadoMotivo', 'descartadoMotivo', 'soporteAplicadoId']) expect(Object.keys(PROYECCION_LISTA)).not.toContain(k);
+  });
 });
 
 // ═════════════════ AC8 · abrir el archivo ═══════════════════════════════════════════════════════

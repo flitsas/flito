@@ -8,9 +8,12 @@
 import {
   CAMPO_COMPROBANTE_LABEL, CAMPO_DERECHO_TRAMITE_LABEL, CAMPO_IMPUESTO_LABEL, CAMPO_SOAT_LABEL,
   CARGA_MASIVA_ARCHIVOS_POR_PETICION, partirCargaMasivaEnTandas,
-  type CampoComprobanteDto, type ComprobanteListaDto, type ResultadoCargaComprobantes,
+  type AdmisionConcepto, type AplicarComprobanteBody, type CampoComprobanteDto, type CandidatoTramiteDto,
+  type ComprobanteDetalleDto, type ComprobanteListaDto, type ErrorComprobanteDto, type ResultadoAplicarComprobanteDto,
+  type ResultadoCargaComprobantes,
 } from '@operaciones/shared-types';
 import type { ChipTone } from '../components/flit/StatusChip';
+import { ApiError, api } from './api';
 import { enviarCargaEnTandas, fusionarResultadoCarga, type ItemCarga } from './carga-masiva';
 import { PDF_WORKER_SRC } from './pdfWorker';
 
@@ -143,6 +146,117 @@ export function labelCampo(campo: string): string {
     return LABEL_DESTINO[clave] ?? clave;
   }
   return (CAMPO_COMPROBANTE_LABEL as Record<string, string>)[campo] ?? campo;
+}
+
+// ───────────────────────── Asociación (HU #12634, Feature #12606, UX slim §1-§5) ─────────────────
+
+/** Copy de `AdmisionConcepto` (slim §2): sufijo de las opciones del select y 2.ª línea del combobox. */
+export const ADMISION_LABEL: Record<AdmisionConcepto, string> = {
+  admite: 'admite', ya_pagado: 'ya pagado', no_gestionado: 'no gestionado',
+  estado_no_permitido: 'estado no permitido', liquidado: 'liquidado', ya_documentado: 'ya documentado',
+};
+
+/** La misma ayuda en los tres `textarea` de motivo (aplicar, descartar, reemplazar): slim §4. */
+export const AYUDA_MOTIVO = 'Mínimo 5 caracteres. Queda en la auditoría del comprobante. No escribas datos personales (nombres, cédulas, teléfonos).';
+export const MOTIVO_MIN = 5;
+export const MOTIVO_MAX = 500;
+export const BUSCAR_MIN = 3;
+export const BUSCAR_MAX = 60;
+
+export const buscarTramites = (buscar: string) =>
+  api.post<{ candidatos: CandidatoTramiteDto[] }>(`${RUTA_COMPROBANTES}/tramites/buscar`, { buscar });
+
+export const aplicarComprobante = (id: string, body: AplicarComprobanteBody) =>
+  api.post<ResultadoAplicarComprobanteDto>(`${RUTA_COMPROBANTES}/${id}/aplicar`, body);
+
+export const descartarComprobante = (id: string, motivo: string) =>
+  api.post<{ ok: true }>(`${RUTA_COMPROBANTES}/${id}/descartar`, { motivo });
+
+/** El cuerpo `{ error, codigo, … }` de un error del módulo, o `null` si no es un `ApiError` con `codigo`. La pantalla decide por `codigo`, nunca por texto. */
+export function errorComprobante(e: unknown): (ErrorComprobanteDto & { status: number }) | null {
+  if (!(e instanceof ApiError)) return null;
+  const raw = e.rawDetails as Partial<ErrorComprobanteDto> | null | undefined;
+  if (!raw || typeof raw.codigo !== 'string') return null;
+  return { ...raw, error: raw.error ?? e.message, codigo: raw.codigo, status: e.status };
+}
+
+export type LlaveSugerido = 'ID FLIT' | 'VIN' | 'placa';
+
+/**
+ * Por qué un candidato es «Sugerido» (slim D-2): el DTO del candidato no trae `cruce`, así que se
+ * deriva sin dato nuevo: si el comprobante ya tiene `cruce` fijado y es ese trámite, se usa; si no,
+ * por coincidencia con lo leído en el orden ID FLIT → VIN → placa. `null` = solo «Sugerido».
+ */
+export function llaveSugerido(
+  c: Pick<CandidatoTramiteDto, 'tramiteId' | 'idFlit' | 'placa' | 'vin'>,
+  d: Pick<ComprobanteDetalleDto, 'cruce' | 'tramite' | 'idFlitLeido' | 'vinLeido' | 'placaLeida'>,
+): LlaveSugerido | null {
+  if (d.tramite?.id === c.tramiteId && d.cruce && d.cruce !== 'manual') {
+    return d.cruce === 'id_flit' ? 'ID FLIT' : d.cruce === 'vin' ? 'VIN' : 'placa';
+  }
+  const eq = (a: string | null, b: string | null) => !!a && !!b && a.trim().toUpperCase() === b.trim().toUpperCase();
+  if (eq(c.idFlit, d.idFlitLeido)) return 'ID FLIT';
+  if (eq(c.vin, d.vinLeido)) return 'VIN';
+  if (eq(c.placa, d.placaLeida)) return 'placa';
+  return null;
+}
+
+/** Filtro en cliente de los sugeridos por lo escrito (slim §2): siguen primeros mientras coincidan con `idFlit`, `placa` o `vin`. */
+export function coincideCandidato(c: Pick<CandidatoTramiteDto, 'idFlit' | 'placa' | 'vin'>, texto: string): boolean {
+  const t = texto.trim().toUpperCase();
+  if (!t) return true;
+  return [c.idFlit, c.placa, c.vin].some((v) => !!v && v.toUpperCase().includes(t));
+}
+
+/** Campos que la persona puede corregir (slim D-5). `placa`, `vin` e `idFlit` se muestran con chip pero no se editan; `tipoDocumento`, `esComprobantePago` y `concepto` no se listan. */
+export const CAMPOS_EDITABLES = new Set(['valorTotal', 'fechaPago', 'numeroDocumento', 'emisor']);
+export const CAMPOS_OCULTOS = new Set(['tipoDocumento', 'esComprobantePago', 'concepto']);
+export const esCampoEditable = (campo: string): boolean => CAMPOS_EDITABLES.has(campo) || campo.startsWith('destino.');
+
+/**
+ * Solo el delta (slim D-7): claves cuyo valor `trim()` difiere de lo leído. Un campo vaciado a mano
+ * no viaja (no hay «borrar lectura» en el contrato). `undefined` si no hay ninguna.
+ */
+export function deltaCampos(campos: readonly Pick<CampoComprobanteDto, 'campo' | 'valor'>[], valores: Readonly<Record<string, string>>): Record<string, string> | undefined {
+  const delta: Record<string, string> = {};
+  for (const c of campos) {
+    if (!esCampoEditable(c.campo)) continue;
+    const v = (valores[c.campo] ?? '').trim();
+    if (v !== '' && v !== (c.valor ?? '')) delta[c.campo] = v;
+  }
+  return Object.keys(delta).length ? delta : undefined;
+}
+
+/**
+ * Abre en otra pestaña el archivo de un comprobante (`GET /:id/archivo`, que exige token y redirige
+ * a S3 prefirmado: no sirve como `href`). Con `aplicado` pide el soporte hijo que vio el destino
+ * (`?aplicado=1`, AC6 de #12634). La pestaña se abre ANTES del `await` para que el bloqueador de
+ * ventanas no la trague; si la descarga falla se cierra y el error sube a quien llamó.
+ */
+export async function abrirArchivoComprobante(id: string, aplicado = false): Promise<void> {
+  const ventana = window.open('', '_blank');
+  try {
+    const blob = await api.get<Blob>(`${RUTA_COMPROBANTES}/${id}/archivo${aplicado ? '?aplicado=1' : ''}`);
+    const url = URL.createObjectURL(blob);
+    if (ventana) ventana.location.href = url; else window.open(url, '_blank', 'noopener');
+  } catch (e) {
+    ventana?.close();
+    throw e;
+  }
+}
+
+/**
+ * AC8 (deuda de #12612): si el archivo es PDF lo dice el `contentType` del DTO o la cabecera
+ * `%PDF` del blob, nunca `blob.type` (un `route.fulfill` o un proxy sin Content-Type lo deja vacío).
+ */
+export async function esPdfArchivo(contentType: string | null | undefined, blob: Blob): Promise<boolean> {
+  if (contentType && contentType.toLowerCase().includes('pdf')) return true;
+  try {
+    const cabecera = await blob.slice(0, 5).text();
+    return cabecera.startsWith('%PDF');
+  } catch {
+    return false;
+  }
 }
 
 // ─────────────────────────── Envío en lotes: consolidados de 1 en 1 ─────────────────────────────

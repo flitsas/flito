@@ -1,23 +1,26 @@
-// FLITO — detalle de un comprobante (HU #12612, Feature #12605): visor a la izquierda, lo leído a
-// la derecha, en SOLO LECTURA. Sin Asociar / Aplicar / Descartar: eso llega con #12606 y aquí no
-// existen ni apagados (UX §7.8: ausentes, no `disabled`).
+// FLITO — detalle de un comprobante (HU #12612 → #12634, Feature #12606): visor a la izquierda y, a
+// la derecha, el panel de asociación si está PENDIENTE (`PanelAsociacion`: tres decisiones, campos
+// editables, Aplicar / Adjuntar / Descartar) o la ficha en SOLO LECTURA si ya está aplicado o
+// descartado (UX §7.8: sin botones, ausentes y no `disabled`).
 //
-// Lo único que hace es «Releer» sobre un pendiente `ocr_no_disponible` (C-L5): vuelve a pedir la
-// lectura y repinta campos y motivo. Nunca pinta `extraccion` cruda: solo `campos[]` con el nivel de
-// confianza que calcula el servidor (D11: el front no deriva alta/media/baja de un número).
+// «Releer» sobre un pendiente `ocr_no_disponible` (C-L5) vuelve a pedir la lectura y repinta el
+// panel entero (candidatos incluidos, slim D-14). Nunca pinta `extraccion` cruda: solo `campos[]`
+// con el nivel de confianza que calcula el servidor (D11). AC8: si el archivo es PDF lo dice el
+// `contentType` del DTO o la cabecera `%PDF`, nunca `blob.type`.
 
 import { useCallback, useEffect, useState, type RefObject } from 'react';
 import {
-  CodigoErrorComprobante, MOTIVO_PENDIENTE_COMPROBANTE_LABEL, MotivoPendienteComprobante,
-  TIPO_DOCUMENTO_COMPROBANTE_LABEL, type ComprobanteDetalleDto,
+  CONCEPTO_COSTO_LABEL, CodigoErrorComprobante, MOTIVO_PENDIENTE_COMPROBANTE_LABEL, MotivoPendienteComprobante,
+  TIPO_DOCUMENTO_COMPROBANTE_LABEL, type ComprobanteDetalleDto, type CruceComprobante,
 } from '@operaciones/shared-types';
 import { ApiError, api, errorMessage } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { RUTA_COMPROBANTES, chipConfianza, labelCampo, textoCarga, textoPaginas } from '../../lib/comprobantes';
+import { RUTA_COMPROBANTES, abrirArchivoComprobante, chipConfianza, esPdfArchivo, fechaCarga, labelCampo, pesosComprobante, textoCarga, textoPaginas } from '../../lib/comprobantes';
 import FlitModal from '../flit/FlitModal';
 import StatusChip, { type ChipTone } from '../flit/StatusChip';
 import VisorPdf from '../flit/VisorPdf';
 import { flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
+import PanelAsociacion from './PanelAsociacion';
 
 const TONO_ESTADO: Record<ComprobanteDetalleDto['estado'], ChipTone> = { pendiente: 'warning', aplicado: 'success', descartado: 'neutral' };
 const ROTULO_ESTADO: Record<ComprobanteDetalleDto['estado'], string> = { pendiente: 'Pendiente', aplicado: 'Aplicado', descartado: 'Descartado' };
@@ -26,7 +29,9 @@ const COPY_SIN_LECTURA = 'FLITO no pudo leer este documento.';
 const COPY_RELEER_503 = 'El lector sigue sin estar disponible. Inténtalo más tarde.';
 const COPY_SIN_ARCHIVO = 'Tu usuario no puede abrir el archivo. Pídele a un administrador la función “Abrir el archivo de un comprobante”.';
 
-type Archivo = { url: string; esPdf: boolean };
+const CRUCE_LABEL: Record<CruceComprobante, string> = { id_flit: 'ID FLIT', vin: 'VIN', placa: 'placa', manual: 'asociación manual' };
+
+type Archivo = { url: string; blob: Blob };
 
 /** Descarga el archivo como blob (el endpoint exige token y redirige a S3 prefirmado), como Revisiones. */
 function useArchivoComprobante(id: string, habilitado: boolean) {
@@ -41,28 +46,41 @@ function useArchivoComprobante(id: string, habilitado: boolean) {
     api.get<Blob>(`${RUTA_COMPROBANTES}/${id}/archivo`).then((blob) => {
       if (!vivo) return;
       objectUrl = URL.createObjectURL(blob);
-      setArchivo({ url: objectUrl, esPdf: blob.type.includes('pdf') });
+      setArchivo({ url: objectUrl, blob });
     }).catch((e) => { if (vivo) setError(errorMessage(e)); });
     return () => { vivo = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [id, habilitado, nonce]);
   return { archivo, error, reintentar: () => setNonce((n) => n + 1) };
 }
 
-export default function DetalleComprobante({ id, onClose, onColaActualizada, restoreFocusRef }: {
+export default function DetalleComprobante({ id, onClose, onColaActualizada, onResuelto, restoreFocusRef }: {
   id: string;
   onClose: () => void;
-  /** Tras releer con éxito, o al pulsar «Actualizar la cola» en un 404: la página refresca y anuncia. */
+  /** Tras releer con éxito, o al pulsar «Actualizar la cola» en un 404 / `ya_resuelto`: la página refresca y anuncia. */
   onColaActualizada: () => void;
+  /** Aplicado, adjuntado o descartado con éxito: la página muestra el toast, refresca y cierra. */
+  onResuelto: (toast: string) => void;
   restoreFocusRef?: RefObject<HTMLElement | null>;
 }) {
   const { hasFuncion } = useAuth();
   const [detalle, setDetalle] = useState<ComprobanteDetalleDto | null>(null);
   const [error, setError] = useState<{ texto: string; noExiste: boolean } | null>(null);
   const [nonce, setNonce] = useState(0);
+  const [version, setVersion] = useState(0);
   const [releyendo, setReleyendo] = useState(false);
   const [errorReleer, setErrorReleer] = useState<string | null>(null);
+  const [esPdf, setEsPdf] = useState<boolean | null>(null);
+  const [errorSoporte, setErrorSoporte] = useState<string | null>(null);
   const puedeAbrirArchivo = hasFuncion('comprobantes.archivo.descargar');
   const { archivo, error: errorArchivo, reintentar: reintentarArchivo } = useArchivoComprobante(id, puedeAbrirArchivo);
+  const contentType = detalle?.archivo.contentType;
+
+  useEffect(() => {
+    if (!archivo || contentType === undefined) { setEsPdf(null); return undefined; }
+    let vivo = true;
+    esPdfArchivo(contentType, archivo.blob).then((v) => { if (vivo) setEsPdf(v); });
+    return () => { vivo = false; };
+  }, [archivo, contentType]);
 
   useEffect(() => {
     let vivo = true;
@@ -81,7 +99,7 @@ export default function DetalleComprobante({ id, onClose, onColaActualizada, res
     setReleyendo(true); setErrorReleer(null);
     try {
       const d = await api.post<ComprobanteDetalleDto>(`${RUTA_COMPROBANTES}/${id}/releer`);
-      setDetalle(d);
+      setDetalle(d); setVersion((v) => v + 1);
       onColaActualizada();
     } catch (e) {
       const codigo = e instanceof ApiError ? (e.rawDetails as { codigo?: string } | null)?.codigo : undefined;
@@ -98,6 +116,49 @@ export default function DetalleComprobante({ id, onClose, onColaActualizada, res
   const chipTipo = campoTipo ? chipConfianza(campoTipo) : { texto: 'Sin lectura', tono: 'neutral' as ChipTone };
   const sinLectura = detalle?.motivoPendiente === MotivoPendienteComprobante.OCR_NO_DISPONIBLE;
   const puedeReleer = sinLectura && detalle?.estado === 'pendiente' && hasFuncion('comprobantes.comprobante.releer');
+  const actualizarCola = () => { onColaActualizada(); onClose(); };
+  const verSoporteAplicado = () => {
+    setErrorSoporte(null);
+    abrirArchivoComprobante(id, true).catch((e) => setErrorSoporte(`No se pudo abrir el soporte aplicado. ${errorMessage(e)}`));
+  };
+  const motivoFicha = detalle?.estado === 'aplicado' ? detalle.aplicadoMotivo : detalle?.estado === 'descartado' ? detalle.descartadoMotivo : null;
+
+  const cabecera = detalle && (
+    <>
+      <div className="space-y-1">
+        <p className="flex flex-wrap items-center gap-2">
+          <StatusChip tone={TONO_ESTADO[detalle.estado]}>{ROTULO_ESTADO[detalle.estado]}</StatusChip>
+          {detalle.motivoPendiente && <span>{detalle.detallePendiente ?? MOTIVO_PENDIENTE_COMPROBANTE_LABEL[detalle.motivoPendiente]}</span>}
+          {detalle.estado === 'aplicado' && <span>{detalle.aplicadoAutomaticamente ? 'automático' : `manual · por ${detalle.aplicadoPorNombre ?? '—'}`}{detalle.aplicadoEn ? ` · ${fechaCarga(detalle.aplicadoEn)}` : ''}</span>}
+          {detalle.estado === 'descartado' && <span>Descartado por {detalle.descartadoPorNombre ?? '—'}{detalle.descartadoEn ? ` · ${fechaCarga(detalle.descartadoEn)}` : ''}</span>}
+        </p>
+        <p>{textoCarga(detalle)}</p>
+        <p className="flex flex-wrap items-center gap-2">
+          <span>Leído: {detalle.tipoDocumento ? TIPO_DOCUMENTO_COMPROBANTE_LABEL[detalle.tipoDocumento] : 'sin identificar'}</span>
+          <StatusChip tone={chipTipo.tono}>{chipTipo.texto}</StatusChip>
+        </p>
+        {detalle.estado === 'aplicado' && (
+          <p style={{ color: 'var(--flit-text-primary)' }}>
+            {[detalle.esPago ? 'Comprobante de pago' : 'Documentación', detalle.concepto ? CONCEPTO_COSTO_LABEL[detalle.concepto] : null,
+              detalle.tramite?.idFlit, detalle.tramite?.placa, detalle.cruce ? `cruce por ${CRUCE_LABEL[detalle.cruce]}` : null].filter(Boolean).join(' · ')}
+          </p>
+        )}
+      </div>
+
+      {sinLectura && (
+        <div className="space-y-2">
+          <p style={{ color: 'var(--flit-text-primary)' }}>{COPY_SIN_LECTURA}</p>
+          {puedeReleer && (
+            <div className="flex flex-wrap items-center gap-3">
+              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={releyendo} onClick={releer}>Releer</button>
+              {releyendo && <span role="status" aria-live="polite" className="text-xs">Releyendo…</span>}
+            </div>
+          )}
+          {errorReleer && <p role="alert" className="text-red-600">{errorReleer}</p>}
+        </div>
+      )}
+    </>
+  );
 
   return (
     <FlitModal title={titulo} onClose={onClose} full restoreFocusRef={restoreFocusRef}>
@@ -111,9 +172,9 @@ export default function DetalleComprobante({ id, onClose, onColaActualizada, res
                 <p role="alert" className="text-red-600">No se pudo abrir el documento.</p>
                 <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={reintentarArchivo}>Reintentar</button>
               </div>
-            ) : !archivo || !detalle ? (
+            ) : !archivo || !detalle || esPdf === null ? (
               <div className="flex h-full items-center justify-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando el documento…</div>
-            ) : archivo.esPdf ? (
+            ) : esPdf ? (
               <VisorPdf url={archivo.url} nombre={detalle.archivo.nombre} paginaInicial={detalle.paginas?.[0]} />
             ) : (
               <div className="h-full overflow-auto rounded-md" style={{ background: 'var(--flit-border-soft)' }}>
@@ -128,45 +189,40 @@ export default function DetalleComprobante({ id, onClose, onColaActualizada, res
           )}
         </section>
 
-        <section aria-label="Lectura" className="min-h-0 overflow-auto text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <section aria-label="Lectura" className="flex min-h-0 flex-col text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
           {error ? (
             <div className="space-y-3">
               <p role="alert" className="text-red-600">{error.noExiste ? error.texto : `No se pudo abrir el comprobante. ${error.texto}`}</p>
               {error.noExiste
-                ? <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => { onColaActualizada(); onClose(); }}>Actualizar la cola</button>
+                ? <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={actualizarCola}>Actualizar la cola</button>
                 : <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setNonce((n) => n + 1)}>Reintentar</button>}
             </div>
           ) : !detalle ? (
             <div className="animate-pulse space-y-3 motion-reduce:animate-none" aria-hidden="true">
               {[0, 1, 2, 3, 4, 5].map((i) => <div key={i} className="h-4 rounded" style={{ background: 'var(--flit-border-soft)', width: i < 3 ? '60%' : '100%' }} />)}
             </div>
+          ) : detalle.estado === 'pendiente' ? (
+            <PanelAsociacion key={`${detalle.id}-${version}`} detalle={detalle} onResuelto={onResuelto} onActualizarCola={actualizarCola}>
+              {cabecera}
+            </PanelAsociacion>
           ) : (
-            <div className="space-y-4">
-              <div className="space-y-1">
-                <p className="flex flex-wrap items-center gap-2">
-                  <StatusChip tone={TONO_ESTADO[detalle.estado]}>{ROTULO_ESTADO[detalle.estado]}</StatusChip>
-                  {detalle.motivoPendiente && <span>{detalle.detallePendiente ?? MOTIVO_PENDIENTE_COMPROBANTE_LABEL[detalle.motivoPendiente]}</span>}
+            <div className="min-h-0 flex-1 space-y-4 overflow-auto">
+              {cabecera}
+              {detalle.estado === 'aplicado' && detalle.esPago && (
+                <p className="flex items-center justify-between gap-2 border-b pb-2" style={{ borderColor: 'var(--flit-border-soft)' }}>
+                  <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Valor al aplicar</span>
+                  <span style={{ color: 'var(--flit-text-primary)' }}>{pesosComprobante(detalle.valor)}</span>
                 </p>
-                <p>{textoCarga(detalle)}</p>
-                <p className="flex flex-wrap items-center gap-2">
-                  <span>Leído: {detalle.tipoDocumento ? TIPO_DOCUMENTO_COMPROBANTE_LABEL[detalle.tipoDocumento] : 'sin identificar'}</span>
-                  <StatusChip tone={chipTipo.tono}>{chipTipo.texto}</StatusChip>
-                </p>
-              </div>
-
-              {sinLectura && (
-                <div className="space-y-2">
-                  <p style={{ color: 'var(--flit-text-primary)' }}>{COPY_SIN_LECTURA}</p>
-                  {puedeReleer && (
-                    <div className="flex flex-wrap items-center gap-3">
-                      <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={releyendo} onClick={releer}>Releer</button>
-                      <span role="status" aria-live="polite" className="text-xs">{releyendo ? 'Releyendo…' : ''}</span>
-                    </div>
-                  )}
-                  {errorReleer && <p role="alert" className="text-red-600">{errorReleer}</p>}
+              )}
+              {motivoFicha && <p>Motivo: «{motivoFicha}»</p>}
+              {detalle.estado === 'aplicado' && detalle.soporteAplicadoId && puedeAbrirArchivo && (
+                <div className="space-y-1">
+                  <button type="button" className="flit-focus text-sm underline" style={{ color: 'var(--flit-blue-text)' }} onClick={verSoporteAplicado}>
+                    Ver el soporte aplicado ↗
+                  </button>
+                  {errorSoporte && <p role="alert" style={{ color: 'var(--flit-danger-ink)' }}>{errorSoporte}</p>}
                 </div>
               )}
-
               <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Datos leídos</p>
               <dl className="space-y-2">
                 {detalle.campos.map((c) => {
