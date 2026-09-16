@@ -12,13 +12,14 @@ import { env } from '../../config/env.js';
 import { loggerFor } from '../../shared/logger.js';
 import { anthropicMessages } from '../tramites/anthropic.js';
 import {
-  CampoSoat, CampoImpuesto, CampoFacturaVenta, CampoDerechoTramite,
-  CAMPOS_COMPRADOR_FACTURA, TIPOS_DOCUMENTO_RUNT,
+  CampoSoat, CampoImpuesto, CampoFacturaVenta, CampoDerechoTramite, CampoComprobante,
+  CAMPOS_COMPRADOR_FACTURA, TIPOS_DOCUMENTO_RUNT, TIPOS_DOCUMENTO_COMPROBANTE, CONCEPTOS_COSTO,
   type CampoExtraido, type ExtraccionSoat, type ExtraccionImpuesto, type ExtraccionFacturaVenta,
-  type ExtraccionDerechoTramite,
+  type ExtraccionDerechoTramite, type ExtraccionComprobante,
 } from '@operaciones/shared-types';
 import {
   SISTEMA_OCR, PROMPT_FACTURA_SOAT, PROMPT_RECIBO_IMPUESTO, PROMPT_RECIBO_CAJA, PROMPT_FACTURA_VENTA, PROMPT_DERECHO_TRAMITE,
+  PROMPT_COMPROBANTE_UNIVERSAL, PROMPT_PARTICION_CONSOLIDADO,
   type CampoCrudo, type ConfianzaCategorica,
 } from './flito-ocr.prompts.js';
 import { textoDocumento, camposDesdeTexto } from './flito-ocr-local.js';
@@ -156,6 +157,31 @@ async function pasada(
 }
 
 /**
+ * Pasada de PARTICIÓN de un consolidado (Épica #12245): Haiku, `PROMPT_PARTICION_CONSOLIDADO`, sin
+ * escalación. No devuelve campos sino el JSON crudo del modelo (`{ total_paginas, documentos }`) o
+ * `null` si no parseó; validar rango, solapes y cobertura es de quien parte
+ * (`flito-comprobantes.ocr.ts`), que ante cualquier fallo cae a una página por documento. `max_tokens`
+ * más alto que el de `pasada` porque un consolidado de 100 páginas puede devolver 100 grupos.
+ *
+ * Lanza `OcrNoDisponibleError` como las demás pasadas; el que parte decide si eso es una caída
+ * (lo es) o un error (no lo es).
+ */
+export async function particionConsolidado(doc: Omit<DocumentoAAnalizar, 'umbral'>): Promise<Record<string, unknown> | null> {
+  const payload = {
+    model: env.ANTHROPIC_MODEL_HAIKU,
+    max_tokens: 2000,
+    system: SISTEMA_OCR,
+    messages: [{ role: 'user', content: [bloqueDocumento({ ...doc, umbral: 0 }), { type: 'text', text: PROMPT_PARTICION_CONSOLIDADO }] }],
+  };
+  const res = await anthropicMessages(payload, 'ocr');
+  if (!res.ok) throw new OcrNoDisponibleError(res.status, res.message);
+  const text = (res.data as { content?: Array<{ text?: string }> })?.content?.[0]?.text ?? '';
+  const parsed = parseJSONLoose(text);
+  if (!parsed) log.warn('OCR: partición de consolidado no parseable como JSON');
+  return parsed;
+}
+
+/**
  * Extrae los campos pedidos. Doble pasada como el pipeline del grande: primero Haiku (barato); si
  * algún campo de `camposEscalacion` no salió 'alta', reintenta con Sonnet y se queda, por campo, con
  * la lectura de mayor confianza. Así lo dudoso se verifica con el modelo más capaz antes de decidir
@@ -275,6 +301,23 @@ const tipoDocumentoN = (v: string): string | null => {
   const limpio = v.trim().toUpperCase().replace(/[^A-Z]/g, '');
   return (TIPOS_DOCUMENTO_RUNT as readonly string[]).includes(limpio) ? limpio : null;
 };
+
+// ── Normalizadores del COMPROBANTE UNIVERSAL (Épica #12245, HU #12610) ───────────────────────────
+//
+// Tres catálogos cerrados con el mismo mecanismo que `tipoDocumentoN`: fuera del catálogo → `null`,
+// y `aCampoExtraido` lo convierte en `confianza: 0`. Un modelo que responde «factura» o «sí» no
+// rellena nada: el documento cae a la cola como sin identificar y una persona lo clasifica.
+
+/** Catálogo cerrado genérico: el literal en minúsculas, o `null`. Nunca un valor inventado. */
+const deCatalogoN = (catalogo: readonly string[]) => (v: string): string | null => {
+  const limpio = v.trim().toLowerCase();
+  return catalogo.includes(limpio) ? limpio : null;
+};
+const tipoDocumentoComprobanteN = deCatalogoN(TIPOS_DOCUMENTO_COMPROBANTE);
+const conceptoN = deCatalogoN(CONCEPTOS_COSTO);
+const booleanoN = deCatalogoN(['true', 'false']);
+/** El ID FLIT conserva sus separadores («FLIT-ARHZZ1» ≠ «FLITARHZZ1»): es `textoExactoN` con nombre. */
+const idFlitN = textoExactoN;
 
 // ─────────────────────────── Extractores públicos ────────────────────────────
 
@@ -410,6 +453,39 @@ export async function extraerFacturaVenta(doc: DocumentoAAnalizar): Promise<Extr
     [CampoFacturaVenta.CELULAR]: celularN,
   });
   return r as ExtraccionFacturaVenta;
+}
+
+/**
+ * Lectura UNIVERSAL de un comprobante (Épica #12245, ADR-0018 §2): qué documento es, si acredita un
+ * pago, de qué concepto, las tres llaves de cruce y el valor. Un solo prompt para todo el catálogo;
+ * los tipos con extractor propio se releen después con él (`leerSubDocumento`, en
+ * flito-comprobantes.ocr.ts), que es quien fusiona.
+ *
+ * Escalan a Sonnet la clasificación entera (tipo, es-pago, concepto), el valor y las tres llaves:
+ * son los campos que deciden a qué trámite y a qué columna va el dinero. Fecha, número y emisor no
+ * escalan: se muestran, no deciden. Solo los diez campos del catálogo salen; cualquier otra clave que
+ * devuelva el modelo (un nombre, una cédula) se descarta aquí y no llega a persistirse.
+ */
+export async function extraerComprobanteUniversal(doc: DocumentoAAnalizar): Promise<ExtraccionComprobante> {
+  const campos = Object.values(CampoComprobante);
+  const escalacion = [
+    CampoComprobante.TIPO_DOCUMENTO, CampoComprobante.ES_COMPROBANTE_PAGO, CampoComprobante.CONCEPTO,
+    CampoComprobante.VALOR_TOTAL, CampoComprobante.PLACA, CampoComprobante.VIN, CampoComprobante.ID_FLIT,
+  ];
+  const r = await extraer(doc, PROMPT_COMPROBANTE_UNIVERSAL, campos, escalacion, {
+    [CampoComprobante.TIPO_DOCUMENTO]: tipoDocumentoComprobanteN,
+    [CampoComprobante.ES_COMPROBANTE_PAGO]: booleanoN,
+    [CampoComprobante.CONCEPTO]: conceptoN,
+    [CampoComprobante.PLACA]: placaN,
+    [CampoComprobante.VIN]: vinN,
+    [CampoComprobante.ID_FLIT]: idFlitN,
+    [CampoComprobante.VALOR_TOTAL]: normalizarPesos,
+    [CampoComprobante.FECHA_PAGO]: normalizarFecha,
+    [CampoComprobante.NUMERO_DOCUMENTO]: textoExactoN,
+    // Cota de `flito_comprobantes.emisor` (varchar(150)); lo que no cabe se descarta, no se trunca.
+    [CampoComprobante.EMISOR]: textoTitularN(150),
+  });
+  return r as ExtraccionComprobante;
 }
 
 // Integración FLIT (Fase 8): en el flujo de IMPUESTOS/FLIT la factura de venta viene de FLIT y no se
