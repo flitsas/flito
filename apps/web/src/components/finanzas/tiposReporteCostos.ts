@@ -73,6 +73,12 @@ export interface Fila {
    */
   serviciosAdicionales: number | null;
   serviciosAdicionalesCantidad: number | null;
+  /**
+   * Cuántos viajes de logística lleva el trámite, el 1 incluido (HU #12628, Feature #12618).
+   * `0` = la compañía autogestiona la logística; `null` = liquidación sellada antes de que FLITO
+   * cobrara viajes adicionales (no se sabe, y nunca se pinta «0»). El importe ya va en `logistica`.
+   */
+  logisticaViajesCantidad: number | null;
 }
 
 export interface Totales {

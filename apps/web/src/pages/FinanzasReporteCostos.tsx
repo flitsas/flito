@@ -14,6 +14,7 @@ import { hasPage } from '../lib/permissions';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import VisorSoportes from '../components/flit/VisorSoportes';
 import PanelServiciosAdicionales from '../components/finanzas/PanelServiciosAdicionales';
+import PanelViajesLogistica from '../components/finanzas/PanelViajesLogistica';
 import ContadoresFacturacion from '../components/finanzas/ContadoresFacturacion';
 import DetalleFacturacion from '../components/finanzas/DetalleFacturacion';
 import TarjetaEnvioFacturacion from '../components/finanzas/TarjetaEnvioFacturacion';
@@ -86,6 +87,8 @@ export default function FinanzasReporteCostos() {
   const [soportesDe, setSoportesDe] = useState<Fila | null>(null);
   /** La fila cuyo panel de servicios adicionales está abierto (HU #12548). Gemelo de `soportesDe`. */
   const [serviciosDe, setServiciosDe] = useState<Fila | null>(null);
+  /** El panel de viajes de logística (HU #12628), gemelo de `serviciosDe`. */
+  const [viajesDe, setViajesDe] = useState<Fila | null>(null);
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
 
   // Facturación electrónica (HU #11337). Se carga aparte del reporte a propósito: si un fallo del
@@ -490,6 +493,7 @@ export default function FinanzasReporteCostos() {
                 fichasFe={fichasFe} estadoFeDe={estadoFeDe} onAbrirDetalle={setDetalleDe}
                 onLiquidar={liquidarUno} onFacturar={facturarUno} onReversar={reversarUno} onSoportes={setSoportesDe}
                 onServicios={setServiciosDe}
+                onViajes={setViajesDe}
                 anunciar={setAnuncio}
                 // Va al final de la celda: el orden de foco es Soporte → Enviar → ¿Por qué no?, la
                 // acción antes que su explicación.
@@ -538,6 +542,20 @@ export default function FinanzasReporteCostos() {
           recargaPagina={recarga}
           onClose={() => setServiciosDe(null)}
           onCambio={refrescar}
+          restoreFocusRef={tituloRef}
+        />
+      )}
+
+      {/* Solo lectura: no recibe `recarga` ni `onCambio` porque no escribe. Al cerrar, el kit devuelve
+          el foco al botón «Viajes» que lo abrió; el título es el respaldo si esa fila ya no está
+          (404 → «Actualizar el reporte»). */}
+      {viajesDe && (
+        <PanelViajesLogistica
+          tramiteId={viajesDe.tramiteId}
+          idFlit={viajesDe.idFlit}
+          placa={viajesDe.placa}
+          onClose={() => setViajesDe(null)}
+          onActualizar={refrescar}
           restoreFocusRef={tituloRef}
         />
       )}
