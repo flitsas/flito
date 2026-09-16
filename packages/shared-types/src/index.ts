@@ -132,3 +132,6 @@ export * from './permisos-roles.js';
 // Viajes adicionales de logística por trámite (HU #12619): modos de precio, motivos, la fila y el
 // cuerpo del GET, y los códigos de error de sus rutas.
 export * from './flito-viajes-logistica.js';
+// Gastos diarios de Finanzas (HU #12623): serie por día del evento y totales por categoría con GMF
+// estimado; contrato del `GET /api/finanzas/gastos-diarios` y los topes del rango.
+export * from './flito-gastos-diarios.js';
