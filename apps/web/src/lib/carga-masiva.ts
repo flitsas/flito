@@ -2,7 +2,7 @@
 // (HU #12050 / #12051 / #12056).
 //
 // Un solo sitio para peso, copy de validación, 413/504, la lectura del ZIP y el envío de 5 en 5.
-// Los dos modales importan de aquí; no se extrae un modal compartido (Impuestos tiene el checkbox).
+// Los dos modales importan de aquí; no se extrae un modal compartido (Impuestos tiene el selector de fase).
 //
 // Desde la HU #12056 el ZIP se abre AQUÍ, en el navegador, y sus entradas viajan por las mismas
 // tandas de 5 que ya existían. Tres cosas que hay que leer juntas:
@@ -560,25 +560,28 @@ export type ResultadoTandasCarga<T> = { resultado: T | null; error: string | nul
 /**
  * Envía el lote en tandas de 5, una POST a la vez (`for` + `await`).
  * Si la tanda k falla, `resultado` es la fusión de 1..k-1 y no reenvía esa tanda.
- * `campos` (p. ej. `sinMarcaDeAgua`) viaja igual en cada tanda. `onProgreso` recibe el PRIMER
+ * `campos` (p. ej. `fase`) viaja igual en cada tanda. `onProgreso` recibe el PRIMER
  * archivo de la tanda en curso y el total de archivos: la unidad que trajo el operador son
  * archivos, no tandas.
  *
  * Cuando los ítems traen `ruta` —salieron de un ZIP leído aquí— cada tanda lleva además un campo
  * `rutas` por archivo, EN EL MISMO ORDEN Y CON LA MISMA CARDINALIDAD que `archivos`. Es lo único
- * con lo que el API puede seguir deduciendo la marca de agua por carpeta: el `originalname` ya no
- * trae carpeta. Y es un contrato que hay que respetar mirando: un desajuste de cardinalidad NO da
- * error —el API descarta la lista entera, responde 200 y archiva todo con el defecto del
- * checkbox—, así que la única defensa es que esta función empareje bien.
+ * con lo que el API puede seguir deduciendo la FASE por carpeta: el `originalname` ya no trae
+ * carpeta. Y es un contrato que hay que respetar mirando: un desajuste de cardinalidad NO da
+ * error —el API descarta la lista entera, responde 200 y archiva todo con la fase del
+ * selector—, así que la única defensa es que esta función empareje bien.
  *
  * **Un archivo SUELTO manda cadena vacía, nunca su nombre.** En una selección mixta la tanda lleva
  * entradas de ZIP y sueltos a la vez, y omitir el valor del suelto rompería la cardinalidad. Pero
- * mandar su nombre sería peor que no mandar nada: `esSinMarcaDeAgua` lo pasaría por sus regex y un
- * archivo llamado `pagado.pdf` se archivaría CON marca de agua aunque el operador hubiera marcado
- * «Archivos sueltos sin marca de agua». Sería una regresión muda —cambia dónde queda el
- * comprobante, responde 200 y el operador ve que todo salió bien— contra el AC3: el checkbox es el
- * defecto de lo que NO trae carpeta, y un suelto no trae carpeta. Con `''` ninguna regex casa y el
- * API cae al defecto, que es exactamente lo que hacía antes de esta HU.
+ * mandar su nombre sería peor que no mandar nada: el API lo pasaría por sus regex de carpeta y un
+ * archivo llamado `pagado.pdf` se archivaría como Pago aunque el operador hubiera elegido la fase
+ * Liquidación. Sería una regresión muda —cambia dónde queda el comprobante, responde 200 y el
+ * operador ve que todo salió bien—: el selector es el defecto de lo que NO trae carpeta, y un
+ * suelto no trae carpeta. Con `''` ninguna regex casa y el API cae al selector (HU #12592; antes,
+ * al checkbox de marca de agua).
+ *
+ * El resumen se fusiona por clave-arreglo (`fusionarResultadoCarga`): `liquidados` (HU #12590) se
+ * acumula entre tandas igual que las otras cinco categorías, sin lista aparte.
  *
  * `opciones.conRutas: false` lo apaga para quien no lo usa: SOAT no lee `req.body` y el campo solo
  * sería peso muerto en cada tanda.

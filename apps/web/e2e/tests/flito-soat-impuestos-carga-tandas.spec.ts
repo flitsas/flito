@@ -168,30 +168,42 @@ test.describe('HU #12051 — tandas de carga masiva', () => {
     expect(posts).toBe(2);
   });
 
-  test('Impuestos: sinMarcaDeAgua viaja en cada tanda', async ({ page }) => {
-    await loginAs(page, OPERACIONES_USER);
-    await mockImpuestos(page);
-    const marcas: string[] = [];
-    await page.route(/\/api\/flito\/impuestos\/recibos$/, async (route) => {
-      const data = route.request().postData() ?? '';
-      const m = data.match(/name="sinMarcaDeAgua"[\s\S]*?\r?\n\r?\n([^\r\n-]+)/);
-      marcas.push((m?.[1] ?? '').trim());
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          conciliados: [], enRevision: [], complementos: [], duplicados: [], noAsociados: [],
-        }),
+  /**
+   * HU #12592: la fase la declara el selector («Pago» por defecto) y viaja en cada tanda como
+   * `fase`; `sinMarcaDeAgua` ya no se manda (el API lo tolera por compat, y por eso solo este
+   * aserto lo detecta). *Mutantes:* mandar `sinMarcaDeAgua` en vez de `fase` → `fases` queda
+   * vacío; fase fija en `'pago'` → cae el primer caso; fija en `'liquidacion'` → cae el segundo.
+   */
+  for (const [eleccion, esperado] of [['Liquidación', 'liquidacion'], [null, 'pago']] as const) {
+    test(`Impuestos: fase='${esperado}' viaja en cada tanda y sinMarcaDeAgua ya no`, async ({ page }) => {
+      await loginAs(page, OPERACIONES_USER);
+      await mockImpuestos(page);
+      const fases: string[] = [];
+      const cuerpos: string[] = [];
+      await page.route(/\/api\/flito\/impuestos\/recibos$/, async (route) => {
+        const data = route.request().postData() ?? '';
+        cuerpos.push(data);
+        const m = data.match(/name="fase"[\s\S]*?\r?\n\r?\n([^\r\n-]+)/);
+        fases.push((m?.[1] ?? '').trim());
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            liquidados: [], conciliados: [], enRevision: [], complementos: [], duplicados: [], noAsociados: [],
+          }),
+        });
       });
-    });
 
-    await page.goto('/flito/impuestos');
-    await page.getByRole('button', { name: 'Cargar recibos (masivo)' }).click();
-    const modal = page.getByRole('dialog');
-    await modal.getByRole('checkbox', { name: /sin marca de agua/i }).check();
-    await modal.locator('input[type="file"]').setInputFiles(archivos(6));
-    await modal.getByRole('button', { name: 'Subir y procesar' }).click();
-    await expect(modal.getByRole('button', { name: 'Listo' })).toBeVisible();
-    expect(marcas).toEqual(['true', 'true']);
-  });
+      await page.goto('/flito/impuestos');
+      await page.getByRole('button', { name: 'Cargar recibos (masivo)' }).click();
+      const modal = page.getByRole('dialog');
+      await expect(modal.getByRole('radio', { name: 'Pago' })).toBeChecked();
+      if (eleccion) await modal.getByRole('radio', { name: eleccion }).check();
+      await modal.locator('input[type="file"]').setInputFiles(archivos(6));
+      await modal.getByRole('button', { name: 'Subir y procesar' }).click();
+      await expect(modal.getByRole('button', { name: 'Listo' })).toBeVisible();
+      expect(fases).toEqual([esperado, esperado]);
+      for (const cuerpo of cuerpos) expect(cuerpo).not.toMatch(/name="sinMarcaDeAgua"/);
+    });
+  }
 });

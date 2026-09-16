@@ -193,6 +193,8 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
   admin: [
     ...SOAT_LEER, 'soat.comprobante.cargar', 'soat.solicitud.enviar',
     'impuestos.cola.ver', 'impuestos.recibos.cargar', 'impuestos.tramite.enviar',
+    // HU #12592: recibo de caja puntual desde el detalle (migración 0197: hoy solo `admin`).
+    'impuestos.recibos.cargar_caja',
     'tramites.solicitud.pedir_soat', 'tramites.autogestion.desbloquear',
     'tramite.tramite.forzar_continuar', 'compuerta.tramite.entregar', 'logistica.lote.cerrar',
     'tablero.tablero.ver', 'sync.sync.lanzar',

@@ -132,15 +132,18 @@ function zipMentirosoDe200MB(): Promise<Buffer> {
  * `archivos` (por su `filename`) y `rutas` (por su valor), CADA UNO EN SU ORDEN DE APARICIÓN en el
  * cuerpo multipart. Emparejarlos por índice es exactamente lo que hace multer al otro lado.
  */
-function multipart(postData: string | null): { archivos: string[]; rutas: string[]; sinMarca: string } {
+function multipart(postData: string | null): { archivos: string[]; rutas: string[]; fase: string; sinMarca: string | null } {
   const cuerpo = postData ?? '';
   const archivos = [...cuerpo.matchAll(/name="archivos";\s*filename="([^"]*)"/g)].map((m) => m[1]);
   // `([^\r\n]*)` con `*`, no `+`: el valor de un archivo suelto es la cadena VACÍA y tiene que
   // contarse como un valor más, no desaparecer del array. Si desapareciera, este helper mentiría
   // justo en el caso que más duele: la cardinalidad.
   const rutas = [...cuerpo.matchAll(/name="rutas"\r?\n\r?\n([^\r\n]*)/g)].map((m) => m[1]);
-  const sinMarca = /name="sinMarcaDeAgua"\r?\n\r?\n([^\r\n]*)/.exec(cuerpo)?.[1] ?? '';
-  return { archivos, rutas, sinMarca };
+  // HU #12592: la fase viaja en `fase`; `sinMarcaDeAgua` ya no se manda y se devuelve como
+  // `null` cuando no viene, para poder asertar que NO viene.
+  const fase = /name="fase"\r?\n\r?\n([^\r\n]*)/.exec(cuerpo)?.[1] ?? '';
+  const sinMarca = /name="sinMarcaDeAgua"\r?\n\r?\n([^\r\n]*)/.exec(cuerpo)?.[1] ?? null;
+  return { archivos, rutas, fase, sinMarca };
 }
 
 async function mockSoat(page: import('@playwright/test').Page) {
@@ -234,10 +237,10 @@ test.describe('HU #12056 — el ZIP se abre en el navegador', () => {
       'SIN MARCA/recibo-1.pdf': '%PDF-1.4 uno', 'SIN MARCA/recibo-2.pdf': '%PDF-1.4 dos',
       'SIN MARCA/recibo-3.pdf': '%PDF-1.4 tres', 'SIN MARCA/recibo-4.pdf': '%PDF-1.4 cuatro',
     });
-    await modal.getByRole('checkbox', { name: /sin marca de agua/i }).check();
-    // «pagado.pdf» es un nombre corriente de recibo y casa con la regex /pagad/ de
-    // `esSinMarcaDeAgua`. Si su nombre viajara como ruta, el API lo archivaría CON marca de agua
-    // pese al checkbox: 200, sin error, y el comprobante en la carpeta equivocada.
+    await modal.getByRole('radio', { name: 'Liquidación' }).check();
+    // «pagado.pdf» es un nombre corriente de recibo y casa con la regex /pagad/ de la carpeta
+    // en el API. Si su nombre viajara como ruta, el API lo archivaría como Pago pese al selector
+    // en Liquidación: 200, sin error, y el comprobante en la carpeta equivocada.
     await modal.locator('input[type="file"]').setInputFiles([
       archivoZip('agosto.zip', zip),
       { name: 'pagado.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 suelto') },
@@ -258,13 +261,15 @@ test.describe('HU #12056 — el ZIP se abre en el navegador', () => {
     expect(tandas[0].rutas).toEqual([
       'SIN MARCA/recibo-1.pdf', 'SIN MARCA/recibo-2.pdf',
       'SIN MARCA/recibo-3.pdf', 'SIN MARCA/recibo-4.pdf',
-      '', // ← pagado.pdf: sin carpeta que declarar, decide el checkbox
+      '', // ← pagado.pdf: sin carpeta que declarar, decide el selector de fase
     ]);
     expect(tandas[1].rutas).toEqual(['']);
 
-    // Lo que persiste el recibo suelto: `esSinMarcaDeAgua('', true) === true` (ninguna regex casa,
-    // cae al defecto), así que con el checkbox encendido se archiva SIN marca de agua.
-    expect(tandas.every((t) => t.sinMarca === 'true')).toBe(true);
+    // Lo que persiste el recibo suelto: con `''` ninguna regex de carpeta casa y el API cae a la
+    // fase del selector, así que con «Liquidación» elegida se archiva como liquidación. Y
+    // `sinMarcaDeAgua` no viaja (HU #12592): el API lo toleraría por compat, solo esto lo detecta.
+    expect(tandas.every((t) => t.fase === 'liquidacion')).toBe(true);
+    expect(tandas.every((t) => t.sinMarca === null)).toBe(true);
     expect(tandas.flatMap((t) => t.rutas)).not.toContain('pagado.pdf');
   });
 

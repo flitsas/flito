@@ -1,8 +1,9 @@
 // FLITO — la ranura viva de los dos modales de carga masiva SOAT / Impuestos
 // (HU #12050 / #12051 / #12056).
 //
-// Los modales siguen SIN unificarse a propósito (Impuestos tiene el checkbox de marca de agua y
-// SOAT no), pero lo que va entre el picker y los botones es la misma línea de vida en los dos:
+// Los modales siguen SIN unificarse a propósito (Impuestos tiene el selector de fase del recibo
+// —Liquidación / Pago, HU #12592— y SOAT no), pero lo que va entre el picker y los botones es la
+// misma línea de vida en los dos:
 // «Abriendo…» → contador (+ descartes) → error → progreso. Tenerla dos veces era garantía de que
 // una de las dos se quedara atrás; y la regla de accesibilidad —UNA sola región `status` que
 // aloje el conteo y el descarte juntos, para que el descarte no se anuncie huérfano— vale más si
