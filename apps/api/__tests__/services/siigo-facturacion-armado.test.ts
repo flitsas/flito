@@ -13,6 +13,7 @@ import {
   type EntradaArmado, type MapeoPorConcepto, type TramiteFacturable,
 } from '../../src/modules/siigo/facturacion.armado.js';
 import type { MapeoConcepto } from '../../src/modules/siigo/mapeo-conceptos.service.js';
+import { CONCEPTOS_FACTURABLES } from '@operaciones/shared-types';
 
 /** Un mapeo mínimo pero completo para un concepto. */
 function mapeo(cambios: Partial<MapeoConcepto> = {}): MapeoConcepto {
@@ -94,6 +95,23 @@ describe('AC2 — una línea por concepto que aplica, y nulo no es cero', () => 
     const f = armarFactura(entrada());
     expect(f.items.find((i) => i.code === 'P-SOAT')!.price).toBe(150000);
     expect(f.items.find((i) => i.code === 'P-DER')!.price).toBe(50000);
+  });
+
+  it('HU #12626 — la logística sellada con viajes adicionales es UNA línea por la suma, ninguna por viaje', () => {
+    // `valor_logistica` ya es tarifa + Σ viajes (35.000 + 35.000 + 20.000); el desglose vive en el
+    // detalle de la liquidación y NO llega a la factura. `CONCEPTOS_FACTURABLES` no tiene un
+    // concepto «viaje»: si alguien lo añadiera, este `sort()` cambiaría.
+    const t = { ...TRAMITE, liquidacion: { ...TRAMITE.liquidacion, valorLogistica: '90000.00' } };
+    const f = armarFactura(entrada({
+      tramites: [t],
+      mapeo: { ...MAPEO_BASE, logistica: mapeo({ concepto: 'logistica', codigoProducto: 'P-LOG', nombreProducto: 'Logística' }) },
+    }));
+    expect(f.items.map((i) => i.code).sort()).toEqual(['P-DER', 'P-GMF', 'P-LOG', 'P-SOAT']);
+    const linea = f.items.filter((i) => i.code === 'P-LOG');
+    expect(linea).toHaveLength(1);
+    expect(linea[0]!.price).toBe(90000);
+    expect(f.items.some((i) => /viaje/i.test(String(i.description ?? '')) || /viaje/i.test(String(i.code)))).toBe(false);
+    expect(CONCEPTOS_FACTURABLES.some((c) => c.includes('viaje'))).toBe(false);
   });
 
   it('un importe negativo se rechaza aunque venga de una liquidación sellada', () => {

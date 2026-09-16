@@ -64,3 +64,11 @@ export const CODIGO_VIAJE_LOGISTICA = {
   VIAJE_NO_ENCONTRADO: 'VIAJE_NO_ENCONTRADO',
 } as const;
 export type CodigoViajeLogistica = (typeof CODIGO_VIAJE_LOGISTICA)[keyof typeof CODIGO_VIAJE_LOGISTICA];
+
+/**
+ * Un viaje adicional tal como queda CONGELADO en el detalle de la liquidación (HU #12626): la
+ * misma fila que `ViajeLogistica`, sin el id del actor (el nombre basta para auditar y el id es
+ * dato interno). Lo sellado no se reconsulta: si el viaje se quita después de reversar, el sello
+ * anterior sigue enseñando lo que se cobró.
+ */
+export type ViajeLogisticaSellado = Omit<ViajeLogistica, 'registradoPorId'>;
