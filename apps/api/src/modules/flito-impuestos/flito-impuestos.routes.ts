@@ -28,8 +28,8 @@ import { db } from '../../db/client.js';
 import { flitoGestorOrganismos } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
 import {
-  CARGA_MASIVA_ARCHIVOS_POR_PETICION, CARGA_MASIVA_MAX_BYTES_ARCHIVO, EstadoImpuesto, FASES_RECIBO, FaseRecibo,
-  ResultadoCertificacion, TipoSoporteZip,
+  CARGA_MASIVA_ARCHIVOS_POR_PETICION, CARGA_MASIVA_MAX_BYTES_ARCHIVO, CodigoErrorReciboCaja, EstadoImpuesto, FASES_RECIBO,
+  FaseRecibo, ResultadoCertificacion, TipoSoporteZip,
 } from '@operaciones/shared-types';
 import { ImpuestoError, type ArchivoSubido, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import { certificacionVigenteConAcceso, certificarImpuesto, certificarLote } from './certificacion.service.js';
@@ -39,7 +39,7 @@ import {
   facturaVentaFlitConAcceso, reactivar, rechazar, registrosZipImpuestos, reversar,
 } from './flito-impuestos.service.js';
 import { soportesDeImpuesto } from '../../shared/soportes/soportes-consulta.js';
-import { cargarRecibos, normalizarRutas } from './flito-recibos.service.js';
+import { cargarReciboCaja, cargarRecibos, normalizarRutas, ReciboCajaError } from './flito-recibos.service.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { getFlitAdapter } from '../flito-sync/flit.adapter.js';
 
@@ -59,6 +59,40 @@ const upload = multer({
 });
 
 const aArchivo = (f: Express.Multer.File): ArchivoSubido => ({ originalname: f.originalname, mimetype: f.mimetype, buffer: f.buffer, size: f.size });
+
+// ── Recibo de caja (HU #12591): un archivo, PDF o imagen, sin ZIP ────────────────────────────────
+// Multer propio y no `upload`: el compartido acepta ZIP (la masiva lo expande) y aquí un ZIP es 400.
+const MIMES_RECIBO_CAJA: readonly string[] = ['application/pdf', 'image/jpeg', 'image/png'];
+const uploadReciboCaja = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: CARGA_MASIVA_MAX_BYTES_ARCHIVO, files: 1 },
+  // Sin este filtro, el content-type que declara el cliente viaja hasta `flito_soportes` y quien
+  // luego descargue el archivo lo recibiría con ese tipo (XSS almacenado con un .html).
+  fileFilter: (_req, file, cb) => {
+    if (MIMES_RECIBO_CAJA.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Tipo de archivo no permitido: solo PDF, JPEG o PNG'));
+  },
+});
+/** Motivos de multer traducidos, sin eco del nombre ni del MIME que mandó el cliente. */
+const MOTIVO_MULTER_RECIBO_CAJA: Record<string, string> = {
+  LIMIT_FILE_SIZE: 'El archivo supera el tamaño máximo permitido',
+  LIMIT_FILE_COUNT: 'Solo se admite un archivo',
+  LIMIT_UNEXPECTED_FILE: 'Solo se admite un archivo, en el campo "archivo"',
+};
+/**
+ * Envuelve a multer para que sus rechazos —más de un archivo, tipo no permitido, tamaño— salgan como
+ * 400 con `codigo`, y no como el 500 genérico del error handler (que no traduce `MulterError`).
+ */
+function recibirReciboCaja(req: Request, res: Response, next: (e?: unknown) => void): void {
+  uploadReciboCaja.single('archivo')(req, res, (err: unknown) => {
+    if (err) {
+      const motivo = err instanceof multer.MulterError ? MOTIVO_MULTER_RECIBO_CAJA[err.code] : err instanceof Error ? err.message : undefined;
+      res.status(400).json({ error: motivo ?? 'Archivo inválido', codigo: CodigoErrorReciboCaja.ARCHIVO_INVALIDO });
+      return;
+    }
+    next();
+  });
+}
 
 /**
  * Contexto del gestor de impuestos: la atadura de visibilidad por organismo vive en
@@ -693,6 +727,41 @@ router.post('/recibos', exigirFuncion('impuestos.recibos.cargar'), upload.array(
     await audit(req, { action: 'upload', resource: 'flito_impuesto', detail: `Carga masiva recibos (fase ${fase}): ${resultado.liquidados.length} liquidados, ${resultado.conciliados.length} conciliados, ${resultado.enRevision.length} en revisión, ${resultado.complementos.length} complementos, ${resultado.duplicados.length} duplicados, ${resultado.noAsociados.length} sin asociar` });
     res.json(resultado);
   } catch (e) { handleError(res, e); }
+});
+
+/**
+ * POST /:id/recibo-caja — el recibo de caja del pago en ventanilla, uno a uno desde el detalle del
+ * impuesto (HU #12591). Solo Operaciones de partida (`impuestos.recibos.cargar_caja`; el gestor NO la
+ * tiene aunque cargue recibos en masa). Multipart con UN archivo en el campo `archivo` (PDF/JPEG/PNG).
+ *
+ * Ocho desenlaces, con `codigo` propio en los que la pantalla distingue:
+ *
+ *   403                          → sin la función (cuerpo de `exigirFuncion`)
+ *   400 archivo_invalido         → sin archivo, más de uno, tipo fuera de la lista o tamaño
+ *   404 no_encontrado            → no existe o fuera de la frontera del actor
+ *   409 sin_liquidacion          → falta la liquidación (`liquidado_en`); cargarla primero
+ *   409 estado_no_permitido      → el impuesto no está en gestión
+ *   409 duplicado                → el mismo archivo ya está cargado (en este impuesto o en otro)
+ *   503                          → el OCR no respondió; nada escrito, reintentar
+ *   200 pagado | en_revision     → `ResultadoReciboCaja`
+ *
+ * El valor pagado va a `audit_logs` (Habeas Data), nunca al log de aplicación.
+ */
+router.post('/:id/recibo-caja', exigirFuncion('impuestos.recibos.cargar_caja'), recibirReciboCaja, async (req: Request, res: Response) => {
+  const file = req.file;
+  if (!file) { res.status(400).json({ error: 'No se adjuntó ningún archivo', codigo: CodigoErrorReciboCaja.ARCHIVO_INVALIDO }); return; }
+  try {
+    const ctx = await contextoImpuesto(req.user!);
+    const resultado = await cargarReciboCaja(req.params.id, aArchivo(file), ctx);
+    const valor = resultado.resultado === 'pagado' ? resultado.valorPagado ?? '—' : '—';
+    await audit(req, { action: 'upload', resource: 'flito_impuesto', resourceId: req.params.id,
+      detail: `Recibo de caja (recibo_caja_impuesto): ${resultado.resultado}, valor ${valor}. Soporte ${resultado.soporteId}.` });
+    res.json(resultado);
+  } catch (e) {
+    // `codigo` se emite AQUÍ: `handleError` responde `{ error }` sin él (mismo trato que /export).
+    if (e instanceof ReciboCajaError) { res.status(e.status).json({ error: e.message, codigo: e.codigo }); return; }
+    handleError(res, e);
+  }
 });
 
 export default router;

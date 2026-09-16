@@ -29,11 +29,14 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 const ESTADOS_VISIBLES_GESTOR: readonly EstadoImpuesto[] = [EstadoImpuesto.SOLICITADO, EstadoImpuesto.PAGADO];
 
 /**
- * Los dos documentos de la hacienda que puede tener un impuesto (HU #12590): la liquidación del
- * impuesto (sin marca) y el pago con marca. UNA constante para el `inArray`: drizzle no deduplica
- * literales, y dos `${literal}` sueltos serían dos parámetros.
+ * Los documentos de la hacienda que puede tener un impuesto (HU #12590): la liquidación del impuesto
+ * (sin marca) y el pago —con marca (masiva) o el recibo de caja de ventanilla (HU #12591)—. UNA
+ * constante para el `inArray`: drizzle no deduplica literales, y dos `${literal}` sueltos serían dos
+ * parámetros. Sin el tipo de caja aquí, el set nunca lo traería y `documentosDe` no lo vería.
  */
-const TIPOS_DOCUMENTO_IMPUESTO: readonly TipoSoporte[] = [TipoSoporte.RECIBO_IMPUESTO_SIN_MARCA_AGUA, TipoSoporte.RECIBO_IMPUESTO];
+const TIPOS_DOCUMENTO_IMPUESTO: readonly TipoSoporte[] = [
+  TipoSoporte.RECIBO_IMPUESTO_SIN_MARCA_AGUA, TipoSoporte.RECIBO_IMPUESTO, TipoSoporte.RECIBO_CAJA_IMPUESTO,
+];
 
 /**
  * Qué documentos tiene el impuesto, a partir de los tipos de soporte no descartados que existen.
@@ -41,7 +44,7 @@ const TIPOS_DOCUMENTO_IMPUESTO: readonly TipoSoporte[] = [TipoSoporte.RECIBO_IMP
  */
 export function documentosDe(tipos: ReadonlySet<string>): DocumentosImpuesto | null {
   const liq = tipos.has(TipoSoporte.RECIBO_IMPUESTO_SIN_MARCA_AGUA);
-  const pago = tipos.has(TipoSoporte.RECIBO_IMPUESTO);
+  const pago = tipos.has(TipoSoporte.RECIBO_IMPUESTO) || tipos.has(TipoSoporte.RECIBO_CAJA_IMPUESTO);
   if (liq && pago) return 'ambos';
   if (liq) return 'liquidacion';
   if (pago) return 'pago';

@@ -98,6 +98,7 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${IMP} POST /:id/asumir-operaciones`, 'impuestos.tramite.asumir', 'Asumir un trámite de impuestos en Operaciones', 'Sacar el trámite del gestor del organismo y trabajarlo desde Operaciones (traspaso por contingencia).'),
   op(`${IMP} POST /:id/devolver-gestor`, 'impuestos.tramite.devolver', 'Devolver un trámite de impuestos al gestor', 'Regresar al gestor del organismo un trámite que Operaciones había asumido.'),
   op(`${IMP} POST /recibos`, 'impuestos.recibos.cargar', 'Cargar recibos de impuestos', 'Subir los recibos de pago y repartirlos por trámite.'),
+  op(`${IMP} POST /:id/recibo-caja`, 'impuestos.recibos.cargar_caja', 'Cargar recibo de caja', 'Cargar sobre un impuesto con liquidación el recibo de caja del pago en ventanilla y dejarlo pagado.'),
 
   // ── Derechos de tránsito ──────────────────────────────────────────────────────────────────────
   op(`${DER} GET /`, 'derechos.cola.ver', 'Ver los derechos de tránsito', 'Abrir el listado de recibos de derechos cobrados por el organismo.'),

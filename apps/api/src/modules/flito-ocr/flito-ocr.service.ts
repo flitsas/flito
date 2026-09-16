@@ -18,7 +18,7 @@ import {
   type ExtraccionDerechoTramite,
 } from '@operaciones/shared-types';
 import {
-  SISTEMA_OCR, PROMPT_FACTURA_SOAT, PROMPT_RECIBO_IMPUESTO, PROMPT_FACTURA_VENTA, PROMPT_DERECHO_TRAMITE,
+  SISTEMA_OCR, PROMPT_FACTURA_SOAT, PROMPT_RECIBO_IMPUESTO, PROMPT_RECIBO_CAJA, PROMPT_FACTURA_VENTA, PROMPT_DERECHO_TRAMITE,
   type CampoCrudo, type ConfianzaCategorica,
 } from './flito-ocr.prompts.js';
 import { textoDocumento, camposDesdeTexto } from './flito-ocr-local.js';
@@ -306,6 +306,22 @@ export async function extraerReciboImpuesto(doc: DocumentoAAnalizar): Promise<Ex
     [CampoImpuesto.PLACA]: placaN, [CampoImpuesto.VALOR_TOTAL]: normalizarPesos,
     [CampoImpuesto.NUMERO_RECIBO]: textoExactoN, [CampoImpuesto.FECHA_PAGO]: normalizarFecha,
     [CampoImpuesto.ANIO_GRAVABLE]: anioN,
+  });
+  return r as ExtraccionImpuesto;
+}
+
+/**
+ * Recibo de caja del pago en ventanilla (HU #12591). Tres campos y ninguna placa: el impuesto ya
+ * está identificado porque se carga desde su detalle. Devuelve la misma forma `ExtraccionImpuesto`
+ * (un subconjunto) para que conciliar/revisión/pantalla funcionen sin tipo nuevo. Solo valorTotal
+ * escala y bloquea el avance a pagado.
+ */
+export async function extraerReciboCaja(doc: DocumentoAAnalizar): Promise<ExtraccionImpuesto> {
+  const campos = [CampoImpuesto.VALOR_TOTAL, CampoImpuesto.FECHA_PAGO, CampoImpuesto.NUMERO_RECIBO] as const;
+  const escalacion = [CampoImpuesto.VALOR_TOTAL];
+  const r = await extraer(doc, PROMPT_RECIBO_CAJA, campos, escalacion, {
+    [CampoImpuesto.VALOR_TOTAL]: normalizarPesos, [CampoImpuesto.FECHA_PAGO]: normalizarFecha,
+    [CampoImpuesto.NUMERO_RECIBO]: textoExactoN,
   });
   return r as ExtraccionImpuesto;
 }

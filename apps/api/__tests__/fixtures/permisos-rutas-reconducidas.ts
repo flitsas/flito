@@ -113,6 +113,7 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/:id/reactivar', codigo: 'impuestos.tramite.reactivar' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/:id/reversar', codigo: 'impuestos.tramite.reversar' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/recibos', codigo: 'impuestos.recibos.cargar' },
+  { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/:id/recibo-caja', codigo: 'impuestos.recibos.cargar_caja' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/:id/asumir-operaciones', codigo: 'impuestos.tramite.asumir' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/:id/devolver-gestor', codigo: 'impuestos.tramite.devolver' },
   // flito-derechos/flito-derechos.routes.ts
