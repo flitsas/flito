@@ -5,7 +5,7 @@
 // y el buscador (llaves de vehículo y URL prefirmada).
 //
 // F2 (0201): `POST /tramites/buscar` por BODY (la llave no va en la URL ni en los logs de acceso),
-// `POST /:id/aplicar` (adjuntar documentación; pagos de SOAT/impuesto/derecho vía sus dueños, HU #12630; honorarios 409 hasta HU-3) y
+// `POST /:id/aplicar` (adjuntar documentación; pagos de SOAT/impuesto/derecho vía sus dueños, HU #12630; fila documental de los honorarios, HU #12631) y
 // `POST /:id/descartar`. Aceptar diferencia (F3) llega con su migración y su ruta.
 
 import { Router, type Request, type Response } from 'express';
