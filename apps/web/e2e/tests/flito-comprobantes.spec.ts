@@ -1,13 +1,16 @@
 // HU #12612 — Finanzas · Comprobantes: cola, carga en lotes y detalle con lo leído (Feature #12605).
-// Backend mockeado. Un test (o grupo) por AC; el mutante que cada aserto mata va en su comentario.
+// HU #12634 — Panel de asociación: trámite, concepto, campos con confianza, Aplicar / Adjuntar /
+// Descartar (Feature #12606). Backend mockeado. Un test (o grupo) por AC; el mutante que cada
+// aserto mata va en su comentario.
 //
 // Reglas que se certifican aquí y no en otro sitio: la palabra «tanda» no existe en la UI; hay UNA
-// sola región `status` en el modal de carga; ni `extraccion`, ni uuid, ni VIN completo llegan al DOM
-// de la cola; y en este Feature no existen Asociar / Aplicar / Descartar (ni apagados).
+// sola región `status` viva en cada modal; ni `extraccion`, ni uuid, ni VIN completo llegan al DOM
+// de la cola; un aplicado o descartado se VE sin botones (ausentes, no apagados); y la primaria del
+// panel nunca se apaga por validación.
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { CARGA_MASIVA_MAX_ARCHIVOS } from '@operaciones/shared-types';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER, AUDITOR_USER, FINANCIERA_USER, FUNCIONES_POR_ROL } from '../helpers/auth';
@@ -38,7 +41,8 @@ function fila(extra: Record<string, unknown>) {
     numeroDocumento: null, emisor: null, marcadoPorDiferencia: false, diferenciaTarifa: null,
     diferenciaAceptada: false, paginas: null, archivo: { nombre: 'recibo.pdf', contentType: 'application/pdf' },
     createdAt: '2026-09-16T15:42:00.000Z', aplicadoEn: null, aplicadoAutomaticamente: false, descartadoEn: null,
-    subidoPorNombre: 'Ana Pérez', aplicadoPorNombre: null, descartadoPorNombre: null, ...extra,
+    subidoPorNombre: 'Ana Pérez', aplicadoPorNombre: null, descartadoPorNombre: null,
+    aplicadoMotivo: null, descartadoMotivo: null, soporteAplicadoId: null, ...extra,
   };
 }
 
@@ -122,12 +126,12 @@ test.describe('HU #12612 · AC1 — página, menú y ayuda', () => {
     for (const h of ['Qué es', 'Para quién', 'Cómo se entra', 'Pasos', 'Estados', 'Qué no hace']) {
       await expect(articulo.getByRole('heading', { name: h, exact: true })).toBeVisible();
     }
-    // Solo lo entregado por este Feature: la ficha no promete Asociar ni Aplicar como acciones.
-    await expect(articulo.getByText(/No asocia ni aplica todavía/)).toBeVisible();
+    // HU #12634: la ficha ya explica Asociar y aplicar y deja de decir «no asocia ni aplica todavía».
+    await expect(articulo.getByRole('heading', { name: 'Asociar y aplicar', exact: true })).toBeVisible();
+    await expect(articulo.getByText(/No asocia ni aplica todavía/)).toHaveCount(0);
     await expect(articulo.getByText(/No abre archivos ZIP/)).toBeVisible();
     await expect(articulo.getByText(/No carga SOAT del canal Cliente/)).toBeVisible();
     await expect(articulo.getByText(/No muestra ni guarda datos de personas/)).toBeVisible();
-    await expect(articulo.getByRole('heading', { name: /Aplicar|Asociar/ })).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Ir a la pantalla Comprobantes' })).toHaveAttribute('href', RUTA);
   });
 
@@ -158,7 +162,7 @@ test.describe('HU #12612 · AC1 — página, menú y ayuda', () => {
     await page.goto(RUTA);
     await expect(page.getByRole('heading', { level: 1, name: 'Finanzas — Comprobantes' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Cargar comprobantes' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /^Ver / }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: /^(Ver|Asociar) / }).first()).toBeVisible();
   });
 });
 
@@ -388,7 +392,7 @@ test.describe('HU #12612 · AC4 — la cola agrupada por carga con filtros', () 
     await expect(consolidado).toContainText('Sin decidir');
     await expect(consolidado).toContainText(`leído: …${VIN_COMPLETO.slice(-6)}`);
     await expect(consolidado.getByRole('cell').nth(4)).toHaveText('—');
-    await expect(consolidado.getByRole('button', { name: 'Ver consolidado.pdf p. 3-4' })).toBeVisible();
+    await expect(consolidado.getByRole('button', { name: 'Asociar consolidado.pdf p. 3-4' })).toBeVisible();
     await expect(consolidado).toContainText('El documento cruza con más de un trámite');
     const recibo = tabla.getByRole('row', { name: /recibo\.pdf/ });
     await expect(recibo).toContainText('Recibo de impuesto');
@@ -432,10 +436,11 @@ test.describe('HU #12612 · AC4 — la cola agrupada por carga con filtros', () 
 
 test.describe('HU #12612 · AC5 — detalle: visor y datos leídos con confianza', () => {
   /** Mutantes: `paginaInicial` ignorada → scrollTop 0; derivar el nivel en el front → «Baja» con confianza 0.9 se pintaría «Alta». */
-  test('«Ver» abre el visor en la página del documento, la cabecera de 3 líneas y los chips por nivel; sin Asociar/Aplicar/Descartar', async ({ page }) => {
+  test('«Ver» (aplicado) abre el visor en la página del documento, la cabecera de 3 líneas y los chips por nivel; sin Asociar/Aplicar/Descartar', async ({ page }) => {
     await loginAs(page, FINANCIERA_USER);
-    await mockCola(page, { items: [fila({ paginas: [2], archivo: { nombre: 'dos.pdf', contentType: 'application/pdf' } })], total: 1, page: 1, pageSize: 50 });
-    await mockDetalle(page, detalle({ paginas: [2], archivo: { nombre: 'dos.pdf', contentType: 'application/pdf' } }));
+    const APLICADO = { estado: 'aplicado', motivoPendiente: null, aplicadoEn: '2026-09-16T16:00:00.000Z', aplicadoAutomaticamente: true, paginas: [2], archivo: { nombre: 'dos.pdf', contentType: 'application/pdf' } };
+    await mockCola(page, { items: [fila(APLICADO)], total: 1, page: 1, pageSize: 50 });
+    await mockDetalle(page, detalle(APLICADO));
     await mockArchivoPdf(page);
     await page.goto(RUTA);
     await page.getByRole('button', { name: 'Ver dos.pdf p. 2' }).click();
@@ -450,8 +455,8 @@ test.describe('HU #12612 · AC5 — detalle: visor y datos leídos con confianza
     await expect(original).toHaveAttribute('rel', 'noopener');
 
     const lectura = dialog.getByRole('region', { name: 'Lectura' });
-    await expect(lectura).toContainText('Pendiente');
-    await expect(lectura).toContainText('Leído, pendiente de asociar');
+    await expect(lectura).toContainText('Aplicado');
+    await expect(lectura).toContainText('automático · 16 sep 2026');
     await expect(lectura).toContainText(/Carga 16 sep 2026 · \d{2}:\d{2} · Ana Pérez/);
     await expect(lectura).toContainText('Leído: Recibo de impuesto');
     const filaCampo = (rotulo: string) => lectura.locator('dl > div', { has: page.getByText(rotulo, { exact: true }) });
@@ -476,12 +481,12 @@ test.describe('HU #12612 · AC5 — detalle: visor y datos leídos con confianza
     const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
     await page.route(/\/api\/flito\/comprobantes\/[0-9a-f-]+\/archivo$/, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: png }));
     await page.goto(RUTA);
-    await page.getByRole('button', { name: 'Ver transf.png' }).click();
+    await page.getByRole('button', { name: 'Asociar transf.png' }).click();
     await expect(page.getByRole('dialog').getByRole('img', { name: 'transf.png' })).toBeVisible();
 
     await loginAs(page, FINANCIERA_USER, { funciones: SIN_ARCHIVO });
     await page.goto(RUTA);
-    await page.getByRole('button', { name: 'Ver transf.png' }).click();
+    await page.getByRole('button', { name: 'Asociar transf.png' }).click();
     await expect(page.getByRole('dialog').getByText('Tu usuario no puede abrir el archivo. Pídele a un administrador la función “Abrir el archivo de un comprobante”.')).toBeVisible();
     await expect(page.getByRole('dialog').getByRole('img')).toHaveCount(0);
     await expect(page.getByRole('dialog').getByRole('link', { name: /Abrir el archivo original/ })).toHaveCount(0);
@@ -498,7 +503,7 @@ test.describe('HU #12612 · AC5 — detalle: visor y datos leídos con confianza
     });
     await mockArchivoPdf(page);
     await page.goto(RUTA);
-    await page.getByRole('button', { name: 'Ver recibo.pdf' }).click();
+    await page.getByRole('button', { name: 'Asociar recibo.pdf' }).click();
     let dialog = page.getByRole('dialog');
     await expect(dialog.getByRole('alert')).toHaveText('Este comprobante ya no existe.');
     const antes = gets.length;
@@ -507,7 +512,7 @@ test.describe('HU #12612 · AC5 — detalle: visor y datos leídos con confianza
     await expect.poll(() => gets.length).toBeGreaterThan(antes);
 
     modo = 500;
-    await page.getByRole('button', { name: 'Ver recibo.pdf' }).click();
+    await page.getByRole('button', { name: 'Asociar recibo.pdf' }).click();
     dialog = page.getByRole('dialog');
     await expect(dialog.getByRole('alert')).toContainText('No se pudo abrir el comprobante. Se cayó');
     modo = 200;
@@ -538,16 +543,17 @@ test.describe('HU #12612 · AC6 — Releer', () => {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detalle()) });
     });
     await page.goto(RUTA);
-    await page.getByRole('button', { name: 'Ver recibo.pdf' }).click();
+    await page.getByRole('button', { name: 'Asociar recibo.pdf' }).click();
     const dialog = page.getByRole('dialog');
     const lectura = dialog.getByRole('region', { name: 'Lectura' });
     await expect(lectura).toContainText('FLITO no pudo leer este documento.');
     await expect(lectura).toContainText('Leído: sin identificar');
-    await expect(lectura.getByText('Sin lectura', { exact: true })).toHaveCount(11);
+    // HU #12634: el panel lista 7 campos (placa, vin, idFlit, valor, fecha, número, emisor) + chip del tipo + chips de (1) y (3).
+    await expect(lectura.getByText('Sin lectura', { exact: true })).toHaveCount(10);
     const releer = dialog.getByRole('button', { name: 'Releer' });
     await releer.click();
     await expect(dialog.getByRole('alert')).toHaveText('El lector sigue sin estar disponible. Inténtalo más tarde.');
-    await expect(lectura.getByText('Sin lectura', { exact: true })).toHaveCount(11);
+    await expect(lectura.getByText('Sin lectura', { exact: true })).toHaveCount(10);
     await expect(lectura).toContainText('FLITO no pudo leer este documento.');
 
     await releer.click();
@@ -568,7 +574,7 @@ test.describe('HU #12612 · AC6 — Releer', () => {
     await mockDetalle(page, detalle());
     await mockArchivoPdf(page);
     await page.goto(RUTA);
-    await page.getByRole('button', { name: 'Ver recibo.pdf' }).click();
+    await page.getByRole('button', { name: 'Asociar recibo.pdf' }).click();
     await expect(page.getByRole('dialog').getByRole('region', { name: 'Lectura' })).toContainText('Leído: Recibo de impuesto');
     await expect(page.getByRole('dialog').getByRole('button', { name: 'Releer' })).toHaveCount(0);
     await expect(page.getByRole('dialog').getByText('FLITO no pudo leer este documento.')).toHaveCount(0);
@@ -576,7 +582,7 @@ test.describe('HU #12612 · AC6 — Releer', () => {
     await loginAs(page, FINANCIERA_USER, { funciones: SIN_RELEER });
     await mockDetalle(page, SIN_LECTURA());
     await page.goto(RUTA);
-    await page.getByRole('button', { name: 'Ver recibo.pdf' }).click();
+    await page.getByRole('button', { name: 'Asociar recibo.pdf' }).click();
     await expect(page.getByRole('dialog').getByText('FLITO no pudo leer este documento.')).toBeVisible();
     await expect(page.getByRole('dialog').getByRole('button', { name: 'Releer' })).toHaveCount(0);
   });
@@ -594,5 +600,670 @@ test.describe('HU #12612 · AC7 — una sola región viva y accesibilidad', () =
     await expect(modal.getByRole('status')).toHaveCount(1);
     await expect(modal.getByRole('status')).toContainText('3 archivos');
     esperarSinViolacionesGraves(await correrAxe(page), 'modal Cargar comprobantes');
+  });
+});
+
+// ═══════════════════════════════ HU #12634 — Panel de asociación ═══════════════════════════════
+
+const TRAMITE_1 = '44444444-4444-4444-8444-444444444444';
+const TRAMITE_2 = '55555555-5555-4555-8555-555555555555';
+const TRAMITE_3 = '66666666-6666-4666-8666-666666666666';
+const ANTERIOR = '77777777-7777-4777-8777-777777777777';
+const ADMITE_TODO = { derecho: 'admite', soat: 'admite', impuesto: 'admite', tramite_digital: 'admite', logistica: 'admite', servicios_adicionales: 'admite' };
+const candidato = (extra: Record<string, unknown> = {}) => ({
+  tramiteId: TRAMITE_1, idFlit: 'FLIT-10250', placa: 'XYZ789', vin: null, tipoTramite: 'Traspaso', empresa: 'Renting Andino',
+  flitEstado: 'solicitado', liquidado: false, admite: ADMITE_TODO, ...extra,
+});
+const SEGUNDO = candidato({ tramiteId: TRAMITE_2, idFlit: 'FLIT-10198', tipoTramite: 'Matrícula', admite: { ...ADMITE_TODO, impuesto: 'ya_pagado' } });
+const FIJADO = { tramite: { id: TRAMITE_1, idFlit: 'FLIT-10250', placa: 'XYZ789' }, cruce: 'placa', placaLeida: 'XYZ789' };
+const CAMPOS_BASE = [
+  campo('tipoDocumento', 'recibo_impuesto', 'alta'), campo('esComprobantePago', 'true', 'alta'), campo('concepto', 'impuesto', 'alta'),
+  campo('placa', 'XYZ789', 'alta'), campo('vin', null, null), campo('idFlit', null, null), campo('valorTotal', '312000', 'alta'),
+  campo('fechaPago', null, null), campo('numeroDocumento', '2026-00123', 'baja', false), campo('emisor', 'Gobernación', 'media', true),
+];
+/** Un pendiente con el cruce fijado a un candidato único (D-1) y lecturas confiables de (1) y (3). */
+const detalleFijado = (extra: Record<string, unknown> = {}, campos = CAMPOS_BASE, candidatos: unknown[] = [candidato()]) =>
+  ({ ...detalle({ ...FIJADO, ...extra }, campos), candidatos });
+
+type Interceptado = { bodies: Record<string, unknown>[] };
+type Respuesta = { status: number; body: unknown };
+async function mockPost(page: Page, ruta: RegExp, responder: (body: Record<string, unknown>, n: number) => Respuesta | Promise<Respuesta>): Promise<Interceptado> {
+  const bodies: Record<string, unknown>[] = [];
+  await page.route(ruta, async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    bodies.push(body);
+    const r = await responder(body, bodies.length);
+    return route.fulfill({ status: r.status, contentType: 'application/json', body: JSON.stringify(r.body) });
+  });
+  return { bodies };
+}
+const RUTA_BUSCAR = /\/api\/flito\/comprobantes\/tramites\/buscar$/;
+const RUTA_APLICAR = new RegExp(`/api/flito/comprobantes/${UUID_A}/aplicar$`);
+const RUTA_DESCARTAR = /\/api\/flito\/comprobantes\/[0-9a-f-]+\/descartar$/;
+const aplicado200 = (body: Record<string, unknown>) => ({ status: 200, body: { resultado: 'aplicado', comprobante: detalleFijado({ estado: 'aplicado', esPago: body.esPago, concepto: body.concepto }) } });
+
+async function abrirPanel(page: Page, nombre = 'Asociar recibo.pdf') {
+  await page.goto(RUTA);
+  await page.getByRole('button', { name: nombre }).click();
+  const dialog = page.getByRole('dialog', { name: /^Comprobante · / });
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+const combobox = (dialog: Locator) => dialog.getByRole('combobox', { name: 'Trámite' });
+/** La única región `status` de la página (comparte elemento con el anuncio sr-only); el esqueleto de carga tiene la suya mientras refresca. */
+const toast = (page: Page) => page.locator('p[role="status"]');
+const SIN_BUSCAR = FUNCIONES_POR_ROL.financiera.filter((f) => f !== 'comprobantes.tramites.buscar');
+const SIN_APLICAR = FUNCIONES_POR_ROL.financiera.filter((f) => f !== 'comprobantes.comprobante.aplicar');
+const SIN_DESCARTAR = FUNCIONES_POR_ROL.financiera.filter((f) => f !== 'comprobantes.comprobante.descartar');
+
+test.describe('HU #12634 · AC1 — tres decisiones pre-llenadas con confianza', () => {
+  /** Mutantes: preseleccionar el radio con esComprobantePago no confiable (segundo test); lista flotante o `li > button`; no parar la propagación de Esc. */
+  test('candidato único fijado: radio, trámite y concepto preseleccionados; campos con chip y Valor editable; ✕, ↓/Enter y Esc en cascada', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockCola(page, { items: [fila(FIJADO)], total: 1, page: 1, pageSize: 50 });
+    await mockDetalle(page, detalleFijado());
+    await mockArchivoPdf(page);
+    const buscar = await mockPost(page, RUTA_BUSCAR, () => ({ status: 200, body: { candidatos: [] } }));
+    const dialog = await abrirPanel(page);
+    const lectura = dialog.getByRole('region', { name: 'Lectura' });
+
+    await expect(dialog.getByRole('radio', { name: 'Comprobante de pago' })).toBeChecked();
+    await expect(dialog.getByRole('radio', { name: 'Documentación del trámite' })).not.toBeChecked();
+    const cb = combobox(dialog);
+    await expect(cb).toHaveValue('FLIT-10250 · XYZ789');
+    await expect(cb).toBeFocused();
+    await expect(cb).toHaveAttribute('aria-expanded', 'false');
+    await expect(dialog.getByRole('combobox', { name: 'Concepto' })).toHaveValue('impuesto');
+    // Chips por nivel del servidor junto a cada decisión y campo; Tipo de documento solo en la cabecera.
+    await expect(lectura.locator('legend')).toContainText('Alta');
+    await expect(lectura.getByText('Leído: Recibo de impuesto')).toBeVisible();
+    await expect(lectura.locator('label', { hasText: 'Tipo de documento' })).toHaveCount(0);
+    const valor = dialog.getByLabel('Valor', { exact: true });
+    await expect(valor).toHaveValue('312000');
+    await expect(valor).toHaveAccessibleDescription('Pesos, sin puntos ni signo');
+    await expect(dialog.getByLabel('Número de documento')).toHaveValue('2026-00123');
+    await expect(lectura.getByText('Baja', { exact: true })).toHaveCount(1);
+    await expect(lectura.getByText('Sin lectura', { exact: true })).toHaveCount(3);
+    // Placa: chip y valor, sin input (solo lectura, explica el «Sugerido»).
+    await expect(lectura.getByText('XYZ789', { exact: true })).toBeVisible();
+    await expect(dialog.getByLabel('Placa')).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Aplicar' })).toBeEnabled();
+
+    // ✕ «Quitar trámite»: campo vacío, lista abierta en flujo con el chip derivado de la placa leída.
+    await dialog.getByRole('button', { name: 'Quitar trámite' }).click();
+    await expect(cb).toHaveValue('');
+    await expect(cb).toBeFocused();
+    await expect(cb).toHaveAttribute('aria-expanded', 'true');
+    const lista = dialog.getByRole('listbox', { name: 'Trámites' });
+    await expect(lista).toBeVisible();
+    const opcion = lista.getByRole('option');
+    await expect(opcion).toHaveCount(1);
+    await expect(opcion).toContainText('Sugerido · por placa');
+    await expect(opcion).toContainText('FLIT-10250 · XYZ789');
+    await expect(opcion).toContainText('Impuesto: admite');
+    await expect(opcion.locator('button')).toHaveCount(0);
+    await expect(cb).toHaveAttribute('aria-controls', (await lista.getAttribute('id')) ?? '');
+    await expect(cb).toHaveAttribute('aria-activedescendant', (await opcion.getAttribute('id')) ?? '');
+    await expect(lista).not.toHaveClass(/absolute/);
+
+    // Esc cierra la lista y NO el panel; con la lista cerrada, ↓ la reabre y Enter elige.
+    await page.keyboard.press('Escape');
+    await expect(lista).toHaveCount(0);
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press('ArrowDown');
+    await expect(dialog.getByRole('listbox')).toBeVisible();
+    await page.keyboard.press('Enter');
+    await expect(cb).toHaveValue('FLIT-10250 · XYZ789');
+    expect(buscar.bodies).toHaveLength(0);
+    // Con la lista cerrada, Esc llega al modal y lo cierra.
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+  });
+
+  /** Mutante M1: preseleccionar el radio con `esPago` null → «ninguno marcado» cae. Mutante: preseleccionar con un candidato entre varios. */
+  test('lecturas no confiables: nada preseleccionado; varios candidatos → campo vacío con la lista abierta; Documentación oculta Valor', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockCola(page, { items: [fila({ placaLeida: 'XYZ789' })], total: 1, page: 1, pageSize: 50 });
+    await mockDetalle(page, detalleFijado(
+      { tramite: null, cruce: null, esPago: null, concepto: null },
+      [campo('tipoDocumento', 'recibo_impuesto', 'alta'), campo('esComprobantePago', 'true', 'baja', false), campo('concepto', 'impuesto', 'media', false), campo('placa', 'XYZ789', 'alta'), campo('valorTotal', null, null)],
+      [candidato(), SEGUNDO],
+    ));
+    await mockArchivoPdf(page);
+    const dialog = await abrirPanel(page);
+    await expect(dialog.getByRole('radio', { name: 'Comprobante de pago' })).not.toBeChecked();
+    await expect(dialog.getByRole('radio', { name: 'Documentación del trámite' })).not.toBeChecked();
+    await expect(dialog.getByRole('combobox', { name: 'Concepto' })).toHaveValue('');
+    const cb = combobox(dialog);
+    await expect(cb).toHaveValue('');
+    await expect(cb).toHaveAttribute('aria-expanded', 'true');
+    const opciones = dialog.getByRole('listbox', { name: 'Trámites' }).getByRole('option');
+    await expect(opciones).toHaveCount(2);
+    await expect(opciones.nth(0)).toContainText('Sugerido · por placa');
+    await expect(opciones.nth(1)).toContainText('FLIT-10198');
+    // Sin concepto elegido, la 2.ª línea no dice admisión.
+    await expect(opciones.nth(1)).not.toContainText('ya pagado');
+    await dialog.getByRole('combobox', { name: 'Concepto' }).selectOption('impuesto');
+    await cb.focus();
+    await expect(opciones.nth(1)).toContainText('Impuesto: ya pagado');
+    // El select marca la admisión del trámite elegido sin apagar opciones (D6).
+    await opciones.nth(1).click();
+    await expect(cb).toHaveValue('FLIT-10198 · XYZ789');
+    const select = dialog.getByRole('combobox', { name: 'Concepto' });
+    await expect(select.locator('option[value="impuesto"]')).toHaveText('Impuesto · ya pagado');
+    await expect(select.locator('option[disabled]')).toHaveCount(0);
+    // Valor: existe editable (vacío, «Sin lectura») con pago y desaparece con documentación (D3).
+    await expect(dialog.getByLabel('Valor', { exact: true })).toHaveCount(1);
+    await dialog.getByRole('radio', { name: 'Documentación del trámite' }).check();
+    await expect(dialog.getByLabel('Valor', { exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Adjuntar' })).toBeVisible();
+    await dialog.getByRole('radio', { name: 'Comprobante de pago' }).check();
+    await expect(dialog.getByLabel('Valor', { exact: true })).toHaveValue('');
+  });
+
+  /** Mutantes: GET con query o sin debounce (más de un POST); resultados delante de los sugeridos; tratar la respuesta vieja. */
+  test('escribir ≥ 3 caracteres → UN POST {buscar} tras 300 ms, «Buscando…», resultados debajo de los sugeridos, sin resultados, error y maxlength', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockCola(page, { items: [fila({ placaLeida: 'XYZ789' })], total: 1, page: 1, pageSize: 50 });
+    await mockDetalle(page, detalleFijado({ tramite: null, cruce: null }, CAMPOS_BASE, [candidato()]));
+    await mockArchivoPdf(page);
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    const buscar = await mockPost(page, RUTA_BUSCAR, async (body, n) => {
+      if (n === 1) { await held; return { status: 200, body: { candidatos: [candidato({ tramiteId: TRAMITE_3, idFlit: 'FLIT-09877', empresa: 'Andina Leasing', admite: { ...ADMITE_TODO, impuesto: 'no_gestionado' } }), candidato()] } }; }
+      if (body.buscar === 'ZZZ999') return { status: 200, body: { candidatos: [] } };
+      return { status: 500, body: { error: 'Se cayó' } };
+    });
+    const dialog = await abrirPanel(page);
+    const cb = combobox(dialog);
+    await expect(cb).toHaveAttribute('maxlength', '60');
+    await cb.pressSequentially('XYZ7', { delay: 30 });
+    await expect(dialog.getByRole('status')).toHaveText('Buscando…');
+    await expect(dialog.getByRole('status')).toHaveCount(1);
+    await expect.poll(() => buscar.bodies.length).toBe(1);
+    expect(buscar.bodies[0]).toEqual({ buscar: 'XYZ7' });
+    release();
+    const opciones = dialog.getByRole('listbox', { name: 'Trámites' }).getByRole('option');
+    // El sugerido que también volvió del buscador no se repite; el resultado va DEBAJO y sin chip.
+    await expect(opciones).toHaveCount(2);
+    await expect(opciones.nth(0)).toContainText('Sugerido · por placa');
+    await expect(opciones.nth(1)).toContainText('FLIT-09877');
+    await expect(opciones.nth(1)).not.toContainText('Sugerido');
+    await expect(opciones.nth(1)).toContainText('Impuesto: no gestionado');
+    await expect(dialog.getByRole('status')).toHaveCount(0);
+
+    await cb.fill('ZZZ999');
+    await expect(dialog.getByRole('status')).toHaveText('Ningún trámite coincide con «ZZZ999».');
+    await expect(dialog.getByRole('listbox')).toHaveCount(0);
+    await cb.fill('QQQ111');
+    await expect(dialog.getByRole('alert')).toHaveText('No se pudo buscar. Vuelve a intentarlo.');
+    expect(buscar.bodies).toHaveLength(3);
+  });
+});
+
+test.describe('HU #12634 · AC2 — motivo solo cuando hay algo que justificar', () => {
+  /** Mutantes: mandar `motivo` vacío o `campos` completos siempre (el body exacto cae); no montar el motivo al cambiar concepto o marca. */
+  test('sugerido sin cambios → body sin motivo ni campos; editar Valor monta el motivo y viaja solo el delta; concepto y marca también lo montan', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    const gets = await mockCola(page, { items: [fila(FIJADO)], total: 1, page: 1, pageSize: 50 });
+    await mockDetalle(page, detalleFijado());
+    await mockArchivoPdf(page);
+    const aplicar = await mockPost(page, RUTA_APLICAR, aplicado200);
+    let dialog = await abrirPanel(page);
+    await expect(dialog.getByLabel('Por qué cambias lo leído')).toHaveCount(0);
+    const antes = gets.length;
+    await dialog.getByRole('button', { name: 'Aplicar' }).click();
+    await expect.poll(() => aplicar.bodies.length).toBe(1);
+    expect(aplicar.bodies[0]).toEqual({ tramiteId: TRAMITE_1, concepto: 'impuesto', esPago: true });
+    await expect(dialog).toHaveCount(0);
+    await expect(toast(page)).toHaveText('Comprobante aplicado a FLIT-10250 · Impuesto.');
+    await expect.poll(() => gets.length).toBeGreaterThan(antes);
+    await expect(page.getByRole('heading', { level: 1, name: 'Finanzas — Comprobantes' })).toBeFocused();
+
+    dialog = await abrirPanel(page);
+    await dialog.getByLabel('Valor', { exact: true }).fill('350000');
+    const motivo = dialog.getByLabel('Por qué cambias lo leído');
+    await expect(motivo).toBeVisible();
+    await expect(motivo).toHaveAttribute('maxlength', '500');
+    await expect(motivo).toHaveAccessibleDescription(/Queda en la auditoría del comprobante\. No escribas datos personales/);
+    await dialog.getByRole('button', { name: 'Aplicar' }).click();
+    await expect(dialog.getByRole('alert')).toHaveText('Escribe por qué cambias lo leído (mínimo 5 caracteres).');
+    await expect(motivo).toBeFocused();
+    await expect(motivo).toHaveAttribute('aria-invalid', 'true');
+    expect(aplicar.bodies).toHaveLength(1);
+    await motivo.fill('Valor corregido');
+    await dialog.getByRole('button', { name: 'Aplicar' }).click();
+    await expect.poll(() => aplicar.bodies.length).toBe(2);
+    expect(aplicar.bodies[1]).toEqual({ tramiteId: TRAMITE_1, concepto: 'impuesto', esPago: true, campos: { valorTotal: '350000' }, motivo: 'Valor corregido' });
+
+    dialog = await abrirPanel(page);
+    await dialog.getByRole('combobox', { name: 'Concepto' }).selectOption('soat');
+    await expect(dialog.getByLabel('Por qué cambias lo leído')).toBeVisible();
+    await dialog.getByRole('combobox', { name: 'Concepto' }).selectOption('impuesto');
+    await expect(dialog.getByLabel('Por qué cambias lo leído')).toHaveCount(0);
+    await dialog.getByRole('radio', { name: 'Documentación del trámite' }).check();
+    await expect(dialog.getByLabel('Por qué cambias lo leído')).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Adjuntar' })).toBeVisible();
+  });
+});
+
+test.describe('HU #12634 · AC3 — validación al pulsar, no botón muerto', () => {
+  /** Mutante M2: apagar la primaria con el formulario incompleto → `toBeEnabled` cae. Mutante: validar sin foco al primero. */
+  test('todo por decidir: Aplicar encendido; al pulsar, alerts con el copy exacto y foco al primero, 0 POST; en vuelo «Aplicando…» apagado', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockCola(page, { items: [fila({ placaLeida: 'XYZ789' })], total: 1, page: 1, pageSize: 50 });
+    await mockDetalle(page, detalleFijado(
+      { tramite: null, cruce: null, esPago: null, concepto: null },
+      [campo('tipoDocumento', null, null), campo('esComprobantePago', null, null), campo('concepto', null, null), campo('placa', 'XYZ789', 'alta'), campo('valorTotal', null, null)],
+      [candidato()],
+    ));
+    await mockArchivoPdf(page);
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    const aplicar = await mockPost(page, RUTA_APLICAR, async (body) => { await held; return aplicado200(body); });
+    const dialog = await abrirPanel(page);
+    const primaria = dialog.getByRole('button', { name: 'Aplicar' });
+    await expect(primaria).toBeEnabled();
+    await primaria.click();
+    const alerts = dialog.getByRole('alert');
+    await expect(alerts).toHaveText(['Di si es un comprobante de pago o documentación.', 'Elige el trámite al que pertenece.', 'Elige el concepto.']);
+    await expect(dialog.getByRole('radio', { name: 'Comprobante de pago' })).toBeFocused();
+    await expect(dialog.getByRole('radio', { name: 'Comprobante de pago' })).toHaveAttribute('aria-invalid', 'true');
+    await expect(combobox(dialog)).toHaveAttribute('aria-invalid', 'true');
+    await expect(dialog.getByRole('combobox', { name: 'Concepto' })).toHaveAttribute('aria-invalid', 'true');
+    expect(aplicar.bodies).toHaveLength(0);
+    await expect(primaria).toBeEnabled();
+
+    await dialog.getByRole('radio', { name: 'Comprobante de pago' }).check();
+    await combobox(dialog).focus();
+    await dialog.getByRole('listbox').getByRole('option').first().click();
+    await dialog.getByRole('combobox', { name: 'Concepto' }).selectOption('impuesto');
+    await primaria.click();
+    await expect(alerts).toHaveText(['Escribe el valor pagado: sin valor no se puede aplicar un pago.', 'Escribe por qué cambias lo leído (mínimo 5 caracteres).']);
+    await expect(dialog.getByLabel('Valor', { exact: true })).toBeFocused();
+    expect(aplicar.bodies).toHaveLength(0);
+    await dialog.getByLabel('Valor', { exact: true }).fill('312000');
+    await dialog.getByLabel('Por qué cambias lo leído').fill('Elegido a mano');
+    await primaria.click();
+    await expect(dialog.getByRole('button', { name: 'Aplicando…' })).toBeDisabled();
+    release();
+    await expect(dialog).toHaveCount(0);
+    expect(aplicar.bodies[0]).toEqual({ tramiteId: TRAMITE_1, concepto: 'impuesto', esPago: true, campos: { valorTotal: '312000' }, motivo: 'Elegido a mano' });
+  });
+});
+
+test.describe('HU #12634 · AC4 — respuestas por código', () => {
+  const dangerInk = (page: Page) => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--flit-danger-ink').trim());
+
+  /** Mutante M2 del gate: tratar `ya_pagado` / `destino_no_admite` como alert rojo sin botón → cae. Mutante: reenviar sin `campos`/`motivo`. */
+  test('409 destino_no_admite y ya_pagado con puedeAdjuntar → bloque sin rojo + «Adjuntar como documentación» → 2.º POST esPago:false conservando lo escrito; sin puedeAdjuntar → sin botón', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockCola(page, { items: [fila(FIJADO)], total: 1, page: 1, pageSize: 50 });
+    await mockDetalle(page, detalleFijado());
+    await mockArchivoPdf(page);
+    let modo: 'destino' | 'pagado' | 'sin_boton' = 'destino';
+    const aplicar = await mockPost(page, RUTA_APLICAR, (body) => {
+      if (body.esPago === false) return aplicado200(body);
+      if (modo === 'destino') return { status: 409, body: { error: 'El pago de impuesto aún no se aplica desde aquí', codigo: 'destino_no_admite', detalle: 'Los pagos se aplican en la siguiente entrega', puedeAdjuntar: true } };
+      if (modo === 'pagado') return { status: 409, body: { error: 'Ya pagado', codigo: 'ya_pagado', detalle: 'Ese impuesto ya está pagado', puedeAdjuntar: true } };
+      return { status: 409, body: { error: 'Ya pagado', codigo: 'ya_pagado', detalle: 'Ese impuesto ya está pagado', puedeAdjuntar: false } };
+    });
+    const rojo = await dangerInk(page);
+    let dialog = await abrirPanel(page);
+    await dialog.getByLabel('Valor', { exact: true }).fill('350000');
+    await dialog.getByLabel('Por qué cambias lo leído').fill('Valor corregido');
+    await dialog.getByRole('button', { name: 'Aplicar' }).click();
+    let alerta = dialog.getByRole('alert');
+    await expect(alerta).toContainText('FLIT-10250 no admite Impuesto como pago: Los pagos se aplican en la siguiente entrega. Puedes adjuntar este documento como documentación del trámite.');
+    await expect(alerta).not.toHaveClass(/text-red/);
+    expect(await alerta.evaluate((el) => getComputedStyle(el).color)).not.toBe(rojo);
+    await expect(dialog.getByRole('button', { name: 'Aplicar' })).toBeEnabled();
+    await expect(dialog.getByLabel('Valor', { exact: true })).toHaveValue('350000');
+    await alerta.getByRole('button', { name: 'Adjuntar como documentación' }).click();
+    await expect.poll(() => aplicar.bodies.length).toBe(2);
+    expect(aplicar.bodies[1]).toEqual({ tramiteId: TRAMITE_1, concepto: 'impuesto', esPago: false, campos: { valorTotal: '350000' }, motivo: 'Valor corregido' });
+    await expect(toast(page)).toHaveText('Documentación adjuntada a FLIT-10250.');
+
+    modo = 'pagado';
+    dialog = await abrirPanel(page);
+    await dialog.getByRole('button', { name: 'Aplicar' }).click();
+    alerta = dialog.getByRole('alert');
+    await expect(alerta).toContainText('FLIT-10250 no admite Impuesto como pago: Ese impuesto ya está pagado.');
+    await expect(alerta.getByRole('button', { name: 'Adjuntar como documentación' })).toBeVisible();
+    await expect(dialog.getByRole('radio', { name: 'Comprobante de pago' })).toBeChecked();
+    await alerta.getByRole('button', { name: 'Adjuntar como documentación' }).click();
+    await expect.poll(() => aplicar.bodies.length).toBe(4);
+    expect(aplicar.bodies[3]).toMatchObject({ esPago: false });
+
+    modo = 'sin_boton';
+    dialog = await abrirPanel(page);
+    await dialog.getByRole('button', { name: 'Aplicar' }).click();
+    alerta = dialog.getByRole('alert');
+    await expect(alerta).toHaveText('FLIT-10250 no admite Impuesto como pago: Ese impuesto ya está pagado.');
+    await expect(alerta.getByRole('button')).toHaveCount(0);
+  });
+
+  /** Mutante: esperar al 409 para avisar (0 POST aquí); pintar el aviso como alert. */
+  test('aviso anticipado D6: pago + trámite + concepto ya pagado → status «Ese impuesto ya está pagado.» + botón, sin POST', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockCola(page, { items: [fila({ placaLeida: 'XYZ789' })], total: 1, page: 1, pageSize: 50 });
+    await mockDetalle(page, detalleFijado({ tramite: { id: TRAMITE_2, idFlit: 'FLIT-10198', placa: 'XYZ789' } }, CAMPOS_BASE, [SEGUNDO]));
+    await mockArchivoPdf(page);
+    const aplicar = await mockPost(page, RUTA_APLICAR, aplicado200);
+    const dialog = await abrirPanel(page);
+    const aviso = dialog.getByRole('status');
+    await expect(aviso).toHaveCount(1);
+    await expect(aviso).toContainText('Ese impuesto ya está pagado.');
+    await expect(dialog.getByRole('alert')).toHaveCount(0);
+    expect(aplicar.bodies).toHaveLength(0);
+    await aviso.getByRole('button', { name: 'Adjuntar como documentación' }).click();
+    await expect(dialog.getByRole('radio', { name: 'Documentación del trámite' })).toBeChecked();
+    await expect(dialog.getByRole('status')).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Adjuntar' })).toBeVisible();
+    expect(aplicar.bodies).toHaveLength(0);
+  });
+
+  /** Mutantes: decidir por texto (los cuerpos traen textos distintos a los de la ficha); apagar la primaria tras un 500. */
+  test('tramite_liquidado (enlace), valor_ya_documentado (Reemplazar → descartar anterior + reintento), ya_resuelto/404 (Actualizar la cola), 403, datos_invalidos, valor_requerido y 500', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    const gets = await mockCola(page, { items: [fila(FIJADO)], total: 1, page: 1, pageSize: 50 });
+    await mockDetalle(page, detalleFijado());
+    await mockArchivoPdf(page);
+    const cola: Respuesta[] = [
+      { status: 409, body: { error: 'Liquidación sellada', codigo: 'tramite_liquidado' } },
+      { status: 409, body: { error: 'Otro comprobante ocupa (trámite, concepto)', codigo: 'valor_ya_documentado', comprobanteAnteriorId: ANTERIOR } },
+      { status: 200, body: aplicado200({ esPago: true, concepto: 'impuesto' }).body },
+      { status: 409, body: { error: 'Ya no está pendiente', codigo: 'ya_resuelto' } },
+      { status: 404, body: { error: 'El trámite no existe', codigo: 'no_encontrado' } },
+      { status: 403, body: { error: 'Sin función', funcion: 'comprobantes.comprobante.aplicar' } },
+      { status: 400, body: { error: 'Confirmar campos exige motivo', codigo: 'datos_invalidos' } },
+      { status: 400, body: { error: 'Un pago exige valor', codigo: 'valor_requerido' } },
+      { status: 500, body: { error: 'Se cayó' } },
+    ];
+    const aplicar = await mockPost(page, RUTA_APLICAR, () => cola.shift()!);
+    const descartar = await mockPost(page, RUTA_DESCARTAR, () => ({ status: 200, body: { ok: true } }));
+    let dialog = await abrirPanel(page);
+    const primaria = dialog.getByRole('button', { name: 'Aplicar' });
+
+    await primaria.click();
+    let alerta = dialog.getByRole('alert');
+    await expect(alerta).toContainText('La liquidación de FLIT-10250 está sellada. Reversa la liquidación en el reporte de costos y vuelve a aplicar.');
+    await expect(alerta.getByRole('link', { name: 'Ir al reporte de costos' })).toHaveAttribute('href', '/finanzas/reporte-costos');
+
+    await primaria.click();
+    await expect(alerta).toContainText('FLIT-10250 ya tiene un valor de Impuesto documentado con otro comprobante. Para usar este, descarta el anterior.');
+    await alerta.getByRole('button', { name: 'Reemplazar' }).click();
+    const motivoAnterior = dialog.getByLabel('Motivo para descartar el anterior');
+    await expect(motivoAnterior).toHaveAccessibleDescription(/No escribas datos personales/);
+    await dialog.getByRole('button', { name: 'Descartar el anterior y aplicar' }).click();
+    await expect(dialog.getByRole('alert').last()).toHaveText('Escribe el motivo del descarte (mínimo 5 caracteres).');
+    expect(descartar.bodies).toHaveLength(0);
+    await motivoAnterior.fill('Duplicado del anterior');
+    await dialog.getByRole('button', { name: 'Descartar el anterior y aplicar' }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(descartar.bodies).toEqual([{ motivo: 'Duplicado del anterior' }]);
+    expect(aplicar.bodies).toHaveLength(3);
+    await expect(toast(page)).toHaveText('Comprobante aplicado a FLIT-10250 · Impuesto.');
+
+    dialog = await abrirPanel(page);
+    await dialog.getByRole('button', { name: 'Aplicar' }).click();
+    alerta = dialog.getByRole('alert');
+    await expect(alerta).toContainText('Alguien resolvió este comprobante mientras lo tenías abierto.');
+    let antes = gets.length;
+    await alerta.getByRole('button', { name: 'Actualizar la cola' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect.poll(() => gets.length).toBeGreaterThan(antes);
+
+    dialog = await abrirPanel(page);
+    await dialog.getByRole('button', { name: 'Aplicar' }).click();
+    alerta = dialog.getByRole('alert');
+    await expect(alerta).toContainText('El trámite no existe');
+    antes = gets.length;
+    await alerta.getByRole('button', { name: 'Actualizar la cola' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect.poll(() => gets.length).toBeGreaterThan(antes);
+
+    dialog = await abrirPanel(page);
+    await dialog.getByRole('button', { name: 'Aplicar' }).click();
+    alerta = dialog.getByRole('alert');
+    await expect(alerta).toHaveText('Tu usuario no puede aplicar comprobantes. Vuelve a entrar para actualizar tus permisos.');
+    await expect(alerta.getByRole('button')).toHaveCount(0);
+
+    await dialog.getByRole('button', { name: 'Aplicar' }).click();
+    await expect(alerta).toHaveText('Revisa los datos marcados. Confirmar campos exige motivo');
+
+    await dialog.getByRole('button', { name: 'Aplicar' }).click();
+    await expect(dialog.getByRole('alert')).toHaveText('Escribe el valor pagado: sin valor no se puede aplicar un pago.');
+    await expect(dialog.getByLabel('Valor', { exact: true })).toHaveAttribute('aria-invalid', 'true');
+    await expect(dialog.getByLabel('Valor', { exact: true })).toBeFocused();
+
+    await dialog.getByRole('button', { name: 'Aplicar' }).click();
+    await expect(dialog.getByRole('alert')).toHaveText('No se pudo aplicar. Vuelve a intentarlo. Se cayó');
+    await expect(dialog.getByRole('button', { name: 'Aplicar' })).toBeEnabled();
+    expect(aplicar.bodies).toHaveLength(9);
+  });
+});
+
+test.describe('HU #12634 · AC5 — Descartar en línea', () => {
+  /** Mutantes: descartar sin motivo (0 POST con < 5); cerrar el panel con Esc dentro del bloque; no devolver el foco a «Descartar». */
+  test('bloque con motivo y nota; Esc/Cancelar cierran solo el bloque y devuelven el foco; 200 → toast y cierre; ya_resuelto → Actualizar la cola', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    const gets = await mockCola(page, { items: [fila(FIJADO)], total: 1, page: 1, pageSize: 50 });
+    await mockDetalle(page, detalleFijado());
+    await mockArchivoPdf(page);
+    let modo: 200 | 409 = 200;
+    const descartar = await mockPost(page, RUTA_DESCARTAR, () => (modo === 200
+      ? { status: 200, body: { ok: true } }
+      : { status: 409, body: { error: 'Ya resuelto', codigo: 'ya_resuelto' } }));
+    let dialog = await abrirPanel(page);
+    const botonDescartar = dialog.getByRole('button', { name: 'Descartar' });
+    await botonDescartar.click();
+    const motivo = dialog.getByLabel('Motivo del descarte (mínimo 5 caracteres)');
+    await expect(motivo).toBeFocused();
+    await expect(motivo).toHaveAttribute('maxlength', '500');
+    await expect(motivo).toHaveAccessibleDescription(/No escribas datos personales/);
+    await expect(dialog.getByText('El documento queda como descartado y su archivo deja de contar como duplicado: se podrá volver a cargar.')).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Aplicar' })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeVisible();
+    await expect(motivo).toHaveCount(0);
+    await expect(botonDescartar).toBeFocused();
+
+    await botonDescartar.click();
+    await dialog.getByRole('button', { name: 'Cancelar' }).click();
+    await expect(dialog.getByLabel('Motivo del descarte (mínimo 5 caracteres)')).toHaveCount(0);
+    await expect(botonDescartar).toBeFocused();
+
+    await botonDescartar.click();
+    await dialog.getByLabel('Motivo del descarte (mínimo 5 caracteres)').fill('mal');
+    await dialog.getByRole('button', { name: 'Descartar', exact: true }).click();
+    await expect(dialog.getByRole('alert')).toHaveText('Escribe el motivo del descarte (mínimo 5 caracteres).');
+    expect(descartar.bodies).toHaveLength(0);
+    await dialog.getByLabel('Motivo del descarte (mínimo 5 caracteres)').fill('No pertenece a ningún trámite');
+    const antes = gets.length;
+    await dialog.getByRole('button', { name: 'Descartar', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(descartar.bodies).toEqual([{ motivo: 'No pertenece a ningún trámite' }]);
+    await expect(toast(page)).toHaveText('Comprobante descartado.');
+    await expect.poll(() => gets.length).toBeGreaterThan(antes);
+
+    modo = 409;
+    dialog = await abrirPanel(page);
+    await dialog.getByRole('button', { name: 'Descartar' }).click();
+    await dialog.getByLabel('Motivo del descarte (mínimo 5 caracteres)').fill('No pertenece a ningún trámite');
+    await dialog.getByRole('button', { name: 'Descartar', exact: true }).click();
+    const alerta = dialog.getByRole('alert');
+    await expect(alerta).toContainText('Alguien resolvió este comprobante mientras lo tenías abierto.');
+    await alerta.getByRole('button', { name: 'Actualizar la cola' }).click();
+    await expect(dialog).toHaveCount(0);
+  });
+});
+
+test.describe('HU #12634 · AC6 — solo lectura de aplicados y descartados', () => {
+  const APLICADO = { ...FIJADO, estado: 'aplicado', motivoPendiente: null, aplicadoEn: '2026-09-16T16:00:00.000Z', aplicadoAutomaticamente: false, aplicadoPorNombre: 'Luis Gómez', valor: 312000, aplicadoMotivo: 'Placa corregida a mano', soporteAplicadoId: ANTERIOR };
+  const DESCARTADO = { id: UUID_C, estado: 'descartado', motivoPendiente: null, descartadoEn: '2026-09-15T13:10:00.000Z', descartadoPorNombre: 'Ana Pérez', descartadoMotivo: 'No pertenece a ningún trámite', archivo: { nombre: 'transf.png', contentType: 'image/png' } };
+  const CAMPOS_APLICADO = [campo('valorTotal', '312000', 'alta'), { ...campo('numeroDocumento', '2026-00123', 'alta'), confirmadoPor: 'Luis Gómez' }];
+
+  /** Mutantes: pintar el panel (inputs o botones) sobre un aplicado; decir «Valor» en vez de «Valor al aplicar»; pedir el archivo sin `?aplicado=1`; pintar el enlace sin `soporteAplicadoId` o sin la función. */
+  test('«Ver» sobre un aplicado: ficha con estado, línea de asociación, «Valor al aplicar», motivo, «Ver el soporte aplicado» (?aplicado=1), chips y sin botones; descartado: por quién, cuándo y motivo; ✕ y Esc cierran', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockCola(page, { items: [fila(APLICADO), fila(DESCARTADO)], total: 2, page: 1, pageSize: 50 });
+    await mockDetalle(page, { ...detalleFijado(APLICADO, CAMPOS_APLICADO), candidatos: [] });
+    await page.route(new RegExp(`/api/flito/comprobantes/${UUID_C}$`), (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...detalle(DESCARTADO), candidatos: [] }) }));
+    await mockArchivoPdf(page);
+    const soportes: string[] = [];
+    await page.route(/\/api\/flito\/comprobantes\/[0-9a-f-]+\/archivo\?aplicado=1$/, (route) => {
+      soportes.push(new URL(route.request().url()).search);
+      return route.fulfill({ status: 200, contentType: 'application/pdf', path: PDF_DOS_PAGINAS });
+    });
+    await page.goto(RUTA);
+    await expect(page.getByRole('button', { name: 'Asociar recibo.pdf' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Ver recibo.pdf' }).click();
+    let dialog = page.getByRole('dialog', { name: /^Comprobante · recibo\.pdf/ });
+    const lectura = dialog.getByRole('region', { name: 'Lectura' });
+    await expect(lectura).toContainText('Aplicado');
+    await expect(lectura).toContainText('manual · por Luis Gómez · 16 sep 2026');
+    await expect(lectura).toContainText('Comprobante de pago · Impuesto · FLIT-10250 · XYZ789 · cruce por placa');
+    await expect(lectura).toContainText('Valor al aplicar');
+    await expect(lectura).toContainText('$ 312.000');
+    await expect(lectura.getByText('Valor', { exact: true })).toHaveCount(0);
+    await expect(lectura).toContainText('Motivo: «Placa corregida a mano»');
+    await expect(lectura).toContainText('Confirmado');
+    await expect(lectura.locator('input, textarea, select')).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: /Asociar|Aplicar|Adjuntar|Descartar|Releer|Reemplazar/ })).toHaveCount(0);
+    await expect(dialog.locator('button[disabled]')).toHaveCount(0);
+    const popup = page.waitForEvent('popup');
+    await dialog.getByRole('button', { name: 'Ver el soporte aplicado ↗' }).click();
+    await popup;
+    await expect.poll(() => soportes).toEqual(['?aplicado=1']);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Ver transf.png' }).click();
+    dialog = page.getByRole('dialog', { name: /^Comprobante · transf\.png/ });
+    const lecturaDescartado = dialog.getByRole('region', { name: 'Lectura' });
+    await expect(lecturaDescartado).toContainText('Descartado por Ana Pérez · 15 sep 2026');
+    await expect(lecturaDescartado).toContainText('Motivo: «No pertenece a ningún trámite»');
+    await expect(dialog.getByRole('button', { name: /Asociar|Aplicar|Adjuntar|Descartar|Releer|soporte/ })).toHaveCount(0);
+    await dialog.getByRole('button', { name: 'Cerrar' }).click();
+    await expect(dialog).toHaveCount(0);
+  });
+
+  /** Mutantes: enlace sin `soporteAplicadoId`; enlace sin `comprobantes.archivo.descargar`; «Motivo:» con motivo null. */
+  test('sin soporteAplicadoId o sin archivo.descargar no hay «Ver el soporte aplicado»; automático sin motivo no pinta «Motivo:»', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockCola(page, { items: [fila(APLICADO)], total: 1, page: 1, pageSize: 50 });
+    await mockDetalle(page, { ...detalleFijado({ ...APLICADO, aplicadoAutomaticamente: true, aplicadoPorNombre: null, aplicadoMotivo: null, soporteAplicadoId: null }, CAMPOS_APLICADO), candidatos: [] });
+    await mockArchivoPdf(page);
+    await page.goto(RUTA);
+    await page.getByRole('button', { name: 'Ver recibo.pdf' }).click();
+    let dialog = page.getByRole('dialog', { name: /^Comprobante · recibo\.pdf/ });
+    await expect(dialog.getByRole('region', { name: 'Lectura' })).toContainText('automático · 16 sep 2026');
+    await expect(dialog.getByRole('button', { name: /soporte aplicado/ })).toHaveCount(0);
+    await expect(dialog.getByText(/^Motivo:/)).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    await loginAs(page, FINANCIERA_USER, { funciones: SIN_ARCHIVO });
+    await mockDetalle(page, { ...detalleFijado(APLICADO, CAMPOS_APLICADO), candidatos: [] });
+    await page.goto(RUTA);
+    await page.getByRole('button', { name: 'Ver recibo.pdf' }).click();
+    dialog = page.getByRole('dialog', { name: /^Comprobante · recibo\.pdf/ });
+    await expect(dialog.getByRole('region', { name: 'Lectura' })).toContainText('Motivo: «Placa corregida a mano»');
+    await expect(dialog.getByRole('button', { name: /soporte aplicado/ })).toHaveCount(0);
+  });
+});
+
+test.describe('HU #12634 · AC7 — permisos por función y accesibilidad', () => {
+  /** Mutantes: llamar al buscador sin la función (POST > 0); pintar la primaria sin `aplicar`; pintar «Descartar» sin `descartar`. */
+  test('sin tramites.buscar: los candidatos se listan, escribir muestra el 403 con 0 POST; sin candidatos → línea (g) sin primaria; sin aplicar → línea; sin descartar → sin botón', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER, { funciones: SIN_BUSCAR });
+    await mockCola(page, { items: [fila({ placaLeida: 'XYZ789' })], total: 1, page: 1, pageSize: 50 });
+    await mockDetalle(page, detalleFijado({ tramite: null, cruce: null }, CAMPOS_BASE, [candidato()]));
+    await mockArchivoPdf(page);
+    const buscar = await mockPost(page, RUTA_BUSCAR, () => ({ status: 200, body: { candidatos: [] } }));
+    let dialog = await abrirPanel(page);
+    const cb = combobox(dialog);
+    await expect(cb).not.toHaveAttribute('readonly');
+    await expect(dialog.getByRole('listbox').getByRole('option')).toHaveCount(1);
+    await cb.pressSequentially('XYZ7', { delay: 30 });
+    await expect(dialog.getByRole('alert')).toContainText('Tu usuario no puede buscar trámites');
+    await expect(dialog.getByRole('alert')).toContainText('“Buscar trámites para un comprobante”');
+    await page.waitForTimeout(500);
+    expect(buscar.bodies).toHaveLength(0);
+    await expect(dialog.getByRole('button', { name: 'Aplicar' })).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    await mockDetalle(page, detalleFijado({ tramite: null, cruce: null }, CAMPOS_BASE, []));
+    dialog = await abrirPanel(page);
+    await expect(dialog.getByRole('combobox', { name: 'Trámite' })).toHaveCount(0);
+    await expect(dialog.getByText(/No hay trámites sugeridos para este documento y tu usuario no puede buscar trámites/)).toBeVisible();
+    await expect(dialog.getByRole('button', { name: /Aplicar|Adjuntar/ })).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Descartar' })).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    await loginAs(page, FINANCIERA_USER, { funciones: SIN_APLICAR });
+    await mockDetalle(page, detalleFijado());
+    dialog = await abrirPanel(page);
+    await expect(dialog.getByRole('button', { name: /Aplicar|Adjuntar/ })).toHaveCount(0);
+    await expect(dialog.getByText('Tu usuario puede ver este comprobante pero no aplicarlo.')).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Descartar' })).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    await loginAs(page, FINANCIERA_USER, { funciones: SIN_DESCARTAR });
+    dialog = await abrirPanel(page);
+    await expect(dialog.getByRole('button', { name: 'Aplicar' })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Descartar' })).toHaveCount(0);
+  });
+
+  test('a11y (axe) en el panel lleno con la lista abierta y con el bloque de descarte; un único status vivo; sin uuid ni VIN en atributos', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockCola(page, { items: [fila({ placaLeida: 'XYZ789', vinLeido: VIN_COMPLETO })], total: 1, page: 1, pageSize: 50 });
+    await mockDetalle(page, detalleFijado({ tramite: null, cruce: null, vinLeido: VIN_COMPLETO }, [...CAMPOS_BASE.filter((c) => c.campo !== 'vin'), campo('vin', VIN_COMPLETO, 'alta')], [candidato({ vin: VIN_COMPLETO }), SEGUNDO]));
+    await mockArchivoPdf(page);
+    const dialog = await abrirPanel(page);
+    await expect(dialog.getByRole('listbox').getByRole('option')).toHaveCount(2);
+    await expect(dialog.getByRole('status')).toHaveCount(0);
+    esperarSinViolacionesGraves(await correrAxe(page), 'panel de asociación con la lista abierta');
+    await dialog.getByRole('listbox').getByRole('option').first().click();
+    await dialog.getByRole('button', { name: 'Aplicar' }).click();
+    await expect(dialog.getByRole('alert').first()).toBeVisible();
+    esperarSinViolacionesGraves(await correrAxe(page), 'panel de asociación con errores de validación');
+    await dialog.getByRole('button', { name: 'Descartar' }).click();
+    await expect(dialog.getByLabel('Motivo del descarte (mínimo 5 caracteres)')).toBeVisible();
+    esperarSinViolacionesGraves(await correrAxe(page), 'panel de asociación con el bloque de descarte');
+    expect(await dialog.getByRole('status').count()).toBeLessThanOrEqual(1);
+    // Las object URL (`blob:…/<uuid>`) del visor no son ids de negocio: se excluyen.
+    const atributos = await dialog.evaluate((el) => Array.from(el.querySelectorAll('*')).flatMap((n) => Array.from(n.attributes).map((a) => a.value)).filter((v) => !v.startsWith('blob:')).join('\n'));
+    expect(atributos).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);
+    expect(atributos).not.toContain(VIN_COMPLETO);
+  });
+});
+
+test.describe('HU #12634 · AC8 — esPdf sale del DTO o de la cabecera, no de blob.type', () => {
+  /** Mutante M3: volver a `blob.type.includes('pdf')` → el PDF que llega como octet-stream se pintaría como <img> y el test cae. */
+  test('blob sin tipo útil (octet-stream) sobre un PDF → visor de páginas y 0 <img> del archivo; PNG igual → <img alt="{archivo}">', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockCola(page, { items: [fila(FIJADO), OTRO_LOTE], total: 2, page: 1, pageSize: 50 });
+    await mockDetalle(page, detalleFijado());
+    await page.route(new RegExp(`/api/flito/comprobantes/${UUID_C}$`), (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detalle({ id: UUID_C, archivo: { nombre: 'transf.png', contentType: 'image/png' } })) }));
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+    // Lo que devuelve S3 para un objeto subido sin Content-Type: `binary/octet-stream`. `blob.type` no dice «pdf» ni «png».
+    const tipos: string[] = [];
+    await page.route(/\/api\/flito\/comprobantes\/[0-9a-f-]+\/archivo$/, (route) => {
+      const esPng = route.request().url().includes(UUID_C);
+      return route.fulfill({ status: 200, contentType: 'binary/octet-stream', body: esPng ? png : readFileSync(PDF_DOS_PAGINAS) });
+    });
+    page.on('response', (r) => { if (/\/archivo$/.test(r.url())) tipos.push(r.headers()['content-type'] ?? ''); });
+    let dialog = await abrirPanel(page);
+    await expect(dialog.locator('img[alt*=" — página "]')).toHaveCount(2);
+    await expect(dialog.getByRole('img', { name: 'recibo.pdf', exact: true })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    dialog = await abrirPanel(page, 'Asociar transf.png');
+    await expect(dialog.getByRole('img', { name: 'transf.png' })).toBeVisible();
+    await expect(dialog.locator('img[alt*=" — página "]')).toHaveCount(0);
+    expect(tipos.every((t) => !t.includes('pdf') && !t.includes('png'))).toBe(true);
   });
 });

@@ -2,9 +2,9 @@
 // que entra cualquier comprobante o soporte de un trámite, y la cola de lo que FLITO leyó.
 //
 // La página ES la cola (UX §2, disposición A): pills de estado, dos selects, tabla agrupada por
-// carga, y dos modales: «Cargar comprobantes» (`CargaComprobantes`) y el detalle en solo lectura
-// (`DetalleComprobante`). En este Feature nadie asocia ni aplica: la acción de fila es «Ver» y las
-// pills Aplicados / Descartados devuelven vacío filtrado. Guardas por `hasFuncion`, nunca por rol.
+// carga, y dos modales: «Cargar comprobantes» (`CargaComprobantes`) y el detalle (`DetalleComprobante`),
+// que en un pendiente es el panel de asociación (HU #12634: acción «Asociar») y en un aplicado o
+// descartado la ficha en solo lectura («Ver»). Guardas por `hasFuncion`, nunca por rol.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -67,6 +67,8 @@ export default function FlitoComprobantes() {
   const [totalPendientes, setTotalPendientes] = useState<number | null>(null);
   const [anuncio, setAnuncio] = useState('');
   const anunciarAlRefrescar = useRef(false);
+  // Toast de éxito (AC4/AC5): comparte la ÚNICA región `status` de la página con el anuncio sr-only.
+  const [toast, setToast] = useState('');
 
   const [modalCarga, setModalCarga] = useState(false);
   const [detalleId, setDetalleId] = useState<string | null>(null);
@@ -117,6 +119,17 @@ export default function FlitoComprobantes() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [funciones, puedeVerCola, pill, concepto, motivo, chipCarga, page, nonce]);
 
+  const alResuelto = (texto: string) => {
+    setDetalleId(null);
+    setToast(texto);
+    setNonce((n) => n + 1);
+  };
+  useEffect(() => {
+    if (!toast) return undefined;
+    const t = setTimeout(() => setToast(''), 8000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
   const alListo = (loteId: string) => {
     setModalCarga(false);
     ponerChipCarga(loteId, new Date().toISOString());
@@ -137,7 +150,10 @@ export default function FlitoComprobantes() {
           <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setModalCarga(true)}>Cargar comprobantes</button>
         )}
       />
-      <p className="sr-only" role="status" aria-live="polite">{anuncio}</p>
+      <p role="status" aria-live="polite" className={toast ? 'rounded-lg border px-4 py-2 text-sm' : 'sr-only'}
+        style={toast ? { borderColor: 'var(--flit-border-input)', background: 'var(--flit-bg-card)', color: 'var(--flit-text-primary)' } : undefined}>
+        {toast || anuncio}
+      </p>
 
       <FlitCard className="flex flex-wrap items-center gap-3">
         <FlitPillGroup>
@@ -218,7 +234,7 @@ export default function FlitoComprobantes() {
         <CargaComprobantes onClose={() => setModalCarga(false)} onListo={alListo} onVerOriginal={setDetalleId} />
       )}
       {detalleId && (
-        <DetalleComprobante id={detalleId} onClose={() => setDetalleId(null)} onColaActualizada={refrescarYAnunciar} restoreFocusRef={tituloRef} />
+        <DetalleComprobante id={detalleId} onClose={() => setDetalleId(null)} onColaActualizada={refrescarYAnunciar} onResuelto={alResuelto} restoreFocusRef={tituloRef} />
       )}
     </div>
   );
@@ -254,6 +270,8 @@ function FilaComprobante({ c, puedeVer, onVer }: { c: ComprobanteListaDto; puede
   const paginas = textoPaginas(c.paginas);
   const llave = c.tramite ? null : llaveLeida(c);
   const nombreConPaginas = `${c.archivo.nombre}${paginas ? ` ${paginas}` : ''}`;
+  // HU #12634: un pendiente se «Asocia» (panel); un aplicado o descartado se «Ve» (ficha).
+  const accion = c.estado === 'pendiente' ? 'Asociar' : 'Ver';
   return (
     <FlitTr>
       <td className={td} style={{ color: 'var(--flit-text-primary)' }}>
@@ -279,8 +297,8 @@ function FilaComprobante({ c, puedeVer, onVer }: { c: ComprobanteListaDto; puede
       </td>
       <td className={`${td} text-right`}>
         {puedeVer && (
-          <button className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} aria-label={`Ver ${nombreConPaginas}`} onClick={() => onVer(c.id)}>
-            Ver
+          <button className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} aria-label={`${accion} ${nombreConPaginas}`} onClick={() => onVer(c.id)}>
+            {accion}
           </button>
         )}
       </td>

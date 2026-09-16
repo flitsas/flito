@@ -320,8 +320,13 @@ export function camposDe(extraccion: ExtraccionComprobante, extraccionDestino: R
 export async function detalle(id: string): Promise<ComprobanteDetalleDto> {
   const [fila] = await consultaLista().where(eq(flitoComprobantes.id, id)).limit(1);
   if (!fila) throw new ComprobanteError(404, CodigoErrorComprobante.NO_ENCONTRADO, 'El comprobante no existe');
-  const [lectura] = await db.select({ extraccion: flitoComprobantes.extraccion, extraccionDestino: flitoComprobantes.extraccionDestino })
-    .from(flitoComprobantes).where(eq(flitoComprobantes.id, id)).limit(1);
+  // Lo que SOLO el detalle expone: la lectura cruda y, para la ficha (HU #12634 AC6), los motivos y el
+  // soporte hijo aplicado. Fuera de `PROYECCION_LISTA` a propósito: la cola no los trae.
+  const [lectura] = await db.select({
+    extraccion: flitoComprobantes.extraccion, extraccionDestino: flitoComprobantes.extraccionDestino,
+    aplicadoMotivo: flitoComprobantes.aplicadoMotivo, descartadoMotivo: flitoComprobantes.descartadoMotivo,
+    soporteAplicadoId: flitoComprobantes.soporteAplicadoId,
+  }).from(flitoComprobantes).where(eq(flitoComprobantes.id, id)).limit(1);
   const base = aListaDto(fila as FilaLista);
   // Candidatos solo en pendientes (AC5): en aplicados y descartados ya no hay nada que elegir.
   const candidatos = base.estado === EstadoComprobante.PENDIENTE
@@ -331,6 +336,9 @@ export async function detalle(id: string): Promise<ComprobanteDetalleDto> {
     ...base,
     campos: camposDe(lectura?.extraccion ?? {}, (lectura?.extraccionDestino as Record<string, CampoExtraido> | null) ?? null, umbralPara(null)),
     candidatos,
+    aplicadoMotivo: lectura?.aplicadoMotivo ?? null,
+    descartadoMotivo: lectura?.descartadoMotivo ?? null,
+    soporteAplicadoId: lectura?.soporteAplicadoId ?? null,
   };
 }
 
