@@ -23,22 +23,37 @@ export interface CategoriaGasto {
   cuando: string;
   /** El conteo en el `aria-label` de la región: «12 pagados», «1 trámite con logística». */
   conteo: (n: number) => string;
+  /** Cómo se pinta en la gráfica (HU #12625): token de color del tema + patrón, para leerla sin color. */
+  serie: SerieGrafica;
+}
+
+/** Los cinco patrones de `PatronesSerie`: uno por categoría, en este orden. */
+export type PatronSerie = 'solido' | 'rayas' | 'puntos' | 'lineas' | 'cruz';
+
+export interface SerieGrafica {
+  /** Token CSS de `flit-tokens.css` (`--flit-serie-*`), con par claro/oscuro; nunca un hex. */
+  token: `--flit-serie-${string}`;
+  patron: PatronSerie;
 }
 
 const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`;
 
-/** Orden fijo (AC3): SOAT · Impuestos · Derechos de trámite · Logística · Servicios adicionales. */
+/**
+ * Orden fijo (AC3): SOAT · Impuestos · Derechos de trámite · Logística · Servicios adicionales. Es
+ * también el orden de apilado de la gráfica, de abajo arriba (HU #12625, AC1).
+ */
 export const CATEGORIAS: readonly CategoriaGasto[] = [
   { clave: 'soat', titulo: 'SOAT', rotulo: 'SOAT pagados', cuando: 'Pólizas pagadas, el día del pago.',
-    conteo: (n) => plural(n, 'pagado', 'pagados') },
+    conteo: (n) => plural(n, 'pagado', 'pagados'), serie: { token: '--flit-serie-soat', patron: 'solido' } },
   { clave: 'impuesto', titulo: 'Impuestos', rotulo: 'Impuestos pagados', cuando: 'Recibos pagados, el día del pago.',
-    conteo: (n) => plural(n, 'pagado', 'pagados') },
+    conteo: (n) => plural(n, 'pagado', 'pagados'), serie: { token: '--flit-serie-impuesto', patron: 'rayas' } },
   { clave: 'derecho', titulo: 'Derechos de trámite', rotulo: 'Derechos pagados', cuando: 'Derechos con fecha de pago, ese día.',
-    conteo: (n) => plural(n, 'pagado', 'pagados') },
+    conteo: (n) => plural(n, 'pagado', 'pagados'), serie: { token: '--flit-serie-derecho', patron: 'puntos' } },
   { clave: 'logistica', titulo: 'Logística', rotulo: 'Trámites con logística', cuando: 'Trámites con logística, el día de aprobación del trámite.',
-    conteo: (n) => plural(n, 'trámite con logística', 'trámites con logística') },
+    conteo: (n) => plural(n, 'trámite con logística', 'trámites con logística'),
+    serie: { token: '--flit-serie-logistica', patron: 'lineas' } },
   { clave: 'serviciosAdicionales', titulo: 'Servicios adicionales', rotulo: 'Servicios asignados', cuando: 'Cada servicio asignado, el día en que se asignó.',
-    conteo: (n) => plural(n, 'asignado', 'asignados') },
+    conteo: (n) => plural(n, 'asignado', 'asignados'), serie: { token: '--flit-serie-servicios', patron: 'cruz' } },
 ];
 
 /** Rótulos del bloque Total (AC4). La palabra «estimado» acompaña al GMF: es un mutante del AC9. */
@@ -135,7 +150,7 @@ export function validarRango(desde: string, hasta: string): string | null {
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
 /** «18 ago» o «18 ago 2026». Mismo formato que `RangoFechas.bonita`, a mano para no mover el día de zona. */
-function diaCorto(v: string, conAnio: boolean): string {
+export function diaCorto(v: string, conAnio: boolean): string {
   const [y, m, d] = v.split('-');
   return `${Number(d)} ${MESES[Number(m) - 1]}${conAnio ? ` ${y}` : ''}`;
 }
