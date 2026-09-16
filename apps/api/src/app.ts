@@ -39,6 +39,7 @@ import flitoComparendosRoutes from './modules/flito-comparendos/flito-comparendo
 import flitoConciliacionRoutes from './modules/flito-conciliacion/flito-conciliacion.routes.js';
 import finanzasRoutes from './modules/finanzas/finanzas.routes.js';
 import finanzasServiciosAdicionalesRoutes from './modules/finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.js';
+import flitoComprobantesRoutes from './modules/flito-comprobantes/flito-comprobantes.routes.js';
 import siigoCredencialesRoutes from './modules/siigo/credenciales.routes.js';
 import siigoCompuertaRoutes from './modules/siigo/compuerta.routes.js';
 import siigoMapeoConceptosRoutes from './modules/siigo/mapeo-conceptos.routes.js';
@@ -269,6 +270,9 @@ export function createApp() {
   // Monitoreo de comparendos (Feature #11492). Módulo propio: no es el gate SIMIT del traspaso ni
   // el incidente PESV `comparendo` — ver ADR-0001.
   app.use('/api/flito/comparendos', flitoComparendosRoutes);
+  // Puerta universal de comprobantes (Épica #12245, HU #12611): carga en lotes, cola, detalle,
+  // archivo y relectura. Módulo propio reconducido al motor de permisos (ADR-0018).
+  app.use('/api/flito/comprobantes', flitoComprobantesRoutes);
   app.use('/api/finanzas', finanzasRoutes);
   // Servicios adicionales de un trámite (HU #12545): misma URL base, módulo propio reconducido al
   // motor de permisos (finanzas/ es legacy y no admite exigirFuncion; ADR-0017).

@@ -31,6 +31,9 @@ export const roleEnum = pgEnum('user_role', ['admin', 'proveedor', 'transito', '
 // Import (y no solo `export … from`) porque `users.role` referencia `permisosRoles.codigo` aquí abajo.
 import { permisosRoles, permisosFunciones, permisosRolFuncion, permisosUsuarioFuncion, permisosIntentosDenegados, permisosAuditoria } from './schema/permisos.js';
 export { permisosRoles, permisosFunciones, permisosRolFuncion, permisosUsuarioFuncion, permisosIntentosDenegados, permisosAuditoria };
+// Épica #12245: `flito_comprobantes` vive en `./schema/flito-comprobantes.ts` por el mismo techo (HU #12611).
+import { flitoComprobantes } from './schema/flito-comprobantes.js';
+export { flitoComprobantes };
 
 export const laftKindEnum = pgEnum('laft_kind', ['PN', 'PJ']);
 export const laftRiskLevelEnum = pgEnum('laft_risk_level', ['bajo', 'medio', 'alto']);

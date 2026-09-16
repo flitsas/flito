@@ -182,6 +182,15 @@ const SERVICIOS_DE_TRAMITE_ESCRIBIR = [
 ] as const;
 
 /**
+ * Las CINCO de la 0198 (HU #12611): la puerta universal de comprobantes. Reparto de partida admin +
+ * financiera, simétrico; cualquier otro rol se ajusta desde Roles y permisos, no desde aquí.
+ */
+const COMPROBANTES = [
+  'comprobantes.lote.cargar', 'comprobantes.cola.ver', 'comprobantes.comprobante.ver',
+  'comprobantes.archivo.descargar', 'comprobantes.comprobante.releer',
+] as const;
+
+/**
  * Reparto por rol, como lo devuelve el servidor para cada fixture de arriba (0179 + 0181), acotado
  * a los códigos que alguna pantalla pregunta (`grep -rn "hasFuncion('" apps/web/src`). Admin =
  * operaciones: todos menos los tres del canal cliente (`soat.solicitud.crear`, `runt.preconsultar`,
@@ -205,6 +214,7 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     'usuarios.usuario.listar',
     ...SERVICIOS_ADICIONALES,
     SERVICIOS_DE_TRAMITE_VER, ...SERVICIOS_DE_TRAMITE_ESCRIBIR,
+    ...COMPROBANTES,
   ],
   proveedor: [...SOAT_LEER, 'soat.comprobante.cargar'],
   cliente: [...SOAT_LEER, 'soat.solicitud.crear', 'soat.runt.preconsultar', 'soat.factura.leer'],
@@ -213,6 +223,7 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
   financiera: [
     'liquidacion.liquidacion.liquidar', 'liquidacion.liquidacion.facturar', ...SERVICIOS_ADICIONALES,
     SERVICIOS_DE_TRAMITE_VER, ...SERVICIOS_DE_TRAMITE_ESCRIBIR,
+    ...COMPROBANTES,
   ],
   transito: ['transito.tramite.tomar', 'transito.bandeja.ver_pendientes'],
   mensajero: [],
