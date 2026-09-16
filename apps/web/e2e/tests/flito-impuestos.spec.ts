@@ -1,22 +1,16 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, OPERACIONES_USER, AUDITOR_USER } from '../helpers/auth';
+import { loginAs, OPERACIONES_USER, AUDITOR_USER, GESTOR_IMPUESTOS_USER, FUNCIONES_POR_ROL } from '../helpers/auth';
 
 // FLITO — Impuestos (Fase 6). Cola por organismo: factura de venta como
 // precondición, envío atómico y solo-lectura para Auditoría. Backend mockeado.
 // Contingencia (HU #11158): quién gestiona cada impuesto, su filtro y el traspaso a Operaciones.
+// Fases del recibo, chip/filtro de liquidados y recibo de caja (HU #12592): bloque propio al final.
 
-/**
- * El gestor de impuestos se declara aquí y no en `helpers/auth`: ese helper lo añade la HU #11151,
- * que va por su propia rama y entra a develop antes que esta. Duplicarlo en el helper desde aquí
- * chocaría en el merge; declararlo local no le cuesta nada al spec.
- */
-const GESTOR_IMPUESTOS_USER = {
-  id: 11,
-  username: 'e2e_gestor_impuestos',
-  name: 'Gestor Impuestos E2E',
-  role: 'gestor_impuestos' as const,
-  allowedPages: [] as string[],
-};
+/** Base común de las filas: lo que la HU #12592 añade (`liquidadoEn`, `documentos`) va explícito en cada una. */
+const SIN_DOCUMENTOS = { liquidadoEn: null as string | null, documentos: null as 'liquidacion' | 'pago' | 'ambos' | null };
 
 const IMPUESTOS = [
   {
@@ -25,7 +19,7 @@ const IMPUESTOS = [
     companiaNombre: 'Concesionario Norte', organismoCodigo: 'STT-MZL', organismoNombre: 'STT Manizales',
     valorLiquidado: 120000, valorPagado: null, marcadoPorDiferencia: false, tieneFacturaVenta: true,
     enviadoPorNombre: null, enviadoEn: null, estancado: false, motivoRechazo: null, creadoEn: '2026-04-01T12:00:00Z',
-    gestionOperaciones: false,
+    gestionOperaciones: false, ...SIN_DOCUMENTOS,
   },
   {
     id: 'i2', tramiteId: 't2', idFlit: 'FLIT-1002', placa: 'XYZ789', vin: 'VIN0000000000002',
@@ -34,6 +28,8 @@ const IMPUESTOS = [
     valorLiquidado: 200000, valorPagado: null, marcadoPorDiferencia: false, tieneFacturaVenta: true,
     enviadoPorNombre: 'Operaciones E2E', enviadoEn: '2026-04-02T12:00:00Z', estancado: false, motivoRechazo: null, creadoEn: '2026-04-02T12:00:00Z',
     gestionOperaciones: false,
+    // HU #12592: liquidación cargada y sin pagar → chip «Liquidación» y botón de recibo de caja.
+    liquidadoEn: '2026-04-05T10:00:00Z' as string | null, documentos: 'liquidacion' as 'liquidacion' | 'pago' | 'ambos' | null,
   },
   {
     id: 'i3', tramiteId: 't3', idFlit: 'FLIT-1003', placa: 'OPS001', vin: 'VIN0000000000003',
@@ -44,8 +40,37 @@ const IMPUESTOS = [
     valorLiquidado: 150000, valorPagado: null, marcadoPorDiferencia: false, tieneFacturaVenta: true,
     enviadoPorNombre: 'Operaciones E2E', enviadoEn: '2026-04-03T12:00:00Z', estancado: false, motivoRechazo: null, creadoEn: '2026-04-03T12:00:00Z',
     gestionOperaciones: true,
+    // HU #12592: pago sin liquidación (cargado directo en fase Pago y en revisión) → botón deshabilitado.
+    liquidadoEn: null as string | null, documentos: 'pago' as 'liquidacion' | 'pago' | 'ambos' | null,
+  },
+  // HU #12592: las tres filas que faltan para el chip «Ambos» y para que el botón NO exista en
+  // Pagado ni en Con novedad aunque haya liquidación.
+  {
+    id: 'i4', tramiteId: 't4', idFlit: 'FLIT-1004', placa: 'AMB004', vin: 'VIN0000000000004',
+    estado: 'solicitado', compradorNombre: 'Nora Díaz', compradorDocumento: '40404040', compradorTipoDocumento: 'CC',
+    companiaNombre: 'Concesionario Sur', organismoCodigo: 'STT-PER', organismoNombre: 'STT Pereira',
+    valorLiquidado: 180000, valorPagado: null, marcadoPorDiferencia: false, tieneFacturaVenta: true,
+    enviadoPorNombre: 'Operaciones E2E', enviadoEn: '2026-04-04T12:00:00Z', estancado: false, motivoRechazo: null, creadoEn: '2026-04-04T12:00:00Z',
+    gestionOperaciones: false, liquidadoEn: '2026-04-06T10:00:00Z' as string | null, documentos: 'ambos' as 'liquidacion' | 'pago' | 'ambos' | null,
+  },
+  {
+    id: 'i5', tramiteId: 't5', idFlit: 'FLIT-1005', placa: 'PAG005', vin: 'VIN0000000000005',
+    estado: 'pagado', compradorNombre: 'Pedro Sanz', compradorDocumento: '50505050', compradorTipoDocumento: 'CC',
+    companiaNombre: 'Concesionario Norte', organismoCodigo: 'STT-MZL', organismoNombre: 'STT Manizales',
+    valorLiquidado: 90000, valorPagado: 90000, marcadoPorDiferencia: false, tieneFacturaVenta: true,
+    enviadoPorNombre: 'Operaciones E2E', enviadoEn: '2026-04-01T12:00:00Z', pagadoEn: '2026-04-08T12:00:00Z', estancado: false, motivoRechazo: null, creadoEn: '2026-04-01T12:00:00Z',
+    gestionOperaciones: false, liquidadoEn: '2026-04-05T10:00:00Z' as string | null, documentos: 'ambos' as 'liquidacion' | 'pago' | 'ambos' | null,
+  },
+  {
+    id: 'i6', tramiteId: 't6', idFlit: 'FLIT-1006', placa: 'NOV006', vin: 'VIN0000000000006',
+    estado: 'con_novedad', compradorNombre: 'Rosa Mora', compradorDocumento: '60606060', compradorTipoDocumento: 'CC',
+    companiaNombre: 'Concesionario Norte', organismoCodigo: 'STT-MZL', organismoNombre: 'STT Manizales',
+    valorLiquidado: 70000, valorPagado: null, marcadoPorDiferencia: false, tieneFacturaVenta: true,
+    enviadoPorNombre: 'Operaciones E2E', enviadoEn: '2026-04-02T12:00:00Z', estancado: false, motivoRechazo: 'Placa ilegible', creadoEn: '2026-04-02T12:00:00Z',
+    gestionOperaciones: false, liquidadoEn: '2026-04-05T10:00:00Z' as string | null, documentos: 'liquidacion' as 'liquidacion' | 'pago' | 'ambos' | null,
   },
 ];
+type Impuesto = (typeof IMPUESTOS)[number];
 
 const FACETAS = {
   companias: [{ id: 1, nombre: 'Concesionario Norte' }, { id: 2, nombre: 'Concesionario Sur' }],
@@ -55,7 +80,11 @@ const FACETAS = {
 /** Guarda las URLs que pidió la página, para poder comprobar QUÉ filtros viajaron. */
 const urlsPedidas: string[] = [];
 
-async function mock(page: import('@playwright/test').Page) {
+/**
+ * `fuente` se lee EN CADA petición: los casos que necesitan que una fila cambie a mitad de la
+ * prueba (el recibo de caja, HU #12592) pasan una función sobre su propio estado.
+ */
+async function mock(page: import('@playwright/test').Page, fuente: () => readonly Impuesto[] = () => IMPUESTOS) {
   urlsPedidas.length = 0;
   await page.route(/\/api\/flito\/impuestos\/facetas/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FACETAS) }));
@@ -64,9 +93,14 @@ async function mock(page: import('@playwright/test').Page) {
     urlsPedidas.push(url.search);
     const estado = url.searchParams.get('estado');
     const gestion = url.searchParams.get('gestion');
-    let items = estado ? IMPUESTOS.filter((i) => i.estado === estado) : IMPUESTOS;
+    const todos = fuente();
+    let items = estado ? todos.filter((i) => i.estado === estado) : [...todos];
     // El servidor es quien filtra de verdad; el mock lo imita para que el total y las filas cuadren.
     if (gestion) items = items.filter((i) => i.gestionOperaciones === (gestion === 'operaciones'));
+    // HU #12592: `solicitado AND liquidado_en IS NOT NULL`, como el servicio.
+    if (url.searchParams.get('liquidadoPendientePago') === 'true') {
+      items = items.filter((i) => i.estado === 'solicitado' && i.liquidadoEn !== null);
+    }
     return route.fulfill({
       status: 200, contentType: 'application/json',
       body: JSON.stringify({ items, total: items.length, page: 1, pageSize: 50 }),
@@ -875,5 +909,456 @@ test.describe('FLITO — Impuestos · certificación masiva', () => {
 
     // La casilla ya no es exclusiva de Operaciones: el backend admite gestor en el masivo.
     await expect(page.getByRole('button', { name: 'Certificar (1)' })).toBeEnabled();
+  });
+});
+
+// ── HU #12592 · fases del recibo, chip/filtro de liquidados y recibo de caja ─────────────────
+
+const PDF_CAJA = { name: 'recibo-caja-xyz789.pdf', mimeType: 'application/pdf' as const, buffer: Buffer.from('%PDF-1.4 caja') };
+const OCR_VACIO = { liquidados: [], conciliados: [], enRevision: [], complementos: [], duplicados: [], noAsociados: [] };
+
+async function abrirDetalle(page: import('@playwright/test').Page, placa: string) {
+  await page.goto('/flito/impuestos');
+  await page.getByRole('row').filter({ hasText: placa }).getByRole('button', { name: 'Ver' }).click();
+  return page.getByRole('dialog', { name: `Impuesto · ${placa}` });
+}
+
+/**
+ * Cola STATEFUL para el recibo de caja: el detalle se pinta desde la fila de la cola (no hay GET
+ * /:id), así que el refresco tras el POST solo se puede probar si la cola cambia de respuesta.
+ */
+function colaMutable() {
+  let filas: Impuesto[] = IMPUESTOS.map((i) => ({ ...i }));
+  return {
+    fuente: () => filas,
+    mutar: (id: string, cambios: Partial<Impuesto>) => {
+      filas = filas.map((f) => f.id === id ? { ...f, ...cambios } as Impuesto : f);
+    },
+  };
+}
+
+test.describe('FLITO — Impuestos · fases del recibo (HU #12592)', () => {
+  test('TC-01/02 · el selector «Fase del recibo» sale con Pago por defecto, se opera con teclado y la casilla de marca de agua ya no existe', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/impuestos');
+    await page.getByRole('button', { name: 'Cargar recibos (masivo)' }).click();
+    const modal = page.getByRole('dialog', { name: 'Carga masiva de recibos de impuesto' });
+
+    const grupo = modal.getByRole('group', { name: 'Fase del recibo' });
+    await expect(grupo).toBeVisible();
+    await expect(grupo.getByRole('radio', { name: 'Pago' })).toBeChecked();
+    await expect(grupo.getByRole('radio', { name: 'Liquidación' })).not.toBeChecked();
+    await expect(modal.getByRole('checkbox', { name: /sin marca de agua/i })).toHaveCount(0);
+    await expect(modal.getByText(/detect/i)).toHaveCount(0);
+    await expect(modal.getByText(/los que cuadran pasan a Pagado, el resto va a revisión/)).toHaveCount(0);
+    // La ayuda del ZIP va SIEMPRE bajo el selector, antes de elegir nada (ux slim).
+    await expect(modal.getByText(/En un ZIP manda la carpeta de cada recibo/)).toBeVisible();
+    await expect(modal.getByText(/sin carpeta reconocible/)).toBeVisible();
+
+    // Teclado: con el foco en el radio marcado, la flecha cambia de valor en un solo gesto.
+    await grupo.getByRole('radio', { name: 'Pago' }).focus();
+    await page.keyboard.press('ArrowLeft');
+    await expect(grupo.getByRole('radio', { name: 'Liquidación' })).toBeChecked();
+  });
+
+  test('TC-06/07/08 · el resumen muestra «Liquidados» y lo acumula entre tandas', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    let tanda = 0;
+    await page.route(/\/api\/flito\/impuestos\/recibos$/, (route) => {
+      tanda += 1;
+      const liquidados = tanda === 1
+        ? [{ archivo: 'a.pdf', detalle: 'XYZ789 · liquidación' }]
+        : [{ archivo: 'b.pdf', detalle: 'AMB004 · liquidación' }];
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...OCR_VACIO, liquidados }) });
+    });
+    await page.goto('/flito/impuestos');
+    await page.getByRole('button', { name: 'Cargar recibos (masivo)' }).click();
+    const modal = page.getByRole('dialog', { name: 'Carga masiva de recibos de impuesto' });
+    await modal.getByRole('radio', { name: 'Liquidación' }).check();
+    await modal.locator('input[type="file"]').setInputFiles(
+      Array.from({ length: 6 }, (_, i) => ({ name: `f${i + 1}.pdf`, mimeType: 'application/pdf' as const, buffer: Buffer.from('%PDF-1.4 x') })),
+    );
+    await modal.getByRole('button', { name: 'Subir y procesar' }).click();
+    await expect(modal.getByRole('button', { name: 'Listo' })).toBeVisible();
+    expect(tanda).toBe(2);
+    await expect(modal.getByText('Liquidados 2', { exact: true })).toBeVisible();
+    await expect(modal.getByText('Conciliados 0', { exact: true })).toBeVisible();
+    const filasLiquidado = modal.getByRole('row').filter({ hasText: 'Liquidado' }).filter({ hasText: /\.pdf/ });
+    await expect(filasLiquidado).toHaveCount(2);
+    await expect(modal.getByRole('row').filter({ hasText: 'a.pdf' })).toContainText('Liquidado');
+    await expect(modal.getByRole('row').filter({ hasText: 'b.pdf' })).toContainText('Liquidado');
+  });
+
+  test('TC-07 · «Liquidados 0» se pinta como las demás categorías vacías', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.route(/\/api\/flito\/impuestos\/recibos$/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(OCR_VACIO) }));
+    await page.goto('/flito/impuestos');
+    await page.getByRole('button', { name: 'Cargar recibos (masivo)' }).click();
+    const modal = page.getByRole('dialog', { name: 'Carga masiva de recibos de impuesto' });
+    await modal.locator('input[type="file"]').setInputFiles([{ name: 'uno.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 x') }]);
+    await modal.getByRole('button', { name: 'Subir y procesar' }).click();
+    await expect(modal.getByText('Liquidados 0', { exact: true })).toBeVisible();
+    await expect(modal.getByText('No se procesó ningún archivo.')).toBeVisible();
+  });
+
+  test('TC-09/10 · cada fila dice qué documento tiene, con la fecha en el título, y el detalle lo repite', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/impuestos');
+    const fila = (placa: string) => page.getByRole('row').filter({ hasText: placa });
+
+    const liq = fila('XYZ789').getByText('Liquidación', { exact: true });
+    await expect(liq).toBeVisible();
+    // `es-CO` corto pinta el año con dos cifras: se aserta la forma d/mm/aa, no el 2026.
+    await expect(fila('XYZ789').getByTitle(/^Liquidado el \d{1,2}\/\d{2}\/\d{2}/)).toBeVisible();
+    await expect(fila('OPS001').getByText('Pago', { exact: true })).toBeVisible();
+    // Sin `liquidadoEn` no hay título: no se promete una fecha que no existe.
+    await expect(fila('OPS001').getByTitle(/Liquidado el/)).toHaveCount(0);
+    await expect(fila('AMB004').getByText('Ambos', { exact: true })).toBeVisible();
+    for (const t of ['Liquidación', 'Pago', 'Ambos']) await expect(fila('ABC123').getByText(t, { exact: true })).toHaveCount(0);
+
+    await fila('XYZ789').getByRole('button', { name: 'Ver' }).click();
+    const detalle = page.getByRole('dialog', { name: 'Impuesto · XYZ789' });
+    await expect(detalle.getByText('Liquidación', { exact: true })).toBeVisible();
+    await expect(detalle.getByText('Liquidado el', { exact: true })).toBeVisible();
+    const liquidadoEl = detalle.locator('dt', { hasText: 'Liquidado el' }).locator('xpath=following-sibling::dd[1]');
+    await expect(liquidadoEl).toHaveText(/\d{1,2}\/\d{2}\/\d{2}/);
+    await page.keyboard.press('Escape');
+
+    await fila('OPS001').getByRole('button', { name: 'Ver' }).click();
+    const detalle3 = page.getByRole('dialog', { name: 'Impuesto · OPS001' });
+    await expect(detalle3.getByText('Pago', { exact: true })).toBeVisible();
+    await expect(detalle3.locator('dt', { hasText: 'Liquidado el' }).locator('xpath=following-sibling::dd[1]')).toHaveText('—');
+  });
+
+  test('TC-11/12/13 · el filtro «Liquidado, pendiente de pago» viaja al servidor, se combina, se limpia y tiene vacío propio', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/impuestos');
+    await expect(page.getByText('ABC123')).toBeVisible();
+    await expect(page.getByText(/^6 impuestos/).first()).toBeVisible();
+
+    const casilla = page.getByRole('checkbox', { name: 'Liquidado, pendiente de pago' });
+    await casilla.check();
+    await expect(page.getByText('ABC123')).toHaveCount(0);
+    await expect(page.getByText('XYZ789')).toBeVisible();
+    await expect(page.getByText('AMB004')).toBeVisible();
+    await expect(page.getByText('OPS001')).toHaveCount(0);
+    expect(urlsPedidas.at(-1)).toContain('liquidadoPendientePago=true');
+    // No existe un contador de filtros activos en esta pantalla: el total de la paginación es lo
+    // que refleja el filtro (6 → 2).
+    await expect(page.getByText(/^2 impuestos/).first()).toBeVisible();
+
+    // Combinable: los dos parámetros viajan juntos.
+    await page.getByLabel('Gestiona').selectOption('operaciones');
+    // Vacío específico del filtro (OPS001 es de Operaciones pero no tiene liquidación).
+    await expect(page.getByText(/No hay impuestos liquidados pendientes de pago/)).toBeVisible();
+    await expect(page.getByText(/Ningún impuesto coincide con los filtros/)).toHaveCount(0);
+    expect(urlsPedidas.at(-1)).toContain('liquidadoPendientePago=true');
+    expect(urlsPedidas.at(-1)).toContain('gestion=operaciones');
+
+    await page.getByRole('button', { name: 'Limpiar filtros' }).click();
+    await expect(casilla).not.toBeChecked();
+    await expect(page.getByText('ABC123')).toBeVisible();
+    expect(urlsPedidas.at(-1)).not.toContain('liquidadoPendientePago');
+  });
+});
+
+test.describe('FLITO — Impuestos · recibo de caja (HU #12592)', () => {
+  test('TC-14/15 · con la función: botón junto a «Ver soporte»; sin liquidación, deshabilitado con el motivo', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    const detalle = await abrirDetalle(page, 'XYZ789');
+    await expect(detalle.getByRole('button', { name: 'Ver soporte' })).toBeVisible();
+    const boton = detalle.getByRole('button', { name: 'Cargar recibo de caja' });
+    await expect(boton).toBeVisible();
+    await expect(boton).toBeEnabled();
+    await expect(detalle.getByText(/no tiene liquidación cargada/)).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    const sinLiq = await abrirDetalle(page, 'OPS001');
+    const botonOff = sinLiq.getByRole('button', { name: 'Cargar recibo de caja' });
+    await expect(botonOff).toBeVisible();
+    await expect(botonOff).toBeDisabled();
+    await expect(botonOff).toHaveAttribute('aria-disabled', 'true');
+    const motivo = sinLiq.getByText('Este impuesto no tiene liquidación cargada; el recibo de caja se carga sobre una liquidación');
+    await expect(motivo).toBeVisible();
+    const idMotivo = await motivo.getAttribute('id');
+    await expect(botonOff).toHaveAttribute('aria-describedby', idMotivo!);
+    // Sigue en el orden de tabulación: `aria-disabled`, no `disabled`.
+    await botonOff.focus();
+    await expect(botonOff).toBeFocused();
+    await botonOff.click({ force: true });
+    await expect(page.getByRole('dialog', { name: /Recibo de caja/ })).toHaveCount(0);
+  });
+
+  test('TC-16 · en Pendiente, Pagado y Con novedad el botón no existe aunque haya liquidación', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    for (const placa of ['ABC123', 'PAG005', 'NOV006']) {
+      const detalle = await abrirDetalle(page, placa);
+      await expect(detalle.getByRole('button', { name: 'Ver soporte' })).toBeVisible();
+      await expect(detalle.getByRole('button', { name: 'Cargar recibo de caja' })).toHaveCount(0);
+      await expect(detalle.getByText(/no tiene liquidación cargada/)).toHaveCount(0);
+    }
+  });
+
+  test('TC-17 · el gestor de impuestos no ve el botón aunque el impuesto tenga liquidación', async ({ page }) => {
+    await loginAs(page, GESTOR_IMPUESTOS_USER);
+    await mock(page);
+    const detalle = await abrirDetalle(page, 'XYZ789');
+    await expect(detalle.getByRole('button', { name: 'Ver soporte' })).toBeVisible();
+    await expect(detalle.getByRole('button', { name: 'Cargar recibo de caja' })).toHaveCount(0);
+  });
+
+  test('TC-17b · es la función, no el rol: admin sin «impuestos.recibos.cargar_caja» tampoco lo ve', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER, {
+      funciones: FUNCIONES_POR_ROL.admin.filter((f) => f !== 'impuestos.recibos.cargar_caja'),
+    });
+    await mock(page);
+    const detalle = await abrirDetalle(page, 'XYZ789');
+    await expect(detalle.getByRole('button', { name: 'Ver soporte' })).toBeVisible();
+    await expect(detalle.getByRole('button', { name: 'Cargar recibo de caja' })).toHaveCount(0);
+  });
+
+  test('TC-18/19/24 · el modal identifica el impuesto, valida el archivo en local y se cierra con Escape/Cancelar devolviendo el foco', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    let posts = 0;
+    await page.route(/\/api\/flito\/impuestos\/i2\/recibo-caja$/, (route) => {
+      posts += 1;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ resultado: 'en_revision', soporteId: 's1', revisionId: 'r1' }) });
+    });
+    const detalle = await abrirDetalle(page, 'XYZ789');
+    const boton = detalle.getByRole('button', { name: 'Cargar recibo de caja' });
+    await boton.click();
+    const modal = page.getByRole('dialog', { name: 'Recibo de caja · XYZ789' });
+    await expect(modal).toBeVisible();
+    await expect(modal.getByText(/Placa XYZ789 · Organismo STT Pereira · Valor liquidado \$\s?200\.000/)).toBeVisible();
+    const input = modal.locator('input[type="file"]');
+    await expect(input).not.toHaveAttribute('multiple', /.*/);
+    const accept = (await input.getAttribute('accept')) ?? '';
+    for (const ext of ['.pdf', '.png', '.jpg', '.jpeg']) expect(accept).toContain(ext);
+    expect(accept).not.toContain('.zip');
+    await expect(modal.getByRole('button', { name: 'Cargar', exact: true })).toBeDisabled();
+    await expect(modal.getByRole('button', { name: 'Cancelar' })).toBeEnabled();
+
+    // Validación local: 15 MB + 1 y un .docx no llegan al API.
+    await input.setInputFiles({ name: 'grande.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(15 * 1024 * 1024 + 1) });
+    await expect(modal.getByRole('alert')).toHaveText('El archivo debe ser PDF, JPG o PNG de máximo 15 MB. Elige otro archivo.');
+    await modal.getByRole('button', { name: 'Elegir otro' }).click();
+    await modal.locator('input[type="file"]').setInputFiles({ name: 'doc.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: Buffer.from('x') });
+    await expect(modal.getByRole('alert')).toHaveText(/PDF, JPG o PNG/);
+    expect(posts).toBe(0);
+    await modal.getByRole('button', { name: 'Elegir otro' }).click();
+
+    // Escape cierra SOLO el modal del recibo y devuelve el foco al botón; el detalle sigue.
+    await page.keyboard.press('Escape');
+    await expect(modal).toHaveCount(0);
+    await expect(detalle).toBeVisible();
+    await expect(boton).toBeFocused();
+
+    await boton.click();
+    await expect(modal).toBeVisible();
+    await modal.getByRole('button', { name: 'Cancelar' }).click();
+    await expect(modal).toHaveCount(0);
+    await expect(detalle).toBeVisible();
+    await expect(boton).toBeFocused();
+  });
+
+  test('TC-20/21/30 · pagado: POST con `archivo`, progreso que no se puede cerrar, resultado y refresco a Pagado sin cerrar el detalle', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const cola = colaMutable();
+    await mock(page, cola.fuente);
+    let cuerpo = '';
+    let soltar: () => void = () => {};
+    const retenido = new Promise<void>((r) => { soltar = r; });
+    await page.route(/\/api\/flito\/impuestos\/i2\/recibo-caja$/, async (route) => {
+      cuerpo = route.request().postData() ?? '';
+      await retenido;
+      cola.mutar('i2', { estado: 'pagado', valorPagado: 200000, marcadoPorDiferencia: true, documentos: 'ambos' });
+      return route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ resultado: 'pagado', valorPagado: '200000', pagadoEn: '2026-04-10T15:00:00Z', marcadoPorDiferencia: true, soporteId: 's1' }),
+      });
+    });
+
+    const detalle = await abrirDetalle(page, 'XYZ789');
+    const pedidasAntes = urlsPedidas.length;
+    await detalle.getByRole('button', { name: 'Cargar recibo de caja' }).click();
+    const modal = page.getByRole('dialog', { name: 'Recibo de caja · XYZ789' });
+    await modal.locator('input[type="file"]').setInputFiles(PDF_CAJA);
+    await expect(modal.getByText(/recibo-caja-xyz789\.pdf · /)).toBeVisible();
+    await modal.getByRole('button', { name: 'Cargar', exact: true }).click();
+
+    // Cargando: progreso visible, sin salida hasta el desenlace.
+    await expect(modal.getByRole('button', { name: 'Cargando…' })).toBeDisabled();
+    await expect(modal.getByRole('button', { name: 'Cancelar' })).toBeDisabled();
+    await expect(modal.locator('[aria-busy="true"]')).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    await modal.getByRole('button', { name: 'Cerrar' }).click();
+    await expect(modal).toBeVisible();
+
+    soltar();
+    await expect(modal.getByText('Pagado', { exact: true })).toBeVisible();
+    await expect(modal.getByText(/Valor pagado \$\s?200\.000 · Fecha de pago \d{1,2}\/\d{2}\/\d{2}/)).toBeVisible();
+    await expect(modal.getByText('Diferencia de valor', { exact: true })).toBeVisible();
+    await expect(modal.getByText(/difiere del liquidado por encima de la tolerancia/)).toBeVisible();
+    expect(cuerpo.match(/name="archivo"/g)?.length).toBe(1);
+    expect(cuerpo).not.toMatch(/name="archivos"/);
+    expect(cuerpo).toContain('filename="recibo-caja-xyz789.pdf"');
+
+    // «Listo»: la cola se vuelve a pedir, el detalle SIGUE abierto y ya dice Pagado; el botón se va
+    // y el foco cae en «Ver soporte».
+    await modal.getByRole('button', { name: 'Listo' }).click();
+    await expect(modal).toHaveCount(0);
+    await expect.poll(() => urlsPedidas.length).toBeGreaterThan(pedidasAntes);
+    await expect(detalle).toBeVisible();
+    await expect(detalle.getByText('Pagado', { exact: true })).toBeVisible();
+    await expect(detalle.getByRole('button', { name: 'Cargar recibo de caja' })).toHaveCount(0);
+    await expect(detalle.getByRole('button', { name: 'Ver soporte' })).toBeFocused();
+    await expect(page.getByRole('row').filter({ hasText: 'XYZ789' }).getByText('Pagado', { exact: true })).toBeVisible();
+  });
+
+  test('TC-22 · en_revision: el recibo queda guardado, el estado no cambia y el chip pasa a «Ambos»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const cola = colaMutable();
+    await mock(page, cola.fuente);
+    await page.route(/\/api\/flito\/impuestos\/i2\/recibo-caja$/, (route) => {
+      cola.mutar('i2', { documentos: 'ambos' });
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ resultado: 'en_revision', soporteId: 's1', revisionId: 'r1' }) });
+    });
+    const detalle = await abrirDetalle(page, 'XYZ789');
+    const boton = detalle.getByRole('button', { name: 'Cargar recibo de caja' });
+    await boton.click();
+    const modal = page.getByRole('dialog', { name: 'Recibo de caja · XYZ789' });
+    await modal.locator('input[type="file"]').setInputFiles(PDF_CAJA);
+    await modal.getByRole('button', { name: 'Cargar', exact: true }).click();
+    await expect(modal.getByText('En revisión', { exact: true })).toBeVisible();
+    await expect(modal.getByText(/no fue concluyente/)).toBeVisible();
+    await expect(modal.getByText(/cola de revisión/)).toBeVisible();
+    await expect(modal.getByText(/sigue Solicitado/)).toBeVisible();
+    await modal.getByRole('button', { name: 'Listo' }).click();
+    await expect(modal).toHaveCount(0);
+    await expect(detalle).toBeVisible();
+    await expect(detalle.getByText('Solicitado', { exact: true })).toBeVisible();
+    await expect(detalle.getByText('Ambos', { exact: true })).toBeVisible();
+    await expect(boton).toBeVisible();
+    await expect(boton).toBeFocused();
+    await expect(page.getByRole('row').filter({ hasText: 'XYZ789' }).getByText('Ambos', { exact: true })).toBeVisible();
+  });
+
+  test('TC-23 · cada fallo tiene su mensaje y su salida: cerrar, elegir otro o reintentar con el mismo archivo', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const cola = colaMutable();
+    await mock(page, cola.fuente);
+    const secuencia: Array<{ status: number; body?: unknown; abortar?: boolean }> = [
+      { status: 503, body: { error: 'OCR caído' } },
+      { status: 0, abortar: true },
+      { status: 500, body: { error: 'boom' } },
+      { status: 409, body: { error: 'dup', codigo: 'duplicado' } },
+      { status: 400, body: { error: 'inv', codigo: 'archivo_invalido' } },
+      { status: 403, body: { error: 'sin función', funcion: 'impuestos.recibos.cargar_caja', motivo: 'x' } },
+      { status: 404, body: { error: 'no', codigo: 'no_encontrado' } },
+      { status: 409, body: { error: 'sin liq', codigo: 'sin_liquidacion' } },
+      { status: 409, body: { error: 'estado', codigo: 'estado_no_permitido' } },
+    ];
+    const nombres: string[] = [];
+    await page.route(/\/api\/flito\/impuestos\/i2\/recibo-caja$/, (route) => {
+      nombres.push(/filename="([^"]+)"/.exec(route.request().postData() ?? '')?.[1] ?? '');
+      const paso = secuencia.shift()!;
+      if (paso.abortar) return route.abort('failed');
+      return route.fulfill({ status: paso.status, contentType: 'application/json', body: JSON.stringify(paso.body) });
+    });
+
+    const detalle = await abrirDetalle(page, 'XYZ789');
+    const boton = detalle.getByRole('button', { name: 'Cargar recibo de caja' });
+    const modal = page.getByRole('dialog', { name: 'Recibo de caja · XYZ789' });
+    const abrirYCargar = async () => {
+      if (await modal.count() === 0) await boton.click();
+      await modal.locator('input[type="file"]').setInputFiles(PDF_CAJA);
+      await modal.getByRole('button', { name: 'Cargar', exact: true }).click();
+    };
+
+    // 503, red y 500 sin `codigo`: «Reintentar» reenvía el MISMO archivo sin volver a elegirlo.
+    await abrirYCargar();
+    await expect(modal.getByRole('alert')).toHaveText('El lector de recibos no respondió. No se guardó nada; reintenta en unos minutos.');
+    await modal.getByRole('button', { name: 'Reintentar' }).click();
+    await expect(modal.getByText(/recibo-caja-xyz789\.pdf · /)).toBeVisible();
+    await modal.getByRole('button', { name: 'Cargar', exact: true }).click();
+    await expect(modal.getByRole('alert')).toHaveText('No se pudo completar la carga. Revisa tu conexión y reintenta.');
+    await modal.getByRole('button', { name: 'Reintentar' }).click();
+    await modal.getByRole('button', { name: 'Cargar', exact: true }).click();
+    await expect(modal.getByRole('alert')).toHaveText('No se pudo completar la carga. Revisa tu conexión y reintenta.');
+    await modal.getByRole('button', { name: 'Reintentar' }).click();
+    await modal.getByRole('button', { name: 'Cargar', exact: true }).click();
+    expect(nombres).toEqual(['recibo-caja-xyz789.pdf', 'recibo-caja-xyz789.pdf', 'recibo-caja-xyz789.pdf', 'recibo-caja-xyz789.pdf']);
+
+    // 409 duplicado y 400: «Elegir otro» vuelve a inicial SIN archivo.
+    await expect(modal.getByRole('alert')).toHaveText('Ese archivo ya está registrado como recibo. Elige otro archivo.');
+    await modal.getByRole('button', { name: 'Elegir otro' }).click();
+    await expect(modal.getByRole('button', { name: 'Cargar', exact: true })).toBeDisabled();
+    await expect(modal.getByText(/recibo-caja-xyz789\.pdf · /)).toHaveCount(0);
+    await abrirYCargar();
+    await expect(modal.getByRole('alert')).toHaveText('El archivo debe ser PDF, JPG o PNG de máximo 15 MB. Elige otro archivo.');
+    await modal.getByRole('button', { name: 'Elegir otro' }).click();
+
+    // 403, 404, 409 sin_liquidacion: «Cerrar» cierra el modal (y solo el modal).
+    for (const texto of [
+      'Tu usuario no tiene la función para cargar recibos de caja. Pídela al administrador.',
+      'Este impuesto no está disponible para tu usuario.',
+      'Este impuesto no tiene liquidación cargada. Súbela primero desde «Cargar recibos (masivo)» con la fase Liquidación.',
+    ]) {
+      await abrirYCargar();
+      await expect(modal.getByRole('alert')).toHaveText(texto);
+      // El botón de la acción, no la X del encabezado (que también se llama «Cerrar»).
+      await modal.getByRole('alert').locator('xpath=following-sibling::button[1]').click();
+      await expect(modal).toHaveCount(0);
+      await expect(detalle).toBeVisible();
+      await expect(boton).toBeFocused();
+    }
+
+    // 409 estado_no_permitido: cierra Y refresca la cola.
+    const pedidasAntes = urlsPedidas.length;
+    await abrirYCargar();
+    await expect(modal.getByRole('alert')).toHaveText('El impuesto ya no está en gestión. Cierra y revisa su estado en la cola.');
+    await modal.getByRole('alert').locator('xpath=following-sibling::button[1]').click();
+    await expect(modal).toHaveCount(0);
+    await expect.poll(() => urlsPedidas.length).toBeGreaterThan(pedidasAntes);
+  });
+});
+
+test.describe('FLITO — Impuestos · ficha de ayuda (HU #12592, AC7)', () => {
+  // Ningún otro test lee el CONTENIDO de la ficha (flito-ayuda-fichas-gestion vigila plantilla y
+  // publicación); este es el que la ata a la HU. *Mutante:* dejar la ficha como estaba → cae por
+  // «sin marca de agua» presente y «recibo de caja» ausente.
+  test('TC-25 · la ficha explica las dos fases, el selector, «Liquidados», el chip, el filtro y el recibo de caja; ya no menciona la casilla', async () => {
+    const raiz = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../..');
+    const md = readFileSync(resolve(raiz, 'apps/web/src/content/ayuda/flito_impuestos.md'), 'utf8');
+    expect(md).toMatch(/dos fases/i);
+    expect(md).toMatch(/liquidación del impuesto/i);
+    expect(md).toMatch(/pago con marca/i);
+    expect(md).toMatch(/\*\*Fase del recibo\*\*/);
+    expect(md).toMatch(/\*\*Liquidación\*\* o \*\*Pago\*\*/);
+    expect(md).toMatch(/carpeta/i);
+    expect(md).toMatch(/\*\*Liquidados\*\*/);
+    expect(md).toMatch(/\*\*Liquidado, pendiente de pago\*\*/);
+    expect(md).toMatch(/\*\*Cargar recibo de caja\*\*/);
+    // Quién puede, cuándo, y qué pasa si el valor no se lee.
+    expect(md).toMatch(/Administrador .*recibo(s)? de caja|recibos? de caja.*Administrador/i);
+    expect(md).toMatch(/solo en un impuesto \*\*Solicitado\*\*/);
+    expect(md).toMatch(/Si el valor no se pudo leer/);
+    expect(md).not.toMatch(/sin marca de agua/i);
+    // Sigue en plantilla: 6 secciones, forma «usted», sin tabla ni captura ni endpoint.
+    for (const h of ['Qué es', 'Para quién', 'Cómo se entra', 'Pasos', 'Estados', 'Qué no hace']) expect(md).toContain(`## ${h}`);
+    expect(md).toMatch(/\busted\b/i);
+    expect(md).not.toMatch(/\btú\b/);
+    expect(md).not.toMatch(/!\[[^\]]*\]\(/);
+    expect(md).not.toMatch(/\/api\//);
+    expect(md).not.toMatch(/\|[-:]+\|/);
   });
 });
