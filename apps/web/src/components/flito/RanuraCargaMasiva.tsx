@@ -29,6 +29,9 @@ export default function RanuraCargaMasiva({ seleccion, abriendo, errorValidacion
   const descartados = textoDescartadosZip(seleccion);
   const textoProgreso = progreso ? textoProgresoCarga(progreso.desde, progreso.total) : null;
 
+  // HU #12612 (UX §8, R7): UNA sola región `status` en el modal. El progreso vive DENTRO de la del
+  // contador —primero el contador, luego «enviando X de N archivos»— y no en una segunda región
+  // que corriera en paralelo. El `alert` del error sigue aparte. SOAT e Impuestos lo heredan.
   return (
     <>
       {(abriendo || seleccion.items.length > 0) && (
@@ -42,16 +45,12 @@ export default function RanuraCargaMasiva({ seleccion, abriendo, errorValidacion
                 {textoContadorCargaMasiva(seleccion)}
               </p>
               {descartados && <p style={{ color: 'var(--flit-text-muted)' }}>{descartados}</p>}
+              {progreso && textoProgreso && <p style={{ color: 'var(--flit-text-muted)' }}>{textoProgreso}</p>}
             </>
           )}
         </div>
       )}
       {(errorValidacion || error) && <p role="alert" className="text-sm text-red-600">{errorValidacion ?? error}</p>}
-      {progreso && textoProgreso && (
-        <p role="status" aria-live="polite" className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
-          {textoProgreso}
-        </p>
-      )}
     </>
   );
 }
