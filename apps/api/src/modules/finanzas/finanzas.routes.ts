@@ -4,6 +4,7 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { requirePage } from '../../shared/permissions.js';
 import { logPiiAccess } from '../../shared/pii-audit.js';
 import { soportesDeTramite } from '../../shared/soportes/soportes-consulta.js';
 import { sendExcel } from '../../shared/utils/excel.js';
@@ -15,6 +16,7 @@ import {
   type EtapaReporte, type FiltrosReporte,
 } from './finanzas.service.js';
 import { consolidadoReporte, PERIODOS_CONSOLIDADO, periodoConsolidado } from './finanzas.consolidado.js';
+import { gastosDiarios, resolverRango } from './finanzas.gastos-diarios.js';
 import {
   COLUMNAS_EXPORT_CONSOLIDADO, COLUMNAS_EXPORT_DETALLE, filasExcelConsolidado, filasExcelDetalle,
   HOJA_CONSOLIDADO, HOJA_DETALLE,
@@ -135,6 +137,25 @@ router.get('/reporte-costos/facturacion-electronica', LECTURA, async (req: Reque
  */
 router.get('/reporte-costos/consolidado', LECTURA, async (req: Request, res: Response) => {
   res.json(await consolidadoReporte(filtrosDe(req.query), periodoConsolidado(req.query.periodo)));
+});
+
+/**
+ * GET /gastos-diarios — serie por día del evento y totales por categoría con GMF estimado (HU #12623).
+ *
+ * Guarda por PÁGINA y no por rol (`requirePage`, no `LECTURA`): la misma función que abre la
+ * pantalla «Gastos diarios» (HU #12624) abre su consulta, así que quien reciba la página en el panel
+ * de roles recibe la consulta con ella, y nadie más. Hasta que la migración siembre la función,
+ * 403 para todos: es lo esperado.
+ *
+ * `desde`/`hasta` en `YYYY-MM-DD`; sin los dos, los últimos 30 días (hoy incluido, en Bogotá). Uno
+ * solo, una fecha que no es un día, `hasta < desde` o más de 366 días → 400 nombrando el parámetro.
+ * `empresas` con la misma `lista()` del reporte. Sin registro PII: la respuesta son días, cantidades
+ * y sumas (motivo en la cabecera del servicio).
+ */
+router.get('/gastos-diarios', requirePage('finanzas_gastos_diarios'), async (req: Request, res: Response) => {
+  const rango = resolverRango(str(req.query.desde), str(req.query.hasta));
+  if (!rango.ok) { res.status(400).json({ error: rango.error, parametro: rango.parametro }); return; }
+  res.json(await gastosDiarios(rango.rango, lista(req.query.empresas)));
 });
 
 // ── Exportación a Excel (HU #12531) ──────────────────────────────────────────
