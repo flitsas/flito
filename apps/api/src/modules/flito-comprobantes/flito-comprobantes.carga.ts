@@ -9,7 +9,9 @@
 //
 // Orden por archivo: cabecera real → sha256 y dedup (en el envío y contra `flito_soportes` vivos de
 // CUALQUIER puerta) → partición → lectura de cada sub-documento (concurrencia 5; OCR caído = sin
-// lectura, no error) → S3 → BD. Los duplicados y los fallidos no se persisten: viven en el resultado.
+// lectura, no error) → CRUCE por llave de cada lectura (HU #12629: `tramite_id`/`cruce` quedan
+// SUGERIDOS en el pendiente; `aplicados` sigue vacío hasta HU-4) → S3 → BD. Los duplicados y los
+// fallidos no se persisten: viven en el resultado.
 // Ningún log lleva contenido leído (Habeas Data): cuentas, motivos y banderas.
 
 import { createHash } from 'node:crypto';
@@ -27,6 +29,7 @@ import { uploadEntityDocument } from '../../services/storage.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { leerSubDocumento, particionar, type LecturaSubDocumento, type SubDocumentoApi } from './flito-comprobantes.ocr.js';
 import { columnasDeLectura, type ComprobanteCtx } from './flito-comprobantes.service.js';
+import { cruzarLectura, type ResultadoCruce } from './flito-comprobantes.cruce.js';
 
 const log = loggerFor('flito-comprobantes-carga');
 
@@ -149,11 +152,11 @@ async function leerOSinLectura(sub: SubDocumentoApi): Promise<LecturaSubDocument
 /**
  * S3 primero, BD después, y la BD en UNA transacción por archivo: el soporte (uno por archivo, con
  * el `tipo` que dice si trae uno o varios documentos) y una fila de `flito_comprobantes` por
- * sub-documento, todas `pendiente`, ninguna cruzada.
+ * sub-documento, todas `pendiente`, con el cruce SUGERIDO cuando fue único (AC4): nadie aplica aquí.
  */
 async function persistir(
   archivo: ArchivoCargado, contentType: ContentTypeAdmitido, hash: string,
-  docs: SubDocumentoApi[], lecturas: (LecturaSubDocumento | null)[], loteId: string, ctx: ComprobanteCtx,
+  docs: SubDocumentoApi[], lecturas: (LecturaSubDocumento | null)[], cruces: (ResultadoCruce | null)[], loteId: string, ctx: ComprobanteCtx,
 ): Promise<Persistido> {
   const storageKey = await uploadEntityDocument(CARPETA_COMPROBANTES, loteId, archivo.originalname, archivo.buffer, contentType);
   return db.transaction(async (tx) => {
@@ -166,7 +169,7 @@ async function persistir(
     for (let i = 0; i < docs.length; i++) {
       const [c] = await tx.insert(flitoComprobantes).values({
         loteId, soporteId: s.id, paginas: docs[i].paginas, estado: 'pendiente',
-        ...columnasDeLectura(lecturas[i]),
+        ...columnasDeLectura(lecturas[i], cruces[i]),
         subidoPorId: ctx.userId, subidoPorNombre: ctx.username,
       }).returning({ id: flitoComprobantes.id });
       comprobanteIds.push(c.id);
@@ -176,9 +179,9 @@ async function persistir(
 }
 
 function itemPendiente(
-  sub: SubDocumentoApi, lectura: LecturaSubDocumento | null, comprobanteId: string, noLeidas: number[],
+  sub: SubDocumentoApi, lectura: LecturaSubDocumento | null, cruce: ResultadoCruce | null, comprobanteId: string, noLeidas: number[],
 ): ItemCargaComprobante {
-  const cols = columnasDeLectura(lectura);
+  const cols = columnasDeLectura(lectura, cruce);
   const motivo = cols.motivoPendiente as MotivoPendienteComprobante;
   const extra = textoNoLeidas(noLeidas);
   return {
@@ -194,8 +197,8 @@ const fallido = (archivo: string, detalle: string): ItemCargaComprobante =>
   ({ archivo, comprobanteId: null, paginas: null, tipoDocumento: null, concepto: null, idFlit: null, placa: null, motivo: null, detalle });
 
 /**
- * Procesa un envío (1..5 archivos) de un lote. `aplicados` es siempre `[]` en este Feature: la puerta
- * lee y conserva; asociar y aplicar llegan con F2.
+ * Procesa un envío (1..5 archivos) de un lote. `aplicados` sigue siendo `[]`: la puerta lee, cruza y
+ * conserva la sugerencia; auto-aplicar es HU-4 de F2.
  */
 export async function cargarLote(archivos: ArchivoCargado[], loteId: string, ctx: ComprobanteCtx): Promise<ResultadoCargaComprobantes> {
   const res: ResultadoCargaComprobantes = { aplicados: [], pendientes: [], duplicados: [], fallidos: [], documentos: 0 };
@@ -227,13 +230,19 @@ export async function cargarLote(archivos: ArchivoCargado[], loteId: string, ctx
 
     try {
       const lecturas = await conConcurrencia(particion.documentos, OCR_CONCURRENCIA_CARGA, leerOSinLectura);
-      const { comprobanteIds } = await persistir(archivo, contentType, hash, particion.documentos, lecturas, loteId, ctx);
+      // El cruce va ANTES de la tx: son lecturas y no deben alargar el bloqueo del INSERT.
+      const cruces: (ResultadoCruce | null)[] = [];
+      for (const l of lecturas) cruces.push(await cruzarLectura(l?.extraccion ?? null));
+      const { comprobanteIds } = await persistir(archivo, contentType, hash, particion.documentos, lecturas, cruces, loteId, ctx);
       vistos.set(hash, { comprobanteId: comprobanteIds[0]!, en: new Date() });
       particion.documentos.forEach((sub, i) => {
-        res.pendientes.push(itemPendiente(sub, lecturas[i] ?? null, comprobanteIds[i]!, particion.paginasNoLeidas));
+        res.pendientes.push(itemPendiente(sub, lecturas[i] ?? null, cruces[i] ?? null, comprobanteIds[i]!, particion.paginasNoLeidas));
       });
       res.documentos += particion.documentos.length;
-      log.info({ loteId, documentos: particion.documentos.length, metodo: particion.metodo, sinLectura: lecturas.filter((l) => l === null).length }, 'Archivo cargado');
+      log.info({
+        loteId, documentos: particion.documentos.length, metodo: particion.metodo,
+        sinLectura: lecturas.filter((l) => l === null).length, cruzados: cruces.filter((c) => c?.tramiteId).length,
+      }, 'Archivo cargado');
     } catch (e) {
       log.error({ loteId, err: (e as Error).message }, 'Archivo no guardado');
       res.fallidos.push(fallido(nombre, DETALLE_FALLIDO.NO_GUARDADO));

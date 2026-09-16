@@ -290,8 +290,35 @@ export interface CandidatoTramiteDto {
 export interface ComprobanteDetalleDto extends ComprobanteListaDto {
   /** Los diez campos universales y, si hubo extracción del destino, los suyos. `nivel` viene del servidor. */
   campos: CampoComprobanteDto[];
-  /** Solo en pendientes y solo desde F2: en F1 siempre `[]`. */
+  /** Solo en pendientes (F2, HU #12629): los trámites que alcanzan las llaves leídas, con su `admite`. `[]` en aplicados y descartados. */
   candidatos: CandidatoTramiteDto[];
+}
+
+/**
+ * F2 (HU #12629): el filtro «estado de asociación» de la cola. Vocabulario de PANTALLA que el servidor
+ * traduce a columnas (`condicionAsociacion`): `aplicado_automatico`/`aplicado_manual` son pagos
+ * aplicados según `aplicado_automaticamente`; `adjuntado` es documentación (`es_pago = false`);
+ * `rechazado_pago` es un pendiente cuyo destino no admite el concepto.
+ */
+export const ASOCIACIONES_COMPROBANTE = ['pendiente', 'aplicado_automatico', 'aplicado_manual', 'adjuntado', 'rechazado_pago', 'descartado'] as const;
+
+export type AsociacionComprobante = (typeof ASOCIACIONES_COMPROBANTE)[number];
+
+/** Cuerpo de `POST /:id/aplicar` (F2). Un solo `tramiteId` (D11). SIN `aceptarDiferencia`: eso vive en F3. */
+export interface AplicarComprobanteBody {
+  tramiteId: string;
+  concepto: ConceptoCosto;
+  esPago: boolean;
+  /** Campos que la persona escribió/confirmó: claves de `CampoComprobante` y, con prefijo `destino.`, las del extractor especializado. */
+  campos?: Record<string, string>;
+  /** Obligatorio si hay `campos` o si `tramiteId` no es el candidato sugerido (cruce manual). */
+  motivo?: string;
+}
+
+/** Respuesta de `POST /:id/aplicar`. */
+export interface ResultadoAplicarComprobanteDto {
+  resultado: 'aplicado';
+  comprobante: ComprobanteDetalleDto;
 }
 
 export interface ListaComprobantesDto {

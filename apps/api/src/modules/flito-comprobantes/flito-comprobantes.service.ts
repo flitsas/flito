@@ -3,18 +3,20 @@
 // archivo por el techo de max-lines); las dos comparten de aquí `columnasDeLectura` y
 // `motivoPendienteDe`, que son la única traducción «lectura → fila» del módulo.
 //
-// Lo que este Feature NO hace: cruzar ni aplicar. Todo comprobante nace y se queda `pendiente`;
-// `tramite_id` y `cruce` quedan NULL hasta F2 (#12606). `extraccion` y `extraccion_destino` NUNCA
-// salen en el listado (ADR-0008 §1.2): el detalle las traduce a `campos[]` con el nivel calculado
-// aquí (`nivelDe`), para que el front no derive nada. Y ningún log lleva contenido leído (Habeas Data).
+// F2 (#12606, HU #12629): la traducción recibe además el resultado del CRUCE (`flito-comprobantes.cruce.ts`)
+// y deja `tramite_id`/`cruce` SUGERIDOS en el pendiente; el detalle trae `candidatos[]`; y el listado
+// filtra por estado de asociación. Aplicar y descartar viven en `flito-comprobantes.aplicar.ts`.
+// `extraccion` y `extraccion_destino` NUNCA salen en el listado ni en los candidatos (ADR-0008 §1.2):
+// el detalle las traduce a `campos[]` con el nivel calculado aquí (`nivelDe`), para que el front no
+// derive nada. Y ningún log lleva contenido leído (Habeas Data).
 
 import { and, asc, desc, eq, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   CAMPOS_COMPROBANTE, CampoComprobante, CodigoErrorComprobante, ConceptoCosto, EstadoComprobante,
-  MotivoPendienteComprobante, TipoDocumentoComprobante, type CampoComprobanteDto, type CampoExtraido,
-  type ComprobanteDetalleDto, type ComprobanteListaDto, type ExtraccionComprobante, type ListaComprobantesDto,
-  type NivelConfianza,
+  MotivoPendienteComprobante, TipoDocumentoComprobante, type AsociacionComprobante, type CampoComprobanteDto,
+  type CampoExtraido, type ComprobanteDetalleDto, type ComprobanteListaDto, type ErrorComprobanteDto,
+  type ExtraccionComprobante, type ListaComprobantesDto, type NivelConfianza,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { flitoComprobantes, flitoSoportes, flitoTramites, users, vehicles } from '../../db/schema.js';
@@ -24,14 +26,20 @@ import { recortarPaginas } from '../../shared/pdf/separar-paginas.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { leerSubDocumento, type LecturaSubDocumento, type SubDocumentoApi } from './flito-comprobantes.ocr.js';
+import { candidatosPorLlave, cruzarLectura, type ResultadoCruce } from './flito-comprobantes.cruce.js';
 
 const log = loggerFor('flito-comprobantes');
 
 /** Vida de la URL prefirmada del archivo (calco de flito-revisiones). */
 export const ARCHIVO_URL_TTL_S = 300;
 
+/** Los campos extra del cuerpo de error (`detalle`, `puedeAdjuntar`, `comprobanteAnteriorId`), según el código. */
+export type ExtraError = Omit<ErrorComprobanteDto, 'error' | 'codigo'>;
+
 export class ComprobanteError extends Error {
-  constructor(public status: number, public codigo: CodigoErrorComprobante, message: string) { super(message); }
+  constructor(public status: number, public codigo: CodigoErrorComprobante, message: string, public extra: ExtraError = {}) { super(message); }
+  /** El cuerpo HTTP: `{ error, codigo }` y, si los hay, los extras del código. */
+  cuerpo(): ErrorComprobanteDto { return { error: this.message, codigo: this.codigo, ...this.extra }; }
 }
 
 export interface ComprobanteCtx { userId: number; username: string }
@@ -65,21 +73,24 @@ const TIPOS: readonly string[] = Object.values(TipoDocumentoComprobante);
 const CONCEPTOS: readonly string[] = Object.values(ConceptoCosto);
 
 /**
- * Por qué queda pendiente, en ESTE orden de precedencia (AC5): sin lectura → sin tipo → sin concepto
- * → sin llave → pago sin valor confiable → leído. Cada escalón supone el anterior resuelto: un
+ * Por qué queda pendiente, en ESTE orden de precedencia (HU #12611 AC5, extendida por la HU #12629
+ * AC4): sin lectura → sin tipo → sin concepto → sin llave → la llave no cruza → cruce ambiguo → el
+ * destino no admite → pago sin valor confiable → leído. Cada escalón supone el anterior resuelto: un
  * comprobante sin tipo tampoco tiene concepto, y decirle «concepto desconocido» sería señalar el
  * síntoma y no la causa.
  *
  * `null` de lectura = OCR caído. El tipo y el concepto cuentan solo si son CONFIABLES (son los que se
  * persisten en columna); las llaves cuentan con cualquier confianza (se persisten como leídas y la
- * persona las ve en el detalle con su nivel).
+ * persona las ve en el detalle con su nivel). `cruce` es el resultado de `cruzarLectura`; sin él
+ * (F1, o un llamador que no cruza) los tres escalones del cruce no existen.
  */
-export function motivoPendienteDe(lectura: ExtraccionComprobante | null): MotivoPendienteComprobante {
+export function motivoPendienteDe(lectura: ExtraccionComprobante | null, cruce: ResultadoCruce | null = null): MotivoPendienteComprobante {
   if (lectura === null) return MotivoPendienteComprobante.OCR_NO_DISPONIBLE;
   if (!valorConfiable(lectura, CampoComprobante.TIPO_DOCUMENTO)) return MotivoPendienteComprobante.TIPO_NO_IDENTIFICADO;
   if (!valorConfiable(lectura, CampoComprobante.CONCEPTO)) return MotivoPendienteComprobante.CONCEPTO_DESCONOCIDO;
   const hayLlave = [CampoComprobante.PLACA, CampoComprobante.VIN, CampoComprobante.ID_FLIT].some((c) => valorLeido(lectura, c));
   if (!hayLlave) return MotivoPendienteComprobante.SIN_LLAVE_DE_CRUCE;
+  if (cruce?.motivo) return cruce.motivo;
   const esPago = valorConfiable(lectura, CampoComprobante.ES_COMPROBANTE_PAGO) === 'true';
   if (esPago && !valorConfiable(lectura, CampoComprobante.VALOR_TOTAL)) return MotivoPendienteComprobante.CONFIANZA_INSUFICIENTE;
   return MotivoPendienteComprobante.LEIDO;
@@ -95,14 +106,17 @@ const esFechaIso = (v: string | null): v is string => v !== null && /^\d{4}-\d{2
  * nivel—; `tipo_documento`, `es_pago` y `concepto` solo si el campo es confiable, porque son las que
  * F2 usa para decidir y una adivinanza ahí se convertiría en un cruce equivocado. Con OCR caído,
  * `extraccion = {}` (nunca NULL: la columna es NOT NULL y «vacío» es la verdad).
+ *
+ * Con `cruce` (HU #12629 AC4), `tramite_id` y `cruce` quedan SUGERIDOS solo cuando el cruce es único
+ * o desempatado; en `cruce_ambiguo` los dos van NULL (no se adivina el primero de la lista).
  */
-export function columnasDeLectura(lectura: LecturaSubDocumento | null) {
+export function columnasDeLectura(lectura: LecturaSubDocumento | null, cruce: ResultadoCruce | null = null) {
   const e = lectura?.extraccion ?? null;
-  const motivoPendiente = motivoPendienteDe(e);
+  const motivoPendiente = motivoPendienteDe(e, cruce);
   if (!e) {
     return {
       extraccion: {} as ExtraccionComprobante, extraccionDestino: null, motivoPendiente,
-      tipoDocumento: null, esPago: null, concepto: null,
+      tipoDocumento: null, esPago: null, concepto: null, tramiteId: null, cruce: null,
       placaLeida: null, vinLeido: null, idFlitLeido: null, valor: null, fechaDocumento: null, numeroDocumento: null, emisor: null,
     };
   }
@@ -118,6 +132,8 @@ export function columnasDeLectura(lectura: LecturaSubDocumento | null) {
     tipoDocumento: tipo && TIPOS.includes(tipo) ? tipo : null,
     esPago: esPago === 'true' ? true : esPago === 'false' ? false : null,
     concepto: concepto && CONCEPTOS.includes(concepto) ? concepto : null,
+    tramiteId: cruce?.tramiteId ?? null,
+    cruce: cruce?.tramiteId ? cruce.cruce : null,
     placaLeida: cotar(valorLeido(e, CampoComprobante.PLACA), 10),
     vinLeido: cotar(valorLeido(e, CampoComprobante.VIN), 30),
     idFlitLeido: cotar(valorLeido(e, CampoComprobante.ID_FLIT), 60),
@@ -133,11 +149,32 @@ export function columnasDeLectura(lectura: LecturaSubDocumento | null) {
 export interface FiltrosListado {
   estado?: EstadoComprobante;
   concepto?: ConceptoCosto;
-  motivo?: string;
+  motivo?: MotivoPendienteComprobante;
   loteId?: string;
   tramiteId?: string;
+  /** HU #12629 AC8: estado de asociación, un vocabulario de pantalla que se traduce a columnas. */
+  asociacion?: AsociacionComprobante;
   page: number;
   pageSize: number;
+}
+
+/**
+ * La traducción del filtro `asociacion` (AC8). Cada literal se liga UNA vez como parámetro: Drizzle no
+ * deduplica literales (Bug #12058), así que `estado = 'aplicado'` no se repite dentro de una misma rama.
+ */
+export function condicionAsociacion(a: AsociacionComprobante): SQL {
+  switch (a) {
+    case 'pendiente': return eq(flitoComprobantes.estado, EstadoComprobante.PENDIENTE);
+    case 'aplicado_automatico':
+      return and(eq(flitoComprobantes.estado, EstadoComprobante.APLICADO), eq(flitoComprobantes.esPago, true), eq(flitoComprobantes.aplicadoAutomaticamente, true))!;
+    case 'aplicado_manual':
+      return and(eq(flitoComprobantes.estado, EstadoComprobante.APLICADO), eq(flitoComprobantes.esPago, true), eq(flitoComprobantes.aplicadoAutomaticamente, false))!;
+    case 'adjuntado': return and(eq(flitoComprobantes.estado, EstadoComprobante.APLICADO), eq(flitoComprobantes.esPago, false))!;
+    case 'rechazado_pago':
+      return and(eq(flitoComprobantes.estado, EstadoComprobante.PENDIENTE), eq(flitoComprobantes.motivoPendiente, MotivoPendienteComprobante.DESTINO_NO_ADMITE))!;
+    case 'descartado': return eq(flitoComprobantes.estado, EstadoComprobante.DESCARTADO);
+    default: { const nunca: never = a; throw new Error(`Asociación desconocida: ${String(nunca)}`); }
+  }
 }
 
 const aplicadoPor = alias(users, 'aplicado_por');
@@ -155,6 +192,7 @@ export function condicionesListado(f: FiltrosListado): SQL | undefined {
   if (f.motivo) c.push(eq(flitoComprobantes.motivoPendiente, f.motivo));
   if (f.loteId) c.push(eq(flitoComprobantes.loteId, f.loteId));
   if (f.tramiteId) c.push(eq(flitoComprobantes.tramiteId, f.tramiteId));
+  if (f.asociacion) c.push(condicionAsociacion(f.asociacion));
   return c.length ? and(...c) : undefined;
 }
 
@@ -284,10 +322,14 @@ export async function detalle(id: string): Promise<ComprobanteDetalleDto> {
   const [lectura] = await db.select({ extraccion: flitoComprobantes.extraccion, extraccionDestino: flitoComprobantes.extraccionDestino })
     .from(flitoComprobantes).where(eq(flitoComprobantes.id, id)).limit(1);
   const base = aListaDto(fila as FilaLista);
+  // Candidatos solo en pendientes (AC5): en aplicados y descartados ya no hay nada que elegir.
+  const candidatos = base.estado === EstadoComprobante.PENDIENTE
+    ? (await candidatosPorLlave({ idFlit: base.idFlitLeido, vin: base.vinLeido, placa: base.placaLeida })).candidatos
+    : [];
   return {
     ...base,
     campos: camposDe(lectura?.extraccion ?? {}, (lectura?.extraccionDestino as Record<string, CampoExtraido> | null) ?? null, umbralPara(null)),
-    candidatos: [],
+    candidatos,
   };
 }
 
@@ -319,8 +361,9 @@ async function aBuffer(stream: AsyncIterable<Uint8Array>): Promise<Buffer> {
 /**
  * Vuelve a pasar por el OCR un comprobante que quedó sin lectura (`ocr_no_disponible`): descarga el
  * soporte, reconstruye el sub-documento con sus `paginas` (o el archivo entero) y repite
- * `leerSubDocumento`. Reescribe la fila con `columnasDeLectura` — NUNCA inserta: el comprobante ya
- * existe y el archivo también. Si el OCR sigue caído, 503 y la fila no cambia (ni `updated_at`).
+ * `leerSubDocumento`. Reescribe la fila con `columnasDeLectura` (con el cruce de la nueva lectura,
+ * HU #12629) — NUNCA inserta: el comprobante ya existe y el archivo también. Si el OCR sigue caído,
+ * 503 y la fila no cambia (ni `updated_at`).
  */
 export async function releer(id: string, ctx: ComprobanteCtx): Promise<ComprobanteDetalleDto> {
   const [c] = await db.select({
@@ -354,9 +397,11 @@ export async function releer(id: string, ctx: ComprobanteCtx): Promise<Comproban
     throw e;
   }
 
+  const cruce = await cruzarLectura(lectura.extraccion);
+  const columnas = columnasDeLectura(lectura, cruce);
   await db.update(flitoComprobantes)
-    .set({ ...columnasDeLectura(lectura), detallePendiente: null, updatedAt: new Date() })
+    .set({ ...columnas, detallePendiente: null, updatedAt: new Date() })
     .where(eq(flitoComprobantes.id, id));
-  log.info({ comprobanteId: id, por: ctx.userId, motivo: motivoPendienteDe(lectura.extraccion) }, 'Comprobante releído');
+  log.info({ comprobanteId: id, por: ctx.userId, motivo: columnas.motivoPendiente, cruce: columnas.cruce }, 'Comprobante releído');
   return detalle(id);
 }

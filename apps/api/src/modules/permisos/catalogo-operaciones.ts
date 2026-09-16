@@ -357,13 +357,16 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${PER} PUT /roles/:codigo/funciones`, 'permisos.cuadro.guardar', 'Guardar el cuadro de funciones de un rol', 'Reescribir el conjunto completo de funciones que concede un rol.'),
   // ── Comprobantes (Épica #12245, HU #12611: `flito-comprobantes/` nace reconducido) ────────────
   // Las CINCO de F1 (#12605): cargar, ver la cola, ver uno, abrir el archivo y releer. Textos byte a
-  // byte con la 0198 (el test de la 0198 los compara literal). Asociar/aplicar/descartar (F2) y
-  // aceptar diferencia (F3) llegan con la 0199 y la 0200.
+  // byte con la 0198 (el test de la 0198 los compara literal). Las TRES de F2 (#12606, HU #12629:
+  // buscar trámites, aplicar, descartar) van con la 0201. Aceptar diferencia (F3) llega con la suya.
   op(`${CPR} POST /`, 'comprobantes.lote.cargar', 'Cargar comprobantes', 'Subir documentos (PDF/imagen) para leerlos y asociarlos a un trámite y concepto.'),
   op(`${CPR} GET /`, 'comprobantes.cola.ver', 'Ver la cola de comprobantes', 'Listar los comprobantes pendientes, aplicados y descartados.'),
   op(`${CPR} GET /:id`, 'comprobantes.comprobante.ver', 'Ver un comprobante', 'Abrir el detalle de un comprobante con lo que el OCR leyó y sus candidatos.'),
   op(`${CPR} GET /:id/archivo`, 'comprobantes.archivo.descargar', 'Abrir el archivo de un comprobante', 'Ver el documento original del que salió la lectura.'),
   op(`${CPR} POST /:id/releer`, 'comprobantes.comprobante.releer', 'Releer un comprobante', 'Volver a pasar por el OCR un comprobante que quedó pendiente de lectura porque el servicio no estuvo disponible.'),
+  op(`${CPR} POST /tramites/buscar`, 'comprobantes.tramites.buscar', 'Buscar trámites para un comprobante', 'Buscar por ID FLIT, placa o VIN el trámite al que asociar un comprobante.'),
+  op(`${CPR} POST /:id/aplicar`, 'comprobantes.comprobante.aplicar', 'Aplicar o adjuntar un comprobante', 'Asociar un comprobante a un trámite y concepto: como pago o como documentación.'),
+  op(`${CPR} POST /:id/descartar`, 'comprobantes.comprobante.descartar', 'Descartar un comprobante', 'Sacar de la cola un comprobante que no corresponde, dejando el motivo.'),
 ];
 
 /**
