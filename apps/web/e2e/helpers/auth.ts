@@ -215,6 +215,10 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     ...SERVICIOS_ADICIONALES,
     SERVICIOS_DE_TRAMITE_VER, ...SERVICIOS_DE_TRAMITE_ESCRIBIR,
     ...COMPROBANTES,
+    // HU #12620: viajes adicionales de logística (migración de la HU #12619: hoy solo `admin`).
+    'logistica.viajes.ver',
+    'logistica.viajes.registrar',
+    'logistica.viajes.quitar',
   ],
   proveedor: [...SOAT_LEER, 'soat.comprobante.cargar'],
   cliente: [...SOAT_LEER, 'soat.solicitud.crear', 'soat.runt.preconsultar', 'soat.factura.leer'],
