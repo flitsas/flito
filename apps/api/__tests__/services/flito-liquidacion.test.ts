@@ -28,8 +28,10 @@ vi.mock('../../src/modules/flito-parametrizacion/flito-tarifas.service.js', () =
   tarifaDe: tarifaDeMock,
 }));
 
-const { calcular, facturar, liquidacionDe, liquidar, reversar, LiquidacionBloqueadaError, LiquidacionError, TASA_GMF } =
-  await import('../../src/modules/flito-liquidacion/flito-liquidacion.service.js');
+const {
+  calcular, conceptoLogistica, facturar, liquidacionDe, liquidar, reversar, salidasDe,
+  LiquidacionBloqueadaError, LiquidacionError, TASA_GMF,
+} = await import('../../src/modules/flito-liquidacion/flito-liquidacion.service.js');
 
 /**
  * Una fila de la puente de servicios adicionales, tal como la devuelve `serviciosAsignadosDe`
@@ -88,14 +90,16 @@ beforeEach(() => {
 });
 
 /**
- * El `select` del `tx` (HU #12546). Dentro de la transacción, `liquidar()` consulta DOS veces y en
- * este orden: el `FOR UPDATE` sobre el trámite y, con el bloqueo tomado, la puente de servicios.
- * Invertir el orden dejaría de serializar contra asignar/quitar, y es lo que este doble fija.
+ * El `select` del `tx` (HU #12546, HU #12626). Dentro de la transacción, `liquidar()` consulta TRES
+ * veces y en este orden: el `FOR UPDATE` sobre el trámite y, con el bloqueo tomado, la puente de
+ * servicios y los viajes adicionales de logística. Invertir el orden dejaría de serializar contra
+ * asignar/quitar/registrar, y es lo que este doble fija.
  */
-function txSelect(servicios: unknown[]) {
+function txSelect(servicios: unknown[], viajes: unknown[] = []) {
   return vi.fn()
     .mockReturnValueOnce(chain([{ id: 't1', idFlit: 'FLIT-1' }]))
-    .mockReturnValue(chain(servicios));
+    .mockReturnValueOnce(chain(servicios))
+    .mockReturnValue(chain(viajes));
 }
 
 // ───────── HU #12374: la tarifa que se congela es la vigente en la FECHA DE APROBACIÓN ─────────
@@ -161,6 +165,7 @@ describe('liquidar — sellar con un faltante se bloquea SIN crear liquidación 
       .mockReturnValueOnce(chain([]))                                                        // liquidacionDe
       .mockReturnValueOnce(chain([filaCompleta({ fechaAprobacion: FECHA })]))               // calcular
       .mockReturnValueOnce(chain([]))                                                        // serviciosAsignadosDe (previsualización)
+      .mockReturnValueOnce(chain([]))                                                        // viajesDe (previsualización, HU #12626)
       .mockReturnValueOnce(chain([{ companiaId: null, soatId: null, soatOrganismo: null, impuestoId: null, impuestoOrganismo: null, derechoId: null, derechoOrganismo: null }])); // identificadoresDe: sin bolsa
 
     // Espía del insert DENTRO de la transacción (patrón de flito-bolsas-transito.test.ts): tabla + values.
@@ -465,8 +470,12 @@ describe('calcular — los servicios adicionales suman a la base y nunca bloquea
   });
 });
 
-/** Espía del sellado: devuelve el `tx`, lo escrito y el orden de las consultas de dentro. */
-function espiarSellado(serviciosEnTx: unknown[]) {
+/**
+ * Espía del sellado: devuelve el `tx`, lo escrito y el orden de las consultas de dentro. Los
+ * `select` se distinguen por POSICIÓN: 1.º el bloqueo, 2.º la puente de servicios, 3.º los viajes
+ * de logística (HU #12626). Un 4.º select respondería `[]`.
+ */
+function espiarSellado(serviciosEnTx: unknown[], viajesEnTx: unknown[] = []) {
   const escritas: Array<{ tabla: string; datos: Record<string, unknown> }> = [];
   const orden: string[] = [];
   const filaSellada = {
@@ -480,13 +489,16 @@ function espiarSellado(serviciosEnTx: unknown[]) {
     c.values = (datos: unknown) => { escritas.push({ tabla: getTableName(tabla as never), datos: datos as Record<string, unknown> }); return c; };
     return c;
   });
+  const respuestas: Array<[string, unknown[]]> = [
+    ['bloqueo', [{ id: 't1', idFlit: 'FLIT-1' }]], ['servicios', serviciosEnTx], ['viajes', viajesEnTx],
+  ];
   let n = 0;
   const select = vi.fn(() => {
-    const esBloqueo = n++ === 0;
-    const c = chain(esBloqueo ? [{ id: 't1', idFlit: 'FLIT-1' }] : serviciosEnTx) as unknown as Record<string, unknown>;
+    const [nombre, filas] = respuestas[n++] ?? ['otro', []];
+    const c = chain(filas) as unknown as Record<string, unknown>;
     // El bloqueo tiene que ser `FOR UPDATE` DE VERDAD: sin `.for('update')` no serializa nada.
     c.for = (modo: unknown) => { orden.push(`bloqueo:for:${String(modo)}`); return c; };
-    if (!esBloqueo) orden.push('servicios');
+    if (nombre !== 'bloqueo') orden.push(nombre);
     return c;
   });
   return { tx: { insert, select }, escritas, orden };
@@ -495,11 +507,12 @@ function espiarSellado(serviciosEnTx: unknown[]) {
 describe('liquidar — sella los servicios adicionales leyéndolos DENTRO de la transacción (AC3)', () => {
   const sinBolsa = { companiaId: null, soatId: null, soatOrganismo: null, impuestoId: null, impuestoOrganismo: null, derechoId: null, derechoOrganismo: null };
 
-  function encolarSellado(serviciosPrevios: unknown[] = []) {
+  function encolarSellado(serviciosPrevios: unknown[] = [], viajesPrevios: unknown[] = []) {
     selectMock
       .mockReturnValueOnce(chain([]))                            // liquidacionDe: no hay sellada
       .mockReturnValueOnce(chain([filaCompleta()]))              // calcular
       .mockReturnValueOnce(chain(serviciosPrevios))              // serviciosAsignadosDe (previsualización)
+      .mockReturnValueOnce(chain(viajesPrevios))                 // viajesDe (previsualización, HU #12626)
       .mockReturnValueOnce(chain([sinBolsa]));                   // identificadoresDe
   }
 
@@ -535,8 +548,8 @@ describe('liquidar — sella los servicios adicionales leyéndolos DENTRO de la 
 
     await liquidar('t1', 1);
 
-    expect(espia.orden).toEqual(['bloqueo:for:update', 'servicios']);
-    expect(espia.tx.select).toHaveBeenCalledTimes(2);
+    expect(espia.orden).toEqual(['bloqueo:for:update', 'servicios', 'viajes']);
+    expect(espia.tx.select).toHaveBeenCalledTimes(3);
   });
 
   it('sin servicios, la columna va NULL y la clave del detalle se escribe igual, con items vacío (M-SA5)', async () => {
@@ -696,6 +709,355 @@ describe('reversar — el evento conserva el snapshot CON items y la puente no s
     // Mutante «releer la puente al reversar»: aparecería `flito_tramite_servicios_adicionales`.
     expect(txSelects.length).toBeGreaterThan(0);
     expect(txSelects).not.toContain('flito_tramite_servicios_adicionales');
+    // Ni la de viajes (HU #12626): reversar borra la fila y su snapshot; los viajes siguen vivos.
+    expect(txSelects).not.toContain('flito_tramite_viajes_logistica');
     expect(txSelects).toContain('flito_bolsa_movimientos');
+  });
+});
+
+// ───────── HU #12626: la logística es el viaje 1 (tarifa) + los viajes adicionales ─────────
+//
+// Mutantes que estos casos matan:
+//   · M-VL1 — contar el viaje 1 dos veces (tarifa + Σ de TODOS los viajes incluido uno inicial
+//     duplicado): cae AC1 (90.000, no 125.000).
+//   · M-VL2 — sumar solo los adicionales sin la tarifa: cae AC1 (90.000, no 55.000) y AC2.
+//   · M-VL3 — recalcular cada viaje con `tarifaDe` de hoy en vez de su precio congelado: cae AC3.
+//   · M-VL4 — sumar los viajes aunque la compañía autogestione: cae AC4.
+//   · M-VL5 — dar valor y no bloquear cuando falta la tarifa: cae AC5.
+//   · M-VL6 — leer los viajes con `db` en vez de `tx`, o antes del FOR UPDATE: cae el orden del espía
+//     y el conteo de selects de `db` en AC6.
+//   · M-VL7 — una salida por viaje, o por la tarifa sola: cae AC7.
+//   · M-VL8 — `viajes ?? []` / `totalViajes ?? 1` al leer un sello sin snapshot: cae AC9.
+//   · M-VL9 — rellenar los viajes desde la tabla al leer: cae el conteo de selects de AC9.
+
+/** Una fila de `viajesDe` (HU #12619): `valor` y `tarifaVigente` llegan como texto (`numeric`). */
+function viaje(over: Record<string, unknown> = {}) {
+  return {
+    id: 'v-2', numero: 2, modo: 'inicial', valor: '35000', tarifaVigente: '35000',
+    motivo: 'devolucion', motivoDetalle: null, registradoPorId: 4, registradoPorNombre: 'Luis',
+    registradoEn: new Date('2026-09-10T14:00:00Z'),
+    ...over,
+  };
+}
+const VIAJE_MANUAL = viaje({
+  id: 'v-3', numero: 3, modo: 'manual', valor: '20000', tarifaVigente: '35000',
+  motivo: 'otro', motivoDetalle: 'Recogida en otra sede', registradoPorId: 5, registradoPorNombre: 'Marta',
+  registradoEn: new Date('2026-09-11T09:30:00Z'),
+});
+
+/** Tarifas con la logística en 35.000, que es la cifra de los AC de la HU. */
+function tarifaLogistica35() {
+  tarifaDeMock.mockImplementation(async (_c: unknown, concepto: string) =>
+    concepto === 'tramite_digital'
+      ? { valor: 200000, origen: 'especifica' }
+      : { valor: 35000, origen: 'generica' });
+}
+
+/** Encola la previsualización: fila del trámite, servicios y viajes (en ese orden). */
+function encolarCalculo(fila: Record<string, unknown>, viajes: unknown[], servicios: unknown[] = []) {
+  selectMock
+    .mockReturnValueOnce(chain([filaCompleta(fila)]))
+    .mockReturnValueOnce(chain(servicios))
+    .mockReturnValueOnce(chain(viajes));
+}
+
+describe('calcular — la logística suma la tarifa (viaje 1) y los viajes adicionales (AC1..AC5)', () => {
+  it('AC1: tarifa 35.000 + inicial 35.000 + manual 20.000 = 90.000, con el desglose congelado y el GMF sobre la suma (M-VL1, M-VL2)', async () => {
+    tarifaLogistica35();
+    encolarCalculo({}, [viaje(), VIAJE_MANUAL]);
+    const c = await calcular('t1');
+
+    expect(c.logistica).toEqual({
+      valor: 90000, bloquea: false, tarifa: 35000, totalViajes: 3,
+      origen: 'Tarifa genérica + 2 viajes adicionales',
+      viajes: [
+        {
+          id: 'v-2', numero: 2, modo: 'inicial', valor: 35000, tarifaVigente: 35000, motivo: 'devolucion',
+          motivoDetalle: null, registradoPorNombre: 'Luis', registradoEn: '2026-09-10T14:00:00.000Z',
+        },
+        {
+          id: 'v-3', numero: 3, modo: 'manual', valor: 20000, tarifaVigente: 35000, motivo: 'otro',
+          motivoDetalle: 'Recogida en otra sede', registradoPorNombre: 'Marta', registradoEn: '2026-09-11T09:30:00.000Z',
+        },
+      ],
+    });
+    // Ni 125.000 (viaje 1 contado dos veces) ni 55.000 (solo los adicionales): 90.000.
+    expect(c.logistica.valor).not.toBe(125000);
+    expect(c.logistica.valor).not.toBe(55000);
+    // 450.000 + 120.000 + 80.000 + 200.000 + 90.000 = 940.000; × 0,004 = 3.760.
+    expect(c.baseGmf).toBe(940000);
+    expect(c.valorGmf).toBe(Math.round(940000 * 0.004 * 100) / 100);
+    expect(c.total).toBe(943760);
+    expect(c.faltantes).toEqual([]);
+  });
+
+  it('el snapshot de cada viaje NO lleva el id del actor (solo su nombre)', async () => {
+    tarifaLogistica35();
+    encolarCalculo({}, [viaje()]);
+    const c = await calcular('t1');
+    expect(c.logistica.viajes![0]).not.toHaveProperty('registradoPorId');
+    expect(c.logistica.viajes![0]!.registradoPorNombre).toBe('Luis');
+  });
+
+  it('AC2: sin viajes, la logística es la tarifa a secas: origen sin sufijo, `viajes []`, `totalViajes 1`', async () => {
+    tarifaLogistica35();
+    encolarCalculo({}, []);
+    const c = await calcular('t1');
+    expect(c.logistica).toEqual({
+      valor: 35000, origen: 'Tarifa genérica', bloquea: false, tarifa: 35000, viajes: [], totalViajes: 1,
+    });
+    expect(c.baseGmf).toBe(885000);
+  });
+
+  it('con UN viaje el sufijo va en singular', async () => {
+    tarifaLogistica35();
+    encolarCalculo({}, [viaje()]);
+    const c = await calcular('t1');
+    expect(c.logistica.origen).toBe('Tarifa genérica + 1 viaje adicional');
+    expect(c.logistica.totalViajes).toBe(2);
+  });
+
+  it('AC3: cada viaje se suma con el precio con que se registró, no con la tarifa de hoy (M-VL3)', async () => {
+    // Tarifa 50.000 en la fecha de aprobación, 100.000 «hoy» (cualquier otra fecha, incluida null):
+    // si algún viaje se recalculara con `tarifaDe` de hoy, el total se iría a 150.000 o 130.000.
+    const FECHA = new Date('2026-07-15T12:00:00Z');
+    tarifaDeMock.mockImplementation(async (_c: unknown, concepto: string, _t: unknown, enFecha: unknown) => {
+      const enAprobacion = enFecha instanceof Date && enFecha.getTime() === FECHA.getTime();
+      return concepto === 'tramite_digital'
+        ? { valor: 200000, origen: 'especifica' }
+        : { valor: enAprobacion ? 50000 : 100000, origen: 'generica' };
+    });
+    encolarCalculo({ fechaAprobacion: FECHA }, [viaje({ valor: '30000', tarifaVigente: '30000' })]);
+    const c = await calcular('t1');
+    expect(c.logistica.valor).toBe(80000);
+    expect(c.logistica.tarifa).toBe(50000);
+    expect(c.logistica.viajes![0]!.valor).toBe(30000);
+    // `tarifaDe` se pidió DOS veces (digital y logística) y ninguna más: no hay una por viaje.
+    expect(tarifaDeMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('AC4: la compañía que autogestiona su logística no paga ni la tarifa ni los viajes que queden registrados (M-VL4)', async () => {
+    tarifaLogistica35();
+    encolarCalculo({ logisticaAutogestionable: true }, [viaje(), VIAJE_MANUAL]);
+    const c = await calcular('t1');
+    expect(c.logistica).toEqual({
+      valor: null, origen: 'La compañía autogestiona su logística', bloquea: false,
+      tarifa: null, viajes: [], totalViajes: 0,
+    });
+    // Sin logística en la base: 450.000 + 120.000 + 80.000 + 200.000.
+    expect(c.baseGmf).toBe(850000);
+    expect(c.faltantes).toEqual([]);
+  });
+
+  it('AC4: con la excepción de autogestión viva, suma como cualquier otra', async () => {
+    tarifaLogistica35();
+    encolarCalculo({ logisticaAutogestionable: true, logisticaExcepcion: true }, [viaje(), VIAJE_MANUAL]);
+    const c = await calcular('t1');
+    expect(c.logistica.valor).toBe(90000);
+    expect(c.logistica.totalViajes).toBe(3);
+    expect(c.baseGmf).toBe(940000);
+  });
+
+  it('AC5: sin tarifa de logística vigente, sigue bloqueando con el mismo faltante aunque haya un viaje manual (M-VL5)', async () => {
+    tarifaDeMock.mockImplementation(async (_c: unknown, concepto: string) =>
+      concepto === 'tramite_digital'
+        ? { valor: 200000, origen: 'especifica' }
+        : { valor: null, origen: 'no_configurada' });
+    encolarCalculo({}, [VIAJE_MANUAL]);
+    const c = await calcular('t1');
+    expect(c.logistica.bloquea).toBe(true);
+    expect(c.logistica.valor).toBeNull();
+    expect(c.logistica.tarifa).toBeNull();
+    expect(c.logistica.origen).toBe('No configurado');
+    // El desglose se conserva para que la pantalla enseñe qué hay registrado; no cambia el bloqueo.
+    expect(c.logistica.viajes).toHaveLength(1);
+    expect(c.logistica.totalViajes).toBe(2);
+    expect(c.faltantes).toEqual(['Tarifa de logística no configurada para la compañía']);
+    expect(c.baseGmf).toBe(850000);
+  });
+
+  it('los viajes se leen SIEMPRE de la tabla viva: tras un reverso, el siguiente cálculo toma los vigentes (AC8)', async () => {
+    // Antes del reverso había inicial 35.000 + manual 20.000; después se quitó el 3 y se registró un
+    // manual de 5.000: el cálculo nuevo es tarifa + 35.000 + 5.000, sin rastro del sello anterior.
+    tarifaLogistica35();
+    encolarCalculo({}, [viaje(), viaje({ id: 'v-4', numero: 4, modo: 'manual', valor: '5000' })]);
+    const c = await calcular('t1');
+    expect(c.logistica.valor).toBe(75000);
+    expect(c.logistica.viajes!.map((v) => v.numero)).toEqual([2, 4]);
+    // Tres selects de `db`: trámite, servicios y viajes. La tabla de viajes se consulta en cada cálculo.
+    expect(selectMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('conceptoLogistica — la función pura', () => {
+  it('redondea la suma a dos decimales', () => {
+    const c = conceptoLogistica({ valor: 10.005, origen: 'Tarifa genérica', bloquea: false }, [viaje({ valor: '0.001' })]);
+    expect(c.valor).toBe(10.01);
+  });
+
+  it('con base bloqueada, `valor` es null y el origen se conserva tal cual', () => {
+    const c = conceptoLogistica({ valor: null, origen: 'No configurado', bloquea: true }, [viaje()]);
+    expect(c).toMatchObject({ valor: null, origen: 'No configurado', bloquea: true, tarifa: null, totalViajes: 2 });
+  });
+});
+
+describe('liquidar — sella la logística con los viajes leídos DENTRO de la transacción (AC6)', () => {
+  const sinBolsa = { companiaId: null, soatId: null, soatOrganismo: null, impuestoId: null, impuestoOrganismo: null, derechoId: null, derechoOrganismo: null };
+
+  function encolar(viajesPrevios: unknown[]) {
+    selectMock
+      .mockReturnValueOnce(chain([]))                 // liquidacionDe
+      .mockReturnValueOnce(chain([filaCompleta()]))   // calcular
+      .mockReturnValueOnce(chain([]))                 // serviciosAsignadosDe (previsualización)
+      .mockReturnValueOnce(chain(viajesPrevios))      // viajesDe (previsualización)
+      .mockReturnValueOnce(chain([sinBolsa]));        // identificadoresDe
+  }
+
+  it('la columna lleva tarifa + Σ de los DOS viajes (el segundo registrado entre la previsualización y la tx) y el detalle el desglose', async () => {
+    // Previsualización con un viaje; bajo bloqueo hay dos. Lo sellado es lo de la lectura bajo bloqueo.
+    encolar([viaje()]);
+    const espia = espiarSellado([], [viaje(), VIAJE_MANUAL]);
+    transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(espia.tx));
+
+    await liquidar('t1', 1);
+
+    const liquidacion = espia.escritas.find((e) => e.tabla === 'flito_liquidaciones')!;
+    // 15.000 (tarifa por defecto de este archivo) + 35.000 + 20.000.
+    expect(liquidacion.datos.valorLogistica).toBe('70000');
+    expect((liquidacion.datos.detalle as Record<string, unknown>).logistica).toEqual({
+      valor: 70000, origen: 'Tarifa genérica + 2 viajes adicionales', bloquea: false, tarifa: 15000,
+      viajes: [
+        {
+          id: 'v-2', numero: 2, modo: 'inicial', valor: 35000, tarifaVigente: 35000, motivo: 'devolucion',
+          motivoDetalle: null, registradoPorNombre: 'Luis', registradoEn: '2026-09-10T14:00:00.000Z',
+        },
+        {
+          id: 'v-3', numero: 3, modo: 'manual', valor: 20000, tarifaVigente: 35000, motivo: 'otro',
+          motivoDetalle: 'Recogida en otra sede', registradoPorNombre: 'Marta', registradoEn: '2026-09-11T09:30:00.000Z',
+        },
+      ],
+      totalViajes: 3,
+    });
+    // 865.000 + 55.000 = 920.000 de base; × 0,004 = 3.680. Con la previsualización (un viaje) serían
+    // 900.000 / 3.600 / 903.600.
+    expect(liquidacion.datos.baseGmf).toBe('920000');
+    expect(liquidacion.datos.valorGmf).toBe('3680');
+    expect(liquidacion.datos.total).toBe('923680');
+    // La bitácora congela el mismo desglose.
+    const evento = espia.escritas.find((e) => e.tabla === 'flito_liquidacion_eventos')!;
+    expect(evento.datos.snapshot).toMatchObject({
+      logistica: { valor: 70000, tarifa: 15000, totalViajes: 3, viajes: [{ numero: 2 }, { numero: 3 }] },
+      total: 923680,
+    });
+  });
+
+  it('los viajes se leen con el `tx` y DESPUÉS del FOR UPDATE, nunca con `db` (M-VL6)', async () => {
+    encolar([]);
+    const espia = espiarSellado([], [viaje()]);
+    transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(espia.tx));
+
+    await liquidar('t1', 1);
+
+    expect(espia.orden).toEqual(['bloqueo:for:update', 'servicios', 'viajes']);
+    // Los CINCO selects de `db` son los de fuera de la tx (liquidación, cálculo, servicios, viajes,
+    // identificadores). Un sexto sería la relectura de viajes con `db`, que es justo el mutante.
+    expect(selectMock).toHaveBeenCalledTimes(5);
+    // Y lo sellado es lo leído bajo bloqueo (un viaje), no lo de la previsualización (ninguno).
+    const liquidacion = espia.escritas.find((e) => e.tabla === 'flito_liquidaciones')!;
+    expect(liquidacion.datos.valorLogistica).toBe('50000');
+  });
+
+  it('sin viajes, `viajes` se escribe igual como array vacío y `totalViajes` 1', async () => {
+    encolar([]);
+    const espia = espiarSellado([], []);
+    transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(espia.tx));
+
+    await liquidar('t1', 1);
+
+    const liquidacion = espia.escritas.find((e) => e.tabla === 'flito_liquidaciones')!;
+    expect(liquidacion.datos.valorLogistica).toBe('15000');
+    expect((liquidacion.datos.detalle as Record<string, unknown>).logistica).toEqual({
+      valor: 15000, origen: 'Tarifa genérica', bloquea: false, tarifa: 15000, viajes: [], totalViajes: 1,
+    });
+  });
+});
+
+describe('salidasDe — la logística con viajes es UNA salida por la suma (AC7)', () => {
+  it('90.000 en tres viajes → una sola salida `logistica`, sin organismo, llave por trámite; ninguna por viaje (M-VL7)', async () => {
+    tarifaLogistica35();
+    encolarCalculo({}, [viaje(), VIAJE_MANUAL]);
+    const c = await calcular('t1');
+    const salidas = salidasDe(c, {
+      companiaId: 7, soatId: 's1', soatOrganismo: 'ORG', impuestoId: 'i1', impuestoOrganismo: 'ORG',
+      derechoId: 'd1', derechoOrganismo: 'ORG',
+    });
+
+    const logistica = salidas.filter((s) => s.concepto === 'logistica');
+    expect(logistica).toEqual([{ concepto: 'logistica', valor: 90000, organismoCodigo: null, llave: 'tramite:t1:logistica' }]);
+    expect(salidas.some((s) => s.concepto.includes('viaje') || s.llave.includes('viaje'))).toBe(false);
+    expect(salidas.filter((s) => s.valor === 35000)).toHaveLength(0);
+    expect(salidas.at(-1)).toEqual({ concepto: 'gmf', valor: c.valorGmf, organismoCodigo: null, llave: 'tramite:t1:gmf' });
+    expect(c.valorGmf).toBe(3760);
+  });
+});
+
+describe('leer una liquidación sellada — la logística sale del detalle y nunca de la tabla de viajes (AC9)', () => {
+  const base = {
+    id: 'l1', tramiteId: 't1', estado: 'liquidado', valorSoat: '450000', valorImpuesto: '120000',
+    valorDerecho: '80000', valorTramiteDigital: '200000', valorLogistica: '35000', valorServiciosAdicionales: null,
+    baseGmf: '885000', tasaGmf: '0.004', valorGmf: '3540', total: '888540',
+    liquidadoEn: new Date('2026-08-01T10:00:00Z'), facturadoEn: null,
+  };
+
+  it('sello anterior a esta HU (detalle.logistica sin `viajes`): valor de la columna, `viajes` y `totalViajes` null (M-VL8)', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([{ ...base, detalle: { logistica: { valor: 35000, origen: 'Tarifa genérica', bloquea: false } } }]))
+      .mockReturnValueOnce(chain([{ idFlit: 'FLIT-1' }]));
+    const dto = await liquidacionDe('t1');
+    expect(dto!.logistica).toEqual({
+      valor: 35000, origen: 'Tarifa genérica', bloquea: false, tarifa: null, viajes: null, totalViajes: null,
+    });
+  });
+
+  it('sello sin `detalle.logistica`: valor de la columna, origen «Sellado» y nulos', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([{ ...base, detalle: {} }]))
+      .mockReturnValueOnce(chain([{ idFlit: 'FLIT-1' }]));
+    const dto = await liquidacionDe('t1');
+    expect(dto!.logistica).toEqual({
+      valor: 35000, origen: 'Sellado', bloquea: false, tarifa: null, viajes: null, totalViajes: null,
+    });
+  });
+
+  it('sello de esta HU con `viajes: []`: se lee vacío y con `totalViajes` 1, sin confundirlo con «sin snapshot»', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([{
+        ...base,
+        detalle: { logistica: { valor: 35000, origen: 'Tarifa genérica', bloquea: false, tarifa: 35000, viajes: [], totalViajes: 1 } },
+      }]))
+      .mockReturnValueOnce(chain([{ idFlit: 'FLIT-1' }]));
+    const dto = await liquidacionDe('t1');
+    expect(dto!.logistica).toEqual({
+      valor: 35000, origen: 'Tarifa genérica', bloquea: false, tarifa: 35000, viajes: [], totalViajes: 1,
+    });
+  });
+
+  it('sello con desglose: devuelve los viajes congelados aunque la tabla viva haya cambiado, sin consultarla (M-VL9)', async () => {
+    const snapshot = [{
+      id: 'v-2', numero: 2, modo: 'inicial', valor: 35000, tarifaVigente: 35000, motivo: 'devolucion',
+      motivoDetalle: null, registradoPorNombre: 'Luis', registradoEn: '2026-09-10T14:00:00.000Z',
+    }];
+    selectMock
+      .mockReturnValueOnce(chain([{
+        ...base, valorLogistica: '70000',
+        detalle: { logistica: { valor: 70000, origen: 'Tarifa genérica + 1 viaje adicional', bloquea: false, tarifa: 35000, viajes: snapshot, totalViajes: 2 } },
+      }]))
+      .mockReturnValueOnce(chain([{ idFlit: 'FLIT-1' }]));
+    const dto = await liquidacionDe('t1');
+    expect(dto!.logistica.viajes).toEqual(snapshot);
+    expect(dto!.logistica.valor).toBe(70000);
+    expect(dto!.logistica.totalViajes).toBe(2);
+    // DOS consultas y ninguna más: la liquidación y el idFlit. Una tercera sería la tabla de viajes.
+    expect(selectMock).toHaveBeenCalledTimes(2);
   });
 });
