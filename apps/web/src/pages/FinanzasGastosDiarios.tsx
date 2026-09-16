@@ -3,8 +3,8 @@
 // estimado. Pantalla de LECTURA: no liquida, no exporta, no abre trámites; sin acción primaria.
 //
 // Manda el día del pago/evento, no la aprobación del trámite ni la liquidación: por eso puede no
-// coincidir con el Reporte de costos, y la ficha de Ayuda lo cuenta. La serie por día llega y no se
-// pinta: es de la gráfica (HU #12625), que ocupará el hueco de abajo.
+// coincidir con el Reporte de costos, y la ficha de Ayuda lo cuenta. La serie por día se pinta en
+// la gráfica de evolución diaria (HU #12625), debajo del total, con los mismos filtros.
 //
 // Orquesta como `FinanzasReporteCostos`: el estado vive en `useGastosDiarios`, lo que se pinta en
 // `components/finanzas/gastos-diarios/`.
@@ -19,7 +19,7 @@ import { FlitCard, FlitEmpty, flitBtnSecondary, flitBtnSecondaryStyle } from '..
 import FiltrosGastosDiarios from '../components/finanzas/gastos-diarios/FiltrosGastosDiarios';
 import TarjetaGasto from '../components/finanzas/gastos-diarios/TarjetaGasto';
 import TotalPeriodo from '../components/finanzas/gastos-diarios/TotalPeriodo';
-import HuecoGrafica from '../components/finanzas/gastos-diarios/HuecoGrafica';
+import GraficaGastosDiarios from '../components/finanzas/gastos-diarios/GraficaGastosDiarios';
 import SkeletonGastos from '../components/finanzas/gastos-diarios/SkeletonGastos';
 import { useGastosDiarios } from '../components/finanzas/gastos-diarios/useGastosDiarios';
 import {
@@ -127,7 +127,10 @@ export default function FinanzasGastosDiarios() {
         </>
       )}
 
-      <HuecoGrafica />
+      {/* La gráfica: skeleton con la carga (arriba), nada en error, «Sin gastos en el rango» en vacío. */}
+      {!g.cargando && !g.error && datos && (
+        <GraficaGastosDiarios datos={datos} tipos={g.filtros.tipos} onTipo={g.alternarTipo} vacio={vacio} />
+      )}
     </div>
   );
 }
