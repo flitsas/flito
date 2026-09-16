@@ -3,6 +3,7 @@
 // la página está al borde de `max-lines`.
 
 import type { DocumentosImpuesto, EstadoImpuesto } from '@operaciones/shared-types';
+import { pesos } from '../../lib/pesos';
 import type { CertificacionCola } from '../flit/CertificacionRunt';
 import StatusChip, { type ChipTone } from '../flit/StatusChip';
 
@@ -34,8 +35,9 @@ export interface ImpuestoItem {
 export const TONO_IMPUESTO: Record<EstadoImpuesto, ChipTone> = {
   pendiente: 'draft', solicitado: 'active', con_novedad: 'danger', pagado: 'success',
 };
-export const pesos = (v: number | string | null) => v === null ? '—'
-  : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Number(v));
+// `pesos` vive en `lib/pesos.ts` desde la HU #12620 (lo comparte la consola logística); se re-exporta
+// para quien ya lo importaba de aquí.
+export { pesos };
 export const fecha = (iso: string | null) => iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—';
 
 const CHIP_DOCUMENTOS: Record<DocumentosImpuesto, { texto: string; tono: ChipTone }> = {
