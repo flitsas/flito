@@ -31,6 +31,7 @@ export type ClaveAyuda =
   | 'flito_servicios_adicionales'
   | 'flito_conciliacion'
   | 'finanzas_reporte_costos'
+  | 'flito_comprobantes'
   | 'siigo_parametrizacion'
   | 'siigo_operacion'
   | 'siigo_credenciales'
@@ -77,6 +78,7 @@ export const CATALOGO_AYUDA: readonly EntradaAyuda[] = [
   { clave: 'flito_servicios_adicionales', grupo: 'finanzas', etiqueta: 'Servicios adicionales', resumen: 'Catálogo de servicios cobrados aparte del trámite y su valor.', to: '/flito/servicios-adicionales', permiso: 'flito_servicios_adicionales' },
   { clave: 'flito_conciliacion', grupo: 'finanzas', etiqueta: 'Conciliación', resumen: 'Cruce del recaudo SOAT contra lo emitido.', to: '/flito/conciliacion', permiso: 'flito_conciliacion' },
   { clave: 'finanzas_reporte_costos', grupo: 'finanzas', etiqueta: 'Reporte de costos', resumen: 'Costos por trámite para contabilidad y cobros.', to: '/finanzas/reporte-costos', permiso: 'finanzas_reporte_costos' },
+  { clave: 'flito_comprobantes', grupo: 'finanzas', etiqueta: 'Comprobantes', resumen: 'Cargue cualquier comprobante y revise lo que FLITO leyó.', to: '/flito/comprobantes', permiso: 'flito_comprobantes' },
   { clave: 'siigo_parametrizacion', grupo: 'finanzas', etiqueta: 'Facturación electrónica · Parametrización', resumen: 'Catálogos, mapeo de conceptos y emisión.', to: '/siigo/parametrizacion', permiso: 'siigo_parametrizacion' },
   { clave: 'siigo_operacion', grupo: 'finanzas', etiqueta: 'Facturación electrónica · Operación', resumen: 'Bandeja de facturas y acciones del día a día.', to: '/siigo/operacion', permiso: 'siigo_operacion' },
   { clave: 'siigo_credenciales', grupo: 'administracion', etiqueta: 'Facturación electrónica · Credenciales', resumen: 'Credenciales de la integración. Solo administración.' },
