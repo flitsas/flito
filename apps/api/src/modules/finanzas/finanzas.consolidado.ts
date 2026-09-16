@@ -126,7 +126,7 @@ const totalesEnCero = (): TotalesConsolidado => ({
 });
 
 /** Las sumas vienen de `numeric`; al sumarlas en JS se redondea a centavos como `subtotalesDe`. */
-const redondear = (v: number): number => Math.round(v * 100) / 100;
+export const redondear = (v: number): number => Math.round(v * 100) / 100;
 
 /**
  * Los grupos SQL (compañía, NIT, periodo) plegados a (cliente, periodo).

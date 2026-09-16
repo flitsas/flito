@@ -136,13 +136,13 @@ export interface ReporteCostos {
 // `vigenteEn` es la MISMA expresión que usa `tarifaDe()` en la compuerta: lo estimado es lo que se
 // sella (AC7). Sin parámetros: la referencia es columna + `now()`, no un literal.
 const td = alias(flitoTarifasVigencias, 'td');
-const lg = alias(flitoTarifasVigencias, 'lg');
+export const lg = alias(flitoTarifasVigencias, 'lg');
 
 const TIPO_NORM = sql`UPPER(TRIM(COALESCE(${flitoTramites.tipoTramite}, '')))`;
 
 const JOIN_TD = sql`${td.companiaId} = ${flitoTramites.companiaId} AND ${td.concepto} = 'tramite_digital'
   AND ${td.tipoTramite} = ${TIPO_NORM} AND ${vigenteEn(td, flitoTramites.fechaAprobacion)}`;
-const JOIN_LG = sql`${lg.companiaId} = ${flitoTramites.companiaId} AND ${lg.concepto} = 'logistica'
+export const JOIN_LG = sql`${lg.companiaId} = ${flitoTramites.companiaId} AND ${lg.concepto} = 'logistica'
   AND ${lg.tipoTramite} IS NULL AND ${vigenteEn(lg, flitoTramites.fechaAprobacion)}`;
 
 // ── Expresiones de valor. Sellada manda; si no, se estima. ───────────────────
@@ -175,7 +175,7 @@ const EXC_IMPUESTO = sql`COALESCE(${flitoImpuestos.excepcionAutogestion}, false)
 const EXC_LOGISTICA = sql`(${flitoExcepcionesAutogestion.id} IS NOT NULL)`;
 
 const GESTIONA_SOAT = sql`(NOT ${AUTO_SOAT} OR ${EXC_SOAT})`;
-const GESTIONA_LOGISTICA = sql`(NOT ${AUTO_LOGISTICA} OR ${EXC_LOGISTICA})`;
+export const GESTIONA_LOGISTICA = sql`(NOT ${AUTO_LOGISTICA} OR ${EXC_LOGISTICA})`;
 
 /**
  * RN-01 Impuestos, en SQL: es el espejo de `flitoGestionaImpuesto` de shared-types, que es la que
@@ -201,9 +201,14 @@ export const EXPR_DERECHO = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones
 export const EXPR_DIGITAL = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorTramiteDigital}
   ELSE ${td.valor} END`;
 
+// La rama SIN sellar de la logística, UNA instancia compartida por `EXPR_LOGISTICA` (reporte) y
+// `EXPR_LOGISTICA_ESTIMADA` (gastos diarios, HU #12623, RN-02). Saltos de línea del CASE original.
+const RAMAS_LOGISTICA_ESTIMADA = sql`WHEN NOT ${GESTIONA_LOGISTICA} THEN NULL
+  ELSE ${lg.valor}`;
 export const EXPR_LOGISTICA = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorLogistica}
-  WHEN NOT ${GESTIONA_LOGISTICA} THEN NULL
-  ELSE ${lg.valor} END`;
+  ${RAMAS_LOGISTICA_ESTIMADA} END`;
+/** La logística estimada a secas (sin mirar la liquidación): exige los joins `clients`, `JOIN_EXC_LOGISTICA` y `JOIN_LG`. */
+export const EXPR_LOGISTICA_ESTIMADA = sql`CASE ${RAMAS_LOGISTICA_ESTIMADA} END`;
 
 // Base del 4x1000: el total de los cinco conceptos del trámite. El GMF se calcula sobre esa suma y
 // se añade encima, así que el total final es la base más su propio gravamen.
@@ -335,6 +340,13 @@ export function condiciones(f: FiltrosReporte): SQL[] {
   return conds;
 }
 
+/** La excepción de logística VIGENTE del trámite (la condición del `leftJoin` de `conJoins`, compartida con el dashboard). */
+export const JOIN_EXC_LOGISTICA = and(
+  eq(flitoExcepcionesAutogestion.tramiteId, flitoTramites.id),
+  eq(flitoExcepcionesAutogestion.concepto, 'logistica'),
+  isNull(flitoExcepcionesAutogestion.revocadoEn),
+)!;
+
 /**
  * Todos los joins del reporte, en un solo sitio. Los comparten la página, el conteo, los totales y
  * la exportación: si el conteo y la página no llevan exactamente los mismos joins, el total y las
@@ -357,11 +369,7 @@ export function conJoins<Q extends PgSelect>(q: Q) {
     // Desbloqueo excepcional VIGENTE de la logística (HU #10980). SOAT e impuesto llevan su marca en
     // el propio registro; la logística no tiene registro donde marcarla. El índice parcial impide
     // dos excepciones vivas del mismo concepto, así que no multiplica filas.
-    .leftJoin(flitoExcepcionesAutogestion, and(
-      eq(flitoExcepcionesAutogestion.tramiteId, flitoTramites.id),
-      eq(flitoExcepcionesAutogestion.concepto, 'logistica'),
-      isNull(flitoExcepcionesAutogestion.revocadoEn),
-    ))
+    .leftJoin(flitoExcepcionesAutogestion, JOIN_EXC_LOGISTICA)
     .leftJoin(td, JOIN_TD)
     .leftJoin(lg, JOIN_LG)
     // El alias del organismo (HU #12432). `codigo` es la PK, así que no multiplica filas; LEFT

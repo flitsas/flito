@@ -36,6 +36,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0186_permisos_roles_mantenimiento.sql',
   '0187_pagina_roles_permisos.sql',
   '0190_users_baja_logica.sql',
+  '0200_pagina_finanzas_gastos_diarios.sql',
   '0203_permiso_excel_exportar_pago.sql',
   '0205_permisos_reagrupar_modulos.sql',
 ] as const;

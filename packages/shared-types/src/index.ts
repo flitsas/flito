@@ -120,3 +120,6 @@ export * from './permisos-auditoria.js';
 // Mantenimiento de roles y cuadro rol × función (HU #12084): tipos de enlace y principal, la fila
 // del listado de roles (con `borrable`/`motivoNoBorrable`) y las respuestas del cuadro.
 export * from './permisos-roles.js';
+// Gastos diarios de Finanzas (HU #12623): serie por día del evento y totales por categoría con GMF
+// estimado; contrato del `GET /api/finanzas/gastos-diarios` y los topes del rango.
+export * from './flito-gastos-diarios.js';
