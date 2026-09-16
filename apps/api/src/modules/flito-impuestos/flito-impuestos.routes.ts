@@ -28,8 +28,8 @@ import { db } from '../../db/client.js';
 import { flitoGestorOrganismos } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
 import {
-  CARGA_MASIVA_ARCHIVOS_POR_PETICION, CARGA_MASIVA_MAX_BYTES_ARCHIVO, EstadoImpuesto, ResultadoCertificacion,
-  TipoSoporteZip,
+  CARGA_MASIVA_ARCHIVOS_POR_PETICION, CARGA_MASIVA_MAX_BYTES_ARCHIVO, EstadoImpuesto, FASES_RECIBO, FaseRecibo,
+  ResultadoCertificacion, TipoSoporteZip,
 } from '@operaciones/shared-types';
 import { ImpuestoError, type ArchivoSubido, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import { certificacionVigenteConAcceso, certificarImpuesto, certificarLote } from './certificacion.service.js';
@@ -145,9 +145,10 @@ router.get('/:id/factura-venta', exigirFuncion('impuestos.factura.ver'), async (
  * creyendo que pidió lo que marcó.
  *
  * **`recibo_impuesto` NO es un alias de la columna `tipo`**: resuelve a
- * `recibo_impuesto_sin_marca_agua` con caída a `recibo_impuesto` (ver `soportes-zip.ts`). Hoy el
- * único productor es `flito-recibos.service.ts`, que escribe siempre el marcado, así que **el camino
- * real es la caída** — la preferencia está para cuando el limpio exista.
+ * `recibo_impuesto_sin_marca_agua` (la liquidación del impuesto, sin marca) con caída a
+ * `recibo_impuesto` (el pago con marca); ver `soportes-zip.ts`. Desde la HU #12590 el productor,
+ * `flito-recibos.service.ts`, escribe los dos con el literal del catálogo, así que la preferencia
+ * por el limpio se cumple cuando la liquidación se cargó y la caída cubre al resto.
  *
  * ── La función: `impuestos.soportes.descargar` (admin + gestor de partida), no la de ver ─────────
  *
@@ -260,6 +261,8 @@ router.get('/', exigirFuncion('impuestos.cola.ver'), async (req: Request, res: R
     // pantalla, el usuario no podría estar viendo lo que se descarga.
     creadoDesde: fecha(req.query.creadoDesde), creadoHasta: fecha(req.query.creadoHasta),
     estancado: req.query.estancado === 'si',
+    // HU #12590: liquidado y pendiente de pago con marca. Booleano en texto, como el resto.
+    liquidadoPendientePago: req.query.liquidadoPendientePago === 'true',
     page: Number(req.query.page) || 1,
     pageSize: Number(req.query.pageSize) || 50,
   });
@@ -310,6 +313,7 @@ const colaFiltrosCampos = z.object({
   pagadoDesde: fechaSchema.optional(), pagadoHasta: fechaSchema.optional(),
   creadoDesde: fechaSchema.optional(), creadoHasta: fechaSchema.optional(),
   estancado: z.boolean().optional(),
+  liquidadoPendientePago: z.boolean().optional(),
   page: z.number().int().positive().optional(),
   pageSize: z.number().int().positive().optional(),
   cursor: z.string().optional(),
@@ -663,9 +667,12 @@ router.post('/:id/reversar', exigirFuncion('impuestos.tramite.reversar'), async 
   } catch (e) { handleError(res, e); }
 });
 
-// POST /recibos — carga MASIVA de recibos de pago → Pagado (con/sin marca de agua). Operaciones o
-// gestor. `sinMarcaDeAgua` (campo del form) es el defecto para archivos sueltos; en ZIP la copia se
-// deduce de la carpeta.
+// POST /recibos — carga MASIVA de recibos por fase (HU #12590). Operaciones o gestor. `fase` (campo
+// del form: 'liquidacion' | 'pago') es la fase por defecto para archivos sueltos; en ZIP se deduce
+// de la carpeta. La liquidación del impuesto deja `liquidado_en` sobre el `solicitado`; el pago con
+// marca es la única vía a Pagado. `sinMarcaDeAgua` ('true' = liquidación) se sigue aceptando por
+// compatibilidad con el navegador de hoy; si viene `fase`, manda `fase`. Un valor de `fase` fuera
+// del catálogo es 400 ANTES de resolver el contexto o de llamar al OCR.
 //
 // `rutas` (HU #12056) es OPCIONAL: cuando el navegador abre el ZIP y manda las entradas por tandas,
 // viaja un valor de texto por archivo, en el mismo orden, con la ruta relativa dentro del ZIP
@@ -674,13 +681,16 @@ router.post('/:id/reversar', exigirFuncion('impuestos.tramite.reversar'), async 
 router.post('/recibos', exigirFuncion('impuestos.recibos.cargar'), upload.array('archivos', CARGA_MASIVA_ARCHIVOS_POR_PETICION), async (req: Request, res: Response) => {
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (files.length === 0) { res.status(400).json({ error: 'No se adjuntó ningún archivo' }); return; }
-  const sinMarca = req.body?.sinMarcaDeAgua === 'true' || req.body?.sinMarcaDeAgua === true;
-  // Texto del cliente: solo decide con/sin marca. No nombra el archivo ni la llave de storage.
+  const faseCruda = typeof req.body?.fase === 'string' && req.body.fase !== '' ? req.body.fase : undefined;
+  const fase: string = faseCruda
+    ?? (req.body?.sinMarcaDeAgua === 'true' || req.body?.sinMarcaDeAgua === true ? FaseRecibo.LIQUIDACION : FaseRecibo.PAGO);
+  if (!(FASES_RECIBO as readonly string[]).includes(fase)) { res.status(400).json({ error: "fase inválida: 'liquidacion' | 'pago'" }); return; }
+  // Texto del cliente: solo decide la fase. No nombra el archivo ni la llave de storage.
   const rutas = normalizarRutas(req.body?.rutas);
   try {
     const ctx = await contextoImpuesto(req.user!);
-    const resultado = await cargarRecibos(files.map(aArchivo), sinMarca, ctx, rutas);
-    await audit(req, { action: 'upload', resource: 'flito_impuesto', detail: `Carga masiva recibos: ${resultado.conciliados.length} conciliados, ${resultado.enRevision.length} en revisión, ${resultado.complementos.length} complementos, ${resultado.duplicados.length} duplicados, ${resultado.noAsociados.length} sin asociar` });
+    const resultado = await cargarRecibos(files.map(aArchivo), fase as FaseRecibo, ctx, rutas);
+    await audit(req, { action: 'upload', resource: 'flito_impuesto', detail: `Carga masiva recibos (fase ${fase}): ${resultado.liquidados.length} liquidados, ${resultado.conciliados.length} conciliados, ${resultado.enRevision.length} en revisión, ${resultado.complementos.length} complementos, ${resultado.duplicados.length} duplicados, ${resultado.noAsociados.length} sin asociar` });
     res.json(resultado);
   } catch (e) { handleError(res, e); }
 });

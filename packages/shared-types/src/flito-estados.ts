@@ -280,6 +280,30 @@ export const TipoSoporte = {
 export type TipoSoporte = (typeof TipoSoporte)[keyof typeof TipoSoporte];
 
 /**
+ * HU #12590 — Fase con la que se carga un recibo de impuestos. La declara quien carga (o la carpeta
+ * del ZIP); NUNCA se infiere por la marca de agua del documento.
+ *
+ *   · `LIQUIDACION`: la liquidación del impuesto, el documento de la hacienda SIN marca. Deja el
+ *     impuesto `solicitado` con la marca `liquidado_en` y el valor liquidado. No es la «Liquidación»
+ *     de FLITO (el total a cobrar).
+ *   · `PAGO`: el mismo documento con el sello PAGADO. Es la única vía a `pagado`.
+ */
+export const FaseRecibo = {
+  LIQUIDACION: 'liquidacion',
+  PAGO: 'pago',
+} as const;
+
+export type FaseRecibo = (typeof FaseRecibo)[keyof typeof FaseRecibo];
+
+export const FASES_RECIBO: readonly FaseRecibo[] = [FaseRecibo.LIQUIDACION, FaseRecibo.PAGO];
+
+/**
+ * Qué documentos de la hacienda tiene un impuesto, derivado de los tipos de soporte presentes
+ * (`RECIBO_IMPUESTO_SIN_MARCA_AGUA` → liquidación; `RECIBO_IMPUESTO` → pago). `null` = ninguno.
+ */
+export type DocumentosImpuesto = 'liquidacion' | 'pago' | 'ambos';
+
+/**
  * Los tipos de documento que se pueden pedir en el ZIP de soportes (Feature #11908, HU #11910).
  *
  * ── Por qué es un catálogo NUEVO y no un subconjunto de `TipoSoporte` ────────────────────────────
