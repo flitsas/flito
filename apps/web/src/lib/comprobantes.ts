@@ -8,7 +8,7 @@
 import {
   ASOCIACIONES_COMPROBANTE, CAMPO_COMPROBANTE_LABEL, CAMPO_DERECHO_TRAMITE_LABEL, CAMPO_IMPUESTO_LABEL, CAMPO_SOAT_LABEL,
   CARGA_MASIVA_ARCHIVOS_POR_PETICION, MOTIVO_PENDIENTE_COMPROBANTE_LABEL, partirCargaMasivaEnTandas,
-  type AdmisionConcepto, type AplicarComprobanteBody, type AsociacionComprobante, type CampoComprobanteDto, type CandidatoTramiteDto,
+  type AceptarDiferenciaBody, type AdmisionConcepto, type AplicarComprobanteBody, type AsociacionComprobante, type CampoComprobanteDto, type CandidatoTramiteDto,
   type ComprobanteDetalleDto, type ComprobanteListaDto, type ErrorComprobanteDto, type EstadoComprobante, type ResultadoAplicarComprobanteDto,
   type ResultadoCargaComprobantes,
 } from '@operaciones/shared-types';
@@ -237,6 +237,18 @@ export const aplicarComprobante = (id: string, body: AplicarComprobanteBody) =>
 
 export const descartarComprobante = (id: string, motivo: string) =>
   api.post<{ ok: true }>(`${RUTA_COMPROBANTES}/${id}/descartar`, { motivo });
+
+/**
+ * Deja constancia de que la diferencia documental de UN comprobante es correcta (HU #12654 → #12655).
+ * No toca el valor ni el sello: el servidor solo firma quién, cuándo y por qué. Los textos que la
+ * acompañan (chips, botón, modal, aviso) están en `lib/diferenciaDocumental.ts`.
+ */
+export const aceptarDiferencia = (id: string, motivo: string) =>
+  api.post<{ ok: true }>(`${RUTA_COMPROBANTES}/${id}/diferencia/aceptar`, { motivo } satisfies AceptarDiferenciaBody);
+export {
+  avisoAceptadas, MOTIVO_DIFERENCIA_MAX, MOTIVO_DIFERENCIA_MIN, motivoDiferenciaValido, nombreAccesibleAceptar,
+  ROTULO_ACEPTAR, textoDiferencia, textoOrigen,
+} from './diferenciaDocumental';
 
 /** El cuerpo `{ error, codigo, … }` de un error del módulo, o `null` si no es un `ApiError` con `codigo`. La pantalla decide por `codigo`, nunca por texto. */
 export function errorComprobante(e: unknown): (ErrorComprobanteDto & { status: number }) | null {

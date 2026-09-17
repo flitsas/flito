@@ -4,9 +4,19 @@
 // `finanzas.service.ts` y `ConsolidadoReporte` en `finanzas.consolidado.ts`). La pantalla NO
 // calcula nada con ellos: reintegro, servicio, mes, trimestre y el consolidado llegan hechos.
 
-import type { SiigoEstadoReporte } from '@operaciones/shared-types';
+import type { SiigoEstadoReporte, ValoresDocumentalesDeFila } from '@operaciones/shared-types';
 
-export interface Fila {
+// Los textos del origen y de la diferencia documental viven en `lib/diferenciaDocumental.ts` (puro,
+// con `node --test`); la tabla y el diálogo los toman de ahí. Se reexportan para quien llega por aquí.
+export { textoDiferencia, textoOrigen } from '../../lib/diferenciaDocumental';
+
+/**
+ * Desde la HU #12653 cada fila trae `origenes` (de dónde salió el trámite digital y la logística:
+ * documento o tarifa) y `valorDocumental` (el comprobante aplicado contra la tarifa o el catálogo,
+ * con su diferencia y, si la hay, su aceptación). La pantalla los PINTA (HU #12655); no recalcula
+ * ninguna diferencia.
+ */
+export interface Fila extends ValoresDocumentalesDeFila {
   tramiteId: string; idFlit: string; placa: string | null; estado: string | null; empresa: string | null;
   vin: string | null; marca: string | null; linea: string | null;
   tipoTramite: string | null; fechaAprobacion: string | null; fechaCreacion: string | null;
@@ -227,5 +237,7 @@ export interface FiltrosDetalle {
   buscar: string; empresa: string; tipo: string; etapa: Etapa;
   desde: string; hasta: string; aprobadoDesde: string; aprobadoHasta: string;
   estados: string[]; organismos: string[]; docCompleta: boolean;
+  /** Solo trámites con al menos una diferencia documental SIN aceptar (HU #12655). Viaja como `conDiferencias=si`. */
+  conDiferencias: boolean;
   tipoPeriodo: TipoPeriodo;
 }

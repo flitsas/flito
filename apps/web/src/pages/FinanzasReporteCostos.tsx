@@ -15,6 +15,7 @@ import PageHeaderCard from '../components/flit/PageHeaderCard';
 import VisorSoportes from '../components/flit/VisorSoportes';
 import PanelServiciosAdicionales from '../components/finanzas/PanelServiciosAdicionales';
 import PanelViajesLogistica from '../components/finanzas/PanelViajesLogistica';
+import DialogoAceptarDiferencia from '../components/finanzas/DialogoAceptarDiferencia';
 import ContadoresFacturacion from '../components/finanzas/ContadoresFacturacion';
 import DetalleFacturacion from '../components/finanzas/DetalleFacturacion';
 import TarjetaEnvioFacturacion from '../components/finanzas/TarjetaEnvioFacturacion';
@@ -35,6 +36,7 @@ import {
 import {
   type MotivoElegibilidad, type SiigoEnvioTramite, type SiigoEstadoReporte, type SiigoResumenEnvio,
 } from '@operaciones/shared-types';
+import { VACIO_CON_DIFERENCIAS } from '../lib/diferenciaDocumental';
 import {
   FlitCard, FlitEmpty, FlitPillGroup, FlitPillButton,
   flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -53,13 +55,13 @@ function filtrosIniciales(): FiltrosDetalle {
   return {
     buscar: '', empresa: '', tipo: '', etapa: '', desde: '', hasta: '',
     aprobadoDesde: r.desde, aprobadoHasta: r.hasta,
-    estados: [ESTADO_POR_DEFECTO], organismos: [], docCompleta: false, tipoPeriodo: 'mes',
+    estados: [ESTADO_POR_DEFECTO], organismos: [], docCompleta: false, conDiferencias: false, tipoPeriodo: 'mes',
   };
 }
 
 const claveDe = (f: FiltrosDetalle) => [
   f.buscar, f.empresa, f.tipo, f.etapa, f.desde, f.hasta, f.aprobadoDesde, f.aprobadoHasta,
-  f.estados.join(','), f.organismos.join(','), f.docCompleta, f.tipoPeriodo,
+  f.estados.join(','), f.organismos.join(','), f.docCompleta, f.conDiferencias, f.tipoPeriodo,
 ].join('|');
 
 export default function FinanzasReporteCostos() {
@@ -76,6 +78,9 @@ export default function FinanzasReporteCostos() {
   const puedeVerServicios = hasFuncion('finanzas.servicios_adicionales.ver');
   const puedeAsignarServicios = hasFuncion('finanzas.servicios_adicionales.asignar');
   const puedeQuitarServicios = hasFuncion('finanzas.servicios_adicionales.quitar');
+  // «Aceptar diferencia» (HU #12655): la 0202 la sembró a admin y financiera. Sin ella el chip de la
+  // celda queda informativo y el botón de la fila no se pinta.
+  const puedeAceptarDiferencia = hasFuncion('comprobantes.diferencia.aceptar');
 
   const [data, setData] = useState<Reporte | null>(null);
   const [facetas, setFacetas] = useState<Facetas | null>(null);
@@ -89,6 +94,8 @@ export default function FinanzasReporteCostos() {
   const [serviciosDe, setServiciosDe] = useState<Fila | null>(null);
   /** El panel de viajes de logística (HU #12628), gemelo de `serviciosDe`. */
   const [viajesDe, setViajesDe] = useState<Fila | null>(null);
+  /** La fila cuyo modal «Aceptar diferencia» está abierto (HU #12655). */
+  const [diferenciaDe, setDiferenciaDe] = useState<Fila | null>(null);
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
 
   // Facturación electrónica (HU #11337). Se carga aparte del reporte a propósito: si un fallo del
@@ -121,14 +128,26 @@ export default function FinanzasReporteCostos() {
    */
   const tituloRef = useRef<HTMLHeadingElement>(null);
 
-  const [filtros, setFiltros] = useState<FiltrosDetalle>(filtrosIniciales);
+  // La vista va en la URL (`?vista=consolidado`) para que un enlace del cierre de mes abra donde
+  // toca. Sin página ni permiso nuevos: es la misma pantalla plegada. «Con diferencias» también
+  // (`?conDiferencias=si`, HU #12655 AC4): un enlace a «lo que queda por aceptar» abre con la
+  // casilla puesta. Es un booleano: ningún id en la URL.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [filtros, setFiltros] = useState<FiltrosDetalle>(() => ({
+    ...filtrosIniciales(), conDiferencias: searchParams.get('conDiferencias') === 'si',
+  }));
   const [page, setPage] = useState(1);
   const claveFiltros = claveDe(filtros);
   const cambiarFiltros = (parche: Partial<FiltrosDetalle>) => setFiltros((f) => ({ ...f, ...parche }));
-
-  // La vista va en la URL (`?vista=consolidado`) para que un enlace del cierre de mes abra donde
-  // toca. Sin página ni permiso nuevos: es la misma pantalla plegada.
-  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if ((searchParams.get('conDiferencias') === 'si') === filtros.conDiferencias) return;
+    setSearchParams((p) => {
+      const n = new URLSearchParams(p);
+      if (filtros.conDiferencias) n.set('conDiferencias', 'si'); else n.delete('conDiferencias');
+      return n;
+    }, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtros.conDiferencias]);
   const vista: Vista = searchParams.get('vista') === 'consolidado' ? 'consolidado' : 'detalle';
   const cambiarVista = (v: Vista) => {
     if (v === vista) return;
@@ -483,17 +502,21 @@ export default function FinanzasReporteCostos() {
             />
           )}
 
-          {data && filas.length === 0 && <FlitCard><FlitEmpty>No hay trámites que coincidan con los filtros.</FlitEmpty></FlitCard>}
+          {/* Con «Con diferencias» puesta el vacío dice qué desmarcar; el genérico sigue para el resto. */}
+          {data && filas.length === 0 && (
+            <FlitCard><FlitEmpty>{filtros.conDiferencias ? VACIO_CON_DIFERENCIAS : 'No hay trámites que coincidan con los filtros.'}</FlitEmpty></FlitCard>
+          )}
 
           {data && filas.length > 0 && (
             <FlitCard>
               <TablaReporteCostos data={data} puedeLiquidar={puedeLiquidar} puedeReversar={puedeReversar} enProceso={enProceso}
-                puedeVerServicios={puedeVerServicios}
+                puedeVerServicios={puedeVerServicios} puedeAceptarDiferencia={puedeAceptarDiferencia}
                 seleccion={seleccion} onSeleccion={setSeleccion} accionable={accionable}
                 fichasFe={fichasFe} estadoFeDe={estadoFeDe} onAbrirDetalle={setDetalleDe}
                 onLiquidar={liquidarUno} onFacturar={facturarUno} onReversar={reversarUno} onSoportes={setSoportesDe}
                 onServicios={setServiciosDe}
                 onViajes={setViajesDe}
+                onAceptarDiferencia={setDiferenciaDe}
                 anunciar={setAnuncio}
                 // Va al final de la celda: el orden de foco es Soporte → Enviar → ¿Por qué no?, la
                 // acción antes que su explicación.
@@ -556,6 +579,19 @@ export default function FinanzasReporteCostos() {
           placa={viajesDe.placa}
           onClose={() => setViajesDe(null)}
           onActualizar={refrescar}
+          restoreFocusRef={tituloRef}
+        />
+      )}
+
+      {/* Aceptar es constancia, no dinero: al 200 se avisa y se REFRESCA (no `ejecutar()`: la
+          selección de liquidación sigue). El botón de la fila desaparece con los datos nuevos, así
+          que el foco vuelve al título por `restoreFocusRef`. */}
+      {diferenciaDe && (
+        <DialogoAceptarDiferencia
+          fila={diferenciaDe}
+          onCerrar={() => setDiferenciaDe(null)}
+          onHecho={(texto) => { setDiferenciaDe(null); setError(null); setAviso(texto); refrescar(); }}
+          onDesactualizado={refrescar}
           restoreFocusRef={tituloRef}
         />
       )}
