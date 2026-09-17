@@ -42,7 +42,7 @@ describe('HU #12631 AC4 — flito-comprobantes.expr.ts', () => {
     expect(expr.esHonorario('soat' as never)).toBe(false);
   });
 
-  it('es un leaf: no importa nada de finanzas/ ni de flito-liquidacion/; finanzas/ lo importa SOLO desde valores-documentales y el service (HU #12653, F3); flito-liquidacion/ todavía no (HU #12654)', () => {
+  it('es un leaf: no importa nada de finanzas/ ni de flito-liquidacion/; finanzas/ lo importa SOLO desde valores-documentales y el service (HU #12653, F3); flito-liquidacion/ SOLO desde su service (HU #12654)', () => {
     const fuente = readFileSync(resolve(RAIZ, 'flito-comprobantes/flito-comprobantes.expr.ts'), 'utf8');
     const imports = [...fuente.matchAll(/from '([^']+)'/g)].map((m) => m[1]!);
     expect(imports.length).toBeGreaterThan(0);
@@ -61,13 +61,20 @@ describe('HU #12631 AC4 — flito-comprobantes.expr.ts', () => {
       if (!PUEDEN.includes(f)) expect(texto, `finanzas/${f}`).not.toMatch(/flito-comprobantes\.expr|flito_comprobantes|flitoComprobantes/);
     }
     expect(importanElLeaf.sort()).toEqual(PUEDEN.sort());
-    // flito-liquidacion/: sigue sin tocarlo (eso es la HU #12654).
+    // flito-liquidacion/: la HU #12654 lo conecta por UN archivo (el service) y solo por el leaf: la
+    // tabla se nombra ahí únicamente como columna de `documental(...)`, nunca con join ni filtro propio.
+    const importanEnLiquidacion: string[] = [];
     for (const f of readdirSync(resolve(RAIZ, 'flito-liquidacion'))) {
       if (!f.endsWith('.ts')) continue;
       const texto = readFileSync(resolve(RAIZ, 'flito-liquidacion', f), 'utf8');
-      expect(texto, `flito-liquidacion/${f}`).not.toMatch(/flito-comprobantes\.expr/);
-      expect(texto, `flito-liquidacion/${f}`).not.toMatch(/flito_comprobantes|flitoComprobantes/);
+      if (/flito-comprobantes\.expr/.test(texto)) importanEnLiquidacion.push(f);
+      if (f !== 'flito-liquidacion.service.ts') expect(texto, `flito-liquidacion/${f}`).not.toMatch(/flito-comprobantes\.expr|flito_comprobantes|flitoComprobantes/);
+      else {
+        expect(texto).not.toMatch(/(leftJoin|innerJoin)\(flitoComprobantes/);
+        expect(texto).not.toMatch(/flitoComprobantes\.(estado|esPago)/);
+      }
     }
+    expect(importanEnLiquidacion).toEqual(['flito-liquidacion.service.ts']);
   });
 
   it('HU #12653: exporta la fábrica documental() y documentalAceptadaPorNombre() con la MISMA correlación que EXPR_DOC_*, sin parámetros; no existe EXPR_DOC_SA', () => {

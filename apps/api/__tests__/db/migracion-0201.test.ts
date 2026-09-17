@@ -110,9 +110,11 @@ describe('0201 — análisis estático', () => {
     }
   });
 
-  it('los cardinales del catálogo: 8 operaciones de comprobantes (5 de la 0198 + 3), y las 8 llaves del fichero de rutas', () => {
-    expect(catalogoCompleto().filter((c) => c.tipo === 'operacion' && c.modulo === 'comprobantes')).toHaveLength(8);
-    expect(OPERACIONES_DECLARADAS.filter((o) => o.llave.startsWith('flito-comprobantes/flito-comprobantes.routes.ts '))).toHaveLength(8);
+  it('los cardinales del catálogo: 9 operaciones de comprobantes (5 de la 0198 + 3 + 1 de la 0202, HU #12654), y las 9 llaves del fichero de rutas', () => {
+    // 8 → 9 desde la HU #12654 (F3 #12607: aceptar diferencia). Las tres de ESTA migración siguen siendo las de `OPS`.
+    expect(catalogoCompleto().filter((c) => c.tipo === 'operacion' && c.modulo === 'comprobantes')).toHaveLength(9);
+    expect(OPERACIONES_DECLARADAS.filter((o) => o.llave.startsWith('flito-comprobantes/flito-comprobantes.routes.ts '))).toHaveLength(9);
+    for (const codigo of OPS) expect(OPERACIONES_DECLARADAS.find((o) => o.codigo === codigo), codigo).toBeDefined();
   });
 
   it('no retira nada y el helper de paridad la lee después de la 0199; plegado, admin y financiera sí y auditor no', () => {
@@ -120,7 +122,8 @@ describe('0201 — análisis estático', () => {
     expect(retiros.funciones.size).toBe(0);
     expect(retiros.reparto.size).toBe(0);
     expect(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO)).toBeGreaterThan(MIGRACIONES_CON_REPARTO.indexOf('0199_tramite_viajes_logistica.sql'));
-    expect(MIGRACIONES_CON_REPARTO.at(-1)).toBe(ARCHIVO);
+    // Ya no es la última: la 0202 (HU #12654) va detrás. Se afirma la posición relativa, no el tip.
+    expect(MIGRACIONES_CON_REPARTO.indexOf('0202_comprobantes_diferencia.sql')).toBe(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO) + 1);
     const total = leerRepartoSembrado();
     for (const codigo of OPS) {
       expect(total.get('admin')!.has(codigo)).toBe(true);

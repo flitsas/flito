@@ -751,25 +751,30 @@ describe('HU #12630 — POST /:id/aplicar con esPago=true: SOAT / impuesto / der
   });
 
   // ── AC5 · valor como copia acotada ──
-  it('AC5 — la copia es acotada: flito-liquidacion/ no lee flito_comprobantes, y finanzas/ solo por el leaf expr.ts desde valores-documentales y el service (HU #12653, F3)', async () => {
+  it('AC5 — la copia es acotada: flito-liquidacion/ (HU #12654) y finanzas/ (HU #12653) leen flito_comprobantes SOLO por el leaf expr.ts, desde el service de liquidación y desde valores-documentales + el service de finanzas', async () => {
     const { readdirSync, readFileSync, statSync } = await import('node:fs');
     const { join, basename } = await import('node:path');
     const archivos = (dir: string): string[] => readdirSync(dir).flatMap((n) => { const p = join(dir, n); return statSync(p).isDirectory() ? archivos(p) : p.endsWith('.ts') ? [p] : []; });
     const raiz = join(process.cwd(), 'src/modules');
-    // La liquidación sigue vallada: la HU #12654 es quien la conecta.
-    const liquidacion = archivos(join(raiz, 'flito-liquidacion'));
-    expect(liquidacion.length).toBeGreaterThan(0);
-    for (const f of liquidacion) expect(readFileSync(f, 'utf8'), f).not.toMatch(/flito[-_]comprobantes/);
-    // El reporte de costos entra por DOS archivos y solo a través del leaf `flito-comprobantes.expr`
-    // (subconsultas escalares): ningún otro archivo de finanzas/ nombra la tabla ni el módulo.
-    const PUEDEN = ['finanzas.valores-documentales.ts', 'finanzas.service.ts'];
-    for (const f of archivos(join(raiz, 'finanzas'))) {
-      const texto = readFileSync(f, 'utf8');
-      if (PUEDEN.includes(basename(f))) {
-        expect(texto, f).toMatch(/flito-comprobantes\/flito-comprobantes\.expr\.js/);
-        expect(texto, f).not.toMatch(/flito-comprobantes\.(service|aplicar|carga|auto|routes)/);
-      } else {
-        expect(texto, f).not.toMatch(/flito[-_]comprobantes/);
+    // Cada módulo entra por archivos NOMBRADOS y solo a través del leaf `flito-comprobantes.expr`
+    // (subconsultas escalares; sin join, sin filtro propio por estado/es_pago): ningún otro archivo
+    // nombra la tabla ni el módulo. La liquidación se conectó en la HU #12654 (un solo archivo).
+    const PUEDEN: Record<string, string[]> = {
+      'flito-liquidacion': ['flito-liquidacion.service.ts'],
+      finanzas: ['finanzas.valores-documentales.ts', 'finanzas.service.ts'],
+    };
+    for (const [modulo, permitidos] of Object.entries(PUEDEN)) {
+      const lista = archivos(join(raiz, modulo));
+      expect(lista.length).toBeGreaterThan(0);
+      for (const f of lista) {
+        const texto = readFileSync(f, 'utf8');
+        if (permitidos.includes(basename(f))) {
+          expect(texto, f).toMatch(/flito-comprobantes\/flito-comprobantes\.expr\.js/);
+          expect(texto, f).not.toMatch(/flito-comprobantes\.(service|aplicar|carga|auto|routes|honorarios|duenos)/);
+          expect(texto, f).not.toMatch(/(leftJoin|innerJoin)\(flitoComprobantes/);
+        } else {
+          expect(texto, f).not.toMatch(/flito[-_]comprobantes/);
+        }
       }
     }
   });
@@ -1128,5 +1133,124 @@ describe('AC9 — :id no-UUID → 404; motivo como enum; limitador delante de mu
     const nombres = capa.stack.map((s) => s.name);
     expect(nombres.indexOf('recibirArchivos')).toBeGreaterThan(0);
     expect(nombres.slice(0, nombres.indexOf('recibirArchivos'))).toHaveLength(2); // exigirFuncion + el limitador
+  });
+});
+
+// ═════════════════ HU #12654 · POST /:id/diferencia/aceptar (AC6) ═════════════════════════════════
+//
+// Aceptar la diferencia es CONSTANCIA, no dinero: escribe SOLO `diferencia_aceptada_por_id/en/motivo`
+// en la fila del comprobante dentro de una tx con `FOR UPDATE` del comprobante; no toca valor, tarifa
+// de referencia, diferencia ni marca; no lee ni escribe `flito_liquidaciones` (se permite con el
+// trámite sellado) ni bloquea el trámite.
+//
+// Mutantes nombrados:
+//   · AC6-M1 aceptar sin comprobar `marcado_por_diferencia` → «sin marca ⇒ 409» cae.
+//   · AC6-M2 segunda aceptación devolviendo 200 → «ya aceptada ⇒ 409» cae (fuera y bajo el bloqueo).
+//   · AC6-M3 ruta sin `exigirFuncion('comprobantes.diferencia.aceptar')` → «auditor → 403» y el cierre
+//     de reconducción (260 montajes) caen.
+//   · AC6-M4 quitar el `.for('update')` de la relectura → «tx + FOR UPDATE sobre flito_comprobantes» cae.
+//   · AC6-M5 escribir `valor`/`diferenciaTarifa`/`marcadoPorDiferencia` en el UPDATE → «no toca valor…» cae.
+//   · AC4-M  leer `flito_liquidaciones` o bloquear el trámite para rechazar el sellado → «sellada no cambia» cae.
+
+describe('HU #12654 — POST /:id/diferencia/aceptar', () => {
+  const pendiente = (over: Record<string, unknown> = {}) => ({ estado: 'aplicado', esPago: true, marcadoPorDiferencia: true, diferenciaAceptadaEn: null, ...over });
+  const MOTIVO = 'Pactado con el cliente por correo';
+  const aceptar = async (app: express.Express, body: unknown, role: 'admin' | 'financiera' | 'auditor' = 'financiera') =>
+    request(app).post(`${BASE}/${ID}/diferencia/aceptar`).set('Authorization', await auth(role)).send(body);
+
+  it('exige comprobantes.diferencia.aceptar (auditor → 403; admin y financiera la tienen de partida); motivo ausente, <5 o >500 → 400 datos_invalidos sin tocar la base', async () => {
+    const app = await buildApp();
+    expect(operacionesDePartida('financiera')).toContain('comprobantes.diferencia.aceptar');
+    expect(operacionesDePartida('admin')).toContain('comprobantes.diferencia.aceptar');
+    expect(operacionesDePartida('auditor')).not.toContain('comprobantes.diferencia.aceptar');
+    expect((await aceptar(app, { motivo: MOTIVO }, 'auditor')).status).toBe(403);
+    for (const body of [{}, { motivo: 'abcd' }, { motivo: '   ab   ' }, { motivo: 'x'.repeat(501) }]) {
+      const res = await aceptar(app, body);
+      expect(res.status, JSON.stringify(body).slice(0, 30)).toBe(400);
+      expect(res.body.codigo).toBe('datos_invalidos');
+    }
+    expect(kdb.select).not.toHaveBeenCalled();
+    expect(kdb.transaction).not.toHaveBeenCalled();
+    expect(espia.updates).toEqual([]);
+  });
+
+  it('200 { ok: true }: tx con FOR UPDATE del comprobante; UPDATE de SOLO por_id/en/motivo(trim) condicionado a id + sin aceptar; valor, tarifa_referencia, diferencia_tarifa y marca intactos; audit', async () => {
+    const app = await buildApp();
+    kdb.when.selectOnce(T_COMP, [pendiente()]).selectOnce(T_COMP, [pendiente()]).update(T_COMP, [{ id: ID }]);
+    const res = await aceptar(app, { motivo: `  ${MOTIVO}  ` }, 'admin');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true });
+    expect(kdb.transaction).toHaveBeenCalledTimes(1);
+    // El bloqueo: FOR UPDATE sobre flito_comprobantes por id, y NINGUNO sobre el trámite.
+    expect(bloqueos.map((b) => [b.tabla, b.modo])).toEqual([[T_COMP, 'update']]);
+    expect(ligadoA(renderizar(bloqueos[0]!.condicion as never), '"flito_comprobantes"."id"')).toBe(ID);
+    // El UPDATE: exactamente las tres columnas de la constancia (+ updated_at).
+    expect(espia.updatesEn(T_COMP)).toHaveLength(1);
+    const [u] = espia.updatesEn(T_COMP);
+    expect(Object.keys(u!.datos).sort()).toEqual(['diferenciaAceptadaEn', 'diferenciaAceptadaMotivo', 'diferenciaAceptadaPorId', 'updatedAt']);
+    expect(u!.datos).toMatchObject({ diferenciaAceptadaPorId: 7, diferenciaAceptadaMotivo: MOTIVO });
+    expect(u!.datos.diferenciaAceptadaEn).toBeInstanceOf(Date);
+    for (const k of ['valor', 'tarifaReferencia', 'diferenciaTarifa', 'marcadoPorDiferencia', 'estado', 'esPago']) expect(u!.datos).not.toHaveProperty(k);
+    const q = renderizar(u!.condiciones[0] as never);
+    expect(ligadoA(q, '"flito_comprobantes"."id"')).toBe(ID);
+    expect(q.sql).toContain('"flito_comprobantes"."diferencia_aceptada_en" is null');
+    // Nada en flito_liquidaciones ni en el trámite: ni lectura ni escritura.
+    expect(espia.updatesEn(T_LIQ)).toEqual([]);
+    expect(espia.insertsEn(T_LIQ)).toEqual([]);
+    const leidas = espia.condicionesLeidas().map((c) => renderizar(c as never).sql).join('\n');
+    expect(leidas).not.toContain('flito_liquidaciones');
+    expect(leidas).not.toContain('flito_tramites');
+    expect(auditMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ action: 'update', resource: 'flito_comprobante', resourceId: ID, detail: `Diferencia aceptada: ${MOTIVO}` }));
+  });
+
+  it('AC4 — sellada no cambia: con el trámite liquidado se acepta igual (solo escribe en flito_comprobantes; ninguna consulta a flito_liquidaciones)', async () => {
+    const app = await buildApp();
+    // Si el código leyera la liquidación para rechazar, este `select` respondería «sellada» y el 200 caería.
+    kdb.when.selectOnce(T_COMP, [pendiente()]).selectOnce(T_COMP, [pendiente()]).select(T_LIQ, [{ id: 'liq-1' }]).update(T_COMP, [{ id: ID }]);
+    const res = await aceptar(app, { motivo: MOTIVO });
+    expect(res.status).toBe(200);
+    expect(kdb.select.mock.calls.length).toBe(2);
+    expect(espia.updatesEn(T_LIQ)).toEqual([]);
+    expect(espia.updatesEn(T_COMP)).toHaveLength(1);
+  });
+
+  it('inexistente → 404 sin tx; no aplicado como pago (pendiente / es_pago=false) → 409 sin_diferencia; sin marca → 409 (AC6-M1); ya aceptada → 409 (AC6-M2); nada se escribe', async () => {
+    const app = await buildApp();
+    kdb.when.selectOnce(T_COMP, []);
+    const r404 = await aceptar(app, { motivo: MOTIVO });
+    expect(r404.status).toBe(404);
+    expect(r404.body.codigo).toBe('no_encontrado');
+    const casos: Array<[Record<string, unknown>, string]> = [
+      [{ estado: 'pendiente', esPago: null }, 'no está aplicado como pago'],
+      [{ estado: 'aplicado', esPago: false }, 'no está aplicado como pago'],
+      [{ marcadoPorDiferencia: false }, 'no está marcado por diferencia'],
+      [{ diferenciaAceptadaEn: new Date('2026-09-16T10:00:00Z') }, 'ya fue aceptada'],
+    ];
+    for (const [over, detalle] of casos) {
+      kdb.when.selectOnce(T_COMP, [pendiente(over)]);
+      const res = await aceptar(app, { motivo: MOTIVO });
+      expect(res.status, JSON.stringify(over)).toBe(409);
+      expect(res.body).toMatchObject({ codigo: 'sin_diferencia', detalle: expect.stringContaining(detalle) });
+    }
+    expect(kdb.transaction).not.toHaveBeenCalled();
+    expect(espia.updates).toEqual([]);
+  });
+
+  it('(R) carrera: pendiente fuera de la tx pero ya aceptada bajo el FOR UPDATE → 409 sin_diferencia y CERO escrituras (la constancia no se reescribe)', async () => {
+    const app = await buildApp();
+    kdb.when.selectOnce(T_COMP, [pendiente()]).selectOnce(T_COMP, [pendiente({ diferenciaAceptadaEn: new Date() })]).update(T_COMP, [{ id: ID }]);
+    const res = await aceptar(app, { motivo: MOTIVO });
+    expect(res.status).toBe(409);
+    expect(res.body.codigo).toBe('sin_diferencia');
+    expect(kdb.transaction).toHaveBeenCalledTimes(1);
+    expect(bloqueos.map((b) => [b.tabla, b.modo])).toEqual([[T_COMP, 'update']]);
+    expect(espia.updates).toEqual([]);
+  });
+
+  it('AC9: id no-UUID → 404 sin tocar la base', async () => {
+    const app = await buildApp();
+    const res = await request(app).post(`${BASE}/abc/diferencia/aceptar`).set('Authorization', await auth()).send({ motivo: MOTIVO });
+    expect(res.status).toBe(404);
+    expect(kdb.select).not.toHaveBeenCalled();
   });
 });
