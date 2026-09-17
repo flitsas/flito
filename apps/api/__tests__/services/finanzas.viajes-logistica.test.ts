@@ -311,13 +311,17 @@ const SUBCONSULTA_SUMA = '(SELECT SUM("flito_tramite_viajes_logistica"."valor") 
   + 'WHERE "flito_tramite_viajes_logistica"."tramite_id" = "flito_tramites"."id")';
 const SUBCONSULTA_CUENTA = '(SELECT COUNT(*)::int FROM "flito_tramite_viajes_logistica" '
   + 'WHERE "flito_tramite_viajes_logistica"."tramite_id" = "flito_tramites"."id")';
+/** HU #12653: el viaje 1 es COALESCE(comprobante de pago aplicado, tarifa); la Σ de viajes sigue FUERA. */
+const VIAJE_1 = 'COALESCE((select "flito_comprobantes"."valor" from "flito_comprobantes" where "flito_comprobantes"."tramite_id" = "flito_tramites"."id" '
+  + 'and "flito_comprobantes"."concepto" = \'logistica\' and "flito_comprobantes"."estado" = \'aplicado\' and "flito_comprobantes"."es_pago" = true limit 1), "lg"."valor")';
 
 describe('EXPR_LOGISTICA — tarifa + Σ viajes por subconsulta correlacionada (AC1, AC2, AC4)', () => {
-  it('la rama estimada es lg.valor + COALESCE(Σ viajes, 0): sin COALESCE sobre la tarifa y sin parámetros', () => {
+  it('la rama estimada es COALESCE(documental, lg.valor) + COALESCE(Σ viajes, 0): sin COALESCE(lg.valor, 0) y sin parámetros', () => {
     const { sql, params } = renderizar(EXPR_LOGISTICA);
     // Mutante «solo Σ viajes» (55.000): faltaría la tarifa; «COALESCE(lg.valor, 0) + Σ»: sin tarifa
-    // daría un valor en vez de «no configurado» (AC2).
-    expect(sql).toContain(`ELSE "lg"."valor" + COALESCE(${SUBCONSULTA_SUMA}, 0) END`);
+    // daría un valor en vez de «no configurado» (AC2). Desde la HU #12653 el viaje 1 lee primero el
+    // comprobante de pago aplicado y la Σ de viajes se suma FUERA de ese COALESCE.
+    expect(sql).toContain(`ELSE ${VIAJE_1} + COALESCE(${SUBCONSULTA_SUMA}, 0) END`);
     expect(sql).not.toContain('COALESCE("lg"."valor"');
     // Sellada manda y no se suma la tabla viva (AC4): la primera rama es la columna, a secas.
     expect(sql).toMatch(/^CASE WHEN "flito_liquidaciones"\."id" IS NOT NULL THEN "flito_liquidaciones"\."valor_logistica"\s+WHEN NOT/);
@@ -332,7 +336,7 @@ describe('EXPR_LOGISTICA — tarifa + Σ viajes por subconsulta correlacionada (
     // Tres ramas y en este orden: sellada → no gestiona (NULL, sin sumar nada) → estimada con viajes.
     expect(sql.match(/WHEN /g)).toHaveLength(2);
     expect(sql).toMatch(
-      /"valor_logistica"\s+WHEN NOT \(NOT COALESCE\("clients"\."logistica_autogestionable", false\) OR \("flito_excepciones_autogestion"\."id" IS NOT NULL\)\) THEN NULL\s+ELSE "lg"\."valor" \+/,
+      /"valor_logistica"\s+WHEN NOT \(NOT COALESCE\("clients"\."logistica_autogestionable", false\) OR \("flito_excepciones_autogestion"\."id" IS NOT NULL\)\) THEN NULL\s+ELSE COALESCE\(\(select "flito_comprobantes"\."valor"/,
     );
   });
 
@@ -360,9 +364,10 @@ describe('EXPR_LOGISTICA_VIAJES_CANTIDAD — cuántos viajes, contando el 1 de l
     expect(sql).toContain(`ELSE 1 + ${SUBCONSULTA_CUENTA} END`);
   });
 
-  it('SELECT_FILA la proyecta como `logisticaViajesCantidad`, AL FINAL (append-only)', () => {
+  it('SELECT_FILA la proyecta como `logisticaViajesCantidad`, DESPUÉS de las columnas de la HU #12432 (append-only; la HU #12653 añade las suyas detrás)', () => {
     const claves = Object.keys(SELECT_FILA);
-    expect(claves[claves.length - 1]).toBe('logisticaViajesCantidad');
+    expect(claves.indexOf('logisticaViajesCantidad')).toBeGreaterThan(claves.indexOf('titularDireccion'));
+    expect(claves.indexOf('logisticaViajesCantidad')).toBeLessThan(claves.indexOf('origenTd'));
     expect(renderizar(SELECT_FILA.logisticaViajesCantidad).sql).toBe(renderizar(EXPR_LOGISTICA_VIAJES_CANTIDAD).sql);
   });
 });

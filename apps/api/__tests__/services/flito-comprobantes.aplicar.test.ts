@@ -751,14 +751,27 @@ describe('HU #12630 — POST /:id/aplicar con esPago=true: SOAT / impuesto / der
   });
 
   // ── AC5 · valor como copia acotada ──
-  it('AC5 — el reporte de costos y la liquidación no leen flito_comprobantes: ni finanzas/ ni flito-liquidacion importan el módulo ni la tabla', async () => {
+  it('AC5 — la copia es acotada: flito-liquidacion/ no lee flito_comprobantes, y finanzas/ solo por el leaf expr.ts desde valores-documentales y el service (HU #12653, F3)', async () => {
     const { readdirSync, readFileSync, statSync } = await import('node:fs');
-    const { join } = await import('node:path');
+    const { join, basename } = await import('node:path');
     const archivos = (dir: string): string[] => readdirSync(dir).flatMap((n) => { const p = join(dir, n); return statSync(p).isDirectory() ? archivos(p) : p.endsWith('.ts') ? [p] : []; });
     const raiz = join(process.cwd(), 'src/modules');
-    const vallados = [...archivos(join(raiz, 'finanzas')), ...archivos(join(raiz, 'flito-liquidacion'))];
-    expect(vallados.length).toBeGreaterThan(0);
-    for (const f of vallados) expect(readFileSync(f, 'utf8'), f).not.toMatch(/flito[-_]comprobantes/);
+    // La liquidación sigue vallada: la HU #12654 es quien la conecta.
+    const liquidacion = archivos(join(raiz, 'flito-liquidacion'));
+    expect(liquidacion.length).toBeGreaterThan(0);
+    for (const f of liquidacion) expect(readFileSync(f, 'utf8'), f).not.toMatch(/flito[-_]comprobantes/);
+    // El reporte de costos entra por DOS archivos y solo a través del leaf `flito-comprobantes.expr`
+    // (subconsultas escalares): ningún otro archivo de finanzas/ nombra la tabla ni el módulo.
+    const PUEDEN = ['finanzas.valores-documentales.ts', 'finanzas.service.ts'];
+    for (const f of archivos(join(raiz, 'finanzas'))) {
+      const texto = readFileSync(f, 'utf8');
+      if (PUEDEN.includes(basename(f))) {
+        expect(texto, f).toMatch(/flito-comprobantes\/flito-comprobantes\.expr\.js/);
+        expect(texto, f).not.toMatch(/flito-comprobantes\.(service|aplicar|carga|auto|routes)/);
+      } else {
+        expect(texto, f).not.toMatch(/flito[-_]comprobantes/);
+      }
+    }
   });
 });
 

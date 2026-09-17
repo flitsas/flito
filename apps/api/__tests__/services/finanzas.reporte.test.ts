@@ -14,7 +14,8 @@ vi.mock('../../src/db/client.js', () => ({
 }));
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
 
-const { agruparEmpresas, condiciones, conJoins } = await import('../../src/modules/finanzas/finanzas.service.js');
+const servicio = await import('../../src/modules/finanzas/finanzas.service.js');
+const { agruparEmpresas, condiciones, conJoins } = servicio;
 const { COLUMNAS_EXPORT_DETALLE, filasExcelDetalle } = await import('../../src/modules/finanzas/finanzas.export-excel.js');
 const { flitoTramites } = await import('../../src/db/schema.js');
 const { and } = await import('drizzle-orm');
@@ -227,9 +228,55 @@ describe('conJoins — la tarifa estimada es la vigencia que CONTIENE la fecha d
     const listo = renderizar(and(...condiciones({ etapa: 'listo' }))!).sql;
     const incompleto = renderizar(and(...condiciones({ etapa: 'incompleto' }))!).sql;
     for (const sql of [listo, incompleto]) {
-      expect(sql).toContain('"td"."valor" IS NULL');
-      expect(sql).toContain('"lg"."valor" IS NULL');
+      // Desde la HU #12653 la tarifa va dentro de COALESCE(documental, tarifa): sigue siendo el alias del join.
+      expect(sql).toContain('"td"."valor") IS NULL');
+      expect(sql).toContain('"lg"."valor") IS NULL');
       expect(sql).not.toMatch(/COALESCE\("td_esp"|COALESCE\("lg_esp"/);
     }
+  });
+});
+
+// ── HU #12653 — el valor documental manda en trámite digital y logística (viaje 1) ──────────────
+
+describe('HU #12653 — COALESCE(documental, tarifa) en las expresiones compartidas por tabla, totales, consolidado y Excel', () => {
+  const { EXPR_DIGITAL, EXPR_LOGISTICA, EXPR_LOGISTICA_ESTIMADA, EXPR_INCOMPLETA, SELECT_FILA, SELECT_TOTALES } = servicio;
+  const enReporte = (expr: unknown) =>
+    conJoins(new QueryBuilder().select({ x: expr as never }).from(flitoTramites).$dynamic()).toSQL().sql
+      .replace(/^select /, '').split(' from "flito_tramites"')[0]!;
+  const DOC = (concepto: string) =>
+    `(select "flito_comprobantes"."valor" from "flito_comprobantes" where "flito_comprobantes"."tramite_id" = "flito_tramites"."id" and "flito_comprobantes"."concepto" = '${concepto}' and "flito_comprobantes"."estado" = 'aplicado' and "flito_comprobantes"."es_pago" = true limit 1)`;
+  const VIAJES = 'COALESCE((SELECT SUM("flito_tramite_viajes_logistica"."valor") FROM "flito_tramite_viajes_logistica" WHERE "flito_tramite_viajes_logistica"."tramite_id" = "flito_tramites"."id"), 0)';
+
+  it('AC1 (mutante 4): EXPR_DIGITAL = sellada, si no COALESCE(documental, "td"."valor") — el documental PRIMERO', () => {
+    expect(enReporte(EXPR_DIGITAL)).toBe(`CASE WHEN "flito_liquidaciones"."id" IS NOT NULL THEN "flito_liquidaciones"."valor_tramite_digital"
+  ELSE COALESCE(${DOC('tramite_digital')}, "td"."valor") END`);
+    expect(enReporte(SELECT_FILA.tramiteDigital)).toBe(enReporte(EXPR_DIGITAL));
+    expect(enReporte(SELECT_TOTALES.tramiteDigital)).toBe(`COALESCE(SUM(${enReporte(EXPR_DIGITAL)}), 0)`);
+  });
+
+  it('AC2/AC3 (mutante 9): RAMAS_LOGISTICA_ESTIMADA = WHEN NOT gestiona THEN NULL, y DESPUÉS ELSE COALESCE(documental, "lg"."valor") + Σ viajes; compartida con gastos diarios', () => {
+    const rama = `WHEN NOT (NOT COALESCE("clients"."logistica_autogestionable", false) OR ("flito_excepciones_autogestion"."id" IS NOT NULL)) THEN NULL
+  ELSE COALESCE(${DOC('logistica')}, "lg"."valor") + ${VIAJES} END`;
+    expect(enReporte(EXPR_LOGISTICA)).toBe(`CASE WHEN "flito_liquidaciones"."id" IS NOT NULL THEN "flito_liquidaciones"."valor_logistica"
+  ${rama}`);
+    expect(enReporte(EXPR_LOGISTICA_ESTIMADA)).toBe(`CASE ${rama}`);
+    expect(enReporte(SELECT_TOTALES.logistica)).toBe(`COALESCE(SUM(${enReporte(EXPR_LOGISTICA)}), 0)`);
+  });
+
+  it('AC1: BLOQUEA_DIGITAL y BLOQUEA_LOGISTICA usan el mismo COALESCE (tarifa NULL + documental ⇒ no bloquea)', () => {
+    const incompleta = enReporte(EXPR_INCOMPLETA);
+    expect(incompleta).toContain(`OR COALESCE(${DOC('tramite_digital')}, "td"."valor") IS NULL`);
+    expect(incompleta).toContain(`AND COALESCE(${DOC('logistica')}, "lg"."valor") IS NULL)`);
+    expect(incompleta).not.toMatch(/OR "td"\."valor" IS NULL|AND "lg"\."valor" IS NULL/);
+  });
+
+  it('AC5: condiciones({ conDiferencias: true }) añade el EXISTS sin parámetros y se compone; ausente no lo añade', () => {
+    const q = renderizar(and(...condiciones({ conDiferencias: true, etapa: 'facturado' }))!);
+    expect(q.sql).toContain(`EXISTS (SELECT 1 FROM "flito_comprobantes"`);
+    expect(q.sql).toContain(`AND "flito_comprobantes"."marcado_por_diferencia" = true
+    AND "flito_comprobantes"."diferencia_aceptada_por_id" IS NULL)`);
+    expect(q.sql).toContain(`"flito_liquidaciones"."estado" = 'facturado'`);
+    expect(q.params).toEqual([]);
+    expect(renderizar(and(...condiciones({ etapa: 'facturado' }))!).sql).not.toContain('flito_comprobantes');
   });
 });

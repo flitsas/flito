@@ -3,7 +3,8 @@
 // a la liquidación sin volver a leer el documento.
 //
 // Es un LEAF (AC4): no importa nada del módulo de finanzas (reporte de costos) ni del de liquidación
-// —son ellos quienes lo importarán— y ningún consumidor del reporte lo usa todavía. Cada expresión es una subconsulta
+// —son ellos quienes lo importan: el reporte desde la HU #12653 (F3), vía
+// `finanzas.valores-documentales.ts`; la liquidación en la HU #12654—. Cada expresión es una subconsulta
 // escalar sobre `flito_comprobantes` correlacionada con `flito_tramites.id` (la tabla base del reporte
 // y de la liquidación), por concepto, con `estado = 'aplicado' AND es_pago = true`: el índice único
 // parcial `idx_flito_comprobantes_valor_documental` garantiza a lo sumo UNA fila por (trámite, concepto).
@@ -15,7 +16,7 @@
 import { sql, type SQL } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { ConceptoCosto } from '@operaciones/shared-types';
-import { flitoComprobantes, flitoTramites } from '../../db/schema.js';
+import { flitoComprobantes, flitoTramites, users } from '../../db/schema.js';
 
 /**
  * Carpeta S3 de la puerta (HU #12611): no hay compañía conocida al cargar, así que cuelga del lote.
@@ -34,13 +35,31 @@ export function esHonorario(concepto: ConceptoCosto): concepto is ConceptoHonora
   return CONCEPTOS_HONORARIO.includes(concepto);
 }
 
+/** El filtro de la fila documental de UN concepto: el pago aplicado de ese trámite y concepto. */
+function filaDocumental(concepto: ConceptoHonorario): SQL {
+  return sql`${flitoComprobantes.tramiteId} = ${flitoTramites.id} and ${flitoComprobantes.concepto} = ${sql.raw(`'${concepto}'`)} and ${flitoComprobantes.estado} = 'aplicado' and ${flitoComprobantes.esPago} = true`;
+}
+
 /**
  * `(SELECT <columna> FROM flito_comprobantes WHERE tramite_id = flito_tramites.id AND concepto = '<c>'
  * AND estado = 'aplicado' AND es_pago = true LIMIT 1)`. El `LIMIT 1` es cinturón sobre el índice único.
+ *
+ * Exportada desde la HU #12653: el reporte de costos proyecta por concepto la referencia, el número,
+ * la fecha y la aceptación de la diferencia (`finanzas.valores-documentales.ts`) con ESTA fábrica, no
+ * con una copia — «qué fila documental cuenta» tiene una sola respuesta.
  */
-function documental(columna: AnyPgColumn, concepto: ConceptoHonorario): SQL {
-  return sql`(select ${columna} from ${flitoComprobantes} where ${flitoComprobantes.tramiteId} = ${flitoTramites.id} and ${flitoComprobantes.concepto} = ${sql.raw(`'${concepto}'`)} and ${flitoComprobantes.estado} = 'aplicado' and ${flitoComprobantes.esPago} = true limit 1)`;
+export function documental(columna: AnyPgColumn, concepto: ConceptoHonorario): SQL {
+  return sql`(select ${columna} from ${flitoComprobantes} where ${filaDocumental(concepto)} limit 1)`;
 }
+
+/**
+ * El `username` de quien ACEPTÓ la diferencia de ese concepto (HU #12654 escribe
+ * `diferencia_aceptada_por_id`; aquí solo se lee), o NULL. Es el usuario interno, no PII del cliente.
+ */
+export function documentalAceptadaPorNombre(concepto: ConceptoHonorario): SQL {
+  return sql`(select ${users.username} from ${flitoComprobantes} join ${users} on ${users.id} = ${flitoComprobantes.diferenciaAceptadaPorId} where ${filaDocumental(concepto)} limit 1)`;
+}
+
 
 /** El `valor` documental del trámite digital (lo que dice el comprobante de pago aplicado), o NULL. */
 export const EXPR_DOC_TD: SQL = documental(flitoComprobantes.valor, ConceptoCosto.TRAMITE_DIGITAL);

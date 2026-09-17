@@ -204,6 +204,9 @@ describe('AC1 — POST /reporte-costos/export entrega el detalle entero en .xlsx
     expect((hoja.getRow(1).values as unknown[]).slice(1)).toEqual(CABECERAS_DETALLE);
     expect(CABECERAS_DETALLE).toHaveLength(32);
     expect(hoja.getRow(1).cellCount).toBe(32);
+    // HU #12653 (AC7): el valor documental NO añade columna — «Origen valores» queda fuera hasta VoBo del PO.
+    expect(CABECERAS_DETALLE).not.toContain('Origen valores');
+    expect(hoja.getRow(1).values).not.toContain('Origen valores');
     // La 32.ª va PEGADA a «Modelo» (CF-10 de la HU #12546), no al final del archivo.
     expect(CABECERAS_DETALLE[CABECERAS_DETALLE.indexOf('Modelo') + 1]).toBe('Servicios adicionales');
     expect(COLUMNAS_EXPORT_DETALLE.map((c) => c.header)).toEqual(CABECERAS_DETALLE);

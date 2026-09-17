@@ -212,6 +212,10 @@ const FILA_BASE = {
   titularCorreo: null, titularTelefono: null, titularDireccion: null,
   organismoCodigo: null, organismoNombre: null, mes: '2026-07', trimestre: '2026-T3',
   totalReintegro: 547980, totalServicio: 200000,
+  // HU #12653 — origen y valor documental por concepto: el fixture crudo no trae comprobantes, así
+  // que el origen es la tarifa (lo que el CASE devuelve sin comprobante) y los documentales van nulos.
+  origenes: { tramiteDigital: 'tarifa', logistica: 'tarifa' },
+  valorDocumental: { tramiteDigital: null, logistica: null, serviciosAdicionales: null },
 };
 
 /** La fila servida sin las tres claves de esta historia: lo que el AC2 dice que no cambia. */
