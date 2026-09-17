@@ -8,12 +8,13 @@ import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
 import { authMiddleware } from '../../shared/middleware/auth.js';
-import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
+import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { soportesDeSoat } from '../../shared/soportes/soportes-consulta.js';
 import { sendExcel } from '../../shared/utils/excel.js';
 import {
-  COLUMNAS_COLA_EXPORT, ExportColaDemasiadoGrandeError, exportColaLimiter,
+  CAMPOS_COLA_EXPORT_PAGO_SOAT, columnasColaExport, ExportColaDemasiadoGrandeError, exportColaLimiter,
+  RESULTADO_EXPORT_AMPLIADO,
 } from '../../shared/export/cola-flito-excel.js';
 import {
   CAMPOS_PII_SOAT_DETALLE_CANAL, CAMPOS_PII_SOAT_EXPORT, registrarAccesoSoat,
@@ -214,10 +215,22 @@ const colaFiltrosCampos = z.object({
  */
 const exportSchema = colaFiltrosCampos
   .omit({ page: true, pageSize: true, cursor: true })
+  .extend({
+    /**
+     * Bug #12642: `true` = archivo AMPLIADO con las 13 columnas de pago y trazabilidad. Exige además
+     * `soat.excel.exportar_pago` (se comprueba EN LÍNEA, abajo). Ausente o `false` = el archivo de
+     * siempre, byte a byte. Solo booleano: `'sí'` es 400 por el `.strict()` del tipo, no un `true`.
+     */
+    incluirPago: z.boolean().optional(),
+  })
   .strict();
 
+/** El texto del 403 cuando se pide el archivo ampliado sin la función. La pantalla lo muestra tal cual. */
+const ERROR_SIN_FUNCION_PAGO = 'Tu usuario no puede exportar datos de pago y trazabilidad';
+
 /**
- * POST /export — la cola filtrada, en un `.xlsx` (Feature #11908, HU #11909).
+ * POST /export — la cola filtrada, en un `.xlsx` (Feature #11908, HU #11909; Bug #12642: variante
+ * ampliada con `incluirPago`).
  *
  * ── Por qué POST y por qué TODO el filtro va en el cuerpo ────────────────────────────────────────
  *
@@ -244,6 +257,15 @@ const exportSchema = colaFiltrosCampos
  * `FLITO_COLA_EXPORT_MAX_FILAS` cédulas, correos y direcciones, y perder su constancia por un fallo
  * a mitad del archivo no es aceptable. `Cache-Control: no-store` antes de `sendExcel` porque lo que
  * sale no se guarda en ningún intermedio.
+ *
+ * ── `incluirPago` (Bug #12642): una segunda función, comprobada EN LÍNEA ─────────────────────────
+ *
+ * El archivo ampliado lleva lo que FLITO paga y a quién, y eso no se le entrega a un proveedor por el
+ * hecho de poder bajar la cola. La guarda va DENTRO del handler —como `[_forzarContinuar]` en
+ * trámites— porque solo aplica a una rama del cuerpo; `exigirFuncion` a nivel de ruta obligaría a
+ * todos a tener la función nueva para bajar el archivo de siempre. Se decide ANTES de tocar la base y
+ * antes del rastro: quien no puede no deja `accion: 'export'` en el `pii_access_log` (no se llevó
+ * nada) — el intento denegado lo registra `tieneFuncion` en la bitácora de permisos, que es la suya.
  */
 router.post('/export', exigirFuncion('soat.excel.exportar'), exportColaLimiter, async (req: Request, res: Response) => {
   const parsed = exportSchema.safeParse(req.body ?? {});
@@ -251,23 +273,30 @@ router.post('/export', exigirFuncion('soat.excel.exportar'), exportColaLimiter, 
     res.status(400).json({ error: 'Filtro inválido', details: parsed.error.flatten() });
     return;
   }
-  const filtros = parsed.data;
+  const { incluirPago = false, ...filtros } = parsed.data;
+  if (incluirPago && !(await tieneFuncion(req, 'soat.excel.exportar_pago'))) {
+    res.status(403).json({ error: ERROR_SIN_FUNCION_PAGO });
+    return;
+  }
   const ctx = await contextoSoat(req.user!);
 
   try {
     // Aquí se decide el 422: si el filtro se pasa del tope, esto lanza y no hay filas que escribir.
-    const filas = await construirFilasExportSoat(ctx, filtros);
+    const filas = await construirFilasExportSoat(ctx, filtros, { incluirPago });
 
     // `filas` = las REALMENTE entregadas. No el tope, no lo pedido: el registro tiene que decir qué
     // se llevó alguien, y un número inflado ensucia el dato con el que se recalibra el tope.
+    // Ampliado (Bug #12642): los campos de pago se suman a la lista y `resultado=ampliado` marca la
+    // línea, de modo que un lector del registro sepa qué versión salió sin contar campos.
     await registrarAccesoSoat(req, {
       accion: 'export',
-      campos: CAMPOS_PII_SOAT_EXPORT,
+      campos: incluirPago ? [...CAMPOS_PII_SOAT_EXPORT, ...CAMPOS_COLA_EXPORT_PAGO_SOAT] : CAMPOS_PII_SOAT_EXPORT,
       filas: filas.length,
+      ...(incluirPago ? { resultado: RESULTADO_EXPORT_AMPLIADO } : {}),
     });
 
     res.set('Cache-Control', 'no-store');
-    await sendExcel(res, nombreArchivoExportSoat(), COLUMNAS_COLA_EXPORT, filas);
+    await sendExcel(res, nombreArchivoExportSoat(), columnasColaExport('soat', incluirPago), filas);
   } catch (e) {
     // Si el fallo llega con la respuesta ya empezada —el archivo se estaba escribiendo—, responder
     // reventaría con ERR_HTTP_HEADERS_SENT y taparía la causa real. Se relanza al manejador global,

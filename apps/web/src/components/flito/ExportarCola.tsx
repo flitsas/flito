@@ -66,6 +66,13 @@ export interface FiltrosExportCola {
    * las que la pantalla enseña, que en un archivo de datos personales es peor que un error.
    */
   vigencia?: string;
+  /**
+   * Excel ampliado con datos de pago y trazabilidad (Bug #12642). **Solo viaja cuando está marcado**:
+   * el esquema del endpoint es `.strict()` pero admite la clave ausente, y no mandarla es lo que
+   * deja el contrato del gestor exactamente como estaba. Con `true` y sin la función
+   * `<cola>.excel.exportar_pago` el servidor responde 403 con su propio texto.
+   */
+  incluirPago?: boolean;
 }
 
 /** Lo único que distingue a las dos pantallas: el prefijo del archivo y cómo se la nombra al leerla. */
@@ -205,8 +212,12 @@ export function avisoDeError(e: unknown, redacciones: Partial<RedaccionesExport>
     if (e.status === 429) {
       return { tono: 'error', reintentable: true, texto: textoDelServidor(e) ?? r.limite };
     }
+    // 403: desde el Bug #12642 hay DOS motivos —perder el export o pedir el ampliado sin la función—
+    // y el servidor los distingue en su propia frase, que es fija (sale del middleware de permisos,
+    // sin ningún hueco para lo que se estaba consultando). Se hace eco de ella por la misma razón
+    // que en 422 y 429; el respaldo entra solo cuando no trae texto.
     if (e.status === 403) {
-      return { tono: 'error', reintentable: false, texto: r.sinPermiso };
+      return { tono: 'error', reintentable: false, texto: textoDelServidor(e) ?? r.sinPermiso };
     }
     // `status === 0` es a la vez «no me respondió a tiempo» y «no llegué a preguntar»: el cliente no
     // los distingue y quien lo consume trata ambos igual.
@@ -301,7 +312,20 @@ export function useExportCola(cola: ColaExportable, filtros: FiltrosExportCola):
  * `aria-busy` además del texto: quien navega con lector no ve que el rótulo cambió, y «Preparando el
  * archivo…» sin `aria-busy` es solo otra etiqueta.
  */
-export function BotonExportarCola({ ocupado, onExportar }: { ocupado: boolean; onExportar: () => void }) {
+export function BotonExportarCola(
+  { ocupado, onExportar, incluirPago }:
+  {
+    ocupado: boolean;
+    onExportar: () => void;
+    /**
+     * La casilla «Incluir datos de pago y trazabilidad» (Bug #12642). **Se pinta solo si llega**: la
+     * página la pasa cuando `hasFuncion('<cola>.excel.exportar_pago')` es cierto y la omite si no,
+     * de modo que para el gestor el DOM es exactamente el de antes. Un `disabled` o un `hidden`
+     * dejarían la opción en el árbol de accesibilidad de quien no puede usarla.
+     */
+    incluirPago?: { marcado: boolean; onCambio: (marcado: boolean) => void };
+  },
+) {
   return (
     <div className="flex flex-col items-end gap-1">
       <button
@@ -319,6 +343,32 @@ export function BotonExportarCola({ ocupado, onExportar }: { ocupado: boolean; o
       <span className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
         Se exporta el conjunto filtrado que estás viendo, no solo esta página.
       </span>
+      {incluirPago && (
+        /* Casilla nativa dentro del `<label>`, como las del ZIP de soportes. La línea secundaria va
+           FUERA del `<label>` y enlazada por `aria-describedby`: dentro pasaría a formar parte del
+           nombre accesible («Incluir datos… Añade al final…»), que es lo que el lector anunciaría
+           entero y lo que rompería a quien la busque por su rótulo. Desmarcada por defecto: el
+           archivo de siempre sigue siendo lo que sale con un solo clic. */
+        <div className="flex flex-col items-end">
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={incluirPago.marcado}
+              disabled={ocupado}
+              aria-describedby="export-incluir-pago-ayuda"
+              onChange={(e) => incluirPago.onCambio(e.target.checked)}
+            />
+            <span className="font-medium">Incluir datos de pago y trazabilidad</span>
+          </label>
+          <span
+            id="export-incluir-pago-ayuda"
+            className="text-right text-xs"
+            style={{ color: 'var(--flit-text-secondary)' }}
+          >
+            Añade al final del archivo estado, fechas, valor pagado y gestor. Solo para Operaciones.
+          </span>
+        </div>
+      )}
     </div>
   );
 }

@@ -23,6 +23,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   // flito-soat/flito-soat.routes.ts
   { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'GET', ruta: '/', codigo: 'soat.cola.ver' },
   { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'POST', ruta: '/export', codigo: 'soat.excel.exportar' },
+  // Bug #12642: guarda en línea del archivo ampliado (`incluirPago: true`).
+  { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'POST', ruta: '/export', condicion: 'incluirPago', codigo: 'soat.excel.exportar_pago' },
   { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'POST', ruta: '/soportes/zip', codigo: 'soat.soportes.descargar' },
   { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'GET', ruta: '/facetas', codigo: 'soat.cola.filtrar' },
   { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'GET', ruta: '/:id', codigo: 'soat.solicitud.ver' },
@@ -101,6 +103,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/soportes/zip', codigo: 'impuestos.soportes.descargar' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'GET', ruta: '/', codigo: 'impuestos.cola.ver' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/export', codigo: 'impuestos.excel.exportar' },
+  // Bug #12642: guarda en línea del archivo ampliado (`incluirPago: true`).
+  { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/export', condicion: 'incluirPago', codigo: 'impuestos.excel.exportar_pago' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'GET', ruta: '/facetas', codigo: 'impuestos.cola.filtrar' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'GET', ruta: '/:id', codigo: 'impuestos.tramite.ver' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'GET', ruta: '/:id/historial', codigo: 'impuestos.tramite.ver_historial' },

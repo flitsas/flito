@@ -243,6 +243,45 @@ export function filasCola(n: number): Record<string, unknown>[] {
 }
 
 /**
+ * Una fila del archivo AMPLIADO del SOAT (Bug #12642): las 27 de `filaCola` más las 13 celdas de
+ * pago y trazabilidad de `COLUMNAS_PAGO_SOAT_EXPORT`, tal como las deja `celdasPagoSoat`.
+ *
+ * Es la hoja MÁS ANCHA de las dos colas (Impuestos suma 11) y por eso es la que se mide. Las fechas
+ * van como el texto `YYYY-MM-DD HH:mm` que produce `celdaInstante` —distinto por fila, porque
+ * `exceljs` deduplica cadenas iguales—, `valorPagado` como NÚMERO (que es lo que la celda lleva de
+ * verdad y ocupa distinto que un texto) y un tercio de las filas sin pago, con sus celdas vacías,
+ * como en la cola real. `columnasFaltantes(columnasColaExport('soat', true), filaColaPago(0))` es lo
+ * que impide que esta hoja y la de producción se desfasen sin que nadie lo vea.
+ */
+export function filaColaPago(i: number): Record<string, unknown> {
+  const pagado = i % 3 !== 0;
+  const dia = String(1 + (i % 28)).padStart(2, '0');
+  const mes = String(1 + (i % 12)).padStart(2, '0');
+  const hora = `${String(i % 24).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}`;
+  return {
+    ...filaCola(i),
+    estado: pagado ? 'Pagado' : (i % 2 === 0 ? 'Pendiente' : 'Con novedad'),
+    fechaSolicitud: `2026-${mes}-${dia} ${hora}`,
+    fechaPago: pagado ? `2026-${mes}-${dia} ${hora}` : null,
+    valorPagado: pagado ? 300000 + (i % 700) * 100 + 0.5 : null,
+    numeroPoliza: pagado ? `POL${String(i * 104729).padStart(12, '0')}` : null,
+    gestor: i % 5 === 0 ? 'Operaciones' : ['ASEGURADORA SOLIDARIA', 'SEGUROS DEL ESTADO', 'MUNDIAL SEGUROS', 'AXA COLPATRIA'][i % 4],
+    motivoNovedad: !pagado && i % 2 === 1 ? `Documento ilegible en la solicitud ${i}, se requiere reenvío` : null,
+    vigenciaRunt: ['vigente', 'vencido', 'no_verificado', 'sin_soat'][i % 4],
+    venceEl: pagado ? `2027-${mes}-${dia}` : null,
+    polizaRunt: pagado ? `RUNT${String(i * 7).padStart(10, '0')}` : null,
+    verificadaEn: i % 4 === 2 ? null : `2026-${mes}-${dia} ${hora}`,
+    fechaCreacion: `2026-${mes}-${dia} ${hora}`,
+    fechaCargaComprobante: pagado ? `2026-${mes}-${dia} ${hora}` : null,
+  };
+}
+
+/** `n` filas del archivo ampliado del SOAT, todas distinguibles. */
+export function filasColaPago(n: number): Record<string, unknown>[] {
+  return Array.from({ length: n }, (_, i) => filaColaPago(i));
+}
+
+/**
  * Respuesta simulada: un stream que cuenta bytes y los tira.
  *
  * Consumirlos importa. Un sumidero que no drenara acumularía el archivo entero en el buffer del

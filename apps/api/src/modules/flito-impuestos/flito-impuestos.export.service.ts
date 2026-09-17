@@ -1,4 +1,5 @@
-// FLITO Impuestos — export a Excel de la cola filtrada (Feature #11908, HU #11909, #11934, #12403).
+// FLITO Impuestos — export a Excel de la cola filtrada (Feature #11908, HU #11909, #11934, #12403;
+// Bug #12642: variante AMPLIADA con datos de pago, ver `flito-impuestos.export-pago.ts`).
 //
 // Gemelo de `flito-soat.export.service.ts` y con las mismas reglas (RN-E1 lista blanca, RN-E2 tope
 // duro, RN-E3 `tope + 1`, RN-E4 el 422 antes de la primera fila). Lo que comparten de verdad —las
@@ -20,14 +21,16 @@
 // El registro de acceso (Ley 1581 art. 17) lo pone la RUTA: es el borde HTTP quien sabe quién pidió
 // el archivo. Este servicio no toca `req`.
 
-import { and, desc, inArray } from 'drizzle-orm';
+import { and, desc, inArray, type SQL } from 'drizzle-orm';
+import type { PgSelect } from 'drizzle-orm/pg-core';
 import { db } from '../../db/client.js';
 import { flitoCompradores, flitoImpuestos, flitoTramites, vehicles } from '../../db/schema.js';
 import { env } from '../../config/env.js';
 import {
   celdaTexto, CONSTANTES_COLA_EXPORT, ExportColaDemasiadoGrandeError, nombreArchivoColaExport,
-  type FilaColaExport,
+  type FilaColaExport, type FilaColaExportPagoImpuestos,
 } from '../../shared/export/cola-flito-excel.js';
+import { celdasPagoImpuestos, COLUMNAS_PAGO_IMPUESTOS } from './flito-impuestos.export-pago.js';
 import {
   bloqueTitular, celdaDesdeJson, ciudadDeOrganismo, expresionesFlitRaw,
 } from '../../shared/export/cola-flito-derivados.js';
@@ -154,23 +157,11 @@ async function propietariosDe(tramiteIds: string[]): Promise<Map<string, Comprad
 }
 
 /**
- * Las filas del archivo, o el 422 (RN-E2, RN-E4).
- *
- * @param ctx El contexto REAL del actor (`contextoImpuesto`, que lee el organismo de la BD y no del
- *            JWT). Es lo que aplica las dos fronteras dentro de `condicionesColaImpuestos`.
- * @throws ExportColaDemasiadoGrandeError si el filtro devuelve más del tope. Se lanza ANTES de
- *         construir una sola fila: no hay valor de retorno que escribir cuando el tope se pasa.
+ * Filtro, orden y tope de la lectura principal, iguales para las DOS proyecciones (Bug #12642): el
+ * archivo con columnas de pago trae LAS MISMAS filas, en el mismo orden, que el del gestor.
  */
-export async function construirFilasExportImpuestos(
-  ctx: ImpuestoCtx,
-  filtros: FiltrosExportImpuestos = {},
-): Promise<FilaColaExport[]> {
-  const tope = env.FLITO_COLA_EXPORT_MAX_FILAS;
-
-  const conds = condicionesColaImpuestos(ctx, filtros);
-  if (conds === null) return [];
-
-  const filas = await conJoinsColaImpuestos(db.select(COLUMNAS_CONSULTA).from(flitoImpuestos).$dynamic())
+function acotar<Q extends PgSelect>(q: Q, conds: SQL[], tope: number) {
+  return conJoinsColaImpuestos(q)
     .where(and(...conds))
     // El mismo orden del listado —el archivo se lee como la pantalla— y desde la HU #11963 eso es de
     // lo más nuevo a lo más antiguo, no al revés. El desempate por `id` sigue, en el MISMO sentido:
@@ -179,9 +170,76 @@ export async function construirFilasExportImpuestos(
     .orderBy(desc(flitoImpuestos.createdAt), desc(flitoImpuestos.id))
     // Tope + 1 (RN-E3): la fila sobrante no se entrega, solo demuestra que hay más.
     .limit(tope + 1);
+}
 
+/** La lectura del archivo del gestor: la proyección de HOY, sin una columna más. */
+function consultaBase(conds: SQL[], tope: number) {
+  return acotar(db.select(COLUMNAS_CONSULTA).from(flitoImpuestos).$dynamic(), conds, tope);
+}
+
+/** La lectura del archivo AMPLIADO: las mismas columnas más las de pago. Solo corre con `incluirPago`. */
+function consultaConPago(conds: SQL[], tope: number) {
+  return acotar(db.select({ ...COLUMNAS_CONSULTA, ...COLUMNAS_PAGO_IMPUESTOS }).from(flitoImpuestos).$dynamic(), conds, tope);
+}
+
+/** Una fila de la lectura principal, con lo que las 27 celdas del gestor necesitan. */
+type FilaConsulta = Awaited<ReturnType<typeof consultaBase>>[number];
+
+/** Lo que el llamador puede pedir además del filtro (Bug #12642). */
+export interface OpcionesExportImpuestos {
+  /** `true` = añadir las 11 columnas de pago y trazabilidad. La ruta ya comprobó la función. */
+  incluirPago?: boolean;
+}
+
+/**
+ * Las filas del archivo, o el 422 (RN-E2, RN-E4).
+ *
+ * @param ctx El contexto REAL del actor (`contextoImpuesto`, que lee el organismo de la BD y no del
+ *            JWT). Es lo que aplica las dos fronteras dentro de `condicionesColaImpuestos`.
+ * @param opciones `incluirPago` (Bug #12642): con `true`, la proyección SUMA las columnas de pago y
+ *            cada fila lleva además las 11 celdas de `celdasPagoImpuestos`. Sin él, la lectura es
+ *            EXACTAMENTE la de siempre — hay un test que afirma que la consulta no pide más.
+ * @throws ExportColaDemasiadoGrandeError si el filtro devuelve más del tope. Se lanza ANTES de
+ *         construir una sola fila: no hay valor de retorno que escribir cuando el tope se pasa.
+ */
+export async function construirFilasExportImpuestos(
+  ctx: ImpuestoCtx, filtros?: FiltrosExportImpuestos, opciones?: { incluirPago?: false },
+): Promise<FilaColaExport[]>;
+export async function construirFilasExportImpuestos(
+  ctx: ImpuestoCtx, filtros: FiltrosExportImpuestos, opciones: { incluirPago: true },
+): Promise<FilaColaExportPagoImpuestos[]>;
+export async function construirFilasExportImpuestos(
+  ctx: ImpuestoCtx, filtros: FiltrosExportImpuestos, opciones: OpcionesExportImpuestos,
+): Promise<FilaColaExport[] | FilaColaExportPagoImpuestos[]>;
+export async function construirFilasExportImpuestos(
+  ctx: ImpuestoCtx,
+  filtros: FiltrosExportImpuestos = {},
+  opciones: OpcionesExportImpuestos = {},
+): Promise<FilaColaExport[] | FilaColaExportPagoImpuestos[]> {
+  const tope = env.FLITO_COLA_EXPORT_MAX_FILAS;
+
+  const conds = condicionesColaImpuestos(ctx, filtros);
+  if (conds === null) return [];
+
+  if (opciones.incluirPago !== true) {
+    const filas = await consultaBase(conds, tope);
+    if (filas.length > tope) throw new ExportColaDemasiadoGrandeError(tope);
+    return ensamblarFilas(filas);
+  }
+
+  const filas = await consultaConPago(conds, tope);
   if (filas.length > tope) throw new ExportColaDemasiadoGrandeError(tope);
+  // Las 27 del gestor se construyen con EL MISMO código que el archivo de hoy; la variante ampliada
+  // solo le pega once celdas a la derecha.
+  const base = await ensamblarFilas(filas);
+  return filas.map((f, i) => ({ ...base[i]!, ...celdasPagoImpuestos(f) }));
+}
 
+/**
+ * Las 27 celdas del gestor para cada fila de la lectura principal, en el MISMO orden de entrada.
+ * Es el cuerpo que `construirFilasExportImpuestos` tenía antes del Bug #12642, sin un cambio de celda.
+ */
+async function ensamblarFilas(filas: FilaConsulta[]): Promise<FilaColaExport[]> {
   const propietarios = await propietariosDe([...new Set(filas.map((f) => f.tramiteId))]);
 
   return filas.map((f) => {

@@ -176,12 +176,16 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     expect(() => catalogoDeOperaciones(faltante)).toThrow(/SIN guarda viva/);
   });
 
-  it('las dos guardas en línea van con su condición en la llave y no colisionan con la ruta que las contiene', () => {
+  it('las cuatro guardas en línea van con su condición en la llave y no colisionan con la ruta que las contiene (dos son del Bug #12642)', () => {
     const enLinea = guardas.filter((g) => g.condicion);
     expect(enLinea.map(llaveDe).sort()).toEqual([
+      'flito-impuestos/flito-impuestos.routes.ts POST /export [incluirPago]',
+      'flito-soat/flito-soat.routes.ts POST /export [incluirPago]',
       'tramites/tramites.routes.ts PATCH /:id [_forzarContinuar]',
       'users/users.routes.ts PATCH /:id/password [ajena]',
     ]);
+    expect(codigoDeLlave.get('flito-soat/flito-soat.routes.ts POST /export')).toBe('soat.excel.exportar');
+    expect(codigoDeLlave.get('flito-soat/flito-soat.routes.ts POST /export [incluirPago]')).toBe('soat.excel.exportar_pago');
     expect(codigoDeLlave.get('tramites/tramites.routes.ts PATCH /:id')).toBe('tramite.tramite.editar');
     expect(codigoDeLlave.get('tramites/tramites.routes.ts PATCH /:id [_forzarContinuar]')).toBe('tramite.tramite.forzar_continuar');
   });

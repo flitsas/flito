@@ -208,6 +208,9 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     'impuestos.cola.ver', 'impuestos.recibos.cargar', 'impuestos.tramite.enviar',
     // HU #12592: recibo de caja puntual desde el detalle (migración 0197: hoy solo `admin`).
     'impuestos.recibos.cargar_caja',
+    // Bug #12642: Excel ampliado con pago y trazabilidad (sembrada solo a `admin`; el proveedor y el
+    // gestor de impuestos NO la tienen, y ese hueco es lo que prueba el spec del export).
+    'soat.excel.exportar_pago', 'impuestos.excel.exportar_pago',
     'tramites.solicitud.pedir_soat', 'tramites.autogestion.desbloquear',
     // HU #12635: «Ver soportes» desde el detalle de un comprobante. La 0179 la siembra para admin y
     // auditor; financiera NO la tiene (la reparte el admin desde el panel): el spec la añade por usuario.
