@@ -35,6 +35,10 @@ import {
 import {
   columnasDeFila, facetaOrganismos, SELECT_COLUMNAS_REPORTE, subtotalesDe, type ColumnasDeFila,
 } from './finanzas.reporte-columnas.js';
+import {
+  EXPR_CON_DIFERENCIAS, SELECT_VALORES_DOCUMENTALES, valoresDocumentalesDeFila, type ValoresDocumentalesDeFila,
+} from './finanzas.valores-documentales.js';
+import { EXPR_DOC_LG, EXPR_DOC_TD } from '../flito-comprobantes/flito-comprobantes.expr.js';
 import type { SiigoEstadoReporte, SiigoResumenReporte } from '@operaciones/shared-types';
 
 /**
@@ -57,6 +61,8 @@ export interface FiltrosReporte {
   etapa?: EtapaReporte;
   /** true = solo trámites con TODOS los conceptos aplicables documentados (filtro inteligente). */
   documentacionCompleta?: boolean;
+  /** true = solo trámites con al menos una diferencia documental SIN aceptar (HU #12653, AC5). */
+  conDiferencias?: boolean;
   /** Rango sobre la fecha de creación del trámite, en formato yyyy-mm-dd. */
   desde?: string; hasta?: string;
   /** Rango sobre la fecha de aprobación, en formato yyyy-mm-dd. Independiente del anterior. */
@@ -79,7 +85,7 @@ export interface FiltrosReporte {
  * exija que `aFila` los rellene: son datos que la pantalla enseña en una columna propia, y una
  * columna que a veces llega vacía por olvido se lee como «este trámite no tiene factura».
  */
-export interface FilaReporte extends FacturacionDeFila, ConciliacionSoatDeFila, ColumnasDeFila {
+export interface FilaReporte extends FacturacionDeFila, ConciliacionSoatDeFila, ColumnasDeFila, ValoresDocumentalesDeFila {
   tramiteId: string; idFlit: string; placa: string | null; estado: string | null; empresa: string | null;
   /** Vehículo, homologado con las demás tablas. */
   vin: string | null; marca: string | null; linea: string | null;
@@ -214,23 +220,39 @@ export const EXPR_IMPUESTO = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidacione
 export const EXPR_DERECHO = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorDerecho}
   ELSE ${flitoDerechosTramite.valor} END`;
 
+// ── El documental manda (HU #12653, ADR-0018 §5) ────────────────────────────
+//
+// Sin sellar, el valor del trámite digital y de la logística es el del COMPROBANTE DE PAGO APLICADO
+// si existe, y la tarifa vigente si no: `COALESCE(documental, tarifa)`, en ese orden y con
+// tolerancia 0. Lo que se cobra es lo que se pagó. Las subconsultas viven en el leaf
+// `flito-comprobantes.expr.ts` (una fila por trámite y concepto, por índice único parcial).
+//
+// En la logística el documental reemplaza SOLO la tarifa del viaje 1: los viajes adicionales
+// (HU #12627) se suman FUERA del COALESCE, cada uno con el precio con que se registró. Y el
+// `WHEN NOT GESTIONA_LOGISTICA THEN NULL` sigue ANTES del ELSE: un comprobante aplicado a un concepto
+// autogestionado no lo resucita (AC3). Servicios adicionales no entra aquí: el catálogo manda y el
+// comprobante solo marca la diferencia (`finanzas.valores-documentales.ts`).
+const DIGITAL_ESTIMADO = sql`COALESCE(${EXPR_DOC_TD}, ${td.valor})`;
+const LOGISTICA_VIAJE_1_ESTIMADO = sql`COALESCE(${EXPR_DOC_LG}, ${lg.valor})`;
+
 export const EXPR_DIGITAL = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorTramiteDigital}
-  ELSE ${td.valor} END`;
+  ELSE ${DIGITAL_ESTIMADO} END`;
 
 /** `flito_tramite_viajes_logistica`: los viajes ADICIONALES (numero >= 2) del trámite (HU #12619). */
 const VL = flitoTramiteViajesLogistica;
 
-// Logística = la tarifa (viaje 1) MÁS los viajes adicionales registrados (HU #12627), cada uno con el
-// precio con que se registró. Subconsulta correlacionada y no `leftJoin`, por lo mismo que los
-// servicios adicionales de abajo: la tabla tiene N filas por trámite. `lg.valor` NULL sigue dando
-// NULL —«no configurado»— aunque haya viajes: NULL + x es NULL, y `BLOQUEA_LOGISTICA` no cambia.
+// Logística = el viaje 1 (documental o tarifa) MÁS los viajes adicionales registrados (HU #12627),
+// cada uno con el precio con que se registró. Subconsulta correlacionada y no `leftJoin`, por lo
+// mismo que los servicios adicionales de abajo: la tabla tiene N filas por trámite. Viaje 1 NULL
+// (ni comprobante ni tarifa) sigue dando NULL —«no configurado»— aunque haya viajes: NULL + x es
+// NULL, y `BLOQUEA_LOGISTICA` mira el mismo COALESCE.
 //
 // La rama SIN sellar de la logística, UNA instancia compartida por `EXPR_LOGISTICA` (reporte) y
 // `EXPR_LOGISTICA_ESTIMADA` (gastos diarios, HU #12623, RN-02). Saltos de línea del CASE original.
 // La suma de viajes (HU #12627) entra en la instancia compartida a propósito: gastos diarios y
 // reporte deben estimar exactamente lo mismo (tarifa + Σ viajes, regla D5 de la Épica #12244).
 const RAMAS_LOGISTICA_ESTIMADA = sql`WHEN NOT ${GESTIONA_LOGISTICA} THEN NULL
-  ELSE ${lg.valor} + COALESCE((SELECT SUM(${VL.valor}) FROM ${VL} WHERE ${VL.tramiteId} = ${flitoTramites.id}), 0)`;
+  ELSE ${LOGISTICA_VIAJE_1_ESTIMADO} + COALESCE((SELECT SUM(${VL.valor}) FROM ${VL} WHERE ${VL.tramiteId} = ${flitoTramites.id}), 0)`;
 export const EXPR_LOGISTICA = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorLogistica}
   ${RAMAS_LOGISTICA_ESTIMADA} END`;
 /** La logística estimada a secas (sin mirar la liquidación): exige los joins `clients`, `JOIN_EXC_LOGISTICA` y `JOIN_LG`. */
@@ -324,9 +346,13 @@ const BLOQUEA_IMPUESTO = sql`(${GESTIONA_IMPUESTO} AND NOT COALESCE(${IMPUESTO_P
 /** El derecho de tránsito no se configura: se lee del recibo. Sin recibo, falta un costo real. */
 const BLOQUEA_DERECHO = sql`${flitoDerechosTramite.valor} IS NULL`;
 
-/** Honorarios de FLITO: sin tarifa negociada no hay nada que cobrar sin inventárselo. */
-const BLOQUEA_DIGITAL = sql`${td.valor} IS NULL`;
-const BLOQUEA_LOGISTICA = sql`(${GESTIONA_LOGISTICA} AND ${lg.valor} IS NULL)`;
+/**
+ * Honorarios de FLITO: sin tarifa negociada NI comprobante de pago aplicado no hay nada que cobrar
+ * sin inventárselo. El MISMO `COALESCE` que la celda (HU #12653): un comprobante aplicado con la
+ * tarifa sin configurar es un valor real, y la fila no está incompleta.
+ */
+const BLOQUEA_DIGITAL = sql`${DIGITAL_ESTIMADO} IS NULL`;
+const BLOQUEA_LOGISTICA = sql`(${GESTIONA_LOGISTICA} AND ${LOGISTICA_VIAJE_1_ESTIMADO} IS NULL)`;
 
 const EXPR_BLOQUEADA = sql`(${BLOQUEA_SOAT} OR ${BLOQUEA_IMPUESTO} OR ${BLOQUEA_DERECHO}
   OR ${BLOQUEA_DIGITAL} OR ${BLOQUEA_LOGISTICA})`;
@@ -402,6 +428,8 @@ export function condiciones(f: FiltrosReporte): SQL[] {
   if (f.etapa === 'por_facturar') conds.push(sql`${flitoLiquidaciones.estado} = 'liquidado'`);
   if (f.etapa === 'facturado') conds.push(sql`${flitoLiquidaciones.estado} = 'facturado'`);
   if (f.documentacionCompleta) conds.push(EXPR_DOC_COMPLETA);
+  // HU #12653 (AC5) — al menos una diferencia documental sin aceptar. Se compone, no anula.
+  if (f.conDiferencias) conds.push(EXPR_CON_DIFERENCIAS);
   // HU #11336 — la MISMA expresión que alimenta los contadores. Dos definiciones de «en qué punto
   // está esta factura» acabarían discrepando, y el filtro y los números dirían cosas distintas de
   // la misma fila: un bicho que no falla, solo miente.
@@ -505,6 +533,9 @@ export const SELECT_FILA = {
   ...SELECT_COLUMNAS_REPORTE,
   // Viajes de logística (HU #12627): cuántos, incluido el 1 de la tarifa. Al final, append-only.
   logisticaViajesCantidad: sql<number | null>`${EXPR_LOGISTICA_VIAJES_CANTIDAD}`,
+  // Origen y diferencia documental por concepto (HU #12653). Mismo patrón: se compone desde su
+  // archivo y por subconsultas correlacionadas; el VALOR ya viene por el COALESCE de arriba.
+  ...SELECT_VALORES_DOCUMENTALES,
 } as const;
 
 const n = (v: string | number | null): number | null => (v === null ? null : Number(v));
@@ -587,6 +618,7 @@ function aFila(r: Record<string, unknown>): FilaReporte {
     // Sobre los conceptos YA resueltos y sus listas de pendientes: es lo que decide 0 o null.
     ...subtotalesDe(conceptos),
     logisticaViajesCantidad: n(r.logisticaViajesCantidad as number | null),
+    ...valoresDocumentalesDeFila(r),
   };
 }
 
