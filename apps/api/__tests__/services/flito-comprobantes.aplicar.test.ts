@@ -32,6 +32,10 @@ process.env.TZ = 'UTC';
 //     (o 400) y cae.
 //   · AC4-M subir el hijo antes de la guarda `ya_pagado` → «ya pagado no deja objeto en S3» cae (espía uploadEntityDocument).
 //   · AC5-M `valor` NULL al pagar → «valor como COPIA» cae.
+//
+// HU #12632 (auto-aplicación): `aplicar(..., { automatico: true })` es el MISMO camino con otra marca de fila.
+//   · AC1-M `aplicadoPorId: ctx.userId` siempre (o `aplicadoAutomaticamente: false` fijo) → «automático: true / NULL / now» cae.
+//   · AC1-M2 leer `automatico` del cuerpo HTTP → «la ruta ignora automatico en el body» cae.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
@@ -1003,6 +1007,66 @@ describe('HU #12631 — POST /:id/aplicar con esPago=true: fila documental de tr
     expect(auditMock).toHaveBeenCalledTimes(1);
   });
 
+});
+
+// ═════════════════ HU #12632 · aplicar con { automatico: true } ═════════════════════════════════
+
+describe('HU #12632 — aplicar(id, body, ctx, { automatico: true }): la marca automática de la fila', () => {
+  const APROBADO = new Date('2026-08-01T15:00:00Z');
+  const conValor = () => { const e = extraccion(); e[CampoComprobante.VALOR_TOTAL] = campo('350000', 0.95); e[CampoComprobante.CONCEPTO] = campo('tramite_digital', 0.95); e[CampoComprobante.ES_COMPROBANTE_PAGO] = campo('true', 0.95); return e; };
+  /** Honorario (sin dueño): el camino más corto que cierra como pago. */
+  function armarHonorario() {
+    kdb.when
+      .selectOnce(T_COMP, [cabecera({ extraccion: conValor(), extraccionDestino: null, cruce: 'id_flit' })])
+      .selectOnce(T_SOP, [soporte])
+      .selectOnce(T_COMP, [{ estado: 'pendiente' }])
+      .select(T_TRAM, [tramite({ companiaId: 1, tipoTramite: 'MATRICULA', fechaAprobacion: APROBADO })])
+      .select(T_LIQ, [])
+      .select(T_TAR, [{ valor: '350000.00' }])
+      .select(T_SA, [{ total: null }])
+      .selectOnce(T_COMP, [filaAplicada({ esPago: true, valor: '350000', concepto: 'tramite_digital', cruce: 'id_flit', aplicadoAutomaticamente: true, aplicadoPorNombre: null })])
+      .selectOnce(T_COMP, [{ extraccion: conValor(), extraccionDestino: null }])
+      .update(T_SOP, [{ id: 'sop-1' }])
+      .update(T_COMP, [{ id: ID }]);
+  }
+  const ctx = { userId: 7, username: 'u@flitsas.io', role: 'financiera' };
+  const body = { tramiteId: T1, concepto: 'tramite_digital', esPago: true, campos: {} };
+
+  it('AC1-M — automático: aplicado_automaticamente=true, aplicado_por_id NULL, aplicado_en = now (TZ=UTC, reloj fijo); mismo cierre (estado, trámite, concepto, cruce sugerido, valor, soporte) y el ctx real firma el soporte', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-09-17T15:00:00Z') });
+    try {
+      armarHonorario();
+      const dto = await aplicar(ID, body, ctx, { automatico: true });
+      expect(dto).toMatchObject({ id: ID, estado: 'aplicado', aplicadoAutomaticamente: true });
+      const [comp] = espia.updatesEn(T_COMP);
+      expect(comp!.datos).toMatchObject({
+        estado: 'aplicado', esPago: true, valor: '350000', tramiteId: T1, concepto: 'tramite_digital', cruce: 'id_flit', soporteAplicadoId: 'sop-1',
+        aplicadoAutomaticamente: true, aplicadoPorId: null, aplicadoMotivo: null, motivoPendiente: null, detallePendiente: null,
+      });
+      expect(comp!.datos.aplicadoEn).toEqual(new Date('2026-09-17T15:00:00Z'));
+      // La misma guarda de estado y los mismos bloqueos que el camino manual.
+      const q = renderizar(comp!.condiciones[0] as never);
+      expect(ligadoA(q, '"flito_comprobantes"."id"')).toBe(ID);
+      expect(ligadoA(q, '"flito_comprobantes"."estado"')).toBe('pendiente');
+      expect(bloqueos.map((b) => b.tabla)).toEqual(['flito_comprobantes', 'flito_tramites']);
+      expect(espia.updatesEn(T_SOP)[0]!.datos).toEqual({ tipo: 'comprobante_pago' });
+      expect(logLineas.some((l) => JSON.stringify(l).includes('"automatico":true'))).toBe(true);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('sin opciones (manual): aplicado_automaticamente=false y aplicado_por_id = la persona', async () => {
+    armarHonorario();
+    await aplicar(ID, body, ctx);
+    expect(espia.updatesEn(T_COMP)[0]!.datos).toMatchObject({ aplicadoAutomaticamente: false, aplicadoPorId: 7 });
+  });
+
+  it('AC1-M2 — la ruta ignora `automatico` en el cuerpo: por HTTP siempre es manual', async () => {
+    const app = await buildApp();
+    armarHonorario();
+    const res = await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth()).send({ ...body, automatico: true, motivo: 'Pago del trámite digital' });
+    expect(res.status).toBe(200);
+    expect(espia.updatesEn(T_COMP)[0]!.datos).toMatchObject({ aplicadoAutomaticamente: false, aplicadoPorId: 7 });
+  });
 });
 
 describe('AC9 — :id no-UUID → 404; motivo como enum; limitador delante de multer', () => {
