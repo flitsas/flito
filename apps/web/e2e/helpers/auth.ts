@@ -171,6 +171,9 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
   admin: [
     ...SOAT_LEER, 'soat.comprobante.cargar', 'soat.solicitud.enviar',
     'impuestos.cola.ver', 'impuestos.recibos.cargar', 'impuestos.tramite.enviar',
+    // Bug #12642: Excel ampliado con pago y trazabilidad (sembrada solo a `admin`; el proveedor y el
+    // gestor de impuestos NO la tienen, y ese hueco es lo que prueba el spec del export).
+    'soat.excel.exportar_pago', 'impuestos.excel.exportar_pago',
     'tramites.solicitud.pedir_soat', 'tramites.autogestion.desbloquear',
     'tramite.tramite.forzar_continuar', 'compuerta.tramite.entregar', 'logistica.lote.cerrar',
     'tablero.tablero.ver', 'sync.sync.lanzar',

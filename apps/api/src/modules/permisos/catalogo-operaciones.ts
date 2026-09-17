@@ -61,6 +61,9 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${SOAT} GET /`, 'soat.cola.ver', 'Ver la cola de SOAT', 'Abrir la bandeja de solicitudes de SOAT y recorrer su listado.'),
   op(`${SOAT} GET /facetas`, 'soat.cola.filtrar', 'Filtrar la cola de SOAT', 'Leer los contadores y las facetas con las que se acota la bandeja.'),
   op(`${SOAT} POST /export`, 'soat.excel.exportar', 'Exportar la cola de SOAT a Excel', 'Descargar el listado filtrado como archivo de Excel.'),
+  // Bug #12642: guarda EN LÍNEA dentro del mismo handler (`tieneFuncion` cuando el cuerpo trae
+  // `incluirPago: true`), como `[_forzarContinuar]`. Textos byte a byte con la 0203; solo admin.
+  op(`${SOAT} POST /export [incluirPago]`, 'soat.excel.exportar_pago', 'Exportar la cola de SOAT a Excel con datos de pago y trazabilidad', 'Descargar el listado filtrado con el valor pagado, las fechas de solicitud y pago y el gestor.'),
   op(`${SOAT} POST /soportes/zip`, 'soat.soportes.descargar', 'Descargar soportes de SOAT en ZIP', 'Bajar en un solo archivo los soportes de las solicitudes seleccionadas.'),
   op(`${SOAT} GET /:id`, 'soat.solicitud.ver', 'Ver una solicitud de SOAT', 'Abrir el detalle de una solicitud concreta.'),
   op(`${SOAT} GET /:id/historial`, 'soat.solicitud.ver_historial', 'Ver el historial de una solicitud de SOAT', 'Consultar la línea de tiempo de cambios de estado de la solicitud.'),
@@ -82,6 +85,8 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${IMP} GET /`, 'impuestos.cola.ver', 'Ver la cola de impuestos', 'Abrir la bandeja de trámites de impuesto vehicular.'),
   op(`${IMP} GET /facetas`, 'impuestos.cola.filtrar', 'Filtrar la cola de impuestos', 'Leer los contadores y las facetas con las que se acota la bandeja.'),
   op(`${IMP} POST /export`, 'impuestos.excel.exportar', 'Exportar la cola de impuestos a Excel', 'Descargar el listado filtrado como archivo de Excel.'),
+  // Bug #12642: guarda EN LÍNEA (`tieneFuncion` con `incluirPago: true`); textos byte a byte con la 0203.
+  op(`${IMP} POST /export [incluirPago]`, 'impuestos.excel.exportar_pago', 'Exportar la cola de impuestos a Excel con datos de pago y trazabilidad', 'Descargar el listado filtrado con el valor liquidado y pagado, las fechas de solicitud y pago y el gestor.'),
   op(`${IMP} POST /soportes/zip`, 'impuestos.soportes.descargar', 'Descargar soportes de impuestos en ZIP', 'Bajar en un solo archivo los soportes de los trámites seleccionados.'),
   op(`${IMP} GET /:id`, 'impuestos.tramite.ver', 'Ver un trámite de impuestos', 'Abrir el detalle de un trámite concreto.'),
   op(`${IMP} GET /:id/historial`, 'impuestos.tramite.ver_historial', 'Ver el historial de un trámite de impuestos', 'Consultar la línea de tiempo de cambios de estado del trámite.'),

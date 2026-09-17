@@ -239,6 +239,11 @@ export default function FlitoImpuestos() {
    * conversión se hace aquí, en el único sitio donde se sabe qué espera el otro lado. En la QUERY de
    * la cola no hace falta: allí todo es texto.
    */
+  // Bug #12642: la casilla del Excel ampliado. Estado de la PÁGINA y no del hook, porque es parte
+  // del cuerpo que se manda, igual que cualquier otro filtro. La función es aparte de la del
+  // export: quien puede descargar el archivo del gestor no necesariamente puede ver el pago.
+  const puedeExportarPago = hasFuncion('impuestos.excel.exportar_pago');
+  const [incluirPago, setIncluirPago] = useState(false);
   const filtrosExport: FiltrosExportCola = {
     ...(estado !== 'todos' ? { estados: [estado] } : {}),
     ...(buscar.trim() ? { buscar: buscar.trim() } : {}),
@@ -252,6 +257,9 @@ export default function FlitoImpuestos() {
     ...(creadoDesde ? { creadoDesde } : {}),
     ...(creadoHasta ? { creadoHasta } : {}),
     ...(soloEstancado ? { estancado: true } : {}),
+    // Bug #12642: la clave viaja SOLO marcada —y solo si se tiene la función, que es lo que pinta la
+    // casilla—: ausente, el cuerpo es el mismo de siempre. Sin la función no hay forma de marcarla.
+    ...(puedeExportarPago && incluirPago ? { incluirPago: true } : {}),
   };
   // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
   const exportacion = useExportCola(COLA_IMPUESTOS, filtrosExport);
@@ -348,7 +356,11 @@ export default function FlitoImpuestos() {
                 que quitarle a alguien la carga masiva no le quite de paso la descarga. Al auditor NO
                 se le pinta deshabilitado: no se pinta. */}
             {puedeExportar && (
-              <BotonExportarCola ocupado={exportacion.ocupado} onExportar={exportacion.exportar} />
+              <BotonExportarCola
+                ocupado={exportacion.ocupado}
+                onExportar={exportacion.exportar}
+                incluirPago={puedeExportarPago ? { marcado: incluirPago, onCambio: setIncluirPago } : undefined}
+              />
             )}
           </>
         )}
