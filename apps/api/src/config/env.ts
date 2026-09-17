@@ -296,6 +296,10 @@ const envSchema = z.object({
   // Umbral de confianza OCR por defecto (0..1). Sobrescribible por proveedor/organismo.
   // Un campo bajo este umbral cae en la cola de revisión (RN-04/CA-06).
   OCR_UMBRAL_DEFECTO: z.coerce.number().min(0).max(1).default(0.85),
+  // Comprobantes universales (HU #12632, D5): auto-aplicar el comprobante que cruza con UN trámite y
+  // trae tipo, concepto, es-pago y valor confiables. Encendida por defecto; '0' deja todo en pendiente
+  // con la sugerencia escrita. Interruptor de emergencia, no parámetro de negocio.
+  COMPROBANTES_AUTO_APLICAR: z.enum(['0', '1']).default('1'),
   // Cron de sincronización desde FLIT (formato de 6 campos, con segundos). Default: cada 5 min.
   SYNC_CRON: z.string().default('0 */5 * * * *'),
   // Habilita el job de sincronización FLITO. Default true; 'false'/'0' lo apaga.

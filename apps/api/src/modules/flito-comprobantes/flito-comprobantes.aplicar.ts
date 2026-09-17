@@ -23,6 +23,12 @@
 // comprobante vuelve a `pendiente` (compensación) y la persona recibe el 409 con lo que dijo el dueño:
 // nunca queda un comprobante «aplicado como pago» de algo que no se pagó.
 //
+// HU #12632: la AUTO-aplicación (`flito-comprobantes.auto.ts`) entra por este MISMO `aplicar` con
+// `{ automatico: true }`: mismas guardas, mismo dueño, mismo cierre; lo único que cambia es la marca de
+// la fila (`aplicado_automaticamente = true`, `aplicado_por_id = NULL`, `aplicado_en = now`, que
+// `flito_comprobantes_aplicado_chk` admite). El `ctx` sigue siendo el de la persona que cargó: el
+// soporte hijo y la auditoría del dueño necesitan un usuario real (no hay usuario «sistema» en `users`).
+//
 // Ningún log lleva contenido leído (Habeas Data): ids, conceptos, cuentas.
 
 import { createHash } from 'node:crypto';
@@ -40,9 +46,8 @@ import { nombrePagina, recortarPaginas } from '../../shared/pdf/separar-paginas.
 import { confirmar } from '../flito-revisiones/flito-revisiones.service.js';
 import { bloquearTramite, TramiteNoEncontradoError, type Tx } from '../finanzas-servicios-adicionales/finanzas-servicios-adicionales.service.js';
 import { columnasDeLectura, ComprobanteError, detalle, type ComprobanteCtx } from './flito-comprobantes.service.js';
-import { CARPETA_COMPROBANTES } from './flito-comprobantes.carga.js';
 import { comprobarDestinoPago, pagarEnTx, pagarTrasCommit, tieneDueno, type DestinoPago, type PagoArgs } from './flito-comprobantes.duenos.js';
-import { esHonorario } from './flito-comprobantes.expr.js';
+import { CARPETA_COMPROBANTES, esHonorario } from './flito-comprobantes.expr.js';
 import { exigirNoLiquidado, traducirDuplicado, valorDocumentalDe, valorRequerido, type ValorDocumental } from './flito-comprobantes.honorarios.js';
 
 const log = loggerFor('flito-comprobantes-aplicar');
@@ -74,6 +79,9 @@ export const aplicarSchema = z.object({
 export type AplicarBody = z.infer<typeof aplicarSchema>;
 
 export const motivoSchema = z.object({ motivo: z.string().trim().min(5).max(500) });
+
+/** HU #12632: `automatico` lo pone SOLO `autoAplicar`; la ruta nunca lo recibe del cliente. */
+export interface OpcionesAplicar { automatico?: boolean }
 
 // ─────────────────────────── Errores ─────────────────────────────────────────
 
@@ -197,7 +205,8 @@ function fechaPagoDe(fechaDocumento: string | null): Date | null {
  * de la fila → tras el commit: SOAT / derecho escriben en su propia tx. Devuelve el detalle. Si la
  * carrera se pierde tras subir el hijo, el objeto de S3 queda huérfano (aceptado: la fila no lo referencia).
  */
-export async function aplicar(id: string, cuerpo: unknown, ctx: ComprobanteCtx): Promise<ComprobanteDetalleDto> {
+export async function aplicar(id: string, cuerpo: unknown, ctx: ComprobanteCtx, opciones: OpcionesAplicar = {}): Promise<ComprobanteDetalleDto> {
+  const automatico = opciones.automatico === true;
   const [c] = await db.select({
     id: flitoComprobantes.id, estado: flitoComprobantes.estado, soporteId: flitoComprobantes.soporteId, paginas: flitoComprobantes.paginas,
     tramiteId: flitoComprobantes.tramiteId, cruce: flitoComprobantes.cruce, tipoDocumento: flitoComprobantes.tipoDocumento,
@@ -244,7 +253,7 @@ export async function aplicar(id: string, cuerpo: unknown, ctx: ComprobanteCtx):
     throw honorario ? await traducirDuplicado(e, body.tramiteId, honorario) : e;
   }
   if (destinoPago && args) await pagarDespuesDelCommit(id, destinoPago, args);
-  log.info({ comprobanteId: id, tramiteId: body.tramiteId, concepto: body.concepto, esPago: body.esPago, cruce, hijo: hijo !== null, por: ctx.userId },
+  log.info({ comprobanteId: id, tramiteId: body.tramiteId, concepto: body.concepto, esPago: body.esPago, cruce, hijo: hijo !== null, por: ctx.userId, automatico },
     body.esPago ? 'Comprobante aplicado como pago' : 'Comprobante adjuntado como documentación');
   return detalle(id);
 
@@ -264,7 +273,7 @@ export async function aplicar(id: string, cuerpo: unknown, ctx: ComprobanteCtx):
     const tipoSoporte = enTx?.tipoSoporte ?? (honorario ? TipoSoporte.COMPROBANTE_PAGO : TipoSoporte.DOCUMENTO_TRAMITE);
     const soporteAplicadoId = await soporteDelDestino(tx, soporte, hijo, fk, tipoSoporte, ctx);
     const cierre: CierreComprobante = {
-      tramiteId: tramite.id, concepto: body.concepto, cruce, motivo: body.motivo ?? null, soporteAplicadoId,
+      tramiteId: tramite.id, concepto: body.concepto, cruce, motivo: body.motivo ?? null, soporteAplicadoId, automatico,
       extraccion, extraccionDestino, tipoDocumento,
       placaLeida: lectura.placaLeida, vinLeido: lectura.vinLeido, idFlitLeido: lectura.idFlitLeido,
       fechaDocumento: lectura.fechaDocumento, numeroDocumento: lectura.numeroDocumento, emisor: lectura.emisor,
@@ -296,7 +305,7 @@ async function pagarDespuesDelCommit(id: string, destinoPago: DestinoPago, args:
     log.error({ comprobanteId: id, tramiteId: args.tramiteId, concepto: destinoPago.concepto, err: msg }, 'El dueño rechazó el pago tras el commit; el comprobante vuelve a pendiente');
     await db.update(flitoComprobantes).set({
       estado: EstadoComprobante.PENDIENTE, esPago: null, valor: null, soporteAplicadoId: null,
-      aplicadoPorId: null, aplicadoEn: null, aplicadoMotivo: null, updatedAt: new Date(),
+      aplicadoAutomaticamente: false, aplicadoPorId: null, aplicadoEn: null, aplicadoMotivo: null, updatedAt: new Date(),
     }).where(and(eq(flitoComprobantes.id, id), eq(flitoComprobantes.estado, EstadoComprobante.APLICADO)));
     if (e instanceof ComprobanteError) throw e;
     throw new ComprobanteError(409, CodigoErrorComprobante.DESTINO_NO_ADMITE, `El pago no se registró en ${destinoPago.concepto}: ${msg}`, { detalle: msg, puedeAdjuntar: false });
@@ -309,6 +318,8 @@ interface CierreComprobante {
   cruce: string;
   motivo: string | null;
   soporteAplicadoId: string;
+  /** HU #12632: `true` cuando lo aplicó `autoAplicar` (marca de la fila; el `ctx` sigue siendo el de la persona que cargó). */
+  automatico: boolean;
   extraccion: ExtraccionComprobante;
   extraccionDestino: Record<string, CampoExtraido> | null;
   tipoDocumento: string | null;
@@ -320,7 +331,11 @@ interface CierreComprobante {
   emisor: string | null;
 }
 
-/** La fila `aplicado`: lo común a documentar y pagar; `esPago`, `valor` y la fila documental los pone cada camino. */
+/**
+ * La fila `aplicado`: lo común a documentar y pagar; `esPago`, `valor` y la fila documental los pone
+ * cada camino. Automático (HU #12632): `aplicado_automaticamente = true` y `aplicado_por_id = NULL`
+ * (nadie decidió: la pareja quién+cuándo se sustituye por automático+cuándo); manual: la persona.
+ */
 async function cerrar(tx: Tx, id: string, d: CierreComprobante, pago: { esPago: boolean; valor: string | null }, ctx: ComprobanteCtx, documental?: ValorDocumental): Promise<void> {
   await tx.update(flitoComprobantes).set({
     estado: EstadoComprobante.APLICADO, motivoPendiente: null, detallePendiente: null,
@@ -328,7 +343,7 @@ async function cerrar(tx: Tx, id: string, d: CierreComprobante, pago: { esPago: 
     soporteAplicadoId: d.soporteAplicadoId, extraccion: d.extraccion, extraccionDestino: d.extraccionDestino,
     tipoDocumento: d.tipoDocumento, placaLeida: d.placaLeida, vinLeido: d.vinLeido, idFlitLeido: d.idFlitLeido,
     fechaDocumento: d.fechaDocumento, numeroDocumento: d.numeroDocumento, emisor: d.emisor,
-    aplicadoAutomaticamente: false, aplicadoPorId: ctx.userId, aplicadoEn: new Date(), aplicadoMotivo: d.motivo,
+    aplicadoAutomaticamente: d.automatico, aplicadoPorId: d.automatico ? null : ctx.userId, aplicadoEn: new Date(), aplicadoMotivo: d.motivo,
     updatedAt: new Date(),
   }).where(and(eq(flitoComprobantes.id, id), eq(flitoComprobantes.estado, EstadoComprobante.PENDIENTE)));
 }

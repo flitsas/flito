@@ -27,6 +27,7 @@ import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { leerSubDocumento, type LecturaSubDocumento, type SubDocumentoApi } from './flito-comprobantes.ocr.js';
 import { candidatosPorLlave, cruzarLectura, type ResultadoCruce } from './flito-comprobantes.cruce.js';
+import { autoAplicar, resumenFallo } from './flito-comprobantes.auto.js';
 
 const log = loggerFor('flito-comprobantes');
 
@@ -412,5 +413,13 @@ export async function releer(id: string, ctx: ComprobanteCtx): Promise<Comproban
     .set({ ...columnas, detallePendiente: null, updatedAt: new Date() })
     .where(eq(flitoComprobantes.id, id));
   log.info({ comprobanteId: id, por: ctx.userId, motivo: columnas.motivoPendiente, cruce: columnas.cruce }, 'Comprobante releído');
+  // HU #12632 (AC4): la relectura exitosa intenta auto-aplicar con el cruce recién calculado; si no
+  // procede o falla, la fila queda como la reescribió la relectura (pendiente con su motivo).
+  try {
+    const auto = await autoAplicar(id, lectura, cruce, ctx);
+    if (auto) return auto.detalle;
+  } catch (e) {
+    log.warn({ comprobanteId: id, ...resumenFallo(e) }, 'Auto-aplicación tras releer fallida: el comprobante queda pendiente');
+  }
   return detalle(id);
 }

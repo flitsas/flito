@@ -10,14 +10,16 @@
 // Orden por archivo: cabecera real → sha256 y dedup (en el envío y contra `flito_soportes` vivos de
 // CUALQUIER puerta) → partición → lectura de cada sub-documento (concurrencia 5; OCR caído = sin
 // lectura, no error) → CRUCE por llave de cada lectura (HU #12629: `tramite_id`/`cruce` quedan
-// SUGERIDOS en el pendiente; `aplicados` sigue vacío hasta HU-4) → S3 → BD. Los duplicados y los
-// fallidos no se persisten: viven en el resultado.
+// SUGERIDOS en el pendiente) → S3 → BD → AUTO-APLICACIÓN por sub-documento (HU #12632, D5: con la
+// flag encendida, cruce único y lectura confiable el comprobante entra por `aplicar` y va a
+// `aplicados`; si no, o si el intento falla, queda `pendiente` con la sugerencia y el envío sigue).
+// Los duplicados y los fallidos no se persisten: viven en el resultado.
 // Ningún log lleva contenido leído (Habeas Data): cuentas, motivos y banderas.
 
 import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import {
-  MOTIVO_PENDIENTE_COMPROBANTE_LABEL, TipoSoporte, type ConceptoCosto, type ItemCargaComprobante,
+  CONCEPTO_COSTO_LABEL, MOTIVO_PENDIENTE_COMPROBANTE_LABEL, TipoSoporte, type ConceptoCosto, type ItemCargaComprobante,
   type MotivoPendienteComprobante, type ResultadoCargaComprobantes, type TipoDocumentoComprobante,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
@@ -30,14 +32,15 @@ import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { leerSubDocumento, particionar, type LecturaSubDocumento, type SubDocumentoApi } from './flito-comprobantes.ocr.js';
 import { columnasDeLectura, type ComprobanteCtx } from './flito-comprobantes.service.js';
 import { cruzarLectura, type ResultadoCruce } from './flito-comprobantes.cruce.js';
+import { CARPETA_COMPROBANTES } from './flito-comprobantes.expr.js';
+import { autoAplicar, resumenFallo, type AutoAplicado } from './flito-comprobantes.auto.js';
 
 const log = loggerFor('flito-comprobantes-carga');
 
 /** Sub-documentos en vuelo a la vez por archivo (mismo tope que la carga masiva de recibos). */
 export const OCR_CONCURRENCIA_CARGA = 5;
 
-/** Carpeta S3 de la puerta: no hay compañía conocida al cargar, así que cuelga del lote. */
-export const CARPETA_COMPROBANTES = 'flito/comprobantes';
+export { CARPETA_COMPROBANTES };
 
 /** Copy FIJADO de los fallidos (ficha UX §6.2; el front lo pinta tal cual). */
 export const DETALLE_FALLIDO = {
@@ -193,12 +196,50 @@ function itemPendiente(
   };
 }
 
+/** `$ 350.000` (es-CO, sin decimales): el mismo formato que `pesos` de la web, para el copy fijado del aplicado. */
+export const pesos = (v: string | number): string =>
+  new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Number(v));
+
+/** Copy FIJADO del aplicado (`ItemCargaComprobante.detalle`, HU #12632): «{Concepto} · {idFlit} · {pesos(valor)}». */
+export function detalleAplicado(concepto: ConceptoCosto, idFlit: string, valor: string | number | null): string {
+  return `${CONCEPTO_COSTO_LABEL[concepto]} · ${idFlit} · ${valor === null ? '—' : pesos(valor)}`;
+}
+
+/** El ítem de `aplicados`: sin motivo; lo aplicado, con el copy fijado. */
+function itemAplicado(sub: SubDocumentoApi, auto: AutoAplicado): ItemCargaComprobante {
+  const d = auto.detalle;
+  return {
+    archivo: sub.nombre, comprobanteId: d.id, paginas: sub.paginas,
+    tipoDocumento: d.tipoDocumento, concepto: auto.body.concepto, idFlit: auto.candidato.idFlit, placa: d.placaLeida, motivo: null,
+    detalle: detalleAplicado(auto.body.concepto, auto.candidato.idFlit, d.valor),
+  };
+}
+
+/**
+ * HU #12632 (AC1-AC3): intenta auto-aplicar UN sub-documento ya persistido. Devuelve el ítem aplicado
+ * o `null` si queda pendiente — porque alguna condición no se cumple o porque el intento falló
+ * (ComprobanteError del esqueleto o del dueño). El fallo se loguea sin contenido leído y NO sube: la
+ * fila sigue `pendiente` con su sugerencia, el archivo ya está en S3 y en BD, y el envío continúa.
+ */
+async function intentarAutoAplicar(
+  sub: SubDocumentoApi, lectura: LecturaSubDocumento | null, cruce: ResultadoCruce | null, comprobanteId: string, ctx: ComprobanteCtx,
+): Promise<ItemCargaComprobante | null> {
+  try {
+    const auto = await autoAplicar(comprobanteId, lectura, cruce, ctx);
+    return auto ? itemAplicado(sub, auto) : null;
+  } catch (e) {
+    log.warn({ comprobanteId, ...resumenFallo(e) }, 'Auto-aplicación fallida: el comprobante queda pendiente');
+    return null;
+  }
+}
+
 const fallido = (archivo: string, detalle: string): ItemCargaComprobante =>
   ({ archivo, comprobanteId: null, paginas: null, tipoDocumento: null, concepto: null, idFlit: null, placa: null, motivo: null, detalle });
 
 /**
- * Procesa un envío (1..5 archivos) de un lote. `aplicados` sigue siendo `[]`: la puerta lee, cruza y
- * conserva la sugerencia; auto-aplicar es HU-4 de F2.
+ * Procesa un envío (1..5 archivos) de un lote. La puerta lee, cruza, persiste la sugerencia y, por
+ * sub-documento, intenta auto-aplicar (HU #12632): lo que se aplica va a `aplicados`; el resto, a
+ * `pendientes` con su motivo.
  */
 export async function cargarLote(archivos: ArchivoCargado[], loteId: string, ctx: ComprobanteCtx): Promise<ResultadoCargaComprobantes> {
   const res: ResultadoCargaComprobantes = { aplicados: [], pendientes: [], duplicados: [], fallidos: [], documentos: 0 };
@@ -235,13 +276,17 @@ export async function cargarLote(archivos: ArchivoCargado[], loteId: string, ctx
       for (const l of lecturas) cruces.push(await cruzarLectura(l?.extraccion ?? null));
       const { comprobanteIds } = await persistir(archivo, contentType, hash, particion.documentos, lecturas, cruces, loteId, ctx);
       vistos.set(hash, { comprobanteId: comprobanteIds[0]!, en: new Date() });
-      particion.documentos.forEach((sub, i) => {
+      // Auto-aplicación DESPUÉS del commit del archivo (AC3: el archivo persistido no depende del intento).
+      let aplicados = 0;
+      for (const [i, sub] of particion.documentos.entries()) {
+        const aplicado = await intentarAutoAplicar(sub, lecturas[i] ?? null, cruces[i] ?? null, comprobanteIds[i]!, ctx);
+        if (aplicado) { res.aplicados.push(aplicado); aplicados++; continue; }
         res.pendientes.push(itemPendiente(sub, lecturas[i] ?? null, cruces[i] ?? null, comprobanteIds[i]!, particion.paginasNoLeidas));
-      });
+      }
       res.documentos += particion.documentos.length;
       log.info({
         loteId, documentos: particion.documentos.length, metodo: particion.metodo,
-        sinLectura: lecturas.filter((l) => l === null).length, cruzados: cruces.filter((c) => c?.tramiteId).length,
+        sinLectura: lecturas.filter((l) => l === null).length, cruzados: cruces.filter((c) => c?.tramiteId).length, aplicados,
       }, 'Archivo cargado');
     } catch (e) {
       log.error({ loteId, err: (e as Error).message }, 'Archivo no guardado');
