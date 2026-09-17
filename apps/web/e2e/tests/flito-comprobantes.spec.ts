@@ -455,8 +455,10 @@ test.describe('HU #12612 · AC5 — detalle: visor y datos leídos con confianza
     await expect(original).toHaveAttribute('rel', 'noopener');
 
     const lectura = dialog.getByRole('region', { name: 'Lectura' });
-    await expect(lectura).toContainText('Aplicado');
-    await expect(lectura).toContainText('automático · 16 sep 2026');
+    // HU #12635 (slim §1.4): el chip dice «Aplicado automático» y el segundo texto ya no repite la palabra.
+    await expect(lectura).toContainText('Aplicado automático');
+    await expect(lectura).toContainText('16 sep 2026');
+    await expect(lectura).not.toContainText('automático · 16 sep 2026');
     await expect(lectura).toContainText(/Carga 16 sep 2026 · \d{2}:\d{2} · Ana Pérez/);
     await expect(lectura).toContainText('Leído: Recibo de impuesto');
     const filaCampo = (rotulo: string) => lectura.locator('dl > div', { has: page.getByText(rotulo, { exact: true }) });
@@ -1123,8 +1125,9 @@ test.describe('HU #12634 · AC6 — solo lectura de aplicados y descartados', ()
     await page.getByRole('button', { name: 'Ver recibo.pdf' }).click();
     let dialog = page.getByRole('dialog', { name: /^Comprobante · recibo\.pdf/ });
     const lectura = dialog.getByRole('region', { name: 'Lectura' });
-    await expect(lectura).toContainText('Aplicado');
-    await expect(lectura).toContainText('manual · por Luis Gómez · 16 sep 2026');
+    await expect(lectura).toContainText('Aplicado manual');
+    await expect(lectura).toContainText('por Luis Gómez · 16 sep 2026');
+    await expect(lectura).not.toContainText('manual · por');
     await expect(lectura).toContainText('Comprobante de pago · Impuesto · FLIT-10250 · XYZ789 · cruce por placa');
     await expect(lectura).toContainText('Valor al aplicar');
     await expect(lectura).toContainText('$ 312.000');
@@ -1160,7 +1163,9 @@ test.describe('HU #12634 · AC6 — solo lectura de aplicados y descartados', ()
     await page.goto(RUTA);
     await page.getByRole('button', { name: 'Ver recibo.pdf' }).click();
     let dialog = page.getByRole('dialog', { name: /^Comprobante · recibo\.pdf/ });
-    await expect(dialog.getByRole('region', { name: 'Lectura' })).toContainText('automático · 16 sep 2026');
+    await expect(dialog.getByRole('region', { name: 'Lectura' })).toContainText('Aplicado automático');
+    await expect(dialog.getByRole('region', { name: 'Lectura' })).toContainText('16 sep 2026');
+
     await expect(dialog.getByRole('button', { name: /soporte aplicado/ })).toHaveCount(0);
     await expect(dialog.getByText(/^Motivo:/)).toHaveCount(0);
     await page.keyboard.press('Escape');
@@ -1265,5 +1270,387 @@ test.describe('HU #12634 · AC8 — esPdf sale del DTO o de la cabecera, no de b
     await expect(dialog.getByRole('img', { name: 'transf.png' })).toBeVisible();
     await expect(dialog.locator('img[alt*=" — página "]')).toHaveCount(0);
     expect(tipos.every((t) => !t.includes('pdf') && !t.includes('png'))).toBe(true);
+  });
+});
+
+// ═══════════ HU #12635 — Estado de asociación, chip «Aplicados», enlace al trámite, ficha ═══════════
+// Matriz del QA (comentario 29463012): TC-01…TC-14. Backend mockeado; `gets` captura la query de la cola.
+
+const UUID_D = '88888888-8888-4888-8888-888888888888';
+const UUID_E = '99999999-9999-4999-8999-999999999999';
+const UUID_F = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+const UUID_T = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
+const TRAMITE_ABC = { id: UUID_T, idFlit: 'FLIT-ARHZZ1', placa: 'ABC123' };
+const APLICADO_AUTO = { estado: 'aplicado', motivoPendiente: null, aplicadoEn: '2026-09-16T16:00:00.000Z', aplicadoAutomaticamente: true, esPago: true, tramite: TRAMITE_ABC, cruce: 'placa' };
+const SEIS_FILAS = {
+  items: [
+    fila({ id: UUID_A, archivo: { nombre: 'f1-pendiente.pdf', contentType: 'application/pdf' }, motivoPendiente: 'leido' }),
+    fila({ id: UUID_B, archivo: { nombre: 'f2-auto.pdf', contentType: 'application/pdf' }, ...APLICADO_AUTO }),
+    fila({ id: UUID_C, archivo: { nombre: 'f3-manual.pdf', contentType: 'application/pdf' }, ...APLICADO_AUTO, aplicadoAutomaticamente: false, aplicadoPorNombre: 'Luis Gómez' }),
+    // (4) el caso del mutante AC1: documentación aplicada automáticamente es «Adjuntado», no «Aplicado automático».
+    fila({ id: UUID_D, archivo: { nombre: 'f4-adjuntado.pdf', contentType: 'application/pdf' }, ...APLICADO_AUTO, esPago: false }),
+    fila({ id: UUID_E, archivo: { nombre: 'f5-rechazado.pdf', contentType: 'application/pdf' }, motivoPendiente: 'destino_no_admite', detallePendiente: 'Ese SOAT ya está pagado', tramite: TRAMITE_ABC, cruce: 'placa' }),
+    fila({ id: UUID_F, archivo: { nombre: 'f6-descartado.pdf', contentType: 'application/pdf' }, estado: 'descartado', motivoPendiente: null, descartadoEn: '2026-09-15T13:10:00.000Z', descartadoPorNombre: 'Ana Pérez' }),
+  ],
+  total: 6, page: 1, pageSize: 50,
+};
+const TONO_POR_TINTA: Record<string, string> = {
+  'var(--flit-success-ink)': 'success', 'var(--flit-blue-ink)': 'active', 'var(--flit-warning-ink)': 'warning',
+  'var(--flit-text-muted)': 'neutral', 'var(--flit-danger-ink)': 'danger',
+};
+const tonoDe = (chip: Locator) => chip.evaluate((el) => (el as HTMLElement).style.color).then((c) => TONO_POR_TINTA[c] ?? c);
+const selectorAsociacion = (page: Page) => page.getByRole('combobox', { name: 'Estado de asociación' });
+const enlaceTramite = (ambito: Locator | Page) => ambito.getByRole('link', { name: /^Ver trámite FLIT-ARHZZ1/ });
+const CON_VER_SOPORTES = { ...FINANCIERA_USER, funciones: [...FUNCIONES_POR_ROL.financiera, 'tramites.tramite.ver_soportes'] };
+const SOPORTES = [
+  { id: 'sp1', origen: 'comprobante', tipo: 'comprobante_pago', nombreArchivo: 'f2-auto.pdf', url: '/api/files?key=a', subidoEn: '2026-09-16T16:00:00.000Z' },
+  { id: 'sp2', origen: 'soat', tipo: 'factura_soat', nombreArchivo: 'soat.pdf', url: '/api/files?key=b', subidoEn: '2026-09-01T00:00:00.000Z' },
+];
+
+test.describe('HU #12635 · AC1 — seis estados de asociación: chip y filtro', () => {
+  /** Mutante M-AC1: derivar «Adjuntado» (o «Aplicado automático») sin mirar `esPago` → la fila (4) cae. */
+  test('TC-01 seis filas → seis chips con su tono; aplicado + esPago=false + automático dice «Adjuntado»; sin uuid ni VIN en el DOM', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockCola(page, SEIS_FILAS);
+    await page.goto(RUTA);
+    await page.getByRole('button', { name: 'Todos', exact: true }).click();
+    const tabla = page.getByRole('region', { name: 'Cola de comprobantes' });
+    const esperado: [string, string, string][] = [
+      ['f1-pendiente.pdf', 'Pendiente de asociar', 'warning'], ['f2-auto.pdf', 'Aplicado automático', 'success'],
+      ['f3-manual.pdf', 'Aplicado manual', 'success'], ['f4-adjuntado.pdf', 'Adjuntado', 'active'],
+      ['f5-rechazado.pdf', 'Rechazado como pago', 'warning'], ['f6-descartado.pdf', 'Descartado', 'neutral'],
+    ];
+    for (const [archivo, rotulo, tono] of esperado) {
+      const chip = tabla.getByRole('row', { name: new RegExp(archivo.replace('.', '\\.')) }).getByText(rotulo, { exact: true });
+      await expect(chip, archivo).toHaveCount(1);
+      expect(await tonoDe(chip), `${archivo} → ${rotulo}`).toBe(tono);
+    }
+    // Segundo renglón: «automático»/«manual» se fueron al chip; el manual conserva «por quién».
+    const filaAuto = tabla.getByRole('row', { name: /f2-auto\.pdf/ });
+    await expect(filaAuto).toContainText('16 sep 2026');
+    await expect(filaAuto).not.toContainText('automático · ');
+    await expect(tabla.getByRole('row', { name: /f3-manual\.pdf/ })).toContainText('por Luis Gómez · 16 sep 2026');
+    await expect(tabla.getByRole('row', { name: /f5-rechazado\.pdf/ })).toContainText('Ese SOAT ya está pagado');
+    await expect(tabla.getByText(/^(Pendiente|Aplicado)$/)).toHaveCount(0);
+    const html = await tabla.evaluate((el) => el.outerHTML);
+    for (const uuid of [UUID_A, UUID_B, UUID_C, UUID_D, UUID_E, UUID_F, UUID_T, LOTE_1]) expect(html).not.toContain(uuid);
+    // Las cuatro pills siguen existiendo.
+    for (const p of ['Pendientes', 'Aplicados', 'Descartados', 'Todos']) await expect(page.getByRole('button', { name: new RegExp(`^${p}`) })).toHaveCount(1);
+  });
+
+  /** Mutantes (notas QA 1-4): copiar `?asociacion=` a un `useState`; mandar el valor desconocido al API; conservar una asociación de otra pill; limpiar sin tocar la URL. */
+  test('TC-02/TC-03 selector → API y URL; pill implicada; reload conserva; pill ajena lo vacía; Limpiar lo quita; ?asociacion=zzz se ignora', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    const gets = await mockCola(page, SEIS_FILAS);
+    await page.goto(RUTA);
+    const selector = selectorAsociacion(page);
+    await expect(selector).toHaveValue('');
+    await expect(selector.locator('option')).toHaveText([
+      'Todos los estados de asociación', 'Pendiente de asociar', 'Rechazado como pago', 'Aplicado automático', 'Aplicado manual', 'Adjuntado', 'Descartado',
+    ]);
+    expect(gets[0]).not.toContain('asociacion=');
+
+    await selector.selectOption('aplicado_automatico');
+    await expect.poll(() => gets.at(-1)).toContain('asociacion=aplicado_automatico');
+    expect(gets.at(-1)).toContain('estado=aplicado');
+    expect(gets.at(-1)).toContain('page=1');
+    await expect(page).toHaveURL(/\?asociacion=aplicado_automatico$/);
+    await expect(page.getByRole('button', { name: 'Aplicados' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('combobox', { name: 'Motivo' })).toHaveCount(0);
+
+    const antes = gets.length;
+    await page.reload();
+    await expect(selectorAsociacion(page)).toHaveValue('aplicado_automatico');
+    await expect.poll(() => gets.length).toBeGreaterThan(antes);
+    expect(gets[antes]).toContain('asociacion=aplicado_automatico');
+    expect(gets[antes]).toContain('estado=aplicado');
+    await expect(page.getByRole('button', { name: 'Aplicados' })).toHaveAttribute('aria-pressed', 'true');
+
+    // TC-03: pill Aplicados + «Adjuntado» → viajan los dos, coherentes.
+    await selectorAsociacion(page).selectOption('adjuntado');
+    await expect.poll(() => gets.at(-1)).toContain('estado=aplicado&asociacion=adjuntado');
+    // Una pill que deja fuera la opción la vacía (nota QA 3).
+    await page.getByRole('button', { name: /^Pendientes/ }).click();
+    await expect(selectorAsociacion(page)).toHaveValue('');
+    await expect(page).toHaveURL(/\/flito\/comprobantes$/);
+    await expect.poll(() => gets.at(-1)).toContain('estado=pendiente');
+    expect(gets.at(-1)).not.toContain('asociacion=');
+    // En Pendientes, «Rechazado como pago» se queda en Pendientes y Motivo sigue.
+    await selectorAsociacion(page).selectOption('rechazado_pago');
+    await expect.poll(() => gets.at(-1)).toContain('estado=pendiente&asociacion=rechazado_pago');
+    await expect(page).toHaveURL(/\?asociacion=rechazado_pago$/);
+    await expect(page.getByRole('combobox', { name: 'Motivo' })).toBeVisible();
+    // Todos conserva la opción (la pill Todos no la contradice).
+    await page.getByRole('button', { name: 'Todos', exact: true }).click();
+    await expect(selectorAsociacion(page)).toHaveValue('rechazado_pago');
+    await expect.poll(() => gets.at(-1)).toContain('asociacion=rechazado_pago');
+    expect(gets.at(-1)).not.toContain('estado=');
+    // Limpiar filtros: URL sin asociacion, selector vacío, pill Pendientes (nota QA 4).
+    await page.getByRole('button', { name: 'Limpiar filtros' }).click();
+    await expect(page).toHaveURL(/\/flito\/comprobantes$/);
+    await expect(selectorAsociacion(page)).toHaveValue('');
+    await expect(page.getByRole('button', { name: /^Pendientes/ })).toHaveAttribute('aria-pressed', 'true');
+    await expect.poll(() => gets.at(-1)).not.toContain('asociacion=');
+
+    // Borde: valor desconocido → se ignora, no viaja al API y la URL no se reescribe al entrar (nota QA 2).
+    const n = gets.length;
+    await page.goto(`${RUTA}?asociacion=zzz`);
+    await expect.poll(() => gets.length).toBeGreaterThan(n);
+    expect(gets[n]).not.toContain('asociacion=');
+    expect(gets[n]).toContain('estado=pendiente');
+    await expect(selectorAsociacion(page)).toHaveValue('');
+    await expect(page).toHaveURL(/\?asociacion=zzz$/);
+    await page.getByRole('combobox', { name: 'Concepto' }).selectOption('soat');
+    await expect(page).toHaveURL(/\/flito\/comprobantes$/);
+  });
+
+  /** Mutante (nota QA 6): duplicar «Limpiar filtros» dentro del vacío. */
+  test('vacío con el selector puesto: dos líneas con el siguiente paso y UN solo «Limpiar filtros»', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockCola(page, LISTA_VACIA);
+    await page.goto(`${RUTA}?asociacion=descartado`);
+    await expect(page.getByRole('button', { name: 'Descartados' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByText('Ningún comprobante coincide con los filtros.')).toBeVisible();
+    await expect(page.getByText('Cambia el estado de asociación, el concepto o el motivo, o pulsa Limpiar filtros.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toHaveCount(1);
+  });
+});
+
+test.describe('HU #12635 · AC2 — «Aplicados» en el resultado de la carga', () => {
+  const APLICADO_ITEM = { archivo: 'f1.pdf', comprobanteId: UUID_A, paginas: null, tipoDocumento: 'poliza_soat', concepto: 'soat', idFlit: 'FLIT-ARHZZ1', placa: 'ABC123', motivo: null, detalle: 'SOAT · FLIT-ARHZZ1 · $ 1.234.567' };
+
+  /** Mutantes: recomponer el detalle en el front; chip Aplicados al final o sin contador. */
+  test('TC-04 chip «Aplicados 1» primero, fila «Aplicado» primera con el detalle del servidor tal cual', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockCola(page, LISTA_VACIA);
+    const lotes: string[] = [];
+    await page.route(/\/api\/flito\/comprobantes$/, (route) => {
+      lotes.push(loteIdDe(route.request().postData()));
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...RESULTADO_OK, aplicados: [APLICADO_ITEM], pendientes: [RESULTADO_OK.pendientes[1]], documentos: 2 }) });
+    });
+    const modal = await abrirCarga(page);
+    await modal.getByLabel('Comprobantes de la carga').setInputFiles(archivos(2));
+    await modal.getByRole('button', { name: 'Subir y procesar' }).click();
+    await expect(modal.getByRole('button', { name: 'Listo' })).toBeVisible();
+    await expect(modal.getByRole('status')).toHaveText('2 documentos leídos en 2 archivos');
+    const chips = modal.getByText(/^(Aplicados|Pendientes|Duplicados|Fallidos) \d+$/);
+    await expect(chips).toHaveText(['Aplicados 1', 'Pendientes 1', 'Duplicados 0', 'Fallidos 0']);
+    expect(await tonoDe(chips.first())).toBe('success');
+    const filas = modal.getByRole('row');
+    await expect(filas.nth(1)).toContainText('f1.pdf');
+    await expect(filas.nth(1).getByText('Aplicado', { exact: true })).toHaveCount(1);
+    await expect(filas.nth(1).getByRole('cell').nth(2)).toHaveText('SOAT · FLIT-ARHZZ1 · $ 1.234.567');
+    await expect(filas.nth(2)).toContainText('Pendiente');
+    expect(new Set(lotes).size).toBe(1);
+  });
+
+  /** Mutante M-AC2: pintar el chip con `[]` (quitar la guarda `aplicados.length > 0`). */
+  test('TC-05 con aplicados: [] no hay chip «Aplicados»', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockCola(page, LISTA_VACIA);
+    await page.route(/\/api\/flito\/comprobantes$/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RESULTADO_OK) }));
+    const modal = await abrirCarga(page);
+    await modal.getByLabel('Comprobantes de la carga').setInputFiles(archivos(2));
+    await modal.getByRole('button', { name: 'Subir y procesar' }).click();
+    await expect(modal.getByRole('button', { name: 'Listo' })).toBeVisible();
+    await expect(modal.getByText(/Aplicados/)).toHaveCount(0);
+    await expect(modal.getByText(/^(Pendientes|Duplicados|Fallidos) \d+$/)).toHaveText(['Pendientes 2', 'Duplicados 0', 'Fallidos 0']);
+    await expect(modal.getByText('Aplicado', { exact: true })).toHaveCount(0);
+  });
+
+  test('TC-06 dos tandas: los aplicados se acumulan y el orden de los chips es estable', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockCola(page, LISTA_VACIA);
+    let n = 0;
+    await page.route(/\/api\/flito\/comprobantes$/, (route) => {
+      n += 1;
+      const cuerpo = n === 1
+        ? { aplicados: [APLICADO_ITEM], pendientes: Array.from({ length: 4 }, (_, i) => ({ ...RESULTADO_OK.pendientes[0], archivo: `f${i + 2}.pdf` })), duplicados: [], fallidos: [], documentos: 5 }
+        : { aplicados: [], pendientes: [], duplicados: [{ ...RESULTADO_OK.pendientes[0], archivo: 'f6.pdf', motivo: null, detalle: 'Ya cargado el 15 sep 2026' }], fallidos: [], documentos: 1 };
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(cuerpo) });
+    });
+    const modal = await abrirCarga(page);
+    await modal.getByLabel('Comprobantes de la carga').setInputFiles(archivos(6));
+    await modal.getByRole('button', { name: 'Subir y procesar' }).click();
+    await expect(modal.getByRole('button', { name: 'Listo' })).toBeVisible();
+    expect(n).toBe(2);
+    await expect(modal.getByRole('status')).toHaveText('6 documentos leídos en 6 archivos');
+    await expect(modal.getByText(/^(Aplicados|Pendientes|Duplicados|Fallidos) \d+$/)).toHaveText(['Aplicados 1', 'Pendientes 4', 'Duplicados 1', 'Fallidos 0']);
+  });
+});
+
+test.describe('HU #12635 · AC3 — desde el comprobante se llega al trámite', () => {
+  /** Mutantes: `?buscar=`/`?placa=` con el idFlit; enlace en la misma pestaña; enlace sin la página `flito_tramites`. */
+  test('TC-07 «Ver trámite FLIT-…» en la fila (pendiente y aplicada) y en el detalle → /flito/tramites?placa=ABC123 en otra pestaña', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockCola(page, { items: [fila({ ...FIJADO, tramite: TRAMITE_ABC }), fila({ id: UUID_B, archivo: { nombre: 'f2-auto.pdf', contentType: 'application/pdf' }, ...APLICADO_AUTO })], total: 2, page: 1, pageSize: 50 });
+    await mockDetalle(page, detalleFijado({ tramite: TRAMITE_ABC }));
+    await mockArchivoPdf(page);
+    await page.goto(RUTA);
+    const tabla = page.getByRole('region', { name: 'Cola de comprobantes' });
+    await expect(enlaceTramite(tabla)).toHaveCount(2);
+    for (const archivo of [/recibo\.pdf/, /f2-auto\.pdf/]) {
+      const enlace = enlaceTramite(tabla.getByRole('row', { name: archivo }));
+      await expect(enlace).toHaveAttribute('aria-label', 'Ver trámite FLIT-ARHZZ1');
+      await expect(enlace).toHaveText('Ver trámite ↗');
+      await expect(enlace).toHaveAttribute('href', '/flito/tramites?placa=ABC123');
+      await expect(enlace).toHaveAttribute('target', '_blank');
+      await expect(enlace).toHaveAttribute('rel', 'noopener');
+    }
+    const dialog = await abrirPanel(page);
+    const enDetalle = enlaceTramite(dialog);
+    await expect(enDetalle).toHaveText('Ver trámite FLIT-ARHZZ1 ↗');
+    await expect(enDetalle).toHaveAttribute('href', '/flito/tramites?placa=ABC123');
+    await expect(enDetalle).toHaveAttribute('target', '_blank');
+    // Ningún uuid del trámite en href, aria-label ni data-* del SPA.
+    expect(await dialog.evaluate((el) => el.outerHTML)).not.toContain(UUID_T);
+  });
+
+  /** Mutante M-AC3: pintar «Ver trámite» con placa null (href `?placa=`); pintar sin la página. */
+  test('TC-08 sin placa, sin trámite o sin la página flito_tramites no hay enlace; sin trámite tampoco «Ver soportes»', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockCola(page, { items: [fila({ ...FIJADO, tramite: { ...TRAMITE_ABC, placa: null } }), fila({ id: UUID_B, tramite: null, archivo: { nombre: 'sin.pdf', contentType: 'application/pdf' } })], total: 2, page: 1, pageSize: 50 });
+    await mockDetalle(page, detalleFijado({ tramite: { ...TRAMITE_ABC, placa: null } }));
+    await mockArchivoPdf(page);
+    await page.goto(RUTA);
+    const tabla = page.getByRole('region', { name: 'Cola de comprobantes' });
+    await expect(tabla).toContainText('FLIT-ARHZZ1');
+    await expect(tabla.locator('a[href*="/flito/tramites"]')).toHaveCount(0);
+    let dialog = await abrirPanel(page);
+    await expect(dialog.locator('a[href*="/flito/tramites"]')).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Ver soportes' })).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+
+    await page.unroute(new RegExp(`/api/flito/comprobantes/${UUID_A}$`));
+    await page.route(new RegExp(`/api/flito/comprobantes/${UUID_B}$`), (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detalle({ id: UUID_B, tramite: null, archivo: { nombre: 'sin.pdf', contentType: 'application/pdf' } })) }));
+    dialog = await abrirPanel(page, 'Asociar sin.pdf');
+    await expect(dialog.locator('a[href*="/flito/tramites"]')).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Ver soportes' })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    // Con placa pero sin la página: financiera no tiene `flito_tramites` por defecto.
+    await loginAs(page, FINANCIERA_USER);
+    await page.unroute(/\/api\/flito\/comprobantes(\?|$)/);
+    await mockCola(page, { items: [fila({ ...FIJADO, tramite: TRAMITE_ABC })], total: 1, page: 1, pageSize: 50 });
+    await page.goto(RUTA);
+    await expect(page.getByRole('region', { name: 'Cola de comprobantes' })).toContainText('ABC123');
+    await expect(page.locator('a[href*="/flito/tramites"]')).toHaveCount(0);
+  });
+
+  /** Mutantes (notas QA 9-10): botón apagado en vez de ausente; pedir soportes por idFlit; clave `comprobante` sin rótulo. */
+  test('TC-09 «Ver soportes» con la función → GET /flito/tramites/{id}/soportes, visor encima con «Comprobante» y «SOAT», Esc cierra solo el de arriba; sin la función no existe', async ({ page }) => {
+    await loginAs(page, CON_VER_SOPORTES);
+    await mockCola(page, { items: [fila({ ...APLICADO_AUTO, archivo: { nombre: 'f2-auto.pdf', contentType: 'application/pdf' } })], total: 1, page: 1, pageSize: 50 });
+    await mockDetalle(page, { ...detalleFijado({ ...APLICADO_AUTO, archivo: { nombre: 'f2-auto.pdf', contentType: 'application/pdf' } }), candidatos: [] });
+    await mockArchivoPdf(page);
+    const pedidos: string[] = [];
+    await page.route(/\/api\/flito\/tramites\/[^/]+\/soportes$/, (route) => {
+      pedidos.push(new URL(route.request().url()).pathname);
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(SOPORTES) });
+    });
+    await page.route(/\/api\/files\?key=/, (route) => route.fulfill({ status: 200, contentType: 'application/pdf', path: PDF_DOS_PAGINAS }));
+    await page.goto(RUTA);
+    await page.getByRole('button', { name: 'Ver f2-auto.pdf' }).click();
+    const detalleDialog = page.getByRole('dialog', { name: /^Comprobante · f2-auto\.pdf/ });
+    await expect(detalleDialog).toBeVisible();
+    // Sin la página flito_tramites (financiera) no hay «Ver trámite», pero sí «Ver soportes» (guardas distintas).
+    await expect(detalleDialog.locator('a[href*="/flito/tramites"]')).toHaveCount(0);
+    const boton = detalleDialog.getByRole('button', { name: 'Ver soportes' });
+    await expect(boton).toBeEnabled();
+    await boton.click();
+    const visor = page.getByRole('dialog', { name: 'Documentos de FLIT-ARHZZ1' });
+    await expect(visor).toBeVisible();
+    await expect(page.locator('[data-flit-modal]')).toHaveCount(2);
+    // Por el uuid del trámite en la ruta del API (nunca por idFlit). StrictMode en dev dispara el efecto dos veces: se cuenta ≥ 1.
+    await expect.poll(() => pedidos.length).toBeGreaterThanOrEqual(1);
+    expect(new Set(pedidos)).toEqual(new Set([`/api/flito/tramites/${UUID_T}/soportes`]));
+    await expect(visor.getByRole('button').filter({ hasText: 'Comprobante' }).filter({ hasText: 'f2-auto.pdf' })).toBeVisible();
+    await expect(visor.getByRole('button').filter({ hasText: 'SOAT' }).filter({ hasText: 'soat.pdf' })).toBeVisible();
+    await expect(visor.getByText('comprobante', { exact: true })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(visor).toHaveCount(0);
+    await expect(detalleDialog).toBeVisible();
+    await expect(boton).toBeFocused();
+
+    // Rama negativa: financiera por defecto (la 0179 no le siembra la función) → cero botones y cero GET.
+    await page.keyboard.press('Escape');
+    await loginAs(page, FINANCIERA_USER);
+    await page.goto(RUTA);
+    await page.getByRole('button', { name: 'Ver f2-auto.pdf' }).click();
+    await expect(page.getByRole('dialog', { name: /^Comprobante · f2-auto\.pdf/ }).getByRole('region', { name: 'Lectura' })).toContainText('Aplicado automático');
+    await expect(page.getByRole('button', { name: 'Ver soportes' })).toHaveCount(0);
+    expect(new Set(pedidos)).toEqual(new Set([`/api/flito/tramites/${UUID_T}/soportes`]));
+  });
+});
+
+test.describe('HU #12635 · AC4 — contarPaginasPdf con timeout', () => {
+  /** Mutante M-AC4: quitar el `Promise.race` → este test no termina y cae por timeout. */
+  test('TC-11 worker de pdf.js colgado: a los 10 s el PDF cuenta 1, se registra el fallo y el envío sale', async ({ page }) => {
+    test.setTimeout(45_000);
+    await loginAs(page, FINANCIERA_USER);
+    await mockCola(page, LISTA_VACIA);
+    // El script del worker nunca llega: `getDocument().promise` no resuelve jamás. En dev, Vite sirve
+    // ADEMÁS el módulo `…pdf.worker.min.mjs?url` que exporta la cadena (lo pide `lib/pdfWorker.ts` al cargar la página): ese sigue.
+    await page.route(/pdf\.worker/, (route) => (/\?(url|import)\b/.test(route.request().url()) ? route.continue() : new Promise<void>(() => {})));
+
+
+    const avisos: string[] = [];
+    page.on('console', (m) => { if (m.type() === 'warning') avisos.push(m.text()); });
+    const porEnvio: number[] = [];
+    await page.route(/\/api\/flito\/comprobantes$/, (route) => {
+      porEnvio.push(contarArchivos(route.request().postData()));
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RESULTADO_OK) });
+    });
+    const modal = await abrirCarga(page);
+    await modal.getByLabel('Comprobantes de la carga').setInputFiles([CONSOLIDADO_REAL, { name: 'f1.pdf', ...PDF_MIN }]);
+    await expect(modal.getByRole('status')).toContainText('2 archivos');
+    const inicio = Date.now();
+    await modal.getByRole('button', { name: 'Subir y procesar' }).click();
+    await expect(modal.getByRole('button', { name: 'Listo' })).toBeVisible({ timeout: 30_000 });
+    // Sin conteo, el consolidado real (2 páginas) NO viaja solo: los dos van en la misma tanda de sueltos.
+    expect(porEnvio).toEqual([2]);
+    expect(Date.now() - inicio).toBeGreaterThanOrEqual(10_000);
+    expect(avisos.some((a) => a.includes('[comprobantes] pdf.js no abrió un PDF en 10 s'))).toBe(true);
+    expect(avisos.join('\n')).not.toContain('soporte-dos-paginas');
+  });
+});
+
+test.describe('HU #12635 · AC5 — ficha de ayuda y accesibilidad', () => {
+  test('TC-13 la ficha describe los seis estados, el filtro, «Aplicados» y el salto al trámite; no dice «no asocia ni aplica»; renderiza', async ({ page }) => {
+    const ficha = readFileSync(fileURLToPath(new URL('../../src/content/ayuda/flito_comprobantes.md', import.meta.url)), 'utf8');
+    for (const rotulo of ['Pendiente de asociar', 'Rechazado como pago', 'Aplicado automático', 'Aplicado manual', 'Adjuntado', 'Descartado',
+      'Estado de asociación', 'Aplicados', 'Ver trámite', 'Ver soportes']) {
+      expect(ficha, rotulo).toContain(rotulo);
+    }
+    expect(ficha.toLowerCase()).not.toContain('no asocia ni aplica');
+    expect(ficha).not.toMatch(/\/api\/|https?:\/\//);
+    await loginAs(page, FINANCIERA_USER);
+    await page.goto('/flito/ayuda/flito_comprobantes');
+    const articulo = page.getByRole('article', { name: 'Comprobantes' });
+    await expect(articulo).toBeVisible();
+    await expect(articulo.getByText(/Estado de asociación/).first()).toBeVisible();
+    await expect(articulo.getByText(/Ver trámite/).first()).toBeVisible();
+    await expect(articulo.getByText(/Rechazado como pago/).first()).toBeVisible();
+  });
+
+  test('TC-14 a11y (axe) en la cola con el selector enfocado y puesto, y en el resultado con el chip «Aplicados»; un único status vivo', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockCola(page, SEIS_FILAS);
+    await page.route(/\/api\/flito\/comprobantes$/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...RESULTADO_OK, aplicados: [{ ...RESULTADO_OK.pendientes[0], motivo: null, detalle: 'Impuesto · FLIT-ARHZZ1 · $ 312.000' }] }) }));
+    await page.goto(`${RUTA}?asociacion=aplicado_manual`);
+    await expect(page.getByRole('button', { name: 'Aplicados' })).toHaveAttribute('aria-pressed', 'true');
+    await selectorAsociacion(page).focus();
+    await expect(page.locator('p[role="status"]')).toHaveCount(1);
+    esperarSinViolacionesGraves(await correrAxe(page), 'cola con el selector de asociación');
+    const modal = await abrirCarga(page);
+    await modal.getByLabel('Comprobantes de la carga').setInputFiles(archivos(2));
+    await modal.getByRole('button', { name: 'Subir y procesar' }).click();
+    await expect(modal.getByText('Aplicados 1')).toBeVisible();
+    await expect(modal.getByRole('status')).toHaveCount(1);
+    esperarSinViolacionesGraves(await correrAxe(page), 'resultado de carga con Aplicados');
   });
 });

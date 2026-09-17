@@ -7,23 +7,28 @@
 // panel entero (candidatos incluidos, slim D-14). Nunca pinta `extraccion` cruda: solo `campos[]`
 // con el nivel de confianza que calcula el servidor (D11). AC8: si el archivo es PDF lo dice el
 // `contentType` del DTO o la cabecera `%PDF`, nunca `blob.type`.
+//
+// HU #12635: la cabecera lleva el mismo chip de seis estados que la fila (`asociacionDe`) y la
+// línea «Ver trámite {idFlit} ↗ · Ver soportes»; el visor de soportes se abre ENCIMA del detalle.
 
 import { useCallback, useEffect, useState, type RefObject } from 'react';
 import {
-  CONCEPTO_COSTO_LABEL, CodigoErrorComprobante, MOTIVO_PENDIENTE_COMPROBANTE_LABEL, MotivoPendienteComprobante,
+  CONCEPTO_COSTO_LABEL, CodigoErrorComprobante, MotivoPendienteComprobante,
   TIPO_DOCUMENTO_COMPROBANTE_LABEL, type ComprobanteDetalleDto, type CruceComprobante,
 } from '@operaciones/shared-types';
 import { ApiError, api, errorMessage } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { RUTA_COMPROBANTES, abrirArchivoComprobante, chipConfianza, esPdfArchivo, fechaCarga, labelCampo, pesosComprobante, textoCarga, textoPaginas } from '../../lib/comprobantes';
+import {
+  ASOCIACION_COMPROBANTE_LABEL, RUTA_COMPROBANTES, TONO_ASOCIACION, abrirArchivoComprobante, asociacionDe, chipConfianza, esPdfArchivo,
+  hrefVerTramite, labelCampo, pesosComprobante, textoAsociacion, textoCarga, textoPaginas,
+} from '../../lib/comprobantes';
+import { hasPage } from '../../lib/permissions';
 import FlitModal from '../flit/FlitModal';
 import StatusChip, { type ChipTone } from '../flit/StatusChip';
 import VisorPdf from '../flit/VisorPdf';
+import VisorSoportes from '../flit/VisorSoportes';
 import { flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
 import PanelAsociacion from './PanelAsociacion';
-
-const TONO_ESTADO: Record<ComprobanteDetalleDto['estado'], ChipTone> = { pendiente: 'warning', aplicado: 'success', descartado: 'neutral' };
-const ROTULO_ESTADO: Record<ComprobanteDetalleDto['estado'], string> = { pendiente: 'Pendiente', aplicado: 'Aplicado', descartado: 'Descartado' };
 
 const COPY_SIN_LECTURA = 'FLITO no pudo leer este documento.';
 const COPY_RELEER_503 = 'El lector sigue sin estar disponible. Inténtalo más tarde.';
@@ -62,8 +67,9 @@ export default function DetalleComprobante({ id, onClose, onColaActualizada, onR
   onResuelto: (toast: string) => void;
   restoreFocusRef?: RefObject<HTMLElement | null>;
 }) {
-  const { hasFuncion } = useAuth();
+  const { user, hasFuncion } = useAuth();
   const [detalle, setDetalle] = useState<ComprobanteDetalleDto | null>(null);
+  const [verSoportes, setVerSoportes] = useState(false);
   const [error, setError] = useState<{ texto: string; noExiste: boolean } | null>(null);
   const [nonce, setNonce] = useState(0);
   const [version, setVersion] = useState(0);
@@ -122,15 +128,20 @@ export default function DetalleComprobante({ id, onClose, onColaActualizada, onR
     abrirArchivoComprobante(id, true).catch((e) => setErrorSoporte(`No se pudo abrir el soporte aplicado. ${errorMessage(e)}`));
   };
   const motivoFicha = detalle?.estado === 'aplicado' ? detalle.aplicadoMotivo : detalle?.estado === 'descartado' ? detalle.descartadoMotivo : null;
+  const asociacion = detalle ? asociacionDe(detalle) : null;
+  const segundoTexto = detalle ? textoAsociacion(detalle, true) : '';
+  // AC3: «Ver trámite» solo con placa y con la página; «Ver soportes» solo con trámite y la función
+  // (la ruta `GET /flito/tramites/:id/soportes` la exige). Sin guarda el control NO existe.
+  // En un pendiente ambos apuntan a `detalle.tramite` (el cruce fijado), nunca al combobox.
+  const hrefTramite = hasPage(user, 'flito_tramites') ? hrefVerTramite(detalle?.tramite ?? null) : null;
+  const tramiteSoportes = detalle?.tramite && hasFuncion('tramites.tramite.ver_soportes') ? detalle.tramite : null;
 
-  const cabecera = detalle && (
+  const cabecera = detalle && asociacion && (
     <>
       <div className="space-y-1">
         <p className="flex flex-wrap items-center gap-2">
-          <StatusChip tone={TONO_ESTADO[detalle.estado]}>{ROTULO_ESTADO[detalle.estado]}</StatusChip>
-          {detalle.motivoPendiente && <span>{detalle.detallePendiente ?? MOTIVO_PENDIENTE_COMPROBANTE_LABEL[detalle.motivoPendiente]}</span>}
-          {detalle.estado === 'aplicado' && <span>{detalle.aplicadoAutomaticamente ? 'automático' : `manual · por ${detalle.aplicadoPorNombre ?? '—'}`}{detalle.aplicadoEn ? ` · ${fechaCarga(detalle.aplicadoEn)}` : ''}</span>}
-          {detalle.estado === 'descartado' && <span>Descartado por {detalle.descartadoPorNombre ?? '—'}{detalle.descartadoEn ? ` · ${fechaCarga(detalle.descartadoEn)}` : ''}</span>}
+          <StatusChip tone={TONO_ASOCIACION[asociacion]}>{ASOCIACION_COMPROBANTE_LABEL[asociacion]}</StatusChip>
+          {segundoTexto && <span>{segundoTexto}</span>}
         </p>
         <p>{textoCarga(detalle)}</p>
         <p className="flex flex-wrap items-center gap-2">
@@ -141,6 +152,21 @@ export default function DetalleComprobante({ id, onClose, onColaActualizada, onR
           <p style={{ color: 'var(--flit-text-primary)' }}>
             {[detalle.esPago ? 'Comprobante de pago' : 'Documentación', detalle.concepto ? CONCEPTO_COSTO_LABEL[detalle.concepto] : null,
               detalle.tramite?.idFlit, detalle.tramite?.placa, detalle.cruce ? `cruce por ${CRUCE_LABEL[detalle.cruce]}` : null].filter(Boolean).join(' · ')}
+          </p>
+        )}
+        {(hrefTramite || tramiteSoportes) && (
+          <p className="flex flex-wrap items-center gap-2">
+            {hrefTramite && detalle.tramite && (
+              <a href={hrefTramite} target="_blank" rel="noopener" className="flit-focus underline" style={{ color: 'var(--flit-blue-text)' }}>
+                Ver trámite {detalle.tramite.idFlit} ↗
+              </a>
+            )}
+            {hrefTramite && tramiteSoportes && <span aria-hidden="true" style={{ color: 'var(--flit-text-muted)' }}>·</span>}
+            {tramiteSoportes && (
+              <button type="button" className="flit-focus underline" style={{ color: 'var(--flit-blue-text)' }} onClick={() => setVerSoportes(true)}>
+                Ver soportes
+              </button>
+            )}
           </p>
         )}
       </div>
@@ -241,6 +267,10 @@ export default function DetalleComprobante({ id, onClose, onColaActualizada, onR
           )}
         </section>
       </div>
+      {verSoportes && tramiteSoportes && (
+        <VisorSoportes ruta={`/flito/tramites/${tramiteSoportes.id}/soportes`} titulo={tramiteSoportes.idFlit} onClose={() => setVerSoportes(false)} />
+      )}
     </FlitModal>
   );
 }
+

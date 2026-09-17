@@ -63,7 +63,7 @@ export default function CargaComprobantes({ onClose, onListo, onVerOriginal }: {
       {!resultado ? (
         <div className="space-y-3">
           <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-            Sube PDF o imágenes de facturas de SOAT, recibos de impuesto o de derechos, facturas de servicios, transferencias o cualquier soporte del trámite. Un PDF con varios documentos se lee documento por documento. Lo leído queda en Pendientes con lo que FLITO entendió de cada uno.
+            Sube PDF o imágenes de facturas de SOAT, recibos de impuesto o de derechos, facturas de servicios, transferencias o cualquier soporte del trámite. Un PDF con varios documentos se lee documento por documento. FLITO aplica solo lo que cruza con un único trámite; el resto queda en Pendientes.
           </p>
           <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp" className={flitInp} disabled={enviando}
             aria-label="Comprobantes de la carga"
@@ -84,8 +84,9 @@ export default function CargaComprobantes({ onClose, onListo, onVerOriginal }: {
           <p role="status" aria-live="polite" className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
             {resultado.documentos} documentos leídos en {seleccion.items.length} archivos
           </p>
-          {/* «Aplicados» no se pinta en este Feature: la puerta no aplica (#12606 lo añade). */}
+          {/* HU #12635 AC2: «Aplicados» va primero y SOLO si hubo alguno (`fusionarResultadoCarga` los acumula entre tandas). */}
           <div className="flex flex-wrap gap-2">
+            {resultado.aplicados.length > 0 && <StatusChip tone="success">Aplicados {resultado.aplicados.length}</StatusChip>}
             <StatusChip tone="warning">Pendientes {resultado.pendientes.length}</StatusChip>
             <StatusChip tone="neutral">Duplicados {resultado.duplicados.length}</StatusChip>
             <StatusChip tone="danger">Fallidos {resultado.fallidos.length}</StatusChip>
@@ -100,12 +101,14 @@ export default function CargaComprobantes({ onClose, onListo, onVerOriginal }: {
 
 type FilaResultado = ItemCargaComprobante & { resultado: string; tono: ChipTone; esDuplicado: boolean };
 
-/** Resultado por DOCUMENTO (un consolidado de 4 documentos son 4 filas), calco de `TablaResultadoOcr`. */
+/** Resultado por DOCUMENTO (un consolidado de 4 documentos son 4 filas), calco de `TablaResultadoOcr`. Aplicados primero; su Detalle es el del servidor tal cual. */
 function TablaResultadoCarga({ resultado, items, onVerOriginal }: {
   resultado: ResultadoCargaComprobantes; items: readonly ItemCarga[]; onVerOriginal: (id: string) => void;
 }) {
   const filas: FilaResultado[] = [
+    ...resultado.aplicados.map((i) => ({ ...i, resultado: 'Aplicado', tono: 'success' as ChipTone, esDuplicado: false })),
     ...resultado.pendientes.map((i) => ({ ...i, resultado: 'Pendiente', tono: 'warning' as ChipTone, esDuplicado: false })),
+
     ...resultado.duplicados.map((i) => ({ ...i, resultado: 'Duplicado', tono: 'neutral' as ChipTone, esDuplicado: true })),
     ...resultado.fallidos.map((i) => ({ ...i, resultado: 'Fallido', tono: 'danger' as ChipTone, esDuplicado: false })),
   ];
