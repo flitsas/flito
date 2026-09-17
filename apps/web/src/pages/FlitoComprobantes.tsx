@@ -5,23 +5,30 @@
 // carga, y dos modales: «Cargar comprobantes» (`CargaComprobantes`) y el detalle (`DetalleComprobante`),
 // que en un pendiente es el panel de asociación (HU #12634: acción «Asociar») y en un aplicado o
 // descartado la ficha en solo lectura («Ver»). Guardas por `hasFuncion`, nunca por rol.
+//
+// HU #12635: el chip de Estado dice los SEIS estados de asociación (`asociacionDe`, espejo del
+// servidor), el selector «Estado de asociación» afina la pill y vive en `?asociacion=` (derivado de
+// la URL, calco de `?alerta=` en Trámites), y la celda Trámite salta a Gestión Trámites por placa.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   CONCEPTO_COSTO_LABEL, CONCEPTOS_COSTO, MOTIVO_PENDIENTE_COMPROBANTE_LABEL, MOTIVOS_PENDIENTE_COMPROBANTE,
-  TIPO_DOCUMENTO_COMPROBANTE_LABEL, type ComprobanteListaDto, type ConceptoCosto, type EstadoComprobante,
+  TIPO_DOCUMENTO_COMPROBANTE_LABEL, type AsociacionComprobante, type ComprobanteListaDto, type ConceptoCosto, type EstadoComprobante,
   type ListaComprobantesDto, type MotivoPendienteComprobante,
 } from '@operaciones/shared-types';
 import { ApiError, api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import {
-  RUTA_COMPROBANTES, agruparPorCarga, etiquetaChipCarga, fechaCarga, llaveLeida, pesosComprobante,
-  textoCarga, textoEsPago, textoPaginas, type GrupoCarga,
+  ASOCIACION_COMPROBANTE_LABEL, OPCIONES_ASOCIACION, PILL_DE_ASOCIACION, RUTA_COMPROBANTES, TONO_ASOCIACION,
+  agruparPorCarga, asociacionDe, esAsociacionComprobante, etiquetaChipCarga, hrefVerTramite, llaveLeida, pesosComprobante,
+  textoAsociacion, textoCarga, textoEsPago, textoPaginas, type GrupoCarga,
 } from '../lib/comprobantes';
+import { hasPage } from '../lib/permissions';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import PageContentSkeleton from '../components/flit/PageContentSkeleton';
 import Paginacion from '../components/flit/Paginacion';
-import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
+import StatusChip from '../components/flit/StatusChip';
 import { CeldaTramite } from '../components/flit/columnasComunes';
 import CargaComprobantes from '../components/flito/CargaComprobantes';
 import DetalleComprobante from '../components/flito/DetalleComprobante';
@@ -42,19 +49,25 @@ const COPY_SIN_FUNCION = 'Tu usuario no tiene la función “Ver la cola de comp
 const COPY_ERROR_COLA = 'No se pudo cargar la cola de comprobantes.';
 const COPY_VACIO = 'No hay comprobantes por asociar.';
 const COPY_VACIO_FILTRADO = 'Ningún comprobante coincide con los filtros.';
-
-const TONO_ESTADO: Record<EstadoComprobante, ChipTone> = { pendiente: 'warning', aplicado: 'success', descartado: 'neutral' };
-const ROTULO_ESTADO: Record<EstadoComprobante, string> = { pendiente: 'Pendiente', aplicado: 'Aplicado', descartado: 'Descartado' };
+const COPY_VACIO_FILTRADO_PASO = 'Cambia el estado de asociación, el concepto o el motivo, o pulsa Limpiar filtros.';
 
 type ChipCarga = { loteId: string; etiqueta: string };
 
 export default function FlitoComprobantes() {
-  const { hasFuncion, funciones } = useAuth();
+  const { user, hasFuncion, funciones } = useAuth();
   const puedeVerCola = hasFuncion('comprobantes.cola.ver');
   const puedeCargar = hasFuncion('comprobantes.lote.cargar');
   const puedeVer = hasFuncion('comprobantes.comprobante.ver');
+  const puedeVerTramites = hasPage(user, 'flito_tramites');
 
-  const [pill, setPill] = useState<Pill>('pendiente');
+  // `?asociacion=` DERIVADO de la URL (slim D-4): un valor que no está en el enum cuenta como ausente
+  // y NO se reescribe al entrar; desaparece en el primer cambio de filtro.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const asociacionParam = searchParams.get('asociacion');
+  const asociacion: AsociacionComprobante | '' = esAsociacionComprobante(asociacionParam) ? asociacionParam : '';
+
+  // La pill arranca en la que implica la asociación de la URL (Aplicados con `aplicado_manual`).
+  const [pill, setPill] = useState<Pill>(() => (asociacion ? PILL_DE_ASOCIACION[asociacion] : 'pendiente'));
   const [concepto, setConcepto] = useState<ConceptoCosto | ''>('');
   const [motivo, setMotivo] = useState<MotivoPendienteComprobante | ''>('');
   const [chipCarga, setChipCarga] = useState<ChipCarga | null>(null);
@@ -74,15 +87,34 @@ export default function FlitoComprobantes() {
   const [detalleId, setDetalleId] = useState<string | null>(null);
   const tituloRef = useRef<HTMLHeadingElement>(null);
 
-  const hayFiltros = pill !== 'pendiente' || concepto !== '' || motivo !== '' || chipCarga !== null;
+  const hayFiltros = pill !== 'pendiente' || asociacion !== '' || concepto !== '' || motivo !== '' || chipCarga !== null;
 
+  const escribirAsociacion = (v: AsociacionComprobante | '') => {
+    const next = new URLSearchParams(searchParams);
+    if (v) next.set('asociacion', v); else next.delete('asociacion');
+    setSearchParams(next, { replace: true });
+  };
   // Cambiar un filtro vuelve a la página 1; la paginación es la única que mueve `page` por su cuenta.
-  const cambiarPill = (p: Pill) => { setPill(p); if (p !== 'pendiente') setMotivo(''); setPage(1); };
-  const cambiarConcepto = (c: ConceptoCosto | '') => { setConcepto(c); setPage(1); };
-  const cambiarMotivo = (m: MotivoPendienteComprobante | '') => { setMotivo(m); setPage(1); };
-  const ponerChipCarga = (loteId: string, iso: string) => { setChipCarga({ loteId, etiqueta: etiquetaChipCarga(iso) }); setPage(1); };
-  const quitarChipCarga = () => { setChipCarga(null); setPage(1); };
-  const limpiarFiltros = () => { setPill('pendiente'); setConcepto(''); setMotivo(''); setChipCarga(null); setPage(1); };
+  // Regla pill ↔ selector (slim D-1): la pill es el estado grueso y el selector el fino; nunca se
+  // contradicen. Una pill que deja fuera la opción elegida la vacía; una opción mueve la pill.
+  // Un `?asociacion=` que no está en el enum se ignora al entrar y se retira al primer cambio de filtro.
+  const retirarAsociacionInvalida = () => { if (asociacionParam !== null && !asociacion) escribirAsociacion(''); };
+  const cambiarPill = (p: Pill) => {
+    setPill(p); if (p !== 'pendiente') setMotivo(''); setPage(1);
+    if (asociacion && p !== 'todos' && PILL_DE_ASOCIACION[asociacion] !== p) escribirAsociacion(''); else retirarAsociacionInvalida();
+  };
+  const cambiarAsociacion = (v: AsociacionComprobante | '') => {
+    escribirAsociacion(v);
+    const p = v ? PILL_DE_ASOCIACION[v] : pill;
+    setPill(p); if (p !== 'pendiente') setMotivo(''); setPage(1);
+  };
+
+  const cambiarConcepto = (c: ConceptoCosto | '') => { setConcepto(c); setPage(1); retirarAsociacionInvalida(); };
+  const cambiarMotivo = (m: MotivoPendienteComprobante | '') => { setMotivo(m); setPage(1); retirarAsociacionInvalida(); };
+  const ponerChipCarga = (loteId: string, iso: string) => { setChipCarga({ loteId, etiqueta: etiquetaChipCarga(iso) }); setPage(1); retirarAsociacionInvalida(); };
+  const quitarChipCarga = () => { setChipCarga(null); setPage(1); retirarAsociacionInvalida(); };
+
+  const limpiarFiltros = () => { setPill('pendiente'); setConcepto(''); setMotivo(''); setChipCarga(null); escribirAsociacion(''); setPage(1); };
   const refrescar = useCallback(() => setNonce((n) => n + 1), []);
   const refrescarYAnunciar = useCallback(() => { anunciarAlRefrescar.current = true; setNonce((n) => n + 1); }, []);
 
@@ -94,6 +126,7 @@ export default function FlitoComprobantes() {
     setCargando(true); setError(null);
     const q = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
     if (pill !== 'todos') q.set('estado', pill);
+    if (asociacion) q.set('asociacion', asociacion);
     if (concepto) q.set('concepto', concepto);
     if (pill === 'pendiente' && motivo) q.set('motivo', motivo);
     if (chipCarga) q.set('loteId', chipCarga.loteId);
@@ -102,7 +135,7 @@ export default function FlitoComprobantes() {
         if (!vivo) return;
         setData(d);
         // El contador de la pill es el total de `estado=pendiente` sin más filtros; con filtros se conserva el último.
-        if (pill === 'pendiente' && !concepto && !motivo && !chipCarga) setTotalPendientes(d.total);
+        if (pill === 'pendiente' && !asociacion && !concepto && !motivo && !chipCarga) setTotalPendientes(d.total);
         if (anunciarAlRefrescar.current) {
           anunciarAlRefrescar.current = false;
           setAnuncio(`Cola actualizada: ${pill === 'pendiente' ? d.total : (totalPendientes ?? d.total)} pendientes`);
@@ -117,7 +150,7 @@ export default function FlitoComprobantes() {
     return () => { vivo = false; };
   // `totalPendientes` solo se lee para el anuncio; no debe relanzar la consulta.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [funciones, puedeVerCola, pill, concepto, motivo, chipCarga, page, nonce]);
+  }, [funciones, puedeVerCola, pill, asociacion, concepto, motivo, chipCarga, page, nonce]);
 
   const alResuelto = (texto: string) => {
     setDetalleId(null);
@@ -144,7 +177,7 @@ export default function FlitoComprobantes() {
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
       <PageHeaderCard
         title="Finanzas — Comprobantes"
-        subtitle="Sube cualquier comprobante o soporte de un trámite; FLITO lo lee y te muestra qué es, a qué llave corresponde y qué valores trae."
+        subtitle="Sube cualquier comprobante o soporte de un trámite; FLITO lo lee y lo aplica solo cuando cruza con un único trámite. Lo que no, lo asocias desde aquí."
         titleRef={tituloRef}
         actions={puedeCargar && (
           <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setModalCarga(true)}>Cargar comprobantes</button>
@@ -163,6 +196,13 @@ export default function FlitoComprobantes() {
             </FlitPillButton>
           ))}
         </FlitPillGroup>
+        <label className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+          <span className="sr-only">Estado de asociación</span>
+          <select className={`${flitInp} w-auto py-1.5`} value={asociacion} onChange={(e) => cambiarAsociacion(e.target.value as AsociacionComprobante | '')}>
+            <option value="">Todos los estados de asociación</option>
+            {OPCIONES_ASOCIACION.map((a) => <option key={a} value={a}>{ASOCIACION_COMPROBANTE_LABEL[a]}</option>)}
+          </select>
+        </label>
         <label className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
           <span className="sr-only">Concepto</span>
           <select className={`${flitInp} w-auto py-1.5`} value={concepto} onChange={(e) => cambiarConcepto(e.target.value as ConceptoCosto | '')}>
@@ -201,7 +241,10 @@ export default function FlitoComprobantes() {
       ) : data.items.length === 0 ? (
         <FlitEmpty>
           {hayFiltros ? (
-            <p>{COPY_VACIO_FILTRADO}</p>
+            <>
+              <p className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{COPY_VACIO_FILTRADO}</p>
+              <p className="mt-1">{COPY_VACIO_FILTRADO_PASO}</p>
+            </>
           ) : (
             <>
               <p className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{COPY_VACIO}</p>
@@ -221,7 +264,7 @@ export default function FlitoComprobantes() {
               </tr>
             </thead>
             {grupos.map((g) => (
-              <GrupoDeCarga key={`${g.loteId}-${g.cabecera.id}`} grupo={g} puedeVer={puedeVer}
+              <GrupoDeCarga key={`${g.loteId}-${g.cabecera.id}`} grupo={g} puedeVer={puedeVer} puedeVerTramites={puedeVerTramites}
                 onSoloEstaCarga={() => ponerChipCarga(g.loteId, g.cabecera.createdAt)} onVer={setDetalleId} />
             ))}
           </FlitTable>
@@ -241,8 +284,8 @@ export default function FlitoComprobantes() {
 }
 
 /** Un `tbody` por carga: cabecera de grupo (`th scope="rowgroup"`) + una fila por documento. */
-function GrupoDeCarga({ grupo, puedeVer, onSoloEstaCarga, onVer }: {
-  grupo: GrupoCarga; puedeVer: boolean; onSoloEstaCarga: () => void; onVer: (id: string) => void;
+function GrupoDeCarga({ grupo, puedeVer, puedeVerTramites, onSoloEstaCarga, onVer }: {
+  grupo: GrupoCarga; puedeVer: boolean; puedeVerTramites: boolean; onSoloEstaCarga: () => void; onVer: (id: string) => void;
 }) {
   const n = grupo.filas.length;
   return (
@@ -257,13 +300,13 @@ function GrupoDeCarga({ grupo, puedeVer, onSoloEstaCarga, onVer }: {
           </span>
         </th>
       </tr>
-      {grupo.filas.map((c) => <FilaComprobante key={c.id} c={c} puedeVer={puedeVer} onVer={onVer} />)}
+      {grupo.filas.map((c) => <FilaComprobante key={c.id} c={c} puedeVer={puedeVer} puedeVerTramites={puedeVerTramites} onVer={onVer} />)}
     </tbody>
   );
 }
 
 /** Copy exacto de la ficha UX §5.2. Sin `extraccion`, sin uuid y sin VIN completo en el DOM. */
-function FilaComprobante({ c, puedeVer, onVer }: { c: ComprobanteListaDto; puedeVer: boolean; onVer: (id: string) => void }) {
+function FilaComprobante({ c, puedeVer, puedeVerTramites, onVer }: { c: ComprobanteListaDto; puedeVer: boolean; puedeVerTramites: boolean; onVer: (id: string) => void }) {
   const td = 'px-3 py-2 align-top text-sm';
   const secundario = { color: 'var(--flit-text-secondary)' } as const;
   const tenue = { color: 'var(--flit-text-muted)' } as const;
@@ -272,6 +315,9 @@ function FilaComprobante({ c, puedeVer, onVer }: { c: ComprobanteListaDto; puede
   const nombreConPaginas = `${c.archivo.nombre}${paginas ? ` ${paginas}` : ''}`;
   // HU #12634: un pendiente se «Asocia» (panel); un aplicado o descartado se «Ve» (ficha).
   const accion = c.estado === 'pendiente' ? 'Asociar' : 'Ver';
+  const asociacion = asociacionDe(c);
+  // AC3: tercer renglón de Trámite. Sin placa no hay enlace (no se abre una lista sin filtro); sin la página tampoco (daría 403).
+  const hrefTramite = puedeVerTramites ? hrefVerTramite(c.tramite) : null;
   return (
     <FlitTr>
       <td className={td} style={{ color: 'var(--flit-text-primary)' }}>
@@ -285,15 +331,21 @@ function FilaComprobante({ c, puedeVer, onVer }: { c: ComprobanteListaDto; puede
       <td className={td} style={secundario}>{c.concepto ? CONCEPTO_COSTO_LABEL[c.concepto] : '—'}</td>
       <td className={td}>
         {c.tramite
-          ? <CeldaTramite idFlit={c.tramite.idFlit} tipoTramite={null} extra={c.tramite.placa} />
+          ? <CeldaTramite idFlit={c.tramite.idFlit} tipoTramite={null} extra={c.tramite.placa}
+              accion={hrefTramite && (
+                <a href={hrefTramite} target="_blank" rel="noopener" className="flit-focus text-xs underline" style={{ color: 'var(--flit-blue-text)' }}
+                  aria-label={`Ver trámite ${c.tramite.idFlit}`}>
+                  Ver trámite ↗
+                </a>
+              )} />
           : llave
             ? <span className="italic" style={tenue}>leído: {llave}</span>
             : <span style={tenue}>—</span>}
       </td>
       <td className={`${td} whitespace-nowrap`} style={secundario}>{pesosComprobante(c.valor)}</td>
       <td className={td}>
-        <StatusChip tone={TONO_ESTADO[c.estado]}>{ROTULO_ESTADO[c.estado]}</StatusChip>
-        <span className="block max-w-[13rem] text-xs" style={tenue}>{textoEstado(c)}</span>
+        <StatusChip tone={TONO_ASOCIACION[asociacion]}>{ASOCIACION_COMPROBANTE_LABEL[asociacion]}</StatusChip>
+        <span className="block max-w-[13rem] text-xs" style={tenue}>{textoAsociacion(c)}</span>
       </td>
       <td className={`${td} text-right`}>
         {puedeVer && (
@@ -306,12 +358,3 @@ function FilaComprobante({ c, puedeVer, onVer }: { c: ComprobanteListaDto; puede
   );
 }
 
-/** Segundo renglón de Estado (§5.2): motivo del pendiente, quién/cuándo aplicó, o cuándo se descartó. */
-function textoEstado(c: ComprobanteListaDto): string {
-  if (c.estado === 'pendiente') return c.detallePendiente ?? (c.motivoPendiente ? MOTIVO_PENDIENTE_COMPROBANTE_LABEL[c.motivoPendiente] : '');
-  if (c.estado === 'aplicado') {
-    const cuando = c.aplicadoEn ? fechaCarga(c.aplicadoEn) : '';
-    return c.aplicadoAutomaticamente ? `automático · ${cuando}` : `por ${c.aplicadoPorNombre ?? '—'} · ${cuando}`;
-  }
-  return c.descartadoEn ? fechaCarga(c.descartadoEn) : '';
-}
