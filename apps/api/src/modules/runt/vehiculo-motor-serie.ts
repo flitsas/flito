@@ -5,9 +5,10 @@
  *   · `certificacion-runt.ts` es el motor de COMPARACIÓN de la certificación de impuestos. Es puro y
  *     no loguea; esta función avisa cuando recorta, así que meterla allí le colgaría un logger a un
  *     archivo cuyo contrato es «solo decide».
- *   · La escriben dos recorridos hoy (alta del canal Cliente y verificación diaria de vigencia del
- *     SOAT) y la HU #12402 la va a reutilizar desde Impuestos. Ninguno de los tres es dueño natural
- *     de la regla; `runt/` sí, que es de donde sale el dato.
+ *   · La escriben tres recorridos del RUNT (alta del canal Cliente, certificación de Impuestos de la
+ *     HU #12402 y verificación diaria de vigencia del SOAT) y, desde el Bug #12643, también el sync
+ *     de FLIT (`flit-http.adapter.ts`), que aplica la MISMA regla sobre las mismas columnas. Ninguno
+ *     de los cuatro es dueño natural de la regla; `runt/` sí, que es de donde nació el dato.
  *
  * PURA salvo por el `log` que se le inyecta: sin red y sin base, para cubrirla con Vitest a pelo.
  */
@@ -41,8 +42,9 @@ export interface MotorYSeriePersistible {
 /**
  * Recorta a la columna y avisa, sin el valor.
  *
- * Aquí se TRUNCA y no se descarta, al contrario que `acotado()` del sync, y la diferencia está
- * decidida en el AC6 de la HU («se guardan los primeros 50»): el número de motor no es un dato que
+ * Aquí se TRUNCA y no se descarta, al contrario que `acotado()` del sync (que desde el Bug #12643
+ * delega motor y serie en esta misma regla), y la diferencia está decidida en el AC6 de la HU
+ * («se guardan los primeros 50»): el número de motor no es un dato que
  * se compare ni se opere, es un texto que va al Excel del SOAT y a la ficha, y 50 caracteres de un
  * motor de 60 siguen identificando el mismo motor. El aviso lleva el campo y la longitud recibida
  * —NO el valor, ni placa, ni VIN, ni titular—: un campo mal alineado por la pasarela (una
@@ -52,7 +54,7 @@ function recortado(valor: string, campo: keyof MotorYSerieRunt, log: LogDeRecort
   if (valor.length <= MAX_MOTOR_SERIE) return valor;
   log.warn(
     { campo, longitud: valor.length, max: MAX_MOTOR_SERIE },
-    'dato del RUNT más largo que su columna en vehicles: se guardan los primeros caracteres',
+    'dato de motor/serie más largo que su columna en vehicles: se guardan los primeros caracteres',
   );
   return valor.slice(0, MAX_MOTOR_SERIE);
 }

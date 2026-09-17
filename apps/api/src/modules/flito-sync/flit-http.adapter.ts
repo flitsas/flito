@@ -2,6 +2,7 @@
 // facturas. Solo lectura. Ver docs/integracion/integracionFlit.md.
 
 import { loggerFor } from '../../shared/logger.js';
+import { motorYSerieParaVehiculo } from '../runt/vehiculo-motor-serie.js';
 import type { FlitPort, RangoSync, TramiteFlit } from './flit.port.js';
 
 const log = loggerFor('flit-http');
@@ -33,6 +34,8 @@ export interface ItemFlit {
    * afirma que el valor puede faltar y aun así el mapeo no rompe es `TramiteFlit`, con su `null`.
    */
   cilindraje?: string; carroceria?: string; tipoServicio?: string;
+  /** Número de motor y de serie (Bug #12643). Nombres confirmados con FLIT; se tipan como el resto. */
+  numeroMotor?: string; numeroSerie?: string;
 }
 const s = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
 
@@ -70,6 +73,12 @@ function acotado(v: unknown, campo: keyof typeof MAX_DATOS_VEHICULO, idFlit: str
   return valor;
 }
 
+/** `numeroMotor`/`numeroSerie` del reporte → `numMotor`/`numSerie` del puerto (`null` = FLIT no lo trajo). */
+function motorYSerie(it: ItemFlit): Pick<TramiteFlit, 'numMotor' | 'numSerie'> {
+  const ms = motorYSerieParaVehiculo({ numMotor: s(it.numeroMotor), numSerie: s(it.numeroSerie) }, log);
+  return { numMotor: ms.numMotor ?? null, numSerie: ms.numSerie ?? null };
+}
+
 export function aTramite(it: ItemFlit): TramiteFlit {
   const nombre = `${it.nombres ?? ''} ${it.apellidos ?? ''}`.trim();
   return {
@@ -92,6 +101,10 @@ export function aTramite(it: ItemFlit): TramiteFlit {
     cilindraje: acotado(it.cilindraje, 'cilindraje', it.Id),
     carroceria: acotado(it.carroceria, 'carroceria', it.Id),
     tipoServicio: acotado(it.tipoServicio, 'tipoServicio', it.Id),
+    // Bug #12643. Motor y serie NO pasan por `acotado()` (que descarta) sino por la regla del RUNT,
+    // que RECORTA a 50: van a la misma columna de `vehicles` y un mismo dato no puede tener dos
+    // destinos según quién lo traiga. El porqué de truncar está en `recortado()` del helper.
+    ...motorYSerie(it),
     tipoPropiedad: 'unico_propietario', // el reporte trae un titular por trámite.
     compradores: [{
       nombreCompleto: nombre || '(sin nombre)',
