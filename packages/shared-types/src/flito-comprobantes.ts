@@ -292,6 +292,12 @@ export interface ComprobanteDetalleDto extends ComprobanteListaDto {
   campos: CampoComprobanteDto[];
   /** Solo en pendientes (F2, HU #12629): los trámites que alcanzan las llaves leídas, con su `admite`. `[]` en aplicados y descartados. */
   candidatos: CandidatoTramiteDto[];
+  /** HU #12634 AC6: motivo escrito al aplicar (cruce manual o campos corregidos); null si fue automático o no se aplicó. */
+  aplicadoMotivo: string | null;
+  /** HU #12634 AC6: motivo del descarte; null si no está descartado. */
+  descartadoMotivo: string | null;
+  /** HU #12634 AC6: soporte hijo recortado que vio el destino; habilita «Ver el soporte aplicado» (`GET /:id/archivo?aplicado=1`). null si no hay. */
+  soporteAplicadoId: string | null;
 }
 
 /**

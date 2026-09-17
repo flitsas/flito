@@ -111,7 +111,8 @@ export default function VisorPdf({ url, nombre, paginaInicial }: {
   }
 
   return (
-    <div ref={contenedor} className="h-full overflow-auto rounded-md" style={{ background: 'var(--flit-border-soft)' }}>
+    // `tabIndex=0`: una región que desplaza tiene que poder recibir foco para recorrerla con el teclado (axe `scrollable-region-focusable`, WCAG 2.1.1).
+    <div ref={contenedor} tabIndex={0} role="region" aria-label={`Páginas de ${nombre ?? 'el documento'}`} className="flit-focus h-full overflow-auto rounded-md" style={{ background: 'var(--flit-border-soft)' }}>
       <div className="flex flex-col items-center gap-3 p-3">
         {paginas.map((src, i) => (
           <img
