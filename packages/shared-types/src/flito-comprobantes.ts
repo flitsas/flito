@@ -298,6 +298,17 @@ export interface ComprobanteDetalleDto extends ComprobanteListaDto {
   descartadoMotivo: string | null;
   /** HU #12634 AC6: soporte hijo recortado que vio el destino; habilita «Ver el soporte aplicado» (`GET /:id/archivo?aplicado=1`). null si no hay. */
   soporteAplicadoId: string | null;
+  /** F3 (HU #12654): cuándo se aceptó la diferencia (`diferencia_aceptada_en`); null si no se ha aceptado. */
+  diferenciaAceptadaEn: string | null;
+  /** F3 (HU #12654): motivo con el que se aceptó; null si no se ha aceptado. */
+  diferenciaAceptadaMotivo: string | null;
+  /** F3 (HU #12654): `username` del usuario interno que aceptó (LEFT JOIN a `users`); null si no se ha aceptado. */
+  diferenciaAceptadaPorNombre: string | null;
+}
+
+/** Cuerpo de `POST /:id/diferencia/aceptar` (F3, HU #12654): el motivo es obligatorio (5..500). */
+export interface AceptarDiferenciaBody {
+  motivo: string;
 }
 
 /**

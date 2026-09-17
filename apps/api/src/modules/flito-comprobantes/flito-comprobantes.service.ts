@@ -181,6 +181,8 @@ export function condicionAsociacion(a: AsociacionComprobante): SQL {
 
 const aplicadoPor = alias(users, 'aplicado_por');
 const descartadoPor = alias(users, 'descartado_por');
+/** F3 (HU #12654): quién aceptó la diferencia; solo lo pide el detalle. */
+const diferenciaAceptadaPor = alias(users, 'diferencia_aceptada_por');
 
 /**
  * El WHERE del listado, exportado para que el test lo renderice (el mock ignora `where`). Los
@@ -322,12 +324,18 @@ export async function detalle(id: string): Promise<ComprobanteDetalleDto> {
   const [fila] = await consultaLista().where(eq(flitoComprobantes.id, id)).limit(1);
   if (!fila) throw new ComprobanteError(404, CodigoErrorComprobante.NO_ENCONTRADO, 'El comprobante no existe');
   // Lo que SOLO el detalle expone: la lectura cruda y, para la ficha (HU #12634 AC6), los motivos y el
-  // soporte hijo aplicado. Fuera de `PROYECCION_LISTA` a propósito: la cola no los trae.
+  // soporte hijo aplicado; y la constancia de la diferencia aceptada (F3, HU #12654: quién, cuándo y
+  // por qué; `diferenciaAceptada` ya viene de la lista por `diferencia_aceptada_en`). Fuera de
+  // `PROYECCION_LISTA` a propósito: la cola no los trae.
   const [lectura] = await db.select({
     extraccion: flitoComprobantes.extraccion, extraccionDestino: flitoComprobantes.extraccionDestino,
     aplicadoMotivo: flitoComprobantes.aplicadoMotivo, descartadoMotivo: flitoComprobantes.descartadoMotivo,
     soporteAplicadoId: flitoComprobantes.soporteAplicadoId,
-  }).from(flitoComprobantes).where(eq(flitoComprobantes.id, id)).limit(1);
+    diferenciaAceptadaEn: flitoComprobantes.diferenciaAceptadaEn, diferenciaAceptadaMotivo: flitoComprobantes.diferenciaAceptadaMotivo,
+    diferenciaAceptadaPorNombre: diferenciaAceptadaPor.username,
+  }).from(flitoComprobantes)
+    .leftJoin(diferenciaAceptadaPor, eq(diferenciaAceptadaPor.id, flitoComprobantes.diferenciaAceptadaPorId))
+    .where(eq(flitoComprobantes.id, id)).limit(1);
   const base = aListaDto(fila as FilaLista);
   // Candidatos solo en pendientes (AC5): en aplicados y descartados ya no hay nada que elegir.
   const candidatos = base.estado === EstadoComprobante.PENDIENTE
@@ -340,6 +348,9 @@ export async function detalle(id: string): Promise<ComprobanteDetalleDto> {
     aplicadoMotivo: lectura?.aplicadoMotivo ?? null,
     descartadoMotivo: lectura?.descartadoMotivo ?? null,
     soporteAplicadoId: lectura?.soporteAplicadoId ?? null,
+    diferenciaAceptadaEn: iso(lectura?.diferenciaAceptadaEn),
+    diferenciaAceptadaMotivo: lectura?.diferenciaAceptadaMotivo ?? null,
+    diferenciaAceptadaPorNombre: lectura?.diferenciaAceptadaPorNombre ?? null,
   };
 }
 

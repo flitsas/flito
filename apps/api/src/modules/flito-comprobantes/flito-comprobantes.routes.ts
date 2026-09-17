@@ -1,12 +1,13 @@
 // Comprobantes universales (HTTP) — Épica #12245, Feature #12605 (HU #12611) y Feature #12606
-// (HU #12629). Montado en /api/flito/comprobantes. Ocho rutas, cada una con su función del motor de
+// (HU #12629) y F3 (HU #12654). Montado en /api/flito/comprobantes. Nueve rutas, cada una con su función del motor de
 // permisos (el módulo nace reconducido: ninguna guarda `requireRole`). Errores `ErrorComprobanteDto`
 // (`ComprobanteError.cuerpo()`); `Cache-Control: no-store` en el detalle, el archivo, los candidatos
 // y el buscador (llaves de vehículo y URL prefirmada).
 //
 // F2 (0201): `POST /tramites/buscar` por BODY (la llave no va en la URL ni en los logs de acceso),
 // `POST /:id/aplicar` (adjuntar documentación; pagos de SOAT/impuesto/derecho vía sus dueños, HU #12630; fila documental de los honorarios, HU #12631) y
-// `POST /:id/descartar`. Aceptar diferencia (F3) llega con su migración y su ruta.
+// `POST /:id/descartar`. F3 (0202, HU #12654): `POST /:id/diferencia/aceptar` (constancia con motivo;
+// no toca dinero ni el sello; permitido con el trámite liquidado).
 
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
@@ -24,7 +25,7 @@ import { esUuid } from '../../shared/utils/uuid.js';
 import { cargarLote, type ArchivoCargado } from './flito-comprobantes.carga.js';
 import { ComprobanteError, detalle, listar, releer, urlArchivo, type ComprobanteCtx } from './flito-comprobantes.service.js';
 import { candidatosPorTexto } from './flito-comprobantes.cruce.js';
-import { aplicar, descartar, motivoSchema } from './flito-comprobantes.aplicar.js';
+import { aceptarDiferencia, aplicar, descartar, motivoSchema } from './flito-comprobantes.aplicar.js';
 
 export { aplicarSchema } from './flito-comprobantes.aplicar.js';
 
@@ -166,6 +167,18 @@ router.post('/:id/descartar', exigirFuncion('comprobantes.comprobante.descartar'
   try {
     await descartar(req.params.id, parsed.data.motivo, ctxDe(req.user!));
     await audit(req, { action: 'delete', resource: 'flito_comprobante', resourceId: req.params.id, detail: `Comprobante descartado: ${parsed.data.motivo}` });
+    res.json({ ok: true });
+  } catch (e) { handleError(res, e); }
+});
+
+// ── Aceptar diferencia (F3, HU #12654): 404 → 409 sin_diferencia → tx con FOR UPDATE del comprobante ──
+// Constancia, no dinero: no cambia valor ni tarifa, no toca flito_liquidaciones, se permite con el trámite sellado.
+router.post('/:id/diferencia/aceptar', exigirFuncion('comprobantes.diferencia.aceptar'), exigirIdUuid, async (req: Request, res: Response) => {
+  const parsed = motivoSchema.safeParse(req.body ?? {});
+  if (!parsed.success) { res.status(400).json({ error: 'El motivo va entre 5 y 500 caracteres', codigo: CodigoErrorComprobante.DATOS_INVALIDOS }); return; }
+  try {
+    await aceptarDiferencia(req.params.id, parsed.data.motivo, ctxDe(req.user!));
+    await audit(req, { action: 'update', resource: 'flito_comprobante', resourceId: req.params.id, detail: `Diferencia aceptada: ${parsed.data.motivo}` });
     res.json({ ok: true });
   } catch (e) { handleError(res, e); }
 });

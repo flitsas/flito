@@ -29,10 +29,16 @@
 // `flito_comprobantes_aplicado_chk` admite). El `ctx` sigue siendo el de la persona que cargó: el
 // soporte hijo y la auditoría del dueño necesitan un usuario real (no hay usuario «sistema» en `users`).
 //
+// HU #12654 (F3 #12607): ACEPTAR LA DIFERENCIA (`aceptarDiferencia`) es CONSTANCIA, no dinero: escribe
+// quién/cuándo/por qué en la propia fila del comprobante (`diferencia_aceptada_*`), no toca `valor`,
+// `tarifa_referencia`, `diferencia_tarifa` ni `marcado_por_diferencia`, y se permite con el trámite ya
+// sellado (la fila de `flito_liquidaciones` no cambia: el sello conserva `aceptada: false` y la
+// aceptación se ve en vivo en el reporte de costos, HU #12653). Una diferencia NUNCA bloquea el sellado (D5).
+//
 // Ningún log lleva contenido leído (Habeas Data): ids, conceptos, cuentas.
 
 import { createHash } from 'node:crypto';
-import { and, eq, ne, sql } from 'drizzle-orm';
+import { and, eq, isNull, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   CAMPOS_COMPROBANTE, CodigoErrorComprobante, CONCEPTOS_COSTO, ConceptoCosto, CruceComprobante, EstadoComprobante,
@@ -88,6 +94,8 @@ export interface OpcionesAplicar { automatico?: boolean }
 const noEncontrado = (que = 'El comprobante no existe') => new ComprobanteError(404, CodigoErrorComprobante.NO_ENCONTRADO, que);
 const yaResuelto = () => new ComprobanteError(409, CodigoErrorComprobante.YA_RESUELTO, 'El comprobante ya no está pendiente');
 const datosInvalidos = (msg: string) => new ComprobanteError(400, CodigoErrorComprobante.DATOS_INVALIDOS, msg);
+const sinDiferencia = (detalle: string) =>
+  new ComprobanteError(409, CodigoErrorComprobante.SIN_DIFERENCIA, 'El comprobante no tiene una diferencia pendiente de aceptar', { detalle });
 
 // ─────────────────────────── Confirmación de campos ──────────────────────────
 
@@ -393,4 +401,50 @@ export async function descartar(id: string, motivo: string, ctx: ComprobanteCtx)
     }
   });
   log.info({ comprobanteId: id, por: ctx.userId }, 'Comprobante descartado');
+}
+
+// ─────────────────────────── aceptar diferencia (HU #12654) ─────────────────
+
+/** Lo que decide si hay una diferencia PENDIENTE que aceptar: se lee fuera de la tx y otra vez bajo el bloqueo. */
+interface FilaDiferencia { estado: string; esPago: boolean | null; marcadoPorDiferencia: boolean; diferenciaAceptadaEn: Date | null }
+
+const COLUMNAS_DIFERENCIA = {
+  estado: flitoComprobantes.estado, esPago: flitoComprobantes.esPago,
+  marcadoPorDiferencia: flitoComprobantes.marcadoPorDiferencia, diferenciaAceptadaEn: flitoComprobantes.diferenciaAceptadaEn,
+} as const;
+
+/**
+ * 409 `sin_diferencia` salvo que la fila sea un pago APLICADO, MARCADO por diferencia y aún SIN aceptar.
+ * `marcado_por_diferencia` se comprueba explícitamente (mutante AC6: sin la marca no hay nada que aceptar,
+ * aunque `diferencia_tarifa` sea distinto de cero por redondeo); la segunda aceptación es 409, no 200.
+ */
+function exigirDiferenciaPendiente(f: FilaDiferencia): void {
+  if (f.estado !== EstadoComprobante.APLICADO || f.esPago !== true) throw sinDiferencia('El comprobante no está aplicado como pago');
+  if (!f.marcadoPorDiferencia) throw sinDiferencia('El comprobante no está marcado por diferencia');
+  if (f.diferenciaAceptadaEn !== null) throw sinDiferencia('La diferencia ya fue aceptada');
+}
+
+/**
+ * `POST /:id/diferencia/aceptar` (AC6 de la HU #12654). Orden: 404 → 409 `sin_diferencia` (no aplicado
+ * como pago / sin marca / ya aceptada) → tx: `FOR UPDATE` sobre el comprobante, la misma guarda bajo el
+ * bloqueo (dos aceptaciones concurrentes: la segunda pierde con 409, no reescribe la constancia) →
+ * UPDATE de SOLO `diferencia_aceptada_por_id/en/motivo` (+ `updated_at`), condicionado a «sin aceptar».
+ * NO bloquea el trámite ni lee `flito_liquidaciones`: se permite con el trámite sellado (constancia, no dinero).
+ */
+export async function aceptarDiferencia(id: string, motivo: string, ctx: ComprobanteCtx): Promise<void> {
+  const texto = motivo.trim();
+  const [c] = await db.select(COLUMNAS_DIFERENCIA).from(flitoComprobantes).where(eq(flitoComprobantes.id, id)).limit(1);
+  if (!c) throw noEncontrado();
+  exigirDiferenciaPendiente(c);
+
+  await db.transaction(async (tx) => {
+    const [fila] = await tx.select(COLUMNAS_DIFERENCIA).from(flitoComprobantes)
+      .where(eq(flitoComprobantes.id, id)).for('update').limit(1);
+    if (!fila) throw noEncontrado();
+    exigirDiferenciaPendiente(fila);
+    await tx.update(flitoComprobantes).set({
+      diferenciaAceptadaPorId: ctx.userId, diferenciaAceptadaEn: new Date(), diferenciaAceptadaMotivo: texto, updatedAt: new Date(),
+    }).where(and(eq(flitoComprobantes.id, id), isNull(flitoComprobantes.diferenciaAceptadaEn)));
+  });
+  log.info({ comprobanteId: id, por: ctx.userId }, 'Diferencia del comprobante aceptada');
 }

@@ -493,3 +493,62 @@ describe('AC6 — ninguna ruta del módulo escribe en los destinos ni en el repo
     expect([...new Set(escrituras)]).toEqual(['insert(flitoComprobantes)', 'insert(flitoSoportes)', 'update(flitoComprobantes)', 'update(flitoSoportes)']);
   });
 });
+
+// ═════════════════ HU #12654 (AC6) · el detalle expone la constancia de la diferencia aceptada ═══════
+// El mock devuelve la fila entera aunque el select pida menos (memoria: mock-chain-inventa-columnas):
+// por eso se afirma TAMBIÉN la proyección pedida y el LEFT JOIN a `users` sobre `diferencia_aceptada_por_id`.
+describe('HU #12654 — GET /:id trae diferenciaAceptada, diferenciaAceptadaEn, diferenciaAceptadaMotivo y diferenciaAceptadaPorNombre', () => {
+  const proyeccionesPedidas = () => kdb.select.mock.calls.map((c) => Object.keys((c[0] as Record<string, unknown> | undefined) ?? {}));
+  const aplicadaConDiferencia = (over: Record<string, unknown> = {}) => filaLista({
+    estado: 'aplicado', motivoPendiente: null, esPago: true, concepto: 'tramite_digital', tramiteId: TRAMITE, tramiteIdFlit: 'FLIT-1', tramitePlaca: 'ABC123',
+    marcadoPorDiferencia: true, diferenciaTarifa: '5000.00', aplicadoEn: new Date('2026-09-16T10:00:00Z'), aplicadoPorNombre: 'fin@flitsas.io', ...over,
+  });
+
+  it('aceptada: diferenciaAceptada true (de la lista) y la constancia (quién, cuándo ISO, motivo) del segundo select con LEFT JOIN a users', async () => {
+    const app = await buildApp();
+    kdb.when.selectOnce(T_COMP, [aplicadaConDiferencia({ diferenciaAceptadaEn: new Date('2026-09-17T14:00:00Z') })]).selectOnce(T_COMP, [{
+      extraccion: lectura().extraccion, extraccionDestino: null, aplicadoMotivo: null, descartadoMotivo: null, soporteAplicadoId: null,
+      diferenciaAceptadaEn: new Date('2026-09-17T14:00:00Z'), diferenciaAceptadaMotivo: 'Pactado con el cliente por correo', diferenciaAceptadaPorNombre: 'fin@flitsas.io',
+    }]);
+    const res = await request(app).get(`${BASE}/${ID}`).set('Authorization', await auth('financiera'));
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      diferenciaAceptada: true, diferenciaAceptadaEn: '2026-09-17T14:00:00.000Z',
+      diferenciaAceptadaMotivo: 'Pactado con el cliente por correo', diferenciaAceptadaPorNombre: 'fin@flitsas.io',
+      marcadoPorDiferencia: true, diferenciaTarifa: 5000,
+    });
+    const deDetalle = proyeccionesPedidas().find((k) => k.includes('extraccion'));
+    expect(deDetalle).toEqual(expect.arrayContaining(['diferenciaAceptadaEn', 'diferenciaAceptadaMotivo', 'diferenciaAceptadaPorNombre']));
+  });
+
+  it('sin aceptar: los tres en null (nunca undefined) y diferenciaAceptada false; la LISTA no los trae', async () => {
+    const app = await buildApp();
+    kdb.when.selectOnce(T_COMP, [aplicadaConDiferencia()]).selectOnce(T_COMP, [{
+      extraccion: lectura().extraccion, extraccionDestino: null, aplicadoMotivo: null, descartadoMotivo: null, soporteAplicadoId: null,
+      diferenciaAceptadaEn: null, diferenciaAceptadaMotivo: null, diferenciaAceptadaPorNombre: null,
+    }]);
+    const res = await request(app).get(`${BASE}/${ID}`).set('Authorization', await auth('financiera'));
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('diferenciaAceptada', false);
+    expect(res.body).toHaveProperty('diferenciaAceptadaEn', null);
+    expect(res.body).toHaveProperty('diferenciaAceptadaMotivo', null);
+    expect(res.body).toHaveProperty('diferenciaAceptadaPorNombre', null);
+    // La lista solo lleva `diferenciaAceptadaEn` (de donde sale el booleano); el motivo y el nombre son del detalle.
+    expect(Object.keys(PROYECCION_LISTA)).toContain('diferenciaAceptadaEn');
+    expect(Object.keys(PROYECCION_LISTA)).not.toContain('diferenciaAceptadaMotivo');
+    expect(Object.keys(PROYECCION_LISTA)).not.toContain('diferenciaAceptadaPorNombre');
+  });
+
+  it('la ruta POST /:id/diferencia/aceptar existe en el router con exigirFuncion delante (AC6-M3)', async () => {
+    const { default: router } = await import('../../src/modules/flito-comprobantes/flito-comprobantes.routes.js');
+    const capa = (router as unknown as { stack: { route?: { path: string; methods: Record<string, boolean>; stack: { name: string }[] } }[] }).stack
+      .find((l) => l.route?.path === '/:id/diferencia/aceptar' && l.route.methods.post)?.route;
+    expect(capa).toBeDefined();
+    expect(capa!.stack.map((s) => s.name)).toContain('exigirIdUuid');
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const rutas = readFileSync(join(import.meta.dirname, '../../src/modules/flito-comprobantes/flito-comprobantes.routes.ts'), 'utf8');
+    expect(rutas).toMatch(/router\.post\('\/:id\/diferencia\/aceptar', exigirFuncion\('comprobantes\.diferencia\.aceptar'\), exigirIdUuid,/);
+    expect(rutas).not.toMatch(/requireRole\(/);
+  });
+});
