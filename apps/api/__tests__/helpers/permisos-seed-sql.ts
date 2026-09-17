@@ -38,6 +38,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0200_pagina_finanzas_gastos_diarios.sql',
   '0201_comprobantes_aplicar.sql',
   '0202_comprobantes_diferencia.sql',
+  '0203_permiso_excel_exportar_pago.sql',
 ] as const;
 
 function sinComentariosSql(sql: string): string {

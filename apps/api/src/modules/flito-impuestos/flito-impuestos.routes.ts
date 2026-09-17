@@ -7,12 +7,13 @@ import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
 import { authMiddleware } from '../../shared/middleware/auth.js';
-import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
+import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { historialDe } from '../../shared/historial/estado-historial.js';
 import { sendExcel } from '../../shared/utils/excel.js';
 import {
-  COLUMNAS_COLA_EXPORT, ExportColaDemasiadoGrandeError, exportColaLimiter,
+  CAMPOS_COLA_EXPORT_PAGO_IMPUESTOS, columnasColaExport, ExportColaDemasiadoGrandeError, exportColaLimiter,
+  RESULTADO_EXPORT_AMPLIADO,
 } from '../../shared/export/cola-flito-excel.js';
 import {
   CAMPOS_PII_IMPUESTO_EXPORT, registrarAccesoImpuesto,
@@ -362,10 +363,22 @@ const colaFiltrosCampos = z.object({
  */
 const exportSchema = colaFiltrosCampos
   .omit({ page: true, pageSize: true, cursor: true })
+  .extend({
+    /**
+     * Bug #12642: `true` = archivo AMPLIADO con las 11 columnas de pago y trazabilidad. Exige además
+     * `impuestos.excel.exportar_pago` (se comprueba EN LÍNEA, abajo). Ausente o `false` = el archivo
+     * de siempre, byte a byte. Solo booleano: `'sí'` es 400, no un `true`.
+     */
+    incluirPago: z.boolean().optional(),
+  })
   .strict();
 
+/** El texto del 403 cuando se pide el archivo ampliado sin la función. La pantalla lo muestra tal cual. */
+const ERROR_SIN_FUNCION_PAGO = 'Tu usuario no puede exportar datos de pago y trazabilidad';
+
 /**
- * POST /export — la cola filtrada, en un `.xlsx` (Feature #11908, HU #11909).
+ * POST /export — la cola filtrada, en un `.xlsx` (Feature #11908, HU #11909; Bug #12642: variante
+ * ampliada con `incluirPago`).
  *
  * ── Por qué POST y por qué TODO el filtro va en el cuerpo ────────────────────────────────────────
  *
@@ -388,6 +401,14 @@ const exportSchema = colaFiltrosCampos
  *
  * Va declarada antes que `GET /:id` por costumbre del router; no hay ambigüedad de todas formas —es
  * un POST y no existe `POST /:id` a secas—.
+ *
+ * ── `incluirPago` (Bug #12642): una segunda función, comprobada EN LÍNEA ─────────────────────────
+ *
+ * El archivo ampliado lleva lo que FLITO liquida y paga; no se le entrega al gestor de un organismo
+ * por el hecho de poder bajar la cola. La guarda va DENTRO del handler —como `[_forzarContinuar]` en
+ * trámites— porque solo aplica a una rama del cuerpo. Se decide ANTES de tocar la base y antes del
+ * rastro: quien no puede no deja `accion: 'export'` en el `pii_access_log`; el intento denegado lo
+ * registra `tieneFuncion` en la bitácora de permisos.
  */
 router.post('/export', exigirFuncion('impuestos.excel.exportar'), exportColaLimiter, async (req: Request, res: Response) => {
   const parsed = exportSchema.safeParse(req.body ?? {});
@@ -395,21 +416,28 @@ router.post('/export', exigirFuncion('impuestos.excel.exportar'), exportColaLimi
     res.status(400).json({ error: 'Filtro inválido', details: parsed.error.flatten() });
     return;
   }
+  const { incluirPago = false, ...filtros } = parsed.data;
+  if (incluirPago && !(await tieneFuncion(req, 'impuestos.excel.exportar_pago'))) {
+    res.status(403).json({ error: ERROR_SIN_FUNCION_PAGO });
+    return;
+  }
   const ctx = await contextoImpuesto(req.user!);
 
   try {
     // Aquí se decide el 422: si el filtro se pasa del tope, esto lanza y no hay filas que escribir.
-    const filas = await construirFilasExportImpuestos(ctx, parsed.data);
+    const filas = await construirFilasExportImpuestos(ctx, filtros, { incluirPago });
 
-    // `filas` = las REALMENTE entregadas. No el tope, no lo pedido.
+    // `filas` = las REALMENTE entregadas. No el tope, no lo pedido. Ampliado (Bug #12642): los campos
+    // de pago se suman a la lista y `resultado=ampliado` marca la línea.
     await registrarAccesoImpuesto(req, {
       accion: 'export',
-      campos: CAMPOS_PII_IMPUESTO_EXPORT,
+      campos: incluirPago ? [...CAMPOS_PII_IMPUESTO_EXPORT, ...CAMPOS_COLA_EXPORT_PAGO_IMPUESTOS] : CAMPOS_PII_IMPUESTO_EXPORT,
       filas: filas.length,
+      ...(incluirPago ? { resultado: RESULTADO_EXPORT_AMPLIADO } : {}),
     });
 
     res.set('Cache-Control', 'no-store');
-    await sendExcel(res, nombreArchivoExportImpuestos(), COLUMNAS_COLA_EXPORT, filas);
+    await sendExcel(res, nombreArchivoExportImpuestos(), columnasColaExport('impuestos', incluirPago), filas);
   } catch (e) {
     // Con la respuesta ya empezada, responder reventaría con ERR_HTTP_HEADERS_SENT y taparía la
     // causa real: se relanza al manejador global, que sabe cerrar una respuesta a medias.
