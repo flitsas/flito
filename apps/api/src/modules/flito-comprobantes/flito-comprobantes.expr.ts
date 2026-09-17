@@ -17,6 +17,13 @@ import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { ConceptoCosto } from '@operaciones/shared-types';
 import { flitoComprobantes, flitoTramites } from '../../db/schema.js';
 
+/**
+ * Carpeta S3 de la puerta (HU #12611): no hay compañía conocida al cargar, así que cuelga del lote.
+ * Vive aquí, en el leaf, desde la HU #12632: `carga.ts` → `auto.ts` → `aplicar.ts` forman un ciclo y
+ * una constante leída al evaluar el módulo (`CARPETA_APLICADOS`) no puede colgar de un módulo del ciclo.
+ */
+export const CARPETA_COMPROBANTES = 'flito/comprobantes';
+
 export type ConceptoHonorario =
   | typeof ConceptoCosto.TRAMITE_DIGITAL | typeof ConceptoCosto.LOGISTICA | typeof ConceptoCosto.SERVICIOS_ADICIONALES;
 

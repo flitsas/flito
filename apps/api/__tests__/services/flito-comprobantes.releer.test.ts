@@ -10,6 +10,12 @@ process.env.TZ = 'UTC';
 //   · AC9-M2 actualizar `updated_at` antes de leer → «503 y la fila no cambia» (cero UPDATE).
 //   · AC9-M3 releer sin comprobar el motivo → «pendiente con otro motivo → 409 sin_relectura».
 //   · AC9-M4 ignorar `paginas` → «consolidado: recorta las páginas de la fila».
+//
+// HU #12632 (AC4): la relectura exitosa intenta AUTO-APLICAR con el cruce recién calculado. `aplicar`
+// se mockea en su módulo (certificado en aplicar.test.ts); `decidirAutoAplicar` y `evaluarReciboImpuesto`
+// corren reales. Mutantes:
+//   · AC4-M releer sin invocar `autoAplicar` → «lectura confiable + cruce único → aplicado» cae.
+//   · AC4-M2 aplicar antes de la lectura / con 503 → «503: aplicar no se invoca» cae.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
@@ -44,9 +50,16 @@ vi.mock('../../src/shared/pdf/separar-paginas.js', async (orig) => {
 });
 const leerMock = vi.fn();
 vi.mock('../../src/modules/flito-comprobantes/flito-comprobantes.ocr.js', () => ({ particionar: vi.fn(), leerSubDocumento: leerMock }));
+const aplicarMock = vi.fn();
+vi.mock('../../src/modules/flito-comprobantes/flito-comprobantes.aplicar.js', async (orig) => {
+  const real = await orig() as Record<string, unknown>;
+  return { ...real, aplicar: aplicarMock };
+});
 
 const { fijarFuenteDePermisos } = await import('../../src/shared/permisos-efectivos.js');
 const { OcrNoDisponibleError } = await import('../../src/modules/flito-ocr/flito-ocr.service.js');
+const { ComprobanteError } = await import('../../src/modules/flito-comprobantes/flito-comprobantes.service.js');
+const { env } = await import('../../src/config/env.js');
 const { flitoComprobantes, flitoSoportes, flitoTramites } = await import('../../src/db/schema.js');
 
 const T_COMP = getTableName(flitoComprobantes);
@@ -118,7 +131,8 @@ function armar(over: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   kdb.reset(); espia.reiniciar(); auditMock.mockClear();
-  streamMock.mockReset(); recortarMock.mockReset(); leerMock.mockReset();
+  streamMock.mockReset(); recortarMock.mockReset(); leerMock.mockReset(); aplicarMock.mockReset();
+  env.COMPROBANTES_AUTO_APLICAR = '1';
   streamMock.mockImplementation(async () => Readable.from([PDF.subarray(0, 10), PDF.subarray(10)]));
   recortarMock.mockResolvedValue(RECORTE);
   leerMock.mockResolvedValue(lecturaCompleta());
@@ -153,8 +167,9 @@ describe('AC9 — POST /:id/releer', () => {
       tramiteId: TRAMITE, cruce: 'placa',
     });
     expect(updates[0]!.datos.updatedAt).toBeInstanceOf(Date);
-    // Sin tocar estado ni nada de la aplicación: la sugerencia no aplica.
+    // Sin tocar estado ni nada de la aplicación: la sugerencia no aplica (HU #12632: el dueño del impuesto no aprueba un destino sin placa → pendiente).
     for (const k of ['estado', 'aplicadoEn', 'aplicadoPorId', 'soporteId', 'paginas', 'loteId']) expect(updates[0]!.datos[k]).toBeUndefined();
+    expect(aplicarMock).not.toHaveBeenCalled();
     const q = renderizar(updates[0]!.condiciones[0] as never);
     expect(ligadoA(q, '"flito_comprobantes"."id"')).toBe(ID);
     expect(auditMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ action: 'update', resource: 'flito_comprobante', resourceId: ID }));
@@ -188,6 +203,7 @@ describe('AC9 — POST /:id/releer', () => {
     expect(espia.updates).toEqual([]);
     expect(espia.inserts).toEqual([]);
     expect(auditMock).not.toHaveBeenCalled();
+    expect(aplicarMock).not.toHaveBeenCalled(); // HU #12632 AC4-M2: sin lectura no hay nada que auto-aplicar.
   });
 
   it('no pendiente (aplicado / descartado) → 409 ya_resuelto sin descargar ni leer', async () => {
@@ -222,5 +238,55 @@ describe('AC9 — POST /:id/releer', () => {
     const r403 = await request(app).post(RUTA).set('Authorization', await auth('auditor'));
     expect(r403.status).toBe(403);
     expect(r403.body.funcion).toBe('comprobantes.comprobante.releer');
+  });
+});
+
+// ═════════════════ HU #12632 · AC4: releer intenta auto-aplicar ═════════════════════════════════
+
+describe('HU #12632 — AC4: la relectura exitosa intenta auto-aplicar', () => {
+  /** Destino de impuesto que `evaluarReciboImpuesto` aprueba: placa que cruza y valor sobre el umbral. */
+  const lecturaAprobable = () => ({ ...lecturaCompleta(), extraccionDestino: { placa: campo('XYZ789', 0.95), valorTotal: campo('120000', 0.95), numeroRecibo: campo('R-9', 0.95) } });
+  const dtoAplicado = () => ({
+    ...filaDetalle({ estado: 'aplicado', motivoPendiente: null, tramiteId: TRAMITE, tramiteIdFlit: 'FLIT-XYZ', cruce: 'placa', aplicadoAutomaticamente: true, aplicadoEn: new Date('2026-09-17T15:00:00Z') }),
+    candidatos: [], campos: [],
+  });
+
+  it('AC4-M — lectura confiable + cruce único que admite + veredicto del dueño aprobado → la fila se reescribe con la sugerencia y luego aplicar(id, {tramiteId, concepto, esPago: true, campos: {}}, ctx, { automatico: true }); el DTO devuelto es el aplicado', async () => {
+    const app = await buildApp();
+    armar();
+    leerMock.mockResolvedValue(lecturaAprobable());
+    aplicarMock.mockResolvedValue(dtoAplicado());
+    const res = await request(app).post(RUTA).set('Authorization', await auth());
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ id: ID, estado: 'aplicado', aplicadoAutomaticamente: true, tramiteId: TRAMITE });
+    // Primero la relectura (UPDATE con la sugerencia), después el intento: el orden protege la fila si aplicar falla.
+    expect(espia.updatesEn(T_COMP)[0]!.datos).toMatchObject({ motivoPendiente: MotivoPendienteComprobante.LEIDO, tramiteId: TRAMITE, cruce: 'placa' });
+    expect(aplicarMock).toHaveBeenCalledTimes(1);
+    expect(aplicarMock).toHaveBeenCalledWith(ID, { tramiteId: TRAMITE, concepto: 'impuesto', esPago: true, campos: {} }, expect.objectContaining({ userId: 7, role: 'financiera' }), { automatico: true });
+    expect(aplicarMock.mock.invocationCallOrder[0]!).toBeGreaterThan(kdb.update.mock.invocationCallOrder[0]!);
+  });
+
+  it('flag \'0\' → la relectura deja la sugerencia y responde pendiente; aplicar no se invoca', async () => {
+    env.COMPROBANTES_AUTO_APLICAR = '0';
+    const app = await buildApp();
+    armar();
+    leerMock.mockResolvedValue(lecturaAprobable());
+    const res = await request(app).post(RUTA).set('Authorization', await auth());
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ id: ID, estado: 'pendiente', motivoPendiente: 'leido' });
+    expect(aplicarMock).not.toHaveBeenCalled();
+    expect(espia.updatesEn(T_COMP)[0]!.datos).toMatchObject({ tramiteId: TRAMITE, cruce: 'placa' });
+  });
+
+  it('AC3 en la relectura — aplicar falla (409 del dueño) → 200 con el DTO pendiente (la relectura ya quedó escrita), sin propagar', async () => {
+    const app = await buildApp();
+    armar();
+    leerMock.mockResolvedValue(lecturaAprobable());
+    aplicarMock.mockRejectedValue(new ComprobanteError(409, 'ya_pagado' as never, 'Ese destino ya está pagado', { detalle: 'placa XYZ789 pagada', puedeAdjuntar: true }));
+    const res = await request(app).post(RUTA).set('Authorization', await auth());
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ id: ID, estado: 'pendiente', motivoPendiente: 'leido' });
+    expect(aplicarMock).toHaveBeenCalledTimes(1);
+    expect(espia.updatesEn(T_COMP)).toHaveLength(1);
   });
 });

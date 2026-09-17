@@ -15,6 +15,14 @@ process.env.TZ = 'UTC';
 //   · AC5-M1 intercambiar dos escalones de la precedencia → «la matriz de 6 casos».
 //   · AC5-M2 dejar que OcrNoDisponibleError suba → «OCR caído persiste igual con {}».
 //   · AC5-M3 persistir tipo/concepto no confiables → «solo si confiable».
+//
+// HU #12632 (auto-aplicación, D5): `aplicar` se MOCKEA en su módulo (está certificado en aplicar.test.ts;
+// aquí se afirma que la carga lo invoca por el mismo camino con `{ automatico: true }` y qué hace con
+// el resultado); `decidirAutoAplicar` y los evaluadores de los dueños corren REALES.
+//   · AC1-M8 concepto no confiable aplicando igual → «concepto con confianza 0.5 → pendiente concepto_desconocido».
+//   · AC1-M11 flag ausente apagando → «sin la variable, el parse la deja en '1'» cae.
+//   · AC2-M flag '0' aplicando igual → «flag '0': todo pendiente con la sugerencia» cae.
+//   · AC3-M propagar la excepción de autoAplicar → «un fallo de auto-aplicar no vacía el resultado del envío» cae.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getTableName } from 'drizzle-orm';
@@ -35,6 +43,12 @@ vi.mock('../../src/services/storage.js', () => ({
 const particionarMock = vi.fn();
 const leerMock = vi.fn();
 vi.mock('../../src/modules/flito-comprobantes/flito-comprobantes.ocr.js', () => ({ particionar: particionarMock, leerSubDocumento: leerMock }));
+// HU #12632: `aplicar` mockeado en su módulo; el resto de aplicar.ts (esquema, constantes) es real.
+const aplicarMock = vi.fn();
+vi.mock('../../src/modules/flito-comprobantes/flito-comprobantes.aplicar.js', async (orig) => {
+  const real = await orig() as Record<string, unknown>;
+  return { ...real, aplicar: aplicarMock };
+});
 
 const logLineas: unknown[][] = [];
 const logMock = {
@@ -43,9 +57,11 @@ const logMock = {
 };
 vi.mock('../../src/shared/logger.js', () => ({ loggerFor: () => logMock, logger: logMock }));
 
-const { cargarLote, contentTypePorCabecera, puertaDelSoporte, textoNoLeidas, DETALLE_FALLIDO, CARPETA_COMPROBANTES } =
+const { cargarLote, contentTypePorCabecera, puertaDelSoporte, textoNoLeidas, detalleAplicado, DETALLE_FALLIDO, CARPETA_COMPROBANTES } =
   await import('../../src/modules/flito-comprobantes/flito-comprobantes.carga.js');
-const { motivoPendienteDe, columnasDeLectura } = await import('../../src/modules/flito-comprobantes/flito-comprobantes.service.js');
+const { motivoPendienteDe, columnasDeLectura, ComprobanteError } = await import('../../src/modules/flito-comprobantes/flito-comprobantes.service.js');
+const { decidirAutoAplicar, autoAplicarEncendida } = await import('../../src/modules/flito-comprobantes/flito-comprobantes.auto.js');
+const { env } = await import('../../src/config/env.js');
 const { OcrNoDisponibleError } = await import('../../src/modules/flito-ocr/flito-ocr.service.js');
 const { PdfDemasiadoGrandeError } = await import('../../src/shared/pdf/separar-paginas.js');
 const { flitoComprobantes, flitoSoportes, flitoTramites } = await import('../../src/db/schema.js');
@@ -61,7 +77,7 @@ const candidato = () => ({
   docTramiteDigital: false, docLogistica: false, docServiciosAdicionales: false, createdAt: new Date('2026-09-01T00:00:00Z'),
 });
 const LOTE = '9c1d4d5e-3b7a-4c2e-9f0a-1b2c3d4e5f60';
-const CTX = { userId: 7, username: 'fin@flitsas.io' };
+const CTX = { userId: 7, username: 'fin@flitsas.io', role: 'financiera' };
 
 const PDF = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n');
 const PDF_B = Buffer.from('%PDF-1.7\n%otro-documento\n');
@@ -105,7 +121,8 @@ const espia = crearEspia(kdb);
 beforeEach(() => {
   kdb.reset(); espia.reiniciar();
   nComp = 0; logLineas.length = 0;
-  uploadMock.mockReset(); particionarMock.mockReset(); leerMock.mockReset();
+  uploadMock.mockReset(); particionarMock.mockReset(); leerMock.mockReset(); aplicarMock.mockReset();
+  env.COMPROBANTES_AUTO_APLICAR = '1';
   uploadMock.mockResolvedValue('flito/comprobantes/lote/x.pdf');
   particionarMock.mockImplementation(async (a: { buffer: Buffer; nombre: string; contentType: string }) => unico(a.buffer, a.nombre, a.contentType));
   leerMock.mockResolvedValue(lecturaCompleta());
@@ -388,5 +405,160 @@ describe('AC5 — motivo por precedencia y columnas de lectura', () => {
       archivo: 'pol.pdf', comprobanteId: 'c-1', paginas: null, tipoDocumento: 'factura_soat', concepto: 'soat',
       idFlit: 'FLIT-ARHZZ1', placa: 'ABC123', motivo: MotivoPendienteComprobante.LEIDO, detalle: 'Leído, pendiente de asociar',
     });
+  });
+});
+
+// ═════════════════ HU #12632 · auto-aplicación (D5) ═════════════════════════════════════════════
+
+describe('HU #12632 — auto-aplicación con COMPROBANTES_AUTO_APLICAR', () => {
+  const NBSP = ' ';
+  /** Lo que `aplicar` devuelve (el DTO aplicado; su forma la certifica aplicar.test.ts). */
+  const dtoAplicado = (id: string, over: Record<string, unknown> = {}) => ({
+    id, estado: 'aplicado', motivoPendiente: null, tipoDocumento: 'factura_soat', esPago: true, concepto: 'soat', tramiteId: TRAMITE,
+    cruce: 'id_flit', placaLeida: 'ABC123', idFlitLeido: 'FLIT-ARHZZ1', valor: '350000.00', aplicadoAutomaticamente: true, aplicadoPorNombre: null,
+    aplicadoEn: new Date('2026-09-17T15:00:00Z'), candidatos: [], campos: [], ...over,
+  });
+  /** Extracción SOAT que `evaluarExtraccionSoat` aprueba contra el candidato (placa ABC123; póliza, valor y aseguradora sobre el umbral). */
+  const destinoSoatAprobable = () => ({
+    placa: campo('ABC123', 0.95), vin: campo(null, 0), numeroPoliza: campo('POL-778', 0.95), valorTotal: campo('350000', 0.95), aseguradora: campo('Seguros Sura', 0.9),
+  });
+  const lecturaSoatAprobable = (over: Record<string, ReturnType<typeof campo>> = {}) => ({ ...lecturaCompleta(over), extraccionDestino: destinoSoatAprobable() });
+  /** Honorario: sin dueño, el candidato admite (no liquidado, no documentado). */
+  const lecturaHonorario = () => lecturaCompleta({ [CampoComprobante.TIPO_DOCUMENTO]: campo('cuenta_cobro', 0.95), [CampoComprobante.CONCEPTO]: campo('tramite_digital', 0.95) });
+
+  it('AC1 — SOAT: cruce único que admite, tipo/concepto/pago/valor confiables y veredicto del dueño aprobado → aplicar(id, {tramiteId sugerido, concepto, esPago: true, campos: {}}, ctx, { automatico: true }); va a aplicados con el copy «{Concepto} · {idFlit} · {pesos(valor)}»', async () => {
+    leerMock.mockResolvedValue(lecturaSoatAprobable());
+    aplicarMock.mockResolvedValue(dtoAplicado('c-1'));
+    const res = await cargarLote([archivo('pol.pdf', PDF)], LOTE, CTX);
+
+    // Persistido ANTES de aplicar (pendiente con la sugerencia): la fila y el archivo no dependen del intento.
+    expect(espia.insertsEn(T_COMP)[0]!.datos).toMatchObject({ estado: 'pendiente', tramiteId: TRAMITE, cruce: 'id_flit', motivoPendiente: MotivoPendienteComprobante.LEIDO });
+    expect(aplicarMock).toHaveBeenCalledTimes(1);
+    expect(aplicarMock).toHaveBeenCalledWith('c-1', { tramiteId: TRAMITE, concepto: 'soat', esPago: true, campos: {} }, CTX, { automatico: true });
+    expect(res.pendientes).toEqual([]);
+    expect(res.aplicados).toEqual([{
+      archivo: 'pol.pdf', comprobanteId: 'c-1', paginas: null, tipoDocumento: 'factura_soat', concepto: 'soat', idFlit: 'FLIT-ARHZZ1', placa: 'ABC123',
+      motivo: null, detalle: `SOAT · FLIT-ARHZZ1 · $${NBSP}350.000`,
+    }]);
+    expect(res.documentos).toBe(1);
+    expect(detalleAplicado('tramite_digital', 'FLIT-1', '1234567')).toBe(`Trámite digital · FLIT-1 · $${NBSP}1.234.567`);
+    // Ningún log con contenido leído.
+    for (const secreto of ['ABC123', 'FLIT-ARHZZ1', 'POL-778', '350000']) expect(JSON.stringify(logLineas)).not.toContain(secreto);
+  });
+
+  it('AC1 — honorario (tramite_digital): sin dueño, basta cruce único que admite + lectura confiable', async () => {
+    leerMock.mockResolvedValue(lecturaHonorario());
+    aplicarMock.mockResolvedValue(dtoAplicado('c-1', { tipoDocumento: 'cuenta_cobro', concepto: 'tramite_digital' }));
+    const res = await cargarLote([archivo('hon.pdf', PDF)], LOTE, CTX);
+    expect(aplicarMock).toHaveBeenCalledWith('c-1', { tramiteId: TRAMITE, concepto: 'tramite_digital', esPago: true, campos: {} }, CTX, { automatico: true });
+    expect(res.aplicados[0]).toMatchObject({ concepto: 'tramite_digital', detalle: `Trámite digital · FLIT-ARHZZ1 · $${NBSP}350.000` });
+  });
+
+  it('AC1 — el veredicto del dueño manda: la lectura base (destino SOAT sin placa ni VIN) NO se aplica aunque todo lo universal sea confiable; y con aseguradora bajo el umbral tampoco', async () => {
+    const res1 = await cargarLote([archivo('pol.pdf', PDF)], LOTE, CTX);
+    expect(aplicarMock).not.toHaveBeenCalled();
+    expect(res1.aplicados).toEqual([]);
+    expect(res1.pendientes[0]).toMatchObject({ comprobanteId: 'c-1', motivo: MotivoPendienteComprobante.LEIDO, idFlit: 'FLIT-ARHZZ1' });
+
+    leerMock.mockResolvedValue({ ...lecturaSoatAprobable(), extraccionDestino: { ...destinoSoatAprobable(), aseguradora: campo('Sura', 0.4) } });
+    const res2 = await cargarLote([archivo('pol2.pdf', PDF_B)], LOTE, CTX);
+    expect(aplicarMock).not.toHaveBeenCalled();
+    expect(res2.pendientes[0]).toMatchObject({ motivo: MotivoPendienteComprobante.LEIDO });
+  });
+
+  it('AC1-M8 — concepto con confianza 0.5 → pendiente concepto_desconocido, aplicar no se invoca (aunque llave, tipo y valor sean confiables)', async () => {
+    leerMock.mockResolvedValue(lecturaSoatAprobable({ [CampoComprobante.CONCEPTO]: campo('soat', 0.5) }));
+    const res = await cargarLote([archivo('pol.pdf', PDF)], LOTE, CTX);
+    expect(aplicarMock).not.toHaveBeenCalled();
+    expect(res.aplicados).toEqual([]);
+    expect(res.pendientes[0]).toMatchObject({ comprobanteId: 'c-1', concepto: null, motivo: MotivoPendienteComprobante.CONCEPTO_DESCONOCIDO });
+    expect(espia.insertsEn(T_COMP)[0]!.datos).toMatchObject({ estado: 'pendiente', concepto: null });
+  });
+
+  it('las demás condiciones, una a una (decidirAutoAplicar real): es_pago=false confiable, valor bajo el umbral, destino que no admite, cruce ambiguo, sin lectura', () => {
+    const cruceUnico = (over: Record<string, unknown> = {}) => ({
+      tramiteId: TRAMITE, cruce: 'id_flit' as const, motivo: null,
+      candidatos: [{ tramiteId: TRAMITE, idFlit: 'FLIT-ARHZZ1', placa: 'ABC123', vin: null, tipoTramite: null, empresa: null, flitEstado: 'Aprobado', liquidado: false,
+        admite: { soat: 'admite', impuesto: 'no_gestionado', derecho: 'admite', tramite_digital: 'admite', logistica: 'admite', servicios_adicionales: 'admite' } }],
+      ...over,
+    });
+    const ok = decidirAutoAplicar(lecturaSoatAprobable() as never, cruceUnico() as never, 0.85);
+    expect(ok).toMatchObject({ body: { tramiteId: TRAMITE, concepto: 'soat', esPago: true, campos: {} } });
+
+    const razon = (l: unknown, c: unknown) => (decidirAutoAplicar(l as never, c as never, 0.85) as { razon: string }).razon;
+    expect(razon(lecturaSoatAprobable({ [CampoComprobante.ES_COMPROBANTE_PAGO]: campo('false', 0.95) }), cruceUnico())).toBe('es_pago_no_confiable');
+    expect(razon(lecturaSoatAprobable({ [CampoComprobante.VALOR_TOTAL]: campo('350000', 0.6) }), cruceUnico())).toBe('valor_no_confiable');
+    expect(razon(lecturaSoatAprobable({ [CampoComprobante.TIPO_DOCUMENTO]: campo('factura_soat', 0.6) }), cruceUnico())).toBe('tipo_no_confiable');
+    // AC1-M8 en la propia decisión: aunque el cruce viniera fijado, el concepto dudoso no aplica (en la carga el cruce ya lo frena antes; aquí se mide el hueco).
+    expect(razon(lecturaSoatAprobable({ [CampoComprobante.CONCEPTO]: campo('soat', 0.5) }), cruceUnico())).toBe('concepto_no_confiable');
+    const noAdmite = cruceUnico(); (noAdmite.candidatos[0] as { admite: Record<string, string> }).admite.soat = 'ya_pagado';
+    expect(razon(lecturaSoatAprobable(), noAdmite)).toBe('destino_no_admite');
+    expect(razon(lecturaSoatAprobable(), cruceUnico({ tramiteId: null, cruce: null, motivo: MotivoPendienteComprobante.CRUCE_AMBIGUO }))).toBe('sin_cruce_unico');
+    expect(razon(null, cruceUnico())).toBe('sin_cruce_unico');
+    expect(razon(lecturaSoatAprobable(), null)).toBe('sin_cruce_unico');
+    // El umbral VIGENTE manda sobre el flag `confiable` que trajo el OCR: con umbral 0.96 nada de 0.95 pasa.
+    expect((decidirAutoAplicar(lecturaSoatAprobable() as never, cruceUnico() as never, 0.96) as { razon: string }).razon).toBe('tipo_no_confiable');
+  });
+
+  it('AC2-M — flag \'0\': todo pendiente con la sugerencia (tramite_id y cruce escritos, motivo leido); aplicar no se invoca', async () => {
+    env.COMPROBANTES_AUTO_APLICAR = '0';
+    expect(autoAplicarEncendida()).toBe(false);
+    leerMock.mockResolvedValue(lecturaSoatAprobable());
+    const res = await cargarLote([archivo('pol.pdf', PDF)], LOTE, CTX);
+    expect(aplicarMock).not.toHaveBeenCalled();
+    expect(res.aplicados).toEqual([]);
+    expect(res.pendientes).toEqual([expect.objectContaining({ comprobanteId: 'c-1', motivo: MotivoPendienteComprobante.LEIDO, idFlit: 'FLIT-ARHZZ1' })]);
+    expect(espia.insertsEn(T_COMP)[0]!.datos).toMatchObject({ estado: 'pendiente', tramiteId: TRAMITE, cruce: 'id_flit', motivoPendiente: MotivoPendienteComprobante.LEIDO });
+  });
+
+  it('AC1-M11 — flag AUSENTE: el parse de env la deja en \'1\' (encendida) y el envío aplica', async () => {
+    const previo = process.env.COMPROBANTES_AUTO_APLICAR;
+    delete process.env.COMPROBANTES_AUTO_APLICAR;
+    try {
+      vi.resetModules();
+      const fresco = await import('../../src/config/env.js');
+      expect(fresco.env.COMPROBANTES_AUTO_APLICAR).toBe('1');
+    } finally {
+      if (previo !== undefined) process.env.COMPROBANTES_AUTO_APLICAR = previo;
+    }
+    expect(autoAplicarEncendida()).toBe(true);
+    leerMock.mockResolvedValue(lecturaSoatAprobable());
+    aplicarMock.mockResolvedValue(dtoAplicado('c-1'));
+    const res = await cargarLote([archivo('pol.pdf', PDF)], LOTE, CTX);
+    expect(aplicarMock).toHaveBeenCalledTimes(1);
+    expect(res.aplicados).toHaveLength(1);
+  });
+
+  it('AC3-M — un fallo de auto-aplicar no vacía el resultado del envío: el sub-documento queda pendiente con su motivo, el archivo persistido, el resto se aplica; log sin contenido leído', async () => {
+    // Consolidado de dos sub-documentos (el primero falla en el dueño con 409 ya_pagado, el segundo se aplica) y un archivo suelto que se aplica.
+    particionarMock
+      .mockResolvedValueOnce({ documentos: [sub(PDF, 'consolidado.pdf', [1]), sub(PDF, 'consolidado.pdf', [2])], paginasNoLeidas: [], metodo: 'paginas' as const })
+      .mockResolvedValueOnce(unico(PDF_B, 'otro.pdf'));
+    leerMock.mockResolvedValue(lecturaSoatAprobable());
+    aplicarMock
+      .mockRejectedValueOnce(new ComprobanteError(409, 'ya_pagado' as never, 'Ese destino ya está pagado', { detalle: 'SOAT pagado el 2026-09-10 con placa ABC123', puedeAdjuntar: true }))
+      .mockResolvedValueOnce(dtoAplicado('c-2'))
+      .mockResolvedValueOnce(dtoAplicado('c-3', { placaLeida: null }));
+    const res = await cargarLote([archivo('consolidado.pdf', PDF), archivo('otro.pdf', PDF_B)], LOTE, CTX);
+
+    expect(aplicarMock).toHaveBeenCalledTimes(3);
+    expect(espia.insertsEn(T_COMP)).toHaveLength(3);
+    expect(res.fallidos).toEqual([]);
+    expect(res.pendientes).toEqual([expect.objectContaining({ comprobanteId: 'c-1', paginas: [1], motivo: MotivoPendienteComprobante.LEIDO })]);
+    expect(res.aplicados).toEqual([expect.objectContaining({ comprobanteId: 'c-2', paginas: [2] }), expect.objectContaining({ comprobanteId: 'c-3', archivo: 'otro.pdf' })]);
+    expect(res.documentos).toBe(3);
+    // El fallo se loguea por código, nunca con lo leído ni con el detalle del dueño.
+    const fallo = logLineas.find((l) => JSON.stringify(l).includes('Auto-aplicación fallida'));
+    expect(fallo?.[0]).toMatchObject({ comprobanteId: 'c-1', codigo: 'ya_pagado', status: 409 });
+    for (const secreto of ['ABC123', 'FLIT-ARHZZ1', 'POL-778', '350000', 'pagado el']) expect(JSON.stringify(logLineas)).not.toContain(secreto);
+
+    // Un error que NO es ComprobanteError (el dueño reventó) tampoco sube.
+    aplicarMock.mockReset(); aplicarMock.mockRejectedValue(new Error('column "placa" ABC123 does not exist'));
+    kdb.reset(); espia.reiniciar(); nComp = 0; armarBase();
+    particionarMock.mockImplementation(async (a: { buffer: Buffer; nombre: string; contentType: string }) => unico(a.buffer, a.nombre, a.contentType));
+    const res2 = await cargarLote([archivo('pol.pdf', PDF)], LOTE, CTX);
+    expect(res2.pendientes).toHaveLength(1);
+    expect(res2.fallidos).toEqual([]);
+    expect(JSON.stringify(logLineas.at(-2))).not.toContain('ABC123');
   });
 });
