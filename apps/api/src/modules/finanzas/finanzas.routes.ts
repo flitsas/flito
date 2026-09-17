@@ -90,6 +90,8 @@ function filtrosDe(q: Request['query']): FiltrosReporte {
     buscar: str(q.buscar), estados: lista(q.estados), empresas: lista(q.empresas), tipos: lista(q.tipos),
     etapa: etapa(q.etapa),
     documentacionCompleta: q.documentacionCompleta === 'si',
+    // HU #12653 (AC5) — calco de `documentacionCompleta`: 'si' o nada.
+    conDiferencias: q.conDiferencias === 'si',
     desde: fecha(q.desde), hasta: fecha(q.hasta),
     aprobadoDesde: fecha(q.aprobadoDesde), aprobadoHasta: fecha(q.aprobadoHasta),
     estadoFacturacion: estadoFe(q.estadoFacturacion),
@@ -185,6 +187,7 @@ const exportDetalleSchema = z.object({
   estados: listaSchema, empresas: listaSchema, tipos: listaSchema, organismos: listaSchema,
   etapa: z.enum(ETAPAS).optional(),
   documentacionCompleta: z.boolean().optional(),
+  conDiferencias: z.boolean().optional(),
   desde: fechaSchema.optional(), hasta: fechaSchema.optional(),
   aprobadoDesde: fechaSchema.optional(), aprobadoHasta: fechaSchema.optional(),
   estadoFacturacion: z.enum(SIIGO_ESTADOS_REPORTE).optional(),
@@ -201,6 +204,7 @@ function filtrosDeCuerpo(b: z.infer<typeof exportDetalleSchema>): FiltrosReporte
   return {
     buscar: b.buscar, estados: noVacia(b.estados), empresas: noVacia(b.empresas), tipos: noVacia(b.tipos),
     etapa: b.etapa, documentacionCompleta: b.documentacionCompleta === true,
+    conDiferencias: b.conDiferencias === true,
     desde: b.desde, hasta: b.hasta, aprobadoDesde: b.aprobadoDesde, aprobadoHasta: b.aprobadoHasta,
     estadoFacturacion: b.estadoFacturacion, organismos: noVacia(b.organismos),
   };

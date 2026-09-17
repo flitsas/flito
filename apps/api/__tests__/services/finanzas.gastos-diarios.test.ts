@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { QueryBuilder, type PgSelect } from 'drizzle-orm/pg-core';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { testToken, type TestRole } from '../helpers/auth.js';
+import { indicePrimerNivel } from '../helpers/sql-ligado.js';
 
 const kdb = createKeyedDb();
 
@@ -77,8 +78,12 @@ const LAS_CINCO = () => ({
 });
 
 /** El SQL de una expresión suelta, para afirmar que la sub-consulta lo contiene tal cual. */
-const render = (expr: unknown, tabla: Tabla = flitoTramites) =>
-  new QueryBuilder().select({ x: expr as never }).from(tabla).toSQL().sql.replace(/^select /, '').replace(/ from .*$/s, '');
+// El corte es en el ` from ` de PRIMER NIVEL: desde la HU #12653 la logística estimada lleva una
+// subconsulta escalar con su propio `from "flito_comprobantes"`.
+const render = (expr: unknown, tabla: Tabla = flitoTramites) => {
+  const sql = new QueryBuilder().select({ x: expr as never }).from(tabla).toSQL().sql.replace(/^select /, '');
+  return sql.slice(0, indicePrimerNivel(sql, ' from '));
+};
 
 const TZ = "AT TIME ZONE 'America/Bogota'";
 // Drizzle renderiza la lista del SELECT de una consulta SIN joins con los nombres de columna pelados
@@ -264,9 +269,13 @@ describe('AC5 — EXPR_LOGISTICA_ESTIMADA compartida con el reporte (RN-02)', ()
   // que solo están tras `conJoins`).
   // Desde la HU #12627 el ELSE sin sellar es tarifa + Σ viajes adicionales (D5, Épica #12244), y entra
   // en la instancia compartida a propósito: gastos diarios y reporte siguen estimando lo mismo (RN-02).
+  // Desde la HU #12653 (F3, decisión 5 del 2026-09-17) el viaje 1 es COALESCE(documental, tarifa): la
+  // instancia compartida hace que gastos diarios también estime con el comprobante de pago aplicado.
+  // El COALESCE envuelve SOLO el viaje 1; la Σ de viajes adicionales queda fuera. Render exacto.
+  const DOC_LG = `(select "flito_comprobantes"."valor" from "flito_comprobantes" where "flito_comprobantes"."tramite_id" = "flito_tramites"."id" and "flito_comprobantes"."concepto" = 'logistica' and "flito_comprobantes"."estado" = 'aplicado' and "flito_comprobantes"."es_pago" = true limit 1)`;
   const EXPR_LOGISTICA_BASE = `select CASE WHEN "flito_liquidaciones"."id" IS NOT NULL THEN "flito_liquidaciones"."valor_logistica"
   WHEN NOT (NOT COALESCE("clients"."logistica_autogestionable", false) OR ("flito_excepciones_autogestion"."id" IS NOT NULL)) THEN NULL
-  ELSE "lg"."valor" + COALESCE((SELECT SUM("flito_tramite_viajes_logistica"."valor") FROM "flito_tramite_viajes_logistica" WHERE "flito_tramite_viajes_logistica"."tramite_id" = "flito_tramites"."id"), 0) END`;
+  ELSE COALESCE(${DOC_LG}, "lg"."valor") + COALESCE((SELECT SUM("flito_tramite_viajes_logistica"."valor") FROM "flito_tramite_viajes_logistica" WHERE "flito_tramite_viajes_logistica"."tramite_id" = "flito_tramites"."id"), 0) END`;
 
   it('EXPR_LOGISTICA renderiza EXACTAMENTE igual que antes del refactor en el contexto del reporte (no regresión)', () => {
     const sql = conJoins(abrir({ x: EXPR_LOGISTICA }, flitoTramites)).toSQL().sql;
@@ -274,11 +283,12 @@ describe('AC5 — EXPR_LOGISTICA_ESTIMADA compartida con el reporte (RN-02)', ()
     // Mutante «cambiar el salto de línea o el orden de las ramas»: cae aquí byte a byte.
   });
 
-  it('EXPR_LOGISTICA_ESTIMADA es la rama sin sellar: CASE WHEN NOT gestiona THEN NULL ELSE lg.valor + Σ viajes END', () => {
+  it('EXPR_LOGISTICA_ESTIMADA es la rama sin sellar: CASE WHEN NOT gestiona THEN NULL ELSE COALESCE(documental, lg.valor) + Σ viajes END (HU #12653: la estimada hereda el COALESCE del viaje 1)', () => {
     expect(render(EXPR_LOGISTICA_ESTIMADA)).toBe(
       `CASE WHEN NOT (NOT COALESCE("clients"."logistica_autogestionable", false) OR ("flito_excepciones_autogestion"."id" IS NOT NULL)) THEN NULL
-  ELSE "lg"."valor" + COALESCE((SELECT SUM("flito_tramite_viajes_logistica"."valor") FROM "flito_tramite_viajes_logistica" WHERE "flito_tramite_viajes_logistica"."tramite_id" = "flito_tramites"."id"), 0) END`,
+  ELSE COALESCE(${DOC_LG}, "lg"."valor") + COALESCE((SELECT SUM("flito_tramite_viajes_logistica"."valor") FROM "flito_tramite_viajes_logistica" WHERE "flito_tramite_viajes_logistica"."tramite_id" = "flito_tramites"."id"), 0) END`,
     );
+    // Mutante «COALESCE(documental, tarifa + Σ viajes)» o «sin Σ viajes tras el COALESCE»: cae arriba byte a byte.
     expect(render(EXPR_LOGISTICA_ESTIMADA)).not.toContain('flito_liquidaciones');
     // Y es la MISMA instancia que compone EXPR_LOGISTICA: su render está contenido en el del reporte.
     expect(EXPR_LOGISTICA_BASE).toContain(render(EXPR_LOGISTICA_ESTIMADA).replace(/^CASE /, ''));
@@ -286,8 +296,9 @@ describe('AC5 — EXPR_LOGISTICA_ESTIMADA compartida con el reporte (RN-02)', ()
 
   it('el dashboard suma exactamente esa constante (el SQL de la sub-consulta contiene su render)', () => {
     // Con `lg` en los joins, `"valor"` se califica como `"lg"."valor"`: se compara el render en el mismo contexto.
-    const enContexto = ensamblarLogistica(abrir({ x: EXPR_LOGISTICA_ESTIMADA }, flitoTramites), RANGO, undefined).toSQL().sql
-      .replace(/^select /, '').replace(/ from .*$/s, '');
+    const conJoinsSql = ensamblarLogistica(abrir({ x: EXPR_LOGISTICA_ESTIMADA }, flitoTramites), RANGO, undefined).toSQL().sql
+      .replace(/^select /, '');
+    const enContexto = conJoinsSql.slice(0, indicePrimerNivel(conJoinsSql, ' from '));
     expect(SQL_LOGISTICA().sql).toContain(`COALESCE(SUM(${enContexto}), 0)`);
     expect(enContexto).toContain('"lg"."valor"');
   });

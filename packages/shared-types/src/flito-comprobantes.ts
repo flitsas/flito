@@ -333,3 +333,55 @@ export interface ListaComprobantesDto {
   page: number;
   pageSize: number;
 }
+
+// ── F3 (Feature #12607, HU #12653): el valor documental en el reporte de costos ──────────────────
+
+/**
+ * De dónde sale el valor de un honorario en una fila del reporte de costos (ADR-0018 §5).
+ *
+ *   'documental' — del comprobante de pago aplicado (trámite digital y logística, tolerancia 0).
+ *   'tarifa'     — de la tarifa vigente (o de la puente de servicios, o del sello anterior a F3).
+ *   null         — el concepto no aplica (logística autogestionada sin excepción): no hay valor.
+ *
+ * En una fila sellada se lee del sello (`detalle.<concepto>.origenValor`, HU #12654); en una fila
+ * estimada, de si existe el comprobante aplicado. Servicios adicionales NO tiene origen: el catálogo
+ * manda siempre y el comprobante solo marca «Difiere del catálogo».
+ */
+export type OrigenValor = 'documental' | 'tarifa' | null;
+
+/**
+ * Lo que el comprobante de pago aplicado dice de UN concepto, contra la tarifa (o el catálogo) que
+ * había al aplicarlo. `null` en la fila = no hay comprobante de pago aplicado para ese concepto.
+ *
+ * Sin PII: `numero` y `fecha` son los del documento; `aceptadaPorNombre` es el `username` del
+ * usuario interno que aceptó la diferencia (HU #12654), nunca la extracción.
+ */
+export interface ValorDocumentalConcepto {
+  comprobanteId: string;
+  numero: string | null;
+  fecha: string | null;
+  /** La tarifa (o Σ catálogo) contra la que se comparó al aplicar; `null` si no estaba configurada. */
+  tarifaReferencia: number | null;
+  /** valor − tarifaReferencia (tolerancia 0). Sin tarifa, el valor entero (marcado). */
+  diferencia: number | null;
+  /** true = alguien aceptó la diferencia (`diferencia_aceptada_por_id` NOT NULL). */
+  aceptada: boolean;
+  aceptadaPorNombre: string | null;
+  aceptadaEn: string | null;
+  aceptadaMotivo: string | null;
+}
+
+/**
+ * Lo que cada fila del reporte de costos añade sobre sus comprobantes de pago (HU #12653, AC1-AC4,
+ * AC6). Se hereda en `FilaReporte` para que el compilador exija rellenarlo.
+ */
+export interface ValoresDocumentalesDeFila {
+  /** Solo los dos honorarios en que el documental manda; servicios adicionales no tiene origen (AC4). */
+  origenes: { tramiteDigital: OrigenValor; logistica: OrigenValor };
+  valorDocumental: {
+    tramiteDigital: ValorDocumentalConcepto | null;
+    logistica: ValorDocumentalConcepto | null;
+    /** Solo informa la diferencia contra el catálogo: NO entra al valor ni al total. */
+    serviciosAdicionales: ValorDocumentalConcepto | null;
+  };
+}

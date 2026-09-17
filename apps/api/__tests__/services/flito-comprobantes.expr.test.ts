@@ -14,6 +14,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { renderizar } from '../helpers/sql-ligado.js';
 import * as expr from '../../src/modules/flito-comprobantes/flito-comprobantes.expr.js';
+import { flitoComprobantes } from '../../src/db/schema.js';
 
 const RAIZ = resolve(import.meta.dirname, '../../src/modules');
 const doc = (e: unknown) => renderizar(e as never);
@@ -41,7 +42,7 @@ describe('HU #12631 AC4 — flito-comprobantes.expr.ts', () => {
     expect(expr.esHonorario('soat' as never)).toBe(false);
   });
 
-  it('es un leaf: no importa nada de finanzas/ ni de flito-liquidacion/, y ningún archivo de esos módulos lo importa todavía (F3 lo conecta)', () => {
+  it('es un leaf: no importa nada de finanzas/ ni de flito-liquidacion/; finanzas/ lo importa SOLO desde valores-documentales y el service (HU #12653, F3); flito-liquidacion/ todavía no (HU #12654)', () => {
     const fuente = readFileSync(resolve(RAIZ, 'flito-comprobantes/flito-comprobantes.expr.ts'), 'utf8');
     const imports = [...fuente.matchAll(/from '([^']+)'/g)].map((m) => m[1]!);
     expect(imports.length).toBeGreaterThan(0);
@@ -50,13 +51,39 @@ describe('HU #12631 AC4 — flito-comprobantes.expr.ts', () => {
       expect(i, i).not.toMatch(/flito-liquidacion/);
       expect(i, i).not.toMatch(/finanzas-servicios-adicionales/);
     }
-    for (const modulo of ['finanzas', 'flito-liquidacion']) {
-      for (const f of readdirSync(resolve(RAIZ, modulo))) {
-        if (!f.endsWith('.ts')) continue;
-        const texto = readFileSync(resolve(RAIZ, modulo, f), 'utf8');
-        expect(texto, `${modulo}/${f}`).not.toMatch(/flito-comprobantes\.expr/);
-        expect(texto, `${modulo}/${f}`).not.toMatch(/flito_comprobantes|flitoComprobantes/);
-      }
+    // finanzas/: la conexión de F3 entra por dos archivos concretos y por ningún otro.
+    const PUEDEN = ['finanzas.valores-documentales.ts', 'finanzas.service.ts'];
+    const importanElLeaf: string[] = [];
+    for (const f of readdirSync(resolve(RAIZ, 'finanzas'))) {
+      if (!f.endsWith('.ts')) continue;
+      const texto = readFileSync(resolve(RAIZ, 'finanzas', f), 'utf8');
+      if (/flito-comprobantes\.expr/.test(texto)) importanElLeaf.push(f);
+      if (!PUEDEN.includes(f)) expect(texto, `finanzas/${f}`).not.toMatch(/flito-comprobantes\.expr|flito_comprobantes|flitoComprobantes/);
     }
+    expect(importanElLeaf.sort()).toEqual(PUEDEN.sort());
+    // flito-liquidacion/: sigue sin tocarlo (eso es la HU #12654).
+    for (const f of readdirSync(resolve(RAIZ, 'flito-liquidacion'))) {
+      if (!f.endsWith('.ts')) continue;
+      const texto = readFileSync(resolve(RAIZ, 'flito-liquidacion', f), 'utf8');
+      expect(texto, `flito-liquidacion/${f}`).not.toMatch(/flito-comprobantes\.expr/);
+      expect(texto, `flito-liquidacion/${f}`).not.toMatch(/flito_comprobantes|flitoComprobantes/);
+    }
+  });
+
+  it('HU #12653: exporta la fábrica documental() y documentalAceptadaPorNombre() con la MISMA correlación que EXPR_DOC_*, sin parámetros; no existe EXPR_DOC_SA', () => {
+    const CORRELACION = (concepto: string) =>
+      `where "flito_comprobantes"."tramite_id" = "flito_tramites"."id" and "flito_comprobantes"."concepto" = '${concepto}' and "flito_comprobantes"."estado" = 'aplicado' and "flito_comprobantes"."es_pago" = true limit 1)`;
+    const ref = doc(expr.documental(flitoComprobantes.tarifaReferencia, 'logistica'));
+    expect(ref.params).toEqual([]);
+    expect(ref.sql).toBe(`(select "flito_comprobantes"."tarifa_referencia" from "flito_comprobantes" ${CORRELACION('logistica')}`);
+    // La misma fábrica produce EXPR_DOC_TD: una sola definición de «qué fila documental cuenta».
+    expect(doc(expr.documental(flitoComprobantes.valor, 'tramite_digital')).sql).toBe(doc(expr.EXPR_DOC_TD).sql);
+
+    const nombre = doc(expr.documentalAceptadaPorNombre('servicios_adicionales'));
+    expect(nombre.params).toEqual([]);
+    expect(nombre.sql).toBe(`(select "users"."username" from "flito_comprobantes" join "users" on "users"."id" = "flito_comprobantes"."diferencia_aceptada_por_id" ${CORRELACION('servicios_adicionales')}`);
+    expect(nombre.sql).not.toContain('extraccion');
+
+    expect('EXPR_DOC_SA' in expr).toBe(false);
   });
 });
