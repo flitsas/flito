@@ -207,6 +207,9 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     // HU #12592: recibo de caja puntual desde el detalle (migración 0197: hoy solo `admin`).
     'impuestos.recibos.cargar_caja',
     'tramites.solicitud.pedir_soat', 'tramites.autogestion.desbloquear',
+    // HU #12635: «Ver soportes» desde el detalle de un comprobante. La 0179 la siembra para admin y
+    // auditor; financiera NO la tiene (la reparte el admin desde el panel): el spec la añade por usuario.
+    'tramites.tramite.ver_soportes',
     'tramite.tramite.forzar_continuar', 'compuerta.tramite.entregar', 'logistica.lote.cerrar',
     'tablero.tablero.ver', 'sync.sync.lanzar',
     'transito.tramite.tomar', 'transito.bandeja.ver_pendientes', 'transito.config.listar',
@@ -225,7 +228,8 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
   proveedor: [...SOAT_LEER, 'soat.comprobante.cargar'],
   cliente: [...SOAT_LEER, 'soat.solicitud.crear', 'soat.runt.preconsultar', 'soat.factura.leer'],
   gestor_impuestos: ['impuestos.cola.ver', 'impuestos.recibos.cargar'],
-  auditor: [...SOAT_LEER, 'impuestos.cola.ver', 'tablero.tablero.ver', SERVICIOS_DE_TRAMITE_VER],
+  auditor: [...SOAT_LEER, 'impuestos.cola.ver', 'tablero.tablero.ver', SERVICIOS_DE_TRAMITE_VER, 'tramites.tramite.ver_soportes'],
+
   financiera: [
     'liquidacion.liquidacion.liquidar', 'liquidacion.liquidacion.facturar', ...SERVICIOS_ADICIONALES,
     SERVICIOS_DE_TRAMITE_VER, ...SERVICIOS_DE_TRAMITE_ESCRIBIR,

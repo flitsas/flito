@@ -3,9 +3,9 @@
 La puerta única para los comprobantes de pago y los soportes de un trámite: facturas de SOAT,
 recibos de impuesto y de derechos de tránsito, facturas de servicios, transferencias y cualquier
 documento del trámite. FLITO lee cada documento y le muestra qué es, a qué llave corresponde
-(**ID FLIT**, **placa** o **VIN**) y qué valores trae, con la confianza de cada dato. Lo leído
-queda en **Pendientes** para que usted lo revise, lo asocie a su trámite y lo aplique como pago o lo
-adjunte como documentación.
+(**ID FLIT**, **placa** o **VIN**) y qué valores trae, con la confianza de cada dato. Lo que cruza
+con un único trámite se aplica solo; el resto queda en **Pendientes** para que usted lo revise, lo
+asocie a su trámite y lo aplique como pago o lo adjunte como documentación.
 
 ## Para quién
 
@@ -24,17 +24,24 @@ En el menú lateral, sección **Finanzas**, ítem **Comprobantes**.
    páginas (por ejemplo **p. 3-4**).
 2. Pulse **Subir y procesar**. Con muchos archivos verá **enviando X de N archivos**. No cierre la
    ventana: lo que ya se envió queda guardado aunque cierre.
-3. Al terminar, lea el resultado por documento: **Pendiente** (leído, con el motivo por el que
-   espera: sin llave de cruce, tipo o concepto sin identificar, lectura poco confiable, sin lectura…), **Duplicado**
+3. Al terminar, lea el resultado por documento: **Aplicado** (FLITO lo cruzó con un único trámite y
+   ya quedó en su concepto; el detalle dice cuál y por cuánto; el chip **Aplicados** cuenta cuántos
+   fueron), **Pendiente** (leído, con el motivo por el que espera: sin llave de cruce, tipo o
+   concepto sin identificar, lectura poco confiable, sin lectura…), **Duplicado**
    (ese archivo ya se había cargado; **Ver el original** lo abre) o **Fallido** (no es PDF ni imagen,
    o el PDF pasa de 150 páginas). Pulse **Listo**: la cola queda filtrada por esa carga; la ✕ del
    chip la quita.
 4. En la cola, cada carga va agrupada con su fecha, hora y quién la subió. **Solo esta carga** filtra
-   por esa carga; los selectores **Concepto** y **Motivo** afinan lo que ve.
+   por esa carga; el selector **Estado de asociación** separa los pendientes de asociar de los
+   rechazados como pago, y los aplicados automáticos de los manuales y de los adjuntados como
+   documentación; los selectores **Concepto** y **Motivo** afinan lo que ve. En una fila con
+   trámite, **Ver trámite** abre Gestión Trámites filtrada por esa placa en otra pestaña.
 5. Pulse **Asociar** en un pendiente (o **Ver** en un aplicado o descartado). A la izquierda verá
    el documento (abierto en su primera página); a la derecha, lo que FLITO leyó con la confianza de
    cada dato: **Alta**, **Media**, **Baja** o **Sin lectura**. FLITO nunca inventa un dato: si no lo
    leyó, el campo va vacío. **Abrir el archivo original** muestra el archivo completo en otra pestaña.
+   En la cabecera, **Ver soportes** muestra todos los documentos que ese trámite ya tiene (SOAT,
+   impuesto, derecho, logística y comprobantes), si su usuario puede verlos.
 6. Si un documento quedó **Sin lectura (OCR no disponible)**, pulse **Releer**: FLITO vuelve a
    intentarlo. Si el lector sigue sin estar disponible, se lo dice y el documento no cambia.
 
@@ -71,8 +78,11 @@ En el menú lateral, sección **Finanzas**, ítem **Comprobantes**.
   se procesó.
 - Vacío: **No hay comprobantes por asociar.** Con filtros, **Ningún comprobante coincide con los
   filtros** y **Limpiar filtros**.
-- Lleno: una fila por documento, agrupadas por carga, con lo leído, la llave, el valor, el estado y
-  su motivo, y **Asociar** (pendientes) o **Ver** (aplicados y descartados).
+- Lleno: una fila por documento, agrupadas por carga, con lo leído, la llave, el valor, el estado
+  (**Pendiente de asociar**, **Rechazado como pago**, **Aplicado automático**, **Aplicado manual**,
+  **Adjuntado** o **Descartado**) y su motivo, y **Asociar** (pendientes) o **Ver** (aplicados y
+  descartados).
+
 - En el panel: **Buscando…** mientras busca trámites; **Ningún trámite coincide con «…»** si no hay
   resultados; **No se pudo buscar. Vuelve a intentarlo.** si falla la búsqueda; **Aplicando…** o
   **Adjuntando…** mientras envía.

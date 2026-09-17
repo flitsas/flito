@@ -6,10 +6,10 @@
 // Nada de `extraccion` cruda: la cola y el detalle solo pintan lo que trae el DTO (ADR-0008).
 
 import {
-  CAMPO_COMPROBANTE_LABEL, CAMPO_DERECHO_TRAMITE_LABEL, CAMPO_IMPUESTO_LABEL, CAMPO_SOAT_LABEL,
-  CARGA_MASIVA_ARCHIVOS_POR_PETICION, partirCargaMasivaEnTandas,
-  type AdmisionConcepto, type AplicarComprobanteBody, type CampoComprobanteDto, type CandidatoTramiteDto,
-  type ComprobanteDetalleDto, type ComprobanteListaDto, type ErrorComprobanteDto, type ResultadoAplicarComprobanteDto,
+  ASOCIACIONES_COMPROBANTE, CAMPO_COMPROBANTE_LABEL, CAMPO_DERECHO_TRAMITE_LABEL, CAMPO_IMPUESTO_LABEL, CAMPO_SOAT_LABEL,
+  CARGA_MASIVA_ARCHIVOS_POR_PETICION, MOTIVO_PENDIENTE_COMPROBANTE_LABEL, partirCargaMasivaEnTandas,
+  type AdmisionConcepto, type AplicarComprobanteBody, type AsociacionComprobante, type CampoComprobanteDto, type CandidatoTramiteDto,
+  type ComprobanteDetalleDto, type ComprobanteListaDto, type ErrorComprobanteDto, type EstadoComprobante, type ResultadoAplicarComprobanteDto,
   type ResultadoCargaComprobantes,
 } from '@operaciones/shared-types';
 import type { ChipTone } from '../components/flit/StatusChip';
@@ -148,6 +148,72 @@ export function labelCampo(campo: string): string {
   return (CAMPO_COMPROBANTE_LABEL as Record<string, string>)[campo] ?? campo;
 }
 
+// ─────────────── Estado de asociación (HU #12635, Feature #12606, UX slim §1.1-§1.4) ────────────
+
+/** Los seis rótulos, en UNA constante exhaustiva: selector, chip de la fila y chip del detalle. */
+export const ASOCIACION_COMPROBANTE_LABEL: Record<AsociacionComprobante, string> = {
+  pendiente: 'Pendiente de asociar', rechazado_pago: 'Rechazado como pago', aplicado_automatico: 'Aplicado automático',
+  aplicado_manual: 'Aplicado manual', adjuntado: 'Adjuntado', descartado: 'Descartado',
+};
+
+export const TONO_ASOCIACION: Record<AsociacionComprobante, ChipTone> = {
+  pendiente: 'warning', rechazado_pago: 'warning', aplicado_automatico: 'success',
+  aplicado_manual: 'success', adjuntado: 'active', descartado: 'neutral',
+};
+
+/** La pill (estado grueso) que cada opción del selector implica (slim §1.1-§1.2): nunca una combinación contradictoria. */
+export const PILL_DE_ASOCIACION: Record<AsociacionComprobante, EstadoComprobante> = {
+  pendiente: 'pendiente', rechazado_pago: 'pendiente', aplicado_automatico: 'aplicado',
+  aplicado_manual: 'aplicado', adjuntado: 'aplicado', descartado: 'descartado',
+};
+
+/** Orden de las opciones del selector: el de las pills, no el de la constante. */
+export const OPCIONES_ASOCIACION: readonly AsociacionComprobante[] = ['pendiente', 'rechazado_pago', 'aplicado_automatico', 'aplicado_manual', 'adjuntado', 'descartado'];
+
+export const esAsociacionComprobante = (v: string | null | undefined): v is AsociacionComprobante =>
+  ASOCIACIONES_COMPROBANTE.includes(v as AsociacionComprobante);
+
+export type FilaAsociacion = Pick<ComprobanteListaDto, 'estado' | 'esPago' | 'aplicadoAutomaticamente' | 'motivoPendiente'>;
+
+/**
+ * Espejo EXACTO de `condicionAsociacion` del servidor (una fila devuelta por `?asociacion=X` pinta el
+ * chip X), en este orden: descartado → pendiente con `destino_no_admite` = rechazado como pago →
+ * pendiente → aplicado con `esPago === false` = adjuntado (ANTES de mirar si fue automático) →
+ * automático → manual. Un `esPago` nulo en un aplicado cae como pago, igual que en SQL.
+ */
+export function asociacionDe(c: FilaAsociacion): AsociacionComprobante {
+  if (c.estado === 'descartado') return 'descartado';
+  if (c.estado === 'pendiente') return c.motivoPendiente === 'destino_no_admite' ? 'rechazado_pago' : 'pendiente';
+  if (c.esPago === false) return 'adjuntado';
+  return c.aplicadoAutomaticamente ? 'aplicado_automatico' : 'aplicado_manual';
+}
+
+type FilaTextoAsociacion = FilaAsociacion & Pick<ComprobanteListaDto, 'detallePendiente' | 'aplicadoEn' | 'aplicadoPorNombre' | 'descartadoEn' | 'descartadoPorNombre'>;
+
+/**
+ * Segundo renglón de Estado (slim §1.4), en la fila y en la cabecera del detalle: se recorta lo que
+ * el chip ya dice («automático»/«manual» se fueron al rótulo). `porQuien` añade «Descartado por X» en el detalle.
+ */
+export function textoAsociacion(c: FilaTextoAsociacion, porQuien = false): string {
+  const asociacion = asociacionDe(c);
+  if (asociacion === 'pendiente' || asociacion === 'rechazado_pago') {
+    return c.detallePendiente ?? (c.motivoPendiente ? MOTIVO_PENDIENTE_COMPROBANTE_LABEL[c.motivoPendiente] : '');
+  }
+  if (asociacion === 'descartado') {
+    const cuando = c.descartadoEn ? fechaCarga(c.descartadoEn) : '';
+    return porQuien ? [`Descartado por ${c.descartadoPorNombre ?? '—'}`, cuando].filter(Boolean).join(' · ') : cuando;
+  }
+  const cuando = c.aplicadoEn ? fechaCarga(c.aplicadoEn) : '';
+  if (c.aplicadoAutomaticamente) return cuando;
+  return [`por ${c.aplicadoPorNombre ?? '—'}`, cuando].filter(Boolean).join(' · ');
+}
+
+/** Destino de «Ver trámite» (AC3): Gestión Trámites filtrada por la placa, en otra pestaña. `null` sin placa: sin filtro no hay enlace. */
+export function hrefVerTramite(tramite: { placa: string | null } | null): string | null {
+  if (!tramite?.placa) return null;
+  return `/flito/tramites?placa=${encodeURIComponent(tramite.placa)}`;
+}
+
 // ───────────────────────── Asociación (HU #12634, Feature #12606, UX slim §1-§5) ─────────────────
 
 /** Copy de `AdmisionConcepto` (slim §2): sufijo de las opciones del select y 2.ª línea del combobox. */
@@ -274,23 +340,43 @@ type PdfWorker = InstanceType<(typeof import('pdfjs-dist'))['PDFWorker']>;
  */
 let workerCompartido: PdfWorker | null = null;
 
+/** AC4 (deuda de #12612): un PDF que pdf.js no termina de abrir en 10 s cuenta 1 y la carga sigue. */
+export const PDF_CONTEO_TIMEOUT_MS = 10_000;
+const COPY_CONTEO_AGOTADO = `[comprobantes] pdf.js no abrió un PDF en ${PDF_CONTEO_TIMEOUT_MS / 1000} s: se cuenta como una página y el servidor decide.`;
+
+const tiempoAgotado = (ms: number) => new Promise<null>((resolve) => { setTimeout(() => resolve(null), ms); });
+
 export async function contarPaginasPdf(archivo: File): Promise<number> {
   const esPdf = archivo.type === 'application/pdf' || archivo.name.toLowerCase().endsWith('.pdf');
   if (!esPdf) return 1;
   let tarea: ReturnType<(typeof import('pdfjs-dist'))['getDocument']> | null = null;
+  let colgado = false;
   try {
     const pdfjs = await import('pdfjs-dist');
     pdfjs.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
     workerCompartido ??= new pdfjs.PDFWorker();
     tarea = pdfjs.getDocument({ data: new Uint8Array(await archivo.arrayBuffer()), worker: workerCompartido });
-    const doc = await tarea.promise;
+    // `Promise.race`: un worker colgado (script que nunca llega, lector roto) no puede bloquear la
+    // selección ni el envío. Se registra sin nombre de archivo ni contenido.
+    const doc = await Promise.race([tarea.promise, tiempoAgotado(PDF_CONTEO_TIMEOUT_MS)]);
+    if (doc === null) {
+      colgado = true;
+      console.warn(COPY_CONTEO_AGOTADO);
+      // El worker que no respondió no sirve para el siguiente archivo: se suelta y se crea otro.
+      workerCompartido.destroy();
+      workerCompartido = null;
+      return 1;
+    }
     return doc.numPages;
   } catch {
     return 1;
   } finally {
-    await tarea?.destroy().catch(() => undefined);
+    // Un worker colgado tampoco responde al `destroy`: no se le espera (ya se esperó lo pactado).
+    const destruir = tarea?.destroy().catch(() => undefined);
+    if (!colgado) await destruir;
   }
 }
+
 
 /**
  * Los sueltos van de 5 en 5 (`partirCargaMasivaEnTandas`) y cada consolidado en su propio envío
