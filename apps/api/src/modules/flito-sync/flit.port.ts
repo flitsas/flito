@@ -57,6 +57,17 @@ export interface TramiteFlit {
   cilindraje: string | null;
   carroceria: string | null;
   tipoServicio: string | null;
+  /**
+   * Número de motor y de serie (Bug #12643). Vienen del reporte de FLIT como `numeroMotor` /
+   * `numeroSerie` y aterrizan en `vehicles.num_motor` / `num_serie`, las MISMAS columnas que
+   * escribe el RUNT (HU #12401): FLIT es la fuente por defecto y el RUNT completa donde ya escribe.
+   *
+   * Mismo contrato que los tres de arriba: `string | null`, no opcionales; `null` = FLIT no lo
+   * trajo. A diferencia de ellos, lo que no cabe en la columna se RECORTA a 50 en vez de
+   * descartarse, porque es la regla que ya rige esa columna (`motorYSerieParaVehiculo`).
+   */
+  numMotor: string | null;
+  numSerie: string | null;
   tipoPropiedad: string;
   compradores: CompradorFlit[];
   valorImpuestoLiquidado: number | null;
