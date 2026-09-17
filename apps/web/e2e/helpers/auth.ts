@@ -182,14 +182,16 @@ const SERVICIOS_DE_TRAMITE_ESCRIBIR = [
 ] as const;
 
 /**
- * Las CINCO de la 0198 (HU #12611) y las TRES de la 0201 (HU #12629: buscar trámites, aplicar,
- * descartar): la puerta universal de comprobantes. Reparto de partida admin + financiera,
- * simétrico; cualquier otro rol se ajusta desde Roles y permisos, no desde aquí.
+ * Las CINCO de la 0198 (HU #12611), las TRES de la 0201 (HU #12629: buscar trámites, aplicar,
+ * descartar) y la UNA de la 0202 (HU #12654: aceptar diferencia): la puerta universal de comprobantes.
+ * Reparto de partida admin + financiera, simétrico; cualquier otro rol se ajusta desde Roles y
+ * permisos, no desde aquí.
  */
 const COMPROBANTES = [
   'comprobantes.lote.cargar', 'comprobantes.cola.ver', 'comprobantes.comprobante.ver',
   'comprobantes.archivo.descargar', 'comprobantes.comprobante.releer',
   'comprobantes.tramites.buscar', 'comprobantes.comprobante.aplicar', 'comprobantes.comprobante.descartar',
+  'comprobantes.diferencia.aceptar',
 ] as const;
 
 /**

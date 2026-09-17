@@ -90,14 +90,16 @@ beforeEach(() => {
 });
 
 /**
- * El `select` del `tx` (HU #12546, HU #12626). Dentro de la transacción, `liquidar()` consulta TRES
- * veces y en este orden: el `FOR UPDATE` sobre el trámite y, con el bloqueo tomado, la puente de
- * servicios y los viajes adicionales de logística. Invertir el orden dejaría de serializar contra
- * asignar/quitar/registrar, y es lo que este doble fija.
+ * El `select` del `tx` (HU #12546, HU #12626, HU #12654). Dentro de la transacción, `liquidar()`
+ * consulta CUATRO veces y en este orden: el `FOR UPDATE` sobre el trámite y, con el bloqueo tomado,
+ * las filas documentales de comprobantes, la puente de servicios y los viajes adicionales de
+ * logística. Invertir el orden dejaría de serializar contra aplicar/asignar/quitar/registrar, y es
+ * lo que este doble fija.
  */
-function txSelect(servicios: unknown[], viajes: unknown[] = []) {
+function txSelect(servicios: unknown[], viajes: unknown[] = [], documental: unknown[] = []) {
   return vi.fn()
     .mockReturnValueOnce(chain([{ id: 't1', idFlit: 'FLIT-1' }]))
+    .mockReturnValueOnce(chain(documental))
     .mockReturnValueOnce(chain(servicios))
     .mockReturnValue(chain(viajes));
 }
@@ -429,7 +431,7 @@ describe('calcular — los servicios adicionales suman a la base y nunca bloquea
     const c = await calcular('t1');
 
     expect(c.serviciosAdicionales).toEqual({
-      valor: 85000, origen: 'asignacion', bloquea: false,
+      valor: 85000, origen: 'asignacion', bloquea: false, origenValor: 'catalogo', diferencia: null,
       items: [
         { tipoId: 'tipo-1', nombre: 'Paz y salvo', valor: 50000 },
         { tipoId: 'tipo-2', nombre: 'Diagnóstico', valor: 35000 },
@@ -472,10 +474,10 @@ describe('calcular — los servicios adicionales suman a la base y nunca bloquea
 
 /**
  * Espía del sellado: devuelve el `tx`, lo escrito y el orden de las consultas de dentro. Los
- * `select` se distinguen por POSICIÓN: 1.º el bloqueo, 2.º la puente de servicios, 3.º los viajes
- * de logística (HU #12626). Un 4.º select respondería `[]`.
+ * `select` se distinguen por POSICIÓN: 1.º el bloqueo, 2.º las filas documentales (HU #12654),
+ * 3.º la puente de servicios, 4.º los viajes de logística (HU #12626). Un 5.º select respondería `[]`.
  */
-function espiarSellado(serviciosEnTx: unknown[], viajesEnTx: unknown[] = []) {
+function espiarSellado(serviciosEnTx: unknown[], viajesEnTx: unknown[] = [], documentalEnTx: unknown[] = []) {
   const escritas: Array<{ tabla: string; datos: Record<string, unknown> }> = [];
   const orden: string[] = [];
   const filaSellada = {
@@ -490,7 +492,7 @@ function espiarSellado(serviciosEnTx: unknown[], viajesEnTx: unknown[] = []) {
     return c;
   });
   const respuestas: Array<[string, unknown[]]> = [
-    ['bloqueo', [{ id: 't1', idFlit: 'FLIT-1' }]], ['servicios', serviciosEnTx], ['viajes', viajesEnTx],
+    ['bloqueo', [{ id: 't1', idFlit: 'FLIT-1' }]], ['documental', documentalEnTx], ['servicios', serviciosEnTx], ['viajes', viajesEnTx],
   ];
   let n = 0;
   const select = vi.fn(() => {
@@ -548,8 +550,8 @@ describe('liquidar — sella los servicios adicionales leyéndolos DENTRO de la 
 
     await liquidar('t1', 1);
 
-    expect(espia.orden).toEqual(['bloqueo:for:update', 'servicios', 'viajes']);
-    expect(espia.tx.select).toHaveBeenCalledTimes(3);
+    expect(espia.orden).toEqual(['bloqueo:for:update', 'documental', 'servicios', 'viajes']);
+    expect(espia.tx.select).toHaveBeenCalledTimes(4);
   });
 
   it('sin servicios, la columna va NULL y la clave del detalle se escribe igual, con items vacío (M-SA5)', async () => {
@@ -623,7 +625,7 @@ describe('leer una liquidación sellada — lo sellado NO se recalcula desde la 
 
     const dto = await liquidacionDe('t1');
 
-    expect(dto!.serviciosAdicionales).toEqual({ valor: null, origen: 'Sellado', bloquea: false, items: [] });
+    expect(dto!.serviciosAdicionales).toEqual({ valor: null, origen: 'Sellado', bloquea: false, items: [], origenValor: null, diferencia: null });
     expect(dto!.total).toBe(953800);
   });
 });
@@ -768,7 +770,7 @@ describe('calcular — la logística suma la tarifa (viaje 1) y los viajes adici
     const c = await calcular('t1');
 
     expect(c.logistica).toEqual({
-      valor: 90000, bloquea: false, tarifa: 35000, totalViajes: 3,
+      valor: 90000, bloquea: false, tarifa: 35000, totalViajes: 3, origenValor: 'tarifa', diferencia: null,
       origen: 'Tarifa genérica + 2 viajes adicionales',
       viajes: [
         {
@@ -805,6 +807,7 @@ describe('calcular — la logística suma la tarifa (viaje 1) y los viajes adici
     const c = await calcular('t1');
     expect(c.logistica).toEqual({
       valor: 35000, origen: 'Tarifa genérica', bloquea: false, tarifa: 35000, viajes: [], totalViajes: 1,
+      origenValor: 'tarifa', diferencia: null,
     });
     expect(c.baseGmf).toBe(885000);
   });
@@ -842,7 +845,7 @@ describe('calcular — la logística suma la tarifa (viaje 1) y los viajes adici
     const c = await calcular('t1');
     expect(c.logistica).toEqual({
       valor: null, origen: 'La compañía autogestiona su logística', bloquea: false,
-      tarifa: null, viajes: [], totalViajes: 0,
+      tarifa: null, viajes: [], totalViajes: 0, origenValor: null, diferencia: null,
     });
     // Sin logística en la base: 450.000 + 120.000 + 80.000 + 200.000.
     expect(c.baseGmf).toBe(850000);
@@ -926,6 +929,7 @@ describe('liquidar — sella la logística con los viajes leídos DENTRO de la t
     expect(liquidacion.datos.valorLogistica).toBe('70000');
     expect((liquidacion.datos.detalle as Record<string, unknown>).logistica).toEqual({
       valor: 70000, origen: 'Tarifa genérica + 2 viajes adicionales', bloquea: false, tarifa: 15000,
+      origenValor: 'tarifa', diferencia: null,
       viajes: [
         {
           id: 'v-2', numero: 2, modo: 'inicial', valor: 35000, tarifaVigente: 35000, motivo: 'devolucion',
@@ -958,7 +962,7 @@ describe('liquidar — sella la logística con los viajes leídos DENTRO de la t
 
     await liquidar('t1', 1);
 
-    expect(espia.orden).toEqual(['bloqueo:for:update', 'servicios', 'viajes']);
+    expect(espia.orden).toEqual(['bloqueo:for:update', 'documental', 'servicios', 'viajes']);
     // Los CINCO selects de `db` son los de fuera de la tx (liquidación, cálculo, servicios, viajes,
     // identificadores). Un sexto sería la relectura de viajes con `db`, que es justo el mutante.
     expect(selectMock).toHaveBeenCalledTimes(5);
@@ -978,6 +982,7 @@ describe('liquidar — sella la logística con los viajes leídos DENTRO de la t
     expect(liquidacion.datos.valorLogistica).toBe('15000');
     expect((liquidacion.datos.detalle as Record<string, unknown>).logistica).toEqual({
       valor: 15000, origen: 'Tarifa genérica', bloquea: false, tarifa: 15000, viajes: [], totalViajes: 1,
+      origenValor: 'tarifa', diferencia: null,
     });
   });
 });
@@ -1016,6 +1021,7 @@ describe('leer una liquidación sellada — la logística sale del detalle y nun
     const dto = await liquidacionDe('t1');
     expect(dto!.logistica).toEqual({
       valor: 35000, origen: 'Tarifa genérica', bloquea: false, tarifa: null, viajes: null, totalViajes: null,
+      origenValor: null, diferencia: null,
     });
   });
 
@@ -1026,6 +1032,7 @@ describe('leer una liquidación sellada — la logística sale del detalle y nun
     const dto = await liquidacionDe('t1');
     expect(dto!.logistica).toEqual({
       valor: 35000, origen: 'Sellado', bloquea: false, tarifa: null, viajes: null, totalViajes: null,
+      origenValor: null, diferencia: null,
     });
   });
 
@@ -1039,6 +1046,7 @@ describe('leer una liquidación sellada — la logística sale del detalle y nun
     const dto = await liquidacionDe('t1');
     expect(dto!.logistica).toEqual({
       valor: 35000, origen: 'Tarifa genérica', bloquea: false, tarifa: 35000, viajes: [], totalViajes: 1,
+      origenValor: null, diferencia: null,
     });
   });
 
@@ -1061,3 +1069,315 @@ describe('leer una liquidación sellada — la logística sale del detalle y nun
     expect(selectMock).toHaveBeenCalledTimes(2);
   });
 });
+
+// ───────── HU #12654: el valor documental manda en trámite digital y en el viaje 1 de la logística ─────────
+//
+// Mutantes que estos casos matan (los del AC y los del diseño):
+//   · AC1-M1 — leer `tarifaDe()` aunque haya documental (y sellar la tarifa): cae «85.000, no 80.000»
+//     y «tarifaDe no se consulta para el trámite digital».
+//   · AC1-M2 — escribir `origenValor: 'tarifa'` con documental: cae el `toEqual` del detalle.
+//   · AC1-M3 — con documental y tarifa no configurada, seguir bloqueando: cae «no bloquea».
+//   · (9)     — mirar el documental ANTES de decidir `gestionaLogistica`: cae «autogestionada + comprobante ⇒ NULL».
+//   · AC2-M  — poner el documental sobre la suma (tarifa + viajes) o sumar el viaje 1 dos veces: cae «155.000».
+//   · (10)    — sumar la diferencia documental al valor de `conceptoServicios`: cae «se sella 50.000 y Σ items cuadra».
+//   · AC4-M  — meter la diferencia pendiente en `faltantes`: cae «se sella con diferencia pendiente».
+//   · AC5-M  — sellar con `previo.tramiteDigital` sin releer con el `tx`: cae «comprobante aplicado entre calcular y la tx».
+//   · AC5-M2 — `aDto` lanzando o devolviendo `undefined` sin las claves: cae «sello anterior se lee con null».
+
+const { baseDeLogistica, conceptoServicios, documentalesDe } = await import('../../src/modules/flito-liquidacion/flito-liquidacion.service.js');
+
+/** Las columnas documentales de la fila del cálculo para UN concepto (`td` | `lg` | `sa`). */
+function doc(concepto: 'Td' | 'Lg' | 'Sa', valor: string, diferencia: string, aceptada = false) {
+  const valorKey = { Td: 'docTramiteDigital', Lg: 'docLogistica', Sa: 'docServiciosAdicionales' }[concepto];
+  return {
+    [valorKey]: valor, [`docComprobante${concepto}Id`]: `c-${concepto.toLowerCase()}`,
+    [`docDiferencia${concepto}`]: diferencia, [`docAceptada${concepto}`]: aceptada,
+  };
+}
+
+/** Tarifas de los AC: trámite digital 80.000 y logística 120.000. */
+function tarifasDeLosAc() {
+  tarifaDeMock.mockImplementation(async (_c: unknown, concepto: string) =>
+    concepto === 'tramite_digital'
+      ? { valor: 80000, origen: 'especifica' }
+      : { valor: 120000, origen: 'generica' });
+}
+
+const SIN_BOLSA = { companiaId: null, soatId: null, soatOrganismo: null, impuestoId: null, impuestoOrganismo: null, derechoId: null, derechoOrganismo: null };
+
+describe('AC1 — trámite digital se sella con el documental y deja origen y diferencia en el detalle', () => {
+  beforeEach(tarifasDeLosAc);
+
+  it('con documental se sella 85.000, no 80.000: calcular() lo proyecta con faltantes vacío y NO consulta tarifaDe para el trámite digital (AC1-M1, AC1-M2)', async () => {
+    encolarCalculo(doc('Td', '85000', '5000'), []);
+    const c = await calcular('t1');
+    expect(c.tramiteDigital).toEqual({
+      valor: 85000, origen: 'Valor documental (comprobante c-td)', bloquea: false, origenValor: 'documental',
+      diferencia: { comprobanteId: 'c-td', importe: 5000, aceptada: false },
+    });
+    expect(c.faltantes).toEqual([]);
+    expect(tarifaDeMock.mock.calls.map((a) => a[1])).toEqual(['logistica']);
+    // 450.000 + 120.000 + 80.000 + 85.000 + 120.000 = 855.000; con la tarifa serían 850.000.
+    expect(c.baseGmf).toBe(855000);
+    expect(c.valorGmf).toBe(3420);
+    expect(c.total).toBe(858420);
+    // Las salidas de las bolsas se calculan con el documental.
+    const salidas = salidasDe(c, { ...SIN_BOLSA, companiaId: 7 });
+    expect(salidas.find((s) => s.concepto === 'tramite_digital')).toEqual({ concepto: 'tramite_digital', valor: 85000, organismoCodigo: null, llave: 'tramite:t1:tramite_digital' });
+  });
+
+  it('liquidar: la columna, el detalle, la base del GMF y el total llevan el documental; el detalle conserva origenValor y la diferencia (no aceptada)', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([filaCompleta(doc('Td', '85000', '5000'))]))
+      .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([SIN_BOLSA]));
+    const espia = espiarSellado([], [], [doc('Td', '85000', '5000')]);
+    transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(espia.tx));
+
+    const dto = await liquidar('t1', 1);
+
+    const liquidacion = espia.escritas.find((e) => e.tabla === 'flito_liquidaciones')!;
+    expect(liquidacion.datos.valorTramiteDigital).toBe('85000');
+    expect((liquidacion.datos.detalle as Record<string, unknown>).tramiteDigital).toEqual({
+      valor: 85000, origen: 'Valor documental (comprobante c-td)', bloquea: false, origenValor: 'documental',
+      diferencia: { comprobanteId: 'c-td', importe: 5000, aceptada: false },
+    });
+    expect(liquidacion.datos.baseGmf).toBe('855000');
+    expect(liquidacion.datos.valorGmf).toBe('3420');
+    expect(liquidacion.datos.total).toBe('858420');
+    expect(dto.estado).toBe('liquidado');
+  });
+
+  it('sin comprobante: la tarifa, como hoy, con origenValor tarifa y diferencia null', async () => {
+    encolarCalculo({}, []);
+    const c = await calcular('t1');
+    expect(c.tramiteDigital).toEqual({ valor: 80000, origen: 'Tarifa de Traspaso', bloquea: false, origenValor: 'tarifa', diferencia: null });
+    expect(tarifaDeMock).toHaveBeenCalledWith(7, 'tramite_digital', 'Traspaso', null);
+  });
+
+  it('tarifa NO configurada + comprobante: no bloquea, el valor es el documental y la diferencia es el valor entero (AC1-M3)', async () => {
+    tarifaDeMock.mockResolvedValue({ valor: null, origen: 'no_configurada' });
+    // `diferencia_tarifa` la escribió aplicar como valor − 0: el importe es el valor.
+    encolarCalculo({ ...doc('Td', '85000', '85000'), logisticaAutogestionable: true }, []);
+    const c = await calcular('t1');
+    expect(c.tramiteDigital).toMatchObject({ valor: 85000, bloquea: false, origenValor: 'documental', diferencia: { importe: 85000, comprobanteId: 'c-td' } });
+    expect(c.faltantes).toEqual([]);
+  });
+});
+
+describe('AC2 — logística: el documental es el viaje 1 dentro de baseLogistica; los viajes se suman encima; la autogestión manda', () => {
+  beforeEach(tarifasDeLosAc);
+  const VIAJES = [viaje({ valor: '30000', tarifaVigente: '120000' }), viaje({ id: 'v-3', numero: 3, modo: 'manual', valor: '25000', tarifaVigente: '120000', registradoPorNombre: 'Marta' })];
+
+  it('100.000 documental + 30.000 + 25.000 = 155.000, tarifa (viaje 1) 100.000, 3 viajes, origen documental con el sufijo, diferencia −20.000 (AC2-M)', async () => {
+    encolarCalculo(doc('Lg', '100000', '-20000'), VIAJES);
+    const c = await calcular('t1');
+    expect(c.logistica).toMatchObject({
+      valor: 155000, tarifa: 100000, totalViajes: 3, bloquea: false,
+      origen: 'Valor documental (comprobante c-lg) + 2 viajes adicionales', origenValor: 'documental',
+      diferencia: { comprobanteId: 'c-lg', importe: -20000, aceptada: false },
+    });
+    expect(c.logistica.viajes!.map((v) => v.valor)).toEqual([30000, 25000]);
+    expect(tarifaDeMock.mock.calls.map((a) => a[1])).toEqual(['tramite_digital']);
+    // La inversa exacta sigue funcionando con el origen nuevo.
+    expect(baseDeLogistica(c.logistica)).toEqual({
+      valor: 100000, origen: 'Valor documental (comprobante c-lg)', bloquea: false, origenValor: 'documental',
+      diferencia: { comprobanteId: 'c-lg', importe: -20000, aceptada: false },
+    });
+  });
+
+  it('liquidar sella valor_logistica = 155.000 con el mismo detalle', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([filaCompleta(doc('Lg', '100000', '-20000'))]))
+      .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain(VIAJES))
+      .mockReturnValueOnce(chain([SIN_BOLSA]));
+    const espia = espiarSellado([], VIAJES, [doc('Lg', '100000', '-20000')]);
+    transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(espia.tx));
+    await liquidar('t1', 1);
+    const liquidacion = espia.escritas.find((e) => e.tabla === 'flito_liquidaciones')!;
+    expect(liquidacion.datos.valorLogistica).toBe('155000');
+    expect((liquidacion.datos.detalle as Record<string, unknown>).logistica).toMatchObject({
+      valor: 155000, tarifa: 100000, totalViajes: 3, origenValor: 'documental', diferencia: { importe: -20000, aceptada: false, comprobanteId: 'c-lg' },
+    });
+  });
+
+  it('autogestionada + comprobante ⇒ NULL: la autogestión decide antes de mirar el documental (mutante (9))', async () => {
+    encolarCalculo({ ...doc('Lg', '100000', '-20000'), logisticaAutogestionable: true }, VIAJES);
+    const c = await calcular('t1');
+    expect(c.logistica).toEqual({
+      valor: null, origen: 'La compañía autogestiona su logística', tarifa: null, viajes: [], totalViajes: 0,
+      bloquea: false, origenValor: null, diferencia: null,
+    });
+    expect(c.baseGmf).toBe(730000);
+  });
+
+  it('autogestionada CON excepción vigente + comprobante: se sella con el documental + viajes', async () => {
+    encolarCalculo({ ...doc('Lg', '100000', '-20000'), logisticaAutogestionable: true, logisticaExcepcion: true }, VIAJES);
+    const c = await calcular('t1');
+    expect(c.logistica).toMatchObject({ valor: 155000, tarifa: 100000, origenValor: 'documental' });
+  });
+});
+
+describe('AC3 — servicios adicionales se sellan con el catálogo; el comprobante solo deja la diferencia (mutante (10))', () => {
+  beforeEach(tarifasDeLosAc);
+  const DOS = [servicio({ valor: '30000' }), servicio({ id: 'sa-2', tipoId: 'tipo-2', nombre: 'Diagnóstico', valor: '20000' })];
+
+  it('se sella 50.000 y Σ items cuadra: valor = catálogo, origenValor catalogo, diferencia 5.000 del comprobante de 55.000', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([filaCompleta(doc('Sa', '55000', '5000'))]))
+      .mockReturnValueOnce(chain(DOS))
+      .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([SIN_BOLSA]));
+    const espia = espiarSellado(DOS, [], [doc('Sa', '55000', '5000')]);
+    transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(espia.tx));
+    await liquidar('t1', 1);
+    const liquidacion = espia.escritas.find((e) => e.tabla === 'flito_liquidaciones')!;
+    expect(liquidacion.datos.valorServiciosAdicionales).toBe('50000');
+    const sa = (liquidacion.datos.detalle as Record<string, unknown>).serviciosAdicionales as { items: Array<{ valor: number }> };
+    expect(sa).toEqual({
+      valor: 50000, origen: 'asignacion', bloquea: false, origenValor: 'catalogo',
+      items: [{ tipoId: 'tipo-1', nombre: 'Paz y salvo', valor: 30000 }, { tipoId: 'tipo-2', nombre: 'Diagnóstico', valor: 20000 }],
+      diferencia: { comprobanteId: 'c-sa', importe: 5000, aceptada: false },
+    });
+    // Σ items == columna: lo que Siigo factura línea a línea (servicios_no_cuadran) sigue cuadrando.
+    expect(sa.items.reduce((a, i) => a + i.valor, 0)).toBe(Number(liquidacion.datos.valorServiciosAdicionales));
+    // 450.000 + 120.000 + 80.000 + 80.000 + 120.000 + 50.000 = 900.000 (con 55.000 serían 905.000).
+    expect(liquidacion.datos.baseGmf).toBe('900000');
+  });
+
+  it('conceptoServicios es pura: el documental no cambia el valor ni los items, solo anota la diferencia', () => {
+    const c = conceptoServicios(DOS, { valor: 55000, diferencia: { comprobanteId: 'c-sa', importe: 5000, aceptada: true } });
+    expect(c.valor).toBe(50000);
+    expect(c.diferencia).toEqual({ comprobanteId: 'c-sa', importe: 5000, aceptada: true });
+    expect(conceptoServicios(DOS).diferencia).toBeNull();
+  });
+
+  it('ninguna línea «Ajuste por comprobante» en siigo/ ni en flito-liquidacion/', async () => {
+    const { readdirSync, readFileSync, statSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const archivos = (dir: string): string[] => readdirSync(dir).flatMap((n) => { const p = join(dir, n); return statSync(p).isDirectory() ? archivos(p) : p.endsWith('.ts') ? [p] : []; });
+    for (const modulo of ['siigo', 'flito-liquidacion']) {
+      for (const f of archivos(join(process.cwd(), 'src/modules', modulo))) expect(readFileSync(f, 'utf8'), f).not.toMatch(/Ajuste por comprobante/);
+    }
+  });
+});
+
+describe('AC4 — una diferencia no aceptada no bloquea; el sello la conserva como pendiente', () => {
+  beforeEach(tarifasDeLosAc);
+
+  it('se sella con diferencia pendiente: 200 liquidado, faltantes vacío, aceptada: false en el detalle (AC4-M)', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([filaCompleta(doc('Td', '85000', '5000'))]))
+      .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([SIN_BOLSA]));
+    const espia = espiarSellado([], [], [doc('Td', '85000', '5000')]);
+    transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(espia.tx));
+    // Ni LiquidacionBloqueadaError ni LiquidacionError: la diferencia pendiente no es un faltante.
+    await expect(liquidar('t1', 1)).resolves.toMatchObject({ estado: 'liquidado', faltantes: [] });
+    expect(transactionMock).toHaveBeenCalledTimes(1);
+    const liquidacion = espia.escritas.find((e) => e.tabla === 'flito_liquidaciones')!;
+    expect((liquidacion.datos.detalle as { tramiteDigital: { diferencia: { aceptada: boolean } } }).tramiteDigital.diferencia.aceptada).toBe(false);
+  });
+
+  it('la diferencia (aceptada o no) nunca entra en faltantes ni en LiquidacionBloqueadaError', async () => {
+    encolarCalculo({ ...doc('Td', '85000', '5000'), ...doc('Lg', '100000', '-20000', true) }, []);
+    const c = await calcular('t1');
+    expect(c.faltantes).toEqual([]);
+    expect(c.logistica.diferencia).toEqual({ comprobanteId: 'c-lg', importe: -20000, aceptada: true });
+  });
+
+  it('liquidacionDe() devuelve el detalle sellado tal cual (aceptada: false congelado) sin consultar flito_comprobantes', async () => {
+    const detalle = {
+      tramiteDigital: { valor: 85000, origen: 'Valor documental (comprobante c-td)', bloquea: false, origenValor: 'documental', diferencia: { comprobanteId: 'c-td', importe: 5000, aceptada: false } },
+      logistica: { valor: 120000, origen: 'Tarifa genérica', bloquea: false, tarifa: 120000, viajes: [], totalViajes: 1, origenValor: 'tarifa', diferencia: null },
+      serviciosAdicionales: { valor: null, origen: 'asignacion', bloquea: false, items: [], origenValor: 'catalogo', diferencia: null },
+    };
+    selectMock
+      .mockReturnValueOnce(chain([{ id: 'l1', tramiteId: 't1', estado: 'liquidado', detalle, valorTramiteDigital: '85000', valorLogistica: '120000', valorServiciosAdicionales: null, baseGmf: '1', tasaGmf: '0.004', valorGmf: '0', total: '1', liquidadoEn: new Date(), facturadoEn: null }]))
+      .mockReturnValueOnce(chain([{ idFlit: 'FLIT-1' }]));
+    const dto = await liquidacionDe('t1');
+    expect(dto!.tramiteDigital).toEqual(detalle.tramiteDigital);
+    expect(dto!.logistica).toEqual(detalle.logistica);
+    expect(dto!.serviciosAdicionales).toEqual(detalle.serviciosAdicionales);
+    expect(selectMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('AC5 — el documental se relee bajo el bloqueo del trámite (lo sellado es lo aplicado al COMMIT)', () => {
+  beforeEach(tarifasDeLosAc);
+
+  it('comprobante aplicado entre calcular y la tx se sella: la relectura va con el tx, tras el FOR UPDATE y antes de servicios y viajes (AC5-M)', async () => {
+    // Previsualización SIN comprobante (tarifa 80.000); bajo bloqueo hay uno de 85.000.
+    selectMock
+      .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([filaCompleta()]))
+      .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([SIN_BOLSA]));
+    const espia = espiarSellado([], [], [doc('Td', '85000', '5000')]);
+    transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(espia.tx));
+
+    await liquidar('t1', 1);
+
+    expect(espia.orden).toEqual(['bloqueo:for:update', 'documental', 'servicios', 'viajes']);
+    expect(espia.tx.select).toHaveBeenCalledTimes(4);
+    // Los CINCO selects de `db` son los de fuera de la tx: ninguna relectura documental con `db`.
+    expect(selectMock).toHaveBeenCalledTimes(5);
+    const liquidacion = espia.escritas.find((e) => e.tabla === 'flito_liquidaciones')!;
+    expect(liquidacion.datos.valorTramiteDigital).toBe('85000');
+    expect((liquidacion.datos.detalle as Record<string, unknown>).tramiteDigital).toMatchObject({ origenValor: 'documental', diferencia: { comprobanteId: 'c-td' } });
+    expect(liquidacion.datos.baseGmf).toBe('855000');
+  });
+
+  it('la logística también se relee: comprobante de logística aplicado entre medias ⇒ viaje 1 documental + viajes', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([filaCompleta()]))
+      .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([]))
+      .mockReturnValueOnce(chain([SIN_BOLSA]));
+    const espia = espiarSellado([], [viaje({ valor: '30000' })], [doc('Lg', '100000', '-20000')]);
+    transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(espia.tx));
+    await liquidar('t1', 1);
+    const liquidacion = espia.escritas.find((e) => e.tabla === 'flito_liquidaciones')!;
+    expect(liquidacion.datos.valorLogistica).toBe('130000');
+    expect((liquidacion.datos.detalle as Record<string, unknown>).logistica).toMatchObject({ tarifa: 100000, totalViajes: 2, origenValor: 'documental' });
+  });
+
+  it('documentalesDe(): trámite sin fila ⇒ las tres en null; con fila, la lee por concepto', async () => {
+    selectMock.mockReturnValueOnce(chain([]));
+    expect(await documentalesDe(kdbLike(), 't1')).toEqual({ tramiteDigital: null, logistica: null, serviciosAdicionales: null });
+    selectMock.mockReturnValueOnce(chain([{ ...doc('Td', '85000', '5000'), ...doc('Sa', '55000', '5000', true) }]));
+    expect(await documentalesDe(kdbLike(), 't1')).toEqual({
+      tramiteDigital: { valor: 85000, diferencia: { comprobanteId: 'c-td', importe: 5000, aceptada: false } },
+      logistica: null,
+      serviciosAdicionales: { valor: 55000, diferencia: { comprobanteId: 'c-sa', importe: 5000, aceptada: true } },
+    });
+  });
+
+  it('un sello anterior a esta HU se lee con origenValor null y diferencia null (nunca lanza) (AC5-M2)', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([{
+        id: 'l1', tramiteId: 't1', estado: 'liquidado',
+        detalle: { tramiteDigital: { valor: 200000, origen: 'Tarifa de Traspaso', bloquea: false }, logistica: { valor: 15000, origen: 'Tarifa genérica', bloquea: false, tarifa: 15000, viajes: [], totalViajes: 1 }, serviciosAdicionales: { valor: null, origen: 'asignacion', bloquea: false, items: [] } },
+        valorTramiteDigital: '200000', valorLogistica: '15000', valorServiciosAdicionales: null, baseGmf: '1', tasaGmf: '0.004', valorGmf: '0', total: '1', liquidadoEn: new Date(), facturadoEn: null,
+      }]))
+      .mockReturnValueOnce(chain([{ idFlit: 'FLIT-1' }]));
+    const dto = await liquidacionDe('t1');
+    expect(dto!.tramiteDigital).toEqual({ valor: 200000, origen: 'Tarifa de Traspaso', bloquea: false, origenValor: null, diferencia: null });
+    expect(dto!.logistica).toMatchObject({ valor: 15000, tarifa: 15000, origenValor: null, diferencia: null });
+    expect(dto!.serviciosAdicionales).toMatchObject({ valor: null, items: [], origenValor: null, diferencia: null });
+  });
+});
+
+/** `db` del mock como ejecutor de `documentalesDe` (mismo `select` que el resto del archivo). */
+function kdbLike() {
+  return { select: selectMock } as never;
+}

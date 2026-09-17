@@ -8,19 +8,33 @@
 // no la de hoy; sin fecha de aprobación, la de ahora. Es la misma resolución (`vigenteEn`) que usa
 // el reporte de costos para la fila estimada: lo que se muestra es lo que se sella (AC7).
 //
+// HU #12654 (F3 de la Épica #12245, ADR-0018 §5): el VALOR DOCUMENTAL manda en dos honorarios. Si el
+// trámite tiene un comprobante de pago aplicado (`flito_comprobantes`, `estado = 'aplicado' AND
+// es_pago = true`, a lo sumo uno por trámite y concepto), el trámite digital se sella con ese valor
+// —antes que la tarifa— y la logística lo toma como viaje 1 (`baseLogistica`) ANTES de sumar los
+// viajes adicionales; los servicios adicionales se sellan con el catálogo y el comprobante solo deja
+// la diferencia. Cada concepto conserva en el detalle sellado `origenValor` (`documental` | `tarifa`
+// | `catalogo` | null) y `diferencia` ({ comprobanteId, importe, aceptada } | null). Una diferencia
+// NUNCA bloquea el sellado (D5) y la autogestión decide ANTES de mirar el documental (mutante (9)).
+// Las expresiones vienen del leaf `flito-comprobantes.expr.ts` como subconsultas escalares, sin join.
+//
 // No confundir con `apps/api/src/modules/liquidacion/`, que es del subsistema antiguo
 // (`tramites_digitales` con id entero + órdenes de trabajo) y no tiene relación con FLITO.
 
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import {
-  type ConceptoBolsaTransito, esConceptoBolsaTransito, EstadoImpuesto, EstadoSoat,
+  type ConceptoBolsaTransito, ConceptoCosto, esConceptoBolsaTransito, EstadoImpuesto, EstadoSoat,
   flitoGestionaImpuesto, type ItemServicioSellado, ModalidadOrganismo, type ViajeLogisticaSellado,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
-  clients, flitoDerechosTramite, flitoExcepcionesAutogestion, flitoImpuestos,
+  clients, flitoComprobantes, flitoDerechosTramite, flitoExcepcionesAutogestion, flitoImpuestos,
   flitoLiquidacionEventos, flitoLiquidaciones, flitoOrganismoVigencias, flitoSoat, flitoTramites,
 } from '../../db/schema.js';
+// HU #12654 — la fila documental se lee SOLO por el leaf de comprobantes (ADR-0018 §5): «qué
+// comprobante cuenta» tiene una única respuesta, la de `documental()`; aquí no se filtra por estado
+// ni por es_pago, ni se hace join con `flito_comprobantes`.
+import { documental, type ConceptoHonorario } from '../flito-comprobantes/flito-comprobantes.expr.js';
 import { tarifaDe, type ValorTarifa } from '../flito-parametrizacion/flito-tarifas.service.js';
 import { excepcionLogisticaViva, gestionaLogistica as flitoGestionaLogistica } from './gestiona-logistica.js';
 import {
@@ -38,7 +52,7 @@ import { viaDeCorreccionDeTramite } from '../siigo/correcciones.service.js';
 // Duplicar cualquiera de las dos abriría la puerta a que el sellado leyera un orden o una instantánea
 // distintos de los que ve la pantalla que asigna.
 import {
-  bloquearTramite, type FilaAsignacion, serviciosAsignadosDe, TramiteNoEncontradoError,
+  bloquearTramite, type Ejecutor, type FilaAsignacion, serviciosAsignadosDe, TramiteNoEncontradoError,
 } from '../finanzas-servicios-adicionales/finanzas-servicios-adicionales.service.js';
 // HU #12626 — los viajes ADICIONALES de logística se leen de su módulo con el mismo criterio que los
 // servicios: `viajesDe` fija el orden (`numero ASC`) y la proyección, y dentro de `liquidar()` se
@@ -81,6 +95,25 @@ export const TASA_GMF = 0.004;
 export const ESTADO_LIQUIDACION = { LIQUIDADO: 'liquidado', FACTURADO: 'facturado' } as const;
 export type EstadoLiquidacion = (typeof ESTADO_LIQUIDACION)[keyof typeof ESTADO_LIQUIDACION];
 
+/**
+ * De dónde salió el valor de un honorario (HU #12654): del comprobante de pago aplicado
+ * (`documental`), de la tarifa de la compañía (`tarifa`) o del catálogo de servicios (`catalogo`).
+ * null = el concepto no aplica (autogestionado).
+ */
+export type OrigenValor = 'documental' | 'tarifa' | 'catalogo';
+
+/**
+ * La diferencia que dejó el comprobante de pago aplicado (HU #12654): `importe` es
+ * `diferencia_tarifa` (valor documental − tarifa de referencia, tolerancia 0) y `aceptada` si alguien
+ * la aceptó con motivo ANTES del sello. Se congela tal cual: una aceptación posterior se ve en el
+ * reporte de costos (en vivo), no en el sello.
+ */
+export interface DiferenciaDocumental {
+  comprobanteId: string;
+  importe: number;
+  aceptada: boolean;
+}
+
 /** Un concepto del cálculo. `valor: null` = no aplica o no está configurado; NUNCA cero implícito. */
 export interface ConceptoLiquidado {
   valor: number | null;
@@ -88,6 +121,22 @@ export interface ConceptoLiquidado {
   origen: string;
   /** Si es true, la liquidación no puede sellarse hasta resolverlo. */
   bloquea: boolean;
+  /**
+   * Solo los honorarios los llevan (HU #12654); SOAT, impuesto y derecho no cambian (D7) y no los
+   * escriben. En los honorarios son obligatorios: ver `ConceptoHonorarioLiquidado`.
+   */
+  origenValor?: OrigenValor | null;
+  diferencia?: DiferenciaDocumental | null;
+}
+
+/**
+ * Un honorario (trámite digital, logística, servicios adicionales): SIEMPRE dice de dónde salió su
+ * valor y qué diferencia dejó el comprobante. `aDto` pone null en ambas cuando lee un sello anterior
+ * a la HU #12654 (sin las claves): nunca lanza.
+ */
+export interface ConceptoHonorarioLiquidado extends ConceptoLiquidado {
+  origenValor: OrigenValor | null;
+  diferencia: DiferenciaDocumental | null;
 }
 
 /**
@@ -98,7 +147,7 @@ export interface ConceptoLiquidado {
  * Se declara aquí y no en shared-types porque la web no consume el cálculo de la liquidación; lo que
  * sí comparte —`ItemServicioSellado`— ya vive allí y se reutiliza tal cual (HU #12545).
  */
-export interface ConceptoServiciosAdicionales extends ConceptoLiquidado {
+export interface ConceptoServiciosAdicionales extends ConceptoHonorarioLiquidado {
   items: ItemServicioSellado[];
 }
 
@@ -119,8 +168,8 @@ export const ORIGEN_SERVICIOS_ADICIONALES = 'asignacion';
  * `viajes` y `totalViajes` solo valen null al LEER un sello anterior a esta HU (sin snapshot en el
  * detalle): `calcular` y `liquidar` siempre producen array y número, también vacío y 1.
  */
-export interface ConceptoLogistica extends ConceptoLiquidado {
-  /** El viaje 1: la tarifa de logística vigente en la fecha de aprobación. null si no aplica o falta. */
+export interface ConceptoLogistica extends ConceptoHonorarioLiquidado {
+  /** El viaje 1: la tarifa de logística vigente en la fecha de aprobación —o el valor documental (HU #12654)—. null si no aplica o falta. */
   tarifa: number | null;
   viajes: ViajeLogisticaSellado[] | null;
   /** 1 (el incluido) + adicionales; 0 si la compañía autogestiona su logística. */
@@ -133,7 +182,7 @@ export interface CalculoLiquidacion {
   soat: ConceptoLiquidado;
   impuesto: ConceptoLiquidado;
   derecho: ConceptoLiquidado;
-  tramiteDigital: ConceptoLiquidado;
+  tramiteDigital: ConceptoHonorarioLiquidado;
   logistica: ConceptoLogistica;
   /**
    * Los servicios adicionales del trámite. Nunca bloquea: un trámite sin servicios es lo normal, y
@@ -162,11 +211,56 @@ const redondear = (n: number): number => Math.round(n * 100) / 100;
 const sumar = (...vs: Array<number | null>): number =>
   vs.reduce<number>((a, v) => a + (v ?? 0), 0);
 
-function deTarifa(t: ValorTarifa, etiqueta: string): ConceptoLiquidado {
+function deTarifa(t: ValorTarifa, etiqueta: string): ConceptoHonorarioLiquidado {
   if (t.origen === 'no_configurada') {
-    return { valor: null, origen: 'No configurado', bloquea: true };
+    return { valor: null, origen: 'No configurado', bloquea: true, origenValor: 'tarifa', diferencia: null };
   }
-  return { valor: t.valor, origen: t.origen === 'especifica' ? `Tarifa de ${etiqueta}` : 'Tarifa genérica', bloquea: false };
+  return {
+    valor: t.valor, origen: t.origen === 'especifica' ? `Tarifa de ${etiqueta}` : 'Tarifa genérica', bloquea: false,
+    origenValor: 'tarifa', diferencia: null,
+  };
+}
+
+/** El origen con que se sella un valor documental: nombra el comprobante para auditarlo años después. */
+const origenDocumental = (comprobanteId: string): string => `Valor documental (comprobante ${comprobanteId})`;
+
+/** La fila documental de UN honorario, ya leída: el valor del comprobante y la diferencia que dejó. */
+export interface Documental {
+  valor: number;
+  diferencia: DiferenciaDocumental;
+}
+
+/** Las tres filas documentales de un trámite (o null donde no hay comprobante de pago aplicado). */
+export interface Documentales {
+  tramiteDigital: Documental | null;
+  logistica: Documental | null;
+  serviciosAdicionales: Documental | null;
+}
+
+/** El valor documental como concepto: manda sobre la tarifa y NUNCA bloquea (AC1: sin tarifa, sigue sin bloquear). */
+function conceptoDocumental(d: Documental): ConceptoHonorarioLiquidado {
+  return { valor: d.valor, origen: origenDocumental(d.diferencia.comprobanteId), bloquea: false, origenValor: 'documental', diferencia: d.diferencia };
+}
+
+/** Las cuatro columnas crudas de una fila documental, como las proyecta `PROYECCION_DOCUMENTAL`. */
+interface FilaDocumental {
+  valor: string | null;
+  comprobanteId: string | null;
+  diferencia: string | null;
+  aceptada: boolean | null;
+}
+
+/**
+ * `null` sin fila documental. `importe` es `diferencia_tarifa` tal como la escribió aplicar (valor −
+ * tarifa de referencia; sin tarifa, el valor entero); `aceptada` es «ya la aceptó alguien».
+ */
+function documentalDe(f: FilaDocumental): Documental | null {
+  // `?? null`: una fila sin las columnas (proyección parcial) se lee como «sin comprobante», no como NaN.
+  const crudo = f.valor ?? null;
+  const comprobanteId = f.comprobanteId ?? null;
+  if (crudo === null || comprobanteId === null) return null;
+  const valor = Number(crudo);
+  return { valor, diferencia: { comprobanteId, importe: f.diferencia == null ? valor : Number(f.diferencia), aceptada: f.aceptada === true } };
 }
 
 interface FilaCalculo {
@@ -194,6 +288,71 @@ interface FilaCalculo {
   impuestoExcepcion: boolean | null;
   logisticaExcepcion: boolean | null;
   derechoValor: string | null;
+  // HU #12654 — las filas documentales, por subconsulta del leaf de comprobantes (sin join).
+  docTramiteDigital: string | null;
+  docLogistica: string | null;
+  docServiciosAdicionales: string | null;
+  docComprobanteTdId: string | null;
+  docComprobanteLgId: string | null;
+  docComprobanteSaId: string | null;
+  docDiferenciaTd: string | null;
+  docDiferenciaLg: string | null;
+  docDiferenciaSa: string | null;
+  docAceptadaTd: boolean | null;
+  docAceptadaLg: boolean | null;
+  docAceptadaSa: boolean | null;
+}
+
+/** «Ya la aceptó alguien»: `diferencia_aceptada_en IS NOT NULL` de la fila documental (NULL sin fila). */
+const aceptada = (concepto: ConceptoHonorario) => sql<boolean | null>`(${documental(flitoComprobantes.diferenciaAceptadaEn, concepto)} is not null)`;
+
+/**
+ * Las doce columnas documentales (HU #12654), cada una una subconsulta escalar de `documental()`
+ * correlacionada con `flito_tramites.id`. Se proyectan en el cálculo y se RELEEN con el `tx` del
+ * sellado (`documentalesDe`): una sola definición para que lo previsualizado y lo sellado no puedan
+ * leer filas distintas.
+ */
+const PROYECCION_DOCUMENTAL = {
+  docTramiteDigital: documental(flitoComprobantes.valor, ConceptoCosto.TRAMITE_DIGITAL),
+  docLogistica: documental(flitoComprobantes.valor, ConceptoCosto.LOGISTICA),
+  docServiciosAdicionales: documental(flitoComprobantes.valor, ConceptoCosto.SERVICIOS_ADICIONALES),
+  docComprobanteTdId: documental(flitoComprobantes.id, ConceptoCosto.TRAMITE_DIGITAL),
+  docComprobanteLgId: documental(flitoComprobantes.id, ConceptoCosto.LOGISTICA),
+  docComprobanteSaId: documental(flitoComprobantes.id, ConceptoCosto.SERVICIOS_ADICIONALES),
+  docDiferenciaTd: documental(flitoComprobantes.diferenciaTarifa, ConceptoCosto.TRAMITE_DIGITAL),
+  docDiferenciaLg: documental(flitoComprobantes.diferenciaTarifa, ConceptoCosto.LOGISTICA),
+  docDiferenciaSa: documental(flitoComprobantes.diferenciaTarifa, ConceptoCosto.SERVICIOS_ADICIONALES),
+  docAceptadaTd: aceptada(ConceptoCosto.TRAMITE_DIGITAL),
+  docAceptadaLg: aceptada(ConceptoCosto.LOGISTICA),
+  docAceptadaSa: aceptada(ConceptoCosto.SERVICIOS_ADICIONALES),
+} as const;
+
+type FilaDocumentales = Pick<FilaCalculo, keyof typeof PROYECCION_DOCUMENTAL>;
+
+/** Las tres filas documentales que trae una fila del cálculo. */
+function documentalesDeFila(f: FilaDocumentales): Documentales {
+  return {
+    tramiteDigital: documentalDe({ valor: f.docTramiteDigital, comprobanteId: f.docComprobanteTdId, diferencia: f.docDiferenciaTd, aceptada: f.docAceptadaTd }),
+    logistica: documentalDe({ valor: f.docLogistica, comprobanteId: f.docComprobanteLgId, diferencia: f.docDiferenciaLg, aceptada: f.docAceptadaLg }),
+    serviciosAdicionales: documentalDe({ valor: f.docServiciosAdicionales, comprobanteId: f.docComprobanteSaId, diferencia: f.docDiferenciaSa, aceptada: f.docAceptadaSa }),
+  };
+}
+
+/**
+ * Las filas documentales de un trámite leídas con `ejecutor` (AC5): dentro de `liquidar()` es el `tx`
+ * que ya tomó el `FOR UPDATE` del trámite —el MISMO que toma `aplicar` antes de escribir la fila
+ * documental—, así que lo que se sella es lo aplicado al COMMIT, no lo que vio la previsualización.
+ * Mismo patrón que `serviciosAsignadosDe` y `viajesDe`. Trámite inexistente ⇒ las tres en null.
+ */
+export async function documentalesDe(ejecutor: Ejecutor, tramiteId: string): Promise<Documentales> {
+  const [f] = await ejecutor.select(PROYECCION_DOCUMENTAL).from(flitoTramites)
+    .where(eq(flitoTramites.id, tramiteId)).limit(1) as FilaDocumentales[];
+  return documentalesDeFila(f ?? {
+    docTramiteDigital: null, docLogistica: null, docServiciosAdicionales: null,
+    docComprobanteTdId: null, docComprobanteLgId: null, docComprobanteSaId: null,
+    docDiferenciaTd: null, docDiferenciaLg: null, docDiferenciaSa: null,
+    docAceptadaTd: null, docAceptadaLg: null, docAceptadaSa: null,
+  });
 }
 
 function proyeccionCalculo() {
@@ -217,6 +376,7 @@ function proyeccionCalculo() {
     impuestoExcepcion: flitoImpuestos.excepcionAutogestion,
     logisticaExcepcion: sql<boolean>`${flitoExcepcionesAutogestion.id} IS NOT NULL`,
     derechoValor: flitoDerechosTramite.valor,
+    ...PROYECCION_DOCUMENTAL,
   }).from(flitoTramites)
     .leftJoin(clients, eq(flitoTramites.companiaId, clients.id))
     .leftJoin(flitoSoat, eq(flitoTramites.soatId, flitoSoat.id))
@@ -279,7 +439,8 @@ export async function calcular(tramiteId: string): Promise<CalculoLiquidacion> {
   // Los viajes se leen SIEMPRE, gestione o no la logística: quién decide si cuentan es
   // `conceptoLogistica`, no esta consulta (un autogestionable con filas las ignora).
   const viajes = await viajesDe(db, tramiteId);
-  return calcularDeFila(f, conceptoServicios(servicios), viajes);
+  const docs = documentalesDeFila(f);
+  return calcularDeFila(f, conceptoServicios(servicios, docs.serviciosAdicionales), viajes, docs);
 }
 
 /**
@@ -291,12 +452,15 @@ export async function calcular(tramiteId: string): Promise<CalculoLiquidacion> {
  * cambio SIEMPRE es un array (vacío si no hay), para que `jsonb_array_length` sobre el detalle
  * sellado por esta HU responda 0 y no NULL.
  */
-export function conceptoServicios(filas: FilaAsignacion[]): ConceptoServiciosAdicionales {
+export function conceptoServicios(filas: FilaAsignacion[], documental: Documental | null = null): ConceptoServiciosAdicionales {
   const items: ItemServicioSellado[] = filas.map((f) => ({
     tipoId: f.tipoId, nombre: f.nombre, valor: Number(f.valor),
   }));
   const valor = items.length === 0 ? null : redondear(items.reduce((a, i) => a + i.valor, 0));
-  return { valor, origen: ORIGEN_SERVICIOS_ADICIONALES, bloquea: false, items };
+  // HU #12654 (D3, mutante (10)): el comprobante de servicios adicionales NO manda. `valor` sigue
+  // siendo Σ items —lo que Siigo factura línea a línea (`servicios_no_cuadran`)— y el documental solo
+  // deja la diferencia. Sumarla aquí descuadraría la factura sin una línea que la explique.
+  return { valor, origen: ORIGEN_SERVICIOS_ADICIONALES, bloquea: false, items, origenValor: 'catalogo', diferencia: documental?.diferencia ?? null };
 }
 
 /** El sufijo que el origen de la logística lleva cuando hay viajes adicionales; vacío con cero. */
@@ -318,7 +482,7 @@ function sufijoViajes(n: number): string {
  *
  * Es pura para poder afirmarla sola; `totalizar` la vuelve a aplicar dentro del sellado.
  */
-export function conceptoLogistica(base: ConceptoLiquidado, filas: FilaViaje[]): ConceptoLogistica {
+export function conceptoLogistica(base: ConceptoHonorarioLiquidado, filas: FilaViaje[]): ConceptoLogistica {
   if (base.valor === null && !base.bloquea) return { ...base, tarifa: null, viajes: [], totalViajes: 0 };
   const viajes: ViajeLogisticaSellado[] = filas.map((f) => {
     const { registradoPorId: _interno, ...v } = aDtoViaje(f);
@@ -331,6 +495,8 @@ export function conceptoLogistica(base: ConceptoLiquidado, filas: FilaViaje[]): 
     valor: redondear(viajes.reduce((a, v) => a + v.valor, tarifa)),
     origen: `${base.origen}${sufijoViajes(viajes.length)}`,
     bloquea: false, tarifa, viajes, totalViajes,
+    // El viaje 1 puede ser el documental (HU #12654): el origen y la diferencia son los de la base.
+    origenValor: base.origenValor, diferencia: base.diferencia,
   };
 }
 
@@ -340,10 +506,23 @@ export function conceptoLogistica(base: ConceptoLiquidado, filas: FilaViaje[]): 
  * el mismo texto que se compuso, así que no hay ambigüedad). Existe para que `totalizar` pueda
  * recomponer la logística desde el cálculo previo sin arrastrar un campo interno hasta el detalle.
  */
-function baseDeLogistica(l: ConceptoLogistica): ConceptoLiquidado {
+export function baseDeLogistica(l: ConceptoLogistica): ConceptoHonorarioLiquidado {
   // Solo el caso normal (con tarifa) lleva sufijo: bloqueado y autogestionado conservan su origen.
   const sufijo = l.tarifa === null ? '' : sufijoViajes(l.viajes?.length ?? 0);
-  return { valor: l.tarifa, origen: l.origen.slice(0, l.origen.length - sufijo.length), bloquea: l.bloquea };
+  return {
+    valor: l.tarifa, origen: l.origen.slice(0, l.origen.length - sufijo.length), bloquea: l.bloquea,
+    origenValor: l.origenValor ?? null, diferencia: l.diferencia ?? null,
+  };
+}
+
+/**
+ * El honorario con la fila documental RELEÍDA (HU #12654, AC5): si hay comprobante, manda; si no, el
+ * concepto sigue como estaba (tarifa, o «no aplica»). La autogestión decide ANTES: un concepto con
+ * `origenValor: null` es «no se cobra» y ningún comprobante lo cambia (mutante (9)).
+ */
+function conDocumental(c: ConceptoHonorarioLiquidado, d: Documental | null): ConceptoHonorarioLiquidado {
+  if (c.origenValor === null || d === null) return c;
+  return conceptoDocumental(d);
 }
 
 /**
@@ -356,21 +535,24 @@ function baseDeLogistica(l: ConceptoLogistica): ConceptoLiquidado {
  * puedan divergir.
  */
 function totalizar(
-  c: CalculoLiquidacion, servicios: ConceptoServiciosAdicionales, viajes: FilaViaje[],
+  c: CalculoLiquidacion, servicios: ConceptoServiciosAdicionales, viajes: FilaViaje[], docs: Documentales,
 ): CalculoLiquidacion {
-  const logistica = conceptoLogistica(baseDeLogistica(c.logistica), viajes);
+  // El documental releído manda en el trámite digital y en el viaje 1 de la logística (HU #12654);
+  // los viajes adicionales se suman ENCIMA del documental, nunca al revés.
+  const tramiteDigital = conDocumental(c.tramiteDigital, docs.tramiteDigital);
+  const logistica = conceptoLogistica(conDocumental(baseDeLogistica(c.logistica), docs.logistica), viajes);
   const baseGmf = redondear(sumar(
-    c.soat.valor, c.impuesto.valor, c.derecho.valor, c.tramiteDigital.valor, logistica.valor,
+    c.soat.valor, c.impuesto.valor, c.derecho.valor, tramiteDigital.valor, logistica.valor,
     servicios.valor,
   ));
   const valorGmf = redondear(baseGmf * TASA_GMF);
   return {
-    ...c, logistica, serviciosAdicionales: servicios, baseGmf, valorGmf, total: redondear(baseGmf + valorGmf),
+    ...c, tramiteDigital, logistica, serviciosAdicionales: servicios, baseGmf, valorGmf, total: redondear(baseGmf + valorGmf),
   };
 }
 
 async function calcularDeFila(
-  f: FilaCalculo, servicios: ConceptoServiciosAdicionales, viajes: FilaViaje[],
+  f: FilaCalculo, servicios: ConceptoServiciosAdicionales, viajes: FilaViaje[], docs: Documentales,
 ): Promise<CalculoLiquidacion> {
   const faltantes: string[] = [];
 
@@ -414,17 +596,23 @@ async function calcularDeFila(
     : { valor: null, origen: 'Sin recibo de derecho de tránsito', bloquea: true };
 
   const etiquetaTipo = f.tipoTramite ?? 'tipo';
-  // RN-07: la vigencia que contiene la fecha de aprobación; sin aprobar, la de ahora (null).
-  const tramiteDigital = deTarifa(
-    await tarifaDe(f.companiaId, 'tramite_digital', f.tipoTramite, f.fechaAprobacion), etiquetaTipo,
-  );
+  // HU #12654 (AC1): el comprobante de pago aplicado manda ANTES de la tarifa: con documental no se
+  // consulta `tarifaDe` y el concepto no bloquea aunque la tarifa no esté configurada.
+  // RN-07: sin documental, la vigencia que contiene la fecha de aprobación; sin aprobar, la de ahora.
+  const tramiteDigital: ConceptoHonorarioLiquidado = docs.tramiteDigital
+    ? conceptoDocumental(docs.tramiteDigital)
+    : deTarifa(await tarifaDe(f.companiaId, 'tramite_digital', f.tipoTramite, f.fechaAprobacion), etiquetaTipo);
 
   // La logística se cobra a toda compañía que no la autogestione, haya habido entrega o no —y a la
-  // que sí la autogestiona, en los trámites que le haya encargado a FLITO.
-  const baseLogistica: ConceptoLiquidado = !gestionaLogistica
-    ? { valor: null, origen: 'La compañía autogestiona su logística', bloquea: false }
-    : deTarifa(await tarifaDe(f.companiaId, 'logistica', f.tipoTramite, f.fechaAprobacion), etiquetaTipo);
-  // La tarifa es el viaje 1; los adicionales se suman con su precio congelado (HU #12626).
+  // que sí la autogestiona, en los trámites que le haya encargado a FLITO. La autogestión decide
+  // PRIMERO (mutante (9)): con ella, un comprobante de logística aplicado no se cobra (null).
+  // Después, el documental es el viaje 1 (D1, HU #12654); sin él, la tarifa.
+  const baseLogistica: ConceptoHonorarioLiquidado = !gestionaLogistica
+    ? { valor: null, origen: 'La compañía autogestiona su logística', bloquea: false, origenValor: null, diferencia: null }
+    : docs.logistica
+      ? conceptoDocumental(docs.logistica)
+      : deTarifa(await tarifaDe(f.companiaId, 'logistica', f.tipoTramite, f.fechaAprobacion), etiquetaTipo);
+  // El viaje 1 (tarifa o documental); los adicionales se suman encima con su precio congelado (HU #12626).
   const logistica = conceptoLogistica(baseLogistica, viajes);
 
   if (soat.bloquea) faltantes.push(soat.origen);
@@ -441,11 +629,12 @@ async function calcularDeFila(
   // base más su propio GMF. Los conceptos que no aplican valen null y `sumar` los ignora: no entran
   // a la base como cero disfrazado. La suma vive en `totalizar` para que el sellado —que relee los
   // servicios bajo bloqueo— use exactamente la misma.
+  // Una diferencia documental (aceptada o no) NUNCA entra en `faltantes` (D5): el sello la conserva.
   return totalizar({
     tramiteId: f.tramiteId, idFlit: f.idFlit,
     soat, impuesto, derecho, tramiteDigital, logistica, serviciosAdicionales: servicios,
     baseGmf: 0, tasaGmf: TASA_GMF, valorGmf: 0, total: 0, faltantes,
-  }, servicios, viajes);
+  }, servicios, viajes, docs);
 }
 
 /**
@@ -582,6 +771,13 @@ function aDto(l: typeof flitoLiquidaciones.$inferSelect, idFlit: string): Liquid
     & { serviciosAdicionales?: Partial<ConceptoServiciosAdicionales>; logistica?: Partial<ConceptoLogistica> };
   const concepto = (k: string, valor: string | null): ConceptoLiquidado =>
     d[k] ?? { valor: num(valor), origen: 'Sellado', bloquea: false };
+  // Los honorarios llevan `origenValor` y `diferencia` desde la HU #12654; un sello anterior no trae
+  // las claves y se lee con null en ambas — nunca se reconsulta `flito_comprobantes`: lo sellado no
+  // se mueve, y una aceptación posterior se ve en el reporte, no aquí.
+  const honorario = (k: string, valor: string | null): ConceptoHonorarioLiquidado => {
+    const c = concepto(k, valor);
+    return { ...c, origenValor: c.origenValor ?? null, diferencia: c.diferencia ?? null };
+  };
   // La logística tampoco pasa por `concepto()`: lleva `tarifa` y `viajes` (HU #12626). Un sello
   // anterior a esta HU no tiene `viajes` en su detalle y se lee con `viajes: null` / `totalViajes:
   // null` — NUNCA `[]` ni 1, que afirmarían «se selló sin viajes» sobre algo que no se sabe. Y en
@@ -592,10 +788,11 @@ function aDto(l: typeof flitoLiquidaciones.$inferSelect, idFlit: string): Liquid
       valor: d.logistica.valor ?? null, origen: d.logistica.origen ?? 'Sellado', bloquea: false,
       tarifa: d.logistica.tarifa ?? null, viajes: d.logistica.viajes,
       totalViajes: d.logistica.totalViajes ?? null,
+      origenValor: d.logistica.origenValor ?? null, diferencia: d.logistica.diferencia ?? null,
     }
     : {
       valor: num(l.valorLogistica), origen: d.logistica?.origen ?? 'Sellado', bloquea: false,
-      tarifa: null, viajes: null, totalViajes: null,
+      tarifa: null, viajes: null, totalViajes: null, origenValor: null, diferencia: null,
     };
   // Los servicios adicionales no pasan por `concepto()`: llevan `items`, que la columna no guarda.
   // El detalle manda y la columna es el respaldo, igual que los otros cinco — una liquidación
@@ -608,9 +805,10 @@ function aDto(l: typeof flitoLiquidaciones.$inferSelect, idFlit: string): Liquid
       origen: d.serviciosAdicionales.origen ?? ORIGEN_SERVICIOS_ADICIONALES,
       bloquea: false,
       items: d.serviciosAdicionales.items ?? [],
+      origenValor: d.serviciosAdicionales.origenValor ?? null, diferencia: d.serviciosAdicionales.diferencia ?? null,
     }
     : {
-      valor: num(l.valorServiciosAdicionales), origen: 'Sellado', bloquea: false, items: [],
+      valor: num(l.valorServiciosAdicionales), origen: 'Sellado', bloquea: false, items: [], origenValor: null, diferencia: null,
     };
   return {
     id: l.id,
@@ -620,7 +818,7 @@ function aDto(l: typeof flitoLiquidaciones.$inferSelect, idFlit: string): Liquid
     soat: concepto('soat', l.valorSoat),
     impuesto: concepto('impuesto', l.valorImpuesto),
     derecho: concepto('derecho', l.valorDerecho),
-    tramiteDigital: concepto('tramiteDigital', l.valorTramiteDigital),
+    tramiteDigital: honorario('tramiteDigital', l.valorTramiteDigital),
     logistica,
     serviciosAdicionales,
     baseGmf: Number(l.baseGmf), tasaGmf: Number(l.tasaGmf), valorGmf: Number(l.valorGmf),
@@ -653,17 +851,22 @@ export async function liquidar(tramiteId: string, usuarioId: number | null): Pro
     // aquí nadie mete ni saca un servicio de este trámite hasta el COMMIT. Se toma ANTES de leer la
     // puente, que es lo único que hace que lo sellado sea lo que estaba asignado.
     await bloquearTramite(tx, tramiteId).catch(traducirTramiteNoEncontrado);
-    const servicios = conceptoServicios(await serviciosAsignadosDe(tx, tramiteId));
+    // Las filas documentales, con el MISMO `tx` y bajo el mismo bloqueo (HU #12654, AC5): `aplicar`
+    // toma este `FOR UPDATE` antes de escribirlas, así que lo que se lee aquí es lo aplicado al COMMIT.
+    const docs = await documentalesDe(tx, tramiteId);
+    const servicios = conceptoServicios(await serviciosAsignadosDe(tx, tramiteId), docs.serviciosAdicionales);
     // Los viajes adicionales, con el MISMO `tx` y bajo el mismo bloqueo (HU #12626): registrar y
     // quitar lo toman también, así que nadie mete un viaje entre esta lectura y el COMMIT.
     const viajes = await viajesDe(tx, tramiteId);
     // Base, gravamen y total se RECOMPONEN con lo que se acaba de leer bajo bloqueo. El cálculo de
-    // arriba solo decidió que no faltaba nada; si alguien asignó un servicio o registró un viaje
-    // entre medias, lo que se sella —y lo que alimenta las bolsas— es el importe de esta lectura.
-    const calculo = totalizar(previo, servicios, viajes);
+    // arriba solo decidió que no faltaba nada; si alguien aplicó un comprobante, asignó un servicio o
+    // registró un viaje entre medias, lo que se sella —y lo que alimenta las bolsas— es esta lectura.
+    const calculo = totalizar(previo, servicios, viajes, docs);
 
     const detalle = {
       soat: calculo.soat, impuesto: calculo.impuesto, derecho: calculo.derecho,
+      // Con `origenValor` y `diferencia` (HU #12654): el reporte de costos lee
+      // `detalle->'tramiteDigital'->>'origenValor'` de las filas selladas.
       tramiteDigital: calculo.tramiteDigital,
       // Con `tarifa`, `viajes` (SIEMPRE array, también vacío) y `totalViajes`: el desglose por viaje
       // se congela aquí y `aDto` lo lee sin volver a la tabla (HU #12626).
