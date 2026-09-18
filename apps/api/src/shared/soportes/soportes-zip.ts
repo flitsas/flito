@@ -618,7 +618,8 @@ export async function emitirZipSoportes(
   res.setHeader(CABECERAS_ZIP_SOPORTES.incluidos, String(entradas.length));
   res.setHeader(CABECERAS_ZIP_SOPORTES.registros, String(new Set(entradas.map((e) => e.registroId)).size));
 
-  const archive = archiver('zip', { zlib: { level: 9 } });
+  // Store (level 0): PDF/JPG ya vienen comprimidos; level 9 solo quema CPU sin reducir el ZIP.
+  const archive = archiver('zip', { zlib: { level: 0 } });
   archive.on('error', (e) => {
     log.error({ err: (e as Error).message }, 'fallo del archivador; se corta la respuesta a medias');
     try { res.destroy(); } catch { /* ya cerrado */ }

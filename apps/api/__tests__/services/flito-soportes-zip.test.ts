@@ -857,10 +857,10 @@ describe('fronteras — lo ajeno no sale, y no se distingue de «sin soporte»',
 
 describe('presupuesto — se mide en BYTES y se decide ANTES de abrir el ZIP', () => {
   it('por encima del tope: 422 con `codigo`, sin cabecera de ZIP y sin `archiver`', async () => {
-    // `FLITO_ZIP_SOPORTES_MAX_BYTES` por defecto son 200 MiB; un soporte que declare más lo pasa.
+    // `FLITO_ZIP_SOPORTES_MAX_BYTES` por defecto son 1 GiB (1024 MiB); un soporte que declare más lo pasa.
     kdb.when.scenario({
       flito_soat: [filaSoat()],
-      flito_soportes: [soporte({ ancla: SOAT_A, tamanoBytes: 300 * 1024 * 1024 })],
+      flito_soportes: [soporte({ ancla: SOAT_A, tamanoBytes: 1100 * 1024 * 1024 })],
     });
 
     const r = await pedirZip(SOAT, await sesion(), { ids: [SOAT_A] });
@@ -874,23 +874,23 @@ describe('presupuesto — se mide en BYTES y se decide ANTES de abrir el ZIP', (
     const cuerpo = JSON.parse((r.body as Buffer).toString('utf8')) as Record<string, string>;
     expect(cuerpo.codigo).toBe('zip_demasiado_grande');
     // Dice el TOPE, no cuánto pesaba la selección: eso sería un contador de bytes por filtro.
-    expect(cuerpo.error).toContain('200');
-    expect(cuerpo.error).not.toContain('300');
+    expect(cuerpo.error).toContain('1024');
+    expect(cuerpo.error).not.toContain('1100');
   });
 
-  it('justo en el tope, 200: el borde no se pasa de largo', async () => {
+  it('justo en el tope, 1024 MiB: el borde no se pasa de largo', async () => {
     kdb.when.scenario({
       flito_soat: [filaSoat()],
-      flito_soportes: [soporte({ ancla: SOAT_A, tamanoBytes: 200 * 1024 * 1024 })],
+      flito_soportes: [soporte({ ancla: SOAT_A, tamanoBytes: 1_073_741_824 })],
     });
 
     expect((await pedirZip(SOAT, await sesion(), { ids: [SOAT_A] })).status).toBe(200);
   });
 
   it('la factura de FLIT entra con un CUPO declarado, no con cero', async () => {
-    // Sin cupo, un lote de cien facturas presupuestaría 0 bytes y pasaría por delante del tope
-    // entero. 41 facturas × 5 MiB = 205 MiB > 200 MiB.
-    const ids = Array.from({ length: 41 }, (_, i) => `eeeeeeee-0000-0000-0000-${String(i).padStart(12, '0')}`);
+    // Sin cupo, un lote de facturas presupuestaría 0 bytes y pasaría por delante del tope
+    // entero. 205 facturas × 5 MiB = 1025 MiB > 1024 MiB (default 1 GiB).
+    const ids = Array.from({ length: 205 }, (_, i) => `eeeeeeee-0000-0000-0000-${String(i).padStart(12, '0')}`);
     kdb.when.scenario({
       flito_impuestos: ids.map((id, i) => filaImpuesto({
         id, createdAt: new Date(AYER.getTime() + i), facturaVentaFlitId: `fac-${i}`,
@@ -913,8 +913,8 @@ describe('tope de registros — 400 con código propio, distinguible del 422 por
     Array.from({ length: n }, (_, i) => `eeeeeeee-0000-0000-0000-${String(i).padStart(12, '0')}`);
 
   it('pasarse del tope es 400 con `codigo`, y NO un 400 crudo de Zod', async () => {
-    // El defecto que esto mata: con `.max()` en el esquema, marcar 120 filas —lo más fácil de hacer
-    // sin querer en una tabla con «seleccionar todo»— caía en la rama genérica del cliente y
+    // El defecto que esto mata: con `.max()` en el esquema, marcar más del tope —lo más fácil de
+    // hacer sin querer en una tabla con «seleccionar todo»— caía en la rama genérica del cliente y
     // enseñaba «no se pudo generar el archivo, avisa a soporte».
     const r = await pedirZip(SOAT, await sesion(), { ids: demasiados() });
 
@@ -926,12 +926,12 @@ describe('tope de registros — 400 con código propio, distinguible del 422 por
   });
 
   it('el mensaje trae el TOPE para que el cliente lo haga eco, y no cuántos mandó', async () => {
-    const r = await pedirZip(SOAT, await sesion(), { ids: demasiados(137) });
+    const r = await pedirZip(SOAT, await sesion(), { ids: demasiados(337) });
     const cuerpo = JSON.parse((r.body as Buffer).toString('utf8')) as Record<string, string>;
 
     expect(cuerpo.error).toContain(String(ZIP_SOPORTES_MAX_REGISTROS));
     // Cuántos mandó ya lo sabe él; repetírselo solo añade una cifra que puede desincronizarse.
-    expect(cuerpo.error).not.toContain('137');
+    expect(cuerpo.error).not.toContain('337');
   });
 
   it('se decide ANTES de tocar la base: ni una consulta, ni `archiver`', async () => {
@@ -961,7 +961,7 @@ describe('tope de registros — 400 con código propio, distinguible del 422 por
 
     kdb.when.scenario({
       flito_soat: [filaSoat()],
-      flito_soportes: [soporte({ ancla: SOAT_A, tamanoBytes: 300 * 1024 * 1024 })],
+      flito_soportes: [soporte({ ancla: SOAT_A, tamanoBytes: 1100 * 1024 * 1024 })],
     });
     const porPeso = await pedirZip(SOAT, await sesion(), { ids: [SOAT_A] });
 
