@@ -22,7 +22,7 @@
 import { and, asc, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import { alias, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import {
-  CONCEPTOS_TARIFA, LLAVES_TARIFA, tipoTramiteTarifaDe, valorTarifaValido,
+  CONCEPTOS_TARIFA, LLAVES_TARIFA, VIGENCIA_DESDE_SIEMPRE, tipoTramiteTarifaDe, valorTarifaValido,
   type ConceptoTarifa, type TipoTramiteTarifa,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
@@ -310,6 +310,8 @@ const esChoqueDeLlave = (e: unknown): boolean => {
 /**
  * FIJAR: abre la PRIMERA vigencia de una llave que no tiene ninguna abierta. Si ya la tiene, 409 con
  * el id de la abierta: se cambia con `cambiarOCerrar`, no se crea otra (lo impide el índice parcial).
+ * `vigenteDesde` = {@link VIGENCIA_DESDE_SIEMPRE} (rige para trámites ya aprobados); `fijadoEn` = ahora
+ * (Bug #12682). Los cambios posteriores siguen abriendo en `now()` vía `cambiarOCerrar`.
  */
 export async function fijarTarifa(d: DatosFijar, usuarioId: number | null): Promise<Tarifa> {
   validarValor(d.valor);
@@ -318,10 +320,11 @@ export async function fijarTarifa(d: DatosFijar, usuarioId: number | null): Prom
   await companiaDe(d.companiaId).catch(() => { throw new TarifaError('La compañía no existe'); });
 
   const ahora = new Date();
+  const vigenteDesde = new Date(VIGENCIA_DESDE_SIEMPRE);
   try {
     const [fila] = await db.insert(v).values({
       companiaId: d.companiaId, concepto: d.concepto, tipoTramite: tipo, valor: String(d.valor),
-      vigenteDesde: ahora, fijadoPorId: usuarioId, fijadoEn: ahora,
+      vigenteDesde, fijadoPorId: usuarioId, fijadoEn: ahora,
     }).returning({ id: v.id });
     return await leerTarifa(fila.id);
   } catch (e) {
