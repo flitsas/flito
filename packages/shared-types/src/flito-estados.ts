@@ -430,7 +430,7 @@ export const CODIGO_ZIP_DEMASIADO_GRANDE = 'zip_demasiado_grande';
 export const CODIGO_ZIP_DEMASIADOS_REGISTROS = 'zip_demasiados_registros';
 
 /**
- * Cuántos registros admite UNA petición de ZIP de soportes.
+ * Cuántos registros admite UNA petición de ZIP de soportes (300).
  *
  * **No es el presupuesto.** Ese va en BYTES (`FLITO_ZIP_SOPORTES_MAX_BYTES`, perilla de entorno)
  * porque lo que cuesta es el archivo que hay detrás del id, no el id. Esto es la forma del cuerpo:
@@ -443,7 +443,7 @@ export const CODIGO_ZIP_DEMASIADOS_REGISTROS = 'zip_demasiados_registros';
  * Aun así el servidor manda el número DENTRO del mensaje del 400: el cliente lo hace eco sin tener
  * que estar compilado contra la misma versión de este paquete.
  */
-export const ZIP_SOPORTES_MAX_REGISTROS = 100;
+export const ZIP_SOPORTES_MAX_REGISTROS = 300;
 
 /**
  * Cabeceras con las que el ZIP dice CUÁNTO trae, para el aviso del caso parcial.

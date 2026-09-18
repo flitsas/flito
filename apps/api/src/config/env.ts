@@ -201,17 +201,17 @@ const envSchema = z.object({
   // `flito_soportes.tamano_bytes` del lote se comprueba ANTES de abrir el archivo: por encima de
   // esto la ruta responde 422 y no escribe un solo byte.
   //
-  // El default (200 MiB) sale de la MEDICIÓN de `flito-soportes-zip-coste.test.ts` y no de una
-  // analogía con ADR-0004: el `.xlsx` son objetos JS vivos en el heap y esto es I/O con compresión
-  // síncrona en el mismo hilo. Lo medido en un lote de 300 entradas (~90 MB de contenido) fue un
-  // delta de RSS de un dígito de MB —archiver va en streaming y no retiene los archivos— y un lag
-  // máximo del event loop de decenas de ms; el recurso que este tope raciona es el TIEMPO de
-  // compresión y el ancho de banda de salida, no el heap. Ver el reporte del test para la cifra.
+  // El default (1 GiB) sale de la MEDICIÓN de `flito-soportes-zip-coste.test.ts` y no de una
+  // analogía con ADR-0004: el `.xlsx` son objetos JS vivos en el heap y esto es I/O en streaming
+  // (store, zlib level 0: PDF/JPG no comprimen). Lo medido en un lote de 300 entradas (~900 MB de
+  // contenido) fue un delta de RSS que no escala con el contenido —archiver no retiene los
+  // archivos— y un lag del event loop acotado; el recurso que este tope raciona es el TIEMPO de
+  // transferencia y el ancho de banda de salida, no el heap. Ver el reporte del test para la cifra.
   //
-  // El techo duro de 1 GiB es el punto en el que la conversación deja de ser esta variable y pasa a
+  // El techo duro de 2 GiB es el punto en el que la conversación deja de ser esta variable y pasa a
   // ser «esto tiene que ser un trabajo asíncrono con enlace de descarga».
-  FLITO_ZIP_SOPORTES_MAX_BYTES: z.coerce.number().int().min(1_048_576).max(1_073_741_824)
-    .default(200 * 1024 * 1024),
+  FLITO_ZIP_SOPORTES_MAX_BYTES: z.coerce.number().int().min(1_048_576).max(2_147_483_648)
+    .default(1_073_741_824),
   // HU #11910 — lo que se le PRESUPUESTA a una factura de venta de FLIT, en bytes.
   //
   // Es un cupo declarado y no una medida, porque no hay ninguna: la factura no está en
