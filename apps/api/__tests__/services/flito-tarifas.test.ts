@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SQL } from 'drizzle-orm';
 import { chain, chainReject } from '../helpers/db.js';
 import { ligadoA, renderizar } from '../helpers/sql-ligado.js';
-import { tipoTramiteTarifaDe, valorTarifaValido } from '@operaciones/shared-types';
+import { tipoTramiteTarifaDe, valorTarifaValido, VIGENCIA_DESDE_SIEMPRE } from '@operaciones/shared-types';
 
 const selectMock = vi.fn();
 const insertMock = vi.fn();
@@ -58,6 +58,7 @@ function espiando(rows: unknown[], sobre: { where?: SQL; orderBy?: SQL[] }) {
 }
 
 const AHORA = new Date('2026-09-10T15:00:00.000Z');
+const DESDE_SIEMPRE = new Date(VIGENCIA_DESDE_SIEMPRE);
 const ABIERTA = { id: 'v-1', companiaId: 7, concepto: 'tramite_digital', tipoTramite: 'MATRICULA', valor: '270000.00', vigenteHasta: null };
 const FILA_TARIFA = (over: Record<string, unknown> = {}) => ({
   id: 'v-2', companiaId: 7, companiaNombre: 'ACME', concepto: 'tramite_digital', tipoTramite: 'MATRICULA',
@@ -239,16 +240,22 @@ describe('fijarTarifa — abre la PRIMERA vigencia de una llave (AC4, AC9, AC10,
     await expect(fijarTarifa({ companiaId: 999, concepto: 'logistica', valor: 1000 }, 1)).rejects.toThrow(/no existe/i);
   });
 
-  it('guarda el tipo normalizado, el instante del servidor como vigente_desde = fijado_en, y quién fija', async () => {
+  it('primera fijación: vigente_desde = epoch «desde siempre» (NO now()); fijado_en = ahora; tipo normalizado', async () => {
     const grabado: { values?: Record<string, unknown> } = {};
-    selectMock.mockReturnValueOnce(chain([COMPANIA])).mockReturnValueOnce(chain([FILA_TARIFA()]));
+    selectMock.mockReturnValueOnce(chain([COMPANIA])).mockReturnValueOnce(chain([
+      FILA_TARIFA({ vigenteDesde: DESDE_SIEMPRE, fijadoEn: AHORA }),
+    ]));
     insertMock.mockReturnValueOnce(grabando([{ id: 'v-2' }], grabado));
     const t = await fijarTarifa({ companiaId: 7, concepto: 'tramite_digital', tipoTramite: 'matrícula', valor: 320000 }, 9);
     expect(grabado.values).toMatchObject({ companiaId: 7, concepto: 'tramite_digital', tipoTramite: 'MATRICULA', valor: '320000', fijadoPorId: 9 });
-    expect(grabado.values?.vigenteDesde).toBe(grabado.values?.fijadoEn);
-    expect((grabado.values?.vigenteDesde as Date).toISOString()).toBe(AHORA.toISOString());
+    // Bug #12682: la primera vigencia NO usa now() para vigenteDesde (sí para fijadoEn).
+    expect((grabado.values?.fijadoEn as Date).toISOString()).toBe(AHORA.toISOString());
+    expect((grabado.values?.vigenteDesde as Date).toISOString()).toBe(VIGENCIA_DESDE_SIEMPRE);
+    expect(grabado.values?.vigenteDesde).not.toBe(grabado.values?.fijadoEn);
+    expect((grabado.values?.vigenteDesde as Date).getTime()).not.toBe(AHORA.getTime());
     expect(t.activo).toBe(true);
-    expect(t.vigenteDesde).toBe(AHORA.toISOString());
+    expect(t.vigenteDesde).toBe(VIGENCIA_DESDE_SIEMPRE);
+    expect(t.actualizadoEn).toBe(AHORA.toISOString());
   });
 
   it('si la llave ya tiene vigencia abierta (23505 del índice parcial) → conflicto con el id de la abierta', async () => {

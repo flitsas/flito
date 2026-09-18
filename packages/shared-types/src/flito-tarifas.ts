@@ -40,6 +40,13 @@ export function tipoTramiteTarifaDe(v: string | null | undefined): TipoTramiteTa
   return (TIPOS_TRAMITE_TARIFA as readonly string[]).includes(s) ? (s as TipoTramiteTarifa) : null;
 }
 
+/**
+ * Epoch finito «desde siempre» (mismo que migraciones 0183 y 0204).
+ * La PRIMERA vigencia de una llave (`fijarTarifa`) nace aquí; `fijadoEn` sigue siendo el instante
+ * real. Los cambios posteriores (`cambiarOCerrar`) abren en `now()`. Bug #12682.
+ */
+export const VIGENCIA_DESDE_SIEMPRE = '2000-01-01T00:00:00.000Z';
+
 /** Tope de `numeric(14,2)`: doce enteros y dos decimales. */
 export const TARIFA_VALOR_MAX = 999_999_999_999.99;
 
