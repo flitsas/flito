@@ -323,6 +323,91 @@ test.describe('HU #11909 — quién ve «Exportar a Excel» (AC6)', () => {
   });
 });
 
+// ═══════════════════ Bug #12642 — «Incluir datos de pago y trazabilidad» ════════════════════════
+
+const casillaPago = (page: Page) =>
+  page.getByRole('checkbox', { name: 'Incluir datos de pago y trazabilidad', exact: true });
+
+test.describe('Bug #12642 — el Excel ampliado con pago y trazabilidad', () => {
+  for (const m of [SOAT_MOD, IMPUESTOS_MOD]) {
+    test(`${m.ruta} — admin la ve, la marca y el cuerpo lleva \`incluirPago: true\``, async ({ page }) => {
+      await loginAs(page, OPERACIONES_USER);
+      await mockCola(page, m);
+      const exportado = await mockExport(page, m);
+      await page.goto(m.ruta);
+
+      // Desmarcada por defecto: el archivo de siempre sigue siendo lo que sale con un solo clic.
+      await expect(casillaPago(page)).toHaveCount(1);
+      await expect(casillaPago(page)).not.toBeChecked();
+      await expect(page.getByText('Añade al final del archivo estado, fechas, valor pagado y gestor.', { exact: false }))
+        .toBeVisible();
+      await casillaPago(page).check();
+
+      await Promise.all([page.waitForEvent('download'), botonExportar(page).click()]);
+
+      expect(exportado.peticiones).toHaveLength(1);
+      const cuerpo = JSON.parse(exportado.peticiones[0].cuerpo) as Record<string, unknown>;
+      expect(cuerpo.incluirPago).toBe(true);
+      // Sigue siendo el POST de siempre, con la clave DENTRO del cuerpo y no en la URL.
+      expect(exportado.peticiones[0].search).toBe('');
+    });
+
+    test(`${m.ruta} — admin sin marcarla: el cuerpo NO lleva la clave`, async ({ page }) => {
+      await loginAs(page, OPERACIONES_USER);
+      await mockCola(page, m);
+      const exportado = await mockExport(page, m);
+      await page.goto(m.ruta);
+      await expect(casillaPago(page)).toHaveCount(1);
+
+      await Promise.all([page.waitForEvent('download'), botonExportar(page).click()]);
+
+      // **Ausente, no `false`.** El esquema del endpoint es `.strict()` y admite ambas, pero solo la
+      // ausencia deja el cuerpo idéntico al de antes del bug — que es el contrato del gestor.
+      const cuerpo = JSON.parse(exportado.peticiones[0].cuerpo) as Record<string, unknown>;
+      expect(Object.keys(cuerpo), 'la clave viajó sin estar marcada').not.toContain('incluirPago');
+    });
+  }
+
+  // El gestor de cada cola: tiene el botón (AC6 de la #11909) pero NO la función nueva. Su DOM y su
+  // petición son los de hoy. Este es el caso que pone rojo el mutante «pintar la casilla siempre».
+  for (const caso of [
+    { rol: 'proveedor', usuario: PROVEEDOR_USER, modulo: SOAT_MOD },
+    { rol: 'gestor_impuestos', usuario: GESTOR_IMPUESTOS_USER, modulo: IMPUESTOS_MOD },
+  ]) {
+    test(`${caso.modulo.ruta} — ${caso.rol} no ve la casilla y su cuerpo es el de siempre`, async ({ page }) => {
+      await loginAs(page, caso.usuario);
+      await mockCola(page, caso.modulo);
+      const exportado = await mockExport(page, caso.modulo);
+      await page.goto(caso.modulo.ruta);
+
+      await expect(botonExportar(page)).toBeEnabled();
+      await expect(casillaPago(page)).toHaveCount(0);
+      await expect(page.getByText('Incluir datos de pago y trazabilidad')).toHaveCount(0);
+
+      await Promise.all([page.waitForEvent('download'), botonExportar(page).click()]);
+
+      const cuerpo = JSON.parse(exportado.peticiones[0].cuerpo) as Record<string, unknown>;
+      expect(Object.keys(cuerpo)).not.toContain('incluirPago');
+    });
+  }
+
+  test('/flito/soat — el 403 del ampliado hace eco de la frase del servidor y no ofrece reintento', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page, SOAT_MOD);
+    const frase = 'Tu usuario no puede exportar datos de pago y trazabilidad';
+    await mockExport(page, SOAT_MOD, {
+      status: 403, contentType: 'application/json', headers: {}, body: JSON.stringify({ error: frase }),
+    });
+    await page.goto('/flito/soat');
+    await casillaPago(page).check();
+    await botonExportar(page).click();
+
+    // La frase del servidor es fija —sale del middleware de permisos— y por eso se puede repetir.
+    await expect(page.getByRole('alert')).toContainText(frase);
+    await expect(page.getByRole('button', { name: 'Reintentar la descarga' })).toHaveCount(0);
+  });
+});
+
 // ═════════════════════════════ AC3 — el filtro «Creado en FLITO» ════════════════════════════════
 
 test.describe('HU #11909 — el filtro «Creado en FLITO» (AC3)', () => {

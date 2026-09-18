@@ -32,6 +32,13 @@ export const MIGRACIONES_CON_REPARTO = [
   '0191_servicios_adicionales_tipos.sql',
   '0192_pagina_flito_servicios_adicionales.sql',
   '0193_tramite_servicios_adicionales.sql',
+  '0197_permiso_recibo_caja.sql',
+  '0198_flito_comprobantes.sql',
+  '0199_tramite_viajes_logistica.sql',
+  '0200_pagina_finanzas_gastos_diarios.sql',
+  '0201_comprobantes_aplicar.sql',
+  '0202_comprobantes_diferencia.sql',
+  '0203_permiso_excel_exportar_pago.sql',
 ] as const;
 
 function sinComentariosSql(sql: string): string {

@@ -116,7 +116,12 @@ export default function FlitoTramites() {
 
   // Semilla desde la URL, solo al montar, para que un enlace de otra pantalla (el detalle del
   // reintento de derechos) llegue con la búsqueda ya aplicada. A partir de ahí manda el usuario.
-  const [texto, setTexto] = useState(() => new URLSearchParams(window.location.search).get('buscar') ?? '');
+  // HU #12635: `?placa=` (enlace «Ver trámite» de Comprobantes) alimenta la MISMA búsqueda; `?buscar=` manda si vienen los dos.
+  const [texto, setTexto] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('buscar') ?? params.get('placa') ?? '';
+  });
+
   const buscar = useDebounce(texto, 300);
   const [soatSel, setSoatSel] = useState<EstadoSoat[]>([]);
   const [impSel, setImpSel] = useState<EstadoImpuesto[]>([]);

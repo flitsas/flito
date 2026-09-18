@@ -327,3 +327,23 @@ export const soatLecturaFacturaLimiter = rateLimit({
   message: { error: 'Demasiadas lecturas de factura seguidas. Espera unos minutos e intenta de nuevo.' },
   store: makeStore('rl:soat-lectura:'),
 });
+
+/**
+ * Carga de comprobantes universales (`POST /api/flito/comprobantes`, HU #12629 AC9; calco de
+ * {@link soatLecturaFacturaLimiter}): cada petición son hasta 5 archivos que pasan por el OCR
+ * (gasto externo por byte, como la lectura de factura) y el lote entero son hasta 150 archivos = 30
+ * peticiones (`CARGA_MASIVA_MAX_ARCHIVOS / CARGA_MASIVA_ARCHIVOS_POR_PETICION`). 60 en quince
+ * minutos son DOS lotes completos seguidos por persona: por encima de eso no se está cargando el
+ * correo del día, se está vaciando una carpeta. Va DELANTE de multer: el exceso se frena antes de
+ * leer el cuerpo. Llave y store propios, como los demás. Cota revisable y sin telemetría.
+ */
+export const comprobantesCargaLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('comprobantes-carga:'),
+  handler: frenoConRastro('comprobantes-carga'),
+  message: { error: 'Demasiados envíos de comprobantes seguidos. Espera unos minutos e intenta de nuevo.' },
+  store: makeStore('rl:comprobantes-carga:'),
+});

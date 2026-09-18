@@ -34,6 +34,9 @@ const { flitoTramites } = await import('../../src/db/schema.js');
 // como `tarifas-por-fecha.test.ts` hace con la 0182/0183. Las dos son idempotentes.
 const SQL_0193 = leerMigracion('0193_tramite_servicios_adicionales.sql');
 const SQL_0194 = leerMigracion('0194_liquidaciones_valor_servicios_adicionales.sql');
+// Desde la HU #12627 `EXPR_LOGISTICA` lee `flito_tramite_viajes_logistica` (0199) en toda fila del
+// reporte, así que la proyección REAL no se puede ejecutar sin la tabla. Idempotente, como las otras.
+const SQL_0199 = leerMigracion('0199_tramite_viajes_logistica.sql');
 
 // Drizzle proyecta SIN alias y mapea por POSICIÓN: aquí se hace lo mismo (patrón de
 // db/tarifas-por-fecha.test.ts).
@@ -67,6 +70,7 @@ describe.skipIf(!URL_BASE)('reporte de costos — servicios adicionales contra P
   async function preparar(tx: postgres.TransactionSql): Promise<Fixtures> {
     await tx.unsafe(SQL_0193);
     await tx.unsafe(SQL_0194);
+    await tx.unsafe(SQL_0199);
     const [c] = await tx`INSERT INTO clients (name, document, soat_autogestionable, impuestos_autogestionable, logistica_autogestionable)
       VALUES (${`HU12546 ${SELLO}`}, ${NIT}, true, true, true) RETURNING id`;
     const [v] = await tx`INSERT INTO vehicles (plate, vin) VALUES (${`H12546${SELLO.slice(-3)}`}, ${`VIN12546${SELLO}`}) RETURNING id`;

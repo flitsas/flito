@@ -65,19 +65,24 @@ const pesos = (n: number): string => n.toLocaleString('es-CO', { maximumFraction
  */
 function calculoSellado(fila: FilaLiquidacion): CalculoLiquidacion {
   const concepto = (v: string | null) => ({ valor: num(v), origen: 'Valor sellado', bloquea: false });
+  // HU #12654 — los honorarios llevan origen y diferencia; aquí se reconstruye desde la columna y
+  // `salidasDe` solo mira el importe, así que van en null (como un sello anterior a esa HU).
+  const honorario = (v: string | null) => ({ ...concepto(v), origenValor: null, diferencia: null });
   return {
     tramiteId: fila.tramiteId,
     idFlit: fila.idFlit ?? '',
     soat: concepto(fila.valorSoat),
     impuesto: concepto(fila.valorImpuesto),
     derecho: concepto(fila.valorDerecho),
-    tramiteDigital: concepto(fila.valorTramiteDigital),
-    logistica: concepto(fila.valorLogistica),
+    tramiteDigital: honorario(fila.valorTramiteDigital),
+    // HU #12626 — `valor_logistica` ya es la SUMA (tarifa + viajes adicionales) y `salidasDe` emite
+    // una única salida por ella; el desglose por viaje vive en el detalle y aquí no hace falta.
+    logistica: { ...honorario(fila.valorLogistica), tarifa: null, viajes: null, totalViajes: null },
     // HU #12546 — desde la 0194 la liquidación puede llevar servicios adicionales, y su salida usa
     // la llave `tramite:{id}:servicios_adicionales`. Se reconstruye desde la COLUMNA sellada, no
     // desde la puente: la puente puede haber cambiado (o vaciarse) después del sello. `items` va
     // vacío porque `salidasDe` solo mira el importe; el desglose vive en el detalle de la fila.
-    serviciosAdicionales: { ...concepto(fila.valorServiciosAdicionales), items: [] },
+    serviciosAdicionales: { ...honorario(fila.valorServiciosAdicionales), items: [] },
     baseGmf: Number(fila.baseGmf),
     tasaGmf: Number(fila.tasaGmf ?? TASA_GMF),
     valorGmf: Number(fila.valorGmf),

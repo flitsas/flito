@@ -23,6 +23,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   // flito-soat/flito-soat.routes.ts
   { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'GET', ruta: '/', codigo: 'soat.cola.ver' },
   { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'POST', ruta: '/export', codigo: 'soat.excel.exportar' },
+  // Bug #12642: guarda en línea del archivo ampliado (`incluirPago: true`).
+  { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'POST', ruta: '/export', condicion: 'incluirPago', codigo: 'soat.excel.exportar_pago' },
   { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'POST', ruta: '/soportes/zip', codigo: 'soat.soportes.descargar' },
   { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'GET', ruta: '/facetas', codigo: 'soat.cola.filtrar' },
   { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'GET', ruta: '/:id', codigo: 'soat.solicitud.ver' },
@@ -101,6 +103,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/soportes/zip', codigo: 'impuestos.soportes.descargar' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'GET', ruta: '/', codigo: 'impuestos.cola.ver' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/export', codigo: 'impuestos.excel.exportar' },
+  // Bug #12642: guarda en línea del archivo ampliado (`incluirPago: true`).
+  { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/export', condicion: 'incluirPago', codigo: 'impuestos.excel.exportar_pago' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'GET', ruta: '/facetas', codigo: 'impuestos.cola.filtrar' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'GET', ruta: '/:id', codigo: 'impuestos.tramite.ver' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'GET', ruta: '/:id/historial', codigo: 'impuestos.tramite.ver_historial' },
@@ -113,6 +117,7 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/:id/reactivar', codigo: 'impuestos.tramite.reactivar' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/:id/reversar', codigo: 'impuestos.tramite.reversar' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/recibos', codigo: 'impuestos.recibos.cargar' },
+  { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/:id/recibo-caja', codigo: 'impuestos.recibos.cargar_caja' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/:id/asumir-operaciones', codigo: 'impuestos.tramite.asumir' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/:id/devolver-gestor', codigo: 'impuestos.tramite.devolver' },
   // flito-derechos/flito-derechos.routes.ts
@@ -305,4 +310,22 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts', metodo: 'GET', ruta: '/tramites/:id/servicios-adicionales', codigo: 'finanzas.servicios_adicionales.ver' },
   { fichero: 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts', metodo: 'POST', ruta: '/tramites/:id/servicios-adicionales', codigo: 'finanzas.servicios_adicionales.asignar' },
   { fichero: 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts', metodo: 'DELETE', ruta: '/tramites/:id/servicios-adicionales/:asignacionId', codigo: 'finanzas.servicios_adicionales.quitar' },
+
+  // ── HU #12611 — flito-comprobantes/ (módulo nuevo, nace reconducido; 5 rutas) ──
+  { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'POST', ruta: '/', codigo: 'comprobantes.lote.cargar' },
+  { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'GET', ruta: '/', codigo: 'comprobantes.cola.ver' },
+  { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'GET', ruta: '/:id', codigo: 'comprobantes.comprobante.ver' },
+  { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'GET', ruta: '/:id/archivo', codigo: 'comprobantes.archivo.descargar' },
+  { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'POST', ruta: '/:id/releer', codigo: 'comprobantes.comprobante.releer' },
+  // HU #12629 — F2 #12606: buscar trámites, aplicar y descartar (+3; 0201).
+  { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'POST', ruta: '/tramites/buscar', codigo: 'comprobantes.tramites.buscar' },
+  { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'POST', ruta: '/:id/aplicar', codigo: 'comprobantes.comprobante.aplicar' },
+  { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'POST', ruta: '/:id/descartar', codigo: 'comprobantes.comprobante.descartar' },
+  // HU #12654 — F3 #12607: aceptar la diferencia (+1; 0202).
+  { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'POST', ruta: '/:id/diferencia/aceptar', codigo: 'comprobantes.diferencia.aceptar' },
+
+  // ── HU #12619 — flito-logistica/flito-logistica-viajes.routes.ts (fichero hermano, nace reconducido; 3 rutas) ──
+  { fichero: 'flito-logistica/flito-logistica-viajes.routes.ts', metodo: 'GET', ruta: '/tramites/:tramiteId/viajes', codigo: 'logistica.viajes.ver' },
+  { fichero: 'flito-logistica/flito-logistica-viajes.routes.ts', metodo: 'POST', ruta: '/tramites/:tramiteId/viajes', codigo: 'logistica.viajes.registrar' },
+  { fichero: 'flito-logistica/flito-logistica-viajes.routes.ts', metodo: 'DELETE', ruta: '/tramites/:tramiteId/viajes/:viajeId', codigo: 'logistica.viajes.quitar' },
 ];

@@ -49,7 +49,7 @@ const { agruparEmpresas, claveEmpresa, condiciones, conJoins, indiceEmpresas, SE
 type FiltrosReporte = Parameters<typeof condiciones>[0];
 const { flitoTramites } = await import('../../src/db/schema.js');
 const { and } = await import('drizzle-orm');
-const { renderizar, gruposHuerfanos } = await import('../helpers/sql-ligado.js');
+const { renderizar, gruposHuerfanos, indicePrimerNivel } = await import('../helpers/sql-ligado.js');
 const { logPiiAccess } = await import('../../src/shared/pii-audit.js');
 
 const consolidadoMock = vi.mocked(consolidadoReporte);
@@ -80,9 +80,10 @@ const SQL_JOINS = () => conJoins(abrir({ id: flitoTramites.id })).toSQL();
 
 /** Trozos de la consulta renderizada, por sus cláusulas de primer nivel. */
 function trozos(sql: string) {
-  const iFrom = sql.indexOf(' from "flito_tramites"');
-  const iWhere = sql.indexOf(' where ');
-  const iGroup = sql.indexOf(' group by ');
+  // De PRIMER NIVEL: las subconsultas documentales (HU #12653) llevan su propio `from … where`.
+  const iFrom = indicePrimerNivel(sql, ' from "flito_tramites"');
+  const iWhere = indicePrimerNivel(sql, ' where ');
+  const iGroup = indicePrimerNivel(sql, ' group by ');
   if (iFrom < 0 || iGroup < 0) throw new Error(`Sin FROM o sin GROUP BY:\n${sql}`);
   return {
     select: sql.slice(0, iFrom),
@@ -139,16 +140,23 @@ describe('AC1 — consolidado por cliente y mes (CF-12, RN-02, RN-06)', () => {
       expect(sel[k], k).toBe(SELECT_TOTALES[k]);
     }
     const { select } = trozos(SQL_CONSOLIDADO('mes').sql);
-    // Número EXACTO, no «≥ 9» (un centinela débil que ni ve una suma que desaparece): 16.
+    // Número EXACTO, no «≥ 9» (un centinela débil que ni ve una suma que desaparece): 22.
     //   · 10 agregados de `SELECT_TOTALES` (los seis conceptos —con `serviciosAdicionales` de la
     //     HU #12546—, el GMF, el total y los dos subtotales de RN-02);
     //   · 6 `SUM("valor")` de la SUBCONSULTA correlacionada de servicios, que se renderiza una vez
     //     por cada expresión que la embebe: la propia columna, `gmf` (vía la base), `totalReintegro`
     //     (que lleva el GMF, y con él la base), `total` (que lleva la base DOS veces) y
-    //     `totalServicio`.
-    // Si alguien convierte esa subconsulta en un LEFT JOIN + GROUP BY, este número baja y el aserto
-    // de joins byte a byte de más abajo también cae.
-    expect(select.match(/SUM\(/g)!.length).toBe(16);
+    //     `totalServicio`;
+    //   · 6 `SUM("valor")` de la SUBCONSULTA correlacionada de VIAJES de logística (HU #12627), por
+    //     el mismo camino: la propia columna, `gmf`, `total` (dos veces) y `totalReintegro` (que
+    //     lleva la logística DOS veces: como término propio y dentro del GMF). No entra en
+    //     `totalServicio`: la logística es reintegro.
+    // Si alguien convierte una de las subconsultas en un LEFT JOIN + GROUP BY, este número baja y el
+    // aserto de joins byte a byte de más abajo también cae.
+    expect(select.match(/SUM\(/g)!.length).toBe(22);
+    // Y las seis de viajes son exactamente seis: ni una copia de `EXPR_LOGISTICA` sin viajes
+    // (bajaría) ni un join (subiría a 0 aquí y cambiaría la lista de joins).
+    expect(select.match(/SUM\("flito_tramite_viajes_logistica"\."valor"\)/g)!.length).toBe(6);
     expect(select).toContain('COUNT(*) FILTER (WHERE');
   });
 
@@ -248,7 +256,7 @@ describe('AC3 — mismo predicado que el detalle (CF-13)', () => {
     const t = trozos(q.sql);
     expect(t.where).not.toBeNull();
     // Cuántos `$n` consume el SELECT (la tasa del GMF) antes de que empiece el WHERE.
-    const antes = (q.sql.slice(0, q.sql.indexOf(' where ')).match(/\$\d+/g) ?? []).length;
+    const antes = (q.sql.slice(0, indicePrimerNivel(q.sql, ' where ')).match(/\$\d+/g) ?? []).length;
     // Mutante «predicado propio» (p. ej. filtrar por fecha de creación en vez de aprobación).
     expect(renumerar(t.where!, antes)).toBe(detalle.sql);
     expect(q.params.slice(antes, antes + detalle.params.length)).toEqual(detalle.params);

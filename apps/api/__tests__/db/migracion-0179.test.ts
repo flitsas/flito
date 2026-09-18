@@ -189,12 +189,14 @@ describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idemp
     }
   });
 
-  it('46 funciones de tipo `pagina` y ninguna es `flito_ayuda` (AC2-bis)', async () => {
+  it('48 funciones de tipo `pagina` y ninguna es `flito_ayuda` (AC2-bis)', async () => {
     // 43 → 44 desde la HU #12375 (0184 siembra `pagina.flito_tarifas`); 44 → 45 desde la HU #12085 (0187
     // siembra `pagina.roles_permisos`); 45 → 46 desde la HU #12542 (0192 siembra
-    // `pagina.flito_servicios_adicionales`): la base ya migrada las tiene todas.
+    // `pagina.flito_servicios_adicionales`); 46 → 47 desde la HU #12611 (0198 siembra
+    // `pagina.flito_comprobantes`); 47 → 48 desde la HU #12623 (0200 siembra
+    // `pagina.finanzas_gastos_diarios`): la base ya migrada las tiene todas.
     const [{ n }] = await sql`SELECT count(*)::int AS n FROM permisos_funciones WHERE tipo = 'pagina'`;
-    expect(n).toBe(46);
+    expect(n).toBe(48);
     const [{ hay }] = await sql`
       SELECT count(*)::int AS hay FROM permisos_funciones WHERE codigo = 'pagina.flito_ayuda'`;
     expect(hay).toBe(0);
@@ -229,12 +231,12 @@ describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idemp
     }
   });
 
-  it('AC4 — `admin` tiene las 46 páginas marcadas UNA A UNA (lo que hace neutro retirar los atajos)', async () => {
+  it('AC4 — `admin` tiene las 48 páginas marcadas UNA A UNA (lo que hace neutro retirar los atajos)', async () => {
     const suyas = (await sql`
       SELECT funcion_codigo FROM permisos_rol_funcion
        WHERE rol_codigo = 'admin' AND funcion_codigo LIKE 'pagina.%'
        ORDER BY funcion_codigo`).map((f) => f.funcion_codigo as string);
-    expect(suyas).toHaveLength(46);
+    expect(suyas).toHaveLength(48);
     const todas = (await sql`
       SELECT codigo FROM permisos_funciones WHERE tipo = 'pagina' ORDER BY codigo`)
       .map((f) => f.codigo as string);

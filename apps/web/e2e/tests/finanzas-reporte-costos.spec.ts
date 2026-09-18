@@ -1,5 +1,5 @@
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, funcionesDe, OPERACIONES_USER, AUDITOR_USER, TOKEN_E2E } from '../helpers/auth';
+import { loginAs, funcionesDe, OPERACIONES_USER, AUDITOR_USER, FINANCIERA_USER, TOKEN_E2E } from '../helpers/auth';
 
 // HU #10967 — Reporte de costos. Liquidar, facturar y consultar soportes sin salir de la pantalla.
 // Las filas liquidadas muestran valores sellados; el resto, un estimado. Backend mockeado.
@@ -32,6 +32,14 @@ const FILA_ESTIMADA = {
   // `totalServicio` a propósito (200000 es solo el trámite digital): así un cálculo local de la
   // pantalla se delata en vez de coincidir por casualidad.
   serviciosAdicionales: 125000, serviciosAdicionalesCantidad: 2,
+  // Viajes de logística (HU #12627 lo manda, la #12628 lo pinta): el 1 incluido más dos adicionales.
+  // Va en la fixture base para que el botón «Viajes · 3» pese en la medida de ancho de la compacta.
+  logisticaViajesCantidad: 3,
+  // Origen y valor documental (HU #12653 los manda, la #12655 los pinta). El caso normal: los dos
+  // honorarios salen de la tarifa y no hay comprobante aplicado. Van en la base para que en ampliada
+  // el chip «Tarifa» pese en todas las filas, como en producción.
+  origenes: { tramiteDigital: 'tarifa', logistica: 'tarifa' },
+  valorDocumental: { tramiteDigital: null, logistica: null, serviciosAdicionales: null },
 };
 const FILA_BLOQUEADA = {
   ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000002', idFlit: 'FLIT-2002',
@@ -41,6 +49,8 @@ const FILA_BLOQUEADA = {
   totalServicio: null,
   // Sin ningún servicio adicional, y eso es una AFIRMACIÓN: cantidad 0 → «—», el vacío del reporte.
   serviciosAdicionales: null, serviciosAdicionalesCantidad: 0,
+  // Solo el viaje incluido: «1» en la celda y «Viajes» sin contador en el botón.
+  logisticaViajesCantidad: 1,
 };
 /** Persona jurídica sin organismo: razón social y NIT, nombres vacíos, OT vacía (AC1). */
 const FILA_JURIDICA = {
@@ -58,6 +68,8 @@ const FILA_LIQUIDADA = {
   ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000003', idFlit: 'FLIT-2003',
   sellada: true, estadoLiquidacion: 'liquidado',
   serviciosAdicionales: null, serviciosAdicionalesCantidad: null,
+  // Y tampoco sabe cuántos viajes llevaba (HU #12628): «Sin dato», nunca «0».
+  logisticaViajesCantidad: null,
 };
 const FILA_FACTURADA = {
   ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000004', idFlit: 'FLIT-2004',
@@ -253,8 +265,8 @@ async function mock(page: import('@playwright/test').Page) {
 }
 
 /**
- * Desde la HU #12537 la tabla ARRANCA COMPACTA (9 de 29 columnas: nueve desde la #12539, y la 29ª
- * es «Serv. adic.» de la #12548, que no entra en la compacta). Los casos que
+ * Desde la HU #12537 la tabla ARRANCA COMPACTA (9 de 30 columnas: nueve desde la #12539, la 29ª
+ * es «Serv. adic.» de la #12548 y la 30ª «Viajes» de la #12628; ninguna entra en la compacta). Los casos que
  * leen una columna de las que se callan —VIN, marca, línea, el titular, OT, Estado, la fecha de
  * creación, un concepto suelto— la piden ampliada ANTES del `goto`, por la misma clave que escribe
  * el control: así prueban su columna, no el control. Los que leen «No configurado» / «Sin recibo»
@@ -1458,7 +1470,7 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
   test('AC1 — tres grupos rotulados y cada columna bajo el suyo', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockSecciones(page);
-    await ampliarColumnas(page);   // las 29: este caso es de la ampliada; su gemelo compacto está en el bloque de la #12539
+    await ampliarColumnas(page);   // las 30: este caso es de la ampliada; su gemelo compacto está en el bloque de la #12539
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText('FLIT-2001')).toBeVisible();
 
@@ -1471,7 +1483,7 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
     expect(grupos['Datos del trámite']).toEqual(
       ['Tipo trámite', 'Marca', 'Línea', 'OT', 'Estado', 'Fechas', 'Mes', 'Trimestre', 'Factura DIAN']);
     expect(grupos['Valores']).toEqual(
-      ['SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística', 'Total reintegro', 'Trámite digital', 'Serv. adic.', 'Servicio', 'Total', 'Liquidación']);
+      ['SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística', 'Viajes', 'Total reintegro', 'Trámite digital', 'Serv. adic.', 'Servicio', 'Total', 'Liquidación']);
   });
 
   test('AC1 — persona natural y jurídica, con y sin organismo, con y sin aprobación', async ({ page }) => {
@@ -1789,8 +1801,8 @@ test.describe('Reporte de costos — secciones, periodo y consolidado (HU #12434
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HU #12539 — la compacta se recorta a NUEVE columnas para que quepa en la pantalla de un portátil.
-// (La #12548 añade «Serv. adic.» a la AMPLIADA —29— y un botón más a Acciones; la compacta sigue en
-// nueve y este bloque es el que lo vigila.)
+// (La #12548 añade «Serv. adic.» a la AMPLIADA —29— y un botón más a Acciones; la #12628 añade
+// «Viajes» —30— y otro botón; la compacta sigue en nueve y este bloque es el que lo vigila.)
 //
 // Sustituye al bloque de la #12537 (12 columnas, colSpan 3/5/4), que solo medía que la compacta
 // fuera menor que la ampliada: en 1366×768 seguía desbordando (1628 px frente a 1258). Ahora lo que
@@ -1813,7 +1825,8 @@ test.describe('Reporte de costos — compacta de nueve columnas que cabe en pant
     // «Serv. adic.» va entre «Trámite digital» y «Servicio» (HU #12548, AC6): la fila se lee como
     // la cuenta que es. Va DESPUÉS de la primera de Valores, así que `antesDelPrimerTotal` —y con
     // él el `colSpan` del rótulo del pie— no se mueve; ponerla antes de SOAT lo arrastraría.
-    'Valores': ['SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística', 'Total reintegro', 'Trámite digital', 'Serv. adic.', 'Servicio', 'Total', 'Liquidación'],
+    // «Viajes» va justo tras «Logística» (HU #12628, AC1): es la explicación de ese importe.
+    'Valores': ['SOAT', 'Impuesto', 'Trámite', 'GMF', 'Logística', 'Viajes', 'Total reintegro', 'Trámite digital', 'Serv. adic.', 'Servicio', 'Total', 'Liquidación'],
   };
   // Las cifras que la pantalla tiene que decir salen de ESTAS listas, no se escriben: si mañana
   // entra una columna, el test cambia con ella y un «9» literal en el código se delata.
@@ -1983,7 +1996,7 @@ test.describe('Reporte de costos — compacta de nueve columnas que cabe en pant
     await page.goto('/finanzas/reporte-costos');
     await expect(page.getByText('FLIT-2001')).toBeVisible();
 
-    // mutante: estado inicial ampliado (`useState(() => true)`) → aquí salen las 29
+    // mutante: estado inicial ampliado (`useState(() => true)`) → aquí salen las 30
     // mutante: OT con `compacta: true` → cuatro bajo Datos del trámite y colSpan 3/3/4
     expect(await columnasPorGrupo(page)).toEqual(COMPACTA);
     expect(await colSpans(page)).toEqual(Object.values(COMPACTA).map((c) => c.length));
@@ -2110,7 +2123,7 @@ test.describe('Reporte de costos — compacta de nueve columnas que cabe en pant
     expect(anchoAmpliada).toBeLessThanOrEqual(TOPE_EMPRESA);
   });
 
-  test('AC6 — un clic amplía a 29 y otro vuelve a 9; el foco no se mueve, se anuncia y se recuerda en UNA clave', async ({ page }) => {
+  test('AC6 — un clic amplía a 30 y otro vuelve a 9; el foco no se mueve, se anuncia y se recuerda en UNA clave', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     // Dos filas, una con el SOAT conciliado: la marca vive en la celda SOAT, que se calla en compacta.
     await mockConciliacion(page);
@@ -2126,7 +2139,7 @@ test.describe('Reporte de costos — compacta de nueve columnas que cabe en pant
     await boton.focus();
     await boton.press('Enter');
     await expect(columnas(page)).toHaveCount(N_AMPLIADA);
-    // mutante: cambiar el orden o quitar una de las 29 al ampliar
+    // mutante: cambiar el orden o quitar una de las 30 al ampliar
     expect(await columnasPorGrupo(page)).toEqual(AMPLIADA);
     expect(await colSpans(page)).toEqual(Object.values(AMPLIADA).map((c) => c.length));
     await expect(boton).toHaveText('Compactar columnas');
@@ -2156,7 +2169,7 @@ test.describe('Reporte de costos — compacta de nueve columnas que cabe en pant
     await page.reload();
     await expect(page.getByText('FLIT-2007')).toBeVisible();
     await expect(columnas(page)).toHaveCount(N_AMPLIADA);
-    // mutante: `!== 'compacta'` como condición → «ampliada» abriría las 29
+    // mutante: `!== 'compacta'` como condición → «ampliada» abriría las 30
     await page.evaluate((k) => localStorage.setItem(k, 'ampliada'), CLAVE);
     await page.reload();
     await expect(page.getByText('FLIT-2007')).toBeVisible();
@@ -2949,7 +2962,7 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     await expect(cabeceras.filter({ hasText: 'Serv. adic.' })).toHaveCount(0);
 
     await page.getByRole('button', { name: /Mostrar todas las columnas/ }).click();
-    await expect(cabeceras).toHaveCount(29);
+    await expect(cabeceras).toHaveCount(30);
     // `allTextContents` y no `allInnerTexts`: la cabecera va en versalitas por CSS y `innerText`
     // devolvería «SERV. ADIC.», que no es lo que dice el DOM ni lo que lee un lector de pantalla.
     const titulos = await cabeceras.allTextContents();
@@ -2973,5 +2986,848 @@ test.describe('Reporte de costos — panel de servicios adicionales del trámite
     // El pie trae su total, y es el del SERVIDOR: 890.000 no es la suma de las filas de la página.
     const pie = page.getByRole('table').first().locator('tfoot tr').first();
     await expect(pie.getByRole('cell').nth(titulos.indexOf('Serv. adic.') - titulos.indexOf('SOAT') + 1)).toHaveText('$ 890.000');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HU #12628 — columna «Viajes» en la ampliada y panel de SOLO LECTURA con el desglose por viaje.
+// Diseño: `docs/ux/finanzas-reporte-costos-viajes.md`. Cada aserto lleva su mutante:
+//   · la celda la gobierna `logisticaViajesCantidad` de la fila (nunca `items.length`): 0 y null
+//     son afirmaciones distintas («—» / «Sin dato») y ningún «0» se cuela;
+//   · el contador del botón solo con n ≥ 2, en TODAS las filas y para el auditor, sin función nueva;
+//   · el pie del panel pinta `totalLogistica` DEL SERVIDOR: la fixture va descuadrada a propósito
+//     (35.000 + 35.000 + 62.000 = 132.000, pero el servidor dice 99.000) para que sumar en cliente caiga;
+//   · 403 sin Reintentar, 404 con «Actualizar el reporte», red con Reintentar que repite el GET;
+//   · el foco vuelve al botón «Viajes» de la misma fila. Backend mockeado.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const viaje = (
+  numero: number, valor: number, modo: 'inicial' | 'manual', tarifaVigente: number | null,
+  motivo: 'devolucion' | 'segunda_entrega' | 'documento_faltante' | 'otro', motivoDetalle: string | null = null,
+  registradoPorNombre: string | null = 'Ana Ríos',
+) => ({
+  id: `vvvv0000-0000-0000-0000-00000000000${numero}`, numero, modo, valor, tarifaVigente, motivo, motivoDetalle,
+  registradoPorNombre, registradoEn: '2026-09-15T15:12:00.000Z',
+});
+
+/** El desglose vigente de FLIT-2001: tarifa 35.000, un viaje a tarifa y uno manual; el total NO cuadra a propósito. */
+const DESGLOSE_VIGENTE = {
+  tramiteId: FILA_ESTIMADA.tramiteId, idFlit: 'FLIT-2001', placa: 'ABC123',
+  gestionaLogistica: true, liquidado: false, liquidadoEn: null, origen: 'vigente' as const,
+  tarifa: 35000, totalViajes: 3, totalLogistica: 99000,
+  items: [
+    viaje(2, 35000, 'inicial', 35000, 'devolucion'),
+    viaje(3, 62000, 'manual', 45000, 'otro', 'cliente pidió entrega en sede norte', 'L. Mora'),
+  ],
+};
+
+/** Las filas del reporte de este bloque: 3 viajes, solo el incluido, autogestiona y sellada sin desglose. */
+const FILA_AUTOGESTIONA = {
+  ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000031', idFlit: 'FLIT-2031',
+  logistica: null, autogestionados: ['Logística'], logisticaViajesCantidad: 0,
+};
+const FILAS_VIAJES = [FILA_ESTIMADA, FILA_BLOQUEADA, FILA_AUTOGESTIONA, FILA_LIQUIDADA];
+
+async function mockReporteViajes(page: Pagina, filas: unknown[] = FILAS_VIAJES) {
+  const peticiones: string[] = [];
+  await mockFacetas(page, ['Aprobado']);
+  await mockFacturacion(page);
+  await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) => {
+    peticiones.push(route.request().url());
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      ...REPORTE, items: filas, total: filas.length,
+    }) });
+  });
+  return peticiones;
+}
+
+/**
+ * El GET del desglose, con contador y con la respuesta que se le diga (cuerpo, código o demora).
+ * `opciones` se lee EN CADA petición: el test puede mutarlo (quitar el `status`) para que el
+ * siguiente GET —el de «Reintentar»— responda bien. Los contadores se comparan por «creció», no por
+ * un número exacto: en dev `StrictMode` monta dos veces y el primer GET se descarta (`vivo = false`).
+ */
+async function mockDesglose(
+  page: Pagina,
+  opciones: { cuerpo?: unknown; status?: number; error?: object; demoraMs?: number } = {},
+) {
+  const peticiones = { get: 0 };
+  await page.route(/\/api\/finanzas\/tramites\/[^/]+\/viajes-logistica/, async (route) => {
+    peticiones.get += 1;
+    if (opciones.demoraMs) await new Promise((r) => setTimeout(r, opciones.demoraMs));
+    const json = (status: number, cuerpo: unknown) =>
+      route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(cuerpo) });
+    if (opciones.status) return json(opciones.status, opciones.error ?? { error: 'Error del servidor' });
+    return json(200, opciones.cuerpo ?? DESGLOSE_VIGENTE);
+  });
+  return peticiones;
+}
+
+const botonViajes = (page: Pagina, flit: string) =>
+  page.getByRole('button', { name: new RegExp(`^Viajes de logística de ${flit}:`) });
+const panelViajes = (page: Pagina) => page.getByRole('dialog', { name: /^Viajes de logística · / });
+
+test.describe('HU #12628 — columna «Viajes» en la ampliada y panel de solo lectura por viaje', () => {
+  const cabeceras = (page: Pagina) => page.getByRole('table').first().locator('thead tr').nth(1).locator('th[scope="col"]');
+
+  test('AC1 — «Viajes» va tras «Logística» solo en la ampliada (30), sin pie; la compacta sigue en 9 de 30', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockReporteViajes(page);
+    await ampliarColumnas(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    await expect(cabeceras(page)).toHaveCount(30);
+    const titulos = await cabeceras(page).allTextContents();
+    // mutante: ponerla tras «Serv. adic.» → deja de leerse como la explicación de Logística
+    expect(titulos.indexOf('Viajes')).toBe(titulos.indexOf('Logística') + 1);
+    expect(titulos.indexOf('Total reintegro')).toBe(titulos.indexOf('Viajes') + 1);
+    // mutante: `total` añadido a la entrada → el pie deja de estar vacío bajo «Viajes»
+    const pie = page.getByRole('table').first().locator('tfoot tr').first();
+    await expect(pie.getByRole('cell').nth(titulos.indexOf('Viajes') - titulos.indexOf('SOAT') + 1)).toHaveText('');
+    await expect(pie.getByRole('cell').nth(titulos.indexOf('Logística') - titulos.indexOf('SOAT') + 1)).not.toHaveText('');
+
+    // mutante: `compacta: true` → aparece en la compacta y el anuncio dice 10 de 30
+    await page.getByRole('button', { name: /Compactar columnas/ }).click();
+    await expect(cabeceras(page)).toHaveCount(9);
+    await expect(cabeceras(page).filter({ hasText: 'Viajes' })).toHaveCount(0);
+    await expect(page.getByRole('status').filter({ hasText: 'Vista compacta: 9 de 30 columnas.' })).toHaveCount(1);
+  });
+
+  test('AC2 — la celda: «3» y «1» con su nombre accesible, «—» para 0 y «Sin dato» para null; ningún «0»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockReporteViajes(page);
+    await ampliarColumnas(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    const titulos = await cabeceras(page).allTextContents();
+    const celdaDe = (flit: string) => page.getByRole('row').filter({ hasText: flit })
+      .getByRole('cell').nth(titulos.indexOf('Viajes') + 1);
+
+    await expect(celdaDe('FLIT-2001')).toHaveText('3');
+    await expect(celdaDe('FLIT-2001')).toHaveAttribute('aria-label', '3 viajes de logística');
+    // mutante: plural fijo → «1 viajes de logística»
+    await expect(celdaDe('FLIT-2002')).toHaveText('1');
+    await expect(celdaDe('FLIT-2002')).toHaveAttribute('aria-label', '1 viaje de logística');
+    // 0 = autogestiona → el guion del reporte, con su `title`
+    await expect(celdaDe('FLIT-2031')).toHaveText('—');
+    await expect(celdaDe('FLIT-2031').getByTitle('Autogestiona')).toBeVisible();
+    // null = sellada antes del concepto → «Sin dato» (mutante: `?? 0` → «0»)
+    await expect(celdaDe('FLIT-2003')).toHaveText('Sin dato');
+    await expect(celdaDe('FLIT-2003').getByTitle('Se liquidó antes de que FLITO cobrara viajes adicionales.')).toBeVisible();
+    await expect(celdaDe('FLIT-2003')).not.toHaveText(/0/);
+  });
+
+  test('AC3 — el botón «Viajes» en todas las filas: contador solo con n ≥ 2, tras «Servicios», y el auditor lo ve', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockReporteViajes(page);
+    const desglose = await mockDesglose(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    // mutante: contador con `n >= 1` → «Viajes · 1» en FLIT-2002; con `?? 0` → «· 0» en la sellada
+    await expect(botonViajes(page, 'FLIT-2001')).toHaveText('Viajes · 3');
+    await expect(botonViajes(page, 'FLIT-2002')).toHaveText('Viajes');
+    await expect(botonViajes(page, 'FLIT-2031')).toHaveText('Viajes');
+    await expect(botonViajes(page, 'FLIT-2003')).toHaveText('Viajes');   // sellada: también lo lleva
+    await expect(botonViajes(page, 'FLIT-2001')).toHaveAccessibleName('Viajes de logística de FLIT-2001: 3 viajes');
+    await expect(botonViajes(page, 'FLIT-2002')).toHaveAccessibleName('Viajes de logística de FLIT-2002: 1 viaje');
+    await expect(botonViajes(page, 'FLIT-2031')).toHaveAccessibleName('Viajes de logística de FLIT-2031: autogestiona');
+    await expect(botonViajes(page, 'FLIT-2003')).toHaveAccessibleName('Viajes de logística de FLIT-2003: sin dato');
+    // El contador NO cuesta una petición: viaja en la fila.
+    expect(desglose.get).toBe(0);
+
+    // Orden: Soporte → Servicios → Viajes → Liquidar (consultar antes que operar).
+    const botones = await page.getByRole('row').filter({ hasText: 'FLIT-2001' }).getByRole('button').allTextContents();
+    expect(botones.indexOf('Viajes · 3')).toBe(botones.indexOf('Servicios · 2') + 1);
+    expect(botones.indexOf('Liquidar')).toBeGreaterThan(botones.indexOf('Viajes · 3'));
+  });
+
+  test('AC3 — el auditor SIN la función de servicios ve «Viajes» en todas las filas y abre el panel', async ({ page }) => {
+    // Se le quita `finanzas.servicios_adicionales.ver` a propósito: el fixture del auditor la trae, y con
+    // ella un gating por `puedeVerServicios` pasaría desapercibido. Sin la función, «Servicios» no se
+    // pinta y «Viajes» tiene que seguir ahí, justo tras «Soporte».
+    const sinVerServicios = funcionesDe(AUDITOR_USER).filter((f) => f !== 'finanzas.servicios_adicionales.ver');
+    await loginAs(page, AUDITOR_USER, { funciones: sinVerServicios });
+    await mockReporteViajes(page);
+    await mockDesglose(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    // mutante: gating por `puedeVerServicios` → el auditor se queda sin botón
+    await expect(botonViajes(page, 'FLIT-2001')).toBeVisible();
+    await expect(botonViajes(page, 'FLIT-2003')).toBeVisible();
+    const botones = await page.getByRole('row').filter({ hasText: 'FLIT-2001' }).getByRole('button').allTextContents();
+    expect(botones).not.toContain('Servicios · 2');
+    expect(botones.indexOf('Viajes · 3')).toBe(botones.indexOf('Soporte') + 1);
+    // Y sin Liquidar ni Facturar: el auditor solo consulta.
+    expect(botones).not.toContain('Liquidar');
+
+    await botonViajes(page, 'FLIT-2001').click();
+    await expect(panelViajes(page)).toBeVisible();
+    await expect(panelViajes(page).getByText('Total logística')).toBeVisible();
+  });
+
+  test('AC4 — el panel lleno: título, origen, Viaje 1, cada viaje con su modo y motivo, y el total DEL SERVIDOR; cero acciones', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockReporteViajes(page);
+    const desglose = await mockDesglose(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    await botonViajes(page, 'FLIT-2001').click();
+    const panel = panelViajes(page);
+    // mutante: título sin la placa
+    await expect(panel).toHaveAttribute('aria-label', 'Viajes de logística · FLIT-2001 · ABC123');
+    expect(desglose.get).toBeGreaterThanOrEqual(1);
+    await expect(panel.getByText('Estimado con los viajes registrados')).toBeVisible();
+    await expect(panel.getByText('Viaje 1 · incluido en la tarifa · $ 35.000')).toBeVisible();
+
+    const filas = panel.getByRole('listitem');
+    await expect(filas).toHaveCount(2);
+    await expect(filas.nth(0)).toContainText('Viaje 2');
+    await expect(filas.nth(0)).toContainText('$ 35.000');
+    await expect(filas.nth(0)).toContainText('Tarifa · Tarifa del momento $ 35.000');
+    await expect(filas.nth(0)).toContainText('Devolución · Ana Ríos · 15 sep 2026');
+    await expect(filas.nth(1)).toContainText('Viaje 3');
+    await expect(filas.nth(1)).toContainText('$ 62.000');
+    // mutante: modo sin la tarifa del momento → no se ve la desviación
+    await expect(filas.nth(1)).toContainText('Precio manual · Tarifa del momento $ 45.000');
+    await expect(filas.nth(1)).toContainText('Otro: cliente pidió entrega en sede norte · L. Mora');
+    // Los uuid van en `data-id`, nunca en pantalla.
+    await expect(filas.nth(0)).toHaveAttribute('data-id', DESGLOSE_VIGENTE.items[0].id);
+    await expect(panel).not.toContainText('vvvv0000');
+
+    // mutante: sumar en cliente → 132.000. El servidor dice 99.000 y eso es lo que se pinta.
+    await expect(panel.getByText('3 viajes', { exact: true })).toBeVisible();
+    await expect(panel.getByText('$ 99.000')).toBeVisible();
+    await expect(panel).not.toContainText('132.000');
+
+    // Solo lectura: el único botón del diálogo es el ✕ del kit; ningún input.
+    await expect(panel.getByRole('button')).toHaveCount(1);
+    await expect(panel.getByRole('button', { name: 'Cerrar' })).toBeVisible();
+    await expect(panel.locator('input, select, textarea')).toHaveCount(0);
+    await expect(panel.getByRole('button', { name: /Registrar|Quitar|Añadir/ })).toHaveCount(0);
+  });
+
+  test('AC4 — el foco: entra al ✕, y Esc y el ✕ lo devuelven al botón «Viajes» de la misma fila', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockReporteViajes(page);
+    await mockDesglose(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    await botonViajes(page, 'FLIT-2002').focus();
+    await page.keyboard.press('Enter');
+    await expect(panelViajes(page)).toBeVisible();
+    await page.keyboard.press('Tab');
+    await expect(panelViajes(page).getByRole('button', { name: 'Cerrar' })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(panelViajes(page)).toHaveCount(0);
+    // mutante: devolver el foco al título → aquí cae
+    await expect(botonViajes(page, 'FLIT-2002')).toBeFocused();
+
+    await botonViajes(page, 'FLIT-2001').click();
+    await expect(panelViajes(page)).toBeVisible();
+    await panelViajes(page).getByRole('button', { name: 'Cerrar' }).click();
+    await expect(panelViajes(page)).toHaveCount(0);
+    await expect(botonViajes(page, 'FLIT-2001')).toBeFocused();
+  });
+
+  test('AC5 — sin_desglose: «Sin dato…», «Sellado el …», el total sellado y SIN «Viaje 1»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockReporteViajes(page);
+    await mockDesglose(page, { cuerpo: {
+      ...DESGLOSE_VIGENTE, tramiteId: FILA_LIQUIDADA.tramiteId, idFlit: 'FLIT-2003',
+      liquidado: true, liquidadoEn: '2026-09-12T14:14:00.000Z', origen: 'sin_desglose',
+      tarifa: null, totalViajes: null, totalLogistica: 15000, items: null,
+    } });
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2003')).toBeVisible();
+
+    await botonViajes(page, 'FLIT-2003').click();
+    const panel = panelViajes(page);
+    await expect(panel.getByText('Sin dato: se liquidó antes de que FLITO cobrara viajes adicionales.')).toBeVisible();
+    await expect(panel.getByText(/^Sellado el 12 sep 2026, \d{1,2}:\d{2}/)).toBeVisible();
+    await expect(panel.getByText('$ 15.000')).toBeVisible();
+    // mutante: pintar la cabecera del viaje 1 en sin_desglose
+    await expect(panel.getByText(/Viaje 1/)).toHaveCount(0);
+    await expect(panel.getByRole('listitem')).toHaveCount(0);
+  });
+
+  test('AC5 — autogestiona: «La logística de esta compañía la gestiona el cliente…» y ningún «$ 0»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockReporteViajes(page);
+    await mockDesglose(page, { cuerpo: {
+      ...DESGLOSE_VIGENTE, tramiteId: FILA_AUTOGESTIONA.tramiteId, idFlit: 'FLIT-2031',
+      gestionaLogistica: false, tarifa: null, totalViajes: 0, totalLogistica: null, items: [],
+    } });
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2031')).toBeVisible();
+
+    await botonViajes(page, 'FLIT-2031').click();
+    const panel = panelViajes(page);
+    await expect(panel.getByText('La logística de esta compañía la gestiona el cliente: no hay viajes que cobrar.')).toBeVisible();
+    await expect(panel.getByText(/Viaje 1/)).toHaveCount(0);
+    await expect(panel.getByText('Total logística')).toHaveCount(0);
+    await expect(panel).not.toContainText('$ 0');
+    await expect(panel).not.toContainText('0 viajes');
+  });
+
+  test('AC5 — solo el incluido: Viaje 1 arriba, «Sin viajes adicionales.» y «1 viaje»; sin tarifa, «Sin tarifa configurada»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockReporteViajes(page);
+    const desglose = await mockDesglose(page, { cuerpo: {
+      ...DESGLOSE_VIGENTE, tramiteId: FILA_BLOQUEADA.tramiteId, idFlit: 'FLIT-2002',
+      totalViajes: 1, totalLogistica: 35000, items: [],
+    } });
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2002')).toBeVisible();
+
+    await botonViajes(page, 'FLIT-2002').click();
+    const panel = panelViajes(page);
+    await expect(panel.getByText('Viaje 1 · incluido en la tarifa · $ 35.000')).toBeVisible();
+    await expect(panel.getByText('Sin viajes adicionales.')).toBeVisible();
+    await expect(panel.getByText('1 viaje', { exact: true })).toBeVisible();
+    await expect(panel.getByText('$ 35.000')).toHaveCount(2);   // cabecera y total
+    await page.keyboard.press('Escape');
+
+    // Sin tarifa configurada: la cabecera lo dice con palabras, sin «$ 0».
+    await page.unroute(/\/api\/finanzas\/tramites\/[^/]+\/viajes-logistica/);
+    await mockDesglose(page, { cuerpo: {
+      ...DESGLOSE_VIGENTE, tramiteId: FILA_BLOQUEADA.tramiteId, idFlit: 'FLIT-2002',
+      tarifa: null, totalViajes: 1, totalLogistica: null, items: [],
+    } });
+    await botonViajes(page, 'FLIT-2002').click();
+    await expect(panelViajes(page).getByText('Viaje 1 · incluido en la tarifa · Sin tarifa configurada')).toBeVisible();
+    await expect(panelViajes(page)).not.toContainText('$ 0');
+    // La segunda apertura pintó lo del mock nuevo: cada apertura repide, no cachea.
+    expect(desglose.get).toBeGreaterThanOrEqual(1);
+  });
+
+  test('AC5 — 403 sin Reintentar; 404 con «Actualizar el reporte» que cierra y refresca', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const reporte = await mockReporteViajes(page);
+    await mockDesglose(page, { status: 403, error: { error: 'Sin permisos para esta operación' } });
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+    const pedidasAntes = reporte.length;
+
+    await botonViajes(page, 'FLIT-2001').click();
+    const panel = panelViajes(page);
+    await expect(panel.getByRole('alert')).toHaveText('Tu usuario ya no puede ver los viajes de este trámite. Vuelve a entrar para actualizar tus permisos.');
+    // mutante: Reintentar en 403
+    await expect(panel.getByRole('button', { name: 'Reintentar' })).toHaveCount(0);
+    await expect(panel.getByRole('button', { name: 'Actualizar el reporte' })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    await page.unroute(/\/api\/finanzas\/tramites\/[^/]+\/viajes-logistica/);
+    await mockDesglose(page, { status: 404, error: { error: 'Trámite no encontrado' } });
+    await botonViajes(page, 'FLIT-2001').click();
+    await expect(panelViajes(page).getByRole('alert')).toHaveText('El trámite ya no existe.');
+    await expect(panelViajes(page).getByRole('button', { name: 'Reintentar' })).toHaveCount(0);
+    await panelViajes(page).getByRole('button', { name: 'Actualizar el reporte' }).click();
+    // mutante: no cerrar, o no refrescar (`window.location.reload` también caería: el mock cuenta URLs del reporte)
+    await expect(panelViajes(page)).toHaveCount(0);
+    await expect.poll(() => reporte.length).toBe(pedidasAntes + 1);
+  });
+
+  test('AC5 — red/5xx: esqueleto mientras carga, `role="alert"` y Reintentar que repite el mismo GET', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockReporteViajes(page);
+    const opciones = { status: 500, error: { error: 'Se cayó la base' }, demoraMs: 300 };
+    const desglose = await mockDesglose(page, opciones);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+
+    await botonViajes(page, 'FLIT-2001').click();
+    const panel = panelViajes(page);
+    // mutante: spinner sin `role="status"` o sin `aria-busy`
+    const esqueleto = panel.getByRole('status', { name: 'Consultando los viajes…' });
+    await expect(esqueleto).toBeVisible();
+    await expect(esqueleto).toHaveAttribute('aria-busy', 'true');
+
+    await expect(panel.getByRole('alert')).toContainText('No se pudieron cargar los viajes de este trámite.');
+    await expect(panel.getByRole('alert')).toContainText('Se cayó la base');
+    await expect(panel.getByText('Total logística')).toHaveCount(0);
+    const antes = desglose.get;
+    // El servidor se recupera; «Reintentar» tiene que REPEDIR para enterarse (mutante: no repide).
+    opciones.status = 0;
+    await panel.getByRole('button', { name: 'Reintentar' }).click();
+    await expect(panel.getByText('Viaje 1 · incluido en la tarifa · $ 35.000')).toBeVisible();
+    expect(desglose.get).toBeGreaterThan(antes);
+    await expect(panel.getByRole('alert')).toHaveCount(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HU #12655 — Origen del valor, chips de diferencia, filtro «Con diferencias» y «Aceptar diferencia».
+// Contrato: matriz TC-01…TC-21 del QA (comentario 29466735) y slim `finanzas-reporte-costos-diferencias-12655-slim.md`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const VD = (extra: Record<string, unknown> = {}) => ({
+  comprobanteId: 'cccc0000-0000-0000-0000-000000000001', numero: 'FS-1023', fecha: '2026-09-12T15:00:00.000Z',
+  tarifaReferencia: 80000, diferencia: 15000, aceptada: false, aceptadaPorNombre: null, aceptadaEn: null, aceptadaMotivo: null,
+  ...extra,
+});
+
+/** TD del documento (+$15.000 sobre la tarifa), LG de tarifa. Sin faltantes: Liquidar sigue vivo. */
+const FILA_DOCUMENTAL = {
+  ...FILA_ESTIMADA, tramiteId: 'dddd0000-0000-0000-0000-000000000101', idFlit: 'FLIT-2101', tramiteDigital: 95000,
+  origenes: { tramiteDigital: 'documental', logistica: 'tarifa' },
+  valorDocumental: { tramiteDigital: VD(), logistica: null, serviciosAdicionales: null },
+};
+/** Dos pendientes en la misma fila: TD +$15.000 y LG −$5.000. Dos comprobantes distintos. */
+const FILA_DOS_PENDIENTES = {
+  ...FILA_ESTIMADA, tramiteId: 'dddd0000-0000-0000-0000-000000000102', idFlit: 'FLIT-2102', tramiteDigital: 95000, logistica: 25000,
+  origenes: { tramiteDigital: 'documental', logistica: 'documental' },
+  valorDocumental: {
+    tramiteDigital: VD(), logistica: VD({ comprobanteId: 'cccc0000-0000-0000-0000-000000000002', numero: 'FS-1024', tarifaReferencia: 30000, diferencia: -5000 }),
+    serviciosAdicionales: null,
+  },
+};
+/** LG documental con la diferencia ya aceptada (−$20.000). */
+const FILA_ACEPTADA = {
+  ...FILA_ESTIMADA, tramiteId: 'dddd0000-0000-0000-0000-000000000103', idFlit: 'FLIT-2103', logistica: 10000,
+  origenes: { tramiteDigital: 'tarifa', logistica: 'documental' },
+  valorDocumental: {
+    tramiteDigital: null, serviciosAdicionales: null,
+    logistica: VD({ comprobanteId: 'cccc0000-0000-0000-0000-000000000003', tarifaReferencia: 30000, diferencia: -20000, aceptada: true, aceptadaPorNombre: 'ana.perez', aceptadaEn: '2026-09-16T14:00:00.000Z', aceptadaMotivo: 'Factura del proveedor con IVA' }),
+  },
+};
+/** Servicios adicionales: el catálogo suma $ 125.000 y el comprobante dijo $ 105.000. La celda sigue en el catálogo. */
+const FILA_SA = {
+  ...FILA_ESTIMADA, tramiteId: 'dddd0000-0000-0000-0000-000000000104', idFlit: 'FLIT-2104',
+  valorDocumental: { tramiteDigital: null, logistica: null, serviciosAdicionales: VD({ comprobanteId: 'cccc0000-0000-0000-0000-000000000004', tarifaReferencia: 125000, diferencia: -20000 }) },
+};
+/** TD del documento sin tarifa configurada: la diferencia es el valor entero. */
+const FILA_SIN_TARIFA = {
+  ...FILA_ESTIMADA, tramiteId: 'dddd0000-0000-0000-0000-000000000105', idFlit: 'FLIT-2105', tramiteDigital: 95000,
+  origenes: { tramiteDigital: 'documental', logistica: 'tarifa' },
+  valorDocumental: { tramiteDigital: VD({ comprobanteId: 'cccc0000-0000-0000-0000-000000000005', tarifaReferencia: null, diferencia: 95000 }), logistica: null, serviciosAdicionales: null },
+};
+/** AC3: la compañía autogestiona la logística Y hay comprobante aplicado. La celda no lo dice. */
+const FILA_AUTOGESTIONADA = {
+  ...FILA_ESTIMADA, tramiteId: 'dddd0000-0000-0000-0000-000000000106', idFlit: 'FLIT-2106',
+  logistica: null, autogestionados: ['Logística'], totalReintegro: 653460, logisticaViajesCantidad: 0,
+  origenes: { tramiteDigital: 'tarifa', logistica: null },
+  valorDocumental: { tramiteDigital: null, logistica: VD({ comprobanteId: 'cccc0000-0000-0000-0000-000000000006', tarifaReferencia: 30000, diferencia: 5000 }), serviciosAdicionales: null },
+};
+/** Documental que cuadra con la tarifa: «Documento» y nada más. */
+const FILA_CUADRA = {
+  ...FILA_ESTIMADA, tramiteId: 'dddd0000-0000-0000-0000-000000000107', idFlit: 'FLIT-2107', tramiteDigital: 80000,
+  origenes: { tramiteDigital: 'documental', logistica: 'tarifa' },
+  valorDocumental: { tramiteDigital: VD({ comprobanteId: 'cccc0000-0000-0000-0000-000000000007', diferencia: 0 }), logistica: null, serviciosAdicionales: null },
+};
+/** «No configurado» (origen null) sin chip: AC1. */
+const FILA_NO_CONFIGURADA = { ...FILA_BLOQUEADA, tramiteId: 'dddd0000-0000-0000-0000-000000000108', idFlit: 'FLIT-2108', origenes: { tramiteDigital: null, logistica: 'tarifa' } };
+
+const FILAS_DIFERENCIAS = [FILA_DOCUMENTAL, FILA_DOS_PENDIENTES, FILA_ACEPTADA, FILA_SA, FILA_SIN_TARIFA, FILA_AUTOGESTIONADA, FILA_CUADRA, FILA_NO_CONFIGURADA];
+
+/** Los mocks de la HU: el reporte con las filas de diferencias, el consolidado, el export y el POST de aceptar. */
+async function mockDiferencias(page: import('@playwright/test').Page, opciones: {
+  filas?: unknown[];
+  /** Qué responde el POST de aceptar, por comprobanteId; por defecto 200 `{ ok: true }`. */
+  aceptar?: (comprobanteId: string, n: number) => { status: number; body?: unknown };
+} = {}) {
+  await mockFacetas(page, ['Aprobado']);
+  await mockFacturacion(page, [], { ...RESUMEN_FE, items: [] });
+  const gets: string[] = [];
+  const consolidados: string[] = [];
+  const aceptados: { comprobanteId: string; body: Record<string, unknown> }[] = [];
+  const filas = opciones.filas ?? FILAS_DIFERENCIAS;
+  await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) => {
+    gets.push(route.request().url());
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...REPORTE, items: filas, total: filas.length }) });
+  });
+  await page.route(/\/api\/finanzas\/reporte-costos\/consolidado\?/, (route) => {
+    consolidados.push(route.request().url());
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ periodo: 'mes', items: [], totales: REPORTE.totales }) });
+  });
+  await page.route(/\/api\/flito\/comprobantes\/([^/]+)\/diferencia\/aceptar$/, (route) => {
+    const comprobanteId = route.request().url().match(/comprobantes\/([^/]+)\/diferencia/)?.[1] ?? '';
+    aceptados.push({ comprobanteId, body: route.request().postDataJSON() });
+    const r = opciones.aceptar?.(comprobanteId, aceptados.length) ?? { status: 200, body: { ok: true } };
+    return route.fulfill({ status: r.status, contentType: 'application/json', body: JSON.stringify(r.body ?? {}) });
+  });
+  return { gets, consolidados, aceptados };
+}
+
+const marcaDe = (page: import('@playwright/test').Page, idFlit: string) => filaDe(page, idFlit).getByTestId('marca-diferencia');
+const botonAceptar = (page: import('@playwright/test').Page, idFlit?: string) =>
+  (idFlit ? filaDe(page, idFlit) : page).getByRole('button', { name: /^Aceptar diferencia de / });
+
+test.describe('HU #12655 · diferencias documentales', () => {
+  test('TC-01/TC-02 — AC1: en ampliada TD y LG llevan «Documento»/«Tarifa»; SA no lleva origen; «No configurado» va sin chip', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockDiferencias(page);
+    await ampliarColumnas(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    const doc = filaDe(page, 'FLIT-2101');
+    await expect(doc.getByText('$ 95.000')).toBeVisible();
+    await expect(doc.getByText('Documento', { exact: true })).toHaveCount(1);   // mutante: invertir el mapa → 2 «Tarifa» y 0 «Documento»
+    await expect(doc.getByText('Tarifa', { exact: true })).toHaveCount(1);
+    // El orden: el chip «Documento» está en la celda de trámite digital, no en logística.
+    const celdas = doc.getByRole('cell');
+    const tdIdx = (await page.getByRole('columnheader', { name: 'Trámite digital' }).evaluate((el) => (el as HTMLTableCellElement).cellIndex));
+    const lgIdx = (await page.getByRole('columnheader', { name: 'Logística' }).evaluate((el) => (el as HTMLTableCellElement).cellIndex));
+    // La columna de la casilla de selección va antes: +1 en el índice de celda para financiera (puede liquidar).
+    await expect(celdas.nth(tdIdx + 1)).toContainText('Documento');
+    await expect(celdas.nth(lgIdx + 1)).toContainText('Tarifa');
+    // Con diferencia 0 contra la tarifa: «Documento» y nada más.
+    await expect(filaDe(page, 'FLIT-2107').getByText('Documento', { exact: true })).toHaveCount(1);
+    await expect(marcaDe(page, 'FLIT-2107')).toHaveCount(0);
+    // SA nunca lleva origen: la fila FLIT-2104 es de tarifa en TD y LG (2 chips «Tarifa») y ninguno más.
+    await expect(filaDe(page, 'FLIT-2104').getByText('Tarifa', { exact: true })).toHaveCount(2);
+    await expect(filaDe(page, 'FLIT-2104').getByText('Documento', { exact: true })).toHaveCount(0);
+    // «No configurado» sigue como hoy y sin chip de origen en TD (solo el «Tarifa» de LG).
+    const noConf = filaDe(page, 'FLIT-2108');
+    await expect(noConf.getByText('No configurado').first()).toBeVisible();
+    await expect(noConf.getByText('Tarifa', { exact: true })).toHaveCount(1);
+    await expect(noConf.getByText('Documento', { exact: true })).toHaveCount(0);
+  });
+
+  test('TC-03/TC-04/TC-05/TC-06 — AC2: chips con importe y signo; aceptada en neutro con quién/cuándo/motivo; SA sigue en el catálogo; sin tarifa', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockDiferencias(page);
+    await ampliarColumnas(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    // Pendiente contra tarifa: importe documental + chip warning con signo.
+    const pendiente = marcaDe(page, 'FLIT-2101');
+    await expect(pendiente).toHaveCount(1);
+    await expect(pendiente).toHaveText('Difiere de tarifa +$15.000');
+    await expect(pendiente).toHaveAttribute('role', 'note');
+    // `\s`: el separador de `es-CO` entre «$» y la cifra es un espacio duro.
+    await expect(pendiente).toHaveAttribute('aria-label', /^Trámite digital: el comprobante dice \$\s95\.000 y la tarifa \$\s80\.000\. Diferencia \+\$15\.000\. Sin aceptar\.$/);
+
+    // Aceptada: signo negativo conservado (mutante: Math.abs), tono neutro, constancia en el nombre accesible.
+    const aceptada = marcaDe(page, 'FLIT-2103');
+    await expect(aceptada).toHaveText('Diferencia aceptada −$20.000');
+    await expect(aceptada).toHaveAttribute('aria-label', /aceptada por ana\.perez el 16 sep 2026: «Factura del proveedor con IVA»/);
+    // Tonos del kit: warning (pendiente) vs neutral (aceptada); el fondo del chip es el que los distingue.
+    await expect(pendiente.locator('span').first()).toHaveCSS('background-color', 'rgb(253, 232, 227)');
+    await expect(aceptada.locator('span').first()).toHaveCSS('background-color', 'rgb(239, 241, 243)');
+    // La aceptada NO ofrece el botón, aunque financiera tenga la función.
+    await expect(botonAceptar(page, 'FLIT-2103')).toHaveCount(0);
+
+    // SA: el importe de la celda SIGUE siendo el catálogo (mutante: pintar el documental).
+    const sa = filaDe(page, 'FLIT-2104');
+    await expect(sa.getByText('$ 125.000')).toBeVisible();
+    await expect(sa.getByText('$ 105.000')).toHaveCount(0);
+    await expect(marcaDe(page, 'FLIT-2104')).toHaveText('Difiere del catálogo −$20.000');
+    await expect(marcaDe(page, 'FLIT-2104')).toHaveAttribute('aria-label', /el catálogo suma \$\s125\.000\. Diferencia −\$20\.000\. Sin aceptar\. El cobro sigue siendo el del catálogo\./);
+
+    // Sin tarifa: rótulo sin importe (mutante: «Sin tarifa +$95.000»); el importe de la celda es el documental.
+    const sinTarifa = filaDe(page, 'FLIT-2105');
+    await expect(sinTarifa.getByText('$ 95.000')).toBeVisible();
+    await expect(marcaDe(page, 'FLIT-2105')).toHaveText('Sin tarifa configurada');
+    await expect(marcaDe(page, 'FLIT-2105')).toHaveAttribute('aria-label', /no hay tarifa configurada\. Diferencia \+\$95\.000\. Sin aceptar\./);
+  });
+
+  test('TC-07 — la marca se alcanza con Tab, revela el globo, y Esc lo cierra sin mover el foco', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockDiferencias(page, { filas: [FILA_DOCUMENTAL] });
+    await ampliarColumnas(page);
+    await page.goto('/finanzas/reporte-costos');
+    const marca = marcaDe(page, 'FLIT-2101');
+    await expect(marca).toHaveAttribute('tabindex', '0');           // mutante: quitar tabIndex
+    const globo = 'Comprobante $ 95.000 · Tarifa $ 80.000 · N.º FS-1023 · 12 sep 2026';
+    await expect(page.getByText(globo)).toHaveCount(0);
+    await marca.focus();
+    await expect(marca).toBeFocused();
+    await expect(page.getByText(globo)).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByText(globo)).toHaveCount(0);
+    await expect(marca).toBeFocused();
+    await marca.hover();
+    await expect(page.getByText(globo)).toBeVisible();
+  });
+
+  test('TC-08 — AC3: la fila autogestionada con comprobante se ve exactamente como hoy, sin chips ni botón', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockDiferencias(page, { filas: [FILA_AUTOGESTIONADA] });
+    await ampliarColumnas(page);
+    await page.goto('/finanzas/reporte-costos');
+    const fila = filaDe(page, 'FLIT-2106');
+    await expect(fila.getByText('Autogestiona')).toBeVisible();
+    await expect(fila.getByText('Documento', { exact: true })).toHaveCount(0);
+    await expect(marcaDe(page, 'FLIT-2106')).toHaveCount(0);          // mutante 9: decidir por valorDocumental
+    await expect(botonAceptar(page, 'FLIT-2106')).toHaveCount(0);
+    await expect(page.getByText(/Difiere|Diferencia aceptada/)).toHaveCount(0);
+    // Solo el «Tarifa» del trámite digital.
+    await expect(fila.getByText('Tarifa', { exact: true })).toHaveCount(1);
+  });
+
+  test('TC-09 — compacta: ningún chip, pero el botón «Aceptar diferencia» sí está en la fila con diferencia pendiente', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockDiferencias(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2101')).toBeVisible();
+    await expect(page.getByText(/Difiere|Documento|Diferencia aceptada/)).toHaveCount(0);
+    await expect(page.getByText('Tarifa', { exact: true })).toHaveCount(0);
+    await expect(botonAceptar(page, 'FLIT-2101')).toHaveCount(1);
+    await expect(botonAceptar(page, 'FLIT-2101')).toHaveText('Aceptar diferencia');
+    await expect(botonAceptar(page, 'FLIT-2101')).toHaveAccessibleName('Aceptar diferencia de trámite digital de FLIT-2101');
+    await expect(botonAceptar(page, 'FLIT-2102')).toHaveAccessibleName('Aceptar diferencia de trámite digital y logística de FLIT-2102');
+    await expect(botonAceptar(page, 'FLIT-2102')).toHaveAttribute('title', 'Trámite digital +$15.000 · Logística −$5.000');
+    // Uno por fila con pendiente: 2101, 2102, 2104 (catálogo) y 2105 (sin tarifa). Ni 2103 (aceptada) ni 2106/2107/2108.
+    await expect(botonAceptar(page)).toHaveCount(4);
+    // Tras «Viajes» y antes de «Liquidar»; y Liquidar no cambia por tener diferencias.
+    const botones = filaDe(page, 'FLIT-2101').getByRole('button');
+    // «Sin enviar» es el botón de la celda «Factura DIAN», antes de Acciones.
+    await expect(botones).toHaveText(['Sin enviar', 'Soporte', 'Servicios · 2', 'Viajes · 3', 'Aceptar diferencia', 'Liquidar']);
+    await expect(filaDe(page, 'FLIT-2101').getByRole('button', { name: 'Liquidar' })).toBeEnabled();
+  });
+
+  test('TC-10/TC-11 — AC4: «Con diferencias» viaja como conDiferencias=si al GET, al consolidado y al export; la URL lo conserva; Limpiar lo apaga', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    const { gets, consolidados } = await mockDiferencias(page);
+    const exportadas = await mockExport(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2101')).toBeVisible();
+
+    const casilla = page.getByRole('checkbox', { name: 'Con diferencias' });
+    await expect(casilla).not.toBeChecked();
+    await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toBeDisabled();
+    expect(gets[gets.length - 1]).not.toContain('conDiferencias');
+    await expect(page.getByText('Con diferencias', { exact: true })).toHaveAttribute('title', 'Solo trámites con al menos una diferencia sin aceptar.');
+
+    await casilla.check();
+    await expect.poll(() => gets[gets.length - 1]).toContain('conDiferencias=si');     // mutante: `=1` / `=true` / fuera de cuerpoDeExport
+    expect(gets[gets.length - 1]).not.toMatch(/conDiferencias=(1|true)/);
+    await expect(page).toHaveURL(/conDiferencias=si/);
+    await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toBeEnabled();   // mutante: fuera de claveDe
+
+    // El export del detalle lleva el booleano en el cuerpo.
+    await page.getByRole('button', { name: 'Exportar a Excel' }).click();
+    await expect.poll(() => exportadas.length).toBe(1);
+    expect(exportadas[0].postDataJSON()).toMatchObject({ conDiferencias: true, estados: ['Aprobado'] });
+
+    // El consolidado, con los mismos criterios.
+    await page.getByRole('button', { name: 'Consolidado' }).click();
+    await expect.poll(() => consolidados.length).toBeGreaterThan(0);
+    expect(consolidados[consolidados.length - 1]).toContain('conDiferencias=si');
+    await page.getByRole('button', { name: 'Detalle' }).click();
+
+    await page.getByRole('button', { name: 'Limpiar filtros' }).click();
+    await expect(casilla).not.toBeChecked();
+    await expect(page).not.toHaveURL(/conDiferencias/);
+    await expect.poll(() => gets[gets.length - 1]).not.toContain('conDiferencias');
+    await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toBeDisabled();
+  });
+
+  test('TC-12 — AC4: la casilla desde la URL abre marcada, y con 0 filas el vacío dice qué desmarcar', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    const { gets } = await mockDiferencias(page, { filas: [] });
+    await page.goto('/finanzas/reporte-costos?conDiferencias=si');
+    await expect(page.getByRole('checkbox', { name: 'Con diferencias' })).toBeChecked();
+    await expect.poll(() => gets[0]).toContain('conDiferencias=si');
+    await expect(page.getByText('No hay trámites con diferencias sin aceptar en este filtro. Desmarca «Con diferencias» o amplía el periodo.')).toBeVisible();
+    await expect(page.getByText('No hay trámites que coincidan con los filtros.')).toHaveCount(0);
+    await page.getByRole('checkbox', { name: 'Con diferencias' }).uncheck();
+    await expect(page.getByText('No hay trámites que coincidan con los filtros.')).toBeVisible();
+  });
+
+  test('TC-13/TC-14/TC-15 — AC5: el modal exige motivo (5 caracteres), no dispara POST con menos, y al 200 avisa, refresca y devuelve el foco al título', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    const { gets, aceptados } = await mockDiferencias(page, { filas: [FILA_DOCUMENTAL, FILA_ESTIMADA] });
+    await page.goto('/finanzas/reporte-costos');
+    await expect(page.getByText('FLIT-2101')).toBeVisible();
+    // La selección de liquidación tiene que SEGUIR tras aceptar (refrescar, no ejecutar).
+    await page.getByRole('checkbox', { name: 'Seleccionar FLIT-2001' }).check();
+    const getsAntes = gets.length;
+
+    await botonAceptar(page, 'FLIT-2101').click();
+    const modal = page.getByRole('dialog', { name: 'Aceptar diferencia · FLIT-2101 · ABC123' });
+    await expect(modal).toBeVisible();
+    await expect(modal.getByText('Trámite digital', { exact: true })).toBeVisible();
+    await expect(modal.getByText('Comprobante $ 95.000 · Tarifa $ 80.000')).toBeVisible();
+    await expect(modal.getByText('+$15.000')).toBeVisible();
+    await expect(modal.getByText('N.º FS-1023 · 12 sep 2026')).toBeVisible();
+    // Una sola pendiente: sin casillas.
+    await expect(modal.getByRole('checkbox')).toHaveCount(0);
+
+    const motivo = modal.getByLabel('Por qué se acepta (obligatorio)');
+    await expect(motivo).toBeFocused();
+    const confirmar = modal.getByRole('button', { name: 'Aceptar diferencia', exact: true });
+    await expect(confirmar).toBeDisabled();
+    await expect(modal.getByRole('status')).toHaveText('Escribe el motivo para poder aceptar.');
+    await motivo.fill('abc');
+    await expect(confirmar).toBeDisabled();                           // mutante: mínimo < 5
+    await expect(modal.getByText('3/500')).toBeVisible();
+    await expect(modal.getByRole('status')).toHaveText('Escribe el motivo para poder aceptar.');
+    await page.keyboard.press('Enter');
+    expect(aceptados).toHaveLength(0);                                // mutante: POST con motivo vacío/corto
+    await motivo.fill('Factura del proveedor con IVA');
+    await expect(modal.getByRole('status')).toHaveText('Motivo listo: ya se puede aceptar.');
+    await expect(confirmar).toBeEnabled();
+
+    await confirmar.click();
+    await expect(modal).toHaveCount(0);
+    expect(aceptados).toHaveLength(1);
+    expect(aceptados[0].comprobanteId).toBe('cccc0000-0000-0000-0000-000000000001');
+    expect(aceptados[0].body).toEqual({ motivo: 'Factura del proveedor con IVA' });
+    await expect(page.getByText('Diferencia de trámite digital de FLIT-2101 aceptada.')).toBeVisible();
+    await expect.poll(() => gets.length).toBeGreaterThan(getsAntes);   // mutante: no refrescar
+    await expect(page.getByRole('checkbox', { name: 'Seleccionar FLIT-2001' })).toBeChecked(); // mutante: ejecutar() vacía la selección
+    // Este mock devuelve la misma fila al refrescar, así que el botón sigue y el foco vuelve a él
+    // (el kit restaura al disparador). Cuando el botón desaparece, el foco va al título: TC-16.
+    await expect(botonAceptar(page, 'FLIT-2101')).toBeFocused();
+  });
+
+  test('TC-16 — AC5: la celda pasa a «Diferencia aceptada» con el importe aún visible tras recargar', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    let aceptada = false;
+    await mockFacetas(page, ['Aprobado']);
+    await mockFacturacion(page, [], { ...RESUMEN_FE, items: [] });
+    await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) => {
+      const fila = aceptada
+        ? { ...FILA_DOCUMENTAL, valorDocumental: { ...FILA_DOCUMENTAL.valorDocumental, tramiteDigital: VD({ aceptada: true, aceptadaPorNombre: 'e2e_financiera', aceptadaEn: '2026-09-17T12:00:00.000Z', aceptadaMotivo: 'Factura con IVA' }) } }
+        : FILA_DOCUMENTAL;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...REPORTE, items: [fila], total: 1 }) });
+    });
+    await page.route(/\/diferencia\/aceptar$/, (route) => { aceptada = true; return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
+    await ampliarColumnas(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(marcaDe(page, 'FLIT-2101')).toHaveText('Difiere de tarifa +$15.000');
+    await botonAceptar(page, 'FLIT-2101').click();
+    await page.getByLabel('Por qué se acepta (obligatorio)').fill('Factura con IVA');
+    await page.getByRole('dialog').getByRole('button', { name: 'Aceptar diferencia', exact: true }).click();
+    await expect(marcaDe(page, 'FLIT-2101')).toHaveText('Diferencia aceptada +$15.000');
+    await expect(filaDe(page, 'FLIT-2101').getByText('$ 95.000')).toBeVisible();
+    await expect(botonAceptar(page, 'FLIT-2101')).toHaveCount(0);      // mutante: botón visible tras aceptar
+    // El disparador ya no existe: `restoreFocusRef` lleva el foco al título, no a `<body>`.
+    await expect(page.getByRole('heading', { level: 1, name: 'Reporte de costos' })).toBeFocused();
+  });
+
+  test('TC-17 — AC5: 409 sin_diferencia / 403 / 400 se pintan con errorMessage en el modal y la fila no cambia', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    const respuestas = [
+      { status: 409, body: { error: 'La diferencia ya fue aceptada', codigo: 'sin_diferencia' } },
+      { status: 403, body: { error: 'Sin permiso para aceptar diferencias' } },
+      { status: 400, body: { error: 'El motivo va entre 5 y 500 caracteres' } },
+    ];
+    let i = 0;
+    const { aceptados } = await mockDiferencias(page, { filas: [FILA_DOCUMENTAL, FILA_SIN_TARIFA, FILA_SA], aceptar: () => respuestas[i++] });
+    await ampliarColumnas(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    // 409: mensaje del servidor + «La fila se actualizó.»; el modal sigue abierto; la fila no cambia.
+    await botonAceptar(page, 'FLIT-2101').click();
+    let modal = page.getByRole('dialog');
+    await modal.getByLabel('Por qué se acepta (obligatorio)').fill('Motivo válido');
+    await modal.getByRole('button', { name: 'Aceptar diferencia', exact: true }).click();
+    await expect(modal.getByRole('alert')).toHaveText('La diferencia ya fue aceptada La fila se actualizó.');
+    await expect(modal.getByRole('status')).toHaveText('No queda nada por aceptar. Cierra el diálogo.');
+    await expect(modal.getByRole('button', { name: 'Aceptar diferencia', exact: true })).toBeDisabled();
+    await expect(marcaDe(page, 'FLIT-2101')).toHaveText('Difiere de tarifa +$15.000');
+    await modal.getByRole('button', { name: 'Cancelar' }).click();
+    await expect(modal).toHaveCount(0);
+
+    // 403: sufijo de permisos y la primaria apagada.
+    await botonAceptar(page, 'FLIT-2105').click();
+    modal = page.getByRole('dialog');
+    await expect(modal.getByText('Comprobante $ 95.000 · Sin tarifa configurada')).toBeVisible();
+    await modal.getByLabel('Por qué se acepta (obligatorio)').fill('Motivo válido');
+    await modal.getByRole('button', { name: 'Aceptar diferencia', exact: true }).click();
+    await expect(modal.getByRole('alert')).toHaveText('Sin permiso para aceptar diferencias Vuelve a entrar para actualizar tus permisos.');
+    await expect(modal.getByRole('button', { name: 'Aceptar diferencia', exact: true })).toBeDisabled();
+    await modal.getByRole('button', { name: 'Cancelar' }).click();
+
+    // 400: el mensaje tal cual y la primaria sigue viva; lo escrito se conserva.
+    await botonAceptar(page, 'FLIT-2104').click();
+    modal = page.getByRole('dialog');
+    await expect(modal.getByText('Comprobante $ 105.000 · Catálogo $ 125.000')).toBeVisible();
+    await expect(modal.getByText(/El cobro sigue siendo el del catálogo\./)).toBeVisible();
+    await modal.getByLabel('Por qué se acepta (obligatorio)').fill('Motivo válido');
+    await modal.getByRole('button', { name: 'Aceptar diferencia', exact: true }).click();
+    await expect(modal.getByRole('alert')).toHaveText('El motivo va entre 5 y 500 caracteres');
+    await expect(modal.getByRole('button', { name: 'Aceptar diferencia', exact: true })).toBeEnabled();
+    await expect(modal.getByLabel('Por qué se acepta (obligatorio)')).toHaveValue('Motivo válido');
+    expect(aceptados).toHaveLength(3);
+    await expect(page.getByText(/aceptada\.$/)).toHaveCount(0);
+  });
+
+  test('TC-18 — AC5: dos pendientes en la fila = casillas, un motivo y dos POST en secuencia; la segunda en 409 deja el modal abierto', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    const { aceptados } = await mockDiferencias(page, {
+      filas: [FILA_DOS_PENDIENTES],
+      aceptar: (id) => id.endsWith('0002') ? { status: 409, body: { error: 'La diferencia ya fue aceptada', codigo: 'sin_diferencia' } } : { status: 200, body: { ok: true } },
+    });
+    await page.goto('/finanzas/reporte-costos');
+    await botonAceptar(page, 'FLIT-2102').click();
+    const modal = page.getByRole('dialog', { name: 'Aceptar diferencia · FLIT-2102 · ABC123' });
+    const casillas = modal.getByRole('checkbox');
+    await expect(casillas).toHaveCount(2);
+    await expect(casillas.nth(0)).toBeChecked();
+    await expect(casillas.nth(1)).toBeChecked();
+    await expect(modal.getByText('Comprobante $ 25.000 · Tarifa $ 30.000')).toBeVisible();
+    await expect(modal.getByText('−$5.000')).toBeVisible();
+
+    const motivo = modal.getByLabel('Por qué se acepta (obligatorio)');
+    await motivo.fill('Factura con IVA');
+    const confirmar = modal.getByRole('button', { name: 'Aceptar diferencia', exact: true });
+    // Ninguna marcada: la primaria se apaga y el estado lo explica.
+    await casillas.nth(0).uncheck();
+    await casillas.nth(1).uncheck();
+    await expect(confirmar).toBeDisabled();
+    await expect(modal.getByRole('status')).toHaveText('Marca al menos una diferencia para poder aceptar.');
+    await casillas.nth(0).check();
+    await casillas.nth(1).check();
+    await confirmar.click();
+
+    // Dos POST, en orden, con el MISMO motivo; el segundo cae en 409.
+    await expect.poll(() => aceptados.length).toBe(2);
+    expect(aceptados.map((a) => a.comprobanteId)).toEqual(['cccc0000-0000-0000-0000-000000000001', 'cccc0000-0000-0000-0000-000000000002']);
+    expect(aceptados.every((a) => a.body.motivo === 'Factura con IVA')).toBe(true);
+    // El modal NO cierra: la primera pasa a «Aceptada» sin casilla y la segunda lleva su error.
+    await expect(modal).toBeVisible();
+    await expect(modal.getByText('Aceptada', { exact: true })).toHaveCount(2);
+    await expect(modal.getByRole('checkbox')).toHaveCount(0);
+    await expect(modal.getByRole('alert')).toHaveText('La diferencia ya fue aceptada La fila se actualizó.');
+    await expect(modal.getByRole('status')).toHaveText('No queda nada por aceptar. Cierra el diálogo.');
+  });
+
+  test('TC-19 — AC5: dos pendientes en 200 y 200 = un aviso en plural', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    const { aceptados } = await mockDiferencias(page, { filas: [FILA_DOS_PENDIENTES] });
+    await page.goto('/finanzas/reporte-costos');
+    await botonAceptar(page, 'FLIT-2102').click();
+    await page.getByLabel('Por qué se acepta (obligatorio)').fill('Factura con IVA');
+    await page.getByRole('dialog').getByRole('button', { name: 'Aceptar diferencia', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    expect(aceptados).toHaveLength(2);
+    await expect(page.getByText('Diferencias de trámite digital y logística de FLIT-2102 aceptadas.')).toBeVisible();
+  });
+
+  test('TC-20 — AC5: sin la función el chip es informativo, la casilla se usa y no hay botón (financiera sin la función y auditor)', async ({ page }) => {
+    const sinLaFuncion = funcionesDe(FINANCIERA_USER).filter((f) => f !== 'comprobantes.diferencia.aceptar');
+    await loginAs(page, FINANCIERA_USER, { funciones: sinLaFuncion });
+    const { aceptados, gets } = await mockDiferencias(page);
+    await ampliarColumnas(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(marcaDe(page, 'FLIT-2101')).toHaveText('Difiere de tarifa +$15.000');
+    await expect(botonAceptar(page)).toHaveCount(0);                    // mutante: pintar sin hasFuncion
+    await expect(page.getByRole('button', { name: 'Aceptar diferencia' })).toHaveCount(0);
+    // Liquidar sigue igual.
+    await expect(filaDe(page, 'FLIT-2101').getByRole('button', { name: 'Liquidar' })).toBeEnabled();
+    await page.getByRole('checkbox', { name: 'Con diferencias' }).check();
+    await expect.poll(() => gets[gets.length - 1]).toContain('conDiferencias=si');
+    expect(aceptados).toHaveLength(0);
+  });
+
+  test('TC-21 — auditor: chips visibles en ampliada, casilla usable, cero botones «Aceptar diferencia»', async ({ page }) => {
+    await loginAs(page, AUDITOR_USER);
+    const { gets } = await mockDiferencias(page);
+    await ampliarColumnas(page);
+    await page.goto('/finanzas/reporte-costos');
+    await expect(marcaDe(page, 'FLIT-2103')).toHaveText('Diferencia aceptada −$20.000');
+    await expect(page.getByText('Documento', { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: /Aceptar diferencia/ })).toHaveCount(0);
+    await page.getByRole('checkbox', { name: 'Con diferencias' }).check();
+    await expect.poll(() => gets[gets.length - 1]).toContain('conDiferencias=si');
   });
 });

@@ -86,6 +86,9 @@ export const NAV_ITEMS: NavItem[] = [
   { page: 'flito_soat',     to: '/flito/soat',                   section: 'gestion',       label: 'SOAT',                    roles: ['proveedor', 'admin', 'cliente'], keywords: 'flito soat cola adquisicion factura poliza gestor proveedor pagado operaciones contingencia cliente solicitud' },
   { page: 'flito_impuestos', to: '/flito/impuestos',            section: 'gestion',       label: 'Impuestos',               roles: ['gestor_impuestos', 'admin'], keywords: 'flito impuesto organismo recibo factura venta gestion pagado conciliacion operaciones contingencia' },
   { page: 'finanzas_reporte_costos', to: '/finanzas/reporte-costos', section: 'finanzas',  label: 'Reporte de costos',       keywords: 'finanzas contabilidad facturacion cobros costos reporte soat impuesto gmf derecho tramite logistica digital total' },
+  // Gastos diarios (HU #12624): cuánto salió de caja por día y por categoría, contado el día del
+  // pago. Va justo tras el reporte porque es su lectura de caja, no su consolidado.
+  { page: 'finanzas_gastos_diarios', to: '/finanzas/gastos-diarios', section: 'finanzas',  label: 'Gastos diarios',          keywords: 'gastos diarios soat impuestos derechos logistica servicios adicionales gmf dashboard' },
   // Bolsas: va en Finanzas y no en Gestión porque su dueño es el área financiera —es quien
   // recarga, ajusta y cierra el periodo—, aunque el dominio sea FLITO. «prepago» se conserva en las
   // keywords: dejó de ser el nombre visible, pero es como muchos siguen buscándolo.
@@ -98,6 +101,10 @@ export const NAV_ITEMS: NavItem[] = [
   // con su valor. Va justo después de Tarifas —mismo dueño, misma zona— y sin `roles`: el slug
   // `flito_servicios_adicionales` ya es de `admin` + `financiera`.
   { page: 'flito_servicios_adicionales', to: '/flito/servicios-adicionales', section: 'finanzas', label: 'Servicios adicionales', keywords: 'servicios adicionales catalogo tipo valor precio paz y salvo diagnostico derecho de peticion financiera tarifa' },
+  // Comprobantes (HU #12612): la puerta única por la que entra cualquier comprobante o soporte de un
+  // trámite y la cola de lo que FLITO leyó. Va en Finanzas —su dueño es quien revisa pagos y
+  // soportes— y sin `roles`: el slug `flito_comprobantes` ya es de `admin` + `financiera` (0198).
+  { page: 'flito_comprobantes', to: '/flito/comprobantes',     section: 'finanzas',      label: 'Comprobantes',            keywords: 'comprobantes comprobante soporte pago factura recibo transferencia ocr lectura carga lote cola pendientes consolidado documento financiera' },
   // Conciliación de boletas SOAT (Feature #11623): va en Finanzas —lo pide el AC1 y además espeja a
   // Bolsas, que también es dominio FLITO con dueño financiero—. Sin `roles`: el slug ya es exclusivo
   // de `admin` + `financiera`, y repetir la regla aquí la pondría en dos sitios que pueden divergir.

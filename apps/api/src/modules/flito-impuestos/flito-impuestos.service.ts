@@ -17,7 +17,9 @@ import {
 import { aIso } from '../../shared/utils/fecha-rango.js';
 import { registrarCambio, registrarCambios } from '../../shared/historial/estado-historial.js';
 import { clasificacionDeTipoFlit, expresionesFlitRaw } from '../../shared/export/cola-flito-derivados.js';
-import { ANS_OPERATIVO, EstadoImpuesto, ESTADO_IMPUESTO_LABEL } from '@operaciones/shared-types';
+import {
+  ANS_OPERATIVO, EstadoImpuesto, ESTADO_IMPUESTO_LABEL, TipoSoporte, type DocumentosImpuesto,
+} from '@operaciones/shared-types';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
 
@@ -25,6 +27,29 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /** Lo único que ve un gestor de impuestos. Pendiente NO está: su trabajo arranca al recibir el envío. */
 const ESTADOS_VISIBLES_GESTOR: readonly EstadoImpuesto[] = [EstadoImpuesto.SOLICITADO, EstadoImpuesto.PAGADO];
+
+/**
+ * Los documentos de la hacienda que puede tener un impuesto (HU #12590): la liquidación del impuesto
+ * (sin marca) y el pago —con marca (masiva) o el recibo de caja de ventanilla (HU #12591)—. UNA
+ * constante para el `inArray`: drizzle no deduplica literales, y dos `${literal}` sueltos serían dos
+ * parámetros. Sin el tipo de caja aquí, el set nunca lo traería y `documentosDe` no lo vería.
+ */
+const TIPOS_DOCUMENTO_IMPUESTO: readonly TipoSoporte[] = [
+  TipoSoporte.RECIBO_IMPUESTO_SIN_MARCA_AGUA, TipoSoporte.RECIBO_IMPUESTO, TipoSoporte.RECIBO_CAJA_IMPUESTO,
+];
+
+/**
+ * Qué documentos tiene el impuesto, a partir de los tipos de soporte no descartados que existen.
+ * Pura y exportada para probarla sin base.
+ */
+export function documentosDe(tipos: ReadonlySet<string>): DocumentosImpuesto | null {
+  const liq = tipos.has(TipoSoporte.RECIBO_IMPUESTO_SIN_MARCA_AGUA);
+  const pago = tipos.has(TipoSoporte.RECIBO_IMPUESTO) || tipos.has(TipoSoporte.RECIBO_CAJA_IMPUESTO);
+  if (liq && pago) return 'ambos';
+  if (liq) return 'liquidacion';
+  if (pago) return 'pago';
+  return null;
+}
 
 const esGestor = (ctx: ImpuestoCtx) => ctx.role === 'gestor_impuestos';
 
@@ -59,6 +84,13 @@ export interface ImpuestoColaItem {
   tieneFacturaVenta: boolean; enviadoPorNombre: string | null; enviadoEn: string | null;
   /** Fecha de pago. Ya se leía de BD para el detalle; la cola la necesita para el orden cronológico. */
   pagadoEn: string | null;
+  /**
+   * HU #12590: cuándo se cargó la liquidación del impuesto (documento de la hacienda sin marca), o
+   * `null`. Es una marca sobre `solicitado`, no un estado. No es `flito_liquidaciones.liquidado_en`.
+   */
+  liquidadoEn: string | null;
+  /** HU #12590: qué documentos de la hacienda tiene: liquidación, pago con marca, ambos o ninguno. */
+  documentos: DocumentosImpuesto | null;
   estancado: boolean; motivoRechazo: string | null; creadoEn: string;
   /** true = lo gestiona Operaciones por contingencia (HU #11155), no el gestor del organismo. */
   gestionOperaciones: boolean;
@@ -89,7 +121,7 @@ const SELECT_COLA = {
   valorLiquidado: flitoImpuestos.valorLiquidado, valorPagado: flitoImpuestos.valorPagado,
   marcadoPorDiferencia: flitoImpuestos.marcadoPorDiferencia, facturaVentaFlitId: flitoTramites.facturaVentaFlitId,
   gestionOperaciones: flitoImpuestos.gestionOperaciones,
-  enviadoEn: flitoImpuestos.enviadoEn, pagadoEn: flitoImpuestos.pagadoEn,
+  enviadoEn: flitoImpuestos.enviadoEn, pagadoEn: flitoImpuestos.pagadoEn, liquidadoEn: flitoImpuestos.liquidadoEn,
   motivoRechazo: flitoImpuestos.motivoRechazo, createdAt: flitoImpuestos.createdAt,
   placa: vehicles.plate, vin: vehicles.vin, companiaNombre: clients.name,
   organismoNombre: organismosTransitoConfig.alias, organismoSla: organismosTransitoConfig.flitoSlaHoras,
@@ -158,6 +190,12 @@ export interface FiltrosColaImpuestos {
   creadoDesde?: string; creadoHasta?: string;
   /** true = solo lo que superó el SLA de su organismo. */
   estancado?: boolean;
+  /**
+   * HU #12590: true = solo los `solicitado` que ya tienen la liquidación del impuesto cargada
+   * (`liquidado_en IS NOT NULL`) y esperan el pago con marca. Va AND con lo demás, así que no altera
+   * la frontera del gestor ni `ESTADOS_VISIBLES_GESTOR`.
+   */
+  liquidadoPendientePago?: boolean;
   page?: number; pageSize?: number;
 }
 
@@ -243,6 +281,11 @@ export function condicionesColaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuest
   if (f.creadoHasta) conds.push(sql`${flitoImpuestos.createdAt} < (${f.creadoHasta}::date + INTERVAL '1 day')`);
 
   if (f.estancado) conds.push(EXPR_ESTANCADO_IMP);
+  // Liquidado y pendiente de pago (HU #12590): estado + marca. El estado va explícito aunque el
+  // gestor ya lo acote, porque Operaciones ve todos los estados y un `pagado` también tiene marca.
+  if (f.liquidadoPendientePago) {
+    conds.push(sql`(${flitoImpuestos.estado} = ${EstadoImpuesto.SOLICITADO} AND ${flitoImpuestos.liquidadoEn} IS NOT NULL)`);
+  }
 
   return conds;
 }
@@ -402,6 +445,27 @@ async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
     : [];
   const certPorImpuesto = new Map(certificaciones.map((c) => [c.impuestoId, c]));
 
+  // Documentos de la hacienda por impuesto (HU #12590), con el mismo patrón que las certificaciones:
+  // UNA consulta a `flito_soportes` por página, solo los dos tipos que cuentan y sin descartados. El
+  // detalle también pasa por aquí, así que recibe `documentos` sin código aparte.
+  const soportes = impuestoIds.length
+    ? await db.select({ impuestoId: flitoSoportes.impuestoId, tipo: flitoSoportes.tipo })
+      .from(flitoSoportes)
+      .where(and(
+        inArray(flitoSoportes.impuestoId, impuestoIds),
+        inArray(flitoSoportes.tipo, TIPOS_DOCUMENTO_IMPUESTO),
+        eq(flitoSoportes.descartado, false),
+      ))
+    : [];
+  const tiposPorImpuesto = new Map<string, Set<string>>();
+  for (const s of soportes) {
+    if (!s.impuestoId) continue;
+    let set = tiposPorImpuesto.get(s.impuestoId);
+    if (!set) { set = new Set(); tiposPorImpuesto.set(s.impuestoId, set); }
+    set.add(s.tipo);
+  }
+  const SIN_DOCUMENTOS: ReadonlySet<string> = new Set();
+
   return rows.map((r) => {
     const p = principalPorTramite.get(r.tramiteId);
     const cert = certPorImpuesto.get(r.id);
@@ -409,6 +473,8 @@ async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
       certificacion: cert
         ? { id: cert.id, certificadoEn: cert.createdAt.toISOString(), certificadoPorNombre: cert.certificadoPorNombre }
         : null,
+      liquidadoEn: r.liquidadoEn ? r.liquidadoEn.toISOString() : null,
+      documentos: documentosDe(tiposPorImpuesto.get(r.id) ?? SIN_DOCUMENTOS),
       id: r.id, tramiteId: r.tramiteId, idFlit: r.idFlit, placa: r.placa, vin: r.vin ?? '',
       marca: r.marca, linea: r.linea,
       tipoTramite: r.tipoTramite,

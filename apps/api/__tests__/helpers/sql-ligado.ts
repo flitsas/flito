@@ -143,6 +143,20 @@ export function vecesLigado(q: SqlRenderizado, valor: unknown): number {
   return q.params.filter((p) => p === valor).length;
 }
 
+/**
+ * Dónde empieza la primera aparición de `token` en el PRIMER NIVEL de paréntesis (fuera de cadenas y
+ * comentarios), o -1. Desde la HU #12653 las expresiones del reporte llevan subconsultas escalares con
+ * su propio `from … where … limit 1`, así que un `indexOf(' where ')` a secas cae dentro de la
+ * subconsulta y parte la consulta por donde no es.
+ */
+export function indicePrimerNivel(sql: string, token: string, desde = 0): number {
+  const m = mapear(sql);
+  for (let i = sql.indexOf(token, desde); i >= 0; i = sql.indexOf(token, i + 1)) {
+    if (m.nivel[i] === 0 && !m.opaco[i]) return i;
+  }
+  return -1;
+}
+
 const normalizar = (s: string): string => s.replace(/\s+/g, ' ').trim().toLowerCase();
 
 /** `expr AS nombre` → las dos partes. Sin `AS`, la expresión entera. */

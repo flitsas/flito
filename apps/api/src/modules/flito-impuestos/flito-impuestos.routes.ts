@@ -7,12 +7,13 @@ import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
 import { authMiddleware } from '../../shared/middleware/auth.js';
-import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
+import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { historialDe } from '../../shared/historial/estado-historial.js';
 import { sendExcel } from '../../shared/utils/excel.js';
 import {
-  COLUMNAS_COLA_EXPORT, ExportColaDemasiadoGrandeError, exportColaLimiter,
+  CAMPOS_COLA_EXPORT_PAGO_IMPUESTOS, columnasColaExport, ExportColaDemasiadoGrandeError, exportColaLimiter,
+  RESULTADO_EXPORT_AMPLIADO,
 } from '../../shared/export/cola-flito-excel.js';
 import {
   CAMPOS_PII_IMPUESTO_EXPORT, registrarAccesoImpuesto,
@@ -28,8 +29,8 @@ import { db } from '../../db/client.js';
 import { flitoGestorOrganismos } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
 import {
-  CARGA_MASIVA_ARCHIVOS_POR_PETICION, CARGA_MASIVA_MAX_BYTES_ARCHIVO, EstadoImpuesto, ResultadoCertificacion,
-  TipoSoporteZip,
+  CARGA_MASIVA_ARCHIVOS_POR_PETICION, CARGA_MASIVA_MAX_BYTES_ARCHIVO, CodigoErrorReciboCaja, EstadoImpuesto, FASES_RECIBO,
+  FaseRecibo, ResultadoCertificacion, TipoSoporteZip,
 } from '@operaciones/shared-types';
 import { ImpuestoError, type ArchivoSubido, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import { certificacionVigenteConAcceso, certificarImpuesto, certificarLote } from './certificacion.service.js';
@@ -39,7 +40,7 @@ import {
   facturaVentaFlitConAcceso, reactivar, rechazar, registrosZipImpuestos, reversar,
 } from './flito-impuestos.service.js';
 import { soportesDeImpuesto } from '../../shared/soportes/soportes-consulta.js';
-import { cargarRecibos, normalizarRutas } from './flito-recibos.service.js';
+import { cargarReciboCaja, cargarRecibos, normalizarRutas, ReciboCajaError } from './flito-recibos.service.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { getFlitAdapter } from '../flito-sync/flit.adapter.js';
 
@@ -59,6 +60,40 @@ const upload = multer({
 });
 
 const aArchivo = (f: Express.Multer.File): ArchivoSubido => ({ originalname: f.originalname, mimetype: f.mimetype, buffer: f.buffer, size: f.size });
+
+// ── Recibo de caja (HU #12591): un archivo, PDF o imagen, sin ZIP ────────────────────────────────
+// Multer propio y no `upload`: el compartido acepta ZIP (la masiva lo expande) y aquí un ZIP es 400.
+const MIMES_RECIBO_CAJA: readonly string[] = ['application/pdf', 'image/jpeg', 'image/png'];
+const uploadReciboCaja = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: CARGA_MASIVA_MAX_BYTES_ARCHIVO, files: 1 },
+  // Sin este filtro, el content-type que declara el cliente viaja hasta `flito_soportes` y quien
+  // luego descargue el archivo lo recibiría con ese tipo (XSS almacenado con un .html).
+  fileFilter: (_req, file, cb) => {
+    if (MIMES_RECIBO_CAJA.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Tipo de archivo no permitido: solo PDF, JPEG o PNG'));
+  },
+});
+/** Motivos de multer traducidos, sin eco del nombre ni del MIME que mandó el cliente. */
+const MOTIVO_MULTER_RECIBO_CAJA: Record<string, string> = {
+  LIMIT_FILE_SIZE: 'El archivo supera el tamaño máximo permitido',
+  LIMIT_FILE_COUNT: 'Solo se admite un archivo',
+  LIMIT_UNEXPECTED_FILE: 'Solo se admite un archivo, en el campo "archivo"',
+};
+/**
+ * Envuelve a multer para que sus rechazos —más de un archivo, tipo no permitido, tamaño— salgan como
+ * 400 con `codigo`, y no como el 500 genérico del error handler (que no traduce `MulterError`).
+ */
+function recibirReciboCaja(req: Request, res: Response, next: (e?: unknown) => void): void {
+  uploadReciboCaja.single('archivo')(req, res, (err: unknown) => {
+    if (err) {
+      const motivo = err instanceof multer.MulterError ? MOTIVO_MULTER_RECIBO_CAJA[err.code] : err instanceof Error ? err.message : undefined;
+      res.status(400).json({ error: motivo ?? 'Archivo inválido', codigo: CodigoErrorReciboCaja.ARCHIVO_INVALIDO });
+      return;
+    }
+    next();
+  });
+}
 
 /**
  * Contexto del gestor de impuestos: la atadura de visibilidad por organismo vive en
@@ -145,9 +180,10 @@ router.get('/:id/factura-venta', exigirFuncion('impuestos.factura.ver'), async (
  * creyendo que pidió lo que marcó.
  *
  * **`recibo_impuesto` NO es un alias de la columna `tipo`**: resuelve a
- * `recibo_impuesto_sin_marca_agua` con caída a `recibo_impuesto` (ver `soportes-zip.ts`). Hoy el
- * único productor es `flito-recibos.service.ts`, que escribe siempre el marcado, así que **el camino
- * real es la caída** — la preferencia está para cuando el limpio exista.
+ * `recibo_impuesto_sin_marca_agua` (la liquidación del impuesto, sin marca) con caída a
+ * `recibo_impuesto` (el pago con marca); ver `soportes-zip.ts`. Desde la HU #12590 el productor,
+ * `flito-recibos.service.ts`, escribe los dos con el literal del catálogo, así que la preferencia
+ * por el limpio se cumple cuando la liquidación se cargó y la caída cubre al resto.
  *
  * ── La función: `impuestos.soportes.descargar` (admin + gestor de partida), no la de ver ─────────
  *
@@ -260,6 +296,8 @@ router.get('/', exigirFuncion('impuestos.cola.ver'), async (req: Request, res: R
     // pantalla, el usuario no podría estar viendo lo que se descarga.
     creadoDesde: fecha(req.query.creadoDesde), creadoHasta: fecha(req.query.creadoHasta),
     estancado: req.query.estancado === 'si',
+    // HU #12590: liquidado y pendiente de pago con marca. Booleano en texto, como el resto.
+    liquidadoPendientePago: req.query.liquidadoPendientePago === 'true',
     page: Number(req.query.page) || 1,
     pageSize: Number(req.query.pageSize) || 50,
   });
@@ -310,6 +348,7 @@ const colaFiltrosCampos = z.object({
   pagadoDesde: fechaSchema.optional(), pagadoHasta: fechaSchema.optional(),
   creadoDesde: fechaSchema.optional(), creadoHasta: fechaSchema.optional(),
   estancado: z.boolean().optional(),
+  liquidadoPendientePago: z.boolean().optional(),
   page: z.number().int().positive().optional(),
   pageSize: z.number().int().positive().optional(),
   cursor: z.string().optional(),
@@ -324,10 +363,22 @@ const colaFiltrosCampos = z.object({
  */
 const exportSchema = colaFiltrosCampos
   .omit({ page: true, pageSize: true, cursor: true })
+  .extend({
+    /**
+     * Bug #12642: `true` = archivo AMPLIADO con las 11 columnas de pago y trazabilidad. Exige además
+     * `impuestos.excel.exportar_pago` (se comprueba EN LÍNEA, abajo). Ausente o `false` = el archivo
+     * de siempre, byte a byte. Solo booleano: `'sí'` es 400, no un `true`.
+     */
+    incluirPago: z.boolean().optional(),
+  })
   .strict();
 
+/** El texto del 403 cuando se pide el archivo ampliado sin la función. La pantalla lo muestra tal cual. */
+const ERROR_SIN_FUNCION_PAGO = 'Tu usuario no puede exportar datos de pago y trazabilidad';
+
 /**
- * POST /export — la cola filtrada, en un `.xlsx` (Feature #11908, HU #11909).
+ * POST /export — la cola filtrada, en un `.xlsx` (Feature #11908, HU #11909; Bug #12642: variante
+ * ampliada con `incluirPago`).
  *
  * ── Por qué POST y por qué TODO el filtro va en el cuerpo ────────────────────────────────────────
  *
@@ -350,6 +401,14 @@ const exportSchema = colaFiltrosCampos
  *
  * Va declarada antes que `GET /:id` por costumbre del router; no hay ambigüedad de todas formas —es
  * un POST y no existe `POST /:id` a secas—.
+ *
+ * ── `incluirPago` (Bug #12642): una segunda función, comprobada EN LÍNEA ─────────────────────────
+ *
+ * El archivo ampliado lleva lo que FLITO liquida y paga; no se le entrega al gestor de un organismo
+ * por el hecho de poder bajar la cola. La guarda va DENTRO del handler —como `[_forzarContinuar]` en
+ * trámites— porque solo aplica a una rama del cuerpo. Se decide ANTES de tocar la base y antes del
+ * rastro: quien no puede no deja `accion: 'export'` en el `pii_access_log`; el intento denegado lo
+ * registra `tieneFuncion` en la bitácora de permisos.
  */
 router.post('/export', exigirFuncion('impuestos.excel.exportar'), exportColaLimiter, async (req: Request, res: Response) => {
   const parsed = exportSchema.safeParse(req.body ?? {});
@@ -357,21 +416,28 @@ router.post('/export', exigirFuncion('impuestos.excel.exportar'), exportColaLimi
     res.status(400).json({ error: 'Filtro inválido', details: parsed.error.flatten() });
     return;
   }
+  const { incluirPago = false, ...filtros } = parsed.data;
+  if (incluirPago && !(await tieneFuncion(req, 'impuestos.excel.exportar_pago'))) {
+    res.status(403).json({ error: ERROR_SIN_FUNCION_PAGO });
+    return;
+  }
   const ctx = await contextoImpuesto(req.user!);
 
   try {
     // Aquí se decide el 422: si el filtro se pasa del tope, esto lanza y no hay filas que escribir.
-    const filas = await construirFilasExportImpuestos(ctx, parsed.data);
+    const filas = await construirFilasExportImpuestos(ctx, filtros, { incluirPago });
 
-    // `filas` = las REALMENTE entregadas. No el tope, no lo pedido.
+    // `filas` = las REALMENTE entregadas. No el tope, no lo pedido. Ampliado (Bug #12642): los campos
+    // de pago se suman a la lista y `resultado=ampliado` marca la línea.
     await registrarAccesoImpuesto(req, {
       accion: 'export',
-      campos: CAMPOS_PII_IMPUESTO_EXPORT,
+      campos: incluirPago ? [...CAMPOS_PII_IMPUESTO_EXPORT, ...CAMPOS_COLA_EXPORT_PAGO_IMPUESTOS] : CAMPOS_PII_IMPUESTO_EXPORT,
       filas: filas.length,
+      ...(incluirPago ? { resultado: RESULTADO_EXPORT_AMPLIADO } : {}),
     });
 
     res.set('Cache-Control', 'no-store');
-    await sendExcel(res, nombreArchivoExportImpuestos(), COLUMNAS_COLA_EXPORT, filas);
+    await sendExcel(res, nombreArchivoExportImpuestos(), columnasColaExport('impuestos', incluirPago), filas);
   } catch (e) {
     // Con la respuesta ya empezada, responder reventaría con ERR_HTTP_HEADERS_SENT y taparía la
     // causa real: se relanza al manejador global, que sabe cerrar una respuesta a medias.
@@ -663,9 +729,12 @@ router.post('/:id/reversar', exigirFuncion('impuestos.tramite.reversar'), async 
   } catch (e) { handleError(res, e); }
 });
 
-// POST /recibos — carga MASIVA de recibos de pago → Pagado (con/sin marca de agua). Operaciones o
-// gestor. `sinMarcaDeAgua` (campo del form) es el defecto para archivos sueltos; en ZIP la copia se
-// deduce de la carpeta.
+// POST /recibos — carga MASIVA de recibos por fase (HU #12590). Operaciones o gestor. `fase` (campo
+// del form: 'liquidacion' | 'pago') es la fase por defecto para archivos sueltos; en ZIP se deduce
+// de la carpeta. La liquidación del impuesto deja `liquidado_en` sobre el `solicitado`; el pago con
+// marca es la única vía a Pagado. `sinMarcaDeAgua` ('true' = liquidación) se sigue aceptando por
+// compatibilidad con el navegador de hoy; si viene `fase`, manda `fase`. Un valor de `fase` fuera
+// del catálogo es 400 ANTES de resolver el contexto o de llamar al OCR.
 //
 // `rutas` (HU #12056) es OPCIONAL: cuando el navegador abre el ZIP y manda las entradas por tandas,
 // viaja un valor de texto por archivo, en el mismo orden, con la ruta relativa dentro del ZIP
@@ -674,15 +743,53 @@ router.post('/:id/reversar', exigirFuncion('impuestos.tramite.reversar'), async 
 router.post('/recibos', exigirFuncion('impuestos.recibos.cargar'), upload.array('archivos', CARGA_MASIVA_ARCHIVOS_POR_PETICION), async (req: Request, res: Response) => {
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (files.length === 0) { res.status(400).json({ error: 'No se adjuntó ningún archivo' }); return; }
-  const sinMarca = req.body?.sinMarcaDeAgua === 'true' || req.body?.sinMarcaDeAgua === true;
-  // Texto del cliente: solo decide con/sin marca. No nombra el archivo ni la llave de storage.
+  const faseCruda = typeof req.body?.fase === 'string' && req.body.fase !== '' ? req.body.fase : undefined;
+  const fase: string = faseCruda
+    ?? (req.body?.sinMarcaDeAgua === 'true' || req.body?.sinMarcaDeAgua === true ? FaseRecibo.LIQUIDACION : FaseRecibo.PAGO);
+  if (!(FASES_RECIBO as readonly string[]).includes(fase)) { res.status(400).json({ error: "fase inválida: 'liquidacion' | 'pago'" }); return; }
+  // Texto del cliente: solo decide la fase. No nombra el archivo ni la llave de storage.
   const rutas = normalizarRutas(req.body?.rutas);
   try {
     const ctx = await contextoImpuesto(req.user!);
-    const resultado = await cargarRecibos(files.map(aArchivo), sinMarca, ctx, rutas);
-    await audit(req, { action: 'upload', resource: 'flito_impuesto', detail: `Carga masiva recibos: ${resultado.conciliados.length} conciliados, ${resultado.enRevision.length} en revisión, ${resultado.complementos.length} complementos, ${resultado.duplicados.length} duplicados, ${resultado.noAsociados.length} sin asociar` });
+    const resultado = await cargarRecibos(files.map(aArchivo), fase as FaseRecibo, ctx, rutas);
+    await audit(req, { action: 'upload', resource: 'flito_impuesto', detail: `Carga masiva recibos (fase ${fase}): ${resultado.liquidados.length} liquidados, ${resultado.conciliados.length} conciliados, ${resultado.enRevision.length} en revisión, ${resultado.complementos.length} complementos, ${resultado.duplicados.length} duplicados, ${resultado.noAsociados.length} sin asociar, ${resultado.faseNoCoincide.length} fase no coincide` });
     res.json(resultado);
   } catch (e) { handleError(res, e); }
+});
+
+/**
+ * POST /:id/recibo-caja — el recibo de caja del pago en ventanilla, uno a uno desde el detalle del
+ * impuesto (HU #12591). Solo Operaciones de partida (`impuestos.recibos.cargar_caja`; el gestor NO la
+ * tiene aunque cargue recibos en masa). Multipart con UN archivo en el campo `archivo` (PDF/JPEG/PNG).
+ *
+ * Ocho desenlaces, con `codigo` propio en los que la pantalla distingue:
+ *
+ *   403                          → sin la función (cuerpo de `exigirFuncion`)
+ *   400 archivo_invalido         → sin archivo, más de uno, tipo fuera de la lista o tamaño
+ *   404 no_encontrado            → no existe o fuera de la frontera del actor
+ *   409 sin_liquidacion          → falta la liquidación (`liquidado_en`); cargarla primero
+ *   409 estado_no_permitido      → el impuesto no está en gestión
+ *   409 duplicado                → el mismo archivo ya está cargado (en este impuesto o en otro)
+ *   503                          → el OCR no respondió; nada escrito, reintentar
+ *   200 pagado | en_revision     → `ResultadoReciboCaja`
+ *
+ * El valor pagado va a `audit_logs` (Habeas Data), nunca al log de aplicación.
+ */
+router.post('/:id/recibo-caja', exigirFuncion('impuestos.recibos.cargar_caja'), recibirReciboCaja, async (req: Request, res: Response) => {
+  const file = req.file;
+  if (!file) { res.status(400).json({ error: 'No se adjuntó ningún archivo', codigo: CodigoErrorReciboCaja.ARCHIVO_INVALIDO }); return; }
+  try {
+    const ctx = await contextoImpuesto(req.user!);
+    const resultado = await cargarReciboCaja(req.params.id, aArchivo(file), ctx);
+    const valor = resultado.resultado === 'pagado' ? resultado.valorPagado ?? '—' : '—';
+    await audit(req, { action: 'upload', resource: 'flito_impuesto', resourceId: req.params.id,
+      detail: `Recibo de caja (recibo_caja_impuesto): ${resultado.resultado}, valor ${valor}. Soporte ${resultado.soporteId}.` });
+    res.json(resultado);
+  } catch (e) {
+    // `codigo` se emite AQUÍ: `handleError` responde `{ error }` sin él (mismo trato que /export).
+    if (e instanceof ReciboCajaError) { res.status(e.status).json({ error: e.message, codigo: e.codigo }); return; }
+    handleError(res, e);
+  }
 });
 
 export default router;

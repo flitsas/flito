@@ -28,13 +28,13 @@ import {
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
 
-/** Los 21 directorios: los 19 del enunciado (cadena SOAT + resto de FLITO, trámites incluidos, y usuarios) + permisos (HU #12084) + finanzas-servicios-adicionales (HU #12545, nace reconducido). */
+/** Los 22 directorios: los 19 del enunciado (cadena SOAT + resto de FLITO, trámites incluidos, y usuarios) + permisos (HU #12084) + finanzas-servicios-adicionales (HU #12545, nace reconducido) + flito-comprobantes (HU #12611, nace reconducido). */
 export const DIRECTORIOS_RECONDUCIDOS = [
   'flito-soat', 'flito-parametrizacion', 'flito-compuerta', 'flito-bolsas', 'flito-revisiones', 'flito-sync',
   'flito-excepciones', 'flito-ocr',
   'tramites', 'flito-tramites', 'flito-impuestos', 'flito-comparendos', 'flito-conciliacion',
   'flito-liquidacion', 'flito-logistica', 'flito-tablero', 'flito-bitacora', 'flito-derechos', 'users',
-  'permisos', 'finanzas-servicios-adicionales',
+  'permisos', 'finanzas-servicios-adicionales', 'flito-comprobantes',
 ] as const;
 
 /** Rutas de los 24 ficheros que NO llevan guarda de función y siguen igual (§4 del diseño; `/mios`: HU #12084). */
@@ -89,9 +89,9 @@ describe('AC1/AC2 — en los 21 directorios ya no decide ningún requireRole', (
     });
   }
 
-  it('los directorios son 21 (19 del enunciado + permisos + finanzas-servicios-adicionales) y los 24 ficheros de rutas del alcance viven en ellos', () => {
-    expect(DIRECTORIOS_RECONDUCIDOS).toHaveLength(21);
-    expect(FICHEROS_DE_RUTAS).toHaveLength(24);
+  it('los directorios son 22 (19 del enunciado + permisos + finanzas-servicios-adicionales + flito-comprobantes) y los 26 ficheros de rutas del alcance viven en ellos (flito-logistica aporta dos: el legado y el de viajes, HU #12619)', () => {
+    expect(DIRECTORIOS_RECONDUCIDOS).toHaveLength(22);
+    expect(FICHEROS_DE_RUTAS).toHaveLength(26);
     for (const f of FICHEROS_DE_RUTAS) {
       expect((DIRECTORIOS_RECONDUCIDOS as readonly string[]).includes(f.split('/')[0]!), f).toBe(true);
     }
@@ -145,20 +145,22 @@ describe('AC1/AC2 — cada router.<método>( de los 24 ficheros lleva exigirFunc
     }
   });
 
-  it('las dos guardas en línea están montadas con tieneFuncion(req, …) en su fichero', () => {
+  it('las cuatro guardas en línea están montadas con tieneFuncion(req, …) en su fichero (dos del Bug #12642: el export ampliado)', () => {
     expect(sinComentarios(leer('tramites/tramites.routes.ts'))).toMatch(/tieneFuncion\(req, 'tramite\.tramite\.forzar_continuar'\)/);
     expect(sinComentarios(leer('users/users.routes.ts'))).toMatch(/tieneFuncion\(req, 'usuarios\.contrasena\.cambiar_ajena'\)/);
+    expect(sinComentarios(leer('flito-soat/flito-soat.routes.ts'))).toMatch(/tieneFuncion\(req, 'soat\.excel\.exportar_pago'\)/);
+    expect(sinComentarios(leer('flito-impuestos/flito-impuestos.routes.ts'))).toMatch(/tieneFuncion\(req, 'impuestos\.excel\.exportar_pago'\)/);
   });
 });
 
 describe('el lector de montajes cubre la foto entera', () => {
-  it('247 montajes = 238 previos + 2 de la #12089 (baja/reactivar) + 4 de la #12541 (servicios adicionales) + 3 por la HU #12545 (servicios por trámite); los códigos son exactamente los de la foto', () => {
+  it('262 montajes = 238 previos + 2 de la #12089 (baja/reactivar) + 4 de la #12541 (servicios adicionales) + 3 por la HU #12545 (servicios por trámite) + 1 por la HU #12591 (recibo de caja) + 5 por la HU #12611 (comprobantes) + 3 por la HU #12619 (viajes de logística) + 3 por la HU #12629 (comprobantes F2) + 1 por la HU #12654 (comprobantes F3: aceptar diferencia) + 2 por el Bug #12642 (export ampliado, en línea); los códigos son exactamente los de la foto', () => {
     const montajes = montajesDeFunciones();
-    expect(GUARDAS_MEDIDAS).toHaveLength(247);
-    expect(montajes).toHaveLength(247);
+    expect(GUARDAS_MEDIDAS).toHaveLength(262);
+    expect(montajes).toHaveLength(262);
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
-    expect(montajes.filter((m) => m.metodo === null)).toHaveLength(2);
+    expect(montajes.filter((m) => m.metodo === null)).toHaveLength(4);
   });
 
   it('un exigirFuncion sin literal hace que el lector LANCE en vez de adivinar', () => {

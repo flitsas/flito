@@ -32,10 +32,12 @@ const SiigoParametrizacion = lazy(() => import('./pages/SiigoParametrizacion'));
 const SiigoOperacion = lazy(() => import('./pages/SiigoOperacion'));
 const SiigoCredenciales = lazy(() => import('./pages/SiigoCredenciales'));
 const FinanzasReporteCostos = lazy(() => import('./pages/FinanzasReporteCostos'));
+const FinanzasGastosDiarios = lazy(() => import('./pages/FinanzasGastosDiarios'));
 const FlitoRevisiones = lazy(() => import('./pages/FlitoRevisiones'));
 const FlitoSoat = lazy(() => import('./pages/FlitoSoat'));
 const FlitoSoatSolicitud = lazy(() => import('./pages/FlitoSoatSolicitud'));
 const FlitoImpuestos = lazy(() => import('./pages/FlitoImpuestos'));
+const FlitoComprobantes = lazy(() => import('./pages/FlitoComprobantes'));
 const FlitoDerechos = lazy(() => import('./pages/FlitoDerechos'));
 const Users = lazy(() => import('./pages/Users'));
 const RolesPermisos = lazy(() => import('./pages/RolesPermisos'));
@@ -217,6 +219,7 @@ function AppRoutes() {
             justo lo que el AC5 pide separar. */}
         <Route path="/flito/soat/solicitud" element={<ProtectedRoute page="flito_soat"><Lazy><FlitoSoatSolicitud /></Lazy></ProtectedRoute>} />
         <Route path="/flito/impuestos" element={<ProtectedRoute page="flito_impuestos"><Lazy><FlitoImpuestos /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/comprobantes" element={<ProtectedRoute page="flito_comprobantes"><Lazy><FlitoComprobantes /></Lazy></ProtectedRoute>} />
         <Route path="/flito/derechos" element={<ProtectedRoute page="flito_derechos"><Lazy><FlitoDerechos /></Lazy></ProtectedRoute>} />
         <Route path="/flito/revisiones" element={<ProtectedRoute page="flito_revisiones"><Lazy><FlitoRevisiones /></Lazy></ProtectedRoute>} />
         <Route path="/flito/compuerta" element={<ProtectedRoute page="flito_compuerta"><Lazy><FlitoCompuerta /></Lazy></ProtectedRoute>} />
@@ -246,6 +249,9 @@ function AppRoutes() {
             parametriza u opera facturas no administra las llaves del servidor. */}
         <Route path="/siigo/credenciales" element={<ProtectedRoute page="siigo_credenciales"><Lazy><SiigoCredenciales /></Lazy></ProtectedRoute>} />
         <Route path="/finanzas/reporte-costos" element={<ProtectedRoute page="finanzas_reporte_costos"><Lazy><FinanzasReporteCostos /></Lazy></ProtectedRoute>} />
+        {/* Gastos diarios (HU #12624). Slug PROPIO `finanzas_gastos_diarios`, sembrado por la 0200 (HU #12623)
+            solo a `admin`: es lectura de caja, no del reporte, y el admin la concede desde Roles y permisos. */}
+        <Route path="/finanzas/gastos-diarios" element={<ProtectedRoute page="finanzas_gastos_diarios"><Lazy><FinanzasGastosDiarios /></Lazy></ProtectedRoute>} />
         <Route path="/users" element={<ProtectedRoute page="users"><Lazy><Users /></Lazy></ProtectedRoute>} />
         {/* Roles y permisos (HU #12085). Slug PROPIO `roles_permisos`, que solo reparte la 0187 a `admin`:
             es la pantalla que reparte todas las demás. Sin identificador de rol en la URL (ficha, decisión 13). */}

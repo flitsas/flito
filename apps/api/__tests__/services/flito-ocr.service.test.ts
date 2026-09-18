@@ -4,6 +4,7 @@
 // golden fixtures + ANTHROPIC_API_KEY (§8.4). Ver docs/MIGRACION_FLITO_A_OPERACIONES.md.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { CampoImpuesto, CAMPO_IMPUESTO_LABEL } from '@operaciones/shared-types';
 
 // Aísla el test de los flags de demo del .env (dotenv los carga vía env.ts): estos tests ejercitan la
 // ruta de Anthropic (mockeada), no el stub ni el fallback local. Sin esto, OCR_STUB/OCR_LOCAL del .env
@@ -18,6 +19,7 @@ const {
   extraerFacturaSoat, extraerReciboImpuesto,
   placaDesdeNombre, normalizarPesos, normalizarFecha, OcrNoDisponibleError,
 } = await import('../../src/modules/flito-ocr/flito-ocr.service.js');
+const { PROMPT_RECIBO_IMPUESTO, PROMPT_RECIBO_CAJA } = await import('../../src/modules/flito-ocr/flito-ocr.prompts.js');
 
 /** Encola una respuesta OK de Anthropic con el JSON dado como texto del content. */
 function respuesta(obj: Record<string, unknown>) {
@@ -185,5 +187,55 @@ describe('flito-ocr — helpers portados de patrones.ts', () => {
     expect(normalizarFecha('2026-7-9')).toBe('2026-07-09');
     expect(normalizarFecha('15 de julio de 2026')).toBe('2026-07-15');
     expect(normalizarFecha('mañana')).toBeNull();
+  });
+});
+
+// ═════════════════ HU #12614 (AC1) · el sello PAGADO se lee en la misma llamada ═════════════════
+// Mutante M5 del AC7: si el prompt no pide `selloPagado` (o el campo no está en `campos`), caen el
+// `toMatch` del JSON del prompt y el `toEqual` del campo devuelto.
+describe('extraerReciboImpuesto — selloPagado (HU #12614, AC1)', () => {
+  /** El texto del prompt que viajó en la llamada N (0-based), como en flito-ocr.recibo-caja.test.ts. */
+  function promptDeLlamada(n: number): string {
+    const payload = anthropicMock.mock.calls[n]![0] as { messages: { content: { type: string; text?: string }[] }[] };
+    return payload.messages[0]!.content.find((c) => c.type === 'text')!.text!;
+  }
+  const alta = (valor: string) => ({ valor, confianza: 'alta' });
+  const base = { placa: alta('ABC123'), valorTotal: alta('500000'), numeroRecibo: alta('R-1'), fechaPago: alta('2026-09-10'), anioGravable: alta('2026') };
+
+  it('el prompt pide selloPagado (true/false/null) y el campo vuelve en la MISMA llamada, sin escalación (M5)', async () => {
+    anthropicMock.mockResolvedValueOnce(respuesta({ ...base, selloPagado: alta('true') }));
+
+    const r = await extraerReciboImpuesto(doc());
+
+    expect(anthropicMock).toHaveBeenCalledTimes(1);
+    expect(promptDeLlamada(0)).toBe(PROMPT_RECIBO_IMPUESTO);
+    expect(PROMPT_RECIBO_IMPUESTO).toMatch(/"selloPagado":\{"valor":null,"confianza":null\}/);
+    expect(PROMPT_RECIBO_IMPUESTO).toMatch(/sello o la marca de agua PAGADO/i);
+    expect(PROMPT_RECIBO_IMPUESTO).toMatch(/"true"[\s\S]*"false"[\s\S]*null/);
+    expect(Object.keys(r)).toContain(CampoImpuesto.SELLO_PAGADO);
+    expect(CampoImpuesto.SELLO_PAGADO).toBe('selloPagado');
+    expect(CAMPO_IMPUESTO_LABEL.selloPagado).toBe('Sello PAGADO');
+    expect(r.selloPagado).toEqual({ valor: 'true', confianza: 0.95, confiable: true });
+  });
+
+  it.each([
+    ['null', { valor: null, confianza: null }],
+    ["'sí' (fuera del catálogo)", alta('sí')],
+    ["'PAGADO' (fuera del catálogo)", alta('PAGADO')],
+  ])('sello %s → { valor: null, confianza: 0, confiable: false }', async (_n, selloPagado) => {
+    anthropicMock.mockResolvedValueOnce(respuesta({ ...base, selloPagado }));
+    const r = await extraerReciboImpuesto(doc());
+    expect(r.selloPagado).toEqual({ valor: null, confianza: 0, confiable: false });
+  });
+
+  it("'FALSE' se normaliza a 'false'; en 'media' NO es confiable y NO fuerza la segunda pasada", async () => {
+    anthropicMock.mockResolvedValueOnce(respuesta({ ...base, selloPagado: { valor: 'FALSE', confianza: 'media' } }));
+    const r = await extraerReciboImpuesto(doc());
+    expect(anthropicMock).toHaveBeenCalledTimes(1); // selloPagado no está en la escalación
+    expect(r.selloPagado).toEqual({ valor: 'false', confianza: 0.6, confiable: false });
+  });
+
+  it('el recibo de caja NO pide el sello (su prompt y su extractor no cambian)', () => {
+    expect(PROMPT_RECIBO_CAJA).not.toMatch(/selloPagado/);
   });
 });

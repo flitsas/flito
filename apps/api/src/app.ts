@@ -34,11 +34,13 @@ import flitoTramitesRoutes from './modules/flito-tramites/flito-tramites.routes.
 import flitoTableroRoutes from './modules/flito-tablero/flito-tablero.routes.js';
 import flitoBitacoraRoutes from './modules/flito-bitacora/flito-bitacora.routes.js';
 import flitoLogisticaRoutes from './modules/flito-logistica/flito-logistica.routes.js';
+import flitoLogisticaViajesRoutes from './modules/flito-logistica/flito-logistica-viajes.routes.js';
 import flitoBolsasRoutes from './modules/flito-bolsas/flito-bolsas.routes.js';
 import flitoComparendosRoutes from './modules/flito-comparendos/flito-comparendos.routes.js';
 import flitoConciliacionRoutes from './modules/flito-conciliacion/flito-conciliacion.routes.js';
 import finanzasRoutes from './modules/finanzas/finanzas.routes.js';
 import finanzasServiciosAdicionalesRoutes from './modules/finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.js';
+import flitoComprobantesRoutes from './modules/flito-comprobantes/flito-comprobantes.routes.js';
 import siigoCredencialesRoutes from './modules/siigo/credenciales.routes.js';
 import siigoCompuertaRoutes from './modules/siigo/compuerta.routes.js';
 import siigoMapeoConceptosRoutes from './modules/siigo/mapeo-conceptos.routes.js';
@@ -264,11 +266,17 @@ export function createApp() {
   app.use('/api/flito/tablero', flitoTableroRoutes);
   app.use('/api/flito/bitacora', flitoBitacoraRoutes);
   app.use('/api/flito/logistica', flitoLogisticaRoutes);
+  // Viajes adicionales de logística por trámite (HU #12619): misma URL base, fichero hermano
+  // (`/tramites/:tramiteId/viajes` no choca con el `GET /:id` del router legado).
+  app.use('/api/flito/logistica', flitoLogisticaViajesRoutes);
   app.use('/api/flito/bolsas', flitoBolsasRoutes);
   app.use('/api/flito/conciliacion', flitoConciliacionRoutes);
   // Monitoreo de comparendos (Feature #11492). Módulo propio: no es el gate SIMIT del traspaso ni
   // el incidente PESV `comparendo` — ver ADR-0001.
   app.use('/api/flito/comparendos', flitoComparendosRoutes);
+  // Puerta universal de comprobantes (Épica #12245, HU #12611): carga en lotes, cola, detalle,
+  // archivo y relectura. Módulo propio reconducido al motor de permisos (ADR-0018).
+  app.use('/api/flito/comprobantes', flitoComprobantesRoutes);
   app.use('/api/finanzas', finanzasRoutes);
   // Servicios adicionales de un trámite (HU #12545): misma URL base, módulo propio reconducido al
   // motor de permisos (finanzas/ es legacy y no admite exigirFuncion; ADR-0017).

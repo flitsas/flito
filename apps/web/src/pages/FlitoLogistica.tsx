@@ -19,6 +19,7 @@ import {
 import FlitModal from '../components/flit/FlitModal';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import FirmaCanvas from '../components/flito/FirmaCanvas';
+import ViajesLogistica from '../components/flito/logistica/ViajesLogistica';
 
 interface TramiteFila {
   tramiteId: string; idFlit: string; placa: string | null; vin: string | null; propietario: string | null;
@@ -304,6 +305,7 @@ export default function FlitoLogistica() {
 }
 
 function DetalleModal({ doc, onClose }: { doc: TramiteDetalle; onClose: () => void }) {
+  const { hasFuncion } = useAuth();
   return (
     <FlitModal title={`Licencia · ${doc.placa ?? doc.vin ?? ''}`} onClose={onClose} wide>
       <div className="mb-4 grid grid-cols-2 gap-2 text-sm">
@@ -314,6 +316,11 @@ function DetalleModal({ doc, onClose }: { doc: TramiteDetalle; onClose: () => vo
         <div><span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Propietario</span><div>{doc.propietario ?? '—'}{doc.propietarioDocumento ? ` · ${doc.propietarioDocumento}` : ''}</div></div>
         <div><span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>N.º licencia / N.º LT</span><div className="tabular-nums">{doc.numeroLicencia ?? '—'} / {doc.numeroLt ?? '—'}</div></div>
       </div>
+      {/* HU #12620: sin `logistica.viajes.ver` la sección no existe ni pide nada al API. */}
+      {hasFuncion('logistica.viajes.ver') && (
+        <ViajesLogistica tramiteId={doc.tramiteId} idFlit={doc.idFlit} fecha={fecha}
+          puedeRegistrar={hasFuncion('logistica.viajes.registrar')} puedeQuitar={hasFuncion('logistica.viajes.quitar')} />
+      )}
       {doc.docId ? (
         <>
           <h3 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>Bitácora</h3>

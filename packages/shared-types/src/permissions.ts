@@ -179,6 +179,9 @@ export const PAGES = {
   flito_conciliacion: 'FLITO — Conciliación',
   // Finanzas — reporte de costos por trámite (contabilidad / facturación / cobros).
   finanzas_reporte_costos: 'Finanzas — Reporte de costos',
+  // Finanzas — gastos diarios por categoría (HU #12623/#12624): serie por día del evento y GMF
+  // estimado. Página propia, sin reparto por defecto: la concede el admin desde el panel de roles.
+  finanzas_gastos_diarios: 'Finanzas — Gastos diarios',
   // Facturación electrónica (Feature #11240): parametrización de la integración con Siigo —
   // catálogos, mapeo de conceptos a productos y configuración global de emisión. UNA sola clave
   // para toda la parametrización: son pantallas del mismo trabajo y de la misma persona, y
@@ -207,6 +210,10 @@ export const PAGES = {
   // 0191 no le concede ni `parametrizacion.servicios_adicionales.listar`— y concederle la página
   // sería regalarle una pantalla que responde 403 en cada petición.
   flito_servicios_adicionales: 'Finanzas — Servicios adicionales',
+  // Épica #12245, HU #12611 — la puerta universal de comprobantes (cola, carga, detalle, releer).
+  // En «Finanzas» porque quien carga y asocia comprobantes es el área financiera; admin la recibe
+  // como todas. La página nace con su migración de siembra (0198), como las dos anteriores.
+  flito_comprobantes: 'Finanzas — Comprobantes',
   // Facturación electrónica (HU #11890): las CREDENCIALES de la integración — con qué usuario se
   // conecta FLITO a Siigo en cada ambiente, y la prueba de conexión.
   //
@@ -250,7 +257,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   // aparece arriba en «Operaciones». Hasta el Feature #11912 la misma clave salía en los dos
   // grupos —una rareza que nadie sabía explicar— porque el portal la tenía prestada.
   { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'flito_soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta', 'flito_bolsas', 'flito_comparendos', 'flito_conciliacion'] },
-  { label: 'Finanzas', pages: ['finanzas_reporte_costos', 'siigo_parametrizacion', 'siigo_operacion', 'flito_tarifas', 'flito_servicios_adicionales'] },
+  { label: 'Finanzas', pages: ['finanzas_reporte_costos', 'finanzas_gastos_diarios', 'siigo_parametrizacion', 'siigo_operacion', 'flito_tarifas', 'flito_servicios_adicionales', 'flito_comprobantes'] },
   { label: 'Administración', pages: ['users', 'privacy', 'siigo_credenciales', 'roles_permisos'] },
 ];
 
@@ -331,7 +338,7 @@ const DEFAULTS_POR_ROL: Record<Exclude<UserRole, 'admin'>, readonly PageSlug[]> 
   // El catálogo de servicios adicionales (HU #12542) va aquí por lo mismo que las tarifas: la 0191
   // reparte `parametrizacion.servicios_adicionales.*` a `admin` y `financiera`, y la 0192 siembra la
   // página a los mismos dos roles; sin esta línea la paridad con el catálogo del código se rompe.
-  financiera: ['dashboard', 'finanzas_reporte_costos', 'clients', 'flito_bolsas', 'flito_conciliacion', 'siigo_parametrizacion', 'siigo_operacion', 'flito_tarifas', 'flito_servicios_adicionales'],
+  financiera: ['dashboard', 'finanzas_reporte_costos', 'clients', 'flito_bolsas', 'flito_conciliacion', 'siigo_parametrizacion', 'siigo_operacion', 'flito_tarifas', 'flito_servicios_adicionales', 'flito_comprobantes'],
   // FLITO — Cliente (Feature #11912): UNA sola página, y a propósito SIN `dashboard`.
   //
   // El tablero es de la operación: consolida trámites, SOAT e impuestos de TODAS las compañías, así

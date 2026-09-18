@@ -182,6 +182,19 @@ const SERVICIOS_DE_TRAMITE_ESCRIBIR = [
 ] as const;
 
 /**
+ * Las CINCO de la 0198 (HU #12611), las TRES de la 0201 (HU #12629: buscar trámites, aplicar,
+ * descartar) y la UNA de la 0202 (HU #12654: aceptar diferencia): la puerta universal de comprobantes.
+ * Reparto de partida admin + financiera, simétrico; cualquier otro rol se ajusta desde Roles y
+ * permisos, no desde aquí.
+ */
+const COMPROBANTES = [
+  'comprobantes.lote.cargar', 'comprobantes.cola.ver', 'comprobantes.comprobante.ver',
+  'comprobantes.archivo.descargar', 'comprobantes.comprobante.releer',
+  'comprobantes.tramites.buscar', 'comprobantes.comprobante.aplicar', 'comprobantes.comprobante.descartar',
+  'comprobantes.diferencia.aceptar',
+] as const;
+
+/**
  * Reparto por rol, como lo devuelve el servidor para cada fixture de arriba (0179 + 0181), acotado
  * a los códigos que alguna pantalla pregunta (`grep -rn "hasFuncion('" apps/web/src`). Admin =
  * operaciones: todos menos los tres del canal cliente (`soat.solicitud.crear`, `runt.preconsultar`,
@@ -193,7 +206,15 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
   admin: [
     ...SOAT_LEER, 'soat.comprobante.cargar', 'soat.solicitud.enviar',
     'impuestos.cola.ver', 'impuestos.recibos.cargar', 'impuestos.tramite.enviar',
+    // HU #12592: recibo de caja puntual desde el detalle (migración 0197: hoy solo `admin`).
+    'impuestos.recibos.cargar_caja',
+    // Bug #12642: Excel ampliado con pago y trazabilidad (sembrada solo a `admin`; el proveedor y el
+    // gestor de impuestos NO la tienen, y ese hueco es lo que prueba el spec del export).
+    'soat.excel.exportar_pago', 'impuestos.excel.exportar_pago',
     'tramites.solicitud.pedir_soat', 'tramites.autogestion.desbloquear',
+    // HU #12635: «Ver soportes» desde el detalle de un comprobante. La 0179 la siembra para admin y
+    // auditor; financiera NO la tiene (la reparte el admin desde el panel): el spec la añade por usuario.
+    'tramites.tramite.ver_soportes',
     'tramite.tramite.forzar_continuar', 'compuerta.tramite.entregar', 'logistica.lote.cerrar',
     'tablero.tablero.ver', 'sync.sync.lanzar',
     'transito.tramite.tomar', 'transito.bandeja.ver_pendientes', 'transito.config.listar',
@@ -203,14 +224,21 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     'usuarios.usuario.listar',
     ...SERVICIOS_ADICIONALES,
     SERVICIOS_DE_TRAMITE_VER, ...SERVICIOS_DE_TRAMITE_ESCRIBIR,
+    ...COMPROBANTES,
+    // HU #12620: viajes adicionales de logística (migración de la HU #12619: hoy solo `admin`).
+    'logistica.viajes.ver',
+    'logistica.viajes.registrar',
+    'logistica.viajes.quitar',
   ],
   proveedor: [...SOAT_LEER, 'soat.comprobante.cargar'],
   cliente: [...SOAT_LEER, 'soat.solicitud.crear', 'soat.runt.preconsultar', 'soat.factura.leer'],
   gestor_impuestos: ['impuestos.cola.ver', 'impuestos.recibos.cargar'],
-  auditor: [...SOAT_LEER, 'impuestos.cola.ver', 'tablero.tablero.ver', SERVICIOS_DE_TRAMITE_VER],
+  auditor: [...SOAT_LEER, 'impuestos.cola.ver', 'tablero.tablero.ver', SERVICIOS_DE_TRAMITE_VER, 'tramites.tramite.ver_soportes'],
+
   financiera: [
     'liquidacion.liquidacion.liquidar', 'liquidacion.liquidacion.facturar', ...SERVICIOS_ADICIONALES,
     SERVICIOS_DE_TRAMITE_VER, ...SERVICIOS_DE_TRAMITE_ESCRIBIR,
+    ...COMPROBANTES,
   ],
   transito: ['transito.tramite.tomar', 'transito.bandeja.ver_pendientes'],
   mensajero: [],

@@ -13,7 +13,8 @@ Las skills (`flit-gestion-hu`, `flit-code-review`, `flit-integration-ado`, `flit
 
 **Aplican igual a HU y a Bug.** `flit-gestion-hu` gobierna el ciclo `Active → Resolved` de **ambos**
 tipos (regla «Paridad HU ↔ Bug» de `AGENTS.md`). Decir «ninguna skill mueve el State de un Bug» y
-dejarlo en `Active` con su corrección mergeada es **Bug huérfano**: fallo de proceso, no prudencia.
+dejarlo en `Active` con su corrección **ya en `staging`** es **Bug huérfano**: fallo de proceso, no prudencia.
+(Mergeado solo a `develop` y en `Active` es el estado correcto: `Resolved` = en QA = `staging`.)
 Lo que se le pregunta al humano es la autorización para escribir en ADO, no si existe el proceso.
 
 ## Qué cuenta
