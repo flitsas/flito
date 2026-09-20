@@ -1,5 +1,5 @@
 // HU #12081 — Lectura del catálogo de funciones (AC5) y la comprobación de arranque (AC6).
-import { asc } from 'drizzle-orm';
+import { asc, desc } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { permisosFunciones, permisosRolFuncion } from '../../db/schema.js';
 import { catalogoCompleto } from './catalogo.js';
@@ -16,7 +16,14 @@ export interface GrupoDeFunciones {
   funciones: FuncionDeGrupo[];
 }
 
-/** El catálogo agrupado por módulo, que es como lo pinta la pantalla de permisos. */
+/**
+ * El catálogo agrupado por módulo, que es como lo pinta la pantalla de permisos.
+ *
+ * Dentro de cada grupo van primero las páginas y después las operaciones (HU #12716 AC4), y por
+ * código dentro de cada tipo. `desc(tipo)` basta: `'pagina' > 'operacion'` alfabéticamente y el
+ * CHECK `permisos_funciones_tipo_chk` solo admite esos dos valores, así que no hace falta un CASE.
+ * El orden lo pone el SQL y nada más: aquí no se reordena en memoria.
+ */
 export async function catalogoAgrupado(): Promise<GrupoDeFunciones[]> {
   const filas = await db.select({
     codigo: permisosFunciones.codigo,
@@ -25,7 +32,7 @@ export async function catalogoAgrupado(): Promise<GrupoDeFunciones[]> {
     descripcion: permisosFunciones.descripcion,
     tipo: permisosFunciones.tipo,
   }).from(permisosFunciones)
-    .orderBy(asc(permisosFunciones.modulo), asc(permisosFunciones.codigo));
+    .orderBy(asc(permisosFunciones.modulo), desc(permisosFunciones.tipo), asc(permisosFunciones.codigo));
 
   const grupos = new Map<string, FuncionDeGrupo[]>();
   for (const f of filas) {
@@ -63,7 +70,10 @@ export class ArranquePermisosError extends Error {}
  */
 export async function verificarCatalogoAlArrancar(): Promise<void> {
   const enCodigo = catalogoCompleto();  // ya valida guarda ↔ nombre en los dos sentidos
-  const filas = await db.select({ codigo: permisosFunciones.codigo }).from(permisosFunciones);
+  const filas = await db.select({
+    codigo: permisosFunciones.codigo,
+    modulo: permisosFunciones.modulo,
+  }).from(permisosFunciones);
 
   if (filas.length === 0) {
     throw new ArranquePermisosError(
@@ -80,6 +90,24 @@ export async function verificarCatalogoAlArrancar(): Promise<void> {
       (faltan.length ? `  El código exige y la base no declara (${faltan.length}): ${faltan.join(', ')}\n` : '') +
       (sobran.length ? `  La base declara y el código no usa (${sobran.length}): ${sobran.join(', ')}\n` : '') +
       '  Regenera el seed con `npm run permisos:seed -w apps/api` y añade la migración que falte.',
+    );
+  }
+
+  // HU #12716 AC7: mismos códigos, pero el módulo de AGRUPACIÓN también tiene que coincidir fila a
+  // fila. Una base sin la 0205 sigue con `flito_soat_e_impuestos` / `parametrizacion` y la pantalla
+  // de permisos pintaría los grupos viejos mientras el 403 nombra los nuevos.
+  const moduloEnBase = new Map(filas.map((f) => [f.codigo, f.modulo]));
+  const difieren = enCodigo
+    .filter((f) => moduloEnBase.get(f.codigo) !== f.modulo)
+    .map((f) => `«${f.codigo}»: base «${moduloEnBase.get(f.codigo)}» → código «${f.modulo}»`);
+  if (difieren.length) {
+    const MOSTRAR = 10;
+    const lista = difieren.slice(0, MOSTRAR).join('\n    ') +
+      (difieren.length > MOSTRAR ? `\n    … y ${difieren.length - MOSTRAR} más` : '');
+    throw new ArranquePermisosError(
+      `El módulo de agrupación difiere entre la base y el código en ${difieren.length} funciones:\n    ${lista}\n` +
+      '  Falta aplicar 0205_permisos_reagrupar_modulos.sql (o la que la sustituya); se regenera con ' +
+      '`npm run permisos:seed -w apps/api -- --reagrupar`.',
     );
   }
 

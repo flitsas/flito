@@ -94,7 +94,9 @@ describe('0182 — reglas del archivo y lo que siembra/retira (análisis estáti
     for (const codigo of NUEVAS) {
       const f = catalogo.get(codigo);
       expect(f, `${codigo} en el catálogo del código`).toBeDefined();
-      expect(sembradas.get(codigo)).toEqual({ codigo, modulo: f!.modulo, nombre: f!.nombreNegocio, descripcion: f!.descripcion, tipo: 'operacion' });
+      // HU #12716: el archivo congelado sembró el módulo ESTRUCTURAL (`parametrizacion`); la 0205 reagrupa a `tarifas`.
+      expect(f!.modulo).toBe('tarifas');
+      expect(sembradas.get(codigo)).toEqual({ codigo, modulo: 'parametrizacion', nombre: f!.nombreNegocio, descripcion: f!.descripcion, tipo: 'operacion' });
       expect(f!.roles).toEqual(['admin', 'financiera']);
     }
     const reparto = leerRepartoSembrado([ARCHIVO]);

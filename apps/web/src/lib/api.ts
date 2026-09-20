@@ -519,7 +519,7 @@ export interface FuncionDeGrupo {
   tipo: 'pagina' | 'operacion';
 }
 
-/** Un módulo del catálogo. `modulo` es la CLAVE (`flito_soat_e_impuestos`), no la etiqueta. */
+/** Un módulo del catálogo. `modulo` es la CLAVE (`logistica`, `comparendos`…), la misma que agrupa pantalla y acciones desde la HU #12716, no la etiqueta. */
 export interface GrupoDeFunciones {
   modulo: string;
   funciones: FuncionDeGrupo[];
