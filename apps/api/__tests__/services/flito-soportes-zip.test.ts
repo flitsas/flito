@@ -38,6 +38,8 @@ import { testToken, type TestRole } from '../helpers/auth.js';
 
 /** Orden observado: el rastro de PII antes del primer byte, y `archiver` después de los dos. */
 const orden: string[] = [];
+/** Con qué opciones se instanció `archiver` (Bug #12644: store, zlib level 0). */
+const opcionesArchiver: unknown[] = [];
 
 const kdb = createKeyedDb();
 vi.mock('../../src/db/client.js', () => ({
@@ -60,7 +62,7 @@ vi.mock('archiver', async (importOriginal) => {
   const real = (actual.default ?? actual) as (...a: unknown[]) => unknown;
   return {
     ...actual,
-    default: (...a: unknown[]) => { orden.push('archiver'); return real(...a); },
+    default: (...a: unknown[]) => { orden.push('archiver'); opcionesArchiver.push(a[1]); return real(...a); },
   };
 });
 
@@ -262,6 +264,7 @@ beforeEach(() => {
   contenidoPorClave.clear();
   consultas.length = 0;
   orden.length = 0;
+  opcionesArchiver.length = 0;
   vi.unstubAllGlobals();
 });
 
@@ -876,6 +879,17 @@ describe('presupuesto — se mide en BYTES y se decide ANTES de abrir el ZIP', (
     // Dice el TOPE, no cuánto pesaba la selección: eso sería un contador de bytes por filtro.
     expect(cuerpo.error).toContain('1024');
     expect(cuerpo.error).not.toContain('1100');
+  });
+
+  it('el ZIP se arma en STORE (zlib level 0): PDF/JPG ya vienen comprimidos (Bug #12644)', async () => {
+    // Con level 9 el peor lote legal (300 × 3 MiB) pasa de ~4 s a ~26 s de CPU en el hilo del API
+    // (medido en `flito-soportes-zip-coste.test.ts`); el tope de 1 GiB se fijó contando con store.
+    kdb.when.scenario({ flito_soat: [filaSoat()], flito_soportes: [soporte({ ancla: SOAT_A })] });
+
+    expect((await pedirZip(SOAT, await sesion(), { ids: [SOAT_A] })).status).toBe(200);
+    // `archiver` completa el objeto con sus defaults; lo que se ata es el nivel, no la forma entera.
+    expect(opcionesArchiver).toHaveLength(1);
+    expect(opcionesArchiver[0]).toMatchObject({ zlib: { level: 0 } });
   });
 
   it('justo en el tope, 1024 MiB: el borde no se pasa de largo', async () => {
