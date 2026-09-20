@@ -78,13 +78,13 @@ describe.skipIf(!URL_BASE)('0204 — contra la base real (primera fijación, res
     const { vigenteEn } = await import('../../src/modules/flito-parametrizacion/flito-tarifas.service.js');
 
     await enTx(sql, async (tx) => {
-      const c = await companiaDesechable(tx, '0204-a');
+      const c = await companiaDesechable(tx, 'M');
 
       // Primera fijación «mal» (API vieja con now()): vigente_desde = fijado_en.
       await tx`INSERT INTO flito_tarifas_vigencias
-        (compania_id, concepto, tipo_tramite, valor, vigente_desde, vigente_hasta, fijado_en)
+        (compania_id, concepto, tipo_tramite, valor, vigente_desde, vigente_hasta, fijado_en, cerrado_en)
         VALUES (${c}, 'tramite_digital', 'MATRICULA', 250000,
-          '2026-09-15T12:00:00Z', '2026-09-20T12:00:00Z', '2026-09-15T12:00:00Z')`;
+          '2026-09-15T12:00:00Z', '2026-09-20T12:00:00Z', '2026-09-15T12:00:00Z', '2026-09-20T12:00:00Z')`;
       // Cambio posterior (cambiarOCerrar): no se toca.
       await tx`INSERT INTO flito_tarifas_vigencias
         (compania_id, concepto, tipo_tramite, valor, vigente_desde, vigente_hasta, fijado_en)
