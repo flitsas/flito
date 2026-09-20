@@ -132,7 +132,8 @@ describe('0198 — análisis estático', () => {
     const pagina = catalogo.find((c) => c.codigo === PAGINA);
     expect(pagina).toBeDefined();
     expect(pagina!.tipo).toBe('pagina');
-    expect(pagina!.modulo).toBe('finanzas');
+    // HU #12716: el archivo congelado sembró `finanzas` (estructural); la 0205 reagrupa la página a `comprobantes`.
+    expect(pagina!.modulo).toBe('comprobantes');
     expect(pagina!.nombreNegocio).toBe('Finanzas — Comprobantes');
     for (const codigo of OPS) {
       const op = OPERACIONES_DECLARADAS.find((o) => o.codigo === codigo);

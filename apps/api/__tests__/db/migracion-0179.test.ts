@@ -39,7 +39,8 @@ import { USER_ROLES, paginasPorDefecto, isValidPage } from '@operaciones/shared-
 import { catalogoCompleto, repartoDePartida, PAGINAS_NO_CONCEDIBLES } from '../../src/modules/permisos/catalogo.js';
 import { FUNCIONES_SIN_ADMIN } from '../../src/modules/permisos/permisos.service.js';
 import {
-  funcionesDeSql, leerFuncionesSembradas, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql,
+  funcionesDeSql, leerFuncionesSembradas, leerReagrupacionesSembradas, leerRepartoSembrado,
+  leerRetirosSembrados, repartoDeSql,
 } from '../helpers/permisos-seed-sql.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -102,7 +103,7 @@ describe('0179 — el archivo dice lo mismo que schema.ts (análisis estático)'
     expect((SIN_COMENTARIOS.match(/ON CONFLICT[\s\S]{0,60}DO NOTHING/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 
-  it('el seed pegado en la migración, más la 0181, los retiros de la 0182, la página de la 0184, la 0185, la 0186 y la página de la 0187, es lo que el generador produce HOY', () => {
+  it('el seed pegado en la migración, más la 0181, los retiros de la 0182, la página de la 0184, la 0185, la 0186, la página de la 0187 y la reagrupación de la 0205, es lo que el generador produce HOY', () => {
     // Esta es la comprobación que impide que el código y el seed se separen: si alguien amplía la foto
     // (`inventario.generado.ts`) o el catálogo y no escribe la migración, aquí se ve. Y si el generador
     // se rompe, también. Desde la HU #12083 la foto está congelada y el seed vive en VARIOS archivos
@@ -122,12 +123,16 @@ describe('0179 — el archivo dice lo mismo que schema.ts (análisis estático)'
     for (const [codigo, f] of funcionesSembradas) expect(f, codigo).toEqual(funcionesGeneradas.get(codigo));
     expect(aPares(leerRepartoSembrado())).toEqual(aPares(repartoGenerado));
 
-    // Y cada fila de la 0179 SOLA sigue en lo generado, o la retiró una migración posterior con nombre:
-    // nadie reescribió la 0179 (una migración aplicada no se edita).
+    // Y cada fila de la 0179 SOLA sigue en lo generado, o la retiró una migración posterior con nombre,
+    // o le cambió el MÓDULO una migración posterior con nombre (la 0205, HU #12716): nadie reescribió
+    // la 0179 (una migración aplicada no se edita). El módulo se sustituye solo donde la 0205 lo dice;
+    // nombre, descripción y tipo se siguen comparando byte a byte contra lo generado.
     const retiros = leerRetirosSembrados();
+    const reagrupadas = leerReagrupacionesSembradas();
+    expect(reagrupadas.size).toBe(47);
     for (const [codigo, f] of leerFuncionesSembradas([ARCHIVO])) {
       if (retiros.funciones.has(codigo)) continue;
-      expect(funcionesGeneradas.get(codigo), codigo).toEqual(f);
+      expect(funcionesGeneradas.get(codigo), codigo).toEqual({ ...f, modulo: reagrupadas.get(codigo) ?? f.modulo });
     }
     for (const par of aPares(leerRepartoSembrado([ARCHIVO]))) {
       if (retiros.reparto.has(par)) continue;

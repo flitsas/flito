@@ -74,8 +74,9 @@ describe('0184 — reglas del archivo y lo que siembra (análisis estático)', (
     const f = catalogoCompleto().find((c) => c.codigo === CODIGO);
     expect(f, `${CODIGO} en el catálogo del código`).toBeDefined();
     expect(f!.tipo).toBe('pagina');
-    expect(f!.modulo).toBe('finanzas');
-    expect(sembradas.get(CODIGO)).toEqual({ codigo: CODIGO, modulo: f!.modulo, nombre: f!.nombreNegocio, descripcion: f!.descripcion, tipo: 'pagina' });
+    // HU #12716: el archivo congelado sembró el módulo ESTRUCTURAL (`finanzas`); la 0205 lo reagrupa a `tarifas`.
+    expect(f!.modulo).toBe('tarifas');
+    expect(sembradas.get(CODIGO)).toEqual({ codigo: CODIGO, modulo: 'finanzas', nombre: f!.nombreNegocio, descripcion: f!.descripcion, tipo: 'pagina' });
   });
 
   it('el reparto es admin y financiera, igual en el SQL que en el catálogo del código (mutantes M1 y M2)', () => {

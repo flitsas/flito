@@ -2,6 +2,8 @@
 // el código, no se teclea; el script queda en el repo y se puede volver a correr»).
 //
 //   npm run permisos:seed -w apps/api        → escupe el bloque SQL por stdout
+//   npm run permisos:seed -w apps/api -- --reagrupar
+//       → solo el UPDATE de `modulo` de la HU #12716 (lo pegado en 0205_permisos_reagrupar_modulos.sql)
 //
 // Lo que sale por stdout es EXACTAMENTE lo que está pegado entre las marcas «SEED GENERADO» de
 // `0179_permisos_modelo.sql` más las filas que la 0181 añadió. Volver a correrlo sobre el mismo
@@ -17,6 +19,7 @@
 // El seed NO se aplica desde aquí. Escribir en la base es cosa del runner de migraciones, que es
 // quien tiene la transacción y el registro de lo aplicado.
 import { catalogoCompleto, repartoDePartida, type FuncionCatalogo } from '../modules/permisos/catalogo.js';
+import { reagrupaciones } from '../modules/permisos/catalogo-agrupacion.js';
 
 /** Literal SQL de una cadena: comilla simple doblada. Sin concatenar nada más (regla 3 de AGENTS). */
 const lit = (s: string): string => `'${s.replace(/'/g, "''")}'`;
@@ -57,4 +60,28 @@ function seed(): string {
   ].join('\n');
 }
 
-process.stdout.write(seed() + '\n');
+/**
+ * HU #12716 — El overlay de agrupación: un solo `UPDATE … FROM (VALUES …)` con los pares de
+ * `reagrupaciones()`, en la forma canónica que `__tests__/helpers/permisos-seed-sql.ts` sabe plegar.
+ * `IS DISTINCT FROM` hace la segunda pasada un no-op (P6). Se valida contra el catálogo primero: una
+ * entrada muerta del mapa revienta aquí antes de escribir una migración sobre nada.
+ */
+function reagrupar(): string {
+  catalogoCompleto();
+  const pares = reagrupaciones();
+  const filas = pares.map(([codigo, modulo]) => `    (${lit(codigo)}, ${lit(modulo)})`);
+  return [
+    `-- ${pares.length} pares código → módulo de agrupación (HU #12716). Generado: no editar a mano.`,
+    '-- Regenerar con: npm run permisos:seed -w apps/api -- --reagrupar',
+    'UPDATE permisos_funciones AS f',
+    '   SET modulo = v.modulo',
+    '  FROM (VALUES',
+    filas.join(',\n'),
+    '  ) AS v(codigo, modulo)',
+    ' WHERE f.codigo = v.codigo',
+    '   AND f.modulo IS DISTINCT FROM v.modulo;',
+  ].join('\n');
+}
+
+const modo = process.argv.includes('--reagrupar') ? reagrupar : seed;
+process.stdout.write(modo() + '\n');

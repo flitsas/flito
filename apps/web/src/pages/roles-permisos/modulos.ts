@@ -1,7 +1,9 @@
 // HU #12085 (Feature #12072) — Roles y permisos: etiquetas y copy que la pantalla comparte.
 //
-// `GET /api/permisos/funciones` agrupa por CLAVE de módulo (`flito_soat_e_impuestos`), no por
-// etiqueta. Aquí vive el mapa clave → etiqueta legible; lo que no esté en el mapa cae a la clave
+// `GET /api/permisos/funciones` agrupa por CLAVE de módulo (`logistica`, `comparendos`…), no por
+// etiqueta. Desde la HU #12716 cada pantalla llega en el grupo de las acciones de su módulo (la
+// pantalla primero): ya no existe el cajón `flito_soat_e_impuestos` ni `parametrizacion`, `sync` o
+// `finanzas`. Aquí vive el mapa clave → etiqueta legible; lo que no esté en el mapa cae a la clave
 // capitalizada y sin `_`, para que un módulo nuevo del catálogo se vea antes de que alguien lo
 // bautice aquí. Ningún número del catálogo se cablea: la pantalla cuenta lo que llega (ficha §2).
 
@@ -12,13 +14,14 @@ const ETIQUETAS_MODULO: Record<string, string> = {
   administracion: 'Administración',
   bitacora: 'Bitácora',
   bolsas: 'Bolsas',
+  catalogos_compartidos: 'Catálogos compartidos',
+  clientes: 'Clientes',
   comparendos: 'Comparendos',
   compuerta: 'Compuerta de entrega',
+  comprobantes: 'Comprobantes',
   conciliacion: 'Conciliación',
   cumplimiento_laft: 'Cumplimiento (LAFT)',
   derechos: 'Derechos de tránsito',
-  finanzas: 'Finanzas',
-  flito_soat_e_impuestos: 'FLITO (SOAT e Impuestos)',
   flota: 'Flota',
   general: 'General',
   impuestos: 'Impuestos',
@@ -26,15 +29,15 @@ const ETIQUETAS_MODULO: Record<string, string> = {
   logistica: 'Logística',
   mantenimiento: 'Mantenimiento',
   operaciones: 'Operaciones',
-  parametrizacion: 'Parametrización',
   permisos: 'Roles y permisos',
   pesv: 'PESV',
   privacidad: 'Privacidad y datos',
   revisiones: 'Revisiones OCR',
   rndc: 'RNDC',
+  servicios_adicionales: 'Servicios adicionales',
   soat: 'SOAT',
-  sync: 'Sincronización',
   tablero: 'Tablero',
+  tarifas: 'Tarifas',
   tramite: 'Trámite digital',
   tramites: 'Gestión de trámites',
   transito: 'Tránsito',
@@ -61,9 +64,11 @@ export function modulosVisibles(grupos: GrupoDeFunciones[]): GrupoDeFunciones[] 
     .map(({ etiqueta: _e, ...g }) => g);
 }
 
-// HU #12533 — Tres secciones por origen del módulo (ficha §13). El reparto y las tres reubicaciones
-// son decisión de producto (§13.2); aquí solo se calcan. Todo es presentación: el `PUT` sigue
-// mandando los mismos códigos, la función solo se PINTA en otro acordeón.
+// HU #12533 — Tres secciones por origen del módulo (ficha §13). El reparto y las reubicaciones son
+// decisión de producto (§13.2); aquí solo se calcan. Todo es presentación: el `PUT` sigue mandando
+// los mismos códigos, la función solo se PINTA en otro acordeón. De las tres reubicaciones de la
+// #12533 solo sigue viva `pagina.privacy`: `pagina.transito` y `pagina.drive` ya llegan del API en
+// `transito` y `derechos` desde la HU #12716 (una pantalla sin acciones no cambia de módulo).
 
 export type Seccion = 'flito' | 'previo_en_uso' | 'previo_sin_uso';
 
@@ -83,8 +88,6 @@ export const SECCIONES: readonly DefinicionSeccion[] = [
 
 /** Clave de módulo del API → sección. Una clave que no esté aquí cae en FLITO (§13.2). */
 const SECCION_DE_MODULO: Record<string, Seccion> = {
-  flito_soat_e_impuestos: 'flito',
-  finanzas: 'flito',
   soat: 'flito',
   tramites: 'flito',
   impuestos: 'flito',
@@ -98,8 +101,13 @@ const SECCION_DE_MODULO: Record<string, Seccion> = {
   comparendos: 'flito',
   conciliacion: 'flito',
   liquidacion: 'flito',
-  parametrizacion: 'flito',
-  sync: 'flito',
+  // HU #12716: módulos que nacen al reagrupar cada pantalla con sus acciones. Explícitos aunque el
+  // repliegue de `seccionDeModulo` ya los mandaría aquí.
+  clientes: 'flito',
+  tarifas: 'flito',
+  servicios_adicionales: 'flito',
+  catalogos_compartidos: 'flito',
+  comprobantes: 'flito',
   general: 'previo_en_uso',
   administracion: 'previo_en_uso',
   usuarios: 'previo_en_uso',
@@ -121,8 +129,6 @@ export function seccionDeModulo(clave: string): Seccion {
 
 /** Código de función → clave del módulo en el que se pinta (§13.2). El API no se entera. */
 const REUBICACIONES: Record<string, string> = {
-  'pagina.transito': 'transito',
-  'pagina.drive': 'derechos',
   'pagina.privacy': 'privacidad',
 };
 

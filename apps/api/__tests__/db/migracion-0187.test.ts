@@ -89,8 +89,9 @@ describe('0187 — reglas del archivo y lo que siembra (análisis estático)', (
     const f = catalogoCompleto().find((c) => c.codigo === CODIGO);
     expect(f, `${CODIGO} en el catálogo del código`).toBeDefined();
     expect(f!.tipo).toBe('pagina');
-    expect(f!.modulo).toBe('administracion');
-    expect(sembradas.get(CODIGO)).toEqual({ codigo: CODIGO, modulo: f!.modulo, nombre: f!.nombreNegocio, descripcion: f!.descripcion, tipo: 'pagina' });
+    // HU #12716: el archivo congelado sembró el módulo ESTRUCTURAL (`administracion`); la 0205 lo reagrupa a `permisos`.
+    expect(f!.modulo).toBe('permisos');
+    expect(sembradas.get(CODIGO)).toEqual({ codigo: CODIGO, modulo: 'administracion', nombre: f!.nombreNegocio, descripcion: f!.descripcion, tipo: 'pagina' });
   });
 
   it('el reparto es SOLO admin, igual en el SQL que en el catálogo del código (mutantes M1 y M2)', () => {
@@ -137,7 +138,8 @@ describe.skipIf(!URL_BASE)('0187 — contra la base real (siembra e idempotencia
   it('(a) la función existe con el módulo del catálogo, admin la tiene y ningún otro rol', async () => {
     const funciones = await sql`SELECT codigo, modulo, tipo FROM permisos_funciones WHERE codigo = ${CODIGO}`;
     expect(funciones).toHaveLength(1);
-    expect(funciones[0]).toMatchObject({ codigo: CODIGO, modulo: 'administracion', tipo: 'pagina' });
+    // `permisos` y no `administracion`: la base ya migrada lleva la 0205 (HU #12716).
+    expect(funciones[0]).toMatchObject({ codigo: CODIGO, modulo: 'permisos', tipo: 'pagina' });
     const reparto = await sql`SELECT rol_codigo FROM permisos_rol_funcion WHERE funcion_codigo = ${CODIGO} ORDER BY rol_codigo`;
     expect(reparto.map((r) => r.rol_codigo)).toEqual(['admin']);
   });

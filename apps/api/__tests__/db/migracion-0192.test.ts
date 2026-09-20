@@ -80,8 +80,9 @@ describe('0192 — reglas del archivo y lo que siembra (análisis estático)', (
     const f = catalogoCompleto().find((c) => c.codigo === CODIGO);
     expect(f, `${CODIGO} en el catálogo del código`).toBeDefined();
     expect(f!.tipo).toBe('pagina');
-    expect(f!.modulo).toBe('finanzas');
-    expect(sembradas.get(CODIGO)).toEqual({ codigo: CODIGO, modulo: f!.modulo, nombre: f!.nombreNegocio, descripcion: f!.descripcion, tipo: 'pagina' });
+    // HU #12716: el archivo congelado sembró el módulo ESTRUCTURAL (`finanzas`); la 0205 lo reagrupa a `servicios_adicionales`.
+    expect(f!.modulo).toBe('servicios_adicionales');
+    expect(sembradas.get(CODIGO)).toEqual({ codigo: CODIGO, modulo: 'finanzas', nombre: f!.nombreNegocio, descripcion: f!.descripcion, tipo: 'pagina' });
     expect(sembradas.get(CODIGO)!.descripcion).toBe('Entrar a la pantalla «Finanzas — Servicios adicionales».');
   });
 
