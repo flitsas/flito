@@ -14,8 +14,18 @@
 // La casilla (ficha §9): `<label>` envolvente con el nombre visible + `sr-only` «· rol {nombre}»,
 // explicación por `aria-describedby`, código técnico SOLO en `data-codigo` (§3). Sin `aria-label`,
 // sin `keydown` a mano, sin `role="grid"`.
+//
+// HU #12717 (ficha §14): dentro de cada panel, la(s) pantalla(s) van primero y las acciones debajo
+// de una línea fina (`border-t`, `--flit-border-soft`). Sin ninguna pantalla marcada, las acciones
+// van `disabled` con el nombre en `--flit-text-secondary` (nunca `muted` ni `opacity`, decisión 30)
+// y una línea «Marca primero…» por módulo enlazada por `aria-describedby` (decisión 31). Si llegan
+// acciones marcadas sin pantalla (carga inconsistente), salen marcadas y bloqueadas, con un aviso
+// `role="status"` primero en el panel + «Desmarcarlas» (§14.3) y el sufijo «· n sin pantalla» en el
+// encabezado (decisión 33). Tras «Desmarcarlas» el foco va a la casilla de la primera pantalla
+// (decisión 36). La única «reordenación» es pintar las pantallas antes que las acciones: el API ya
+// las manda primero (#12716); solo cambiaría algo con una pantalla reubicada por presentación.
 
-import { useId, useMemo, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import type { RolCatalogo } from '@operaciones/shared-types';
 import type { GrupoDeFunciones } from '../../lib/api';
 import FlitAcordeon from '../../components/flit/FlitAcordeon';
@@ -26,6 +36,10 @@ import {
   ENLACE_EN_CABECERA, ETIQUETA_ACCESO, desmarcadas, etiquetaModulo, funcionesFueraDelCanal, kDeNMarcadas, marcadas,
   seccionesVisibles,
 } from './modulos';
+import {
+  accionesDe, accionesSinPantalla, avisoSinPantalla, botonDesmarcar, explicacionModulo, marcarModulo, moduloHabilitado,
+  pantallasDe, sufijoSinPantalla,
+} from './dependencias';
 
 export const COPY_VACIO_ROL_SIN_FUNCIONES =
   'Este rol no tiene ninguna función marcada: quien lo tenga no verá nada al entrar. Abre un módulo y marca lo que deba hacer, o usa «Marcar todas las funciones».';
@@ -62,6 +76,9 @@ export default function CuadroRol({
   const [abiertos, setAbiertos] = useState<Set<string>>(() => new Set());
   const idMotivo = useId();
   const idSeccion = useId();
+  const idModulo = useId();
+  /** La casilla de la primera pantalla de cada módulo, para devolverle el foco tras «Desmarcarlas». */
+  const pantallaRefs = useRef(new Map<string, HTMLInputElement>());
   const secciones = useMemo(() => seccionesVisibles(grupos), [grupos]);
   const todas = grupos.flatMap((g) => g.funciones.map((f) => f.codigo));
   const marcadasDe = (codigos: string[]) => codigos.filter((c) => borrador.has(c)).length;
@@ -186,18 +203,56 @@ export default function CuadroRol({
               {s.grupos.map((g) => {
                 const codigos = g.funciones.map((f) => f.codigo);
                 const etiqueta = etiquetaModulo(g.modulo);
+                // HU #12717: estado del módulo según su(s) pantalla(s) en el borrador.
+                const pantallas = pantallasDe(g);
+                const acciones = accionesDe(g);
+                const habilitado = moduloHabilitado(g, borrador);
+                const huerfanas = accionesSinPantalla(g, borrador);
+                const explicacion = explicacionModulo(g);
+                const idAviso = `${idModulo}-${g.modulo}-aviso`;
+                const idExplicacion = `${idModulo}-${g.modulo}-explicacion`;
+                const hayAccionDesmarcada = !habilitado && acciones.some((a) => !borrador.has(a.codigo));
+                const cuenta = `${marcadasDe(codigos)} de ${g.funciones.length} marcadas`;
+                const desmarcarHuerfanas = () => {
+                  onMarcarConjunto(huerfanas, false);
+                  pantallaRefs.current.get(g.modulo)?.focus();
+                };
+                const casillaDe = (f: GrupoDeFunciones['funciones'][number], i: number) => {
+                  const esPantalla = f.tipo === 'pagina';
+                  const bloqueada = !esPantalla && !habilitado;
+                  const marcada = borrador.has(f.codigo);
+                  // Bloqueada y marcada (carga inconsistente) → el aviso; bloqueada y desmarcada → la explicación (§14.2).
+                  const motivo = bloqueada ? (marcada ? idAviso : idExplicacion) : undefined;
+                  return (
+                    <Casilla
+                      key={f.codigo}
+                      codigo={f.codigo}
+                      nombre={f.nombreNegocio}
+                      descripcion={f.descripcion}
+                      rol={rol.nombre}
+                      marcada={marcada}
+                      deshabilitada={bloqueada}
+                      describedByExtra={motivo}
+                      noAplica={externo && marcada && avisoFueraDelCanal.includes(f.codigo)}
+                      inputRef={esPantalla && i === 0 ? (el) => {
+                        if (el) pantallaRefs.current.set(g.modulo, el); else pantallaRefs.current.delete(g.modulo);
+                      } : undefined}
+                      onToggle={onToggle}
+                    />
+                  );
+                };
                 return (
                   <FlitAcordeon
                     key={g.modulo}
                     titulo={etiqueta}
                     cantidad={g.funciones.length}
-                    descripcion={`${marcadasDe(codigos)} de ${g.funciones.length} marcadas`}
+                    descripcion={huerfanas.length > 0 ? `${cuenta} ${sufijoSinPantalla(huerfanas.length)}` : cuenta}
                     abierto={abiertos.has(g.modulo)}
                     onToggle={() => alternar(g.modulo)}
                     // Solo con el módulo abierto: plegado, cada módulo es UNA parada de tabulador (ficha §9).
                     accion={abiertos.has(g.modulo) ? (
                       <div className="flex shrink-0 gap-2">
-                        <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => onMarcarConjunto(codigos, true)}>
+                        <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => onMarcarConjunto(marcarModulo(g), true)}>
                           Marcar todas<span className="sr-only"> las funciones de {etiqueta}</span>
                         </button>
                         <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => onMarcarConjunto(codigos, false)}>
@@ -208,18 +263,28 @@ export default function CuadroRol({
                   >
                     <fieldset className="flex flex-col gap-3">
                       <legend className="sr-only">Funciones de {etiqueta} para el rol {rol.nombre}</legend>
-                      {g.funciones.map((f) => (
-                        <Casilla
-                          key={f.codigo}
-                          codigo={f.codigo}
-                          nombre={f.nombreNegocio}
-                          descripcion={f.descripcion}
-                          rol={rol.nombre}
-                          marcada={borrador.has(f.codigo)}
-                          noAplica={externo && borrador.has(f.codigo) && avisoFueraDelCanal.includes(f.codigo)}
-                          onToggle={onToggle}
-                        />
-                      ))}
+                      {huerfanas.length > 0 && (
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <p role="status" id={idAviso} className="text-sm font-medium" style={{ color: 'var(--flit-warning-ink)' }}>
+                            {avisoSinPantalla(g, huerfanas.length)}
+                          </p>
+                          <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={desmarcarHuerfanas}>
+                            {botonDesmarcar(huerfanas.length)}<span className="sr-only"> las acciones sin pantalla de {etiqueta}</span>
+                          </button>
+                        </div>
+                      )}
+                      {pantallas.map(casillaDe)}
+                      {acciones.length > 0 && (
+                        <div
+                          className={`flex flex-col gap-3 ${pantallas.length > 0 ? 'border-t pt-3' : ''}`}
+                          style={pantallas.length > 0 ? { borderColor: 'var(--flit-border-soft)' } : undefined}
+                        >
+                          {hayAccionDesmarcada && explicacion && (
+                            <p id={idExplicacion} className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{explicacion}</p>
+                          )}
+                          {acciones.map(casillaDe)}
+                        </div>
+                      )}
                     </fieldset>
                   </FlitAcordeon>
                 );
@@ -232,23 +297,33 @@ export default function CuadroRol({
   );
 }
 
-function Casilla({ codigo, nombre, descripcion, rol, marcada, noAplica, onToggle }: {
-  codigo: string; nombre: string; descripcion: string | null; rol: string; marcada: boolean; noAplica: boolean;
+function Casilla({ codigo, nombre, descripcion, rol, marcada, deshabilitada, describedByExtra, noAplica, inputRef, onToggle }: {
+  codigo: string; nombre: string; descripcion: string | null; rol: string; marcada: boolean;
+  /** HU #12717: acción sin pantalla marcada en su módulo → `disabled` nativo (decisión 30). */
+  deshabilitada: boolean;
+  /** `id` de la línea del módulo que explica por qué está deshabilitada (explicación o aviso). */
+  describedByExtra?: string;
+  noAplica: boolean;
+  inputRef?: (el: HTMLInputElement | null) => void;
   onToggle: (codigo: string, marcado: boolean) => void;
 }) {
   const idDescripcion = useId();
+  // Primero qué hace, después por qué no se puede (§14.6). Sin `descripcion`, solo el id del módulo.
+  const describedBy = [descripcion ? idDescripcion : undefined, describedByExtra].filter(Boolean).join(' ') || undefined;
   return (
     <div>
       <label className="flex items-start gap-3">
         <input
+          ref={inputRef}
           type="checkbox"
           className="flit-focus mt-0.5 h-4 w-4 shrink-0"
           data-codigo={codigo}
           checked={marcada}
-          aria-describedby={descripcion ? idDescripcion : undefined}
+          disabled={deshabilitada}
+          aria-describedby={describedBy}
           onChange={(e) => onToggle(codigo, e.target.checked)}
         />
-        <span className="text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>
+        <span className="text-sm font-medium" style={{ color: deshabilitada ? 'var(--flit-text-secondary)' : 'var(--flit-text-primary)' }}>
           {nombre}
           <span className="sr-only"> · rol {rol}</span>
         </span>
