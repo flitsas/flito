@@ -17,9 +17,12 @@
 import { describe, it, expect } from 'vitest';
 import { PAGES, PAGE_GROUPS, USER_ROLES, paginasPorDefecto } from '@operaciones/shared-types';
 import {
-  catalogoCompleto, catalogoDePaginas, catalogoDeOperaciones, repartoDePartida,
+  catalogoCompleto, catalogoDePaginas, catalogoDeOperaciones, repartoDePartida, moduloDeGrupo,
   PAGINAS_NO_CONCEDIBLES, CatalogoIncoherenteError,
 } from '../../src/modules/permisos/catalogo.js';
+import {
+  AGRUPACION_DE_OPERACION, AGRUPACION_DE_PAGINA, moduloAgrupado, reagrupaciones,
+} from '../../src/modules/permisos/catalogo-agrupacion.js';
 import {
   leerMontajes, llaveDe, FICHEROS_EN_ALCANCE,
 } from '../../src/modules/permisos/inventario-guardas.js';
@@ -89,9 +92,16 @@ describe('AC2 — el catálogo, nombrado como lo nombra el negocio', () => {
     expect(vacias).toEqual([]);
   });
 
-  it('cada función lleva módulo, y el de las operaciones prefija su código', () => {
+  it('cada función lleva módulo; el de las operaciones prefija su código o es su reagrupación declarada, y el prefijo sigue siendo un módulo de FICHEROS_EN_ALCANCE', () => {
     expect(catalogo.filter((f) => !f.modulo)).toEqual([]);
-    for (const f of operaciones) expect(f.codigo.startsWith(`${f.modulo}.`)).toBe(true);
+    const modulosDeFichero = new Set(FICHEROS_EN_ALCANCE.map((f) => f.modulo));
+    for (const f of operaciones) {
+      const prefijo = f.codigo.slice(0, f.codigo.indexOf('.'));
+      expect(modulosDeFichero, f.codigo).toContain(prefijo);
+      const reagrupada = AGRUPACION_DE_OPERACION[f.codigo];
+      if (reagrupada) expect(f.modulo, f.codigo).toBe(reagrupada);
+      else expect(f.codigo.startsWith(`${f.modulo}.`), f.codigo).toBe(true);
+    }
   });
 
   it('los códigos de operación tienen la forma <modulo>.<objeto>.<accion>', () => {
@@ -263,12 +273,110 @@ describe('AC6 — añadir una función obliga a decidir sobre `admin`', () => {
   });
 });
 
-describe('el catálogo de páginas se agrupa por su grupo de PAGE_GROUPS', () => {
-  it('cada página cae en el módulo de su primer grupo', () => {
-    const porCodigo = new Map(catalogoDePaginas().map((f) => [f.codigo, f.modulo]));
+describe('HU #12716 — cada página se agrupa con las acciones de su módulo', () => {
+  const porCodigo = new Map(catalogoDePaginas().map((f) => [f.codigo, f.modulo]));
+  const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
+
+  it('la pantalla cae en el módulo de sus acciones, no en el grupo de PAGE_GROUPS (AC1)', () => {
+    expect(porCodigo.get('pagina.transito')).toBe('transito');
+    expect(porCodigo.get('pagina.transito_organismos')).toBe('transito');
+    expect(porCodigo.get('pagina.drive')).toBe('derechos');
+    expect(porCodigo.get('pagina.clients')).toBe('clientes');
+    expect(porCodigo.get('pagina.users')).toBe('usuarios');
+  });
+
+  it('una página sin acciones conserva su grupo', () => {
     expect(porCodigo.get('pagina.dashboard')).toBe('general');
-    expect(porCodigo.get('pagina.users')).toBe('administracion');
-    // `transito` está en dos grupos; gana el primero, «Operaciones».
-    expect(porCodigo.get('pagina.transito')).toBe('operaciones');
+    expect(AGRUPACION_DE_PAGINA).not.toHaveProperty('dashboard');
+    expect(moduloAgrupado('pagina.dashboard', 'general')).toBe('general');
+  });
+
+  it('ninguna página queda en `flito_soat_e_impuestos`, y los módulos `parametrizacion`, `sync` y `finanzas` de operaciones no existen (AC1, AC2)', () => {
+    const modulos = new Set(catalogo.map((f) => f.modulo));
+    expect(modulos.has('flito_soat_e_impuestos')).toBe(false);
+    expect(modulos.has('parametrizacion')).toBe(false);
+    expect(modulos.has('sync')).toBe(false);
+    expect(paginas.filter((f) => f.modulo === 'flito_soat_e_impuestos')).toEqual([]);
+    // `finanzas` sigue existiendo como módulo de PÁGINAS sin acciones (gastos diarios, Siigo), pero
+    // ninguna operación queda ahí: las de servicios adicionales se fueron a su pantalla.
+    expect(operaciones.filter((f) => f.modulo === 'finanzas')).toEqual([]);
+    for (const m of ['clientes', 'tarifas', 'servicios_adicionales', 'catalogos_compartidos']) expect(modulos).toContain(m);
+  });
+
+  it('los 46 códigos que la HU nombra llevan el módulo esperado (AC1, AC2)', () => {
+    // La tabla literal de la HU: es la afirmación del PO, no se deriva del mapa.
+    const esperado: Record<string, string> = {
+      'pagina.flito_tramites': 'tramites', 'pagina.flito_soat': 'soat', 'pagina.flito_impuestos': 'impuestos',
+      'pagina.flito_derechos': 'derechos', 'pagina.drive': 'derechos', 'pagina.flito_revisiones': 'revisiones',
+      'pagina.flito_compuerta': 'compuerta', 'pagina.flito_tablero': 'tablero', 'pagina.flito_bitacora': 'bitacora',
+      'pagina.flito_logistica': 'logistica', 'pagina.flito_logistica_ruta': 'logistica', 'pagina.flito_bolsas': 'bolsas',
+      'pagina.flito_comparendos': 'comparendos', 'pagina.flito_conciliacion': 'conciliacion',
+      'pagina.flito_comprobantes': 'comprobantes', 'pagina.finanzas_reporte_costos': 'liquidacion',
+      'pagina.users': 'usuarios', 'pagina.roles_permisos': 'permisos', 'pagina.tramite': 'tramite',
+      'pagina.transito': 'transito', 'pagina.clients': 'clientes', 'pagina.flito_tarifas': 'tarifas',
+      'pagina.flito_servicios_adicionales': 'servicios_adicionales',
+      'sync.sync.lanzar': 'tramites', 'sync.sync.ver_estado': 'tramites',
+      'parametrizacion.companias.editar': 'clientes',
+      'parametrizacion.proveedores.crear': 'clientes', 'parametrizacion.proveedores.editar': 'clientes',
+      'parametrizacion.tarifas.crear': 'tarifas', 'parametrizacion.tarifas.editar': 'tarifas',
+      'parametrizacion.tarifas.historial': 'tarifas', 'parametrizacion.tarifas.listar': 'tarifas',
+      'parametrizacion.tarifas.ver_por_cliente': 'tarifas',
+      'parametrizacion.servicios_adicionales.crear': 'servicios_adicionales',
+      'parametrizacion.servicios_adicionales.dar_de_baja': 'servicios_adicionales',
+      'parametrizacion.servicios_adicionales.editar': 'servicios_adicionales',
+      'parametrizacion.servicios_adicionales.listar': 'servicios_adicionales',
+      'finanzas.servicios_adicionales.asignar': 'servicios_adicionales',
+      'finanzas.servicios_adicionales.quitar': 'servicios_adicionales',
+      'finanzas.servicios_adicionales.ver': 'servicios_adicionales',
+      'parametrizacion.organismos.editar': 'transito', 'parametrizacion.organismos.fijar_modalidad': 'transito',
+      'parametrizacion.organismos.ver_vigencias': 'transito',
+      'parametrizacion.companias.listar': 'catalogos_compartidos',
+      'parametrizacion.proveedores.listar': 'catalogos_compartidos',
+      'parametrizacion.organismos.listar': 'catalogos_compartidos',
+    };
+    expect(Object.keys(esperado)).toHaveLength(46);
+    const porCodigoTodo = new Map(catalogo.map((f) => [f.codigo, f.modulo]));
+    for (const [codigo, modulo] of Object.entries(esperado)) expect(porCodigoTodo.get(codigo), codigo).toBe(modulo);
+  });
+
+  it('`reagrupaciones()` tiene 47 pares ordenados por código; 46 cambian el valor estructural y el de `transito_organismos` es no-op', () => {
+    const pares = reagrupaciones();
+    expect(pares).toHaveLength(47);
+    expect(pares.map(([c]) => c)).toEqual([...pares.map(([c]) => c)].sort((a, b) => a.localeCompare(b)));
+    expect(new Set(pares.map(([c]) => c)).size).toBe(47);
+
+    // El módulo ESTRUCTURAL: el grupo de PAGE_GROUPS (primera aparición) para páginas y `g.modulo`
+    // de la foto para operaciones. Se calcula sin el mapa, que es la otra cuenta.
+    const estructural = new Map<string, string>();
+    for (const grupo of PAGE_GROUPS) for (const slug of grupo.pages) {
+      if (!estructural.has(`pagina.${slug}`)) estructural.set(`pagina.${slug}`, moduloDeGrupo(grupo.label));
+    }
+    for (const g of GUARDAS_MEDIDAS) estructural.set(codigoDeLlave.get(llaveDe(g))!, g.modulo);
+
+    const cambian = pares.filter(([codigo, modulo]) => estructural.get(codigo) !== modulo);
+    expect(cambian).toHaveLength(46);
+    const noOp = pares.filter(([codigo, modulo]) => estructural.get(codigo) === modulo);
+    expect(noOp).toEqual([['pagina.transito_organismos', 'transito']]);
+  });
+
+  it('una clave del mapa que no exista en el catálogo revienta con CatalogoIncoherenteError (AC3)', () => {
+    // El mapa es `Readonly` en tipos, no congelado en runtime: se inyecta y se retira la entrada muerta.
+    const mapa = AGRUPACION_DE_OPERACION as Record<string, string>;
+    mapa['parametrizacion.tarifas.borrar'] = 'tarifas';
+    try {
+      expect(() => catalogoCompleto()).toThrow(CatalogoIncoherenteError);
+      expect(() => catalogoCompleto()).toThrow(/Agrupación declarada para un código que no existe: parametrizacion\.tarifas\.borrar/);
+    } finally {
+      delete mapa['parametrizacion.tarifas.borrar'];
+    }
+    expect(() => catalogoCompleto()).not.toThrow();
+  });
+
+  it('la comprobación estructural del prefijo se conserva: una guarda cuyo código no empiece por su módulo de fichero revienta aunque el mapa la reagrupe (AC3)', () => {
+    // `sync.sync.lanzar` se reagrupa a `tramites`; si su guarda dijera módulo `tramites`, el prefijo
+    // `sync.` ya no cuadra y tiene que caer ANTES de aplicar el mapa.
+    const guardas = GUARDAS_MEDIDAS.map((g) => (g.modulo === 'sync' ? { ...g, modulo: 'tramites' } : g));
+    expect(() => catalogoDeOperaciones(guardas)).toThrow(CatalogoIncoherenteError);
+    expect(() => catalogoDeOperaciones(guardas)).toThrow(/no empieza por el módulo «tramites»/);
   });
 });

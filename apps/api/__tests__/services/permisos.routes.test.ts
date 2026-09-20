@@ -10,7 +10,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
+import type { SQL } from 'drizzle-orm';
 import { chain } from '../helpers/db.js';
+import { renderizar } from '../helpers/sql-ligado.js';
+import { terminosDeOrden } from '../helpers/orden-sql.js';
 import { testToken, registrarUsuarioDePrueba, fuenteDePrueba, operacionesDePartida } from '../helpers/auth.js';
 
 const selectMock = vi.fn();
@@ -71,6 +74,40 @@ describe('AC5 — GET /api/permisos/funciones', () => {
         descripcion: expect.any(String), tipo: expect.any(String),
       }));
     }
+  });
+
+  it('HU #12716 AC4 — el ORDER BY es "modulo" asc, "tipo" desc, "codigo" asc: dentro de cada grupo las páginas van delante', async () => {
+    // El mock ignora `orderBy`, así que un aserto sobre `res.body` sería verde vacío (memoria:
+    // mock-orderby-es-passthrough). Se graba lo que el servicio le pide a la base y se lee el SQL.
+    // `desc` sobre `tipo` es lo que pone `pagina` (> `operacion`) primero; voltearlo a `asc` cae aquí.
+    // Fixture MEZCLADA a propósito (módulo y tipo fuera de orden): si el servicio la reordenara en
+    // JS, la respuesta no saldría así.
+    const mezcladas = [FILAS[2], FILAS[0], { ...FILAS[1], codigo: 'pagina.flito_soat', tipo: 'pagina' }];
+    let orden: SQL[] = [];
+    const c = chain(mezcladas) as unknown as Record<string, (...a: unknown[]) => unknown>;
+    c.orderBy = (...a: unknown[]) => { orden = a as SQL[]; return c; };
+    selectMock.mockReturnValueOnce(c);
+
+    const res = await request(app())
+      .get('/api/permisos/funciones')
+      .set('Authorization', `Bearer ${await testToken({ role: 'admin' })}`);
+    expect(res.status).toBe(200);
+    expect(orden.map((o) => renderizar(o).sql)).toEqual([
+      '"permisos_funciones"."modulo" asc',
+      '"permisos_funciones"."tipo" desc',
+      '"permisos_funciones"."codigo" asc',
+    ]);
+    expect(terminosDeOrden(orden)).toEqual([
+      { columna: 'modulo', direccion: 'asc' },
+      { columna: 'tipo', direccion: 'desc' },
+      { columna: 'codigo', direccion: 'asc' },
+    ]);
+    // Y la respuesta NO se reordena en memoria (R7 del diseño): sale como la base la devuelve, que
+    // con el mock es el orden de la fixture mezclada. Un `sort` en JS pondría `general` delante o la
+    // página de SOAT antes que su operación.
+    expect(res.body.grupos.map((g: { modulo: string }) => g.modulo)).toEqual(['soat', 'general']);
+    expect(res.body.grupos[0].funciones.map((f: { codigo: string }) => f.codigo))
+      .toEqual(['soat.solicitud.enviar', 'pagina.flito_soat']);
   });
 
   it('no expone escritura: el catálogo lo declara el producto, no el administrador (CF-23)', async () => {

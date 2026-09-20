@@ -1124,6 +1124,13 @@ hacen más probable.
 
 **Etiqueta nueva, y única línea que se añade a `ETIQUETAS_MODULO`:** `privacidad: 'Privacidad y datos'`.
 
+> **Nota (HU #12716).** Desde la HU #12716 el API ya agrupa cada pantalla con las acciones de su
+> módulo (la pantalla primera en el grupo), así que la tabla de claves de arriba es la de la #12533
+> y quedó vieja: desaparecen `flito_soat_e_impuestos`, `finanzas`, `parametrizacion` y `sync`, y
+> nacen `clientes`, `tarifas`, `servicios_adicionales`, `catalogos_compartidos` y `comprobantes`
+> (todos en la sección 1). De las tres reubicaciones solo sigue viva `pagina.privacy`:
+> `pagina.transito` y `pagina.drive` ya llegan en `transito` y `derechos`.
+
 ### 13.3 Jerarquía tipográfica — cómo se distingue el rótulo de la barra de un acordeón
 
 Las dos cosas que hay que separar a simple vista son **el rótulo de sección** (agrupa) y **la barra del

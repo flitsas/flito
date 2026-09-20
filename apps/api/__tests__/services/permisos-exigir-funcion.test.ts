@@ -57,6 +57,7 @@ const { exigirFuncion, tieneFuncion, motivoDenegacionFuncion, textoDe } = await 
 const { VENTANA_DEDUP_MS } = await import('../../src/shared/historial/permisos-intentos-denegados.js');
 const { authMiddleware } = await import('../../src/shared/middleware/auth.js');
 const { catalogoCompleto } = await import('../../src/modules/permisos/catalogo.js');
+const { AGRUPACION_DE_OPERACION } = await import('../../src/modules/permisos/catalogo-agrupacion.js');
 
 const ok = (funciones: string[], extra: Partial<Extract<PermisosResueltos, { ok: true }>> = {}): PermisosResueltos => ({
   ok: true, userId: 7, rol: 'gestor', tipoPrincipal: 'interno', funciones: new Set(funciones),
@@ -295,16 +296,23 @@ describe('TC #12264 AC5 — el 403 trae { error, funcion } y distingue sin_funci
     expect(insertMock).not.toHaveBeenCalled();
   });
 
-  it('el «módulo» de una operación es el del catálogo, que para TODAS las operaciones coincide con el primer segmento del código; el de una página es su grupo', () => {
+  it('el «módulo» es el de AGRUPACIÓN del catálogo (HU #12716 AC8): el prefijo del código para las operaciones salvo las reagrupadas; el de una página es el de sus acciones', () => {
     const catalogo = catalogoCompleto();
     for (const f of catalogo.filter((x) => x.tipo === 'operacion')) {
-      expect(f.modulo).toBe(f.codigo.split('.')[0]);
+      const reagrupada = AGRUPACION_DE_OPERACION[f.codigo];
+      expect(f.modulo, f.codigo).toBe(reagrupada ?? f.codigo.split('.')[0]);
     }
-    const pagina = catalogo.find((x) => x.codigo === 'pagina.users');
-    expect(pagina?.modulo).toBe('administracion');
-    // Tener OTRA página del mismo grupo ⇒ sin_funcion; ninguna del grupo ⇒ sin_modulo.
+    // `pagina.users` ya no está en «Administración»: está con las acciones de usuarios.
+    expect(catalogo.find((x) => x.codigo === 'pagina.users')?.modulo).toBe('usuarios');
+    // Tener OTRA función del mismo módulo de agrupación ⇒ sin_funcion; ninguna ⇒ sin_modulo.
     expect(motivoDenegacionFuncion(new Set(['pagina.dashboard']), 'pagina.users')).toBe('sin_modulo');
-    expect(motivoDenegacionFuncion(new Set(['pagina.privacy']), 'pagina.users')).toBe('sin_funcion');
+    expect(motivoDenegacionFuncion(new Set(['usuarios.usuario.listar']), 'pagina.users')).toBe('sin_funcion');
+    // Y otra página del grupo VIEJO ya no cuenta: `pagina.privacy` sigue en `administracion`.
+    expect(motivoDenegacionFuncion(new Set(['pagina.privacy']), 'pagina.users')).toBe('sin_modulo');
+    // Una operación reagrupada: `parametrizacion.companias.listar` vive en `catalogos_compartidos`, así
+    // que tener otra de `parametrizacion.*` (tarifas) NO la convierte en sin_funcion (R6 del diseño).
+    expect(motivoDenegacionFuncion(new Set(['parametrizacion.tarifas.listar']), 'parametrizacion.companias.listar')).toBe('sin_modulo');
+    expect(motivoDenegacionFuncion(new Set(['parametrizacion.proveedores.listar']), 'parametrizacion.companias.listar')).toBe('sin_funcion');
   });
 });
 
