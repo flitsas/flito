@@ -15,6 +15,7 @@ import type { Locator, Page, Request } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER } from '../helpers/auth';
 import { cargarAxe, correrAxe, esperarSinViolacionesGraves } from '../helpers/axe';
+import { COPY_MARCA_PRIMERO_PANTALLA, COPY_MARCA_PRIMERO_UNA_PANTALLA } from '../../src/pages/roles-permisos/dependencias';
 
 type Item = Record<string, unknown>;
 
@@ -186,6 +187,39 @@ const CLAVES_SECCION: Record<(typeof TITULOS)[number], string[]> = {
 };
 const N_CLAVES = Object.values(CLAVES_SECCION).flat().length;
 const GRUPOS_CLAVES = Object.values(CLAVES_SECCION).flat().map((clave) => ({ modulo: clave, funciones: [F(`x.${clave}`, `Función de ${clave}`)] }));
+
+// ─── HU #12717 — dependencia pantalla → acciones (ficha §14) ─────────────────────────────────────
+/**
+ * Catálogo con los cuatro casos de §14.1: una pantalla + 5 acciones (Impuestos), dos pantallas + 3
+ * acciones (Logística), sin pantalla (Catálogos compartidos) y solo pantalla (General).
+ */
+const ACCIONES_IMPUESTOS = ['impuestos.recibo.pagar', 'impuestos.cola.exportar', 'impuestos.recibo.anular', 'impuestos.recibo.reasignar', 'impuestos.cola.filtrar'];
+const ACCIONES_LOGISTICA = ['logistica.viaje.crear', 'logistica.viaje.cerrar', 'logistica.viaje.exportar'];
+const GRUPOS_DEP = [
+  { modulo: 'general', funciones: [F('pagina.dashboard', 'Entrar al tablero')] },
+  { modulo: 'impuestos', funciones: [
+    F('pagina.flito_impuestos', 'Entrar al portal de Impuestos', 'Ve la bandeja de recibos de los organismos que tenga asignados.'),
+    F('impuestos.recibo.pagar', 'Marcar un impuesto como pagado', 'Registra el pago del recibo y adjunta el soporte.', 'operacion'),
+    F('impuestos.cola.exportar', 'Exportar la cola a Excel', 'Descarga todas las filas que coincidan con el filtro.', 'operacion'),
+    F('impuestos.recibo.anular', 'Anular un recibo', null, 'operacion'),
+    F('impuestos.recibo.reasignar', 'Reasignar un recibo', null, 'operacion'),
+    F('impuestos.cola.filtrar', 'Filtrar la cola', null, 'operacion'),
+  ] },
+  { modulo: 'logistica', funciones: [
+    F('pagina.flito_logistica', 'Entrar a Logística'), F('pagina.flito_logistica_ruta', 'Entrar a la ruta'),
+    ...ACCIONES_LOGISTICA.map((c) => F(c, `Acción ${c}`, null, 'operacion')),
+  ] },
+  { modulo: 'catalogos_compartidos', funciones: [F('catalogos.leer', 'Leer los catálogos', null, 'operacion'), F('catalogos.exportar', 'Exportar los catálogos', null, 'operacion')] },
+];
+const TODAS_DEP = GRUPOS_DEP.flatMap((g) => g.funciones.map((f) => f.codigo));
+/** `consulta_contable` y `cliente` llegan con acciones sin su pantalla (caso 4 de §14.7). */
+const CUADROS_DEP: Record<string, string[]> = {
+  admin: [...TODAS_DEP],
+  gestor_impuestos: ['pagina.flito_impuestos', ...ACCIONES_IMPUESTOS, 'pagina.flito_logistica', 'pagina.flito_logistica_ruta', ...ACCIONES_LOGISTICA],
+  consulta_contable: ['impuestos.recibo.pagar', 'impuestos.cola.exportar', 'logistica.viaje.crear'],
+  cliente: ['impuestos.recibo.pagar'],
+  sin_funciones: [],
+};
 
 test.describe('Roles y permisos — cuadro rol × función (HU #12085)', () => {
   test('TC-a (AC1): catálogo agrupado por módulo con total y cuenta; el módulo vacío no se pinta; el código no sale en pantalla', async ({ page }) => {
@@ -569,9 +603,18 @@ test.describe('Roles y permisos — cuadro rol × función (HU #12085)', () => {
     await page.keyboard.press('Tab');
     await page.keyboard.press('Tab');
     await expect(primera).toBeFocused();
+    // HU #12717: desmarcar la pantalla desmarca su acción marcada en el mismo gesto (2 desmarcadas)
+    // y las acciones quedan `disabled`; volver a marcarla las habilita sin marcarlas. El foco sigue
+    // en la casilla de la pantalla en los dos gestos (§14.6) y el siguiente Tab cae en la primera acción.
     await page.keyboard.press('Space');
     await expect(primera).not.toBeChecked();
+    await expect(page.getByText('Sin guardar: 2 desmarcadas')).toBeVisible();
+    await expect(casilla(page, 'impuestos.recibo.pagar')).toBeDisabled();
+    await expect(primera).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(primera).toBeChecked();
     await expect(page.getByText('Sin guardar: 1 desmarcada')).toBeVisible();
+    await expect(primera).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(casilla(page, 'impuestos.recibo.pagar')).toBeFocused();
     await cargarAxe(page);
@@ -799,8 +842,10 @@ test.describe('Roles y permisos — cuadro rol × función (HU #12085)', () => {
     await abrir(page);
     await botonRol(page, 'Gestor de Impuestos').click();
     for (const m of ['Tránsito', 'Derechos de tránsito', 'Privacidad y datos']) await modulo(page, m).click();
-    await casilla(page, 'derechos.consultar').check();
+    // HU #12717: la acción se marca en un módulo cuya pantalla queda marcada (Tránsito); desmarcar
+    // `pagina.drive` sin acciones marcadas en Derechos no arrastra nada.
     await casilla(page, 'pagina.transito').check();
+    await casilla(page, 'transito.bandeja').check();
     await casilla(page, 'pagina.privacy').check();
     await casilla(page, 'pagina.drive').uncheck();
     await expect(page.getByText('Sin guardar: 3 marcadas, 1 desmarcada')).toBeVisible();
@@ -809,7 +854,7 @@ test.describe('Roles y permisos — cuadro rol × función (HU #12085)', () => {
     expect(pedidos).toHaveLength(1);
     expect(pedidos[0].method()).toBe('PUT');
     expect(new URL(pedidos[0].url()).pathname).toBe('/api/permisos/roles/gestor_impuestos/funciones');
-    expect(pedidos[0].postDataJSON()).toEqual({ funciones: ['derechos.consultar', 'pagina.flito_impuestos', 'pagina.privacy', 'pagina.transito'] });
+    expect(pedidos[0].postDataJSON()).toEqual({ funciones: ['pagina.flito_impuestos', 'pagina.privacy', 'pagina.transito', 'transito.bandeja'] });
 
     await page.getByRole('button', { name: 'Marcar todas las funciones', exact: true }).click();
     await expect(page.getByText(`Sin guardar: ${TODAS_SEC.length - 4} marcadas`)).toBeVisible();
@@ -906,5 +951,267 @@ test.describe('Roles y permisos — cuadro rol × función (HU #12085)', () => {
     await expect(casilla(page, 'pagina.flito_impuestos')).toBeFocused();
     await cargarAxe(page);
     esperarSinViolacionesGraves(await correrAxe(page), 'roles y permisos · sección con módulo abierto');
+  });
+
+  // ─── HU #12717 — las acciones de un módulo dependen de su pantalla (ficha §14) ─────────────────
+  test('TC-u (AC1/AC5/AC9): sin pantalla marcada las acciones van disabled y desmarcadas con el motivo por aria-describedby; las pantallas siguen habilitadas; sin pantalla no hay dependencia', async ({ page }) => {
+    mockPermisos(page, { grupos: GRUPOS_DEP, cuadros: CUADROS_DEP });
+    await abrir(page);
+    await botonRol(page, 'Sin funciones').click();
+    await modulo(page, 'Impuestos').click();
+    const impuestos = panel(page, 'Impuestos');
+    await expect(casilla(page, 'pagina.flito_impuestos')).toBeEnabled();
+    for (const c of ACCIONES_IMPUESTOS) {
+      await expect(casilla(page, c)).toBeDisabled();
+      await expect(casilla(page, c)).not.toBeChecked();
+      // Primero qué hace (si tiene explicación), después por qué no se puede: el último id resuelve al copy del módulo.
+      const ids = (await casilla(page, c).getAttribute('aria-describedby'))!.split(' ');
+      await expect(page.locator(`[id="${ids.at(-1)}"]`)).toHaveText(COPY_MARCA_PRIMERO_PANTALLA);
+    }
+    // Una línea por módulo, no una por casilla (decisión 31); el nombre apagado va en text-secondary, sin opacity (decisión 30).
+    await expect(impuestos.getByText(COPY_MARCA_PRIMERO_PANTALLA)).toHaveCount(1);
+    const estilos = await impuestos.locator('label').evaluateAll((ls) => ls.map((l) => ({
+      nombre: (l.querySelector('span') as HTMLElement).style.color,
+      opacity: getComputedStyle(l).opacity,
+      opacityFila: getComputedStyle(l.parentElement as HTMLElement).opacity,
+    })));
+    expect(estilos[0].nombre).toBe('var(--flit-text-primary)');
+    for (const e of estilos.slice(1)) expect(e.nombre).toBe('var(--flit-text-secondary)');
+    for (const e of estilos) { expect(e.opacity).toBe('1'); expect(e.opacityFila).toBe('1'); }
+    // La pantalla sigue describiéndose solo con su explicación.
+    const describedBy = await casilla(page, 'pagina.flito_impuestos').getAttribute('aria-describedby');
+    await expect(page.locator(`[id="${describedBy}"]`)).toHaveText('Ve la bandeja de recibos de los organismos que tenga asignados.');
+    // Ningún `title`: el motivo vive en el DOM.
+    await expect(impuestos.locator('[title]')).toHaveCount(0);
+    // Dos pantallas: el copy dice «una de las dos pantallas».
+    await modulo(page, 'Logística').click();
+    await expect(panel(page, 'Logística').getByText(COPY_MARCA_PRIMERO_UNA_PANTALLA)).toHaveCount(1);
+    await expect(casilla(page, 'logistica.viaje.crear')).toBeDisabled();
+    await expect(casilla(page, 'pagina.flito_logistica')).toBeEnabled();
+    await expect(casilla(page, 'pagina.flito_logistica_ruta')).toBeEnabled();
+    // Sin pantalla (Catálogos compartidos): nada disabled, ningún «Marca primero» (mutante: tratar «sin pantalla» como «desmarcada»).
+    await modulo(page, 'Catálogos compartidos').click();
+    const catalogos = panel(page, 'Catálogos compartidos');
+    await expect(catalogos.locator('input[type="checkbox"]')).toHaveCount(2);
+    await expect(catalogos.locator('input[type="checkbox"]:disabled')).toHaveCount(0);
+    await expect(catalogos.getByText(/Marca primero/)).toHaveCount(0);
+    await casilla(page, 'catalogos.exportar').check();
+    await expect(page.getByText('Sin guardar: 1 marcada')).toBeVisible();
+    // Solo pantalla (General): sin línea ni explicación.
+    await modulo(page, 'General').click();
+    await expect(panel(page, 'General').getByText(/Marca primero/)).toHaveCount(0);
+    await expect(panel(page, 'General').locator('.border-t')).toHaveCount(0);
+    await expect(impuestos.locator('.border-t')).toHaveCount(1);
+    await cargarAxe(page);
+    esperarSinViolacionesGraves(await correrAxe(page), 'roles y permisos · acciones deshabilitadas por su pantalla');
+  });
+
+  test('TC-v (AC2/AC3): marcar la pantalla habilita sin marcar y no mueve el foco; desmarcar la única pantalla desmarca sus acciones en el mismo gesto; Descartar lo devuelve', async ({ page }) => {
+    const { pedidos } = mockPermisos(page, { grupos: GRUPOS_DEP, cuadros: CUADROS_DEP });
+    await abrir(page);
+    await botonRol(page, 'Sin funciones').click();
+    await modulo(page, 'Impuestos').click();
+    const pantalla = casilla(page, 'pagina.flito_impuestos');
+    await pantalla.check();
+    await expect(pantalla).toBeFocused();
+    await expect(page.getByText('Sin guardar: 1 marcada')).toBeVisible();
+    for (const c of ACCIONES_IMPUESTOS) {
+      await expect(casilla(page, c)).toBeEnabled();
+      await expect(casilla(page, c)).not.toBeChecked();
+    }
+    await expect(panel(page, 'Impuestos').getByText(/Marca primero/)).toHaveCount(0);
+    await casilla(page, 'impuestos.recibo.pagar').check();
+    await expect(page.getByText('Sin guardar: 2 marcadas')).toBeVisible();
+    // Desmarcar la pantalla con una acción marcada: las dos se van; base vacía → no hay barra.
+    await pantalla.uncheck();
+    await expect(casilla(page, 'impuestos.recibo.pagar')).not.toBeChecked();
+    await expect(casilla(page, 'impuestos.recibo.pagar')).toBeDisabled();
+    await expect(page.getByText(/Sin guardar/)).toHaveCount(0);
+
+    // Con línea base (pantalla + 5 acciones): la barra cuenta las 6 y «Descartar» devuelve todo (decisión 32: sin confirm por gesto).
+    await botonRol(page, 'Gestor de Impuestos').click();
+    await modulo(page, 'Impuestos').click();
+    await expect(modulo(page, 'Impuestos')).toContainText('6 de 6 marcadas');
+    await casilla(page, 'pagina.flito_impuestos').uncheck();
+    await expect(page.getByText('Sin guardar: 6 desmarcadas')).toBeVisible();
+    await expect(modulo(page, 'Impuestos')).toContainText('0 de 6 marcadas');
+    for (const c of ACCIONES_IMPUESTOS) {
+      await expect(casilla(page, c)).not.toBeChecked();
+      await expect(casilla(page, c)).toBeDisabled();
+    }
+    await expect(panel(page, 'Impuestos').getByText(COPY_MARCA_PRIMERO_PANTALLA)).toHaveCount(1);
+    page.on('dialog', (d) => d.accept());
+    await page.getByRole('button', { name: 'Descartar' }).click();
+    await expect(page.getByText(/Sin guardar/)).toHaveCount(0);
+    await expect(casilla(page, 'pagina.flito_impuestos')).toBeChecked();
+    for (const c of ACCIONES_IMPUESTOS) {
+      await expect(casilla(page, c)).toBeChecked();
+      await expect(casilla(page, c)).toBeEnabled();
+    }
+    expect(pedidos).toHaveLength(0);
+  });
+
+  test('TC-w (AC4): con dos pantallas basta una; desmarcar UNA de dos no toca las acciones; desmarcar la última las desmarca (5 desmarcadas)', async ({ page }) => {
+    const { pedidos } = mockPermisos(page, { grupos: GRUPOS_DEP, cuadros: CUADROS_DEP });
+    await abrir(page);
+    await botonRol(page, 'Gestor de Impuestos').click();
+    await modulo(page, 'Logística').click();
+    await expect(modulo(page, 'Logística')).toContainText('5 de 5 marcadas');
+    await casilla(page, 'pagina.flito_logistica_ruta').uncheck();
+    await expect(page.getByText('Sin guardar: 1 desmarcada')).toBeVisible();
+    for (const c of ACCIONES_LOGISTICA) {
+      await expect(casilla(page, c)).toBeChecked();
+      await expect(casilla(page, c)).toBeEnabled();
+    }
+    await expect(panel(page, 'Logística').getByText(/Marca primero/)).toHaveCount(0);
+    await casilla(page, 'pagina.flito_logistica').uncheck();
+    await expect(page.getByText('Sin guardar: 5 desmarcadas')).toBeVisible();
+    for (const c of ACCIONES_LOGISTICA) {
+      await expect(casilla(page, c)).not.toBeChecked();
+      await expect(casilla(page, c)).toBeDisabled();
+    }
+    await expect(panel(page, 'Logística').getByText(COPY_MARCA_PRIMERO_UNA_PANTALLA)).toHaveCount(1);
+    // Con la segunda pantalla sola también se habilitan (siguen desmarcadas).
+    await casilla(page, 'pagina.flito_logistica_ruta').check();
+    await expect(page.getByText('Sin guardar: 4 desmarcadas')).toBeVisible();
+    for (const c of ACCIONES_LOGISTICA) {
+      await expect(casilla(page, c)).toBeEnabled();
+      await expect(casilla(page, c)).not.toBeChecked();
+    }
+    // AC8: el PUT lleva exactamente el borrador.
+    await page.getByRole('button', { name: 'Guardar cambios' }).click();
+    await expect(page.getByText(/ya está aplicado/)).toBeVisible();
+    expect(pedidos.at(-1)!.postDataJSON()).toEqual({ funciones: [...CUADROS_DEP.gestor_impuestos.filter((c) => !c.startsWith('logistica.') && c !== 'pagina.flito_logistica')].sort() });
+  });
+
+  test('TC-x (AC6/AC8): carga inconsistente → marcadas y bloqueadas con aviso role=status, sufijo en el encabezado, sin PUT; marcar la pantalla desbloquea; Descartar la devuelve; «Desmarcarlas» limpia y enfoca la pantalla', async ({ page }) => {
+    const { pedidos } = mockPermisos(page, { grupos: GRUPOS_DEP, cuadros: CUADROS_DEP });
+    await abrir(page);
+    await botonRol(page, 'Consulta contable').click();
+    // Con el módulo plegado la inconsistencia se ve en el encabezado (decisión 33); no hay barra ni PUT (AC8).
+    await expect(modulo(page, 'Impuestos')).toContainText('2 de 6 marcadas · 2 sin pantalla');
+    await expect(modulo(page, 'Logística')).toContainText('1 de 5 marcadas · 1 sin pantalla');
+    await expect(modulo(page, 'General')).not.toContainText('sin pantalla');
+    await expect(page.getByText(/Sin guardar/)).toHaveCount(0);
+    expect(pedidos).toHaveLength(0);
+
+    await modulo(page, 'Impuestos').click();
+    const impuestos = panel(page, 'Impuestos');
+    const aviso = impuestos.getByRole('status');
+    await expect(aviso).toHaveText('2 acciones marcadas sin la pantalla. Marca «Entrar al portal de Impuestos» o desmárcalas.');
+    // Es lo primero del panel, antes de todas las casillas.
+    await expect(impuestos.locator('[role="status"], input[type="checkbox"]').first()).toHaveAttribute('role', 'status');
+    const boton = impuestos.getByRole('button', { name: 'Desmarcarlas las acciones sin pantalla de Impuestos' });
+    await expect(boton).toBeVisible();
+    for (const c of ['impuestos.recibo.pagar', 'impuestos.cola.exportar']) {
+      await expect(casilla(page, c)).toBeChecked();
+      await expect(casilla(page, c)).toBeDisabled();
+      const ids = (await casilla(page, c).getAttribute('aria-describedby'))!.split(' ');
+      await expect(page.locator(`[id="${ids.at(-1)}"]`)).toHaveAttribute('role', 'status');
+    }
+    // Las otras acciones del módulo: desmarcadas y bloqueadas, con la explicación.
+    await expect(casilla(page, 'impuestos.recibo.anular')).toBeDisabled();
+    await expect(casilla(page, 'impuestos.recibo.anular')).not.toBeChecked();
+    await expect(casilla(page, 'pagina.flito_impuestos')).toBeEnabled();
+    await expect(casilla(page, 'pagina.flito_impuestos')).not.toBeChecked();
+
+    // Marcar la pantalla: se desbloquean, siguen marcadas, el aviso y el sufijo desaparecen; solo la pantalla cuenta.
+    await casilla(page, 'pagina.flito_impuestos').check();
+    await expect(impuestos.getByRole('status')).toHaveCount(0);
+    await expect(boton).toHaveCount(0);
+    for (const c of ['impuestos.recibo.pagar', 'impuestos.cola.exportar']) {
+      await expect(casilla(page, c)).toBeChecked();
+      await expect(casilla(page, c)).toBeEnabled();
+    }
+    await expect(page.getByText('Sin guardar: 1 marcada')).toBeVisible();
+    await expect(modulo(page, 'Impuestos')).toContainText('3 de 6 marcadas');
+    await expect(modulo(page, 'Impuestos')).not.toContainText('sin pantalla');
+
+    // «Descartar» devuelve la inconsistencia (decisión 34): aviso y bloqueo otra vez.
+    page.on('dialog', (d) => d.accept());
+    await page.getByRole('button', { name: 'Descartar' }).click();
+    await expect(impuestos.getByRole('status')).toHaveText(/2 acciones marcadas sin la pantalla/);
+    await expect(casilla(page, 'impuestos.recibo.pagar')).toBeChecked();
+    await expect(casilla(page, 'impuestos.recibo.pagar')).toBeDisabled();
+    await expect(modulo(page, 'Impuestos')).toContainText('· 2 sin pantalla');
+
+    // «Desmarcarlas»: solo las huérfanas de ESTE módulo; el foco va a la casilla de la pantalla (decisión 36).
+    await boton.click();
+    await expect(impuestos.getByRole('status')).toHaveCount(0);
+    for (const c of ['impuestos.recibo.pagar', 'impuestos.cola.exportar']) await expect(casilla(page, c)).not.toBeChecked();
+    await expect(page.getByText('Sin guardar: 2 desmarcadas')).toBeVisible();
+    await expect(casilla(page, 'pagina.flito_impuestos')).toBeFocused();
+    await expect(modulo(page, 'Impuestos')).toContainText('0 de 6 marcadas');
+    await expect(modulo(page, 'Logística')).toContainText('1 de 5 marcadas · 1 sin pantalla');
+
+    // Singular con dos pantallas: nombra las dos y el botón es «Desmarcarla».
+    await modulo(page, 'Logística').click();
+    const logistica = panel(page, 'Logística');
+    await expect(logistica.getByRole('status')).toHaveText('1 acción marcada sin ninguna de sus pantallas. Marca «Entrar a Logística» o «Entrar a la ruta», o desmárcala.');
+    await expect(logistica.getByRole('button', { name: 'Desmarcarla las acciones sin pantalla de Logística' })).toBeVisible();
+    await expect(casilla(page, 'logistica.viaje.crear')).toBeChecked();
+    await expect(casilla(page, 'logistica.viaje.crear')).toBeDisabled();
+    await cargarAxe(page);
+    esperarSinViolacionesGraves(await correrAxe(page), 'roles y permisos · carga inconsistente con aviso');
+
+    // AC8: una inconsistencia heredada que no se toca se guarda tal cual (mutante: «corregir» la línea base al mandar).
+    await modulo(page, 'General').click();
+    await casilla(page, 'pagina.dashboard').check();
+    await page.getByRole('button', { name: 'Guardar cambios' }).click();
+    await expect(page.getByText(/ya está aplicado/)).toBeVisible();
+    expect(pedidos.at(-1)!.postDataJSON()).toEqual({ funciones: ['logistica.viaje.crear', 'pagina.dashboard'] });
+    // Y tras guardar sigue heredada: el aviso de Logística no se fue.
+    await expect(logistica.getByRole('status')).toHaveText(/1 acción marcada sin ninguna de sus pantallas/);
+  });
+
+  test('TC-x2 (AC6 singular): una sola acción sin la pantalla → «1 acción marcada» y «Desmarcarla»', async ({ page }) => {
+    mockPermisos(page, { grupos: GRUPOS_DEP, cuadros: CUADROS_DEP });
+    await abrir(page);
+    await botonRol(page, 'Cliente').click();
+    await expect(modulo(page, 'Impuestos')).toContainText('1 de 6 marcadas · 1 sin pantalla');
+    await modulo(page, 'Impuestos').click();
+    const impuestos = panel(page, 'Impuestos');
+    await expect(impuestos.getByRole('status')).toHaveText('1 acción marcada sin la pantalla. Marca «Entrar al portal de Impuestos» o desmárcala.');
+    await impuestos.getByRole('button', { name: 'Desmarcarla las acciones sin pantalla de Impuestos' }).click();
+    await expect(impuestos.getByRole('status')).toHaveCount(0);
+    await expect(page.getByText('Sin guardar: 1 desmarcada')).toBeVisible();
+    await expect(casilla(page, 'pagina.flito_impuestos')).toBeFocused();
+  });
+
+  test('TC-y (AC7): «Marcar todas» del módulo y del rol marcan pantalla(s) y acciones habilitadas; «Desmarcar todas» del módulo deja todo desmarcado y deshabilitado', async ({ page }) => {
+    const { pedidos } = mockPermisos(page, { grupos: GRUPOS_DEP, cuadros: CUADROS_DEP });
+    await abrir(page);
+    await botonRol(page, 'Sin funciones').click();
+    await modulo(page, 'Impuestos').click();
+    await page.getByRole('button', { name: 'Marcar todas las funciones de Impuestos', exact: true }).click();
+    await expect(casilla(page, 'pagina.flito_impuestos')).toBeChecked();
+    for (const c of ACCIONES_IMPUESTOS) {
+      await expect(casilla(page, c)).toBeChecked();
+      await expect(casilla(page, c)).toBeEnabled();
+    }
+    await expect(panel(page, 'Impuestos').getByRole('status')).toHaveCount(0);
+    await expect(modulo(page, 'Impuestos')).toContainText('6 de 6 marcadas');
+    await expect(modulo(page, 'Impuestos')).not.toContainText('sin pantalla');
+    await page.getByRole('button', { name: 'Desmarcar todas las funciones de Impuestos', exact: true }).click();
+    await expect(casilla(page, 'pagina.flito_impuestos')).not.toBeChecked();
+    for (const c of ACCIONES_IMPUESTOS) {
+      await expect(casilla(page, c)).not.toBeChecked();
+      await expect(casilla(page, c)).toBeDisabled();
+    }
+    await expect(panel(page, 'Impuestos').getByText(COPY_MARCA_PRIMERO_PANTALLA)).toHaveCount(1);
+    await expect(page.getByText(/Sin guardar/)).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Marcar todas las funciones', exact: true }).click();
+    await expect(page.getByText(`Sin guardar: ${TODAS_DEP.length} marcadas`)).toBeVisible();
+    await modulo(page, 'Logística').click();
+    for (const c of ['pagina.flito_logistica', 'pagina.flito_logistica_ruta', ...ACCIONES_LOGISTICA, ...ACCIONES_IMPUESTOS]) {
+      await expect(casilla(page, c)).toBeChecked();
+      await expect(casilla(page, c)).toBeEnabled();
+    }
+    await expect(page.locator('input[type="checkbox"]:disabled')).toHaveCount(0);
+    await expect(page.getByRole('status').filter({ hasText: /sin (la pantalla|ninguna de sus pantallas)/ })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Guardar cambios' }).click();
+    await expect(page.getByText(/ya está aplicado/)).toBeVisible();
+    expect(pedidos.at(-1)!.postDataJSON()).toEqual({ funciones: [...TODAS_DEP].sort() });
   });
 });
