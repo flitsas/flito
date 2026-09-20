@@ -32,7 +32,7 @@ idempotencia, con `Microsoft.VSTS.TCM.ReproSteps` + `Severity` en lugar de Descr
 
 ## Requisitos previos
 
-1. Feature padre existente (idealmente `Active` o superior).
+1. Feature padre existente (idealmente `Active` o superior), que a su vez cuelga de una Épica del PO (la Épica no se crea ni se edita desde aquí).
 2. Capa: **FRONTEND** o **BACKEND**.
 3. Identidad del usuario autenticado en Azure DevOps confirmada (para `AssignedTo` y trazabilidad — ver `flit-azure-devops`).
 
@@ -150,7 +150,7 @@ Tras obtener el `id` del `POST`, enviar `PATCH` con:
 ## Crear un **Bug** (mismo contrato, otros campos)
 
 Un Bug es un work item de desarrollo de pleno derecho: se crea aquí y **se trabaja con el mismo
-ciclo que una HU** (`flit-gestion-hu` Active → impl → qa-agent B pre-PR → PR → merge → Resolved; regla «Paridad HU ↔ Bug»
+ciclo que una HU** (`flit-gestion-hu` Active → impl → qa-agent B pre-PR → PR → merge a `develop` (sigue Active) → promoción a `staging` → Resolved + cascada; regla «Paridad HU ↔ Bug»
 de `AGENTS.md`). Vía habitual de radicación desde QA: `qa-agent` **modo C**, con pedido explícito.
 
 `POST $Bug` con JSON Patch. Mapeo verificado contra el proyecto real (2026-08-22):

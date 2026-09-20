@@ -229,6 +229,10 @@ export function setVehiculoDesdeFlit(tf: TramiteFlit): Partial<typeof vehicles.$
     ...(tf.cilindraje ? { cilindraje: tf.cilindraje } : {}),
     ...(tf.carroceria ? { carroceria: tf.carroceria } : {}),
     ...(tf.tipoServicio ? { tipoServicio: tf.tipoServicio } : {}),
+    // Bug #12643: motor y serie, misma política. Un reporte sin ellos tampoco borra lo que ya puso
+    // el RUNT (HU #12401) en estas dos columnas; con valor, FLIT es la fuente por defecto.
+    ...(tf.numMotor ? { numMotor: tf.numMotor } : {}),
+    ...(tf.numSerie ? { numSerie: tf.numSerie } : {}),
   };
 }
 
@@ -238,12 +242,13 @@ export function setVehiculoDesdeFlit(tf: TramiteFlit): Partial<typeof vehicles.$
  * **Es el único punto del sync que corre para TODOS los trámites en TODAS las corridas**: se llama
  * desde `sincronizarUno` sin guarda previa, antes de que el estado, la compañía y el organismo
  * decidan nada. Por eso es aquí donde aterrizan el cilindraje, la carrocería y el tipo de servicio de
- * FLIT (HU #11906) y no en `flito_soat`: `resolverSoat()` sale sin actualizar campos cuando el SOAT
+ * FLIT (HU #11906) —y, por la misma razón, el número de motor y de serie (Bug #12643), que comparten
+ * columna con lo que escribe el RUNT— y no en `flito_soat`: `resolverSoat()` sale sin actualizar campos cuando el SOAT
  * ya existe, así que un SOAT sincronizado antes de esa HU no se completaría nunca. Guardarlo aquí es
  * lo que hace que el AC3 (el próximo sync completa el histórico) se cumpla solo, sin backfill.
  *
  * Las dos ramas escriben con reglas DISTINTAS y a propósito: el UPDATE delega en
- * `setVehiculoDesdeFlit` (spreads condicionales: un vacío no borra), y el INSERT asigna los tres tal
+ * `setVehiculoDesdeFlit` (spreads condicionales: un vacío no borra), y el INSERT asigna los cinco tal
  * cual, porque en una fila nueva no hay nada previo que preservar y `null` es la forma correcta de
  * decir «FLIT no lo trajo».
  *
@@ -266,9 +271,10 @@ async function upsertVehiculo(tx: Tx, tf: TramiteFlit, companiaId: number | null
     .values({
       vin: tf.vin, plate: tf.placa, brand: tf.marca ?? null, model: tf.linea ?? null, clientId: companiaId,
       ownerName: titular.nombre, ownerDocument: titular.documento,
-      // En el alta sí van los tres tal cual: no hay nada previo que preservar, y `null` es la forma
+      // En el alta sí van los cinco tal cual: no hay nada previo que preservar, y `null` es la forma
       // correcta de decir «FLIT no lo trajo» en una fila nueva.
       cilindraje: tf.cilindraje, carroceria: tf.carroceria, tipoServicio: tf.tipoServicio,
+      numMotor: tf.numMotor, numSerie: tf.numSerie,
     })
     .returning({ id: vehicles.id });
   return creado.id;

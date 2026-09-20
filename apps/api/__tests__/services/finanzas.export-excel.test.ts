@@ -82,6 +82,8 @@ function cruda(over: Record<string, unknown> = {}): Record<string, unknown> {
     // HU #12546 — la proyección trae la clave siempre; `null` = sin servicios (`Number(undefined)`
     // sería NaN y este archivo no lo vería: `build:api` no typechequea `__tests__`).
     serviciosAdicionales: null, serviciosAdicionalesCantidad: 0,
+    // HU #12627 — siempre viaja: 1 = solo el viaje incluido en la tarifa.
+    logisticaViajesCantidad: 1,
     soatPendiente: false, impuestoPendiente: false,
     gestionaSoat: true, gestionaImpuesto: true, gestionaLogistica: true,
     soatAutogestionable: false, impuestosAutogestionable: false, logisticaAutogestionable: false,
@@ -202,6 +204,9 @@ describe('AC1 — POST /reporte-costos/export entrega el detalle entero en .xlsx
     expect((hoja.getRow(1).values as unknown[]).slice(1)).toEqual(CABECERAS_DETALLE);
     expect(CABECERAS_DETALLE).toHaveLength(32);
     expect(hoja.getRow(1).cellCount).toBe(32);
+    // HU #12653 (AC7): el valor documental NO añade columna — «Origen valores» queda fuera hasta VoBo del PO.
+    expect(CABECERAS_DETALLE).not.toContain('Origen valores');
+    expect(hoja.getRow(1).values).not.toContain('Origen valores');
     // La 32.ª va PEGADA a «Modelo» (CF-10 de la HU #12546), no al final del archivo.
     expect(CABECERAS_DETALLE[CABECERAS_DETALLE.indexOf('Modelo') + 1]).toBe('Servicios adicionales');
     expect(COLUMNAS_EXPORT_DETALLE.map((c) => c.header)).toEqual(CABECERAS_DETALLE);
@@ -332,6 +337,26 @@ describe('AC3 — el dinero es número con el formato contable, nunca texto ni f
     expect(hoja.getColumn(i).numFmt).toBe(NUMFMT_DINERO);
   });
 
+  it('HU #12627 — la cantidad de viajes de logística viaja en la fila del JSON pero NO en el archivo: siguen 32 cabeceras (AC8)', async () => {
+    kdb.when.select('flito_tramites', [cruda({ logistica: '90000', logisticaViajesCantidad: 3 })]);
+    const filas = await filasParaExportar({});
+    // `aFila` la proyecta (mutante «olvidar el campo»: undefined); y `null`/`0` se conservan tal cual
+    // (mutante «?? 0» sobre un sello anterior al Feature diría «se selló sin viajes»).
+    expect(filas[0]!.logisticaViajesCantidad).toBe(3);
+    kdb.when.select('flito_tramites', [cruda({ logisticaViajesCantidad: null })]);
+    expect((await filasParaExportar({}))[0]!.logisticaViajesCantidad).toBeNull();
+    kdb.when.select('flito_tramites', [cruda({ logisticaViajesCantidad: 0 })]);
+    expect((await filasParaExportar({}))[0]!.logisticaViajesCantidad).toBe(0);
+    // El Excel es literal del adjunto del PO: ni una 33.ª cabecera ni la cantidad colada en otra clave.
+    const hoja = filasExcelDetalle(filas)[0]!;
+    expect(hoja).not.toHaveProperty('logisticaViajesCantidad');
+    expect(Object.values(hoja)).not.toContain(3);
+    expect(COLUMNAS_EXPORT_DETALLE.map((c) => c.key)).not.toContain('logisticaViajesCantidad');
+    expect(COLUMNAS_EXPORT_DETALLE).toHaveLength(32);
+    // Columna1 sigue siendo la logística YA sumada (tarifa + viajes), no la tarifa sola.
+    expect(hoja.columna1).toBe(90000);
+  });
+
   it('Columna2 va vacía pero con la columna en formato de dinero; Factura es texto y Factura Terceros vacía', async () => {
     kdb.when.select('flito_tramites', [cruda({ facturaDatos: { numero: 'FV-1-123', requiereRevision: false }, estadoFacturacion: 'emitido' })]);
     const hoja = await libro((await exportar(RUTA_DETALLE, await sesion())).body as Buffer);
@@ -407,7 +432,7 @@ describe('AC4 — fechas como Date de día en UTC, periodos como texto, null com
       titularNombres: null, titularApellidos: null, titularRazonSocial: null, titularTipoDocumento: null,
       titularDocumento: null, titularCorreo: null, titularTelefono: null, titularDireccion: null,
       organismoCodigo: null, organismoNombre: null, mes: null, trimestre: null, totalReintegro: null, totalServicio: null,
-      serviciosAdicionales: null, serviciosAdicionalesCantidad: null,
+      serviciosAdicionales: null, serviciosAdicionalesCantidad: null, logisticaViajesCantidad: null,
     }])[0]!;
     const noNulos = Object.entries(f).filter(([, v]) => v !== null).map(([k]) => k).sort();
     // Solo lo que de verdad tiene valor: el id. Mutante «columna2: ''» o «facturaTerceros: ''»: aparecerían aquí.

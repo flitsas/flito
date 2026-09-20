@@ -3,7 +3,7 @@ name: flit-integration-ado
 description: |
   Registra PRs de GitHub (flitsas/flito) en Azure DevOps: Custom.Commits (HTML canónico), Discussion, hyperlinks; post-merge Deploy DEV/QA/PDN según rama. Aplica igual a HU y a Bug (paridad de AGENTS.md).
   INVOCACIÓN OBLIGATORIA: cargar esta Skill Modo A en CADA PR con work item (HU o Bug); Modo B en CADA merge (o tip de ráfaga). Discussion / comentario branded NO sustituyen Custom.Commits (anti-imitación).
-  Tras Modo B con Deploy*=true → Agent devops-agent M1 (una vez por tip).
+  Tras Modo B con Deploy*=true → Agent devops-agent M1 (una vez por tip). Modo B en develop deja el WI en Active (DEV no es QA); Modo B en staging encadena flit-gestion-hu Paso 3 (Resolved + aviso al QA humano) y Paso 4 (cascada Feature → Épica).
   Triggers — PR GitHub, Custom.Commits, Deploy DEV, Deploy QA, Deploy PDN, post-merge, Modo A, Modo B, flit-integration-ado, flit-modo-desarrollo-auto pasos 5 y 2b.
 ---
 
@@ -95,7 +95,10 @@ mismo anti-patrón que una HU registrada solo en Discussion.
    - Caso normal: check-runs del **merge commit** del PR.
    - **Cadena apilada / merges en ráfaga:** el workflow CI usa `cancel-in-progress` por ref; los runs de merges intermedios a `develop` suelen quedar `cancelled`. El gate es el CI del **tip de `develop`** que ya contiene el merge (y el resto de la cadena), no exigir verde en cada SHA intermedio cancelado.
    - Si el tip (o el merge commit, en caso normal) tiene un check requerido en rojo → **bloquear** Deploy * = true; reportar URL del run fallido.
-3. **ADO:** leer el work item (`GET workitem`) — comprobar `System.State == Resolved`. Si no lo está, **avisar** al humano; esta skill no cambia estados. Un work item **mergeado y todavía en `Active`** —el caso típico del **Bug huérfano**— no se deja pasar con una nota: el hilo debe cerrarlo con **`Skill flit-gestion-hu` Paso 3** (con «sí» del humano para escribir en ADO) antes de dar el ciclo por cerrado.
+3. **ADO:** leer el work item (`GET workitem`) y comprobar que `System.State` es el que toca según la rama (esta skill **no** cambia estados; `AGENTS.md` «Jerarquía y cascada»):
+   - `baseRefName = develop` → el WI debe estar **`Active`**. Es el estado correcto: está en DEV, el QA humano no prueba ahí. **No** avisar «sigue en Active», **no** pedir `Resolved`, **no** mencionar al QA.
+   - `baseRefName = staging` → tras este Modo B el hilo ejecuta **`Skill flit-gestion-hu` Paso 3** (`Resolved` + aviso al QA humano) y **Paso 4** (cascada Feature → Épica) por cada WI del PR de promoción. Un WI que quede `Active` con `DeployQA=true` —el caso típico del **Bug huérfano**— no se deja pasar con una nota: se cierra en el mismo ciclo (con «sí» del humano para escribir en ADO).
+   - `baseRefName = release` → el WI debe estar ya `Resolved` (llegó así desde staging); si el QA lo cerró, `Closed`. Ninguno de los dos se toca aquí.
 4. **ADO:** `PATCH` `Custom.Commits` — **añadir** bloque **«Integrado»** **sin borrar** el contenido previo (reemplazar campo con HTML concatenado: sección anterior + `<hr/>` + nueva sección).
 5. **ADO:** según `baseRefName` del PR merged:
 
@@ -290,7 +293,8 @@ HU **o de un Bug** → Modo B (Deploy DEV). Docs/chore: merge listo; no tocar AD
 | Verificar merge + Deploy * + Commits integrado (Modo B) | **hilo principal** o **Líder Técnico** |
 | Smoke post-Deploy (M1) | **`devops-agent`** (hilo principal lo invoca tras Modo B) |
 | Evidencias unitarias (`Custom.Evidences`) | rol de desarrollo / tester / **`qa-agent`** |
-| Estado `Resolved` en HU **o Bug** | quien implementó, vía **Skill `flit-gestion-hu`** — el hilo principal **solo avisa** si falta, pero no cierra el ciclo dejándolo pendiente |
+| Estado `Resolved` en HU **o Bug** | **Skill `flit-gestion-hu`** Paso 3, **tras el merge de promoción a `staging`** (no tras el merge a `develop`: ahí el WI sigue `Active`). El hilo lo encadena en el mismo ciclo del Modo B de staging; no lo deja pendiente |
+| Feature / Épica a `Resolved` (o de vuelta a `Active`) | **Skill `flit-gestion-hu`** Paso 4 (cascada) / Paso 5 (reactivación por hallazgo del QA) |
 | TCs y certificación funcional | **`qa-agent` B pre-PR** (matriz `AGENTS.md`) — también en Bugs |
 
 ---
@@ -312,4 +316,4 @@ HU **o de un Bug** → Modo B (Deploy DEV). Docs/chore: merge listo; no tocar AD
 ## Skills relacionadas
 
 - `flit-azure-devops` — conexión MCP/REST, encoding y PATCH
-- `flit-gestion-hu` — ciclo `Active → Resolved` del work item (HU **o Bug**) antes del Modo B
+- `flit-gestion-hu` — ciclo `Active → Resolved` del work item (HU **o Bug**): `Active` antes del desarrollo; `Resolved` **después** del Modo B de `staging` (no del de `develop`); cascada Feature → Épica

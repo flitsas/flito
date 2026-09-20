@@ -18,7 +18,7 @@ import { db } from '../../db/client.js';
 import {
   clients, flitoDerechosTramite, flitoExcepcionesAutogestion, flitoImpuestos, flitoLiquidaciones,
   flitoOrganismoVigencias, flitoSoat, flitoTarifasVigencias, flitoTramiteServiciosAdicionales,
-  flitoTramites, organismosTransitoConfig, vehicles,
+  flitoTramites, flitoTramiteViajesLogistica, organismosTransitoConfig, vehicles,
 } from '../../db/schema.js';
 import { aIso } from '../../shared/utils/fecha-rango.js';
 import { TASA_GMF } from '../flito-liquidacion/flito-liquidacion.service.js';
@@ -35,6 +35,10 @@ import {
 import {
   columnasDeFila, facetaOrganismos, SELECT_COLUMNAS_REPORTE, subtotalesDe, type ColumnasDeFila,
 } from './finanzas.reporte-columnas.js';
+import {
+  EXPR_CON_DIFERENCIAS, SELECT_VALORES_DOCUMENTALES, valoresDocumentalesDeFila, type ValoresDocumentalesDeFila,
+} from './finanzas.valores-documentales.js';
+import { EXPR_DOC_LG, EXPR_DOC_TD } from '../flito-comprobantes/flito-comprobantes.expr.js';
 import type { SiigoEstadoReporte, SiigoResumenReporte } from '@operaciones/shared-types';
 
 /**
@@ -57,6 +61,8 @@ export interface FiltrosReporte {
   etapa?: EtapaReporte;
   /** true = solo trámites con TODOS los conceptos aplicables documentados (filtro inteligente). */
   documentacionCompleta?: boolean;
+  /** true = solo trámites con al menos una diferencia documental SIN aceptar (HU #12653, AC5). */
+  conDiferencias?: boolean;
   /** Rango sobre la fecha de creación del trámite, en formato yyyy-mm-dd. */
   desde?: string; hasta?: string;
   /** Rango sobre la fecha de aprobación, en formato yyyy-mm-dd. Independiente del anterior. */
@@ -79,7 +85,7 @@ export interface FiltrosReporte {
  * exija que `aFila` los rellene: son datos que la pantalla enseña en una columna propia, y una
  * columna que a veces llega vacía por olvido se lee como «este trámite no tiene factura».
  */
-export interface FilaReporte extends FacturacionDeFila, ConciliacionSoatDeFila, ColumnasDeFila {
+export interface FilaReporte extends FacturacionDeFila, ConciliacionSoatDeFila, ColumnasDeFila, ValoresDocumentalesDeFila {
   tramiteId: string; idFlit: string; placa: string | null; estado: string | null; empresa: string | null;
   /** Vehículo, homologado con las demás tablas. */
   vin: string | null; marca: string | null; linea: string | null;
@@ -118,6 +124,12 @@ export interface FilaReporte extends FacturacionDeFila, ConciliacionSoatDeFila, 
    */
   totalReintegro: number | null;
   totalServicio: number | null;
+  /**
+   * Cuántos viajes de logística lleva la fila, contando el 1 incluido en la tarifa (HU #12627).
+   * `null` solo en una liquidación sellada ANTES del Feature #12617, donde no se sabe; `0` = la
+   * compañía no gestiona logística por FLITO; `>= 1` = el incluido más los adicionales.
+   */
+  logisticaViajesCantidad: number | null;
 }
 
 export interface TotalesReporte {
@@ -146,13 +158,13 @@ export interface ReporteCostos {
 // `vigenteEn` es la MISMA expresión que usa `tarifaDe()` en la compuerta: lo estimado es lo que se
 // sella (AC7). Sin parámetros: la referencia es columna + `now()`, no un literal.
 const td = alias(flitoTarifasVigencias, 'td');
-const lg = alias(flitoTarifasVigencias, 'lg');
+export const lg = alias(flitoTarifasVigencias, 'lg');
 
 const TIPO_NORM = sql`UPPER(TRIM(COALESCE(${flitoTramites.tipoTramite}, '')))`;
 
 const JOIN_TD = sql`${td.companiaId} = ${flitoTramites.companiaId} AND ${td.concepto} = 'tramite_digital'
   AND ${td.tipoTramite} = ${TIPO_NORM} AND ${vigenteEn(td, flitoTramites.fechaAprobacion)}`;
-const JOIN_LG = sql`${lg.companiaId} = ${flitoTramites.companiaId} AND ${lg.concepto} = 'logistica'
+export const JOIN_LG = sql`${lg.companiaId} = ${flitoTramites.companiaId} AND ${lg.concepto} = 'logistica'
   AND ${lg.tipoTramite} IS NULL AND ${vigenteEn(lg, flitoTramites.fechaAprobacion)}`;
 
 // ── Expresiones de valor. Sellada manda; si no, se estima. ───────────────────
@@ -185,7 +197,7 @@ const EXC_IMPUESTO = sql`COALESCE(${flitoImpuestos.excepcionAutogestion}, false)
 const EXC_LOGISTICA = sql`(${flitoExcepcionesAutogestion.id} IS NOT NULL)`;
 
 const GESTIONA_SOAT = sql`(NOT ${AUTO_SOAT} OR ${EXC_SOAT})`;
-const GESTIONA_LOGISTICA = sql`(NOT ${AUTO_LOGISTICA} OR ${EXC_LOGISTICA})`;
+export const GESTIONA_LOGISTICA = sql`(NOT ${AUTO_LOGISTICA} OR ${EXC_LOGISTICA})`;
 
 /**
  * RN-01 Impuestos, en SQL: es el espejo de `flitoGestionaImpuesto` de shared-types, que es la que
@@ -208,12 +220,43 @@ export const EXPR_IMPUESTO = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidacione
 export const EXPR_DERECHO = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorDerecho}
   ELSE ${flitoDerechosTramite.valor} END`;
 
-export const EXPR_DIGITAL = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorTramiteDigital}
-  ELSE ${td.valor} END`;
+// ── El documental manda (HU #12653, ADR-0018 §5) ────────────────────────────
+//
+// Sin sellar, el valor del trámite digital y de la logística es el del COMPROBANTE DE PAGO APLICADO
+// si existe, y la tarifa vigente si no: `COALESCE(documental, tarifa)`, en ese orden y con
+// tolerancia 0. Lo que se cobra es lo que se pagó. Las subconsultas viven en el leaf
+// `flito-comprobantes.expr.ts` (una fila por trámite y concepto, por índice único parcial).
+//
+// En la logística el documental reemplaza SOLO la tarifa del viaje 1: los viajes adicionales
+// (HU #12627) se suman FUERA del COALESCE, cada uno con el precio con que se registró. Y el
+// `WHEN NOT GESTIONA_LOGISTICA THEN NULL` sigue ANTES del ELSE: un comprobante aplicado a un concepto
+// autogestionado no lo resucita (AC3). Servicios adicionales no entra aquí: el catálogo manda y el
+// comprobante solo marca la diferencia (`finanzas.valores-documentales.ts`).
+const DIGITAL_ESTIMADO = sql`COALESCE(${EXPR_DOC_TD}, ${td.valor})`;
+const LOGISTICA_VIAJE_1_ESTIMADO = sql`COALESCE(${EXPR_DOC_LG}, ${lg.valor})`;
 
+export const EXPR_DIGITAL = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorTramiteDigital}
+  ELSE ${DIGITAL_ESTIMADO} END`;
+
+/** `flito_tramite_viajes_logistica`: los viajes ADICIONALES (numero >= 2) del trámite (HU #12619). */
+const VL = flitoTramiteViajesLogistica;
+
+// Logística = el viaje 1 (documental o tarifa) MÁS los viajes adicionales registrados (HU #12627),
+// cada uno con el precio con que se registró. Subconsulta correlacionada y no `leftJoin`, por lo
+// mismo que los servicios adicionales de abajo: la tabla tiene N filas por trámite. Viaje 1 NULL
+// (ni comprobante ni tarifa) sigue dando NULL —«no configurado»— aunque haya viajes: NULL + x es
+// NULL, y `BLOQUEA_LOGISTICA` mira el mismo COALESCE.
+//
+// La rama SIN sellar de la logística, UNA instancia compartida por `EXPR_LOGISTICA` (reporte) y
+// `EXPR_LOGISTICA_ESTIMADA` (gastos diarios, HU #12623, RN-02). Saltos de línea del CASE original.
+// La suma de viajes (HU #12627) entra en la instancia compartida a propósito: gastos diarios y
+// reporte deben estimar exactamente lo mismo (tarifa + Σ viajes, regla D5 de la Épica #12244).
+const RAMAS_LOGISTICA_ESTIMADA = sql`WHEN NOT ${GESTIONA_LOGISTICA} THEN NULL
+  ELSE ${LOGISTICA_VIAJE_1_ESTIMADO} + COALESCE((SELECT SUM(${VL.valor}) FROM ${VL} WHERE ${VL.tramiteId} = ${flitoTramites.id}), 0)`;
 export const EXPR_LOGISTICA = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorLogistica}
-  WHEN NOT ${GESTIONA_LOGISTICA} THEN NULL
-  ELSE ${lg.valor} END`;
+  ${RAMAS_LOGISTICA_ESTIMADA} END`;
+/** La logística estimada a secas (sin mirar la liquidación): exige los joins `clients`, `JOIN_EXC_LOGISTICA` y `JOIN_LG`. */
+export const EXPR_LOGISTICA_ESTIMADA = sql`CASE ${RAMAS_LOGISTICA_ESTIMADA} END`;
 
 // ── Servicios adicionales (HU #12546) ───────────────────────────────────────
 //
@@ -249,6 +292,23 @@ export const EXPR_SERVICIOS_ADICIONALES_CANTIDAD = sql`CASE WHEN ${seLiquido}
     THEN CASE WHEN jsonb_typeof(${flitoLiquidaciones.detalle} -> 'serviciosAdicionales' -> 'items') = 'array'
       THEN jsonb_array_length(${flitoLiquidaciones.detalle} -> 'serviciosAdicionales' -> 'items') END
   ELSE (SELECT COUNT(*)::int FROM ${SA} WHERE ${SA.tramiteId} = ${flitoTramites.id}) END`;
+
+// ── Viajes de logística (HU #12627) ──────────────────────────────────────────
+//
+// CUÁNTOS viajes lleva la fila, contando el 1 incluido en la tarifa: no se deduce del importe (dos
+// viajes manuales de $0 y ninguno suman igual). Sellada: `totalViajes` del snapshot que la HU #12626
+// congela en `detalle.logistica`; una liquidación sellada ANTES no tiene `viajes` y la cantidad sale
+// NULL —«no se sabe»—, distinto del 0 («no gestiona») y del 1 («solo el incluido»). Sin sellar: 1 más
+// las filas de `flito_tramite_viajes_logistica`; 0 si la compañía autogestiona (las filas huérfanas
+// de una excepción vencida no cuentan, como en `conceptoLogistica`).
+//
+// El `jsonb_typeof` es la misma guarda que arriba: un detalle escalar haría 22023 y tumbaría el
+// reporte entero. Claves como texto del template, sin parámetros (Bug #12058).
+export const EXPR_LOGISTICA_VIAJES_CANTIDAD = sql`CASE WHEN ${seLiquido}
+    THEN CASE WHEN jsonb_typeof(${flitoLiquidaciones.detalle} -> 'logistica' -> 'viajes') = 'array'
+      THEN (${flitoLiquidaciones.detalle} -> 'logistica' ->> 'totalViajes')::int END
+  WHEN NOT ${GESTIONA_LOGISTICA} THEN 0
+  ELSE 1 + (SELECT COUNT(*)::int FROM ${VL} WHERE ${VL.tramiteId} = ${flitoTramites.id}) END`;
 
 // Base del 4x1000: el total de los SEIS conceptos del trámite. El GMF se calcula sobre esa suma y
 // se añade encima, así que el total final es la base más su propio gravamen. Los servicios
@@ -286,9 +346,13 @@ const BLOQUEA_IMPUESTO = sql`(${GESTIONA_IMPUESTO} AND NOT COALESCE(${IMPUESTO_P
 /** El derecho de tránsito no se configura: se lee del recibo. Sin recibo, falta un costo real. */
 const BLOQUEA_DERECHO = sql`${flitoDerechosTramite.valor} IS NULL`;
 
-/** Honorarios de FLITO: sin tarifa negociada no hay nada que cobrar sin inventárselo. */
-const BLOQUEA_DIGITAL = sql`${td.valor} IS NULL`;
-const BLOQUEA_LOGISTICA = sql`(${GESTIONA_LOGISTICA} AND ${lg.valor} IS NULL)`;
+/**
+ * Honorarios de FLITO: sin tarifa negociada NI comprobante de pago aplicado no hay nada que cobrar
+ * sin inventárselo. El MISMO `COALESCE` que la celda (HU #12653): un comprobante aplicado con la
+ * tarifa sin configurar es un valor real, y la fila no está incompleta.
+ */
+const BLOQUEA_DIGITAL = sql`${DIGITAL_ESTIMADO} IS NULL`;
+const BLOQUEA_LOGISTICA = sql`(${GESTIONA_LOGISTICA} AND ${LOGISTICA_VIAJE_1_ESTIMADO} IS NULL)`;
 
 const EXPR_BLOQUEADA = sql`(${BLOQUEA_SOAT} OR ${BLOQUEA_IMPUESTO} OR ${BLOQUEA_DERECHO}
   OR ${BLOQUEA_DIGITAL} OR ${BLOQUEA_LOGISTICA})`;
@@ -364,6 +428,8 @@ export function condiciones(f: FiltrosReporte): SQL[] {
   if (f.etapa === 'por_facturar') conds.push(sql`${flitoLiquidaciones.estado} = 'liquidado'`);
   if (f.etapa === 'facturado') conds.push(sql`${flitoLiquidaciones.estado} = 'facturado'`);
   if (f.documentacionCompleta) conds.push(EXPR_DOC_COMPLETA);
+  // HU #12653 (AC5) — al menos una diferencia documental sin aceptar. Se compone, no anula.
+  if (f.conDiferencias) conds.push(EXPR_CON_DIFERENCIAS);
   // HU #11336 — la MISMA expresión que alimenta los contadores. Dos definiciones de «en qué punto
   // está esta factura» acabarían discrepando, y el filtro y los números dirían cosas distintas de
   // la misma fila: un bicho que no falla, solo miente.
@@ -382,6 +448,13 @@ export function condiciones(f: FiltrosReporte): SQL[] {
   if (f.aprobadoHasta) conds.push(sql`${flitoTramites.fechaAprobacion} < (${f.aprobadoHasta}::date + INTERVAL '1 day')`);
   return conds;
 }
+
+/** La excepción de logística VIGENTE del trámite (la condición del `leftJoin` de `conJoins`, compartida con el dashboard). */
+export const JOIN_EXC_LOGISTICA = and(
+  eq(flitoExcepcionesAutogestion.tramiteId, flitoTramites.id),
+  eq(flitoExcepcionesAutogestion.concepto, 'logistica'),
+  isNull(flitoExcepcionesAutogestion.revocadoEn),
+)!;
 
 /**
  * Todos los joins del reporte, en un solo sitio. Los comparten la página, el conteo, los totales y
@@ -405,11 +478,7 @@ export function conJoins<Q extends PgSelect>(q: Q) {
     // Desbloqueo excepcional VIGENTE de la logística (HU #10980). SOAT e impuesto llevan su marca en
     // el propio registro; la logística no tiene registro donde marcarla. El índice parcial impide
     // dos excepciones vivas del mismo concepto, así que no multiplica filas.
-    .leftJoin(flitoExcepcionesAutogestion, and(
-      eq(flitoExcepcionesAutogestion.tramiteId, flitoTramites.id),
-      eq(flitoExcepcionesAutogestion.concepto, 'logistica'),
-      isNull(flitoExcepcionesAutogestion.revocadoEn),
-    ))
+    .leftJoin(flitoExcepcionesAutogestion, JOIN_EXC_LOGISTICA)
     .leftJoin(td, JOIN_TD)
     .leftJoin(lg, JOIN_LG)
     // El alias del organismo (HU #12432). `codigo` es la PK, así que no multiplica filas; LEFT
@@ -462,6 +531,11 @@ export const SELECT_FILA = {
   // Titular, organismo y documento (HU #12432). Mismo patrón: se compone desde su archivo, y el
   // documento va por subconsulta correlacionada por el mismo motivo que la conciliación.
   ...SELECT_COLUMNAS_REPORTE,
+  // Viajes de logística (HU #12627): cuántos, incluido el 1 de la tarifa. Al final, append-only.
+  logisticaViajesCantidad: sql<number | null>`${EXPR_LOGISTICA_VIAJES_CANTIDAD}`,
+  // Origen y diferencia documental por concepto (HU #12653). Mismo patrón: se compone desde su
+  // archivo y por subconsultas correlacionadas; el VALOR ya viene por el COALESCE de arriba.
+  ...SELECT_VALORES_DOCUMENTALES,
 } as const;
 
 const n = (v: string | number | null): number | null => (v === null ? null : Number(v));
@@ -543,6 +617,8 @@ function aFila(r: Record<string, unknown>): FilaReporte {
     ...columnasDeFila(r, fechaAprobacion),
     // Sobre los conceptos YA resueltos y sus listas de pendientes: es lo que decide 0 o null.
     ...subtotalesDe(conceptos),
+    logisticaViajesCantidad: n(r.logisticaViajesCantidad as number | null),
+    ...valoresDocumentalesDeFila(r),
   };
 }
 

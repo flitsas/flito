@@ -93,6 +93,8 @@ function cruda(over: Record<string, unknown> = {}): Record<string, unknown> {
     // justo el fallo que `build:api` no ve: el tsconfig de la API no typechequea `__tests__`.
     // La misma clave sirve a `SELECT_TOTALES` (`Number(null)` = 0).
     serviciosAdicionales: null, serviciosAdicionalesCantidad: 0,
+    // HU #12627 — por lo mismo: la proyección siempre trae la cantidad de viajes (1 = solo el incluido).
+    logisticaViajesCantidad: 1,
     soatPendiente: false, impuestoPendiente: false,
     gestionaSoat: true, gestionaImpuesto: true, gestionaLogistica: true,
     soatAutogestionable: false, impuestosAutogestionable: false, logisticaAutogestionable: false,

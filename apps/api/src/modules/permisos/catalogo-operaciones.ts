@@ -56,12 +56,17 @@ const TRC = 'tramites/transito-config.routes.ts';
 const USR = 'users/users.routes.ts';
 const PER = 'permisos/permisos.routes.ts';
 const FSA = 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts';
+const CPR = 'flito-comprobantes/flito-comprobantes.routes.ts';
+const LOGV = 'flito-logistica/flito-logistica-viajes.routes.ts';
 
 export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   // ── SOAT (portal FLITO) ───────────────────────────────────────────────────────────────────────
   op(`${SOAT} GET /`, 'soat.cola.ver', 'Ver la cola de SOAT', 'Abrir la bandeja de solicitudes de SOAT y recorrer su listado.'),
   op(`${SOAT} GET /facetas`, 'soat.cola.filtrar', 'Filtrar la cola de SOAT', 'Leer los contadores y las facetas con las que se acota la bandeja.'),
   op(`${SOAT} POST /export`, 'soat.excel.exportar', 'Exportar la cola de SOAT a Excel', 'Descargar el listado filtrado como archivo de Excel.'),
+  // Bug #12642: guarda EN LÍNEA dentro del mismo handler (`tieneFuncion` cuando el cuerpo trae
+  // `incluirPago: true`), como `[_forzarContinuar]`. Textos byte a byte con la 0203; solo admin.
+  op(`${SOAT} POST /export [incluirPago]`, 'soat.excel.exportar_pago', 'Exportar la cola de SOAT a Excel con datos de pago y trazabilidad', 'Descargar el listado filtrado con el valor pagado, las fechas de solicitud y pago y el gestor.'),
   op(`${SOAT} POST /soportes/zip`, 'soat.soportes.descargar', 'Descargar soportes de SOAT en ZIP', 'Bajar en un solo archivo los soportes de las solicitudes seleccionadas.'),
   op(`${SOAT} GET /:id`, 'soat.solicitud.ver', 'Ver una solicitud de SOAT', 'Abrir el detalle de una solicitud concreta.'),
   op(`${SOAT} GET /:id/historial`, 'soat.solicitud.ver_historial', 'Ver el historial de una solicitud de SOAT', 'Consultar la línea de tiempo de cambios de estado de la solicitud.'),
@@ -83,6 +88,8 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${IMP} GET /`, 'impuestos.cola.ver', 'Ver la cola de impuestos', 'Abrir la bandeja de trámites de impuesto vehicular.'),
   op(`${IMP} GET /facetas`, 'impuestos.cola.filtrar', 'Filtrar la cola de impuestos', 'Leer los contadores y las facetas con las que se acota la bandeja.'),
   op(`${IMP} POST /export`, 'impuestos.excel.exportar', 'Exportar la cola de impuestos a Excel', 'Descargar el listado filtrado como archivo de Excel.'),
+  // Bug #12642: guarda EN LÍNEA (`tieneFuncion` con `incluirPago: true`); textos byte a byte con la 0203.
+  op(`${IMP} POST /export [incluirPago]`, 'impuestos.excel.exportar_pago', 'Exportar la cola de impuestos a Excel con datos de pago y trazabilidad', 'Descargar el listado filtrado con el valor liquidado y pagado, las fechas de solicitud y pago y el gestor.'),
   op(`${IMP} POST /soportes/zip`, 'impuestos.soportes.descargar', 'Descargar soportes de impuestos en ZIP', 'Bajar en un solo archivo los soportes de los trámites seleccionados.'),
   op(`${IMP} GET /:id`, 'impuestos.tramite.ver', 'Ver un trámite de impuestos', 'Abrir el detalle de un trámite concreto.'),
   op(`${IMP} GET /:id/historial`, 'impuestos.tramite.ver_historial', 'Ver el historial de un trámite de impuestos', 'Consultar la línea de tiempo de cambios de estado del trámite.'),
@@ -98,6 +105,7 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${IMP} POST /:id/asumir-operaciones`, 'impuestos.tramite.asumir', 'Asumir un trámite de impuestos en Operaciones', 'Sacar el trámite del gestor del organismo y trabajarlo desde Operaciones (traspaso por contingencia).'),
   op(`${IMP} POST /:id/devolver-gestor`, 'impuestos.tramite.devolver', 'Devolver un trámite de impuestos al gestor', 'Regresar al gestor del organismo un trámite que Operaciones había asumido.'),
   op(`${IMP} POST /recibos`, 'impuestos.recibos.cargar', 'Cargar recibos de impuestos', 'Subir los recibos de pago y repartirlos por trámite.'),
+  op(`${IMP} POST /:id/recibo-caja`, 'impuestos.recibos.cargar_caja', 'Cargar recibo de caja', 'Cargar sobre un impuesto con liquidación el recibo de caja del pago en ventanilla y dejarlo pagado.'),
 
   // ── Derechos de tránsito ──────────────────────────────────────────────────────────────────────
   op(`${DER} GET /`, 'derechos.cola.ver', 'Ver los derechos de tránsito', 'Abrir el listado de recibos de derechos cobrados por el organismo.'),
@@ -247,6 +255,11 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${FSA} POST /tramites/:id/servicios-adicionales`, 'finanzas.servicios_adicionales.asignar', 'Asignar un servicio adicional a un trámite', 'Añadir a un trámite no liquidado un servicio adicional del catálogo, copiando su nombre y valor en ese instante.'),
   op(`${FSA} DELETE /tramites/:id/servicios-adicionales/:asignacionId`, 'finanzas.servicios_adicionales.quitar', 'Quitar un servicio adicional de un trámite', 'Retirar de un trámite no liquidado un servicio adicional asignado.'),
 
+  // ── Logística — viajes adicionales por trámite (HU #12619; textos byte a byte con la 0199; solo admin) ──
+  op(`${LOGV} GET /tramites/:tramiteId/viajes`, 'logistica.viajes.ver', 'Ver los viajes adicionales de un trámite', 'Consultar los viajes adicionales de logística de un trámite y su total.'),
+  op(`${LOGV} POST /tramites/:tramiteId/viajes`, 'logistica.viajes.registrar', 'Registrar un viaje adicional en un trámite', 'Añadir a un trámite no liquidado un viaje adicional de logística, copiando la tarifa vigente o fijando el precio a mano.'),
+  op(`${LOGV} DELETE /tramites/:tramiteId/viajes/:viajeId`, 'logistica.viajes.quitar', 'Quitar un viaje adicional de un trámite', 'Retirar de un trámite no liquidado un viaje adicional de logística registrado.'),
+
   // ── Sincronización FLITO ──────────────────────────────────────────────────────────────────────
   op(`${SYN} GET /estado`, 'sync.sync.ver_estado', 'Ver el estado de la sincronización', 'Consultar cuándo corrió la última sincronización y cómo fue.'),
   op(`${SYN} POST /sincronizar`, 'sync.sync.lanzar', 'Lanzar la sincronización', 'Disparar a mano la sincronización de datos FLITO.'),
@@ -347,6 +360,19 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${PER} DELETE /roles/:codigo`, 'permisos.rol.borrar', 'Borrar un rol', 'Eliminar un rol que ningún usuario tiene asignado, junto con su cuadro de funciones.'),
   op(`${PER} GET /roles/:codigo/funciones`, 'permisos.cuadro.ver', 'Ver el cuadro de funciones de un rol', 'Leer qué funciones concede un rol a quienes lo tienen asignado.'),
   op(`${PER} PUT /roles/:codigo/funciones`, 'permisos.cuadro.guardar', 'Guardar el cuadro de funciones de un rol', 'Reescribir el conjunto completo de funciones que concede un rol.'),
+  // ── Comprobantes (Épica #12245, HU #12611: `flito-comprobantes/` nace reconducido) ────────────
+  // Las CINCO de F1 (#12605): cargar, ver la cola, ver uno, abrir el archivo y releer. Textos byte a
+  // byte con la 0198 (el test de la 0198 los compara literal). Las TRES de F2 (#12606, HU #12629:
+  // buscar trámites, aplicar, descartar) van con la 0201. Aceptar diferencia (F3, HU #12654) con la 0202.
+  op(`${CPR} POST /`, 'comprobantes.lote.cargar', 'Cargar comprobantes', 'Subir documentos (PDF/imagen) para leerlos y asociarlos a un trámite y concepto.'),
+  op(`${CPR} GET /`, 'comprobantes.cola.ver', 'Ver la cola de comprobantes', 'Listar los comprobantes pendientes, aplicados y descartados.'),
+  op(`${CPR} GET /:id`, 'comprobantes.comprobante.ver', 'Ver un comprobante', 'Abrir el detalle de un comprobante con lo que el OCR leyó y sus candidatos.'),
+  op(`${CPR} GET /:id/archivo`, 'comprobantes.archivo.descargar', 'Abrir el archivo de un comprobante', 'Ver el documento original del que salió la lectura.'),
+  op(`${CPR} POST /:id/releer`, 'comprobantes.comprobante.releer', 'Releer un comprobante', 'Volver a pasar por el OCR un comprobante que quedó pendiente de lectura porque el servicio no estuvo disponible.'),
+  op(`${CPR} POST /tramites/buscar`, 'comprobantes.tramites.buscar', 'Buscar trámites para un comprobante', 'Buscar por ID FLIT, placa o VIN el trámite al que asociar un comprobante.'),
+  op(`${CPR} POST /:id/aplicar`, 'comprobantes.comprobante.aplicar', 'Aplicar o adjuntar un comprobante', 'Asociar un comprobante a un trámite y concepto: como pago o como documentación.'),
+  op(`${CPR} POST /:id/descartar`, 'comprobantes.comprobante.descartar', 'Descartar un comprobante', 'Sacar de la cola un comprobante que no corresponde, dejando el motivo.'),
+  op(`${CPR} POST /:id/diferencia/aceptar`, 'comprobantes.diferencia.aceptar', 'Aceptar la diferencia de un comprobante', 'Aceptar con motivo la diferencia entre el valor del comprobante y la tarifa de referencia.'),
 ];
 
 /**

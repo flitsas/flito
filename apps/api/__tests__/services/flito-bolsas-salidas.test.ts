@@ -240,9 +240,11 @@ function tarifasConfiguradas(digital = 200000, logistica = 15000): void {
  * `flito_tramite_servicios_adicionales` no se registra: sin registro el mock keyed devuelve `[]`,
  * que es «este trámite no lleva servicios» — el escenario por defecto de estos AC.
  */
-function escenarioSellado(calculo: Fila = {}, ids: Fila = {}, servicios: Fila[] = []): void {
+function escenarioSellado(calculo: Fila = {}, ids: Fila = {}, servicios: Fila[] = [], viajes: Fila[] = []): void {
   kdb.when
     .select('flito_tramite_servicios_adicionales', servicios)
+    // HU #12626 — los viajes adicionales de logística, leídos en la previsualización y bajo bloqueo.
+    .select('flito_tramite_viajes_logistica', viajes)
     .select('flito_liquidaciones', [])
     .selectOnce('flito_tramites', [filaCalculo(calculo)])
     .selectOnce('flito_tramites', [filaIdentificadores(ids)])
@@ -467,6 +469,54 @@ describe('liquidar — los servicios adicionales asientan su propia salida (HU #
     expect(saldoBolsa).toBe(1_000_000);
     expect(inserts.filter((m) => m.tabla === 'flito_tramite_servicios_adicionales')).toEqual([]);
     expect(updates.filter((m) => m.tabla === 'flito_tramite_servicios_adicionales')).toEqual([]);
+  });
+});
+
+// ─────────────────────────── HU #12626: viajes de logística ──────────────────
+
+/** Dos viajes adicionales (inicial 35.000 + manual 20.000), como los devuelve `viajesDe`. */
+const VIAJES: Fila[] = [
+  { id: 'v-2', numero: 2, modo: 'inicial', valor: '35000', tarifaVigente: '35000', motivo: 'devolucion',
+    motivoDetalle: null, registradoPorId: 4, registradoPorNombre: 'Luis', registradoEn: AHORA },
+  { id: 'v-3', numero: 3, modo: 'manual', valor: '20000', tarifaVigente: '35000', motivo: 'otro',
+    motivoDetalle: 'Otra sede', registradoPorId: 5, registradoPorNombre: 'Marta', registradoEn: AHORA },
+];
+
+describe('liquidar — la logística con viajes adicionales es UNA salida por la suma (HU #12626, AC7)', () => {
+  it('tarifa 35.000 + dos viajes → una única salida `logistica` de 90.000, sin organismo y con la llave del trámite; ninguna por viaje', async () => {
+    tarifasConfiguradas(200000, 35000);
+    escenarioSellado({}, {}, [], VIAJES);
+    await liquidar(TRAMITE, 9);
+
+    const salidas = salidasEscritas();
+    expect(salidas.map((s) => s.concepto))
+      .toEqual(['soat', 'impuesto', 'derecho', 'tramite_digital', 'logistica', 'gmf']);
+    const logistica = salidas.filter((s) => s.concepto === 'logistica');
+    expect(logistica).toHaveLength(1);
+    // 90.000 y no 35.000 (solo la tarifa) ni 55.000 (solo los adicionales): la bolsa lleva la suma.
+    expect(logistica[0]).toMatchObject({
+      valor: '90000', organismoCodigo: null, tramiteId: TRAMITE,
+      llaveIdempotencia: `salida:tramite:${TRAMITE}:logistica`,
+    });
+    expect(salidas.some((s) => String(s.concepto).includes('viaje') || String(s.llaveIdempotencia).includes('viaje'))).toBe(false);
+    // El gravamen, al final y sobre la base con los 90.000: 450.000 + 120.000 + 80.000 + 200.000 +
+    // 90.000 = 940.000; × 0,004 = 3.760.
+    expect(salidas.at(-1)).toMatchObject({ concepto: 'gmf', valor: '3760' });
+    expect(1_000_000 - saldoBolsa).toBe(943760);
+  });
+
+  it('el reverso devuelve la logística entera (tarifa + viajes) y no toca la tabla de viajes', async () => {
+    tarifasConfiguradas(200000, 35000);
+    escenarioSellado({}, {}, [], VIAJES);
+    await liquidar(TRAMITE, 9);
+    escenarioReverso();
+    await reversar(TRAMITE, 'Error en el valor del derecho', 9);
+
+    const contra = entradasEscritas().find((c) => c.concepto === 'logistica');
+    expect(contra).toMatchObject({ tipo: 'entrada', valor: '90000', organismoCodigo: null });
+    expect(saldoBolsa).toBe(1_000_000);
+    expect(inserts.filter((m) => m.tabla === 'flito_tramite_viajes_logistica')).toEqual([]);
+    expect(updates.filter((m) => m.tabla === 'flito_tramite_viajes_logistica')).toEqual([]);
   });
 });
 

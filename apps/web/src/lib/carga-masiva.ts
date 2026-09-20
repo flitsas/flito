@@ -2,7 +2,7 @@
 // (HU #12050 / #12051 / #12056).
 //
 // Un solo sitio para peso, copy de validación, 413/504, la lectura del ZIP y el envío de 5 en 5.
-// Los dos modales importan de aquí; no se extrae un modal compartido (Impuestos tiene el checkbox).
+// Los dos modales importan de aquí; no se extrae un modal compartido (Impuestos tiene el selector de fase).
 //
 // Desde la HU #12056 el ZIP se abre AQUÍ, en el navegador, y sus entradas viajan por las mismas
 // tandas de 5 que ya existían. Tres cosas que hay que leer juntas:
@@ -36,6 +36,10 @@ import {
   CARGA_MASIVA_MAX_BYTES_CRUDOS,
   CARGA_MASIVA_MAX_BYTES_CUERPO,
   CARGA_MASIVA_MAX_ENTRADAS_ZIP,
+  FASES_RECIBO,
+  FaseRecibo,
+  carpetaRaiz,
+  faseDeCarpeta,
   partirCargaMasivaEnTandas,
 } from '@operaciones/shared-types';
 import { ApiError, api, errorMessage } from './api';
@@ -398,7 +402,7 @@ export function textoContadorCargaMasiva(seleccion: SeleccionCarga): string {
 }
 
 /** Hasta tres, y «y k más», el patrón que ya usaba `fraseVariosArchivosGrandes`. */
-function hastaTres(textos: readonly string[]): string {
+export function hastaTres(textos: readonly string[]): string {
   const mostrados = textos.slice(0, 3).join(', ');
   const resto = textos.length - 3;
   return resto > 0 ? `${mostrados} y ${resto} más` : mostrados;
@@ -416,6 +420,47 @@ export function textoDescartadosZip(seleccion: SeleccionCarga): string | null {
   const origen = seleccion.zips.length > 1 ? 'De los ZIP' : 'Del ZIP';
   const verbo = m === 1 ? 'se ignoró 1 archivo que no es' : `se ignoraron ${m} archivos que no son`;
   return `${origen} ${verbo} PDF ni imagen: ${hastaTres(seleccion.descartados.map((n) => `«${n}»`))}.`;
+}
+
+// ─────────────────────────────── Carpetas del ZIP que no declaran fase ─────────────────────────
+
+/**
+ * Carpetas RAÍZ de la selección cuya ruta no dice si son liquidaciones o pagos (HU #12615). La
+ * misma regla del API (`faseDeCarpeta`, en shared-types): «SIN MARCA DE AGUA/» no avisa (la
+ * negación gana), «liquidaciones_pagadas/» tampoco; «2026/» sí. Los sueltos y las entradas en la
+ * raíz del ZIP no tienen carpeta y no avisan. Deduplicado por raíz y en orden de aparición: dos
+ * ZIP con «2026/» son UNA carpeta.
+ */
+export function carpetasSinFaseDeSeleccion(items: readonly ItemCarga[]): string[] {
+  const vistas = new Set<string>();
+  for (const item of items) {
+    if (item.ruta === undefined || faseDeCarpeta(item.ruta) !== null) continue;
+    const raiz = carpetaRaiz(item.ruta);
+    if (raiz !== null) vistas.add(raiz);
+  }
+  return [...vistas];
+}
+
+/**
+ * Aviso PRE-envío, una línea por carpeta (`docs/ux/flito-impuestos-carga-fase-no-coincide.md`).
+ * `rotuloFase` es el rótulo del selector («Liquidación» / «Pago»): la línea cambia con el radio.
+ */
+export function textoAvisoCarpetaSinFase(carpeta: string, rotuloFase: string): string {
+  return `La carpeta «${carpeta}» no dice si son liquidaciones o pagos: sus recibos tomarán la fase seleccionada (${rotuloFase}).`;
+}
+
+/**
+ * Nota POST-envío, una sola línea. `carpetasSinFase` llega por tanda y `fusionarResultadoCarga`
+ * concatena: se deduplica aquí. `null` sin carpetas.
+ */
+export function textoNotaCarpetasSinFase(carpetas: readonly string[], rotuloFase: string): string | null {
+  const unicas = [...new Set(carpetas)];
+  if (unicas.length === 0) return null;
+  const nombres = hastaTres(unicas.map((c) => `«${c}»`));
+  if (unicas.length === 1) {
+    return `La carpeta ${nombres} no decía si eran liquidaciones o pagos: sus recibos se cargaron con la fase ${rotuloFase}.`;
+  }
+  return `Las carpetas ${nombres} no decían si eran liquidaciones o pagos: sus recibos se cargaron con la fase ${rotuloFase}.`;
 }
 
 /** `Abriendo «x.zip»…` / `Abriendo 2 ZIP…`. `null` si no hay ZIP en lo que se acaba de elegir. */
@@ -558,38 +603,62 @@ export function fusionarResultadoCarga<T extends object>(a: T, b: T): T {
 export type ResultadoTandasCarga<T> = { resultado: T | null; error: string | null };
 
 /**
+ * Liquidaciones primero, ESTABLE (HU #12615, AC1). El API ya ordena dentro de cada tanda, pero una
+ * tanda es de 5: si el ZIP lista «liquidaciones_pagadas/» antes que «liquidaciones_originales/», el
+ * pago de una placa llegaría en la tanda 1 y su liquidación en la 3, y el pago se rechazaría por
+ * no tener liquidación previa. Se ordena el LOTE entero antes de partirlo. Lo que no declara
+ * carpeta (suelto, raíz del ZIP, carpeta sin token) va al grupo de la fase del selector, que es la
+ * que el API le va a dar. No muta la selección.
+ */
+const esFaseRecibo = (v: string | undefined): v is FaseRecibo => FASES_RECIBO.includes(v as FaseRecibo);
+
+export function liquidacionesPrimero(items: readonly ItemCarga[], faseDefecto: FaseRecibo): ItemCarga[] {
+  const esLiq = (item: ItemCarga): number =>
+    Number((faseDeCarpeta(item.ruta ?? '') ?? faseDefecto) === FaseRecibo.LIQUIDACION);
+  return [...items].sort((a, b) => esLiq(b) - esLiq(a));
+}
+
+/**
  * Envía el lote en tandas de 5, una POST a la vez (`for` + `await`).
  * Si la tanda k falla, `resultado` es la fusión de 1..k-1 y no reenvía esa tanda.
- * `campos` (p. ej. `sinMarcaDeAgua`) viaja igual en cada tanda. `onProgreso` recibe el PRIMER
+ * `campos` (p. ej. `fase`) viaja igual en cada tanda. `onProgreso` recibe el PRIMER
  * archivo de la tanda en curso y el total de archivos: la unidad que trajo el operador son
  * archivos, no tandas.
  *
  * Cuando los ítems traen `ruta` —salieron de un ZIP leído aquí— cada tanda lleva además un campo
  * `rutas` por archivo, EN EL MISMO ORDEN Y CON LA MISMA CARDINALIDAD que `archivos`. Es lo único
- * con lo que el API puede seguir deduciendo la marca de agua por carpeta: el `originalname` ya no
- * trae carpeta. Y es un contrato que hay que respetar mirando: un desajuste de cardinalidad NO da
- * error —el API descarta la lista entera, responde 200 y archiva todo con el defecto del
- * checkbox—, así que la única defensa es que esta función empareje bien.
+ * con lo que el API puede seguir deduciendo la FASE por carpeta: el `originalname` ya no trae
+ * carpeta. Y es un contrato que hay que respetar mirando: un desajuste de cardinalidad NO da
+ * error —el API descarta la lista entera, responde 200 y archiva todo con la fase del
+ * selector—, así que la única defensa es que esta función empareje bien.
  *
  * **Un archivo SUELTO manda cadena vacía, nunca su nombre.** En una selección mixta la tanda lleva
  * entradas de ZIP y sueltos a la vez, y omitir el valor del suelto rompería la cardinalidad. Pero
- * mandar su nombre sería peor que no mandar nada: `esSinMarcaDeAgua` lo pasaría por sus regex y un
- * archivo llamado `pagado.pdf` se archivaría CON marca de agua aunque el operador hubiera marcado
- * «Archivos sueltos sin marca de agua». Sería una regresión muda —cambia dónde queda el
- * comprobante, responde 200 y el operador ve que todo salió bien— contra el AC3: el checkbox es el
- * defecto de lo que NO trae carpeta, y un suelto no trae carpeta. Con `''` ninguna regex casa y el
- * API cae al defecto, que es exactamente lo que hacía antes de esta HU.
+ * mandar su nombre sería peor que no mandar nada: el API lo pasaría por sus regex de carpeta y un
+ * archivo llamado `pagado.pdf` se archivaría como Pago aunque el operador hubiera elegido la fase
+ * Liquidación. Sería una regresión muda —cambia dónde queda el comprobante, responde 200 y el
+ * operador ve que todo salió bien—: el selector es el defecto de lo que NO trae carpeta, y un
+ * suelto no trae carpeta. Con `''` ninguna regex casa y el API cae al selector (HU #12592; antes,
+ * al checkbox de marca de agua).
+ *
+ * El resumen se fusiona por clave-arreglo (`fusionarResultadoCarga`): `liquidados` (HU #12590) se
+ * acumula entre tandas igual que las otras cinco categorías, sin lista aparte.
  *
  * `opciones.conRutas: false` lo apaga para quien no lo usa: SOAT no lee `req.body` y el campo solo
- * sería peso muerto en cada tanda.
+ * sería peso muerto en cada tanda. Si `campos.fase` trae una fase (Impuestos), el lote se ordena con
+ * `liquidacionesPrimero` ANTES de partirlo en tandas; sin ella (SOAT) el orden es el de la selección.
  */
 export async function enviarCargaEnTandas<T extends object>(
   path: string,
-  items: readonly ItemCarga[],
+  seleccionados: readonly ItemCarga[],
   onProgreso: (desde: number, total: number) => void,
   campos?: Record<string, string>,
   opciones?: { conRutas?: boolean },
 ): Promise<ResultadoTandasCarga<T>> {
+  // Solo cuando viaja `fase` (Impuestos) se reordena; SOAT llama sin fase y sale en el orden de la
+  // selección. Con COPIA: la selección del operador no se muta.
+  const faseDefecto = campos?.fase;
+  const items = esFaseRecibo(faseDefecto) ? liquidacionesPrimero(seleccionados, faseDefecto) : seleccionados;
   const conRutas = (opciones?.conRutas ?? true) && items.some((item) => item.ruta !== undefined);
   const tandas = partirCargaMasivaEnTandas(items);
   let acc: T | null = null;

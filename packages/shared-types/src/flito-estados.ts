@@ -275,9 +275,75 @@ export const TipoSoporte = {
   // BOLETA (`flito_soportes.conciliacion_boleta_id`), no de un SOAT ni de un trámite: la financiera
   // paga una boleta que agrupa N SOAT y el portal emite UN solo comprobante por ese pago.
   COMPROBANTE_PSE: 'comprobante_pse',
+  // Feature #12589, HU #12591 — el recibo de caja del pago en ventanilla, cargado UNO A UNO desde el
+  // detalle del impuesto sobre una liquidación ya registrada. Es la segunda vía a `pagado` (la
+  // primera es el pago con marca de la carga masiva). No entra en el ZIP de soportes (`TipoSoporteZip`).
+  RECIBO_CAJA_IMPUESTO: 'recibo_caja_impuesto',
+  // Épica #12245, HU #12611 — la puerta universal de comprobantes. Un soporte por ARCHIVO cargado:
+  // `comprobante_pago` cuando el archivo es un solo documento; `consolidado_comprobantes` cuando un
+  // PDF trae varios (N filas de `flito_comprobantes` comparten el soporte y se distinguen por
+  // `paginas`); `documento_tramite` cuando se adjunta como documentación (es_pago = false) a un
+  // honorario, que no tiene destino con soportes. Sin CHECK en la base (la columna no lo tiene) y
+  // fuera de `TipoSoporteZip`.
+  CONSOLIDADO_COMPROBANTES: 'consolidado_comprobantes',
+  COMPROBANTE_PAGO: 'comprobante_pago',
+  DOCUMENTO_TRAMITE: 'documento_tramite',
 } as const;
 
 export type TipoSoporte = (typeof TipoSoporte)[keyof typeof TipoSoporte];
+
+/**
+ * HU #12591 — Códigos de error de `POST /api/flito/impuestos/:id/recibo-caja`. La pantalla decide
+ * por `codigo`, no por el texto (calco de `CodigoErrorConciliacion`).
+ */
+export const CodigoErrorReciboCaja = {
+  /** 400: sin archivo, más de uno, MIME fuera de PDF/JPEG/PNG o por encima del tope. */
+  ARCHIVO_INVALIDO: 'archivo_invalido',
+  /** 404: el impuesto no existe o queda fuera de la frontera del actor. */
+  NO_ENCONTRADO: 'no_encontrado',
+  /** 409: el impuesto no tiene liquidación cargada (`liquidado_en` vacío). */
+  SIN_LIQUIDACION: 'sin_liquidacion',
+  /** 409: el impuesto no está en gestión (`solicitado`). */
+  ESTADO_NO_PERMITIDO: 'estado_no_permitido',
+  /** 409: el archivo es idéntico a un recibo ya cargado (de este impuesto o de otro). */
+  DUPLICADO: 'duplicado',
+} as const;
+
+export type CodigoErrorReciboCaja = (typeof CodigoErrorReciboCaja)[keyof typeof CodigoErrorReciboCaja];
+
+/**
+ * HU #12591 — Respuesta 200 de la carga del recibo de caja. `pagado` cuando el OCR leyó el valor con
+ * confianza y el impuesto quedó pagado; `en_revision` cuando el soporte quedó guardado y la lectura
+ * fue a la cola de revisión sin tocar el impuesto.
+ */
+export type ResultadoReciboCaja =
+  | { resultado: 'pagado'; valorPagado: string | null; pagadoEn: string; marcadoPorDiferencia: boolean; soporteId: string }
+  | { resultado: 'en_revision'; soporteId: string; revisionId: string };
+
+/**
+ * HU #12590 — Fase con la que se carga un recibo de impuestos. La declara quien carga (o la carpeta
+ * del ZIP); NUNCA se infiere por la marca de agua del documento.
+ *
+ *   · `LIQUIDACION`: la liquidación del impuesto, el documento de la hacienda SIN marca. Deja el
+ *     impuesto `solicitado` con la marca `liquidado_en` y el valor liquidado. No es la «Liquidación»
+ *     de FLITO (el total a cobrar).
+ *   · `PAGO`: el mismo documento con el sello PAGADO. Es la única vía a `pagado`.
+ */
+export const FaseRecibo = {
+  LIQUIDACION: 'liquidacion',
+  PAGO: 'pago',
+} as const;
+
+export type FaseRecibo = (typeof FaseRecibo)[keyof typeof FaseRecibo];
+
+export const FASES_RECIBO: readonly FaseRecibo[] = [FaseRecibo.LIQUIDACION, FaseRecibo.PAGO];
+
+/**
+ * Qué documentos de la hacienda tiene un impuesto, derivado de los tipos de soporte presentes
+ * (`RECIBO_IMPUESTO_SIN_MARCA_AGUA` → liquidación; `RECIBO_IMPUESTO` o `RECIBO_CAJA_IMPUESTO` → pago,
+ * HU #12591). `null` = ninguno.
+ */
+export type DocumentosImpuesto = 'liquidacion' | 'pago' | 'ambos';
 
 /**
  * Los tipos de documento que se pueden pedir en el ZIP de soportes (Feature #11908, HU #11910).
@@ -364,7 +430,7 @@ export const CODIGO_ZIP_DEMASIADO_GRANDE = 'zip_demasiado_grande';
 export const CODIGO_ZIP_DEMASIADOS_REGISTROS = 'zip_demasiados_registros';
 
 /**
- * Cuántos registros admite UNA petición de ZIP de soportes.
+ * Cuántos registros admite UNA petición de ZIP de soportes (300).
  *
  * **No es el presupuesto.** Ese va en BYTES (`FLITO_ZIP_SOPORTES_MAX_BYTES`, perilla de entorno)
  * porque lo que cuesta es el archivo que hay detrás del id, no el id. Esto es la forma del cuerpo:
@@ -377,7 +443,7 @@ export const CODIGO_ZIP_DEMASIADOS_REGISTROS = 'zip_demasiados_registros';
  * Aun así el servidor manda el número DENTRO del mensaje del 400: el cliente lo hace eco sin tener
  * que estar compilado contra la misma versión de este paquete.
  */
-export const ZIP_SOPORTES_MAX_REGISTROS = 100;
+export const ZIP_SOPORTES_MAX_REGISTROS = 300;
 
 /**
  * Cabeceras con las que el ZIP dice CUÁNTO trae, para el aviso del caso parcial.

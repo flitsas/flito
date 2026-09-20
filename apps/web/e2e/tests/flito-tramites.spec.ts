@@ -379,3 +379,47 @@ test.describe('FLITO — Trámites unificado', () => {
     await expect(page.getByRole('button', { name: /Descargar soportes/ })).toHaveCount(0);
   });
 });
+
+// HU #12635 (AC3): el enlace «Ver trámite» de Comprobantes llega con `?placa=`; la pantalla lo lee al
+// montar y alimenta la misma búsqueda que `?buscar=`. `?buscar=` y `?alerta=` siguen como estaban.
+test.describe('HU #12635 · ?placa= al montar (aditivo)', () => {
+  async function espiarLista(page: import('@playwright/test').Page) {
+    const gets: string[] = [];
+    await mockLista(page);
+    await page.route(/\/api\/flito\/tramites\?/, (route) => {
+      gets.push(new URL(route.request().url()).search);
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: TRAMITES, total: TRAMITES.length, page: 1, pageSize: 50 }) });
+    });
+    return gets;
+  }
+
+  /** Mutante: ignorar `placa` (cero filtros) o mandarla como otro parámetro que el API no conoce. */
+  test('?placa=ABC123 → el primer GET lleva buscar=ABC123 y el buscador muestra la placa', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const gets = await espiarLista(page);
+    await page.goto('/flito/tramites?placa=ABC123');
+    await expect(page.getByPlaceholder('Buscar placa, VIN, id o comprador…')).toHaveValue('ABC123');
+    await expect.poll(() => gets.length).toBeGreaterThan(0);
+    expect(gets[0]).toContain('buscar=ABC123');
+    expect(gets[0]).not.toContain('placa=');
+  });
+
+  test('regresión: ?buscar= y ?alerta= siguen aplicándose al montar; sin parámetros, cero filtros', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const gets = await espiarLista(page);
+    await page.goto('/flito/tramites?buscar=XYZ789');
+    await expect(page.getByPlaceholder('Buscar placa, VIN, id o comprador…')).toHaveValue('XYZ789');
+    await expect.poll(() => gets.length).toBeGreaterThan(0);
+    expect(gets[0]).toContain('buscar=XYZ789');
+
+    await page.goto('/flito/tramites?alerta=soat_sin_gestion');
+    await expect(page.getByRole('button', { name: /^Quitar la alerta/ })).toBeVisible();
+    await expect.poll(() => gets.at(-1)).toContain('alerta=soat_sin_gestion');
+    expect(gets.at(-1)).not.toContain('buscar=');
+
+    await page.goto('/flito/tramites');
+    await expect(page.getByPlaceholder('Buscar placa, VIN, id o comprador…')).toHaveValue('');
+    await expect.poll(() => gets.at(-1)).not.toContain('buscar=');
+    expect(gets.at(-1)).not.toContain('alerta=');
+  });
+});

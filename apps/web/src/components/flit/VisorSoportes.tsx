@@ -23,10 +23,11 @@ export interface Soporte {
   id: string; origen: string; tipo: string; nombreArchivo: string; url: string; subidoEn: string;
 }
 
-/** Cómo se nombra cada origen en el visor. Lo que no esté aquí se muestra tal cual. */
+/** Cómo se nombra cada origen en el visor. Lo que no esté aquí se muestra tal cual. `comprobante`: HU #12635 (lo escribe la puerta universal). */
 const ORIGEN_SOPORTE: Record<string, string> = {
-  soat: 'SOAT', impuesto: 'Impuesto', derecho: 'Derecho de tránsito', logistica: 'Logística',
+  soat: 'SOAT', impuesto: 'Impuesto', derecho: 'Derecho de tránsito', logistica: 'Logística', comprobante: 'Comprobante',
 };
+
 
 const fechaCorta = (iso: string | null) =>
   (iso === null ? null : new Date(iso).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: '2-digit' }));

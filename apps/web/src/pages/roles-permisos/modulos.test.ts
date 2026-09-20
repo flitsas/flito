@@ -7,8 +7,11 @@
  * Mutantes que este archivo mata:
  *   1. Ordenar las secciones alfabéticamente → falla «orden fijo».
  *   2. Mandar una clave desconocida a la sección 3 (o descartarla) → falla «desconocida → FLITO».
- *   3. Dejar `pagina.transito` en `operaciones` o pintarla en los dos → falla «reubica» y «Σ».
+ *   3. Dejar `pagina.privacy` en `administracion` o pintarla en los dos → falla «reubica» y «Σ».
  *   4. Pintar «0 de 0» (devolver la sección vacía) → falla «sección sin módulos no se devuelve».
+ *   5. (HU #12716) Volver a reubicar `pagina.transito`/`pagina.drive` por presentación → falla
+ *      «llegan agrupadas del API»; resucitar la etiqueta «FLITO (SOAT e Impuestos)» → falla
+ *      «etiquetas de la #12716».
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -42,40 +45,82 @@ describe('seccionesVisibles (HU #12533)', () => {
     assert.deepEqual(s.map((x) => x.clave), ['flito']);
   });
 
-  it('reubica transito/drive/privacy y crea el módulo destino si falta; el origen vacío no se pinta', () => {
-    const s = seccionesVisibles([
-      g('operaciones', 'pagina.transito', 'pagina.drive'),
-      g('administracion', 'pagina.privacy'),
-    ]);
+  it('reubica privacy y crea el módulo destino si falta; el origen vacío no se pinta', () => {
+    const s = seccionesVisibles([g('administracion', 'pagina.privacy')]);
     const modulos = Object.fromEntries(s.flatMap((x) => x.grupos.map((m) => [m.modulo, { seccion: x.clave, codigos: m.funciones.map((q) => q.codigo) }])));
     assert.deepEqual(modulos, {
-      derechos: { seccion: 'flito', codigos: ['pagina.drive'] },
-      transito: { seccion: 'previo_en_uso', codigos: ['pagina.transito'] },
       privacidad: { seccion: 'previo_sin_uso', codigos: ['pagina.privacy'] },
     });
     assert.equal(etiquetaModulo('privacidad'), 'Privacidad y datos');
   });
 
-  it('reubica dentro del módulo destino existente y deja «Operaciones» con lo suyo; Σ == total sin duplicados', () => {
+  it('HU #12716: transito y drive llegan agrupadas del API y se pintan donde llegan, sin reubicar', () => {
+    // Si el API (o un mock viejo) las manda en `operaciones`, se quedan ahí: la pantalla ya no las mueve.
+    const s = seccionesVisibles([
+      g('operaciones', 'pagina.transito', 'pagina.drive'),
+      g('transito', 'pagina.transito2'),
+    ]);
+    const porModulo = new Map(s.flatMap((x) => x.grupos.map((m) => [m.modulo, m.funciones.map((q) => q.codigo)])));
+    assert.deepEqual(porModulo.get('operaciones'), ['pagina.transito', 'pagina.drive']);
+    assert.deepEqual(porModulo.get('transito'), ['pagina.transito2']);
+    assert.equal(porModulo.has('derechos'), false);
+    // Y en su grupo real (pantalla primero, como las devuelve el API) no se tocan ni se reordenan.
+    const real = seccionesVisibles([
+      g('transito', 'pagina.transito', 'transito.bandeja'),
+      g('derechos', 'pagina.drive', 'derechos.consultar'),
+    ]);
+    const porModuloReal = new Map(real.flatMap((x) => x.grupos.map((m) => [m.modulo, m.funciones.map((q) => q.codigo)])));
+    assert.deepEqual(porModuloReal.get('transito'), ['pagina.transito', 'transito.bandeja']);
+    assert.deepEqual(porModuloReal.get('derechos'), ['pagina.drive', 'derechos.consultar']);
+    assert.deepEqual(real.map((x) => x.clave), ['flito', 'previo_en_uso']);
+  });
+
+  it('reubica dentro del módulo destino existente y deja «Administración» con lo suyo; Σ == total sin duplicados', () => {
     const entrada = [
-      g('operaciones', 'pagina.vehiculos', 'pagina.soat', 'pagina.tramite_digital', 'pagina.lectura_impuestos', 'pagina.transito', 'pagina.drive'),
+      g('operaciones', 'pagina.vehiculos', 'pagina.soat', 'pagina.tramite_digital', 'pagina.lectura_impuestos'),
       g('administracion', 'pagina.privacy', 'pagina.admin'),
-      g('transito', 'transito.bandeja'),
-      g('derechos', 'derechos.consultar'),
+      g('privacidad', 'privacidad.exportar'),
+      g('transito', 'pagina.transito', 'transito.bandeja'),
+      g('derechos', 'pagina.drive', 'derechos.consultar'),
     ];
     const s = seccionesVisibles(entrada);
     const porModulo = new Map(s.flatMap((x) => x.grupos.map((m) => [m.modulo, m.funciones.map((q) => q.codigo)])));
     assert.deepEqual(porModulo.get('operaciones'), ['pagina.vehiculos', 'pagina.soat', 'pagina.tramite_digital', 'pagina.lectura_impuestos']);
-    assert.deepEqual(porModulo.get('transito'), ['transito.bandeja', 'pagina.transito']);
-    assert.deepEqual(porModulo.get('derechos'), ['derechos.consultar', 'pagina.drive']);
+    assert.deepEqual(porModulo.get('transito'), ['pagina.transito', 'transito.bandeja']);
+    assert.deepEqual(porModulo.get('derechos'), ['pagina.drive', 'derechos.consultar']);
     assert.deepEqual(porModulo.get('administracion'), ['pagina.admin']);
-    assert.deepEqual(porModulo.get('privacidad'), ['pagina.privacy']);
+    // La reubicada se pinta detrás de lo que ya era del destino.
+    assert.deepEqual(porModulo.get('privacidad'), ['privacidad.exportar', 'pagina.privacy']);
     const todas = s.flatMap((x) => x.grupos.flatMap((m) => m.funciones.map((q) => q.codigo))).sort();
     const esperadas = entrada.flatMap((m) => m.funciones.map((q) => q.codigo)).sort();
     assert.deepEqual(todas, esperadas);
     assert.equal(new Set(todas).size, esperadas.length);
     // La entrada no se muta: el padre sigue contando el total sobre `grupos`.
-    assert.equal(entrada[0].funciones.length, 6);
+    assert.equal(entrada[1].funciones.length, 2);
+  });
+
+  it('HU #12716: etiquetas de los módulos nuevos en FLITO; el cajón viejo ya no tiene etiqueta propia', () => {
+    const nuevas: Record<string, string> = {
+      clientes: 'Clientes',
+      tarifas: 'Tarifas',
+      servicios_adicionales: 'Servicios adicionales',
+      catalogos_compartidos: 'Catálogos compartidos',
+      comprobantes: 'Comprobantes',
+    };
+    for (const [clave, etiqueta] of Object.entries(nuevas)) {
+      assert.equal(etiquetaModulo(clave), etiqueta, clave);
+      assert.equal(seccionDeModulo(clave), 'flito', clave);
+    }
+    // Sin etiqueta propia → repliegue (clave capitalizada y sin `_`), no «FLITO (SOAT e Impuestos)».
+    assert.equal(etiquetaModulo('flito_soat_e_impuestos'), 'Flito soat e impuestos');
+    // Los otros tres módulos que desaparecen tampoco: «Parametrizacion» sin tilde y «Sync» a secas
+    // son el repliegue, no la etiqueta que tenían.
+    assert.equal(etiquetaModulo('parametrizacion'), 'Parametrizacion');
+    assert.equal(etiquetaModulo('sync'), 'Sync');
+    assert.equal(etiquetaModulo('finanzas'), 'Finanzas');
+    // Un módulo de la sección 1 y otro de la 2 que sí conservan etiqueta, para anclar el mapa.
+    assert.equal(etiquetaModulo('logistica'), 'Logística');
+    assert.equal(etiquetaModulo('transito'), 'Tránsito');
   });
 
   it('kDeNMarcadas: singular solo con k = 1', () => {

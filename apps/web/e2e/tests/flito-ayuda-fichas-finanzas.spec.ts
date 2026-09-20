@@ -18,6 +18,9 @@ const FICHAS_FINANZAS = [
   { clave: 'flito_bolsas', etiqueta: 'Bolsas', to: '/flito/bolsas' },
   { clave: 'flito_conciliacion', etiqueta: 'Conciliación', to: '/flito/conciliacion' },
   { clave: 'finanzas_reporte_costos', etiqueta: 'Reporte de costos', to: '/finanzas/reporte-costos' },
+  // HU #12624: página nueva de Finanzas con ficha propia. La 0200 la reparte solo a `admin`; hasta
+  // que el admin la conceda desde Roles y permisos, financiera NO la ve (TC-05 lo afirma).
+  { clave: 'finanzas_gastos_diarios', etiqueta: 'Gastos diarios', to: '/finanzas/gastos-diarios', soloAdmin: true },
   { clave: 'siigo_parametrizacion', etiqueta: 'Facturación electrónica · Parametrización', to: '/siigo/parametrizacion' },
   { clave: 'siigo_operacion', etiqueta: 'Facturación electrónica · Operación', to: '/siigo/operacion' },
 ] as const;
@@ -128,7 +131,9 @@ test.describe('FLITO — Ayuda · fichas de finanzas (HU #11895)', () => {
     await abrirAyuda(page, FINANCIERA_USER);
     await expect(page.getByRole('heading', { name: 'Finanzas', exact: true })).toBeVisible();
     for (const f of FICHAS_FINANZAS) {
-      await expect(page.getByRole('link', { name: `Abrir ficha de ${f.etiqueta}` })).toBeVisible();
+      const enlace = page.getByRole('link', { name: `Abrir ficha de ${f.etiqueta}` });
+      if ('soloAdmin' in f) await expect(enlace).toHaveCount(0);
+      else await expect(enlace).toBeVisible();
     }
     await expect(page.getByRole('heading', { name: 'Administración', exact: true })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /Credenciales/ })).toHaveCount(0);

@@ -183,6 +183,19 @@ export async function resolver(id: string, registroId: string, campos: Record<st
 }
 
 async function resolverSoat(revisionId: string, soporteId: string, soatId: string, extraccion: ExtraccionSoat, motivo: string, ctx: RevisionCtx): Promise<void> {
+  await aplicarFacturaSoat(soporteId, soatId, extraccion, motivo, ctx, `Revisión resuelta a mano (${revisionId}): documento atado al SOAT.`);
+}
+
+/**
+ * La ÚNICA vía manual a `pagado` de un SOAT (ADR-0018 §4, D1 de la Épica #12245): la usa la cola de
+ * revisión (`resolverSoat`) y el módulo de comprobantes universales (HU #12630). Ata el soporte al SOAT
+ * y delega el pago en `marcarPagado` —historial, auditoría y RN-03 viven allí, no aquí—. El SOAT tiene
+ * que estar `solicitado`; `nota` encabeza el audit del atado (cada llamante dice de dónde viene).
+ */
+export async function aplicarFacturaSoat(
+  soporteId: string, soatId: string, extraccion: ExtraccionSoat, motivo: string, ctx: RevisionCtx,
+  nota = 'Comprobante aplicado: documento atado al SOAT.',
+): Promise<void> {
   const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, soatId)).limit(1);
   if (!soat) throw new RevisionError(404, 'El SOAT indicado no existe');
   if (soat.estado !== EstadoSoat.SOLICITADO) {
@@ -193,7 +206,7 @@ async function resolverSoat(revisionId: string, soporteId: string, soatId: strin
   // a su SOAT; marcarPagado lo localiza por soatId+tipo y hace el pago atómico en su propia tx.
   await db.transaction(async (tx) => {
     await tx.update(flitoSoportes).set({ soatId }).where(eq(flitoSoportes.id, soporteId));
-    await auditEnTx(tx, ctx, 'flito_soat', soatId, `Revisión resuelta a mano (${revisionId}): documento atado al SOAT. ${motivo.trim()}`);
+    await auditEnTx(tx, ctx, 'flito_soat', soatId, `${nota} ${motivo.trim()}`);
   });
 
   // `companiaId: null` — quien resuelve una revisión es Operaciones, no un usuario de compañía

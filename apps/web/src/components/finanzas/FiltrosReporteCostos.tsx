@@ -8,6 +8,7 @@ import { FlitCard, flitInp, FlitPillGroup, flitPillBtn, flitBtnSecondary, flitBt
 import FiltroMulti from './FiltroMulti';
 import SelectorPeriodo from './SelectorPeriodo';
 import { ALTO_CONTROL, ETAPAS, type Facetas, type FiltrosDetalle, type Resumen } from './tiposReporteCostos';
+import { AYUDA_CON_DIFERENCIAS, ROTULO_CON_DIFERENCIAS } from '../../lib/diferenciaDocumental';
 
 export default function FiltrosReporteCostos({ filtros, onCambio, facetas, facetasCargando, resumen, hayFiltros, onLimpiar }: {
   filtros: FiltrosDetalle;
@@ -45,6 +46,15 @@ export default function FiltrosReporteCostos({ filtros, onCambio, facetas, facet
           title="Con soporte cargado de SOAT, impuesto, derecho y logística — saltando los que la compañía autogestiona.">
           <input type="checkbox" checked={filtros.docCompleta} onChange={(e) => onCambio({ docCompleta: e.target.checked })} />
           Solo con soportes completos
+        </label>
+        {/* Gemela de la anterior (HU #12655, AC4): una casilla, no una etapa —se compone con las
+            pastillas, el estado, el periodo y los soportes—. «Sin aceptar»: las aceptadas dejan de
+            salir. Sin contador: no es un punto del cobro. */}
+        <label className="flex cursor-pointer items-center gap-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}
+          title={AYUDA_CON_DIFERENCIAS}>
+          <input type="checkbox" aria-label={ROTULO_CON_DIFERENCIAS} checked={filtros.conDiferencias}
+            onChange={(e) => onCambio({ conDiferencias: e.target.checked })} />
+          {ROTULO_CON_DIFERENCIAS}
         </label>
 
         {/* Solo `ml-auto`: el tamaño se queda el del botón secundario de siempre. */}

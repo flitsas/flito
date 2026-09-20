@@ -3,6 +3,8 @@
 // Módulo PURO (sin zod ni side-effects): lo consumen API y web. La bolsa es UNA por cliente y su
 // consumo se reparte entre organismos por movimiento, no abriendo una bolsa por OT.
 
+import { ConceptoCosto } from './flito-conceptos.js';
+
 /** Dirección del movimiento. El valor siempre se guarda positivo; el signo lo da esto. */
 export const TipoMovimientoBolsa = {
   ENTRADA: 'entrada',
@@ -58,12 +60,9 @@ export type OrigenMovimientoBolsa = (typeof OrigenMovimientoBolsa)[keyof typeof 
  * el de la bolsa de TRÁNSITO (0124), y este concepto no llega a ella (no lleva organismo).
  */
 export const ConceptoBolsa = {
-  DERECHO: 'derecho',
-  SOAT: 'soat',
-  IMPUESTO: 'impuesto',
-  TRAMITE_DIGITAL: 'tramite_digital',
-  LOGISTICA: 'logistica',
-  SERVICIOS_ADICIONALES: 'servicios_adicionales',
+  // Los seis conceptos de costo del trámite (flito-conceptos.ts, Épica #12245) más el GMF, que es un
+  // movimiento de la bolsa y no un costo del trámite. Mismos literales: una lista, no dos.
+  ...ConceptoCosto,
   GMF: 'gmf',
 } as const;
 

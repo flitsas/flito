@@ -27,9 +27,12 @@
 //
 // `motivo` es el discriminador para la pantalla (#12083); ningún texto lleva correo, nombre ni id.
 // El `modulo` de un código sale del catálogo del CÓDIGO (`catalogoCompleto()`), que el arranque ya
-// garantiza idéntico al de la base: para las operaciones coincide con el primer segmento del código;
-// para las páginas es el grupo de `PAGE_GROUPS`. No hay consulta a `permisos_funciones` en el camino
-// del 403.
+// garantiza idéntico al de la base (códigos y módulo, HU #12716 AC7). Es el módulo de AGRUPACIÓN del
+// catálogo: para las operaciones coincide con el prefijo del código salvo las reagrupadas en
+// `catalogo-agrupacion.ts` (`parametrizacion.*`, `sync.*`, `finanzas.servicios_adicionales.*`), y
+// para las páginas es el módulo de sus acciones (`pagina.flito_soat` → `soat`), no el grupo de
+// `PAGE_GROUPS`. La bitácora de intentos denegados y el `sin_modulo` siguen esa agrupación. No hay
+// consulta a `permisos_funciones` en el camino del 403.
 //
 // La `ruta` de la bitácora es la plantilla de la ruta o el path enmascarado (`rutaDe`): ni cédula, ni
 // placa, ni VIN, ni token entran en `permisos_intentos_denegados` (ADR-0016 §2).

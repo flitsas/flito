@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SQL } from 'drizzle-orm';
 import { chain, chainReject } from '../helpers/db.js';
 import { ligadoA, renderizar } from '../helpers/sql-ligado.js';
-import { tipoTramiteTarifaDe, valorTarifaValido } from '@operaciones/shared-types';
+import { tipoTramiteTarifaDe, valorTarifaValido, VIGENCIA_DESDE_SIEMPRE } from '@operaciones/shared-types';
 
 const selectMock = vi.fn();
 const insertMock = vi.fn();
@@ -58,6 +58,7 @@ function espiando(rows: unknown[], sobre: { where?: SQL; orderBy?: SQL[] }) {
 }
 
 const AHORA = new Date('2026-09-10T15:00:00.000Z');
+const DESDE_SIEMPRE = new Date(VIGENCIA_DESDE_SIEMPRE);
 const ABIERTA = { id: 'v-1', companiaId: 7, concepto: 'tramite_digital', tipoTramite: 'MATRICULA', valor: '270000.00', vigenteHasta: null };
 const FILA_TARIFA = (over: Record<string, unknown> = {}) => ({
   id: 'v-2', companiaId: 7, companiaNombre: 'ACME', concepto: 'tramite_digital', tipoTramite: 'MATRICULA',
@@ -117,12 +118,13 @@ describe('vigenteEn — el rango semiabierto [desde, hasta) contiene la referenc
     expect(params).toEqual([]);
   });
 
-  it('con un Date (compuerta): el Date viaja como parámetro UNA sola vez, y es el mismo objeto', () => {
+  it('con un Date (compuerta): viaja como parámetro UNA sola vez y como texto ISO, nunca como objeto Date (Bug #12682)', () => {
     const fecha = new Date('2026-07-15T12:00:00Z');
     const { sql, params } = renderizar(vigenteEn(flitoTarifasVigencias, fecha));
     expect(sql).toBe(`${RANGO} @> $1::timestamptz`);
-    expect(params).toHaveLength(1);
-    expect(params[0]).toBe(fecha);
+    // Un `Date` crudo en un fragmento `sql` lo rechaza postgres.js al serializar (500 en la compuerta
+    // y en el desglose de viajes de todo trámite aprobado); el ISO lo castea el `::timestamptz`.
+    expect(params).toEqual(['2026-07-15T12:00:00.000Z']);
   });
 
   it('con null (trámite sin aprobar): now() del servidor, sin parámetros (AC3)', () => {
@@ -151,10 +153,12 @@ describe('tarifaDe — resuelve la vigencia que CONTIENE la fecha de aprobación
     expect(ligadoA(rend, '"tipo_tramite"')).toBe('MATRICULA');
     const m = new RegExp(`${RANGO.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} @> \\$(\\d+)::timestamptz`).exec(rend.sql);
     expect(m, rend.sql).not.toBeNull();
-    expect(rend.params[Number(m![1]) - 1]).toBe(fecha);
+    expect(rend.params[Number(m![1]) - 1]).toBe(fecha.toISOString());
     // Si además quedara el filtro de abierta, una fecha dentro de una vigencia CERRADA nunca resolvería (AC1).
     expect(rend.sql).not.toMatch(/vigente_hasta" is null/i);
-    expect(rend.params.filter((p) => p instanceof Date)).toHaveLength(1);
+    // Ningún `Date` crudo: postgres.js no lo serializa en un fragmento `sql` (Bug #12682).
+    expect(rend.params.filter((p) => p instanceof Date)).toHaveLength(0);
+    expect(rend.params.filter((p) => p === fecha.toISOString())).toHaveLength(1);
   });
 
   it('sin fecha (AC3): la referencia es now() del servidor y ningún Date viaja como parámetro', async () => {
@@ -163,7 +167,7 @@ describe('tarifaDe — resuelve la vigencia que CONTIENE la fecha de aprobación
     await tarifaDe(7, 'tramite_digital', 'Otros');
     const rend = renderizar(q.where!);
     expect(rend.sql).toContain(`${RANGO} @> now()::timestamptz`);
-    expect(rend.params.filter((p) => p instanceof Date)).toHaveLength(0);
+    expect(rend.params.filter((p) => p instanceof Date || /^\d{4}-\d\d-\d\dT/.test(String(p)))).toHaveLength(0);
     expect(rend.sql).not.toMatch(/vigente_hasta" is null/i);
   });
 
@@ -239,16 +243,22 @@ describe('fijarTarifa — abre la PRIMERA vigencia de una llave (AC4, AC9, AC10,
     await expect(fijarTarifa({ companiaId: 999, concepto: 'logistica', valor: 1000 }, 1)).rejects.toThrow(/no existe/i);
   });
 
-  it('guarda el tipo normalizado, el instante del servidor como vigente_desde = fijado_en, y quién fija', async () => {
+  it('primera fijación: vigente_desde = epoch «desde siempre» (NO now()); fijado_en = ahora; tipo normalizado', async () => {
     const grabado: { values?: Record<string, unknown> } = {};
-    selectMock.mockReturnValueOnce(chain([COMPANIA])).mockReturnValueOnce(chain([FILA_TARIFA()]));
+    selectMock.mockReturnValueOnce(chain([COMPANIA])).mockReturnValueOnce(chain([
+      FILA_TARIFA({ vigenteDesde: DESDE_SIEMPRE, fijadoEn: AHORA }),
+    ]));
     insertMock.mockReturnValueOnce(grabando([{ id: 'v-2' }], grabado));
     const t = await fijarTarifa({ companiaId: 7, concepto: 'tramite_digital', tipoTramite: 'matrícula', valor: 320000 }, 9);
     expect(grabado.values).toMatchObject({ companiaId: 7, concepto: 'tramite_digital', tipoTramite: 'MATRICULA', valor: '320000', fijadoPorId: 9 });
-    expect(grabado.values?.vigenteDesde).toBe(grabado.values?.fijadoEn);
-    expect((grabado.values?.vigenteDesde as Date).toISOString()).toBe(AHORA.toISOString());
+    // Bug #12682: la primera vigencia NO usa now() para vigenteDesde (sí para fijadoEn).
+    expect((grabado.values?.fijadoEn as Date).toISOString()).toBe(AHORA.toISOString());
+    expect((grabado.values?.vigenteDesde as Date).toISOString()).toBe(VIGENCIA_DESDE_SIEMPRE);
+    expect(grabado.values?.vigenteDesde).not.toBe(grabado.values?.fijadoEn);
+    expect((grabado.values?.vigenteDesde as Date).getTime()).not.toBe(AHORA.getTime());
     expect(t.activo).toBe(true);
-    expect(t.vigenteDesde).toBe(AHORA.toISOString());
+    expect(t.vigenteDesde).toBe(VIGENCIA_DESDE_SIEMPRE);
+    expect(t.actualizadoEn).toBe(AHORA.toISOString());
   });
 
   it('si la llave ya tiene vigencia abierta (23505 del índice parcial) → conflicto con el id de la abierta', async () => {

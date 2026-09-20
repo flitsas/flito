@@ -2000,3 +2000,296 @@ describe('cuota del export — una sola bolsa para SOAT e Impuestos', () => {
     expect(r.status).toBe(200);
   });
 });
+
+// ─────────────────────────── El archivo AMPLIADO (Bug #12642) ───────────────────────────────────
+//
+// Operaciones necesita, sobre las mismas filas, el valor pagado, las fechas de solicitud/pago y la
+// trazabilidad. La frontera del gestor se conserva: SIN `incluirPago` el archivo es el de arriba,
+// byte a byte (los casos anteriores no se tocan y siguen verdes). CON `incluirPago: true` hacen falta
+// dos cosas —la función `soat.excel.exportar_pago` y el flag— y salen TRECE columnas más, después de
+// `NumeroSerie`.
+//
+// Mutantes nombrados:
+//   · Quitar el `tieneFuncion` del 403 → «sin la función: 403, sin archivo y sin `accion: export`» cae.
+//   · Leer `proveedorNombre` sin mirar `gestionOperaciones` → «`Gestor` dice Operaciones» cae.
+//   · Escribir `valorPagado` como texto → «`ValorPagado` es NÚMERO» cae.
+//   · Formatear con `toISOString()` → «fechas en hora de Colombia» cae (14:30Z ≠ 09:30).
+//   · No filtrar `descartado` en los soportes → «`FechaCargaComprobante` ignora el descartado» cae.
+
+/** Las TRECE cabeceras de pago, escritas a mano y en su orden (contrato con Operaciones). */
+const CABECERAS_PAGO = [
+  'Estado', 'FechaSolicitud', 'FechaPago', 'ValorPagado', 'NumeroPoliza', 'Gestor', 'MotivoNovedad',
+  'VigenciaRunt', 'VenceEl', 'PolizaRunt', 'VerificadaEn', 'FechaCreacion', 'FechaCargaComprobante',
+];
+
+/** Instantes en UTC cuya hora de Colombia (UTC−5) es DISTINTA y reconocible: 14:30Z → 09:30. */
+const ENVIADO_EN = new Date('2026-03-05T14:30:00Z');
+const PAGADO_EN = new Date('2026-03-07T21:05:00Z');      // → 2026-03-07 16:05
+const VERIFICADA_EN = new Date('2026-03-08T03:59:00Z');  // → 2026-03-07 22:59 (cambia de DÍA)
+const CREADO_EN = new Date('2026-03-01T12:00:00Z');      // → 2026-03-01 07:00
+const COMPROBANTE_EN = new Date('2026-03-07T20:00:00Z'); // → 2026-03-07 15:00
+const COMPROBANTE_VIEJO = new Date('2026-03-06T20:00:00Z');
+
+/** Una fila PAGADA con todas las columnas de pago pobladas y distinguibles. */
+const filaPagada = (over: Record<string, unknown> = {}) => filaSoat({
+  estado: 'pagado',
+  enviadoEn: ENVIADO_EN,
+  pagadoEn: PAGADO_EN,
+  valorPagado: '350000.50',
+  numeroPoliza: 'POL-CENTINELA-1',
+  gestionOperaciones: false,
+  proveedorNombre: 'PROVEEDOR CENTINELA SAS',
+  motivoRechazo: null,
+  estadoVigencia: 'vigente',
+  venceEl: '2027-03-06',
+  polizaRunt: 'RUNT-POL-CENTINELA',
+  verificadaEn: VERIFICADA_EN,
+  createdAt: CREADO_EN,
+  ...over,
+});
+
+const soporte = (over: Record<string, unknown> = {}) => ({
+  soatId: SOAT_A, tipo: 'factura_soat', descartado: false, subidoEn: COMPROBANTE_EN, ...over,
+});
+
+const exportarAmpliado = async (cabecera: string, cuerpo: Record<string, unknown> = {}) =>
+  exportar(cabecera, { incluirPago: true, ...cuerpo });
+
+/** Un `proveedor` al que el admin le REPARTIÓ la función: decide la función, no el rol. */
+const proveedorConPago = async (): Promise<string> =>
+  `Bearer ${await testToken({ sub: siguienteSub++, username: 'prov@flit.io', role: 'proveedor', funciones: ['soat.excel.exportar_pago'] })}`;
+
+describe('archivo ampliado (Bug #12642) — cabeceras 28..40 exactas, después de `NumeroSerie`', () => {
+  it('con `incluirPago: true` y la función: 40 columnas, las 27 de siempre y luego las 13 de pago en orden', async () => {
+    kdb.when.scenario({
+      flito_soat: [filaPagada()], flito_tramites: [tramite()], flito_compradores: [comprador()],
+      flito_soportes: [soporte()],
+    });
+
+    const r = await exportarAmpliado(await sesion());
+    expect(r.status).toBe(200);
+    const hoja = await libro(r.body as Buffer);
+
+    expect(hoja.columnCount).toBe(40);
+    expect(cabecerasDe(hoja)).toEqual([...CABECERAS, ...CABECERAS_PAGO]);
+    expect(cabecerasDe(hoja)[26]).toBe('NumeroSerie');
+    expect(cabecerasDe(hoja)[27]).toBe('Estado');
+  });
+
+  it('SIN el parámetro el archivo sigue siendo de 27: la lista blanca compartida no cambió de tamaño', async () => {
+    const { COLUMNAS_COLA_EXPORT } = await import('../../src/shared/export/cola-flito-excel.js');
+    expect(COLUMNAS_COLA_EXPORT).toHaveLength(27);
+    kdb.when.scenario({ flito_soat: [filaPagada()], flito_tramites: [tramite()], flito_compradores: [comprador()] });
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+    expect(hoja.columnCount).toBe(27);
+    expect(cabecerasDe(hoja)).toEqual(CABECERAS);
+  });
+
+  it('`incluirPago: false` explícito es el archivo de 27 y la consulta NO pide las columnas de pago', async () => {
+    kdb.when.scenario({ flito_soat: [filaPagada()], flito_tramites: [tramite()], flito_compradores: [comprador()] });
+    const hoja = await libro((await exportar(await sesion(), { incluirPago: false })).body as Buffer);
+    expect(hoja.columnCount).toBe(27);
+    const proyeccion = lecturasDe(TABLA)[0].columnas;
+    for (const prohibida of ['valorPagado', 'pagadoEn', 'enviadoEn', 'proveedorNombre', 'gestionOperaciones']) {
+      expect(proyeccion).not.toContain(prohibida);
+    }
+    expect(lecturasDe('flito_soportes')).toHaveLength(0);
+  });
+});
+
+describe('archivo ampliado — cada valor de pago bajo su cabecera, con centinelas distinguibles', () => {
+  it('las 13 celdas de una fila PAGADA, una por una; fechas en hora de Colombia; `ValorPagado` es NÚMERO', async () => {
+    kdb.when.scenario({
+      flito_soat: [filaPagada()], flito_tramites: [tramite()], flito_compradores: [comprador()],
+      flito_soportes: [soporte()],
+    });
+    const hoja = await libro((await exportarAmpliado(await sesion())).body as Buffer);
+
+    expect(celda(hoja, 2, 'Estado')).toBe('Pagado');
+    expect(celda(hoja, 2, 'FechaSolicitud')).toBe('2026-03-05 09:30');
+    expect(celda(hoja, 2, 'FechaPago')).toBe('2026-03-07 16:05');
+    // Número y no texto: un Excel de conciliación con el importe en texto no suma.
+    expect(celda(hoja, 2, 'ValorPagado')).toBe(350000.5);
+    expect(typeof celda(hoja, 2, 'ValorPagado')).toBe('number');
+    expect(celda(hoja, 2, 'NumeroPoliza')).toBe('POL-CENTINELA-1');
+    expect(celda(hoja, 2, 'Gestor')).toBe('PROVEEDOR CENTINELA SAS');
+    expect(celda(hoja, 2, 'MotivoNovedad')).toBeNull();
+    expect(celda(hoja, 2, 'VigenciaRunt')).toBe('vigente');
+    // `date` sin hora: tal cual, sin pasar por el huso (pasarlo lo movería al día anterior).
+    expect(celda(hoja, 2, 'VenceEl')).toBe('2027-03-06');
+    expect(celda(hoja, 2, 'PolizaRunt')).toBe('RUNT-POL-CENTINELA');
+    // 03:59Z del día 8 es 22:59 del día 7 en Colombia: el cambio de día es lo que delata un UTC.
+    expect(celda(hoja, 2, 'VerificadaEn')).toBe('2026-03-07 22:59');
+    expect(celda(hoja, 2, 'FechaCreacion')).toBe('2026-03-01 07:00');
+    expect(celda(hoja, 2, 'FechaCargaComprobante')).toBe('2026-03-07 15:00');
+
+    // Y las 27 del gestor siguen ahí, con sus valores: la variante no reescribe ninguna celda.
+    expect(celda(hoja, 2, 'Placa')).toBe(PLACA);
+    expect(celda(hoja, 2, 'NumeroId')).toBe(CEDULA);
+    expect(celda(hoja, 2, 'NumeroSerie')).toBe('SER-T1');
+  });
+
+  it('una fila `pendiente` sale con las celdas de pago VACÍAS —nunca 0 ni «—»— y las de trazabilidad llenas', async () => {
+    kdb.when.scenario({
+      flito_soat: [filaPagada({
+        estado: 'pendiente', enviadoEn: null, pagadoEn: null, valorPagado: null, numeroPoliza: null,
+        estadoVigencia: 'no_verificado', venceEl: null, polizaRunt: null, verificadaEn: null,
+      })],
+      flito_tramites: [tramite()], flito_compradores: [comprador()], flito_soportes: [],
+    });
+    const hoja = await libro((await exportarAmpliado(await sesion())).body as Buffer);
+
+    expect(celda(hoja, 2, 'Estado')).toBe('Pendiente');
+    for (const vacia of ['FechaSolicitud', 'FechaPago', 'ValorPagado', 'NumeroPoliza', 'VenceEl', 'PolizaRunt', 'VerificadaEn', 'FechaCargaComprobante']) {
+      expect(celda(hoja, 2, vacia), vacia).toBeNull();
+    }
+    expect(celda(hoja, 2, 'VigenciaRunt')).toBe('no_verificado');
+    expect(celda(hoja, 2, 'FechaCreacion')).toBe('2026-03-01 07:00');
+    expect(celda(hoja, 2, 'Gestor')).toBe('PROVEEDOR CENTINELA SAS');
+    expect(textoDe(hoja)).not.toContain('—');
+  });
+
+  it('`Gestor` dice «Operaciones» cuando `gestion_operaciones` es true, aunque el proveedor de origen siga en la fila', async () => {
+    kdb.when.scenario({
+      flito_soat: [filaPagada({ gestionOperaciones: true, proveedorNombre: 'PROVEEDOR CENTINELA SAS' })],
+      flito_tramites: [tramite()], flito_compradores: [comprador()], flito_soportes: [],
+    });
+    const hoja = await libro((await exportarAmpliado(await sesion())).body as Buffer);
+    expect(celda(hoja, 2, 'Gestor')).toBe('Operaciones');
+    expect(textoDe(hoja)).not.toContain('PROVEEDOR CENTINELA SAS');
+  });
+
+  it('`Estado` es la etiqueta legible y `MotivoNovedad` el motivo, en una fila con novedad', async () => {
+    kdb.when.scenario({
+      flito_soat: [filaPagada({ estado: 'con_novedad', motivoRechazo: CENTINELA_MOTIVO, pagadoEn: null, valorPagado: null })],
+      flito_tramites: [tramite()], flito_compradores: [comprador()], flito_soportes: [],
+    });
+    const hoja = await libro((await exportarAmpliado(await sesion())).body as Buffer);
+    expect(celda(hoja, 2, 'Estado')).toBe('Con novedad');
+    expect(celda(hoja, 2, 'MotivoNovedad')).toBe(CENTINELA_MOTIVO);
+    expect(celda(hoja, 2, 'ValorPagado')).toBeNull();
+  });
+
+  it('`FechaCargaComprobante` es la factura más reciente NO descartada; una descartada más nueva no cuenta', async () => {
+    kdb.when.scenario({
+      flito_soat: [filaPagada()], flito_tramites: [tramite()], flito_compradores: [comprador()],
+      // El mock no evalúa el WHERE: el descartado se filtra en el predicado, que se afirma sobre el
+      // SQL renderizado abajo; el «más reciente» se decide en memoria y sí se ve aquí.
+      flito_soportes: [soporte({ subidoEn: COMPROBANTE_VIEJO }), soporte()],
+    });
+    const hoja = await libro((await exportarAmpliado(await sesion())).body as Buffer);
+    expect(celda(hoja, 2, 'FechaCargaComprobante')).toBe('2026-03-07 15:00');
+
+    const lectura = lecturasDe('flito_soportes');
+    expect(lectura).toHaveLength(1);
+    const q = new PgDialect().sqlToQuery(lectura[0].where as never);
+    expect(q.sql).toMatch(/"soat_id" in/);
+    expect(q.sql).toMatch(/"tipo" = /);
+    expect(q.sql).toMatch(/"descartado" = /);
+    expect(q.params).toContain('factura_soat');
+    expect(q.params).toContain(false);
+  });
+
+  it('la proyección ampliada SUMA las columnas de pago y el proveedor sale del join que la cola ya hacía', async () => {
+    kdb.when.scenario({
+      flito_soat: [filaPagada()], flito_tramites: [tramite()], flito_compradores: [comprador()], flito_soportes: [],
+    });
+    await exportarAmpliado(await sesion());
+    const lectura = lecturasDe(TABLA)[0];
+    for (const col of ['vin', 'placa', 'numSerie', 'valorPagado', 'pagadoEn', 'enviadoEn', 'numeroPoliza', 'proveedorNombre', 'gestionOperaciones', 'estadoVigencia', 'venceEl', 'polizaRunt', 'verificadaEn', 'createdAt', 'motivoRechazo', 'estado']) {
+      expect(lectura.columnas, col).toContain(col);
+    }
+    expect(origenDe(lectura.proyeccion.proveedorNombre)).toBe('col:flito_proveedores_soat.nombre');
+    expect(origenDe(lectura.proyeccion.valorPagado)).toBe('col:flito_soat.valor_pagado');
+    // Sigue sin `flito_tramites` en la lectura principal: un SOAT sirve a varios trámites.
+    expect(lectura.joins).not.toContain('flito_tramites');
+    expect(lectura.limit).toBe(TOPE + 1);
+  });
+});
+
+describe('archivo ampliado — la función decide, no el rol; y el 403 no deja rastro de export', () => {
+  it('**sin la función: 403 con el texto de la HU, sin archivo, sin consulta y sin `accion: export`** (mutante: quitar `tieneFuncion`)', async () => {
+    kdb.when.scenario({ flito_soat: [filaPagada()], flito_tramites: [tramite()], flito_compradores: [comprador()] });
+
+    // `proveedor` tiene `soat.excel.exportar` (baja el de 27) y NO tiene `soat.excel.exportar_pago`.
+    const r = await exportarAmpliado(await sesion('proveedor'));
+
+    expect(r.status).toBe(403);
+    expect(JSON.parse((r.body as Buffer).toString('utf8'))).toEqual({ error: 'Tu usuario no puede exportar datos de pago y trazabilidad' });
+    expect(r.headers['content-disposition']).toBeUndefined();
+    expect(orden).not.toContain('excel');
+    expect(lecturasDe(TABLA)).toHaveLength(0);
+    expect(logPiiAccessMock.mock.calls.filter((c) => (c[1] as { accion?: string }).accion === 'export')).toHaveLength(0);
+  });
+
+  it('el mismo `proveedor` sin la función SÍ baja el archivo de 27 sin el flag: la ruta no se cerró', async () => {
+    kdb.when.scenario({ flito_soat: [filaPagada()], flito_tramites: [tramite()], flito_compradores: [comprador()] });
+    const r = await exportar(await sesion('proveedor'));
+    expect(r.status).toBe(200);
+    expect((await libro(r.body as Buffer)).columnCount).toBe(27);
+  });
+
+  it('un `proveedor` al que el admin le repartió la función baja el ampliado: decide la función', async () => {
+    kdb.when.scenario({
+      flito_soat: [filaPagada()], flito_tramites: [tramite()], flito_compradores: [comprador()], flito_soportes: [],
+    });
+    const r = await exportarAmpliado(await proveedorConPago());
+    expect(r.status).toBe(200);
+    expect((await libro(r.body as Buffer)).columnCount).toBe(40);
+  });
+
+  it('`incluirPago: "sí"` (no booleano) es 400 por el `.strict()`, no un `true` ni un `false` silencioso', async () => {
+    kdb.when.scenario({ flito_soat: [filaPagada()], flito_tramites: [tramite()], flito_compradores: [comprador()] });
+    const r = await exportar(await sesion(), { incluirPago: 'sí' });
+    expect(r.status).toBe(400);
+    expect(lecturasDe(TABLA)).toHaveLength(0);
+    expect(orden).toEqual([]);
+  });
+
+  it('la función y su reparto: `soat.excel.exportar_pago` es de `soat`, tipo operación, y de partida SOLO admin', async () => {
+    const { catalogoCompleto } = await import('../../src/modules/permisos/catalogo.js');
+    const f = catalogoCompleto().find((c) => c.codigo === 'soat.excel.exportar_pago');
+    expect(f).toBeDefined();
+    expect(f!.modulo).toBe('soat');
+    expect(f!.tipo).toBe('operacion');
+    expect(f!.roles).toEqual(['admin']);
+  });
+});
+
+describe('archivo ampliado — rastro: `resultado=ampliado` y los campos de pago SOLO cuando salió ampliado', () => {
+  it('ampliado: `accion: export`, marcador `resultado=ampliado`, y `campos_accedidos` con los de pago (nombres de la BASE)', async () => {
+    kdb.when.scenario({
+      flito_soat: [filaPagada()], flito_tramites: [tramite()], flito_compradores: [comprador()], flito_soportes: [],
+    });
+    expect((await exportarAmpliado(await sesion())).status).toBe(200);
+
+    expect(logPiiAccessMock).toHaveBeenCalledTimes(1);
+    const acceso = ultimoAcceso();
+    expect(acceso.accion).toBe('export');
+    expect(String(acceso.motivo)).toContain('resultado=ampliado');
+    expect(String(acceso.motivo)).toContain('filas=1');
+    const campos = acceso.camposAccedidos as string[];
+    for (const c of ['valor_pagado', 'pagado_en', 'enviado_en', 'numero_poliza', 'poliza_runt', 'estado_vigencia', 'vence_el', 'verificada_en', 'subido_en', 'gestion_operaciones', 'proveedor_soat_id', 'motivo_rechazo', 'created_at', 'estado']) {
+      expect(campos, c).toContain(c);
+    }
+    // Y los de siempre siguen: el ampliado es un superconjunto, no un reemplazo.
+    for (const c of ['numero_documento', 'correo', 'placa', 'vin', 'nombre_completo']) expect(campos, c).toContain(c);
+    expect(orden).toEqual(['pii', 'excel']);
+  });
+
+  it('de 27: NI el marcador NI los campos de pago — el rastro de hoy, byte a byte', async () => {
+    kdb.when.scenario({ flito_soat: [filaPagada()], flito_tramites: [tramite()], flito_compradores: [comprador()] });
+    expect((await exportar(await sesion())).status).toBe(200);
+    const acceso = ultimoAcceso();
+    expect(String(acceso.motivo)).not.toContain('ampliado');
+    const campos = acceso.camposAccedidos as string[];
+    for (const c of ['valor_pagado', 'pagado_en', 'enviado_en', 'numero_poliza', 'subido_en']) expect(campos, c).not.toContain(c);
+  });
+
+  it('`CAMPOS_PII_COLA_EXPORT` (la lista del archivo de 27) NO declara los campos de pago: se declaran aparte', async () => {
+    const m = await import('../../src/shared/export/cola-flito-excel.js');
+    for (const c of ['valor_pagado', 'pagado_en', 'enviado_en']) expect(m.CAMPOS_PII_COLA_EXPORT as readonly string[]).not.toContain(c);
+    expect(m.CAMPOS_COLA_EXPORT_PAGO_SOAT).toContain('valor_pagado');
+    expect(m.COLUMNAS_PAGO_SOAT_EXPORT.map((c) => c.header)).toEqual(CABECERAS_PAGO);
+  });
+});

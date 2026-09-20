@@ -11,10 +11,12 @@
 // `permisos-catalogo.test.ts` comprueba que los montajes del fuente cubren exactamente esta foto.
 import type { GuardaLeida } from './inventario-guardas.js';
 
-/** 217 rutas guardadas medidas el 9/09/2026 + 11 añadidas por la HU #12083 (dos en línea); +2 −1 por la HU #12373 (tarifas); +2 por la HU #12171; +7 por la HU #12084 (permisos); +4 por la HU #12541 (servicios adicionales). */
+/** 217 rutas guardadas medidas el 9/09/2026 + 11 añadidas por la HU #12083 (dos en línea); +2 −1 por la HU #12373 (tarifas); +2 por la HU #12171; +7 por la HU #12084 (permisos); +4 por la HU #12541 (servicios adicionales); +1 por la HU #12591 (recibo de caja); +5 por la HU #12611 (comprobantes); +3 por la HU #12619 (viajes de logística); +3 por la HU #12629 (comprobantes F2: buscar, aplicar, descartar); +1 por la HU #12654 (comprobantes F3: aceptar diferencia); +2 por el Bug #12642 (export ampliado con datos de pago, dos en línea). */
 export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor","cliente","proveedor"], heredada: false },
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "POST", ruta: "/export", roles: ["admin","proveedor"], heredada: false },
+  // Bug #12642: la guarda EN LÍNEA del archivo ampliado (`incluirPago: true`), sembrada por la 0203 SOLO a admin.
+  { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "POST", ruta: "/export", condicion: "incluirPago", roles: ["admin"], heredada: false },
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "POST", ruta: "/soportes/zip", roles: ["admin","proveedor"], heredada: false },
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "GET", ruta: "/facetas", roles: ["admin","auditor","cliente","proveedor"], heredada: false },
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "GET", ruta: "/:id", roles: ["admin","auditor","cliente","proveedor"], heredada: false },
@@ -36,6 +38,8 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "POST", ruta: "/soportes/zip", roles: ["admin","gestor_impuestos"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor","gestor_impuestos"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "POST", ruta: "/export", roles: ["admin","gestor_impuestos"], heredada: false },
+  // Bug #12642: la guarda EN LÍNEA del archivo ampliado (`incluirPago: true`), sembrada por la 0203 SOLO a admin.
+  { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "POST", ruta: "/export", condicion: "incluirPago", roles: ["admin"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "GET", ruta: "/facetas", roles: ["admin","auditor","gestor_impuestos"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "GET", ruta: "/:id", roles: ["admin","auditor","gestor_impuestos"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "GET", ruta: "/:id/historial", roles: ["admin","auditor","gestor_impuestos"], heredada: false },
@@ -48,6 +52,7 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "POST", ruta: "/:id/reactivar", roles: ["admin"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "POST", ruta: "/:id/reversar", roles: ["admin"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "POST", ruta: "/recibos", roles: ["admin","gestor_impuestos"], heredada: false },
+  { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "POST", ruta: "/:id/recibo-caja", roles: ["admin"], heredada: false },
   // HU #12083: las dos rutas del `for` con template literal que el lector de la #12081 no vio.
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "POST", ruta: "/:id/asumir-operaciones", roles: ["admin"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "POST", ruta: "/:id/devolver-gestor", roles: ["admin"], heredada: false },
@@ -269,4 +274,21 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "finanzas", fichero: "finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts", metodo: "GET", ruta: "/tramites/:id/servicios-adicionales", roles: ["admin","auditor","financiera"], heredada: false },
   { modulo: "finanzas", fichero: "finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts", metodo: "POST", ruta: "/tramites/:id/servicios-adicionales", roles: ["admin","financiera"], heredada: false },
   { modulo: "finanzas", fichero: "finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts", metodo: "DELETE", ruta: "/tramites/:id/servicios-adicionales/:asignacionId", roles: ["admin","financiera"], heredada: false },
+  // HU #12611: las cinco de la puerta universal de comprobantes (F1 #12605), sembradas por la 0198 a admin + financiera.
+  { modulo: "comprobantes", fichero: "flito-comprobantes/flito-comprobantes.routes.ts", metodo: "POST", ruta: "/", roles: ["admin","financiera"], heredada: false },
+  { modulo: "comprobantes", fichero: "flito-comprobantes/flito-comprobantes.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","financiera"], heredada: false },
+  { modulo: "comprobantes", fichero: "flito-comprobantes/flito-comprobantes.routes.ts", metodo: "GET", ruta: "/:id", roles: ["admin","financiera"], heredada: false },
+  { modulo: "comprobantes", fichero: "flito-comprobantes/flito-comprobantes.routes.ts", metodo: "GET", ruta: "/:id/archivo", roles: ["admin","financiera"], heredada: false },
+  { modulo: "comprobantes", fichero: "flito-comprobantes/flito-comprobantes.routes.ts", metodo: "POST", ruta: "/:id/releer", roles: ["admin","financiera"], heredada: false },
+  // HU #12629: las tres de F2 #12606 (buscar trámites, aplicar, descartar), sembradas por la 0201 a admin + financiera.
+  { modulo: "comprobantes", fichero: "flito-comprobantes/flito-comprobantes.routes.ts", metodo: "POST", ruta: "/tramites/buscar", roles: ["admin","financiera"], heredada: false },
+  { modulo: "comprobantes", fichero: "flito-comprobantes/flito-comprobantes.routes.ts", metodo: "POST", ruta: "/:id/aplicar", roles: ["admin","financiera"], heredada: false },
+  { modulo: "comprobantes", fichero: "flito-comprobantes/flito-comprobantes.routes.ts", metodo: "POST", ruta: "/:id/descartar", roles: ["admin","financiera"], heredada: false },
+  // HU #12654: aceptar la diferencia de un comprobante (F3 #12607), sembrada por la 0202 a admin + financiera.
+  { modulo: "comprobantes", fichero: "flito-comprobantes/flito-comprobantes.routes.ts", metodo: "POST", ruta: "/:id/diferencia/aceptar", roles: ["admin","financiera"], heredada: false },
+  // HU #12619: viajes adicionales de logística por trámite (+3), sembradas por la 0199 SOLO a admin
+  // (el administrador reparte a los demás roles desde el panel).
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica-viajes.routes.ts", metodo: "GET", ruta: "/tramites/:tramiteId/viajes", roles: ["admin"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica-viajes.routes.ts", metodo: "POST", ruta: "/tramites/:tramiteId/viajes", roles: ["admin"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica-viajes.routes.ts", metodo: "DELETE", ruta: "/tramites/:tramiteId/viajes/:viajeId", roles: ["admin"], heredada: false },
 ];

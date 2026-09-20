@@ -65,8 +65,13 @@ export * from './flito-ocr.js';
 export * from './flito-soat-procedencia.js';
 // Mapeo de roles FLITO → roles Operaciones y ataduras de visibilidad del gestor.
 export * from './flito-roles.js';
+// Conceptos de costo de un trámite (Épica #12245): base de `ConceptoBolsa` y de los comprobantes.
+export * from './flito-conceptos.js';
 // Bolsas prepago del cliente: tipos de movimiento, conceptos que consumen saldo y periodo contable.
 export * from './flito-bolsas.js';
+// Comprobantes universales (Feature #12605): tipos de documento, campos de la lectura universal y
+// sub-documentos de un consolidado.
+export * from './flito-comprobantes.js';
 // Bolsa prepago que FLIT mantiene en cada Organismo de Tránsito. Es la inversa de la del cliente:
 // FLIT carga el saldo y el organismo lo consume con cada derecho de trámite.
 export * from './flito-bolsas-transito.js';
@@ -116,9 +121,17 @@ export * from './flito-conciliacion.js';
 export * from './flito-cola-export.js';
 // Carga masiva SOAT/impuestos: topes de archivos, bytes, cuerpo HTTP y tandas (HU #12050 / #12051).
 export * from './carga-masiva.js';
+// La carpeta del ZIP declara la fase del recibo de impuesto (HU #12614 / #12615): la MISMA regla en el API y en el navegador.
+export * from './flito-recibos-carpetas.js';
 // Historial consultable de cambios de usuarios, roles y permisos (HU #12171, ADR-0014): lista
 // blanca de campos, forma del par antes/después y el DTO que sirve `GET /api/users/auditoria`.
 export * from './permisos-auditoria.js';
 // Mantenimiento de roles y cuadro rol × función (HU #12084): tipos de enlace y principal, la fila
 // del listado de roles (con `borrable`/`motivoNoBorrable`) y las respuestas del cuadro.
 export * from './permisos-roles.js';
+// Viajes adicionales de logística por trámite (HU #12619): modos de precio, motivos, la fila y el
+// cuerpo del GET, y los códigos de error de sus rutas.
+export * from './flito-viajes-logistica.js';
+// Gastos diarios de Finanzas (HU #12623): serie por día del evento y totales por categoría con GMF
+// estimado; contrato del `GET /api/finanzas/gastos-diarios` y los topes del rango.
+export * from './flito-gastos-diarios.js';

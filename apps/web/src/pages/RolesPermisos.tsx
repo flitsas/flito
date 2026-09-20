@@ -35,7 +35,8 @@ import ListaRoles from './roles-permisos/ListaRoles';
 import CuadroRol from './roles-permisos/CuadroRol';
 import RolFormModal from './roles-permisos/RolFormModal';
 import BorrarRolModal from './roles-permisos/BorrarRolModal';
-import { cambios as textoCambios, modulosVisibles } from './roles-permisos/modulos';
+import { cambios as textoCambios, modulosVisibles, seccionesVisibles } from './roles-permisos/modulos';
+import { desmarcarPantalla } from './roles-permisos/dependencias';
 
 const COPY_ERROR_CARGA = 'No se pudo cargar el catálogo de roles y funciones.';
 const COPY_VACIO_ROLES = 'Todavía no hay roles. Crea el primero para poder repartir funciones.';
@@ -106,6 +107,12 @@ export default function RolesPermisos() {
     () => new Map(gruposVisibles.flatMap((g) => g.funciones.map((f) => [f.codigo, f.nombreNegocio] as const))),
     [gruposVisibles],
   );
+  // HU #12717: el grupo (tal como se PINTA, tras `seccionesVisibles`) de cada código, para que
+  // desmarcar una pantalla desmarque las acciones del mismo acordeón que el administrador ve.
+  const grupoPorCodigo = useMemo(
+    () => new Map(seccionesVisibles(gruposVisibles).flatMap((s) => s.grupos.flatMap((g) => g.funciones.map((f) => [f.codigo, g] as const)))),
+    [gruposVisibles],
+  );
   const cuentaPorRol = useMemo(
     () => Object.fromEntries(roles.map((r) => [r.codigo, cuadros[r.codigo]?.length])),
     [roles, cuadros],
@@ -138,7 +145,13 @@ export default function RolesPermisos() {
     setErrorGuardado(null);
   };
 
+  // HU #12717 (ficha §14, regla 4): desmarcar la última pantalla marcada de un módulo desmarca sus
+  // acciones en el mismo gesto. Marcar no arrastra nada: las acciones solo se HABILITAN (regla 2).
   const alternar = (codigo: string, marcado: boolean) => setBorrador((prev) => {
+    const grupo = grupoPorCodigo.get(codigo);
+    if (!marcado && grupo && grupo.funciones.some((f) => f.codigo === codigo && f.tipo === 'pagina')) {
+      return desmarcarPantalla(grupo, prev, codigo);
+    }
     const s = new Set(prev);
     if (marcado) s.add(codigo); else s.delete(codigo);
     return s;

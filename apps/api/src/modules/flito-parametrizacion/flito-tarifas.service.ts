@@ -22,7 +22,7 @@
 import { and, asc, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import { alias, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import {
-  CONCEPTOS_TARIFA, LLAVES_TARIFA, tipoTramiteTarifaDe, valorTarifaValido,
+  CONCEPTOS_TARIFA, LLAVES_TARIFA, VIGENCIA_DESDE_SIEMPRE, tipoTramiteTarifaDe, valorTarifaValido,
   type ConceptoTarifa, type TipoTramiteTarifa,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
@@ -87,12 +87,16 @@ export interface ColumnasVigencia { vigenteDesde: AnyPgColumn; vigenteHasta: Any
  *
  * La regla «sin fecha → ahora» se escribe UNA vez: recibe la columna (reporte, en SQL), un `Date`
  * (compuerta) o `null` (compuerta, trámite sin aprobar). La referencia se interpola una sola vez a
- * propósito: un `Date` es un parámetro y Drizzle no deduplica literales. El `::timestamptz` es
- * obligatorio en la rama parámetro (`anyrange @> unknown` es ambiguo) e inocuo en las otras dos.
+ * propósito: es un parámetro y Drizzle no deduplica literales. El `Date` viaja como texto ISO, no
+ * como objeto: un `Date` crudo en un fragmento `sql` sin columna que lo tipifique no pasa por el
+ * codificador de Drizzle y postgres.js lo rechaza al serializarlo («The "string" argument must be of
+ * type string...»), que era el 500 de la compuerta y del desglose de viajes en todo trámite aprobado
+ * (Bug #12682). El `::timestamptz` es obligatorio en la rama parámetro (`anyrange @> unknown` es
+ * ambiguo) e inocuo en las otras dos.
  */
 export function vigenteEn(t: ColumnasVigencia, fechaAprobacion: AnyPgColumn | Date | null): SQL {
   const ref = fechaAprobacion === null ? sql`now()`
-    : fechaAprobacion instanceof Date ? sql`${fechaAprobacion}`
+    : fechaAprobacion instanceof Date ? sql`${fechaAprobacion.toISOString()}`
       : sql`COALESCE(${fechaAprobacion}, now())`;
   return sql`tstzrange(${t.vigenteDesde}, ${t.vigenteHasta}, '[)') @> ${ref}::timestamptz`;
 }
@@ -310,6 +314,8 @@ const esChoqueDeLlave = (e: unknown): boolean => {
 /**
  * FIJAR: abre la PRIMERA vigencia de una llave que no tiene ninguna abierta. Si ya la tiene, 409 con
  * el id de la abierta: se cambia con `cambiarOCerrar`, no se crea otra (lo impide el índice parcial).
+ * `vigenteDesde` = {@link VIGENCIA_DESDE_SIEMPRE} (rige para trámites ya aprobados); `fijadoEn` = ahora
+ * (Bug #12682). Los cambios posteriores siguen abriendo en `now()` vía `cambiarOCerrar`.
  */
 export async function fijarTarifa(d: DatosFijar, usuarioId: number | null): Promise<Tarifa> {
   validarValor(d.valor);
@@ -318,10 +324,11 @@ export async function fijarTarifa(d: DatosFijar, usuarioId: number | null): Prom
   await companiaDe(d.companiaId).catch(() => { throw new TarifaError('La compañía no existe'); });
 
   const ahora = new Date();
+  const vigenteDesde = new Date(VIGENCIA_DESDE_SIEMPRE);
   try {
     const [fila] = await db.insert(v).values({
       companiaId: d.companiaId, concepto: d.concepto, tipoTramite: tipo, valor: String(d.valor),
-      vigenteDesde: ahora, fijadoPorId: usuarioId, fijadoEn: ahora,
+      vigenteDesde, fijadoPorId: usuarioId, fijadoEn: ahora,
     }).returning({ id: v.id });
     return await leerTarifa(fila.id);
   } catch (e) {
