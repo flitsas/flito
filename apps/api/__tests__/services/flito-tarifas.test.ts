@@ -118,12 +118,13 @@ describe('vigenteEn — el rango semiabierto [desde, hasta) contiene la referenc
     expect(params).toEqual([]);
   });
 
-  it('con un Date (compuerta): el Date viaja como parámetro UNA sola vez, y es el mismo objeto', () => {
+  it('con un Date (compuerta): viaja como parámetro UNA sola vez y como texto ISO, nunca como objeto Date (Bug #12682)', () => {
     const fecha = new Date('2026-07-15T12:00:00Z');
     const { sql, params } = renderizar(vigenteEn(flitoTarifasVigencias, fecha));
     expect(sql).toBe(`${RANGO} @> $1::timestamptz`);
-    expect(params).toHaveLength(1);
-    expect(params[0]).toBe(fecha);
+    // Un `Date` crudo en un fragmento `sql` lo rechaza postgres.js al serializar (500 en la compuerta
+    // y en el desglose de viajes de todo trámite aprobado); el ISO lo castea el `::timestamptz`.
+    expect(params).toEqual(['2026-07-15T12:00:00.000Z']);
   });
 
   it('con null (trámite sin aprobar): now() del servidor, sin parámetros (AC3)', () => {
@@ -152,10 +153,12 @@ describe('tarifaDe — resuelve la vigencia que CONTIENE la fecha de aprobación
     expect(ligadoA(rend, '"tipo_tramite"')).toBe('MATRICULA');
     const m = new RegExp(`${RANGO.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} @> \\$(\\d+)::timestamptz`).exec(rend.sql);
     expect(m, rend.sql).not.toBeNull();
-    expect(rend.params[Number(m![1]) - 1]).toBe(fecha);
+    expect(rend.params[Number(m![1]) - 1]).toBe(fecha.toISOString());
     // Si además quedara el filtro de abierta, una fecha dentro de una vigencia CERRADA nunca resolvería (AC1).
     expect(rend.sql).not.toMatch(/vigente_hasta" is null/i);
-    expect(rend.params.filter((p) => p instanceof Date)).toHaveLength(1);
+    // Ningún `Date` crudo: postgres.js no lo serializa en un fragmento `sql` (Bug #12682).
+    expect(rend.params.filter((p) => p instanceof Date)).toHaveLength(0);
+    expect(rend.params.filter((p) => p === fecha.toISOString())).toHaveLength(1);
   });
 
   it('sin fecha (AC3): la referencia es now() del servidor y ningún Date viaja como parámetro', async () => {
@@ -164,7 +167,7 @@ describe('tarifaDe — resuelve la vigencia que CONTIENE la fecha de aprobación
     await tarifaDe(7, 'tramite_digital', 'Otros');
     const rend = renderizar(q.where!);
     expect(rend.sql).toContain(`${RANGO} @> now()::timestamptz`);
-    expect(rend.params.filter((p) => p instanceof Date)).toHaveLength(0);
+    expect(rend.params.filter((p) => p instanceof Date || /^\d{4}-\d\d-\d\dT/.test(String(p)))).toHaveLength(0);
     expect(rend.sql).not.toMatch(/vigente_hasta" is null/i);
   });
 

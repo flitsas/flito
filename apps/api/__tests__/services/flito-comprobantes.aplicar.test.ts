@@ -847,7 +847,7 @@ describe('HU #12631 — POST /:id/aplicar con esPago=true: fila documental de tr
     expect(ligadoA(tarifa, '"flito_tarifas_vigencias"."concepto"')).toBe('tramite_digital');
     expect(ligadoA(tarifa, '"flito_tarifas_vigencias"."tipo_tramite"')).toBe('MATRICULA');
     expect(tarifa.sql).toContain('tstzrange("flito_tarifas_vigencias"."vigente_desde", "flito_tarifas_vigencias"."vigente_hasta", \'[)\') @>');
-    expect(tarifa.params).toContainEqual(APROBADO);
+    expect(tarifa.params).toContainEqual(APROBADO.toISOString()); // ISO, nunca el Date crudo (Bug #12682)
     expect(tarifa.sql).not.toContain('now()');
     // Nada de dueños: ni SOAT ni derecho ni impuesto.
     expect(marcarPagadoMock).not.toHaveBeenCalled();

@@ -87,12 +87,16 @@ export interface ColumnasVigencia { vigenteDesde: AnyPgColumn; vigenteHasta: Any
  *
  * La regla «sin fecha → ahora» se escribe UNA vez: recibe la columna (reporte, en SQL), un `Date`
  * (compuerta) o `null` (compuerta, trámite sin aprobar). La referencia se interpola una sola vez a
- * propósito: un `Date` es un parámetro y Drizzle no deduplica literales. El `::timestamptz` es
- * obligatorio en la rama parámetro (`anyrange @> unknown` es ambiguo) e inocuo en las otras dos.
+ * propósito: es un parámetro y Drizzle no deduplica literales. El `Date` viaja como texto ISO, no
+ * como objeto: un `Date` crudo en un fragmento `sql` sin columna que lo tipifique no pasa por el
+ * codificador de Drizzle y postgres.js lo rechaza al serializarlo («The "string" argument must be of
+ * type string...»), que era el 500 de la compuerta y del desglose de viajes en todo trámite aprobado
+ * (Bug #12682). El `::timestamptz` es obligatorio en la rama parámetro (`anyrange @> unknown` es
+ * ambiguo) e inocuo en las otras dos.
  */
 export function vigenteEn(t: ColumnasVigencia, fechaAprobacion: AnyPgColumn | Date | null): SQL {
   const ref = fechaAprobacion === null ? sql`now()`
-    : fechaAprobacion instanceof Date ? sql`${fechaAprobacion}`
+    : fechaAprobacion instanceof Date ? sql`${fechaAprobacion.toISOString()}`
       : sql`COALESCE(${fechaAprobacion}, now())`;
   return sql`tstzrange(${t.vigenteDesde}, ${t.vigenteHasta}, '[)') @> ${ref}::timestamptz`;
 }
