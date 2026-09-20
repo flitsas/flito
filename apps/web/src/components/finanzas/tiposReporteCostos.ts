@@ -8,7 +8,7 @@ import type { SiigoEstadoReporte, ValoresDocumentalesDeFila } from '@operaciones
 
 // Los textos del origen y de la diferencia documental viven en `lib/diferenciaDocumental.ts` (puro,
 // con `node --test`); la tabla y el diálogo los toman de ahí. Se reexportan para quien llega por aquí.
-export { textoDiferencia, textoOrigen } from '../../lib/diferenciaDocumental';
+export { textoDiferencia, textoOrigen } from '../../lib/diferenciaDocumental.ts';
 
 /**
  * Desde la HU #12653 cada fila trae `origenes` (de dónde salió el trámite digital y la logística:
