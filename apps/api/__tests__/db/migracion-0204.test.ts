@@ -47,10 +47,13 @@ describe('0204 — reglas del archivo (análisis estático)', () => {
     expect(VIGENCIA_DESDE_SIEMPRE.startsWith('2000-01-01T00:00:00')).toBe(true);
   });
 
-  it('el número es 0204, sigue a la 0203 sin hueco', () => {
+  it('el número es 0204 y es único; la anterior en disco es la 0203 (develop/staging) o la 0185 (release, promoción selectiva)', () => {
     const sqls = readdirSync(path.resolve(__dirname, '../../src/db/migrations')).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
     expect(sqls.filter((f) => f.startsWith('0204_'))).toEqual([ARCHIVO]);
-    expect(sqls[sqls.indexOf(ARCHIVO) - 1]).toMatch(/^0203_/);
+    // La 0204 llegó a `release` por cherry-pick (Bug #12682) antes que la 0186-0203: el runner
+    // calcula pendientes por nombre de archivo, así que el hueco no rompe nada. Al promover
+    // staging → release el hueco se cierra y vuelve a valer solo la 0203.
+    expect(sqls[sqls.indexOf(ARCHIVO) - 1]).toMatch(/^(0203|0185)_/);
   });
 
   it('un solo UPDATE: al epoch, solo la más antigua por llave (ORDER BY vigente_desde, fijado_en, id), idempotente; fijado_en intacto', () => {
