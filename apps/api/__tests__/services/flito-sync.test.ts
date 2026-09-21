@@ -154,12 +154,51 @@ describe('aTramite — el guardián de longitud descarta, NO trunca', () => {
   });
 });
 
+// ───────────── Bug #12643: número de motor y de serie desde FLIT ────────────────────────────
+
+describe('aTramite — motor y serie del reporte de FLIT (Bug #12643)', () => {
+  beforeEach(() => logMock.warn.mockClear());
+
+  it('mapea numeroMotor/numeroSerie a numMotor/numSerie tal cual', () => {
+    const t = aTramite({ ...itemFlit, numeroMotor: 'G4FC1234567', numeroSerie: 'KMHDN41BP2U123456' });
+    expect(t.numMotor).toBe('G4FC1234567');
+    expect(t.numSerie).toBe('KMHDN41BP2U123456');
+    expect(logMock.warn).not.toHaveBeenCalled();
+  });
+
+  it('sin las claves → null (FLIT no lo trajo), y la clave SÍ existe en el TramiteFlit', () => {
+    const t = aTramite(itemFlit);
+    expect(t.numMotor).toBeNull();
+    expect(t.numSerie).toBeNull();
+    expect(Object.keys(t)).toEqual(expect.arrayContaining(['numMotor', 'numSerie']));
+  });
+
+  it('vacío o solo espacios → null, igual que los tres datos técnicos', () => {
+    const t = aTramite({ ...itemFlit, numeroMotor: '', numeroSerie: '   ' });
+    expect([t.numMotor, t.numSerie]).toEqual([null, null]);
+  });
+
+  it('**60 caracteres → se RECORTA a 50 (no se descarta) y avisa sin el valor**', () => {
+    // La regla es la del RUNT y no la de `acotado()`: misma columna, misma regla. Si alguien lo
+    // pasara por `acotado()`, aquí saldría null y el test cae.
+    const largo = 'M'.repeat(60);
+    const t = aTramite({ ...itemFlit, numeroMotor: largo, numeroSerie: 'S'.repeat(60) });
+    expect(t.numMotor).toBe('M'.repeat(50));
+    expect(t.numSerie).toBe('S'.repeat(50));
+    expect(logMock.warn).toHaveBeenCalledTimes(2);
+    const [payload, msg] = logMock.warn.mock.calls[0] as [Record<string, unknown>, string];
+    expect(payload).toMatchObject({ campo: 'numMotor', longitud: 60, max: 50 });
+    expect(JSON.stringify(payload)).not.toContain('MMMMM');
+    expect(msg).not.toContain('MMMMM');
+  });
+});
+
 // ───────────── Política de escritura del sync sobre `vehicles` (HU #11906) ───────────────────
 
 describe('setVehiculoDesdeFlit — un vacío NO borra lo que ya estaba guardado', () => {
   const tf = (over: Record<string, unknown> = {}) => ({
     placa: 'JNH38H', marca: null, linea: null, compradores: [],
-    cilindraje: null, carroceria: null, tipoServicio: null, ...over,
+    cilindraje: null, carroceria: null, tipoServicio: null, numMotor: null, numSerie: null, ...over,
   } as never);
 
   it('**los tres ausentes → las tres columnas quedan FUERA del SET**', () => {
@@ -193,6 +232,25 @@ describe('setVehiculoDesdeFlit — un vacío NO borra lo que ya estaba guardado'
     // `plate` SÍ es asignación directa y así seguía: FLIT siempre la trae.
     expect(Object.keys(set)).toContain('plate');
   });
+
+  // Bug #12643: motor y serie con la misma política. Lo que hay que preservar aquí no es solo lo que
+  // FLIT trajo antes: también lo que escribió el RUNT (HU #12401) en esas dos columnas.
+  it('**motor y serie con valor → van al SET con el valor de FLIT (Bug #12643)**', () => {
+    const set = setVehiculoDesdeFlit(tf({ numMotor: 'G4FC1234567', numSerie: 'KMHDN41BP2U123456' }));
+    expect(set).toMatchObject({ numMotor: 'G4FC1234567', numSerie: 'KMHDN41BP2U123456' });
+  });
+
+  it('**motor y serie a null → las claves NO están en el SET (no borra lo que puso el RUNT)**', () => {
+    const set = setVehiculoDesdeFlit(tf({ numMotor: null, numSerie: null }));
+    expect(set).not.toHaveProperty('numMotor');
+    expect(set).not.toHaveProperty('numSerie');
+  });
+
+  it('campo a campo: el motor viene y la serie no', () => {
+    const set = setVehiculoDesdeFlit(tf({ numMotor: 'G4FC1234567' }));
+    expect(set).toMatchObject({ numMotor: 'G4FC1234567' });
+    expect(set).not.toHaveProperty('numSerie');
+  });
 });
 
 // ───────────── AC1/AC3: lo que `upsertVehiculo` ESCRIBE en `vehicles` (HU #11906) ────────────
@@ -215,6 +273,7 @@ const tramiteFlit = (over: Record<string, unknown> = {}) => ({
   compradores: [{ nombreCompleto: 'Ana', numeroDocumento: '1', correo: null, celular: null, direccion: null }],
   valorImpuestoLiquidado: null, processStatus: 5, raw: {},
   cilindraje: '1598', carroceria: 'DOBLE CABINA CON PLATON', tipoServicio: 'Particular',
+  numMotor: 'G4FC1234567', numSerie: 'KMHDN41BP2U123456',
   ...over,
 });
 
@@ -354,6 +413,53 @@ describe('sincronizar → upsertVehiculo — los tres datos LLEGAN a la fila del
     });
     expect(r.soatCreados).toBe(0);
     expect(r.impuestosCreados).toBe(0);
+  });
+
+  // ─── Bug #12643: motor y serie llegan a `vehicles` por las dos ramas ───
+
+  it('**ALTA (VIN nuevo): el INSERT lleva numMotor y numSerie (Bug #12643)**', async () => {
+    const inserts = espiarInserts();
+
+    const r = await sincronizar(RANGO, puertoConUno(tramiteFlit()));
+
+    expect(logMock.error).not.toHaveBeenCalled();
+    expect(r.tramitesNuevos).toBe(1);
+    expect(alta(inserts)).toMatchObject({ numMotor: 'G4FC1234567', numSerie: 'KMHDN41BP2U123456' });
+  });
+
+  it('ALTA sin motor/serie: van como `null` explícito (FLIT no lo trajo, fila nueva)', async () => {
+    const inserts = espiarInserts();
+
+    await sincronizar(RANGO, puertoConUno(tramiteFlit({ numMotor: null, numSerie: null })));
+
+    const values = alta(inserts)!;
+    expect(values).toMatchObject({ numMotor: null, numSerie: null });
+    expect(values).toHaveProperty('numMotor');
+    expect(values).toHaveProperty('numSerie');
+  });
+
+  it('**ACTUALIZACIÓN (VIN existe): el UPDATE escribe numMotor y numSerie con el valor de FLIT**', async () => {
+    kdb.when.select('vehicles', [{ id: VEHICULO_ID }]);
+    const inserts = espiarInserts();
+    const updates = espiarUpdates();
+
+    await sincronizar(RANGO, puertoConUno(tramiteFlit()));
+
+    expect(alta(inserts)).toBeUndefined();
+    const set = updates.find((u) => u.tabla === T_VEHICLES)?.set;
+    expect(set).toMatchObject({ numMotor: 'G4FC1234567', numSerie: 'KMHDN41BP2U123456' });
+  });
+
+  it('**ACTUALIZACIÓN sin motor/serie: el SET NO lleva las claves (no pisa lo del RUNT)**', async () => {
+    kdb.when.select('vehicles', [{ id: VEHICULO_ID }]);
+    const updates = espiarUpdates();
+
+    await sincronizar(RANGO, puertoConUno(tramiteFlit({ numMotor: null, numSerie: null })));
+
+    const set = updates.find((u) => u.tabla === T_VEHICLES)!.set;
+    expect(set).not.toHaveProperty('numMotor');
+    expect(set).not.toHaveProperty('numSerie');
+    expect(Object.keys(set)).toContain('plate');
   });
 });
 

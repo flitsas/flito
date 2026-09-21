@@ -1,5 +1,6 @@
-// HU #12401 — la regla que comparten el alta del canal Cliente, el recorrido de vigencia del SOAT y
-// (HU #12402) la certificación de Impuestos: qué va a `vehicles.num_motor` / `num_serie` y qué no.
+// HU #12401 — la regla que comparten el alta del canal Cliente, el recorrido de vigencia del SOAT,
+// (HU #12402) la certificación de Impuestos y (Bug #12643) el sync de FLIT: qué va a
+// `vehicles.num_motor` / `num_serie` y qué no.
 //
 // Se prueba la función PURA a pelo, con un logger falso inyectado: aquí se mide la política («un
 // vacío no borra», recorte a la columna, aviso sin PII); que cada recorrido la APLIQUE se mide en
@@ -62,8 +63,9 @@ describe('AC6 — más largo que la columna: se guardan los primeros 50 y se avi
     expect(l.warn).not.toHaveBeenCalled();
   });
 
-  it('el tope es el ANCHO REAL de las dos columnas en el esquema', () => {
+  it('el tope es el ANCHO REAL de las dos columnas en el esquema (RUNT y sync de FLIT escriben en ellas)', () => {
     // Un guardián que se separa de su columna no protege de nada (mismo test que MAX_DATOS_VEHICULO).
+    // Desde el Bug #12643 el sync de FLIT recorta con este mismo tope, así que protege dos orígenes.
     const cols = getTableConfig(vehicles).columns;
     const ancho = (nombre: string) => (cols.find((c) => c.name === nombre)!.getSQLType());
     expect(ancho('num_motor')).toBe(`varchar(${MAX_MOTOR_SERIE})`);
