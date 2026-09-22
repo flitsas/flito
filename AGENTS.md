@@ -50,7 +50,7 @@ Las reglas de negocio documentadas viven en comentarios de cabecera de los módu
 10. Toda página nueva se registra en `src/App.tsx` con `lazy()` + guarda de permiso (`hasPage` / `PageSlug`) — nunca import estático post-login.
 11. `dangerouslySetInnerHTML` solo con sanitización en la misma expresión.
 12. Accesibilidad bloqueante: `<label>` asociado a cada input, botón con texto o `aria-label`, foco visible, contraste ≥ 4.5:1.
-13. Sin drift visual: replicar patrones de `components/flit/` y `components/shell/`; colores y espaciados de las utilidades Tailwind ya usadas, no de HEX sueltos. El prefijo `flit/` es el kit de **FLITO** (no el producto FLIT). Componer el kit con claridad (`docs/ux/_principios-flito.md`): mostrar lo que se vino a ver, una acción primaria, sin efectos vistosos.
+13. Sin drift visual: replicar patrones de `components/flit/` y `components/shell/`; colores y espaciados de las utilidades Tailwind ya usadas, no de HEX sueltos. El prefijo `flit/` es el kit de **FLITO** (no el producto FLIT). Componer el kit con claridad (`docs/ux/_principios-flito.md`): mostrar lo que se vino a ver, una acción primaria, sin efectos vistosos. **Responsive y feedback son parte del patrón, no opciones:** grids con breakpoints (móvil usable <`lg`, sin columnas fijas), barras que envuelven (`flex-wrap`), tablas con el scroll del kit, una sola altura de control por barra, y todo control interactivo con hover sutil + foco visible — la prohibición de «efectos vistosos» es de **adorno**, no de affordance. Toasts cerrables y con copy pulido (nunca el error crudo del API); el estado persistente va en aviso de página, no en toast.
 
 ### Seguridad y datos personales (Ley 1581 — Habeas Data)
 
@@ -71,7 +71,7 @@ Las reglas de negocio documentadas viven en comentarios de cabecera de los módu
 
 ## Git flow
 
-- **Trazabilidad estricta: todo desarrollo y todo PR va ligado a una HU o un Bug de Azure DevOps.** No se abre rama ni PR de producto sin work item; si el pedido llega sin él, primero `flit-intake` → `tech-lead-agent` / `flit-crear-hu`. Única vía sin work item: ramas `CHORE/` y `DOCS/`, acotadas a lo que **no es producto** (documentación, `.claude/`, `.cursor/`, tooling, CI, `scripts/`) — merge a `develop` con «sí» humano y CI verde, **sin** Modo A/B en ADO. En cuanto el diff toca `apps/**` o `packages/**` es desarrollo y exige HU o Bug.
+- **Trazabilidad estricta: todo desarrollo y todo PR va ligado a una HU o un Bug de Azure DevOps.** No se abre rama ni PR de producto sin work item; si el pedido llega sin él, primero `flit-intake` → `tech-lead-agent` / `flit-crear-hu`. Única vía sin work item: ramas `CHORE/` y `DOCS/`, acotadas a lo que **no es producto** (documentación, `.claude/`, `.cursor/`, tooling, CI, `scripts/`) — merge a `develop` con «sí» humano y CI verde, **sin** Modo A/B en ADO. En cuanto el diff toca `apps/**` o `packages/**` es desarrollo y exige HU o Bug — salvo los configs de tooling de la raíz de cada app listados en `TOOLING_DE_APP` (`scripts/check-naming.mjs`: `playwright.config.ts`, `vite.config.ts`, `tsconfig.json`, `Dockerfile`, …), que no son producto y sí viajan en un CHORE; `package.json` queda fuera a propósito (dependencias = superficie de `security-agent`).
 - Una rama por HU/Bug, **siempre desde `develop` actualizado** (o de la rama previa en cadena apilada). Formato **obligatorio**, detalle en [`.cursor/rules/convenciones-rama-pr.mdc`](.cursor/rules/convenciones-rama-pr.mdc):
 
   | Rama | Título del PR |
