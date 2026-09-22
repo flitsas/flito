@@ -190,6 +190,31 @@ desde la rama de HU1. A mitad de HU2 llega `CI-ROJO` (causa `CODIGO`) del PR #1.
 5. Si el mismo eslabón cae **dos veces** por código, o el fix exige una decisión de negocio → parar
    la pila e informar al humano (P9). Una sola caída no es motivo de consulta.
 
+**Runbook (comandos exactos, en orden):**
+
+```bash
+# 1. Congelar la HU en curso (rama HU/<id2>-…), archivos explícitos — nunca -A
+git status --short
+git add <archivos del WIP de HU2>
+git commit -m "wip(HU <id2>): pausa por CI rojo en PR #<N>"
+
+# 2. Corregir el eslabón anterior en SU rama
+git checkout HU/<id1>-<dev>-<desc>
+#   … fix delegado al agente dueño + verificación P1 + flit-code-review del diff nuevo …
+git add <archivos del fix>
+git commit -m "fix(HU <id1>): <causa del rojo — job/step del log>"
+git push origin HU/<id1>-<dev>-<desc>
+
+# 3. Relanzar el pr-monitor-agent sobre el PR #<N> (nuevo HEAD), en background
+
+# 4. Reanudar la HU en curso con la corrección en su base
+git checkout HU/<id2>-<dev>-<desc>
+git rebase HU/<id1>-<dev>-<desc>
+#   si la rama de HU2 ya se había subido:
+git push --force-with-lease origin HU/<id2>-<dev>-<desc>
+#   el commit wip se reescribe (--amend / squash local) antes del PR de HU2
+```
+
 **Lo que no se hace en la pausa:** mezclar el fix de HU1 en la rama de HU2 «porque ya está
 abierta»; abrir un PR de HU2 encima de un PR #1 rojo; esperar el verde de #1 sin tocar HU2 cuando
 la pausa ya terminó; preguntar «¿sigo con HU2?» — se sigue.
@@ -485,12 +510,12 @@ hasta que el humano promueva; el `Resolved` y el aviso al QA llegan con `flit-re
     **`qa-agent` B pre-PR (no tras el PR ni en paralelo al monitor)**; **`devops-agent` M1 al tip tras Modo B / ráfaga**.
     Sustituir cualquiera por prosa, curl o PATCH ADO suelto = fallo de proceso (ver Contrato de
     invocación).
-13. **Nunca pasar el WI a `Resolved` ni mencionar al QA humano en esta ráfaga.** El QA prueba en
+11. **Nunca pasar el WI a `Resolved` ni mencionar al QA humano en esta ráfaga.** El QA prueba en
     `staging`; el merge a `develop` solo lo deja en DEV. `Resolved` + aviso = `flit-gestion-hu`
     Paso 3 tras `flit-release`, y de ahí la cascada Feature → Épica (Paso 4).
-11. **Nunca crear Feature/HU/Bug/Task sin `System.AssignedTo`** (identidad de sesión — `AGENTS.md` /
+12. **Nunca crear Feature/HU/Bug/Task sin `System.AssignedTo`** (identidad de sesión — `AGENTS.md` /
     `flit-azure-devops`). Vacío = FAIL de proceso; corregir antes de seguir.
-12. **Nunca estancar tras abrir el PR** pidiendo al humano «continúa» solo porque CI está en curso.
+13. **Nunca estancar tras abrir el PR** pidiendo al humano «continúa» solo porque CI está en curso.
     Pistas A (monitor→merge) y B (siguiente HU) según Anti-estancamiento post-PR.
 
 ## Cuándo parar y preguntar

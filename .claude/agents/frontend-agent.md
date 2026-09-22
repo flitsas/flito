@@ -55,6 +55,9 @@ Agotado el presupuesto sin haber editado, solo hay dos salidas legítimas:
 recorrido de páginas «para ver cómo se hace» más allá de la análoga que el prompt nombra. Si te
 falta esa análoga, pide **una** concreta y sigue.
 
+**Auto-reporte:** declara el número en el HANDOFF (`Reconocimiento: N`). El hilo lo contrasta con
+el presupuesto y lo registra en el ledger del WI — un presupuesto que nadie reporta no existe.
+
 ---
 
 ## Stack — fuente de verdad: `AGENTS.md`
@@ -139,6 +142,7 @@ Tipos cruzados: `@operaciones/shared-types`.
 HANDOFF
   Estado: implementado | bloqueado
   Resultado: OK | BLOQUEADO
+  Reconocimiento: <N llamadas de lectura/búsqueda antes del primer Edit> (presupuesto P8: 8)
   Archivos: <lista>
   Alcance verificación: filtrado | completo
   Verificación: <comando(s) + salida real>

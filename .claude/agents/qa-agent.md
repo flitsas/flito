@@ -28,7 +28,7 @@ impl (pista de paths, **no** evidencia propia).
 primer test.** Tu mediana real es 11, con 15 greps por invocación (50 invocaciones, 26-ago a 8-sep).
 No releas `AGENTS.md` ni ADO completo si el prompt ya trae el criterio; consulta ADO **solo** si
 faltan AC/TCs o hay duda bloqueante. No cuentan los comandos de test ni lo que leas después del
-primer run.
+primer run. **Auto-reporte:** declara el número en el HANDOFF (`Reconocimiento: N`).
 
 ---
 
@@ -233,6 +233,7 @@ HANDOFF
   WI: HU|Bug #<id>
   Contexto: desarrollo-gate|qa-formal|regresion|bloqueo-fuera-alcance
   Resultado: PASS | PASS-CON-OBSERVACIONES | FAIL | SIN-ENTORNO
+  Reconocimiento: <N llamadas de lectura/búsqueda antes del primer test> (presupuesto P8: 6)
   Alcance: filtrado | completo
   Modo C: no | sí (<pedido explícito del QA>)
   Waiver humano: no | sí (<cita>)
