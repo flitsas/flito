@@ -188,6 +188,31 @@ jobs:
             --title "$PR_TITLE" \
             --files-from /tmp/naming-changed.txt
 
+  # Gate de veredictos pre-PR — enforcement parcial de la disciplina de
+  # .cursor/rules/pre-pr-gates.mdc. Los gates (flit-code-review, qa-agent B,
+  # security-agent, db-review-agent) los ejecuta el hilo antes de abrir el PR y
+  # ningún check puede saber si corrieron de verdad; lo que sí puede exigir CI es
+  # que el cuerpo del PR los declare en verde o N/A con motivo. Aplica solo a PRs
+  # de producto (HU/BUG); CHORE/DOCS/RELEASE pasan como N/A. El título y el cuerpo
+  # llegan por env y no interpolados en `run:` — son entrada de usuario y en el
+  # shell serían inyección de comandos.
+  pr-gates:
+    name: pr-gates
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Veredictos pre-PR declarados en el cuerpo del PR
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node scripts/check-pr-gates.mjs
+
   # Gate de secretos — precondición de merge #6 de flit-integration-ado.
   # Escanea los commits del PR (o los últimos 100 en push) con gitleaks.
   # Se usa el binario directo y no la action oficial: la action exige licencia
