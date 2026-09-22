@@ -19,6 +19,10 @@ No se abre rama ni PR de producto sin work item. Si el pedido llega sin él: ski
 Única vía sin work item: **`CHORE/` y `DOCS/`**, acotadas a lo que **no es producto** —
 documentación, `.claude/`, `.cursor/`, `AGENTS.md`, tooling, CI, `scripts/`. En cuanto el diff
 toca `apps/**` o `packages/**` es desarrollo: exige HU o Bug (lo bloquea el check `naming`).
+**Excepción de tooling:** los configs de la raíz de cada app listados en `TOOLING_DE_APP`
+(`scripts/check-naming.mjs` — p. ej. `playwright.config.ts`, `vite.config.ts`, `tsconfig.json`,
+`Dockerfile`) no son producto y sí pueden viajar en un CHORE. `package.json` queda fuera a
+propósito: las dependencias son superficie de `security-agent`.
 
 ## Nombre de rama
 

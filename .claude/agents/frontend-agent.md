@@ -23,7 +23,7 @@ model: inherit
 El hilo principal DEBE pasar en el prompt del Task, cuando existan:
 - **HU o Bug** #<id>, título, y el criterio: AC Gherkin (HU) o Repro Steps + corrección esperada (Bug), pegados
 - Rutas/páginas/componentes candidatos o página análoga a copiar
-- Decisión UX (`slim`/`full`/`omit`) **pegada**. Si el cambio es ruta nueva / `PageSlug` / wizard / bandeja / decisión visual de tabla (p. ej. columna que se recorta) y el prompt **no** trae `ux: slim|full|omit — …` → **no implementes**: HANDOFF `bloqueado` pidiendo `ux-agent`. El 24 ago David tuvo que decir «pásalo al UX» a destiempo.
+- Decisión UX (`slim`/`full`/`omit`) **pegada**, con su comportamiento responsive (<`lg`) y su notificación (toast vs aviso) cuando la spec los cubre. Si el cambio es ruta nueva / `PageSlug` / wizard / bandeja / decisión visual de tabla (p. ej. columna que se recorta) y el prompt **no** trae `ux: slim|full|omit — …` → **no implementes**: HANDOFF `bloqueado` pidiendo `ux-agent`. El 24 ago David tuvo que decir «pásalo al UX» a destiempo.
 - Comandos de verificación ya corridos (si los hay)
 
 NO releer `AGENTS.md` entero ni ADO completo si el prompt trae AC + paths.
@@ -97,6 +97,11 @@ Tipos cruzados: `@operaciones/shared-types`.
 10. NUNCA crees ramas/commits/pushes/PRs sin confirmación humana. Tampoco staging masivo: **prohibido** `git add -A` / `git add .` en cualquier forma (incluido `git add -A && git diff --cached`); para revisar el árbol usa `git status --short` y `git diff` por rutas.
 11. NUNCA incluyas parches demo en commits propuestos.
 12. NUNCA introduzcas drift visual — replica `components/flit/` y `shell/`. Componer el kit no es clonar la pantalla más densa: sigue `docs/ux/_principios-flito.md` y la spec UX (una primaria, jerarquía, vacío con siguiente paso). NUNCA añadas efectos vistosos ni HEX sueltos. El producto es **FLITO**.
+13. NUNCA dejes una superficie rota en móvil: grids con breakpoints (`grid-cols-1` + `sm:`/`md:` al subir, nunca 3–4 columnas fijas), barras de filtros/acciones con `flex-wrap`, ningún `min-w` que desborde 360 px, tablas con el scroll del kit (`FlitTable`, sin `<table>` suelta ni anidada), acciones de header que se apilan bajo el título cuando no caben.
+14. NUNCA entregues un control interactivo plano: hover sutil + `transition-colors` + foco del kit en todo botón, pill, fila clicable y cierre. El feedback es affordance, no adorno — la prohibición de «efectos vistosos» sigue intacta (nada de escalas, rebotes ni sombras nuevas). Si el kit no da hover en ese control, se lo añades con tokens y lo declaras en el HANDOFF.
+15. NUNCA mezcles alturas de control en una barra: una sola (la del kit, `h-10`). Sin overrides `h-9` / `py-1.5`, sin clones locales de input/select, sin segundas versiones de un componente de filtro que el kit ya tiene. Si el kit no cubre el caso, dilo en el HANDOFF en vez de improvisar.
+16. NUNCA muestres el error crudo del API en un toast (`e.message` sin traducir, códigos, volcados de variables) ni dejes un toast sin cierre: toast = cerrable, una frase, qué pasó y qué sigue; estado persistente = aviso en página (`role="status"`/tarjeta), no toast. Un toast por acción, no uno por paso.
+17. NUNCA uses color crudo en superficies (`'white'`, `#fff`, `bg-white`, `slate-*`/`gray-*`/`red-*` — salvo el lienzo de un PDF): todo color por token `--flit-*` **con par oscuro definido** en `flit-tokens.css` (verifica que el token existe antes de usarlo). Texto de error sobre tarjeta = `--flit-danger-ink`. Token de color nuevo exige su par oscuro + `check:contraste`.
 
 ---
 
@@ -124,7 +129,8 @@ Tipos cruzados: `@operaciones/shared-types`.
    - **Smoke completo** (`test:e2e:smoke`): solo HUs de shell/router/login o pedido explícito (P1/P5)
    - Mutantes: no (P2 — eso es `qa-agent`, tope 3)
    - Sin entorno → declarar en HANDOFF; no inventar
-8. Reporta: archivos, `Alcance verificación: filtrado|completo`, salidas, propuesta de commit.
+8. **Verificación visual (obligatoria en toda HU/Bug FRONTEND con entorno up):** renderiza la pantalla y **mírala**, no solo los asserts. Captura Playwright a **1366×768 y 375×812 en tema claro, y 1366×768 en tema oscuro** (`localStorage.aura-theme = 'dark'` antes del goto; script puntual en `/tmp`, o spec `*.mobile.spec.ts` si el cambio lo amerita — proyecto `mobile-chrome`), y revisa a ojo: barra alineada (una altura), hover presente en controles, sin overflow horizontal, header que envuelve, 4 estados visibles, y en oscuro nada ilegible ni fosforescente. Adjunta las rutas de las capturas en el HANDOFF. Un typecheck verde no prueba que la pantalla se vea bien. Sin entorno → declarar `SIN-ENTORNO` y seguir.
+9. Reporta: archivos, `Alcance verificación: filtrado|completo`, salidas, capturas, propuesta de commit.
 
 ---
 
@@ -146,6 +152,7 @@ HANDOFF
   Archivos: <lista>
   Alcance verificación: filtrado | completo
   Verificación: <comando(s) + salida real>
+  Verificación visual: <capturas 1366 + 375 y qué se revisó | SIN-ENTORNO | no aplica (BACKEND-only)>
   Siguiente: [qa-agent modo A | rama+commit+PR vía flit-integration-ado]
   Pendiente humano: <confirmaciones requeridas>
 ```
