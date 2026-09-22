@@ -73,6 +73,12 @@ abren el PR. Review **después** del PR = fallo de proceso (aunque el veredicto 
 - [ ] `dangerouslySetInnerHTML` solo con sanitización en la misma expresión.
 - [ ] Accesibilidad: labels asociados, `aria-label` donde aplica, foco visible.
 - [ ] Sin PII en consola ni en URLs del SPA; filtros sensibles vía estado UI / API según `AGENTS.md` §14.
+- [ ] **Responsive** (`_principios-flito.md` §Responsive): grids con breakpoints (sin `grid-cols-2/3/4` fijos), barras con `flex-wrap`, sin `min-w` que desborde un móvil, tablas con el scroll del kit (sin `<table>` suelta ni anidada en `FlitTable`), acciones de header que se apilan.
+- [ ] **Feedback de interacción:** todo control interactivo nuevo/tocado con hover sutil + foco del kit (affordance, no adorno); sin «efectos vistosos». Un botón plano es hallazgo, igual que un efecto teatral.
+- [ ] **Uniformidad de barra:** una sola altura de control (kit, `h-10`); sin overrides ad-hoc (`h-9`, `py-1.5`), sin clones locales de input/select, sin segundas versiones de un filtro que el kit ya tiene.
+- [ ] **Notificaciones y voz:** toasts cerrables, una frase con qué pasó y qué sigue (sin `e.message` crudo ni telemetría); aviso en página para estado persistente; un solo tratamiento (usted/tú) por pantalla; subtítulo de cabecera de una frase, sin mecánica interna.
+- [ ] **Tema oscuro:** sin color crudo en superficies (`'white'`, `bg-white`, `slate-*`/`red-*` crudos — salvo lienzo de PDF); todo token `--flit-*` con par oscuro **definido** (referenciar un token inexistente deja el fondo sin pintar en ambos temas); errores sobre tarjeta con `--flit-danger-ink`.
+- [ ] **Verificación visual:** el HANDOFF del impl trae capturas 1366 + 375 en claro y 1366 en oscuro, con lo revisado (o `SIN-ENTORNO` / «no aplica» declarado — p. ej. cambio BACKEND-only).
 
 ### 4. Escalado a seguridad (bloqueante)
 
