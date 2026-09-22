@@ -51,6 +51,8 @@ auditoría incompleta (P5 de `AGENTS.md`).
 - **Prohibido** el barrido de `apps/` para «contextualizar» un diff de 3 archivos, y prohibido
   auditar código que este PR no tocó: eso es deuda preexistente, y va como Nota (P4), nunca como
   hallazgo de este PR ni como `FAIL`.
+- **Auto-reporte:** declara el número en el HANDOFF (`Reconocimiento: N`) — con 135 invocaciones,
+  cada paso de más se multiplica por 135 y el hilo lo registra en el ledger.
 
 ---
 
@@ -195,6 +197,7 @@ Soy un subagente: **no puedo llamar a otros subagentes**. Cierro con:
 HANDOFF
   Modo: diff-scoped | modulo|repo
   Veredicto: PASS | FAIL | PASS-CON-OBSERVACIONES
+  Reconocimiento: <N llamadas de lectura/búsqueda antes del veredicto> (presupuesto P8: 6 en diff-scoped)
   Bloqueantes: <n>
   SCA: ejecutado | N/A este PR
   Waiver humano: no | sí (<cita>)

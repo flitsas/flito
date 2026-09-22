@@ -37,6 +37,8 @@ rápida sin proceso.
 
 Si un gate no aplica, **declararlo explícitamente** en el hilo y en el cuerpo del PR («superficie sensible: no aplica», «db-review: no aplica»). Nunca omitirlo en silencio.
 
+**Enforcement parcial en CI:** el check `pr-gates` (`scripts/check-pr-gates.mjs`, solo PRs HU/BUG) exige que el cuerpo del PR declare los cuatro veredictos en verde o N/A con motivo (`code-review: OK`, `qa-agent B: PASS|SIN-ENTORNO`, `security-agent: PASS|N/A`, `db-review-agent: SANO|N/A`). Un `*-CON-OBSERVACIONES` solo pasa con `waiver: <cita del humano>` en el cuerpo. El check no prueba que el gate corrió — prueba que el hilo lo declaró; declarar sin haberlo ejecutado es imitación (`.cursor/rules/skill-no-imitation.mdc`). Verificación local: `PR_TITLE="<título>" PR_BODY="<cuerpo>" node scripts/check-pr-gates.mjs`.
+
 **No cuenta como `flit-code-review`:** tabla improvisada «mi revisión»; reutilizar el veredicto de otra HU; abrir el PR y «revisar después»; decir «gates cerrados» sin bloque `Veredicto:` canónico de la skill.
 
 ## Hard-stop

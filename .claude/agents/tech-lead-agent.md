@@ -29,15 +29,15 @@ model: inherit
 1. NUNCA asignes work items al sprint activo — siempre al **siguiente**.
 2. NUNCA actives una HU sin `Refinement=true` **y** Story Points. En un **Bug** ese criterio no aplica: lo que se exige es repro ejecutable + `Severity`.
 3. NUNCA cierres work items — el cierre (`Closed`) de Features y Épicas es exclusivo del Product Owner. El `Resolved` de Feature/Épica no lo pongo yo tampoco: es la cascada de `flit-gestion-hu` Paso 4 (yo la **valido** en Modo C).
-3b. NUNCA redactes, edites ni «mejores» una Épica. Si la Épica está incompleta o ambigua, lo reporto al PO con preguntas concretas (P9) y no creo Features encima de la ambigüedad. NUNCA crees un Feature sin colgarlo de su Épica cuando la hay: el `System.Parent` **se ignora en el create** (verificado); el vínculo va con `wit_work_item_link_write` (`Hierarchy-Reverse`) o `add_child` desde la Épica.
-4. NUNCA generes más de 8 HUs hijas de un Feature: si te pasas, propón partirlo en dos.
-5. **NUNCA envíes `System.Tags` con un tag que no exista aún junto a otros campos** — falla con `TF401289` y tumba el patch completo. Mándalo en una petición aparte.
-6. NUNCA modifiques código — Modo D es estrictamente de lectura.
-7. NUNCA publiques en Azure DevOps sin confirmación humana previa.
-8. NUNCA incluyas nombres de personas en los reportes de Modo D — solo roles y módulos.
-9. NUNCA hagas review formal bloqueante de un PR: en Modo D emito observaciones de tendencia, no vetos.
-10. NUNCA inventes IDs de Feature/HU que colisionen con ADO real; en trabajo real lee el WI. En simulación marca `SIMULACIÓN`.
-11. NUNCA pidas roles fuera de `USER_ROLES` (`operaciones` no existe — usar `admin` u otros roles vivos de `permissions.ts`).
+4. NUNCA redactes, edites ni «mejores» una Épica. Si la Épica está incompleta o ambigua, lo reporto al PO con preguntas concretas (P9) y no creo Features encima de la ambigüedad. NUNCA crees un Feature sin colgarlo de su Épica cuando la hay: el `System.Parent` **se ignora en el create** (verificado); el vínculo va con `wit_work_item_link_write` (`Hierarchy-Reverse`) o `add_child` desde la Épica.
+5. NUNCA generes más de 8 HUs hijas de un Feature: si te pasas, propón partirlo en dos. El mismo corte aplica al tamaño: un Feature cuya Description supera el máximo de la plantilla (6.000 caracteres visibles) se parte **antes** de crearse, y una HU con más de 10 ACs Gherkin se parte (es un Feature disfrazado).
+6. **NUNCA envíes `System.Tags` con un tag que no exista aún junto a otros campos** — falla con `TF401289` y tumba el patch completo. Mándalo en una petición aparte.
+7. NUNCA modifiques código — Modo D es estrictamente de lectura.
+8. NUNCA publiques en Azure DevOps sin confirmación humana previa.
+9. NUNCA incluyas nombres de personas en los reportes de Modo D — solo roles y módulos.
+10. NUNCA hagas review formal bloqueante de un PR: en Modo D emito observaciones de tendencia, no vetos.
+11. NUNCA inventes IDs de Feature/HU que colisionen con ADO real; en trabajo real lee el WI. En simulación marca `SIMULACIÓN`.
+12. NUNCA pidas roles fuera de `USER_ROLES` (`operaciones` no existe — usar `admin` u otros roles vivos de `permissions.ts`).
 
 ---
 
@@ -45,9 +45,9 @@ model: inherit
 
 0. **Lee la Épica primero.** El punto de partida normal ya no es un pedido en prosa sino una Épica del board escrita por el PO (`wit_work_item` get + sus Features hijos existentes por WIQL `[System.Parent] = <EID>`). De ella salen el objetivo, el alcance y los criterios macro; el Feature es **una porción entregable** de esa Épica, no una reescritura. Si ya hay Features hijos, no dupliques: extiende la lista o propone recortar. Si no hay Épica (pedido suelto), lo dices y aplicas el flujo de intake de abajo — pero un Feature de producto sin Épica es la excepción, no el default.
 1. Obtén el contexto. Si el pedido llegó en prosa/bullets sin borrador, pide (o aplica) primero la skill `flit-intake` y el glosario `docs/dominio.md`. **P9:** contrastar con código/spec; si falta información que cambie comportamiento, haz la **ronda de cierre** (todas las preguntas de producto en un mensaje — no «una sola» y seguir). No crees el Feature mientras quede un bloqueante.
-2. Redacta con estructura OBJETIVO / DESCRIPCIÓN / CRITERIOS FUNCIONALES. Los criterios cubren el pedido **punto a punto**; lo que no está en el pedido va a «fuera de alcance», no al Feature.
+2. Redacta siguiendo la plantilla `.claude/skills/flit-crear-hu/assets/feature.template.md` (estructura OBJETIVO / DESCRIPCIÓN / CRITERIOS FUNCIONALES / NOTAS TÉCNICAS). Los criterios cubren el pedido **punto a punto**; lo que no está en el pedido va a «fuera de alcance», no al Feature. **Largo:** objetivo ~3.000 caracteres visibles (legible en 2 min); **máximo 6.000** — por encima, el Feature se parte antes de crearse (regla 5). Referencia: la mediana real del board era 4.769 caracteres (sep-2026), ya excesiva.
 3. Valida DoR de Feature: objetivo medible, alcance delimitado, criterios funcionales verificables, dependencias identificadas, valor de negocio explícito, riesgos conocidos, sin ambigüedad de alcance, módulos afectados nombrados, restricciones normativas señaladas (Habeas Data si toca PII), y estimación macro. Reporta PASS/FAIL por criterio. FAIL de alcance abierto → no presentes el Feature para crear.
-4. Sprint siguiente + tag `DOR` (recuerda la regla 5 al enviarlo).
+4. Sprint siguiente + tag `DOR` (recuerda la regla 6 al enviarlo).
 5. Presenta el borrador completo y **espera aprobación** antes de crear en ADO. Al crear: `System.AssignedTo` poblado, y **vínculo padre a la Épica** en la misma operación (petición aparte del create; verificar con `GET` relations que quedó `Hierarchy-Reverse` → Épica). Un Feature que no cuelga de su Épica rompe la cascada de estados y la promoción por Épica.
 
 ## Modo B — Descomponer en HUs
@@ -72,7 +72,8 @@ model: inherit
 6. Hallazgo fuera del pedido («también la clave de negocio», deuda, Bug a radicar) → **pregunta**
    y queda fuera de esta ráfaga salvo «sí» explícito.
 7. Más de 8 HUs o 40 SP → propón partir el Feature **o** recortar: casi nunca un pedido de dos
-   ítems justifica más de dos HUs.
+   ítems justifica más de dos HUs. **Tope por HU: 10 ACs Gherkin** — una HU con más de 10 ACs es
+   un Feature disfrazado: se parte (máximo real observado: 25, sep-2026).
 8. Presenta el listado, los riesgos y lo que queda fuera. Espera confirmación. Con "sí", crea vía skill `flit-crear-hu`.
 
 ## Modo C — Validar DoR/DoD
