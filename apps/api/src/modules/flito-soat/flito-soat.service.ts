@@ -52,15 +52,6 @@ import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
 import { EXISTS_COMPROBANTE_SOAT, TIPO_FACTURA_SOAT } from './flito-soat-censo.js';
 import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
 
-/**
- * TODOS los estados del enum, derivados y no escritos a mano (HU #11910).
- *
- * `Object.values` a propósito: un estado nuevo del catálogo entra aquí solo, y una lista literal se
- * habría quedado corta en silencio — con el efecto de que el ZIP dejaría fuera registros que el
- * actor sí puede ver, sin que nada lo dijera.
- */
-const ESTADOS_SOAT_TODOS: readonly EstadoSoat[] = Object.values(EstadoSoat);
-
 export interface SoatCtx {
   userId: number;
   username: string;
@@ -588,14 +579,19 @@ export function conJoinsCola<Q extends PgSelect>(q: Q) {
  * escrito y ya es compartido —`condicionesCola` + `conJoinsCola`, exportados por la HU #11909—, así
  * que el lote entra en un solo `IN`.
  *
- * ── `estados: [...ESTADOS]` no es «traerlo todo», es lo contrario ────────────────────────────────
+ * ── Solo `pagado`, para TODOS los actores (HU #12815, AC3) ──────────────────────────────────────
  *
- * `condicionesCola` con el filtro vacío acota al gestor a `solicitado` —el defecto de su PANTALLA—,
- * y el comprobante de SOAT solo existe cuando el registro ya está `pagado`: heredar ese defecto
- * habría dejado al gestor sin poder descargar nunca lo que él mismo subió. Pasando la lista completa
- * de estados, la intersección con `ESTADOS_SOAT_VISIBLES_GESTOR` que hay dentro devuelve exactamente
- * lo que `buscarConAcceso` deja pasar (`solicitado` + `pagado`), que es la frontera correcta para una
- * descarga. Para admin y auditoría la lista completa es, en efecto, sin recorte por estado.
+ * El comprobante del SOAT solo existe cuando el registro ya está `pagado`: todo pagado tiene
+ * comprobante y es lo ÚNICO descargable (decisión de David, 2026-09-23). Por eso el lote se acota a
+ * `pagado` y no a «todos los estados»:
+ *   - al gestor, `condicionesCola` lo intersecta con `ESTADOS_SOAT_VISIBLES_GESTOR` y sigue quedando
+ *     `pagado`. NO se puede pasar el filtro vacío: heredaría el defecto de su PANTALLA
+ *     (`solicitado`) y el gestor no podría descargar nunca lo que él mismo subió;
+ *   - al canal Cliente (rama `esCliente`: frontera por compañía) le da, además, la misma regla que
+ *     `TIPOS_SOPORTE_VISIBLES_CLIENTE` aplica en el detalle —la póliza solo en `pagado`— sin
+ *     reimplementarla aquí (AC3 de la HU #11916);
+ *   - a admin le quita los estados en que el SOAT aún no tiene comprobante que descargar.
+ * Un lote sin ningún `pagado` propio cae en el mismo 409 que «sin soportes» (AC4/AC5).
  *
  * ── Los ids que no vuelven NO se distinguen ──────────────────────────────────────────────────────
  *
@@ -605,7 +601,7 @@ export function conJoinsCola<Q extends PgSelect>(q: Q) {
  */
 export async function registrosZipSoat(ids: string[], ctx: SoatCtx): Promise<RegistroZip[]> {
   if (ids.length === 0) return [];
-  const conds = condicionesCola(ctx, { estados: [...ESTADOS_SOAT_TODOS] });
+  const conds = condicionesCola(ctx, { estados: [EstadoSoat.PAGADO] });
   if (conds === null) return []; // gestor sin proveedor → nada, nunca la tabla entera
   const filas = await conJoinsCola(db.select({
     id: flitoSoat.id,
