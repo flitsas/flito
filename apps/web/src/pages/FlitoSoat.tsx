@@ -14,7 +14,7 @@ import RanuraCargaMasiva from '../components/flito/RanuraCargaMasiva';
 import { puedeSolicitarSoat, useAuth } from '../lib/auth';
 import { TarjetaCanalDeshabilitado } from '../components/flito/soat-cliente/TarjetaCanal';
 import PageContentSkeleton from '../components/flit/PageContentSkeleton';
-import BarraEnvioSoat from '../components/flito/BarraEnvioSoat';
+import BarraEnvioSoat, { CasillaSoat } from '../components/flito/BarraEnvioSoat';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
 import HistorialEstados from '../components/flit/HistorialEstados';
@@ -28,7 +28,7 @@ import {
   AvisoExportCola, BotonExportarCola, COLA_SOAT, useExportCola, type FiltrosExportCola,
 } from '../components/flito/ExportarCola';
 import {
-  AvisoSoportesZip, DescargarSoportesZip, ZIP_SOAT, useDescargaZip,
+  AvisoSoportesZip, ZIP_SOAT, useDescargaZip,
 } from '../components/flito/DescargarSoportesZip';
 // Ni `CeldaTramite` ni `ENCABEZADOS_COMUNES`: desde la HU #11905 esta cola dejó de girar sobre el
 // trámite (RN-01: un SOAT es por VIN, no por trámite). Las otras tres tablas que comparten ese
@@ -356,14 +356,14 @@ export default function FlitoSoat() {
   // auditor (AC6) y al cliente, que además tendría otro archivo —el backend le recorta de cada fila
   // el proveedor, quién despachó y lo que FLITO pagó—: eso sería otra HU, no una condición más.
   const puedeExportar = esOperaciones || esGestor;
-  // Quién puede DESCARGAR SOPORTES (HU #11910). La MISMA guarda del export, sin predicado nuevo: el
-  // gestor gana casillas que hoy no tiene, y son suyas —necesita los comprobantes de sus SOAT—. Al
-  // auditor no se le pinta la columna deshabilitada: no se le pinta (AC7).
-  const puedeDescargarSoportes = esOperaciones || esGestor;
+  // Quién DESCARGA SOPORTES: la función que exige el POST del ZIP (HU #12815), no el rol. La casilla
+  // sirve también para «Enviar al gestor»: sin ninguna de las dos, no hay columna (AC7).
+  const puedeDescargar = hasFuncion('soat.soportes.descargar');
+  const conCasillas = puedeDescargar || esOperaciones;
   // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
   const descargaZip = useDescargaZip(ZIP_SOAT);
 
-  const filas = data?.items ?? [];
+  const filas = useMemo(() => data?.items ?? [], [data]);
   const totalPaginas = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   /**
    * Qué filas se pueden MARCAR: **todas las visibles** (HU #11910, AC1). Antes eran solo las
@@ -380,6 +380,11 @@ export default function FlitoSoat() {
    */
   const enviables = useMemo(
     () => filas.filter((f) => seleccion.has(f.id) && f.estado === EstadoSoat.PENDIENTE),
+    [filas, seleccion],
+  );
+  /** Las marcadas PAGADAS: las únicas con comprobante (RN-03), y lo único que viaja en el ZIP. */
+  const descargables = useMemo(
+    () => filas.filter((f) => seleccion.has(f.id) && f.estado === EstadoSoat.PAGADO).map((f) => f.id),
     [filas, seleccion],
   );
   const detalle = filas.find((f) => f.id === detalleId) ?? null;
@@ -548,28 +553,15 @@ export default function FlitoSoat() {
           `role="status"` y `aria-busy`. */}
       {!data && !error && <PageContentSkeleton />}
 
-      {puedeDescargarSoportes && seleccion.size > 0 && (
-        <BarraEnvioSoat
-          marcadas={seleccion.size}
-          enviables={enviables.map((f) => f.id)}
-          puedeEnviar={esOperaciones}
-          proveedores={proveedores}
-          onEnviado={() => { setSeleccion(new Set()); refrescar(); }}
-          onError={setError}
-          descarga={(
-            <DescargarSoportesZip
-              superficie={ZIP_SOAT}
-              ids={[...seleccion]}
-              ocupado={descargaZip.ocupado}
-              onDescargar={descargaZip.descargar}
-            />
-          )}
-        />
+      {conCasillas && seleccion.size > 0 && (
+        <BarraEnvioSoat marcadas={seleccion.size} enviables={enviables.map((f) => f.id)} descargables={descargables}
+          puedeEnviar={esOperaciones} puedeDescargar={puedeDescargar} proveedores={proveedores} zip={descargaZip}
+          onEnviado={() => { setSeleccion(new Set()); refrescar(); }} onError={setError} />
       )}
 
       {/* Fuera de la barra a propósito: la descarga NO limpia la selección, pero si el usuario la
           limpia el aviso tiene que seguir en pantalla. Se monta donde se monta el botón. */}
-      {puedeDescargarSoportes && (
+      {puedeDescargar && (
         <AvisoSoportesZip
           ocupado={descargaZip.ocupado}
           marcadas={descargaZip.marcadas}
@@ -621,11 +613,11 @@ export default function FlitoSoat() {
                 {/* Cuelga del PERMISO y no de «hay filas accionables»: para el auditor aquel
                     cálculo daba vacío por casualidad, y lo que se quiere sostener es la afirmación
                     (AC7). El nombre accesible cambia con el sentido: ya no marca «los pendientes». */}
-                {puedeDescargarSoportes && (
+                {conCasillas && (
                   <FlitTh>
-                    <input type="checkbox" aria-label="Seleccionar las filas de esta página"
-                      checked={seleccion.size > 0 && seleccion.size === seleccionables.length}
-                      onChange={(e) => setSeleccion(e.target.checked ? new Set(seleccionables.map((f) => f.id)) : new Set())} />
+                    <CasillaSoat cabecera etiqueta="Seleccionar las filas de esta página"
+                      marcada={seleccion.size > 0 && seleccion.size === seleccionables.length}
+                      onCambio={(m) => setSeleccion(m ? new Set(seleccionables.map((f) => f.id)) : new Set())} />
                   </FlitTh>
                 )}
                 {/* Rótulos literales y NO `ENCABEZADOS_COMUNES.slice(1)`: atar los encabezados de
@@ -643,11 +635,9 @@ export default function FlitoSoat() {
             <tbody>
               {filas.map((f) => (
                 <FlitTr key={f.id}>
-                  {puedeDescargarSoportes && (
-                    <td className="px-3 py-2">
-                      <input type="checkbox" aria-label={`Seleccionar ${f.placa}`}
-                        checked={seleccion.has(f.id)} onChange={() => toggle(f.id)} />
-                    </td>
+                  {conCasillas && (
+                    <CasillaSoat etiqueta={`Seleccionar ${f.placa ?? f.vin}`} marcada={seleccion.has(f.id)}
+                      onCambio={() => toggle(f.id)} />
                   )}
                   <CeldaVehiculoSoat placa={f.placa} vin={f.vin} marca={f.marca} linea={f.linea}
                     cilindraje={f.cilindraje} carroceria={f.carroceria} tipoServicio={f.tipoServicio}

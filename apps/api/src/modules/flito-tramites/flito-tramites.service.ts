@@ -26,7 +26,9 @@ export interface TramitesCtx { userId: number; username: string; role: string }
 
 // Ni proveedor ni compañía: el actor de Gestión Trámites es Operaciones, así que este contexto no
 // activa la frontera del gestor ni la del canal Cliente (Feature #11912).
-const soatCtx = (ctx: TramitesCtx) => ({ userId: ctx.userId, username: ctx.username, role: ctx.role, proveedorSoatId: null, companiaId: null });
+// `externo: false`: Trámites es superficie interna — ningún rol externo la alcanza (la lista blanca de
+// `canal-cliente.ts` no tiene rutas de `/api/flito/tramites`), así que aquí no hay compañía que acotar.
+const soatCtx = (ctx: TramitesCtx) => ({ userId: ctx.userId, username: ctx.username, role: ctx.role, externo: false, proveedorSoatId: null, companiaId: null });
 const impuestoCtx = (ctx: TramitesCtx) => ({ userId: ctx.userId, username: ctx.username, role: ctx.role, organismos: [] });
 
 export interface Comprador {

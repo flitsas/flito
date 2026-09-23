@@ -205,6 +205,9 @@ const COMPROBANTES = [
 export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
   admin: [
     ...SOAT_LEER, 'soat.comprobante.cargar', 'soat.solicitud.enviar',
+    // HU #12815: el ZIP de comprobantes de la cola SOAT cuelga de su propia función (0179: admin y
+    // proveedor). Sin ella no hay botón «Descargar soportes».
+    'soat.soportes.descargar',
     'impuestos.cola.ver', 'impuestos.recibos.cargar', 'impuestos.tramite.enviar',
     // HU #12592: recibo de caja puntual desde el detalle (migración 0197: hoy solo `admin`).
     'impuestos.recibos.cargar_caja',
@@ -230,7 +233,7 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     'logistica.viajes.registrar',
     'logistica.viajes.quitar',
   ],
-  proveedor: [...SOAT_LEER, 'soat.comprobante.cargar'],
+  proveedor: [...SOAT_LEER, 'soat.comprobante.cargar', 'soat.soportes.descargar'],
   cliente: [...SOAT_LEER, 'soat.solicitud.crear', 'soat.runt.preconsultar', 'soat.factura.leer'],
   gestor_impuestos: ['impuestos.cola.ver', 'impuestos.recibos.cargar'],
   auditor: [...SOAT_LEER, 'impuestos.cola.ver', 'tablero.tablero.ver', SERVICIOS_DE_TRAMITE_VER, 'tramites.tramite.ver_soportes'],
