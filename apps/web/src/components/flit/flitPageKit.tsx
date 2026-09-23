@@ -15,7 +15,9 @@ export function flitPillBtn(active: boolean): CSSProperties {
     // (bug #11604). La variante tinta sube a 5,61 sin mover el azul de marca.
     // `#fff` en línea NO seguía el tema (HU #11899): la pill activa se quedaba blanca sobre el
     // grupo ya oscuro. El token es la misma superficie de tarjeta que usa el resto del kit.
-    ? { background: 'var(--flit-bg-card)', color: 'var(--flit-blue-ink)', boxShadow: 'var(--flit-shadow-card)' }
+    // HU #12819: la tinta es `--flit-pill-active-ink` (el mismo azul en claro; en oscuro, el azul de
+    // texto del tema: el `-ink` sobre la tarjeta oscura daba ~2,4).
+    ? { background: 'var(--flit-bg-card)', color: 'var(--flit-pill-active-ink)', boxShadow: 'var(--flit-shadow-card)' }
     : { color: 'var(--flit-text-muted)' };
 }
 

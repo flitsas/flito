@@ -6,9 +6,10 @@
 // comportamiento al mudarse: lo que cambia es de quién recibe los ids (ver abajo).
 
 import { useId, useState } from 'react';
-import { api, errorMessage } from '../../lib/api';
+import { Send, X } from 'lucide-react';
+import { api, ApiError } from '../../lib/api';
 import {
-  FlitCard, flitInp, flitBtnPrimary, flitBtnPrimaryStyle,
+  FlitCard, flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondarySm,
 } from '../flit/flitPageKit';
 import {
   DescargarSoportesZip, ZIP_SOAT, type EstadoDescargaZip,
@@ -86,13 +87,34 @@ export function CasillaSoat({ etiqueta, marcada, onCambio, cabecera = false }: {
  * ninguna Pendiente marcada—; las dos no compiten en la práctica, porque una Pendiente nunca está
  * pagada.
  */
+/**
+ * Texto del error del envío (HU #12819, §8). Nunca el mensaje crudo: si el servidor contestó un
+ * 409/422 con una frase de NEGOCIO en `error`, esa; si no, la genérica. Es el mismo criterio que
+ * `textoDelServidor` del ZIP.
+ */
+export function textoErrorEnvio(e: unknown): string {
+  if (e instanceof ApiError && (e.status === 409 || e.status === 422)) {
+    const cuerpo = e.rawDetails as { error?: unknown } | null | undefined;
+    const texto = typeof cuerpo?.error === 'string' ? cuerpo.error.trim() : '';
+    if (texto) return texto;
+  }
+  return 'No se pudieron enviar los SOAT. Intenta de nuevo.';
+}
+
+/**
+ * Desde la HU #12819 el envío NO notifica por la tarjeta de error de la cola (aquel «Reintentar»
+ * recargaba la cola, no reenviaba): `onEnviado(n, aOperaciones)` y `onError(texto)` los convierte la
+ * página en un toast, y en el error la selección se conserva para reintentar. `onQuitar` vacía la
+ * selección sin viajar hasta la casilla de cabecera.
+ */
 export default function BarraEnvioSoat({
-  marcadas, enviables, descargables, puedeEnviar, puedeDescargar, proveedores, zip, onEnviado, onError,
+  marcadas, enviables, descargables, puedeEnviar, puedeDescargar, proveedores, zip, onEnviado, onError, onQuitar,
 }: {
   marcadas: number; enviables: string[]; descargables: string[]; puedeEnviar: boolean;
   puedeDescargar: boolean; proveedores: ProveedorSoat[];
   zip: Pick<EstadoDescargaZip, 'ocupado' | 'descargar'>;
-  onEnviado: () => void; onError: (m: string) => void;
+  onEnviado: (enviados: number, aOperaciones: boolean) => void; onError: (texto: string) => void;
+  onQuitar: () => void;
 }) {
   const [destino, setDestino] = useState('');
   const [enviando, setEnviando] = useState(false);
@@ -111,16 +133,22 @@ export default function BarraEnvioSoat({
         aOperaciones
           ? { ids: enviables, gestionOperaciones: true }
           : { ids: enviables, proveedorSoatId: destino });
-      onEnviado();
-    } catch (e) { onError(errorMessage(e)); }
+      onEnviado(enviables.length, aOperaciones);
+    } catch (e) { onError(textoErrorEnvio(e)); }
     finally { setEnviando(false); }
   };
   return (
     <FlitCard>
       <div className="flex flex-wrap items-center gap-3">
-        <span className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>{marcadas} seleccionado(s)</span>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>{marcadas} seleccionado(s)</span>
+          <button type="button" className={flitBtnSecondarySm} onClick={onQuitar}>
+            <X size={16} aria-hidden="true" className="shrink-0" />
+            Quitar selección
+          </button>
+        </div>
         {seOfreceEnviar && (
-          <>
+          <div className="flex w-full flex-wrap items-center gap-3 sm:ml-auto sm:w-auto">
             <label className="flex w-full items-center gap-2 text-sm sm:w-auto">
               <span className="whitespace-nowrap">Enviar a</span>
               {/* `h-10`: la altura única de la barra, la de los dos botones del kit. */}
@@ -133,11 +161,12 @@ export default function BarraEnvioSoat({
               </select>
             </label>
             {/* Sin destino el SOAT quedaría en la cola de nadie y sin ANS con el que medirlo. */}
-            <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+            <button type="button" className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle}
               disabled={enviando || !destino} onClick={enviar}>
+              <Send size={16} aria-hidden="true" className="shrink-0" />
               {enviando ? 'Enviando…' : `${aOperaciones ? 'Enviar a Operaciones' : 'Enviar al gestor'} (${cuenta})`}
             </button>
-          </>
+          </div>
         )}
         {puedeDescargar && (
           <DescargarSoportesZip

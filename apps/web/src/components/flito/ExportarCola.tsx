@@ -328,10 +328,11 @@ export function BotonExportarCola(
   },
 ) {
   return (
-    <div className="flex flex-col items-end gap-1">
+    // A ancho completo por debajo de `sm` (HU #12819): en 375 px el bloque se apila bajo el título.
+    <div className="flex w-full flex-col items-stretch gap-1 sm:w-auto sm:items-end">
       <button
         type="button"
-        className={flitBtnSecondary}
+        className={`${flitBtnSecondary} justify-center`}
         style={flitBtnSecondaryStyle}
         onClick={onExportar}
         disabled={ocupado}
@@ -351,7 +352,7 @@ export function BotonExportarCola(
            nombre accesible («Incluir datos… Añade al final…»), que es lo que el lector anunciaría
            entero y lo que rompería a quien la busque por su rótulo. Desmarcada por defecto: el
            archivo de siempre sigue siendo lo que sale con un solo clic. */
-        <div className="flex flex-col items-end">
+        <div className="flex flex-col items-start sm:items-end">
           <label className="flex cursor-pointer items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -364,7 +365,7 @@ export function BotonExportarCola(
           </label>
           <span
             id="export-incluir-pago-ayuda"
-            className="text-right text-xs"
+            className="text-xs sm:text-right"
             style={{ color: 'var(--flit-text-secondary)' }}
           >
             Añade al final del archivo estado, fechas, valor pagado y gestor. Solo para Operaciones.

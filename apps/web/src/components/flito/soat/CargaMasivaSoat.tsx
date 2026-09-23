@@ -1,12 +1,14 @@
-// Carga masiva de facturas SOAT (modal), movida tal cual desde `pages/FlitoSoat.tsx` (HU #12819, fase 0).
+// Carga masiva de facturas SOAT (modal). HU #12819 (§13): copy sin mecánica interna (tandas, OCR,
+// umbral), icono en la primaria, error con token de par oscuro y hover de fila en el resultado.
 
 import { useState } from 'react';
+import { Upload } from 'lucide-react';
 import { enviarCargaEnTandas, validarCargaMasiva } from '../../../lib/carga-masiva';
 import useSeleccionCargaMasiva from '../../../lib/useSeleccionCargaMasiva';
 import RanuraCargaMasiva from '../RanuraCargaMasiva';
 import FlitModal from '../../flit/FlitModal';
 import StatusChip, { type ChipTone } from '../../flit/StatusChip';
-import { flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
+import { flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary } from '../../flit/flitPageKit';
 
 interface ResultadoMasivo {
   pagados: { archivo: string; detalle: string }[]; enRevision: { archivo: string; detalle: string }[];
@@ -40,24 +42,25 @@ export default function CargaMasiva({ onClose, onListo }: { onClose: () => void;
       {!resultado ? (
         <div className="space-y-3">
           <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-            Sube varios PDF/imágenes o un ZIP. FLITO abre el ZIP en tu computador y sube sus comprobantes de 5 en 5. El OCR cruza cada comprobante con un SOAT solicitado: los que superan el umbral pasan a Pagado; el resto va a revisión.
+            Sube varios PDF o imágenes, o un ZIP. FLITO cruza cada factura con un SOAT solicitado: las que coinciden pasan a Pagado y el resto queda en revisión.
           </p>
           <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.zip" className={flitInp} disabled={enviando}
             aria-label="Facturas o ZIP de la carga masiva"
             onChange={(e) => { void elegir(Array.from(e.target.files ?? [])); }} />
           <RanuraCargaMasiva seleccion={seleccion} abriendo={abriendo}
             errorValidacion={errorValidacion} error={error} progreso={progreso} />
-          <div className="flex gap-2">
-            <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
               disabled={enviando || abriendo !== null || seleccion.items.length === 0 || !!errorValidacion} onClick={subir}>
+              <Upload size={16} aria-hidden="true" className="shrink-0" />
               {enviando ? 'Procesando…' : 'Subir y procesar'}
             </button>
-            <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enviando} onClick={onClose}>Cancelar</button>
+            <button type="button" className={flitBtnSecondary} disabled={enviando} onClick={onClose}>Cancelar</button>
           </div>
         </div>
       ) : (
         <div className="space-y-3">
-          {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+          {error && <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>}
           <div className="flex flex-wrap gap-2">
             <StatusChip tone="success">Pagados {resultado.pagados.length}</StatusChip>
             <StatusChip tone="warning">En revisión {resultado.enRevision.length}</StatusChip>
@@ -65,7 +68,7 @@ export default function CargaMasiva({ onClose, onListo }: { onClose: () => void;
             <StatusChip tone="danger">Sin asociar {resultado.noAsociados.length}</StatusChip>
           </div>
           <TablaResultadoOcr resultado={resultado} />
-          <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={onListo}>Listo</button>
+          <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={onListo}>Listo</button>
         </div>
       )}
     </FlitModal>
@@ -93,7 +96,7 @@ function TablaResultadoOcr({ resultado }: { resultado: ResultadoMasivo }) {
         </thead>
         <tbody>
           {filas.map((f, idx) => (
-            <tr key={idx} className="border-t" style={{ borderColor: 'var(--flit-border-soft)' }}>
+            <tr key={idx} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
               <td className="px-3 py-2 font-medium align-top" style={{ color: 'var(--flit-text-primary)' }}>{f.archivo}</td>
               <td className="px-3 py-2 align-top"><StatusChip tone={f.tono}>{f.resultado}</StatusChip></td>
               <td className="px-3 py-2 align-top" style={{ color: 'var(--flit-text-secondary)' }}>{f.detalle}</td>
