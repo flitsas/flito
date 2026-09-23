@@ -16,6 +16,8 @@
 //
 //   1. resolver las entradas (consultas por LOTE, ninguna por id)
 //   2. si no hay ninguna → 409 (AC6). Si la suma de bytes se pasa → 422
+//   2b. (Trámites e Impuestos, HU #12817) consolidar un PDF por registro en disco temporal
+//       (`soportes-zip-consolidar.ts`): 409 si nada es legible, 422 si los bytes REALES se pasan
 //   3. rastro PII + bitácora
 //   4. recién entonces cabeceras, `archiver` y `pipe`
 //
@@ -42,11 +44,6 @@ import {
 import { db } from '../../db/client.js';
 import { flitoSoportes } from '../../db/schema.js';
 import { env } from '../../config/env.js';
-// **Se IMPORTA y no se modifica.** `organismoParaExport` alimenta la columna `ORGANISMO DE TRANSITO`
-// del `.xlsx` de la HU #11909 —el eslabón anterior de esta misma cadena—, así que ponerle allí el
-// `toUpperCase()` que el AC5 pide aquí cambiaría el contenido de aquel archivo: regresión sobre una
-// HU ya cerrada. Lo que hace falta para el nombre se compone ENCIMA, en `normalizar()`.
-import { organismoParaExport } from '../export/cola-flito-excel.js';
 import { loggerFor } from '../logger.js';
 import { logPiiAccess } from '../pii-audit.js';
 import { makeStore, userOrIpKey } from '../middleware/rateLimiter.js';
@@ -197,11 +194,17 @@ export function comprobarTopeRegistrosZip(ids: readonly unknown[]): void {
 /** Un documento listo para entrar en el archivo, con su nombre ya desempatado. */
 export interface EntradaZip {
   /**
-   * `PLACA-ORGANISMO`, ya con el sufijo `-2`/`-3` si hubo colisión. **Sin extensión**: la de la
+   * `PLACA`, ya con el sufijo `-2`/`-3` si hubo colisión. **Sin extensión**: la de la
    * factura de FLIT no se sabe hasta abrir la respuesta, y el desempate no puede depender de eso.
    */
   nombreBase: string;
-  tipo: TipoSoporteZip;
+  /**
+   * La placa normalizada SIN sufijo (`nombrePorPlaca`). Es la clave con la que la consolidación
+   * (HU #12817) vuelve a nombrar: allí el desempate es entre REGISTROS, no entre documentos.
+   */
+  nombreRegistro: string;
+  /** `consolidado` solo lo usan las entradas que arma `soportes-zip-consolidar.ts` (un PDF por registro). */
+  tipo: TipoSoporteZip | 'consolidado';
   /**
    * De QUÉ registro marcado salió este documento.
    *
@@ -212,7 +215,10 @@ export interface EntradaZip {
   registroId: string;
   /** Lo que se presupuestó para este documento. Ver `FLITO_ZIP_FACTURA_CUPO_BYTES` para la factura. */
   bytes: number;
-  /** Abre el contenido EN STREAMING. No se llama hasta que le toca su turno en el archivo. */
+  /**
+   * Abre el contenido EN STREAMING. En SOAT no se llama hasta que le toca su turno en el archivo; en
+   * Trámites e Impuestos lo llama la consolidación (HU #12817) ANTES del primer byte.
+   */
   abrir: () => Promise<{ stream: Readable; extension: string }>;
 }
 
@@ -234,20 +240,33 @@ function normalizar(valor: string): string {
 }
 
 /**
- * `PLACA-ORGANISMO` (AC5), sin extensión.
+ * `PLACA` (HU #12817, AC6), sin extensión. **Solo la placa, en las tres superficies.**
  *
- * Sin alias y sin código el organismo es `SIN-ORGANISMO`, **nunca `null` ni la cadena `"null"`**:
- * `null` reventaría el nombre de la entrada y `"null"` produciría un fichero llamado `ABC123-NULL`
- * que parece un dato. Lo mismo con la placa: si un registro no la tiene, `SIN-PLACA` — el documento
- * SALE igual, porque un soporte que existe no puede desaparecer del archivo porque le falte un campo
- * al vehículo.
+ * Hasta la HU #12817 el nombre era `PLACA-ORGANISMO` (HU #11910). Operaciones concilia por placa y el
+ * organismo alargaba el nombre sin desempatar nada que la placa no desempatara ya; se retira sin rama
+ * condicional: no hay superficie que conserve el formato viejo.
+ *
+ * Sin placa sale `SIN-PLACA`, **nunca `null` ni la cadena `"null"`**: el documento SALE igual, porque
+ * un soporte que existe no puede desaparecer del archivo porque le falte un campo al vehículo.
  */
-export function nombrePlacaOrganismo(
-  placa: string | null, organismoAlias: string | null, organismoCodigo: string | null,
-): string {
-  const p = normalizar(placa ?? '') || 'SIN-PLACA';
-  const o = normalizar(organismoParaExport(organismoAlias, organismoCodigo) ?? '') || 'SIN-ORGANISMO';
-  return `${p}-${o}`;
+export function nombrePorPlaca(placa: string | null): string {
+  return normalizar(placa ?? '') || 'SIN-PLACA';
+}
+
+/**
+ * El desempate `-2`, `-3`… sobre un nombre base, con memoria de lo ya repartido.
+ *
+ * Es UNA instancia por archivo: el orden en que se le piden nombres es el orden de servidor
+ * (registro por `createdAt, id`), así que el mismo lote da siempre los mismos nombres. Lo usan el
+ * resolutor (una entrada por documento, SOAT) y la consolidación (una entrada por registro).
+ */
+export function desempatador(): (base: string) => string {
+  const vistos = new Map<string, number>();
+  return (base: string): string => {
+    const n = (vistos.get(base) ?? 0) + 1;
+    vistos.set(base, n);
+    return n === 1 ? base : `${base}-${n}`;
+  };
 }
 
 // ── La extensión ─────────────────────────────────────────────────────────────────────────────────
@@ -285,6 +304,19 @@ export function tipoPorBytes(buf: Buffer): { contentType: string; extension: str
     return { contentType: 'image/png', extension: 'png' };
   }
   return { contentType: 'application/pdf', extension: 'pdf' };
+}
+
+/**
+ * Qué es un documento por sus bytes, **sin** la caída a PDF de {@link tipoPorBytes}.
+ *
+ * La consolidación (HU #12817, AC5) necesita distinguir «no es nada que se pueda meter en un PDF»:
+ * con la caída, un fichero basura se rotularía PDF y solo se descubriría tarde, al cargarlo.
+ */
+export function clasificarBytes(buf: Buffer): 'pdf' | 'jpg' | 'png' | null {
+  if (buf.length < 5) return null;
+  const t = tipoPorBytes(buf);
+  if (t.extension !== 'pdf') return t.extension as 'jpg' | 'png';
+  return buf.subarray(0, 5).toString('latin1') === '%PDF-' ? 'pdf' : null;
 }
 
 /**
@@ -405,7 +437,7 @@ function ordenarSoportes(a: SoporteZip, b: SoporteZip): number {
  *
  * ── Las colisiones son el caso NORMAL, no el raro ────────────────────────────────────────────────
  *
- * Todas las entradas de un registro se llaman `PLACA-ORGANISMO`, así que en el ZIP mixto de Trámites
+ * Todas las entradas de un registro se llaman `PLACA`, así que en el ZIP mixto de Trámites
  * (factura + recibo + comprobante del mismo trámite) se llega a `-3` sin que pase nada anormal. Y
  * `flito_soportes` solo tiene índice único de `factura_venta` sobre `soat_id`: dos `factura_soat`
  * vivos del mismo SOAT son posibles y colisionan igual.
@@ -467,17 +499,10 @@ export async function resolverEntradasZip(
 
   const cupoFactura = env.FLITO_ZIP_FACTURA_CUPO_BYTES;
   const entradas: EntradaZip[] = [];
-  const vistos = new Map<string, number>();
-
-  /** Aplica el desempate `-2`, `-3`… sobre el nombre base y registra la ocurrencia. */
-  const nombrar = (base: string): string => {
-    const n = (vistos.get(base) ?? 0) + 1;
-    vistos.set(base, n);
-    return n === 1 ? base : `${base}-${n}`;
-  };
+  const nombrar = desempatador();
 
   for (const reg of ordenados) {
-    const base = nombrePlacaOrganismo(reg.placa, reg.organismoAlias, reg.organismoCodigo);
+    const base = nombrePorPlaca(reg.placa);
 
     for (const tipo of pedidos) {
       if (tipo === TipoSoporteZip.FACTURA_VENTA) {
@@ -485,6 +510,7 @@ export async function resolverEntradasZip(
         const facturaId = reg.facturaVentaFlitId;
         entradas.push({
           nombreBase: nombrar(base),
+          nombreRegistro: base,
           tipo,
           registroId: reg.registroId,
           // Cupo declarado: el tamaño real de la factura de FLIT no se conoce sin ir a buscarla, y
@@ -502,6 +528,7 @@ export async function resolverEntradasZip(
       for (const s of soportes) {
         entradas.push({
           nombreBase: nombrar(base),
+          nombreRegistro: base,
           tipo,
           registroId: reg.registroId,
           bytes: Number(s.tamanoBytes) || 0,
@@ -596,6 +623,7 @@ function anexar(archive: archiver.Archiver, stream: Readable, name: string): Pro
  */
 export async function emitirZipSoportes(
   res: Response, entradas: EntradaZip[], ahora: Date = new Date(),
+  aviso?: { incluidos: number; omitidos: number },
 ): Promise<number> {
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Cache-Control', 'no-store');
@@ -615,7 +643,13 @@ export async function emitirZipSoportes(
   //
   // Ninguna dice POR QUÉ los otros no aportaron: no existe, no es de este actor y no tiene ese
   // documento son el mismo silencio, igual que en el 409 (ver `ZipSinSoportesError`).
-  res.setHeader(CABECERAS_ZIP_SOPORTES.incluidos, String(entradas.length));
+  //
+  // Con `aviso` (Trámites e Impuestos desde la HU #12817) cada entrada es un PDF consolidado, así que
+  // `incluidos` sale de la consolidación —documentos LEGIBLES metidos dentro— y no de `entradas`, y
+  // `omitidos` dice cuántos se leyeron y no se pudieron meter. Las dos cifras son exactas porque la
+  // consolidación terminó antes de esta línea.
+  res.setHeader(CABECERAS_ZIP_SOPORTES.incluidos, String(aviso ? aviso.incluidos : entradas.length));
+  if (aviso) res.setHeader(CABECERAS_ZIP_SOPORTES.omitidos, String(aviso.omitidos));
   res.setHeader(CABECERAS_ZIP_SOPORTES.registros, String(new Set(entradas.map((e) => e.registroId)).size));
 
   // Store (level 0): PDF/JPG ya vienen comprimidos; level 9 solo quema CPU sin reducir el ZIP.
