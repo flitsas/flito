@@ -245,9 +245,6 @@ export const TIPOS_SOPORTE_VISIBLES_CLIENTE: readonly SoporteVisibleCliente[] = 
   },
 ];
 
-/** El rol del canal Cliente. Mismo literal que `shared/middleware/canal-cliente.ts`. */
-const ROL_CLIENTE = 'cliente';
-
 /**
  * Los tipos que este cliente puede ver AHORA, resueltos contra el estado de la solicitud.
  *
@@ -263,6 +260,13 @@ function tiposVisiblesCliente(estadoSoat: string): readonly string[] {
 /** Lo que la ruta sabe del actor y esta consulta necesita para decidir qué bloques devuelve. */
 export interface ActorSoporte {
   rol: string;
+  /**
+   * El rol es EXTERNO (`tipo_principal = 'externo'`, `SoatCtx.externo`). Decide la allowlist
+   * `TIPOS_SOPORTE_VISIBLES_CLIENTE` para TODO rol externo, no solo para el literal `'cliente'`: un
+   * rol externo creado en el panel con otro código veía la lista completa (HU #12815). Obligatorio
+   * por lo mismo que `rol`: un opcional se olvida y el olvido abre.
+   */
+  externo: boolean;
   /**
    * El estado del SOAT que se está mirando, tal como lo devolvió la consulta que ya autorizó el
    * acceso (`detalle()` → `buscarConAcceso()`). **Obligatorio**, por lo mismo que `rol`: un campo
@@ -301,12 +305,13 @@ export async function soportesDeSoat(
   // ni se emite — no se lee lo que no se va a devolver, el mismo criterio que ya aplica la línea de
   // abajo con el comprobante PSE. Esa rama no es teórica: basta con vaciar la lista, o con que un
   // día todas las entradas lleven `soloEn`.
-  const tiposVisibles = actor.rol === ROL_CLIENTE ? tiposVisiblesCliente(actor.estadoSoat) : null;
+  const tiposVisibles = actor.externo ? tiposVisiblesCliente(actor.estadoSoat) : null;
   const [propios, conciliacion] = await Promise.all([
     tiposVisibles !== null && tiposVisibles.length === 0
       ? Promise.resolve([] as SoporteVista[])
       : porRegistro(flitoSoportes.soatId, soatId, 'soat', tiposVisibles),
-    ROLES_COMPROBANTE_PSE.includes(actor.rol) ? comprobanteDeConciliacion(soatId) : [],
+    // Un rol externo nunca, aunque su código coincidiera con uno de la lista (HU #12815).
+    !actor.externo && ROLES_COMPROBANTE_PSE.includes(actor.rol) ? comprobanteDeConciliacion(soatId) : [],
   ]);
   const visibles = tiposVisibles === null ? propios : propios.filter((s) => tiposVisibles.includes(s.tipo));
   return ordenar([...visibles, ...conciliacion]);

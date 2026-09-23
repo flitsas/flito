@@ -39,7 +39,8 @@ import { getTableName } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { CABECERAS_ZIP_SOPORTES, EstadoSoat, ZIP_SOPORTES_MAX_REGISTROS } from '@operaciones/shared-types';
 import { createKeyedDb } from '../helpers/keyed-db.js';
-import { testToken, type TestRole } from '../helpers/auth.js';
+import { registrarUsuarioDePrueba, testToken, type TestRole } from '../helpers/auth.js';
+import { SignJWT } from 'jose';
 import { anchosDe, pdfCifrado, pdfFirma } from '../helpers/pdf-firma.js';
 
 /** Orden observado: el rastro de PII antes del primer byte, y `archiver` después de los dos. */
@@ -1165,6 +1166,50 @@ describe('HU #12815 AC1/AC4/AC5 — canal Cliente con la función: su compañía
     expect(fuera.status).toBe(409);
     expect(sinSoporte.status).toBe(409);
     expect((fuera.body as Buffer).toString('utf8')).toBe((sinSoporte.body as Buffer).toString('utf8'));
+  });
+});
+
+describe('HU #12815 — rol externo NO-`cliente` (`davivienda`) con la función: su compañía y nada más', () => {
+  // El panel crea roles externos con cualquier código desde la HU #12082. `contextoSoat` decidía por
+  // el literal `'cliente'`, y este rol caía en la rama de admin: el ZIP sin filtro de compañía.
+  const sesionDavivienda = async (): Promise<string> => {
+    const sub = siguienteSub++;
+    await registrarUsuarioDePrueba(sub, {
+      rol: 'davivienda', tipoPrincipal: 'externo', funcionesDelRol: ['soat.soportes.descargar'], excepciones: [],
+    });
+    const t = await new SignJWT({ username: 'd@banco.co', role: 'davivienda' })
+      .setProtectedHeader({ alg: 'HS256' }).setSubject(String(sub)).setExpirationTime('1h')
+      .sign(new TextEncoder().encode(process.env.JWT_SECRET));
+    return `Bearer ${t}`;
+  };
+
+  it('id de OTRA compañía → el MISMO 409 que «sin soporte», sin rastro de filas, y el WHERE lleva SU compañía', async () => {
+    // Lo que PostgreSQL devolvería con la frontera aplicada a un id ajeno: ninguna fila del lote.
+    kdb.when.scenario({ users: [{ c: 42 }], flito_soat: [], flito_soportes: [] });
+    const ajeno = await pedirZip(SOAT, await sesionDavivienda(), { ids: [SOAT_B] });
+
+    expect(ajeno.status).toBe(409);
+    expect(logPiiAccessMock).not.toHaveBeenCalled();
+    const { sql, params } = whereDe('flito_soat');
+    expect(sql).toContain('"compania_id" = ');
+    expect(params).toContain(42);
+    expect(estadosEnWhere(params)).toEqual([EstadoSoat.PAGADO]);
+
+    kdb.reset(); instalarEspias();
+    kdb.when.scenario({ users: [{ c: 42 }], flito_soat: [filaSoat()], flito_soportes: [] });
+    const sinSoporte = await pedirZip(SOAT, await sesionDavivienda(), { ids: [SOAT_A] });
+
+    expect(sinSoporte.status).toBe(409);
+    expect((ajeno.body as Buffer).toString('utf8')).toBe((sinSoporte.body as Buffer).toString('utf8'));
+  });
+
+  it('sin compañía → 409 y ninguna lectura del lote', async () => {
+    kdb.when.scenario({ users: [{ c: null }], flito_soat: [filaSoat()], flito_soportes: [soporte()] });
+
+    const r = await pedirZip(SOAT, await sesionDavivienda(), { ids: [SOAT_A] });
+
+    expect(r.status).toBe(409);
+    expect(lecturasDe('flito_soat')).toHaveLength(0);
   });
 });
 

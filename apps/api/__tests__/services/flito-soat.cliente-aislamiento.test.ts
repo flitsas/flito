@@ -16,7 +16,8 @@ import request from 'supertest';
 import express from 'express';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import type { SQL } from 'drizzle-orm';
-import { testToken } from '../helpers/auth.js';
+import { SignJWT } from 'jose';
+import { registrarUsuarioDePrueba, testToken } from '../helpers/auth.js';
 import { ligadoA, renderizar } from '../helpers/sql-ligado.js';
 
 const selectMock = vi.fn();
@@ -236,7 +237,7 @@ describe('buscarConAcceso — 404-no-403 por compañía (detalle, historial, sop
   });
 
   const ctx = (role: string, companiaId: number | null) => ({
-    userId: 1, username: 'u', role, proveedorSoatId: null, companiaId,
+    userId: 1, username: 'u', role, externo: role === 'cliente', proveedorSoatId: null, companiaId,
   });
 
   it('cliente pidiendo un SOAT de OTRA compañía → null (la ruta lo sirve como 404)', async () => {
@@ -284,5 +285,76 @@ describe('RBAC — el `cliente` lee y no muta', () => {
     const r = await request(await buildApp()).post('/api/flito/soat/00000000-0000-0000-0000-000000000001/rechazar')
       .set('Authorization', await auth('cliente')).send({ motivo: 'x' });
     expect(r.status).toBe(403);
+  });
+});
+
+// ─────────── HU #12815 — la frontera por compañía es de TODO rol EXTERNO, no del literal `cliente` ───────────
+//
+// Desde la HU #12082 el panel crea roles externos con cualquier código (`tipo_principal = 'externo'`).
+// `contextoSoat` comparaba con el literal `'cliente'`, así que un rol externo `davivienda` caía en la
+// rama de admin: la cola, las facetas, el detalle y el ZIP sin filtro de compañía. Mutante que esto
+// mata: volver a decidir por `user.role === 'cliente'`.
+
+/** Token de un rol EXTERNO con otro código: el JWT dice `davivienda` y el resolutor, `externo`. */
+async function authExterno(rol: string, sub: number, funciones: string[]): Promise<string> {
+  await registrarUsuarioDePrueba(sub, { rol, tipoPrincipal: 'externo', funcionesDelRol: funciones, excepciones: [] });
+  const t = await new SignJWT({ username: 'd@banco.co', role: rol })
+    .setProtectedHeader({ alg: 'HS256' }).setSubject(String(sub)).setExpirationTime('1h')
+    .sign(new TextEncoder().encode(process.env.JWT_SECRET));
+  return `Bearer ${t}`;
+}
+
+describe('HU #12815 — rol externo NO-`cliente` (`davivienda`): acotado a su compañía en la cola', () => {
+  it('con compañía → conteo y página llevan SU compania_id', async () => {
+    colaVacia(7);
+    const r = await request(await buildApp()).get('/api/flito/soat')
+      .set('Authorization', await authExterno('davivienda', 8801, ['pagina.flito_soat', 'soat.cola.ver']));
+    expect(r.status).toBe(200);
+
+    const deLaCola = wheres.slice(1); // [0] es la lectura de `users` de `contextoSoat`
+    expect(deLaCola).toHaveLength(2);
+    for (const w of deLaCola) {
+      const { sql, params } = aSql(w);
+      expect(sql).toContain('"flito_soat"."compania_id" =');
+      expect(params).toContain(7);
+    }
+  });
+
+  it('sin compañía → cola vacía y ninguna consulta a `flito_soat`', async () => {
+    colaVacia(null);
+    const r = await request(await buildApp()).get('/api/flito/soat')
+      .set('Authorization', await authExterno('davivienda', 8802, ['pagina.flito_soat', 'soat.cola.ver']));
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ items: [], total: 0, page: 1, pageSize: 50 });
+    expect(selectMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('detalle: `buscarConAcceso` con el contexto del rol externo → null para un SOAT de otra compañía', async () => {
+    const { contextoSoat, buscarConAcceso } = await import('../../src/modules/flito-soat/flito-soat.service.js');
+    await authExterno('davivienda', 8803, ['pagina.flito_soat']);
+    selectMock.mockImplementationOnce(() => chainEspia([{ c: 7 }])); // contextoSoat → users
+    const ctx = await contextoSoat({ sub: 8803, username: 'd@banco.co', role: 'davivienda' });
+    expect(ctx.externo).toBe(true);
+    expect(ctx.companiaId).toBe(7);
+
+    selectMock.mockImplementationOnce(() => chainEspia([{
+      soat: {
+        id: '00000000-0000-0000-0000-0000000000aa', companiaId: 9, estado: 'pagado',
+        proveedorSoatId: null, gestionOperaciones: false, origen: 'tramite',
+      },
+      dentroDeFrontera: true,
+    }]));
+    expect(await buscarConAcceso('00000000-0000-0000-0000-0000000000aa', ctx)).toBeNull();
+  });
+
+  it('resolutor en `ok:false` → se trata como EXTERNO (fallo cerrado, igual que la guarda): nada', async () => {
+    const { contextoSoat, condicionesCola } = await import('../../src/modules/flito-soat/flito-soat.service.js');
+    // Sub que el double no conoce: `resolverPermisos` → `{ ok: false, motivo: 'sin_usuario' }`. El
+    // JWT dice `admin`, y aun así no recibe la vista de admin.
+    selectMock.mockImplementationOnce(() => chainEspia([{ c: null }]));
+    const ctx = await contextoSoat({ sub: 8899001, username: 'x', role: 'admin' });
+    expect(ctx.externo).toBe(true);
+    expect(ctx.companiaId).toBeNull();
+    expect(condicionesCola(ctx, {})).toBeNull();
   });
 });

@@ -60,7 +60,7 @@ describe('AC2/AC3 · A — la allowlist del cliente, por tipo Y por estado', () 
   const pedir = async (rol: string, estadoSoat: string) => {
     kdb.when.select('flito_soportes', TODOS).select('flito_conciliacion_lineas', [TODOS[3]]);
     const { soportesDeSoat } = await import('../../src/shared/soportes/soportes-consulta.js');
-    return (await soportesDeSoat(SOAT_ID, { rol, estadoSoat })).map((s) => s.tipo).sort();
+    return (await soportesDeSoat(SOAT_ID, { rol, externo: rol === 'cliente', estadoSoat })).map((s) => s.tipo).sort();
   };
 
   it('cliente + `pagado` → la póliza y su propia factura de venta, y NADA más (AC2)', async () => {
@@ -103,7 +103,7 @@ describe('AC2/AC3 · A — la allowlist del cliente, por tipo Y por estado', () 
     kdb.when.select('flito_soportes', TODOS).select('flito_conciliacion_lineas', [TODOS[3]]);
 
     const { soportesDeSoat } = await import('../../src/shared/soportes/soportes-consulta.js');
-    await soportesDeSoat(SOAT_ID, { rol: 'cliente', estadoSoat: 'pagado' });
+    await soportesDeSoat(SOAT_ID, { rol: 'cliente', externo: true, estadoSoat: 'pagado' });
 
     expect(tablas).not.toContain('flito_conciliacion_lineas');
   });
@@ -135,20 +135,20 @@ describe('AC2/AC3 · A — la allowlist del cliente, por tipo Y por estado', () 
     kdb.when.select('flito_soportes', TODOS);
     const { soportesDeSoat } = await import('../../src/shared/soportes/soportes-consulta.js');
 
-    await soportesDeSoat(SOAT_ID, { rol: 'cliente', estadoSoat: 'pagado' });
+    await soportesDeSoat(SOAT_ID, { rol: 'cliente', externo: true, estadoSoat: 'pagado' });
     const pagado = espia.condicionesLeidas().map((c) => renderizar(c as never));
     expect(ligadosA(pagado[0], '"flito_soportes"."tipo"')).toEqual(['factura_soat', 'factura_venta']);
 
     espia.reiniciar();
     kdb.when.select('flito_soportes', TODOS);
-    await soportesDeSoat(SOAT_ID, { rol: 'cliente', estadoSoat: 'solicitado' });
+    await soportesDeSoat(SOAT_ID, { rol: 'cliente', externo: true, estadoSoat: 'solicitado' });
     const noPagado = espia.condicionesLeidas().map((c) => renderizar(c as never));
     expect(ligadosA(noPagado[0], '"flito_soportes"."tipo"')).toEqual(['factura_venta']);
 
     // Y para un rol interno no hay recorte por tipo en absoluto (`ligadosA` lanza si no lo hay).
     espia.reiniciar();
     kdb.when.select('flito_soportes', TODOS).select('flito_conciliacion_lineas', []);
-    await soportesDeSoat(SOAT_ID, { rol: 'admin', estadoSoat: 'solicitado' });
+    await soportesDeSoat(SOAT_ID, { rol: 'admin', externo: false, estadoSoat: 'solicitado' });
     const admin = espia.condicionesLeidas().map((c) => renderizar(c as never));
     expect(() => ligadosA(admin[0], '"flito_soportes"."tipo"')).toThrow();
   });
@@ -302,6 +302,10 @@ describe('AC2 · B — `GET /:id/soportes` con el token del cliente', () => {
     // usuario, para que el canal externo tenga menú cuando la SPA (#12083) deje de leerlo de
     // `/auth/me`. Devuelve solo lo del usuario que pregunta; el catálogo (`/funciones`) sigue fuera.
     //
+    // **Y CRECE con la HU #12815** (Épica #12810): entra `POST /api/flito/soat/soportes/zip`, la
+    // descarga masiva de comprobantes, guardada por `soat.soportes.descargar`, acotada a su compañía
+    // y solo a SOAT `pagado`. `POST` porque los ids van en el cuerpo, no porque escriba.
+    //
     // El orden es el de declaración del middleware —lecturas, luego escrituras por HU—: se afirma
     // tal cual para que el diff del rojo señale el sitio exacto de la lista.
     expect(RUTAS_PERMITIDAS_CLIENTE.map((r) => `${r.metodo} ${r.patron}`)).toEqual([
@@ -313,6 +317,7 @@ describe('AC2 · B — `GET /:id/soportes` con el token del cliente', () => {
       'GET /api/flito/soat/:id',
       'GET /api/flito/soat/:id/historial',
       'GET /api/flito/soat/:id/soportes',
+      'POST /api/flito/soat/soportes/zip',
       'POST /api/flito/soat/cliente/preconsulta',
       'POST /api/flito/soat/cliente',
       'POST /api/flito/soat/cliente/factura/lectura',

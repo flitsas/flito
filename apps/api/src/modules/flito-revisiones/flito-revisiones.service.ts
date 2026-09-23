@@ -210,8 +210,11 @@ export async function aplicarFacturaSoat(
   });
 
   // `companiaId: null` — quien resuelve una revisión es Operaciones, no un usuario de compañía
-  // (Feature #11912). Sin proveedor ni compañía, este contexto no aplica ninguna frontera.
-  await marcarPagado(soatId, extraccion, { userId: ctx.userId, username: ctx.username, role: ctx.role, proveedorSoatId: null, companiaId: null });
+  // (Feature #11912). Sin proveedor ni compañía, este contexto no aplica ninguna frontera; `externo:
+  // false` por lo mismo (HU #12815): la bandeja de revisiones no está en la lista blanca del canal.
+  await marcarPagado(soatId, extraccion, {
+    userId: ctx.userId, username: ctx.username, role: ctx.role, externo: false, proveedorSoatId: null, companiaId: null,
+  });
 }
 
 /**
