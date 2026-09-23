@@ -32,6 +32,7 @@ vi.mock('../../src/shared/permisos-efectivos.js', () => ({
 }));
 
 const { authMiddleware } = await import('../../src/shared/middleware/auth.js');
+const { exigirFuncion } = await import('../../src/shared/middleware/exigir-funcion.js');
 const { FUNCIONES_DEL_CANAL_EXTERNO, RUTAS_PERMITIDAS_CLIENTE, rutaPermitidaParaCliente } = await import('../../src/shared/middleware/canal-cliente.js');
 const { montajesDeFunciones } = await import('../../src/modules/permisos/inventario-guardas.js');
 const { catalogoCompleto } = await import('../../src/modules/permisos/catalogo.js');
@@ -45,6 +46,8 @@ const USUARIOS: Record<number, PermisosResueltos> = {
   2: { ok: true, userId: 2, rol: 'aseguradora_x', tipoPrincipal: 'externo', funciones: new Set(['pagina.flito_soat']), version: 'b', resueltoEn: new Date() },
   3: { ok: true, userId: 3, rol: 'gestor', tipoPrincipal: 'interno', funciones: new Set(['pagina.dashboard']), version: 'c', resueltoEn: new Date() },
   4: { ok: false, userId: 4, motivo: 'resolucion' },
+  // HU #12815: cliente externo CON la función de descarga masiva marcada a su rol.
+  5: { ok: true, userId: 5, rol: 'cliente', tipoPrincipal: 'externo', funciones: new Set(['pagina.flito_soat', 'soat.soportes.descargar']), version: 'd', resueltoEn: new Date() },
   // #12272: externo con el catálogo COMPLETO concedido.
   9: { ok: true, userId: 9, rol: 'aseguradora_x', tipoPrincipal: 'externo', funciones: new Set(catalogoCompleto().map((f) => f.codigo)), version: 'z', resueltoEn: new Date() },
 };
@@ -63,6 +66,8 @@ function app(): Express {
   a.get('/api/vehicles', authMiddleware, handler);
   a.get('/api/users', authMiddleware, handler);
   a.post('/api/flito/soat/enviar', authMiddleware, handler);
+  // HU #12815: el mismo montaje que `flito-soat.routes.ts` (la guarda de la función detrás de la lista).
+  a.post('/api/flito/soat/soportes/zip', authMiddleware, exigirFuncion('soat.soportes.descargar'), handler);
   return a;
 }
 
@@ -177,18 +182,20 @@ describe('TC #12272 AC8 — marcarle TODAS las funciones a un rol externo (CF-13
 // que se DERIVA del `funcion` que cada entrada de `RUTAS_PERMITIDAS_CLIENTE` declara. Lo que este bloque
 // fija: cada código declarado existe en el catálogo y es EXACTAMENTE el que `exigirFuncion` monta en la
 // ruta correspondiente del fuente (por método y ruta relativa a `/api/flito/soat`); las tres entradas
-// sin guarda (`/auth/me`, `/permisos/mios`, `/auth/logout`) no declaran ninguna; y son ocho.
+// sin guarda (`/auth/me`, `/permisos/mios`, `/auth/logout`) no declaran ninguna; y son nueve (HU #12815).
 // Mutación M12: quitar `funcion: 'soat.cola.ver'` de la lista → rojo aquí (y el PUT empieza a avisar de más).
 describe('HU #12084 RN-A1 — FUNCIONES_DEL_CANAL_EXTERNO se deriva de la lista y coincide con la guarda montada', () => {
   const PREFIJO = '/api/flito/soat';
   const conFuncion = RUTAS_PERMITIDAS_CLIENTE.filter((r) => r.funcion !== undefined);
   const sinFuncion = RUTAS_PERMITIDAS_CLIENTE.filter((r) => r.funcion === undefined);
 
-  it('son ocho rutas con función y tres sin ella, y el conjunto derivado son esas ocho', () => {
-    expect(conFuncion).toHaveLength(8);
+  it('son nueve rutas con función y tres sin ella, y el conjunto derivado son esas nueve', () => {
+    // HU #12815: la novena es `POST /soportes/zip` → `soat.soportes.descargar`.
+    expect(conFuncion).toHaveLength(9);
     expect(sinFuncion.map((r) => r.patron).sort()).toEqual(['/api/auth/logout', '/api/auth/me', '/api/permisos/mios']);
     expect([...FUNCIONES_DEL_CANAL_EXTERNO].sort()).toEqual(conFuncion.map((r) => r.funcion!).sort());
-    expect(FUNCIONES_DEL_CANAL_EXTERNO.size).toBe(8);
+    expect(FUNCIONES_DEL_CANAL_EXTERNO.size).toBe(9);
+    expect(FUNCIONES_DEL_CANAL_EXTERNO.has('soat.soportes.descargar')).toBe(true);
   });
 
   it('cada función declarada existe en el catálogo como operación', () => {
@@ -206,5 +213,37 @@ describe('HU #12084 RN-A1 — FUNCIONES_DEL_CANAL_EXTERNO se deriva de la lista 
       expect(montaje, `${r.metodo} ${r.patron}: hay una ruta guardada en flito-soat/`).toBeDefined();
       expect(montaje!.codigo, `${r.metodo} ${r.patron}`).toBe(r.funcion);
     }
+  });
+});
+
+// ─────────── HU #12815 (Épica #12810): la descarga masiva de comprobantes entra al canal Cliente ───────────
+//
+// AC1: con `soat.soportes.descargar` la lista blanca NO la corta. AC2: sin la función, 403 — y ese 403
+// es el de `exigirFuncion` (cuerpo con `funcion`), NO el de la lista (`{ error: 'Sin permisos' }`):
+// que la lista la deja pasar se ve en que la respuesta nombra la función que falta.
+describe('HU #12815 AC1/AC2 — POST /api/flito/soat/soportes/zip en el canal Cliente', () => {
+  it('AC1: la ruta está en la lista blanca, con su función, y solo por POST', () => {
+    expect(rutaPermitidaParaCliente('POST', '/api/flito/soat/soportes/zip')).toBe(true);
+    expect(rutaPermitidaParaCliente('GET', '/api/flito/soat/soportes/zip')).toBe(false);
+    const entrada = RUTAS_PERMITIDAS_CLIENTE.find((r) => r.patron === '/api/flito/soat/soportes/zip');
+    expect(entrada?.metodo).toBe('POST');
+    expect(entrada?.funcion).toBe('soat.soportes.descargar');
+    // Las hermanas de otros módulos siguen fuera: la entrada no es un comodín de `/soportes/zip`.
+    expect(rutaPermitidaParaCliente('POST', '/api/flito/impuestos/soportes/zip')).toBe(false);
+    expect(rutaPermitidaParaCliente('POST', '/api/flito/tramites/soportes/zip')).toBe(false);
+  });
+
+  it('AC1: cliente externo CON la función → llega al handler (200)', async () => {
+    const r = await pide('post', '/api/flito/soat/soportes/zip', await token(5, 'cliente'));
+    expect(r.status).toBe(200);
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('AC2: cliente externo SIN la función → 403 de exigirFuncion (la lista ya lo dejó pasar)', async () => {
+    const r = await pide('post', '/api/flito/soat/soportes/zip', await token(1, 'cliente'));
+    expect(r.status).toBe(403);
+    expect(r.body).not.toEqual({ error: 'Sin permisos' });
+    expect(r.body.funcion).toBe('soat.soportes.descargar');
+    expect(handler).not.toHaveBeenCalled();
   });
 });
