@@ -114,8 +114,9 @@ export const ZIP_SOAT: SuperficieZip = {
   ruta: '/flito/soat/soportes/zip',
   tipos: [FACTURA_SOAT],
   tiposEnElCuerpo: false,
-  // Sin diálogo, el usuario no tiene dónde leer qué entra en el ZIP: esta línea es ese sitio.
-  lineaAyuda: 'Se descargan los comprobantes de pago cargados en las filas marcadas.',
+  // Sin `lineaAyuda` desde la HU #12815: la barra de SOAT sabe qué filas están pagadas (RN-03: solo
+  // se llega a Pagado con factura) y lo dice con cifras antes del clic; una línea fija repetiría lo
+  // mismo sin números.
 };
 
 export const ZIP_IMPUESTOS: SuperficieZip = {
@@ -146,7 +147,7 @@ const ZIP_TIMEOUT_MS = 600_000;
 /** Velo de hover del kit (`--flit-bg-hover`, con par oscuro): el botón secundario no lo trae. */
 export const hoverSecundario = 'transition-colors enabled:hover:bg-[var(--flit-bg-hover)]';
 /** El primario pinta su gradiente por `style`: el hover se da con opacidad, sin sombra ni escala. */
-const hoverPrimario = 'transition-opacity enabled:hover:opacity-90';
+export const hoverPrimario = 'transition-opacity enabled:hover:opacity-90';
 
 /** Prefijo del nombre que pone el servidor. **Sin placa**: el nombre del ZIP acaba en un asunto de correo. */
 const PREFIJO_ZIP = 'soportes';
@@ -289,7 +290,7 @@ export function avisoDeZip(
  */
 function textoDeTope(): string {
   return `Solo se pueden descargar los documentos de ${ZIP_SOPORTES_MAX_REGISTROS} registros a la `
-    + 'vez. Marca menos filas y vuelve a intentarlo.';
+    + 'vez. Hay que marcar menos filas para volver a intentarlo.';
 }
 
 /**
@@ -313,7 +314,7 @@ function avisoDeExito(
   const faltan = marcadas - (registros ?? 0);
   const base = parcial
     ? `ZIP descargado: ${nombre} — ${registros} de las ${marcadas} filas marcadas tenían `
-      + `${loPedido(superficie, tipos)}; las otras ${faltan} no.`
+      + `${loPedido(superficie, tipos)}; ${faltan === 1 ? 'la otra no' : `las otras ${faltan} no`}.`
     : `ZIP descargado: ${nombre}`;
   const omitido = fraseOmitidos(omitidos);
   // El punto solo se añade si detrás viene otra frase: el caso completo sigue diciendo lo de siempre.
@@ -396,13 +397,32 @@ export function useDescargaZip(superficie: SuperficieZip): EstadoDescargaZip {
  *
  * **No se deshabilita por «ninguna tiene documentos»**: el cliente no sabe qué soportes existen y
  * adivinarlo lo llevaría a apagar el botón sin motivo. Quien lo sabe es el servidor, y lo dice con
- * el AC6.
+ * el AC6. **Excepción: SOAT (HU #12815)**, donde la cola sí lo sabe —solo un Pagado tiene
+ * comprobante (RN-03)—: allí la página pasa `marcadas` y los `ids` ya filtrados, y el rótulo dice
+ * `(k de N)` antes del clic en vez de un «parcial» después.
  */
 export function DescargarSoportesZip(
-  { superficie, ids, ocupado, onDescargar }:
+  {
+    superficie, ids, ocupado, onDescargar, marcadas, minMarcadas = 1, primaria = false,
+    describedBy, llenaEnMovil = false,
+  }:
   {
     superficie: SuperficieZip; ids: string[]; ocupado: boolean;
     onDescargar: (ids: string[], tipos: TipoSoporteZip[]) => void;
+    /**
+     * Filas MARCADAS, cuando la pantalla sí sabe cuáles aportan (HU #12815, SOAT: solo las pagadas
+     * tienen comprobante). Con ella `ids` son solo las que aportan y el rótulo dice `(k de N)`, como
+     * «Enviar al gestor (3 de 8)». Sin ella (Trámites, Impuestos) todo sigue como estaba.
+     */
+    marcadas?: number;
+    /** Mínimo de filas marcadas para habilitar (SOAT: 2; para una sola está la descarga de su fila). */
+    minMarcadas?: number;
+    /** Peso primario cuando es la única acción de la barra (SOAT sin «Enviar al gestor»). */
+    primaria?: boolean;
+    /** Id de la línea visible que explica el desajuste o por qué está deshabilitado. */
+    describedBy?: string;
+    /** Ocupa el ancho en móvil (`w-full sm:w-auto`): el rótulo `(k de N)` no cabe junto a nada a 375. */
+    llenaEnMovil?: boolean;
   },
 ) {
   const [abierto, setAbierto] = useState(false);
@@ -412,21 +432,27 @@ export function DescargarSoportesZip(
     if (conDialogo) { setAbierto(true); return; }
     onDescargar(ids, superficie.tipos.map((t) => t.valor));
   };
+  const n = marcadas ?? ids.length;
+  const cuenta = n > ids.length ? `${ids.length} de ${n}` : `${ids.length}`;
+  const ancho = llenaEnMovil ? 'w-full justify-center sm:w-auto' : '';
 
   return (
-    <div className="flex flex-col items-start gap-1">
+    <div className={`flex flex-col items-start gap-1 ${llenaEnMovil ? 'w-full sm:w-auto' : ''}`}>
       <button
         type="button"
-        className={`${flitBtnSecondary} ${hoverSecundario}`}
-        style={flitBtnSecondaryStyle}
+        className={primaria
+          ? `${flitBtnPrimary} ${hoverPrimario} ${ancho}`
+          : `${flitBtnSecondary} ${hoverSecundario} ${ancho}`}
+        style={primaria ? flitBtnPrimaryStyle : flitBtnSecondaryStyle}
         onClick={alPulsar}
-        disabled={ocupado || ids.length === 0}
+        disabled={ocupado || ids.length === 0 || n < minMarcadas}
         aria-busy={ocupado || undefined}
+        aria-describedby={describedBy}
       >
         {/* «Descargar soportes» y no «Descargar» a secas: en Impuestos convive con «Descargar
             certificado» por fila, y dos botones con el mismo nombre accesible en la misma pantalla
             son dos acciones indistinguibles para quien navega con lector. */}
-        {ocupado ? 'Preparando el archivo…' : `Descargar soportes (${ids.length})`}
+        {ocupado ? 'Preparando el archivo…' : `Descargar soportes (${cuenta})`}
       </button>
       {superficie.lineaAyuda && (
         <span className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
@@ -608,7 +634,7 @@ export function AvisoSoportesZip(
           </p>
           <p className="mt-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
             Se reúnen los documentos de cada registro en un solo PDF antes de empezar la descarga, así
-            que puede tardar unos minutos. Puedes seguir en la cola mientras tanto.
+            que puede tardar unos minutos. La cola sigue disponible mientras tanto.
           </p>
         </div>
       )}

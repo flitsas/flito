@@ -22,7 +22,8 @@
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import {
-  loginAs, AUDITOR_USER, GESTOR_IMPUESTOS_USER, OPERACIONES_USER, PROVEEDOR_USER,
+  loginAs, AUDITOR_USER, CLIENTE_USER, FUNCIONES_POR_ROL, GESTOR_IMPUESTOS_USER, OPERACIONES_USER,
+  PROVEEDOR_USER,
 } from '../helpers/auth';
 import { instrumentarObjectUrls, leerUrls } from '../helpers/object-urls';
 import { ZIP_SOPORTES_MAX_REGISTROS } from '@operaciones/shared-types';
@@ -253,7 +254,8 @@ test.describe('HU #11910 — AC7: el auditor no la tiene, y no como botón apaga
       // `esOperaciones && …` a secas dejaría al gestor y al proveedor sin casillas, y eso solo se
       // ve probando con ellos.
       await expect(casillaCabecera(page)).toHaveCount(1);
-      await marcar(page, 'DEF456');
+      // SOAT pide 2 marcadas desde la HU #12815 (AC6); las dos pagadas, para que el botón se encienda.
+      await marcar(page, ...(caso.pantalla === P_SOAT ? ['XYZ789', 'DEF456'] : ['DEF456']));
       await expect(botonZip(page)).toHaveCount(1);
       await expect(botonZip(page)).toBeEnabled();
     });
@@ -283,8 +285,11 @@ test.describe('HU #11910 — AC1: el marcado se abre, el alcance de las acciones
 
     await expect(page.getByRole('button', { name: 'Enviar al gestor (1 de 3)' })).toBeVisible();
     await expect(page.getByText(/De las 3 filas marcadas, 1 están Pendientes/)).toBeVisible();
-    // Y la acción nueva sí usa las 3: esa es la diferencia que hace comprensible el desajuste.
-    await expect(page.getByRole('button', { name: 'Descargar soportes (3)' })).toBeVisible();
+    // HU #12815: el ZIP también declara su desajuste antes del clic —solo las 2 pagadas tienen
+    // comprobante—, en el mismo párrafo que el del envío.
+    await expect(page.getByRole('button', { name: 'Descargar soportes (2 de 3)' })).toBeVisible();
+    await expect(page.getByText('Solo los SOAT pagados tienen comprobante: el ZIP trae 2 de las 3 filas marcadas.'))
+      .toBeVisible();
 
     await page.getByLabel('Enviar a').selectOption('p1');
     await page.getByRole('button', { name: 'Enviar al gestor (1 de 3)' }).click();
@@ -401,9 +406,10 @@ test.describe('HU #11910 — AC3: el diálogo de tipos', () => {
     const zip = await mockZip(page, P_SOAT);
 
     await page.goto('/flito/soat');
-    await marcar(page, 'XYZ789');
+    await marcar(page, 'XYZ789', 'DEF456');
+    // HU #12815: la línea fija se retiró; con todas pagadas no hay nada que explicar.
     await expect(page.getByText('Se descargan los comprobantes de pago cargados en las filas marcadas.'))
-      .toBeVisible();
+      .toHaveCount(0);
 
     const [descarga] = await Promise.all([
       page.waitForEvent('download'),
@@ -414,7 +420,7 @@ test.describe('HU #11910 — AC3: el diálogo de tipos', () => {
     expect(zip.peticiones).toHaveLength(1);
     // **Sin `tipos`**: el esquema de ese endpoint es `z.object({ ids }).strict()`, así que mandarle
     // un `tipos` de cortesía sería un 400. Un solo tipo posible = nada que elegir.
-    expect(zip.peticiones[0].cuerpo).toEqual({ ids: ['s2'] });
+    expect(zip.peticiones[0].cuerpo).toEqual({ ids: ['s2', 's3'] });
     expect(descarga.suggestedFilename()).toBe(NOMBRE_ZIP);
   });
 
@@ -487,7 +493,7 @@ test.describe('HU #11910 — AC6 y el caso parcial', () => {
   test('/flito/soat — parcial: se descarga, y el aviso trae las cifras', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await montarSoat(page);
-    await mockZip(page, P_SOAT, {
+    const zip = await mockZip(page, P_SOAT, {
       status: 200,
       headers: {
         'content-disposition': `attachment; filename="${NOMBRE_ZIP}"`,
@@ -503,9 +509,11 @@ test.describe('HU #11910 — AC6 y el caso parcial', () => {
     await casillaCabecera(page).check();
     await Promise.all([page.waitForEvent('download'), botonZip(page).click()]);
 
+    // HU #12815: de las 3 marcadas solo viajan las 2 pagadas, y el parcial se cuenta sobre lo pedido.
+    expect(zip.peticiones[0].cuerpo).toEqual({ ids: ['s2', 's3'] });
     await expect(bandaZip(
       page,
-      `ZIP descargado: ${NOMBRE_ZIP} — 1 de las 3 filas marcadas tenían comprobante del SOAT; las otras 2 no.`,
+      `ZIP descargado: ${NOMBRE_ZIP} — 1 de las 2 filas marcadas tenían comprobante del SOAT; la otra no.`,
     )).toBeVisible();
   });
 
@@ -604,7 +612,7 @@ test.describe('HU #11910 — AC6 y el caso parcial', () => {
     await mockZip(page, P_SOAT);
 
     await page.goto('/flito/soat');
-    await marcar(page, 'ABC123');
+    await marcar(page, 'XYZ789', 'DEF456');
     await Promise.all([page.waitForEvent('download'), botonZip(page).click()]);
 
     await expect(bandaZip(page, `ZIP descargado: ${NOMBRE_ZIP}`)).toBeVisible();
@@ -668,7 +676,7 @@ test.describe('HU #11910 — AC6 y el caso parcial', () => {
     // entorno: cualquier número compilado en el cliente mentiría al mover la variable).
     await expect(page.getByRole('alert')).toContainText('pesan más de los 50 MB');
     await expect(page.getByRole('alert')).toContainText('Quita de la selección los registros con documentos más pesados');
-    await expect(page.getByRole('alert')).not.toContainText('Marca menos filas');
+    await expect(page.getByRole('alert')).not.toContainText('marcar menos filas');
     await expect(page.getByRole('button', { name: 'Reintentar la descarga' })).toHaveCount(0);
 
     // CANTIDAD, con el servidor por debajo del tope compilado (desajuste de versiones) y **sin
@@ -683,7 +691,7 @@ test.describe('HU #11910 — AC6 y el caso parcial', () => {
     await botonZip(page).click();
     await confirmarZip(page).click();
 
-    await expect(page.getByRole('alert')).toContainText('Marca menos filas y vuelve a intentarlo.');
+    await expect(page.getByRole('alert')).toContainText('Hay que marcar menos filas para volver a intentarlo.');
     await expect(page.getByRole('alert')).not.toContainText('pesan más');
   });
 
@@ -697,7 +705,7 @@ test.describe('HU #11910 — AC6 y el caso parcial', () => {
     });
 
     await page.goto('/flito/soat');
-    await marcar(page, 'ABC123');
+    await marcar(page, 'XYZ789', 'DEF456');
     const [descarga] = await Promise.all([page.waitForEvent('download'), botonZip(page).click()]);
 
     expect(descarga.suggestedFilename()).toBe('soportes.zip');
@@ -719,7 +727,7 @@ test.describe('HU #11910 — el candado y la selección', () => {
     const zip = await mockZip(page, P_SOAT);
 
     await page.goto('/flito/soat');
-    await marcar(page, 'ABC123');
+    await marcar(page, 'XYZ789', 'DEF456');
     await Promise.all([
       page.waitForEvent('download'),
       page.evaluate(() => {
@@ -758,5 +766,106 @@ test.describe('HU #11910 — el candado y la selección', () => {
     await expect(page.getByText('2 seleccionado(s)')).toBeVisible();
     await expect(botonZip(page)).toHaveText('Descargar soportes (2)');
     expect(colas).toBe(antes);
+  });
+});
+
+// ═══════════════ HU #12815 — umbral de 2, solo pagadas, y el permiso propio del ZIP ═══════════════
+
+test.describe('HU #12815 — AC6: el ZIP de SOAT pide 2 marcadas y cuenta solo las pagadas', () => {
+  /**
+   * *Mutantes:* (a) `minMarcadas` fuera — con 1 marcada el botón se enciende; (b) `ids={[...seleccion]}`
+   * — el rótulo diría `(2)` sobre dos no pagadas y el último aserto cuenta una petición.
+   */
+  test('/flito/soat — 1 marcada: apagado y con motivo; 2 pagadas: encendido con `(2)`', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await montarSoat(page);
+    await page.goto('/flito/soat');
+
+    await marcar(page, 'XYZ789');
+    await expect(botonZip(page)).toHaveText('Descargar soportes (1)');
+    await expect(botonZip(page)).toBeDisabled();
+    const motivo = 'Marque al menos 2 filas. Para un solo SOAT, use el botón de descarga de su fila.';
+    await expect(page.getByText(motivo)).toBeVisible();
+    // El motivo es la DESCRIPCIÓN accesible del botón, no un texto suelto al lado.
+    await expect(botonZip(page)).toHaveAccessibleDescription(motivo);
+
+    await marcar(page, 'DEF456');
+    await expect(botonZip(page)).toHaveText('Descargar soportes (2)');
+    await expect(botonZip(page)).toBeEnabled();
+    await expect(page.getByText(motivo)).toHaveCount(0);
+  });
+
+  test('/flito/soat — 2 marcadas sin ninguna pagada: `(0 de 2)`, apagado y sin petición', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await montarSoat(page, [filaSoat('s1', 'ABC123', 'pendiente'), filaSoat('s4', 'GHI321', 'solicitado')]);
+    const zip = await mockZip(page, P_SOAT);
+    await page.goto('/flito/soat');
+
+    await marcar(page, 'ABC123', 'GHI321');
+    await expect(botonZip(page)).toHaveText('Descargar soportes (0 de 2)');
+    await expect(botonZip(page)).toBeDisabled();
+    await expect(page.getByText(
+      'Ninguna de las filas marcadas está pagada. Solo los SOAT pagados tienen comprobante.',
+    )).toBeVisible();
+    await botonZip(page).click({ force: true });
+    expect(zip.peticiones).toHaveLength(0);
+  });
+
+  /** «Una primaria por zona»: el ZIP la toma solo cuando «Enviar al gestor» no se ofrece. */
+  test('/flito/soat — primaria cuando no hay «Enviar» (proveedor)', async ({ page }) => {
+    await loginAs(page, PROVEEDOR_USER);
+    await montarSoat(page);
+    await page.goto('/flito/soat');
+    await casillaCabecera(page).check();
+    await expect(botonZip(page)).toHaveText('Descargar soportes (2 de 3)');
+    await expect(botonZip(page)).toHaveAttribute('style', /--flit-gradient-primary/);
+  });
+
+  test('/flito/soat — secundaria junto a «Enviar al gestor»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await montarSoat(page);
+    await page.goto('/flito/soat');
+    await casillaCabecera(page).check();
+    await expect(page.getByRole('button', { name: 'Enviar al gestor (1 de 3)' })).toBeVisible();
+    await expect(botonZip(page)).not.toHaveAttribute('style', /--flit-gradient-primary/);
+  });
+});
+
+test.describe('HU #12815 — AC7/AC8: el ZIP cuelga de `soat.soportes.descargar`', () => {
+  const sinZip = (funciones: readonly string[]) => funciones.filter((f) => f !== 'soat.soportes.descargar');
+
+  test('/flito/soat — sin la función ni «enviar»: ni casillas ni botón', async ({ page }) => {
+    await loginAs(page, { ...PROVEEDOR_USER, funciones: sinZip(FUNCIONES_POR_ROL.proveedor) });
+    await montarSoat(page);
+    await page.goto('/flito/soat');
+    await expect(page.getByText('DEF456').first()).toBeVisible();
+    await expect(casillaCabecera(page)).toHaveCount(0);
+    await expect(page.getByRole('checkbox', { name: /^Seleccionar [A-Z]{3}\d{3}$/ })).toHaveCount(0);
+    await expect(botonZip(page)).toHaveCount(0);
+  });
+
+  test('/flito/soat — solo con «enviar al gestor»: casillas sí, botón ZIP no (ni apagado)', async ({ page }) => {
+    await loginAs(page, { ...OPERACIONES_USER, funciones: sinZip(FUNCIONES_POR_ROL.admin) });
+    await montarSoat(page);
+    await page.goto('/flito/soat');
+    await casillaCabecera(page).check();
+    await expect(page.getByRole('button', { name: 'Enviar al gestor (1 de 3)' })).toBeVisible();
+    await expect(botonZip(page)).toHaveCount(0);
+    await expect(page.getByText(/Solo los SOAT pagados/)).toHaveCount(0);
+  });
+
+  /** El canal Cliente puede recibir la función desde Roles y permisos: entonces la tiene entera. */
+  test('/flito/soat — Cliente con la función: marca, y el ZIP es su primaria', async ({ page }) => {
+    await loginAs(page, {
+      ...CLIENTE_USER, funciones: [...FUNCIONES_POR_ROL.cliente, 'soat.soportes.descargar'],
+    });
+    await montarSoat(page);
+    const zip = await mockZip(page, P_SOAT);
+    await page.goto('/flito/soat');
+    await marcar(page, 'XYZ789', 'DEF456');
+    await expect(page.getByRole('button', { name: /^Enviar/ })).toHaveCount(0);
+    await expect(botonZip(page)).toHaveAttribute('style', /--flit-gradient-primary/);
+    await Promise.all([page.waitForEvent('download'), botonZip(page).click()]);
+    expect(zip.peticiones[0].cuerpo).toEqual({ ids: ['s2', 's3'] });
   });
 });

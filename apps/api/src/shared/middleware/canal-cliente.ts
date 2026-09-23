@@ -158,6 +158,17 @@ export const RUTAS_PERMITIDAS_CLIENTE: readonly RutaCliente[] = congelar([
       + '404-no-403. El archivo en sí baja por `GET /api/files?…`, que no pasa por este guarda '
       + 'porque su token HMAC firmado ES su autenticación.',
   },
+  // ── La descarga masiva de comprobantes (HU #12815, Épica #12810). `POST` porque los ids van en el
+  // CUERPO, no porque escriba: no toca ninguna fila de SOAT.
+  {
+    metodo: 'POST', patron: '/api/flito/soat/soportes/zip', funcion: 'soat.soportes.descargar',
+    porque: 'Descargar en UN ZIP los comprobantes de sus SOAT marcados en la cola. Sin esta entrada '
+      + 'el botón de descarga masiva responde 403 y el cliente tiene que abrir el detalle de cada '
+      + 'registro para bajar la póliza una a una. No es una puerta abierta: `exigirFuncion` exige '
+      + 'que su rol tenga la función marcada; la frontera por compañía la aplica `condicionesCola` '
+      + '(rama `esCliente`, vía `contextoSoat`), así que un id de otra compañía se trata como '
+      + 'inexistente; solo sale lo que está `pagado`; y `zipSoportesLimiter` pone la cuota por usuario.',
+  },
   // ── Las DOS rutas de ESCRITURA del canal (HU #11914). Son las primeras de esta lista que no son
   // una lectura, y por eso llevan encima tres cosas que las de arriba no necesitan: `requireRole
   // ('cliente')` en su propio router, un rate limit propio (`soatClienteLimiter`) y validación del
