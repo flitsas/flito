@@ -580,7 +580,7 @@ describe('HU #12630 — POST /:id/aplicar con esPago=true: SOAT / impuesto / der
     const [soatId, extr, ctx] = marcarPagadoMock.mock.calls[0]!;
     expect(soatId).toBe('soat-1');
     expect(extr).toMatchObject({ numeroPoliza: expect.objectContaining({ valor: 'POL-1' }), valorTotal: expect.objectContaining({ valor: '350000' }) });
-    expect(ctx).toEqual({ userId: 7, username: 'u@flitsas.io', role: 'financiera', proveedorSoatId: null, companiaId: null });
+    expect(ctx).toEqual({ userId: 7, username: 'u@flitsas.io', role: 'financiera', externo: false, proveedorSoatId: null, companiaId: null });
     expect(alPagar.soportes).toBeGreaterThanOrEqual(1);
     expect(alPagar.comprobantes).toBe(1);
     expect(espia.updatesEn(T_SOAT)).toEqual([]);
