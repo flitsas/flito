@@ -37,9 +37,10 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { getTableName } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
-import { CABECERAS_ZIP_SOPORTES, ZIP_SOPORTES_MAX_REGISTROS } from '@operaciones/shared-types';
+import { CABECERAS_ZIP_SOPORTES, EstadoSoat, ZIP_SOPORTES_MAX_REGISTROS } from '@operaciones/shared-types';
 import { createKeyedDb } from '../helpers/keyed-db.js';
-import { testToken, type TestRole } from '../helpers/auth.js';
+import { registrarUsuarioDePrueba, testToken, type TestRole } from '../helpers/auth.js';
+import { SignJWT } from 'jose';
 import { anchosDe, pdfCifrado, pdfFirma } from '../helpers/pdf-firma.js';
 
 /** Orden observado: el rastro de PII antes del primer byte, y `archiver` después de los dos. */
@@ -198,8 +199,8 @@ async function buildApp() {
 
 /** `sub` nuevo por caso: el limitador cuenta 5/min y usuario, y su ventana no se reinicia. */
 let siguienteSub = 7100;
-const sesion = async (role: TestRole = 'admin'): Promise<string> =>
-  `Bearer ${await testToken({ sub: siguienteSub++, username: 'ops@flit.io', role })}`;
+const sesion = async (role: TestRole = 'admin', funciones?: string[]): Promise<string> =>
+  `Bearer ${await testToken({ sub: siguienteSub++, username: 'ops@flit.io', role, funciones })}`;
 
 const pedirZip = async (base: string, cabecera: string, cuerpo: unknown) =>
   request(await buildApp())
@@ -990,11 +991,12 @@ describe('AC7 — auditoría NO descarga, en las tres rutas', () => {
     expect(orden).not.toContain('archiver');
   });
 
-  it('`cliente` tampoco entra en el ZIP de SOAT, aunque sí vea la cola', async () => {
-    // `LECTURA` del router de SOAT incluye `cliente`. Su canal tiene su propia allowlist por tipo y
-    // por estado (`TIPOS_SOPORTE_VISIBLES_CLIENTE`), y una descarga masiva por ids no pasa por ella.
+  it('HU #12815 AC2 — `cliente` SIN `soat.soportes.descargar` recibe 403, y no se consulta nada', async () => {
+    // Desde la #12815 la lista blanca del canal deja pasar la ruta; la decisión es de `exigirFuncion`.
     const r = await pedirZip(SOAT, await sesion('cliente'), { ids: [SOAT_A] });
     expect(r.status).toBe(403);
+    expect(JSON.parse((r.body as Buffer).toString('utf8')).funcion).toBe('soat.soportes.descargar');
+    expect(consultas).toHaveLength(0);
   });
 });
 
@@ -1012,11 +1014,11 @@ describe('fronteras — lo ajeno no sale, y no se distingue de «sin soporte»',
     expect(sql).toContain('proveedor_soat_id');
     expect(sql).toContain('gestion_operaciones');
     expect(params).toContain('prov-1');
-    // Y los estados que el gestor SÍ ve: `pagado` tiene que estar, porque el comprobante solo existe
-    // cuando el registro ya está pagado. Heredar el defecto de la PANTALLA (`solicitado` a secas)
-    // habría dejado al gestor sin poder descargar nunca lo que él mismo subió.
-    expect(params).toContain('solicitado');
+    // `pagado` tiene que estar, porque el comprobante solo existe cuando el registro ya está pagado.
+    // Heredar el defecto de la PANTALLA (`solicitado` a secas) habría dejado al gestor sin poder
+    // descargar nunca lo que él mismo subió. Y desde la HU #12815 (AC3) es lo ÚNICO que baja.
     expect(params).toContain('pagado');
+    expect(params).not.toContain('solicitado');
     expect(params).not.toContain('pendiente');
   });
 
@@ -1078,6 +1080,136 @@ describe('fronteras — lo ajeno no sale, y no se distingue de «sin soporte»',
     expect(lecturasDe('flito_soportes')).toHaveLength(1);
     const { sql } = whereDe('flito_soat');
     expect(sql).toContain('in (');
+  });
+});
+
+// ─────────────────────────── HU #12815 — canal Cliente y solo `pagado` ───────────────────────────
+//
+// El mock keyed NO aplica el `where` sobre `flito_soat`: devuelve lo registrado. Por eso el estado y la
+// compañía se afirman sobre el SQL RENDERIZADO de la consulta del lote (`whereDe`), y el 409 de «nada
+// propio / nada pagado» se simula con el resultado que PostgreSQL daría: ninguna fila.
+
+/** Los valores de `EstadoSoat` que aparecen como parámetro en el WHERE del lote. */
+const estadosEnWhere = (params: unknown[]) =>
+  Object.values(EstadoSoat).filter((e) => params.includes(e));
+
+describe('HU #12815 AC3 — el lote de SOAT es SOLO `pagado`, para cualquier actor', () => {
+  it('admin: el WHERE del lote filtra por `estado` y el único estado es `pagado`', async () => {
+    kdb.when.scenario({ flito_soat: [filaSoat()], flito_soportes: [soporte()] });
+
+    expect((await pedirZip(SOAT, await sesion(), { ids: [SOAT_A] })).status).toBe(200);
+
+    const { sql, params } = whereDe('flito_soat');
+    expect(sql).toContain('"estado" in (');
+    expect(estadosEnWhere(params)).toEqual([EstadoSoat.PAGADO]);
+  });
+
+  it('cliente con la función: el mismo `pagado` a secas, junto a su compañía', async () => {
+    kdb.when.scenario({
+      users: [{ c: 42 }],
+      flito_soat: [filaSoat()],
+      flito_soportes: [soporte()],
+    });
+
+    const r = await pedirZip(SOAT, await sesion('cliente', ['soat.soportes.descargar']), { ids: [SOAT_A] });
+
+    expect(r.status).toBe(200);
+    const { sql, params } = whereDe('flito_soat');
+    expect(sql).toContain('"estado" in (');
+    expect(estadosEnWhere(params)).toEqual([EstadoSoat.PAGADO]);
+  });
+});
+
+describe('HU #12815 AC1/AC4/AC5 — canal Cliente con la función: su compañía, y el 409 de siempre', () => {
+  it('AC1 — cliente con `soat.soportes.descargar` descarga el ZIP (la lista blanca no lo corta)', async () => {
+    kdb.when.scenario({
+      users: [{ c: 42 }],
+      flito_soat: [filaSoat()],
+      flito_soportes: [soporte()],
+    });
+
+    const r = await pedirZip(SOAT, await sesion('cliente', ['soat.soportes.descargar']), { ids: [SOAT_A] });
+
+    expect(r.status).toBe(200);
+    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123.pdf']);
+  });
+
+  it('AC5 — la frontera por compañía viaja en el WHERE del lote (lo ajeno es inexistente)', async () => {
+    kdb.when.scenario({ users: [{ c: 42 }], flito_soat: [filaSoat()], flito_soportes: [soporte()] });
+
+    await pedirZip(SOAT, await sesion('cliente', ['soat.soportes.descargar']), { ids: [SOAT_A] });
+
+    const { sql, params } = whereDe('flito_soat');
+    expect(sql).toContain('"compania_id" = ');
+    expect(params).toContain(42);
+  });
+
+  it('cliente SIN compañía → 409 y ninguna lectura del lote (nunca la tabla entera)', async () => {
+    kdb.when.scenario({ users: [{ c: null }], flito_soat: [filaSoat()], flito_soportes: [soporte()] });
+
+    const r = await pedirZip(SOAT, await sesion('cliente', ['soat.soportes.descargar']), { ids: [SOAT_A] });
+
+    expect(r.status).toBe(409);
+    expect(lecturasDe('flito_soat')).toHaveLength(0);
+  });
+
+  it('AC4/AC5 — ningún id propio y pagado → el MISMO 409, byte a byte, que «sin soporte»', async () => {
+    // Lo que PostgreSQL devolvería con ids de otra compañía o no pagados: ninguna fila del lote.
+    const cliente = () => sesion('cliente', ['soat.soportes.descargar']);
+    kdb.when.scenario({ users: [{ c: 42 }], flito_soat: [], flito_soportes: [] });
+    const fuera = await pedirZip(SOAT, await cliente(), { ids: [SOAT_B] });
+
+    kdb.reset(); instalarEspias();
+    kdb.when.scenario({ users: [{ c: 42 }], flito_soat: [filaSoat()], flito_soportes: [] });
+    const sinSoporte = await pedirZip(SOAT, await cliente(), { ids: [SOAT_A] });
+
+    expect(fuera.status).toBe(409);
+    expect(sinSoporte.status).toBe(409);
+    expect((fuera.body as Buffer).toString('utf8')).toBe((sinSoporte.body as Buffer).toString('utf8'));
+  });
+});
+
+describe('HU #12815 — rol externo NO-`cliente` (`davivienda`) con la función: su compañía y nada más', () => {
+  // El panel crea roles externos con cualquier código desde la HU #12082. `contextoSoat` decidía por
+  // el literal `'cliente'`, y este rol caía en la rama de admin: el ZIP sin filtro de compañía.
+  const sesionDavivienda = async (): Promise<string> => {
+    const sub = siguienteSub++;
+    await registrarUsuarioDePrueba(sub, {
+      rol: 'davivienda', tipoPrincipal: 'externo', funcionesDelRol: ['soat.soportes.descargar'], excepciones: [],
+    });
+    const t = await new SignJWT({ username: 'd@banco.co', role: 'davivienda' })
+      .setProtectedHeader({ alg: 'HS256' }).setSubject(String(sub)).setExpirationTime('1h')
+      .sign(new TextEncoder().encode(process.env.JWT_SECRET));
+    return `Bearer ${t}`;
+  };
+
+  it('id de OTRA compañía → el MISMO 409 que «sin soporte», sin rastro de filas, y el WHERE lleva SU compañía', async () => {
+    // Lo que PostgreSQL devolvería con la frontera aplicada a un id ajeno: ninguna fila del lote.
+    kdb.when.scenario({ users: [{ c: 42 }], flito_soat: [], flito_soportes: [] });
+    const ajeno = await pedirZip(SOAT, await sesionDavivienda(), { ids: [SOAT_B] });
+
+    expect(ajeno.status).toBe(409);
+    expect(logPiiAccessMock).not.toHaveBeenCalled();
+    const { sql, params } = whereDe('flito_soat');
+    expect(sql).toContain('"compania_id" = ');
+    expect(params).toContain(42);
+    expect(estadosEnWhere(params)).toEqual([EstadoSoat.PAGADO]);
+
+    kdb.reset(); instalarEspias();
+    kdb.when.scenario({ users: [{ c: 42 }], flito_soat: [filaSoat()], flito_soportes: [] });
+    const sinSoporte = await pedirZip(SOAT, await sesionDavivienda(), { ids: [SOAT_A] });
+
+    expect(sinSoporte.status).toBe(409);
+    expect((ajeno.body as Buffer).toString('utf8')).toBe((sinSoporte.body as Buffer).toString('utf8'));
+  });
+
+  it('sin compañía → 409 y ninguna lectura del lote', async () => {
+    kdb.when.scenario({ users: [{ c: null }], flito_soat: [filaSoat()], flito_soportes: [soporte()] });
+
+    const r = await pedirZip(SOAT, await sesionDavivienda(), { ids: [SOAT_A] });
+
+    expect(r.status).toBe(409);
+    expect(lecturasDe('flito_soat')).toHaveLength(0);
   });
 });
 
