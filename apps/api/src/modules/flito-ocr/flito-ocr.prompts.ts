@@ -144,6 +144,34 @@ QUIÉN ES: la persona o empresa que COMPRA el vehículo. Búscala bajo las etiqu
 Devuelve EXCLUSIVAMENTE este JSON:
 {"placa":{"valor":null,"confianza":null},"vin":{"valor":null,"confianza":null},"numeroFactura":{"valor":null,"confianza":null},"fechaFactura":{"valor":null,"confianza":null},"valorVehiculo":{"valor":null,"confianza":null},"nombres":{"valor":null,"confianza":null},"apellidos":{"valor":null,"confianza":null},"razonSocial":{"valor":null,"confianza":null},"tipoDocumento":{"valor":null,"confianza":null},"numeroDocumento":{"valor":null,"confianza":null},"direccion":{"valor":null,"confianza":null},"municipio":{"valor":null,"confianza":null},"departamento":{"valor":null,"confianza":null},"celular":{"valor":null,"confianza":null}}`;
 
+// ─────────────────────────── Factura de venta: vehículo (HU #12826) ─────────────
+// Fallback del análisis post-envío de Impuestos cuando la factura FLIT no trae «Notas Finales»
+// reconocibles. Prompt APARTE del de SOAT (decisión P2 del diseño): el canal Cliente no cambia de
+// costo ni de escalación. Pide los 7 datos del vehículo y SOLO la dirección del comprador —nada de
+// nombre, documento ni teléfono (minimización, Ley 1581)— con las mismas reglas de «no inventar».
+export const PROMPT_FACTURA_VENTA_VEHICULO = `Extrae los datos del VEHÍCULO de esta FACTURA DE VENTA de un vehículo (emitida por un concesionario) colombiana.
+
+Campos del VEHÍCULO:
+- vin: número de identificación del vehículo (VIN / chasis / serie), 17 caracteres. Transcribe EXACTO, sin normalizar.
+- marca: la marca del vehículo (ej. "MARCAX"), tal como aparece.
+- linea: la LÍNEA o referencia comercial del vehículo (el nombre del modelo comercial). Suele estar en la descripción del producto. NO es el año.
+- anioVehiculo: el año del modelo del vehículo ("AÑO", "AÑO VEHÍCULO", "MODELO" cuando es un año). 4 dígitos.
+- color: el color del vehículo, tal como aparece.
+- cilindrada: la cilindrada en centímetros cúbicos. Solo dígitos.
+- clase: la clase del vehículo (ej. "AUTOMÓVIL", "CAMIONETA", "MOTOCICLETA").
+
+Campos de ubicación del COMPRADOR / ADQUIRIENTE:
+    * CRÍTICO: el comprador NO es el EMISOR de la factura (el concesionario, con el logo y el NIT grande arriba). NUNCA tomes la dirección del emisor. Si no distingues con seguridad el bloque del comprador, deja estos tres campos en null.
+- direccion: la dirección del comprador.
+- municipio: el municipio/ciudad del comprador.
+- departamento: el departamento del comprador.
+
+NO extraigas nombre, documento, correo ni teléfono de nadie.
+Si un dato no aparece o no es legible, devuelve null. NO lo inventes ni lo deduzcas.
+
+Devuelve EXCLUSIVAMENTE este JSON:
+{"vin":{"valor":null,"confianza":null},"marca":{"valor":null,"confianza":null},"linea":{"valor":null,"confianza":null},"anioVehiculo":{"valor":null,"confianza":null},"color":{"valor":null,"confianza":null},"cilindrada":{"valor":null,"confianza":null},"clase":{"valor":null,"confianza":null},"direccion":{"valor":null,"confianza":null},"municipio":{"valor":null,"confianza":null},"departamento":{"valor":null,"confianza":null}}`;
+
 // ─────────────────────────── Derecho de tránsito (HU #10950) ─────────────────
 // Un solo prompt para TODOS los organismos. Funciona porque la extracción es semántica ("el total a
 // pagar"), no posicional: lo mismo que hace que un único prompt de SOAT sirva para todas las

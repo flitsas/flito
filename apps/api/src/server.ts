@@ -22,6 +22,7 @@ import { startAnthropicHealthCron, stopAnthropicHealthCron } from './modules/ai/
 import { startPortalReminderCron, stopPortalReminderCron } from './modules/tramites/portal-reminder.cron.js';
 import { startValidacionStaleCron, stopValidacionStaleCron } from './modules/tramites/validacion-stale.cron.js';
 import { startImpuestosAnalisisCron, stopImpuestosAnalisisCron } from './modules/flito-impuestos/flito-impuestos-analisis.cron.js';
+import { registrarPasosAnalisisImpuestos } from './modules/flito-impuestos/flito-impuestos.analisis.pasos.js';
 import { startFlitSync, stopFlitSync } from './modules/flito-sync/flito-sync.cron.js';
 import { startSiigoArchivoCron, stopSiigoArchivoCron } from './modules/siigo/siigo.archivo.cron.js';
 import { startSiigoColaCron, stopSiigoColaCron } from './modules/siigo/siigo.cola.cron.js';
@@ -49,6 +50,10 @@ const app = createApp();
 verificarCatalogoAlArrancar()
   .then(() => log.info('catálogo de permisos verificado'))
   .catch((e: Error) => log.error({ err: e.message }, 'CATÁLOGO DE PERMISOS INCOHERENTE (HU #12081 AC6)'));
+
+// HU #12826: pasos del análisis post-envío de Impuestos, en TODOS los ambientes (un envío en DEV o
+// local también encola) y antes de `listen`, para que ningún job corra con la lista vacía.
+registrarPasosAnalisisImpuestos();
 
 const server = app.listen(env.PORT, () => {
   log.info({ port: env.PORT, env: env.NODE_ENV }, 'Operaciones API running');

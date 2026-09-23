@@ -52,6 +52,14 @@ export const CampoFacturaVenta = {
   MUNICIPIO: 'municipio',
   DEPARTAMENTO: 'departamento',
   CELULAR: 'celular',
+  // Datos del VEHÍCULO que el análisis post-envío de Impuestos lee de la factura FLIT (HU #12826).
+  // El canal Cliente de SOAT no los pide: su prompt y su formulario no cambian.
+  MARCA: 'marca',
+  LINEA: 'linea',
+  ANIO_VEHICULO: 'anioVehiculo',
+  COLOR: 'color',
+  CILINDRADA: 'cilindrada',
+  CLASE: 'clase',
 } as const;
 
 export type CampoFacturaVenta = (typeof CampoFacturaVenta)[keyof typeof CampoFacturaVenta];
@@ -76,6 +84,12 @@ export const CAMPO_FACTURA_VENTA_LABEL: Record<CampoFacturaVenta, string> = {
   municipio: 'Municipio del comprador',
   departamento: 'Departamento del comprador',
   celular: 'Celular del comprador',
+  marca: 'Marca',
+  linea: 'Línea',
+  anioVehiculo: 'Año del vehículo',
+  color: 'Color',
+  cilindrada: 'Cilindrada',
+  clase: 'Clase',
 };
 
 /**
@@ -189,6 +203,23 @@ export interface CampoExtraido {
 export type ExtraccionSoat = Partial<Record<CampoSoat, CampoExtraido>>;
 export type ExtraccionImpuesto = Partial<Record<CampoImpuesto, CampoExtraido>>;
 export type ExtraccionFacturaVenta = Partial<Record<CampoFacturaVenta, CampoExtraido>>;
+
+/** De dónde salió la extracción de la factura en el análisis post-envío de Impuestos (HU #12826). */
+export type FuenteExtraccionFactura = 'notas_finales' | 'ocr';
+
+/**
+ * Lo que persiste `flito_impuestos.extraccion_factura_venta` (HU #12826): los 7 campos vehiculares
+ * (`vin`, `marca`, `linea`, `anioVehiculo`, `color`, `cilindrada`, `clase`) y los 3 de dirección del
+ * adquiriente, siempre las 10 claves, más `fuente`.
+ *
+ * Tipo APARTE de `ExtraccionFacturaVenta` para que el canal SOAT no vea una clave que no es un
+ * `CampoExtraido`. Quien lea el jsonb itera una lista de campos, nunca `Object.values`.
+ *
+ * Regla para el semáforo (HU #12827): un campo con `confiable: false` —ausente, dudoso o sin patrón
+ * inequívoco, p. ej. `linea` sacada de la «Descripción» del producto— NO cuenta como diferencia
+ * contra el RUNT: es «no verificable», no «distinto».
+ */
+export type ExtraccionFacturaVentaImpuesto = ExtraccionFacturaVenta & { fuente?: FuenteExtraccionFactura };
 export type ExtraccionDerechoTramite = Partial<Record<CampoDerechoTramite, CampoExtraido>>;
 
 export const CAMPO_SOAT_LABEL: Record<CampoSoat, string> = {

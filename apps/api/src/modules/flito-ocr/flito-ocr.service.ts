@@ -19,10 +19,11 @@ import {
 } from '@operaciones/shared-types';
 import {
   SISTEMA_OCR, PROMPT_FACTURA_SOAT, PROMPT_RECIBO_IMPUESTO, PROMPT_RECIBO_CAJA, PROMPT_FACTURA_VENTA, PROMPT_DERECHO_TRAMITE,
-  PROMPT_COMPROBANTE_UNIVERSAL, PROMPT_PARTICION_CONSOLIDADO,
+  PROMPT_COMPROBANTE_UNIVERSAL, PROMPT_PARTICION_CONSOLIDADO, PROMPT_FACTURA_VENTA_VEHICULO,
   type CampoCrudo, type ConfianzaCategorica,
 } from './flito-ocr.prompts.js';
 import { textoDocumento, camposDesdeTexto } from './flito-ocr-local.js';
+import { anioVehiculoN, cilindradaN, lineaN, vinFacturaN } from './flito-ocr-factura-flit.js';
 
 const log = loggerFor('flito-ocr');
 
@@ -457,6 +458,35 @@ export async function extraerFacturaVenta(doc: DocumentoAAnalizar): Promise<Extr
     [CampoFacturaVenta.MUNICIPIO]: textoTitularN(100),
     [CampoFacturaVenta.DEPARTAMENTO]: textoTitularN(100),
     [CampoFacturaVenta.CELULAR]: celularN,
+  });
+  return r as ExtraccionFacturaVenta;
+}
+
+/**
+ * Fallback OCR del análisis post-envío de Impuestos (HU #12826, AC2): la factura FLIT no trae Notas
+ * Finales reconocibles. Mismo motor (`extraer`, Haiku → Sonnet) con `PROMPT_FACTURA_VENTA_VEHICULO`;
+ * escalan VIN, año y marca, que son las llaves del cruce con el RUNT (HU 12827). Los normalizadores
+ * de VIN/año/cilindrada/línea son los del parser determinístico, para que las dos fuentes
+ * persistan la misma forma.
+ */
+export async function extraerVehiculoFacturaVenta(doc: DocumentoAAnalizar): Promise<ExtraccionFacturaVenta> {
+  const campos = [
+    CampoFacturaVenta.VIN, CampoFacturaVenta.MARCA, CampoFacturaVenta.LINEA, CampoFacturaVenta.ANIO_VEHICULO,
+    CampoFacturaVenta.COLOR, CampoFacturaVenta.CILINDRADA, CampoFacturaVenta.CLASE,
+    CampoFacturaVenta.DIRECCION, CampoFacturaVenta.MUNICIPIO, CampoFacturaVenta.DEPARTAMENTO,
+  ] as const;
+  const escalacion = [CampoFacturaVenta.VIN, CampoFacturaVenta.ANIO_VEHICULO, CampoFacturaVenta.MARCA];
+  const r = await extraer(doc, PROMPT_FACTURA_VENTA_VEHICULO, campos, escalacion, {
+    [CampoFacturaVenta.VIN]: vinFacturaN,
+    [CampoFacturaVenta.MARCA]: textoTitularN(60),
+    [CampoFacturaVenta.LINEA]: lineaN,
+    [CampoFacturaVenta.ANIO_VEHICULO]: (v: string) => anioVehiculoN(v),
+    [CampoFacturaVenta.COLOR]: textoTitularN(60),
+    [CampoFacturaVenta.CILINDRADA]: cilindradaN,
+    [CampoFacturaVenta.CLASE]: textoTitularN(60),
+    [CampoFacturaVenta.DIRECCION]: textoTitularN(300),
+    [CampoFacturaVenta.MUNICIPIO]: textoTitularN(100),
+    [CampoFacturaVenta.DEPARTAMENTO]: textoTitularN(100),
   });
   return r as ExtraccionFacturaVenta;
 }
