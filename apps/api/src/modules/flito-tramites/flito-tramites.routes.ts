@@ -10,9 +10,10 @@ import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { soportesDeTramite } from '../../shared/soportes/soportes-consulta.js';
 import {
-  comprobarTopeRegistrosZip, emitirZipSoportes, registrarAccesoZipTramites, resolverEntradasZip,
+  comprobarTopeRegistrosZip, registrarAccesoZipTramites, resolverEntradasZip,
   ZipError, zipSoportesLimiter,
 } from '../../shared/soportes/soportes-zip.js';
+import { consolidarPorRegistro, emitirZipConsolidado } from '../../shared/soportes/soportes-zip-consolidar.js';
 import {
   desbloquear, revocar, ExcepcionError, MOTIVO_MINIMO,
 } from '../flito-excepciones/flito-excepciones.service.js';
@@ -94,9 +95,9 @@ router.get('/:id/soportes', exigirFuncion('tramites.tramite.ver_soportes'), asyn
  * POST /soportes/zip — el ZIP MIXTO de los trámites marcados (HU #11910, AC4).
  *
  * Los tres tipos a la vez y en un solo archivo: la factura de venta de FLIT, el recibo del organismo
- * y el comprobante del SOAT. Es la superficie que da sentido al desempate del AC5 — factura + recibo
- * + comprobante del MISMO trámite se llaman los tres `PLACA-ORGANISMO`, así que el `-3` es el caso
- * normal aquí, no el borde.
+ * y el comprobante del SOAT. Desde la HU #12817 los documentos de cada trámite salen JUNTOS en un
+ * solo `PLACA.pdf` (factura → recibo → comprobante), así que el `-2` ya no separa documentos del
+ * mismo trámite: separa trámites distintos con la misma placa.
  *
  * ── La función es `tramites.soportes.descargar` (solo `admin` de partida), **no una de lectura** ─
  *
@@ -132,16 +133,22 @@ router.post('/soportes/zip', exigirFuncion('tramites.soportes.descargar'), zipSo
     comprobarTopeRegistrosZip(parsed.data.ids);
     const registros = await registrosZipTramites(parsed.data.ids);
     const entradas = await resolverEntradasZip(registros, parsed.data.tipos);
-
-    // Antes del primer byte. Este router no tenía módulo de PII propio; ver la nota de
-    // `registrarAccesoZipTramites` sobre por qué no se le hace pasar por los de las otras dos colas.
-    await registrarAccesoZipTramites(req, entradas.length);
-    await audit(req, {
-      action: 'export', resource: 'flito_tramite',
-      detail: `Descarga zip de soportes (${parsed.data.tipos.join(', ')}): ${entradas.length} documento(s)`,
-    });
-
-    await emitirZipSoportes(res, entradas);
+    // HU #12817: un PDF por trámite, consolidado en disco ANTES del primer byte (409 si nada es
+    // legible, 422 si los bytes reales se pasan). `filas` del rastro = PDFs que salen.
+    const zc = await consolidarPorRegistro(entradas);
+    try {
+      // Antes del primer byte. Este router no tenía módulo de PII propio; ver la nota de
+      // `registrarAccesoZipTramites` sobre por qué no se le hace pasar por los de las otras dos colas.
+      await registrarAccesoZipTramites(req, zc.entradas.length);
+      await audit(req, {
+        action: 'export', resource: 'flito_tramite',
+        detail: `Descarga zip de soportes (${parsed.data.tipos.join(', ')}): ${zc.incluidos} documento(s)`
+          + ` en ${zc.entradas.length} PDF, ${zc.omitidos} omitido(s)`,
+      });
+      await emitirZipConsolidado(res, zc);
+    } finally {
+      await zc.limpiar();
+    }
   } catch (e) {
     // Con la respuesta ya empezada no se puede responder: se relanza al manejador global.
     if (res.headersSent) throw e;

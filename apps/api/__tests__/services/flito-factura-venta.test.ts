@@ -31,8 +31,9 @@ app.use('/api/flito/impuestos', impuestosRoutes);
 // buscarConAcceso: 1) impuesto+autogestion, 2) trámite con la factura de FLIT.
 //
 // La segunda fila trae PLACA y ORGANISMO desde la HU #11910: el nombre de descarga dejó de ser
-// `factura-venta-<idFlit>.pdf` y pasó a ser `PLACA-ORGANISMO.<ext>` (AC5), el mismo con el que la
-// factura aparece dentro del ZIP. `idFlit` se sigue leyendo y ya no decide el nombre.
+// `factura-venta-<idFlit>.pdf` y pasó a ser `PLACA-ORGANISMO.<ext>` (AC5), y desde la HU #12817 es
+// `PLACA.<ext>` (AC7), el mismo con el que el registro aparece dentro del ZIP. `idFlit` se sigue
+// leyendo y ya no decide el nombre.
 function mockAcceso(
   facturaVentaFlitId: string | null,
   idFlit = 'FLIT-2001',
@@ -71,16 +72,17 @@ describe('GET /:id/factura-venta — la sirve la API, en PDF y con nombre', () =
   });
 
   // El fallo original que se vino a corregir sigue cubierto —sin extensión el navegador guarda el id
-  // de S3 a secas y el archivo no abre con doble clic—, pero el nombre ES OTRO desde la HU #11910:
-  // `PLACA-ORGANISMO.<ext>` (AC5), el mismo con el que la factura aparece dentro del ZIP. Con dos
-  // convenciones, quien baja un ZIP y luego una factura suelta no puede emparejarlas en su carpeta.
-  it('el nombre de descarga es `PLACA-ORGANISMO.pdf`, en mayúsculas y sin tildes', async () => {
+  // de S3 a secas y el archivo no abre con doble clic—. El nombre es `PLACA.<ext>` desde la HU #12817
+  // (AC7; antes `PLACA-ORGANISMO`, HU #11910), el mismo con el que el registro aparece dentro del ZIP.
+  // Con dos convenciones, quien baja un ZIP y luego una factura suelta no puede emparejarlas.
+  it('HU #12817 AC7 — el nombre de descarga es `PLACA.pdf`, sin organismo', async () => {
     mockAcceso('fac-123', 'FLIT-9876', { placa: 'asd123', organismoAlias: 'Medellín' });
     obtenerUrlFacturaMock.mockResolvedValue('https://flit-bucket.s3/fac-123?sig=abc');
     mockS3();
     const token = await testToken({ role: 'admin' });
     const res = await request(app).get('/api/flito/impuestos/i1/factura-venta').set('Authorization', `Bearer ${token}`);
-    expect(res.headers['content-disposition']).toBe('inline; filename="ASD123-MEDELLIN.pdf"');
+    expect(res.headers['content-disposition']).toBe('inline; filename="ASD123.pdf"');
+    expect(res.headers['content-disposition']).not.toContain('MEDELLIN');
     // Y el id de FLIT ya no viaja en la cabecera: era el único texto libre del origen que llegaba a
     // una cabecera HTTP.
     expect(res.headers['content-disposition']).not.toContain('FLIT-9876');

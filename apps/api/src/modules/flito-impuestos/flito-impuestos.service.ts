@@ -548,8 +548,9 @@ export async function buscarConAcceso(id: string, ctx: ImpuestoCtx): Promise<typ
  *
  * Traía el `idFlit` porque era el nombre con el que se descargaba el archivo. Ahora trae **la placa
  * y el organismo**, porque el AC5 unifica el nombre de la descarga individual con el de las entradas
- * del ZIP: `PLACA-ORGANISMO`. El `idFlit` se queda —lo sigue leyendo quien lo necesite para
- * trazabilidad— pero ya no decide el nombre.
+ * del ZIP: `PLACA-ORGANISMO`. Desde la HU #12817 el nombre es solo `PLACA` y el organismo ya no se
+ * usa para nombrar (se sigue leyendo; no cambia la consulta). El `idFlit` se queda —lo sigue leyendo
+ * quien lo necesite para trazabilidad— pero ya no decide el nombre.
  *
  * Los tres salen de los joins que la cola ya hace (`vehicles`, `organismos_transito_config`), así que
  * es la misma lectura de antes con tres columnas más y ningún viaje adicional. Son `leftJoin`: el
