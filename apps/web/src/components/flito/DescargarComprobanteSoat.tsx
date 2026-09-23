@@ -117,7 +117,7 @@ export function useDescargaComprobante(): EstadoDescargaComprobante {
     toast.dismiss(idToast);
     try {
       const soportes = await api.get<Soporte[]>(`/flito/soat/${soat.id}/soportes`);
-      const comprobante = soportes.find((s) => s.tipo === 'factura_soat') ?? soportes[0];
+      const comprobante = soportes.find((s) => s.tipo === 'factura_soat');
       if (!comprobante?.url) throw new SinComprobante();
       const ruta = rutaDeApi(comprobante.url);
       if (!ruta) throw new SinComprobante();
