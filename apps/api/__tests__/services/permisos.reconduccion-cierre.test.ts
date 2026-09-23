@@ -52,9 +52,12 @@ const AUTH_EN_RUTA_IDENTIDAD = [
   'GET /documentos/:tramiteId', 'POST /certificado/:tramiteId', 'POST /recortar-cedula',
 ];
 
-/** AC3 — las 15 comparaciones de ámbito que se quedan, y por qué. */
+/** AC3 — las 13 comparaciones de ámbito que se quedan, y por qué (15 hasta la HU #12815). */
 const AMBITO: { fichero: string; patron: RegExp; veces: number; porque: string }[] = [
-  { fichero: 'flito-soat/flito-soat.service.ts', patron: /role === '(proveedor|cliente)'/g, veces: 4, porque: 'contextoSoat: proveedor ve lo suyo, cliente su compañía' },
+  // HU #12815: la frontera por compañía del EXTERNO ya no es una comparación de rol — la decide
+  // `tipo_principal` vía `resolverPermisos` (`SoatCtx.externo`), así que el patrón sigue buscando
+  // `'cliente'` para que su reaparición ponga esto rojo. Quedan las 2 del gestor.
+  { fichero: 'flito-soat/flito-soat.service.ts', patron: /role === '(proveedor|cliente)'/g, veces: 2, porque: 'contextoSoat y esGestor: el proveedor ve lo suyo; la compañía del externo sale de tipo_principal, no del rol' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', patron: /role === 'gestor_impuestos'/g, veces: 1, porque: 'contextoImpuesto: organismos del gestor' },
   { fichero: 'flito-impuestos/flito-impuestos.service.ts', patron: /role === 'gestor_impuestos'/g, veces: 1, porque: 'contextoImpuesto: frontera por organismo' },
   { fichero: 'flito-impuestos/flito-recibos.service.ts', patron: /role === 'gestor_impuestos'/g, veces: 1, porque: 'recibos: frontera por organismo' },
@@ -174,7 +177,7 @@ describe('el lector de montajes cubre la foto entera', () => {
   });
 });
 
-describe('AC3 — el ámbito no se toca: las 15 comparaciones de rol que deciden QUÉ filas se ven siguen ahí', () => {
+describe('AC3 — el ámbito no se toca: las 13 comparaciones de rol que deciden QUÉ filas se ven siguen ahí', () => {
   for (const { fichero, patron, veces, porque } of AMBITO) {
     it(`${fichero}: ${veces} (${porque})`, () => {
       const fuente = sinComentarios(leer(fichero));
@@ -182,8 +185,8 @@ describe('AC3 — el ámbito no se toca: las 15 comparaciones de rol que deciden
     });
   }
 
-  it('son 15 en total, y fuera de ellas solo quedan 3 de validación en users (HU #12088)', () => {
-    expect(AMBITO.reduce((n, a) => n + a.veces, 0)).toBe(15);
+  it('son 13 en total, y fuera de ellas solo quedan 3 de validación en users (HU #12088)', () => {
+    expect(AMBITO.reduce((n, a) => n + a.veces, 0)).toBe(13);
     const enUsers = sinComentarios(leer('users/users.routes.ts')).match(/\brole (===|!==) '[a-z_]+'/g) ?? [];
     // Antes #12088 había ~27 (superRefine + filtros de ámbito por rol). El ámbito del gestor
     // pasó a la puente `flito_gestor_organismos`; quedan 3 comparaciones de validación
