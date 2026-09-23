@@ -28,8 +28,11 @@ import {
   AvisoExportCola, BotonExportarCola, COLA_SOAT, useExportCola, type FiltrosExportCola,
 } from '../components/flito/ExportarCola';
 import {
-  AvisoSoportesZip, ZIP_SOAT, useDescargaZip,
+  AvisoSoportesZip, ZIP_SOAT, hoverSecundario, useDescargaZip,
 } from '../components/flito/DescargarSoportesZip';
+import {
+  BotonComprobanteDetalle, BotonComprobanteFila, useDescargaComprobante, type EstadoDescargaComprobante,
+} from '../components/flito/DescargarComprobanteSoat';
 // Ni `CeldaTramite` ni `ENCABEZADOS_COMUNES`: desde la HU #11905 esta cola dejó de girar sobre el
 // trámite (RN-01: un SOAT es por VIN, no por trámite). Las otras tres tablas que comparten ese
 // archivo —impuestos, derechos y el reporte de costos— lo siguen enseñando igual, y por eso el
@@ -360,6 +363,8 @@ export default function FlitoSoat() {
   // sirve también para «Enviar al gestor»: sin ninguna de las dos, no hay columna (AC7).
   const puedeDescargar = hasFuncion('soat.soportes.descargar');
   const conCasillas = puedeDescargar || esOperaciones;
+  // Descarga INDIVIDUAL (HU #12816): un solo hook para la fila y el detalle, mismo candado y toast.
+  const descargaComprobante = useDescargaComprobante();
   // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
   const descargaZip = useDescargaZip(ZIP_SOAT);
 
@@ -669,7 +674,11 @@ export default function FlitoSoat() {
                   <td className="px-3 py-2 text-sm tabular-nums">{f.pagadoEn ? fecha(f.pagadoEn) : '—'}</td>
                   {!esCliente && <td className="px-3 py-2 text-sm tabular-nums">{pesos(f.valorPagado)}</td>}
                   <td className="px-3 py-2">
-                    <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setDetalleId(f.id)}>Ver</button>
+                    <div className="flex items-center gap-2 whitespace-nowrap">
+                      {puedeDescargar && <BotonComprobanteFila soat={f} descarga={descargaComprobante} />}
+                      <button className={`${flitBtnSecondary} ${hoverSecundario}`} style={flitBtnSecondaryStyle}
+                        onClick={() => setDetalleId(f.id)}>Ver</button>
+                    </div>
                   </td>
                 </FlitTr>
               ))}
@@ -685,6 +694,7 @@ export default function FlitoSoat() {
       {detalle && (
         <DetalleSoat soat={detalle} esOperaciones={esOperaciones} esGestor={esGestor} soloLectura={soloLectura}
           esCliente={esCliente} restoreFocusRef={refPills}
+          descarga={puedeDescargar ? descargaComprobante : null}
           proveedores={proveedores} onClose={() => setDetalleId(null)}
           onCambio={() => { setDetalleId(null); refrescar(); }} />
       )}
@@ -721,8 +731,10 @@ function CeldaGestion({ soat }: { soat: SoatItem }) {
 
 type Accion = 'idle' | 'rechazar' | 'reactivar' | 'reversar' | 'proveedor' | 'factura' | 'asumir' | 'devolver';
 
-function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, proveedores, restoreFocusRef, onClose, onCambio }: {
+function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, proveedores, restoreFocusRef, descarga, onClose, onCambio }: {
   soat: SoatItem; esOperaciones: boolean; esGestor: boolean; soloLectura: boolean; esCliente: boolean;
+  /** `null` = sin `soat.soportes.descargar`: el botón no existe en el DOM (AC4). */
+  descarga: EstadoDescargaComprobante | null;
   proveedores: Proveedor[]; restoreFocusRef?: RefObject<HTMLElement | null>;
   onClose: () => void; onCambio: () => void;
 }) {
@@ -765,7 +777,7 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, pr
           {soat.estancado && <ChipSinGestion desde={soat.enviadoEn} />}
         </div>
 
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+        <dl className="grid grid-cols-1 gap-x-4 gap-y-1.5 sm:grid-cols-2">
           <Dato k="VIN" v={soat.vin} /><Dato k="Vehículo" v={`${soat.marca ?? ''} ${soat.linea ?? ''}`.trim() || '—'} />
           <Dato k="Compañía" v={soat.companiaNombre} /><Dato k="Organismo" v={soat.organismoNombre ?? '—'} />
           {/* Los tres datos de la trastienda. No se pintan «—» para el cliente: se omiten, porque el
@@ -827,7 +839,7 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, pr
         )}
 
         {soat.motivoRechazo && (
-          <div className="rounded-md bg-red-50 p-2 text-red-700">
+          <div className="rounded-md p-2" style={{ background: 'var(--flit-bg-app)', color: 'var(--color-danger)' }}>
             <p>Motivo de rechazo: {soat.motivoRechazo}</p>
             {/* Lo ÚNICO que se añade al retirar el circuito de revisión (HU #12079). «Corregir y
                 reenviar» se fue con el estado `rechazada` —que la #12080 borra del enum—, y la vía
@@ -842,10 +854,13 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, pr
             )}
           </div>
         )}
-        {soloLectura && <div className="rounded-md bg-blue-50 p-2 text-blue-800">Solo lectura · Auditoría observa, no ejecuta acciones.</div>}
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {soloLectura && <div role="status" className="rounded-md p-2" style={{ background: 'var(--flit-bg-app)', color: 'var(--flit-blue-text)' }}>
+          Solo lectura · Auditoría observa, no ejecuta acciones.</div>}
+        {error && <p className="text-sm" style={{ color: 'var(--color-danger)' }}>{error}</p>}
 
-        {!soloLectura && accion === 'idle' && (
+        {/* La fila de acciones también existe para quien SOLO descarga (Cliente, auditor con la
+            función): «Descargar comprobante» va al final, secundaria — descargar es consultar. */}
+        {accion === 'idle' && (!soloLectura || descarga) && (
           <div className="flex flex-wrap gap-2 pt-1">
             {enAdquisicion && (esOperaciones || esGestor) && (
               <label className={`${flitBtnPrimary} cursor-pointer`} style={flitBtnPrimaryStyle}>
@@ -855,10 +870,10 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, pr
               </label>
             )}
             {enAdquisicion && (esOperaciones || esGestor) && (
-              <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('rechazar')}>Rechazar</button>
+              <button className={`${flitBtnSecondary} ${hoverSecundario}`} style={flitBtnSecondaryStyle} onClick={() => setAccion('rechazar')}>Rechazar</button>
             )}
             {rechazado && esOperaciones && (
-              <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('reactivar')}>Reactivar</button>
+              <button className={`${flitBtnSecondary} ${hoverSecundario}`} style={flitBtnSecondaryStyle} onClick={() => setAccion('reactivar')}>Reactivar</button>
             )}
             {/* Las dos acciones heredadas se ofrecen sin condición de origen (HU #12079): la #11915
                 se las quitaba a las filas del canal porque «Reversar» una `pendiente_revision` a
@@ -870,17 +885,18 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, pr
                 `reversar()` también perdió sus dos guardas: no se relajó una regla, se retiró con lo
                 que protegía. */}
             {esOperaciones && (
-              <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('reversar')}>Reversar</button>
+              <button className={`${flitBtnSecondary} ${hoverSecundario}`} style={flitBtnSecondaryStyle} onClick={() => setAccion('reversar')}>Reversar</button>
             )}
             {esOperaciones && !enAdquisicion && (
-              <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('proveedor')}>Cambiar proveedor</button>
+              <button className={`${flitBtnSecondary} ${hoverSecundario}`} style={flitBtnSecondaryStyle} onClick={() => setAccion('proveedor')}>Cambiar proveedor</button>
             )}
             {esOperaciones && traspasable && !soat.gestionOperaciones && (
-              <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('asumir')}>Asumir en Operaciones</button>
+              <button className={`${flitBtnSecondary} ${hoverSecundario}`} style={flitBtnSecondaryStyle} onClick={() => setAccion('asumir')}>Asumir en Operaciones</button>
             )}
             {esOperaciones && traspasable && soat.gestionOperaciones && (
-              <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('devolver')}>Devolver al proveedor</button>
+              <button className={`${flitBtnSecondary} ${hoverSecundario}`} style={flitBtnSecondaryStyle} onClick={() => setAccion('devolver')}>Devolver al proveedor</button>
             )}
+            {descarga && <BotonComprobanteDetalle soat={soat} descarga={descarga} />}
           </div>
         )}
 
