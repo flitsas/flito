@@ -1408,7 +1408,8 @@ describe('archivo ampliado — cada valor de pago bajo su cabecera', () => {
 
     expect(celda(hoja, 2, 'Estado')).toBe('Pagado');
     expect(celda(hoja, 2, 'FechaSolicitud')).toBe('2026-04-10 09:30');
-    expect(celda(hoja, 2, 'FechaLiquidacion')).toBe('2026-04-10 22:15');
+    // Sin `liquidado_en` en esta rama (llega con la 0196 del Feature 12589) la celda sale vacía.
+    expect(celda(hoja, 2, 'FechaLiquidacion')).toBeNull();
     expect(celda(hoja, 2, 'ValorLiquidado')).toBe(480000);
     expect(celda(hoja, 2, 'ValorPagado')).toBe(479500.25);
     expect(typeof celda(hoja, 2, 'ValorPagado')).toBe('number');
@@ -1463,7 +1464,7 @@ describe('archivo ampliado — cada valor de pago bajo su cabecera', () => {
     const lecturas = lecturasDe(TABLA);
     expect(lecturas).toHaveLength(1);
     const lectura = lecturas[0];
-    for (const col of ['vin', 'placa', 'numSerie', 'estado', 'enviadoEn', 'liquidadoEn', 'valorLiquidado', 'valorPagado', 'pagadoEn', 'marcadoPorDiferencia', 'modalidadAplicada', 'gestionOperaciones', 'motivoRechazo', 'createdAt']) {
+    for (const col of ['vin', 'placa', 'numSerie', 'estado', 'enviadoEn', 'valorLiquidado', 'valorPagado', 'pagadoEn', 'marcadoPorDiferencia', 'modalidadAplicada', 'gestionOperaciones', 'motivoRechazo', 'createdAt']) {
       expect(lectura.columnas, col).toContain(col);
     }
     expect(origenDe(lectura.proyeccion.valorLiquidado)).toBe('col:flito_impuestos.valor_liquidado');

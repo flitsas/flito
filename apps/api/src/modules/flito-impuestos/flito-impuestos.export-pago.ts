@@ -25,7 +25,6 @@ import {
 export const COLUMNAS_PAGO_IMPUESTOS = {
   estado: flitoImpuestos.estado,
   enviadoEn: flitoImpuestos.enviadoEn,
-  liquidadoEn: flitoImpuestos.liquidadoEn,
   valorLiquidado: flitoImpuestos.valorLiquidado,
   valorPagado: flitoImpuestos.valorPagado,
   pagadoEn: flitoImpuestos.pagadoEn,
@@ -40,7 +39,6 @@ export const COLUMNAS_PAGO_IMPUESTOS = {
 export interface FilaConsultaPagoImpuestos {
   estado: string;
   enviadoEn: Date | string | null;
-  liquidadoEn: Date | string | null;
   valorLiquidado: string | null;
   valorPagado: string | null;
   pagadoEn: Date | string | null;
@@ -69,7 +67,9 @@ export function celdasPagoImpuestos(f: FilaConsultaPagoImpuestos): CeldasPagoImp
   return {
     estado: etiquetaEstado(f.estado),
     fechaSolicitud: celdaInstante(f.enviadoEn),
-    fechaLiquidacion: celdaInstante(f.liquidadoEn),
+    // En esta rama `flito_impuestos` aún no tiene `liquidado_en` (llega con la migración 0196 del
+    // Feature 12589): la celda sale vacía y la cabecera se conserva, así el archivo no cambia de forma.
+    fechaLiquidacion: null,
     valorLiquidado: celdaNumero(f.valorLiquidado),
     valorPagado: celdaNumero(f.valorPagado),
     fechaPago: celdaInstante(f.pagadoEn),

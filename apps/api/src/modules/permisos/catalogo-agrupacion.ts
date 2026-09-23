@@ -30,7 +30,6 @@ export const AGRUPACION_DE_PAGINA: Readonly<Partial<Record<PageSlug, string>>> =
   flito_bolsas: 'bolsas',
   flito_comparendos: 'comparendos',
   flito_conciliacion: 'conciliacion',
-  flito_comprobantes: 'comprobantes',
   finanzas_reporte_costos: 'liquidacion',
   users: 'usuarios',
   roles_permisos: 'permisos',
@@ -39,7 +38,6 @@ export const AGRUPACION_DE_PAGINA: Readonly<Partial<Record<PageSlug, string>>> =
   transito_organismos: 'transito',
   clients: 'clientes',
   flito_tarifas: 'tarifas',
-  flito_servicios_adicionales: 'servicios_adicionales',
 };
 
 /** Código de operación (exacto, no prefijo) → módulo de agrupación. */
@@ -57,15 +55,6 @@ export const AGRUPACION_DE_OPERACION: Readonly<Record<string, string>> = {
   'parametrizacion.tarifas.historial': 'tarifas',
   'parametrizacion.tarifas.listar': 'tarifas',
   'parametrizacion.tarifas.ver_por_cliente': 'tarifas',
-  // Servicios adicionales: el catálogo (parametrizacion.*) y la asignación al trámite (finanzas.*)
-  // se conceden desde la misma pantalla.
-  'parametrizacion.servicios_adicionales.crear': 'servicios_adicionales',
-  'parametrizacion.servicios_adicionales.dar_de_baja': 'servicios_adicionales',
-  'parametrizacion.servicios_adicionales.editar': 'servicios_adicionales',
-  'parametrizacion.servicios_adicionales.listar': 'servicios_adicionales',
-  'finanzas.servicios_adicionales.asignar': 'servicios_adicionales',
-  'finanzas.servicios_adicionales.quitar': 'servicios_adicionales',
-  'finanzas.servicios_adicionales.ver': 'servicios_adicionales',
   // Organismos de tránsito: con la pantalla de tránsito.
   'parametrizacion.organismos.editar': 'transito',
   'parametrizacion.organismos.fijar_modalidad': 'transito',
