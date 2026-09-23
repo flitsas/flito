@@ -41,6 +41,12 @@
      —`rgba(22,39,68,.06)` en la regla base y `rgba(255,255,255,.08)` en un `[data-theme='dark']`
      aparte—, o sea DOS fuentes de verdad para el mismo efecto. Aquí es una sola con su par. */
   --flit-bg-hover: rgba(22, 39, 68, 0.06);
+  /* Velo de la primaria al pasar el puntero y al pulsar (HU #12819). OSCURO en los dos temas y con el
+     mismo valor: la primaria es un degradado con texto blanco, y oscurecer el fondo SUBE el contraste
+     del texto en claro y en oscuro. Se pinta con `box-shadow` inset para no pelear con el degradado,
+     que va en línea. `opacity` o `--flit-bg-hover` lo bajarían. */
+  --flit-veil-press-hover: rgba(8, 18, 38, 0.12);
+  --flit-veil-press-active: rgba(8, 18, 38, 0.20);
 
   /* Marca */
   --flit-cyan: #4FD4CC;
@@ -238,6 +244,9 @@
      no se ve. Es la misma inversión que el Bug #11720 descubrió a mano para las teclas de la ⌘K,
      ahora en un token en vez de en un parche por selector. */
   --flit-bg-hover: rgba(255, 255, 255, 0.08);
+  /* Mismo valor que en claro, a propósito (ver `:root`): el velo de la primaria oscurece siempre. */
+  --flit-veil-press-hover: rgba(8, 18, 38, 0.12);
+  --flit-veil-press-active: rgba(8, 18, 38, 0.20);
 
   /* Texto. `muted` conserva el #93A0B5 que el Bug #11720 midió sobre el píxel real de la paleta
      en oscuro: ese hex ya estaba validado contra este mismo sustrato, así que reabsorberlo como

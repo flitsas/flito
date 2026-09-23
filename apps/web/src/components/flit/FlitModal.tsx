@@ -1,6 +1,6 @@
 import { useRef, type ReactNode, type RefObject } from 'react';
 import { useEscape, useBackdropClose, useFocusTrap } from '../../lib/hooks';
-import { IconClose } from './icons';
+import { X } from 'lucide-react';
 import ModalPortal from './ModalPortal';
 
 // FlitModal — modal del prototipo FLIT (p.9): overlay azulado desenfocado,
@@ -109,10 +109,10 @@ export default function FlitModal(
             type="button"
             onClick={onClose}
             aria-label="Cerrar"
-            className="flit-focus grid h-9 w-9 place-items-center rounded-lg transition-colors hover:bg-flit-card"
+            className="flit-focus grid h-9 w-9 place-items-center rounded-lg transition-colors hover:bg-[var(--flit-bg-hover)]"
             style={{ color: 'var(--flit-text-muted)' }}
           >
-            <IconClose className="h-5 w-5" />
+            <X size={18} aria-hidden="true" />
           </button>
         </div>
         <div className={full || lateral ? 'min-h-0 flex-1 px-6 py-4' : 'px-6 py-5'}>{children}</div>
