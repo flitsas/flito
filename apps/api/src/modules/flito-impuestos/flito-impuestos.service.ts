@@ -22,6 +22,7 @@ import {
 } from '@operaciones/shared-types';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
+import { encolarAnalisis, marcarEnCursoEnTx } from './flito-impuestos.analisis.service.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -618,13 +619,13 @@ export interface ResultadoEnvio { enviados: string[]; yaEnviados: string[] }
  */
 export async function enviarAlGestor(ids: string[], ctx: ImpuestoCtx, gestionOperaciones = false): Promise<ResultadoEnvio> {
   if (ids.length === 0) return { enviados: [], yaEnviados: [] };
-  const enviados = await db.transaction(async (tx) => {
-    const locked = await tx.select({ id: flitoImpuestos.id }).from(flitoImpuestos)
+  const { enviados, porAnalizar } = await db.transaction(async (tx) => {
+    const locked = await tx.select({ id: flitoImpuestos.id, analizadoEn: flitoImpuestos.analizadoEn }).from(flitoImpuestos)
       .innerJoin(clients, eq(flitoImpuestos.companiaId, clients.id))
       .where(and(inArray(flitoImpuestos.id, ids), eq(flitoImpuestos.estado, EstadoImpuesto.PENDIENTE), FRONTERA_AUTOGESTION_IMP))
       .for('update', { of: flitoImpuestos, skipLocked: true });
     const idsEnviados = locked.map((r) => r.id);
-    if (idsEnviados.length === 0) return [];
+    if (idsEnviados.length === 0) return { enviados: [] as string[], porAnalizar: [] as string[] };
     const ahora = new Date();
     await tx.update(flitoImpuestos).set({
       estado: EstadoImpuesto.SOLICITADO, enviadoPorId: ctx.userId, enviadoEn: ahora, updatedAt: ahora,
@@ -642,8 +643,10 @@ export async function enviarAlGestor(ids: string[], ctx: ImpuestoCtx, gestionOpe
       motivo: gestionOperaciones ? 'Envío a gestión de Operaciones' : 'Envío al gestor',
       usuarioId: ctx.userId, usuarioEmail: ctx.username,
     })));
-    return idsEnviados;
+    // HU #12825 (AC1): `en_curso` en la misma transacción; el job se encola tras el commit.
+    return { enviados: idsEnviados, porAnalizar: await marcarEnCursoEnTx(tx, locked, ahora) };
   });
+  encolarAnalisis(porAnalizar);
   return { enviados, yaEnviados: ids.filter((id) => !enviados.includes(id)) };
 }
 

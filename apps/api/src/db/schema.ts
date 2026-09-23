@@ -2638,6 +2638,8 @@ export const laftAuditPlans = pgTable('laft_audit_plans', {
 // residuo deprecado: ya no existen en la base y escribirlos es un 22P02.
 export const flitoSoatEstadoEnum = pgEnum('flito_soat_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado']);
 export const flitoImpuestoEstadoEnum = pgEnum('flito_impuesto_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado']);
+/** HU #12825: ciclo del análisis post-envío. NULL en la columna = nunca encolado (histórico). */
+export const flitoImpuestoAnalisisEstadoEnum = pgEnum('flito_impuesto_analisis_estado', ['en_curso', 'completado', 'error_analisis']);
 export const flitoTramiteEstadoEnum = pgEnum('flito_tramite_estado', ['asignado', 'entregado', 'aprobado', 'anulado', 'rechazado']);
 // Modalidad del organismo: requiere_gestion | autogestionado (default). 'sin_clasificar' se deprecó.
 export const flitoModalidadEnum = pgEnum('flito_modalidad_organismo', ['requiere_gestion', 'autogestionado']);
@@ -3144,11 +3146,22 @@ export const flitoImpuestos = pgTable('flito_impuestos', {
   liquidadoEn: timestamp('liquidado_en', { withTimezone: true }),
   motivoRechazo: text('motivo_rechazo'),
   extraccion: jsonb('extraccion').$type<ExtraccionImpuesto>(),
+  /**
+   * HU #12825 (migración 0206): análisis post-envío en segundo plano. `analizadoEn` solo se escribe
+   * si corrió al menos un paso; con él poblado y posterior al encolado, el job no re-ejecuta (AC2).
+   * `analisisReencolados` lo sube solo la recuperación de huérfanos (AC4: una vez).
+   */
+  analisisEstado: flitoImpuestoAnalisisEstadoEnum('analisis_estado'),
+  analisisEncoladoEn: timestamp('analisis_encolado_en', { withTimezone: true }),
+  analisisReencolados: smallint('analisis_reencolados').notNull().default(0),
+  analizadoEn: timestamp('analizado_en', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   estadoIdx: index('idx_flito_impuestos_estado').on(t.estado),
   organismoIdx: index('idx_flito_impuestos_organismo').on(t.organismoCodigo),
+  analisisEnCursoIdx: index('idx_flito_impuestos_analisis_en_curso').on(t.analisisEncoladoEn)
+    .where(sql`${t.analisisEstado} = 'en_curso'`),
 }));
 
 /**
