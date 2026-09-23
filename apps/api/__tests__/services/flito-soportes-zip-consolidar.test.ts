@@ -114,6 +114,14 @@ function cabeceraPng(w: number, h: number): Buffer {
   return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), ihdr]);
 }
 
+/** Un chunk PNG de `tipo` con `n` bytes de datos a cero y CRC de relleno (la guarda no lo mira). */
+function chunkPng(tipo: string, n: number): Buffer {
+  const c = Buffer.alloc(12 + n);
+  c.writeUInt32BE(n, 0);
+  c.write(tipo, 4, 'latin1');
+  return c;
+}
+
 describe('consolidarPdf — PNG con IHDR enorme: se omite SIN decodificarlo', () => {
   // `embedPng` espiado Y neutralizado: si la guarda faltara, el test falla por la llamada, no
   // por una decodificación de 1,6 GB que tumbaría el runner.
@@ -141,6 +149,28 @@ describe('consolidarPdf — PNG con IHDR enorme: se omite SIN decodificarlo', ()
   it('justo EN el techo (4000×4000) → sí pasa a `embedPng` (la guarda no corta de más)', async () => {
     await consolidarPdf([cabeceraPng(4000, 4000)]);
     expect(espia).toHaveBeenCalledTimes(1);
+  });
+
+  it('IHDR 1×1 seguido de un SEGUNDO IHDR 20000×20000 → omitido sin `embedPng`', async () => {
+    const segundo = cabeceraPng(20_000, 20_000).subarray(8); // solo el chunk IHDR
+    const r = await consolidarPdf([Buffer.concat([cabeceraPng(1, 1), segundo]), RECIBO]);
+    expect(espia).not.toHaveBeenCalled();
+    expect(r).toMatchObject({ incluidos: 1, omitidos: 1 });
+  });
+
+  it('APNG (IHDR 100×100 + acTL + fcTL) → omitido sin `embedPng`', async () => {
+    const apng = Buffer.concat([cabeceraPng(100, 100), chunkPng('acTL', 8), chunkPng('fcTL', 26)]);
+    const r = await consolidarPdf([apng, RECIBO]);
+    expect(espia).not.toHaveBeenCalled();
+    expect(r).toMatchObject({ incluidos: 1, omitidos: 1 });
+  });
+
+  it('chunk que declara una longitud fuera del buffer → omitido sin `embedPng`', async () => {
+    const idat = chunkPng('IDAT', 4);
+    idat.writeUInt32BE(0x7fff_ffff, 0); // declara 2 GB; el buffer trae 4 bytes
+    const r = await consolidarPdf([Buffer.concat([cabeceraPng(10, 10), idat]), RECIBO]);
+    expect(espia).not.toHaveBeenCalled();
+    expect(r).toMatchObject({ incluidos: 1, omitidos: 1 });
   });
 
   it('firma PNG con el primer chunk que no es IHDR → omitido sin `embedPng`', async () => {

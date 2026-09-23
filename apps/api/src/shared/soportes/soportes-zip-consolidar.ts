@@ -62,16 +62,41 @@ const MAX_PIXELES_PNG = 16_000_000;
 /** Firma de 8 bytes de todo PNG. */
 const FIRMA_PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
+/** Chunks de APNG: `toRGBA8` de UPNG reserva lienzos w·h·4 POR FRAME, y `fcTL` no se valida. */
+const CHUNKS_APNG = new Set(['acTL', 'fcTL', 'fdAT']);
+
 /**
- * ¿Cabe este PNG bajo `MAX_PIXELES_PNG`? Lee SOLO la cabecera: firma, primer chunk `IHDR` (siempre
- * el primero por especificación) y su ancho/alto. Cabecera inválida o dimensión 0 → `false`.
+ * ¿Puede este PNG pasar a `embedPng` sin reventar la memoria? Recorre la ESTRUCTURA de chunks
+ * (longitud uint32 BE + tipo + datos + CRC) sin descomprimir ni copiar nada: O(nº de chunks).
+ *
+ * Mirar solo el primer IHDR no basta (medido en `@pdf-lib/upng`): `UPNG.decode` recorre todos los
+ * chunks, y un segundo IHDR pisa ancho/alto y `_decompress` reserva `(bpl+1)·h` antes de mirar el
+ * IDAT; y un APNG multiplica la reserva por frame. Por eso `false` (→ omitido, AC5) si: falta la
+ * firma, el primer chunk no es IHDR, hay más de un IHDR, aparece `acTL`/`fcTL`/`fdAT`, un chunk se
+ * sale del buffer, o el IHDR único declara 0 o más de `MAX_PIXELES_PNG` píxeles.
  */
 function pngDentroDelTecho(buf: Buffer): boolean {
-  if (buf.length < 24 || !buf.subarray(0, 8).equals(FIRMA_PNG)) return false;
-  if (buf.toString('latin1', 12, 16) !== 'IHDR') return false;
-  const ancho = buf.readUInt32BE(16);
-  const alto = buf.readUInt32BE(20);
-  return ancho > 0 && alto > 0 && ancho * alto <= MAX_PIXELES_PNG;
+  if (buf.length < 8 || !buf.subarray(0, 8).equals(FIRMA_PNG)) return false;
+  let pos = 8;
+  let ihdrs = 0;
+  let pixeles = 0;
+  while (pos < buf.length) {
+    if (pos + 12 > buf.length) return false; // cabecera de chunk truncada
+    const largo = buf.readUInt32BE(pos);
+    const tipo = buf.toString('latin1', pos + 4, pos + 8);
+    const fin = pos + 12 + largo; // largo + tipo + datos + CRC
+    if (fin > buf.length) return false;
+    if (pos === 8 && tipo !== 'IHDR') return false;
+    if (CHUNKS_APNG.has(tipo)) return false;
+    if (tipo === 'IHDR') {
+      ihdrs += 1;
+      if (ihdrs > 1 || largo < 8) return false;
+      pixeles = buf.readUInt32BE(pos + 8) * buf.readUInt32BE(pos + 12);
+    }
+    if (tipo === 'IEND') break;
+    pos = fin;
+  }
+  return ihdrs === 1 && pixeles > 0 && pixeles <= MAX_PIXELES_PNG;
 }
 
 /** El resultado puro de juntar los documentos de UN registro. */
