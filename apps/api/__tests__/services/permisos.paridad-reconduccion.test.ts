@@ -49,7 +49,6 @@ function fuenteDesde(reparto: Map<string, Set<string>>) {
     return {
       rol,
       tipoPrincipal: rol === 'cliente' ? 'externo' : 'interno',
-      allowedPages: [],
       funcionesDelRol: [...(reparto.get(rol) ?? [])],
       excepciones: [],
     };

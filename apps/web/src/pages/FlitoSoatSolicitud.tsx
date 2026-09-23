@@ -145,13 +145,15 @@ const ROTULO_CONSULTA: Record<Consulta['fase'], string> = {
  * SOAT» sería falso en los dos casos.
  */
 export default function FlitoSoatSolicitud() {
-  const { user } = useAuth();
+  const { user, hasFuncion } = useAuth();
+  // HU #12170: copy del vacío por función (crear sin enviar = canal cliente), no por rol.
+  const esCanalCliente = hasFuncion('soat.solicitud.crear') && !hasFuncion('soat.solicitud.enviar');
 
   if (!puedeSolicitarSoat(user)) {
     return (
       <div className="space-y-4">
         <PageHeaderCard title="Solicitud de SOAT" />
-        {user?.role === 'cliente'
+        {esCanalCliente
           ? <TarjetaCanalDeshabilitado salida={{ to: COLA, texto: 'Volver a mis SOAT' }} />
           : <TarjetaCanalAjeno />}
       </div>

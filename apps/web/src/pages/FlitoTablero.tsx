@@ -1,7 +1,6 @@
 // FLITO Tablero (Fase 6). Porta packages/client/src/paginas/tablero.tsx al kit flit/ + api.
 // Lo que el proceso por Excel y correo no dejaba ver: retenciones, estancamientos y diferencias.
 
-import { puedeOperar } from '../lib/permissions';
 import { useEffect, useState } from 'react';
 import {
   ALERTAS_OPERATIVAS, ALERTA_OPERATIVA_LABEL, ESTADO_IMPUESTO_LABEL, ESTADO_SOAT_LABEL,
@@ -70,13 +69,14 @@ function esResumenValido(r: unknown): r is TableroResumen {
 }
 
 export default function FlitoTablero() {
-  const { user } = useAuth();
+  const { user, hasFuncion } = useAuth();
   const [data, setData] = useState<TableroResumen | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sync, setSync] = useState<ResumenSync | null>(null);
   const [sincronizando, setSincronizando] = useState(false);
 
-  const puedeSincronizar = puedeOperar(user?.role);
+  // HU #12170
+  const puedeSincronizar = hasFuncion('sync.sync.lanzar');
 
   const cargar = () => {
     setError(null);
@@ -166,7 +166,7 @@ export default function FlitoTablero() {
         </>
       )}
 
-      {user?.role === 'auditor' && (
+      {hasFuncion('tablero.tablero.ver') && !hasFuncion('sync.sync.lanzar') && (
         <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
           Solo lectura · Auditoría observa el tablero; no ejecuta acciones sobre él.
         </p>

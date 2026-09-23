@@ -70,6 +70,8 @@ describe('transito — auth (TRAM-13)', () => {
   });
 
   it('rol transito sin organismo → 403', async () => {
+    // HU #12088: resolveTransitoScope lee primero la puente, luego users.transito_codigo.
+    selectMock.mockReturnValueOnce(chain([]));
     selectMock.mockReturnValueOnce(chain([{ c: null }]));
     const token = await testToken({ sub: 7, role: 'transito' });
     const app = await buildApp();
@@ -79,6 +81,8 @@ describe('transito — auth (TRAM-13)', () => {
   });
 
   it('rol transito con organismo → 200 GET pendientes', async () => {
+    // Puente vacía → fallback al transitoCodigo del JWT; luego el SELECT de pendientes.
+    selectMock.mockReturnValueOnce(chain([]));
     selectMock.mockReturnValueOnce(chain([]));
     const token = await testToken({ sub: 7, role: 'transito', transitoCodigo: '05001' });
     const app = await buildApp();
@@ -99,6 +103,7 @@ describe('transito — auth (TRAM-13)', () => {
 describe('transito — multitenant (TRAM-MT-01)', () => {
   it('tomar trámite de otro organismo → 403', async () => {
     const token = await testToken({ sub: 7, role: 'transito', transitoCodigo: '05001' });
+    selectMock.mockReturnValueOnce(chain([])); // puente
     selectMock.mockReturnValueOnce(chain([{ estado: 'enviado_transito', organismoCodigo: '05266' }]));
     const app = await buildApp();
     const r = await request(app).post('/api/transito/tomar/99').set('Authorization', `Bearer ${token}`);
@@ -108,6 +113,7 @@ describe('transito — multitenant (TRAM-MT-01)', () => {
 
   it('tomar trámite del mismo organismo → 200', async () => {
     const token = await testToken({ sub: 7, role: 'transito', transitoCodigo: '05001' });
+    selectMock.mockReturnValueOnce(chain([])); // puente
     selectMock.mockReturnValueOnce(chain([{ estado: 'enviado_transito', organismoCodigo: '05001' }]));
     updateMock.mockReturnValueOnce({
       set: () => ({
@@ -132,6 +138,7 @@ describe('transito — multitenant (TRAM-MT-01)', () => {
   });
 
   it('GET traspasos — transito con organismo → 200', async () => {
+    selectMock.mockReturnValueOnce(chain([])); // puente
     selectMock.mockReturnValueOnce(chain([{ id: 20, modalidadEntrada: 'traspaso', estado: 'radicado', organismoCodigo: '05001', numeroRadicado: 'TD-2026-00002' }]));
     const token = await testToken({ sub: 7, role: 'transito', transitoCodigo: '05001' });
     const app = await buildApp();

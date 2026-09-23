@@ -8,6 +8,10 @@
 // Nada de esto se teclea dos veces: el seed de la migración 0179 es la SALIDA de este módulo
 // (`npm run permisos:seed -w apps/api`), y la comprobación de arranque del AC6 vuelve a construirlo
 // para compararlo con lo que hay en la base.
+//
+// Desde la HU #12716 el `modulo` de cada función es el de AGRUPACIÓN (el que pinta la pantalla de
+// permisos y nombra la bitácora del 403), aplicado con `catalogo-agrupacion.ts` DESPUÉS de construir
+// cada mitad. El prefijo del código sigue siendo el módulo del FICHERO: esa comprobación se conserva.
 import { PAGES, PAGE_GROUPS, USER_ROLES, paginasPorDefecto, type PageSlug } from '@operaciones/shared-types';
 import { llaveDe, type GuardaLeida } from './inventario-guardas.js';
 // El SNAPSHOT y no el lector de fuentes: la imagen de producción no lleva los `.ts` (el Dockerfile
@@ -16,6 +20,7 @@ import { llaveDe, type GuardaLeida } from './inventario-guardas.js';
 // que sí relee los ficheros — en CI el árbol está y en el contenedor no hace falta.
 import { GUARDAS_MEDIDAS } from './inventario.generado.js';
 import { OPERACIONES_DECLARADAS } from './catalogo-operaciones.js';
+import { AGRUPACION_DE_OPERACION, AGRUPACION_DE_PAGINA, moduloAgrupado } from './catalogo-agrupacion.js';
 
 export interface FuncionCatalogo {
   codigo: string;
@@ -41,8 +46,12 @@ export interface FuncionCatalogo {
  */
 export const PAGINAS_NO_CONCEDIBLES: readonly PageSlug[] = ['flito_ayuda'];
 
-/** El módulo con el que se agrupa cada página: su grupo de `PAGE_GROUPS`, normalizado. */
-function moduloDeGrupo(label: string): string {
+/**
+ * El módulo ESTRUCTURAL de una página: su grupo de `PAGE_GROUPS`, normalizado. Es lo que conserva
+ * una página sin acciones (`pagina.dashboard` → `general`); las demás lo cambian por el de sus
+ * acciones vía `moduloAgrupado` (HU #12716). Exportado para que los tests midan las dos cuentas.
+ */
+export function moduloDeGrupo(label: string): string {
   return label
     .toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -69,9 +78,10 @@ export function catalogoDePaginas(): FuncionCatalogo[] {
       if (vistos.has(slug)) continue;
       vistos.add(slug);
       if (PAGINAS_NO_CONCEDIBLES.includes(slug)) continue;
+      const codigo = `pagina.${slug}`;
       salida.push({
-        codigo: `pagina.${slug}`,
-        modulo: moduloDeGrupo(grupo.label),
+        codigo,
+        modulo: moduloAgrupado(codigo, moduloDeGrupo(grupo.label)),
         nombreNegocio: PAGES[slug],
         descripcion: `Entrar a la pantalla «${PAGES[slug]}».`,
         tipo: 'pagina',
@@ -119,7 +129,9 @@ export function catalogoDeOperaciones(guardas: GuardaLeida[] = GUARDAS_MEDIDAS):
     }
     salida.push({
       codigo: decl.codigo,
-      modulo: g.modulo,
+      // El prefijo ya quedó comprobado contra `g.modulo` (estructural); lo que se guarda es el de
+      // agrupación, que para 23 operaciones es otro (HU #12716).
+      modulo: moduloAgrupado(decl.codigo, g.modulo),
       nombreNegocio: decl.nombre,
       descripcion: decl.descripcion,
       tipo: 'operacion',
@@ -150,6 +162,20 @@ export function catalogoCompleto(guardas?: GuardaLeida[]): FuncionCatalogo[] {
   const repetidos = [...cuenta.entries()].filter(([, n]) => n > 1).map(([c]) => c);
   if (repetidos.length) {
     throw new CatalogoIncoherenteError(`Códigos de función repetidos: ${repetidos.join(', ')}.`);
+  }
+  // HU #12716: toda clave de los mapas de agrupación debe existir en el catálogo. Una entrada muerta
+  // (código retirado o mal escrito) no se ignora: sería una reagrupación que la 0205 escribe sobre
+  // nada y un mapa que miente sobre lo que agrupa.
+  const declaradas = [
+    ...Object.keys(AGRUPACION_DE_PAGINA).map((slug) => `pagina.${slug}`),
+    ...Object.keys(AGRUPACION_DE_OPERACION),
+  ];
+  const muertas = declaradas.filter((c) => !cuenta.has(c));
+  if (muertas.length) {
+    throw new CatalogoIncoherenteError(
+      `Agrupación declarada para un código que no existe: ${muertas.join(', ')}. ` +
+      'Se corrige en apps/api/src/modules/permisos/catalogo-agrupacion.ts.',
+    );
   }
   return todas.sort((a, b) => a.codigo.localeCompare(b.codigo));
 }

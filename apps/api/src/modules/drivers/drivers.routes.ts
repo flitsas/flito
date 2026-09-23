@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { eq, and, asc, sql, ilike, or } from 'drizzle-orm';
+import { eq, and, asc, sql, ilike, or, isNull } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { users, driverProfile } from '../../db/schema.js';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
@@ -65,7 +65,7 @@ router.get('/', async (req: Request, res: Response) => {
   const vencidos = req.query.vencidos === 'true';
   const today = new Date().toISOString().slice(0, 10);
 
-  const conds: any[] = [eq(users.esConductor, true), eq(users.active, true)];
+  const conds: any[] = [eq(users.esConductor, true), eq(users.active, true), isNull(users.deletedAt)];
   if (q) {
     // Búsqueda exacta por cédula vía HMAC si q es solo dígitos; siempre acepta name/username.
     const onlyDigits = normalizeDocument(q);
@@ -333,7 +333,7 @@ router.delete('/:id', requireRole('admin'), async (req: Request, res: Response) 
 router.get('/candidates/non-driver', requireRole('admin'), async (_req, res: Response) => {
   const rows = await db.select({ id: users.id, name: users.name, username: users.username })
     .from(users)
-    .where(and(eq(users.esConductor, false), eq(users.active, true)))
+    .where(and(eq(users.esConductor, false), eq(users.active, true), isNull(users.deletedAt)))
     .orderBy(asc(users.name));
   res.json({ data: rows });
 });

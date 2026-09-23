@@ -30,9 +30,9 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import {
-  columnasFaltantes, filaCola, filasCola, medirExports, PRESUPUESTO_MB, reportar,
+  columnasFaltantes, filaCola, filaColaPago, filasCola, filasColaPago, medirExports, PRESUPUESTO_MB, reportar,
 } from '../helpers/export-coste.js';
-import { COLUMNAS_COLA_EXPORT } from '../../src/shared/export/cola-flito-excel.js';
+import { COLUMNAS_COLA_EXPORT, columnasColaExport } from '../../src/shared/export/cola-flito-excel.js';
 
 /**
  * La lista de columnas vive en el mismo módulo que `exportColaLimiter`, y ese limitador se construye
@@ -135,6 +135,69 @@ describe('la hoja de 27 columnas cabe en el presupuesto de heap (ADR-0004 §Cost
     expect(m.bytesPorExport).toHaveLength(SIMULTANEOS);
     for (const bytes of m.bytesPorExport) expect(bytes).toBeGreaterThan(0);
 
+    expect(m.rssDeltaMB).toBeLessThan(PRESUPUESTO_MB);
+    expect(m.ms).toBeLessThan(120_000);
+    expect(m.atencion).toBeGreaterThan(ATENCION_MINIMA);
+  });
+});
+
+/**
+ * Bug #12642 — el archivo AMPLIADO del SOAT: 27 + 13 columnas de pago y trazabilidad. Es la hoja más
+ * ancha que este endpoint puede producir (Impuestos suma 11) y, como la de 27, se mide en vez de
+ * estimarse: trece columnas más son 1,48 veces la hoja con la que se recalibró el margen en la
+ * #12403, y cuatro de ellas son fechas distintas por fila que la tabla de cadenas no deduplica.
+ *
+ * Mismo criterio que arriba: umbrales de orden de magnitud contra el PRESUPUESTO, y el número real
+ * queda escrito en el HANDOFF del Bug y en el comentario de abajo, no como aserto rígido.
+ *
+ * ── LO MEDIDO (2026-09-17, Bug #12642: 40 columnas, este `describe` corrido SOLO, dos veces) ────
+ *
+ *   · UN export ampliado al tope, proceso EN FRÍO: **+74,0 · +73,7 MB** de RSS, heap pico 98,7 MB,
+ *     ~557 ms, archivo 0,4 MB (la de 27 en frío: +97 MB, HU #12403; +101 MB en esta corrida).
+ *   · CINCO simultáneos ampliados, en la misma corrida (proceso calentado por el caso anterior):
+ *     **+245,6 · +248,6 MB** de RSS sobre el presupuesto de 262, heap pico ~267 MB, ~2,5 s, lag máximo
+ *     del event loop ~1,8 s. **Margen: ~14 MB**, frente a los ~42 de la hoja de 27 (peor observado
+ *     220,3). Dentro del presupuesto, pero es el escenario más ajustado que se ha medido en este
+ *     endpoint: cuatro fechas distintas por fila que la tabla de cadenas no deduplica y un número por
+ *     celda pesan más que trece columnas de texto repetido.
+ *   · En la corrida COMPLETA del archivo (los cuatro casos seguidos) el ampliado sale más barato
+ *     (+26,8 MB y +168,8 MB): el RSS no se devuelve al SO entre escenarios. No es el que se cita.
+ *
+ * Lo que acota el escenario en producción: la función `soat.excel.exportar_pago` nace SOLO en admin y
+ * el administrador la reparte a mano; la cuota (5/min/usuario) es la misma bolsa que el archivo de 27.
+ * Si la reparte a varios usuarios, cinco ampliados simultáneos de una misma sesión siguen cabiendo,
+ * pero con 14 MB de holgura — es el dato para reabrir ADR-0004 §Coste (`WorkbookWriter`) antes de
+ * añadir una columna más a esta hoja.
+ */
+describe('la hoja AMPLIADA de 40 columnas (Bug #12642) cabe en el presupuesto de heap', () => {
+  const COLUMNAS_AMPLIADAS = columnasColaExport('soat', true);
+
+  it('el generador produce **todas** las columnas del archivo ampliado real, y la de 27 no se movió', () => {
+    expect(columnasFaltantes(COLUMNAS_AMPLIADAS, filaColaPago(0))).toEqual([]);
+    expect(COLUMNAS_AMPLIADAS).toHaveLength(40);
+    expect(COLUMNAS_AMPLIADAS.slice(0, 27)).toEqual(COLUMNAS_COLA_EXPORT);
+    expect(COLUMNAS_COLA_EXPORT).toHaveLength(27);
+  });
+
+  it('UN export ampliado al tope: duración, memoria y lag', { timeout: 120_000, retry: 0 }, async () => {
+    const m = await medirExports([filasColaPago(FILAS)], COLUMNAS_AMPLIADAS);
+    reportar('cola FLITO · 40 columnas (ampliado, Bug #12642) · 1 export', FILAS, m);
+
+    expect(m.bytesPorExport[0]).toBeGreaterThan(0);
+    expect(m.rssDeltaMB).toBeLessThan(SENAL_REAPERTURA_MB);
+    expect(m.rssDeltaMB).toBeLessThan(PRESUPUESTO_MB);
+    expect(m.ms).toBeLessThan(30_000);
+    expect(m.lagMaxMs).toBeLessThan(5_000);
+    expect(m.atencion).toBeGreaterThan(ATENCION_MINIMA);
+  });
+
+  it('los CINCO simultáneos ampliados caben en el presupuesto', { timeout: 180_000, retry: 0 }, async () => {
+    const lotes = Array.from({ length: SIMULTANEOS }, () => filasColaPago(FILAS));
+    const m = await medirExports(lotes, COLUMNAS_AMPLIADAS);
+    reportar('cola FLITO · 40 columnas (ampliado, Bug #12642) · 5 simultáneos', FILAS, m);
+
+    expect(m.bytesPorExport).toHaveLength(SIMULTANEOS);
+    for (const bytes of m.bytesPorExport) expect(bytes).toBeGreaterThan(0);
     expect(m.rssDeltaMB).toBeLessThan(PRESUPUESTO_MB);
     expect(m.ms).toBeLessThan(120_000);
     expect(m.atencion).toBeGreaterThan(ATENCION_MINIMA);

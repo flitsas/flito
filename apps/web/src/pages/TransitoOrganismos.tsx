@@ -13,7 +13,6 @@ import GradientButton from '../components/flit/GradientButton';
 import StatusChip from '../components/flit/StatusChip';
 import FlitModal from '../components/flit/FlitModal';
 import { useAuth } from '../lib/auth';
-import { puedeOperar } from '../lib/permissions';
 import { PanelGestionOrganismo, MODALIDAD_TONO, type Organismo } from '../components/flito/autogestionPanels';
 
 interface OrganismoConfig {
@@ -94,8 +93,9 @@ const inputCls =
   'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none';
 
 export default function TransitoOrganismos() {
-  const { user } = useAuth();
-  const editable = puedeOperar(user?.role);
+  const { hasFuncion } = useAuth();
+  // HU #12170
+  const editable = hasFuncion('transito.config.editar');
   const [rows, setRows] = useState<Fila[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');

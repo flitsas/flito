@@ -39,7 +39,8 @@ import { USER_ROLES, paginasPorDefecto, isValidPage } from '@operaciones/shared-
 import { catalogoCompleto, repartoDePartida, PAGINAS_NO_CONCEDIBLES } from '../../src/modules/permisos/catalogo.js';
 import { FUNCIONES_SIN_ADMIN } from '../../src/modules/permisos/permisos.service.js';
 import {
-  funcionesDeSql, leerFuncionesSembradas, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql,
+  funcionesDeSql, leerFuncionesSembradas, leerReagrupacionesSembradas, leerRepartoSembrado,
+  leerRetirosSembrados, repartoDeSql,
 } from '../helpers/permisos-seed-sql.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -102,11 +103,11 @@ describe('0179 — el archivo dice lo mismo que schema.ts (análisis estático)'
     expect((SIN_COMENTARIOS.match(/ON CONFLICT[\s\S]{0,60}DO NOTHING/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 
-  it('el seed pegado en la migración, más la 0181, los retiros de la 0182, la página de la 0184 y la 0185, es lo que el generador produce HOY', () => {
+  it('el seed pegado en la migración, más la 0181, los retiros de la 0182, la página de la 0184, la 0185, la 0186, la página de la 0187 y la reagrupación de la 0205, es lo que el generador produce HOY', () => {
     // Esta es la comprobación que impide que el código y el seed se separen: si alguien amplía la foto
     // (`inventario.generado.ts`) o el catálogo y no escribe la migración, aquí se ve. Y si el generador
     // se rompe, también. Desde la HU #12083 la foto está congelada y el seed vive en VARIOS archivos
-    // (0179 + 0181 + 0182 + 0184 + 0185, HU #12171); desde la HU #12373 ya no es solo aditivo (la 0182 retira `borrar` y quita
+    // (0179 + 0181 + 0182 + 0184 + 0185, HU #12171, + 0186, HU #12084, + 0187, HU #12085); desde la HU #12373 ya no es solo aditivo (la 0182 retira `borrar` y quita
     // al auditor de tarifas), así que se comparan FUNCIONES y REPARTO por separado, PLEGADOS con los
     // helpers (INSERT suma, DELETE resta), y no como líneas crudas: una tupla de un DELETE leída como
     // siembra daría verde falso.
@@ -122,12 +123,16 @@ describe('0179 — el archivo dice lo mismo que schema.ts (análisis estático)'
     for (const [codigo, f] of funcionesSembradas) expect(f, codigo).toEqual(funcionesGeneradas.get(codigo));
     expect(aPares(leerRepartoSembrado())).toEqual(aPares(repartoGenerado));
 
-    // Y cada fila de la 0179 SOLA sigue en lo generado, o la retiró una migración posterior con nombre:
-    // nadie reescribió la 0179 (una migración aplicada no se edita).
+    // Y cada fila de la 0179 SOLA sigue en lo generado, o la retiró una migración posterior con nombre,
+    // o le cambió el MÓDULO una migración posterior con nombre (la 0205, HU #12716): nadie reescribió
+    // la 0179 (una migración aplicada no se edita). El módulo se sustituye solo donde la 0205 lo dice;
+    // nombre, descripción y tipo se siguen comparando byte a byte contra lo generado.
     const retiros = leerRetirosSembrados();
+    const reagrupadas = leerReagrupacionesSembradas();
+    expect(reagrupadas.size).toBe(47);
     for (const [codigo, f] of leerFuncionesSembradas([ARCHIVO])) {
       if (retiros.funciones.has(codigo)) continue;
-      expect(funcionesGeneradas.get(codigo), codigo).toEqual(f);
+      expect(funcionesGeneradas.get(codigo), codigo).toEqual({ ...f, modulo: reagrupadas.get(codigo) ?? f.modulo });
     }
     for (const par of aPares(leerRepartoSembrado([ARCHIVO]))) {
       if (retiros.reparto.has(par)) continue;
@@ -189,10 +194,11 @@ describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idemp
     }
   });
 
-  it('44 funciones de tipo `pagina` y ninguna es `flito_ayuda` (AC2-bis)', async () => {
-    // 43 → 44 desde la HU #12375 (0184 siembra `pagina.flito_tarifas`): la base ya migrada las tiene todas.
+  it('45 funciones de tipo `pagina` y ninguna es `flito_ayuda` (AC2-bis)', async () => {
+    // 43 → 44 desde la HU #12375 (0184 siembra `pagina.flito_tarifas`); 44 → 45 desde la HU #12085 (0187
+    // siembra `pagina.roles_permisos`): la base ya migrada las tiene todas.
     const [{ n }] = await sql`SELECT count(*)::int AS n FROM permisos_funciones WHERE tipo = 'pagina'`;
-    expect(n).toBe(44);
+    expect(n).toBe(45);
     const [{ hay }] = await sql`
       SELECT count(*)::int AS hay FROM permisos_funciones WHERE codigo = 'pagina.flito_ayuda'`;
     expect(hay).toBe(0);
@@ -227,12 +233,12 @@ describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idemp
     }
   });
 
-  it('AC4 — `admin` tiene las 44 páginas marcadas UNA A UNA (lo que hace neutro retirar los atajos)', async () => {
+  it('AC4 — `admin` tiene las 45 páginas marcadas UNA A UNA (lo que hace neutro retirar los atajos)', async () => {
     const suyas = (await sql`
       SELECT funcion_codigo FROM permisos_rol_funcion
        WHERE rol_codigo = 'admin' AND funcion_codigo LIKE 'pagina.%'
        ORDER BY funcion_codigo`).map((f) => f.funcion_codigo as string);
-    expect(suyas).toHaveLength(44);
+    expect(suyas).toHaveLength(45);
     const todas = (await sql`
       SELECT codigo FROM permisos_funciones WHERE tipo = 'pagina' ORDER BY codigo`)
       .map((f) => f.codigo as string);

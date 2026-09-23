@@ -37,6 +37,7 @@ const FlitoSoatSolicitud = lazy(() => import('./pages/FlitoSoatSolicitud'));
 const FlitoImpuestos = lazy(() => import('./pages/FlitoImpuestos'));
 const FlitoDerechos = lazy(() => import('./pages/FlitoDerechos'));
 const Users = lazy(() => import('./pages/Users'));
+const RolesPermisos = lazy(() => import('./pages/RolesPermisos'));
 const Clients = lazy(() => import('./pages/Clients'));
 const TaxReader = lazy(() => import('./pages/TaxReader'));
 const TramiteDigital = lazy(() => import('./pages/TramiteDigital'));
@@ -244,6 +245,9 @@ function AppRoutes() {
         <Route path="/siigo/credenciales" element={<ProtectedRoute page="siigo_credenciales"><Lazy><SiigoCredenciales /></Lazy></ProtectedRoute>} />
         <Route path="/finanzas/reporte-costos" element={<ProtectedRoute page="finanzas_reporte_costos"><Lazy><FinanzasReporteCostos /></Lazy></ProtectedRoute>} />
         <Route path="/users" element={<ProtectedRoute page="users"><Lazy><Users /></Lazy></ProtectedRoute>} />
+        {/* Roles y permisos (HU #12085). Slug PROPIO `roles_permisos`, que solo reparte la 0187 a `admin`:
+            es la pantalla que reparte todas las demás. Sin identificador de rol en la URL (ficha, decisión 13). */}
+        <Route path="/roles-permisos" element={<ProtectedRoute page="roles_permisos"><Lazy><RolesPermisos /></Lazy></ProtectedRoute>} />
         <Route path="/transito" element={<ProtectedRoute page="transito"><Lazy><TransitoBandeja /></Lazy></ProtectedRoute>} />
         <Route path="/transito/traspaso" element={<ProtectedRoute page="transito"><Lazy><TransitoTraspasoExpediente /></Lazy></ProtectedRoute>} />
         <Route path="/transito/organismos" element={<ProtectedRoute page="transito_organismos"><Lazy><TransitoOrganismos /></Lazy></ProtectedRoute>} />

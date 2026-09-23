@@ -14,91 +14,107 @@ vi.mock('../../src/db/client.js', () => ({
 }));
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
 
-const { aCsv, agruparEmpresas, condiciones, conJoins } = await import('../../src/modules/finanzas/finanzas.service.js');
+const { agruparEmpresas, condiciones, conJoins } = await import('../../src/modules/finanzas/finanzas.service.js');
+const { COLUMNAS_EXPORT_DETALLE, filasExcelDetalle } = await import('../../src/modules/finanzas/finanzas.export-excel.js');
 const { flitoTramites } = await import('../../src/db/schema.js');
 const { and } = await import('drizzle-orm');
 const { renderizar } = await import('../helpers/sql-ligado.js');
 
-type Fila = Parameters<typeof aCsv>[0][number];
+type Fila = Parameters<typeof filasExcelDetalle>[0][number];
 
 function fila(over: Partial<Fila> = {}): Fila {
   return {
     tramiteId: 't1', idFlit: 'FLIT-1', placa: 'ABC123', estado: 'Aprobado', empresa: 'ACME',
+    vin: 'VIN1', marca: 'CHEVROLET', linea: 'ONIX',
     tipoTramite: 'Traspaso', fechaAprobacion: '2026-07-14T15:30:00.000Z',
+    fechaCreacion: '2026-07-01T10:00:00.000Z',
     soat: 450000, impuesto: 120000, derechoTramite: 80000,
     logistica: 15000, tramiteDigital: 200000, gmf: 3460, total: 868460,
     sellada: true, estadoLiquidacion: 'liquidado', noConfigurados: [],
-    sinRecibo: [], pendientesPago: [], autogestionados: [],
+    sinRecibo: [], pendientesPago: [], autogestionados: [], noAplican: [],
+    estadoFacturacion: 'no_enviado', facturaNumero: null, facturaRequiereRevision: false,
+    soatConciliado: false, boletaReferencia: null, soatConciliadoEn: null,
+    // HU #12432 — titular, organismo, periodo y subtotales.
+    titularNombres: 'ANA MARÍA', titularApellidos: 'PÉREZ', titularRazonSocial: null,
+    titularTipoDocumento: 'CC', titularDocumento: '1020304050',
+    organismoCodigo: '05266', organismoNombre: 'Envigado', mes: '2026-07', trimestre: '2026-T3',
+    totalReintegro: 668460, totalServicio: 200000,
+    // HU #12531 — contacto del primer comprador.
+    titularCorreo: null, titularTelefono: null, titularDireccion: null,
     ...over,
-  };
+  } as Fila;
 }
 
-describe('aCsv — el archivo que abre contabilidad', () => {
-  it('usa punto y coma y BOM, que es lo que Excel en español abre sin asistente', () => {
-    const csv = aCsv([fila()]);
-    expect(csv.startsWith('﻿')).toBe(true);
-    expect(csv.split('\r\n')[0]).toContain('Trámite;Placa');
+/** La celda de UNA fila serializada por su CLAVE de `COLUMNAS_EXPORT_DETALLE` (HU #12531: .xlsx). */
+const celda = (f: Fila, clave: string): unknown => filasExcelDetalle([f])[0]![clave];
+
+describe('filasExcelDetalle — el archivo que abre contabilidad', () => {
+  it('abre con las columnas literales del Excel de Financiero: «cliente», «Mes/Trimestre», «FLIT» (HU #12536)', () => {
+    // Mutante «cabecera 'Cliente' con mayúscula» o «'Flit'» como en la HU #12432: cae.
+    expect(COLUMNAS_EXPORT_DETALLE.slice(0, 3).map((c) => c.header)).toEqual(['cliente', 'Mes/Trimestre', 'FLIT']);
   });
 
-  it('distingue sellado, facturado y estimado', () => {
-    const csv = aCsv([
-      fila({ estadoLiquidacion: 'liquidado' }),
-      fila({ estadoLiquidacion: 'facturado' }),
-      fila({ sellada: false, estadoLiquidacion: null }),
-    ]);
-    const filas = csv.trim().split('\r\n').slice(1);
-    expect(filas[0]).toContain('Liquidado');
-    expect(filas[1]).toContain('Facturado');
-    expect(filas[2]).toContain('Estimado');
+  it('sellada, facturada o estimada exportan sus valores igual: ya no hay columna «Liquidación» (HU #12536)', () => {
+    // Mutante «sin sellar → dinero vacío»: el estimado es lo que Financiero cuadra.
+    expect(celda(fila({ estadoLiquidacion: 'liquidado' }), 'soat')).toBe(450000);
+    expect(celda(fila({ estadoLiquidacion: 'facturado' }), 'soat')).toBe(450000);
+    expect(celda(fila({ sellada: false, estadoLiquidacion: null }), 'soat')).toBe(450000);
+    expect(COLUMNAS_EXPORT_DETALLE.map((c) => c.key)).not.toContain('liquidacion');
   });
 
-  it('la fecha de aprobación sale como día, que es lo que Excel reconoce', () => {
-    // Con el instante completo Excel lo trata como texto y no deja ordenar ni filtrar por fecha.
-    const csv = aCsv([fila()]);
-    expect(csv.split('\r\n')[0]).toContain('Aprobado');
-    expect(csv.split('\r\n')[1]).toContain('2026-07-14');
-    expect(csv).not.toContain('T15:30:00');
+  it('la fecha de aprobación sale como Date del DÍA en UTC, que es lo que Excel ordena y filtra', () => {
+    // Con el instante completo Excel enseñaría la hora; con texto no dejaría ordenar por fecha.
+    const v = celda(fila(), 'fechaAprobacion');
+    expect(v).toBeInstanceOf(Date);
+    expect((v as Date).toISOString()).toBe('2026-07-14T00:00:00.000Z');
   });
 
-  it('un trámite sin aprobar deja la celda vacía', () => {
-    const csv = aCsv([fila({ fechaAprobacion: null })]);
-    expect(csv.split('\r\n')[1].split(';')[5]).toBe('');
+  it('un trámite sin aprobar deja la celda vacía (null), y con ella Filtromes y Mes/Trimestre', () => {
+    const f = filasExcelDetalle([fila({ fechaAprobacion: null, mes: null, trimestre: null })])[0]!;
+    expect(f.fechaAprobacion).toBeNull();
+    // Mutante «?? ''» en filtromes o mesTrimestre: dejaría de ser null.
+    expect(f.filtromes).toBeNull();
+    expect(f.mesTrimestre).toBeNull();
   });
 
-  it('un concepto no configurado sale vacío, no como cero', () => {
-    // Un cero en el CSV se sumaría en la hoja de cálculo y cuadraría un total que no existe.
-    const csv = aCsv([fila({ tramiteDigital: null, noConfigurados: ['Trámite digital'] })]);
-    const celdas = csv.trim().split('\r\n')[1].split(';');
-    expect(celdas).toContain('');
-    expect(csv).toContain('Trámite digital');
-    expect(celdas.filter((c) => c === '0')).toHaveLength(0);
+  it('un concepto no configurado sale vacío, no como cero; Columna2 y Factura Terceros también van vacías', () => {
+    // Un cero en la hoja se sumaría y cuadraría un total que no existe.
+    const f = filasExcelDetalle([fila({ logistica: null, noConfigurados: ['Logística'] })])[0]!;
+    // Mutante «Columna1 ← tramiteDigital»: sería 200000, no null.
+    expect(f.columna1).toBeNull();
+    expect(f.columna2).toBeNull();
+    expect(f.facturaTerceros).toBeNull();
+    expect(Object.values(f).filter((c) => c === 0)).toHaveLength(0);
+    expect(Object.values(f).filter((c) => c === '')).toHaveLength(0);
   });
 
-  it('escapa las comillas y entrecomilla lo que lleva el separador', () => {
-    // Una empresa llamada «GÓMEZ; HIJOS» partiría la fila en dos columnas sin esto.
-    const csv = aCsv([fila({ empresa: 'GÓMEZ; HIJOS', placa: 'A"B' })]);
-    expect(csv).toContain('"GÓMEZ; HIJOS"');
-    expect(csv).toContain('"A""B"');
+  it('un texto con el separador o comillas va tal cual: en xlsx no hay nada que escapar', () => {
+    const f = filasExcelDetalle([fila({ empresa: 'GÓMEZ; HIJOS', placa: 'A"B' })])[0]!;
+    expect(f.cliente).toBe('GÓMEZ; HIJOS');
+    expect(f.placa).toBe('A"B');
+    // Mutante «Placa2 ← vin»: la placa duplicada es la misma placa.
+    expect(f.placa2).toBe('A"B');
   });
 
-  it('lista los conceptos sin configurar en su propia columna', () => {
-    const csv = aCsv([fila({ sellada: false, estadoLiquidacion: null, noConfigurados: ['Derecho de tránsito', 'Logística'] })]);
-    expect(csv).toContain('Derecho de tránsito | Logística');
+  it('«Modelo» es la LÍNEA del vehículo y «Columna1» la logística, como en el Excel de Financiero', () => {
+    const f = filasExcelDetalle([fila({ marca: 'RENAULT', linea: 'LOGAN', logistica: 17000 })])[0]!;
+    // Mutante «Modelo ← marca»: saldría RENAULT.
+    expect(f.modelo).toBe('LOGAN');
+    expect(f.columna1).toBe(17000);
+    // Mutante «Marca sigue en el archivo»: no hay clave para ella.
+    expect(COLUMNAS_EXPORT_DETALLE.map((c) => c.key)).not.toContain('marca');
+    expect(COLUMNAS_EXPORT_DETALLE.find((c) => c.key === 'modelo')?.header).toBe('Modelo');
+    expect(COLUMNAS_EXPORT_DETALLE.find((c) => c.key === 'columna1')?.header).toBe('Columna1');
   });
 
-  it('la columna de faltantes recoge los tres motivos, no solo las tarifas', () => {
-    // A quien concilia le da igual si lo que falta es una tarifa, un recibo o un pago: lo que
-    // necesita es la lista completa de lo que hay que resolver para poder liquidar.
-    const csv = aCsv([fila({
-      sellada: false, estadoLiquidacion: null,
-      noConfigurados: ['Logística'], sinRecibo: ['Derecho de tránsito'], pendientesPago: ['SOAT'],
-    })]);
-    expect(csv.split('\r\n')[0]).toContain('Qué falta para liquidar');
-    expect(csv).toContain('Logística | Derecho de tránsito | SOAT');
+  it('la lista de faltantes ya no viaja en el archivo (HU #12536): no hay clave queFalta', () => {
+    const f = fila({ sellada: false, estadoLiquidacion: null, noConfigurados: ['Derecho de tránsito', 'Logística'] });
+    expect(filasExcelDetalle([f])[0]).not.toHaveProperty('queFalta');
+    expect(COLUMNAS_EXPORT_DETALLE.map((c) => c.header)).not.toContain('Qué falta para liquidar');
   });
 
-  it('sin filas devuelve solo la cabecera', () => {
-    expect(aCsv([]).trim().split('\r\n')).toHaveLength(1);
+  it('sin filas devuelve una lista vacía (la cabecera la pone sendExcel)', () => {
+    expect(filasExcelDetalle([])).toEqual([]);
   });
 });
 

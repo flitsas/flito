@@ -2,21 +2,50 @@ import ExcelJS from 'exceljs';
 import { Response } from 'express';
 import { medirXlsx, type LimitesZip, type RechazoXlsx } from './xlsx-zip.js';
 
-interface ExcelColumn {
+export interface ExcelColumn {
   header: string;
   key: string;
   width?: number;
+  /**
+   * Formato de celda de TODA la columna (`sheet.getColumn(key).numFmt`), p. ej. `'yyyy-mm-dd'` o el
+   * contable de pesos. Opcional: sin él la columna queda como siempre (HU #12531).
+   */
+  numFmt?: string;
 }
 
-export async function sendExcel(res: Response, filename: string, columns: ExcelColumn[], rows: Record<string, unknown>[]) {
+/**
+ * Lo que un export puede pedir por encima del libro «de siempre» (HU #12531). Todos opcionales y
+ * todos apagados por defecto, a propósito: SOAT, Impuestos y Comparendos llaman con cuatro
+ * argumentos y sus archivos no cambian ni un byte.
+ */
+export interface OpcionesExcel {
+  /** Nombre de la hoja. Por defecto «Datos», el que llevan los exports anteriores a esta opción. */
+  nombreHoja?: string;
+  /** Autofiltro sobre la fila de cabecera, de la primera a la última columna. */
+  autofiltro?: boolean;
+  /** Fila 1 fija al desplazarse (`views: frozen, ySplit 1`). */
+  fijarCabecera?: boolean;
+}
+
+export async function sendExcel(
+  res: Response,
+  filename: string,
+  columns: ExcelColumn[],
+  rows: Record<string, unknown>[],
+  opciones: OpcionesExcel = {},
+) {
   const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet('Datos');
+  const sheet = workbook.addWorksheet(opciones.nombreHoja ?? 'Datos');
 
   sheet.columns = columns.map((col) => ({
     header: col.header,
     key: col.key,
     width: col.width || 20,
   }));
+  // El formato va a la COLUMNA, no celda a celda: así lo hereda cada fila que `addRow` añada después.
+  for (const col of columns) {
+    if (col.numFmt) sheet.getColumn(col.key).numFmt = col.numFmt;
+  }
 
   // Header style
   sheet.getRow(1).font = { bold: true };
@@ -26,6 +55,13 @@ export async function sendExcel(res: Response, filename: string, columns: ExcelC
     fgColor: { argb: 'FF1F2937' },
   };
   sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+
+  if (opciones.autofiltro) {
+    sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: columns.length } };
+  }
+  if (opciones.fijarCabecera) {
+    sheet.views = [{ state: 'frozen', ySplit: 1 }];
+  }
 
   rows.forEach((row) => sheet.addRow(row));
 

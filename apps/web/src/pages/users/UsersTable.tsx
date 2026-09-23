@@ -1,6 +1,7 @@
 // FLITO — la tabla de usuarios: cabeceras, filas, botones de acción y los CUATRO estados de la
 // lista (cargando, error, vacío, lleno). Extraído de `pages/Users.tsx` en la HU #12175; el estado de
 // error se añadió en la #12172, que es la primera que vuelve a abrir el archivo. Feature #12072.
+// HU #12088: celda Ámbito por `tipoEnlace` del catálogo de roles.
 //
 // La celda «Ámbito» NO está aquí: vive en `Ambito.tsx`, con el bloque de campos del formulario que
 // ramifica por el mismo criterio. Aquí queda la rejilla, que es lo que la HU #12172 amplía.
@@ -8,23 +9,29 @@
 // **Esto NO es kit.** Props tipadas, sin estado global, un único consumidor: la página de usuarios.
 
 import StatusChip from '../../components/flit/StatusChip';
-import { ROLES, ROLE_TONE, type User } from './types';
+import { etiquetaRol, ROLE_TONE, tipoEnlaceDe, type RolOpcion, type User } from './types';
 import { AmbitoCelda } from './Ambito';
 import type { CatalogoOrganismos, CatalogoProveedores } from './AtaduraFields';
 
-export default function UsersTable({ users, loading, error, onReintentar, meId, nombreCompania, proveedores, organismos, onEditar, onContrasena, onAlternar }: {
+export default function UsersTable({ users, loading, error, onReintentar, vacioMensaje, meId, rolesCatalogo, nombreCompania, proveedores, organismos, onEditar, onContrasena, onAlternar, onDarDeBaja, onReactivar }: {
   users: User[];
   loading: boolean;
   /** Mensaje del fallo de carga, o `null`. Es el CUARTO estado (HU #12172): ver `EstadoError`. */
   error: string | null;
   onReintentar: () => void;
+  /** Texto del vacío (HU #12089: distinto si el filtro es «Dados de baja»). */
+  vacioMensaje?: string;
   meId: number | undefined;
+  rolesCatalogo: RolOpcion[] | null;
   nombreCompania: (id: number) => string | null;
   proveedores: CatalogoProveedores;
   organismos: CatalogoOrganismos;
   onEditar: (u: User) => void;
   onContrasena: (u: User) => void;
+  /** Toggle `active` (suspensión). No es baja lógica. */
   onAlternar: (u: User) => void;
+  onDarDeBaja: (u: User) => void;
+  onReactivar: (u: User) => void;
 }) {
   return (
     <div
@@ -69,10 +76,17 @@ export default function UsersTable({ users, loading, error, onReintentar, meId, 
                 </button>
               </td></tr>
             )}
-            {!loading && !error && users.length === 0 && <tr><td colSpan={7} className="py-10 text-center" style={{ color: 'var(--flit-text-muted)' }}>Sin usuarios</td></tr>}
+            {!loading && !error && users.length === 0 && (
+              <tr>
+                <td colSpan={7} className="py-10 text-center" style={{ color: 'var(--flit-text-muted)' }}>
+                  {vacioMensaje ?? 'Sin usuarios'}
+                </td>
+              </tr>
+            )}
             {!loading && !error && users.map((u) => {
-              const roleLabel = ROLES.find((r) => r.value === u.role)?.label ?? u.role;
+              const roleLabel = etiquetaRol(u.role, rolesCatalogo);
               const isMe = u.id === meId;
+              const dadoDeBaja = u.deletedAt != null;
               return (
                 <tr key={u.id} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
                   <td className="px-4 py-3 font-mono text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
@@ -84,16 +98,33 @@ export default function UsersTable({ users, loading, error, onReintentar, meId, 
                   <td className="px-4 py-3">
                     <StatusChip tone={ROLE_TONE[u.role] ?? 'neutral'}>{roleLabel}</StatusChip>
                   </td>
-                  <AmbitoCelda user={u} nombreCompania={nombreCompania} proveedores={proveedores} organismos={organismos} />
+                  <AmbitoCelda
+                    user={u}
+                    tipoEnlace={tipoEnlaceDe(u.role, rolesCatalogo)}
+                    nombreCompania={nombreCompania}
+                    proveedores={proveedores}
+                    organismos={organismos}
+                  />
                   <td className="px-4 py-3">
-                    <StatusChip tone={u.active ? 'success' : 'danger'}>{u.active ? 'Activo' : 'Inactivo'}</StatusChip>
+                    {dadoDeBaja
+                      ? <StatusChip tone="danger">Dado de baja</StatusChip>
+                      : <StatusChip tone={u.active ? 'success' : 'danger'}>{u.active ? 'Activo' : 'Inactivo'}</StatusChip>}
                   </td>
                   <td className="space-x-1 px-4 py-3 text-right">
-                    <RowButton onClick={() => onEditar(u)} tone="active">Editar</RowButton>
-                    <RowButton onClick={() => onContrasena(u)} tone="neutral">Contraseña</RowButton>
-                    <RowButton onClick={() => onAlternar(u)} disabled={isMe} tone={u.active ? 'danger' : 'success'}>
-                      {u.active ? 'Desactivar' : 'Activar'}
-                    </RowButton>
+                    {dadoDeBaja ? (
+                      <RowButton onClick={() => onReactivar(u)} tone="success">Reactivar</RowButton>
+                    ) : (
+                      <>
+                        <RowButton onClick={() => onEditar(u)} tone="active">Editar</RowButton>
+                        <RowButton onClick={() => onContrasena(u)} tone="neutral">Contraseña</RowButton>
+                        <RowButton onClick={() => onAlternar(u)} disabled={isMe} tone={u.active ? 'danger' : 'success'}>
+                          {u.active ? 'Desactivar' : 'Activar'}
+                        </RowButton>
+                        <RowButton onClick={() => onDarDeBaja(u)} disabled={isMe} tone="danger">
+                          Dar de baja
+                        </RowButton>
+                      </>
+                    )}
                   </td>
                 </tr>
               );
@@ -107,37 +138,38 @@ export default function UsersTable({ users, loading, error, onReintentar, meId, 
 
 function Th({ children }: { children: React.ReactNode }) {
   return (
-    <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide"
-      style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>
-      {children}
-    </th>
-  );
-}
-function ThRight({ children }: { children: React.ReactNode }) {
-  return (
-    <th scope="col" className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide"
-      style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>
+    <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>
       {children}
     </th>
   );
 }
 
-// Botón de acción de fila (texto exacto preservado para E2E: «Editar», etc.).
-type RowTone = 'active' | 'neutral' | 'success' | 'danger';
-const ROW_TONE: Record<RowTone, { fg: string; bg: string }> = {
-  active: { fg: 'var(--flit-blue)', bg: 'rgba(79, 116, 201, 0.12)' },
-  neutral: { fg: 'var(--flit-text-secondary)', bg: 'rgba(125, 135, 152, 0.12)' },
-  success: { fg: 'var(--flit-success)', bg: 'rgba(112, 207, 58, 0.14)' },
-  danger: { fg: 'var(--flit-danger)', bg: 'rgba(228, 61, 48, 0.12)' },
-};
-function RowButton({ onClick, disabled, tone, children }: { onClick: () => void; disabled?: boolean; tone: RowTone; children: React.ReactNode }) {
-  const c = ROW_TONE[tone];
+function ThRight({ children }: { children: React.ReactNode }) {
+  return (
+    <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>
+      {children}
+    </th>
+  );
+}
+
+function RowButton({ children, onClick, disabled, tone }: {
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  tone: 'active' | 'neutral' | 'danger' | 'success';
+}) {
+  const color =
+    tone === 'danger' ? 'var(--flit-danger)'
+      : tone === 'success' ? 'var(--flit-success)'
+        : tone === 'active' ? 'var(--flit-blue)'
+          : 'var(--flit-text-secondary)';
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={disabled}
-      className="flit-focus rounded-[999px] px-2.5 py-1 text-xs font-semibold transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-30"
-      style={{ color: c.fg, background: c.bg }}
+      className="flit-focus rounded px-2 py-1 text-xs font-semibold transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+      style={{ color }}
     >
       {children}
     </button>

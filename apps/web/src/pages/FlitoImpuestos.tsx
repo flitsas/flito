@@ -4,7 +4,6 @@
 // (→ Pagado) y rechazo/reactivación/reversa. Operaciones ve todo; el gestor solo su organismo y
 // nunca los Pendiente; Auditoría es solo lectura.
 
-import { puedeOperar } from '../lib/permissions';
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   ESTADO_IMPUESTO_LABEL, ESTADOS_IMPUESTO_CERTIFICABLES, EstadoImpuesto, ResultadoCertificacion,
@@ -102,10 +101,11 @@ function aResultadoIntento(e: unknown): ResultadoIntento {
 }
 
 export default function FlitoImpuestos() {
-  const { user } = useAuth();
-  const esOperaciones = puedeOperar(user?.role);
-  const esGestor = user?.role === 'gestor_impuestos';
-  const soloLectura = user?.role === 'auditor';
+  const { hasFuncion } = useAuth();
+  // HU #12170: modos por función efectiva, no por rol literal.
+  const esOperaciones = hasFuncion('impuestos.tramite.enviar');
+  const esGestor = hasFuncion('impuestos.recibos.cargar') && !esOperaciones;
+  const soloLectura = hasFuncion('impuestos.cola.ver') && !hasFuncion('impuestos.recibos.cargar') && !esOperaciones;
 
   const estadosDisponibles = esGestor ? ESTADOS_GESTOR : ESTADOS_OPERACIONES;
   const [estado, setEstado] = useState<EstadoImpuesto | 'todos'>(esGestor ? EstadoImpuesto.SOLICITADO : 'todos');
@@ -239,6 +239,11 @@ export default function FlitoImpuestos() {
    * conversión se hace aquí, en el único sitio donde se sabe qué espera el otro lado. En la QUERY de
    * la cola no hace falta: allí todo es texto.
    */
+  // Bug #12642: la casilla del Excel ampliado. Estado de la PÁGINA y no del hook, porque es parte
+  // del cuerpo que se manda, igual que cualquier otro filtro. La función es aparte de la del
+  // export: quien puede descargar el archivo del gestor no necesariamente puede ver el pago.
+  const puedeExportarPago = hasFuncion('impuestos.excel.exportar_pago');
+  const [incluirPago, setIncluirPago] = useState(false);
   const filtrosExport: FiltrosExportCola = {
     ...(estado !== 'todos' ? { estados: [estado] } : {}),
     ...(buscar.trim() ? { buscar: buscar.trim() } : {}),
@@ -252,6 +257,9 @@ export default function FlitoImpuestos() {
     ...(creadoDesde ? { creadoDesde } : {}),
     ...(creadoHasta ? { creadoHasta } : {}),
     ...(soloEstancado ? { estancado: true } : {}),
+    // Bug #12642: la clave viaja SOLO marcada —y solo si se tiene la función, que es lo que pinta la
+    // casilla—: ausente, el cuerpo es el mismo de siempre. Sin la función no hay forma de marcarla.
+    ...(puedeExportarPago && incluirPago ? { incluirPago: true } : {}),
   };
   // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
   const exportacion = useExportCola(COLA_IMPUESTOS, filtrosExport);
@@ -348,7 +356,11 @@ export default function FlitoImpuestos() {
                 que quitarle a alguien la carga masiva no le quite de paso la descarga. Al auditor NO
                 se le pinta deshabilitado: no se pinta. */}
             {puedeExportar && (
-              <BotonExportarCola ocupado={exportacion.ocupado} onExportar={exportacion.exportar} />
+              <BotonExportarCola
+                ocupado={exportacion.ocupado}
+                onExportar={exportacion.exportar}
+                incluirPago={puedeExportarPago ? { marcado: incluirPago, onCambio: setIncluirPago } : undefined}
+              />
             )}
           </>
         )}

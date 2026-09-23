@@ -1,4 +1,5 @@
-// FLITO — el archivo `.xlsx` de las colas de SOAT e Impuestos (Feature #11908, HU #11909, #11934).
+// FLITO — el archivo `.xlsx` de las colas de SOAT e Impuestos (Feature #11908, HU #11909, #11934;
+// Bug #12642: la variante AMPLIADA con datos de pago y trazabilidad).
 //
 // Las dos colas exportan LA MISMA hoja: veintisiete columnas del vehículo y de su titular. Vive aquí
 // y no duplicado en cada módulo por el motivo que la HU deja escrito y que ya se ha cumplido antes
@@ -119,7 +120,16 @@ export const CONSTANTES_COLA_EXPORT = {
  * una celda por accidente. Todo lo que entra en esta hoja es texto ya formateado o vacío — y eso
  * importa el doble desde que seis columnas salen de un `jsonb` de un tercero.
  */
-export interface FilaColaExport extends Record<string, string | null> {
+export interface FilaColaExport extends Record<string, string | null>, CeldasColaExport {}
+
+/**
+ * Las VEINTISIETE celdas del archivo del gestor, sin la firma de índice (Bug #12642).
+ *
+ * Se separan de {@link FilaColaExport} para que la fila AMPLIADA pueda extenderlas: una interfaz
+ * cuyo índice cierra los valores a `string | null` no admite un hijo con `number` en dos claves, y
+ * `ValorPagado` tiene que ser número (ver {@link CeldasPagoSoat}). Las 27 siguen siendo texto o vacío.
+ */
+export interface CeldasColaExport {
   vin: string | null;
   placa: string | null;
   /** El AÑO-modelo (`flit_raw->>'modeloAno'`). NO la línea comercial: ver `CLAVES_FLIT_RAW`. */
@@ -225,6 +235,144 @@ export const CAMPOS_PII_COLA_EXPORT = [
   'vin', 'ciudad', 'municipio', 'departamento', 'num_motor', 'num_serie',
 ] as const;
 
+// ─────────────────────────── El archivo AMPLIADO (Bug #12642) ────────────────────────────────────
+//
+// Operaciones necesita, sobre las MISMAS filas, lo que el archivo del gestor deja fuera a propósito:
+// el valor pagado, las fechas de solicitud y pago y la trazabilidad (quién gestiona, qué dijo el RUNT,
+// cuándo se cargó el comprobante). No se añaden a `COLUMNAS_COLA_EXPORT` —esa lista es la plantilla
+// del cliente y su frontera («el archivo describe el vehículo y a su titular») sigue en pie— sino que
+// van en listas blancas APARTE que la ruta concatena solo cuando el cuerpo trae `incluirPago: true` y
+// el actor tiene la función `<modulo>.excel.exportar_pago`. Sin el parámetro, el archivo es byte a
+// byte el de hoy: misma proyección, mismas 27 columnas, mismo rastro.
+//
+// Van AL FINAL, después de `NumeroSerie`, por el mismo motivo por el que motor y serie fueron al
+// final en la HU #12403: el cliente empareja por texto y ya tiene las 27 cargadas; añadir por la
+// derecha es lo que menos le cuesta. Y son dos listas —una por cola— porque las dos colas NO pagan lo
+// mismo: el SOAT tiene póliza, proveedor y vigencia del RUNT; el impuesto tiene liquidación, modalidad
+// y marca por diferencia. Forzar una sola lista dejaría celdas siempre vacías en una de las dos hojas.
+
+/** Las TRECE columnas de pago y trazabilidad del SOAT, en su orden exacto, después de `NumeroSerie`. */
+export const COLUMNAS_PAGO_SOAT_EXPORT: { header: string; key: string; width: number }[] = [
+  { header: 'Estado', key: 'estado', width: 14 },
+  { header: 'FechaSolicitud', key: 'fechaSolicitud', width: 18 },
+  { header: 'FechaPago', key: 'fechaPago', width: 18 },
+  { header: 'ValorPagado', key: 'valorPagado', width: 14 },
+  { header: 'NumeroPoliza', key: 'numeroPoliza', width: 20 },
+  { header: 'Gestor', key: 'gestor', width: 24 },
+  { header: 'MotivoNovedad', key: 'motivoNovedad', width: 36 },
+  { header: 'VigenciaRunt', key: 'vigenciaRunt', width: 14 },
+  { header: 'VenceEl', key: 'venceEl', width: 12 },
+  { header: 'PolizaRunt', key: 'polizaRunt', width: 20 },
+  { header: 'VerificadaEn', key: 'verificadaEn', width: 18 },
+  { header: 'FechaCreacion', key: 'fechaCreacion', width: 18 },
+  { header: 'FechaCargaComprobante', key: 'fechaCargaComprobante', width: 22 },
+];
+
+/** Las ONCE columnas de pago y trazabilidad de Impuestos, en su orden exacto, después de `NumeroSerie`. */
+export const COLUMNAS_PAGO_IMPUESTOS_EXPORT: { header: string; key: string; width: number }[] = [
+  { header: 'Estado', key: 'estado', width: 14 },
+  { header: 'FechaSolicitud', key: 'fechaSolicitud', width: 18 },
+  { header: 'FechaLiquidacion', key: 'fechaLiquidacion', width: 18 },
+  { header: 'ValorLiquidado', key: 'valorLiquidado', width: 14 },
+  { header: 'ValorPagado', key: 'valorPagado', width: 14 },
+  { header: 'FechaPago', key: 'fechaPago', width: 18 },
+  { header: 'MarcadoPorDiferencia', key: 'marcadoPorDiferencia', width: 20 },
+  { header: 'Modalidad', key: 'modalidad', width: 14 },
+  { header: 'Gestor', key: 'gestor', width: 16 },
+  { header: 'MotivoNovedad', key: 'motivoNovedad', width: 36 },
+  { header: 'FechaCreacion', key: 'fechaCreacion', width: 18 },
+];
+
+/**
+ * Las columnas del archivo según lo que se pidió: las 27 solas, o las 27 seguidas de las de pago de
+ * ESA cola. Devuelve un arreglo NUEVO en el caso ampliado: `COLUMNAS_COLA_EXPORT` no se muta nunca
+ * (los tests exigen que siga midiendo 27).
+ */
+export function columnasColaExport(
+  modulo: 'soat' | 'impuestos',
+  incluirPago: boolean,
+): { header: string; key: string; width: number }[] {
+  if (!incluirPago) return COLUMNAS_COLA_EXPORT;
+  return [...COLUMNAS_COLA_EXPORT, ...(modulo === 'soat' ? COLUMNAS_PAGO_SOAT_EXPORT : COLUMNAS_PAGO_IMPUESTOS_EXPORT)];
+}
+
+/**
+ * Las celdas de pago del SOAT. Fechas como texto `YYYY-MM-DD HH:mm` en hora de Colombia
+ * ({@link celdaInstante}); `venceEl` es `date` y va `YYYY-MM-DD` ({@link celdaFecha}).
+ *
+ * **`valorPagado` es NÚMERO y no texto**, a diferencia de todo lo demás de esta hoja: un Excel de
+ * conciliación con el importe en texto no suma, no ordena ni filtra por rango — deja de servir para
+ * lo que Operaciones lo pidió. Es la misma decisión que el export de comparendos. `null` si no hay.
+ */
+export interface CeldasPagoSoat {
+  estado: string | null;
+  fechaSolicitud: string | null;
+  fechaPago: string | null;
+  valorPagado: number | null;
+  numeroPoliza: string | null;
+  /** El nombre del proveedor, o «Operaciones» si la solicitud la asumió Operaciones. */
+  gestor: string | null;
+  motivoNovedad: string | null;
+  vigenciaRunt: string | null;
+  venceEl: string | null;
+  polizaRunt: string | null;
+  verificadaEn: string | null;
+  fechaCreacion: string | null;
+  /** `flito_soportes.subido_en` de la factura del SOAT más reciente no descartada; vacía si no hay. */
+  fechaCargaComprobante: string | null;
+}
+
+/** Las celdas de pago de Impuestos. Mismas reglas de fecha y número que {@link CeldasPagoSoat}. */
+export interface CeldasPagoImpuestos {
+  estado: string | null;
+  fechaSolicitud: string | null;
+  fechaLiquidacion: string | null;
+  valorLiquidado: number | null;
+  valorPagado: number | null;
+  fechaPago: string | null;
+  /** Texto «Sí»/«No»: es lo que un lector filtra; un booleano crudo se importa como TRUE/FALSE. */
+  marcadoPorDiferencia: string | null;
+  modalidad: string | null;
+  /** «Operaciones» o «Organismo»: el gestor de impuestos es por organismo, no hay tabla de proveedor. */
+  gestor: string | null;
+  motivoNovedad: string | null;
+  fechaCreacion: string | null;
+}
+
+/** Una fila del archivo AMPLIADO del SOAT: las 27 del gestor más las 13 de pago. */
+export interface FilaColaExportPagoSoat extends Record<string, string | number | null>, CeldasColaExport, CeldasPagoSoat {}
+
+/** Una fila del archivo AMPLIADO de Impuestos: las 27 del gestor más las 11 de pago. */
+export interface FilaColaExportPagoImpuestos extends Record<string, string | number | null>, CeldasColaExport, CeldasPagoImpuestos {}
+
+/**
+ * Columnas de la BASE que el archivo AMPLIADO del SOAT entrega ADEMÁS de {@link CAMPOS_PII_COLA_EXPORT}.
+ *
+ * Van en una lista aparte y NO dentro de `CAMPOS_PII_COLA_EXPORT` porque aquella describe el archivo
+ * de 27 columnas y declarar de más hace que `campos_accedidos` deje de decir la verdad, que es lo
+ * único que ese registro tiene que hacer. La ruta las concatena SOLO cuando el archivo salió ampliado
+ * y marca además `resultado=ampliado`, de modo que quien lea el registro sepa qué versión se llevó
+ * alguien sin tener que contar campos.
+ *
+ * Son datos de la OPERACIÓN y no del titular, pero salen del perímetro en el mismo archivo que la
+ * cédula y con ella se cruzan: el valor pagado por un vehículo concreto de una persona concreta es un
+ * dato que se declara. Nombres de columna de la base, no cabeceras del archivo.
+ */
+export const CAMPOS_COLA_EXPORT_PAGO_SOAT = [
+  'estado', 'enviado_en', 'pagado_en', 'valor_pagado', 'numero_poliza', 'proveedor_soat_id',
+  'gestion_operaciones', 'motivo_rechazo', 'estado_vigencia', 'vence_el', 'poliza_runt',
+  'verificada_en', 'created_at', 'subido_en',
+] as const;
+
+/** Igual que {@link CAMPOS_COLA_EXPORT_PAGO_SOAT}, para las columnas de pago de `flito_impuestos`. */
+export const CAMPOS_COLA_EXPORT_PAGO_IMPUESTOS = [
+  'estado', 'enviado_en', 'liquidado_en', 'valor_liquidado', 'valor_pagado', 'pagado_en',
+  'marcado_por_diferencia', 'modalidad_aplicada', 'gestion_operaciones', 'motivo_rechazo', 'created_at',
+] as const;
+
+/** Marcador de `resultado` en el rastro cuando el archivo salió con las columnas de pago. */
+export const RESULTADO_EXPORT_AMPLIADO = 'ampliado';
+
 /**
  * El nombre del organismo tal como se imprime: el alias, y si no lo hay, su código.
  *
@@ -265,6 +413,60 @@ export function celdaTexto(valor: string | null | undefined): string | null {
 }
 
 /**
+ * Un `timestamptz` tal como va a la celda: `YYYY-MM-DD HH:mm` en hora de COLOMBIA, o vacío (Bug #12642).
+ *
+ * En hora de Colombia y no en la del servidor (UTC) por lo mismo que el sello del nombre del archivo:
+ * quien concilia un pago hecho a las 9 de la mañana espera leer las 9. Se arma por PARTES con el
+ * MISMO formateador que el sello del nombre (`FORMATO_SELLO`, declarado más abajo; gemelo del
+ * `FORMATO_INSTANTE` de comparendos) porque el separador que ICU mete entre fecha y hora cambia
+ * entre versiones y un `replace(', ', ' ')` que un día no case dejaría la coma en todas las celdas. El orden
+ * ISO conserva además la ordenación alfabética = cronológica al filtrar en Excel.
+ *
+ * Texto y no `Date`: ExcelJS escribiría un `Date` como número de serie en UTC y la hoja mostraría la
+ * hora del servidor, que es exactamente lo que se quiere evitar.
+ */
+export function celdaInstante(valor: Date | string | null | undefined): string | null {
+  if (valor === null || valor === undefined) return null;
+  // No siempre es un `Date` aunque la columna lo sea: una fila que venga de una expresión cruda llega
+  // como la cadena del driver (ver `aIso` en `shared/utils/fecha-rango.ts`).
+  const fecha = valor instanceof Date ? valor : new Date(valor);
+  if (Number.isNaN(fecha.getTime())) return null;
+  const p: Record<string, string> = {};
+  for (const parte of FORMATO_SELLO.formatToParts(fecha)) p[parte.type] = parte.value;
+  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`;
+}
+
+/**
+ * Una columna `date` (sin hora, como `flito_soat.vence_el`) tal como va a la celda: `YYYY-MM-DD`.
+ *
+ * El driver devuelve `date` como cadena `YYYY-MM-DD` ya —no hay huso que convertir—, así que se
+ * valida la forma y se pasa tal cual. Pasarla por {@link celdaInstante} la interpretaría como
+ * medianoche UTC y la movería al día ANTERIOR en Colombia.
+ */
+export function celdaFecha(valor: string | Date | null | undefined): string | null {
+  if (valor === null || valor === undefined) return null;
+  if (valor instanceof Date) {
+    if (Number.isNaN(valor.getTime())) return null;
+    return valor.toISOString().slice(0, 10);
+  }
+  const texto = valor.trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(texto) ? texto : null;
+}
+
+/**
+ * `numeric(14,2)` → número de Excel, o vacío. El API entrega los importes como cadena a propósito
+ * (pasar un `numeric` por el `double` de JavaScript es cómo un importe pierde el último centavo), pero
+ * un Excel de conciliación con la columna en texto no suma ni ordena. La conversión ocurre aquí, en
+ * el borde donde el destino ya no es JSON. Una cadena que no sea un número deja la celda vacía —
+ * nunca `NaN`, que ExcelJS escribiría como texto.
+ */
+export function celdaNumero(valor: string | number | null | undefined): number | null {
+  if (valor === null || valor === undefined || valor === '') return null;
+  const n = typeof valor === 'number' ? valor : Number(valor);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
  * El sello de tiempo del nombre del archivo, en hora de COLOMBIA y no en la del servidor (UTC).
  *
  * Misma decisión que tomó el export de comparendos: quien descarga a las 9 de la mañana espera un
@@ -288,8 +490,13 @@ const FORMATO_SELLO = new Intl.DateTimeFormat('en-CA', {
  * **No lleva NADA del filtro**, y aquí eso pesa más que en comparendos: el filtro `buscar` de estas
  * colas casa contra placa, VIN, nombre y cédula, así que meterlo en el nombre escribiría la cédula
  * de un titular en el sistema de archivos de quien descarga y en cualquier adjunto que reenvíe.
+ *
+ * Los dos prefijos de Finanzas (HU #12531) usan el mismo sello: mismo huso, misma forma, mismo
+ * motivo para no llevar nada del filtro (`buscar` casa contra placa, VIN, nombre y documento).
  */
-export function nombreArchivoColaExport(prefijo: 'soat' | 'impuestos', ahora: Date = new Date()): string {
+export type PrefijoExport = 'soat' | 'impuestos' | 'reporte-costos' | 'consolidado-costos';
+
+export function nombreArchivoColaExport(prefijo: PrefijoExport, ahora: Date = new Date()): string {
   const p: Record<string, string> = {};
   for (const parte of FORMATO_SELLO.formatToParts(ahora)) p[parte.type] = parte.value;
   return `${prefijo}_${p.year}${p.month}${p.day}-${p.hour}${p.minute}.xlsx`;

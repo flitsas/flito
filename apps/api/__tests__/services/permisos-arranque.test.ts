@@ -31,6 +31,7 @@ const { catalogoCompleto } = await import('../../src/modules/permisos/catalogo.j
 
 const CATALOGO = catalogoCompleto();
 const CODIGOS = CATALOGO.map((f) => f.codigo);
+const MODULO_DE = new Map(CATALOGO.map((f) => [f.codigo, f.modulo]));
 
 /**
  * Encola las tres consultas de la comprobación en su orden: el catálogo de la base, y las dos de
@@ -40,8 +41,13 @@ const CODIGOS = CATALOGO.map((f) => f.codigo);
  * que es el estado sano — así los casos de desajuste de catálogo fallan por el catálogo y no por
  * arrastrar de paso un `admin` incompleto.
  */
-function conBase(codigosEnBase: string[], repartoAdmin = codigosEnBase.filter((c) => !FUNCIONES_SIN_ADMIN.includes(c))) {
-  const filasCatalogo = codigosEnBase.map((codigo) => ({ codigo }));
+function conBase(
+  codigosEnBase: string[],
+  repartoAdmin = codigosEnBase.filter((c) => !FUNCIONES_SIN_ADMIN.includes(c)),
+  /** HU #12716: el módulo que la BASE declara por código; por defecto el del catálogo (base al día). */
+  moduloEnBase: (codigo: string) => string = (codigo) => MODULO_DE.get(codigo) ?? 'inventado',
+) {
+  const filasCatalogo = codigosEnBase.map((codigo) => ({ codigo, modulo: moduloEnBase(codigo) }));
   selectMock
     .mockReturnValueOnce(chain(filasCatalogo))
     .mockReturnValueOnce(chain(filasCatalogo))
@@ -103,6 +109,55 @@ describe('AC6 — la comprobación de arranque detecta el desajuste de catálogo
   });
 });
 
+describe('HU #12716 AC7 — el arranque compara también el módulo de agrupación, fila a fila', () => {
+  it('la base con los códigos correctos pero `pagina.flito_soat` aún en `flito_soat_e_impuestos` se detecta, se nombra y remite a la 0205', async () => {
+    // El caso real: desplegar el binario de esta HU sin aplicar la 0205. Los códigos coinciden, así
+    // que la comparación de códigos NO lo ve; solo la de módulo. Mutante nombrado: quitar la
+    // comparación de `modulo` en `verificarCatalogoAlArrancar` → este caso resuelve en vez de caer.
+    const viejo = (c: string) => (c === 'pagina.flito_soat' ? 'flito_soat_e_impuestos' : MODULO_DE.get(c)!);
+    conBase(CODIGOS, undefined, viejo);
+    const error = await verificarCatalogoAlArrancar().catch((e: Error) => e);
+
+    expect(error).toBeInstanceOf(ArranquePermisosError);
+    expect((error as Error).message).toMatch(/difiere entre la base y el código en 1 funciones/);
+    expect((error as Error).message).toMatch(/«pagina\.flito_soat»: base «flito_soat_e_impuestos» → código «soat»/);
+    expect((error as Error).message).toMatch(/0205_permisos_reagrupar_modulos\.sql/);
+    expect((error as Error).message).toMatch(/--reagrupar/);
+  });
+
+  it('con más de diez diferencias se listan diez y se cuenta el resto, sin volcar el catálogo entero', async () => {
+    // La base ANTES de la 0205: las 46 filas con el módulo estructural. Se simula devolviendo el
+    // módulo viejo para las 23 páginas reagrupadas y el prefijo del código para las operaciones.
+    const { reagrupaciones } = await import('../../src/modules/permisos/catalogo-agrupacion.js');
+    const reagrupadas = new Set(reagrupaciones().map(([c]) => c));
+    const viejo = (c: string) => {
+      if (!reagrupadas.has(c)) return MODULO_DE.get(c)!;
+      return c.startsWith('pagina.') ? 'grupo_viejo' : c.slice(0, c.indexOf('.'));
+    };
+    conBase(CODIGOS, undefined, viejo);
+    const error = await verificarCatalogoAlArrancar().catch((e: Error) => e);
+
+    expect(error).toBeInstanceOf(ArranquePermisosError);
+    // 47 pares en el mapa; `pagina.transito_organismos` se simula con `grupo_viejo`, así que aquí
+    // difieren las 47 (es la simulación, no la 0205: la 0205 cambia 46).
+    // En release (promoción selectiva del Feature 12072) el mapa tiene 38 (faltan los 9 códigos de
+    // servicios adicionales y comprobantes): difieren 38, se listan 10 y se cuentan 28.
+    expect(reagrupadas.size).toBe(38);
+    expect((error as Error).message).toMatch(/difiere entre la base y el código en 38 funciones/);
+    expect((error as Error).message).toMatch(/… y 28 más/);
+    expect(((error as Error).message.match(/^\s+«/gm) ?? [])).toHaveLength(10);
+  });
+
+  it('con la base al día (misma agrupación que el código) no protesta, y el mensaje de códigos sigue mandando si faltan códigos', async () => {
+    conBase(CODIGOS);
+    await expect(verificarCatalogoAlArrancar()).resolves.toBeUndefined();
+    // Si además falta un código, se reporta la falta de código (la comparación de módulo va después).
+    conBase(CODIGOS.filter((c) => c !== 'soat.solicitud.enviar'), undefined, () => 'lo_que_sea');
+    await expect(verificarCatalogoAlArrancar())
+      .rejects.toThrow(/El código exige y la base no declara \(1\): soat\.solicitud\.enviar/);
+  });
+});
+
 describe('AC6 — añadir una función obliga a decidir sobre `admin`', () => {
   it('una función que `admin` no tiene concedida se detecta y se nombra', async () => {
     // El catálogo y la base coinciden; lo que falta es la marca de `admin`. Es el desajuste que no
@@ -127,7 +182,7 @@ describe('AC6 — añadir una función obliga a decidir sobre `admin`', () => {
   it('las filas de OTROS roles no cuentan como concesión a `admin`', async () => {
     // `funcionesSinAdmin` filtra por `rol === 'admin'`. Sin ese filtro, el reparto de `auditor`
     // taparía el hueco de `admin` y el aviso no llegaría nunca.
-    const filasCatalogo = CODIGOS.map((codigo) => ({ codigo }));
+    const filasCatalogo = CODIGOS.map((codigo) => ({ codigo, modulo: MODULO_DE.get(codigo) }));
     selectMock
       .mockReturnValueOnce(chain(filasCatalogo))
       .mockReturnValueOnce(chain(filasCatalogo))

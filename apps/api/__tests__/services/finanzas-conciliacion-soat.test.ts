@@ -33,10 +33,9 @@ vi.mock('../../src/shared/redis.js', () => ({
   getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false),
 }));
 
-const {
-  celdaConciliacionCsv, conciliacionDeFila, SELECT_CONCILIACION_SOAT,
-} = await import('../../src/modules/finanzas/finanzas.conciliacion-soat.js');
-const { aCsv, conJoins } = await import('../../src/modules/finanzas/finanzas.service.js');
+const { conciliacionDeFila, SELECT_CONCILIACION_SOAT } = await import('../../src/modules/finanzas/finanzas.conciliacion-soat.js');
+const { conJoins } = await import('../../src/modules/finanzas/finanzas.service.js');
+const { COLUMNAS_EXPORT_DETALLE, filasExcelDetalle } = await import('../../src/modules/finanzas/finanzas.export-excel.js');
 
 const RUTA = '/api/finanzas/reporte-costos';
 
@@ -195,6 +194,15 @@ const FILA_BASE = {
   noConfigurados: [], sinRecibo: [], pendientesPago: [], autogestionados: [],
   noAplican: ['Impuesto'],
   estadoFacturacion: 'no_enviado', facturaNumero: null, facturaRequiereRevision: false,
+  // HU #12432 — titular, organismo, periodo y subtotales. El fixture crudo no trae titular ni
+  // organismo, así que van vacíos; el periodo sale de la aprobación y RN-02 reparte el total
+  // (impuesto «no aplica» cuenta 0: 450000 + 80000 + 2980 + 15000 = 547980; + 200000 = 747980).
+  titularNombres: null, titularApellidos: null, titularRazonSocial: null,
+  titularTipoDocumento: null, titularDocumento: null,
+  // HU #12531 — contacto del primer comprador, por la misma subconsulta: el fixture no lo trae.
+  titularCorreo: null, titularTelefono: null, titularDireccion: null,
+  organismoCodigo: null, organismoNombre: null, mes: '2026-07', trimestre: '2026-T3',
+  totalReintegro: 547980, totalServicio: 200000,
 };
 
 /** La fila servida sin las tres claves de esta historia: lo que el AC2 dice que no cambia. */
@@ -352,9 +360,11 @@ describe('El join que no se hizo — por qué la fila no se multiplica', () => {
     // a dos (`td`/`lg`, uno por concepto, resueltos por fecha de aprobación); los `_gen`/`_esp` no
     // casaban ninguna fila desde la 0182 (CHECK `tipo_chk`), así que filas y totales no cambian
     // (AC10; db/tarifas-por-fecha.test.ts lo mide contra la base).
+    // 9 → 10 en la HU #12432: `organismos_transito_config` por su PK (`codigo`) para el alias del
+    // organismo; una fila por trámite como mucho, así que filas y totales no cambian.
     const texto = await sqlDeConJoins();
     expect((texto.match(/ inner join /g) ?? []).length).toBe(1);
-    expect((texto.match(/ left join /g) ?? []).length).toBe(9);
+    expect((texto.match(/ left join /g) ?? []).length).toBe(10);
   });
 
   it.each(['boletaReferencia', 'boletaConciliadaEn'] as const)(
@@ -469,9 +479,12 @@ describe('AC3 — la marca convive con la fila sellada', () => {
 
 // ── AC4 ─────────────────────────────────────────────────────────────────────
 
-describe('AC4 — el CSV distingue los dos casos y nombra la boleta', () => {
-  /** Una fila del reporte tal como llega a `aCsv`. */
-  function fila(over: Record<string, unknown> = {}): Parameters<typeof aCsv>[0][number] {
+describe('AC4 — el archivo ya no lleva «SOAT conciliado» (HU #12536: el detalle replica el Excel de Financiero)', () => {
+  // La HU #11679 la puso como última columna del CSV/.xlsx; la decisión del PO del 2026-09-14 deja
+  // el detalle con las 31 columnas literales de Financiero, y la conciliación se lee en pantalla
+  // (`soatConciliado`/`boletaReferencia` siguen en el JSON del reporte, AC3 arriba).
+  /** Una fila del reporte tal como llega a `filasExcelDetalle`. */
+  function fila(over: Record<string, unknown> = {}): Parameters<typeof filasExcelDetalle>[0][number] {
     return {
       tramiteId: 't1', idFlit: 'FLIT-1', placa: 'ABC123', estado: 'Aprobado', empresa: 'ACME',
       vin: 'VIN1', marca: 'RENAULT', linea: 'LOGAN', tipoTramite: 'Traspaso',
@@ -483,47 +496,22 @@ describe('AC4 — el CSV distingue los dos casos y nombra la boleta', () => {
       estadoFacturacion: 'no_enviado', facturaNumero: null, facturaRequiereRevision: false,
       soatConciliado: false, boletaReferencia: null, soatConciliadoEn: null,
       ...over,
-    } as Parameters<typeof aCsv>[0][number];
+    } as unknown as Parameters<typeof filasExcelDetalle>[0][number];
   }
 
-  it('hay una columna propia, y distingue conciliado de no conciliado nombrando la boleta', () => {
-    const csv = aCsv([
-      fila({ soatConciliado: true, boletaReferencia: 'BOL-000123' }),
-      fila(),
-    ]);
-    const [cabecera, conciliada, sinConciliar] = csv.trim().split('\r\n');
-
-    expect(cabecera.split(';')).toContain('SOAT conciliado');
-    const i = cabecera.split(';').indexOf('SOAT conciliado');
-    expect(conciliada.split(';')[i]).toBe('Sí (BOL-000123)');
-    expect(sinConciliar.split(';')[i]).toBe('No');
+  it('ninguna cabecera ni clave habla de conciliación, y la boleta no se cuela en otra celda', () => {
+    const [conciliada] = filasExcelDetalle([fila({ soatConciliado: true, boletaReferencia: 'BOL-000123' })]);
+    // Mutante «SOAT conciliado sigue al final»: cae.
+    expect(COLUMNAS_EXPORT_DETALLE.map((c) => c.header)).not.toContain('SOAT conciliado');
+    expect(conciliada).not.toHaveProperty('soatConciliado');
+    expect(JSON.stringify(conciliada)).not.toContain('BOL-000123');
   });
 
-  it('la celda del no conciliado NO se deja vacía', () => {
-    // Una celda vacía se lee igual que un dato que no se pudo calcular, y este CSV se usa para
-    // decidir a quién se le cobra: «no consta» y «no está conciliado» no son lo mismo.
-    const csv = aCsv([fila()]);
-    const i = csv.split('\r\n')[0].split(';').indexOf('SOAT conciliado');
-    expect(csv.split('\r\n')[1].split(';')[i]).not.toBe('');
-  });
-
-  it('la columna nueva va al final: ninguna de las anteriores se desplaza', () => {
-    const cabeceras = aCsv([]).trim().split(';');
-    expect(cabeceras[cabeceras.length - 1]).toBe('SOAT conciliado');
-    expect(cabeceras[0]).toContain('Trámite');
-    expect(cabeceras[6]).toBe('SOAT');
-  });
-
-  it('cada fila tiene tantas celdas como cabeceras', () => {
-    const csv = aCsv([fila({ soatConciliado: true, boletaReferencia: 'BOL-000999' }), fila()]);
-    const [cabecera, ...filas] = csv.trim().split('\r\n');
-    for (const f of filas) expect(f.split(';')).toHaveLength(cabecera.split(';').length);
-  });
-
-  it('sin referencia —que la base impide— la celda sigue diciendo que está conciliado', () => {
-    expect(celdaConciliacionCsv({
-      soatConciliado: true, boletaReferencia: null, soatConciliadoEn: null,
-    })).toBe('Sí');
+  it('cada fila tiene una clave por cabecera', () => {
+    const claves = COLUMNAS_EXPORT_DETALLE.map((c) => c.key).sort();
+    for (const f of filasExcelDetalle([fila({ soatConciliado: true, boletaReferencia: 'BOL-000999' }), fila()])) {
+      expect(Object.keys(f).sort()).toEqual(claves);
+    }
   });
 });
 

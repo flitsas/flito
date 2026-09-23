@@ -1,4 +1,5 @@
-// FLITO SOAT — export a Excel de la cola filtrada (Feature #11908, HU #11909, #11934, #12403).
+// FLITO SOAT — export a Excel de la cola filtrada (Feature #11908, HU #11909, #11934, #12403; Bug
+// #12642: variante AMPLIADA con datos de pago, ver `flito-soat.export-pago.ts`).
 //
 // La segunda lectura de `flito_soat` del módulo, y no es la de `cola()`: aquella pagina y devuelve el
 // DTO que pinta una pantalla; esta entrega el conjunto entero una sola vez y con las veintisiete
@@ -30,7 +31,8 @@
 // El registro de acceso (Ley 1581 art. 17) lo pone la RUTA, como el resto de lecturas del módulo: es
 // el borde HTTP quien sabe quién pidió el archivo. Este servicio no toca `req`.
 
-import { and, desc, inArray } from 'drizzle-orm';
+import { and, desc, inArray, type SQL } from 'drizzle-orm';
+import type { PgSelect } from 'drizzle-orm/pg-core';
 import { db } from '../../db/client.js';
 import {
   flitoCompradores, flitoSoat, flitoTramites, organismosTransitoConfig, vehicles,
@@ -38,8 +40,9 @@ import {
 import { env } from '../../config/env.js';
 import {
   celdaTexto, CONSTANTES_COLA_EXPORT, ExportColaDemasiadoGrandeError, nombreArchivoColaExport,
-  organismoParaExport, type FilaColaExport,
+  organismoParaExport, type FilaColaExport, type FilaColaExportPagoSoat,
 } from '../../shared/export/cola-flito-excel.js';
+import { celdasPagoSoat, COLUMNAS_PAGO_SOAT, fechasComprobantePorSoat } from './flito-soat.export-pago.js';
 import {
   bloqueTitular, bloqueTitularDesdeComprador, celdaDesdeJson, ciudadDeOrganismo, claveTitular,
   expresionesFlitRaw, titularDeClave, TITULAR_VACIO, type BloqueTitular,
@@ -430,27 +433,13 @@ function datosDeTramitePorSoat(tramites: TramiteDeSoat[]): Map<string, DatosDeTr
 }
 
 /**
- * Las filas del archivo, o el 422 (RN-E2, RN-E4).
+ * Filtro, orden y tope de la lectura principal, iguales para las DOS proyecciones (Bug #12642).
  *
- * @param ctx El contexto REAL del actor (`contextoSoat`, que lee el proveedor de la BD y no del
- *            JWT). No es decorativo: es lo que aplica las tres fronteras dentro de
- *            `condicionesCola`.
- * @param filtros Los mismos del visor, ya validados, sin paginación.
- * @throws ExportColaDemasiadoGrandeError si el filtro devuelve más del tope. Se lanza ANTES de
- *         construir una sola fila, que es lo que hace imposible entregar un archivo truncado.
+ * Se extrae para que la variante ampliada no pueda ordenar ni acotar distinto: el archivo con
+ * columnas de pago tiene que traer LAS MISMAS filas, en el mismo orden, que el del gestor.
  */
-export async function construirFilasExportSoat(
-  ctx: SoatCtx,
-  filtros: FiltrosExportSoat = {},
-): Promise<FilaColaExport[]> {
-  const tope = env.FLITO_COLA_EXPORT_MAX_FILAS;
-
-  // El MISMO predicado del listado, incluidas las tres fronteras. `null` = este actor no puede ver
-  // nada (un gestor sin proveedor): archivo vacío, nunca la tabla entera.
-  const conds = condicionesCola(ctx, filtros);
-  if (conds === null) return [];
-
-  const filas = await conJoinsCola(db.select(COLUMNAS_CONSULTA).from(flitoSoat).$dynamic())
+function acotar<Q extends PgSelect>(q: Q, conds: SQL[], tope: number) {
+  return conJoinsCola(q)
     .where(and(...conds))
     // El mismo orden del listado: el archivo tiene que leerse como la pantalla. La invariante no
     // cambia con la HU #11963 —sigue siendo «como la pantalla»—, cambia el SENTIDO: de lo más nuevo
@@ -463,9 +452,81 @@ export async function construirFilasExportSoat(
     .orderBy(desc(flitoSoat.createdAt), desc(flitoSoat.id))
     // Tope + 1 (RN-E3): la fila sobrante no se entrega, solo demuestra que hay más.
     .limit(tope + 1);
+}
 
+/** La lectura del archivo del gestor: la proyección de HOY, sin una columna más. */
+function consultaBase(conds: SQL[], tope: number) {
+  return acotar(db.select(COLUMNAS_CONSULTA).from(flitoSoat).$dynamic(), conds, tope);
+}
+
+/** La lectura del archivo AMPLIADO: las mismas columnas más las de pago. Solo corre con `incluirPago`. */
+function consultaConPago(conds: SQL[], tope: number) {
+  return acotar(db.select({ ...COLUMNAS_CONSULTA, ...COLUMNAS_PAGO_SOAT }).from(flitoSoat).$dynamic(), conds, tope);
+}
+
+/** Una fila de la lectura principal, con lo que las 27 celdas del gestor necesitan. */
+type FilaConsulta = Awaited<ReturnType<typeof consultaBase>>[number];
+
+/** Lo que el llamador puede pedir además del filtro (Bug #12642). */
+export interface OpcionesExportSoat {
+  /** `true` = añadir las 13 columnas de pago y trazabilidad. La ruta ya comprobó la función. */
+  incluirPago?: boolean;
+}
+
+/**
+ * Las filas del archivo, o el 422 (RN-E2, RN-E4).
+ *
+ * @param ctx El contexto REAL del actor (`contextoSoat`, que lee el proveedor de la BD y no del
+ *            JWT). No es decorativo: es lo que aplica las tres fronteras dentro de
+ *            `condicionesCola`.
+ * @param filtros Los mismos del visor, ya validados, sin paginación.
+ * @param opciones `incluirPago` (Bug #12642): con `true`, la proyección SUMA las columnas de pago y
+ *            cada fila lleva además las 13 celdas de `celdasPagoSoat`. Sin él, la lectura es
+ *            EXACTAMENTE la de siempre — hay un test que afirma que la consulta no pide más.
+ * @throws ExportColaDemasiadoGrandeError si el filtro devuelve más del tope. Se lanza ANTES de
+ *         construir una sola fila, que es lo que hace imposible entregar un archivo truncado.
+ */
+export async function construirFilasExportSoat(
+  ctx: SoatCtx, filtros?: FiltrosExportSoat, opciones?: { incluirPago?: false },
+): Promise<FilaColaExport[]>;
+export async function construirFilasExportSoat(
+  ctx: SoatCtx, filtros: FiltrosExportSoat, opciones: { incluirPago: true },
+): Promise<FilaColaExportPagoSoat[]>;
+export async function construirFilasExportSoat(
+  ctx: SoatCtx, filtros: FiltrosExportSoat, opciones: OpcionesExportSoat,
+): Promise<FilaColaExport[] | FilaColaExportPagoSoat[]>;
+export async function construirFilasExportSoat(
+  ctx: SoatCtx,
+  filtros: FiltrosExportSoat = {},
+  opciones: OpcionesExportSoat = {},
+): Promise<FilaColaExport[] | FilaColaExportPagoSoat[]> {
+  const tope = env.FLITO_COLA_EXPORT_MAX_FILAS;
+
+  // El MISMO predicado del listado, incluidas las tres fronteras. `null` = este actor no puede ver
+  // nada (un gestor sin proveedor): archivo vacío, nunca la tabla entera.
+  const conds = condicionesCola(ctx, filtros);
+  if (conds === null) return [];
+
+  if (opciones.incluirPago !== true) {
+    const filas = await consultaBase(conds, tope);
+    if (filas.length > tope) throw new ExportColaDemasiadoGrandeError(tope);
+    return ensamblarFilas(filas);
+  }
+
+  const filas = await consultaConPago(conds, tope);
   if (filas.length > tope) throw new ExportColaDemasiadoGrandeError(tope);
+  // Las 27 del gestor se construyen con EL MISMO código que el archivo de hoy: la variante ampliada
+  // no reescribe ninguna celda, solo le pega trece a la derecha.
+  const base = await ensamblarFilas(filas);
+  const comprobantes = await fechasComprobantePorSoat(filas.map((f) => f.id));
+  return filas.map((f, i) => ({ ...base[i]!, ...celdasPagoSoat(f, comprobantes.get(f.id) ?? null) }));
+}
 
+/**
+ * Las 27 celdas del gestor para cada fila de la lectura principal, en el MISMO orden de entrada.
+ * Es el cuerpo que `construirFilasExportSoat` tenía antes del Bug #12642, sin un cambio de celda.
+ */
+async function ensamblarFilas(filas: FilaConsulta[]): Promise<FilaColaExport[]> {
   const tramites = await tramitesDe(filas.map((f) => f.id));
   const datos = datosDeTramitePorSoat(tramites);
   const propietarios = await propietariosDe(

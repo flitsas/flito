@@ -85,6 +85,13 @@ export interface RutaCliente {
   patron: string;
   /** Qué se rompe si se quita. Sin esto la lista se vuelve incrementable «por si acaso». */
   porque: string;
+  /**
+   * HU #12084 (RN-A1): el código de `exigirFuncion` que guarda esta ruta, si lo hay. Es lo que permite
+   * decirle al administrador QUÉ funciones de un rol externo no tendrán efecto por HTTP: todo
+   * `operacion.*` fuera de `FUNCIONES_DEL_CANAL_EXTERNO`. Las tres sin guarda (`/auth/me`,
+   * `/permisos/mios`, `/auth/logout`) no lo declaran. Un test ata cada código al montaje real.
+   */
+  funcion?: string;
 }
 
 /**
@@ -127,23 +134,23 @@ export const RUTAS_PERMITIDAS_CLIENTE: readonly RutaCliente[] = congelar([
     porque: 'Cerrar sesión. Negarlo dejaría el token vivo en el navegador y sin revocar en Redis.',
   },
   {
-    metodo: 'GET', patron: '/api/flito/soat',
+    metodo: 'GET', patron: '/api/flito/soat', funcion: 'soat.cola.ver',
     porque: 'La cola de su compañía: la pantalla entera. Acotada por `contextoSoat()`.',
   },
   {
-    metodo: 'GET', patron: '/api/flito/soat/facetas',
+    metodo: 'GET', patron: '/api/flito/soat/facetas', funcion: 'soat.cola.filtrar',
     porque: 'Los valores de los filtros de esa cola; sin ellos los desplegables salen vacíos.',
   },
   {
-    metodo: 'GET', patron: '/api/flito/soat/:id',
+    metodo: 'GET', patron: '/api/flito/soat/:id', funcion: 'soat.solicitud.ver',
     porque: 'El detalle. La pertenencia la resuelve `buscarConAcceso()` con 404-no-403.',
   },
   {
-    metodo: 'GET', patron: '/api/flito/soat/:id/historial',
+    metodo: 'GET', patron: '/api/flito/soat/:id/historial', funcion: 'soat.solicitud.ver_historial',
     porque: 'Los cambios de estado de SU solicitud, sin los nombres de los empleados que la tocaron.',
   },
   {
-    metodo: 'GET', patron: '/api/flito/soat/:id/soportes',
+    metodo: 'GET', patron: '/api/flito/soat/:id/soportes', funcion: 'soat.solicitud.ver_soportes',
     porque: 'El visor de documentos del detalle, y desde la HU #11916 la DESCARGA de la póliza: la '
       + 'lista trae el enlace firmado con el que la SPA la pinta. Sigue sin ser una puerta abierta —'
       + 'qué documentos entran lo decide `TIPOS_SOPORTE_VISIBLES_CLIENTE` (allowlist por tipo Y por '
@@ -156,11 +163,11 @@ export const RUTAS_PERMITIDAS_CLIENTE: readonly RutaCliente[] = congelar([
   // ('cliente')` en su propio router, un rate limit propio (`soatClienteLimiter`) y validación del
   // MIME REAL del adjunto. Esta entrada solo dice que el rol puede ALCANZARLAS.
   {
-    metodo: 'POST', patron: '/api/flito/soat/cliente/preconsulta',
+    metodo: 'POST', patron: '/api/flito/soat/cliente/preconsulta', funcion: 'soat.runt.preconsultar',
     porque: 'Paso 1 del alta: sin el RUNT no hay marca, línea, organismo ni bloqueo por SOAT vigente, y el formulario no podría empezar.',
   },
   {
-    metodo: 'POST', patron: '/api/flito/soat/cliente',
+    metodo: 'POST', patron: '/api/flito/soat/cliente', funcion: 'soat.solicitud.crear',
     porque: 'Radicar la solicitud. Es la razón de ser del canal; sin ella el rol solo mira.',
   },
   // ── La TERCERA ruta de escritura del canal (HU #12092, Feature #12073). Es la primera que no
@@ -174,7 +181,7 @@ export const RUTAS_PERMITIDAS_CLIENTE: readonly RutaCliente[] = congelar([
   // decir qué se rompe HOY si esta entrada desaparece, y una explicación histórica dentro de esa
   // cadena la vuelve imposible de auditar de un vistazo.
   {
-    metodo: 'POST', patron: '/api/flito/soat/cliente/factura/lectura',
+    metodo: 'POST', patron: '/api/flito/soat/cliente/factura/lectura', funcion: 'soat.factura.leer',
     porque: 'Leer con OCR el COMPRADOR de la factura de venta para prellenar el formulario del alta '
       + '(AC6). Sin esta entrada, el paso del wizard que evita reteclear nueve campos —nombres, '
       + 'apellidos o razón social, tipo y número de documento, dirección, municipio, departamento y '
@@ -206,6 +213,16 @@ export const RUTAS_PERMITIDAS_CLIENTE: readonly RutaCliente[] = congelar([
  * `Object.freeze` es SUPERFICIAL: congelar solo el array deja `lista[0].patron = '.*'` sin lanzar y
  * abriendo la API entera. Se congela el array Y cada entrada.
  */
+/**
+ * HU #12084 (RN-A1): las funciones `operacion.*` que un rol EXTERNO puede ejercer de verdad por HTTP:
+ * las que guardan las rutas de esta lista. Marcarle a un rol externo cualquier otra no lo saca de su
+ * canal —esta frontera corre antes que `exigirFuncion`—, y `PUT /api/permisos/roles/:codigo/funciones`
+ * lo avisa con esta lista. Derivada, no escrita aparte: una ruta nueva del canal la amplía sola.
+ */
+export const FUNCIONES_DEL_CANAL_EXTERNO: ReadonlySet<string> = new Set(
+  RUTAS_PERMITIDAS_CLIENTE.flatMap((r) => (r.funcion ? [r.funcion] : [])),
+);
+
 function congelar(lista: RutaCliente[]): readonly RutaCliente[] {
   return Object.freeze(lista.map((r) => Object.freeze({ ...r })));
 }

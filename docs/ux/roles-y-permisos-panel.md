@@ -1034,3 +1034,584 @@ añade sin que el PO lo diga**: es alcance que el CF no pide y esta ficha no lo 
 | 18 | La descripción del rol es **obligatoria al crear y opcional al editar** | Obligarla también al editar: el backfill de la 0178 deja los 12 con `descripcion` NULL, y entonces corregirle el nombre a un rol heredado quedaría secuestrado por un campo que nadie pidió tocar. La cabecera enseña «Sin descripción» y ya |
 | 19 | En la UI se dice **«función»**, **«ámbito»** y **«tipo de acceso»** | «Permiso» para la función (ya significa otra cosa en `allowedPages`), «entidad de enlace» (jerga del modelo) y «canal» a secas para interno/externo. «Ámbito» se elige porque **ya es el nombre de la columna de `Users.tsx`** y así las dos pantallas dicen lo mismo |
 | 20 | Se **declaran** los cinco choques del §11 en vez de acomodarlos | Escribir el copy de «externo» como si ya funcionara: es la frase con más consecuencias de la pantalla y hoy, para un rol nuevo, **es falsa** (`canal-cliente.ts:54`). ADR-0015 §8.3 ya lo advirtió; esta ficha se niega a ser el sitio donde se olvide |
+
+
+---
+
+## 13. Delta HU #12533 — el cuadro se divide en tres secciones por origen del módulo
+
+> **Modo slim.** Extiende la columna derecha (`CuadroRol.tsx`) sin ruta, slug, endpoint ni componente
+> nuevo. Este apartado **sustituye** la parte «módulos plegados» del wireframe §6.1 y añade un quinto
+> vacío al §6.4. Todo lo demás de la ficha sigue vigente. La decisión de producto (tres secciones, su
+> orden, qué módulo va en cuál y las tres reubicaciones por función) la tomó David Chica el
+> 14/09/2026 y aquí no se reabre.
+
+### 13.0 Oficio del delta
+
+| Pregunta | Respuesta |
+|---|---|
+| ¿Qué vino a hacer quien abre esto? | Lo mismo que en §0: **ajustar qué puede hacer un rol**. Lo que cambia es que hoy, con 29 módulos en una lista alfabética, no sabe **cuáles conceder**: PESV y Bolsas pesan igual en la lista y no son lo mismo. |
+| ¿Qué se ve primero? | Debajo de la cabecera del rol, **tres rótulos con su cuenta**: «FLITO · k de n marcadas», «Ya existía y FLITO lo usa · k de n», «Existe pero no se usa · k de n». En tres líneas el administrador sabe si el rol tiene algo marcado fuera del producto. Después, los mismos acordeones plegados de siempre, ahora dentro de su sección. |
+| ¿Qué se calla y dónde vive? | Igual que §3. Se añade una cosa que se calla a propósito: **por qué** un módulo está en la sección 3 (historia del producto). No va en pantalla; una línea de ayuda bajo el rótulo dice la única consecuencia que importa. |
+| ¿Cuál es la única primaria? | **Sin cambio**: «Guardar cambios», solo con cambios pendientes. Las secciones no traen botones. Ni «Marcar toda la sección» ni «Desmarcar la sección 3»: lo pediría el PO, y no lo pidió. |
+| ¿El vacío y el error dicen el siguiente paso? | Sí. El vacío C conserva su copy y **sigue pintando las tres secciones** (el siguiente paso es «abre un módulo», y para eso tienen que estar). Una **sección sin módulos no se pinta** (vacío E, §13.4). Error: no cambia, es de página entera. |
+| ¿Hay efectos o un patrón nuevo injustificado? | No. El rótulo de sección calca `MiJornada.tsx:150` (mismo público). Cero tokens, cero componentes, cero animaciones. |
+
+### 13.1 Delta de claridad — por qué tres bloques y no dos
+
+**Hoy** la columna derecha lista 29 acordeones por orden alfabético: «Administración, Bitácora,
+Bolsas, Comparendos, Compuerta de entrega, Conciliación, Cumplimiento (LAFT), Derechos de tránsito,
+Finanzas, FLITO (SOAT e Impuestos), Flota…». El orden alfabético es neutral, y ese es el problema:
+pone al mismo nivel lo que el administrador **debe** repartir (SOAT, Impuestos, Bolsas), lo que
+**tiene** que repartir aunque no sea de FLITO (Usuarios, Tránsito, Roles y permisos) y lo que **no
+debería** tocar salvo que sepa lo que hace (PESV, Flota, Mantenimiento). Nada en la pantalla le dice
+cuál es cuál.
+
+**Con el delta**, lo primero que se lee bajo la cabecera del rol son tres cuentas:
+
+```
+FLITO · 12 de 41 marcadas
+YA EXISTÍA Y FLITO LO USA · 3 de 14 marcadas
+EXISTE PERO NO SE USA · 0 de 13 marcadas
+```
+
+Eso contesta de un vistazo la pregunta que motiva la visita —*«¿a este rol le he dado algo que no
+debería?»*— sin abrir ningún acordeón: si la tercera cuenta no es `0 de n`, hay algo que revisar.
+
+**Por qué tres y no dos.** La tentación es «FLITO / lo demás». Pero «lo demás» mezcla dos cosas
+opuestas: **Usuarios** y **Tránsito** (sin ellos un rol operativo no funciona: es donde se crean las
+personas y los organismos que FLITO usa) y **PESV** o **Mantenimiento** (conceden pantallas de un
+producto que nadie opera). Juntarlas en un bloque obligaría a leer el bloque entero módulo a módulo,
+que es justo lo que hay hoy. Con tres, cada bloque tiene una instrucción implícita distinta:
+
+| Sección | Lo que le dice al administrador sin decírselo |
+|---|---|
+| **FLITO** | Reparte aquí. Es el producto. |
+| **Ya existía y FLITO lo usa** | También hace falta; está separado para que no lo confunda con el producto ni con lo muerto. |
+| **Existe pero no se usa** | Normalmente todo en 0. Si marca algo, sabe que está abriendo pantallas que FLITO no usa. |
+
+**Densidad: aliviada, no empeora.** Mismas 29 barras de acordeón (30 con «Privacidad y datos»), tres
+rótulos no enfocables encima. Cero paradas de tabulador nuevas. La lectura pasa de una lista de 29 a
+tres listas de 17 / 5 / 8 con nombre, que es lo que hace que una lista larga se pueda escanear.
+
+**Orden dentro de cada sección: alfabético por etiqueta**, que es el criterio que ya existe
+(`modulosVisibles()`). No se introduce un orden «por importancia» dentro de la sección: pediría un
+número de orden por módulo que mantener a mano, y la sección ya hace el trabajo de importancia. Si el
+PO quiere que dentro de FLITO «FLITO (SOAT e Impuestos)» vaya primero, es un campo `orden` en el mapa
+y se decide entonces, no aquí de tapadillo.
+
+### 13.2 Reparto de módulos (decidido; se transcribe para que el mapa del código lo calque)
+
+| Sección | Claves de módulo (etiqueta que ya existe en `ETIQUETAS_MODULO`) |
+|---|---|
+| **1 · FLITO** | `flito_soat_e_impuestos`, `finanzas`, `soat`, `tramites`, `impuestos`, `derechos`, `revisiones`, `compuerta`, `tablero`, `bitacora`, `logistica`, `bolsas`, `comparendos`, `conciliacion`, `liquidacion`, `parametrizacion`, `sync`. **Un módulo desconocido cae aquí** (y su etiqueta sigue saliendo del repliegue de `etiquetaModulo`). |
+| **2 · Ya existía y FLITO lo usa** | `general`, `administracion`, `usuarios`, `permisos`, `transito` |
+| **3 · Existe pero no se usa** | `flota`, `mantenimiento`, `pesv`, `rndc`, `cumplimiento_laft`, `tramite` (Trámite digital), `operaciones`, y el acordeón nuevo **`privacidad`** |
+
+**Tres reubicaciones por función**, no por módulo. El API sigue devolviendo la función en su grupo de
+origen y **el `PUT` sigue mandando los mismos códigos**; la pantalla solo la pinta en otro acordeón:
+
+| Código | Llega en | Se pinta en | Sección |
+|---|---|---|---|
+| `pagina.transito` | `operaciones` | acordeón **Tránsito** | 2 |
+| `pagina.drive` | (su grupo actual) | acordeón **Derechos de tránsito** | 1 |
+| `pagina.privacy` | `administracion` | acordeón propio **Privacidad y datos** | 3 |
+
+Consecuencia que hay que saber pintar: si tras mover `pagina.transito` el grupo `operaciones` queda
+sin funciones, **ese acordeón no se pinta** (vacío D de §6.4). Igual con `administracion` si solo
+traía `pagina.privacy`. La regla de «módulo vacío no se pinta» ya existía; las reubicaciones solo la
+hacen más probable.
+
+**Etiqueta nueva, y única línea que se añade a `ETIQUETAS_MODULO`:** `privacidad: 'Privacidad y datos'`.
+
+> **Nota (HU #12716).** Desde la HU #12716 el API ya agrupa cada pantalla con las acciones de su
+> módulo (la pantalla primera en el grupo), así que la tabla de claves de arriba es la de la #12533
+> y quedó vieja: desaparecen `flito_soat_e_impuestos`, `finanzas`, `parametrizacion` y `sync`, y
+> nacen `clientes`, `tarifas`, `servicios_adicionales`, `catalogos_compartidos` y `comprobantes`
+> (todos en la sección 1). De las tres reubicaciones solo sigue viva `pagina.privacy`:
+> `pagina.transito` y `pagina.drive` ya llegan en `transito` y `derechos`.
+
+### 13.3 Jerarquía tipográfica — cómo se distingue el rótulo de la barra de un acordeón
+
+Las dos cosas que hay que separar a simple vista son **el rótulo de sección** (agrupa) y **la barra del
+acordeón** (se pulsa). Hoy la barra ya es `text-sm font-bold` en `--flit-blue-text`, con chevron, dentro
+de tarjeta. El rótulo tiene que ser **más pequeño, no más grande**, y estar **fuera de la tarjeta**:
+un título más grande que las barras las convertiría en subordinadas de algo que parece pulsable y no
+lo es.
+
+| | Rótulo de sección (`<h3>`) | Barra de acordeón (existente, no se toca) |
+|---|---|---|
+| Dónde | **Sobre el fondo de la app**, fuera de cualquier `FlitCard` | Dentro de la tarjeta del acordeón |
+| Tamaño y caja | `text-xs font-semibold uppercase tracking-wide` (calca `MiJornada.tsx:150`) | `text-sm font-bold`, caja normal |
+| Color | `--flit-text-secondary` (el mismo que los rótulos de `UsersToolbar.tsx:49`) | `--flit-blue-text` |
+| Cuenta | `<span class="normal-case tabular-nums">` en `--flit-text-muted`, separada por ` · ` — **en caja normal** para que no salga «12 DE 41 MARCADAS» | `(n)` y «k de n marcadas» debajo, como hoy |
+| Chevron | Ninguno. Nada que sugiera que se pulsa | Sí |
+| Enfocable | No | Sí (es el botón del acordeón) |
+
+**La mayúscula la pone CSS (`uppercase`), no el literal.** En el DOM el texto va en caja de frase
+(«Ya existía y FLITO lo usa»): un lector de pantalla con un literal todo en mayúsculas puede
+deletrearlo, y el h3 es el nombre accesible de la sección (§13.6).
+
+**Separación vertical.** El contenedor de la columna es hoy `flex flex-col gap-4`. Cada sección es un
+`<section class="flex flex-col gap-4">` con el h3 como primer hijo; **entre secciones** va el
+doble, `gap-8` en el contenedor padre (o `mt-4` adicional en cada sección a partir de la segunda).
+Regla: el hueco entre la última barra de una sección y el rótulo de la siguiente tiene que ser
+**visiblemente mayor** que el hueco entre dos barras de la misma sección, o el rótulo parece pegado
+al acordeón de arriba. Es el único ajuste de espaciado del delta y no toca tokens.
+
+**Una línea de ayuda, solo en la sección 3.** Bajo el h3, `<p class="text-sm">` en
+`--flit-text-secondary`, tratamiento impersonal (§8.6):
+
+> **Si se marcan, el rol sí entra a esas pantallas. FLITO no las usa hoy.**
+
+Es una frase, dice la única consecuencia (se conceden de verdad) y no alarma. Las secciones 1 y 2
+**no llevan ayuda**: su rótulo ya lo dice todo, y una ayuda que repite el título es de lo que la tabla
+de §Carácter de los principios manda quitar.
+
+### 13.4 Wireframe — columna derecha, estado lleno, todo plegado
+
+Cifras ilustrativas; la pantalla cuenta lo que llega (§2).
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│ Gestor de Impuestos                                                │
+│ Interno · Se atan a organismos de tránsito · 2 usuarios            │
+│ Atiende la cola de impuestos de los organismos que se le asignen.  │
+│                                                                    │
+│  [Editar rol] [Borrar rol] [Marcar todas las funciones] [Desmarcar todas]
+└────────────────────────────────────────────────────────────────────┘
+                              (barra «Sin guardar…» aquí, solo con cambios)
+
+FLITO · 12 de 41 marcadas
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Bitácora (2)                                     0 de 2 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Bolsas (3)                                       0 de 3 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Derechos de tránsito (2)                         1 de 2 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ FLITO (SOAT e Impuestos) (14)                   9 de 14 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Impuestos (4)                                    2 de 4 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+  … 12 módulos más de FLITO, plegados
+
+
+YA EXISTÍA Y FLITO LO USA · 3 de 14 marcadas
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Administración (3)                               0 de 3 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ General (1)                                      1 de 1 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Roles y permisos (2)                             0 de 2 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Tránsito (5)                                     2 de 5 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Usuarios (3)                                     0 de 3 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+
+
+EXISTE PERO NO SE USA · 0 de 13 marcadas
+Si se marcan, el rol sí entra a esas pantallas. FLITO no las usa hoy.
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Cumplimiento (LAFT) (2)                          0 de 2 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Flota (3)                                        0 de 3 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Mantenimiento (2)                                0 de 2 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ PESV (4)                                         0 de 4 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ ▶ Privacidad y datos (1)                           0 de 1 marcadas │
+└────────────────────────────────────────────────────────────────────┘
+  … 3 módulos más, plegados
+```
+
+Lo que **no** cambia y se ve en el wireframe: la cabecera del rol, la barra `sticky` de guardado (sigue
+antes de la primera sección en el DOM, §Decisión 5), la barra de cada acordeón con su `(n)` y su
+«k de n marcadas», y los botones «Marcar todas / Desmarcar todas» dentro del acordeón abierto.
+
+La cuenta del rótulo **se mueve con el borrador**, igual que la de cada acordeón (es estado en
+edición). La cuenta de la lista izquierda sigue sin moverse hasta guardar (§Decisión 6).
+
+### 13.5 Estados (4)
+
+| Estado | Qué cambia respecto a §6.3 |
+|---|---|
+| **Cargando** | El esqueleto propio de dos columnas (`RolesPermisos.tsx:303`) cambia su lado derecho: hoy es «cabecera `h-24` + 4 barras `h-6`». Pasa a **cabecera `h-24` + 3 grupos**, cada grupo una barra corta de rótulo (`h-3`, ancho ~35 %, sin tarjeta) y 2 barras `h-6` en tarjeta. Total 3 rótulos + 6 barras: al llegar los datos la estructura no salta. `role="status"`, `aria-busy`, `aria-label="Cargando roles y permisos"`: sin cambio. |
+| **Error** | **No cambia.** Es de página entera («No se pudo cargar el catálogo de roles y funciones.» + «Reintentar»), no llega a pintar secciones. |
+| **Vacío C** — rol sin ninguna función marcada | **Copy sin cambio** (`COPY_VACIO_ROL_SIN_FUNCIONES`). **Se pintan las tres secciones**, todas en «0 de n marcadas»: el siguiente paso del copy es «abre un módulo», y los módulos tienen que estar a la vista. Esconder las secciones porque el rol está en cero dejaría el copy sin dónde ir. |
+| **Vacío D** — módulo sin funciones | Sin cambio: no se pinta. Ahora también ocurre por las reubicaciones (§13.2). |
+| **Vacío E (nuevo)** — sección sin módulos | **No se pinta nada de ella**: ni rótulo, ni cuenta, ni la ayuda. Un rótulo con «0 de 0 marcadas» encima de nada es un rectángulo que promete algo, igual que el acordeón vacío. Ocurre si el catálogo no trae ningún módulo de esa sección (p. ej. un despliegue que ya retiró PESV, Flota, etc.). Con una sola sección viva, **su rótulo se pinta igual**: sigue diciendo el origen. |
+| **Lleno** | El wireframe de §13.4. |
+
+### 13.6 Accesibilidad
+
+- **Cada sección es un `<section aria-labelledby={idH3}>`** que envuelve el h3, la ayuda (si la hay)
+  y sus acordeones. Con nombre, la `<section>` es un landmark `region`: quien navega por regiones
+  salta de sección en sección y oye su nombre completo.
+- **Encabezados:** `h1` (`PageHeaderCard`) → `h2` nombre del rol (`CuadroRol.tsx:77`) → **`h3` por
+  sección**. La barra de `FlitAcordeon` es un `<span>` dentro de un `<button>`, no un heading: el h3
+  no compite con ella y no hay que tocar el kit. No se salta ningún nivel.
+- **El nombre accesible de la sección incluye la cuenta**, porque el h3 la contiene: al entrar en la
+  región se anuncia **«FLITO · 12 de 41 marcadas»**. Así es como se anuncia «k de n marcadas» de la
+  sección: como parte del nombre, **no como región viva** (§Decisión 17: la casilla ya anuncia su
+  cambio; una `aria-live` en la cuenta leería lo mismo dos veces por clic).
+- **Caja de texto:** el literal del DOM va en caja de frase; `uppercase` es CSS (§13.3). El `·` que
+  separa título y cuenta se lee como «punto medio» en algunos lectores; aceptable, y es el mismo
+  separador que ya usa la cabecera del rol («Interno · Se atan a… · 2 usuarios»).
+- **Orden de tabulación: cero paradas nuevas.** El h3 y la ayuda no son enfocables. Un acordeón
+  plegado sigue siendo **una** parada; con 30 acordeones plegados, 30 paradas, exactamente como
+  antes del delta. La barra `sticky` sigue siendo la primera parada tras la cabecera.
+- **La ayuda de la sección 3** es texto visible dentro de la `<section>`, justo después del h3. No
+  necesita `aria-describedby`: quien lee la región en orden la encuentra; quien salta por
+  encabezados llega al h3 y la siguiente línea es la ayuda.
+- **`role="status"` del cambio de rol** (§9): sin cambio. Sigue anunciando «Cuadro del rol X. k de n
+  funciones marcadas.» con el total del rol, no por sección.
+- **Contraste:** `--flit-text-secondary` sobre `--flit-bg-app` para un `text-xs` semibold ya está en
+  producción en `UsersToolbar.tsx`; no se introduce ninguna combinación nueva. `check:contraste` no
+  lo mide (alcance real: ⌘K y gradientes).
+
+### 13.7 Copy exacto
+
+| Elemento | Literal |
+|---|---|
+| h3 sección 1 | **FLITO** |
+| h3 sección 2 | **Ya existía y FLITO lo usa** |
+| h3 sección 3 | **Existe pero no se usa** |
+| Cuenta en cada h3 | **· {k} de {n} marcadas** · con `k = 1`: **· 1 de {n} marcada** |
+| Ayuda, solo bajo la sección 3 | **Si se marcan, el rol sí entra a esas pantallas. FLITO no las usa hoy.** |
+| Etiqueta del acordeón nuevo | **Privacidad y datos** |
+
+Tratamiento: impersonal, como el resto de ayudas de la pantalla (§8.6). Ningún «usted», ningún «tú»
+en el delta.
+
+### 13.8 Notas para QA
+
+1. **Tres rótulos, en ese orden.** Con el catálogo completo: `getAllByRole('heading', { level: 3 })`
+   devuelve exactamente 3 y sus nombres empiezan por «FLITO», «Ya existía y FLITO lo usa», «Existe
+   pero no se usa», en ese orden de DOM. *Mutante:* ordenar las secciones alfabéticamente.
+2. **La cuenta del rótulo suma sus módulos.** Para cada sección, `k` = casillas marcadas de sus
+   módulos y `n` = total de funciones de sus módulos; marcar una casilla dentro de un módulo de la
+   sección 3 sube su `k` en 1 y no toca las otras dos. *Mutante:* contar sobre el catálogo entero.
+3. **`pagina.transito` está en «Tránsito» (sección 2) y una sola vez.** Abrir «Tránsito» → la casilla
+   `data-codigo="pagina.transito"` está ahí; abrir «Operaciones» (si existe) → no está. Total en el
+   DOM con todo abierto: **1**. *Mutante:* pintarla en los dos.
+4. **`pagina.privacy` está en «Privacidad y datos» (sección 3)** y no en «Administración».
+   *Mutante:* dejarla en su grupo de origen.
+5. **`pagina.drive` está en «Derechos de tránsito» (sección 1).**
+6. **El `PUT` no cambia.** Marcar `pagina.transito` desde «Tránsito» y guardar → el cuerpo lleva
+   `pagina.transito` con el mismo código de siempre. Nada de la reubicación llega al servidor.
+   *Mutante:* reescribir el código o el módulo al mover la función.
+7. **Sección sin módulos no se pinta.** Catálogo sin ningún módulo de la sección 3 → **2** h3, y no
+   existe el texto «Existe pero no se usa» ni la ayuda. *Mutante:* pintar «0 de 0 marcadas».
+8. **Módulo desconocido cae en FLITO.** Un grupo `modulo: 'xyz'` con funciones aparece bajo el h3
+   «FLITO» con etiqueta «Xyz». *Mutante:* descartarlo o mandarlo a la sección 3.
+9. **Cero paradas nuevas.** Con todo plegado, `tab` recorre exactamente los botones de acordeón que
+   había antes del delta (los h3 no reciben foco).
+10. **Los asertos antiguos que contaban `region`** (nota QA 1 de §10: «un `region` por módulo») ahora
+    encuentran también las 3 secciones con nombre. Filtrar por nombre o contar
+    `aria-expanded` en vez de `region`, y no «arreglar» el test quitando el `aria-labelledby`.
+
+### 13.9 Decisiones del delta
+
+| # | Decisión | Descarte |
+|---|---|---|
+| 21 | Tres secciones y no dos | «FLITO / lo demás» mezcla Usuarios (imprescindible) con PESV (muerto) en el mismo bloque, que es el problema de hoy con otro nombre |
+| 22 | Rótulo **más pequeño** que la barra del acordeón y fuera de tarjeta (`text-xs uppercase`, precedente `MiJornada.tsx:150`) | Un título grande en `--flit-blue-text`: parecería pulsable y haría que las barras de acordeón se leyeran como hijas de un botón que no existe |
+| 23 | Ayuda de una línea **solo en la sección 3** | Ayuda en las tres: dos de ellas repetirían el título. Ninguna: la 3 deja abierta la pregunta «¿y si la marco pasa algo?» |
+| 24 | La cuenta de la sección se mueve con el borrador | Congelarla al conjunto guardado: diría lo contrario que los acordeones de dentro |
+| 25 | Vacío C sigue pintando las tres secciones | Esconderlas con el rol en cero: el copy dice «abre un módulo» y no habría módulo que abrir |
+| 26 | Orden alfabético dentro de cada sección (criterio existente) | Orden «por importancia» a mano: un número que mantener por módulo; la sección ya reparte la importancia. Si el PO lo quiere, es un `orden` en el mapa |
+| 27 | Sin «Marcar toda la sección» | No lo pide la HU; sería un botón por rótulo y tres controles nuevos en reposo |
+| 28 | Las reubicaciones viven en la pantalla, no en el API | Nada cambia en lo que se guarda (decidido). Mover el grupo en el servidor sería tocar el catálogo de la #12081 por una cuestión de presentación |
+
+---
+
+## 14. Delta HU #12717 — dependencia pantalla → acciones
+
+> **Modo slim.** Extiende el panel de cada acordeón de `CuadroRol.tsx` y el borrador de
+> `RolesPermisos.tsx` (`alternar`, `marcarConjunto`). Sin ruta, slug, endpoint, componente ni token
+> nuevo; el `PUT` no cambia y nada se reordena en el front (el API ya manda la pantalla primera en cada
+> grupo desde la #12716). Las siete reglas de producto las cerró David Chica el 20/09/2026 y aquí no se
+> reabren; este apartado dice **cómo se ven** y **cómo se anuncian**. Todo lo anterior de la ficha sigue
+> vigente.
+
+### 14.0 Oficio del delta
+
+| Pregunta | Respuesta |
+|---|---|
+| ¿Qué vino a hacer quien abre esto? | Lo mismo que en §0: **ajustar qué puede hacer un rol**. Lo que hoy le pasa es que puede marcar «Marcar un impuesto como pagado» a un rol que no entra al portal de Impuestos, guardar, y nadie le dice que esa acción no vale nada. |
+| ¿Qué se ve primero? | Al abrir un módulo, **su pantalla** («Entrar al portal de Impuestos»), primera y separada de las acciones por una línea fina. Si la pantalla no está marcada, las acciones se ven apagadas y una línea dice por qué. |
+| ¿Qué se calla y dónde vive? | La mecánica (qué código es `tipo: 'pagina'`, cómo se calcula «tiene pantalla») no se pinta. La consecuencia de desmarcar la pantalla **no se avisa antes** (se ve en el mismo gesto: las acciones se apagan y la barra las cuenta); si el administrador no la quería, «Descartar» lo devuelve. |
+| ¿Cuál es la única primaria? | **Sin cambio**: «Guardar cambios», solo con cambios pendientes. «Desmarcarlas» es `flitBtnSecondarySm`, como «Marcar todas» del módulo. |
+| ¿El vacío y el error dicen el siguiente paso? | Los 4 estados de la vista no cambian (§14.4). Los dos estados nuevos de la casilla llevan su siguiente paso en la misma línea: «Marca primero la pantalla…» y «Marca «X» o desmárcalas». |
+| ¿Hay efectos o un patrón nuevo injustificado? | No. Un `border-t` en `--flit-border-soft`, un `disabled` nativo y dos líneas de texto. Cero animación, cero opacidad, cero chip nuevo. |
+
+### 14.1 Delta de claridad — la pantalla es la primera casilla, y se nota sin decirlo
+
+**Hoy** el panel de un módulo es una lista de casillas iguales: la pantalla («Entrar al portal de
+Impuestos») pesa lo mismo que «Exportar la cola a Excel». Nada dice que la segunda no sirve sin la
+primera, y el modelo lo permite.
+
+**Con el delta**, el panel se lee en dos bloques:
+
+```
+▼ Impuestos (5)                                          2 de 5 marcadas   [Marcar todas] [Desmarcar todas]
+
+  ☑ Entrar al portal de Impuestos
+     Ve la bandeja de recibos de los organismos que tenga asignados.
+  ───────────────────────────────────────────────────────────────────  ← border-t, --flit-border-soft
+  ☑ Marcar un impuesto como pagado
+     Registra el pago del recibo y adjunta el soporte.
+  ☐ Exportar la cola a Excel
+     Descarga todas las filas que coincidan con el filtro.
+  … 2 acciones más
+```
+
+Tres cosas hacen la jerarquía, y ninguna es un efecto:
+
+1. **El orden.** La pantalla (o las dos, en Logística, Tránsito y Derechos de tránsito) va primera.
+   Ya lo trae el API; el front no reordena.
+2. **El nombre.** La convención §8.7 hace que toda pantalla empiece por «Entrar a…». Es la palabra
+   que la separa de un verbo de acción, y ya está en el catálogo.
+3. **Una línea fina** entre el bloque de pantalla(s) y el de acciones: `border-t` en
+   `--flit-border-soft`, `pt-3` encima del primer bloque de acciones. Es el mismo trazo que ya separa
+   filas en las tablas del kit. **No** se cambia el peso tipográfico de la pantalla (`font-medium`
+   como el resto): un negrita distinto en la primera fila de cada módulo se leería como «título» y
+   haría dudar de si se puede marcar.
+
+**Dónde va la línea en cada caso:**
+
+| Módulo | Pantallas | Línea | Ejemplo |
+|---|---|---|---|
+| Con una pantalla y acciones | 1 | Entre la pantalla y la primera acción | Impuestos, Bolsas |
+| Con dos pantallas y acciones | 2 (juntas, primeras) | Entre la segunda pantalla y la primera acción | Logística, Tránsito, Derechos de tránsito |
+| Solo pantalla, sin acciones | 1 | **No hay línea** (no hay nada que separar) | General |
+| Sin pantalla | 0 | **No hay línea ni dependencia** | Catálogos compartidos |
+
+**Densidad: sin cambio.** Una línea de 1 px por módulo con acciones; el texto de ayuda solo aparece
+en los dos estados que lo necesitan (§14.2) y desaparece al resolverse. En reposo, con todo marcado,
+el panel se ve como hoy más la línea.
+
+### 14.2 Estados de la casilla de acción
+
+Una casilla de **pantalla** no cambia nunca: siempre habilitada, siempre igual que hoy. Lo que cambia
+es la casilla de **acción**, que tiene tres estados según el borrador del módulo:
+
+| | **Habilitada** | **Deshabilitada · desmarcada** | **Bloqueada · marcada** (carga inconsistente) |
+|---|---|---|---|
+| Cuándo | Al menos una pantalla del módulo está marcada en el borrador, **o** el módulo no tiene pantalla | Ninguna pantalla del módulo marcada y la acción desmarcada | Ninguna pantalla marcada y la acción **sí** marcada (así llegó del servidor, o así quedó tras «Descartar») |
+| `<input>` | Como hoy | `disabled`, `checked={false}` | `disabled`, `checked` |
+| Nombre visible | `--flit-text-primary` `font-medium` (hoy) | **`--flit-text-secondary`**, mismo peso | **`--flit-text-secondary`**, mismo peso |
+| Explicación (`aria-describedby` propio) | `--flit-text-secondary` (hoy) | Sin cambio de color: sigue siendo la explicación de qué hace | Sin cambio |
+| Texto de estado | Ninguno | **Una línea por módulo**, no por casilla, justo debajo de la línea fina y encima de la primera acción: «Marca primero la pantalla para poder marcar estas acciones.» en `--flit-text-secondary` `text-sm` | **La línea de aviso de §14.3**, arriba del panel, en `--flit-warning-ink` |
+| `aria-describedby` de la casilla | `{idDescripcion}` | `{idDescripcion} {idExplicacionModulo}` | `{idDescripcion} {idAvisoModulo}` |
+| Contraste del texto | ≥ 4.5:1 (hoy) | `--flit-text-secondary` sobre la tarjeta: **5,7:1** en claro, más en oscuro | Ídem; el aviso en `--flit-warning-ink` es **5,5:1**, ya en producción en el aviso de externo |
+| Contraste del control | Nativo | Nativo `disabled`: el navegador lo apaga y **no se garantiza 3:1**. Se acepta: el estado lo dice el texto, no el gris del cuadrito | Ídem; la marca de verificación sigue visible en todos los navegadores del proyecto |
+
+**Por qué `--flit-text-secondary` y no `muted` para el nombre apagado.** El nombre de una acción
+deshabilitada sigue siendo contenido: el administrador lo tiene que leer para decidir si quiere esa
+acción y, por tanto, si marca la pantalla. `--flit-text-muted` es para cuentas y códigos (§9) y el
+propio `flit-tokens.css:81` avisa de que en tono apagado «se lee igual de mal». Y **nada de `opacity`**
+sobre la fila: es la forma habitual de apagar y es la que rompe el 4.5:1.
+
+**Por qué una línea por módulo y no una por casilla.** «Marca primero la pantalla» repetido en cinco
+filas seguidas es la clase de ayuda que la tabla de §Carácter manda quitar. Una sola línea en el sitio
+donde empieza el bloque apagado lo dice una vez; cada casilla la enlaza por `aria-describedby`, así
+que quien lee casilla por casilla la oye igual.
+
+**Con dos pantallas** la línea dice «una de las dos pantallas» (copy §14.5). No nombra cuáles: están
+justo encima.
+
+**Qué pasa al pasar de un estado a otro (reglas 1, 2, 4, 5, 6):**
+
+| Gesto | Efecto en el mismo gesto |
+|---|---|
+| Marcar la (primera) pantalla del módulo | Las acciones desmarcadas pasan a **habilitadas**; las marcadas-bloqueadas pasan a **habilitadas y marcadas**; desaparecen la línea «Marca primero…» y el aviso de §14.3. Foco: sigue en la casilla de la pantalla (nativo; no se mueve) |
+| Desmarcar la única pantalla marcada (o la última de las dos) | **Todas las acciones del módulo se desmarcan** y pasan a deshabilitadas. La barra «Sin guardar» cuenta cada acción que estaba en la línea base como «desmarcada». Sin `confirm`: no ha guardado nada, y «Descartar» lo devuelve entero |
+| Desmarcar una de dos pantallas quedando la otra marcada | **Nada** cambia en las acciones |
+| «Marcar todas» del módulo | Marca pantalla(s) **y** acciones. Nunca deja acciones marcadas sin pantalla |
+| «Marcar todas las funciones» del rol | Ídem para todos los módulos (es el mismo `marcarConjunto` con `todas`) |
+| «Desmarcar todas» del módulo / del rol | Desmarca todo, como hoy. Las acciones quedan deshabilitadas-desmarcadas y sale la línea «Marca primero…» |
+| «Desmarcarlas» del aviso | Desmarca solo las acciones marcadas sin pantalla de ese módulo; la barra las cuenta como desmarcadas; el aviso desaparece; el foco pasa a la casilla de la (primera) pantalla del módulo (§14.6) |
+| «Descartar» | Vuelve a la línea base, **incluida la inconsistencia** si la había: el aviso reaparece. Es lo honesto: descartar devuelve lo guardado, no lo corregido |
+
+**Si el borrador tiene acciones sin pantalla porque el administrador marcó la pantalla, marcó acciones
+y luego desmarcó la pantalla**: no puede pasar, por la regla 4 (el mismo gesto las desmarca). El único
+origen de «marcada y bloqueada» es la línea base del servidor. Por eso el aviso de §14.3 solo puede
+aparecer al cargar el rol o al «Descartar».
+
+### 14.3 La línea de aviso del módulo (carga inconsistente)
+
+Va **dentro del panel del acordeón, antes de todas las casillas** (es lo primero que hay que resolver
+en ese módulo), como `<p role="status" id={idAvisoModulo}>` en `--flit-warning-ink` `text-sm
+font-medium`, con el botón a continuación:
+
+```
+▼ Impuestos (5)                          4 de 5 marcadas · 4 sin pantalla   [Marcar todas] [Desmarcar todas]
+
+  4 acciones marcadas sin la pantalla. Marca «Entrar al portal de Impuestos»
+  o desmárcalas.                                              [Desmarcarlas]
+
+  ☐ Entrar al portal de Impuestos
+     Ve la bandeja de recibos de los organismos que tenga asignados.
+  ───────────────────────────────────────────────────────────────────
+  ☑ Marcar un impuesto como pagado          (deshabilitada, marcada)
+     Registra el pago del recibo y adjunta el soporte.
+  ☑ Exportar la cola a Excel                (deshabilitada, marcada)
+     …
+```
+
+- **Nombra la pantalla** por su nombre de negocio (`nombreNegocio`), entre comillas angulares como el
+  resto de la ficha. Con dos pantallas nombra las dos: «Marca «Entrar a Logística» o «Entrar a la ruta»,
+  o desmárcalas.»
+- **`[Desmarcarlas]`** es `flitBtnSecondarySm` con `flitBtnSecondaryStyle`, el mismo par que «Marcar
+  todas» del módulo. Con `n = 1`: **«Desmarcarla»**. Lleva `sr-only` « las acciones sin pantalla de
+  {módulo}» para que fuera de contexto no sea un «Desmarcarlas» suelto.
+- **En el encabezado del acordeón**, mientras el aviso exista, la `descripcion` pasa de «4 de 5
+  marcadas» a **«4 de 5 marcadas · 4 sin pantalla»** (texto, `--flit-text-muted` como hoy; sin chip).
+  Es lo único que hace visible la inconsistencia **con el módulo plegado**; sin esto, un rol como
+  `cliente` podría tener acciones huérfanas en tres módulos y el administrador solo se enteraría
+  abriendo cada uno. Es un sufijo de texto en un `prop` que ya existe, no un patrón nuevo (Decisión 33).
+- **Solo sale cuando hay al menos una acción marcada sin pantalla.** No se pinta «0 sin pantalla».
+- **No es región viva de verdad aunque lleve `role="status"`:** aparece ya rellena al abrir el panel
+  (que se monta al desplegar) y la mayoría de lectores no anuncian una región que nace con texto
+  (§9). Está bien: se lee en orden como primer elemento del panel, y cada casilla bloqueada la
+  enlaza por `aria-describedby`. `role="status"` se deja por si el aviso cambia de número con el panel
+  abierto (p. ej. «Descartar» con el módulo abierto), que es el único caso en que se anuncia.
+
+### 14.4 Los 4 estados de la vista
+
+**No cambian.** Cargando (esqueleto de §13.5), error (página entera, «Reintentar»), vacíos A–E y lleno
+son los de §6.3, §6.4 y §13.5. El delta no añade peticiones ni ramas de carga: todo se calcula del
+catálogo y del borrador que ya están en memoria.
+
+Dos precisiones de «lleno» que no son vacíos nuevos:
+
+| Caso | Qué se pinta |
+|---|---|
+| Módulo **sin pantalla** (`Catálogos compartidos`) | Sus lecturas como hasta hoy: sin línea, sin dependencia, sin texto de ayuda. No es un vacío: tiene funciones |
+| Módulo **con pantalla y sin acciones** (`General`) | La casilla de la pantalla sola, sin línea. Tampoco es un vacío |
+| **Vacío C** (rol sin ninguna función) | Copy sin cambio. Al abrir cualquier módulo con acciones, estas salen deshabilitadas con la línea «Marca primero la pantalla…», que es exactamente el siguiente paso que el copy del vacío C ya pide («abre un módulo y marca lo que deba hacer») |
+
+### 14.5 Copy exacto
+
+Tratamiento: imperativos en **tú**, como los `confirm` y los avisos de esta pantalla (§8.6). Ningún
+signo de exclamación.
+
+| Clave | Texto |
+|---|---|
+| `COPY_MARCA_PRIMERO_PANTALLA` | **Marca primero la pantalla para poder marcar estas acciones.** |
+| `COPY_MARCA_PRIMERO_UNA_PANTALLA` (módulo con dos) | **Marca primero una de las dos pantallas para poder marcar estas acciones.** |
+| Aviso, plural, una pantalla | **{n} acciones marcadas sin la pantalla. Marca «{pantalla}» o desmárcalas.** |
+| Aviso, singular, una pantalla | **1 acción marcada sin la pantalla. Marca «{pantalla}» o desmárcala.** |
+| Aviso, plural, dos pantallas | **{n} acciones marcadas sin ninguna de sus pantallas. Marca «{pantalla 1}» o «{pantalla 2}», o desmárcalas.** |
+| Aviso, singular, dos pantallas | **1 acción marcada sin ninguna de sus pantallas. Marca «{pantalla 1}» o «{pantalla 2}», o desmárcala.** |
+| Botón del aviso | **Desmarcarlas** · con `n = 1`: **Desmarcarla** |
+| `sr-only` del botón | ** las acciones sin pantalla de {módulo}** |
+| Sufijo del encabezado del acordeón, solo con aviso | **· {n} sin pantalla** (con `n = 1` también «1 sin pantalla») |
+| Línea base: «Sin guardar» al desmarcar la pantalla con 3 acciones marcadas | **Sin guardar: 4 desmarcadas** (la pantalla + las 3; el literal de §8.3 no cambia, solo la cuenta) |
+
+`{pantalla}` es `nombreNegocio` de la función `tipo: 'pagina'` del grupo; nunca el código.
+
+### 14.6 Accesibilidad
+
+- **El foco no se mueve al marcar la pantalla.** Es un `onChange` nativo: el foco sigue en su
+  casilla y las acciones de debajo pasan a enfocables. El siguiente `Tab` cae en la primera acción,
+  que es el siguiente paso. Ningún `focus()` a mano aquí.
+- **`disabled` saca las acciones del orden de tabulación.** Se declara y **se acepta**: con la pantalla
+  desmarcada, el módulo tiene una parada (la pantalla, o dos) y la línea «Marca primero…» está visible
+  y enlazada por `aria-describedby` desde cada casilla apagada; quien recorre con Tab llega a la
+  pantalla y lee lo que sigue; quien recorre con el cursor virtual lee cada casilla con su motivo.
+  **Descartado `aria-disabled` con casilla enfocable:** obligaría a bloquear el `onChange` a mano y a
+  explicar por qué una casilla que recibe foco no responde a Espacio; es un `keydown` a mano, que §9
+  prohíbe, para un beneficio que la línea de texto ya da.
+- **`aria-describedby` con dos ids** (`{idDescripcion} {idExplicacionModulo}` o
+  `{idDescripcion} {idAvisoModulo}`): el nombre accesible sigue empezando por el texto visible
+  (WCAG 2.5.3, §9) y la descripción se anuncia después, en ese orden: qué hace, y por qué no se
+  puede. Si la función llega sin `descripcion` (nota QA 2 de §10), el atributo lleva solo el id del
+  módulo.
+- **Tras «Desmarcarlas» el botón desaparece con el aviso:** el foco caería a `<body>`. Se mueve
+  programáticamente a la casilla de la **primera pantalla del módulo** (`ref` en la `Casilla` de tipo
+  `pagina`), que es lo que el propio copy pedía hacer a continuación. Mismo criterio que
+  `restoreFocusRef` en §9 para botones que se van.
+- **La línea fina es decorativa:** un `div` con `border-t`, sin `role="separator"` ni `<hr>`. El
+  agrupado ya lo dan el orden y el texto; un separador anunciado entre dos casillas sería ruido.
+- **La cuenta «· 4 sin pantalla» del encabezado** forma parte del texto del botón del acordeón, así
+  que se lee al enfocarlo. No es región viva (§Decisión 17).
+- **Contraste:** cero combinaciones nuevas. `--flit-text-secondary` y `--flit-warning-ink` sobre
+  tarjeta ya están en esta pantalla. Recordatorio: `check:contraste` no lo mide.
+- **Nada de `title`**, nada de `aria-label` con datos, nada en la URL (§Decisión 13).
+
+### 14.7 Notas para QA — cada una con el mutante que debe matar
+
+1. **Sin pantalla marcada, las acciones están deshabilitadas.** Rol con `pagina.flito_impuestos`
+   desmarcada: abrir «Impuestos» → toda casilla `data-codigo` que no empiece por `pagina.` tiene
+   `disabled` y `checked=false`, y su `aria-describedby` resuelve a un texto que contiene «Marca
+   primero la pantalla». *Mutante:* habilitar las acciones con 0 pantallas marcadas en un módulo que
+   sí tiene pantalla — el aserto sobre `disabled` lo mata.
+2. **Con dos pantallas, quitar una no toca las acciones.** Rol con `pagina.flito_logistica` y
+   `pagina.flito_logistica_ruta` marcadas y 3 acciones marcadas: desmarcar `…_logistica_ruta` → las 3
+   siguen `checked` y habilitadas; la barra dice **«Sin guardar: 1 desmarcada»**. Desmarcar entonces
+   `…_logistica` → las 3 se desmarcan y la barra dice **«5 desmarcadas»**. *Mutante:* desmarcar las
+   acciones al quitar **una** pantalla (contar «una marcada» como «ninguna») — solo el aserto tras el
+   primer desmarcado lo mata.
+3. **«Marcar todas» del módulo marca la pantalla.** Módulo con todo desmarcado: pulsar «Marcar todas»
+   → `pagina.*` del módulo `checked` y **habilitadas** las acciones (`disabled=false`). *Mutante:*
+   marcar solo las acciones — quedarían marcadas y bloqueadas por la propia regla, y el aserto sobre
+   `disabled=false` lo mata. Repetir con «Marcar todas las funciones» del rol.
+4. **Carga inconsistente con aviso.** `asignaciones[rol]` con `impuestos.pagar` y sin
+   `pagina.flito_impuestos`: abrir «Impuestos» → existe `role="status"` con «1 acción marcada sin la
+   pantalla. Marca «Entrar al portal de Impuestos» o desmárcala.», la casilla está `checked` **y**
+   `disabled`, y el encabezado del acordeón dice «1 de 5 marcadas · 1 sin pantalla». *Mutante:* pintar
+   la acción huérfana como desmarcada (la pantalla mentiría sobre lo guardado) o marcada y habilitada
+   (sin aviso) — el aserto exige las dos cosas.
+5. **Marcar la pantalla desbloquea y quita el aviso.** Desde el caso 4, marcar `pagina.flito_impuestos`
+   → `queryByRole('status')` es `null`, la acción sigue `checked` y `disabled=false`, la barra dice
+   «Sin guardar: 1 marcada» (solo la pantalla: la acción ya estaba en la base). *Mutante:* desmarcar la
+   acción al desbloquear.
+6. **«Desmarcarlas» y el foco.** Desde el caso 4, pulsar «Desmarcarla» → la acción `checked=false`,
+   sin aviso, barra «Sin guardar: 1 desmarcada», y `document.activeElement` es la casilla de la
+   pantalla. *Mutante:* no mover el foco (`activeElement === document.body`).
+7. **«Descartar» devuelve la inconsistencia.** Desde el caso 5 (pantalla marcada), «Descartar» →
+   vuelve el aviso, la acción vuelve a `checked` + `disabled`. *Mutante:* «Descartar» que limpie las
+   huérfanas «de paso».
+8. **El módulo sin pantalla no tiene dependencia.** Abrir «Catálogos compartidos» con todo desmarcado
+   → ninguna casilla `disabled`, ningún texto «Marca primero». *Mutante:* tratar «sin pantalla» como
+   «pantalla desmarcada».
+9. **El `PUT` no cambia.** Guardar tras el caso 2 → el cuerpo lleva el conjunto completo, sin campos
+   nuevos; guardar tras el caso 4 sin tocar nada → no hay barra, no hay `PUT` (la inconsistencia
+   heredada no es un cambio). *Mutante:* «corregir» la línea base al cargar y mandarla.
+10. **Sin efectos.** Ninguna fila de casilla lleva `opacity` ni `transition`; el nombre de una acción
+    deshabilitada tiene `color: var(--flit-text-secondary)`. *Mutante:* `opacity-50` en la fila.
+
+> Fixtures: hace falta **un rol con acciones sin su pantalla** (caso 4; `cliente` sirve si el seed lo
+> deja así) y **un rol con las dos pantallas de Logística** (caso 2). El resto se construye en el test
+> desde el borrador.
+
+### 14.8 Decisiones del delta (citables en el PR)
+
+| # | Decisión | Descarte |
+|---|---|---|
+| 29 | La pantalla se distingue por **orden + nombre «Entrar a…» + una línea fina** (`border-t`, `--flit-border-soft`); mismo peso tipográfico | Negrita o tamaño distinto en la pantalla: parecería un título y haría dudar de si es marcable. Un rótulo «Pantalla / Acciones»: dos textos por módulo × 30 módulos para decir lo que la línea ya dice |
+| 30 | Acciones deshabilitadas con **`disabled` nativo** y nombre en `--flit-text-secondary`, **sin `opacity`** | `aria-disabled` + casilla enfocable (exige bloquear Espacio a mano, §9 lo prohíbe); `muted` u `opacity` (rompe el 4.5:1 del nombre, que sigue siendo contenido) |
+| 31 | **Una línea de explicación por módulo**, enlazada por `aria-describedby` desde cada casilla apagada | Repetirla bajo cada acción: ayuda que se repite cinco veces seguidas |
+| 32 | Desmarcar la última pantalla desmarca las acciones **sin `confirm`** | Un `confirm` por gesto: no se ha guardado nada, la barra lo cuenta y «Descartar» lo devuelve. Confirmar lo reversible entrena a despachar el `confirm` que sí importa (§8.3) |
+| 33 | El encabezado del acordeón añade **«· n sin pantalla»** mientras haya aviso | Dejarlo solo dentro del panel: con el módulo plegado la inconsistencia sería invisible y esta pantalla existe para no descubrir esas cosas con un usuario bloqueado. Un chip en el encabezado: patrón nuevo para un sufijo de texto |
+| 34 | «Descartar» devuelve **también** la inconsistencia heredada | Limpiarla «de paso»: «Descartar» significa «lo guardado», y un descartar que corrige es un guardar disfrazado |
+| 35 | El aviso de carga inconsistente vive **dentro del panel** (antes de las casillas), no en la cabecera del rol | En la cabecera, junto al aviso de externo: dos avisos de naturaleza distinta compitiendo, y el de pantalla tiene sujeto (un módulo), como el aviso de externo tiene el suyo (un rol) |
+| 36 | Tras «Desmarcarlas» el foco va a la casilla de la pantalla | Dejarlo caer a `<body>` (el botón desaparece); moverlo a la barra «Sin guardar» (no es el siguiente paso del copy) |
+| 37 | Nada nuevo en el `PUT`, nada reordenado en el front, ningún dato nuevo del API | Un flag `dependeDe` en el catálogo: la dependencia ya la dice `tipo: 'pagina'` + el grupo, y la #12716 ya ordenó |

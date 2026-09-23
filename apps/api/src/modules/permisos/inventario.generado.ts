@@ -11,10 +11,12 @@
 // `permisos-catalogo.test.ts` comprueba que los montajes del fuente cubren exactamente esta foto.
 import type { GuardaLeida } from './inventario-guardas.js';
 
-/** 217 rutas guardadas medidas el 9/09/2026 + 11 añadidas por la HU #12083 (dos en línea); +2 −1 por la HU #12373 (tarifas). */
+/** 217 rutas guardadas medidas el 9/09/2026 + 11 añadidas por la HU #12083 (dos en línea); +2 −1 por la HU #12373 (tarifas); +2 por la HU #12171; +7 por la HU #12084 (permisos); +2 por el Bug #12642 (export ampliado con datos de pago, dos en línea). */
 export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor","cliente","proveedor"], heredada: false },
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "POST", ruta: "/export", roles: ["admin","proveedor"], heredada: false },
+  // Bug #12642: la guarda EN LÍNEA del archivo ampliado (`incluirPago: true`), sembrada por la 0203 SOLO a admin.
+  { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "POST", ruta: "/export", condicion: "incluirPago", roles: ["admin"], heredada: false },
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "POST", ruta: "/soportes/zip", roles: ["admin","proveedor"], heredada: false },
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "GET", ruta: "/facetas", roles: ["admin","auditor","cliente","proveedor"], heredada: false },
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "GET", ruta: "/:id", roles: ["admin","auditor","cliente","proveedor"], heredada: false },
@@ -36,6 +38,8 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "POST", ruta: "/soportes/zip", roles: ["admin","gestor_impuestos"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor","gestor_impuestos"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "POST", ruta: "/export", roles: ["admin","gestor_impuestos"], heredada: false },
+  // Bug #12642: la guarda EN LÍNEA del archivo ampliado (`incluirPago: true`), sembrada por la 0203 SOLO a admin.
+  { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "POST", ruta: "/export", condicion: "incluirPago", roles: ["admin"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "GET", ruta: "/facetas", roles: ["admin","auditor","gestor_impuestos"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "GET", ruta: "/:id", roles: ["admin","auditor","gestor_impuestos"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "GET", ruta: "/:id/historial", roles: ["admin","auditor","gestor_impuestos"], heredada: false },
@@ -238,7 +242,7 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "transito", fichero: "tramites/transito-config.routes.ts", metodo: "POST", ruta: "/organismos-config/:codigo/logo", roles: ["admin"], heredada: false },
   { modulo: "transito", fichero: "tramites/transito-config.routes.ts", metodo: "DELETE", ruta: "/organismos-config/:codigo/logo", roles: ["admin"], heredada: false },
   // HU #12083: `users/` no estaba en el alcance de la #12081. Siete rutas heredaban
-  // `router.use(authMiddleware, requireRole('admin'))`; la contraseña ajena era `role !== 'admin'` en línea.
+  // `router.use(authMiddleware, requireRole de admin)`; la contraseña ajena era `role !== 'admin'` en línea.
   { modulo: "usuarios", fichero: "users/users.routes.ts", metodo: "PATCH", ruta: "/:id/password", condicion: "ajena", roles: ["admin"], heredada: false },
   { modulo: "usuarios", fichero: "users/users.routes.ts", metodo: "GET", ruta: "/export", roles: ["admin"], heredada: true },
   { modulo: "usuarios", fichero: "users/users.routes.ts", metodo: "GET", ruta: "/resumen", roles: ["admin"], heredada: true },
@@ -246,7 +250,17 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "usuarios", fichero: "users/users.routes.ts", metodo: "POST", ruta: "/", roles: ["admin"], heredada: true },
   { modulo: "usuarios", fichero: "users/users.routes.ts", metodo: "PATCH", ruta: "/:id", roles: ["admin"], heredada: true },
   { modulo: "usuarios", fichero: "users/users.routes.ts", metodo: "PATCH", ruta: "/:id/toggle", roles: ["admin"], heredada: true },
+  { modulo: "usuarios", fichero: "users/users.routes.ts", metodo: "DELETE", ruta: "/:id", roles: ["admin"], heredada: false },
+  { modulo: "usuarios", fichero: "users/users.routes.ts", metodo: "POST", ruta: "/:id/reactivar", roles: ["admin"], heredada: false },
   { modulo: "usuarios", fichero: "users/users.routes.ts", metodo: "POST", ruta: "/:id/invalidate-sessions", roles: ["admin"], heredada: true },
   { modulo: "usuarios", fichero: "users/users.routes.ts", metodo: "GET", ruta: "/auditoria", roles: ["admin","auditor"], heredada: false },
   { modulo: "usuarios", fichero: "users/users.routes.ts", metodo: "GET", ruta: "/auditoria/titulares", roles: ["admin","auditor"], heredada: false },
+  // HU #12084 — permisos/: `GET /funciones` llevaba `requireRole` de admin; las seis restantes nacen con la HU (solo admin).
+  { modulo: "permisos", fichero: "permisos/permisos.routes.ts", metodo: "GET", ruta: "/funciones", roles: ["admin"], heredada: false },
+  { modulo: "permisos", fichero: "permisos/permisos.routes.ts", metodo: "GET", ruta: "/roles", roles: ["admin"], heredada: false },
+  { modulo: "permisos", fichero: "permisos/permisos.routes.ts", metodo: "POST", ruta: "/roles", roles: ["admin"], heredada: false },
+  { modulo: "permisos", fichero: "permisos/permisos.routes.ts", metodo: "PATCH", ruta: "/roles/:codigo", roles: ["admin"], heredada: false },
+  { modulo: "permisos", fichero: "permisos/permisos.routes.ts", metodo: "DELETE", ruta: "/roles/:codigo", roles: ["admin"], heredada: false },
+  { modulo: "permisos", fichero: "permisos/permisos.routes.ts", metodo: "GET", ruta: "/roles/:codigo/funciones", roles: ["admin"], heredada: false },
+  { modulo: "permisos", fichero: "permisos/permisos.routes.ts", metodo: "PUT", ruta: "/roles/:codigo/funciones", roles: ["admin"], heredada: false },
 ];

@@ -54,12 +54,16 @@ const IDE = 'tramites/identidad.routes.ts';
 const TRN = 'tramites/transito.routes.ts';
 const TRC = 'tramites/transito-config.routes.ts';
 const USR = 'users/users.routes.ts';
+const PER = 'permisos/permisos.routes.ts';
 
 export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   // ── SOAT (portal FLITO) ───────────────────────────────────────────────────────────────────────
   op(`${SOAT} GET /`, 'soat.cola.ver', 'Ver la cola de SOAT', 'Abrir la bandeja de solicitudes de SOAT y recorrer su listado.'),
   op(`${SOAT} GET /facetas`, 'soat.cola.filtrar', 'Filtrar la cola de SOAT', 'Leer los contadores y las facetas con las que se acota la bandeja.'),
   op(`${SOAT} POST /export`, 'soat.excel.exportar', 'Exportar la cola de SOAT a Excel', 'Descargar el listado filtrado como archivo de Excel.'),
+  // Bug #12642: guarda EN LÍNEA dentro del mismo handler (`tieneFuncion` cuando el cuerpo trae
+  // `incluirPago: true`), como `[_forzarContinuar]`. Textos byte a byte con la 0203; solo admin.
+  op(`${SOAT} POST /export [incluirPago]`, 'soat.excel.exportar_pago', 'Exportar la cola de SOAT a Excel con datos de pago y trazabilidad', 'Descargar el listado filtrado con el valor pagado, las fechas de solicitud y pago y el gestor.'),
   op(`${SOAT} POST /soportes/zip`, 'soat.soportes.descargar', 'Descargar soportes de SOAT en ZIP', 'Bajar en un solo archivo los soportes de las solicitudes seleccionadas.'),
   op(`${SOAT} GET /:id`, 'soat.solicitud.ver', 'Ver una solicitud de SOAT', 'Abrir el detalle de una solicitud concreta.'),
   op(`${SOAT} GET /:id/historial`, 'soat.solicitud.ver_historial', 'Ver el historial de una solicitud de SOAT', 'Consultar la línea de tiempo de cambios de estado de la solicitud.'),
@@ -81,6 +85,8 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${IMP} GET /`, 'impuestos.cola.ver', 'Ver la cola de impuestos', 'Abrir la bandeja de trámites de impuesto vehicular.'),
   op(`${IMP} GET /facetas`, 'impuestos.cola.filtrar', 'Filtrar la cola de impuestos', 'Leer los contadores y las facetas con las que se acota la bandeja.'),
   op(`${IMP} POST /export`, 'impuestos.excel.exportar', 'Exportar la cola de impuestos a Excel', 'Descargar el listado filtrado como archivo de Excel.'),
+  // Bug #12642: guarda EN LÍNEA (`tieneFuncion` con `incluirPago: true`); textos byte a byte con la 0203.
+  op(`${IMP} POST /export [incluirPago]`, 'impuestos.excel.exportar_pago', 'Exportar la cola de impuestos a Excel con datos de pago y trazabilidad', 'Descargar el listado filtrado con el valor liquidado y pagado, las fechas de solicitud y pago y el gestor.'),
   op(`${IMP} POST /soportes/zip`, 'impuestos.soportes.descargar', 'Descargar soportes de impuestos en ZIP', 'Bajar en un solo archivo los soportes de los trámites seleccionados.'),
   op(`${IMP} GET /:id`, 'impuestos.tramite.ver', 'Ver un trámite de impuestos', 'Abrir el detalle de un trámite concreto.'),
   op(`${IMP} GET /:id/historial`, 'impuestos.tramite.ver_historial', 'Ver el historial de un trámite de impuestos', 'Consultar la línea de tiempo de cambios de estado del trámite.'),
@@ -316,6 +322,8 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${USR} POST /`, 'usuarios.usuario.crear', 'Crear un usuario', 'Dar de alta un usuario con su rol, sus páginas y su ámbito.'),
   op(`${USR} PATCH /:id`, 'usuarios.usuario.editar', 'Editar un usuario', 'Cambiar el rol, las páginas, el ámbito o los datos de un usuario.'),
   op(`${USR} PATCH /:id/toggle`, 'usuarios.usuario.activar', 'Activar o desactivar un usuario', 'Bloquear o volver a habilitar la entrada de un usuario sin borrarlo.'),
+  op(`${USR} DELETE /:id`, 'usuarios.usuario.baja', 'Dar de baja un usuario', 'Marcar un usuario como dado de baja sin borrarlo. Conserva username, permisos y ámbito.'),
+  op(`${USR} POST /:id/reactivar`, 'usuarios.usuario.reactivar', 'Reactivar un usuario dado de baja', 'Quitar la marca de baja de un usuario para que vuelva a poder iniciar sesión.'),
   op(`${USR} POST /:id/invalidate-sessions`, 'usuarios.sesiones.invalidar', 'Cerrar las sesiones de un usuario', 'Invalidar todos los tokens vivos de un usuario para que vuelva a iniciar sesión.'),
   op(`${USR} PATCH /:id/password [ajena]`, 'usuarios.contrasena.cambiar_ajena', 'Cambiar la contraseña de otro usuario', 'Fijar una contraseña nueva a un usuario distinto de uno mismo.'),
   // HU #12171 — el historial de cambios (CF-19). Dos codigos y no uno: el catalogo es «una funcion por
@@ -323,7 +331,16 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   // negocio fijados el 10/09/2026; los mismos que siembra la 0185 (el test de la 0179 compara literal).
   op(`${USR} GET /auditoria`, 'usuarios.auditoria.ver', 'Ver el historial de cambios de usuarios y permisos', 'Leer quién cambió qué en usuarios, roles y permisos, con el valor anterior y el posterior.'),
   op(`${USR} GET /auditoria/titulares`, 'usuarios.auditoria.filtrar', 'Listar los usuarios para filtrar el historial', 'Leer la lista de usuarios que tienen cambios registrados, para acotar el historial a uno.'),
-
+  // ── Permisos (HU #12084: `permisos/` entra al catálogo) ─────────────────────────────────────────
+  // Siete códigos y no cuatro: el catálogo es «una función por ruta» y los códigos son únicos. Ninguno
+  // va al auditor: el cuadro de roles es administración, no observación. Textos = los de la 0186.
+  op(`${PER} GET /funciones`, 'permisos.catalogo.ver', 'Ver el catálogo de funciones', 'Leer la lista de funciones que existen en el sistema, agrupadas por módulo, para repartirlas entre los roles.'),
+  op(`${PER} GET /roles`, 'permisos.rol.listar', 'Ver los roles', 'Abrir la lista de roles con cuántos usuarios tiene cada uno y si se puede borrar.'),
+  op(`${PER} POST /roles`, 'permisos.rol.crear', 'Crear un rol', 'Dar de alta un rol nuevo con su tipo de enlace, su tipo principal y su cuadro de funciones.'),
+  op(`${PER} PATCH /roles/:codigo`, 'permisos.rol.editar', 'Editar un rol', 'Cambiar el nombre, la descripción, el tipo de enlace, el tipo principal o el estado de un rol.'),
+  op(`${PER} DELETE /roles/:codigo`, 'permisos.rol.borrar', 'Borrar un rol', 'Eliminar un rol que ningún usuario tiene asignado, junto con su cuadro de funciones.'),
+  op(`${PER} GET /roles/:codigo/funciones`, 'permisos.cuadro.ver', 'Ver el cuadro de funciones de un rol', 'Leer qué funciones concede un rol a quienes lo tienen asignado.'),
+  op(`${PER} PUT /roles/:codigo/funciones`, 'permisos.cuadro.guardar', 'Guardar el cuadro de funciones de un rol', 'Reescribir el conjunto completo de funciones que concede un rol.'),
 ];
 
 /**

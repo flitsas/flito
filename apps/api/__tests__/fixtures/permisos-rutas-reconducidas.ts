@@ -23,6 +23,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   // flito-soat/flito-soat.routes.ts
   { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'GET', ruta: '/', codigo: 'soat.cola.ver' },
   { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'POST', ruta: '/export', codigo: 'soat.excel.exportar' },
+  // Bug #12642: guarda en línea del archivo ampliado (`incluirPago: true`).
+  { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'POST', ruta: '/export', condicion: 'incluirPago', codigo: 'soat.excel.exportar_pago' },
   { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'POST', ruta: '/soportes/zip', codigo: 'soat.soportes.descargar' },
   { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'GET', ruta: '/facetas', codigo: 'soat.cola.filtrar' },
   { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'GET', ruta: '/:id', codigo: 'soat.solicitud.ver' },
@@ -96,6 +98,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/soportes/zip', codigo: 'impuestos.soportes.descargar' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'GET', ruta: '/', codigo: 'impuestos.cola.ver' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/export', codigo: 'impuestos.excel.exportar' },
+  // Bug #12642: guarda en línea del archivo ampliado (`incluirPago: true`).
+  { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/export', condicion: 'incluirPago', codigo: 'impuestos.excel.exportar_pago' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'GET', ruta: '/facetas', codigo: 'impuestos.cola.filtrar' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'GET', ruta: '/:id', codigo: 'impuestos.tramite.ver' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'GET', ruta: '/:id/historial', codigo: 'impuestos.tramite.ver_historial' },
@@ -278,9 +282,21 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'users/users.routes.ts', metodo: 'POST', ruta: '/', codigo: 'usuarios.usuario.crear' },
   { fichero: 'users/users.routes.ts', metodo: 'PATCH', ruta: '/:id', codigo: 'usuarios.usuario.editar' },
   { fichero: 'users/users.routes.ts', metodo: 'PATCH', ruta: '/:id/toggle', codigo: 'usuarios.usuario.activar' },
+  { fichero: 'users/users.routes.ts', metodo: 'DELETE', ruta: '/:id', codigo: 'usuarios.usuario.baja' },
+  { fichero: 'users/users.routes.ts', metodo: 'POST', ruta: '/:id/reactivar', codigo: 'usuarios.usuario.reactivar' },
   { fichero: 'users/users.routes.ts', metodo: 'POST', ruta: '/:id/invalidate-sessions', codigo: 'usuarios.sesiones.invalidar' },
   { fichero: 'users/users.routes.ts', metodo: 'PATCH', ruta: '/:id/password', condicion: 'ajena', codigo: 'usuarios.contrasena.cambiar_ajena' },
   // HU #12171 — el historial de cambios: dos rutas nuevas con codigo propio (admin y auditor).
   { fichero: 'users/users.routes.ts', metodo: 'GET', ruta: '/auditoria', codigo: 'usuarios.auditoria.ver' },
   { fichero: 'users/users.routes.ts', metodo: 'GET', ruta: '/auditoria/titulares', codigo: 'usuarios.auditoria.filtrar' },
+
+  // ── Oleada 6 — permisos/ (HU #12084: `GET /funciones` reconducida + 6 rutas nuevas de roles) ──
+  // permisos/permisos.routes.ts
+  { fichero: 'permisos/permisos.routes.ts', metodo: 'GET', ruta: '/funciones', codigo: 'permisos.catalogo.ver' },
+  { fichero: 'permisos/permisos.routes.ts', metodo: 'GET', ruta: '/roles', codigo: 'permisos.rol.listar' },
+  { fichero: 'permisos/permisos.routes.ts', metodo: 'POST', ruta: '/roles', codigo: 'permisos.rol.crear' },
+  { fichero: 'permisos/permisos.routes.ts', metodo: 'PATCH', ruta: '/roles/:codigo', codigo: 'permisos.rol.editar' },
+  { fichero: 'permisos/permisos.routes.ts', metodo: 'DELETE', ruta: '/roles/:codigo', codigo: 'permisos.rol.borrar' },
+  { fichero: 'permisos/permisos.routes.ts', metodo: 'GET', ruta: '/roles/:codigo/funciones', codigo: 'permisos.cuadro.ver' },
+  { fichero: 'permisos/permisos.routes.ts', metodo: 'PUT', ruta: '/roles/:codigo/funciones', codigo: 'permisos.cuadro.guardar' },
 ];
