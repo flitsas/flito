@@ -44,9 +44,11 @@ import { soportesDeImpuesto } from '../../shared/soportes/soportes-consulta.js';
 import { cargarReciboCaja, cargarRecibos, normalizarRutas, ReciboCajaError } from './flito-recibos.service.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { getFlitAdapter } from '../flito-sync/flit.adapter.js';
+import analisisRouter from './flito-impuestos.analisis.routes.js';
 
 const router = Router();
 router.use(authMiddleware);
+router.use(analisisRouter(contextoImpuesto)); // HU #12825: hereda authMiddleware
 
 const ESTADOS = ['pendiente', 'solicitado', 'con_novedad', 'pagado'] as const;
 

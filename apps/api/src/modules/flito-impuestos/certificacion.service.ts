@@ -32,6 +32,7 @@ import { motorYSerieParaVehiculo, type MotorYSerieRunt } from '../runt/vehiculo-
 import { compararConRunt, esTraspasoEnSincronizacion, extraerVehiculoRunt, runtSinRegistro } from './certificacion-runt.js';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import { buscarConAcceso } from './flito-impuestos.service.js';
+import { limitadorRunt } from './runt-limitador.js';
 
 const log = loggerFor('flito.impuestos.certificacion');
 
@@ -195,9 +196,10 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
     // Con documento se consulta por placa; sin él, por VIN. No se mandan los dos: `runt-direct`
     // ignora el tipo de documento cuando hay VIN y probaría un único tipo, así que mezclarlos
     // desaprovecharía el barrido de tipos que sí hace la consulta por placa.
-    runt = documento
-      ? await consultarVehiculoRunt(placa, undefined, documento)
-      : await consultarVehiculoRunt(placa, vin ?? undefined, undefined);
+    // HU #12825 (AC3): la consulta pasa por el tope global del RUNT, compartido con la cola.
+    runt = await limitadorRunt.ejecutar(() => (documento
+      ? consultarVehiculoRunt(placa, undefined, documento)
+      : consultarVehiculoRunt(placa, vin ?? undefined, undefined)));
   } catch (e) {
     // `consultarVehiculoRunt` ya atrapa casi todo y devuelve `{ ok:false }`; esto cubre lo que se le
     // escape (p. ej. el rechazo del circuit breaker) para que un lote nunca muera por un registro.

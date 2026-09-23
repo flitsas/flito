@@ -208,6 +208,32 @@ export const ESTADO_IMPUESTO_LABEL: Record<EstadoImpuesto, string> = {
   pagado: 'Pagado',
 };
 
+/**
+ * HU #12825: ciclo del análisis post-envío de un impuesto (OCR de la factura + RUNT + semáforo), que
+ * corre en segundo plano tras el envío al gestor. `null` en el registro = nunca encolado (histórico).
+ */
+export const AnalisisEstadoImpuesto = {
+  EN_CURSO: 'en_curso',
+  COMPLETADO: 'completado',
+  ERROR: 'error_analisis',
+} as const;
+
+export type AnalisisEstadoImpuesto = (typeof AnalisisEstadoImpuesto)[keyof typeof AnalisisEstadoImpuesto];
+
+export const ANALISIS_ESTADO_IMPUESTO_LABEL: Record<AnalisisEstadoImpuesto, string> = {
+  en_curso: 'Validando factura',
+  completado: 'Validada',
+  error_analisis: 'Error al validar',
+};
+
+/**
+ * Desenlace de `POST /api/flito/impuestos/:id/reanalizar` (AC5). ENCOLADO → 202; NO_ENCONTRADO → 404;
+ * el resto → 409 con `code` igual al resultado.
+ */
+export type ResultadoReanalisis =
+  | { resultado: 'ENCOLADO'; id: string; analisisEstado: 'en_curso' }
+  | { resultado: 'ANALISIS_EN_CURSO' | 'NO_SOLICITADO' | 'YA_CERTIFICADO' | 'SIN_ANALISIS' | 'NO_ENCONTRADO' };
+
 /** Estados de Impuestos visibles para el gestor (nunca `Pendiente`). */
 export const ESTADOS_IMPUESTO_VISIBLES_GESTOR: readonly EstadoImpuesto[] = [
   'solicitado', 'pagado',
