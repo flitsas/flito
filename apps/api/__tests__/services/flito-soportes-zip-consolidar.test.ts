@@ -5,7 +5,7 @@
 // firma: factura 3 páginas de 100, recibo 1 de 200, comprobante SOAT 2 de 300. Así un aserto de
 // anchos cubre a la vez el ORDEN, el NÚMERO de páginas y que no sobre ni falte ninguna.
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import { readdirSync, existsSync } from 'node:fs';
 import os from 'node:os';
 import { Readable } from 'node:stream';
@@ -96,6 +96,59 @@ describe('consolidarPdf — AC5: lo dañado se omite y se cuenta', () => {
     const r = await consolidarPdf([Buffer.from('x'), Buffer.from('%PDF-roto')]);
     expect(r.pdf).toBeNull();
     expect(r).toMatchObject({ incluidos: 0, omitidos: 2 });
+  });
+});
+
+/**
+ * Solo la CABECERA de un PNG (firma + chunk IHDR) que declara `w×h`, sin un píxel de datos: la bomba
+ * de descompresión en miniatura. Nunca se generan píxeles reales.
+ */
+function cabeceraPng(w: number, h: number): Buffer {
+  const ihdr = Buffer.alloc(25);
+  ihdr.writeUInt32BE(13, 0);
+  ihdr.write('IHDR', 4, 'latin1');
+  ihdr.writeUInt32BE(w, 8);
+  ihdr.writeUInt32BE(h, 12);
+  ihdr.writeUInt8(8, 16); // profundidad de bits
+  ihdr.writeUInt8(6, 17); // RGBA
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), ihdr]);
+}
+
+describe('consolidarPdf — PNG con IHDR enorme: se omite SIN decodificarlo', () => {
+  // `embedPng` espiado Y neutralizado: si la guarda faltara, el test falla por la llamada, no
+  // por una decodificación de 1,6 GB que tumbaría el runner.
+  let espia: ReturnType<typeof vi.spyOn>;
+  beforeAll(() => {
+    espia = vi.spyOn(PDFDocument.prototype, 'embedPng')
+      .mockRejectedValue(new Error('embedPng no debía llamarse en este test'));
+  });
+  afterEach(() => { espia.mockClear(); });
+  afterAll(() => { espia.mockRestore(); });
+
+  it('20000×20000 declarado (≈1,6 GB RGBA) → omitido, `embedPng` NO se llama, el resto entra', async () => {
+    const r = await consolidarPdf([cabeceraPng(20_000, 20_000), RECIBO]);
+    expect(espia).not.toHaveBeenCalled();
+    expect(await anchosDe(r.pdf!)).toEqual([200]);
+    expect(r).toMatchObject({ incluidos: 1, omitidos: 1 });
+  });
+
+  it('un píxel por encima del techo (16 000 001) → omitido sin `embedPng`', async () => {
+    const r = await consolidarPdf([cabeceraPng(16_000_001, 1)]);
+    expect(espia).not.toHaveBeenCalled();
+    expect(r).toMatchObject({ pdf: null, incluidos: 0, omitidos: 1 });
+  });
+
+  it('justo EN el techo (4000×4000) → sí pasa a `embedPng` (la guarda no corta de más)', async () => {
+    await consolidarPdf([cabeceraPng(4000, 4000)]);
+    expect(espia).toHaveBeenCalledTimes(1);
+  });
+
+  it('firma PNG con el primer chunk que no es IHDR → omitido sin `embedPng`', async () => {
+    const roto = cabeceraPng(10, 10);
+    roto.write('IDAT', 12, 'latin1');
+    const r = await consolidarPdf([roto, RECIBO]);
+    expect(espia).not.toHaveBeenCalled();
+    expect(r).toMatchObject({ incluidos: 1, omitidos: 1 });
   });
 });
 
