@@ -357,8 +357,8 @@ router.post('/export', exigirFuncion('soat.excel.exportar'), exportColaLimiter, 
  * función. Desde la HU #12815 (Épica #12810) el canal Cliente SÍ alcanza esta ruta —está en
  * `RUTAS_PERMITIDAS_CLIENTE`— pero solo con la función marcada a su rol; sin ella, 403 aquí. Lo que
  * le llega está acotado dos veces en el servicio: su compañía (`condicionesCola`, rama
- * `esCliente`) y solo SOAT `pagado` (`registrosZipSoat`), que es la misma regla de la póliza que
- * aplica `TIPOS_SOPORTE_VISIBLES_CLIENTE` en el detalle.
+ * `esExterno`: TODO rol externo, no el literal `cliente`) y solo SOAT `pagado`
+ * (`registrosZipSoat`), la misma regla de la póliza que aplica `TIPOS_SOPORTE_VISIBLES_CLIENTE`.
  *
  * ── El orden de la respuesta ─────────────────────────────────────────────────────────────────────
  *
@@ -532,7 +532,7 @@ router.get('/:id/soportes', exigirFuncion('soat.solicitud.ver_soportes'), async 
   if (!d) { res.status(404).json({ error: 'El SOAT no existe' }); return; }
   // Sin caché: una factura cargada hace un minuto tiene que salir sin recargar la pantalla.
   res.set('Cache-Control', 'no-store');
-  res.json(await soportesDeSoat(req.params.id, { rol: ctx.role, estadoSoat: d.estado }));
+  res.json(await soportesDeSoat(req.params.id, { rol: ctx.role, externo: ctx.externo, estadoSoat: d.estado }));
 });
 
 // POST /enviar — Pendiente → En adquisición, atómico (CA-04). Solo Operaciones.

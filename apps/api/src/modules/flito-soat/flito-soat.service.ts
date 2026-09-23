@@ -51,11 +51,20 @@ import { uploadEntityDocument } from '../../services/storage.js';
 import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
 import { EXISTS_COMPROBANTE_SOAT, TIPO_FACTURA_SOAT } from './flito-soat-censo.js';
 import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
+import { resolverPermisos } from '../../shared/permisos-efectivos.js';
 
 export interface SoatCtx {
   userId: number;
   username: string;
   role: string;
+  /**
+   * El rol es EXTERNO (`permisos_roles.tipo_principal = 'externo'`), resuelto con el MISMO resolutor
+   * que la guarda del canal (`resolverPermisos`) y con el mismo fallo cerrado: si no se puede leer el
+   * tipo, se trata como externo. Decide la frontera por compañía y la proyección de campos (HU #12815).
+   * NO se deduce del literal `'cliente'`: desde la HU #12082 el panel crea roles externos con
+   * cualquier código, y comparar con el literal les daba la vista de admin.
+   */
+  externo: boolean;
   proveedorSoatId: string | null;
   /**
    * La compañía del usuario `cliente` (Feature #11912). `null` para el resto de roles — y también
@@ -76,19 +85,26 @@ export interface SoatCtx {
 export async function contextoSoat(user: { sub: number; username: string; role: string }): Promise<SoatCtx> {
   let proveedorSoatId: string | null = null;
   let companiaId: number | null = null;
-  if (user.role === 'proveedor') {
-    const [u] = await db.select({ p: users.flitoProveedorSoatId }).from(users).where(eq(users.id, user.sub)).limit(1);
-    proveedorSoatId = u?.p ?? null;
-  } else if (user.role === 'cliente') {
+  // HU #12815: el tipo del rol, no su código. Mismo criterio que `canal-cliente.ts`: `!p.ok` ⇒ externo.
+  const p = await resolverPermisos(user.sub);
+  const externo = !p.ok || p.tipoPrincipal === 'externo';
+  if (externo) {
+    // TODO rol externo se acota a su compañía; sin compañía, `condicionesCola` devuelve null (nada).
     const [u] = await db.select({ c: users.companiaId }).from(users).where(eq(users.id, user.sub)).limit(1);
     companiaId = u?.c ?? null;
+  } else if (user.role === 'proveedor') {
+    const [u] = await db.select({ p: users.flitoProveedorSoatId }).from(users).where(eq(users.id, user.sub)).limit(1);
+    proveedorSoatId = u?.p ?? null;
   }
-  return { userId: user.sub, username: user.username, role: user.role, proveedorSoatId, companiaId };
+  return { userId: user.sub, username: user.username, role: user.role, externo, proveedorSoatId, companiaId };
 }
 
-const esGestor = (ctx: SoatCtx) => ctx.role === 'proveedor';
-/** Usuario de una compañía cliente (Feature #11912): ve lo de su compañía y nada más. */
-const esCliente = (ctx: SoatCtx) => ctx.role === 'cliente';
+const esGestor = (ctx: SoatCtx) => !ctx.externo && ctx.role === 'proveedor';
+/**
+ * Usuario de un rol EXTERNO —el `cliente` de siempre o cualquier rol externo creado en el panel—: ve
+ * lo de su compañía y nada más (Feature #11912; generalizado por la HU #12815).
+ */
+const esExterno = (ctx: SoatCtx) => ctx.externo;
 
 /**
  * El valor de `flito_soat.origen` que marca las filas del canal Cliente (Feature #11912).
@@ -424,7 +440,7 @@ function condicionVigencia(filtro: FiltroVigenciaCola, hoy: string): SQL {
  * si mañana se añade uno, entra en esta lista.
  */
 function filtrosPermitidos(ctx: SoatCtx, f: FiltrosCola): FiltrosCola {
-  if (!esCliente(ctx)) return f;
+  if (!esExterno(ctx)) return f;
   // `vigencia` entra en esta lista por la MISMA razón que `gestion` y `proveedores`, y no por
   // simetría estética: el bloque `vigencia` no viaja en la fila del `cliente`
   // (`CAMPOS_SOLO_INTERNOS`), así que dejarle el filtro sería el oráculo de siempre — tres
@@ -468,7 +484,7 @@ export function condicionesCola(ctx: SoatCtx, filtros: FiltrosCola): SQL[] | nul
       : [EstadoSoat.SOLICITADO];
     if (visibles.length === 0) return null;
     conds.push(inArray(flitoSoat.estado, visibles));
-  } else if (esCliente(ctx)) {
+  } else if (esExterno(ctx)) {
     // Aislamiento por compañía (Feature #11912), simétrico al del gestor y en el MISMO sitio: estas
     // condiciones las comparten la página, el conteo y las facetas, así que una sola rama cubre las
     // tres. Escribirlo en la consulta de filas dejaría el total y los valores de los filtros
@@ -587,7 +603,7 @@ export function conJoinsCola<Q extends PgSelect>(q: Q) {
  *   - al gestor, `condicionesCola` lo intersecta con `ESTADOS_SOAT_VISIBLES_GESTOR` y sigue quedando
  *     `pagado`. NO se puede pasar el filtro vacío: heredaría el defecto de su PANTALLA
  *     (`solicitado`) y el gestor no podría descargar nunca lo que él mismo subió;
- *   - al canal Cliente (rama `esCliente`: frontera por compañía) le da, además, la misma regla que
+ *   - al canal Cliente (rama `esExterno`: frontera por compañía) le da, además, la misma regla que
  *     `TIPOS_SOPORTE_VISIBLES_CLIENTE` aplica en el detalle —la póliza solo en `pagado`— sin
  *     reimplementarla aquí (AC3 de la HU #11916);
  *   - a admin le quita los estados en que el SOAT aún no tiene comprobante que descargar.
@@ -716,7 +732,7 @@ export async function facetasCola(ctx: SoatCtx): Promise<FacetasCola> {
     // esta lista son los nombres de los proveedores de SUS PROPIOS SOAT, es decir, exactamente el
     // dato que `CAMPOS_SOLO_INTERNOS` acaba de quitar de cada fila. Servirlo aquí lo devolvería
     // entero por la puerta de al lado, y encima ordenado. No se lee lo que no se va a devolver.
-    esCliente(ctx)
+    esExterno(ctx)
       ? Promise.resolve([] as { id: string | null; nombre: string | null }[])
       : conJoinsCola(db.selectDistinct({ id: flitoProveedoresSoat.id, nombre: flitoProveedoresSoat.nombre }).from(flitoSoat).$dynamic()).where(where),
   ]);
@@ -1006,7 +1022,7 @@ async function ensamblarCola(rows: ColaRow[], ctx: SoatCtx): Promise<SoatColaIte
     };
   });
 
-  return esCliente(ctx) ? completas.map(sinCamposInternos) : completas;
+  return esExterno(ctx) ? completas.map(sinCamposInternos) : completas;
 }
 
 /**
@@ -1075,7 +1091,7 @@ export async function buscarConAcceso(id: string, ctx: SoatCtx): Promise<typeof 
     if (soat.soat.proveedorSoatId !== ctx.proveedorSoatId) return null;
     if (!(ESTADOS_SOAT_VISIBLES_GESTOR as readonly string[]).includes(soat.soat.estado)) return null;
   }
-  if (esCliente(ctx)) {
+  if (esExterno(ctx)) {
     // La otra mitad del aislamiento por compañía (Feature #11912). Va aquí y no solo en la cola
     // porque esta es la función que sostiene el 404-no-403: cubre de una vez el detalle, el
     // historial, los soportes y la descarga. Un endpoint futuro del canal que olvide filtrar por
@@ -1300,7 +1316,7 @@ async function revisionDeSolicitud(soatId: string, ctx: SoatCtx): Promise<Revisi
   // La clave NO se emite con `undefined` para el cliente: se omite. Un `revisadoPorNombre: null` que
   // el admin ve lleno y el cliente ve vacío es el mismo objeto con menos datos; la clave ausente
   // dice que ese campo no es suyo.
-  return esCliente(ctx) ? visible : { ...visible, revisadoPorNombre: r.revisadoPorNombre };
+  return esExterno(ctx) ? visible : { ...visible, revisadoPorNombre: r.revisadoPorNombre };
 }
 
 /**
@@ -1363,11 +1379,11 @@ export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItemSa
   // byte a byte la de antes de esta HU.
   const propietarioCanal = soat.origen === ORIGEN_CLIENTE ? await propietarioDelCanal(id, ctx) : null;
   if (soat.origen !== ORIGEN_CLIENTE) {
-    return esCliente(ctx)
+    return esExterno(ctx)
       ? { ...item, pagadoEn, solicitud }
       : { ...item, extraccion: soat.extraccion, pagadoEn, solicitud };
   }
-  if (esCliente(ctx)) return { ...item, pagadoEn, solicitud, propietarioCanal };
+  if (esExterno(ctx)) return { ...item, pagadoEn, solicitud, propietarioCanal };
   return { ...item, extraccion: soat.extraccion, pagadoEn, solicitud, propietarioCanal };
 }
 
@@ -1401,7 +1417,7 @@ export async function historialConAcceso(id: string, ctx: SoatCtx): Promise<Item
   const soat = await buscarConAcceso(id, ctx); // frontera del gestor y del cliente (404-no-403)
   if (!soat) return null;
   return historialDe('soat', id, {
-    lectorExterno: esCliente(ctx),
+    lectorExterno: esExterno(ctx),
     ocultarActoresDelCliente: esGestor(ctx) && soat.origen === ORIGEN_CLIENTE,
   });
 }
