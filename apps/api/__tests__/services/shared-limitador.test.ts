@@ -59,3 +59,27 @@ describe('crearLimitador', () => {
     expect(() => crearLimitador(0)).toThrow();
   });
 });
+
+describe('limitadorRunt — la instancia del proceso', () => {
+  it('el tope es 2 (CONCURRENCIA_CERTIFICACION): con 3 simultáneas, 2 en vuelo y 1 esperando', async () => {
+    const { limitadorRunt } = await import('../../src/modules/flito-impuestos/runt-limitador.js');
+    const soltar: Array<() => void> = [];
+    let arrancadas = 0;
+    const tareas = [0, 1, 2].map(() => limitadorRunt.ejecutar(() => {
+      arrancadas++;
+      return new Promise<void>((res) => { soltar.push(res); });
+    }));
+    await tic();
+    expect(limitadorRunt.enVuelo()).toBe(2);
+    expect(arrancadas).toBe(2);
+
+    soltar[0]!();
+    await tic();
+    expect(arrancadas).toBe(3);
+    expect(limitadorRunt.enVuelo()).toBe(2);
+
+    soltar[1]!(); soltar[2]!();
+    await Promise.all(tareas);
+    expect(limitadorRunt.enVuelo()).toBe(0);
+  });
+});
