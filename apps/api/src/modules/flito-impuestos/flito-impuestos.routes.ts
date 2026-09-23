@@ -19,9 +19,10 @@ import {
   CAMPOS_PII_IMPUESTO_EXPORT, registrarAccesoImpuesto,
 } from './flito-impuestos.pii.js';
 import {
-  CAMPOS_PII_ZIP_SOPORTES, comprobarTopeRegistrosZip, emitirZipSoportes, nombrePlacaOrganismo,
+  CAMPOS_PII_ZIP_SOPORTES, comprobarTopeRegistrosZip, nombrePorPlaca,
   resolverEntradasZip, tipoPorBytes, ZipError, zipSoportesLimiter,
 } from '../../shared/soportes/soportes-zip.js';
+import { consolidarPorRegistro, emitirZipConsolidado } from '../../shared/soportes/soportes-zip-consolidar.js';
 import {
   construirFilasExportImpuestos, nombreArchivoExportImpuestos,
 } from './flito-impuestos.export.service.js';
@@ -132,12 +133,12 @@ function handleError(res: Response, e: unknown): void {
  * es un PDF aunque venga rotulado como octet-stream, y si resulta ser una imagen se sirve como
  * imagen en vez de mentir con un `.pdf` que ningún visor podría abrir.
  *
- * **El NOMBRE cambia en la HU #11910: `PLACA-ORGANISMO.<ext>`, no `factura-venta-<idFlit>.pdf`.**
+ * **El NOMBRE es `PLACA.<ext>`** (HU #12817, AC7; antes `PLACA-ORGANISMO`, HU #11910), no `factura-venta-<idFlit>.pdf`.
  * El AC5 pide ese nombre «también en la descarga individual», y el motivo es de conciliación: quien
  * baja un ZIP y luego una factura suelta acaba con dos convenciones en la misma carpeta y no puede
  * emparejarlas. El id de FLIT sale del nombre —no es lo que la operación usa para cuadrar— y con él
  * se va el único texto libre del origen que llegaba a una cabecera HTTP; lo que entra ahora está
- * normalizado a `[A-Z0-9-]` por `nombrePlacaOrganismo`.
+ * normalizado a `[A-Z0-9-]` por `nombrePorPlaca`. La individual NO consolida: conserva su extensión.
  *
  * Operaciones o gestor de impuestos (respeta la frontera del gestor). Integración FLIT.
  */
@@ -157,7 +158,7 @@ router.get('/:id/factura-venta', exigirFuncion('impuestos.factura.ver'), async (
   res.setHeader('Content-Length', String(cuerpo.length));
   // `inline` para que el visor de la aplicación lo pinte; el nombre es el que usa el navegador al
   // guardarlo, así que lleva extensión pase lo que pase.
-  const base = nombrePlacaOrganismo(factura.placa, factura.organismoAlias, factura.organismoCodigo);
+  const base = nombrePorPlaca(factura.placa);
   res.setHeader('Content-Disposition', `inline; filename="${base}.${extension}"`);
   res.send(cuerpo);
 });
@@ -209,22 +210,28 @@ router.post('/soportes/zip', exigirFuncion('impuestos.soportes.descargar'), zipS
     comprobarTopeRegistrosZip(parsed.data.ids);
     const registros = await registrosZipImpuestos(parsed.data.ids, ctx);
     const entradas = await resolverEntradasZip(registros, parsed.data.tipos);
-
-    // ANTES del primer byte, y esto es la deuda que la HU #11909 dejó abierta en este endpoint: el
-    // zip de facturas auditaba con `audit()` pero NO llamaba a `registrarAccesoImpuesto`, así que un
-    // lote de cien facturas con los datos del titular dentro no dejaba una sola línea del artículo 17.
-    await registrarAccesoImpuesto(req, {
-      accion: 'export',
-      archivo: 'zip_soportes',
-      campos: CAMPOS_PII_ZIP_SOPORTES,
-      filas: entradas.length,
-    });
-    await audit(req, {
-      action: 'export', resource: 'flito_impuesto',
-      detail: `Descarga zip de soportes (${parsed.data.tipos.join(', ')}): ${entradas.length} documento(s)`,
-    });
-
-    await emitirZipSoportes(res, entradas);
+    // HU #12817: un PDF por impuesto, consolidado en disco ANTES del primer byte, aunque se pida
+    // un solo tipo (el nombre y el aviso de ilegibles se comportan igual pase lo que pase).
+    const zc = await consolidarPorRegistro(entradas);
+    try {
+      // ANTES del primer byte, y esto es la deuda que la HU #11909 dejó abierta en este endpoint: el
+      // zip de facturas auditaba con `audit()` pero NO llamaba a `registrarAccesoImpuesto`, así que un
+      // lote de cien facturas con los datos del titular dentro no dejaba una sola línea del artículo 17.
+      await registrarAccesoImpuesto(req, {
+        accion: 'export',
+        archivo: 'zip_soportes',
+        campos: CAMPOS_PII_ZIP_SOPORTES,
+        filas: zc.entradas.length,
+      });
+      await audit(req, {
+        action: 'export', resource: 'flito_impuesto',
+        detail: `Descarga zip de soportes (${parsed.data.tipos.join(', ')}): ${zc.incluidos} documento(s)`
+          + ` en ${zc.entradas.length} PDF, ${zc.omitidos} omitido(s)`,
+      });
+      await emitirZipConsolidado(res, zc);
+    } finally {
+      await zc.limpiar();
+    }
   } catch (e) {
     if (res.headersSent) throw e;
     if (e instanceof ZipError) {

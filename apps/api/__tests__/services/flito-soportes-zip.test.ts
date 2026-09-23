@@ -20,6 +20,10 @@
 //     que se lo lleve mete el documento del cliente en una descarga de Operaciones.
 //   · **Iterar en el orden del array de ids.** Los ids llegan en el orden en que el usuario hizo
 //     clic; el mismo lote marcado al revés repartiría los sufijos `-2`/`-3` de otra manera.
+//   · **HU #12817 — un PDF por registro en Trámites e Impuestos, nombre = solo la placa.** Los
+//     fixtures de esas dos rutas son PDFs REALES con un ancho de página de firma
+//     (`helpers/pdf-firma.ts`): con el texto `'%PDF-1.4 …'` de antes todo saldría como ilegible y
+//     daría 409. El orden y el número de páginas se afirman leyendo el PDF que sale del ZIP.
 //   · **`OPERACIONES → LECTURA` en Trámites.** `LECTURA` incluye `auditor`, y el AC7 dice que
 //     auditoría no descarga. El mutante se lee como una coherencia con las rutas de al lado.
 
@@ -28,13 +32,15 @@ import request from 'supertest';
 import express from 'express';
 import JSZip from 'jszip';
 import { Readable } from 'node:stream';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { getTableName } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { CABECERAS_ZIP_SOPORTES, ZIP_SOPORTES_MAX_REGISTROS } from '@operaciones/shared-types';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { testToken, type TestRole } from '../helpers/auth.js';
+import { anchosDe, pdfCifrado, pdfFirma } from '../helpers/pdf-firma.js';
 
 /** Orden observado: el rastro de PII antes del primer byte, y `archiver` después de los dos. */
 const orden: string[] = [];
@@ -67,11 +73,11 @@ vi.mock('archiver', async (importOriginal) => {
 });
 
 /** MinIO: el soporte llega como stream, que es como lo entrega `getEntityDocumentStream`. */
-const contenidoPorClave = new Map<string, string>();
+const contenidoPorClave = new Map<string, string | Buffer>();
 const getEntityDocumentStreamMock = vi.fn(async (key: string) => {
   const texto = contenidoPorClave.get(key);
   if (texto === undefined) throw new Error(`clave inexistente en el mock: ${key}`);
-  return Readable.from([Buffer.from(texto)]);
+  return Readable.from([Buffer.isBuffer(texto) ? texto : Buffer.from(texto)]);
 });
 vi.mock('../../src/services/storage.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/services/storage.js')>();
@@ -95,6 +101,13 @@ const SOAT_A = 'aaaaaaaa-0000-0000-0000-00000000000a';
 const SOAT_B = 'bbbbbbbb-0000-0000-0000-00000000000b';
 const IMP_A = 'cccccccc-0000-0000-0000-00000000000c';
 const TRAMITE_A = 'dddddddd-0000-0000-0000-00000000000d';
+
+// ── Firmas de página (HU #12817): factura 101, recibo 201, comprobante SOAT 301 ────────────────
+const PDF_FACTURA = await pdfFirma([101]);
+const PDF_RECIBO = await pdfFirma([201]);
+const PDF_SOAT = await pdfFirma([301]);
+/** El contenido por defecto de un soporte: un PDF real de una página de 500. */
+const PDF_SOPORTE = await pdfFirma([500]);
 
 const AYER = new Date('2026-08-01T10:00:00.000Z');
 const HOY = new Date('2026-08-02T10:00:00.000Z');
@@ -125,10 +138,10 @@ const filaTramite = (over: Record<string, unknown> = {}) => ({
  * así el ZIP que se lee al final tiene bytes de verdad y no un `undefined` comprimido.
  */
 let claves = 0;
-function soporte(over: Record<string, unknown> & { contenido?: string } = {}): Record<string, unknown> {
+function soporte(over: Record<string, unknown> & { contenido?: string | Buffer } = {}): Record<string, unknown> {
   claves += 1;
   const storageKey = (over.storageKey as string) ?? `flito/soportes/k${claves}.pdf`;
-  contenidoPorClave.set(storageKey, over.contenido ?? `%PDF-1.4 contenido ${claves}`);
+  contenidoPorClave.set(storageKey, over.contenido ?? PDF_SOPORTE);
   delete over.contenido;
   return {
     id: `s${claves}`,
@@ -147,13 +160,17 @@ function soporte(over: Record<string, unknown> & { contenido?: string } = {}): R
   };
 }
 
-/** La respuesta de S3 de FLIT: cuerpo en streaming, sin tipo útil (rotula todo como octet-stream). */
-function respuestaFlit(cuerpo = '%PDF-1.4 factura de venta'): unknown {
+/**
+ * La respuesta de S3 de FLIT: cuerpo en streaming, sin tipo útil (rotula todo como octet-stream).
+ * Por defecto, un PDF REAL de una página de 101 (la firma de la factura).
+ */
+function respuestaFlit(cuerpo: string | Buffer = PDF_FACTURA): unknown {
+  const bytes = typeof cuerpo === 'string' ? new TextEncoder().encode(cuerpo) : new Uint8Array(cuerpo);
   return {
     ok: true, status: 200,
     headers: new Headers({ 'content-type': 'binary/octet-stream' }),
     body: new ReadableStream({
-      start(c) { c.enqueue(new TextEncoder().encode(cuerpo)); c.close(); },
+      start(c) { c.enqueue(bytes); c.close(); },
     }),
   };
 }
@@ -190,6 +207,17 @@ const pedirZip = async (base: string, cabecera: string, cuerpo: unknown) =>
     .set('Authorization', cabecera)
     .responseType('blob')
     .send(cuerpo as object);
+
+/** Los anchos de página del PDF `nombre` dentro del ZIP (HU #12817). */
+async function anchosEnZip(cuerpo: Buffer, nombre: string): Promise<number[]> {
+  const zip = await JSZip.loadAsync(cuerpo);
+  const f = zip.file(nombre);
+  expect(f, `no está la entrada ${nombre}`).not.toBeNull();
+  return anchosDe(await f!.async('uint8array'));
+}
+
+/** Directorios temporales de la consolidación que siguen en disco. */
+const temporales = (): string[] => readdirSync(os.tmpdir()).filter((n) => n.startsWith('flito-zip-'));
 
 /** Los NOMBRES de las entradas del ZIP, en el orden en que están escritas en el archivo. */
 async function entradasDe(cuerpo: Buffer): Promise<string[]> {
@@ -422,7 +450,7 @@ describe('AC3 — el recibo: la CAÍDA es el camino real, no la preferencia', ()
     const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['recibo_impuesto'] });
 
     expect(r.status).toBe(200);
-    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123-MEDELLIN.pdf']);
+    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123.pdf']);
   });
 
   it('con los DOS tipos, UNA sola entrada y es la `sin_marca_agua`', async () => {
@@ -431,21 +459,16 @@ describe('AC3 — el recibo: la CAÍDA es el camino real, no la preferencia', ()
     kdb.when.scenario({
       flito_impuestos: [filaImpuesto()],
       flito_soportes: [
-        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', nombreArchivo: 'MARCADO.pdf' }),
-        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto_sin_marca_agua', nombreArchivo: 'limpio.pdf' }),
+        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', nombreArchivo: 'MARCADO.pdf', contenido: PDF_SOAT }),
+        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto_sin_marca_agua', nombreArchivo: 'limpio.pdf', contenido: PDF_RECIBO }),
       ],
     });
 
     const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['recibo_impuesto'] });
-    const nombres = await entradasDe(r.body as Buffer);
 
-    expect(nombres).toHaveLength(1);
-    // El nombre externo es `PLACA-ORGANISMO`, así que la prueba de CUÁL se eligió es el contenido.
-    const zip = await JSZip.loadAsync(r.body as Buffer);
-    const texto = await zip.file(nombres[0]!)!.async('string');
-    const clavesLimpio = [...contenidoPorClave.entries()];
-    // El segundo soporte registrado (el limpio) es el que tiene que haber salido.
-    expect(texto).toBe(clavesLimpio[1]![1]);
+    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123.pdf']);
+    // La prueba de CUÁL se eligió es la página del PDF: la del limpio (201), no la del marcado (301).
+    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([201]);
   });
 
   it('la consulta pide los DOS tipos: sin eso no puede haber caída', async () => {
@@ -475,13 +498,13 @@ describe('AC3 — el recibo: la CAÍDA es el camino real, no la preferencia', ()
 
     const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A, IMP_B], tipos: ['recibo_impuesto'] });
 
-    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123-MEDELLIN.pdf', 'QWE789-MEDELLIN.pdf']);
+    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123.pdf', 'QWE789.pdf']);
   });
 
-  it('factura de venta + recibo en UN solo ZIP (los dos tipos marcados)', async () => {
+  it('HU #12817 AC2 — factura de venta + recibo en UN solo PDF por impuesto', async () => {
     kdb.when.scenario({
       flito_impuestos: [filaImpuesto({ facturaVentaFlitId: 'fac-1' })],
-      flito_soportes: [soporte({ ancla: IMP_A, tipo: 'recibo_impuesto' })],
+      flito_soportes: [soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', contenido: PDF_RECIBO })],
     });
     obtenerUrlFacturaMock.mockResolvedValue('https://flit-bucket.s3/fac-1');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respuestaFlit()));
@@ -491,9 +514,11 @@ describe('AC3 — el recibo: la CAÍDA es el camino real, no la preferencia', ()
     });
 
     expect(r.status).toBe(200);
-    // El orden dentro de un registro es el del catálogo (factura → recibo), no el del array pedido.
-    expect(await entradasDe(r.body as Buffer))
-      .toEqual(['ASD123-MEDELLIN.pdf', 'ASD123-MEDELLIN-2.pdf']);
+    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123.pdf']);
+    // El orden dentro del PDF es el del catálogo (factura → recibo), no el del array pedido.
+    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([101, 201]);
+    expect(r.headers['x-soportes-incluidos']).toBe('2');
+    expect(r.headers['x-soportes-omitidos']).toBe('0');
   });
 
   it('`factura_soat` NO es un tipo de esta superficie: 400', async () => {
@@ -513,14 +538,46 @@ describe('AC3 — el recibo: la CAÍDA es el camino real, no la preferencia', ()
 
 // ─────────────────────────── AC4 · el ZIP mixto de Trámites ─────────────────────────────────────
 
-describe('AC4 — Trámites: los tres tipos en un solo archivo', () => {
-  it('factura + recibo + comprobante del MISMO trámite → `-2` y `-3`', async () => {
+describe('HU #12817 AC1 — Trámites: los tres tipos en UN PDF por trámite', () => {
+  it('factura + recibo + comprobante del MISMO trámite → `ASD123.pdf` con [101, 201, 301]', async () => {
+    // Los soportes se siembran SOAT antes que recibo, y los tipos se piden desordenados: si el orden
+    // de páginas sale bien, lo puso `ORDEN_TIPOS_SOPORTE_ZIP`, no la siembra ni el cuerpo.
     kdb.when.scenario({
       flito_tramites: [filaTramite()],
       flito_soportes: [
-        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto' }),
-        soporte({ ancla: SOAT_A, tipo: 'factura_soat' }),
+        soporte({ ancla: SOAT_A, tipo: 'factura_soat', contenido: PDF_SOAT }),
+        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', contenido: PDF_RECIBO }),
       ],
+    });
+    obtenerUrlFacturaMock.mockResolvedValue('https://flit-bucket.s3/fac-1');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respuestaFlit()));
+
+    const r = await pedirZip(TRAMITES, await sesion(), {
+      ids: [TRAMITE_A], tipos: ['factura_soat', 'recibo_impuesto', 'factura_venta'],
+    });
+
+    expect(r.status).toBe(200);
+    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123.pdf']);
+    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([101, 201, 301]);
+    expect(r.headers['x-soportes-omitidos']).toBe('0');
+  });
+
+  it('se pide UN solo tipo y sale igual como `PLACA.pdf` consolidado', async () => {
+    kdb.when.scenario({
+      flito_tramites: [filaTramite({ facturaVentaFlitId: null })],
+      flito_soportes: [soporte({ ancla: SOAT_A, tipo: 'factura_soat', contenido: PDF_SOAT, nombreArchivo: 'x.jpg' })],
+    });
+
+    const r = await pedirZip(TRAMITES, await sesion(), { ids: [TRAMITE_A], tipos: ['factura_soat'] });
+
+    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123.pdf']);
+    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([301]);
+  });
+
+  it('AC3 — sin recibo: [101, 301], sin página vacía donde iría', async () => {
+    kdb.when.scenario({
+      flito_tramites: [filaTramite({ impuestoId: null })],
+      flito_soportes: [soporte({ ancla: SOAT_A, tipo: 'factura_soat', contenido: PDF_SOAT })],
     });
     obtenerUrlFacturaMock.mockResolvedValue('https://flit-bucket.s3/fac-1');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respuestaFlit()));
@@ -529,10 +586,8 @@ describe('AC4 — Trámites: los tres tipos en un solo archivo', () => {
       ids: [TRAMITE_A], tipos: ['factura_venta', 'recibo_impuesto', 'factura_soat'],
     });
 
-    expect(r.status).toBe(200);
-    expect(await entradasDe(r.body as Buffer)).toEqual([
-      'ASD123-MEDELLIN.pdf', 'ASD123-MEDELLIN-2.pdf', 'ASD123-MEDELLIN-3.pdf',
-    ]);
+    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([101, 301]);
+    expect(r.headers['x-soportes-incluidos']).toBe('2');
   });
 
   it('un trámite sin SOAT y sin impuesto SALE igual, con lo que tenga', async () => {
@@ -550,28 +605,202 @@ describe('AC4 — Trámites: los tres tipos en un solo archivo', () => {
     });
 
     expect(r.status).toBe(200);
-    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123-MEDELLIN.pdf']);
+    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123.pdf']);
   });
 
-  it('la factura de FLIT viaja en STREAMING, no bufferizada con `arrayBuffer()`', async () => {
-    // El molde hacía `arrayBuffer()` por factura: el fichero entero en el heap, cien veces. Si
-    // alguien vuelve a ese camino, la respuesta simulada —que solo expone `body`— revienta.
-    const fetchMock = vi.fn().mockResolvedValue(respuestaFlit());
-    kdb.when.scenario({ flito_tramites: [filaTramite()], flito_soportes: [] });
+  // RETIRADO a propósito por la HU #12817: «la factura de FLIT viaja en STREAMING, no bufferizada
+  // con `arrayBuffer()`». Pedía justo lo que el AC5 prohíbe en Trámites e Impuestos: sacar la factura
+  // después del primer byte sin saber si es legible. Lo que protegía —no bufferizar el LOTE— sigue
+  // garantizado de otra forma: el buffer es por documento, dura lo que tarda su registro en
+  // consolidarse (concurrencia 2) y el PDF va a disco. La respuesta simulada sigue exponiendo solo
+  // `body`, así que volver a `arrayBuffer()` sin tope seguiría reventando. Lo sustituye el de abajo.
+  it('HU #12817 AC5 — FLIT caído: `X-Soportes-Omitidos: 1` en la cabecera y el resto se entrega', async () => {
+    kdb.when.scenario({
+      flito_tramites: [filaTramite()],
+      flito_soportes: [soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', contenido: PDF_RECIBO })],
+    });
     obtenerUrlFacturaMock.mockResolvedValue('https://flit-bucket.s3/fac-1');
-    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 502, body: null }));
 
-    const r = await pedirZip(TRAMITES, await sesion(), { ids: [TRAMITE_A], tipos: ['factura_venta'] });
+    const r = await pedirZip(TRAMITES, await sesion(), {
+      ids: [TRAMITE_A], tipos: ['factura_venta', 'recibo_impuesto'],
+    });
 
     expect(r.status).toBe(200);
+    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([201]);
+    // En la CABECERA —antes del primer byte— y no descubierto a mitad del streaming.
+    expect(r.headers['x-soportes-omitidos']).toBe('1');
+    expect(r.headers['x-soportes-incluidos']).toBe('1');
+  });
+});
+
+// ─────────────────────────── HU #12817 · ilegibles, cifrados, temporales ─────────────────────────
+
+describe('HU #12817 — lo ilegible se omite y se avisa; nada legible es el mismo 409', () => {
+  it('AC5 — recibo corrupto: [101, 301], omitido contado, cabeceras presentes', async () => {
+    kdb.when.scenario({
+      flito_tramites: [filaTramite()],
+      flito_soportes: [
+        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', contenido: '%PDF-1.4 basura' }),
+        soporte({ ancla: SOAT_A, tipo: 'factura_soat', contenido: PDF_SOAT }),
+      ],
+    });
+    obtenerUrlFacturaMock.mockResolvedValue('https://flit-bucket.s3/fac-1');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respuestaFlit()));
+
+    const r = await pedirZip(TRAMITES, await sesion(), {
+      ids: [TRAMITE_A], tipos: ['factura_venta', 'recibo_impuesto', 'factura_soat'],
+    });
+
+    expect(r.status).toBe(200);
+    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123.pdf']);
+    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([101, 301]);
+    expect(r.headers['x-soportes-incluidos']).toBe('2');
+    expect(r.headers['x-soportes-omitidos']).toBe('1');
+  });
+
+  it('AC5 — NADA legible: el mismo 409, sin `Content-Disposition`, sin cifras, sin `archiver` ni PII', async () => {
+    kdb.when.scenario({
+      flito_tramites: [filaTramite()],
+      flito_soportes: [
+        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', contenido: '%PDF-1.4 basura' }),
+        soporte({ ancla: SOAT_A, tipo: 'factura_soat', contenido: 'no soy nada' }),
+      ],
+    });
+    obtenerUrlFacturaMock.mockResolvedValue('https://flit-bucket.s3/fac-1');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respuestaFlit('bytes basura de FLIT')));
+    const antes = temporales();
+
+    const r = await pedirZip(TRAMITES, await sesion(), {
+      ids: [TRAMITE_A], tipos: ['factura_venta', 'recibo_impuesto', 'factura_soat'],
+    });
+
+    expect(r.status).toBe(409);
+    expect(JSON.parse((r.body as Buffer).toString('utf8')).codigo).toBe('zip_sin_soportes');
+    expect(r.headers['content-disposition']).toBeUndefined();
+    expect(r.headers['x-soportes-incluidos']).toBeUndefined();
+    expect(r.headers['x-soportes-omitidos']).toBeUndefined();
+    expect(orden).not.toContain('archiver');
+    expect(logPiiAccessMock).not.toHaveBeenCalled();
+    expect(temporales()).toEqual(antes);
+  });
+
+  it('PDF cifrado: `PLACA.pdf` con lo unible y el original aparte como `PLACA-2.pdf`, bytes intactos', async () => {
+    const cifrado = await pdfCifrado([250]);
+    kdb.when.scenario({
+      flito_tramites: [filaTramite()],
+      flito_soportes: [
+        soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', contenido: cifrado }),
+        soporte({ ancla: SOAT_A, tipo: 'factura_soat', contenido: PDF_SOAT }),
+      ],
+    });
+    obtenerUrlFacturaMock.mockResolvedValue('https://flit-bucket.s3/fac-1');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respuestaFlit()));
+
+    const r = await pedirZip(TRAMITES, await sesion(), {
+      ids: [TRAMITE_A], tipos: ['factura_venta', 'recibo_impuesto', 'factura_soat'],
+    });
+
+    expect(r.status).toBe(200);
+    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123.pdf', 'ASD123-2.pdf']);
+    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([101, 301]);
     const zip = await JSZip.loadAsync(r.body as Buffer);
-    expect(await zip.file('ASD123-MEDELLIN.pdf')!.async('string')).toBe('%PDF-1.4 factura de venta');
+    expect(Buffer.from(await zip.file('ASD123-2.pdf')!.async('uint8array')).equals(cifrado)).toBe(true);
+    // Cuenta como incluido, no como omitido.
+    expect(r.headers['x-soportes-incluidos']).toBe('3');
+    expect(r.headers['x-soportes-omitidos']).toBe('0');
+  });
+
+  it('el directorio temporal queda borrado tras el 200', async () => {
+    kdb.when.scenario({
+      flito_tramites: [filaTramite({ facturaVentaFlitId: null })],
+      flito_soportes: [soporte({ ancla: SOAT_A, tipo: 'factura_soat' })],
+    });
+    const antes = temporales();
+
+    const r = await pedirZip(TRAMITES, await sesion(), { ids: [TRAMITE_A], tipos: ['factura_soat'] });
+
+    expect(r.status).toBe(200);
+    // El cliente recibe el final del cuerpo un instante antes de que el `finally` de la ruta borre:
+    // se espera (≤ 1 s) a que desaparezca, que es lo que importa —que no QUEDE en disco—.
+    await vi.waitFor(() => expect(temporales()).toEqual(antes), { timeout: 1000 });
+  });
+
+  it('AC8 — 422 si los bytes REALES de FLIT superan el tope, aunque el cupo declarado cupiera', async () => {
+    const { env } = await import('../../src/config/env.js');
+    const tope = env.FLITO_ZIP_SOPORTES_MAX_BYTES;
+    const cupo = env.FLITO_ZIP_FACTURA_CUPO_BYTES;
+    env.FLITO_ZIP_SOPORTES_MAX_BYTES = 3000;
+    env.FLITO_ZIP_FACTURA_CUPO_BYTES = 1000;
+    const IMP_B = 'cccccccc-0000-0000-0000-00000000000e';
+    try {
+      // Declarado: 2 × 1000 = 2000 ≤ 3000. Real: 2 × 1800 = 3600 > 3000.
+      kdb.when.scenario({
+        flito_impuestos: [
+          filaImpuesto({ facturaVentaFlitId: 'fac-1' }),
+          filaImpuesto({ id: IMP_B, placa: 'QWE789', createdAt: HOY, facturaVentaFlitId: 'fac-2' }),
+        ],
+        flito_soportes: [],
+      });
+      obtenerUrlFacturaMock.mockResolvedValue('https://flit-bucket.s3/fac');
+      vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => respuestaFlit(Buffer.alloc(1800, 0x25))));
+      const antes = temporales();
+
+      const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A, IMP_B], tipos: ['factura_venta'] });
+
+      expect(r.status).toBe(422);
+      expect(JSON.parse((r.body as Buffer).toString('utf8')).codigo).toBe('zip_demasiado_grande');
+      expect(r.headers['content-disposition']).toBeUndefined();
+      expect(orden).not.toContain('archiver');
+      expect(logPiiAccessMock).not.toHaveBeenCalled();
+      expect(temporales()).toEqual(antes);
+    } finally {
+      env.FLITO_ZIP_SOPORTES_MAX_BYTES = tope;
+      env.FLITO_ZIP_FACTURA_CUPO_BYTES = cupo;
+    }
+  });
+});
+
+// ─────────────────────────── HU #12817 AC6 · desempate entre REGISTROS ───────────────────────────
+
+describe('HU #12817 AC6 — en Trámites `-2` desempata REGISTROS con la misma placa, no documentos', () => {
+  const TRAMITE_B = 'dddddddd-0000-0000-0000-00000000000e';
+  const SOAT_Z = 'aaaaaaaa-0000-0000-0000-0000000000ff';
+
+  const escenario = (invertido: boolean) => {
+    const tramites = [
+      filaTramite({ id: TRAMITE_A, createdAt: AYER, impuestoId: null, facturaVentaFlitId: null, soatId: SOAT_A }),
+      filaTramite({ id: TRAMITE_B, createdAt: HOY, impuestoId: null, facturaVentaFlitId: null, soatId: SOAT_Z }),
+    ];
+    const soportes = [
+      soporte({ id: 's-viejo', ancla: SOAT_A, tipo: 'factura_soat', contenido: PDF_RECIBO }),
+      soporte({ id: 's-nuevo', ancla: SOAT_Z, tipo: 'factura_soat', contenido: PDF_SOAT }),
+    ];
+    kdb.when.scenario({
+      flito_tramites: invertido ? [...tramites].reverse() : tramites,
+      flito_soportes: invertido ? [...soportes].reverse() : soportes,
+    });
+  };
+
+  it('el trámite más antiguo se lleva `ASD123.pdf`, pedido en cualquier orden', async () => {
+    for (const invertido of [false, true]) {
+      kdb.reset(); instalarEspias(); contenidoPorClave.clear();
+      escenario(invertido);
+      const ids = invertido ? [TRAMITE_B, TRAMITE_A] : [TRAMITE_A, TRAMITE_B];
+      const r = await pedirZip(TRAMITES, await sesion(), { ids, tipos: ['factura_soat'] });
+
+      expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123.pdf', 'ASD123-2.pdf']);
+      // La firma de página dice DE QUIÉN es cada nombre, no solo que hay dos.
+      expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([201]);
+      expect(await anchosEnZip(r.body as Buffer, 'ASD123-2.pdf')).toEqual([301]);
+      expect(r.headers['x-soportes-registros']).toBe('2');
+    }
   });
 });
 
 // ─────────────────────────── AC5 · el nombre ────────────────────────────────────────────────────
 
-describe('AC5 — `PLACA-ORGANISMO`, en mayúsculas y sin tildes', () => {
+describe('HU #12817 AC6 — el nombre es SOLO la placa, en mayúsculas y sin separadores', () => {
   const casoNombre = async (over: Record<string, unknown>): Promise<string[]> => {
     kdb.when.scenario({
       flito_soat: [filaSoat(over)],
@@ -582,31 +811,27 @@ describe('AC5 — `PLACA-ORGANISMO`, en mayúsculas y sin tildes', () => {
     return entradasDe(r.body as Buffer);
   };
 
-  it('`ASD123` + alias `Medellín` → `ASD123-MEDELLIN.pdf`', async () => {
-    expect(await casoNombre({})).toEqual(['ASD123-MEDELLIN.pdf']);
+  it('`ASD123` con organismo `Medellín` → `ASD123.pdf` (el organismo ya no entra)', async () => {
+    const nombres = await casoNombre({});
+    expect(nombres).toEqual(['ASD123.pdf']);
+    expect(nombres.join('|')).not.toContain('MEDELLIN');
   });
 
   it('la placa con guion y minúsculas se normaliza igual', async () => {
-    expect(await casoNombre({ placa: 'asd-123' })).toEqual(['ASD123-MEDELLIN.pdf']);
+    expect(await casoNombre({ placa: 'asd-123' })).toEqual(['ASD123.pdf']);
   });
 
-  it('sin alias, el organismo cae a su CÓDIGO', async () => {
-    expect(await casoNombre({ organismoAlias: null })).toEqual(['ASD123-05001.pdf']);
-  });
+  // RETIRADOS por la HU #12817 (no invertidos): «sin alias, el organismo cae a su CÓDIGO» y «sin
+  // alias y sin código → `SIN-ORGANISMO`». El organismo ya no forma parte del nombre.
 
-  it('sin alias y sin código → `SIN-ORGANISMO`, nunca `null` ni la cadena «null»', async () => {
-    const nombres = await casoNombre({ organismoAlias: null, organismoCodigo: null });
-    expect(nombres).toEqual(['ASD123-SIN-ORGANISMO.pdf']);
-    expect(nombres.join('|').toLowerCase()).not.toContain('null');
-    expect(nombres.join('|')).not.toContain('undefined');
-  });
-
-  it('sin placa, el documento SALE igual con `SIN-PLACA`', async () => {
+  it('sin placa, el documento SALE igual con `SIN-PLACA`, nunca `null`', async () => {
     // Un soporte que existe no puede desaparecer del archivo porque al vehículo le falte un campo.
-    expect(await casoNombre({ placa: null })).toEqual(['SIN-PLACA-MEDELLIN.pdf']);
+    const nombres = await casoNombre({ placa: null });
+    expect(nombres).toEqual(['SIN-PLACA.pdf']);
+    expect(nombres.join('|').toLowerCase()).not.toContain('null');
   });
 
-  it('`organismoParaExport` se importa y NO se muta: el `.xlsx` de la HU #11909 sigue con el alias crudo', async () => {
+  it('`organismoParaExport` NO se muta: el `.xlsx` de la HU #11909 sigue con el alias crudo', async () => {
     // El mutante que esto mata es «ponerle `toUpperCase()` a `organismoParaExport`»: el ZIP saldría
     // idéntico y la columna ORGANISMO DE TRANSITO del Excel del eslabón anterior cambiaría de
     // contenido sin que ningún test de esta HU se enterara.
@@ -621,7 +846,7 @@ describe('AC5 — `PLACA-ORGANISMO`, en mayúsculas y sin tildes', () => {
 
 describe('AC5 — el desempate no depende del orden en que el usuario hizo clic', () => {
   /**
-   * Dos SOAT con el MISMO `PLACA-ORGANISMO`: es lo que produce la colisión.
+   * Dos SOAT con la MISMA placa: es lo que produce la colisión.
    *
    * `invertido` no es un adorno del test: la consulta por lote **no lleva `ORDER BY`** —el orden lo
    * pone el servicio—, así que en producción PostgreSQL puede devolver las filas en cualquier orden.
@@ -667,8 +892,8 @@ describe('AC5 — el desempate no depende del orden en que el usuario hizo clic'
     // Y el reparto es el que dice el AC5: manda `createdAt ASC`, así que el SOAT más antiguo se
     // lleva el nombre limpio y el nuevo el `-2`.
     expect(repartoA).toEqual({
-      'ASD123-MEDELLIN.pdf': 'VIEJO',
-      'ASD123-MEDELLIN-2.pdf': 'NUEVO',
+      'ASD123.pdf': 'VIEJO',
+      'ASD123-2.pdf': 'NUEVO',
     });
   });
 
@@ -691,8 +916,8 @@ describe('AC5 — el desempate no depende del orden en que el usuario hizo clic'
 
     // `aaaaaaaa-…` < `bbbbbbbb-…`: el nombre limpio es del A pase lo que pase.
     expect(await reparto(r.body as Buffer)).toEqual({
-      'ASD123-MEDELLIN.pdf': 'DEL-A',
-      'ASD123-MEDELLIN-2.pdf': 'DEL-B',
+      'ASD123.pdf': 'DEL-A',
+      'ASD123-2.pdf': 'DEL-B',
     });
   });
 
@@ -703,21 +928,20 @@ describe('AC5 — el desempate no depende del orden en que el usuario hizo clic'
     kdb.when.scenario({
       flito_soat: [filaSoat()],
       flito_soportes: [
-        soporte({ id: 'zzz', ancla: SOAT_A, subidoEn: AYER }),
-        soporte({ id: 'aaa', ancla: SOAT_A, subidoEn: AYER }),
+        // Contenidos DISTINTOS: con el PDF por defecto (el mismo para los dos) el aserto no vería nada.
+        soporte({ id: 'zzz', ancla: SOAT_A, subidoEn: AYER, contenido: 'DEL-ZZZ' }),
+        soporte({ id: 'aaa', ancla: SOAT_A, subidoEn: AYER, contenido: 'DEL-AAA' }),
       ],
     });
 
     const r = await pedirZip(SOAT, await sesion(), { ids: [SOAT_A] });
     const zip = await JSZip.loadAsync(r.body as Buffer);
-    // El `aaa` es el que tiene que llevarse el nombre sin sufijo. Su contenido es el segundo que se
-    // registró en el mapa de claves.
-    const contenidos = [...contenidoPorClave.values()];
-    expect(await zip.file('ASD123-MEDELLIN.pdf')!.async('string')).toBe(contenidos[1]);
-    expect(await zip.file('ASD123-MEDELLIN-2.pdf')!.async('string')).toBe(contenidos[0]);
+    // El `aaa` es el que tiene que llevarse el nombre sin sufijo.
+    expect(await zip.file('ASD123.pdf')!.async('string')).toBe('DEL-AAA');
+    expect(await zip.file('ASD123-2.pdf')!.async('string')).toBe('DEL-ZZZ');
   });
 
-  it('dos `factura_soat` VIVOS del mismo SOAT colisionan y salen los dos', async () => {
+  it('dos `factura_soat` VIVOS del mismo SOAT colisionan y salen los dos (SOAT NO consolida)', async () => {
     // `flito_soportes` solo tiene índice único de `factura_venta` sobre `soat_id`: dos comprobantes
     // vivos son posibles y ninguno puede perderse.
     kdb.when.scenario({
@@ -729,8 +953,9 @@ describe('AC5 — el desempate no depende del orden en que el usuario hizo clic'
     });
 
     const r = await pedirZip(SOAT, await sesion(), { ids: [SOAT_A] });
-    expect(await entradasDe(r.body as Buffer))
-      .toEqual(['ASD123-MEDELLIN.pdf', 'ASD123-MEDELLIN-2.pdf']);
+    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123.pdf', 'ASD123-2.pdf']);
+    // HU #12817: SOAT no consolida, así que tampoco manda la cabecera de omitidos.
+    expect(r.headers['x-soportes-omitidos']).toBeUndefined();
   });
 
   it('la extensión sale del `nombre_archivo` del soporte, no de un `.pdf` fijo', async () => {
@@ -740,7 +965,7 @@ describe('AC5 — el desempate no depende del orden en que el usuario hizo clic'
     });
 
     const r = await pedirZip(SOAT, await sesion(), { ids: [SOAT_A] });
-    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123-MEDELLIN.jpg']);
+    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123.jpg']);
   });
 });
 
@@ -1054,6 +1279,8 @@ describe('caso parcial — el ZIP dice CUÁNTO trae, en cabeceras', () => {
       ids: [TRAMITE_A], tipos: ['factura_venta', 'recibo_impuesto', 'factura_soat'],
     });
 
+    // HU #12817: sale UN PDF, pero `incluidos` sigue contando DOCUMENTOS (los tres, dentro de él).
+    expect(await entradasDe(r.body as Buffer)).toEqual(['ASD123.pdf']);
     expect(r.headers['x-soportes-incluidos']).toBe('3'); // DOCUMENTOS
     expect(r.headers['x-soportes-registros']).toBe('1'); // TRÁMITES que aportaron
   });
@@ -1074,6 +1301,7 @@ describe('caso parcial — el ZIP dice CUÁNTO trae, en cabeceras', () => {
     // desincroniza sin que nada avise, y el síntoma es que el aviso vuelve al genérico, en verde.
     expect(CABECERAS_ZIP_SOPORTES.incluidos).toBe('X-Soportes-Incluidos');
     expect(CABECERAS_ZIP_SOPORTES.registros).toBe('X-Soportes-Registros');
+    expect(CABECERAS_ZIP_SOPORTES.omitidos).toBe('X-Soportes-Omitidos');
   });
 
   it('el 409 NO lleva las cifras: no hay archivo del que informar', async () => {
@@ -1086,7 +1314,7 @@ describe('caso parcial — el ZIP dice CUÁNTO trae, en cabeceras', () => {
     expect(r.headers['x-soportes-registros']).toBeUndefined();
   });
 
-  it('CORS expone las dos cabeceras: sin eso un cliente cross-origin no las ve', async () => {
+  it('CORS expone las tres cabeceras: sin eso un cliente cross-origin no las ve', async () => {
     // `fetch` solo expone las seis cabeceras de la lista segura de CORS y DESCARTA el resto EN
     // SILENCIO —sin error en consola ni en la pestaña de red—. Hoy el front va same-origin (proxy de
     // Vite en dev, nginx en producción), así que esto es la defensa para el día que un cliente entre
@@ -1095,6 +1323,7 @@ describe('caso parcial — el ZIP dice CUÁNTO trae, en cabeceras', () => {
     expect(fuente).toContain('exposedHeaders');
     expect(fuente).toContain('CABECERAS_ZIP_SOPORTES.incluidos');
     expect(fuente).toContain('CABECERAS_ZIP_SOPORTES.registros');
+    expect(fuente).toContain('CABECERAS_ZIP_SOPORTES.omitidos');
   });
 });
 
@@ -1275,6 +1504,6 @@ describe('un documento que no se puede abrir se omite y QUEDA EN EL LOG', () => 
     const r = await pedirZip(SOAT, await sesion(), { ids: [SOAT_A, SOAT_B] });
 
     expect(r.status).toBe(200);
-    expect(await entradasDe(r.body as Buffer)).toEqual(['QWE789-MEDELLIN.pdf']);
+    expect(await entradasDe(r.body as Buffer)).toEqual(['QWE789.pdf']);
   });
 });

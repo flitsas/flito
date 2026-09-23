@@ -226,7 +226,7 @@ test.describe('HU #11910 — AC7: el auditor no la tiene, y no como botón apaga
       // `toHaveCount(0)` y no `toBeDisabled()`: un botón pintado y apagado pasaría el segundo y
       // sigue siendo una acción que el auditor no puede tener.
       await expect(botonZip(page)).toHaveCount(0);
-      await expect(page.getByRole('button', { name: 'Preparando el ZIP…' })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Preparando el archivo…' })).toHaveCount(0);
       await expect(casillaCabecera(page)).toHaveCount(0);
       await expect(page.getByRole('checkbox', { name: /^Seleccionar [A-Z]{3}\d{3}$/ })).toHaveCount(0);
 
@@ -543,6 +543,59 @@ test.describe('HU #11910 — AC6 y el caso parcial', () => {
       + 'elegiste; las otras 2 no.',
     )).toBeVisible();
     await expect(page.getByText(/6 de las 5/)).toHaveCount(0);
+  });
+
+  /**
+   * HU #12817 (AC5): un documento dañado no tumba el ZIP, se omite y se declara en
+   * `X-Soportes-Omitidos`. El aviso lo dice con la cifra y el siguiente paso, en la banda persistente
+   * (no en un toast que se va): quien abre el ZIP y echa algo en falta tiene que poder releerlo.
+   */
+  test('/flito/tramites — los documentos que no se pudieron leer se dicen con cifra (#12817)', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await montarTramites(page, CINCO_TRAMITES);
+    await mockZip(page, P_TRAMITES, {
+      status: 200,
+      headers: {
+        'content-disposition': `attachment; filename="${NOMBRE_ZIP}"`,
+        'x-soportes-incluidos': '8',
+        'x-soportes-registros': '5',
+        'x-soportes-omitidos': '2',
+      },
+    });
+
+    await page.goto('/flito/tramites');
+    await casillaCabecera(page).check();
+    await expect(page.getByText('5 seleccionado(s)')).toBeVisible();
+    await botonZip(page).click();
+    await expect(page.getByText(/un PDF por trámite, nombrado con la placa/)).toBeVisible();
+    await Promise.all([page.waitForEvent('download'), confirmarZip(page).click()]);
+
+    await expect(bandaZip(
+      page,
+      `ZIP descargado: ${NOMBRE_ZIP}. 2 documentos no se pudieron leer y quedaron fuera; `
+      + 'revísalos en el detalle de cada registro.',
+    )).toBeVisible();
+  });
+
+  test('/flito/tramites — omitidos en 0: el aviso es el de siempre (#12817)', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await montarTramites(page, CINCO_TRAMITES);
+    await mockZip(page, P_TRAMITES, {
+      status: 200,
+      headers: {
+        'content-disposition': `attachment; filename="${NOMBRE_ZIP}"`,
+        'x-soportes-registros': '5',
+        'x-soportes-omitidos': '0',
+      },
+    });
+
+    await page.goto('/flito/tramites');
+    await casillaCabecera(page).check();
+    await botonZip(page).click();
+    await Promise.all([page.waitForEvent('download'), confirmarZip(page).click()]);
+
+    await expect(bandaZip(page, `ZIP descargado: ${NOMBRE_ZIP}`)).toBeVisible();
+    await expect(page.getByText(/no se pudieron leer|no se pudo leer/)).toHaveCount(0);
   });
 
   test('/flito/soat — completo: el aviso NO inventa cifras que el servidor no declaró', async ({ page }) => {

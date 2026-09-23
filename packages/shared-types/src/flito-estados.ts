@@ -383,7 +383,7 @@ export type TipoSoporteZip = (typeof TipoSoporteZip)[keyof typeof TipoSoporteZip
 /**
  * El ORDEN FIJO del catálogo, y no es decoración: es la mitad del desempate del AC5.
  *
- * Todas las entradas de un mismo registro se llaman igual (`PLACA-ORGANISMO`), así que el sufijo
+ * Todas las entradas de un mismo registro se llaman igual (`PLACA`, HU #12817), así que el sufijo
  * `-2`/`-3` lo decide el orden en que se recorren. Si ese orden fuera el del array que mandó la
  * pantalla —o el de `Object.keys` de un mapa—, el mismo lote pedido dos veces produciría dos
  * repartos distintos de los sufijos y dos ZIP no comparables. Aquí está escrito una vez y el
@@ -468,10 +468,19 @@ export const ZIP_SOPORTES_MAX_REGISTROS = 300;
  * pertenencia, que es justo lo que evita el 409 cuando no queda ninguno.
  */
 export const CABECERAS_ZIP_SOPORTES = {
-  /** Cuántos DOCUMENTOS lleva el archivo. */
+  /**
+   * Cuántos DOCUMENTOS lleva el archivo. En Trámites e Impuestos (HU #12817) cuenta los documentos
+   * legibles consolidados DENTRO de los PDF por registro, más los originales cifrados que van aparte.
+   */
   incluidos: 'X-Soportes-Incluidos',
   /** De cuántos REGISTROS marcados salió al menos un documento. */
   registros: 'X-Soportes-Registros',
+  /**
+   * Cuántos documentos se encontraron y NO entraron por dañados o ilegibles (HU #12817, AC5). Solo
+   * la envían Trámites e Impuestos, y siempre (`0` si no se omitió nada); SOAT no consolida y no la
+   * manda. Tampoco dice DE QUÉ registro era el omitido: mismo silencio que las otras dos.
+   */
+  omitidos: 'X-Soportes-Omitidos',
 } as const;
 
 /** Módulos parametrizables por compañía (FLITO.md). */
