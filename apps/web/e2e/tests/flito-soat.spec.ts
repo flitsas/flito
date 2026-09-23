@@ -1,5 +1,5 @@
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, OPERACIONES_USER, AUDITOR_USER, PROVEEDOR_USER, CLIENTE_USER } from '../helpers/auth';
+import { loginAs, OPERACIONES_USER, AUDITOR_USER, PROVEEDOR_USER, CLIENTE_USER, CLIENTE_CON_CANAL } from '../helpers/auth';
 
 // FLITO — Portal SOAT (Fase 6). Cola de adquisición: envío atómico al gestor,
 // detalle por VIN y solo-lectura para Auditoría. Backend mockeado.
@@ -1118,5 +1118,98 @@ test.describe('FLITO — SOAT · vigencia frente al RUNT (HU #12097)', () => {
     await expect(page.getByText('Sin verificar')).toHaveCount(0);
     await expect(page.getByText('No se pudo consultar')).toHaveCount(0);
     await expect(page.getByText(/^Verificado /)).toHaveCount(0);
+  });
+});
+
+// ═══════════ HU #12819 — notificación del envío, vistas rápidas del Cliente y hover del kit ═══════════
+
+test.describe('HU #12819 — el envío fallido avisa por toast y conserva la selección (§8)', () => {
+  /** Marca ABC123 (Pendiente), elige destino y pulsa «Enviar al gestor». */
+  async function enviarConFallo(page: import('@playwright/test').Page, status: number, cuerpo: unknown) {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    let intentos = 0;
+    await page.route(/\/api\/flito\/soat\/enviar$/, (route) => {
+      intentos += 1;
+      return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(cuerpo) });
+    });
+    await page.goto('/flito/soat');
+    await page.getByLabel('Seleccionar ABC123').check();
+    await page.getByLabel('Enviar a').selectOption('p1');
+    await page.getByRole('button', { name: /Enviar al gestor/ }).click();
+    await expect.poll(() => intentos).toBe(1);
+  }
+
+  test('500 → toast con el copy genérico; ni la tarjeta de error de la cola ni la selección perdida', async ({ page }) => {
+    await enviarConFallo(page, 500, { error: 'detalle interno que NO debe verse' });
+
+    // Copy exacto de `textoErrorEnvio` (BarraEnvioSoat.tsx), en el toast del kit (`role="alert"`).
+    const toast = page.getByRole('alert').filter({ hasText: 'No se pudieron enviar los SOAT. Intenta de nuevo.' });
+    await expect(toast).toBeVisible();
+    await expect(toast.getByRole('button', { name: 'Cerrar aviso' })).toBeVisible();
+    await expect(page.getByText('detalle interno que NO debe verse')).toHaveCount(0);
+    // La tarjeta de error de CARGA de la cola no aparece: su copy y su «Reintentar» (que recarga la
+    // cola, no reenvía) son justo lo que la HU sacó de este camino.
+    await expect(page.getByText('No se pudo cargar la cola de SOAT', { exact: false })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Reintentar', exact: true })).toHaveCount(0);
+    // Y la tabla sigue ahí, con la selección intacta para reintentar.
+    await expect(page.getByRole('region', { name: 'Pólizas SOAT' })).toBeVisible();
+    await expect(page.getByText('1 seleccionado(s)')).toBeVisible();
+    await expect(page.getByLabel('Seleccionar ABC123')).toBeChecked();
+  });
+
+  for (const status of [409, 422]) {
+    test(`${status} con frase de negocio → el toast dice ESA frase, literal`, async ({ page }) => {
+      const FRASE = 'El SOAT ABC123 ya fue enviado por otra persona.';
+      await enviarConFallo(page, status, { error: FRASE });
+
+      await expect(page.getByRole('alert').filter({ hasText: FRASE })).toBeVisible();
+      await expect(page.getByText('No se pudieron enviar los SOAT. Intenta de nuevo.')).toHaveCount(0);
+      await expect(page.getByText('1 seleccionado(s)')).toBeVisible();
+    });
+  }
+});
+
+test.describe('HU #12819 — las vistas rápidas no se le ofrecen al Cliente (P-1)', () => {
+  test('Cliente: ni el rótulo ni los dos botones; Operaciones sí los tiene', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mock(page);
+    await page.goto('/flito/soat');
+    // Esperar a que la cola pinte: «no está» sobre una pantalla aún cargando sería un verde vacío.
+    await expect(page.getByRole('region', { name: 'Pólizas SOAT' })).toBeVisible();
+
+    await expect(page.getByText('Vistas rápidas:')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Sin gestión', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Listos para enviar', exact: true })).toHaveCount(0);
+
+    // Control positivo en el mismo test: con Operaciones el renglón existe.
+    await loginAs(page, OPERACIONES_USER);
+    await page.goto('/flito/soat');
+    await expect(page.getByRole('region', { name: 'Pólizas SOAT' })).toBeVisible();
+    await expect(page.getByText('Vistas rápidas:')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sin gestión', exact: true })).toBeVisible();
+  });
+});
+
+test.describe('HU #12819 — los botones del kit reaccionan al puntero (§9)', () => {
+  test('la primaria lleva el velo inset y el secundario el fondo de hover, y el hover SE PINTA', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/soat');
+    await expect(page.getByRole('region', { name: 'Pólizas SOAT' })).toBeVisible();
+
+    const primaria = page.getByRole('button', { name: 'Cargar facturas (masivo)' });
+    const secundaria = page.getByRole('row').filter({ hasText: 'ABC123' }).getByRole('button', { name: 'Ver', exact: true });
+    await expect(primaria).toHaveAttribute('class', /hover:shadow-\[inset_0_0_0_999px_var\(--flit-veil-press-hover\)\]/);
+    await expect(secundaria).toHaveAttribute('class', /hover:bg-\[var\(--flit-bg-hover\)\]/);
+
+    // Y la clase no es decorativa: al pasar el puntero el estilo calculado CAMBIA.
+    const sombra = () => primaria.evaluate((el) => getComputedStyle(el).boxShadow);
+    const fondo = () => secundaria.evaluate((el) => getComputedStyle(el).backgroundColor);
+    const [sombraReposo, fondoReposo] = [await sombra(), await fondo()];
+    await primaria.hover();
+    await expect.poll(sombra).not.toBe(sombraReposo);
+    await secundaria.hover();
+    await expect.poll(fondo).not.toBe(fondoReposo);
   });
 });
