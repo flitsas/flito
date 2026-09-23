@@ -420,7 +420,7 @@ export default function FlitoImpuestos() {
         </div>
       </FlitCard>
 
-      {error && <FlitCard><p className="text-sm text-red-600">{error}</p></FlitCard>}
+      {error && <FlitCard><p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p></FlitCard>}
 
       {/* Ya no es exclusiva de Operaciones: el gestor certifica en bloque su organismo (HU #11169).
           Qué acción se ofrece lo decide la propia barra según lo seleccionado. */}

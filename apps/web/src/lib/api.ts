@@ -467,6 +467,11 @@ export const api = {
    * no el `Response` entero: con el objeto en la mano cualquier llamador podría intentar volver a
    * leer el cuerpo —que aquí ya se está consumiendo como blob— y quedarse con un stream a medias.
    * Se invoca también en las respuestas de ERROR, igual que el resto de este gancho.
+   *
+   * `timeoutMs` (HU #12817) deja que UNA descarga pida más que el tope compartido, con el mismo
+   * techo que `postConTimeout` (`TIMEOUT_MAX_MS`, por debajo del `proxy_read_timeout` de nginx). Lo
+   * pide el ZIP de soportes: desde la #12817 el servidor lee y une los PDF de cada registro ANTES
+   * del primer byte, y con 300 registros eso pasa de los 90 s de siempre. Sin él, el de siempre.
    */
   downloadPostNamed: async (
     path: string,
@@ -474,6 +479,7 @@ export const api = {
     body?: unknown,
     aceptaNombre?: (nombre: string) => boolean,
     alLeerCabeceras?: (leer: (cabecera: string) => string | null) => void,
+    timeoutMs?: number,
   ): Promise<string> => {
     let nombre = respaldo;
     let respuesta = { ok: true, status: 200 };
@@ -482,7 +488,7 @@ export const api = {
       const declarado = nombreDeContentDisposition(res.headers.get('content-disposition'));
       nombre = declarado && (!aceptaNombre || aceptaNombre(declarado)) ? declarado : respaldo;
       alLeerCabeceras?.((cabecera) => res.headers.get(cabecera));
-    });
+    }, timeoutMs);
     if (!respuesta.ok) throw await errorVestidoDeArchivo(respuesta.status, blob);
     entregarArchivo(blob, nombre);
     return nombre;
