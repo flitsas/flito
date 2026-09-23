@@ -112,6 +112,12 @@ test.describe('HU #12097 · AC3 y AC5 — accesibilidad de la vigencia en la col
     // El nombre accesible ES el rótulo visible, con el `<label>` envolvente del de «Gestiona»: sin
     // eso, `getByLabel('Vigencia')` no encontraría nada y un lector de pantalla anunciaría un
     // combo mudo. `toHaveCount(1)` impide además el empate con otro control del mismo nombre.
+    // HU #12819: «Vigencia» vive en el panel plegable «Más filtros».
+    const masFiltros = page.getByRole('button', { name: /^Más filtros/ });
+    await expect(async () => {
+      if ((await masFiltros.getAttribute('aria-expanded')) !== 'true') await masFiltros.click();
+      await expect(masFiltros).toHaveAttribute('aria-expanded', 'true', { timeout: 1_000 });
+    }).toPass();
     const filtro = page.getByLabel('Vigencia');
     await expect(filtro).toHaveCount(1);
 

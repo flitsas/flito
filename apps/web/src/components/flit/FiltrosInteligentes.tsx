@@ -32,10 +32,10 @@ export default function FiltrosInteligentes<F>({ presets, activo, onAplicar, onQ
   return (
     <details className="relative" name="flit-filtros-inteligentes">
       <summary
-        className="flex h-10 cursor-pointer list-none items-center gap-2 rounded-lg border px-3 text-sm"
+        className="flit-focus flex h-10 cursor-pointer list-none items-center gap-2 rounded-lg border bg-flit-card px-3 text-sm transition-colors hover:bg-[var(--flit-bg-hover)]"
         style={{
           borderColor: activo ? 'var(--flit-blue-text)' : 'var(--flit-border-input)',
-          background: activo ? 'rgba(48,102,190,0.08)' : 'white',
+          ...(activo ? { background: 'var(--flit-bg-app)' } : {}),
           color: 'var(--flit-text-primary)',
         }}
         aria-label="Filtros inteligentes"
@@ -52,8 +52,8 @@ export default function FiltrosInteligentes<F>({ presets, activo, onAplicar, onQ
           return (
             <button key={p.nombre} type="button"
               onClick={() => (puesto ? onQuitar() : onAplicar(p))}
-              className="block w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-slate-50"
-              style={puesto ? { background: 'rgba(48,102,190,0.08)' } : undefined}>
+              className="block w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-[var(--flit-bg-hover)]"
+              style={puesto ? { background: 'var(--flit-bg-app)' } : undefined}>
               <span className="block text-sm font-semibold"
                 style={{ color: puesto ? 'var(--flit-blue-text)' : 'var(--flit-text-primary)' }}>
                 {p.nombre}

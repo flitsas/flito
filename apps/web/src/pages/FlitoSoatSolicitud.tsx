@@ -57,7 +57,8 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import toast from 'react-hot-toast';
+import { ArrowLeft, CircleAlert, Search, Send } from 'lucide-react';
+import { toastOk } from '../components/flit/ToastFlito';
 import {
   CodigoErrorSolicitudSoat, PROCEDENCIA_POR_DEFECTO, ProcedenciaDato,
   type ExtraccionFacturaVenta,
@@ -660,7 +661,8 @@ function Alta() {
       // cilindraje, carrocería y organismo NO viajan nunca: los resuelve el servidor consultando
       // otra vez. La pantalla no le reenvía lo que él mismo le mostró en la preconsulta.
       await api.post('/flito/soat/cliente', form);
-      toast.success(TOAST_ENVIADA);
+      // Cerrable (HU #12819): `toast.success` no se podía cerrar.
+      toastOk(TOAST_ENVIADA);
       navigate(COLA);
     } catch (e) {
       encajarFallo(leerFallo(e), 'envio');
@@ -760,14 +762,16 @@ function Alta() {
     <div className="space-y-4">
       <div>
         <button type="button" onClick={salir}
-          className="flit-focus mb-2 rounded text-sm font-semibold underline"
+          className="flit-focus -mx-1 mb-2 inline-flex items-center gap-1.5 rounded px-1 text-sm font-semibold underline transition-colors hover:bg-[var(--flit-bg-hover)]"
           style={{ color: 'var(--flit-blue-text)' }}>
-          ← Volver a mis SOAT
+          <ArrowLeft size={16} aria-hidden="true" className="shrink-0" />
+          Volver a mis SOAT
         </button>
         <PageHeaderCard
           titleRef={tituloRef}
           title="Solicitud de SOAT"
-          subtitle="Escriba el VIN y FLITO consulta el RUNT. Usted adjunta la factura de venta y completa el propietario. Al enviarla, su SOAT entra en gestión de inmediato."
+          // Una frase (HU #12819): «entra en gestión» vive solo en la barra de envío.
+          subtitle="Escriba el VIN, adjunte la factura de venta y complete el propietario."
         />
       </div>
 
@@ -780,7 +784,10 @@ function Alta() {
         titulo="1 · Vehículo"
         chip={consulta.fase === 'ok' ? <StatusChip tone="success">✓ Consultado</StatusChip> : undefined}
       >
-        <div className="grid gap-3 sm:grid-cols-2">
+        {/* VIN y «Consultar el RUNT» en el mismo renglón desde `sm` (HU #12819): antes el botón quedaba
+            suelto bajo un campo a media anchura. En 375 se apilan y el botón va a ancho completo. */}
+        <div className="flex flex-wrap items-start gap-3">
+          <div className="min-w-0 flex-1 basis-64">
           <Campo
             id={ID_CAMPO.vin} label="VIN (número de chasis)"
             valor={vin} inputRef={vinRef}
@@ -800,28 +807,28 @@ function Alta() {
               ? ID_BANDA_RUNT
               : undefined}
           />
+          </div>
+          <button
+            type="button" ref={consultarRef}
+            className={`${consulta.fase === 'ok' ? flitBtnSecondary : flitBtnPrimary} w-full justify-center sm:mt-[1.35rem] sm:w-auto`}
+            style={consulta.fase === 'ok' ? flitBtnSecondaryStyle : flitBtnPrimaryStyle}
+            disabled={cargando}
+            onClick={() => { void consultar(); }}
+          >
+            <Search size={16} aria-hidden="true" className="shrink-0" />
+            {ROTULO_CONSULTA[consulta.fase]}
+          </button>
         </div>
 
         {avisoLongitudVin && !errores.vin && (
           <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{avisoLongitudVin}</p>
         )}
 
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <button
-            type="button" ref={consultarRef}
-            className={consulta.fase === 'ok' ? flitBtnSecondary : flitBtnPrimary}
-            style={consulta.fase === 'ok' ? flitBtnSecondaryStyle : flitBtnPrimaryStyle}
-            disabled={cargando}
-            onClick={() => { void consultar(); }}
-          >
-            {ROTULO_CONSULTA[consulta.fase]}
-          </button>
-          {cargando && (
-            <span role="status" className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-              La consulta puede tardar hasta un minuto. No cierre esta página.
-            </span>
-          )}
-        </div>
+        {cargando && (
+          <p role="status" className="mt-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+            La consulta puede tardar hasta un minuto. No cierre esta página.
+          </p>
+        )}
 
         {/* La banda de desenlace vive AQUÍ, junto a los campos que hay que corregir, y no en la
             tarjeta de envío: lo que falló es la consulta. */}
@@ -830,9 +837,10 @@ function Alta() {
             id={ID_BANDA_RUNT} role="alert" className="mt-3 space-y-1 rounded-[10px] p-3"
             style={{ border: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}
           >
-            <p className="text-sm font-semibold" style={{
-              color: consulta.desenlace.tono === 'danger' ? 'var(--flit-danger-ink)' : 'var(--flit-warning-ink)',
+            <p className="flex items-center gap-2 text-sm font-semibold" style={{
+              color: consulta.desenlace.tono === 'danger' ? 'var(--flit-danger-text)' : 'var(--flit-warning-ink)',
             }}>
+              <CircleAlert size={18} aria-hidden="true" className="shrink-0" />
               {consulta.desenlace.titulo}
             </p>
             <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{consulta.desenlace.detalle}</p>
@@ -925,11 +933,15 @@ function Alta() {
         />
       </Seccion>
 
+      {/* Barra de envío PEGAJOSA (HU #12819, §12.2): la frase de lo que falta y «Enviar al gestor»
+          quedan a la vista durante todo el formulario, que tiene doce campos. En `lg` se levanta
+          sobre la barra de módulos flotante del shell, que vive fija al pie. */}
+      <div className="sticky bottom-2 z-20 lg:bottom-[5.5rem]">
       <FlitCard>
         {envioIncierto
           ? (
             <div className="space-y-2">
-              <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>
+              <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-danger-text)' }}>
                 No sabemos si la solicitud llegó a FLITO. Vuelva a sus SOAT y busque ese VIN antes de volver a enviarla.
               </p>
               <Link to={COLA} className={flitBtnSecondary} style={flitBtnSecondaryStyle}>Volver a mis SOAT</Link>
@@ -938,10 +950,10 @@ function Alta() {
           : (
             <div className="space-y-3">
               {avisoEnvio && (
-                <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>{avisoEnvio}</p>
+                <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-danger-text)' }}>{avisoEnvio}</p>
               )}
               <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-                Al enviarla, su SOAT entra en gestión de inmediato. No se guarda como borrador.
+                No se guarda como borrador: al enviarla, entra en gestión.
               </p>
               {enviando && <span role="status" className="sr-only">Enviando…</span>}
               <div className="flex flex-wrap items-center justify-end gap-2">
@@ -951,11 +963,12 @@ function Alta() {
                     es cuando importa. Una `role="status"` aquí se reanunciaría con cada pulsación
                     de tecla del formulario: doce campos interrumpiendo a quien escribe. */}
                 {fraseFaltantes && (
-                  <p id={ID_FALTANTES} className="mr-auto text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+                  <p id={ID_FALTANTES} className="line-clamp-2 w-full text-xs font-semibold sm:mr-auto sm:w-auto sm:flex-1" style={{ color: 'var(--flit-text-secondary)' }}>
                     {fraseFaltantes}
                   </p>
                 )}
-                <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={salir}>
+                <div className="grid w-full grid-cols-[auto_1fr] gap-2 sm:flex sm:w-auto">
+                <button type="button" className={`${flitBtnSecondary} justify-center`} style={flitBtnSecondaryStyle} onClick={salir}>
                   Cancelar
                 </button>
                 {/* **`aria-disabled` y no `disabled`, y es una decisión de accesibilidad.** Un botón
@@ -965,19 +978,22 @@ function Alta() {
                     pulsarlo la pantalla lo lleva a la acción que sí toca. El AC1 se cumple igual:
                     no se envía nada. La atenuación va EXPLÍCITA porque `aria-disabled` no dispara
                     las variantes `disabled:` de Tailwind. */}
-                <button type="button" className={flitBtnPrimary}
+                <button type="button" className={`${flitBtnPrimary} justify-center`}
                   style={bloqueado
                     ? { ...flitBtnPrimaryStyle, opacity: 0.5, cursor: 'not-allowed' }
                     : flitBtnPrimaryStyle}
                   aria-disabled={bloqueado ? true : undefined}
                   aria-describedby={bloqueado && fraseFaltantes ? ID_FALTANTES : undefined}
                   disabled={enviando} onClick={intentarEnviar}>
+                  <Send size={16} aria-hidden="true" className="shrink-0" />
                   {enviando ? 'Enviando…' : ROTULO_ENVIAR}
                 </button>
+                </div>
               </div>
             </div>
           )}
       </FlitCard>
+      </div>
 
       {/* Los dos modales dicen «este vehículo» y NO interpolan identificador alguno (UX §5, decisión
           7). La placa ya no existe como dato tecleado, y el VIN no la sustituye: en `vin_ya_tiene_soat`

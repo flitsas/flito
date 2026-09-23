@@ -658,8 +658,9 @@ test.describe('HU #12079 · AC2 — las TRES frases que prometían revisión', (
 
     // El subtítulo de la página y la tarjeta de envío, antes de enviar.
     await expect(page.getByText(/revisión de FLITO/)).toHaveCount(0);
-    await expect(page.getByText('Al enviarla, su SOAT entra en gestión de inmediato. No se guarda como borrador.')).toBeVisible();
-    await expect(page.getByText('Al enviarla, su SOAT entra en gestión de inmediato.', { exact: false }).first()).toBeVisible();
+    // HU #12819 (§12.2): la frase vive solo en la barra de envío, con el copy nuevo.
+    await expect(page.getByText('No se guarda como borrador: al enviarla, entra en gestión.')).toBeVisible();
+    await expect(page.getByText('entra en gestión', { exact: false }).first()).toBeVisible();
 
     await llenarTodo(page);
     await btnEnviar(page).click();
@@ -754,7 +755,9 @@ test.describe('HU #12079 · AC4 — la cola, los filtros y la reversa no ofrecen
     await loginAs(page, CLIENTE_CON_CANAL);
     await montarCola(page, [filaSoat()]);
     await page.getByRole('button', { name: 'Ver' }).first().click();
-    await expect(page.getByRole('dialog').getByText('Motivo de rechazo: La factura no corresponde al vehículo')).toBeVisible();
+    // HU #12819 (§7.1, zona 2): el motivo va en su tarjeta, con el rótulo «Motivo de la novedad».
+    await expect(page.getByRole('dialog').getByText('Motivo de la novedad')).toBeVisible();
+    await expect(page.getByRole('dialog').getByText('La factura no corresponde al vehículo')).toBeVisible();
     // Es lo único que se AÑADE al retirar «Corregir y reenviar»: sin esto queda una caja roja sin
     // siguiente paso, que es exactamente lo que la retirada dejaba.
     await expect(page.getByRole('dialog').getByText(FRASE)).toBeVisible();

@@ -23,7 +23,7 @@ import { Download } from 'lucide-react';
 import { EstadoSoat } from '@operaciones/shared-types';
 import { api, ApiError } from '../../lib/api';
 import type { Soporte } from '../flit/VisorSoportes';
-import { flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
+import { flitBtnSecondary, flitBtnSecondarySm, flitBtnSecondaryStyle } from '../flit/flitPageKit';
 import { toastError } from '../flit/ToastFlito';
 
 /** Lo mínimo de la fila que necesita la descarga. */
@@ -119,13 +119,14 @@ export function useDescargaComprobante(): EstadoDescargaComprobante {
 }
 
 /** Estilo y atributos comunes a la fila y al detalle, según el estado. */
-function useEstadoBoton(soat: SoatDescargable, descarga: EstadoDescargaComprobante) {
+function useEstadoBoton(soat: SoatDescargable, descarga: EstadoDescargaComprobante, compacto = false) {
   const pagado = soat.estado === EstadoSoat.PAGADO;
   const ocupado = descarga.ocupados.has(soat.id);
   const idMotivo = useId();
+  const base = compacto ? flitBtnSecondarySm : flitBtnSecondary;
   const clase = pagado
-    ? `${flitBtnSecondary} ${ocupado ? 'cursor-progress opacity-60' : ''}`
-    : `${flitBtnSecondary} cursor-not-allowed`;
+    ? `${base} ${ocupado ? 'cursor-progress opacity-60' : ''}`
+    : `${base} cursor-not-allowed`;
   const style = pagado
     ? { ...flitBtnSecondaryStyle, color: 'var(--flit-blue-text)' }
     : { ...flitBtnSecondaryStyle, color: 'var(--flit-text-muted)', borderColor: 'var(--flit-border-soft)' };
@@ -142,10 +143,11 @@ function useEstadoBoton(soat: SoatDescargable, descarga: EstadoDescargaComproban
 
 /** Icono de la celda de «Ver». Enfocable también en gris (`aria-disabled`) para leer el motivo. */
 export function BotonComprobanteFila({ soat, descarga }: { soat: SoatDescargable; descarga: EstadoDescargaComprobante }) {
-  const { pagado, idMotivo, clase, style, props } = useEstadoBoton(soat, descarga);
+  // Compacto (`h-7 w-7`) desde la HU #12819: la fila no crece por su botón.
+  const { pagado, idMotivo, clase, style, props } = useEstadoBoton(soat, descarga, true);
   return (
     <>
-      <button {...props} className={`${clase} w-10 justify-center !px-0`} style={style}
+      <button {...props} className={`${clase} w-7 justify-center !px-0`} style={style}
         title={pagado ? props['aria-label'] : MOTIVO_NO_PAGADO}>
         <Download size={16} aria-hidden="true" className="shrink-0" />
       </button>

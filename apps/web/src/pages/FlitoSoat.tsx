@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { CircleAlert, Lock, Plus, RotateCw, Upload } from 'lucide-react';
 import { ANS_OPERATIVO, EstadoSoat, type FiltroVigenciaCola } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { puedeSolicitarSoat, useAuth } from '../lib/auth';
@@ -20,8 +21,9 @@ import { AvisoSoportesZip, ZIP_SOAT, useDescargaZip } from '../components/flito/
 import { useDescargaComprobante } from '../components/flito/DescargarComprobanteSoat';
 import useDebounce from '../lib/useDebounce';
 import {
-  FlitCard, FlitEmpty, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
+  FlitCard, FlitEmpty, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary,
 } from '../components/flit/flitPageKit';
+import { toastError, toastOk } from '../components/flit/ToastFlito';
 // Las piezas de la cola viven en `components/flito/soat/` desde la HU #12819 (techo de 800 líneas).
 import {
   ESTADOS_ADMIN, ESTADOS_CLIENTE, ESTADOS_GESTOR, type ColaSoat, type FacetasSoat, type Proveedor,
@@ -30,6 +32,9 @@ import BarraFiltrosSoat, { type PresetSoat } from '../components/flito/soat/Barr
 import TablaColaSoat from '../components/flito/soat/TablaColaSoat';
 import DetalleSoat from '../components/flito/soat/DetalleSoat';
 import CargaMasiva from '../components/flito/soat/CargaMasivaSoat';
+
+/** Acciones de cabecera: a ancho completo por debajo de `sm`, la primaria primero (§14). */
+const ACCION_CABECERA = 'w-full justify-center sm:w-auto';
 
 export default function FlitoSoat() {
   const { user, hasFuncion, funciones } = useAuth();
@@ -280,24 +285,28 @@ export default function FlitoSoat() {
       {sinFuncionesPantalla ? (
         <>
           <PageHeaderCard title="SOAT" />
-          <p className="rounded-[10px] px-4 py-3 text-sm" style={{ background: 'var(--flit-bg-app)', color: 'var(--flit-text-primary)' }}>
-            Su usuario no tiene ninguna función habilitada en esta pantalla. Si cree que debería operar aquí, pida a un administrador que revise el cuadro de su rol.
-          </p>
+          <FlitCard>
+            <p className="flex items-start gap-2 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+              <Lock size={18} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: 'var(--flit-text-muted)' }} />
+              Su usuario no tiene ninguna función habilitada en esta pantalla. Si cree que debería operar aquí, pida a un administrador que revise el cuadro de su rol.
+            </p>
+          </FlitCard>
         </>
       ) : (
       <>
       <PageHeaderCard
         title="SOAT"
-        // El subtítulo de siempre es vocabulario de Operaciones —«cola de adquisición», «RN-01»— y le
-        // habla al Cliente de un proceso que él no ejecuta. Se ramifica solo para él; el de
-        // Operaciones no se toca.
+        // El subtítulo de siempre es vocabulario de Operaciones y le habla al Cliente de un proceso que
+        // él no ejecuta: se ramifica para él. El de Operaciones perdió en la HU #12819 la regla de
+        // negocio (RN-01/RN-03), que no es un título: dice qué es la cola, no cómo se valida.
         subtitle={esCliente
           ? 'Sus solicitudes de SOAT y las pólizas de su compañía.'
-          : 'Cola de adquisición del SOAT. El SOAT se ancla al VIN y solo pasa a Pagado con una factura validada.'}
+          : 'Cola de adquisición del SOAT: de Pendiente a Pagado.'}
         actions={(
           <>
             {(esOperaciones || esGestor) && (
-              <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setCargaMasiva(true)}>
+              <button type="button" className={`${flitBtnPrimary} ${ACCION_CABECERA}`} style={flitBtnPrimaryStyle} onClick={() => setCargaMasiva(true)}>
+                <Upload size={16} aria-hidden="true" className="shrink-0" />
                 Cargar facturas (masivo)
               </button>
             )}
@@ -307,7 +316,8 @@ export default function FlitoSoat() {
                 ofrecer un botón que abre una pantalla que explica que no se puede es justo el patrón
                 que el AC5 pide evitar. */}
             {esCliente && puedeSolicitar && (
-              <Link to="/flito/soat/solicitud" className={flitBtnPrimary} style={flitBtnPrimaryStyle}>
+              <Link to="/flito/soat/solicitud" className={`${flitBtnPrimary} ${ACCION_CABECERA}`} style={flitBtnPrimaryStyle}>
+                <Plus size={16} aria-hidden="true" className="shrink-0" />
                 Solicitar SOAT
               </Link>
             )}
@@ -362,13 +372,24 @@ export default function FlitoSoat() {
       {/* Estado 2 de los cuatro. Hasta la HU #11914 la banda no traía salida: el único camino era
           recargar la página, y para un rol EXTERNO eso es un callejón. El botón reusa el `refrescar`
           que ya existía y no inventa nada. */}
+      {/* HU #12819: solo errores de CARGA de la cola (el envío ya no llega aquí: es un toast) y con
+          copy propio — nunca el mensaje crudo del API. */}
       {error && (
         <FlitCard>
-          <div className="space-y-2">
-            <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
-              {esCliente ? 'No pudimos cargar sus solicitudes.' : error}
-            </p>
-            <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={refrescar}>Reintentar</button>
+          <div className="flex items-start gap-3">
+            <CircleAlert size={18} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: 'var(--flit-danger-text)' }} />
+            <div className="space-y-3">
+              <div role="alert" className="space-y-1 text-sm">
+                <p style={{ color: 'var(--flit-danger-text)' }}>
+                  {esCliente ? 'No pudimos cargar sus solicitudes.' : 'No se pudo cargar la cola de SOAT. Revisa tu conexión e intenta de nuevo.'}
+                </p>
+                {esCliente && <p style={{ color: 'var(--flit-text-secondary)' }}>Intente de nuevo en un momento.</p>}
+              </div>
+              <button type="button" className={flitBtnSecondary} onClick={refrescar}>
+                <RotateCw size={16} aria-hidden="true" className="shrink-0" />
+                Reintentar
+              </button>
+            </div>
           </div>
         </FlitCard>
       )}
@@ -377,12 +398,6 @@ export default function FlitoSoat() {
           SOAT», que es una afirmación distinta de «todavía no sé». El esqueleto ya trae
           `role="status"` y `aria-busy`. */}
       {!data && !error && <PageContentSkeleton />}
-
-      {conCasillas && seleccion.size > 0 && (
-        <BarraEnvioSoat marcadas={seleccion.size} enviables={enviables.map((f) => f.id)} descargables={descargables}
-          puedeEnviar={esOperaciones} puedeDescargar={puedeDescargar} proveedores={proveedores} zip={descargaZip}
-          onEnviado={() => { setSeleccion(new Set()); refrescar(); }} onError={setError} />
-      )}
 
       {/* Fuera de la barra a propósito: la descarga NO limpia la selección, pero si el usuario la
           limpia el aviso tiene que seguir en pantalla. Se monta donde se monta el botón. */}
@@ -394,6 +409,24 @@ export default function FlitoSoat() {
           onReintentar={descargaZip.reintentar}
           onDescartar={descargaZip.descartar}
         />
+      )}
+
+      {/* La barra de la selección va JUSTO encima de la tabla y pegada arriba mientras se marcan
+          filas (HU #12819, §6): antes quedaba sobre el aviso ZIP, lejos de las casillas, y en una
+          tabla larga sus acciones se iban de la vista. El `top` salta la barra superior del shell,
+          que también es pegajosa: con `top-2` quedaría debajo de ella. */}
+      {conCasillas && seleccion.size > 0 && (
+        <div className="sticky top-[calc(var(--flit-topbar-height)+0.5rem)] z-20">
+          <BarraEnvioSoat marcadas={seleccion.size} enviables={enviables.map((f) => f.id)} descargables={descargables}
+            puedeEnviar={esOperaciones} puedeDescargar={puedeDescargar} proveedores={proveedores} zip={descargaZip}
+            onQuitar={() => setSeleccion(new Set())}
+            onEnviado={(n, aOperaciones) => {
+              toastOk(`${n} SOAT enviados ${aOperaciones ? 'a Operaciones' : 'al gestor'}.`);
+              setSeleccion(new Set()); refrescar();
+            }}
+            // El error NO toca el estado de la página: la selección se conserva para reintentar.
+            onError={(texto) => toastError(texto)} />
+        </div>
       )}
 
       {data && filas.length === 0 && (
@@ -412,8 +445,10 @@ export default function FlitoSoat() {
                     {puedeSolicitar && (
                       <p className="mt-2">
                         Solicite el primero con la placa y el VIN del vehículo.
+                        {/* Secundario desde la HU #12819: la primaria ya está en la cabecera. */}
                         <span className="mt-3 block">
-                          <Link to="/flito/soat/solicitud" className={flitBtnPrimary} style={flitBtnPrimaryStyle}>
+                          <Link to="/flito/soat/solicitud" className={flitBtnSecondary}>
+                            <Plus size={16} aria-hidden="true" className="shrink-0" />
                             Solicitar SOAT
                           </Link>
                         </span>
@@ -421,7 +456,15 @@ export default function FlitoSoat() {
                     )}
                   </>
                 )
-                : 'No hay SOAT en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.'}
+                // HU #12819: el gestor no sincroniza el Tablero (no es suyo) y el auditor no trae nada.
+                : esGestor
+                  ? 'No tienes SOAT en esta vista. Aparecerán aquí cuando Operaciones te los envíe.'
+                  : soloLectura
+                    ? 'No hay SOAT en esta vista. Prueba con otro estado en las pastillas de arriba.'
+                    : 'No hay SOAT en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.'}
+            {(hayFiltros || texto.trim()) && (
+              <p className="mt-1">{esCliente ? 'Quite algún filtro o use «Limpiar filtros».' : 'Quita algún filtro o usa «Limpiar filtros».'}</p>
+            )}
           </FlitEmpty>
         </FlitCard>
       )}
@@ -431,6 +474,7 @@ export default function FlitoSoat() {
           onPrev={() => setPage((p) => Math.max(1, p - 1))} onNext={() => setPage((p) => p + 1)}
           conCasillas={conCasillas} seleccion={seleccion} setSeleccion={setSeleccion}
           seleccionables={seleccionables} toggle={toggle} esCliente={esCliente}
+          conCompania={!esCliente || (facetas?.companias.length ?? 0) > 1}
           puedeDescargar={puedeDescargar} descargaComprobante={descargaComprobante} onVer={setDetalleId} />
       )}
 

@@ -56,6 +56,8 @@ export interface FacetasSoat {
 
 export const pesos = (v: number | null | undefined) => v === null || v === undefined ? '—'
   : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
+/** Solo el día (HU #12819): las fechas del trámite en FLIT, que pasaron de la tabla al detalle. */
+export const fechaDia = (iso: string | null) => iso ? new Date(iso).toLocaleDateString('es-CO', { dateStyle: 'medium' }) : '—';
 export const fecha = (iso: string | null) => iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—';
 
 /**

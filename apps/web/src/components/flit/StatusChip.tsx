@@ -23,22 +23,32 @@ export type ChipTone = 'success' | 'active' | 'warning' | 'danger' | 'draft' | '
  *   neutral 4.39 → 4.52 (hereda el nuevo --flit-text-muted) · draft 4.75 (sin cambio).
  */
 const TONE: Record<ChipTone, { fg: string; dot: string; bg: string }> = {
-  success: { fg: 'var(--flit-success-ink)', dot: 'var(--flit-success)',    bg: '#EBF8E3' },
-  active:  { fg: 'var(--flit-blue-ink)',    dot: 'var(--flit-info)',       bg: '#E6ECF7' },
-  warning: { fg: 'var(--flit-warning-ink)', dot: 'var(--flit-warning)',    bg: '#FDE8E3' },
-  danger:  { fg: 'var(--flit-danger-ink)',  dot: 'var(--flit-danger)',     bg: '#FBE4E2' },
-  draft:   { fg: 'var(--flit-draft)',       dot: 'var(--flit-draft)',      bg: '#E8EAED' },
-  neutral: { fg: 'var(--flit-text-muted)',  dot: 'var(--flit-text-muted)', bg: '#EFF1F3' },
+  success: { fg: 'var(--flit-success-ink)',      dot: 'var(--flit-success)',          bg: 'var(--flit-chip-success-bg)' },
+  active:  { fg: 'var(--flit-blue-ink)',         dot: 'var(--flit-info)',             bg: 'var(--flit-chip-active-bg)' },
+  warning: { fg: 'var(--flit-warning-ink)',      dot: 'var(--flit-warning)',          bg: 'var(--flit-chip-warning-bg)' },
+  danger:  { fg: 'var(--flit-danger-ink)',       dot: 'var(--flit-danger)',           bg: 'var(--flit-chip-danger-bg)' },
+  // HU #12819: `draft` y `neutral` tenían la tinta del TEMA (`--flit-draft`, `--flit-text-muted`),
+  // que en oscuro se aclara, sobre un fondo pastel que no cambia: «Pendiente» era ilegible. Tinta
+  // y fondo salen ahora de tokens `--flit-chip-*`, con par oscuro y medidos por `check:contraste`.
+  draft:   { fg: 'var(--flit-chip-draft-ink)',   dot: 'var(--flit-chip-draft-ink)',   bg: 'var(--flit-chip-draft-bg)' },
+  neutral: { fg: 'var(--flit-chip-neutral-ink)', dot: 'var(--flit-chip-neutral-ink)', bg: 'var(--flit-chip-neutral-bg)' },
 };
 
-export default function StatusChip({ tone = 'neutral', children }: { tone?: ChipTone; children: ReactNode }) {
+/**
+ * `icono` (HU #12819): opcional, sustituye al punto. Decorativo —el texto ya dice el estado—, así que
+ * el llamador lo pasa con `aria-hidden`. Sin él, el chip es exactamente el de siempre.
+ */
+export default function StatusChip({ tone = 'neutral', children, icono }: { tone?: ChipTone; children: ReactNode; icono?: ReactNode }) {
   const c = TONE[tone];
   return (
     <span
+      // Asidero de QA (HU #12819): el chip ya no siempre lleva el punto (`icono` lo sustituye), así
+      // que contar chips por el punto dejó de valer. Sin texto ni rol: no cambia nada para el lector.
+      data-flit-chip=""
       className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold"
       style={{ color: c.fg, background: c.bg, borderRadius: 'var(--flit-radius-pill)' }}
     >
-      <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full" style={{ background: c.dot }} />
+      {icono ?? <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full" style={{ background: c.dot }} />}
       {children}
     </span>
   );

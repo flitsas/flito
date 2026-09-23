@@ -10,6 +10,7 @@
 // El ORDEN de los tres —vehículo, factura, propietario— lo decide la página, que es quien los monta.
 
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
+import { X } from 'lucide-react';
 import FlitSelect from '../../flit/FlitSelect';
 import FlitUploadBox from '../../flit/FlitUploadBox';
 import StatusChip from '../../flit/StatusChip';
@@ -243,7 +244,7 @@ export function Campo({
         </p>
       )}
       {error && (
-        <p id={idError} role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p>
+        <p id={idError} role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>
       )}
     </div>
   );
@@ -528,11 +529,12 @@ export function BloqueFactura({ archivo, error, rotulo, onElegir, onQuitar }: {
             {archivo.name} · {tamanoMb(archivo.size)}
           </span>
           <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onQuitar}>
+            <X size={16} aria-hidden="true" className="shrink-0" />
             Quitar el archivo
           </button>
         </div>
       )}
-      {error && <p role="alert" className="text-xs" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p>}
+      {error && <p role="alert" className="text-xs" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>}
     </div>
   );
 }
