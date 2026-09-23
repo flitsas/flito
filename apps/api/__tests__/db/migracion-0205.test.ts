@@ -19,7 +19,7 @@ import { execFileSync } from 'node:child_process';
 import postgres from 'postgres';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
 import {
-  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerReagrupacionesSembradas, leerRepartoSembrado,
+  MIGRACIONES_CON_REPARTO, REAGRUPACIONES_AUSENTES_EN_RELEASE, funcionesDeSql, leerReagrupacionesSembradas, leerRepartoSembrado,
   leerRetirosSembrados, repartoDeSql,
 } from '../helpers/permisos-seed-sql.js';
 import { reagrupaciones } from '../../src/modules/permisos/catalogo-agrupacion.js';
@@ -34,6 +34,10 @@ const SIN_COMENTARIOS = SQL_0205.replace(/--[^\n]*/g, '');
 
 const PARES = reagrupaciones();
 const MAPA = new Map(PARES);
+// En release (promoción selectiva del Feature 12072) la 0205 trae 47 pares y el código de release
+// produce 38: los 9 restantes son EXACTAMENTE los códigos que no existen en release (helper).
+const AUSENTES = REAGRUPACIONES_AUSENTES_EN_RELEASE;
+const MAPA_0205 = new Map([...PARES, ...AUSENTES]);
 
 /** Las tuplas `('codigo', 'modulo')` del VALUES tal como están en el archivo, en su orden. */
 function tuplasDelArchivo(): [string, string][] {
@@ -74,10 +78,18 @@ describe('0205 — análisis estático', () => {
   it('las tuplas del archivo son EXACTAMENTE `reagrupaciones()`: 47 pares, mismos valores, orden por código', () => {
     const tuplas = tuplasDelArchivo();
     expect(tuplas).toHaveLength(47);
-    expect(tuplas).toEqual([...PARES]);
-    // Y todas existen en el catálogo del código con ESE módulo (la 0205 escribe lo que el código dice).
+    // En release (promoción selectiva del Feature 12072): archivo = reagrupaciones() (38) ∪ los 9 ausentes,
+    // disjuntos, en el orden del archivo.
+    expect(PARES).toHaveLength(38);
+    expect(AUSENTES.size).toBe(9);
+    expect(tuplas.filter(([c]) => !AUSENTES.has(c))).toEqual([...PARES]);
+    expect(tuplas.filter(([c]) => AUSENTES.has(c))).toEqual([...AUSENTES.entries()]);
+    expect(PARES.filter(([c]) => AUSENTES.has(c))).toEqual([]);
+    // Las del código existen en el catálogo con ESE módulo; las 9 ausentes no existen en release.
     const catalogo = new Map(catalogoCompleto().map((f) => [f.codigo, f.modulo]));
-    for (const [codigo, modulo] of tuplas) expect(catalogo.get(codigo), codigo).toBe(modulo);
+    for (const [codigo, modulo] of tuplas) {
+      expect(catalogo.get(codigo), codigo).toBe(AUSENTES.has(codigo) ? undefined : modulo);
+    }
   });
 
   it('el bloque es byte a byte lo que produce `generar-seed-permisos.ts --reagrupar`', () => {
@@ -86,20 +98,34 @@ describe('0205 — análisis estático', () => {
     });
     const inicio = SQL_0205.indexOf('-- REAGRUPACIÓN GENERADA (inicio)\n') + '-- REAGRUPACIÓN GENERADA (inicio)\n'.length;
     const fin = SQL_0205.indexOf('-- REAGRUPACIÓN GENERADA (fin)');
-    expect(SQL_0205.slice(inicio, fin)).toBe(salida);
+    // En release (promoción selectiva del Feature 12072): el bloque del archivo, sin las 9 líneas de
+    // los ausentes y con la cuenta 47 → 38, es byte a byte la salida del generador de release.
+    const lineaDe = (c: string, m: string) => `    ('${c}', '${m}'),`;
+    const quitar = new Set([...AUSENTES].map(([c, m]) => lineaDe(c, m)));
+    const bloque = SQL_0205.slice(inicio, fin).split('\n');
+    expect(bloque.filter((l) => quitar.has(l))).toHaveLength(9);
+    const esperado = bloque.filter((l) => !quitar.has(l)).join('\n')
+      .replace(/^-- 47 pares /, '-- 38 pares ');
+    expect(esperado).toBe(salida);
   }, 60_000);
 
   it('el helper de paridad la pliega: `leerReagrupacionesSembradas()` devuelve los 47 pares y `funcionesDeSql` cambia el módulo', () => {
     expect(MIGRACIONES_CON_REPARTO.at(-1)).toBe(ARCHIVO);
     const sembradas = leerReagrupacionesSembradas([ARCHIVO]);
     expect(sembradas.size).toBe(47);
-    expect([...sembradas.entries()].sort()).toEqual([...MAPA.entries()].sort());
+    // En release (promoción selectiva del Feature 12072): los 47 = los 38 del código ∪ los 9 ausentes.
+    expect([...sembradas.entries()].sort()).toEqual([...MAPA_0205.entries()].sort());
     // Plegada sobre un INSERT mínimo: el módulo cambia; sobre nada, revienta (error de orden).
     const insert = `INSERT INTO permisos_funciones (codigo, modulo, nombre_negocio, descripcion, tipo) VALUES
       ('pagina.flito_soat', 'flito_soat_e_impuestos', 'SOAT', 'Entrar.', 'pagina') ON CONFLICT (codigo) DO NOTHING;`;
     const solo = `UPDATE permisos_funciones AS f\n   SET modulo = v.modulo\n  FROM (VALUES\n    ('pagina.flito_soat', 'soat')\n  ) AS v(codigo, modulo)\n WHERE f.codigo = v.codigo\n   AND f.modulo IS DISTINCT FROM v.modulo;`;
     expect(funcionesDeSql([insert, solo]).get('pagina.flito_soat')!.modulo).toBe('soat');
     expect(() => funcionesDeSql([solo])).toThrow(/no sembrada antes: pagina\.flito_soat/);
+    // En release (promoción selectiva del Feature 12072): un ausente se tolera solo con SU módulo; con
+    // otro, o un código fuera de la lista, sigue reventando.
+    const ausente = (m: string) => solo.replace("('pagina.flito_soat', 'soat')", `('pagina.flito_comprobantes', '${m}')`);
+    expect(funcionesDeSql([insert, ausente('comprobantes')]).has('pagina.flito_comprobantes')).toBe(false);
+    expect(() => funcionesDeSql([insert, ausente('otro')])).toThrow(/no sembrada antes: pagina\.flito_comprobantes/);
   });
 
   it('no siembra ni retira funciones ni reparto: el reparto plegado hasta la 0205 es el mismo que hasta la 0203 (AC6)', () => {
@@ -115,13 +141,25 @@ describe('0205 — análisis estático', () => {
   });
 
   it('los módulos que nacen y los que desaparecen son los de la HU (AC1, AC2)', () => {
-    const destinos = new Set(PARES.map(([, m]) => m));
+    // En release (promoción selectiva del Feature 12072): el archivo (47) escribe los módulos de la HU;
+    // el código de release (38) no conoce `servicios_adicionales` ni `comprobantes`, que llegan con 0191-0202.
+    const tuplas = tuplasDelArchivo();
+    const destinos = new Set(tuplas.map(([, m]) => m));
+    const destinosRelease = new Set(PARES.map(([, m]) => m));
     for (const m of ['clientes', 'tarifas', 'servicios_adicionales', 'catalogos_compartidos', 'transito', 'tramites']) {
       expect(destinos).toContain(m);
     }
-    for (const m of ['flito_soat_e_impuestos', 'parametrizacion', 'sync', 'finanzas']) expect(destinos).not.toContain(m);
-    expect(PARES.filter(([c]) => c.startsWith('pagina.'))).toHaveLength(24);
-    expect(PARES.filter(([c]) => !c.startsWith('pagina.'))).toHaveLength(23);
+    for (const m of ['clientes', 'tarifas', 'catalogos_compartidos', 'transito', 'tramites']) expect(destinosRelease).toContain(m);
+    expect(destinosRelease).not.toContain('servicios_adicionales');
+    expect(destinosRelease).not.toContain('comprobantes');
+    for (const m of ['flito_soat_e_impuestos', 'parametrizacion', 'sync', 'finanzas']) {
+      expect(destinos).not.toContain(m);
+      expect(destinosRelease).not.toContain(m);
+    }
+    expect(tuplas.filter(([c]) => c.startsWith('pagina.'))).toHaveLength(24);
+    expect(tuplas.filter(([c]) => !c.startsWith('pagina.'))).toHaveLength(23);
+    expect(PARES.filter(([c]) => c.startsWith('pagina.'))).toHaveLength(22);
+    expect(PARES.filter(([c]) => !c.startsWith('pagina.'))).toHaveLength(16);
   });
 });
 
@@ -165,8 +203,9 @@ describe.skipIf(!URL_BASE)('0205 — aplicar ×2 sobre BD ya migrada (P6)', () =
       const repartoAntes = (await huella(tx))[0].rf;
       await tx.unsafe(SQL_0205);
       const filas = await tx<{ codigo: string; modulo: string }[]>`
-        SELECT codigo, modulo FROM permisos_funciones WHERE codigo = ANY(${[...MAPA.keys()]}) ORDER BY codigo`;
-      expect(filas).toHaveLength(47);
+        SELECT codigo, modulo FROM permisos_funciones WHERE codigo = ANY(${[...MAPA_0205.keys()]}) ORDER BY codigo`;
+      // En release (promoción selectiva del Feature 12072): los 9 ausentes no tienen fila; quedan 38.
+      expect(filas).toHaveLength(38);
       for (const f of filas) expect(f.modulo, f.codigo).toBe(MAPA.get(f.codigo));
       const [{ n }] = await tx<{ n: number }[]>`
         SELECT count(*)::int AS n FROM permisos_funciones WHERE modulo IN ('flito_soat_e_impuestos', 'parametrizacion', 'sync')`;

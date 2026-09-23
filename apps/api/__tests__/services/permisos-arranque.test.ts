@@ -140,8 +140,11 @@ describe('HU #12716 AC7 — el arranque compara también el módulo de agrupaci�
     expect(error).toBeInstanceOf(ArranquePermisosError);
     // 47 pares en el mapa; `pagina.transito_organismos` se simula con `grupo_viejo`, así que aquí
     // difieren las 47 (es la simulación, no la 0205: la 0205 cambia 46).
-    expect((error as Error).message).toMatch(/difiere entre la base y el código en 47 funciones/);
-    expect((error as Error).message).toMatch(/… y 37 más/);
+    // En release (promoción selectiva del Feature 12072) el mapa tiene 38 (faltan los 9 códigos de
+    // servicios adicionales y comprobantes): difieren 38, se listan 10 y se cuentan 28.
+    expect(reagrupadas.size).toBe(38);
+    expect((error as Error).message).toMatch(/difiere entre la base y el código en 38 funciones/);
+    expect((error as Error).message).toMatch(/… y 28 más/);
     expect(((error as Error).message.match(/^\s+«/gm) ?? [])).toHaveLength(10);
   });
 

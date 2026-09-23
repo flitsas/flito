@@ -31,6 +31,7 @@ import {
   OPERACIONES_DECLARADAS, OPERACIONES_RETIRADAS_CANAL_CLIENTE,
 } from '../../src/modules/permisos/catalogo-operaciones.js';
 import { FUNCIONES_SIN_ADMIN } from '../../src/modules/permisos/permisos.service.js';
+import { REAGRUPACIONES_AUSENTES_EN_RELEASE } from '../helpers/permisos-seed-sql.js';
 
 const catalogo = catalogoCompleto();
 const paginas = catalogo.filter((f) => f.tipo === 'pagina');
@@ -297,7 +298,9 @@ describe('HU #12716 — cada página se agrupa con las acciones de su módulo', 
     // `finanzas` sigue existiendo como módulo de PÁGINAS sin acciones (gastos diarios, Siigo), pero
     // ninguna operación queda ahí: las de servicios adicionales se fueron a su pantalla.
     expect(operaciones.filter((f) => f.modulo === 'finanzas')).toEqual([]);
-    for (const m of ['clientes', 'tarifas', 'servicios_adicionales', 'catalogos_compartidos']) expect(modulos).toContain(m);
+    // En release (promoción selectiva del Feature 12072) servicios adicionales no sube: su módulo no existe.
+    for (const m of ['clientes', 'tarifas', 'catalogos_compartidos']) expect(modulos).toContain(m);
+    expect(modulos).not.toContain('servicios_adicionales');
   });
 
   it('los 46 códigos que la HU nombra llevan el módulo esperado (AC1, AC2)', () => {
@@ -333,14 +336,22 @@ describe('HU #12716 — cada página se agrupa con las acciones de su módulo', 
     };
     expect(Object.keys(esperado)).toHaveLength(46);
     const porCodigoTodo = new Map(catalogo.map((f) => [f.codigo, f.modulo]));
-    for (const [codigo, modulo] of Object.entries(esperado)) expect(porCodigoTodo.get(codigo), codigo).toBe(modulo);
+    // En release (promoción selectiva del Feature 12072): los 37 presentes llevan su módulo; los 9 de
+    // la tabla que no existen en release son EXACTAMENTE la lista de ausentes (mismo módulo) y no están.
+    const ausentes = Object.entries(esperado).filter(([c]) => REAGRUPACIONES_AUSENTES_EN_RELEASE.has(c));
+    expect(ausentes.sort()).toEqual([...REAGRUPACIONES_AUSENTES_EN_RELEASE.entries()].sort());
+    for (const [codigo, modulo] of Object.entries(esperado)) {
+      expect(porCodigoTodo.get(codigo), codigo).toBe(REAGRUPACIONES_AUSENTES_EN_RELEASE.has(codigo) ? undefined : modulo);
+    }
   });
 
   it('`reagrupaciones()` tiene 47 pares ordenados por código; 46 cambian el valor estructural y el de `transito_organismos` es no-op', () => {
     const pares = reagrupaciones();
-    expect(pares).toHaveLength(47);
+    // En release (promoción selectiva del Feature 12072): 47 − los 9 ausentes = 38, ninguno de ellos.
+    expect(pares).toHaveLength(38);
     expect(pares.map(([c]) => c)).toEqual([...pares.map(([c]) => c)].sort((a, b) => a.localeCompare(b)));
-    expect(new Set(pares.map(([c]) => c)).size).toBe(47);
+    expect(new Set(pares.map(([c]) => c)).size).toBe(38);
+    expect(pares.filter(([c]) => REAGRUPACIONES_AUSENTES_EN_RELEASE.has(c))).toEqual([]);
 
     // El módulo ESTRUCTURAL: el grupo de PAGE_GROUPS (primera aparición) para páginas y `g.modulo`
     // de la foto para operaciones. Se calcula sin el mapa, que es la otra cuenta.
@@ -351,7 +362,7 @@ describe('HU #12716 — cada página se agrupa con las acciones de su módulo', 
     for (const g of GUARDAS_MEDIDAS) estructural.set(codigoDeLlave.get(llaveDe(g))!, g.modulo);
 
     const cambian = pares.filter(([codigo, modulo]) => estructural.get(codigo) !== modulo);
-    expect(cambian).toHaveLength(46);
+    expect(cambian).toHaveLength(37); // En release: 46 − 9 ausentes.
     const noOp = pares.filter(([codigo, modulo]) => estructural.get(codigo) === modulo);
     expect(noOp).toEqual([['pagina.transito_organismos', 'transito']]);
   });

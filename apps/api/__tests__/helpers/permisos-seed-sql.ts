@@ -44,6 +44,25 @@ function sinComentariosSql(sql: string): string {
   return sql.replace(/--[^\n]*/g, '');
 }
 
+/**
+ * En release (promoción selectiva del Feature 12072) la 0205 viaja BYTE A BYTE igual que en staging,
+ * pero sin las migraciones 0191-0202: estos 9 códigos de su VALUES no existen en release (servicios
+ * adicionales y comprobantes no suben), así que su UPDATE es no-op en la base y el generador no los
+ * produce. Es la ÚNICA tolerancia del plegado: cualquier otro código no sembrado sigue reventando.
+ * Pares `codigo → modulo` exactamente como los escribe la 0205, ordenados por código.
+ */
+export const REAGRUPACIONES_AUSENTES_EN_RELEASE: ReadonlyMap<string, string> = new Map([
+  ['finanzas.servicios_adicionales.asignar', 'servicios_adicionales'],
+  ['finanzas.servicios_adicionales.quitar', 'servicios_adicionales'],
+  ['finanzas.servicios_adicionales.ver', 'servicios_adicionales'],
+  ['pagina.flito_comprobantes', 'comprobantes'],
+  ['pagina.flito_servicios_adicionales', 'servicios_adicionales'],
+  ['parametrizacion.servicios_adicionales.crear', 'servicios_adicionales'],
+  ['parametrizacion.servicios_adicionales.dar_de_baja', 'servicios_adicionales'],
+  ['parametrizacion.servicios_adicionales.editar', 'servicios_adicionales'],
+  ['parametrizacion.servicios_adicionales.listar', 'servicios_adicionales'],
+]);
+
 /** Cada bloque `INSERT INTO <tabla> (…) VALUES … ;` del archivo, ya sin comentarios. */
 function bloquesInsert(sql: string, tabla: string): string[] {
   const re = new RegExp(`INSERT INTO ${tabla}\\s*\\([^)]*\\)\\s*VALUES([\\s\\S]*?);`, 'g');
@@ -125,6 +144,8 @@ export function funcionesDeSql(sqls: readonly string[]): Map<string, FuncionSemb
     for (const bloque of bloquesUpdateModulo(sql)) {
       for (const [codigo, modulo] of tuplas(bloque)) {
         const fila = funciones.get(codigo!);
+        // En release (promoción selectiva del Feature 12072): no-op solo para los 9 ausentes nombrados.
+        if (!fila && modulo && REAGRUPACIONES_AUSENTES_EN_RELEASE.get(codigo!) === modulo) continue;
         if (!fila || !modulo) throw new Error(`UPDATE de modulo sobre una función no sembrada antes: ${codigo}`);
         fila.modulo = modulo;
       }

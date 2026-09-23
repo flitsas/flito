@@ -65,7 +65,8 @@ describe('0203 — análisis estático', () => {
   it('la anterior es la 0202_ (HU #12654) — nunca «es la última»', () => {
     const sqls = readdirSync(DIR).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
     // No exige «es la última»: la convención pide max+1 EN SU MOMENTO.
-    expect(sqls[sqls.indexOf(ARCHIVO) - 1]).toMatch(/^0202_/);
+    // En release (promoción selectiva del Feature 12072) no existen 0191-0202: la anterior es la 0190.
+    expect(sqls[sqls.indexOf(ARCHIVO) - 1]).toMatch(/^(0202|0190)_/);
   });
 
   it('la cabecera cumple la convención del README: archivo, motivo (Bug/Feature) y autor', () => {
@@ -134,7 +135,8 @@ describe('0203 — análisis estático', () => {
     expect(retiros.funciones.size).toBe(0);
     expect(retiros.reparto.size).toBe(0);
     // Posición RELATIVA (detrás de la 0202), no «es la última» de la lista.
-    expect(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO)).toBe(MIGRACIONES_CON_REPARTO.indexOf('0202_comprobantes_diferencia.sql') + 1);
+    // En release (promoción selectiva del Feature 12072) la 0202 no existe: va detrás de la 0190.
+    expect(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO)).toBe(MIGRACIONES_CON_REPARTO.indexOf('0190_users_baja_logica.sql') + 1);
     const total = leerRepartoSembrado();
     for (const codigo of OPS) {
       expect(total.get('admin')!.has(codigo)).toBe(true);
