@@ -16,7 +16,7 @@
 // ── Lo que se omite y lo que NO ───────────────────────────────────────────────────────────────────
 //
 // - Ilegible (bytes que no son PDF/JPEG/PNG, PDF que no carga o sin páginas, imagen que no se deja
-//   incrustar, FLIT o MinIO caídos): se omite y se cuenta en `X-Soportes-Omitidos`.
+//   incrustar, PNG por encima de `MAX_PIXELES_PNG`, FLIT o MinIO caídos): se omite y se cuenta en `X-Soportes-Omitidos`.
 // - PDF **cifrado** (`EncryptedPDFError`): NO se omite (decisión de producto de la HU #12817). pdf-lib
 //   no puede copiar sus páginas —con `ignoreEncryption` saldrían en blanco, y eso está prohibido—,
 //   así que el original viaja APARTE, bytes intactos, como otra entrada del registro con el
@@ -46,6 +46,33 @@ const A4 = { ancho: 595.28, alto: 841.89 } as const;
 
 /** Registros que se consolidan a la vez. Ver el pico de memoria en la cabecera. */
 const CONCURRENCIA = 2;
+
+/**
+ * Techo de píxeles de un PNG antes de dejar que pdf-lib lo decodifique.
+ *
+ * `embedPng` descomprime la imagen ENTERA en memoria (UPNG → RGBA8, 4 B/px) y luego la parte en
+ * canales RGB + alfa (otros ~4 B/px): ~8 B/px en el pico. Los topes de bytes no protegen aquí: un PNG
+ * de pocos MB puede declarar 20000×20000 en su IHDR (1,6 GB solo en RGBA) y tumbar el proceso, que PM2
+ * reinicia a 512 MB. Con 16 Mpx el pico es ≈ 128 MB por imagen y ≈ 256 MB con `CONCURRENCIA` 2, del
+ * orden del presupuesto de lote (262 MB) y por debajo del reinicio. Cubre lo real: un A4 escaneado a
+ * 300 dpi son 8,7 Mpx, a 400 dpi 15,6 Mpx; una foto de móvil, 12 Mpx. Por encima → omitido (AC5).
+ */
+const MAX_PIXELES_PNG = 16_000_000;
+
+/** Firma de 8 bytes de todo PNG. */
+const FIRMA_PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+/**
+ * ¿Cabe este PNG bajo `MAX_PIXELES_PNG`? Lee SOLO la cabecera: firma, primer chunk `IHDR` (siempre
+ * el primero por especificación) y su ancho/alto. Cabecera inválida o dimensión 0 → `false`.
+ */
+function pngDentroDelTecho(buf: Buffer): boolean {
+  if (buf.length < 24 || !buf.subarray(0, 8).equals(FIRMA_PNG)) return false;
+  if (buf.toString('latin1', 12, 16) !== 'IHDR') return false;
+  const ancho = buf.readUInt32BE(16);
+  const alto = buf.readUInt32BE(20);
+  return ancho > 0 && alto > 0 && ancho * alto <= MAX_PIXELES_PNG;
+}
 
 /** El resultado puro de juntar los documentos de UN registro. */
 export interface PdfConsolidado {
@@ -115,6 +142,9 @@ export async function consolidarPdf(docs: Buffer[]): Promise<PdfConsolidado> {
         const paginas = await destino.copyPages(src, indices);
         for (const p of paginas) destino.addPage(p);
         incluidos += 1;
+      } else if (tipo === 'png' && !pngDentroDelTecho(buf)) {
+        // Nunca llega a `embedPng`: la bomba de descompresión se corta leyendo 24 bytes.
+        omitidos += 1;
       } else if (tipo === 'jpg' || tipo === 'png') {
         await anadirImagen(destino, buf, tipo);
         incluidos += 1;
@@ -207,7 +237,8 @@ async function consolidarRegistro(
   const archivos: ResultadoRegistro['archivos'] = [];
   const escribir = async (bytes: Uint8Array, cifrado: boolean): Promise<void> => {
     const ruta = path.join(dir, `${randomUUID()}.pdf`);
-    await fs.writeFile(ruta, bytes);
+    // 0o600: el temporal lleva documentos de terceros; solo el usuario del proceso lo lee.
+    await fs.writeFile(ruta, bytes, { mode: 0o600 });
     archivos.push({ ruta, bytes: bytes.length, cifrado });
   };
   if (r.pdf) await escribir(r.pdf, false);
