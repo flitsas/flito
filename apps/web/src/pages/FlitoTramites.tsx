@@ -32,7 +32,7 @@ import {
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../components/flit/flitPageKit';
 import {
-  AvisoSoportesZip, DescargarSoportesZip, ZIP_TRAMITES, hoverSecundario, useDescargaZip,
+  AvisoSoportesZip, DescargarSoportesZip, ZIP_TRAMITES, useDescargaZip,
 } from '../components/flito/DescargarSoportesZip';
 import { documentoConTipo } from '../components/flit/columnasComunes';
 
@@ -417,10 +417,10 @@ export default function FlitoTramites() {
                 su ausencia. El número del rótulo es el de las filas sobre las que SÍ actúan. */}
             {nAccionables > 0 && (
               <>
-                <button className={`${flitBtnSecondary} ${hoverSecundario}`} style={flitBtnSecondaryStyle} disabled={enProceso} onClick={() => setDialogo('soat')}>Solicitar SOAT ({cuentaAccionable})</button>
-                <button className={`${flitBtnSecondary} ${hoverSecundario}`} style={flitBtnSecondaryStyle} disabled={enProceso} onClick={solicitarImpuestos}>Solicitar Impuestos ({cuentaAccionable})</button>
-                <button className={`${flitBtnSecondary} ${hoverSecundario}`} style={flitBtnSecondaryStyle} disabled={enProceso} onClick={() => setDialogo('ambos')}>Solicitar ambos ({cuentaAccionable})</button>
-                <button className={`${flitBtnPrimary} transition-opacity enabled:hover:opacity-90`} style={flitBtnPrimaryStyle} disabled={enProceso} onClick={() => entregar(idsAccionables())}>Entregar ({cuentaAccionable})</button>
+                <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enProceso} onClick={() => setDialogo('soat')}>Solicitar SOAT ({cuentaAccionable})</button>
+                <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enProceso} onClick={solicitarImpuestos}>Solicitar Impuestos ({cuentaAccionable})</button>
+                <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enProceso} onClick={() => setDialogo('ambos')}>Solicitar ambos ({cuentaAccionable})</button>
+                <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enProceso} onClick={() => entregar(idsAccionables())}>Entregar ({cuentaAccionable})</button>
               </>
             )}
             {/* Ocupa el MISMO píxel que el viejo «Descargar facturas (zip)»: quien lo tenía
@@ -437,7 +437,7 @@ export default function FlitoTramites() {
                 con el velo de hover y el foco del kit — antes era un texto de 12 px sin affordance. */}
             <button
               type="button"
-              className={`flit-focus inline-flex h-10 items-center rounded-[999px] px-3 text-sm font-medium ${hoverSecundario}`}
+              className="flit-focus inline-flex h-10 items-center rounded-[999px] px-3 text-sm font-medium transition-colors hover:bg-[var(--flit-bg-hover)]"
               style={{ color: 'var(--flit-text-secondary)' }}
               onClick={limpiar}
             >

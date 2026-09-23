@@ -11,7 +11,7 @@ import {
   FlitCard, flitInp, flitBtnPrimary, flitBtnPrimaryStyle,
 } from '../flit/flitPageKit';
 import {
-  DescargarSoportesZip, ZIP_SOAT, hoverPrimario, type EstadoDescargaZip,
+  DescargarSoportesZip, ZIP_SOAT, type EstadoDescargaZip,
 } from './DescargarSoportesZip';
 
 /** Lo único que la barra necesita saber de un proveedor de SOAT. */
@@ -133,7 +133,7 @@ export default function BarraEnvioSoat({
               </select>
             </label>
             {/* Sin destino el SOAT quedaría en la cola de nadie y sin ANS con el que medirlo. */}
-            <button type="button" className={`${flitBtnPrimary} ${hoverPrimario}`} style={flitBtnPrimaryStyle}
+            <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
               disabled={enviando || !destino} onClick={enviar}>
               {enviando ? 'Enviando…' : `${aOperaciones ? 'Enviar a Operaciones' : 'Enviar al gestor'} (${cuenta})`}
             </button>

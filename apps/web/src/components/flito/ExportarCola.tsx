@@ -23,6 +23,7 @@
 //     Colombia. Uno fabricado aquí llevaría la hora del equipo de quien descarga.
 
 import { useCallback, useRef, useState } from 'react';
+import { FileSpreadsheet, RotateCw, X } from 'lucide-react';
 import { ApiError, api } from '../../lib/api';
 import { flitBtnSecondary, flitBtnSecondarySm, flitBtnSecondaryStyle } from '../flit/flitPageKit';
 
@@ -336,6 +337,7 @@ export function BotonExportarCola(
         disabled={ocupado}
         aria-busy={ocupado || undefined}
       >
+        <FileSpreadsheet size={16} aria-hidden="true" className="shrink-0" />
         {ocupado ? 'Preparando el archivo…' : 'Exportar a Excel'}
       </button>
       {/* Lo que el usuario no puede deducir del botón: que la descarga NO es la página que está
@@ -455,6 +457,7 @@ export function AvisoVisible(
             {/* «Reintentar» a secas colisionaría con el de la banda de error de la COLA, que en SOAT
                 puede estar en pantalla a la vez: dos botones con el mismo nombre accesible y dos
                 efectos distintos. */}
+            <RotateCw size={16} aria-hidden="true" className="shrink-0" />
             Reintentar la descarga
           </button>
         )}
@@ -464,6 +467,7 @@ export function AvisoVisible(
           style={flitBtnSecondaryStyle}
           onClick={onDescartar}
         >
+          <X size={16} aria-hidden="true" className="shrink-0" />
           Cerrar el aviso
         </button>
       </div>

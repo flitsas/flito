@@ -910,6 +910,26 @@ console.log(
     + `${peorAnillo.pos.toFixed(0).padStart(3)}% (${hex(peorAnillo.fondo)}) — anillo ${hex(sobre(anillo.color, anillo.alfa, peorAnillo.fondo))} sobre el gradiente del drawer, mínimo ${MINIMO_NO_TEXTO}`,
 );
 
+// ── Velo de la primaria al pasar el puntero y al pulsar (HU #12819) ──────────────────────
+// `flitBtnPrimary` oscurece su degradado con un `box-shadow` inset de `--flit-veil-press-*`. El
+// velo es OSCURO a propósito —sube el contraste del texto blanco—, pero eso es una afirmación y
+// aquí se mide: el velo compuesto sobre cada parada de `--flit-gradient-primary` (la composición
+// alfa es lineal, así que componer las paradas equivale a componer cada muestra), en los dos temas.
+const rampaPrimaria = rampas.find((r) => r.token === '--flit-gradient-primary');
+for (const tema of TEMAS) {
+  for (const velo of ['--flit-veil-press-hover', '--flit-veil-press-active']) {
+    const v = parsear(tokenFlit(velo, tema), velo, tema);
+    const paradas = rampaPrimaria.paradas.map((p) => ({ ...p, color: sobre(v.color, v.alfa, p.color) }));
+    const peor = peorDelGradiente(paradas, () => BLANCO);
+    const ok = peor.r >= MINIMO;
+    if (!ok) fallosGradiente++;
+    console.log(
+      `${ok ? '✓' : '✗'} ${velo.padEnd(26)} peor ${peor.r.toFixed(2)} en ${peor.pos.toFixed(0).padStart(3)}% `
+        + `(${hex(peor.fondo)}) — texto blanco sobre la primaria con el velo, tema ${tema}`,
+    );
+  }
+}
+
 if (fallos + fallosGradiente + fallosPares > 0) {
   console.error(
     `\n✗ ${fallos + fallosGradiente + fallosPares} comprobación(es) de contraste en rojo.`
