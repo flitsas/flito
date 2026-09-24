@@ -235,7 +235,40 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
     };
   }
 
-  const vehiculoRunt = extraerVehiculoRunt(runt.data);
+  return certificarConRespuestaRunt(id, datos, runt.data, { userId: ctx.userId, username: ctx.username });
+}
+
+/**
+ * Quién firma una certificación. En `POST /:id/certificar` y en el lote es el usuario de la sesión;
+ * en la autocertificación del análisis post-envío (HU #12828) es el sistema: `userId` nulo (la FK a
+ * `users` lo admite) y un nombre fijo que el certificado imprime como «certificado por».
+ */
+export interface ActorCertificacion {
+  userId: ImpuestoCtx['userId'] | null;
+  username: string;
+}
+
+export type ResultadoCertificarConRunt = Extract<ResultadoCertificar, {
+  resultado: typeof ResultadoCertificacion.CERTIFICADO | typeof ResultadoCertificacion.CON_DIFERENCIAS;
+}>;
+
+/**
+ * DADA una respuesta válida del RUNT (con registro), compara y persiste (HU #12828, extraído sin
+ * cambio de lógica de `certificarImpuesto`): motor/serie en `vehicles`, y si es certificable la fila
+ * vigente en `flito_impuesto_certificaciones` (con el snapshot) + `audit_logs`, en una transacción.
+ *
+ * Precondiciones del llamador: `datos.placa` no vacía y documento o VIN presentes (el mismo par con
+ * el que se consultó: con documento se consultó por documento, sin él por VIN), y `runtData` ya pasó
+ * por `runtSinRegistro`. Así la reutiliza la autocertificación sin volver a consultar el RUNT.
+ */
+export async function certificarConRespuestaRunt(
+  id: string, datos: DatosImpuesto, runtData: unknown, actor: ActorCertificacion,
+): Promise<ResultadoCertificarConRunt> {
+  const placa = (datos.placa ?? '').trim();
+  const documento = datos.ownerDocument?.trim() || null;
+  const vin = datos.vin?.trim() || null;
+
+  const vehiculoRunt = extraerVehiculoRunt(runtData);
   await guardarMotorYSerie(id, datos.vehiculoId, vehiculoRunt);
 
   const veredicto = compararConRunt(datos, vehiculoRunt);
@@ -250,7 +283,7 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
     };
   }
 
-  const tipoDocPropietario = (runt.data as { tipoDocPropietario?: unknown }).tipoDocPropietario;
+  const tipoDocPropietario = (runtData as { tipoDocPropietario?: unknown }).tipoDocPropietario;
 
   const fila = await db.transaction(async (tx: Tx) => {
     // Recertificar apaga la vigente antes de insertar. El índice único parcial de la migración 0121
@@ -276,13 +309,13 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
       // cambia de contenido después de emitido no sirve como evidencia (HU #11167, AC2/AC4).
       propietarioNombre: datos.ownerName?.trim() || null,
       campos: veredicto.campos,
-      snapshotRunt: runt.data as Record<string, unknown>,
-      certificadoPorId: ctx.userId,
-      certificadoPorNombre: ctx.username,
+      snapshotRunt: runtData as Record<string, unknown>,
+      certificadoPorId: actor.userId,
+      certificadoPorNombre: actor.username,
     }).returning();
 
     await tx.insert(auditLogs).values({
-      userId: ctx.userId, userEmail: ctx.username, action: 'update',
+      userId: actor.userId, userEmail: actor.username, action: 'update',
       resource: 'flito_impuesto', resourceId: id,
       detail: `Certificación contra RUNT (placa ${placa}, ${documento ? `doc ${documento.slice(0, 4)}***` : `VIN ${vin}`})`,
     });

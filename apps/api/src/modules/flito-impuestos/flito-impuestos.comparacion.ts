@@ -15,7 +15,7 @@
 // y `semaforo` queda NULL (reintentable).
 //
 // Una consulta RUNT por análisis: queda en `job.consultaRunt` para la 12828.
-// PII: se leen documento del propietario y VIN para consultar, y se persiste el VIN en el jsonb →
+// PII: se leen placa, documento del propietario y VIN para consultar, y se persiste el VIN en el jsonb →
 // `pii_access_log` de sistema. Los logs llevan solo id, semáforo, motivo, causa y conteos.
 
 import { and, eq } from 'drizzle-orm';
@@ -84,7 +84,7 @@ export const pasoComparacion: PasoAnalisis = async ({ impuestoId, runt, job }) =
   const consulta = await consultarRuntDeImpuesto(impuestoId, runt);
   job.consultaRunt = consulta;
   await registrarAccesoSistema(
-    impuestoId, ['documento_propietario', 'vin'], `comparación factura vs RUNT · consulta=${consulta.estado}`,
+    impuestoId, ['placa', 'documento_propietario', 'vin'], `comparación factura vs RUNT · consulta=${consulta.estado}`,
   );
 
   if (consulta.estado !== 'ok') {
