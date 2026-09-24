@@ -23,6 +23,7 @@
 //     Colombia. Uno fabricado aquí llevaría la hora del equipo de quien descarga.
 
 import { useCallback, useRef, useState } from 'react';
+import { FileSpreadsheet, RotateCw, X } from 'lucide-react';
 import { ApiError, api } from '../../lib/api';
 import { flitBtnSecondary, flitBtnSecondarySm, flitBtnSecondaryStyle } from '../flit/flitPageKit';
 
@@ -327,15 +328,17 @@ export function BotonExportarCola(
   },
 ) {
   return (
-    <div className="flex flex-col items-end gap-1">
+    // A ancho completo por debajo de `sm` (HU #12819): en 375 px el bloque se apila bajo el título.
+    <div className="flex w-full flex-col items-stretch gap-1 sm:w-auto sm:items-end">
       <button
         type="button"
-        className={flitBtnSecondary}
+        className={`${flitBtnSecondary} justify-center`}
         style={flitBtnSecondaryStyle}
         onClick={onExportar}
         disabled={ocupado}
         aria-busy={ocupado || undefined}
       >
+        <FileSpreadsheet size={16} aria-hidden="true" className="shrink-0" />
         {ocupado ? 'Preparando el archivo…' : 'Exportar a Excel'}
       </button>
       {/* Lo que el usuario no puede deducir del botón: que la descarga NO es la página que está
@@ -349,7 +352,7 @@ export function BotonExportarCola(
            nombre accesible («Incluir datos… Añade al final…»), que es lo que el lector anunciaría
            entero y lo que rompería a quien la busque por su rótulo. Desmarcada por defecto: el
            archivo de siempre sigue siendo lo que sale con un solo clic. */
-        <div className="flex flex-col items-end">
+        <div className="flex flex-col items-start sm:items-end">
           <label className="flex cursor-pointer items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -362,7 +365,7 @@ export function BotonExportarCola(
           </label>
           <span
             id="export-incluir-pago-ayuda"
-            className="text-right text-xs"
+            className="text-xs sm:text-right"
             style={{ color: 'var(--flit-text-secondary)' }}
           >
             Añade al final del archivo estado, fechas, valor pagado y gestor. Solo para Operaciones.
@@ -455,6 +458,7 @@ export function AvisoVisible(
             {/* «Reintentar» a secas colisionaría con el de la banda de error de la COLA, que en SOAT
                 puede estar en pantalla a la vez: dos botones con el mismo nombre accesible y dos
                 efectos distintos. */}
+            <RotateCw size={16} aria-hidden="true" className="shrink-0" />
             Reintentar la descarga
           </button>
         )}
@@ -464,6 +468,7 @@ export function AvisoVisible(
           style={flitBtnSecondaryStyle}
           onClick={onDescartar}
         >
+          <X size={16} aria-hidden="true" className="shrink-0" />
           Cerrar el aviso
         </button>
       </div>

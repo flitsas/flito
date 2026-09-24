@@ -37,6 +37,7 @@
 //     tiene que poder leer después de abrir el ZIP y notar que falta algo.
 
 import { useCallback, useRef, useState } from 'react';
+import { FileArchive } from 'lucide-react';
 import {
   CABECERAS_ZIP_SOPORTES, CODIGO_ZIP_DEMASIADO_GRANDE, CODIGO_ZIP_DEMASIADOS_REGISTROS,
   CODIGO_ZIP_SIN_SOPORTES, TipoSoporteZip, ZIP_SOPORTES_MAX_REGISTROS,
@@ -143,11 +144,6 @@ export const ZIP_TRAMITES: SuperficieZip = {
  * un ZIP sano con «la operación tardó demasiado».
  */
 const ZIP_TIMEOUT_MS = 600_000;
-
-/** Velo de hover del kit (`--flit-bg-hover`, con par oscuro): el botón secundario no lo trae. */
-export const hoverSecundario = 'transition-colors enabled:hover:bg-[var(--flit-bg-hover)]';
-/** El primario pinta su gradiente por `style`: el hover se da con opacidad, sin sombra ni escala. */
-export const hoverPrimario = 'transition-opacity enabled:hover:opacity-90';
 
 /** Prefijo del nombre que pone el servidor. **Sin placa**: el nombre del ZIP acaba en un asunto de correo. */
 const PREFIJO_ZIP = 'soportes';
@@ -441,8 +437,8 @@ export function DescargarSoportesZip(
       <button
         type="button"
         className={primaria
-          ? `${flitBtnPrimary} ${hoverPrimario} ${ancho}`
-          : `${flitBtnSecondary} ${hoverSecundario} ${ancho}`}
+          ? `${flitBtnPrimary} ${ancho}`
+          : `${flitBtnSecondary} ${ancho}`}
         style={primaria ? flitBtnPrimaryStyle : flitBtnSecondaryStyle}
         onClick={alPulsar}
         disabled={ocupado || ids.length === 0 || n < minMarcadas}
@@ -452,6 +448,7 @@ export function DescargarSoportesZip(
         {/* «Descargar soportes» y no «Descargar» a secas: en Impuestos convive con «Descargar
             certificado» por fila, y dos botones con el mismo nombre accesible en la misma pantalla
             son dos acciones indistinguibles para quien navega con lector. */}
+        <FileArchive size={16} aria-hidden="true" className="shrink-0" />
         {ocupado ? 'Preparando el archivo…' : `Descargar soportes (${cuenta})`}
       </button>
       {superficie.lineaAyuda && (
@@ -565,7 +562,7 @@ function DialogoTipos(
           {/* «Cancelar» además del aspa de `FlitModal`: es un diálogo de decisión, no un visor. */}
           <button
             type="button"
-            className={`${flitBtnSecondary} ${hoverSecundario}`}
+            className={flitBtnSecondary}
             style={flitBtnSecondaryStyle}
             onClick={onCancelar}
           >
@@ -573,7 +570,7 @@ function DialogoTipos(
           </button>
           <button
             type="button"
-            className={`${flitBtnPrimary} ${hoverPrimario}`}
+            className={flitBtnPrimary}
             style={flitBtnPrimaryStyle}
             disabled={sinTipos}
             onClick={() => onConfirmar(elegidos)}

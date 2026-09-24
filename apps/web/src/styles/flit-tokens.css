@@ -41,6 +41,12 @@
      —`rgba(22,39,68,.06)` en la regla base y `rgba(255,255,255,.08)` en un `[data-theme='dark']`
      aparte—, o sea DOS fuentes de verdad para el mismo efecto. Aquí es una sola con su par. */
   --flit-bg-hover: rgba(22, 39, 68, 0.06);
+  /* Velo de la primaria al pasar el puntero y al pulsar (HU #12819). OSCURO en los dos temas y con el
+     mismo valor: la primaria es un degradado con texto blanco, y oscurecer el fondo SUBE el contraste
+     del texto en claro y en oscuro. Se pinta con `box-shadow` inset para no pelear con el degradado,
+     que va en línea. `opacity` o `--flit-bg-hover` lo bajarían. */
+  --flit-veil-press-hover: rgba(8, 18, 38, 0.12);
+  --flit-veil-press-active: rgba(8, 18, 38, 0.20);
 
   /* Marca */
   --flit-cyan: #4FD4CC;
@@ -98,6 +104,28 @@
      archivó sin preguntarse qué implicaba para el TEXTO. Mismo matiz (HSL 176°, S 61 %), L 57 % →
      30 %: 5,07 sobre blanco, en línea con el resto de la familia (5,14 / 5,47 / 5,62 / 5,72). */
   --flit-cyan-ink: #1E7B75;
+
+  /* Texto de ERROR sobre superficies del kit (HU #12819). Los `-ink` no tienen par oscuro a
+     propósito (#11766: son tinta sobre su propio tinte y sobre los gradientes), así que
+     `--flit-danger-ink` sobre la tarjeta oscura se hundía en ~2,5:1. Este token es el que se usa
+     para un error escrito sobre tarjeta, modal o página; en claro vale lo mismo que el `-ink`. */
+  --flit-danger-text: #C02F24;
+  /* Tinta de la pill ACTIVA (fondo `--flit-bg-card`). En claro es el `--flit-blue-ink` de siempre
+     (5,62 sobre blanco, Bug #11604); en oscuro ese mismo azul sobre la tarjeta daba ~2,4. */
+  --flit-pill-active-ink: #4264B7;
+  /* Chips de estado (`StatusChip`). Fondo pastel OPACO + tinta oscura, IGUALES en los dos temas:
+     el chip se lee como una etiqueta clara también sobre la tarjeta oscura. Antes los fondos iban
+     en hex dentro del componente y la tinta de `draft`/`neutral` seguía el tema (`--flit-draft`,
+     `--flit-text-muted` se aclaran en oscuro), con lo que «Pendiente» quedaba gris claro sobre
+     gris claro. Los ratios los mide `check:contraste` en los dos temas. */
+  --flit-chip-success-bg: #EBF8E3;
+  --flit-chip-active-bg: #E6ECF7;
+  --flit-chip-warning-bg: #FDE8E3;
+  --flit-chip-danger-bg: #FBE4E2;
+  --flit-chip-draft-bg: #E8EAED;
+  --flit-chip-neutral-bg: #EFF1F3;
+  --flit-chip-draft-ink: #59677D;
+  --flit-chip-neutral-ink: #646E82;
 
   /* Gradientes — nivel TINTA, por la misma causa raíz que las variantes -ink de aquí arriba.
      Bug #11766: los cuatro se definieron como superficie decorativa y terminaron siendo el mayor
@@ -238,6 +266,22 @@
      no se ve. Es la misma inversión que el Bug #11720 descubrió a mano para las teclas de la ⌘K,
      ahora en un token en vez de en un parche por selector. */
   --flit-bg-hover: rgba(255, 255, 255, 0.08);
+  /* Mismo valor que en claro, a propósito (ver `:root`): el velo de la primaria oscurece siempre. */
+  --flit-veil-press-hover: rgba(8, 18, 38, 0.12);
+  --flit-veil-press-active: rgba(8, 18, 38, 0.20);
+  /* HU #12819 — ver `:root`. El error se aclara hacia el salmón para leerse sobre las superficies
+     oscuras (6,59 sobre tarjeta, la peor); la pill activa usa el azul de texto del tema; los chips
+     conservan fondo y tinta del claro, a propósito. */
+  --flit-danger-text: #F4A097;
+  --flit-pill-active-ink: #9DBCF7;
+  --flit-chip-success-bg: #EBF8E3;
+  --flit-chip-active-bg: #E6ECF7;
+  --flit-chip-warning-bg: #FDE8E3;
+  --flit-chip-danger-bg: #FBE4E2;
+  --flit-chip-draft-bg: #E8EAED;
+  --flit-chip-neutral-bg: #EFF1F3;
+  --flit-chip-draft-ink: #59677D;
+  --flit-chip-neutral-ink: #646E82;
 
   /* Texto. `muted` conserva el #93A0B5 que el Bug #11720 midió sobre el píxel real de la paleta
      en oscuro: ese hex ya estaba validado contra este mismo sustrato, así que reabsorberlo como

@@ -1,5 +1,5 @@
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, OPERACIONES_USER, AUDITOR_USER, PROVEEDOR_USER, CLIENTE_USER } from '../helpers/auth';
+import { loginAs, OPERACIONES_USER, AUDITOR_USER, PROVEEDOR_USER, CLIENTE_USER, CLIENTE_CON_CANAL } from '../helpers/auth';
 
 // FLITO — Portal SOAT (Fase 6). Cola de adquisición: envío atómico al gestor,
 // detalle por VIN y solo-lectura para Auditoría. Backend mockeado.
@@ -86,6 +86,23 @@ async function mock(page: import('@playwright/test').Page) {
   });
 }
 
+/**
+ * HU #12819: los filtros secundarios de la cola SOAT viven en el panel plegable «Más filtros».
+ * Idempotente: si ya está abierto no lo cierra.
+ */
+async function abrirMasFiltrosSoat(page: import('@playwright/test').Page) {
+  const boton = page.getByRole('button', { name: /^Más filtros/ });
+  // Primero que la cola haya pintado (tabla o vacío): durante la carga inicial la pantalla se
+  // vuelve a montar (sesión y permisos) y un panel abierto antes se cerraría con ella.
+  await expect(page.getByRole('region', { name: 'Pólizas SOAT' }).or(page.getByText(/Ningún SOAT coincide|No hay SOAT|No tienes SOAT|Todavía no hay/))).toBeVisible();
+  // `toPass`: un clic antes de que React enganche el manejador no abre nada; se reintenta hasta
+  // que el botón DIGA que está abierto, que es lo que se comprueba y no el clic.
+  await expect(async () => {
+    if ((await boton.getAttribute('aria-expanded')) !== 'true') await boton.click();
+    await expect(boton).toHaveAttribute('aria-expanded', 'true', { timeout: 1_000 });
+  }).toPass();
+}
+
 test.describe('FLITO — Portal SOAT', () => {
   test('operaciones lista, filtra y abre detalle', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
@@ -148,6 +165,7 @@ test.describe('FLITO — Portal SOAT', () => {
     await page.goto('/flito/soat');
     await expect(page.getByText('ABC123')).toBeVisible();
 
+    await abrirMasFiltrosSoat(page);
     await page.getByRole('checkbox', { name: 'Solo sin gestión' }).check();
     await expect.poll(() => urlsPedidas.at(-1) ?? '').toContain('estancado=si');
 
@@ -157,6 +175,9 @@ test.describe('FLITO — Portal SOAT', () => {
     await page.getByRole('button', { name: '30 días' }).click();
     await expect.poll(() => urlsPedidas.at(-1) ?? '').toContain('solicitadoDesde=');
     expect(urlsPedidas.at(-1)).toContain('solicitadoHasta=');
+    // HU #12819: en el panel «Más filtros» los rangos van apilados y el calendario abierto tapa al
+    // de abajo; se cierra, que es lo que hace cualquiera al terminar de elegir.
+    await rango('Solicitado').click();
 
     await rango('Pagado').click();
     await page.getByRole('button', { name: 'Hoy' }).click();
@@ -182,6 +203,7 @@ test.describe('FLITO — Portal SOAT', () => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page);
     await page.goto('/flito/soat');
+    await abrirMasFiltrosSoat(page);
     await page.getByRole('checkbox', { name: 'Solo sin gestión' }).check();
     await expect.poll(() => urlsPedidas.at(-1) ?? '').toContain('estancado=si');
 
@@ -257,8 +279,10 @@ test.describe('FLITO — Portal SOAT', () => {
     const tabla = page.getByRole('region', { name: 'Pólizas SOAT' });
     // El conteo va PRIMERO y es lo que ancla el aserto: «no está la columna Trámite» se cumple
     // también con la tabla sin cargar, vacía o en error, y ese es el falso verde barato de esta HU.
-    await expect(tabla.getByRole('columnheader')).toHaveCount(10);
+    // HU #12819 (P-2): la columna «Fechas» pasó al detalle, así que el admin baja de 10 a 9.
+    await expect(tabla.getByRole('columnheader')).toHaveCount(9);
     await expect(tabla.getByRole('columnheader', { name: 'Trámite' })).toHaveCount(0);
+    await expect(tabla.getByRole('columnheader', { name: 'Fechas' })).toHaveCount(0);
 
     const fila = page.getByRole('row').filter({ hasText: 'XYZ789' });
     await expect(fila).not.toContainText('FLIT-1002');
@@ -267,12 +291,17 @@ test.describe('FLITO — Portal SOAT', () => {
     // sr-only», que `toBeVisible()` dejaría pasar. El AC1 dice que no lo ve NADIE, tampoco un lector.
     await expect(tabla.getByText('FLIT-1002')).toHaveCount(0);
 
-    // Lo que sí sigue: el vehículo y las dos fechas, que son la segunda cláusula del AC1.
+    // Lo que sí sigue: el vehículo en la fila. Las dos fechas del trámite (segunda cláusula del AC1)
+    // se mudaron al detalle con la HU #12819 (P-2): siguen a un clic, con su rótulo propio.
     await expect(fila).toContainText('XYZ789');
     await expect(fila).toContainText('VIN0000000000002');
-    await expect(fila).toContainText('Creado');
+    await expect(fila).not.toContainText('Creado');
+    await page.getByRole('row').filter({ hasText: 'ABC123' }).getByRole('button', { name: 'Ver', exact: true }).click();
+    const ficha = page.getByRole('dialog').locator('dl');
+    await expect(ficha).toContainText('Trámite creado');
     // Un SOAT sin aprobar lo dice, en vez de un guion que se confunde con «no llegó la fecha».
-    await expect(page.getByRole('row').filter({ hasText: 'ABC123' })).toContainText('Sin aprobar');
+    await expect(ficha).toContainText('Sin aprobar');
+    await page.keyboard.press('Escape');
 
     // «Múltiple propietario» NO se va con la columna: es un atributo del SOAT que viajaba en la
     // celda del trámite solo porque allí había sitio. Sin este aserto, borrar el bloque de
@@ -304,7 +333,8 @@ test.describe('FLITO — Portal SOAT', () => {
     await expect(ficha).toContainText('Seguros Alfa');
     await expect(ficha).toContainText('Enviado por');
     await expect(ficha).toContainText('Valor pagado');
-    await expect(ficha.getByRole('button', { name: 'Ver soporte' })).toBeVisible();
+    // HU #12819 (§7.1, zona 4): «Ver soporte» salió del <dl> a la zona «Comprobante» del detalle.
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Ver soporte' })).toBeVisible();
   });
 
   // HU #11905 (AC3). Los tres roles en bucle, porque el mutante que hay que matar es una «vista
@@ -314,9 +344,9 @@ test.describe('FLITO — Portal SOAT', () => {
     // 10 columnas para quien puede DESCARGAR SOPORTES: la casilla de selección ya no cuelga de
     // «hay algún Pendiente» sino del permiso (HU #11910, AC7). El gestor la gana —los comprobantes
     // de sus SOAT son suyos— y Auditoría sigue en 9, que es lo que ese AC exige.
-    { rol: 'admin', usuario: OPERACIONES_USER, columnas: 10 },
-    { rol: 'auditor', usuario: AUDITOR_USER, columnas: 9 },
-    { rol: 'proveedor', usuario: PROVEEDOR_USER, columnas: 10 },
+    { rol: 'admin', usuario: OPERACIONES_USER, columnas: 9 },
+    { rol: 'auditor', usuario: AUDITOR_USER, columnas: 8 },
+    { rol: 'proveedor', usuario: PROVEEDOR_USER, columnas: 9 },
   ]) {
     test(`${caso.rol} tampoco ve la columna Trámite: no hay vista privilegiada`, async ({ page }) => {
       await loginAs(page, caso.usuario);
@@ -341,9 +371,9 @@ test.describe('FLITO — Portal SOAT', () => {
     // El conteo de columnas viaja con el aserto: los tres datos van DENTRO de la celda del vehículo.
     // Si esto sube a 11/12, alguien metió columnas nuevas y la tabla volvió a ser más ancha que antes
     // de la HU #11905. El 10 del gestor es de la #11910 (gana la casilla), no una columna de datos.
-    { rol: 'admin', usuario: OPERACIONES_USER, columnas: 10 },
-    { rol: 'auditor', usuario: AUDITOR_USER, columnas: 9 },
-    { rol: 'proveedor', usuario: PROVEEDOR_USER, columnas: 10 },
+    { rol: 'admin', usuario: OPERACIONES_USER, columnas: 9 },
+    { rol: 'auditor', usuario: AUDITOR_USER, columnas: 8 },
+    { rol: 'proveedor', usuario: PROVEEDOR_USER, columnas: 9 },
   ]) {
     test(`${caso.rol} ve cilindraje, carrocería y tipo de servicio junto al vehículo`, async ({ page }) => {
       // Guarda del fixture: si alguien vacía estos tres campos del mock, el test de abajo se volvería
@@ -451,7 +481,7 @@ test.describe('FLITO — Portal SOAT', () => {
     await mock(page);
     await page.goto('/flito/soat');
 
-    await page.locator('summary').filter({ hasText: 'Vista' }).click();
+    // HU #12819: las vistas rápidas van en su renglón, a la vista; ya no hay desplegable «Vista».
     await expect(page.getByRole('button', { name: /Listos para enviar/ })).toHaveCount(0);
     await expect(page.getByRole('button', { name: /Sin gestión/ })).toBeVisible();
   });
@@ -466,7 +496,7 @@ test.describe('FLITO — Portal SOAT', () => {
     });
 
     await page.goto('/flito/soat');
-    await page.locator('summary').filter({ hasText: 'Vista' }).click();
+    // HU #12819: las vistas rápidas van en su renglón, a la vista; ya no hay desplegable «Vista».
     await page.getByRole('button', { name: /Sin gestión/ }).click();
 
     // Las dos condiciones a la vez. Que viaje solo una es justo el error que el preset evita.
@@ -625,6 +655,7 @@ test.describe('FLITO — Portal SOAT · contingencia (HU #11157)', () => {
     await mockContingencia(page, [SOAT_CONTINGENCIA]);
     await page.goto('/flito/soat');
 
+    await abrirMasFiltrosSoat(page);
     await page.getByLabel('Gestiona').selectOption('operaciones');
     await expect.poll(() => urlsPedidas.at(-1)).toContain('gestion=operaciones');
 
@@ -779,7 +810,8 @@ function celdaEstado(page: import('@playwright/test').Page, placa: string, rotul
 }
 /** Cuántas pastillas hay en una celda: el puntito `aria-hidden` es exactamente uno por `StatusChip`. */
 function chipsDe(celda: ReturnType<typeof celdaEstado>) {
-  return celda.locator('span[aria-hidden="true"].rounded-full');
+  // HU #12819: el chip de estado lleva icono en vez del punto; se cuenta el chip, no el punto.
+  return celda.locator('[data-flit-chip]');
 }
 
 test.describe('FLITO — SOAT · vigencia frente al RUNT (HU #12097)', () => {
@@ -821,9 +853,9 @@ test.describe('FLITO — SOAT · vigencia frente al RUNT (HU #12097)', () => {
   // El sentinela de densidad de la #11905/#11906: la vigencia va DENTRO de la celda «Estado», así
   // que el conteo no se mueve. Si sube a 11/10/11, alguien implementó la columna propia.
   for (const caso of [
-    { rol: 'admin', usuario: OPERACIONES_USER, columnas: 10 },
-    { rol: 'auditor', usuario: AUDITOR_USER, columnas: 9 },
-    { rol: 'proveedor', usuario: PROVEEDOR_USER, columnas: 10 },
+    { rol: 'admin', usuario: OPERACIONES_USER, columnas: 9 },
+    { rol: 'auditor', usuario: AUDITOR_USER, columnas: 8 },
+    { rol: 'proveedor', usuario: PROVEEDOR_USER, columnas: 9 },
   ]) {
     test(`${caso.rol} ve la vigencia sin que la tabla gane columnas (${caso.columnas})`, async ({ page }) => {
       await loginAs(page, caso.usuario);
@@ -881,6 +913,7 @@ test.describe('FLITO — SOAT · vigencia frente al RUNT (HU #12097)', () => {
     await page.goto('/flito/soat');
 
     // El nombre accesible del control es su rótulo visible, igual que el de «Gestiona».
+    await abrirMasFiltrosSoat(page);
     await page.getByLabel('Vigencia').selectOption('no_verificado');
 
     await expect.poll(() => urlsVigencia.at(-1)).toContain('vigencia=no_verificado');
@@ -907,6 +940,7 @@ test.describe('FLITO — SOAT · vigencia frente al RUNT (HU #12097)', () => {
     await page.clock.setFixedTime(AHORA_VIG);
     await page.goto('/flito/soat');
 
+    await abrirMasFiltrosSoat(page);
     await page.getByLabel('Vigencia').selectOption('vencido');
     await expect.poll(() => urlsVigencia.at(-1)).toContain('vigencia=vencido');
     await expect(page.getByRole('row').filter({ hasText: 'VEN002' })).toBeVisible();
@@ -944,6 +978,7 @@ test.describe('FLITO — SOAT · vigencia frente al RUNT (HU #12097)', () => {
     });
 
     await page.goto('/flito/soat');
+    await abrirMasFiltrosSoat(page);
     await page.getByLabel('Vigencia').selectOption('vencido');
     // Se espera a que la COLA ya haya pedido con el filtro: sin esto, el export podría salir con el
     // estado anterior y el aserto mediría otra cosa.
@@ -979,6 +1014,7 @@ test.describe('FLITO — SOAT · vigencia frente al RUNT (HU #12097)', () => {
     });
     await page.goto('/flito/soat');
 
+    await abrirMasFiltrosSoat(page);
     await page.getByLabel('Vigencia').selectOption('vencido');
 
     // Sin el filtro en `hayFiltros`, aquí saldría «No hay SOAT en esta vista. Sincroniza desde el
@@ -1038,6 +1074,7 @@ test.describe('FLITO — SOAT · vigencia frente al RUNT (HU #12097)', () => {
     await expect(celda).not.toContainText('Invalid Date');
     await expect(chipsDe(celda)).toHaveCount(1);
     // Y el filtro sigue ofreciéndose: la pantalla no depende de que la respuesta traiga el campo.
+    await abrirMasFiltrosSoat(page);
     await expect(page.getByLabel('Vigencia')).toBeVisible();
   });
 
@@ -1074,9 +1111,105 @@ test.describe('FLITO — SOAT · vigencia frente al RUNT (HU #12097)', () => {
     await page.goto('/flito/soat');
 
     await expect(page.getByRole('row').filter({ hasText: 'CLI007' })).toBeVisible();
+    // HU #12819: con el panel ABIERTO, o el «no está» se cumpliría solo por estar plegado.
+    await abrirMasFiltrosSoat(page);
+    await expect(page.getByRole('group', { name: 'Más filtros' })).toBeVisible();
     await expect(page.getByLabel('Vigencia')).toHaveCount(0);
     await expect(page.getByText('Sin verificar')).toHaveCount(0);
     await expect(page.getByText('No se pudo consultar')).toHaveCount(0);
     await expect(page.getByText(/^Verificado /)).toHaveCount(0);
+  });
+});
+
+// ═══════════ HU #12819 — notificación del envío, vistas rápidas del Cliente y hover del kit ═══════════
+
+test.describe('HU #12819 — el envío fallido avisa por toast y conserva la selección (§8)', () => {
+  /** Marca ABC123 (Pendiente), elige destino y pulsa «Enviar al gestor». */
+  async function enviarConFallo(page: import('@playwright/test').Page, status: number, cuerpo: unknown) {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    let intentos = 0;
+    await page.route(/\/api\/flito\/soat\/enviar$/, (route) => {
+      intentos += 1;
+      return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(cuerpo) });
+    });
+    await page.goto('/flito/soat');
+    await page.getByLabel('Seleccionar ABC123').check();
+    await page.getByLabel('Enviar a').selectOption('p1');
+    await page.getByRole('button', { name: /Enviar al gestor/ }).click();
+    await expect.poll(() => intentos).toBe(1);
+  }
+
+  test('500 → toast con el copy genérico; ni la tarjeta de error de la cola ni la selección perdida', async ({ page }) => {
+    await enviarConFallo(page, 500, { error: 'detalle interno que NO debe verse' });
+
+    // Copy exacto de `textoErrorEnvio` (BarraEnvioSoat.tsx), en el toast del kit (`role="alert"`).
+    const toast = page.getByRole('alert').filter({ hasText: 'No se pudieron enviar los SOAT. Intenta de nuevo.' });
+    await expect(toast).toBeVisible();
+    await expect(toast.getByRole('button', { name: 'Cerrar aviso' })).toBeVisible();
+    await expect(page.getByText('detalle interno que NO debe verse')).toHaveCount(0);
+    // La tarjeta de error de CARGA de la cola no aparece: su copy y su «Reintentar» (que recarga la
+    // cola, no reenvía) son justo lo que la HU sacó de este camino.
+    await expect(page.getByText('No se pudo cargar la cola de SOAT', { exact: false })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Reintentar', exact: true })).toHaveCount(0);
+    // Y la tabla sigue ahí, con la selección intacta para reintentar.
+    await expect(page.getByRole('region', { name: 'Pólizas SOAT' })).toBeVisible();
+    await expect(page.getByText('1 seleccionado(s)')).toBeVisible();
+    await expect(page.getByLabel('Seleccionar ABC123')).toBeChecked();
+  });
+
+  for (const status of [409, 422]) {
+    test(`${status} con frase de negocio → el toast dice ESA frase, literal`, async ({ page }) => {
+      const FRASE = 'El SOAT ABC123 ya fue enviado por otra persona.';
+      await enviarConFallo(page, status, { error: FRASE });
+
+      await expect(page.getByRole('alert').filter({ hasText: FRASE })).toBeVisible();
+      await expect(page.getByText('No se pudieron enviar los SOAT. Intenta de nuevo.')).toHaveCount(0);
+      await expect(page.getByText('1 seleccionado(s)')).toBeVisible();
+    });
+  }
+});
+
+test.describe('HU #12819 — las vistas rápidas no se le ofrecen al Cliente (P-1)', () => {
+  test('Cliente: ni el rótulo ni los dos botones; Operaciones sí los tiene', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mock(page);
+    await page.goto('/flito/soat');
+    // Esperar a que la cola pinte: «no está» sobre una pantalla aún cargando sería un verde vacío.
+    await expect(page.getByRole('region', { name: 'Pólizas SOAT' })).toBeVisible();
+
+    await expect(page.getByText('Vistas rápidas:')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Sin gestión', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Listos para enviar', exact: true })).toHaveCount(0);
+
+    // Control positivo en el mismo test: con Operaciones el renglón existe.
+    await loginAs(page, OPERACIONES_USER);
+    await page.goto('/flito/soat');
+    await expect(page.getByRole('region', { name: 'Pólizas SOAT' })).toBeVisible();
+    await expect(page.getByText('Vistas rápidas:')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sin gestión', exact: true })).toBeVisible();
+  });
+});
+
+test.describe('HU #12819 — los botones del kit reaccionan al puntero (§9)', () => {
+  test('la primaria lleva el velo inset y el secundario el fondo de hover, y el hover SE PINTA', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/soat');
+    await expect(page.getByRole('region', { name: 'Pólizas SOAT' })).toBeVisible();
+
+    const primaria = page.getByRole('button', { name: 'Cargar facturas (masivo)' });
+    const secundaria = page.getByRole('row').filter({ hasText: 'ABC123' }).getByRole('button', { name: 'Ver', exact: true });
+    await expect(primaria).toHaveAttribute('class', /hover:shadow-\[inset_0_0_0_999px_var\(--flit-veil-press-hover\)\]/);
+    await expect(secundaria).toHaveAttribute('class', /hover:bg-\[var\(--flit-bg-hover\)\]/);
+
+    // Y la clase no es decorativa: al pasar el puntero el estilo calculado CAMBIA.
+    const sombra = () => primaria.evaluate((el) => getComputedStyle(el).boxShadow);
+    const fondo = () => secundaria.evaluate((el) => getComputedStyle(el).backgroundColor);
+    const [sombraReposo, fondoReposo] = [await sombra(), await fondo()];
+    await primaria.hover();
+    await expect.poll(sombra).not.toBe(sombraReposo);
+    await secundaria.hover();
+    await expect.poll(fondo).not.toBe(fondoReposo);
   });
 });
