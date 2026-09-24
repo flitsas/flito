@@ -22,7 +22,8 @@
 
 import { and, eq } from 'drizzle-orm';
 import {
-  AnalisisEstadoImpuesto, ESTADOS_IMPUESTO_CERTIFICABLES, EstadoImpuesto, ResultadoCertificacion,
+  AnalisisEstadoImpuesto, ESTADOS_IMPUESTO_CERTIFICABLES, EstadoImpuesto, NOMBRE_CERTIFICADOR_AUTOMATICO,
+  ResultadoCertificacion,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { flitoImpuestoCertificaciones, flitoImpuestos } from '../../db/schema.js';
@@ -39,7 +40,8 @@ const UNIQUE_VIOLATION = '23505';
 /** Firma de la certificación automática: sin usuario (FK nullable) y un nombre que el certificado imprime. */
 export const ACTOR_AUTOCERTIFICACION: ActorCertificacion = {
   userId: null,
-  username: 'Sistema (validación automática)',
+  // Una sola copia del literal: la cola (HU #12830) lo usa para distinguir la certificación automática.
+  username: NOMBRE_CERTIFICADOR_AUTOMATICO,
 };
 
 /** Paso `autocertificacion` de la cola de la HU 12825. */
