@@ -16,7 +16,7 @@ import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
-  AsignacionNoEncontradaError, ServicioAdicionalTramiteError, ServicioYaAsignadoError, TipoNoDisponibleError,
+  AsignacionDeComprobanteError, AsignacionNoEncontradaError, ServicioAdicionalTramiteError, ServicioYaAsignadoError, TipoNoDisponibleError,
   TramiteLiquidadoError, TramiteNoEncontradoError, asignar, listar, quitar,
 } from './finanzas-servicios-adicionales.service.js';
 
@@ -42,6 +42,7 @@ function fallo(res: Response, e: unknown): void {
   if (e instanceof TipoNoDisponibleError) { res.status(404).json({ error: e.message, codigo: CODIGO.TIPO_NO_DISPONIBLE }); return; }
   if (e instanceof ServicioYaAsignadoError) { res.status(409).json({ error: e.message, codigo: CODIGO.SERVICIO_YA_ASIGNADO }); return; }
   if (e instanceof TramiteLiquidadoError) { res.status(409).json({ error: e.message, codigo: CODIGO.TRAMITE_LIQUIDADO }); return; }
+  if (e instanceof AsignacionDeComprobanteError) { res.status(409).json({ error: e.message, codigo: CODIGO.ASIGNACION_DE_COMPROBANTE }); return; }
   if (e instanceof ServicioAdicionalTramiteError) { res.status(400).json({ error: e.message }); return; }
   throw e;
 }

@@ -1655,3 +1655,112 @@ test.describe('HU #12635 · AC5 — ficha de ayuda y accesibilidad', () => {
     esperarSinViolacionesGraves(await correrAxe(page), 'resultado de carga con Aplicados');
   });
 });
+
+// ═══════════════ Bug #12913 — el pago de servicios adicionales elige su tipo de servicio ═══════════════
+
+const TIPO_SA = (id: string, nombre: string, valor: number, activo = true) => ({
+  id, nombre, descripcion: null, valor, activo,
+  creadoEn: '2026-09-01T10:00:00.000Z', creadoPorId: null, actualizadoEn: '2026-09-01T10:00:00.000Z', actualizadoPorId: null,
+});
+const TIPO_GRUA = TIPO_SA('aaaa1111-0000-4000-8000-000000000001', 'Grúa', 85000);
+const TIPO_DIAG = TIPO_SA('aaaa1111-0000-4000-8000-000000000002', 'Diagnóstico', 120000);
+const CAMPOS_SA = CAMPOS_BASE.map((c) => (c.campo === 'concepto' ? campo('concepto', 'servicios_adicionales', 'alta') : c));
+
+async function mockCatalogoSa(page: Page, tipos: unknown[] = [TIPO_GRUA, TIPO_DIAG]) {
+  const gets: string[] = [];
+  await page.route(/\/api\/flito\/parametrizacion\/servicios-adicionales/, (route) => {
+    gets.push(route.request().url());
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tipos) });
+  });
+  // El trámite ya lleva «Diagnóstico»: se marca, no se excluye.
+  await page.route(/\/api\/finanzas\/tramites\/[^/]+\/servicios-adicionales/, (route) => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ items: [{ id: 's1', tipoId: TIPO_DIAG.id, nombre: 'Diagnóstico', descripcion: null, valor: 100000, asignadoPorId: 7, asignadoPorNombre: 'Ana', asignadoEn: '2026-09-10T10:00:00.000Z', origen: 'manual' }], total: 100000, liquidado: false }),
+  }));
+  return gets;
+}
+
+test.describe('Bug #12913 · Tipo de servicio al aplicar un pago de servicios adicionales', () => {
+  /** Mutantes: campo visible con otro concepto o en documentación; Aplicar encendido sin tipo; body sin `servicioTipoId` o con él de más. */
+  test('solo en SA + pago; Aplicar espera al tipo con la razón visible; el body lleva servicioTipoId y el toast dice servicio, trámite y valor', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockCola(page, { items: [fila({ ...FIJADO, concepto: 'servicios_adicionales' })], total: 1, page: 1, pageSize: 50 });
+    await mockDetalle(page, detalleFijado({ concepto: 'servicios_adicionales' }, CAMPOS_SA));
+    await mockArchivoPdf(page);
+    await mockCatalogoSa(page);
+    const aplicar = await mockPost(page, RUTA_APLICAR, aplicado200);
+    const dialog = await abrirPanel(page);
+
+    const tipo = dialog.getByRole('combobox', { name: 'Tipo de servicio' });
+    await expect(tipo).toBeVisible();
+    await expect(tipo).toHaveAttribute('aria-required', 'true');
+    await expect(tipo).toHaveAccessibleDescription(/El servicio queda asignado al trámite con el valor de este comprobante/);
+    const botonAplicar = dialog.getByRole('button', { name: 'Aplicar' });
+    await expect(botonAplicar).toBeDisabled();
+    await expect(dialog.getByText('Elige el tipo de servicio para aplicar.', { exact: true })).toBeVisible();
+
+    // Otro concepto → el campo desaparece; documentación → también.
+    await dialog.getByRole('combobox', { name: 'Concepto' }).selectOption('impuesto');
+    await expect(dialog.getByRole('combobox', { name: 'Tipo de servicio' })).toHaveCount(0);
+    await expect(botonAplicar).toBeEnabled();
+    await dialog.getByRole('combobox', { name: 'Concepto' }).selectOption('servicios_adicionales');
+    await dialog.getByRole('radio', { name: 'Documentación del trámite' }).check();
+    await expect(dialog.getByRole('combobox', { name: 'Tipo de servicio' })).toHaveCount(0);
+    await dialog.getByRole('radio', { name: 'Comprobante de pago' }).check();
+
+    await tipo.click();
+    const lista = dialog.getByRole('listbox', { name: 'Tipos de servicio adicional' });
+    await expect(lista.getByRole('option')).toHaveCount(2);
+    await expect(lista.getByRole('option', { name: /Diagnóstico/ })).toContainText('Ya asignado · se actualizará el valor');
+    await expect(lista.getByRole('option', { name: /Grúa/ })).not.toContainText('Ya asignado');
+    // Esc cierra SOLO la lista, no el modal.
+    await tipo.press('Escape');
+    await expect(lista).toHaveCount(0);
+    await expect(dialog).toBeVisible();
+
+    await tipo.click();
+    await dialog.getByRole('option', { name: /Grúa/ }).click();
+    await expect(tipo).toHaveValue('Grúa');
+    await expect(botonAplicar).toBeEnabled();
+    await botonAplicar.click();
+    await expect.poll(() => aplicar.bodies.length).toBe(1);
+    expect(aplicar.bodies[0]).toMatchObject({ tramiteId: TRAMITE_1, concepto: 'servicios_adicionales', esPago: true, servicioTipoId: TIPO_GRUA.id });
+    await expect(toast(page)).toHaveText('Pago aplicado. «Grúa» quedó asignado a FLIT-10250 por $ 312.000.');
+  });
+
+  /** Mutantes: cambiar concepto sin limpiar el tipo; no repedir el catálogo tras el 400; copy crudo del 400/409. */
+  test('cambiar concepto limpia el tipo; tipo de baja repide el catálogo y limpia; liquidado con copy pulido', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockCola(page, { items: [fila({ ...FIJADO, concepto: 'servicios_adicionales' })], total: 1, page: 1, pageSize: 50 });
+    await mockDetalle(page, detalleFijado({ concepto: 'servicios_adicionales' }, CAMPOS_SA));
+    await mockArchivoPdf(page);
+    const catalogo = await mockCatalogoSa(page);
+    const aplicar = await mockPost(page, RUTA_APLICAR, (_b, n) => (n === 1
+      ? { status: 400, body: { error: 'El servicio elegido ya no está disponible', codigo: 'datos_invalidos' } }
+      : { status: 409, body: { error: 'Trámite liquidado', codigo: 'tramite_liquidado' } }));
+    const dialog = await abrirPanel(page);
+    const tipo = dialog.getByRole('combobox', { name: 'Tipo de servicio' });
+    await tipo.click();
+    await dialog.getByRole('option', { name: /Grúa/ }).click();
+    await expect(tipo).toHaveValue('Grúa');
+
+    await dialog.getByRole('combobox', { name: 'Concepto' }).selectOption('logistica');
+    await dialog.getByRole('combobox', { name: 'Concepto' }).selectOption('servicios_adicionales');
+    await expect(dialog.getByRole('combobox', { name: 'Tipo de servicio' })).toHaveValue('');
+    await expect(dialog.getByRole('button', { name: 'Aplicar' })).toBeDisabled();
+
+    await tipo.click();
+    await dialog.getByRole('option', { name: /Grúa/ }).click();
+    const antes = catalogo.length;
+    await dialog.getByRole('button', { name: 'Aplicar' }).click();
+    await expect(dialog.getByRole('alert')).toHaveText('Ese tipo de servicio ya no está activo. Elige otro.');
+    await expect.poll(() => catalogo.length).toBeGreaterThan(antes);
+    await expect(tipo).toHaveValue('');
+
+    await tipo.click();
+    await dialog.getByRole('option', { name: /Grúa/ }).click();
+    await dialog.getByRole('button', { name: 'Aplicar' }).click();
+    await expect(dialog.getByRole('alert')).toContainText('El trámite ya está liquidado: no se le pueden asignar servicios. Reversa la liquidación y vuelve a aplicar.');
+    expect(aplicar.bodies.every((b) => b.servicioTipoId === TIPO_GRUA.id)).toBe(true);
+  });
+});

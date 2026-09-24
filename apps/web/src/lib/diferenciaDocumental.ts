@@ -13,8 +13,9 @@
 // Reglas que este módulo fija (y que los mutantes del gate B tienen que tumbar):
 //   · El mapa de origen NO se invierte: 'documental' → «Documento», 'tarifa' → «Tarifa».
 //   · El signo NUNCA se pierde: «−$20.000» lleva el menos tipográfico (U+2212) pegado al «$».
-//   · En servicios adicionales el importe de la celda sigue siendo el catálogo; aquí solo se dice
-//     «Difiere del catálogo» y que «el cobro sigue siendo el del catálogo».
+//   · En servicios adicionales se dice «Difiere del catálogo», y la diferencia se resuelve APLICANDO
+//     el comprobante con su tipo de servicio (Bug #12913: ese valor entra a la puente del trámite),
+//     no aceptándola: la nota lo dice en vez de insinuar que aceptar suma.
 //   · Una fila cuyo `origenes.<concepto>` es null NO lleva chips ni acción, aunque traiga
 //     `valorDocumental` (AC3: la compañía autogestiona; el comprobante existe pero no se cobra).
 
@@ -38,7 +39,8 @@ export const ROTULO_CON_DIFERENCIAS = 'Con diferencias';
 export const AYUDA_CON_DIFERENCIAS = 'Solo trámites con al menos una diferencia sin aceptar.';
 export const VACIO_CON_DIFERENCIAS = 'No hay trámites con diferencias sin aceptar en este filtro. Desmarca «Con diferencias» o amplía el periodo.';
 export const SIN_TARIFA = 'Sin tarifa configurada';
-export const NOTA_CATALOGO = 'El cobro sigue siendo el del catálogo';
+/** Servicios adicionales (UX slim Bug #12913): aceptar no suma; lo que suma es aplicar el pago con su tipo. */
+export const NOTA_SERVICIOS_ADICIONALES = 'El costo usa el valor del comprobante; el catálogo queda como referencia';
 export const MOTIVO_DIFERENCIA_MIN = 5;
 export const MOTIVO_DIFERENCIA_MAX = 500;
 
@@ -129,8 +131,8 @@ export function textoDiferencia(concepto: ConceptoDocumental, vd: ValorDocumenta
   if (concepto === 'serviciosAdicionales') {
     return {
       texto: `Difiere del catálogo ${signo}`, tono: 'warning', pendiente: true,
-      accesible: `${nombre}: el comprobante dice ${comprobante} y el catálogo suma ${referencia}. Diferencia ${signo}. Sin aceptar. ${NOTA_CATALOGO}.`,
-      globo: [`Comprobante ${comprobante}`, `Catálogo ${referencia}`, ref, NOTA_CATALOGO].filter(Boolean).join(' · '),
+      accesible: `${nombre}: el comprobante dice ${comprobante} y el catálogo suma ${referencia}. Diferencia ${signo}. Sin aceptar. ${NOTA_SERVICIOS_ADICIONALES}.`,
+      globo: [`Comprobante ${comprobante}`, `Catálogo ${referencia}`, ref, NOTA_SERVICIOS_ADICIONALES].filter(Boolean).join(' · '),
     };
   }
   return {
@@ -189,7 +191,7 @@ export function lineaModal(concepto: ConceptoDocumental, vd: ValorDocumentalConc
     ? SIN_TARIFA
     : `${concepto === 'serviciosAdicionales' ? 'Catálogo' : 'Tarifa'} ${pesosReporte(vd.tarifaReferencia)}`;
   const ref = referenciaComprobante(vd);
-  const nota = concepto === 'serviciosAdicionales' ? `${NOTA_CATALOGO}.` : null;
+  const nota = concepto === 'serviciosAdicionales' ? `${NOTA_SERVICIOS_ADICIONALES}.` : null;
   const linea2 = [ref, nota].filter(Boolean).join(' · ') || null;
   return { linea1: `${comprobante} · ${contra}`, diferencia: importeConSigno(vd.diferencia ?? 0), linea2 };
 }

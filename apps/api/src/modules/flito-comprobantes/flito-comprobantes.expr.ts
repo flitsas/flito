@@ -6,8 +6,10 @@
 // —son ellos quienes lo importan: el reporte desde la HU #12653 (F3), vía
 // `finanzas.valores-documentales.ts`; la liquidación en la HU #12654—. Cada expresión es una subconsulta
 // escalar sobre `flito_comprobantes` correlacionada con `flito_tramites.id` (la tabla base del reporte
-// y de la liquidación), por concepto, con `estado = 'aplicado' AND es_pago = true`: el índice único
-// parcial `idx_flito_comprobantes_valor_documental` garantiza a lo sumo UNA fila por (trámite, concepto).
+// y de la liquidación), por concepto, con `estado = 'aplicado' AND es_pago = true`: en trámite digital y
+// logística el índice único parcial `idx_flito_comprobantes_valor_documental_td_lg` garantiza a lo sumo
+// UNA fila por (trámite, concepto). Servicios adicionales (Bug #12913, 0209) admite VARIAS —una por tipo
+// de servicio—: sus lectores usan las fábricas SA de abajo (suma / bool_or / representante), no `documental`.
 //
 // El literal del concepto va como texto del template (`sql.raw`), nunca como parámetro: Drizzle no
 // deduplica literales y en un `GROUP BY` un parámetro repetido es un 42803 (Bug #12058). Ninguna de
@@ -69,10 +71,50 @@ export const EXPR_DOC_LG: SQL = documental(flitoComprobantes.valor, ConceptoCost
 /** `diferencia_tarifa` (valor − tarifa de referencia, tolerancia 0) por concepto; NULL sin fila documental. */
 export const EXPR_DIF_TD: SQL = documental(flitoComprobantes.diferenciaTarifa, ConceptoCosto.TRAMITE_DIGITAL);
 export const EXPR_DIF_LG: SQL = documental(flitoComprobantes.diferenciaTarifa, ConceptoCosto.LOGISTICA);
-/** Servicios adicionales: su valor documental NO manda (el sellado sigue leyendo el catálogo); solo aporta la diferencia. */
-export const EXPR_DIF_SA: SQL = documental(flitoComprobantes.diferenciaTarifa, ConceptoCosto.SERVICIOS_ADICIONALES);
+
+// ─────────────── Servicios adicionales: N filas por trámite (Bug #12913) ───────────────
+// El valor de cada comprobante SA ya está en la puente (lo que suma el dinero); aquí solo se agrega la
+// constancia documental para la celda única del reporte y de la liquidación. Sin parámetros (Bug #12058).
+
+const FILAS_SA: SQL = filaDocumental(ConceptoCosto.SERVICIOS_ADICIONALES);
+
+/** `(SELECT sum(<columna>) …)` sobre TODOS los pagos SA aplicados del trámite; NULL sin ninguno. */
+export function sumaSa(columna: AnyPgColumn): SQL {
+  return sql`(select sum(${columna}) from ${flitoComprobantes} where ${FILAS_SA})`;
+}
+
+/**
+ * El «representante» SA: primero el que tiene diferencia PENDIENTE de aceptar (el botón «Aceptar
+ * diferencia» apunta a él; al aceptarlo pasa al siguiente), luego el más reciente. De él salen id,
+ * número, fecha y la constancia de aceptación de la celda.
+ */
+const ORDEN_REPRESENTANTE_SA: SQL = sql`order by (${flitoComprobantes.marcadoPorDiferencia} and ${flitoComprobantes.diferenciaAceptadaEn} is null) desc, ${flitoComprobantes.aplicadoEn} desc`;
+
+export function representanteSa(columna: AnyPgColumn): SQL {
+  return sql`(select ${columna} from ${flitoComprobantes} where ${FILAS_SA} ${ORDEN_REPRESENTANTE_SA} limit 1)`;
+}
+
+/** El `username` de quien aceptó la diferencia del representante SA, o NULL. */
+export function representanteSaAceptadaPorNombre(): SQL {
+  return sql`(select ${users.username} from ${flitoComprobantes} left join ${users} on ${users.id} = ${flitoComprobantes.diferenciaAceptadaPorId} where ${FILAS_SA} ${ORDEN_REPRESENTANTE_SA} limit 1)`;
+}
+
+/** Σ `diferencia_tarifa` de los pagos SA del trámite (valor − catálogo del tipo, por comprobante). */
+export const EXPR_DIF_SA: SQL = sumaSa(flitoComprobantes.diferenciaTarifa);
+/** Σ `tarifa_referencia` SA (el catálogo de cada tipo pagado). */
+export const EXPR_TARIFA_SA: SQL = sumaSa(flitoComprobantes.tarifaReferencia);
+/** Σ `valor` SA (constancia: el dinero lo lleva la puente). */
+export const EXPR_VALOR_SA: SQL = sumaSa(flitoComprobantes.valor);
+/**
+ * La diferencia SA está ACEPTADA solo si hay al menos una marcada y TODAS las marcadas están aceptadas
+ * (con una sola fila equivale a la regla anterior: marcada y aceptada). NULL sin filas SA.
+ */
+export const EXPR_ACEPTADA_SA: SQL = sql`(select coalesce(bool_or(${flitoComprobantes.marcadoPorDiferencia}), false)
+  and not coalesce(bool_or(${flitoComprobantes.marcadoPorDiferencia} and ${flitoComprobantes.diferenciaAceptadaEn} is null), false)
+  from ${flitoComprobantes} where ${FILAS_SA} having count(*) > 0)`;
 
 /** `marcado_por_diferencia` por concepto (tarifa sin configurar o diferencia ≠ 0); NULL sin fila documental. */
 export const EXPR_MARCADO_TD: SQL = documental(flitoComprobantes.marcadoPorDiferencia, ConceptoCosto.TRAMITE_DIGITAL);
 export const EXPR_MARCADO_LG: SQL = documental(flitoComprobantes.marcadoPorDiferencia, ConceptoCosto.LOGISTICA);
-export const EXPR_MARCADO_SA: SQL = documental(flitoComprobantes.marcadoPorDiferencia, ConceptoCosto.SERVICIOS_ADICIONALES);
+/** SA: marcado si ALGUNO de sus pagos lo está (Bug #12913). */
+export const EXPR_MARCADO_SA: SQL = sql`(select bool_or(${flitoComprobantes.marcadoPorDiferencia}) from ${flitoComprobantes} where ${FILAS_SA})`;

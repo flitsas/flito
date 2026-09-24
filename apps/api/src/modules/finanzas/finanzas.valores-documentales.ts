@@ -8,9 +8,12 @@
 //     0). Eso lo hace `finanzas.service.ts` con `COALESCE(EXPR_DOC_*, tarifa)` en las mismas
 //     expresiones que alimentan la celda, los totales, el consolidado y el Excel. Aquí solo se dice
 //     de DÓNDE salió el valor (`origenes`) y cuánto difiere de la tarifa (`valorDocumental`).
-//   - Servicios adicionales: el catálogo sigue mandando; el comprobante solo aporta la diferencia
-//     («Difiere del catálogo»). Por eso no hay expresión documental de VALOR para SA en el leaf, ni
-//     `origenes.serviciosAdicionales` en el DTO.
+//   - Servicios adicionales (Bug #12913): el valor de cada comprobante de pago ya ENTRÓ a la puente
+//     por tipo, que es lo que suma la celda; aquí solo va la constancia. Un trámite puede tener VARIOS
+//     pagos SA (uno por tipo): la celda muestra la SUMA de tarifa de referencia y diferencia, está
+//     aceptada solo si todas las marcadas lo están, y id/número/fecha/aceptación salen del
+//     «representante» (primero el pendiente de aceptar): «Aceptar» va comprobante por comprobante.
+//     Sin `origenes.serviciosAdicionales` en el DTO.
 //   - La aceptación de la diferencia (`diferencia_aceptada_*`) y la clave `detalle.<c>.origenValor`
 //     del sello las ESCRIBE la HU #12654; aquí se leen. Un sello anterior sin la clave es 'tarifa'.
 //
@@ -22,7 +25,8 @@ import { ConceptoCosto, type OrigenValor, type ValorDocumentalConcepto, type Val
 import { flitoComprobantes, flitoLiquidaciones, flitoTramites } from '../../db/schema.js';
 import { aIso } from '../../shared/utils/fecha-rango.js';
 import {
-  documental, documentalAceptadaPorNombre, EXPR_DOC_LG, EXPR_DOC_TD, type ConceptoHonorario,
+  documental, documentalAceptadaPorNombre, EXPR_ACEPTADA_SA, EXPR_DIF_SA, EXPR_DOC_LG, EXPR_DOC_TD, EXPR_TARIFA_SA,
+  representanteSa, representanteSaAceptadaPorNombre, type ConceptoHonorario,
 } from '../flito-comprobantes/flito-comprobantes.expr.js';
 
 export type { ValoresDocumentalesDeFila };
@@ -50,6 +54,25 @@ function columnasDocumentales<P extends Prefijo>(p: P) {
 }
 
 /**
+ * Servicios adicionales (Bug #12913): las mismas nueve columnas más `saAceptada`, con las fábricas SA
+ * del leaf (suma / representante / bool_or) porque hay N filas por trámite.
+ */
+function columnasDocumentalesSa() {
+  return {
+    saComprobanteId: sql<string | null>`${representanteSa(flitoComprobantes.id)}`,
+    saComprobanteNumero: sql<string | null>`${representanteSa(flitoComprobantes.numeroDocumento)}`,
+    saComprobanteFecha: sql<string | null>`${representanteSa(flitoComprobantes.fechaDocumento)}`,
+    saTarifaReferencia: sql<string | null>`${EXPR_TARIFA_SA}`,
+    saDiferencia: sql<string | null>`${EXPR_DIF_SA}`,
+    saAceptadaPorId: sql<number | null>`${representanteSa(flitoComprobantes.diferenciaAceptadaPorId)}`,
+    saAceptadaEn: sql<Date | null>`${representanteSa(flitoComprobantes.diferenciaAceptadaEn)}`,
+    saAceptadaMotivo: sql<string | null>`${representanteSa(flitoComprobantes.diferenciaAceptadaMotivo)}`,
+    saAceptadaPorNombre: sql<string | null>`${representanteSaAceptadaPorNombre()}`,
+    saAceptada: sql<boolean | null>`${EXPR_ACEPTADA_SA}`,
+  };
+}
+
+/**
  * De dónde salió el valor (AC6). Sellada: lo que dejó escrito el sello
  * (`detalle -> '<concepto>' ->> 'origenValor'`), y 'tarifa' si el sello es anterior a F3 y no trae la
  * clave —el dinero sellado sigue siendo el sellado; aquí solo se etiqueta—. Sin sellar: 'documental'
@@ -72,7 +95,7 @@ export const SELECT_VALORES_DOCUMENTALES = {
   origenLg: sql<string>`${origen('logistica', EXPR_DOC_LG)}`,
   ...columnasDocumentales('td'),
   ...columnasDocumentales('lg'),
-  ...columnasDocumentales('sa'),
+  ...columnasDocumentalesSa(),
 } as const;
 
 /**
@@ -98,8 +121,9 @@ function conceptoDe(r: Record<string, unknown>, p: Prefijo): ValorDocumentalConc
     fecha: s(r[`${p}ComprobanteFecha`]),
     tarifaReferencia: n(r[`${p}TarifaReferencia`]),
     diferencia: n(r[`${p}Diferencia`]),
-    // «Aceptada» es que alguien la aceptó (`diferencia_aceptada_por_id` NOT NULL), no la fecha.
-    aceptada: n(r[`${p}AceptadaPorId`]) !== null,
+    // «Aceptada» es que alguien la aceptó (`diferencia_aceptada_por_id` NOT NULL), no la fecha. En SA
+    // (N filas, Bug #12913) es que TODAS las marcadas lo están: `saAceptada`.
+    aceptada: p === 'sa' ? r.saAceptada === true : n(r[`${p}AceptadaPorId`]) !== null,
     aceptadaPorNombre: s(r[`${p}AceptadaPorNombre`]),
     aceptadaEn: aIso(r[`${p}AceptadaEn`]),
     aceptadaMotivo: s(r[`${p}AceptadaMotivo`]),

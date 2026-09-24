@@ -98,9 +98,9 @@ function armarPost(o: { liquidacion?: unknown[]; tipo?: unknown[] } = {}) {
     .mockReturnValueOnce(chain(o.tipo ?? [FILA_TIPO]))
     .mockReturnValueOnce(chain([{ name: 'Ana Pérez' }]));
 }
-/** tx.select del DELETE: trámite (FOR UPDATE), liquidación. */
-function armarDelete(liquidacion: unknown[] = []) {
-  txSelect.mockReturnValueOnce(chain([FILA_TRAMITE])).mockReturnValueOnce(chain(liquidacion));
+/** tx.select del DELETE: trámite (FOR UPDATE), liquidación y (Bug #12913) si la asignación viene de un comprobante. */
+function armarDelete(liquidacion: unknown[] = [], origen: unknown[] = [{ deComprobante: false }]) {
+  txSelect.mockReturnValueOnce(chain([FILA_TRAMITE])).mockReturnValueOnce(chain(liquidacion)).mockReturnValueOnce(chain(origen));
 }
 
 describe('AC7 — acceso por función: admin y financiera escriben; auditor solo lee; cliente 403 antes de la base', () => {
@@ -166,7 +166,7 @@ describe('AC3 — GET /tramites/:id/servicios-adicionales', () => {
     const item: TramiteServicioAdicional = body.items[0]!;
     expect(item).toEqual({
       id: ASIGNACION, tipoId: TIPO, nombre: 'Diagnóstico', descripcion: 'Revisión técnica', valor: 85000,
-      asignadoPorId: 7, asignadoPorNombre: 'Ana Pérez', asignadoEn: '2026-09-14T15:00:00.000Z',
+      asignadoPorId: 7, asignadoPorNombre: 'Ana Pérez', asignadoEn: '2026-09-14T15:00:00.000Z', origen: 'manual',
     });
   });
 
@@ -282,6 +282,18 @@ describe('AC6 — DELETE /tramites/:id/servicios-adicionales/:asignacionId', () 
     expect(r2.status).toBe(404);
     expect(r2.body).toEqual({ error: 'La asignación no existe en este trámite' });
     expect(transactionMock).toHaveBeenCalledTimes(1);
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+
+  it('Bug #12913 — 409 ASIGNACION_DE_COMPROBANTE (mensaje literal) si la asignación viene de un comprobante de pago aplicado: sin borrar ni auditar', async () => {
+    armarDelete([], [{ deComprobante: true }]);
+    const app = await buildApp();
+    const r = await request(app).delete(`${BASE}/${ASIGNACION}`).set('Authorization', await auth('financiera'));
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({
+      error: 'Este servicio viene de un comprobante de pago aplicado; no se puede quitar desde el panel', codigo: 'ASIGNACION_DE_COMPROBANTE',
+    });
+    expect(txDelete).not.toHaveBeenCalled();
     expect(auditMock).not.toHaveBeenCalled();
   });
 

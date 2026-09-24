@@ -78,6 +78,9 @@ export function decidirAutoAplicar(lectura: LecturaSubDocumento | null, cruce: R
   if (!confiable(esPago, umbral) || cols.esPago !== true) return { razon: 'es_pago_no_confiable' };
   if (!confiable(valor, umbral) || !cols.valor) return { razon: 'valor_no_confiable' };
   const conceptoLeido = cols.concepto as ConceptoCosto;
+  // Bug #12913: el pago de servicios adicionales exige que una PERSONA elija el tipo de servicio (el OCR
+  // no lo sabe): no se auto-aplica, queda pendiente.
+  if (conceptoLeido === ConceptoCosto.SERVICIOS_ADICIONALES) return { razon: 'requiere_tipo_servicio' };
   if (candidato.admite[conceptoLeido] !== 'admite') return { razon: 'destino_no_admite' };
 
   const veredicto = veredictoDelDueno(conceptoLeido, lectura, candidato, umbral);
