@@ -33,7 +33,8 @@ import Paginacion from '../components/flit/Paginacion';
 import DetalleImpuesto from '../components/flito/DetalleImpuesto';
 import CargaRecibosImpuestos from '../components/flito/CargaRecibosImpuestos';
 import {
-  AccionesTramite, AvisoAnalisis, ModalValidacion, PRESET_CON_ALERTAS, SEMAFOROS_ALERTA, VACIO_CON_ALERTAS, type EnvioAnalisis,
+  AccionesTramite, AvisoAnalisis, ModalValidacion, PRESET_CON_ALERTAS, ReintentarValidacion, SEMAFOROS_ALERTA, VACIO_CON_ALERTAS,
+  type EnvioAnalisis,
 } from '../components/flito/ValidacionRunt';
 import { ChipDocumentos, TONO_IMPUESTO as TONO, fecha, pesos, type ImpuestoItem } from '../components/flito/ImpuestoCola';
 import useDebounce from '../lib/useDebounce';
@@ -318,6 +319,17 @@ export default function FlitoImpuestos() {
     }
   };
 
+  // «Reintentar validación» (HU #12832): vive en el modal rojo (primaria) y en el detalle (secundaria),
+  // nunca en la fila. Al encolar se parchea la fila a «Analizando» sin recargar, como `certificar()`.
+  const puedeReintentar = hasFuncion('impuestos.tramite.certificar');
+  const marcarAnalizando = (id: string) => setData((d) => d && ({
+    ...d, items: d.items.map((i) => i.id === id ? { ...i, analisisEstado: 'en_curso' as const } : i),
+  }));
+  const reintento = (f: ImpuestoItem, enModal: boolean) => puedeReintentar ? (
+    <ReintentarValidacion fila={f} principal={enModal} onYaCertificado={refrescar}
+      onEncolado={(encolado) => { marcarAnalizando(f.id); if (encolado && enModal) setValidacionId(null); }} />
+  ) : undefined;
+
   const descargarCertificado = async (f: ImpuestoItem) => {
     try {
       await api.download(`/flito/impuestos/${f.id}/certificado`, `certificado-runt-${f.placa ?? f.idFlit}.pdf`);
@@ -572,14 +584,15 @@ export default function FlitoImpuestos() {
 
       {validacion && (
         <ModalValidacion imp={validacion} onClose={() => setValidacionId(null)}
-          onVerDetalle={() => { setValidacionId(null); setDetalleId(validacion.id); }} />
+          onVerDetalle={() => { setValidacionId(null); setDetalleId(validacion.id); }}
+          accionReintento={reintento(validacion, true)} sinPermiso={!puedeReintentar} />
       )}
 
       {detalle && (
         <DetalleImpuesto imp={detalle} esOperaciones={esOperaciones} esGestor={esGestor} soloLectura={soloLectura}
           puedeCargarCaja={hasFuncion('impuestos.recibos.cargar_caja')}
           onClose={() => setDetalleId(null)} onCambio={() => { setDetalleId(null); refrescar(); }}
-          onTraspaso={refrescar} />
+          onTraspaso={refrescar} accionReintento={reintento(detalle, false)} sinPermisoReintento={!puedeReintentar} />
       )}
 
       {cargaRecibos && (

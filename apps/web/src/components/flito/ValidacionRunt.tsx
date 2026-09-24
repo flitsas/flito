@@ -6,20 +6,23 @@
 // (`AvisoAnalisis`) y el preset «Con alertas». La HU #12831 trae el modal comparativo
 // (`ModalValidacion`, abierto desde el icono de la fila) y la sección del detalle
 // (`SeccionValidacion`), que comparten `TablaFacturaRunt`. «Reintentar validación» es de la HU
-// #12832: aquí solo queda el hueco `accionReintento`.
+// #12832: `ReintentarValidacion`, que la página engancha en el hueco `accionReintento`.
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { CircleCheck, CircleHelp, CircleX, LoaderCircle, TriangleAlert, X } from 'lucide-react';
+import { CircleCheck, CircleHelp, CircleX, LoaderCircle, RotateCw, TriangleAlert, X } from 'lucide-react';
 import {
   ANALISIS_ESTADO_IMPUESTO_LABEL, CAMPO_COMPARACION_FACTURA_RUNT_LABEL, MOTIVO_SEMAFORO_ROJO_LABEL,
   SEMAFORO_IMPUESTO_LABEL,
   type AnalisisEstadoImpuesto, type ComparacionCampoFacturaRunt, type ComparacionFacturaRunt,
   type DireccionCompradorImpuesto, type MotivoSemaforoRojo, type SemaforoImpuesto,
 } from '@operaciones/shared-types';
-import { api } from '../../lib/api';
+import { ApiError, api } from '../../lib/api';
 import FlitModal from '../flit/FlitModal';
 import StatusChip from '../flit/StatusChip';
-import { FlitTable, FlitTh, FlitTr, flitBtnSecondary, flitBtnSecondarySm, flitBtnSecondaryStyle } from '../flit/flitPageKit';
+import { toastOk } from '../flit/ToastFlito';
+import {
+  FlitTable, FlitTh, FlitTr, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondarySm, flitBtnSecondaryStyle,
+} from '../flit/flitPageKit';
 
 /** Lo que la fila de la cola trae del análisis post-envío. `undefined` se trata como `null`. */
 export interface ValidacionFila {
@@ -182,14 +185,18 @@ function useDetalleValidacion(id: string, activo: boolean) {
   return { carga, recargar };
 }
 
-/** Copy del rojo por motivo (AC3). `error_analisis` no tiene motivo: es la validación que no terminó. */
-const TEXTO_SIN_VALIDAR: Record<MotivoSemaforoRojo | 'error_analisis', string> = {
-  runt_sin_respuesta: `${MOTIVO_SEMAFORO_ROJO_LABEL.runt_sin_respuesta}. Puede ser una caída momentánea o un traspaso `
-    + 'que aún sincroniza. Reintenta la validación en unos minutos.',
-  error_lectura_factura: `${MOTIVO_SEMAFORO_ROJO_LABEL.error_lectura_factura}. Revisa que la factura de venta en FLIT `
-    + 'sea legible y reintenta la validación.',
-  error_analisis: 'La validación no terminó por un error técnico. Reintenta en unos minutos.',
+/**
+ * Copy del rojo por motivo (AC3): [lo que pasó, lo que sigue]. `error_analisis` no tiene motivo: es la
+ * validación que no terminó. Sin el permiso de reintentar, «lo que sigue» es `CIERRE_SIN_PERMISO` (spec UX).
+ */
+const TEXTO_SIN_VALIDAR: Record<MotivoSemaforoRojo | 'error_analisis', [string, string]> = {
+  runt_sin_respuesta: [`${MOTIVO_SEMAFORO_ROJO_LABEL.runt_sin_respuesta}. Puede ser una caída momentánea o un traspaso `
+    + 'que aún sincroniza.', 'Reintenta la validación en unos minutos.'],
+  error_lectura_factura: [`${MOTIVO_SEMAFORO_ROJO_LABEL.error_lectura_factura}.`,
+    'Revisa que la factura de venta en FLIT sea legible y reintenta la validación.'],
+  error_analisis: ['La validación no terminó por un error técnico.', 'Reintenta en unos minutos.'],
 };
+const CIERRE_SIN_PERMISO = 'Pide a quien certifica en tu equipo que reintente la validación.';
 
 const lista = (cs: ComparacionCampoFacturaRunt[]) => cs.map((c) => CAMPO_COMPARACION_FACTURA_RUNT_LABEL[c.campo]).join(', ');
 
@@ -289,7 +296,9 @@ const texto = (color = 'var(--flit-text-primary)') => ({ color });
  * El cuerpo común de la validación según el estado. Lo pintan el modal y la sección; los 4 estados
  * de la petición se resuelven antes, en quien pide el detalle.
  */
-function CuerpoValidacion({ datos, accionReintento }: { datos: DetalleValidacion; accionReintento?: ReactNode }) {
+function CuerpoValidacion({ datos, accionReintento, sinPermiso }: {
+  datos: DetalleValidacion; accionReintento?: ReactNode; sinPermiso?: boolean;
+}) {
   const estado = datos.analisisEstado ?? null;
   const cmp = datos.comparacion;
   if (estado === null) {
@@ -308,9 +317,9 @@ function CuerpoValidacion({ datos, accionReintento }: { datos: DetalleValidacion
     return (
       <div className="space-y-3" data-testid="validacion-sin-validar">
         <StatusChip tone="danger" icono={<CircleX size={12} aria-hidden="true" />}>{SEMAFORO_IMPUESTO_LABEL.rojo}</StatusChip>
-        <p style={texto()}>{TEXTO_SIN_VALIDAR[motivo]}</p>
+        <p style={texto()}>{TEXTO_SIN_VALIDAR[motivo][0]} {sinPermiso ? CIERRE_SIN_PERMISO : TEXTO_SIN_VALIDAR[motivo][1]}</p>
         {cmp && cmp.campos.length > 0 && <TablaFacturaRunt campos={cmp.campos} direccion={datos.direccionComprador} />}
-        {accionReintento}
+        {accionReintento && <div className="flex flex-wrap items-center gap-2">{accionReintento}</div>}
       </div>
     );
   }
@@ -359,15 +368,15 @@ export interface FilaValidacion extends ValidacionFila { id: string; placa: stri
  * Modal del semáforo (AC1, AC3). Visita de consulta: en verde o naranja no hay primaria.
  * `accionReintento` es el hueco de la HU #12832 («Reintentar validación», la única primaria en rojo).
  */
-export function ModalValidacion({ imp, onClose, onVerDetalle, accionReintento }: {
-  imp: FilaValidacion; onClose: () => void; onVerDetalle: () => void; accionReintento?: ReactNode;
+export function ModalValidacion({ imp, onClose, onVerDetalle, accionReintento, sinPermiso }: {
+  imp: FilaValidacion; onClose: () => void; onVerDetalle: () => void; accionReintento?: ReactNode; sinPermiso?: boolean;
 }) {
   const { carga, recargar } = useDetalleValidacion(imp.id, true);
   return (
     <FlitModal title={`Validación factura ↔ RUNT · ${imp.placa ?? imp.vin}`} onClose={onClose} wide>
       <div className="space-y-4 text-sm" data-testid="modal-validacion">
         <EstadosCarga carga={carga} recargar={recargar}>
-          {(datos) => <CuerpoValidacion datos={{ ...imp, ...datos }} />}
+          {(datos) => <CuerpoValidacion datos={{ ...imp, ...datos }} sinPermiso={sinPermiso} />}
         </EstadosCarga>
         <div className="flex flex-wrap justify-end gap-2 pt-1">
           <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onVerDetalle}>Ver detalle</button>
@@ -383,7 +392,9 @@ export function ModalValidacion({ imp, onClose, onVerDetalle, accionReintento }:
  * Sección «Validación factura ↔ RUNT» del detalle (AC2). Con el análisis terminado pide el detalle;
  * nunca analizado o en curso no hay nada que pedir.
  */
-export function SeccionValidacion({ imp, accionReintento }: { imp: FilaValidacion; accionReintento?: ReactNode }) {
+export function SeccionValidacion({ imp, accionReintento, sinPermiso }: {
+  imp: FilaValidacion; accionReintento?: ReactNode; sinPermiso?: boolean;
+}) {
   const estado = imp.analisisEstado ?? null;
   const terminado = estado === 'completado' || estado === 'error_analisis';
   const { carga, recargar } = useDetalleValidacion(imp.id, terminado);
@@ -395,10 +406,98 @@ export function SeccionValidacion({ imp, accionReintento }: { imp: FilaValidacio
       {terminado
         ? (
           <EstadosCarga carga={carga} recargar={recargar}>
-            {(datos) => <CuerpoValidacion datos={{ ...imp, ...datos }} accionReintento={accionReintento} />}
+            {(datos) => <CuerpoValidacion datos={{ ...imp, ...datos }} accionReintento={accionReintento} sinPermiso={sinPermiso} />}
           </EstadosCarga>
         )
         : <CuerpoValidacion datos={{ ...imp, comparacion: null, direccionComprador: null }} />}
     </section>
+  );
+}
+
+// ─────────────────── HU #12832: «Reintentar validación» ───────────────────
+
+/** Lo que el reintento mira de la fila: la validación y si ya hay certificación vigente. */
+export interface FilaReintento extends ValidacionFila { id: string; certificacion?: unknown }
+
+/** AC2: sin certificación vigente, en rojo (cualquier motivo) o `error_analisis`, y no en curso. */
+export function ofreceReintento(f: FilaReintento): boolean {
+  if (f.certificacion || f.analisisEstado === 'en_curso') return false;
+  return f.semaforo === 'rojo' || f.analisisEstado === 'error_analisis';
+}
+
+/** Desenlace de un reintento fallido, con su copy (spec UX). Se decide por `code`, nunca por el texto. */
+type FalloReintento = { texto: string; efecto?: 'en_curso' | 'certificado' };
+
+const FALLO_409: Record<string, FalloReintento> = {
+  ANALISIS_EN_CURSO: { texto: 'Esta validación ya está en curso. Actualiza la cola en unos minutos.', efecto: 'en_curso' },
+  YA_CERTIFICADO: { texto: 'Este impuesto ya está certificado; no hace falta validarlo de nuevo.', efecto: 'certificado' },
+  NO_SOLICITADO: { texto: 'Solo se valida un impuesto enviado al gestor.' },
+  SIN_ANALISIS: { texto: 'Este impuesto no tiene una validación que reintentar.' },
+};
+const FALLO_GENERICO = 'No se pudo reintentar la validación. Inténtalo de nuevo en unos minutos.';
+
+export function falloReintento(e: unknown): FalloReintento {
+  if (!(e instanceof ApiError)) return { texto: FALLO_GENERICO };
+  const cuerpo = e.rawDetails as Record<string, unknown> | null;
+  const code = typeof cuerpo?.code === 'string' ? cuerpo.code : null;
+  if (e.status === 409 && code && FALLO_409[code]) return FALLO_409[code];
+  if (e.status === 404) return { texto: 'Este impuesto ya no está en la cola. Actualízala.' };
+  if (e.status === 403) return { texto: 'No tienes permiso para reintentar la validación.' };
+  if (e.status === 429) return { texto: 'Hiciste varios reintentos seguidos. Espera un minuto e inténtalo de nuevo.' };
+  return { texto: FALLO_GENERICO };
+}
+
+export const TOAST_REINTENTO = 'Validación en cola. El semáforo nuevo aparece al actualizar la cola.';
+
+/**
+ * Botón «Reintentar validación» (AC2, AC3). Primario en el modal rojo (única acción de esa visita),
+ * secundario en el detalle. El error va aquí dentro con `role="alert"`, nunca en toast; el éxito es
+ * un toast cerrable y la fila la parchea quien lo monta (`onEncolado`). Tras un 409 que cambia el
+ * estado (en curso, ya certificado) el aviso se queda y el botón se va: reintentar ya no tiene sentido.
+ */
+export function ReintentarValidacion({ fila, principal, onEncolado, onYaCertificado }: {
+  fila: FilaReintento; principal?: boolean;
+  /** `true` = 202 (el modal se cierra); `false` = ya estaba en curso (se queda con el aviso). */
+  onEncolado: (encolado: boolean) => void; onYaCertificado: () => void;
+}) {
+  const [enviando, setEnviando] = useState(false);
+  const [fallo, setFallo] = useState<FalloReintento | null>(null);
+  if (!ofreceReintento(fila) && !fallo?.efecto) return null;
+
+  const reintentar = async () => {
+    setEnviando(true);
+    setFallo(null);
+    try {
+      await api.post(`/flito/impuestos/${fila.id}/reanalizar`);
+      toastOk(TOAST_REINTENTO, { id: `reanalizar-${fila.id}` });
+      onEncolado(true);
+    } catch (e) {
+      const f = falloReintento(e);
+      setFallo(f);
+      if (f.efecto === 'en_curso') onEncolado(false);
+      if (f.efecto === 'certificado') onYaCertificado();
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  return (
+    <>
+      {fallo && (
+        <p role="alert" data-testid="reintento-error" className="order-first basis-full text-sm" style={texto('var(--flit-danger-text)')}>
+          {fallo.texto}
+        </p>
+      )}
+      {!fallo?.efecto && (
+        <button type="button" onClick={reintentar} disabled={enviando} aria-busy={enviando}
+          className={principal ? flitBtnPrimary : flitBtnSecondary}
+          style={principal ? flitBtnPrimaryStyle : flitBtnSecondaryStyle}>
+          {enviando
+            ? <LoaderCircle size={16} aria-hidden="true" className="shrink-0 animate-spin motion-reduce:animate-none" />
+            : <RotateCw size={16} aria-hidden="true" className="shrink-0" />}
+          {enviando ? 'Reintentando…' : 'Reintentar validación'}
+        </button>
+      )}
+    </>
   );
 }
