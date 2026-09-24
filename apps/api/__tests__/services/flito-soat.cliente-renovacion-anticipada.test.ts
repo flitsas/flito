@@ -600,7 +600,10 @@ describe('rastro PII — el aviso de vigencia se declara en `campos_accedidos` c
     expect(registro.camposAccedidos).toEqual(expect.arrayContaining(['placa', 'vin']));
   });
 
-  it('el 409 sigue siendo un INTENTO: no declara ningún campo accedido', async () => {
+  // Desde la HU #12842 (RN-05 del Feature #12840) el 409 publica el SOAT activo y lo declara; ni la
+  // placa, ni el VIN, ni el nombre, que siguen sin salir. El detalle está en
+  // `flito-soat.cliente-soat-activo.test.ts`.
+  it('el 409 sigue siendo un INTENTO: no declara placa, VIN ni nombre, solo el SOAT activo que publica', async () => {
     escenario();
     consultarVehiculoRuntMock.mockResolvedValue(runtVigenteHasta(aDias(45)));
 
@@ -608,7 +611,8 @@ describe('rastro PII — el aviso de vigencia se declara en `campos_accedidos` c
 
     expect(r.status).toBe(409);
     const registro = piiMock.mock.calls[0][1];
-    expect(registro.camposAccedidos).toEqual([]);
+    for (const c of ['placa', 'vin', 'nombre_completo']) expect(registro.camposAccedidos).not.toContain(c);
+    expect(registro.camposAccedidos).toContain('fecha_vencimiento_soat');
   });
 });
 

@@ -457,3 +457,88 @@ describe('AC10 — la compuerta no escribe la póliza ni el VIN en el log', () =
     }
   });
 });
+
+// ═══════════ RN-05 — `campos_accedidos` declara el SOAT activo publicado ════════
+
+describe('RN-05 (Feature #12840) — `campos_accedidos` declara el SOAT activo que sale en la respuesta', () => {
+  const SOAT_ACTIVO = ['poliza_soat', 'aseguradora_soat', 'fecha_expedicion_soat', 'inicio_vigencia_soat', 'estado_soat'];
+  const registros = () => piiMock.mock.calls.map((c) => c[1] as { camposAccedidos: string[]; motivo: string });
+
+  it('**200 con aviso**: placa, VIN, vencimiento y los cinco datos del SOAT activo', async () => {
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk([soatReal(aDias(10))]));
+
+    const r = await preconsultar(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(200);
+    expect(r.body.vigenciaProxima).not.toBeNull();
+    expect(registros()).toHaveLength(1);
+    expect([...registros()[0].camposAccedidos].sort()).toStrictEqual(
+      ['placa', 'vin', 'nombre_completo', 'fecha_vencimiento_soat', ...SOAT_ACTIVO].sort(),
+    );
+  });
+
+  it('**200 sin aviso**: ni el vencimiento ni el SOAT activo se declaran', async () => {
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk([]));
+
+    const r = await preconsultar(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(200);
+    const campos = registros()[0].camposAccedidos;
+    for (const c of ['fecha_vencimiento_soat', ...SOAT_ACTIVO]) expect(campos).not.toContain(c);
+  });
+
+  it('**409 `soat_vigente` con fecha, en preconsulta Y alta**: los cinco datos + `fecha_vencimiento_soat`', async () => {
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk([soatReal(aDias(45))]));
+    const app = await buildApp();
+
+    const pre = await preconsultar(app, await auth(siguienteUsuario()));
+    const alt = await alta(app, await auth(siguienteUsuario()));
+
+    expect(pre.status).toBe(409);
+    expect(alt.status).toBe(409);
+    expect(pre.body.fechaVencimiento).toBeDefined();
+    const [rPre, rAlt] = registros();
+    expect(registros()).toHaveLength(2);
+    expect(rPre.motivo).toContain('resultado=soat_vigente');
+    expect(rAlt.motivo).toContain('resultado=soat_vigente');
+    const esperado = [...SOAT_ACTIVO, 'fecha_vencimiento_soat'].sort();
+    expect([...rPre.camposAccedidos].sort()).toStrictEqual(esperado);
+    expect([...rAlt.camposAccedidos].sort()).toStrictEqual(esperado);
+  });
+
+  it('**409 `soat_vigente` SIN fecha**: los cinco datos, y `fecha_vencimiento_soat` NO (no viajó)', async () => {
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk([{ estadoSoat: 'VIGENTE', numSoat: POLIZA_FICTICIA }]));
+    const app = await buildApp();
+
+    const pre = await preconsultar(app, await auth(siguienteUsuario()));
+    const alt = await alta(app, await auth(siguienteUsuario()));
+
+    expect(pre.status).toBe(409);
+    expect(alt.status).toBe(409);
+    expect(pre.body).not.toHaveProperty('fechaVencimiento');
+    for (const r of registros()) expect([...r.camposAccedidos].sort()).toStrictEqual([...SOAT_ACTIVO].sort());
+    expect(registros()).toHaveLength(2);
+  });
+
+  it('**negativo — un 422 y un 503 siguen declarando `[]`**', async () => {
+    escenario();
+    const app = await buildApp();
+
+    const otroVin = runtOk();
+    otroVin.data.vehiculo.vin = '9FKRG2222T2099999';
+    consultarVehiculoRuntMock.mockResolvedValue(otroVin);
+    const r422 = await preconsultar(app, await auth(siguienteUsuario()));
+    expect(r422.status).toBe(422);
+
+    consultarVehiculoRuntMock.mockResolvedValue({ ok: false, error: 'timeout' });
+    const r503 = await alta(app, await auth(siguienteUsuario()));
+    expect(r503.status).toBe(503);
+
+    expect(registros()).toHaveLength(2);
+    for (const r of registros()) expect(r.camposAccedidos).toStrictEqual([]);
+  });
+});
