@@ -286,8 +286,8 @@ describe('guardarEstadoDelDia — dos escrituras por intento, y no son la misma'
 
 // ─────────────────── El delta de API: los tres filtros de la cola, en SQL ───────────────────────
 
-const ctxAdmin = { userId: 1, username: 'a@flit.io', role: 'admin', externo: false, proveedorSoatId: null, companiaId: null };
-const ctxCliente = { userId: 9, username: 'c@x.io', role: 'cliente', externo: true, proveedorSoatId: null, companiaId: 7 };
+const ctxAdmin = { userId: 1, username: 'a@flit.io', role: 'admin', externo: false, alcance: 'todo' as const, proveedorSoatId: null, companiaId: null };
+const ctxCliente = { userId: 9, username: 'c@x.io', role: 'cliente', externo: true, alcance: 'compania' as const, proveedorSoatId: null, companiaId: 7 };
 
 /** El WHERE completo de la cola con estos filtros, renderizado. */
 function whereCola(ctx: unknown, filtros: Record<string, unknown>) {

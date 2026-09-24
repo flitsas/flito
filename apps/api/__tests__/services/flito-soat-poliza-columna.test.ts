@@ -40,7 +40,7 @@ const { marcarPagado } = await import('../../src/modules/flito-soat/flito-soat.s
 
 const SOAT_ID = '11111111-1111-1111-1111-111111111111';
 const VIN = '9BWZZZ377VT004251';
-const ctx = { userId: 7, username: 'financiera@x.io', role: 'admin', proveedorSoatId: null };
+const ctx = { userId: 7, username: 'financiera@x.io', role: 'admin', externo: false, alcance: 'todo' as const, proveedorSoatId: null, companiaId: null };
 
 const campo = (valor: string | null) => ({ valor, confianza: 0.95, confiable: true });
 

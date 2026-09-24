@@ -2,7 +2,7 @@
 //
 // Nació en la HU #12081 resolviendo solo las páginas (`paginasEfectivasDeUsuario`) y desde esta HU
 // es el motor entero: `resolverPermisos(userId)` devuelve el conjunto efectivo de funciones
-// (`pagina.*` y `operacion.*`), el rol y el `tipo_principal` del rol, y lo cachea 60 s por usuario.
+// (`pagina.*` y `operacion.*`), el rol, su `tipo_principal` y su `tipo_enlace` (Bug #12869), y lo cachea 60 s por usuario.
 // Lo consumen `exigirFuncion` (la guarda HTTP), `requirePage` (que es `exigirFuncion('pagina.<slug>')`),
 // `guardiaCanalCliente` (la frontera del canal externo, que lee `tipoPrincipal` de aquí y no del
 // literal del rol), `GET /api/permisos/mios`, el login y `/me`. No hay una segunda definición de
@@ -56,6 +56,20 @@ const PREFIJO = 'pagina.';
 
 export type TipoPrincipal = 'interno' | 'externo';
 
+/**
+ * Bug #12869 — `permisos_roles.tipo_enlace`: a qué entidad ata el rol a sus usuarios. Decide el
+ * ALCANCE de datos (qué filas ve), que no es lo mismo que el tipo interno/externo (qué campos ve).
+ * `null` = un valor que este código no conoce: quien lo consuma debe tratarlo como «nada» (fallo
+ * cerrado), nunca como `ninguno` (que en SOAT significa «todo»).
+ */
+export type TipoEnlace = 'ninguno' | 'compania' | 'proveedor_soat' | 'organismos_transito';
+
+const ENLACES: readonly TipoEnlace[] = ['ninguno', 'compania', 'proveedor_soat', 'organismos_transito'];
+
+function enlaceConocido(v: string | null | undefined): TipoEnlace | null {
+  return (ENLACES as readonly (string | null | undefined)[]).includes(v) ? (v as TipoEnlace) : null;
+}
+
 export interface PermisosOk {
   ok: true;
   userId: number;
@@ -63,6 +77,8 @@ export interface PermisosOk {
   rol: string;
   /** `permisos_roles.tipo_principal` del rol. */
   tipoPrincipal: TipoPrincipal;
+  /** `permisos_roles.tipo_enlace` del rol (Bug #12869); `null` si el valor no es uno conocido. */
+  tipoEnlace: TipoEnlace | null;
   /** El conjunto efectivo: (R ∪ C) \ V. */
   funciones: ReadonlySet<string>;
   /** Hash del conjunto: cambia si y solo si cambia lo que este usuario puede. */
@@ -78,6 +94,8 @@ export type PermisosResueltos =
 export interface FilasPermisos {
   rol: string;
   tipoPrincipal: TipoPrincipal;
+  /** Crudo, como viene de la base; `resolverPermisos` lo normaliza (desconocido → `null`). */
+  tipoEnlace: string | null;
   funcionesDelRol: string[];
   excepciones: { codigo: string; efecto: 'conceder' | 'revocar' }[];
 }
@@ -98,6 +116,7 @@ async function leerFilasDePermisos(userId: number): Promise<FilasPermisos | null
   const [fila] = await db.select({
     rol: users.role,
     tipoPrincipal: permisosRoles.tipoPrincipal,
+    tipoEnlace: permisosRoles.tipoEnlace,
   })
     .from(users)
     .innerJoin(permisosRoles, eq(permisosRoles.codigo, users.role))
@@ -119,6 +138,7 @@ async function leerFilasDePermisos(userId: number): Promise<FilasPermisos | null
   return {
     rol: fila.rol,
     tipoPrincipal: fila.tipoPrincipal === 'externo' ? 'externo' : 'interno',
+    tipoEnlace: fila.tipoEnlace,
     funcionesDelRol: delRol.map((r) => r.codigo),
     excepciones: propias.map((p) => ({
       codigo: p.codigo,
@@ -201,6 +221,7 @@ export async function resolverPermisos(userId: number): Promise<PermisosResuelto
     userId,
     rol: filas.rol,
     tipoPrincipal: filas.tipoPrincipal,
+    tipoEnlace: enlaceConocido(filas.tipoEnlace),
     funciones,
     version: versionDe(filas.rol, filas.tipoPrincipal, funciones),
     resueltoEn: new Date(ahora),

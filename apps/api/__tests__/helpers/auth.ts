@@ -104,6 +104,14 @@ export async function registrarUsuarioDePrueba(sub: number, filas: FilasPermisos
   }
 }
 
+/** `permisos_roles.tipo_enlace` de los roles de fábrica, como los siembra la 0178. */
+const ENLACE_DE_FABRICA: Record<string, string> = {
+  proveedor: 'proveedor_soat',
+  transito: 'organismos_transito',
+  gestor_impuestos: 'organismos_transito',
+  cliente: 'compania',
+};
+
 export async function testToken(opts: TestUserOpts = {}): Promise<string> {
   const secret = new TextEncoder().encode(process.env.JWT_SECRET);
   const role = opts.role ?? 'admin';
@@ -122,6 +130,8 @@ export async function testToken(opts: TestUserOpts = {}): Promise<string> {
   await registrarUsuarioDePrueba(sub, {
     rol: role,
     tipoPrincipal: role === 'cliente' ? 'externo' : 'interno',
+    // Bug #12869: el enlace de fábrica (siembra de la 0178). En SOAT decide el alcance de filas.
+    tipoEnlace: ENLACE_DE_FABRICA[role] ?? 'ninguno',
     funcionesDelRol: [
       ...operacionesDePartida(role),
       ...paginasPorDefecto(role as RoleCode).map((s) => `pagina.${s}`),

@@ -51,7 +51,7 @@ import { uploadEntityDocument } from '../../services/storage.js';
 import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
 import { EXISTS_COMPROBANTE_SOAT, TIPO_FACTURA_SOAT } from './flito-soat-censo.js';
 import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
-import { resolverPermisos } from '../../shared/permisos-efectivos.js';
+import { resolverPermisos, type PermisosResueltos } from '../../shared/permisos-efectivos.js';
 
 export interface SoatCtx {
   userId: number;
@@ -65,6 +65,14 @@ export interface SoatCtx {
    * cualquier código, y comparar con el literal les daba la vista de admin.
    */
   externo: boolean;
+  /**
+   * Bug #12869 — el ALCANCE de filas, derivado del `tipo_enlace` del rol (no del literal del rol ni
+   * del tipo interno/externo): `todo` (enlace `ninguno`), `compania` (su compañía), `proveedor` (la
+   * frontera del gestor: su proveedor) o `nada`. Fallo cerrado: resolución fallida, enlace
+   * desconocido u `organismos_transito` → `nada`; enlace sin su id → la rama correspondiente sin id,
+   * que también acaba en «nada».
+   */
+  alcance: AlcanceSoat;
   proveedorSoatId: string | null;
   /**
    * La compañía del usuario `cliente` (Feature #11912). `null` para el resto de roles — y también
@@ -82,27 +90,47 @@ export interface SoatCtx {
  * `users.compania_id` en cada petición y NO viaja en el token, así que moverle la compañía a alguien
  * surte efecto sin re-emitírselo. Es una consulta más, y solo para dos de los doce roles.
  */
+export type AlcanceSoat = 'todo' | 'compania' | 'proveedor' | 'nada';
+
+/**
+ * Bug #12869 — el alcance lo decide el ENLACE del rol. `tipoPrincipal` solo interviene en la
+ * excepción transitoria: un rol externo SIN enlace no ve nada (el tipo se retira en otro Feature;
+ * hasta entonces no se abre). Exportada para que las pruebas fijen la tabla entera.
+ */
+export function alcanceSoatDe(p: PermisosResueltos): AlcanceSoat {
+  if (!p.ok) return 'nada';
+  switch (p.tipoEnlace) {
+    case 'ninguno': return p.tipoPrincipal === 'externo' ? 'nada' : 'todo';
+    case 'compania': return 'compania';
+    case 'proveedor_soat': return 'proveedor';
+    default: return 'nada'; // organismos_transito y cualquier valor desconocido
+  }
+}
+
 export async function contextoSoat(user: { sub: number; username: string; role: string }): Promise<SoatCtx> {
   let proveedorSoatId: string | null = null;
   let companiaId: number | null = null;
-  // HU #12815: el tipo del rol, no su código. Mismo criterio que `canal-cliente.ts`: `!p.ok` ⇒ externo.
   const p = await resolverPermisos(user.sub);
+  // HU #12815: el tipo del rol decide la PROYECCIÓN de campos (qué columnas ve), con `!p.ok` ⇒ externo.
   const externo = !p.ok || p.tipoPrincipal === 'externo';
-  if (externo) {
-    // TODO rol externo se acota a su compañía; sin compañía, `condicionesCola` devuelve null (nada).
-    const [u] = await db.select({ c: users.companiaId }).from(users).where(eq(users.id, user.sub)).limit(1);
-    companiaId = u?.c ?? null;
-  } else if (user.role === 'proveedor') {
-    const [u] = await db.select({ p: users.flitoProveedorSoatId }).from(users).where(eq(users.id, user.sub)).limit(1);
-    proveedorSoatId = u?.p ?? null;
+  // Bug #12869: el ENLACE decide el alcance de FILAS. El id se lee de la base en cada petición (§9.3).
+  const alcance = alcanceSoatDe(p);
+  if (alcance === 'compania' || alcance === 'proveedor') {
+    const [u] = await db.select({ c: users.companiaId, p: users.flitoProveedorSoatId })
+      .from(users).where(eq(users.id, user.sub)).limit(1);
+    if (alcance === 'compania') companiaId = u?.c ?? null;
+    else proveedorSoatId = u?.p ?? null;
   }
-  return { userId: user.sub, username: user.username, role: user.role, externo, proveedorSoatId, companiaId };
+  return { userId: user.sub, username: user.username, role: user.role, externo, alcance, proveedorSoatId, companiaId };
 }
 
-const esGestor = (ctx: SoatCtx) => !ctx.externo && ctx.role === 'proveedor';
+/** Frontera del gestor: CUALQUIER rol con enlace `proveedor_soat` (Bug #12869), no el literal `proveedor`. */
+const esGestor = (ctx: SoatCtx) => ctx.alcance === 'proveedor';
+/** Frontera por compañía: CUALQUIER rol con enlace `compania`, interno o externo (Bug #12869). */
+const acotadoACompania = (ctx: SoatCtx) => ctx.alcance === 'compania';
 /**
- * Usuario de un rol EXTERNO —el `cliente` de siempre o cualquier rol externo creado en el panel—: ve
- * lo de su compañía y nada más (Feature #11912; generalizado por la HU #12815).
+ * Usuario de un rol EXTERNO —el `cliente` de siempre o cualquier rol externo creado en el panel—.
+ * Decide la PROYECCIÓN (qué campos), no las filas: eso es `alcance` (Bug #12869).
  */
 const esExterno = (ctx: SoatCtx) => ctx.externo;
 
@@ -472,6 +500,7 @@ export function condicionesCola(ctx: SoatCtx, filtros: FiltrosCola): SQL[] | nul
   const f = filtrosPermitidos(ctx, filtros);
   const conds = [FRONTERA_AUTOGESTION_SOAT];
 
+  if (ctx.alcance === 'nada') return null; // fallo cerrado (Bug #12869): nunca «sin frontera»
   if (esGestor(ctx)) {
     if (!ctx.proveedorSoatId) return null; // sin proveedor no hay frontera que aplicar → nada
     // Lo asumido por Operaciones desaparece de su cola. La condición va aquí, en las condiciones
@@ -484,7 +513,7 @@ export function condicionesCola(ctx: SoatCtx, filtros: FiltrosCola): SQL[] | nul
       : [EstadoSoat.SOLICITADO];
     if (visibles.length === 0) return null;
     conds.push(inArray(flitoSoat.estado, visibles));
-  } else if (esExterno(ctx)) {
+  } else if (acotadoACompania(ctx)) {
     // Aislamiento por compañía (Feature #11912), simétrico al del gestor y en el MISMO sitio: estas
     // condiciones las comparten la página, el conteo y las facetas, así que una sola rama cubre las
     // tres. Escribirlo en la consulta de filas dejaría el total y los valores de los filtros
@@ -1070,6 +1099,41 @@ function estaEstancado(estado: string, enviadoEn: Date | null): boolean {
  * CA-09 dice que el gestor no obtiene datos ajenos "ni consultando por ID directo", y un 403
  * ya es un dato (confirma que el id existe).
  */
+/**
+ * Bug #12869 — SOLO la frontera por enlace sobre una fila ya leída, para las transiciones de
+ * Operaciones que leen el SOAT por id. NO es `buscarConAcceso`: la frontera de autogestión de este
+ * cambiaría lo que hoy puede hacer el admin (alcance `todo`), que aquí queda exactamente igual.
+ *
+ * `proveedor` aplica la frontera ENTERA del gestor (su proveedor, sin `gestionOperaciones`, estados
+ * del gestor) y no solo el proveedor: es lo que ese rol puede VER (`buscarConAcceso`, cola), y
+ * actuar sobre algo que no ve sería otra forma de la misma fuga.
+ */
+export function dentroDeAlcance(
+  fila: { companiaId: number | null; proveedorSoatId: string | null; gestionOperaciones: boolean; estado: string },
+  ctx: SoatCtx,
+): boolean {
+  switch (ctx.alcance) {
+    case 'todo': return true;
+    case 'compania': return ctx.companiaId != null && fila.companiaId === ctx.companiaId;
+    case 'proveedor': return ctx.proveedorSoatId != null && fila.proveedorSoatId === ctx.proveedorSoatId
+      && !fila.gestionOperaciones && (ESTADOS_SOAT_VISIBLES_GESTOR as readonly string[]).includes(fila.estado);
+    default: return false;
+  }
+}
+
+/** La misma frontera como condiciones SQL, para el envío en lote. `null` = nada. */
+function condicionesAlcance(ctx: SoatCtx): SQL[] | null {
+  switch (ctx.alcance) {
+    case 'todo': return [];
+    case 'compania': return ctx.companiaId != null ? [eq(flitoSoat.companiaId, ctx.companiaId)] : null;
+    case 'proveedor': return ctx.proveedorSoatId != null ? [
+      eq(flitoSoat.proveedorSoatId, ctx.proveedorSoatId), eq(flitoSoat.gestionOperaciones, false),
+      inArray(flitoSoat.estado, [...ESTADOS_SOAT_VISIBLES_GESTOR]),
+    ] : null;
+    default: return null;
+  }
+}
+
 export async function buscarConAcceso(id: string, ctx: SoatCtx): Promise<typeof flitoSoat.$inferSelect | null> {
   const [soat] = await db
     .select({ soat: flitoSoat, dentroDeFrontera: FRONTERA_AUTOGESTION_SOAT })
@@ -1082,6 +1146,7 @@ export async function buscarConAcceso(id: string, ctx: SoatCtx): Promise<typeof 
   // aquí se miraba solo la bandera del cliente, así que un SOAT desbloqueado entraba en la cola y
   // luego daba 404 al abrirlo o al enviarlo (HU #11021).
   if (!soat.dentroDeFrontera) return null;
+  if (ctx.alcance === 'nada') return null; // Bug #12869: fallo cerrado, 404 como el resto
   if (esGestor(ctx)) {
     // Lo que asumió Operaciones sale de su alcance aunque siga apuntando a su proveedor: el
     // proveedor se conserva a propósito (HU #11153), así que la bandera es lo único que decide.
@@ -1091,7 +1156,7 @@ export async function buscarConAcceso(id: string, ctx: SoatCtx): Promise<typeof 
     if (soat.soat.proveedorSoatId !== ctx.proveedorSoatId) return null;
     if (!(ESTADOS_SOAT_VISIBLES_GESTOR as readonly string[]).includes(soat.soat.estado)) return null;
   }
-  if (esExterno(ctx)) {
+  if (acotadoACompania(ctx)) {
     // La otra mitad del aislamiento por compañía (Feature #11912). Va aquí y no solo en la cola
     // porque esta es la función que sostiene el 404-no-403: cubre de una vez el detalle, el
     // historial, los soportes y la descarga. Un endpoint futuro del canal que olvide filtrar por
@@ -1458,6 +1523,9 @@ export async function enviarAlGestor(
 ): Promise<ResultadoEnvio> {
   if (ids.length === 0) return { enviados: [], yaEnviados: [] };
   const estadoOrigen = EstadoSoat.PENDIENTE;
+  // Bug #12869: fuera de alcance cuenta como «no enviado», igual que un id inexistente.
+  const alcance = condicionesAlcance(ctx);
+  if (alcance === null) return { enviados: [], yaEnviados: [...ids] };
 
   const enviados = await db.transaction(async (tx) => {
     // FOR UPDATE OF flito_soat SKIP LOCKED: el segundo usuario que envíe el mismo registro no
@@ -1470,6 +1538,7 @@ export async function enviarAlGestor(
         inArray(flitoSoat.id, ids),
         eq(flitoSoat.estado, estadoOrigen),
         FRONTERA_AUTOGESTION_SOAT,
+        ...alcance,
       ))
       .for('update', { of: flitoSoat, skipLocked: true });
     const idsEnviados = locked.map((r) => r.id);
@@ -1542,7 +1611,7 @@ export async function rechazar(id: string, motivo: string, ctx: SoatCtx): Promis
 /** Devuelve un SOAT rechazado a la cola (CA-08). Solo Operaciones, solo desde Rechazado. */
 export async function reactivar(id: string, motivo: string, ctx: SoatCtx): Promise<typeof flitoSoat.$inferSelect> {
   const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, id)).limit(1);
-  if (!soat) throw new SoatError(404, 'El SOAT no existe');
+  if (!soat || !dentroDeAlcance(soat, ctx)) throw new SoatError(404, 'El SOAT no existe');
   if (soat.estado !== EstadoSoat.CON_NOVEDAD) {
     throw new SoatError(400, `Solo un SOAT rechazado vuelve a Pendiente. Este está en "${ESTADO_SOAT_LABEL[soat.estado as EstadoSoat]}".`);
   }
@@ -1567,7 +1636,7 @@ export async function reactivar(id: string, motivo: string, ctx: SoatCtx): Promi
  */
 export async function reversar(id: string, estadoDestino: EstadoSoat, motivo: string, ctx: SoatCtx): Promise<typeof flitoSoat.$inferSelect> {
   const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, id)).limit(1);
-  if (!soat) throw new SoatError(404, 'El SOAT no existe');
+  if (!soat || !dentroDeAlcance(soat, ctx)) throw new SoatError(404, 'El SOAT no existe');
   if (!motivo?.trim() || motivo.trim().length < 5) throw new SoatError(400, 'La reversa exige un motivo que explique el porqué');
   if (soat.estado === estadoDestino) throw new SoatError(400, 'El SOAT ya está en ese estado');
 
@@ -1608,9 +1677,9 @@ export async function reversar(id: string, estadoDestino: EstadoSoat, motivo: st
  * cambiar el proveedor de un registro en adquisición: el proveedor determina la estrategia de
  * flujo, y cambiarlo a media adquisición dejaría el registro con un gestor sin acceso.
  */
-export async function cambiarProveedor(id: string, proveedorSoatId: string, motivo: string): Promise<{ soat: typeof flitoSoat.$inferSelect; anterior: string | null }> {
+export async function cambiarProveedor(id: string, proveedorSoatId: string, motivo: string, ctx: SoatCtx): Promise<{ soat: typeof flitoSoat.$inferSelect; anterior: string | null }> {
   const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, id)).limit(1);
-  if (!soat) throw new SoatError(404, 'El SOAT no existe');
+  if (!soat || !dentroDeAlcance(soat, ctx)) throw new SoatError(404, 'El SOAT no existe'); // Bug #12869
   if (soat.estado === EstadoSoat.SOLICITADO) {
     throw new SoatError(400, 'RN-05: para cambiar el proveedor de un SOAT en adquisición, primero hay que reversarlo a Pendiente con justificación.');
   }
@@ -1664,7 +1733,7 @@ function exigirMotivo(motivo: string, accion: string): string {
  */
 export async function asumirEnOperaciones(id: string, motivo: string, ctx: SoatCtx): Promise<typeof flitoSoat.$inferSelect> {
   const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, id)).limit(1);
-  if (!soat) throw new SoatError(404, 'El SOAT no existe');
+  if (!soat || !dentroDeAlcance(soat, ctx)) throw new SoatError(404, 'El SOAT no existe');
   const limpio = exigirMotivo(motivo, 'Asumir la gestión en Operaciones');
   if (soat.gestionOperaciones) throw new SoatError(400, 'Este SOAT ya lo gestiona Operaciones');
   if (!ESTADOS_TRASPASO_GESTION.includes(soat.estado as EstadoSoat)) throw noAdmiteTraspaso(soat.estado as EstadoSoat);
@@ -1703,7 +1772,7 @@ export async function asumirEnOperaciones(id: string, motivo: string, ctx: SoatC
  */
 export async function devolverAlGestor(id: string, proveedorSoatId: string, motivo: string, ctx: SoatCtx): Promise<typeof flitoSoat.$inferSelect> {
   const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, id)).limit(1);
-  if (!soat) throw new SoatError(404, 'El SOAT no existe');
+  if (!soat || !dentroDeAlcance(soat, ctx)) throw new SoatError(404, 'El SOAT no existe');
   const limpio = exigirMotivo(motivo, 'Devolver la gestión al proveedor');
   if (!soat.gestionOperaciones) throw new SoatError(400, 'Este SOAT no lo gestiona Operaciones: no hay nada que devolver');
   if (!ESTADOS_TRASPASO_GESTION.includes(soat.estado as EstadoSoat)) throw noAdmiteTraspaso(soat.estado as EstadoSoat);
@@ -1999,6 +2068,11 @@ async function buscarEnAdquisicion(placa: string | null, vin: string | null, ctx
     FRONTERA_AUTOGESTION_SOAT,
     or(...llave)!,
   ];
+  if (ctx.alcance === 'nada') return null; // Bug #12869
+  if (acotadoACompania(ctx)) {
+    if (!ctx.companiaId) return null;
+    conds.push(eq(flitoSoat.companiaId, ctx.companiaId));
+  }
   if (esGestor(ctx)) {
     if (!ctx.proveedorSoatId) return null;
     // Misma frontera que la cola: un comprobante del gestor no cruza con lo que asumió Operaciones,

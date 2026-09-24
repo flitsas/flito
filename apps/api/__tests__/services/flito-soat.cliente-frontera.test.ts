@@ -482,7 +482,7 @@ describe('B2 — las plantillas del historial dejan de escribir datos internos e
     await marcarPagado(
       SOAT_ID,
       { valorTotal: { valor: '412300', confiable: true }, numeroPoliza: { valor: '999', confiable: true } } as never,
-      { userId: 1, username: 'ana@flit.com.co', role: 'admin', proveedorSoatId: null, companiaId: null },
+      { userId: 1, username: 'ana@flit.com.co', role: 'admin', externo: false, alcance: 'todo' as const, proveedorSoatId: null, companiaId: null },
     );
 
     const fila = insertados.find((v) => 'estadoNuevo' in v);
@@ -512,7 +512,7 @@ describe('B2 — las plantillas del historial dejan de escribir datos internos e
     };
     (db.transaction as unknown as ReturnType<typeof vi.fn>)
       .mockImplementation((cb: (t: unknown) => Promise<unknown>) => cb(tx));
-    const ctx = { userId: 1, username: 'u', role: 'admin', proveedorSoatId: null, companiaId: null };
+    const ctx = { userId: 1, username: 'u', role: 'admin', externo: false, alcance: 'todo' as const, proveedorSoatId: null, companiaId: null };
 
     // Asumir: el SOAT está con un proveedor y en un estado que admite traspaso.
     selectMock.mockReturnValueOnce(chain([{ id: SOAT_ID, estado: 'solicitado', gestionOperaciones: false, proveedorSoatId: PROV }]));
