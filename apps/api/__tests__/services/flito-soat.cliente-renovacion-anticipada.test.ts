@@ -1,5 +1,9 @@
 // HU #12212 (Feature #12073) — **renovación anticipada: el SOAT vigente deja de bloquear cuando le
-// queda un mes o menos**.
+// quedan 30 días o menos**. El umbral era «un mes calendario, con clamp» (HU #12212); la HU #12842
+// (Feature #12840) lo reemplaza por **hoy + 30 días corridos, inclusive, en Bogotá**, y los casos de
+// clamp, bisiesto y diciembre de este archivo se recalcularon con esa regla. La misma HU publica el
+// SOAT activo (`soatActivo`, póliza incluida — RN-05 del Feature #12840): su suite propia es
+// `flito-soat.cliente-soat-activo.test.ts`.
 //
 // Dos mitades, y las dos hacen falta:
 //
@@ -70,11 +74,11 @@ const POLIZA_RUNT = '99887766';
 
 // ── Fechas del escenario del AC, tal como las escribió el PO ────────────────────────────────────
 const HOY_AC = '2026-09-09';
-/** AC1: vence dentro de menos de un mes → se permite. */
+/** AC1: vence dentro de menos de 30 días → se permite. */
 const VENCE_PRONTO = '2026-10-05';
-/** AC2: vence dentro de más de un mes → 409 de siempre. */
+/** AC2: vence dentro de más de 30 días → 409 de siempre. */
 const VENCE_LEJOS = '2026-10-20';
-/** AC4: la frontera exacta —mismo día del mes siguiente— y el día de después. */
+/** La frontera exacta —hoy + 30 días; septiembre tiene 30, así que cae el 09— y el día de después. */
 const FRONTERA = '2026-10-09';
 const PASADA_LA_FRONTERA = '2026-10-10';
 
@@ -94,8 +98,8 @@ function diaBogotaDelTest(instante: Date = new Date()): string {
 /**
  * Una fecha a `n` días de hoy, en `yyyy-mm-dd`.
  *
- * `+10` está SIEMPRE dentro del umbral (el mes más corto tiene 28 días) y `+45` SIEMPRE fuera (el
- * más largo tiene 31), así que estos casos no caducan ni parpadean según el día en que se corran.
+ * `+10` está SIEMPRE dentro del umbral de 30 días y `+45` SIEMPRE fuera, así que estos casos no
+ * caducan ni parpadean según el día en que se corran.
  * El borde exacto no se prueba por aquí: para eso está la mitad pura, con `hoy` congelado.
  */
 function aDias(n: number): string {
@@ -224,41 +228,46 @@ describe('`diaEnBogota` — el día se resuelve en `America/Bogota`, nunca con e
   });
 });
 
-// ═══════════ El límite: mes CALENDARIO, con clamp (AC4 y AC5) ════════════════
+// ═══════════ El límite: hoy + 30 días corridos (HU #12842, AC1-AC3) ══════════
 
-describe('`limiteRenovacionAnticipada` — misma fecha del mes siguiente, y nunca desborda', () => {
-  it('**el caso del AC**: 2026-09-09 → 2026-10-09', async () => {
+describe('`limiteRenovacionAnticipada` — hoy + 30 días corridos, no mes calendario (HU #12842)', () => {
+  it('**AC1 de la #12842 — 2026-03-10 → 2026-04-09**, y el del escenario: 2026-09-09 → 2026-10-09', async () => {
     const { limiteRenovacionAnticipada } = await umbral();
+    expect(limiteRenovacionAnticipada('2026-03-10')).toBe('2026-04-09');
     expect(limiteRenovacionAnticipada(HOY_AC)).toBe(FRONTERA);
   });
 
-  it('**AC5 — 2027-01-31 → 2027-02-28**, y el límite NO cae en marzo', async () => {
+  it('**AC2 de la #12842 — 2027-01-31 → 2027-03-02**: 30 días desbordan a marzo, sin clamp', async () => {
     const { limiteRenovacionAnticipada } = await umbral();
     const limite = limiteRenovacionAnticipada('2027-01-31');
 
-    expect(limite).toBe('2027-02-28');
-    // El aserto que mata al mutante: `new Date(Date.UTC(2027, 1, 31))` desborda a `2027-03-03`, y un
-    // límite en marzo ampliaría el umbral tres días justo para los cierres de mes.
-    expect(limite.slice(5, 7)).toBe('02');
+    expect(limite).toBe('2027-03-02');
+    // El aserto que mata al mutante del mes calendario: con clamp saldría `2027-02-28`.
+    expect(limite).not.toBe('2027-02-28');
   });
 
-  it('el clamp respeta los bisiestos: 2024-01-31 → 2024-02-29, y 2026-01-31 → 2026-02-28', async () => {
+  it('los bisiestos cuentan el 29 de febrero: 2024-01-31 → 2024-03-01, y 2026-01-31 → 2026-03-02', async () => {
     const { limiteRenovacionAnticipada } = await umbral();
-    expect(limiteRenovacionAnticipada('2024-01-31')).toBe('2024-02-29');
-    expect(limiteRenovacionAnticipada('2026-01-31')).toBe('2026-02-28');
+    expect(limiteRenovacionAnticipada('2024-01-31')).toBe('2024-03-01');
+    expect(limiteRenovacionAnticipada('2026-01-31')).toBe('2026-03-02');
+    expect(limiteRenovacionAnticipada('2024-02-15')).toBe('2024-03-16');
+    expect(limiteRenovacionAnticipada('2026-02-15')).toBe('2026-03-17');
   });
 
-  it('los meses de 31 y de 30 días: 2026-03-31 → 2026-04-30, y 2026-04-30 → 2026-05-30', async () => {
+  it('los meses de 31 y de 30 días: 2026-03-31 → 2026-04-30, 2026-04-30 → 2026-05-30, 2026-05-31 → 2026-06-30', async () => {
     const { limiteRenovacionAnticipada } = await umbral();
     expect(limiteRenovacionAnticipada('2026-03-31')).toBe('2026-04-30');
-    // Sin clamp que aplicar: mayo tiene 31, así que el día se conserva tal cual.
     expect(limiteRenovacionAnticipada('2026-04-30')).toBe('2026-05-30');
+    // Un mes de 31: el mismo día del mes siguiente sería el 30 de junio por clamp; 30 días también.
+    expect(limiteRenovacionAnticipada('2026-05-31')).toBe('2026-06-30');
+    // Y aquí se separan: 2026-07-01 + 30 = 2026-07-31, no 2026-08-01.
+    expect(limiteRenovacionAnticipada('2026-07-01')).toBe('2026-07-31');
   });
 
-  it('**diciembre pasa de año**: 2026-12-15 → 2027-01-15, y 2026-12-31 → 2027-01-31', async () => {
+  it('**diciembre pasa de año**: 2026-12-15 → 2027-01-14, y 2026-12-31 → 2027-01-30', async () => {
     const { limiteRenovacionAnticipada } = await umbral();
-    expect(limiteRenovacionAnticipada('2026-12-15')).toBe('2027-01-15');
-    expect(limiteRenovacionAnticipada('2026-12-31')).toBe('2027-01-31');
+    expect(limiteRenovacionAnticipada('2026-12-15')).toBe('2027-01-14');
+    expect(limiteRenovacionAnticipada('2026-12-31')).toBe('2027-01-30');
   });
 });
 
@@ -277,17 +286,23 @@ describe('`esRenovacionAnticipada` — la frontera es INCLUSIVE y sin fecha no s
     expect(esRenovacionAnticipada(VENCE_LEJOS, HOY_AC)).toBe(false);
   });
 
-  it('**AC3 — sin fecha, `false`**: de «vigente y no digo hasta cuándo» no se deduce «falta un mes»', async () => {
+  it('**AC3 — sin fecha, `false`**: de «vigente y no digo hasta cuándo» no se deduce «faltan 30 días»', async () => {
     const { esRenovacionAnticipada } = await umbral();
     expect(esRenovacionAnticipada(null, HOY_AC)).toBe(false);
     // La cadena vacía es el otro «no hay fecha» que un extractor puede producir.
     expect(esRenovacionAnticipada('', HOY_AC)).toBe(false);
   });
 
-  it('**AC5 — hoy 2027-01-31 con vencimiento 2027-02-28 se permite; el 2027-03-01 ya no**', async () => {
+  it('**AC2 de la #12842 — hoy 2027-01-31: vence el 2027-03-02 y pasa; el 2027-03-03 ya no**', async () => {
     const { esRenovacionAnticipada } = await umbral();
-    expect(esRenovacionAnticipada('2027-02-28', '2027-01-31')).toBe(true);
-    expect(esRenovacionAnticipada('2027-03-01', '2027-01-31')).toBe(false);
+    expect(esRenovacionAnticipada('2027-03-02', '2027-01-31')).toBe(true);
+    expect(esRenovacionAnticipada('2027-03-03', '2027-01-31')).toBe(false);
+  });
+
+  it('**AC1 de la #12842 — hoy 2026-03-10: el día 30 (04-09) pasa y el 31 (04-10) bloquea**', async () => {
+    const { esRenovacionAnticipada } = await umbral();
+    expect(esRenovacionAnticipada('2026-04-09', '2026-03-10')).toBe(true);
+    expect(esRenovacionAnticipada('2026-04-10', '2026-03-10')).toBe(false);
   });
 
   it('una póliza YA VENCIDA cae del lado que no bloquea: es el resultado correcto', async () => {
@@ -325,7 +340,7 @@ describe('`clasificarDesenlaceRunt` — la bifurcación vive en el paso 5 y no a
     expect(desenlace).toMatchObject({
       clase: 'renovacion_anticipada',
       venceEl: VENCE_PRONTO,
-      poliza: POLIZA_RUNT,
+      soatActivo: { poliza: POLIZA_RUNT, vencimiento: VENCE_PRONTO },
       vinEfectivo: VIN_RUNT,
       organismoCodigo: ORGANISMO_FUNZA,
     });
@@ -335,14 +350,26 @@ describe('`clasificarDesenlaceRunt` — la bifurcación vive en el paso 5 y no a
 
   it('**AC2 — vigente hasta 2026-10-20 sigue siendo `vigente`**, con su fecha', async () => {
     escenario();
-    expect(await clasificar(runtVigenteHasta(VENCE_LEJOS)))
-      .toEqual({ clase: 'vigente', fechaVencimiento: VENCE_LEJOS });
+    expect(await clasificar(runtVigenteHasta(VENCE_LEJOS))).toEqual({
+      clase: 'vigente',
+      fechaVencimiento: VENCE_LEJOS,
+      soatActivo: {
+        poliza: POLIZA_RUNT, fechaExpedicion: null, inicioVigencia: null,
+        vencimiento: VENCE_LEJOS, aseguradora: null, estado: null,
+      },
+    });
   });
 
   it('**AC3 — vigente SIN fecha es `vigente` con `fechaVencimiento: null`**, nunca renovación', async () => {
     escenario();
-    expect(await clasificar(runtOk({ estadoSoat: 'VIGENTE' })))
-      .toEqual({ clase: 'vigente', fechaVencimiento: null });
+    expect(await clasificar(runtOk({ estadoSoat: 'VIGENTE' }))).toEqual({
+      clase: 'vigente',
+      fechaVencimiento: null,
+      soatActivo: {
+        poliza: null, fechaExpedicion: null, inicioVigencia: null,
+        vencimiento: null, aseguradora: null, estado: null,
+      },
+    });
   });
 
   it('**AC4 — la frontera decide también aquí**: el 09 renueva, el 10 bloquea', async () => {
@@ -371,10 +398,10 @@ describe('`clasificarDesenlaceRunt` — la bifurcación vive en el paso 5 y no a
       .toEqual({ clase: 'revise', codigo: 'runt_sin_registro' });
   });
 
-  it('el RUNT sin póliza reportada deja `poliza: null`, y eso no impide la renovación', async () => {
+  it('el RUNT sin póliza reportada deja `soatActivo.poliza: null`, y eso no impide la renovación', async () => {
     escenario();
     expect(await clasificar(runtVigenteHasta(VENCE_PRONTO, null)))
-      .toMatchObject({ clase: 'renovacion_anticipada', venceEl: VENCE_PRONTO, poliza: null });
+      .toMatchObject({ clase: 'renovacion_anticipada', venceEl: VENCE_PRONTO, soatActivo: { poliza: null } });
   });
 });
 
@@ -456,7 +483,7 @@ describe('AC9 — el alta por renovación anticipada guarda la fecha y la póliz
 // ═══════════ AC1/AC2/AC6 — el contrato HTTP de los dos endpoints ═════════════
 
 describe('AC6 — los dos endpoints deciden lo mismo ante la misma respuesta del RUNT', () => {
-  it('**AC1 — la preconsulta responde 200 con vehículo, organismo y el aviso con la fecha**', async () => {
+  it('**AC1 — la preconsulta responde 200 con vehículo, organismo y el aviso con fecha y SOAT activo**', async () => {
     escenario();
     const venceEl = aDias(10);
     consultarVehiculoRuntMock.mockResolvedValue(runtVigenteHasta(venceEl));
@@ -466,19 +493,25 @@ describe('AC6 — los dos endpoints deciden lo mismo ante la misma respuesta del
     expect(r.status).toBe(200);
     expect(r.body.vehiculo).toMatchObject({ vin: VIN_RUNT, placa: PLACA, marca: 'MAZDA' });
     expect(r.body.organismo).toEqual({ codigo: ORGANISMO_FUNZA, nombre: 'FUNZA' });
-    expect(r.body.vigenciaProxima).toEqual({ venceEl });
+    expect(r.body.vigenciaProxima).toStrictEqual({
+      venceEl,
+      poliza: POLIZA_RUNT, fechaExpedicion: null, inicioVigencia: null,
+      vencimiento: venceEl, aseguradora: null, estado: null,
+    });
   });
 
-  it('**la póliza NO viaja en el 200** (RN-B1): se persiste en servidor y no se publica', async () => {
+  it('**la póliza SÍ viaja en el 200** desde la HU #12842 (RN-05 del Feature #12840), y no entra al log', async () => {
     escenario();
     consultarVehiculoRuntMock.mockResolvedValue(runtVigenteHasta(aDias(10)));
 
     const r = await preconsultar(await buildApp(), await auth(siguienteUsuario()));
 
     expect(r.status).toBe(200);
-    expect(r.body.vigenciaProxima).not.toHaveProperty('poliza');
-    // Y por ninguna otra clave: enumerar VIN no puede cosechar números de póliza.
-    expect(JSON.stringify(r.body)).not.toContain(POLIZA_RUNT);
+    expect(r.body.vigenciaProxima.poliza).toBe(POLIZA_RUNT);
+    // Publicarla al Cliente no la vuelve apta para el log.
+    const logs = JSON.stringify([logMock.info.mock.calls, logMock.warn.mock.calls]);
+    expect(logs).not.toContain(POLIZA_RUNT);
+    expect(logs).not.toContain(VIN_RUNT);
   });
 
   it('**la clave `vigenciaProxima` está SIEMPRE presente**: `null` cuando no hay aviso', async () => {
@@ -501,7 +534,7 @@ describe('AC6 — los dos endpoints deciden lo mismo ante la misma respuesta del
     expect(espia.insertsEn('flito_soat')).toHaveLength(1);
   });
 
-  it('**AC2 — a más de un mes, los DOS responden 409 `soat_vigente` con la fecha, y no se crea fila**', async () => {
+  it('**AC2 — a más de 30 días, los DOS responden 409 `soat_vigente` con la fecha, y no se crea fila**', async () => {
     escenario();
     const venceEl = aDias(45);
     consultarVehiculoRuntMock.mockResolvedValue(runtVigenteHasta(venceEl));
@@ -519,6 +552,9 @@ describe('AC6 — los dos endpoints deciden lo mismo ante la misma respuesta del
     expect(r.status).toBe(409);
     expect(r.body.codigo).toBe('soat_vigente');
     expect(r.body.fechaVencimiento).toBe(venceEl);
+    // HU #12842, AC9: el mismo 409 campo por campo en los dos endpoints, `soatActivo` incluido.
+    expect(r.body).toStrictEqual(pre.body);
+    expect(r.body.soatActivo).toMatchObject({ poliza: POLIZA_RUNT, vencimiento: venceEl });
     expect(espia.insertsEn('flito_soat')).toHaveLength(0);
   });
 
@@ -530,8 +566,10 @@ describe('AC6 — los dos endpoints deciden lo mismo ante la misma respuesta del
     const pre = await preconsultar(app, await auth(siguienteUsuario()));
     expect(pre.status).toBe(409);
     expect(pre.body.codigo).toBe('soat_vigente');
-    // Sin fecha, la clave NO se inventa: el 409 se construye sin `datos` (AC3).
-    expect(pre.body.fechaVencimiento).toBeUndefined();
+    // Sin fecha, la clave NO se inventa (AC3): `fechaVencimiento` sigue AUSENTE. Desde la HU #12842
+    // el 409 lleva `soatActivo` siempre, aquí con sus datos en null (AC6).
+    expect(pre.body).not.toHaveProperty('fechaVencimiento');
+    expect(pre.body.soatActivo).toMatchObject({ vencimiento: null, poliza: null });
 
     const r = await alta(app, await auth(siguienteUsuario()));
     expect(r.status).toBe(409);
@@ -608,7 +646,7 @@ describe('Bug #12179 — una renovación anticipada también escribe la línea d
     expect(logMock.info).toHaveBeenCalledTimes(1);
 
     // Las claves EXACTAS y las mismas tres que el desenlace `ok`: lo que decide si esto es una fuga
-    // es lo que NO está. `venceEl` y `poliza` viajan en este desenlace y no pueden entrar aquí — el
+    // es lo que NO está. `venceEl` y `soatActivo` viajan en este desenlace y no pueden entrar aquí — el
     // número de póliza es cuasi-PII y no tiene relación con lo que la línea mide.
     const escrito = logMock.info.mock.calls.at(-1)?.[0] as Record<string, unknown>;
     expect(Object.keys(escrito).sort()).toEqual(['desenlace', 'organismoCatalogado', 'organismoRunt']);
