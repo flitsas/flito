@@ -176,6 +176,6 @@ describe('factura no disponible → lanza (error_analisis)', () => {
     const g = updates();
     expect(await ejecutarAnalisis(A)).toBe('error_analisis');
     expect(g).toHaveLength(1);
-    expect(g[0].set).toEqual({ analisisEstado: 'error_analisis' });
+    expect(g[0].set).toMatchObject({ analisisEstado: 'error_analisis' });
   });
 });

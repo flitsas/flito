@@ -234,6 +234,36 @@ export type ResultadoReanalisis =
   | { resultado: 'ENCOLADO'; id: string; analisisEstado: 'en_curso' }
   | { resultado: 'ANALISIS_EN_CURSO' | 'NO_SOLICITADO' | 'YA_CERTIFICADO' | 'SIN_ANALISIS' | 'NO_ENCONTRADO' };
 
+/**
+ * HU #12833 — dirección del comprador de un impuesto, ya resuelta con su precedencia: la confirmada
+ * (de la factura o corregida a mano) gana sobre la de FLIT; municipio/departamento confirmados vacíos
+ * caen a los de FLIT campo a campo. `origen` dice de dónde salió la `direccion`.
+ * `propuesta` = lo leído de la factura SIN confirmar; solo con `pendienteRevision`.
+ */
+export interface DireccionCompradorImpuesto {
+  direccion: string | null;
+  municipio: string | null;
+  departamento: string | null;
+  origen: 'factura' | 'manual' | 'flit';
+  pendienteRevision: boolean;
+  propuesta: { direccion: string | null; municipio: string | null; departamento: string | null } | null;
+  confirmadaPor: string | null;
+  confirmadaEn: string | null;
+}
+
+/** Body de `PATCH /api/flito/impuestos/:id/direccion` (HU #12833). La PII va en el body, nunca en la URL. */
+export interface CorregirDireccionImpuestoBody {
+  direccion: string;
+  municipio: string;
+  departamento: string;
+}
+
+/**
+ * HU #12833 (AC4): cabecera de la respuesta del Excel AMPLIADO de impuestos con cuántas filas llevan
+ * la marca «Dirección sin confirmar». Solo se envía con `incluirPago: true`.
+ */
+export const CABECERA_DIRECCIONES_SIN_CONFIRMAR = 'X-Direcciones-Sin-Confirmar';
+
 /** Estados de Impuestos visibles para el gestor (nunca `Pendiente`). */
 export const ESTADOS_IMPUESTO_VISIBLES_GESTOR: readonly EstadoImpuesto[] = [
   'solicitado', 'pagado',

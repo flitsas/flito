@@ -35,6 +35,7 @@ const op = (llave: string, codigo: string, nombre: string, descripcion: string):
 const SOAT = 'flito-soat/flito-soat.routes.ts';
 const SOAT_CLI = 'flito-soat/flito-soat-cliente.routes.ts';
 const IMP = 'flito-impuestos/flito-impuestos.routes.ts';
+const IMP_DIR = 'flito-impuestos/flito-impuestos.direccion.routes.ts';
 const DER = 'flito-derechos/flito-derechos.routes.ts';
 const REV = 'flito-revisiones/flito-revisiones.routes.ts';
 const COMP = 'flito-compuerta/flito-compuerta.routes.ts';
@@ -106,6 +107,8 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${IMP} POST /:id/devolver-gestor`, 'impuestos.tramite.devolver', 'Devolver un trámite de impuestos al gestor', 'Regresar al gestor del organismo un trámite que Operaciones había asumido.'),
   op(`${IMP} POST /recibos`, 'impuestos.recibos.cargar', 'Cargar recibos de impuestos', 'Subir los recibos de pago y repartirlos por trámite.'),
   op(`${IMP} POST /:id/recibo-caja`, 'impuestos.recibos.cargar_caja', 'Cargar recibo de caja', 'Cargar sobre un impuesto con liquidación el recibo de caja del pago en ventanilla y dejarlo pagado.'),
+  // HU #12833: textos byte a byte con la 0208.
+  op(`${IMP_DIR} PATCH /:id/direccion`, 'impuestos.tramite.corregir_direccion', 'Corregir dirección del comprador', 'Guardar la dirección, municipio y departamento correctos del comprador de un trámite de impuestos.'),
 
   // ── Derechos de tránsito ──────────────────────────────────────────────────────────────────────
   op(`${DER} GET /`, 'derechos.cola.ver', 'Ver los derechos de tránsito', 'Abrir el listado de recibos de derechos cobrados por el organismo.'),

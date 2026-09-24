@@ -31,6 +31,7 @@ import {
   type FilaColaExport, type FilaColaExportPagoImpuestos,
 } from '../../shared/export/cola-flito-excel.js';
 import { celdasPagoImpuestos, COLUMNAS_PAGO_IMPUESTOS } from './flito-impuestos.export-pago.js';
+import { direccionEfectiva } from './flito-impuestos.direccion.js';
 import {
   bloqueTitular, celdaDesdeJson, ciudadDeOrganismo, expresionesFlitRaw,
 } from '../../shared/export/cola-flito-derivados.js';
@@ -84,6 +85,12 @@ const COLUMNAS_CONSULTA = {
   // que ya existía porque `conJoinsColaImpuestos` ya une `flito_tramites` 1:1 — cero joins nuevos,
   // cero consultas nuevas, y `flit_raw` NO se proyecta entera (RN-E1).
   ...expresionesFlitRaw(flitoTramites.flitRaw),
+  // HU #12833 (AC2): la dirección CONFIRMADA (factura o manual) manda sobre la de FLIT. Solo lectura:
+  // no son celdas nuevas; deciden `direccion`/`municipio`/`departamento` vía `direccionEfectiva`.
+  direccionFuente: flitoImpuestos.direccionFuente,
+  direccionFactura: flitoImpuestos.direccionFactura,
+  municipioFactura: flitoImpuestos.municipioFactura,
+  departamentoFactura: flitoImpuestos.departamentoFactura,
 } as const;
 
 /**
@@ -187,7 +194,7 @@ type FilaConsulta = Awaited<ReturnType<typeof consultaBase>>[number];
 
 /** Lo que el llamador puede pedir además del filtro (Bug #12642). */
 export interface OpcionesExportImpuestos {
-  /** `true` = añadir las 11 columnas de pago y trazabilidad. La ruta ya comprobó la función. */
+  /** `true` = añadir las 12 columnas de pago y trazabilidad. La ruta ya comprobó la función. */
   incluirPago?: boolean;
 }
 
@@ -197,7 +204,7 @@ export interface OpcionesExportImpuestos {
  * @param ctx El contexto REAL del actor (`contextoImpuesto`, que lee el organismo de la BD y no del
  *            JWT). Es lo que aplica las dos fronteras dentro de `condicionesColaImpuestos`.
  * @param opciones `incluirPago` (Bug #12642): con `true`, la proyección SUMA las columnas de pago y
- *            cada fila lleva además las 11 celdas de `celdasPagoImpuestos`. Sin él, la lectura es
+ *            cada fila lleva además las 12 celdas de `celdasPagoImpuestos`. Sin él, la lectura es
  *            EXACTAMENTE la de siempre — hay un test que afirma que la consulta no pide más.
  * @throws ExportColaDemasiadoGrandeError si el filtro devuelve más del tope. Se lanza ANTES de
  *         construir una sola fila: no hay valor de retorno que escribir cuando el tope se pasa.
@@ -230,7 +237,7 @@ export async function construirFilasExportImpuestos(
   const filas = await consultaConPago(conds, tope);
   if (filas.length > tope) throw new ExportColaDemasiadoGrandeError(tope);
   // Las 27 del gestor se construyen con EL MISMO código que el archivo de hoy; la variante ampliada
-  // solo le pega once celdas a la derecha.
+  // solo le pega doce celdas a la derecha.
   const base = await ensamblarFilas(filas);
   return filas.map((f, i) => ({ ...base[i]!, ...celdasPagoImpuestos(f) }));
 }
@@ -248,6 +255,11 @@ async function ensamblarFilas(filas: FilaConsulta[]): Promise<FilaColaExport[]> 
     // afirma el origen, no un `if` por columna (ver `bloqueTitular`). Aquí no hay que reconciliar
     // nada —el impuesto tiene un trámite y solo uno—, así que los tres campos entran tal cual.
     const titular = bloqueTitular({ tipo: f.tipo, nombres: f.nombres, apellidos: f.apellidos });
+    // HU #12833 (AC2): precedencia única factura/manual > FLIT, campo a campo.
+    const dir = direccionEfectiva(
+      { fuente: f.direccionFuente, direccion: f.direccionFactura, municipio: f.municipioFactura, departamento: f.departamentoFactura },
+      { direccion: celdaTexto(p?.direccion), municipio: celdaTexto(f.municipio), departamento: celdaDesdeJson(f.departamento) },
+    );
     // El orden de las claves es el de `COLUMNAS_COLA_EXPORT` para que las dos listas se lean juntas,
     // pero NO es lo que ordena el archivo: ExcelJS empareja por `key`.
     return {
@@ -271,9 +283,9 @@ async function ensamblarFilas(filas: FilaConsulta[]): Promise<FilaColaExport[]> 
       claseId: titular.claseId,
       // Sin propietario registrado estas cuatro celdas van vacías y la fila SALE igual (AC7).
       numeroId: celdaTexto(p?.numeroDocumento),
-      direccion: celdaTexto(p?.direccion),
-      municipio: celdaTexto(f.municipio),
-      departamento: celdaDesdeJson(f.departamento),
+      direccion: celdaTexto(dir.direccion),
+      municipio: celdaTexto(dir.municipio),
+      departamento: celdaTexto(dir.departamento),
       celular: celdaTexto(p?.celular),
       correo: celdaTexto(p?.correo),
       organismoDettoCiudad: ciudadDeOrganismo(f.organismoCodigo),
