@@ -1677,9 +1677,9 @@ export async function reversar(id: string, estadoDestino: EstadoSoat, motivo: st
  * cambiar el proveedor de un registro en adquisición: el proveedor determina la estrategia de
  * flujo, y cambiarlo a media adquisición dejaría el registro con un gestor sin acceso.
  */
-export async function cambiarProveedor(id: string, proveedorSoatId: string, motivo: string): Promise<{ soat: typeof flitoSoat.$inferSelect; anterior: string | null }> {
+export async function cambiarProveedor(id: string, proveedorSoatId: string, motivo: string, ctx: SoatCtx): Promise<{ soat: typeof flitoSoat.$inferSelect; anterior: string | null }> {
   const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, id)).limit(1);
-  if (!soat) throw new SoatError(404, 'El SOAT no existe');
+  if (!soat || !dentroDeAlcance(soat, ctx)) throw new SoatError(404, 'El SOAT no existe'); // Bug #12869
   if (soat.estado === EstadoSoat.SOLICITADO) {
     throw new SoatError(400, 'RN-05: para cambiar el proveedor de un SOAT en adquisición, primero hay que reversarlo a Pendiente con justificación.');
   }

@@ -621,7 +621,7 @@ router.post('/:id/proveedor', exigirFuncion('soat.proveedor.cambiar'), async (re
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   try {
     const ctx = await contextoSoat(req.user!);
-    const { soat, anterior } = await cambiarProveedor(req.params.id, parsed.data.proveedorSoatId, parsed.data.motivo);
+    const { soat, anterior } = await cambiarProveedor(req.params.id, parsed.data.proveedorSoatId, parsed.data.motivo, ctx);
     await audit(req, { action: 'update', resource: 'flito_soat', resourceId: soat.id, detail: `Cambio de proveedor ${anterior ?? '—'} → ${parsed.data.proveedorSoatId}: ${parsed.data.motivo.trim()}` });
     await responderDetalle(res, ctx, soat);
   } catch (e) { handleError(res, e); }

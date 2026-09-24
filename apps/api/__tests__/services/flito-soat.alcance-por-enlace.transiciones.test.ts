@@ -4,7 +4,9 @@
 // el alcance, y `enviarAlGestor` bloqueaba el lote sin él: un rol ligado a una compañía al que el
 // admin concediera esas funciones podía mover (y recibir en la respuesta) el SOAT de otra compañía.
 //
-// Mutante que esto mata, nombrado: quitar `dentroDeAlcance(soat, ctx)` de cualquiera de las cuatro
+// `cambiarProveedor` entra en la misma tabla: tampoco miraba el alcance y ahora recibe el ctx.
+//
+// Mutante que esto mata, nombrado: quitar `dentroDeAlcance(soat, ctx)` de cualquiera de las cinco
 // (vuelve a leer por id a secas → la transición procede y emite el UPDATE), o quitar
 // `...alcance` del WHERE del envío en lote (el lote deja de llevar la compañía).
 //
@@ -56,6 +58,8 @@ const CASOS = [
     correr: (ctx: SoatCtx) => svc.asumirEnOperaciones(SOAT_ID, 'contingencia', ctx) },
   { nombre: 'devolverAlGestor', estado: EstadoSoat.SOLICITADO, gestion: true,
     correr: (ctx: SoatCtx) => svc.devolverAlGestor(SOAT_ID, PROV, 'ya se resolvió', ctx) },
+  { nombre: 'cambiarProveedor', estado: EstadoSoat.PENDIENTE, gestion: false,
+    correr: (ctx: SoatCtx) => svc.cambiarProveedor(SOAT_ID, PROV, 'cambio de convenio', ctx) },
 ] as const;
 
 describe('Bug #12869 — transiciones por id: fuera del alcance del enlace = 404 y sin UPDATE; admin igual que hoy', () => {
