@@ -591,6 +591,7 @@ export default function FlitoImpuestos() {
       {detalle && (
         <DetalleImpuesto imp={detalle} esOperaciones={esOperaciones} esGestor={esGestor} soloLectura={soloLectura}
           puedeCargarCaja={hasFuncion('impuestos.recibos.cargar_caja')}
+          puedeCorregirDireccion={hasFuncion('impuestos.tramite.corregir_direccion')}
           onClose={() => setDetalleId(null)} onCambio={() => { setDetalleId(null); refrescar(); }}
           onTraspaso={refrescar} accionReintento={reintento(detalle, false)} sinPermisoReintento={!puedeReintentar} />
       )}
