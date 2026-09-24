@@ -122,12 +122,12 @@ describe('TC #12258 AC1 — resolverPermisos: (rol ∪ conceder) \\ revocar, con
     base({ usuario: { rol: 'gestor' } });
     await resolverPermisos(7);
     const columnas = selecciones.map((s) => Object.keys(s as object));
-    expect(columnas[0]).toEqual(['rol', 'tipoPrincipal']);
+    expect(columnas[0]).toEqual(['rol', 'tipoPrincipal', 'tipoEnlace']);
     expect(columnas[1]).toEqual(['codigo']);
     expect(columnas[2]).toEqual(['codigo', 'efecto']);
     // Las columnas reales que cada campo del select apunta, por si alguien renombra el alias.
     const sql = selecciones.map((s) => Object.values(s as Record<string, { name?: string }>).map((c) => c.name)).flat();
-    expect(sql).toEqual(['role', 'tipo_principal', 'funcion_codigo', 'funcion_codigo', 'efecto']);
+    expect(sql).toEqual(['role', 'tipo_principal', 'tipo_enlace', 'funcion_codigo', 'funcion_codigo', 'efecto']);
     for (const prohibida of ['allowed_pages', 'email', 'name', 'username', 'password_hash', 'documento', 'telefono']) {
       expect(sql).not.toContain(prohibida);
     }

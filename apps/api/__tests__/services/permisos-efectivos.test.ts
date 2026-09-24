@@ -119,7 +119,7 @@ describe('paginasEfectivasDeUsuario — del reparto sembrado a la lista de slugs
   it('de `users` pide `role` y el tipo del rol, y NO `allowed_pages`: la columna está congelada (0188)', async () => {
     usuario('auditor', ['pesv'], 'pagina.dashboard');
     await paginasEfectivasDeUsuario(1);
-    expect(Object.keys(selectMock.mock.calls[0]![0] as object).sort()).toEqual(['rol', 'tipoPrincipal']);
+    expect(Object.keys(selectMock.mock.calls[0]![0] as object).sort()).toEqual(['rol', 'tipoEnlace', 'tipoPrincipal']);
   });
 
   it('un rol sin reparto y sin páginas propias no ve NADA: el fallo por defecto es cerrado', async () => {
