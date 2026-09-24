@@ -27,6 +27,8 @@ export interface CertificacionCola {
   id: string;
   certificadoEn: string;
   certificadoPorNombre: string;
+  /** true = la firmó el análisis post-envío, no una persona (HU #12830). Solo Impuestos lo manda. */
+  automatica?: boolean;
 }
 
 /** Desenlace de un intento, ya normalizado desde la respuesta del backend. */
