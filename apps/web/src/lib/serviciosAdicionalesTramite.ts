@@ -107,6 +107,8 @@ export interface FalloEscritura {
 
 const SIN_NADA = { recargarLista: false, recargarCatalogo: false, soloLectura: false, tramiteIdo: false };
 
+export const MSG_ASIGNACION_DE_COMPROBANTE = 'Este servicio viene de un comprobante de pago aplicado; no se puede quitar desde el panel.';
+
 export function falloDeEscritura(err: unknown, accion: 'asignar' | 'quitar'): FalloEscritura {
   const status = err instanceof ApiError ? err.status : 0;
   const codigo = err instanceof ApiError
@@ -124,6 +126,11 @@ export function falloDeEscritura(err: unknown, accion: 'asignar' | 'quitar'): Fa
       ...SIN_NADA, recargarLista: true,
       mensaje: 'Ese servicio ya está asignado a este trámite. Alguien lo añadió antes; la lista se actualizó.',
     };
+  }
+  if (codigo === CODIGO_SERVICIO_ADICIONAL_TRAMITE.ASIGNACION_DE_COMPROBANTE) {
+    // Bug #12913: quitarla dejaría un comprobante aplicado sin su costo. No se recarga nada: la
+    // fila sigue ahí y sigue siendo verdad.
+    return { ...SIN_NADA, mensaje: MSG_ASIGNACION_DE_COMPROBANTE };
   }
   if (codigo === CODIGO_SERVICIO_ADICIONAL_TRAMITE.TIPO_NO_DISPONIBLE) {
     return {
