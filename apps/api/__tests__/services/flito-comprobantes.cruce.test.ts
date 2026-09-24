@@ -218,9 +218,16 @@ describe('AC3 — admite por concepto', () => {
     expect(libre).toMatchObject({ tramite_digital: 'admite', logistica: 'admite', servicios_adicionales: 'admite' });
     const sellado = admiteDe(fila({ liquidacionId: 'liq-1', docLogistica: true }));
     expect(sellado).toMatchObject({ tramite_digital: 'liquidado', logistica: 'liquidado', servicios_adicionales: 'liquidado' });
-    const doc = admiteDe(fila({ docTramiteDigital: true, docServiciosAdicionales: true }));
-    expect(doc).toMatchObject({ tramite_digital: 'ya_documentado', logistica: 'admite', servicios_adicionales: 'ya_documentado' });
+    const doc = admiteDe(fila({ docTramiteDigital: true }));
+    expect(doc).toMatchObject({ tramite_digital: 'ya_documentado', logistica: 'admite', servicios_adicionales: 'admite' });
     expect(Object.keys(libre).sort()).toEqual(['derecho', 'impuesto', 'logistica', 'servicios_adicionales', 'soat', 'tramite_digital']);
+  });
+
+  it('Bug #12913 — servicios adicionales admite un SEGUNDO servicio aunque ya haya un pago SA aplicado (uno por tipo: el duplicado lo decide el índice `…_sa` al aplicar); la proyección ya no mira el documentado SA', () => {
+    // Aunque la fila trajera una marca de documentado SA (fixture viejo), no se consulta.
+    expect(admiteDe(fila({ docServiciosAdicionales: true } as never)).servicios_adicionales).toBe('admite');
+    expect(admiteDe(fila({ liquidacionId: 'liq-1' })).servicios_adicionales).toBe('liquidado');
+    expect('docServiciosAdicionales' in PROYECCION_CANDIDATO).toBe(false);
   });
 
   it('AC5-M2: aCandidato deja fuera cualquier dato de persona: solo llaves del vehículo, tipo, empresa, estados y admite', () => {

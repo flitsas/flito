@@ -96,11 +96,15 @@ describe('0198 — análisis estático', () => {
     for (const chk of CHECKS) expect(SIN_COMENTARIOS).toMatch(new RegExp(`CONSTRAINT ${chk} CHECK \\(`));
     expect(SIN_COMENTARIOS.match(/CONSTRAINT flito_comprobantes_\w+_chk CHECK/g)).toHaveLength(9);
 
+    // El modelo es el de HOY: la 0209 (Bug #12913) partió el índice documental en dos y añadió un CHECK
+    // (sus asertos viven en migracion-0209.test.ts). Aquí: lo de la 0198 que sigue vivo, más eso.
     const cfg = getTableConfig(flitoComprobantes);
     expect(cfg.name).toBe('flito_comprobantes');
-    expect(cfg.indexes.map((i) => i.config.name).sort()).toEqual([...INDICES].sort());
-    expect(cfg.indexes.find((i) => i.config.name === 'idx_flito_comprobantes_valor_documental')!.config.unique).toBe(true);
-    expect(cfg.checks.map((c) => c.name).sort()).toEqual([...CHECKS].sort());
+    const INDICES_HOY = [...INDICES.filter((i) => i !== 'idx_flito_comprobantes_valor_documental'),
+      'idx_flito_comprobantes_valor_documental_td_lg', 'idx_flito_comprobantes_valor_documental_sa'];
+    expect(cfg.indexes.map((i) => i.config.name).sort()).toEqual(INDICES_HOY.sort());
+    expect(cfg.indexes.find((i) => i.config.name === 'idx_flito_comprobantes_valor_documental_td_lg')!.config.unique).toBe(true);
+    expect(cfg.checks.map((c) => c.name).sort()).toEqual([...CHECKS, 'flito_comprobantes_servicio_tipo_chk'].sort());
     const fks = cfg.foreignKeys.map((fk) => {
       const r = fk.reference();
       return { col: r.columns[0]!.name, tabla: r.foreignTable[Symbol.for('drizzle:Name') as unknown as keyof typeof r.foreignTable] as unknown as string, onDelete: fk.onDelete };
