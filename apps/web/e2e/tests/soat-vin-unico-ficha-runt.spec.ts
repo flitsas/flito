@@ -231,6 +231,29 @@ test.describe('HU #12091 · AC1 — un solo campo en el bloque 1', () => {
     expect(cap.preconsultas, JSON.stringify(cap.preconsultas)).toHaveLength(0);
   });
 
+  // HU #12844 (AC6): el render del aviso y de los errores del VIN se movió a `PasoVin.tsx`; este
+  // test fija que el paso rediseñado sigue diciendo lo mismo. De 11 a 16 avisa sin bloquear;
+  // I/O/Q y más de 17 bloquean sin salir a la red.
+  test('VIN de 11 a 16 avisa; con I/O/Q o más de 17 da error y cero peticiones (HU #12844)', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    const cap = await mockCanal(page);
+
+    await campoVin(page).fill('9bwzzz377vt00425');
+    await expect(campoVin(page)).toHaveValue('9BWZZZ377VT00425');
+    await expect(page.getByText('El VIN suele tener 17 caracteres y este tiene 16.')).toBeVisible();
+    await campoVin(page).fill('9BWZZZ377VT0042');
+    await expect(page.getByText('El VIN suele tener 17 caracteres y este tiene 15.')).toBeVisible();
+
+    await campoVin(page).fill('9BWZZZ377VT00425O');
+    await btnConsultar(page).click();
+    await expect(page.getByText('El VIN no lleva las letras I, O ni Q.', { exact: false })).toBeVisible();
+
+    await campoVin(page).fill('9BWZZZ377VT0042512');
+    await btnConsultar(page).click();
+    await expect(page.getByText('El VIN no puede tener más de 17 caracteres.')).toBeVisible();
+    expect(cap.preconsultas, JSON.stringify(cap.preconsultas)).toHaveLength(0);
+  });
+
   test('VIN con separadores: 19 tecleados, 17 normalizados — se ACEPTA y viaja limpio', async ({ page }) => {
     await loginAs(page, CLIENTE_CON_CANAL);
     const cap = await mockCanal(page);
