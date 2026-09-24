@@ -139,7 +139,7 @@ describe('AC1 — con extracción y RUNT válido', () => {
     await pasoComparacion(ctx());
     expect(logPiiAccess).toHaveBeenCalledTimes(1);
     const [, entrada] = logPiiAccess.mock.calls[0];
-    expect(entrada).toMatchObject({ camposAccedidos: ['documento_propietario', 'vin'], resourceId: null });
+    expect(entrada).toMatchObject({ camposAccedidos: ['placa', 'documento_propietario', 'vin'], resourceId: null });
     expect(entrada.motivo).toContain('comparación factura vs RUNT');
     const logs = JSON.stringify([...logInfo.mock.calls, ...logWarn.mock.calls, entrada]);
     for (const pii of [PLACA, DOC, VIN]) expect(logs).not.toContain(pii);

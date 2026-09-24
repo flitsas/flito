@@ -5,6 +5,7 @@
 // `registrarPasoAnalisis` usa `Map.set`, así que llamar esto dos veces es idempotente.
 
 import { registrarPasoAnalisis } from './flito-impuestos.analisis.service.js';
+import { pasoAutocertificacion } from './flito-impuestos.autocertificacion.js';
 import { pasoComparacion } from './flito-impuestos.comparacion.js';
 import { pasoExtraccion } from './flito-impuestos.extraccion.js';
 
@@ -13,5 +14,6 @@ export function registrarPasosAnalisisImpuestos(): void {
   registrarPasoAnalisis('extraccion', pasoExtraccion);
   // 12827 — segundo: consulta el RUNT UNA vez (queda en `job.consultaRunt`) y calcula el semáforo.
   registrarPasoAnalisis('comparacion', pasoComparacion);
-  // 12828: registrarPasoAnalisis('autocertificacion', …)
+  // 12828 — tercero: certifica con ESA misma respuesta RUNT si procede (sin reconsultar).
+  registrarPasoAnalisis('autocertificacion', pasoAutocertificacion);
 }
