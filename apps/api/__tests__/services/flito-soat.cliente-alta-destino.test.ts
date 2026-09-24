@@ -471,7 +471,7 @@ describe('AC2e — el destino del SOAT POR TRÁMITE no depende de la configuraci
 
     const r = await enviarAlGestor(
       ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
-      { userId: 1, username: 'ops@flito.co', role: 'admin', proveedorSoatId: null, companiaId: null },
+      { userId: 1, username: 'ops@flito.co', role: 'admin', externo: false, alcance: 'todo' as const, proveedorSoatId: null, companiaId: null },
       { proveedorSoatId: OTRO_GESTOR },
     );
 
