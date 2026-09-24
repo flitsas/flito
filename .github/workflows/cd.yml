@@ -288,8 +288,10 @@ jobs:
               exit 1
             fi
 
-            # Pull de imágenes del ambiente
-            docker compose -f docker-compose.prod.yml pull
+            # Pull de imágenes del ambiente. MinIO NO se baja: quay.io exige auth para
+            # minio/minio desde el 2026-09-24 (401) y la imagen fijada ya está en el VPS
+            # (pull_policy: missing en el compose).
+            docker compose -f docker-compose.prod.yml pull api web redis
 
             # Migraciones ANTES de levantar la nueva versión (idempotente; el
             # runner db-apply lleva tracking propio). --no-deps: no necesita redis.
