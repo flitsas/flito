@@ -194,13 +194,14 @@ export const NOMBRE_CERTIFICADOR_AUTOMATICO = 'Sistema (validación automática)
 export const CAMPOS_COMPARACION_FACTURA_RUNT = ['vin', 'marca', 'linea', 'anio', 'color', 'cilindrada'] as const;
 export type CampoComparacionFacturaRunt = (typeof CAMPOS_COMPARACION_FACTURA_RUNT)[number];
 
+/** Copy de la UI (HU #12831): las etiquetas son las de los AC, no las del catálogo del RUNT. */
 export const CAMPO_COMPARACION_FACTURA_RUNT_LABEL: Record<CampoComparacionFacturaRunt, string> = {
   vin: 'VIN',
   marca: 'Marca',
-  linea: 'Línea',
-  anio: 'Año modelo',
+  linea: 'Modelo (línea)',
+  anio: 'Año',
   color: 'Color',
-  cilindrada: 'Cilindrada',
+  cilindrada: 'Cilindraje',
 };
 
 /** `no_verificable` no cuenta como diferencia: falta el dato fiable de un lado. */
