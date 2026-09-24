@@ -40,7 +40,7 @@
 # (lo hace el CD con GHCR_PAT) antes del pull.
 #
 # Despliegue manual:
-#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml pull api web redis   # MinIO no: ver pull_policy
 #   docker compose -f docker-compose.prod.yml run --rm --no-deps api node dist/scripts/db-apply.js
 #   docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
@@ -81,6 +81,9 @@ services:
     # MinIO dejó de publicar en Docker Hub (minio/minio → 404 desde el 2026-09-14; el CD 313
     # cayó en el pull). quay.io es el registro oficial; tag fijo = última release publicada.
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    # Desde el 2026-09-24 quay.io responde 401 a minio/minio: nunca volver a bajarla. La imagen
+    # fijada ya está en cada VPS; `missing` solo la pediría en un host nuevo (ahí hay que cargarla a mano).
+    pull_policy: missing
     command: ['server', '/data', '--console-address', ':9001']
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY}
