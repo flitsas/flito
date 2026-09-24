@@ -86,6 +86,12 @@
 // «no» era una comprobación de titularidad que salía gratis. Con el VIN no hay tal cosa: cualquiera
 // que conozca un VIN obtiene la ficha. Lo que acredita que quien radica puede radicar por ese
 // vehículo es **la factura de venta adjunta**, que es obligatoria y es lo que Operaciones revisa.
+//
+// **RN-05 del Feature #12840 (HU #12842): el SOAT activo SÍ se publica.** Deroga para el canal la
+// parte de la RN-B1 que decía «la póliza no se publica»: el 409 `soat_vigente` y el aviso
+// `vigenciaProxima` llevan póliza, expedición, inicio, vencimiento, aseguradora y estado del
+// `soat[0]` del RUNT. Mitigaciones que se conservan: auth + rol + rate limiter del canal, DTO
+// proyectado a mano (sin spread, sin payload crudo) y ni la póliza ni el VIN en el log.
 
 import { createHash, randomUUID } from 'crypto';
 import { eq } from 'drizzle-orm';
@@ -104,13 +110,16 @@ import {
 import {
   CAMPOS_COMPRADOR_FACTURA,
   CodigoErrorSolicitudSoat,
+  type DatosSoatVigente409,
   EstadoSoat,
   type ExtraccionFacturaVenta,
   PROCEDENCIA_POR_DEFECTO,
   type ProcedenciaComprador,
   type ProcedenciaCompradorPersistida,
+  type SoatActivoRunt,
   TipoSoporte,
   type TipoDocumentoRunt,
+  type VigenciaProximaSoat,
 } from '@operaciones/shared-types';
 import { ConceptoHistorial, registrarCambio } from '../../shared/historial/estado-historial.js';
 import { extraerFacturaVenta } from '../flito-ocr/flito-ocr.service.js';
@@ -553,10 +562,10 @@ export interface ResultadoRunt {
    * `case 'ok'` habría podido omitirlo y el campo habría quedado `undefined` —indistinguible de «no
    * lo calculamos»— en la rama más transitada.
    *
-   * `poliza` llega hasta aquí porque se PERSISTE en `flito_soat.poliza_runt`; NO se publica en el
-   * 200 de la preconsulta. Ver {@link Preconsulta.vigenciaProxima}.
+   * `poliza` se PERSISTE en `flito_soat.poliza_runt` y, desde la HU #12842 (RN-05 del Feature
+   * #12840), también se PUBLICA en el 200 de la preconsulta. Ver {@link Preconsulta.vigenciaProxima}.
    */
-  vigenciaProxima: { venceEl: string; poliza: string | null } | null;
+  vigenciaProxima: VigenciaProximaSoat | null;
 }
 
 /**
@@ -600,10 +609,18 @@ async function verificarRuntCompuerta(vin: string): Promise<ResultadoRunt> {
     case 'revise':
       throw fallo(422, CODIGO_REVISE[desenlace.codigo], MENSAJE_REVISE[desenlace.codigo],
         desenlace.campo ? { campo: desenlace.campo } : undefined);
-    case 'vigente':
+    case 'vigente': {
+      // `fechaVencimiento` se CONSERVA con su contrato de siempre —ausente, nunca null, si el RUNT
+      // no trae fecha—; el spread condicional existe solo para eso. `soatActivo` va siempre, anidado
+      // para no chocar con la clave `estado` del 409 de solicitud propia (HU #12842, AC4).
+      const datos409: DatosSoatVigente409 = {
+        ...(desenlace.fechaVencimiento ? { fechaVencimiento: desenlace.fechaVencimiento } : {}),
+        soatActivo: proyectarSoatActivo(desenlace.soatActivo),
+      };
       throw fallo(409, CodigoErrorSolicitudSoat.SOAT_VIGENTE,
         'El RUNT reporta que este vehículo ya tiene un SOAT vigente. No se puede solicitar otro.',
-        desenlace.fechaVencimiento ? { fechaVencimiento: desenlace.fechaVencimiento } : undefined);
+        { ...datos409 });
+    }
     case 'ok':
       return {
         datos: desenlace.datos,
@@ -612,7 +629,7 @@ async function verificarRuntCompuerta(vin: string): Promise<ResultadoRunt> {
         consultadoEn,
         vigenciaProxima: null,
       };
-    // El RUNT reporta SOAT vigente, pero le queda un mes o menos: **es un alta permitida**, no un
+    // El RUNT reporta SOAT vigente, pero le quedan 30 días o menos: **es un alta permitida**, no un
     // 409. Devuelve el MISMO payload que `ok` —el vehículo es el mismo y la fila que se crea es la
     // misma— más el aviso. Todo lo que separa este caso del anterior es ese objeto.
     case 'renovacion_anticipada':
@@ -621,9 +638,24 @@ async function verificarRuntCompuerta(vin: string): Promise<ResultadoRunt> {
         vinEfectivo: desenlace.vinEfectivo,
         organismoCodigo: desenlace.organismoCodigo,
         consultadoEn,
-        vigenciaProxima: { venceEl: desenlace.venceEl, poliza: desenlace.poliza },
+        vigenciaProxima: { venceEl: desenlace.venceEl, ...proyectarSoatActivo(desenlace.soatActivo) },
       };
   }
+}
+
+/**
+ * Los seis datos del SOAT activo, proyectados CLAVE A CLAVE (HU #12842, AC5). Sin spread del
+ * origen: un campo que el extractor añada mañana no se publica sin que alguien lo escriba aquí.
+ */
+function proyectarSoatActivo(s: SoatActivoRunt): SoatActivoRunt {
+  return {
+    poliza: s.poliza,
+    fechaExpedicion: s.fechaExpedicion,
+    inicioVigencia: s.inicioVigencia,
+    vencimiento: s.vencimiento,
+    aseguradora: s.aseguradora,
+    estado: s.estado,
+  };
 }
 
 /** El código de shared-types que le toca a cada desenlace «revise los datos». */
@@ -677,15 +709,15 @@ export interface Preconsulta {
    *   · `venceEl` es `yyyy-mm-dd` y **no es nullable dentro del objeto**. Sin fecha no hay aviso —es
    *     el 409 de siempre (AC3)—, así que un `{ venceEl: null }` sería un estado inalcanzable.
    *
-   * ── Por qué NO viaja la póliza ──────────────────────────────────────────────────────────────────
+   * ── Desde la HU #12842: `venceEl` + los seis datos del SOAT activo, póliza incluida ─────────────
    *
-   * Desde la HU #12090 rige la RN-B1 escrita en la ruta: **cualquiera que conozca un VIN obtiene la
-   * ficha**, porque consultar por VIN ya no acredita al titular. Publicar aquí el número de póliza
-   * sería una divulgación NUEVA y cosechable enumerando VIN, sobre un dato que hoy no sale por
-   * ninguna vía —la HU #12097 se negó por lo mismo a proyectar `poliza_runt` hacia la cola—. El AC1
-   * pide la fecha; la póliza se persiste en servidor y ahí se queda.
+   * Hasta la HU #12842 la póliza NO viajaba por la RN-B1 (consultar por VIN no acredita al titular,
+   * así que publicarla era una divulgación cosechable enumerando VIN). La RN-05 del Feature #12840
+   * lo decide al revés para el canal Cliente: se publican póliza, expedición, inicio, vencimiento,
+   * aseguradora y estado de `soat[0]`. El riesgo de enumeración sigue siendo el mismo y lo acotan
+   * auth + rol + rate limiter; el DTO se proyecta clave a clave y nada de esto entra al log.
    */
-  vigenciaProxima: { venceEl: string } | null;
+  vigenciaProxima: VigenciaProximaSoat | null;
 }
 
 /**
@@ -746,10 +778,20 @@ export async function preconsulta(vin: string, ctx: SoatCtx): Promise<Preconsult
     },
     organismo: { codigo: organismoCodigo, nombre: organismo?.alias ?? null },
     propietario: datos.propietarioNombre ? { nombreCompleto: datos.propietarioNombre } : null,
-    // Se PROYECTA, no se reenvía: de `{ venceEl, poliza }` sale solo la fecha. La póliza se queda en
-    // el servidor (RN-B1). El objeto se reconstruye a mano y no con un spread por eso mismo — un
-    // `...vigenciaProxima` publicaría el campo que se añadiera mañana sin que nadie lo decidiera.
-    vigenciaProxima: vigenciaProxima ? { venceEl: vigenciaProxima.venceEl } : null,
+    // Se PROYECTA, no se reenvía: las siete claves se escriben a mano (HU #12842, AC5; la póliza se
+    // publica por la RN-05 del Feature #12840). Sin spread por eso mismo — un `...vigenciaProxima`
+    // publicaría el campo que se añadiera mañana sin que nadie lo decidiera.
+    vigenciaProxima: vigenciaProxima
+      ? {
+        venceEl: vigenciaProxima.venceEl,
+        poliza: vigenciaProxima.poliza,
+        fechaExpedicion: vigenciaProxima.fechaExpedicion,
+        inicioVigencia: vigenciaProxima.inicioVigencia,
+        vencimiento: vigenciaProxima.vencimiento,
+        aseguradora: vigenciaProxima.aseguradora,
+        estado: vigenciaProxima.estado,
+      }
+      : null,
   };
 }
 
