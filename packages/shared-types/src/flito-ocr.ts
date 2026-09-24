@@ -189,6 +189,59 @@ export interface CampoExtraido {
 export type ExtraccionSoat = Partial<Record<CampoSoat, CampoExtraido>>;
 export type ExtraccionImpuesto = Partial<Record<CampoImpuesto, CampoExtraido>>;
 export type ExtraccionFacturaVenta = Partial<Record<CampoFacturaVenta, CampoExtraido>>;
+
+/**
+ * Datos del VEHÍCULO que el análisis post-envío de Impuestos lee de la factura FLIT (HU #12826).
+ *
+ * Constante APARTE de `CampoFacturaVenta` a propósito: `CampoFacturaVenta` es el contrato del canal
+ * Cliente de SOAT (HU #12092) —14 campos, `Record` exhaustivo de etiquetas, `Object.values` en sus
+ * tests— y ese canal no pide ni muestra estos datos. `vin` se repite con el mismo literal.
+ */
+export const CampoVehiculoFacturaVenta = {
+  VIN: 'vin',
+  MARCA: 'marca',
+  LINEA: 'linea',
+  ANIO_VEHICULO: 'anioVehiculo',
+  COLOR: 'color',
+  CILINDRADA: 'cilindrada',
+  CLASE: 'clase',
+} as const;
+
+export type CampoVehiculoFacturaVenta = (typeof CampoVehiculoFacturaVenta)[keyof typeof CampoVehiculoFacturaVenta];
+
+export const CAMPO_VEHICULO_FACTURA_VENTA_LABEL: Record<CampoVehiculoFacturaVenta, string> = {
+  vin: 'VIN',
+  marca: 'Marca',
+  linea: 'Línea',
+  anioVehiculo: 'Año del vehículo',
+  color: 'Color',
+  cilindrada: 'Cilindrada',
+  clase: 'Clase',
+};
+
+/** Dirección del adquiriente que el análisis de Impuestos también persiste (mismos literales que el canal SOAT). */
+export type CampoDireccionFacturaVenta =
+  | typeof CampoFacturaVenta.DIRECCION | typeof CampoFacturaVenta.MUNICIPIO | typeof CampoFacturaVenta.DEPARTAMENTO;
+
+/** Las 10 claves de la extracción de Impuestos: 7 del vehículo + 3 de dirección. */
+export type CampoExtraccionFacturaImpuesto = CampoVehiculoFacturaVenta | CampoDireccionFacturaVenta;
+
+/** De dónde salió la extracción de la factura en el análisis post-envío de Impuestos (HU #12826). */
+export type FuenteExtraccionFactura = 'notas_finales' | 'ocr';
+
+/**
+ * Lo que persiste `flito_impuestos.extraccion_factura_venta` (HU #12826): los 7 campos vehiculares
+ * y los 3 de dirección del adquiriente, siempre las 10 claves, más `fuente`.
+ *
+ * Tipo APARTE de `ExtraccionFacturaVenta` (canal SOAT): ninguno de los dos ve las claves del otro.
+ * Quien lea el jsonb itera una lista de campos, nunca `Object.values`.
+ *
+ * Regla para el semáforo (HU #12827): un campo con `confiable: false` —ausente, dudoso o sin patrón
+ * inequívoco, p. ej. `linea` sacada de la «Descripción» del producto— NO cuenta como diferencia
+ * contra el RUNT: es «no verificable», no «distinto».
+ */
+export type ExtraccionFacturaVentaImpuestoCampos = Partial<Record<CampoExtraccionFacturaImpuesto, CampoExtraido>>;
+export type ExtraccionFacturaVentaImpuesto = ExtraccionFacturaVentaImpuestoCampos & { fuente?: FuenteExtraccionFactura };
 export type ExtraccionDerechoTramite = Partial<Record<CampoDerechoTramite, CampoExtraido>>;
 
 export const CAMPO_SOAT_LABEL: Record<CampoSoat, string> = {
