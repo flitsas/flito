@@ -911,14 +911,14 @@ test.describe('HU #11967 — el canal, el adjunto y las salidas', () => {
 
     await page.goto('/flito/soat/solicitud');
     await page.getByLabel('VIN').fill(VIN);
-    await page.getByRole('button', { name: '← Volver a mis SOAT' }).click();
+    await page.getByRole('button', { name: 'Volver a mis SOAT' }).click();
 
     const dialogo = page.getByRole('dialog', { name: '¿Descartar la solicitud?' });
     await expect(dialogo.getByText('Lo que escribió no se guarda: no hay borradores.')).toBeVisible();
     await dialogo.getByRole('button', { name: 'Seguir llenando' }).click();
     await expect(page.getByLabel('VIN')).toHaveValue(VIN);
 
-    await page.getByRole('button', { name: '← Volver a mis SOAT' }).click();
+    await page.getByRole('button', { name: 'Volver a mis SOAT' }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Descartar' }).click();
     await expect(page).toHaveURL(/\/flito\/soat$/);
   });

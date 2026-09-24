@@ -4,156 +4,37 @@
 // La visibilidad la impone el servidor: Operaciones ve todo; el gestor solo su proveedor y nunca
 // los Pendiente; Auditoría es solo lectura.
 
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ANS_OPERATIVO, ESTADO_SOAT_LABEL, EstadoSoat, type FiltroVigenciaCola } from '@operaciones/shared-types';
+import { CircleAlert, Lock, Plus, RotateCw, Upload } from 'lucide-react';
+import { ANS_OPERATIVO, EstadoSoat, type FiltroVigenciaCola } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
-import { enviarCargaEnTandas, validarCargaMasiva } from '../lib/carga-masiva';
-import useSeleccionCargaMasiva from '../lib/useSeleccionCargaMasiva';
-import RanuraCargaMasiva from '../components/flito/RanuraCargaMasiva';
 import { puedeSolicitarSoat, useAuth } from '../lib/auth';
 import { TarjetaCanalDeshabilitado } from '../components/flito/soat-cliente/TarjetaCanal';
 import PageContentSkeleton from '../components/flit/PageContentSkeleton';
-import BarraEnvioSoat, { CasillaSoat } from '../components/flito/BarraEnvioSoat';
+import BarraEnvioSoat from '../components/flito/BarraEnvioSoat';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
-import FlitModal from '../components/flit/FlitModal';
-import HistorialEstados from '../components/flit/HistorialEstados';
-import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
-import AntiguedadPill from '../components/flit/AntiguedadPill';
-import ThFiltroMulti from '../components/flit/ThFiltroMulti';
-import ChipSinGestion from '../components/flit/ChipSinGestion';
-import RangoFechas from '../components/flit/RangoFechas';
-import FiltrosInteligentes, { type Preset } from '../components/flit/FiltrosInteligentes';
 import {
   AvisoExportCola, BotonExportarCola, COLA_SOAT, useExportCola, type FiltrosExportCola,
 } from '../components/flito/ExportarCola';
-import {
-  AvisoSoportesZip, ZIP_SOAT, hoverSecundario, useDescargaZip,
-} from '../components/flito/DescargarSoportesZip';
-import {
-  BotonComprobanteDetalle, BotonComprobanteFila, useDescargaComprobante, type EstadoDescargaComprobante,
-} from '../components/flito/DescargarComprobanteSoat';
-// Ni `CeldaTramite` ni `ENCABEZADOS_COMUNES`: desde la HU #11905 esta cola dejó de girar sobre el
-// trámite (RN-01: un SOAT es por VIN, no por trámite). Las otras tres tablas que comparten ese
-// archivo —impuestos, derechos y el reporte de costos— lo siguen enseñando igual, y por eso el
-// cambio se queda aquí y no allí. El vehículo lo pinta `CeldaVehiculoSoat` (hermano en flito/).
-import { CeldaFechas, documentoConTipo } from '../components/flit/columnasComunes';
-import CeldaVehiculoSoat from '../components/flito/CeldaVehiculoSoat';
-import Paginacion from '../components/flit/Paginacion';
-import VisorSoportes from '../components/flit/VisorSoportes';
+import { AvisoSoportesZip, ZIP_SOAT, useDescargaZip } from '../components/flito/DescargarSoportesZip';
+import { useDescargaComprobante } from '../components/flito/DescargarComprobanteSoat';
 import useDebounce from '../lib/useDebounce';
-import { textoVigenciaSoat, type VigenciaSoatCola } from '../lib/vigenciaSoatCola';
-import { CeldaVigenciaSoat, FiltroVigenciaSoat } from '../components/flito/VigenciaSoat';
 import {
-  FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty, FlitPillGroup, FlitPillButton,
-  flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
+  FlitCard, FlitEmpty, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary,
 } from '../components/flit/flitPageKit';
+import { toastError, toastOk } from '../components/flit/ToastFlito';
+// Las piezas de la cola viven en `components/flito/soat/` desde la HU #12819 (techo de 800 líneas).
+import {
+  ESTADOS_ADMIN, ESTADOS_CLIENTE, ESTADOS_GESTOR, type ColaSoat, type FacetasSoat, type Proveedor,
+} from '../components/flito/soat/tipos';
+import BarraFiltrosSoat, { type PresetSoat } from '../components/flito/soat/BarraFiltrosSoat';
+import TablaColaSoat from '../components/flito/soat/TablaColaSoat';
+import DetalleSoat from '../components/flito/soat/DetalleSoat';
+import CargaMasiva from '../components/flito/soat/CargaMasivaSoat';
 
-interface SoatItem {
-  id: string; vin: string; placa: string | null; marca: string | null; linea: string | null;
-  /** Datos técnicos que FLIT trae del vehículo (HU #11906). `string` a propósito y NO number: la
-      fuente es texto siempre, `"0"` significa eléctrico (`vehicles/ocr.routes.ts:76`) y un futuro
-      «220 CC» se rompería en silencio al parsearlo. Llegan `null` cuando FLIT no los mandó; el «—»
-      lo pinta esta página, no el backend. */
-  cilindraje: string | null; carroceria: string | null; tipoServicio: string | null;
-  estado: EstadoSoat; esMultiplePropietario: boolean; companiaNombre: string;
-  organismoNombre: string | null;
-  /** Los cinco campos OPCIONALES son los que el backend NO le manda al rol `cliente` (Feature
-      #11912): con qué proveedor tiene FLITO contratada la adquisición, si el caso lo retomó
-      Operaciones, qué empleado lo despachó y cuánto pagó FLITO por la póliza. `?` y no `| null`
-      porque la diferencia es real y conviene que se note: no llegan vacíos, no llegan. Lo que los
-      pinta va detrás de `!esCliente`; el `?` es la red por si alguna vez se olvida una guarda. */
-  proveedorSoatId?: string | null; proveedorSoatNombre?: string | null;
-  gestionOperaciones?: boolean;
-  /**
-   * `tipoDocumento` es el CÓDIGO ya resuelto por el API (`'CC' | 'NIT' | 'PP' | 'CE'`) o null, no el
-   * `tipo` crudo de FLIT: la traducción vive en el backend y aquí no hay copia (HU #11947, AC6/AC7).
-   */
-  compradores: Array<{ nombreCompleto: string; numeroDocumento: string; tipoDocumento: string | null; orden: number; porcentajeParticipacion: number | null }>;
-  tramitesFlit: string[];
-  /** Datos del trámite. Null cuando el SOAT sirve a varios que no coinciden (es por VIN, RN-01). */
-  tipoTramite: string | null; fechaAprobacion: string | null; fechaCreacion: string | null;
-  enviadoPorNombre?: string | null; enviadoEn: string | null; pagadoEn: string | null;
-  valorPagado?: number | null; estancado: boolean; motivoRechazo: string | null; creadoEn: string;
-  /**
-   * Vigencia frente al RUNT, tal como la dejó la corrida de las 00:10 (Feature #12075).
-   *
-   * Los DOS huecos significan cosas distintas y ninguno se puede colapsar en el otro:
-   *   · `undefined` — el API no lo manda. Al `cliente` nunca (es el sexto de `CAMPOS_SOLO_INTERNOS`)
-   *     y a nadie si el bundle va por delante del API, que en DEV no es teórico: el merge es el
-   *     deploy. La fila se pinta EXACTAMENTE como antes de esta HU.
-   *   · `null` — la fila no tiene comprobante cargado y por tanto no entra en la verificación
-   *     diaria. Tampoco se pinta nada: la ausencia es correcta y muda, y un «—» en la mayoría de
-   *     las filas sería un hueco que hay que explicar.
-   *
-   * `verificadaEn` puede ser `null` CON el bloque presente, y no significa «hoy falló» sino «de
-   * este SOAT no consta ninguna respuesta del registro». Leerlo sin guarda pinta «Invalid Date».
-   */
-  vigencia?: VigenciaSoatCola | null;
-}
-interface Proveedor { id: string; nombre: string; activo: boolean }
-interface ColaSoat { items: SoatItem[]; total: number; page: number; pageSize: number }
-interface FacetasSoat {
-  companias: { id: number; nombre: string }[];
-  organismos: { codigo: string; nombre: string | null }[];
-  proveedores: { id: string; nombre: string }[];
-}
-
-// Cuatro estados y cuatro tonos. Aquí hubo dos entradas más —`pendiente_revision` y `rechazada`, del
-// canal Cliente— que la HU #12079 dejó sin escritor y que la #12080 retira del enum y del tipo de
-// Postgres (migración 0176, que aborta si queda alguna fila en ellos). No hace falta conservarles un
-// tono «por si llega una fila antigua»: no puede llegar ninguna.
-const TONO: Record<EstadoSoat, ChipTone> = {
-  pendiente: 'draft', solicitado: 'active', con_novedad: 'danger', pagado: 'success',
-};
-const pesos = (v: number | null | undefined) => v === null || v === undefined ? '—'
-  : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
-const fecha = (iso: string | null) => iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—';
-
-/**
- * Los estados a los que el admin puede REVERSAR un SOAT, y NADA MÁS.
- *
- * **Sigue siendo una lista aparte aunque su contenido coincida con el de las pastillas del admin, y
- * eso es una decisión, no un descuido.** La razón por la que nació separada —no ofrecer
- * `pendiente_revision` ni `rechazada` como destino de reversa (ADR-0008 §8)— se evaporó del todo con
- * la HU #12080, que retira los dos estados del enum. Pero las dos listas responden a preguntas
- * distintas: «por qué se puede filtrar» y «a dónde se puede devolver un SOAT». Fundirlas porque hoy
- * son iguales le regalaría a la siguiente pastilla que alguien añada un destino de reversa que nadie
- * decidió — que es exactamente lo que acaba de pasar y de deshacerse.
- */
-const ESTADOS_DESTINO_REVERSA: EstadoSoat[] = [EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD];
-const ESTADOS_GESTOR: EstadoSoat[] = [EstadoSoat.SOLICITADO, EstadoSoat.PAGADO];
-/**
- * Las pastillas del admin, en orden de RECORRIDO del ciclo (HU #12079).
- *
- * `pendiente_revision` y `rechazada` salieron de aquí porque el circuito que los creaba se retiró:
- * una solicitud del canal nace en `solicitado` y sale al gestor de su compañía sin pasar por
- * revisión. Una pastilla que filtra por un estado en el que ya no entra ninguna fila es una pantalla
- * vacía prometida — y desde la HU #12080 sería además un 500: el filtro viaja al API, que ya no
- * acepta esos valores (`ESTADOS` de `flito-soat.routes.ts`).
- */
-const ESTADOS_ADMIN: EstadoSoat[] = [
-  EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD,
-];
-/**
- * Las pastillas del Cliente: **las mismas cuatro, en el orden de SU recorrido** (HU #12079).
- *
- * Son las mismas y no un subconjunto: el aislamiento del Cliente es **por compañía, no por origen**
- * (`condicionesCola`), así que en su cola conviven los SOAT nacidos de trámites de FLIT con los que
- * él radica. `con_novedad` va antes que `pagado` porque es lo único de esta lista que puede estar
- * esperando algo, aunque no sea él quien lo resuelva.
- *
- * ⚠ **Lo que murió con la HU #12079 y sigue muerto:** aquí se leía que «no hace falta una columna
- * Origen porque `pendiente_revision` y `rechazada` solo existen en el canal Cliente, así que el
- * estado ya dice de dónde viene cada fila». Retirados los dos estados —de la pantalla entonces, del
- * enum con la #12080—, **nada distingue en pantalla una solicitud del canal de un SOAT nacido de un
- * trámite**. No se añade columna —la cola ya es densa, el gestor las trabaja igual y ningún AC la
- * pide—; queda preguntado al PO, con `tramitesFlit` vacío como señal ya disponible si algún día se
- * decide.
- */
-const ESTADOS_CLIENTE: EstadoSoat[] = [
-  EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.CON_NOVEDAD, EstadoSoat.PAGADO,
-];
+/** Acciones de cabecera: a ancho completo por debajo de `sm`, la primaria primero (§14). */
+const ACCION_CABECERA = 'w-full justify-center sm:w-auto';
 
 export default function FlitoSoat() {
   const { user, hasFuncion, funciones } = useAuth();
@@ -244,7 +125,7 @@ export default function FlitoSoat() {
    * Un gestor no ve «listos para enviar»: los Pendiente están fuera de su frontera (CA-09), así que
    * el preset le devolvería siempre una lista vacía y parecería que no hay trabajo.
    */
-  const PRESETS: Array<Preset<{ estado: EstadoSoat | 'todos'; estancado: boolean }>> = [
+  const PRESETS: PresetSoat[] = [
     ...(esGestor ? [] : [{
       nombre: 'Listos para enviar',
       descripcion: 'Pendientes que ya tienen proveedor asignado.',
@@ -257,7 +138,7 @@ export default function FlitoSoat() {
     },
   ];
 
-  const aplicarPreset = (p: Preset<{ estado: EstadoSoat | 'todos'; estancado: boolean }>) => {
+  const aplicarPreset = (p: PresetSoat) => {
     limpiarFiltros();
     setEstado(p.filtros.estado);
     setSoloEstancado(p.filtros.estancado);
@@ -404,24 +285,28 @@ export default function FlitoSoat() {
       {sinFuncionesPantalla ? (
         <>
           <PageHeaderCard title="SOAT" />
-          <p className="rounded-[10px] px-4 py-3 text-sm" style={{ background: 'var(--flit-bg-app)', color: 'var(--flit-text-primary)' }}>
-            Su usuario no tiene ninguna función habilitada en esta pantalla. Si cree que debería operar aquí, pida a un administrador que revise el cuadro de su rol.
-          </p>
+          <FlitCard>
+            <p className="flex items-start gap-2 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+              <Lock size={18} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: 'var(--flit-text-muted)' }} />
+              Su usuario no tiene ninguna función habilitada en esta pantalla. Si cree que debería operar aquí, pida a un administrador que revise el cuadro de su rol.
+            </p>
+          </FlitCard>
         </>
       ) : (
       <>
       <PageHeaderCard
         title="SOAT"
-        // El subtítulo de siempre es vocabulario de Operaciones —«cola de adquisición», «RN-01»— y le
-        // habla al Cliente de un proceso que él no ejecuta. Se ramifica solo para él; el de
-        // Operaciones no se toca.
+        // El subtítulo de siempre es vocabulario de Operaciones y le habla al Cliente de un proceso que
+        // él no ejecuta: se ramifica para él. El de Operaciones perdió en la HU #12819 la regla de
+        // negocio (RN-01/RN-03), que no es un título: dice qué es la cola, no cómo se valida.
         subtitle={esCliente
           ? 'Sus solicitudes de SOAT y las pólizas de su compañía.'
-          : 'Cola de adquisición del SOAT. El SOAT se ancla al VIN y solo pasa a Pagado con una factura validada.'}
+          : 'Cola de adquisición del SOAT: de Pendiente a Pagado.'}
         actions={(
           <>
             {(esOperaciones || esGestor) && (
-              <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setCargaMasiva(true)}>
+              <button type="button" className={`${flitBtnPrimary} ${ACCION_CABECERA}`} style={flitBtnPrimaryStyle} onClick={() => setCargaMasiva(true)}>
+                <Upload size={16} aria-hidden="true" className="shrink-0" />
                 Cargar facturas (masivo)
               </button>
             )}
@@ -431,7 +316,8 @@ export default function FlitoSoat() {
                 ofrecer un botón que abre una pantalla que explica que no se puede es justo el patrón
                 que el AC5 pide evitar. */}
             {esCliente && puedeSolicitar && (
-              <Link to="/flito/soat/solicitud" className={flitBtnPrimary} style={flitBtnPrimaryStyle}>
+              <Link to="/flito/soat/solicitud" className={`${flitBtnPrimary} ${ACCION_CABECERA}`} style={flitBtnPrimaryStyle}>
+                <Plus size={16} aria-hidden="true" className="shrink-0" />
                 Solicitar SOAT
               </Link>
             )}
@@ -465,90 +351,45 @@ export default function FlitoSoat() {
           sigue funcionando igual. */}
       {esCliente && !puedeSolicitar && <TarjetaCanalDeshabilitado />}
 
-      <FlitCard>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div ref={refPills} tabIndex={-1} className="flit-focus rounded-[999px]">
-            <FlitPillGroup>
-              {!esGestor && (
-                <FlitPillButton active={estado === 'todos'} onClick={() => setEstado('todos')}>Todos</FlitPillButton>
-              )}
-              {estadosDisponibles.map((e) => (
-                <FlitPillButton key={e} active={estado === e} onClick={() => setEstado(e)}>{ESTADO_SOAT_LABEL[e]}</FlitPillButton>
-              ))}
-            </FlitPillGroup>
-          </div>
-          <input className={`${flitInp} max-w-xs`} placeholder="Buscar placa, VIN, comprador…"
-            value={texto} onChange={(e) => setTexto(e.target.value)} />
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-3">
-          <ThFiltroMulti seleccion={companiasSel} onCambio={setCompaniasSel} placeholder="Compañía"
-            vacio="Sin compañías en la cola"
-            opciones={(facetas?.companias ?? []).map((c) => ({ value: String(c.id), label: c.nombre }))} />
-          <ThFiltroMulti seleccion={organismosSel} onCambio={setOrganismosSel} placeholder="Organismo"
-            vacio="Sin organismos en la cola"
-            opciones={(facetas?.organismos ?? []).map((o) => ({ value: o.codigo, label: o.nombre ?? o.codigo }))} />
-          {/* Al gestor no se le ofrece: ya está atado a su proveedor y elegir otro solo vaciaría la
-              cola. Al cliente tampoco: los nombres de los proveedores son justo lo que el backend le
-              quita de cada fila, y `facetasCola` se los devuelve vacíos. */}
-          {!esGestor && !esCliente && (
-            <ThFiltroMulti seleccion={proveedoresSel} onCambio={setProveedoresSel} placeholder="Proveedor"
-              vacio="Sin proveedores en la cola"
-              opciones={(facetas?.proveedores ?? []).map((p) => ({ value: p.id, label: p.nombre }))} />
-          )}
-
-          {!esGestor && !esCliente && (
-            <label className="flex items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
-              Gestiona
-              <select className={`${flitInp} max-w-[11rem]`} value={gestionSel}
-                onChange={(e) => setGestionSel(e.target.value as '' | 'operaciones' | 'proveedor')}>
-                <option value="">Cualquiera</option>
-                <option value="operaciones">Operaciones</option>
-                <option value="proveedor">Un proveedor</option>
-              </select>
-            </label>
-          )}
-
-          {/* La guarda es `!esCliente` y NO la de «Gestiona» (`!esGestor && !esCliente`): al gestor
-              este filtro sí le sirve —es su reclamación—, y al Cliente el backend ni siquiera le
-              acepta el parámetro (`filtrosPermitidos`), así que ofrecérselo sería un control que no
-              hace nada. */}
-          {!esCliente && <FiltroVigenciaSoat valor={vigenciaSel} onCambio={setVigenciaSel} />}
-
-          <FiltrosInteligentes presets={PRESETS} activo={preset}
-            onAplicar={aplicarPreset} onQuitar={limpiarFiltros} />
-
-          {/* Antes de «Solicitado» y «Pagado»: es el orden del ciclo (creado → solicitado → pagado).
-              El rótulo es además su `aria-label`, así que los tres rangos de la pantalla tienen
-              nombres accesibles distintos. */}
-          <RangoFechas etiqueta="Creado en FLITO" valor={{ desde: creadoDesde, hasta: creadoHasta }}
-            onCambio={(r) => { setCreadoDesde(r.desde); setCreadoHasta(r.hasta); }} />
-          <RangoFechas etiqueta="Solicitado" valor={{ desde: solicitadoDesde, hasta: solicitadoHasta }}
-            onCambio={(r) => { setSolicitadoDesde(r.desde); setSolicitadoHasta(r.hasta); }} />
-          <RangoFechas etiqueta="Pagado" valor={{ desde: pagadoDesde, hasta: pagadoHasta }}
-            onCambio={(r) => { setPagadoDesde(r.desde); setPagadoHasta(r.hasta); }} />
-
-          <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
-            <input type="checkbox" checked={soloEstancado} onChange={(e) => setSoloEstancado(e.target.checked)} />
-            Solo sin gestión
-          </label>
-
-          {(hayFiltros || !!texto) && (
-            <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={limpiarFiltros}>Limpiar filtros</button>
-          )}
-        </div>
-      </FlitCard>
+      <BarraFiltrosSoat refPills={refPills} esGestor={esGestor} esCliente={esCliente}
+        estadosDisponibles={estadosDisponibles} estado={estado} setEstado={setEstado}
+        texto={texto} setTexto={setTexto} facetas={facetas}
+        companiasSel={companiasSel} setCompaniasSel={setCompaniasSel}
+        organismosSel={organismosSel} setOrganismosSel={setOrganismosSel}
+        proveedoresSel={proveedoresSel} setProveedoresSel={setProveedoresSel}
+        gestionSel={gestionSel} setGestionSel={setGestionSel}
+        vigenciaSel={vigenciaSel} setVigenciaSel={setVigenciaSel}
+        presets={PRESETS} preset={preset} onAplicarPreset={aplicarPreset}
+        creadoDesde={creadoDesde} creadoHasta={creadoHasta}
+        setCreado={(d, h) => { setCreadoDesde(d); setCreadoHasta(h); }}
+        solicitadoDesde={solicitadoDesde} solicitadoHasta={solicitadoHasta}
+        setSolicitado={(d, h) => { setSolicitadoDesde(d); setSolicitadoHasta(h); }}
+        pagadoDesde={pagadoDesde} pagadoHasta={pagadoHasta}
+        setPagado={(d, h) => { setPagadoDesde(d); setPagadoHasta(h); }}
+        soloEstancado={soloEstancado} setSoloEstancado={setSoloEstancado}
+        hayFiltros={hayFiltros} limpiarFiltros={limpiarFiltros} />
 
       {/* Estado 2 de los cuatro. Hasta la HU #11914 la banda no traía salida: el único camino era
           recargar la página, y para un rol EXTERNO eso es un callejón. El botón reusa el `refrescar`
           que ya existía y no inventa nada. */}
+      {/* HU #12819: solo errores de CARGA de la cola (el envío ya no llega aquí: es un toast) y con
+          copy propio — nunca el mensaje crudo del API. */}
       {error && (
         <FlitCard>
-          <div className="space-y-2">
-            <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
-              {esCliente ? 'No pudimos cargar sus solicitudes.' : error}
-            </p>
-            <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={refrescar}>Reintentar</button>
+          <div className="flex items-start gap-3">
+            <CircleAlert size={18} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: 'var(--flit-danger-text)' }} />
+            <div className="space-y-3">
+              <div role="alert" className="space-y-1 text-sm">
+                <p style={{ color: 'var(--flit-danger-text)' }}>
+                  {esCliente ? 'No pudimos cargar sus solicitudes.' : 'No se pudo cargar la cola de SOAT. Revisa tu conexión e intenta de nuevo.'}
+                </p>
+                {esCliente && <p style={{ color: 'var(--flit-text-secondary)' }}>Intente de nuevo en un momento.</p>}
+              </div>
+              <button type="button" className={flitBtnSecondary} onClick={refrescar}>
+                <RotateCw size={16} aria-hidden="true" className="shrink-0" />
+                Reintentar
+              </button>
+            </div>
           </div>
         </FlitCard>
       )}
@@ -557,12 +398,6 @@ export default function FlitoSoat() {
           SOAT», que es una afirmación distinta de «todavía no sé». El esqueleto ya trae
           `role="status"` y `aria-busy`. */}
       {!data && !error && <PageContentSkeleton />}
-
-      {conCasillas && seleccion.size > 0 && (
-        <BarraEnvioSoat marcadas={seleccion.size} enviables={enviables.map((f) => f.id)} descargables={descargables}
-          puedeEnviar={esOperaciones} puedeDescargar={puedeDescargar} proveedores={proveedores} zip={descargaZip}
-          onEnviado={() => { setSeleccion(new Set()); refrescar(); }} onError={setError} />
-      )}
 
       {/* Fuera de la barra a propósito: la descarga NO limpia la selección, pero si el usuario la
           limpia el aviso tiene que seguir en pantalla. Se monta donde se monta el botón. */}
@@ -574,6 +409,24 @@ export default function FlitoSoat() {
           onReintentar={descargaZip.reintentar}
           onDescartar={descargaZip.descartar}
         />
+      )}
+
+      {/* La barra de la selección va JUSTO encima de la tabla y pegada arriba mientras se marcan
+          filas (HU #12819, §6): antes quedaba sobre el aviso ZIP, lejos de las casillas, y en una
+          tabla larga sus acciones se iban de la vista. El `top` salta la barra superior del shell,
+          que también es pegajosa: con `top-2` quedaría debajo de ella. */}
+      {conCasillas && seleccion.size > 0 && (
+        <div className="sticky top-[calc(var(--flit-topbar-height)+0.5rem)] z-20">
+          <BarraEnvioSoat marcadas={seleccion.size} enviables={enviables.map((f) => f.id)} descargables={descargables}
+            puedeEnviar={esOperaciones} puedeDescargar={puedeDescargar} proveedores={proveedores} zip={descargaZip}
+            onQuitar={() => setSeleccion(new Set())}
+            onEnviado={(n, aOperaciones) => {
+              toastOk(`${n} SOAT enviados ${aOperaciones ? 'a Operaciones' : 'al gestor'}.`);
+              setSeleccion(new Set()); refrescar();
+            }}
+            // El error NO toca el estado de la página: la selección se conserva para reintentar.
+            onError={(texto) => toastError(texto)} />
+        </div>
       )}
 
       {data && filas.length === 0 && (
@@ -592,8 +445,10 @@ export default function FlitoSoat() {
                     {puedeSolicitar && (
                       <p className="mt-2">
                         Solicite el primero con la placa y el VIN del vehículo.
+                        {/* Secundario desde la HU #12819: la primaria ya está en la cabecera. */}
                         <span className="mt-3 block">
-                          <Link to="/flito/soat/solicitud" className={flitBtnPrimary} style={flitBtnPrimaryStyle}>
+                          <Link to="/flito/soat/solicitud" className={flitBtnSecondary}>
+                            <Plus size={16} aria-hidden="true" className="shrink-0" />
                             Solicitar SOAT
                           </Link>
                         </span>
@@ -601,94 +456,26 @@ export default function FlitoSoat() {
                     )}
                   </>
                 )
-                : 'No hay SOAT en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.'}
+                // HU #12819: el gestor no sincroniza el Tablero (no es suyo) y el auditor no trae nada.
+                : esGestor
+                  ? 'No tienes SOAT en esta vista. Aparecerán aquí cuando Operaciones te los envíe.'
+                  : soloLectura
+                    ? 'No hay SOAT en esta vista. Prueba con otro estado en las pastillas de arriba.'
+                    : 'No hay SOAT en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.'}
+            {(hayFiltros || texto.trim()) && (
+              <p className="mt-1">{esCliente ? 'Quite algún filtro o use «Limpiar filtros».' : 'Quita algún filtro o usa «Limpiar filtros».'}</p>
+            )}
           </FlitEmpty>
         </FlitCard>
       )}
 
-      {filas.length > 0 && (
-        <FlitCard>
-          <div className="mb-3">
-            <Paginacion total={data!.total} page={data!.page} totalPaginas={totalPaginas} sustantivo="SOAT"
-              onPrev={() => setPage((p) => Math.max(1, p - 1))} onNext={() => setPage((p) => p + 1)} />
-          </div>
-          <FlitTable label="Pólizas SOAT">
-            <thead>
-              <FlitTr>
-                {/* Cuelga del PERMISO y no de «hay filas accionables»: para el auditor aquel
-                    cálculo daba vacío por casualidad, y lo que se quiere sostener es la afirmación
-                    (AC7). El nombre accesible cambia con el sentido: ya no marca «los pendientes». */}
-                {conCasillas && (
-                  <FlitTh>
-                    <CasillaSoat cabecera etiqueta="Seleccionar las filas de esta página"
-                      marcada={seleccion.size > 0 && seleccion.size === seleccionables.length}
-                      onCambio={(m) => setSeleccion(m ? new Set(seleccionables.map((f) => f.id)) : new Set())} />
-                  </FlitTh>
-                )}
-                {/* Rótulos literales y NO `ENCABEZADOS_COMUNES.slice(1)`: atar los encabezados de
-                    esta cola a una posición dentro de un array de otras tres pantallas los cambiaría
-                    en silencio el día que alguien lo reordene. */}
-                <FlitTh>Vehículo</FlitTh><FlitTh>Fechas</FlitTh>
-                <FlitTh>Compañía</FlitTh>
-                {!esCliente && <FlitTh>Gestiona</FlitTh>}
-                <FlitTh>Estado</FlitTh>
-                <FlitTh>Solicitado</FlitTh><FlitTh>Pagado</FlitTh>
-                {!esCliente && <FlitTh>Valor</FlitTh>}
-                <FlitTh />
-              </FlitTr>
-            </thead>
-            <tbody>
-              {filas.map((f) => (
-                <FlitTr key={f.id}>
-                  {conCasillas && (
-                    <CasillaSoat etiqueta={`Seleccionar ${f.placa ?? f.vin}`} marcada={seleccion.has(f.id)}
-                      onCambio={() => toggle(f.id)} />
-                  )}
-                  <CeldaVehiculoSoat placa={f.placa} vin={f.vin} marca={f.marca} linea={f.linea}
-                    cilindraje={f.cilindraje} carroceria={f.carroceria} tipoServicio={f.tipoServicio}
-                    multiplePropietario={f.esMultiplePropietario} />
-                  <CeldaFechas creado={f.fechaCreacion} aprobado={f.fechaAprobacion} />
-                  <td className="px-3 py-2 text-sm">{f.companiaNombre}</td>
-                  {!esCliente && <CeldaGestion soat={f} />}
-                  {/* La vigencia entra AQUÍ y no en una columna nueva: esta celda es, desde la HU
-                      #11905, donde viven las señales temporales de riesgo del mismo SOAT, y una
-                      columna más devolvería la tabla a 11 y con ella el desborde a 1280 px que
-                      aquella HU quitó. Las dos ocupaciones son casi disjuntas —«sin gestión» solo
-                      sale en `solicitado` estancado y la vigencia solo en filas con comprobante—,
-                      así que la celda sigue teniendo como mucho dos pastillas. */}
-                  <td className="px-3 py-2">
-                    <div className="flex flex-col items-start gap-1">
-                      <StatusChip tone={TONO[f.estado]}>{ESTADO_SOAT_LABEL[f.estado]}</StatusChip>
-                      {f.estancado && <ChipSinGestion desde={f.enviadoEn} />}
-                      {!esCliente && <CeldaVigenciaSoat vigencia={f.vigencia} />}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 text-sm">
-                    <div className="tabular-nums">{f.enviadoEn ? fecha(f.enviadoEn) : '—'}</div>
-                    {/* Ya pagado: los días transcurridos desde la solicitud dejan de ser una señal
-                        de riesgo y solo ensucian. El chip de sin gestión ya desaparece al pagar. */}
-                    {f.enviadoEn && f.estado !== EstadoSoat.PAGADO && (
-                      <div className="mt-1"><AntiguedadPill desde={f.enviadoEn} /></div>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-sm tabular-nums">{f.pagadoEn ? fecha(f.pagadoEn) : '—'}</td>
-                  {!esCliente && <td className="px-3 py-2 text-sm tabular-nums">{pesos(f.valorPagado)}</td>}
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-2 whitespace-nowrap">
-                      {puedeDescargar && <BotonComprobanteFila soat={f} descarga={descargaComprobante} />}
-                      <button className={`${flitBtnSecondary} ${hoverSecundario}`} style={flitBtnSecondaryStyle}
-                        onClick={() => setDetalleId(f.id)}>Ver</button>
-                    </div>
-                  </td>
-                </FlitTr>
-              ))}
-            </tbody>
-          </FlitTable>
-          <div className="mt-3">
-            <Paginacion total={data!.total} page={data!.page} totalPaginas={totalPaginas} sustantivo="SOAT"
-              onPrev={() => setPage((p) => Math.max(1, p - 1))} onNext={() => setPage((p) => p + 1)} />
-          </div>
-        </FlitCard>
+      {data && filas.length > 0 && (
+        <TablaColaSoat data={data} filas={filas} totalPaginas={totalPaginas}
+          onPrev={() => setPage((p) => Math.max(1, p - 1))} onNext={() => setPage((p) => p + 1)}
+          conCasillas={conCasillas} seleccion={seleccion} setSeleccion={setSeleccion}
+          seleccionables={seleccionables} toggle={toggle} esCliente={esCliente}
+          conCompania={!esCliente || (facetas?.companias.length ?? 0) > 1}
+          puedeDescargar={puedeDescargar} descargaComprobante={descargaComprobante} onVer={setDetalleId} />
       )}
 
       {detalle && (
@@ -704,383 +491,6 @@ export default function FlitoSoat() {
       )}
       </>
       )}
-    </div>
-  );
-}
-
-/**
- * Quién gestiona el SOAT. Reutiliza la columna del proveedor en vez de añadir una nueva: la cola ya
- * va ancha. En los que Operaciones retomó se dice de quién, que es el dato que hace útil el botón
- * de devolver. El distintivo lleva texto y no solo color.
- */
-function CeldaGestion({ soat }: { soat: SoatItem }) {
-  if (!soat.gestionOperaciones) {
-    return <td className="px-3 py-2 text-sm">{soat.proveedorSoatNombre ?? '—'}</td>;
-  }
-  return (
-    <td className="px-3 py-2 text-sm">
-      <StatusChip tone="warning">Operaciones</StatusChip>
-      {soat.proveedorSoatNombre && (
-        <div className="mt-0.5 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
-          retomado de {soat.proveedorSoatNombre}
-        </div>
-      )}
-    </td>
-  );
-}
-
-type Accion = 'idle' | 'rechazar' | 'reactivar' | 'reversar' | 'proveedor' | 'factura' | 'asumir' | 'devolver';
-
-function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, proveedores, restoreFocusRef, descarga, onClose, onCambio }: {
-  soat: SoatItem; esOperaciones: boolean; esGestor: boolean; soloLectura: boolean; esCliente: boolean;
-  /** `null` = sin `soat.soportes.descargar`: el botón no existe en el DOM (AC4). */
-  descarga: EstadoDescargaComprobante | null;
-  proveedores: Proveedor[]; restoreFocusRef?: RefObject<HTMLElement | null>;
-  onClose: () => void; onCambio: () => void;
-}) {
-  const [accion, setAccion] = useState<Accion>('idle');
-  const [motivo, setMotivo] = useState('');
-  const [estadoDestino, setEstadoDestino] = useState<EstadoSoat>(EstadoSoat.PENDIENTE);
-  const [proveedorSoatId, setProveedorSoatId] = useState(soat.proveedorSoatId ?? '');
-  const [error, setError] = useState<string | null>(null);
-  const [enviando, setEnviando] = useState(false);
-  // Visor de los comprobantes de ESTE SOAT (la factura de la aseguradora), encima del detalle.
-  const [verSoportes, setVerSoportes] = useState(false);
-
-  const enAdquisicion = soat.estado === EstadoSoat.SOLICITADO;
-  const rechazado = soat.estado === EstadoSoat.CON_NOVEDAD;
-  // Ni `esFilaDelCanal` ni el bloque de revisión (HU #12079). Una solicitud del canal es, desde que
-  // se radica, **un SOAT en gestión como cualquier otro**: el detalle le ofrece las acciones que ya
-  // existían para `solicitado` y recupera «Reversar» y «Cambiar proveedor», que la #11915 le había
-  // quitado justamente por estar en un estado que ya no existe.
-  // El traspaso de gestión solo tiene sentido mientras el SOAT está en gestión y sin pagar: en
-  // Pendiente el destino se elige al enviarlo, y en Pagado el dinero ya salió.
-  const traspasable = enAdquisicion || rechazado;
-
-  const ejecutar = async (fn: () => Promise<unknown>) => {
-    setEnviando(true); setError(null);
-    try { await fn(); onCambio(); }
-    catch (e) { setError(errorMessage(e)); }
-    finally { setEnviando(false); }
-  };
-
-  const subirFactura = (file: File) => ejecutar(() => {
-    const form = new FormData(); form.append('archivo', file);
-    return api.post(`/flito/soat/${soat.id}/factura`, form);
-  });
-
-  return (
-    <FlitModal title={`SOAT · ${soat.placa ?? soat.vin}`} onClose={onClose} wide restoreFocusRef={restoreFocusRef}>
-      <div className="space-y-3 text-sm">
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusChip tone={TONO[soat.estado]}>{ESTADO_SOAT_LABEL[soat.estado]}</StatusChip>
-          {soat.estancado && <ChipSinGestion desde={soat.enviadoEn} />}
-        </div>
-
-        <dl className="grid grid-cols-1 gap-x-4 gap-y-1.5 sm:grid-cols-2">
-          <Dato k="VIN" v={soat.vin} /><Dato k="Vehículo" v={`${soat.marca ?? ''} ${soat.linea ?? ''}`.trim() || '—'} />
-          <Dato k="Compañía" v={soat.companiaNombre} /><Dato k="Organismo" v={soat.organismoNombre ?? '—'} />
-          {/* Los tres datos de la trastienda. No se pintan «—» para el cliente: se omiten, porque el
-              backend no se los manda y una fila vacía sugiere un dato que existe y no cargó. */}
-          {!esCliente && (
-            <Dato k="Gestiona" v={soat.gestionOperaciones
-              ? `Operaciones${soat.proveedorSoatNombre ? ` · retomado de ${soat.proveedorSoatNombre}` : ''}`
-              : soat.proveedorSoatNombre ?? '—'} />
-          )}
-          {!esCliente && <Dato k="Enviado por" v={soat.enviadoPorNombre ?? '—'} />}
-          <Dato k="Enviado" v={fecha(soat.enviadoEn)} />
-          {!esCliente && <Dato k="Valor pagado" v={pesos(soat.valorPagado)} />}
-          {/* Los dos de la vigencia (HU #12097), de SOLO LECTURA como el resto de la ficha. El
-              rótulo es «Último dato del RUNT» en los cuatro estados —siempre es la misma cosa,
-              cuándo contestó por última vez— y uno que cambiara con el estado obligaría a leer dos
-              veces. Aquí sí va la hora y aquí sí se pinta «—»: es el nivel de auditoría, y el modal
-              ya lo hace en todos sus `<Dato>`. El número de póliza del RUNT no está ni aquí ni en
-              ninguna parte: no lo pide ningún AC, es cuasi-PII y colisiona de nombre con
-              `numero_poliza`, que es otro número. */}
-          {!esCliente && <Dato k="Vigencia" v={textoVigenciaSoat(soat.vigencia)} />}
-          {!esCliente && <Dato k="Último dato del RUNT" v={fecha(soat.vigencia?.verificadaEn ?? null)} />}
-          {/* El soporte del SOAT se carga desde aquí y hasta ahora solo se podía consultar desde el
-              reporte de costos, en el que el gestor del proveedor ni siquiera entra: quien abre un
-              SOAT pagado quiere ver la factura que lo pagó sin salir del detalle. */}
-          <div>
-            <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Soporte</dt>
-            <dd className="text-sm">
-              <button type="button" className="font-semibold underline" style={{ color: 'var(--flit-blue-text)' }}
-                onClick={() => setVerSoportes(true)}>Ver soporte</button>
-            </dd>
-          </div>
-        </dl>
-
-        {verSoportes && (
-          <VisorSoportes ruta={`/flito/soat/${soat.id}/soportes`} titulo={`SOAT ${soat.placa ?? soat.vin}`}
-            vacio="Este SOAT no tiene ninguna factura cargada todavía."
-            onClose={() => setVerSoportes(false)} />
-        )}
-
-        {/* El historial es el REGISTRO INTERNO de la operación —quién movió qué y cuándo— y hasta la
-            HU #11914 se pintaba para todo el mundo, incluido el Cliente. El backend ya se lo recorta
-            (la #11913 le quitó el actor y el motivo), pero la pantalla tampoco debe ofrecérselo: lo
-            que él necesita no es la línea de tiempo de la operación sino el estado de su SOAT y,
-            si volvió con novedad, el motivo con su siguiente paso — que van más abajo. */}
-        {!esCliente && <HistorialEstados concepto="soat" registroId={soat.id} />}
-
-        {soat.compradores.length > 0 && (
-          <div>
-            <p className="mb-1 text-[11px] font-semibold uppercase" style={{ color: 'var(--flit-text-muted)' }}>Compradores</p>
-            <ul className="space-y-0.5">
-              {soat.compradores.map((c) => (
-                <li key={c.orden} className="flex justify-between gap-3">
-                  <span>{c.nombreCompleto} · {documentoConTipo(c.tipoDocumento, c.numeroDocumento)}</span>
-                  {c.porcentajeParticipacion !== null && <span className="tabular-nums">{c.porcentajeParticipacion}%</span>}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {soat.motivoRechazo && (
-          <div className="rounded-md p-2" style={{ background: 'var(--flit-bg-app)', color: 'var(--color-danger)' }}>
-            <p>Motivo de rechazo: {soat.motivoRechazo}</p>
-            {/* Lo ÚNICO que se añade al retirar el circuito de revisión (HU #12079). «Corregir y
-                reenviar» se fue con el estado `rechazada` —que la #12080 borra del enum—, y la vía
-                por la que al Cliente le vuelve algo es esta: una caja roja con el motivo del GESTOR
-                (`flito_soat.motivo_rechazo`, `con_novedad`) y ningún siguiente paso. La frase
-                dice lo que de verdad ocurre —Operaciones puede **Reactivar** o **Devolver al
-                proveedor**— y no promete un canal de contacto que el producto no tiene. */}
-            {esCliente && (
-              <p className="mt-1 text-sm">
-                Su solicitud sigue abierta: FLITO está resolviendo esta novedad con el gestor. No tiene que hacer nada por ahora.
-              </p>
-            )}
-          </div>
-        )}
-        {soloLectura && <div role="status" className="rounded-md p-2" style={{ background: 'var(--flit-bg-app)', color: 'var(--flit-blue-text)' }}>
-          Solo lectura · Auditoría observa, no ejecuta acciones.</div>}
-        {error && <p className="text-sm" style={{ color: 'var(--color-danger)' }}>{error}</p>}
-
-        {/* La fila de acciones también existe para quien SOLO descarga (Cliente, auditor con la
-            función): «Descargar comprobante» va al final, secundaria — descargar es consultar. */}
-        {accion === 'idle' && (!soloLectura || descarga) && (
-          <div className="flex flex-wrap gap-2 pt-1">
-            {enAdquisicion && (esOperaciones || esGestor) && (
-              <label className={`${flitBtnPrimary} cursor-pointer`} style={flitBtnPrimaryStyle}>
-                {enviando ? 'Cargando…' : 'Cargar factura'}
-                <input type="file" accept=".pdf,.png,.jpg,.jpeg" className="hidden"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) subirFactura(f); e.target.value = ''; }} />
-              </label>
-            )}
-            {enAdquisicion && (esOperaciones || esGestor) && (
-              <button className={`${flitBtnSecondary} ${hoverSecundario}`} style={flitBtnSecondaryStyle} onClick={() => setAccion('rechazar')}>Rechazar</button>
-            )}
-            {rechazado && esOperaciones && (
-              <button className={`${flitBtnSecondary} ${hoverSecundario}`} style={flitBtnSecondaryStyle} onClick={() => setAccion('reactivar')}>Reactivar</button>
-            )}
-            {/* Las dos acciones heredadas se ofrecen sin condición de origen (HU #12079): la #11915
-                se las quitaba a las filas del canal porque «Reversar» una `pendiente_revision` a
-                `pendiente` la metía en el alcance de `POST /enviar` sin que nadie la hubiera
-                validado.
-                Desde la HU #12080 no queda ni el estado ni la fila legada: la migración 0176 recrea
-                `flito_soat_estado` sin los dos valores del canal y ABORTA si alguna fila sigue en
-                ellos, así que el riesgo que la condición cubría no tiene ya dónde ocurrir. Por eso
-                `reversar()` también perdió sus dos guardas: no se relajó una regla, se retiró con lo
-                que protegía. */}
-            {esOperaciones && (
-              <button className={`${flitBtnSecondary} ${hoverSecundario}`} style={flitBtnSecondaryStyle} onClick={() => setAccion('reversar')}>Reversar</button>
-            )}
-            {esOperaciones && !enAdquisicion && (
-              <button className={`${flitBtnSecondary} ${hoverSecundario}`} style={flitBtnSecondaryStyle} onClick={() => setAccion('proveedor')}>Cambiar proveedor</button>
-            )}
-            {esOperaciones && traspasable && !soat.gestionOperaciones && (
-              <button className={`${flitBtnSecondary} ${hoverSecundario}`} style={flitBtnSecondaryStyle} onClick={() => setAccion('asumir')}>Asumir en Operaciones</button>
-            )}
-            {esOperaciones && traspasable && soat.gestionOperaciones && (
-              <button className={`${flitBtnSecondary} ${hoverSecundario}`} style={flitBtnSecondaryStyle} onClick={() => setAccion('devolver')}>Devolver al proveedor</button>
-            )}
-            {descarga && <BotonComprobanteDetalle soat={soat} descarga={descarga} />}
-          </div>
-        )}
-
-        {(accion === 'rechazar' || accion === 'reactivar') && (
-          <FormMotivo etiqueta={accion === 'rechazar' ? 'Motivo del rechazo' : 'Motivo de la corrección'}
-            motivo={motivo} setMotivo={setMotivo} enviando={enviando} onCancelar={() => { setAccion('idle'); setMotivo(''); }}
-            onConfirmar={() => ejecutar(() => api.post(`/flito/soat/${soat.id}/${accion}`, { motivo }))} />
-        )}
-
-        {accion === 'reversar' && (
-          <div className="rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-            <FlitField label="Estado destino">
-              <select className={flitInp} value={estadoDestino} onChange={(e) => setEstadoDestino(e.target.value as EstadoSoat)}>
-                {ESTADOS_DESTINO_REVERSA.map((e) => <option key={e} value={e}>{ESTADO_SOAT_LABEL[e]}</option>)}
-              </select>
-            </FlitField>
-            <FormMotivo etiqueta="Motivo de la reversa (mín. 5 caracteres)" motivo={motivo} setMotivo={setMotivo}
-              enviando={enviando} minLen={5} onCancelar={() => { setAccion('idle'); setMotivo(''); }}
-              onConfirmar={() => ejecutar(() => api.post(`/flito/soat/${soat.id}/reversar`, { estadoDestino, motivo }))} />
-          </div>
-        )}
-
-        {accion === 'asumir' && (
-          <FormMotivo etiqueta="Motivo para asumirlo en Operaciones (mín. 5 caracteres)"
-            motivo={motivo} setMotivo={setMotivo} enviando={enviando} minLen={5}
-            onCancelar={() => { setAccion('idle'); setMotivo(''); }}
-            onConfirmar={() => ejecutar(() => api.post(`/flito/soat/${soat.id}/asumir-operaciones`, { motivo }))} />
-        )}
-
-        {accion === 'devolver' && (
-          <div className="rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-            <FlitField label="Proveedor que lo retoma">
-              <select className={flitInp} value={proveedorSoatId} onChange={(e) => setProveedorSoatId(e.target.value)}>
-                <option value="">Selecciona…</option>
-                {proveedores.filter((p) => p.activo).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-              </select>
-            </FlitField>
-            <FormMotivo etiqueta="Motivo de la devolución (mín. 5 caracteres)" motivo={motivo} setMotivo={setMotivo}
-              enviando={enviando} minLen={5} deshabilitado={!proveedorSoatId}
-              onCancelar={() => { setAccion('idle'); setMotivo(''); }}
-              onConfirmar={() => ejecutar(() => api.post(`/flito/soat/${soat.id}/devolver-gestor`, { proveedorSoatId, motivo }))} />
-          </div>
-        )}
-
-        {accion === 'proveedor' && (
-          <div className="rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-            <FlitField label="Nuevo proveedor">
-              <select className={flitInp} value={proveedorSoatId} onChange={(e) => setProveedorSoatId(e.target.value)}>
-                <option value="">Selecciona…</option>
-                {proveedores.filter((p) => p.activo).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-              </select>
-            </FlitField>
-            <FormMotivo etiqueta="Motivo del cambio" motivo={motivo} setMotivo={setMotivo} enviando={enviando}
-              deshabilitado={!proveedorSoatId} onCancelar={() => { setAccion('idle'); setMotivo(''); }}
-              onConfirmar={() => ejecutar(() => api.post(`/flito/soat/${soat.id}/proveedor`, { proveedorSoatId, motivo }))} />
-          </div>
-        )}
-      </div>
-    </FlitModal>
-  );
-}
-
-function Dato({ k, v }: { k: string; v: string }) {
-  return (
-    <div className="flex flex-col">
-      <dt className="text-[11px] uppercase" style={{ color: 'var(--flit-text-muted)' }}>{k}</dt>
-      <dd className="font-medium">{v}</dd>
-    </div>
-  );
-}
-
-function FormMotivo({ etiqueta, motivo, setMotivo, enviando, minLen = 1, deshabilitado = false, onConfirmar, onCancelar }: {
-  etiqueta: string; motivo: string; setMotivo: (v: string) => void; enviando: boolean; minLen?: number;
-  deshabilitado?: boolean; onConfirmar: () => void; onCancelar: () => void;
-}) {
-  return (
-    <div className="mt-2 space-y-2">
-      <FlitField label={etiqueta}>
-        <textarea className={`${flitInp} min-h-[64px]`} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
-      </FlitField>
-      <div className="flex gap-2">
-        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
-          disabled={enviando || deshabilitado || motivo.trim().length < minLen} onClick={onConfirmar}>
-          {enviando ? 'Enviando…' : 'Confirmar'}
-        </button>
-        <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onCancelar}>Cancelar</button>
-      </div>
-    </div>
-  );
-}
-
-interface ResultadoMasivo {
-  pagados: { archivo: string; detalle: string }[]; enRevision: { archivo: string; detalle: string }[];
-  duplicados: { archivo: string; detalle: string }[]; noAsociados: { archivo: string; detalle: string }[];
-}
-
-// El ZIP se abre en el navegador (HU #12056): lo que se cuenta, se pesa, se valida y se envía son
-// sus ENTRADAS, no el ZIP. `rutas` NO se manda: la ruta solo sirve para deducir la marca de agua y
-// SOAT ni la lee (`/flito/soat/facturas` no toca `req.body`); mandarla sería peso muerto por tanda.
-function CargaMasiva({ onClose, onListo }: { onClose: () => void; onListo: () => void }) {
-  const { seleccion, abriendo, error, setError, elegir } = useSeleccionCargaMasiva();
-  const [progreso, setProgreso] = useState<{ desde: number; total: number } | null>(null);
-  const [resultado, setResultado] = useState<ResultadoMasivo | null>(null);
-  const errorValidacion = validarCargaMasiva(seleccion);
-  const enviando = progreso !== null;
-
-  const subir = async () => {
-    if (seleccion.items.length === 0 || validarCargaMasiva(seleccion)) return;
-    setError(null);
-    const { resultado: r, error: err } = await enviarCargaEnTandas<ResultadoMasivo>(
-      '/flito/soat/facturas', seleccion.items, (desde, total) => setProgreso({ desde, total }),
-      undefined, { conRutas: false },
-    );
-    if (r) setResultado(r);
-    if (err) setError(err);
-    setProgreso(null);
-  };
-
-  return (
-    <FlitModal title="Carga masiva de facturas SOAT" onClose={resultado ? onListo : onClose} wide>
-      {!resultado ? (
-        <div className="space-y-3">
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-            Sube varios PDF/imágenes o un ZIP. FLITO abre el ZIP en tu computador y sube sus comprobantes de 5 en 5. El OCR cruza cada comprobante con un SOAT solicitado: los que superan el umbral pasan a Pagado; el resto va a revisión.
-          </p>
-          <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.zip" className={flitInp} disabled={enviando}
-            aria-label="Facturas o ZIP de la carga masiva"
-            onChange={(e) => { void elegir(Array.from(e.target.files ?? [])); }} />
-          <RanuraCargaMasiva seleccion={seleccion} abriendo={abriendo}
-            errorValidacion={errorValidacion} error={error} progreso={progreso} />
-          <div className="flex gap-2">
-            <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
-              disabled={enviando || abriendo !== null || seleccion.items.length === 0 || !!errorValidacion} onClick={subir}>
-              {enviando ? 'Procesando…' : 'Subir y procesar'}
-            </button>
-            <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enviando} onClick={onClose}>Cancelar</button>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-          <div className="flex flex-wrap gap-2">
-            <StatusChip tone="success">Pagados {resultado.pagados.length}</StatusChip>
-            <StatusChip tone="warning">En revisión {resultado.enRevision.length}</StatusChip>
-            <StatusChip tone="neutral">Duplicados {resultado.duplicados.length}</StatusChip>
-            <StatusChip tone="danger">Sin asociar {resultado.noAsociados.length}</StatusChip>
-          </div>
-          <TablaResultadoOcr resultado={resultado} />
-          <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={onListo}>Listo</button>
-        </div>
-      )}
-    </FlitModal>
-  );
-}
-
-// Resultado del OCR masivo en TABLA: cada archivo analizado en su propia fila (archivo · resultado ·
-// detalle), en vez de listas apretadas.
-function TablaResultadoOcr({ resultado }: { resultado: ResultadoMasivo }) {
-  const filas: { archivo: string; detalle: string; resultado: string; tono: ChipTone }[] = [
-    ...resultado.pagados.map((i) => ({ ...i, resultado: 'Pagado', tono: 'success' as ChipTone })),
-    ...resultado.enRevision.map((i) => ({ ...i, resultado: 'En revisión', tono: 'warning' as ChipTone })),
-    ...resultado.duplicados.map((i) => ({ ...i, resultado: 'Duplicado', tono: 'neutral' as ChipTone })),
-    ...resultado.noAsociados.map((i) => ({ ...i, resultado: 'Sin asociar', tono: 'danger' as ChipTone })),
-  ];
-  if (filas.length === 0) return <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>No se procesó ningún archivo.</p>;
-  const th = 'px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide';
-  return (
-    <div className="max-h-[55vh] overflow-auto rounded-lg border" style={{ borderColor: 'var(--flit-border-soft)' }}>
-      <table className="w-full text-sm">
-        <thead>
-          <tr style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>
-            <th className={th}>Archivo</th><th className={th}>Resultado</th><th className={th}>Detalle del análisis OCR</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filas.map((f, idx) => (
-            <tr key={idx} className="border-t" style={{ borderColor: 'var(--flit-border-soft)' }}>
-              <td className="px-3 py-2 font-medium align-top" style={{ color: 'var(--flit-text-primary)' }}>{f.archivo}</td>
-              <td className="px-3 py-2 align-top"><StatusChip tone={f.tono}>{f.resultado}</StatusChip></td>
-              <td className="px-3 py-2 align-top" style={{ color: 'var(--flit-text-secondary)' }}>{f.detalle}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }

@@ -18,12 +18,13 @@
 // toast cerrable, una frase, con «Reintentar» cuando reintentar sirve (red, 5xx, 429). Nunca el
 // mensaje crudo del API.
 import { useCallback, useId, useRef, useState } from 'react';
-import toast, { type Toast } from 'react-hot-toast';
+import toast from 'react-hot-toast';
+import { Download } from 'lucide-react';
 import { EstadoSoat } from '@operaciones/shared-types';
 import { api, ApiError } from '../../lib/api';
 import type { Soporte } from '../flit/VisorSoportes';
-import { flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
-import { hoverSecundario } from './DescargarSoportesZip';
+import { flitBtnSecondary, flitBtnSecondarySm, flitBtnSecondaryStyle } from '../flit/flitPageKit';
+import { toastError } from '../flit/ToastFlito';
 
 /** Lo mínimo de la fila que necesita la descarga. */
 export interface SoatDescargable {
@@ -78,24 +79,6 @@ function avisoDeError(e: unknown, rotulo: string): { texto: string; reintentar: 
   return { texto: `No se pudo descargar el comprobante de ${rotulo}. Intente de nuevo.`, reintentar: true };
 }
 
-function ToastComprobante({ t, texto, onReintentar }: { t: Toast; texto: string; onReintentar?: () => void }) {
-  return (
-    <div role="alert" className="flex max-w-sm items-start gap-3 rounded-lg border p-3 text-sm"
-      style={{ background: 'var(--flit-bg-card)', color: 'var(--flit-text-primary)', borderColor: 'var(--flit-border-soft)' }}>
-      <p className="flex-1">{texto}</p>
-      <div className="flex shrink-0 items-center gap-1">
-        {onReintentar && (
-          <button type="button" className="flit-focus rounded px-2 py-1 font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
-            style={{ color: 'var(--flit-blue-text)' }} onClick={onReintentar}>Reintentar</button>
-        )}
-        <button type="button" aria-label="Cerrar aviso"
-          className="flit-focus rounded px-2 py-1 transition-colors hover:bg-[var(--flit-bg-hover)]"
-          style={{ color: 'var(--flit-text-secondary)' }} onClick={() => toast.dismiss(t.id)}>✕</button>
-      </div>
-    </div>
-  );
-}
-
 export interface EstadoDescargaComprobante {
   descargar: (soat: SoatDescargable) => void;
   ocupados: ReadonlySet<string>;
@@ -124,10 +107,8 @@ export function useDescargaComprobante(): EstadoDescargaComprobante {
       await api.download(ruta, nombreComprobante(soat.placa, comprobante.nombreArchivo));
     } catch (e) {
       const { texto, reintentar } = avisoDeError(e, rotuloDe(soat));
-      toast.custom((t) => (
-        <ToastComprobante t={t} texto={texto}
-          onReintentar={reintentar ? () => { toast.dismiss(t.id); void descargar(soat); } : undefined} />
-      ), { id: idToast, duration: 10_000 });
+      // El toast del kit (HU #12819): el mismo copy, «Reintentar» y «Cerrar aviso» de siempre.
+      toastError(texto, reintentar ? () => { void descargar(soat); } : undefined, { id: idToast });
     } finally {
       candado.current.delete(soat.id);
       setOcupados(new Set(candado.current));
@@ -137,23 +118,15 @@ export function useDescargaComprobante(): EstadoDescargaComprobante {
   return { descargar: (s) => { void descargar(s); }, ocupados };
 }
 
-function IconoDescarga() {
-  return (
-    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" />
-    </svg>
-  );
-}
-
 /** Estilo y atributos comunes a la fila y al detalle, según el estado. */
-function useEstadoBoton(soat: SoatDescargable, descarga: EstadoDescargaComprobante) {
+function useEstadoBoton(soat: SoatDescargable, descarga: EstadoDescargaComprobante, compacto = false) {
   const pagado = soat.estado === EstadoSoat.PAGADO;
   const ocupado = descarga.ocupados.has(soat.id);
   const idMotivo = useId();
+  const base = compacto ? flitBtnSecondarySm : flitBtnSecondary;
   const clase = pagado
-    ? `${flitBtnSecondary} ${hoverSecundario} ${ocupado ? 'cursor-progress opacity-60' : ''}`
-    : `${flitBtnSecondary} cursor-not-allowed`;
+    ? `${base} ${ocupado ? 'cursor-progress opacity-60' : ''}`
+    : `${base} cursor-not-allowed`;
   const style = pagado
     ? { ...flitBtnSecondaryStyle, color: 'var(--flit-blue-text)' }
     : { ...flitBtnSecondaryStyle, color: 'var(--flit-text-muted)', borderColor: 'var(--flit-border-soft)' };
@@ -170,12 +143,13 @@ function useEstadoBoton(soat: SoatDescargable, descarga: EstadoDescargaComproban
 
 /** Icono de la celda de «Ver». Enfocable también en gris (`aria-disabled`) para leer el motivo. */
 export function BotonComprobanteFila({ soat, descarga }: { soat: SoatDescargable; descarga: EstadoDescargaComprobante }) {
-  const { pagado, idMotivo, clase, style, props } = useEstadoBoton(soat, descarga);
+  // Compacto (`h-7 w-7`) desde la HU #12819: la fila no crece por su botón.
+  const { pagado, idMotivo, clase, style, props } = useEstadoBoton(soat, descarga, true);
   return (
     <>
-      <button {...props} className={`${clase} w-10 justify-center !px-0`} style={style}
+      <button {...props} className={`${clase} w-7 justify-center !px-0`} style={style}
         title={pagado ? props['aria-label'] : MOTIVO_NO_PAGADO}>
-        <IconoDescarga />
+        <Download size={16} aria-hidden="true" className="shrink-0" />
       </button>
       {!pagado && <span id={idMotivo} className="sr-only">{MOTIVO_NO_PAGADO}</span>}
     </>
@@ -190,7 +164,7 @@ export function BotonComprobanteDetalle({ soat, descarga }: { soat: SoatDescarga
     <div className="flex flex-col items-start gap-1">
       <button {...props} aria-label={undefined} className={`${clase} gap-2`} style={style}
         title={pagado ? undefined : MOTIVO_NO_PAGADO}>
-        <IconoDescarga />{ocupado ? 'Descargando…' : 'Descargar comprobante'}
+        <Download size={16} aria-hidden="true" className="shrink-0" />{ocupado ? 'Descargando…' : 'Descargar comprobante'}
       </button>
       {!pagado && <p id={idMotivo} className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{MOTIVO_NO_PAGADO}</p>}
     </div>
