@@ -11,7 +11,7 @@
 // `Numerodecontacto1`, un teléfono— se descarta y nunca sale de este archivo. Del adquiriente solo se
 // leen dirección, ciudad y departamento; ni nombre, ni documento, ni correo, ni teléfono.
 
-import type { CampoExtraido, ExtraccionFacturaVenta } from '@operaciones/shared-types';
+import type { CampoExtraido, ExtraccionFacturaVentaImpuestoCampos } from '@operaciones/shared-types';
 
 /** Los 7 campos vehiculares que persiste el análisis post-envío (AC1). */
 export const CAMPOS_VEHICULO_FACTURA = ['vin', 'marca', 'linea', 'anioVehiculo', 'color', 'cilindrada', 'clase'] as const;
@@ -239,8 +239,8 @@ export function parsearAdquiriente(texto: string): DireccionAdquiriente {
 /** Las 10 claves que persiste el análisis, en el orden del jsonb. */
 export function extraccionCompleta(
   vehiculo: Partial<ExtraccionVehiculoFactura>, direccion: Partial<DireccionAdquiriente>,
-): ExtraccionFacturaVenta {
-  const salida: ExtraccionFacturaVenta = {};
+): ExtraccionFacturaVentaImpuestoCampos {
+  const salida: ExtraccionFacturaVentaImpuestoCampos = {};
   for (const c of CAMPOS_VEHICULO_FACTURA) salida[c] = vehiculo[c] ?? ausente();
   for (const c of CAMPOS_DIRECCION_FACTURA) salida[c] = direccion[c] ?? ausente();
   return salida;
