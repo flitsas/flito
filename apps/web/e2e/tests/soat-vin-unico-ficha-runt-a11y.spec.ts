@@ -269,14 +269,22 @@ test.describe('HU #12213 · AC5 — accesibilidad del aviso de vigencia próxima
     await loginAs(page, CLIENTE_CON_CANAL);
     await montarAlta(page, {
       status: 200,
-      cuerpo: { ...RUNT_OK, vigenciaProxima: { venceEl: '2026-10-05' } },
+      cuerpo: {
+        ...RUNT_OK,
+        // HU #12842: el aviso trae los seis datos del SOAT activo. Datos ficticios.
+        vigenciaProxima: {
+          venceEl: '2026-10-05', vencimiento: '2026-10-05', poliza: 'AT-0000-TEST-01',
+          aseguradora: 'ASEGURADORA FICTICIA S.A.', fechaExpedicion: '2025-10-01', inicioVigencia: '2025-10-06',
+          estado: 'VIGENTE',
+        },
+      },
     });
 
     const consultar = page.getByRole('button', { name: 'Consultar el RUNT' });
     await page.getByLabel('VIN').fill(VIN);
     await consultar.click();
 
-    const aviso = page.getByRole('status').filter({ hasText: 'todavía tiene SOAT vigente' });
+    const aviso = page.getByRole('status').filter({ hasText: 'todavía tiene SOAT activo' });
     await expect(aviso).toBeVisible();
     // `status` y no `alert`: `alert` es assertive, interrumpe, y ese registro es el de los fallos.
     await expect(page.getByRole('alert')).toHaveCount(0);
@@ -296,8 +304,43 @@ test.describe('HU #12213 · AC5 — accesibilidad del aviso de vigencia próxima
     // El texto es autosuficiente (SC 1.4.1): quitando el color, las dos frases dicen lo mismo. El
     // punto del chip es decorativo y `aria-hidden`, así que el lector anuncia solo la etiqueta.
     await expect(aviso).toContainText('Puede continuar');
-    await expect(aviso).toContainText('sí puede enviar esta solicitud');
+    await expect(aviso).toContainText('sí puede enviar la solicitud');
+    // AC3: el lector anuncia la variante (el título) y después los pares en orden.
+    await expect(aviso.getByRole('heading')).toHaveText('Este vehículo todavía tiene SOAT activo');
+    await expect(aviso.locator('dt')).toHaveText([
+      'Aseguradora', 'Vence', 'Póliza', 'Inicio de vigencia', 'Fecha de expedición', 'Estado',
+    ]);
 
     esperarSinViolacionesGraves(await correrAxe(page), 'alta del Cliente · aviso de vigencia próxima');
+  });
+});
+
+// HU #12844 · AC1/AC3 — la tarjeta de BLOQUEO: el foco va a su título, que anuncia la variante, y
+// los seis pares se leen en orden. La póliza no entra a ningún nombre accesible (RN-05).
+test.describe('HU #12844 · AC1/AC3 — accesibilidad de la tarjeta de bloqueo', () => {
+  test('el foco cae en el título, los datos se leen en orden y pasa axe', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await montarAlta(page, {
+      status: 409,
+      cuerpo: {
+        error: 'mentira', codigo: 'soat_vigente', fechaVencimiento: '2027-02-01',
+        soatActivo: {
+          poliza: 'AT-0000-TEST-01', aseguradora: 'ASEGURADORA FICTICIA S.A.', fechaExpedicion: '2026-03-10',
+          inicioVigencia: '2026-03-15', vencimiento: '2027-02-01', estado: null,
+        },
+      },
+    });
+    await page.getByLabel('VIN').fill(VIN);
+    await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
+
+    const tarjeta = page.getByRole('region', { name: 'Este vehículo ya tiene SOAT activo' });
+    await expect(tarjeta.getByRole('heading', { name: 'Este vehículo ya tiene SOAT activo' })).toBeFocused();
+    await expect(tarjeta.locator('dt')).toHaveText([
+      'Aseguradora', 'Vence', 'Póliza', 'Inicio de vigencia', 'Fecha de expedición', 'Estado',
+    ]);
+    await expect(tarjeta.locator('dd').last()).toHaveText('—');
+    await expect(page.locator('[aria-label*="AT-0000"], [aria-label*="FICTICIA"]')).toHaveCount(0);
+
+    esperarSinViolacionesGraves(await correrAxe(page), 'alta del Cliente · tarjeta de SOAT activo (bloqueo)');
   });
 });

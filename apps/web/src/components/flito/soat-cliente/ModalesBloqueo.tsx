@@ -1,4 +1,9 @@
-// FLITO — canal Cliente: los DOS modales que paran una solicitud (HU #11914, AC3 y AC4).
+// FLITO — canal Cliente: los modales que paran una solicitud (HU #11914, AC3 y AC4).
+//
+// **Desde la HU #12844 queda uno solo, el de VIN en cola.** El de SOAT vigente (AC3) se retiró: lo
+// sustituye la tarjeta en línea `TarjetaSoatActivo`, porque es un estado que sigue siendo cierto y
+// no una superposición que se cierra. La tabla de abajo se conserva porque explica por qué las dos
+// causas no se funden.
 //
 // ── Por qué son dos componentes y no una plantilla con el texto cambiado ────────────────────────
 //
@@ -37,7 +42,6 @@ import { ESTADO_SOAT_LABEL, EstadoSoat } from '@operaciones/shared-types';
 import FlitModal from '../../flit/FlitModal';
 import StatusChip from '../../flit/StatusChip';
 import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
-import { fechaLarga } from '../../../lib/soatCliente';
 
 const COLA = '/flito/soat';
 
@@ -49,51 +53,6 @@ interface ComunProps {
    * respaldo el foco se cae a `<body>`.
    */
   restoreFocusRef?: RefObject<HTMLElement | null>;
-}
-
-// ───────────────────────────── AC3 · «Ya tiene SOAT vigente» ─────────────────────────────────────
-
-/**
- * El chip va en `success` y **no** en rojo, y es una decisión: para el usuario esto es una BUENA
- * noticia —su vehículo está cubierto—, no un fallo suyo. Un modal rojo le diría que hizo algo mal.
- */
-export function ModalSoatVigente(
-  { fechaVencimiento, onConsultarOtro, onClose, restoreFocusRef }: ComunProps & {
-    /** Del RUNT, **si viene**. Ver `FalloCanal.fechaVencimiento`: hoy el 409 no la trae. */
-    fechaVencimiento?: string;
-    onConsultarOtro: () => void;
-  },
-) {
-  return (
-    <FlitModal title="Este vehículo ya tiene SOAT vigente" onClose={onClose} restoreFocusRef={restoreFocusRef}>
-      <div className="space-y-3 text-sm">
-        <StatusChip tone="success">No hace falta comprar otro</StatusChip>
-
-        {/* Dos frases enteras y NO una con la fecha interpolada: sin fecha, «vigente hasta el .» es
-            lo que sale de rellenar un hueco vacío. Nunca se inventa una fecha ni se escribe «—» en
-            medio de una oración. */}
-        <p>
-          {fechaVencimiento
-            ? `Según el RUNT, este vehículo tiene la póliza vigente hasta el ${fechaLarga(fechaVencimiento)}.`
-            : 'Según el RUNT, este vehículo tiene una póliza SOAT vigente.'}
-        </p>
-
-        {/* Ni la aseguradora ni el número de póliza, aunque el RUNT los traiga: no hacen falta para
-            la decisión y son datos de un contrato con un tercero que este canal no persiste. */}
-        <p>
-          FLITO no radica solicitudes de vehículos con SOAT vigente. Puede volver cuando la póliza
-          esté por vencerse.
-        </p>
-
-        <div className="flex flex-wrap justify-end gap-2 pt-1">
-          <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={onConsultarOtro}>
-            Consultar otro vehículo
-          </button>
-          <Link to={COLA} className={flitBtnSecondary} style={flitBtnSecondaryStyle}>Volver a mis SOAT</Link>
-        </div>
-      </div>
-    </FlitModal>
-  );
 }
 
 // ───────────────────────────── AC4 · «Ya está en la cola de FLITO» ───────────────────────────────
