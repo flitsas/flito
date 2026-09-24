@@ -155,12 +155,12 @@ export function AvisoAnalisis({ envio, onActualizar, onCerrar }: {
 // ─────────────────── HU #12831: modal comparativo y sección del detalle ───────────────────
 
 /** Lo que el modal y la sección leen de `GET /flito/impuestos/:id`. */
-interface DetalleValidacion extends ValidacionFila {
+export interface DetalleValidacion extends ValidacionFila {
   comparacion: ComparacionFacturaRunt | null;
   direccionComprador: DireccionCompradorImpuesto | null;
 }
 
-type Carga =
+export type Carga =
   | { fase: 'cargando' }
   | { fase: 'error' }
   | { fase: 'listo'; datos: DetalleValidacion };
@@ -169,7 +169,7 @@ type Carga =
  * Pide el detalle al abrirse. El error nunca muestra el mensaje del API: la vista pinta su propio
  * copy con un botón para volver a pedirlo.
  */
-function useDetalleValidacion(id: string, activo: boolean) {
+export function useDetalleValidacion(id: string, activo: boolean) {
   const [carga, setCarga] = useState<Carga>({ fase: 'cargando' });
   const [intento, setIntento] = useState(0);
   useEffect(() => {
@@ -392,12 +392,18 @@ export function ModalValidacion({ imp, onClose, onVerDetalle, accionReintento, s
  * Sección «Validación factura ↔ RUNT» del detalle (AC2). Con el análisis terminado pide el detalle;
  * nunca analizado o en curso no hay nada que pedir.
  */
-export function SeccionValidacion({ imp, accionReintento, sinPermiso }: {
+export function SeccionValidacion({ imp, accionReintento, sinPermiso, detalle }: {
   imp: FilaValidacion; accionReintento?: ReactNode; sinPermiso?: boolean;
+  /**
+   * El detalle ya pedido por quien monta la sección (HU #12834: `DetalleImpuesto` lo comparte con
+   * la dirección del comprador y lo parchea tras guardarla). Sin él, la sección lo pide sola.
+   */
+  detalle?: { carga: Carga; recargar: () => void };
 }) {
   const estado = imp.analisisEstado ?? null;
   const terminado = estado === 'completado' || estado === 'error_analisis';
-  const { carga, recargar } = useDetalleValidacion(imp.id, terminado);
+  const propio = useDetalleValidacion(imp.id, terminado && !detalle);
+  const { carga, recargar } = detalle ?? propio;
   return (
     <section aria-labelledby={`validacion-${imp.id}`} className="space-y-2" data-testid="seccion-validacion">
       <h3 id={`validacion-${imp.id}`} className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>

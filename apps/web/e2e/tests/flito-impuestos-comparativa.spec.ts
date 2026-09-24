@@ -180,7 +180,11 @@ test.describe('FLITO — Impuestos · comparación factura ↔ RUNT (HU #12831)'
     await filaDe(page, 'PEN001').getByRole('button', { name: 'Ver', exact: true }).click();
     const seccion = page.getByRole('region', { name: 'Validación factura ↔ RUNT' });
     await expect(seccion).toContainText('Este impuesto aún no se ha validado contra el RUNT.');
-    expect(pedidos.p1 ?? 0).toBe(0);
+    // Desde la HU #12834 el detalle pide `GET /:id` una vez para la dirección del comprador (se muestra
+    // aunque no haya análisis), pero la sección no lo usa: ni tabla, ni «Cargando», ni error.
+    await expect(page.getByRole('region', { name: 'Dirección del comprador' })).toContainText('CL 10 # 4-21');
+    await expect(seccion.getByRole('table')).toHaveCount(0);
+    await expect(seccion).not.toContainText('Cargando la validación');
   });
 
   test('AC3 · rojo: el copy va por motivo, sin tabla vacía ni error crudo', async ({ page }) => {
