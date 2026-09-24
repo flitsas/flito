@@ -33,7 +33,7 @@ import Paginacion from '../components/flit/Paginacion';
 import DetalleImpuesto from '../components/flito/DetalleImpuesto';
 import CargaRecibosImpuestos from '../components/flito/CargaRecibosImpuestos';
 import {
-  AccionesTramite, AvisoAnalisis, PRESET_CON_ALERTAS, SEMAFOROS_ALERTA, VACIO_CON_ALERTAS, type EnvioAnalisis,
+  AccionesTramite, AvisoAnalisis, ModalValidacion, PRESET_CON_ALERTAS, SEMAFOROS_ALERTA, VACIO_CON_ALERTAS, type EnvioAnalisis,
 } from '../components/flito/ValidacionRunt';
 import { ChipDocumentos, TONO_IMPUESTO as TONO, fecha, pesos, type ImpuestoItem } from '../components/flito/ImpuestoCola';
 import useDebounce from '../lib/useDebounce';
@@ -89,6 +89,7 @@ export default function FlitoImpuestos() {
   const [error, setError] = useState<string | null>(null);
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
   const [detalleId, setDetalleId] = useState<string | null>(null);
+  const [validacionId, setValidacionId] = useState<string | null>(null); // HU #12831: modal del semáforo
   const [cargaRecibos, setCargaRecibos] = useState(false);
   const [recarga, setRecarga] = useState(0);
 
@@ -281,6 +282,7 @@ export default function FlitoImpuestos() {
   // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
   const descargaZip = useDescargaZip(ZIP_IMPUESTOS);
   const detalle = filas.find((f) => f.id === detalleId) ?? null;
+  const validacion = filas.find((f) => f.id === validacionId) ?? null;
   const refrescar = () => setRecarga((n) => n + 1);
 
   const toggle = (id: string) => setSeleccion((s) => {
@@ -515,7 +517,7 @@ export default function FlitoImpuestos() {
                     </td>
                   )}
                   <CeldaTramite idFlit={f.idFlit} tipoTramite={f.tipoTramite}
-                    accion={(<AccionesTramite fila={f}>
+                    accion={(<AccionesTramite fila={f} onAbrir={() => setValidacionId(f.id)}>
                       <AccionCertificacion
                         certificacion={f.certificacion}
                         puedeDescargar={puedeDescargarCert}
@@ -566,6 +568,11 @@ export default function FlitoImpuestos() {
       {resultadoCert && (
         <ModalResultadoCertificacion resultado={resultadoCert.resultado} placa={resultadoCert.placa}
           onClose={() => setResultadoCert(null)} />
+      )}
+
+      {validacion && (
+        <ModalValidacion imp={validacion} onClose={() => setValidacionId(null)}
+          onVerDetalle={() => { setValidacionId(null); setDetalleId(validacion.id); }} />
       )}
 
       {detalle && (

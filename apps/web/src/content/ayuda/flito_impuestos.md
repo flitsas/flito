@@ -24,6 +24,8 @@ En el menú lateral, sección **Gestión**, ítem **Impuestos**.
 10. Después de enviar un impuesto, FLITO compara su factura de venta con el RUNT. Mientras lo hace, la celda del trámite muestra **Analizando** con un indicador de carga; la fila se puede seguir usando. Al terminar aparece un icono de semáforo: **✓** verde (la factura cuadra con el RUNT), **△** naranja (**Con diferencias frente al RUNT**) o **✕** rojo (**Sin validar**). Pase el cursor sobre el icono para leer el detalle; en rojo le dice el motivo: **El RUNT no respondió o no tiene registro del vehículo** o **No se pudo leer la factura**. Si el análisis no terminó, el icono rojo dice **Sin validar: la validación no terminó**.
 11. Al enviar varios a la vez, un aviso en la página le dice cuántos quedaron en análisis contra el RUNT. Pulse **Actualizar la cola** para ver los semáforos cuando terminen, o cierre el aviso con **Cerrar aviso**.
 12. Para ver solo los que tienen alertas, use el filtro rápido **Con alertas**: muestra los de semáforo naranja o rojo y se combina con los demás filtros. **Limpiar filtros** lo quita.
+13. Haga clic en el icono del semáforo para abrir la **Validación factura ↔ RUNT** sin salir de la cola. En verde o naranja verá un resumen (por ejemplo, **2 datos no coinciden: Color, Cilindraje.**) y una tabla con lo que dice la factura (**En factura**) y lo que dice el RUNT (**En RUNT**) para VIN, Marca, Modelo (línea), Año, Color y Cilindraje, con un icono por fila: ✓ si coincide, △ si no. La fila **Dirección del comprador** muestra la dirección de la factura; en la columna del RUNT dice **No aplica**, porque ese dato no se compara. En rojo, la ventana le explica el motivo en lugar de la tabla. Desde ahí, **Ver detalle** abre el impuesto completo.
+14. El detalle del impuesto (**Ver**) incluye la sección **Validación factura ↔ RUNT** con el mismo resumen y la misma tabla. Si el impuesto aún no se ha enviado, la sección le indica que se valida al enviarlo al gestor.
 
 ## Estados
 
@@ -44,4 +46,4 @@ En el menú lateral, sección **Gestión**, ítem **Impuestos**.
 - La carga masiva no arregla un ZIP: si trae un archivo de más de 15 MB, hay que sacarlo del ZIP, comprimirlo de nuevo y volver a elegirlo. Desde el modal no se puede quitar.
 - No deduce la fase leyendo el documento: la decide usted con el selector o la carpeta del ZIP.
 - El recibo de caja es de uno en uno y desde **Ver**; no se carga en lote ni paga un impuesto que no tenga liquidación.
-- El semáforo compara la factura con el RUNT, pero no corrige ninguno de los dos. **Con alertas** no incluye los impuestos que aún no se han analizado.
+- El semáforo compara la factura con el RUNT, pero no corrige ninguno de los dos. Un dato que falta en uno de los dos lados aparece como **Sin dato** y no cuenta como coincidencia. **Con alertas** no incluye los impuestos que aún no se han analizado.
