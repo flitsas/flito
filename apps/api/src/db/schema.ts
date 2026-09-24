@@ -5,7 +5,7 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
 });
 import { sql, desc } from 'drizzle-orm';
 // FLITO (migración): tipos de extracción OCR persistidos en columnas jsonb.
-import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVenta, ExtraccionDerechoTramite } from '@operaciones/shared-types';
+import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVentaImpuesto, ExtraccionDerechoTramite } from '@operaciones/shared-types';
 // Certificación de impuestos contra el RUNT (Feature #11159): detalle por campo en columna jsonb.
 import type { ComparacionCampo } from '@operaciones/shared-types';
 // Entrega de la factura por correo (HU #11334): destinatarios con su procedencia, en columna jsonb.
@@ -3125,7 +3125,7 @@ export const flitoImpuestos = pgTable('flito_impuestos', {
   // Factura de venta = precondición del envío. Referencia por id (sin FK dura: evita
   // ciclo con flito_soportes, igual que en el modelo original).
   facturaVentaSoporteId: uuid('factura_venta_soporte_id'),
-  extraccionFacturaVenta: jsonb('extraccion_factura_venta').$type<ExtraccionFacturaVenta>(),
+  extraccionFacturaVenta: jsonb('extraccion_factura_venta').$type<ExtraccionFacturaVentaImpuesto>(),
   /**
    * Gemelo del de `flito_soat` (HU #11152 trae la columna; #11155 la usa). Aquí pesa más: el
    * destinatario del impuesto no es un proveedor sino el gestor de `organismo_codigo`, así que esta

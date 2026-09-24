@@ -1,0 +1,27 @@
+                                   FACTURA ELECTRÓNICA DE VENTA No. ZZ-0001
+Datos del Emisor                        NIT Emisor  900000000                 Razón Social  CONCESIONARIO INVENTADO SAS
+Tipo de Contribuyente   Persona Jurídica            Dirección     AV EMISOR 99 # 99-99
+Régimen Fiscal          Responsable IVA             Ciudad        CIUDADEMISOR
+Correo                  emisor@example.invalid      Departamento  DPTOEMISOR
+
+Datos del Adquiriente                   No. Documento de Adquiriente  800000000     Razón Social EMPRESA EJEMPLO SAS
+Tipo de Documento       NIT                          Dirección     CL 1 # 2-3 OF 4
+Nombre Comercial        EMPRESA EJEMPLO SAS          Ciudad        CIUDADX
+Tipo de Contribuyente   Persona Jurídica             Departamento  DPX
+
+Detalles de Productos
+
+No.       Código          Descripción         U/M   Cantidad    Precio Unitario      Descuento    Recargo      Valor de Venta por Artículo
+ 1    ABC000000001      Mo delox Tu rbo       Unid        1     $10.000.000,00       $0,00        $0,00        $10.000.000,00
+
+       Nro.                Tipo                      Código                                  Descripción                    %                    Monto
+        1                  IVA                         01                                      IVA                        19                $1.900.000,00
+
+Notas Finales
+
+Responsables de IVA|Tarifa ICA Ciudad 9.9 /1000|Numerodecontacto1:3000000000|AñoVehículo:2026|Cilindrada:1598|Color:Blanco
+Perla|Marca:MarcaX|Potencia:90
+kW|Combustible:Gasolina|Tracción:Delantera|Clase:Automóvil|Transmisión:Manual|VIN:9ABCD1234EF56789
+0|Motor:XX000000|CIT:AB00
+00|Peso:1100 kg|Puertas:5|Asientos:5|Carga:400 kg|Cilindros:4|Servicio Particular
+Datos Totales
