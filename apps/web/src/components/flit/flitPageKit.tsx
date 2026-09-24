@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, RefObject } from 'react';
 
 export const flitInp =
-  'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-flit-card px-3 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
+  'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-flit-card px-3 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-[box-shadow,border-color] hover:border-[color:var(--flit-text-muted)] disabled:cursor-not-allowed disabled:opacity-60 [&[readonly]]:bg-[var(--flit-bg-app)]';
 
 export const flitPillWrap: CSSProperties = {
   background: 'var(--flit-bg-app)',
@@ -15,7 +15,9 @@ export function flitPillBtn(active: boolean): CSSProperties {
     // (bug #11604). La variante tinta sube a 5,61 sin mover el azul de marca.
     // `#fff` en línea NO seguía el tema (HU #11899): la pill activa se quedaba blanca sobre el
     // grupo ya oscuro. El token es la misma superficie de tarjeta que usa el resto del kit.
-    ? { background: 'var(--flit-bg-card)', color: 'var(--flit-blue-ink)', boxShadow: 'var(--flit-shadow-card)' }
+    // HU #12819: la tinta es `--flit-pill-active-ink` (el mismo azul en claro; en oscuro, el azul de
+    // texto del tema: el `-ink` sobre la tarjeta oscura daba ~2,4).
+    ? { background: 'var(--flit-bg-card)', color: 'var(--flit-pill-active-ink)', boxShadow: 'var(--flit-shadow-card)' }
     : { color: 'var(--flit-text-muted)' };
 }
 
@@ -137,9 +139,18 @@ export function FlitTh({ children, center, estrecha, className = '' }: { childre
   );
 }
 
-export function FlitTr({ children }: { children: ReactNode }) {
+/**
+ * Fila del kit. `marcada` (HU #12819) distingue la fila SELECCIONADA de las demás con el mismo fondo
+ * del hover más un filete izquierdo en `--flit-blue-text`: sin ella, marcar veinte filas de una cola
+ * larga no dejaba rastro visible salvo la casilla. Opcional y compatible hacia atrás.
+ */
+export function FlitTr({ children, marcada = false }: { children: ReactNode; marcada?: boolean }) {
   return (
-    <tr className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
+    <tr
+      className={`border-t transition-colors hover:bg-[color:var(--flit-bg-app)] ${marcada ? 'bg-[color:var(--flit-bg-app)] shadow-[inset_3px_0_0_var(--flit-blue-text)]' : ''}`}
+      style={{ borderColor: 'var(--flit-border-soft)' }}
+      data-marcada={marcada || undefined}
+    >
       {children}
     </tr>
   );
@@ -154,18 +165,38 @@ export function FlitField({ label, children }: { label: string; children: ReactN
   );
 }
 
-export const flitBtnPrimary = 'flit-focus inline-flex h-10 items-center rounded-[999px] px-5 text-sm font-semibold text-white disabled:opacity-50';
+/*
+ * Botones del kit con hover, activo y deshabilitado (HU #12819). Hasta esta HU ninguno de los tres
+ * reaccionaba al puntero: parecían deshabilitados hasta pulsarlos, y el parche `hoverSecundario` /
+ * `hoverPrimario` solo llegaba a unos pocos. Ahora el affordance vive AQUÍ y llega a toda la app.
+ *
+ *  · Primaria: velo OSCURO por `box-shadow` inset (`--flit-veil-press-*`, mismo valor en los dos
+ *    temas). El degradado va en línea (`flitBtnPrimaryStyle`) y el `box-shadow` no se pelea con él;
+ *    oscurecer sube el contraste del texto blanco. `opacity` o `brightness` lo bajarían.
+ *  · Secundaria: el borde y la tinta de reposo pasaron de `style` a CLASES — un color en línea gana a
+ *    cualquier `hover:` de clase, y con ellos en línea el hover de color era imposible. Por eso
+ *    `flitBtnSecondaryStyle` queda vacío: se conserva el export para no romper a los llamadores, y quien
+ *    sobrescribe el color en línea a propósito (peligro, comprobante no pagado) lo sigue haciendo.
+ *  · Sin escalas, sin desplazamientos, sin sombras exteriores: affordance, no adorno.
+ */
+const DESHABILITADO_PRIMARIO =
+  'disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:shadow-none';
+const HOVER_SECUNDARIO =
+  'border-[color:var(--flit-border-input)] text-[color:var(--flit-text-secondary)] transition-colors hover:bg-[var(--flit-bg-hover)] hover:text-[color:var(--flit-text-primary)] active:bg-[var(--flit-bg-app)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-flit-card aria-disabled:cursor-not-allowed aria-disabled:hover:bg-flit-card';
+
+export const flitBtnPrimary = `flit-focus inline-flex h-10 items-center gap-2 rounded-[999px] px-5 text-sm font-semibold text-white transition-shadow hover:shadow-[inset_0_0_0_999px_var(--flit-veil-press-hover)] active:shadow-[inset_0_0_0_999px_var(--flit-veil-press-active)] ${DESHABILITADO_PRIMARIO}`;
 export const flitBtnPrimaryStyle = { background: 'var(--flit-gradient-primary)' } as const;
-export const flitBtnSecondary = 'flit-focus inline-flex h-10 items-center rounded-[999px] border bg-flit-card px-5 text-sm font-medium disabled:opacity-50';
-export const flitBtnSecondaryStyle = { borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' } as const;
+export const flitBtnSecondary = `flit-focus inline-flex h-10 items-center gap-2 rounded-[999px] border bg-flit-card px-5 text-sm font-medium ${HOVER_SECUNDARIO}`;
+/** Vacío desde la HU #12819: el borde y la tinta van en `flitBtnSecondary` (ver arriba). */
+export const flitBtnSecondaryStyle = {} as const;
 /**
  * Variante compacta del secundario, para acciones que viven DENTRO de una celda junto a datos.
  *
- * Comparte estilo con `flitBtnSecondary` —mismo borde, mismo color— y solo baja alto, tipografía y
- * relleno: a la altura normal el botón manda más que el dato que acompaña y descuadra el alto de la
- * fila. Se usa el mismo `flitBtnSecondaryStyle`.
+ * Comparte estilo con `flitBtnSecondary` —mismo borde, mismo color, mismo hover— y solo baja alto,
+ * tipografía y relleno: a la altura normal el botón manda más que el dato que acompaña y descuadra
+ * el alto de la fila.
  */
-export const flitBtnSecondarySm = 'flit-focus inline-flex h-7 items-center rounded-[999px] border bg-flit-card px-3 text-xs font-medium disabled:opacity-50';
+export const flitBtnSecondarySm = `flit-focus inline-flex h-7 items-center gap-1.5 rounded-[999px] border bg-flit-card px-3 text-xs font-medium ${HOVER_SECUNDARIO}`;
 
 export function FlitCard({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
@@ -209,7 +240,7 @@ export function FlitPillGroup(
  * pills distintas en el producto. Compartir la clase es lo que garantiza que no haya deriva visual.
  */
 export const flitPillBtnClase =
-  'flit-focus inline-flex items-center gap-1.5 rounded-[999px] px-4 py-2 text-xs font-semibold capitalize transition-colors';
+  'flit-focus inline-flex items-center gap-1.5 rounded-[999px] px-4 py-2 text-xs font-semibold capitalize transition-colors hover:bg-[var(--flit-bg-hover)]';
 
 export function FlitPillButton(
   { active, onClick, children, pressed }:

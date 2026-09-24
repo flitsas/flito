@@ -199,6 +199,7 @@ de `AGENTS.md`). Vía habitual de radicación desde QA: `qa-agent` **modo C**, c
 - Anti-duplicado: WIQL por título exacto antes de crear (ver `flit-azure-devops`).
 - **El ID que devuelve ADO es el que amarra toda la trazabilidad**: rama `HU/<ID>-<desarrollador>-<desc>` y título de PR `HU <ID>: <descripción>` (`.cursor/rules/convenciones-rama-pr.mdc`). Confirmárselo al usuario junto con la URL — sin ese ID no puede empezar el desarrollo.
 - Plantilla de referencia: `.claude/skills/flit-crear-hu/assets/user-story.template.md`
+- Los **Features** no los crea esta skill (los redacta `tech-lead-agent` Modo A desde la Épica), pero su plantilla vive aquí por vecindad: `assets/feature.template.md` — con techo de largo (objetivo ~3.000 caracteres visibles, máximo 6.000; por encima se parte) y tope de 10 ACs por HU al descomponer.
 
 ## Checklist de salida
 

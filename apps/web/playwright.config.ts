@@ -15,7 +15,11 @@ export default defineConfig({
     actionTimeout: 10_000,
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /\.mobile\.spec\.ts/ },
+    // Viewport móvil opt-in: solo corre los specs `*.mobile.spec.ts` (verificación responsive de
+    // la HU que lo pida). Sin specs móviles no añade tiempo de CI; el desktop los ignora y este
+    // proyecto ignora los demás.
+    { name: 'mobile-chrome', use: { ...devices['Pixel 7'] }, testMatch: /\.mobile\.spec\.ts/ },
   ],
   webServer: {
     command: 'npm run dev',

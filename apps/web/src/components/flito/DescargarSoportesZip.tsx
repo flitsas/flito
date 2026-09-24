@@ -26,8 +26,18 @@
 // **Nada de esto toca la URL** (AGENTS.md §14): los ids van en el CUERPO del POST y no hay variante
 // `GET` de estos endpoints. La placa entra en el nombre de cada entrada del ZIP —eso es el AC5— pero
 // NO en el nombre del ZIP, que es lo que acaba en asuntos de correo y carpetas compartidas.
+//
+// **HU #12817 (Feature #12814).** En Trámites e Impuestos el ZIP ya no trae un archivo por
+// documento: trae **un PDF por registro, nombrado solo con la placa** (`ABC123.pdf`), y el PDF
+// protegido (no se puede unir) va aparte (`ABC123-2.pdf`). Dos consecuencias en esta pantalla:
+//   · el servidor une los PDF ANTES del primer byte, así que la petición pide su propio tope
+//     (`ZIP_TIMEOUT_MS`) y el estado «Preparando el archivo…» dura más: se dice en un aviso visible;
+//   · un documento dañado no tumba el ZIP, se omite y se declara en `X-Soportes-Omitidos`. Esa
+//     cifra va al aviso PERSISTENTE de la página (no a un toast efímero): es algo que el usuario
+//     tiene que poder leer después de abrir el ZIP y notar que falta algo.
 
 import { useCallback, useRef, useState } from 'react';
+import { FileArchive } from 'lucide-react';
 import {
   CABECERAS_ZIP_SOPORTES, CODIGO_ZIP_DEMASIADO_GRANDE, CODIGO_ZIP_DEMASIADOS_REGISTROS,
   CODIGO_ZIP_SIN_SOPORTES, TipoSoporteZip, ZIP_SOPORTES_MAX_REGISTROS,
@@ -97,20 +107,25 @@ export interface SuperficieZip {
   lineaAyuda?: string;
   /** Solo en Trámites: qué cambió respecto del botón que ocupaba este píxel. */
   notaTransicion?: string;
+  /** Qué trae el ZIP y cómo se llaman sus archivos. Se lee en el diálogo, junto a las casillas. */
+  contenidoZip?: string;
 }
 
 export const ZIP_SOAT: SuperficieZip = {
   ruta: '/flito/soat/soportes/zip',
   tipos: [FACTURA_SOAT],
   tiposEnElCuerpo: false,
-  // Sin diálogo, el usuario no tiene dónde leer qué entra en el ZIP: esta línea es ese sitio.
-  lineaAyuda: 'Se descargan los comprobantes de pago cargados en las filas marcadas.',
+  // Sin `lineaAyuda` desde la HU #12815: la barra de SOAT sabe qué filas están pagadas (RN-03: solo
+  // se llega a Pagado con factura) y lo dice con cifras antes del clic; una línea fija repetiría lo
+  // mismo sin números.
 };
 
 export const ZIP_IMPUESTOS: SuperficieZip = {
   ruta: '/flito/impuestos/soportes/zip',
   tipos: [FACTURA_VENTA, RECIBO_IMPUESTO],
   tiposEnElCuerpo: true,
+  contenidoZip: 'Se descarga un solo ZIP con un PDF por registro, nombrado con la placa (por ejemplo, '
+    + 'ABC123.pdf). Si un documento viene protegido y no se puede unir, va aparte, tal cual, como ABC123-2.pdf.',
 };
 
 export const ZIP_TRAMITES: SuperficieZip = {
@@ -118,7 +133,17 @@ export const ZIP_TRAMITES: SuperficieZip = {
   tipos: [FACTURA_VENTA, RECIBO_IMPUESTO, FACTURA_SOAT],
   tiposEnElCuerpo: true,
   notaTransicion: 'Antes este botón traía solo las facturas de venta. Ahora eliges qué documentos entran.',
+  contenidoZip: 'Se descarga un solo ZIP con un PDF por trámite, nombrado con la placa (por ejemplo, '
+    + 'ABC123.pdf). Si un documento viene protegido y no se puede unir, va aparte, tal cual, como ABC123-2.pdf.',
 };
+
+/**
+ * Tope de la petición del ZIP (HU #12817): 10 min, el techo de `postConTimeout` (`TIMEOUT_MAX_MS`
+ * en `lib/api.ts`), por debajo de los 900 s del proxy. El servidor lee y une los PDF de hasta
+ * {@link ZIP_SOPORTES_MAX_REGISTROS} registros antes de responder, y los 90 s compartidos cortaban
+ * un ZIP sano con «la operación tardó demasiado».
+ */
+const ZIP_TIMEOUT_MS = 600_000;
 
 /** Prefijo del nombre que pone el servidor. **Sin placa**: el nombre del ZIP acaba en un asunto de correo. */
 const PREFIJO_ZIP = 'soportes';
@@ -140,6 +165,8 @@ interface ResultadoZip {
   nombre: string;
   /** Filas marcadas que aportaron algo. `null` si no vino la cabecera: entonces, sin cifras. */
   registros: number | null;
+  /** Documentos dañados que quedaron fuera (#12817). `null` si no vino (SOAT): entonces, nada. */
+  omitidos: number | null;
 }
 
 /** Un entero no negativo de una cabecera, o `null`. Nunca se completa lo que no vino. */
@@ -162,14 +189,19 @@ export async function descargarSoportes(
   superficie: SuperficieZip, ids: string[], tipos: TipoSoporteZip[],
 ): Promise<ResultadoZip> {
   let registros: number | null = null;
+  let omitidos: number | null = null;
   const nombre = await api.downloadPostNamed(
     superficie.ruta,
     NOMBRE_RESPALDO,
     superficie.tiposEnElCuerpo ? { ids, tipos } : { ids },
     (n) => esNombreDeExport(PREFIJO_ZIP, n, 'zip'),
-    (leer) => { registros = cifraDeCabecera(leer(CABECERAS_ZIP_SOPORTES.registros)); },
+    (leer) => {
+      registros = cifraDeCabecera(leer(CABECERAS_ZIP_SOPORTES.registros));
+      omitidos = cifraDeCabecera(leer(CABECERAS_ZIP_SOPORTES.omitidos));
+    },
+    ZIP_TIMEOUT_MS,
   );
-  return { nombre, registros };
+  return { nombre, registros, omitidos };
 }
 
 /** `codigo` estable del cuerpo de error. **Nunca se mira el texto para DECIDIR nada.** */
@@ -254,24 +286,36 @@ export function avisoDeZip(
  */
 function textoDeTope(): string {
   return `Solo se pueden descargar los documentos de ${ZIP_SOPORTES_MAX_REGISTROS} registros a la `
-    + 'vez. Marca menos filas y vuelve a intentarlo.';
+    + 'vez. Hay que marcar menos filas para volver a intentarlo.';
+}
+
+/**
+ * La frase de los documentos dañados (#12817), o `''` si no hubo. Dice qué pasó y qué hacer, sin
+ * nombres de archivo ni el motivo técnico: la cabecera solo trae la cifra, y eso basta para que el
+ * usuario sepa que el ZIP no está completo y dónde mirar.
+ */
+export function fraseOmitidos(omitidos: number | null): string {
+  if (omitidos === null || omitidos === 0) return '';
+  return omitidos === 1
+    ? ' 1 documento no se pudo leer y quedó fuera; revísalo en el detalle del registro.'
+    : ` ${omitidos} documentos no se pudieron leer y quedaron fuera; revísalos en el detalle de cada registro.`;
 }
 
 /** El texto de la banda de éxito. Con cifras solo cuando el servidor las declaró **y** faltó algo. */
 function avisoDeExito(
-  { nombre, registros }: ResultadoZip, marcadas: number,
+  { nombre, registros, omitidos }: ResultadoZip, marcadas: number,
   superficie: SuperficieZip, tipos: TipoSoporteZip[],
 ): AvisoExport {
   const parcial = registros !== null && registros < marcadas;
   const faltan = marcadas - (registros ?? 0);
-  return {
-    tono: 'ok',
-    reintentable: false,
-    texto: parcial
-      ? `ZIP descargado: ${nombre} — ${registros} de las ${marcadas} filas marcadas tenían `
-        + `${loPedido(superficie, tipos)}; las otras ${faltan} no.`
-      : `ZIP descargado: ${nombre}`,
-  };
+  const base = parcial
+    ? `ZIP descargado: ${nombre} — ${registros} de las ${marcadas} filas marcadas tenían `
+      + `${loPedido(superficie, tipos)}; ${faltan === 1 ? 'la otra no' : `las otras ${faltan} no`}.`
+    : `ZIP descargado: ${nombre}`;
+  const omitido = fraseOmitidos(omitidos);
+  // El punto solo se añade si detrás viene otra frase: el caso completo sigue diciendo lo de siempre.
+  const texto = omitido ? `${base.endsWith('.') ? base : `${base}.`}${omitido}` : base;
+  return { tono: 'ok', reintentable: false, texto };
 }
 
 export interface EstadoDescargaZip {
@@ -349,13 +393,32 @@ export function useDescargaZip(superficie: SuperficieZip): EstadoDescargaZip {
  *
  * **No se deshabilita por «ninguna tiene documentos»**: el cliente no sabe qué soportes existen y
  * adivinarlo lo llevaría a apagar el botón sin motivo. Quien lo sabe es el servidor, y lo dice con
- * el AC6.
+ * el AC6. **Excepción: SOAT (HU #12815)**, donde la cola sí lo sabe —solo un Pagado tiene
+ * comprobante (RN-03)—: allí la página pasa `marcadas` y los `ids` ya filtrados, y el rótulo dice
+ * `(k de N)` antes del clic en vez de un «parcial» después.
  */
 export function DescargarSoportesZip(
-  { superficie, ids, ocupado, onDescargar }:
+  {
+    superficie, ids, ocupado, onDescargar, marcadas, minMarcadas = 1, primaria = false,
+    describedBy, llenaEnMovil = false,
+  }:
   {
     superficie: SuperficieZip; ids: string[]; ocupado: boolean;
     onDescargar: (ids: string[], tipos: TipoSoporteZip[]) => void;
+    /**
+     * Filas MARCADAS, cuando la pantalla sí sabe cuáles aportan (HU #12815, SOAT: solo las pagadas
+     * tienen comprobante). Con ella `ids` son solo las que aportan y el rótulo dice `(k de N)`, como
+     * «Enviar al gestor (3 de 8)». Sin ella (Trámites, Impuestos) todo sigue como estaba.
+     */
+    marcadas?: number;
+    /** Mínimo de filas marcadas para habilitar (SOAT: 2; para una sola está la descarga de su fila). */
+    minMarcadas?: number;
+    /** Peso primario cuando es la única acción de la barra (SOAT sin «Enviar al gestor»). */
+    primaria?: boolean;
+    /** Id de la línea visible que explica el desajuste o por qué está deshabilitado. */
+    describedBy?: string;
+    /** Ocupa el ancho en móvil (`w-full sm:w-auto`): el rótulo `(k de N)` no cabe junto a nada a 375. */
+    llenaEnMovil?: boolean;
   },
 ) {
   const [abierto, setAbierto] = useState(false);
@@ -365,21 +428,28 @@ export function DescargarSoportesZip(
     if (conDialogo) { setAbierto(true); return; }
     onDescargar(ids, superficie.tipos.map((t) => t.valor));
   };
+  const n = marcadas ?? ids.length;
+  const cuenta = n > ids.length ? `${ids.length} de ${n}` : `${ids.length}`;
+  const ancho = llenaEnMovil ? 'w-full justify-center sm:w-auto' : '';
 
   return (
-    <div className="flex flex-col items-start gap-1">
+    <div className={`flex flex-col items-start gap-1 ${llenaEnMovil ? 'w-full sm:w-auto' : ''}`}>
       <button
         type="button"
-        className={flitBtnSecondary}
-        style={flitBtnSecondaryStyle}
+        className={primaria
+          ? `${flitBtnPrimary} ${ancho}`
+          : `${flitBtnSecondary} ${ancho}`}
+        style={primaria ? flitBtnPrimaryStyle : flitBtnSecondaryStyle}
         onClick={alPulsar}
-        disabled={ocupado || ids.length === 0}
+        disabled={ocupado || ids.length === 0 || n < minMarcadas}
         aria-busy={ocupado || undefined}
+        aria-describedby={describedBy}
       >
         {/* «Descargar soportes» y no «Descargar» a secas: en Impuestos convive con «Descargar
             certificado» por fila, y dos botones con el mismo nombre accesible en la misma pantalla
             son dos acciones indistinguibles para quien navega con lector. */}
-        {ocupado ? 'Preparando el ZIP…' : `Descargar soportes (${ids.length})`}
+        <FileArchive size={16} aria-hidden="true" className="shrink-0" />
+        {ocupado ? 'Preparando el archivo…' : `Descargar soportes (${cuenta})`}
       </button>
       {superficie.lineaAyuda && (
         <span className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
@@ -474,9 +544,11 @@ function DialogoTipos(
           ))}
         </fieldset>
 
-        <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-          Se descarga un solo ZIP. Cada archivo va con el nombre PLACA-ORGANISMO.
-        </p>
+        {superficie.contenidoZip && (
+          <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+            {superficie.contenidoZip}
+          </p>
+        )}
 
         {/* Un `disabled` no dice por qué lo está, así que el motivo se anuncia: aparece a la vez que
             el botón se apaga. Tinta `--flit-danger-ink`, nunca `--flit-danger` a 14 px (Bug #11604). */}
@@ -486,9 +558,14 @@ function DialogoTipos(
           </p>
         )}
 
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           {/* «Cancelar» además del aspa de `FlitModal`: es un diálogo de decisión, no un visor. */}
-          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onCancelar}>
+          <button
+            type="button"
+            className={flitBtnSecondary}
+            style={flitBtnSecondaryStyle}
+            onClick={onCancelar}
+          >
             Cancelar
           </button>
           <button
@@ -537,10 +614,26 @@ export function AvisoSoportesZip(
   return (
     <>
       <p className="sr-only" role="status">{anuncio}</p>
+      {/* Misma tarjeta que el aviso de resultado (`AvisoVisible`), para que «trabajando» y «listo»
+          ocupen el mismo sitio y no salte el layout al terminar. Sin `role`: ya lo anuncia la polite
+          de arriba, y dicho dos veces se oye dos veces. */}
       {ocupado && (
-        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-          Estamos armando el ZIP. Puede tardar; puedes seguir en la cola mientras tanto.
-        </p>
+        <div
+          className="bg-flit-card px-6 py-4"
+          style={{
+            borderRadius: 'var(--flit-radius-card)',
+            border: '1px solid var(--flit-border-soft)',
+            boxShadow: 'var(--flit-shadow-card)',
+          }}
+        >
+          <p className="text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>
+            Preparando el ZIP de {marcadas} {marcadas === 1 ? 'registro' : 'registros'}…
+          </p>
+          <p className="mt-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+            Se reúnen los documentos de cada registro en un solo PDF antes de empezar la descarga, así
+            que puede tardar unos minutos. La cola sigue disponible mientras tanto.
+          </p>
+        </div>
       )}
       {!ocupado && aviso && (
         <AvisoVisible aviso={aviso} onReintentar={onReintentar} onDescartar={onDescartar} />

@@ -47,7 +47,9 @@ export default function PageHeaderCard(
         )}
         </div>
       </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {/* HU #12819: `flex-wrap` y ancho completo por debajo de `sm`. Sin él, en 375 px las acciones
+          se quedaban en un renglón y aplastaban la primaria hasta partir su texto en tres líneas. */}
+      {actions && <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">{actions}</div>}
     </div>
   );
 }
