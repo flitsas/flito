@@ -32,6 +32,8 @@ vi.mock('../../src/shared/logger.js', () => ({ logger: loggerFalso, loggerFor: (
 
 const { pasoAutocertificacion, ACTOR_AUTOCERTIFICACION } =
   await import('../../src/modules/flito-impuestos/flito-impuestos.autocertificacion.js');
+const { ejecutarAnalisis, registrarPasoAnalisis, __resetColaAnalisis } =
+  await import('../../src/modules/flito-impuestos/flito-impuestos.analisis.service.js');
 const { flitoImpuestos, flitoImpuestoCertificaciones, vehicles, auditLogs } = await import('../../src/db/schema.js');
 type Ctx = Parameters<typeof pasoAutocertificacion>[0];
 
@@ -211,5 +213,33 @@ describe('idempotencia y guardas', () => {
     escenario({ fila: over });
     await pasoAutocertificacion(ctx({ consultaRunt: consultaOk() }));
     expect(kdb.insert).not.toHaveBeenCalled();
+  });
+});
+
+describe('carrera con una certificación manual (23505 del índice único parcial)', () => {
+  const pii = `Failed query: insert params: ${PLACA},${DOC},${VIN}`;
+  it.each([
+    ['code en el error', () => Object.assign(new Error(pii), { code: '23505' })],
+    ['code en cause (DrizzleQueryError)', () => Object.assign(new Error(pii), { name: 'DrizzleQueryError', cause: { code: '23505' } })],
+  ])('%s → no lanza, sin PII en el log, y el análisis queda completado', async (_n, error) => {
+    escenario();
+    kdb.when.insert(T_CERT, () => { throw error(); });
+    const setsImp = capturar('update', T_IMP, 'set');
+    __resetColaAnalisis();
+    registrarPasoAnalisis('autocertificacion', async (c) => pasoAutocertificacion({ ...c, job: { consultaRunt: consultaOk() } }));
+
+    await expect(ejecutarAnalisis(ID)).resolves.toBe('completado');
+
+    expect(setsImp).toHaveLength(1);
+    expect(setsImp[0]).toMatchObject({ analisisEstado: 'completado' });
+    expect(kdb.insert).toHaveBeenCalled();
+    const logs = JSON.stringify(registros);
+    for (const v of [PLACA, DOC, VIN, 'Failed query']) expect(logs).not.toContain(v);
+  });
+
+  it('cualquier otro error se relanza (el runner deja error_analisis)', async () => {
+    escenario();
+    kdb.when.insert(T_CERT, () => { throw Object.assign(new Error('x'), { code: '23503' }); });
+    await expect(pasoAutocertificacion(ctx({ consultaRunt: consultaOk() }))).rejects.toMatchObject({ code: '23503' });
   });
 });

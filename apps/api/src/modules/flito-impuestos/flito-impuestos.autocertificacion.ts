@@ -14,6 +14,8 @@
 // certifica fuera de los estados certificables (como el endpoint) ni si el análisis dejó de estar
 // `en_curso` (una fila reseteada mientras el job corría).
 //
+// Carrera con una certificación manual (23505 del índice único parcial) = ya certificada: no lanza.
+//
 // Actor: el sistema (`certificado_por_id` NULL, nombre fijo). PII: se leen placa, documento, VIN y
 // nombre del propietario y se persiste el snapshot RUNT → `pii_access_log` de sistema. Los logs llevan
 // solo id, resultado y conteos.
@@ -25,11 +27,14 @@ import {
 import { db } from '../../db/client.js';
 import { flitoImpuestoCertificaciones, flitoImpuestos } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
-import type { PasoAnalisis } from './flito-impuestos.analisis.service.js';
+import { errorSinPii, type PasoAnalisis } from './flito-impuestos.analisis.service.js';
 import { certificarConRespuestaRunt, datosDelVehiculo, type ActorCertificacion } from './certificacion.service.js';
 import { registrarAccesoSistema } from './flito-impuestos.extraccion.js';
 
 const log = loggerFor('flito-impuestos.autocertificacion');
+
+/** SQLSTATE de `unique_violation`. */
+const UNIQUE_VIOLATION = '23505';
 
 /** Firma de la certificación automática: sin usuario (FK nullable) y un nombre que el certificado imprime. */
 export const ACTOR_AUTOCERTIFICACION: ActorCertificacion = {
@@ -70,7 +75,18 @@ export const pasoAutocertificacion: PasoAnalisis = async ({ impuestoId, job }) =
     return;
   }
 
-  const r = await certificarConRespuestaRunt(impuestoId, datos, consulta.data, ACTOR_AUTOCERTIFICACION);
+  let r: Awaited<ReturnType<typeof certificarConRespuestaRunt>>;
+  try {
+    r = await certificarConRespuestaRunt(impuestoId, datos, consulta.data, ACTOR_AUTOCERTIFICACION);
+  } catch (e) {
+    // Una certificación manual concurrente ganó la carrera del índice único parcial (0121): el
+    // impuesto YA está certificado. No es un fallo del análisis → sin lanzar, queda `completado`.
+    if (errorSinPii(e).code === UNIQUE_VIOLATION) {
+      log.info({ impuestoId }, 'autocertificacion: ya certificada por otro en paralelo');
+      return;
+    }
+    throw e;
+  }
   await registrarAccesoSistema(
     impuestoId, ['placa', 'documento_propietario', 'vin', 'nombre_propietario'], `autocertificación RUNT · resultado=${r.resultado}`,
   );
