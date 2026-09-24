@@ -1,8 +1,8 @@
 // HU #11967 — SOAT FLITO: consultar el RUNT como compuerta y propietario completo (canal Cliente).
 //
 // Continúa `soat-cliente-solicitud` de la #11914/#11936. Lo que cambia respecto de la #11936, que es
-// lo que esta HU revierte por decisión del PO (ADR-0010): vuelve «Consultar el RUNT», vuelve el
-// modal de SOAT vigente y el primario de envío queda cerrado hasta que la consulta resuelva.
+// lo que esta HU revierte por decisión del PO (ADR-0010): vuelve «Consultar el RUNT», vuelve
+// el bloqueo por SOAT vigente (hoy la tarjeta de SOAT activo de la HU #12844) y el primario de envío queda cerrado hasta que la consulta resuelva.
 //
 // ── Cómo se prueban los desenlaces, y por qué así ───────────────────────────────────────────────
 //
@@ -61,8 +61,20 @@ const RUNT_OK = {
   // HU #12213: la clave viaja SIEMPRE en el 200, y `null` es el caso normal —el SOAT no está por
   // vencerse—. Declararla aquí es lo que hace que los ~30 casos de este archivo ejerciten de paso
   // el camino sin aviso: si la pantalla lo pintara con `null`, media docena se pondrían rojos.
-  vigenciaProxima: null as { venceEl: string } | null,
+  vigenciaProxima: null as Record<string, unknown> | null,
 };
+
+/**
+ * El SOAT activo que publica el canal desde la HU #12842 (RN-05 del Feature #12840). **Datos
+ * ficticios**: ni la póliza ni la aseguradora existen.
+ */
+const SOAT_FICTICIO = {
+  poliza: 'AT-0000-TEST-01', aseguradora: 'ASEGURADORA FICTICIA S.A.',
+  fechaExpedicion: '2026-03-10', inicioVigencia: '2026-03-15', vencimiento: '2027-02-01', estado: 'VIGENTE',
+};
+
+/** La tarjeta de SOAT activo del bloque 1 (HU #12844), por su título. */
+const tarjetaBloqueo = (page: Page) => page.getByRole('region', { name: 'Este vehículo ya tiene SOAT activo' });
 
 /** El mismo 200 pero **sin la clave**: una API por detrás del bundle, que en DEV pasa (HU #12213). */
 const RUNT_SIN_LA_CLAVE = {
@@ -70,9 +82,9 @@ const RUNT_SIN_LA_CLAVE = {
 };
 
 /** Un 200 que SÍ trae aviso. `venceEl` en `yyyy-mm-dd`, como lo manda el servidor. */
-const runtConAviso = (venceEl: unknown) => ({
+const runtConAviso = (venceEl: unknown, soat: Record<string, unknown> = {}) => ({
   status: 200,
-  cuerpo: { ...RUNT_OK, vigenciaProxima: { venceEl } },
+  cuerpo: { ...RUNT_OK, vigenciaProxima: { ...SOAT_FICTICIO, vencimiento: venceEl, ...soat, venceEl } },
 });
 
 /** Una fila de la cola con la forma que `FlitoSoat` espera, ya recortada como al Cliente. */
@@ -313,7 +325,7 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await llenarVehiculo(page);
     await btnConsultar(page).click();
 
-    await expect(page.getByText('✓ Consultado')).toBeVisible();
+    await expect(page.getByText('Consultado', { exact: true })).toBeVisible();
     const ficha = fichaRunt(page);
     await expect(ficha.getByText('RENAULT')).toBeVisible();
     await expect(ficha.getByText('SEDAN')).toBeVisible();
@@ -374,7 +386,7 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await page.getByLabel('VIN').fill('9BWZZZ377VT004252');
 
     await expect(fichaRunt(page)).toHaveCount(0);
-    await expect(page.getByText('✓ Consultado')).toHaveCount(0);
+    await expect(page.getByText('Consultado', { exact: true })).toHaveCount(0);
     await expect(btnEnviar(page)).toHaveAttribute('aria-disabled', 'true');
     await expect(page.getByText('Cambió el VIN: vuelva a consultar el RUNT antes de enviar.')).toBeVisible();
     await expect(btnReconsultar(page)).toBeVisible();
@@ -398,7 +410,7 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await page.getByLabel('Tipo de documento').selectOption('CE');
 
     await expect(fichaRunt(page)).toBeVisible();
-    await expect(page.getByText('✓ Consultado')).toBeVisible();
+    await expect(page.getByText('Consultado', { exact: true })).toBeVisible();
     await expect(page.getByText(/vuelva a consultar el RUNT antes de enviar/)).toHaveCount(0);
     await expect(page.getByLabel('Correo electrónico')).toHaveValue(CORREO);
   });
@@ -437,7 +449,7 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await respuesta;
 
     await expect(fichaRunt(page)).toBeVisible();
-    await expect(page.getByText('✓ Consultado')).toBeVisible();
+    await expect(page.getByText('Consultado', { exact: true })).toBeVisible();
     expect(cap.preconsultas).toHaveLength(1);
 
     // Y con la compuerta abierta y todo lleno, el primario envía: es el desenlace opuesto al viejo.
@@ -464,10 +476,11 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
 
 // ═════════════════════════ AC2 · SOAT vigente ════════════════════════════════════════════════════
 
-test.describe('HU #11967 · AC2 — el vehículo ya tiene SOAT vigente', () => {
-  test('409 en la consulta: modal, cero altas, y sin fecha no se escribe «hasta el»', async ({ page }) => {
+test.describe('HU #11967 · AC2 / HU #12844 · AC1 — el vehículo ya tiene SOAT activo', () => {
+  test('409 en la consulta: TARJETA en línea (no modal), cero altas, y sin datos se pinta «—»', async ({ page }) => {
     await loginAs(page, CLIENTE_CON_CANAL);
     await mockCola(page);
+    // Un 409 de una API anterior a la #12842: sin `soatActivo` ni fecha.
     const cap = await mockCanal(page, {
       preconsulta: fallo(409, 'soat_vigente', 'El RUNT reporta que este vehículo ya tiene un SOAT vigente.'),
     });
@@ -475,32 +488,47 @@ test.describe('HU #11967 · AC2 — el vehículo ya tiene SOAT vigente', () => {
     await llenarVehiculo(page);
     await btnConsultar(page).click();
 
-    const modal = page.getByRole('dialog', { name: 'Este vehículo ya tiene SOAT vigente' });
-    await expect(modal).toBeVisible();
-    await expect(modal.getByText('No hace falta comprar otro')).toBeVisible();
-    // Sin `fechaVencimiento` el modal CAMBIA de frase; no interpola un hueco.
-    await expect(modal.getByText(/hasta el/)).toHaveCount(0);
-    await expect(modal.getByText('—')).toHaveCount(0);
+    const tarjeta = tarjetaBloqueo(page);
+    await expect(tarjeta).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(tarjeta.getByText('No hace falta comprar otro')).toBeVisible();
+    // El foco va al título, que anuncia la variante.
+    await expect(tarjeta.getByRole('heading', { name: 'Este vehículo ya tiene SOAT activo' })).toBeFocused();
+    // Sin fecha la frase CAMBIA entera; los seis rótulos se pintan con «—» (AC4), sin inventar.
+    await expect(tarjeta).toContainText('FLITO podrá tramitar la renovación cuando falten 30 días o menos para que venza.');
+    await expect(tarjeta.getByText(/Vence el/)).toHaveCount(0);
+    await expect(tarjeta.locator('dd').filter({ hasText: /^—$/ })).toHaveCount(6);
+    await expect(tarjeta).not.toContainText(/invalid|undefined|null/i);
     expect(cap.altas).toHaveLength(0);
   });
 
-  test('con fecha, el modal la escribe; y al cerrarlo la compuerta sigue cerrada y lo dice', async ({ page }) => {
+  test('con `soatActivo`, la tarjeta pinta los seis datos rotulados en orden y no ofrece continuar', async ({ page }) => {
     await loginAs(page, CLIENTE_CON_CANAL);
     await mockCola(page);
     await mockCanal(page, {
-      preconsulta: fallo(409, 'soat_vigente', 'Ya tiene SOAT vigente.', { fechaVencimiento: '2027-02-01' }),
+      preconsulta: fallo(409, 'soat_vigente', 'Ya tiene SOAT vigente.', { fechaVencimiento: '2027-02-01', soatActivo: SOAT_FICTICIO }),
     });
     await page.goto('/flito/soat/solicitud');
     await llenarVehiculo(page);
     await btnConsultar(page).click();
 
-    const modal = page.getByRole('dialog', { name: 'Este vehículo ya tiene SOAT vigente' });
-    await expect(modal.getByText(/vigente hasta el 1 de febrero de 2027/)).toBeVisible();
-    await modal.getByRole('button', { name: 'Cerrar' }).click();
-
+    const tarjeta = tarjetaBloqueo(page);
+    await expect(tarjeta).toContainText('Vence el 1 de febrero de 2027. FLITO podrá tramitar la renovación cuando falten 30 días o menos.');
+    await expect(tarjeta.locator('dt')).toHaveText([
+      'Aseguradora', 'Vence', 'Póliza', 'Inicio de vigencia', 'Fecha de expedición', 'Estado',
+    ]);
+    await expect(tarjeta.locator('dd')).toHaveText([
+      'ASEGURADORA FICTICIA S.A.', '1 de febrero de 2027', 'AT-0000-TEST-01',
+      '15 de marzo de 2026', '10 de marzo de 2026', 'VIGENTE',
+    ]);
+    // La única acción es salir; nada que lleve a continuar.
+    await expect(tarjeta.getByRole('button')).toHaveText(['Consultar otro vehículo']);
+    await expect(fichaRunt(page)).toHaveCount(0);
     await expect(btnEnviar(page)).toHaveAttribute('aria-disabled', 'true');
     await expect(page.getByText('Este vehículo tiene SOAT vigente según el RUNT: no se puede radicar la solicitud.')).toBeVisible();
     await expect(btnReconsultar(page)).toBeVisible();
+    // La póliza no entra a ningún nombre accesible (RN-05): la región se nombra por su título.
+    await expect(page.locator('[aria-label*="AT-0000"], [aria-label*="FICTICIA"]')).toHaveCount(0);
   });
 
   test('«Consultar otro vehículo» limpia SOLO el VIN y conserva el propietario entero', async ({ page }) => {
@@ -513,7 +541,8 @@ test.describe('HU #11967 · AC2 — el vehículo ya tiene SOAT vigente', () => {
     await adjuntarFactura(page);
     await btnConsultar(page).click();
 
-    await page.getByRole('dialog').getByRole('button', { name: 'Consultar otro vehículo' }).click();
+    await tarjetaBloqueo(page).getByRole('button', { name: 'Consultar otro vehículo' }).click();
+    await expect(tarjetaBloqueo(page)).toHaveCount(0);
 
     // HU #12091: eran CUATRO identificadores y ahora es uno. El documento ya NO se borra —no es del
     // vehículo sino del titular, y quien pide el SOAT de otro carro de su flota suele ser el mismo—:
@@ -524,7 +553,7 @@ test.describe('HU #11967 · AC2 — el vehículo ya tiene SOAT vigente', () => {
     await expect(page.getByLabel('Correo electrónico')).toHaveValue(CORREO);
     await expect(page.getByLabel('Nombre/s')).toHaveValue('MARÍA FERNANDA');
     await expect(page.getByText('factura.pdf', { exact: false })).toBeVisible();
-    // El foco no se cae a `<body>` al desaparecer el botón que abrió el modal.
+    // AC1: al salir de la tarjeta, el foco vuelve al VIN.
     await expect(page.getByLabel('VIN')).toBeFocused();
     await expect(btnConsultar(page)).toBeVisible();
   });
@@ -994,7 +1023,7 @@ test.describe('HU #11967 · la ficha de ayuda in-app del módulo SOAT', () => {
     // en la ficha, este test se pone rojo sin que nadie tenga que acordarse.
     const rotuloEnviar = (await btnEnviar(page).innerText()).trim();
     // El VIN es el ÚNICO dato del vehículo, y la pantalla dice dónde encontrarlo…
-    await expect(page.getByText('Está en la tarjeta de propiedad y en la factura de venta. Suele tener 17 caracteres.')).toBeVisible();
+    await expect(page.getByText('Está en la tarjeta de propiedad y en la factura de venta.')).toBeVisible();
     // …y el propietario se parte por tipo de documento: razón social con NIT, nombre/s y apellido/s
     // en cualquier otro caso. Las dos formas se comprueban aquí para no exigirle a la ficha una
     // conducta que la pantalla no tenga.
@@ -1007,8 +1036,8 @@ test.describe('HU #11967 · la ficha de ayuda in-app del módulo SOAT', () => {
     await expect(page.getByLabel('Razón social')).toHaveCount(0);
 
     await btnConsultar(page).click();
-    const modal = page.getByRole('dialog');
-    const tituloModal = (await modal.getByRole('heading').first().innerText()).trim();
+    // HU #12844: el bloqueo es una tarjeta en línea; su título es el literal que la ficha cita.
+    const tituloModal = (await tarjetaBloqueo(page).getByRole('heading').first().innerText()).trim();
 
     // ── 2 · La ficha PUBLICADA ───────────────────────────────────────────────────────────────────
     await loginAs(page, OPERACIONES_USER);
@@ -1056,8 +1085,8 @@ test.describe('HU #11967 · la ficha de ayuda in-app del módulo SOAT', () => {
 //
 // Los DOS caminos del mismo desenlace del RUNT, que es lo que la HU parte en dos:
 //
-//   · falta un mes o MENOS → `200` con `vigenciaProxima` → banda informativa y **se envía igual**.
-//   · falta MÁS de un mes  → `409 soat_vigente` → el modal de siempre, intacto, y cero altas.
+//   · faltan 30 días o MENOS → `200` con `vigenciaProxima` → tarjeta de aviso y **se envía igual**.
+//   · faltan MÁS de 30 días  → `409 soat_vigente` → tarjeta de bloqueo (HU #12844) y cero altas.
 //
 // Se prueban juntos y en el mismo archivo a propósito: el mutante que hay que matar es el que
 // **confunde uno con otro** —bloquear cuando debía avisar, o avisar cuando debía bloquear— y ese
@@ -1080,29 +1109,38 @@ test.describe('HU #12213 · AC1/AC3 — vigencia próxima: avisa y deja enviar',
     await btnConsultar(page).click();
 
     // `role="status"` y NO `alert` (AC5): es la consecuencia de una acción del usuario, no un fallo.
-    const aviso = page.getByRole('status').filter({ hasText: 'todavía tiene SOAT vigente' });
+    const aviso = page.getByRole('status').filter({ hasText: 'todavía tiene SOAT activo' });
     await expect(aviso).toBeVisible();
     await expect(aviso).toContainText('Puede continuar');
     // La fecha, en largo y **sin el desfase del huso**: `new Date('2026-10-05')` es medianoche UTC y
     // en Colombia (−05) diría el 4. El aserto negativo es el que lo mata; el positivo solo, no.
-    await expect(aviso).toContainText('Este vehículo todavía tiene SOAT vigente, hasta el 5 de octubre de 2026.');
+    await expect(aviso).toContainText('Este vehículo todavía tiene SOAT activo');
+    await expect(aviso).toContainText('Vence el 5 de octubre de 2026');
     await expect(aviso).not.toContainText('4 de octubre');
-    await expect(aviso).toContainText('Falta un mes o menos para que venza, así que sí puede enviar esta solicitud.');
+    await expect(aviso).toContainText('Como le faltan 30 días o menos, sí puede enviar la solicitud.');
+    // HU #12844 (AC2): los seis datos, en la misma tarjeta que el bloqueo.
+    await expect(aviso.locator('dd')).toHaveText([
+      'ASEGURADORA FICTICIA S.A.', '5 de octubre de 2026', 'AT-0000-TEST-01',
+      '15 de marzo de 2026', '10 de marzo de 2026', 'VIGENTE',
+    ]);
+    // AC3: la variante difiere en título, icono y chip, no solo en color.
+    await expect(aviso.getByRole('heading')).toHaveText('Este vehículo todavía tiene SOAT activo');
+    await expect(aviso.getByRole('button')).toHaveCount(0);
 
     // El malentendido caro de esta HU: si esto se lee como un error, la persona abandona creyendo
     // que no puede pedir el SOAT. Ni registro de fallo, ni el modal que bloquea, ni banda de error.
     await expect(aviso).not.toContainText(/revise|vuelva|no pudimos/i);
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByRole('alert')).toHaveCount(0);
-    // El número de póliza no viaja en el 200 y no se pinta aunque alguien lo cuele en el cuerpo.
-    await expect(aviso).not.toContainText(/p[óo]liza/i);
+    // RN-05 del Feature #12840: la póliza SÍ se pinta, pero nunca en un nombre accesible.
+    await expect(page.locator('[aria-label*="AT-0000"], [aria-label*="FICTICIA"]')).toHaveCount(0);
 
     // ENCIMA de la ficha, no dentro ni debajo: la respuesta a «¿puedo seguir?» llega antes que once
     // pares etiqueta–valor. `innerText` respeta el orden del DOM, así que compara posiciones reales.
     const vehiculo = page.getByRole('region', { name: '1 · Vehículo' });
     const texto = await vehiculo.innerText();
-    expect(texto.indexOf('todavía tiene SOAT vigente')).toBeGreaterThanOrEqual(0);
-    expect(texto.indexOf('todavía tiene SOAT vigente')).toBeLessThan(texto.indexOf('Datos del RUNT'));
+    expect(texto.indexOf('todavía tiene SOAT activo')).toBeGreaterThanOrEqual(0);
+    expect(texto.indexOf('todavía tiene SOAT activo')).toBeLessThan(texto.indexOf('Datos del RUNT'));
     await expect(fichaRunt(page)).toBeVisible();
 
     // Y AC1 de verdad: la compuerta quedó abierta y el envío se completa. Sin esto, el test pasaría
@@ -1125,8 +1163,8 @@ test.describe('HU #12213 · AC1/AC3 — vigencia próxima: avisa y deja enviar',
 
     // AC3: la pantalla NO resta fechas. Un front que se inventara el mes calendario callaría aquí
     // —faltan setenta años— y este es el único caso que lo destapa.
-    await expect(page.getByRole('status').filter({ hasText: 'todavía tiene SOAT vigente' }))
-      .toContainText('hasta el 31 de diciembre de 2099');
+    await expect(page.getByRole('status').filter({ hasText: 'todavía tiene SOAT activo' }))
+      .toContainText('Vence el 31 de diciembre de 2099.');
 
     cola.items = [fila()];
     await btnEnviar(page).click();
@@ -1137,17 +1175,18 @@ test.describe('HU #12213 · AC1/AC3 — vigencia próxima: avisa y deja enviar',
   test('sin fecha legible se cambia la FRASE entera y nunca se escribe «hasta el»', async ({ page }) => {
     await loginAs(page, CLIENTE_CON_CANAL);
     await mockCola(page);
-    await mockCanal(page, { preconsulta: runtConAviso('') });
+    await mockCanal(page, { preconsulta: runtConAviso('', { vencimiento: null }) });
     await page.goto('/flito/soat/solicitud');
     await llenarVehiculo(page);
     await btnConsultar(page).click();
 
-    const aviso = page.getByRole('status').filter({ hasText: 'todavía tiene SOAT vigente' });
-    await expect(aviso).toContainText('Este vehículo todavía tiene SOAT vigente y le falta un mes o menos para vencerse, así que sí puede enviar esta solicitud.');
-    // Ni el hueco a medio rellenar, ni un «Invalid Date» dentro de la oración, ni un guion.
-    await expect(aviso).not.toContainText('hasta el');
+    const aviso = page.getByRole('status').filter({ hasText: 'todavía tiene SOAT activo' });
+    await expect(aviso).toContainText('Este vehículo todavía tiene SOAT activo y le faltan 30 días o menos para vencerse, así que sí puede enviar esta solicitud.');
+    // Ni el hueco a medio rellenar, ni un «Invalid Date» dentro de la oración: el «—» solo en el
+    // par dt/dd del vencimiento, que es donde AC4 lo pide.
+    await expect(aviso).not.toContainText('Vence el');
     await expect(aviso).not.toContainText(/invalid/i);
-    await expect(aviso).not.toContainText('—');
+    await expect(aviso.locator('dd').nth(1)).toHaveText('—');
     await expect(fichaRunt(page)).toBeVisible();
   });
 
@@ -1156,20 +1195,20 @@ test.describe('HU #12213 · AC1/AC3 — vigencia próxima: avisa y deja enviar',
     await mockCola(page);
     // `dd/MM/yyyy` es el formato CRUDO de la pasarela: si un día se colara sin normalizar, partirlo
     // por guiones daría «NaN de undefined». Sale la redacción de respaldo, entera.
-    await mockCanal(page, { preconsulta: runtConAviso('05/10/2026') });
+    await mockCanal(page, { preconsulta: runtConAviso('05/10/2026', { vencimiento: null }) });
     await page.goto('/flito/soat/solicitud');
     await llenarVehiculo(page);
     await btnConsultar(page).click();
 
-    const aviso = page.getByRole('status').filter({ hasText: 'todavía tiene SOAT vigente' });
-    await expect(aviso).toContainText('y le falta un mes o menos para vencerse');
-    await expect(aviso).not.toContainText('hasta el');
+    const aviso = page.getByRole('status').filter({ hasText: 'todavía tiene SOAT activo' });
+    await expect(aviso).toContainText('y le faltan 30 días o menos para vencerse');
+    await expect(aviso).not.toContainText('Vence el');
     await expect(aviso).not.toContainText(/nan|undefined|invalid/i);
   });
 });
 
 test.describe('HU #12213 · AC2/AC4 — el 409 sigue bloqueando y los estados no se confunden', () => {
-  test('MÁS de un mes: el modal de siempre, sin aviso, sin ficha y cero altas', async ({ page }) => {
+  test('MÁS de 30 días: la tarjeta de bloqueo, sin aviso, sin ficha y cero altas', async ({ page }) => {
     await loginAs(page, CLIENTE_CON_CANAL);
     await mockCola(page);
     const cap = await mockCanal(page, {
@@ -1181,16 +1220,16 @@ test.describe('HU #12213 · AC2/AC4 — el 409 sigue bloqueando y los estados no
     await adjuntarFactura(page);
     await btnConsultar(page).click();
 
-    // El modal de la #11967, intacto. Esta HU no lo toca.
-    const modal = page.getByRole('dialog', { name: 'Este vehículo ya tiene SOAT vigente' });
-    await expect(modal).toBeVisible();
-    await expect(modal.getByText(/vigente hasta el 1 de febrero de 2027/)).toBeVisible();
+    // HU #12844: la tarjeta de bloqueo en línea sustituye al modal de la #11967.
+    const tarjeta = tarjetaBloqueo(page);
+    await expect(tarjeta).toBeVisible();
+    await expect(tarjeta).toContainText('Vence el 1 de febrero de 2027.');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
 
     // Y NADA del camino que avisa: ni la frase, ni la ficha, ni la compuerta abierta. Este es el
     // aserto que mata al mutante que invierte la condición y avisa cuando debía bloquear.
-    await expect(page.getByText('todavía tiene SOAT vigente')).toHaveCount(0);
+    await expect(page.getByText('todavía tiene SOAT activo')).toHaveCount(0);
     await expect(page.getByText('Puede continuar')).toHaveCount(0);
-    await modal.getByRole('button', { name: 'Cerrar' }).click();
     await expect(fichaRunt(page)).toHaveCount(0);
     await expect(btnEnviar(page)).toHaveAttribute('aria-disabled', 'true');
     await expect(page.getByText('Este vehículo tiene SOAT vigente según el RUNT: no se puede radicar la solicitud.')).toBeVisible();
@@ -1207,7 +1246,7 @@ test.describe('HU #12213 · AC2/AC4 — el 409 sigue bloqueando y los estados no
 
     await expect(fichaRunt(page)).toBeVisible();
     await expect(page.getByText('Puede continuar')).toHaveCount(0);
-    await expect(page.getByText('todavía tiene SOAT vigente')).toHaveCount(0);
+    await expect(page.getByText('todavía tiene SOAT activo')).toHaveCount(0);
 
     // La misma pantalla contra una API por detrás del bundle: la clave AUSENTE es `null`, no un
     // aviso vacío ni un «undefined» pintado. En DEV el merge es el deploy y esto pasa de verdad.
@@ -1227,7 +1266,7 @@ test.describe('HU #12213 · AC2/AC4 — el 409 sigue bloqueando y los estados no
     await page.goto('/flito/soat/solicitud');
     await llenarVehiculo(page);
     await btnConsultar(page).click();
-    await expect(page.getByRole('status').filter({ hasText: 'todavía tiene SOAT vigente' })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: 'todavía tiene SOAT activo' })).toBeVisible();
 
     // La segunda consulta falla. Las rutas de Playwright se resuelven en orden inverso al registro,
     // así que esta gana sobre la de `mockCanal`.
@@ -1240,7 +1279,7 @@ test.describe('HU #12213 · AC2/AC4 — el 409 sigue bloqueando y los estados no
     const banda = page.getByRole('alert').filter({ hasText: 'El RUNT no está disponible' });
     await expect(banda).toBeVisible();
     await expect(banda).not.toContainText('Revise');
-    await expect(page.getByText('todavía tiene SOAT vigente')).toHaveCount(0);
+    await expect(page.getByText('todavía tiene SOAT activo')).toHaveCount(0);
     await expect(page.getByText('Puede continuar')).toHaveCount(0);
     await expect(fichaRunt(page)).toHaveCount(0);
   });
@@ -1252,12 +1291,12 @@ test.describe('HU #12213 · AC2/AC4 — el 409 sigue bloqueando y los estados no
     await page.goto('/flito/soat/solicitud');
     await llenarVehiculo(page);
     await btnConsultar(page).click();
-    await expect(page.getByRole('status').filter({ hasText: 'todavía tiene SOAT vigente' })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: 'todavía tiene SOAT activo' })).toBeVisible();
 
     await page.getByLabel('VIN').fill(`${VIN.slice(0, 16)}9`);
 
     await expect(page.getByText('Cambió el VIN: vuelva a consultar el RUNT antes de enviar.')).toBeVisible();
-    await expect(page.getByText('todavía tiene SOAT vigente')).toHaveCount(0);
+    await expect(page.getByText('todavía tiene SOAT activo')).toHaveCount(0);
     await expect(fichaRunt(page)).toHaveCount(0);
   });
 });

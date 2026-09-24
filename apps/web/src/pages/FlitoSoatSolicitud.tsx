@@ -57,11 +57,13 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, CircleAlert, Search, Send } from 'lucide-react';
+import {
+  ArrowLeft, Car, CircleCheck, FileText, Loader2, RotateCw, Search, Send, UserRound,
+} from 'lucide-react';
 import { toastOk } from '../components/flit/ToastFlito';
 import {
   CodigoErrorSolicitudSoat, PROCEDENCIA_POR_DEFECTO, ProcedenciaDato,
-  type ExtraccionFacturaVenta,
+  type ExtraccionFacturaVenta, type SoatActivoRunt,
 } from '@operaciones/shared-types';
 import { api } from '../lib/api';
 import { puedeSolicitarSoat, useAuth } from '../lib/auth';
@@ -69,8 +71,8 @@ import {
   avisoVin, camposLeidos, camposQueViajan, errorApellidos, errorArchivo, errorCelular, errorCorreo,
   errorDepartamento, errorDireccion, errorMunicipio, errorNombreCompleto, errorNombres,
   errorNumeroDocumento, errorRazonSocial, errorTipoDocumento, errorVin, esCampoComprador, esNit,
-  leerFallo, normalizarVin, reaccionA, reaccionALectura, avisoVigenciaProxima,
-  AVISO_VIGENCIA_CHIP, DESENLACE_SIN_RED, DESENLACE_GENERICO, MENSAJE_ARCHIVO_NO_PDF,
+  leerFallo, normalizarVin, reaccionA, reaccionALectura,
+  DESENLACE_SIN_RED, DESENLACE_GENERICO, MENSAJE_ARCHIVO_NO_PDF,
   type CampoComprador, type CampoLeido, type DesenlaceRunt, type FalloCanal, type PreconsultaRunt,
 } from '../lib/soatCliente';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
@@ -79,7 +81,11 @@ import StatusChip from '../components/flit/StatusChip';
 import {
   FlitCard, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../components/flit/flitPageKit';
-import { ModalSoatVigente, ModalVinEnCola } from '../components/flito/soat-cliente/ModalesBloqueo';
+import { ModalVinEnCola } from '../components/flito/soat-cliente/ModalesBloqueo';
+import TarjetaSoatActivo from '../components/flito/soat-cliente/TarjetaSoatActivo';
+import {
+  AvisoLongitudVin, AyudaVin, BandaDesenlace, EsqueletoFicha, VacioVin,
+} from '../components/flito/soat-cliente/PasoVin';
 import { TarjetaCanalAjeno, TarjetaCanalDeshabilitado } from '../components/flito/soat-cliente/TarjetaCanal';
 import FichaRunt from '../components/flito/soat-cliente/FichaRunt';
 import {
@@ -122,8 +128,13 @@ type Consulta =
   | { fase: 'ok'; datos: PreconsultaRunt; consultadoEn: Date }
   /** Un desenlace con banda propia en el bloque 1 (los cuatro del RUNT y la rama por defecto). */
   | { fase: 'fallo'; desenlace: DesenlaceRunt }
-  /** Un desenlace que ya explicó un MODAL (vigente, VIN en cola): la compuerta sigue cerrada. */
+  /** Un desenlace que ya explicó un MODAL (VIN en cola): la compuerta sigue cerrada. */
   | { fase: 'sin-banda' }
+  /**
+   * `409 soat_vigente` (HU #12844): la tarjeta de bloqueo EN LÍNEA sustituye al modal. Es un estado
+   * que sigue siendo cierto mientras el VIN no cambie; editarlo lo pasa a `invalidada`.
+   */
+  | { fase: 'vigente'; soatActivo: SoatActivoRunt; fechaVencimiento?: string }
   /** Se editó el VIN después de consultar: lo del RUNT se retira y hay que repetirla (AC5). */
   | { fase: 'invalidada' };
 
@@ -133,7 +144,13 @@ const ROTULO_CONSULTA: Record<Consulta['fase'], string> = {
   ok: 'Consultar de nuevo',
   fallo: 'Volver a consultar',
   'sin-banda': 'Volver a consultar',
+  vigente: 'Volver a consultar',
   invalidada: 'Volver a consultar',
+};
+
+/** Un `409` antiguo sin `soatActivo`: seis «—», nunca datos inventados (AC4). */
+const SOAT_SIN_DATOS: SoatActivoRunt = {
+  poliza: null, fechaExpedicion: null, inicioVigencia: null, vencimiento: null, aseguradora: null, estado: null,
 };
 
 /**
@@ -182,7 +199,7 @@ function Alta() {
 
   const [consulta, setConsulta] = useState<Consulta>({ fase: 'inicial' });
   const [modal, setModal] = useState<FalloCanal | null>(null);
-  const [vigenteCerrado, setVigenteCerrado] = useState(false);
+  const tarjetaVigenteRef = useRef<HTMLHeadingElement>(null);
   const [canalCaido, setCanalCaido] = useState(false);
 
   /**
@@ -297,6 +314,9 @@ function Alta() {
   // pantalla. Se dispara con cada `setConsulta` nuevo, que es lo que permite que dos desenlaces
   // iguales seguidos vuelvan a llevar el foco.
   useEffect(() => {
+    // Bloqueo (HU #12844): el foco va al `h3` de la tarjeta, que anuncia la variante; el lector
+    // recorre después la frase y los seis pares en orden. Vale también si el 409 llega al ENVIAR.
+    if (consulta.fase === 'vigente') { tarjetaVigenteRef.current?.focus(); return; }
     if (consulta.fase !== 'fallo') return;
     if (consulta.desenlace.foco === 'vin') vinRef.current?.focus();
     else consultarRef.current?.focus();
@@ -311,7 +331,6 @@ function Alta() {
    */
   const invalidarConsulta = () => {
     turno.current += 1;
-    setVigenteCerrado(false);
     setConsulta((c) => (c.fase === 'inicial' ? c : { fase: 'invalidada' }));
   };
 
@@ -535,8 +554,8 @@ function Alta() {
         setConsulta({ fase: 'sin-banda' });
         return;
       case 'soat-vigente':
-        setModal(f);
-        setConsulta({ fase: 'sin-banda' });
+        setAvisoEnvio(null);
+        setConsulta({ fase: 'vigente', soatActivo: f.soatActivo ?? SOAT_SIN_DATOS, fechaVencimiento: f.fechaVencimiento });
         return;
       case 'archivo':
         // Desde la HU #12094 este 400 se caza casi siempre al ADJUNTAR —la lectura sube el mismo PDF
@@ -687,19 +706,19 @@ function Alta() {
   };
 
   /**
-   * «Consultar otro vehículo» del modal de vigente: limpia **el VIN, y solo el VIN**.
+   * «Consultar otro vehículo» de la tarjeta de bloqueo: limpia **el VIN, y solo el VIN**, y deja el
+   * foco en el campo (HU #12844, AC1).
    *
    * Es el único identificador que queda (HU #12091). El propietario —documento incluido, que hasta
    * ahora se borraba con él— y el archivo se CONSERVAN: no dependen de qué vehículo se consulte, y
    * quien va a pedir el SOAT de otro carro de su flota suele ser el mismo titular.
    */
   const consultarOtroVehiculo = () => {
-    setModal(null);
     setVin('');
     setErrores((e) => ({ ...e, vin: undefined }));
-    setVigenteCerrado(false);
     turno.current += 1;
     setConsulta({ fase: 'inicial' });
+    vinRef.current?.focus();
   };
 
   const salir = () => (hayDatos ? setConfirmarSalida(true) : navigate(COLA));
@@ -735,7 +754,7 @@ function Alta() {
     () => faltaParaEnviar(consulta.fase, vin, propietario, archivo, pendientesRevision.length),
     [consulta.fase, vin, propietario, archivo, pendientesRevision.length],
   );
-  const fraseFaltantes = vigenteCerrado ? AVISO_VIGENTE : frasePendientes(faltantes);
+  const fraseFaltantes = consulta.fase === 'vigente' ? AVISO_VIGENTE : frasePendientes(faltantes);
 
   const idPrimerError = useMemo(() => primerErrorEnfocable(errores), [errores]);
   useFocoPrimerError(idPrimerError, intento);
@@ -754,9 +773,11 @@ function Alta() {
   // accesibilidad que esta pantalla ya tomó y que la HU #12079 conserva.
   const bloqueado = faltantes.length > 0;
   const avisoLongitudVin = avisoVin(vin);
-  // HU #12213. **Solo se lee lo que el servidor mandó**: sin resta de fechas y sin umbral local
-  // (AC3). `null` —o la clave ausente, si la API va por detrás del bundle— no pinta nada.
-  const aviso = consulta.fase === 'ok' ? avisoVigenciaProxima(consulta.datos.vigenciaProxima) : null;
+  // HU #12213/#12844. **Solo se lee lo que el servidor mandó**: sin umbral local. `null` —o la clave
+  // ausente, si la API va por detrás del bundle— no pinta tarjeta (AC5).
+  const vigencia = consulta.fase === 'ok' ? consulta.datos.vigenciaProxima ?? null : null;
+  const consultaResuelta = consulta.fase === 'ok' || consulta.fase === 'vigente';
+  const IconoConsulta = cargando ? Loader2 : consulta.fase === 'inicial' ? Search : RotateCw;
 
   return (
     <div className="space-y-4">
@@ -782,70 +803,59 @@ function Alta() {
           el propietario, que es donde se entiende para qué sirve. */}
       <Seccion
         titulo="1 · Vehículo"
-        chip={consulta.fase === 'ok' ? <StatusChip tone="success">✓ Consultado</StatusChip> : undefined}
+        icono={<Car size={18} aria-hidden="true" className="shrink-0" />}
+        chip={consulta.fase === 'ok'
+          ? <StatusChip tone="success" icono={<CircleCheck size={14} aria-hidden="true" />}>Consultado</StatusChip>
+          : undefined}
       >
-        {/* VIN y «Consultar el RUNT» en el mismo renglón desde `sm` (HU #12819): antes el botón quedaba
-            suelto bajo un campo a media anchura. En 375 se apilan y el botón va a ancho completo. */}
-        <div className="flex flex-wrap items-start gap-3">
-          <div className="min-w-0 flex-1 basis-64">
-          <Campo
-            id={ID_CAMPO.vin} label="VIN (número de chasis)"
-            valor={vin} inputRef={vinRef}
-            onCambio={cambiarVin}
-            onBlur={() => validarCampo('vin', vin)}
-            error={errores.vin}
-            ayuda="Está en la tarjeta de propiedad y en la factura de venta. Suele tener 17 caracteres."
-            maxLength={25} autoComplete="off"
-            readOnly={cargando}
-            invalido={consulta.fase === 'fallo' && consulta.desenlace.foco === 'vin'}
-            /* Condicionado AQUÍ y no dentro de `Campo` (HU #12094): el componente enlaza
-               `describedByExtra` siempre que se le pase, porque la marca de baja confianza necesita
-               describir sin marcar inválido. Quien quiere las dos cosas juntas —este campo, cuya
-               banda solo existe con el desenlace pintado— lo dice en su llamada. Sin esto, el VIN
-               apuntaría a un id que no está en el DOM el 95 % del tiempo. */
-            describedByExtra={consulta.fase === 'fallo' && consulta.desenlace.foco === 'vin'
-              ? ID_BANDA_RUNT
-              : undefined}
-          />
-          </div>
-          <button
-            type="button" ref={consultarRef}
-            className={`${consulta.fase === 'ok' ? flitBtnSecondary : flitBtnPrimary} w-full justify-center sm:mt-[1.35rem] sm:w-auto`}
-            style={consulta.fase === 'ok' ? flitBtnSecondaryStyle : flitBtnPrimaryStyle}
-            disabled={cargando}
-            onClick={() => { void consultar(); }}
-          >
-            <Search size={16} aria-hidden="true" className="shrink-0" />
-            {ROTULO_CONSULTA[consulta.fase]}
-          </button>
-        </div>
+        {/* HU #12844: el rótulo va fuera del renglón y el botón COMPARTE renglón con el input, a la
+            misma altura (fuera el `sm:mt-[1.35rem]`). En 375 el renglón envuelve y el botón baja a
+            ancho completo. */}
+        <Campo
+          id={ID_CAMPO.vin} label="VIN (número de chasis)"
+          valor={vin} inputRef={vinRef} codigo
+          onCambio={cambiarVin}
+          onBlur={() => validarCampo('vin', vin)}
+          error={errores.vin}
+          ayuda={<AyudaVin vin={vin} />}
+          maxLength={25} autoComplete="off"
+          readOnly={cargando}
+          invalido={consulta.fase === 'fallo' && consulta.desenlace.foco === 'vin'}
+          /* Condicionado AQUÍ y no dentro de `Campo` (HU #12094): el VIN solo apunta a la banda
+             cuando la banda existe. */
+          describedByExtra={consulta.fase === 'fallo' && consulta.desenlace.foco === 'vin'
+            ? ID_BANDA_RUNT
+            : undefined}
+          accion={(
+            <button
+              type="button" ref={consultarRef}
+              className={`${consultaResuelta ? flitBtnSecondary : flitBtnPrimary} w-full justify-center sm:w-auto`}
+              style={consultaResuelta ? flitBtnSecondaryStyle : flitBtnPrimaryStyle}
+              disabled={cargando}
+              onClick={() => { void consultar(); }}
+            >
+              <IconoConsulta size={16} aria-hidden="true" className={`shrink-0 ${cargando ? 'animate-spin motion-reduce:animate-none' : ''}`} />
+              {ROTULO_CONSULTA[consulta.fase]}
+            </button>
+          )}
+        />
 
-        {avisoLongitudVin && !errores.vin && (
-          <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{avisoLongitudVin}</p>
-        )}
+        {avisoLongitudVin && !errores.vin && <AvisoLongitudVin texto={avisoLongitudVin} />}
+
+        {(consulta.fase === 'inicial' || consulta.fase === 'invalidada') && <VacioVin />}
 
         {cargando && (
-          <p role="status" className="mt-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-            La consulta puede tardar hasta un minuto. No cierre esta página.
-          </p>
+          <>
+            <EsqueletoFicha />
+            <p role="status" className="mt-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+              La consulta puede tardar hasta un minuto. No cierre esta página.
+            </p>
+          </>
         )}
 
-        {/* La banda de desenlace vive AQUÍ, junto a los campos que hay que corregir, y no en la
-            tarjeta de envío: lo que falló es la consulta. */}
-        {consulta.fase === 'fallo' && (
-          <div
-            id={ID_BANDA_RUNT} role="alert" className="mt-3 space-y-1 rounded-[10px] p-3"
-            style={{ border: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}
-          >
-            <p className="flex items-center gap-2 text-sm font-semibold" style={{
-              color: consulta.desenlace.tono === 'danger' ? 'var(--flit-danger-text)' : 'var(--flit-warning-ink)',
-            }}>
-              <CircleAlert size={18} aria-hidden="true" className="shrink-0" />
-              {consulta.desenlace.titulo}
-            </p>
-            <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{consulta.desenlace.detalle}</p>
-          </div>
-        )}
+        {/* La banda de desenlace vive AQUÍ, junto al campo que hay que corregir: lo que falló es la
+            consulta. */}
+        {consulta.fase === 'fallo' && <BandaDesenlace id={ID_BANDA_RUNT} desenlace={consulta.desenlace} />}
 
         {/* `role="status"` y no `alert`: no es un fallo, es la consecuencia de lo que el usuario
             acaba de hacer. */}
@@ -855,54 +865,30 @@ function Alta() {
           </p>
         )}
 
-        {/* ── Aviso de vigencia próxima (HU #12213) ──────────────────────────────────────────
-            ENCIMA de la ficha y no dentro: quien acaba de pulsar el botón lee hacia abajo desde él,
-            y la respuesta a «¿puedo seguir?» tiene que llegar antes que once pares etiqueta–valor.
-            La ficha responde «¿es mi carro?»; esto habla del trámite.
-
-            Es el ÚNICO de los cuatro desenlaces SIN tinta de estado en el título: colorearlo
-            —aunque fuera en azul— lo igualaría a las bandas de fallo, y leer esto como un error es
-            justo lo que hace abandonar a quien SÍ puede enviar. Lo verde es solo el chip.
-
-            `role="status"` y no `alert`: no es un fallo y llega después de una acción del usuario;
-            se anuncia al montarse y **no mueve el foco** (el efecto de foco de la página solo actúa
-            en `fase === 'fallo'` y no debe extenderse aquí).
-
-            Nunca coincide con las bandas de error: las fases de `Consulta` son excluyentes, así que
-            esto solo existe en `ok` y aquéllas solo en `fallo`. */}
-        {consulta.fase === 'ok' && aviso && (
-          <div
-            role="status" className="mt-3 space-y-1 rounded-[10px] p-3"
-            style={{ border: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}
-          >
-            <StatusChip tone="success">{AVISO_VIGENCIA_CHIP}</StatusChip>
-            <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
-              {aviso.titulo}
-            </p>
-            {/* `null` en la redacción de respaldo, que ya dice las tres cosas en una sola frase. */}
-            {aviso.detalle && (
-              <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{aviso.detalle}</p>
-            )}
-          </div>
+        {/* Bloqueo (409): la tarjeta ocupa el sitio de la ficha, que el 409 no trae. */}
+        {consulta.fase === 'vigente' && (
+          <TarjetaSoatActivo
+            variante="bloqueo" datos={consulta.soatActivo} venceEl={consulta.fechaVencimiento}
+            tituloRef={tarjetaVigenteRef} onConsultarOtro={consultarOtroVehiculo}
+          />
         )}
+
+        {/* Aviso (200 con `vigenciaProxima`): ENCIMA de la ficha, porque responde «¿puedo seguir?»
+            antes que once pares etiqueta–valor. `role="status"`, sin mover el foco. */}
+        {vigencia && <TarjetaSoatActivo variante="aviso" datos={vigencia} venceEl={vigencia.venceEl} />}
 
         {consulta.fase === 'ok' && (
           <div className="mt-3">
             <FichaRunt datos={consulta.datos} consultadoEn={consulta.consultadoEn} />
           </div>
         )}
-
-        <p className="mt-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-          Con el VIN, el RUNT nos dice la placa, la marca, la línea, el modelo y la ficha técnica del
-          vehículo. Usted no tiene que escribirlos.
-        </p>
       </Seccion>
 
       {/* ── Bloque 2 · Factura de venta ─────────────────────────────────────────────────────────
           Delante del propietario desde la HU #12091 (AC2), y desde la #12094 es también donde la
           lectura dice de sí misma en qué punto está. El chip vive en el encabezado de la sección,
           hermano del «✓ Consultado» del bloque 1: la pantalla ya tiene ese vocabulario. */}
-      <Seccion titulo="2 · Factura de venta" chip={chipLectura(lectura)}>
+      <Seccion titulo="2 · Factura de venta" icono={<FileText size={18} aria-hidden="true" className="shrink-0" />} chip={chipLectura(lectura)}>
         <div className="space-y-3">
           <BloqueFactura archivo={archivo} error={errores.archivo} onElegir={elegirArchivo} onQuitar={quitarArchivo} />
           {/* Debajo de la caja del archivo, que es donde el tabulador las encuentra, y sin robar el
@@ -923,7 +909,7 @@ function Alta() {
       </Seccion>
 
       {/* ── Bloque 3 · Propietario ──────────────────────────────────────────────────────────── */}
-      <Seccion titulo="3 · Propietario">
+      <Seccion titulo="3 · Propietario" icono={<UserRound size={18} aria-hidden="true" className="shrink-0" />}>
         <BloquePropietario
           valor={propietario} onCambio={cambiarPropietario} errores={errores}
           onBlur={(campo) => validarCampo(campo, propietario[campo])}
@@ -1000,15 +986,6 @@ function Alta() {
           la RN-01 corre ANTES de Kyverum, así que no hay respuesta del RUNT de la que sacarlo — y
           meter 17 caracteres en el `aria-label` de un diálogo es PII en la superficie exacta de la
           que tiran los selectores de axe. `restoreFocusRef` es el VIN, el único campo que queda. */}
-      {modal?.codigo === CodigoErrorSolicitudSoat.SOAT_VIGENTE && (
-        <ModalSoatVigente
-          fechaVencimiento={modal.fechaVencimiento}
-          onConsultarOtro={consultarOtroVehiculo}
-          restoreFocusRef={vinRef}
-          onClose={() => { setModal(null); setVigenteCerrado(true); }}
-        />
-      )}
-
       {modal?.codigo === CodigoErrorSolicitudSoat.VIN_YA_TIENE_SOAT && (
         <ModalVinEnCola
           propia={modal.propia === true} estado={modal.estado} id={modal.id}
@@ -1159,6 +1136,8 @@ const ITEM_RUNT: Record<Consulta['fase'], string | null> = {
   cargando: 'consultar el RUNT',
   fallo: 'consultar el RUNT',
   'sin-banda': 'consultar el RUNT',
+  // Cuenta para que el primario siga bloqueado; la frase que se ve es `AVISO_VIGENTE`.
+  vigente: 'consultar el RUNT',
   invalidada: 'volver a consultar el RUNT',
   ok: null,
 };
