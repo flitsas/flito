@@ -955,6 +955,49 @@ describe('el rango nuevo filtra por `created_at`, no por `enviado_en`', () => {
   });
 });
 
+// ─────────────────────────── HU #12830: filtro `semaforo` ─────────────────────────────────────────
+
+describe('HU #12830 — `semaforo` en el cuerpo del export y en el `GET /`', () => {
+  it('export con `semaforo: [naranja, rojo]` → `semaforo in (…)` ligando los dos', async () => {
+    kdb.when.scenario({ flito_impuestos: filas(1), flito_compradores: [] });
+    const r = await exportar(await sesion(), { semaforo: ['naranja', 'rojo'] });
+    expect(r.status).toBe(200);
+    const { sql, params } = whereDelExport();
+    expect(sql).toMatch(/"semaforo" in \(\$\d+, \$\d+\)/);
+    expect(params).toEqual(expect.arrayContaining(['naranja', 'rojo']));
+  });
+
+  it('export con un valor fuera del vocabulario, o lista vacía → 400', async () => {
+    expect((await exportar(await sesion(), { semaforo: ['azul'] })).status).toBe(400);
+    expect((await exportar(await sesion(), { semaforo: [] })).status).toBe(400);
+    expect((await exportar(await sesion(), { semaforo: 'rojo' })).status).toBe(400);
+  });
+
+  it('`GET /?semaforo=naranja,rojo` → el mismo predicado en la cola', async () => {
+    kdb.when.scenario({ flito_impuestos: [], flito_compradores: [] });
+    const r = await request(await buildApp()).get(`${BASE}?semaforo=naranja,rojo`).set('Authorization', await sesion());
+    expect(r.status).toBe(200);
+    const { sql, params } = new PgDialect().sqlToQuery(lecturasDe(TABLA)[0].where as never);
+    expect(sql).toMatch(/"semaforo" in \(\$\d+, \$\d+\)/);
+    expect(params).toEqual(expect.arrayContaining(['naranja', 'rojo']));
+  });
+
+  it('`GET /?semaforo=azul` → 400, no la cola entera', async () => {
+    kdb.when.scenario({ flito_impuestos: [], flito_compradores: [] });
+    const r = await request(await buildApp()).get(`${BASE}?semaforo=rojo,azul`).set('Authorization', await sesion());
+    expect(r.status).toBe(400);
+    expect(lecturasDe(TABLA)).toHaveLength(0);
+  });
+
+  it('`GET /` sin `semaforo` no lo nombra en el WHERE', async () => {
+    kdb.when.scenario({ flito_impuestos: [], flito_compradores: [] });
+    const r = await request(await buildApp()).get(BASE).set('Authorization', await sesion());
+    expect(r.status).toBe(200);
+    const { sql } = new PgDialect().sqlToQuery(lecturasDe(TABLA)[0].where as never);
+    expect(sql).not.toContain('"semaforo"');
+  });
+});
+
 // ─────────────────────────── Paridad de predicado ────────────────────────────────────────────────
 
 describe('paridad — el archivo y la pantalla filtran con el MISMO predicado', () => {

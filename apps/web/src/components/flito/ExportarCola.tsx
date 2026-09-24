@@ -67,6 +67,8 @@ export interface FiltrosExportCola {
    * las que la pantalla enseña, que en un archivo de datos personales es peor que un error.
    */
   vigencia?: string;
+  /** Solo Impuestos: preset «Con alertas» (HU #12830), valores máquina `naranja|rojo`. */
+  semaforo?: string[];
   /**
    * Excel ampliado con datos de pago y trazabilidad (Bug #12642). **Solo viaja cuando está marcado**:
    * el esquema del endpoint es `.strict()` pero admite la clave ausente, y no mandarla es lo que

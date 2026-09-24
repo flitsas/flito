@@ -221,7 +221,7 @@ export const AnalisisEstadoImpuesto = {
 export type AnalisisEstadoImpuesto = (typeof AnalisisEstadoImpuesto)[keyof typeof AnalisisEstadoImpuesto];
 
 export const ANALISIS_ESTADO_IMPUESTO_LABEL: Record<AnalisisEstadoImpuesto, string> = {
-  en_curso: 'Validando factura',
+  en_curso: 'Analizando',
   completado: 'Validada',
   error_analisis: 'Error al validar',
 };
@@ -807,6 +807,9 @@ export const SemaforoImpuesto = {
 
 export type SemaforoImpuesto = (typeof SemaforoImpuesto)[keyof typeof SemaforoImpuesto];
 
+/** Los tres valores, derivados del objeto: el filtro `semaforo` de la cola (HU #12830) los valida con Zod. */
+export const SEMAFOROS_IMPUESTO = Object.values(SemaforoImpuesto) as [SemaforoImpuesto, ...SemaforoImpuesto[]];
+
 export const SEMAFORO_IMPUESTO_LABEL: Record<SemaforoImpuesto, string> = {
   verde: 'Coincide con el RUNT',
   naranja: 'Con diferencias',
@@ -821,7 +824,10 @@ export const MotivoSemaforoRojo = {
 
 export type MotivoSemaforoRojo = (typeof MotivoSemaforoRojo)[keyof typeof MotivoSemaforoRojo];
 
+export const esMotivoSemaforoRojo = (v: unknown): v is MotivoSemaforoRojo =>
+  typeof v === 'string' && (Object.values(MotivoSemaforoRojo) as string[]).includes(v);
+
 export const MOTIVO_SEMAFORO_ROJO_LABEL: Record<MotivoSemaforoRojo, string> = {
   runt_sin_respuesta: 'El RUNT no respondió o no tiene registro del vehículo',
-  error_lectura_factura: 'No se pudo leer la factura de venta',
+  error_lectura_factura: 'No se pudo leer la factura',
 };

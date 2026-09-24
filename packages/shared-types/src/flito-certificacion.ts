@@ -182,6 +182,14 @@ export interface VeredictoComparacion {
 // certificado (con `bloqueante`); este compara la FACTURA DE VENTA leída en el análisis post-envío
 // contra el RUNT y alimenta el semáforo (`flito_impuestos.comparacion_factura_runt`).
 
+/**
+ * Nombre con el que firma la certificación automática del análisis post-envío (HU #12828). Es el
+ * discriminador de `certificacion.automatica` en la cola (HU #12830): `certificado_por_id` NULL no
+ * basta, porque la FK es `ON DELETE SET NULL` y una certificación manual de un usuario borrado
+ * también lo tendría.
+ */
+export const NOMBRE_CERTIFICADOR_AUTOMATICO = 'Sistema (validación automática)';
+
 /** Campos comparados, en orden. La placa NO se compara contra la factura (AC1). */
 export const CAMPOS_COMPARACION_FACTURA_RUNT = ['vin', 'marca', 'linea', 'anio', 'color', 'cilindrada'] as const;
 export type CampoComparacionFacturaRunt = (typeof CAMPOS_COMPARACION_FACTURA_RUNT)[number];

@@ -2,7 +2,9 @@
 // (HU #12592). Vive fuera de la página porque `DetalleImpuesto` y `ModalReciboCaja` la necesitan y
 // la página está al borde de `max-lines`.
 
-import type { DocumentosImpuesto, EstadoImpuesto } from '@operaciones/shared-types';
+import type {
+  AnalisisEstadoImpuesto, DocumentosImpuesto, EstadoImpuesto, MotivoSemaforoRojo, SemaforoImpuesto,
+} from '@operaciones/shared-types';
 import { pesos } from '../../lib/pesos';
 import type { CertificacionCola } from '../flit/CertificacionRunt';
 import StatusChip, { type ChipTone } from '../flit/StatusChip';
@@ -30,6 +32,11 @@ export interface ImpuestoItem {
   liquidadoEn: string | null;
   /** Qué documentos de la hacienda tiene: liquidación, pago, ambos o ninguno (HU #12591). */
   documentos: DocumentosImpuesto | null;
+  /** Análisis post-envío factura ↔ RUNT (HU #12830). `en_curso` manda sobre el color. */
+  analisisEstado?: AnalisisEstadoImpuesto | null;
+  semaforo?: SemaforoImpuesto | null;
+  /** Solo con `semaforo = rojo`. */
+  motivoSemaforo?: MotivoSemaforoRojo | null;
 }
 
 export const TONO_IMPUESTO: Record<EstadoImpuesto, ChipTone> = {

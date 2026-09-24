@@ -110,6 +110,11 @@
      `--flit-danger-ink` sobre la tarjeta oscura se hundía en ~2,5:1. Este token es el que se usa
      para un error escrito sobre tarjeta, modal o página; en claro vale lo mismo que el `-ink`. */
   --flit-danger-text: #C02F24;
+  /* Icono de éxito / advertencia sobre tarjeta (HU #12830, semáforo de Impuestos). Mismo patrón que
+     `--flit-danger-text`: en claro valen el `-ink` (5,14 · 5,47 sobre --flit-bg-card; 4,59 · 4,88 con el velo de hover) y en oscuro se
+     aclaran (ver el bloque oscuro). Mínimo no-texto 3:1 (SC 1.4.11). */
+  --flit-success-text: #3C7C17;
+  --flit-warning-text: #B94120;
   /* Tinta de la pill ACTIVA (fondo `--flit-bg-card`). En claro es el `--flit-blue-ink` de siempre
      (5,62 sobre blanco, Bug #11604); en oscuro ese mismo azul sobre la tarjeta daba ~2,4. */
   --flit-pill-active-ink: #4264B7;
@@ -273,6 +278,9 @@
      oscuras (6,59 sobre tarjeta, la peor); la pill activa usa el azul de texto del tema; los chips
      conservan fondo y tinta del claro, a propósito. */
   --flit-danger-text: #F4A097;
+  /* HU #12830 — ver `:root`. Sobre --flit-bg-card oscura: éxito 8,14 · advertencia 7,24; con el velo de hover encima, 6,35 · 5,65. */
+  --flit-success-text: #9BDB6E;
+  --flit-warning-text: #F2B266;
   --flit-pill-active-ink: #9DBCF7;
   --flit-chip-success-bg: #EBF8E3;
   --flit-chip-active-bg: #E6ECF7;
