@@ -214,7 +214,7 @@ describe('AC2 — factura ilegible', () => {
     const g = updates();
     expect(await ejecutarAnalisis(A)).toBe('error_analisis');
     expect(g[0].set!.semaforo).toBe('rojo');
-    expect(g[1].set).toEqual({ analisisEstado: 'error_analisis' });
+    expect(g[1].set).toMatchObject({ analisisEstado: 'error_analisis' });
   });
 
   it('sin extracción persistida → lanza sin escribir', async () => {

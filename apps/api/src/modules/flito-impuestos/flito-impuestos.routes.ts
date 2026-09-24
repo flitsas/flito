@@ -31,7 +31,7 @@ import { flitoGestorOrganismos } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
 import {
   CARGA_MASIVA_ARCHIVOS_POR_PETICION, CARGA_MASIVA_MAX_BYTES_ARCHIVO, CodigoErrorReciboCaja, EstadoImpuesto, FASES_RECIBO,
-  FaseRecibo, ResultadoCertificacion, TipoSoporteZip,
+  FaseRecibo, ResultadoCertificacion, TipoSoporteZip, CABECERA_DIRECCIONES_SIN_CONFIRMAR,
 } from '@operaciones/shared-types';
 import { ImpuestoError, type ArchivoSubido, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import { certificacionVigenteConAcceso, certificarImpuesto, certificarLote } from './certificacion.service.js';
@@ -45,10 +45,13 @@ import { cargarReciboCaja, cargarRecibos, normalizarRutas, ReciboCajaError } fro
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { getFlitAdapter } from '../flito-sync/flit.adapter.js';
 import analisisRouter from './flito-impuestos.analisis.routes.js';
+import direccionRouter from './flito-impuestos.direccion.routes.js';
+import { contarDireccionesSinConfirmar } from './flito-impuestos.export-pago.js';
 
 const router = Router();
 router.use(authMiddleware);
 router.use(analisisRouter(contextoImpuesto)); // HU #12825: hereda authMiddleware
+router.use(direccionRouter(contextoImpuesto)); // HU #12833: PATCH /:id/direccion
 
 const ESTADOS = ['pendiente', 'solicitado', 'con_novedad', 'pagado'] as const;
 
@@ -446,6 +449,7 @@ router.post('/export', exigirFuncion('impuestos.excel.exportar'), exportColaLimi
     });
 
     res.set('Cache-Control', 'no-store');
+    if (incluirPago) res.set(CABECERA_DIRECCIONES_SIN_CONFIRMAR, String(contarDireccionesSinConfirmar(filas))); // HU #12833 AC4
     await sendExcel(res, nombreArchivoExportImpuestos(), columnasColaExport('impuestos', incluirPago), filas);
   } catch (e) {
     // Con la respuesta ya empezada, responder reventaría con ERR_HTTP_HEADERS_SENT y taparía la
