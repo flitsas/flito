@@ -764,3 +764,34 @@ export type ResumenMotivosCorrida = Partial<Record<MotivoCaidaRunt, number>> & {
   /** Consultas repetidas por un mismo vehículo dentro de la corrida (tope `MAX_REINTENTOS_VEHICULO`). */
   reintentos?: number;
 };
+
+/**
+ * Semáforo factura de venta vs RUNT del análisis post-envío (HU #12827). `flito_impuestos.semaforo`;
+ * `NULL` = sin calcular (análisis pendiente o fallo técnico reintentable).
+ */
+export const SemaforoImpuesto = {
+  VERDE: 'verde',
+  NARANJA: 'naranja',
+  ROJO: 'rojo',
+} as const;
+
+export type SemaforoImpuesto = (typeof SemaforoImpuesto)[keyof typeof SemaforoImpuesto];
+
+export const SEMAFORO_IMPUESTO_LABEL: Record<SemaforoImpuesto, string> = {
+  verde: 'Coincide con el RUNT',
+  naranja: 'Con diferencias',
+  rojo: 'Sin validar',
+};
+
+/** Por qué un semáforo quedó en rojo (HU #12827, AC2). El traspaso en sincronización cae en `runt_sin_respuesta`. */
+export const MotivoSemaforoRojo = {
+  RUNT_SIN_RESPUESTA: 'runt_sin_respuesta',
+  ERROR_LECTURA_FACTURA: 'error_lectura_factura',
+} as const;
+
+export type MotivoSemaforoRojo = (typeof MotivoSemaforoRojo)[keyof typeof MotivoSemaforoRojo];
+
+export const MOTIVO_SEMAFORO_ROJO_LABEL: Record<MotivoSemaforoRojo, string> = {
+  runt_sin_respuesta: 'El RUNT no respondió o no tiene registro del vehículo',
+  error_lectura_factura: 'No se pudo leer la factura de venta',
+};
