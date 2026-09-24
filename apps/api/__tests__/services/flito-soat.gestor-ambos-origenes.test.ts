@@ -198,7 +198,7 @@ describe('AC1 — el detalle: `buscarConAcceso` aplica la MISMA lista blanca', (
     },
     dentroDeFrontera: true,
   });
-  const ctxGestor = { userId: 1, username: 'u', role: 'proveedor', proveedorSoatId: PROVEEDOR, companiaId: null };
+  const ctxGestor = { userId: 1, username: 'u', role: 'proveedor', externo: false, alcance: 'proveedor' as const, proveedorSoatId: PROVEEDOR, companiaId: null };
 
   const buscar = async (estado: string, origen: string) => {
     selectMock.mockImplementationOnce(() => chainEspia([filaDe(estado, origen)]));
