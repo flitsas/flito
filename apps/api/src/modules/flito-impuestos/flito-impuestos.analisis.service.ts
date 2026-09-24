@@ -25,6 +25,7 @@ import {
 } from '@operaciones/shared-types';
 import { limitadorRunt, type LimitadorRunt } from './runt-limitador.js';
 import type { ConsultaRuntAnalisis } from './flito-impuestos.runt-consulta.js';
+import { LIMPIEZA_DIRECCION_REANALISIS, PENDIENTE_SI_SIN_DIRECCION } from './flito-impuestos.direccion.js';
 
 const log = loggerFor('flito-impuestos.analisis');
 
@@ -146,7 +147,10 @@ export async function ejecutarAnalisis(id: string): Promise<'completado' | 'erro
       corridos++;
     } catch (e) {
       log.warn({ impuestoId: id, paso: nombre, ...errorSinPii(e) }, 'analisis: paso falló');
-      await db.update(flitoImpuestos).set({ analisisEstado: AnalisisEstadoImpuesto.ERROR }).where(enCursoDe(id));
+      // HU #12833 (AC3): un análisis caído sin dirección confirmada queda pendiente de revisión.
+      await db.update(flitoImpuestos).set({
+        analisisEstado: AnalisisEstadoImpuesto.ERROR, direccionPendienteRevision: PENDIENTE_SI_SIN_DIRECCION,
+      }).where(enCursoDe(id));
       return 'error_analisis';
     }
   }
@@ -195,7 +199,7 @@ export async function barrerAnalisisHuerfanos(ahora = new Date()): Promise<{ ree
   const vivos = [...enCola];
   // 1) Ya se re-encoló una vez y volvió a quedarse: error, y no se re-encola solo.
   const fallidos = await db.update(flitoImpuestos)
-    .set({ analisisEstado: AnalisisEstadoImpuesto.ERROR })
+    .set({ analisisEstado: AnalisisEstadoImpuesto.ERROR, direccionPendienteRevision: PENDIENTE_SI_SIN_DIRECCION })
     .where(condicionesHuerfanos(ahora, vivos, true))
     .returning({ id: flitoImpuestos.id });
   // 2) Primera vez: se re-encola una sola vez.
@@ -234,6 +238,8 @@ export async function reanalizarImpuesto(id: string, ahora = new Date()): Promis
   const filas = await db.update(flitoImpuestos).set({
     analisisEstado: AnalisisEstadoImpuesto.EN_CURSO, analisisEncoladoEn: ahora, analisisReencolados: 0,
     semaforo: null, comparacionFacturaRunt: null,
+    // HU #12833 (D6): la confirmación automática se descarta; la corrección manual se conserva.
+    ...LIMPIEZA_DIRECCION_REANALISIS,
   }).where(and(
     eq(flitoImpuestos.id, id),
     eq(flitoImpuestos.estado, EstadoImpuesto.SOLICITADO),

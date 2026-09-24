@@ -7,13 +7,16 @@
 import { registrarPasoAnalisis } from './flito-impuestos.analisis.service.js';
 import { pasoAutocertificacion } from './flito-impuestos.autocertificacion.js';
 import { pasoComparacion } from './flito-impuestos.comparacion.js';
+import { pasoDireccion } from './flito-impuestos.direccion.js';
 import { pasoExtraccion } from './flito-impuestos.extraccion.js';
 
 export function registrarPasosAnalisisImpuestos(): void {
   // 12826 — primero: la 12827 compara con el RUNT lo que este paso extrae de la factura.
   registrarPasoAnalisis('extraccion', pasoExtraccion);
-  // 12827 — segundo: consulta el RUNT UNA vez (queda en `job.consultaRunt`) y calcula el semáforo.
+  // 12833 — antes del RUNT: si la comparación cae, la dirección confiable ya quedó confirmada.
+  registrarPasoAnalisis('direccion', pasoDireccion);
+  // 12827 — tercero: consulta el RUNT UNA vez (queda en `job.consultaRunt`) y calcula el semáforo.
   registrarPasoAnalisis('comparacion', pasoComparacion);
-  // 12828 — tercero: certifica con ESA misma respuesta RUNT si procede (sin reconsultar).
+  // 12828 — cuarto: certifica con ESA misma respuesta RUNT si procede (sin reconsultar).
   registrarPasoAnalisis('autocertificacion', pasoAutocertificacion);
 }

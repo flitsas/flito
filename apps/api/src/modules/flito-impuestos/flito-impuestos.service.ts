@@ -19,10 +19,12 @@ import { registrarCambio, registrarCambios } from '../../shared/historial/estado
 import { clasificacionDeTipoFlit, expresionesFlitRaw } from '../../shared/export/cola-flito-derivados.js';
 import {
   ANS_OPERATIVO, EstadoImpuesto, ESTADO_IMPUESTO_LABEL, TipoSoporte, type DocumentosImpuesto,
+  type DireccionCompradorImpuesto,
 } from '@operaciones/shared-types';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
 import { encolarAnalisis, marcarEnCursoEnTx } from './flito-impuestos.analisis.service.js';
+import { bloqueDireccionDetalle, direccionFlitDe } from './flito-impuestos.direccion.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -587,6 +589,7 @@ export async function facturaVentaFlitConAcceso(
 
 export interface ImpuestoDetalle extends ImpuestoColaItem {
   extraccion: unknown; extraccionFacturaVenta: unknown; pagadoEn: string | null;
+  direccionComprador: DireccionCompradorImpuesto; // HU #12833: la efectiva (factura/manual > FLIT)
   soportes: Array<{ id: string; tipo: string; nombreArchivo: string; subidoEn: string }>;
 }
 
@@ -601,6 +604,7 @@ export async function detalleImpuesto(id: string, ctx: ImpuestoCtx): Promise<Imp
   return {
     ...item, extraccion: imp.extraccion, extraccionFacturaVenta: imp.extraccionFacturaVenta,
     pagadoEn: imp.pagadoEn ? imp.pagadoEn.toISOString() : null,
+    direccionComprador: bloqueDireccionDetalle(imp, await direccionFlitDe(imp.tramiteId)),
     soportes: soportes.map((s) => ({ ...s, subidoEn: s.subidoEn.toISOString() })),
   };
 }

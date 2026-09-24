@@ -3160,6 +3160,20 @@ export const flitoImpuestos = pgTable('flito_impuestos', {
   /** HU #12827 (migración 0207): semáforo factura de venta vs RUNT y su detalle (motivo en el jsonb). */
   semaforo: flitoImpuestoSemaforoEnum('semaforo'),
   comparacionFacturaRunt: jsonb('comparacion_factura_runt').$type<ComparacionFacturaRunt>(),
+  /**
+   * HU #12833 (migración 0208): dirección del comprador CONFIRMADA (de la factura o corregida a mano).
+   * Vive aquí y no en `flito_compradores` porque el sync con FLIT borra y reinserta esa tabla.
+   * `direccionFuente` es el discriminante: NULL = se lee la de FLIT; 'factura' | 'manual'.
+   * La propuesta sin confirmar sigue en `extraccionFacturaVenta` (no se duplica).
+   */
+  direccionFactura: text('direccion_factura'),
+  municipioFactura: text('municipio_factura'),
+  departamentoFactura: text('departamento_factura'),
+  direccionFuente: text('direccion_fuente').$type<'factura' | 'manual'>(),
+  direccionPendienteRevision: boolean('direccion_pendiente_revision').notNull().default(false),
+  direccionConfirmadaPorId: integer('direccion_confirmada_por_id').references(() => users.id, { onDelete: 'set null' }),
+  direccionConfirmadaPorNombre: text('direccion_confirmada_por_nombre'),
+  direccionConfirmadaEn: timestamp('direccion_confirmada_en', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({

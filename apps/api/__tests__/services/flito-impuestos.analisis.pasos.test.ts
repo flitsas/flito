@@ -1,4 +1,4 @@
-// HU #12828 — orden de los pasos del análisis post-envío: extracción → comparación →
+// HU #12828 — orden de los pasos del análisis post-envío: extracción → dirección (HU #12833) → comparación →
 // autocertificación, y el memo `job` (con `consultaRunt`) es el MISMO objeto para los tres. Y el
 // runner no loguea el `message` de un error de paso (el de Drizzle arrastra los params = PII).
 
@@ -11,6 +11,10 @@ const paso = (n: string) => vi.fn(async ({ job }: { job: unknown }) => { orden.p
 vi.mock('../../src/modules/flito-impuestos/flito-impuestos.extraccion.js', () => ({ pasoExtraccion: paso('extraccion') }));
 vi.mock('../../src/modules/flito-impuestos/flito-impuestos.comparacion.js', () => ({ pasoComparacion: paso('comparacion') }));
 vi.mock('../../src/modules/flito-impuestos/flito-impuestos.autocertificacion.js', () => ({ pasoAutocertificacion: paso('autocertificacion') }));
+// HU #12833: el paso `direccion` real se sustituye; el resto del módulo (fragmentos SQL) queda real.
+vi.mock('../../src/modules/flito-impuestos/flito-impuestos.direccion.js', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()), pasoDireccion: paso('direccion'),
+}));
 
 const logWarn = vi.fn();
 vi.mock('../../src/shared/logger.js', () => ({
@@ -33,13 +37,13 @@ const { registrarPasosAnalisisImpuestos } = await import('../../src/modules/flit
 const { ejecutarAnalisis, __resetColaAnalisis, registrarPasoAnalisis, encolarAnalisis, __colaAnalisisVacia } = await import('../../src/modules/flito-impuestos/flito-impuestos.analisis.service.js');
 
 describe('registrarPasosAnalisisImpuestos', () => {
-  it('ejecuta extracción → comparación → autocertificación con el mismo memo del job', async () => {
+  it('ejecuta extracción → dirección → comparación → autocertificación con el mismo memo del job', async () => {
     __resetColaAnalisis();
     registrarPasosAnalisisImpuestos();
 
     await expect(ejecutarAnalisis('00000000-0000-0000-0000-0000000000c9')).resolves.toBe('completado');
 
-    expect(orden).toEqual(['extraccion', 'comparacion', 'autocertificacion']);
+    expect(orden).toEqual(['extraccion', 'direccion', 'comparacion', 'autocertificacion']);
     expect(new Set(jobs).size).toBe(1);
   });
 });

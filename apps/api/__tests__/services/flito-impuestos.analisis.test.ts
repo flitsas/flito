@@ -91,7 +91,9 @@ describe('cola en memoria', () => {
 
     expect(paso).toHaveBeenCalledTimes(2);
     const porId = (id: string) => g.find((x) => render(x.where!).params.includes(id))!;
-    expect(porId(A).set).toEqual({ analisisEstado: 'error_analisis' });
+    expect(porId(A).set).toEqual({ analisisEstado: 'error_analisis', direccionPendienteRevision: expect.anything() });
+    // HU #12833 (AC3): el fallo técnico marca la dirección pendiente SOLO si no había una confirmada.
+    expect(render(porId(A).set!.direccionPendienteRevision as SQL).sql).toBe('"flito_impuestos"."direccion_fuente" IS NULL');
     expect(porId(B).set).toEqual({ analisisEstado: 'completado', analizadoEn: AHORA });
     // Los dos UPDATE son condicionales a seguir en_curso.
     for (const x of g) expect(render(x.where!).sql).toMatch(/"analisis_estado" = \$\d/);
@@ -131,7 +133,8 @@ describe('cola en memoria', () => {
     const g = updates([]);
     expect(await ejecutarAnalisis(A)).toBe('error_analisis');
     expect(siguiente).not.toHaveBeenCalled();
-    expect(g[0].set).toEqual({ analisisEstado: 'error_analisis' });
+    expect(g[0].set).toEqual({ analisisEstado: 'error_analisis', direccionPendienteRevision: expect.anything() });
+    expect(render(g[0].set!.direccionPendienteRevision as SQL).sql).toBe('"flito_impuestos"."direccion_fuente" IS NULL');
   });
 });
 
@@ -196,7 +199,8 @@ describe('AC4 — recuperación de huérfanos', () => {
     const r = await barrerAnalisisHuerfanos(AHORA);
     expect(r).toEqual({ reencolados: 1, fallidos: 1 });
 
-    expect(g[0].set).toEqual({ analisisEstado: 'error_analisis' });
+    expect(g[0].set).toEqual({ analisisEstado: 'error_analisis', direccionPendienteRevision: expect.anything() });
+    expect(render(g[0].set!.direccionPendienteRevision as SQL).sql).toBe('"flito_impuestos"."direccion_fuente" IS NULL');
     expect(render(g[0].where!).sql).toMatch(/"analisis_reencolados" >= /);
 
     expect(render(g[1].where!).sql).toMatch(/"analisis_reencolados" = /);
@@ -251,9 +255,17 @@ describe('AC5 — reanalizarImpuesto', () => {
 
     expect(await reanalizarImpuesto(A, AHORA)).toEqual({ resultado: 'ENCOLADO', id: A, analisisEstado: 'en_curso' });
     // HU 12827: el reintento borra el semáforo de la corrida anterior.
-    expect(g[0].set).toEqual({
+    expect(g[0].set).toMatchObject({
       analisisEstado: 'en_curso', analisisEncoladoEn: AHORA, analisisReencolados: 0, semaforo: null, comparacionFacturaRunt: null,
+      // HU #12833 (D6): el reintento limpia la dirección AUTOMÁTICA y conserva la manual.
+      direccionPendienteRevision: false,
     });
+    expect(render(g[0].set!.direccionFuente as SQL).sql).toBe(`NULLIF("flito_impuestos"."direccion_fuente", 'factura')`);
+    expect(render(g[0].set!.direccionFactura as SQL).sql)
+      .toBe(`CASE WHEN "flito_impuestos"."direccion_fuente" = 'manual' THEN "flito_impuestos"."direccion_factura" END`);
+    for (const k of ['municipioFactura', 'departamentoFactura', 'direccionConfirmadaPorId', 'direccionConfirmadaPorNombre', 'direccionConfirmadaEn']) {
+      expect(render(g[0].set![k] as SQL).sql, k).toMatch(/^CASE WHEN "flito_impuestos"\."direccion_fuente" = 'manual' THEN /);
+    }
     const w = render(g[0].where!);
     expect(w.sql).toMatch(/"estado" = \$\d/);
     expect(w.sql).toMatch(/"analisis_estado" in \(\$\d, \$\d\)/);
