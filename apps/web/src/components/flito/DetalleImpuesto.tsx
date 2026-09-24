@@ -2,7 +2,7 @@
 // #12592: la página rozaba `max-lines` y el detalle gana aquí el chip de documentos, el dato
 // «Liquidado el», el botón «Cargar recibo de caja» y su modal.
 
-import { useRef, useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { ESTADO_IMPUESTO_LABEL, EstadoImpuesto } from '@operaciones/shared-types';
 import { api, errorMessage } from '../../lib/api';
 import FlitModal from '../flit/FlitModal';
@@ -24,12 +24,14 @@ const ESTADOS_OPERACIONES: EstadoImpuesto[] = [
 type Accion = 'idle' | 'rechazar' | 'reactivar' | 'reversar' | 'asumir' | 'devolver';
 
 export default function DetalleImpuesto({
-  imp, esOperaciones, esGestor, soloLectura, puedeCargarCaja, onClose, onCambio, onTraspaso,
+  imp, esOperaciones, esGestor, soloLectura, puedeCargarCaja, onClose, onCambio, onTraspaso, accionReintento, sinPermisoReintento,
 }: {
   imp: ImpuestoItem; esOperaciones: boolean; esGestor: boolean; soloLectura: boolean;
   /** `hasFuncion('impuestos.recibos.cargar_caja')`: sin ella el botón no se pinta (ni en gris). */
   puedeCargarCaja: boolean;
   onClose: () => void; onCambio: () => void; onTraspaso: () => void;
+  /** «Reintentar validación» (HU #12832), montado por la página; secundario aquí. */
+  accionReintento?: ReactNode; sinPermisoReintento?: boolean;
 }) {
   const [accion, setAccion] = useState<Accion>('idle');
   const [motivo, setMotivo] = useState('');
@@ -172,7 +174,7 @@ export default function DetalleImpuesto({
         </dl>
 
         {/* HU #12831 (AC2): entre el <dl> y el historial. «Reintentar validación» llega con la #12832. */}
-        <SeccionValidacion imp={imp} />
+        <SeccionValidacion imp={imp} accionReintento={accionReintento} sinPermiso={sinPermisoReintento} />
 
         {verSoportes && (
           <VisorSoportes ruta={`/flito/impuestos/${imp.id}/soportes`} titulo={`Impuesto ${imp.placa ?? imp.vin}`}
