@@ -15,6 +15,7 @@ import { documentoConTipo } from '../flit/columnasComunes';
 import { FlitField, flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
 import ModalReciboCaja from './ModalReciboCaja';
 import { ChipDocumentos, TONO_IMPUESTO, fecha, pesos, type ImpuestoItem } from './ImpuestoCola';
+import { SeccionValidacion } from './ValidacionRunt';
 
 const ESTADOS_OPERACIONES: EstadoImpuesto[] = [
   EstadoImpuesto.PENDIENTE, EstadoImpuesto.SOLICITADO, EstadoImpuesto.CON_NOVEDAD, EstadoImpuesto.PAGADO,
@@ -169,6 +170,9 @@ export default function DetalleImpuesto({
           </div>
           <Dato k="Enviado por" v={imp.enviadoPorNombre ?? '—'} /><Dato k="Enviado" v={fecha(imp.enviadoEn)} />
         </dl>
+
+        {/* HU #12831 (AC2): entre el <dl> y el historial. «Reintentar validación» llega con la #12832. */}
+        <SeccionValidacion imp={imp} />
 
         {verSoportes && (
           <VisorSoportes ruta={`/flito/impuestos/${imp.id}/soportes`} titulo={`Impuesto ${imp.placa ?? imp.vin}`}
