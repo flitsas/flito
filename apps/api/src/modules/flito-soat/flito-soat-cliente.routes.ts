@@ -197,13 +197,28 @@ const VIN_MIN = 11;
  *
  * Lo que sí queda cerrado por construcción: una `placa` colada en el cuerpo no puede llegar al RUNT
  * ni a `vehicles.plate`, porque `parsed.data` no la contiene y nadie lee `req.body` después.
+ *
+ * ── Sin I, O ni Q, y también medido sobre lo normalizado (HU #12843) ────────────────────────────
+ *
+ * ISO 3779 excluye esas tres letras del VIN porque se confunden con 1 y 0. La web ya lo avisaba
+ * (`errorVin` en `apps/web/src/lib/soatCliente.ts`, mismo sentido del mensaje), pero el servidor lo
+ * dejaba pasar y una «O» tecleada por un cero salía al RUNT como consulta de pago perdida. Por eso
+ * el rechazo va AQUÍ, antes de cualquier consulta, y en el mismo `vehiculoSchema` que el alta
+ * reutiliza con `.merge()`: las dos rutas lo heredan sin copia.
+ *
+ * Lo que la regla NO hace, dicho para que nadie lo «complete»: no valida el dígito de control ni
+ * exige 17 caracteres. `VIN_RE` de `flito-logistica-barcode.ts` sí exige 17 exactos y por eso no se
+ * reutiliza: rompería el piso de 11 de los chasis cortos que está explicado arriba.
  */
+const VIN_SIN_IOQ_RE = /^[A-HJ-NPR-Z0-9]+$/;
+
 const vehiculoSchema = z.object({
   vin: z.preprocess(
     (v) => (typeof v === 'string' ? normalizarId(v) : v),
     z.string()
       .min(VIN_MIN, `El VIN debe tener al menos ${VIN_MIN} caracteres`)
-      .max(17, 'El VIN no puede pasar de 17 caracteres'),
+      .max(17, 'El VIN no puede pasar de 17 caracteres')
+      .regex(VIN_SIN_IOQ_RE, 'El VIN no lleva las letras I, O ni Q. Revise si son unos o ceros.'),
   ),
 });
 
