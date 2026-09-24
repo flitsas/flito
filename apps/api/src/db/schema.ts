@@ -5,7 +5,7 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
 });
 import { sql, desc } from 'drizzle-orm';
 // FLITO (migración): tipos de extracción OCR persistidos en columnas jsonb.
-import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVentaImpuesto, ExtraccionDerechoTramite } from '@operaciones/shared-types';
+import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVentaImpuesto, ExtraccionDerechoTramite, ComparacionFacturaRunt } from '@operaciones/shared-types';
 // Certificación de impuestos contra el RUNT (Feature #11159): detalle por campo en columna jsonb.
 import type { ComparacionCampo } from '@operaciones/shared-types';
 // Entrega de la factura por correo (HU #11334): destinatarios con su procedencia, en columna jsonb.
@@ -2640,6 +2640,8 @@ export const flitoSoatEstadoEnum = pgEnum('flito_soat_estado', ['pendiente', 'so
 export const flitoImpuestoEstadoEnum = pgEnum('flito_impuesto_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado']);
 /** HU #12825: ciclo del análisis post-envío. NULL en la columna = nunca encolado (histórico). */
 export const flitoImpuestoAnalisisEstadoEnum = pgEnum('flito_impuesto_analisis_estado', ['en_curso', 'completado', 'error_analisis']);
+/** HU #12827: semáforo factura vs RUNT. NULL en la columna = sin calcular. */
+export const flitoImpuestoSemaforoEnum = pgEnum('flito_impuesto_semaforo', ['verde', 'naranja', 'rojo']);
 export const flitoTramiteEstadoEnum = pgEnum('flito_tramite_estado', ['asignado', 'entregado', 'aprobado', 'anulado', 'rechazado']);
 // Modalidad del organismo: requiere_gestion | autogestionado (default). 'sin_clasificar' se deprecó.
 export const flitoModalidadEnum = pgEnum('flito_modalidad_organismo', ['requiere_gestion', 'autogestionado']);
@@ -3155,6 +3157,9 @@ export const flitoImpuestos = pgTable('flito_impuestos', {
   analisisEncoladoEn: timestamp('analisis_encolado_en', { withTimezone: true }),
   analisisReencolados: smallint('analisis_reencolados').notNull().default(0),
   analizadoEn: timestamp('analizado_en', { withTimezone: true }),
+  /** HU #12827 (migración 0207): semáforo factura de venta vs RUNT y su detalle (motivo en el jsonb). */
+  semaforo: flitoImpuestoSemaforoEnum('semaforo'),
+  comparacionFacturaRunt: jsonb('comparacion_factura_runt').$type<ComparacionFacturaRunt>(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({

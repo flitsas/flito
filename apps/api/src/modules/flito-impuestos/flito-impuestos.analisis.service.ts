@@ -24,6 +24,7 @@ import {
   AnalisisEstadoImpuesto, CONCURRENCIA_CERTIFICACION, EstadoImpuesto, type ResultadoReanalisis,
 } from '@operaciones/shared-types';
 import { limitadorRunt, type LimitadorRunt } from './runt-limitador.js';
+import type { ConsultaRuntAnalisis } from './flito-impuestos.runt-consulta.js';
 
 const log = loggerFor('flito-impuestos.analisis');
 
@@ -32,8 +33,15 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 /** Un `en_curso` más viejo que esto, sin job vivo en el proceso, se considera huérfano (AC4). */
 export const HUERFANO_ANALISIS_MS = 10 * 60_000;
 
+/**
+ * Memo de UNA ejecución del análisis, compartido por sus pasos y solo en memoria (HU #12827): la
+ * consulta RUNT que hace el paso `comparacion` queda en `consultaRunt` para que la 12828 no reconsulte.
+ * Un reintento o una recuperación es un análisis nuevo y trae un memo nuevo.
+ */
+export interface ContextoAnalisis { consultaRunt?: ConsultaRuntAnalisis }
+
 /** Un paso del análisis. Lanza para marcar el impuesto `error_analisis`. */
-export type PasoAnalisis = (c: { impuestoId: string; runt: LimitadorRunt }) => Promise<void>;
+export type PasoAnalisis = (c: { impuestoId: string; runt: LimitadorRunt; job: ContextoAnalisis }) => Promise<void>;
 
 const pasos = new Map<string, PasoAnalisis>();
 
@@ -117,9 +125,10 @@ export async function ejecutarAnalisis(id: string): Promise<'completado' | 'erro
   if (fila.analizadoEn && fila.analisisEncoladoEn && fila.analizadoEn >= fila.analisisEncoladoEn) return 'omitido';
 
   let corridos = 0;
+  const job: ContextoAnalisis = {};
   for (const [nombre, paso] of pasos) {
     try {
-      await paso({ impuestoId: id, runt: limitadorRunt });
+      await paso({ impuestoId: id, runt: limitadorRunt, job });
       corridos++;
     } catch (e) {
       log.warn({ impuestoId: id, paso: nombre, err: (e as Error)?.message }, 'analisis: paso falló');
@@ -206,8 +215,11 @@ export async function reanalizarImpuesto(id: string, ahora = new Date()): Promis
     .limit(1);
   if (cert) return { resultado: 'YA_CERTIFICADO' };
 
+  // HU #12827: el semáforo de la corrida anterior se borra; si esta termina en fallo técnico no debe
+  // quedar visible un color que ya no corresponde.
   const filas = await db.update(flitoImpuestos).set({
     analisisEstado: AnalisisEstadoImpuesto.EN_CURSO, analisisEncoladoEn: ahora, analisisReencolados: 0,
+    semaforo: null, comparacionFacturaRunt: null,
   }).where(and(
     eq(flitoImpuestos.id, id),
     eq(flitoImpuestos.estado, EstadoImpuesto.SOLICITADO),

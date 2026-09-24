@@ -69,13 +69,14 @@ export type ResultadoCertificar =
   | { resultado: typeof ResultadoCertificacion.ERROR_SERVICIO; mensaje: string };
 
 /** Datos del vehículo del trámite, que son los que se contrastan con el RUNT. */
-interface DatosImpuesto extends DatosVehiculoFlito {
+export interface DatosImpuesto extends DatosVehiculoFlito {
   vehiculoId: typeof vehicles.$inferSelect['id'];
   ownerName: string | null;
   ownerDocument: string | null;
 }
 
-async function datosDelVehiculo(impuestoId: string): Promise<DatosImpuesto | null> {
+/** Exportada para la consulta RUNT del análisis post-envío (HU #12827), sin cambio de lógica. */
+export async function datosDelVehiculo(impuestoId: string): Promise<DatosImpuesto | null> {
   const [row] = await db.select({
     // El id va aparte de lo que se compara: es la llave con la que se le devuelve al vehículo lo
     // que el RUNT sabe de él (motor y serie, HU #12402).

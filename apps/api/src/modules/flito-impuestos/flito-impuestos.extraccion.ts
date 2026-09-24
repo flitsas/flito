@@ -22,7 +22,7 @@
 import type { Request } from 'express';
 import { and, eq } from 'drizzle-orm';
 import {
-  AnalisisEstadoImpuesto, type CampoExtraido, type ExtraccionFacturaVentaImpuesto, type FuenteExtraccionFactura,
+  AnalisisEstadoImpuesto, type CampoExtraido, type ExtraccionFacturaVentaImpuesto,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { flitoImpuestos, flitoTramites } from '../../db/schema.js';
@@ -120,14 +120,16 @@ export async function extraerDeFactura(
  * usuario —`user_id`/`user_role` quedan NULL, que es lo que distingue al sistema de una persona—,
  * sin IP y sin `request_id`. El motivo dice que fue el análisis automático. No se inventa usuario.
  */
-async function registrarAccesoSistema(impuestoId: string, fuente: FuenteExtraccionFactura): Promise<void> {
+export async function registrarAccesoSistema(
+  impuestoId: string, camposAccedidos: string[], detalle: string,
+): Promise<void> {
   const reqSistema = { headers: {}, ip: undefined } as unknown as Request;
   await logPiiAccess(reqSistema, {
     resourceTipo: RECURSO_IMPUESTO,
     resourceId: null, // uuid: no cabe en la columna integer; va en el motivo, como en flito-impuestos.pii.ts
     accion: 'read',
-    camposAccedidos: ['direccion', 'municipio', 'departamento', 'vin'],
-    motivo: `analisis_post_envio (sistema) — extracción factura de venta · fuente=${fuente} · impuesto ${impuestoId}`,
+    camposAccedidos,
+    motivo: `analisis_post_envio (sistema) — ${detalle} · impuesto ${impuestoId}`,
   });
 }
 
@@ -142,6 +144,8 @@ export const pasoExtraccion: PasoAnalisis = async ({ impuestoId }) => {
   // Solo si sigue `en_curso`: no pisa una fila que se reseteó mientras el job corría.
   await db.update(flitoImpuestos).set({ extraccionFacturaVenta: extraccion })
     .where(and(eq(flitoImpuestos.id, impuestoId), eq(flitoImpuestos.analisisEstado, AnalisisEstadoImpuesto.EN_CURSO)));
-  await registrarAccesoSistema(impuestoId, extraccion.fuente!);
+  await registrarAccesoSistema(
+    impuestoId, ['direccion', 'municipio', 'departamento', 'vin'], `extracción factura de venta · fuente=${extraccion.fuente!}`,
+  );
   log.info({ impuestoId, fuente: extraccion.fuente, camposConfiables: confiables(extraccion) }, 'extraccion: factura analizada');
 };

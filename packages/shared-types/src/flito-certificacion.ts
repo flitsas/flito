@@ -22,7 +22,7 @@
  * que FLITO tiene para contrastar.
  */
 
-import { EstadoImpuesto } from './flito-estados.js';
+import { EstadoImpuesto, type MotivoSemaforoRojo } from './flito-estados.js';
 
 /**
  * Estados desde los que se puede certificar. SOLO `solicitado` (decisión del PO, 2026-07-31).
@@ -174,4 +174,52 @@ export interface VeredictoComparacion {
   campos: ComparacionCampo[];
   /** Solo los bloqueantes que difieren — lo que el usuario necesita leer primero. */
   diferenciasBloqueantes: ComparacionCampo[];
+}
+
+// ─────────────────── Semáforo factura de venta vs RUNT (HU #12827) ───────────────────
+//
+// Contrato APARTE de `ComparacionCampo`: aquel compara la BD de FLITO contra el RUNT para el
+// certificado (con `bloqueante`); este compara la FACTURA DE VENTA leída en el análisis post-envío
+// contra el RUNT y alimenta el semáforo (`flito_impuestos.comparacion_factura_runt`).
+
+/** Campos comparados, en orden. La placa NO se compara contra la factura (AC1). */
+export const CAMPOS_COMPARACION_FACTURA_RUNT = ['vin', 'marca', 'linea', 'anio', 'color', 'cilindrada'] as const;
+export type CampoComparacionFacturaRunt = (typeof CAMPOS_COMPARACION_FACTURA_RUNT)[number];
+
+export const CAMPO_COMPARACION_FACTURA_RUNT_LABEL: Record<CampoComparacionFacturaRunt, string> = {
+  vin: 'VIN',
+  marca: 'Marca',
+  linea: 'Línea',
+  anio: 'Año modelo',
+  color: 'Color',
+  cilindrada: 'Cilindrada',
+};
+
+/** `no_verificable` no cuenta como diferencia: falta el dato fiable de un lado. */
+export type ResultadoCampoFacturaRunt = 'coincide' | 'difiere' | 'no_verificable';
+
+export interface ComparacionCampoFacturaRunt {
+  campo: CampoComparacionFacturaRunt;
+  resultado: ResultadoCampoFacturaRunt;
+  valorFactura: string | null;
+  valorRunt: string | null;
+  /** Solo en `no_verificable`: de qué lado faltó el dato fiable. */
+  origenNoVerificable?: 'factura' | 'runt';
+  /** Cilindrada 0 en la factura y 0 o vacío en el RUNT (AC3). */
+  nota?: 'electrico';
+}
+
+/** Causa fina del rojo por RUNT, para soporte. El contrato de UI es `motivo`. */
+export type DetalleRuntSemaforo = 'sin_respuesta' | 'sin_registro' | 'traspaso' | 'sin_identificador';
+
+export interface ComparacionFacturaRunt {
+  version: 1;
+  /** `null` ⇔ semáforo verde o naranja. */
+  motivo: MotivoSemaforoRojo | null;
+  detalleRunt?: DetalleRuntSemaforo;
+  /** `[]` cuando el semáforo es rojo. */
+  campos: ComparacionCampoFacturaRunt[];
+  resumen: { coinciden: number; difieren: number; noVerificables: number };
+  /** ISO 8601. */
+  calculadoEn: string;
 }
