@@ -6,7 +6,12 @@
 //
 // Reglas que se certifican aquí:
 //  · La primaria NUNCA se apaga por validación (criterio #11915): se valida al pulsar, con
-//    `aria-invalid` + `<p role="alert">` y foco al primer campo con error.
+//    `aria-invalid` + `<p role="alert">` y foco al primer campo con error. Única excepción, por
+//    spec (UX slim Bug #12913): en un PAGO de servicios adicionales «Aplicar» espera al tipo de
+//    servicio, con la razón escrita bajo el botón.
+//  · Bug #12913: ese pago elige su tipo de servicio (`servicioTipoId`) y el valor del comprobante
+//    entra a la puente del trámite. El campo solo existe en ese caso; en cualquier otro NO viaja
+//    (el API da 400 si llega de más).
 //  · Se decide por `codigo` del `ErrorComprobanteDto`, nunca por texto. Un 409 con `puedeAdjuntar`
 //    es un CAMINO (bloque sin rojo + «Adjuntar como documentación»), no un error (slim D-8).
 //  · Al servidor viaja solo el delta de campos (D-7) y el motivo solo cuando hay algo que justificar
@@ -18,10 +23,13 @@ import { Link } from 'react-router-dom';
 import {
   CONCEPTOS_COSTO, CONCEPTO_COSTO_LABEL, CodigoErrorComprobante,
   type AplicarComprobanteBody, type CampoComprobanteDto, type CandidatoTramiteDto, type ComprobanteDetalleDto, type ConceptoCosto,
+  type ServicioAdicionalTipo, type ServiciosAdicionalesDeTramite,
 } from '@operaciones/shared-types';
-import { ApiError, errorMessage } from '../../lib/api';
+import { ApiError, api, errorMessage } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { hasPage } from '../../lib/permissions';
+import { rutaServiciosDeTramite, tipoIdsDe } from '../../lib/serviciosAdicionalesTramite';
+import BuscadorTipoServicio from '../finanzas/BuscadorTipoServicio';
 import {
   ADMISION_LABEL, AYUDA_MOTIVO, CAMPOS_OCULTOS, MOTIVO_MAX, MOTIVO_MIN, aplicarComprobante, chipConfianza, deltaCampos,
   descartarComprobante, errorComprobante, esCampoEditable, labelCampo, llaveSugerido, pesosComprobante,
@@ -36,6 +44,10 @@ export const MSG_TRAMITE = 'Elige el trámite al que pertenece.';
 export const MSG_CONCEPTO = 'Elige el concepto.';
 export const MSG_VALOR = 'Escribe el valor pagado: sin valor no se puede aplicar un pago.';
 export const MSG_MOTIVO = 'Escribe por qué cambias lo leído (mínimo 5 caracteres).';
+export const MSG_TIPO_SERVICIO = 'Elige el tipo de servicio para aplicar este pago.';
+export const RAZON_SIN_TIPO = 'Elige el tipo de servicio para aplicar.';
+const COPY_TIPO_DE_BAJA = 'Ese tipo de servicio ya no está activo. Elige otro.';
+const COPY_SA_LIQUIDADO = 'El trámite ya está liquidado: no se le pueden asignar servicios. Reversa la liquidación y vuelve a aplicar.';
 export const MSG_MOTIVO_DESCARTE = 'Escribe el motivo del descarte (mínimo 5 caracteres).';
 const COPY_403 = 'Tu usuario no puede aplicar comprobantes. Vuelve a entrar para actualizar tus permisos.';
 const COPY_YA_RESUELTO = 'Alguien resolvió este comprobante mientras lo tenías abierto.';
@@ -58,7 +70,11 @@ type Respuesta =
   | { tipo: 'liquidado'; texto: string }
   | { tipo: 'documentado'; texto: string; anteriorId: string | null };
 
-type Clave = 'esPago' | 'tramite' | 'concepto' | 'valorTotal' | 'motivo';
+type Clave = 'esPago' | 'tramite' | 'concepto' | 'servicioTipo' | 'valorTotal' | 'motivo';
+
+const esPagoSa = (esPago: boolean | null, concepto: ConceptoCosto | '') => esPago === true && concepto === 'servicios_adicionales';
+/** «95000» / «95.000» → 95000; lo escrito en el campo Valor, para el toast. */
+const valorEscrito = (v: string | undefined) => Number((v ?? '').replace(/\D/g, '')) || 0;
 
 const CAMPO_VALOR_VACIO: CampoComprobanteDto = { campo: 'valorTotal', valor: null, confianza: 0, confiable: false, nivel: null, confirmadoPor: null };
 
@@ -69,9 +85,18 @@ function candidatoDe(detalle: ComprobanteDetalleDto): CandidatoTramiteDto | null
     ?? { tramiteId: fijado.id, idFlit: fijado.idFlit, placa: fijado.placa, vin: null, tipoTramite: null, empresa: null, flitEstado: null, liquidado: false, admite: {} as CandidatoTramiteDto['admite'] };
 }
 
-function toastAplicado(c: ComprobanteDetalleDto, esPago: boolean, idFlit: string, concepto: ConceptoCosto): string {
+/** El servicio elegido en un pago SA: si ya estaba asignado, el toast dice que su valor se actualizó. */
+interface ServicioAplicado { nombre: string; valor: number; yaAsignado: boolean }
+
+function toastAplicado(c: ComprobanteDetalleDto, esPago: boolean, idFlit: string, concepto: ConceptoCosto, servicio?: ServicioAplicado): string {
   const id = c.tramite?.idFlit ?? idFlit;
   if (!esPago) return `Documentación adjuntada a ${id}.`;
+  if (servicio) {
+    const valor = pesosComprobante(servicio.valor);
+    return servicio.yaAsignado
+      ? `Pago aplicado. «${servicio.nombre}» de ${id} se actualizó a ${valor}.`
+      : `Pago aplicado. «${servicio.nombre}» quedó asignado a ${id} por ${valor}.`;
+  }
   let texto = `Comprobante aplicado a ${id} · ${CONCEPTO_COSTO_LABEL[c.concepto ?? concepto]}.`;
   if (c.marcadoPorDiferencia && c.diferenciaTarifa !== null && c.diferenciaTarifa !== 0) {
     const signo = c.diferenciaTarifa > 0 ? '+' : '−';
@@ -106,10 +131,13 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
   const [respuesta, setRespuesta] = useState<Respuesta | null>(null);
   const [reemplazo, setReemplazo] = useState<{ motivo: string; error: string | null } | null>(null);
   const [descarte, setDescarte] = useState<{ motivo: string; error: string | null; enviando: boolean } | null>(null);
+  const [servicioTipo, setServicioTipo] = useState<ServicioAdicionalTipo | null>(null);
+  const [recargaCatalogo, setRecargaCatalogo] = useState(0);
+  const [asignadosTramite, setAsignadosTramite] = useState<string[]>([]);
 
   const refs = {
     esPago: useRef<HTMLInputElement>(null), tramite: useRef<HTMLInputElement>(null), concepto: useRef<HTMLSelectElement>(null),
-    valorTotal: useRef<HTMLInputElement>(null), motivo: useRef<HTMLTextAreaElement>(null),
+    servicioTipo: useRef<HTMLInputElement>(null), valorTotal: useRef<HTMLInputElement>(null), motivo: useRef<HTMLTextAreaElement>(null),
   };
   const botonDescartarRef = useRef<HTMLButtonElement>(null);
 
@@ -137,18 +165,33 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
   const admision = tramite && concepto ? tramite.admite?.[concepto] : undefined;
   const avisoYaPagado = esPago === true && concepto !== '' && admision === 'ya_pagado';
   const idFlitElegido = tramite?.idFlit ?? '';
+  const pideTipo = esPagoSa(esPago, concepto);
+  const faltaTipo = pideTipo && !servicioTipo;
+  const tramiteIdElegido = tramite?.tramiteId ?? null;
+
+  // Qué tipos lleva ya el trámite, solo para marcarlos en la lista («se actualizará el valor»). Es
+  // una ayuda, no una condición: sin permiso de lectura del panel, la lista va sin marcas.
+  useEffect(() => {
+    if (!pideTipo || !tramiteIdElegido) { setAsignadosTramite([]); return; }
+    let vivo = true;
+    api.get<ServiciosAdicionalesDeTramite>(rutaServiciosDeTramite(tramiteIdElegido))
+      .then((r) => { if (vivo) setAsignadosTramite(tipoIdsDe(r.items)); })
+      .catch(() => { if (vivo) setAsignadosTramite([]); });
+    return () => { vivo = false; };
+  }, [pideTipo, tramiteIdElegido]);
 
   const validar = (): Partial<Record<Clave, string>> => {
     const e: Partial<Record<Clave, string>> = {};
     if (esPago === null) e.esPago = MSG_ES_PAGO;
     if (!tramite) e.tramite = MSG_TRAMITE;
     if (!concepto) e.concepto = MSG_CONCEPTO;
+    if (faltaTipo) e.servicioTipo = MSG_TIPO_SERVICIO;
     if (esPago === true && !(valores.valorTotal ?? '').trim()) e.valorTotal = MSG_VALOR;
     if (motivoMontado && motivo.trim().length < MOTIVO_MIN) e.motivo = MSG_MOTIVO;
     return e;
   };
   const enfocar = (e: Partial<Record<Clave, string>>) => {
-    const primera = (['esPago', 'tramite', 'concepto', 'valorTotal', 'motivo'] as Clave[]).find((k) => e[k]);
+    const primera = (['esPago', 'tramite', 'concepto', 'servicioTipo', 'valorTotal', 'motivo'] as Clave[]).find((k) => e[k]);
     if (primera) refs[primera].current?.focus();
   };
 
@@ -160,6 +203,7 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
     if (status === 403) { setRespuesta({ tipo: 'error', texto: COPY_403 }); return; }
     if (status === 404) { setRespuesta({ tipo: 'actualizar', texto: err?.error ?? 'Este comprobante ya no existe.' }); return; }
     const nombreConcepto = concepto ? CONCEPTO_COSTO_LABEL[concepto] : 'este concepto';
+    const sa = esPagoSa(esPago, concepto);
     switch (err?.codigo) {
       case CodigoErrorComprobante.YA_RESUELTO:
         setRespuesta({ tipo: 'actualizar', texto: COPY_YA_RESUELTO }); return;
@@ -167,12 +211,30 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
       case CodigoErrorComprobante.DESTINO_NO_ADMITE:
         setRespuesta({ tipo: 'camino', texto: `${idFlitElegido} no admite ${nombreConcepto} como pago: ${err.detalle ?? err.error}.`, puedeAdjuntar: err.puedeAdjuntar === true }); return;
       case CodigoErrorComprobante.TRAMITE_LIQUIDADO:
+        if (sa) { setRespuesta({ tipo: 'liquidado', texto: COPY_SA_LIQUIDADO }); return; }
         setRespuesta({ tipo: 'liquidado', texto: `La liquidación de ${idFlitElegido} está sellada. Reversa la liquidación en el reporte de costos y vuelve a aplicar.` }); return;
       case CodigoErrorComprobante.VALOR_YA_DOCUMENTADO:
+        if (sa) {
+          const nombre = servicioTipo ? `«${servicioTipo.nombre}»` : 'Ese servicio';
+          setRespuesta({ tipo: 'documentado', texto: `${nombre} ya tiene un comprobante de pago aplicado en ${idFlitElegido}. Para usar este, descarta el anterior.`, anteriorId: err.comprobanteAnteriorId ?? null });
+          return;
+        }
         setRespuesta({ tipo: 'documentado', texto: `${idFlitElegido} ya tiene un valor de ${nombreConcepto} documentado con otro comprobante. Para usar este, descarta el anterior.`, anteriorId: err.comprobanteAnteriorId ?? null }); return;
       case CodigoErrorComprobante.VALOR_REQUERIDO:
         setErrores({ valorTotal: MSG_VALOR }); requestAnimationFrame(() => refs.valorTotal.current?.focus()); return;
       case CodigoErrorComprobante.DATOS_INVALIDOS:
+        // Los dos 400 del tipo de servicio (Bug #12913) se distinguen por el texto del API, que es
+        // contrato del addendum de ADR-0018; ninguno de los dos se pinta crudo.
+        if (sa && /ya no está disponible/i.test(err.error ?? '')) {
+          setServicioTipo(null); setRecargaCatalogo((n) => n + 1);
+          setRespuesta({ tipo: 'error', texto: COPY_TIPO_DE_BAJA });
+          return;
+        }
+        if (sa && /exige elegir el servicio/i.test(err.error ?? '')) {
+          setServicioTipo(null);
+          setErrores({ servicioTipo: MSG_TIPO_SERVICIO }); requestAnimationFrame(() => refs.servicioTipo.current?.focus());
+          return;
+        }
         setRespuesta({ tipo: 'error', texto: `Revisa los datos marcados. ${err.error}` });
         if (motivoMontado) requestAnimationFrame(() => refs.motivo.current?.focus());
         return;
@@ -186,12 +248,16 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
     if (!tramite || !concepto || (pagoForzado === undefined && esPago === null)) return;
     const ep = pagoForzado ?? esPago!;
     const body: AplicarComprobanteBody = { tramiteId: tramite.tramiteId, concepto, esPago: ep };
+    // Solo en un pago SA; «Adjuntar como documentación» (ep = false) no lo lleva nunca.
+    const tipo = esPagoSa(ep, concepto) ? servicioTipo : null;
+    if (tipo) body.servicioTipoId = tipo.id;
     if (delta) body.campos = delta;
     if (motivo.trim()) body.motivo = motivo.trim().slice(0, MOTIVO_MAX);
     setEnviando(true); setErrores({});
     try {
       const r = await aplicarComprobante(detalle.id, body);
-      onResuelto(toastAplicado(r.comprobante, ep, tramite.idFlit, concepto));
+      const servicio = tipo ? { nombre: tipo.nombre, valor: valorEscrito(valores.valorTotal), yaAsignado: asignadosTramite.includes(tipo.id) } : undefined;
+      onResuelto(toastAplicado(r.comprobante, ep, tramite.idFlit, concepto, servicio));
     } catch (e) {
       manejarError(e);
     } finally {
@@ -257,7 +323,7 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
               <label key={k} className="flex items-center gap-2 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
                 <input ref={i === 0 ? refs.esPago : undefined} type="radio" name={`${id}-esPago`} value={k} checked={esPago === v}
                   aria-invalid={errores.esPago ? true : undefined} aria-describedby={errores.esPago ? errorId('esPago') : undefined}
-                  onChange={() => { setEsPago(v); setRespuesta(null); }} className="flit-focus" />
+                  onChange={() => { setEsPago(v); setRespuesta(null); if (!v) setServicioTipo(null); }} className="flit-focus" />
                 {rotulo}
               </label>
             ))}
@@ -282,7 +348,7 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
           </label>
           <select id={`${id}-concepto`} ref={refs.concepto} className={flitInp} value={concepto} aria-required="true"
             aria-invalid={errores.concepto ? true : undefined} aria-describedby={errores.concepto ? errorId('concepto') : undefined}
-            onChange={(e) => { setConcepto(e.target.value as ConceptoCosto | ''); setRespuesta(null); }}>
+            onChange={(e) => { setConcepto(e.target.value as ConceptoCosto | ''); setRespuesta(null); setServicioTipo(null); setErrores((x) => ({ ...x, servicioTipo: undefined })); }}>
             <option value="">Elige el concepto…</option>
             {CONCEPTOS_COSTO.map((c) => {
               const a = tramite?.admite?.[c];
@@ -291,6 +357,16 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
           </select>
           {alerta('concepto')}
         </div>
+
+        {/* (3b) Tipo de servicio — solo en un PAGO de servicios adicionales (Bug #12913). */}
+        {pideTipo && (
+          <div className="space-y-1">
+            <BuscadorTipoServicio modo="elegir" inputId={`${id}-servicio-tipo`} asignados={asignadosTramite} elegido={servicioTipo}
+              onElegir={(t) => { setServicioTipo(t); setRespuesta(null); if (t) setErrores((x) => ({ ...x, servicioTipo: undefined })); }}
+              recarga={recargaCatalogo} inputRef={refs.servicioTipo} invalido={!!errores.servicioTipo} errorId={errorId('servicioTipo')} />
+            {alerta('servicioTipo')}
+          </div>
+        )}
 
         {avisoYaPagado && (
           <div role="status" aria-live="polite" className="space-y-2 rounded-lg border p-3 text-sm" style={{ borderColor: 'var(--flit-border-input)', ...SECUNDARIO }}>
@@ -398,12 +474,16 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
         ) : (
           <div className="flex flex-wrap items-center justify-end gap-3">
             {!puedeAplicar && <p className="mr-auto text-xs" style={SECUNDARIO}>{COPY_NO_APLICAR}</p>}
+            {puedeAplicar && !sinCombobox && faltaTipo && (
+              <p id={`${id}-razon-aplicar`} className="mr-auto text-xs" style={{ color: 'var(--flit-text-muted)' }}>{RAZON_SIN_TIPO}</p>
+            )}
             {puedeDescartar && (
               <button ref={botonDescartarRef} type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enviando}
                 onClick={() => setDescarte({ motivo: '', error: null, enviando: false })}>Descartar</button>
             )}
             {puedeAplicar && !sinCombobox && (
-              <button type="submit" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando}>
+              <button type="submit" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando || faltaTipo}
+                aria-describedby={faltaTipo ? `${id}-razon-aplicar` : undefined}>
                 {enviando ? `${rotuloPrimaria === 'Adjuntar' ? 'Adjuntando' : 'Aplicando'}…` : rotuloPrimaria}
               </button>
             )}
