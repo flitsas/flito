@@ -104,7 +104,34 @@ describe('cola en memoria', () => {
     selectMock.mockReturnValue(grabador(filaEnCurso()));
     updates([]);
     await ejecutarAnalisis(A);
-    expect(paso).toHaveBeenCalledWith({ impuestoId: A, runt: limitadorRunt });
+    expect(paso).toHaveBeenCalledWith({ impuestoId: A, runt: limitadorRunt, job: {} });
+  });
+
+  it('HU 12827: los pasos de UNA ejecución comparten el mismo job; otra ejecución recibe uno nuevo', async () => {
+    const vistos: object[] = [];
+    registrarPasoAnalisis('uno', async ({ job }) => { vistos.push(job); job.consultaRunt = { estado: 'sin_respuesta' }; });
+    registrarPasoAnalisis('dos', async ({ job }) => { vistos.push(job); });
+    selectMock.mockReturnValue(grabador(filaEnCurso()));
+    updates([], []);
+    await ejecutarAnalisis(A);
+    await ejecutarAnalisis(A);
+
+    expect(vistos).toHaveLength(4);
+    expect(vistos[1]).toBe(vistos[0]);
+    expect(vistos[1]).toEqual({ consultaRunt: { estado: 'sin_respuesta' } });
+    expect(vistos[2]).not.toBe(vistos[0]);
+    expect(vistos[3]).toBe(vistos[2]);
+  });
+
+  it('HU 12827: un paso que persiste y lanza → error_analisis y el siguiente paso no corre', async () => {
+    const siguiente = vi.fn(async () => {});
+    registrarPasoAnalisis('comparacion', async () => { throw new Error('factura ilegible'); });
+    registrarPasoAnalisis('autocertificacion', siguiente);
+    selectMock.mockReturnValue(grabador(filaEnCurso()));
+    const g = updates([]);
+    expect(await ejecutarAnalisis(A)).toBe('error_analisis');
+    expect(siguiente).not.toHaveBeenCalled();
+    expect(g[0].set).toEqual({ analisisEstado: 'error_analisis' });
   });
 });
 
@@ -223,7 +250,10 @@ describe('AC5 — reanalizarImpuesto', () => {
     const g = updates([{ id: A }], []);
 
     expect(await reanalizarImpuesto(A, AHORA)).toEqual({ resultado: 'ENCOLADO', id: A, analisisEstado: 'en_curso' });
-    expect(g[0].set).toEqual({ analisisEstado: 'en_curso', analisisEncoladoEn: AHORA, analisisReencolados: 0 });
+    // HU 12827: el reintento borra el semáforo de la corrida anterior.
+    expect(g[0].set).toEqual({
+      analisisEstado: 'en_curso', analisisEncoladoEn: AHORA, analisisReencolados: 0, semaforo: null, comparacionFacturaRunt: null,
+    });
     const w = render(g[0].where!);
     expect(w.sql).toMatch(/"estado" = \$\d/);
     expect(w.sql).toMatch(/"analisis_estado" in \(\$\d, \$\d\)/);
