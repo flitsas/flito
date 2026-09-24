@@ -1029,34 +1029,42 @@ describe('AC4 — los cuatro desenlaces y su ORDEN de evaluación se conservan e
 
   it('**5.º «vigente» gana sobre `ok`**, y trae la fecha normalizada', async () => {
     const desenlace = await clasificar(runtOk({}, { soat: { estadoSoat: 'VIGENTE', fechaVencimSoat: '01/02/2030' } }));
-    expect(desenlace).toEqual({ clase: 'vigente', fechaVencimiento: '2030-02-01' });
+    // Desde la HU #12842 el desenlace `vigente` lleva también el SOAT activo (null por dato ausente).
+    expect(desenlace).toEqual({
+      clase: 'vigente',
+      fechaVencimiento: '2030-02-01',
+      soatActivo: {
+        poliza: null, fechaExpedicion: null, inicioVigencia: null,
+        vencimiento: '2030-02-01', aseguradora: null, estado: null,
+      },
+    });
   });
 
   // ── El paso 5, BIFURCADO desde la HU #12212 ────────────────────────────────────────────────────
   //
-  // El umbral (frontera inclusive, clamp de fin de mes, `null` ⇒ bloquea) se prueba en
+  // El umbral (frontera inclusive, hoy + 30 días desde la HU #12842, `null` ⇒ bloquea) se prueba en
   // `flito-soat.cliente-renovacion-anticipada.test.ts`, que es donde vive con `hoy` congelado. Aquí
   // solo se mide lo que esta suite protege: que la bifurcación esté DENTRO del paso 5 y que no haya
   // movido ni un puesto del orden.
 
-  it('**5.a — vigente a menos de un mes es `renovacion_anticipada`**, y sigue detrás de los cuatro', async () => {
+  it('**5.a — vigente a 30 días o menos es `renovacion_anticipada`**, y sigue detrás de los cuatro', async () => {
     escenario();
     const desenlace = await clasificarEn(
       runtOk({}, { soat: { estadoSoat: 'VIGENTE', fechaVencimSoat: '2026-10-05', numeroPoliza: '99887766' } }),
       '2026-09-09',
     );
     expect(desenlace).toMatchObject({
-      clase: 'renovacion_anticipada', venceEl: '2026-10-05', poliza: '99887766',
+      clase: 'renovacion_anticipada', venceEl: '2026-10-05', soatActivo: { poliza: '99887766' },
       vinEfectivo: VIN_RUNT, organismoCodigo: ORGANISMO_FUNZA,
     });
   });
 
-  it('**5.b — a más de un mes NO se bifurca**: sigue siendo `vigente` con su fecha', async () => {
+  it('**5.b — a más de 30 días NO se bifurca**: sigue siendo `vigente` con su fecha', async () => {
     escenario();
     expect(await clasificarEn(
       runtOk({}, { soat: { estadoSoat: 'VIGENTE', fechaVencimSoat: '2026-10-20' } }),
       '2026-09-09',
-    )).toEqual({ clase: 'vigente', fechaVencimiento: '2026-10-20' });
+    )).toMatchObject({ clase: 'vigente', fechaVencimiento: '2026-10-20', soatActivo: { vencimiento: '2026-10-20' } });
   });
 
   it('**5.c — el orden aguanta la bifurcación**: VIN que no cuadra + vence en 3 días → 422, no aviso', async () => {

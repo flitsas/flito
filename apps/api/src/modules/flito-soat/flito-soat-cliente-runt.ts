@@ -17,9 +17,23 @@
 // único que se contrasta es el VIN. Ver {@link campoQueNoCuadra}.
 //
 // El payload crudo no se persiste (ADR-0008 §1.6, esa frase se conserva). Solo derivados.
+//
+// ── HU #12842 (Feature #12840): 30 días y el SOAT activo ────────────────────────────────────────
+//
+// La renovación anticipada pasa de «un mes calendario» a **hoy + 30 días, inclusive, en Bogotá**
+// ({@link limiteRenovacionAnticipada}). Y por la RN-05 del Feature #12840 el canal PUBLICA los datos
+// del SOAT activo que el RUNT reporta en `soat[0]` —póliza, expedición, inicio, vencimiento,
+// aseguradora y estado— en el 409 `soat_vigente` y en el aviso `vigenciaProxima`
+// ({@link soatActivoRunt}). Eso deroga, para el canal Cliente, la parte de la RN-B1 que decía «la
+// póliza no se publica». Lo que NO cambia: la póliza y el VIN siguen sin entrar al log.
 
 import { eq } from 'drizzle-orm';
-import { polizaParaColumna, resolverCodigoOrganismoRunt } from '@operaciones/shared-types';
+import {
+  DIAS_RENOVACION_ANTICIPADA,
+  polizaParaColumna,
+  resolverCodigoOrganismoRunt,
+  type SoatActivoRunt,
+} from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { organismosTransitoConfig } from '../../db/schema.js';
 import { extraerVehiculoRunt, normalizarIdentificador, runtSinRegistro } from '../flito-impuestos/certificacion-runt.js';
@@ -148,35 +162,60 @@ export function soatVigenteSegunRunt(respuestaRunt: unknown): boolean {
   return checks.find((c) => c.key === 'soat')?.status === 'ok';
 }
 
-/**
- * La fecha hasta la que el RUNT dice que la póliza está vigente, en `yyyy-mm-dd`, o `null`.
- *
- * No se saca del `message` del check. Se leen los mismos alias que lee el pre-vuelo
- * (`fechaVencimSoat` / `fechaVencimiento`). Si el RUNT no manda fecha o manda algo que no es una
- * fecha, `null` — ninguna fecha por defecto.
- */
-export function fechaVencimientoSoatRunt(data: unknown): string | null {
+/** El nodo `soat[0]` del RUNT (o `soat` si no viene como lista). Solo cuenta el primero (AC8). */
+function nodoSoatRunt(data: unknown): Record<string, unknown> | null {
   const d = (data ?? {}) as Record<string, unknown>;
   const bruto = Array.isArray(d.soat) ? d.soat[0] : d.soat;
-  const soat = (bruto ?? null) as Record<string, unknown> | null;
-  const valor = alias(soat, ['fechaVencimSoat', 'fechaVencimiento']);
-  if (!valor) return null;
+  return (bruto && typeof bruto === 'object' ? bruto : null) as Record<string, unknown> | null;
+}
 
-  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(valor);
+/**
+ * Una fecha del RUNT llevada a `yyyy-mm-dd` del DÍA EN BOGOTÁ, o `null` (HU #12842).
+ *
+ *   1. ISO con hora y huso (`Z`, `-05:00`, `+01:00`…): es un instante absoluto y se proyecta a
+ *      `America/Bogota` con {@link diaEnBogota}, sin depender de la zona del proceso. Con `-05:00`
+ *      coincide con los diez primeros caracteres; con `Z` u otro huso corrige el día.
+ *   2. `yyyy-mm-dd` (con o sin hora local sin huso): los diez primeros caracteres, validados.
+ *   3. `dd/mm/yyyy` o `dd-mm-yyyy`: validada.
+ *   4. Cualquier otra cosa: `null`. Ninguna fecha por defecto.
+ */
+function fechaRuntEnBogota(valor: string | null): string | null {
+  if (!valor) return null;
+  const v = valor.trim();
+  if (/^\d{4}-\d{2}-\d{2}T.*(Z|[+-]\d{2}:?\d{2})$/i.test(v)) {
+    const instante = new Date(v);
+    return Number.isNaN(instante.getTime()) ? null : diaEnBogota(instante);
+  }
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(v);
   if (iso) return fechaValida(Number(iso[1]), Number(iso[2]), Number(iso[3]));
 
-  const dmy = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(valor.trim());
+  const dmy = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(v);
   if (dmy) return fechaValida(Number(dmy[3]), Number(dmy[2]), Number(dmy[1]));
 
   return null;
 }
 
 /**
- * El número de póliza que el RUNT reporta, normalizado, o `null` (HU #12096).
+ * La fecha hasta la que el RUNT dice que la póliza está vigente, en `yyyy-mm-dd`, o `null`.
+ *
+ * No se saca del `message` del check. Se leen los mismos alias que lee el pre-vuelo
+ * (`fechaVencimSoat` / `fechaVencimiento`). Si el RUNT no manda fecha o manda algo que no es una
+ * fecha, `null` — ninguna fecha por defecto. Un ISO con huso se proyecta al día en Bogotá.
+ */
+export function fechaVencimientoSoatRunt(data: unknown): string | null {
+  return fechaRuntEnBogota(alias(nodoSoatRunt(data), ['fechaVencimSoat', 'fechaVencimiento']));
+}
+
+/**
+ * El número de póliza que el RUNT reporta, normalizado, o `null` (HU #12096; `numSoat` HU #12842).
  *
  * Vive aquí y no en el servicio de vigencia porque lee el MISMO bloque `data.soat` que
  * {@link fechaVencimientoSoatRunt} y con el mismo `alias`: dos extractores del mismo nodo en
  * archivos distintos acaban resolviendo alias distintos.
+ *
+ * `numSoat` va PRIMERO porque es el campo que trae la respuesta real del RUNT; hasta la HU #12842
+ * ningún alias casaba con él y `poliza_runt` quedaba en null. Los alias viejos se conservan. `alias`
+ * convierte con `String()`, así que un `numSoat` numérico también sirve.
  *
  * Se normaliza con `polizaParaColumna` —el mismo helper que usa `pagarEnTx` para `numero_poliza`—
  * y no «como se leyó»: la columna a la que va (`poliza_runt`) es varchar(60) y la gracia de tenerla
@@ -184,11 +223,29 @@ export function fechaVencimientoSoatRunt(data: unknown): string | null {
  * póliza pareciera reexpedida.
  */
 export function polizaSoatRunt(data: unknown): string | null {
-  const d = (data ?? {}) as Record<string, unknown>;
-  const bruto = Array.isArray(d.soat) ? d.soat[0] : d.soat;
-  const soat = (bruto ?? null) as Record<string, unknown> | null;
-  const valor = alias(soat, ['numeroPoliza', 'noPoliza', 'numPoliza', 'poliza']);
+  const valor = alias(nodoSoatRunt(data), ['numSoat', 'numeroPoliza', 'noPoliza', 'numPoliza', 'poliza']);
   return polizaParaColumna(valor);
+}
+
+/**
+ * Los seis datos del SOAT activo que el RUNT reporta en `soat[0]` (HU #12842, AC4-AC6).
+ *
+ * Objeto literal con las seis claves escritas una a una: un campo nuevo del RUNT no se publica sin
+ * que alguien lo decida. Sin nodo, las seis en `null`.
+ *
+ * `estado` sale del campo `estado` («VIGENTE») y **nunca** de `estadoSoat` («EMITIDA»), que habla
+ * de la emisión y no de la vigencia. No se traduce ni se infiere.
+ */
+export function soatActivoRunt(data: unknown): SoatActivoRunt {
+  const n = nodoSoatRunt(data);
+  return {
+    poliza: polizaSoatRunt(data),
+    fechaExpedicion: fechaRuntEnBogota(alias(n, ['fechaExpedicion'])),
+    inicioVigencia: fechaRuntEnBogota(alias(n, ['fechaInicioPoliza', 'fechaInicioVigencia'])),
+    vencimiento: fechaVencimientoSoatRunt(data),
+    aseguradora: alias(n, ['razonSocialAsegur', 'aseguradora']),
+    estado: alias(n, ['estado']),
+  };
 }
 
 /** `yyyy-mm-dd` si los tres números son un día del calendario; `null` si no. */
@@ -224,40 +281,34 @@ export function diaEnBogota(ahora: Date = new Date()): string {
 }
 
 /**
- * La última fecha que cuenta como «vence en un mes o menos»: MISMA FECHA DEL MES SIGUIENTE.
+ * La última fecha que cuenta para la renovación anticipada: **hoy + 30 días** (HU #12842, Feature
+ * #12840). Deroga el «mismo día del mes siguiente, con clamp» de la HU #12212.
  *
- * Mes CALENDARIO y no 30 días: es lo que decidió el PO y lo que la persona entiende por «un mes».
- * Se construye con `Date.UTC(anio, mes, dia)` —igual que {@link fechaValida}— y con **clamp** al
- * último día del mes siguiente cuando ese día no existe: `2027-01-31` → `2027-02-28`, nunca el
- * `2027-03-03` al que desbordaría `Date` por su cuenta (AC5). Desbordar ampliaría el umbral en
- * silencio justo para los días finales de mes.
- *
- * El paso al año siguiente sale gratis del índice de mes 0-based: diciembre → `Date.UTC(a, 12, d)`.
+ * Días CORRIDOS y no mes calendario: `2026-03-10` → `2026-04-09`; `2027-01-31` → `2027-03-02`.
+ * `hoy` viene de {@link diaEnBogota}. La aritmética es `Date.UTC` sobre enteros —sin `Date` local ni
+ * reloj del proceso—, y el desborde de día a mes y de mes a año es justo la semántica buscada.
  */
 export function limiteRenovacionAnticipada(hoy: string): string {
   const anio = Number(hoy.slice(0, 4));
   const mes = Number(hoy.slice(5, 7));
   const dia = Number(hoy.slice(8, 10));
-  // `Date.UTC(anio, mes + 1, 0)` es el día CERO del mes que sigue al siguiente, o sea el último del
-  // mes siguiente. De ahí sale el clamp, sin tabla de longitudes ni regla de bisiestos escrita a mano.
-  const ultimoDiaMesSiguiente = new Date(Date.UTC(anio, mes + 1, 0)).getUTCDate();
-  const limite = new Date(Date.UTC(anio, mes, Math.min(dia, ultimoDiaMesSiguiente)));
+  const limite = new Date(Date.UTC(anio, mes - 1, dia + DIAS_RENOVACION_ANTICIPADA));
   const mm = String(limite.getUTCMonth() + 1).padStart(2, '0');
   const dd = String(limite.getUTCDate()).padStart(2, '0');
   return `${limite.getUTCFullYear()}-${mm}-${dd}`;
 }
 
 /**
- * ¿Al SOAT que el RUNT reporta vigente le queda **un mes o menos**? (HU #12212).
+ * ¿Al SOAT que el RUNT reporta vigente le quedan **30 días o menos**? (HU #12212; 30 días HU #12842).
  *
  * Comparación LEXICOGRÁFICA de cadenas `yyyy-mm-dd` —el mismo criterio que ya usa `vigenciaVista`
  * en `flito-soat.service.ts`—: sin `Date`, sin husos y sin medianoche del proceso. Con ese formato
  * el orden alfabético ES el cronológico, y no hay una hora que pueda mover la frontera.
  *
- * **La frontera es INCLUSIVE** (`<=`): si vence exactamente dentro de un mes, se permite.
+ * **La frontera es INCLUSIVE** (`<=`): si vence exactamente el día 30, se permite; el 31 bloquea.
  *
  * **Sin fecha, `false`**, y es el defecto seguro del AC3: el RUNT dice «vigente» pero no dice hasta
- * cuándo, y de ahí no se puede deducir que falte un mes o menos. Se queda en el 409 de siempre.
+ * cuándo, y de ahí no se puede deducir que falten 30 días o menos. Se queda en el 409 de siempre.
  *
  * Un `venceEl` ANTERIOR a hoy también cae del lado «no bloquea», y es el resultado correcto: es una
  * póliza que el RUNT sigue reportando y que ya venció.
@@ -385,13 +436,14 @@ type PayloadOk = { datos: DatosRuntCanal; vinEfectivo: string; organismoCodigo: 
  *
  * Lleva el payload de `ok` ENTERO —el alta que la renovación anticipada permite crea la misma fila
  * que cualquier otra— más las dos cosas que la distinguen: hasta cuándo vence lo que el RUNT reporta
- * y qué póliza es. La póliza viaja hasta aquí porque se PERSISTE (`poliza_runt`); no se publica en
- * el 200 de la preconsulta (RN-B1).
+ * y los datos del SOAT activo. Desde la HU #12842 (RN-05 del Feature #12840) `soatActivo` —póliza
+ * incluida— se PUBLICA en el aviso del 200 y en el 409 `vigente`, además de persistir la póliza en
+ * `poliza_runt`. Lo que sigue sin ocurrir: que la póliza entre al log.
  */
 export type DesenlaceRunt =
   | ({ clase: 'ok' } & PayloadOk)
-  | ({ clase: 'renovacion_anticipada'; venceEl: string; poliza: string | null } & PayloadOk)
-  | { clase: 'vigente'; fechaVencimiento: string | null }
+  | ({ clase: 'renovacion_anticipada'; venceEl: string; soatActivo: SoatActivoRunt } & PayloadOk)
+  | { clase: 'vigente'; fechaVencimiento: string | null; soatActivo: SoatActivoRunt }
   | { clase: 'revise'; codigo: CodigoRevise; campo?: 'vin' }
   | { clase: 'caido' };
 
@@ -431,7 +483,7 @@ export function esNegativaDeNegocio(respuesta: RespuestaKyverum): boolean {
  *   2. Sin registro → `runt_sin_registro`. `runtSinRegistro` no se fía del eco de la consulta.
  *   3. El VIN devuelto difiere del tecleado → `runt_no_cuadra` + `campo: 'vin'` (HU #12090, AC3).
  *   4. Sin VIN en la respuesta → `runt_sin_vin`. Sin VIN efectivo no hay fila posible (RN-01).
- *   5. SOAT vigente → `renovacion_anticipada` si vence en un mes o menos; si no, `vigente`.
+ *   5. SOAT vigente → `renovacion_anticipada` si vence en 30 días o menos; si no, `vigente`.
  *   6. `ok`, con el organismo cruzado contra catálogo (o `null`, que NO aborta — AC5).
  *
  * **El orden se conserva ENTERO** (HU #12090, AC4; HU #12212, AC7): lo único que cambia es QUÉ
@@ -469,7 +521,8 @@ export async function clasificarDesenlaceRunt(
   if (vinEfectivo === null) return { clase: 'revise', codigo: 'runt_sin_vin' };
 
   if (soatVigenteSegunRunt(respuesta)) {
-    const venceEl = fechaVencimientoSoatRunt(respuesta.data);
+    const soatActivo = soatActivoRunt(respuesta.data);
+    const venceEl = soatActivo.vencimiento;
     // La renovación anticipada NO relaja ninguna otra guarda: se decide aquí, en el mismo paso 5 y
     // detrás de los cuatro anteriores. Sin fecha, `esRenovacionAnticipada` devuelve `false` y esto
     // cae en el `vigente` de siempre (AC3).
@@ -477,13 +530,13 @@ export async function clasificarDesenlaceRunt(
       return {
         clase: 'renovacion_anticipada',
         venceEl: venceEl as string,
-        poliza: polizaSoatRunt(respuesta.data),
+        soatActivo,
         datos,
         vinEfectivo,
         organismoCodigo: await resolverOrganismoCatalogo(datos.organismoNombre),
       };
     }
-    return { clase: 'vigente', fechaVencimiento: venceEl };
+    return { clase: 'vigente', fechaVencimiento: venceEl, soatActivo };
   }
 
   return {
@@ -590,8 +643,9 @@ export async function consultarYClasificar(vin: string): Promise<DesenlaceRunt> 
   // dejó de loguear sin que nada avisara.
   //
   // El `desenlace` va con la clase REAL, para poder separarlas en el log. Y nada más: `venceEl` y
-  // `poliza` viajan en la renovación pero NO entran aquí — el número de póliza es cuasi-PII y no
-  // tiene relación con lo que esta línea mide.
+  // `soatActivo` viajan en la renovación pero NO entran aquí — el número de póliza es cuasi-PII y
+  // no tiene relación con lo que esta línea mide. Que se publique al Cliente desde la HU #12842
+  // (RN-05 del Feature #12840) no la vuelve apta para el log: lo afirma un test sobre los spies.
   if ('organismoCodigo' in desenlace) {
     log.info(
       {

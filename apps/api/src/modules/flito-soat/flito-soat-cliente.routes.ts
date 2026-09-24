@@ -55,7 +55,7 @@ import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { soatClienteLimiter, soatPreconsultaLimiter, soatLecturaFacturaLimiter } from '../../shared/middleware/rateLimiter.js';
 import {
-  CAMPOS_COMPRADOR_FACTURA, PROCEDENCIAS_DATO, TIPOS_DOCUMENTO_RUNT,
+  CAMPOS_COMPRADOR_FACTURA, CodigoErrorSolicitudSoat, PROCEDENCIAS_DATO, TIPOS_DOCUMENTO_RUNT,
   type ProcedenciaCompradorPersistida, type TipoDocumentoRunt,
 } from '@operaciones/shared-types';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
@@ -293,7 +293,9 @@ router.post('/cliente/preconsulta', exigirFuncion('soat.runt.preconsultar'), soa
       // El 200 con renovación anticipada divulga ADEMÁS hasta cuándo vence el SOAT que el RUNT
       // reporta (HU #12212). Sin esta línea, `campos_accedidos` sub-declararía justo en las
       // respuestas que dicen más. Se deriva del resultado y no del cuerpo de la petición: lo que el
-      // registro tiene que anotar es lo que SALIÓ, no lo que se pidió.
+      // registro tiene que anotar es lo que SALIÓ, no lo que se pidió. Desde la HU #12842 el aviso
+      // lleva también el SOAT activo (póliza, aseguradora, fechas, estado) y la misma bandera lo
+      // declara (RN-05 del Feature #12840).
       conVigenciaProxima: resultado.vigenciaProxima !== null,
     });
     res.json(resultado);
@@ -327,8 +329,13 @@ router.post('/cliente/preconsulta', exigirFuncion('soat.runt.preconsultar'), soa
  *   2. **No se come la excepción.** El `catch` de aquí solo traga fallos DEL REGISTRO —`logPiiAccess`
  *      ya falla abierto por su cuenta— para no sustituir el error de dominio, que es el que la
  *      persona necesita, por uno de la bitácora. Un `throw` aquí convertiría un 422 legible en un 500.
- *   3. **No dice que se accedió a datos.** Va con `resultado`, y eso hace que `campos_accedidos` se
- *      escriba VACÍO: no se entregó ni la placa, ni el VIN, ni el nombre. Ver `registrarAccesoRuntCliente`.
+ *   3. **No dice que se accedió a datos que no salieron.** Va con `resultado`, y eso hace que
+ *      `campos_accedidos` se escriba VACÍO: no se entregó ni la placa, ni el VIN, ni el nombre. Con
+ *      UNA excepción desde la HU #12842 (RN-05 del Feature #12840): el `409 soat_vigente` publica el
+ *      SOAT activo —póliza, aseguradora, fechas de expedición e inicio, estado y, si el RUNT la trae,
+ *      la fecha de vencimiento—, que consultado por VIN es dato personal (Ley 1581, art. 3.c). Ese
+ *      desenlace declara esos campos, derivados del CÓDIGO del error y de si `datos.fechaVencimiento`
+ *      viajó; el 422, el 503 y la RN-01 siguen con la lista vacía. Ver `registrarAccesoRuntCliente`.
  *
  * El desenlace se toma del `codigo` del error de dominio —vocabulario CERRADO de `shared-types`— y
  * nunca de `e.message`, que es texto que puede traer dentro lo que se estuviera procesando.
@@ -357,8 +364,12 @@ async function registrarIntentoRunt(
   if (!(e instanceof SolicitudSoatError)) return;
   if (!DESENLACE_HABLA_DEL_VEHICULO[e.codigo]) return;
   const resultado = e.codigo;
+  // Punto 3 de arriba: solo el 409 `soat_vigente` publica el SOAT activo, y la fecha solo si viajó.
+  const soatActivoEnIntento = e.codigo === CodigoErrorSolicitudSoat.SOAT_VIGENTE
+    ? (typeof e.datos?.fechaVencimiento === 'string' ? 'con_fecha' as const : 'sin_fecha' as const)
+    : undefined;
   try {
-    await registrarAccesoRuntCliente(req, { vin, conPropietario: false, motivo, resultado });
+    await registrarAccesoRuntCliente(req, { vin, conPropietario: false, motivo, resultado, soatActivoEnIntento });
   } catch { /* el rastro no puede tapar el error de dominio: ver el punto 2 de arriba */ }
 }
 

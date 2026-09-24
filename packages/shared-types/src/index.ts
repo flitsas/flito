@@ -63,6 +63,7 @@ export * from './flito-logistica-barcode.js';
 export * from './flito-ocr.js';
 // Canal Cliente del SOAT: de dónde salió cada dato del propietario (factura / RUNT / manual).
 export * from './flito-soat-procedencia.js';
+export * from './flito-soat-activo.js';
 // Mapeo de roles FLITO → roles Operaciones y ataduras de visibilidad del gestor.
 export * from './flito-roles.js';
 // Conceptos de costo de un trámite (Épica #12245): base de `ConceptoBolsa` y de los comprobantes.
