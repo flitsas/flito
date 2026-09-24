@@ -1,7 +1,7 @@
 // FLITO Impuestos — la consulta RUNT del análisis post-envío (HU #12827, Feature #12822).
 //
-// UNA consulta por análisis: el paso `comparacion` la hace y la deja en `job.consultaRunt` para que
-// la HU 12828 (autocertificación) la reutilice sin volver al RUNT ni llamar a `certificarImpuesto`.
+// UNA consulta por análisis: el paso `comparacion` la hace y la deja en `job.consultaRunt`; el paso
+// `autocertificacion` (HU 12828) la reutiliza con `certificarConRespuestaRunt`, sin volver al RUNT.
 //
 // Replica la regla de `certificarImpuesto` (`certificacion.service.ts`): con documento del
 // propietario se consulta placa + documento (prueba de propiedad, RN-02); sin él, placa + VIN. Sin

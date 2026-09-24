@@ -14,7 +14,7 @@
 //   AC5  Reintento manual: solo `solicitado`, sin certificación vigente y con análisis terminado.
 //
 // Cola en memoria: la API corre en UN proceso (ver runt-limitador.ts). Nada de PII en los logs: solo
-// el id del impuesto y el mensaje del error.
+// el id del impuesto y el nombre/código del error (`errorSinPii`), nunca su mensaje.
 
 import { and, eq, gte, inArray, isNull, lt, notInArray, sql, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.js';
@@ -27,6 +27,20 @@ import { limitadorRunt, type LimitadorRunt } from './runt-limitador.js';
 import type { ConsultaRuntAnalisis } from './flito-impuestos.runt-consulta.js';
 
 const log = loggerFor('flito-impuestos.analisis');
+
+/**
+ * Lo único que se loguea de un error de paso: nombre y código SQLSTATE. NUNCA `message`: el de
+ * `DrizzleQueryError` es `Failed query: … params: …` y arrastra placa, documento, VIN o el snapshot
+ * RUNT (Ley 1581). Mismo criterio que `guardarMotorYSerie`.
+ */
+export function errorSinPii(e: unknown): { err: string; code?: string } {
+  const x = e as { name?: unknown; code?: unknown; cause?: { code?: unknown } } | null | undefined;
+  const code = x?.cause?.code ?? x?.code;
+  return {
+    err: typeof x?.name === 'string' ? x.name : 'Error',
+    ...(typeof code === 'string' ? { code } : {}),
+  };
+}
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -83,7 +97,7 @@ function drenar(): void {
     obreros++;
     corriendo.add(id);
     ejecutarAnalisis(id)
-      .catch((e) => { log.warn({ impuestoId: id, err: (e as Error)?.message }, 'analisis: job falló fuera de los pasos'); })
+      .catch((e) => { log.warn({ impuestoId: id, ...errorSinPii(e) }, 'analisis: job falló fuera de los pasos'); })
       .finally(() => {
         obreros--;
         corriendo.delete(id);
@@ -131,7 +145,7 @@ export async function ejecutarAnalisis(id: string): Promise<'completado' | 'erro
       await paso({ impuestoId: id, runt: limitadorRunt, job });
       corridos++;
     } catch (e) {
-      log.warn({ impuestoId: id, paso: nombre, err: (e as Error)?.message }, 'analisis: paso falló');
+      log.warn({ impuestoId: id, paso: nombre, ...errorSinPii(e) }, 'analisis: paso falló');
       await db.update(flitoImpuestos).set({ analisisEstado: AnalisisEstadoImpuesto.ERROR }).where(enCursoDe(id));
       return 'error_analisis';
     }
