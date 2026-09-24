@@ -10,7 +10,7 @@
 // El ORDEN de los tres —vehículo, factura, propietario— lo decide la página, que es quien los monta.
 
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
-import { X } from 'lucide-react';
+import { CircleAlert, X } from 'lucide-react';
 import FlitSelect from '../../flit/FlitSelect';
 import FlitUploadBox from '../../flit/FlitUploadBox';
 import StatusChip from '../../flit/StatusChip';
@@ -84,8 +84,15 @@ export const ID_CAMPO = {
 
 // ───────────────────────────── Piezas compartidas ────────────────────────────────────────────────
 
-/** Un bloque del formulario. El número va en el `<h2>` porque es parte del rótulo, no un adorno. */
-export function Seccion({ titulo, chip, children }: { titulo: string; chip?: ReactNode; children: ReactNode }) {
+/**
+ * Un bloque del formulario. El número va en el `<h2>` porque es parte del rótulo, no un adorno.
+ *
+ * `icono` (HU #12844): lucide opcional delante del título, decorativo (`aria-hidden` lo pone quien
+ * lo pasa). Los tres bloques lo llevan para que la página se lea como un solo asistente.
+ */
+export function Seccion({ titulo, chip, icono, children }: {
+  titulo: string; chip?: ReactNode; icono?: ReactNode; children: ReactNode;
+}) {
   return (
     <section
       aria-label={titulo}
@@ -93,7 +100,10 @@ export function Seccion({ titulo, chip, children }: { titulo: string; chip?: Rea
       style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}
     >
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>{titulo}</h2>
+        <h2 className="flex items-center gap-2 text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+          {icono}
+          {titulo}
+        </h2>
         {chip}
       </div>
       {children}
@@ -150,10 +160,19 @@ export function MarcaRevision({ etiqueta, id, onConfirmar }: {
 export function Campo({
   id, label, valor, onCambio, onBlur, error, ayuda, opcional,
   maxLength, autoComplete, inputRef, readOnly, invalido, describedByExtra,
-  porRevisar, idConfirmar, onConfirmar,
+  porRevisar, idConfirmar, onConfirmar, accion, codigo,
 }: {
   id: string; label: string; valor: string; onCambio: (v: string) => void; onBlur?: () => void;
-  error?: string; ayuda?: string;
+  /** Texto o nodo bajo el control (HU #12844: el VIN pone icono + contador). Entra al `describedby`. */
+  error?: string; ayuda?: ReactNode;
+  /**
+   * Un control que comparte RENGLÓN con el input, a su misma altura (HU #12844): el rótulo queda
+   * fuera del renglón y la ayuda y el error debajo, así que el botón ya no se descuadra con
+   * márgenes a mano. En 375 el renglón envuelve y el control baja a ancho completo.
+   */
+  accion?: ReactNode;
+  /** El valor es un código (el VIN): monoespaciada, mayúsculas, sin corrector y error con icono. */
+  codigo?: boolean;
   /**
    * Hoy **ningún campo de esta pantalla lo usa**: el VIN era el único opcional y la HU #12091 lo
    * hizo obligatorio (AC1). Se conserva la capacidad —no el rótulo a medida `textoOpcional`, que
@@ -204,6 +223,24 @@ export function Campo({
     porRevisar ? idRevision : null,
     describedByExtra ?? null,
   ].filter(Boolean).join(' ');
+  const input = (
+    <input
+      id={id}
+      ref={inputRef}
+      className={codigo ? `${flitInp} h-10 font-mono tracking-wider uppercase` : flitInp}
+      autoCapitalize={codigo ? 'characters' : undefined}
+      spellCheck={codigo ? false : undefined}
+      value={valor}
+      maxLength={maxLength}
+      autoComplete={autoComplete}
+      required={!opcional}
+      readOnly={readOnly}
+      aria-invalid={error || invalido ? true : undefined}
+      aria-describedby={describedBy || undefined}
+      onChange={(e) => onCambio(e.target.value)}
+      onBlur={onBlur}
+    />
+  );
   const etiqueta = (
     <label htmlFor={id} className="block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
       {label}{opcional ? ' (opcional)' : ' *'}
@@ -219,24 +256,13 @@ export function Campo({
           </div>
         )
         : <div className="mb-1">{etiqueta}</div>}
-      <input
-        id={id}
-        ref={inputRef}
-        className={flitInp}
-        value={valor}
-        maxLength={maxLength}
-        autoComplete={autoComplete}
-        required={!opcional}
-        readOnly={readOnly}
-        aria-invalid={error || invalido ? true : undefined}
-        aria-describedby={describedBy || undefined}
-        onChange={(e) => onCambio(e.target.value)}
-        onBlur={onBlur}
-      />
+      {accion
+        ? <div className="flex flex-wrap items-center gap-3"><div className="min-w-0 flex-1 basis-64">{input}</div>{accion}</div>
+        : input}
       {ayuda && (
-        <p id={idAyuda} className="mt-1 text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>
+        <div id={idAyuda} className="mt-1 text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>
           {ayuda}
-        </p>
+        </div>
       )}
       {porRevisar && (
         <p id={idRevision} className="mt-1 text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>
@@ -244,7 +270,10 @@ export function Campo({
         </p>
       )}
       {error && (
-        <p id={idError} role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>
+        <p id={idError} role="alert" className={`mt-1 text-xs ${codigo ? 'flex items-start gap-1.5' : ''}`} style={{ color: 'var(--flit-danger-text)' }}>
+          {codigo && <CircleAlert size={14} aria-hidden="true" className="mt-px shrink-0" />}
+          {error}
+        </p>
       )}
     </div>
   );

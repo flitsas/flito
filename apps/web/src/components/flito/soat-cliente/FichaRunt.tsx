@@ -53,7 +53,7 @@ import type { PreconsultaRunt } from '../../../lib/soatCliente';
 const selloDe = (d: Date) => d.toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
 
 /** Un valor que el RUNT no trajo se pinta «—»: un hueco en blanco se confunde con un fallo de carga. */
-const dato = (v: string | null) => (v && v.trim() ? v : '—');
+export const dato = (v: string | null) => (v && v.trim() ? v : '—');
 
 interface Props {
   datos: PreconsultaRunt;
@@ -142,11 +142,18 @@ function Grupo({ titulo, children }: { titulo: string; children: ReactNode }) {
   );
 }
 
-function Dato({ k, v, ancho }: { k: string; v: string; ancho?: boolean }) {
+/**
+ * El par `dt`/`dd` de la ficha. **Exportado** desde la HU #12844: la tarjeta de SOAT activo usa el
+ * mismo par en vez de copiarlo. `clase` es la del contenedor (columnas) y `claseValor` la del `dd`
+ * (peso, `tabular-nums`, `break-all`); sin ellas el par sale igual que siempre.
+ */
+export function Dato({ k, v, ancho, clase, claseValor }: {
+  k: string; v: string; ancho?: boolean; clase?: string; claseValor?: string;
+}) {
   return (
-    <div className={`flex flex-col ${ancho ? 'col-span-2' : ''}`}>
+    <div className={`flex min-w-0 flex-col ${ancho ? 'col-span-2' : ''} ${clase ?? ''}`}>
       <dt className="text-[11px] uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>{k}</dt>
-      <dd className="text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>{v}</dd>
+      <dd className={`text-sm ${claseValor ?? 'font-medium'}`} style={{ color: 'var(--flit-text-primary)' }}>{v}</dd>
     </div>
   );
 }

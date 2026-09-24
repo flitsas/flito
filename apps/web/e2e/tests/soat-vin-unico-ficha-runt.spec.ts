@@ -171,8 +171,13 @@ test.describe('HU #12091 · AC1 — un solo campo en el bloque 1', () => {
     // La ayuda no está «al lado»: está ENLAZADA, que es lo único que le sirve a un lector.
     const descrito = await campoVin(page).getAttribute('aria-describedby');
     expect(descrito).toBe('sol-vin-ayuda');
+    // HU #12844: la ayuda lleva icono y el contador «n de 17», que cuenta sobre el valor normalizado.
     await expect(page.locator('#sol-vin-ayuda'))
-      .toHaveText('Está en la tarjeta de propiedad y en la factura de venta. Suele tener 17 caracteres.');
+      .toContainText('Está en la tarjeta de propiedad y en la factura de venta.');
+    await expect(page.locator('#sol-vin-ayuda')).toContainText('0 de 17');
+    await campoVin(page).fill('9FKRG-2222-T2042405');
+    await expect(page.locator('#sol-vin-ayuda')).toContainText('17 de 17');
+    await campoVin(page).fill('');
 
     // Y los tres que se fueron NO están en el bloque 1. Se comprueba DENTRO del bloque —y no en la
     // página— porque tipo y número siguen existiendo: lo que cambió es dónde.
@@ -223,6 +228,29 @@ test.describe('HU #12091 · AC1 — un solo campo en el bloque 1', () => {
       .filter({ hasText: 'El VIN tiene 10 caracteres y hacen falta al menos 11.' })).toBeVisible();
     // No es el aviso blando de longitud rara: ese no bloquea y este sí.
     await expect(page.getByText(/El VIN suele tener 17 caracteres/)).toHaveCount(0);
+    expect(cap.preconsultas, JSON.stringify(cap.preconsultas)).toHaveLength(0);
+  });
+
+  // HU #12844 (AC6): el render del aviso y de los errores del VIN se movió a `PasoVin.tsx`; este
+  // test fija que el paso rediseñado sigue diciendo lo mismo. De 11 a 16 avisa sin bloquear;
+  // I/O/Q y más de 17 bloquean sin salir a la red.
+  test('VIN de 11 a 16 avisa; con I/O/Q o más de 17 da error y cero peticiones (HU #12844)', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    const cap = await mockCanal(page);
+
+    await campoVin(page).fill('9bwzzz377vt00425');
+    await expect(campoVin(page)).toHaveValue('9BWZZZ377VT00425');
+    await expect(page.getByText('El VIN suele tener 17 caracteres y este tiene 16.')).toBeVisible();
+    await campoVin(page).fill('9BWZZZ377VT0042');
+    await expect(page.getByText('El VIN suele tener 17 caracteres y este tiene 15.')).toBeVisible();
+
+    await campoVin(page).fill('9BWZZZ377VT00425O');
+    await btnConsultar(page).click();
+    await expect(page.getByText('El VIN no lleva las letras I, O ni Q.', { exact: false })).toBeVisible();
+
+    await campoVin(page).fill('9BWZZZ377VT0042512');
+    await btnConsultar(page).click();
+    await expect(page.getByText('El VIN no puede tener más de 17 caracteres.')).toBeVisible();
     expect(cap.preconsultas, JSON.stringify(cap.preconsultas)).toHaveLength(0);
   });
 
@@ -369,7 +397,7 @@ test.describe('HU #12091 · AC3 — la ficha del RUNT enseña los once', () => {
     await expect(ficha.locator('dd').nth(10)).toHaveText('—');
     await expect(ficha.getByText('Un dato en «—» es un dato que el RUNT no publica. No impide enviar la solicitud.')).toBeVisible();
     // Y no impide enviar: la compuerta sigue abierta.
-    await expect(page.getByText('✓ Consultado')).toBeVisible();
+    await expect(page.getByText('Consultado', { exact: true })).toBeVisible();
   });
 });
 
@@ -421,19 +449,37 @@ test.describe('HU #12091 · AC4 — los cuatro desenlaces se distinguen por CÓD
     expect(cap.altas).toHaveLength(0);
   });
 
-  test('409 soat_vigente: modal propio, cero altas, y el foco vuelve al VIN al cerrarlo', async ({ page }) => {
-    const cap = await consultarCon(page, fallo(409, 'soat_vigente', 'Revisa los datos del vehículo.'));
+  test('409 soat_vigente: tarjeta propia (no modal), cero altas, y el foco vuelve al VIN al salir', async ({ page }) => {
+    const cap = await consultarCon(page, fallo(409, 'soat_vigente', 'Revisa los datos del vehículo.', {
+      soatActivo: {
+        poliza: 'AT-0000-TEST-01', aseguradora: 'ASEGURADORA FICTICIA S.A.', fechaExpedicion: null,
+        inicioVigencia: null, vencimiento: '2027-02-01', estado: 'VIGENTE',
+      },
+    }));
 
-    const modal = page.getByRole('dialog', { name: 'Este vehículo ya tiene SOAT vigente' });
-    await expect(modal).toBeVisible();
-    await expect(modal.getByText('Según el RUNT, este vehículo tiene una póliza SOAT vigente.')).toBeVisible();
-    // Ni la placa (que ya no existe) ni el VIN dentro de la frase o del título del diálogo.
-    await expect(modal).not.toContainText(VIN);
+    // HU #12844: la tarjeta en línea sustituye al modal.
+    const tarjeta = page.getByRole('region', { name: 'Este vehículo ya tiene SOAT activo' });
+    await expect(tarjeta).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(tarjeta).toContainText('Vence el 1 de febrero de 2027.');
+    // AC4: lo que no vino se pinta «—».
+    await expect(tarjeta.locator('dd').filter({ hasText: /^—$/ })).toHaveCount(2);
+    // Ni la placa (que ya no existe) ni el VIN dentro de la tarjeta.
+    await expect(tarjeta).not.toContainText(VIN);
     expect(cap.altas).toHaveLength(0);
 
-    await page.keyboard.press('Escape');
-    await expect(modal).toHaveCount(0);
+    await tarjeta.getByRole('button', { name: 'Consultar otro vehículo' }).click();
+    await expect(tarjeta).toHaveCount(0);
+    await expect(campoVin(page)).toHaveValue('');
     await expect(campoVin(page)).toBeFocused();
+  });
+
+  test('editar el VIN retira la tarjeta de bloqueo', async ({ page }) => {
+    await consultarCon(page, fallo(409, 'soat_vigente', 'mentira'));
+    const tarjeta = page.getByRole('region', { name: 'Este vehículo ya tiene SOAT activo' });
+    await expect(tarjeta).toBeVisible();
+    await campoVin(page).fill(VIN.slice(0, 16));
+    await expect(tarjeta).toHaveCount(0);
   });
 
   test('los cuatro desenlaces dicen cosas DISTINTAS entre sí, y ninguno nombra la placa', async ({ page }) => {
@@ -454,11 +500,11 @@ test.describe('HU #12091 · AC4 — los cuatro desenlaces se distinguen por CÓD
       await expect(page.getByRole('alert')).not.toHaveText(textos[textos.length - 1]);
       textos.push((await page.getByRole('alert').innerText()).trim());
     }
-    // El cuarto no es una banda sino un modal, y por eso se lee aparte: el AC pide que los cuatro se
-    // vean distintos, no que compartan superficie.
+    // El cuarto no es una banda sino la tarjeta de SOAT activo (HU #12844), y por eso se lee aparte:
+    // el AC pide que los cuatro se vean distintos, no que compartan superficie.
     await reMockPreconsulta(page, fallo(409, 'soat_vigente', 'mentira'));
     await consultar.click();
-    textos.push((await page.getByRole('dialog').innerText()).trim());
+    textos.push((await page.getByRole('region', { name: 'Este vehículo ya tiene SOAT activo' }).innerText()).trim());
 
     expect(new Set(textos).size, textos.join('\n──\n')).toBe(4);
     for (const texto of textos) expect(texto.toLowerCase(), texto).not.toContain('placa');
@@ -502,7 +548,7 @@ test.describe('HU #12091 · AC5 — editar el VIN invalida la consulta', () => {
     await campoVin(page).fill('9BWZZZ377VT004252');
 
     await expect(fichaRunt(page)).toHaveCount(0);
-    await expect(page.getByText('✓ Consultado')).toHaveCount(0);
+    await expect(page.getByText('Consultado', { exact: true })).toHaveCount(0);
     // `role="status"` y no `alert`: es la consecuencia de lo que el usuario acaba de hacer.
     const aviso = page.getByRole('status').filter({ hasText: 'Cambió el VIN' });
     await expect(aviso).toHaveText('Cambió el VIN: vuelva a consultar el RUNT antes de enviar.');
@@ -529,7 +575,7 @@ test.describe('HU #12091 · AC5 — editar el VIN invalida la consulta', () => {
     // El mutante que esto mata es dejar la invalidación de la #11967 atada a un dato que la consulta
     // ya no usa: corregir una tilde del documento tumbaría la ficha sin motivo.
     await expect(fichaRunt(page)).toBeVisible();
-    await expect(page.getByText('✓ Consultado')).toBeVisible();
+    await expect(page.getByText('Consultado', { exact: true })).toBeVisible();
     await expect(page.getByText(/Cambió el VIN/)).toHaveCount(0);
     await expect(btnEnviar(page)).not.toHaveAttribute('aria-disabled', 'true');
   });
@@ -584,7 +630,7 @@ test.describe('HU #12091 · AC5 — editar el VIN invalida la consulta', () => {
     await page.waitForTimeout(500);
 
     await expect(fichaRunt(page)).toHaveCount(0);
-    await expect(page.getByText('✓ Consultado')).toHaveCount(0);
+    await expect(page.getByText('Consultado', { exact: true })).toHaveCount(0);
     await expect(btnEnviar(page)).toHaveAttribute('aria-disabled', 'true');
     expect(cap.preconsultas).toHaveLength(1);
     expect(cap.altas).toHaveLength(0);

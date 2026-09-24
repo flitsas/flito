@@ -505,7 +505,7 @@ const btnEnviar = (page: Page) => page.getByRole('button', { name: 'Enviar al ge
 async function consultarRunt(page: Page) {
   await page.getByLabel('VIN').fill(VIN);
   await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
-  await expect(page.getByText('✓ Consultado')).toBeVisible();
+  await expect(page.getByText('Consultado', { exact: true })).toBeVisible();
 }
 
 test.describe('HU #12079 · AC1 — el botón bloqueado enumera lo que falta', () => {
@@ -603,7 +603,8 @@ test.describe('HU #12079 · AC1 — el botón bloqueado enumera lo que falta', (
 
     await page.getByLabel('VIN').fill(VIN);
     await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
-    await page.getByRole('dialog').getByRole('button', { name: 'Cerrar' }).click();
+    // HU #12844: ya no hay modal que cerrar; la tarjeta de bloqueo queda en la página.
+    await expect(page.getByRole('region', { name: 'Este vehículo ya tiene SOAT activo' })).toBeVisible();
 
     await expect(linea(page)).toHaveText('Este vehículo tiene SOAT vigente según el RUNT: no se puede radicar la solicitud.');
     await expect(linea(page)).not.toContainText('Para enviar falta');

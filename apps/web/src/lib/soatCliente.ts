@@ -14,8 +14,9 @@
 import { ApiError } from './api';
 import {
   CAMPOS_COMPRADOR_FACTURA, CODIGOS_REVISE_LOS_DATOS, CodigoErrorSolicitudSoat,
-  TIPOS_DOCUMENTO_RUNT,
-  type CampoCompradorFactura, type EstadoSoat, type ExtraccionFacturaVenta, type TipoDocumentoRunt,
+  DIAS_RENOVACION_ANTICIPADA, TIPOS_DOCUMENTO_RUNT,
+  type CampoCompradorFactura, type EstadoSoat, type ExtraccionFacturaVenta, type SoatActivoRunt,
+  type TipoDocumentoRunt, type VigenciaProximaSoat,
 } from '@operaciones/shared-types';
 
 // ───────────────────────────── Verificación RUNT post-alta (HU #11935 / #11936) ──────────────────
@@ -96,23 +97,23 @@ export interface PreconsultaRunt {
   propietario: { nombreCompleto: string } | null;
   /**
    * **HU #12213 — renovación anticipada.** `null` cuando no hay nada que avisar; un objeto cuando el
-   * RUNT reporta un SOAT vigente al que le falta **un mes o menos**, y entonces la solicitud SÍ se
-   * puede enviar. La clave viaja SIEMPRE en el `200` (`flito-soat-cliente.service.ts:742`).
+   * RUNT reporta un SOAT vigente al que le faltan **30 días o menos**, y entonces la solicitud SÍ se
+   * puede enviar. La clave viaja SIEMPRE en el `200`.
    *
-   * **La pantalla no calcula el umbral** (AC3): no hay resta de fechas aquí. El servidor ya decidió
-   * —mes calendario, frontera inclusive, en hora de Colombia— y esto solo se rotula. Un `venceEl`
-   * a más de un mes sigue siendo el `409 soat_vigente` de siempre, que corta el flujo y no llega
-   * nunca por esta clave.
+   * **La pantalla no calcula el umbral**: el servidor ya decidió —frontera inclusive, en hora de
+   * Colombia— y esto solo se rotula. Un vencimiento más lejano sigue siendo el `409 soat_vigente`,
+   * que corta el flujo y no llega nunca por esta clave.
    *
-   * **No trae la póliza y no puede traerla**: el servicio la persiste pero la recorta del `200`
-   * (`vigenciaProxima ? { venceEl } : null`, y no un `...spread`), porque desde la HU #12090
-   * cualquiera que conozca un VIN obtiene esta ficha.
+   * **Trae la póliza, la aseguradora y las fechas** desde la RN-05 del Feature #12840 (HU #12842):
+   * el canal las publica para que el Cliente vea QUÉ póliza tiene el vehículo. Hasta la #12213 se
+   * recortaban a propósito. Por eso siguen sin entrar en un `aria-label`, una URL, la consola o un
+   * toast: se pintan en la tarjeta y en ningún otro sitio.
    *
    * Se declara opcional a la LECTURA aunque el contrato la prometa: en DEV el merge es el deploy,
    * así que un bundle nuevo puede hablar con una API que todavía no la manda, y en ese caso la
    * ausencia se comporta como `null` en vez de reventar la pantalla.
    */
-  vigenciaProxima?: { venceEl: string } | null;
+  vigenciaProxima?: VigenciaProximaSoat | null;
 }
 
 // ───────────────────────────── El aviso de vigencia próxima (HU #12213) ──────────────────────────
@@ -121,17 +122,17 @@ export interface PreconsultaRunt {
 export const AVISO_VIGENCIA_CHIP = 'Puede continuar';
 
 /**
- * La segunda línea del aviso. **Explica** lo que el servidor decidió («falta un mes o menos»), no
- * lo evalúa: aquí no hay ninguna resta de fechas que pudiera contradecirlo.
+ * La segunda línea del aviso. **Explica** lo que el servidor decidió («30 días o menos»), no lo
+ * evalúa: la cuenta de días de `diasHasta` solo rotula y nunca decide.
  */
-export const AVISO_VIGENCIA_DETALLE = 'Falta un mes o menos para que venza, así que sí puede enviar esta solicitud.';
+export const AVISO_VIGENCIA_DETALLE = 'Como le faltan 30 días o menos, sí puede enviar la solicitud.';
 
 /**
  * La redacción de respaldo, **entera y en una sola frase**, para cuando `venceEl` no es una fecha de
  * calendario legible. Misma regla que `ModalSoatVigente` (`ModalesBloqueo.tsx:72-79`): sin fecha se
  * cambia la oración completa; jamás se escribe «hasta el —» ni se inventa un día.
  */
-export const AVISO_VIGENCIA_SIN_FECHA = 'Este vehículo todavía tiene SOAT vigente y le falta un mes o menos para vencerse, así que sí puede enviar esta solicitud.';
+export const AVISO_VIGENCIA_SIN_FECHA = 'Este vehículo todavía tiene SOAT activo y le faltan 30 días o menos para vencerse, así que sí puede enviar esta solicitud.';
 
 /** Las dos líneas ya resueltas. `detalle: null` en la redacción de respaldo, que ya lo dice todo. */
 export interface AvisoVigencia {
@@ -140,6 +141,47 @@ export interface AvisoVigencia {
 }
 
 const FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * La fecha `yyyy-mm-dd` si se puede rotular, o `null`. `fechaLarga` no valida: con un valor vacío o
+ * de otro formato escribiría «Invalid Date» dentro de la tarjeta (AC4 de la HU #12844).
+ */
+export function fechaIsoValida(v: string | null | undefined): string | null {
+  const iso = typeof v === 'string' ? v.trim() : '';
+  if (!FECHA_ISO.test(iso)) return null;
+  const [anio, mes, dia] = iso.split('-').map(Number);
+  const d = new Date(anio, mes - 1, dia);
+  return d.getFullYear() === anio && d.getMonth() === mes - 1 && d.getDate() === dia ? iso : null;
+}
+
+/** La fecha larga de un ISO válido, o «—». Para los pares dt/dd de la tarjeta, nunca en una frase. */
+export const fechaLargaOGuion = (v: string | null | undefined): string => {
+  const iso = fechaIsoValida(v);
+  return iso ? fechaLarga(iso) : '—';
+};
+
+/**
+ * Cuánto falta, en días de CALENDARIO, de `hoy` a `iso`: «hoy», «mañana» o «en N días» (HU #12844).
+ *
+ * `null` si la fecha no se puede leer o si cae fuera de 0..30: la cuenta **solo rotula** lo que el
+ * servidor ya decidió y nunca lo contradice, así que fuera de la ventana se calla en vez de escribir
+ * «en 45 días» sobre un aviso que dice «30 días o menos».
+ *
+ * Se parte por componentes, igual que `fechaLarga`: `new Date('yyyy-mm-dd')` es medianoche UTC y en
+ * Colombia restaría un día. Las dos fechas se llevan a UTC por componentes para restar sin horas.
+ */
+export function diasHasta(iso: string | null | undefined, hoy: Date): string | null {
+  const valida = fechaIsoValida(iso);
+  if (!valida) return null;
+  const [anio, mes, dia] = valida.split('-').map(Number);
+  const n = Math.round(
+    (Date.UTC(anio, mes - 1, dia) - Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate())) / 86_400_000,
+  );
+  if (n < 0 || n > DIAS_RENOVACION_ANTICIPADA) return null;
+  if (n === 0) return 'hoy';
+  if (n === 1) return 'mañana';
+  return `en ${n} días`;
+}
 
 /**
  * El aviso que se pinta en el bloque 1, o `null` si no hay ninguno.
@@ -153,20 +195,32 @@ const FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/;
  * la misma razón ninguna de las dos frases dice «revise», «vuelva» ni «no pudimos»: no hay nada que
  * corregir ni nada que reintentar.
  */
-export function avisoVigenciaProxima(v: { venceEl: string } | null | undefined): AvisoVigencia | null {
+export function avisoVigenciaProxima(
+  v: Pick<VigenciaProximaSoat, 'venceEl'> & Partial<Pick<VigenciaProximaSoat, 'vencimiento'>> | null | undefined,
+  hoy: Date = new Date(),
+): AvisoVigencia | null {
   if (!v) return null;
-  // `fechaLarga` parte el ISO por componentes y no valida: un `venceEl` vacío o con otro formato
-  // saldría como «Invalid Date» dentro de la oración. Se comprueba ANTES y se cambia la frase.
-  const iso = typeof v.venceEl === 'string' ? v.venceEl.trim() : '';
-  if (!FECHA_ISO.test(iso) || Number.isNaN(new Date(iso).getTime())) {
-    return { titulo: AVISO_VIGENCIA_SIN_FECHA, detalle: null };
-  }
-  // `fechaLarga` y no `fechaCorta`: la fecha va dentro de una oración que se lee una vez, y
-  // `fechaLarga` ya resuelve el huso (`new Date('2026-10-05')` es medianoche UTC y en −05 diría el 4).
-  return {
-    titulo: `Este vehículo todavía tiene SOAT vigente, hasta el ${fechaLarga(iso)}.`,
-    detalle: AVISO_VIGENCIA_DETALLE,
-  };
+  // `venceEl` primero; si no sirve, el `vencimiento` del SOAT. Sin ninguna, la frase de respaldo
+  // ENTERA: jamás «hasta el —» ni «Invalid Date» dentro de la oración.
+  const iso = fechaIsoValida(v.venceEl) ?? fechaIsoValida(v.vencimiento);
+  if (!iso) return { titulo: AVISO_VIGENCIA_SIN_FECHA, detalle: null };
+  const cuanto = diasHasta(iso, hoy);
+  const fecha = fechaLarga(iso);
+  const titulo = cuanto === 'hoy' || cuanto === 'mañana'
+    ? `Vence ${cuanto}, el ${fecha}.`
+    : `Vence el ${fecha}${cuanto ? ` · ${cuanto}` : ''}.`;
+  return { titulo, detalle: AVISO_VIGENCIA_DETALLE };
+}
+
+/**
+ * La frase del bloqueo (`409 soat_vigente`). La fecha sale de `soatActivo.vencimiento` y, si no
+ * sirve, de `fechaVencimiento`; sin ninguna, la oración cambia entera.
+ */
+export function fraseBloqueoVigente(vencimiento: string | null | undefined, fechaVencimiento?: string): string {
+  const iso = fechaIsoValida(vencimiento) ?? fechaIsoValida(fechaVencimiento);
+  return iso
+    ? `Vence el ${fechaLarga(iso)}. FLITO podrá tramitar la renovación cuando falten 30 días o menos.`
+    : 'FLITO podrá tramitar la renovación cuando falten 30 días o menos para que venza.';
 }
 
 /** Lo que la pantalla necesita saber de un error del canal, ya separado del `ApiError` genérico. */
@@ -194,6 +248,11 @@ export interface FalloCanal {
    * calendario.
    */
   fechaVencimiento?: string;
+  /**
+   * El SOAT activo que reporta el RUNT, **solo en el `409 soat_vigente`** (HU #12842, RN-05 del
+   * Feature #12840). Cada dato ausente llega en `null` y se pinta «—»; la pantalla no inventa nada.
+   */
+  soatActivo?: SoatActivoRunt;
   /**
    * Qué campo señala el desenlace, en el `422 runt_no_cuadra` (HU #11966 §2.3). Hoy solo `'vin'`:
    * lo que no cuadra es el VIN que el Cliente tecleó — y desde la HU #12091 **no hay otro campo que
@@ -252,7 +311,23 @@ export function leerFallo(e: unknown): FalloCanal {
   // Solo se reconoce `'vin'`: es el único valor del contrato, y un valor nuevo servido por una API
   // desfasada no debe marcar como inválido un campo que la pantalla no sabe cuál es.
   if (cuerpo.campo === 'vin') fallo.campo = 'vin';
+  const soat = leerSoatActivo(cuerpo.soatActivo);
+  if (soat) fallo.soatActivo = soat;
   return fallo;
+}
+
+/**
+ * El `soatActivo` del 409, campo a campo: solo cadenas no vacías; todo lo demás es `null`. Un cuerpo
+ * sin el objeto (API desfasada) devuelve `null` y la tarjeta pinta seis «—».
+ */
+function leerSoatActivo(v: unknown): SoatActivoRunt | null {
+  if (!v || typeof v !== 'object') return null;
+  const o = v as Record<string, unknown>;
+  const txt = (k: string): string | null => (typeof o[k] === 'string' && (o[k] as string).trim() ? (o[k] as string) : null);
+  return {
+    poliza: txt('poliza'), fechaExpedicion: txt('fechaExpedicion'), inicioVigencia: txt('inicioVigencia'),
+    vencimiento: txt('vencimiento'), aseguradora: txt('aseguradora'), estado: txt('estado'),
+  };
 }
 
 // ───────────────────────────── Cómo reacciona la pantalla a un fallo (HU #11967) ─────────────────
@@ -287,7 +362,7 @@ export type ReaccionCanal =
   | { tipo: 'canal' }
   /** `409` RN-01: modal de VIN en cola. Puede llegar también en la CONSULTA, no solo en el envío. */
   | { tipo: 'vin-en-cola' }
-  /** `409` del RUNT: modal de SOAT vigente. No se envía y no se compra. */
+  /** `409` del RUNT: tarjeta de SOAT activo en el bloque 1 (HU #12844). No se envía y no se compra. */
   | { tipo: 'soat-vigente' }
   /** `400` del adjunto: la caja de subida queda rechazada con el motivo. */
   | { tipo: 'archivo' }
