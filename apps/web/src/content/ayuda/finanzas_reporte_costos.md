@@ -37,7 +37,7 @@ En el menú lateral, sección **Finanzas**, ítem **Reporte de costos**. Ruta `/
 - No carga boletas del portal: el chip de SOAT conciliado enlaza la boleta; el Excel se carga en **Conciliación**.
 - No parametriza productos ni terceros de Siigo: eso es **Facturación electrónica · Parametrización**.
 - No es la bandeja de casos detenidos: eso es **Facturación electrónica · Operación**.
-- El panel de **Servicios** no crea ni tarifa tipos de servicio adicional: eso es **Finanzas — Servicios adicionales**. Tampoco cambia el valor de uno ya asignado: quítelo y vuelva a añadirlo. Un servicio con el chip **Desde comprobante** lo asignó un comprobante de pago aplicado: no se quita desde el panel, y su valor se corrige aplicando otro comprobante de ese mismo tipo.
+- El panel de **Servicios** no crea ni tarifa tipos de servicio adicional: eso es **Finanzas — Servicios adicionales**. Tampoco cambia el valor de uno ya asignado: quítelo y vuelva a añadirlo. Un servicio con el chip **Desde comprobante** lo asignó un comprobante de pago aplicado: no se quita desde el panel.
 - El Auditor observa; no liquida, no factura ni envía; el panel de **Servicios** lo ve siempre en solo lectura.
 - El panel de **Viajes** no registra ni quita viajes: eso es la consola logística de Operaciones. Aquí solo se consulta lo que se cobró o se va a cobrar.
 - **Aceptar diferencia** no corrige el valor ni el comprobante: si el documento está mal leído, corríjalo en **Comprobantes**. En servicios adicionales, lo que suma es aplicar el pago con su tipo de servicio. El Auditor ve los chips y usa el filtro, pero no acepta. El Excel no lleva columna de origen ni de diferencia: solo obedece el filtro, como los demás.
