@@ -213,6 +213,8 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     'impuestos.tramite.certificar',
     // HU #12592: recibo de caja puntual desde el detalle (migración 0197: hoy solo `admin`).
     'impuestos.recibos.cargar_caja',
+    // HU #12834: la 0208 siembra la corrección de la dirección del comprador solo a admin.
+    'impuestos.tramite.corregir_direccion',
     // Bug #12642: Excel ampliado con pago y trazabilidad (sembrada solo a `admin`; el proveedor y el
     // gestor de impuestos NO la tienen, y ese hueco es lo que prueba el spec del export).
     'soat.excel.exportar_pago', 'impuestos.excel.exportar_pago',

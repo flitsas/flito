@@ -3,7 +3,7 @@
 // «Liquidado el», el botón «Cargar recibo de caja» y su modal.
 
 import { useRef, useState, type ReactNode } from 'react';
-import { ESTADO_IMPUESTO_LABEL, EstadoImpuesto } from '@operaciones/shared-types';
+import { ESTADO_IMPUESTO_LABEL, EstadoImpuesto, type DireccionCompradorImpuesto } from '@operaciones/shared-types';
 import { api, errorMessage } from '../../lib/api';
 import FlitModal from '../flit/FlitModal';
 import HistorialEstados from '../flit/HistorialEstados';
@@ -15,7 +15,8 @@ import { documentoConTipo } from '../flit/columnasComunes';
 import { FlitField, flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
 import ModalReciboCaja from './ModalReciboCaja';
 import { ChipDocumentos, TONO_IMPUESTO, fecha, pesos, type ImpuestoItem } from './ImpuestoCola';
-import { SeccionValidacion } from './ValidacionRunt';
+import { SeccionValidacion, useDetalleValidacion, type Carga } from './ValidacionRunt';
+import { AvisoDireccion, DireccionComprador, EstadoCargaDireccion } from './DireccionComprador';
 
 const ESTADOS_OPERACIONES: EstadoImpuesto[] = [
   EstadoImpuesto.PENDIENTE, EstadoImpuesto.SOLICITADO, EstadoImpuesto.CON_NOVEDAD, EstadoImpuesto.PAGADO,
@@ -24,7 +25,8 @@ const ESTADOS_OPERACIONES: EstadoImpuesto[] = [
 type Accion = 'idle' | 'rechazar' | 'reactivar' | 'reversar' | 'asumir' | 'devolver';
 
 export default function DetalleImpuesto({
-  imp, esOperaciones, esGestor, soloLectura, puedeCargarCaja, onClose, onCambio, onTraspaso, accionReintento, sinPermisoReintento,
+  imp, esOperaciones, esGestor, soloLectura, puedeCargarCaja, puedeCorregirDireccion = false,
+  onClose, onCambio, onTraspaso, accionReintento, sinPermisoReintento,
 }: {
   imp: ImpuestoItem; esOperaciones: boolean; esGestor: boolean; soloLectura: boolean;
   /** `hasFuncion('impuestos.recibos.cargar_caja')`: sin ella el botón no se pinta (ni en gris). */
@@ -32,6 +34,8 @@ export default function DetalleImpuesto({
   onClose: () => void; onCambio: () => void; onTraspaso: () => void;
   /** «Reintentar validación» (HU #12832), montado por la página; secundario aquí. */
   accionReintento?: ReactNode; sinPermisoReintento?: boolean;
+  /** `hasFuncion('impuestos.tramite.corregir_direccion')` (HU #12834): sin ella, la dirección es texto. */
+  puedeCorregirDireccion?: boolean;
 }) {
   const [accion, setAccion] = useState<Accion>('idle');
   const [motivo, setMotivo] = useState('');
@@ -50,6 +54,21 @@ export default function DetalleImpuesto({
   // vuelva a un botón que va a desaparecer un tick después, sino a «Ver soporte».
   const [pagadoDesdeCaja, setPagadoDesdeCaja] = useState(false);
   const verSoporteRef = useRef<HTMLButtonElement>(null);
+  // HU #12834: el detalle se pide UNA vez y lo comparten la sección de validación y la dirección.
+  // Tras guardar la dirección se parchea aquí, sin volver a pedirlo: el aviso se va y la fila de la
+  // tabla comparativa muestra lo guardado en el mismo render.
+  const { carga: cargaApi, recargar } = useDetalleValidacion(imp.id, true);
+  const [direccionGuardada, setDireccionGuardada] = useState<DireccionCompradorImpuesto | null>(null);
+  const carga: Carga = cargaApi.fase === 'listo' && direccionGuardada
+    ? { fase: 'listo', datos: { ...cargaApi.datos, direccionComprador: direccionGuardada } }
+    : cargaApi;
+  const direccion = carga.fase === 'listo' ? carga.datos.direccionComprador : null;
+  const campoDireccionRef = useRef<HTMLInputElement>(null);
+  const analisisTerminado = imp.analisisEstado === 'completado' || imp.analisisEstado === 'error_analisis';
+  const revisarDireccion = () => {
+    if (campoDireccionRef.current) campoDireccionRef.current.focus();
+    else document.getElementById(`direccion-${imp.id}`)?.focus();
+  };
 
   const enGestion = imp.estado === EstadoImpuesto.SOLICITADO;
   const rechazado = imp.estado === EstadoImpuesto.CON_NOVEDAD;
@@ -129,6 +148,9 @@ export default function DetalleImpuesto({
           <ChipDocumentos imp={imp} />
         </div>
 
+        {/* HU #12834 (AC1, AC3): aviso persistente arriba, bajo los chips. */}
+        <AvisoDireccion direccion={direccion} puedeCorregir={puedeCorregirDireccion && !soloLectura} onRevisar={revisarDireccion} />
+
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5">
           <Dato k="VIN" v={imp.vin} /><Dato k="Trámite FLIT" v={imp.idFlit} />
           <Dato k="Compañía" v={imp.companiaNombre} /><Dato k="Organismo" v={imp.organismoNombre ?? imp.organismoCodigo} />
@@ -174,7 +196,17 @@ export default function DetalleImpuesto({
         </dl>
 
         {/* HU #12831 (AC2): entre el <dl> y el historial. «Reintentar validación» llega con la #12832. */}
-        <SeccionValidacion imp={imp} accionReintento={accionReintento} sinPermiso={sinPermisoReintento} />
+        <SeccionValidacion imp={imp} accionReintento={accionReintento} sinPermiso={sinPermisoReintento} detalle={{ carga, recargar }} />
+
+        {/* HU #12834: bajo la validación. Con el análisis terminado, cargando y error ya los pinta la
+            sección de arriba; sin terminar, los pinta este bloque. */}
+        {carga.fase === 'listo'
+          ? (
+            <DireccionComprador impId={imp.id} direccion={direccion} puedeCorregir={puedeCorregirDireccion && !soloLectura}
+              bloqueada={accion !== 'idle'} campoRef={campoDireccionRef}
+              onGuardada={(d) => { setDireccionGuardada(d); onTraspaso(); }} />
+          )
+          : !analisisTerminado && <EstadoCargaDireccion fase={carga.fase} onRecargar={recargar} />}
 
         {verSoportes && (
           <VisorSoportes ruta={`/flito/impuestos/${imp.id}/soportes`} titulo={`Impuesto ${imp.placa ?? imp.vin}`}
