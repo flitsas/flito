@@ -1175,7 +1175,7 @@ describe('HU #12815 — rol externo NO-`cliente` (`davivienda`) con la función:
   const sesionDavivienda = async (): Promise<string> => {
     const sub = siguienteSub++;
     await registrarUsuarioDePrueba(sub, {
-      rol: 'davivienda', tipoPrincipal: 'externo', funcionesDelRol: ['soat.soportes.descargar'], excepciones: [],
+      rol: 'davivienda', tipoPrincipal: 'externo', tipoEnlace: 'compania', funcionesDelRol: ['soat.soportes.descargar'], excepciones: [],
     });
     const t = await new SignJWT({ username: 'd@banco.co', role: 'davivienda' })
       .setProtectedHeader({ alg: 'HS256' }).setSubject(String(sub)).setExpirationTime('1h')

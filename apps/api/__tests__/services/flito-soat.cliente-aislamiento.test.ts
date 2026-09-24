@@ -237,7 +237,9 @@ describe('buscarConAcceso — 404-no-403 por compañía (detalle, historial, sop
   });
 
   const ctx = (role: string, companiaId: number | null) => ({
-    userId: 1, username: 'u', role, externo: role === 'cliente', proveedorSoatId: null, companiaId,
+    userId: 1, username: 'u', role, externo: role === 'cliente',
+    // Bug #12869: el alcance sale del enlace (cliente → compania; el resto de estas pruebas, ninguno).
+    alcance: (role === 'cliente' ? 'compania' : 'todo') as 'compania' | 'todo', proveedorSoatId: null, companiaId,
   });
 
   it('cliente pidiendo un SOAT de OTRA compañía → null (la ruta lo sirve como 404)', async () => {
@@ -297,7 +299,7 @@ describe('RBAC — el `cliente` lee y no muta', () => {
 
 /** Token de un rol EXTERNO con otro código: el JWT dice `davivienda` y el resolutor, `externo`. */
 async function authExterno(rol: string, sub: number, funciones: string[]): Promise<string> {
-  await registrarUsuarioDePrueba(sub, { rol, tipoPrincipal: 'externo', funcionesDelRol: funciones, excepciones: [] });
+  await registrarUsuarioDePrueba(sub, { rol, tipoPrincipal: 'externo', tipoEnlace: 'compania', funcionesDelRol: funciones, excepciones: [] });
   const t = await new SignJWT({ username: 'd@banco.co', role: rol })
     .setProtectedHeader({ alg: 'HS256' }).setSubject(String(sub)).setExpirationTime('1h')
     .sign(new TextEncoder().encode(process.env.JWT_SECRET));
