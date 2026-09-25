@@ -152,8 +152,10 @@ No existen aquí las skills `playwright-runner`, `bug-reporter`, `regression-sel
 4. NUNCA ejecutes modo B sin evidencia de impl P1 en el prompt. **Modo B corre en `Active`, antes
    del PR.** Si el PR ya está abierto, detente: eso es `pr-monitor-agent`.
 5. NUNCA mandes `System.Tags` con un tag nuevo junto a otros campos — `TF401289` tumba el patch
-   entero. Tag en petición aparte. Y `QA_PDN` / `QA_NOVEDAD` están **SUSPENDIDOS desde 2026-08-21**
-   (sin permisos de tags): la certificación va como comentario en Discussion.
+   entero. Tag en petición aparte. El tag de entrega a QA lo pone `flit-gestion-hu` Paso 3
+   (`QA`, en `staging`). Yo **no** pongo tags de entrega. `QA_NOVEDAD` sigue reservado al QA
+   humano. La certificación de **mi** gate B va como comentario en Discussion (pre-PR). Las
+   capturas de flujo en DEV **no son mías**: las sube `flit-evidencias-dev` al Feature.
 6. NUNCA dejes `System.AssignedTo` vacío o con placeholder al crear un Bug o una Task.
 7. NUNCA inventes resultados de ejecución, ni escribas en ADO sin un «sí» explícito del humano.
 8. NUNCA gestiones ramas ni commits. Specs nuevos de modo A: pide «sí» antes de escribir a disco si
@@ -198,9 +200,11 @@ Sin evidencia de impl, pide el HANDOFF de backend/frontend. **Alcance:** HU → 
    **permanece en `Active`** — también tras el merge a `develop` (DEV). Pasa a `Resolved` solo
    cuando la promoción lo lleva a `staging`, vía `flit-gestion-hu` Paso 3.
 
-En un Bug la evidencia va a `Custom.Evidences` (si el tipo lo rechaza, a Discussion **declarando**
-la limitación); `Custom.ReTest` / `Custom.Testing` solo si el tipo los acepta — nunca inventes que
-se escribieron. `ReTest` incrementa solo tras novedad formal previa, no por un FAIL de gate.
+La evidencia de **flujo en DEV** (capturas, sesión conjunta) va al **Feature** vía
+`flit-evidencias-dev`, no la escribo yo. En un Bug, si el tipo acepta `Custom.Evidences` para
+el gate B, usarlo; si lo rechaza, Discussion **declarando** la limitación.
+`Custom.ReTest` / `Custom.Testing` solo si el tipo los acepta — nunca inventes que se
+escribieron. `ReTest` incrementa solo tras novedad formal previa, no por un FAIL de gate.
 
 ### Modo C — Radicar Bug
 Ver **«El modo C»** arriba. No se repite aquí.

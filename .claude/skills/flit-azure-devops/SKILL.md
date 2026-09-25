@@ -1,6 +1,6 @@
 ---
 name: flit-azure-devops
-description: Integración con Azure DevOps Boards para el proyecto FLIT - FLITO. Conexión: MCP (servidor `ado`); ante fallo de MCP → detener, reintentar una vez a los pocos segundos y, si persiste, detener e informar el error (fallback REST/borrador SUSPENDIDOS desde 2026-08-21 salvo pedido explícito del humano). Invocar antes de crear, actualizar o consultar work items en ADO desde cualquier skill (flit-crear-hu, flit-gestion-hu, flit-integration-ado).
+description: Integración con Azure DevOps Boards para el proyecto FLIT - FLITO. Conexión: MCP (servidor `ado`); ante fallo de MCP → detener, reintentar una vez a los pocos segundos y, si persiste, detener e informar el error (fallback REST/borrador SUSPENDIDOS desde 2026-08-21 salvo pedido explícito del humano; excepción: upload de capturas en flit-evidencias-dev). Invocar antes de crear, actualizar o consultar work items en ADO desde cualquier skill (flit-crear-hu, flit-gestion-hu, flit-integration-ado, flit-evidencias-dev).
 ---
 
 # Azure DevOps — MCP primero, REST después
@@ -78,6 +78,8 @@ Las tools son **action-based** (un tool + `action`), no un tool por verbo. Antes
 | Batch update | `wit_work_item_write` | `action: "update_batch"`, `batchUpdates[]` | batch PATCH |
 | Hijo bajo padre | `wit_work_item_write` | `action: "add_child"`, `parentId`, `items[]` | create + link |
 | Comentario | `wit_work_item_comment_write` | `action: "add"`, `workItemId`, `text`, `format` | Comments API |
+| Descargar adjunto | `wit_work_item_attachment` | `attachmentId` | GET attachment |
+| Subir captura (solo `flit-evidencias-dev`) | REST Attachments + relación `AttachedFile` | con `AZURE_PAT` de sesión, o el humano en la UI | `POST …/wit/attachments` |
 | Vincular WIs | `wit_work_item_link_write` | `action: "link"`, `updates[]` | relations PATCH |
 | Link a PR | `wit_work_item_link_write` | `action: "link_to_pull_request"` | artifact link |
 
@@ -307,11 +309,24 @@ Si MCP falla y no hay PAT: la política vigente es detener e informar (ver «Est
 
 - Features: `DOR; adopcion-ia; fase-1-diseño`
 - User Stories: `DOR; adopcion-ia`
+- **Tag `QA`:** lo pone `flit-gestion-hu` Paso 3 al promover a `staging`, en petición **aparte**,
+  en cada HU/Bug **y** en el Feature. No mezclar con otros campos (`TF401289`).
+
+## QA canónico
+
+| Campo | Valor |
+|---|---|
+| Nombre | Daniel Amado |
+| Correo (mailto) | `daniel.amado@flitsas.com` |
+
+Mención solo en el Paso 3 (`staging`). Las evidencias de flujo en DEV van al Feature
+(`flit-evidencias-dev`), no se menciona a Daniel ahí.
 
 ## Skills que dependen de este contrato
 
 - `flit-crear-hu` — crear User Stories y Bugs
 - `flit-gestion-hu` — ciclo Active → Resolved de HU **y de Bug** (mismo ciclo; ver «Paridad HU ↔ Bug» en `AGENTS.md`)
 - `flit-integration-ado` — Commits / Deploy tras PR (HU y Bug)
+- `flit-evidencias-dev` — capturas de flujo en DEV → `Custom.Evidences` del Feature
 
 Al implementar o modificar cualquiera de ellas, **enlazar** `flit-azure-devops` y no duplicar la lógica de autenticación/encoding. Si el schema MCP cambia, actualizar **este** archivo primero; las skills hijas solo nombran operaciones, no inventan toolNames.

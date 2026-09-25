@@ -177,7 +177,8 @@ Invocaciones listas para el hilo:
   8. Agent qa-agent modo B (alcance AC) — HU #<id> (A si faltan TCs) — ANTES del PR, junto al 4
   9. Agent pr-monitor-agent — PR #N (background) ∥ arrancar HU #<siguiente>
   10. … MERGED … Skill flit-integration-ado Modo B (DeployDEV; WI sigue Active) … Agent devops-agent M1 al tip …
-  11. [tras flit-release a staging] Skill flit-integration-ado Modo B (DeployQA) → Skill flit-gestion-hu Paso 3 (Resolved + QA humano) → Paso 4 (Feature/Épica Resolved)
+  11. Skill flit-evidencias-dev — sesión conjunta en DEV + capturas en el Feature (COMPLETO antes de promover)
+  12. [tras flit-release a staging] Skill flit-integration-ado Modo B (DeployQA) → Skill flit-gestion-hu Paso 3 (tag QA + @Daniel Amado + Resolved) → Paso 4 (Feature/Épica Resolved)
 
 Riesgos: <qué puede descarrilar; incluir riesgo de imitar skills o saltar QA>
 ```

@@ -3,7 +3,7 @@ name: flit-gestion-hu
 description: |
   Ciclo Active → Resolved de un work item de desarrollo en Azure DevOps (FLIT - FLITO): **HU (User Story) o Bug, mismo ciclo**. Activar la cadena de padres (Épica → Feature) + WI, comentario de inicio, cierre Resolved **cuando el desarrollo llega al ambiente de QA (`staging`)** con aviso al QA humano (HTML + mailto), **cascada** Feature → Épica a Resolved, y **reactivación** hacia arriba cuando el QA reabre o radica un Bug.
   INVOCACIÓN OBLIGATORIA: cargar esta Skill en CADA HU y en CADA Bug (Active, Resolved, cascada y reactivación). PROHIBIDO imitarla con comentario «usando @flit-gestion-hu» + wit_* sin cargar la skill.
-  El merge a `develop` NO resuelve: el WI queda `Active` + `DeployDEV`. El QA humano prueba en `staging`; mencionarlo con el código en DEV es error de proceso.
+  El merge a `develop` NO resuelve: el WI queda `Active` + `DeployDEV`. Tras DeployDEV corre `flit-evidencias-dev` (capturas en el Feature, con el humano). El QA (Daniel Amado) se menciona solo en `staging` (Paso 3: tag QA + mailto).
   Un Bug corregido y promovido a `staging` que queda en Active es Bug huérfano = fallo de proceso: esta skill lo cierra igual que una HU.
   El gate `qa-agent` B es **pre-PR** (matriz AGENTS.md); esta skill **no** lo lanza en el Paso 3. FAIL del gate → corregir antes del PR; modo C solo con pedido explícito del QA humano.
   Triggers — Active, Resolved, implementar HU, corregir bug, cerrar bug, activar bug, Bug Resolved, bug huérfano, flit-gestion-hu, entrega QA, activar HU, cerrar HU, activar épica, Feature Resolved, épica Resolved, reactivar, flit-modo-desarrollo-auto pasos 1 y 6, flit-release post-merge.
@@ -85,7 +85,8 @@ padres, y que **`Closed` es del PO/QA** — nunca de un agente.
 ## Requisitos
 
 - Trazabilidad: nombre/email del usuario autenticado en Azure DevOps (ver `flit-azure-devops`); nunca un correo fijo por defecto.
-- QA: `QA_LEAD_NAME` / `QA_LEAD_EMAIL` si están definidos; si no, preguntar al supervisor a quién se entrega para validación.
+- QA canónico (no preguntar, no sustituir): **Daniel Amado** · `daniel.amado@flitsas.com`.
+  En plantillas: `QA_LEAD_NAME=Daniel Amado` y `QA_LEAD_EMAIL=daniel.amado@flitsas.com`.
 - **Bug:** leer también quién lo radicó (`System.CreatedBy`) — se le menciona en el cierre junto al QA.
 - **Cadena de padres:** leer `System.Parent` del WI y, recursivamente, del Feature (la Épica). Se
   necesita en el Paso 1 (activar hacia arriba), en el Paso 4 (resolver hacia arriba) y en el Paso 5.
@@ -97,8 +98,8 @@ padres, y que **`Closed` es del PO/QA** — nunca de un agente.
 - [ ] Implementación según Acceptance Criteria (HU) o Repro Steps + corrección esperada (Bug)
 - [ ] `npm run build` exitoso (raíz del monorepo)
 - [ ] Merge a `develop` → el WI **sigue `Active`** (`DeployDEV` lo pone `flit-integration-ado`)
-- [ ] Promoción a `staging` mergeada + `DeployQA=true` → estado `Resolved` + comentario de cierre
-- [ ] Mención QA en HTML para validación **en QA** (y a quien radicó, si es Bug)
+- [ ] Promoción a `staging` mergeada + `DeployQA=true` → tag `QA` (petición aparte) + estado `Resolved` + comentario de cierre
+- [ ] Mención a **Daniel Amado** (`mailto:daniel.amado@flitsas.com`) en cada WI **y** en el Feature
 - [ ] Cascada: hermanos consultados; Feature → `Resolved` si todos resueltos; Épica → `Resolved` si todos los Features resueltos
 - [ ] Reactivación (si el QA reabre): HU/Bug, Feature y Épica de vuelta a `Active` con comentario
 
@@ -156,15 +157,21 @@ Comentario de inicio en el **Feature** o la **Épica** que se activa por esta HU
 HU/Bug incluido en el diff promovido (`flit-release` los lista); una promoción de N WIs son N
 Pasos 3 (y luego la cascada del Paso 4 una vez por Feature afectado).
 
-1. Estado **`Resolved`** solo si: PR mergeado a `develop`, `qa-agent` B pasó **antes** del PR, y
-   el WI **está en `staging`** (`DeployQA=true` o el SHA del merge de promoción contiene su PR).
-2. Comentario de entrega a QA (Discussion):
+0. **Tag `QA`** (obligatorio, petición **aparte** de estado y comentario — `TF401289` si se
+   mezcla). Leer `System.Tags` del WI y del Feature; añadir `QA` si no está (conservar los
+   existentes; no borrar `DOR` / `adopcion-ia`). Mismo PATCH de tags en el Feature. Si ADO
+   rechaza el tag, **reintentar una vez** y si persiste **informar** — el resto del Paso 3
+   (Resolved + mención) **sí** se ejecuta; el tag no se da por puesto.
+1. Estado **`Resolved`** solo si: PR mergeado a `develop`, `qa-agent` B pasó **antes** del PR,
+   el Feature tiene evidencias DEV `COMPLETAS` (`flit-evidencias-dev`), y el WI **está en
+   `staging`** (`DeployQA=true` o el SHA del merge de promoción contiene su PR).
+2. Comentario de entrega a QA (Discussion) — **siempre** `mailto:daniel.amado@flitsas.com`:
 
 **HU:**
 
 ```html
 <div>✅ [@{Nombre-del-Agente}] usando <b>@flit-gestion-hu</b>: Desarrollo desplegado en el ambiente de QA (<code>staging</code>, promoción PR <a href="{PR_PROMOCION_URL}">#{PR_PROMOCION}</a>) y listo para pruebas.</div>
-<div><a href="mailto:{QA_LEAD_EMAIL}">@{QA_LEAD_NAME}</a> — Por favor proceder con la validación de esta HU en QA. Si hay hallazgos: reactivar esta HU o radicar el Bug bajo el Feature #{FID}.</div>
+<div><a href="mailto:daniel.amado@flitsas.com">@Daniel Amado</a> — Por favor proceder con la validación de esta HU en QA. Si hay hallazgos: reactivar esta HU o radicar el Bug bajo el Feature #{FID}.</div>
 ```
 
 **Bug** (misma estructura + qué se corrigió y cómo se comprobó):
@@ -173,13 +180,21 @@ Pasos 3 (y luego la cascada del Paso 4 una vez por Feature afectado).
 <div>✅ [@{Nombre-del-Agente}] usando <b>@flit-gestion-hu</b>: Corrección desplegada en el ambiente de QA (<code>staging</code>, promoción PR <a href="{PR_PROMOCION_URL}">#{PR_PROMOCION}</a>) y lista para pruebas.</div>
 <div><b>Causa:</b> {una o dos líneas}. <b>Corrección:</b> {qué cambió y dónde}.</div>
 <div><b>Repro verificado:</b> {comando/pasos} — rojo antes del cambio, verde después.</div>
-<div><a href="mailto:{QA_LEAD_EMAIL}">@{QA_LEAD_NAME}</a> — Por favor proceder con la validación en QA. <a href="mailto:{REPORTER_EMAIL}">@{REPORTER_NAME}</a> (reportó el hallazgo) queda notificado.</div>
+<div><a href="mailto:daniel.amado@flitsas.com">@Daniel Amado</a> — Por favor proceder con la validación en QA. <a href="mailto:{REPORTER_EMAIL}">@{REPORTER_NAME}</a> (reportó el hallazgo) queda notificado.</div>
 ```
 
-3. **No relanzar `qa-agent`.** El comentario HTML notifica al QA **humano**, que prueba en
-   `staging`. El gate de desarrollo (`qa-agent` B) ya corrió en el paso pre-PR. Relanzarlo aquí es
-   el anti-patrón que duplica el ciclo.
-4. Seguir con el **Paso 4** para cada Feature afectado por la promoción.
+3. **No relanzar `qa-agent`.** El comentario HTML notifica a **Daniel Amado**, que prueba en
+   `staging`. El gate de desarrollo (`qa-agent` B) ya corrió en el paso pre-PR. Las evidencias
+   DEV (`flit-evidencias-dev`) ya están en el Feature. Relanzar B aquí es el anti-patrón que
+   duplica el ciclo.
+4. Comentario en el **Feature** (además del de cada HU/Bug):
+
+```html
+<div>✅ [@{Nombre-del-Agente}] usando <b>@flit-gestion-hu</b>: Feature en QA (<code>staging</code>, promoción PR <a href="{PR_PROMOCION_URL}">#{PR_PROMOCION}</a>). Tag <code>QA</code>.</div>
+<div><a href="mailto:daniel.amado@flitsas.com">@Daniel Amado</a> — Por favor evaluar las historias de este Feature. Evidencias de DEV en <b>Evidences</b>. Si hay hallazgos: reactivar la HU o radicar el Bug bajo este Feature.</div>
+```
+
+5. Seguir con el **Paso 4** para cada Feature afectado por la promoción.
 
 ## Paso 4 — Cascada hacia arriba (Feature → Épica)
 
@@ -198,7 +213,7 @@ al revisar el board aparece un Feature con todos los hijos resueltos y aún `Act
 Comentario de cascada (en el Feature y, si aplica, en la Épica):
 
 ```html
-<div>✅ [@{Nombre-del-Agente}] usando <b>@flit-gestion-hu</b>: Todas las {historias|features} hijas están en QA (<code>Resolved</code>): {#id, #id, …}. Este {Feature|Épica} pasa a <b>Resolved</b> a la espera de la validación de <a href="mailto:{QA_LEAD_EMAIL}">@{QA_LEAD_NAME}</a>. El cierre (<code>Closed</code>) queda para el Product Owner.</div>
+<div>✅ [@{Nombre-del-Agente}] usando <b>@flit-gestion-hu</b>: Todas las {historias|features} hijas están en QA (<code>Resolved</code>): {#id, #id, …}. Este {Feature|Épica} pasa a <b>Resolved</b> a la espera de la validación de <a href="mailto:daniel.amado@flitsas.com">@Daniel Amado</a>. El cierre (<code>Closed</code>) queda para el Product Owner.</div>
 ```
 
 ## Paso 5 — Reactivación (hallazgo del QA humano en `staging`)
@@ -244,6 +259,7 @@ Comentario de reactivación (Feature / Épica):
 - Las evidencias de tests van a `Custom.Evidences` (rol dev/QA), **no** a Discussion. Si el tipo Bug
   rechaza ese campo en el PATCH, registrar la evidencia en Discussion y **declarar la limitación**;
   nunca descartarla en silencio.
-- El comentario de entrega a QA **notifica** al rol QA humano, que prueba en `staging`. El
-  `qa-agent` modo B es **pre-PR**, no de este Paso 3. Hallazgos formales / Bugs nuevos → solo cuando
-  el QA humano lo pida (modo C), no por un FAIL de desarrollo ni por una Nota.
+- El comentario de entrega a QA **notifica a Daniel Amado** (`daniel.amado@flitsas.com`), que
+  prueba en `staging`. El tag de esa entrega es **`QA`**. El `qa-agent` modo B es **pre-PR**;
+  las capturas de flujo en DEV son `flit-evidencias-dev` (en el Feature), no de este Paso 3.
+  Hallazgos formales / Bugs nuevos → solo cuando el QA humano lo pida (modo C).
