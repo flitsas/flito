@@ -20,7 +20,7 @@ idempotencia, con `Microsoft.VSTS.TCM.ReproSteps` + `Severity` en lugar de Descr
 | **Acceptance Criteria** | `Microsoft.VSTS.Common.AcceptanceCriteria` | **Sí** | **Gherkin** en HTML (+ notas técnicas opcionales) |
 | **Discussion** | `System.History` | **Sí** | Comentario HTML de trazabilidad del agente |
 | **Commits** | `Custom.Commits` | **No** | Se completa en integración de PR a `develop` (ver `flit-integration-ado`) |
-| **Evidences** | `Custom.Evidences` | **No** | Se completa con evidencias de tests (unitarios / E2E) — **nunca** en Discussion |
+| **Evidences** | `Custom.Evidences` | **No** | Las evidencias de **flujo en DEV** van al **Feature** (`flit-evidencias-dev`), no al crear |
 
 ### Prohibido al crear
 
