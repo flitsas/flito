@@ -90,13 +90,25 @@ export const apiLimiter = rateLimit({
   store: makeStore('rl:api:'),
 });
 
-// Auth endpoints: 10 attempts per 15 min per IP (brute force protection)
+// Login: 10 intentos FALLIDOS por IP cada 2 min (freno a la fuerza bruta).
+//
+// Bug #12953 — «bloqueo general por intentos de ingreso». Dos cosas lo volvían un cupo global:
+//   · La IP: con dos saltos (proxy del host → nginx del contenedor web → api) y `trust proxy = 1`,
+//     `req.ip` era la IP del gateway Docker, la misma para todos. Se corrige en
+//     `apps/web/nginx.conf.template` (realip), no aquí: `trust proxy` sigue en 1 porque el dominio
+//     api.* llega con un solo salto y subirlo abriría la suplantación por X-Forwarded-For.
+//   · Los aciertos: contaban igual que los fallos. `skipSuccessfulRequests` descuenta toda
+//     respuesta < 400, así que solo suman las contraseñas malas (401) y los rechazos.
+// La espera baja de 15 a 2 min por pedido explícito del negocio (15 min era excesivo); `max` se
+// queda en 10: por encima del bloqueo por usuario (5 fallos, `loginLockout.ts`), que es el freno
+// fino, y suficiente para que varias personas tras una misma NAT no se estorben al equivocarse.
 export const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
+  windowMs: 2 * 60 * 1000,
   max: 10,
+  skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Demasiados intentos de autenticacion, espere 15 minutos' },
+  message: { error: 'Demasiados intentos de autenticacion, espere 2 minutos' },
   store: makeStore('rl:auth:'),
 });
 
