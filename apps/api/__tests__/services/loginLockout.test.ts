@@ -79,14 +79,14 @@ describe('loginLockout — registerFailed (Redis primary)', () => {
     expect(redisMock.set).not.toHaveBeenCalled();
   });
 
-  it('5to fallo (MAX_ATTEMPTS) → bloquea por LOCK_DURATION_SEC=1800s y borra contador', async () => {
+  it('5to fallo (MAX_ATTEMPTS) → bloquea por LOCK_DURATION_SEC=120s (2 min, Bug #12953) y borra contador', async () => {
     getRedisMock.mockReturnValue(redisMock);
     redisMock.incr.mockResolvedValueOnce(5);
     redisMock.set.mockResolvedValueOnce('OK');
     redisMock.del.mockResolvedValueOnce(1);
     const { registerFailed } = await import('../../src/modules/auth/loginLockout.js');
     await registerFailed('user');
-    expect(redisMock.set).toHaveBeenCalledWith('login:lock:user', '1', 'EX', 1800);
+    expect(redisMock.set).toHaveBeenCalledWith('login:lock:user', '1', 'EX', 120);
     expect(redisMock.del).toHaveBeenCalledWith('login:fail:user');
   });
 
