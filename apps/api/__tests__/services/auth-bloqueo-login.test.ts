@@ -64,7 +64,7 @@ describe('authLimiter — Bug #12953', () => {
     // A agotó su cupo en X…
     const bloqueado = await login(app, '203.0.113.20', 'ana', 'mala');
     expect(bloqueado.status).toBe(429);
-    expect(bloqueado.body.error).toBe('Demasiados intentos de autenticacion, espere 2 minutos');
+    expect(bloqueado.body.error).toBe('Demasiados intentos de autenticacion, espere 3 minutos');
     // …y B, desde otra IP, entra.
     expect((await login(app, '198.51.100.7', 'beto', 'buena')).status).toBe(200);
     expect((await login(app, '198.51.100.7', 'beto', 'mala')).status).toBe(401);
@@ -78,7 +78,7 @@ describe('authLimiter — Bug #12953', () => {
     }
     const bloqueado = await login(app, oficina, 'ana', 'mala');
     expect(bloqueado.status).toBe(429);
-    expect(bloqueado.body.error).toBe('Demasiados intentos de autenticacion, espere 2 minutos');
+    expect(bloqueado.body.error).toBe('Demasiados intentos de autenticacion, espere 3 minutos');
     // A sigue fuera aunque ahora ponga la buena: el cupo de A en esa IP está agotado.
     expect((await login(app, oficina, 'ana', 'buena')).status).toBe(429);
     // B, desde la MISMA IP, entra y sus fallos cuentan aparte.
@@ -109,31 +109,31 @@ describe('authLimiter — Bug #12953', () => {
     expect(authLoginKey(req(undefined))).toBe('203.0.113.60-sin-usuario');
   });
 
-  it('la ventana del limitador es de 2 minutos (cabecera RateLimit-Reset ≤ 120 s)', async () => {
+  it('la ventana del limitador es de 3 minutos (cabecera RateLimit-Reset > 120 s y ≤ 180 s)', async () => {
     const app = buildApp();
     const res = await login(app, '203.0.113.30', 'ana', 'mala');
     expect(res.status).toBe(401);
     const reset = Number(res.headers['ratelimit-reset']);
-    expect(reset).toBeGreaterThan(0);
-    expect(reset).toBeLessThanOrEqual(120);
+    expect(reset).toBeGreaterThan(120);
+    expect(reset).toBeLessThanOrEqual(180);
   });
 });
 
-describe('loginLockout — bloqueo por usuario de 2 minutos (Bug #12953)', () => {
+describe('loginLockout — bloqueo por usuario de 3 minutos (Bug #12953)', () => {
   afterEach(() => { vi.useRealTimers(); });
 
-  it('tras 5 fallos bloquea 2 min y a los 2 min vuelve a dejar entrar', async () => {
+  it('tras 5 fallos bloquea 3 min: sigue bloqueado a los 2:59 y libre a los 3:01', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-25T12:00:00Z'));
     for (let i = 0; i < 5; i++) await registerFailed('lockout-12953');
 
     const estado = await checkLockout('lockout-12953');
-    expect(estado).toEqual({ locked: true, remainingMins: 2 });
+    expect(estado).toEqual({ locked: true, remainingMins: 3 });
 
-    vi.setSystemTime(new Date('2026-09-25T12:01:59Z'));
+    vi.setSystemTime(new Date('2026-09-25T12:02:59Z'));
     expect((await checkLockout('lockout-12953')).locked).toBe(true);
 
-    vi.setSystemTime(new Date('2026-09-25T12:02:01Z'));
+    vi.setSystemTime(new Date('2026-09-25T12:03:01Z'));
     expect(await checkLockout('lockout-12953')).toEqual({ locked: false });
   });
 });

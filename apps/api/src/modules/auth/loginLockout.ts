@@ -6,10 +6,11 @@ import { getRedis } from '../../shared/redis.js';
 
 const MAX_ATTEMPTS = 5;
 const ATTEMPT_WINDOW_SEC = 15 * 60;   // 15 min: ventana de acumulación de fallos
-// 2 min de bloqueo tras 5 fallos (Bug #12953: antes 30 min, excesivo para el negocio). La
+// 3 min de bloqueo tras 5 fallos (Bug #12953: antes 30 min, excesivo; se fijó en 3 min por pedido
+// del negocio, igual que la espera del `authLimiter`, para que ambos mensajes digan lo mismo). La
 // ventana de acumulación se queda en 15 min a propósito: el contador se borra al bloquear, así
 // que una ventana larga solo significa que los fallos espaciados también cuentan.
-const LOCK_DURATION_SEC = 2 * 60;
+const LOCK_DURATION_SEC = 3 * 60;
 const KEY_PREFIX = 'login';
 
 const memFails = new Map<string, { count: number; expiresAt: number }>();

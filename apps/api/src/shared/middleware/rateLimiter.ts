@@ -111,7 +111,7 @@ export function authLoginKey(req: Request): string {
   return `${ip}-${huella}`;
 }
 
-// Login: 10 intentos FALLIDOS por IP + USUARIO cada 2 min (freno a la fuerza bruta).
+// Login: 10 intentos FALLIDOS por IP + USUARIO cada 3 min (freno a la fuerza bruta).
 //
 // Bug #12953 — «bloqueo general por intentos de ingreso». Tres cosas lo volvían un cupo global:
 //   · La IP: con dos saltos (proxy del host → nginx del contenedor web → api) y `trust proxy = 1`,
@@ -125,16 +125,17 @@ export function authLoginKey(req: Request): string {
 //     deben afectar a otro → la llave es IP + usuario ({@link authLoginKey}).
 // Trade-off aceptado explícitamente: se pierde el freno contra el password spraying desde una sola
 // IP (probar una contraseña contra muchas cuentas). El freno por cuenta sigue siendo
-// `loginLockout.ts` (5 fallos → 2 min), que es independiente de la IP. No hay tope extra por IP.
-// La espera baja de 15 a 2 min por pedido explícito del negocio (15 min era excesivo).
+// `loginLockout.ts` (5 fallos → 3 min), que es independiente de la IP. No hay tope extra por IP.
+// La espera baja de 15 a 3 min por pedido explícito del negocio (15 min era excesivo); los 3 min
+// coinciden con el bloqueo por cuenta de `loginLockout.ts`, así los dos mensajes dicen lo mismo.
 export const authLimiter = rateLimit({
-  windowMs: 2 * 60 * 1000,
+  windowMs: 3 * 60 * 1000,
   max: 10,
   skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: authLoginKey,
-  message: { error: 'Demasiados intentos de autenticacion, espere 2 minutos' },
+  message: { error: 'Demasiados intentos de autenticacion, espere 3 minutos' },
   store: makeStore('rl:auth:'),
 });
 
