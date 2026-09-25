@@ -46,8 +46,11 @@ server {
         # de confianza la lee tal cual. `trust proxy` NO se sube a 2: el dominio api.* llega
         # directo del proxy del host (un salto) y ahí abriría la suplantación.
         #
-        # Si el proxy del host no mandara XFF, `$remote_addr` sigue siendo la IP del salto
-        # anterior y todo se comporta como antes de este cambio (sin regresión).
+        # Todo depende de que el proxy del host ESCRIBA el XFF (lo añada o lo reescriba con la IP
+        # de quien le conecta). Si no lo manda, `$remote_addr` sigue siendo el gateway y el cupo
+        # vuelve a ser global, como antes. Si lo reenviara tal cual llega del navegador, la IP
+        # sería suplantable (solo se esquiva el límite por IP; el bloqueo por usuario sigue).
+        # Verificarlo en cada ambiente: un `X-Forwarded-For: 1.2.3.4` falso no debe esquivar el 429.
         set_real_ip_from 127.0.0.1;
         set_real_ip_from ::1;
         set_real_ip_from 10.0.0.0/8;
