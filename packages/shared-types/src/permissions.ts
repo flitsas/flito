@@ -179,6 +179,9 @@ export const PAGES = {
   flito_conciliacion: 'FLITO — Conciliación',
   // Finanzas — reporte de costos por trámite (contabilidad / facturación / cobros).
   finanzas_reporte_costos: 'Finanzas — Reporte de costos',
+  // Finanzas — gastos diarios por categoría (HU #12623/#12624): serie por día del evento y GMF
+  // estimado. Página propia, sin reparto por defecto: la concede el admin desde el panel de roles.
+  finanzas_gastos_diarios: 'Finanzas — Gastos diarios',
   // Facturación electrónica (Feature #11240): parametrización de la integración con Siigo —
   // catálogos, mapeo de conceptos a productos y configuración global de emisión. UNA sola clave
   // para toda la parametrización: son pantallas del mismo trabajo y de la misma persona, y
@@ -242,7 +245,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   // aparece arriba en «Operaciones». Hasta el Feature #11912 la misma clave salía en los dos
   // grupos —una rareza que nadie sabía explicar— porque el portal la tenía prestada.
   { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'flito_soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta', 'flito_bolsas', 'flito_comparendos', 'flito_conciliacion'] },
-  { label: 'Finanzas', pages: ['finanzas_reporte_costos', 'siigo_parametrizacion', 'siigo_operacion', 'flito_tarifas'] },
+  { label: 'Finanzas', pages: ['finanzas_reporte_costos', 'finanzas_gastos_diarios', 'siigo_parametrizacion', 'siigo_operacion', 'flito_tarifas'] },
   { label: 'Administración', pages: ['users', 'privacy', 'siigo_credenciales', 'roles_permisos'] },
 ];
 

@@ -2,6 +2,18 @@ import { sql, and, type SQL, type Column } from 'drizzle-orm';
 
 export const TZ_COLOMBIA = 'America/Bogota';
 
+/**
+ * Hoy en Colombia (`YYYY-MM-DD`): el día civil del calendario colombiano, no el del reloj del
+ * proceso (que en el servidor es UTC y a partir de las 19:00 de Bogotá ya va un día adelante).
+ * Compartida desde la HU #12623; `siigo/correcciones.service.ts` y `flito-liquidacion.service.ts`
+ * conservan su copia privada (mismo cuerpo).
+ */
+export function hoyColombia(ahora: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ_COLOMBIA, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(ahora);
+}
+
 export interface FechaRango {
   desde: string | null;
   hasta: string | null;

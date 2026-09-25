@@ -123,6 +123,16 @@
      gradientes cambian con él, o el gate se pone rojo.
      Lo comprueba `npm run check:contraste`, que resuelve cada `var()` y muestrea 21 puntos por
      tramo — el peor ratio no tiene por qué caer en un extremo. */
+  /* Series de la gráfica de Gastos diarios (HU #12625). Un token por categoría, derivado de los
+     de arriba —sin hex nuevo— para que un retoque de tinta mueva también la barra. Sobre
+     --flit-bg-card miden (claro): 5,62 · 5,07 · 5,14 · 5,47 · 5,74 (mínimo no-texto 3:1, SC 1.4.11).
+     El color es secundario: cada serie lleva además patrón y rótulo (`PatronesSerie`). */
+  --flit-serie-soat: var(--flit-blue-ink);
+  --flit-serie-impuesto: var(--flit-cyan-ink);
+  --flit-serie-derecho: var(--flit-success-ink);
+  --flit-serie-logistica: var(--flit-warning-ink);
+  --flit-serie-servicios: var(--flit-draft);
+
   --flit-gradient-primary: linear-gradient(90deg, var(--flit-cyan-ink) 0%, var(--flit-blue-ink) 100%);
   --flit-gradient-success: linear-gradient(90deg, var(--flit-cyan-ink) 0%, var(--flit-success-ink) 100%);
   --flit-gradient-sidebar: linear-gradient(180deg, var(--flit-cyan-ink) 0%, var(--flit-blue-ink) 100%);
@@ -253,6 +263,12 @@
      tinta para texto sobre su propio tinte y sobre los gradientes; #11766 vigente). */
   --flit-muted: #A1AEC2;
   --flit-draft: #BCC8DA;
+  /* Series de la gráfica (HU #12625) sobre --flit-bg-card oscura: 7,00 · 7,42 · 6,82 · 3,97 · 7,93. */
+  --flit-serie-soat: var(--flit-blue-text);
+  --flit-serie-impuesto: var(--flit-cyan);
+  --flit-serie-derecho: var(--flit-green);
+  --flit-serie-logistica: var(--flit-warning);
+  --flit-serie-servicios: var(--flit-draft);
 
   /* Bordes. `soft` e `input` son separadores: su trabajo es el mismo en los dos temas y el gate
      comprueba que el par oscuro separe AL MENOS tanto como el claro (que hoy vale 1,27 y 1,35
