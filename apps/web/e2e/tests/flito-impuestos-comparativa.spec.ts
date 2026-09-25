@@ -25,6 +25,9 @@ const fila = (id: string, placa: string, extra: Partial<Fila>): Fila => ({
 const FILAS: Fila[] = [
   fila('v1', 'VER001', { semaforo: 'verde' }),
   fila('v2', 'VER002', { semaforo: 'verde' }),
+  // Sin semáforo guardado (filas previas a la columna): el chip cae a la regla del backend.
+  fila('s1', 'SIN001', {}),
+  fila('s2', 'SIN002', {}),
   fila('n1', 'NAR001', { semaforo: 'naranja' }),
   fila('r1', 'ROJ001', { semaforo: 'rojo', motivoSemaforo: 'runt_sin_respuesta' }),
   fila('r2', 'ROJ002', { semaforo: 'rojo', motivoSemaforo: 'error_lectura_factura' }),
@@ -54,6 +57,8 @@ const DETALLE: Record<string, unknown> = {
   v1: comparacion(null, [...IGUALES, campo('color', 'coincide', 'GRIS', 'GRIS'), campo('cilindrada', 'coincide', '1598', '1598')]),
   // Verde guardado con un dato sin verificar (repro FLIT-0130318): `no_verificable` no es diferencia.
   v2: comparacion(null, [...IGUALES, campo('color', 'coincide', 'GRIS', 'GRIS'), campo('cilindrada', 'no_verificable', null, '1598')]),
+  s1: comparacion(null, [...IGUALES, campo('color', 'difiere', 'GRIS', 'NEGRO'), campo('cilindrada', 'coincide', '1598', '1598')]),
+  s2: comparacion(null, [...IGUALES, campo('color', 'coincide', 'GRIS', 'GRIS'), campo('cilindrada', 'no_verificable', null, '1598')]),
   n1: comparacion(null, [...IGUALES,
     campo('color', 'difiere', 'GRIS ESTRELLA', 'GRIS CASSIOPEE'), campo('cilindrada', 'difiere', '1598', '1600')]),
   r1: comparacion('runt_sin_respuesta', []),
@@ -104,6 +109,8 @@ test.describe('FLITO — Impuestos · comparación factura ↔ RUNT (HU #12831)'
     await expect(modal).toBeVisible();
     await expect(page).toHaveURL(/\/flito\/impuestos$/);
     await expect(modal.getByTestId('validacion-resumen')).toHaveText('2 datos no coinciden: Color, Cilindraje.');
+    await expect(modal.getByText('Con diferencias', { exact: true })).toBeVisible();
+    await expect(modal.getByText('Coincide con el RUNT', { exact: true })).toHaveCount(0);
 
     const tabla = modal.getByRole('region', { name: 'Comparación de la factura de venta con el RUNT' }).getByRole('table');
     await expect(tabla.getByRole('columnheader')).toHaveText(['Dato', 'En factura', 'En RUNT', 'Resultado']);
@@ -186,6 +193,42 @@ test.describe('FLITO — Impuestos · comparación factura ↔ RUNT (HU #12831)'
     await expect(seccion.getByRole('rowheader')).toHaveText([
       'VIN', 'Marca', 'Modelo (línea)', 'Año', 'Color', 'Cilindraje', 'Dirección del comprador',
     ]);
+  });
+
+  test('AC2 · verde guardado con un dato sin verificar: la sección del detalle muestra el chip verde', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/impuestos');
+
+    await filaDe(page, 'VER002').getByRole('button', { name: 'Ver', exact: true }).click();
+    const seccion = page.getByRole('region', { name: 'Validación factura ↔ RUNT' });
+    await expect(seccion.getByTestId('validacion-resumen')).toContainText('1 dato no se pudo verificar: Cilindraje.');
+    await expect(seccion.getByText('Coincide con el RUNT', { exact: true })).toBeVisible();
+    await expect(seccion.getByText('Con diferencias', { exact: true })).toHaveCount(0);
+  });
+
+  test('AC2 · sin semáforo guardado y un dato que difiere: el chip cae a «Con diferencias»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/impuestos');
+
+    await filaDe(page, 'SIN001').getByRole('button', { name: 'Ver', exact: true }).click();
+    const seccion = page.getByRole('region', { name: 'Validación factura ↔ RUNT' });
+    await expect(seccion.getByTestId('validacion-resumen')).toHaveText('1 dato no coincide: Color.');
+    await expect(seccion.getByText('Con diferencias', { exact: true })).toBeVisible();
+    await expect(seccion.getByText('Coincide con el RUNT', { exact: true })).toHaveCount(0);
+  });
+
+  test('AC2 · sin semáforo guardado y solo un dato sin verificar: el chip cae a «Coincide con el RUNT»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/impuestos');
+
+    await filaDe(page, 'SIN002').getByRole('button', { name: 'Ver', exact: true }).click();
+    const seccion = page.getByRole('region', { name: 'Validación factura ↔ RUNT' });
+    await expect(seccion.getByTestId('validacion-resumen')).toContainText('1 dato no se pudo verificar: Cilindraje.');
+    await expect(seccion.getByText('Coincide con el RUNT', { exact: true })).toBeVisible();
+    await expect(seccion.getByText('Con diferencias', { exact: true })).toHaveCount(0);
   });
 
   test('AC2 · nunca analizado: la sección lo dice y no pide nada', async ({ page }) => {
