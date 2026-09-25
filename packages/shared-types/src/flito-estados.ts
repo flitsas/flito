@@ -208,6 +208,62 @@ export const ESTADO_IMPUESTO_LABEL: Record<EstadoImpuesto, string> = {
   pagado: 'Pagado',
 };
 
+/**
+ * HU #12825: ciclo del análisis post-envío de un impuesto (OCR de la factura + RUNT + semáforo), que
+ * corre en segundo plano tras el envío al gestor. `null` en el registro = nunca encolado (histórico).
+ */
+export const AnalisisEstadoImpuesto = {
+  EN_CURSO: 'en_curso',
+  COMPLETADO: 'completado',
+  ERROR: 'error_analisis',
+} as const;
+
+export type AnalisisEstadoImpuesto = (typeof AnalisisEstadoImpuesto)[keyof typeof AnalisisEstadoImpuesto];
+
+export const ANALISIS_ESTADO_IMPUESTO_LABEL: Record<AnalisisEstadoImpuesto, string> = {
+  en_curso: 'Analizando',
+  completado: 'Validada',
+  error_analisis: 'Error al validar',
+};
+
+/**
+ * Desenlace de `POST /api/flito/impuestos/:id/reanalizar` (AC5). ENCOLADO → 202; NO_ENCONTRADO → 404;
+ * el resto → 409 con `code` igual al resultado.
+ */
+export type ResultadoReanalisis =
+  | { resultado: 'ENCOLADO'; id: string; analisisEstado: 'en_curso' }
+  | { resultado: 'ANALISIS_EN_CURSO' | 'NO_SOLICITADO' | 'YA_CERTIFICADO' | 'SIN_ANALISIS' | 'NO_ENCONTRADO' };
+
+/**
+ * HU #12833 — dirección del comprador de un impuesto, ya resuelta con su precedencia: la confirmada
+ * (de la factura o corregida a mano) gana sobre la de FLIT; municipio/departamento confirmados vacíos
+ * caen a los de FLIT campo a campo. `origen` dice de dónde salió la `direccion`.
+ * `propuesta` = lo leído de la factura SIN confirmar; solo con `pendienteRevision`.
+ */
+export interface DireccionCompradorImpuesto {
+  direccion: string | null;
+  municipio: string | null;
+  departamento: string | null;
+  origen: 'factura' | 'manual' | 'flit';
+  pendienteRevision: boolean;
+  propuesta: { direccion: string | null; municipio: string | null; departamento: string | null } | null;
+  confirmadaPor: string | null;
+  confirmadaEn: string | null;
+}
+
+/** Body de `PATCH /api/flito/impuestos/:id/direccion` (HU #12833). La PII va en el body, nunca en la URL. */
+export interface CorregirDireccionImpuestoBody {
+  direccion: string;
+  municipio: string;
+  departamento: string;
+}
+
+/**
+ * HU #12833 (AC4): cabecera de la respuesta del Excel AMPLIADO de impuestos con cuántas filas llevan
+ * la marca «Dirección sin confirmar». Solo se envía con `incluirPago: true`.
+ */
+export const CABECERA_DIRECCIONES_SIN_CONFIRMAR = 'X-Direcciones-Sin-Confirmar';
+
 /** Estados de Impuestos visibles para el gestor (nunca `Pendiente`). */
 export const ESTADOS_IMPUESTO_VISIBLES_GESTOR: readonly EstadoImpuesto[] = [
   'solicitado', 'pagado',
@@ -737,4 +793,41 @@ export type MotivoCaidaRunt = (typeof MOTIVOS_CAIDA_RUNT)[number];
 export type ResumenMotivosCorrida = Partial<Record<MotivoCaidaRunt, number>> & {
   /** Consultas repetidas por un mismo vehículo dentro de la corrida (tope `MAX_REINTENTOS_VEHICULO`). */
   reintentos?: number;
+};
+
+/**
+ * Semáforo factura de venta vs RUNT del análisis post-envío (HU #12827). `flito_impuestos.semaforo`;
+ * `NULL` = sin calcular (análisis pendiente o fallo técnico reintentable).
+ */
+export const SemaforoImpuesto = {
+  VERDE: 'verde',
+  NARANJA: 'naranja',
+  ROJO: 'rojo',
+} as const;
+
+export type SemaforoImpuesto = (typeof SemaforoImpuesto)[keyof typeof SemaforoImpuesto];
+
+/** Los tres valores, derivados del objeto: el filtro `semaforo` de la cola (HU #12830) los valida con Zod. */
+export const SEMAFOROS_IMPUESTO = Object.values(SemaforoImpuesto) as [SemaforoImpuesto, ...SemaforoImpuesto[]];
+
+export const SEMAFORO_IMPUESTO_LABEL: Record<SemaforoImpuesto, string> = {
+  verde: 'Coincide con el RUNT',
+  naranja: 'Con diferencias',
+  rojo: 'Sin validar',
+};
+
+/** Por qué un semáforo quedó en rojo (HU #12827, AC2). El traspaso en sincronización cae en `runt_sin_respuesta`. */
+export const MotivoSemaforoRojo = {
+  RUNT_SIN_RESPUESTA: 'runt_sin_respuesta',
+  ERROR_LECTURA_FACTURA: 'error_lectura_factura',
+} as const;
+
+export type MotivoSemaforoRojo = (typeof MotivoSemaforoRojo)[keyof typeof MotivoSemaforoRojo];
+
+export const esMotivoSemaforoRojo = (v: unknown): v is MotivoSemaforoRojo =>
+  typeof v === 'string' && (Object.values(MotivoSemaforoRojo) as string[]).includes(v);
+
+export const MOTIVO_SEMAFORO_ROJO_LABEL: Record<MotivoSemaforoRojo, string> = {
+  runt_sin_respuesta: 'El RUNT no respondió o no tiene registro del vehículo',
+  error_lectura_factura: 'No se pudo leer la factura',
 };

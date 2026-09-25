@@ -98,6 +98,7 @@ describe('la cola expone la certificación vigente', () => {
       id: 'cert-1',
       certificadoEn: '2026-08-01T15:00:00.000Z',
       certificadoPorNombre: 'gestor@flitsas.io',
+      automatica: false, // HU #12830: la firmó una persona
     });
   });
 

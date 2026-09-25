@@ -98,6 +98,9 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'comprobantes', fichero: 'flito-comprobantes/flito-comprobantes.routes.ts' },
   // HU #12619: viajes adicionales de logística; fichero hermano bajo /api/flito/logistica.
   { modulo: 'logistica', fichero: 'flito-logistica/flito-logistica-viajes.routes.ts' },
+  // HU #12833: corrección de la dirección del comprador; sub-router propio de impuestos (así el
+  // inventario no arrastra `POST /:id/reanalizar`, cuyo código ya es de `POST /:id/certificar`).
+  { modulo: 'impuestos', fichero: 'flito-impuestos/flito-impuestos.direccion.routes.ts' },
 ];
 
 /** Quita comentarios de bloque y de línea sin tocar el contenido de las cadenas simples. */

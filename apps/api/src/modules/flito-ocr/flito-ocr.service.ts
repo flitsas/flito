@@ -12,17 +12,18 @@ import { env } from '../../config/env.js';
 import { loggerFor } from '../../shared/logger.js';
 import { anthropicMessages } from '../tramites/anthropic.js';
 import {
-  CampoSoat, CampoImpuesto, CampoFacturaVenta, CampoDerechoTramite, CampoComprobante,
+  CampoSoat, CampoImpuesto, CampoFacturaVenta, CampoVehiculoFacturaVenta, CampoDerechoTramite, CampoComprobante,
   CAMPOS_COMPRADOR_FACTURA, TIPOS_DOCUMENTO_RUNT, TIPOS_DOCUMENTO_COMPROBANTE, CONCEPTOS_COSTO,
   type CampoExtraido, type ExtraccionSoat, type ExtraccionImpuesto, type ExtraccionFacturaVenta,
-  type ExtraccionDerechoTramite, type ExtraccionComprobante,
+  type ExtraccionDerechoTramite, type ExtraccionComprobante, type ExtraccionFacturaVentaImpuestoCampos,
 } from '@operaciones/shared-types';
 import {
   SISTEMA_OCR, PROMPT_FACTURA_SOAT, PROMPT_RECIBO_IMPUESTO, PROMPT_RECIBO_CAJA, PROMPT_FACTURA_VENTA, PROMPT_DERECHO_TRAMITE,
-  PROMPT_COMPROBANTE_UNIVERSAL, PROMPT_PARTICION_CONSOLIDADO,
+  PROMPT_COMPROBANTE_UNIVERSAL, PROMPT_PARTICION_CONSOLIDADO, PROMPT_FACTURA_VENTA_VEHICULO,
   type CampoCrudo, type ConfianzaCategorica,
 } from './flito-ocr.prompts.js';
 import { textoDocumento, camposDesdeTexto } from './flito-ocr-local.js';
+import { anioVehiculoN, cilindradaN, lineaN, vinFacturaN } from './flito-ocr-factura-flit.js';
 
 const log = loggerFor('flito-ocr');
 
@@ -459,6 +460,35 @@ export async function extraerFacturaVenta(doc: DocumentoAAnalizar): Promise<Extr
     [CampoFacturaVenta.CELULAR]: celularN,
   });
   return r as ExtraccionFacturaVenta;
+}
+
+/**
+ * Fallback OCR del análisis post-envío de Impuestos (HU #12826, AC2): la factura FLIT no trae Notas
+ * Finales reconocibles. Mismo motor (`extraer`, Haiku → Sonnet) con `PROMPT_FACTURA_VENTA_VEHICULO`;
+ * escalan VIN, año y marca, que son las llaves del cruce con el RUNT (HU 12827). Los normalizadores
+ * de VIN/año/cilindrada/línea son los del parser determinístico, para que las dos fuentes
+ * persistan la misma forma.
+ */
+export async function extraerVehiculoFacturaVenta(doc: DocumentoAAnalizar): Promise<ExtraccionFacturaVentaImpuestoCampos> {
+  const campos = [
+    CampoVehiculoFacturaVenta.VIN, CampoVehiculoFacturaVenta.MARCA, CampoVehiculoFacturaVenta.LINEA, CampoVehiculoFacturaVenta.ANIO_VEHICULO,
+    CampoVehiculoFacturaVenta.COLOR, CampoVehiculoFacturaVenta.CILINDRADA, CampoVehiculoFacturaVenta.CLASE,
+    CampoFacturaVenta.DIRECCION, CampoFacturaVenta.MUNICIPIO, CampoFacturaVenta.DEPARTAMENTO,
+  ] as const;
+  const escalacion = [CampoVehiculoFacturaVenta.VIN, CampoVehiculoFacturaVenta.ANIO_VEHICULO, CampoVehiculoFacturaVenta.MARCA];
+  const r = await extraer(doc, PROMPT_FACTURA_VENTA_VEHICULO, campos, escalacion, {
+    [CampoVehiculoFacturaVenta.VIN]: vinFacturaN,
+    [CampoVehiculoFacturaVenta.MARCA]: textoTitularN(60),
+    [CampoVehiculoFacturaVenta.LINEA]: lineaN,
+    [CampoVehiculoFacturaVenta.ANIO_VEHICULO]: (v: string) => anioVehiculoN(v),
+    [CampoVehiculoFacturaVenta.COLOR]: textoTitularN(60),
+    [CampoVehiculoFacturaVenta.CILINDRADA]: cilindradaN,
+    [CampoVehiculoFacturaVenta.CLASE]: textoTitularN(60),
+    [CampoFacturaVenta.DIRECCION]: textoTitularN(300),
+    [CampoFacturaVenta.MUNICIPIO]: textoTitularN(100),
+    [CampoFacturaVenta.DEPARTAMENTO]: textoTitularN(100),
+  });
+  return r as ExtraccionFacturaVentaImpuestoCampos;
 }
 
 /**

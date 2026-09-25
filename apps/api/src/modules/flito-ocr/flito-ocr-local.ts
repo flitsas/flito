@@ -61,8 +61,13 @@ async function ocrImagen(buf: Buffer): Promise<string> {
 }
 
 // ── PDF → texto ──────────────────────────────────────────────────────────────
-async function pdfATexto(buf: Buffer): Promise<string> {
-  try { return (await ejecutar('pdftotext', ['-layout', '-', '-'], buf)).toString('utf8'); }
+/**
+ * Texto de la capa de texto de un PDF con `pdftotext` (sin Tesseract: un escaneado da `''`).
+ * Exportada para el parser de la factura FLIT (HU #12826), que necesita `-layout` (Notas Finales,
+ * columnas del adquiriente) y `-raw` (la «Descripción» del producto, que `-layout` parte).
+ */
+export async function textoPdf(buf: Buffer, modo: '-layout' | '-raw' = '-layout'): Promise<string> {
+  try { return (await ejecutar('pdftotext', [modo, '-', '-'], buf)).toString('utf8'); }
   catch (e) { log.warn({ err: (e as Error).message }, 'pdftotext falló'); return ''; }
 }
 
@@ -80,7 +85,7 @@ async function pdfEscaneadoAImagen(buf: Buffer): Promise<Buffer | null> {
 export async function textoDocumento(doc: { contentType: string; contenido: Buffer }): Promise<string> {
   const ct = doc.contentType.toLowerCase();
   if (ct.includes('pdf')) {
-    const texto = await pdfATexto(doc.contenido);
+    const texto = await textoPdf(doc.contenido);
     if (texto.replace(/\s/g, '').length >= 40) return texto; // tiene capa de texto → exacto
     const png = await pdfEscaneadoAImagen(doc.contenido);     // escaneado → rasterizar + OCR
     return png ? await ocrImagen(png) : texto;

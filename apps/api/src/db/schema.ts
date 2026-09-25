@@ -5,7 +5,7 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
 });
 import { sql, desc } from 'drizzle-orm';
 // FLITO (migración): tipos de extracción OCR persistidos en columnas jsonb.
-import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVenta, ExtraccionDerechoTramite } from '@operaciones/shared-types';
+import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVentaImpuesto, ExtraccionDerechoTramite, ComparacionFacturaRunt } from '@operaciones/shared-types';
 // Certificación de impuestos contra el RUNT (Feature #11159): detalle por campo en columna jsonb.
 import type { ComparacionCampo } from '@operaciones/shared-types';
 // Entrega de la factura por correo (HU #11334): destinatarios con su procedencia, en columna jsonb.
@@ -2638,6 +2638,10 @@ export const laftAuditPlans = pgTable('laft_audit_plans', {
 // residuo deprecado: ya no existen en la base y escribirlos es un 22P02.
 export const flitoSoatEstadoEnum = pgEnum('flito_soat_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado']);
 export const flitoImpuestoEstadoEnum = pgEnum('flito_impuesto_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado']);
+/** HU #12825: ciclo del análisis post-envío. NULL en la columna = nunca encolado (histórico). */
+export const flitoImpuestoAnalisisEstadoEnum = pgEnum('flito_impuesto_analisis_estado', ['en_curso', 'completado', 'error_analisis']);
+/** HU #12827: semáforo factura vs RUNT. NULL en la columna = sin calcular. */
+export const flitoImpuestoSemaforoEnum = pgEnum('flito_impuesto_semaforo', ['verde', 'naranja', 'rojo']);
 export const flitoTramiteEstadoEnum = pgEnum('flito_tramite_estado', ['asignado', 'entregado', 'aprobado', 'anulado', 'rechazado']);
 // Modalidad del organismo: requiere_gestion | autogestionado (default). 'sin_clasificar' se deprecó.
 export const flitoModalidadEnum = pgEnum('flito_modalidad_organismo', ['requiere_gestion', 'autogestionado']);
@@ -3123,7 +3127,7 @@ export const flitoImpuestos = pgTable('flito_impuestos', {
   // Factura de venta = precondición del envío. Referencia por id (sin FK dura: evita
   // ciclo con flito_soportes, igual que en el modelo original).
   facturaVentaSoporteId: uuid('factura_venta_soporte_id'),
-  extraccionFacturaVenta: jsonb('extraccion_factura_venta').$type<ExtraccionFacturaVenta>(),
+  extraccionFacturaVenta: jsonb('extraccion_factura_venta').$type<ExtraccionFacturaVentaImpuesto>(),
   /**
    * Gemelo del de `flito_soat` (HU #11152 trae la columna; #11155 la usa). Aquí pesa más: el
    * destinatario del impuesto no es un proveedor sino el gestor de `organismo_codigo`, así que esta
@@ -3144,11 +3148,39 @@ export const flitoImpuestos = pgTable('flito_impuestos', {
   liquidadoEn: timestamp('liquidado_en', { withTimezone: true }),
   motivoRechazo: text('motivo_rechazo'),
   extraccion: jsonb('extraccion').$type<ExtraccionImpuesto>(),
+  /**
+   * HU #12825 (migración 0206): análisis post-envío en segundo plano. `analizadoEn` solo se escribe
+   * si corrió al menos un paso; con él poblado y posterior al encolado, el job no re-ejecuta (AC2).
+   * `analisisReencolados` lo sube solo la recuperación de huérfanos (AC4: una vez).
+   */
+  analisisEstado: flitoImpuestoAnalisisEstadoEnum('analisis_estado'),
+  analisisEncoladoEn: timestamp('analisis_encolado_en', { withTimezone: true }),
+  analisisReencolados: smallint('analisis_reencolados').notNull().default(0),
+  analizadoEn: timestamp('analizado_en', { withTimezone: true }),
+  /** HU #12827 (migración 0207): semáforo factura de venta vs RUNT y su detalle (motivo en el jsonb). */
+  semaforo: flitoImpuestoSemaforoEnum('semaforo'),
+  comparacionFacturaRunt: jsonb('comparacion_factura_runt').$type<ComparacionFacturaRunt>(),
+  /**
+   * HU #12833 (migración 0208): dirección del comprador CONFIRMADA (de la factura o corregida a mano).
+   * Vive aquí y no en `flito_compradores` porque el sync con FLIT borra y reinserta esa tabla.
+   * `direccionFuente` es el discriminante: NULL = se lee la de FLIT; 'factura' | 'manual'.
+   * La propuesta sin confirmar sigue en `extraccionFacturaVenta` (no se duplica).
+   */
+  direccionFactura: text('direccion_factura'),
+  municipioFactura: text('municipio_factura'),
+  departamentoFactura: text('departamento_factura'),
+  direccionFuente: text('direccion_fuente').$type<'factura' | 'manual'>(),
+  direccionPendienteRevision: boolean('direccion_pendiente_revision').notNull().default(false),
+  direccionConfirmadaPorId: integer('direccion_confirmada_por_id').references(() => users.id, { onDelete: 'set null' }),
+  direccionConfirmadaPorNombre: text('direccion_confirmada_por_nombre'),
+  direccionConfirmadaEn: timestamp('direccion_confirmada_en', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   estadoIdx: index('idx_flito_impuestos_estado').on(t.estado),
   organismoIdx: index('idx_flito_impuestos_organismo').on(t.organismoCodigo),
+  analisisEnCursoIdx: index('idx_flito_impuestos_analisis_en_curso').on(t.analisisEncoladoEn)
+    .where(sql`${t.analisisEstado} = 'en_curso'`),
 }));
 
 /**

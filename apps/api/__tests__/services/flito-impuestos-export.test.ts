@@ -955,6 +955,49 @@ describe('el rango nuevo filtra por `created_at`, no por `enviado_en`', () => {
   });
 });
 
+// ─────────────────────────── HU #12830: filtro `semaforo` ─────────────────────────────────────────
+
+describe('HU #12830 — `semaforo` en el cuerpo del export y en el `GET /`', () => {
+  it('export con `semaforo: [naranja, rojo]` → `semaforo in (…)` ligando los dos', async () => {
+    kdb.when.scenario({ flito_impuestos: filas(1), flito_compradores: [] });
+    const r = await exportar(await sesion(), { semaforo: ['naranja', 'rojo'] });
+    expect(r.status).toBe(200);
+    const { sql, params } = whereDelExport();
+    expect(sql).toMatch(/"semaforo" in \(\$\d+, \$\d+\)/);
+    expect(params).toEqual(expect.arrayContaining(['naranja', 'rojo']));
+  });
+
+  it('export con un valor fuera del vocabulario, o lista vacía → 400', async () => {
+    expect((await exportar(await sesion(), { semaforo: ['azul'] })).status).toBe(400);
+    expect((await exportar(await sesion(), { semaforo: [] })).status).toBe(400);
+    expect((await exportar(await sesion(), { semaforo: 'rojo' })).status).toBe(400);
+  });
+
+  it('`GET /?semaforo=naranja,rojo` → el mismo predicado en la cola', async () => {
+    kdb.when.scenario({ flito_impuestos: [], flito_compradores: [] });
+    const r = await request(await buildApp()).get(`${BASE}?semaforo=naranja,rojo`).set('Authorization', await sesion());
+    expect(r.status).toBe(200);
+    const { sql, params } = new PgDialect().sqlToQuery(lecturasDe(TABLA)[0].where as never);
+    expect(sql).toMatch(/"semaforo" in \(\$\d+, \$\d+\)/);
+    expect(params).toEqual(expect.arrayContaining(['naranja', 'rojo']));
+  });
+
+  it('`GET /?semaforo=azul` → 400, no la cola entera', async () => {
+    kdb.when.scenario({ flito_impuestos: [], flito_compradores: [] });
+    const r = await request(await buildApp()).get(`${BASE}?semaforo=rojo,azul`).set('Authorization', await sesion());
+    expect(r.status).toBe(400);
+    expect(lecturasDe(TABLA)).toHaveLength(0);
+  });
+
+  it('`GET /` sin `semaforo` no lo nombra en el WHERE', async () => {
+    kdb.when.scenario({ flito_impuestos: [], flito_compradores: [] });
+    const r = await request(await buildApp()).get(BASE).set('Authorization', await sesion());
+    expect(r.status).toBe(200);
+    const { sql } = new PgDialect().sqlToQuery(lecturasDe(TABLA)[0].where as never);
+    expect(sql).not.toContain('"semaforo"');
+  });
+});
+
 // ─────────────────────────── Paridad de predicado ────────────────────────────────────────────────
 
 describe('paridad — el archivo y la pantalla filtran con el MISMO predicado', () => {
@@ -1347,10 +1390,10 @@ describe('cuota del export — una sola bolsa para SOAT e Impuestos', () => {
 //   · `marcadoPorDiferencia` como booleano crudo → «`MarcadoPorDiferencia` es Sí/No» cae.
 //   · `valorLiquidado` como texto → «NÚMERO» cae.
 
-/** Las ONCE cabeceras de pago, escritas a mano y en su orden (contrato con Operaciones). */
+/** Las DOCE cabeceras de pago (la última, HU #12833), escritas a mano y en su orden (contrato con Operaciones). */
 const CABECERAS_PAGO = [
   'Estado', 'FechaSolicitud', 'FechaLiquidacion', 'ValorLiquidado', 'ValorPagado', 'FechaPago',
-  'MarcadoPorDiferencia', 'Modalidad', 'Gestor', 'MotivoNovedad', 'FechaCreacion',
+  'MarcadoPorDiferencia', 'Modalidad', 'Gestor', 'MotivoNovedad', 'FechaCreacion', 'Dirección sin confirmar',
 ];
 
 /** Instantes en UTC cuya hora de Colombia (UTC−5) es DISTINTA y reconocible. */
@@ -1377,13 +1420,13 @@ const filaPagada = (over: Record<string, unknown> = {}) => filaImpuesto({
 const exportarAmpliado = async (cabecera: string, cuerpo: Record<string, unknown> = {}) =>
   exportar(cabecera, { incluirPago: true, ...cuerpo });
 
-describe('archivo ampliado (Bug #12642) — cabeceras 28..38 exactas, después de `NumeroSerie`', () => {
-  it('con `incluirPago: true` y la función: 38 columnas, las 27 de siempre y luego las 11 de pago en orden', async () => {
+describe('archivo ampliado (Bug #12642, HU #12833) — cabeceras 28..39 exactas, después de `NumeroSerie`', () => {
+  it('con `incluirPago: true` y la función: 39 columnas, las 27 de siempre y luego las 12 de pago en orden', async () => {
     kdb.when.scenario({ flito_impuestos: [filaPagada()], flito_compradores: [comprador()] });
     const r = await exportarAmpliado(await sesion());
     expect(r.status).toBe(200);
     const hoja = await libro(r.body as Buffer);
-    expect(hoja.columnCount).toBe(38);
+    expect(hoja.columnCount).toBe(39);
     expect(cabecerasDe(hoja)).toEqual([...CABECERAS, ...CABECERAS_PAGO]);
     expect(cabecerasDe(hoja)[26]).toBe('NumeroSerie');
     expect(cabecerasDe(hoja)[27]).toBe('Estado');
@@ -1500,7 +1543,7 @@ describe('archivo ampliado — la función decide, no el rol; y el 403 no deja r
     const cabecera = `Bearer ${await testToken({ sub: siguienteSub++, username: 'gestor@flit.io', role: 'gestor_impuestos', funciones: ['impuestos.excel.exportar_pago'] })}`;
     const r = await exportarAmpliado(cabecera);
     expect(r.status).toBe(200);
-    expect((await libro(r.body as Buffer)).columnCount).toBe(38);
+    expect((await libro(r.body as Buffer)).columnCount).toBe(39);
   });
 
   it('`incluirPago: "sí"` (no booleano) es 400 por el `.strict()`', async () => {
@@ -1549,11 +1592,136 @@ describe('archivo ampliado — rastro: `resultado=ampliado` y los campos de pago
     for (const c of ['valor_liquidado', 'valor_pagado', 'pagado_en', 'enviado_en', 'liquidado_en']) expect(campos, c).not.toContain(c);
   });
 
-  it('la lista blanca de pago de Impuestos es la de las 11 cabeceras, y `CAMPOS_PII_COLA_EXPORT` no la absorbe', async () => {
+  it('la lista blanca de pago de Impuestos es la de las 12 cabeceras, y `CAMPOS_PII_COLA_EXPORT` no la absorbe', async () => {
     const m = await import('../../src/shared/export/cola-flito-excel.js');
     expect(m.COLUMNAS_PAGO_IMPUESTOS_EXPORT.map((c) => c.header)).toEqual(CABECERAS_PAGO);
     expect(m.COLUMNAS_COLA_EXPORT).toHaveLength(27);
     for (const c of ['valor_liquidado', 'valor_pagado', 'pagado_en']) expect(m.CAMPOS_PII_COLA_EXPORT as readonly string[]).not.toContain(c);
     expect(m.CAMPOS_COLA_EXPORT_PAGO_IMPUESTOS).toContain('valor_liquidado');
+  });
+});
+
+
+// ─────────────────────────── HU #12833 — dirección de la factura en los Excel ───────────────────
+//
+// AC2: con dirección confirmada (factura o manual), las celdas Dirección/Municipio/Departamento de
+// LOS DOS archivos la usan; municipio/departamento confirmados vacíos caen a FLIT campo a campo.
+// AC4/AC8: la columna «Dirección sin confirmar» solo existe en el ampliado; «Sí» solo con análisis
+// terminado y pendiente; vacía si nunca se analizó o está en curso. Ninguna fila se quita, y la
+// cabecera `X-Direcciones-Sin-Confirmar` lleva el conteo.
+
+const DIR_FACTURA = 'CALLE 100 # 15-20 FACTURA';
+
+describe('HU #12833 — AC2: la dirección confirmada manda en las celdas del Excel', () => {
+  it('fuente `factura`: Dirección de la factura; municipio/departamento NULL caen a los de FLIT', async () => {
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto({ direccionFuente: 'factura', direccionFactura: DIR_FACTURA, municipioFactura: null, departamentoFactura: null })],
+      flito_compradores: [comprador()],
+    });
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+    expect(hoja.columnCount).toBe(27);
+    expect(celda(hoja, 2, 'Direccion')).toBe(DIR_FACTURA);
+    expect(celda(hoja, 2, 'Municipio')).toBe(MUNICIPIO);
+    expect(celda(hoja, 2, 'Departamento')).toBe('CUNDINAMARCA');
+  });
+
+  it('fuente `manual` con los tres campos: los tres de la corrección, en el ampliado también', async () => {
+    kdb.when.scenario({
+      flito_impuestos: [filaPagada({ direccionFuente: 'manual', direccionFactura: 'CRA 1 MANUAL', municipioFactura: 'CHIA', departamentoFactura: 'BOYACA' })],
+      flito_compradores: [comprador()],
+    });
+    const hoja = await libro((await exportarAmpliado(await sesion())).body as Buffer);
+    expect(celda(hoja, 2, 'Direccion')).toBe('CRA 1 MANUAL');
+    expect(celda(hoja, 2, 'Municipio')).toBe('CHIA');
+    expect(celda(hoja, 2, 'Departamento')).toBe('BOYACA');
+  });
+
+  it('sin fuente (NULL) los valores guardados se IGNORAN y sale FLIT: nada sin confirmar llega a la celda', async () => {
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto({ direccionFuente: null, direccionFactura: 'NO CONFIRMADA', municipioFactura: 'X', departamentoFactura: 'Y' })],
+      flito_compradores: [comprador()],
+    });
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+    expect(celda(hoja, 2, 'Direccion')).toBe('CRA 7 # 45-12');
+    expect(celda(hoja, 2, 'Municipio')).toBe(MUNICIPIO);
+    expect(textoDe(hoja)).not.toContain('NO CONFIRMADA');
+  });
+
+  it('la proyección lee las 4 columnas de dirección de `flito_impuestos`', async () => {
+    kdb.when.scenario({ flito_impuestos: [filaImpuesto()], flito_compradores: [comprador()] });
+    await exportar(await sesion());
+    const lectura = lecturasDe(TABLA)[0];
+    expect(origenDe(lectura.proyeccion.direccionFuente)).toBe('col:flito_impuestos.direccion_fuente');
+    expect(origenDe(lectura.proyeccion.direccionFactura)).toBe('col:flito_impuestos.direccion_factura');
+    expect(origenDe(lectura.proyeccion.municipioFactura)).toBe('col:flito_impuestos.municipio_factura');
+    expect(origenDe(lectura.proyeccion.departamentoFactura)).toBe('col:flito_impuestos.departamento_factura');
+  });
+});
+
+describe('HU #12833 — AC4/AC8: marca «Dirección sin confirmar» y conteo en la cabecera', () => {
+  const ids = (i: number) => ({ id: `${i}1111111-1111-1111-1111-1111111111b${i}`, tramiteId: `${i}3333333-3333-3333-3333-333333333${i}44` });
+
+  const marcaEn = (hoja: Awaited<ReturnType<typeof libro>>, placa: string) => {
+    for (let fila = 2; fila <= hoja.rowCount; fila++) if (celda(hoja, fila, 'Placa') === placa) return celda(hoja, fila, 'Dirección sin confirmar');
+    throw new Error(`sin fila ${placa}`);
+  };
+
+  it('AC4: todas las filas salen; «Sí» solo con análisis terminado y pendiente; la cabecera cuenta 2', async () => {
+    kdb.when.scenario({
+      flito_impuestos: [
+        filaPagada({ ...ids(1), placa: 'AAA001', analisisEstado: 'completado', direccionPendienteRevision: true }),
+        filaPagada({ ...ids(2), placa: 'AAA002', analisisEstado: 'error_analisis', direccionPendienteRevision: true }),
+        filaPagada({ ...ids(3), placa: 'AAA003', analisisEstado: 'completado', direccionPendienteRevision: false, direccionFuente: 'factura', direccionFactura: DIR_FACTURA }),
+      ],
+      flito_compradores: [],
+    });
+    const r = await exportarAmpliado(await sesion());
+    expect(r.status).toBe(200);
+    expect(r.headers['x-direcciones-sin-confirmar']).toBe('2');
+    const hoja = await libro(r.body as Buffer);
+    expect(hoja.rowCount).toBe(4); // cabecera + 3: no se filtra ninguna
+    expect(marcaEn(hoja, 'AAA001')).toBe('Sí');
+    expect(marcaEn(hoja, 'AAA002')).toBe('Sí');
+    expect(marcaEn(hoja, 'AAA003')).toBeNull();
+  });
+
+  it('AC8: nunca analizado o en curso → celda vacía aunque la columna diga pendiente; no suma al conteo', async () => {
+    kdb.when.scenario({
+      flito_impuestos: [
+        filaPagada({ ...ids(4), placa: 'AAA004', analisisEstado: null, direccionPendienteRevision: true }),
+        filaPagada({ ...ids(5), placa: 'AAA005', analisisEstado: 'en_curso', direccionPendienteRevision: true }),
+      ],
+      flito_compradores: [comprador({ tramiteId: ids(4).tramiteId })],
+    });
+    const r = await exportarAmpliado(await sesion());
+    expect(r.status).toBe(200);
+    expect(r.headers['x-direcciones-sin-confirmar']).toBe('0');
+    const hoja = await libro(r.body as Buffer);
+    expect(hoja.rowCount).toBe(3);
+    expect(marcaEn(hoja, 'AAA004')).toBeNull();
+    expect(marcaEn(hoja, 'AAA005')).toBeNull();
+    // Y la dirección es la de FLIT (sin fuente confirmada).
+    const fila4 = [2, 3].find((f) => celda(hoja, f, 'Placa') === 'AAA004')!;
+    expect(celda(hoja, fila4, 'Direccion')).toBe('CRA 7 # 45-12');
+  });
+
+  it('sin `incluirPago`: ni la columna ni la cabecera', async () => {
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto({ analisisEstado: 'completado', direccionPendienteRevision: true })],
+      flito_compradores: [comprador()],
+    });
+    const r = await exportar(await sesion());
+    expect(r.headers['x-direcciones-sin-confirmar']).toBeUndefined();
+    const hoja = await libro(r.body as Buffer);
+    expect(cabecerasDe(hoja)).not.toContain('Dirección sin confirmar');
+  });
+
+  it('`marcaDireccionSinConfirmar` y `contarDireccionesSinConfirmar` (puros)', async () => {
+    const { marcaDireccionSinConfirmar, contarDireccionesSinConfirmar } = await import('../../src/modules/flito-impuestos/flito-impuestos.export-pago.js');
+    expect(marcaDireccionSinConfirmar({ analisisEstado: 'completado', direccionPendienteRevision: true })).toBe('Sí');
+    expect(marcaDireccionSinConfirmar({ analisisEstado: 'completado', direccionPendienteRevision: false })).toBeNull();
+    expect(marcaDireccionSinConfirmar({ analisisEstado: null, direccionPendienteRevision: true })).toBeNull();
+    expect(marcaDireccionSinConfirmar({ analisisEstado: 'en_curso', direccionPendienteRevision: true })).toBeNull();
+    expect(contarDireccionesSinConfirmar([{ direccionSinConfirmar: 'Sí' }, { direccionSinConfirmar: null }, {}])).toBe(1);
   });
 });

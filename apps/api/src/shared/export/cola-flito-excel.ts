@@ -268,7 +268,7 @@ export const COLUMNAS_PAGO_SOAT_EXPORT: { header: string; key: string; width: nu
   { header: 'FechaCargaComprobante', key: 'fechaCargaComprobante', width: 22 },
 ];
 
-/** Las ONCE columnas de pago y trazabilidad de Impuestos, en su orden exacto, después de `NumeroSerie`. */
+/** Las DOCE columnas de pago y trazabilidad de Impuestos (la última, HU #12833), en su orden exacto, después de `NumeroSerie`. */
 export const COLUMNAS_PAGO_IMPUESTOS_EXPORT: { header: string; key: string; width: number }[] = [
   { header: 'Estado', key: 'estado', width: 14 },
   { header: 'FechaSolicitud', key: 'fechaSolicitud', width: 18 },
@@ -281,6 +281,8 @@ export const COLUMNAS_PAGO_IMPUESTOS_EXPORT: { header: string; key: string; widt
   { header: 'Gestor', key: 'gestor', width: 16 },
   { header: 'MotivoNovedad', key: 'motivoNovedad', width: 36 },
   { header: 'FechaCreacion', key: 'fechaCreacion', width: 18 },
+  // HU #12833 (AC4): «Sí» solo con análisis terminado y dirección pendiente; si no, vacía.
+  { header: 'Dirección sin confirmar', key: 'direccionSinConfirmar', width: 22 },
 ];
 
 /**
@@ -337,12 +339,14 @@ export interface CeldasPagoImpuestos {
   gestor: string | null;
   motivoNovedad: string | null;
   fechaCreacion: string | null;
+  /** HU #12833: «Sí» si el análisis terminó y la dirección quedó pendiente de revisión; `null` en otro caso. */
+  direccionSinConfirmar: string | null;
 }
 
 /** Una fila del archivo AMPLIADO del SOAT: las 27 del gestor más las 13 de pago. */
 export interface FilaColaExportPagoSoat extends Record<string, string | number | null>, CeldasColaExport, CeldasPagoSoat {}
 
-/** Una fila del archivo AMPLIADO de Impuestos: las 27 del gestor más las 11 de pago. */
+/** Una fila del archivo AMPLIADO de Impuestos: las 27 del gestor más las 12 de pago. */
 export interface FilaColaExportPagoImpuestos extends Record<string, string | number | null>, CeldasColaExport, CeldasPagoImpuestos {}
 
 /**

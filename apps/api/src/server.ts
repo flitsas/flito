@@ -21,6 +21,8 @@ import { startRumPurgeCron, stopRumPurgeCron } from './modules/rum/purge.cron.js
 import { startAnthropicHealthCron, stopAnthropicHealthCron } from './modules/ai/anthropic-health.cron.js';
 import { startPortalReminderCron, stopPortalReminderCron } from './modules/tramites/portal-reminder.cron.js';
 import { startValidacionStaleCron, stopValidacionStaleCron } from './modules/tramites/validacion-stale.cron.js';
+import { startImpuestosAnalisisCron, stopImpuestosAnalisisCron } from './modules/flito-impuestos/flito-impuestos-analisis.cron.js';
+import { registrarPasosAnalisisImpuestos } from './modules/flito-impuestos/flito-impuestos.analisis.pasos.js';
 import { startFlitSync, stopFlitSync } from './modules/flito-sync/flito-sync.cron.js';
 import { startSiigoArchivoCron, stopSiigoArchivoCron } from './modules/siigo/siigo.archivo.cron.js';
 import { startSiigoColaCron, stopSiigoColaCron } from './modules/siigo/siigo.cola.cron.js';
@@ -49,6 +51,10 @@ verificarCatalogoAlArrancar()
   .then(() => log.info('catálogo de permisos verificado'))
   .catch((e: Error) => log.error({ err: e.message }, 'CATÁLOGO DE PERMISOS INCOHERENTE (HU #12081 AC6)'));
 
+// HU #12826: pasos del análisis post-envío de Impuestos, en TODOS los ambientes (un envío en DEV o
+// local también encola) y antes de `listen`, para que ningún job corra con la lista vacía.
+registrarPasosAnalisisImpuestos();
+
 const server = app.listen(env.PORT, () => {
   log.info({ port: env.PORT, env: env.NODE_ENV }, 'Operaciones API running');
   if (env.NODE_ENV === 'production') {
@@ -76,6 +82,7 @@ const server = app.listen(env.PORT, () => {
     // TRAM-COMMS-02: recordatorios portal (noop si TRAM_PORTAL_REMINDER_CRON_ENABLED!=1).
     startPortalReminderCron();
     startValidacionStaleCron();
+    startImpuestosAnalisisCron();
     // FLITO: sincronización desde FLIT (noop si SYNC_HABILITADO=false).
     startFlitSync();
     // FLITO/Siigo (Bug #11649): estado efectivo de los tres crons, en UNA línea y SIEMPRE, encendidos
@@ -134,6 +141,7 @@ function shutdown(signal: string) {
   stopAnthropicHealthCron();
   stopPortalReminderCron();
   stopValidacionStaleCron();
+  stopImpuestosAnalisisCron();
   stopDerechosDriveCron();
   stopFlitSync();
   stopSiigoArchivoCron();
