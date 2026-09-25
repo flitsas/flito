@@ -326,7 +326,12 @@ function CuerpoValidacion({ datos, accionReintento, sinPermiso }: {
   if (!cmp || cmp.campos.length === 0) {
     return <p style={texto('var(--flit-text-secondary)')}>No hay comparación guardada para este impuesto. Actualiza la cola para ver el último resultado.</p>;
   }
-  const conDiferencias = cmp.campos.some((c) => c.resultado !== 'coincide');
+  // Manda el semáforo guardado. Fallback (fila sin semáforo): la regla del backend —verde = el VIN
+  // coincide y ningún dato verificable difiere—; `no_verificable` no es diferencia (HU 12831).
+  const conDiferencias = datos.semaforo
+    ? datos.semaforo !== 'verde'
+    : !cmp.campos.some((c) => c.campo === 'vin' && c.resultado === 'coincide')
+      || cmp.campos.some((c) => c.resultado === 'difiere');
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">

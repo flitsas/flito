@@ -24,6 +24,7 @@ const fila = (id: string, placa: string, extra: Partial<Fila>): Fila => ({
 
 const FILAS: Fila[] = [
   fila('v1', 'VER001', { semaforo: 'verde' }),
+  fila('v2', 'VER002', { semaforo: 'verde' }),
   fila('n1', 'NAR001', { semaforo: 'naranja' }),
   fila('r1', 'ROJ001', { semaforo: 'rojo', motivoSemaforo: 'runt_sin_respuesta' }),
   fila('r2', 'ROJ002', { semaforo: 'rojo', motivoSemaforo: 'error_lectura_factura' }),
@@ -51,6 +52,8 @@ const comparacion = (motivo: string | null, campos: unknown[]) => ({
 
 const DETALLE: Record<string, unknown> = {
   v1: comparacion(null, [...IGUALES, campo('color', 'coincide', 'GRIS', 'GRIS'), campo('cilindrada', 'coincide', '1598', '1598')]),
+  // Verde guardado con un dato sin verificar (repro FLIT-0130318): `no_verificable` no es diferencia.
+  v2: comparacion(null, [...IGUALES, campo('color', 'coincide', 'GRIS', 'GRIS'), campo('cilindrada', 'no_verificable', null, '1598')]),
   n1: comparacion(null, [...IGUALES,
     campo('color', 'difiere', 'GRIS ESTRELLA', 'GRIS CASSIOPEE'), campo('cilindrada', 'difiere', '1598', '1600')]),
   r1: comparacion('runt_sin_respuesta', []),
@@ -139,6 +142,19 @@ test.describe('FLITO — Impuestos · comparación factura ↔ RUNT (HU #12831)'
     await modal.getByRole('button', { name: 'Ver detalle' }).click();
     await expect(modal).toHaveCount(0);
     await expect(page.getByRole('dialog', { name: 'Impuesto · VER001' })).toBeVisible();
+  });
+
+  test('AC1 · verde con un dato sin verificar: el chip sigue el semáforo guardado, no «Con diferencias»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/impuestos');
+
+    await filaDe(page, 'VER002').getByRole('button', { name: /Coincide con el RUNT/ }).click();
+    const modal = page.getByRole('dialog', { name: 'Validación factura ↔ RUNT · VER002' });
+    await expect(modal.getByTestId('validacion-resumen')).toContainText('1 dato no se pudo verificar: Cilindraje.');
+    await expect(modal.getByText('Coincide con el RUNT', { exact: true })).toBeVisible();
+    await expect(modal.getByText('Con diferencias', { exact: true })).toHaveCount(0);
+    await expect(modal.locator('[data-resultado="no_verificable"]')).toHaveCount(1);
   });
 
   test('AC1 · error al cargar: aviso dentro del modal, sin error crudo, y se vuelve a pedir', async ({ page }) => {
