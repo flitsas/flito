@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import rateLimit, { Options, ipKeyGenerator, type RateLimitInfo } from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
 import { getRedis } from '../redis.js';
@@ -90,13 +91,51 @@ export const apiLimiter = rateLimit({
   store: makeStore('rl:api:'),
 });
 
-// Auth endpoints: 10 attempts per 15 min per IP (brute force protection)
+/**
+ * Llave del `authLimiter`: IP normalizada + usuario (Bug #12953, segundo PR).
+ *
+ * El usuario se normaliza igual que en `loginLockout.ts` (trim + minúsculas), así que `Ana` y
+ * `ana` comparten contador. NO viaja en claro: la llave termina en Redis (`rl:auth:`) y en el
+ * `warn` de un 429, así que se usa un hash corto (sha256, 16 hex). Sin `username` string en el
+ * cuerpo la llave es solo la IP con un sufijo fijo; esas peticiones igual reciben 400 de la ruta.
+ * `ipKeyGenerator` normaliza IPv6 a /64 y evita la validación `ERR_ERL_KEY_GEN_IPV6`.
+ *
+ * Requiere `req.body` ya parseado: en `app.ts` `express.json()` se monta antes que el limitador.
+ */
+export function authLoginKey(req: Request): string {
+  const ip = ipKeyGenerator(req.ip ?? '');
+  const raw = (req.body as { username?: unknown } | undefined)?.username;
+  const usuario = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+  if (!usuario) return `${ip}-sin-usuario`;
+  const huella = createHash('sha256').update(usuario).digest('hex').slice(0, 16);
+  return `${ip}-${huella}`;
+}
+
+// Login: 10 intentos FALLIDOS por IP + USUARIO cada 3 min (freno a la fuerza bruta).
+//
+// Bug #12953 — «bloqueo general por intentos de ingreso». Tres cosas lo volvían un cupo global:
+//   · La IP: con dos saltos (proxy del host → nginx del contenedor web → api) y `trust proxy = 1`,
+//     `req.ip` era la IP del gateway Docker, la misma para todos. Se corrige en
+//     `apps/web/nginx.conf.template` (realip), no aquí: `trust proxy` sigue en 1 porque el dominio
+//     api.* llega con un solo salto y subirlo abriría la suplantación por X-Forwarded-For.
+//   · Los aciertos: contaban igual que los fallos. `skipSuccessfulRequests` descuenta toda
+//     respuesta < 400, así que solo suman las contraseñas malas (401) y los rechazos.
+//   · La llave solo por IP: una oficina sale a internet por UNA IP pública, así que los errores de
+//     una persona dejaban fuera a sus compañeros. Decisión de negocio: los errores de un usuario no
+//     deben afectar a otro → la llave es IP + usuario ({@link authLoginKey}).
+// Trade-off aceptado explícitamente: se pierde el freno contra el password spraying desde una sola
+// IP (probar una contraseña contra muchas cuentas). El freno por cuenta sigue siendo
+// `loginLockout.ts` (5 fallos → 3 min), que es independiente de la IP. No hay tope extra por IP.
+// La espera baja de 15 a 3 min por pedido explícito del negocio (15 min era excesivo); los 3 min
+// coinciden con el bloqueo por cuenta de `loginLockout.ts`, así los dos mensajes dicen lo mismo.
 export const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
+  windowMs: 3 * 60 * 1000,
   max: 10,
+  skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Demasiados intentos de autenticacion, espere 15 minutos' },
+  keyGenerator: authLoginKey,
+  message: { error: 'Demasiados intentos de autenticacion, espere 3 minutos' },
   store: makeStore('rl:auth:'),
 });
 
