@@ -94,7 +94,7 @@
 // proyectado a mano (sin spread, sin payload crudo) y ni la póliza ni el VIN en el log.
 
 import { createHash, randomUUID } from 'crypto';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
   auditLogs,
@@ -102,6 +102,7 @@ import {
   flitoCompradores,
   flitoProveedoresSoat,
   flitoSoat,
+  flitoSoatIncompletas,
   flitoSoatSolicitud,
   flitoSoportes,
   organismosTransitoConfig,
@@ -112,6 +113,7 @@ import {
   CodigoErrorSolicitudSoat,
   type DatosSoatVigente409,
   EstadoSoat,
+  EstadoSolicitudIncompletaSoat,
   type ExtraccionFacturaVenta,
   PROCEDENCIA_POR_DEFECTO,
   type ProcedenciaComprador,
@@ -134,6 +136,7 @@ import {
   type CodigoRevise,
   type DatosRuntCanal,
 } from './flito-soat-cliente-runt.js';
+import { aparcarSolicitud, MENSAJE_SOLICITUD_INCOMPLETA } from './flito-soat-incompletas.service.js';
 
 export {
   extraerDatosCanal,
@@ -220,6 +223,8 @@ export const DESENLACE_HABLA_DEL_VEHICULO: Record<CodigoErrorSolicitudSoat, bool
   [CodigoErrorSolicitudSoat.SOAT_VIGENTE]: true,
   /** Ese VIN ya está en FLITO: el 409 que confirma cartera, propia o ajena. */
   [CodigoErrorSolicitudSoat.VIN_YA_TIENE_SOAT]: true,
+  /** Ese VIN tiene una solicitud incompleta abierta (HU #12996): confirma que está en FLITO. */
+  [CodigoErrorSolicitudSoat.SOLICITUD_INCOMPLETA_EXISTENTE]: true,
 
   // ── No: la respuesta es la misma para cualquier VIN ───────────────────────────────────────────
   /** Del USUARIO: no tiene compañía. No se llegó a mirar ningún vehículo. */
@@ -435,7 +440,8 @@ async function verificarRn01(vin: string, companiaId: number): Promise<void> {
   const [existente] = await db
     .select({ id: flitoSoat.id, estado: flitoSoat.estado, companiaId: flitoSoat.companiaId })
     .from(flitoSoat).where(eq(flitoSoat.vin, vin)).limit(1);
-  if (!existente) return;
+  // Sin SOAT, la RN-01 sigue mirando la incompleta abierta (HU #12996). Con SOAT, ese 409 manda.
+  if (!existente) { await verificarIncompletaAbierta(vin, companiaId); return; }
 
   // Mismo código, mismo cuerpo recortado y MISMO TEXTO que el vehículo ajeno sin SOAT: los dos son
   // «no es de su compañía» y distinguirlos sería contarle cuál de los dos es.
@@ -445,6 +451,38 @@ async function verificarRn01(vin: string, companiaId: number): Promise<void> {
     'Este vehículo ya tiene un SOAT en FLITO. Un vehículo no puede tener dos (RN-01).',
     { propia: true, id: existente.id, estado: existente.estado });
 }
+
+/**
+ * RN-01 ampliada por la HU #12996 (P-5 del UX): una solicitud INCOMPLETA abierta también ocupa el
+ * VIN, aunque no sea una fila de `flito_soat`. La descartada y la completada no cuentan (la
+ * completada ya ocupa el VIN desde `flito_soat`). Es la misma frontera que el índice único parcial
+ * `uq_flito_soat_incompletas_vin_abierta`: esto da el mensaje útil, la base cierra la carrera.
+ *
+ * Misma forma que la RN-01 de siempre: `propia: true` + `id` para la compañía que la radicó (la puede
+ * abrir); `propia: false`, sin id ni estado, para cualquier otra.
+ */
+async function verificarIncompletaAbierta(vin: string, companiaId: number): Promise<void> {
+  const [abierta] = await db
+    .select({ id: flitoSoatIncompletas.id, companiaId: flitoSoatIncompletas.companiaId })
+    .from(flitoSoatIncompletas)
+    .where(and(
+      eq(flitoSoatIncompletas.vin, vin),
+      eq(flitoSoatIncompletas.estado, EstadoSolicitudIncompletaSoat.INCOMPLETA),
+    ))
+    .limit(1);
+  if (!abierta) return;
+  if (abierta.companiaId !== companiaId) throw incompletaAjena();
+  throw fallo(409, CodigoErrorSolicitudSoat.SOLICITUD_INCOMPLETA_EXISTENTE,
+    'Este vehículo ya tiene una solicitud pendiente de validar en FLITO. No se puede radicar otra.',
+    { propia: true, id: abierta.id });
+}
+
+/**
+ * El 409 recortado de una incompleta de OTRA compañía: sin id, sin estado, sin de quién es. El texto
+ * es `MENSAJE_VEHICULO_AJENO` a propósito: no le dice a un tercero que ese VIN está «por validar».
+ */
+const incompletaAjena = () => fallo(409, CodigoErrorSolicitudSoat.SOLICITUD_INCOMPLETA_EXISTENTE,
+  MENSAJE_VEHICULO_AJENO, { propia: false });
 
 /**
  * Lo ÚNICO que se le dice a quien radica sobre un vehículo que no es de su compañía.
@@ -1049,6 +1087,8 @@ export async function resolverDestinoCanalCliente(
 }
 
 export interface SolicitudCreada {
+  /** Discriminante del 201 (HU #12996): el RUNT respondió y la solicitud se despachó. */
+  desenlace: 'creada';
   id: string;
   estado: EstadoSoat;
   /**
@@ -1071,6 +1111,45 @@ export interface SolicitudCreada {
    * `res.json(creada)` de antes se lo habría contado sin que nadie lo pidiera.
    */
   destino: DestinoCanalCliente;
+}
+
+/**
+ * El otro desenlace del alta (HU #12996, AC1/AC3): el RUNT no respondió en el servidor y la
+ * solicitud quedó APARCADA en `flito_soat_incompletas`. `id` es el de la incompleta, no un SOAT.
+ */
+export interface SolicitudAparcada {
+  desenlace: 'incompleta';
+  id: string;
+  estado: typeof EstadoSolicitudIncompletaSoat.INCOMPLETA;
+  mensaje: string;
+}
+
+/**
+ * El RUNT no respondió al alta: se aparca en vez de responder 503 (HU #12996, ADR-0019).
+ *
+ * Vale igual si la preconsulta había dicho 503 (AC1) o si respondió OK y el registro se cayó entre
+ * medio (AC3, P-6): lo que decide es la consulta del SERVIDOR, no lo que vio la pantalla. Si el
+ * índice parcial del VIN salta (otra petición aparcó el mismo VIN entre la RN-01 y el INSERT), se
+ * vuelve a mirar la RN-01 para dar la forma propia/ajena; si ni así aparece, el 409 recortado.
+ */
+async function aparcarPorRuntCaido(
+  entrada: EntradaSolicitud, archivo: ArchivoSolicitud, ctx: SoatCtx, canal: CanalCompania, vin: string,
+): Promise<SolicitudAparcada> {
+  const r = await aparcarSolicitud({
+    vin, companiaId: canal.companiaId, carpetaStorage: canal.carpetaStorage,
+    propietario: entrada.propietario,
+    nombreCompleto: nombreCompletoDe(entrada.propietario),
+    procedencia: procedenciaCompleta(entrada.procedencia),
+    archivo,
+  }, ctx);
+  if (!r.aparcada) {
+    await verificarRn01(vin, canal.companiaId);
+    throw incompletaAjena();
+  }
+  return {
+    desenlace: 'incompleta', id: r.id,
+    estado: EstadoSolicitudIncompletaSoat.INCOMPLETA, mensaje: MENSAJE_SOLICITUD_INCOMPLETA,
+  };
 }
 
 /**
@@ -1105,7 +1184,7 @@ export async function crearSolicitud(
   entrada: EntradaSolicitud,
   archivo: ArchivoSolicitud,
   ctx: SoatCtx,
-): Promise<SolicitudCreada> {
+): Promise<SolicitudCreada | SolicitudAparcada> {
   const canal = await canalDeLaCompania(ctx);
   await verificarPdfReal(archivo);
 
@@ -1113,8 +1192,18 @@ export async function crearSolicitud(
   await verificarRn01(vinTecleado, canal.companiaId);
   await verificarTenenciaVehiculo(vinTecleado, canal.companiaId);
 
-  const { datos, vinEfectivo, organismoCodigo, consultadoEn, vigenciaProxima } =
-    await verificarRuntCompuerta(vinTecleado);
+  // HU #12996: el 503 de la compuerta ya no aborta el ALTA —la preconsulta sigue en 503—. Solo ese
+  // desenlace aparca; el 422 y el 409 del RUNT siguen saliendo tal cual y no guardan nada (AC6).
+  let runt: ResultadoRunt;
+  try {
+    runt = await verificarRuntCompuerta(vinTecleado);
+  } catch (e) {
+    if (e instanceof SolicitudSoatError && e.codigo === CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE) {
+      return aparcarPorRuntCaido(entrada, archivo, ctx, canal, vinTecleado);
+    }
+    throw e;
+  }
+  const { datos, vinEfectivo, organismoCodigo, consultadoEn, vigenciaProxima } = runt;
 
   // Sobre el VIN EFECTIVO, que es el que se va a escribir (AC5). No sobra por coincidir hoy con el
   // tecleado —la compuerta garantiza esa igualdad—: lo que esta pareja cubre es la ventana entre la
@@ -1290,7 +1379,7 @@ export async function crearSolicitud(
   // Sin `setImmediate` y sin job: la verificación ya ocurrió, dentro de la petición. La función que
   // la #11935 programaba aquí (`verificarRuntPostAlta`) se BORRÓ con esta HU, y ese borrado es lo
   // que hace estructural el «las filas ya radicadas no se reconsultan» del AC6.
-  return { id: soatId, estado: EstadoSoat.SOLICITADO, placa: datos.placa, destino };
+  return { desenlace: 'creada', id: soatId, estado: EstadoSoat.SOLICITADO, placa: datos.placa, destino };
 }
 
 // ═════════ Lectura OCR de la factura de venta (Feature #12073, HU #12092) ════

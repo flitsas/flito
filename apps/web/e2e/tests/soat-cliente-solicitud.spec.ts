@@ -469,8 +469,12 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await btnEnviar(page).click();
 
     await expect(fichaRunt(page)).toHaveCount(0);
-    await expect(btnEnviar(page)).toHaveAttribute('aria-disabled', 'true');
-    await expect(page.getByRole('alert')).toContainText('El RUNT no está disponible, vuelva a consultar');
+    // HU #12996: el 503 abre el «modo RUNT caído». Con el formulario completo, la primaria pasa a
+    // «Guardar pendiente de validar» (la API de hoy responde 202 en este caso; ver AC3 en
+    // `soat-vin-unico-ficha-runt.spec.ts`).
+    await expect(page.getByRole('alert')).toContainText('El RUNT no está respondiendo en este momento.');
+    await expect(btnEnviar(page)).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Guardar pendiente de validar' })).not.toHaveAttribute('aria-disabled', 'true');
   });
 });
 
@@ -577,10 +581,11 @@ test.describe('HU #11967 · AC3 — los desenlaces se distinguen por CÓDIGO', (
     // El texto dice una cosa y el código dice otra. Manda el código.
     const banda = await consultarCon(page, fallo(503, 'runt_no_disponible', 'Los datos no corresponden: revise los datos.'));
 
-    await expect(banda).toContainText('El RUNT no está disponible, vuelva a consultar');
+    await expect(banda).toContainText('El RUNT no está respondiendo en este momento.');
     await expect(page.getByText(/Revise los datos/)).toHaveCount(0);
     await expect(btnReconsultar(page)).toBeVisible();
-    await expect(btnEnviar(page)).toHaveAttribute('aria-disabled', 'true');
+    // HU #12996: con datos pendientes, el primario del modo RUNT caído sigue bloqueado.
+    await expect(page.getByRole('button', { name: 'Guardar pendiente de validar' })).toHaveAttribute('aria-disabled', 'true');
   });
 
   test('422 runt_no_cuadra: «Revise los datos», y NO «no está disponible»', async ({ page }) => {
@@ -1276,7 +1281,7 @@ test.describe('HU #12213 · AC2/AC4 — el 409 sigue bloqueando y los estados no
 
     // AC4: el 503 se ve como 503 —`alert`, y su frase, no la del 422— y el aviso desapareció con la
     // ficha. Las fases de `Consulta` son excluyentes y esto lo comprueba en una sola sesión.
-    const banda = page.getByRole('alert').filter({ hasText: 'El RUNT no está disponible' });
+    const banda = page.getByRole('alert').filter({ hasText: 'El RUNT no está respondiendo' });
     await expect(banda).toBeVisible();
     await expect(banda).not.toContainText('Revise');
     await expect(page.getByText('todavía tiene SOAT activo')).toHaveCount(0);

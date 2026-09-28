@@ -155,6 +155,8 @@ function escenario(over: Partial<Record<string, unknown[]>> = {}) {
     ...(over as Record<string, unknown[]>),
   });
   kdb.when.insert('vehicles', [{ id: VEHICULO_ID }]);
+  // HU #12996: con el RUNT caído el alta APARCA la solicitud en `flito_soat_incompletas` (202).
+  kdb.when.insert('flito_soat_incompletas', [{ id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }]);
 }
 
 /**
@@ -239,13 +241,15 @@ describe('AC4 — «el RUNT no respondió» y «el RUNT respondió que no» son 
     // CUÁL es cuál, no solo que difieren.
     expect(negocio.status, 'el RUNT respondió que no → 422 «revise los datos»').toBe(422);
     expect(negocio.body.codigo).toBe('runt_no_cuadra');
-    expect(caido.status, 'el RUNT no respondió → 503 «vuelva a consultar»').toBe(503);
-    expect(caido.body.codigo).toBe('runt_no_disponible');
+    // HU #12996: en el ALTA el RUNT caído ya no es 503 sino 202 `incompleta` (la solicitud se
+    // aparca). La separación que este caso protege sigue intacta: caído ≠ negativa de negocio.
+    expect(caido.status, 'el RUNT no respondió → 202, la solicitud queda pendiente de validar').toBe(202);
+    expect(caido.body.desenlace).toBe('incompleta');
 
     // Y no se confunden entre sí en NINGUNA dirección. Es el mutante (a) del diseño §6: cambiar el
-    // 503 del RUNT caído por 422 mata este aserto, y también el simétrico.
-    expect(negocio.status).not.toBe(503);
-    expect(negocio.body.codigo).not.toBe('runt_no_disponible');
+    // desenlace del RUNT caído por 422 mata este aserto, y también el simétrico.
+    expect(negocio.status).not.toBe(202);
+    expect(negocio.body.desenlace).toBeUndefined();
     expect(caido.status).not.toBe(422);
     expect(caido.body.codigo).not.toBe('runt_no_cuadra');
 
@@ -253,19 +257,21 @@ describe('AC4 — «el RUNT no respondió» y «el RUNT respondió que no» son 
     // imposible de cumplir.
     expect(NEGATIVA_DE_NEGOCIO.message).toBe(CAIDO_SIN_STATUS.message);
 
-    // Y ninguno de los dos crea nada: el desenlace se separa para el usuario, no para la base.
+    // Y ninguno de los dos crea un SOAT; solo el caído aparca una incompleta (HU #12996).
     expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+    expect(espia.insertsEn('flito_soat_incompletas')).toHaveLength(1);
   });
 
-  it('un no-200 de la pasarela es TRANSPORTE, no negocio: 503 aunque traiga `httpStatus`', async () => {
+  it('un no-200 de la pasarela es TRANSPORTE, no negocio: caído (202 incompleta) aunque traiga `httpStatus`', async () => {
     // `httpStatus` no significa «hubo HTTP»: significa «respondió 200». Un 502 anotado sigue siendo
     // el RUNT sin responder. El mutante que mata: `if (respuesta.httpStatus) return negocio`.
+    // HU #12996: el caído del ALTA aparca (202) en vez de responder 503.
     escenario();
     consultarVehiculoRuntMock.mockResolvedValue(CAIDO_CON_502);
 
     const r = await alta(await buildApp(), await auth(siguienteUsuario()));
-    expect(r.status).toBe(503);
-    expect(r.body.codigo).toBe('runt_no_disponible');
+    expect(r.status).toBe(202);
+    expect(r.body.desenlace).toBe('incompleta');
   });
 
   it('el predicado heredado `/propietari/i` sigue vivo DEBAJO, para la vía que no trae `httpStatus`', async () => {
@@ -282,15 +288,18 @@ describe('AC4 — «el RUNT no respondió» y «el RUNT respondió que no» son 
     expect(r.body.codigo).toBe('runt_no_cuadra');
   });
 
-  it('**un `throw` de la pasarela es «caído», que es el defecto SEGURO: no crea nada**', async () => {
+  it('**un `throw` de la pasarela es «caído», que es el defecto SEGURO: no crea ningún SOAT**', async () => {
+    // HU #12996: el caído del ALTA aparca la solicitud (202) — factura subida con la clave
+    // reservada y fila en `flito_soat_incompletas` —, pero sigue sin crear SOAT ni vehículo.
     escenario();
     consultarVehiculoRuntMock.mockRejectedValue(new Error('ECONNRESET'));
 
     const r = await alta(await buildApp(), await auth(siguienteUsuario()));
-    expect(r.status).toBe(503);
-    expect(r.body.codigo).toBe('runt_no_disponible');
+    expect(r.status).toBe(202);
+    expect(r.body.desenlace).toBe('incompleta');
     expect(espia.insertsEn('flito_soat')).toHaveLength(0);
-    expect(uploadMock).not.toHaveBeenCalled();
+    expect(espia.insertsEn('vehicles')).toHaveLength(0);
+    expect(espia.insertsEn('flito_soat_incompletas')).toHaveLength(1);
   });
 });
 
@@ -824,7 +833,6 @@ describe('los DOS endpoints devuelven lo mismo ante el mismo RUNT (una sola comp
    * aplica. El alta que sí permite está en `flito-soat.cliente-renovacion-anticipada.test.ts`.
    */
   const DESENLACES = [
-    { nombre: 'RUNT caído', runt: () => CAIDO_SIN_STATUS, status: 503, codigo: 'runt_no_disponible' },
     { nombre: 'negativa de negocio', runt: () => NEGATIVA_DE_NEGOCIO, status: 422, codigo: 'runt_no_cuadra' },
     { nombre: 'sin registro', runt: () => ({ ok: true, data: { vehiculo: { placa: PLACA, vin: VIN_RUNT } } }), status: 422, codigo: 'runt_sin_registro' },
     { nombre: 'VIN que no cuadra', runt: () => runtOk({ vin: 'VINQUENOCUADRA01' }), status: 422, codigo: 'runt_no_cuadra' },
@@ -853,6 +861,26 @@ describe('los DOS endpoints devuelven lo mismo ante el mismo RUNT (una sola comp
     // pasar que uno de los dos se quede atrás en el próximo cambio.
     expect(rPre.status).toBe(rAlta.status);
     expect(rPre.body.codigo).toBe(rAlta.body.codigo);
+  });
+
+  // HU #12996 — la ÚNICA asimetría deliberada entre los dos endpoints: con el RUNT caído la
+  // preconsulta sigue en 503 (no escribe nada, el formulario abre la opción de guardar) y el alta
+  // aparca la solicitud con 202. Antes era una fila más de la tabla de arriba.
+  it('RUNT caído → 503 `runt_no_disponible` en la PRECONSULTA y 202 `incompleta` en el ALTA', async () => {
+    const app = await buildApp();
+
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(CAIDO_SIN_STATUS);
+    const rAlta = await alta(app, await auth(siguienteUsuario()));
+
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(CAIDO_SIN_STATUS);
+    const rPre = await preconsultar(app, await auth(siguienteUsuario()));
+
+    expect(rPre.status).toBe(503);
+    expect(rPre.body.codigo).toBe('runt_no_disponible');
+    expect(rAlta.status).toBe(202);
+    expect(rAlta.body.desenlace).toBe('incompleta');
   });
 });
 
@@ -1142,7 +1170,7 @@ describe('PII — el alta consulta el RUNT dentro de la petición, y deja rastro
     expect(piiMock.mock.calls[0][1].camposAccedidos).not.toContain('nombre_completo');
   });
 
-  it('**un alta que la compuerta RECHAZA escribe un INTENTO, no un acceso** (INVERTIDO por ADR-0012)', async () => {
+  it('**un alta con el RUNT caído escribe un INTENTO, no un acceso** (INVERTIDO por ADR-0012; 202 desde la HU #12996)', async () => {
     // Decía «no escribe rastro de acceso», y era cierto y era el problema: enumerando VIN la mayoría
     // de los intentos fallan, así que el registro veía justo lo que NO era sondeo. Desde ADR-0012
     // §8.2 la línea se escribe — pero es una línea de INTENTO y la diferencia está en la columna que
@@ -1152,14 +1180,13 @@ describe('PII — el alta consulta el RUNT dentro de la petición, y deja rastro
     escenario();
     consultarVehiculoRuntMock.mockResolvedValue(CAIDO_SIN_STATUS);
 
-    expect((await alta(await buildApp(), await auth(siguienteUsuario()))).status).toBe(503);
+    expect((await alta(await buildApp(), await auth(siguienteUsuario()))).status).toBe(202);
 
     expect(piiMock).toHaveBeenCalledTimes(1);
     const registro = piiMock.mock.calls[0][1];
     expect(registro.camposAccedidos, 'un intento no accedió a ningún campo').toEqual([]);
     expect(String(registro.motivo)).toContain('resultado=runt_no_disponible');
-    // Y lo de siempre: nada escrito y nada subido.
-    expect(uploadMock).not.toHaveBeenCalled();
+    // Ningún SOAT. Desde la HU #12996 SÍ se sube la factura (a la clave reservada) y se aparca.
     expect(espia.insertsEn('flito_soat')).toHaveLength(0);
   });
 

@@ -675,10 +675,52 @@ export const CodigoErrorSolicitudSoat = {
    * obligatorio el proveedor en el envío masivo.
    */
   DESTINO_REQUERIDO: 'destino_requerido',
+
+  // ── Solicitud incompleta por RUNT caído (Feature #12841, HU #12996, ADR-0019) ────────────────────
+
+  /**
+   * El VIN ya tiene una solicitud INCOMPLETA abierta (`flito_soat_incompletas.estado = 'incompleta'`)
+   * y por eso no se puede preconsultar ni radicar otra (P-5 del UX: la incompleta ocupa el VIN; la
+   * descartada no). Misma forma que la RN-01: `propia: true` + `id` para el dueño del alcance;
+   * `propia: false`, sin id ni estado, para un tercero.
+   */
+  SOLICITUD_INCOMPLETA_EXISTENTE: 'solicitud_incompleta_existente',
 } as const;
 
 export type CodigoErrorSolicitudSoat =
   (typeof CodigoErrorSolicitudSoat)[keyof typeof CodigoErrorSolicitudSoat];
+
+/**
+ * Estados de una solicitud del canal Cliente APARCADA porque el RUNT no respondió (Feature #12841,
+ * ADR-0019). Viven en `flito_soat_incompletas.estado`, NO en `flito_soat`: la incompleta no es un
+ * SOAT y ningún lector de la cola la ve. Rótulos visibles (P-1 del UX): «Por validar» / «Descartada».
+ */
+export const EstadoSolicitudIncompletaSoat = {
+  INCOMPLETA: 'incompleta',
+  COMPLETADA: 'completada',
+  DESCARTADA: 'descartada',
+} as const;
+
+export type EstadoSolicitudIncompletaSoat =
+  (typeof EstadoSolicitudIncompletaSoat)[keyof typeof EstadoSolicitudIncompletaSoat];
+
+/**
+ * Respuesta de `POST /api/flito/soat/cliente` (HU #12996). Unión discriminada por `desenlace`:
+ *
+ *   · **201** `creada` — el RUNT respondió y la solicitud se despachó: el `{ id, estado }` de siempre
+ *     más `desenlace` (aditivo).
+ *   · **202** `incompleta` — el RUNT no respondió en el servidor: la solicitud quedó guardada
+ *     «pendiente de validar» con su factura y su propietario, sin llegar al gestor. `id` es el de la
+ *     fila de `flito_soat_incompletas`, no un id de SOAT.
+ */
+export type RespuestaAltaSolicitudSoat =
+  | { desenlace: 'creada'; id: string; estado: EstadoSoat }
+  | {
+    desenlace: 'incompleta';
+    id: string;
+    estado: typeof EstadoSolicitudIncompletaSoat.INCOMPLETA;
+    mensaje: string;
+  };
 
 /**
  * La familia «revise los datos»: los tres desenlaces en los que el RUNT **sí respondió** y la

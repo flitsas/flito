@@ -124,6 +124,8 @@ function escenario(over: Partial<Record<string, unknown[]>> = {}) {
     ...(over as Record<string, unknown[]>),
   });
   kdb.when.insert('vehicles', [{ id: VEHICULO_ID }]);
+  // HU #12996: con el RUNT caído el alta APARCA la solicitud en `flito_soat_incompletas` (202).
+  kdb.when.insert('flito_soat_incompletas', [{ id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }]);
 }
 
 /** El cuerpo del alta, con las claves que el front sigue mandando hasta la HU #12091. */
@@ -639,7 +641,8 @@ describe('ADR-0012 — el rastro correlaciona por HMAC, y el VIN no vuelve al lo
     escenario();
     const r = await alta(await buildApp(), await auth(siguienteUsuario()));
 
-    expect(Object.keys(r.body).sort()).toEqual(['estado', 'id']);
+    // `desenlace` es ADITIVO desde la HU #12996 (unión 201/202); el resto sigue siendo `{ id, estado }`.
+    expect(Object.keys(r.body).sort()).toEqual(['desenlace', 'estado', 'id']);
     expect(JSON.stringify(r.body)).not.toContain(PLACA);
   });
 
@@ -743,7 +746,8 @@ describe('ADR-0012 §8.2 — el sondeo es visible: los intentos que no entregan 
 
     const r = await alta(await buildApp(), await auth(siguienteUsuario()));
 
-    expect(r.status).toBe(503);
+    // HU #12996: el alta con el RUNT caído responde 202 (aparcada), y el rastro es el mismo intento.
+    expect(r.status).toBe(202);
     expect(String(ultimoRegistro().motivo)).toContain('resultado=runt_no_disponible');
     expect(String(ultimoRegistro().motivo)).toMatch(/durante el alta/);
     expect(ultimoRegistro().camposAccedidos).toEqual([]);
@@ -1083,18 +1087,20 @@ describe('AC4 — los cuatro desenlaces y su ORDEN de evaluación se conservan e
     expect(desenlace).toMatchObject({ clase: 'ok', vinEfectivo: VIN_RUNT, organismoCodigo: ORGANISMO_FUNZA });
   });
 
-  it('**el desenlace DESCONOCIDO cae en `caido`, y `caido` no crea nada**', async () => {
+  it('**el desenlace DESCONOCIDO cae en `caido`, y `caido` no crea ningún SOAT**', async () => {
     // Una respuesta que no es ni `ok` ni una negativa reconocible: sin `httpStatus` y sin la palabra
-    // que el predicado heredado busca. El defecto seguro es 503, no un alta.
+    // que el predicado heredado busca. El defecto seguro es «caído», no un alta despachada: desde la
+    // HU #12996 eso es el 202 que aparca la solicitud, sin SOAT ni vehículo.
     expect(await clasificar({ ok: false, message: 'algo que nadie ha visto nunca' })).toEqual({ clase: 'caido' });
     expect(await clasificar(undefined)).toEqual({ clase: 'caido' });
 
     escenario();
     consultarVehiculoRuntMock.mockResolvedValue({ ok: false, message: 'algo que nadie ha visto nunca' });
     const r = await alta(await buildApp(), await auth(siguienteUsuario()));
-    expect(r.status).toBe(503);
+    expect(r.status).toBe(202);
+    expect(r.body.desenlace).toBe('incompleta');
     expect(espia.insertsEn('flito_soat')).toHaveLength(0);
-    expect(uploadMock).not.toHaveBeenCalled();
+    expect(espia.insertsEn('vehicles')).toHaveLength(0);
   });
 
   it('las CINCO clases son las que son: no se estrena ninguna ni se pierde ninguna', async () => {

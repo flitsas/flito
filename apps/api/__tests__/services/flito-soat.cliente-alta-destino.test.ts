@@ -189,6 +189,8 @@ function escenario(gestor: { proveedorId: string | null; activo: boolean | null 
     vehicles: [],
   });
   kdb.when.insert('vehicles', [{ id: VEHICULO_ID }]);
+  // HU #12996: con el RUNT caído el alta APARCA la solicitud en `flito_soat_incompletas` (202).
+  kdb.when.insert('flito_soat_incompletas', [{ id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }]);
 }
 
 const CAMPOS: Record<string, string> = {
@@ -306,7 +308,8 @@ describe('AC1 — el alta nace en `solicitado` y con destino resuelto', () => {
     const r = await alta(await appAlta(), await auth('cliente', siguienteUsuario()));
 
     expect(r.status).toBe(201);
-    expect(Object.keys(r.body).sort()).toEqual(['estado', 'id']);
+    // `desenlace` es ADITIVO desde la HU #12996 (unión 201/202); el resto sigue siendo `{ id, estado }`.
+    expect(Object.keys(r.body).sort()).toEqual(['desenlace', 'estado', 'id']);
     expect(r.body.estado).toBe('solicitado');
     expect(JSON.stringify(r.body)).not.toContain(GESTOR);
     expect(JSON.stringify(r.body)).not.toContain('gestionOperaciones');
@@ -630,7 +633,8 @@ describe('el gestor por defecto no sale por ninguna respuesta que no lo haya ped
     const r = await alta(await appAlta(), await auth('cliente', siguienteUsuario()));
 
     expect(r.status).toBe(201);
-    expect(Object.keys(r.body).sort()).toEqual(['estado', 'id']);
+    // `desenlace` es ADITIVO desde la HU #12996 (unión 201/202); el resto sigue siendo `{ id, estado }`.
+    expect(Object.keys(r.body).sort()).toEqual(['desenlace', 'estado', 'id']);
     expect(JSON.stringify(r.body)).not.toContain(GESTOR);
   });
 });
