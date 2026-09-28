@@ -35,6 +35,12 @@
 // sellado (la fila de `flito_liquidaciones` no cambia: el sello conserva `aceptada: false` y la
 // aceptación se ve en vivo en el reporte de costos, HU #12653). Una diferencia NUNCA bloquea el sellado (D5).
 //
+// Bug #12913 (ADR-0018, addendum): el PAGO de servicios adicionales exige `servicioTipoId` (el tipo del
+// catálogo que paga; prohibido en cualquier otro caso). Tipo inexistente o dado de baja → 400 antes de
+// S3 y otra vez bajo el bloqueo; dentro de la tx el valor del comprobante entra a la puente
+// (`fijarDesdeComprobante`: upsert por (trámite, tipo)), la tarifa de referencia es el valor del
+// catálogo de ESE tipo y la fila guarda `servicio_tipo_id` (índice único por tipo, 0209).
+//
 // Ningún log lleva contenido leído (Habeas Data): ids, conceptos, cuentas.
 
 import { createHash } from 'node:crypto';
@@ -50,7 +56,9 @@ import { loggerFor } from '../../shared/logger.js';
 import { getEntityDocumentStream, uploadEntityDocument } from '../../services/storage.js';
 import { nombrePagina, recortarPaginas } from '../../shared/pdf/separar-paginas.js';
 import { confirmar } from '../flito-revisiones/flito-revisiones.service.js';
-import { bloquearTramite, TramiteNoEncontradoError, type Tx } from '../finanzas-servicios-adicionales/finanzas-servicios-adicionales.service.js';
+import {
+  bloquearTramite, fijarDesdeComprobante, tipoActivoDe, TramiteNoEncontradoError, type Ejecutor, type TipoCatalogo, type Tx,
+} from '../finanzas-servicios-adicionales/finanzas-servicios-adicionales.service.js';
 import { columnasDeLectura, ComprobanteError, detalle, type ComprobanteCtx } from './flito-comprobantes.service.js';
 import { comprobarDestinoPago, pagarEnTx, pagarTrasCommit, tieneDueno, type DestinoPago, type PagoArgs } from './flito-comprobantes.duenos.js';
 import { CARPETA_COMPROBANTES, esHonorario } from './flito-comprobantes.expr.js';
@@ -80,7 +88,16 @@ export const aplicarSchema = z.object({
   esPago: z.boolean(),
   campos: z.record(z.string().max(200)).default({}),
   motivo: z.string().trim().min(5).max(500).optional(),
-}).refine((b) => Object.keys(b.campos).length === 0 || !!b.motivo, { message: 'Confirmar campos exige motivo', path: ['motivo'] });
+  /** Bug #12913: el tipo de servicio adicional que paga. Obligatorio en el pago SA; prohibido en el resto. */
+  servicioTipoId: z.string().uuid().optional(),
+}).refine((b) => Object.keys(b.campos).length === 0 || !!b.motivo, { message: 'Confirmar campos exige motivo', path: ['motivo'] })
+  .refine((b) => !esPagoSa(b) || !!b.servicioTipoId, { message: 'Aplicar un pago de servicios adicionales exige elegir el servicio', path: ['servicioTipoId'] })
+  .refine((b) => esPagoSa(b) || b.servicioTipoId === undefined, { message: 'El servicio solo se elige al aplicar un pago de servicios adicionales', path: ['servicioTipoId'] });
+
+/** ¿Es el pago de servicios adicionales (el único caso que lleva `servicioTipoId`)? */
+function esPagoSa(b: { esPago: boolean; concepto: ConceptoCosto }): boolean {
+  return b.esPago && b.concepto === ConceptoCosto.SERVICIOS_ADICIONALES;
+}
 
 export type AplicarBody = z.infer<typeof aplicarSchema>;
 
@@ -94,6 +111,7 @@ export interface OpcionesAplicar { automatico?: boolean }
 const noEncontrado = (que = 'El comprobante no existe') => new ComprobanteError(404, CodigoErrorComprobante.NO_ENCONTRADO, que);
 const yaResuelto = () => new ComprobanteError(409, CodigoErrorComprobante.YA_RESUELTO, 'El comprobante ya no está pendiente');
 const datosInvalidos = (msg: string) => new ComprobanteError(400, CodigoErrorComprobante.DATOS_INVALIDOS, msg);
+const servicioNoDisponible = () => datosInvalidos('El servicio elegido ya no está disponible');
 const sinDiferencia = (detalle: string) =>
   new ComprobanteError(409, CodigoErrorComprobante.SIN_DIFERENCIA, 'El comprobante no tiene una diferencia pendiente de aceptar', { detalle });
 
@@ -196,6 +214,13 @@ async function bloquearComprobantePendiente(tx: Tx, id: string): Promise<void> {
 
 // ─────────────────────────── aplicar ─────────────────────────────────────────
 
+/** Bug #12913: el tipo ACTIVO elegido para el pago SA, o 400 `datos_invalidos` (inexistente o dado de baja). */
+async function exigirTipoServicio(ejecutor: Ejecutor, servicioTipoId: string): Promise<TipoCatalogo> {
+  const tipo = await tipoActivoDe(ejecutor, servicioTipoId);
+  if (!tipo) throw servicioNoDisponible();
+  return tipo;
+}
+
 /** `fecha_pago` leída (`YYYY-MM-DD`, ya validada por `columnasDeLectura`) como instante en Bogotá; `null` si no la hay. */
 function fechaPagoDe(fechaDocumento: string | null): Date | null {
   if (!fechaDocumento) return null;
@@ -242,6 +267,9 @@ export async function aplicar(id: string, cuerpo: unknown, ctx: ComprobanteCtx, 
   // El dispatcher por concepto (AC4): la guarda del dueño ANTES de subir nada a S3; el honorario exige valor.
   const honorario = body.esPago && esHonorario(body.concepto) ? body.concepto : null;
   if (honorario && !lectura.valor) throw valorRequerido();
+  // El refine garantiza `servicioTipoId` en el pago SA; el tipo se comprueba ANTES de S3 (y otra vez en la tx).
+  const servicioTipoId = esPagoSa(body) ? body.servicioTipoId! : undefined;
+  if (servicioTipoId) await exigirTipoServicio(db, servicioTipoId);
   const destinoPago: DestinoPago | null = body.esPago && tieneDueno(body.concepto)
     ? await comprobarDestinoPago(db, body.tramiteId, body.concepto, tipoDocumento) : null;
 
@@ -258,7 +286,7 @@ export async function aplicar(id: string, cuerpo: unknown, ctx: ComprobanteCtx, 
     await db.transaction(async (tx) => { await aplicarEnTx(tx); });
   } catch (e) {
     // El 23505 del índice único parcial (otro comprobante ya documenta ese trámite × concepto): 409, no 500.
-    throw honorario ? await traducirDuplicado(e, body.tramiteId, honorario) : e;
+    throw honorario ? await traducirDuplicado(e, body.tramiteId, honorario, servicioTipoId) : e;
   }
   if (destinoPago && args) await pagarDespuesDelCommit(id, destinoPago, args);
   log.info({ comprobanteId: id, tramiteId: body.tramiteId, concepto: body.concepto, esPago: body.esPago, cruce, hijo: hijo !== null, por: ctx.userId, automatico },
@@ -276,6 +304,7 @@ export async function aplicar(id: string, cuerpo: unknown, ctx: ComprobanteCtx, 
     }
     // Bajo el bloqueo del trámite, el estado REAL del destino: la carrera con otro pago se pierde aquí.
     if (honorario) await exigirNoLiquidado(tx, tramite.id);
+    const tipoServicio = servicioTipoId ? await exigirTipoServicio(tx, servicioTipoId) : null;
     const enTx = destinoPago ? await comprobarDestinoPago(tx, tramite.id, destinoPago.concepto, tipoDocumento) : null;
     const fk = enTx ? enTx.fk : await fkDestino(tx, tramite.id, body.concepto);
     const tipoSoporte = enTx?.tipoSoporte ?? (honorario ? TipoSoporte.COMPROBANTE_PAGO : TipoSoporte.DOCUMENTO_TRAMITE);
@@ -288,8 +317,10 @@ export async function aplicar(id: string, cuerpo: unknown, ctx: ComprobanteCtx, 
     };
     if (honorario) {
       // La fila documental (AC1): valor copiado + tarifa de referencia + diferencia; el 23505 del índice se traduce abajo.
-      const documental = await valorDocumentalDe(tx, tramite.id, honorario, lectura.valor!);
-      await cerrarComoPago(tx, id, cierre, lectura.valor, ctx, documental);
+      const documental = await valorDocumentalDe(tx, tramite.id, honorario, lectura.valor!, servicioTipoId);
+      // Bug #12913: el valor del COMPROBANTE entra a la puente por (trámite, tipo), bajo los mismos bloqueos.
+      if (tipoServicio) await fijarDesdeComprobante(tx, tramite.id, tipoServicio, lectura.valor!, ctx.userId);
+      await cerrarComoPago(tx, id, cierre, lectura.valor, ctx, { ...documental, servicioTipoId: tipoServicio?.id ?? null });
       return;
     }
     if (!enTx) { await adjuntarDocumentacion(tx, id, cierre, ctx); return; }
@@ -344,7 +375,10 @@ interface CierreComprobante {
  * cada camino. Automático (HU #12632): `aplicado_automaticamente = true` y `aplicado_por_id = NULL`
  * (nadie decidió: la pareja quién+cuándo se sustituye por automático+cuándo); manual: la persona.
  */
-async function cerrar(tx: Tx, id: string, d: CierreComprobante, pago: { esPago: boolean; valor: string | null }, ctx: ComprobanteCtx, documental?: ValorDocumental): Promise<void> {
+/** La fila documental del honorario más, en el pago SA (Bug #12913), el tipo de servicio que paga. */
+type DocumentalDeCierre = ValorDocumental & { servicioTipoId?: string | null };
+
+async function cerrar(tx: Tx, id: string, d: CierreComprobante, pago: { esPago: boolean; valor: string | null }, ctx: ComprobanteCtx, documental?: DocumentalDeCierre): Promise<void> {
   await tx.update(flitoComprobantes).set({
     estado: EstadoComprobante.APLICADO, motivoPendiente: null, detallePendiente: null,
     tramiteId: d.tramiteId, concepto: d.concepto, cruce: d.cruce, esPago: pago.esPago, valor: pago.valor, ...documental,
@@ -370,7 +404,7 @@ async function adjuntarDocumentacion(tx: Tx, id: string, d: CierreComprobante, c
  * concilió, o lo leído/confirmado). Los honorarios añaden su fila documental (tarifa de referencia,
  * diferencia y marca; HU #12631). El reporte de costos y la liquidación NO lo leen todavía (F3).
  */
-async function cerrarComoPago(tx: Tx, id: string, d: CierreComprobante, valor: string | null, ctx: ComprobanteCtx, documental?: ValorDocumental): Promise<void> {
+async function cerrarComoPago(tx: Tx, id: string, d: CierreComprobante, valor: string | null, ctx: ComprobanteCtx, documental?: DocumentalDeCierre): Promise<void> {
   await cerrar(tx, id, d, { esPago: true, valor }, ctx, documental);
 }
 

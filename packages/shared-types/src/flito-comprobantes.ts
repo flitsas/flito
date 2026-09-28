@@ -330,6 +330,12 @@ export interface AplicarComprobanteBody {
   campos?: Record<string, string>;
   /** Obligatorio si hay `campos` o si `tramiteId` no es el candidato sugerido (cruce manual). */
   motivo?: string;
+  /**
+   * Bug #12913: el tipo de servicio adicional que paga el comprobante (id de
+   * `flito_servicios_adicionales_tipos`, activo). Obligatorio si `esPago && concepto === 'servicios_adicionales'`;
+   * en cualquier otro caso el API responde 400.
+   */
+  servicioTipoId?: string;
 }
 
 /** Respuesta de `POST /:id/aplicar`. */

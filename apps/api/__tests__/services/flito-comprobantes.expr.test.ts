@@ -29,10 +29,10 @@ describe('HU #12631 AC4 — flito-comprobantes.expr.ts', () => {
     expect(lg.sql).toBe('(select "flito_comprobantes"."valor" from "flito_comprobantes" where "flito_comprobantes"."tramite_id" = "flito_tramites"."id" and "flito_comprobantes"."concepto" = \'logistica\' and "flito_comprobantes"."estado" = \'aplicado\' and "flito_comprobantes"."es_pago" = true limit 1)');
   });
 
-  it('las expresiones de diferencia y de marca, por concepto (incluida servicios_adicionales, que solo aporta la diferencia), con la misma correlación y sin parámetros', () => {
+  it('las expresiones de diferencia y de marca de trámite digital y logística (una fila por concepto), con la misma correlación y sin parámetros', () => {
     for (const [e, col, concepto] of [
-      [expr.EXPR_DIF_TD, 'diferencia_tarifa', 'tramite_digital'], [expr.EXPR_DIF_LG, 'diferencia_tarifa', 'logistica'], [expr.EXPR_DIF_SA, 'diferencia_tarifa', 'servicios_adicionales'],
-      [expr.EXPR_MARCADO_TD, 'marcado_por_diferencia', 'tramite_digital'], [expr.EXPR_MARCADO_LG, 'marcado_por_diferencia', 'logistica'], [expr.EXPR_MARCADO_SA, 'marcado_por_diferencia', 'servicios_adicionales'],
+      [expr.EXPR_DIF_TD, 'diferencia_tarifa', 'tramite_digital'], [expr.EXPR_DIF_LG, 'diferencia_tarifa', 'logistica'],
+      [expr.EXPR_MARCADO_TD, 'marcado_por_diferencia', 'tramite_digital'], [expr.EXPR_MARCADO_LG, 'marcado_por_diferencia', 'logistica'],
     ] as const) {
       const q = doc(e);
       expect(q.params, `${col} ${concepto}`).toEqual([]);
@@ -92,5 +92,42 @@ describe('HU #12631 AC4 — flito-comprobantes.expr.ts', () => {
     expect(nombre.sql).not.toContain('extraccion');
 
     expect('EXPR_DOC_SA' in expr).toBe(false);
+  });
+
+  // Bug #12913: servicios adicionales admite N pagos aplicados por trámite (uno por tipo, índice `…_sa` de la 0209).
+  // Mutantes: volver a `documental(...)` con `limit 1` en la suma → «sum(…) sin limit» cae; parámetro en vez de
+  // literal → «SIN parámetros» cae; aceptada = bool_or(aceptadas) (una basta) → el SQL exacto cae.
+  it('Bug #12913 — SA: suma (diferencia, tarifa de referencia, valor), bool_or (marcado), aceptada solo si TODAS las marcadas, representante ordenado por pendiente; SIN parámetros', () => {
+    const FILAS = `where "flito_comprobantes"."tramite_id" = "flito_tramites"."id" and "flito_comprobantes"."concepto" = 'servicios_adicionales' and "flito_comprobantes"."estado" = 'aplicado' and "flito_comprobantes"."es_pago" = true`;
+    for (const [e, col] of [[expr.EXPR_DIF_SA, 'diferencia_tarifa'], [expr.EXPR_TARIFA_SA, 'tarifa_referencia'], [expr.EXPR_VALOR_SA, 'valor']] as const) {
+      const q = doc(e);
+      expect(q.params, col).toEqual([]);
+      expect(q.sql).toBe(`(select sum("flito_comprobantes"."${col}") from "flito_comprobantes" ${FILAS})`);
+      expect(q.sql).not.toContain('limit');
+    }
+    const marcado = doc(expr.EXPR_MARCADO_SA);
+    expect(marcado.params).toEqual([]);
+    expect(marcado.sql).toBe(`(select bool_or("flito_comprobantes"."marcado_por_diferencia") from "flito_comprobantes" ${FILAS})`);
+
+    const aceptada = doc(expr.EXPR_ACEPTADA_SA);
+    expect(aceptada.params).toEqual([]);
+    expect(aceptada.sql.replace(/\s+/g, ' ')).toBe(`(select coalesce(bool_or("flito_comprobantes"."marcado_por_diferencia"), false) and not coalesce(bool_or("flito_comprobantes"."marcado_por_diferencia" and "flito_comprobantes"."diferencia_aceptada_en" is null), false) from "flito_comprobantes" ${FILAS} having count(*) > 0)`);
+
+    const ORDEN = `order by ("flito_comprobantes"."marcado_por_diferencia" and "flito_comprobantes"."diferencia_aceptada_en" is null) desc, "flito_comprobantes"."aplicado_en" desc limit 1)`;
+    const rep = doc(expr.representanteSa(flitoComprobantes.id));
+    expect(rep.params).toEqual([]);
+    expect(rep.sql).toBe(`(select "flito_comprobantes"."id" from "flito_comprobantes" ${FILAS} ${ORDEN}`);
+    const nombre = doc(expr.representanteSaAceptadaPorNombre());
+    expect(nombre.params).toEqual([]);
+    expect(nombre.sql).toBe(`(select "users"."username" from "flito_comprobantes" left join "users" on "users"."id" = "flito_comprobantes"."diferencia_aceptada_por_id" ${FILAS} ${ORDEN}`);
+  });
+
+  it('Bug #12913 — los lectores SA (reporte y liquidación) usan las fábricas SA, no `documental(…, SERVICIOS_ADICIONALES)`', () => {
+    const reporte = readFileSync(resolve(RAIZ, 'finanzas/finanzas.valores-documentales.ts'), 'utf8');
+    expect(reporte).not.toMatch(/columnasDocumentales\('sa'\)/);
+    expect(reporte).toMatch(/columnasDocumentalesSa\(\)/);
+    const liq = readFileSync(resolve(RAIZ, 'flito-liquidacion/flito-liquidacion.service.ts'), 'utf8');
+    expect(liq).not.toMatch(/documental\([^)]*SERVICIOS_ADICIONALES\)/);
+    expect(liq).not.toMatch(/aceptada\(ConceptoCosto\.SERVICIOS_ADICIONALES\)/);
   });
 });

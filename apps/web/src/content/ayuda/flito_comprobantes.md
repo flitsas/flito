@@ -55,6 +55,12 @@ En el menú lateral, sección **Finanzas**, ítem **Comprobantes**.
    resultados. La ✕ **Quitar trámite** vacía el campo.
 3. Elija el **Concepto**. Junto a cada opción verá si ese trámite lo admite o por qué no (**ya
    pagado**, **liquidado**, **no gestionado**, **ya documentado**, **estado no permitido**).
+   En un pago de **Servicios adicionales**, elija además el **Tipo de servicio** del catálogo activo:
+   al aplicar, ese servicio queda asignado al trámite con el valor del comprobante. Si el tipo ya
+   estaba asignado a mano, la lista lo marca **Ya asignado · se actualizará el valor** y el
+   comprobante corrige ese valor. Si ya lo pagó otro comprobante, lo marca **Ya tiene un
+   comprobante aplicado** y no se puede elegir: un tipo lleva un solo comprobante por trámite.
+   Sin tipo, **Aplicar** no se habilita.
 4. Revise los datos leídos y corrija lo que haga falta. En un pago, el **Valor** es obligatorio
    (pesos, sin puntos ni signo); en documentación no se pide.
 5. Si cambió algo de lo leído (un dato, el trámite sugerido, el concepto o la marca de pago),

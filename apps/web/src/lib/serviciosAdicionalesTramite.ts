@@ -9,7 +9,7 @@
 
 import {
   CODIGO_SERVICIO_ADICIONAL_TRAMITE,
-  type ServicioAdicionalTipo, type TramiteServicioAdicional,
+  type OrigenServicioAdicional, type ServicioAdicionalTipo, type TramiteServicioAdicional,
 } from '@operaciones/shared-types';
 import { pesos, type Fila } from '../components/finanzas/tiposReporteCostos';
 import { ApiError, errorMessage } from './api';
@@ -42,8 +42,13 @@ export function asignablesDe(
     && (texto === '' || normalizaTexto(t.nombre).includes(texto)));
 }
 
-/** Los `tipoId` que el trámite ya lleva: lo que `asignablesDe` excluye. */
-export const tipoIdsDe = (items: TramiteServicioAdicional[]): string[] => items.map((i) => i.tipoId);
+/**
+ * Los `tipoId` que el trámite ya lleva: lo que `asignablesDe` excluye. Con `origen`, solo los de ese
+ * origen (Bug #12913): al aplicar un comprobante, un tipo MANUAL se corrige, pero uno que ya vino de un
+ * comprobante aplicado no admite otro (índice único de la 0209) y no se ofrece como elegible.
+ */
+export const tipoIdsDe = (items: TramiteServicioAdicional[], origen?: OrigenServicioAdicional): string[] =>
+  items.filter((i) => origen === undefined || i.origen === origen).map((i) => i.tipoId);
 
 /**
  * Qué dice la celda «Serv. adic.» de una fila. La gobierna la CANTIDAD, no el importe, porque los
@@ -107,6 +112,8 @@ export interface FalloEscritura {
 
 const SIN_NADA = { recargarLista: false, recargarCatalogo: false, soloLectura: false, tramiteIdo: false };
 
+export const MSG_ASIGNACION_DE_COMPROBANTE = 'Este servicio viene de un comprobante de pago aplicado; no se puede quitar desde el panel.';
+
 export function falloDeEscritura(err: unknown, accion: 'asignar' | 'quitar'): FalloEscritura {
   const status = err instanceof ApiError ? err.status : 0;
   const codigo = err instanceof ApiError
@@ -124,6 +131,11 @@ export function falloDeEscritura(err: unknown, accion: 'asignar' | 'quitar'): Fa
       ...SIN_NADA, recargarLista: true,
       mensaje: 'Ese servicio ya está asignado a este trámite. Alguien lo añadió antes; la lista se actualizó.',
     };
+  }
+  if (codigo === CODIGO_SERVICIO_ADICIONAL_TRAMITE.ASIGNACION_DE_COMPROBANTE) {
+    // Bug #12913: quitarla dejaría un comprobante aplicado sin su costo. No se recarga nada: la
+    // fila sigue ahí y sigue siendo verdad.
+    return { ...SIN_NADA, mensaje: MSG_ASIGNACION_DE_COMPROBANTE };
   }
   if (codigo === CODIGO_SERVICIO_ADICIONAL_TRAMITE.TIPO_NO_DISPONIBLE) {
     return {

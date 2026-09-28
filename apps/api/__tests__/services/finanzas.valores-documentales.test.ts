@@ -94,6 +94,7 @@ function filaCruda(over: Record<string, unknown> = {}): Record<string, unknown> 
       'ComprobanteId', 'ComprobanteNumero', 'ComprobanteFecha', 'TarifaReferencia', 'Diferencia',
       'AceptadaPorId', 'AceptadaEn', 'AceptadaMotivo', 'AceptadaPorNombre',
     ].map((k) => [`${p}${k}`, null]))),
+    saAceptada: null,
     ...over,
   };
 }
@@ -106,6 +107,8 @@ const documental = (p: 'td' | 'lg' | 'sa', id: string, tarifa: string | null, di
   [`${p}AceptadaEn`]: aceptada ? new Date('2026-07-12T10:00:00.000Z') : null,
   [`${p}AceptadaMotivo`]: aceptada ? 'Pactado con el cliente' : null,
   [`${p}AceptadaPorNombre`]: aceptada ? 'contadora' : null,
+  // Bug #12913: en SA la aceptación de la celda es `saAceptada` (todas las marcadas aceptadas).
+  ...(p === 'sa' ? { saAceptada: aceptada } : {}),
 });
 
 async function filaServida(cruda: Record<string, unknown>, query = '') {
@@ -402,18 +405,24 @@ describe('AC6 — sellada: el origen se lee del sello (clave jsonb como texto), 
     }
   });
 
-  it('las 27 columnas documentales van por la fábrica del leaf (misma correlación, sin parámetros) y el nombre de quien aceptó es el username interno', () => {
+  it('las columnas documentales van por las fábricas del leaf (misma correlación, sin parámetros) y el nombre de quien aceptó es el username interno', () => {
     const claves = Object.keys(SELECT_VALORES_DOCUMENTALES);
-    expect(claves).toHaveLength(2 + 3 * 9);
+    // 2 orígenes + 9 por TD y LG + 10 por SA (Bug #12913: `saAceptada`, «todas las marcadas aceptadas»).
+    expect(claves).toHaveLength(2 + 2 * 9 + 10);
     for (const k of claves) {
       const q = renderizar(SELECT_VALORES_DOCUMENTALES[k as keyof typeof SELECT_VALORES_DOCUMENTALES]);
       expect(q.params, k).toEqual([]);
       expect(q.sql, k).toContain('"flito_comprobantes"."tramite_id" = "flito_tramites"."id"');
-      expect(q.sql, k).toContain("\"flito_comprobantes\".\"estado\" = 'aplicado' and \"flito_comprobantes\".\"es_pago\" = true limit 1)");
+      expect(q.sql, k).toContain("\"flito_comprobantes\".\"estado\" = 'aplicado' and \"flito_comprobantes\".\"es_pago\" = true");
       expect(q.sql, k).not.toContain('extraccion');
+      // TD/LG: una fila por concepto (`limit 1`). SA: N filas (suma, bool_or o representante ordenado).
+      if (!k.startsWith('sa')) expect(q.sql, k).toContain("\"flito_comprobantes\".\"es_pago\" = true limit 1)");
     }
+    expect(renderizar(SELECT_VALORES_DOCUMENTALES.saDiferencia).sql).toMatch(/^\(select sum\("flito_comprobantes"\."diferencia_tarifa"\)/);
+    expect(renderizar(SELECT_VALORES_DOCUMENTALES.saTarifaReferencia).sql).toMatch(/^\(select sum\("flito_comprobantes"\."tarifa_referencia"\)/);
+    expect(renderizar(SELECT_VALORES_DOCUMENTALES.saComprobanteId).sql).toContain('order by ("flito_comprobantes"."marcado_por_diferencia" and "flito_comprobantes"."diferencia_aceptada_en" is null) desc');
     const nombre = renderizar(SELECT_VALORES_DOCUMENTALES.saAceptadaPorNombre).sql;
-    expect(nombre).toContain('select "users"."username" from "flito_comprobantes" join "users" on "users"."id" = "flito_comprobantes"."diferencia_aceptada_por_id"');
+    expect(nombre).toContain('select "users"."username" from "flito_comprobantes" left join "users" on "users"."id" = "flito_comprobantes"."diferencia_aceptada_por_id"');
     expect(nombre).toContain("\"flito_comprobantes\".\"concepto\" = 'servicios_adicionales'");
     // Y SELECT_FILA las compone todas.
     for (const k of claves) expect(SELECT_FILA).toHaveProperty(k);
@@ -447,5 +456,15 @@ describe('AC6 — sellada: el origen se lee del sello (clave jsonb como texto), 
     const r = valoresDocumentalesDeFila({ ...filaCruda(), origenTd: null, origenLg: 'otra', gestionaLogistica: false });
     expect(r.origenes).toEqual({ tramiteDigital: 'tarifa', logistica: null });
     expect(r.valorDocumental).toEqual({ tramiteDigital: null, logistica: null, serviciosAdicionales: null });
+  });
+});
+
+describe('Bug #12913 — SA con varios comprobantes de pago (uno por tipo): una celda con la suma, aceptada solo si TODAS', () => {
+  it('diferencia y tarifa llegan sumadas por SQL; `aceptada` sale de `saAceptada` (no del id de quien aceptó el representante)', async () => {
+    // El representante trae constancia (id 7) pero hay OTRA marcada sin aceptar → saAceptada false → aceptada false.
+    const pendiente = await filaServida(filaCruda({ ...documental('sa', ID_SA, '150000.00', '30000.00', true), saAceptada: false }));
+    expect(pendiente.valorDocumental.serviciosAdicionales).toMatchObject({ comprobanteId: ID_SA, tarifaReferencia: 150000, diferencia: 30000, aceptada: false });
+    const todas = await filaServida(filaCruda({ ...documental('sa', ID_SA, '150000.00', '30000.00', true), saAceptada: true }));
+    expect(todas.valorDocumental.serviciosAdicionales).toMatchObject({ aceptada: true, aceptadaPorNombre: 'contadora' });
   });
 });

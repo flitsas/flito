@@ -21,12 +21,19 @@
 //         referencia la fila, y la sellada lleva su propia copia. El rastro queda en `audit`.
 // RN-06 — Un tipo inexistente y uno dado de baja son el MISMO 404 TIPO_NO_DISPONIBLE (RN-03 del
 //         catálogo); el id de asignación inexistente o de OTRO trámite es el mismo 404.
+// RN-07 — Bug #12913 (ADR-0018, addendum): un comprobante de PAGO de servicios adicionales aplicado
+//         escribe la puente por (trámite, tipo) con el VALOR DEL COMPROBANTE (`fijarDesdeComprobante`,
+//         upsert: si el tipo ya estaba, se corrige el valor; el snapshot nombre/descripción y
+//         `asignado_por` son los de la primera escritura). Esa asignación NO se quita desde el panel
+//         (409 ASIGNACION_DE_COMPROBANTE, comprobado en la tx antes del DELETE): quitarla dejaría un
+//         pago aplicado sin costo. «Viene de un comprobante» se deriva por (tramite_id, tipo_id) contra
+//         el comprobante aplicado (`origen`), sin FK cruzada.
 
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql, type SQL } from 'drizzle-orm';
 import type { ServiciosAdicionalesDeTramite, TramiteServicioAdicional } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
-  flitoLiquidaciones, flitoServiciosAdicionalesTipos, flitoTramiteServiciosAdicionales, flitoTramites, users,
+  flitoComprobantes, flitoLiquidaciones, flitoServiciosAdicionalesTipos, flitoTramiteServiciosAdicionales, flitoTramites, users,
 } from '../../db/schema.js';
 
 /** Error de dominio de la asignación; las subclases fijan el código HTTP en la ruta. */
@@ -51,6 +58,10 @@ export class TramiteLiquidadoError extends ServicioAdicionalTramiteError {
 export class AsignacionNoEncontradaError extends ServicioAdicionalTramiteError {
   constructor() { super('La asignación no existe en este trámite'); }
 }
+/** La asignación la escribió un comprobante de pago aplicado (409 `ASIGNACION_DE_COMPROBANTE`, RN-07). */
+export class AsignacionDeComprobanteError extends ServicioAdicionalTramiteError {
+  constructor() { super('Este servicio viene de un comprobante de pago aplicado; no se puede quitar desde el panel'); }
+}
 
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 /** Lo que ejecuta una lectura: la conexión suelta o la transacción abierta (RN-03). */
@@ -62,6 +73,8 @@ const SA = flitoTramiteServiciosAdicionales;
 export interface FilaAsignacion {
   id: string; tipoId: string; nombre: string; descripcion: string | null; valor: string;
   asignadoPorId: number | null; asignadoPorNombre: string | null; asignadoEn: Date;
+  /** RN-07: hay un comprobante de pago aplicado de ese (trámite, tipo). Ausente = manual. */
+  deComprobante?: boolean | null;
 }
 
 const redondear = (n: number): number => Math.round(n * 100) / 100;
@@ -72,8 +85,19 @@ export function aDto(f: FilaAsignacion): TramiteServicioAdicional {
   return {
     id: f.id, tipoId: f.tipoId, nombre: f.nombre, descripcion: f.descripcion ?? null, valor: Number(f.valor),
     asignadoPorId: f.asignadoPorId ?? null, asignadoPorNombre: f.asignadoPorNombre ?? null,
-    asignadoEn: f.asignadoEn.toISOString(),
+    asignadoEn: f.asignadoEn.toISOString(), origen: f.deComprobante ? 'comprobante' : 'manual',
   };
+}
+
+/**
+ * RN-07: EXISTS del comprobante de PAGO de servicios adicionales APLICADO con ese (trámite, tipo).
+ * Literales como texto del template (`sql.raw`), sin parámetros: la liquidación reutiliza la
+ * proyección y Drizzle no deduplica literales (Bug #12058).
+ */
+function comprobanteDe(tramiteId: SQL | typeof SA.tramiteId, tipoId: SQL | typeof SA.tipoId): SQL {
+  return sql`exists (select 1 from ${flitoComprobantes} where ${flitoComprobantes.tramiteId} = ${tramiteId}
+    and ${flitoComprobantes.servicioTipoId} = ${tipoId} and ${flitoComprobantes.estado} = ${sql.raw("'aplicado'")}
+    and ${flitoComprobantes.esPago} = true and ${flitoComprobantes.concepto} = ${sql.raw("'servicios_adicionales'")})`;
 }
 
 const PROYECCION_TRAMITE = { id: flitoTramites.id, idFlit: flitoTramites.idFlit };
@@ -111,6 +135,7 @@ export async function serviciosAsignadosDe(ejecutor: Ejecutor, tramiteId: string
   return ejecutor.select({
     id: SA.id, tipoId: SA.tipoId, nombre: SA.nombre, descripcion: SA.descripcion, valor: SA.valor,
     asignadoPorId: SA.asignadoPorId, asignadoPorNombre: users.name, asignadoEn: SA.asignadoEn,
+    deComprobante: sql<boolean>`${comprobanteDe(SA.tramiteId, SA.tipoId)}`,
   }).from(SA).leftJoin(users, eq(users.id, SA.asignadoPorId))
     .where(eq(SA.tramiteId, tramiteId))
     .orderBy(asc(SA.asignadoEn), asc(SA.id));
@@ -136,12 +161,7 @@ export async function asignar(tramiteId: string, tipoId: string, usuarioId: numb
   return db.transaction(async (tx) => {
     const tramite = await bloquearTramite(tx, tramiteId);
     if (await tramiteLiquidado(tx, tramiteId)) throw new TramiteLiquidadoError();
-    const [tipo] = await tx.select({
-      id: flitoServiciosAdicionalesTipos.id, nombre: flitoServiciosAdicionalesTipos.nombre,
-      descripcion: flitoServiciosAdicionalesTipos.descripcion, valor: flitoServiciosAdicionalesTipos.valor,
-    }).from(flitoServiciosAdicionalesTipos)
-      .where(and(eq(flitoServiciosAdicionalesTipos.id, tipoId), eq(flitoServiciosAdicionalesTipos.activo, true)))
-      .limit(1);
+    const tipo = await tipoActivoDe(tx, tipoId);
     if (!tipo) throw new TipoNoDisponibleError();
     let fila: typeof SA.$inferSelect | undefined;
     try {
@@ -156,22 +176,52 @@ export async function asignar(tramiteId: string, tipoId: string, usuarioId: numb
     const [actor] = usuarioId === null
       ? []
       : await tx.select({ name: users.name }).from(users).where(eq(users.id, usuarioId)).limit(1);
-    return { asignacion: aDto({ ...fila!, asignadoPorNombre: actor?.name ?? null }), idFlit: tramite.idFlit };
+    return { asignacion: aDto({ ...fila!, asignadoPorNombre: actor?.name ?? null, deComprobante: false }), idFlit: tramite.idFlit };
   });
 }
 
 /**
- * Quitar: bloqueo del trámite → guarda de liquidado → DELETE por (id, tramite_id) con RETURNING del
- * snapshot para auditar (RN-05). Cero filas = inexistente o de otro trámite (RN-06).
+ * Quitar: bloqueo del trámite → guarda de liquidado → guarda de «viene de un comprobante» (RN-07) →
+ * DELETE por (id, tramite_id) con RETURNING del snapshot para auditar (RN-05). Cero filas =
+ * inexistente o de otro trámite (RN-06).
  */
 export async function quitar(tramiteId: string, asignacionId: string): Promise<Quitada> {
   return db.transaction(async (tx) => {
     const tramite = await bloquearTramite(tx, tramiteId);
     if (await tramiteLiquidado(tx, tramiteId)) throw new TramiteLiquidadoError();
+    const [origen] = await tx.select({ deComprobante: sql<boolean>`${comprobanteDe(SA.tramiteId, SA.tipoId)}` })
+      .from(SA).where(and(eq(SA.id, asignacionId), eq(SA.tramiteId, tramiteId))).limit(1);
+    if (origen?.deComprobante) throw new AsignacionDeComprobanteError();
     const [borrada] = await tx.delete(SA)
       .where(and(eq(SA.id, asignacionId), eq(SA.tramiteId, tramiteId)))
       .returning({ tipoId: SA.tipoId, nombre: SA.nombre, valor: SA.valor });
     if (!borrada) throw new AsignacionNoEncontradaError();
     return { tipoId: borrada.tipoId, nombre: borrada.nombre, valor: Number(borrada.valor), idFlit: tramite.idFlit };
   });
+}
+
+/** El tipo ACTIVO del catálogo (lo que el snapshot copia), o `undefined` si no existe o está dado de baja. */
+export interface TipoCatalogo { id: string; nombre: string; descripcion: string | null; valor: string }
+
+export async function tipoActivoDe(ejecutor: Ejecutor, tipoId: string): Promise<TipoCatalogo | undefined> {
+  const [tipo] = await ejecutor.select({
+    id: flitoServiciosAdicionalesTipos.id, nombre: flitoServiciosAdicionalesTipos.nombre,
+    descripcion: flitoServiciosAdicionalesTipos.descripcion, valor: flitoServiciosAdicionalesTipos.valor,
+  }).from(flitoServiciosAdicionalesTipos)
+    .where(and(eq(flitoServiciosAdicionalesTipos.id, tipoId), eq(flitoServiciosAdicionalesTipos.activo, true)))
+    .limit(1);
+  return tipo;
+}
+
+/**
+ * RN-07 (Bug #12913): el comprobante de pago aplicado escribe la puente, DENTRO de la tx de `aplicar`
+ * y tras sus `FOR UPDATE` (comprobante → trámite) y la guarda de liquidado (RN-02/RN-03). Upsert por el
+ * UNIQUE (tramite_id, tipo_id) de la 0193: si el tipo ya estaba asignado, SOLO se corrige el `valor`
+ * con el del comprobante (`EXCLUDED.valor`); nombre/descripción y `asignado_por` quedan los de la
+ * primera escritura (quien aplicó queda en `aplicado_por_id` del comprobante).
+ */
+export async function fijarDesdeComprobante(tx: Tx, tramiteId: string, tipo: TipoCatalogo, valor: string, usuarioId: number | null): Promise<void> {
+  await tx.insert(SA).values({
+    tramiteId, tipoId: tipo.id, nombre: tipo.nombre, descripcion: tipo.descripcion ?? null, valor, asignadoPorId: usuarioId,
+  }).onConflictDoUpdate({ target: [SA.tramiteId, SA.tipoId], set: { valor: sql`excluded.valor` } });
 }

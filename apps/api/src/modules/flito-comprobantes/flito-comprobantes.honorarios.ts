@@ -7,31 +7,36 @@
 // y a la liquidación sin releer el documento (`flito-comprobantes.expr.ts`).
 //
 //   · tarifa_referencia: `tarifaDe(companiaId, concepto, tipoTramite, fechaAprobacion)` (trámite
-//     digital / logística) o `SUM(valor)` de los servicios adicionales asignados al trámite.
+//     digital / logística) o, en servicios adicionales, el `valor` del CATÁLOGO del tipo elegido
+//     (Bug #12913; antes era Σ puente, que tras el bug incluiría el propio comprobante).
 //   · diferencia_tarifa = valor − (tarifa_referencia ?? 0); tolerancia 0 (D10).
 //   · marcado_por_diferencia = tarifa_referencia IS NULL OR diferencia_tarifa ≠ 0 (mutante AC1: sin
 //     tarifa se marca aunque la «diferencia» no sea cero por sí sola).
-//   · servicios adicionales: la fila se escribe igual pero su valor NO manda (el sellado y Siigo siguen
-//     leyendo el catálogo); solo aporta la diferencia (cierre (a)).
+//   · servicios adicionales (Bug #12913, ADR-0018 addendum): el valor del comprobante ENTRA a la puente
+//     por tipo (`fijarDesdeComprobante`), y la puente es lo que leen reporte, liquidación y Siigo.
 //
 // Guardas (AC2), DENTRO de la tx y tras los `FOR UPDATE` (ADR-0017 §2): trámite con fila en
 // `flito_liquidaciones` → 409 `tramite_liquidado`, nada se escribe; el 23505 del índice único parcial
-// `idx_flito_comprobantes_valor_documental` → 409 `valor_ya_documentado { comprobanteAnteriorId }`.
+// de la fila documental (0209: `…_td_lg` por concepto, `…_sa` por tipo de servicio) → 409
+// `valor_ya_documentado { comprobanteAnteriorId }`.
 // Autogestión (D8): se aplica igual; que el reporte no lo cobre es F3.
 //
 // Ningún log lleva contenido leído (Habeas Data).
 
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { CodigoErrorComprobante, ConceptoCosto, EstadoComprobante } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import { flitoComprobantes, flitoTramites, flitoTramiteServiciosAdicionales } from '../../db/schema.js';
+import { flitoComprobantes, flitoServiciosAdicionalesTipos, flitoTramites } from '../../db/schema.js';
 import { tarifaDe } from '../flito-parametrizacion/flito-tarifas.service.js';
 import { tramiteLiquidado, type Tx } from '../finanzas-servicios-adicionales/finanzas-servicios-adicionales.service.js';
 import { ComprobanteError } from './flito-comprobantes.service.js';
 import type { ConceptoHonorario } from './flito-comprobantes.expr.js';
 
-/** Nombre del índice único parcial (0198) que impide dos pagos documentados del mismo (trámite, concepto). */
-export const INDICE_VALOR_DOCUMENTAL = 'idx_flito_comprobantes_valor_documental';
+/** Índice único parcial (0209) que impide dos pagos documentados del mismo (trámite, concepto) en trámite digital / logística. */
+export const INDICE_VALOR_DOCUMENTAL = 'idx_flito_comprobantes_valor_documental_td_lg';
+/** Índice único parcial (0209, Bug #12913) que impide dos pagos aplicados del mismo (trámite, tipo de servicio adicional). */
+export const INDICE_VALOR_DOCUMENTAL_SA = 'idx_flito_comprobantes_valor_documental_sa';
+const INDICES_DOCUMENTALES = [INDICE_VALOR_DOCUMENTAL, INDICE_VALOR_DOCUMENTAL_SA];
 
 /** Lo que la fila `aplicado` de un honorario lleva además del valor copiado. */
 export interface ValorDocumental {
@@ -56,14 +61,16 @@ const dosDecimales = (n: number): string => n.toFixed(2);
 
 /**
  * La tarifa contra la que se compara el valor leído: la vigente en la fecha de aprobación del trámite
- * para su compañía (trámite digital por tipo; logística genérica), o la suma de los servicios
- * adicionales asignados. `null` = «no configurada» / sin servicios: se marca (AC1).
+ * para su compañía (trámite digital por tipo; logística genérica), o —servicios adicionales, Bug
+ * #12913— el `valor` del catálogo del TIPO elegido, leído en la tx. `null` = «no configurada» / sin
+ * tipo: se marca (AC1). NUNCA Σ puente: la puente ya lleva (o llevará) el valor del propio comprobante.
  */
-export async function tarifaReferenciaDe(tx: Tx, tramiteId: string, concepto: ConceptoHonorario): Promise<number | null> {
+export async function tarifaReferenciaDe(tx: Tx, tramiteId: string, concepto: ConceptoHonorario, servicioTipoId?: string): Promise<number | null> {
   if (concepto === ConceptoCosto.SERVICIOS_ADICIONALES) {
-    const [s] = await tx.select({ total: sql<string | null>`sum(${flitoTramiteServiciosAdicionales.valor})` })
-      .from(flitoTramiteServiciosAdicionales).where(eq(flitoTramiteServiciosAdicionales.tramiteId, tramiteId));
-    return s?.total == null ? null : Number(s.total);
+    if (!servicioTipoId) return null;
+    const [t] = await tx.select({ valor: flitoServiciosAdicionalesTipos.valor }).from(flitoServiciosAdicionalesTipos)
+      .where(eq(flitoServiciosAdicionalesTipos.id, servicioTipoId)).limit(1);
+    return t?.valor == null ? null : Number(t.valor);
   }
   const [t] = await tx.select({ companiaId: flitoTramites.companiaId, tipoTramite: flitoTramites.tipoTramite, fechaAprobacion: flitoTramites.fechaAprobacion })
     .from(flitoTramites).where(eq(flitoTramites.id, tramiteId)).limit(1);
@@ -82,8 +89,8 @@ export function calcularDiferencia(valor: string, tarifaReferencia: number | nul
 }
 
 /** Tarifa + diferencia de un honorario, dentro de la tx (tras los `FOR UPDATE`). */
-export async function valorDocumentalDe(tx: Tx, tramiteId: string, concepto: ConceptoHonorario, valor: string): Promise<ValorDocumental> {
-  return calcularDiferencia(valor, await tarifaReferenciaDe(tx, tramiteId, concepto));
+export async function valorDocumentalDe(tx: Tx, tramiteId: string, concepto: ConceptoHonorario, valor: string, servicioTipoId?: string): Promise<ValorDocumental> {
+  return calcularDiferencia(valor, await tarifaReferenciaDe(tx, tramiteId, concepto, servicioTipoId));
 }
 
 // ─────────────────────────── Guardas (AC2) ───────────────────────────────────
@@ -98,18 +105,21 @@ export function esDuplicadoDocumental(e: unknown): boolean {
   const candidatos = [e, (e as { cause?: unknown })?.cause];
   return candidatos.some((c) => {
     const err = c as { code?: string; constraint?: string; message?: string } | undefined;
-    return err?.code === '23505' && (err.constraint === INDICE_VALOR_DOCUMENTAL || (err.message ?? '').includes(INDICE_VALOR_DOCUMENTAL));
+    // `includes` por nombre exacto: `…_td_lg` y `…_sa` no son prefijo uno del otro.
+    return err?.code === '23505' && INDICES_DOCUMENTALES.some((i) => err.constraint === i || (err.message ?? '').includes(i));
   });
 }
 
 /**
  * Traduce el 23505 (la tx ya abortó: se busca FUERA de ella) a 409 `valor_ya_documentado` con el id del
- * comprobante que ya documenta ese (trámite, concepto). Cualquier otro error se devuelve tal cual.
+ * comprobante que ya documenta ese (trámite, concepto) —o, en servicios adicionales, ese (trámite,
+ * tipo)—. Cualquier otro error se devuelve tal cual.
  */
-export async function traducirDuplicado(e: unknown, tramiteId: string, concepto: ConceptoHonorario): Promise<unknown> {
+export async function traducirDuplicado(e: unknown, tramiteId: string, concepto: ConceptoHonorario, servicioTipoId?: string): Promise<unknown> {
   if (!esDuplicadoDocumental(e)) return e;
+  const porTipo = concepto === ConceptoCosto.SERVICIOS_ADICIONALES && servicioTipoId ? [eq(flitoComprobantes.servicioTipoId, servicioTipoId)] : [];
   const [anterior] = await db.select({ id: flitoComprobantes.id }).from(flitoComprobantes)
-    .where(and(eq(flitoComprobantes.tramiteId, tramiteId), eq(flitoComprobantes.concepto, concepto), eq(flitoComprobantes.estado, EstadoComprobante.APLICADO), eq(flitoComprobantes.esPago, true)))
+    .where(and(eq(flitoComprobantes.tramiteId, tramiteId), eq(flitoComprobantes.concepto, concepto), eq(flitoComprobantes.estado, EstadoComprobante.APLICADO), eq(flitoComprobantes.esPago, true), ...porTipo))
     .limit(1);
   return valorYaDocumentado(anterior?.id);
 }
