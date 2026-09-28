@@ -133,7 +133,9 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
   const [descarte, setDescarte] = useState<{ motivo: string; error: string | null; enviando: boolean } | null>(null);
   const [servicioTipo, setServicioTipo] = useState<ServicioAdicionalTipo | null>(null);
   const [recargaCatalogo, setRecargaCatalogo] = useState(0);
+  // Bug #12913: MANUALES se corrigen (upsert); los que vinieron de un COMPROBANTE no admiten otro (409).
   const [asignadosTramite, setAsignadosTramite] = useState<string[]>([]);
+  const [conComprobanteTramite, setConComprobanteTramite] = useState<string[]>([]);
 
   const refs = {
     esPago: useRef<HTMLInputElement>(null), tramite: useRef<HTMLInputElement>(null), concepto: useRef<HTMLSelectElement>(null),
@@ -169,16 +171,27 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
   const faltaTipo = pideTipo && !servicioTipo;
   const tramiteIdElegido = tramite?.tramiteId ?? null;
 
-  // Qué tipos lleva ya el trámite, solo para marcarlos en la lista («se actualizará el valor»). Es
-  // una ayuda, no una condición: sin permiso de lectura del panel, la lista va sin marcas.
+  // Qué tipos lleva ya el trámite, solo para marcarlos en la lista: el manual «se actualizará el
+  // valor»; el que vino de un comprobante aplicado no se puede elegir (el backend respondería 409
+  // `valor_ya_documentado`). Es una ayuda, no una condición: sin permiso de lectura del panel, la
+  // lista va sin marcas y el 409 lo explica `manejarError`.
   useEffect(() => {
-    if (!pideTipo || !tramiteIdElegido) { setAsignadosTramite([]); return; }
+    const limpiar = () => { setAsignadosTramite([]); setConComprobanteTramite([]); };
+    if (!pideTipo || !tramiteIdElegido) { limpiar(); return; }
     let vivo = true;
     api.get<ServiciosAdicionalesDeTramite>(rutaServiciosDeTramite(tramiteIdElegido))
-      .then((r) => { if (vivo) setAsignadosTramite(tipoIdsDe(r.items)); })
-      .catch(() => { if (vivo) setAsignadosTramite([]); });
+      .then((r) => {
+        if (!vivo) return;
+        setAsignadosTramite(tipoIdsDe(r.items, 'manual'));
+        setConComprobanteTramite(tipoIdsDe(r.items, 'comprobante'));
+      })
+      .catch(() => { if (vivo) limpiar(); });
     return () => { vivo = false; };
   }, [pideTipo, tramiteIdElegido]);
+  // Elegido antes de cambiar de trámite y bloqueado en el nuevo: se suelta, para no llegar al 409.
+  useEffect(() => {
+    if (servicioTipo && conComprobanteTramite.includes(servicioTipo.id)) setServicioTipo(null);
+  }, [servicioTipo, conComprobanteTramite]);
 
   const validar = (): Partial<Record<Clave, string>> => {
     const e: Partial<Record<Clave, string>> = {};
@@ -361,7 +374,7 @@ export default function PanelAsociacion({ detalle, children, onResuelto, onActua
         {/* (3b) Tipo de servicio — solo en un PAGO de servicios adicionales (Bug #12913). */}
         {pideTipo && (
           <div className="space-y-1">
-            <BuscadorTipoServicio modo="elegir" inputId={`${id}-servicio-tipo`} asignados={asignadosTramite} elegido={servicioTipo}
+            <BuscadorTipoServicio modo="elegir" inputId={`${id}-servicio-tipo`} asignados={asignadosTramite} conComprobante={conComprobanteTramite} elegido={servicioTipo}
               onElegir={(t) => { setServicioTipo(t); setRespuesta(null); if (t) setErrores((x) => ({ ...x, servicioTipo: undefined })); }}
               recarga={recargaCatalogo} inputRef={refs.servicioTipo} invalido={!!errores.servicioTipo} errorId={errorId('servicioTipo')} />
             {alerta('servicioTipo')}

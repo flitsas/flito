@@ -1664,9 +1664,15 @@ const TIPO_SA = (id: string, nombre: string, valor: number, activo = true) => ({
 });
 const TIPO_GRUA = TIPO_SA('aaaa1111-0000-4000-8000-000000000001', 'Grúa', 85000);
 const TIPO_DIAG = TIPO_SA('aaaa1111-0000-4000-8000-000000000002', 'Diagnóstico', 120000);
+const TIPO_ESCOLTA = TIPO_SA('aaaa1111-0000-4000-8000-000000000003', 'Escolta', 60000);
 const CAMPOS_SA = CAMPOS_BASE.map((c) => (c.campo === 'concepto' ? campo('concepto', 'servicios_adicionales', 'alta') : c));
 
-async function mockCatalogoSa(page: Page, tipos: unknown[] = [TIPO_GRUA, TIPO_DIAG]) {
+const ASIGNADO_SA = (tipo: { id: string; nombre: string }, origen: 'manual' | 'comprobante') => ({
+  id: `s-${tipo.id}`, tipoId: tipo.id, nombre: tipo.nombre, descripcion: null, valor: 100000,
+  asignadoPorId: 7, asignadoPorNombre: 'Ana', asignadoEn: '2026-09-10T10:00:00.000Z', origen,
+});
+
+async function mockCatalogoSa(page: Page, tipos: unknown[] = [TIPO_GRUA, TIPO_DIAG], asignados: unknown[] = [ASIGNADO_SA(TIPO_DIAG, 'manual')]) {
   const gets: string[] = [];
   await page.route(/\/api\/flito\/parametrizacion\/servicios-adicionales/, (route) => {
     gets.push(route.request().url());
@@ -1675,7 +1681,7 @@ async function mockCatalogoSa(page: Page, tipos: unknown[] = [TIPO_GRUA, TIPO_DI
   // El trámite ya lleva «Diagnóstico»: se marca, no se excluye.
   await page.route(/\/api\/finanzas\/tramites\/[^/]+\/servicios-adicionales/, (route) => route.fulfill({
     status: 200, contentType: 'application/json',
-    body: JSON.stringify({ items: [{ id: 's1', tipoId: TIPO_DIAG.id, nombre: 'Diagnóstico', descripcion: null, valor: 100000, asignadoPorId: 7, asignadoPorNombre: 'Ana', asignadoEn: '2026-09-10T10:00:00.000Z', origen: 'manual' }], total: 100000, liquidado: false }),
+    body: JSON.stringify({ items: asignados, total: 100000 * asignados.length, liquidado: false }),
   }));
   return gets;
 }
@@ -1762,5 +1768,101 @@ test.describe('Bug #12913 · Tipo de servicio al aplicar un pago de servicios ad
     await dialog.getByRole('button', { name: 'Aplicar' }).click();
     await expect(dialog.getByRole('alert')).toContainText('El trámite ya está liquidado: no se le pueden asignar servicios. Reversa la liquidación y vuelve a aplicar.');
     expect(aplicar.bodies.every((b) => b.servicioTipoId === TIPO_GRUA.id)).toBe(true);
+  });
+  /** Retrabajo de evidencias DEV: el tipo que ya vino de un comprobante aplicado prometía «se actualizará el valor» y el API respondía 409. */
+  test('tipo con comprobante aplicado: marca honesta y no elegible (clic ni teclado); tipo manual sigue «se actualizará el valor» y elegible', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockCola(page, { items: [fila({ ...FIJADO, concepto: 'servicios_adicionales' })], total: 1, page: 1, pageSize: 50 });
+    await mockDetalle(page, detalleFijado({ concepto: 'servicios_adicionales' }, CAMPOS_SA));
+    await mockArchivoPdf(page);
+    // «Grúa» primero en la lista y con comprobante: es la que Enter elegiría si no se saltara.
+    await mockCatalogoSa(page, [TIPO_GRUA, TIPO_DIAG], [ASIGNADO_SA(TIPO_GRUA, 'comprobante'), ASIGNADO_SA(TIPO_DIAG, 'manual')]);
+    const aplicar = await mockPost(page, RUTA_APLICAR, aplicado200);
+    const dialog = await abrirPanel(page);
+
+    const tipo = dialog.getByRole('combobox', { name: 'Tipo de servicio' });
+    await tipo.click();
+    const lista = dialog.getByRole('listbox', { name: 'Tipos de servicio adicional' });
+    const grua = lista.getByRole('option', { name: /Grúa/ });
+    const diag = lista.getByRole('option', { name: /Diagnóstico/ });
+    await expect(grua).toContainText('Ya tiene un comprobante aplicado · para usar este, descarta el anterior');
+    await expect(grua).not.toContainText('se actualizará el valor');
+    await expect(grua).toHaveAttribute('aria-disabled', 'true');
+    await expect(diag).toContainText('Ya asignado · se actualizará el valor');
+    await expect(diag).not.toHaveAttribute('aria-disabled', 'true');
+
+    // Clic sobre la bloqueada: no elige, la lista sigue abierta y Aplicar sigue esperando al tipo.
+    // `force`: Playwright trata `aria-disabled` como no accionable; aquí se prueba justo el clic del usuario.
+    await grua.click({ force: true });
+    await expect(tipo).toHaveValue('');
+    await expect(lista).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Aplicar' })).toBeDisabled();
+
+    // Teclado: el resaltado arranca en la primera elegible y ↓/↑ saltan la bloqueada.
+    await expect(tipo).toHaveAttribute('aria-activedescendant', (await diag.getAttribute('id'))!);
+    await tipo.press('ArrowDown');
+    await expect(tipo).toHaveAttribute('aria-activedescendant', (await diag.getAttribute('id'))!);
+    await tipo.press('ArrowUp');
+    await expect(tipo).toHaveAttribute('aria-activedescendant', (await diag.getAttribute('id'))!);
+    await tipo.press('Enter');
+    await expect(tipo).toHaveValue('Diagnóstico');
+
+    await dialog.getByRole('button', { name: 'Aplicar' }).click();
+    await expect.poll(() => aplicar.bodies.length).toBe(1);
+    expect(aplicar.bodies[0]).toMatchObject({ servicioTipoId: TIPO_DIAG.id });
+  });
+  /** Mutante: ↑/↓ con la aritmética módulo sin saltar la bloqueada → con la bloqueada EN MEDIO, ↓ se queda en la primera. */
+  test('con la bloqueada en medio, ↓ salta de la primera a la tercera y ↑ vuelve a la primera', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockCola(page, { items: [fila({ ...FIJADO, concepto: 'servicios_adicionales' })], total: 1, page: 1, pageSize: 50 });
+    await mockDetalle(page, detalleFijado({ concepto: 'servicios_adicionales' }, CAMPOS_SA));
+    await mockArchivoPdf(page);
+    await mockCatalogoSa(page, [TIPO_DIAG, TIPO_GRUA, TIPO_ESCOLTA], [ASIGNADO_SA(TIPO_GRUA, 'comprobante')]);
+    const dialog = await abrirPanel(page);
+
+    const tipo = dialog.getByRole('combobox', { name: 'Tipo de servicio' });
+    await tipo.click();
+    const lista = dialog.getByRole('listbox', { name: 'Tipos de servicio adicional' });
+    const opciones = lista.getByRole('option');
+    await expect(opciones).toHaveCount(3);
+    await expect(opciones.nth(1)).toHaveAttribute('aria-disabled', 'true');
+    const idDe = async (i: number) => (await opciones.nth(i).getAttribute('id'))!;
+
+    await expect(tipo).toHaveAttribute('aria-activedescendant', await idDe(0));
+    await tipo.press('ArrowDown');
+    await expect(tipo).toHaveAttribute('aria-activedescendant', await idDe(2));
+    await tipo.press('ArrowUp');
+    await expect(tipo).toHaveAttribute('aria-activedescendant', await idDe(0));
+    await tipo.press('ArrowDown');
+    await tipo.press('Enter');
+    await expect(tipo).toHaveValue('Escolta');
+  });
+
+  /** Mutante: marcar o bloquear sin la lectura del panel. Sin permiso (403) la lista va sin marcas y todo se elige. */
+  test('sin permiso de lectura del panel (403): ninguna marca, ninguna opción bloqueada y se elige cualquiera', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockCola(page, { items: [fila({ ...FIJADO, concepto: 'servicios_adicionales' })], total: 1, page: 1, pageSize: 50 });
+    await mockDetalle(page, detalleFijado({ concepto: 'servicios_adicionales' }, CAMPOS_SA));
+    await mockArchivoPdf(page);
+    await mockCatalogoSa(page, [TIPO_GRUA, TIPO_DIAG], [ASIGNADO_SA(TIPO_GRUA, 'comprobante'), ASIGNADO_SA(TIPO_DIAG, 'manual')]);
+    // Registrada DESPUÉS: Playwright aplica primero la última ruta registrada.
+    const lecturasPanel: string[] = [];
+    await page.route(/\/api\/finanzas\/tramites\/[^/]+\/servicios-adicionales/, (route) => {
+      lecturasPanel.push(route.request().url());
+      return route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: 'Sin permiso' }) });
+    });
+    const dialog = await abrirPanel(page);
+
+    const tipo = dialog.getByRole('combobox', { name: 'Tipo de servicio' });
+    await tipo.click();
+    const lista = dialog.getByRole('listbox', { name: 'Tipos de servicio adicional' });
+    await expect(lista.getByRole('option')).toHaveCount(2);
+    await expect.poll(() => lecturasPanel.length).toBeGreaterThan(0);
+    await expect(lista).not.toContainText('Ya tiene un comprobante aplicado');
+    await expect(lista).not.toContainText('Ya asignado');
+    await expect(lista.locator('[aria-disabled="true"]')).toHaveCount(0);
+    await dialog.getByRole('option', { name: /Grúa/ }).click();
+    await expect(tipo).toHaveValue('Grúa');
+    await expect(dialog.getByRole('button', { name: 'Aplicar' })).toBeEnabled();
   });
 });
