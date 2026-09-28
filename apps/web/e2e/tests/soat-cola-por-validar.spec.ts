@@ -160,7 +160,9 @@ test.describe('HU #12997 · AC6 — la fila de una incompleta y de una descartad
     await expect(fila).toContainText('Por validar');
     await expect(fila).toContainText(/Último intento: /);
     await expect(fila.getByRole('checkbox')).toHaveCount(0);
-    await expect(fila.getByRole('button')).toHaveText(['Ver']);
+    // HU #12998: admin tiene `soat.solicitud.reintentar_runt` de partida, así que la incompleta
+    // ofrece además «Reintentar consulta».
+    await expect(fila.getByRole('button')).toHaveText(['Reintentar consulta', 'Ver']);
     // Solicitado y Pagado «—» (con Gestiona y Valor, en Operaciones son cuatro).
     await expect(fila.locator('td', { hasText: /^—$/ })).toHaveCount(4);
     // En la pastilla la cola de SOAT no se pide; la de «Todos» ya se había pedido al entrar.

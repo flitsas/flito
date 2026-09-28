@@ -5,6 +5,8 @@
 // Módulo PURO (sin zod ni side-effects): lo consumen API y web. Las reglas caras
 // (RN-01, CA-03/04, compuerta) se apoyan en estos catálogos.
 
+import type { SoatActivoRunt, VigenciaProximaSoat } from './flito-soat-activo.js';
+
 /**
  * Estado del trámite en FLIT (fuente externa, sincronizada; FLITO no es dueño).
  *
@@ -685,6 +687,13 @@ export const CodigoErrorSolicitudSoat = {
    * `propia: false`, sin id ni estado, para un tercero.
    */
   SOLICITUD_INCOMPLETA_EXISTENTE: 'solicitud_incompleta_existente',
+
+  /**
+   * El reintento de consulta al RUNT llegó a una incompleta que YA no está `incompleta` (HU #12998):
+   * otro usuario la completó o la descartó antes —o mientras— se consultaba. `409 { estado }` con el
+   * estado actual; la fila no se toca (AC6/AC7).
+   */
+  INCOMPLETA_YA_RESUELTA: 'incompleta_ya_resuelta',
 } as const;
 
 export type CodigoErrorSolicitudSoat =
@@ -793,6 +802,22 @@ export type RespuestaAltaSolicitudSoat =
     estado: typeof EstadoSolicitudIncompletaSoat.INCOMPLETA;
     mensaje: string;
   };
+
+/**
+ * `200` de `POST /api/flito/soat/cliente/incompletas/:id/reintentar` (HU #12998, diseño §4 y §4.1).
+ * Unión discriminada por `resultado`: la operación (reintentar) SÍ ocurrió y cambió la fila en los
+ * tres casos; el `409 incompleta_ya_resuelta` / `404` / `429` son «no pasó nada».
+ *
+ *   · `completada` — el RUNT respondió y no bloquea: nació el SOAT con `id = soatId` en `solicitado`.
+ *     `vigenciaProxima` = aviso de renovación anticipada (regla de 30 días, HU #12842), o `null`.
+ *   · `descartada` — el RUNT respondió que no se puede: SOAT vigente (`soatActivo` con sus seis
+ *     datos), la familia 422 (`soatActivo: null`) o el VIN ya tenía solicitud (`solicitud_existente`).
+ *   · `sigue_incompleta` — el RUNT sigue sin responder: `intentos` ya incrementado. ISO 8601.
+ */
+export type ResultadoReintentoRunt =
+  | { resultado: 'completada'; soatId: string; estado: 'solicitado'; vigenciaProxima: VigenciaProximaSoat | null }
+  | { resultado: 'descartada'; motivo: MotivoDescarteSoat; soatActivo: SoatActivoRunt | null }
+  | { resultado: 'sigue_incompleta'; intentos: number; ultimoIntentoRuntEn: string };
 
 /**
  * La familia «revise los datos»: los tres desenlaces en los que el RUNT **sí respondió** y la

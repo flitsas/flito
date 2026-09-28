@@ -259,9 +259,12 @@ export const CAMPOS_PII_SOAT_ACTIVO = [
  * escribieran la misma línea, «¿cuántas veces consultaron mi vehículo sin llegar a radicar nada?»
  * dejaría de tener respuesta.
  */
-const MOTIVO_RUNT: Record<'preconsulta' | 'alta', string> = {
+const MOTIVO_RUNT: Record<'preconsulta' | 'alta' | 'reintento', string> = {
   preconsulta: 'Preconsulta RUNT del canal Cliente (paso previo al alta de solicitud de SOAT)',
   alta: 'Consulta RUNT del canal Cliente durante el alta de la solicitud de SOAT',
+  // HU #12998: el reintento manual de una solicitud pendiente de validar. Es una tercera consulta al
+  // registro nacional con su propia consecuencia (completa, descarta o sigue esperando).
+  reintento: 'Consulta RUNT del canal Cliente al reintentar una solicitud SOAT pendiente de validar',
 };
 
 /**
@@ -327,7 +330,7 @@ export async function registrarAccesoRuntCliente(
      * `fecha_vencimiento_soat`. Ausente, el intento sigue declarando `[]`.
      */
     soatActivoEnIntento?: 'con_fecha' | 'sin_fecha';
-    motivo?: 'preconsulta' | 'alta';
+    motivo?: 'preconsulta' | 'alta' | 'reintento';
     /**
      * El desenlace cuando la consulta **no entregó nada** (409, 422, 503).
      *
@@ -421,7 +424,7 @@ function camposDelIntento(soatActivo: 'con_fecha' | 'sin_fecha' | undefined): st
  * incumplimiento — la misma distinción que `pii-audit.ts` ya tiene escrita en su `catch`.
  */
 function motivoRunt(opciones: {
-  vin: string; placa?: string | null; motivo?: 'preconsulta' | 'alta'; resultado?: string;
+  vin: string; placa?: string | null; motivo?: 'preconsulta' | 'alta' | 'reintento'; resultado?: string;
 }): string {
   const partes: string[] = [];
   try {
