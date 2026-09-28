@@ -37,6 +37,8 @@ interface ErrorCatalogo { mensaje: string; reintentable: boolean }
 /** Ayuda bajo el campo en modo `elegir` (UX slim Bug #12913). */
 export const AYUDA_ELEGIR = 'El servicio queda asignado al trámite con el valor de este comprobante. Si ya estaba asignado, se actualiza su valor.';
 export const MARCA_YA_ASIGNADO = 'Ya asignado · se actualizará el valor';
+/** El tipo ya vino de un comprobante aplicado: un segundo no cabe (índice único de la 0209). */
+export const MARCA_CON_COMPROBANTE = 'Ya tiene un comprobante aplicado · para usar este, descarta el anterior';
 
 /** Modo `asignar` (default): el buscador del panel del trámite, que ASIGNA con su POST (HU #12548). */
 interface PropsAsignar {
@@ -55,14 +57,18 @@ interface PropsAsignar {
 
 /**
  * Modo `elegir` (Bug #12913): un campo de formulario que solo ELIGE un tipo activo —sin POST— para
- * aplicar un comprobante de pago de servicios adicionales. Los ya asignados NO se excluyen (aquí se
- * corrige su valor): se marcan con `MARCA_YA_ASIGNADO`.
+ * aplicar un comprobante de pago de servicios adicionales. Los ya asignados NO se excluyen: los
+ * manuales se marcan con `MARCA_YA_ASIGNADO` y se pueden elegir (aquí se corrige su valor); los que
+ * vinieron de un comprobante aplicado se marcan con `MARCA_CON_COMPROBANTE` y NO se pueden elegir.
  */
 interface PropsElegir {
   modo: 'elegir';
   /** `id` del input, para el `<label>` visible que pinta este mismo componente. */
   inputId: string;
+  /** Asignados a mano: se eligen y se corrige su valor. */
   asignados: readonly string[];
+  /** Asignados por un comprobante aplicado: se ven, pero no se eligen (el API respondería 409). */
+  conComprobante?: readonly string[];
   elegido: ServicioAdicionalTipo | null;
   onElegir: (tipo: ServicioAdicionalTipo | null) => void;
   /** Súbelo para repedir el catálogo (p. ej. un tipo dado de baja en vuelo). */
@@ -128,11 +134,17 @@ export default function BuscadorTipoServicio(props: PropsAsignar | PropsElegir) 
   const excluidos = elige ? SIN_EXCLUIR : props.asignados;
   const opciones = useMemo(() => asignablesDe(tipos ?? [], excluidos, consulta), [tipos, excluidos, consulta]);
   const yaAsignados = useMemo(() => new Set(props.asignados), [props.asignados]);
+  const conComprobante = elige ? (props.conComprobante ?? SIN_EXCLUIR) : SIN_EXCLUIR;
+  const bloqueados = useMemo(() => new Set(conComprobante), [conComprobante]);
+  const bloqueada = (t: ServicioAdicionalTipo) => bloqueados.has(t.id);
   // El resaltado no puede quedarse apuntando fuera cuando la lista se acorta al teclear.
-  const activo = opciones.length === 0 ? -1 : Math.min(resaltado, opciones.length - 1);
+  // Y nunca sobre una bloqueada: Enter no elige lo que no se puede elegir.
+  const base = opciones.length === 0 ? -1 : Math.min(resaltado, opciones.length - 1);
+  const activo = base >= 0 && bloqueada(opciones[base]) ? opciones.findIndex((o) => !bloqueada(o)) : base;
 
   const elegir = async (tipo: ServicioAdicionalTipo) => {
     if (props.modo === 'elegir') {
+      if (bloqueada(tipo)) return;
       props.onElegir(tipo);
       setConsulta('');
       setResaltado(0);
@@ -160,6 +172,17 @@ export default function BuscadorTipoServicio(props: PropsAsignar | PropsElegir) 
     }
   };
 
+  /** La siguiente opción en ese sentido, saltando las bloqueadas; si todas lo están, no se mueve. */
+  const siguiente = (desde: number, paso: 1 | -1) => {
+    const n = opciones.length;
+    let i = Math.min(desde, n - 1);
+    for (let k = 0; k < n; k += 1) {
+      i = (i + paso + n) % n;
+      if (!bloqueada(opciones[i])) return i;
+    }
+    return Math.min(desde, n - 1);
+  };
+
   const teclas = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
       if (props.modo === 'elegir') {
@@ -175,8 +198,8 @@ export default function BuscadorTipoServicio(props: PropsAsignar | PropsElegir) 
     }
     if (elige && !abierta && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); setAbierta(true); return; }
     if (opciones.length === 0 || !abierta) return;
-    if (e.key === 'ArrowDown') { e.preventDefault(); setResaltado((i) => (Math.min(i, opciones.length - 1) + 1) % opciones.length); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); setResaltado((i) => (Math.min(i, opciones.length - 1) + opciones.length - 1) % opciones.length); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setResaltado((i) => siguiente(i, 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setResaltado((i) => siguiente(i, -1)); }
     else if (e.key === 'Enter' && activo >= 0 && !enviando) { e.preventDefault(); void elegir(opciones[activo]); }
   };
 
@@ -186,26 +209,32 @@ export default function BuscadorTipoServicio(props: PropsAsignar | PropsElegir) 
     <ul id={idListbox} role="listbox" aria-label="Tipos de servicio adicional"
       className={elige ? 'mt-1 max-h-60 overflow-auto rounded-lg border' : undefined}
       style={elige ? { borderColor: 'var(--flit-border-input)' } : undefined}>
-      {opciones.map((t, i) => (
+      {opciones.map((t, i) => {
+        const bloq = bloqueada(t);
+        return (
         <li key={t.id} id={idOpcion(i)} role="option" aria-selected={elige ? props.elegido?.id === t.id : i === activo} data-id={t.id}
+          aria-disabled={bloq || undefined}
           className="border-t first:border-t-0" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <button type="button" disabled={enviando} tabIndex={elige ? -1 : undefined}
-            className="flit-focus w-full px-2 py-2 text-left transition-colors hover:bg-[var(--flit-bg-hover)] disabled:opacity-50"
-            style={i === activo ? { background: 'var(--flit-bg-table-header)' } : undefined}
+          <button type="button" disabled={enviando} tabIndex={elige ? -1 : undefined} aria-disabled={bloq || undefined}
+            className={`flit-focus w-full px-2 py-2 text-left transition-colors disabled:opacity-50 ${bloq ? 'cursor-not-allowed' : 'hover:bg-[var(--flit-bg-hover)]'}`}
+            style={i === activo && !bloq ? { background: 'var(--flit-bg-table-header)' } : undefined}
             // En `elegir` el foco se queda en el input (combobox): sin esto, el blur cerraría la lista antes del clic.
             onMouseDown={elige ? (e) => e.preventDefault() : undefined}
-            onMouseEnter={() => setResaltado(i)}
+            onMouseEnter={() => { if (!bloq) setResaltado(i); }}
             onClick={() => void elegir(t)}>
-            <span className="flex items-baseline justify-between gap-3">
+            <span className="flex items-baseline justify-between gap-3" style={bloq ? SECUNDARIO : undefined}>
               <span className="text-sm font-semibold">{t.nombre}</span>
               <span className="text-sm tabular-nums">{pesos(t.valor)}</span>
             </span>
             {/* La descripción solo aquí: es lo que ayuda a ELEGIR. En la lista ya se eligió. */}
             {t.descripcion && <span className="mt-0.5 block truncate text-xs" style={SECUNDARIO}>{t.descripcion}</span>}
-            {elige && yaAsignados.has(t.id) && <span className="mt-0.5 block text-xs" style={TENUE}>{MARCA_YA_ASIGNADO}</span>}
+            {elige && (bloq
+              ? <span className="mt-0.5 block text-xs" style={SECUNDARIO}>{MARCA_CON_COMPROBANTE}</span>
+              : yaAsignados.has(t.id) && <span className="mt-0.5 block text-xs" style={TENUE}>{MARCA_YA_ASIGNADO}</span>)}
           </button>
         </li>
-      ))}
+        );
+      })}
     </ul>
   );
 
