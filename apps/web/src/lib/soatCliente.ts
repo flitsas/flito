@@ -348,6 +348,11 @@ export interface DesenlaceRunt {
   detalle: string;
   /** A dónde va el foco cuando se pinta la banda. */
   foco: 'vin' | 'boton';
+  /**
+   * HU #12996: el desenlace abre la salida «Guardar pendiente de validar». Solo `runt_no_disponible`:
+   * el RUNT calló. Una respuesta del RUNT (no cuadra, sin registro) o un fallo de FLITO no la abren.
+   */
+  guardable?: true;
 }
 
 /**
@@ -362,6 +367,8 @@ export type ReaccionCanal =
   | { tipo: 'canal' }
   /** `409` RN-01: modal de VIN en cola. Puede llegar también en la CONSULTA, no solo en el envío. */
   | { tipo: 'vin-en-cola' }
+  /** `409 solicitud_incompleta_existente` (HU #12996, AC5): el VIN ya tiene una solicitud por validar. */
+  | { tipo: 'incompleta-existente' }
   /** `409` del RUNT: tarjeta de SOAT activo en el bloque 1 (HU #12844). No se envía y no se compra. */
   | { tipo: 'soat-vigente' }
   /** `400` del adjunto: la caja de subida queda rechazada con el motivo. */
@@ -404,10 +411,13 @@ const DESENLACE: Record<(typeof CODIGOS_REVISE_LOS_DATOS)[number] | typeof Codig
     foco: 'boton',
   },
   [CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE]: {
+    // HU #12996 (UX §2.1, literal): es el ÚNICO desenlace que abre la salida de guardar la
+    // solicitud pendiente de validar. Sin red, genérico, no cuadra y sin registro no la abren (AC6).
     tono: 'warning',
-    titulo: 'El RUNT no está disponible, vuelva a consultar.',
-    detalle: 'No es un problema de sus datos: el servicio del RUNT no respondió. Espere un momento y pulse Volver a consultar.',
+    titulo: 'El RUNT no está respondiendo en este momento.',
+    detalle: 'Puede volver a consultar, o completar la factura y el propietario y guardar la solicitud pendiente de validar. Lo que escriba no se pierde.',
     foco: 'boton',
+    guardable: true,
   },
 };
 
@@ -460,6 +470,10 @@ export function reaccionA(f: FalloCanal): ReaccionCanal {
       return { tipo: 'canal' };
     case CodigoErrorSolicitudSoat.VIN_YA_TIENE_SOAT:
       return { tipo: 'vin-en-cola' };
+    // HU #12996 (AC5): una solicitud «por validar» ocupa el VIN igual que una de la cola. Modal
+    // propio, nunca el `error` crudo del servidor.
+    case CodigoErrorSolicitudSoat.SOLICITUD_INCOMPLETA_EXISTENTE:
+      return { tipo: 'incompleta-existente' };
     case CodigoErrorSolicitudSoat.SOAT_VIGENTE:
       return { tipo: 'soat-vigente' };
     case CodigoErrorSolicitudSoat.ARCHIVO_NO_PDF:

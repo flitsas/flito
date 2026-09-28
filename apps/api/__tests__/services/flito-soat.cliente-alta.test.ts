@@ -191,6 +191,8 @@ function escenario(over: Partial<Record<string, unknown[]>> = {}) {
     ...(over as Record<string, unknown[]>),
   });
   kdb.when.insert('vehicles', [{ id: VEHICULO_ID }]);
+  // HU #12996: con el RUNT caído el alta APARCA la solicitud en `flito_soat_incompletas` (202).
+  kdb.when.insert('flito_soat_incompletas', [{ id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }]);
 }
 
 /**
@@ -263,7 +265,7 @@ describe('AC1 — el alta crea la fila del canal y la DESPACHA (invertido por la
     expect(espia.ultimoInsertEn('flito_soat').companiaId).toBe(COMPANIA);
   });
 
-  it('**el alta ESPERA a Kyverum: si el RUNT no responde, NO hay fila** (INVERTIDO por la #11966)', async () => {
+  it('**el alta ESPERA a Kyverum: si el RUNT no responde, NO hay SOAT** (INVERTIDO por la #11966; 202 desde la #12996)', async () => {
     // Este caso decía «201 aunque `consultarVehiculoRunt` nunca se resuelve», que era el AC1 de la
     // #11935. Con ADR-0010 el RUNT es compuerta otra vez, así que la afirmación se invierte: el alta
     // no puede terminar sin el desenlace, y el desenlace por defecto —no respondió— es un 503 que no
@@ -273,8 +275,9 @@ describe('AC1 — el alta crea la fila del canal y la DESPACHA (invertido por la
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
 
-    expect(r.status).toBe(503);
-    expect(r.body.codigo).toBe('runt_no_disponible');
+    // HU #12996: el desenlace «no respondió» aparca la solicitud (202) en vez de un 503.
+    expect(r.status).toBe(202);
+    expect(r.body.desenlace).toBe('incompleta');
     expect(espia.insertsEn('flito_soat')).toHaveLength(0);
     expect(consultarVehiculoRuntMock).toHaveBeenCalledTimes(1);
   });
@@ -572,13 +575,13 @@ describe('tenencia del vehículo — la ficha de otra compañía no se toca', ()
 // compuerta. Los casos se conservan uno a uno para que se vea qué afirmaba cada uno antes.
 
 describe('AC2 y AC4 — el RUNT falla o responde que no: NO se crea la fila', () => {
-  it('**RUNT caído → 503 `runt_no_disponible` (antes 201); ni una fila**', async () => {
+  it('**RUNT caído → 202 `incompleta` (antes 503, y antes 201); ni SOAT, ni satélite, ni vehículo**', async () => {
     escenario();
     consultarVehiculoRuntMock.mockResolvedValue(RUNT_CAIDO);
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
-    expect(r.status).toBe(503);
-    expect(r.body.codigo).toBe('runt_no_disponible');
+    expect(r.status).toBe(202);
+    expect(r.body.desenlace).toBe('incompleta');
     expect(espia.insertsEn('flito_soat')).toHaveLength(0);
     expect(espia.insertsEn('flito_soat_solicitud')).toHaveLength(0);
     expect(espia.insertsEn('vehicles')).toHaveLength(0);
