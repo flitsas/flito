@@ -37,6 +37,7 @@ import DetalleSoat from '../components/flito/soat/DetalleSoat';
 import CargaMasiva from '../components/flito/soat/CargaMasivaSoat';
 import DetalleIncompletaSoat from '../components/flito/soat/DetalleIncompletaSoat';
 import useIncompletasSoat from '../components/flito/soat/useIncompletasSoat';
+import useReintentoRunt, { FUNCION_REINTENTAR_RUNT } from '../components/flito/soat/useReintentoRunt';
 
 /** Vacíos literales de las pastillas nuevas (UX §4, HU #12997). */
 const VACIO_INCOMPLETAS = {
@@ -69,6 +70,8 @@ export default function FlitoSoat() {
   // una sola petición a `buscar`.
   const conIncompletas = hasFuncion('soat.incompletas.buscar') && !esGestor;
   const puedeVerIncompleta = hasFuncion('soat.incompleta.ver');
+  // HU #12998: sin la función el botón no se pinta (ni en la fila ni en el detalle).
+  const puedeReintentar = hasFuncion(FUNCION_REINTENTAR_RUNT);
   // Con las pastillas nuevas el orden es el del Cliente también para Operaciones (UX §3.2).
   const estadosDisponibles = esGestor ? ESTADOS_GESTOR : esCliente || conIncompletas ? ESTADOS_CLIENTE : ESTADOS_ADMIN;
   // AC9: «Ir a mis SOAT» de la tarjeta de la solicitud guardada abre «Por validar». Llega por el
@@ -331,6 +334,31 @@ export default function FlitoSoat() {
   const detalle = filas.find((f) => f.id === detalleId) ?? null;
   const refrescar = () => setRecarga((n) => n + 1);
 
+  // Reintento de la consulta al RUNT (HU #12998, UX §3.3). Al terminar desde la fila, el foco vuelve
+  // a «Ver» de esa fila cuando la cola ya se releyó, o a las pastillas si la fila salió de la vista.
+  const { enVuelo, reintentar } = useReintentoRunt({ esCliente, onResuelto: refrescar });
+  const focoTrasReintento = useRef<{ id: string; previo: unknown } | null>(null);
+  const [focoTick, setFocoTick] = useState(0);
+  const reintentarDesdeFila = async (f: SolicitudIncompletaFila) => {
+    const previo = incompletas.resp;
+    const r = await reintentar(f, 'fila');
+    // Sin cambios (fallo) no hay relectura que esperar: `previo = null` enfoca ya.
+    focoTrasReintento.current = { id: f.id, previo: r.resultado === 'fallo' ? null : previo };
+    setFocoTick((n) => n + 1);
+  };
+  useEffect(() => {
+    const f = focoTrasReintento.current;
+    if (!f) return;
+    const resp = incompletas.resp;
+    if (incActivo && (!resp || resp === f.previo)) return;
+    focoTrasReintento.current = null;
+    requestAnimationFrame(() => {
+      const ver = document.querySelector<HTMLElement>(`[data-ver-incompleta="${CSS.escape(f.id)}"]`);
+      (ver ?? refPills.current)?.focus();
+    });
+  }, [incompletas.resp, focoTick, incActivo]);
+  const consultandoDesdeFila = Object.values(enVuelo).includes('fila') && !detalleIncompleta;
+
   const toggle = (id: string) => setSeleccion((s) => {
     const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n;
   });
@@ -533,11 +561,18 @@ export default function FlitoSoat() {
           conCompania={!esCliente || (facetas?.companias.length ?? 0) > 1}
           puedeDescargar={puedeDescargar} descargaComprobante={descargaComprobante} onVer={setDetalleId}
           sustantivo={vistaIncompletas ? 'solicitudes' : 'SOAT'}
-          incompletas={incFilas} puedeVerIncompleta={puedeVerIncompleta} onVerIncompleta={setDetalleIncompleta} />
+          incompletas={incFilas} puedeVerIncompleta={puedeVerIncompleta} onVerIncompleta={setDetalleIncompleta}
+          puedeReintentarIncompleta={puedeReintentar} incompletasEnVuelo={enVuelo}
+          onReintentarIncompleta={(f) => { void reintentarDesdeFila(f); }} />
       )}
 
+      {/* Un único anuncio de la consulta en vuelo desde la fila (AC8); el detalle tiene el suyo. */}
+      {conIncompletas && <p role="status" className="sr-only">{consultandoDesdeFila ? 'Consultando el RUNT…' : ''}</p>}
+
       {detalleIncompleta && (
-        <DetalleIncompletaSoat fila={detalleIncompleta} restoreFocusRef={refPills} onClose={() => setDetalleIncompleta(null)} />
+        <DetalleIncompletaSoat fila={detalleIncompleta} restoreFocusRef={refPills} onClose={() => setDetalleIncompleta(null)}
+          puedeReintentar={puedeReintentar} consultando={detalleIncompleta.id in enVuelo}
+          onReintentar={(f) => reintentar(f, 'detalle')} />
       )}
 
       {detalle && (

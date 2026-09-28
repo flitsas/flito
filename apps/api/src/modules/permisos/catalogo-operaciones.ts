@@ -89,6 +89,9 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   // propios —el catálogo es «una función por ruta»— sembrados por la 0211 a todo rol que ya tenga
   // `soat.cola.ver` / `soat.solicitud.ver`. Textos byte a byte con la 0211.
   op(`${SOAT_INC} POST /cliente/incompletas/buscar`, 'soat.incompletas.buscar', 'Ver las solicitudes de SOAT por validar y descartadas', 'Recorrer las solicitudes que quedaron guardadas porque el RUNT no respondió, y las que se descartaron.'),
+  // HU #12998: la ACCIÓN de reintentar la consulta al RUNT de una incompleta. Sembrada solo a admin
+  // por la 0212 (P-8); el administrador la reparte. Textos byte a byte con la 0212.
+  op(`${SOAT_INC} POST /cliente/incompletas/:id/reintentar`, 'soat.solicitud.reintentar_runt', 'Reintentar la consulta al RUNT de una solicitud de SOAT por validar', 'Volver a consultar el RUNT para completar, descartar o dejar por validar una solicitud que se guardó porque el RUNT no respondió.'),
   op(`${SOAT_INC} GET /cliente/incompletas/:id`, 'soat.incompleta.ver', 'Ver una solicitud de SOAT por validar o descartada', 'Abrir el detalle de una solicitud guardada sin validar con el RUNT: propietario, factura y motivo del descarte.'),
 
   // ── Impuestos ─────────────────────────────────────────────────────────────────────────────────

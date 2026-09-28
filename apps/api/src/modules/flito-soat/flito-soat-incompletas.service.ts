@@ -188,7 +188,7 @@ export interface FiltroIncompletas {
  * nada, o compañía sin su id). `undefined` = sin recorte (`todo`). Fallo cerrado: cualquier alcance
  * que no sea `todo` ni `compania` con id es «nada».
  */
-function condicionAlcance(ctx: SoatCtx): SQL | undefined | null {
+export function condicionAlcance(ctx: SoatCtx): SQL | undefined | null {
   if (ctx.alcance === 'todo') return undefined;
   if (ctx.alcance === 'compania' && ctx.companiaId !== null) {
     return eq(flitoSoatIncompletas.companiaId, ctx.companiaId);

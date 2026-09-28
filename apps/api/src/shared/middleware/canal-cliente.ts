@@ -173,6 +173,14 @@ export const RUTAS_PERMITIDAS_CLIENTE: readonly RutaCliente[] = congelar([
       + 'descarte). Fuera de su compañía responde 404-no-403, y quién descartó se proyecta como «FLITO» '
       + 'si no es de su compañía.',
   },
+  // ── El reintento manual de la consulta al RUNT de una incompleta (HU #12998). Es una ACCIÓN: la 0212
+  // la siembra solo a admin y el administrador puede dársela al rol del Cliente desde el panel (P-8).
+  {
+    metodo: 'POST', patron: '/api/flito/soat/cliente/incompletas/:id/reintentar', funcion: 'soat.solicitud.reintentar_runt',
+    porque: 'Reintentar la consulta al RUNT de una solicitud suya «Por validar» cuando el administrador '
+      + 'le concede la función: la completa, la descarta o suma un intento. Acotada a su compañía por '
+      + '`contextoSoat()` (404-no-403 fuera de ella) y bajo los limitadores del canal y de la preconsulta.',
+  },
   // ── La descarga masiva de comprobantes (HU #12815, Épica #12810). `POST` porque los ids van en el
   // CUERPO, no porque escriba: no toca ninguna fila de SOAT.
   {

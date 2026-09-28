@@ -182,20 +182,21 @@ describe('TC #12272 AC8 — marcarle TODAS las funciones a un rol externo (CF-13
 // que se DERIVA del `funcion` que cada entrada de `RUTAS_PERMITIDAS_CLIENTE` declara. Lo que este bloque
 // fija: cada código declarado existe en el catálogo y es EXACTAMENTE el que `exigirFuncion` monta en la
 // ruta correspondiente del fuente (por método y ruta relativa a `/api/flito/soat`); las tres entradas
-// sin guarda (`/auth/me`, `/permisos/mios`, `/auth/logout`) no declaran ninguna; y son once (HU #12815, +2 HU #12997).
+// sin guarda (`/auth/me`, `/permisos/mios`, `/auth/logout`) no declaran ninguna; y son doce (HU #12815, +2 HU #12997, +1 HU #12998).
 // Mutación M12: quitar `funcion: 'soat.cola.ver'` de la lista → rojo aquí (y el PUT empieza a avisar de más).
 describe('HU #12084 RN-A1 — FUNCIONES_DEL_CANAL_EXTERNO se deriva de la lista y coincide con la guarda montada', () => {
   const PREFIJO = '/api/flito/soat';
   const conFuncion = RUTAS_PERMITIDAS_CLIENTE.filter((r) => r.funcion !== undefined);
   const sinFuncion = RUTAS_PERMITIDAS_CLIENTE.filter((r) => r.funcion === undefined);
 
-  it('son once rutas con función y tres sin ella, y el conjunto derivado son esas once', () => {
+  it('son doce rutas con función y tres sin ella, y el conjunto derivado son esas doce', () => {
     // HU #12815: la novena es `POST /soportes/zip` → `soat.soportes.descargar`. HU #12997: la décima y
-    // la undécima son `POST /cliente/incompletas/buscar` y `GET /cliente/incompletas/:id`.
-    expect(conFuncion).toHaveLength(11);
+    // la undécima son `POST /cliente/incompletas/buscar` y `GET /cliente/incompletas/:id`. HU #12998: la
+    // duodécima es `POST /cliente/incompletas/:id/reintentar` → `soat.solicitud.reintentar_runt`.
+    expect(conFuncion).toHaveLength(12);
     expect(sinFuncion.map((r) => r.patron).sort()).toEqual(['/api/auth/logout', '/api/auth/me', '/api/permisos/mios']);
     expect([...FUNCIONES_DEL_CANAL_EXTERNO].sort()).toEqual(conFuncion.map((r) => r.funcion!).sort());
-    expect(FUNCIONES_DEL_CANAL_EXTERNO.size).toBe(11);
+    expect(FUNCIONES_DEL_CANAL_EXTERNO.size).toBe(12);
     expect(FUNCIONES_DEL_CANAL_EXTERNO.has('soat.soportes.descargar')).toBe(true);
   });
 

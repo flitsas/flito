@@ -11,7 +11,7 @@
 // `permisos-catalogo.test.ts` comprueba que los montajes del fuente cubren exactamente esta foto.
 import type { GuardaLeida } from './inventario-guardas.js';
 
-/** 217 rutas guardadas medidas el 9/09/2026 + 11 añadidas por la HU #12083 (dos en línea); +2 −1 por la HU #12373 (tarifas); +2 por la HU #12171; +7 por la HU #12084 (permisos); +4 por la HU #12541 (servicios adicionales); +1 por la HU #12591 (recibo de caja); +5 por la HU #12611 (comprobantes); +3 por la HU #12619 (viajes de logística); +3 por la HU #12629 (comprobantes F2: buscar, aplicar, descartar); +1 por la HU #12654 (comprobantes F3: aceptar diferencia); +2 por el Bug #12642 (export ampliado con datos de pago, dos en línea); +1 por la HU #12833 (corregir dirección del comprador); +2 por la HU #12997 (incompletas SOAT: buscar y ver). */
+/** 217 rutas guardadas medidas el 9/09/2026 + 11 añadidas por la HU #12083 (dos en línea); +2 −1 por la HU #12373 (tarifas); +2 por la HU #12171; +7 por la HU #12084 (permisos); +4 por la HU #12541 (servicios adicionales); +1 por la HU #12591 (recibo de caja); +5 por la HU #12611 (comprobantes); +3 por la HU #12619 (viajes de logística); +3 por la HU #12629 (comprobantes F2: buscar, aplicar, descartar); +1 por la HU #12654 (comprobantes F3: aceptar diferencia); +2 por el Bug #12642 (export ampliado con datos de pago, dos en línea); +1 por la HU #12833 (corregir dirección del comprador); +2 por la HU #12997 (incompletas SOAT: buscar y ver); +1 por la HU #12998 (reintentar la consulta RUNT de una incompleta). */
 export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor","cliente","proveedor"], heredada: false },
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "POST", ruta: "/export", roles: ["admin","proveedor"], heredada: false },
@@ -37,6 +37,8 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   // HU #12997: lectura de las incompletas por RUNT caído; mismos roles de partida que `GET /` y `GET /:id` (0211).
   { modulo: "soat", fichero: "flito-soat/flito-soat-incompletas.routes.ts", metodo: "POST", ruta: "/cliente/incompletas/buscar", roles: ["admin","auditor","cliente","proveedor"], heredada: false },
   { modulo: "soat", fichero: "flito-soat/flito-soat-incompletas.routes.ts", metodo: "GET", ruta: "/cliente/incompletas/:id", roles: ["admin","auditor","cliente","proveedor"], heredada: false },
+  // HU #12998: la acción de reintentar; de partida solo admin (0212, P-8).
+  { modulo: "soat", fichero: "flito-soat/flito-soat-incompletas.routes.ts", metodo: "POST", ruta: "/cliente/incompletas/:id/reintentar", roles: ["admin"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "GET", ruta: "/:id/factura-venta", roles: ["admin","gestor_impuestos"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "POST", ruta: "/soportes/zip", roles: ["admin","gestor_impuestos"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor","gestor_impuestos"], heredada: false },

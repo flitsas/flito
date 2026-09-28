@@ -445,7 +445,11 @@ export type DesenlaceRunt =
   | ({ clase: 'renovacion_anticipada'; venceEl: string; soatActivo: SoatActivoRunt } & PayloadOk)
   | { clase: 'vigente'; fechaVencimiento: string | null; soatActivo: SoatActivoRunt }
   | { clase: 'revise'; codigo: CodigoRevise; campo?: 'vin' }
-  | { clase: 'caido' };
+  /**
+   * `causa` solo cuando la pasarela LANZÓ (timeout, red, circuito…): es el token de `causaDeCaida`.
+   * Un no-200 clasificado como caído no la trae (HU #12998: se guarda `NULL`).
+   */
+  | { clase: 'caido'; causa?: CausaCaidaRunt };
 
 /**
  * ¿Este `ok:false` es una NEGATIVA DE NEGOCIO del RUNT, o es que el RUNT no respondió?
@@ -575,7 +579,9 @@ const CAUSAS_CAIDA: readonly (readonly [RegExp, string])[] = [
   [/circuit|circuito/i, 'circuito'],
 ];
 
-export function causaDeCaida(err: unknown): 'timeout' | 'red' | 'circuito' | 'otro' {
+export type CausaCaidaRunt = 'timeout' | 'red' | 'circuito' | 'otro';
+
+export function causaDeCaida(err: unknown): CausaCaidaRunt {
   const mensaje = err instanceof Error ? err.message : String(err ?? '');
   for (const [patron, causa] of CAUSAS_CAIDA) {
     if (patron.test(mensaje)) return causa as 'timeout' | 'red' | 'circuito';
@@ -606,11 +612,14 @@ export async function consultarYClasificar(vin: string): Promise<DesenlaceRunt> 
     //
     // `causa` y NO `err.message`: el mensaje es texto de un tercero y puede traer dentro el VIN con
     // el que se consultó (antes, la placa y el documento). Ver `causaDeCaida`.
+    const causa = causaDeCaida(err);
     log.warn(
-      { desenlace: 'caido', causa: causaDeCaida(err), httpStatus: null },
+      { desenlace: 'caido', causa, httpStatus: null },
       'compuerta RUNT del canal Cliente',
     );
-    return { clase: 'caido' };
+    // La causa viaja también al llamante (HU #12998): el reintento la guarda en
+    // `flito_soat_incompletas.ultima_causa_caida`. Es el mismo vocabulario cerrado del log.
+    return { clase: 'caido', causa };
   }
 
   const desenlace = await clasificarDesenlaceRunt(respuesta, vin);

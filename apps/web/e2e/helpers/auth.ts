@@ -207,6 +207,8 @@ const COMPROBANTES = [
 export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
   admin: [
     ...SOAT_LEER, 'soat.comprobante.cargar', 'soat.solicitud.enviar',
+    // HU #12998: «Reintentar consulta» de una incompleta (0211: sembrada solo a `admin`).
+    'soat.solicitud.reintentar_runt',
     // HU #12815: el ZIP de comprobantes de la cola SOAT cuelga de su propia función (0179: admin y
     // proveedor). Sin ella no hay botón «Descargar soportes».
     'soat.soportes.descargar',
