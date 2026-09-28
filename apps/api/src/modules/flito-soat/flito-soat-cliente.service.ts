@@ -477,10 +477,12 @@ async function verificarIncompletaAbierta(vin: string, companiaId: number): Prom
     { propia: true, id: abierta.id });
 }
 
-/** El 409 recortado de una incompleta de OTRA compañía: sin id, sin estado, sin de quién es. */
+/**
+ * El 409 recortado de una incompleta de OTRA compañía: sin id, sin estado, sin de quién es. El texto
+ * es `MENSAJE_VEHICULO_AJENO` a propósito: no le dice a un tercero que ese VIN está «por validar».
+ */
 const incompletaAjena = () => fallo(409, CodigoErrorSolicitudSoat.SOLICITUD_INCOMPLETA_EXISTENTE,
-  'Este vehículo ya tiene una solicitud en FLITO pendiente de validar y no figura a nombre de su compañía.',
-  { propia: false });
+  MENSAJE_VEHICULO_AJENO, { propia: false });
 
 /**
  * Lo ÚNICO que se le dice a quien radica sobre un vehículo que no es de su compañía.

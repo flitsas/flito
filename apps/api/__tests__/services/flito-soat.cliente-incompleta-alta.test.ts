@@ -350,6 +350,8 @@ describe('AC5 — una incompleta ABIERTA ocupa el VIN (RN-01, P-5)', () => {
       expect(r.body).not.toHaveProperty('id');
       expect(r.body).not.toHaveProperty('estado');
       expect(JSON.stringify(r.body)).not.toContain(INCOMPLETA_ID);
+      // Anti-sondeo: el texto es el mismo del vehículo ajeno; no le dice al tercero «por validar».
+      expect(r.body.error).not.toMatch(/validar/i);
     }
     expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
   });
@@ -409,7 +411,7 @@ describe('AC6 — 422 y 409 del RUNT son los de hoy y no aparcan nada', () => {
     ['VIN que no cuadra', () => { const r = runtOk(); r.data.vehiculo.vin = '9FKRG2222T2099999'; return r; }, 422, 'runt_no_cuadra'],
     ['RUNT sin VIN', () => { const r = runtOk(); (r.data.vehiculo as Record<string, unknown>).vin = null; return r; }, 422, 'runt_sin_vin'],
     ['SOAT vigente', () => runtOk({ estadoSoat: 'VIGENTE', fechaVencimSoat: '01/02/2030' }), 409, 'soat_vigente'],
-  ] as const)('%s → %i `%s`, sin incompleta ni factura subida', async (_n, runt, status, codigo) => {
+  ] as const)('%s → la respuesta de hoy, sin incompleta ni factura subida', async (_n, runt, status, codigo) => {
     escenario();
     consultarVehiculoRuntMock.mockResolvedValue(runt());
     const r = await alta(await buildApp(), await auth(siguienteUsuario()));
