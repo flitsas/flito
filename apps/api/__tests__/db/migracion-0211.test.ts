@@ -84,13 +84,35 @@ describe('0211 — análisis estático', () => {
     }
   });
 
-  it('reparto de partida: las 8 filas del SQL son las del catálogo (4 roles × 2 funciones)', () => {
-    const reparto = repartoDeSql([SQL_0211]);
-    expect([...reparto.keys()].sort()).toEqual(ROLES_PARTIDA);
-    for (const rol of ROLES_PARTIDA) expect([...reparto.get(rol)!].sort(), rol).toEqual([...CODIGOS].sort());
+  it('reparto de partida: 8 filas condicionadas (4 roles × 2 funciones), cada una con SU función de origen', () => {
+    const bloque = /SELECT v\.rol, v\.fn FROM \(VALUES([\s\S]*?)\) AS v\(rol, fn, origen\)/.exec(SIN_COMENTARIOS)![1]!;
+    const filas = [...bloque.matchAll(/\('([^']+)',\s*'([^']+)',\s*'([^']+)'\)/g)].map((m) => [m[1], m[2], m[3]]);
+    expect(filas).toHaveLength(8);
+    for (const [rol, codigo, origen] of filas) {
+      expect(ROLES_PARTIDA).toContain(rol);
+      expect(origen, `${rol} ${codigo}`).toBe(NUEVAS[codigo as keyof typeof NUEVAS][1]);
+    }
+    expect(SIN_COMENTARIOS).toMatch(/WHERE EXISTS \(SELECT 1 FROM permisos_rol_funcion o WHERE o\.rol_codigo = v\.rol AND o\.funcion_codigo = v\.origen\)/);
+    // Sin la condición no hay VALUES suelto de reparto: el único INSERT … VALUES es el de funciones.
+    expect(SIN_COMENTARIOS.match(/INSERT INTO permisos_rol_funcion \(rol_codigo, funcion_codigo\) VALUES/g)).toBeNull();
     for (const codigo of CODIGOS) {
       expect(repartoDePartida().filter(([, c]) => c === codigo).map(([r]) => r).sort()).toEqual(ROLES_PARTIDA);
     }
+  });
+
+  it('security: un rol de fábrica SIN la función de origen no gana la incompleta (el parser aplica el WHERE EXISTS)', () => {
+    // Base simulada: el auditor perdió `soat.cola.ver` en el panel; conserva `soat.solicitud.ver`.
+    const previo = `INSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo) VALUES
+      ('admin', 'soat.cola.ver'), ('admin', 'soat.solicitud.ver'), ('auditor', 'soat.solicitud.ver')
+    ON CONFLICT (rol_codigo, funcion_codigo) DO NOTHING;`;
+    const r = repartoDeSql([previo, SQL_0211]);
+    expect([...r.get('admin')!].sort()).toEqual(['soat.cola.ver', 'soat.incompleta.ver', 'soat.incompletas.buscar', 'soat.solicitud.ver']);
+    expect(r.get('auditor')!.has('soat.incompletas.buscar')).toBe(false);
+    expect(r.get('auditor')!.has('soat.incompleta.ver')).toBe(true);
+    expect(r.has('cliente')).toBe(false);
+    expect(r.has('proveedor')).toBe(false);
+    // Sola, sin nada sembrado antes, la 0211 no reparte a nadie.
+    expect(repartoDeSql([SQL_0211]).size).toBe(0);
   });
 
   it('y a todo rol del panel que hoy tenga la función de origen (INSERT … SELECT por código exacto)', () => {
@@ -115,12 +137,14 @@ describe('0211 — análisis estático', () => {
     for (const c of CODIGOS) expect(total.get('gestor_impuestos')?.has(c) ?? false).toBe(false);
   });
 
-  it('idempotente y con resumen que revienta si alguien que ve la cola se queda sin incompletas', () => {
+  it('idempotente y con resumen que revienta en las dos direcciones (hueco y ensanchamiento)', () => {
     expect(SIN_COMENTARIOS).toMatch(/ON CONFLICT \(codigo\) DO NOTHING/);
     expect(SIN_COMENTARIOS.match(/ON CONFLICT \(rol_codigo, funcion_codigo\) DO NOTHING/g)).toHaveLength(3);
     expect(SIN_COMENTARIOS).not.toMatch(/DO UPDATE/);
     expect(SIN_COMENTARIOS).not.toMatch(/\bDELETE\b|\bDROP\b|\bALTER\b/);
-    expect(SIN_COMENTARIOS).toMatch(/IF n_ops <> 2 OR n_sin_buscar <> 0 OR n_sin_ver <> 0[\s\S]*?RAISE EXCEPTION/);
+    expect(SIN_COMENTARIOS).toMatch(/IF n_ops <> 2 OR n_sin_buscar <> 0 OR n_sin_ver <> 0 OR n_buscar_sin_cola <> 0 OR n_ver_sin_detalle <> 0 THEN\s*RAISE EXCEPTION/);
+    // Sin mínimo de roles: un umbral fijo obligaría a ensanchar el reparto (security, HU #12997).
+    expect(SIN_COMENTARIOS).not.toMatch(/\bn_(?:buscar|ver)\s*</);
     expect(SIN_COMENTARIOS).not.toMatch(/LIKE 'soat\.%'/);
   });
 });
@@ -142,7 +166,7 @@ describe.skipIf(!URL_BASE)('0211 — aplicar ×2 sobre BD ya migrada (P6)', () =
     return salida;
   }
 
-  it('segunda pasada no rompe ni duplica; todo rol con la cola / el detalle queda con su incompleta', async () => {
+  it('segunda pasada no rompe ni duplica; incompleta ⇔ función de origen, rol por rol', async () => {
     await enTx(async (tx) => {
       await tx.unsafe(SQL_0211);
       await tx.unsafe(SQL_0211);
@@ -154,6 +178,10 @@ describe.skipIf(!URL_BASE)('0211 — aplicar ×2 sobre BD ya migrada (P6)', () =
           SELECT count(*)::int AS n FROM permisos_rol_funcion rf WHERE rf.funcion_codigo = ${origen}
             AND NOT EXISTS (SELECT 1 FROM permisos_rol_funcion x WHERE x.rol_codigo = rf.rol_codigo AND x.funcion_codigo = ${codigo})`;
         expect(h!.n, codigo).toBe(0);
+        const [inv] = await tx<{ n: number }[]>`
+          SELECT count(*)::int AS n FROM permisos_rol_funcion rf WHERE rf.funcion_codigo = ${codigo}
+            AND NOT EXISTS (SELECT 1 FROM permisos_rol_funcion x WHERE x.rol_codigo = rf.rol_codigo AND x.funcion_codigo = ${origen})`;
+        expect(inv!.n, `${codigo} sin ${origen}`).toBe(0);
       }
     });
   }, 60_000);

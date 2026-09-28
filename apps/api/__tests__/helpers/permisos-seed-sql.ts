@@ -62,6 +62,18 @@ function bloquesInsert(sql: string, tabla: string): string[] {
 }
 
 /**
+ * Cada bloque de reparto CONDICIONADO a una función de origen (HU #12997, 0211):
+ * `INSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo) SELECT v.rol, v.fn FROM (VALUES
+ * ('<rol>', '<codigo>', '<origen>'), …) AS v(rol, fn, origen) WHERE EXISTS (SELECT 1 FROM
+ * permisos_rol_funcion o WHERE o.rol_codigo = v.rol AND o.funcion_codigo = v.origen) ON CONFLICT … ;`.
+ * Devuelve el interior del VALUES; `repartoDeSql` aplica la condición contra lo ya sembrado.
+ */
+function bloquesInsertCondicionado(sql: string): string[] {
+  const re = /INSERT INTO permisos_rol_funcion \(rol_codigo, funcion_codigo\)\s+SELECT v\.rol, v\.fn FROM \(VALUES([\s\S]*?)\) AS v\(rol, fn, origen\)\s+WHERE EXISTS \(SELECT 1 FROM permisos_rol_funcion o WHERE o\.rol_codigo = v\.rol AND o\.funcion_codigo = v\.origen\)\s+ON CONFLICT \(rol_codigo, funcion_codigo\) DO NOTHING\s*;/g;
+  return [...sinComentariosSql(sql).matchAll(re)].map((m) => m[1]!);
+}
+
+/**
  * Cada bloque `DELETE FROM <tabla> WHERE <columnas> IN ( … );` del archivo, ya sin comentarios. La forma
  * canónica es la de la 0182: tuplas entre paréntesis (o valores sueltos) dentro del `IN (…)`.
  */
@@ -104,6 +116,15 @@ export function repartoDeSql(sqls: readonly string[], nombre = 'sql'): Map<strin
       for (const [rol, codigo] of tuplas(bloque)) {
         if (!rol || !codigo) throw new Error(`${nombre}: fila de permisos_rol_funcion incompleta`);
         if (!reparto.has(rol)) reparto.set(rol, new Set());
+        reparto.get(rol)!.add(codigo);
+      }
+    }
+    // El reparto condicionado se evalúa contra lo sembrado HASTA AQUÍ: la fila entra solo si el rol ya
+    // tiene la función de origen, igual que el `WHERE EXISTS` en la base.
+    for (const bloque of bloquesInsertCondicionado(sql)) {
+      for (const [rol, codigo, origen] of tuplas(bloque)) {
+        if (!rol || !codigo || !origen) throw new Error(`${nombre}: fila condicionada de permisos_rol_funcion incompleta`);
+        if (!reparto.get(rol)?.has(origen)) continue;
         reparto.get(rol)!.add(codigo);
       }
     }
