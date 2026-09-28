@@ -851,7 +851,7 @@ function Alta() {
       </div>
 
       {guardada ? (
-        <TarjetaSolicitudGuardada vin={guardada.vin} onIrACola={() => navigate(COLA)} onSolicitarOtro={solicitarOtro} />
+        <TarjetaSolicitudGuardada vin={guardada.vin} onIrACola={() => navigate(COLA, { state: { pastilla: 'incompleta' } })} onSolicitarOtro={solicitarOtro} />
       ) : (
       <>
       {/* ── Bloque 1 · Vehículo ─────────────────────────────────────────────────────────────────

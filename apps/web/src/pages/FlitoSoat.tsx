@@ -7,7 +7,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { CircleAlert, Lock, Plus, RotateCw, Upload } from 'lucide-react';
-import { ANS_OPERATIVO, EstadoSoat, type FiltroVigenciaCola } from '@operaciones/shared-types';
+import {
+  ANS_OPERATIVO, EstadoSoat, type FiltroVigenciaCola, type SolicitudIncompletaFila,
+} from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { puedeSolicitarSoat, useAuth } from '../lib/auth';
 import { TarjetaCanalDeshabilitado } from '../components/flito/soat-cliente/TarjetaCanal';
@@ -26,12 +28,21 @@ import {
 import { toastError, toastOk } from '../components/flit/ToastFlito';
 // Las piezas de la cola viven en `components/flito/soat/` desde la HU #12819 (techo de 800 líneas).
 import {
-  ESTADOS_ADMIN, ESTADOS_CLIENTE, ESTADOS_GESTOR, type ColaSoat, type FacetasSoat, type Proveedor,
+  ESTADOS_ADMIN, ESTADOS_CLIENTE, ESTADOS_GESTOR, esPastillaIncompleta,
+  type ColaSoat, type FacetasSoat, type FiltroEstadoSoat, type Proveedor,
 } from '../components/flito/soat/tipos';
 import BarraFiltrosSoat, { type PresetSoat } from '../components/flito/soat/BarraFiltrosSoat';
 import TablaColaSoat from '../components/flito/soat/TablaColaSoat';
 import DetalleSoat from '../components/flito/soat/DetalleSoat';
 import CargaMasiva from '../components/flito/soat/CargaMasivaSoat';
+import DetalleIncompletaSoat from '../components/flito/soat/DetalleIncompletaSoat';
+import useIncompletasSoat from '../components/flito/soat/useIncompletasSoat';
+
+/** Vacíos literales de las pastillas nuevas (UX §4, HU #12997). */
+const VACIO_INCOMPLETAS = {
+  incompleta: 'No hay solicitudes por validar. Cuando el RUNT no responde al pedir un SOAT, la solicitud queda aquí para volver a consultarla.',
+  descartada: 'No hay solicitudes descartadas. Aquí quedan, sin borrarse, las que el RUNT no dejó continuar.',
+} as const;
 
 /** Acciones de cabecera: a ancho completo por debajo de `sm`, la primaria primero (§14). */
 const ACCION_CABECERA = 'w-full justify-center sm:w-auto';
@@ -53,8 +64,19 @@ export default function FlitoSoat() {
   const sinFuncionesPantalla = funciones !== null
     && !hasFuncion('soat.cola.ver') && !hasFuncion('soat.solicitud.crear');
 
-  const estadosDisponibles = esGestor ? ESTADOS_GESTOR : esCliente ? ESTADOS_CLIENTE : ESTADOS_ADMIN;
-  const [estado, setEstado] = useState<EstadoSoat | 'todos'>(esGestor ? EstadoSoat.SOLICITADO : 'todos');
+  // HU #12997: las solicitudes aparcadas porque el RUNT no respondió. Al gestor NUNCA, aunque su rol
+  // traiga la función: las incompletas no le llegan y su cola no cambia (UX §3.2) — ni pastillas ni
+  // una sola petición a `buscar`.
+  const conIncompletas = hasFuncion('soat.incompletas.buscar') && !esGestor;
+  const puedeVerIncompleta = hasFuncion('soat.incompleta.ver');
+  // Con las pastillas nuevas el orden es el del Cliente también para Operaciones (UX §3.2).
+  const estadosDisponibles = esGestor ? ESTADOS_GESTOR : esCliente || conIncompletas ? ESTADOS_CLIENTE : ESTADOS_ADMIN;
+  // AC9: «Ir a mis SOAT» de la tarjeta de la solicitud guardada abre «Por validar». Llega por el
+  // ESTADO del router, nunca por la URL (ni la pastilla ni, mucho menos, el VIN).
+  const [estado, setEstado] = useState<FiltroEstadoSoat>(() => (
+    esGestor ? EstadoSoat.SOLICITADO
+      : (estadoNavegacion as { pastilla?: string } | null)?.pastilla === 'incompleta' ? 'incompleta' : 'todos'));
+  const vistaIncompletas = esPastillaIncompleta(estado);
   const [texto, setTexto] = useState('');
   // Antes se consultaba en cada tecla; con la cola paginada eso es una consulta con COUNT por
   // pulsación. Se espera a que el usuario deje de escribir.
@@ -66,6 +88,7 @@ export default function FlitoSoat() {
   const [cargaMasiva, setCargaMasiva] = useState(false);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [recarga, setRecarga] = useState(0);
+  const [detalleIncompleta, setDetalleIncompleta] = useState<SolicitudIncompletaFila | null>(null);
 
   const [facetas, setFacetas] = useState<FacetasSoat | null>(null);
   const [companiasSel, setCompaniasSel] = useState<string[]>([]);
@@ -110,6 +133,21 @@ export default function FlitoSoat() {
     || !!solicitadoDesde || !!solicitadoHasta || !!pagadoDesde || !!pagadoHasta
     || !!creadoDesde || !!creadoHasta || soloEstancado || !!gestionSel || !!vigenciaSel;
 
+  // Las incompletas solo se filtran por texto (VIN o documento, en el cuerpo). Con un filtro del
+  // panel puesto —compañía, fechas, proveedor, vigencia…— no se sabe contestarlo por ellas, así que
+  // no se anteponen en «Todos» y su pastilla dice «Ningún SOAT coincide con los filtros».
+  const incActivo = conIncompletas && !hayFiltros && (vistaIncompletas || (estado === 'todos' && page === 1));
+  const incompletas = useIncompletasSoat({
+    activo: incActivo,
+    estados: vistaIncompletas ? [estado] : ['incompleta'],
+    texto: buscar.trim(),
+    pagina: vistaIncompletas ? page : 1,
+    // En «Todos» es la cabeza de la primera página: todas las abiertas del alcance (tope del API).
+    porPagina: vistaIncompletas ? 25 : 100,
+    recarga,
+  });
+  const incFilas = incompletas.resp?.items ?? [];
+
   const limpiarFiltros = () => {
     setCompaniasSel([]); setOrganismosSel([]); setProveedoresSel([]);
     setSolicitadoDesde(''); setSolicitadoHasta(''); setPagadoDesde(''); setPagadoHasta('');
@@ -150,6 +188,8 @@ export default function FlitoSoat() {
 
   useEffect(() => {
     setError(null); setSeleccion(new Set());
+    // En «Por validar» / «Descartadas» la cola de SOAT no pinta nada: no se pide.
+    if (vistaIncompletas) return;
     const q = new URLSearchParams();
     if (estado !== 'todos') q.set('estado', estado);
     if (buscar.trim()) q.set('buscar', buscar.trim());
@@ -172,6 +212,10 @@ export default function FlitoSoat() {
     api.get<ColaSoat>(`/flito/soat?${q}`).then(setData).catch((e) => setError(errorMessage(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [estado, buscar, compKey, orgKey, provKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, gestionSel, vigenciaSel, page, recarga]);
+
+  useEffect(() => {
+    if (vistaIncompletas && funciones !== null && !conIncompletas) setEstado('todos');
+  }, [vistaIncompletas, funciones, conIncompletas]);
 
   useEffect(() => {
     api.get<FacetasSoat>('/flito/soat/facetas').then(setFacetas).catch(() => setFacetas(null));
@@ -214,7 +258,7 @@ export default function FlitoSoat() {
   const puedeExportarPago = hasFuncion('soat.excel.exportar_pago');
   const [incluirPago, setIncluirPago] = useState(false);
   const filtrosExport: FiltrosExportCola = {
-    ...(estado !== 'todos' ? { estados: [estado] } : {}),
+    ...(estado !== 'todos' && !vistaIncompletas ? { estados: [estado] } : {}),
     ...(buscar.trim() ? { buscar: buscar.trim() } : {}),
     ...(companiasSel.length ? { companias: companiasSel.map(Number) } : {}),
     ...(organismosSel.length ? { organismos: organismosSel } : {}),
@@ -239,7 +283,9 @@ export default function FlitoSoat() {
   // Quién puede exportar: la MISMA guarda de la carga masiva, sin predicado nuevo. Deja fuera al
   // auditor (AC6) y al cliente, que además tendría otro archivo —el backend le recorta de cada fila
   // el proveedor, quién despachó y lo que FLITO pagó—: eso sería otra HU, no una condición más.
-  const puedeExportar = esOperaciones || esGestor;
+  // En «Por validar»/«Descartadas» no se pinta: el Excel es de SOAT y no cambia (HU #12997), así
+  // que ahí no sería «lo que estoy viendo».
+  const puedeExportar = (esOperaciones || esGestor) && !vistaIncompletas;
   // Quién DESCARGA SOPORTES: la función que exige el POST del ZIP (HU #12815), no el rol. La casilla
   // sirve también para «Enviar al gestor»: sin ninguna de las dos, no hay columna (AC7).
   const puedeDescargar = hasFuncion('soat.soportes.descargar');
@@ -249,8 +295,17 @@ export default function FlitoSoat() {
   // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
   const descargaZip = useDescargaZip(ZIP_SOAT);
 
-  const filas = useMemo(() => data?.items ?? [], [data]);
-  const totalPaginas = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
+  const filas = useMemo(() => (vistaIncompletas ? [] : data?.items ?? []), [data, vistaIncompletas]);
+  // Lo que pinta la tabla: la página de la cola o, en las pastillas nuevas, la de las incompletas.
+  const pagina = vistaIncompletas
+    ? { total: incompletas.resp?.total ?? 0, page, pageSize: 25 }
+    : data;
+  const totalPaginas = pagina ? Math.max(1, Math.ceil(pagina.total / pagina.pageSize)) : 1;
+  // Los cuatro estados de la vista (AC8). La cola y la cabeza de incompletas cuentan juntas en
+  // «Todos»: el esqueleto se va cuando llegaron las dos, y cualquiera que falle da la tarjeta.
+  const errorVista = vistaIncompletas ? incompletas.error : !!error || incompletas.error;
+  const lista = (vistaIncompletas || !!data) && (!incActivo || !!incompletas.resp);
+  const hayFilas = filas.length + incFilas.length > 0;
   /**
    * Qué filas se pueden MARCAR: **todas las visibles** (HU #11910, AC1). Antes eran solo las
    * Pendiente, porque la casilla existía para una sola acción; ahora existe también para llevarse
@@ -352,7 +407,7 @@ export default function FlitoSoat() {
       {esCliente && !puedeSolicitar && <TarjetaCanalDeshabilitado />}
 
       <BarraFiltrosSoat refPills={refPills} esGestor={esGestor} esCliente={esCliente}
-        estadosDisponibles={estadosDisponibles} estado={estado} setEstado={setEstado}
+        estadosDisponibles={estadosDisponibles} estado={estado} setEstado={setEstado} conIncompletas={conIncompletas}
         texto={texto} setTexto={setTexto} facetas={facetas}
         companiasSel={companiasSel} setCompaniasSel={setCompaniasSel}
         organismosSel={organismosSel} setOrganismosSel={setOrganismosSel}
@@ -374,7 +429,7 @@ export default function FlitoSoat() {
           que ya existía y no inventa nada. */}
       {/* HU #12819: solo errores de CARGA de la cola (el envío ya no llega aquí: es un toast) y con
           copy propio — nunca el mensaje crudo del API. */}
-      {error && (
+      {errorVista && (
         <FlitCard>
           <div className="flex items-start gap-3">
             <CircleAlert size={18} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: 'var(--flit-danger-text)' }} />
@@ -397,7 +452,7 @@ export default function FlitoSoat() {
       {/* Estado 1 — cargando. Antes la pantalla se veía vacía un instante y el vacío decía «no hay
           SOAT», que es una afirmación distinta de «todavía no sé». El esqueleto ya trae
           `role="status"` y `aria-busy`. */}
-      {!data && !error && <PageContentSkeleton />}
+      {!lista && !errorVista && <PageContentSkeleton />}
 
       {/* Fuera de la barra a propósito: la descarga NO limpia la selección, pero si el usuario la
           limpia el aviso tiene que seguir en pantalla. Se monta donde se monta el botón. */}
@@ -429,11 +484,12 @@ export default function FlitoSoat() {
         </div>
       )}
 
-      {data && filas.length === 0 && (
+      {lista && !errorVista && !hayFilas && (
         <FlitCard>
           <FlitEmpty>
             {hayFiltros || texto.trim()
               ? 'Ningún SOAT coincide con los filtros.'
+              : vistaIncompletas ? VACIO_INCOMPLETAS[estado]
               // El vacío sin filtros se ramifica por rol (HU #11914). El texto de Operaciones manda
               // a «Sincroniza desde el Tablero», un sitio al que la HU #11913 le quitó el acceso al
               // Cliente a propósito: era la PRIMERA frase que leía el primer usuario del rol nuevo y
@@ -469,13 +525,19 @@ export default function FlitoSoat() {
         </FlitCard>
       )}
 
-      {data && filas.length > 0 && (
-        <TablaColaSoat data={data} filas={filas} totalPaginas={totalPaginas}
+      {lista && !errorVista && pagina && hayFilas && (
+        <TablaColaSoat data={pagina} filas={filas} totalPaginas={totalPaginas}
           onPrev={() => setPage((p) => Math.max(1, p - 1))} onNext={() => setPage((p) => p + 1)}
-          conCasillas={conCasillas} seleccion={seleccion} setSeleccion={setSeleccion}
+          conCasillas={conCasillas && !vistaIncompletas} seleccion={seleccion} setSeleccion={setSeleccion}
           seleccionables={seleccionables} toggle={toggle} esCliente={esCliente}
           conCompania={!esCliente || (facetas?.companias.length ?? 0) > 1}
-          puedeDescargar={puedeDescargar} descargaComprobante={descargaComprobante} onVer={setDetalleId} />
+          puedeDescargar={puedeDescargar} descargaComprobante={descargaComprobante} onVer={setDetalleId}
+          sustantivo={vistaIncompletas ? 'solicitudes' : 'SOAT'}
+          incompletas={incFilas} puedeVerIncompleta={puedeVerIncompleta} onVerIncompleta={setDetalleIncompleta} />
+      )}
+
+      {detalleIncompleta && (
+        <DetalleIncompletaSoat fila={detalleIncompleta} restoreFocusRef={refPills} onClose={() => setDetalleIncompleta(null)} />
       )}
 
       {detalle && (

@@ -287,3 +287,12 @@ David aceptó la opción A (tabla de espera `flito_soat_incompletas`) y **todas 
 - P-6: RUNT caído en el envío tras una consulta OK → también incompleta.
 - P-7: el reintento que completa **guarda** los datos del SOAT activo para que el detalle pinte la tarjeta «SOAT activo» igual que una carga normal; el toast lleva la fecha.
 - Nota para la HU #12873 (Feature #12871): su catálogo final incluye `soat.solicitud.reintentar_runt` (9 permisos); no se absorbe en otro.
+
+### 11.1 Enmienda (David Chica, 2026-09-28): una función por ruta
+
+Al implementar la HU #12997 apareció que el catálogo de permisos (Feature #12072) exige **un código propio por ruta** (`permisos-catalogo.test.ts`, inventario de guardas, `RUTAS_PERMITIDAS_CLIENTE`), así que las rutas nuevas no pueden reutilizar `soat.cola.ver` / `soat.solicitud.ver` como decía §11. Decisión (opción A):
+
+- `POST /cliente/incompletas/buscar` → función nueva **`soat.incompletas.buscar`**; `GET /cliente/incompletas/:id` → **`soat.incompleta.ver`**.
+- La migración **0211** (HU #12997) las siembra y las reparte a **todo rol que hoy tenga** `soat.cola.ver` y `soat.solicitud.ver` respectivamente: la intención de §11 (quien ve la cola ve las «Por validar») se conserva. El admin puede separarlas después desde el panel.
+- La función `soat.solicitud.reintentar_runt` de la HU #12998 pasa a la migración **0212**.
+- Nota para la HU #12873 (Feature #12871): el catálogo SOAT final debe contar también estas dos funciones.

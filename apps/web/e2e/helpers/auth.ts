@@ -157,6 +157,8 @@ export const TOKEN_E2E = 'fake.jwt.e2e';
 const SOAT_LEER = [
   'soat.cola.ver', 'soat.cola.filtrar', 'soat.solicitud.ver', 'soat.solicitud.ver_historial',
   'soat.solicitud.ver_soportes',
+  // HU #12997: las pastillas «Por validar»/«Descartadas» y su detalle (sembradas en la 0211).
+  'soat.incompletas.buscar', 'soat.incompleta.ver',
 ] as const;
 
 /**
