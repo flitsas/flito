@@ -31,7 +31,7 @@ import { flitoGestorOrganismos } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
 import {
   CARGA_MASIVA_ARCHIVOS_POR_PETICION, CARGA_MASIVA_MAX_BYTES_ARCHIVO, CodigoErrorReciboCaja, EstadoImpuesto, FASES_RECIBO,
-  FaseRecibo, ResultadoCertificacion, TipoSoporteZip,
+  FaseRecibo, ResultadoCertificacion, TipoSoporteZip, CABECERA_DIRECCIONES_SIN_CONFIRMAR, SEMAFOROS_IMPUESTO,
 } from '@operaciones/shared-types';
 import { ImpuestoError, type ArchivoSubido, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import { certificacionVigenteConAcceso, certificarImpuesto, certificarLote } from './certificacion.service.js';
@@ -44,9 +44,14 @@ import { soportesDeImpuesto } from '../../shared/soportes/soportes-consulta.js';
 import { cargarReciboCaja, cargarRecibos, normalizarRutas, ReciboCajaError } from './flito-recibos.service.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { getFlitAdapter } from '../flito-sync/flit.adapter.js';
+import analisisRouter from './flito-impuestos.analisis.routes.js';
+import direccionRouter from './flito-impuestos.direccion.routes.js';
+import { contarDireccionesSinConfirmar } from './flito-impuestos.export-pago.js';
 
 const router = Router();
 router.use(authMiddleware);
+router.use(analisisRouter(contextoImpuesto)); // HU #12825: hereda authMiddleware
+router.use(direccionRouter(contextoImpuesto)); // HU #12833: PATCH /:id/direccion
 
 const ESTADOS = ['pendiente', 'solicitado', 'con_novedad', 'pagado'] as const;
 
@@ -276,6 +281,13 @@ const fecha = (v: unknown): string | undefined => {
  */
 const fechaSchema = z.string().regex(FORMATO_FECHA, 'La fecha debe ser yyyy-mm-dd');
 
+/**
+ * HU #12830: filtro por semáforo (preset «Con alertas» = `naranja,rojo`). A diferencia de los demás
+ * filtros del listado, un valor fuera del vocabulario es 400 y no se ignora: descartarlo en silencio
+ * dejaría el filtro vacío y la pantalla diría «con alertas» mostrando la cola entera.
+ */
+const semaforosSchema = z.array(z.enum(SEMAFOROS_IMPUESTO)).min(1);
+
 // GET / — cola con las 2 fronteras, filtrada y paginada.
 //
 // Deja rastro en `pii_access_log` desde la HU #11909 (Ley 1581 art. 17, AGENTS.md §16): cada fila
@@ -284,6 +296,12 @@ const fechaSchema = z.string().regex(FORMATO_FECHA, 'La fecha debe ser yyyy-mm-d
 // la ruta interactiva sin rastro mientras la de al lado lo escribe todo. Va DESPUÉS de la consulta y
 // con `await`, como en SOAT: `filas` no se sabe antes.
 router.get('/', exigirFuncion('impuestos.cola.ver'), async (req: Request, res: Response) => {
+  const semaforoRaw = lista(req.query.semaforo);
+  const semaforo = semaforoRaw ? semaforosSchema.safeParse(semaforoRaw) : undefined;
+  if (semaforo && !semaforo.success) {
+    res.status(400).json({ error: `semaforo admite solo: ${SEMAFOROS_IMPUESTO.join(', ')}` });
+    return;
+  }
   const ctx = await contextoImpuesto(req.user!);
   const estadoRaw = typeof req.query.estado === 'string' ? req.query.estado : undefined;
   const estados = estadoRaw
@@ -305,6 +323,7 @@ router.get('/', exigirFuncion('impuestos.cola.ver'), async (req: Request, res: R
     estancado: req.query.estancado === 'si',
     // HU #12590: liquidado y pendiente de pago con marca. Booleano en texto, como el resto.
     liquidadoPendientePago: req.query.liquidadoPendientePago === 'true',
+    semaforo: semaforo?.data,
     page: Number(req.query.page) || 1,
     pageSize: Number(req.query.pageSize) || 50,
   });
@@ -356,6 +375,7 @@ const colaFiltrosCampos = z.object({
   creadoDesde: fechaSchema.optional(), creadoHasta: fechaSchema.optional(),
   estancado: z.boolean().optional(),
   liquidadoPendientePago: z.boolean().optional(),
+  semaforo: semaforosSchema.optional(), // HU #12830
   page: z.number().int().positive().optional(),
   pageSize: z.number().int().positive().optional(),
   cursor: z.string().optional(),
@@ -444,6 +464,7 @@ router.post('/export', exigirFuncion('impuestos.excel.exportar'), exportColaLimi
     });
 
     res.set('Cache-Control', 'no-store');
+    if (incluirPago) res.set(CABECERA_DIRECCIONES_SIN_CONFIRMAR, String(contarDireccionesSinConfirmar(filas))); // HU #12833 AC4
     await sendExcel(res, nombreArchivoExportImpuestos(), columnasColaExport('impuestos', incluirPago), filas);
   } catch (e) {
     // Con la respuesta ya empezada, responder reventaría con ERR_HTTP_HEADERS_SENT y taparía la

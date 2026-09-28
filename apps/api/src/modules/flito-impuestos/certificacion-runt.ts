@@ -121,6 +121,27 @@ export function extraerVehiculoRunt(data: unknown): DatosVehiculoRuntExtraido {
   };
 }
 
+/** Color y cilindraje del RUNT (HU #12827). Aparte de `extraerVehiculoRunt`: la certificación no los compara. */
+export interface ColorCilindrajeRunt { color: string | null; cilindraje: string | null }
+
+const ALIAS_COLOR = ['color', 'nombreColor', 'colorVehiculo'] as const;
+const ALIAS_CILINDRAJE = ['cilindraje', 'cilindrada', 'capacidadMotor'] as const;
+
+/**
+ * `color` y `cilindraje` vienen en `data.vehiculo` en la consulta real documentada arriba
+ * (2026-07-31); mismos alias por las dos vías que el resto, por si otro tipo de vehículo los publica
+ * solo en `datosTecnicos`. `null` = el RUNT no lo trajo → el campo queda «no verificable».
+ */
+export function extraerColorCilindrajeRunt(data: unknown): ColorCilindrajeRunt {
+  const d = (data ?? {}) as Record<string, unknown>;
+  const veh = (d.vehiculo ?? {}) as Record<string, unknown>;
+  const tec = (d.datosTecnicos ?? {}) as Record<string, unknown>;
+  return {
+    color: primero(veh, ALIAS_COLOR) ?? primero(tec, ALIAS_COLOR),
+    cilindraje: primero(veh, ALIAS_CILINDRAJE) ?? primero(tec, ALIAS_CILINDRAJE),
+  };
+}
+
 /**
  * Señales de que el RUNT SÍ tiene registrado el vehículo.
  *

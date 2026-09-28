@@ -32,6 +32,7 @@ import { motorYSerieParaVehiculo, type MotorYSerieRunt } from '../runt/vehiculo-
 import { compararConRunt, esTraspasoEnSincronizacion, extraerVehiculoRunt, runtSinRegistro } from './certificacion-runt.js';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import { buscarConAcceso } from './flito-impuestos.service.js';
+import { limitadorRunt } from './runt-limitador.js';
 
 const log = loggerFor('flito.impuestos.certificacion');
 
@@ -68,13 +69,14 @@ export type ResultadoCertificar =
   | { resultado: typeof ResultadoCertificacion.ERROR_SERVICIO; mensaje: string };
 
 /** Datos del vehículo del trámite, que son los que se contrastan con el RUNT. */
-interface DatosImpuesto extends DatosVehiculoFlito {
+export interface DatosImpuesto extends DatosVehiculoFlito {
   vehiculoId: typeof vehicles.$inferSelect['id'];
   ownerName: string | null;
   ownerDocument: string | null;
 }
 
-async function datosDelVehiculo(impuestoId: string): Promise<DatosImpuesto | null> {
+/** Exportada para la consulta RUNT del análisis post-envío (HU #12827), sin cambio de lógica. */
+export async function datosDelVehiculo(impuestoId: string): Promise<DatosImpuesto | null> {
   const [row] = await db.select({
     // El id va aparte de lo que se compara: es la llave con la que se le devuelve al vehículo lo
     // que el RUNT sabe de él (motor y serie, HU #12402).
@@ -195,9 +197,10 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
     // Con documento se consulta por placa; sin él, por VIN. No se mandan los dos: `runt-direct`
     // ignora el tipo de documento cuando hay VIN y probaría un único tipo, así que mezclarlos
     // desaprovecharía el barrido de tipos que sí hace la consulta por placa.
-    runt = documento
-      ? await consultarVehiculoRunt(placa, undefined, documento)
-      : await consultarVehiculoRunt(placa, vin ?? undefined, undefined);
+    // HU #12825 (AC3): la consulta pasa por el tope global del RUNT, compartido con la cola.
+    runt = await limitadorRunt.ejecutar(() => (documento
+      ? consultarVehiculoRunt(placa, undefined, documento)
+      : consultarVehiculoRunt(placa, vin ?? undefined, undefined)));
   } catch (e) {
     // `consultarVehiculoRunt` ya atrapa casi todo y devuelve `{ ok:false }`; esto cubre lo que se le
     // escape (p. ej. el rechazo del circuit breaker) para que un lote nunca muera por un registro.
@@ -232,7 +235,40 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
     };
   }
 
-  const vehiculoRunt = extraerVehiculoRunt(runt.data);
+  return certificarConRespuestaRunt(id, datos, runt.data, { userId: ctx.userId, username: ctx.username });
+}
+
+/**
+ * Quién firma una certificación. En `POST /:id/certificar` y en el lote es el usuario de la sesión;
+ * en la autocertificación del análisis post-envío (HU #12828) es el sistema: `userId` nulo (la FK a
+ * `users` lo admite) y un nombre fijo que el certificado imprime como «certificado por».
+ */
+export interface ActorCertificacion {
+  userId: ImpuestoCtx['userId'] | null;
+  username: string;
+}
+
+export type ResultadoCertificarConRunt = Extract<ResultadoCertificar, {
+  resultado: typeof ResultadoCertificacion.CERTIFICADO | typeof ResultadoCertificacion.CON_DIFERENCIAS;
+}>;
+
+/**
+ * DADA una respuesta válida del RUNT (con registro), compara y persiste (HU #12828, extraído sin
+ * cambio de lógica de `certificarImpuesto`): motor/serie en `vehicles`, y si es certificable la fila
+ * vigente en `flito_impuesto_certificaciones` (con el snapshot) + `audit_logs`, en una transacción.
+ *
+ * Precondiciones del llamador: `datos.placa` no vacía y documento o VIN presentes (el mismo par con
+ * el que se consultó: con documento se consultó por documento, sin él por VIN), y `runtData` ya pasó
+ * por `runtSinRegistro`. Así la reutiliza la autocertificación sin volver a consultar el RUNT.
+ */
+export async function certificarConRespuestaRunt(
+  id: string, datos: DatosImpuesto, runtData: unknown, actor: ActorCertificacion,
+): Promise<ResultadoCertificarConRunt> {
+  const placa = (datos.placa ?? '').trim();
+  const documento = datos.ownerDocument?.trim() || null;
+  const vin = datos.vin?.trim() || null;
+
+  const vehiculoRunt = extraerVehiculoRunt(runtData);
   await guardarMotorYSerie(id, datos.vehiculoId, vehiculoRunt);
 
   const veredicto = compararConRunt(datos, vehiculoRunt);
@@ -247,7 +283,7 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
     };
   }
 
-  const tipoDocPropietario = (runt.data as { tipoDocPropietario?: unknown }).tipoDocPropietario;
+  const tipoDocPropietario = (runtData as { tipoDocPropietario?: unknown }).tipoDocPropietario;
 
   const fila = await db.transaction(async (tx: Tx) => {
     // Recertificar apaga la vigente antes de insertar. El índice único parcial de la migración 0121
@@ -273,13 +309,13 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
       // cambia de contenido después de emitido no sirve como evidencia (HU #11167, AC2/AC4).
       propietarioNombre: datos.ownerName?.trim() || null,
       campos: veredicto.campos,
-      snapshotRunt: runt.data as Record<string, unknown>,
-      certificadoPorId: ctx.userId,
-      certificadoPorNombre: ctx.username,
+      snapshotRunt: runtData as Record<string, unknown>,
+      certificadoPorId: actor.userId,
+      certificadoPorNombre: actor.username,
     }).returning();
 
     await tx.insert(auditLogs).values({
-      userId: ctx.userId, userEmail: ctx.username, action: 'update',
+      userId: actor.userId, userEmail: actor.username, action: 'update',
       resource: 'flito_impuesto', resourceId: id,
       detail: `Certificación contra RUNT (placa ${placa}, ${documento ? `doc ${documento.slice(0, 4)}***` : `VIN ${vin}`})`,
     });

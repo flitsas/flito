@@ -587,3 +587,30 @@ describe('HU #12402 — motor y serie del RUNT se guardan en vehicles al certifi
     expect(JSON.stringify(aviso)).not.toContain('duplicate key');
   });
 });
+
+describe('HU #12825 (AC3) — la consulta al RUNT comparte el tope global con la cola de análisis', () => {
+  it('con los 2 cupos de limitadorRunt ocupados, certificar NO consulta el RUNT hasta que se libera uno', async () => {
+    const { limitadorRunt } = await import('../../src/modules/flito-impuestos/runt-limitador.js');
+    escenarioBase();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk());
+
+    // Dos jobs de la cola ocupan los dos cupos con promesas que el test suelta a mano.
+    const soltar: Array<() => void> = [];
+    const ocupados = [0, 1].map(() => limitadorRunt.ejecutar(() => new Promise<void>((res) => { soltar.push(res); })));
+    expect(limitadorRunt.enVuelo()).toBe(2);
+
+    const certificacion = certificarImpuesto(ID, CTX);
+    // Deja correr todo lo que la certificación hace antes del RUNT (acceso, lectura del vehículo).
+    for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
+
+    soltar[0]!();
+    const r = await certificacion;
+    expect(consultarVehiculoRuntMock).toHaveBeenCalledTimes(1);
+    expect(r.resultado).toBe(ResultadoCertificacion.CERTIFICADO);
+
+    soltar[1]!();
+    await Promise.all(ocupados);
+    expect(limitadorRunt.enVuelo()).toBe(0);
+  });
+});

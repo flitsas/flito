@@ -90,7 +90,8 @@ describe('0205 — análisis estático', () => {
   }, 60_000);
 
   it('el helper de paridad la pliega: `leerReagrupacionesSembradas()` devuelve los 47 pares y `funcionesDeSql` cambia el módulo', () => {
-    expect(MIGRACIONES_CON_REPARTO.at(-1)).toBe(ARCHIVO);
+    // Posición RELATIVA (detrás de la 0203), nunca «es la última»: la 0208 (HU #12833) va detrás.
+    expect(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO)).toBe(MIGRACIONES_CON_REPARTO.indexOf('0203_permiso_excel_exportar_pago.sql') + 1);
     const sembradas = leerReagrupacionesSembradas([ARCHIVO]);
     expect(sembradas.size).toBe(47);
     expect([...sembradas.entries()].sort()).toEqual([...MAPA.entries()].sort());
@@ -111,7 +112,8 @@ describe('0205 — análisis estático', () => {
     expect(retiros.reparto.size).toBe(0);
     const hasta0203 = MIGRACIONES_CON_REPARTO.filter((m) => m < ARCHIVO);
     const aPares = (m: Map<string, Set<string>>) => [...m.entries()].flatMap(([r, cs]) => [...cs].map((c) => `${r} ${c}`)).sort();
-    expect(aPares(leerRepartoSembrado())).toEqual(aPares(leerRepartoSembrado(hasta0203)));
+    const hasta0205 = MIGRACIONES_CON_REPARTO.filter((m) => m <= ARCHIVO);
+    expect(aPares(leerRepartoSembrado(hasta0205))).toEqual(aPares(leerRepartoSembrado(hasta0203)));
   });
 
   it('los módulos que nacen y los que desaparecen son los de la HU (AC1, AC2)', () => {

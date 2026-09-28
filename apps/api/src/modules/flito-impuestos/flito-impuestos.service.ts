@@ -18,10 +18,14 @@ import { aIso } from '../../shared/utils/fecha-rango.js';
 import { registrarCambio, registrarCambios } from '../../shared/historial/estado-historial.js';
 import { clasificacionDeTipoFlit, expresionesFlitRaw } from '../../shared/export/cola-flito-derivados.js';
 import {
-  ANS_OPERATIVO, EstadoImpuesto, ESTADO_IMPUESTO_LABEL, TipoSoporte, type DocumentosImpuesto,
+  ANS_OPERATIVO, EstadoImpuesto, ESTADO_IMPUESTO_LABEL, NOMBRE_CERTIFICADOR_AUTOMATICO, SemaforoImpuesto,
+  TipoSoporte, esMotivoSemaforoRojo, type AnalisisEstadoImpuesto, type ComparacionFacturaRunt,
+  type DireccionCompradorImpuesto, type DocumentosImpuesto, type MotivoSemaforoRojo,
 } from '@operaciones/shared-types';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
+import { encolarAnalisis, marcarEnCursoEnTx } from './flito-impuestos.analisis.service.js';
+import { bloqueDireccionDetalle, direccionFlitDe } from './flito-impuestos.direccion.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -105,7 +109,19 @@ export interface ImpuestoColaItem {
    * respuesta de certificar; meterlo aquí engordaría cada fila del listado con datos que la tabla no
    * muestra.
    */
-  certificacion: { id: string; certificadoEn: string; certificadoPorNombre: string } | null;
+  certificacion: {
+    id: string; certificadoEn: string; certificadoPorNombre: string;
+    /** HU #12830/#12832: `true` = la firmó el análisis post-envío (12828), no una persona. */
+    automatica: boolean;
+  } | null;
+  /**
+   * HU #12830: análisis post-envío factura ↔ RUNT (12825-12828). `null` = nunca encolado. Con
+   * `en_curso` el `semaforo` puede ser el de la corrida anterior: quien pinta manda el `en_curso`.
+   */
+  analisisEstado: AnalisisEstadoImpuesto | null;
+  semaforo: SemaforoImpuesto | null;
+  /** Por qué el semáforo es rojo; `null` si no es rojo. La comparación campo a campo va en el detalle. */
+  motivoSemaforo: MotivoSemaforoRojo | null;
 }
 
 const SELECT_COLA = {
@@ -132,6 +148,10 @@ const SELECT_COLA = {
   // SQL— y entra en el `innerJoin` con `flito_tramites` que esta consulta ya hacía: cero joins
   // nuevos, cero consultas nuevas, cero migración, y `flit_raw` NO se proyecta entera.
   tipoTitularFlit: expresionesFlitRaw(flitoTramites.flitRaw).tipo,
+  // HU #12830: el semáforo y su motivo. Del jsonb de la comparación solo viaja `motivo` (->>), no el
+  // documento entero: la tabla campo a campo es del detalle (`GET /:id`), no de cada fila.
+  analisisEstado: flitoImpuestos.analisisEstado, semaforo: flitoImpuestos.semaforo,
+  motivoSemaforo: sql<string | null>`${flitoImpuestos.comparacionFacturaRunt}->>'motivo'`,
 } as const;
 
 /**
@@ -196,6 +216,8 @@ export interface FiltrosColaImpuestos {
    * la frontera del gestor ni `ESTADOS_VISIBLES_GESTOR`.
    */
   liquidadoPendientePago?: boolean;
+  /** HU #12830: semáforos factura ↔ RUNT (OR entre ellos, AND con lo demás). Vacío = sin acotar. */
+  semaforo?: SemaforoImpuesto[];
   page?: number; pageSize?: number;
 }
 
@@ -286,6 +308,8 @@ export function condicionesColaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuest
   if (f.liquidadoPendientePago) {
     conds.push(sql`(${flitoImpuestos.estado} = ${EstadoImpuesto.SOLICITADO} AND ${flitoImpuestos.liquidadoEn} IS NOT NULL)`);
   }
+  // HU #12830 (preset «Con alertas» = naranja,rojo). `NULL` (sin analizar) nunca entra en el IN.
+  if (f.semaforo?.length) conds.push(inArray(flitoImpuestos.semaforo, f.semaforo));
 
   return conds;
 }
@@ -436,6 +460,7 @@ async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
       impuestoId: flitoImpuestoCertificaciones.impuestoId,
       createdAt: flitoImpuestoCertificaciones.createdAt,
       certificadoPorNombre: flitoImpuestoCertificaciones.certificadoPorNombre,
+      certificadoPorId: flitoImpuestoCertificaciones.certificadoPorId,
     })
       .from(flitoImpuestoCertificaciones)
       .where(and(
@@ -471,8 +496,15 @@ async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
     const cert = certPorImpuesto.get(r.id);
     return {
       certificacion: cert
-        ? { id: cert.id, certificadoEn: cert.createdAt.toISOString(), certificadoPorNombre: cert.certificadoPorNombre }
+        ? {
+          id: cert.id, certificadoEn: cert.createdAt.toISOString(), certificadoPorNombre: cert.certificadoPorNombre,
+          // Sin usuario Y con la firma del sistema: un manual de usuario borrado (FK SET NULL) no cuenta.
+          automatica: cert.certificadoPorId == null && cert.certificadoPorNombre === NOMBRE_CERTIFICADOR_AUTOMATICO,
+        }
         : null,
+      analisisEstado: (r.analisisEstado ?? null) as AnalisisEstadoImpuesto | null,
+      semaforo: (r.semaforo ?? null) as SemaforoImpuesto | null,
+      motivoSemaforo: r.semaforo === SemaforoImpuesto.ROJO && esMotivoSemaforoRojo(r.motivoSemaforo) ? r.motivoSemaforo : null,
       liquidadoEn: r.liquidadoEn ? r.liquidadoEn.toISOString() : null,
       documentos: documentosDe(tiposPorImpuesto.get(r.id) ?? SIN_DOCUMENTOS),
       id: r.id, tramiteId: r.tramiteId, idFlit: r.idFlit, placa: r.placa, vin: r.vin ?? '',
@@ -586,6 +618,9 @@ export async function facturaVentaFlitConAcceso(
 
 export interface ImpuestoDetalle extends ImpuestoColaItem {
   extraccion: unknown; extraccionFacturaVenta: unknown; pagadoEn: string | null;
+  direccionComprador: DireccionCompradorImpuesto; // HU #12833: la efectiva (factura/manual > FLIT)
+  /** HU #12830/#12831: comparación factura ↔ RUNT tal como la guardó la 12827; `null` = sin calcular. */
+  comparacion: ComparacionFacturaRunt | null;
   soportes: Array<{ id: string; tipo: string; nombreArchivo: string; subidoEn: string }>;
 }
 
@@ -600,6 +635,8 @@ export async function detalleImpuesto(id: string, ctx: ImpuestoCtx): Promise<Imp
   return {
     ...item, extraccion: imp.extraccion, extraccionFacturaVenta: imp.extraccionFacturaVenta,
     pagadoEn: imp.pagadoEn ? imp.pagadoEn.toISOString() : null,
+    direccionComprador: bloqueDireccionDetalle(imp, await direccionFlitDe(imp.tramiteId)),
+    comparacion: imp.comparacionFacturaRunt ?? null,
     soportes: soportes.map((s) => ({ ...s, subidoEn: s.subidoEn.toISOString() })),
   };
 }
@@ -618,13 +655,13 @@ export interface ResultadoEnvio { enviados: string[]; yaEnviados: string[] }
  */
 export async function enviarAlGestor(ids: string[], ctx: ImpuestoCtx, gestionOperaciones = false): Promise<ResultadoEnvio> {
   if (ids.length === 0) return { enviados: [], yaEnviados: [] };
-  const enviados = await db.transaction(async (tx) => {
-    const locked = await tx.select({ id: flitoImpuestos.id }).from(flitoImpuestos)
+  const { enviados, porAnalizar } = await db.transaction(async (tx) => {
+    const locked = await tx.select({ id: flitoImpuestos.id, analizadoEn: flitoImpuestos.analizadoEn }).from(flitoImpuestos)
       .innerJoin(clients, eq(flitoImpuestos.companiaId, clients.id))
       .where(and(inArray(flitoImpuestos.id, ids), eq(flitoImpuestos.estado, EstadoImpuesto.PENDIENTE), FRONTERA_AUTOGESTION_IMP))
       .for('update', { of: flitoImpuestos, skipLocked: true });
     const idsEnviados = locked.map((r) => r.id);
-    if (idsEnviados.length === 0) return [];
+    if (idsEnviados.length === 0) return { enviados: [] as string[], porAnalizar: [] as string[] };
     const ahora = new Date();
     await tx.update(flitoImpuestos).set({
       estado: EstadoImpuesto.SOLICITADO, enviadoPorId: ctx.userId, enviadoEn: ahora, updatedAt: ahora,
@@ -642,8 +679,10 @@ export async function enviarAlGestor(ids: string[], ctx: ImpuestoCtx, gestionOpe
       motivo: gestionOperaciones ? 'Envío a gestión de Operaciones' : 'Envío al gestor',
       usuarioId: ctx.userId, usuarioEmail: ctx.username,
     })));
-    return idsEnviados;
+    // HU #12825 (AC1): `en_curso` en la misma transacción; el job se encola tras el commit.
+    return { enviados: idsEnviados, porAnalizar: await marcarEnCursoEnTx(tx, locked, ahora) };
   });
+  encolarAnalisis(porAnalizar);
   return { enviados, yaEnviados: ids.filter((id) => !enviados.includes(id)) };
 }
 

@@ -27,6 +27,8 @@ export interface CertificacionCola {
   id: string;
   certificadoEn: string;
   certificadoPorNombre: string;
+  /** true = la firmó el análisis post-envío, no una persona (HU #12830). Solo Impuestos lo manda. */
+  automatica?: boolean;
 }
 
 /** Desenlace de un intento, ya normalizado desde la respuesta del backend. */
@@ -72,7 +74,10 @@ export function AccionCertificacion({
   onDescargar: () => void;
 }) {
   if (certificacion) {
-    const titulo = `Certificado el ${fechaHora(certificacion.certificadoEn)} por ${certificacion.certificadoPorNombre}`;
+    // La automática la firmó el análisis post-envío (HU #12830/#12832): no hay persona que nombrar.
+    const titulo = certificacion.automatica
+      ? `Certificado automáticamente el ${fechaHora(certificacion.certificadoEn)}`
+      : `Certificado el ${fechaHora(certificacion.certificadoEn)} por ${certificacion.certificadoPorNombre}`;
     // A un usuario de solo lectura se le muestra el estado, no el enlace: el backend le devolvería
     // 403 al descargar (la ruta es de operaciones y gestor), y ofrecer un botón que falla es peor
     // que no ofrecerlo.
@@ -81,7 +86,8 @@ export function AccionCertificacion({
     }
     return (
       <button type="button" onClick={onDescargar} title={`${titulo}. Descargar el certificado en PDF.`}
-        aria-label="Descargar certificado en PDF" className="cursor-pointer">
+        aria-label="Descargar certificado en PDF"
+        className="cursor-pointer rounded-full flit-focus transition-colors hover:bg-[var(--flit-bg-hover)]">
         <StatusChip tone="success">Certificado</StatusChip>
       </button>
     );
