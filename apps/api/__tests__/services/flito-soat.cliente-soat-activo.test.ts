@@ -129,6 +129,8 @@ function escenario(over: Partial<Record<string, unknown[]>> = {}) {
     ...(over as Record<string, unknown[]>),
   });
   kdb.when.insert('vehicles', [{ id: VEHICULO_ID }]);
+  // HU #12996: con el RUNT caído el alta APARCA la solicitud en `flito_soat_incompletas` (202).
+  kdb.when.insert('flito_soat_incompletas', [{ id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }]);
 }
 
 const CAMPOS: Record<string, string> = {
@@ -524,7 +526,7 @@ describe('RN-05 (Feature #12840) — `campos_accedidos` declara el SOAT activo q
     expect(registros()).toHaveLength(2);
   });
 
-  it('**negativo — un 422 y un 503 siguen declarando `[]`**', async () => {
+  it('**negativo — un 422 y un RUNT caído (202 desde la HU #12996) siguen declarando `[]`**', async () => {
     escenario();
     const app = await buildApp();
 
@@ -535,8 +537,8 @@ describe('RN-05 (Feature #12840) — `campos_accedidos` declara el SOAT activo q
     expect(r422.status).toBe(422);
 
     consultarVehiculoRuntMock.mockResolvedValue({ ok: false, error: 'timeout' });
-    const r503 = await alta(app, await auth(siguienteUsuario()));
-    expect(r503.status).toBe(503);
+    const rCaido = await alta(app, await auth(siguienteUsuario()));
+    expect(rCaido.status).toBe(202);
 
     expect(registros()).toHaveLength(2);
     for (const r of registros()) expect(r.camposAccedidos).toStrictEqual([]);

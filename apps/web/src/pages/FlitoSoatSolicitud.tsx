@@ -58,12 +58,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, Car, CircleCheck, FileText, Loader2, RotateCw, Search, Send, UserRound,
+  ArrowLeft, Car, CircleCheck, FileText, Loader2, RotateCw, Save, Search, Send, UserRound,
 } from 'lucide-react';
 import { toastOk } from '../components/flit/ToastFlito';
 import {
   CodigoErrorSolicitudSoat, PROCEDENCIA_POR_DEFECTO, ProcedenciaDato,
-  type ExtraccionFacturaVenta, type SoatActivoRunt,
+  type ExtraccionFacturaVenta, type RespuestaAltaSolicitudSoat, type SoatActivoRunt,
 } from '@operaciones/shared-types';
 import { api } from '../lib/api';
 import { puedeSolicitarSoat, useAuth } from '../lib/auth';
@@ -81,7 +81,8 @@ import StatusChip from '../components/flit/StatusChip';
 import {
   FlitCard, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../components/flit/flitPageKit';
-import { ModalVinEnCola } from '../components/flito/soat-cliente/ModalesBloqueo';
+import { ModalIncompletaExistente, ModalVinEnCola } from '../components/flito/soat-cliente/ModalesBloqueo';
+import TarjetaSolicitudGuardada from '../components/flito/soat-cliente/TarjetaSolicitudGuardada';
 import TarjetaSoatActivo from '../components/flito/soat-cliente/TarjetaSoatActivo';
 import {
   AvisoLongitudVin, AyudaVin, BandaDesenlace, EsqueletoFicha, VacioVin,
@@ -111,6 +112,9 @@ const ID_FALTANTES = 'sol-falta';
  */
 const ROTULO_ENVIAR = 'Enviar al gestor';
 const TOAST_ENVIADA = 'Solicitud enviada. Ya está en gestión.';
+/** HU #12996 (UX §2.2, literal): rótulo y frase de la barra en «modo RUNT caído». */
+const ROTULO_GUARDAR = 'Guardar pendiente de validar';
+const FRASE_CAIDO = 'El RUNT no respondió: la solicitud quedará pendiente de validar y se consultará de nuevo antes de enviarla al gestor.';
 /** No es una lista de lo que falta: no falta nada, está PROHIBIDO. Por eso no pasa por la plantilla. */
 const AVISO_VIGENTE = 'Este vehículo tiene SOAT vigente según el RUNT: no se puede radicar la solicitud.';
 
@@ -240,6 +244,13 @@ function Alta() {
   const [avisoEnvio, setAvisoEnvio] = useState<string | null>(null);
   const [envioIncierto, setEnvioIncierto] = useState(false);
   const [confirmarSalida, setConfirmarSalida] = useState(false);
+  /**
+   * HU #12996 (AC3/AC8): el alta respondió `202 incompleta`. El VIN que se guardó, para la tarjeta de
+   * confirmación que REEMPLAZA al formulario. `null` = el formulario sigue en pantalla.
+   */
+  const [guardada, setGuardada] = useState<{ vin: string } | null>(null);
+  /** Sube con «Solicitar otro SOAT»: el efecto enfoca el VIN cuando el formulario vuelve a montarse. */
+  const [reinicios, setReinicios] = useState(0);
 
   /**
    * Turno de la consulta en vuelo: **la segunda de DOS cerraduras**, y las dos son deliberadas.
@@ -296,7 +307,8 @@ function Alta() {
   useEffect(() => { propietarioRef.current = propietario; }, [propietario]);
   useEffect(() => { procedenciaRef.current = procedencia; }, [procedencia]);
 
-  const hayDatos = Boolean(vin || archivo || Object.values(propietario).some(Boolean));
+  // Tras guardar, el registro ya existe: salir no descarta nada y no pide confirmación (UX §2.3).
+  const hayDatos = !guardada && Boolean(vin || archivo || Object.values(propietario).some(Boolean));
   /**
    * **La compuerta del RUNT, y solo eso.** Hasta la HU #12079 esto se llamaba `puedeEnviar` y
    * decidía DOS cosas: el aspecto del botón y a dónde va el foco al pulsarlo. Redefinirlo para que
@@ -304,9 +316,16 @@ function Alta() {
    * que no tiene nada de malo— cuando lo que falta es el correo. Por eso son dos nombres: este
    * enruta el foco, `faltantes` decide el aspecto.
    */
-  const compuertaAbierta = consulta.fase === 'ok';
+  /**
+   * HU #12996 (AC6/AC7): **solo** el `503 runt_no_disponible` de la consulta abre la salida de
+   * guardar pendiente de validar (`desenlace.guardable`). Editar el VIN pasa la consulta a
+   * `invalidada` y la cierra hasta volver a consultar: el 503 era de OTRO VIN.
+   */
+  const modoCaido = consulta.fase === 'fallo' && consulta.desenlace.guardable === true;
+  const compuertaAbierta = consulta.fase === 'ok' || modoCaido;
 
   useEffect(() => { tituloRef.current?.focus(); }, []);
+  useEffect(() => { if (reinicios > 0) vinRef.current?.focus(); }, [reinicios]);
 
   // Foco tras un desenlace con banda: al campo VIN cuando hay algo suyo que corregir —el VIN que no
   // cuadra, el que el RUNT no tiene registrado— y al botón de consulta cuando no lo hay (el servicio
@@ -548,6 +567,7 @@ function Alta() {
         setCanalCaido(true);
         return;
       case 'vin-en-cola':
+      case 'incompleta-existente':
         // RN-01 corre ANTES del RUNT cuando hay VIN tecleado, así que este 409 puede llegar también
         // en la consulta. Llegue por donde llegue, la compuerta sigue cerrada.
         setModal(f);
@@ -679,7 +699,15 @@ function Alta() {
       // `nombreCompleto` ya no viaja (lo deriva el servidor) y marca, línea, modelo, clase,
       // cilindraje, carrocería y organismo NO viajan nunca: los resuelve el servidor consultando
       // otra vez. La pantalla no le reenvía lo que él mismo le mostró en la preconsulta.
-      await api.post('/flito/soat/cliente', form);
+      const resp = await api.post<RespuestaAltaSolicitudSoat | undefined>('/flito/soat/cliente', form);
+      // HU #12996: el `202 incompleta` NO es un éxito de envío. Su `id` no es un SOAT (el detalle
+      // daría 404), así que no se navega ni se tuesta: la tarjeta de confirmación reemplaza al
+      // formulario (AC8). Vale también si la consulta salió OK y el RUNT cayó al enviar (AC3). Una
+      // API anterior sin `desenlace` sigue por el flujo de siempre.
+      if (resp?.desenlace === 'incompleta') {
+        setGuardada({ vin });
+        return;
+      }
       // Cerrable (HU #12819): `toast.success` no se podía cerrar.
       toastOk(TOAST_ENVIADA);
       navigate(COLA);
@@ -724,6 +752,27 @@ function Alta() {
   const salir = () => (hayDatos ? setConfirmarSalida(true) : navigate(COLA));
 
   /**
+   * «Solicitar otro SOAT» de la tarjeta de confirmación: es OTRA solicitud, así que se limpia el
+   * formulario entero —a diferencia de «Consultar otro vehículo»— y el foco va al VIN (AC8).
+   */
+  const solicitarOtro = () => {
+    turno.current += 1;
+    turnoLectura.current += 1;
+    setVin('');
+    setPropietario(PROPIETARIO_VACIO);
+    setArchivo(null);
+    setConsulta({ fase: 'inicial' });
+    setLectura({ fase: 'inicial' });
+    setProcedencia({});
+    setPorRevisar({});
+    setSobrescritura(null);
+    setErrores({});
+    setAvisoEnvio(null);
+    setGuardada(null);
+    setReinicios((n) => n + 1);
+  };
+
+  /**
    * Lo que falta para poder enviar, **derivado de `validarTodo`** — la misma función que bloquea el
    * envío— y nunca de un chequeo de vacíos paralelo.
    *
@@ -751,10 +800,13 @@ function Alta() {
   }, [propietario.tipoDocumento, porRevisar]);
 
   const faltantes = useMemo(
-    () => faltaParaEnviar(consulta.fase, vin, propietario, archivo, pendientesRevision.length),
-    [consulta.fase, vin, propietario, archivo, pendientesRevision.length],
+    // En modo RUNT caído la consulta ya no es un pendiente: lo que falta son los datos (UX §2.2).
+    () => faltaParaEnviar(modoCaido ? 'ok' : consulta.fase, vin, propietario, archivo, pendientesRevision.length),
+    [modoCaido, consulta.fase, vin, propietario, archivo, pendientesRevision.length],
   );
-  const fraseFaltantes = consulta.fase === 'vigente' ? AVISO_VIGENTE : frasePendientes(faltantes);
+  const fraseFaltantes = consulta.fase === 'vigente'
+    ? AVISO_VIGENTE
+    : frasePendientes(faltantes) ?? (modoCaido ? FRASE_CAIDO : null);
 
   const idPrimerError = useMemo(() => primerErrorEnfocable(errores), [errores]);
   useFocoPrimerError(idPrimerError, intento);
@@ -776,7 +828,9 @@ function Alta() {
   // HU #12213/#12844. **Solo se lee lo que el servidor mandó**: sin umbral local. `null` —o la clave
   // ausente, si la API va por detrás del bundle— no pinta tarjeta (AC5).
   const vigencia = consulta.fase === 'ok' ? consulta.datos.vigenciaProxima ?? null : null;
-  const consultaResuelta = consulta.fase === 'ok' || consulta.fase === 'vigente';
+  // «Volver a consultar» baja a secundaria también cuando, con el RUNT caído, el formulario ya está
+  // completo: la primaria pasa a «Guardar pendiente de validar» (UX §1, un solo relevo).
+  const consultaResuelta = consulta.fase === 'ok' || consulta.fase === 'vigente' || (modoCaido && !bloqueado);
   const IconoConsulta = cargando ? Loader2 : consulta.fase === 'inicial' ? Search : RotateCw;
 
   return (
@@ -796,6 +850,10 @@ function Alta() {
         />
       </div>
 
+      {guardada ? (
+        <TarjetaSolicitudGuardada vin={guardada.vin} onIrACola={() => navigate(COLA)} onSolicitarOtro={solicitarOtro} />
+      ) : (
+      <>
       {/* ── Bloque 1 · Vehículo ─────────────────────────────────────────────────────────────────
           **Un solo campo** (AC1). Placa, tipo y número de documento salieron de aquí: desde la
           HU #12090 el RUNT se interroga por VIN, y un campo que no cambia el resultado de la
@@ -938,10 +996,12 @@ function Alta() {
               {avisoEnvio && (
                 <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-danger-text)' }}>{avisoEnvio}</p>
               )}
-              <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-                No se guarda como borrador: al enviarla, entra en gestión.
-              </p>
-              {enviando && <span role="status" className="sr-only">Enviando…</span>}
+              {!modoCaido && (
+                <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+                  No se guarda como borrador: al enviarla, entra en gestión.
+                </p>
+              )}
+              {enviando && <span role="status" className="sr-only">{modoCaido ? 'Guardando…' : 'Enviando…'}</span>}
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {/* **Texto plano con `id`, no una región viva.** El botón la referencia con
                     `aria-describedby` mientras está bloqueado, así que el lector anuncia «Enviar al
@@ -953,7 +1013,11 @@ function Alta() {
                     {fraseFaltantes}
                   </p>
                 )}
-                <div className="grid w-full grid-cols-[auto_1fr] gap-2 sm:flex sm:w-auto">
+                {/* En modo RUNT caído el rótulo es largo: a <sm se apilan con la primaria arriba en vez
+                    de partir el texto dentro de un botón de altura fija. */}
+                <div className={modoCaido
+                  ? 'flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row'
+                  : 'grid w-full grid-cols-[auto_1fr] gap-2 sm:flex sm:w-auto'}>
                 <button type="button" className={`${flitBtnSecondary} justify-center`} style={flitBtnSecondaryStyle} onClick={salir}>
                   Cancelar
                 </button>
@@ -971,8 +1035,10 @@ function Alta() {
                   aria-disabled={bloqueado ? true : undefined}
                   aria-describedby={bloqueado && fraseFaltantes ? ID_FALTANTES : undefined}
                   disabled={enviando} onClick={intentarEnviar}>
-                  <Send size={16} aria-hidden="true" className="shrink-0" />
-                  {enviando ? 'Enviando…' : ROTULO_ENVIAR}
+                  {modoCaido
+                    ? <Save size={16} aria-hidden="true" className="shrink-0" />
+                    : <Send size={16} aria-hidden="true" className="shrink-0" />}
+                  {enviando ? (modoCaido ? 'Guardando…' : 'Enviando…') : (modoCaido ? ROTULO_GUARDAR : ROTULO_ENVIAR)}
                 </button>
                 </div>
               </div>
@@ -980,6 +1046,8 @@ function Alta() {
           )}
       </FlitCard>
       </div>
+      </>
+      )}
 
       {/* Los dos modales dicen «este vehículo» y NO interpolan identificador alguno (UX §5, decisión
           7). La placa ya no existe como dato tecleado, y el VIN no la sustituye: en `vin_ya_tiene_soat`
@@ -991,6 +1059,9 @@ function Alta() {
           propia={modal.propia === true} estado={modal.estado} id={modal.id}
           restoreFocusRef={vinRef} onClose={() => setModal(null)}
         />
+      )}
+      {modal?.codigo === CodigoErrorSolicitudSoat.SOLICITUD_INCOMPLETA_EXISTENTE && (
+        <ModalIncompletaExistente propia={modal.propia === true} restoreFocusRef={vinRef} onClose={() => setModal(null)} />
       )}
 
       {confirmarSalida && (

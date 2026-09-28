@@ -119,6 +119,7 @@ const campoVin = (page: Page) => page.getByLabel('VIN (número de chasis)');
 const btnConsultar = (page: Page) => page.getByRole('button', { name: 'Consultar el RUNT' });
 const btnReconsultar = (page: Page) => page.getByRole('button', { name: 'Volver a consultar' });
 const btnEnviar = (page: Page) => page.getByRole('button', { name: 'Enviar al gestor' });
+const btnGuardar = (page: Page) => page.getByRole('button', { name: 'Guardar pendiente de validar' });
 const fichaRunt = (page: Page) => page.getByRole('region', { name: 'Datos del RUNT' });
 
 /** El propietario del bloque 3, con su documento — que desde esta HU se edita AQUÍ. */
@@ -416,11 +417,12 @@ test.describe('HU #12091 · AC4 — los cuatro desenlaces se distinguen por CÓD
   test('503 runt_no_disponible: habla del SERVICIO aunque el mensaje del servidor hable de datos', async ({ page }) => {
     const cap = await consultarCon(page, fallo(503, 'runt_no_disponible', 'Los datos no corresponden: revisa los datos.'));
 
-    await expect(page.getByRole('alert')).toContainText('El RUNT no está disponible, vuelva a consultar.');
+    await expect(page.getByRole('alert')).toContainText('El RUNT no está respondiendo en este momento.');
     await expect(page.getByText(/revisa los datos/i)).toHaveCount(0);
     // Sin nada suyo que corregir, el foco va al botón y no al campo.
     await expect(btnReconsultar(page)).toBeFocused();
-    await expect(btnEnviar(page)).toHaveAttribute('aria-disabled', 'true');
+    // HU #12996: el modo RUNT caído cambia el rótulo; con datos pendientes sigue bloqueado.
+    await expect(btnGuardar(page)).toHaveAttribute('aria-disabled', 'true');
     expect(cap.altas).toHaveLength(0);
   });
 
@@ -634,5 +636,188 @@ test.describe('HU #12091 · AC5 — editar el VIN invalida la consulta', () => {
     await expect(btnEnviar(page)).toHaveAttribute('aria-disabled', 'true');
     expect(cap.preconsultas).toHaveLength(1);
     expect(cap.altas).toHaveLength(0);
+  });
+});
+
+// ═════════════ HU #12996 · solicitud «por validar» cuando el RUNT no responde ═════════════════════
+//
+// Spec UX: docs/ux/flito-soat-solicitud-incompleta-runt.md §2.1–2.3 (copy literal). El alta con el
+// RUNT caído responde `202 { desenlace: 'incompleta', id, estado, mensaje }`: su `id` NO es un SOAT,
+// así que la pantalla no navega a él ni tuesta «enviada».
+
+const INCOMPLETA_202 = {
+  status: 202,
+  cuerpo: {
+    desenlace: 'incompleta', id: '99999999-2222-4333-8444-555555555555', estado: 'incompleta',
+    mensaje: 'El RUNT no respondió.',
+  },
+};
+const TITULO_GUARDADA = 'Su solicitud quedó guardada, pendiente de validar';
+const CUERPO_GUARDADA = 'El RUNT no respondió, así que todavía no la enviamos al gestor. Guardamos el VIN, la factura y los datos del propietario: no tiene que volver a escribirlos. FLITO volverá a consultar el RUNT y usted verá el cambio de estado en «Mis SOAT».';
+const FRASE_CAIDO = 'El RUNT no respondió: la solicitud quedará pendiente de validar y se consultará de nuevo antes de enviarla al gestor.';
+
+/** Formulario completo y consulta con 503: el estado desde el que se puede guardar. */
+async function llenarTodoConRuntCaido(page: Page) {
+  await campoVin(page).fill(VIN);
+  await adjuntarFactura(page);
+  await llenarPropietario(page);
+  await btnConsultar(page).click();
+  await expect(page.getByRole('alert')).toContainText('El RUNT no está respondiendo en este momento.');
+}
+
+test.describe('HU #12996 · AC7 — el formulario en modo RUNT caído', () => {
+  test('banda literal; con datos pendientes «Guardar pendiente de validar» está aria-disabled', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    const cap = await mockCanal(page, { preconsulta: fallo(503, 'runt_no_disponible', 'mentira') });
+    await campoVin(page).fill(VIN);
+    await btnConsultar(page).click();
+
+    const banda = page.getByRole('alert');
+    await expect(banda).toContainText('El RUNT no está respondiendo en este momento.');
+    await expect(banda).toContainText('Puede volver a consultar, o completar la factura y el propietario y guardar la solicitud pendiente de validar. Lo que escriba no se pierde.');
+    await expect(btnGuardar(page)).toHaveAttribute('aria-disabled', 'true');
+    await expect(btnEnviar(page)).toHaveCount(0);
+    // Mientras faltan datos, «Volver a consultar» sigue siendo la primaria (UX §1).
+    await expect(page.getByText(/^Para enviar falta: Factura de venta/)).toBeVisible();
+
+    // Pulsar el bloqueado no guarda nada (`force`: Playwright trata `aria-disabled` como deshabilitado).
+    await btnGuardar(page).click({ force: true });
+    expect(cap.altas).toHaveLength(0);
+  });
+
+  test('completo: primario activo, frase literal, «Guardando…» en vuelo y tarjeta al 202', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    const cap = await mockCanal(page, { preconsulta: fallo(503, 'runt_no_disponible', 'mentira'), alta: INCOMPLETA_202 });
+    await llenarTodoConRuntCaido(page);
+
+    await expect(btnGuardar(page)).not.toHaveAttribute('aria-disabled', 'true');
+    await expect(page.getByText(FRASE_CAIDO)).toBeVisible();
+    await expect(btnReconsultar(page)).toBeVisible();
+
+    // Retener el alta para ver «Guardando…». La ruta registrada después gana.
+    let soltar: () => void = () => {};
+    const retenida = new Promise<void>((r) => { soltar = () => r(); });
+    await page.route(RE_ALTA, async (route) => {
+      cap.altas.push({ post: route.request().postData() });
+      await retenida;
+      return json(route, INCOMPLETA_202.status, INCOMPLETA_202.cuerpo);
+    });
+    await btnGuardar(page).click();
+    await expect(page.getByRole('button', { name: 'Guardando…' })).toBeDisabled();
+    soltar();
+
+    await expect(page.getByRole('heading', { name: TITULO_GUARDADA })).toBeVisible();
+    expect(cap.altas).toHaveLength(1);
+  });
+
+  test('editar el VIN cierra la opción hasta volver a consultar', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCanal(page, { preconsulta: fallo(503, 'runt_no_disponible', 'mentira') });
+    await llenarTodoConRuntCaido(page);
+    await expect(btnGuardar(page)).toBeVisible();
+
+    await campoVin(page).fill(`${VIN.slice(0, 16)}9`);
+
+    await expect(btnGuardar(page)).toHaveCount(0);
+    await expect(btnEnviar(page)).toHaveAttribute('aria-disabled', 'true');
+    await expect(page.getByText(FRASE_CAIDO)).toHaveCount(0);
+  });
+});
+
+test.describe('HU #12996 · AC6 — los otros desenlaces NO abren la opción de guardar', () => {
+  const casos: [string, Respuesta | 'sin-red'][] = [
+    ['runt_no_cuadra', fallo(422, 'runt_no_cuadra', 'x', { campo: 'vin' })],
+    ['runt_sin_registro', fallo(422, 'runt_sin_registro', 'x')],
+    ['genérico (código desconocido)', fallo(500, 'codigo_que_no_existe', 'x')],
+    ['sin red', 'sin-red'],
+  ];
+  for (const [nombre, respuesta] of casos) {
+    test(`${nombre}: sin «Guardar pendiente de validar» y cero altas`, async ({ page }) => {
+      await loginAs(page, CLIENTE_CON_CANAL);
+      const cap = await mockCanal(page, respuesta === 'sin-red' ? {} : { preconsulta: respuesta });
+      if (respuesta === 'sin-red') {
+        await page.unroute(RE_PRECONSULTA);
+        await page.route(RE_PRECONSULTA, (route) => route.abort('failed'));
+      }
+      await campoVin(page).fill(VIN);
+      await adjuntarFactura(page);
+      await llenarPropietario(page);
+      await btnConsultar(page).click();
+      await expect(page.getByRole('alert')).toBeVisible();
+
+      await expect(btnGuardar(page)).toHaveCount(0);
+      await expect(btnEnviar(page)).toHaveAttribute('aria-disabled', 'true');
+      await btnEnviar(page).click({ force: true });
+      expect(cap.altas).toHaveLength(0);
+    });
+  }
+});
+
+test.describe('HU #12996 · AC3/AC8 — la tarjeta de confirmación', () => {
+  test('RUNT OK en la consulta y caído al enviar: tarjeta role=status, foco en el título, sin toast ni VIN en la URL', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCanal(page, { alta: INCOMPLETA_202 });
+    await llenarTodoYConsultar(page);
+    await btnEnviar(page).click();
+
+    const titulo = page.getByRole('heading', { name: TITULO_GUARDADA });
+    await expect(titulo).toBeFocused();
+    const tarjeta = page.getByRole('status').filter({ has: titulo });
+    await expect(tarjeta).toContainText(CUERPO_GUARDADA);
+    await expect(tarjeta.locator('.font-mono')).toHaveText(VIN);
+    // El formulario se reemplaza: ni el campo VIN ni la barra de envío.
+    await expect(campoVin(page)).toHaveCount(0);
+    await expect(btnEnviar(page)).toHaveCount(0);
+    await expect(page.getByText('Solicitud enviada. Ya está en gestión.')).toHaveCount(0);
+    expect(page.url()).not.toContain(VIN);
+
+    await page.getByRole('button', { name: 'Ir a mis SOAT' }).click();
+    await expect(page).toHaveURL(/\/flito\/soat$/);
+    expect(page.url()).not.toContain(VIN);
+  });
+
+  test('«Solicitar otro SOAT» limpia el formulario entero y enfoca el VIN', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCanal(page, { preconsulta: fallo(503, 'runt_no_disponible', 'mentira'), alta: INCOMPLETA_202 });
+    await llenarTodoConRuntCaido(page);
+    await btnGuardar(page).click();
+    await expect(page.getByRole('heading', { name: TITULO_GUARDADA })).toBeFocused();
+
+    await page.getByRole('button', { name: 'Solicitar otro SOAT' }).click();
+
+    await expect(campoVin(page)).toBeFocused();
+    await expect(campoVin(page)).toHaveValue('');
+    await expect(page.getByLabel('Número de documento')).toHaveValue('');
+    await expect(page.getByLabel('Correo electrónico')).toHaveValue('');
+    await expect(btnConsultar(page)).toBeVisible();
+    await expect(btnGuardar(page)).toHaveCount(0);
+  });
+});
+
+test.describe('HU #12996 · AC5 — el VIN ya tiene una solicitud pendiente de validar', () => {
+  test('409 propio en la consulta: modal con copy propio, nunca el error crudo, y cero altas', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    const cap = await mockCanal(page, {
+      preconsulta: fallo(409, 'solicitud_incompleta_existente', 'ERROR CRUDO DEL SERVIDOR', { propia: true, id: UUID_SOLICITUD }),
+    });
+    await campoVin(page).fill(VIN);
+    await btnConsultar(page).click();
+
+    const dialogo = page.getByRole('dialog', { name: 'Ese vehículo ya tiene una solicitud pendiente de validar' });
+    await expect(dialogo).toBeVisible();
+    await expect(dialogo).toContainText('espera a que el RUNT responda');
+    await expect(page.getByText('ERROR CRUDO DEL SERVIDOR')).toHaveCount(0);
+    expect(cap.altas).toHaveLength(0);
+  });
+
+  test('409 ajeno: la misma frase del VIN en cola, sin decir que está por validar', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCanal(page, { preconsulta: fallo(409, 'solicitud_incompleta_existente', 'x', { propia: false }) });
+    await campoVin(page).fill(VIN);
+    await btnConsultar(page).click();
+
+    const dialogo = page.getByRole('dialog', { name: 'Ese vehículo ya está en la cola de FLITO' });
+    await expect(dialogo).toBeVisible();
+    await expect(dialogo).not.toContainText(/validar|RUNT/);
   });
 });

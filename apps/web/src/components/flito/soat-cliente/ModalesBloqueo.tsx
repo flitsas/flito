@@ -111,3 +111,41 @@ export function ModalVinEnCola(
     </FlitModal>
   );
 }
+
+// ──────────────── HU #12996 (AC5) · «Ya tiene una solicitud pendiente de validar» ─────────────────
+
+/**
+ * El `409 solicitud_incompleta_existente`: el VIN lo ocupa una solicitud guardada con el RUNT caído.
+ *
+ * Misma frontera que `ModalVinEnCola`: a un tercero (`propia: false`) el servidor le recorta el `id`
+ * y aquí no se le dice que la otra solicitud está «por validar» — la frase ajena es la misma del
+ * VIN en cola, para no dejar sondear el estado de solicitudes de otra compañía. Sin enlace al `id`:
+ * no es un SOAT y la cola no lo abriría.
+ */
+export function ModalIncompletaExistente(
+  { propia, onClose, restoreFocusRef }: ComunProps & { propia: boolean },
+) {
+  return (
+    <FlitModal
+      title={propia ? 'Ese vehículo ya tiene una solicitud pendiente de validar' : 'Ese vehículo ya está en la cola de FLITO'}
+      onClose={onClose} restoreFocusRef={restoreFocusRef}
+    >
+      <div className="space-y-3 text-sm">
+        <StatusChip tone="warning">No se puede crear otra solicitud</StatusChip>
+        <p>
+          {propia
+            ? 'Este vehículo ya tiene una solicitud guardada que espera a que el RUNT responda. Cada vehículo puede tener una sola.'
+            : 'Este vehículo ya tiene una solicitud de SOAT en FLITO. Cada vehículo puede tener una sola.'}
+        </p>
+        <p>
+          {propia
+            ? 'Puede seguirla desde sus SOAT: no tiene que volver a escribir los datos.'
+            : 'Escríbale a su contacto en FLIT si cree que es un error.'}
+        </p>
+        <div className="flex flex-wrap justify-end gap-2 pt-1">
+          <Link to={COLA} className={flitBtnSecondary} style={flitBtnSecondaryStyle}>Volver a mis SOAT</Link>
+        </div>
+      </div>
+    </FlitModal>
+  );
+}

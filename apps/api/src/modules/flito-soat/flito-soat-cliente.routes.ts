@@ -56,7 +56,7 @@ import { audit } from '../../shared/middleware/audit.js';
 import { soatClienteLimiter, soatPreconsultaLimiter, soatLecturaFacturaLimiter } from '../../shared/middleware/rateLimiter.js';
 import {
   CAMPOS_COMPRADOR_FACTURA, CodigoErrorSolicitudSoat, PROCEDENCIAS_DATO, TIPOS_DOCUMENTO_RUNT,
-  type ProcedenciaCompradorPersistida, type TipoDocumentoRunt,
+  type ProcedenciaCompradorPersistida, type RespuestaAltaSolicitudSoat, type TipoDocumentoRunt,
 } from '@operaciones/shared-types';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { contextoSoat } from './flito-soat.service.js';
@@ -577,6 +577,26 @@ router.post('/cliente', exigirFuncion('soat.solicitud.crear'), soatClienteLimite
       },
       archivo, ctx,
     );
+    // ── HU #12996: el RUNT no respondió y la solicitud quedó APARCADA → 202 ─────────────────────
+    //
+    // Mismo rastro de PII que el intento de hoy con el RUNT caído (`resultado: runt_no_disponible`,
+    // sin campos accedidos: el RUNT no entregó nada), y un `audit` de la creación de la incompleta
+    // con su uuid opaco. El `detail` no lleva VIN, placa ni documento (AC10).
+    if (creada.desenlace === 'incompleta') {
+      try {
+        await registrarAccesoRuntCliente(req, {
+          vin, conPropietario: false, motivo: 'alta', resultado: CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE,
+        });
+      } catch { /* el rastro no puede tapar el alta ya guardada: mismo criterio que `registrarIntentoRunt` */ }
+      await audit(req, {
+        action: 'create', resource: 'flito_soat_incompletas', resourceId: creada.id,
+        detail: 'Solicitud SOAT del canal Cliente aparcada como incompleta: el RUNT no respondió (estado=incompleta)',
+      });
+      res.status(202).json({
+        desenlace: creada.desenlace, id: creada.id, estado: creada.estado, mensaje: creada.mensaje,
+      } satisfies RespuestaAltaSolicitudSoat);
+      return;
+    }
     // **El rastro de PII que la HU #11966 devuelve a esta ruta.** Bajo la #11935 no hacía falta: el
     // alta no consultaba el RUNT dentro de la petición. Ahora sí —consulta un registro NACIONAL
     // sobre un vehículo que puede no ser de quien pregunta, y recibe datos del vehículo y a veces el
@@ -613,7 +633,10 @@ router.post('/cliente', exigirFuncion('soat.solicitud.crear'), soatClienteLimite
     // —lo necesita el `audit()` de arriba—, y devolver el objeto entero le contaría al CLIENTE a qué
     // aseguradora despachó su compañía: eso no es asunto suyo, y el AC1 dice `{ id, estado }`. Es el
     // mismo patrón que mordió en la HU #12093 con el `.returning()` sin proyección.
-    res.status(201).json({ id: creada.id, estado: creada.estado });
+    // `desenlace: 'creada'` es ADITIVO (HU #12996): el `{ id, estado }` de siempre sigue igual.
+    res.status(201).json({
+      desenlace: creada.desenlace, id: creada.id, estado: creada.estado,
+    } satisfies RespuestaAltaSolicitudSoat);
   } catch (e) {
     await registrarIntentoRunt(req, vin, e, 'alta');
     manejarError(res, e);

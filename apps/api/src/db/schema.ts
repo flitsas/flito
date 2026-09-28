@@ -34,6 +34,9 @@ export { permisosRoles, permisosFunciones, permisosRolFuncion, permisosUsuarioFu
 // Épica #12245: `flito_comprobantes` vive en `./schema/flito-comprobantes.ts` por el mismo techo (HU #12611).
 import { flitoComprobantes } from './schema/flito-comprobantes.js';
 export { flitoComprobantes };
+// HU #12996: `flito_soat_incompletas` vive en `./schema/flito-soat-incompletas.ts` por el mismo techo.
+import { flitoSoatIncompletas } from './schema/flito-soat-incompletas.js';
+export { flitoSoatIncompletas };
 // HU #12619: `flito_tramite_viajes_logistica` vive en `./schema/flito-logistica-viajes.ts` por el mismo techo.
 import { flitoTramiteViajesLogistica } from './schema/flito-logistica-viajes.js';
 export { flitoTramiteViajesLogistica };
@@ -3256,6 +3259,12 @@ export const flitoCompradores = pgTable('flito_compradores', {
   // El otro padre. `CASCADE` como el de arriba: el propietario no sobrevive a la solicitud.
   soatId: uuid('soat_id').references(() => flitoSoat.id, { onDelete: 'cascade' }),
   /**
+   * El tercer padre (HU #12996, migración 0210): la solicitud del canal Cliente APARCADA en
+   * `flito_soat_incompletas` porque el RUNT no respondió. Sin `CASCADE`: las incompletas no se
+   * borran (las descartadas se conservan, CF-06), así que no hay borrado que propagar.
+   */
+  soatIncompletaId: uuid('soat_incompleta_id').references(() => flitoSoatIncompletas.id),
+  /**
    * El nombre en UNA cadena. Lo escribe el sync fundiendo lo que FLIT manda separado
    * (`flit-http.adapter.ts:74`), y desde la HU #11966 el canal Cliente lo escribe **derivado** de
    * las columnas partidas de abajo (`razon_social ?? "nombres apellidos"`).
@@ -3322,8 +3331,14 @@ export const flitoCompradores = pgTable('flito_compradores', {
   // «Uno y solo uno», el patrón literal que `flitoSoportes` ya usa con sus FK. Sin él, una fila
   // podría colgar de los dos padres —y desaparecer con el CASCADE del que no la creó— o de ninguno,
   // que es un propietario huérfano que nadie vuelve a encontrar.
+  //
+  // Desde la 0210 (HU #12996, ADR-0019) hay un tercer padre: la solicitud INCOMPLETA del canal
+  // Cliente. La regla pasa a «trámite XOR (SOAT o incompleta)»: la fila de una incompleta cuelga de
+  // ella mientras espera y, al completarse, gana también `soat_id` sin perder el rastro.
   padreChk: check('flito_compradores_padre_chk',
-    sql`(${t.tramiteId} IS NOT NULL) <> (${t.soatId} IS NOT NULL)`),
+    sql`(${t.tramiteId} IS NOT NULL) <> (${t.soatId} IS NOT NULL OR ${t.soatIncompletaId} IS NOT NULL)`),
+  soatIncompletaIdx: index('idx_flito_compradores_soat_incompleta').on(t.soatIncompletaId)
+    .where(sql`${t.soatIncompletaId} IS NOT NULL`),
   // «Nunca las dos cosas a la vez» (HU #11966, migración 0172). Las filas legacy lo cumplen: los
   // tres campos NULL. NO se añade el recíproco (`tipo_documento='NIT' ⇒ razon_social IS NOT NULL`):
   // bloquearía a un futuro escritor del sync que rellene `tipo_documento` sin razón social, y la
