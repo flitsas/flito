@@ -774,6 +774,8 @@ test.describe('HU #12996 · AC3/AC8 — la tarjeta de confirmación', () => {
     await page.getByRole('button', { name: 'Ir a mis SOAT' }).click();
     await expect(page).toHaveURL(/\/flito\/soat$/);
     expect(page.url()).not.toContain(VIN);
+    // HU #12997 · AC9: llega con «Por validar» puesta, por el ESTADO del router (la URL sigue limpia).
+    await expect(page.getByRole('button', { name: 'Por validar', exact: true })).toHaveAttribute('aria-pressed', 'true');
   });
 
   test('«Solicitar otro SOAT» limpia el formulario entero y enfoca el VIN', async ({ page }) => {

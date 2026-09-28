@@ -158,6 +158,21 @@ export const RUTAS_PERMITIDAS_CLIENTE: readonly RutaCliente[] = congelar([
       + '404-no-403. El archivo en sí baja por `GET /api/files?…`, que no pasa por este guarda '
       + 'porque su token HMAC firmado ES su autenticación.',
   },
+  // ── Las solicitudes «Por validar» / «Descartadas» (HU #12997, Feature #12841). Lecturas, con
+  // funciones propias que la 0211 reparte a quien ya ve la cola y el detalle (diseño §11.1). `buscar` es `POST` porque el filtro puede
+  // llevar el VIN o el documento del propietario, y eso va en el CUERPO (AGENTS.md §14).
+  {
+    metodo: 'POST', patron: '/api/flito/soat/cliente/incompletas/buscar', funcion: 'soat.incompletas.buscar',
+    porque: 'Las pastillas «Por validar» y «Descartadas» de su cola: las solicitudes que quedaron '
+      + 'guardadas porque el RUNT no respondió. Sin esta entrada el cliente no ve lo que él mismo '
+      + 'radicó. Acotada a su compañía por `contextoSoat()`; un enlace de proveedor recibe cero filas.',
+  },
+  {
+    metodo: 'GET', patron: '/api/flito/soat/cliente/incompletas/:id', funcion: 'soat.incompleta.ver',
+    porque: 'El detalle de una solicitud por validar o descartada (propietario, factura, motivo del '
+      + 'descarte). Fuera de su compañía responde 404-no-403, y quién descartó se proyecta como «FLITO» '
+      + 'si no es de su compañía.',
+  },
   // ── La descarga masiva de comprobantes (HU #12815, Épica #12810). `POST` porque los ids van en el
   // CUERPO, no porque escriba: no toca ninguna fila de SOAT.
   {

@@ -48,6 +48,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0203_permiso_excel_exportar_pago.sql',
   '0205_permisos_reagrupar_modulos.sql',
   '0208_flito_impuestos_direccion_factura.sql',
+  '0211_permisos_soat_incompletas.sql',
 ] as const;
 
 function sinComentariosSql(sql: string): string {
