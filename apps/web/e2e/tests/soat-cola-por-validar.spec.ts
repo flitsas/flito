@@ -287,5 +287,64 @@ test.describe('HU #12997 · AC8 — los cuatro estados de las pastillas nuevas',
   });
 });
 
+// Retrabajo de la HU #12997 (sesión de evidencias en DEV): la pastilla resaltada iba un paso atrás,
+// «Listos para enviar» seguía resaltada tras cambiar de pastilla y el contador decía «1 solicitudes».
+// Tras CADA clic: una sola pastilla con `aria-pressed="true"` —la clicada—, que además es la única
+// con la cara de activa (fondo y sombra de tarjeta), y la vista rápida apagada si no se activó.
+test.describe('HU #12997 · retrabajo — la pastilla resaltada es la que filtra', () => {
+  const grupoPastillas = (page: Page) => pastilla(page, 'Todos').locator('..');
+
+  async function soloPulsada(page: Page, nombre: string) {
+    const pulsadas = grupoPastillas(page).locator('button[aria-pressed="true"]');
+    await expect(pulsadas).toHaveCount(1);
+    await expect(pulsadas).toHaveText(nombre);
+    const conCara = await grupoPastillas(page).locator('button').evaluateAll((bs) =>
+      bs.filter((b) => getComputedStyle(b).boxShadow !== 'none'
+        || getComputedStyle(b).backgroundColor !== 'rgba(0, 0, 0, 0)').map((b) => b.textContent?.trim()));
+    expect(conCara).toEqual([nombre]);
+  }
+  const listos = (page: Page) => page.getByRole('button', { name: 'Listos para enviar' });
+  // «Listos para enviar» apagada en `aria-pressed` Y en la cara: el mismo borde que «Sin gestión».
+  async function vistaApagada(page: Page) {
+    await expect(listos(page)).toHaveAttribute('aria-pressed', 'false');
+    const [a, b] = await Promise.all(['Listos para enviar', 'Sin gestión'].map((n) =>
+      page.getByRole('button', { name: n }).evaluate((el) => getComputedStyle(el).borderColor)));
+    expect(a).toBe(b);
+  }
+
+  test('secuencia SOAT ↔ incompletas: solo la clicada queda pulsada y la vista rápida no se enciende sola', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    await page.goto('/flito/soat');
+    await soloPulsada(page, 'Todos');
+    await expect(listos(page)).toHaveAttribute('aria-pressed', 'false');
+
+    for (const nombre of ['Pendiente', 'Por validar', 'Solicitado', 'Descartadas', 'Todos']) {
+      await pastilla(page, nombre).click();
+      await soloPulsada(page, nombre);
+      await vistaApagada(page);
+    }
+
+    // La vista rápida sí se enciende al activarla, y se apaga en cuanto otra pastilla manda.
+    await listos(page).click();
+    await expect(listos(page)).toHaveAttribute('aria-pressed', 'true');
+    await soloPulsada(page, 'Pendiente');
+    for (const nombre of ['Por validar', 'Solicitado', 'Descartadas', 'Pendiente']) {
+      await pastilla(page, nombre).click();
+      await soloPulsada(page, nombre);
+      await vistaApagada(page);
+    }
+  });
+
+  test('el contador concuerda en número: «1 solicitud», no «1 solicitudes»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    await page.goto('/flito/soat');
+    await pastilla(page, 'Por validar').click();
+    await expect(page.locator('span', { hasText: '· página 1 de 1' }).first()).toHaveText(/^1 solicitud · página 1 de 1$/);
+    await expect(page.getByText(/solicitudes · página/)).toHaveCount(0);
+  });
+});
+
 // AC9 («Ir a mis SOAT» abre «Por validar» por estado del router) se prueba donde nace el clic, con
 // la tarjeta de verdad: `soat-vin-unico-ficha-runt.spec.ts`, HU #12996 · AC3/AC8.

@@ -37,6 +37,8 @@ export interface TablaColaSoatProps {
   onReintentarIncompleta?: (f: SolicitudIncompletaFila) => void;
   /** Lo que cuenta la paginación: «SOAT» o, en las pastillas nuevas, «solicitudes». */
   sustantivo?: string;
+  /** «1 solicitud»: el sustantivo en singular para `Paginacion`. */
+  sustantivoSingular?: string;
   onPrev: () => void; onNext: () => void;
   conCasillas: boolean; seleccion: Set<string>; setSeleccion: (s: Set<string>) => void;
   seleccionables: SoatItem[]; toggle: (id: string) => void;
@@ -49,13 +51,13 @@ export interface TablaColaSoatProps {
 export default function TablaColaSoat({
   data, filas, totalPaginas, onPrev, onNext, conCasillas, seleccion, setSeleccion, seleccionables, toggle,
   esCliente, puedeDescargar, descargaComprobante, conCompania, onVer,
-  incompletas = [], puedeVerIncompleta = false, onVerIncompleta = () => {}, sustantivo = 'SOAT',
+  incompletas = [], puedeVerIncompleta = false, onVerIncompleta = () => {}, sustantivo = 'SOAT', sustantivoSingular,
   puedeReintentarIncompleta = false, incompletasEnVuelo = {}, onReintentarIncompleta,
 }: TablaColaSoatProps) {
   return (
         <FlitCard>
           <div className="mb-3">
-            <Paginacion total={data.total} page={data.page} totalPaginas={totalPaginas} sustantivo={sustantivo}
+            <Paginacion total={data.total} page={data.page} totalPaginas={totalPaginas} sustantivo={sustantivo} singular={sustantivoSingular}
               onPrev={onPrev} onNext={onNext} />
           </div>
           <FlitTable label="Pólizas SOAT">
@@ -139,7 +141,7 @@ export default function TablaColaSoat({
             </tbody>
           </FlitTable>
           <div className="mt-3">
-            <Paginacion total={data.total} page={data.page} totalPaginas={totalPaginas} sustantivo={sustantivo}
+            <Paginacion total={data.total} page={data.page} totalPaginas={totalPaginas} sustantivo={sustantivo} singular={sustantivoSingular}
               onPrev={onPrev} onNext={onNext} />
           </div>
         </FlitCard>
