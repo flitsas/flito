@@ -186,6 +186,17 @@ export default function FlitoSoat() {
     setPreset(p.nombre);
   };
 
+  /**
+   * HU #12997, retrabajo: la vista rápida es una COMBINACIÓN de filtros, no un estado propio. Elegir
+   * otra pastilla la apaga (antes «Listos para enviar» seguía resaltada en «Por validar»,
+   * «Solicitado» o «Descartadas»), y solo se pinta puesta mientras la combinación siga vigente
+   * —si se desmarca «Solo sin gestión», «Sin gestión» deja de estarlo—. Así el resaltado sale del
+   * mismo estado que filtra la lista.
+   */
+  const elegirPastilla = (e: FiltroEstadoSoat) => { setPreset(null); setEstado(e); };
+  const presetVigente = PRESETS.some((pr) => pr.nombre === preset
+    && pr.filtros.estado === estado && pr.filtros.estancado === soloEstancado) ? preset : null;
+
   // Cualquier cambio de filtro vuelve a la página 1: si no, se queda en una página que ya no existe.
   useEffect(() => { setPage(1); }, [estado, buscar, compKey, orgKey, provKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, gestionSel, vigenciaSel]);
 
@@ -435,14 +446,14 @@ export default function FlitoSoat() {
       {esCliente && !puedeSolicitar && <TarjetaCanalDeshabilitado />}
 
       <BarraFiltrosSoat refPills={refPills} esGestor={esGestor} esCliente={esCliente}
-        estadosDisponibles={estadosDisponibles} estado={estado} setEstado={setEstado} conIncompletas={conIncompletas}
+        estadosDisponibles={estadosDisponibles} estado={estado} setEstado={elegirPastilla} conIncompletas={conIncompletas}
         texto={texto} setTexto={setTexto} facetas={facetas}
         companiasSel={companiasSel} setCompaniasSel={setCompaniasSel}
         organismosSel={organismosSel} setOrganismosSel={setOrganismosSel}
         proveedoresSel={proveedoresSel} setProveedoresSel={setProveedoresSel}
         gestionSel={gestionSel} setGestionSel={setGestionSel}
         vigenciaSel={vigenciaSel} setVigenciaSel={setVigenciaSel}
-        presets={PRESETS} preset={preset} onAplicarPreset={aplicarPreset}
+        presets={PRESETS} preset={presetVigente} onAplicarPreset={aplicarPreset}
         creadoDesde={creadoDesde} creadoHasta={creadoHasta}
         setCreado={(d, h) => { setCreadoDesde(d); setCreadoHasta(h); }}
         solicitadoDesde={solicitadoDesde} solicitadoHasta={solicitadoHasta}
@@ -560,7 +571,7 @@ export default function FlitoSoat() {
           seleccionables={seleccionables} toggle={toggle} esCliente={esCliente}
           conCompania={!esCliente || (facetas?.companias.length ?? 0) > 1}
           puedeDescargar={puedeDescargar} descargaComprobante={descargaComprobante} onVer={setDetalleId}
-          sustantivo={vistaIncompletas ? 'solicitudes' : 'SOAT'}
+          sustantivo={vistaIncompletas ? 'solicitudes' : 'SOAT'} sustantivoSingular={vistaIncompletas ? 'solicitud' : 'SOAT'}
           incompletas={incFilas} puedeVerIncompleta={puedeVerIncompleta} onVerIncompleta={setDetalleIncompleta}
           puedeReintentarIncompleta={puedeReintentar} incompletasEnVuelo={enVuelo}
           onReintentarIncompleta={(f) => { void reintentarDesdeFila(f); }} />

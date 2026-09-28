@@ -181,8 +181,9 @@ export function FlitField({ label, children }: { label: string; children: ReactN
  */
 const DESHABILITADO_PRIMARIO =
   'disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:shadow-none';
-const HOVER_SECUNDARIO =
-  'border-[color:var(--flit-border-input)] text-[color:var(--flit-text-secondary)] transition-colors hover:bg-[var(--flit-bg-hover)] hover:text-[color:var(--flit-text-primary)] active:bg-[var(--flit-bg-app)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-flit-card aria-disabled:cursor-not-allowed aria-disabled:hover:bg-flit-card';
+const SECUNDARIO_SIN_TRANSICION =
+  'border-[color:var(--flit-border-input)] text-[color:var(--flit-text-secondary)] hover:bg-[var(--flit-bg-hover)] hover:text-[color:var(--flit-text-primary)] active:bg-[var(--flit-bg-app)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-flit-card aria-disabled:cursor-not-allowed aria-disabled:hover:bg-flit-card';
+const HOVER_SECUNDARIO = `transition-colors ${SECUNDARIO_SIN_TRANSICION}`;
 
 export const flitBtnPrimary = `flit-focus inline-flex h-10 items-center gap-2 rounded-[999px] px-5 text-sm font-semibold text-white transition-shadow hover:shadow-[inset_0_0_0_999px_var(--flit-veil-press-hover)] active:shadow-[inset_0_0_0_999px_var(--flit-veil-press-active)] ${DESHABILITADO_PRIMARIO}`;
 export const flitBtnPrimaryStyle = { background: 'var(--flit-gradient-primary)' } as const;
@@ -197,6 +198,13 @@ export const flitBtnSecondaryStyle = {} as const;
  * el alto de la fila.
  */
 export const flitBtnSecondarySm = `flit-focus inline-flex h-7 items-center gap-1.5 rounded-[999px] border bg-flit-card px-3 text-xs font-medium ${HOVER_SECUNDARIO}`;
+/**
+ * El secundario pequeño cuando es un INTERRUPTOR (`aria-pressed`, p. ej. las vistas rápidas de la
+ * cola SOAT). Igual que la pill: la transición es solo del hover, nunca del cambio de puesto —con
+ * `transition-colors` fijo la cara de «puesto» se desvanecía en el botón que ya no lo estaba
+ * (HU #12997, retrabajo)—.
+ */
+export const flitBtnSecondarySmToggle = `flit-focus inline-flex h-7 items-center gap-1.5 rounded-[999px] border bg-flit-card px-3 text-xs font-medium hover:transition-colors ${SECUNDARIO_SIN_TRANSICION}`;
 
 export function FlitCard({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
@@ -239,8 +247,13 @@ export function FlitPillGroup(
  * `<button>` genérico; y si esa pestaña copiara la clase a mano, el día que esta cambie habría dos
  * pills distintas en el producto. Compartir la clase es lo que garantiza que no haya deriva visual.
  */
+//
+// La transición es SOLO del hover (`hover:transition-colors`), no del cambio de pill activa: con
+// `transition-colors` fijo el fondo de tarjeta se desvanecía 150 ms en la pill que dejaba de estar
+// puesta, y en una pestaña sin cuadros (captura, segundo plano) la cara de activa se quedaba en la
+// anterior mientras la lista ya era la nueva — HU #12997, retrabajo. Cambiar de pill es instantáneo.
 export const flitPillBtnClase =
-  'flit-focus inline-flex items-center gap-1.5 rounded-[999px] px-4 py-2 text-xs font-semibold capitalize transition-colors hover:bg-[var(--flit-bg-hover)]';
+  'flit-focus inline-flex items-center gap-1.5 rounded-[999px] px-4 py-2 text-xs font-semibold capitalize hover:transition-colors hover:bg-[var(--flit-bg-hover)]';
 
 export function FlitPillButton(
   { active, onClick, children, pressed }:
