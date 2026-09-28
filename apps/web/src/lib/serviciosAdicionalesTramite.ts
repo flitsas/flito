@@ -9,7 +9,7 @@
 
 import {
   CODIGO_SERVICIO_ADICIONAL_TRAMITE,
-  type ServicioAdicionalTipo, type TramiteServicioAdicional,
+  type OrigenServicioAdicional, type ServicioAdicionalTipo, type TramiteServicioAdicional,
 } from '@operaciones/shared-types';
 import { pesos, type Fila } from '../components/finanzas/tiposReporteCostos';
 import { ApiError, errorMessage } from './api';
@@ -42,8 +42,13 @@ export function asignablesDe(
     && (texto === '' || normalizaTexto(t.nombre).includes(texto)));
 }
 
-/** Los `tipoId` que el trámite ya lleva: lo que `asignablesDe` excluye. */
-export const tipoIdsDe = (items: TramiteServicioAdicional[]): string[] => items.map((i) => i.tipoId);
+/**
+ * Los `tipoId` que el trámite ya lleva: lo que `asignablesDe` excluye. Con `origen`, solo los de ese
+ * origen (Bug #12913): al aplicar un comprobante, un tipo MANUAL se corrige, pero uno que ya vino de un
+ * comprobante aplicado no admite otro (índice único de la 0209) y no se ofrece como elegible.
+ */
+export const tipoIdsDe = (items: TramiteServicioAdicional[], origen?: OrigenServicioAdicional): string[] =>
+  items.filter((i) => origen === undefined || i.origen === origen).map((i) => i.tipoId);
 
 /**
  * Qué dice la celda «Serv. adic.» de una fila. La gobierna la CANTIDAD, no el importe, porque los
