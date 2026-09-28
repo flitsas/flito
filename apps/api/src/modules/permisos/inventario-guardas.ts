@@ -101,6 +101,8 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   // HU #12833: corrección de la dirección del comprador; sub-router propio de impuestos (así el
   // inventario no arrastra `POST /:id/reanalizar`, cuyo código ya es de `POST /:id/certificar`).
   { modulo: 'impuestos', fichero: 'flito-impuestos/flito-impuestos.direccion.routes.ts' },
+  // HU #12997: lectura de las solicitudes SOAT incompletas (RUNT caído); fichero hermano de soat.
+  { modulo: 'soat', fichero: 'flito-soat/flito-soat-incompletas.routes.ts' },
 ];
 
 /** Quita comentarios de bloque y de línea sin tocar el contenido de las cadenas simples. */

@@ -55,8 +55,8 @@ import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { soatClienteLimiter, soatPreconsultaLimiter, soatLecturaFacturaLimiter } from '../../shared/middleware/rateLimiter.js';
 import {
-  CAMPOS_COMPRADOR_FACTURA, PROCEDENCIAS_DATO, TIPOS_DOCUMENTO_RUNT,
-  type ProcedenciaCompradorPersistida, type TipoDocumentoRunt,
+  CAMPOS_COMPRADOR_FACTURA, CodigoErrorSolicitudSoat, PROCEDENCIAS_DATO, TIPOS_DOCUMENTO_RUNT,
+  type ProcedenciaCompradorPersistida, type RespuestaAltaSolicitudSoat, type TipoDocumentoRunt,
 } from '@operaciones/shared-types';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { contextoSoat } from './flito-soat.service.js';
@@ -197,13 +197,28 @@ const VIN_MIN = 11;
  *
  * Lo que sí queda cerrado por construcción: una `placa` colada en el cuerpo no puede llegar al RUNT
  * ni a `vehicles.plate`, porque `parsed.data` no la contiene y nadie lee `req.body` después.
+ *
+ * ── Sin I, O ni Q, y también medido sobre lo normalizado (HU #12843) ────────────────────────────
+ *
+ * ISO 3779 excluye esas tres letras del VIN porque se confunden con 1 y 0. La web ya lo avisaba
+ * (`errorVin` en `apps/web/src/lib/soatCliente.ts`, mismo sentido del mensaje), pero el servidor lo
+ * dejaba pasar y una «O» tecleada por un cero salía al RUNT como consulta de pago perdida. Por eso
+ * el rechazo va AQUÍ, antes de cualquier consulta, y en el mismo `vehiculoSchema` que el alta
+ * reutiliza con `.merge()`: las dos rutas lo heredan sin copia.
+ *
+ * Lo que la regla NO hace, dicho para que nadie lo «complete»: no valida el dígito de control ni
+ * exige 17 caracteres. `VIN_RE` de `flito-logistica-barcode.ts` sí exige 17 exactos y por eso no se
+ * reutiliza: rompería el piso de 11 de los chasis cortos que está explicado arriba.
  */
+const VIN_SIN_IOQ_RE = /^[A-HJ-NPR-Z0-9]+$/;
+
 const vehiculoSchema = z.object({
   vin: z.preprocess(
     (v) => (typeof v === 'string' ? normalizarId(v) : v),
     z.string()
       .min(VIN_MIN, `El VIN debe tener al menos ${VIN_MIN} caracteres`)
-      .max(17, 'El VIN no puede pasar de 17 caracteres'),
+      .max(17, 'El VIN no puede pasar de 17 caracteres')
+      .regex(VIN_SIN_IOQ_RE, 'El VIN no lleva las letras I, O ni Q. Revise si son unos o ceros.'),
   ),
 });
 
@@ -278,7 +293,9 @@ router.post('/cliente/preconsulta', exigirFuncion('soat.runt.preconsultar'), soa
       // El 200 con renovación anticipada divulga ADEMÁS hasta cuándo vence el SOAT que el RUNT
       // reporta (HU #12212). Sin esta línea, `campos_accedidos` sub-declararía justo en las
       // respuestas que dicen más. Se deriva del resultado y no del cuerpo de la petición: lo que el
-      // registro tiene que anotar es lo que SALIÓ, no lo que se pidió.
+      // registro tiene que anotar es lo que SALIÓ, no lo que se pidió. Desde la HU #12842 el aviso
+      // lleva también el SOAT activo (póliza, aseguradora, fechas, estado) y la misma bandera lo
+      // declara (RN-05 del Feature #12840).
       conVigenciaProxima: resultado.vigenciaProxima !== null,
     });
     res.json(resultado);
@@ -312,8 +329,13 @@ router.post('/cliente/preconsulta', exigirFuncion('soat.runt.preconsultar'), soa
  *   2. **No se come la excepción.** El `catch` de aquí solo traga fallos DEL REGISTRO —`logPiiAccess`
  *      ya falla abierto por su cuenta— para no sustituir el error de dominio, que es el que la
  *      persona necesita, por uno de la bitácora. Un `throw` aquí convertiría un 422 legible en un 500.
- *   3. **No dice que se accedió a datos.** Va con `resultado`, y eso hace que `campos_accedidos` se
- *      escriba VACÍO: no se entregó ni la placa, ni el VIN, ni el nombre. Ver `registrarAccesoRuntCliente`.
+ *   3. **No dice que se accedió a datos que no salieron.** Va con `resultado`, y eso hace que
+ *      `campos_accedidos` se escriba VACÍO: no se entregó ni la placa, ni el VIN, ni el nombre. Con
+ *      UNA excepción desde la HU #12842 (RN-05 del Feature #12840): el `409 soat_vigente` publica el
+ *      SOAT activo —póliza, aseguradora, fechas de expedición e inicio, estado y, si el RUNT la trae,
+ *      la fecha de vencimiento—, que consultado por VIN es dato personal (Ley 1581, art. 3.c). Ese
+ *      desenlace declara esos campos, derivados del CÓDIGO del error y de si `datos.fechaVencimiento`
+ *      viajó; el 422, el 503 y la RN-01 siguen con la lista vacía. Ver `registrarAccesoRuntCliente`.
  *
  * El desenlace se toma del `codigo` del error de dominio —vocabulario CERRADO de `shared-types`— y
  * nunca de `e.message`, que es texto que puede traer dentro lo que se estuviera procesando.
@@ -342,8 +364,12 @@ async function registrarIntentoRunt(
   if (!(e instanceof SolicitudSoatError)) return;
   if (!DESENLACE_HABLA_DEL_VEHICULO[e.codigo]) return;
   const resultado = e.codigo;
+  // Punto 3 de arriba: solo el 409 `soat_vigente` publica el SOAT activo, y la fecha solo si viajó.
+  const soatActivoEnIntento = e.codigo === CodigoErrorSolicitudSoat.SOAT_VIGENTE
+    ? (typeof e.datos?.fechaVencimiento === 'string' ? 'con_fecha' as const : 'sin_fecha' as const)
+    : undefined;
   try {
-    await registrarAccesoRuntCliente(req, { vin, conPropietario: false, motivo, resultado });
+    await registrarAccesoRuntCliente(req, { vin, conPropietario: false, motivo, resultado, soatActivoEnIntento });
   } catch { /* el rastro no puede tapar el error de dominio: ver el punto 2 de arriba */ }
 }
 
@@ -551,6 +577,26 @@ router.post('/cliente', exigirFuncion('soat.solicitud.crear'), soatClienteLimite
       },
       archivo, ctx,
     );
+    // ── HU #12996: el RUNT no respondió y la solicitud quedó APARCADA → 202 ─────────────────────
+    //
+    // Mismo rastro de PII que el intento de hoy con el RUNT caído (`resultado: runt_no_disponible`,
+    // sin campos accedidos: el RUNT no entregó nada), y un `audit` de la creación de la incompleta
+    // con su uuid opaco. El `detail` no lleva VIN, placa ni documento (AC10).
+    if (creada.desenlace === 'incompleta') {
+      try {
+        await registrarAccesoRuntCliente(req, {
+          vin, conPropietario: false, motivo: 'alta', resultado: CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE,
+        });
+      } catch { /* el rastro no puede tapar el alta ya guardada: mismo criterio que `registrarIntentoRunt` */ }
+      await audit(req, {
+        action: 'create', resource: 'flito_soat_incompletas', resourceId: creada.id,
+        detail: 'Solicitud SOAT del canal Cliente aparcada como incompleta: el RUNT no respondió (estado=incompleta)',
+      });
+      res.status(202).json({
+        desenlace: creada.desenlace, id: creada.id, estado: creada.estado, mensaje: creada.mensaje,
+      } satisfies RespuestaAltaSolicitudSoat);
+      return;
+    }
     // **El rastro de PII que la HU #11966 devuelve a esta ruta.** Bajo la #11935 no hacía falta: el
     // alta no consultaba el RUNT dentro de la petición. Ahora sí —consulta un registro NACIONAL
     // sobre un vehículo que puede no ser de quien pregunta, y recibe datos del vehículo y a veces el
@@ -587,7 +633,10 @@ router.post('/cliente', exigirFuncion('soat.solicitud.crear'), soatClienteLimite
     // —lo necesita el `audit()` de arriba—, y devolver el objeto entero le contaría al CLIENTE a qué
     // aseguradora despachó su compañía: eso no es asunto suyo, y el AC1 dice `{ id, estado }`. Es el
     // mismo patrón que mordió en la HU #12093 con el `.returning()` sin proyección.
-    res.status(201).json({ id: creada.id, estado: creada.estado });
+    // `desenlace: 'creada'` es ADITIVO (HU #12996): el `{ id, estado }` de siempre sigue igual.
+    res.status(201).json({
+      desenlace: creada.desenlace, id: creada.id, estado: creada.estado,
+    } satisfies RespuestaAltaSolicitudSoat);
   } catch (e) {
     await registrarIntentoRunt(req, vin, e, 'alta');
     manejarError(res, e);

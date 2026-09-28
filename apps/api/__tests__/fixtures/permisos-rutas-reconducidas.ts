@@ -43,6 +43,11 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-soat/flito-soat-cliente.routes.ts', metodo: 'POST', ruta: '/cliente/preconsulta', codigo: 'soat.runt.preconsultar' },
   { fichero: 'flito-soat/flito-soat-cliente.routes.ts', metodo: 'POST', ruta: '/cliente', codigo: 'soat.solicitud.crear' },
   { fichero: 'flito-soat/flito-soat-cliente.routes.ts', metodo: 'POST', ruta: '/cliente/factura/lectura', codigo: 'soat.factura.leer' },
+  // flito-soat/flito-soat-incompletas.routes.ts (HU #12997)
+  { fichero: 'flito-soat/flito-soat-incompletas.routes.ts', metodo: 'POST', ruta: '/cliente/incompletas/buscar', codigo: 'soat.incompletas.buscar' },
+  { fichero: 'flito-soat/flito-soat-incompletas.routes.ts', metodo: 'GET', ruta: '/cliente/incompletas/:id', codigo: 'soat.incompleta.ver' },
+  // HU #12998
+  { fichero: 'flito-soat/flito-soat-incompletas.routes.ts', metodo: 'POST', ruta: '/cliente/incompletas/:id/reintentar', codigo: 'soat.solicitud.reintentar_runt' },
   // flito-parametrizacion/flito-parametrizacion.routes.ts
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'GET', ruta: '/companias', codigo: 'parametrizacion.companias.listar' },
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'PATCH', ruta: '/companias/:id', codigo: 'parametrizacion.companias.editar' },

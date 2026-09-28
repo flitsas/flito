@@ -20,6 +20,8 @@
 // PostgreSQL con volumen (ver AC5 de la HU #11651, declarado SIN-ENTORNO).
 
 import { PassThrough } from 'node:stream';
+import { fork } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import type { Response } from 'express';
 import { sendExcel } from '../../src/shared/utils/excel.js';
 import { COLUMNAS_EXPORT } from '../../src/modules/flito-comparendos/flito-comparendos.export.service.js';
@@ -424,6 +426,78 @@ export async function medirExports(
     turnos,
     atencion: turnos / turnosPosibles,
   };
+}
+
+/**
+ * Tamaño máximo del semiespacio de V8 en el runtime del API, en MB: el defecto de Node 22, que es la
+ * imagen `node:22-bookworm-slim` de `apps/api/Dockerfile` y la versión del CI. Si el runtime sube de
+ * versión, este número se revisa con él (ver `medirEnProcesoFresco`).
+ */
+const SEMI_ESPACIO_RUNTIME_MB = 16;
+
+/** Lo que `medirEnProcesoFresco` le pide al hijo: se viaja como JSON, así que solo datos. */
+export interface EscenarioMedicion {
+  /** Forma de las filas: la observación al máximo en todas, o la del dato real de hoy. */
+  filas: 'peor' | 'realista';
+  /** Cuántas filas lleva CADA export. */
+  n: number;
+  /** Cuántos exports se generan a la vez. */
+  simultaneos: number;
+}
+
+/**
+ * `medirExports` en un **proceso Node recién arrancado**, no en el worker de Vitest (Bug #13030).
+ *
+ * El número que decide el AC3 de la HU #11651 es un delta de RSS, y el RSS es del PROCESO, no del
+ * código que se mide. Dentro del worker ese delta depende de todo lo que el proceso ya hizo: cuántos
+ * módulos cargó, qué basura dejó, cómo quedaron las arenas del allocator. Por eso develop se puso en
+ * rojo (131,4 · 132,6 · 133,1 MB contra un tope de 131) con PRs que solo añadían código SOAT y no
+ * tocaban comparendos: el export no creció, creció el entorno donde se le medía. Subir el tope habría
+ * sido medir la suite, no el export.
+ *
+ * Un hijo con `fork` arranca siempre igual: sin la suite, solo `tsx` + este instrumento + `sendExcel`,
+ * que es lo más parecido que un test puede tener al proceso del API a punto de exportar. Se eligió
+ * esto y no un proyecto/pool aparte en `vitest.config.ts` porque es lo único que no depende de cómo
+ * la versión de turno de Vitest reparte y reutiliza sus workers, y porque no cambia la configuración
+ * de los cientos de archivos que no miden memoria.
+ *
+ * **Lo que el hijo destapó, y por qué lleva `--max-semi-space-size`.** Medido el 2026-09-28, peor
+ * caso, 2 × 2 000 filas, hijo fresco: Node 22 da 117-119 MB y Node 24 da 210 MB, estable en los dos.
+ * La diferencia no es el export: V8 13 (Node 24) dobló el tope de la generación joven (`new_space`
+ * crece hasta 64 MB; en Node 22, hasta 32), y un proceso fresco la hace crecer entera durante el par.
+ * En el worker de Vitest esa generación ya había crecido con los archivos anteriores —o no, según
+ * cuáles—, que es precisamente lo que hacía que el delta se moviera con la suite. El API corre en
+ * `node:22-bookworm-slim` (etapa `runtime` de `apps/api/Dockerfile`) y el CI también es Node 22, así
+ * que se fija el semiespacio en el de ese runtime: con `--max-semi-space-size=16`, Node 24 mide
+ * 118,4 MB, lo mismo que Node 22 sin bandera. Así el número es el del proceso de producción en
+ * cualquier máquina, y no el de la versión de Node que tenga instalada quien corra el test.
+ *
+ * `--expose-gc` va en el hijo para que `recolectarBasura` use el `gc()` real. `env` se hereda del
+ * worker, que ya pasó por `__tests__/setup.ts`, así que el hijo ve las mismas variables que la suite.
+ * `tsconfig.medicion.json` replica el alias de `vitest.config.ts` a la FUENTE de shared-types.
+ *
+ * Un fallo del hijo (salida ≠ 0, señal, sin mensaje) rechaza con su stderr: nunca devuelve una
+ * medición inventada ni vacía.
+ */
+export async function medirEnProcesoFresco(escenario: EscenarioMedicion): Promise<Medicion> {
+  const script = fileURLToPath(new URL('./export-coste.proceso.ts', import.meta.url));
+  const tsconfig = fileURLToPath(new URL('./tsconfig.medicion.json', import.meta.url));
+  return new Promise<Medicion>((resolve, reject) => {
+    const hijo = fork(script, [JSON.stringify(escenario)], {
+      execArgv: ['--expose-gc', `--max-semi-space-size=${SEMI_ESPACIO_RUNTIME_MB}`, '--import', 'tsx'],
+      env: { ...process.env, TSX_TSCONFIG_PATH: tsconfig },
+      stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+    });
+    let medicion: Medicion | undefined;
+    let stderr = '';
+    hijo.stderr?.on('data', (c: Buffer) => { stderr += c.toString(); });
+    hijo.on('message', (m) => { medicion = m as Medicion; });
+    hijo.on('error', reject);
+    hijo.on('exit', (code, signal) => {
+      if (code === 0 && medicion) resolve(medicion);
+      else reject(new Error(`la medición en proceso hijo falló (code=${code}, signal=${signal}): ${stderr}`));
+    });
+  });
 }
 
 /**

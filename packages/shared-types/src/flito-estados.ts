@@ -5,6 +5,8 @@
 // Módulo PURO (sin zod ni side-effects): lo consumen API y web. Las reglas caras
 // (RN-01, CA-03/04, compuerta) se apoyan en estos catálogos.
 
+import type { SoatActivoRunt, VigenciaProximaSoat } from './flito-soat-activo.js';
+
 /**
  * Estado del trámite en FLIT (fuente externa, sincronizada; FLITO no es dueño).
  *
@@ -675,10 +677,147 @@ export const CodigoErrorSolicitudSoat = {
    * obligatorio el proveedor en el envío masivo.
    */
   DESTINO_REQUERIDO: 'destino_requerido',
+
+  // ── Solicitud incompleta por RUNT caído (Feature #12841, HU #12996, ADR-0019) ────────────────────
+
+  /**
+   * El VIN ya tiene una solicitud INCOMPLETA abierta (`flito_soat_incompletas.estado = 'incompleta'`)
+   * y por eso no se puede preconsultar ni radicar otra (P-5 del UX: la incompleta ocupa el VIN; la
+   * descartada no). Misma forma que la RN-01: `propia: true` + `id` para el dueño del alcance;
+   * `propia: false`, sin id ni estado, para un tercero.
+   */
+  SOLICITUD_INCOMPLETA_EXISTENTE: 'solicitud_incompleta_existente',
+
+  /**
+   * El reintento de consulta al RUNT llegó a una incompleta que YA no está `incompleta` (HU #12998):
+   * otro usuario la completó o la descartó antes —o mientras— se consultaba. `409 { estado }` con el
+   * estado actual; la fila no se toca (AC6/AC7).
+   */
+  INCOMPLETA_YA_RESUELTA: 'incompleta_ya_resuelta',
 } as const;
 
 export type CodigoErrorSolicitudSoat =
   (typeof CodigoErrorSolicitudSoat)[keyof typeof CodigoErrorSolicitudSoat];
+
+/**
+ * Estados de una solicitud del canal Cliente APARCADA porque el RUNT no respondió (Feature #12841,
+ * ADR-0019). Viven en `flito_soat_incompletas.estado`, NO en `flito_soat`: la incompleta no es un
+ * SOAT y ningún lector de la cola la ve. Rótulos visibles (P-1 del UX): «Por validar» / «Descartada».
+ */
+export const EstadoSolicitudIncompletaSoat = {
+  INCOMPLETA: 'incompleta',
+  COMPLETADA: 'completada',
+  DESCARTADA: 'descartada',
+} as const;
+
+export type EstadoSolicitudIncompletaSoat =
+  (typeof EstadoSolicitudIncompletaSoat)[keyof typeof EstadoSolicitudIncompletaSoat];
+
+/**
+ * Por qué se descartó una incompleta (HU #12997). Los valores son EXACTAMENTE los del CHECK
+ * `flito_soat_incompletas_motivo_chk` de la migración 0210: si uno cambia, cambia el otro.
+ */
+export const MOTIVOS_DESCARTE_SOAT = [
+  'soat_vigente', 'runt_no_cuadra', 'runt_sin_registro', 'runt_sin_vin', 'solicitud_existente',
+] as const;
+
+export type MotivoDescarteSoat = (typeof MOTIVOS_DESCARTE_SOAT)[number];
+
+/**
+ * Autor que ve quien mira un descarte hecho por alguien FUERA de su enlace de compañía (Q6 / P-4 del
+ * UX). En base se guarda el nombre real; esto es solo la proyección.
+ */
+export const AUTOR_DESCARTE_FLITO = 'FLITO';
+
+/**
+ * Una fila de `POST /api/flito/soat/cliente/incompletas/buscar` (HU #12997, diseño §4.1).
+ *
+ * `placa`, `marca` y `linea` son SIEMPRE `null` (R5 del UX): el RUNT no respondió y no hay de dónde
+ * sacarlas. Viajan igualmente para que la tabla de la cola no tenga que distinguir la forma.
+ * `descarte` solo en `estado = 'descartada'`; `soatId` solo en `completada`.
+ */
+export interface SolicitudIncompletaFila {
+  id: string;
+  estado: EstadoSolicitudIncompletaSoat;
+  vin: string;
+  companiaId: number;
+  companiaNombre: string | null;
+  placa: null;
+  marca: null;
+  linea: null;
+  /** Nombre del titular (derivado, como el de la cola): el mismo dato personal que la cola ya muestra. */
+  titular: string | null;
+  solicitadoPorNombre: string;
+  /** ISO 8601. */
+  solicitadoEn: string;
+  intentos: number;
+  /** ISO 8601. */
+  ultimoIntentoRuntEn: string;
+  /** `porNombre` ya proyectado: «FLITO» si quien descartó no comparte el enlace de compañía del que mira. */
+  descarte: { motivo: MotivoDescarteSoat; en: string; porNombre: string } | null;
+  soatId: string | null;
+}
+
+/** Propietario de una incompleta: el mismo shape del alta del canal (y del `propietarioCanal` del detalle SOAT). */
+export interface PropietarioSolicitudIncompleta {
+  tipoDocumento: string | null;
+  nombres: string | null;
+  apellidos: string | null;
+  razonSocial: string | null;
+  numeroDocumento: string;
+  correo: string | null;
+  celular: string | null;
+  direccion: string | null;
+  municipio: string | null;
+  departamento: string | null;
+}
+
+/** `GET /api/flito/soat/cliente/incompletas/:id` (HU #12997). */
+export interface SolicitudIncompletaDetalle extends SolicitudIncompletaFila {
+  propietario: PropietarioSolicitudIncompleta | null;
+  factura: { nombreArchivo: string; contentType: string; tamanoBytes: number };
+}
+
+/** Respuesta de `POST /api/flito/soat/cliente/incompletas/buscar`. `conteos` alimenta las pastillas. */
+export interface RespuestaBuscarIncompletas {
+  items: SolicitudIncompletaFila[];
+  total: number;
+  conteos: { incompleta: number; descartada: number };
+}
+
+/**
+ * Respuesta de `POST /api/flito/soat/cliente` (HU #12996). Unión discriminada por `desenlace`:
+ *
+ *   · **201** `creada` — el RUNT respondió y la solicitud se despachó: el `{ id, estado }` de siempre
+ *     más `desenlace` (aditivo).
+ *   · **202** `incompleta` — el RUNT no respondió en el servidor: la solicitud quedó guardada
+ *     «pendiente de validar» con su factura y su propietario, sin llegar al gestor. `id` es el de la
+ *     fila de `flito_soat_incompletas`, no un id de SOAT.
+ */
+export type RespuestaAltaSolicitudSoat =
+  | { desenlace: 'creada'; id: string; estado: EstadoSoat }
+  | {
+    desenlace: 'incompleta';
+    id: string;
+    estado: typeof EstadoSolicitudIncompletaSoat.INCOMPLETA;
+    mensaje: string;
+  };
+
+/**
+ * `200` de `POST /api/flito/soat/cliente/incompletas/:id/reintentar` (HU #12998, diseño §4 y §4.1).
+ * Unión discriminada por `resultado`: la operación (reintentar) SÍ ocurrió y cambió la fila en los
+ * tres casos; el `409 incompleta_ya_resuelta` / `404` / `429` son «no pasó nada».
+ *
+ *   · `completada` — el RUNT respondió y no bloquea: nació el SOAT con `id = soatId` en `solicitado`.
+ *     `vigenciaProxima` = aviso de renovación anticipada (regla de 30 días, HU #12842), o `null`.
+ *   · `descartada` — el RUNT respondió que no se puede: SOAT vigente (`soatActivo` con sus seis
+ *     datos), la familia 422 (`soatActivo: null`) o el VIN ya tenía solicitud (`solicitud_existente`).
+ *   · `sigue_incompleta` — el RUNT sigue sin responder: `intentos` ya incrementado. ISO 8601.
+ */
+export type ResultadoReintentoRunt =
+  | { resultado: 'completada'; soatId: string; estado: 'solicitado'; vigenciaProxima: VigenciaProximaSoat | null }
+  | { resultado: 'descartada'; motivo: MotivoDescarteSoat; soatActivo: SoatActivoRunt | null }
+  | { resultado: 'sigue_incompleta'; intentos: number; ultimoIntentoRuntEn: string };
 
 /**
  * La familia «revise los datos»: los tres desenlaces en los que el RUNT **sí respondió** y la

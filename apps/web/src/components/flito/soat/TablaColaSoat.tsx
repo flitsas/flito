@@ -7,7 +7,7 @@
 // aprobado del TRÁMITE en FLIT) pasó al detalle (P-2): es un dato de consulta, no de decisión.
 
 import { ChevronRight } from 'lucide-react';
-import { EstadoSoat } from '@operaciones/shared-types';
+import { EstadoSoat, type SolicitudIncompletaFila } from '@operaciones/shared-types';
 import StatusChip from '../../flit/StatusChip';
 import AntiguedadPill from '../../flit/AntiguedadPill';
 import ChipSinGestion from '../../flit/ChipSinGestion';
@@ -18,10 +18,27 @@ import { CasillaSoat } from '../BarraEnvioSoat';
 import { BotonComprobanteFila, type EstadoDescargaComprobante } from '../DescargarComprobanteSoat';
 import { FlitCard, FlitTable, FlitTh, FlitTr, flitBtnSecondarySm } from '../../flit/flitPageKit';
 import ChipEstadoSoat from './ChipEstadoSoat';
+import FilaIncompletaSoat from './FilaIncompletaSoat';
 import { fecha, pesos, type ColaSoat, type SoatItem } from './tipos';
 
 export interface TablaColaSoatProps {
-  data: ColaSoat; filas: SoatItem[]; totalPaginas: number;
+  /** La página que se pinta: la de la cola o, en «Por validar»/«Descartadas», la de las incompletas. */
+  data: Pick<ColaSoat, 'total' | 'page'>; filas: SoatItem[]; totalPaginas: number;
+  /**
+   * Solicitudes aparcadas porque el RUNT no respondió (HU #12997). Van ANTES de los SOAT: en «Todos»
+   * son la cabeza de la primera página, y en sus pastillas son lo único que hay.
+   */
+  incompletas?: SolicitudIncompletaFila[];
+  puedeVerIncompleta?: boolean;
+  onVerIncompleta?: (f: SolicitudIncompletaFila) => void;
+  /** HU #12998: reintento de la consulta al RUNT (sin la función, ni se pinta). */
+  puedeReintentarIncompleta?: boolean;
+  incompletasEnVuelo?: Record<string, unknown>;
+  onReintentarIncompleta?: (f: SolicitudIncompletaFila) => void;
+  /** Lo que cuenta la paginación: «SOAT» o, en las pastillas nuevas, «solicitudes». */
+  sustantivo?: string;
+  /** «1 solicitud»: el sustantivo en singular para `Paginacion`. */
+  sustantivoSingular?: string;
   onPrev: () => void; onNext: () => void;
   conCasillas: boolean; seleccion: Set<string>; setSeleccion: (s: Set<string>) => void;
   seleccionables: SoatItem[]; toggle: (id: string) => void;
@@ -34,11 +51,13 @@ export interface TablaColaSoatProps {
 export default function TablaColaSoat({
   data, filas, totalPaginas, onPrev, onNext, conCasillas, seleccion, setSeleccion, seleccionables, toggle,
   esCliente, puedeDescargar, descargaComprobante, conCompania, onVer,
+  incompletas = [], puedeVerIncompleta = false, onVerIncompleta = () => {}, sustantivo = 'SOAT', sustantivoSingular,
+  puedeReintentarIncompleta = false, incompletasEnVuelo = {}, onReintentarIncompleta,
 }: TablaColaSoatProps) {
   return (
         <FlitCard>
           <div className="mb-3">
-            <Paginacion total={data.total} page={data.page} totalPaginas={totalPaginas} sustantivo="SOAT"
+            <Paginacion total={data.total} page={data.page} totalPaginas={totalPaginas} sustantivo={sustantivo} singular={sustantivoSingular}
               onPrev={onPrev} onNext={onNext} />
           </div>
           <FlitTable label="Pólizas SOAT">
@@ -66,6 +85,12 @@ export default function TablaColaSoat({
               </FlitTr>
             </thead>
             <tbody>
+              {incompletas.map((f) => (
+                <FilaIncompletaSoat key={`inc-${f.id}`} fila={f} conCasillas={conCasillas} conCompania={conCompania}
+                  esCliente={esCliente} puedeVer={puedeVerIncompleta} onVer={onVerIncompleta}
+                  puedeReintentar={puedeReintentarIncompleta} consultando={f.id in incompletasEnVuelo}
+                  onReintentar={onReintentarIncompleta} />
+              ))}
               {filas.map((f) => (
                 <FlitTr key={f.id} marcada={seleccion.has(f.id)}>
                   {conCasillas && (
@@ -116,7 +141,7 @@ export default function TablaColaSoat({
             </tbody>
           </FlitTable>
           <div className="mt-3">
-            <Paginacion total={data.total} page={data.page} totalPaginas={totalPaginas} sustantivo="SOAT"
+            <Paginacion total={data.total} page={data.page} totalPaginas={totalPaginas} sustantivo={sustantivo} singular={sustantivoSingular}
               onPrev={onPrev} onNext={onNext} />
           </div>
         </FlitCard>

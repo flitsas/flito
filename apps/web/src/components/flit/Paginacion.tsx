@@ -5,19 +5,21 @@
 // un filtro dejó fuera lo que se estaba buscando.
 
 export default function Paginacion({
-  total, page, totalPaginas, onPrev, onNext, sustantivo = 'registros',
+  total, page, totalPaginas, onPrev, onNext, sustantivo = 'registros', singular,
 }: {
   total: number; page: number; totalPaginas: number;
   onPrev: () => void; onNext: () => void;
   /** Qué se está contando: «trámites», «SOAT», «impuestos». */
   sustantivo?: string;
+  /** El sustantivo cuando `total` es 1 («1 solicitud», no «1 solicitudes»). Sin él, `sustantivo`. */
+  singular?: string;
 }) {
   const btn = 'rounded-lg border px-3 py-1.5 text-sm font-semibold disabled:opacity-40';
   const btnStyle = { borderColor: 'var(--flit-border-input)', color: 'var(--flit-blue-text)' } as const;
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
       <span className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-        <strong style={{ color: 'var(--flit-text-primary)' }}>{total.toLocaleString('es-CO')}</strong> {sustantivo} · página {page} de {totalPaginas}
+        <strong style={{ color: 'var(--flit-text-primary)' }}>{total.toLocaleString('es-CO')}</strong> {total === 1 && singular ? singular : sustantivo} · página {page} de {totalPaginas}
       </span>
       <div className="flex gap-2">
         <button className={btn} style={btnStyle} disabled={page <= 1} onClick={onPrev}>← Anterior</button>

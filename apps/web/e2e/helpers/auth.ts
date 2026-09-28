@@ -157,6 +157,8 @@ export const TOKEN_E2E = 'fake.jwt.e2e';
 const SOAT_LEER = [
   'soat.cola.ver', 'soat.cola.filtrar', 'soat.solicitud.ver', 'soat.solicitud.ver_historial',
   'soat.solicitud.ver_soportes',
+  // HU #12997: las pastillas «Por validar»/«Descartadas» y su detalle (sembradas en la 0211).
+  'soat.incompletas.buscar', 'soat.incompleta.ver',
 ] as const;
 
 /**
@@ -205,6 +207,8 @@ const COMPROBANTES = [
 export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
   admin: [
     ...SOAT_LEER, 'soat.comprobante.cargar', 'soat.solicitud.enviar',
+    // HU #12998: «Reintentar consulta» de una incompleta (0211: sembrada solo a `admin`).
+    'soat.solicitud.reintentar_runt',
     // HU #12815: el ZIP de comprobantes de la cola SOAT cuelga de su propia función (0179: admin y
     // proveedor). Sin ella no hay botón «Descargar soportes».
     'soat.soportes.descargar',

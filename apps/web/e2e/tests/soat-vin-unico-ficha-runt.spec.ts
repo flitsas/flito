@@ -25,7 +25,7 @@
 // justo lo que el Cliente no sabe leer.
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, CLIENTE_CON_CANAL } from '../helpers/auth';
+import { loginAs, CLIENTE_CON_CANAL, FUNCIONES_POR_ROL } from '../helpers/auth';
 
 const VIN = '9BWZZZ377VT004251';
 /** El mismo VIN tecleado como viene en la factura: 19 crudos, 17 al normalizar. Se ACEPTA. */
@@ -119,6 +119,7 @@ const campoVin = (page: Page) => page.getByLabel('VIN (número de chasis)');
 const btnConsultar = (page: Page) => page.getByRole('button', { name: 'Consultar el RUNT' });
 const btnReconsultar = (page: Page) => page.getByRole('button', { name: 'Volver a consultar' });
 const btnEnviar = (page: Page) => page.getByRole('button', { name: 'Enviar al gestor' });
+const btnGuardar = (page: Page) => page.getByRole('button', { name: 'Guardar pendiente de validar' });
 const fichaRunt = (page: Page) => page.getByRole('region', { name: 'Datos del RUNT' });
 
 /** El propietario del bloque 3, con su documento — que desde esta HU se edita AQUÍ. */
@@ -171,8 +172,13 @@ test.describe('HU #12091 · AC1 — un solo campo en el bloque 1', () => {
     // La ayuda no está «al lado»: está ENLAZADA, que es lo único que le sirve a un lector.
     const descrito = await campoVin(page).getAttribute('aria-describedby');
     expect(descrito).toBe('sol-vin-ayuda');
+    // HU #12844: la ayuda lleva icono y el contador «n de 17», que cuenta sobre el valor normalizado.
     await expect(page.locator('#sol-vin-ayuda'))
-      .toHaveText('Está en la tarjeta de propiedad y en la factura de venta. Suele tener 17 caracteres.');
+      .toContainText('Está en la tarjeta de propiedad y en la factura de venta.');
+    await expect(page.locator('#sol-vin-ayuda')).toContainText('0 de 17');
+    await campoVin(page).fill('9FKRG-2222-T2042405');
+    await expect(page.locator('#sol-vin-ayuda')).toContainText('17 de 17');
+    await campoVin(page).fill('');
 
     // Y los tres que se fueron NO están en el bloque 1. Se comprueba DENTRO del bloque —y no en la
     // página— porque tipo y número siguen existiendo: lo que cambió es dónde.
@@ -223,6 +229,29 @@ test.describe('HU #12091 · AC1 — un solo campo en el bloque 1', () => {
       .filter({ hasText: 'El VIN tiene 10 caracteres y hacen falta al menos 11.' })).toBeVisible();
     // No es el aviso blando de longitud rara: ese no bloquea y este sí.
     await expect(page.getByText(/El VIN suele tener 17 caracteres/)).toHaveCount(0);
+    expect(cap.preconsultas, JSON.stringify(cap.preconsultas)).toHaveLength(0);
+  });
+
+  // HU #12844 (AC6): el render del aviso y de los errores del VIN se movió a `PasoVin.tsx`; este
+  // test fija que el paso rediseñado sigue diciendo lo mismo. De 11 a 16 avisa sin bloquear;
+  // I/O/Q y más de 17 bloquean sin salir a la red.
+  test('VIN de 11 a 16 avisa; con I/O/Q o más de 17 da error y cero peticiones (HU #12844)', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    const cap = await mockCanal(page);
+
+    await campoVin(page).fill('9bwzzz377vt00425');
+    await expect(campoVin(page)).toHaveValue('9BWZZZ377VT00425');
+    await expect(page.getByText('El VIN suele tener 17 caracteres y este tiene 16.')).toBeVisible();
+    await campoVin(page).fill('9BWZZZ377VT0042');
+    await expect(page.getByText('El VIN suele tener 17 caracteres y este tiene 15.')).toBeVisible();
+
+    await campoVin(page).fill('9BWZZZ377VT00425O');
+    await btnConsultar(page).click();
+    await expect(page.getByText('El VIN no lleva las letras I, O ni Q.', { exact: false })).toBeVisible();
+
+    await campoVin(page).fill('9BWZZZ377VT0042512');
+    await btnConsultar(page).click();
+    await expect(page.getByText('El VIN no puede tener más de 17 caracteres.')).toBeVisible();
     expect(cap.preconsultas, JSON.stringify(cap.preconsultas)).toHaveLength(0);
   });
 
@@ -369,7 +398,7 @@ test.describe('HU #12091 · AC3 — la ficha del RUNT enseña los once', () => {
     await expect(ficha.locator('dd').nth(10)).toHaveText('—');
     await expect(ficha.getByText('Un dato en «—» es un dato que el RUNT no publica. No impide enviar la solicitud.')).toBeVisible();
     // Y no impide enviar: la compuerta sigue abierta.
-    await expect(page.getByText('✓ Consultado')).toBeVisible();
+    await expect(page.getByText('Consultado', { exact: true })).toBeVisible();
   });
 });
 
@@ -388,11 +417,12 @@ test.describe('HU #12091 · AC4 — los cuatro desenlaces se distinguen por CÓD
   test('503 runt_no_disponible: habla del SERVICIO aunque el mensaje del servidor hable de datos', async ({ page }) => {
     const cap = await consultarCon(page, fallo(503, 'runt_no_disponible', 'Los datos no corresponden: revisa los datos.'));
 
-    await expect(page.getByRole('alert')).toContainText('El RUNT no está disponible, vuelva a consultar.');
+    await expect(page.getByRole('alert')).toContainText('El RUNT no está respondiendo en este momento.');
     await expect(page.getByText(/revisa los datos/i)).toHaveCount(0);
     // Sin nada suyo que corregir, el foco va al botón y no al campo.
     await expect(btnReconsultar(page)).toBeFocused();
-    await expect(btnEnviar(page)).toHaveAttribute('aria-disabled', 'true');
+    // HU #12996: el modo RUNT caído cambia el rótulo; con datos pendientes sigue bloqueado.
+    await expect(btnGuardar(page)).toHaveAttribute('aria-disabled', 'true');
     expect(cap.altas).toHaveLength(0);
   });
 
@@ -421,19 +451,37 @@ test.describe('HU #12091 · AC4 — los cuatro desenlaces se distinguen por CÓD
     expect(cap.altas).toHaveLength(0);
   });
 
-  test('409 soat_vigente: modal propio, cero altas, y el foco vuelve al VIN al cerrarlo', async ({ page }) => {
-    const cap = await consultarCon(page, fallo(409, 'soat_vigente', 'Revisa los datos del vehículo.'));
+  test('409 soat_vigente: tarjeta propia (no modal), cero altas, y el foco vuelve al VIN al salir', async ({ page }) => {
+    const cap = await consultarCon(page, fallo(409, 'soat_vigente', 'Revisa los datos del vehículo.', {
+      soatActivo: {
+        poliza: 'AT-0000-TEST-01', aseguradora: 'ASEGURADORA FICTICIA S.A.', fechaExpedicion: null,
+        inicioVigencia: null, vencimiento: '2027-02-01', estado: 'VIGENTE',
+      },
+    }));
 
-    const modal = page.getByRole('dialog', { name: 'Este vehículo ya tiene SOAT vigente' });
-    await expect(modal).toBeVisible();
-    await expect(modal.getByText('Según el RUNT, este vehículo tiene una póliza SOAT vigente.')).toBeVisible();
-    // Ni la placa (que ya no existe) ni el VIN dentro de la frase o del título del diálogo.
-    await expect(modal).not.toContainText(VIN);
+    // HU #12844: la tarjeta en línea sustituye al modal.
+    const tarjeta = page.getByRole('region', { name: 'Este vehículo ya tiene SOAT activo' });
+    await expect(tarjeta).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(tarjeta).toContainText('Vence el 1 de febrero de 2027.');
+    // AC4: lo que no vino se pinta «—».
+    await expect(tarjeta.locator('dd').filter({ hasText: /^—$/ })).toHaveCount(2);
+    // Ni la placa (que ya no existe) ni el VIN dentro de la tarjeta.
+    await expect(tarjeta).not.toContainText(VIN);
     expect(cap.altas).toHaveLength(0);
 
-    await page.keyboard.press('Escape');
-    await expect(modal).toHaveCount(0);
+    await tarjeta.getByRole('button', { name: 'Consultar otro vehículo' }).click();
+    await expect(tarjeta).toHaveCount(0);
+    await expect(campoVin(page)).toHaveValue('');
     await expect(campoVin(page)).toBeFocused();
+  });
+
+  test('editar el VIN retira la tarjeta de bloqueo', async ({ page }) => {
+    await consultarCon(page, fallo(409, 'soat_vigente', 'mentira'));
+    const tarjeta = page.getByRole('region', { name: 'Este vehículo ya tiene SOAT activo' });
+    await expect(tarjeta).toBeVisible();
+    await campoVin(page).fill(VIN.slice(0, 16));
+    await expect(tarjeta).toHaveCount(0);
   });
 
   test('los cuatro desenlaces dicen cosas DISTINTAS entre sí, y ninguno nombra la placa', async ({ page }) => {
@@ -454,11 +502,11 @@ test.describe('HU #12091 · AC4 — los cuatro desenlaces se distinguen por CÓD
       await expect(page.getByRole('alert')).not.toHaveText(textos[textos.length - 1]);
       textos.push((await page.getByRole('alert').innerText()).trim());
     }
-    // El cuarto no es una banda sino un modal, y por eso se lee aparte: el AC pide que los cuatro se
-    // vean distintos, no que compartan superficie.
+    // El cuarto no es una banda sino la tarjeta de SOAT activo (HU #12844), y por eso se lee aparte:
+    // el AC pide que los cuatro se vean distintos, no que compartan superficie.
     await reMockPreconsulta(page, fallo(409, 'soat_vigente', 'mentira'));
     await consultar.click();
-    textos.push((await page.getByRole('dialog').innerText()).trim());
+    textos.push((await page.getByRole('region', { name: 'Este vehículo ya tiene SOAT activo' }).innerText()).trim());
 
     expect(new Set(textos).size, textos.join('\n──\n')).toBe(4);
     for (const texto of textos) expect(texto.toLowerCase(), texto).not.toContain('placa');
@@ -502,7 +550,7 @@ test.describe('HU #12091 · AC5 — editar el VIN invalida la consulta', () => {
     await campoVin(page).fill('9BWZZZ377VT004252');
 
     await expect(fichaRunt(page)).toHaveCount(0);
-    await expect(page.getByText('✓ Consultado')).toHaveCount(0);
+    await expect(page.getByText('Consultado', { exact: true })).toHaveCount(0);
     // `role="status"` y no `alert`: es la consecuencia de lo que el usuario acaba de hacer.
     const aviso = page.getByRole('status').filter({ hasText: 'Cambió el VIN' });
     await expect(aviso).toHaveText('Cambió el VIN: vuelva a consultar el RUNT antes de enviar.');
@@ -529,7 +577,7 @@ test.describe('HU #12091 · AC5 — editar el VIN invalida la consulta', () => {
     // El mutante que esto mata es dejar la invalidación de la #11967 atada a un dato que la consulta
     // ya no usa: corregir una tilde del documento tumbaría la ficha sin motivo.
     await expect(fichaRunt(page)).toBeVisible();
-    await expect(page.getByText('✓ Consultado')).toBeVisible();
+    await expect(page.getByText('Consultado', { exact: true })).toBeVisible();
     await expect(page.getByText(/Cambió el VIN/)).toHaveCount(0);
     await expect(btnEnviar(page)).not.toHaveAttribute('aria-disabled', 'true');
   });
@@ -584,9 +632,220 @@ test.describe('HU #12091 · AC5 — editar el VIN invalida la consulta', () => {
     await page.waitForTimeout(500);
 
     await expect(fichaRunt(page)).toHaveCount(0);
-    await expect(page.getByText('✓ Consultado')).toHaveCount(0);
+    await expect(page.getByText('Consultado', { exact: true })).toHaveCount(0);
     await expect(btnEnviar(page)).toHaveAttribute('aria-disabled', 'true');
     expect(cap.preconsultas).toHaveLength(1);
     expect(cap.altas).toHaveLength(0);
+  });
+});
+
+// ═════════════ HU #12996 · solicitud «por validar» cuando el RUNT no responde ═════════════════════
+//
+// Spec UX: docs/ux/flito-soat-solicitud-incompleta-runt.md §2.1–2.3 (copy literal). El alta con el
+// RUNT caído responde `202 { desenlace: 'incompleta', id, estado, mensaje }`: su `id` NO es un SOAT,
+// así que la pantalla no navega a él ni tuesta «enviada».
+
+const INCOMPLETA_202 = {
+  status: 202,
+  cuerpo: {
+    desenlace: 'incompleta', id: '99999999-2222-4333-8444-555555555555', estado: 'incompleta',
+    mensaje: 'El RUNT no respondió.',
+  },
+};
+const TITULO_GUARDADA = 'Su solicitud quedó guardada, pendiente de validar';
+const CUERPO_GUARDADA = 'El RUNT no respondió, así que todavía no la enviamos al gestor. Guardamos el VIN, la factura y los datos del propietario: no tiene que volver a escribirlos. FLITO volverá a consultar el RUNT y usted verá el cambio de estado en «Mis SOAT».';
+const FRASE_CAIDO = 'El RUNT no respondió: la solicitud quedará pendiente de validar y se consultará de nuevo antes de enviarla al gestor.';
+
+/** Formulario completo y consulta con 503: el estado desde el que se puede guardar. */
+async function llenarTodoConRuntCaido(page: Page) {
+  await campoVin(page).fill(VIN);
+  await adjuntarFactura(page);
+  await llenarPropietario(page);
+  await btnConsultar(page).click();
+  await expect(page.getByRole('alert')).toContainText('El RUNT no está respondiendo en este momento.');
+}
+
+test.describe('HU #12996 · AC7 — el formulario en modo RUNT caído', () => {
+  test('banda literal; con datos pendientes «Guardar pendiente de validar» está aria-disabled', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    const cap = await mockCanal(page, { preconsulta: fallo(503, 'runt_no_disponible', 'mentira') });
+    await campoVin(page).fill(VIN);
+    await btnConsultar(page).click();
+
+    const banda = page.getByRole('alert');
+    await expect(banda).toContainText('El RUNT no está respondiendo en este momento.');
+    await expect(banda).toContainText('Puede volver a consultar, o completar la factura y el propietario y guardar la solicitud pendiente de validar. Lo que escriba no se pierde.');
+    await expect(btnGuardar(page)).toHaveAttribute('aria-disabled', 'true');
+    await expect(btnEnviar(page)).toHaveCount(0);
+    // Mientras faltan datos, «Volver a consultar» sigue siendo la primaria (UX §1).
+    await expect(page.getByText(/^Para enviar falta: Factura de venta/)).toBeVisible();
+
+    // Pulsar el bloqueado no guarda nada (`force`: Playwright trata `aria-disabled` como deshabilitado).
+    await btnGuardar(page).click({ force: true });
+    expect(cap.altas).toHaveLength(0);
+  });
+
+  test('completo: primario activo, frase literal, «Guardando…» en vuelo y tarjeta al 202', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    const cap = await mockCanal(page, { preconsulta: fallo(503, 'runt_no_disponible', 'mentira'), alta: INCOMPLETA_202 });
+    await llenarTodoConRuntCaido(page);
+
+    await expect(btnGuardar(page)).not.toHaveAttribute('aria-disabled', 'true');
+    await expect(page.getByText(FRASE_CAIDO)).toBeVisible();
+    await expect(btnReconsultar(page)).toBeVisible();
+
+    // Retener el alta para ver «Guardando…». La ruta registrada después gana.
+    let soltar: () => void = () => {};
+    const retenida = new Promise<void>((r) => { soltar = () => r(); });
+    await page.route(RE_ALTA, async (route) => {
+      cap.altas.push({ post: route.request().postData() });
+      await retenida;
+      return json(route, INCOMPLETA_202.status, INCOMPLETA_202.cuerpo);
+    });
+    await btnGuardar(page).click();
+    await expect(page.getByRole('button', { name: 'Guardando…' })).toBeDisabled();
+    soltar();
+
+    await expect(page.getByRole('heading', { name: TITULO_GUARDADA })).toBeVisible();
+    expect(cap.altas).toHaveLength(1);
+  });
+
+  test('editar el VIN cierra la opción hasta volver a consultar', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCanal(page, { preconsulta: fallo(503, 'runt_no_disponible', 'mentira') });
+    await llenarTodoConRuntCaido(page);
+    await expect(btnGuardar(page)).toBeVisible();
+
+    await campoVin(page).fill(`${VIN.slice(0, 16)}9`);
+
+    await expect(btnGuardar(page)).toHaveCount(0);
+    await expect(btnEnviar(page)).toHaveAttribute('aria-disabled', 'true');
+    await expect(page.getByText(FRASE_CAIDO)).toHaveCount(0);
+  });
+});
+
+test.describe('HU #12996 · AC6 — los otros desenlaces NO abren la opción de guardar', () => {
+  const casos: [string, Respuesta | 'sin-red'][] = [
+    ['runt_no_cuadra', fallo(422, 'runt_no_cuadra', 'x', { campo: 'vin' })],
+    ['runt_sin_registro', fallo(422, 'runt_sin_registro', 'x')],
+    ['genérico (código desconocido)', fallo(500, 'codigo_que_no_existe', 'x')],
+    ['sin red', 'sin-red'],
+  ];
+  for (const [nombre, respuesta] of casos) {
+    test(`${nombre}: sin «Guardar pendiente de validar» y cero altas`, async ({ page }) => {
+      await loginAs(page, CLIENTE_CON_CANAL);
+      const cap = await mockCanal(page, respuesta === 'sin-red' ? {} : { preconsulta: respuesta });
+      if (respuesta === 'sin-red') {
+        await page.unroute(RE_PRECONSULTA);
+        await page.route(RE_PRECONSULTA, (route) => route.abort('failed'));
+      }
+      await campoVin(page).fill(VIN);
+      await adjuntarFactura(page);
+      await llenarPropietario(page);
+      await btnConsultar(page).click();
+      await expect(page.getByRole('alert')).toBeVisible();
+
+      await expect(btnGuardar(page)).toHaveCount(0);
+      await expect(btnEnviar(page)).toHaveAttribute('aria-disabled', 'true');
+      await btnEnviar(page).click({ force: true });
+      expect(cap.altas).toHaveLength(0);
+    });
+  }
+});
+
+test.describe('HU #12996 · AC3/AC8 — la tarjeta de confirmación', () => {
+  test('RUNT OK en la consulta y caído al enviar: tarjeta role=status, foco en el título, sin toast ni VIN en la URL', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCanal(page, { alta: INCOMPLETA_202 });
+    await llenarTodoYConsultar(page);
+    await btnEnviar(page).click();
+
+    const titulo = page.getByRole('heading', { name: TITULO_GUARDADA });
+    await expect(titulo).toBeFocused();
+    const tarjeta = page.getByRole('status').filter({ has: titulo });
+    await expect(tarjeta).toContainText(CUERPO_GUARDADA);
+    await expect(tarjeta.locator('.font-mono')).toHaveText(VIN);
+    // El formulario se reemplaza: ni el campo VIN ni la barra de envío.
+    await expect(campoVin(page)).toHaveCount(0);
+    await expect(btnEnviar(page)).toHaveCount(0);
+    await expect(page.getByText('Solicitud enviada. Ya está en gestión.')).toHaveCount(0);
+    expect(page.url()).not.toContain(VIN);
+
+    await page.getByRole('button', { name: 'Ir a mis SOAT' }).click();
+    await expect(page).toHaveURL(/\/flito\/soat$/);
+    expect(page.url()).not.toContain(VIN);
+    // HU #12997 · AC9: llega con «Por validar» puesta, por el ESTADO del router (la URL sigue limpia).
+    await expect(page.getByRole('button', { name: 'Por validar', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('«Solicitar otro SOAT» limpia el formulario entero y enfoca el VIN', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCanal(page, { preconsulta: fallo(503, 'runt_no_disponible', 'mentira'), alta: INCOMPLETA_202 });
+    await llenarTodoConRuntCaido(page);
+    await btnGuardar(page).click();
+    await expect(page.getByRole('heading', { name: TITULO_GUARDADA })).toBeFocused();
+
+    await page.getByRole('button', { name: 'Solicitar otro SOAT' }).click();
+
+    await expect(campoVin(page)).toBeFocused();
+    await expect(campoVin(page)).toHaveValue('');
+    await expect(page.getByLabel('Número de documento')).toHaveValue('');
+    await expect(page.getByLabel('Correo electrónico')).toHaveValue('');
+    await expect(btnConsultar(page)).toBeVisible();
+    await expect(btnGuardar(page)).toHaveCount(0);
+  });
+});
+
+test.describe('HU #12998 · AC10 — la última frase de la tarjeta depende del permiso de reintentar', () => {
+  const CUERPO_CON_PERMISO = 'El RUNT no respondió, así que todavía no la enviamos al gestor. Guardamos el VIN, la factura y los datos del propietario: no tiene que volver a escribirlos. Cuando el RUNT responda, la consulta se repite desde «Mis SOAT» con «Reintentar consulta».';
+
+  test('con soat.solicitud.reintentar_runt: «…desde «Mis SOAT» con «Reintentar consulta».»', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL, { funciones: [...FUNCIONES_POR_ROL.cliente, 'soat.solicitud.reintentar_runt'] });
+    await mockCanal(page, { preconsulta: fallo(503, 'runt_no_disponible', 'mentira'), alta: INCOMPLETA_202 });
+    await llenarTodoConRuntCaido(page);
+    await btnGuardar(page).click();
+    const titulo = page.getByRole('heading', { name: TITULO_GUARDADA });
+    await expect(titulo).toBeFocused();
+    const tarjeta = page.getByRole('status').filter({ has: titulo });
+    await expect(tarjeta).toContainText(CUERPO_CON_PERMISO);
+    await expect(tarjeta).not.toContainText('FLITO volverá a consultar el RUNT');
+  });
+
+  test('sin el permiso (cliente de partida): la variante «FLITO volverá a consultar el RUNT…»', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCanal(page, { preconsulta: fallo(503, 'runt_no_disponible', 'mentira'), alta: INCOMPLETA_202 });
+    await llenarTodoConRuntCaido(page);
+    await btnGuardar(page).click();
+    const titulo = page.getByRole('heading', { name: TITULO_GUARDADA });
+    await expect(page.getByRole('status').filter({ has: titulo })).toContainText(CUERPO_GUARDADA);
+    await expect(page.getByText('Reintentar consulta')).toHaveCount(0);
+  });
+});
+
+test.describe('HU #12996 · AC5 — el VIN ya tiene una solicitud pendiente de validar', () => {
+  test('409 propio en la consulta: modal con copy propio, nunca el error crudo, y cero altas', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    const cap = await mockCanal(page, {
+      preconsulta: fallo(409, 'solicitud_incompleta_existente', 'ERROR CRUDO DEL SERVIDOR', { propia: true, id: UUID_SOLICITUD }),
+    });
+    await campoVin(page).fill(VIN);
+    await btnConsultar(page).click();
+
+    const dialogo = page.getByRole('dialog', { name: 'Ese vehículo ya tiene una solicitud pendiente de validar' });
+    await expect(dialogo).toBeVisible();
+    await expect(dialogo).toContainText('espera a que el RUNT responda');
+    await expect(page.getByText('ERROR CRUDO DEL SERVIDOR')).toHaveCount(0);
+    expect(cap.altas).toHaveLength(0);
+  });
+
+  test('409 ajeno: la misma frase del VIN en cola, sin decir que está por validar', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCanal(page, { preconsulta: fallo(409, 'solicitud_incompleta_existente', 'x', { propia: false }) });
+    await campoVin(page).fill(VIN);
+    await btnConsultar(page).click();
+
+    const dialogo = page.getByRole('dialog', { name: 'Ese vehículo ya está en la cola de FLITO' });
+    await expect(dialogo).toBeVisible();
+    await expect(dialogo).not.toContainText(/validar|RUNT/);
   });
 });
