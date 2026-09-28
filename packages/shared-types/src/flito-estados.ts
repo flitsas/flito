@@ -705,6 +705,78 @@ export type EstadoSolicitudIncompletaSoat =
   (typeof EstadoSolicitudIncompletaSoat)[keyof typeof EstadoSolicitudIncompletaSoat];
 
 /**
+ * Por qué se descartó una incompleta (HU #12997). Los valores son EXACTAMENTE los del CHECK
+ * `flito_soat_incompletas_motivo_chk` de la migración 0210: si uno cambia, cambia el otro.
+ */
+export const MOTIVOS_DESCARTE_SOAT = [
+  'soat_vigente', 'runt_no_cuadra', 'runt_sin_registro', 'runt_sin_vin', 'solicitud_existente',
+] as const;
+
+export type MotivoDescarteSoat = (typeof MOTIVOS_DESCARTE_SOAT)[number];
+
+/**
+ * Autor que ve quien mira un descarte hecho por alguien FUERA de su enlace de compañía (Q6 / P-4 del
+ * UX). En base se guarda el nombre real; esto es solo la proyección.
+ */
+export const AUTOR_DESCARTE_FLITO = 'FLITO';
+
+/**
+ * Una fila de `POST /api/flito/soat/cliente/incompletas/buscar` (HU #12997, diseño §4.1).
+ *
+ * `placa`, `marca` y `linea` son SIEMPRE `null` (R5 del UX): el RUNT no respondió y no hay de dónde
+ * sacarlas. Viajan igualmente para que la tabla de la cola no tenga que distinguir la forma.
+ * `descarte` solo en `estado = 'descartada'`; `soatId` solo en `completada`.
+ */
+export interface SolicitudIncompletaFila {
+  id: string;
+  estado: EstadoSolicitudIncompletaSoat;
+  vin: string;
+  companiaId: number;
+  companiaNombre: string | null;
+  placa: null;
+  marca: null;
+  linea: null;
+  /** Nombre del titular (derivado, como el de la cola): el mismo dato personal que la cola ya muestra. */
+  titular: string | null;
+  solicitadoPorNombre: string;
+  /** ISO 8601. */
+  solicitadoEn: string;
+  intentos: number;
+  /** ISO 8601. */
+  ultimoIntentoRuntEn: string;
+  /** `porNombre` ya proyectado: «FLITO» si quien descartó no comparte el enlace de compañía del que mira. */
+  descarte: { motivo: MotivoDescarteSoat; en: string; porNombre: string } | null;
+  soatId: string | null;
+}
+
+/** Propietario de una incompleta: el mismo shape del alta del canal (y del `propietarioCanal` del detalle SOAT). */
+export interface PropietarioSolicitudIncompleta {
+  tipoDocumento: string | null;
+  nombres: string | null;
+  apellidos: string | null;
+  razonSocial: string | null;
+  numeroDocumento: string;
+  correo: string | null;
+  celular: string | null;
+  direccion: string | null;
+  municipio: string | null;
+  departamento: string | null;
+}
+
+/** `GET /api/flito/soat/cliente/incompletas/:id` (HU #12997). */
+export interface SolicitudIncompletaDetalle extends SolicitudIncompletaFila {
+  propietario: PropietarioSolicitudIncompleta | null;
+  factura: { nombreArchivo: string; contentType: string; tamanoBytes: number };
+}
+
+/** Respuesta de `POST /api/flito/soat/cliente/incompletas/buscar`. `conteos` alimenta las pastillas. */
+export interface RespuestaBuscarIncompletas {
+  items: SolicitudIncompletaFila[];
+  total: number;
+  conteos: { incompleta: number; descartada: number };
+}
+
+/**
  * Respuesta de `POST /api/flito/soat/cliente` (HU #12996). Unión discriminada por `desenlace`:
  *
  *   · **201** `creada` — el RUNT respondió y la solicitud se despachó: el `{ id, estado }` de siempre

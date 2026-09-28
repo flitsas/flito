@@ -511,3 +511,50 @@ export async function registrarLecturaFacturaCliente(
     motivo: motivo.slice(0, MOTIVO_MAX),
   });
 }
+
+// ── Canal Cliente: solicitudes incompletas por RUNT caído (Feature #12841, HU #12997) ────────────
+
+/**
+ * `resource_tipo` PROPIO de una lectura de `flito_soat_incompletas` (diseño §7): la incompleta no es
+ * un SOAT, y anotarla como `flito_soat` mezclaría en el registro dos recursos con ids distintos.
+ */
+export const RECURSO_SOAT_INCOMPLETA = 'flito_soat_incompleta';
+
+/** Lo que entrega cada fila de `…/incompletas/buscar`: el VIN y el nombre del titular (como la cola). */
+export const CAMPOS_PII_INCOMPLETA_FILA = ['nombre_completo', 'vin'] as const;
+
+/** Lo que entrega `GET …/incompletas/:id`: el propietario completo, como el detalle SOAT del canal. */
+export const CAMPOS_PII_INCOMPLETA_DETALLE = [
+  'nombre_completo', 'numero_documento', 'tipo_documento', 'vin',
+  'nombres', 'apellidos', 'razon_social', 'correo', 'celular', 'direccion', 'municipio', 'departamento',
+] as const;
+
+/**
+ * Deja constancia de una lectura de incompletas (AC3). Si hay VIN (el detalle), va como HMAC y
+ * DELANTE, por la misma razón que en `motivoRunt`: el `slice` corta por el final. Si el token no se
+ * puede calcular se escribe `vin=?` y la línea se escribe igual.
+ */
+export async function registrarAccesoIncompleta(req: Request, acceso: {
+  accion: 'read' | 'search';
+  incompletaId?: string;
+  vin?: string;
+  filas: number;
+  campos: readonly string[];
+}): Promise<void> {
+  const partes: string[] = [];
+  if (acceso.vin) {
+    try { partes.push(`vin=${tokenPii(hmacVin(acceso.vin))}`); } catch { partes.push('vin=?'); }
+  }
+  if (acceso.incompletaId) partes.push(`incompleta ${acceso.incompletaId}`);
+  partes.push(`filas=${acceso.filas}`);
+  partes.push('Lectura de solicitud SOAT pendiente de validar');
+
+  await logPiiAccess(req, {
+    resourceTipo: RECURSO_SOAT_INCOMPLETA,
+    // uuid: no cabe en la columna integer; va en el motivo, como en `registrarAccesoSoat`.
+    resourceId: null,
+    accion: acceso.accion,
+    camposAccedidos: [...acceso.campos],
+    motivo: partes.join(' · ').slice(0, MOTIVO_MAX),
+  });
+}

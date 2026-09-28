@@ -34,6 +34,7 @@ const op = (llave: string, codigo: string, nombre: string, descripcion: string):
 
 const SOAT = 'flito-soat/flito-soat.routes.ts';
 const SOAT_CLI = 'flito-soat/flito-soat-cliente.routes.ts';
+const SOAT_INC = 'flito-soat/flito-soat-incompletas.routes.ts';
 const IMP = 'flito-impuestos/flito-impuestos.routes.ts';
 const IMP_DIR = 'flito-impuestos/flito-impuestos.direccion.routes.ts';
 const DER = 'flito-derechos/flito-derechos.routes.ts';
@@ -84,6 +85,11 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${SOAT_CLI} POST /cliente/preconsulta`, 'soat.runt.preconsultar', 'Preconsultar un vehículo en el RUNT', 'Verificar en el RUNT los datos del vehículo antes de radicar.'),
   op(`${SOAT_CLI} POST /cliente`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
   op(`${SOAT_CLI} POST /cliente/factura/lectura`, 'soat.factura.leer', 'Leer la factura de venta del vehículo', 'Extraer del PDF de la factura los datos del vehículo para prellenar la solicitud.'),
+  // HU #12997 (Feature #12841, diseño §11.1): lectura de las solicitudes que esperan al RUNT. Códigos
+  // propios —el catálogo es «una función por ruta»— sembrados por la 0211 a todo rol que ya tenga
+  // `soat.cola.ver` / `soat.solicitud.ver`. Textos byte a byte con la 0211.
+  op(`${SOAT_INC} POST /cliente/incompletas/buscar`, 'soat.incompletas.buscar', 'Ver las solicitudes de SOAT por validar y descartadas', 'Recorrer las solicitudes que quedaron guardadas porque el RUNT no respondió, y las que se descartaron.'),
+  op(`${SOAT_INC} GET /cliente/incompletas/:id`, 'soat.incompleta.ver', 'Ver una solicitud de SOAT por validar o descartada', 'Abrir el detalle de una solicitud guardada sin validar con el RUNT: propietario, factura y motivo del descarte.'),
 
   // ── Impuestos ─────────────────────────────────────────────────────────────────────────────────
   op(`${IMP} GET /`, 'impuestos.cola.ver', 'Ver la cola de impuestos', 'Abrir la bandeja de trámites de impuesto vehicular.'),

@@ -21,7 +21,7 @@ import { FiltroVigenciaSoat } from '../VigenciaSoat';
 import {
   FlitCard, FlitPillGroup, FlitPillButton, flitInp, flitBtnSecondary, flitBtnSecondarySm,
 } from '../../flit/flitPageKit';
-import type { FacetasSoat } from './tipos';
+import { PASTILLA_INCOMPLETA_LABEL, type FacetasSoat, type FiltroEstadoSoat } from './tipos';
 
 export type GestionSel = '' | 'operaciones' | 'proveedor';
 export type PresetSoat = Preset<{ estado: EstadoSoat | 'todos'; estancado: boolean }>;
@@ -30,7 +30,9 @@ export interface BarraFiltrosSoatProps {
   refPills: RefObject<HTMLDivElement>;
   esGestor: boolean; esCliente: boolean;
   estadosDisponibles: EstadoSoat[];
-  estado: EstadoSoat | 'todos'; setEstado: (e: EstadoSoat | 'todos') => void;
+  estado: FiltroEstadoSoat; setEstado: (e: FiltroEstadoSoat) => void;
+  /** HU #12997: «Por validar» (primera) y «Descartadas» (última). Solo con `soat.incompletas.buscar`. */
+  conIncompletas: boolean;
   texto: string; setTexto: (t: string) => void;
   facetas: FacetasSoat | null;
   companiasSel: string[]; setCompaniasSel: (v: string[]) => void;
@@ -78,11 +80,21 @@ export default function BarraFiltrosSoat(p: BarraFiltrosSoatProps) {
         <div ref={p.refPills} tabIndex={-1} className="flit-focus max-w-full rounded-[999px]">
           <FlitPillGroup>
             {!esGestor && (
-              <FlitPillButton active={estado === 'todos'} onClick={() => setEstado('todos')}>Todos</FlitPillButton>
+              <FlitPillButton active={estado === 'todos'} pressed={estado === 'todos'} onClick={() => setEstado('todos')}>Todos</FlitPillButton>
+            )}
+            {p.conIncompletas && (
+              <FlitPillButton active={estado === 'incompleta'} pressed={estado === 'incompleta'} onClick={() => setEstado('incompleta')}>
+                {PASTILLA_INCOMPLETA_LABEL.incompleta}
+              </FlitPillButton>
             )}
             {p.estadosDisponibles.map((e) => (
-              <FlitPillButton key={e} active={estado === e} onClick={() => setEstado(e)}>{ESTADO_SOAT_LABEL[e]}</FlitPillButton>
+              <FlitPillButton key={e} active={estado === e} pressed={estado === e} onClick={() => setEstado(e)}>{ESTADO_SOAT_LABEL[e]}</FlitPillButton>
             ))}
+            {p.conIncompletas && (
+              <FlitPillButton active={estado === 'descartada'} pressed={estado === 'descartada'} onClick={() => setEstado('descartada')}>
+                {PASTILLA_INCOMPLETA_LABEL.descartada}
+              </FlitPillButton>
+            )}
           </FlitPillGroup>
         </div>
         <div className="relative w-full min-w-0 sm:ml-auto sm:w-72">
