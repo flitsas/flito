@@ -19,7 +19,7 @@ import RangoFechas from '../../flit/RangoFechas';
 import type { Preset } from '../../flit/FiltrosInteligentes';
 import { FiltroVigenciaSoat } from '../VigenciaSoat';
 import {
-  FlitCard, FlitPillGroup, FlitPillButton, flitInp, flitBtnSecondary, flitBtnSecondarySm,
+  FlitCard, FlitPillGroup, FlitPillButton, flitInp, flitBtnSecondary, flitBtnSecondarySmToggle,
 } from '../../flit/flitPageKit';
 import { PASTILLA_INCOMPLETA_LABEL, type FacetasSoat, type FiltroEstadoSoat } from './tipos';
 
@@ -125,7 +125,7 @@ export default function BarraFiltrosSoat(p: BarraFiltrosSoatProps) {
             const puesto = p.preset === pr.nombre;
             return (
               <button key={pr.nombre} type="button" aria-pressed={puesto} title={pr.descripcion}
-                className={flitBtnSecondarySm}
+                className={flitBtnSecondarySmToggle}
                 style={puesto ? { borderColor: 'var(--flit-blue-text)', color: 'var(--flit-blue-text)', background: 'var(--flit-bg-app)' } : undefined}
                 onClick={() => (puesto ? p.limpiarFiltros() : p.onAplicarPreset(pr))}>
                 {pr.nombre}
