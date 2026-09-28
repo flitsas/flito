@@ -225,6 +225,8 @@ export const DESENLACE_HABLA_DEL_VEHICULO: Record<CodigoErrorSolicitudSoat, bool
   [CodigoErrorSolicitudSoat.VIN_YA_TIENE_SOAT]: true,
   /** Ese VIN tiene una solicitud incompleta abierta (HU #12996): confirma que está en FLITO. */
   [CodigoErrorSolicitudSoat.SOLICITUD_INCOMPLETA_EXISTENTE]: true,
+  /** El reintento (HU #12998) halló la incompleta ya resuelta: el 409 cuenta el estado de ESE VIN. */
+  [CodigoErrorSolicitudSoat.INCOMPLETA_YA_RESUELTA]: true,
 
   // ── No: la respuesta es la misma para cualquier VIN ───────────────────────────────────────────
   /** Del USUARIO: no tiene compañía. No se llegó a mirar ningún vehículo. */
@@ -685,7 +687,7 @@ async function verificarRuntCompuerta(vin: string): Promise<ResultadoRunt> {
  * Los seis datos del SOAT activo, proyectados CLAVE A CLAVE (HU #12842, AC5). Sin spread del
  * origen: un campo que el extractor añada mañana no se publica sin que alguien lo escriba aquí.
  */
-function proyectarSoatActivo(s: SoatActivoRunt): SoatActivoRunt {
+export function proyectarSoatActivo(s: SoatActivoRunt): SoatActivoRunt {
   return {
     poliza: s.poliza,
     fechaExpedicion: s.fechaExpedicion,
@@ -875,7 +877,7 @@ export async function preconsulta(vin: string, ctx: SoatCtx): Promise<Preconsult
  * diferencia es que aquí queda ANOTADA (`audit_logs`, `resource: 'vehicles'`), porque tocar una
  * ficha que ya existía es un cambio sobre datos de alguien y el rastro de `flito_soat` no lo cuenta.
  */
-async function upsertVehiculoRunt(
+export async function upsertVehiculoRunt(
   tx: Pick<typeof db, 'select' | 'insert' | 'update'>,
   entrada: { vin: string },
   datos: DatosRuntCanal,
@@ -1086,6 +1088,156 @@ export async function resolverDestinoCanalCliente(
   };
 }
 
+/** Lo que `insertarSolicitudDespachada` necesita: todo resuelto por quien llama. */
+export interface SolicitudADespachar {
+  soatId: string;
+  vin: string;
+  vehiculoId: number;
+  companiaId: number;
+  organismoCodigo: string | null;
+  vigenciaProxima: VigenciaProximaSoat | null;
+  consultadoEn: Date;
+  ahora: Date;
+  factura: { nombreArchivo: string; contentType: string; storageKey: string; hash: string; tamanoBytes: number };
+  /** Quien RADICÓ: «solicitado por» y autor del soporte. `en: null` = ahora (default de la columna). */
+  solicitante: { id: number | null; nombre: string; en: Date | null };
+}
+
+/**
+ * El despacho de una solicitud del canal Cliente, DENTRO de la transacción de quien llama: destino de
+ * la compañía leído en ese instante, `flito_soat` en `solicitado`, satélite en `ok`, soporte de la
+ * factura e historial. Lo comparten el alta (`crearSolicitud`) y el reintento de una incompleta
+ * (HU #12998, AC1: «por el mismo camino del alta normal»). El propietario y el vehículo NO van aquí:
+ * el alta inserta el comprador y el reintento re-apunta el que ya existía.
+ *
+ * `ctx` es quien DESPACHA («enviado por» y autor del historial); `p.solicitante`, quien radicó. En el
+ * alta son la misma persona; en el reintento, no (Q5).
+ */
+export async function insertarSolicitudDespachada(
+  tx: Tx, p: SolicitudADespachar, ctx: SoatCtx,
+): Promise<DestinoCanalCliente> {
+  const { soatId, vin, vehiculoId, companiaId, organismoCodigo, vigenciaProxima, consultadoEn, ahora, factura, solicitante } = p;
+  // DENTRO de la transacción y ANTES del INSERT, para que el destino entre en el MISMO INSERT
+  // que el estado (AC1). Es el argumento ya escrito para `procedencia` de `flitoCompradores`:
+  // escribirlo aparte —un UPDATE después— dejaría una ventana en la que la fila está
+  // `solicitado` y no dice a dónde va, más una segunda escritura que puede fallar sola.
+  const destino = await resolverDestinoCanalCliente(tx, companiaId);
+
+  await tx.insert(flitoSoat).values({
+    id: soatId,
+    vin,
+    vehiculoId,
+    origen: ORIGEN_CLIENTE,
+    // **Crear ES despachar** (HU #12078, AC1). Nace en `solicitado`, que es el estado que
+    // `ESTADOS_SOAT_VISIBLES_GESTOR` ya deja ver al gestor: entre el alta y esa visibilidad no
+    // queda ningún paso intermedio (AC5). Desde la HU #12080 tampoco queda el estado con el que
+    // ese paso se hacía: `pendiente_revision` no existe en el tipo (migración 0176).
+    estado: EstadoSoat.SOLICITADO,
+    companiaId: companiaId,
+    // El cruce del catálogo, o `null` si el nombre del RUNT no cruza. `null` NO aborta (AC5):
+    // el organismo dejó de ser compuerta y Operaciones lo completa a mano.
+    organismoCodigo,
+    // Quién y cuándo la despachó. Es lo que hasta ahora escribía `enviarAlGestor()` en la
+    // validación del admin; aquí lo escribe el alta porque el alta ES el envío.
+    enviadoPorId: ctx.userId,
+    enviadoEn: ahora,
+    // El destino, en las dos ramas del mismo objeto: o proveedor, o contingencia. Nunca los dos
+    // vacíos (AC1) y nunca los dos puestos.
+    proveedorSoatId: destino.proveedorSoatId,
+    // `false`, a diferencia de `enviarAlGestor()`, que pone `true`: esa bandera significa «una
+    // persona eligió este proveedor a mano», y aquí no eligió nadie — lo dijo la configuración.
+    proveedorSobrescrito: false,
+    gestionOperaciones: destino.gestionOperaciones,
+    gestionOperacionesMotivo: destino.contingenciaMotivo,
+    gestionOperacionesEn: destino.gestionOperaciones ? ahora : null,
+    // **`null` a propósito**, y es la decisión que más fácil sería degradar. Las otras dos
+    // escrituras de esta columna (`asumirEnOperaciones` y su gemela de impuestos) ponen el
+    // usuario porque UNA PERSONA decidió el traspaso. Aquí lo decidió una configuración rota:
+    // poner el id del cliente que radica afirmaría que él pidió la contingencia, que es falso, y
+    // es la clase de fila que la regla 2 del ADR-0005 llama «un acto sin actor, indistinguible
+    // de un error de escritura». El quién y el cuándo del alta están en `enviado_por_id` y en la
+    // fila de historial.
+    gestionOperacionesPorId: null,
+    // ── Renovación anticipada: se guarda LO QUE EL RUNT DIJO, y nada más (HU #12212, AC9) ────
+    //
+    // Las dos claves van **ausentes** cuando no hay aviso, no `null` explícito: es la misma
+    // mecánica de `payloadDeDesenlace` en el servicio de vigencia, y la diferencia importa —una
+    // clave ausente deja el default de la columna en paz, un `null` lo pisa—.
+    //
+    // Lo que NO se escribe aquí, y es parte del mismo AC:
+    //   · `numero_poliza` — es la llave de conciliación del OCR (Feature #11623). Pisarla con la
+    //     del registro la borraría sin que nada se pusiera rojo. Por eso `poliza_runt` existe.
+    //   · `verificada_en` — significa «cuándo respondió el RUNT sobre ESTE SOAT», que aún no
+    //     existe: el que se está radicando no es el que el RUNT reporta. Escribirla sacaría la
+    //     fila del censo del día (`verificada_en < corte`) y le quitaría su `NULLS FIRST`.
+    //   · `estado_vigencia` — queda en su default `no_verificado`. Ponerle `'vigente'` haría
+    //     que, en cuanto pasara `vence_el` —a un mes o menos, o sea antes de que FLITO pague—,
+    //     la fila cumpliera exactamente `condicionVigencia('vencido')` y la cola afirmara «el
+    //     SOAT que FLITO pagó está vencido» sobre una solicitud ni siquiera pagada.
+    //
+    // La combinación `vence_el` poblado + `estado_vigencia = 'no_verificado'` YA EXISTE en
+    // producción: `payloadDeDesenlace` la produce cada noche que el RUNT no responde, y sus dos
+    // lectores la resuelven bien. Esto no estrena un estado, lo reutiliza.
+    ...(vigenciaProxima ? { venceEl: vigenciaProxima.venceEl, polizaRunt: vigenciaProxima.poliza } : {}),
+  });
+
+  await tx.insert(flitoSoatSolicitud).values({
+    soatId,
+    solicitadoPorId: solicitante.id,
+    solicitadoPorNombre: solicitante.nombre,
+    // El reintento conserva la fecha del radicador (HU #12998, Q5); el alta deja el default.
+    ...(solicitante.en ? { solicitadoEn: solicitante.en } : {}),
+    // La compuerta ya corrió y la fila existe: la lectura es CONCLUYENTE. `pendiente` habría
+    // sido cierto bajo la #11935, cuando el desenlace se conocía después del COMMIT.
+    verificacionEstado: 'ok',
+    // `false` y no `null`: es una lectura concluyente, no un hueco.
+    //
+    // **Sigue en `false` también en el alta por renovación anticipada** (HU #12212), donde el
+    // RUNT SÍ reportó una póliza vigente, y eso es deliberado: su único lector la pinta como el
+    // rótulo «vigente» del detalle (`apps/web/src/lib/soatCliente.ts`: «vigente» es
+    // `verificacionEstado === 'ok' && soatVigente === true`), así que ponerla en `true` estrenaría
+    // en esa pantalla un estado que nadie diseñó y que además diría «este SOAT está vigente»
+    // sobre la solicitud NUEVA, que no lo está. Lo que el RUNT reportó queda escrito donde tiene
+    // lector: `flito_soat.vence_el` y `flito_soat.poliza_runt`, arriba. Si la ficha del canal
+    // tiene que enseñar el aviso, es trabajo de la HU #12213 y de esta pareja de columnas.
+    soatVigente: false,
+    // El único código que puede llevar una fila NUEVA. `null` cuando el organismo sí cruzó.
+    verificacionCodigo: organismoCodigo ? null : CodigoErrorSolicitudSoat.ORGANISMO_NO_CATALOGADO,
+    // Cuándo respondió el RUNT, no cuándo se guardó esto (HU #12093, AC4). Sale de la compuerta,
+    // que lo tomó justo al resolverse la llamada; `solicitado_en` —la columna de al lado, con su
+    // `defaultNow()`— es el otro instante, y tenerlos separados es el motivo de la columna.
+    runtConsultadoEn: consultadoEn,
+  });
+
+  await tx.insert(flitoSoportes).values({
+    tipo: TipoSoporte.FACTURA_VENTA,
+    nombreArchivo: factura.nombreArchivo,
+    contentType: factura.contentType,
+    storageKey: factura.storageKey, hash: factura.hash, tamanoBytes: factura.tamanoBytes,
+    soatId,
+    // La factura la subió quien radicó, también cuando despacha un reintento.
+    subidoPorId: solicitante.id,
+    subidoPorNombre: solicitante.nombre,
+  });
+
+  await registrarCambio(tx, {
+    concepto: ConceptoHistorial.SOAT,
+    registroId: soatId,
+    estadoAnterior: null,
+    estadoNuevo: EstadoSoat.SOLICITADO,
+    // UN solo `registrarCambio` en los dos caminos, con el motivo cambiando: la solicitud tiene
+    // un principio y solo uno. **Sin el uuid del proveedor**, por la razón que
+    // `asumirEnOperaciones` ya dejó escrita al quitárselo: el historial es de lo poco que un
+    // lector externo llega a ver. El uuid del destino sí va al `audit_logs` del AC7, que el
+    // cliente no ve.
+    motivo: destino.motivoHistorial,
+    usuarioId: ctx.userId,
+    usuarioEmail: ctx.username,
+    origen: 'usuario',
+  });
+  return destino;
+}
+
 export interface SolicitudCreada {
   /** Discriminante del 201 (HU #12996): el RUNT respondió y la solicitud se despachó. */
   desenlace: 'creada';
@@ -1230,69 +1382,14 @@ export async function crearSolicitud(
         tx, { vin }, datos, entrada.propietario, canal.companiaId, ctx, soatId,
       );
 
-      // DENTRO de la transacción y ANTES del INSERT, para que el destino entre en el MISMO INSERT
-      // que el estado (AC1). Es el argumento ya escrito para `procedencia` de `flitoCompradores`:
-      // escribirlo aparte —un UPDATE después— dejaría una ventana en la que la fila está
-      // `solicitado` y no dice a dónde va, más una segunda escritura que puede fallar sola.
-      destino = await resolverDestinoCanalCliente(tx, canal.companiaId);
-
-      await tx.insert(flitoSoat).values({
-        id: soatId,
-        vin,
-        vehiculoId,
-        origen: ORIGEN_CLIENTE,
-        // **Crear ES despachar** (HU #12078, AC1). Nace en `solicitado`, que es el estado que
-        // `ESTADOS_SOAT_VISIBLES_GESTOR` ya deja ver al gestor: entre el alta y esa visibilidad no
-        // queda ningún paso intermedio (AC5). Desde la HU #12080 tampoco queda el estado con el que
-        // ese paso se hacía: `pendiente_revision` no existe en el tipo (migración 0176).
-        estado: EstadoSoat.SOLICITADO,
-        companiaId: canal.companiaId,
-        // El cruce del catálogo, o `null` si el nombre del RUNT no cruza. `null` NO aborta (AC5):
-        // el organismo dejó de ser compuerta y Operaciones lo completa a mano.
-        organismoCodigo,
-        // Quién y cuándo la despachó. Es lo que hasta ahora escribía `enviarAlGestor()` en la
-        // validación del admin; aquí lo escribe el alta porque el alta ES el envío.
-        enviadoPorId: ctx.userId,
-        enviadoEn: ahora,
-        // El destino, en las dos ramas del mismo objeto: o proveedor, o contingencia. Nunca los dos
-        // vacíos (AC1) y nunca los dos puestos.
-        proveedorSoatId: destino.proveedorSoatId,
-        // `false`, a diferencia de `enviarAlGestor()`, que pone `true`: esa bandera significa «una
-        // persona eligió este proveedor a mano», y aquí no eligió nadie — lo dijo la configuración.
-        proveedorSobrescrito: false,
-        gestionOperaciones: destino.gestionOperaciones,
-        gestionOperacionesMotivo: destino.contingenciaMotivo,
-        gestionOperacionesEn: destino.gestionOperaciones ? ahora : null,
-        // **`null` a propósito**, y es la decisión que más fácil sería degradar. Las otras dos
-        // escrituras de esta columna (`asumirEnOperaciones` y su gemela de impuestos) ponen el
-        // usuario porque UNA PERSONA decidió el traspaso. Aquí lo decidió una configuración rota:
-        // poner el id del cliente que radica afirmaría que él pidió la contingencia, que es falso, y
-        // es la clase de fila que la regla 2 del ADR-0005 llama «un acto sin actor, indistinguible
-        // de un error de escritura». El quién y el cuándo del alta están en `enviado_por_id` y en la
-        // fila de historial.
-        gestionOperacionesPorId: null,
-        // ── Renovación anticipada: se guarda LO QUE EL RUNT DIJO, y nada más (HU #12212, AC9) ────
-        //
-        // Las dos claves van **ausentes** cuando no hay aviso, no `null` explícito: es la misma
-        // mecánica de `payloadDeDesenlace` en el servicio de vigencia, y la diferencia importa —una
-        // clave ausente deja el default de la columna en paz, un `null` lo pisa—.
-        //
-        // Lo que NO se escribe aquí, y es parte del mismo AC:
-        //   · `numero_poliza` — es la llave de conciliación del OCR (Feature #11623). Pisarla con la
-        //     del registro la borraría sin que nada se pusiera rojo. Por eso `poliza_runt` existe.
-        //   · `verificada_en` — significa «cuándo respondió el RUNT sobre ESTE SOAT», que aún no
-        //     existe: el que se está radicando no es el que el RUNT reporta. Escribirla sacaría la
-        //     fila del censo del día (`verificada_en < corte`) y le quitaría su `NULLS FIRST`.
-        //   · `estado_vigencia` — queda en su default `no_verificado`. Ponerle `'vigente'` haría
-        //     que, en cuanto pasara `vence_el` —a un mes o menos, o sea antes de que FLITO pague—,
-        //     la fila cumpliera exactamente `condicionVigencia('vencido')` y la cola afirmara «el
-        //     SOAT que FLITO pagó está vencido» sobre una solicitud ni siquiera pagada.
-        //
-        // La combinación `vence_el` poblado + `estado_vigencia = 'no_verificado'` YA EXISTE en
-        // producción: `payloadDeDesenlace` la produce cada noche que el RUNT no responde, y sus dos
-        // lectores la resuelven bien. Esto no estrena un estado, lo reutiliza.
-        ...(vigenciaProxima ? { venceEl: vigenciaProxima.venceEl, polizaRunt: vigenciaProxima.poliza } : {}),
-      });
+      // Destino + SOAT + satélite + soporte + historial: el MISMO camino que el reintento de una
+      // incompleta (HU #12998). Ver `insertarSolicitudDespachada`.
+      destino = await insertarSolicitudDespachada(tx, {
+        soatId, vin, vehiculoId, companiaId: canal.companiaId, organismoCodigo, vigenciaProxima,
+        consultadoEn, ahora,
+        factura: { nombreArchivo: archivo.originalname, contentType: archivo.mimetype, storageKey, hash, tamanoBytes: archivo.size },
+        solicitante: { id: ctx.userId, nombre: ctx.username, en: null },
+      }, ctx);
 
       await tx.insert(flitoCompradores).values({
         soatId,
@@ -1315,58 +1412,6 @@ export async function crearSolicitud(
         // dónde salieron, y una segunda escritura que puede fallar sola.
         procedencia: procedenciaCompleta(entrada.procedencia),
         orden: 0,
-      });
-
-      await tx.insert(flitoSoatSolicitud).values({
-        soatId,
-        solicitadoPorId: ctx.userId,
-        solicitadoPorNombre: ctx.username,
-        // La compuerta ya corrió y la fila existe: la lectura es CONCLUYENTE. `pendiente` habría
-        // sido cierto bajo la #11935, cuando el desenlace se conocía después del COMMIT.
-        verificacionEstado: 'ok',
-        // `false` y no `null`: es una lectura concluyente, no un hueco.
-        //
-        // **Sigue en `false` también en el alta por renovación anticipada** (HU #12212), donde el
-        // RUNT SÍ reportó una póliza vigente, y eso es deliberado: su único lector la pinta como el
-        // rótulo «vigente» del detalle (`apps/web/src/lib/soatCliente.ts`: «vigente» es
-        // `verificacionEstado === 'ok' && soatVigente === true`), así que ponerla en `true` estrenaría
-        // en esa pantalla un estado que nadie diseñó y que además diría «este SOAT está vigente»
-        // sobre la solicitud NUEVA, que no lo está. Lo que el RUNT reportó queda escrito donde tiene
-        // lector: `flito_soat.vence_el` y `flito_soat.poliza_runt`, arriba. Si la ficha del canal
-        // tiene que enseñar el aviso, es trabajo de la HU #12213 y de esta pareja de columnas.
-        soatVigente: false,
-        // El único código que puede llevar una fila NUEVA. `null` cuando el organismo sí cruzó.
-        verificacionCodigo: organismoCodigo ? null : CodigoErrorSolicitudSoat.ORGANISMO_NO_CATALOGADO,
-        // Cuándo respondió el RUNT, no cuándo se guardó esto (HU #12093, AC4). Sale de la compuerta,
-        // que lo tomó justo al resolverse la llamada; `solicitado_en` —la columna de al lado, con su
-        // `defaultNow()`— es el otro instante, y tenerlos separados es el motivo de la columna.
-        runtConsultadoEn: consultadoEn,
-      });
-
-      await tx.insert(flitoSoportes).values({
-        tipo: TipoSoporte.FACTURA_VENTA,
-        nombreArchivo: archivo.originalname,
-        contentType: archivo.mimetype,
-        storageKey, hash, tamanoBytes: archivo.size,
-        soatId,
-        subidoPorId: ctx.userId,
-        subidoPorNombre: ctx.username,
-      });
-
-      await registrarCambio(tx, {
-        concepto: ConceptoHistorial.SOAT,
-        registroId: soatId,
-        estadoAnterior: null,
-        estadoNuevo: EstadoSoat.SOLICITADO,
-        // UN solo `registrarCambio` en los dos caminos, con el motivo cambiando: la solicitud tiene
-        // un principio y solo uno. **Sin el uuid del proveedor**, por la razón que
-        // `asumirEnOperaciones` ya dejó escrita al quitárselo: el historial es de lo poco que un
-        // lector externo llega a ver. El uuid del destino sí va al `audit_logs` del AC7, que el
-        // cliente no ve.
-        motivo: destino.motivoHistorial,
-        usuarioId: ctx.userId,
-        usuarioEmail: ctx.username,
-        origen: 'usuario',
       });
     });
   } catch (e) {

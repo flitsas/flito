@@ -41,11 +41,18 @@ interface FlitModalProps {
    * foco en `<body>`. Apunta al encabezado de la lista (`tabIndex={-1}`).
    */
   restoreFocusRef?: RefObject<HTMLElement | null>;
+  /**
+   * Cierre bloqueado mientras una operación larga está en vuelo (HU #12998, AC8: la consulta al
+   * RUNT puede tardar un minuto y cerrar el detalle a mitad dejaría el desenlace sin sitio donde
+   * pintarse). El ✕ queda `disabled`, y Esc y el clic en el velo no cierran. Por defecto `false`.
+   */
+  cierreBloqueado?: boolean;
 }
 
 export default function FlitModal(
-  { title, onClose, children, wide = false, full = false, lateral = false, restoreFocusRef }: FlitModalProps,
+  { title, onClose: onCloseProp, children, wide = false, full = false, lateral = false, restoreFocusRef, cierreBloqueado = false }: FlitModalProps,
 ) {
+  const onClose = () => { if (!cierreBloqueado) onCloseProp(); };
   const dialogRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   // Con un modal abierto encima de otro —el visor de documentos sobre el detalle de un SOAT—, Esc
@@ -109,7 +116,8 @@ export default function FlitModal(
             type="button"
             onClick={onClose}
             aria-label="Cerrar"
-            className="flit-focus grid h-9 w-9 place-items-center rounded-lg transition-colors hover:bg-[var(--flit-bg-hover)]"
+            disabled={cierreBloqueado}
+            className="flit-focus grid h-9 w-9 place-items-center rounded-lg transition-colors hover:bg-[var(--flit-bg-hover)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
             style={{ color: 'var(--flit-text-muted)' }}
           >
             <X size={18} aria-hidden="true" />

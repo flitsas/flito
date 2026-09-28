@@ -25,7 +25,7 @@
 // justo lo que el Cliente no sabe leer.
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, CLIENTE_CON_CANAL } from '../helpers/auth';
+import { loginAs, CLIENTE_CON_CANAL, FUNCIONES_POR_ROL } from '../helpers/auth';
 
 const VIN = '9BWZZZ377VT004251';
 /** El mismo VIN tecleado como viene en la factura: 19 crudos, 17 al normalizar. Se ACEPTA. */
@@ -793,6 +793,32 @@ test.describe('HU #12996 · AC3/AC8 — la tarjeta de confirmación', () => {
     await expect(page.getByLabel('Correo electrónico')).toHaveValue('');
     await expect(btnConsultar(page)).toBeVisible();
     await expect(btnGuardar(page)).toHaveCount(0);
+  });
+});
+
+test.describe('HU #12998 · AC10 — la última frase de la tarjeta depende del permiso de reintentar', () => {
+  const CUERPO_CON_PERMISO = 'El RUNT no respondió, así que todavía no la enviamos al gestor. Guardamos el VIN, la factura y los datos del propietario: no tiene que volver a escribirlos. Cuando el RUNT responda, la consulta se repite desde «Mis SOAT» con «Reintentar consulta».';
+
+  test('con soat.solicitud.reintentar_runt: «…desde «Mis SOAT» con «Reintentar consulta».»', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL, { funciones: [...FUNCIONES_POR_ROL.cliente, 'soat.solicitud.reintentar_runt'] });
+    await mockCanal(page, { preconsulta: fallo(503, 'runt_no_disponible', 'mentira'), alta: INCOMPLETA_202 });
+    await llenarTodoConRuntCaido(page);
+    await btnGuardar(page).click();
+    const titulo = page.getByRole('heading', { name: TITULO_GUARDADA });
+    await expect(titulo).toBeFocused();
+    const tarjeta = page.getByRole('status').filter({ has: titulo });
+    await expect(tarjeta).toContainText(CUERPO_CON_PERMISO);
+    await expect(tarjeta).not.toContainText('FLITO volverá a consultar el RUNT');
+  });
+
+  test('sin el permiso (cliente de partida): la variante «FLITO volverá a consultar el RUNT…»', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCanal(page, { preconsulta: fallo(503, 'runt_no_disponible', 'mentira'), alta: INCOMPLETA_202 });
+    await llenarTodoConRuntCaido(page);
+    await btnGuardar(page).click();
+    const titulo = page.getByRole('heading', { name: TITULO_GUARDADA });
+    await expect(page.getByRole('status').filter({ has: titulo })).toContainText(CUERPO_GUARDADA);
+    await expect(page.getByText('Reintentar consulta')).toHaveCount(0);
   });
 });
 

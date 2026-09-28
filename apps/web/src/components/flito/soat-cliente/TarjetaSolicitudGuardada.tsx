@@ -4,20 +4,24 @@
 // página** y no un toast: es un estado que sigue siendo cierto y lo más importante de la visita. Un
 // toast de 4 s se pierde y el Cliente creería que la solicitud llegó al gestor.
 //
-// La última frase del cuerpo depende del permiso de reintentar, que llega con la HU #12998: aquí va
-// la variante SIN permiso. El VIN se pinta en mono y **nunca** entra a un `aria-label` ni a la URL.
+// La última frase del cuerpo depende del permiso de reintentar (HU #12998, AC10): con él dice dónde
+// repetir la consulta; sin él, que FLITO la repetirá. El VIN se pinta en mono y **nunca** entra a un `aria-label` ni a la URL.
 
 import { useEffect, useRef } from 'react';
 import { ArrowRight, RotateCw, ShieldQuestion } from 'lucide-react';
 import {
   FlitCard, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../../flit/flitPageKit';
+import { useAuth } from '../../../lib/auth';
+import { FUNCION_REINTENTAR_RUNT } from '../soat/useReintentoRunt';
 
 export const TITULO_GUARDADA = 'Su solicitud quedó guardada, pendiente de validar';
 
 export default function TarjetaSolicitudGuardada(
   { vin, onIrACola, onSolicitarOtro }: { vin: string; onIrACola: () => void; onSolicitarOtro: () => void },
 ) {
+  // Se lee aquí y no en la página del alta, que tiene techo congelado de líneas (max-lines).
+  const puedeReintentar = useAuth().hasFuncion(FUNCION_REINTENTAR_RUNT);
   const tituloRef = useRef<HTMLHeadingElement>(null);
   // El foco va al título al montar (AC8): el lector anuncia qué pasó antes que cualquier botón.
   useEffect(() => { tituloRef.current?.focus(); }, []);
@@ -43,8 +47,10 @@ export default function TarjetaSolicitudGuardada(
         </div>
         <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
           El RUNT no respondió, así que todavía no la enviamos al gestor. Guardamos el VIN, la factura y
-          los datos del propietario: no tiene que volver a escribirlos. FLITO volverá a consultar el RUNT
-          y usted verá el cambio de estado en «Mis SOAT».
+          los datos del propietario: no tiene que volver a escribirlos.{' '}
+          {puedeReintentar
+            ? 'Cuando el RUNT responda, la consulta se repite desde «Mis SOAT» con «Reintentar consulta».'
+            : 'FLITO volverá a consultar el RUNT y usted verá el cambio de estado en «Mis SOAT».'}
         </p>
         <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
           VIN{' '}

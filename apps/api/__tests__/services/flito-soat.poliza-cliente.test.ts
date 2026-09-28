@@ -311,6 +311,10 @@ describe('AC2 · B — `GET /:id/soportes` con el token del cliente', () => {
     // guardadas por `soat.incompletas.buscar` / `soat.incompleta.ver` y acotadas a su compañía.
     // `POST` en la búsqueda porque el filtro (VIN o documento) va en el cuerpo, no porque escriba.
     //
+    // **Y CRECE con la HU #12998** (Feature #12841): entra `POST …/cliente/incompletas/:id/reintentar`,
+    // el reintento manual de la consulta al RUNT, guardado por `soat.solicitud.reintentar_runt`. La 0212
+    // la siembra solo a admin; el Cliente la alcanza solo si el administrador se la da en el panel.
+    //
     // El orden es el de declaración del middleware —lecturas, luego escrituras por HU—: se afirma
     // tal cual para que el diff del rojo señale el sitio exacto de la lista.
     expect(RUTAS_PERMITIDAS_CLIENTE.map((r) => `${r.metodo} ${r.patron}`)).toEqual([
@@ -324,6 +328,7 @@ describe('AC2 · B — `GET /:id/soportes` con el token del cliente', () => {
       'GET /api/flito/soat/:id/soportes',
       'POST /api/flito/soat/cliente/incompletas/buscar',
       'GET /api/flito/soat/cliente/incompletas/:id',
+      'POST /api/flito/soat/cliente/incompletas/:id/reintentar',
       'POST /api/flito/soat/soportes/zip',
       'POST /api/flito/soat/cliente/preconsulta',
       'POST /api/flito/soat/cliente',
