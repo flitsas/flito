@@ -181,8 +181,9 @@ export function FlitField({ label, children }: { label: string; children: ReactN
  */
 const DESHABILITADO_PRIMARIO =
   'disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:shadow-none';
-const HOVER_SECUNDARIO =
-  'border-[color:var(--flit-border-input)] text-[color:var(--flit-text-secondary)] transition-colors hover:bg-[var(--flit-bg-hover)] hover:text-[color:var(--flit-text-primary)] active:bg-[var(--flit-bg-app)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-flit-card aria-disabled:cursor-not-allowed aria-disabled:hover:bg-flit-card';
+const SECUNDARIO_SIN_TRANSICION =
+  'border-[color:var(--flit-border-input)] text-[color:var(--flit-text-secondary)] hover:bg-[var(--flit-bg-hover)] hover:text-[color:var(--flit-text-primary)] active:bg-[var(--flit-bg-app)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-flit-card aria-disabled:cursor-not-allowed aria-disabled:hover:bg-flit-card';
+const HOVER_SECUNDARIO = `transition-colors ${SECUNDARIO_SIN_TRANSICION}`;
 
 export const flitBtnPrimary = `flit-focus inline-flex h-10 items-center gap-2 rounded-[999px] px-5 text-sm font-semibold text-white transition-shadow hover:shadow-[inset_0_0_0_999px_var(--flit-veil-press-hover)] active:shadow-[inset_0_0_0_999px_var(--flit-veil-press-active)] ${DESHABILITADO_PRIMARIO}`;
 export const flitBtnPrimaryStyle = { background: 'var(--flit-gradient-primary)' } as const;
@@ -203,7 +204,7 @@ export const flitBtnSecondarySm = `flit-focus inline-flex h-7 items-center gap-1
  * `transition-colors` fijo la cara de «puesto» se desvanecía en el botón que ya no lo estaba
  * (HU #12997, retrabajo)—.
  */
-export const flitBtnSecondarySmToggle = flitBtnSecondarySm.replace(' transition-colors ', ' hover:transition-colors ');
+export const flitBtnSecondarySmToggle = `flit-focus inline-flex h-7 items-center gap-1.5 rounded-[999px] border bg-flit-card px-3 text-xs font-medium hover:transition-colors ${SECUNDARIO_SIN_TRANSICION}`;
 
 export function FlitCard({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
