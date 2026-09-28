@@ -1664,6 +1664,7 @@ const TIPO_SA = (id: string, nombre: string, valor: number, activo = true) => ({
 });
 const TIPO_GRUA = TIPO_SA('aaaa1111-0000-4000-8000-000000000001', 'Grúa', 85000);
 const TIPO_DIAG = TIPO_SA('aaaa1111-0000-4000-8000-000000000002', 'Diagnóstico', 120000);
+const TIPO_ESCOLTA = TIPO_SA('aaaa1111-0000-4000-8000-000000000003', 'Escolta', 60000);
 const CAMPOS_SA = CAMPOS_BASE.map((c) => (c.campo === 'concepto' ? campo('concepto', 'servicios_adicionales', 'alta') : c));
 
 const ASIGNADO_SA = (tipo: { id: string; nombre: string }, origen: 'manual' | 'comprobante') => ({
@@ -1809,5 +1810,59 @@ test.describe('Bug #12913 · Tipo de servicio al aplicar un pago de servicios ad
     await dialog.getByRole('button', { name: 'Aplicar' }).click();
     await expect.poll(() => aplicar.bodies.length).toBe(1);
     expect(aplicar.bodies[0]).toMatchObject({ servicioTipoId: TIPO_DIAG.id });
+  });
+  /** Mutante: ↑/↓ con la aritmética módulo sin saltar la bloqueada → con la bloqueada EN MEDIO, ↓ se queda en la primera. */
+  test('con la bloqueada en medio, ↓ salta de la primera a la tercera y ↑ vuelve a la primera', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockCola(page, { items: [fila({ ...FIJADO, concepto: 'servicios_adicionales' })], total: 1, page: 1, pageSize: 50 });
+    await mockDetalle(page, detalleFijado({ concepto: 'servicios_adicionales' }, CAMPOS_SA));
+    await mockArchivoPdf(page);
+    await mockCatalogoSa(page, [TIPO_DIAG, TIPO_GRUA, TIPO_ESCOLTA], [ASIGNADO_SA(TIPO_GRUA, 'comprobante')]);
+    const dialog = await abrirPanel(page);
+
+    const tipo = dialog.getByRole('combobox', { name: 'Tipo de servicio' });
+    await tipo.click();
+    const lista = dialog.getByRole('listbox', { name: 'Tipos de servicio adicional' });
+    const opciones = lista.getByRole('option');
+    await expect(opciones).toHaveCount(3);
+    await expect(opciones.nth(1)).toHaveAttribute('aria-disabled', 'true');
+    const idDe = async (i: number) => (await opciones.nth(i).getAttribute('id'))!;
+
+    await expect(tipo).toHaveAttribute('aria-activedescendant', await idDe(0));
+    await tipo.press('ArrowDown');
+    await expect(tipo).toHaveAttribute('aria-activedescendant', await idDe(2));
+    await tipo.press('ArrowUp');
+    await expect(tipo).toHaveAttribute('aria-activedescendant', await idDe(0));
+    await tipo.press('ArrowDown');
+    await tipo.press('Enter');
+    await expect(tipo).toHaveValue('Escolta');
+  });
+
+  /** Mutante: marcar o bloquear sin la lectura del panel. Sin permiso (403) la lista va sin marcas y todo se elige. */
+  test('sin permiso de lectura del panel (403): ninguna marca, ninguna opción bloqueada y se elige cualquiera', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockCola(page, { items: [fila({ ...FIJADO, concepto: 'servicios_adicionales' })], total: 1, page: 1, pageSize: 50 });
+    await mockDetalle(page, detalleFijado({ concepto: 'servicios_adicionales' }, CAMPOS_SA));
+    await mockArchivoPdf(page);
+    await mockCatalogoSa(page, [TIPO_GRUA, TIPO_DIAG], [ASIGNADO_SA(TIPO_GRUA, 'comprobante'), ASIGNADO_SA(TIPO_DIAG, 'manual')]);
+    // Registrada DESPUÉS: Playwright aplica primero la última ruta registrada.
+    const lecturasPanel: string[] = [];
+    await page.route(/\/api\/finanzas\/tramites\/[^/]+\/servicios-adicionales/, (route) => {
+      lecturasPanel.push(route.request().url());
+      return route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: 'Sin permiso' }) });
+    });
+    const dialog = await abrirPanel(page);
+
+    const tipo = dialog.getByRole('combobox', { name: 'Tipo de servicio' });
+    await tipo.click();
+    const lista = dialog.getByRole('listbox', { name: 'Tipos de servicio adicional' });
+    await expect(lista.getByRole('option')).toHaveCount(2);
+    await expect.poll(() => lecturasPanel.length).toBeGreaterThan(0);
+    await expect(lista).not.toContainText('Ya tiene un comprobante aplicado');
+    await expect(lista).not.toContainText('Ya asignado');
+    await expect(lista.locator('[aria-disabled="true"]')).toHaveCount(0);
+    await dialog.getByRole('option', { name: /Grúa/ }).click();
+    await expect(tipo).toHaveValue('Grúa');
+    await expect(dialog.getByRole('button', { name: 'Aplicar' })).toBeEnabled();
   });
 });
