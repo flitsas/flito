@@ -148,6 +148,9 @@ const envSchema = z.object({
   // Origen de la API de FLIT 2. Solo por env: el repo es público y el host no va en él. Lo usa el
   // pase (HU #13063); ausente → «FLIT 2 no está configurado en este ambiente».
   FLIT2_BASE_URL: z.preprocess(vacioComoAusente, z.string().url().optional()),
+  // Adaptador del feed de trámites de FLIT 2 (HU #13091). `fake` sirve páginas ficticias en memoria
+  // para dev/demo y está PROHIBIDO en producción (ver el superRefine de abajo).
+  FLIT2_SYNC_ADAPTER: z.enum(['http', 'fake']).default('http'),
   // `mock` por defecto: sin credenciales reales, un test o un dev no deben salir a la red.
   COMPARENDOS_SIMIT_MODE: z.enum(['mock', 'real']).default('mock'),
   // Retención del histórico de registros/timeline (CF Habeas Data, Ley 1581). 24 meses por defecto,
@@ -317,6 +320,13 @@ const envSchema = z.object({
   SYNC_HABILITADO: z.string().optional().transform((v) => v !== 'false' && v !== '0'),
 }).superRefine((data, ctx) => {
   // Bloquea CORS_ORIGIN='*' en producción (XSS cross-origin).
+  if (data.NODE_ENV === 'production' && data.FLIT2_SYNC_ADAPTER === 'fake') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['FLIT2_SYNC_ADAPTER'],
+      message: 'FLIT2_SYNC_ADAPTER=fake no está permitido en producción',
+    });
+  }
   if (data.NODE_ENV === 'production') {
     const origins = data.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean);
     if (origins.includes('*')) {

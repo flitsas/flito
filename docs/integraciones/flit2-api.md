@@ -1,8 +1,12 @@
-# API externa — Sincronización incremental de trámites (v3)
+# API externa — Sincronización incremental de trámites (v3.1)
 
 > Contrato para clientes de integración externos (primer consumidor: **Flito**).
 > Estado: **Acordado** (2026-09-29) · Épica ADO: [#12737](https://dev.azure.com/FlitDevOps/FLIT%20-%20EVOLUTION/_workitems/edit/12737) · Sin implementar.
 > Todos los ejemplos usan datos ficticios. Este documento puede copiarse al repositorio del consumidor.
+>
+> **Cambios de v3 → v3.1** (2026-09-29): los trámites **migrados desde FLIT 1** a FLIT 2 no se entregan
+> nunca, ni como cambio ni como tombstone. Al consumidor ya le llegan por FLIT 1; entregarlos también por
+> aquí duplicaría el trámite con otro radicado.
 >
 > **Cambios de v2 → v3** (2026-09-29, acordados entre los equipos de FLIT y Flito):
 > 1. **Se elimina el canal de señal** (webhook `tramite_sync_changed`, firma HMAC, secreto compartido y
@@ -83,7 +87,7 @@ Reglas:
 - Ítems ordenados por `syncVersion` ascendente. `nextCursor` **siempre** presente (aunque `hasMore=false`): el consumidor lo persiste y continúa desde ahí en la siguiente corrida.
 - Sin resultados → `200` con `items: []` (nunca 404).
 - Un trámite puede repetirse entre páginas o corridas si cambió entre medias: el consumidor hace **upsert por `id`** y descarta si `syncVersion` recibido ≤ el guardado.
-- **Alcance: se entrega todo trámite RADICADO al menos una vez**, es decir, que alguna vez ha llegado al organismo de tránsito. Un trámite que nunca se radicó —en `borrador` o `preparado`— no se entrega: es trabajo en curso interno de la empresa.
+- **Alcance: se entrega todo trámite RADICADO al menos una vez**, es decir, que alguna vez ha llegado al organismo de tránsito. Un trámite que nunca se radicó —en `borrador` o `preparado`— no se entrega: es trabajo en curso interno de la empresa. **Tampoco se entregan los trámites migrados desde FLIT 1** (históricos importados a FLIT 2 como foto de solo lectura): el consumidor ya los recibe por FLIT 1. La exclusión es permanente; no generan cambios ni tombstone.
 - **Una vez entregado por primera vez, el trámite permanece en el feed de forma definitiva.** Si retrocede a `borrador` o a `preparado`, llega como **un cambio de estado más, nunca como una baja**. Desaparecer del feed no es un comportamiento posible de este contrato: la única forma de baja es el tombstone.
 - Un trámite eliminado lógicamente llega con `eliminado: true` y payload mínimo (tombstone).
 - Ventana de estabilidad: los cambios se exponen con un retraso de **5 s** para no perder transacciones concurrentes.
