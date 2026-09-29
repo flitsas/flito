@@ -26,10 +26,6 @@ vi.mock('../../src/config/env.js', async (importOriginal) => {
     env: new Proxy(actual.env as Record<string, unknown>, {
       get(target, prop) {
         if (prop === 'FLIT2_ENC_KEY' && entorno.sinLlave) return undefined;
-        // HU #13190: con la lectura automática encendida, el PUT lanzaría una lectura real de fondo contra
-        // este mismo mock de base. Aquí se prueba solo el acceso; el disparo, en
-        // `flito-sync.flit2-acceso-lectura.routes.test.ts`.
-        if (prop === 'FLIT2_SYNC_CRON') return false;
         return target[prop as string];
       },
     }),
@@ -438,25 +434,5 @@ describe('AC9 · errores y logs', () => {
       expect(l).not.toContain(SECRETO);
       expect(l).toContain('[REDACTED]');
     }
-  });
-});
-
-// ── HU #13092 AC9 ───────────────────────────────────────────────────────────────────────────────
-describe('HU #13092 AC9 · otro usuario de servicio conserva la posición de lectura', () => {
-  it('guardar un acceso con otro clientId no toca `flito_sync_flit2_lectura` (el cursor es del feed)', async () => {
-    const { getTableName } = await import('drizzle-orm');
-    kdb.when.insert(TABLA, [{ id: 5 }]).select(TABLA, [filaMeta({ id: 5, clientId: 'otro-usuario-de-servicio' })]);
-
-    await guardarAcceso('otro-usuario-de-servicio', 'otra-contrasena-ficticia', 7);
-
-    const tablas = [kdb.select, kdb.insert, kdb.update, kdb.delete]
-      .flatMap((m) => m.mock.calls.map((c) => c[0]))
-      .filter((t): t is object => !!t && typeof t === 'object')
-      .map((t) => { try { return getTableName(t as never); } catch { return null; } })
-      .filter((n): n is string => !!n);
-    // Control positivo: el espía sí ve las tablas que guardarAcceso escribe.
-    expect(tablas).toContain(TABLA);
-    expect(tablas).not.toContain('flito_sync_flit2_lectura');
-    expect(kdb.execute).not.toHaveBeenCalled();
   });
 });

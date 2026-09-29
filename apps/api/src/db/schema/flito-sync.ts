@@ -5,7 +5,7 @@
 // Import circular a propósito (mismo patrón que `schema/permisos.ts`): las FK de Drizzle son callbacks
 // perezosos, así que el ciclo ESM resuelve sin problema.
 import {
-  pgTable, smallserial, varchar, uuid, smallint, boolean, timestamp, integer, uniqueIndex, check, customType, text,
+  pgTable, smallserial, varchar, uuid, smallint, boolean, timestamp, integer, uniqueIndex, check, customType,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { users } from '../schema.js';
@@ -48,45 +48,4 @@ export const flitoSyncFlit2Acceso = pgTable('flito_sync_flit2_acceso', {
     sql`${t.rechazoMotivo} IS NULL OR ${t.rechazoMotivo} IN ('invalid_client', 'secret_rotation_required')`),
   bloqueoMotivoValido: check('ck_flito_sync_flit2_acceso_bloqueo_motivo',
     sql`${t.bloqueoMotivo} IS NULL OR ${t.bloqueoMotivo} IN ('client_locked', 'rate_limited')`),
-}));
-
-/**
- * HU #13091 (0215) — posición de lectura del feed de FLIT 2. Una sola fila (`id = 1`, CHECK), sembrada
- * por la migración: el código solo hace `UPDATE … WHERE id = 1`. `since_arranque` se fija una vez
- * (`WHERE since_arranque IS NULL`) y el cursor avanza con guarda optimista (`IS NOT DISTINCT FROM`).
- * `atrasada` y `ultimo_error_codigo` los consume la HU #13092.
- */
-export const flitoSyncFlit2Lectura = pgTable('flito_sync_flit2_lectura', {
-  id: smallint('id').primaryKey().default(1),
-  cursor: text('cursor'),
-  sinceArranque: timestamp('since_arranque', { withTimezone: true }),
-  ultimaExitosaEn: timestamp('ultima_exitosa_en', { withTimezone: true }),
-  ultimoIntentoEn: timestamp('ultimo_intento_en', { withTimezone: true }),
-  ultimoErrorCodigo: varchar('ultimo_error_codigo', { length: 40 }),
-  atrasada: boolean('atrasada').notNull().default(false),
-  // HU #13094 (0216): desde cuándo llega enmascarada (null = nada que recuperar) y cursor de la relectura.
-  piiEnmascaradaDesde: timestamp('pii_enmascarada_desde', { withTimezone: true }),
-  cursorRelectura: text('cursor_relectura'),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-}, (t) => ({
-  unaFila: check('ck_flito_sync_flit2_lectura_una_fila', sql`${t.id} = 1`),
-  cursorLen: check('ck_flito_sync_flit2_lectura_cursor_len',
-    sql`${t.cursor} IS NULL OR length(${t.cursor}) BETWEEN 1 AND 2000`),
-  cursorRelecturaLen: check('ck_flito_sync_flit2_lectura_cursor_relectura_len',
-    sql`${t.cursorRelectura} IS NULL OR length(${t.cursorRelectura}) BETWEEN 1 AND 2000`),
-}));
-
-/**
- * HU #13237 (migración 0217): interruptor por fuente de la sincronización FLIT, propio de cada ambiente.
- * Dos filas (`flit1`, `flit2`) sembradas encendidas. Fila ausente = encendida (con `warn`).
- * `updated_at`/`updated_by` solo los mueve el PUT del interruptor (null = nadie lo ha cambiado).
- * Tabla aparte de `flito_sync_flit2_lectura` para no competir por el lock de la fila del cursor.
- */
-export const flitoSyncInterruptor = pgTable('flito_sync_interruptor', {
-  fuente: varchar('fuente', { length: 10 }).primaryKey(),
-  encendido: boolean('encendido').notNull().default(true),
-  updatedAt: timestamp('updated_at', { withTimezone: true }),
-  updatedBy: integer('updated_by').references(() => users.id),
-}, (t) => ({
-  fuente: check('ck_flito_sync_interruptor_fuente', sql`${t.fuente} IN ('flit1', 'flit2')`),
 }));

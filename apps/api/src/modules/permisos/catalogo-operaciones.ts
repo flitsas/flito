@@ -34,7 +34,9 @@ const op = (llave: string, codigo: string, nombre: string, descripcion: string):
 
 const SOAT = 'flito-soat/flito-soat.routes.ts';
 const SOAT_CLI = 'flito-soat/flito-soat-cliente.routes.ts';
+const SOAT_INC = 'flito-soat/flito-soat-incompletas.routes.ts';
 const IMP = 'flito-impuestos/flito-impuestos.routes.ts';
+const IMP_DIR = 'flito-impuestos/flito-impuestos.direccion.routes.ts';
 const DER = 'flito-derechos/flito-derechos.routes.ts';
 const REV = 'flito-revisiones/flito-revisiones.routes.ts';
 const COMP = 'flito-compuerta/flito-compuerta.routes.ts';
@@ -49,7 +51,6 @@ const LIQ = 'flito-liquidacion/flito-liquidacion.routes.ts';
 const PAR = 'flito-parametrizacion/flito-parametrizacion.routes.ts';
 const SYN = 'flito-sync/flito-sync.routes.ts';
 const FL2 = 'flito-sync/flit2.routes.ts';
-const SYI = 'flito-sync/flito-sync-interruptores.routes.ts';
 const TRD = 'tramites/tramites.routes.ts';
 const OCR = 'tramites/ocr-docs.routes.ts';
 const IDE = 'tramites/identidad.routes.ts';
@@ -85,6 +86,14 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${SOAT_CLI} POST /cliente/preconsulta`, 'soat.runt.preconsultar', 'Preconsultar un vehículo en el RUNT', 'Verificar en el RUNT los datos del vehículo antes de radicar.'),
   op(`${SOAT_CLI} POST /cliente`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
   op(`${SOAT_CLI} POST /cliente/factura/lectura`, 'soat.factura.leer', 'Leer la factura de venta del vehículo', 'Extraer del PDF de la factura los datos del vehículo para prellenar la solicitud.'),
+  // HU #12997 (Feature #12841, diseño §11.1): lectura de las solicitudes que esperan al RUNT. Códigos
+  // propios —el catálogo es «una función por ruta»— sembrados por la 0211 a todo rol que ya tenga
+  // `soat.cola.ver` / `soat.solicitud.ver`. Textos byte a byte con la 0211.
+  op(`${SOAT_INC} POST /cliente/incompletas/buscar`, 'soat.incompletas.buscar', 'Ver las solicitudes de SOAT por validar y descartadas', 'Recorrer las solicitudes que quedaron guardadas porque el RUNT no respondió, y las que se descartaron.'),
+  // HU #12998: la ACCIÓN de reintentar la consulta al RUNT de una incompleta. Sembrada solo a admin
+  // por la 0212 (P-8); el administrador la reparte. Textos byte a byte con la 0212.
+  op(`${SOAT_INC} POST /cliente/incompletas/:id/reintentar`, 'soat.solicitud.reintentar_runt', 'Reintentar la consulta al RUNT de una solicitud de SOAT por validar', 'Volver a consultar el RUNT para completar, descartar o dejar por validar una solicitud que se guardó porque el RUNT no respondió.'),
+  op(`${SOAT_INC} GET /cliente/incompletas/:id`, 'soat.incompleta.ver', 'Ver una solicitud de SOAT por validar o descartada', 'Abrir el detalle de una solicitud guardada sin validar con el RUNT: propietario, factura y motivo del descarte.'),
 
   // ── Impuestos ─────────────────────────────────────────────────────────────────────────────────
   op(`${IMP} GET /`, 'impuestos.cola.ver', 'Ver la cola de impuestos', 'Abrir la bandeja de trámites de impuesto vehicular.'),
@@ -108,6 +117,8 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${IMP} POST /:id/devolver-gestor`, 'impuestos.tramite.devolver', 'Devolver un trámite de impuestos al gestor', 'Regresar al gestor del organismo un trámite que Operaciones había asumido.'),
   op(`${IMP} POST /recibos`, 'impuestos.recibos.cargar', 'Cargar recibos de impuestos', 'Subir los recibos de pago y repartirlos por trámite.'),
   op(`${IMP} POST /:id/recibo-caja`, 'impuestos.recibos.cargar_caja', 'Cargar recibo de caja', 'Cargar sobre un impuesto con liquidación el recibo de caja del pago en ventanilla y dejarlo pagado.'),
+  // HU #12833: textos byte a byte con la 0208.
+  op(`${IMP_DIR} PATCH /:id/direccion`, 'impuestos.tramite.corregir_direccion', 'Corregir dirección del comprador', 'Guardar la dirección, municipio y departamento correctos del comprador de un trámite de impuestos.'),
 
   // ── Derechos de tránsito ──────────────────────────────────────────────────────────────────────
   op(`${DER} GET /`, 'derechos.cola.ver', 'Ver los derechos de tránsito', 'Abrir el listado de recibos de derechos cobrados por el organismo.'),
@@ -268,9 +279,6 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   // HU #13061 — acceso de FLITO a FLIT 2 (módulo tramites; migración 0214, solo admin).
   op(`${FL2} GET /acceso`, 'tramites.flit2.ver_acceso', 'Ver el acceso a FLIT 2', 'Consultar con qué usuario de servicio se conecta FLITO a FLIT 2, quién lo guardó y desde cuándo.'),
   op(`${FL2} PUT /acceso`, 'tramites.flit2.guardar_acceso', 'Guardar el acceso a FLIT 2', 'Registrar o reemplazar el usuario de servicio y la contraseña con los que FLITO se conecta a FLIT 2.'),
-  // HU #13237 — interruptor por fuente (módulo tramites; migración 0217, solo admin). El GET /interruptores
-  // reutiliza el mismo código.
-  op(`${SYI} PUT /interruptores/:fuente`, 'tramites.sincronizacion.configurar', 'Configurar la sincronización con FLIT', 'Encender o apagar, en este ambiente, la entrada de trámites desde FLIT 1 y desde FLIT 2.'),
 
   // ── Trámite Digital ───────────────────────────────────────────────────────────────────────────
   op(`${TRD} GET /`, 'tramite.cola.ver', 'Ver la cola de Trámite Digital', 'Abrir la bandeja de trámites de tránsito.'),
