@@ -28,6 +28,7 @@ import RangoFechas from '../components/flit/RangoFechas';
 import VisorSoportes from '../components/flit/VisorSoportes';
 import ModalFacturaVenta, { esNombrePlacaOrganismo, nombreFacturaVenta } from '../components/flit/ModalFacturaVenta';
 import AccesoFlit2 from '../components/flito/tramites/AccesoFlit2';
+import SincronizarFlit2 from '../components/flito/tramites/SincronizarFlit2';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty,
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -404,10 +405,11 @@ export default function FlitoTramites() {
                   onClick={sincronizar}>
                   {sincronizando ? 'Sincronizando…' : 'Sincronizar FLIT'}
                 </button>
-                <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} title="Crea un trámite aprobado de prueba para Logística"
-                  onClick={() => setCrearDemo(true)}>+ Trámite demo</button>
               </div>
             )}
+            <SincronizarFlit2 onTerminado={refrescar} />
+            {esOperaciones && <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} title="Crea un trámite aprobado de prueba para Logística"
+              onClick={() => setCrearDemo(true)}>+ Trámite demo</button>}
             <AccesoFlit2 />
           </div>
         } />
