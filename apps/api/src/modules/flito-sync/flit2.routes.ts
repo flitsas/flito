@@ -3,9 +3,9 @@
 //
 //   GET /acceso   `tramites.flit2.ver_acceso`      → Flit2AccesoMeta (200 también sin acceso)
 //   PUT /acceso   `tramites.flit2.guardar_acceso`  → Flit2AccesoMeta · 400 · 409 · 503 llave_maestra
+//   POST /acceso/probar  (HU #13063) montado desde `flit2-probar.routes.ts`
 //
-// Ninguna respuesta —tampoco las de error— lleva la contraseña ni un fragmento suyo. El `POST
-// /acceso/probar` llega con la HU #13063.
+// Ninguna respuesta —tampoco las de error— lleva la contraseña, el pase ni un fragmento suyos.
 
 import { Router, type Request, type Response } from 'express';
 import rateLimit from 'express-rate-limit';
@@ -15,6 +15,7 @@ import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { guardarAcceso, obtenerMetaAcceso } from './flit2-acceso.service.js';
+import probarRouter from './flit2-probar.routes.js';
 import { Flit2Error } from './flit2.errors.js';
 
 const router = Router();
@@ -88,5 +89,8 @@ router.put('/acceso', exigirFuncion('tramites.flit2.guardar_acceso'), accesoLimi
     res.json(meta);
   } catch (e) { fallo(res, e); }
 });
+
+// HU #13063: «Probar conexión» vive en su propio fichero — ver la cabecera de `flit2-probar.routes.ts`.
+router.use(probarRouter);
 
 export default router;
