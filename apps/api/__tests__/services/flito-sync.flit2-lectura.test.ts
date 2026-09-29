@@ -254,11 +254,11 @@ const tombstone = (id: string, syncVersion: number, radicado = 'FT1-0009999'): F
   id, radicado, syncVersion, eliminado: true, estado: 'anulado', vehiculo: null, organismo: null, factura: null, compradores: [],
 });
 
-interface PaginaProg { items: Fila[]; nextCursor: string; hasMore: boolean; antes?: () => void }
+interface PaginaProg { items: Fila[]; nextCursor: string; hasMore: boolean; antes?: () => void; conPii?: boolean }
 type Paso = PaginaProg | Error;
 
 /** Puerto programado página a página. Registra cada llamada y la fila de lectura que había en ese momento. */
-function puerto(pasos: Paso[], acceso: () => Promise<void> = async () => undefined) {
+function puerto(pasos: Paso[], acceso: () => Promise<void | { conPii: boolean }> = async () => undefined) {
   const llamadas: { cursor?: string; since?: string; pageSize: number; filaAlLlamar: Fila | null }[] = [];
   const port: Port = {
     verificarAcceso: acceso,
@@ -275,7 +275,7 @@ function puerto(pasos: Paso[], acceso: () => Promise<void> = async () => undefin
       paso.antes?.();
       const items = []; let invalidos = 0;
       for (const c of paso.items) { const it = aItemFlit2(c); if (it) items.push(it); else invalidos++; }
-      return { items, invalidos, nextCursor: paso.nextCursor, hasMore: paso.hasMore };
+      return { items, invalidos, nextCursor: paso.nextCursor, hasMore: paso.hasMore, conPii: paso.conPii };
     },
   };
   return { port, llamadas };
@@ -1159,5 +1159,190 @@ describe('HU #13093 · compradores y arranque', () => {
   it('AC7: FLIT 1 sigue lanzando con 0 compradores; el mapeo de FLIT 2 no lanza', () => {
     expect(() => mapearCompradores({ idFlit: 'FT1-0000001', tipoPropiedad: 'unico_propietario', compradores: [] } as never)).toThrow(/no trae comprador/);
     expect(compradoresDesdeFlit2([])).toEqual({ compradores: [], omitidos: 0 });
+  });
+});
+
+// ── HU #13094 · PII enmascarada de FLIT 2 ───────────────────────────────────────────────────────
+// Diseño: `docs/diseno/hu-13094-pii-enmascarada-flit2.md` (RN-18…RN-20). Datos SINTÉTICOS; el
+// enmascarado imita el del contrato §4 (`"9****0000"`, `"c***@ejemplo.test"`).
+describe('HU #13094 · PII enmascarada', () => {
+  const sinPii = async () => ({ conPii: false });
+  const conPii = async () => ({ conPii: true });
+  const enmascarados = () => [
+    { ordinal: 1, porcentajeParticipacion: 60, rolActor: 'comprador', tipoPersona: 'juridical', tipoDocumento: 'NIT',
+      numeroDocumento: '9****0000', nombreCompleto: 'E***A', direccion: 'C***3', ciudad: 'PALMIRA', celular: '3****0000', correo: 'c***@ejemplo.test' },
+    { ordinal: 2, porcentajeParticipacion: 40, rolActor: 'comprador', tipoPersona: 'natural', tipoDocumento: 'CC',
+      numeroDocumento: '1****0000', nombreCompleto: 'P***O', direccion: 'C***6', ciudad: 'PALMIRA', celular: '3****0000', correo: 'p***@ejemplo.test' },
+  ];
+  const compradoresDe = (tramiteId: unknown) => filas(S.flitoCompradores).filter((c) => c.tramiteId === tramiteId);
+  /** Trámite FLIT 2 guardado en v11, marcado y con un comprador principal previo (datos SINTÉTICOS). */
+  function sembrarMarcado(over: Fila = {}): Fila {
+    const t = sembrarFlit2({ syncVersion: 11, flit2PiiEnmascarada: true, ...over });
+    filas(S.flitoCompradores).push(nuevaFila(S.flitoCompradores, {
+      tramiteId: t.id, orden: 0, numeroDocumento: DOC_1, nombreCompleto: 'PERSONA 1', porcentajeParticipacion: '100.00',
+    }));
+    return t;
+  }
+
+  it('AC1: sin el scope, el trámite nuevo queda marcado y la lectura anota desde cuándo llega enmascarada', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    const r = await leerIncremental({ ahora: reloj() }, puerto([pagina([crudo({ compradores: enmascarados() })], 'c1')], sinPii).port);
+    expect(r).toMatchObject({ leidos: 1, nuevos: 1 });
+    expect(tramite(U1)!.flit2PiiEnmascarada).toBe(true);
+    expect(lectura()).toMatchObject({ cursor: 'c1', piiEnmascaradaDesde: ARRANQUE, cursorRelectura: null });
+  });
+
+  it('AC1: el scope que manda es el de la PÁGINA (pase renovado a mitad); desde cuándo no se reescribe', async () => {
+    const ANTES = new Date('2026-09-28T00:00:00Z');
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0', piiEnmascaradaDesde: ANTES });
+    const { port } = puerto([{ ...pagina([crudo({ compradores: enmascarados() })], 'c1'), conPii: false }], conPii);
+    await leerIncremental({ ahora: reloj() }, port);
+    expect(tramite(U1)!.flit2PiiEnmascarada).toBe(true);
+    expect(lectura()!.piiEnmascaradaDesde).toEqual(ANTES);
+  });
+
+  it('AC1: con el scope nada se marca ni se anota (control positivo)', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([crudo()], 'c1')], conPii).port);
+    expect(tramite(U1)!.flit2PiiEnmascarada).not.toBe(true);
+    expect(compradoresDe(tramite(U1)!.id)).toHaveLength(2);
+    expect(lectura()!.piiEnmascaradaDesde).toBeNull();
+  });
+
+  it('AC2: enmascarado no escribe compradores ni titular y conserva los guardados; el resto del trámite sí se aplica', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    const t = sembrarMarcado({ syncVersion: 10, flit2PiiEnmascarada: false });
+    filas(S.vehicles)[0].ownerDocument = DOC_1;
+    const r = await leerIncremental({ ahora: reloj() },
+      puerto([pagina([crudo({ syncVersion: 11, estado: 'aprobado', compradores: enmascarados() })], 'c1')], sinPii).port);
+    expect(r).toMatchObject({ actualizados: 1 });
+    expect(compradoresDe(t.id).map((c) => c.numeroDocumento)).toEqual([DOC_1]);
+    expect(mem.escrituras.some((w) => w.tabla === 'flito_compradores')).toBe(false);
+    expect(filas(S.vehicles)[0].ownerDocument).toBe(DOC_1);
+    expect(tramite(U1)).toMatchObject({ flitEstado: 'Aprobado', syncVersion: 11, flit2PiiEnmascarada: true });
+    expect(historial().filter((x) => x.campo === 'compradores')).toEqual([]);
+  });
+
+  it('AC2: un trámite nuevo enmascarado nace sin compradores (nunca con el documento enmascarado)', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([crudo({ compradores: enmascarados() })], 'c1')], sinPii).port);
+    expect(filas(S.flitoCompradores)).toEqual([]);
+    expect(JSON.stringify(mem.tablas.get('vehicles'))).not.toContain('****');
+  });
+
+  it('AC3: asignado y enmascarado con comprador principal guardado → SOAT e impuesto no arrancan, la lectura no falla', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    sembrarMarcado({ syncVersion: 10, flit2PiiEnmascarada: false });
+    const r = await leerIncremental({ ahora: reloj() },
+      puerto([pagina([crudo({ syncVersion: 11, estado: 'asignado', compradores: enmascarados(), vehiculo: null })], 'c1')], sinPii).port);
+    expect(r).toMatchObject({ leidos: 1, actualizados: 1 });
+    expect(filas(S.flitoSoat)).toEqual([]);
+    expect(filas(S.flitoImpuestos)).toEqual([]);
+    expect(lectura()).toMatchObject({ cursor: 'c1', ultimoErrorCodigo: null });
+  });
+
+  it('AC4: con el permiso de vuelta, relee desde el arranque con su cursor, aplica solo el marcado (misma versión), sin mover el cursor normal', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c5', piiEnmascaradaDesde: new Date('2026-09-29T15:10:00Z') });
+    const t = sembrarMarcado();
+    const { port, llamadas } = puerto([
+      pagina([], 'c5'), // la lectura normal: al día
+      pagina([crudo({ syncVersion: 11, estado: 'asignado' }), crudo({ id: U2, radicado: 'FT1-0002222', syncVersion: 3 })], 'r1'),
+    ], conPii);
+    const r = await leerIncremental({ ahora: reloj() }, port);
+    expect(llamadas.map((l) => [l.cursor ?? null, l.since ?? null])).toEqual([['c5', null], [null, ARRANQUE.toISOString()]]);
+    expect(r).toMatchObject({ leidos: 0, paginas: 1 }); // la relectura no suma al resultado de la normal
+    expect(tramite(U1)!.flit2PiiEnmascarada).toBe(false);
+    expect(compradoresDe(t.id).map((c) => c.numeroDocumento).sort()).toEqual([DOC_2, DOC_1].sort());
+    expect(filas(S.flitoSoat)).toEqual([expect.objectContaining({ vin: '9FKTEST0000000001' })]);
+    expect(filas(S.flitoImpuestos)).toHaveLength(1);
+    expect(tramite(U2)).toBeUndefined(); // la relectura no crea trámites
+    expect(lectura()).toMatchObject({ cursor: 'c5', cursorRelectura: null, piiEnmascaradaDesde: null });
+  });
+
+  it('AC4: la relectura no aplica una versión MENOR que la guardada ni toca trámites sin marca', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c5', piiEnmascaradaDesde: ARRANQUE });
+    sembrarMarcado({ syncVersion: 12 });
+    const { port } = puerto([pagina([], 'c5'), pagina([crudo({ syncVersion: 11, estado: 'asignado' })], 'r1')], conPii);
+    await leerIncremental({ ahora: reloj() }, port);
+    expect(tramite(U1)!.flit2PiiEnmascarada).toBe(true);
+    expect(filas(S.flitoSoat)).toEqual([]);
+    expect(lectura()).toMatchObject({ cursorRelectura: null, piiEnmascaradaDesde: null });
+  });
+
+  it('AC4: en la lectura normal, un marcado con la misma versión es «sin cambios» y sigue marcado (solo lo aplica la relectura)', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    sembrarMarcado();
+    const r = await leerIncremental({ ahora: reloj() }, puerto([pagina([crudo({ syncVersion: 11 })], 'c1')], conPii).port);
+    expect(r).toMatchObject({ sinCambios: 1 });
+    expect(tramite(U1)!.flit2PiiEnmascarada).toBe(true);
+  });
+
+  it('AC4: una versión nueva CON el permiso en la lectura normal quita la marca y arranca', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0', piiEnmascaradaDesde: ARRANQUE });
+    sembrarMarcado();
+    const { port } = puerto([pagina([crudo({ syncVersion: 12, estado: 'asignado' })], 'c1'), pagina([], 'r0')], conPii);
+    await leerIncremental({ ahora: reloj() }, port);
+    expect(tramite(U1)!.flit2PiiEnmascarada).toBe(false);
+    expect(filas(S.flitoSoat)).toHaveLength(1);
+  });
+
+  it('AC4: cortada por el tope, la relectura guarda su cursor y la corrida siguiente la retoma desde ahí', async () => {
+    const rm = relojMovil();
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c5', piiEnmascaradaDesde: ARRANQUE });
+    sembrarMarcado();
+    const primera = puerto([
+      pagina([], 'c5'),
+      pagina([crudo({ id: U3, radicado: 'FT1-0003333' })], 'r1', true, rm.avanzar(LIMITE_BOTON_MS)),
+    ], conPii);
+    await leerConCandado('boton', primera.port, { ahora: rm.ahora });
+    expect(lectura()).toMatchObject({ cursor: 'c5', cursorRelectura: 'r1' });
+    expect(lectura()!.piiEnmascaradaDesde).not.toBeNull();
+    expect(tramite(U1)!.flit2PiiEnmascarada).toBe(true);
+
+    const segunda = puerto([pagina([], 'c5'), pagina([crudo({ syncVersion: 11, estado: 'asignado' })], 'r2')], conPii);
+    await leerConCandado('boton', segunda.port, { ahora: rm.ahora });
+    expect(segunda.llamadas.map((l) => l.cursor ?? l.since)).toEqual(['c5', 'r1']);
+    expect(tramite(U1)!.flit2PiiEnmascarada).toBe(false);
+    expect(lectura()).toMatchObject({ cursor: 'c5', cursorRelectura: null, piiEnmascaradaDesde: null });
+  });
+
+  it('AC4: un fallo de la relectura no tumba la lectura normal y deja el cursor de relectura donde iba', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c5', piiEnmascaradaDesde: ARRANQUE, cursorRelectura: 'r1' });
+    sembrarMarcado();
+    const { port } = puerto([pagina([crudo({ id: U3, radicado: 'FT1-0003333' })], 'c6'), new Flit2RespuestaError(503, null)], conPii);
+    const r = await leerIncremental({ ahora: reloj() }, port);
+    expect(r).toMatchObject({ nuevos: 1 });
+    expect(lectura()).toMatchObject({ cursor: 'c6', cursorRelectura: 'r1', ultimoErrorCodigo: null });
+    expect(tramite(U1)!.flit2PiiEnmascarada).toBe(true);
+  });
+
+  it('AC4: sin el permiso la relectura no corre; una página enmascarada reinicia la relectura a medias', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c5', piiEnmascaradaDesde: ARRANQUE, cursorRelectura: 'r1' });
+    const { port, llamadas } = puerto([pagina([crudo({ compradores: enmascarados() })], 'c6')], sinPii);
+    await leerIncremental({ ahora: reloj() }, port);
+    expect(llamadas).toHaveLength(1);
+    expect(lectura()).toMatchObject({ cursor: 'c6', cursorRelectura: null, piiEnmascaradaDesde: ARRANQUE });
+  });
+
+  it('AC4: sin nada que recuperar no hay relectura (ninguna llamada de más)', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c5' });
+    const { port, llamadas } = puerto([pagina([], 'c5')], conPii);
+    await leerIncremental({ ahora: reloj() }, port);
+    expect(llamadas).toHaveLength(1);
+  });
+
+  it('AC5: ni los logs ni la auditoría llevan datos personales, enmascarados o no, en la lectura y en la relectura', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    const primera = puerto([pagina([crudo({ compradores: enmascarados() })], 'c1')], sinPii);
+    const r1 = await leerIncremental({ ahora: reloj() }, primera.port);
+    const segunda = puerto([pagina([], 'c1'), pagina([crudo({ estado: 'asignado' })], 'r1')], conPii);
+    await leerIncremental({ ahora: reloj() }, segunda.port);
+    expect(tramite(U1)!.flit2PiiEnmascarada).toBe(false);
+    await auditarLecturaProgramada(r1);
+    const todo = JSON.stringify([logMock.info.mock.calls, logMock.warn.mock.calls, logMock.error.mock.calls, filas(S.auditLogs)]);
+    for (const x of [DOC_1, DOC_2, CORREO, CELULAR, DIRECCION, 'PERSONA EJEMPLO', 'EMPRESA EJEMPLO', '****', '***@']) {
+      expect(todo).not.toContain(x);
+    }
+    expect(JSON.stringify(tramite(U1)!.flitRaw)).not.toContain('****');
   });
 });
