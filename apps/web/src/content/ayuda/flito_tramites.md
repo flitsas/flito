@@ -12,7 +12,7 @@ En el menú lateral, sección **Gestión**, ítem **Gestión Trámites**. Tambi�
 
 ## Pasos
 
-1. Pulse **Sincronizar FLIT** para traer trámites. Si es la primera vez, elija **Desde**; si ya hay sincronización, puede marcar **Elegir fecha**.
+1. Pulse **Sincronizar FLIT** para traer trámites. Si es la primera vez, elija **Desde**; si ya hay sincronización, puede marcar **Elegir fecha**. Pulse **Sincronizar FLIT 2** para traer lo nuevo de FLIT 2. No pide fecha: sigue donde quedó la lectura anterior. FLIT 2 también se lee solo cada pocos minutos, así que este botón sirve cuando no quiere esperar. Si hay mucho por leer, trae lo que alcanza en un minuto y el resto llega con la lectura automática. El resultado aparece en un aviso breve con cuántos trámites llegaron nuevos o con cambios.
 2. Busque por placa, VIN, id o comprador, o use **Recién llegados sin gestionar**. Filtre por **Todas**, **Autogestionadas** o **No autogestionadas**. La columna **Fuente** indica si el trámite llegó de FLIT o de FLIT 2; el filtro **Fuente** (**Todas**, **FLIT**, **FLIT 2**) muestra solo los de un sistema, y **Limpiar filtros** lo devuelve a **Todas**.
 3. Marque los trámites que necesite: la casilla ya **no** se limita a los **Asignados**, así que también puede marcar los ya entregados para llevarse sus soportes. Si ve **Empresa no existe**, pulse **Crear empresa**. Si ve **Secretaría sin emparejar**, empareje antes de despachar.
 4. Con la selección, pulse **Solicitar SOAT**, **Solicitar Impuestos**, **Solicitar ambos** o **Entregar**. Esas acciones siguen aplicando **solo** a los trámites que ya las admitían, y el botón se lo dice: con tres marcados de los que dos se pueden despachar, verá **Solicitar SOAT (2 de 3)**. **Entregar** solo aplica si la fila muestra **Listo para entregar**.
@@ -22,7 +22,7 @@ En el menú lateral, sección **Gestión**, ítem **Gestión Trámites**. Tambi�
 ## Estados
 
 - Cargando: la tabla aún no aparece mientras llega el listado.
-- Error: el mensaje en rojo sobre la tarjeta (por ejemplo, si falló la sincronización).
+- Error: el mensaje en rojo sobre la tarjeta si falla el listado o la sincronización de FLIT. Si falla **Sincronizar FLIT 2**, un aviso breve dice por qué (por ejemplo, que ya hay una lectura en marcha o que FLIT 2 no responde) y, si sirve, ofrece **Reintentar**. Si el aviso habla del acceso, revíselo en **Acceso a FLIT 2**.
 - Vacío: **No hay trámites. Sincroniza desde FLIT para traer trámites.** Si hay filtros: **Ningún trámite coincide con el filtro.**
 - Lleno: tabla con trámite, fechas, vehículo, comprador, compañía, SOAT, impuestos, logística, derechos de tránsito y soportes. Un trámite listo muestra **Listo para entregar**.
 
