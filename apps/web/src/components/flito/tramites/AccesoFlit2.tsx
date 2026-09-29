@@ -25,6 +25,7 @@ import StatusChip, { type ChipTone } from '../../flit/StatusChip';
 import {
   FlitField, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle, flitInp,
 } from '../../flit/flitPageKit';
+import { AvisoPruebaFlit2, BotonProbarConexion, usePruebaConexion } from './ProbarConexionFlit2';
 
 const RUTA_ACCESO = '/flito/sync/flit2/acceso';
 const FUNCION_VER = 'tramites.flit2.ver_acceso';
@@ -89,15 +90,20 @@ function mensajeDeGuardado(e: unknown): { texto: string; conflicto: boolean } {
   return { texto: 'No se pudo guardar el acceso a FLIT 2. Vuelve a intentarlo.', conflicto: false };
 }
 
-/** La meta con sus estados de carga. Al fallar se BORRA: no queda un «Vigente» sin confirmar. */
+/**
+ * La meta con sus estados de carga. Al fallar se BORRA: no queda un «Vigente» sin confirmar.
+ * `refrescar` vuelve a pedirla SIN esqueleto (tras «Probar conexión», HU #13069).
+ */
 function useMetaAcceso() {
   const [meta, setMeta] = useState<Flit2AccesoMeta | null>(null);
   const [estado, setEstado] = useState<'cargando' | 'error' | 'ok'>('cargando');
   const [intento, setIntento] = useState(0);
+  const silencioso = useRef(false);
 
   useEffect(() => {
     let vigente = true;
-    setEstado('cargando');
+    if (!silencioso.current) setEstado('cargando');
+    silencioso.current = false;
     api.get<Flit2AccesoMeta>(RUTA_ACCESO)
       .then((respuesta) => {
         if (!vigente) return;
@@ -114,7 +120,8 @@ function useMetaAcceso() {
   }, [intento]);
 
   const recargar = useCallback(() => setIntento((i) => i + 1), []);
-  return { meta, estado, setMeta, recargar };
+  const refrescar = useCallback(() => { silencioso.current = true; setIntento((i) => i + 1); }, []);
+  return { meta, estado, setMeta, recargar, refrescar };
 }
 
 function Dato({ etiqueta, children }: { etiqueta: string; children: ReactNode }) {
@@ -158,7 +165,8 @@ function Aviso({ rol, children }: { rol: 'alert' | 'status'; children: ReactNode
 function PanelAccesoFlit2({ onCerrar }: { onCerrar: () => void }) {
   const { hasFuncion } = useAuth();
   const puedeGuardar = hasFuncion(FUNCION_GUARDAR);
-  const { meta, estado, setMeta, recargar } = useMetaAcceso();
+  const { meta, estado, setMeta, recargar, refrescar } = useMetaAcceso();
+  const prueba = usePruebaConexion(refrescar);
 
   const [usuario, setUsuario] = useState('');
   /** La contraseña vive en el NODO, nunca en estado de React (ver cabecera). */
@@ -191,6 +199,7 @@ function PanelAccesoFlit2({ onCerrar }: { onCerrar: () => void }) {
       if (campo) campo.value = '';
       setUsuario('');
       setMeta(actualizada);
+      prueba.limpiar(); // el aviso era del acceso anterior
       toastOk('Acceso a FLIT 2 guardado.', { id: 'flit2-acceso-guardado' });
     } catch (err) {
       // Se conserva lo escrito (el input no controlado lo conserva solo); el copy es propio.
@@ -203,7 +212,7 @@ function PanelAccesoFlit2({ onCerrar }: { onCerrar: () => void }) {
   const chip = meta ? chipDe(meta) : null;
 
   return (
-    <FlitModal title="Acceso a FLIT 2" onClose={onCerrar} lateral cierreBloqueado={guardando}>
+    <FlitModal title="Acceso a FLIT 2" onClose={onCerrar} lateral cierreBloqueado={guardando || prueba.probando}>
       <div className="h-full space-y-4 overflow-y-auto pb-2">
         <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
           Con qué usuario entra FLITO a FLIT 2 para leer sus trámites. La contraseña se cifra al guardar
@@ -246,8 +255,13 @@ function PanelAccesoFlit2({ onCerrar }: { onCerrar: () => void }) {
               </Aviso>
             )}
 
-            {/* Punto de extensión de la HU #13069: «Probar conexión» (secundario, solo con «guardar» y
-                `configurado: true`) y su aviso de resultado van aquí, junto a la ficha que comprueban. */}
+            {/* HU #13069: «Probar conexión» (secundario, solo con «guardar» y `configurado: true`; sin
+                acceso no se pinta ni deshabilitado) y su aviso, junto a la ficha que comprueban. El
+                aviso sobrevive a un `sin_acceso`, que deja la ficha sin botón. */}
+            {puedeGuardar && meta.configurado && (
+              <BotonProbarConexion probando={prueba.probando} onProbar={() => { void prueba.probar(); }} />
+            )}
+            {prueba.aviso && <AvisoPruebaFlit2 aviso={prueba.aviso} />}
 
             {puedeGuardar && (
               <form onSubmit={guardar} noValidate className="space-y-3 pt-4"
