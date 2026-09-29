@@ -59,6 +59,25 @@
 // RN-17  Arranque: SOAT e impuesto por `arrancarSoatEImpuesto`, la MISMA función de FLIT 1, con sus
 //        mismas condiciones (flit_estado Asignado, compañía y organismo emparejados) más una: el
 //        trámite tiene comprador principal. Sin él, espera sin fallar; la entrega que lo traiga arranca.
+//
+// ── HU #13094 (PII enmascarada). Diseño: `docs/diseno/hu-13094-pii-enmascarada-flit2.md` ──────────
+//
+// RN-18  Detección: por el SCOPE del pase con que salió la página (`PaginaFlit2.conPii`, o el de
+//        `verificarAcceso` si el adaptador no lo dice), nunca por el patrón del dato. Sin
+//        `external.tramites.pii.read`, cada trámite aplicado queda con `flit2_pii_enmascarada = true` y
+//        la fila de lectura anota `pii_enmascarada_desde` (solo la primera vez) en la MISMA transacción
+//        de la página (AC1). Un trámite que se aplica CON el permiso pierde la marca.
+// RN-19  Trámite enmascarado: no se escriben compradores (ni el titular del vehículo) y se conservan los
+//        guardados (AC2); SOAT e impuesto no arrancan y la lectura no falla (AC3). El resto del trámite
+//        (estado, vehículo, organismo) sí se aplica: no es PII (contrato §4).
+// RN-20  Recuperación: si al terminar la lectura normal (sin `hasMore`, con tiempo y con el permiso) hay
+//        `pii_enmascarada_desde` o una relectura a medias, en la MISMA corrida y bajo el MISMO candado
+//        corre la relectura: desde el arranque (`since_arranque`, «cursor vacío») con su propio cursor
+//        (`cursor_relectura`); el cursor normal no se toca. Solo aplica trámites marcados, aunque su
+//        versión sea igual a la guardada (nunca una menor). Una página enmascarada en la normal reinicia la
+//        relectura. Al terminarla se limpian `pii_enmascarada_desde` y `cursor_relectura` (AC4). Si se
+//        corta (tope, 429, error), el cursor queda y la corrida siguiente la retoma; el fallo de la
+//        relectura no tumba la lectura normal, ya guardada.
 
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { Flit2LecturaResultado } from '@operaciones/shared-types';
@@ -75,7 +94,7 @@ import {
 } from './flit2-mapeo.js';
 import type { CompradorMapeado } from './mapeo-compradores.js';
 import { getFlit2SyncAdapter } from './flit2-sync.adapter.js';
-import type { Flit2SyncPort, ItemFlit2, PosicionLectura } from './flit2-sync.port.js';
+import type { Flit2SyncPort, ItemFlit2, PaginaFlit2, PosicionLectura } from './flit2-sync.port.js';
 import { conCandadoLectura } from './flit2-candado.js';
 import {
   Flit2EsperaFeedError, Flit2Error, Flit2LecturaConcurrenteError, Flit2LecturaEnCursoError, Flit2RespuestaError,
@@ -195,12 +214,29 @@ async function escribirCompradoresFlit2(
   return { cambiaron: true, tienePrincipal: tienePrincipalNuevo };
 }
 
-/** Clasifica y aplica UN ítem dentro de la transacción de su página (RN-03…RN-06). */
-async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date): Promise<void> {
+/**
+ * Cómo se aplica una página (HU #13094). `conPii`: el pase traía el scope de datos personales (RN-18).
+ * `relectura`: la de recuperación (RN-20), que solo toca trámites marcados, aunque su versión sea igual.
+ */
+export interface ModoAplicar {
+  conPii: boolean;
+  relectura?: boolean;
+}
+
+const MODO_NORMAL: ModoAplicar = { conPii: true };
+
+/** Clasifica y aplica UN ítem dentro de la transacción de su página (RN-03…RN-06, RN-18…RN-20). */
+async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date, modo: ModoAplicar): Promise<void> {
   if (it.eliminado) { r.eliminadosIgnorados += 1; return; }
 
   const [porId] = await tx.select().from(flitoTramites).where(eq(flitoTramites.idFlit2, it.idFlit2)).limit(1);
-  if (porId && porId.syncVersion !== null && it.syncVersion <= porId.syncVersion) { r.sinCambios += 1; return; }
+  const marcadoAntes = porId?.flit2PiiEnmascarada === true;
+  if (modo.relectura) {
+    // RN-20: la relectura no crea ni toca trámites sin marca; con la marca, versión igual sí, menor nunca.
+    if (!porId || !marcadoAntes || (porId.syncVersion !== null && it.syncVersion < porId.syncVersion)) {
+      r.sinCambios += 1; return;
+    }
+  } else if (porId && porId.syncVersion !== null && it.syncVersion <= porId.syncVersion) { r.sinCambios += 1; return; }
 
   if (!porId) {
     const [porRadicado] = await tx.select({ id: flitoTramites.id }).from(flitoTramites)
@@ -221,7 +257,8 @@ async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date): P
     : null;
   if (org && (org.codigoSecretaria || org.ciudad || org.nombre) && !organismo) r.organismosSinEmparejar += 1;
 
-  const { compradores, omitidos } = compradoresDesdeFlit2(it.compradores);
+  // RN-19: sin el permiso, los compradores llegan enmascarados: no se mapean (se conservan los guardados).
+  const { compradores, omitidos } = modo.conPii ? compradoresDesdeFlit2(it.compradores) : { compradores: [], omitidos: 0 };
   if (omitidos > 0) {
     log.warn({ idFlit2: it.idFlit2, omitidos }, 'compradores de FLIT 2 sin documento o sin nombre: no se escriben');
   }
@@ -273,12 +310,17 @@ async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date): P
 
   const { row, esNuevo, huboCambios } = await escribirTramite(tx, porId ?? null, it.radicado, valores);
   const { cambiaron, tienePrincipal } = await escribirCompradoresFlit2(tx, row.id, esNuevo, compradores);
+  // RN-18: la marca sigue al scope de ESTA entrega; solo se escribe si cambia.
+  const marca = !modo.conPii;
+  const cambiaMarca = marca !== marcadoAntes;
+  if (cambiaMarca) await tx.update(flitoTramites).set({ flit2PiiEnmascarada: marca }).where(eq(flitoTramites.id, row.id));
   if (esNuevo) r.nuevos += 1;
-  else if (huboCambios || cambiaron) r.actualizados += 1;
+  else if (huboCambios || cambiaron || cambiaMarca) r.actualizados += 1;
   else r.sinCambios += 1;
 
   // RN-17: las mismas condiciones y la misma función que FLIT 1, más el comprador principal.
-  if (esAsignado(row.flitEstado ?? '') && compania && organismo && tienePrincipal) {
+  // RN-19: enmascarado, no arranca (espera la relectura, RN-20).
+  if (modo.conPii && esAsignado(row.flitEstado ?? '') && compania && organismo && tienePrincipal) {
     vin ??= (await tx.select({ vin: vehicles.vin }).from(vehicles).where(eq(vehicles.id, vehiculoId)).limit(1))[0]?.vin ?? null;
     if (!vin) return; // un vehículo sin VIN no puede llevar SOAT (el SOAT va por VIN, RN-01 de FLIT 1)
     const liquidado = row.valorImpuestoLiquidado === null ? null : Number(row.valorImpuestoLiquidado);
@@ -294,8 +336,23 @@ async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date): P
 }
 
 /** Aplica los ítems de una página. Los desenlaces esperados se cuentan; solo un fallo de BD lanza. */
-export async function aplicarPagina(tx: Tx, items: ItemFlit2[], r: Contadores, ahora: Date = new Date()): Promise<void> {
-  for (const it of items) await aplicarItem(tx, it, r, ahora);
+export async function aplicarPagina(
+  tx: Tx, items: ItemFlit2[], r: Contadores, ahora: Date = new Date(), modo: ModoAplicar = MODO_NORMAL,
+): Promise<void> {
+  for (const it of items) await aplicarItem(tx, it, r, ahora, modo);
+}
+
+/** Scope de la página: el que dijo el adaptador o, si no lo sabe, el del acceso (RN-18). */
+const conPiiDe = (p: PaginaFlit2, delAcceso: boolean): boolean => p.conPii ?? delAcceso;
+
+/**
+ * RN-18: una página enmascarada anota desde cuándo (solo si no estaba anotado) y reinicia la relectura,
+ * en la transacción de la página: si la página se revierte, la anotación también.
+ */
+async function anotarEnmascarada(tx: Tx, ahora: Date): Promise<void> {
+  await tx.update(flitoSyncFlit2Lectura).set({ piiEnmascaradaDesde: ahora })
+    .where(and(eq(flitoSyncFlit2Lectura.id, FILA), isNull(flitoSyncFlit2Lectura.piiEnmascaradaDesde)));
+  await tx.update(flitoSyncFlit2Lectura).set({ cursorRelectura: null }).where(eq(flitoSyncFlit2Lectura.id, FILA));
 }
 
 async function leerFila() {
@@ -356,7 +413,8 @@ export async function leerIncremental(
   };
 
   // Sin acceso utilizable no se fija el arranque ni se llama al feed (AC1).
-  await port.verificarAcceso();
+  const piiDelAcceso = (await port.verificarAcceso())?.conPii ?? true;
+  let piiAlFinal = piiDelAcceso;
 
   try {
     let fila = await leerFila();
@@ -381,8 +439,10 @@ export async function leerIncremental(
       const pagina = await leerPaginaConEsperas(port, pos, pageSize, restanteMs, esperar);
       const parcial = contadoresEnCero();
       const esperado = cursorLeido;
+      const conPii = conPiiDe(pagina, piiDelAcceso);
       await db.transaction(async (tx) => {
-        await aplicarPagina(tx, pagina.items, parcial, inicio);
+        await aplicarPagina(tx, pagina.items, parcial, inicio, { conPii });
+        if (!conPii) await anotarEnmascarada(tx, inicio);
         const movidas = await tx.update(flitoSyncFlit2Lectura)
           .set({ cursor: pagina.nextCursor, updatedAt: inicio })
           .where(and(
@@ -399,6 +459,10 @@ export async function leerIncremental(
       r.paginas += 1;
       r.hasMore = pagina.hasMore;
       cursorLeido = pagina.nextCursor;
+      piiAlFinal = conPii;
+      if (!conPii && pagina.items.length > 0) {
+        log.warn({ items: pagina.items.length }, 'FLIT 2 entregó trámites sin permiso de datos personales: quedan marcados, sin compradores ni arranque');
+      }
       if (!pagina.hasMore) break;
       pos = { cursor: pagina.nextCursor };
       // RN-10: el tope se mira DESPUÉS de guardar la página, nunca a mitad de una.
@@ -407,6 +471,10 @@ export async function leerIncremental(
 
     await anotar({ ultimaExitosaEn: reloj(), ultimoErrorCodigo: null, atrasada: r.hasMore }, reloj());
     log.info({ ...r, ms: reloj().getTime() - inicio.getTime() }, 'lectura FLIT 2');
+    // RN-20: la relectura, solo con la normal al día, con tiempo y con el permiso de vuelta.
+    if (!r.hasMore && piiAlFinal && restanteMs() > 0) {
+      await releerEnmascarados(port, { pageSize, maxPaginas, restanteMs, esperar, inicio, piiDelAcceso });
+    }
     return r;
   } catch (e) {
     const codigo = codigoAnotado(e);
@@ -422,6 +490,72 @@ export async function leerIncremental(
     if (r.paginas > 0 && e && typeof e === 'object') parciales.set(e, r);
     throw e;
   }
+}
+
+interface OpcionesRelectura {
+  pageSize: number;
+  maxPaginas: number;
+  restanteMs: () => number;
+  esperar: (ms: number) => Promise<void>;
+  inicio: Date;
+  piiDelAcceso: boolean;
+}
+
+/** Resumen de una relectura de recuperación (RN-20): solo contadores, para el log. */
+export interface ResultadoRelectura extends Contadores {
+  paginas: number;
+  terminada: boolean;
+}
+
+/**
+ * Relectura de recuperación (RN-20). Se llama con el candado de la corrida ya tomado. No lanza: su fallo
+ * deja el cursor de relectura donde iba y la siguiente corrida la retoma. Devuelve null si no había nada
+ * que recuperar.
+ */
+export async function releerEnmascarados(port: Flit2SyncPort, op: OpcionesRelectura): Promise<ResultadoRelectura | null> {
+  const res: ResultadoRelectura = { ...contadoresEnCero(), paginas: 0, terminada: false };
+  try {
+    const fila = await leerFila();
+    if (!fila || (!fila.piiEnmascaradaDesde && !fila.cursorRelectura)) return null;
+    let esperado: string | null = fila.cursorRelectura;
+    // «Cursor vacío»: desde el mismo arranque de la lectura normal, que cubre todo lo que FLITO leyó.
+    let pos: PosicionLectura | null = esperado ? { cursor: esperado } : fila.sinceArranque ? { since: fila.sinceArranque } : null;
+    if (!pos) return null;
+
+    while (res.paginas < op.maxPaginas) {
+      const pagina = await leerPaginaConEsperas(port, pos, op.pageSize, op.restanteMs, op.esperar);
+      if (!conPiiDe(pagina, op.piiDelAcceso)) {
+        log.warn('relectura FLIT 2 sin permiso de datos personales: se deja para otra corrida');
+        break;
+      }
+      const parcial = contadoresEnCero();
+      const guarda = esperado;
+      await db.transaction(async (tx) => {
+        await aplicarPagina(tx, pagina.items, parcial, op.inicio, { conPii: true, relectura: true });
+        const fin = !pagina.hasMore;
+        const movidas = await tx.update(flitoSyncFlit2Lectura)
+          .set(fin ? { cursorRelectura: null, piiEnmascaradaDesde: null } : { cursorRelectura: pagina.nextCursor })
+          .where(and(
+            eq(flitoSyncFlit2Lectura.id, FILA),
+            sql`${flitoSyncFlit2Lectura.cursorRelectura} IS NOT DISTINCT FROM ${guarda}`,
+          ))
+          .returning({ id: flitoSyncFlit2Lectura.id });
+        if (movidas.length === 0) throw new Flit2LecturaConcurrenteError();
+      });
+      parcial.leidos = pagina.items.length + pagina.invalidos;
+      parcial.invalidos = pagina.invalidos;
+      for (const k of CLAVES_CONTADOR) res[k] += parcial[k];
+      res.paginas += 1;
+      if (!pagina.hasMore) { res.terminada = true; break; }
+      esperado = pagina.nextCursor;
+      pos = { cursor: pagina.nextCursor };
+      if (op.restanteMs() <= 0) break;
+    }
+    log.info({ ...res }, 'relectura FLIT 2 de trámites enmascarados');
+  } catch (e) {
+    log.warn({ codigo: codigoAnotado(e), paginas: res.paginas }, 'relectura FLIT 2 interrumpida: la siguiente corrida la retoma');
+  }
+  return res;
 }
 
 /**

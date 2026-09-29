@@ -64,9 +64,14 @@ export const flitoSyncFlit2Lectura = pgTable('flito_sync_flit2_lectura', {
   ultimoIntentoEn: timestamp('ultimo_intento_en', { withTimezone: true }),
   ultimoErrorCodigo: varchar('ultimo_error_codigo', { length: 40 }),
   atrasada: boolean('atrasada').notNull().default(false),
+  // HU #13094 (0216): desde cuándo llega enmascarada (null = nada que recuperar) y cursor de la relectura.
+  piiEnmascaradaDesde: timestamp('pii_enmascarada_desde', { withTimezone: true }),
+  cursorRelectura: text('cursor_relectura'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   unaFila: check('ck_flito_sync_flit2_lectura_una_fila', sql`${t.id} = 1`),
   cursorLen: check('ck_flito_sync_flit2_lectura_cursor_len',
     sql`${t.cursor} IS NULL OR length(${t.cursor}) BETWEEN 1 AND 2000`),
+  cursorRelecturaLen: check('ck_flito_sync_flit2_lectura_cursor_relectura_len',
+    sql`${t.cursorRelectura} IS NULL OR length(${t.cursorRelectura}) BETWEEN 1 AND 2000`),
 }));
