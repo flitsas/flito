@@ -31,6 +31,9 @@ import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty,
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../components/flit/flitPageKit';
+import FiltroSegmentado from '../components/flit/FiltroSegmentado';
+import { CeldaFuenteTramite, OPCIONES_FUENTE, VacioFuenteTramite } from '../components/flito-tramites/FuenteTramite';
+import type { FuenteTramite } from '@operaciones/shared-types';
 import {
   AvisoSoportesZip, DescargarSoportesZip, ZIP_TRAMITES, useDescargaZip,
 } from '../components/flito/DescargarSoportesZip';
@@ -46,7 +49,7 @@ interface FilaImpuesto {
   enviadoEn: string | null; pagadoEn: string | null; estancado: boolean; motivoRechazo: string | null;
 }
 interface TramiteFila {
-  tramiteId: string; idFlit: string; estado: string; asignado: boolean;
+  tramiteId: string; idFlit: string; estado: string; asignado: boolean; fuente: string;
   tipoTramite: string | null; ciudad: string | null; fechaAprobacion: string | null;
   fechaCreacion: string | null;
   /** Valor real del derecho de tránsito; null = aún sin recibo cargado. */
@@ -175,6 +178,7 @@ export default function FlitoTramites() {
   const [empresasOpc, setEmpresasOpc] = useState<{ nit: string; nombre: string }[]>([]);
   // Filtro rápido de autogestión de la empresa: '' = todas · 'si' = autogestionadas · 'no' = no autogestionadas.
   const [autogestionSel, setAutogestionSel] = useState<'' | 'si' | 'no'>('');
+  const [fuenteSel, setFuenteSel] = useState<'' | FuenteTramite>(''); // '' = Todas (HU #13071)
   // Orden cronológico. 'antiguos' es el orden de trabajo del gestor: lo que lleva más esperando va
   // primero. El default sigue siendo lo más reciente, que es como se comportaba antes.
   const [ordenSel, setOrdenSel] = useState<'recientes' | 'antiguos'>('recientes');
@@ -195,7 +199,7 @@ export default function FlitoTramites() {
   const estadosKey = estadosSel.join(','); const ciudadesKey = ciudadesSel.join(','); const transitosKey = transitosSel.join(',');
 
   // Cualquier cambio de filtro/búsqueda vuelve a la página 1 (evita quedar en una página vacía).
-  useEffect(() => { setPage(1); }, [buscar, estadosKey, ciudadesKey, transitosKey, empresasKey, soatKey, impKey, autogestionSel, ordenSel, alertaSel]);
+  useEffect(() => { setPage(1); }, [buscar, estadosKey, ciudadesKey, transitosKey, empresasKey, soatKey, impKey, autogestionSel, fuenteSel, ordenSel, alertaSel]);
 
   // Carga la página actual desde el servidor con todos los filtros aplicados en SQL.
   useEffect(() => {
@@ -209,6 +213,7 @@ export default function FlitoTramites() {
     if (soatSel.length) q.set('soat', soatSel.join(','));
     if (impSel.length) q.set('impuesto', impSel.join(','));
     if (autogestionSel) q.set('autogestion', autogestionSel);
+    if (fuenteSel) q.set('fuente', fuenteSel);
     if (ordenSel !== 'recientes') q.set('orden', ordenSel);
     if (alertaSel) q.set('alerta', alertaSel);
     if (creado.desde) q.set('creadoDesde', creado.desde);
@@ -220,7 +225,7 @@ export default function FlitoTramites() {
       .then((r) => { setData(r.items); setTotal(r.total); })
       .catch((e) => setError(errorMessage(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buscar, estadosKey, transitosKey, ciudadesKey, empresasKey, soatKey, impKey, autogestionSel, ordenSel, alertaSel,
+  }, [buscar, estadosKey, transitosKey, ciudadesKey, empresasKey, soatKey, impKey, autogestionSel, fuenteSel, ordenSel, alertaSel,
     creado.desde, creado.hasta, aprobado.desde, aprobado.hasta, page, recarga]);
 
   // Facetas (opciones de los dropdowns) + clientes FLITO (para el multiselect de empresa gestora).
@@ -270,7 +275,7 @@ export default function FlitoTramites() {
   const descargaZip = useDescargaZip(ZIP_TRAMITES);
   const limpiarFiltros = () => {
     setSoatSel([]); setImpSel([]); setEmpresasSel([]); setEstadosSel([]);
-    setTransitosSel([]); setCiudadesSel([]); setAutogestionSel(''); setAlertaSel('');
+    setTransitosSel([]); setCiudadesSel([]); setAutogestionSel(''); setFuenteSel(''); setAlertaSel('');
     setOrdenSel('recientes'); setPreset(null);
   };
 
@@ -297,7 +302,8 @@ export default function FlitoTramites() {
     setPreset(p.nombre);
   };
 
-  const hayFiltros = soatSel.length > 0 || impSel.length > 0 || empresasSel.length > 0 || estadosSel.length > 0 || ciudadesSel.length > 0 || transitosSel.length > 0 || autogestionSel !== '' || alertaSel !== '';
+  const hayFiltrosSinFuente = soatSel.length > 0 || impSel.length > 0 || empresasSel.length > 0 || estadosSel.length > 0 || ciudadesSel.length > 0 || transitosSel.length > 0 || autogestionSel !== '' || alertaSel !== '';
+  const hayFiltros = hayFiltrosSinFuente || fuenteSel !== '';
 
   const ejecutar = async (fn: () => Promise<Resultado>) => {
     setEnProceso(true); setError(null);
@@ -483,21 +489,10 @@ export default function FlitoTramites() {
               onAplicar={aplicarPreset} onQuitar={limpiarFiltros} />
             <RangoFechas etiqueta="Creado" valor={creado} onCambio={(r) => { setCreado(r); setPage(1); }} />
             <RangoFechas etiqueta="Aprobado" valor={aprobado} onCambio={(r) => { setAprobado(r); setPage(1); }} />
-            {/* Filtro rápido por autogestión de la empresa (SOAT e impuestos autogestionados). */}
-            <div className="flex items-center gap-1" role="group" aria-label="Filtrar por autogestión">
-              {([['', 'Todas'], ['si', 'Autogestionadas'], ['no', 'No autogestionadas']] as const).map(([val, label]) => {
-                const activa = autogestionSel === val;
-                return (
-                  <button key={val || 'todas'} type="button" onClick={() => setAutogestionSel(val)}
-                    className="h-9 rounded-lg border px-3 text-xs font-semibold transition-colors"
-                    style={activa
-                      ? { background: 'var(--flit-blue-text)', color: '#fff', borderColor: 'var(--flit-blue-text)' }
-                      : { background: 'transparent', color: 'var(--flit-text-secondary)', borderColor: 'var(--flit-border-input)' }}>
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
+            {/* Filtros rápidos de conjunto: autogestión de la empresa y fuente del trámite (HU #13071). */}
+            <FiltroSegmentado ariaLabel="Filtrar por autogestión" valor={autogestionSel} onCambio={setAutogestionSel}
+              opciones={[{ valor: '', etiqueta: 'Todas' }, { valor: 'si', etiqueta: 'Autogestionadas' }, { valor: 'no', etiqueta: 'No autogestionadas' }]} />
+            <FiltroSegmentado rotulo="Fuente" ariaLabel="Filtrar por fuente" valor={fuenteSel} onCambio={setFuenteSel} opciones={OPCIONES_FUENTE} />
             {/* Alerta activa (llega del tablero por URL). Se muestra siempre que esté puesta, para
                 que nadie interprete un listado recortado como si fuera la maestra completa. */}
             {alertaSel && (
@@ -531,8 +526,10 @@ export default function FlitoTramites() {
                 onClick={limpiarFiltros}>Limpiar filtros</button>
             )}
           </div>
-          {filas.length === 0 ? (
-            <FlitEmpty>Ningún trámite coincide con el filtro.</FlitEmpty>
+          {filas.length === 0 ? (fuenteSel
+            ? <VacioFuenteTramite fuente={fuenteSel} onVerTodas={() => setFuenteSel('')}
+                otrosFiltros={!!buscar.trim() || hayFiltrosSinFuente || !!(creado.desde || creado.hasta || aprobado.desde || aprobado.hasta)} />
+            : <FlitEmpty>Ningún trámite coincide con el filtro.</FlitEmpty>
           ) : (
           <FlitTable>
             <thead>
@@ -551,6 +548,7 @@ export default function FlitoTramites() {
                   Trámite
                   <ThFiltroMulti seleccion={estadosSel} onCambio={setEstadosSel} opciones={aOpc(facetas.estados)} placeholder="Todos los estados" />
                 </FlitTh>
+                <FlitTh estrecha>Fuente</FlitTh>
                 <FlitTh>Creado</FlitTh>
                 <FlitTh>Aprobado</FlitTh>
                 <FlitTh>Vehículo</FlitTh>
@@ -605,6 +603,7 @@ export default function FlitoTramites() {
                     </button>
                     {f.listoParaEntregar && <div className="mt-1"><StatusChip tone="success">Listo para entregar</StatusChip></div>}
                   </td>
+                  <CeldaFuenteTramite fuente={f.fuente} />
                   <td className="px-3 py-2 align-top">
                     <div className="text-sm tabular-nums">{fecha(f.fechaCreacion)}</div>
                     <div className="mt-1"><AntiguedadPill desde={f.fechaCreacion} /></div>
