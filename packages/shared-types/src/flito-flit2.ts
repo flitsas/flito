@@ -85,3 +85,39 @@ export interface Flit2LecturaResultado {
   /** ISO 8601. */
   ejecutadoEn: string;
 }
+
+// ── HU #13097 — estado de la conexión con FLIT 2 (`GET /api/flito/sync/flit2/estado`) ──────────────
+// Diseño: `docs/ux/hu-13098-estado-conexion-flit2.md` § «Contrato propuesto». Sin clientId, contraseña,
+// pase, cursores ni textos crudos de FLIT 2: solo fechas ISO, banderas, códigos cerrados y un conteo.
+
+export type Flit2ProblemaTipo = 'rechazado' | 'bloqueado' | 'lectura';
+export type Flit2RechazoMotivo = 'credenciales' | 'cambio_clave' | 'otro';
+
+export interface Flit2EstadoProblema {
+  tipo: Flit2ProblemaTipo;
+  /** Solo tipo 'lectura': código de la última lectura fallida (la UI lo mapea a una frase, no lo pinta). */
+  codigo: string | null;
+  /** Solo tipo 'rechazado': motivo normalizado a la lista cerrada. */
+  motivo: Flit2RechazoMotivo | null;
+  /** Hora del hecho (ISO). */
+  en: string | null;
+  /** Solo tipo 'bloqueado': hasta cuándo dura el bloqueo (ISO). */
+  hasta: string | null;
+}
+
+export interface Flit2EstadoConexion {
+  /** false si no hay acceso guardado o el servidor no tiene FLIT 2 configurado. */
+  configurado: boolean;
+  /** Solo con configurado=false. */
+  motivoSinConfigurar: 'sin_acceso' | 'ambiente' | null;
+  ultimaExitosaEn: string | null;
+  ultimoIntentoEn: string | null;
+  /** Hay trabajo pendiente o la posición de lectura no está al día. */
+  atrasada: boolean;
+  /** Calculada en el servidor: ≥ 30 min sin lectura exitosa, o acceso rechazado/bloqueado. false sin configurar. */
+  alerta: boolean;
+  /** Uno solo, con precedencia rechazado > bloqueado > lectura. */
+  problema: Flit2EstadoProblema | null;
+  /** Trámites que llegaron sin los datos del comprador (solo el número). */
+  piiEnmascarada: { tramites: number; desde: string | null };
+}
