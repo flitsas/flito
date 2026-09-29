@@ -211,3 +211,154 @@ test.describe('FLITO — Gestión Trámites · Acceso a FLIT 2 (HU #13064)', () 
     await expect(panel.getByText('Vigente', { exact: true })).toBeVisible();
   });
 });
+
+// ── HU #13069 · «Probar conexión» ──────────────────────────────────────────────────────────────
+// POST /api/flito/sync/flit2/acceso/probar → 200 `Flit2PruebaResultado` · 429 limitador · 503.
+// El `mensaje` y el `scope` de la API llevan una marca que la pantalla no debe pintar nunca.
+
+const RUTA_PROBAR = /\/api\/flito\/sync\/flit2\/acceso\/probar$/;
+const CRUDO = 'MENSAJE-CRUDO-DE-LA-API';
+const SCOPE_CRUDO = 'scope:pii-crudo';
+/** 15:57 UTC = 10:57 a. m. en Colombia. */
+const HASTA = '2026-09-29T15:57:00.000Z';
+
+function prueba(resultado: string, bloqueadoHasta: string | null = null) {
+  return { resultado, mensaje: CRUDO, bloqueadoHasta, scope: [SCOPE_CRUDO] };
+}
+
+type Caso = { nombre: string; status: number; body: unknown; tono: 'ok' | 'advertencia' | 'error'; copy: string | RegExp };
+
+const CASOS: Caso[] = [
+  { nombre: 'conectado', status: 200, body: prueba('conectado'), tono: 'ok',
+    copy: 'Conectado. FLITO puede leer los trámites de FLIT 2.' },
+  { nombre: 'conectado_sin_pii', status: 200, body: prueba('conectado_sin_pii'), tono: 'advertencia',
+    copy: /Conectado, pero sin permiso de datos personales\..*el SOAT y los impuestos de los trámites de FLIT 2 quedarán en espera/ },
+  { nombre: 'rechazado', status: 200, body: prueba('rechazado'), tono: 'error',
+    copy: 'FLIT 2 rechazó el usuario o la contraseña. Revísalos y guarda el acceso de nuevo.' },
+  { nombre: 'cambio_clave', status: 200, body: prueba('cambio_clave'), tono: 'error',
+    copy: 'FLIT 2 exige cambiar la contraseña de este usuario. Pide la nueva a quien administra FLIT 2 y guárdala aquí.' },
+  { nombre: 'bloqueado', status: 200, body: prueba('bloqueado', HASTA), tono: 'advertencia',
+    copy: /FLIT 2 bloqueó el acceso 15 minutos por intentos fallidos\. Prueba de nuevo después de las 10:57 a\.\s?m\.$/ },
+  { nombre: 'espera', status: 200, body: prueba('espera', HASTA), tono: 'advertencia',
+    copy: /FLIT 2 pidió esperar antes de otro intento\. Prueba de nuevo después de las 10:57 a\.\s?m\.$/ },
+  { nombre: 'no_responde', status: 200, body: prueba('no_responde'), tono: 'error',
+    copy: 'FLIT 2 no responde. Puede ser una caída momentánea: prueba de nuevo en unos minutos.' },
+  { nombre: 'no_configurado', status: 200, body: prueba('no_configurado'), tono: 'error',
+    copy: 'FLIT 2 no está configurado en este ambiente. Avísale a quien administra el servidor.' },
+  { nombre: 'sin_acceso', status: 200, body: prueba('sin_acceso'), tono: 'error',
+    copy: 'FLITO ya no tiene acceso guardado. Guárdalo antes de probar.' },
+  { nombre: 'HTTP 429 del limitador propio', status: 429, body: { error: CRUDO }, tono: 'advertencia',
+    copy: 'Ya probaste la conexión varias veces en el último minuto. Espera un minuto.' },
+  { nombre: 'HTTP 503 llave_maestra', status: 503, body: { error: CRUDO, codigo: 'llave_maestra' }, tono: 'error',
+    copy: 'El servidor no puede leer el acceso guardado: falta la llave de cifrado. Avísale a quien administra el ambiente.' },
+  { nombre: 'HTTP 503 acceso_descifrado (otro fallo)', status: 503, body: { error: CRUDO, codigo: 'acceso_descifrado' }, tono: 'error',
+    copy: 'No se pudo probar la conexión. Vuelve a intentarlo.' },
+  { nombre: 'resultado fuera de la lista (otro fallo)', status: 200, body: prueba('inventado'), tono: 'error',
+    copy: 'No se pudo probar la conexión. Vuelve a intentarlo.' },
+];
+
+test.describe('FLITO — Gestión Trámites · Probar conexión con FLIT 2 (HU #13069)', () => {
+  test('AC1: con «ver» y sin «guardar» no hay «Probar conexión»; con «guardar» sí', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER, { funciones: SOLO_VER });
+    await mockCola(page);
+    await page.route(RUTA, (r) => json(r, 200, CON_ACCESO));
+    let panel = await abrirPanel(page);
+    await expect(panel.getByText('flito-dev', { exact: true })).toBeVisible();
+    await expect(panel.getByRole('button', { name: 'Probar conexión' })).toHaveCount(0);
+
+    await loginAs(page, OPERACIONES_USER);
+    panel = await abrirPanel(page);
+    await expect(panel.getByRole('button', { name: 'Probar conexión' })).toBeVisible();
+  });
+
+  test('AC4: sin acceso configurado no hay botón y la sección pide guardar primero', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    await page.route(RUTA, (r) => json(r, 200, SIN_ACCESO));
+    const panel = await abrirPanel(page);
+    await expect(panel.getByRole('status').filter({ hasText: 'FLITO aún no tiene acceso a FLIT 2 en este ambiente.' })).toBeVisible();
+    await expect(panel.getByText('Escribe el usuario de servicio y la contraseña que entregó FLIT 2.')).toBeVisible();
+    await expect(panel.getByRole('button', { name: /Probar conexión|Probando/ })).toHaveCount(0);
+  });
+
+  test('AC3: mientras prueba, «Probando…» ocupado, un solo POST aunque haya doble clic y el panel no se cierra', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    await page.route(RUTA, (r) => json(r, 200, CON_ACCESO));
+    let posts = 0;
+    let soltar: () => void = () => {};
+    const liberado = new Promise<void>((res) => { soltar = res; });
+    await page.route(RUTA_PROBAR, async (r) => {
+      posts += 1;
+      await liberado;
+      return json(r, 200, prueba('conectado'));
+    });
+    const panel = await abrirPanel(page);
+    await panel.getByRole('button', { name: 'Probar conexión' }).dblclick();
+    const ocupado = panel.getByRole('button', { name: 'Probando…' });
+    await expect(ocupado).toBeDisabled();
+    await expect(ocupado).toHaveAttribute('aria-busy', 'true');
+    await ocupado.click({ force: true });
+    await page.keyboard.press('Escape');
+    await expect(panel).toBeVisible();
+    soltar();
+    await expect(panel.getByRole('status').filter({ hasText: 'Conectado. FLITO puede leer los trámites de FLIT 2.' })).toBeVisible();
+    await expect(panel.getByRole('button', { name: 'Probar conexión' })).toBeEnabled();
+    expect(posts).toBe(1);
+  });
+
+  for (const caso of CASOS) {
+    test(`AC2: ${caso.nombre} → aviso ${caso.tono} con copy propio, sin mensaje ni scope de la API`, async ({ page }) => {
+      await loginAs(page, OPERACIONES_USER);
+      await mockCola(page);
+      await page.route(RUTA, (r) => json(r, 200, CON_ACCESO));
+      await page.route(RUTA_PROBAR, (r) => json(r, caso.status, caso.body));
+      const panel = await abrirPanel(page);
+      await panel.getByRole('button', { name: 'Probar conexión' }).click();
+      const rol = caso.tono === 'error' ? 'alert' : 'status';
+      const aviso = panel.locator(`[data-tono="${caso.tono}"]`);
+      await expect(aviso).toHaveAttribute('role', rol);
+      await expect(aviso).toContainText(caso.copy);
+      await expect(panel.getByText(CRUDO)).toHaveCount(0);
+      await expect(panel.getByText(SCOPE_CRUDO)).toHaveCount(0);
+      // Aviso en la sección, nunca toast.
+      await expect(page.getByRole('button', { name: 'Cerrar aviso' })).toHaveCount(0);
+    });
+  }
+
+  test('AC2: tras probar se refresca la ficha sin esqueleto, y guardar un acceso nuevo borra el aviso', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    let meta: unknown = CON_ACCESO;
+    let gets = 0;
+    let soltarGet: () => void = () => {};
+    let retenerGet = false;
+    await page.route(RUTA, async (r) => {
+      if (r.request().method() === 'PUT') return json(r, 200, { ...CON_ACCESO, clientId: 'flito-nuevo', estado: null });
+      gets += 1;
+      if (retenerGet) await new Promise<void>((res) => { soltarGet = res; });
+      return json(r, 200, meta);
+    });
+    await page.route(RUTA_PROBAR, (r) => json(r, 200, prueba('rechazado')));
+    const panel = await abrirPanel(page);
+    await expect(panel.getByText('Vigente', { exact: true })).toBeVisible();
+    const antes = gets;
+    meta = { ...CON_ACCESO, estado: 'rechazado' };
+    retenerGet = true;
+    await panel.getByRole('button', { name: 'Probar conexión' }).click();
+    await expect.poll(() => gets).toBe(antes + 1);
+    // Con el GET en vuelo, la ficha sigue a la vista: no vuelve el esqueleto.
+    await expect(panel.getByLabel('Cargando el acceso a FLIT 2')).toHaveCount(0);
+    await expect(panel.getByText('flito-dev', { exact: true })).toBeVisible();
+    retenerGet = false;
+    soltarGet();
+    await expect(panel.getByText('Rechazado por FLIT 2', { exact: true })).toBeVisible();
+    await expect(panel.getByRole('alert')).toContainText('FLIT 2 rechazó el usuario o la contraseña.');
+
+    await panel.getByLabel('Usuario de servicio').fill('flito-nuevo');
+    await panel.getByLabel('Contraseña').fill(CLAVE);
+    await panel.getByRole('button', { name: 'Guardar acceso' }).click();
+    await expect(panel.getByText('flito-nuevo', { exact: true })).toBeVisible();
+    await expect(panel.locator('[data-tono]')).toHaveCount(0);
+  });
+});
