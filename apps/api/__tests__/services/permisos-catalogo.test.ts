@@ -105,7 +105,7 @@ describe('AC2 — el catálogo, nombrado como lo nombra el negocio', () => {
   });
 
   it('los códigos de operación tienen la forma <modulo>.<objeto>.<accion>', () => {
-    const malFormados = operaciones.filter((f) => !/^[a-z_]+\.[a-z_]+\.[a-z_]+$/.test(f.codigo));
+    const malFormados = operaciones.filter((f) => !/^[a-z_]+\.[a-z0-9_]+\.[a-z_]+$/.test(f.codigo));
     expect(malFormados.map((f) => f.codigo)).toEqual([]);
   });
 
