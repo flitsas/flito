@@ -158,6 +158,17 @@ async function codigoDeProblema(res: Response): Promise<string | null> {
   return null;
 }
 
+/**
+ * `Retry-After` en segundos enteros (el contrato v3.1 lo manda así) o como fecha HTTP; null si falta o
+ * no se entiende. Exportada para el test. Quien la usa decide el valor por defecto (HU #13092, AC4).
+ */
+export function segundosRetryAfter(cabecera: string | null, ahora: Date = new Date()): number | null {
+  if (!cabecera || !cabecera.trim()) return null;
+  const n = Number(cabecera.trim());
+  const segundos = Number.isFinite(n) ? n : Math.ceil((Date.parse(cabecera) - ahora.getTime()) / 1000);
+  return Number.isFinite(segundos) && segundos >= 0 ? Math.ceil(segundos) : null;
+}
+
 /** URL de la página: `cursor` XOR `since`. Exportada para el test. */
 export function urlDePagina(base: string, pos: PosicionLectura, pageSize: number): URL {
   const url = new URL(RUTA_SYNC, base);
@@ -198,8 +209,9 @@ export function crearFlit2SyncHttp(): Flit2SyncPort {
 
       if (res.status !== 200) {
         const codigo = await codigoDeProblema(res);
-        log.warn({ status: res.status, codigo }, 'FLIT 2 rechazó la lectura de trámites');
-        throw new Flit2RespuestaError(res.status, codigo);
+        const reintentarEnS = res.status === 429 ? segundosRetryAfter(res.headers.get('retry-after')) : null;
+        log.warn({ status: res.status, codigo, reintentarEnS }, 'FLIT 2 rechazó la lectura de trámites');
+        throw new Flit2RespuestaError(res.status, codigo, reintentarEnS);
       }
 
       let cuerpo: unknown;
