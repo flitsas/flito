@@ -262,6 +262,7 @@ function puerto(pasos: Paso[], acceso: () => Promise<void | { conPii: boolean }>
   const llamadas: { cursor?: string; since?: string; pageSize: number; filaAlLlamar: Fila | null }[] = [];
   const port: Port = {
     verificarAcceso: acceso,
+    async obtenerUrlAdjunto() { return null; }, // HU #13095: la lectura no lo usa
     async leerPagina(pos: Pos, pageSize: number) {
       const fila = filas(S.flitoSyncFlit2Lectura)[0];
       llamadas.push({
@@ -1362,5 +1363,70 @@ describe('HU #13094 · PII enmascarada', () => {
       expect(todo).not.toContain(x);
     }
     expect(JSON.stringify(tramite(U1)!.flitRaw)).not.toContain('****');
+  });
+});
+
+describe('HU #13095 · factura de FLIT 2 (RN-21)', () => {
+  const ADJ_1 = '0192b7c4-9a1b-7c2d-8e3f-4a5b6c7d8e9f';
+  const ADJ_2 = '0192b7c4-9a1b-7c2d-8e3f-000000000002';
+  const leer = async (items: Fila[], cursor = 'c1') => leerIncremental({ ahora: reloj() }, puerto([pagina(items, cursor)]).port);
+
+  it('AC1: alta con factura.adjuntoId → factura_venta_flit_id guardado', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leer([crudo({ factura: { adjuntoId: ADJ_1 } })]);
+    expect(tramite(U1)!.facturaVentaFlitId).toBe(ADJ_1);
+  });
+
+  it('AC1: un reemplazo trae otro adjuntoId → se guarda el nuevo (no es identidad estable) y queda en el historial', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    const previo = sembrarFlit2({ facturaVentaFlitId: ADJ_1 });
+    await leer([crudo({ syncVersion: 11, factura: { adjuntoId: ADJ_2 } })]);
+    expect(tramite(U1)!.facturaVentaFlitId).toBe(ADJ_2);
+    expect(historial().filter((h) => h.campo === 'factura_venta_flit_id')).toEqual([
+      expect.objectContaining({ tramiteId: previo.id, valorAnterior: ADJ_1, valorNuevo: ADJ_2, origen: 'api' }),
+    ]);
+  });
+
+  it('D2: actualización con factura: null → la referencia se BORRA y el cambio queda en el historial', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    const previo = sembrarFlit2({ facturaVentaFlitId: ADJ_1 });
+    const r = await leer([crudo({ syncVersion: 11, factura: null })]);
+    expect(tramite(U1)!.facturaVentaFlitId).toBeNull();
+    expect(historial().filter((h) => h.campo === 'factura_venta_flit_id')).toEqual([
+      expect.objectContaining({ tramiteId: previo.id, valorAnterior: ADJ_1, valorNuevo: null }),
+    ]);
+    expect(r.actualizados).toBe(1);
+  });
+
+  it('un tombstone con factura: null NO borra la referencia (RN-05)', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    sembrarFlit2({ facturaVentaFlitId: ADJ_1 });
+    await leer([tombstone(U1, 12, 'FT1-0001234')]);
+    expect(tramite(U1)!.facturaVentaFlitId).toBe(ADJ_1);
+  });
+
+  it('adjuntoId de 121 caracteres → null + warn sin el valor', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    const largo = 'a'.repeat(121);
+    await leer([crudo({ factura: { adjuntoId: largo } })]);
+    expect(tramite(U1)!.facturaVentaFlitId).toBeNull();
+    expect(logMock.warn).toHaveBeenCalledWith(expect.objectContaining({ idFlit2: U1, campo: 'facturaAdjuntoId', longitud: 121 }), expect.any(String));
+    expect(JSON.stringify(logMock.warn.mock.calls)).not.toContain(largo);
+  });
+
+  it('AC4: asignado SIN factura → arranca el impuesto en pendiente y queda sin factura (como FLIT 1)', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leer([crudo({ estado: 'asignado', factura: null })]);
+    const t = tramite(U1)!;
+    expect(t.facturaVentaFlitId).toBeNull();
+    expect(filas(S.flitoImpuestos)).toEqual([expect.objectContaining({ tramiteId: t.id, estado: 'pendiente' })]);
+  });
+
+  it('AC4: asignado CON factura → mismo arranque; la factura no condiciona el impuesto', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leer([crudo({ estado: 'asignado', factura: { adjuntoId: ADJ_1 } })]);
+    const t = tramite(U1)!;
+    expect(t.facturaVentaFlitId).toBe(ADJ_1);
+    expect(filas(S.flitoImpuestos)).toEqual([expect.objectContaining({ tramiteId: t.id, estado: 'pendiente' })]);
   });
 });
