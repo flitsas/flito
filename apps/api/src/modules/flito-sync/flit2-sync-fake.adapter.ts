@@ -6,7 +6,7 @@
 // posición pedida es su `desde` (`null` = la primera, pedida con `since`). Registra las llamadas.
 
 import { aItemFlit2 } from './flit2-sync-http.adapter.js';
-import type { Flit2SyncPort, ItemFlit2, PaginaFlit2, PosicionLectura } from './flit2-sync.port.js';
+import type { Flit2SyncPort, ItemFlit2, PaginaFlit2, PosicionLectura, UrlAdjuntoFlit2 } from './flit2-sync.port.js';
 
 export interface PaginaFake {
   /** Cursor con el que se pide esta página; `null` = primera página (con `since`). */
@@ -61,6 +61,12 @@ export interface Flit2SyncFake extends Flit2SyncPort {
   llamadas: { cursor?: string; since?: string; pageSize: number }[];
   /** HU #13094: scope de datos personales del pase simulado (por defecto, concedido). Se puede cambiar. */
   conPii: boolean;
+  /**
+   * HU #13095: URLs de adjuntos por `${idFlit2}/${adjuntoId}`. Clave ausente = 404 (null). Vacío por
+   * defecto: en demo toda factura de FLIT 2 queda «no disponible» sin salir a la red.
+   */
+  adjuntos: Map<string, UrlAdjuntoFlit2>;
+  llamadasAdjunto: { idFlit2: string; adjuntoId: string }[];
 }
 
 export function crearFlit2SyncFake(paginas: PaginaFake[] = paginasPorDefecto()): Flit2SyncFake {
@@ -68,6 +74,12 @@ export function crearFlit2SyncFake(paginas: PaginaFake[] = paginasPorDefecto()):
   const fake: Flit2SyncFake = {
     llamadas,
     conPii: true,
+    adjuntos: new Map(),
+    llamadasAdjunto: [],
+    async obtenerUrlAdjunto(idFlit2: string, adjuntoId: string): Promise<UrlAdjuntoFlit2 | null> {
+      fake.llamadasAdjunto.push({ idFlit2, adjuntoId });
+      return fake.adjuntos.get(`${idFlit2}/${adjuntoId}`) ?? null;
+    },
     async verificarAcceso() { return { conPii: fake.conPii }; },
     async leerPagina(pos: PosicionLectura, pageSize: number): Promise<PaginaFlit2> {
       const desde = 'cursor' in pos ? pos.cursor : null;
