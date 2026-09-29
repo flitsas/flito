@@ -27,7 +27,7 @@ import ChipSinGestion from '../components/flit/ChipSinGestion';
 import RangoFechas from '../components/flit/RangoFechas';
 import VisorSoportes from '../components/flit/VisorSoportes';
 import ModalFacturaVenta, { esNombrePlacaOrganismo, nombreFacturaVenta } from '../components/flit/ModalFacturaVenta';
-import SincronizacionTramites from '../components/flito/tramites/SincronizacionTramites';
+import AccesoFlit2 from '../components/flito/tramites/AccesoFlit2';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty,
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -103,6 +103,9 @@ const TONO_IMP: Record<EstadoImpuesto, ChipTone> = { pendiente: 'warning', solic
 const pesos = (v: number | null) => v === null ? null
   : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
 const fecha = (iso: string | null) => iso ? new Date(iso).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: '2-digit' }) : '—';
+const fechaHora = (iso: string | null) => iso
+  ? new Date(iso).toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  : null;
 
 function useDebounce<T>(valor: T, ms: number): T {
   const [dif, setDif] = useState(valor);
@@ -144,7 +147,17 @@ export default function FlitoTramites() {
   const [creado, setCreado] = useState({ desde: '', hasta: '' });
   const [aprobado, setAprobado] = useState({ desde: '', hasta: '' });
 
-  // Sincronización (HU #13238): vive en `SincronizacionTramites`, fuera de la cabecera.
+  // Sincronización: por defecto es INCREMENTAL (el backend arranca desde la última fecha sincronizada).
+  // La fecha inicial solo se elige a mano si no hay sync previo (primera vez) o si se activa el switch.
+  const hace30 = () => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); };
+  const [fechaInicial, setFechaInicial] = useState(hace30);
+  const [ultimaSync, setUltimaSync] = useState<string | null>(null);
+  const [fechaManual, setFechaManual] = useState(false); // switch para revelar/usar el campo de fecha
+  const [sincronizando, setSincronizando] = useState(false);
+  const [resumenSync, setResumenSync] = useState<string | null>(null);
+  // Sin sync previo (primera vez) → hay que elegir fecha. Con sync previo → oculto salvo switch.
+  const primeraVez = ultimaSync === null;
+  const mostrarCampoFecha = primeraVez || fechaManual;
 
   // Historial del trámite (modal).
   const [historial, setHistorial] = useState<{ idFlit: string; items: HistorialItem[] } | null>(null);
@@ -227,6 +240,8 @@ export default function FlitoTramites() {
   useEffect(() => {
     if (!esOperaciones) return;
     api.get<Proveedor[]>('/flito/parametrizacion/proveedores-soat').then(setProveedores).catch(() => setProveedores([]));
+    api.get<{ ultimaSincronizacion: string | null }>('/flito/sync/estado')
+      .then((e) => setUltimaSync(e.ultimaSincronizacion)).catch(() => setUltimaSync(null));
   }, [esOperaciones, recarga]);
 
   const filas = data ?? [];
@@ -337,18 +352,67 @@ export default function FlitoTramites() {
     } catch (e) { setError(errorMessage(e)); }
   };
 
+  const sincronizar = async () => {
+    setSincronizando(true); setError(null); setResumenSync(null);
+    try {
+      // Manual (o primera vez) → manda la fecha elegida; si no, sync incremental (el backend usa la última).
+      const cuerpo = mostrarCampoFecha ? { initialDate: fechaInicial } : {};
+      const r = await api.post<Record<string, number> & { ultimaSincronizacion?: string }>('/flito/sync/sincronizar', cuerpo);
+      setResumenSync(
+        `${r.tramitesLeidos ?? 0} traídos de FLIT · ${r.tramitesNuevos ?? 0} nuevos · `
+        + `${r.tramitesActualizados ?? 0} con cambios · ${r.tramitesSinCambios ?? 0} sin cambios · `
+        + `${r.companiasFaltantes ?? 0} sin empresa · ${r.organismosSinEmparejar ?? 0} sin secretaría`,
+      );
+      if (r.ultimaSincronizacion) setUltimaSync(r.ultimaSincronizacion);
+      setFechaManual(false); // tras sincronizar, vuelve a modo incremental
+      refrescar();
+    } catch (e) { setError(errorMessage(e)); }
+    finally { setSincronizando(false); }
+  };
+
   const hayTramitesSistema = facetas.estados.length > 0 || total > 0;
 
   return (
     <div className="space-y-4">
       <PageHeaderCard title="Gestión Trámites"
         subtitle="Centro de gestión de los trámites de FLIT: sincroniza y consulta su estado, y solicita SOAT e impuestos. Solo los trámites Asignados —con empresa y secretaría emparejadas— habilitan esas gestiones."
-        actions={esOperaciones ? (
-          <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} title="Crea un trámite aprobado de prueba para Logística"
-            onClick={() => setCrearDemo(true)}>+ Trámite demo</button>
-        ) : undefined} />
+        actions={
+          <div className="flex flex-wrap items-center gap-3">
+            {esOperaciones && (
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="text-right text-[11px] leading-tight" style={{ color: 'var(--flit-text-muted)' }}>
+                  <div>Última actualización</div>
+                  <div className="font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>{fechaHora(ultimaSync) ?? 'Nunca sincronizado'}</div>
+                </div>
+                {/* Campo de fecha: oculto por defecto; visible la primera vez o al activar "Elegir fecha". */}
+                {!primeraVez && (
+                  <label className="flex items-center gap-1.5 text-[11px] cursor-pointer" style={{ color: 'var(--flit-text-muted)' }}>
+                    <input type="checkbox" checked={fechaManual} onChange={(e) => setFechaManual(e.target.checked)} />
+                    Elegir fecha
+                  </label>
+                )}
+                {mostrarCampoFecha && (
+                  <label className="flex items-center gap-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+                    Desde
+                    <input type="date" className={`${flitInp} h-10`} value={fechaInicial} max={new Date().toISOString().slice(0, 10)}
+                      onChange={(e) => setFechaInicial(e.target.value)} />
+                  </label>
+                )}
+                <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+                  disabled={sincronizando || (mostrarCampoFecha && !fechaInicial)}
+                  title={mostrarCampoFecha ? 'Sincroniza desde la fecha elegida' : 'Sincroniza desde la última actualización'}
+                  onClick={sincronizar}>
+                  {sincronizando ? 'Sincronizando…' : 'Sincronizar FLIT'}
+                </button>
+                <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} title="Crea un trámite aprobado de prueba para Logística"
+                  onClick={() => setCrearDemo(true)}>+ Trámite demo</button>
+              </div>
+            )}
+            <AccesoFlit2 />
+          </div>
+        } />
 
-      <SincronizacionTramites esOperaciones={esOperaciones} onSincronizado={refrescar} />
+      {resumenSync && <FlitCard><p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}><strong style={{ color: 'var(--flit-blue-text)' }}>Sincronización:</strong> {resumenSync}</p></FlitCard>}
 
       {error && <FlitCard><p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p></FlitCard>}
 

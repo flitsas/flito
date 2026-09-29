@@ -14,10 +14,6 @@
 //   · los errores del API no se pintan tal cual: el copy es propio y se ramifica por estado/código.
 //
 // El GET se hace al ABRIR el panel, no al cargar la cola: la página no paga una petición que no usa.
-//
-// Al guardar (HU #13189, `docs/ux/hu-13189-flit2-en-vivo.md` §AC10): el toast dice qué pasa con la
-// lectura automática según `automaticaActiva` (null = no se sabe: la frase neutra, sin promesas) y
-// `onGuardado` pide un GET silencioso del estado para que la cabecera vea arrancar la lectura.
 
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { toastOk } from '../../flit/ToastFlito';
@@ -29,7 +25,6 @@ import StatusChip, { type ChipTone } from '../../flit/StatusChip';
 import {
   FlitField, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle, flitInp,
 } from '../../flit/flitPageKit';
-import { AvisoPruebaFlit2, BotonProbarConexion, usePruebaConexion } from './ProbarConexionFlit2';
 
 const RUTA_ACCESO = '/flito/sync/flit2/acceso';
 const FUNCION_VER = 'tramites.flit2.ver_acceso';
@@ -94,20 +89,15 @@ function mensajeDeGuardado(e: unknown): { texto: string; conflicto: boolean } {
   return { texto: 'No se pudo guardar el acceso a FLIT 2. Vuelve a intentarlo.', conflicto: false };
 }
 
-/**
- * La meta con sus estados de carga. Al fallar se BORRA: no queda un «Vigente» sin confirmar.
- * `refrescar` vuelve a pedirla SIN esqueleto (tras «Probar conexión», HU #13069).
- */
+/** La meta con sus estados de carga. Al fallar se BORRA: no queda un «Vigente» sin confirmar. */
 function useMetaAcceso() {
   const [meta, setMeta] = useState<Flit2AccesoMeta | null>(null);
   const [estado, setEstado] = useState<'cargando' | 'error' | 'ok'>('cargando');
   const [intento, setIntento] = useState(0);
-  const silencioso = useRef(false);
 
   useEffect(() => {
     let vigente = true;
-    if (!silencioso.current) setEstado('cargando');
-    silencioso.current = false;
+    setEstado('cargando');
     api.get<Flit2AccesoMeta>(RUTA_ACCESO)
       .then((respuesta) => {
         if (!vigente) return;
@@ -124,8 +114,7 @@ function useMetaAcceso() {
   }, [intento]);
 
   const recargar = useCallback(() => setIntento((i) => i + 1), []);
-  const refrescar = useCallback(() => { silencioso.current = true; setIntento((i) => i + 1); }, []);
-  return { meta, estado, setMeta, recargar, refrescar };
+  return { meta, estado, setMeta, recargar };
 }
 
 function Dato({ etiqueta, children }: { etiqueta: string; children: ReactNode }) {
@@ -166,30 +155,10 @@ function Aviso({ rol, children }: { rol: 'alert' | 'status'; children: ReactNode
   );
 }
 
-/** Toast al guardar según la lectura automática (spec §AC10). ~6 s: son dos frases. */
-function toastGuardado(automaticaActiva: boolean | null) {
-  const texto = automaticaActiva === true
-    ? 'Acceso guardado. La primera lectura empieza en unos segundos; el resultado se ve en el panel de Gestión Trámites.'
-    : automaticaActiva === false
-      ? 'Acceso guardado. La lectura automática está apagada en este ambiente, así que FLITO no leerá FLIT 2 hasta que quien administra el ambiente la encienda.'
-      : 'Acceso a FLIT 2 guardado.';
-  toastOk(texto, { id: 'flit2-acceso-guardado', duracionMs: automaticaActiva === null ? 4_000 : 6_000 });
-}
-
-interface PropsAcceso {
-  /** `automatica.activa` del estado de FLIT 2; null sin `sync.sync.ver_estado` o sin estado cargado. */
-  automaticaActiva?: boolean | null;
-  /** Tras guardar un acceso válido: GET silencioso del estado. */
-  onGuardado?: () => void;
-  /** HU #13238: clases extra del botón (ancho completo en móvil dentro de la sección Sincronización). */
-  claseBoton?: string;
-}
-
-function PanelAccesoFlit2({ onCerrar, automaticaActiva = null, onGuardado }: PropsAcceso & { onCerrar: () => void }) {
+function PanelAccesoFlit2({ onCerrar }: { onCerrar: () => void }) {
   const { hasFuncion } = useAuth();
   const puedeGuardar = hasFuncion(FUNCION_GUARDAR);
-  const { meta, estado, setMeta, recargar, refrescar } = useMetaAcceso();
-  const prueba = usePruebaConexion(refrescar);
+  const { meta, estado, setMeta, recargar } = useMetaAcceso();
 
   const [usuario, setUsuario] = useState('');
   /** La contraseña vive en el NODO, nunca en estado de React (ver cabecera). */
@@ -222,9 +191,7 @@ function PanelAccesoFlit2({ onCerrar, automaticaActiva = null, onGuardado }: Pro
       if (campo) campo.value = '';
       setUsuario('');
       setMeta(actualizada);
-      prueba.limpiar(); // el aviso era del acceso anterior
-      toastGuardado(automaticaActiva);
-      onGuardado?.();
+      toastOk('Acceso a FLIT 2 guardado.', { id: 'flit2-acceso-guardado' });
     } catch (err) {
       // Se conserva lo escrito (el input no controlado lo conserva solo); el copy es propio.
       setErrorGuardar(mensajeDeGuardado(err));
@@ -236,7 +203,7 @@ function PanelAccesoFlit2({ onCerrar, automaticaActiva = null, onGuardado }: Pro
   const chip = meta ? chipDe(meta) : null;
 
   return (
-    <FlitModal title="Acceso a FLIT 2" onClose={onCerrar} lateral cierreBloqueado={guardando || prueba.probando}>
+    <FlitModal title="Acceso a FLIT 2" onClose={onCerrar} lateral cierreBloqueado={guardando}>
       <div className="h-full space-y-4 overflow-y-auto pb-2">
         <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
           Con qué usuario entra FLITO a FLIT 2 para leer sus trámites. La contraseña se cifra al guardar
@@ -279,13 +246,8 @@ function PanelAccesoFlit2({ onCerrar, automaticaActiva = null, onGuardado }: Pro
               </Aviso>
             )}
 
-            {/* HU #13069: «Probar conexión» (secundario, solo con «guardar» y `configurado: true`; sin
-                acceso no se pinta ni deshabilitado) y su aviso, junto a la ficha que comprueban. El
-                aviso sobrevive a un `sin_acceso`, que deja la ficha sin botón. */}
-            {puedeGuardar && meta.configurado && (
-              <BotonProbarConexion probando={prueba.probando} onProbar={() => { void prueba.probar(); }} />
-            )}
-            {prueba.aviso && <AvisoPruebaFlit2 aviso={prueba.aviso} />}
+            {/* Punto de extensión de la HU #13069: «Probar conexión» (secundario, solo con «guardar» y
+                `configurado: true`) y su aviso de resultado van aquí, junto a la ficha que comprueban. */}
 
             {puedeGuardar && (
               <form onSubmit={guardar} noValidate className="space-y-3 pt-4"
@@ -359,16 +321,16 @@ function PanelAccesoFlit2({ onCerrar, automaticaActiva = null, onGuardado }: Pro
  * Botón de la cabecera de Gestión Trámites (AC1): solo existe con «Ver el acceso a FLIT 2». El panel
  * se monta al pulsarlo, y con él la consulta del estado.
  */
-export default function AccesoFlit2({ automaticaActiva = null, onGuardado, claseBoton = '' }: PropsAcceso) {
+export default function AccesoFlit2() {
   const { hasFuncion } = useAuth();
   const [abierto, setAbierto] = useState(false);
   if (!hasFuncion(FUNCION_VER)) return null;
   return (
     <>
-      <button type="button" className={`${flitBtnSecondary} ${claseBoton}`} style={flitBtnSecondaryStyle} onClick={() => setAbierto(true)}>
+      <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAbierto(true)}>
         Acceso a FLIT 2
       </button>
-      {abierto && <PanelAccesoFlit2 onCerrar={() => setAbierto(false)} automaticaActiva={automaticaActiva} onGuardado={onGuardado} />}
+      {abierto && <PanelAccesoFlit2 onCerrar={() => setAbierto(false)} />}
     </>
   );
 }
