@@ -52,12 +52,15 @@ const AUTH_EN_RUTA_IDENTIDAD = [
   'GET /documentos/:tramiteId', 'POST /certificado/:tramiteId', 'POST /recortar-cedula',
 ];
 
-/** AC3 — las 13 comparaciones de ámbito que se quedan, y por qué (15 hasta la HU #12815). */
+/** AC3 — las 11 comparaciones de ámbito que se quedan, y por qué (15 hasta la HU #12815; 13 hasta el Bug #12869). */
 const AMBITO: { fichero: string; patron: RegExp; veces: number; porque: string }[] = [
   // HU #12815: la frontera por compañía del EXTERNO ya no es una comparación de rol — la decide
   // `tipo_principal` vía `resolverPermisos` (`SoatCtx.externo`), así que el patrón sigue buscando
-  // `'cliente'` para que su reaparición ponga esto rojo. Quedan las 2 del gestor.
-  { fichero: 'flito-soat/flito-soat.service.ts', patron: /role === '(proveedor|cliente)'/g, veces: 2, porque: 'contextoSoat y esGestor: el proveedor ve lo suyo; la compañía del externo sale de tipo_principal, no del rol' },
+  // `'cliente'` para que su reaparición ponga esto rojo. Quedaban las 2 del gestor.
+  // Bug #12869: tampoco las del gestor. El alcance de filas de SOAT lo decide el ENLACE del rol
+  // (`permisos_roles.tipo_enlace` → `SoatCtx.alcance`), no su código: cero comparaciones, y el
+  // patrón se conserva para que la reaparición de `role === 'proveedor'|'cliente'` ponga esto rojo.
+  { fichero: 'flito-soat/flito-soat.service.ts', patron: /role === '(proveedor|cliente)'/g, veces: 0, porque: 'Bug #12869: el alcance lo decide el enlace del rol (tipo_enlace), no el literal' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', patron: /role === 'gestor_impuestos'/g, veces: 1, porque: 'contextoImpuesto: organismos del gestor' },
   { fichero: 'flito-impuestos/flito-impuestos.service.ts', patron: /role === 'gestor_impuestos'/g, veces: 1, porque: 'contextoImpuesto: frontera por organismo' },
   { fichero: 'flito-impuestos/flito-recibos.service.ts', patron: /role === 'gestor_impuestos'/g, veces: 1, porque: 'recibos: frontera por organismo' },
@@ -92,9 +95,9 @@ describe('AC1/AC2 — en los 21 directorios ya no decide ningún requireRole', (
     });
   }
 
-  it('los directorios son 22 (19 del enunciado + permisos + finanzas-servicios-adicionales + flito-comprobantes) y los 26 ficheros de rutas del alcance viven en ellos (flito-logistica aporta dos: el legado y el de viajes, HU #12619)', () => {
+  it('los directorios son 22 (19 del enunciado + permisos + finanzas-servicios-adicionales + flito-comprobantes) y los 29 ficheros de rutas del alcance viven en ellos (flito-logistica aporta dos: el legado y el de viajes, HU #12619; flito-impuestos otros dos: el de la cola y el de la dirección, HU #12833; flito-soat tres: módulo, canal Cliente e incompletas, HU #12997; flito-sync dos: el de sync y el del acceso a FLIT 2, HU #13061)', () => {
     expect(DIRECTORIOS_RECONDUCIDOS).toHaveLength(22);
-    expect(FICHEROS_DE_RUTAS).toHaveLength(26);
+    expect(FICHEROS_DE_RUTAS).toHaveLength(29);
     for (const f of FICHEROS_DE_RUTAS) {
       expect((DIRECTORIOS_RECONDUCIDOS as readonly string[]).includes(f.split('/')[0]!), f).toBe(true);
     }
@@ -129,7 +132,8 @@ describe('AC1/AC2 — cada router.<método>( de los 24 ficheros lleva exigirFunc
       const rutas = [...fuente.matchAll(RUTA)];
       expect(rutas.length, 'el fichero declara rutas').toBeGreaterThan(0);
       const sinGuarda = rutas
-        .filter((m) => !/exigirFuncion\('[a-z_.]+'\)/.test(m[3]))
+        // Dígitos admitidos desde la HU #13061 (`tramites.flit2.*`), como en `CODIGO` de inventario-guardas.ts.
+        .filter((m) => !/exigirFuncion\('[a-z0-9_.]+'\)/.test(m[3]))
         .map((m) => `${fichero} ${m[1].toUpperCase()} ${m[2]}`)
         .filter((llave) => !LISTA_BLANCA.has(llave));
       expect(sinGuarda, 'rutas sin exigirFuncion que no están en la lista blanca').toEqual([]);
@@ -148,20 +152,22 @@ describe('AC1/AC2 — cada router.<método>( de los 24 ficheros lleva exigirFunc
     }
   });
 
-  it('las dos guardas en línea están montadas con tieneFuncion(req, …) en su fichero', () => {
+  it('las cuatro guardas en línea están montadas con tieneFuncion(req, …) en su fichero (dos del Bug #12642: el export ampliado)', () => {
     expect(sinComentarios(leer('tramites/tramites.routes.ts'))).toMatch(/tieneFuncion\(req, 'tramite\.tramite\.forzar_continuar'\)/);
     expect(sinComentarios(leer('users/users.routes.ts'))).toMatch(/tieneFuncion\(req, 'usuarios\.contrasena\.cambiar_ajena'\)/);
+    expect(sinComentarios(leer('flito-soat/flito-soat.routes.ts'))).toMatch(/tieneFuncion\(req, 'soat\.excel\.exportar_pago'\)/);
+    expect(sinComentarios(leer('flito-impuestos/flito-impuestos.routes.ts'))).toMatch(/tieneFuncion\(req, 'impuestos\.excel\.exportar_pago'\)/);
   });
 });
 
 describe('el lector de montajes cubre la foto entera', () => {
-  it('260 montajes = 238 previos + 2 de la #12089 (baja/reactivar) + 4 de la #12541 (servicios adicionales) + 3 por la HU #12545 (servicios por trámite) + 1 por la HU #12591 (recibo de caja) + 5 por la HU #12611 (comprobantes) + 3 por la HU #12619 (viajes de logística) + 3 por la HU #12629 (comprobantes F2) + 1 por la HU #12654 (comprobantes F3: aceptar diferencia); los códigos son exactamente los de la foto', () => {
+  it('268 montajes = 238 previos + 2 de la #12089 (baja/reactivar) + 4 de la #12541 (servicios adicionales) + 3 por la HU #12545 (servicios por trámite) + 1 por la HU #12591 (recibo de caja) + 5 por la HU #12611 (comprobantes) + 3 por la HU #12619 (viajes de logística) + 3 por la HU #12629 (comprobantes F2) + 1 por la HU #12654 (comprobantes F3: aceptar diferencia) + 2 por el Bug #12642 (export ampliado, en línea) + 1 por la HU #12833 (corregir dirección) + 2 por la HU #12997 (incompletas SOAT: buscar y ver) + 1 por la HU #12998 (reintentar la consulta RUNT) + 2 por la HU #13061 (acceso a FLIT 2: ver y guardar); los códigos son exactamente los de la foto', () => {
     const montajes = montajesDeFunciones();
-    expect(GUARDAS_MEDIDAS).toHaveLength(260);
-    expect(montajes).toHaveLength(260);
+    expect(GUARDAS_MEDIDAS).toHaveLength(268);
+    expect(montajes).toHaveLength(268);
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
-    expect(montajes.filter((m) => m.metodo === null)).toHaveLength(2);
+    expect(montajes.filter((m) => m.metodo === null)).toHaveLength(4);
   });
 
   it('un exigirFuncion sin literal hace que el lector LANCE en vez de adivinar', () => {
@@ -175,7 +181,7 @@ describe('el lector de montajes cubre la foto entera', () => {
   });
 });
 
-describe('AC3 — el ámbito no se toca: las 13 comparaciones de rol que deciden QUÉ filas se ven siguen ahí', () => {
+describe('AC3 — el ámbito no se toca: las 11 comparaciones de rol que deciden QUÉ filas se ven siguen ahí', () => {
   for (const { fichero, patron, veces, porque } of AMBITO) {
     it(`${fichero}: ${veces} (${porque})`, () => {
       const fuente = sinComentarios(leer(fichero));
@@ -183,8 +189,8 @@ describe('AC3 — el ámbito no se toca: las 13 comparaciones de rol que deciden
     });
   }
 
-  it('son 13 en total, y fuera de ellas solo quedan 3 de validación en users (HU #12088)', () => {
-    expect(AMBITO.reduce((n, a) => n + a.veces, 0)).toBe(13);
+  it('son 11 en total, y fuera de ellas solo quedan 3 de validación en users (HU #12088)', () => {
+    expect(AMBITO.reduce((n, a) => n + a.veces, 0)).toBe(11);
     const enUsers = sinComentarios(leer('users/users.routes.ts')).match(/\brole (===|!==) '[a-z_]+'/g) ?? [];
     // Antes #12088 había ~27 (superRefine + filtros de ámbito por rol). El ámbito del gestor
     // pasó a la puente `flito_gestor_organismos`; quedan 3 comparaciones de validación
