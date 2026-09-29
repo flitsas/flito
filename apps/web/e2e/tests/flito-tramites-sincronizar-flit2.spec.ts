@@ -79,7 +79,8 @@ test.describe('FLITO — Gestión Trámites · Sincronizar FLIT 2 (HU #13096)', 
     await expect.poll(() => listados).toBeGreaterThan(0);
     const antes = listados;
 
-    await boton(page).dblclick();
+    // Dos clics en el mismo tick: ejerce la guardia por ref (el dblclick de Playwright deja repintar `disabled`).
+    await boton(page).evaluate((b: HTMLButtonElement) => { b.click(); b.click(); });
     await expect(boton(page)).toHaveText('Sincronizando FLIT 2…');
     await expect(boton(page)).toBeDisabled();
     await expect(boton(page)).toHaveAttribute('aria-busy', 'true');
