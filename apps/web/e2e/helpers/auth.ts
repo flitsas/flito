@@ -209,6 +209,8 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     ...SOAT_LEER, 'soat.comprobante.cargar', 'soat.solicitud.enviar',
     // HU #12998: «Reintentar consulta» de una incompleta (0211: sembrada solo a `admin`).
     'soat.solicitud.reintentar_runt',
+    // HU #13064: «Acceso a FLIT 2» en Gestión Trámites (0214: sembradas solo a `admin`).
+    'tramites.flit2.ver_acceso', 'tramites.flit2.guardar_acceso',
     // HU #12815: el ZIP de comprobantes de la cola SOAT cuelga de su propia función (0179: admin y
     // proveedor). Sin ella no hay botón «Descargar soportes».
     'soat.soportes.descargar',
