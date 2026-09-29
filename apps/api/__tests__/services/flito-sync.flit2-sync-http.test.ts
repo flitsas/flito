@@ -191,6 +191,30 @@ describe('HU #13091 · adaptador fake', () => {
     expect(p1.items.length + p2.items.length).toBe(5);
     expect(fake.llamadas).toEqual([{ since: '2026-09-29T15:00:00.000Z', pageSize: 500 }, { cursor: 'fake-c1', pageSize: 500 }]);
     const p3 = await fake.leerPagina({ cursor: p2.nextCursor }, 500);
-    expect(p3).toEqual({ items: [], invalidos: 0, nextCursor: 'fake-c2', hasMore: false });
+    expect(p3).toEqual({ items: [], invalidos: 0, nextCursor: 'fake-c2', hasMore: false, conPii: true });
+  });
+
+  it('HU #13094: el scope simulado se puede quitar y viaja en el acceso y en cada página', async () => {
+    const fake = crearFlit2SyncFake();
+    fake.conPii = false;
+    expect(await fake.verificarAcceso()).toEqual({ conPii: false });
+    expect((await fake.leerPagina({ since: new Date('2026-09-29T15:00:00Z') }, 500)).conPii).toBe(false);
+  });
+});
+
+describe('HU #13094 · el scope de datos personales viaja con el acceso y con la página', () => {
+  it('verificarAcceso devuelve el conPii del pase', async () => {
+    pase.conPii = false;
+    try {
+      expect(await crearFlit2SyncHttp().verificarAcceso()).toEqual({ conPii: false });
+    } finally { pase.conPii = true; }
+    expect(await crearFlit2SyncHttp().verificarAcceso()).toEqual({ conPii: true });
+  });
+
+  it('la página lleva el conPii del pase con que salió (no el de otro momento)', async () => {
+    fetchMock.mockImplementation(async () => respuesta(200, { items: [item()], nextCursor: 'c1', hasMore: false }));
+    conPaseMock.mockImplementationOnce(async (fn: (p: unknown) => Promise<Response>) => fn({ ...pase, conPii: false }));
+    expect((await crearFlit2SyncHttp().leerPagina({ cursor: 'c0' }, 500)).conPii).toBe(false);
+    expect((await crearFlit2SyncHttp().leerPagina({ cursor: 'c0' }, 500)).conPii).toBe(true);
   });
 });

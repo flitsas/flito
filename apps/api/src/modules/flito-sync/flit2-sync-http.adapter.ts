@@ -187,18 +187,21 @@ export function crearFlit2SyncHttp(): Flit2SyncPort {
   return {
     async verificarAcceso() {
       base();
-      await obtenerPase();
+      const pase = await obtenerPase();
+      return { conPii: pase.conPii };
     },
 
     async leerPagina(pos, pageSize): Promise<PaginaFlit2> {
       const url = urlDePagina(base(), pos, pageSize);
       let res: Response;
+      // HU #13094: el scope del pase con que salió ESTA página (un pase renovado a mitad puede traer otro).
+      let conPii: boolean | undefined;
       try {
-        res = await conPase((pase) => fetch(url, {
+        res = await conPase((pase) => { conPii = pase.conPii; return fetch(url, {
           headers: { Authorization: pase.authorization.unwrap(), Accept: 'application/json' },
           redirect: 'error',
           signal: AbortSignal.timeout(TIMEOUT_MS),
-        }));
+        }); });
       } catch (e) {
         // Sin acceso, rechazado, bloqueado…: los lanza el pase y se propagan tal cual.
         if (e instanceof Flit2Error) throw e;
@@ -235,7 +238,7 @@ export function crearFlit2SyncHttp(): Flit2SyncPort {
         else invalidos += 1;
       }
       if (invalidos > 0) log.warn({ invalidos }, 'ítems de FLIT 2 que no cumplen el contrato: se saltan');
-      return { items, invalidos, nextCursor: sobre.data.nextCursor, hasMore: sobre.data.hasMore };
+      return { items, invalidos, nextCursor: sobre.data.nextCursor, hasMore: sobre.data.hasMore, conPii };
     },
   };
 }
