@@ -27,6 +27,7 @@ import ChipSinGestion from '../components/flit/ChipSinGestion';
 import RangoFechas from '../components/flit/RangoFechas';
 import VisorSoportes from '../components/flit/VisorSoportes';
 import ModalFacturaVenta, { esNombrePlacaOrganismo, nombreFacturaVenta } from '../components/flit/ModalFacturaVenta';
+import AccesoFlit2 from '../components/flito/tramites/AccesoFlit2';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty,
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -407,6 +408,7 @@ export default function FlitoTramites() {
                   onClick={() => setCrearDemo(true)}>+ Trámite demo</button>
               </div>
             )}
+            <AccesoFlit2 />
           </div>
         } />
 
