@@ -26,11 +26,28 @@
 //        radicado, contadores, estado HTTP y código.
 // RN-08  Cada ítem cae en UNA clase y los contadores cuadran:
 //        leidos = nuevos + actualizados + sinCambios + conflictos + sinVehiculo + eliminadosIgnorados + invalidos.
+//
+// ── HU #13092 (lectura programada). Diseño: `docs/diseno/hu-13092-lectura-programada-flit2.md` ──
+//
+// RN-09  Candado: la corrida del cron y la del botón pasan por `leerConCandado` (advisory lock de
+//        Postgres, `flit2-candado.ts`): nunca dos a la vez, tampoco entre procesos. Si está tomado,
+//        `Flit2LecturaEnCursoError` (409). La guarda optimista de RN-02 sigue como segunda defensa.
+// RN-10  Topes de tiempo: el cron corta a los 4 min y el botón a los 60 s, SIEMPRE después de guardar la
+//        página en curso. `atrasada` = la corrida terminó con `hasMore` (queda feed por leer); la
+//        siguiente continúa desde el cursor. `MAX_PAGINAS_SEGURIDAD` es solo un cinturón.
+// RN-11  429 del feed: con `Retry-After` ≤ 60 s (60 si falta) se espera y se repite LA MISMA página con
+//        el mismo cursor, si la espera cabe en el tope; si pide más o no cabe, la corrida termina sin
+//        avanzar (`Flit2EsperaFeedError`, `atrasada=true`) y la siguiente retoma.
+// RN-12  400 (`invalid_cursor` u otro) o 403 (`insufficient_scope`) del feed: la posición no avanza, el
+//        código de FLIT 2 queda en `ultimo_error_codigo` y no se reintenta en la corrida. La posición
+//        nunca se reinicia sola. Las pausas del pase (423, rechazo) las aplica `flit2-pase.service.ts`.
+// RN-13  Auditoría solo de las corridas que terminan bien y trajeron ítems (`leidos > 0`), con totales y
+//        sin PII. Las vacías o fallidas solo dejan su rastro en la fila de lectura.
 
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { Flit2LecturaResultado } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import { flitoSyncFlit2Lectura, flitoTramites, vehicles } from '../../db/schema.js';
+import { auditLogs, flitoSyncFlit2Lectura, flitoTramites, vehicles } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
 import { companiaPorNit } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import {
@@ -39,7 +56,10 @@ import {
 import { ESTADOS_SIN_ESTADO_FLITO, estadoDesdeFlit2, familiaATipoTramite, tipoPropiedadPorConteo } from './flit2-mapeo.js';
 import { getFlit2SyncAdapter } from './flit2-sync.adapter.js';
 import type { Flit2SyncPort, ItemFlit2, PosicionLectura } from './flit2-sync.port.js';
-import { Flit2Error, Flit2LecturaConcurrenteError } from './flit2.errors.js';
+import { conCandadoLectura } from './flit2-candado.js';
+import {
+  Flit2EsperaFeedError, Flit2Error, Flit2LecturaConcurrenteError, Flit2LecturaEnCursoError, Flit2RespuestaError,
+} from './flit2.errors.js';
 
 const log = loggerFor('flito-sync-flit2');
 
@@ -47,14 +67,34 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 const FILA = 1;
 const PAGE_SIZE = 500;
-/** Tope por pulsación (5000 ítems con 500 por página). El definitivo es de la #13092. */
-const MAX_PAGINAS = 10;
+/**
+ * Topes de tiempo (RN-10). FLIT 2 admite 120 peticiones/min por clientId en el feed y 10/min por IP en el
+ * token: con el pase en caché, una corrida de 4 min pide a lo sumo una página por respuesta (lejos de
+ * 120/min salvo respuestas instantáneas, y entonces el 429 de RN-11 la frena). El cron corre cada 5 min,
+ * así que 4 min dejan 1 min de holgura y dos corridas no se pisan ni sin candado.
+ */
+export const LIMITE_CRON_MS = 4 * 60_000;
+export const LIMITE_BOTON_MS = 60_000;
+/** Cinturón de seguridad: 200 páginas × 500 = 100 000 ítems por corrida. Los topes reales son de tiempo. */
+export const MAX_PAGINAS_SEGURIDAD = 200;
+/** 429: la mayor espera que se hace dentro de una corrida, y la que se asume si falta `Retry-After`. */
+export const ESPERA_429_MAX_S = 60;
+/** 429 seguidos sobre la misma página antes de rendirse (el tope de tiempo suele llegar antes). */
+const REINTENTOS_429_MAX = 3;
+
+export type OrigenLectura = 'cron' | 'boton';
 
 export interface OpcionesLectura {
   pageSize?: number;
   maxPaginas?: number;
+  /** Tope de tiempo de la corrida (RN-10). Sin él, solo corta el cinturón de páginas. */
+  limiteMs?: number;
   ahora?: () => Date;
+  /** Espera del 429 (inyectable en tests; por defecto un `setTimeout`). */
+  esperar?: (ms: number) => Promise<void>;
 }
+
+const esperarReal = (ms: number): Promise<void> => new Promise((ok) => { setTimeout(ok, ms); });
 
 type Contadores = Pick<Flit2LecturaResultado,
   'leidos' | 'nuevos' | 'actualizados' | 'sinCambios' | 'conflictos' | 'sinVehiculo' | 'eliminadosIgnorados'
@@ -173,8 +213,38 @@ async function anotar(set: Partial<typeof flitoSyncFlit2Lectura.$inferInsert>, a
   await db.update(flitoSyncFlit2Lectura).set({ ...set, updatedAt: ahora }).where(eq(flitoSyncFlit2Lectura.id, FILA));
 }
 
+/** Código que queda en `ultimo_error_codigo` (≤ 40): el de FLIT 2 si el feed lo dio (RN-12), si no el nuestro. */
+function codigoAnotado(e: unknown): string {
+  if (e instanceof Flit2RespuestaError && e.codigoFlit2) return e.codigoFlit2;
+  return e instanceof Flit2Error ? e.codigo : 'error_interno';
+}
+
 /**
- * Una corrida de lectura: páginas hasta `hasMore=false` o hasta `maxPaginas` (RN-01, RN-02).
+ * Pide una página y, ante un 429 del feed, espera y repite LA MISMA posición (RN-11). Cualquier otro
+ * error se propaga sin reintento (RN-12): la corrida termina sin avanzar.
+ */
+async function leerPaginaConEsperas(
+  port: Flit2SyncPort, pos: PosicionLectura, pageSize: number,
+  restanteMs: () => number, esperar: (ms: number) => Promise<void>,
+) {
+  for (let intento = 0; ; intento++) {
+    try {
+      return await port.leerPagina(pos, pageSize);
+    } catch (e) {
+      if (!(e instanceof Flit2RespuestaError) || e.statusFlit2 !== 429) throw e;
+      const segundos = e.reintentarEnS ?? ESPERA_429_MAX_S;
+      if (segundos > ESPERA_429_MAX_S || segundos * 1000 >= restanteMs() || intento >= REINTENTOS_429_MAX) {
+        throw new Flit2EsperaFeedError(segundos);
+      }
+      log.info({ segundos, intento: intento + 1 }, 'FLIT 2 pidió esperar (429): se repite la misma página');
+      await esperar(segundos * 1000);
+    }
+  }
+}
+
+/**
+ * Una corrida de lectura: páginas hasta `hasMore=false`, hasta el tope de tiempo (RN-10) o hasta
+ * `maxPaginas` (RN-01, RN-02).
  * Lanza `Flit2Error` (sin acceso, rechazado, bloqueado, respuesta inesperada, lectura concurrente…);
  * si ya había páginas guardadas, `parcialDe(error)` devuelve los totales de lo guardado.
  */
@@ -183,8 +253,10 @@ export async function leerIncremental(
 ): Promise<Flit2LecturaResultado> {
   const reloj = op.ahora ?? (() => new Date());
   const pageSize = op.pageSize ?? PAGE_SIZE;
-  const maxPaginas = op.maxPaginas ?? MAX_PAGINAS;
+  const maxPaginas = op.maxPaginas ?? MAX_PAGINAS_SEGURIDAD;
+  const esperar = op.esperar ?? esperarReal;
   const inicio = reloj();
+  const restanteMs = (): number => (op.limiteMs === undefined ? Infinity : op.limiteMs - (reloj().getTime() - inicio.getTime()));
   const r: Flit2LecturaResultado = {
     ...contadoresEnCero(), paginas: 0, hasMore: false, modo: 'since', ejecutadoEn: inicio.toISOString(),
   };
@@ -212,7 +284,7 @@ export async function leerIncremental(
     await anotar({ ultimoIntentoEn: inicio }, inicio);
 
     while (r.paginas < maxPaginas) {
-      const pagina = await port.leerPagina(pos, pageSize);
+      const pagina = await leerPaginaConEsperas(port, pos, pageSize, restanteMs, esperar);
       const parcial = contadoresEnCero();
       const esperado = cursorLeido;
       await db.transaction(async (tx) => {
@@ -235,20 +307,68 @@ export async function leerIncremental(
       cursorLeido = pagina.nextCursor;
       if (!pagina.hasMore) break;
       pos = { cursor: pagina.nextCursor };
+      // RN-10: el tope se mira DESPUÉS de guardar la página, nunca a mitad de una.
+      if (restanteMs() <= 0) break;
     }
 
-    await anotar({ ultimaExitosaEn: reloj(), ultimoErrorCodigo: null }, reloj());
+    await anotar({ ultimaExitosaEn: reloj(), ultimoErrorCodigo: null, atrasada: r.hasMore }, reloj());
     log.info({ ...r, ms: reloj().getTime() - inicio.getTime() }, 'lectura FLIT 2');
     return r;
   } catch (e) {
-    const codigo = e instanceof Flit2Error ? e.codigo : 'error_interno';
+    const codigo = codigoAnotado(e);
+    // Solo se sabe que queda feed si alguna página se guardó (su `hasMore`) o si FLIT 2 pidió esperar.
+    const atrasada = e instanceof Flit2EsperaFeedError ? true : r.paginas > 0 ? r.hasMore : undefined;
+    if (e instanceof Flit2EsperaFeedError) r.hasMore = true;
     try {
-      await anotar({ ultimoErrorCodigo: codigo }, reloj());
+      await anotar({ ultimoErrorCodigo: codigo, ...(atrasada === undefined ? {} : { atrasada }) }, reloj());
     } catch (e2) {
       log.error({ err: e2 instanceof Error ? e2.name : typeof e2 }, 'no se pudo anotar el error de la lectura FLIT 2');
     }
     log.warn({ codigo, paginas: r.paginas, leidos: r.leidos }, 'lectura FLIT 2 interrumpida');
     if (r.paginas > 0 && e && typeof e === 'object') parciales.set(e, r);
     throw e;
+  }
+}
+
+/**
+ * La corrida de verdad (cron o botón): toma el candado (RN-09) y lee con el tope de su origen (RN-10).
+ * Lanza `Flit2LecturaEnCursoError` (409) si otra corrida lo tiene, en este o en otro proceso.
+ */
+export async function leerConCandado(
+  origen: OrigenLectura, port?: Flit2SyncPort, op: OpcionesLectura = {},
+): Promise<Flit2LecturaResultado> {
+  const limiteMs = origen === 'cron' ? LIMITE_CRON_MS : LIMITE_BOTON_MS;
+  const res = await conCandadoLectura(() => leerIncremental({ limiteMs, ...op }, port));
+  if (!res.tomado) throw new Flit2LecturaEnCursoError();
+  return res.valor;
+}
+
+/** ¿Se audita esta corrida? Solo si terminó bien y trajo ítems (RN-13). */
+export const debeAuditarse = (r: Flit2LecturaResultado): boolean => r.leidos > 0;
+
+/** Detalle de `audit_logs`: solo totales, ningún radicado ni dato de persona (RN-13). */
+export function detalleAuditoria(r: Flit2LecturaResultado, origen: OrigenLectura): string {
+  return `Sync FLIT 2 ${origen === 'cron' ? 'programada' : 'manual'} (${r.modo}): ${r.leidos} leídos, ${r.nuevos} nuevos, `
+    + `${r.actualizados} actualizados, ${r.sinCambios} sin cambios, ${r.conflictos} conflictos, `
+    + `${r.sinVehiculo} sin vehículo, ${r.eliminadosIgnorados} eliminados, ${r.invalidos} inválidos; `
+    + `${r.paginas} páginas${r.hasMore ? ' (quedan más)' : ''}.`;
+}
+
+/**
+ * Auditoría de la corrida del cron: no hay `req`, así que va como los demás procesos del sistema
+ * (`userId` null, `userEmail` 'sistema', como la vigencia SOAT). Un fallo al auditar no tumba el cron.
+ */
+export async function auditarLecturaProgramada(r: Flit2LecturaResultado): Promise<void> {
+  if (!debeAuditarse(r)) return;
+  try {
+    await db.insert(auditLogs).values({
+      userId: null,
+      userEmail: 'sistema',
+      action: 'update',
+      resource: 'flito_sincronizacion_flit2',
+      detail: detalleAuditoria(r, 'cron'),
+    });
+  } catch (e) {
+    log.error({ err: e instanceof Error ? e.name : typeof e }, 'no se pudo auditar la lectura programada de FLIT 2');
   }
 }
