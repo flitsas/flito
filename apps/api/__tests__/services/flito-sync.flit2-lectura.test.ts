@@ -1259,13 +1259,31 @@ describe('HU #13094 · PII enmascarada', () => {
     expect(lectura()).toMatchObject({ cursor: 'c5', cursorRelectura: null, piiEnmascaradaDesde: null });
   });
 
-  it('AC4: la relectura no aplica una versión MENOR que la guardada ni toca trámites sin marca', async () => {
+  it('AC4: la relectura no aplica una versión MENOR que la guardada (el trámite sigue marcado)', async () => {
     sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c5', piiEnmascaradaDesde: ARRANQUE });
-    sembrarMarcado({ syncVersion: 12 });
+    const t = sembrarMarcado({ syncVersion: 12 });
+    const antes = { ...t };
     const { port } = puerto([pagina([], 'c5'), pagina([crudo({ syncVersion: 11, estado: 'asignado' })], 'r1')], conPii);
     await leerIncremental({ ahora: reloj() }, port);
+    expect(tramite(U1)).toEqual(antes);
     expect(tramite(U1)!.flit2PiiEnmascarada).toBe(true);
+    expect(compradoresDe(t.id).map((c) => c.numeroDocumento)).toEqual([DOC_1]);
     expect(filas(S.flitoSoat)).toEqual([]);
+    expect(filas(S.flitoImpuestos)).toEqual([]);
+    expect(lectura()).toMatchObject({ cursorRelectura: null, piiEnmascaradaDesde: null });
+  });
+
+  it('AC4: la relectura no toca un trámite SIN marca, aunque llegue con la misma versión y asignado', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c5', piiEnmascaradaDesde: ARRANQUE });
+    const t = sembrarMarcado({ syncVersion: 11, flit2PiiEnmascarada: false });
+    const antes = { ...t };
+    const { port } = puerto([pagina([], 'c5'), pagina([crudo({ syncVersion: 11, estado: 'asignado' })], 'r1')], conPii);
+    await leerIncremental({ ahora: reloj() }, port);
+    expect(tramite(U1)).toEqual(antes);
+    expect(compradoresDe(t.id).map((c) => c.numeroDocumento)).toEqual([DOC_1]);
+    expect(mem.escrituras.some((w) => w.tabla === 'flito_tramites' || w.tabla === 'flito_compradores')).toBe(false);
+    expect(filas(S.flitoSoat)).toEqual([]);
+    expect(filas(S.flitoImpuestos)).toEqual([]);
     expect(lectura()).toMatchObject({ cursorRelectura: null, piiEnmascaradaDesde: null });
   });
 
