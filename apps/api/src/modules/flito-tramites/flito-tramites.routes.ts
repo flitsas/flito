@@ -4,7 +4,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { esAlertaOperativa, TipoSoporteZip } from '@operaciones/shared-types';
+import { esAlertaOperativa, esFuenteTramite, TipoSoporteZip } from '@operaciones/shared-types';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
@@ -53,6 +53,8 @@ router.get('/', exigirFuncion('tramites.cola.ver'), async (req: Request, res: Re
     buscar: str(q.buscar), estados: lista(q.estados), transitos: lista(q.transitos), ciudades: lista(q.ciudades),
     empresas: lista(q.empresas), soat: lista(q.soat), impuesto: lista(q.impuesto),
     autogestion: q.autogestion === 'si' || q.autogestion === 'no' ? q.autogestion : undefined,
+    // HU #13070: igual que autogestión, una fuente desconocida se ignora (no filtra, no falla).
+    fuente: esFuenteTramite(q.fuente) ? q.fuente : undefined,
     // Un orden desconocido no es motivo para fallar: se ignora y manda el default.
     orden: esOrdenListado(q.orden) ? q.orden : undefined,
     // Igual que el orden: una alerta desconocida se ignora en vez de tumbar la petición.
