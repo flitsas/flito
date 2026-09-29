@@ -313,6 +313,43 @@ describe('AC4 · bloqueado 15 min', () => {
   });
 });
 
+describe('HU #13092 AC5 · la pausa del 423 dura lo que diga Retry-After (tope 900 s)', () => {
+  it.each([
+    ['120', 120],
+    ['900', 900],
+    ['3600', 900],
+  ])('423 con Retry-After %s → pausa de %i s en la fila, y durante la pausa `obtenerPase` no llama', async (cabecera, segundos) => {
+    fetchMock.mockResolvedValueOnce(problema(423, 'client_locked', { 'Retry-After': cabecera }));
+
+    await expect(obtenerPase()).rejects.toBeInstanceOf(Flit2BloqueadoError);
+
+    const hasta = new Date(AHORA.getTime() + segundos * 1000);
+    expect(marcas()).toEqual([expect.objectContaining({ bloqueadoHasta: hasta, bloqueoMotivo: 'client_locked' })]);
+    kdb.when.select(TABLA, [filaVigente({ bloqueadoHasta: hasta, bloqueoMotivo: 'client_locked' })]);
+    await expect(obtenerPase()).rejects.toBeInstanceOf(Flit2BloqueadoError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([['ilegible'], ['0'], ['-5']])('423 con Retry-After %j que no sirve → 15 min', async (cabecera) => {
+    fetchMock.mockResolvedValueOnce(problema(423, 'client_locked', { 'Retry-After': cabecera }));
+
+    await expect(obtenerPase()).rejects.toBeInstanceOf(Flit2BloqueadoError);
+
+    expect(marcas()).toEqual([expect.objectContaining({ bloqueadoHasta: new Date(AHORA.getTime() + 15 * 60_000) })]);
+  });
+
+  it('423 con el cuerpo RFC 7807 de FLIT 2 (`code`) → el `bloqueado_hasta` sale del Retry-After, no del cuerpo', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ code: 'client_locked', status: 423, retryAfter: 9999 }), {
+      status: 423, headers: { 'Content-Type': 'application/problem+json', 'Retry-After': '300' },
+    }));
+
+    const e = await obtenerPase().catch((x: unknown) => x);
+
+    expect(e).toBeInstanceOf(Flit2BloqueadoError);
+    expect((e as InstanceType<typeof Flit2BloqueadoError>).hasta).toEqual(new Date(AHORA.getTime() + 300_000));
+  });
+});
+
 describe('AC5 · pide esperar', () => {
   it('429 con Retry-After → `espera` y `bloqueado_hasta` según la cabecera, motivo `rate_limited`', async () => {
     fetchMock.mockResolvedValueOnce(problema(429, 'rate_limited', { 'Retry-After': '120' }));

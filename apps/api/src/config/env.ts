@@ -151,6 +151,10 @@ const envSchema = z.object({
   // Adaptador del feed de trámites de FLIT 2 (HU #13091). `fake` sirve páginas ficticias en memoria
   // para dev/demo y está PROHIBIDO en producción (ver el superRefine de abajo).
   FLIT2_SYNC_ADAPTER: z.enum(['http', 'fake']).default('http'),
+  // Lectura programada de FLIT 2 cada 5 min (HU #13092). Encendida por defecto (en blanco = true);
+  // 'false'/'0' la apaga. Aun encendida, sin acceso vigente la corrida no llama a FLIT 2.
+  // Transform explícito: z.coerce.boolean vería "false" como true.
+  FLIT2_SYNC_CRON: z.string().optional().transform((v) => v !== 'false' && v !== '0'),
   // `mock` por defecto: sin credenciales reales, un test o un dev no deben salir a la red.
   COMPARENDOS_SIMIT_MODE: z.enum(['mock', 'real']).default('mock'),
   // Retención del histórico de registros/timeline (CF Habeas Data, Ley 1581). 24 meses por defecto,

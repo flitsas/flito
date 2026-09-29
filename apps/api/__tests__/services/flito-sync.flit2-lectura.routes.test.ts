@@ -21,13 +21,14 @@ vi.mock('../../src/shared/middleware/audit.js', () => ({ audit: auditMock }));
 vi.mock('../../src/shared/redis.js', () => ({
   getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false),
 }));
+// HU #13092: la ruta llama a `leerConCandado('boton')`; `debeAuditarse`/`detalleAuditoria` son los reales.
 const leerIncrementalMock = vi.fn();
 const parcialDeMock = vi.fn();
-vi.mock('../../src/modules/flito-sync/flit2-lectura.service.js', () => ({
-  leerIncremental: leerIncrementalMock, parcialDe: parcialDeMock,
+vi.mock('../../src/modules/flito-sync/flit2-lectura.service.js', async (orig) => ({
+  ...(await orig() as Record<string, unknown>), leerConCandado: leerIncrementalMock, parcialDe: parcialDeMock,
 }));
 
-const { Flit2SinAccesoError, Flit2LecturaConcurrenteError, Flit2RespuestaError } =
+const { Flit2SinAccesoError, Flit2LecturaConcurrenteError, Flit2LecturaEnCursoError, Flit2RespuestaError, Flit2EsperaFeedError } =
   await import('../../src/modules/flito-sync/flit2.errors.js');
 
 const RUTA = '/api/flito/sync/flit2/sincronizar';
@@ -64,11 +65,11 @@ describe('HU #13091 · POST /sincronizar', () => {
     expect(r.status).toBe(200);
     expect(r.body).toEqual(RESULTADO);
     expect(leerIncrementalMock).toHaveBeenCalledTimes(1);
-    expect(leerIncrementalMock).toHaveBeenCalledWith();
+    expect(leerIncrementalMock).toHaveBeenCalledWith('boton');
     expect(auditMock).toHaveBeenCalledTimes(1);
     const entrada = auditMock.mock.calls[0][1] as { action: string; resource: string; detail: string };
     expect(entrada.resource).toBe('flito_sincronizacion_flit2');
-    expect(entrada.detail).toMatch(/^Sync FLIT 2 \(since\): 3 leídos, 1 nuevos/);
+    expect(entrada.detail).toMatch(/^Sync FLIT 2 manual \(since\): 3 leídos, 1 nuevos/);
   });
 
   it('TC-07: sin cuerpo también vale (el botón no manda nada)', async () => {
@@ -123,5 +124,40 @@ describe('HU #13091 · POST /sincronizar', () => {
     expect(r.body.codigo).toBe('flit2_respuesta');
     expect(r.body.parcial).toEqual({ ...RESULTADO, paginas: 1, hasMore: true });
     expect(JSON.stringify(r.body)).not.toContain('internal_error');
+  });
+
+  // ── HU #13092 ─────────────────────────────────────────────────────────────────────────────────
+  it('HU #13092 AC2: el candado está tomado (cron u otro botón) → 409 «en marcha», sin audit', async () => {
+    leerIncrementalMock.mockRejectedValue(new Flit2LecturaEnCursoError());
+    const r = await request(await buildApp()).post(RUTA).set('Authorization', await auth()).send({});
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: expect.stringMatching(/en marcha/), codigo: 'lectura_concurrente' });
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+
+  it('HU #13092 AC8: una lectura vacía (leidos = 0) responde 200 y NO se audita', async () => {
+    leerIncrementalMock.mockResolvedValue({ ...RESULTADO, leidos: 0, nuevos: 0, actualizados: 0, conflictos: 0 });
+    const r = await request(await buildApp()).post(RUTA).set('Authorization', await auth()).send({});
+    expect(r.status).toBe(200);
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+
+  it('HU #13092 AC3: corte a los 60 s → 200 con los totales parciales y hasMore; se audita con «quedan más»', async () => {
+    leerIncrementalMock.mockResolvedValue({ ...RESULTADO, paginas: 4, hasMore: true });
+    const r = await request(await buildApp()).post(RUTA).set('Authorization', await auth()).send({});
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ paginas: 4, hasMore: true });
+    expect((auditMock.mock.calls[0][1] as { detail: string }).detail).toMatch(/4 páginas \(quedan más\)\.$/);
+  });
+
+  it('HU #13092 AC4/AC8: 429 que pide más de 60 s → 503 espera con el parcial y SIN audit (fallida)', async () => {
+    const error = new Flit2EsperaFeedError(120);
+    leerIncrementalMock.mockRejectedValue(error);
+    parcialDeMock.mockImplementation((e: unknown) => (e === error ? { ...RESULTADO, paginas: 1, hasMore: true } : null));
+    const r = await request(await buildApp()).post(RUTA).set('Authorization', await auth()).send({});
+    expect(r.status).toBe(503);
+    expect(r.body.codigo).toBe('espera');
+    expect(r.body.parcial).toMatchObject({ paginas: 1, hasMore: true });
+    expect(auditMock).not.toHaveBeenCalled();
   });
 });

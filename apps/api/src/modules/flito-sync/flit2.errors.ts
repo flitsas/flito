@@ -119,6 +119,16 @@ export class Flit2LecturaConcurrenteError extends Flit2Error {
 }
 
 /**
+ * HU #13092 (AC2): el candado de la lectura está tomado por otra corrida (cron o botón, en este u otro
+ * proceso). Mismo `codigo` que el 409 optimista para que la pantalla no necesite un caso nuevo.
+ */
+export class Flit2LecturaEnCursoError extends Flit2Error {
+  constructor() {
+    super('lectura_concurrente', 409, 'Ya hay una lectura de FLIT 2 en marcha. Espera a que termine y vuelve a intentarlo.');
+  }
+}
+
+/**
  * HU #13091: el feed de FLIT 2 respondió algo distinto de un 200 legible. Lleva el estado HTTP y el
  * código RFC 7807 (si tenía forma de código) para el log y para la #13092 (429/423); el cuerpo de
  * FLIT 2 nunca se reenvía.
@@ -126,10 +136,26 @@ export class Flit2LecturaConcurrenteError extends Flit2Error {
 export class Flit2RespuestaError extends Flit2Error {
   readonly statusFlit2: number | null;
   readonly codigoFlit2: string | null;
-  constructor(statusFlit2: number | null, codigoFlit2: string | null) {
+  /** HU #13092: `Retry-After` del 429 en segundos (null si no vino o no se entiende). */
+  readonly reintentarEnS: number | null;
+  constructor(statusFlit2: number | null, codigoFlit2: string | null, reintentarEnS: number | null = null) {
     super('flit2_respuesta', 502, 'FLIT 2 respondió de forma inesperada al leer los trámites.');
     this.statusFlit2 = statusFlit2;
     this.codigoFlit2 = codigoFlit2;
+    this.reintentarEnS = reintentarEnS;
+  }
+}
+
+/**
+ * HU #13092 (AC4): el feed respondió 429 y pide esperar más de lo que esta corrida puede (Retry-After
+ * > 60 s, o la espera no cabe en el tope de tiempo). La lectura termina sin avanzar la posición; la
+ * siguiente corrida retoma desde el mismo cursor.
+ */
+export class Flit2EsperaFeedError extends Flit2Error {
+  readonly segundos: number;
+  constructor(segundos: number) {
+    super('espera', 503, 'FLIT 2 pidió esperar antes de seguir leyendo los trámites. La próxima lectura continúa donde quedó.');
+    this.segundos = segundos;
   }
 }
 
