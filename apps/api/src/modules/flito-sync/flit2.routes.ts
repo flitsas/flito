@@ -18,6 +18,7 @@ import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { guardarAcceso, obtenerMetaAcceso } from './flit2-acceso.service.js';
 import probarRouter from './flit2-probar.routes.js';
 import lecturaRouter from './flit2-lectura.routes.js';
+import estadoRouter from './flit2-estado.routes.js';
 import { Flit2Error } from './flit2.errors.js';
 
 const router = Router();
@@ -96,5 +97,7 @@ router.put('/acceso', exigirFuncion('tramites.flit2.guardar_acceso'), accesoLimi
 router.use(probarRouter);
 // HU #13091: lectura incremental de trámites — ver la cabecera de `flit2-lectura.routes.ts`.
 router.use(lecturaRouter);
+// HU #13097: estado de la conexión — ver la cabecera de `flit2-estado.routes.ts`.
+router.use(estadoRouter);
 
 export default router;
