@@ -137,6 +137,8 @@ async function pedirPaseNuevo(base: string, acceso: Flit2AccesoVigente): Promise
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ clientId: acceso.clientId, clientSecret: acceso.secreto.unwrap() }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
+      // Una redirección reenviaría el clientSecret a otro destino: se rechaza y cae en «no responde».
+      redirect: 'error',
     });
   } catch (e) {
     // Solo el nombre del fallo (TimeoutError, TypeError…): el mensaje podría arrastrar la URL.
