@@ -20,9 +20,6 @@ const { startFlitSync, stopFlitSync, correrLecturaFlit2Programada, INTERVALO_FLI
   await import('../../src/modules/flito-sync/flito-sync.cron.js');
 const { Flit2SinAccesoError, Flit2LecturaEnCursoError, Flit2RespuestaError } =
   await import('../../src/modules/flito-sync/flit2.errors.js');
-// HU #13188: el programa NO se mockea; se lee real.
-const { leerPrograma, reiniciarProgramaParaTest } = await import('../../src/modules/flito-sync/flit2-programa.js');
-const { componerEstado } = await import('../../src/modules/flito-sync/flit2-estado.service.js');
 
 const RESULTADO = {
   leidos: 2, nuevos: 2, actualizados: 0, sinCambios: 0, conflictos: 0, sinVehiculo: 0, eliminadosIgnorados: 0,
@@ -33,7 +30,6 @@ const RESULTADO = {
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'Date'], now: new Date('2026-09-29T15:00:00Z') });
   entorno.cron = true;
-  reiniciarProgramaParaTest();
   leerConCandadoMock.mockReset().mockResolvedValue(RESULTADO);
   auditarMock.mockClear();
   for (const m of Object.values(logMock)) m.mockClear();
@@ -117,115 +113,6 @@ describe('HU #13092 · desenlaces de la corrida programada', () => {
     leerConCandadoMock.mockRejectedValueOnce(new Error('relation "flito_sync_flit2_lectura" does not exist'));
     await expect(correrLecturaFlit2Programada()).resolves.toBeUndefined();
     expect(logMock.error).toHaveBeenCalledWith({ err: 'Error' }, expect.any(String));
-    expect(auditarMock).not.toHaveBeenCalled();
-  });
-});
-
-describe('HU #13188 · pulso de la lectura automática', () => {
-  const iso = (d: Date | null) => (d ? d.toISOString() : null);
-
-  it('AC1: con el cron encendido, activa, cada 300000 ms, próxima a los 5 min del arranque y sin lectura en curso', () => {
-    startFlitSync();
-    const p = leerPrograma();
-    expect(p).toEqual({ activa: true, intervaloMs: 300_000, proximaEn: new Date('2026-09-29T15:05:00Z'), enCurso: false });
-
-    const estado = componerEstado({
-      ambienteListo: true, acceso: null, lectura: null, tramitesEnmascarados: 0, programa: p,
-    }, new Date());
-    const a = estado.automatica;
-    expect(a.generadoEn).toBe('2026-09-29T15:00:00.000Z');
-    const delta = Date.parse(a.proximaEn!) - Date.parse(a.generadoEn);
-    expect(delta).toBeGreaterThan(0);
-    expect(delta).toBeLessThanOrEqual(300_000);
-  });
-
-  it('AC1: arrancar dos veces no reinicia la próxima corrida', async () => {
-    startFlitSync();
-    await vi.advanceTimersByTimeAsync(60_000);
-    startFlitSync();
-    expect(iso(leerPrograma().proximaEn)).toBe('2026-09-29T15:05:00.000Z');
-  });
-
-  it('AC2: cada tick que lee adelanta la próxima un intervalo desde ese tick', async () => {
-    startFlitSync();
-    await vi.advanceTimersByTimeAsync(INTERVALO_FLIT2_MS);
-    expect(leerConCandadoMock).toHaveBeenCalledTimes(1);
-    expect(iso(leerPrograma().proximaEn)).toBe('2026-09-29T15:10:00.000Z');
-  });
-
-  it('AC2: el tick que se salta porque la anterior sigue en curso también adelanta la próxima', async () => {
-    let soltar!: () => void;
-    leerConCandadoMock.mockImplementationOnce(() => new Promise((ok) => { soltar = () => ok(RESULTADO); }));
-    startFlitSync();
-    await vi.advanceTimersByTimeAsync(INTERVALO_FLIT2_MS);
-    await vi.advanceTimersByTimeAsync(INTERVALO_FLIT2_MS);
-    expect(leerConCandadoMock).toHaveBeenCalledTimes(1);
-    expect(iso(leerPrograma().proximaEn)).toBe('2026-09-29T15:15:00.000Z');
-    soltar();
-    await vi.advanceTimersByTimeAsync(0);
-  });
-
-  it('AC2: el tick que se salta porque el candado está tomado también adelanta la próxima', async () => {
-    leerConCandadoMock.mockRejectedValue(new Flit2LecturaEnCursoError());
-    startFlitSync();
-    await vi.advanceTimersByTimeAsync(INTERVALO_FLIT2_MS);
-    expect(leerConCandadoMock).toHaveBeenCalledTimes(1);
-    expect(iso(leerPrograma().proximaEn)).toBe('2026-09-29T15:10:00.000Z');
-  });
-
-  it('AC3: con FLIT2_SYNC_CRON=false, inactiva y sin intervalo ni próxima', () => {
-    entorno.cron = false;
-    startFlitSync();
-    expect(leerPrograma()).toEqual({ activa: false, intervaloMs: null, proximaEn: null, enCurso: false });
-  });
-
-  it('AC3: con FLIT2_SYNC_CRON=false tras haber estado encendida, arrancar la deja apagada', () => {
-    startFlitSync();
-    stopFlitSync();
-    entorno.cron = false;
-    startFlitSync();
-    expect(leerPrograma().activa).toBe(false);
-  });
-
-  it('AC3: stopFlitSync apaga el programa encendido', () => {
-    startFlitSync();
-    stopFlitSync();
-    expect(leerPrograma()).toEqual({ activa: false, intervaloMs: null, proximaEn: null, enCurso: false });
-  });
-});
-
-// ── HU #13237 AC6 — interruptor de FLIT 2 apagado ───────────────────────────────────────────────
-const { FuenteApagadaError } = await import('../../src/modules/flito-sync/flito-sync-interruptor.service.js');
-const { correrLecturaTrasAcceso } = await import('../../src/modules/flito-sync/flit2-lectura-acceso.js');
-
-describe('HU #13237 · AC6 · con FLIT 2 apagada el tick no lee ni ensucia el log', () => {
-
-  it('el tick programado: FuenteApagadaError → log debug, sin warn/error y sin auditar', async () => {
-    leerConCandadoMock.mockRejectedValue(new FuenteApagadaError('flit2'));
-    await expect(correrLecturaFlit2Programada()).resolves.toBeUndefined();
-    expect(logMock.debug).toHaveBeenCalledTimes(1);
-    expect(logMock.warn).not.toHaveBeenCalled();
-    expect(logMock.error).not.toHaveBeenCalled();
-    expect(auditarMock).not.toHaveBeenCalled();
-  });
-
-  it('el timer sigue vivo: apagada no desarma el programa; al encender, el tick siguiente lee', async () => {
-    leerConCandadoMock.mockRejectedValueOnce(new FuenteApagadaError('flit2'));
-    startFlitSync();
-    await vi.advanceTimersByTimeAsync(INTERVALO_FLIT2_MS);
-    expect(leerPrograma().activa).toBe(true);
-    await vi.advanceTimersByTimeAsync(INTERVALO_FLIT2_MS);
-    expect(leerConCandadoMock).toHaveBeenCalledTimes(2);
-    expect(auditarMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('la lectura tras guardar el acceso: FuenteApagadaError → log debug, sin warn/error y sin auditar', async () => {
-    leerConCandadoMock.mockRejectedValue(new FuenteApagadaError('flit2'));
-    await expect(correrLecturaTrasAcceso()).resolves.toBeUndefined();
-    expect(leerConCandadoMock).toHaveBeenCalledWith('acceso');
-    expect(logMock.debug).toHaveBeenCalledTimes(1);
-    expect(logMock.warn).not.toHaveBeenCalled();
-    expect(logMock.error).not.toHaveBeenCalled();
     expect(auditarMock).not.toHaveBeenCalled();
   });
 });

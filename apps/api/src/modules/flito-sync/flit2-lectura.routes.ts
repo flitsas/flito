@@ -1,10 +1,12 @@
 // FLITO sync — botón «Sincronizar FLIT 2» (HU #13091, Feature #13059). Se monta desde
 // `flit2.routes.ts` (`router.use`), así que responde en `/api/flito/sync/flit2/sincronizar`.
 //
-//   POST /sincronizar  `sync.sync.lanzar` → 200 Flit2LecturaResultado
+//   POST /sincronizar  `sync.sync.lanzar` → 200 Flit2LecturaResultado (a los 60 s corta tras la página
+//                        en curso y responde los totales parciales con `hasMore`, HU #13092 AC3)
 //                      · 400 datos_invalidos (el cuerpo no admite claves: la fecha NO se elige)
-//                      · 409 lectura_concurrente · 502 flit2_respuesta · 503 no_configurado /
-//                        sin_acceso / rechazado / bloqueado / no_responde · 429 limitador (6/min)
+//                      · 409 lectura_concurrente (otra corrida, del cron o de otro botón, tiene el
+//                        candado: HU #13092 AC2) · 502 flit2_respuesta · 503 no_configurado /
+//                        sin_acceso / rechazado / bloqueado / espera / no_responde · 429 limitador (6/min)
 //
 // Reutiliza el permiso del sync de FLIT 1 (0179, solo admin): no hace falta migración de siembra.
 // Fichero aparte (como `flit2-probar.routes.ts`) porque el inventario de guardas exige un código por
@@ -17,7 +19,7 @@ import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
-import { leerIncremental, parcialDe } from './flit2-lectura.service.js';
+import { debeAuditarse, detalleAuditoria, leerConCandado, parcialDe } from './flit2-lectura.service.js';
 import { Flit2Error } from './flit2.errors.js';
 
 const router = Router();
@@ -49,15 +51,12 @@ router.post('/sincronizar', exigirFuncion('sync.sync.lanzar'), lecturaLimiter, a
   }
 
   try {
-    const r = await leerIncremental();
-    // Solo totales: ningún radicado ni dato del trámite entra en `audit_logs`.
-    await audit(req, {
-      action: 'update',
-      resource: 'flito_sincronizacion_flit2',
-      detail: `Sync FLIT 2 (${r.modo}): ${r.leidos} leídos, ${r.nuevos} nuevos, ${r.actualizados} actualizados, `
-        + `${r.sinCambios} sin cambios, ${r.conflictos} conflictos, ${r.sinVehiculo} sin vehículo, `
-        + `${r.eliminadosIgnorados} eliminados, ${r.invalidos} inválidos; ${r.paginas} páginas${r.hasMore ? ' (quedan más)' : ''}.`,
-    });
+    const r = await leerConCandado('boton');
+    // HU #13092 AC8: solo las corridas que trajeron ítems, y solo totales (ningún radicado ni dato del
+    // trámite entra en `audit_logs`). Las vacías o fallidas quedan en la fila de lectura.
+    if (debeAuditarse(r)) {
+      await audit(req, { action: 'update', resource: 'flito_sincronizacion_flit2', detail: detalleAuditoria(r, 'boton') });
+    }
     res.json(r);
   } catch (e) {
     if (e instanceof Flit2Error) {

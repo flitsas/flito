@@ -8,7 +8,7 @@
 // lo restaura si el callback lanza (página atómica, AC2). Solo entiende ANDs de `=`, `is null` e
 // `IS NOT DISTINCT FROM`: cualquier otra cosa lanza, para que el mock no «apruebe» lo que no evalúa.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -172,6 +172,16 @@ vi.mock('../../src/modules/flito-parametrizacion/flito-parametrizacion.service.j
 });
 const logMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }));
 vi.mock('../../src/shared/logger.js', () => ({ logger: logMock, loggerFor: () => logMock }));
+// HU #13092: candado en memoria con la misma semántica que el advisory lock (no espera; se suelta en
+// finally). El SQL real del candado se prueba en `flito-sync.flit2-candado.test.ts`.
+const candado = vi.hoisted(() => ({ tomado: false, tomas: 0, sueltas: 0 }));
+vi.mock('../../src/modules/flito-sync/flit2-candado.js', () => ({
+  conCandadoLectura: async (fn: () => Promise<unknown>) => {
+    if (candado.tomado) return { tomado: false };
+    candado.tomado = true; candado.tomas += 1;
+    try { return { tomado: true, valor: await fn() }; } finally { candado.tomado = false; candado.sueltas += 1; }
+  },
+}));
 
 const { leerIncremental, parcialDe } = await import('../../src/modules/flito-sync/flit2-lectura.service.js');
 const { aItemFlit2 } = await import('../../src/modules/flito-sync/flit2-sync-http.adapter.js');
@@ -741,5 +751,207 @@ describe('AC10 · sin datos personales de más, FLIT 1 intacto', () => {
       leidos: 6, nuevos: 1, actualizados: 0, sinCambios: 1, conflictos: 1, sinVehiculo: 1, eliminadosIgnorados: 1, invalidos: 1, paginas: 2,
     });
     cuadra(r as unknown as Record<string, unknown>);
+  });
+});
+
+
+// ═══ HU #13092 · lectura programada: candado, topes de tiempo y esperas ═══════════════════════════
+const {
+  leerConCandado, auditarLecturaProgramada, LIMITE_BOTON_MS, LIMITE_CRON_MS, MAX_PAGINAS_SEGURIDAD, ESPERA_429_MAX_S,
+} = await import('../../src/modules/flito-sync/flit2-lectura.service.js');
+const { Flit2EsperaFeedError, Flit2LecturaEnCursoError, Flit2RechazadoError } =
+  await import('../../src/modules/flito-sync/flit2.errors.js');
+
+/** Reloj que solo avanza cuando el test lo mueve (cada página «tarda» lo que diga su `antes`). */
+function relojMovil(inicio: Date = ARRANQUE) {
+  let t = inicio.getTime();
+  return { ahora: () => new Date(t), avanzar: (ms: number) => () => { t += ms; } };
+}
+const r429 = (segundos: number | null) => new Flit2RespuestaError(429, 'rate_limited', segundos);
+
+describe('HU #13092 · topes y esperas', () => {
+  beforeEach(() => { candado.tomado = false; candado.tomas = 0; candado.sueltas = 0; });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('los topes son los del AC: cron 4 min, botón 60 s; las páginas solo como cinturón', () => {
+    expect(LIMITE_CRON_MS).toBe(240_000);
+    expect(LIMITE_BOTON_MS).toBe(60_000);
+    expect(MAX_PAGINAS_SEGURIDAD).toBeGreaterThanOrEqual(100);
+    expect(ESPERA_429_MAX_S).toBe(60);
+  });
+
+  it('AC3 botón: a los 60 s termina TRAS guardar la página en curso, atrasada=true, y la siguiente sigue del cursor', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    const rel = relojMovil();
+    const { port, llamadas } = puerto([
+      pagina([crudo()], 'c1', true, rel.avanzar(25_000)),
+      pagina([], 'c2', true, rel.avanzar(25_000)),
+      pagina([crudo({ id: U2, radicado: 'FT1-0000002', vehiculo: { ...(crudo().vehiculo as Fila), vin: '9FKTEST0000000002' } })], 'c3', true, rel.avanzar(25_000)),
+    ]);
+    const r = await leerConCandado('boton', port, { ahora: rel.ahora });
+    expect(llamadas.map((l) => l.cursor)).toEqual(['c0', 'c1', 'c2']);
+    // La tercera cruzó los 60 s a mitad: se guardó entera (cursor c3 y su trámite escrito).
+    expect(lectura().cursor).toBe('c3');
+    expect(tramite(U2)).toBeDefined();
+    expect(r).toMatchObject({ paginas: 3, hasMore: true, leidos: 2 });
+    expect(lectura().atrasada).toBe(true);
+    expect(lectura().ultimaExitosaEn).toEqual(new Date(ARRANQUE.getTime() + 75_000));
+
+    const siguiente = puerto([pagina([], 'c4', false)]);
+    await leerConCandado('cron', siguiente.port, { ahora: rel.ahora });
+    expect(siguiente.llamadas[0].cursor).toBe('c3');
+    expect(lectura().atrasada).toBe(false);
+  });
+
+  it('AC3 cron: el mismo ritmo NO corta a los 60 s; corta pasados los 4 min', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    const rel = relojMovil();
+    const pasos = Array.from({ length: 6 }, (_, i) => pagina([], `c${i + 1}`, true, rel.avanzar(50_000)));
+    const { port, llamadas } = puerto(pasos);
+    const r = await leerConCandado('cron', port, { ahora: rel.ahora });
+    // 50·4 = 200 s < 240 → sigue; 250 s ≥ 240 → corta tras guardar la 5.ª.
+    expect(llamadas).toHaveLength(5);
+    expect(r).toMatchObject({ paginas: 5, hasMore: true });
+    expect(lectura()).toMatchObject({ cursor: 'c5', atrasada: true });
+  });
+
+  it('AC3: una corrida que vacía el feed antes del tope queda atrasada=false', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0', atrasada: true });
+    const r = await leerConCandado('boton', puerto([pagina([], 'c1', false)]).port, { ahora: reloj() });
+    expect(r.hasMore).toBe(false);
+    expect(lectura().atrasada).toBe(false);
+  });
+
+  it('AC4: 429 con Retry-After 30 → espera 30 s (timers falsos) y repite LA MISMA página con el mismo cursor', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'Date'], now: ARRANQUE });
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    const { port, llamadas } = puerto([r429(30), pagina([crudo()], 'c1', false)]);
+    const promesa = leerConCandado('cron', port);
+    await vi.advanceTimersByTimeAsync(29_000);
+    expect(llamadas).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    const r = await promesa;
+    expect(llamadas.map((l) => l.cursor)).toEqual(['c0', 'c0']);
+    expect(r).toMatchObject({ paginas: 1, nuevos: 1 });
+    expect(lectura()).toMatchObject({ cursor: 'c1', ultimoErrorCodigo: null, atrasada: false });
+  });
+
+  it('AC4: 429 sin Retry-After → se asume 60 s y se repite', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    const esperar = vi.fn(async () => undefined);
+    const { port, llamadas } = puerto([r429(null), pagina([], 'c1', false)]);
+    await leerConCandado('cron', port, { ahora: reloj(), esperar });
+    expect(esperar).toHaveBeenCalledWith(60_000);
+    expect(llamadas.map((l) => l.cursor)).toEqual(['c0', 'c0']);
+  });
+
+  it('AC4: 429 que pide más de 60 s → termina SIN avanzar ni esperar; la siguiente retoma del mismo cursor', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    const esperar = vi.fn(async () => undefined);
+    const { port, llamadas } = puerto([r429(61)]);
+    const e = await leerConCandado('cron', port, { ahora: reloj(), esperar }).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(Flit2EsperaFeedError);
+    expect(esperar).not.toHaveBeenCalled();
+    expect(llamadas).toHaveLength(1);
+    expect(lectura()).toMatchObject({ cursor: 'c0', ultimoErrorCodigo: 'espera', atrasada: true });
+
+    const siguiente = puerto([pagina([], 'c1', false)]);
+    await leerConCandado('cron', siguiente.port, { ahora: reloj() });
+    expect(siguiente.llamadas[0].cursor).toBe('c0');
+  });
+
+  it('AC4+AC3: una espera que no cabe en el tope del botón termina con lo guardado, sin esperar', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    const rel = relojMovil();
+    const esperar = vi.fn(async () => undefined);
+    const { port } = puerto([pagina([crudo()], 'c1', true, rel.avanzar(40_000)), r429(30)]);
+    const e = await leerConCandado('boton', port, { ahora: rel.ahora, esperar }).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(Flit2EsperaFeedError);
+    expect(esperar).not.toHaveBeenCalled();
+    expect(lectura().cursor).toBe('c1');
+    expect(parcialDe(e)).toMatchObject({ paginas: 1, nuevos: 1, hasMore: true });
+  });
+
+  it('AC4: 429 tras 429 sobre la misma página → se rinde tras 3 esperas, sin avanzar', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    const esperar = vi.fn(async () => undefined);
+    const { port, llamadas } = puerto([r429(5), r429(5), r429(5), r429(5)]);
+    const e = await leerConCandado('cron', port, { ahora: reloj(), esperar }).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(Flit2EsperaFeedError);
+    expect(esperar).toHaveBeenCalledTimes(3);
+    expect(llamadas.map((l) => l.cursor)).toEqual(['c0', 'c0', 'c0', 'c0']);
+    expect(lectura().cursor).toBe('c0');
+  });
+
+  it.each([
+    [400, 'invalid_cursor'],
+    [400, 'validation_error'],
+    [403, 'insufficient_scope'],
+  ])('AC7: %i %s → no avanza, el código queda en ultimo_error_codigo, sin reintento; la siguiente vuelve a intentar', async (status, codigo) => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0', ultimaExitosaEn: new Date('2026-09-28T00:00:00Z') });
+    const esperar = vi.fn(async () => undefined);
+    const { port, llamadas } = puerto([new Flit2RespuestaError(status, codigo)]);
+    await expect(leerConCandado('cron', port, { ahora: reloj(), esperar })).rejects.toBeInstanceOf(Flit2RespuestaError);
+    expect(llamadas).toHaveLength(1);
+    expect(esperar).not.toHaveBeenCalled();
+    // La posición nunca se reinicia sola: ni cursor a null ni since_arranque movido.
+    expect(lectura()).toMatchObject({ cursor: 'c0', sinceArranque: ARRANQUE, ultimoErrorCodigo: codigo });
+    expect(lectura().ultimaExitosaEn).toEqual(new Date('2026-09-28T00:00:00Z'));
+
+    const siguiente = puerto([pagina([], 'c1', false)]);
+    await leerConCandado('cron', siguiente.port, { ahora: reloj() });
+    expect(siguiente.llamadas[0].cursor).toBe('c0');
+    expect(lectura().ultimoErrorCodigo).toBeNull();
+  });
+
+  it('AC6: con el acceso rechazado la corrida no llama al feed ni toca la posición', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    const { port, llamadas } = puerto([], async () => { throw new Flit2RechazadoError('secret_rotation_required'); });
+    await expect(leerConCandado('cron', port, { ahora: reloj() })).rejects.toBeInstanceOf(Flit2RechazadoError);
+    expect(llamadas).toHaveLength(0);
+    expect(lectura()).toMatchObject({ cursor: 'c0', ultimoIntentoEn: null });
+  });
+
+  it('AC2: con el candado tomado → Flit2LecturaEnCursoError (409) sin verificar acceso ni llamar a FLIT 2', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    candado.tomado = true;
+    const acceso = vi.fn(async () => undefined);
+    const { port, llamadas } = puerto([pagina([], 'c1')], acceso);
+    const e = await leerConCandado('boton', port, { ahora: reloj() }).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(Flit2LecturaEnCursoError);
+    expect((e as InstanceType<typeof Flit2LecturaEnCursoError>).status).toBe(409);
+    expect(acceso).not.toHaveBeenCalled();
+    expect(llamadas).toHaveLength(0);
+    expect(lectura().cursor).toBe('c0');
+  });
+
+  it('AC2: dos corridas a la vez (cron + botón) → una lee y la otra recibe 409; el candado se suelta aunque la corrida falle', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    let soltar!: () => void;
+    const pausa = new Promise<void>((ok) => { soltar = ok; });
+    const lenta = puerto([new Error('fallo de red simulado')], () => pausa);
+    const primera = leerConCandado('cron', lenta.port, { ahora: reloj() }).catch((x: unknown) => x);
+    await Promise.resolve();
+    const segunda = await leerConCandado('boton', puerto([pagina([], 'c9')]).port, { ahora: reloj() }).catch((x: unknown) => x);
+    expect(segunda).toBeInstanceOf(Flit2LecturaEnCursoError);
+    soltar();
+    expect(await primera).toBeInstanceOf(Error);
+    expect(candado).toMatchObject({ tomado: false, tomas: 1, sueltas: 1 });
+  });
+
+  it('AC8: la corrida programada con ítems se audita como «sistema» con totales y sin PII; la vacía no', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    const r = await leerConCandado('cron', puerto([pagina([crudo()], 'c1', false)]).port, { ahora: reloj() });
+    await auditarLecturaProgramada(r);
+    const logs = filas(S.auditLogs);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({ userId: null, userEmail: 'sistema', action: 'update', resource: 'flito_sincronizacion_flit2' });
+    expect(logs[0].detail).toMatch(/^Sync FLIT 2 programada \(cursor\): 1 leídos, 1 nuevos/);
+    const texto = JSON.stringify(logs[0]);
+    for (const pii of ['FT1-0001234', 'ZZZ001', DOC_1, DOC_2, CORREO, CELULAR, '9FKTEST0000000001']) expect(texto).not.toContain(pii);
+
+    const vacia = await leerConCandado('cron', puerto([pagina([], 'c2', false)]).port, { ahora: reloj() });
+    await auditarLecturaProgramada(vacia);
+    expect(filas(S.auditLogs)).toHaveLength(1);
   });
 });

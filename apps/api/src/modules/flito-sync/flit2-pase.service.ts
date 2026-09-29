@@ -8,7 +8,8 @@
 //        para su vencimiento; con varias peticiones a la vez sale UNA sola petición de token.
 // RN-02  Traducción única de la respuesta del token (la usan `obtenerPase` y `probarConexion`):
 //        200 → pase · 401 → rechazo `invalid_client` · 403 → rechazo `secret_rotation_required` ·
-//        423 → pausa de 15 min · 429 → pausa según `Retry-After` (60 s si falta) · timeout, red, 5xx
+//        423 → pausa según `Retry-After` (tope 900 s; 15 min si falta o no se entiende, HU #13092 AC5) ·
+//        429 → pausa según `Retry-After` (60 s si falta) · timeout, red, 5xx
 //        o cuerpo ilegible → no responde (sin marca). El cuerpo RFC 7807 de FLIT 2 nunca se reenvía.
 // RN-03  Los procesos automáticos (`obtenerPase` / `conPase`) no llaman a FLIT 2 si la fila vigente
 //        está marcada como rechazada o tiene una pausa futura: fallan al instante, sin bucle.
@@ -59,8 +60,8 @@ const SCOPE_PII = 'external.tramites.pii.read';
 const TIMEOUT_MS = 10_000;
 /** Margen de renovación: con menos de esto por delante, el pase ya no se reutiliza. */
 const MARGEN_RENOVACION_MS = 60_000;
-/** 423 `client_locked`: FLIT 2 libera el acceso a los 15 min. */
-const PAUSA_BLOQUEO_MS = 15 * 60_000;
+/** 423 `client_locked`: FLIT 2 libera el acceso a los 15 min como mucho; manda su `Retry-After` en segundos. */
+const PAUSA_BLOQUEO_MAX_S = 15 * 60;
 /** 429 sin `Retry-After` legible. */
 const ESPERA_POR_DEFECTO_S = 60;
 
@@ -97,15 +98,20 @@ async function codigoDeProblema(res: Response): Promise<string | null> {
   return null;
 }
 
-/** `Retry-After` en segundos o fecha HTTP; acotado a [1 s, 1 h] para que una cabecera rara no congele. */
-function segundosDeEspera(cabecera: string | null, ahora: Date): number {
-  if (!cabecera) return ESPERA_POR_DEFECTO_S;
+/**
+ * `Retry-After` en segundos o fecha HTTP; acotado a [1 s, `tope`] para que una cabecera rara no congele.
+ * Sin cabecera legible → `porDefecto`.
+ */
+function segundosDeEspera(
+  cabecera: string | null, ahora: Date, porDefecto = ESPERA_POR_DEFECTO_S, tope = 3600,
+): number {
+  if (!cabecera) return porDefecto;
   const s = Number(cabecera.trim());
   const segundos = Number.isFinite(s)
     ? s
     : Math.ceil((Date.parse(cabecera) - ahora.getTime()) / 1000);
-  if (!Number.isFinite(segundos) || segundos <= 0) return ESPERA_POR_DEFECTO_S;
-  return Math.min(segundos, 3600);
+  if (!Number.isFinite(segundos) || segundos <= 0) return porDefecto;
+  return Math.min(Math.ceil(segundos), tope);
 }
 
 /** Si la escritura de la marca falla, se registra y se sigue: el error que importa es el de FLIT 2. */
@@ -153,7 +159,10 @@ async function pedirPaseNuevo(base: string, acceso: Flit2AccesoVigente): Promise
   log.warn({ status: res.status, codigo }, 'FLIT 2 no concedió el pase');
   if (res.status === 401) return rechazar(acceso, 'invalid_client');
   if (res.status === 403) return rechazar(acceso, 'secret_rotation_required');
-  if (res.status === 423) return pausar(acceso, 'client_locked', new Date(ahora.getTime() + PAUSA_BLOQUEO_MS));
+  if (res.status === 423) {
+    const segundos = segundosDeEspera(res.headers.get('retry-after'), ahora, PAUSA_BLOQUEO_MAX_S, PAUSA_BLOQUEO_MAX_S);
+    return pausar(acceso, 'client_locked', new Date(ahora.getTime() + segundos * 1000));
+  }
   if (res.status === 429) {
     const segundos = segundosDeEspera(res.headers.get('retry-after'), ahora);
     return pausar(acceso, 'rate_limited', new Date(ahora.getTime() + segundos * 1000));
