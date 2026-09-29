@@ -21,9 +21,9 @@
 //        estado desconocido actualiza `flit_estado`, pero NO cambia su estado FLITO: la logística, el
 //        SOAT y los impuestos en marcha no retroceden. Solo un trámite NUEVO en esos estados nace con
 //        estado FLITO null (AC6). `revocado` → estado FLITO `anulado`, `flit_estado = 'Revocado'` (AC7).
-// RN-07  Esta HU no crea compradores, SOAT ni impuestos (#13093), ni lee la factura (#13095). `flit_raw`
-//        guarda los compradores con lista blanca, sin PII (AC10). Los logs solo llevan `idFlit2`,
-//        radicado, contadores, estado HTTP y código.
+// RN-07  La #13091 no creaba compradores, SOAT ni impuestos (ahora los crea la #13093, RN-14…RN-17), ni
+//        lee la factura (#13095). `flit_raw` guarda los compradores con lista blanca, sin PII (AC10). Los
+//        logs solo llevan `idFlit2`, radicado, contadores, estado HTTP y código.
 // RN-08  Cada ítem cae en UNA clase y los contadores cuadran:
 //        leidos = nuevos + actualizados + sinCambios + conflictos + sinVehiculo + eliminadosIgnorados + invalidos.
 //
@@ -43,17 +43,37 @@
 //        nunca se reinicia sola. Las pausas del pase (423, rechazo) las aplica `flit2-pase.service.ts`.
 // RN-13  Auditoría solo de las corridas que terminan bien y trajeron ítems (`leidos > 0`), con totales y
 //        sin PII. Las vacías o fallidas solo dejan su rastro en la fila de lectura.
+//
+// ── HU #13093 (compradores y arranque). Diseño: `docs/diseno/hu-13093-compradores-soat-flit2.md` ──
+//
+// RN-14  Compradores: `compradoresDesdeFlit2` (mapeo propio, no lanza; FLIT 1 sigue con
+//        `mapeo-compradores.ts`). Con compradores, se reemplazan en bloque SOLO si difieren de los
+//        guardados, y el titular del vehículo sale del principal (orden 0). Uno sin documento o sin
+//        nombre no se escribe (la PII enmascarada es la #13094): se cuenta en el log, nada más.
+// RN-15  Retroceso sin compradores: un trámite EXISTENTE que llega con `compradores: []` (o con ninguno
+//        escribible) CONSERVA los guardados, igual que conserva el vehículo (RN-04, contrato §4 «Bloques
+//        en null»). «Sin comprador» es el trámite nuevo o el que nunca tuvo; su lectura no falla.
+// RN-16  Historial: el reemplazo en un trámite existente deja UNA fila en `flito_tramite_historial`
+//        (campo `compradores`, origen 'api'). FLIT 1 no registra compradores en el historial, así que
+//        solo va un resumen: cantidad, orden y porcentaje; nunca documento, nombre ni contacto.
+// RN-17  Arranque: SOAT e impuesto por `arrancarSoatEImpuesto`, la MISMA función de FLIT 1, con sus
+//        mismas condiciones (flit_estado Asignado, compañía y organismo emparejados) más una: el
+//        trámite tiene comprador principal. Sin él, espera sin fallar; la entrega que lo traiga arranca.
 
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { Flit2LecturaResultado } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import { auditLogs, flitoSyncFlit2Lectura, flitoTramites, vehicles } from '../../db/schema.js';
+import { auditLogs, flitoCompradores, flitoSyncFlit2Lectura, flitoTramites, vehicles } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
 import { companiaPorNit } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import {
-  escribirTramite, fechaValida, resolverOrganismoDeFlit, upsertVehiculo, type ValorTramite, type VehiculoFlit,
+  arrancarSoatEImpuesto, escribirTramite, esAsignado, fechaValida, reemplazarCompradores, registrarDiferencias,
+  resolverOrganismoDeFlit, upsertVehiculo, type ContadoresArranque, type ValorTramite, type VehiculoFlit,
 } from './flito-sync.service.js';
-import { ESTADOS_SIN_ESTADO_FLITO, estadoDesdeFlit2, familiaATipoTramite, tipoPropiedadPorConteo } from './flit2-mapeo.js';
+import {
+  compradoresDesdeFlit2, ESTADOS_SIN_ESTADO_FLITO, estadoDesdeFlit2, familiaATipoTramite, tipoPropiedadPorConteo,
+} from './flit2-mapeo.js';
+import type { CompradorMapeado } from './mapeo-compradores.js';
 import { getFlit2SyncAdapter } from './flit2-sync.adapter.js';
 import type { Flit2SyncPort, ItemFlit2, PosicionLectura } from './flit2-sync.port.js';
 import { conCandadoLectura } from './flit2-candado.js';
@@ -126,6 +146,55 @@ async function placaConocida(tx: Tx, vin: string, placa: string | null): Promise
   return v?.plate ?? null;
 }
 
+/** Porcentaje comparable: la BD devuelve el numeric como texto ('60.00') y FLIT 2 como número. */
+const pct = (v: string | number | null): number | null => (v === null ? null : Number(v));
+
+/** Resumen SIN PII de unos compradores para el historial (RN-16): cantidad, orden y porcentaje. */
+export function resumenCompradores(cs: { orden: number; porcentajeParticipacion: string | number | null }[]): string {
+  if (cs.length === 0) return '0 compradores';
+  const partes = [...cs].sort((a, b) => a.orden - b.orden)
+    .map((c) => `orden ${c.orden} ${pct(c.porcentajeParticipacion) ?? 's/p'}${c.porcentajeParticipacion === null ? '' : ' %'}`);
+  return `${cs.length} comprador${cs.length === 1 ? '' : 'es'}: ${partes.join(', ')}`;
+}
+
+const huella = (c: {
+  orden: number; numeroDocumento: string; nombreCompleto: string; correo: string | null; celular: string | null;
+  direccion: string | null; porcentajeParticipacion: string | number | null;
+}): string => JSON.stringify([c.orden, c.numeroDocumento, c.nombreCompleto, c.correo, c.celular, c.direccion, pct(c.porcentajeParticipacion)]);
+
+/**
+ * Escribe los compradores de un trámite de FLIT 2 (RN-14…RN-16). Devuelve si cambiaron y si, tras
+ * escribir o conservar, el trámite tiene comprador principal (condición de arranque, RN-17).
+ */
+async function escribirCompradoresFlit2(
+  tx: Tx, tramiteId: string, esNuevo: boolean, nuevos: CompradorMapeado[],
+): Promise<{ cambiaron: boolean; tienePrincipal: boolean }> {
+  const tienePrincipalNuevo = nuevos.some((c) => c.orden === 0);
+  if (esNuevo) {
+    if (nuevos.length > 0) await reemplazarCompradores(tx, tramiteId, nuevos);
+    return { cambiaron: false, tienePrincipal: tienePrincipalNuevo };
+  }
+  const guardados = await tx.select({
+    orden: flitoCompradores.orden, numeroDocumento: flitoCompradores.numeroDocumento,
+    nombreCompleto: flitoCompradores.nombreCompleto, correo: flitoCompradores.correo, celular: flitoCompradores.celular,
+    direccion: flitoCompradores.direccion, porcentajeParticipacion: flitoCompradores.porcentajeParticipacion,
+  }).from(flitoCompradores).where(eq(flitoCompradores.tramiteId, tramiteId));
+  // RN-15: sin compradores escribibles, se conservan los guardados.
+  if (nuevos.length === 0) return { cambiaron: false, tienePrincipal: guardados.some((c) => c.orden === 0) };
+
+  const antes = guardados.map(huella).sort().join('|');
+  const despues = nuevos.map(huella).sort().join('|');
+  if (antes === despues) return { cambiaron: false, tienePrincipal: tienePrincipalNuevo };
+
+  await reemplazarCompradores(tx, tramiteId, nuevos);
+  const resumenAntes = resumenCompradores(guardados);
+  let resumenDespues = resumenCompradores(nuevos);
+  // Mismo resumen y otra persona o contacto: el rastro dice que cambió sin decir qué dato (RN-16).
+  if (resumenDespues === resumenAntes) resumenDespues += ' (cambian datos de persona)';
+  await registrarDiferencias(tx, tramiteId, { compradores: resumenAntes }, { compradores: resumenDespues });
+  return { cambiaron: true, tienePrincipal: tienePrincipalNuevo };
+}
+
 /** Clasifica y aplica UN ítem dentro de la transacción de su página (RN-03…RN-06). */
 async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date): Promise<void> {
   if (it.eliminado) { r.eliminadosIgnorados += 1; return; }
@@ -152,18 +221,27 @@ async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date): P
     : null;
   if (org && (org.codigoSecretaria || org.ciudad || org.nombre) && !organismo) r.organismosSinEmparejar += 1;
 
+  const { compradores, omitidos } = compradoresDesdeFlit2(it.compradores);
+  if (omitidos > 0) {
+    log.warn({ idFlit2: it.idFlit2, omitidos }, 'compradores de FLIT 2 sin documento o sin nombre: no se escriben');
+  }
+  // El titular solo sale del principal (orden 0): sin él, los spreads conservan el que había (RN-14).
+  const paraTitular = compradores[0]?.orden === 0 ? compradores : [];
+
   let vehiculoId: number;
   let plateComplete: string | null;
+  let vin: string | null;
   if (it.vehiculo) {
+    vin = it.vehiculo.vin;
     const placa = await placaConocida(tx, it.vehiculo.vin, it.vehiculo.placa);
-    // Sin compradores: esta HU no pone propietario (los spreads conservan el que había, #13093).
-    const vf: VehiculoFlit = { ...it.vehiculo, placa, compradores: [] };
+    const vf: VehiculoFlit = { ...it.vehiculo, placa, compradores: paraTitular };
     vehiculoId = await upsertVehiculo(tx, vf, compania?.id ?? null);
     plateComplete = placa ?? porId?.plateComplete ?? null;
   } else {
     // Solo llega aquí un trámite existente (el nuevo sin vehículo salió arriba): conserva el suyo.
     vehiculoId = porId!.vehiculoId;
     plateComplete = porId!.plateComplete;
+    vin = null; // se lee solo si hace falta arrancar (RN-17)
   }
 
   const mapeo = estadoDesdeFlit2(it.estado);
@@ -193,10 +271,26 @@ async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date): P
     syncVersion: it.syncVersion,
   };
 
-  const { esNuevo, huboCambios } = await escribirTramite(tx, porId ?? null, it.radicado, valores);
+  const { row, esNuevo, huboCambios } = await escribirTramite(tx, porId ?? null, it.radicado, valores);
+  const { cambiaron, tienePrincipal } = await escribirCompradoresFlit2(tx, row.id, esNuevo, compradores);
   if (esNuevo) r.nuevos += 1;
-  else if (huboCambios) r.actualizados += 1;
+  else if (huboCambios || cambiaron) r.actualizados += 1;
   else r.sinCambios += 1;
+
+  // RN-17: las mismas condiciones y la misma función que FLIT 1, más el comprador principal.
+  if (esAsignado(row.flitEstado ?? '') && compania && organismo && tienePrincipal) {
+    vin ??= (await tx.select({ vin: vehicles.vin }).from(vehicles).where(eq(vehicles.id, vehiculoId)).limit(1))[0]?.vin ?? null;
+    if (!vin) return; // un vehículo sin VIN no puede llevar SOAT (el SOAT va por VIN, RN-01 de FLIT 1)
+    const liquidado = row.valorImpuestoLiquidado === null ? null : Number(row.valorImpuestoLiquidado);
+    // Los contadores del arranque no están en el resultado de FLIT 2: lo creado deja su audit, como en FLIT 1.
+    const arranque: ContadoresArranque = { soatCreados: 0, soatBloqueadosPorVin: 0, impuestosCreados: 0, impuestosBloqueadosPorVehiculo: 0 };
+    await arrancarSoatEImpuesto(
+      tx,
+      { vin, idFlit: it.radicado, valorImpuestoLiquidado: liquidado },
+      { tramiteId: row.id, soatId: row.soatId, vehiculoId, compania, organismoCodigo: organismo.codigo },
+      arranque,
+    );
+  }
 }
 
 /** Aplica los ítems de una página. Los desenlaces esperados se cuentan; solo un fallo de BD lanza. */
