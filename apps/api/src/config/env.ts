@@ -137,6 +137,17 @@ const envSchema = z.object({
   // fila activa. Nunca se loguea ni se devuelve por el API. En PDN no sustituye al cifrado en
   // reposo — un token en env no tiene trazabilidad de quién lo puso ni cuándo (CF-03).
   VERIFIK_SIMIT_TOKEN: z.preprocess(vacioComoAusente, z.string().min(1).optional()),
+  // ── Acceso de FLITO a FLIT 2 (Feature #13057, HU #13061) ──────────────────────────────────────
+  // Llave maestra propia de la contraseña del usuario de servicio de FLIT 2 (mismo criterio que
+  // ADR-0002: una llave comprometida no abre otra integración). Opcional para que el boot no la
+  // exija: sin ella el GET del acceso responde y el PUT falla con 503 `llave_maestra`.
+  FLIT2_ENC_KEY: z.preprocess(
+    vacioComoAusente,
+    z.string().regex(/^[0-9a-fA-F]{64}$/, 'FLIT2_ENC_KEY debe ser 64 hex chars (32 bytes)').optional(),
+  ),
+  // Origen de la API de FLIT 2. Solo por env: el repo es público y el host no va en él. Lo usa el
+  // pase (HU #13063); ausente → «FLIT 2 no está configurado en este ambiente».
+  FLIT2_BASE_URL: z.preprocess(vacioComoAusente, z.string().url().optional()),
   // `mock` por defecto: sin credenciales reales, un test o un dev no deben salir a la red.
   COMPARENDOS_SIMIT_MODE: z.enum(['mock', 'real']).default('mock'),
   // Retención del histórico de registros/timeline (CF Habeas Data, Ley 1581). 24 meses por defecto,

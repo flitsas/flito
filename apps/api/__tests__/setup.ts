@@ -23,6 +23,8 @@ process.env.SIIGO_ENC_KEY = 'b71d3f9a20c845e6f8319ad4c7be5026a19d3f84c60be27159a
 // aparte (`flito-comparendos-token.llave.test.ts`): `env` es una foto tomada en el import, así que
 // borrar la variable aquí en caliente no cambiaría nada.
 process.env.COMPARENDOS_ENC_KEY = 'b5f4065feb4eb79cbd65cb53b4c23a6bf695b4e5b5f67e3266175637bdfb8dfd';
+// Llave de prueba de FLIT 2 (HU #13061): distinta de las demás a propósito, keyspace propio.
+process.env.FLIT2_ENC_KEY = '3c9e71a04d5b28f6e1a7c4d09b3f52e86a1d7c40f9b2e653a8d1c7f04e6b9a25';
 process.env.S3_ACCESS_KEY = 'test-access';
 process.env.S3_SECRET_KEY = 'test-secret-key';
 process.env.PUBLIC_URL = 'https://test.kyverum.com';

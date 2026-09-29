@@ -337,6 +337,65 @@ export function decryptComparendosSecret(bundle: CipherBundle, aadParts: AadPart
   return Buffer.concat([decipher.update(bundle.cipher), decipher.final()]).toString('utf8');
 }
 
+// ============================================================================
+// FLIT 2 — keyspace propio de la contraseña del usuario de servicio (Feature #13057, HU #13061)
+// ============================================================================
+// Cifra `secret_cipher` de `flito_sync_flit2_acceso` con la llave dedicada `FLIT2_ENC_KEY`. Mismo
+// criterio que Comparendos (ADR-0002): mínimo privilegio y SIN derivación de respaldo en desarrollo.
+
+const FLIT2_KEY_VERSION_CURRENT = 1;
+
+/** Error de configuración del entorno: distingue «falta la llave» de «falló el cifrado». */
+export class Flit2EncKeyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'Flit2EncKeyError';
+  }
+}
+
+function loadFlit2Key(version: number): Buffer {
+  if (version !== FLIT2_KEY_VERSION_CURRENT) {
+    throw new Flit2EncKeyError(`FLIT2_ENC_KEY versión ${version} no configurada`);
+  }
+  const hexLlave = env.FLIT2_ENC_KEY;
+  if (!hexLlave) {
+    throw new Flit2EncKeyError(
+      'FLIT2_ENC_KEY no está configurada: el acceso a FLIT 2 no puede cifrarse ni descifrarse. '
+      + 'Defínela con 64 caracteres hexadecimales (32 bytes).',
+    );
+  }
+  if (!/^[0-9a-fA-F]{64}$/.test(hexLlave)) {
+    throw new Flit2EncKeyError('FLIT2_ENC_KEY debe ser 64 hex chars (32 bytes)');
+  }
+  const buf = Buffer.from(hexLlave, 'hex');
+  // Mismo filtro de entropía que Comparendos, envuelto para no nombrar RNDC_ENC_KEY en el mensaje.
+  try {
+    assertSufficientEntropy(buf);
+  } catch (e) {
+    const detalle = e instanceof Error ? e.message.replace(/^RNDC_ENC_KEY rechazada: /, '') : String(e);
+    throw new Flit2EncKeyError(`FLIT2_ENC_KEY rechazada: ${detalle}`);
+  }
+  return buf;
+}
+
+export function encryptFlit2Secret(plaintext: string, aadParts: AadParts): CipherBundle {
+  const keyVersion = FLIT2_KEY_VERSION_CURRENT;
+  const key = loadFlit2Key(keyVersion);
+  const iv = crypto.randomBytes(12);
+  const cipherObj = crypto.createCipheriv('aes-256-gcm', key, iv);
+  cipherObj.setAAD(buildAad(aadParts, keyVersion));
+  const cipher = Buffer.concat([cipherObj.update(plaintext, 'utf8'), cipherObj.final()]);
+  return { cipher, iv, authTag: cipherObj.getAuthTag(), keyVersion };
+}
+
+export function decryptFlit2Secret(bundle: CipherBundle, aadParts: AadParts): string {
+  const key = loadFlit2Key(bundle.keyVersion);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, bundle.iv);
+  decipher.setAAD(buildAad(aadParts, bundle.keyVersion));
+  decipher.setAuthTag(bundle.authTag);
+  return Buffer.concat([decipher.update(bundle.cipher), decipher.final()]).toString('utf8');
+}
+
 /**
  * Normaliza un documento (cédula/NIT) eliminando todo lo que no sea dígito.
  * Acepta inputs como "1.036.640.908", " 1036640908 ", "CC 1036640908".

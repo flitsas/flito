@@ -43,6 +43,14 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-soat/flito-soat-cliente.routes.ts', metodo: 'POST', ruta: '/cliente/preconsulta', codigo: 'soat.runt.preconsultar' },
   { fichero: 'flito-soat/flito-soat-cliente.routes.ts', metodo: 'POST', ruta: '/cliente', codigo: 'soat.solicitud.crear' },
   { fichero: 'flito-soat/flito-soat-cliente.routes.ts', metodo: 'POST', ruta: '/cliente/factura/lectura', codigo: 'soat.factura.leer' },
+  // flito-soat/flito-soat-incompletas.routes.ts (HU #12997)
+  { fichero: 'flito-soat/flito-soat-incompletas.routes.ts', metodo: 'POST', ruta: '/cliente/incompletas/buscar', codigo: 'soat.incompletas.buscar' },
+  { fichero: 'flito-soat/flito-soat-incompletas.routes.ts', metodo: 'GET', ruta: '/cliente/incompletas/:id', codigo: 'soat.incompleta.ver' },
+  // HU #12998
+  { fichero: 'flito-soat/flito-soat-incompletas.routes.ts', metodo: 'POST', ruta: '/cliente/incompletas/:id/reintentar', codigo: 'soat.solicitud.reintentar_runt' },
+  // HU #13061: acceso de FLITO a FLIT 2 (0214, solo admin).
+  { fichero: 'flito-sync/flit2.routes.ts', metodo: 'GET', ruta: '/acceso', codigo: 'tramites.flit2.ver_acceso' },
+  { fichero: 'flito-sync/flit2.routes.ts', metodo: 'PUT', ruta: '/acceso', codigo: 'tramites.flit2.guardar_acceso' },
   // flito-parametrizacion/flito-parametrizacion.routes.ts
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'GET', ruta: '/companias', codigo: 'parametrizacion.companias.listar' },
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'PATCH', ruta: '/companias/:id', codigo: 'parametrizacion.companias.editar' },
@@ -120,6 +128,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/:id/recibo-caja', codigo: 'impuestos.recibos.cargar_caja' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/:id/asumir-operaciones', codigo: 'impuestos.tramite.asumir' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/:id/devolver-gestor', codigo: 'impuestos.tramite.devolver' },
+  // HU #12833: sub-router propio de la corrección de dirección.
+  { fichero: 'flito-impuestos/flito-impuestos.direccion.routes.ts', metodo: 'PATCH', ruta: '/:id/direccion', codigo: 'impuestos.tramite.corregir_direccion' },
   // flito-derechos/flito-derechos.routes.ts
   { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'POST', ruta: '/cargar', codigo: 'derechos.recibos.cargar' },
   { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'GET', ruta: '/', codigo: 'derechos.cola.ver' },
