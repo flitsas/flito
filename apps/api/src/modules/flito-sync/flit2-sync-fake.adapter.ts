@@ -14,6 +14,8 @@ export interface PaginaFake {
   items: unknown[];
   nextCursor: string;
   hasMore: boolean;
+  /** HU #13094: esta página salió con un pase sin (false) o con (true) el scope de datos personales. */
+  conPii?: boolean;
 }
 
 const uuidFicticio = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -57,19 +59,22 @@ function paginasPorDefecto(): PaginaFake[] {
 
 export interface Flit2SyncFake extends Flit2SyncPort {
   llamadas: { cursor?: string; since?: string; pageSize: number }[];
+  /** HU #13094: scope de datos personales del pase simulado (por defecto, concedido). Se puede cambiar. */
+  conPii: boolean;
 }
 
 export function crearFlit2SyncFake(paginas: PaginaFake[] = paginasPorDefecto()): Flit2SyncFake {
   const llamadas: Flit2SyncFake['llamadas'] = [];
-  return {
+  const fake: Flit2SyncFake = {
     llamadas,
-    async verificarAcceso() { /* sin red */ },
+    conPii: true,
+    async verificarAcceso() { return { conPii: fake.conPii }; },
     async leerPagina(pos: PosicionLectura, pageSize: number): Promise<PaginaFlit2> {
       const desde = 'cursor' in pos ? pos.cursor : null;
       llamadas.push('cursor' in pos ? { cursor: pos.cursor, pageSize } : { since: pos.since.toISOString(), pageSize });
       const pagina = paginas.find((p) => p.desde === desde);
       // Cursor que el fake no conoce: el feed está al día (contrato §3: página vacía, mismo cursor).
-      if (!pagina) return { items: [], invalidos: 0, nextCursor: desde ?? 'fake-c0', hasMore: false };
+      if (!pagina) return { items: [], invalidos: 0, nextCursor: desde ?? 'fake-c0', hasMore: false, conPii: fake.conPii };
       const items: ItemFlit2[] = [];
       let invalidos = 0;
       for (const crudo of pagina.items) {
@@ -77,7 +82,8 @@ export function crearFlit2SyncFake(paginas: PaginaFake[] = paginasPorDefecto()):
         if (item) items.push(item);
         else invalidos += 1;
       }
-      return { items, invalidos, nextCursor: pagina.nextCursor, hasMore: pagina.hasMore };
+      return { items, invalidos, nextCursor: pagina.nextCursor, hasMore: pagina.hasMore, conPii: pagina.conPii ?? fake.conPii };
     },
   };
+  return fake;
 }
