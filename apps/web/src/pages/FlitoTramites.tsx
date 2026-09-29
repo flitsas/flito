@@ -29,6 +29,7 @@ import VisorSoportes from '../components/flit/VisorSoportes';
 import ModalFacturaVenta, { esNombrePlacaOrganismo, nombreFacturaVenta } from '../components/flit/ModalFacturaVenta';
 import AccesoFlit2 from '../components/flito/tramites/AccesoFlit2';
 import SincronizarFlit2 from '../components/flito/tramites/SincronizarFlit2';
+import { AvisoEstadoFlit2, LineaEstadoFlit2, useEstadoFlit2 } from '../components/flito/tramites/EstadoFlit2';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty,
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -118,6 +119,7 @@ export default function FlitoTramites() {
   const { hasFuncion } = useAuth();
   // HU #12170
   const esOperaciones = hasFuncion('tramites.solicitud.pedir_soat');
+  const estadoFlit2 = useEstadoFlit2();
 
   // Semilla desde la URL, solo al montar, para que un enlace de otra pantalla (el detalle del
   // reintento de derechos) llegue con la búsqueda ya aplicada. A partir de ahí manda el usuario.
@@ -407,12 +409,17 @@ export default function FlitoTramites() {
                 </button>
               </div>
             )}
-            <SincronizarFlit2 onTerminado={refrescar} />
+            <div className="flex flex-wrap items-center gap-3">
+              <LineaEstadoFlit2 estado={estadoFlit2} />
+              <SincronizarFlit2 onTerminado={refrescar} onIntento={estadoFlit2.refrescar} />
+            </div>
             {esOperaciones && <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} title="Crea un trámite aprobado de prueba para Logística"
               onClick={() => setCrearDemo(true)}>+ Trámite demo</button>}
             <AccesoFlit2 />
           </div>
         } />
+
+      <AvisoEstadoFlit2 estado={estadoFlit2} />
 
       {resumenSync && <FlitCard><p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}><strong style={{ color: 'var(--flit-blue-text)' }}>Sincronización:</strong> {resumenSync}</p></FlitCard>}
 

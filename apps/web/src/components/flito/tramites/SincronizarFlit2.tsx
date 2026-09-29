@@ -96,7 +96,8 @@ function avisoDeError(e: unknown): { texto: string; reintentar: boolean } {
   }
 }
 
-export default function SincronizarFlit2({ onTerminado }: { onTerminado: () => void }) {
+/** `onIntento` se llama al terminar cada pulsación, salga bien o mal (HU #13098: refresca el estado de FLIT 2). */
+export default function SincronizarFlit2({ onTerminado, onIntento }: { onTerminado: () => void; onIntento?: () => void }) {
   const { hasFuncion } = useAuth();
   const [leyendo, setLeyendo] = useState(false);
   const enVuelo = useRef(false);
@@ -127,8 +128,9 @@ export default function SincronizarFlit2({ onTerminado }: { onTerminado: () => v
     } finally {
       enVuelo.current = false;
       setLeyendo(false);
+      onIntento?.();
     }
-  }, [onTerminado]);
+  }, [onTerminado, onIntento]);
 
   if (!hasFuncion('sync.sync.lanzar')) return null;
   return (
