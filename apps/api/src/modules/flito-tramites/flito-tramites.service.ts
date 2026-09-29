@@ -549,7 +549,15 @@ function construirCondiciones(f: FiltrosListado): SQL[] {
     )!);
   }
   // Filtros multiselect: cualquiera de los valores seleccionados coincide (IN).
-  if (f.estados?.length) conds.push(inArray(flitoTramites.flitEstado, f.estados));
+  // RN-13091-AC7 (HU #13091, AC7): un trámite revocado en FLIT 2 es anulado en FLITO y conserva
+  // «Revocado» como estado de origen, así que filtrar por «Anulado» también trae los revocados.
+  // Expansión de un solo sentido: elegir solo «Revocado» trae solo los revocados (la opción sigue
+  // en las facetas), ningún otro estado cambia, y si vienen los dos no se duplica.
+  if (f.estados?.length) {
+    const estados = f.estados.includes('Anulado') && !f.estados.includes('Revocado')
+      ? [...f.estados, 'Revocado'] : f.estados;
+    conds.push(inArray(flitoTramites.flitEstado, estados));
+  }
   if (f.ciudades?.length) conds.push(inArray(flitoTramites.ciudad, f.ciudades));
   // Tránsito por el nombre mostrado (el Transito crudo de FLIT; alias solo como respaldo).
   if (f.transitos?.length) {

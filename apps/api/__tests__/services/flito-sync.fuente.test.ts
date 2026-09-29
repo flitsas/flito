@@ -4,6 +4,11 @@
 // le cambia la fuente: ni el INSERT ni el UPDATE del upsert llevan la clave. Si la llevaran, un
 // trámite que FLIT 2 hubiera creado con el mismo id quedaría re-etiquetado por el sync de FLIT 1.
 // Recorrido real de `sincronizar` sobre el keyed-db, igual que flito-sync.motor-serie-bug12643.
+//
+// HU #13091 (AC4, TC-23/TC-24): una fila con `fuente='flit2'` la trajo FLIT 2 y el sync de FLIT 1 no
+// la toca (ni el trámite ni su vehículo); una con `fuente='flit'` se actualiza como siempre. Por eso
+// el caso «re-sincronizar» usa ahora una fila `fuente='flit'` (antes era 'flit2', que desde esta HU
+// es precisamente la que se omite); su aserto no cambia.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getTableName } from 'drizzle-orm';
@@ -91,7 +96,7 @@ describe('HU #13070 · AC2 — el sync de FLIT no escribe ni pisa la fuente', ()
     kdb.when
       .select('vehicles', [{ id: 4243 }])
       .select('flito_tramites', [{
-        id: TRAMITE_ID, idFlit: 'FLIT-099002', fuente: 'flit2', flitEstado: 'Asignado', facturaVentaFlitId: 'F-2',
+        id: TRAMITE_ID, idFlit: 'FLIT-099002', fuente: 'flit', flitEstado: 'Asignado', facturaVentaFlitId: 'F-2',
         fechaAprobacion: null, companiaId: 7, organismoCodigo: '25286', tipoTramite: 'Otros', ciudad: 'FUNZA', soatId: null,
       }])
       .update('flito_tramites', [{ id: TRAMITE_ID, soatId: null }]);
@@ -102,5 +107,39 @@ describe('HU #13070 · AC2 — el sync de FLIT no escribe ni pisa la fuente', ()
     expect(set, 'hubo UPDATE de flito_tramites').toBeDefined();
     expect(set!.flitEstado).toBe('Asignado');
     expect(Object.keys(set!)).not.toContain('fuente');
+  });
+
+  it('HU #13091 · TC-23: una fila con fuente flit2 no se toca (ni trámite, ni vehículo, ni historial)', async () => {
+    kdb.when
+      .select('vehicles', [{ id: 4243 }])
+      .select('flito_tramites', [{
+        id: TRAMITE_ID, idFlit: 'FLIT-099002', fuente: 'flit2', flitEstado: 'Aprobado', facturaVentaFlitId: null,
+        fechaAprobacion: null, companiaId: 7, organismoCodigo: '25286', tipoTramite: 'Matricula', ciudad: 'FUNZA', soatId: null,
+      }]);
+    const updates = espiar('update', 'set');
+    const inserts = espiar('insert', 'values');
+    const r = await sincronizar(RANGO, puertoConUno(tramiteFlit()));
+    expect(logMock.error).not.toHaveBeenCalled();
+    expect(r.tramitesOmitidosOtraFuente).toBe(1);
+    expect(r.tramitesNuevos + r.tramitesActualizados + r.tramitesSinCambios).toBe(0);
+    expect(updates.map((u) => u.tabla)).toEqual([]);
+    expect(inserts.map((i) => i.tabla)).toEqual([]);
+  });
+
+  it('HU #13091 · TC-24: una fila con fuente flit se sigue actualizando (la guarda solo filtra flit2)', async () => {
+    kdb.when
+      .select('vehicles', [{ id: 4243 }])
+      .select('flito_tramites', [{
+        id: TRAMITE_ID, idFlit: 'FLIT-099002', fuente: 'flit', flitEstado: 'Aprobado', facturaVentaFlitId: 'F-2',
+        fechaAprobacion: null, companiaId: 7, organismoCodigo: '25286', tipoTramite: 'Otros', ciudad: 'FUNZA', soatId: null,
+      }])
+      .update('flito_tramites', [{ id: TRAMITE_ID, soatId: null }]);
+    const updates = espiar('update', 'set');
+    const r = await sincronizar(RANGO, puertoConUno(tramiteFlit()));
+    expect(logMock.error).not.toHaveBeenCalled();
+    expect(r.tramitesOmitidosOtraFuente).toBe(0);
+    expect(r.tramitesActualizados).toBe(1);
+    expect(updates.find((u) => u.tabla === T_TRAMITES)?.datos.flitEstado).toBe('Asignado');
+    expect(updates.some((u) => u.tabla === 'vehicles')).toBe(true);
   });
 });
