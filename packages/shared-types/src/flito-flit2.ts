@@ -53,3 +53,35 @@ export interface Flit2PruebaResultado {
   /** Permisos que concedió FLIT 2 al pase (solo con `conectado*`). */
   scope: string[];
 }
+
+/**
+ * Resumen de una lectura incremental de trámites de FLIT 2 (HU #13091), respuesta de
+ * `POST /api/flito/sync/flit2/sincronizar`. Solo números y enums: ningún radicado ni nombre.
+ *
+ * Cada ítem leído cae en UNA sola clase, así que
+ * `leidos = nuevos + actualizados + sinCambios + conflictos + sinVehiculo + eliminadosIgnorados + invalidos`.
+ */
+export interface Flit2LecturaResultado {
+  leidos: number;
+  nuevos: number;
+  actualizados: number;
+  /** Ya guardado con una versión igual o mayor, o llegó idéntico. */
+  sinCambios: number;
+  /** El radicado ya existe con otra identidad (FLIT 1 u otro id de FLIT 2): no se toca. */
+  conflictos: number;
+  /** Trámite nuevo sin vehículo o sin VIN: no se guarda hasta que llegue con él. */
+  sinVehiculo: number;
+  /** Tombstones (`eliminado: true`): se ignoran y solo se cuentan. */
+  eliminadosIgnorados: number;
+  /** Ítems que no cumplen el contrato (id no uuid, syncVersion no entero…): se saltan. */
+  invalidos: number;
+  companiasFaltantes: number;
+  organismosSinEmparejar: number;
+  paginas: number;
+  /** `true` = se cortó por el tope de páginas: queda más por leer, basta volver a pulsar. */
+  hasMore: boolean;
+  /** `since` en la primera corrida (arranque sin histórico); `cursor` en las siguientes. */
+  modo: 'since' | 'cursor';
+  /** ISO 8601. */
+  ejecutadoEn: string;
+}

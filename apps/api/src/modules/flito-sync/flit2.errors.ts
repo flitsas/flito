@@ -107,6 +107,32 @@ export class Flit2NoRespondeError extends Flit2Error {
   }
 }
 
+/**
+ * HU #13091: otra corrida movió el cursor de lectura mientras esta aplicaba su página. La página se
+ * revierte (el UPDATE optimista del cursor tocó 0 filas); repetirla es inocuo porque el upsert es
+ * idempotente por `syncVersion`. La #13092 pone el candado que lo vuelve raro.
+ */
+export class Flit2LecturaConcurrenteError extends Flit2Error {
+  constructor() {
+    super('lectura_concurrente', 409, 'Otra lectura de FLIT 2 avanzó al mismo tiempo. Vuelve a intentarlo en unos segundos.');
+  }
+}
+
+/**
+ * HU #13091: el feed de FLIT 2 respondió algo distinto de un 200 legible. Lleva el estado HTTP y el
+ * código RFC 7807 (si tenía forma de código) para el log y para la #13092 (429/423); el cuerpo de
+ * FLIT 2 nunca se reenvía.
+ */
+export class Flit2RespuestaError extends Flit2Error {
+  readonly statusFlit2: number | null;
+  readonly codigoFlit2: string | null;
+  constructor(statusFlit2: number | null, codigoFlit2: string | null) {
+    super('flit2_respuesta', 502, 'FLIT 2 respondió de forma inesperada al leer los trámites.');
+    this.statusFlit2 = statusFlit2;
+    this.codigoFlit2 = codigoFlit2;
+  }
+}
+
 /** Código `23505` de Postgres en el error o en su cadena de causas (Drizzle lo envuelve). */
 export function esViolacionDeUnicidad(e: unknown): boolean {
   for (let actual: unknown = e, saltos = 0; actual != null && saltos < 5; saltos++) {
