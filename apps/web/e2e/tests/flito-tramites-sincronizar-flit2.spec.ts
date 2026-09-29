@@ -17,6 +17,14 @@ const RESULTADO = {
 };
 
 async function mockCola(page: Page, alListar?: () => void) {
+  // HU #13098: la cabecera consulta el estado de FLIT 2; sano, para que no sume controles a la barra.
+  await page.route(/\/api\/flito\/sync\/flit2\/estado$/, (r) => r.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({
+      configurado: true, motivoSinConfigurar: null, ultimaExitosaEn: null, ultimoIntentoEn: null, atrasada: false,
+      alerta: false, problema: null, piiEnmascarada: { tramites: 0, desde: null },
+    }),
+  }));
   await page.route(/\/api\/flito\/tramites\/facetas/, (r) => r.fulfill({
     status: 200, contentType: 'application/json',
     body: JSON.stringify({ estados: [], tramites: [], ciudades: [], transitos: [] }),

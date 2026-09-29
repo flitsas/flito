@@ -230,6 +230,8 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     'tramites.tramite.ver_soportes',
     'tramite.tramite.forzar_continuar', 'compuerta.tramite.entregar', 'logistica.lote.cerrar',
     'tablero.tablero.ver', 'sync.sync.lanzar',
+    // HU #13098: estado de la conexión con FLIT 2 en Gestión Trámites (0179: sembrada a `admin`).
+    'sync.sync.ver_estado',
     'transito.tramite.tomar', 'transito.bandeja.ver_pendientes', 'transito.config.listar',
     'transito.config.editar',
     'liquidacion.liquidacion.liquidar', 'liquidacion.liquidacion.reversar',
