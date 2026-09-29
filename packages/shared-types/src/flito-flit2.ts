@@ -25,3 +25,31 @@ export interface Flit2GuardarAccesoInput {
   clientId: string;
   clientSecret: string;
 }
+
+/**
+ * Desenlace de «Probar conexión» (HU #13063). Es dato (200), no error HTTP: la pantalla lo pinta
+ * como aviso con su propio texto a partir de este valor. Un valor por caso:
+ * `rechazado` = 401 `invalid_client` · `cambio_clave` = 403 `secret_rotation_required` ·
+ * `bloqueado` = 423 o pausa vigente por 423 · `espera` = 429 o pausa vigente por 429.
+ */
+export type Flit2PruebaEstado =
+  | 'conectado'
+  | 'conectado_sin_pii'
+  | 'rechazado'
+  | 'cambio_clave'
+  | 'bloqueado'
+  | 'espera'
+  | 'no_responde'
+  | 'no_configurado'
+  | 'sin_acceso';
+
+/** Respuesta de `POST /api/flito/sync/flit2/acceso/probar`. Nunca lleva el pase ni la contraseña. */
+export interface Flit2PruebaResultado {
+  resultado: Flit2PruebaEstado;
+  /** Español llano, de un mapa fijo: nunca el cuerpo de error de FLIT 2. */
+  mensaje: string;
+  /** ISO 8601. Solo con `bloqueado` o `espera`: hasta cuándo no se vuelve a llamar. */
+  bloqueadoHasta: string | null;
+  /** Permisos que concedió FLIT 2 al pase (solo con `conectado*`). */
+  scope: string[];
+}

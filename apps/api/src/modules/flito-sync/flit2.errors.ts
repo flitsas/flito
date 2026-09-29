@@ -3,7 +3,8 @@
 // Cada uno lleva su estado HTTP y un `codigo` estable; la ruta solo los traduce. Ningún mensaje de
 // este archivo incluye —ni recortada— la contraseña del usuario de servicio: nada de lo que se
 // lanza desde aquí puede acabar en un log o en una respuesta con material de la credencial dentro.
-// Los errores del pase (rechazado, bloqueado, no responde…) llegan con la HU #13063.
+// Los errores del pase (rechazado, bloqueado, no responde…) son de la HU #13063: los lanzan
+// `obtenerPase`/`conPase` a los procesos automáticos; «Probar conexión» los traduce a un 200.
 
 export class Flit2Error extends Error {
   /** Estado HTTP con el que la ruta responde. */
@@ -52,6 +53,57 @@ export class Flit2AccesoDescifradoError extends Flit2Error {
       503,
       'El acceso a FLIT 2 guardado no pudo leerse y se desactivó. Vuelve a registrar el usuario de servicio y la contraseña.',
     );
+  }
+}
+
+/** Motivo con el que FLIT 2 rechazó el acceso (marca durable en la fila vigente). */
+export type Flit2MotivoRechazo = 'invalid_client' | 'secret_rotation_required';
+/** Motivo de la pausa: 423 `client_locked` (15 min) o 429 `rate_limited` (`Retry-After`). */
+export type Flit2MotivoBloqueo = 'client_locked' | 'rate_limited';
+
+/** Sin `FLIT2_BASE_URL`: no se llama a FLIT 2. */
+export class Flit2NoConfiguradoError extends Flit2Error {
+  constructor() {
+    super('no_configurado', 503, 'FLIT 2 no está configurado en este ambiente.');
+  }
+}
+
+/** FLIT 2 rechazó el acceso vigente. Mientras la fila siga marcada, no se vuelve a llamar. */
+export class Flit2RechazadoError extends Flit2Error {
+  readonly motivo: Flit2MotivoRechazo;
+  constructor(motivo: Flit2MotivoRechazo) {
+    super(
+      'rechazado',
+      503,
+      motivo === 'secret_rotation_required'
+        ? 'FLIT 2 exige cambiar la contraseña de este acceso.'
+        : 'Usuario o contraseña rechazados por FLIT 2.',
+    );
+    this.motivo = motivo;
+  }
+}
+
+/** Pausa vigente (423 o 429): no se llama a FLIT 2 hasta `hasta`. */
+export class Flit2BloqueadoError extends Flit2Error {
+  readonly motivo: Flit2MotivoBloqueo;
+  readonly hasta: Date;
+  constructor(motivo: Flit2MotivoBloqueo, hasta: Date) {
+    super(
+      motivo === 'rate_limited' ? 'espera' : 'bloqueado',
+      503,
+      motivo === 'rate_limited'
+        ? 'FLIT 2 pidió esperar antes de volver a pedir acceso.'
+        : 'FLIT 2 bloqueó temporalmente el acceso.',
+    );
+    this.motivo = motivo;
+    this.hasta = hasta;
+  }
+}
+
+/** Timeout, red caída o 5xx. Sin marca: el siguiente intento vuelve a llamar. */
+export class Flit2NoRespondeError extends Flit2Error {
+  constructor() {
+    super('no_responde', 503, 'FLIT 2 no responde.');
   }
 }
 

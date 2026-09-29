@@ -14,6 +14,9 @@
 //        acceso vigente no se toca. Consultar sí funciona sin llave (es con lo que se diagnostica).
 // RN-04  Un descifrado fallido desactiva la fila y deja el motivo escrito en ella; la falta de llave
 //        no desactiva nada (la fila está sana).
+// RN-05  (HU #13063) Las marcas de rechazo y de pausa viven en la fila vigente; la fila nueva nace sin
+//        ellas, así que guardar otro acceso levanta la pausa. Tras el commit se descarta el pase en
+//        memoria (AC10).
 
 import { and, eq } from 'drizzle-orm';
 import type { Flit2AccesoEstado, Flit2AccesoMeta } from '@operaciones/shared-types';
@@ -34,7 +37,10 @@ import {
   Flit2LlaveMaestraError,
   Flit2SinAccesoError,
   esViolacionDeUnicidad,
+  type Flit2MotivoBloqueo,
+  type Flit2MotivoRechazo,
 } from './flit2.errors.js';
+import { invalidarPase } from './flit2-pase.cache.js';
 
 const log = loggerFor('flito-sync-flit2');
 
@@ -151,6 +157,10 @@ export async function guardarAcceso(
     throw e;
   }
 
+  // AC10 (HU #13063): el pase del acceso anterior no se reutiliza. Después del commit, no antes: si
+  // la transacción falla, el acceso que funcionaba sigue siendo el vigente y su pase sigue valiendo.
+  invalidarPase();
+
   // Se relee para responder con la MISMA forma que el GET (el nombre del autor vive en `users`).
   const vigente = await leerMetaVigente();
   if (vigente) return vigente;
@@ -161,7 +171,17 @@ export async function guardarAcceso(
  * USO RESTRINGIDO: solo el pase de FLIT 2 (HU #13063). Devuelve el `client_id` y la contraseña
  * envuelta en `Redacted`; `.unwrap()` lo más tarde posible, al armar la petición de token.
  */
-export async function leerSecretoVigente(): Promise<{ id: number; clientId: string; secreto: Redacted<string> }> {
+export interface Flit2AccesoVigente {
+  id: number;
+  clientId: string;
+  secreto: Redacted<string>;
+  rechazadoEn: Date | null;
+  rechazoMotivo: Flit2MotivoRechazo | null;
+  bloqueadoHasta: Date | null;
+  bloqueoMotivo: Flit2MotivoBloqueo | null;
+}
+
+export async function leerSecretoVigente(): Promise<Flit2AccesoVigente> {
   const [fila] = await db.select().from(flitoSyncFlit2Acceso)
     .where(eq(flitoSyncFlit2Acceso.activo, true))
     .limit(1);
@@ -174,12 +194,42 @@ export async function leerSecretoVigente(): Promise<{ id: number; clientId: stri
       authTag: fila.secretAuthTag,
       keyVersion: fila.keyVersion,
     }, { table: TABLE, column: COLUMN, empresaNit: AMBITO, aadNonce: fila.aadNonce }));
-    return { id: fila.id, clientId: fila.clientId, secreto };
+    return {
+      id: fila.id,
+      clientId: fila.clientId,
+      secreto,
+      rechazadoEn: fila.rechazadoEn ?? null,
+      rechazoMotivo: (fila.rechazoMotivo ?? null) as Flit2MotivoRechazo | null,
+      bloqueadoHasta: fila.bloqueadoHasta ?? null,
+      bloqueoMotivo: (fila.bloqueoMotivo ?? null) as Flit2MotivoBloqueo | null,
+    };
   } catch (e) {
     if (e instanceof Flit2EncKeyError) throw new Flit2LlaveMaestraError(e.message);
     await marcarDescifradoFallido(fila.id, e instanceof Error ? e.message : String(e));
     throw new Flit2AccesoDescifradoError();
   }
+}
+
+/** RN-05. FLIT 2 rechazó el acceso: los procesos automáticos dejan de llamar hasta otro acceso o una prueba sana. */
+export async function marcarRechazo(id: number, motivo: Flit2MotivoRechazo): Promise<void> {
+  const ahora = new Date();
+  await db.update(flitoSyncFlit2Acceso)
+    .set({ rechazadoEn: ahora, rechazoMotivo: motivo, updatedAt: ahora })
+    .where(and(eq(flitoSyncFlit2Acceso.id, id), eq(flitoSyncFlit2Acceso.activo, true)));
+}
+
+/** RN-05. Pausa por 423 (15 min) o 429 (`Retry-After`): nadie llama a FLIT 2 hasta `hasta`. */
+export async function marcarBloqueo(id: number, hasta: Date, motivo: Flit2MotivoBloqueo): Promise<void> {
+  await db.update(flitoSyncFlit2Acceso)
+    .set({ bloqueadoHasta: hasta, bloqueoMotivo: motivo, updatedAt: new Date() })
+    .where(and(eq(flitoSyncFlit2Acceso.id, id), eq(flitoSyncFlit2Acceso.activo, true)));
+}
+
+/** RN-05. Una prueba manual sana limpia las marcas de la fila vigente. */
+export async function limpiarMarcas(id: number): Promise<void> {
+  await db.update(flitoSyncFlit2Acceso)
+    .set({ rechazadoEn: null, rechazoMotivo: null, bloqueadoHasta: null, bloqueoMotivo: null, updatedAt: new Date() })
+    .where(and(eq(flitoSyncFlit2Acceso.id, id), eq(flitoSyncFlit2Acceso.activo, true)));
 }
 
 /** RN-04. Si esta escritura falla no se propaga: el error que importa es el del descifrado. */
