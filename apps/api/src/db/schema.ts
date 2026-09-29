@@ -3092,6 +3092,8 @@ export const flitoTramites = pgTable('flito_tramites', {
   fuente: varchar('fuente', { length: 10 }).$type<FuenteTramite>().notNull().default('flit'),
   // HU #13091 (0215): identidad y versión del trámite en FLIT 2. Null en los de FLIT 1.
   idFlit2: uuid('id_flit2'), syncVersion: bigint('sync_version', { mode: 'number' }),
+  // HU #13094 (0216): leído de FLIT 2 sin el scope de datos personales; espera la relectura.
+  flit2PiiEnmascarada: boolean('flit2_pii_enmascarada').notNull().default(false),
   sincronizadoEn: timestamp('sincronizado_en', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -3105,6 +3107,7 @@ export const flitoTramites = pgTable('flito_tramites', {
   idFlit2Uq: uniqueIndex('uq_flito_tramites_id_flit2').on(t.idFlit2).where(sql`${t.idFlit2} IS NOT NULL`),
   fuenteIdFlit2Ck: check('ck_flito_tramites_fuente_id_flit2', sql`(${t.fuente} = 'flit2') = (${t.idFlit2} IS NOT NULL)`),
   syncVersionCk: check('ck_flito_tramites_flit2_sync_version', sql`${t.idFlit2} IS NULL OR ${t.syncVersion} IS NOT NULL`),
+  flit2PiiIdx: index('idx_flito_tramites_flit2_pii_enmascarada').on(t.id).where(sql`${t.flit2PiiEnmascarada}`),
 }));
 
 // Historial de cambios del trámite (auditoría campo por campo, Fase 8 / integración FLIT). Cada

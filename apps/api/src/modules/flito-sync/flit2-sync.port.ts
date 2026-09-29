@@ -69,10 +69,20 @@ export interface PaginaFlit2 {
   /** Siempre presente (contrato §3), también con `hasMore=false`. */
   nextCursor: string;
   hasMore: boolean;
+  /**
+   * HU #13094: si el pase con que se leyó la página traía `external.tramites.pii.read`. Sin él, los
+   * compradores llegan enmascarados (contrato §4). Ausente = se toma lo que dijo `verificarAcceso`.
+   */
+  conPii?: boolean;
+}
+
+/** Lo que sabe el acceso antes de leer (HU #13094). Ausente = con permiso de datos personales. */
+export interface AccesoLectura {
+  conPii: boolean;
 }
 
 export interface Flit2SyncPort {
   /** Lanza si no hay acceso utilizable (sin acceso, rechazado, bloqueado, no configurado). */
-  verificarAcceso(): Promise<void>;
+  verificarAcceso(): Promise<AccesoLectura | void>;
   leerPagina(pos: PosicionLectura, pageSize: number): Promise<PaginaFlit2>;
 }
