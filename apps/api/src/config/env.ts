@@ -151,6 +151,11 @@ const envSchema = z.object({
   // Adaptador del feed de trámites de FLIT 2 (HU #13091). `fake` sirve páginas ficticias en memoria
   // para dev/demo y está PROHIBIDO en producción (ver el superRefine de abajo).
   FLIT2_SYNC_ADAPTER: z.enum(['http', 'fake']).default('http'),
+  // HU #13095: hosts EXACTOS (sin esquema; con puerto si no es 443) del almacenamiento de adjuntos de
+  // FLIT 2, separados por coma. Ningún host en el repo (es público). Vacía o ausente = fail-closed:
+  // ninguna factura de FLIT 2 se descarga (motivo `host`). No bloquea el arranque.
+  FLIT2_ADJUNTOS_HOSTS: z.preprocess(vacioComoAusente, z.string().optional()).transform((v): string[] =>
+    (v ?? '').split(',').map((h) => h.trim().toLowerCase()).filter((h) => h !== '')),
   // Lectura programada de FLIT 2 cada 5 min (HU #13092). Encendida por defecto (en blanco = true);
   // 'false'/'0' la apaga. Aun encendida, sin acceso vigente la corrida no llama a FLIT 2.
   // Transform explícito: z.coerce.boolean vería "false" como true.

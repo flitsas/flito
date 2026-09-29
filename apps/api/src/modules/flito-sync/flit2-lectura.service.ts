@@ -22,7 +22,7 @@
 //        SOAT y los impuestos en marcha no retroceden. Solo un trámite NUEVO en esos estados nace con
 //        estado FLITO null (AC6). `revocado` → estado FLITO `anulado`, `flit_estado = 'Revocado'` (AC7).
 // RN-07  La #13091 no creaba compradores, SOAT ni impuestos (ahora los crea la #13093, RN-14…RN-17), ni
-//        lee la factura (#13095). `flit_raw` guarda los compradores con lista blanca, sin PII (AC10). Los
+//        leía la factura (ahora la #13095, RN-21). `flit_raw` guarda los compradores con lista blanca, sin PII (AC10). Los
 //        logs solo llevan `idFlit2`, radicado, contadores, estado HTTP y código.
 // RN-08  Cada ítem cae en UNA clase y los contadores cuadran:
 //        leidos = nuevos + actualizados + sinCambios + conflictos + sinVehiculo + eliminadosIgnorados + invalidos.
@@ -78,6 +78,15 @@
 //        relectura. Al terminarla se limpian `pii_enmascarada_desde` y `cursor_relectura` (AC4). Si se
 //        corta (tope, 429, error), el cursor queda y la corrida siguiente la retoma; el fallo de la
 //        relectura no tumba la lectura normal, ya guardada.
+//
+// ── HU #13095 (factura para impuestos). Diseño: `docs/diseno/hu-13095-factura-flit2-impuestos.md` ──
+//
+// RN-21  Factura: `factura_venta_flit_id` guarda el `factura.adjuntoId` que trae CADA entrega (el ítem es
+//        el estado completo del trámite). El id cambia en cada reemplazo: no es identidad estable; la
+//        descarga usa el que esté guardado al pedirla. `factura: null` BORRA la referencia (confirmado
+//        por FLIT el 2026-09-29: el feed solo publica transacciones cerradas y el reemplazo es atómico,
+//        así que null = hoy no hay factura confirmada). El cambio queda en el historial. Más largo que
+//        la columna (120) → null + warn. Tombstones: RN-05, no llegan aquí.
 
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { Flit2LecturaResultado } from '@operaciones/shared-types';
@@ -283,6 +292,10 @@ async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date, mo
 
   const mapeo = estadoDesdeFlit2(it.estado);
   const retrocede = ESTADOS_SIN_ESTADO_FLITO.has(it.estado) || mapeo.desconocido;
+  const facturaAdjuntoId = acotado(it.facturaAdjuntoId, 120);
+  if (it.facturaAdjuntoId && !facturaAdjuntoId) {
+    log.warn({ idFlit2: it.idFlit2, campo: 'facturaAdjuntoId', longitud: it.facturaAdjuntoId.length }, 'adjunto de factura más largo que su columna: se descarta');
+  }
   const valores: ValorTramite = {
     estado: porId && retrocede ? porId.estado : mapeo.estado,
     flitEstado: mapeo.flitEstado,
@@ -294,9 +307,11 @@ async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date, mo
     organismoCodigo: organismo?.codigo ?? null,
     transitoNombreFlit: acotado(org?.nombre ?? null, 200),
     vehiculoId,
-    // Los escriben otras piezas (#13095 la factura; el impuesto su módulo): se conservan.
+    // Lo escribe el módulo de impuestos: se conserva.
     valorImpuestoLiquidado: porId?.valorImpuestoLiquidado ?? null,
-    facturaVentaFlitId: porId?.facturaVentaFlitId ?? null,
+    // RN-21: el adjuntoId de ESTA entrega. `factura: null` → null borra la referencia (confirmado por FLIT
+    // el 2026-09-29: null = sin factura confirmada; el feed solo publica transacciones cerradas).
+    facturaVentaFlitId: facturaAdjuntoId,
     fechaAprobacion: fechaValida(it.fechaAprobacion),
     fechaCreacionFlit: fechaValida(it.fechaCreacion),
     flitRaw: it.raw,

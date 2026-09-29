@@ -81,8 +81,26 @@ export interface AccesoLectura {
   conPii: boolean;
 }
 
+/**
+ * HU #13095. Respuesta de `GET …/tramites/{id}/adjuntos/{adjuntoId}/url` (contrato §3). `url` es una
+ * URL firmada de 10 min, de uso inmediato: NUNCA va a un log, a un mensaje de error ni a la base.
+ */
+export interface UrlAdjuntoFlit2 {
+  url: string;
+  /** Informativo: el tipo real se saca de los bytes (`tipoPorBytes`), como en FLIT 1. */
+  contentType: string | null;
+  nombreArchivo: string | null;
+  /** Informativo (contrato): no se usa para decidir; la URL se descarga en el acto. */
+  expiraEn: string | null;
+}
+
 export interface Flit2SyncPort {
   /** Lanza si no hay acceso utilizable (sin acceso, rechazado, bloqueado, no configurado). */
   verificarAcceso(): Promise<AccesoLectura | void>;
   leerPagina(pos: PosicionLectura, pageSize: number): Promise<PaginaFlit2>;
+  /**
+   * HU #13095. URL firmada de un adjunto del trámite. null = 404 (trámite o adjunto inexistente, o no es
+   * de ese trámite): CUALQUIER 404, sin mirar `code`. Otros fallos lanzan `Flit2Error`.
+   */
+  obtenerUrlAdjunto(idFlit2: string, adjuntoId: string): Promise<UrlAdjuntoFlit2 | null>;
 }

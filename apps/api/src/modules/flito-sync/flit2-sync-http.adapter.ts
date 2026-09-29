@@ -8,6 +8,9 @@
 //   FLIT 2 nunca se reenvía ni se loguea. La URL (lleva el cursor) tampoco va al log.
 // - Cada ítem pasa por Zod: uno que no cumple el contrato se cuenta en `invalidos` y se salta, en vez
 //   de envenenar la página entera.
+// - HU #13095 `obtenerUrlAdjunto`: `GET …/tramites/{id}/adjuntos/{adjuntoId}/url`. Cualquier 404 → null.
+//   `adjuntoId` vacío, `.` o `..` → null SIN llamar (no se recorren rutas del host de FLIT 2). Ni la
+//   ruta pedida (lleva ids) ni la URL firmada de la respuesta van al log.
 
 import { z } from 'zod';
 import { env } from '../../config/env.js';
@@ -17,7 +20,9 @@ import { MAX_DATOS_VEHICULO } from './flit-http.adapter.js';
 import { obtenerPase, conPase } from './flit2-pase.service.js';
 import { Flit2Error, Flit2NoConfiguradoError, Flit2NoRespondeError, Flit2RespuestaError } from './flit2.errors.js';
 import { rawSinPii } from './flit2-mapeo.js';
-import type { CompradorFlit2, Flit2SyncPort, ItemFlit2, PaginaFlit2, PosicionLectura, VehiculoFlit2 } from './flit2-sync.port.js';
+import type {
+  CompradorFlit2, Flit2SyncPort, ItemFlit2, PaginaFlit2, PosicionLectura, UrlAdjuntoFlit2, VehiculoFlit2,
+} from './flit2-sync.port.js';
 
 const log = loggerFor('flito-sync-flit2');
 
@@ -66,6 +71,14 @@ const itemSchema = z.object({
   compradores: z.array(compradorSchema).nullish(),
   factura: z.object({ adjuntoId: texto }).passthrough().nullish(),
   companiaGestora: z.object({ nit: texto }).passthrough().nullish(),
+}).passthrough();
+
+/** HU #13095: respuesta 200 del endpoint de la URL del adjunto. */
+const urlAdjuntoSchema = z.object({
+  url: z.string().url().max(4096),
+  expiraEn: texto,
+  nombreArchivo: texto,
+  contentType: texto,
 }).passthrough();
 
 const sobreSchema = z.object({
@@ -178,6 +191,17 @@ export function urlDePagina(base: string, pos: PosicionLectura, pageSize: number
   return url;
 }
 
+/**
+ * HU #13095. URL del endpoint del adjunto, o null si `adjuntoId` no es un segmento seguro (vacío, `.`
+ * o `..`: `encodeURIComponent` no escapa el punto y `new URL` normalizaría `..`). Exportada para el test.
+ */
+export function urlDeAdjunto(base: string, idFlit2: string, adjuntoId: string): URL | null {
+  const adj = adjuntoId.trim();
+  const id = idFlit2.trim();
+  if (!adj || adj === '.' || adj === '..' || !id || id === '.' || id === '..') return null;
+  return new URL(`/api/v1/external/tramites/${encodeURIComponent(id)}/adjuntos/${encodeURIComponent(adj)}/url`, base);
+}
+
 export function crearFlit2SyncHttp(): Flit2SyncPort {
   const base = (): string => {
     if (!env.FLIT2_BASE_URL) throw new Flit2NoConfiguradoError();
@@ -239,6 +263,59 @@ export function crearFlit2SyncHttp(): Flit2SyncPort {
       }
       if (invalidos > 0) log.warn({ invalidos }, 'ítems de FLIT 2 que no cumplen el contrato: se saltan');
       return { items, invalidos, nextCursor: sobre.data.nextCursor, hasMore: sobre.data.hasMore, conPii };
+    },
+
+    async obtenerUrlAdjunto(idFlit2, adjuntoId): Promise<UrlAdjuntoFlit2 | null> {
+      const url = urlDeAdjunto(base(), idFlit2, adjuntoId);
+      if (!url) {
+        log.warn({ idFlit2 }, 'adjunto de FLIT 2 con identificador no válido: no se pide');
+        return null;
+      }
+      let res: Response;
+      try {
+        res = await conPase((pase) => fetch(url, {
+          headers: { Authorization: pase.authorization.unwrap(), Accept: 'application/json' },
+          redirect: 'error',
+          signal: AbortSignal.timeout(TIMEOUT_MS),
+        }));
+      } catch (e) {
+        if (e instanceof Flit2Error) throw e;
+        // Solo el nombre: el mensaje de fetch puede arrastrar la ruta con los ids.
+        log.warn({ idFlit2, causa: e instanceof Error ? e.name : typeof e }, 'FLIT 2 no respondió a la URL del adjunto');
+        throw new Flit2NoRespondeError();
+      }
+
+      if (res.status === 404) {
+        // Cualquier 404 (trámite, adjunto o de otro trámite): no disponible. No se ramifica por `code`.
+        const codigo = await codigoDeProblema(res);
+        log.warn({ idFlit2, status: 404, codigo }, 'FLIT 2 no tiene el adjunto pedido');
+        return null;
+      }
+      if (res.status !== 200) {
+        const codigo = await codigoDeProblema(res);
+        const reintentarEnS = res.status === 429 ? segundosRetryAfter(res.headers.get('retry-after')) : null;
+        log.warn({ idFlit2, status: res.status, codigo, reintentarEnS }, 'FLIT 2 rechazó la URL del adjunto');
+        throw new Flit2RespuestaError(res.status, codigo, reintentarEnS);
+      }
+
+      let cuerpo: unknown;
+      try {
+        cuerpo = await res.json();
+      } catch {
+        log.warn({ idFlit2 }, 'FLIT 2 respondió 200 a la URL del adjunto con un cuerpo que no es JSON');
+        throw new Flit2RespuestaError(200, null);
+      }
+      const r = urlAdjuntoSchema.safeParse(cuerpo);
+      if (!r.success) {
+        log.warn({ idFlit2 }, 'FLIT 2 respondió 200 a la URL del adjunto fuera de contrato');
+        throw new Flit2RespuestaError(200, null);
+      }
+      return {
+        url: r.data.url,
+        contentType: s(r.data.contentType),
+        nombreArchivo: s(r.data.nombreArchivo),
+        expiraEn: s(r.data.expiraEn),
+      };
     },
   };
 }
