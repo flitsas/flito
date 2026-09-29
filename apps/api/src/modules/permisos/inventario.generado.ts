@@ -11,7 +11,7 @@
 // `permisos-catalogo.test.ts` comprueba que los montajes del fuente cubren exactamente esta foto.
 import type { GuardaLeida } from './inventario-guardas.js';
 
-/** 217 rutas guardadas medidas el 9/09/2026 + 11 añadidas por la HU #12083 (dos en línea); +2 −1 por la HU #12373 (tarifas); +2 por la HU #12171; +7 por la HU #12084 (permisos); +4 por la HU #12541 (servicios adicionales); +1 por la HU #12591 (recibo de caja); +5 por la HU #12611 (comprobantes); +3 por la HU #12619 (viajes de logística); +3 por la HU #12629 (comprobantes F2: buscar, aplicar, descartar); +1 por la HU #12654 (comprobantes F3: aceptar diferencia); +2 por el Bug #12642 (export ampliado con datos de pago, dos en línea); +1 por la HU #12833 (corregir dirección del comprador); +2 por la HU #12997 (incompletas SOAT: buscar y ver); +1 por la HU #12998 (reintentar la consulta RUNT de una incompleta). */
+/** 217 rutas guardadas medidas el 9/09/2026 + 11 añadidas por la HU #12083 (dos en línea); +2 −1 por la HU #12373 (tarifas); +2 por la HU #12171; +7 por la HU #12084 (permisos); +4 por la HU #12541 (servicios adicionales); +1 por la HU #12591 (recibo de caja); +5 por la HU #12611 (comprobantes); +3 por la HU #12619 (viajes de logística); +3 por la HU #12629 (comprobantes F2: buscar, aplicar, descartar); +1 por la HU #12654 (comprobantes F3: aceptar diferencia); +2 por el Bug #12642 (export ampliado con datos de pago, dos en línea); +1 por la HU #12833 (corregir dirección del comprador); +2 por la HU #12997 (incompletas SOAT: buscar y ver); +1 por la HU #12998 (reintentar la consulta RUNT de una incompleta); +2 por la HU #13061 (acceso a FLIT 2: ver y guardar). */
 export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor","cliente","proveedor"], heredada: false },
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "POST", ruta: "/export", roles: ["admin","proveedor"], heredada: false },
@@ -186,6 +186,9 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "POST", ruta: "/servicios-adicionales/:id/baja", roles: ["admin","financiera"], heredada: false },
   { modulo: "sync", fichero: "flito-sync/flito-sync.routes.ts", metodo: "GET", ruta: "/estado", roles: ["admin"], heredada: false },
   { modulo: "sync", fichero: "flito-sync/flito-sync.routes.ts", metodo: "POST", ruta: "/sincronizar", roles: ["admin"], heredada: false },
+  // HU #13061: acceso de FLITO a FLIT 2 (módulo tramites); de partida solo admin (0214).
+  { modulo: "tramites", fichero: "flito-sync/flit2.routes.ts", metodo: "GET", ruta: "/acceso", roles: ["admin"], heredada: false },
+  { modulo: "tramites", fichero: "flito-sync/flit2.routes.ts", metodo: "PUT", ruta: "/acceso", roles: ["admin"], heredada: false },
   { modulo: "tramite", fichero: "tramites/tramites.routes.ts", metodo: "GET", ruta: "/tipologias", roles: ["admin","transito"], heredada: true },
   { modulo: "tramite", fichero: "tramites/tramites.routes.ts", metodo: "GET", ruta: "/motivos-rechazo-ot", roles: ["admin","transito"], heredada: true },
   { modulo: "tramite", fichero: "tramites/tramites.routes.ts", metodo: "GET", ruta: "/embudo", roles: ["admin","transito"], heredada: true },
