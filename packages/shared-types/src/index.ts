@@ -136,3 +136,5 @@ export * from './flito-viajes-logistica.js';
 // Gastos diarios de Finanzas (HU #12623): serie por día del evento y totales por categoría con GMF
 // estimado; contrato del `GET /api/finanzas/gastos-diarios` y los topes del rango.
 export * from './flito-gastos-diarios.js';
+// Fuente del trámite (HU #13070, Épica #12736): FLIT o FLIT 2, su etiqueta y la guarda de tipo.
+export * from './flito-tramite-fuente.js';
