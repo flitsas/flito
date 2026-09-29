@@ -17,6 +17,7 @@ import {
   EstadoImpuesto, EstadoTramiteFlito, ESTADOS_TRAMITE_FLITO_TERMINADOS,
   ANS_OPERATIVO, type AlertaOperativa,
 } from '@operaciones/shared-types';
+import type { FuenteTramite } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
   clients, flitoCompradores, flitoExcepcionesAutogestion, flitoImpuestos, flitoLogisticaDocumentos, flitoProveedoresSoat, flitoSoat,
@@ -77,6 +78,8 @@ export type SemaforoTramite = 'autogestionada' | 'rojo' | 'amarillo' | 'verde';
 
 export interface TramiteFila {
   tramiteId: string; idFlit: string;
+  /** Sistema del que llegó el trámite: FLIT (sync de FLIT 1) o FLIT 2 (HU #13070). */
+  fuente: FuenteTramite;
   semaforo: SemaforoTramite;
   /** Estado crudo de FLIT (todos los estados se muestran). */
   estado: string;
@@ -246,6 +249,8 @@ export interface FiltrosListado {
   empresas?: string[]; soat?: string[]; impuesto?: string[];
   /** Autogestión de la empresa: 'si' = autogestiona SOAT E impuestos; 'no' = FLITO gestiona al menos uno. */
   autogestion?: 'si' | 'no';
+  /** Fuente del trámite (HU #13070). Sin valor = todas; la ruta descarta los desconocidos. */
+  fuente?: FuenteTramite;
   /**
    * Orden cronológico por fecha de creación. 'antiguos' primero es el orden de trabajo del gestor
    * (lo que lleva más tiempo esperando se atiende antes); 'recientes' es el default histórico.
@@ -275,6 +280,7 @@ function proyeccion() {
     // Campos que consume decidir() (compuerta) — mismos nombres que FilaCompuerta.
     tramiteId: flitoTramites.id,
     idFlit: flitoTramites.idFlit,
+    fuente: flitoTramites.fuente,
     estadoTramite: flitoTramites.estado,
     // RN-13585-P: la placa es la del trámite, no la del vehículo (ver cabecera).
     placa: flitoTramites.plateComplete,
@@ -394,6 +400,7 @@ function aFila(f: FilaCruda, compradores: Omit<Comprador, 'tipoDocumento'>[]): T
   return {
     tramiteId: f.tramiteId,
     idFlit: f.idFlit,
+    fuente: f.fuente,
     // El listado la rellena en una tanda aparte; el detalle de un trámite suelto no la necesita.
     excepcionesAutogestion: [],
     semaforo,
@@ -564,6 +571,8 @@ function construirCondiciones(f: FiltrosListado): SQL[] {
     const ambos = sql`COALESCE(${clients.soatAutogestionable}, false) AND COALESCE(${clients.impuestosAutogestionable}, false)`;
     conds.push(f.autogestion === 'si' ? ambos : sql`NOT (${ambos})`);
   }
+  // Fuente (HU #13070): columna de la propia tabla, así que vale igual en la página y en el conteo.
+  if (f.fuente) conds.push(eq(flitoTramites.fuente, f.fuente));
   // Los valores llegan como texto libre del cliente; se castean al enum de la columna (drizzle es estricto).
   if (f.soat?.length) conds.push(inArray(flitoSoat.estado, f.soat as Array<(typeof flitoSoat.estado.enumValues)[number]>));
   if (f.impuesto?.length) conds.push(inArray(flitoImpuestos.estado, f.impuesto as Array<(typeof flitoImpuestos.estado.enumValues)[number]>));

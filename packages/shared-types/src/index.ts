@@ -63,6 +63,7 @@ export * from './flito-logistica-barcode.js';
 export * from './flito-ocr.js';
 // Canal Cliente del SOAT: de dónde salió cada dato del propietario (factura / RUNT / manual).
 export * from './flito-soat-procedencia.js';
+export * from './flito-soat-activo.js';
 // Mapeo de roles FLITO → roles Operaciones y ataduras de visibilidad del gestor.
 export * from './flito-roles.js';
 // Conceptos de costo de un trámite (Épica #12245): base de `ConceptoBolsa` y de los comprobantes.
@@ -132,3 +133,8 @@ export * from './permisos-roles.js';
 // Viajes adicionales de logística por trámite (HU #12619): modos de precio, motivos, la fila y el
 // cuerpo del GET, y los códigos de error de sus rutas.
 export * from './flito-viajes-logistica.js';
+// Gastos diarios de Finanzas (HU #12623): serie por día del evento y totales por categoría con GMF
+// estimado; contrato del `GET /api/finanzas/gastos-diarios` y los topes del rango.
+export * from './flito-gastos-diarios.js';
+// Fuente del trámite (HU #13070, Épica #12736): FLIT o FLIT 2, su etiqueta y la guarda de tipo.
+export * from './flito-tramite-fuente.js';
