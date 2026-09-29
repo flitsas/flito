@@ -4,6 +4,7 @@
 //   GET /acceso   `tramites.flit2.ver_acceso`      → Flit2AccesoMeta (200 también sin acceso)
 //   PUT /acceso   `tramites.flit2.guardar_acceso`  → Flit2AccesoMeta · 400 · 409 · 503 llave_maestra
 //   POST /acceso/probar  (HU #13063) montado desde `flit2-probar.routes.ts`
+//   POST /sincronizar    (HU #13091) montado desde `flit2-lectura.routes.ts`
 //
 // Ninguna respuesta —tampoco las de error— lleva la contraseña, el pase ni un fragmento suyos.
 
@@ -16,6 +17,7 @@ import { audit } from '../../shared/middleware/audit.js';
 import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { guardarAcceso, obtenerMetaAcceso } from './flit2-acceso.service.js';
 import probarRouter from './flit2-probar.routes.js';
+import lecturaRouter from './flit2-lectura.routes.js';
 import { Flit2Error } from './flit2.errors.js';
 
 const router = Router();
@@ -92,5 +94,7 @@ router.put('/acceso', exigirFuncion('tramites.flit2.guardar_acceso'), accesoLimi
 
 // HU #13063: «Probar conexión» vive en su propio fichero — ver la cabecera de `flit2-probar.routes.ts`.
 router.use(probarRouter);
+// HU #13091: lectura incremental de trámites — ver la cabecera de `flit2-lectura.routes.ts`.
+router.use(lecturaRouter);
 
 export default router;
