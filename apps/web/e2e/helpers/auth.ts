@@ -157,6 +157,8 @@ export const TOKEN_E2E = 'fake.jwt.e2e';
 const SOAT_LEER = [
   'soat.cola.ver', 'soat.cola.filtrar', 'soat.solicitud.ver', 'soat.solicitud.ver_historial',
   'soat.solicitud.ver_soportes',
+  // HU #12997: las pastillas «Por validar»/«Descartadas» y su detalle (sembradas en la 0211).
+  'soat.incompletas.buscar', 'soat.incompleta.ver',
 ] as const;
 
 /**
@@ -205,12 +207,23 @@ const COMPROBANTES = [
 export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
   admin: [
     ...SOAT_LEER, 'soat.comprobante.cargar', 'soat.solicitud.enviar',
+    // HU #12998: «Reintentar consulta» de una incompleta (0211: sembrada solo a `admin`).
+    'soat.solicitud.reintentar_runt',
+    // HU #13064: «Acceso a FLIT 2» en Gestión Trámites (0214: sembradas solo a `admin`).
+    'tramites.flit2.ver_acceso', 'tramites.flit2.guardar_acceso',
     // HU #12815: el ZIP de comprobantes de la cola SOAT cuelga de su propia función (0179: admin y
     // proveedor). Sin ella no hay botón «Descargar soportes».
     'soat.soportes.descargar',
     'impuestos.cola.ver', 'impuestos.recibos.cargar', 'impuestos.tramite.enviar',
+    // HU #12832: «Reintentar validación» cuelga de certificar (0179: admin y gestor_impuestos).
+    'impuestos.tramite.certificar',
     // HU #12592: recibo de caja puntual desde el detalle (migración 0197: hoy solo `admin`).
     'impuestos.recibos.cargar_caja',
+    // HU #12834: la 0208 siembra la corrección de la dirección del comprador solo a admin.
+    'impuestos.tramite.corregir_direccion',
+    // Bug #12642: Excel ampliado con pago y trazabilidad (sembrada solo a `admin`; el proveedor y el
+    // gestor de impuestos NO la tienen, y ese hueco es lo que prueba el spec del export).
+    'soat.excel.exportar_pago', 'impuestos.excel.exportar_pago',
     'tramites.solicitud.pedir_soat', 'tramites.autogestion.desbloquear',
     // HU #12635: «Ver soportes» desde el detalle de un comprobante. La 0179 la siembra para admin y
     // auditor; financiera NO la tiene (la reparte el admin desde el panel): el spec la añade por usuario.
@@ -232,7 +245,7 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
   ],
   proveedor: [...SOAT_LEER, 'soat.comprobante.cargar', 'soat.soportes.descargar'],
   cliente: [...SOAT_LEER, 'soat.solicitud.crear', 'soat.runt.preconsultar', 'soat.factura.leer'],
-  gestor_impuestos: ['impuestos.cola.ver', 'impuestos.recibos.cargar'],
+  gestor_impuestos: ['impuestos.cola.ver', 'impuestos.recibos.cargar', 'impuestos.tramite.certificar'],
   auditor: [...SOAT_LEER, 'impuestos.cola.ver', 'tablero.tablero.ver', SERVICIOS_DE_TRAMITE_VER, 'tramites.tramite.ver_soportes'],
 
   financiera: [
