@@ -112,5 +112,7 @@ export interface ResultadoSync {
   impuestosBloqueadosPorVehiculo: number;
   companiasFaltantes: number;
   organismosSinEmparejar: number;
+  /** HU #13091: trámites que ya existen con `fuente='flit2'` (los trajo FLIT 2): este sync no los toca. */
+  tramitesOmitidosOtraFuente: number;
   ejecutadoEn: string;
 }

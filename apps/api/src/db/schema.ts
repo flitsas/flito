@@ -43,7 +43,7 @@ export { flitoSoatIncompletas };
 import { flitoTramiteViajesLogistica } from './schema/flito-logistica-viajes.js';
 export { flitoTramiteViajesLogistica };
 // HU #13061: `flito_sync_flit2_acceso` vive en `./schema/flito-sync.ts` por el mismo techo.
-export { flitoSyncFlit2Acceso } from './schema/flito-sync.js';
+export { flitoSyncFlit2Acceso, flitoSyncFlit2Lectura } from './schema/flito-sync.js';
 
 export const laftKindEnum = pgEnum('laft_kind', ['PN', 'PJ']);
 export const laftRiskLevelEnum = pgEnum('laft_risk_level', ['bajo', 'medio', 'alto']);
@@ -3090,6 +3090,8 @@ export const flitoTramites = pgTable('flito_tramites', {
   // Sistema del que llegó el trámite (HU #13070): 'flit' (sync de FLIT 1) o 'flit2'. CHECK en la
   // migración 0213 (flito_tramites_fuente_chk). El sync de FLIT no la escribe: nace con el default.
   fuente: varchar('fuente', { length: 10 }).$type<FuenteTramite>().notNull().default('flit'),
+  // HU #13091 (0215): identidad y versión del trámite en FLIT 2. Null en los de FLIT 1.
+  idFlit2: uuid('id_flit2'), syncVersion: bigint('sync_version', { mode: 'number' }),
   sincronizadoEn: timestamp('sincronizado_en', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -3100,6 +3102,9 @@ export const flitoTramites = pgTable('flito_tramites', {
   // Orden cronológico y filtros de antigüedad (HU #10959): antes se ordenaba por created_at sin índice.
   fechaCreacionFlitIdx: index('idx_flito_tramites_fecha_creacion_flit').on(t.fechaCreacionFlit),
   createdAtIdx: index('idx_flito_tramites_created_at').on(t.createdAt),
+  idFlit2Uq: uniqueIndex('uq_flito_tramites_id_flit2').on(t.idFlit2).where(sql`${t.idFlit2} IS NOT NULL`),
+  fuenteIdFlit2Ck: check('ck_flito_tramites_fuente_id_flit2', sql`(${t.fuente} = 'flit2') = (${t.idFlit2} IS NOT NULL)`),
+  syncVersionCk: check('ck_flito_tramites_flit2_sync_version', sql`${t.idFlit2} IS NULL OR ${t.syncVersion} IS NOT NULL`),
 }));
 
 // Historial de cambios del trámite (auditoría campo por campo, Fase 8 / integración FLIT). Cada
