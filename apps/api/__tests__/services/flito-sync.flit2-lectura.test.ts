@@ -148,7 +148,22 @@ function montarDb(): void {
     };
     return c;
   };
-  memDb.delete = (t: PgTable) => { throw new Error(`delete inesperado en ${getTableName(t)}`); };
+  // HU #13093: solo `flito_compradores` se borra (reemplazo en bloque); cualquier otra tabla es un fallo.
+  memDb.delete = (t: PgTable) => {
+    const n = getTableName(t);
+    if (n !== 'flito_compradores') throw new Error(`delete inesperado en ${n}`);
+    let cond: SQL | undefined;
+    const c: Record<string, unknown> = {
+      where: (w: SQL) => { cond = w; return c; },
+      ...thenable(() => {
+        const todas = filas(t);
+        const quedan = todas.filter((f) => !filtro(t, cond)(f));
+        if (quedan.length !== todas.length) mem.escrituras.push({ op: 'delete', tabla: n });
+        mem.tablas.set(n, quedan);
+      }),
+    };
+    return c;
+  };
   memDb.transaction = async (cb: (tx: unknown) => Promise<unknown>) => {
     const copia = structuredClone({ tablas: mem.tablas, escrituras: mem.escrituras });
     try {
@@ -166,9 +181,17 @@ vi.mock('../../src/shared/redis.js', () => ({
 }));
 const companiaPorNitMock = vi.fn();
 const organismoPorCodigoMock = vi.fn();
+const modalidadVigenteMock = vi.fn();
 vi.mock('../../src/modules/flito-parametrizacion/flito-parametrizacion.service.js', async (orig) => {
   const real = await orig() as Record<string, unknown>;
-  return { ...real, companiaPorNit: companiaPorNitMock, organismoPorCodigo: organismoPorCodigoMock };
+  return { ...real, companiaPorNit: companiaPorNitMock, organismoPorCodigo: organismoPorCodigoMock, modalidadVigente: modalidadVigenteMock };
+});
+// HU #13093: el bloqueo por vehículo hace un JOIN que la base en memoria no evalúa; su regla se prueba
+// en `flito-sync.impuesto-vehiculo.test.ts`. Aquí basta saber que el arranque lo consulta.
+const impuestoBloqueanteMock = vi.hoisted(() => vi.fn());
+vi.mock('../../src/modules/flito-impuestos/impuesto-por-vehiculo.js', async (orig) => {
+  const real = await orig() as Record<string, unknown>;
+  return { ...real, impuestoBloqueantePorVehiculo: impuestoBloqueanteMock };
 });
 const logMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }));
 vi.mock('../../src/shared/logger.js', () => ({ logger: logMock, loggerFor: () => logMock }));
@@ -299,6 +322,8 @@ beforeEach(() => {
   for (const m of Object.values(logMock)) m.mockClear();
   companiaPorNitMock.mockReset().mockImplementation(async (nit: string) => (nit === '901000000' ? { id: 7, document: nit } : null));
   organismoPorCodigoMock.mockReset().mockImplementation(async (c: string) => (c === '76520' ? { codigo: '76520' } : null));
+  modalidadVigenteMock.mockReset().mockResolvedValue('requiere_gestion');
+  impuestoBloqueanteMock.mockReset().mockResolvedValue(undefined);
 });
 
 // ── El propio mock: si no filtrara por el WHERE, los asertos de identidad serían verdes vacíos ──
@@ -637,17 +662,19 @@ describe('AC7 · revocado', () => {
     expect(tramite(U1)).toMatchObject({ estado: 'anulado', flitEstado: 'Revocado' });
   });
 
-  it('TC-35/TC-38: asignado, preasignacion o revocado no crean ni tocan SOAT, impuesto ni logística; soat_id se conserva', async () => {
+  // HU #13093: un asignado CON comprador ya arranca SOAT e impuesto (ver «HU #13093 · AC4»); aquí va sin
+  // comprador, que es el caso que sigue esperando (AC5 de la #13093).
+  it('TC-35/TC-38: asignado sin comprador, preasignacion o revocado no crean ni tocan SOAT, impuesto ni logística; soat_id se conserva', async () => {
     sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
     sembrarFlit2({ estado: 'aprobado', flitEstado: 'Aprobado', soatId: '0192b7c4-0000-7000-8000-00000000050a' });
     await leerIncremental({ ahora: reloj() }, puerto([pagina([
       crudo({ syncVersion: 11, estado: 'revocado' }),
-      crudo({ id: U2, radicado: 'FT1-0000002', estado: 'asignado', vehiculo: { ...crudo().vehiculo as Fila, vin: '9FKTEST0000000002' } }),
+      crudo({ id: U2, radicado: 'FT1-0000002', estado: 'asignado', compradores: [], vehiculo: { ...crudo().vehiculo as Fila, vin: '9FKTEST0000000002' } }),
       crudo({ id: U3, radicado: 'FT1-0000003', estado: 'preasignacion', vehiculo: { ...crudo().vehiculo as Fila, vin: '9FKTEST0000000003' } }),
     ], 'c1')]).port);
     expect(tramite(U1)?.soatId).toBe('0192b7c4-0000-7000-8000-00000000050a');
     const tocadas = new Set(mem.escrituras.map((w) => w.tabla));
-    for (const t of ['flito_soat', 'flito_impuestos', 'flito_compradores', 'flito_logistica']) expect(tocadas.has(t), t).toBe(false);
+    for (const t of ['flito_soat', 'flito_impuestos', 'flito_logistica']) expect(tocadas.has(t), t).toBe(false);
   });
 });
 
@@ -953,5 +980,184 @@ describe('HU #13092 · topes y esperas', () => {
     const vacia = await leerConCandado('cron', puerto([pagina([], 'c2', false)]).port, { ahora: reloj() });
     await auditarLecturaProgramada(vacia);
     expect(filas(S.auditLogs)).toHaveLength(1);
+  });
+});
+
+// ── HU #13093 · compradores de FLIT 2 y arranque de SOAT e impuestos ────────────────────────────
+// Diseño: `docs/diseno/hu-13093-compradores-soat-flit2.md`. Datos SINTÉTICOS.
+const { compradoresDesdeFlit2 } = await import('../../src/modules/flito-sync/flit2-mapeo.js');
+const { mapearCompradores } = await import('../../src/modules/flito-sync/mapeo-compradores.js');
+describe('HU #13093 · compradores y arranque', () => {
+  const DOC_3 = '1100000000'; const DOC_4 = '1200000000';
+  const persona = (ordinal: number, doc: string, pct: number | null): Fila => ({
+    ordinal, porcentajeParticipacion: pct, rolActor: 'comprador', tipoPersona: 'natural', tipoDocumento: 'CC',
+    numeroDocumento: doc, nombreCompleto: `PERSONA ${ordinal}`, direccion: null, ciudad: null, celular: null, correo: null,
+  });
+  const compradoresDe = (tramiteId: unknown) => filas(S.flitoCompradores)
+    .filter((c) => c.tramiteId === tramiteId).sort((a, b) => (a.orden as number) - (b.orden as number));
+  const vehiculo = () => filas(S.vehicles).find((v) => v.vin === '9FKTEST0000000001');
+  const asignado = (over: Fila = {}) => crudo({ estado: 'asignado', ...over });
+  const leer = async (items: Fila[]) => leerIncremental({ ahora: reloj() }, puerto([pagina(items, 'c1')]).port);
+
+  it('AC1: con 4 compradores guarda todos en el orden de FLIT 2 (orden = ordinal - 1), con su porcentaje y titular el principal', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    // Llegan desordenados: manda el ordinal, no la posición en el arreglo.
+    await leer([crudo({ compradores: [persona(3, DOC_3, 10), persona(1, DOC_1, 50), persona(4, DOC_4, 5), persona(2, DOC_2, 35)] })]);
+    const t = tramite(U1)!;
+    const cs = compradoresDe(t.id);
+    expect(cs.map((c) => [c.orden, c.numeroDocumento, c.porcentajeParticipacion]))
+      .toEqual([[0, DOC_1, '50'], [1, DOC_2, '35'], [2, DOC_3, '10'], [3, DOC_4, '5']]);
+    expect(t.tipoPropiedad).toBe('multiple_propietario');
+    expect(vehiculo()).toMatchObject({ ownerDocument: DOC_1, ownerName: 'PERSONA 1' });
+  });
+
+  it('AC2: un solo comprador sin porcentaje queda como propietario único al 100 %', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leer([crudo({ compradores: [persona(1, DOC_1, null)] })]);
+    const t = tramite(U1)!;
+    expect(compradoresDe(t.id).map((c) => [c.orden, c.porcentajeParticipacion])).toEqual([[0, '100']]);
+    expect(t.tipoPropiedad).toBe('unico_propietario');
+  });
+
+  it('AC3: sin compradores el trámite nuevo se guarda sin comprador y la lectura no falla', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    const r = await leer([asignado({ compradores: [] })]);
+    expect(r).toMatchObject({ nuevos: 1, leidos: 1 });
+    expect(compradoresDe(tramite(U1)!.id)).toEqual([]);
+    expect(tramite(U1)!.tipoPropiedad).toBeNull();
+  });
+
+  it('AC4: asignado con comprador, compañía y organismo → arranca SOAT (por VIN) e impuesto en pendiente, como FLIT 1', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leer([asignado()]);
+    const t = tramite(U1)!;
+    const [soat] = filas(S.flitoSoat);
+    expect(soat).toMatchObject({ vin: '9FKTEST0000000001', estado: 'pendiente', companiaId: 7, organismoCodigo: '76520', proveedorSoatId: null });
+    expect(t.soatId).toBe(soat.id);
+    expect(filas(S.flitoImpuestos)).toEqual([expect.objectContaining({ tramiteId: t.id, estado: 'pendiente', modalidadAplicada: 'requiere_gestion' })]);
+    expect(impuestoBloqueanteMock).toHaveBeenCalledWith(expect.anything(), t.vehiculoId, expect.any(Number), t.id);
+    expect(filas(S.auditLogs).map((a) => a.resource).sort()).toEqual(['flito_impuesto', 'flito_soat']);
+  });
+
+  it('AC4: mismas reglas que FLIT 1 — compañía que autogestiona SOAT y organismo autogestionado no crean nada; un SOAT del VIN se enlaza', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    companiaPorNitMock.mockResolvedValue({ id: 7, soatAutogestionable: true, impuestosAutogestionable: false });
+    modalidadVigenteMock.mockResolvedValue('autogestionado');
+    await leer([asignado()]);
+    expect(filas(S.flitoSoat)).toEqual([]);
+    expect(filas(S.flitoImpuestos)).toEqual([]);
+
+    mem.tablas = new Map(); montarDb();
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    companiaPorNitMock.mockResolvedValue({ id: 7 });
+    const previo = nuevaFila(S.flitoSoat, { vin: '9FKTEST0000000001', estado: 'pendiente' });
+    filas(S.flitoSoat).push(previo);
+    await leer([asignado()]);
+    expect(filas(S.flitoSoat)).toHaveLength(1);
+    expect(tramite(U1)!.soatId).toBe(previo.id);
+  });
+
+  it('AC4: sin compañía u organismo emparejados, o sin estar asignado, no arranca', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leer([
+      asignado({ companiaGestora: { nit: '999' } }),
+      asignado({ id: U2, radicado: 'FT1-0000002', organismo: null, vehiculo: { ...crudo().vehiculo as Fila, vin: '9FKTEST0000000002' } }),
+      crudo({ id: U3, radicado: 'FT1-0000003', estado: 'entregado', vehiculo: { ...crudo().vehiculo as Fila, vin: '9FKTEST0000000003' } }),
+    ]);
+    expect(tramites()).toHaveLength(3);
+    expect(filas(S.flitoSoat)).toEqual([]);
+    expect(filas(S.flitoImpuestos)).toEqual([]);
+  });
+
+  it('AC5: asignado sin comprador espera sin fallar; la entrega que trae el comprador arranca', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    const r1 = await leer([asignado({ compradores: [] })]);
+    expect(r1).toMatchObject({ nuevos: 1 });
+    expect(filas(S.flitoSoat)).toEqual([]);
+    expect(filas(S.flitoImpuestos)).toEqual([]);
+
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([asignado({ syncVersion: 11 })], 'c2')]).port);
+    expect(filas(S.flitoSoat)).toHaveLength(1);
+    expect(filas(S.flitoImpuestos)).toHaveLength(1);
+    expect(compradoresDe(tramite(U1)!.id)).toHaveLength(2);
+    expect(vehiculo()).toMatchObject({ ownerDocument: DOC_1 });
+  });
+
+  it('AC6: otros compradores en una entrega posterior se reemplazan y el historial guarda un resumen sin PII', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    const t = sembrarFlit2();
+    for (const [orden, doc, pct] of [[0, DOC_1, '60.00'], [1, DOC_2, '40.00']] as const) {
+      filas(S.flitoCompradores).push(nuevaFila(S.flitoCompradores, {
+        tramiteId: t.id, orden, numeroDocumento: doc, nombreCompleto: `P ${orden}`, porcentajeParticipacion: pct,
+      }));
+    }
+    const r = await leer([crudo({ syncVersion: 11, compradores: [persona(1, DOC_3, 70), persona(2, DOC_2, 20), persona(3, DOC_4, 10)] })]);
+    expect(r).toMatchObject({ actualizados: 1 });
+    expect(compradoresDe(t.id).map((c) => c.numeroDocumento)).toEqual([DOC_3, DOC_2, DOC_4]);
+    const h = historial().filter((x) => x.campo === 'compradores');
+    expect(h).toEqual([expect.objectContaining({
+      origen: 'api', usuarioId: null,
+      valorAnterior: '2 compradores: orden 0 60 %, orden 1 40 %',
+      valorNuevo: '3 compradores: orden 0 70 %, orden 1 20 %, orden 2 10 %',
+    })]);
+    const todo = JSON.stringify(historial());
+    for (const pii of [DOC_1, DOC_2, DOC_3, DOC_4, 'PERSONA', 'P 0']) expect(todo).not.toContain(pii);
+  });
+
+  it('AC6: los mismos compradores no reescriben ni dejan historial; otra persona con el mismo reparto sí, sin decir quién', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    const t = sembrarFlit2();
+    filas(S.flitoCompradores).push(nuevaFila(S.flitoCompradores, {
+      tramiteId: t.id, orden: 0, numeroDocumento: DOC_1, nombreCompleto: 'PERSONA 1', porcentajeParticipacion: '100.00',
+    }));
+    await leer([crudo({ syncVersion: 11, compradores: [persona(1, DOC_1, null)] })]);
+    expect(mem.escrituras.some((w) => w.tabla === 'flito_compradores')).toBe(false);
+    expect(historial().filter((x) => x.campo === 'compradores')).toEqual([]);
+
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([crudo({ syncVersion: 12, compradores: [persona(1, DOC_2, 100)] })], 'c2')]).port);
+    expect(compradoresDe(t.id).map((c) => c.numeroDocumento)).toEqual([DOC_2]);
+    expect(historial().filter((x) => x.campo === 'compradores')).toEqual([expect.objectContaining({
+      valorAnterior: '1 comprador: orden 0 100 %', valorNuevo: '1 comprador: orden 0 100 % (cambian datos de persona)',
+    })]);
+  });
+
+  it('RN-15: un trámite existente que llega con compradores: [] conserva los guardados y sigue arrancando con ellos', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    const t = sembrarFlit2();
+    filas(S.vehicles)[0].ownerDocument = DOC_1;
+    filas(S.flitoCompradores).push(nuevaFila(S.flitoCompradores, {
+      tramiteId: t.id, orden: 0, numeroDocumento: DOC_1, nombreCompleto: 'PERSONA 1', porcentajeParticipacion: '100.00',
+    }));
+    await leer([asignado({ syncVersion: 11, compradores: [], vehiculo: null })]);
+    expect(compradoresDe(t.id).map((c) => c.numeroDocumento)).toEqual([DOC_1]);
+    expect(mem.escrituras.some((w) => w.tabla === 'flito_compradores')).toBe(false);
+    expect(historial().filter((x) => x.campo === 'compradores')).toEqual([]);
+    expect(vehiculo()).toMatchObject({ ownerDocument: DOC_1 });
+    // Sin bloque de vehículo, el VIN del arranque sale del vehículo guardado.
+    expect(filas(S.flitoSoat)).toEqual([expect.objectContaining({ vin: '9FKTEST0000000001' })]);
+  });
+
+  it('#13094 aparte: un comprador sin documento o sin nombre no se escribe y el log solo lleva el conteo', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leer([asignado({ compradores: [{ ...persona(1, DOC_1, 50), numeroDocumento: null }, { ...persona(2, DOC_2, 50), nombreCompleto: '  ' }] })]);
+    const t = tramite(U1)!;
+    expect(compradoresDe(t.id)).toEqual([]);
+    expect(t.tipoPropiedad).toBe('multiple_propietario');
+    expect(filas(S.flitoSoat)).toEqual([]);
+    expect(logMock.warn).toHaveBeenCalledWith({ idFlit2: U1, omitidos: 2 }, expect.any(String));
+  });
+
+  it('#13094 aparte: si falta el principal, el secundario se guarda con su orden pero no es titular ni arranca SOAT', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leer([asignado({ compradores: [{ ...persona(1, DOC_1, 60), numeroDocumento: '' }, persona(2, DOC_2, 40)] })]);
+    const t = tramite(U1)!;
+    expect(compradoresDe(t.id).map((c) => [c.orden, c.numeroDocumento])).toEqual([[1, DOC_2]]);
+    expect(vehiculo()?.ownerDocument ?? null).toBeNull();
+    expect(filas(S.flitoSoat)).toEqual([]);
+  });
+
+  it('AC7: FLIT 1 sigue lanzando con 0 compradores; el mapeo de FLIT 2 no lanza', () => {
+    expect(() => mapearCompradores({ idFlit: 'FT1-0000001', tipoPropiedad: 'unico_propietario', compradores: [] } as never)).toThrow(/no trae comprador/);
+    expect(compradoresDesdeFlit2([])).toEqual({ compradores: [], omitidos: 0 });
   });
 });
