@@ -14,6 +14,8 @@ import type { SiigoDestinatario } from '@operaciones/shared-types';
 import type { ProcedenciaCompradorPersistida } from '@operaciones/shared-types';
 // Verificación diaria de vigencia del SOAT (HU #12096): motivos de caída de una corrida, en jsonb.
 import type { ResumenMotivosCorrida } from '@operaciones/shared-types';
+// Fuente del trámite (HU #13070): los valores del CHECK de la 0213.
+import type { FuenteTramite } from '@operaciones/shared-types';
 
 // OBSOLETO desde la migración 0178 (HU #12169): la fuente de verdad de qué roles existen es la tabla
 // `permisosRoles`, no este tipo. Ninguna columna lo usa ya — `users.role` pasó a varchar(40) con FK
@@ -3083,6 +3085,9 @@ export const flitoTramites = pgTable('flito_tramites', {
   flitRaw: jsonb('flit_raw'),
   processStatus: integer('process_status'),
   plateComplete: varchar('plate_complete', { length: 20 }),
+  // Sistema del que llegó el trámite (HU #13070): 'flit' (sync de FLIT 1) o 'flit2'. CHECK en la
+  // migración 0213 (flito_tramites_fuente_chk). El sync de FLIT no la escribe: nace con el default.
+  fuente: varchar('fuente', { length: 10 }).$type<FuenteTramite>().notNull().default('flit'),
   sincronizadoEn: timestamp('sincronizado_en', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
