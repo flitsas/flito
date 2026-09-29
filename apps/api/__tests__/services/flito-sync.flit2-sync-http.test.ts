@@ -32,7 +32,7 @@ vi.mock('../../src/shared/redis.js', () => ({
   getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false),
 }));
 
-const { aItemFlit2, crearFlit2SyncHttp, urlDePagina } = await import('../../src/modules/flito-sync/flit2-sync-http.adapter.js');
+const { aItemFlit2, crearFlit2SyncHttp, urlDePagina, urlDeAdjunto } = await import('../../src/modules/flito-sync/flit2-sync-http.adapter.js');
 const { crearFlit2SyncFake } = await import('../../src/modules/flito-sync/flit2-sync-fake.adapter.js');
 const { estadoDesdeFlit2, familiaATipoTramite, rawSinPii, tipoPropiedadPorConteo } = await import('../../src/modules/flito-sync/flit2-mapeo.js');
 const { Flit2NoConfiguradoError, Flit2NoRespondeError, Flit2RespuestaError, Flit2SinAccesoError } =
@@ -216,5 +216,99 @@ describe('HU #13094 · el scope de datos personales viaja con el acceso y con la
     conPaseMock.mockImplementationOnce(async (fn: (p: unknown) => Promise<Response>) => fn({ ...pase, conPii: false }));
     expect((await crearFlit2SyncHttp().leerPagina({ cursor: 'c0' }, 500)).conPii).toBe(false);
     expect((await crearFlit2SyncHttp().leerPagina({ cursor: 'c0' }, 500)).conPii).toBe(true);
+  });
+});
+
+describe('HU #13095 · obtenerUrlAdjunto (URL firmada de la factura)', () => {
+  const ADJ = '0192b7c4-9a1b-7c2d-8e3f-4a5b6c7d8e9f';
+  const FIRMADA = 'https://almacen.ejemplo.test/f/factura.pdf?X-Amz-Signature=secreta-13095';
+  const ok = () => respuesta(200, { url: FIRMADA, expiraEn: '2026-09-29T15:10:00Z', nombreArchivo: 'FV-777.pdf', contentType: 'application/pdf' });
+  const todoElLog = () => JSON.stringify(Object.values(logMock).flatMap((m) => m.mock.calls));
+
+  it('200 → UrlAdjuntoFlit2, pasando POR conPase, con redirect error y sin loguear url/ruta/nombre/expiraEn', async () => {
+    fetchMock.mockResolvedValue(ok());
+    const r = await crearFlit2SyncHttp().obtenerUrlAdjunto(U1, ADJ);
+    expect(r).toEqual({ url: FIRMADA, expiraEn: '2026-09-29T15:10:00Z', nombreArchivo: 'FV-777.pdf', contentType: 'application/pdf' });
+    expect(conPaseMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    expect(url.toString()).toBe(`https://flit2.ejemplo.test/api/v1/external/tramites/${U1}/adjuntos/${ADJ}/url`);
+    expect(init.redirect).toBe('error');
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer pase-de-prueba');
+    expect(todoElLog()).not.toMatch(/secreta-13095|almacen\.ejemplo|FV-777|2026-09-29T15:10|adjuntos\//);
+  });
+
+  it('escapa los ids en la ruta', () => {
+    const u = urlDeAdjunto('https://flit2.ejemplo.test', 'a/b', 'c?d#e')!;
+    expect(u.pathname).toBe('/api/v1/external/tramites/a%2Fb/adjuntos/c%3Fd%23e/url');
+    expect(u.search).toBe('');
+  });
+
+  it.each(['..', '.', '', '  '])('adjuntoId %j → null SIN llamar a FLIT 2', async (adj) => {
+    expect(await crearFlit2SyncHttp().obtenerUrlAdjunto(U1, adj)).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(conPaseMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['attachment_not_found', { code: 'attachment_not_found' }],
+    ['tramite_not_found', { code: 'tramite_not_found' }],
+    ['sin cuerpo', ''],
+  ])('404 (%s) → null, cualquiera sea el code', async (_n, cuerpo) => {
+    fetchMock.mockResolvedValue(respuesta(404, cuerpo));
+    expect(await crearFlit2SyncHttp().obtenerUrlAdjunto(U1, ADJ)).toBeNull();
+  });
+
+  it('401 que sobrevive a conPase → Flit2RespuestaError(401) (la renovación única es RN-04 del pase)', async () => {
+    fetchMock.mockResolvedValue(respuesta(401, { code: 'invalid_token' }));
+    const e = await crearFlit2SyncHttp().obtenerUrlAdjunto(U1, ADJ).catch((x) => x);
+    expect(e).toBeInstanceOf(Flit2RespuestaError);
+    expect(e.statusFlit2).toBe(401);
+    expect(conPaseMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('429 con Retry-After → Flit2RespuestaError(429, código, segundos)', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ code: 'rate_limited' }), { status: 429, headers: { 'retry-after': '17' } }));
+    const e = await crearFlit2SyncHttp().obtenerUrlAdjunto(U1, ADJ).catch((x) => x);
+    expect(e).toBeInstanceOf(Flit2RespuestaError);
+    expect([e.statusFlit2, e.codigoFlit2, e.reintentarEnS]).toEqual([429, 'rate_limited', 17]);
+  });
+
+  it('500 → Flit2RespuestaError(500)', async () => {
+    fetchMock.mockResolvedValue(respuesta(500, ''));
+    const e = await crearFlit2SyncHttp().obtenerUrlAdjunto(U1, ADJ).catch((x) => x);
+    expect(e).toBeInstanceOf(Flit2RespuestaError);
+    expect(e.statusFlit2).toBe(500);
+  });
+
+  it('timeout/red → Flit2NoRespondeError, sin el mensaje (lleva la ruta) en el log', async () => {
+    fetchMock.mockRejectedValue(new TypeError(`fetch failed https://flit2.ejemplo.test/api/v1/external/tramites/${U1}/adjuntos/${ADJ}/url`));
+    await expect(crearFlit2SyncHttp().obtenerUrlAdjunto(U1, ADJ)).rejects.toBeInstanceOf(Flit2NoRespondeError);
+    expect(todoElLog()).not.toMatch(/fetch failed|adjuntos\//);
+  });
+
+  it.each([
+    ['url no es URL', { url: 'no-es-url' }],
+    ['sin url', { expiraEn: 'x' }],
+    ['no JSON', '<html>'],
+  ])('200 fuera de contrato (%s) → Flit2RespuestaError(200)', async (_n, cuerpo) => {
+    fetchMock.mockResolvedValue(respuesta(200, cuerpo));
+    const e = await crearFlit2SyncHttp().obtenerUrlAdjunto(U1, ADJ).catch((x) => x);
+    expect(e).toBeInstanceOf(Flit2RespuestaError);
+    expect(e.statusFlit2).toBe(200);
+  });
+
+  it('sin FLIT2_BASE_URL → Flit2NoConfiguradoError sin llamar', async () => {
+    entorno.base = undefined;
+    await expect(crearFlit2SyncHttp().obtenerUrlAdjunto(U1, ADJ)).rejects.toBeInstanceOf(Flit2NoConfiguradoError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('fake: mapa vacío por defecto → null (404) y registra la llamada; con la clave → la URL', async () => {
+    const fake = crearFlit2SyncFake();
+    expect(await fake.obtenerUrlAdjunto(U1, ADJ)).toBeNull();
+    expect(fake.llamadasAdjunto).toEqual([{ idFlit2: U1, adjuntoId: ADJ }]);
+    const u = { url: FIRMADA, contentType: null, nombreArchivo: null, expiraEn: null };
+    fake.adjuntos.set(`${U1}/${ADJ}`, u);
+    expect(await fake.obtenerUrlAdjunto(U1, ADJ)).toBe(u);
   });
 });
