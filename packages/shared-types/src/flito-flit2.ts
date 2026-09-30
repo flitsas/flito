@@ -55,8 +55,10 @@ export interface Flit2PruebaResultado {
 }
 
 /**
- * Resumen de una lectura incremental de trámites de FLIT 2 (HU #13091), respuesta de
- * `POST /api/flito/sync/flit2/sincronizar`. Solo números y enums: ningún radicado ni nombre.
+ * Resumen de una lectura incremental de trámites de FLIT 2 (HU #13091). Ya no es la respuesta de ningún
+ * endpoint (el `POST …/flit2/sincronizar` se retiró en la HU #13190): lo producen la lectura programada y
+ * la que arranca tras guardar el acceso, y va al log y a la auditoría. Solo números y enums: ningún
+ * radicado ni nombre.
  *
  * Cada ítem leído cae en UNA sola clase, así que
  * `leidos = nuevos + actualizados + sinCambios + conflictos + sinVehiculo + eliminadosIgnorados + invalidos`.

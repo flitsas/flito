@@ -29,11 +29,11 @@
 //
 // ── HU #13092 (lectura programada). Diseño: `docs/diseno/hu-13092-lectura-programada-flit2.md` ──
 //
-// RN-09  Candado: la corrida del cron y la del botón pasan por `leerConCandado` (advisory lock de
+// RN-09  Candado: la corrida del cron y la de tras guardar el acceso (HU #13190; antes el botón) pasan por `leerConCandado` (advisory lock de
 //        Postgres, `flit2-candado.ts`): nunca dos a la vez, tampoco entre procesos. Si está tomado,
 //        `Flit2LecturaEnCursoError` (409). La guarda optimista de RN-02 sigue como segunda defensa.
-// RN-10  Topes de tiempo: el cron corta a los 4 min y el botón a los 60 s, SIEMPRE después de guardar la
-//        página en curso. `atrasada` = la corrida terminó con `hasMore` (queda feed por leer); la
+// RN-10  Topes de tiempo: toda corrida (cron o tras guardar el acceso, HU #13190) corta a los 4 min, SIEMPRE
+//        después de guardar la página en curso. `atrasada` = la corrida terminó con `hasMore` (queda feed por leer); la
 //        siguiente continúa desde el cursor. `MAX_PAGINAS_SEGURIDAD` es solo un cinturón.
 // RN-11  429 del feed: con `Retry-After` ≤ 60 s (60 si falta) se espera y se repite LA MISMA página con
 //        el mismo cursor, si la espera cabe en el tope; si pide más o no cabe, la corrida termina sin
@@ -91,7 +91,7 @@
 // ── HU #13188 (pulso en el estado). Diseño: `docs/diseno/hu-13188-pulso-lectura-flit2.md` ─────────
 //
 // RN-22  `enCurso` del estado: `leerConCandado` marca la lectura DENTRO del candado y la desmarca en un
-//        `finally` (termine bien o con error). Cubre cron, botón y cualquier origen futuro que pase por
+//        `finally` (termine bien o con error). Cubre cron, acceso y cualquier origen futuro que pase por
 //        aquí. Con el candado tomado no se marca nada (`flit2-programa.ts`).
 
 import { and, eq, isNull, sql } from 'drizzle-orm';
@@ -129,7 +129,6 @@ const PAGE_SIZE = 500;
  * así que 4 min dejan 1 min de holgura y dos corridas no se pisan ni sin candado.
  */
 export const LIMITE_CRON_MS = 4 * 60_000;
-export const LIMITE_BOTON_MS = 60_000;
 /** Cinturón de seguridad: 200 páginas × 500 = 100 000 ítems por corrida. Los topes reales son de tiempo. */
 export const MAX_PAGINAS_SEGURIDAD = 200;
 /** 429: la mayor espera que se hace dentro de una corrida, y la que se asume si falta `Retry-After`. */
@@ -137,7 +136,8 @@ export const ESPERA_429_MAX_S = 60;
 /** 429 seguidos sobre la misma página antes de rendirse (el tope de tiempo suele llegar antes). */
 const REINTENTOS_429_MAX = 3;
 
-export type OrigenLectura = 'cron' | 'boton';
+/** `acceso`: la que arranca sola tras guardar un acceso válido (HU #13190; sustituye al botón). */
+export type OrigenLectura = 'cron' | 'acceso';
 
 export interface OpcionesLectura {
   pageSize?: number;
@@ -581,13 +581,15 @@ export async function releerEnmascarados(port: Flit2SyncPort, op: OpcionesRelect
 }
 
 /**
- * La corrida de verdad (cron o botón): toma el candado (RN-09) y lee con el tope de su origen (RN-10).
+ * La corrida de verdad (cron o acceso): toma el candado (RN-09) y lee con el tope de 4 min (RN-10).
+ * `origen` no cambia el tope (HU #13190: el del botón, 60 s, se retiró con él); queda para el log.
  * Lanza `Flit2LecturaEnCursoError` (409) si otra corrida lo tiene, en este o en otro proceso.
  */
 export async function leerConCandado(
   origen: OrigenLectura, port?: Flit2SyncPort, op: OpcionesLectura = {},
 ): Promise<Flit2LecturaResultado> {
-  const limiteMs = origen === 'cron' ? LIMITE_CRON_MS : LIMITE_BOTON_MS;
+  const limiteMs = LIMITE_CRON_MS;
+  log.debug({ origen }, 'lectura FLIT 2: se pide el candado');
   // RN-22: la marca va DENTRO del candado; si está tomado, `enCurso` nunca pasa a true.
   const res = await conCandadoLectura(async () => {
     marcarLecturaIniciada();
@@ -606,17 +608,18 @@ export const debeAuditarse = (r: Flit2LecturaResultado): boolean => r.leidos > 0
 
 /** Detalle de `audit_logs`: solo totales, ningún radicado ni dato de persona (RN-13). */
 export function detalleAuditoria(r: Flit2LecturaResultado, origen: OrigenLectura): string {
-  return `Sync FLIT 2 ${origen === 'cron' ? 'programada' : 'manual'} (${r.modo}): ${r.leidos} leídos, ${r.nuevos} nuevos, `
+  return `Sync FLIT 2 ${origen === 'cron' ? 'programada' : 'tras guardar el acceso'} (${r.modo}): ${r.leidos} leídos, ${r.nuevos} nuevos, `
     + `${r.actualizados} actualizados, ${r.sinCambios} sin cambios, ${r.conflictos} conflictos, `
     + `${r.sinVehiculo} sin vehículo, ${r.eliminadosIgnorados} eliminados, ${r.invalidos} inválidos; `
     + `${r.paginas} páginas${r.hasMore ? ' (quedan más)' : ''}.`;
 }
 
 /**
- * Auditoría de la corrida del cron: no hay `req`, así que va como los demás procesos del sistema
- * (`userId` null, `userEmail` 'sistema', como la vigencia SOAT). Un fallo al auditar no tumba el cron.
+ * Auditoría de una corrida en segundo plano (cron o tras guardar el acceso): no hay `req`, así que va
+ * como los demás procesos del sistema (`userId` null, `userEmail` 'sistema', como la vigencia SOAT).
+ * Un fallo al auditar no tumba la corrida.
  */
-export async function auditarLecturaProgramada(r: Flit2LecturaResultado): Promise<void> {
+export async function auditarLecturaProgramada(r: Flit2LecturaResultado, origen: OrigenLectura = 'cron'): Promise<void> {
   if (!debeAuditarse(r)) return;
   try {
     await db.insert(auditLogs).values({
@@ -624,9 +627,9 @@ export async function auditarLecturaProgramada(r: Flit2LecturaResultado): Promis
       userEmail: 'sistema',
       action: 'update',
       resource: 'flito_sincronizacion_flit2',
-      detail: detalleAuditoria(r, 'cron'),
+      detail: detalleAuditoria(r, origen),
     });
   } catch (e) {
-    log.error({ err: e instanceof Error ? e.name : typeof e }, 'no se pudo auditar la lectura programada de FLIT 2');
+    log.error({ err: e instanceof Error ? e.name : typeof e }, 'no se pudo auditar la lectura de FLIT 2');
   }
 }
