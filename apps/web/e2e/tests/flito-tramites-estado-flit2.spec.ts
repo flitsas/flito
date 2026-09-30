@@ -318,6 +318,16 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
     await expect.poll(() => ctl.n).toBe(antes + 2);
   });
 
+  test('13189 AC3: una lectura en curso gana a «apagada» (precedencia de la spec)', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    const apagadaLeyendo = { activa: false, intervaloMs: null, proximaEn: null, enCurso: true, generadoEn: new Date().toISOString() };
+    await mockEstado(page, 200, { ...SANO, automatica: apagadaLeyendo });
+    await abrir(page);
+    await expect(textoIndicador(page)).toHaveText('Leyendo FLIT 2 ahora…');
+    await expect(indicador(page)).not.toContainText('La lectura automática está apagada en este ambiente');
+  });
+
   test('13189 AC5: apagada lo dice sin cuenta; con alerta la tarjeta remite a quien administra el ambiente', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockCola(page);
