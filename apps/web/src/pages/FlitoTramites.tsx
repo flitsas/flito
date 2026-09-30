@@ -28,8 +28,7 @@ import RangoFechas from '../components/flit/RangoFechas';
 import VisorSoportes from '../components/flit/VisorSoportes';
 import ModalFacturaVenta, { esNombrePlacaOrganismo, nombreFacturaVenta } from '../components/flit/ModalFacturaVenta';
 import AccesoFlit2 from '../components/flito/tramites/AccesoFlit2';
-import SincronizarFlit2 from '../components/flito/tramites/SincronizarFlit2';
-import { AvisoEstadoFlit2, LineaEstadoFlit2, useEstadoFlit2 } from '../components/flito/tramites/EstadoFlit2';
+import { AvisoEstadoFlit2, LineaEstadoFlit2, automaticaActivaFlit2, useEstadoFlit2 } from '../components/flito/tramites/EstadoFlit2';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty,
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -411,11 +410,10 @@ export default function FlitoTramites() {
             )}
             <div className="flex flex-wrap items-center gap-3">
               <LineaEstadoFlit2 estado={estadoFlit2} />
-              <SincronizarFlit2 onTerminado={refrescar} onIntento={estadoFlit2.refrescar} />
             </div>
             {esOperaciones && <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} title="Crea un trámite aprobado de prueba para Logística"
               onClick={() => setCrearDemo(true)}>+ Trámite demo</button>}
-            <AccesoFlit2 />
+            <AccesoFlit2 automaticaActiva={automaticaActivaFlit2(estadoFlit2)} onGuardado={estadoFlit2.refrescar} />
           </div>
         } />
 
