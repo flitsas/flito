@@ -15,6 +15,10 @@
 // RN-05  Nada sensible sale: la consulta no selecciona `client_id`, cipher, cursores ni motivos crudos;
 //        el motivo de rechazo se normaliza a una lista cerrada y el código de lectura solo pasa si
 //        tiene forma de código (snake_case); cualquier otro texto se sustituye por `flit2_respuesta`.
+// RN-06  (HU #13188) `automatica`: pulso de la lectura programada de ESTE proceso (`flit2-programa.ts`),
+//        siempre presente aunque `configurado=false`. `generadoEn` = el mismo `ahora` de la alerta;
+//        con el programa apagado `intervaloMs` y `proximaEn` van en null. Nada sensible: dos booleanos,
+//        un entero y dos horas.
 
 import { count, eq, sql } from 'drizzle-orm';
 import type {
@@ -23,6 +27,7 @@ import type {
 import { db } from '../../db/client.js';
 import { flitoSyncFlit2Acceso, flitoSyncFlit2Lectura, flitoTramites } from '../../db/schema.js';
 import { env } from '../../config/env.js';
+import { leerPrograma, type EstadoPrograma } from './flit2-programa.js';
 
 /** Umbral de la alerta (AC5). */
 export const UMBRAL_ALERTA_MS = 30 * 60_000;
@@ -55,6 +60,7 @@ export interface EntradaEstado {
   acceso: AccesoParaEstado | null;
   lectura: LecturaParaEstado | null;
   tramitesEnmascarados: number;
+  programa: EstadoPrograma;
 }
 
 const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString() : null);
@@ -118,6 +124,13 @@ export function componerEstado(e: EntradaEstado, ahora: Date): Flit2EstadoConexi
     alerta,
     problema,
     piiEnmascarada: { tramites: e.tramitesEnmascarados, desde: iso(l?.piiEnmascaradaDesde) },
+    automatica: {
+      activa: e.programa.activa,
+      intervaloMs: e.programa.activa ? e.programa.intervaloMs : null,
+      proximaEn: e.programa.activa ? iso(e.programa.proximaEn) : null,
+      enCurso: e.programa.enCurso,
+      generadoEn: ahora.toISOString(),
+    },
   };
 }
 
@@ -146,5 +159,6 @@ export async function obtenerEstadoConexion(reloj: () => Date = () => new Date()
     acceso: accesos[0] ?? null,
     lectura: lecturas[0] ?? null,
     tramitesEnmascarados: Number(conteo[0]?.n ?? 0),
+    programa: leerPrograma(),
   }, reloj());
 }
