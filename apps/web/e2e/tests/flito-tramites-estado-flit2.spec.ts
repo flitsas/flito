@@ -181,7 +181,9 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
     });
     await abrir(page);
     await expect(aviso(page)).toHaveAttribute('role', 'alert');
-    await expect(aviso(page)).toContainText('FLIT 2 lleva más de 30 minutos sin leer trámites.');
+    // Bug #13198: el título dice la causa (rechazo), aunque además pasen 30 minutos.
+    await expect(aviso(page)).toContainText('FLIT 2 rechazó el acceso de FLITO.');
+    await expect(aviso(page)).not.toContainText('más de 30 minutos');
     await expect(aviso(page)).toContainText(/Última lectura exitosa: .*2026.*\./);
     await expect(aviso(page)).toContainText(/FLIT 2 rechazó el acceso guardado a las \d{1,2}:\d{2}.*\. Revisa el usuario y la contraseña en Acceso a FLIT 2\./);
     await expect(aviso(page).getByRole('button')).toHaveCount(0);
@@ -221,6 +223,71 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
     );
     // El código `bloqueado` no se pinta en el aviso (la cabecera sí dice «Acceso bloqueado», HU #13189).
     await expect(aviso(page)).not.toContainText('bloqueado');
+  });
+
+  test('Bug #13198 (a): bloqueo reciente con alerta → título de bloqueo, no «más de 30 minutos»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    await mockEstado(page, 200, {
+      ...SANO, ultimaExitosaEn: hace(2), alerta: true,
+      problema: { ...PROBLEMA, tipo: 'bloqueado', en: hace(1), hasta: dentro(20) },
+    });
+    await abrir(page);
+    await expect(aviso(page)).toHaveAttribute('role', 'alert');
+    await expect(aviso(page).locator('p').first()).toHaveText('FLIT 2 bloqueó el acceso por un tiempo.');
+    await expect(aviso(page)).not.toContainText('más de 30 minutos');
+    await expect(aviso(page)).toContainText(/Última lectura exitosa: .+\./);
+    await expect(aviso(page)).toContainText(/FLIT 2 bloqueó el acceso por intentos fallidos a las .+, hasta las .+\. FLITO vuelve a leer solo después; no hace falta hacer nada\./);
+  });
+
+  test('Bug #13198 (b): rechazo reciente con alerta → título de rechazo', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    await mockEstado(page, 200, {
+      ...SANO, ultimaExitosaEn: hace(2), alerta: true,
+      problema: { ...PROBLEMA, tipo: 'rechazado', motivo: 'credenciales', en: hace(1) },
+    });
+    await abrir(page);
+    await expect(aviso(page)).toHaveAttribute('role', 'alert');
+    await expect(aviso(page).locator('p').first()).toHaveText('FLIT 2 rechazó el acceso de FLITO.');
+    await expect(aviso(page)).not.toContainText('más de 30 minutos');
+    await expect(aviso(page)).toContainText(/Revisa el usuario y la contraseña en Acceso a FLIT 2\./);
+  });
+
+  test('Bug #13198 (c): «no_responde» sin alerta → sin tarjeta de alerta; el indicador dice que falló y sin el código', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    await mockEstado(page, 200, {
+      ...SANO, ultimaExitosaEn: hace(2), alerta: false,
+      problema: { ...PROBLEMA, codigo: 'no_responde', en: hace(1) }, automatica: auto({ proximaEn: dentro(2) }),
+    });
+    await abrir(page);
+    await expect(textoIndicador(page)).toHaveText(/^Falló la última lectura · reintenta en (1:5\d|2:00)$/);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    await expect(aviso(page)).toHaveAttribute('role', 'status');
+    await expect(aviso(page)).toHaveText(/^A las .+, FLIT 2 no respondió\. FLITO vuelve a intentarlo solo cada pocos minutos\.$/);
+    await expect(page.getByText(/no_responde/)).toHaveCount(0);
+  });
+
+  test('Bug #13198 (c2): fallo de lectura con alerta y lectura reciente → título «falló la última lectura»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    await mockEstado(page, 200, {
+      ...SANO, ultimaExitosaEn: hace(10), alerta: true, problema: { ...PROBLEMA, codigo: 'no_responde', en: hace(1) },
+    });
+    await abrir(page);
+    await expect(aviso(page).locator('p').first()).toHaveText('Falló la última lectura de FLIT 2.');
+    await expect(aviso(page)).not.toContainText('más de 30 minutos');
+    await expect(page.getByText(/no_responde/)).toHaveCount(0);
+  });
+
+  test('Bug #13198 (d): ≥30 min sin lectura y sin problema → título «más de 30 minutos»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    await mockEstado(page, 200, { ...SANO, ultimaExitosaEn: hace(45), alerta: true });
+    await abrir(page);
+    await expect(aviso(page)).toHaveAttribute('role', 'alert');
+    await expect(aviso(page).locator('p').first()).toHaveText('FLIT 2 lleva más de 30 minutos sin leer trámites.');
   });
 
   test('AC6: los códigos de lectura se traducen; nunca el código crudo ni el texto del API', async ({ page }) => {
