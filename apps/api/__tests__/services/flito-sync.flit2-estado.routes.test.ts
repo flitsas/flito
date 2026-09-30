@@ -50,6 +50,10 @@ const ESTADO = {
   alerta: true,
   problema: { tipo: 'rechazado', codigo: null, motivo: 'credenciales', en: '2026-09-29T14:58:00.000Z', hasta: null },
   piiEnmascarada: { tramites: 2, desde: '2026-09-29T10:00:00.000Z' },
+  automatica: {
+    activa: true, intervaloMs: 300_000, proximaEn: '2026-09-29T15:05:00.000Z', enCurso: false,
+    generadoEn: '2026-09-29T15:00:00.000Z',
+  },
 };
 
 beforeEach(() => {
@@ -63,8 +67,10 @@ describe('HU #13097 · GET /estado', () => {
     expect(r.status).toBe(200);
     expect(r.body).toEqual(ESTADO);
     expect(Object.keys(r.body).sort()).toEqual(
-      ['alerta', 'atrasada', 'configurado', 'motivoSinConfigurar', 'piiEnmascarada', 'problema', 'ultimaExitosaEn', 'ultimoIntentoEn'],
+      ['alerta', 'atrasada', 'automatica', 'configurado', 'motivoSinConfigurar', 'piiEnmascarada', 'problema', 'ultimaExitosaEn', 'ultimoIntentoEn'],
     );
+    // HU #13188 AC6: el bloque nuevo viaja con sus cinco claves y el permiso del GET no cambia.
+    expect(Object.keys(r.body.automatica).sort()).toEqual(['activa', 'enCurso', 'generadoEn', 'intervaloMs', 'proximaEn']);
     expect(estadoMock).toHaveBeenCalledTimes(1);
   });
 
