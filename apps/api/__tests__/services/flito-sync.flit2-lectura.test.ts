@@ -1491,3 +1491,68 @@ describe('HU #13188 · AC4 · enCurso del estado', () => {
     candado.tomado = false;
   });
 });
+
+// ── Bug #13198: el fallo del pase queda en la fila de lectura (RN-23) ─────────────────────────────────
+const { Flit2NoRespondeError, Flit2BloqueadoError, Flit2RechazadoError: Flit2Rechazado13198 } =
+  await import('../../src/modules/flito-sync/flit2.errors.js');
+
+describe('Bug #13198 · fallo al pedir el pase (RN-23)', () => {
+  const VIEJO = new Date('2026-09-28T10:00:00Z');
+  const EXITOSA = new Date('2026-09-28T09:00:00Z');
+  const sembrarConHistoria = (): void => sembrarLectura({
+    sinceArranque: new Date('2026-09-01T00:00:00Z'), cursor: 'c7', ultimaExitosaEn: EXITOSA,
+    ultimoIntentoEn: VIEJO, ultimoErrorCodigo: null,
+  });
+  const falla = (e: Error) => puerto([], async () => { throw e; });
+
+  it('pase no responde → intento fallido con `no_responde`; cursor, since y última exitosa intactos; el error se propaga', async () => {
+    sembrarConHistoria();
+    const err = new Flit2NoRespondeError();
+    const { port, llamadas } = falla(err);
+    const e = await leerIncremental({ ahora: reloj() }, port).catch((x: unknown) => x);
+    expect(e).toBe(err);
+    expect(llamadas).toHaveLength(0);
+    expect(lectura()).toMatchObject({
+      ultimoIntentoEn: ARRANQUE, ultimoErrorCodigo: 'no_responde',
+      cursor: 'c7', sinceArranque: new Date('2026-09-01T00:00:00Z'), ultimaExitosaEn: EXITOSA,
+    });
+  });
+
+  it('pase 423 recién recibido → `ultimo_intento_en` = inicio y `ultimo_error_codigo` sin cambios', async () => {
+    sembrarLectura({ cursor: 'c7', ultimoIntentoEn: VIEJO, ultimoErrorCodigo: 'flit2_respuesta', ultimaExitosaEn: EXITOSA });
+    const err = new Flit2BloqueadoError('client_locked', new Date(ARRANQUE.getTime() + 900_000), true);
+    const e = await leerIncremental({ ahora: reloj() }, falla(err).port).catch((x: unknown) => x);
+    expect(e).toBe(err);
+    expect(lectura()).toMatchObject({
+      ultimoIntentoEn: ARRANQUE, ultimoErrorCodigo: 'flit2_respuesta', cursor: 'c7', ultimaExitosaEn: EXITOSA,
+    });
+  });
+
+  it('rechazo recién recibido → `ultimo_intento_en` = inicio, sin código de error', async () => {
+    sembrarConHistoria();
+    const err = new Flit2Rechazado13198('invalid_client', true);
+    await leerIncremental({ ahora: reloj() }, falla(err).port).catch(() => undefined);
+    expect(lectura()).toMatchObject({ ultimoIntentoEn: ARRANQUE, ultimoErrorCodigo: null, cursor: 'c7' });
+  });
+
+  it.each([
+    ['sin acceso', () => new Flit2SinAccesoError()],
+    ['pausa ya guardada (no se llamó a FLIT 2)', () => new Flit2BloqueadoError('client_locked', new Date(ARRANQUE.getTime() + 900_000))],
+    ['rechazo ya guardado (no se llamó a FLIT 2)', () => new Flit2Rechazado13198('invalid_client')],
+  ])('%s → la fila de lectura no se toca', async (_n, crear) => {
+    sembrarConHistoria();
+    const antes = { ...lectura() };
+    const e = await leerIncremental({ ahora: reloj() }, falla(crear()).port).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(Flit2Error);
+    expect(lectura()).toEqual(antes);
+  });
+
+  it('regresión: tras el `no_responde`, una lectura buena limpia el código y deja la exitosa', async () => {
+    sembrarConHistoria();
+    await leerIncremental({ ahora: reloj() }, falla(new Flit2NoRespondeError()).port).catch(() => undefined);
+    expect(lectura().ultimoErrorCodigo).toBe('no_responde');
+    const despues = new Date('2026-09-29T15:05:00Z');
+    await leerIncremental({ ahora: reloj(despues) }, puerto([pagina([], 'c8')]).port);
+    expect(lectura()).toMatchObject({ ultimoErrorCodigo: null, ultimaExitosaEn: despues, ultimoIntentoEn: despues, cursor: 'c8' });
+  });
+});
