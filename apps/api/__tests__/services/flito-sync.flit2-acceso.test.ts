@@ -26,6 +26,10 @@ vi.mock('../../src/config/env.js', async (importOriginal) => {
     env: new Proxy(actual.env as Record<string, unknown>, {
       get(target, prop) {
         if (prop === 'FLIT2_ENC_KEY' && entorno.sinLlave) return undefined;
+        // HU #13190: con la lectura automática encendida, el PUT lanzaría una lectura real de fondo contra
+        // este mismo mock de base. Aquí se prueba solo el acceso; el disparo, en
+        // `flito-sync.flit2-acceso-lectura.routes.test.ts`.
+        if (prop === 'FLIT2_SYNC_CRON') return false;
         return target[prop as string];
       },
     }),
