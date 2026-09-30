@@ -26,6 +26,10 @@
 // la fecha leída del recibo cuando es confiable. El dedup por número de recibo de la masiva NO aplica:
 // el consecutivo de caja es otro espacio y ningún AC lo pide. El hash sí cruza contra los TRES tipos.
 //
+// ── Compresión al guardar (HU #13207) ────────────────────────────────────────────────────────────
+// `archivar` pasa el comprobante por `comprimirComprobante` (flito-recibos.compresion.ts) y guarda el
+// resultado; `tamanoBytes` es el de lo guardado. Hash y OCR siguen sobre el original.
+//
 // ── Qué cambió en la HU #12053 ───────────────────────────────────────────────────────────────────
 // El gestor está atado a VARIOS organismos (`flito_gestor_organismos`), así que `ctx.organismos` es
 // una lista y hace falta separar las dos cosas que antes decidía un único código:
@@ -67,6 +71,7 @@ import {
 } from './flito-recibos.fase.js';
 import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { uploadEntityDocument } from '../../services/storage.js';
+import { comprimirComprobante } from './flito-recibos.compresion.js';
 import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
 import type { ArchivoSubido, ImpuestoCtx } from './flito-factura-venta.service.js';
 
@@ -418,9 +423,9 @@ async function procesarRecibo(
   if (archivo.fase === FaseRecibo.LIQUIDACION) {
     // Liquidación del impuesto (AC2/AC3): marca `liquidado_en` sobre el `solicitado`, sin veredicto
     // y sin revisión. Un valor dudoso simplemente no se escribe; el documento queda archivado igual.
-    const storageKey = await archivar(candidato, archivo);
+    const guardado = await archivar(candidato, archivo);
     const valorLiquidado = await db.transaction(async (tx) => {
-      const soporteId = await insertarSoporte(tx, candidato.impuestoId, archivo, tipo, ctx, storageKey, hash);
+      const soporteId = await insertarSoporte(tx, candidato.impuestoId, archivo, tipo, ctx, guardado, hash);
       return marcarLiquidado(tx, candidato, extraccion, soporteId, ctx);
     });
     res.liquidados.push({ archivo: archivo.originalname, placa, idFlit: candidato.tramiteIdFlit, registroId: candidato.impuestoId,
@@ -432,10 +437,10 @@ async function procesarRecibo(
 
   // Pago con marca (AC4): la única vía a PAGADO. Validado por OCR concilia; dudoso, a revisión.
   const veredicto = evaluarReciboImpuesto(extraccion, umbral);
-  const storageKey = await archivar(candidato, archivo);
+  const guardado = await archivar(candidato, archivo);
 
   await db.transaction(async (tx) => {
-    const soporteId = await insertarSoporte(tx, candidato.impuestoId, archivo, tipo, ctx, storageKey, hash);
+    const soporteId = await insertarSoporte(tx, candidato.impuestoId, archivo, tipo, ctx, guardado, hash);
     if (veredicto.aprobada) await conciliar(tx, candidato, extraccion, soporteId, ctx);
     else await aRevision(tx, soporteId, extraccion, veredicto, candidato.impuestoId, placa, ctx);
   });
@@ -487,9 +492,9 @@ async function adjuntarComplemento(archivo: ArchivoSubido, placa: string, fase: 
   if (Number(n) > 0) return false; // ya tiene esa copia: es duplicado, no complemento
   const cual = fase === FaseRecibo.LIQUIDACION ? 'la liquidación del impuesto (sin marca)' : 'el pago con marca';
   const marcaLiquidado = fase === FaseRecibo.LIQUIDACION && pagado.liquidadoEn === null;
-  const storageKey = await archivar(pagado, archivo);
+  const guardado = await archivar(pagado, archivo);
   await db.transaction(async (tx) => {
-    const soporteId = await insertarSoporte(tx, pagado.impuestoId, archivo, tipo, ctx, storageKey, hash);
+    const soporteId = await insertarSoporte(tx, pagado.impuestoId, archivo, tipo, ctx, guardado, hash);
     if (marcaLiquidado) await tx.update(flitoImpuestos).set({ liquidadoEn: new Date(), updatedAt: new Date() }).where(eq(flitoImpuestos.id, pagado.impuestoId));
     await auditEnTx(tx, ctx, pagado.impuestoId, `Comprobante complementario (${cual}) adjuntado al pago de ${pagado.tramiteIdFlit}.${marcaLiquidado ? ' Queda marcado como liquidado.' : ''} Soporte ${soporteId}.`);
   });
@@ -590,17 +595,24 @@ async function aRevision(tx: Tx, soporteId: string, extraccion: ExtraccionImpues
   return r.id;
 }
 
-async function insertarSoporte(tx: Tx, impuestoId: string, archivo: ArchivoSubido, tipo: string, ctx: ImpuestoCtx, storageKey: string, hash: string): Promise<string> {
+async function insertarSoporte(tx: Tx, impuestoId: string, archivo: ArchivoSubido, tipo: string, ctx: ImpuestoCtx, guardado: Guardado, hash: string): Promise<string> {
   const [s] = await tx.insert(flitoSoportes).values({
-    tipo, nombreArchivo: archivo.originalname, contentType: archivo.mimetype, storageKey, hash, tamanoBytes: archivo.size,
+    tipo, nombreArchivo: archivo.originalname, contentType: archivo.mimetype, storageKey: guardado.storageKey, hash, tamanoBytes: guardado.tamanoBytes,
     impuestoId, subidoPorId: ctx.userId, subidoPorNombre: ctx.username,
   }).returning({ id: flitoSoportes.id });
   return s.id;
 }
 
-async function archivar(cand: Candidato, archivo: ArchivoSubido): Promise<string> {
+/** Lo que quedó en storage: la clave y el tamaño de lo GUARDADO (puede ser el comprimido, HU #13207). */
+interface Guardado { storageKey: string; tamanoBytes: number }
+
+// HU #13207: se comprime aquí, después del hash, del OCR y del dedupe (todos sobre el original). `archivo`
+// no se muta: el hash que llega a `insertarSoporte` sigue siendo el sha256 de lo subido.
+async function archivar(cand: Candidato, archivo: ArchivoSubido): Promise<Guardado> {
   const carpeta = carpetaDe({ id: cand.companiaId, flitoCarpetaStorage: cand.carpeta }, 'impuestos/recibos');
-  return uploadEntityDocument(carpeta, cand.impuestoId, archivo.originalname, archivo.buffer, archivo.mimetype);
+  const c = await comprimirComprobante({ buffer: archivo.buffer, mimetype: archivo.mimetype });
+  const storageKey = await uploadEntityDocument(carpeta, cand.impuestoId, archivo.originalname, c.buffer, archivo.mimetype);
+  return { storageKey, tamanoBytes: c.buffer.length };
 }
 
 /** Tope defensivo de la ruta declarada por el cliente. Un valor más largo no es una ruta de ZIP. */
@@ -729,9 +741,9 @@ export async function cargarReciboCaja(impuestoId: string, archivo: ArchivoSubid
   const extraccion = remarcarConfiable(extraido, umbral);
   const veredicto = evaluarReciboCaja(extraccion, umbral);
 
-  const storageKey = await archivar(cand, archivo);
+  const guardado = await archivar(cand, archivo);
   return db.transaction(async (tx): Promise<ResultadoReciboCaja> => {
-    const soporteId = await insertarSoporte(tx, cand.impuestoId, archivo, TipoSoporte.RECIBO_CAJA_IMPUESTO, ctx, storageKey, hash);
+    const soporteId = await insertarSoporte(tx, cand.impuestoId, archivo, TipoSoporte.RECIBO_CAJA_IMPUESTO, ctx, guardado, hash);
     if (veredicto.aprobada) {
       const pagadoEn = fechaDelRecibo(extraccion) ?? new Date();
       const r = await conciliar(tx, cand, extraccion, soporteId, ctx, pagadoEn);
