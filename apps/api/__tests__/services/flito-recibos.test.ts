@@ -7,6 +7,7 @@
 // aquí solo el dedup por hash en esa fase (AC7).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createHash } from 'node:crypto';
 import request from 'supertest';
 import express from 'express';
 import { chain } from '../helpers/db.js';
@@ -32,6 +33,15 @@ vi.mock('../../src/modules/flito-ocr/flito-ocr.service.js', async (orig) => {
 });
 const uploadMock = vi.fn().mockResolvedValue('flito/impuestos/recibos/k.pdf');
 vi.mock('../../src/services/storage.js', () => ({ uploadEntityDocument: uploadMock }));
+
+// HU #13207: la compresión real corre por defecto (los buffers de estos specs pesan bytes → BAJO_META);
+// los casos de la HU la sustituyen con `mockResolvedValueOnce` para ver qué se guarda.
+const comprimirMock = vi.fn();
+vi.mock('../../src/modules/flito-impuestos/flito-recibos.compresion.js', async (orig) => {
+  const real = await orig() as typeof import('../../src/modules/flito-impuestos/flito-recibos.compresion.js');
+  comprimirMock.mockImplementation(real.comprimirComprobante);
+  return { ...real, comprimirComprobante: comprimirMock };
+});
 
 const { evaluarReciboImpuesto, evaluarDiferencia, cargarRecibos } = await import('../../src/modules/flito-impuestos/flito-recibos.service.js');
 const { umbralPara } = await import('../../src/modules/flito-parametrizacion/flito-parametrizacion.service.js');
@@ -391,5 +401,84 @@ describe('HU #12630 — candidatoPorImpuestoId, conciliar y remarcarConfiable ex
 
     selectMock.mockReturnValueOnce(armar([]));
     expect(await candidatoPorImpuestoId('imp-0')).toBeNull();
+  });
+});
+
+/** Lo que devolvería la compresión de un original grande: otro buffer, más chico. */
+const comprimido = (original: Buffer) => {
+  const buffer = Buffer.from('%PDF-comprimido-hu-13207');
+  return { buffer, escalon: 1 as const, bytesAntes: original.length, bytesDespues: buffer.length, motivo: 'MAS_LIVIANO' as const };
+};
+
+describe('HU #13207 — carga masiva: se guarda lo comprimido; hash y OCR sobre el original', () => {
+  beforeEach(() => { comprimirMock.mockClear(); });
+  const ORIGINAL = Buffer.from('%PDF-original-grande-hu-13207');
+
+  it('AC6/AC8 — storage recibe el comprimido; el soporte lleva sha256(original) y tamanoBytes del comprimido', async () => {
+    selectMock.mockReturnValueOnce(chain([]));           // dedup hash
+    extraerMock.mockResolvedValueOnce(reciboOk);
+    selectMock.mockReturnValueOnce(chain([candidato]));  // candidato EN_GESTION
+    selectMock.mockReturnValueOnce(chain([]));           // dedup por número de recibo
+    const c = comprimido(ORIGINAL);
+    comprimirMock.mockResolvedValueOnce(c);
+    const { escrituras } = txQueCaptura();
+
+    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin')).attach('archivos', ORIGINAL, 'QTQ100.pdf');
+    expect(r.status).toBe(200);
+    expect(r.body.conciliados).toHaveLength(1);
+
+    expect(comprimirMock).toHaveBeenCalledTimes(1);
+    expect((comprimirMock.mock.calls[0]![0] as { buffer: Buffer }).buffer.equals(ORIGINAL)).toBe(true);
+    // El OCR vio el original, no el comprimido.
+    expect((extraerMock.mock.calls[0]![0] as { contenido: Buffer }).contenido.equals(ORIGINAL)).toBe(true);
+    expect(uploadMock).toHaveBeenCalledTimes(1);
+    expect((uploadMock.mock.calls[0]![3] as Buffer).equals(c.buffer)).toBe(true);
+
+    const soporte = escrituras.find((e) => 'storageKey' in e);
+    expect(soporte, 'no se escribió el soporte').toBeDefined();
+    expect(soporte).toMatchObject({
+      storageKey: 'flito/impuestos/recibos/k.pdf',
+      hash: createHash('sha256').update(ORIGINAL).digest('hex'),
+      tamanoBytes: c.buffer.length,
+    });
+    expect(c.buffer.length).not.toBe(ORIGINAL.length); // premisa: si coincidieran, el aserto no distinguiría
+  });
+
+  it('AC7 — duplicado por hash: no se comprime ni se guarda', async () => {
+    selectMock.mockReturnValueOnce(chain([{ impuestoId: UUID }]));
+    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin')).attach('archivos', ORIGINAL, 'QTQ100.pdf');
+    expect(r.body.duplicados).toHaveLength(1);
+    expect(comprimirMock).not.toHaveBeenCalled();
+    expect(uploadMock).not.toHaveBeenCalled();
+  });
+
+  it('AC7 — liquidación con el mismo hash (fase): no se comprime', async () => {
+    selectMock.mockReturnValueOnce(chain([{ impuestoId: UUID }]));
+    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin'))
+      .field('fase', 'liquidacion').attach('archivos', ORIGINAL, 'QTQ100.pdf');
+    expect(r.body.duplicados).toHaveLength(1);
+    expect(comprimirMock).not.toHaveBeenCalled();
+  });
+
+  it('AC7 — recibo que no cruza (se descarta): no se comprime', async () => {
+    selectMock.mockReturnValueOnce(chain([]));  // dedup hash
+    extraerMock.mockResolvedValueOnce(reciboOk);
+    selectMock.mockReturnValueOnce(chain([]));  // candidato EN_GESTION
+    selectMock.mockReturnValueOnce(chain([]));  // adjuntarComplemento: PAGADO
+    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin')).attach('archivos', ORIGINAL, 'QTQ100.pdf');
+    expect(r.body.noAsociados).toHaveLength(1);
+    expect(comprimirMock).not.toHaveBeenCalled();
+  });
+
+  it('AC1 — PDF pequeño por la vía real (sin mock): se guarda el MISMO contenido', async () => {
+    selectMock.mockReturnValueOnce(chain([]));
+    extraerMock.mockResolvedValueOnce(reciboOk);
+    selectMock.mockReturnValueOnce(chain([candidato]));
+    selectMock.mockReturnValueOnce(chain([]));
+    const { escrituras } = txQueCaptura();
+    await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin')).attach('archivos', ORIGINAL, 'QTQ100.pdf');
+    expect(comprimirMock).toHaveBeenCalledTimes(1);
+    expect((uploadMock.mock.calls[0]![3] as Buffer).equals(ORIGINAL)).toBe(true);
+    expect(escrituras.find((e) => 'storageKey' in e)).toMatchObject({ tamanoBytes: ORIGINAL.length });
   });
 });

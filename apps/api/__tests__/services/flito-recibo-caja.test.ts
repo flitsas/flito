@@ -44,6 +44,15 @@ vi.mock('../../src/modules/flito-ocr/flito-ocr.service.js', async (orig) => {
 const uploadMock = vi.fn();
 vi.mock('../../src/services/storage.js', () => ({ uploadEntityDocument: uploadMock }));
 
+// HU #13207: la compresión real corre por defecto (los buffers de estos specs pesan bytes → BAJO_META);
+// los casos de la HU la sustituyen con `mockResolvedValueOnce` para ver qué se guarda.
+const comprimirMock = vi.fn();
+vi.mock('../../src/modules/flito-impuestos/flito-recibos.compresion.js', async (orig) => {
+  const real = await orig() as typeof import('../../src/modules/flito-impuestos/flito-recibos.compresion.js');
+  comprimirMock.mockImplementation(real.comprimirComprobante);
+  return { ...real, comprimirComprobante: comprimirMock };
+});
+
 const { cargarReciboCaja, evaluarReciboCaja, ReciboCajaError } = await import('../../src/modules/flito-impuestos/flito-recibos.service.js');
 const { OcrNoDisponibleError } = await import('../../src/modules/flito-ocr/flito-ocr.service.js');
 const { flitoImpuestos, flitoSoportes, flitoRevisiones, auditLogs, flitoEstadoHistorial } = await import('../../src/db/schema.js');
@@ -367,5 +376,53 @@ describe('AC7/AC8 — el tipo nuevo vive en el catálogo y NO entra en el ZIP ma
     expect(ORDEN_TIPOS_SOPORTE_ZIP as readonly string[]).not.toContain('recibo_caja_impuesto');
     const zip = fuente('shared/soportes/soportes-zip.ts');
     expect(zip).not.toMatch(/RECIBO_CAJA|recibo_caja/);
+  });
+});
+
+/** Lo que devolvería la compresión de un original grande: otro buffer, más chico. */
+const comprimido = (original: Buffer) => {
+  const buffer = Buffer.from('%PDF-comprimido-hu-13207');
+  return { buffer, escalon: 1 as const, bytesAntes: original.length, bytesDespues: buffer.length, motivo: 'MAS_LIVIANO' as const };
+};
+
+describe('HU #13207 — recibo de caja: se guarda lo comprimido; hash y OCR sobre el original', () => {
+  beforeEach(() => { comprimirMock.mockClear(); });
+
+  it('AC6/AC8 — storage recibe el comprimido; soporte con sha256(original) y tamanoBytes del comprimido', async () => {
+    const archivo = pdf('caja.pdf', '%PDF-original-grande-caja');
+    escenario();
+    extraerMock.mockResolvedValueOnce(reciboCaja());
+    const c = comprimido(archivo.buffer);
+    comprimirMock.mockResolvedValueOnce(c);
+    const tx = txQueCaptura();
+
+    const r = await cargarReciboCaja(UUID, archivo, ADMIN);
+
+    expect(r.resultado).toBe('pagado');
+    expect(comprimirMock).toHaveBeenCalledWith({ buffer: archivo.buffer, mimetype: 'application/pdf' });
+    expect(extraerMock.mock.calls[0]![0]).toMatchObject({ contenido: archivo.buffer });
+    expect(uploadMock.mock.calls[0]![3]).toBe(c.buffer);
+    const [soporte] = tx.en('insert', T_SOPORTES);
+    expect(soporte!.datos).toMatchObject({ hash: sha(archivo), tamanoBytes: c.buffer.length, storageKey: 'flito/impuestos/recibos/caja.pdf' });
+    expect(c.buffer.length).not.toBe(archivo.size);
+  });
+
+  it('AC1 — PDF pequeño por la vía real: el mismo buffer a storage y tamanoBytes = su tamaño', async () => {
+    const archivo = pdf('caja.pdf', '%PDF-chico');
+    escenario();
+    extraerMock.mockResolvedValueOnce(reciboCaja());
+    const tx = txQueCaptura();
+    await cargarReciboCaja(UUID, archivo, ADMIN);
+    expect(uploadMock.mock.calls[0]![3]).toBe(archivo.buffer);
+    expect(tx.en('insert', T_SOPORTES)[0]!.datos).toMatchObject({ tamanoBytes: archivo.buffer.length });
+  });
+
+  it('AC7 — duplicado por hash o sin liquidación: no se comprime', async () => {
+    escenario({ dup: [{ impuestoId: UUID }] });
+    await expect(cargarReciboCaja(UUID, pdf('caja.pdf', '%PDF-dup'), ADMIN)).rejects.toMatchObject({ codigo: 'duplicado' });
+    selectMock.mockReset(); // el duplicado no consume el select del candidato que dejó `escenario`
+    selectMock.mockReturnValueOnce(chain([acceso({ liquidadoEn: null })]));
+    await expect(cargarReciboCaja(UUID, pdf('caja.pdf', '%PDF-1'), ADMIN)).rejects.toMatchObject({ codigo: 'sin_liquidacion' });
+    expect(comprimirMock).not.toHaveBeenCalled();
   });
 });
