@@ -4,7 +4,9 @@
 //   GET /acceso   `tramites.flit2.ver_acceso`      → Flit2AccesoMeta (200 también sin acceso)
 //   PUT /acceso   `tramites.flit2.guardar_acceso`  → Flit2AccesoMeta · 400 · 409 · 503 llave_maestra
 //   POST /acceso/probar  (HU #13063) montado desde `flit2-probar.routes.ts`
-//   POST /sincronizar    (HU #13091) montado desde `flit2-lectura.routes.ts`
+//   (HU #13190) Un PUT /acceso que responde 200 lanza en segundo plano una lectura de trámites, sin
+//   esperarla, si `FLIT2_SYNC_CRON` está encendida (`flit2-lectura-acceso.ts`). El POST /sincronizar del
+//   botón (HU #13091) se retiró: la lectura la hacen el cron y el guardado del acceso.
 //
 // Ninguna respuesta —tampoco las de error— lleva la contraseña, el pase ni un fragmento suyos.
 
@@ -16,8 +18,8 @@ import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { guardarAcceso, obtenerMetaAcceso } from './flit2-acceso.service.js';
+import { lanzarLecturaTrasAcceso } from './flit2-lectura-acceso.js';
 import probarRouter from './flit2-probar.routes.js';
-import lecturaRouter from './flit2-lectura.routes.js';
 import estadoRouter from './flit2-estado.routes.js';
 import { Flit2Error } from './flit2.errors.js';
 
@@ -90,13 +92,13 @@ router.put('/acceso', exigirFuncion('tramites.flit2.guardar_acceso'), accesoLimi
       detail: `flit2.acceso.guardar: acceso a FLIT 2 guardado (clientId=${meta.clientId ?? '?'})`,
     });
     res.json(meta);
-  } catch (e) { fallo(res, e); }
+  } catch (e) { fallo(res, e); return; }
+  // HU #13190: solo tras el 200; la respuesta ya salió y la lectura no se espera (400/409/503/429 no llegan).
+  lanzarLecturaTrasAcceso();
 });
 
 // HU #13063: «Probar conexión» vive en su propio fichero — ver la cabecera de `flit2-probar.routes.ts`.
 router.use(probarRouter);
-// HU #13091: lectura incremental de trámites — ver la cabecera de `flit2-lectura.routes.ts`.
-router.use(lecturaRouter);
 // HU #13097: estado de la conexión — ver la cabecera de `flit2-estado.routes.ts`.
 router.use(estadoRouter);
 
