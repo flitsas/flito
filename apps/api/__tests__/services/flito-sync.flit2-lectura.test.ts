@@ -789,7 +789,7 @@ describe('AC10 · sin datos personales de más, FLIT 1 intacto', () => {
 
 // ═══ HU #13092 · lectura programada: candado, topes de tiempo y esperas ═══════════════════════════
 const {
-  leerConCandado, auditarLecturaProgramada, LIMITE_BOTON_MS, LIMITE_CRON_MS, MAX_PAGINAS_SEGURIDAD, ESPERA_429_MAX_S,
+  leerConCandado, auditarLecturaProgramada, LIMITE_CRON_MS, MAX_PAGINAS_SEGURIDAD, ESPERA_429_MAX_S,
 } = await import('../../src/modules/flito-sync/flit2-lectura.service.js');
 const { Flit2EsperaFeedError, Flit2LecturaEnCursoError, Flit2RechazadoError } =
   await import('../../src/modules/flito-sync/flit2.errors.js');
@@ -805,29 +805,28 @@ describe('HU #13092 · topes y esperas', () => {
   beforeEach(() => { candado.tomado = false; candado.tomas = 0; candado.sueltas = 0; });
   afterEach(() => { vi.useRealTimers(); });
 
-  it('los topes son los del AC: cron 4 min, botón 60 s; las páginas solo como cinturón', () => {
+  it('los topes son los del AC: toda corrida 4 min (HU #13190 retiró los 60 s del botón); las páginas solo como cinturón', () => {
     expect(LIMITE_CRON_MS).toBe(240_000);
-    expect(LIMITE_BOTON_MS).toBe(60_000);
     expect(MAX_PAGINAS_SEGURIDAD).toBeGreaterThanOrEqual(100);
     expect(ESPERA_429_MAX_S).toBe(60);
   });
 
-  it('AC3 botón: a los 60 s termina TRAS guardar la página en curso, atrasada=true, y la siguiente sigue del cursor', async () => {
+  it('HU #13190 · la de tras guardar el acceso corta con el tope del cron (4 min): termina TRAS guardar la página en curso, atrasada=true, y la siguiente sigue del cursor', async () => {
     sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
     const rel = relojMovil();
     const { port, llamadas } = puerto([
-      pagina([crudo()], 'c1', true, rel.avanzar(25_000)),
-      pagina([], 'c2', true, rel.avanzar(25_000)),
-      pagina([crudo({ id: U2, radicado: 'FT1-0000002', vehiculo: { ...(crudo().vehiculo as Fila), vin: '9FKTEST0000000002' } })], 'c3', true, rel.avanzar(25_000)),
+      pagina([crudo()], 'c1', true, rel.avanzar(100_000)),
+      pagina([], 'c2', true, rel.avanzar(100_000)),
+      pagina([crudo({ id: U2, radicado: 'FT1-0000002', vehiculo: { ...(crudo().vehiculo as Fila), vin: '9FKTEST0000000002' } })], 'c3', true, rel.avanzar(100_000)),
     ]);
-    const r = await leerConCandado('boton', port, { ahora: rel.ahora });
+    const r = await leerConCandado('acceso', port, { ahora: rel.ahora });
     expect(llamadas.map((l) => l.cursor)).toEqual(['c0', 'c1', 'c2']);
-    // La tercera cruzó los 60 s a mitad: se guardó entera (cursor c3 y su trámite escrito).
+    // La tercera cruzó los 4 min a mitad: se guardó entera (cursor c3 y su trámite escrito).
     expect(lectura().cursor).toBe('c3');
     expect(tramite(U2)).toBeDefined();
     expect(r).toMatchObject({ paginas: 3, hasMore: true, leidos: 2 });
     expect(lectura().atrasada).toBe(true);
-    expect(lectura().ultimaExitosaEn).toEqual(new Date(ARRANQUE.getTime() + 75_000));
+    expect(lectura().ultimaExitosaEn).toEqual(new Date(ARRANQUE.getTime() + 300_000));
 
     const siguiente = puerto([pagina([], 'c4', false)]);
     await leerConCandado('cron', siguiente.port, { ahora: rel.ahora });
@@ -849,7 +848,7 @@ describe('HU #13092 · topes y esperas', () => {
 
   it('AC3: una corrida que vacía el feed antes del tope queda atrasada=false', async () => {
     sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0', atrasada: true });
-    const r = await leerConCandado('boton', puerto([pagina([], 'c1', false)]).port, { ahora: reloj() });
+    const r = await leerConCandado('acceso', puerto([pagina([], 'c1', false)]).port, { ahora: reloj() });
     expect(r.hasMore).toBe(false);
     expect(lectura().atrasada).toBe(false);
   });
@@ -892,12 +891,12 @@ describe('HU #13092 · topes y esperas', () => {
     expect(siguiente.llamadas[0].cursor).toBe('c0');
   });
 
-  it('AC4+AC3: una espera que no cabe en el tope del botón termina con lo guardado, sin esperar', async () => {
+  it('AC4+AC3: una espera que no cabe en el tope de la corrida termina con lo guardado, sin esperar', async () => {
     sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
     const rel = relojMovil();
     const esperar = vi.fn(async () => undefined);
-    const { port } = puerto([pagina([crudo()], 'c1', true, rel.avanzar(40_000)), r429(30)]);
-    const e = await leerConCandado('boton', port, { ahora: rel.ahora, esperar }).catch((x: unknown) => x);
+    const { port } = puerto([pagina([crudo()], 'c1', true, rel.avanzar(220_000)), r429(30)]);
+    const e = await leerConCandado('acceso', port, { ahora: rel.ahora, esperar }).catch((x: unknown) => x);
     expect(e).toBeInstanceOf(Flit2EsperaFeedError);
     expect(esperar).not.toHaveBeenCalled();
     expect(lectura().cursor).toBe('c1');
@@ -949,7 +948,7 @@ describe('HU #13092 · topes y esperas', () => {
     candado.tomado = true;
     const acceso = vi.fn(async () => undefined);
     const { port, llamadas } = puerto([pagina([], 'c1')], acceso);
-    const e = await leerConCandado('boton', port, { ahora: reloj() }).catch((x: unknown) => x);
+    const e = await leerConCandado('acceso', port, { ahora: reloj() }).catch((x: unknown) => x);
     expect(e).toBeInstanceOf(Flit2LecturaEnCursoError);
     expect((e as InstanceType<typeof Flit2LecturaEnCursoError>).status).toBe(409);
     expect(acceso).not.toHaveBeenCalled();
@@ -957,14 +956,14 @@ describe('HU #13092 · topes y esperas', () => {
     expect(lectura().cursor).toBe('c0');
   });
 
-  it('AC2: dos corridas a la vez (cron + botón) → una lee y la otra recibe 409; el candado se suelta aunque la corrida falle', async () => {
+  it('AC2: dos corridas a la vez (cron + acceso) → una lee y la otra recibe 409; el candado se suelta aunque la corrida falle', async () => {
     sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
     let soltar!: () => void;
     const pausa = new Promise<void>((ok) => { soltar = ok; });
     const lenta = puerto([new Error('fallo de red simulado')], () => pausa);
     const primera = leerConCandado('cron', lenta.port, { ahora: reloj() }).catch((x: unknown) => x);
     await Promise.resolve();
-    const segunda = await leerConCandado('boton', puerto([pagina([], 'c9')]).port, { ahora: reloj() }).catch((x: unknown) => x);
+    const segunda = await leerConCandado('acceso', puerto([pagina([], 'c9')]).port, { ahora: reloj() }).catch((x: unknown) => x);
     expect(segunda).toBeInstanceOf(Flit2LecturaEnCursoError);
     soltar();
     expect(await primera).toBeInstanceOf(Error);
@@ -985,6 +984,18 @@ describe('HU #13092 · topes y esperas', () => {
     const vacia = await leerConCandado('cron', puerto([pagina([], 'c2', false)]).port, { ahora: reloj() });
     await auditarLecturaProgramada(vacia);
     expect(filas(S.auditLogs)).toHaveLength(1);
+  });
+
+  it('HU #13190 AC6: la de tras guardar el acceso se audita igual, con detalle que la distingue y sin PII', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    const r = await leerConCandado('acceso', puerto([pagina([crudo()], 'c1', false)]).port, { ahora: reloj() });
+    await auditarLecturaProgramada(r, 'acceso');
+    const logs = filas(S.auditLogs);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({ userId: null, userEmail: 'sistema', action: 'update', resource: 'flito_sincronizacion_flit2' });
+    expect(logs[0].detail).toMatch(/^Sync FLIT 2 tras guardar el acceso \(cursor\): 1 leídos, 1 nuevos/);
+    const texto = JSON.stringify(logs[0]);
+    for (const pii of ['FT1-0001234', 'ZZZ001', DOC_1, DOC_2, CORREO, CELULAR, '9FKTEST0000000001']) expect(texto).not.toContain(pii);
   });
 });
 
@@ -1315,15 +1326,15 @@ describe('HU #13094 · PII enmascarada', () => {
     sembrarMarcado();
     const primera = puerto([
       pagina([], 'c5'),
-      pagina([crudo({ id: U3, radicado: 'FT1-0003333' })], 'r1', true, rm.avanzar(LIMITE_BOTON_MS)),
+      pagina([crudo({ id: U3, radicado: 'FT1-0003333' })], 'r1', true, rm.avanzar(LIMITE_CRON_MS)),
     ], conPii);
-    await leerConCandado('boton', primera.port, { ahora: rm.ahora });
+    await leerConCandado('acceso', primera.port, { ahora: rm.ahora });
     expect(lectura()).toMatchObject({ cursor: 'c5', cursorRelectura: 'r1' });
     expect(lectura()!.piiEnmascaradaDesde).not.toBeNull();
     expect(tramite(U1)!.flit2PiiEnmascarada).toBe(true);
 
     const segunda = puerto([pagina([], 'c5'), pagina([crudo({ syncVersion: 11, estado: 'asignado' })], 'r2')], conPii);
-    await leerConCandado('boton', segunda.port, { ahora: rm.ahora });
+    await leerConCandado('acceso', segunda.port, { ahora: rm.ahora });
     expect(segunda.llamadas.map((l) => l.cursor ?? l.since)).toEqual(['c5', 'r1']);
     expect(tramite(U1)!.flit2PiiEnmascarada).toBe(false);
     expect(lectura()).toMatchObject({ cursor: 'c5', cursorRelectura: null, piiEnmascaradaDesde: null });
@@ -1462,7 +1473,7 @@ describe('HU #13188 · AC4 · enCurso del estado', () => {
     let soltar!: () => void;
     const pausa = new Promise<void>((ok) => { soltar = ok; });
     const { port } = puerto([new Flit2RespuestaError(500, null)], () => pausa);
-    const promesa = leerConCandado('boton', port, { ahora: reloj() }).catch((x: unknown) => x);
+    const promesa = leerConCandado('acceso', port, { ahora: reloj() }).catch((x: unknown) => x);
     await vi.waitFor(() => expect(leerPrograma().enCurso).toBe(true));
     soltar();
     expect(await promesa).toBeInstanceOf(Flit2RespuestaError);

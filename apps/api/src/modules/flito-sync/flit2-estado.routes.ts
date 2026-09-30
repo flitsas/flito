@@ -4,7 +4,7 @@
 //   GET /estado  `sync.sync.ver_estado` → 200 Flit2EstadoConexion · 401 sin token · 403 sin la función
 //
 // Reutiliza la función del estado del sync de FLIT 1 (0179): no hace falta migración de siembra.
-// Fichero aparte (como `flit2-lectura.routes.ts`) porque el inventario de guardas exige un código por
+// Fichero aparte (como `flit2-probar.routes.ts`) porque el inventario de guardas exige un código por
 // guarda en `flit2.routes.ts`. Sin parámetros; la respuesta no lleva clientId, contraseña, pase,
 // cursores ni textos crudos de FLIT 2 (lo garantiza la proyección del servicio). No se audita: es una
 // lectura de estado sin PII que la UI repite cada 2 minutos.
