@@ -36,10 +36,13 @@ router.post('/generar/:anio/:trimestre', generateLimiter, async (req: Request, r
   const p = parseAnioTrim(req);
   if (!p) { res.status(400).json({ error: 'Año o trimestre inválido' }); return; }
   // Anti-overlap: no generar AROS de un trimestre que aún no termina.
-  // Trimestre N termina el último día del mes 3*N.
-  const lastMonthZero = p.trimestre * 3 - 1;
-  const lastDay = new Date(Date.UTC(p.anio, lastMonthZero + 1, 0));
-  if (new Date() < lastDay) {
+  // Trimestre N sigue en curso hasta el FIN de su último día en hora de Colombia
+  // (America/Bogota, UTC-5 sin DST). Se permite generar desde las 00:00 Bogotá
+  // del primer día del trimestre siguiente = 05:00 UTC (Bug #13192: antes el
+  // límite eran las 00:00 UTC del último día, 19:00 del penúltimo en Colombia).
+  // Date.UTC normaliza el mes 12 (T4) a enero del año siguiente.
+  const inicioTrimestreSiguiente = new Date(Date.UTC(p.anio, p.trimestre * 3, 1, 5));
+  if (new Date() < inicioTrimestreSiguiente) {
     res.status(422).json({ error: 'No se puede generar AROS de un trimestre en curso' });
     return;
   }
