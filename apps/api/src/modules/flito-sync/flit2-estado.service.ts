@@ -87,7 +87,8 @@ function problemaDe(
     };
   }
   if (acceso.bloqueadoHasta && acceso.bloqueadoHasta.getTime() > ahora.getTime()) {
-    // La 0214 no guarda el inicio del bloqueo: la hora del hecho es el último intento de lectura.
+    // La 0214 no guarda el inicio del bloqueo: la hora del hecho es el último intento de lectura, que la
+    // lectura anota al recibir el 423/429 del pase (RN-23 de flit2-lectura.service.ts, Bug #13198).
     return {
       tipo: 'bloqueado', codigo: null, motivo: null,
       en: iso(lectura?.ultimoIntentoEn), hasta: iso(acceso.bloqueadoHasta),
