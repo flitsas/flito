@@ -1,12 +1,12 @@
-import nodemailer from 'nodemailer';
+import nodemailer, { type Mail } from 'nodemailer';
 import { env } from '../config/env.js';
 
 // Servicio compartido de email. Usa el mismo transport singleton optimizado para Office 365
 // que ya usa identidad biométrica. Sin SMTP configurado, sendEmail() devuelve null y NO falla.
 
-let transport: nodemailer.Transporter | null = null;
+let transport: Mail | null = null;
 
-function getTransport(): nodemailer.Transporter | null {
+function getTransport(): Mail | null {
   if (!env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASS) return null;
   if (!transport) {
     transport = nodemailer.createTransport({
