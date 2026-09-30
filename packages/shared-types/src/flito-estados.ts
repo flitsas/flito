@@ -503,6 +503,43 @@ export const CODIGO_ZIP_DEMASIADOS_REGISTROS = 'zip_demasiados_registros';
  */
 export const ZIP_SOPORTES_MAX_REGISTROS = 300;
 
+// ── ZIP de certificados RUNT (HU #13205) ─────────────────────────────────────────────────────────
+
+/**
+ * Cabecera con el conteo de certificados que NO entraron en el ZIP (siempre presente, también `0`).
+ * Nombre compartido por lo mismo que `CABECERAS_ZIP_SOPORTES`: el nombre de la cabecera ES el contrato.
+ */
+export const CABECERA_CERTIFICADOS_OMITIDOS = 'X-Certificados-Omitidos';
+
+/** `codigo` del 409 cuando ninguno de los ids pedidos tiene certificado que entregar. */
+export const CODIGO_ZIP_SIN_CERTIFICADOS = 'zip_sin_certificados';
+
+/**
+ * Por qué un id pedido no entró en el ZIP. Solo dos causas (decisión 2026-09-30): «no disponible»
+ * cubre a la vez «no existe» y «fuera de tu alcance», para no revelar la existencia del registro.
+ */
+export const CausaCertificadoOmitido = {
+  SIN_CERTIFICACION_VIGENTE: 'sin_certificacion_vigente',
+  NO_DISPONIBLE: 'no_disponible',
+} as const;
+export type CausaCertificadoOmitido = typeof CausaCertificadoOmitido[keyof typeof CausaCertificadoOmitido];
+
+/**
+ * Un omitido. `identificador` = placa (o id FLIT sin placa) si es «sin certificación vigente»; el
+ * uuid ENVIADO si es «no disponible» (nunca placa ni id FLIT de algo fuera del alcance).
+ */
+export interface CertificadoOmitido {
+  identificador: string;
+  causa: CausaCertificadoOmitido;
+}
+
+/** Cuerpo del 409 de `POST /api/flito/impuestos/certificados/zip`. */
+export interface ZipSinCertificadosRespuesta {
+  error: string;
+  codigo: typeof CODIGO_ZIP_SIN_CERTIFICADOS;
+  omitidos: CertificadoOmitido[];
+}
+
 /**
  * Cabeceras con las que el ZIP dice CUÁNTO trae, para el aviso del caso parcial.
  *
