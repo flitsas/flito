@@ -23,6 +23,7 @@ import {
   type ComparacionCampo,
 } from '@operaciones/shared-types';
 import { TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
+import type { RegistroRuntCertificado } from './certificacion-runt.js';
 
 const ORIGEN = 'FLITO';
 const A4_W = 595.28;
@@ -101,10 +102,37 @@ export interface CertificadoPdfDatos {
   propietarioNombre: string | null;
   campos: ComparacionCampo[];
   certificadoPorNombre: string;
+  /** Fecha de la consulta al RUNT y de la certificación (son el mismo acto): `createdAt` de la fila vigente. */
   certificadoEn: Date;
+  /** Datos de registro del vehículo según el RUNT, ya por lista blanca (HU #13204). */
+  registroRunt: RegistroRuntCertificado;
   /** Datos de ESTA descarga. Cambian entre una y otra: son metadatos de generación, no evidencia. */
   generadoPor: string;
   generadoEn: Date;
+}
+
+/** Etiquetas y orden del bloque de registro. `Record` tipado: un campo nuevo sin etiqueta no compila. */
+const REGISTRO_LABEL: Record<keyof RegistroRuntCertificado, string> = {
+  clasificacion: 'Clasificación',
+  color: 'Color',
+  cilindraje: 'Cilindraje',
+  tipoServicio: 'Tipo de servicio',
+  organismoTransito: 'Organismo de tránsito',
+  estadoAutomotor: 'Estado del automotor',
+  fechaMatricula: 'Fecha de matrícula',
+  numMotor: 'Número de motor',
+  numChasis: 'Número de chasis',
+  numSerie: 'Número de serie',
+};
+
+/**
+ * Fecha de matrícula legible. `YYYY-MM-DD…` → `DD/MM/YYYY` por CORTE DE CADENA: es una fecha sin
+ * hora, y pasarla por `new Date` + huso de Colombia la correría un día atrás. Cualquier otro formato
+ * (el RUNT a veces ya la trae en `DD/MM/YYYY`) sale tal cual.
+ */
+export function fechaRuntLegible(s: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s.trim());
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
 }
 
 function texto(page: PDFPage, s: string, x: number, y: number, size: number, font: PDFFont, color = NEGRO): void {
@@ -158,9 +186,16 @@ export async function construirCertificadoPdf(datos: CertificadoPdfDatos): Promi
 
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const page = doc.addPage([A4_W, A4_H]);
+  let page = doc.addPage([A4_W, A4_H]);
 
   let y = A4_H - MARGEN;
+  /** Si lo que sigue no cabe sobre la reserva del pie, página nueva. El pie va en la última. */
+  const asegurarEspacio = (alto: number): void => {
+    if (y - alto < MARGEN + 40) {
+      page = doc.addPage([A4_W, A4_H]);
+      y = A4_H - MARGEN;
+    }
+  };
 
   // --- Cabecera -------------------------------------------------------------------------------
   texto(page, ORIGEN, MARGEN, y, 16, bold);
@@ -178,7 +213,7 @@ export async function construirCertificadoPdf(datos: CertificadoPdfDatos): Promi
     ['Origen', ORIGEN],
     ['Generado el', fechaHoraColombia(datos.generadoEn)],
     ['Generado por', datos.generadoPor],
-    ['Certificado el', fechaHoraColombia(datos.certificadoEn)],
+    ['Consulta RUNT y certificación', fechaHoraColombia(datos.certificadoEn)],
     ['Certificado por', datos.certificadoPorNombre],
   ];
   for (const [k, v] of meta) {
@@ -204,6 +239,7 @@ export async function construirCertificadoPdf(datos: CertificadoPdfDatos): Promi
   y -= 20;
 
   for (const campo of datos.campos) {
+    asegurarEspacio(18);
     const celdas = [
       CAMPO_CERTIFICACION_LABEL[campo.campo] ?? campo.campo,
       campo.valorFlito ?? '—',
@@ -222,7 +258,34 @@ export async function construirCertificadoPdf(datos: CertificadoPdfDatos): Promi
   }
   y -= 12;
 
+  // --- Registro del vehículo (HU #13204) -----------------------------------------------------
+  // Dos columnas de etiqueta/valor; cada valor se recorta a su media columna para no invadir la
+  // vecina (AC7). Ausente → «No reportado por el RUNT» (AC2), nunca guion ni vacío.
+  const claves = Object.keys(REGISTRO_LABEL) as (keyof RegistroRuntCertificado)[];
+  const filasRegistro = Math.ceil(claves.length / 2);
+  asegurarEspacio(16 + filasRegistro * 14 + 12);
+  texto(page, 'Registro del vehículo (RUNT)', MARGEN, y, 10, bold);
+  y -= 16;
+  const ETIQUETA_W = 110;
+  const COL_W = ANCHO_UTIL / 2;
+  for (let f = 0; f < filasRegistro; f++) {
+    for (let c = 0; c < 2; c++) {
+      const clave = claves[f * 2 + c];
+      if (!clave) continue;
+      const x = MARGEN + c * COL_W;
+      const bruto = datos.registroRunt[clave];
+      const valor = bruto === null
+        ? RESULTADO_LABEL.no_verificable
+        : clave === 'fechaMatricula' ? fechaRuntLegible(bruto) : bruto;
+      texto(page, recortar(`${REGISTRO_LABEL[clave]}:`, bold, 9, ETIQUETA_W - 4), x, y, 9, bold, GRIS);
+      texto(page, recortar(valor, font, 9, COL_W - ETIQUETA_W - 8), x + ETIQUETA_W, y, 9, font);
+    }
+    y -= 14;
+  }
+  y -= 12;
+
   // --- Propietario ----------------------------------------------------------------------------
+  asegurarEspacio(16 + 3 * 14 + 6 + 4 * 11);
   texto(page, 'PROPIETARIO', MARGEN, y, 10, bold);
   y -= 16;
   for (const { etiqueta, valor } of armarPropietario(datos)) {

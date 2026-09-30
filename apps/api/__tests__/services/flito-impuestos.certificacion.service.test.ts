@@ -46,7 +46,7 @@ const loggerFalso = {
 };
 vi.mock('../../src/shared/logger.js', () => ({ logger: loggerFalso, loggerFor: () => loggerFalso }));
 
-const { certificarImpuesto, ESTADOS_IMPUESTO_CERTIFICABLES } =
+const { certificarImpuesto, certificacionVigente, ESTADOS_IMPUESTO_CERTIFICABLES } =
   await import('../../src/modules/flito-impuestos/certificacion.service.js');
 const { flitoImpuestos, flitoImpuestoCertificaciones, vehicles, auditLogs } =
   await import('../../src/db/schema.js');
@@ -612,5 +612,40 @@ describe('HU #12825 (AC3) — la consulta al RUNT comparte el tope global con la
     soltar[1]!();
     await Promise.all(ocupados);
     expect(limitadorRunt.enVuelo()).toBe(0);
+  });
+});
+
+describe('HU #13204 — certificacionVigente entrega el registro por lista blanca, nunca el snapshot crudo', () => {
+  const filaVigente = (snapshotRunt: unknown) => ({
+    ...filaCert(), vinConsultado: null, vigente: true, createdAt: new Date('2026-07-31T14:05:00.000Z'), snapshotRunt,
+  });
+
+  it('rellena registroRunt y no expone snapshotRunt ni los datos de persona/solicitudes', async () => {
+    kdb.when.select(T_CERT, [filaVigente({
+      vehiculo: {
+        placa: 'QIU744', clasificacion: 'AUTOMOVIL', numMotor: 'G4FGSU123456', numChasis: 'CH-77', fechaRegistro: '2015-03-10',
+        direccion: 'CALLE CENTINELA 1', telefono: '3000000001',
+      },
+      solicitudes: [{ numero: 'SOL-CENTINELA' }],
+      soat: { numeroPoliza: 'SOAT-CENTINELA' },
+    })]);
+
+    const r = await certificacionVigente(ID);
+
+    expect(r).not.toBeNull();
+    expect(r!.registroRunt).toMatchObject({
+      clasificacion: 'AUTOMOVIL', numMotor: 'G4FGSU123456', numChasis: 'CH-77', fechaMatricula: '2015-03-10', color: null,
+    });
+    expect(r).not.toHaveProperty('snapshotRunt');
+    expect(JSON.stringify(r)).not.toMatch(/CENTINELA|3000000001/);
+  });
+
+  it('certificación antigua sin snapshot → los diez campos en null', async () => {
+    kdb.when.select(T_CERT, [filaVigente(null)]);
+
+    const r = await certificacionVigente(ID);
+
+    expect(Object.values(r!.registroRunt)).toHaveLength(10);
+    expect(Object.values(r!.registroRunt).every((v) => v === null)).toBe(true);
   });
 });
