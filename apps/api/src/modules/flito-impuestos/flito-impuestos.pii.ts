@@ -83,6 +83,17 @@ export const CAMPOS_PII_IMPUESTO = ['nombre_completo', 'numero_documento', 'tipo
  */
 export const CAMPOS_PII_IMPUESTO_EXPORT = CAMPOS_PII_COLA_EXPORT;
 
+/**
+ * Columnas personales que entrega el CERTIFICADO RUNT en PDF (HU #13204).
+ *
+ * El PDF publica el nombre (dato de FLITO), el documento y su tipo, la placa y el VIN —ya los
+ * entregaba— y desde esta HU el número de motor, de chasis y de serie: identificadores del vehículo
+ * con la misma clasificación que `vin`. Color, clase, organismo, etc. no son PII y no se declaran.
+ */
+export const CAMPOS_PII_CERTIFICADO = [
+  'nombre_completo', 'numero_documento', 'tipo_documento', 'placa', 'vin', 'num_motor', 'num_chasis', 'num_serie',
+] as const;
+
 export interface AccesoImpuesto {
   /**
    * `search` = la cola (un tramo). `read` = un impuesto concreto. `export` = el `.xlsx` de la cola.
@@ -121,9 +132,10 @@ export interface AccesoImpuesto {
    * PLACA en el nombre de cada entrada. Sin este campo las dos líneas serían indistinguibles.
    *
    * **La ausencia significa el `.xlsx` de la cola**: así la ruta de la HU #11909 sigue diciendo la
-   * verdad sin tocarla.
+   * verdad sin tocarla. `certificado_runt` = el PDF del certificado RUNT (HU #13204), que lleva
+   * documento, placa, VIN, motor, chasis y serie ({@link CAMPOS_PII_CERTIFICADO}).
    */
-  archivo?: 'zip_soportes';
+  archivo?: 'zip_soportes' | 'certificado_runt';
 }
 
 /** `pii_access_log.motivo` es `varchar(200)`: pasarse sería un 22001 en vez de un rastro. */

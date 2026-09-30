@@ -16,7 +16,7 @@ import {
   RESULTADO_EXPORT_AMPLIADO,
 } from '../../shared/export/cola-flito-excel.js';
 import {
-  CAMPOS_PII_IMPUESTO_EXPORT, registrarAccesoImpuesto,
+  CAMPOS_PII_CERTIFICADO, CAMPOS_PII_IMPUESTO_EXPORT, registrarAccesoImpuesto,
 } from './flito-impuestos.pii.js';
 import {
   CAMPOS_PII_ZIP_SOPORTES, comprobarTopeRegistrosZip, nombrePorPlaca,
@@ -651,8 +651,15 @@ router.get('/:id/certificado', exigirFuncion('impuestos.certificado.descargar'),
       campos: cert.campos,
       certificadoPorNombre: cert.certificadoPorNombre,
       certificadoEn: new Date(cert.createdAt),
+      registroRunt: cert.registroRunt,
       generadoPor: ctx.username,
       generadoEn: new Date(),
+    });
+
+    // Registro PII antes del primer byte (HU #13204): el PDF entrega documento, placa, VIN, motor,
+    // chasis y serie. Si `construirCertificadoPdf` hubiera lanzado, no se entregó nada que registrar.
+    await registrarAccesoImpuesto(req, {
+      accion: 'export', archivo: 'certificado_runt', impuestoId: req.params.id, filas: 1, campos: CAMPOS_PII_CERTIFICADO,
     });
 
     // Auditar ANTES de escribir la respuesta: `audit` se traga sus errores, pero si algo se cayera

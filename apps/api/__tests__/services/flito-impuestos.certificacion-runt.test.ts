@@ -11,6 +11,7 @@ import { CampoCertificacion, ResultadoCampo, type DatosVehiculoFlito } from '@op
 import {
   compararConRunt,
   esTraspasoEnSincronizacion,
+  extraerRegistroRunt,
   extraerVehiculoRunt,
   normalizarIdentificador,
   normalizarTexto,
@@ -298,5 +299,75 @@ describe('RN-08 — traspaso reciente en sincronización', () => {
     expect(esTraspasoEnSincronizacion('Timeout 90s')).toBe(false);
     expect(esTraspasoEnSincronizacion(null)).toBe(false);
     expect(esTraspasoEnSincronizacion(undefined)).toBe(false);
+  });
+});
+
+describe('HU #13204 — extraerRegistroRunt (datos de registro del certificado PDF)', () => {
+  const CLAVES = [
+    'clasificacion', 'color', 'cilindraje', 'tipoServicio', 'organismoTransito',
+    'estadoAutomotor', 'fechaMatricula', 'numMotor', 'numChasis', 'numSerie',
+  ];
+
+  /** Claves con los nombres medidos en la consulta real (QIU744, 2026-07-31). */
+  const REAL = {
+    vehiculo: {
+      placa: 'QIU744', vin: '3KPFF51ABTE156687', numChasis: '3KPFF51ABTE156687', numSerie: null,
+      marca: 'KIA', linea: 'K3 CROSS', modelo: '2026', clase: 'CAMIONETA', clasificacion: 'AUTOMOVIL',
+      cilindraje: 1598, color: 'GRIS', tipoServicio: 'Particular', organismoTransito: 'STRIA MEDELLIN',
+      numMotor: 'G4FGSU123456', estadoAutomotor: 'ACTIVO', fechaRegistro: '2015-03-10',
+    },
+    tipoDocPropietario: 'C',
+  };
+
+  it('payload real → los diez campos (serie null en real)', () => {
+    expect(extraerRegistroRunt(REAL)).toEqual({
+      clasificacion: 'AUTOMOVIL', color: 'GRIS', cilindraje: '1598', tipoServicio: 'Particular',
+      organismoTransito: 'STRIA MEDELLIN', estadoAutomotor: 'ACTIVO', fechaMatricula: '2015-03-10',
+      numMotor: 'G4FGSU123456', numChasis: '3KPFF51ABTE156687', numSerie: null,
+    });
+  });
+
+  it('acepta los alias alternos (fechaMatricula, noChasis)', () => {
+    const r = extraerRegistroRunt({ vehiculo: { fechaMatricula: '2020-01-02', noChasis: 'CH-1' } });
+    expect(r.fechaMatricula).toBe('2020-01-02');
+    expect(r.numChasis).toBe('CH-1');
+  });
+
+  it('cae a datosTecnicos cuando vehiculo no lo trae', () => {
+    const r = extraerRegistroRunt({
+      vehiculo: { placa: 'QIU744' },
+      datosTecnicos: { fechaRegistro: '2019-05-06', clasificacion: 'MOTOCICLETA', numMotor: 'M-9' },
+    });
+    expect(r.fechaMatricula).toBe('2019-05-06');
+    expect(r.clasificacion).toBe('MOTOCICLETA');
+    expect(r.numMotor).toBe('M-9');
+  });
+
+  it.each([null, undefined, {}, { vehiculo: null }])('snapshot %j → los diez en null', (snap) => {
+    const r = extraerRegistroRunt(snap);
+    expect(Object.keys(r).sort()).toEqual([...CLAVES].sort());
+    expect(Object.values(r).every((v) => v === null)).toBe(true);
+  });
+
+  it('lista blanca: exactamente las diez claves aunque el snapshot traiga datos de persona, SOAT, RTM y solicitudes', () => {
+    const snap = {
+      ...REAL,
+      vehiculo: { ...REAL.vehiculo, direccion: 'CALLE CENTINELA 1', telefono: '3000000001', correo: 'centinela@x.co' },
+      soat: { numeroPoliza: 'SOAT-CENTINELA' },
+      rtm: { numero: 'RTM-CENTINELA' },
+      solicitudes: [{ numero: 'SOL-CENTINELA' }],
+      datosTecnicos: { direccion: 'CALLE CENTINELA 2' },
+    };
+    const r = extraerRegistroRunt(snap);
+    expect(Object.keys(r).sort()).toEqual([...CLAVES].sort());
+    expect(JSON.stringify(r)).not.toMatch(/CENTINELA|centinela|3000000001/);
+  });
+
+  it('no usa `estado` a secas como estado del automotor', () => {
+    expect(extraerRegistroRunt({ vehiculo: { estado: 'CUALQUIERA' } }).estadoAutomotor).toBeNull();
+  });
+
+  it('chasis ausente con VIN presente → null (no cae al VIN)', () => {
+    expect(extraerRegistroRunt({ vehiculo: { vin: '3KPFF51ABTE156687' } }).numChasis).toBeNull();
   });
 });

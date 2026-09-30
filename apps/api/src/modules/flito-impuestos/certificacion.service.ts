@@ -29,7 +29,10 @@ import { loggerFor } from '../../shared/logger.js';
 import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
 import { consultarVehiculoRunt } from '../runt/runt.service.js';
 import { motorYSerieParaVehiculo, type MotorYSerieRunt } from '../runt/vehiculo-motor-serie.js';
-import { compararConRunt, esTraspasoEnSincronizacion, extraerVehiculoRunt, runtSinRegistro } from './certificacion-runt.js';
+import {
+  compararConRunt, esTraspasoEnSincronizacion, extraerRegistroRunt, extraerVehiculoRunt, runtSinRegistro,
+  type RegistroRuntCertificado,
+} from './certificacion-runt.js';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import { buscarConAcceso } from './flito-impuestos.service.js';
 import { limitadorRunt } from './runt-limitador.js';
@@ -59,6 +62,18 @@ export interface CertificacionVigente {
   campos: ComparacionCampo[];
   certificadoPorNombre: string;
   createdAt: string;
+}
+
+/**
+ * Certificación vigente MÁS los datos de registro del vehículo que imprime el PDF (HU #13204).
+ *
+ * Tipo aparte y no un campo más de {@link CertificacionVigente}: esa forma viaja también en la
+ * respuesta JSON de `POST /:id/certificar`, y ampliarla publicaría motor/chasis/serie en una ruta que
+ * no los declara en su registro PII. `registroRunt` ya pasó por la lista blanca; el `snapshot_runt`
+ * crudo NO sale del servicio. Certificaciones sin snapshot → los diez en `null`.
+ */
+export interface CertificacionConRegistro extends CertificacionVigente {
+  registroRunt: RegistroRuntCertificado;
 }
 
 export type ResultadoCertificar =
@@ -417,14 +432,17 @@ export async function certificarLote(ids: string[], ctx: ImpuestoCtx): Promise<R
  * está certificado devuelve `null`, y eso es un 409 en la ruta. Colapsar ambas en un 404 le diría al
  * gestor «no existe» de un registro que está viendo en pantalla.
  */
-export async function certificacionVigenteConAcceso(impuestoId: string, ctx: ImpuestoCtx): Promise<CertificacionVigente | null> {
+export async function certificacionVigenteConAcceso(impuestoId: string, ctx: ImpuestoCtx): Promise<CertificacionConRegistro | null> {
   const imp = await buscarConAcceso(impuestoId, ctx);
   if (!imp) throw new ImpuestoError(404, 'El impuesto no existe');
   return certificacionVigente(impuestoId);
 }
 
-/** Certificación vigente de un impuesto, o `null`. La usa el detalle y el certificado PDF. */
-export async function certificacionVigente(impuestoId: string): Promise<CertificacionVigente | null> {
+/**
+ * Certificación vigente de un impuesto, o `null`. Solo la consume el certificado PDF, que registra el
+ * acceso PII: `registroRunt` trae motor, chasis y serie, así que no se sirve por JSON sin ese registro.
+ */
+export async function certificacionVigente(impuestoId: string): Promise<CertificacionConRegistro | null> {
   const [row] = await db.select()
     .from(flitoImpuestoCertificaciones)
     .where(and(
@@ -445,5 +463,6 @@ export async function certificacionVigente(impuestoId: string): Promise<Certific
     campos: row.campos as ComparacionCampo[],
     certificadoPorNombre: row.certificadoPorNombre,
     createdAt: row.createdAt.toISOString(),
+    registroRunt: extraerRegistroRunt(row.snapshotRunt),
   };
 }
