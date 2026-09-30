@@ -87,6 +87,12 @@
 //        por FLIT el 2026-09-29: el feed solo publica transacciones cerradas y el reemplazo es atómico,
 //        así que null = hoy no hay factura confirmada). El cambio queda en el historial. Más largo que
 //        la columna (120) → null + warn. Tombstones: RN-05, no llegan aquí.
+//
+// ── HU #13188 (pulso en el estado). Diseño: `docs/diseno/hu-13188-pulso-lectura-flit2.md` ─────────
+//
+// RN-22  `enCurso` del estado: `leerConCandado` marca la lectura DENTRO del candado y la desmarca en un
+//        `finally` (termine bien o con error). Cubre cron, botón y cualquier origen futuro que pase por
+//        aquí. Con el candado tomado no se marca nada (`flit2-programa.ts`).
 
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { Flit2LecturaResultado } from '@operaciones/shared-types';
@@ -105,6 +111,7 @@ import type { CompradorMapeado } from './mapeo-compradores.js';
 import { getFlit2SyncAdapter } from './flit2-sync.adapter.js';
 import type { Flit2SyncPort, ItemFlit2, PaginaFlit2, PosicionLectura } from './flit2-sync.port.js';
 import { conCandadoLectura } from './flit2-candado.js';
+import { marcarLecturaIniciada, marcarLecturaTerminada } from './flit2-programa.js';
 import {
   Flit2EsperaFeedError, Flit2Error, Flit2LecturaConcurrenteError, Flit2LecturaEnCursoError, Flit2RespuestaError,
 } from './flit2.errors.js';
@@ -581,7 +588,15 @@ export async function leerConCandado(
   origen: OrigenLectura, port?: Flit2SyncPort, op: OpcionesLectura = {},
 ): Promise<Flit2LecturaResultado> {
   const limiteMs = origen === 'cron' ? LIMITE_CRON_MS : LIMITE_BOTON_MS;
-  const res = await conCandadoLectura(() => leerIncremental({ limiteMs, ...op }, port));
+  // RN-22: la marca va DENTRO del candado; si está tomado, `enCurso` nunca pasa a true.
+  const res = await conCandadoLectura(async () => {
+    marcarLecturaIniciada();
+    try {
+      return await leerIncremental({ limiteMs, ...op }, port);
+    } finally {
+      marcarLecturaTerminada();
+    }
+  });
   if (!res.tomado) throw new Flit2LecturaEnCursoError();
   return res.valor;
 }

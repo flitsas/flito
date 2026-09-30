@@ -16,6 +16,8 @@ vi.mock('../../src/db/client.js', () => ({
 const { componerEstado, obtenerEstadoConexion, normalizarMotivoRechazo, codigoPublico, UMBRAL_ALERTA_MS } =
   await import('../../src/modules/flito-sync/flit2-estado.service.js');
 const { env } = await import('../../src/config/env.js');
+const { marcarProgramaEncendido, marcarLecturaIniciada, reiniciarProgramaParaTest } =
+  await import('../../src/modules/flito-sync/flit2-programa.js');
 type Entrada = Parameters<typeof componerEstado>[0];
 
 const AHORA = new Date('2026-09-29T15:00:00.000Z');
@@ -26,8 +28,10 @@ const LECTURA = {
   ultimaExitosaEn: menos(5), ultimoIntentoEn: menos(5), ultimoErrorCodigo: null,
   atrasada: false, piiEnmascaradaDesde: null,
 };
+const PROGRAMA_APAGADO = { activa: false, intervaloMs: null, proximaEn: null, enCurso: false };
+const PROGRAMA_ENCENDIDO = { activa: true, intervaloMs: 300_000, proximaEn: new Date('2026-09-29T15:05:00.000Z'), enCurso: false };
 const entrada = (e: Partial<Entrada> = {}): Entrada => ({
-  ambienteListo: true, acceso: ACCESO, lectura: LECTURA, tramitesEnmascarados: 0, ...e,
+  ambienteListo: true, acceso: ACCESO, lectura: LECTURA, tramitesEnmascarados: 0, programa: PROGRAMA_APAGADO, ...e,
 });
 
 describe('HU #13097 · componerEstado', () => {
@@ -155,6 +159,40 @@ describe('HU #13097 · componerEstado', () => {
   });
 });
 
+describe('HU #13188 · componerEstado · bloque automatica', () => {
+  it('AC1: con el programa encendido trae activa, intervalo, próxima futura ≤ 5 min y generadoEn = ahora', () => {
+    const a = componerEstado(entrada({ programa: PROGRAMA_ENCENDIDO }), AHORA).automatica;
+    expect(a).toEqual({
+      activa: true, intervaloMs: 300_000, proximaEn: '2026-09-29T15:05:00.000Z', enCurso: false,
+      generadoEn: '2026-09-29T15:00:00.000Z',
+    });
+  });
+
+  it('AC3: con el programa apagado, intervaloMs y proximaEn en null aunque la foto traiga valores', () => {
+    const a = componerEstado(entrada({ programa: { ...PROGRAMA_ENCENDIDO, activa: false } }), AHORA).automatica;
+    expect(a).toMatchObject({ activa: false, intervaloMs: null, proximaEn: null });
+  });
+
+  it('AC4: enCurso pasa tal cual de la foto del programa', () => {
+    expect(componerEstado(entrada({ programa: { ...PROGRAMA_APAGADO, enCurso: true } }), AHORA).automatica.enCurso).toBe(true);
+  });
+
+  it.each([
+    ['sin acceso', { acceso: null }],
+    ['sin ambiente', { ambienteListo: false }],
+    ['sin ambiente ni acceso', { ambienteListo: false, acceso: null, lectura: null }],
+  ] as const)('AC5: configurado=false (%s) → el bloque automatica viene igual', (_n, extra) => {
+    const r = componerEstado(entrada({ ...extra, programa: PROGRAMA_ENCENDIDO }), AHORA);
+    expect(r.configurado).toBe(false);
+    expect(r.automatica).toEqual(componerEstado(entrada({ programa: PROGRAMA_ENCENDIDO }), AHORA).automatica);
+  });
+
+  it('AC6: el bloque automatica trae exactamente cinco claves, sin nada sensible', () => {
+    const a = componerEstado(entrada({ programa: PROGRAMA_ENCENDIDO }), AHORA).automatica;
+    expect(Object.keys(a).sort()).toEqual(['activa', 'enCurso', 'generadoEn', 'intervaloMs', 'proximaEn']);
+  });
+});
+
 describe('HU #13097 · obtenerEstadoConexion (mock keyed)', () => {
   const envAntes = { base: env.FLIT2_BASE_URL, llave: env.FLIT2_ENC_KEY };
   beforeEach(() => {
@@ -192,7 +230,7 @@ describe('HU #13097 · obtenerEstadoConexion (mock keyed)', () => {
     expect(r.problema).toMatchObject({ tipo: 'rechazado', motivo: 'credenciales' });
 
     expect(Object.keys(r).sort()).toEqual(
-      ['alerta', 'atrasada', 'configurado', 'motivoSinConfigurar', 'piiEnmascarada', 'problema', 'ultimaExitosaEn', 'ultimoIntentoEn'],
+      ['alerta', 'atrasada', 'automatica', 'configurado', 'motivoSinConfigurar', 'piiEnmascarada', 'problema', 'ultimaExitosaEn', 'ultimoIntentoEn'],
     );
     expect(Object.keys(r.problema!).sort()).toEqual(['codigo', 'en', 'hasta', 'motivo', 'tipo']);
     const json = JSON.stringify(r);
@@ -209,6 +247,20 @@ describe('HU #13097 · obtenerEstadoConexion (mock keyed)', () => {
     (env as Record<string, unknown>).FLIT2_ENC_KEY = 'a'.repeat(64);
     (env as Record<string, unknown>).FLIT2_BASE_URL = undefined;
     expect((await obtenerEstadoConexion(() => AHORA)).motivoSinConfigurar).toBe('ambiente');
+  });
+
+  it('HU #13188 AC1/AC4/AC6: el GET lee el programa del proceso; generadoEn sale del mismo reloj', async () => {
+    reiniciarProgramaParaTest();
+    marcarProgramaEncendido(300_000, AHORA);
+    marcarLecturaIniciada();
+    kdb.when.scenario({ flito_sync_flit2_acceso: [filaAcceso], flito_sync_flit2_lectura: [filaLectura], flito_tramites: [{ n: 0 }] });
+    const r = await obtenerEstadoConexion(() => AHORA);
+    reiniciarProgramaParaTest();
+    expect(r.automatica).toEqual({
+      activa: true, intervaloMs: 300_000, proximaEn: '2026-09-29T15:05:00.000Z', enCurso: true,
+      generadoEn: AHORA.toISOString(),
+    });
+    expect(Object.keys(r.automatica).sort()).toEqual(['activa', 'enCurso', 'generadoEn', 'intervaloMs', 'proximaEn']);
   });
 
   it('AC6: sin fila de acceso activa → sin_acceso; conteo vacío → 0', async () => {
