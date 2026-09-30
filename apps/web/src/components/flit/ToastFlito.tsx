@@ -18,6 +18,8 @@ import { RotateCw, X } from 'lucide-react';
 interface OpcionesToast {
   /** Id estable: un segundo toast con el mismo id SUSTITUYE al primero (un toast por acción). */
   id?: string;
+  /** Solo `toastOk`: el default (4 s) no alcanza para leer dos frases. */
+  duracionMs?: number;
 }
 
 function ToastFlito({ t, texto, error, onReintentar }: {
@@ -48,7 +50,7 @@ function ToastFlito({ t, texto, error, onReintentar }: {
 }
 
 export function toastOk(texto: string, opciones: OpcionesToast = {}): string {
-  return toast.custom((t) => <ToastFlito t={t} texto={texto} error={false} />, { id: opciones.id, duration: 4_000 });
+  return toast.custom((t) => <ToastFlito t={t} texto={texto} error={false} />, { id: opciones.id, duration: opciones.duracionMs ?? 4_000 });
 }
 
 export function toastError(texto: string, onReintentar?: () => void, opciones: OpcionesToast = {}): string {

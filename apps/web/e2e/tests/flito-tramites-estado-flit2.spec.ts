@@ -2,22 +2,29 @@ import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER, AUDITOR_USER, FUNCIONES_POR_ROL } from '../helpers/auth';
 
-// FLITO — Gestión Trámites · estado de la conexión con FLIT 2 (HU #13098). Backend mockeado: se
-// verifica el cableado de la UI contra `GET /api/flito/sync/flit2/estado` (`Flit2EstadoConexion`).
+// FLITO — Gestión Trámites · estado de la conexión con FLIT 2 (HU #13098) y lectura en vivo sin el
+// botón «Sincronizar FLIT 2» (HU #13189). Backend mockeado: se verifica el cableado de la UI contra
+// `GET /api/flito/sync/flit2/estado` (`Flit2EstadoConexion`, con `automatica` de la HU #13188).
 
 const RUTA_ESTADO = /\/api\/flito\/sync\/flit2\/estado$/;
-const RUTA_SINCRONIZAR = /\/api\/flito\/sync\/flit2\/sincronizar$/;
+const RUTA_ACCESO = /\/api\/flito\/sync\/flit2\/acceso$/;
 /** Texto del campo `error` del API: nunca debe llegar a la pantalla. */
 const CRUDO = 'ERROR-CRUDO-e2e-13098';
 
 const hace = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
 const dentro = (min: number) => new Date(Date.now() + min * 60_000).toISOString();
 
+/** Pulso de la lectura automática (HU #13188). `proximaEn` lejos por defecto: no dispara el ritmo rápido. */
+function auto(extra: Record<string, unknown> = {}) {
+  return { activa: true, intervaloMs: 300_000, proximaEn: dentro(30), enCurso: false, generadoEn: new Date().toISOString(), ...extra };
+}
+
 const SANO = {
   configurado: true, motivoSinConfigurar: null,
   ultimaExitosaEn: hace(3), ultimoIntentoEn: hace(3),
   atrasada: false, alerta: false, problema: null,
   piiEnmascarada: { tramites: 0, desde: null },
+  automatica: auto(),
 };
 const PROBLEMA = { tipo: 'lectura', codigo: null, motivo: null, en: hace(2), hasta: null };
 
@@ -50,6 +57,11 @@ async function asentado(page: Page, ctl: { n: number }) {
 
 const linea = (page: Page) => page.getByTestId('linea-estado-flit2');
 const aviso = (page: Page) => page.getByTestId('aviso-estado-flit2');
+const indicador = (page: Page) => page.getByTestId('indicador-flit2');
+const textoIndicador = (page: Page) => page.getByTestId('texto-indicador-flit2');
+const botonFlit2 = (page: Page) => page.getByRole('button', { name: 'Sincronizar FLIT 2' });
+/** Cuenta `m:ss` visible. */
+const MSS = /\d+:\d{2}/;
 
 async function abrir(page: Page) {
   await page.goto('/flito/tramites');
@@ -78,7 +90,8 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
     await mockCola(page);
     const ctl = await mockEstado(page, 200, { ...SANO, alerta: true });
     await abrir(page);
-    await expect(page.getByRole('button', { name: 'Sincronizar FLIT 2' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sincronizar FLIT', exact: true })).toBeVisible();
+    await expect(botonFlit2(page)).toHaveCount(0);
     await expect(linea(page)).toHaveCount(0);
     await expect(aviso(page)).toHaveCount(0);
     expect(ctl.n).toBe(0);
@@ -114,8 +127,9 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
     await expect(linea(page)).toContainText('· lectura atrasada');
     await expect(linea(page)).toContainText('Quedan trámites por leer; la lectura automática sigue donde quedó.');
     await expect(aviso(page)).toHaveCount(0);
-    // La línea va junto a su botón, justo antes de él.
-    await expect(page.locator('[data-testid="linea-estado-flit2"] + button')).toHaveText('Sincronizar FLIT 2');
+    // HU #13189: sin botón de FLIT 2; el grupo de FLIT 1 sigue igual.
+    await expect(botonFlit2(page)).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Sincronizar FLIT', exact: true })).toBeVisible();
   });
 
   test('AC1: error del primer GET con Reintentar, que vuelve a llamar y recupera', async ({ page }) => {
@@ -183,7 +197,8 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
     const ctl = await mockEstado(page, 200, { ...SANO, ultimaExitosaEn: null, alerta: true });
     await abrir(page);
     await expect(aviso(page)).toContainText('Todavía no hay ninguna lectura exitosa.');
-    await expect(aviso(page)).toContainText('Pulsa Sincronizar FLIT 2 para intentarlo ahora; si no lee, revisa Acceso a FLIT 2.');
+    await expect(aviso(page)).toContainText(/La lectura automática vuelve a intentarlo en \d+:\d{2}unos minutos; si no lee, revisa Acceso a FLIT 2\./);
+    await expect(textoIndicador(page)).toHaveText(/^Sin leer hace más de 30 min · reintenta en \d+:\d{2}$/);
     const antes = await asentado(page, ctl);
     ctl.set(500, { error: CRUDO });
     await volverALaPestana(page);
@@ -191,6 +206,7 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
     await page.waitForTimeout(200);
     await expect(aviso(page)).toContainText('FLIT 2 lleva más de 30 minutos sin leer trámites.');
     await expect(linea(page)).not.toContainText('No se pudo consultar');
+    await expect(textoIndicador(page)).toHaveText(/^Sin leer hace más de 30 min · reintenta en \d+:\d{2}$/);
     await expect(page.getByText(CRUDO)).toHaveCount(0);
   });
 
@@ -203,7 +219,8 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
     await expect(aviso(page)).toHaveText(
       /^FLIT 2 bloqueó el acceso por intentos fallidos a las .+, hasta las .+\. FLITO vuelve a leer solo después; no hace falta hacer nada\.$/,
     );
-    await expect(page.getByText(/bloqueado/)).toHaveCount(0);
+    // El código `bloqueado` no se pinta en el aviso (la cabecera sí dice «Acceso bloqueado», HU #13189).
+    await expect(aviso(page)).not.toContainText('bloqueado');
   });
 
   test('AC6: los códigos de lectura se traducen; nunca el código crudo ni el texto del API', async ({ page }) => {
@@ -237,14 +254,153 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
     await expect(aviso(page)).toHaveText(/^1 trámite de FLIT 2 llegó sin los datos del comprador/);
   });
 
-  test('onIntento: tras «Sincronizar FLIT 2», aunque falle, se vuelve a consultar el estado', async ({ page }) => {
+  // ── HU #13189: lectura en vivo ─────────────────────────────────────────────────────────────────
+
+  test('13189 AC1 + AC2 + AC9: encendida con punto y cuenta por segundo; la región viva no lleva la cuenta', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    await mockEstado(page, 200, { ...SANO, automatica: auto({ proximaEn: dentro(3) }) });
+    await abrir(page);
+    await expect(botonFlit2(page)).toHaveCount(0);
+    await expect(linea(page)).toContainText(/2026/);
+    await expect(indicador(page)).toHaveAttribute('data-caso', 'encendida');
+    await expect(textoIndicador(page)).toHaveText(/^Lectura automática cada 5 min · próxima en (2:5\d|3:00)$/);
+    await expect(textoIndicador(page)).toHaveAttribute('aria-hidden', 'true');
+    await expect(page.getByTestId('punto-flit2')).toHaveAttribute('aria-hidden', 'true');
+    const status = indicador(page).getByRole('status');
+    await expect(status).toHaveText('Lectura automática de FLIT 2 encendida.');
+    await expect(indicador(page)).toContainText(/Próxima lectura a las .+\./);
+    const primero = await textoIndicador(page).textContent();
+    await expect.poll(() => textoIndicador(page).textContent(), { timeout: 4_000 }).not.toBe(primero);
+    await expect(status).toHaveText('Lectura automática de FLIT 2 encendida.');
+    // El árbol accesible del indicador no lleva la cuenta (solo la frase de estado y la hora absoluta).
+    const arbol = await indicador(page).ariaSnapshot();
+    expect(arbol).not.toContain('próxima en');
+    expect(await status.textContent()).not.toMatch(MSS);
+  });
+
+  test('13189 AC2: la cuenta se corrige con generadoEn (reloj del equipo desfasado) y vencida dice «en unos segundos»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    // El servidor va 10 min adelante del equipo: la próxima es a 3 min en SU reloj.
+    const servidor = Date.now() + 10 * 60_000;
+    const ctl = await mockEstado(page, 200, {
+      ...SANO, automatica: auto({ generadoEn: new Date(servidor).toISOString(), proximaEn: new Date(servidor + 3 * 60_000).toISOString() }),
+    });
+    await abrir(page);
+    await expect(textoIndicador(page)).toHaveText(/próxima en (2:5\d|3:00)$/);
+    ctl.set(200, { ...SANO, automatica: auto({ proximaEn: new Date(Date.now() - 50).toISOString() }) });
+    await volverALaPestana(page);
+    await expect(textoIndicador(page)).toHaveText('Lectura automática cada 5 min · próxima en unos segundos');
+    await expect(indicador(page)).toContainText('Próxima lectura en unos segundos.');
+  });
+
+  test('13189 AC3 + AC4: en curso dice «Leyendo FLIT 2 ahora…» y consulta cada 15 s; vencida la cuenta, un GET ~10 s después', async ({ page }) => {
+    await page.clock.install();
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    const ctl = await mockEstado(page, 200, { ...SANO, automatica: auto({ enCurso: true }) });
+    await abrir(page);
+    await expect(textoIndicador(page)).toHaveText('Leyendo FLIT 2 ahora…');
+    await expect(indicador(page).getByRole('status')).toHaveText('Leyendo FLIT 2 ahora.');
+    await expect(indicador(page)).not.toContainText(MSS);
+    const antes = await asentado(page, ctl);
+    // Termina la lectura: la próxima es en 1 min.
+    ctl.set(200, { ...SANO, automatica: auto({ proximaEn: dentro(1) }) });
+    await page.clock.fastForward('00:16');
+    await expect.poll(() => ctl.n).toBe(antes + 1);
+    await expect(textoIndicador(page)).toHaveText(/próxima en \d:\d{2}$/);
+    // A los 50 s todavía nada; pasado el vencimiento + 10 s, un GET.
+    await page.clock.fastForward('00:50');
+    await page.waitForTimeout(200);
+    expect(ctl.n).toBe(antes + 1);
+    await page.clock.fastForward('00:25');
+    await expect.poll(() => ctl.n).toBe(antes + 2);
+  });
+
+  test('13189 AC5: apagada lo dice sin cuenta; con alerta la tarjeta remite a quien administra el ambiente', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    const apagada = { activa: false, intervaloMs: null, proximaEn: null, enCurso: false, generadoEn: new Date().toISOString() };
+    const ctl = await mockEstado(page, 200, { ...SANO, automatica: apagada });
+    await abrir(page);
+    await expect(textoIndicador(page)).toHaveText('La lectura automática está apagada en este ambiente');
+    await expect(indicador(page).getByRole('status')).toHaveText('La lectura automática de FLIT 2 está apagada en este ambiente.');
+    await expect(indicador(page)).not.toContainText(MSS);
+    await expect(indicador(page)).not.toContainText('Próxima lectura');
+    ctl.set(200, { ...SANO, ultimaExitosaEn: hace(45), alerta: true, automatica: apagada });
+    await volverALaPestana(page);
+    await expect(aviso(page)).toContainText('La lectura automática está apagada en este ambiente. Avísale a quien administra el ambiente.');
+  });
+
+  test('13189 AC6: falló por lectura con cuenta; bloqueado con hora de fin; rechazado remite a Acceso a FLIT 2 sin cuenta', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    const ctl = await mockEstado(page, 200, { ...SANO, error: CRUDO, problema: { ...PROBLEMA, codigo: 'invalid_cursor' }, automatica: auto({ proximaEn: dentro(2) }) });
+    await abrir(page);
+    await expect(textoIndicador(page)).toHaveText(/^Falló la última lectura · reintenta en (1:5\d|2:00)$/);
+    await expect(indicador(page)).toContainText(/Nuevo intento a las .+\./);
+    await expect(page.getByText(/invalid_cursor/)).toHaveCount(0);
+    await expect(page.getByText(CRUDO)).toHaveCount(0);
+    ctl.set(200, { ...SANO, problema: { ...PROBLEMA, tipo: 'bloqueado', hasta: dentro(20) } });
+    await volverALaPestana(page);
+    await expect(textoIndicador(page)).toHaveText(/^Acceso bloqueado · vuelve a leer después de las .+$/);
+    await expect(textoIndicador(page)).not.toContainText(/en \d+:\d{2}/);
+    ctl.set(200, { ...SANO, problema: { ...PROBLEMA, tipo: 'rechazado', motivo: 'credenciales' } });
+    await volverALaPestana(page);
+    await expect(textoIndicador(page)).toHaveText('Acceso rechazado · revisa Acceso a FLIT 2');
+    await expect(indicador(page).getByRole('status')).toHaveText('FLIT 2 rechazó el acceso guardado.');
+    await expect(indicador(page)).not.toContainText(MSS);
+  });
+
+  test('13189 AC7 + AC9: la tarjeta de alerta da la cuenta a la vista y «unos minutos» al lector', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    await mockEstado(page, 200, { ...SANO, ultimaExitosaEn: hace(45), alerta: true, automatica: auto({ proximaEn: dentro(4) }) });
+    await abrir(page);
+    await expect(aviso(page)).toHaveAttribute('role', 'alert');
+    await expect(aviso(page)).toContainText(/La lectura automática vuelve a intentarlo en \d:\d{2}unos minutos; si no lee, revisa Acceso a FLIT 2\./);
+    await expect(aviso(page)).not.toContainText('Pulsa');
+    const arbol = await aviso(page).ariaSnapshot();
+    expect(arbol).toContain('vuelve a intentarlo en unos minutos');
+    expect(arbol).not.toMatch(/intentarlo en \d/);
+  });
+
+  test('13189 AC8: sin configurar no hay punto ni cuenta; el esqueleto trae dos barras', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    let soltar: () => void = () => {};
+    const pendiente = new Promise<void>((res) => { soltar = res; });
+    await page.route(RUTA_ESTADO, async (r) => {
+      await pendiente;
+      return json(r, 200, { ...SANO, configurado: false, motivoSinConfigurar: 'sin_acceso', ultimaExitosaEn: null });
+    });
+    await abrir(page);
+    await expect(linea(page).locator('.animate-pulse')).toHaveCount(2);
+    soltar();
+    await expect(linea(page)).toContainText('Sin configurar');
+    await expect(indicador(page)).toHaveCount(0);
+  });
+
+  test('13189 AC10: al guardar el acceso el toast depende de la lectura automática y se reconsulta el estado', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockCola(page);
     const ctl = await mockEstado(page, 200, SANO);
-    await page.route(RUTA_SINCRONIZAR, (r) => json(r, 503, { error: CRUDO, codigo: 'rechazado' }));
+    const meta = {
+      configurado: true, clientId: 'flito-dev', actualizadoPor: { id: 1, nombre: 'Ana Pérez' },
+      actualizadoEn: '2026-09-29T15:42:00.000Z', estado: 'vigente', bloqueadoHasta: null,
+    };
+    await page.route(RUTA_ACCESO, (r) => json(r, 200, meta));
     await abrir(page);
     const antes = await asentado(page, ctl);
-    await page.getByRole('button', { name: 'Sincronizar FLIT 2' }).click();
+    await page.getByRole('button', { name: 'Acceso a FLIT 2' }).click();
+    const panel = page.getByRole('dialog', { name: 'Acceso a FLIT 2' });
+    await panel.getByLabel('Usuario de servicio').fill('flito-nuevo');
+    await panel.getByLabel('Contraseña').fill('CLAVE-e2e-13189');
+    await panel.getByRole('button', { name: 'Guardar acceso' }).click();
+    await expect(page.getByRole('status').filter({
+      hasText: 'Acceso guardado. La primera lectura empieza en unos segundos; el resultado se ve en el panel de Gestión Trámites.',
+    })).toBeVisible();
     await expect.poll(() => ctl.n).toBe(antes + 1);
   });
 

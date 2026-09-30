@@ -6,8 +6,11 @@
 //   · existe solo con `sync.sync.ver_estado`: sin ella ni se pinta ni sale el GET (un 403 se trata
 //     igual y detiene el polling);
 //   · `alerta` la calcula el servidor: el reloj del cliente no decide los 30 minutos;
-//   · refrescos silenciosos (polling, tras «Sincronizar FLIT 2», vuelta a la pestaña): si fallan se
+//   · refrescos silenciosos (polling, vuelta a la pestaña, tras guardar el acceso, y el ritmo rápido
+//     de la HU #13189: ~10 s tras vencer la cuenta y cada 15 s con una lectura en curso): si fallan se
 //     conserva el último dato; el estado de error es solo del primer GET o de un [Reintentar];
+//   · HU #13189: sin botón «Sincronizar FLIT 2»; la lectura es automática y la cabecera la muestra en
+//     vivo (`IndicadorFlit2.tsx`, spec `docs/ux/hu-13189-flit2-en-vivo.md`);
 //   · el aviso es de página (nunca toast) y no lleva botones: la acción ya está en la cabecera;
 //   · título de la alerta en `--flit-danger-text` (par oscuro legible), no `-ink` (~2,5:1 en oscuro);
 //   · jamás se pinta el `codigo`, el `status` ni el texto del API: cada código tiene su frase.
@@ -16,10 +19,17 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Flit2EstadoConexion, Flit2EstadoProblema } from '@operaciones/shared-types';
 import { ApiError, api } from '../../../lib/api';
 import { useAuth } from '../../../lib/auth';
+import { IndicadorFlit2, mss, useRestante } from './IndicadorFlit2';
 
 const RUTA_ESTADO = '/flito/sync/flit2/estado';
 /** La lectura automática corre cada 5 min: con 2 min el aviso llega con ~2 min de retraso máximo. */
 const CADA_MS = 2 * 60 * 1000;
+/** Tras vencer la cuenta, el GET sale ~10 s después (le da tiempo a la lectura a arrancar). */
+const TRAS_VENCER_MS = 10_000;
+/** Con una lectura en curso, un GET cada 15 s hasta que termine. */
+const EN_CURSO_MS = 15_000;
+/** Una `proximaEn` vencida hace más de esto ya no acelera el refresco: manda el ciclo de 2 min. */
+const VENCIDA_MAX_MS = 60_000;
 const ZONA = 'America/Bogota';
 
 const fmtFechaHora = new Intl.DateTimeFormat('es-CO', {
@@ -68,7 +78,8 @@ export type FaseEstadoFlit2 =
   | { fase: 'oculto' }
   | { fase: 'cargando' }
   | { fase: 'error' }
-  | { fase: 'listo'; dato: Flit2EstadoConexion };
+  /** `desfaseMs` = reloj del servidor (`automatica.generadoEn`) − reloj local al recibir. */
+  | { fase: 'listo'; dato: Flit2EstadoConexion; desfaseMs: number };
 
 export interface UsoEstadoFlit2 {
   estado: FaseEstadoFlit2;
@@ -98,7 +109,10 @@ export function useEstadoFlit2(): UsoEstadoFlit2 {
     try {
       const r = await api.get<Flit2EstadoConexion>(RUTA_ESTADO);
       if (mia !== secuencia.current) return;
-      if (esEstado(r)) setEstado({ fase: 'listo', dato: r });
+      if (esEstado(r)) {
+        const servidor = Date.parse(r.automatica?.generadoEn ?? '');
+        setEstado({ fase: 'listo', dato: r, desfaseMs: Number.isNaN(servidor) ? 0 : servidor - Date.now() });
+      }
       else if (!silencioso) setEstado({ fase: 'error' });
     } catch (e) {
       if (mia !== secuencia.current) return;
@@ -136,7 +150,31 @@ export function useEstadoFlit2(): UsoEstadoFlit2 {
     };
   }, [puede, cargar]);
 
+  // Ritmo rápido (AC4): ~10 s tras vencer la cuenta; cada 15 s mientras una lectura corre. Con la
+  // pestaña oculta el GET no sale: al volver, el `visibilitychange` ya consulta.
+  const dato = estado.fase === 'listo' ? estado.dato : null;
+  const desfaseMs = estado.fase === 'listo' ? estado.desfaseMs : 0;
+  useEffect(() => {
+    const a = dato?.automatica;
+    if (!a) return undefined;
+    let espera: number | null = null;
+    if (a.enCurso) espera = EN_CURSO_MS;
+    else if (a.activa && a.proximaEn) {
+      const restante = Date.parse(a.proximaEn) - (Date.now() + desfaseMs);
+      if (!Number.isNaN(restante) && restante > -VENCIDA_MAX_MS) espera = Math.max(0, restante) + TRAS_VENCER_MS;
+    }
+    if (espera === null) return undefined;
+    const t = setTimeout(() => { if (document.visibilityState === 'visible') void cargar(true); }, espera);
+    return () => clearTimeout(t);
+  }, [dato, desfaseMs, cargar]);
+
   return { estado, refrescar, reintentar };
+}
+
+/** Para el toast de «Acceso a FLIT 2»: null si el estado no está (sin permiso, cargando o error). */
+export function automaticaActivaFlit2(uso: UsoEstadoFlit2): boolean | null {
+  const e = uso.estado;
+  return e.fase === 'listo' && typeof e.dato.automatica?.activa === 'boolean' ? e.dato.automatica.activa : null;
 }
 
 // ── Cabecera ────────────────────────────────────────────────────────────────────────────────────
@@ -146,7 +184,12 @@ export function LineaEstadoFlit2({ estado }: { estado: UsoEstadoFlit2 }) {
   if (e.fase === 'oculto') return null;
   let valor: ReactNode;
   if (e.fase === 'cargando') {
-    valor = <div className="mt-0.5 h-3 w-24 animate-pulse rounded sm:ml-auto" style={{ background: 'var(--flit-bg-hover)' }} aria-hidden="true" />;
+    valor = (
+      <>
+        <div className="mt-0.5 h-3 w-24 animate-pulse rounded sm:ml-auto" style={{ background: 'var(--flit-bg-hover)' }} aria-hidden="true" />
+        <div className="mt-1 h-3 w-32 animate-pulse rounded sm:ml-auto" style={{ background: 'var(--flit-bg-hover)' }} aria-hidden="true" />
+      </>
+    );
   } else if (e.fase === 'error') {
     valor = (
       <>
@@ -180,6 +223,7 @@ export function LineaEstadoFlit2({ estado }: { estado: UsoEstadoFlit2 }) {
       aria-busy={e.fase === 'cargando' ? true : undefined} data-testid="linea-estado-flit2">
       <div>Última lectura FLIT 2</div>
       <div className="font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>{valor}</div>
+      {e.fase === 'listo' && e.dato.configurado && e.dato.automatica && <IndicadorFlit2 dato={e.dato} desfaseMs={e.desfaseMs} />}
     </div>
   );
 }
@@ -226,6 +270,21 @@ export function fraseProblema(p: Flit2EstadoProblema): ReactNode {
   }
 }
 
+/**
+ * La cuenta dentro de la tarjeta (`role="alert"`): el `m:ss` va aria-hidden y el lector oye «unos
+ * minutos», así el texto accesible no cambia cada segundo y no se re-anuncia.
+ */
+function CuentaAviso({ restante }: { restante: number | null }) {
+  const c = mss(restante);
+  if (!c) return <>unos segundos</>;
+  return (
+    <>
+      <span aria-hidden="true" className="whitespace-nowrap tabular-nums">{c}</span>
+      <span className="sr-only">unos minutos</span>
+    </>
+  );
+}
+
 function frasePii(n: number): string {
   const cabeza = n === 1
     ? '1 trámite de FLIT 2 llegó sin los datos del comprador: su SOAT y sus impuestos quedan en espera.'
@@ -238,6 +297,11 @@ function frasePii(n: number): string {
 export function AvisoEstadoFlit2({ estado }: { estado: UsoEstadoFlit2 }) {
   const { hasFuncion } = useAuth();
   const e = estado.estado;
+  // AC7: la frase de «alerta sin problema» lleva la cuenta hasta el próximo intento automático.
+  const conCuenta = e.fase === 'listo' && e.dato.configurado && e.dato.alerta && !e.dato.problema && !!e.dato.automatica?.activa;
+  const restante = useRestante(
+    e.fase === 'listo' ? e.dato.automatica?.proximaEn : null, e.fase === 'listo' ? e.desfaseMs : 0, conCuenta,
+  );
   if (e.fase !== 'listo') return null;
   const d = e.dato;
   // Sin configurar nunca hay alerta (AC), aunque llegue marcada por datos viejos.
@@ -259,7 +323,9 @@ export function AvisoEstadoFlit2({ estado }: { estado: UsoEstadoFlit2 }) {
     fechaLinea = ultima ? `Última lectura exitosa: ${fin(ultima)}` : 'Todavía no hay ninguna lectura exitosa.';
     cuerpo = d.problema
       ? fraseProblema(d.problema)
-      : <>Pulsa <B>Sincronizar FLIT 2</B> para intentarlo ahora; si no lee, revisa {ACCESO}.</>;
+      : d.automatica && !d.automatica.activa
+        ? 'La lectura automática está apagada en este ambiente. Avísale a quien administra el ambiente.'
+        : <>La lectura automática vuelve a intentarlo en <CuentaAviso restante={restante} />; si no lee, revisa {ACCESO}.</>;
   } else if (d.problema) {
     cuerpo = fraseProblema(d.problema);
   }
