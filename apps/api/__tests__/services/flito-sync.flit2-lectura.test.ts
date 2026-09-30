@@ -197,9 +197,13 @@ const logMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn()
 vi.mock('../../src/shared/logger.js', () => ({ logger: logMock, loggerFor: () => logMock }));
 // HU #13092: candado en memoria con la misma semántica que el advisory lock (no espera; se suelta en
 // finally). El SQL real del candado se prueba en `flito-sync.flit2-candado.test.ts`.
-const candado = vi.hoisted(() => ({ tomado: false, tomas: 0, sueltas: 0 }));
+// HU #13188: `enCursoAlPedir` anota el `enCurso` del programa en el instante de pedir el candado (AC4:
+// con el candado tomado, nunca pasa a true).
+const candado = vi.hoisted(() => ({ tomado: false, tomas: 0, sueltas: 0, enCursoAlPedir: [] as boolean[] }));
 vi.mock('../../src/modules/flito-sync/flit2-candado.js', () => ({
   conCandadoLectura: async (fn: () => Promise<unknown>) => {
+    const { leerPrograma } = await import('../../src/modules/flito-sync/flit2-programa.js');
+    candado.enCursoAlPedir.push(leerPrograma().enCurso);
     if (candado.tomado) return { tomado: false };
     candado.tomado = true; candado.tomas += 1;
     try { return { tomado: true, valor: await fn() }; } finally { candado.tomado = false; candado.sueltas += 1; }
@@ -1428,5 +1432,51 @@ describe('HU #13095 · factura de FLIT 2 (RN-21)', () => {
     const t = tramite(U1)!;
     expect(t.facturaVentaFlitId).toBe(ADJ_1);
     expect(filas(S.flitoImpuestos)).toEqual([expect.objectContaining({ tramiteId: t.id, estado: 'pendiente' })]);
+  });
+});
+
+// ═══ HU #13188 · AC4: la lectura con el candado tomado se publica como «en curso» ═════════════════
+const { leerPrograma, reiniciarProgramaParaTest } = await import('../../src/modules/flito-sync/flit2-programa.js');
+
+describe('HU #13188 · AC4 · enCurso del estado', () => {
+  beforeEach(() => {
+    candado.tomado = false; candado.enCursoAlPedir = [];
+    reiniciarProgramaParaTest();
+  });
+
+  it('AC4: enCurso es true mientras la lectura corre con el candado y false al terminar bien', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    let soltar!: () => void;
+    const pausa = new Promise<void>((ok) => { soltar = ok; });
+    const { port } = puerto([pagina([], 'c1', false)], () => pausa);
+    expect(leerPrograma().enCurso).toBe(false);
+    const promesa = leerConCandado('cron', port, { ahora: reloj() });
+    await vi.waitFor(() => expect(leerPrograma().enCurso).toBe(true));
+    soltar();
+    await promesa;
+    expect(leerPrograma().enCurso).toBe(false);
+  });
+
+  it('AC4: una lectura que termina con error deja enCurso en false', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    let soltar!: () => void;
+    const pausa = new Promise<void>((ok) => { soltar = ok; });
+    const { port } = puerto([new Flit2RespuestaError(500, null)], () => pausa);
+    const promesa = leerConCandado('boton', port, { ahora: reloj() }).catch((x: unknown) => x);
+    await vi.waitFor(() => expect(leerPrograma().enCurso).toBe(true));
+    soltar();
+    expect(await promesa).toBeInstanceOf(Flit2RespuestaError);
+    expect(leerPrograma().enCurso).toBe(false);
+  });
+
+  it('AC4: con el candado ya tomado la lectura no se publica: enCurso nunca pasa a true', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    candado.tomado = true;
+    const { port } = puerto([pagina([], 'c1')]);
+    const e = await leerConCandado('cron', port, { ahora: reloj() }).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(Flit2LecturaEnCursoError);
+    expect(candado.enCursoAlPedir).toEqual([false]);
+    expect(leerPrograma().enCurso).toBe(false);
+    candado.tomado = false;
   });
 });

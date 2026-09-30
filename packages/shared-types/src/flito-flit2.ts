@@ -105,6 +105,25 @@ export interface Flit2EstadoProblema {
   hasta: string | null;
 }
 
+/**
+ * Pulso de la lectura automática (HU #13188) del proceso que atendió el `GET`. Siempre presente, también
+ * con `configurado: false`. Con el programa apagado (`FLIT2_SYNC_CRON=false`) `intervaloMs` y `proximaEn`
+ * van en null. `proximaEn` puede quedar unos ms antes de `generadoEn` si el timer se retrasa: la UI lo
+ * trata como «en breve».
+ */
+export interface Flit2EstadoAutomatica {
+  /** La lectura programada está encendida y armada en este proceso. */
+  activa: boolean;
+  /** Cada cuánto corre (ms). null con activa=false. */
+  intervaloMs: number | null;
+  /** ISO. Cuándo sale la próxima corrida. null con activa=false. */
+  proximaEn: string | null;
+  /** Hay una lectura con el candado tomado en este proceso (cron, botón u otro origen). */
+  enCurso: boolean;
+  /** ISO. Hora del servidor con que se compuso la respuesta. */
+  generadoEn: string;
+}
+
 export interface Flit2EstadoConexion {
   /** false si no hay acceso guardado o el servidor no tiene FLIT 2 configurado. */
   configurado: boolean;
@@ -120,4 +139,6 @@ export interface Flit2EstadoConexion {
   problema: Flit2EstadoProblema | null;
   /** Trámites que llegaron sin los datos del comprador (solo el número). */
   piiEnmascarada: { tramites: number; desde: string | null };
+  /** HU #13188: pulso de la lectura automática. */
+  automatica: Flit2EstadoAutomatica;
 }
