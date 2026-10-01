@@ -455,8 +455,14 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
       await abrir(page, { expandir: false });
       await expect(page.getByTestId('resumen-flit2')).toHaveText('FLIT 2: Encendida');
       await expect(page.getByTestId('alerta-resumen-flit2')).toHaveCount(0);
-      // Apagada por interruptor: aunque llegue alerta, no se marca (misma regla que la tarjeta de aviso).
+      // Interruptor apagado mientras el estado del servidor aún la da por habilitada y en alerta:
+      // la cabecera manda por el interruptor y no marca (sin esto, `apagada` no se pone a prueba).
       ctl.inter = { ...ctl.inter, fuentes: [inter('flit1', true), inter('flit2', false)] };
+      ctl.e2 = estado2({ alerta: true, problema: { tipo: 'rechazado', codigo: null, motivo: null, en: hace(40), hasta: null } });
+      await abrir(page, { expandir: false });
+      await expect(page.getByTestId('resumen-flit2')).toHaveText('FLIT 2: Apagada');
+      await expect(page.getByTestId('alerta-resumen-flit2')).toHaveCount(0);
+      // Apagada por interruptor: aunque llegue alerta, no se marca (misma regla que la tarjeta de aviso).
       ctl.e2 = estado2({ habilitada: false, motivoDeshabilitada: 'interruptor', alerta: true });
       await abrir(page, { expandir: false });
       await expect(page.getByTestId('resumen-flit2')).toHaveText('FLIT 2: Apagada');
