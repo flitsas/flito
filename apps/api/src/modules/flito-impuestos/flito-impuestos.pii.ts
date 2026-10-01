@@ -94,6 +94,12 @@ export const CAMPOS_PII_CERTIFICADO = [
   'nombre_completo', 'numero_documento', 'tipo_documento', 'placa', 'vin', 'num_motor', 'num_chasis', 'num_serie',
 ] as const;
 
+/**
+ * Columnas personales del ZIP de certificados RUNT (HU #13205): son N certificados, más placas en
+ * los nombres de las entradas y en `omitidos.csv` (`placa` ya está en la lista del certificado).
+ */
+export const CAMPOS_PII_ZIP_CERTIFICADOS = CAMPOS_PII_CERTIFICADO;
+
 export interface AccesoImpuesto {
   /**
    * `search` = la cola (un tramo). `read` = un impuesto concreto. `export` = el `.xlsx` de la cola.
@@ -134,8 +140,9 @@ export interface AccesoImpuesto {
    * **La ausencia significa el `.xlsx` de la cola**: así la ruta de la HU #11909 sigue diciendo la
    * verdad sin tocarla. `certificado_runt` = el PDF del certificado RUNT (HU #13204), que lleva
    * documento, placa, VIN, motor, chasis y serie ({@link CAMPOS_PII_CERTIFICADO}).
+   * `zip_certificados_runt` = el ZIP de N certificados + `omitidos.csv` (HU #13205).
    */
-  archivo?: 'zip_soportes' | 'certificado_runt';
+  archivo?: 'zip_soportes' | 'certificado_runt' | 'zip_certificados_runt';
 }
 
 /** `pii_access_log.motivo` es `varchar(200)`: pasarse sería un 22001 en vez de un rastro. */

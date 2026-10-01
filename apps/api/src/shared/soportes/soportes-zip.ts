@@ -585,10 +585,11 @@ const FORMATO_SELLO = new Intl.DateTimeFormat('en-CA', {
  * sistema de archivos de quien descarga, en el historial del navegador y en cualquier adjunto que
  * reenvíe. La placa va DENTRO, en los nombres de las entradas, que es exactamente lo que pide el AC5.
  */
-export function nombreArchivoZipSoportes(ahora: Date = new Date()): string {
+// `prefijo` (HU #13205): el ZIP de certificados RUNT reutiliza el sello en hora de Colombia.
+export function nombreArchivoZipSoportes(ahora: Date = new Date(), prefijo = 'soportes'): string {
   const p: Record<string, string> = {};
   for (const parte of FORMATO_SELLO.formatToParts(ahora)) p[parte.type] = parte.value;
-  return `soportes_${p.year}${p.month}${p.day}-${p.hour}${p.minute}.zip`;
+  return `${prefijo}_${p.year}${p.month}${p.day}-${p.hour}${p.minute}.zip`;
 }
 
 /**
