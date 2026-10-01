@@ -1,6 +1,7 @@
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER, AUDITOR_USER, FUNCIONES_POR_ROL } from '../helpers/auth';
+import { expandirSincronizacionSiHay } from '../helpers/sincronizacion';
 
 // FLITO — Gestión Trámites · estado de la conexión con FLIT 2 (HU #13098) y lectura en vivo sin el
 // botón «Sincronizar FLIT 2» (HU #13189). Backend mockeado: se verifica el cableado de la UI contra
@@ -66,6 +67,8 @@ const MSS = /\d+:\d{2}/;
 async function abrir(page: Page) {
   await page.goto('/flito/tramites');
   await expect(page.getByRole('heading', { name: 'Gestión Trámites', exact: true })).toBeVisible();
+  // HU #13238: la sección Sincronización es un acordeón contraído; sin ella (sin permisos) no hay nada.
+  await expandirSincronizacionSiHay(page);
 }
 
 /** Simula volver a la pestaña: dispara `visibilitychange` con la pestaña visible (GET silencioso). */
