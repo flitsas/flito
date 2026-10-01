@@ -9,7 +9,8 @@
 // inocuo, como en direccion). Se monta con `router.use(reciboFaseRouter(...))`; no montarlo en otro sitio.
 //
 // Recibe `contextoImpuesto` por parámetro: sin import circular con el router padre.
-// Sin PII en la URL (solo el id opaco) ni en el logger; la auditoría no repite la placa leída.
+// Sin PII en la URL (solo el id opaco) ni en el logger. La auditoría de ESTA ruta no lleva la placa;
+// el servicio sí la escribe en `audit_logs` al rechazar por placa (como la carga masiva).
 
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import multer from 'multer';
@@ -52,7 +53,7 @@ const upload = multer({
   limits: { fileSize: CARGA_MASIVA_MAX_BYTES_ARCHIVO, files: 1, fields: 2 },
   fileFilter: (_req, file, cb) => {
     if (MIMES.includes(file.mimetype)) cb(null, true);
-    else cb(new Error('Tipo de archivo no permitido: solo PDF, JPEG o PNG'));
+    else cb(new Error(MOTIVO_TIPO));
   },
 });
 
@@ -64,6 +65,7 @@ const MOTIVO_MULTER: Record<string, string> = {
   LIMIT_FIELD_COUNT: 'La carga trae campos de más',
 };
 const MOTIVO_GENERICO = 'Archivo inválido';
+const MOTIVO_TIPO = 'Tipo de archivo no permitido: solo PDF, JPEG o PNG';
 
 const archivoInvalido = (res: Response, error: string): void => {
   res.status(400).json({ error, codigo: CodigoErrorCargaPorFase.ARCHIVO_INVALIDO });
@@ -73,7 +75,9 @@ const archivoInvalido = (res: Response, error: string): void => {
 function recibir(req: Request, res: Response, next: NextFunction): void {
   upload.single('archivo')(req, res, (err: unknown) => {
     if (!err) { next(); return; }
-    const motivo = err instanceof multer.MulterError ? MOTIVO_MULTER[err.code] : err instanceof Error ? err.message : undefined;
+    // Solo textos propios: un error de busboy («Unexpected end of form»…) no sale crudo (AC10).
+    const motivo = err instanceof multer.MulterError ? MOTIVO_MULTER[err.code]
+      : err instanceof Error && err.message === MOTIVO_TIPO ? MOTIVO_TIPO : undefined;
     archivoInvalido(res, motivo ?? MOTIVO_GENERICO);
   });
 }
