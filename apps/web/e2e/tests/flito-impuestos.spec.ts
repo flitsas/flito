@@ -1087,7 +1087,9 @@ test.describe('FLITO — Impuestos · recibo de caja (HU #12592)', () => {
     await expect(botonOff).toBeVisible();
     await expect(botonOff).toBeDisabled();
     await expect(botonOff).toHaveAttribute('aria-disabled', 'true');
-    const motivo = sinLiq.getByText('Este impuesto no tiene liquidación cargada; el recibo de caja se carga sobre una liquidación');
+    // HU #13209: con `impuestos.recibos.cargar` (lo tiene OPERACIONES_USER) el motivo manda a
+    // «Cargar comprobante», en la misma celda; sin ella queda el texto anterior.
+    const motivo = sinLiq.getByText('Este impuesto no tiene liquidación cargada. Cárgala primero con «Cargar comprobante».');
     await expect(motivo).toBeVisible();
     const idMotivo = await motivo.getAttribute('id');
     await expect(botonOff).toHaveAttribute('aria-describedby', idMotivo!);
