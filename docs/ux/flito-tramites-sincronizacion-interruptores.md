@@ -354,3 +354,13 @@ que el próximo no lo reinvente.
 - **Descartado** un tercer grupo «General» o una «primaria» para FLIT 2: inflaría la zona sin una acción real de la visita.
 - **Descartado** dejar los interruptores en la cabecera: la cabecera ya estaba saturada y es justo lo que la HU pide ordenar.
 - **Sin** iconos de fuente, colores de marca por fuente, animación del aviso ni sombras: el carácter es el orden de los dos grupos gemelos.
+
+## Acordeón — 2026-10-01
+
+Pedido de David (2.º PR de la HU #13238): la tarjeta «Sincronización» pasa a ser desplegable.
+
+1. **Contraída en cada visita.** No se recuerda el estado (ni `localStorage`, ni query, ni contexto): la zona es de consulta ocasional y la tabla es lo que se viene a ver.
+2. **Resumen por fuente en la cabecera:** «Sincronización · FLIT 1: Encendida · FLIT 2: Apagada», de las mismas fuentes de verdad que los grupos (interruptores con el permiso de configurar; estado efectivo sin él). Cargando → «Cargando…»; error de lectura → «estado no disponible» (el error con Reintentar sigue dentro). FLIT 2 con el maestro apagado → «Apagada en el servidor». Sin permiso para ver el estado de FLIT 2, esa fuente no sale en el resumen.
+3. **Todo lo demás vive en el cuerpo:** interruptores, «Sincronizar FLIT», Acceso a FLIT 2, estado y avisos de FLIT 2.
+4. **Distintivo de alerta de FLIT 2** («Requiere atención» + ícono, en `--flit-danger-text`, no solo color) con la misma regla que la tarjeta de aviso (`alertaFlit2` en `EstadoFlit2.tsx`: alerta del servidor, anulada con la fuente apagada o sin configurar).
+5. **Accesibilidad y kit:** `FlitAcordeon` del kit (ampliado con `resumen`, `nivel` y `testId`): disparador `<button>` dentro de un `<h2>` con `aria-expanded`/`aria-controls`, panel `role="region"` nombrado por el título y **desmontado** al contraer (nada enfocable oculto); hover sutil + foco del kit; el chevron (lucide) solo rota, sin transición con `prefers-reduced-motion`. El resumen envuelve en 375 px; sin separador «·» entre fuentes (al envolver quedaba colgando al final de la línea): las separa el espacio.
