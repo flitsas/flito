@@ -1,12 +1,21 @@
 // FLITO — sincronización (HTTP). Trigger MANUAL de la sincronización FLIT (Operaciones elige la fecha
 // inicial; la final es hoy). Integración de solo lectura. Ver docs/integracion/integracionFlit.md.
+//
+// HU #13237 (interruptor por fuente, `flito-sync-interruptor.service.ts`):
+//   - POST /sincronizar con FLIT 1 apagada → 409 `{ codigo: 'FUENTE_APAGADA', fuente: 'flit1' }` ANTES de
+//     todo lo demás: no consulta FLIT 1, no escribe y no mueve la última sincronización (AC5).
+//   - GET /estado añade `habilitada` y `motivoDeshabilitada` (AC9; FLIT 1 no tiene maestro).
+//   - GET/PUT /interruptores viven en `flito-sync-interruptores.routes.ts`, montado al final.
 
 import { Router, type Request, type Response } from 'express';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { loggerFor } from '../../shared/logger.js';
+import type { SyncEstadoFlit1 } from '@operaciones/shared-types';
 import { sincronizar, leerUltimaSincronizacion, guardarUltimaSincronizacion, hayTramites } from './flito-sync.service.js';
+import { estadoHabilitacionFlit1, FuenteApagadaError, fuenteHabilitada } from './flito-sync-interruptor.service.js';
+import interruptoresRouter from './flito-sync-interruptores.routes.js';
 
 const log = loggerFor('flito-sync-routes');
 const router = Router();
@@ -25,14 +34,29 @@ function hoyYyyymmdd(): string {
 
 // Estado de sincronización: para mostrar "última actualización" y decidir si es la primera vez.
 router.get('/estado', exigirFuncion('sync.sync.ver_estado'), async (_req: Request, res: Response) => {
-  const [ultimaSincronizacion, tramites] = await Promise.all([leerUltimaSincronizacion(), hayTramites()]);
-  res.json({ ultimaSincronizacion, hayTramites: tramites });
+  const [ultimaSincronizacion, tramites, habilitacion] = await Promise.all([
+    leerUltimaSincronizacion(), hayTramites(), estadoHabilitacionFlit1(),
+  ]);
+  const cuerpo: SyncEstadoFlit1 = { ultimaSincronizacion, hayTramites: tramites, ...habilitacion };
+  res.json(cuerpo);
 });
 
 // Dispara una sincronización. initialDate: si viene en el body se respeta (modo manual); si no, se usa
 // la fecha del último sync (incremental). La primera vez (sin fecha previa) exige elegir fecha. finalDate
 // = hoy. Solo admin. Al terminar, persiste la fecha/hora del sync como "última actualización".
 router.post('/sincronizar', exigirFuncion('sync.sync.lanzar'), async (req: Request, res: Response) => {
+  // Un fallo de base al leer el interruptor responde 500 (Express 4 no captura el async): nunca se
+  // toma como «encendido» ni deja la petición colgada (nota de security-agent, HU #13237).
+  const habilitada = await fuenteHabilitada('flit1').catch((err: unknown) => {
+    log.error({ err: (err as Error).message }, 'no se pudo leer el interruptor de FLIT 1');
+    return null;
+  });
+  if (habilitada === null) { res.status(500).json({ error: 'No se pudo verificar si la sincronización con FLIT 1 está encendida' }); return; }
+  if (!habilitada) {
+    const e = new FuenteApagadaError('flit1');
+    res.status(e.status).json({ error: e.message, codigo: e.codigo, fuente: e.fuente });
+    return;
+  }
   const manual = aYyyymmdd(req.body?.initialDate);
   const ultima = await leerUltimaSincronizacion();
   const initialDate = manual ?? (ultima ? aYyyymmdd(ultima) : null);
@@ -52,5 +76,8 @@ router.post('/sincronizar', exigirFuncion('sync.sync.lanzar'), async (req: Reque
     res.status(500).json({ error: 'La sincronización falló', detalle: (error as Error).message });
   }
 });
+
+// HU #13237: interruptor por fuente — ver la cabecera de `flito-sync-interruptores.routes.ts`.
+router.use(interruptoresRouter);
 
 export default router;

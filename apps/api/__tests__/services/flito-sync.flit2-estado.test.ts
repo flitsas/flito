@@ -230,7 +230,7 @@ describe('HU #13097 · obtenerEstadoConexion (mock keyed)', () => {
     expect(r.problema).toMatchObject({ tipo: 'rechazado', motivo: 'credenciales' });
 
     expect(Object.keys(r).sort()).toEqual(
-      ['alerta', 'atrasada', 'automatica', 'configurado', 'motivoSinConfigurar', 'piiEnmascarada', 'problema', 'ultimaExitosaEn', 'ultimoIntentoEn'],
+      ['alerta', 'atrasada', 'automatica', 'configurado', 'habilitada', 'motivoDeshabilitada', 'motivoSinConfigurar', 'piiEnmascarada', 'problema', 'ultimaExitosaEn', 'ultimoIntentoEn'],
     );
     expect(Object.keys(r.problema!).sort()).toEqual(['codigo', 'en', 'hasta', 'motivo', 'tipo']);
     const json = JSON.stringify(r);
@@ -268,5 +268,78 @@ describe('HU #13097 · obtenerEstadoConexion (mock keyed)', () => {
     const r = await obtenerEstadoConexion(() => AHORA);
     expect(r).toMatchObject({ configurado: false, motivoSinConfigurar: 'sin_acceso', alerta: false, problema: null });
     expect(r.piiEnmascarada.tramites).toBe(0);
+  });
+});
+
+// ── HU #13237 — habilitación de FLIT 2 en el estado (AC8, AC9; decisión del hilo: apagada → sin alerta) ──
+describe('HU #13237 · componerEstado · habilitada y motivo', () => {
+  // Sin lectura exitosa hace 2 h: con la fuente habilitada esto SÍ levanta la alerta (control positivo).
+  const viejo = entrada({ lectura: { ...LECTURA, ultimaExitosaEn: menos(120) } });
+
+  it('AC9: maestro e interruptor encendidos → habilitada, sin motivo; la alerta de 30 min sigue viva', () => {
+    const r = componerEstado({ ...viejo, maestro: true, interruptorFlit2: true }, AHORA);
+    expect(r.habilitada).toBe(true);
+    expect(r.motivoDeshabilitada).toBeNull();
+    expect(r.alerta).toBe(true);
+  });
+
+  it('AC8/AC9: maestro en false → motivo «maestro», y gana aunque el interruptor también esté apagado', () => {
+    expect(componerEstado({ ...viejo, maestro: false, interruptorFlit2: true }, AHORA))
+      .toMatchObject({ habilitada: false, motivoDeshabilitada: 'maestro' });
+    expect(componerEstado({ ...viejo, maestro: false, interruptorFlit2: false }, AHORA))
+      .toMatchObject({ habilitada: false, motivoDeshabilitada: 'maestro' });
+  });
+
+  it('AC9: maestro encendido e interruptor apagado → motivo «interruptor»', () => {
+    expect(componerEstado({ ...viejo, maestro: true, interruptorFlit2: false }, AHORA))
+      .toMatchObject({ habilitada: false, motivoDeshabilitada: 'interruptor' });
+  });
+
+  it('decisión del hilo (riesgo 1): apagada a propósito no levanta alerta, ni por tiempo ni por rechazo; el problema se sigue informando', () => {
+    const rechazado = { ...viejo, acceso: { ...ACCESO, rechazadoEn: menos(3), rechazoMotivo: 'invalid_client' } };
+    for (const apagado of [{ maestro: false }, { interruptorFlit2: false }]) {
+      expect(componerEstado({ ...viejo, ...apagado }, AHORA).alerta).toBe(false);
+      const r = componerEstado({ ...rechazado, ...apagado }, AHORA);
+      expect(r.alerta).toBe(false);
+      expect(r.problema?.tipo).toBe('rechazado');
+    }
+    // Control: la misma entrada habilitada sí alerta.
+    expect(componerEstado(rechazado, AHORA).alerta).toBe(true);
+  });
+});
+
+describe('HU #13237 · obtenerEstadoConexion · lee el interruptor y el maestro', () => {
+  const envAntes = { base: env.FLIT2_BASE_URL, llave: env.FLIT2_ENC_KEY, cron: env.FLIT2_SYNC_CRON };
+  beforeEach(() => {
+    kdb.reset();
+    (env as Record<string, unknown>).FLIT2_BASE_URL = 'https://flit2.test';
+    (env as Record<string, unknown>).FLIT2_ENC_KEY = 'a'.repeat(64);
+    (env as Record<string, unknown>).FLIT2_SYNC_CRON = true;
+    kdb.when.scenario({ flito_sync_flit2_acceso: [ACCESO], flito_sync_flit2_lectura: [LECTURA], flito_tramites: [{ n: 0 }] });
+  });
+  afterEach(() => {
+    (env as Record<string, unknown>).FLIT2_BASE_URL = envAntes.base;
+    (env as Record<string, unknown>).FLIT2_ENC_KEY = envAntes.llave;
+    (env as Record<string, unknown>).FLIT2_SYNC_CRON = envAntes.cron;
+  });
+
+  it('AC9: la fila flit2 apagada → habilitada=false por interruptor', async () => {
+    kdb.when.select('flito_sync_interruptor', [{ encendido: false }]);
+    expect(await obtenerEstadoConexion(() => AHORA)).toMatchObject({ habilitada: false, motivoDeshabilitada: 'interruptor' });
+  });
+
+  it('AC8: FLIT2_SYNC_CRON=false → motivo maestro aunque la fila esté encendida', async () => {
+    kdb.when.select('flito_sync_interruptor', [{ encendido: true }]);
+    (env as Record<string, unknown>).FLIT2_SYNC_CRON = false;
+    expect(await obtenerEstadoConexion(() => AHORA)).toMatchObject({ habilitada: false, motivoDeshabilitada: 'maestro' });
+  });
+
+  it('fila ausente → se informa habilitada (sembrada encendida)', async () => {
+    expect(await obtenerEstadoConexion(() => AHORA)).toMatchObject({ habilitada: true, motivoDeshabilitada: null });
+  });
+
+  it('un error de base al leer el interruptor se propaga (no se traga como «encendida»)', async () => {
+    kdb.when.selectThrow('flito_sync_interruptor', new Error('db caída'));
+    await expect(obtenerEstadoConexion(() => AHORA)).rejects.toThrow('db caída');
   });
 });

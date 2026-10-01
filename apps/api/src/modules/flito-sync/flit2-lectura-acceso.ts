@@ -21,6 +21,7 @@ import { auditarLecturaProgramada, leerConCandado } from './flit2-lectura.servic
 import {
   Flit2Error, Flit2LecturaEnCursoError, Flit2NoConfiguradoError, Flit2SinAccesoError,
 } from './flit2.errors.js';
+import { FuenteApagadaError } from './flito-sync-interruptor.service.js';
 
 const log = loggerFor('flito-sync-flit2');
 
@@ -30,7 +31,10 @@ export async function correrLecturaTrasAcceso(): Promise<void> {
     const r = await leerConCandado('acceso');
     await auditarLecturaProgramada(r, 'acceso');
   } catch (e) {
-    if (e instanceof Flit2SinAccesoError || e instanceof Flit2NoConfiguradoError) {
+    if (e instanceof FuenteApagadaError) {
+      // HU #13237: apagado intencional, no es falla (cada 5 min no debe ensuciar el log en warn).
+      log.debug('lectura FLIT 2 tras guardar el acceso: la fuente está apagada en este ambiente, no corre');
+    } else if (e instanceof Flit2SinAccesoError || e instanceof Flit2NoConfiguradoError) {
       log.info({ codigo: e.codigo }, 'lectura FLIT 2 tras guardar el acceso: sin acceso utilizable, no corre');
     } else if (e instanceof Flit2LecturaEnCursoError) {
       log.info('lectura FLIT 2 tras guardar el acceso: otra corrida tiene el candado, no se lanza otra');

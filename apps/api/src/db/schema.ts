@@ -43,7 +43,7 @@ export { flitoSoatIncompletas };
 import { flitoTramiteViajesLogistica } from './schema/flito-logistica-viajes.js';
 export { flitoTramiteViajesLogistica };
 // HU #13061: `flito_sync_flit2_acceso` vive en `./schema/flito-sync.ts` por el mismo techo.
-export { flitoSyncFlit2Acceso, flitoSyncFlit2Lectura } from './schema/flito-sync.js';
+export { flitoSyncFlit2Acceso, flitoSyncFlit2Lectura, flitoSyncInterruptor } from './schema/flito-sync.js';
 
 export const laftKindEnum = pgEnum('laft_kind', ['PN', 'PJ']);
 export const laftRiskLevelEnum = pgEnum('laft_risk_level', ['bajo', 'medio', 'alto']);

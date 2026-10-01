@@ -75,3 +75,18 @@ export const flitoSyncFlit2Lectura = pgTable('flito_sync_flit2_lectura', {
   cursorRelecturaLen: check('ck_flito_sync_flit2_lectura_cursor_relectura_len',
     sql`${t.cursorRelectura} IS NULL OR length(${t.cursorRelectura}) BETWEEN 1 AND 2000`),
 }));
+
+/**
+ * HU #13237 (migración 0217): interruptor por fuente de la sincronización FLIT, propio de cada ambiente.
+ * Dos filas (`flit1`, `flit2`) sembradas encendidas. Fila ausente = encendida (con `warn`).
+ * `updated_at`/`updated_by` solo los mueve el PUT del interruptor (null = nadie lo ha cambiado).
+ * Tabla aparte de `flito_sync_flit2_lectura` para no competir por el lock de la fila del cursor.
+ */
+export const flitoSyncInterruptor = pgTable('flito_sync_interruptor', {
+  fuente: varchar('fuente', { length: 10 }).primaryKey(),
+  encendido: boolean('encendido').notNull().default(true),
+  updatedAt: timestamp('updated_at', { withTimezone: true }),
+  updatedBy: integer('updated_by').references(() => users.id),
+}, (t) => ({
+  fuente: check('ck_flito_sync_interruptor_fuente', sql`${t.fuente} IN ('flit1', 'flit2')`),
+}));
