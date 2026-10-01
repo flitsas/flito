@@ -22,7 +22,7 @@
 //   · **El nombre del archivo lo pone el servidor** (`Content-Disposition`), con sello en hora de
 //     Colombia. Uno fabricado aquí llevaría la hora del equipo de quien descarga.
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { FileSpreadsheet, RotateCw, TriangleAlert, X } from 'lucide-react';
 import { CABECERA_DIRECCIONES_SIN_CONFIRMAR } from '@operaciones/shared-types';
 import { ApiError, api } from '../../lib/api';
@@ -459,11 +459,27 @@ export function AvisoExportCola(
  * sin que el nombre del módulo mienta.
  */
 export function AvisoVisible(
-  { aviso, onReintentar, onDescartar }:
-  { aviso: AvisoExport; onReintentar: () => void; onDescartar: () => void },
+  { aviso, onReintentar, onDescartar, children }:
+  {
+    aviso: AvisoExport; onReintentar: () => void; onDescartar: () => void;
+    /** Detalle bajo el texto (HU #13206: la lista de omitidos del 409 de certificados). */
+    children?: ReactNode;
+  },
 ) {
   const esError = aviso.tono === 'error';
   const esAviso = aviso.tono === 'aviso';
+  const cuerpo = (
+    <p
+      className="flex items-start gap-2 text-sm"
+      style={{ color: esError ? 'var(--flit-danger-ink)' : 'var(--flit-text-primary)' }}
+    >
+      {/* `aviso` lleva forma además de color (△), con la tinta del kit que tiene par oscuro. */}
+      {esAviso && (
+        <TriangleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: 'var(--flit-warning-text)' }} />
+      )}
+      <span>{aviso.texto}</span>
+    </p>
+  );
   return (
     <div
       role={esError ? 'alert' : undefined}
@@ -477,16 +493,9 @@ export function AvisoVisible(
     >
       {/* Tinta y no color de superficie: `--flit-danger` como letra de 14px sobre blanco se queda
           en 4,19 y axe lo marca `serious` (Bug #11604). */}
-      <p
-        className="flex items-start gap-2 text-sm"
-        style={{ color: esError ? 'var(--flit-danger-ink)' : 'var(--flit-text-primary)' }}
-      >
-        {/* `aviso` lleva forma además de color (△), con la tinta del kit que tiene par oscuro. */}
-        {esAviso && (
-          <TriangleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: 'var(--flit-warning-text)' }} />
-        )}
-        <span>{aviso.texto}</span>
-      </p>
+      {children
+        ? <div className="min-w-0 flex-1 basis-full sm:basis-auto">{cuerpo}{children}</div>
+        : cuerpo}
       <div className="flex items-center gap-2">
         {aviso.reintentable && (
           <button
