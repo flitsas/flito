@@ -1,6 +1,7 @@
 // FLITO Impuestos — ZIP de certificados RUNT con listado de omitidos (HU #13205). Sub-router del de
-// impuestos, en archivo PROPIO: `flito-impuestos.routes.ts` está en el techo de max-lines y la HU
-// #13208 añade `POST /:id/recibos` allí; montado ANTES de cualquier `/:id/...`.
+// impuestos, en archivo PROPIO (mismo criterio que `flito-impuestos.analisis.routes.ts`): reutiliza un
+// código ya declarado en el catálogo de permisos sin sumar otra guarda al inventario de
+// `flito-impuestos.routes.ts`; montado ANTES de cualquier `/:id/...`.
 //
 // AUTENTICACIÓN PROPIA: igual que `flito-impuestos.direccion.routes.ts`, `router.use(authMiddleware)`
 // en el fichero (se monta tras el del router padre: autentica dos veces, inocuo).
