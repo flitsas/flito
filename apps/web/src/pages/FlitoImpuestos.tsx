@@ -28,6 +28,9 @@ import {
 import {
   AvisoSoportesZip, DescargarSoportesZip, ZIP_IMPUESTOS, useDescargaZip,
 } from '../components/flito/DescargarSoportesZip';
+import {
+  AvisoCertificadosZip, DescargarCertificadosZip, useDescargaCertificados,
+} from '../components/flito/DescargarCertificadosZip';
 import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
 import Paginacion from '../components/flit/Paginacion';
 import DetalleImpuesto from '../components/flito/DetalleImpuesto';
@@ -256,12 +259,14 @@ export default function FlitoImpuestos() {
 
   const filas = data?.items ?? [];
   const totalPaginas = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
-  // Quién puede DESCARGAR depende solo del rol; qué filas ofrecen CERTIFICAR depende además del
-  // estado. No es lo mismo: un impuesto ya pagado no se certifica, pero su certificado sigue siendo
-  // la evidencia que hay que poder enseñar.
-  const puedeDescargarCert = esOperaciones || esGestor;
+  // DESCARGAR el certificado (fila y ZIP) cuelga de su función (HU #13206, AC4); CERTIFICAR sigue
+  // con su guarda de rol y depende además del estado. Van separadas para que quitar la descarga no
+  // quite certificar: un impuesto ya pagado no se certifica, pero su certificado sigue siendo la
+  // evidencia que hay que poder enseñar.
+  const puedeDescargarCertificados = hasFuncion('impuestos.certificado.descargar');
+  const puedeCertificar = esOperaciones || esGestor;
   const puedeCertificarFila = (f: ImpuestoItem) =>
-    puedeDescargarCert && ESTADOS_IMPUESTO_CERTIFICABLES.includes(f.estado);
+    puedeCertificar && ESTADOS_IMPUESTO_CERTIFICABLES.includes(f.estado);
 
   /**
    * Qué filas puede marcar ESTE usuario, para cualquiera de las dos acciones masivas.
@@ -282,6 +287,9 @@ export default function FlitoImpuestos() {
   const puedeDescargarSoportes = esOperaciones || esGestor;
   // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
   const descargaZip = useDescargaZip(ZIP_IMPUESTOS);
+  const descargaCert = useDescargaCertificados();
+  // Casillas y barra existen si hay al menos una de las dos descargas (HU #13206).
+  const puedeSeleccionar = puedeDescargarSoportes || puedeDescargarCertificados;
   const detalle = filas.find((f) => f.id === detalleId) ?? null;
   const validacion = filas.find((f) => f.id === validacionId) ?? null;
   const refrescar = () => setRecarga((n) => n + 1);
@@ -450,7 +458,7 @@ export default function FlitoImpuestos() {
 
       {/* Ya no es exclusiva de Operaciones: el gestor certifica en bloque su organismo (HU #11169).
           Qué acción se ofrece lo decide la propia barra según lo seleccionado. */}
-      {puedeDescargarSoportes && seleccion.size > 0 && (
+      {puedeSeleccionar && seleccion.size > 0 && (
         <BarraSeleccion
           filasSeleccionadas={filas.filter((f) => seleccion.has(f.id))}
           puedeEnviarFila={puedeEnviarFila}
@@ -458,13 +466,30 @@ export default function FlitoImpuestos() {
           onListo={() => { setSeleccion(new Set()); refrescar(); }}
           onEnviados={setEnvioAnalisis}
           onError={setError}
+          descargas={puedeDescargarSoportes && puedeDescargarCertificados
+            ? 'Descargar soportes y certificados usan'
+            : puedeDescargarSoportes ? 'Descargar soportes usa' : 'Descargar certificados usa'}
           descarga={(
-            <DescargarSoportesZip
-              superficie={ZIP_IMPUESTOS}
-              ids={[...seleccion]}
-              ocupado={descargaZip.ocupado}
-              onDescargar={descargaZip.descargar}
-            />
+            <>
+              {puedeDescargarSoportes && (
+                <DescargarSoportesZip
+                  superficie={ZIP_IMPUESTOS}
+                  ids={[...seleccion]}
+                  ocupado={descargaZip.ocupado}
+                  onDescargar={descargaZip.descargar}
+                  llenaEnMovil
+                />
+              )}
+              {puedeDescargarCertificados && (
+                <DescargarCertificadosZip
+                  ids={[...seleccion]}
+                  ocupado={descargaCert.ocupado}
+                  onDescargar={(ids) => descargaCert.descargar(
+                    ids, (id) => filas.find((f) => f.id === id)?.placa ?? null)}
+                  llenaEnMovil
+                />
+              )}
+            </>
           )}
         />
       )}
@@ -478,6 +503,15 @@ export default function FlitoImpuestos() {
           aviso={descargaZip.aviso}
           onReintentar={descargaZip.reintentar}
           onDescartar={descargaZip.descartar}
+        />
+      )}
+      {puedeDescargarCertificados && (
+        <AvisoCertificadosZip
+          ocupado={descargaCert.ocupado}
+          marcadas={descargaCert.marcadas}
+          aviso={descargaCert.aviso}
+          onReintentar={descargaCert.reintentar}
+          onDescartar={descargaCert.descartar}
         />
       )}
 
@@ -504,7 +538,7 @@ export default function FlitoImpuestos() {
               <FlitTr>
                 {/* Cuelga del PERMISO, no de «hay filas accionables» (AC7). El nombre accesible
                     cambia con el sentido: ya no marca «los que admiten acción masiva». */}
-                {puedeDescargarSoportes && (
+                {puedeSeleccionar && (
                   <FlitTh>
                     <input type="checkbox" aria-label="Seleccionar las filas de esta página"
                       checked={seleccion.size > 0 && seleccion.size === filas.length}
@@ -522,7 +556,7 @@ export default function FlitoImpuestos() {
             <tbody>
               {filas.map((f) => (
                 <FlitTr key={f.id}>
-                  {puedeDescargarSoportes && (
+                  {puedeSeleccionar && (
                     <td className="px-3 py-2">
                       <input type="checkbox" aria-label={`Seleccionar ${f.placa}`}
                         checked={seleccion.has(f.id)} onChange={() => toggle(f.id)} />
@@ -532,7 +566,7 @@ export default function FlitoImpuestos() {
                     accion={(<AccionesTramite fila={f} onAbrir={() => setValidacionId(f.id)}>
                       <AccionCertificacion
                         certificacion={f.certificacion}
-                        puedeDescargar={puedeDescargarCert}
+                        puedeDescargar={puedeDescargarCertificados}
                         puedeCertificar={puedeCertificarFila(f)}
                         cargando={certificandoId === f.id}
                         onCertificar={() => certificar(f)}
@@ -627,7 +661,7 @@ export default function FlitoImpuestos() {
  * gestor lo determina el organismo del trámite, así que «al gestor» no admite elección y los dos
  * destinos van como botones explícitos que dicen a dónde va cada uno.
  */
-function BarraSeleccion({ filasSeleccionadas, puedeEnviarFila, puedeCertificarFila, onListo, onEnviados, onError, descarga }: {
+function BarraSeleccion({ filasSeleccionadas, puedeEnviarFila, puedeCertificarFila, onListo, onEnviados, onError, descarga, descargas }: {
   filasSeleccionadas: ImpuestoItem[];
   puedeEnviarFila: (f: ImpuestoItem) => boolean;
   puedeCertificarFila: (f: ImpuestoItem) => boolean;
@@ -635,6 +669,8 @@ function BarraSeleccion({ filasSeleccionadas, puedeEnviarFila, puedeCertificarFi
   onEnviados: (e: EnvioAnalisis) => void;
   onError: (m: string) => void;
   descarga: ReactNode;
+  /** Cómo se nombran las descargas visibles en la línea de desajuste («Descargar soportes usa»). */
+  descargas: string;
 }) {
   const [enviando, setEnviando] = useState<'gestor' | 'operaciones' | null>(null);
   const [certificando, setCertificando] = useState(false);
@@ -726,7 +762,7 @@ function BarraSeleccion({ filasSeleccionadas, puedeEnviarFila, puedeCertificarFi
               && `, ${enviables.length} están Pendientes y son las únicas que se envían`}
             {certificables.length > 0 && certificables.length < marcadas
               && `, ${certificables.length} admiten certificación y son las únicas que se certifican`}
-            . Descargar soportes usa las {marcadas}.
+            . {descargas} las {marcadas}.
           </p>
         )}
       </FlitCard>
