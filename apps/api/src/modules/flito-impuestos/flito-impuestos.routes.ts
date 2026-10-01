@@ -44,6 +44,7 @@ import { soportesDeImpuesto } from '../../shared/soportes/soportes-consulta.js';
 import { cargarReciboCaja, cargarRecibos, normalizarRutas, ReciboCajaError } from './flito-recibos.service.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { getFlitAdapter } from '../flito-sync/flit.adapter.js';
+import { descargarFacturaVentaFlit2, FacturaNoDisponibleError } from './flito-impuestos.extraccion.js';
 import analisisRouter from './flito-impuestos.analisis.routes.js';
 import direccionRouter from './flito-impuestos.direccion.routes.js';
 import { contarDireccionesSinConfirmar } from './flito-impuestos.export-pago.js';
@@ -151,12 +152,10 @@ router.get('/:id/factura-venta', exigirFuncion('impuestos.factura.ver'), async (
   const ctx = await contextoImpuesto(req.user!);
   const factura = await facturaVentaFlitConAcceso(req.params.id, ctx);
   if (!factura) { res.status(404).json({ error: 'El trámite no tiene factura de venta en FLIT' }); return; }
-  const url = await getFlitAdapter().obtenerUrlFactura(factura.facturaId);
-  if (!url) { res.status(404).json({ error: 'La factura de venta no está disponible en FLIT' }); return; }
-
-  const upstream = await fetch(url).catch(() => null);
-  if (!upstream || !upstream.ok) { res.status(502).json({ error: 'No se pudo descargar la factura de venta desde FLIT' }); return; }
-  const cuerpo = Buffer.from(await upstream.arrayBuffer());
+  const cuerpo = factura.fuente === 'flit2'
+    ? await facturaFlit2(req.params.id, factura.idFlit2, factura.facturaId, res)
+    : await facturaFlit1(factura.facturaId, res);
+  if (!cuerpo) return;
 
   const { contentType, extension } = tipoPorBytes(cuerpo);
   res.setHeader('Content-Type', contentType);
@@ -167,6 +166,35 @@ router.get('/:id/factura-venta', exigirFuncion('impuestos.factura.ver'), async (
   res.setHeader('Content-Disposition', `inline; filename="${base}.${extension}"`);
   res.send(cuerpo);
 });
+
+/** FLIT 1: sin cambios (Bug #13230). `null` = la respuesta de error ya se envió. */
+async function facturaFlit1(facturaId: string, res: Response): Promise<Buffer | null> {
+  const url = await getFlitAdapter().obtenerUrlFactura(facturaId);
+  if (!url) { res.status(404).json({ error: 'La factura de venta no está disponible en FLIT' }); return null; }
+  const upstream = await fetch(url).catch(() => null);
+  if (!upstream || !upstream.ok) { res.status(502).json({ error: 'No se pudo descargar la factura de venta desde FLIT' }); return null; }
+  return Buffer.from(await upstream.arrayBuffer());
+}
+
+/**
+ * Bug #13230. FLIT 2 por la MISMA vía que la extracción (allowlist de hosts, sin `Authorization`,
+ * `redirect: 'error'`, tope y un reintento). Sin URL (404 del puerto, sin `idFlit2`) → 404; cualquier
+ * otro desenlace (host no permitido, descarga, tope, pase) → 502. Nunca el error crudo ni la URL.
+ */
+async function facturaFlit2(
+  impuestoId: string, idFlit2: string | null, facturaId: string, res: Response,
+): Promise<Buffer | null> {
+  try {
+    return (await descargarFacturaVentaFlit2(impuestoId, idFlit2, facturaId)).bytes;
+  } catch (e) {
+    if (e instanceof FacturaNoDisponibleError && e.motivo === 'url_nula') {
+      res.status(404).json({ error: 'La factura de venta no está disponible en FLIT' });
+    } else {
+      res.status(502).json({ error: 'No se pudo descargar la factura de venta desde FLIT' });
+    }
+    return null;
+  }
+}
 
 /**
  * POST /soportes/zip — factura de venta y/o recibo de impuesto de los marcados, en UN ZIP (AC3).

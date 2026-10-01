@@ -27,7 +27,7 @@
 //   · **`OPERACIONES → LECTURA` en Trámites.** `LECTURA` incluye `auditor`, y el AC7 dice que
 //     auditoría no descarga. El mutante se lee como una coherencia con las rutas de al lado.
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import JSZip from 'jszip';
@@ -91,6 +91,14 @@ vi.mock('../../src/modules/flito-sync/flit.adapter.js', () => ({
     obtenerUrlFactura: obtenerUrlFacturaMock, obtenerTramites: vi.fn(), marcarEntregado: vi.fn(),
   }),
 }));
+
+// Bug #13230: el puerto de FLIT 2 para la factura de un trámite `fuente = 'flit2'`.
+const obtenerUrlAdjuntoMock = vi.fn();
+vi.mock('../../src/modules/flito-sync/flit2-sync.adapter.js', () => ({
+  getFlit2SyncAdapter: () => ({ obtenerUrlAdjunto: obtenerUrlAdjuntoMock }),
+}));
+
+const { env } = await import('../../src/config/env.js');
 
 const SOAT = '/api/flito/soat';
 const IMPUESTOS = '/api/flito/impuestos';
@@ -290,6 +298,7 @@ beforeEach(() => {
   logPiiAccessMock.mockClear();
   getEntityDocumentStreamMock.mockClear();
   obtenerUrlFacturaMock.mockReset();
+  obtenerUrlAdjuntoMock.mockReset();
   contenidoPorClave.clear();
   consultas.length = 0;
   orden.length = 0;
@@ -1637,5 +1646,92 @@ describe('un documento que no se puede abrir se omite y QUEDA EN EL LOG', () => 
 
     expect(r.status).toBe(200);
     expect(await entradasDe(r.body as Buffer)).toEqual(['QWE789.pdf']);
+  });
+});
+
+// ─────────────────────────── Bug #13230 · factura de un trámite de FLIT 2 ───────────────────────
+
+describe('Bug #13230 — el ZIP (Impuestos y Trámites) incluye la factura de un trámite de FLIT 2', () => {
+  const ID2 = '0192b7c4-5e6a-7d10-9f21-000000000001';
+  const ADJ = '0192b7c4-9a1b-7c2d-8e3f-4a5b6c7d8e9f';
+  const FIRMADA = 'https://almacen.ejemplo.test/f/factura.pdf?X-Amz-Signature=secreta-13230';
+  const adjunto = (url = FIRMADA) => ({ url, contentType: 'application/pdf', nombreArchivo: 'FV-777.pdf', expiraEn: '2026-10-01T15:10:00Z' });
+  const hostsOriginales = env.FLIT2_ADJUNTOS_HOSTS;
+  beforeEach(() => { env.FLIT2_ADJUNTOS_HOSTS = ['almacen.ejemplo.test']; });
+  afterAll(() => { env.FLIT2_ADJUNTOS_HOSTS = hostsOriginales; });
+
+  // `fuente`/`idFlit2` explícitos en la fila: el mock keyed no filtra columnas (se asierta el select).
+  const escenarioFlit2 = () => kdb.when.scenario({
+    flito_impuestos: [filaImpuesto({ facturaVentaFlitId: ADJ, fuente: 'flit2', idFlit2: ID2 })],
+    flito_soportes: [soporte({ ancla: IMP_A, tipo: 'recibo_impuesto', contenido: PDF_RECIBO })],
+  });
+
+  it('factura FLIT 2 + recibo → UN PDF con las dos; la URL sale del puerto de FLIT 2, no de FLIT 1', async () => {
+    escenarioFlit2();
+    obtenerUrlAdjuntoMock.mockResolvedValue(adjunto());
+    const fetchMock = vi.fn().mockResolvedValue(new Response(PDF_FACTURA, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['factura_venta', 'recibo_impuesto'] });
+
+    expect(r.status).toBe(200);
+    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([101, 201]);
+    expect(r.headers['x-soportes-incluidos']).toBe('2');
+    expect(r.headers['x-soportes-omitidos']).toBe('0');
+    expect(obtenerUrlAdjuntoMock).toHaveBeenCalledWith(ID2, ADJ);
+    expect(obtenerUrlFacturaMock).not.toHaveBeenCalled();
+    expect((fetchMock.mock.calls[0] as [string, RequestInit])[1].redirect).toBe('error');
+    expect(lecturasDe('flito_impuestos')[0]!.columnas).toEqual(expect.arrayContaining(['facturaVentaFlitId', 'fuente', 'idFlit2']));
+  });
+
+  it('host fuera de FLIT2_ADJUNTOS_HOSTS → la factura se OMITE como una de FLIT 1 caída y el resto se entrega', async () => {
+    escenarioFlit2();
+    obtenerUrlAdjuntoMock.mockResolvedValue(adjunto('https://otro-host.ejemplo.invalid/f.pdf?X-Amz-Signature=secreta-13230'));
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['factura_venta', 'recibo_impuesto'] });
+
+    expect(r.status).toBe(200);
+    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([201]);
+    expect(r.headers['x-soportes-omitidos']).toBe('1');
+    expect(r.headers['x-soportes-incluidos']).toBe('1');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('Trámites: un trámite FLIT 2 con factura → el PDF sale del puerto de FLIT 2 y el select PIDE `fuente`/`idFlit2`', async () => {
+    kdb.when.scenario({
+      flito_tramites: [filaTramite({ facturaVentaFlitId: ADJ, fuente: 'flit2', idFlit2: ID2 })],
+      flito_soportes: [],
+    });
+    obtenerUrlAdjuntoMock.mockResolvedValue(adjunto());
+    const fetchMock = vi.fn().mockResolvedValue(new Response(PDF_FACTURA, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const r = await pedirZip(TRAMITES, await sesion(), { ids: [TRAMITE_A], tipos: ['factura_venta'] });
+
+    expect(r.status).toBe(200);
+    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([101]);
+    expect(r.headers['x-soportes-omitidos']).toBe('0');
+    expect(obtenerUrlAdjuntoMock).toHaveBeenCalledWith(ID2, ADJ);
+    expect(obtenerUrlFacturaMock).not.toHaveBeenCalled();
+    expect((fetchMock.mock.calls[0] as [string, RequestInit])[1].redirect).toBe('error');
+    expect(lecturasDe('flito_tramites')[0]!.columnas).toEqual(expect.arrayContaining(['facturaVentaFlitId', 'fuente', 'idFlit2']));
+  });
+
+  it('FLIT 1 sigue por getFlitAdapter y nunca toca el puerto de FLIT 2', async () => {
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto({ facturaVentaFlitId: 'fac-1', fuente: 'flit', idFlit2: null })],
+      flito_soportes: [],
+    });
+    obtenerUrlFacturaMock.mockResolvedValue('https://flit-bucket.s3/fac-1');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respuestaFlit()));
+
+    const r = await pedirZip(IMPUESTOS, await sesion(), { ids: [IMP_A], tipos: ['factura_venta'] });
+
+    expect(r.status).toBe(200);
+    expect(await anchosEnZip(r.body as Buffer, 'ASD123.pdf')).toEqual([101]);
+    expect(obtenerUrlFacturaMock).toHaveBeenCalledWith('fac-1');
+    expect(obtenerUrlAdjuntoMock).not.toHaveBeenCalled();
   });
 });
