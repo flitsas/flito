@@ -348,6 +348,8 @@ export async function registrosZipImpuestos(ids: string[], ctx: ImpuestoCtx): Pr
     organismoAlias: organismosTransitoConfig.alias,
     organismoCodigo: organismosTransitoConfig.codigo,
     facturaVentaFlitId: flitoTramites.facturaVentaFlitId,
+    fuente: flitoTramites.fuente,
+    idFlit2: flitoTramites.idFlit2,
   }).from(flitoImpuestos).$dynamic())
     .where(and(...conds, inArray(flitoImpuestos.id, ids)));
 
@@ -359,6 +361,8 @@ export async function registrosZipImpuestos(ids: string[], ctx: ImpuestoCtx): Pr
     createdAt: f.createdAt,
     impuestoId: f.id,
     facturaVentaFlitId: f.facturaVentaFlitId,
+    fuente: f.fuente ?? null,
+    idFlit2: f.idFlit2 ?? null,
   }));
 }
 
@@ -594,12 +598,16 @@ export async function facturaVentaFlitConAcceso(
 ): Promise<{
   facturaId: string; idFlit: string | null;
   placa: string | null; organismoAlias: string | null; organismoCodigo: string | null;
+  /** Bug #13230: decide si la factura se pide a FLIT 1 o al puerto de FLIT 2. */
+  fuente: string | null; idFlit2: string | null;
 } | null> {
   const imp = await buscarConAcceso(id, ctx);
   if (!imp) return null;
   const [t] = await db.select({
     facturaVentaFlitId: flitoTramites.facturaVentaFlitId,
     idFlit: flitoTramites.idFlit,
+    fuente: flitoTramites.fuente,
+    idFlit2: flitoTramites.idFlit2,
     placa: vehicles.plate,
     organismoAlias: organismosTransitoConfig.alias,
     organismoCodigo: flitoTramites.organismoCodigo,
@@ -612,6 +620,7 @@ export async function facturaVentaFlitConAcceso(
       facturaId: t.facturaVentaFlitId, idFlit: t.idFlit ?? null,
       placa: t.placa ?? null, organismoAlias: t.organismoAlias ?? null,
       organismoCodigo: t.organismoCodigo ?? null,
+      fuente: t.fuente ?? null, idFlit2: t.idFlit2 ?? null,
     }
     : null;
 }

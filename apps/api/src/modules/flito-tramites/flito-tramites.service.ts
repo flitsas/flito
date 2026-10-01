@@ -732,6 +732,9 @@ export async function registrosZipTramites(ids: string[]): Promise<RegistroZip[]
     soatId: flitoTramites.soatId,
     impuestoId: flitoImpuestos.id,
     facturaVentaFlitId: flitoTramites.facturaVentaFlitId,
+    // Bug #13230: la factura de un trámite de FLIT 2 se pide al puerto de FLIT 2.
+    fuente: flitoTramites.fuente,
+    idFlit2: flitoTramites.idFlit2,
   }).from(flitoTramites)
     .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
     .leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
@@ -747,6 +750,8 @@ export async function registrosZipTramites(ids: string[]): Promise<RegistroZip[]
     soatId: f.soatId,
     impuestoId: f.impuestoId,
     facturaVentaFlitId: f.facturaVentaFlitId,
+    fuente: f.fuente ?? null,
+    idFlit2: f.idFlit2 ?? null,
   }));
 }
 
