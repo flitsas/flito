@@ -1,6 +1,7 @@
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER, FUNCIONES_POR_ROL } from '../helpers/auth';
+import { cabeceraSincronizacion, expandirSincronizacion } from '../helpers/sincronizacion';
 
 // FLITO — Gestión Trámites · sección «Sincronización» con interruptor por fuente (HU #13238, Feature
 // #13236). Backend mockeado: se verifica el cableado de la UI contra el contrato de la HU #13237
@@ -92,10 +93,12 @@ const sw = (page: Page, f: Fuente) => page.getByRole('switch', { name: `Recibir 
 const botonSync = (page: Page) => page.getByRole('button', { name: 'Sincronizar FLIT', exact: true });
 const botonAcceso = (page: Page) => page.getByRole('button', { name: 'Acceso a FLIT 2', exact: true });
 
-async function abrir(page: Page) {
+/** Abre la página y, salvo `expandir: false`, despliega el acordeón (contraído en cada visita). */
+async function abrir(page: Page, { expandir = true } = {}) {
   await page.goto('/flito/tramites');
   await expect(page.getByRole('heading', { name: 'Gestión Trámites', exact: true })).toBeVisible();
   await expect(seccion(page)).not.toHaveAttribute('aria-busy', 'true');
+  if (expandir) await expandirSincronizacion(page);
 }
 
 test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #13238)', () => {
@@ -200,6 +203,9 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
     await page.route(RUTA_INTER, async (r) => { ctl.gets += 1; await pendiente; return json(r, ctl.getStatus, ctl.getStatus === 200 ? ctl.inter : { error: CRUDO }); });
     await page.goto('/flito/tramites');
     await expect(seccion(page)).toHaveAttribute('aria-busy', 'true');
+    // Mientras carga, el resumen no inventa valores.
+    await expect(page.getByTestId('resumen-flit1')).toHaveText('FLIT 1: Cargando…');
+    await expandirSincronizacion(page);
     await expect(page.getByTestId('esqueleto-switch-flit1')).toBeVisible();
     await expect(page.getByTestId('esqueleto-switch-flit2')).toBeVisible();
     soltar();
@@ -209,6 +215,9 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
     expect(await error.getAttribute('style')).toContain('--flit-danger-text');
     await expect(page.getByRole('switch')).toHaveCount(0);
     await expect(page.getByText(CRUDO)).toHaveCount(0);
+    // Resumen neutro: no adivina el valor; el error con reintento vive dentro.
+    await expect(page.getByTestId('resumen-flit1')).toHaveText('FLIT 1: estado no disponible');
+    await expect(page.getByTestId('resumen-flit2')).toHaveText('FLIT 2: estado no disponible');
     // El resto de la zona sigue funcionando.
     await expect(botonSync(page)).toBeEnabled();
     ctl.getStatus = 200;
@@ -371,5 +380,104 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
     expect(g2.y).toBeGreaterThanOrEqual(g1.y + g1.height);
     const b = (await botonAcceso(page).boundingBox())!;
     expect(b.width).toBeGreaterThan(g2.width - 40);
+  });
+
+  test.describe('Acordeón (HU #13238, 2.º PR)', () => {
+    const resumen = (page: Page) => page.getByTestId('resumen-sincronizacion');
+    const panel = (page: Page) => seccion(page).getByRole('region', { name: 'Sincronización' });
+
+    test('(a) contraída al entrar: aria-expanded=false y sin controles en el DOM; vuelve contraída en la siguiente visita', async ({ page }) => {
+      await loginAs(page, OPERACIONES_USER);
+      await mockear(page);
+      await abrir(page, { expandir: false });
+      const cab = cabeceraSincronizacion(page);
+      await expect(cab).toHaveAttribute('aria-expanded', 'false');
+      await expect(seccion(page).getByRole('heading', { level: 2, name: /Sincronización/ })).toBeVisible();
+      await expect(page.getByRole('switch')).toHaveCount(0);
+      await expect(botonSync(page)).toHaveCount(0);
+      await expect(botonAcceso(page)).toHaveCount(0);
+      await expect(page.getByTestId('linea-estado-flit2')).toHaveCount(0);
+      // Se despliega y, al volver a entrar, arranca contraída otra vez (no se recuerda).
+      await cab.click();
+      await expect(cab).toHaveAttribute('aria-expanded', 'true');
+      await abrir(page, { expandir: false });
+      await expect(cabeceraSincronizacion(page)).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    test('(b) la cabecera resume el estado de cada fuente', async ({ page }) => {
+      await loginAs(page, OPERACIONES_USER);
+      await mockear(page, { f2: false, e2: estado2({ habilitada: false, motivoDeshabilitada: 'interruptor' }) });
+      await abrir(page, { expandir: false });
+      await expect(page.getByTestId('resumen-flit1')).toHaveText('FLIT 1: Encendida');
+      await expect(page.getByTestId('resumen-flit2')).toHaveText('FLIT 2: Apagada');
+      await expect(cabeceraSincronizacion(page)).toContainText(/Sincronización\s*FLIT 1: Encendida\s*FLIT 2: Apagada/);
+      await expect(page.getByTestId('alerta-resumen-flit2')).toHaveCount(0);
+    });
+
+    test('(c) clic y Enter despliegan: aparecen interruptores y «Sincronizar FLIT»; contraer los quita', async ({ page }) => {
+      await loginAs(page, OPERACIONES_USER);
+      await mockear(page);
+      await abrir(page, { expandir: false });
+      const cab = cabeceraSincronizacion(page);
+      await cab.click();
+      await expect(cab).toHaveAttribute('aria-expanded', 'true');
+      const id = await cab.getAttribute('aria-controls');
+      await expect(panel(page)).toHaveAttribute('id', id!);
+      await expect(sw(page, 'flit1')).toBeVisible();
+      await expect(sw(page, 'flit2')).toBeVisible();
+      await expect(botonSync(page)).toBeVisible();
+      await cab.click();
+      await expect(cab).toHaveAttribute('aria-expanded', 'false');
+      await expect(page.getByRole('switch')).toHaveCount(0);
+      await expect(botonSync(page)).toHaveCount(0);
+      // Teclado: Enter despliega, Espacio contrae; foco visible en la cabecera.
+      await cab.focus();
+      await page.keyboard.press('Enter');
+      await expect(cab).toHaveAttribute('aria-expanded', 'true');
+      await expect(botonSync(page)).toBeVisible();
+      expect(await cab.evaluate((e) => {
+        const c = getComputedStyle(e);
+        return (c.outlineStyle !== 'none' && c.outlineWidth !== '0px') || c.boxShadow !== 'none';
+      })).toBe(true);
+      await page.keyboard.press('Space');
+      await expect(cab).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    test('(d) FLIT 2 en alerta pone el distintivo en la cabecera; sin alerta o con la fuente apagada, no', async ({ page }) => {
+      await loginAs(page, OPERACIONES_USER);
+      const ctl = await mockear(page, { e2: estado2({ alerta: true, problema: { tipo: 'rechazado', codigo: null, motivo: null, en: hace(40), hasta: null } }) });
+      await abrir(page, { expandir: false });
+      const distintivo = page.getByTestId('alerta-resumen-flit2');
+      await expect(distintivo).toHaveText('Requiere atención');
+      await expect(distintivo.locator('svg')).toHaveCount(1);
+      await expect(resumen(page)).toContainText('FLIT 2: Encendida');
+      ctl.e2 = estado2();
+      await abrir(page, { expandir: false });
+      await expect(page.getByTestId('resumen-flit2')).toHaveText('FLIT 2: Encendida');
+      await expect(page.getByTestId('alerta-resumen-flit2')).toHaveCount(0);
+      // Interruptor apagado mientras el estado del servidor aún la da por habilitada y en alerta:
+      // la cabecera manda por el interruptor y no marca (sin esto, `apagada` no se pone a prueba).
+      ctl.inter = { ...ctl.inter, fuentes: [inter('flit1', true), inter('flit2', false)] };
+      ctl.e2 = estado2({ alerta: true, problema: { tipo: 'rechazado', codigo: null, motivo: null, en: hace(40), hasta: null } });
+      await abrir(page, { expandir: false });
+      await expect(page.getByTestId('resumen-flit2')).toHaveText('FLIT 2: Apagada');
+      await expect(page.getByTestId('alerta-resumen-flit2')).toHaveCount(0);
+      // Apagada por interruptor: aunque llegue alerta, no se marca (misma regla que la tarjeta de aviso).
+      ctl.e2 = estado2({ habilitada: false, motivoDeshabilitada: 'interruptor', alerta: true });
+      await abrir(page, { expandir: false });
+      await expect(page.getByTestId('resumen-flit2')).toHaveText('FLIT 2: Apagada');
+      await expect(page.getByTestId('alerta-resumen-flit2')).toHaveCount(0);
+    });
+
+    test('(e) a 375 px el resumen envuelve sin desbordar', async ({ page }) => {
+      await page.setViewportSize({ width: 375, height: 812 });
+      await loginAs(page, OPERACIONES_USER);
+      await mockear(page, { maestro: false, e2: estado2({ habilitada: false, motivoDeshabilitada: 'maestro', alerta: true }) });
+      await abrir(page, { expandir: false });
+      await expect(page.getByTestId('resumen-flit2')).toHaveText('FLIT 2: Apagada en el servidor');
+      const desbordan = await seccion(page).evaluate((sec) => [sec, ...sec.querySelectorAll('*')]
+        .filter((e) => e.getBoundingClientRect().right > 375.5).length);
+      expect(desbordan).toBe(0);
+    });
   });
 });

@@ -277,6 +277,18 @@ const MEDIA_HORA_MS = 30 * 60 * 1000;
 const TITULO_SIN_LEER = 'FLIT 2 lleva más de 30 minutos sin leer trámites.';
 
 /**
+ * ¿FLIT 2 está en alerta a la vista? La decide el servidor (rechazo, bloqueo o ≥30 min sin lectura
+ * exitosa); aquí solo se anula con la fuente detenida (AC5) o sin configurar (aunque llegue marcada por
+ * datos viejos). Única regla: la usan la tarjeta de aviso y el distintivo de la cabecera del acordeón.
+ */
+export function alertaFlit2(uso: UsoEstadoFlit2, apagada = false): boolean {
+  const e = uso.estado;
+  if (e.fase !== 'listo') return false;
+  const detenida = apagada || e.dato.habilitada === false;
+  return !detenida && e.dato.configurado && e.dato.alerta;
+}
+
+/**
  * Título de la tarjeta de alerta según la causa (Bug #13198). `desfaseMs` corrige el reloj local con
  * el del servidor. Sin lectura exitosa y con problema, gana el título del problema.
  */
@@ -330,8 +342,7 @@ export function AvisoEstadoFlit2({ estado, apagada = false }: { estado: UsoEstad
   );
   if (e.fase !== 'listo') return null;
   const d = e.dato;
-  // Sin configurar nunca hay alerta (AC), aunque llegue marcada por datos viejos.
-  const alerta = !detenida && d.configurado && d.alerta;
+  const alerta = alertaFlit2(estado, apagada);
   const pii = typeof d.piiEnmascarada?.tramites === 'number' && d.piiEnmascarada.tramites > 0 ? d.piiEnmascarada.tramites : 0;
 
   let titulo: string | null = null;
