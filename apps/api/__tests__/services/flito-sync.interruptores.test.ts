@@ -226,6 +226,17 @@ describe('HU #13237 · AC5 · POST /sincronizar con FLIT 1 apagada', () => {
     expect(sync.sincronizar).toHaveBeenCalledTimes(1);
     expect(sync.guardarUltimaSincronizacion).toHaveBeenCalledTimes(1);
   });
+
+  it('si la base falla al leer el interruptor → 500 con copy propio, sin sincronizar (no se toma como «encendido»)', async () => {
+    kdb.when.selectThrow(TABLA, new Error('conexión perdida'));
+    const r = await request(await buildApp()).post(`${BASE}/sincronizar`)
+      .set('Authorization', await auth()).send({ initialDate: '2026-09-01' });
+    expect(r.status).toBe(500);
+    expect(r.body.error).toBe('No se pudo verificar si la sincronización con FLIT 1 está encendida');
+    expect(JSON.stringify(r.body)).not.toContain('conexión perdida');
+    expect(sync.sincronizar).not.toHaveBeenCalled();
+    expect(sync.guardarUltimaSincronizacion).not.toHaveBeenCalled();
+  });
 });
 
 describe('HU #13237 · AC9 · GET /estado de FLIT 1 informa la habilitación', () => {

@@ -45,7 +45,14 @@ router.get('/estado', exigirFuncion('sync.sync.ver_estado'), async (_req: Reques
 // la fecha del último sync (incremental). La primera vez (sin fecha previa) exige elegir fecha. finalDate
 // = hoy. Solo admin. Al terminar, persiste la fecha/hora del sync como "última actualización".
 router.post('/sincronizar', exigirFuncion('sync.sync.lanzar'), async (req: Request, res: Response) => {
-  if (!(await fuenteHabilitada('flit1'))) {
+  // Un fallo de base al leer el interruptor responde 500 (Express 4 no captura el async): nunca se
+  // toma como «encendido» ni deja la petición colgada (nota de security-agent, HU #13237).
+  const habilitada = await fuenteHabilitada('flit1').catch((err: unknown) => {
+    log.error({ err: (err as Error).message }, 'no se pudo leer el interruptor de FLIT 1');
+    return null;
+  });
+  if (habilitada === null) { res.status(500).json({ error: 'No se pudo verificar si la sincronización con FLIT 1 está encendida' }); return; }
+  if (!habilitada) {
     const e = new FuenteApagadaError('flit1');
     res.status(e.status).json({ error: e.message, codigo: e.codigo, fuente: e.fuente });
     return;
