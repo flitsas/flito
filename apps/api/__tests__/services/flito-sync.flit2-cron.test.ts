@@ -193,3 +193,39 @@ describe('HU #13188 · pulso de la lectura automática', () => {
     expect(leerPrograma()).toEqual({ activa: false, intervaloMs: null, proximaEn: null, enCurso: false });
   });
 });
+
+// ── HU #13237 AC6 — interruptor de FLIT 2 apagado ───────────────────────────────────────────────
+const { FuenteApagadaError } = await import('../../src/modules/flito-sync/flito-sync-interruptor.service.js');
+const { correrLecturaTrasAcceso } = await import('../../src/modules/flito-sync/flit2-lectura-acceso.js');
+
+describe('HU #13237 · AC6 · con FLIT 2 apagada el tick no lee ni ensucia el log', () => {
+
+  it('el tick programado: FuenteApagadaError → log debug, sin warn/error y sin auditar', async () => {
+    leerConCandadoMock.mockRejectedValue(new FuenteApagadaError('flit2'));
+    await expect(correrLecturaFlit2Programada()).resolves.toBeUndefined();
+    expect(logMock.debug).toHaveBeenCalledTimes(1);
+    expect(logMock.warn).not.toHaveBeenCalled();
+    expect(logMock.error).not.toHaveBeenCalled();
+    expect(auditarMock).not.toHaveBeenCalled();
+  });
+
+  it('el timer sigue vivo: apagada no desarma el programa; al encender, el tick siguiente lee', async () => {
+    leerConCandadoMock.mockRejectedValueOnce(new FuenteApagadaError('flit2'));
+    startFlitSync();
+    await vi.advanceTimersByTimeAsync(INTERVALO_FLIT2_MS);
+    expect(leerPrograma().activa).toBe(true);
+    await vi.advanceTimersByTimeAsync(INTERVALO_FLIT2_MS);
+    expect(leerConCandadoMock).toHaveBeenCalledTimes(2);
+    expect(auditarMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('la lectura tras guardar el acceso: FuenteApagadaError → log debug, sin warn/error y sin auditar', async () => {
+    leerConCandadoMock.mockRejectedValue(new FuenteApagadaError('flit2'));
+    await expect(correrLecturaTrasAcceso()).resolves.toBeUndefined();
+    expect(leerConCandadoMock).toHaveBeenCalledWith('acceso');
+    expect(logMock.debug).toHaveBeenCalledTimes(1);
+    expect(logMock.warn).not.toHaveBeenCalled();
+    expect(logMock.error).not.toHaveBeenCalled();
+    expect(auditarMock).not.toHaveBeenCalled();
+  });
+});

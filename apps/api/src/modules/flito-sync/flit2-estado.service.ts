@@ -19,6 +19,10 @@
 //        siempre presente aunque `configurado=false`. `generadoEn` = el mismo `ahora` de la alerta;
 //        con el programa apagado `intervaloMs` y `proximaEn` van en null. Nada sensible: dos booleanos,
 //        un entero y dos horas.
+// RN-07  (HU #13237) `habilitada` / `motivoDeshabilitada`: el maestro del ambiente (`FLIT2_SYNC_CRON`)
+//        gana sobre el interruptor de la pantalla (`flito_sync_interruptor`, fila flit2). Con
+//        `habilitada=false`, `alerta=false`: un apagado intencional no es una falla (decisión del hilo
+//        sobre el riesgo 1 del diseño). El `problema` se sigue informando tal cual.
 
 import { count, eq, sql } from 'drizzle-orm';
 import type {
@@ -28,6 +32,7 @@ import { db } from '../../db/client.js';
 import { flitoSyncFlit2Acceso, flitoSyncFlit2Lectura, flitoTramites } from '../../db/schema.js';
 import { env } from '../../config/env.js';
 import { leerPrograma, type EstadoPrograma } from './flit2-programa.js';
+import { fuenteHabilitada, habilitacionDe } from './flito-sync-interruptor.service.js';
 
 /** Umbral de la alerta (AC5). */
 export const UMBRAL_ALERTA_MS = 30 * 60_000;
@@ -61,6 +66,10 @@ export interface EntradaEstado {
   lectura: LecturaParaEstado | null;
   tramitesEnmascarados: number;
   programa: EstadoPrograma;
+  /** HU #13237: `FLIT2_SYNC_CRON`. Ausente = true (los llamadores previos a la HU no lo pasan). */
+  maestro?: boolean;
+  /** HU #13237: interruptor de FLIT 2 encendido. Ausente = true. */
+  interruptorFlit2?: boolean;
 }
 
 const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString() : null);
@@ -106,6 +115,7 @@ export function componerEstado(e: EntradaEstado, ahora: Date): Flit2EstadoConexi
   const motivoSinConfigurar = !e.ambienteListo ? 'ambiente' : e.acceso ? null : 'sin_acceso';
   const configurado = motivoSinConfigurar === null;
   const l = e.lectura;
+  const habilitacion = habilitacionDe(e.maestro ?? true, e.interruptorFlit2 ?? true);
 
   let problema: Flit2EstadoProblema | null = null;
   let alerta = false;
@@ -115,6 +125,8 @@ export function componerEstado(e: EntradaEstado, ahora: Date): Flit2EstadoConexi
     const sinLecturaDemasiado = ahora.getTime() - referencia.getTime() >= UMBRAL_ALERTA_MS;
     alerta = sinLecturaDemasiado || problema?.tipo === 'rechazado' || problema?.tipo === 'bloqueado';
   }
+  // RN-07: apagada a propósito no es una falla.
+  if (!habilitacion.habilitada) alerta = false;
 
   return {
     configurado,
@@ -132,12 +144,13 @@ export function componerEstado(e: EntradaEstado, ahora: Date): Flit2EstadoConexi
       enCurso: e.programa.enCurso,
       generadoEn: ahora.toISOString(),
     },
+    ...habilitacion,
   };
 }
 
 /** `GET /estado`: dos filas únicas y un COUNT (RN-01). Proyecciones explícitas (RN-05). */
 export async function obtenerEstadoConexion(reloj: () => Date = () => new Date()): Promise<Flit2EstadoConexion> {
-  const [accesos, lecturas, conteo] = await Promise.all([
+  const [accesos, lecturas, conteo, interruptorFlit2] = await Promise.all([
     db.select({
       createdAt: flitoSyncFlit2Acceso.createdAt,
       rechazadoEn: flitoSyncFlit2Acceso.rechazadoEn,
@@ -153,6 +166,7 @@ export async function obtenerEstadoConexion(reloj: () => Date = () => new Date()
     }).from(flitoSyncFlit2Lectura).where(eq(flitoSyncFlit2Lectura.id, 1)).limit(1),
     // `WHERE flit2_pii_enmascarada` a secas: coincide con el predicado del índice parcial de la 0216.
     db.select({ n: count() }).from(flitoTramites).where(sql`${flitoTramites.flit2PiiEnmascarada}`),
+    fuenteHabilitada('flit2'),
   ]);
 
   return componerEstado({
@@ -161,5 +175,7 @@ export async function obtenerEstadoConexion(reloj: () => Date = () => new Date()
     lectura: lecturas[0] ?? null,
     tramitesEnmascarados: Number(conteo[0]?.n ?? 0),
     programa: leerPrograma(),
+    maestro: Boolean(env.FLIT2_SYNC_CRON),
+    interruptorFlit2,
   }, reloj());
 }
