@@ -5,7 +5,10 @@
 // Reglas:
 //   · existe solo con `sync.sync.ver_estado`: sin ella ni se pinta ni sale el GET (un 403 se trata
 //     igual y detiene el polling);
-//   · `alerta` la calcula el servidor: el reloj del cliente no decide los 30 minutos;
+//   · `alerta` la calcula el servidor (rechazo, bloqueo o ≥30 min sin lectura exitosa). El título de
+//     la tarjeta dice la causa (Bug #13198): rechazo y bloqueo ganan; «más de 30 minutos» solo si de
+//     verdad pasaron, medido con el reloj corregido por `automatica.generadoEn`; si no, el fallo de
+//     lectura. Una alerta sin problema conserva el título de los 30 minutos (lo decidió el servidor);
 //   · refrescos silenciosos (polling, vuelta a la pestaña, tras guardar el acceso, y el ritmo rápido
 //     de la HU #13189: ~10 s tras vencer la cuenta y cada 15 s con una lectura en curso): si fallan se
 //     conserva el último dato; el estado de error es solo del primer GET o de un [Reintentar];
@@ -270,6 +273,35 @@ export function fraseProblema(p: Flit2EstadoProblema): ReactNode {
   }
 }
 
+const MEDIA_HORA_MS = 30 * 60 * 1000;
+const TITULO_SIN_LEER = 'FLIT 2 lleva más de 30 minutos sin leer trámites.';
+
+/**
+ * ¿FLIT 2 está en alerta a la vista? La decide el servidor (rechazo, bloqueo o ≥30 min sin lectura
+ * exitosa); aquí solo se anula con la fuente detenida (AC5) o sin configurar (aunque llegue marcada por
+ * datos viejos). Única regla: la usan la tarjeta de aviso y el distintivo de la cabecera del acordeón.
+ */
+export function alertaFlit2(uso: UsoEstadoFlit2, apagada = false): boolean {
+  const e = uso.estado;
+  if (e.fase !== 'listo') return false;
+  const detenida = apagada || e.dato.habilitada === false;
+  return !detenida && e.dato.configurado && e.dato.alerta;
+}
+
+/**
+ * Título de la tarjeta de alerta según la causa (Bug #13198). `desfaseMs` corrige el reloj local con
+ * el del servidor. Sin lectura exitosa y con problema, gana el título del problema.
+ */
+function tituloAlerta(d: Flit2EstadoConexion, desfaseMs: number): string {
+  const p = d.problema;
+  if (p?.tipo === 'rechazado') return 'FLIT 2 rechazó el acceso de FLITO.';
+  if (p?.tipo === 'bloqueado') return 'FLIT 2 bloqueó el acceso por un tiempo.';
+  const ultima = fecha(d.ultimaExitosaEn);
+  if (ultima && Date.now() + desfaseMs - ultima.getTime() >= MEDIA_HORA_MS) return TITULO_SIN_LEER;
+  if (p) return 'Falló la última lectura de FLIT 2.';
+  return TITULO_SIN_LEER;
+}
+
 /**
  * La cuenta dentro de la tarjeta (`role="alert"`): el `m:ss` va aria-hidden y el lector oye «unos
  * minutos», así el texto accesible no cambia cada segundo y no se re-anuncia.
@@ -310,8 +342,7 @@ export function AvisoEstadoFlit2({ estado, apagada = false }: { estado: UsoEstad
   );
   if (e.fase !== 'listo') return null;
   const d = e.dato;
-  // Sin configurar nunca hay alerta (AC), aunque llegue marcada por datos viejos.
-  const alerta = !detenida && d.configurado && d.alerta;
+  const alerta = alertaFlit2(estado, apagada);
   const pii = typeof d.piiEnmascarada?.tramites === 'number' && d.piiEnmascarada.tramites > 0 ? d.piiEnmascarada.tramites : 0;
 
   let titulo: string | null = null;
@@ -324,7 +355,7 @@ export function AvisoEstadoFlit2({ estado, apagada = false }: { estado: UsoEstad
         ? <>FLIT 2 sin configurar: FLITO aún no lee trámites de FLIT 2. Configura el acceso en {ACCESO}.</>
         : 'FLIT 2 sin configurar: FLITO aún no lee trámites de FLIT 2. Pídele a un administrador que configure el acceso.';
   } else if (alerta) {
-    titulo = 'FLIT 2 lleva más de 30 minutos sin leer trámites.';
+    titulo = tituloAlerta(d, e.desfaseMs);
     const ultima = fechaHora(d.ultimaExitosaEn);
     fechaLinea = ultima ? `Última lectura exitosa: ${fin(ultima)}` : 'Todavía no hay ninguna lectura exitosa.';
     cuerpo = d.problema
