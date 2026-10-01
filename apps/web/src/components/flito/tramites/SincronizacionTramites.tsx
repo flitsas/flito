@@ -9,16 +9,21 @@
 //   · con FLIT 1 apagada «Sincronizar FLIT» queda aria-disabled (enfocable) y describe el motivo; un 409
 //     `FUENTE_APAGADA` muestra ese mismo motivo y refresca el estado;
 //   · el resultado de sincronizar es un toast de una frase; los errores de la zona nunca pintan el
-//     texto crudo del API (ni en toast ni en la tarjeta de error de la página).
+//     texto crudo del API (ni en toast ni en la tarjeta de error de la página);
+//   · acordeón (2.º PR de la HU): contraído en CADA visita (no se recuerda), con un resumen por fuente en la
+//     cabecera que no inventa valores mientras carga, y el distintivo de alerta de FLIT 2 con la misma
+//     regla de la tarjeta de aviso (`alertaFlit2`). Contraído, el cuerpo no se monta (nada enfocable).
 
 import { useCallback, useEffect, useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import type { SyncEstadoFlit1 } from '@operaciones/shared-types';
 import { ApiError, api } from '../../../lib/api';
 import { useAuth } from '../../../lib/auth';
-import { FlitCard, flitBtnPrimary, flitBtnPrimaryStyle, flitInp } from '../../flit/flitPageKit';
+import FlitAcordeon from '../../flit/FlitAcordeon';
+import { flitBtnPrimary, flitBtnPrimaryStyle, flitInp } from '../../flit/flitPageKit';
 import { toastError, toastOk } from '../../flit/ToastFlito';
 import AccesoFlit2 from './AccesoFlit2';
-import { AvisoEstadoFlit2, LineaEstadoFlit2, automaticaActivaFlit2, useEstadoFlit2 } from './EstadoFlit2';
+import { AvisoEstadoFlit2, LineaEstadoFlit2, alertaFlit2, automaticaActivaFlit2, useEstadoFlit2 } from './EstadoFlit2';
 import { CabeceraFuente, FUNCION_CONFIGURAR, useInterruptores } from './InterruptorSincronizacion';
 
 const fechaHora = (iso: string | null) => (iso
@@ -42,6 +47,29 @@ const AVISO = 'break-words rounded-lg px-3 py-2.5 text-sm';
 const ESTILO_AVISO = { border: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-card)', color: 'var(--flit-text-primary)' } as const;
 const BARRA = 'mt-auto flex flex-wrap items-center justify-end gap-3 pt-1';
 const ROTULO = 'text-[11px] leading-tight';
+
+/** Valor de una fuente en el resumen de la cabecera. `null` = la fuente no se muestra (sin permiso). */
+type ValorResumen = { tipo: 'cargando' } | { tipo: 'error' } | { tipo: 'valor'; texto: string } | null;
+
+function ResumenFuente({ nombre, valor, alerta = false, testId }: {
+  nombre: string; valor: Exclude<ValorResumen, null>; alerta?: boolean; testId: string;
+}) {
+  const texto = valor.tipo === 'cargando' ? 'Cargando…' : valor.tipo === 'error' ? 'estado no disponible' : valor.texto;
+  return (
+    <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+      <span data-testid={testId}>
+        {nombre}: <span className="font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>{texto}</span>
+      </span>
+      {alerta && (
+        <span className="inline-flex items-center gap-1 font-semibold" style={{ color: 'var(--flit-danger-text)' }}
+          data-testid="alerta-resumen-flit2">
+          <AlertTriangle aria-hidden="true" size={14} className="shrink-0" />
+          Requiere atención
+        </span>
+      )}
+    </span>
+  );
+}
 
 function Reintentar({ onClick, etiqueta }: { onClick: () => void; etiqueta: string }) {
   return (
@@ -81,6 +109,8 @@ export default function SincronizacionTramites({ esOperaciones, onSincronizado }
   const [fechaInicial, setFechaInicial] = useState(hace30);
   const [fechaManual, setFechaManual] = useState(false);
   const [sincronizando, setSincronizando] = useState(false);
+  // Contraído en cada visita: el estado vive solo en este montaje (decisión 1 del acordeón).
+  const [abierto, setAbierto] = useState(false);
 
   if (!visible) return null;
 
@@ -94,6 +124,23 @@ export default function SincronizacionTramites({ esOperaciones, onSincronizado }
   const maestro2 = (i ? !i.maestroFlit2 : false) || d2?.motivoDeshabilitada === 'maestro';
   const motivo2 = maestro2 ? 'maestro'
     : ((i2 ? !i2.encendido : false) || d2?.motivoDeshabilitada === 'interruptor') ? 'interruptor' : null;
+
+  // ── Resumen de la cabecera (mismas fuentes de verdad que los grupos) ──
+  const porInterruptor = (fila: typeof i1, texto: (x: NonNullable<typeof i1>) => string): ValorResumen => (
+    inter.estado.fase === 'cargando' ? { tipo: 'cargando' }
+      : fila ? { tipo: 'valor', texto: texto(fila) } : { tipo: 'error' });
+  const r1: ValorResumen = configura
+    ? porInterruptor(i1, (x) => (x.encendido ? 'Encendida' : 'Apagada'))
+    : flit1.fase === 'cargando' ? { tipo: 'cargando' }
+      : d1 ? { tipo: 'valor', texto: d1.habilitada ? 'Encendida' : 'Apagada' } : { tipo: 'error' };
+  const fase2 = estadoFlit2.estado.fase;
+  const r2: ValorResumen = configura
+    ? porInterruptor(i2, (x) => (!x.encendido ? 'Apagada' : i && !i.maestroFlit2 ? 'Apagada en el servidor' : 'Encendida'))
+    : fase2 === 'oculto' ? null
+      : fase2 === 'cargando' ? { tipo: 'cargando' }
+        : d2 ? { tipo: 'valor', texto: d2.habilitada ? 'Encendida' : d2.motivoDeshabilitada === 'maestro' ? 'Apagada en el servidor' : 'Apagada' }
+          : { tipo: 'error' };
+  const alerta2 = alertaFlit2(estadoFlit2, motivo2 !== null);
 
   const ultimaSync = d1?.ultimaSincronizacion ?? null;
   const primeraVez = d1 !== null && ultimaSync === null;
@@ -133,12 +180,19 @@ export default function SincronizacionTramites({ esOperaciones, onSincronizado }
     valor1 = fechaHora(ultimaSync) ?? 'Nunca sincronizado';
   }
 
+  const resumen = (
+    <span className="flex flex-wrap items-center gap-x-4 gap-y-1" data-testid="resumen-sincronizacion">
+      {r1 && <ResumenFuente nombre="FLIT 1" valor={r1} testId="resumen-flit1" />}
+      {r2 && <ResumenFuente nombre="FLIT 2" valor={r2} alerta={alerta2} testId="resumen-flit2" />}
+    </span>
+  );
+
   return (
-    <FlitCard>
-      <section aria-labelledby="sync-titulo" aria-busy={inter.estado.fase === 'cargando' || flit1.fase === 'cargando' ? true : undefined}
-        data-testid="seccion-sincronizacion">
-        <h2 id="sync-titulo" className="text-base font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Sincronización</h2>
-        <p className="mt-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+    <div data-testid="seccion-sincronizacion"
+      aria-busy={inter.estado.fase === 'cargando' || flit1.fase === 'cargando' ? true : undefined}>
+      <FlitAcordeon titulo="Sincronización" nivel={2} resumen={resumen} abierto={abierto}
+        onToggle={() => setAbierto((v) => !v)} testId="cabecera-sincronizacion">
+        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
           Cada fuente trae trámites a FLITO en este ambiente. Apagarla detiene la entrada; lo que ya entró no cambia.
         </p>
         {inter.estado.fase === 'error' && (
@@ -217,7 +271,7 @@ export default function SincronizacionTramites({ esOperaciones, onSincronizado }
             </div>
           </div>
         </div>
-      </section>
-    </FlitCard>
+      </FlitAcordeon>
+    </div>
   );
 }

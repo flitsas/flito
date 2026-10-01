@@ -1,6 +1,7 @@
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER, AUDITOR_USER, funcionesDe } from '../helpers/auth';
+import { expandirSincronizacion } from '../helpers/sincronizacion';
 
 // FLITO — Gestión Trámites · «Acceso a FLIT 2» (HU #13064). Backend mockeado: se verifica el
 // cableado de la UI contra el contrato `Flit2AccesoMeta` (GET/PUT /api/flito/sync/flit2/acceso).
@@ -35,6 +36,7 @@ function json(route: Route, status: number, body: unknown) {
 
 async function abrirPanel(page: Page) {
   await page.goto('/flito/tramites');
+  await expandirSincronizacion(page);
   await page.getByRole('button', { name: 'Acceso a FLIT 2' }).click();
   return page.getByRole('dialog', { name: 'Acceso a FLIT 2' });
 }
@@ -54,6 +56,7 @@ test.describe('FLITO — Gestión Trámites · Acceso a FLIT 2 (HU #13064)', () 
     let gets = 0;
     await page.route(RUTA, (r) => { gets += 1; return json(r, 200, CON_ACCESO); });
     await page.goto('/flito/tramites');
+    await expandirSincronizacion(page);
     const boton = page.getByRole('button', { name: 'Acceso a FLIT 2' });
     await expect(boton).toBeVisible();
     expect(gets).toBe(0);
