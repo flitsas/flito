@@ -80,6 +80,8 @@ function primero(fuente: Record<string, unknown> | null | undefined, claves: rea
  *   placa "QIU744" · vin "3KPFF51ABTE156687" · numChasis (mismo valor) · numSerie null
  *   marca "KIA" · linea "K3 CROSS" · modelo "2026" · clase "CAMIONETA" · clasificacion "AUTOMOVIL"
  *   cilindraje · color · tipoServicio · organismoTransito · numMotor · idAutomotor · …
+ *   estadoAutomotor · fechaRegistro · numChasis — estos, con los de arriba, los imprime el
+ *   certificado PDF vía {@link extraerRegistroRunt} (HU #13204)
  *
  * Es decir: `vin` viene con ese nombre exacto y dentro de `vehiculo`, y la clase es `clase` —no
  * `claseVehiculo`—, aunque el repo ya contemplaba las dos (`soat/batch.routes.ts:107-109`). Las
@@ -139,6 +141,60 @@ export function extraerColorCilindrajeRunt(data: unknown): ColorCilindrajeRunt {
   return {
     color: primero(veh, ALIAS_COLOR) ?? primero(tec, ALIAS_COLOR),
     cilindraje: primero(veh, ALIAS_CILINDRAJE) ?? primero(tec, ALIAS_CILINDRAJE),
+  };
+}
+
+/**
+ * Datos de registro del vehículo que imprime el certificado PDF (HU #13204).
+ *
+ * LISTA BLANCA por construcción (AC3): el retorno es un literal con exactamente estas diez claves y
+ * solo se leen `vehiculo` y `datosTecnicos`. `rtm`, `soat`, `solicitudes`, `tipoDocPropietario` y
+ * cualquier dato de persona (dirección, teléfono, correo) no se tocan — no se filtra por lista negra.
+ */
+export interface RegistroRuntCertificado {
+  clasificacion: string | null;
+  color: string | null;
+  cilindraje: string | null;
+  tipoServicio: string | null;
+  organismoTransito: string | null;
+  estadoAutomotor: string | null;
+  fechaMatricula: string | null;
+  numMotor: string | null;
+  numChasis: string | null;
+  numSerie: string | null;
+}
+
+const ALIAS_CLASIFICACION = ['clasificacion', 'clasificacionVehiculo', 'nombreClasificacion'] as const;
+const ALIAS_TIPO_SERVICIO = ['tipoServicio', 'nombreServicio', 'servicio'] as const;
+const ALIAS_ORGANISMO = ['organismoTransito', 'nombreOrganismoTransito', 'organismo'] as const;
+/** Sin `estado` a secas: es genérico y lo usan otras secciones del payload. */
+const ALIAS_ESTADO = ['estadoAutomotor', 'estadoVehiculo'] as const;
+const ALIAS_FECHA_MATRICULA = ['fechaMatricula', 'fechaRegistro', 'fechaMatriculaInicial'] as const;
+/** Lista propia: si el chasis no viene, «No reportado» — nunca se cae al VIN. */
+const ALIAS_CHASIS = ['numChasis', 'noChasis', 'numeroChasis', 'nroChasis', 'chasis'] as const;
+
+/**
+ * Nombres medidos en la consulta real de 2026-07-31 (ver `extraerVehiculoRunt`): `vehiculo.clasificacion`,
+ * `color`, `cilindraje`, `tipoServicio`, `organismoTransito`, `estadoAutomotor`, `fechaRegistro`,
+ * `numMotor`, `numChasis`, `numSerie` (`null`). Los demás alias son preventivos. `null` = el RUNT no
+ * lo trajo (o el snapshot es de una certificación antigua) y el PDF dice «No reportado por el RUNT».
+ */
+export function extraerRegistroRunt(snapshot: unknown): RegistroRuntCertificado {
+  const d = (snapshot ?? {}) as Record<string, unknown>;
+  const veh = (d.vehiculo ?? {}) as Record<string, unknown>;
+  const tec = (d.datosTecnicos ?? {}) as Record<string, unknown>;
+  const de = (alias: readonly string[]) => primero(veh, alias) ?? primero(tec, alias);
+  return {
+    clasificacion: de(ALIAS_CLASIFICACION),
+    color: de(ALIAS_COLOR),
+    cilindraje: de(ALIAS_CILINDRAJE),
+    tipoServicio: de(ALIAS_TIPO_SERVICIO),
+    organismoTransito: de(ALIAS_ORGANISMO),
+    estadoAutomotor: de(ALIAS_ESTADO),
+    fechaMatricula: de(ALIAS_FECHA_MATRICULA),
+    numMotor: de(ALIAS_MOTOR),
+    numChasis: de(ALIAS_CHASIS),
+    numSerie: de(ALIAS_SERIE),
   };
 }
 

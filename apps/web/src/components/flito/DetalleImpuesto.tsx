@@ -1,9 +1,10 @@
 // FLITO — Detalle de un impuesto de la cola (modal). Sale de `pages/FlitoImpuestos.tsx` en la HU
 // #12592: la página rozaba `max-lines` y el detalle gana aquí el chip de documentos, el dato
-// «Liquidado el», el botón «Cargar recibo de caja» y su modal.
+// «Liquidado el», el botón «Cargar recibo de caja» y su modal. La HU #13209 suma al lado «Cargar
+// comprobante» (liquidación o pago por fase, `ModalCargaReciboFase`).
 
 import { useRef, useState, type ReactNode } from 'react';
-import { ESTADO_IMPUESTO_LABEL, EstadoImpuesto, type DireccionCompradorImpuesto } from '@operaciones/shared-types';
+import { ESTADO_IMPUESTO_LABEL, EstadoImpuesto, type DireccionCompradorImpuesto, type FaseRecibo } from '@operaciones/shared-types';
 import { api, errorMessage } from '../../lib/api';
 import FlitModal from '../flit/FlitModal';
 import HistorialEstados from '../flit/HistorialEstados';
@@ -14,6 +15,7 @@ import ModalFacturaVenta, { esNombrePlacaOrganismo, nombreFacturaVenta } from '.
 import { documentoConTipo } from '../flit/columnasComunes';
 import { FlitField, flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
 import ModalReciboCaja from './ModalReciboCaja';
+import ModalCargaReciboFase, { type ResultadoConEscritura } from './ModalCargaReciboFase';
 import { ChipDocumentos, TONO_IMPUESTO, fecha, pesos, type ImpuestoItem } from './ImpuestoCola';
 import { SeccionValidacion, useDetalleValidacion, type Carga } from './ValidacionRunt';
 import { AvisoDireccion, DireccionComprador, EstadoCargaDireccion } from './DireccionComprador';
@@ -25,12 +27,14 @@ const ESTADOS_OPERACIONES: EstadoImpuesto[] = [
 type Accion = 'idle' | 'rechazar' | 'reactivar' | 'reversar' | 'asumir' | 'devolver';
 
 export default function DetalleImpuesto({
-  imp, esOperaciones, esGestor, soloLectura, puedeCargarCaja, puedeCorregirDireccion = false,
+  imp, esOperaciones, esGestor, soloLectura, puedeCargarCaja, puedeCargarComprobante = false, puedeCorregirDireccion = false,
   onClose, onCambio, onTraspaso, accionReintento, sinPermisoReintento,
 }: {
   imp: ImpuestoItem; esOperaciones: boolean; esGestor: boolean; soloLectura: boolean;
   /** `hasFuncion('impuestos.recibos.cargar_caja')`: sin ella el botón no se pinta (ni en gris). */
   puedeCargarCaja: boolean;
+  /** `hasFuncion('impuestos.recibos.cargar')` (HU #13209): sin ella «Cargar comprobante» no se pinta. */
+  puedeCargarComprobante?: boolean;
   onClose: () => void; onCambio: () => void; onTraspaso: () => void;
   /** «Reintentar validación» (HU #12832), montado por la página; secundario aquí. */
   accionReintento?: ReactNode; sinPermisoReintento?: boolean;
@@ -48,11 +52,16 @@ export default function DetalleImpuesto({
   const [factura, setFactura] = useState<{ url: string; nombre: string } | null>(null);
   // Recibo de caja puntual (HU #12592), encima del detalle.
   const [reciboCaja, setReciboCaja] = useState(false);
-  // Tras un `pagado` el detalle NO se cierra (AC6): se refresca a Pagado. Pero entre el «Listo» y la
+  // Comprobante por fase (HU #13209), encima del detalle.
+  const [comprobante, setComprobante] = useState(false);
+  // Mismo hueco que `pagadoDesde`, para «Cargar comprobante»: si la carga completa las dos fases el
+  // botón se apaga en el commit del cierre y el foco cae en «Ver soporte», no en un botón que se va.
+  const [ambosDesdeCarga, setAmbosDesdeCarga] = useState(false);
+  // Tras un `pagado` (de cualquiera de las dos cargas) el detalle NO se cierra (AC6): se refresca a Pagado. Pero entre el «Listo» y la
   // fila nueva hay una petición en vuelo, y en ese hueco el impuesto de las props sigue Solicitado:
   // esta marca apaga el botón en el mismo commit en que se cierra el modal, para que el foco no
   // vuelva a un botón que va a desaparecer un tick después, sino a «Ver soporte».
-  const [pagadoDesdeCaja, setPagadoDesdeCaja] = useState(false);
+  const [pagadoDesde, setPagadoDesde] = useState(false);
   const verSoporteRef = useRef<HTMLButtonElement>(null);
   // HU #12834: el detalle se pide UNA vez y lo comparten la sección de validación y la dirección.
   // Tras guardar la dirección se parchea aquí, sin volver a pedirlo: el aviso se va y la fila de la
@@ -77,7 +86,11 @@ export default function DetalleImpuesto({
   const traspasable = enGestion || rechazado;
   // El botón existe solo con la función Y en gestión; sin liquidación sigue en el DOM (alcanzable
   // con Tab) pero `aria-disabled` y con el motivo visible: es «primero haz esto», no «no puedes».
-  const ofreceCaja = puedeCargarCaja && enGestion && !pagadoDesdeCaja;
+  const ofreceCaja = puedeCargarCaja && enGestion && !pagadoDesde;
+  // Calco de `ofreceCaja` (spec #13209): solo con la función, fuera de Auditoría, en gestión o pagado
+  // y con alguna fase por cargar. Pendiente/Con novedad no (el API respondería 409).
+  const ofreceComprobante = puedeCargarComprobante && !soloLectura && !ambosDesdeCarga
+    && (enGestion || imp.estado === EstadoImpuesto.PAGADO) && imp.documentos !== 'ambos';
   const sinLiquidacion = imp.liquidadoEn === null;
 
   const ejecutar = async (fn: () => Promise<unknown>) => {
@@ -133,8 +146,16 @@ export default function DetalleImpuesto({
    * modal o, cuando ese botón ya no existe, a «Ver soporte» (respaldo del focus trap).
    */
   const listoReciboCaja = (resultado: 'pagado' | 'en_revision') => {
-    if (resultado === 'pagado') setPagadoDesdeCaja(true);
+    if (resultado === 'pagado') setPagadoDesde(true);
     setReciboCaja(false);
+    onTraspaso();
+  };
+
+  /** «Listo» tras una carga por fase con escritura: mismo refresco sin cerrar el detalle. */
+  const listoComprobante = (resultado: ResultadoConEscritura, fase: FaseRecibo) => {
+    if (resultado === 'pagado') setPagadoDesde(true);
+    if (imp.documentos !== null && imp.documentos !== fase) setAmbosDesdeCarga(true);
+    setComprobante(false);
     onTraspaso();
   };
 
@@ -170,12 +191,18 @@ export default function DetalleImpuesto({
               al reporte de costos, en el que el gestor del organismo no entra. Es la evidencia del
               pago: se mira desde donde se gestiona. El recibo de caja va al lado de la evidencia,
               no en la fila de acciones de gestión (Rechazar/Asumir/Reversar): es otra visita. */}
-          <div>
+          <div className="col-span-2 sm:col-span-1">
             <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Soporte</dt>
             <dd className="text-sm">
               <div className="flex flex-wrap items-center gap-2">
                 <button ref={verSoporteRef} type="button" className="font-semibold underline" style={{ color: 'var(--flit-blue-text)' }}
                   onClick={() => setVerSoportes(true)}>Ver soporte</button>
+                {ofreceComprobante && (
+                  <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+                    onClick={() => setComprobante(true)}>
+                    Cargar comprobante
+                  </button>
+                )}
                 {ofreceCaja && (
                   <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
                     aria-disabled={sinLiquidacion || undefined}
@@ -187,7 +214,9 @@ export default function DetalleImpuesto({
               </div>
               {ofreceCaja && sinLiquidacion && (
                 <p id="recibo-caja-motivo" className="mt-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-                  Este impuesto no tiene liquidación cargada; el recibo de caja se carga sobre una liquidación
+                  {ofreceComprobante
+                    ? 'Este impuesto no tiene liquidación cargada. Cárgala primero con «Cargar comprobante».'
+                    : 'Este impuesto no tiene liquidación cargada; el recibo de caja se carga sobre una liquidación'}
                 </p>
               )}
             </dd>
@@ -219,6 +248,11 @@ export default function DetalleImpuesto({
         {reciboCaja && (
           <ModalReciboCaja imp={imp} restoreFocusRef={verSoporteRef}
             onClose={() => setReciboCaja(false)} onListo={listoReciboCaja} onRefrescar={onTraspaso} />
+        )}
+
+        {comprobante && (
+          <ModalCargaReciboFase imp={imp} restoreFocusRef={verSoporteRef}
+            onClose={() => setComprobante(false)} onListo={listoComprobante} onRefrescar={onTraspaso} />
         )}
 
         <HistorialEstados concepto="impuesto" registroId={imp.id} />

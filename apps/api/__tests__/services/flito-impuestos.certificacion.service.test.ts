@@ -24,8 +24,12 @@ vi.mock('../../src/shared/redis.js', () => ({
 // `buscarConAcceso` aplica la frontera del gestor y ya tiene sus propias pruebas; aquí solo interesa
 // QUÉ hace la certificación con el impuesto que le entregue.
 const buscarConAccesoMock = vi.fn();
+// HU #13205: la frontera del LOTE es la de la cola; aquí se controla qué devuelve (null = sin alcance).
+const condicionesColaMock = vi.fn();
 vi.mock('../../src/modules/flito-impuestos/flito-impuestos.service.js', () => ({
   buscarConAcceso: (...a: unknown[]) => buscarConAccesoMock(...a),
+  condicionesColaImpuestos: (...a: unknown[]) => condicionesColaMock(...a),
+  conJoinsColaImpuestos: <Q>(q: Q) => q,
 }));
 
 const consultarVehiculoRuntMock = vi.fn();
@@ -46,7 +50,7 @@ const loggerFalso = {
 };
 vi.mock('../../src/shared/logger.js', () => ({ logger: loggerFalso, loggerFor: () => loggerFalso }));
 
-const { certificarImpuesto, ESTADOS_IMPUESTO_CERTIFICABLES } =
+const { certificarImpuesto, certificacionVigente, certificacionesVigentesLoteConAcceso, ESTADOS_IMPUESTO_CERTIFICABLES } =
   await import('../../src/modules/flito-impuestos/certificacion.service.js');
 const { flitoImpuestos, flitoImpuestoCertificaciones, vehicles, auditLogs } =
   await import('../../src/db/schema.js');
@@ -612,5 +616,101 @@ describe('HU #12825 (AC3) — la consulta al RUNT comparte el tope global con la
     soltar[1]!();
     await Promise.all(ocupados);
     expect(limitadorRunt.enVuelo()).toBe(0);
+  });
+});
+
+describe('HU #13204 — certificacionVigente entrega el registro por lista blanca, nunca el snapshot crudo', () => {
+  const filaVigente = (snapshotRunt: unknown) => ({
+    ...filaCert(), vinConsultado: null, vigente: true, createdAt: new Date('2026-07-31T14:05:00.000Z'), snapshotRunt,
+  });
+
+  it('rellena registroRunt y no expone snapshotRunt ni los datos de persona/solicitudes', async () => {
+    kdb.when.select(T_CERT, [filaVigente({
+      vehiculo: {
+        placa: 'QIU744', clasificacion: 'AUTOMOVIL', numMotor: 'G4FGSU123456', numChasis: 'CH-77', fechaRegistro: '2015-03-10',
+        direccion: 'CALLE CENTINELA 1', telefono: '3000000001',
+      },
+      solicitudes: [{ numero: 'SOL-CENTINELA' }],
+      soat: { numeroPoliza: 'SOAT-CENTINELA' },
+    })]);
+
+    const r = await certificacionVigente(ID);
+
+    expect(r).not.toBeNull();
+    expect(r!.registroRunt).toMatchObject({
+      clasificacion: 'AUTOMOVIL', numMotor: 'G4FGSU123456', numChasis: 'CH-77', fechaMatricula: '2015-03-10', color: null,
+    });
+    expect(r).not.toHaveProperty('snapshotRunt');
+    expect(JSON.stringify(r)).not.toMatch(/CENTINELA|3000000001/);
+  });
+
+  it('certificación antigua sin snapshot → los diez campos en null', async () => {
+    kdb.when.select(T_CERT, [filaVigente(null)]);
+
+    const r = await certificacionVigente(ID);
+
+    expect(Object.values(r!.registroRunt)).toHaveLength(10);
+    expect(Object.values(r!.registroRunt).every((v) => v === null)).toBe(true);
+  });
+});
+
+describe('HU #13205 — certificacionesVigentesLoteConAcceso', () => {
+  const I1 = '00000000-0000-4000-8000-000000000001';
+  const I2 = '00000000-0000-4000-8000-000000000002';
+  const I3 = '00000000-0000-4000-8000-000000000003';
+  const fila = (id: string, createdAt: string, placa: string | null) => ({ id, createdAt: new Date(createdAt), placa, idFlit: `F-${id.slice(-1)}` });
+  const certDe = (impuestoId: string) => ({
+    ...filaCert(), impuestoId, vinConsultado: null, vigente: true, createdAt: new Date('2026-07-31T14:05:00.000Z'),
+    snapshotRunt: { vehiculo: { clasificacion: 'AUTOMOVIL', direccion: 'CALLE CENTINELA 1' }, solicitudes: [{ numero: 'SOL-CENTINELA' }] },
+  });
+
+  beforeEach(() => { condicionesColaMock.mockReset(); });
+
+  it('gestor sin alcance (conds === null) → [] sin consultar la base', async () => {
+    condicionesColaMock.mockReturnValue(null);
+
+    const r = await certificacionesVigentesLoteConAcceso([I1], CTX);
+
+    expect(r).toEqual([]);
+    expect(kdb.select).not.toHaveBeenCalled();
+  });
+
+  it('la frontera se pide con TODOS los estados (no el defecto de la pantalla)', async () => {
+    condicionesColaMock.mockReturnValue([]);
+    kdb.when.select(T_IMPUESTOS, []);
+
+    await certificacionesVigentesLoteConAcceso([I1], CTX);
+
+    const { EstadoImpuesto } = await import('@operaciones/shared-types');
+    expect(condicionesColaMock).toHaveBeenCalledWith(CTX, { estados: Object.values(EstadoImpuesto) });
+  });
+
+  it('sin autorizados no lanza la segunda consulta (certificaciones)', async () => {
+    condicionesColaMock.mockReturnValue([]);
+    kdb.when.select(T_IMPUESTOS, []);
+
+    const r = await certificacionesVigentesLoteConAcceso([I1, I2], CTX);
+
+    expect(r).toEqual([]);
+    expect(kdb.select).toHaveBeenCalledTimes(1);
+  });
+
+  it('ordena por createdAt e id en JS, marca cert null sin vigente, y nunca expone el snapshot crudo', async () => {
+    condicionesColaMock.mockReturnValue([]);
+    kdb.when.select(T_IMPUESTOS, [
+      fila(I3, '2026-09-02T00:00:00Z', 'CCC333'),
+      fila(I2, '2026-09-01T00:00:00Z', 'BBB222'),
+      fila(I1, '2026-09-01T00:00:00Z', null),
+    ]);
+    kdb.when.select(T_CERT, [certDe(I1), certDe(I3)]);
+
+    const r = await certificacionesVigentesLoteConAcceso([I3, I2, I1, I1], CTX);
+
+    expect(r.map((x) => x.impuestoId)).toEqual([I1, I2, I3]);
+    expect(r.map((x) => x.cert === null)).toEqual([false, true, false]);
+    expect(r[0]).toMatchObject({ placa: null, idFlit: 'F-1' });
+    expect(r[0].cert!.registroRunt.clasificacion).toBe('AUTOMOVIL');
+    expect(r[0].cert).not.toHaveProperty('snapshotRunt');
+    expect(JSON.stringify(r)).not.toMatch(/CENTINELA/);
   });
 });

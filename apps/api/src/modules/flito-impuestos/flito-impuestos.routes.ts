@@ -16,7 +16,7 @@ import {
   RESULTADO_EXPORT_AMPLIADO,
 } from '../../shared/export/cola-flito-excel.js';
 import {
-  CAMPOS_PII_IMPUESTO_EXPORT, registrarAccesoImpuesto,
+  CAMPOS_PII_CERTIFICADO, CAMPOS_PII_IMPUESTO_EXPORT, registrarAccesoImpuesto,
 } from './flito-impuestos.pii.js';
 import {
   CAMPOS_PII_ZIP_SOPORTES, comprobarTopeRegistrosZip, nombrePorPlaca,
@@ -47,12 +47,16 @@ import { getFlitAdapter } from '../flito-sync/flit.adapter.js';
 import { descargarFacturaVentaFlit2, FacturaNoDisponibleError } from './flito-impuestos.extraccion.js';
 import analisisRouter from './flito-impuestos.analisis.routes.js';
 import direccionRouter from './flito-impuestos.direccion.routes.js';
+import certificadosRouter from './flito-impuestos.certificados.routes.js';
+import reciboFaseRouter from './flito-impuestos.recibo-fase.routes.js';
 import { contarDireccionesSinConfirmar } from './flito-impuestos.export-pago.js';
 
 const router = Router();
 router.use(authMiddleware);
 router.use(analisisRouter(contextoImpuesto)); // HU #12825: hereda authMiddleware
 router.use(direccionRouter(contextoImpuesto)); // HU #12833: PATCH /:id/direccion
+router.use(certificadosRouter(contextoImpuesto)); // HU #13205: POST /certificados/zip
+router.use(reciboFaseRouter(contextoImpuesto)); // HU #13208: POST /:id/recibos (carga por fase)
 
 const ESTADOS = ['pendiente', 'solicitado', 'con_novedad', 'pagado'] as const;
 
@@ -679,8 +683,15 @@ router.get('/:id/certificado', exigirFuncion('impuestos.certificado.descargar'),
       campos: cert.campos,
       certificadoPorNombre: cert.certificadoPorNombre,
       certificadoEn: new Date(cert.createdAt),
+      registroRunt: cert.registroRunt,
       generadoPor: ctx.username,
       generadoEn: new Date(),
+    });
+
+    // Registro PII antes del primer byte (HU #13204): el PDF entrega documento, placa, VIN, motor,
+    // chasis y serie. Si `construirCertificadoPdf` hubiera lanzado, no se entregó nada que registrar.
+    await registrarAccesoImpuesto(req, {
+      accion: 'export', archivo: 'certificado_runt', impuestoId: req.params.id, filas: 1, campos: CAMPOS_PII_CERTIFICADO,
     });
 
     // Auditar ANTES de escribir la respuesta: `audit` se traga sus errores, pero si algo se cayera
