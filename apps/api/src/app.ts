@@ -22,6 +22,7 @@ import ocrRoutes from './modules/vehicles/ocr.routes.js';
 import clientsRoutes from './modules/clients/clients.routes.js';
 import flitoParametrizacionRoutes from './modules/flito-parametrizacion/flito-parametrizacion.routes.js';
 import flitoSyncRoutes from './modules/flito-sync/flito-sync.routes.js';
+import flit2Routes from './modules/flito-sync/flit2.routes.js';
 import permisosRoutes from './modules/permisos/permisos.routes.js';
 import flitoSoatRoutes from './modules/flito-soat/flito-soat.routes.js';
 import flitoSoatClienteRoutes from './modules/flito-soat/flito-soat-cliente.routes.js';
@@ -253,6 +254,8 @@ export function createApp() {
   app.use('/api/vehicles', ocrRoutes);
   app.use('/api/clients', clientsRoutes);
   app.use('/api/flito/parametrizacion', flitoParametrizacionRoutes);
+  // HU #13061: acceso a FLIT 2. Antes de `/api/flito/sync` para no pasar dos veces por su authMiddleware.
+  app.use('/api/flito/sync/flit2', flit2Routes);
   app.use('/api/flito/sync', flitoSyncRoutes);
   // Las dos rutas de ESCRITURA del canal Cliente (Feature #11912, HU #11914) van en su propio router
   // y montadas ANTES: el recurso es el mismo (`flito_soat`) y por eso comparten base, pero el router

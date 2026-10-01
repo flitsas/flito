@@ -50,6 +50,8 @@ const CMP = 'flito-comparendos/flito-comparendos.routes.ts';
 const LIQ = 'flito-liquidacion/flito-liquidacion.routes.ts';
 const PAR = 'flito-parametrizacion/flito-parametrizacion.routes.ts';
 const SYN = 'flito-sync/flito-sync.routes.ts';
+const FL2 = 'flito-sync/flit2.routes.ts';
+const SYI = 'flito-sync/flito-sync-interruptores.routes.ts';
 const TRD = 'tramites/tramites.routes.ts';
 const OCR = 'tramites/ocr-docs.routes.ts';
 const IDE = 'tramites/identidad.routes.ts';
@@ -275,6 +277,12 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   // ── Sincronización FLITO ──────────────────────────────────────────────────────────────────────
   op(`${SYN} GET /estado`, 'sync.sync.ver_estado', 'Ver el estado de la sincronización', 'Consultar cuándo corrió la última sincronización y cómo fue.'),
   op(`${SYN} POST /sincronizar`, 'sync.sync.lanzar', 'Lanzar la sincronización', 'Disparar a mano la sincronización de datos FLITO.'),
+  // HU #13061 — acceso de FLITO a FLIT 2 (módulo tramites; migración 0214, solo admin).
+  op(`${FL2} GET /acceso`, 'tramites.flit2.ver_acceso', 'Ver el acceso a FLIT 2', 'Consultar con qué usuario de servicio se conecta FLITO a FLIT 2, quién lo guardó y desde cuándo.'),
+  op(`${FL2} PUT /acceso`, 'tramites.flit2.guardar_acceso', 'Guardar el acceso a FLIT 2', 'Registrar o reemplazar el usuario de servicio y la contraseña con los que FLITO se conecta a FLIT 2.'),
+  // HU #13237 — interruptor por fuente (módulo tramites; migración 0217, solo admin). El GET /interruptores
+  // reutiliza el mismo código.
+  op(`${SYI} PUT /interruptores/:fuente`, 'tramites.sincronizacion.configurar', 'Configurar la sincronización con FLIT', 'Encender o apagar, en este ambiente, la entrada de trámites desde FLIT 1 y desde FLIT 2.'),
 
   // ── Trámite Digital ───────────────────────────────────────────────────────────────────────────
   op(`${TRD} GET /`, 'tramite.cola.ver', 'Ver la cola de Trámite Digital', 'Abrir la bandeja de trámites de tránsito.'),

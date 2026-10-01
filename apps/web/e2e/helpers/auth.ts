@@ -209,6 +209,8 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     ...SOAT_LEER, 'soat.comprobante.cargar', 'soat.solicitud.enviar',
     // HU #12998: «Reintentar consulta» de una incompleta (0211: sembrada solo a `admin`).
     'soat.solicitud.reintentar_runt',
+    // HU #13064: «Acceso a FLIT 2» en Gestión Trámites (0214: sembradas solo a `admin`).
+    'tramites.flit2.ver_acceso', 'tramites.flit2.guardar_acceso',
     // HU #12815: el ZIP de comprobantes de la cola SOAT cuelga de su propia función (0179: admin y
     // proveedor). Sin ella no hay botón «Descargar soportes».
     'soat.soportes.descargar',
@@ -228,6 +230,10 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     'tramites.tramite.ver_soportes',
     'tramite.tramite.forzar_continuar', 'compuerta.tramite.entregar', 'logistica.lote.cerrar',
     'tablero.tablero.ver', 'sync.sync.lanzar',
+    // HU #13098: estado de la conexión con FLIT 2 en Gestión Trámites (0179: sembrada a `admin`).
+    'sync.sync.ver_estado',
+    // HU #13238: interruptores de sincronización por fuente en Gestión Trámites (0217: solo `admin`).
+    'tramites.sincronizacion.configurar',
     'transito.tramite.tomar', 'transito.bandeja.ver_pendientes', 'transito.config.listar',
     'transito.config.editar',
     'liquidacion.liquidacion.liquidar', 'liquidacion.liquidacion.reversar',

@@ -5,6 +5,11 @@
 // cambian). Nunca se marca "salido" por ausencia (la consulta es por rango de fechas). SOAT e impuestos
 // solo se resuelven para trámites 'Asignado' con compañía y secretaría ya emparejadas. Cada diferencia
 // detectada deja historial (origen 'api'). Idempotente; cada trámite en su propia transacción.
+//
+// HU #13091: un trámite con `fuente='flit2'` (lo trajo FLIT 2) NO lo toca este sync, ni el trámite
+// ni su vehículo: se cuenta en `tramitesOmitidosOtraFuente`. `escribirTramite`, `upsertVehiculo` y
+// `setVehiculoDesdeFlit` se exportan para que la lectura de FLIT 2 herede historial y audit sin copiarlos.
+// HU #13093: también `arrancarSoatEImpuesto`, `reemplazarCompradores` y `registrarDiferencias`, por lo mismo.
 
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
@@ -25,7 +30,7 @@ import {
   anioGravableEnCurso, impuestoBloqueantePorVehiculo,
 } from '../flito-impuestos/impuesto-por-vehiculo.js';
 import { getFlitAdapter } from './flit.adapter.js';
-import { mapearCompradores } from './mapeo-compradores.js';
+import { mapearCompradores, type CompradorMapeado } from './mapeo-compradores.js';
 import type { FlitPort, RangoSync, ResultadoSync, TramiteFlit } from './flit.port.js';
 
 const log = loggerFor('flito-sync');
@@ -76,7 +81,7 @@ export function estadoEnumDesdeFlit(estadoFlit: string): EstadoTramiteFlito | nu
  * configurado en FLITO, el trámite queda sin emparejar a propósito y se enlaza solo en el siguiente
  * sync una vez alguien lo configure. Auto-crearlo escondería el hecho de que falta parametrizarlo.
  */
-export async function resolverOrganismoDeFlit(tf: TramiteFlit) {
+export async function resolverOrganismoDeFlit(tf: Pick<TramiteFlit, 'organismoCodigo' | 'ciudad' | 'transitoNombre'>) {
   const candidatos = [
     tf.organismoCodigo,
     resolverCodigoOrganismoFlit({ ciudad: tf.ciudad }),
@@ -103,7 +108,7 @@ function nuevoResultado(): ResultadoSync {
   return {
     tramitesLeidos: 0, tramitesNuevos: 0, tramitesActualizados: 0, tramitesSinCambios: 0, soatCreados: 0, soatBloqueadosPorVin: 0, impuestosBloqueadosPorVehiculo: 0,
     impuestosCreados: 0, companiasFaltantes: 0,
-    organismosSinEmparejar: 0, ejecutadoEn: new Date().toISOString(),
+    organismosSinEmparejar: 0, tramitesOmitidosOtraFuente: 0, ejecutadoEn: new Date().toISOString(),
   };
 }
 
@@ -149,6 +154,12 @@ export async function hayTramites(): Promise<boolean> {
 }
 
 async function sincronizarUno(tx: Tx, tf: TramiteFlit, r: ResultadoSync): Promise<void> {
+  // HU #13091 (AC4): un trámite de FLIT 2 con el mismo radicado no es de este sync. Va antes de
+  // `upsertVehiculo` para que FLIT 1 tampoco pise el vehículo de ese trámite.
+  const [previo] = await tx.select({ fuente: flitoTramites.fuente }).from(flitoTramites)
+    .where(eq(flitoTramites.idFlit, tf.idFlit)).limit(1);
+  if (previo?.fuente === 'flit2') { r.tramitesOmitidosOtraFuente += 1; return; }
+
   // Match compañía por NIT y secretaría por nombre (o código, si el adaptador ya lo trae). Ambos
   // pueden faltar: el trámite se guarda igual, pero sin SOAT/impuesto hasta emparejarlos.
   const compania = tf.companiaNit ? await companiaPorNit(tf.companiaNit) : null;
@@ -158,7 +169,7 @@ async function sincronizarUno(tx: Tx, tf: TramiteFlit, r: ResultadoSync): Promis
   if ((tf.organismoCodigo || tf.ciudad || tf.transitoNombre) && !organismo) r.organismosSinEmparejar += 1;
 
   const vehiculoId = await upsertVehiculo(tx, tf, compania?.id ?? null);
-  const { tramiteId, esNuevo, huboCambios, soatId } = await upsertTramite(tx, tf, vehiculoId, compania?.id ?? null, organismo?.codigo ?? null, r);
+  const { tramiteId, esNuevo, huboCambios, soatId } = await upsertTramite(tx, tf, vehiculoId, compania?.id ?? null, organismo?.codigo ?? null);
 
   // Nuevo / actualizado (llegó con diferencias, deja rastro) / sin cambios (idéntico, sin rastro).
   if (esNuevo) r.tramitesNuevos += 1;
@@ -167,13 +178,16 @@ async function sincronizarUno(tx: Tx, tf: TramiteFlit, r: ResultadoSync): Promis
 
   // SOAT/impuestos requieren compañía y organismo emparejados y estado Asignado.
   if (esAsignado(tf.estadoFlit) && compania && organismo) {
-    await resolverSoat(tx, tf, tramiteId, soatId, vehiculoId, compania, organismo.codigo, r);
-    await resolverImpuesto(tx, tf, tramiteId, vehiculoId, compania, organismo.codigo, r);
+    await arrancarSoatEImpuesto(tx, tf, { tramiteId, soatId, vehiculoId, compania, organismoCodigo: organismo.codigo }, r);
   }
 
   // Logística: los trámites aprobados son la fuente de la consola (se listan directo desde
   // flito_tramites); la LT NO nace aquí, sino del escaneo del PDF417 por el mensajero en campo.
 }
+
+/** Lo que el sync escribe en `vehicles`. FLIT 1 pasa su `TramiteFlit` completo; FLIT 2 arma el suyo. */
+export type VehiculoFlit = Pick<TramiteFlit,
+  'vin' | 'placa' | 'marca' | 'linea' | 'cilindraje' | 'carroceria' | 'tipoServicio' | 'numMotor' | 'numSerie' | 'compradores'>;
 
 /**
  * Titular que se guarda en el vehículo: el comprador principal (el primero que trae FLIT, `cedulanit`
@@ -184,7 +198,7 @@ async function sincronizarUno(tx: Tx, tf: TramiteFlit, r: ResultadoSync): Promis
  * RUNT (HU #11165) y el refresco de SOAT. Sin esto, esos módulos ven un propietario vacío en
  * prácticamente toda la flota y se bloquean solos.
  */
-function titularDe(tf: TramiteFlit): { nombre: string | null; documento: string | null } {
+function titularDe(tf: VehiculoFlit): { nombre: string | null; documento: string | null } {
   const [principal] = tf.compradores;
   const documento = principal?.numeroDocumento?.trim() || null;
   return {
@@ -213,7 +227,7 @@ function titularDe(tf: TramiteFlit): { nombre: string | null; documento: string 
  * al extraer el objeto del `.set()` se perdía la comprobación de nombres de columna que drizzle hacía
  * cuando iba inline, y un `cilindaje:` mal escrito habría compilado y no habría escrito nada.
  */
-export function setVehiculoDesdeFlit(tf: TramiteFlit): Partial<typeof vehicles.$inferInsert> {
+export function setVehiculoDesdeFlit(tf: VehiculoFlit): Partial<typeof vehicles.$inferInsert> {
   const titular = titularDe(tf);
   return {
     plate: tf.placa,
@@ -260,7 +274,7 @@ export function setVehiculoDesdeFlit(tf: TramiteFlit): Partial<typeof vehicles.$
  * propietario existe para impedir. Y no queda rastro: `registrarDiferencias` solo lleva historial de
  * `flito_tramites`, no de `vehicles`; corregir un valor a vacío es hoy trabajo manual sobre la fila.
  */
-async function upsertVehiculo(tx: Tx, tf: TramiteFlit, companiaId: number | null): Promise<number> {
+export async function upsertVehiculo(tx: Tx, tf: VehiculoFlit, companiaId: number | null): Promise<number> {
   const [existente] = await tx.select({ id: vehicles.id }).from(vehicles).where(eq(vehicles.vin, tf.vin)).limit(1);
   const titular = titularDe(tf);
   if (existente) {
@@ -280,8 +294,23 @@ async function upsertVehiculo(tx: Tx, tf: TramiteFlit, companiaId: number | null
   return creado.id;
 }
 
+/**
+ * Escribe los compradores de un trámite (FLIT 1 los reemplaza en bloque; FLIT 2 también, HU #13093).
+ * Borra los que había y pone los nuevos: quien llama decide si hay que reemplazar.
+ */
+export async function reemplazarCompradores(tx: Tx, tramiteId: string, compradores: CompradorMapeado[]): Promise<void> {
+  await tx.delete(flitoCompradores).where(eq(flitoCompradores.tramiteId, tramiteId));
+  if (compradores.length > 0) {
+    await tx.insert(flitoCompradores).values(compradores.map((c) => ({
+      tramiteId, nombreCompleto: c.nombreCompleto, numeroDocumento: c.numeroDocumento,
+      correo: c.correo, celular: c.celular, direccion: c.direccion, orden: c.orden,
+      porcentajeParticipacion: c.porcentajeParticipacion === null ? null : String(c.porcentajeParticipacion),
+    })));
+  }
+}
+
 // Diferencias que quedan en el historial (auditoría campo por campo, origen 'api').
-async function registrarDiferencias(tx: Tx, tramiteId: string, previo: Record<string, string | null>, nuevo: Record<string, string | null>): Promise<string[]> {
+export async function registrarDiferencias(tx: Tx, tramiteId: string, previo: Record<string, string | null>, nuevo: Record<string, string | null>): Promise<string[]> {
   const cambios: string[] = [];
   for (const campo of Object.keys(nuevo)) {
     const a = previo[campo] ?? null;
@@ -293,14 +322,50 @@ async function registrarDiferencias(tx: Tx, tramiteId: string, previo: Record<st
   return cambios;
 }
 
+/** Valores de `flito_tramites` que arma cada fuente (FLIT 1 o FLIT 2) antes de escribir. */
+export type ValorTramite = Omit<typeof flitoTramites.$inferInsert, 'id' | 'createdAt' | 'idFlit'>;
+
+const fechaIso = (d: Date | null | undefined): string | null => (d ? d.toISOString() : null);
+
+/**
+ * Escritura del trámite común a FLIT 1 y FLIT 2: historial de diferencias (origen 'api'), UPDATE o
+ * INSERT, y audit del cambio de `flit_estado`. Las columnas del historial se leen de `valores`, así
+ * que cada fuente hereda el mismo rastro sin copiarlo. El INSERT es `{ idFlit, ...valores }`: FLIT 1
+ * no manda `fuente`/`idFlit2`/`syncVersion` y la fila nace con el default `'flit'`.
+ */
+export async function escribirTramite(
+  tx: Tx, existente: typeof flitoTramites.$inferSelect | null, idFlit: string, valores: ValorTramite,
+): Promise<{ row: typeof flitoTramites.$inferSelect; esNuevo: boolean; huboCambios: boolean }> {
+  if (!existente) {
+    const [row] = await tx.insert(flitoTramites).values({ idFlit, ...valores }).returning();
+    return { row, esNuevo: true, huboCambios: false };
+  }
+  const nuevoEstado = valores.flitEstado ?? null;
+  // Historial de campos observables antes de pisar (origen 'api').
+  const cambios = await registrarDiferencias(tx, existente.id, {
+    flit_estado: existente.flitEstado, factura_venta_flit_id: existente.facturaVentaFlitId,
+    fecha_aprobacion: fechaIso(existente.fechaAprobacion),
+    compania_id: existente.companiaId === null ? null : String(existente.companiaId),
+    organismo_codigo: existente.organismoCodigo, tipo_tramite: existente.tipoTramite, ciudad: existente.ciudad,
+  }, {
+    flit_estado: nuevoEstado, factura_venta_flit_id: valores.facturaVentaFlitId ?? null,
+    fecha_aprobacion: fechaIso(valores.fechaAprobacion),
+    compania_id: valores.companiaId == null ? null : String(valores.companiaId),
+    organismo_codigo: valores.organismoCodigo ?? null, tipo_tramite: valores.tipoTramite ?? null, ciudad: valores.ciudad ?? null,
+  });
+  const [row] = await tx.update(flitoTramites).set({ ...valores, updatedAt: new Date() }).where(eq(flitoTramites.id, existente.id)).returning();
+  if (cambios.includes('flit_estado')) {
+    await auditSistema(tx, { action: 'update', resource: 'flito_tramite', resourceId: row.id, detail: `Estado FLIT: "${existente.flitEstado ?? '—'}" → "${nuevoEstado ?? '—'}" (trámite ${idFlit}).` });
+  }
+  return { row, esNuevo: false, huboCambios: cambios.length > 0 };
+}
+
 async function upsertTramite(
-  tx: Tx, tf: TramiteFlit, vehiculoId: number, companiaId: number | null, organismoCodigo: string | null, r: ResultadoSync,
+  tx: Tx, tf: TramiteFlit, vehiculoId: number, companiaId: number | null, organismoCodigo: string | null,
 ): Promise<{ tramiteId: string; esNuevo: boolean; huboCambios: boolean; soatId: string | null }> {
   const [existente] = await tx.select().from(flitoTramites).where(eq(flitoTramites.idFlit, tf.idFlit)).limit(1);
-  const fechaAprobacion = tf.fechaAprobacion ? new Date(tf.fechaAprobacion) : null;
-  const fechaCreacionFlit = fechaValida(tf.fechaCreacionFlit);
 
-  const valores = {
+  const valores: ValorTramite = {
     estado: estadoEnumDesdeFlit(tf.estadoFlit),
     flitEstado: tf.estadoFlit,
     tipoTramite: tf.tipoTramite,
@@ -313,56 +378,47 @@ async function upsertTramite(
     vehiculoId,
     valorImpuestoLiquidado: numOrNull(tf.valorImpuestoLiquidado),
     facturaVentaFlitId: tf.facturaVentaFlitId,
-    fechaAprobacion,
-    fechaCreacionFlit,
+    fechaAprobacion: tf.fechaAprobacion ? new Date(tf.fechaAprobacion) : null,
+    fechaCreacionFlit: fechaValida(tf.fechaCreacionFlit),
     flitRaw: tf.raw,
     processStatus: tf.processStatus ?? null,
     plateComplete: tf.placa,
     sincronizadoEn: new Date(),
   };
 
-  let row: typeof flitoTramites.$inferSelect;
-  let huboCambios = false;
-  if (existente) {
-    // Historial de campos observables antes de pisar (origen 'api').
-    const cambios = await registrarDiferencias(tx, existente.id, {
-      flit_estado: existente.flitEstado, factura_venta_flit_id: existente.facturaVentaFlitId,
-      fecha_aprobacion: existente.fechaAprobacion ? existente.fechaAprobacion.toISOString() : null,
-      compania_id: existente.companiaId === null ? null : String(existente.companiaId),
-      organismo_codigo: existente.organismoCodigo, tipo_tramite: existente.tipoTramite, ciudad: existente.ciudad,
-    }, {
-      flit_estado: tf.estadoFlit, factura_venta_flit_id: tf.facturaVentaFlitId,
-      fecha_aprobacion: fechaAprobacion ? fechaAprobacion.toISOString() : null,
-      compania_id: companiaId === null ? null : String(companiaId),
-      organismo_codigo: organismoCodigo, tipo_tramite: tf.tipoTramite, ciudad: tf.ciudad,
-    });
-    huboCambios = cambios.length > 0;
-    [row] = await tx.update(flitoTramites).set({ ...valores, updatedAt: new Date() }).where(eq(flitoTramites.id, existente.id)).returning();
-    if (cambios.includes('flit_estado')) {
-      await auditSistema(tx, { action: 'update', resource: 'flito_tramite', resourceId: row.id, detail: `Estado FLIT: "${existente.flitEstado ?? '—'}" → "${tf.estadoFlit}" (trámite ${tf.idFlit}).` });
-    }
-  } else {
-    [row] = await tx.insert(flitoTramites).values({ idFlit: tf.idFlit, ...valores }).returning();
-  }
+  const { row, esNuevo, huboCambios } = await escribirTramite(tx, existente ?? null, tf.idFlit, valores);
 
   // Compradores se reemplazan en bloque: FLIT es la fuente de verdad.
-  const compradores = mapearCompradores(tf);
-  await tx.delete(flitoCompradores).where(eq(flitoCompradores.tramiteId, row.id));
-  if (compradores.length > 0) {
-    await tx.insert(flitoCompradores).values(compradores.map((c) => ({
-      tramiteId: row.id, nombreCompleto: c.nombreCompleto, numeroDocumento: c.numeroDocumento,
-      correo: c.correo, celular: c.celular, direccion: c.direccion, orden: c.orden,
-      porcentajeParticipacion: c.porcentajeParticipacion === null ? null : String(c.porcentajeParticipacion),
-    })));
-  }
+  await reemplazarCompradores(tx, row.id, mapearCompradores(tf));
 
-  return { tramiteId: row.id, esNuevo: !existente, huboCambios, soatId: row.soatId };
+  return { tramiteId: row.id, esNuevo, huboCambios, soatId: row.soatId };
+}
+
+/** Lo que el arranque de SOAT e impuesto lee del trámite de origen (FLIT 1 o FLIT 2). */
+export type TramiteArranque = Pick<TramiteFlit, 'vin' | 'idFlit' | 'valorImpuestoLiquidado'>;
+/** Contadores que mueve el arranque. FLIT 1 pasa su `ResultadoSync`; FLIT 2, los suyos. */
+export type ContadoresArranque = Pick<ResultadoSync,
+  'soatCreados' | 'soatBloqueadosPorVin' | 'impuestosCreados' | 'impuestosBloqueadosPorVehiculo'>;
+export interface DestinoArranque {
+  tramiteId: string; soatId: string | null; vehiculoId: number; compania: CompaniaRow; organismoCodigo: string;
+}
+
+/**
+ * Arranque de SOAT e impuesto de un trámite ya guardado. Quien llama comprueba antes las condiciones
+ * (estado Asignado, compañía y organismo emparejados; FLIT 2 además exige comprador, HU #13093): esta
+ * función es la MISMA para FLIT 1 y FLIT 2, así que las reglas de las dos fuentes no se desalinean.
+ */
+export async function arrancarSoatEImpuesto(
+  tx: Tx, tf: TramiteArranque, d: DestinoArranque, r: ContadoresArranque,
+): Promise<void> {
+  await resolverSoat(tx, tf, d.tramiteId, d.soatId, d.vehiculoId, d.compania, d.organismoCodigo, r);
+  await resolverImpuesto(tx, tf, d.tramiteId, d.vehiculoId, d.compania, d.organismoCodigo, r);
 }
 
 /** Resuelve el SOAT (RN-01: por VIN, exento si la compañía autogestiona). Igual que el mock. */
 async function resolverSoat(
-  tx: Tx, tf: TramiteFlit, tramiteId: string, soatIdActual: string | null,
-  vehiculoId: number, compania: CompaniaRow, organismoCodigo: string, r: ResultadoSync,
+  tx: Tx, tf: TramiteArranque, tramiteId: string, soatIdActual: string | null,
+  vehiculoId: number, compania: CompaniaRow, organismoCodigo: string, r: ContadoresArranque,
 ): Promise<void> {
   if (compania.soatAutogestionable) return;
 
@@ -403,7 +459,10 @@ async function resolverSoat(
  * NO se carga a mano: viene de FLIT. Si el organismo requiere gestión y el trámite trae factura, el
  * impuesto arranca en 'pendiente' (listo para enviar); sin factura, en 'sin_factura'.
  */
-async function resolverImpuesto(tx: Tx, tf: TramiteFlit, tramiteId: string, vehiculoId: number, compania: CompaniaRow, organismoCodigo: string, r: ResultadoSync): Promise<void> {
+async function resolverImpuesto(
+  tx: Tx, tf: TramiteArranque, tramiteId: string, vehiculoId: number, compania: CompaniaRow, organismoCodigo: string,
+  r: ContadoresArranque,
+): Promise<void> {
   const [existente] = await tx.select().from(flitoImpuestos).where(eq(flitoImpuestos.tramiteId, tramiteId)).limit(1);
   if (existente) {
     // El estado es del módulo, no del sync. Solo se completa el valor liquidado si llega.

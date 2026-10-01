@@ -98,6 +98,11 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'comprobantes', fichero: 'flito-comprobantes/flito-comprobantes.routes.ts' },
   // HU #12619: viajes adicionales de logística; fichero hermano bajo /api/flito/logistica.
   { modulo: 'logistica', fichero: 'flito-logistica/flito-logistica-viajes.routes.ts' },
+  // HU #13061: el acceso de FLITO a FLIT 2; fichero hermano bajo /api/flito/sync, funciones del módulo tramites.
+  { modulo: 'tramites', fichero: 'flito-sync/flit2.routes.ts' },
+  // HU #13237: interruptor por fuente (PUT); el GET, que reutiliza el código, vive en
+  // `flito-sync-interruptores-lectura.routes.ts`, fuera de la lista (como `flit2-probar.routes.ts`).
+  { modulo: 'tramites', fichero: 'flito-sync/flito-sync-interruptores.routes.ts' },
   // HU #12833: corrección de la dirección del comprador; sub-router propio de impuestos (así el
   // inventario no arrastra `POST /:id/reanalizar`, cuyo código ya es de `POST /:id/certificar`).
   { modulo: 'impuestos', fichero: 'flito-impuestos/flito-impuestos.direccion.routes.ts' },
@@ -120,7 +125,8 @@ export function sinComentarios(fuente: string): string {
  */
 const RUTAS = /router\.(get|post|put|patch|delete)\(\s*'([^']*)'\s*,([\s\S]{0,500}?)(?:async\s*\(|\(\s*_?req\b|\(\s*\)\s*=>|\);)/g;
 
-const CODIGO = /^'([a-z_]+\.[a-z_]+\.[a-z_]+)'$/;
+// El objeto admite dígitos desde la HU #13061 (`tramites.flit2.*`); módulo y acción siguen sin ellos.
+const CODIGO = /^'([a-z_]+\.[a-z0-9_]+\.[a-z_]+)'$/;
 
 function codigoDe(argumentos: string, fichero: string, forma: string): string {
   const literal = CODIGO.exec(argumentos.trim());

@@ -95,9 +95,9 @@ describe('AC1/AC2 — en los 21 directorios ya no decide ningún requireRole', (
     });
   }
 
-  it('los directorios son 22 (19 del enunciado + permisos + finanzas-servicios-adicionales + flito-comprobantes) y los 28 ficheros de rutas del alcance viven en ellos (flito-logistica aporta dos: el legado y el de viajes, HU #12619; flito-impuestos otros dos: el de la cola y el de la dirección, HU #12833; flito-soat tres: módulo, canal Cliente e incompletas, HU #12997)', () => {
+  it('los directorios son 22 (19 del enunciado + permisos + finanzas-servicios-adicionales + flito-comprobantes) y los 30 ficheros de rutas del alcance viven en ellos (flito-logistica aporta dos: el legado y el de viajes, HU #12619; flito-impuestos otros dos: el de la cola y el de la dirección, HU #12833; flito-soat tres: módulo, canal Cliente e incompletas, HU #12997; flito-sync tres: el de sync, el del acceso a FLIT 2, HU #13061, y el del interruptor por fuente, HU #13237)', () => {
     expect(DIRECTORIOS_RECONDUCIDOS).toHaveLength(22);
-    expect(FICHEROS_DE_RUTAS).toHaveLength(28);
+    expect(FICHEROS_DE_RUTAS).toHaveLength(30);
     for (const f of FICHEROS_DE_RUTAS) {
       expect((DIRECTORIOS_RECONDUCIDOS as readonly string[]).includes(f.split('/')[0]!), f).toBe(true);
     }
@@ -132,7 +132,8 @@ describe('AC1/AC2 — cada router.<método>( de los 24 ficheros lleva exigirFunc
       const rutas = [...fuente.matchAll(RUTA)];
       expect(rutas.length, 'el fichero declara rutas').toBeGreaterThan(0);
       const sinGuarda = rutas
-        .filter((m) => !/exigirFuncion\('[a-z_.]+'\)/.test(m[3]))
+        // Dígitos admitidos desde la HU #13061 (`tramites.flit2.*`), como en `CODIGO` de inventario-guardas.ts.
+        .filter((m) => !/exigirFuncion\('[a-z0-9_.]+'\)/.test(m[3]))
         .map((m) => `${fichero} ${m[1].toUpperCase()} ${m[2]}`)
         .filter((llave) => !LISTA_BLANCA.has(llave));
       expect(sinGuarda, 'rutas sin exigirFuncion que no están en la lista blanca').toEqual([]);
@@ -160,10 +161,10 @@ describe('AC1/AC2 — cada router.<método>( de los 24 ficheros lleva exigirFunc
 });
 
 describe('el lector de montajes cubre la foto entera', () => {
-  it('266 montajes = 238 previos + 2 de la #12089 (baja/reactivar) + 4 de la #12541 (servicios adicionales) + 3 por la HU #12545 (servicios por trámite) + 1 por la HU #12591 (recibo de caja) + 5 por la HU #12611 (comprobantes) + 3 por la HU #12619 (viajes de logística) + 3 por la HU #12629 (comprobantes F2) + 1 por la HU #12654 (comprobantes F3: aceptar diferencia) + 2 por el Bug #12642 (export ampliado, en línea) + 1 por la HU #12833 (corregir dirección) + 2 por la HU #12997 (incompletas SOAT: buscar y ver) + 1 por la HU #12998 (reintentar la consulta RUNT); los códigos son exactamente los de la foto', () => {
+  it('269 montajes = 238 previos + 2 de la #12089 (baja/reactivar) + 4 de la #12541 (servicios adicionales) + 3 por la HU #12545 (servicios por trámite) + 1 por la HU #12591 (recibo de caja) + 5 por la HU #12611 (comprobantes) + 3 por la HU #12619 (viajes de logística) + 3 por la HU #12629 (comprobantes F2) + 1 por la HU #12654 (comprobantes F3: aceptar diferencia) + 2 por el Bug #12642 (export ampliado, en línea) + 1 por la HU #12833 (corregir dirección) + 2 por la HU #12997 (incompletas SOAT: buscar y ver) + 1 por la HU #12998 (reintentar la consulta RUNT) + 2 por la HU #13061 (acceso a FLIT 2: ver y guardar) + 1 por la HU #13237 (interruptor por fuente); los códigos son exactamente los de la foto', () => {
     const montajes = montajesDeFunciones();
-    expect(GUARDAS_MEDIDAS).toHaveLength(266);
-    expect(montajes).toHaveLength(266);
+    expect(GUARDAS_MEDIDAS).toHaveLength(269);
+    expect(montajes).toHaveLength(269);
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     expect(montajes.filter((m) => m.metodo === null)).toHaveLength(4);

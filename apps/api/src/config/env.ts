@@ -137,6 +137,29 @@ const envSchema = z.object({
   // fila activa. Nunca se loguea ni se devuelve por el API. En PDN no sustituye al cifrado en
   // reposo — un token en env no tiene trazabilidad de quién lo puso ni cuándo (CF-03).
   VERIFIK_SIMIT_TOKEN: z.preprocess(vacioComoAusente, z.string().min(1).optional()),
+  // ── Acceso de FLITO a FLIT 2 (Feature #13057, HU #13061) ──────────────────────────────────────
+  // Llave maestra propia de la contraseña del usuario de servicio de FLIT 2 (mismo criterio que
+  // ADR-0002: una llave comprometida no abre otra integración). Opcional para que el boot no la
+  // exija: sin ella el GET del acceso responde y el PUT falla con 503 `llave_maestra`.
+  FLIT2_ENC_KEY: z.preprocess(
+    vacioComoAusente,
+    z.string().regex(/^[0-9a-fA-F]{64}$/, 'FLIT2_ENC_KEY debe ser 64 hex chars (32 bytes)').optional(),
+  ),
+  // Origen de la API de FLIT 2. Solo por env: el repo es público y el host no va en él. Lo usa el
+  // pase (HU #13063); ausente → «FLIT 2 no está configurado en este ambiente».
+  FLIT2_BASE_URL: z.preprocess(vacioComoAusente, z.string().url().optional()),
+  // Adaptador del feed de trámites de FLIT 2 (HU #13091). `fake` sirve páginas ficticias en memoria
+  // para dev/demo y está PROHIBIDO en producción (ver el superRefine de abajo).
+  FLIT2_SYNC_ADAPTER: z.enum(['http', 'fake']).default('http'),
+  // HU #13095: hosts EXACTOS (sin esquema; con puerto si no es 443) del almacenamiento de adjuntos de
+  // FLIT 2, separados por coma. Ningún host en el repo (es público). Vacía o ausente = fail-closed:
+  // ninguna factura de FLIT 2 se descarga (motivo `host`). No bloquea el arranque.
+  FLIT2_ADJUNTOS_HOSTS: z.preprocess(vacioComoAusente, z.string().optional()).transform((v): string[] =>
+    (v ?? '').split(',').map((h) => h.trim().toLowerCase()).filter((h) => h !== '')),
+  // Lectura programada de FLIT 2 cada 5 min (HU #13092). Encendida por defecto (en blanco = true);
+  // 'false'/'0' la apaga. Aun encendida, sin acceso vigente la corrida no llama a FLIT 2.
+  // Transform explícito: z.coerce.boolean vería "false" como true.
+  FLIT2_SYNC_CRON: z.string().optional().transform((v) => v !== 'false' && v !== '0'),
   // `mock` por defecto: sin credenciales reales, un test o un dev no deben salir a la red.
   COMPARENDOS_SIMIT_MODE: z.enum(['mock', 'real']).default('mock'),
   // Retención del histórico de registros/timeline (CF Habeas Data, Ley 1581). 24 meses por defecto,
@@ -306,6 +329,13 @@ const envSchema = z.object({
   SYNC_HABILITADO: z.string().optional().transform((v) => v !== 'false' && v !== '0'),
 }).superRefine((data, ctx) => {
   // Bloquea CORS_ORIGIN='*' en producción (XSS cross-origin).
+  if (data.NODE_ENV === 'production' && data.FLIT2_SYNC_ADAPTER === 'fake') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['FLIT2_SYNC_ADAPTER'],
+      message: 'FLIT2_SYNC_ADAPTER=fake no está permitido en producción',
+    });
+  }
   if (data.NODE_ENV === 'production') {
     const origins = data.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean);
     if (origins.includes('*')) {

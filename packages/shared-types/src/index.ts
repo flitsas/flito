@@ -114,6 +114,8 @@ export * from './siigo-cola.js';
 export * from './siigo-bandeja.js';
 // Monitoreo de comparendos: catálogos, token, sync y lectura del consolidado (Feature #11492).
 export * from './flito-comparendos.js';
+// Acceso de FLITO a FLIT 2 (Feature #13057, HU #13061).
+export * from './flito-flit2.js';
 // Conciliación de boletas de pago externo contra los SOAT: estados, desenlaces del cruce y la
 // normalización del número de póliza, que tiene que ser la misma en la base, el API y la pantalla.
 export * from './flito-conciliacion.js';
@@ -136,3 +138,5 @@ export * from './flito-viajes-logistica.js';
 // Gastos diarios de Finanzas (HU #12623): serie por día del evento y totales por categoría con GMF
 // estimado; contrato del `GET /api/finanzas/gastos-diarios` y los topes del rango.
 export * from './flito-gastos-diarios.js';
+// Fuente del trámite (HU #13070, Épica #12736): FLIT o FLIT 2, su etiqueta y la guarda de tipo.
+export * from './flito-tramite-fuente.js';

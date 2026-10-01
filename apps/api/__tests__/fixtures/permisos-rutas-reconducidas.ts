@@ -48,6 +48,11 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-soat/flito-soat-incompletas.routes.ts', metodo: 'GET', ruta: '/cliente/incompletas/:id', codigo: 'soat.incompleta.ver' },
   // HU #12998
   { fichero: 'flito-soat/flito-soat-incompletas.routes.ts', metodo: 'POST', ruta: '/cliente/incompletas/:id/reintentar', codigo: 'soat.solicitud.reintentar_runt' },
+  // HU #13061: acceso de FLITO a FLIT 2 (0214, solo admin).
+  { fichero: 'flito-sync/flit2.routes.ts', metodo: 'GET', ruta: '/acceso', codigo: 'tramites.flit2.ver_acceso' },
+  { fichero: 'flito-sync/flit2.routes.ts', metodo: 'PUT', ruta: '/acceso', codigo: 'tramites.flit2.guardar_acceso' },
+  // HU #13237: interruptor por fuente (0217, solo admin). El GET reutiliza el código fuera de la lista.
+  { fichero: 'flito-sync/flito-sync-interruptores.routes.ts', metodo: 'PUT', ruta: '/interruptores/:fuente', codigo: 'tramites.sincronizacion.configurar' },
   // flito-parametrizacion/flito-parametrizacion.routes.ts
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'GET', ruta: '/companias', codigo: 'parametrizacion.companias.listar' },
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'PATCH', ruta: '/companias/:id', codigo: 'parametrizacion.companias.editar' },
