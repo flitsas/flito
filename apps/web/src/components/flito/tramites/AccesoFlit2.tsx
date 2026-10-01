@@ -181,6 +181,8 @@ interface PropsAcceso {
   automaticaActiva?: boolean | null;
   /** Tras guardar un acceso válido: GET silencioso del estado. */
   onGuardado?: () => void;
+  /** HU #13238: clases extra del botón (ancho completo en móvil dentro de la sección Sincronización). */
+  claseBoton?: string;
 }
 
 function PanelAccesoFlit2({ onCerrar, automaticaActiva = null, onGuardado }: PropsAcceso & { onCerrar: () => void }) {
@@ -357,13 +359,13 @@ function PanelAccesoFlit2({ onCerrar, automaticaActiva = null, onGuardado }: Pro
  * Botón de la cabecera de Gestión Trámites (AC1): solo existe con «Ver el acceso a FLIT 2». El panel
  * se monta al pulsarlo, y con él la consulta del estado.
  */
-export default function AccesoFlit2({ automaticaActiva = null, onGuardado }: PropsAcceso) {
+export default function AccesoFlit2({ automaticaActiva = null, onGuardado, claseBoton = '' }: PropsAcceso) {
   const { hasFuncion } = useAuth();
   const [abierto, setAbierto] = useState(false);
   if (!hasFuncion(FUNCION_VER)) return null;
   return (
     <>
-      <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAbierto(true)}>
+      <button type="button" className={`${flitBtnSecondary} ${claseBoton}`} style={flitBtnSecondaryStyle} onClick={() => setAbierto(true)}>
         Acceso a FLIT 2
       </button>
       {abierto && <PanelAccesoFlit2 onCerrar={() => setAbierto(false)} automaticaActiva={automaticaActiva} onGuardado={onGuardado} />}

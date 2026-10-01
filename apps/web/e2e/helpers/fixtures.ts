@@ -18,6 +18,21 @@ export const test = base.extend({
       console.warn(`[e2e catch-all] endpoint /api no mockeado: ${route.request().method()} ${pathname} → 200 []`);
       return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
     });
+    // Defaults VÁLIDOS de contratos que una página monta sin que el spec lo sepa (se registran después
+    // del catch-all, así que le ganan; los page.route del test se registran más tarde y les ganan a ellos).
+    // HU #13238: la sección «Sincronización» de Gestión Trámites consulta los interruptores con
+    // `tramites.sincronizacion.configurar`; un `[]` es una respuesta mal formada y pinta su `role="alert"`.
+    await page.route(/\/api\/flito\/sync\/interruptores$/, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          fuentes: ['flit1', 'flit2'].map((fuente) => ({ fuente, encendido: true, actualizadoEn: null, actualizadoPor: null })),
+          maestroFlit2: true,
+        }),
+      });
+    });
     await use(page);
   },
 });
