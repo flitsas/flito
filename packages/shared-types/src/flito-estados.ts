@@ -397,6 +397,34 @@ export type FaseRecibo = (typeof FaseRecibo)[keyof typeof FaseRecibo];
 export const FASES_RECIBO: readonly FaseRecibo[] = [FaseRecibo.LIQUIDACION, FaseRecibo.PAGO];
 
 /**
+ * HU #13208 — Códigos de error de la carga de un comprobante por fase desde el impuesto
+ * (`POST /api/flito/impuestos/:id/recibos`). La pantalla decide por `codigo`, no por el texto.
+ */
+export const CodigoErrorCargaPorFase = {
+  /** 400: sin archivo, más de uno, campo distinto, tipo no permitido, bytes que no cuadran o > 15 MiB. */
+  ARCHIVO_INVALIDO: 'archivo_invalido',
+  /** 400: `fase` ausente o fuera de `FASES_RECIBO`. */
+  FASE_INVALIDA: 'fase_invalida',
+  /** 404: el impuesto no existe o queda fuera de la frontera del actor. */
+  NO_ENCONTRADO: 'no_encontrado',
+  /** 409: el impuesto no está ni en gestión (`solicitado`) ni `pagado`. */
+  ESTADO_NO_PERMITIDO: 'estado_no_permitido',
+} as const;
+
+export type CodigoErrorCargaPorFase = (typeof CodigoErrorCargaPorFase)[keyof typeof CodigoErrorCargaPorFase];
+
+/**
+ * HU #13208 — Respuesta 200 de la carga por fase. Los cuatro primeros escribieron (soporte guardado);
+ * `duplicado`, `fase_no_coincide` y `placa_no_coincide` no escribieron nada y traen el `detalle`.
+ */
+export type RespuestaCargaPorFase =
+  | { resultado: 'liquidado'; soporteId: string; valorLiquidado: string | null }
+  | { resultado: 'pagado'; soporteId: string; valorPagado: string | null; marcadoPorDiferencia: boolean }
+  | { resultado: 'en_revision'; soporteId: string; revisionId: string }
+  | { resultado: 'complemento'; soporteId: string }
+  | { resultado: 'duplicado' | 'fase_no_coincide' | 'placa_no_coincide'; detalle: string };
+
+/**
  * Qué documentos de la hacienda tiene un impuesto, derivado de los tipos de soporte presentes
  * (`RECIBO_IMPUESTO_SIN_MARCA_AGUA` → liquidación; `RECIBO_IMPUESTO` o `RECIBO_CAJA_IMPUESTO` → pago,
  * HU #12591). `null` = ninguno.
