@@ -12,7 +12,7 @@
  * era.
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import {
   CONCURRENCIA_CERTIFICACION,
   ESTADOS_IMPUESTO_CERTIFICABLES,
@@ -34,7 +34,7 @@ import {
   type RegistroRuntCertificado,
 } from './certificacion-runt.js';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
-import { buscarConAcceso } from './flito-impuestos.service.js';
+import { buscarConAcceso, condicionesColaImpuestos, conJoinsColaImpuestos } from './flito-impuestos.service.js';
 import { limitadorRunt } from './runt-limitador.js';
 
 const log = loggerFor('flito.impuestos.certificacion');
@@ -451,7 +451,14 @@ export async function certificacionVigente(impuestoId: string): Promise<Certific
     ))
     .limit(1);
 
-  if (!row) return null;
+  return row ? aCertificacion(row) : null;
+}
+
+/**
+ * Fila → {@link CertificacionConRegistro}. UNA sola lista blanca para el individual y el lote
+ * (HU #13205): el `snapshot_runt` crudo no sale del servicio, solo lo que `extraerRegistroRunt` deja.
+ */
+function aCertificacion(row: typeof flitoImpuestoCertificaciones.$inferSelect): CertificacionConRegistro {
   return {
     id: row.id,
     impuestoId: row.impuestoId,
@@ -465,4 +472,59 @@ export async function certificacionVigente(impuestoId: string): Promise<Certific
     createdAt: row.createdAt.toISOString(),
     registroRunt: extraerRegistroRunt(row.snapshotRunt),
   };
+}
+
+/** Un impuesto AUTORIZADO del lote del ZIP, con su certificación vigente o `null` (HU #13205). */
+export interface CertificacionLoteItem {
+  impuestoId: string;
+  /** `vehicles.plate` (dato actual de FLITO), no `placaConsultada`: nombra la entrada del ZIP. */
+  placa: string | null;
+  idFlit: string;
+  createdAt: Date;
+  cert: CertificacionConRegistro | null;
+}
+
+/**
+ * Certificaciones vigentes de un LOTE respetando la frontera del gestor (HU #13205, D1).
+ *
+ * Dos consultas, cero N+1: la frontera es exactamente la de `registrosZipImpuestos`
+ * (`condicionesColaImpuestos` con todos los estados + `conJoinsColaImpuestos`) — no se reimplementa,
+ * porque es la vía por la que un gestor descargaría lo de otro. «No existe» y «no es tuyo» no
+ * vuelven: quien llama los calcula como pedidos − devueltos, sin distinguirlos.
+ *
+ * El ORDEN se hace aquí en JS (`createdAt ASC, impuestoId ASC`) y no con `orderBy`: decide el
+ * desempate `-2`/`-3` de los nombres y tiene que ser comprobable.
+ *
+ * Solo la consume `POST /certificados/zip`, que registra el acceso PII: no se sirve por JSON.
+ */
+export async function certificacionesVigentesLoteConAcceso(ids: readonly string[], ctx: ImpuestoCtx): Promise<CertificacionLoteItem[]> {
+  const idsUnicos = [...new Set(ids)];
+  if (idsUnicos.length === 0) return [];
+  const conds = condicionesColaImpuestos(ctx, { estados: [...Object.values(EstadoImpuesto)] });
+  if (conds === null) return []; // gestor sin organismo → nada, nunca la tabla entera
+
+  const autorizados = await conJoinsColaImpuestos(db.select({
+    id: flitoImpuestos.id,
+    createdAt: flitoImpuestos.createdAt,
+    placa: vehicles.plate,
+    idFlit: flitoTramites.idFlit,
+  }).from(flitoImpuestos).$dynamic())
+    .where(and(...conds, inArray(flitoImpuestos.id, idsUnicos)));
+  if (autorizados.length === 0) return [];
+
+  const certs = await db.select()
+    .from(flitoImpuestoCertificaciones)
+    .where(and(
+      inArray(flitoImpuestoCertificaciones.impuestoId, autorizados.map((a) => a.id)),
+      eq(flitoImpuestoCertificaciones.vigente, true),
+    ));
+  // El índice único parcial (impuesto_id WHERE vigente) garantiza ≤1 por impuesto.
+  const porImpuesto = new Map(certs.map((c) => [c.impuestoId, c]));
+
+  return autorizados
+    .map((a) => {
+      const row = porImpuesto.get(a.id);
+      return { impuestoId: a.id, placa: a.placa, idFlit: a.idFlit, createdAt: a.createdAt, cert: row ? aCertificacion(row) : null };
+    })
+    .sort((x, y) => (x.createdAt.getTime() - y.createdAt.getTime()) || (x.impuestoId < y.impuestoId ? -1 : x.impuestoId > y.impuestoId ? 1 : 0));
 }

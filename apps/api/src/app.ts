@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import cors from 'cors';
 import helmet from 'helmet';
 import { sql } from 'drizzle-orm';
-import { CABECERAS_ZIP_SOPORTES } from '@operaciones/shared-types';
+import { CABECERA_CERTIFICADOS_OMITIDOS, CABECERAS_ZIP_SOPORTES } from '@operaciones/shared-types';
 import { env, corsOrigins } from './config/env.js';
 import { db, getPoolStats } from './db/client.js';
 import { errorHandler } from './shared/middleware/errorHandler.js';
@@ -187,7 +187,7 @@ export function createApp() {
     // front cross-origin no tendría de dónde leer el total.
     exposedHeaders: [
       CABECERAS_ZIP_SOPORTES.incluidos, CABECERAS_ZIP_SOPORTES.registros, CABECERAS_ZIP_SOPORTES.omitidos,
-      'X-Total-Count',
+      'X-Total-Count', CABECERA_CERTIFICADOS_OMITIDOS,
     ],
   }));
 
