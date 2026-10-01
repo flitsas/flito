@@ -101,11 +101,13 @@ function cada(intervaloMs: number | null): string {
   return Number.isFinite(min) && min >= 1 ? ` cada ${min} min` : '';
 }
 
-type Caso = 'curso' | 'apagada' | 'rechazado' | 'bloqueado_hasta' | 'bloqueado' | 'lectura' | 'alerta' | 'encendida';
+type Caso = 'curso' | 'detenida_maestro' | 'detenida_interruptor' | 'apagada' | 'rechazado' | 'bloqueado_hasta' | 'bloqueado' | 'lectura' | 'alerta' | 'encendida';
 
 /** Precedencia de la spec (gana la primera que aplique). */
 function casoDe(d: Flit2EstadoConexion, hastaBloqueo: number | null): Caso {
   const a = d.automatica;
+  // HU #13238: con la fuente apagada no hay cuenta ni alerta; se dice que está apagada y por qué.
+  if (d.habilitada === false) return d.motivoDeshabilitada === 'maestro' ? 'detenida_maestro' : 'detenida_interruptor';
   if (a.enCurso) return 'curso';
   if (!a.activa) return 'apagada';
   if (d.problema?.tipo === 'rechazado') return 'rechazado';
@@ -131,6 +133,10 @@ function vistaDe(caso: Caso, d: Flit2EstadoConexion, restante: number | null, ha
   switch (caso) {
     case 'curso':
       return { tono: 'blue', linea: 'Leyendo FLIT 2 ahora…', anuncio: 'Leyendo FLIT 2 ahora.' };
+    case 'detenida_maestro':
+      return { tono: 'muted', linea: 'Lectura automática apagada en el servidor', anuncio: 'La lectura automática de FLIT 2 está apagada en el servidor.' };
+    case 'detenida_interruptor':
+      return { tono: 'muted', linea: 'Lectura automática apagada desde Sincronización', anuncio: 'La lectura automática de FLIT 2 está apagada desde Sincronización.' };
     case 'apagada':
       return { tono: 'muted', linea: 'La lectura automática está apagada en este ambiente', anuncio: 'La lectura automática de FLIT 2 está apagada en este ambiente.' };
     case 'rechazado':
@@ -169,7 +175,7 @@ export function IndicadorFlit2({ dato, desfaseMs }: { dato: Flit2EstadoConexion;
   const v = vistaDe(caso, dato, restante, hastaBloqueo);
   const lector = lectorProxima(caso, proxima, restante);
   return (
-    <div className="mt-0.5 flex items-baseline gap-1.5 sm:justify-end" style={{ color: 'var(--flit-text-secondary)' }}
+    <div className="mt-0.5 flex items-baseline gap-1.5" style={{ color: 'var(--flit-text-secondary)' }}
       data-testid="indicador-flit2" data-caso={caso}>
       <span aria-hidden="true" className="mt-[3px] inline-block h-2 w-2 shrink-0 self-start rounded-full"
         style={{ background: COLOR_PUNTO[v.tono] }} data-testid="punto-flit2" />
