@@ -93,6 +93,27 @@
 // RN-22  `enCurso` del estado: `leerConCandado` marca la lectura DENTRO del candado y la desmarca en un
 //        `finally` (termine bien o con error). Cubre cron, acceso y cualquier origen futuro que pase por
 //        aquí. Con el candado tomado no se marca nada (`flit2-programa.ts`).
+//
+// ── Bug #13198 (el panel no mostraba el fallo del pase) ──────────────────────────────────────────────
+//
+// RN-23  Fallo al pedir el pase (`verificarAcceso`), antes de fijar posición alguna:
+//        · FLIT 2 no responde (red, timeout, 5xx) → intento fallido: `ultimo_intento_en = inicio` y
+//          `ultimo_error_codigo = 'no_responde'` (el estado lo publica como problema de lectura).
+//        · FLIT 2 acaba de responder 423/429 o rechazo (`respondioFlit2`) → solo `ultimo_intento_en =
+//          inicio`, la hora del bloqueo en el estado; el problema ya lo da la fila de acceso.
+//        · Sin acceso utilizable (sin fila, no configurado, marca o pausa ya guardadas: no se llamó a
+//          FLIT 2) → no se anota nada (AC1).
+//        Nunca toca cursor, `since_arranque` ni `ultima_exitosa_en`; el error se propaga igual.
+//
+// ── HU #13237 (interruptor por fuente). Diseño: `docs/diseno/hu-13237-interruptor-sincronizacion.md` ──
+//
+// RN-24  Con el interruptor de FLIT 2 apagado, `leerConCandado` lanza `FuenteApagadaError` ANTES de
+//        pedir el candado: no reserva conexión, no pide el pase, no llama al feed ni toca la posición.
+//        Al encender, la corrida siguiente entra por el cursor guardado: nunca se reinicia (AC6).
+// RN-25  Apagar a mitad de corrida: la guarda se mira al inicio de cada vuelta, ENTRE transacciones de
+//        página (nunca dentro). La página en vuelo termina y mueve su cursor; la siguiente no se pide
+//        (`detenidaPor = 'fuente_apagada'`) y la corrida cierra por el camino normal, soltando el
+//        candado. La relectura (RN-20) tiene la misma guarda y no se lanza si la normal se detuvo (AC7).
 
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { Flit2LecturaResultado } from '@operaciones/shared-types';
@@ -112,8 +133,10 @@ import { getFlit2SyncAdapter } from './flit2-sync.adapter.js';
 import type { Flit2SyncPort, ItemFlit2, PaginaFlit2, PosicionLectura } from './flit2-sync.port.js';
 import { conCandadoLectura } from './flit2-candado.js';
 import { marcarLecturaIniciada, marcarLecturaTerminada } from './flit2-programa.js';
+import { exigirFuenteHabilitada, fuenteHabilitada } from './flito-sync-interruptor.service.js';
 import {
-  Flit2EsperaFeedError, Flit2Error, Flit2LecturaConcurrenteError, Flit2LecturaEnCursoError, Flit2RespuestaError,
+  Flit2BloqueadoError, Flit2EsperaFeedError, Flit2Error, Flit2LecturaConcurrenteError, Flit2LecturaEnCursoError,
+  Flit2NoRespondeError, Flit2RechazadoError, Flit2RespuestaError,
 } from './flit2.errors.js';
 
 const log = loggerFor('flito-sync-flit2');
@@ -386,6 +409,18 @@ async function anotar(set: Partial<typeof flitoSyncFlit2Lectura.$inferInsert>, a
   await db.update(flitoSyncFlit2Lectura).set({ ...set, updatedAt: ahora }).where(eq(flitoSyncFlit2Lectura.id, FILA));
 }
 
+/** RN-23: anota el intento si pedir el pase llegó a FLIT 2. No lanza: el error que importa es el del pase. */
+async function anotarFalloDelPase(e: unknown, inicio: Date): Promise<void> {
+  const noResponde = e instanceof Flit2NoRespondeError;
+  const respondio = (e instanceof Flit2BloqueadoError || e instanceof Flit2RechazadoError) && e.respondioFlit2;
+  if (!noResponde && !respondio) return;
+  try {
+    await anotar(noResponde ? { ultimoIntentoEn: inicio, ultimoErrorCodigo: e.codigo } : { ultimoIntentoEn: inicio }, inicio);
+  } catch (e2) {
+    log.error({ err: e2 instanceof Error ? e2.name : typeof e2 }, 'no se pudo anotar el fallo del pase de FLIT 2');
+  }
+}
+
 /** Código que queda en `ultimo_error_codigo` (≤ 40): el de FLIT 2 si el feed lo dio (RN-12), si no el nuestro. */
 function codigoAnotado(e: unknown): string {
   if (e instanceof Flit2RespuestaError && e.codigoFlit2) return e.codigoFlit2;
@@ -434,8 +469,14 @@ export async function leerIncremental(
     ...contadoresEnCero(), paginas: 0, hasMore: false, modo: 'since', ejecutadoEn: inicio.toISOString(),
   };
 
-  // Sin acceso utilizable no se fija el arranque ni se llama al feed (AC1).
-  const piiDelAcceso = (await port.verificarAcceso())?.conPii ?? true;
+  // Sin acceso utilizable no se fija el arranque ni se llama al feed (AC1); el fallo del pase, RN-23.
+  let piiDelAcceso: boolean;
+  try {
+    piiDelAcceso = (await port.verificarAcceso())?.conPii ?? true;
+  } catch (e) {
+    await anotarFalloDelPase(e, inicio);
+    throw e;
+  }
   let piiAlFinal = piiDelAcceso;
 
   try {
@@ -458,6 +499,8 @@ export async function leerIncremental(
     await anotar({ ultimoIntentoEn: inicio }, inicio);
 
     while (r.paginas < maxPaginas) {
+      // RN-25: apagada entre páginas → no se pide la siguiente; lo guardado queda guardado.
+      if (!(await fuenteHabilitada('flit2'))) { r.detenidaPor = 'fuente_apagada'; break; }
       const pagina = await leerPaginaConEsperas(port, pos, pageSize, restanteMs, esperar);
       const parcial = contadoresEnCero();
       const esperado = cursorLeido;
@@ -494,7 +537,7 @@ export async function leerIncremental(
     await anotar({ ultimaExitosaEn: reloj(), ultimoErrorCodigo: null, atrasada: r.hasMore }, reloj());
     log.info({ ...r, ms: reloj().getTime() - inicio.getTime() }, 'lectura FLIT 2');
     // RN-20: la relectura, solo con la normal al día, con tiempo y con el permiso de vuelta.
-    if (!r.hasMore && piiAlFinal && restanteMs() > 0) {
+    if (!r.hasMore && !r.detenidaPor && piiAlFinal && restanteMs() > 0) {
       await releerEnmascarados(port, { pageSize, maxPaginas, restanteMs, esperar, inicio, piiDelAcceso });
     }
     return r;
@@ -545,6 +588,8 @@ export async function releerEnmascarados(port: Flit2SyncPort, op: OpcionesRelect
     if (!pos) return null;
 
     while (res.paginas < op.maxPaginas) {
+      // RN-25: la relectura también pide a FLIT 2; apagada, no se pide la siguiente página.
+      if (!(await fuenteHabilitada('flit2'))) break;
       const pagina = await leerPaginaConEsperas(port, pos, op.pageSize, op.restanteMs, op.esperar);
       if (!conPiiDe(pagina, op.piiDelAcceso)) {
         log.warn('relectura FLIT 2 sin permiso de datos personales: se deja para otra corrida');
@@ -589,6 +634,8 @@ export async function leerConCandado(
   origen: OrigenLectura, port?: Flit2SyncPort, op: OpcionesLectura = {},
 ): Promise<Flit2LecturaResultado> {
   const limiteMs = LIMITE_CRON_MS;
+  // RN-24: apagada, ni candado ni pase ni feed.
+  await exigirFuenteHabilitada('flit2');
   log.debug({ origen }, 'lectura FLIT 2: se pide el candado');
   // RN-22: la marca va DENTRO del candado; si está tomado, `enCurso` nunca pasa a true.
   const res = await conCandadoLectura(async () => {
@@ -611,7 +658,7 @@ export function detalleAuditoria(r: Flit2LecturaResultado, origen: OrigenLectura
   return `Sync FLIT 2 ${origen === 'cron' ? 'programada' : 'tras guardar el acceso'} (${r.modo}): ${r.leidos} leídos, ${r.nuevos} nuevos, `
     + `${r.actualizados} actualizados, ${r.sinCambios} sin cambios, ${r.conflictos} conflictos, `
     + `${r.sinVehiculo} sin vehículo, ${r.eliminadosIgnorados} eliminados, ${r.invalidos} inválidos; `
-    + `${r.paginas} páginas${r.hasMore ? ' (quedan más)' : ''}.`;
+    + `${r.paginas} páginas${r.hasMore ? ' (quedan más)' : ''}${r.detenidaPor ? '; detenida: fuente apagada' : ''}.`;
 }
 
 /**

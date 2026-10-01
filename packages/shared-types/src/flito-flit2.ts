@@ -86,6 +86,8 @@ export interface Flit2LecturaResultado {
   modo: 'since' | 'cursor';
   /** ISO 8601. */
   ejecutadoEn: string;
+  /** HU #13237: la corrida paró entre páginas porque apagaron la fuente. Ausente si no paró por eso. */
+  detenidaPor?: 'fuente_apagada';
 }
 
 // ── HU #13097 — estado de la conexión con FLIT 2 (`GET /api/flito/sync/flit2/estado`) ──────────────
@@ -126,7 +128,53 @@ export interface Flit2EstadoAutomatica {
   generadoEn: string;
 }
 
-export interface Flit2EstadoConexion {
+// ── HU #13237 — interruptor de sincronización por fuente (`/api/flito/sync/interruptores`) ─────────
+// Diseño: `docs/diseno/hu-13237-interruptor-sincronizacion.md`. Propio de cada ambiente (vive en BD).
+
+export type FuenteSincronizacion = 'flit1' | 'flit2';
+
+/**
+ * Por qué una fuente no corre. `maestro` = la variable de ambiente `FLIT2_SYNC_CRON=false` (solo FLIT 2)
+ * y gana sobre `interruptor` (el que se enciende/apaga desde la pantalla).
+ */
+export type MotivoFuenteDeshabilitada = 'maestro' | 'interruptor';
+
+/** Un interruptor tal como lo devuelve el API. `actualizadoEn`/`actualizadoPor` null = nadie lo ha cambiado. */
+export interface InterruptorFuente {
+  fuente: FuenteSincronizacion;
+  encendido: boolean;
+  /** ISO 8601. */
+  actualizadoEn: string | null;
+  actualizadoPor: { id: number; nombre: string } | null;
+}
+
+/** Respuesta de `GET /api/flito/sync/interruptores`: siempre las dos fuentes, en orden flit1, flit2. */
+export interface InterruptoresSincronizacion {
+  fuentes: InterruptorFuente[];
+  /** `FLIT2_SYNC_CRON` del ambiente. Con false FLIT 2 no corre aunque su interruptor esté encendido. */
+  maestroFlit2: boolean;
+}
+
+/** Cuerpo de `PUT /api/flito/sync/interruptores/:fuente`. */
+export interface GuardarInterruptorInput {
+  encendido: boolean;
+}
+
+/** Lo que el estado de cada fuente dice de su habilitación (AC9). */
+export interface EstadoHabilitacionFuente {
+  habilitada: boolean;
+  /** null con `habilitada: true`. */
+  motivoDeshabilitada: MotivoFuenteDeshabilitada | null;
+}
+
+/** Respuesta de `GET /api/flito/sync/estado` (FLIT 1). */
+export interface SyncEstadoFlit1 extends EstadoHabilitacionFuente {
+  ultimaSincronizacion: string | null;
+  hayTramites: boolean;
+}
+
+/** HU #13237: `habilitada=false` deja `alerta=false` (un apagado intencional no es una falla). */
+export interface Flit2EstadoConexion extends EstadoHabilitacionFuente {
   /** false si no hay acceso guardado o el servidor no tiene FLIT 2 configurado. */
   configurado: boolean;
   /** Solo con configurado=false. */
