@@ -189,8 +189,8 @@ export function LineaEstadoFlit2({ estado }: { estado: UsoEstadoFlit2 }) {
   if (e.fase === 'cargando') {
     valor = (
       <>
-        <div className="mt-0.5 h-3 w-24 animate-pulse rounded sm:ml-auto" style={{ background: 'var(--flit-bg-hover)' }} aria-hidden="true" />
-        <div className="mt-1 h-3 w-32 animate-pulse rounded sm:ml-auto" style={{ background: 'var(--flit-bg-hover)' }} aria-hidden="true" />
+        <div className="mt-0.5 h-3 w-24 animate-pulse rounded" style={{ background: 'var(--flit-bg-hover)' }} aria-hidden="true" />
+        <div className="mt-1 h-3 w-32 animate-pulse rounded" style={{ background: 'var(--flit-bg-hover)' }} aria-hidden="true" />
       </>
     );
   } else if (e.fase === 'error') {
@@ -222,7 +222,7 @@ export function LineaEstadoFlit2({ estado }: { estado: UsoEstadoFlit2 }) {
     );
   }
   return (
-    <div className="text-left text-[11px] leading-tight sm:text-right" style={{ color: 'var(--flit-text-muted)' }}
+    <div className="text-left text-[11px] leading-tight" style={{ color: 'var(--flit-text-muted)' }}
       aria-busy={e.fase === 'cargando' ? true : undefined} data-testid="linea-estado-flit2">
       <div>Última lectura FLIT 2</div>
       <div className="font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>{valor}</div>
@@ -314,18 +314,24 @@ function frasePii(n: number): string {
 
 // ── Aviso de página ─────────────────────────────────────────────────────────────────────────────
 
-export function AvisoEstadoFlit2({ estado }: { estado: UsoEstadoFlit2 }) {
+/**
+ * `apagada` (HU #13238): la fuente está apagada (interruptor o maestro). El aviso «apagada» lo pinta la
+ * sección Sincronización y SUSTITUYE a las frases de alerta y de problema; aquí solo queda lo que sigue
+ * siendo cierto (sin configurar y el párrafo de PII). Con `habilitada=false` nunca hay alerta (AC5).
+ */
+export function AvisoEstadoFlit2({ estado, apagada = false }: { estado: UsoEstadoFlit2; apagada?: boolean }) {
   const { hasFuncion } = useAuth();
   const e = estado.estado;
   // AC7: la frase de «alerta sin problema» lleva la cuenta hasta el próximo intento automático.
-  const conCuenta = e.fase === 'listo' && e.dato.configurado && e.dato.alerta && !e.dato.problema && !!e.dato.automatica?.activa;
+  const detenida = apagada || (e.fase === 'listo' && e.dato.habilitada === false);
+  const conCuenta = !detenida && e.fase === 'listo' && e.dato.configurado && e.dato.alerta && !e.dato.problema && !!e.dato.automatica?.activa;
   const restante = useRestante(
     e.fase === 'listo' ? e.dato.automatica?.proximaEn : null, e.fase === 'listo' ? e.desfaseMs : 0, conCuenta,
   );
   if (e.fase !== 'listo') return null;
   const d = e.dato;
   // Sin configurar nunca hay alerta (AC), aunque llegue marcada por datos viejos.
-  const alerta = d.configurado && d.alerta;
+  const alerta = !detenida && d.configurado && d.alerta;
   const pii = typeof d.piiEnmascarada?.tramites === 'number' && d.piiEnmascarada.tramites > 0 ? d.piiEnmascarada.tramites : 0;
 
   let titulo: string | null = null;
@@ -346,7 +352,7 @@ export function AvisoEstadoFlit2({ estado }: { estado: UsoEstadoFlit2 }) {
       : d.automatica && !d.automatica.activa
         ? 'La lectura automática está apagada en este ambiente. Avísale a quien administra el ambiente.'
         : <>La lectura automática vuelve a intentarlo en <CuentaAviso restante={restante} />; si no lee, revisa {ACCESO}.</>;
-  } else if (d.problema) {
+  } else if (d.problema && !detenida) {
     cuerpo = fraseProblema(d.problema);
   }
   if (!cuerpo && pii === 0) return null;
