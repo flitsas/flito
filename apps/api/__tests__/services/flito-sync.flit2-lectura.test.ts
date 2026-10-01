@@ -1556,3 +1556,116 @@ describe('Bug #13198 · fallo al pedir el pase (RN-23)', () => {
     expect(lectura()).toMatchObject({ ultimoErrorCodigo: null, ultimaExitosaEn: despues, ultimoIntentoEn: despues, cursor: 'c8' });
   });
 });
+
+// ═══ HU #13237 · interruptor por fuente (AC6, AC7) ══════════════════════════════════════════════
+// La guarda lee la fila `flit2` de `flito_sync_interruptor` por la base en memoria (WHERE "fuente" = $1
+// evaluado de verdad): apagar = cambiar esa fila, igual que haría el PUT de otro proceso.
+const { FuenteApagadaError } = await import('../../src/modules/flito-sync/flito-sync-interruptor.service.js');
+
+describe('HU #13237 · interruptor de FLIT 2', () => {
+  const interruptor = (fuente: string) => filas(S.flitoSyncInterruptor).find((f) => f.fuente === fuente)!;
+  const apagar = (fuente = 'flit2') => () => { interruptor(fuente).encendido = false; };
+  beforeEach(() => {
+    candado.tomado = false; candado.tomas = 0; candado.sueltas = 0;
+    filas(S.flitoSyncInterruptor).push(
+      { fuente: 'flit1', encendido: true, updatedAt: null, updatedBy: null },
+      { fuente: 'flit2', encendido: true, updatedAt: null, updatedBy: null },
+    );
+  });
+
+  it('AC6: apagada, la corrida no pide el candado ni el pase ni llama al feed, y no toca la posición', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c7', ultimaExitosaEn: ARRANQUE });
+    interruptor('flit2').encendido = false;
+    const pase = vi.fn(async () => undefined);
+    const { port, llamadas } = puerto([pagina([crudo()], 'c8')], pase);
+    const antes = { ...lectura() };
+    const e = await leerConCandado('cron', port, { ahora: reloj(new Date('2026-09-29T16:00:00Z')) }).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(FuenteApagadaError);
+    expect(e).toMatchObject({ codigo: 'FUENTE_APAGADA', status: 409, fuente: 'flit2' });
+    expect(candado.tomas).toBe(0);
+    expect(pase).not.toHaveBeenCalled();
+    expect(llamadas).toEqual([]);
+    expect(lectura()).toEqual(antes);
+    expect(tramites()).toEqual([]);
+  });
+
+  it('AC6: apagar FLIT 2 no detiene FLIT 1 — la guarda mira solo la fila flit2', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c7' });
+    interruptor('flit1').encendido = false;
+    const { llamadas, port } = puerto([pagina([], 'c8')]);
+    await leerConCandado('cron', port, { ahora: reloj() });
+    expect(llamadas).toHaveLength(1);
+  });
+
+  it('AC6: al encender, la siguiente corrida sigue desde el cursor guardado, sin reiniciar (modo cursor, since_arranque intacto)', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c7' });
+    interruptor('flit2').encendido = false;
+    await leerConCandado('cron', puerto([]).port, { ahora: reloj() }).catch(() => undefined);
+    interruptor('flit2').encendido = true;
+    const { port, llamadas } = puerto([pagina([], 'c8')]);
+    const r = await leerConCandado('cron', port, { ahora: reloj(new Date('2026-09-29T16:00:00Z')) });
+    expect(llamadas.map((l) => ({ cursor: l.cursor, since: l.since }))).toEqual([{ cursor: 'c7', since: undefined }]);
+    expect(r.modo).toBe('cursor');
+    expect(lectura()).toMatchObject({ cursor: 'c8', sinceArranque: ARRANQUE });
+  });
+
+  it('AC7: apagar a mitad (2 páginas programadas) → se pide UNA, se guarda su cursor, no se pide la siguiente y el candado se suelta', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    const { port, llamadas } = puerto([
+      // El apagado llega mientras la página 1 está en vuelo: la página termina y se guarda entera.
+      pagina([crudo()], 'c1', true, apagar()),
+      pagina([crudo({ id: U2, radicado: 'FT1-0000002' })], 'c2', false),
+    ]);
+    const r = await leerConCandado('cron', port, { ahora: reloj() });
+    expect(llamadas.map((l) => l.cursor)).toEqual(['c0']);
+    expect(lectura().cursor).toBe('c1');
+    expect(tramite(U1)).toBeDefined();
+    expect(tramite(U2)).toBeUndefined();
+    expect(r).toMatchObject({ paginas: 1, hasMore: true, leidos: 1, nuevos: 1, detenidaPor: 'fuente_apagada' });
+    // Camino normal: atrasada refleja que queda feed; sin error anotado; candado tomado y soltado una vez.
+    expect(lectura()).toMatchObject({ atrasada: true, ultimoErrorCodigo: null });
+    expect(candado).toMatchObject({ tomado: false, tomas: 1, sueltas: 1 });
+  });
+
+  it('AC7: control — encendida, las mismas 2 páginas se piden las dos', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    const { port, llamadas } = puerto([
+      pagina([crudo()], 'c1', true),
+      pagina([crudo({ id: U2, radicado: 'FT1-0000002', vehiculo: { ...(crudo().vehiculo as Fila), vin: '9FKTEST0000000002' } })], 'c2', false),
+    ]);
+    const r = await leerConCandado('cron', port, { ahora: reloj() });
+    expect(llamadas.map((l) => l.cursor)).toEqual(['c0', 'c1']);
+    expect(r.detenidaPor).toBeUndefined();
+    expect(lectura().cursor).toBe('c2');
+  });
+
+  it('AC7: apagada durante la última página normal, la relectura de enmascarados no pide nada y conserva su posición', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c5', piiEnmascaradaDesde: ARRANQUE, cursorRelectura: 'r3' });
+    const { port, llamadas } = puerto([pagina([], 'c6', false, apagar()), pagina([], 'r4')], async () => ({ conPii: true }));
+    await leerConCandado('cron', port, { ahora: reloj() });
+    expect(llamadas.map((l) => l.cursor)).toEqual(['c5']);
+    expect(lectura()).toMatchObject({ cursor: 'c6', cursorRelectura: 'r3', piiEnmascaradaDesde: ARRANQUE });
+  });
+
+  it('AC7: la relectura se detiene entre sus páginas si apagan a mitad', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c5', piiEnmascaradaDesde: ARRANQUE });
+    const { port, llamadas } = puerto([
+      pagina([], 'c5', false),
+      pagina([], 'r1', true, apagar()),
+      pagina([], 'r2', false),
+    ], async () => ({ conPii: true }));
+    await leerConCandado('cron', port, { ahora: reloj() });
+    expect(llamadas.map((l) => l.cursor ?? l.since)).toEqual(['c5', ARRANQUE.toISOString()]);
+    expect(lectura()).toMatchObject({ cursorRelectura: 'r1' });
+    expect(lectura()!.piiEnmascaradaDesde).not.toBeNull();
+  });
+
+  it('RN-02 del interruptor: sin fila, se trata como encendida y lo avisa en warn (sin PII)', async () => {
+    mem.tablas.set('flito_sync_interruptor', []);
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    const { llamadas, port } = puerto([pagina([], 'c1')]);
+    await leerConCandado('cron', port, { ahora: reloj() });
+    expect(llamadas).toHaveLength(1);
+    expect(logMock.warn).toHaveBeenCalledWith({ fuente: 'flit2' }, expect.stringContaining('sin fila'));
+  });
+});
