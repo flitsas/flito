@@ -26,6 +26,13 @@
 // la fecha leída del recibo cuando es confiable. El dedup por número de recibo de la masiva NO aplica:
 // el consecutivo de caja es otro espacio y ningún AC lo pide. El hash sí cruza contra los TRES tipos.
 //
+// ── Carga por fase desde el impuesto (HU #13208) ─────────────────────────────────────────────────
+// `cargarReciboPorFase`: un archivo, por id y con la fase elegida. Reutiliza la masiva extraída en
+// piezas (`numeroReciboEnOtro`, `escribirPorFase`, `adjuntarAPagado`) sin cambiar su comportamiento.
+// Diferencias con la masiva: manda el id (la placa solo rechaza si se lee CON confianza y es otra),
+// la fase ya cargada en ese impuesto es duplicado (no se reemplaza) y el pago exige el sello PAGADO
+// leído con confianza (P-1: con el sello dudoso va a revisión). Diseño: docs/diseno/hu-13208-*.md.
+//
 // ── Compresión al guardar (HU #13207) ────────────────────────────────────────────────────────────
 // `archivar` pasa el comprobante por `comprimirComprobante` (flito-recibos.compresion.ts) y guarda el
 // resultado; `tamanoBytes` es el de lo guardado. Hash y OCR siguen sobre el original.
@@ -59,8 +66,9 @@ import {
 } from '../../db/schema.js';
 import { registrarCambio } from '../../shared/historial/estado-historial.js';
 import {
-  CampoImpuesto, CARGA_MASIVA_ARCHIVOS_POR_PETICION, CodigoErrorReciboCaja, EstadoImpuesto, ESTADO_IMPUESTO_LABEL,
+  CampoImpuesto, CARGA_MASIVA_ARCHIVOS_POR_PETICION, CodigoErrorCargaPorFase, CodigoErrorReciboCaja, EstadoImpuesto, ESTADO_IMPUESTO_LABEL,
   FaseRecibo, FlujoRevision, MotivoRevision, TipoSoporte, type ExtraccionImpuesto, type ResultadoReciboCaja,
+  type RespuestaCargaPorFase,
 } from '@operaciones/shared-types';
 import {
   extraerReciboCaja, extraerReciboImpuesto, placaDesdeNombre, type DocumentoAAnalizar,
@@ -368,7 +376,6 @@ async function procesarRecibo(
   extraido: ExtraccionImpuesto,
   hash: string,
 ): Promise<void> {
-  const tipo = TIPO_POR_FASE[archivo.fase];
   const placa = extraido[CampoImpuesto.PLACA]?.valor ?? placaDesdeNombre(archivo.originalname);
   if (!placa) {
     // Sin placa no hay llave de cruce. Se descarta con el aviso: el fichero original sigue en manos
@@ -411,43 +418,73 @@ async function procesarRecibo(
 
   // CA-08 (2): mismo número de recibo en otro impuesto (PDF reexportado, bytes distintos).
   const numeroRecibo = extraccion[CampoImpuesto.NUMERO_RECIBO]?.valor ?? null;
-  if (numeroRecibo) {
-    const [mismoNumero] = await db.select({ id: flitoImpuestos.id }).from(flitoImpuestos)
-      .where(and(sql`${flitoImpuestos.extraccion} -> 'numeroRecibo' ->> 'valor' = ${numeroRecibo}`, ne(flitoImpuestos.id, candidato.impuestoId))).limit(1);
-    if (mismoNumero) {
-      res.duplicados.push({ archivo: archivo.originalname, placa, idFlit: candidato.tramiteIdFlit, registroId: mismoNumero.id, detalle: `El recibo número ${numeroRecibo} ya está registrado en otro impuesto.` });
-      return;
-    }
-  }
-
-  if (archivo.fase === FaseRecibo.LIQUIDACION) {
-    // Liquidación del impuesto (AC2/AC3): marca `liquidado_en` sobre el `solicitado`, sin veredicto
-    // y sin revisión. Un valor dudoso simplemente no se escribe; el documento queda archivado igual.
-    const guardado = await archivar(candidato, archivo);
-    const valorLiquidado = await db.transaction(async (tx) => {
-      const soporteId = await insertarSoporte(tx, candidato.impuestoId, archivo, tipo, ctx, guardado, hash);
-      return marcarLiquidado(tx, candidato, extraccion, soporteId, ctx);
-    });
-    res.liquidados.push({ archivo: archivo.originalname, placa, idFlit: candidato.tramiteIdFlit, registroId: candidato.impuestoId,
-      detalle: valorLiquidado !== undefined
-        ? `Liquidación del impuesto registrada. Valor liquidado ${valorLiquidado}; el impuesto sigue en gestión hasta el pago con marca.`
-        : 'Liquidación del impuesto registrada; el valor no se leyó con confianza y no se escribió. El impuesto sigue en gestión hasta el pago con marca.' });
+  const mismoNumero = await numeroReciboEnOtro(numeroRecibo, candidato.impuestoId);
+  if (mismoNumero) {
+    res.duplicados.push({ archivo: archivo.originalname, placa, idFlit: candidato.tramiteIdFlit, registroId: mismoNumero, detalle: `El recibo número ${numeroRecibo} ya está registrado en otro impuesto.` });
     return;
   }
 
-  // Pago con marca (AC4): la única vía a PAGADO. Validado por OCR concilia; dudoso, a revisión.
-  const veredicto = evaluarReciboImpuesto(extraccion, umbral);
-  const guardado = await archivar(candidato, archivo);
+  // Liquidación (AC2/AC3): sin veredicto. Pago con marca (AC4): validado por OCR concilia; dudoso, a revisión.
+  const veredicto = archivo.fase === FaseRecibo.PAGO ? evaluarReciboImpuesto(extraccion, umbral) : null;
+  const escrito = await escribirPorFase(candidato, archivo, archivo.fase, extraccion, veredicto, placa, hash, ctx);
+  const item: ItemRecibo = { archivo: archivo.originalname, placa, idFlit: candidato.tramiteIdFlit, registroId: candidato.impuestoId, detalle: '' };
+  if (escrito.tipo === 'liquidado') {
+    item.detalle = escrito.valorLiquidado !== undefined
+      ? `Liquidación del impuesto registrada. Valor liquidado ${escrito.valorLiquidado}; el impuesto sigue en gestión hasta el pago con marca.`
+      : 'Liquidación del impuesto registrada; el valor no se leyó con confianza y no se escribió. El impuesto sigue en gestión hasta el pago con marca.';
+    res.liquidados.push(item);
+    return;
+  }
+  item.detalle = escrito.tipo === 'pagado' ? 'Conciliado y pagado sin intervención.' : (veredicto?.detalle ?? 'En revisión.');
+  (escrito.tipo === 'pagado' ? res.conciliados : res.enRevision).push(item);
+}
 
-  await db.transaction(async (tx) => {
-    const soporteId = await insertarSoporte(tx, candidato.impuestoId, archivo, tipo, ctx, guardado, hash);
-    if (veredicto.aprobada) await conciliar(tx, candidato, extraccion, soporteId, ctx);
-    else await aRevision(tx, soporteId, extraccion, veredicto, candidato.impuestoId, placa, ctx);
+/**
+ * CA-08 (2): el id de OTRO impuesto que ya registra ese número de recibo (PDF reexportado, bytes
+ * distintos), o null. Sin número leído no hay cruce. La usan la masiva y la carga por fase (HU #13208).
+ */
+async function numeroReciboEnOtro(numeroRecibo: string | null, impuestoId: string): Promise<string | null> {
+  if (!numeroRecibo) return null;
+  const [mismoNumero] = await db.select({ id: flitoImpuestos.id }).from(flitoImpuestos)
+    .where(and(sql`${flitoImpuestos.extraccion} -> 'numeroRecibo' ->> 'valor' = ${numeroRecibo}`, ne(flitoImpuestos.id, impuestoId))).limit(1);
+  return mismoNumero?.id ?? null;
+}
+
+/** Lo que escribió `escribirPorFase`: cada camino lo traduce a su forma (renglón de la masiva o respuesta por id). */
+type Escrito =
+  | { tipo: 'liquidado'; soporteId: string; valorLiquidado: string | undefined }
+  | { tipo: 'pagado'; soporteId: string; valorPagado: string | null; marcadoPorDiferencia: boolean }
+  | { tipo: 'en_revision'; soporteId: string; revisionId: string };
+
+/** Corre DENTRO de la transacción, antes de escribir; si lanza, la transacción no escribe nada (HU #13208, R-1). */
+type Recomprobar = (tx: Tx) => Promise<void>;
+
+/**
+ * La escritura de un recibo sobre un `solicitado`, por fase. No decide nada: recibe el veredicto ya
+ * calculado (la masiva usa `evaluarReciboImpuesto`; la carga por id, `evaluarPagoPorFase`).
+ *   · Liquidación: `marcarLiquidado` (sin veredicto, sin revisión; un valor dudoso no se escribe).
+ *   · Pago: `conciliar` si el veredicto aprueba; `aRevision` con `placaSugerida` si no.
+ * Archiva (con la compresión de la HU #13207) ANTES de abrir la transacción, como siempre.
+ */
+async function escribirPorFase(
+  cand: Candidato, archivo: ArchivoSubido, fase: FaseRecibo, extraccion: ExtraccionImpuesto, veredicto: Veredicto | null,
+  placaSugerida: string | null, hash: string, ctx: ImpuestoCtx, recomprobar?: Recomprobar,
+): Promise<Escrito> {
+  const tipo = TIPO_POR_FASE[fase];
+  const guardado = await archivar(cand, archivo);
+  return db.transaction(async (tx): Promise<Escrito> => {
+    if (recomprobar) await recomprobar(tx);
+    const soporteId = await insertarSoporte(tx, cand.impuestoId, archivo, tipo, ctx, guardado, hash);
+    if (fase === FaseRecibo.LIQUIDACION) {
+      return { tipo: 'liquidado', soporteId, valorLiquidado: await marcarLiquidado(tx, cand, extraccion, soporteId, ctx) };
+    }
+    if (veredicto?.aprobada) {
+      const r = await conciliar(tx, cand, extraccion, soporteId, ctx);
+      return { tipo: 'pagado', soporteId, ...r };
+    }
+    const revisionId = await aRevision(tx, soporteId, extraccion, veredicto ?? { aprobada: false }, cand.impuestoId, placaSugerida, ctx);
+    return { tipo: 'en_revision', soporteId, revisionId };
   });
-
-  const item: ItemRecibo = { archivo: archivo.originalname, placa, idFlit: candidato.tramiteIdFlit, registroId: candidato.impuestoId,
-    detalle: veredicto.aprobada ? 'Conciliado y pagado sin intervención.' : (veredicto.detalle ?? 'En revisión.') };
-  (veredicto.aprobada ? res.conciliados : res.enRevision).push(item);
 }
 
 async function buscarCandidato(placa: string, estado: EstadoImpuesto, lote: LoteRecibos): Promise<Candidato | null> {
@@ -485,21 +522,43 @@ async function buscarCandidato(placa: string, estado: EstadoImpuesto, lote: Lote
  * `valorLiquidado`: el impuesto ya está pagado y la diferencia de valor ya se evaluó.
  */
 async function adjuntarComplemento(archivo: ArchivoSubido, placa: string, fase: FaseRecibo, lote: LoteRecibos, hash: string, ctx: ImpuestoCtx, res: ResultadoRecibos): Promise<boolean> {
-  const tipo = TIPO_POR_FASE[fase];
   const pagado = await buscarCandidato(placa, EstadoImpuesto.PAGADO, lote);
   if (!pagado) return false;
-  const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(flitoSoportes).where(and(eq(flitoSoportes.impuestoId, pagado.impuestoId), eq(flitoSoportes.tipo, tipo), eq(flitoSoportes.descartado, false)));
-  if (Number(n) > 0) return false; // ya tiene esa copia: es duplicado, no complemento
+  const adjunto = await adjuntarAPagado(pagado, archivo, fase, hash, ctx);
+  if (!adjunto) return false; // ya tiene esa copia: es duplicado, no complemento
+  res.complementos.push({ archivo: archivo.originalname, placa, idFlit: pagado.tramiteIdFlit, registroId: pagado.impuestoId, detalle: `Comprobante de ${adjunto.cual} adjuntado al pago de ${pagado.tramiteIdFlit}.` });
+  return true;
+}
+
+/** ¿El impuesto ya tiene un soporte vigente (no descartado) de ese tipo? Una revisión rechazada lo descarta. */
+async function faseYaCargada(escritor: Pick<typeof db, 'select'>, impuestoId: string, tipo: TipoSoporte): Promise<boolean> {
+  const [fila] = await escritor.select({ n: sql<number>`count(*)` }).from(flitoSoportes)
+    .where(and(eq(flitoSoportes.impuestoId, impuestoId), eq(flitoSoportes.tipo, tipo), eq(flitoSoportes.descartado, false)));
+  return Number(fila?.n ?? 0) > 0;
+}
+
+/**
+ * El núcleo del complemento (AC6 de la #12590), ya con el `pagado` en la mano: si ese impuesto no
+ * tiene esa fase, la archiva y la adjunta; la liquidación tardía deja `liquidado_en` si estaba vacío.
+ * Devuelve null si la fase ya estaba. La masiva lo llama tras buscar por placa; la carga por id (HU
+ * #13208), con el candidato del id.
+ */
+async function adjuntarAPagado(
+  pagado: Candidato, archivo: ArchivoSubido, fase: FaseRecibo, hash: string, ctx: ImpuestoCtx, recomprobar?: Recomprobar,
+): Promise<{ soporteId: string; cual: string } | null> {
+  const tipo = TIPO_POR_FASE[fase];
+  if (await faseYaCargada(db, pagado.impuestoId, tipo)) return null;
   const cual = fase === FaseRecibo.LIQUIDACION ? 'la liquidación del impuesto (sin marca)' : 'el pago con marca';
   const marcaLiquidado = fase === FaseRecibo.LIQUIDACION && pagado.liquidadoEn === null;
   const guardado = await archivar(pagado, archivo);
-  await db.transaction(async (tx) => {
-    const soporteId = await insertarSoporte(tx, pagado.impuestoId, archivo, tipo, ctx, guardado, hash);
+  const soporteId = await db.transaction(async (tx) => {
+    if (recomprobar) await recomprobar(tx);
+    const id = await insertarSoporte(tx, pagado.impuestoId, archivo, tipo, ctx, guardado, hash);
     if (marcaLiquidado) await tx.update(flitoImpuestos).set({ liquidadoEn: new Date(), updatedAt: new Date() }).where(eq(flitoImpuestos.id, pagado.impuestoId));
-    await auditEnTx(tx, ctx, pagado.impuestoId, `Comprobante complementario (${cual}) adjuntado al pago de ${pagado.tramiteIdFlit}.${marcaLiquidado ? ' Queda marcado como liquidado.' : ''} Soporte ${soporteId}.`);
+    await auditEnTx(tx, ctx, pagado.impuestoId, `Comprobante complementario (${cual}) adjuntado al pago de ${pagado.tramiteIdFlit}.${marcaLiquidado ? ' Queda marcado como liquidado.' : ''} Soporte ${id}.`);
+    return id;
   });
-  res.complementos.push({ archivo: archivo.originalname, placa, idFlit: pagado.tramiteIdFlit, registroId: pagado.impuestoId, detalle: `Comprobante de ${cual} adjuntado al pago de ${pagado.tramiteIdFlit}.` });
-  return true;
+  return { soporteId, cual };
 }
 
 /**
@@ -752,6 +811,130 @@ export async function cargarReciboCaja(impuestoId: string, archivo: ArchivoSubid
     const revisionId = await aRevision(tx, soporteId, extraccion, veredicto, cand.impuestoId, cand.placa, ctx);
     return { resultado: 'en_revision', soporteId, revisionId };
   });
+}
+
+// ─────────────────────────── Carga por fase desde el impuesto (HU #13208) ───────────
+
+/** Error de negocio de la carga por fase: lleva `codigo` porque la pantalla decide por él. */
+export class CargaPorFaseError extends Error {
+  constructor(public status: number, public codigo: CodigoErrorCargaPorFase, message: string) { super(message); }
+}
+
+/** La fase se ocupó (o el estado cambió) entre la comprobación y la escritura: carrera de dos cargas (R-1). */
+class FaseOcupadaError extends Error {}
+
+/** Copy de negocio de los resultados sin escritura: sin eco de la placa leída ni del nombre del archivo. */
+export const DETALLE_CARGA_POR_FASE = {
+  ARCHIVO_REPETIDO: 'Ese comprobante ya está registrado: el archivo es idéntico a uno cargado antes.',
+  NUMERO_REPETIDO: 'Ese número de recibo ya está registrado en otro impuesto.',
+  PLACA_DISTINTA: 'El comprobante es de otra placa: no corresponde a este impuesto. No se guardó nada.',
+  SELLO_DUDOSO: 'El sello PAGADO no se leyó con confianza; el pago queda en revisión.',
+} as const;
+const detalleFaseOcupada = (fase: FaseRecibo): string => (fase === FaseRecibo.LIQUIDACION
+  ? 'Este impuesto ya tiene su liquidación cargada; no se reemplaza.'
+  : 'Este impuesto ya tiene su pago con marca cargado; no se reemplaza.');
+
+/**
+ * Veredicto del pago cargado por id (D-3 y P-1 del diseño, decidida por David el 2026-09-30): la placa
+ * no es la llave (manda el id), así que la base es `evaluarReciboCaja` —solo el valor total con
+ * confianza—, y ADEMÁS el sello PAGADO tiene que leerse con confianza (`leerSello === true`). Con el
+ * sello dudoso el pago va a `en_revision`, no a `pagado`: sin placa que confirme el documento, un solo
+ * campo confiable no basta. (La masiva, con la placa como segunda evidencia, sí respeta lo declarado.)
+ */
+export function evaluarPagoPorFase(extraccion: ExtraccionImpuesto, umbral: number): Veredicto {
+  const base = evaluarReciboCaja(extraccion, umbral);
+  if (!base.aprobada) return base;
+  if (leerSello(extraccion) !== true) {
+    return { aprobada: false, motivo: MotivoRevision.CONFIANZA_INSUFICIENTE, detalle: DETALLE_CARGA_POR_FASE.SELLO_DUDOSO };
+  }
+  return base;
+}
+
+/**
+ * R-1: dentro de la transacción, con el impuesto bloqueado (`FOR UPDATE`), vuelve a mirar el estado y
+ * si la fase sigue libre. Dos cargas simultáneas de la misma fase: la segunda espera al bloqueo, ve el
+ * soporte de la primera y no escribe. (Lo ya archivado en storage queda huérfano, como en la masiva.)
+ */
+function recomprobarDentro(impuestoId: string, estado: EstadoImpuesto, tipo: TipoSoporte): Recomprobar {
+  return async (tx) => {
+    const [fila] = await tx.select({ estado: flitoImpuestos.estado }).from(flitoImpuestos)
+      .where(eq(flitoImpuestos.id, impuestoId)).for('update');
+    if (!fila || fila.estado !== estado || await faseYaCargada(tx, impuestoId, tipo)) throw new FaseOcupadaError();
+  };
+}
+
+/**
+ * Carga de un comprobante de liquidación o de pago desde el impuesto, eligiendo la fase (HU #13208).
+ * Calco de `cargarReciboCaja`. Orden de decisión —cada paso corta y, hasta la escritura, solo se
+ * escribe la auditoría de un rechazo—:
+ *
+ *   404 no_encontrado        → id inexistente o fuera de la frontera (`buscarConAcceso`) (AC6)
+ *   409 estado_no_permitido  → ni `solicitado` ni `pagado` (AC8)
+ *   duplicado                → archivo idéntico (hash del original), o la fase ya tiene comprobante en
+ *                              este impuesto (ANTES del OCR: no gasta lectura) (AC4)
+ *   503 (OcrNoDisponibleError) → el OCR no respondió; nada archivado
+ *   placa_no_coincide        → placa leída CON confianza y distinta; dudosa o no leída, manda el id (AC5)
+ *   fase_no_coincide         → el sello PAGADO contradice la fase (`vigilarFase`) (AC3)
+ *   duplicado                → el número de recibo ya está en otro impuesto (AC4)
+ *   complemento              → `pagado` sin esa fase: se adjunta (`adjuntarAPagado`) (AC8)
+ *   liquidado | pagado | en_revision → `escribirPorFase` sobre el `solicitado` (AC1/AC2)
+ *
+ * Todo lo que se guarda pasa por `archivar` → misma compresión que la masiva (AC9).
+ */
+export async function cargarReciboPorFase(impuestoId: string, fase: FaseRecibo, archivo: ArchivoSubido, ctx: ImpuestoCtx): Promise<RespuestaCargaPorFase> {
+  const imp = await buscarConAcceso(impuestoId, ctx);
+  if (!imp) throw new CargaPorFaseError(404, CodigoErrorCargaPorFase.NO_ENCONTRADO, 'El impuesto no existe');
+  const estado = imp.estado as EstadoImpuesto;
+  if (estado !== EstadoImpuesto.SOLICITADO && estado !== EstadoImpuesto.PAGADO) {
+    throw new CargaPorFaseError(409, CodigoErrorCargaPorFase.ESTADO_NO_PERMITIDO,
+      `El comprobante solo se carga sobre un impuesto en gestión o pagado. Este está en "${ESTADO_IMPUESTO_LABEL[estado] ?? imp.estado}".`);
+  }
+  const hash = createHash('sha256').update(archivo.buffer).digest('hex');
+  if (await hashReciboYaCargado(hash)) return { resultado: 'duplicado', detalle: DETALLE_CARGA_POR_FASE.ARCHIVO_REPETIDO };
+  const tipo = TIPO_POR_FASE[fase];
+  if (await faseYaCargada(db, impuestoId, tipo)) return { resultado: 'duplicado', detalle: detalleFaseOcupada(fase) };
+  const cand = await candidatoPorImpuestoId(impuestoId);
+  if (!cand) throw new CargaPorFaseError(404, CodigoErrorCargaPorFase.NO_ENCONTRADO, 'El impuesto no existe');
+
+  const lote = await abrirLote(ctx);
+  // El OCR va ANTES de archivar y de abrir la transacción: si no responde, el 503 sale limpio.
+  const extraido = await extraerReciboImpuesto(docDe(archivo, lote.porDefecto));
+  const umbral = umbralDelCandidato(lote, cand.organismoCodigo);
+  const extraccion = remarcarConfiable(extraido, umbral);
+
+  const placa = extraccion[CampoImpuesto.PLACA];
+  if (placa?.confiable && placa.valor && cand.placa && normalizarLlave(placa.valor) !== normalizarLlave(cand.placa)) {
+    await auditEnTx(db, ctx, cand.impuestoId,
+      `Comprobante rechazado por placa (fase ${fase}; leída ${placa.valor} con confianza ${placa.confianza}, umbral ${umbral}; el impuesto es de ${cand.placa}). Trámite ${cand.tramiteIdFlit}.`);
+    return { resultado: 'placa_no_coincide', detalle: DETALLE_CARGA_POR_FASE.PLACA_DISTINTA };
+  }
+  const rechazo = vigilarFase(fase, leerSello(extraccion));
+  if (rechazo) {
+    const lectura = extraccion[CampoImpuesto.SELLO_PAGADO];
+    await auditEnTx(db, ctx, cand.impuestoId,
+      `Comprobante rechazado por fase (declarada ${fase}; sello PAGADO leído ${lectura?.valor ?? '—'} con confianza ${lectura?.confianza ?? 0}, umbral ${umbral}). ${rechazo.detalle} Trámite ${cand.tramiteIdFlit}.`);
+    return { resultado: 'fase_no_coincide', detalle: rechazo.detalle };
+  }
+  if (await numeroReciboEnOtro(extraccion[CampoImpuesto.NUMERO_RECIBO]?.valor ?? null, cand.impuestoId)) {
+    return { resultado: 'duplicado', detalle: DETALLE_CARGA_POR_FASE.NUMERO_REPETIDO };
+  }
+
+  const recomprobar = recomprobarDentro(cand.impuestoId, estado, tipo);
+  try {
+    if (estado === EstadoImpuesto.PAGADO) {
+      const adjunto = await adjuntarAPagado(cand, archivo, fase, hash, ctx, recomprobar);
+      if (!adjunto) return { resultado: 'duplicado', detalle: detalleFaseOcupada(fase) };
+      return { resultado: 'complemento', soporteId: adjunto.soporteId };
+    }
+    const veredicto = fase === FaseRecibo.PAGO ? evaluarPagoPorFase(extraccion, umbral) : null;
+    const e = await escribirPorFase(cand, archivo, fase, extraccion, veredicto, cand.placa, hash, ctx, recomprobar);
+    if (e.tipo === 'liquidado') return { resultado: 'liquidado', soporteId: e.soporteId, valorLiquidado: e.valorLiquidado ?? null };
+    if (e.tipo === 'pagado') return { resultado: 'pagado', soporteId: e.soporteId, valorPagado: e.valorPagado, marcadoPorDiferencia: e.marcadoPorDiferencia };
+    return { resultado: 'en_revision', soporteId: e.soporteId, revisionId: e.revisionId };
+  } catch (err) {
+    if (err instanceof FaseOcupadaError) return { resultado: 'duplicado', detalle: detalleFaseOcupada(fase) };
+    throw err;
+  }
 }
 
 // ─────────────────────────── Reintento de pendientes ─────────────────────────

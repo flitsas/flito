@@ -47,6 +47,7 @@ import { getFlitAdapter } from '../flito-sync/flit.adapter.js';
 import analisisRouter from './flito-impuestos.analisis.routes.js';
 import direccionRouter from './flito-impuestos.direccion.routes.js';
 import certificadosRouter from './flito-impuestos.certificados.routes.js';
+import reciboFaseRouter from './flito-impuestos.recibo-fase.routes.js';
 import { contarDireccionesSinConfirmar } from './flito-impuestos.export-pago.js';
 
 const router = Router();
@@ -54,6 +55,7 @@ router.use(authMiddleware);
 router.use(analisisRouter(contextoImpuesto)); // HU #12825: hereda authMiddleware
 router.use(direccionRouter(contextoImpuesto)); // HU #12833: PATCH /:id/direccion
 router.use(certificadosRouter(contextoImpuesto)); // HU #13205: POST /certificados/zip
+router.use(reciboFaseRouter(contextoImpuesto)); // HU #13208: POST /:id/recibos (carga por fase)
 
 const ESTADOS = ['pendiente', 'solicitado', 'con_novedad', 'pagado'] as const;
 
