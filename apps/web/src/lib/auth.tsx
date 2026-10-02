@@ -10,6 +10,10 @@ interface User {
   role: UserRole;
   allowedPages: string[];
   transitoCodigo?: string | null;
+  /** Correo del usuario (HU #13255). Lo pinta solo `/perfil`; nunca va a consola ni a la URL. */
+  email?: string | null;
+  /** Nombre de negocio del rol en `permisos_roles` (HU #13255): sirve también a roles del panel. */
+  rolNombre?: string | null;
   /**
    * Capacidad de interfaz del canal Cliente (Feature #11912, HU #11914): ¿la compañía de este
    * usuario tiene encendido «SOAT sin trámite»?

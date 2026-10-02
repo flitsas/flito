@@ -233,6 +233,13 @@ async function pedirYLeer<T>(path: string, opts: RequestInit, alRecibir?: Gancho
   if (res.status === 401 && !path.startsWith('/auth/login')) {
     const data = await res.json().catch(() => ({} as Record<string, unknown>));
     const backendMsg = typeof data?.error === 'string' ? data.error : '';
+    // EXCEPCIÓN 2 (HU #13256): `PATCH /users/:id/password` responde 401 «Contraseña actual
+    // incorrecta» cuando falla la contraseña actual, con la sesión intacta. Cerrar la sesión ahí
+    // echaría de /perfil a quien solo se equivocó al teclear. Se exige ruta Y mensaje: un token
+    // vencido en esa misma ruta trae otro texto y sigue cerrando la sesión.
+    if (/^\/users\/\d+\/password$/.test(path) && /contraseña actual/i.test(backendMsg)) {
+      throw new ApiError(401, backendMsg);
+    }
     // El backend distingue "Sesión invalidada…" (permisos cambiados por admin) del
     // resto (token expirado/ inválido). Mapeamos a un motivo legible para Login.
     endSession(/invalidad/i.test(backendMsg) ? 'invalidated' : 'expired');
