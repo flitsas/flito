@@ -65,7 +65,8 @@ test.describe('Perfil — menú de sesión (AC1-AC3)', () => {
     await expect(menu.getByRole('menuitem', { name: 'Perfil' })).toHaveCount(0);
 
     await page.goto('/perfil');
-    await expect(page.getByText(/no tiene acceso|sin acceso|acceso/i).first()).toBeVisible();
+    // Copy real de `components/NoAccess.tsx` con la etiqueta de PAGES.perfil.
+    await expect(page.getByRole('heading', { level: 1, name: 'No tienes acceso a Perfil' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Mi perfil' })).toHaveCount(0);
     await expect(page.getByLabel('Contraseña actual')).toHaveCount(0);
   });
@@ -209,6 +210,18 @@ test.describe('Perfil — cambio de contraseña (AC5-AC7)', () => {
     await expect(page.getByLabel('Contraseña actual')).toHaveValue('Mala#2026x');
     await expect(page.getByLabel('Contraseña nueva', { exact: true })).toHaveValue(VALIDA);
     await expect(page).toHaveURL(/\/perfil$/);
+  });
+
+  test('401 de token vencido en el mismo PATCH SÍ cierra la sesión: va a /login y borra el token', async ({ page }) => {
+    // Gemelo del anterior: la excepción de `api.ts` exige ruta Y mensaje. Si solo mirara la ruta,
+    // una sesión vencida se quedaría en /perfil con «La contraseña actual no es correcta.».
+    espiarPassword(page, (r) => r.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'Token inválido o expirado' }) }));
+    await llenar(page, 'Actual#2026', VALIDA, VALIDA);
+    await page.getByRole('button', { name: 'Guardar contraseña' }).click();
+    await expect(page).toHaveURL(/\/login/);
+    await expect(page.locator('#login-username')).toBeVisible();
+    expect(await page.evaluate(() => localStorage.getItem('token'))).toBeNull();
+    await expect(page.getByText('La contraseña actual no es correcta.')).toHaveCount(0);
   });
 
   test('429 → aviso de formulario con el freno; 500 → aviso genérico; nunca el texto del API', async ({ page }) => {
