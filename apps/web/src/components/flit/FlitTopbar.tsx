@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../lib/auth';
+import { hasPage } from '../../lib/permissions';
 import { useTheme, type ThemeMode } from '../../lib/theme';
 import { startViewTransition } from '../../lib/viewTransitions';
 import { FLIT_PRODUCT_NAME } from '../../lib/flitBrand';
-import { IconBell, IconSearch, IconMenu, IconLogout, IconChevronDown, IconShield } from './icons';
+import { IconBell, IconSearch, IconMenu, IconLogout, IconChevronDown, IconShield, IconUser } from './icons';
 
 // FlitTopbar — topbar FLIT: marca a la izquierda (antes vivía en el sidebar,
 // eliminado por decisión PO 2026-06-12), trigger ⌘K al centro y a la derecha
@@ -36,6 +37,13 @@ export default function FlitTopbar({ onOpenPalette, onOpenSidebar }: FlitTopbarP
   }, [menuOpen]);
 
   const initial = user?.name?.charAt(0).toUpperCase() ?? '·';
+
+  const puedeVerPerfil = hasPage(user, 'perfil');
+
+  const handlePerfil = (): void => {
+    setMenuOpen(false);
+    startViewTransition(() => navigate('/perfil'));
+  };
 
   const handleLogout = (): void => {
     setMenuOpen(false);
@@ -168,11 +176,23 @@ export default function FlitTopbar({ onOpenPalette, onOpenSidebar }: FlitTopbarP
                 <p className="text-[11px] capitalize" style={{ color: 'var(--flit-text-secondary)' }}>{user?.role ?? '—'}</p>
               </div>
               <div className="p-1.5">
+                {/* Perfil (HU #13256): mismo bloque que «Cerrar sesión», encima. Sin `pagina.perfil` no se pinta. */}
+                {puedeVerPerfil && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={handlePerfil}
+                    className="flit-focus flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-[color:var(--flit-text-secondary)] transition-colors hover:bg-[var(--flit-bg-hover)] hover:text-[color:var(--flit-text-primary)]"
+                  >
+                    <IconUser className="h-4 w-4" />
+                    Perfil
+                  </button>
+                )}
                 <button
                   type="button"
                   role="menuitem"
                   onClick={handleLogout}
-                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-[rgba(228,61,48,0.08)]"
+                  className="flit-focus flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-[rgba(228,61,48,0.08)]"
                   style={{ color: 'var(--flit-text-secondary)' }}
                 >
                   <IconLogout className="h-4 w-4" />

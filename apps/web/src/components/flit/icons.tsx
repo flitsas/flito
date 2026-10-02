@@ -32,6 +32,10 @@ export const IconWrench = (p: IconProps) => (
 export const IconShield = (p: IconProps) => (
   <svg {...base} {...p}><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3Z" /><path d="m9 12 2 2 4-4" /></svg>
 );
+/** Persona — ítem «Perfil» del menú de sesión (HU #13256). */
+export const IconUser = (p: IconProps) => (
+  <svg {...base} {...p}><circle cx="12" cy="8" r="3.5" /><path d="M5 20a7 7 0 0 1 14 0" /></svg>
+);
 export const IconPackage = (p: IconProps) => (
   <svg {...base} {...p}><path d="M12 3 4 7v10l8 4 8-4V7l-8-4Z" /><path d="m4 7 8 4 8-4M12 11v10" /></svg>
 );
