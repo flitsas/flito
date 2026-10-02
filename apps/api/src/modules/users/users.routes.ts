@@ -6,7 +6,8 @@ import { db } from '../../db/client.js';
 import { clients, permisosRoles, users } from '../../db/schema.js';
 import { authMiddleware, invalidateSessionCacheFor } from '../../shared/middleware/auth.js';
 import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
-import { invalidarPermisosDe } from '../../shared/permisos-efectivos.js';
+import { invalidarPermisosDe, resolverPermisos } from '../../shared/permisos-efectivos.js';
+import { passwordChangeLimiter } from '../../shared/middleware/rateLimiter.js';
 import { BloqueoAdministracionError } from '../../shared/permisos-anti-bloqueo.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { sendExcel } from '../../shared/utils/excel.js';
@@ -36,15 +37,28 @@ const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*])/;
 const PASSWORD_MSG = 'Mín 8 caracteres, 1 mayúscula, 1 minúscula, 1 número, 1 especial';
 // Cambio de contraseña — auth solo; el handler decide: la propia siempre, la AJENA con la función
 // `usuarios.contrasena.cambiar_ajena` (guarda en línea, HU #12083; de partida solo `admin`).
+// HU #13255: un principal EXTERNO (canal Cliente) solo cambia la SUYA y solo con `pagina.perfil`;
+// la ajena le está vedada aunque tenga `cambiar_ajena`. Freno por usuario: `passwordChangeLimiter`.
 const passwordSchema = z.object({
     currentPassword: z.string().min(1),
     newPassword: z.string().min(8).regex(PASSWORD_REGEX, PASSWORD_MSG),
 });
-router.patch('/:id/password', authMiddleware, async (req: Request, res: Response) => {
+router.patch('/:id/password', authMiddleware, passwordChangeLimiter, async (req: Request, res: Response) => {
     try {
         const id = parseInt(req.params.id, 10);
         if (!Number.isFinite(id)) {
             res.status(400).json({ error: 'ID inválido' });
+            return;
+        }
+        // Externo = la misma regla que `guardiaCanalCliente` (un resolutor que no decide, cierra). La
+        // foto ya está en caché: la pidió el canal dentro de `authMiddleware`. Mismo cuerpo que el 403
+        // del canal, para que no se distinga qué capa negó. La página se mira en ESA foto y no con
+        // `tieneFuncion`: el lector de guardas (`inventario-guardas.ts`) trata todo `tieneFuncion(req, …)`
+        // como una OPERACIÓN montada del catálogo, y `pagina.perfil` es una página.
+        const p = await resolverPermisos(req.user!.sub);
+        const externo = !p.ok || p.tipoPrincipal === 'externo';
+        if (externo && (req.user!.sub !== id || !p.ok || !p.funciones.has('pagina.perfil'))) {
+            res.status(403).json({ error: 'Sin permisos' });
             return;
         }
         if (req.user!.sub !== id && !(await tieneFuncion(req, 'usuarios.contrasena.cambiar_ajena'))) {
