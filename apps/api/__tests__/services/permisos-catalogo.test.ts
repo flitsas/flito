@@ -7,8 +7,8 @@
 // **Ningún número escrito a mano decide nada aquí, salvo el 43.** El enunciado original de esta HU
 // decía «46 constantes requireRole» y lo medido son 217 rutas guardadas; un test que hubiera fijado
 // el 46 habría pasado en verde dejando fuera lo demás. Por eso los asertos de operaciones comparan
-// CONJUNTOS contra la foto y contra los montajes leídos del fuente, no cardinales. El 48 sí se
-// escribe: es 49 slugs de PAGES menos `flito_ayuda`, y ahí el número ES la afirmación del AC2-bis.
+// CONJUNTOS contra la foto y contra los montajes leídos del fuente, no cardinales. El 49 sí se
+// escribe: es 50 slugs de PAGES menos `flito_ayuda`, y ahí el número ES la afirmación del AC2-bis.
 //
 // Desde la HU #12083 las rutas ya no llevan `requireRole`: la fuente de los ROLES es la foto histórica
 // `inventario.generado.ts` (congelada; se edita a mano solo con migración) y lo que se lee del fuente
@@ -37,15 +37,16 @@ const paginas = catalogo.filter((f) => f.tipo === 'pagina');
 const operaciones = catalogo.filter((f) => f.tipo === 'operacion');
 
 describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo era', () => {
-  it('`PAGE_GROUPS` trae 49 entradas para 48 slugs únicos: `transito` está dos veces', () => {
+  it('`PAGE_GROUPS` trae 50 entradas para 49 slugs únicos: `transito` está dos veces', () => {
     // 44 → 45 / 43 → 44 desde la HU #12375: entra `flito_tarifas` en «Finanzas».
     // 45 → 46 / 44 → 45 desde la HU #12085: entra `roles_permisos` en «Administración».
     // 46 → 47 / 45 → 46 desde la HU #12542: entra `flito_servicios_adicionales` en «Finanzas».
     // 47 → 48 / 46 → 47 desde la HU #12611: entra `flito_comprobantes` en «Finanzas».
     // 48 → 49 / 47 → 48 desde la HU #12623: entra `finanzas_gastos_diarios` en «Finanzas».
+    // 49 → 50 / 48 → 49 desde la HU #13255: entra `perfil` en «General».
     const entradas = PAGE_GROUPS.flatMap((g) => g.pages);
-    expect(entradas).toHaveLength(49);
-    expect(new Set(entradas).size).toBe(48);
+    expect(entradas).toHaveLength(50);
+    expect(new Set(entradas).size).toBe(49);
     const repetidos = entradas.filter((s, i) => entradas.indexOf(s) !== i);
     expect(repetidos).toEqual(['transito']);
   });
@@ -71,9 +72,10 @@ describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo e
     expect(catalogo.map((f) => f.codigo)).not.toContain('pagina.flito_ayuda');
   });
 
-  it('las funciones de tipo `pagina` son 48: los 49 slugs de PAGES menos `flito_ayuda`', () => {
-    expect(Object.keys(PAGES)).toHaveLength(49);
-    expect(paginas).toHaveLength(48);
+  it('las funciones de tipo `pagina` son 49: los 50 slugs de PAGES menos `flito_ayuda`', () => {
+    // HU #13255: +1 (`perfil`).
+    expect(Object.keys(PAGES)).toHaveLength(50);
+    expect(paginas).toHaveLength(49);
     const esperados = Object.keys(PAGES).filter((s) => s !== 'flito_ayuda').sort();
     expect(paginas.map((f) => f.codigo.replace('pagina.', '')).sort()).toEqual(esperados);
   });
@@ -235,7 +237,7 @@ describe('AC4 — el reparto de partida reproduce el estado de hoy (CF-16)', () 
     // queda sin pantallas el día del merge: no es un test de forma, es el seguro de la HU.
     const suyas = porRol('admin').filter((c) => c.startsWith('pagina.')).sort();
     expect(suyas).toEqual(paginas.map((f) => f.codigo).sort());
-    expect(suyas).toHaveLength(48);
+    expect(suyas).toHaveLength(49); // HU #13255: +`pagina.perfil` (la 0218 la reparte a admin)
   });
 
   it('`admin` tiene todas las operaciones salvo las tres del canal Cliente, que son de `cliente`', () => {

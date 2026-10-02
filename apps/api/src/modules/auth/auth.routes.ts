@@ -2,9 +2,9 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import argon2 from 'argon2';
 import { SignJWT } from 'jose';
-import { asc, eq, sql } from 'drizzle-orm';
+import { asc, eq, getTableColumns, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
-import { clients, flitoGestorOrganismos, users } from '../../db/schema.js';
+import { clients, flitoGestorOrganismos, permisosRoles, users } from '../../db/schema.js';
 import { env } from '../../config/env.js';
 import { authMiddleware, blacklistToken } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
@@ -53,7 +53,12 @@ router.post('/login', async (req: Request, res: Response) => {
 
   // Username case-insensitive: 'edison' debe matchear 'Edison'/'EDISON'/etc.
   // Los conductores tipean en móvil y los usernames se crearon con mayúsculas mixtas.
-  const [user] = await db.select().from(users).where(sql`lower(${users.username}) = lower(${username})`).limit(1);
+  // HU #13255 (D1): `rolNombre` = `permisos_roles.nombre` en la MISMA consulta (LEFT JOIN, sin una
+  // lectura de más por login); `null` si el rol no tiene fila en el catálogo.
+  const [user] = await db.select({ ...getTableColumns(users), rolNombre: permisosRoles.nombre })
+    .from(users)
+    .leftJoin(permisosRoles, eq(permisosRoles.codigo, users.role))
+    .where(sql`lower(${users.username}) = lower(${username})`).limit(1);
 
   if (!user || !user.active || user.deletedAt) {
     await audit(req, { action: 'login_failed', resource: 'auth', detail: `Username: ${username.slice(0, 3)}*** - no encontrado, inactivo o de baja` });
@@ -114,10 +119,13 @@ router.post('/login', async (req: Request, res: Response) => {
   // Devolvemos allowedPages "efectivas" (rol defaults ∪ custom) y `puedeSolicitarSoat`
   // igual que /me, para que el frontend pinte la navegación y el canal de SOAT
   // SIN esperar un reload que dispare /me (Bug #11937).
+  // HU #13255: `email` (el del PROPIO usuario, solo en el cuerpo; nunca en URL ni en logs) y
+  // `rolNombre`, con la misma forma que en `/me` para que los dos sobres no diverjan.
   res.json({
     token,
     user: {
-      id: user.id, name: user.name, username: user.username, role: user.role,
+      id: user.id, name: user.name, username: user.username, email: user.email ?? null, role: user.role,
+      rolNombre: user.rolNombre ?? null,
       allowedPages: paginas,
       transitoCodigo,
       puedeSolicitarSoat: await puedeSolicitarSoat({ role: user.role, companiaId: user.companiaId }),
@@ -153,10 +161,15 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
     id: users.id,
     username: users.username,
     name: users.name,
+    // HU #13255: `email` del propio usuario y `rolNombre` del catálogo (LEFT JOIN: misma consulta).
+    email: users.email,
     role: users.role,
+    rolNombre: permisosRoles.nombre,
     allowedPages: users.allowedPages,
     companiaId: users.companiaId,
-  }).from(users).where(eq(users.id, req.user!.sub)).limit(1);
+  }).from(users)
+    .leftJoin(permisosRoles, eq(permisosRoles.codigo, users.role))
+    .where(eq(users.id, req.user!.sub)).limit(1);
 
   if (!user) {
     res.status(404).json({ error: 'Usuario no encontrado' });
@@ -175,6 +188,9 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   // que decide en el servidor: el menú y el 403 no pueden divergir.
   res.json({
     ...publico,
+    // Normalizados: un mock o una fila sin el dato no deben dejar la clave fuera del sobre.
+    email: publico.email ?? null,
+    rolNombre: publico.rolNombre ?? null,
     transitoCodigo,
     allowedPages: await paginasEfectivasDeUsuario(req.user!.sub),
     puedeSolicitarSoat: await puedeSolicitarSoat({ role: user.role, companiaId }),
