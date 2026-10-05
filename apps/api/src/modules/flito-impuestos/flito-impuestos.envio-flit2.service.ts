@@ -24,12 +24,14 @@
 //   `error` local. Logs: solo ids, status y códigos. Nunca placa, documento, nombre de archivo ni URL.
 // RN-09 Lectura (AC10). `envioFlit2DeImpuesto` → null si el trámite no es de FLIT 2 o no hay fila
 //   (resuelve la fuente por join: el ítem del detalle no la trae).
+// RN-10 Reemplazo (HU #13269). `reprogramarEnvioFlit2` en la tx del reemplazo: vuelve a `pendiente`
+//   con el soporte nuevo y `version + 1`; `ya_cargado_gestor` no se reenvía; sin fila no se envía.
 
 import type { Readable } from 'stream';
 import type { Request } from 'express';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import {
-  EstadoEnvioFlit2, MAX_INTENTOS_ENVIO_FLIT2, TipoSoporte, type EnvioComprobanteFlit2,
+  EstadoEnvioFlit2, MAX_INTENTOS_ENVIO_FLIT2, TipoSoporte, type EnvioComprobanteFlit2, type ReprogramacionEnvioFlit2,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { auditLogs, flitoImpuestoEnviosFlit2, flitoImpuestos, flitoSoportes, flitoTramites } from '../../db/schema.js';
@@ -161,6 +163,41 @@ export async function completarComprobanteFlit2(tx: Escritor, impuestoId: string
     sql`(${T.estado} = 'sin_comprobante'
       OR (${T.estado} IN ('pendiente','en_espera') AND ${T.soporteId} IS DISTINCT FROM ${soporteId}))`,
   ));
+}
+
+// ── RN-10 / HU #13269: reprogramación por reemplazo del comprobante ─────────────────────────────
+
+/** Estados que el reemplazo devuelve a `pendiente` (diseño §12). `ya_cargado_gestor` queda fuera: gana el gestor. */
+const REPROGRAMABLES: readonly EstadoEnvioFlit2[] = [
+  EstadoEnvioFlit2.ENVIADO, EstadoEnvioFlit2.ERROR, EstadoEnvioFlit2.PENDIENTE,
+  EstadoEnvioFlit2.EN_ESPERA, EstadoEnvioFlit2.SIN_COMPROBANTE,
+];
+
+/**
+ * RN-10 (HU #13269, diseño §12). DENTRO de la transacción del reemplazo, después de descartar el
+ * soporte viejo e insertar el nuevo. Nunca crea fila (D-5): sin fila no se envía. Con fila
+ * reprogramable: `pendiente` desde cero con el soporte nuevo y `version + 1`, que es lo que impide
+ * (guarda de RN-07) que un envío en vuelo del soporte viejo pise la reprogramación. Limpia la toma,
+ * el último resultado y la espera (el CHECK de la 0219 exige `en_espera` ⇔ ambas columnas).
+ */
+export async function reprogramarEnvioFlit2(
+  tx: Escritor, impuestoId: string, soporteNuevoId: string, ctx: { userId: number | null; username: string }, ahora: Date = new Date(),
+): Promise<ReprogramacionEnvioFlit2> {
+  const [fila] = await tx.select({ id: T.id, estado: T.estado }).from(T).where(eq(T.impuestoId, impuestoId)).for('update');
+  if (!fila) {
+    return { reenviado: false, motivo: await fuenteDelImpuesto(tx, impuestoId) === 'flit2' ? 'sin_envio_previo' : 'no_flit2' };
+  }
+  if (!REPROGRAMABLES.includes(fila.estado)) return { reenviado: false, motivo: 'ya_cargado_gestor' };
+  await tx.update(T).set({
+    estado: EstadoEnvioFlit2.PENDIENTE, soporteId: soporteNuevoId, intentos: 0, proximoIntentoEn: ahora,
+    version: sql`${T.version} + 1`, tomadoPor: null, tomadoEn: null, ultimoResultado: null,
+    syncVersionEspera: null, enEsperaDesde: null, updatedAt: ahora,
+  }).where(eq(T.id, fila.id));
+  await tx.insert(auditLogs).values({
+    userId: ctx.userId, userEmail: ctx.username, action: 'update', resource: 'flito_impuesto', resourceId: impuestoId,
+    detail: `Envío a FLIT 2 reprogramado por reemplazo (estaba ${fila.estado}). Soporte ${soporteNuevoId}.`,
+  });
+  return { reenviado: true };
 }
 
 // ── RN-09 / AC10: lectura para el detalle ───────────────────────────────────────────────────────

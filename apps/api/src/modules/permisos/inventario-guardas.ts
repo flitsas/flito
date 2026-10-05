@@ -106,6 +106,8 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   // HU #12833: corrección de la dirección del comprador; sub-router propio de impuestos (así el
   // inventario no arrastra `POST /:id/reanalizar`, cuyo código ya es de `POST /:id/certificar`).
   { modulo: 'impuestos', fichero: 'flito-impuestos/flito-impuestos.direccion.routes.ts' },
+  // HU #13269: reemplazo del comprobante de pago; sub-router propio de impuestos (solo esta ruta).
+  { modulo: 'impuestos', fichero: 'flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts' },
   // HU #12997: lectura de las solicitudes SOAT incompletas (RUNT caído); fichero hermano de soat.
   { modulo: 'soat', fichero: 'flito-soat/flito-soat-incompletas.routes.ts' },
 ];
