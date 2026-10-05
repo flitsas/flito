@@ -236,12 +236,12 @@ describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idemp
     }
   });
 
-  it('AC4 — `admin` tiene las 48 páginas marcadas UNA A UNA (lo que hace neutro retirar los atajos)', async () => {
+  it('AC4 — `admin` tiene las 49 páginas marcadas UNA A UNA (lo que hace neutro retirar los atajos)', async () => {
     const suyas = (await sql`
       SELECT funcion_codigo FROM permisos_rol_funcion
        WHERE rol_codigo = 'admin' AND funcion_codigo LIKE 'pagina.%'
        ORDER BY funcion_codigo`).map((f) => f.funcion_codigo as string);
-    expect(suyas).toHaveLength(48);
+    expect(suyas).toHaveLength(49); // HU #13255: +`pagina.perfil` (0218)
     const todas = (await sql`
       SELECT codigo FROM permisos_funciones WHERE tipo = 'pagina' ORDER BY codigo`)
       .map((f) => f.codigo as string);

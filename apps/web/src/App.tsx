@@ -40,6 +40,7 @@ const FlitoImpuestos = lazy(() => import('./pages/FlitoImpuestos'));
 const FlitoComprobantes = lazy(() => import('./pages/FlitoComprobantes'));
 const FlitoDerechos = lazy(() => import('./pages/FlitoDerechos'));
 const Users = lazy(() => import('./pages/Users'));
+const Perfil = lazy(() => import('./pages/Perfil'));
 const RolesPermisos = lazy(() => import('./pages/RolesPermisos'));
 const Clients = lazy(() => import('./pages/Clients'));
 const TaxReader = lazy(() => import('./pages/TaxReader'));
@@ -253,6 +254,9 @@ function AppRoutes() {
             solo a `admin`: es lectura de caja, no del reporte, y el admin la concede desde Roles y permisos. */}
         <Route path="/finanzas/gastos-diarios" element={<ProtectedRoute page="finanzas_gastos_diarios"><Lazy><FinanzasGastosDiarios /></Lazy></ProtectedRoute>} />
         <Route path="/users" element={<ProtectedRoute page="users"><Lazy><Users /></Lazy></ProtectedRoute>} />
+        {/* Mi perfil (HU #13256). Slug `perfil` (0218 de la HU #13255). Sin datos de persona en la URL:
+            el id sale de `/auth/me`. Solo se llega por el menú de sesión del Topbar o por URL. */}
+        <Route path="/perfil" element={<ProtectedRoute page="perfil"><Lazy><Perfil /></Lazy></ProtectedRoute>} />
         {/* Roles y permisos (HU #12085). Slug PROPIO `roles_permisos`, que solo reparte la 0187 a `admin`:
             es la pantalla que reparte todas las demás. Sin identificador de rol en la URL (ficha, decisión 13). */}
         <Route path="/roles-permisos" element={<ProtectedRoute page="roles_permisos"><Lazy><RolesPermisos /></Lazy></ProtectedRoute>} />

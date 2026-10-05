@@ -386,3 +386,25 @@ export const comprobantesCargaLimiter = rateLimit({
   message: { error: 'Demasiados envíos de comprobantes seguidos. Espera unos minutos e intenta de nuevo.' },
   store: makeStore('rl:comprobantes-carga:'),
 });
+
+/**
+ * `PATCH /api/users/:id/password`: 10 / 15 min / usuario autenticado (HU #13255, Feature #13254).
+ *
+ * La HU abre la ruta al canal externo (pantalla Perfil), y la regla 18 de AGENTS.md pide freno para
+ * todo endpoint de autenticación: sin él, un token robado sirve para probar la contraseña ACTUAL sin
+ * techo (el 401 de «Contraseña actual incorrecta» es un oráculo). Va DETRÁS de `authMiddleware`, así
+ * que la llave es el `sub` ({@link userOrIpKey}) y no la IP: una oficina sale por una IP pública y los
+ * intentos de una persona no deben dejar fuera a sus compañeros (misma decisión que el Bug #12953).
+ * Cuenta todas las peticiones, no solo los fallos: diez cambios de contraseña en 15 minutos ya no es
+ * un uso legítimo.
+ */
+export const passwordChangeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('password-change:'),
+  handler: frenoConRastro('password-change'),
+  message: { error: 'Demasiados intentos de cambio de contraseña. Espera unos minutos e intenta de nuevo.' },
+  store: makeStore('rl:password-change:'),
+});

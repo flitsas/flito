@@ -86,10 +86,13 @@ export interface RutaCliente {
   /** Qué se rompe si se quita. Sin esto la lista se vuelve incrementable «por si acaso». */
   porque: string;
   /**
-   * HU #12084 (RN-A1): el código de `exigirFuncion` que guarda esta ruta, si lo hay. Es lo que permite
-   * decirle al administrador QUÉ funciones de un rol externo no tendrán efecto por HTTP: todo
-   * `operacion.*` fuera de `FUNCIONES_DEL_CANAL_EXTERNO`. Las tres sin guarda (`/auth/me`,
-   * `/permisos/mios`, `/auth/logout`) no lo declaran. Un test ata cada código al montaje real.
+   * HU #12084 (RN-A1): el código de `exigirFuncion` —o de la guarda del handler— que guarda esta ruta,
+   * si lo hay. Es lo que permite decirle al administrador QUÉ funciones de un rol externo no tendrán
+   * efecto por HTTP: todo `operacion.*` fuera de `FUNCIONES_DEL_CANAL_EXTERNO`. Las tres sin guarda
+   * (`/auth/me`, `/permisos/mios`, `/auth/logout`) no lo declaran. Un test ata cada código al montaje
+   * real; la única guarda EN EL HANDLER (`PATCH /api/users/:id/password` → `pagina.perfil`, HU #13255)
+   * va en la excepción nombrada `GUARDAS_EN_HANDLER` de ese test, porque montar `exigirFuncion` ahí
+   * le quitaría al interno sin Perfil el cambio de su propia contraseña.
    */
   funcion?: string;
 }
@@ -132,6 +135,19 @@ export const RUTAS_PERMITIDAS_CLIENTE: readonly RutaCliente[] = congelar([
   {
     metodo: 'POST', patron: '/api/auth/logout',
     porque: 'Cerrar sesión. Negarlo dejaría el token vivo en el navegador y sin revocar en Redis.',
+  },
+  // ── El cambio de la PROPIA contraseña desde la pantalla Perfil (HU #13255, Feature #13254). Es la
+  // primera entrada fuera de `flito-soat` y la única cuya guarda vive EN EL HANDLER (no hay
+  // `exigirFuncion` montado: el interno sin Perfil la sigue usando). La guarda del handler exige, para
+  // un principal externo, `id === sub` Y `pagina.perfil`; con eso un externo con
+  // `usuarios.contrasena.cambiar_ajena` tampoco toca la clave de otro.
+  {
+    metodo: 'PATCH', patron: '/api/users/:id/password', funcion: 'pagina.perfil',
+    porque: 'Cambiar SU PROPIA contraseña desde Perfil. Sin esta entrada el externo no tiene forma '
+      + 'autónoma de rotar su clave y depende de que un administrador se la restablezca. No es una '
+      + 'puerta abierta: el handler responde 403 a un externo sin `pagina.perfil` o sobre un id que no '
+      + 'es el suyo, exige la contraseña actual y la política de complejidad, y `passwordChangeLimiter` '
+      + 'pone la cuota por usuario.',
   },
   {
     metodo: 'GET', patron: '/api/flito/soat', funcion: 'soat.cola.ver',

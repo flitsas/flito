@@ -3,7 +3,7 @@ name: flit-integration-ado
 description: |
   Registra PRs de GitHub (flitsas/flito) en Azure DevOps: Custom.Commits (HTML canónico), Discussion, hyperlinks; post-merge Deploy DEV/QA/PDN según rama. Aplica igual a HU y a Bug (paridad de AGENTS.md).
   INVOCACIÓN OBLIGATORIA: cargar esta Skill Modo A en CADA PR con work item (HU o Bug); Modo B en CADA merge (o tip de ráfaga). Discussion / comentario branded NO sustituyen Custom.Commits (anti-imitación).
-  Tras Modo B con Deploy*=true → Agent devops-agent M1 (una vez por tip). Modo B en develop deja el WI en Active (DEV no es QA); Modo B en staging encadena flit-gestion-hu Paso 3 (Resolved + aviso al QA humano) y Paso 4 (cascada Feature → Épica).
+  Tras Modo B con Deploy*=true → Agent devops-agent M1 (una vez por tip). En develop: el WI sigue Active y el hilo encadena flit-evidencias-dev (sesión conjunta; capturas en el Feature). En staging: flit-gestion-hu Paso 3 (tag QA + @Daniel Amado + Resolved) y Paso 4 (cascada Feature → Épica).
   Triggers — PR GitHub, Custom.Commits, Deploy DEV, Deploy QA, Deploy PDN, post-merge, Modo A, Modo B, flit-integration-ado, flit-modo-desarrollo-auto pasos 5 y 2b.
 ---
 
@@ -114,6 +114,10 @@ mismo anti-patrón que una HU registrada solo en Discussion.
    M1 al tip tras el último Modo B — no una por PR. Si no hay acceso SSH/URL, reportar
    «devops M1 pendiente — sin acceso» y no inventar VERDE. Smoke/synthetic de PDN siguen
    requiriendo autorización humana (`AGENTS.md`).
+8. **Tras M1 en DEV:** el hilo carga **`Skill flit-evidencias-dev`** (sesión conjunta con el
+   humano; capturas en el Feature). No es de esta skill escribir `Custom.Evidences`.
+9. **Tras Modo B en `staging`:** el hilo carga **`Skill flit-gestion-hu` Paso 3** (tag `QA` +
+   @Daniel Amado + `Resolved`) y **Paso 4**.
 
 **Quién ejecuta Modo B:** hilo principal o **Líder Técnico** (mismo contrato).
 
@@ -292,8 +296,8 @@ HU **o de un Bug** → Modo B (Deploy DEV). Docs/chore: merge listo; no tocar AD
 | Ejecutar merge → `staging` / `release` | **Siempre humano** (`flit-release`) |
 | Verificar merge + Deploy * + Commits integrado (Modo B) | **hilo principal** o **Líder Técnico** |
 | Smoke post-Deploy (M1) | **`devops-agent`** (hilo principal lo invoca tras Modo B) |
-| Evidencias unitarias (`Custom.Evidences`) | rol de desarrollo / tester / **`qa-agent`** |
-| Estado `Resolved` en HU **o Bug** | **Skill `flit-gestion-hu`** Paso 3, **tras el merge de promoción a `staging`** (no tras el merge a `develop`: ahí el WI sigue `Active`). El hilo lo encadena en el mismo ciclo del Modo B de staging; no lo deja pendiente |
+| Evidencias de flujo en DEV (`Custom.Evidences` del **Feature**) | **Skill `flit-evidencias-dev`** (sesión conjunta; capturas) |
+| Estado `Resolved` en HU **o Bug** + tag `QA` + @Daniel Amado | **Skill `flit-gestion-hu`** Paso 3, **tras el merge de promoción a `staging`** (no tras el merge a `develop`: ahí el WI sigue `Active` y corre `flit-evidencias-dev`). El hilo lo encadena en el mismo ciclo del Modo B de staging; no lo deja pendiente |
 | Feature / Épica a `Resolved` (o de vuelta a `Active`) | **Skill `flit-gestion-hu`** Paso 4 (cascada) / Paso 5 (reactivación por hallazgo del QA) |
 | TCs y certificación funcional | **`qa-agent` B pre-PR** (matriz `AGENTS.md`) — también en Bugs |
 

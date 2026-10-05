@@ -3,7 +3,7 @@ name: flit-modo-desarrollo-auto
 description: |
   Modo auto por Feature (FLIT - FLITO): cadena apilada. Cargar ESTA Skill al arrancar el Feature — no improvisar el ciclo.
   Por CADA HU **o Bug** (mismo ciclo — paridad de AGENTS.md): Skill flit-gestion-hu (Active; Épica y Feature padres Active primero) → architecture/ux slim|full si aplica → Agent backend/frontend (prompt denso; NUNCA codear la HU/Bug en el hilo) → verificación P1 (archivos de este WI, no glob del módulo; impl no muta) → Agent qa-agent B + Skill flit-code-review + Skill flit-ayuda-flito (si aplica) ANTES del PR (+ security diff-scoped ∥ db-review si disparan) → PR → Skill flit-integration-ado Modo A → Agent pr-monitor-agent en background **y la siguiente HU arranca YA** → al MERGED: Modo B (DeployDEV; el WI sigue Active) → devops M1 una vez al tip.
-  `Resolved` NO se pone al mergear a develop: llega con la promoción a staging (flit-release → flit-gestion-hu Paso 3 + cascada Feature/Épica). Si un check del PR anterior cae (CI-ROJO CODIGO): pausa momentánea de la HU en curso, corregir el eslabón anterior, relanzar monitor, rebasar y seguir.
+  `Resolved` NO se pone al mergear a develop: llega con la promoción a staging (flit-release → flit-gestion-hu Paso 3 + cascada Feature/Épica). Tras DeployDEV + M1: Skill flit-evidencias-dev (sesión conjunta; capturas en el Feature). Sin Feature COMPLETO no hay flit-release. Si un check del PR anterior cae (CI-ROJO CODIGO): pausa momentánea de la HU en curso, corregir el eslabón anterior, relanzar monitor, rebasar y seguir.
   Ledger obligatorio por work item. PROHIBIDO imitar skills con comentarios ADO branded / wit_* sueltos, PROHIBIDO quedarse esperando el CI sin arrancar la siguiente HU, y PROHIBIDO dejar un Bug promovido a staging sin Resolved. Triggers — modo auto, feature completo, sin interrupción, sigue con la siguiente historia, corrige los bugs, flit-modo-desarrollo-auto.
 ---
 
@@ -18,9 +18,10 @@ apilada igual que las HUs de un Feature: rama `BUG/<ID>-…`, título `BUG <ID>:
 `Active` es fallo de proceso, no un pendiente que se le consulta al humano.
 
 **Dónde termina esta skill:** en el merge a `develop` (DEV) de cada HU y el M1 al tip. En ese
-punto cada WI queda **`Active` + `DeployDEV=true`**. El `Resolved` (= «está en QA») lo pone la
-promoción a `staging` (`flit-release` → `flit-gestion-hu` Paso 3 por WI + Paso 4 cascada a Feature y
-Épica). El QA humano prueba en `staging`, no en DEV: esta skill **no** lo menciona en ningún paso.
+punto cada WI queda **`Active` + `DeployDEV=true`**. Tras M1 al tip corre
+`flit-evidencias-dev` (sesión conjunta; capturas en el Feature). El `Resolved` (= «está en QA»)
+lo pone la promoción a `staging` (`flit-release` → `flit-gestion-hu` Paso 3: tag `QA` +
+@Daniel Amado + Paso 4 cascada). Esta skill **no** menciona a Daniel Amado en DEV.
 
 Esta skill **orquesta**; no duplica la lógica de las otras. La **matriz de invocación** vive en `AGENTS.md` — aquí solo se fija en qué paso del ciclo se dispara cada ejecutor:
 
@@ -35,6 +36,7 @@ Esta skill **orquesta**; no duplica la lógica de las otras. La **matriz de invo
 - `flit-integration-ado` — Modo A al abrir PR y Modo B post-merge (**Skill; `Custom.Commits` obligatorio**)
 - `pr-monitor-agent` — monitoreo del PR y merge a `develop` tras Modo A (**Agent en cada PR**, en background; paso 2b)
 - `devops-agent` — M1 post-Deploy (paso 2b / fin de ráfaga) (**Agent; curl del hilo no cuenta**)
+- `flit-evidencias-dev` — sesión conjunta en DEV + capturas en el Feature (tras M1 al tip; hard-stop de `flit-release`)
 
 ## Contrato de invocación (rompe el ciclo si se viola)
 
@@ -78,7 +80,7 @@ Omitir en silencio = fallo de proceso.
 Pegar en el reporte del hilo (y opcionalmente en el cuerpo del PR) una línea por eslabón:
 
 ```
-<HU|Bug> #<id> ledger: gestion=Skill✅(HH:MM)|❌ · impl=Agent✅|❌ · code-review=Skill✅(HH:MM)|❌ · security=✅|N/A · db=✅|N/A · integration-A=Skill✅(HH:MM)|❌ · qa=HANDOFF✅|SIN-ENTORNO|FAIL-retrabajo|❌ · pr-monitor=Agent MERGED|CI-EN-CURSO|CI-ROJO|CONFLICTO|❌ · integration-B=Skill✅(HH:MM, DeployDEV)|N/A · estado=Active-en-DEV✅|Resolved✅(staging)|❌ · M1=Agent✅|N/A
+<HU|Bug> #<id> ledger: gestion=Skill✅(HH:MM)|❌ · impl=Agent✅|❌ · code-review=Skill✅(HH:MM)|❌ · security=✅|N/A · db=✅|N/A · integration-A=Skill✅(HH:MM)|❌ · qa=HANDOFF✅|SIN-ENTORNO|FAIL-retrabajo|❌ · pr-monitor=Agent MERGED|CI-EN-CURSO|CI-ROJO|CONFLICTO|❌ · integration-B=Skill✅(HH:MM, DeployDEV)|N/A · M1=Agent✅|N/A · evidencias-dev=Skill COMPLETO|PARCIAL|BLOQUEADO|N/A · estado=Active-en-DEV✅|Resolved✅(staging)|❌
 ```
 
 `estado=Active-en-DEV✅` es el cierre **normal** de esta ráfaga: el WI está mergeado, con
@@ -324,6 +326,10 @@ verde y no hay conflictos. No hay un segundo «sí». Opt-out: el humano dijo «
    DESFASE o CD en curso). Si no hay acceso, HANDOFF `SIN-ACCESO` (no fingir VERDE).
 5. Rebasar las ramas pendientes de la pila sobre `origin/develop` y
    `git push --force-with-lease` solo de la rama propia.
+6. **Tras M1 al tip del Feature (o de una HU suelta):** **`Skill flit-evidencias-dev`** —
+   sesión conjunta en DEV con el humano (Claude in Chrome + Playwright). Capturas al
+   Feature. Sin esto el Feature no es promovible. Se puede seguir codeando la siguiente
+   HU; **no** se puede `flit-release`.
 
 **Tras cada merge (agente o humano) de un eslabón:** rebasar las ramas pendientes sobre `develop`
 (`git fetch origin && git rebase origin/develop`) y force-with-lease solo de la rama propia.
@@ -493,8 +499,9 @@ hasta que el humano promueva; el `Resolved` y el aviso al QA llegan con `flit-re
    `.cursor/rules/convenciones-rama-pr.mdc`, bloqueado por el check CI `naming`. En modo continuo,
    la N-ésima nace de la rama de la (N-1) o de `develop` tras merge del eslabón previo; en modo
    secuencial, de `develop` actualizado. Dejarlo escrito en el cuerpo del PR.
-7. **No tocar `Custom.Evidences`** aquí (lo llena el rol de tests/QA) ni los campos `Deploy *`
-   sin pasar por `flit-integration-ado` Modo B.
+7. **No tocar `Custom.Evidences` del Feature** desde esta skill: lo llena
+   `flit-evidencias-dev` (sesión conjunta post-DEV). Los campos `Deploy *` solo vía
+   `flit-integration-ado` Modo B.
 8. Si una HU se bloquea (falta un dato de negocio, un permiso, un archivo de muestra, CI rojo o
    revisión pedida en un eslabón de la pila), **parar esa HU** (y no apilar encima), dejar
    comentario en Discussion explicando el bloqueo, y continuar solo con HUs que **no** dependan
@@ -556,4 +563,5 @@ Estas preguntas **sí** (P9). Distinto de «qué sigue» / «puedo mergear» (pr
 - [ ] Pista B: siguiente HU arrancada **en el mismo turno** en que se lanzó el monitor (no idle «esperando continúa», no «espero el MERGED»)
 - [ ] Si llegó `CI-ROJO` de código del eslabón previo: pausa momentánea aplicada (WIP commiteado, fix en la rama previa, monitor relanzado, rebase, continuar) — sin mezclar diffs ni consultar «¿sigo?»
 - [ ] Tras Modo B / fin de ráfaga: **Agent** `devops-agent` M1 (o HANDOFF `SIN-ACCESO`)
-- [ ] Reporte final: WIs «pendientes de promoción a staging» listados (allí llegan `Resolved`, aviso al QA y cascada Feature/Épica)
+- [ ] **Skill** `flit-evidencias-dev` al tip (sesión conjunta; capturas en el Feature). Sin `COMPLETO` no hay `flit-release`
+- [ ] Reporte final: WIs «pendientes de promoción a staging» listados (allí llegan tag `QA`, aviso a Daniel Amado, `Resolved` y cascada Feature/Épica)

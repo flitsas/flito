@@ -9,7 +9,7 @@ Esta regla **prevalece** sobre atajos del hilo que «parecen» cumplir el proces
 
 ## Principio
 
-Las skills (`flit-gestion-hu`, `flit-code-review`, `flit-integration-ado`, `flit-modo-desarrollo-auto`, …) existen para **ejecutarse**. Un comentario HTML en Azure DevOps del tipo «usando @flit-…», un `wit_*` suelto, o un checklist inventado en el chat **no** sustituyen la skill.
+Las skills (`flit-gestion-hu`, `flit-code-review`, `flit-integration-ado`, `flit-evidencias-dev`, `flit-modo-desarrollo-auto`, …) existen para **ejecutarse**. Un comentario HTML en Azure DevOps del tipo «usando @flit-…», un `wit_*` suelto, o un checklist inventado en el chat **no** sustituyen la skill.
 
 **Aplican igual a HU y a Bug.** `flit-gestion-hu` gobierna el ciclo `Active → Resolved` de **ambos**
 tipos (regla «Paridad HU ↔ Bug» de `AGENTS.md`). Decir «ninguna skill mueve el State de un Bug» y
@@ -52,3 +52,5 @@ Pedido multi-fase / Feature completo → cargar `flit-modo-desarrollo-auto` y/o 
 ## QA (participación mínima)
 
 Tras **cada** HU **o Bug** implementada y **antes del PR** (AC Gherkin, UI, BACKEND-only, o repro corregido) → `qa-agent` modo B como gate de desarrollo (A si faltan TCs). FAIL del gate → corregir **sin abrir el PR**; **sin** Bug/modo C. Modo C solo con pedido explícito del QA humano. Ideal: modo A en paralelo cuando la HU está `Active` con AC listos. Sin `HANDOFF` del agente (o `SIN-ENTORNO` explícito) → **no** abrir el PR. Tras el PR **no** se relanza QA B: eso es el `pr-monitor-agent`.
+
+Tras DeployDEV + M1 (y **siempre** antes de `flit-release`): skill `flit-evidencias-dev` — sesión conjunta en DEV, capturas en el Feature. Vitest / gate B / M1 **no** cuentan. Sin `COMPLETO` → **no** promover a QA. Al llegar a `staging`: Paso 3 con tag `QA` + mención a Daniel Amado.
