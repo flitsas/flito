@@ -65,6 +65,9 @@ const estado = {
   envioTrasReemplazo: null as Envio | undefined | null,
   /** Mientras sea true el detalle responde 500 (el cliente puede reintentar solo un GET). */
   detalleRoto: false,
+  /** Mientras sea true el GET del detalle / el POST del reemplazo no contestan (estado cargando). */
+  retenerDetalle: false,
+  retenerPost: false,
   detalles: 0,
   listados: 0,
   posts: 0,
@@ -74,7 +77,7 @@ async function mock(page: Page) {
   estado.filas = filasIniciales(); estado.extra = iniciales();
   estado.respuesta = { status: 200, body: {} };
   estado.envioTrasReemplazo = undefined;
-  estado.detalleRoto = false; estado.detalles = 0; estado.listados = 0; estado.posts = 0;
+  estado.detalleRoto = false; estado.retenerDetalle = false; estado.retenerPost = false; estado.detalles = 0; estado.listados = 0; estado.posts = 0;
   await page.route(/\/api\/flito\/impuestos\/facetas/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ companias: [], organismos: [] }) }));
   await page.route(/\/api\/flito\/impuestos\?/, (route) => {
@@ -86,9 +89,10 @@ async function mock(page: Page) {
   });
   await page.route(/\/api\/flito\/impuestos\/[a-z0-9]+\/soportes$/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
-  await page.route(/\/api\/flito\/impuestos\/[a-z0-9]+\/recibos\/reemplazar-pago$/, (route) => {
+  await page.route(/\/api\/flito\/impuestos\/[a-z0-9]+\/recibos\/reemplazar-pago$/, async (route) => {
     const id = new URL(route.request().url()).pathname.split('/').at(-3)!;
     estado.posts += 1;
+    while (estado.retenerPost) await new Promise((r) => setTimeout(r, 50));
     const r = estado.respuesta;
     if (r.abortar) return route.abort('failed');
     if (r.status === 200 && (r.body as { resultado?: string }).resultado === 'reemplazado' && estado.envioTrasReemplazo !== undefined) {
@@ -96,11 +100,12 @@ async function mock(page: Page) {
     }
     return route.fulfill({ status: r.status, contentType: 'application/json', body: JSON.stringify(r.body ?? {}) });
   });
-  await page.route(/\/api\/flito\/impuestos\/[a-z0-9]+$/, (route) => {
+  await page.route(/\/api\/flito\/impuestos\/[a-z0-9]+$/, async (route) => {
     const id = new URL(route.request().url()).pathname.split('/').pop()!;
     const f = estado.filas.find((x) => x.id === id);
     if (!f) return route.fallback();
     estado.detalles += 1;
+    while (estado.retenerDetalle) await new Promise((r) => setTimeout(r, 50));
     if (estado.detalleRoto) {
       return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'boom interno' }) });
     }
@@ -313,6 +318,69 @@ test.describe('FLITO — Impuestos · envío del comprobante a FLIT 2 y reemplaz
     estado.detalleRoto = false;
     await cel.getByRole('button', { name: 'Reintentar' }).click();
     await expect(cel.locator('dd')).toContainText('Error de envío');
+  });
+
+  test('AC6 · cargando: la celda muestra el esqueleto con aria-busy hasta que llega el detalle', async ({ page }) => {
+    await iniciar(page);
+    estado.retenerDetalle = true;
+    await page.getByRole('row').filter({ hasText: 'ENV001' }).getByRole('button', { name: 'Ver', exact: true }).click();
+    const detalle = page.getByRole('dialog', { name: 'Impuesto · ENV001' });
+    const cel = celda(detalle);
+    await expect(cel.locator('dt')).toHaveText('Comprobante en FLIT 2');
+    await expect(cel.locator('dd[aria-busy="true"]')).toBeVisible();
+    await expect(cel).not.toContainText('Enviado a FLIT 2');
+    estado.retenerDetalle = false;
+    await expect(cel.locator('dd')).toContainText('Enviado a FLIT 2');
+    await expect(cel.locator('dd[aria-busy="true"]')).toHaveCount(0);
+  });
+
+  test('AC6 · cargando del reemplazo: primaria en progreso, controles bloqueados y el diálogo no se cierra', async ({ page }) => {
+    await iniciar(page);
+    const { modal } = await abrirReemplazo(page, 'ENV001');
+    estado.retenerPost = true;
+    estado.respuesta = { status: 200, body: { resultado: 'reemplazado', soporteId: 'n', soportesDescartados: ['sp'], envioFlit2: { reenviado: true } } };
+    await reemplazarCon(modal);
+    await expect(modal.getByRole('button', { name: 'Validando el comprobante…' })).toBeDisabled();
+    await expect(modal.getByRole('button', { name: 'Cancelar' })).toBeDisabled();
+    await expect(modal.locator('[aria-busy="true"]')).toHaveCount(1);
+    // Ni Escape ni la X cierran mientras la petición está en vuelo.
+    await page.keyboard.press('Escape');
+    await expect(modal).toBeVisible();
+    expect(estado.posts).toBe(1);
+    estado.retenerPost = false;
+    await expect(modal).toHaveCount(0);
+    await expect(page.getByRole('status').filter({ hasText: 'Comprobante reemplazado. FLITO enviará el nuevo a FLIT 2.' })).toBeVisible();
+  });
+
+  test('AC6 · a 360 px la celda y el diálogo de reemplazo no desbordan', async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 780 });
+    await iniciar(page);
+    // OJO: con CUALQUIER modal abierto a <=375 px el documento ya desborda ~78 px por los iconos del
+    // header del shell (`div.flex.items-center.gap-1 sm:gap-2`), con o sin esta HU (medido en SOL001
+    // sin la celda). Por eso no se aserta el scrollWidth global con el modal abierto: se mide la
+    // celda y el diálogo por dentro y contra el viewport.
+    const detalle = await abrirDetalle(page, 'ENV001');
+    const cel = celda(detalle);
+    await expect(cel.locator('dd')).toContainText('Enviado a FLIT 2');
+    const dentro = async (loc: Locator) => {
+      expect(await loc.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+      const b = await loc.boundingBox();
+      expect(b).not.toBeNull();
+      expect(b!.x).toBeGreaterThanOrEqual(0);
+      expect(b!.x + b!.width).toBeLessThanOrEqual(360);
+    };
+    await dentro(cel);
+    await dentro(detalle);
+    const boton = detalle.getByRole('button', { name: 'Reemplazar comprobante' });
+    await dentro(boton);
+    await boton.click();
+    const modal = page.getByRole('dialog', { name: 'Reemplazar comprobante de pago · ENV001' });
+    await expect(modal).toBeVisible();
+    await modal.locator('input[type="file"]').setInputFiles({ ...PDF, name: `comprobante-${'muy-largo-'.repeat(12)}.pdf` });
+    await dentro(modal);
+    const primaria = modal.getByRole('button', { name: 'Reemplazar comprobante' });
+    await expect(primaria).toBeEnabled();
+    await dentro(primaria);
   });
 
   test('a11y · axe sin violaciones graves en el detalle y el diálogo (requiere QA_AXE_CDN/QA_AXE_PATH)', async ({ page }) => {
