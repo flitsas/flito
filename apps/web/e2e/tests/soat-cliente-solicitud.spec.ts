@@ -28,6 +28,7 @@
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, CLIENTE_USER, CLIENTE_CON_CANAL, OPERACIONES_USER } from '../helpers/auth';
+import { fechaLarga } from '../../src/lib/soatCliente';
 
 const PLACA = 'ABC123';
 const VIN = '9BWZZZ377VT004251';
@@ -80,6 +81,23 @@ const tarjetaBloqueo = (page: Page) => page.getByRole('region', { name: 'Este ve
 const RUNT_SIN_LA_CLAVE = {
   vehiculo: RUNT_OK.vehiculo, organismo: RUNT_OK.organismo, propietario: RUNT_OK.propietario,
 };
+
+/**
+ * `yyyy-mm-dd` a `n` días de HOY en Bogotá (−05, sin horario de verano). Bug #13273: con una fecha
+ * fija el aviso caducaba con el calendario —el día que coincidía con hoy la pantalla decía «Vence
+ * hoy, el …» y el aserto «Vence el …» se ponía rojo—. Se toma el día civil de Bogotá y se suma en
+ * UTC por componentes para no arrastrar horas ni el huso de la máquina que corre el test.
+ */
+function aDias(n: number): string {
+  const bogota = new Date(Date.now() - 5 * 3_600_000);
+  const d = new Date(Date.UTC(bogota.getUTCFullYear(), bogota.getUTCMonth(), bogota.getUTCDate() + n));
+  return d.toISOString().slice(0, 10);
+}
+
+/** Vencimiento del aviso: dentro de la ventana de 30 días y lejos de «hoy»/«mañana». */
+const VENCE_PRONTO = aDias(10);
+/** El día anterior, para el aserto negativo del desfase del huso. */
+const VISPERA = aDias(9);
 
 /** Un 200 que SÍ trae aviso. `venceEl` en `yyyy-mm-dd`, como lo manda el servidor. */
 const runtConAviso = (venceEl: unknown, soat: Record<string, unknown> = {}) => ({
@@ -1100,13 +1118,13 @@ test.describe('HU #11967 · la ficha de ayuda in-app del módulo SOAT', () => {
 // pantalla que además abrió el modal encima.
 //
 // **La pantalla no calcula el umbral** (AC3) y aquí se comprueba de la única forma que lo prueba:
-// los mocks mandan fechas absurdas para el reloj del test —una de 2026 y otra de 2099— y las dos
+// los mocks mandan una fecha a 10 días de hoy y otra absurda para el reloj —de 2099— y las dos
 // avisan, porque quien decidió fue el servidor. Un front que restara fechas fallaría con la segunda.
 test.describe('HU #12213 · AC1/AC3 — vigencia próxima: avisa y deja enviar', () => {
   test('el aviso sale ENCIMA de la ficha, con la fecha larga, y la solicitud llega a enviarse', async ({ page }) => {
     await loginAs(page, CLIENTE_CON_CANAL);
     const cola = await mockCola(page);
-    const cap = await mockCanal(page, { preconsulta: runtConAviso('2026-10-05') });
+    const cap = await mockCanal(page, { preconsulta: runtConAviso(VENCE_PRONTO) });
     await page.goto('/flito/soat/solicitud');
     await llenarVehiculo(page);
     await llenarPropietario(page);
@@ -1117,15 +1135,16 @@ test.describe('HU #12213 · AC1/AC3 — vigencia próxima: avisa y deja enviar',
     const aviso = page.getByRole('status').filter({ hasText: 'todavía tiene SOAT activo' });
     await expect(aviso).toBeVisible();
     await expect(aviso).toContainText('Puede continuar');
-    // La fecha, en largo y **sin el desfase del huso**: `new Date('2026-10-05')` es medianoche UTC y
-    // en Colombia (−05) diría el 4. El aserto negativo es el que lo mata; el positivo solo, no.
+    // La fecha, en largo y **sin el desfase del huso**: `new Date('yyyy-mm-dd')` es medianoche UTC y
+    // en Colombia (−05) diría la víspera. El aserto negativo es el que lo mata; el positivo solo, no.
+    // El texto esperado sale del mismo formateador que la pantalla (`fechaLarga`), no de un literal.
     await expect(aviso).toContainText('Este vehículo todavía tiene SOAT activo');
-    await expect(aviso).toContainText('Vence el 5 de octubre de 2026');
-    await expect(aviso).not.toContainText('4 de octubre');
+    await expect(aviso).toContainText(`Vence el ${fechaLarga(VENCE_PRONTO)}`);
+    await expect(aviso).not.toContainText(fechaLarga(VISPERA));
     await expect(aviso).toContainText('Como le faltan 30 días o menos, sí puede enviar la solicitud.');
     // HU #12844 (AC2): los seis datos, en la misma tarjeta que el bloqueo.
     await expect(aviso.locator('dd')).toHaveText([
-      'ASEGURADORA FICTICIA S.A.', '5 de octubre de 2026', 'AT-0000-TEST-01',
+      'ASEGURADORA FICTICIA S.A.', fechaLarga(VENCE_PRONTO), 'AT-0000-TEST-01',
       '15 de marzo de 2026', '10 de marzo de 2026', 'VIGENTE',
     ]);
     // AC3: la variante difiere en título, icono y chip, no solo en color.
@@ -1267,7 +1286,7 @@ test.describe('HU #12213 · AC2/AC4 — el 409 sigue bloqueando y los estados no
   test('un 503 después de un aviso RETIRA el aviso: no queda una buena noticia bajo una banda roja', async ({ page }) => {
     await loginAs(page, CLIENTE_CON_CANAL);
     await mockCola(page);
-    await mockCanal(page, { preconsulta: runtConAviso('2026-10-05') });
+    await mockCanal(page, { preconsulta: runtConAviso(VENCE_PRONTO) });
     await page.goto('/flito/soat/solicitud');
     await llenarVehiculo(page);
     await btnConsultar(page).click();
@@ -1292,7 +1311,7 @@ test.describe('HU #12213 · AC2/AC4 — el 409 sigue bloqueando y los estados no
   test('editar el VIN después del aviso lo retira junto con la ficha y lo dice', async ({ page }) => {
     await loginAs(page, CLIENTE_CON_CANAL);
     await mockCola(page);
-    await mockCanal(page, { preconsulta: runtConAviso('2026-10-05') });
+    await mockCanal(page, { preconsulta: runtConAviso(VENCE_PRONTO) });
     await page.goto('/flito/soat/solicitud');
     await llenarVehiculo(page);
     await btnConsultar(page).click();
