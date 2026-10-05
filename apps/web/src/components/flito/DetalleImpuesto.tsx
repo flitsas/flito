@@ -1,10 +1,13 @@
 // FLITO — Detalle de un impuesto de la cola (modal). Sale de `pages/FlitoImpuestos.tsx` en la HU
 // #12592: la página rozaba `max-lines` y el detalle gana aquí el chip de documentos, el dato
 // «Liquidado el», el botón «Cargar recibo de caja» y su modal. La HU #13209 suma al lado «Cargar
-// comprobante» (liquidación o pago por fase, `ModalCargaReciboFase`).
+// comprobante» (liquidación o pago por fase, `ModalCargaReciboFase`). La HU #13270 suma la celda
+// «Comprobante en FLIT 2» (solo lectura) y «Reemplazar comprobante» (`ModalReemplazoComprobante`).
 
 import { useRef, useState, type ReactNode } from 'react';
-import { ESTADO_IMPUESTO_LABEL, EstadoImpuesto, type DireccionCompradorImpuesto, type FaseRecibo } from '@operaciones/shared-types';
+import {
+  ESTADO_IMPUESTO_LABEL, EstadoImpuesto, TipoSoporte, type DireccionCompradorImpuesto, type FaseRecibo, type ReprogramacionEnvioFlit2,
+} from '@operaciones/shared-types';
 import { api, errorMessage } from '../../lib/api';
 import FlitModal from '../flit/FlitModal';
 import HistorialEstados from '../flit/HistorialEstados';
@@ -16,6 +19,9 @@ import { documentoConTipo } from '../flit/columnasComunes';
 import { FlitField, flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
 import ModalReciboCaja from './ModalReciboCaja';
 import ModalCargaReciboFase, { type ResultadoConEscritura } from './ModalCargaReciboFase';
+import ModalReemplazoComprobante from './ModalReemplazoComprobante';
+import { CeldaEnvioFlit2, textoToastReemplazo } from './EnvioFlit2';
+import { toastOk } from '../flit/ToastFlito';
 import { ChipDocumentos, TONO_IMPUESTO, fecha, pesos, type ImpuestoItem } from './ImpuestoCola';
 import { SeccionValidacion, useDetalleValidacion, type Carga } from './ValidacionRunt';
 import { AvisoDireccion, DireccionComprador, EstadoCargaDireccion } from './DireccionComprador';
@@ -28,6 +34,7 @@ type Accion = 'idle' | 'rechazar' | 'reactivar' | 'reversar' | 'asumir' | 'devol
 
 export default function DetalleImpuesto({
   imp, esOperaciones, esGestor, soloLectura, puedeCargarCaja, puedeCargarComprobante = false, puedeCorregirDireccion = false,
+  puedeReemplazarComprobante = false,
   onClose, onCambio, onTraspaso, accionReintento, sinPermisoReintento,
 }: {
   imp: ImpuestoItem; esOperaciones: boolean; esGestor: boolean; soloLectura: boolean;
@@ -40,6 +47,8 @@ export default function DetalleImpuesto({
   accionReintento?: ReactNode; sinPermisoReintento?: boolean;
   /** `hasFuncion('impuestos.tramite.corregir_direccion')` (HU #12834): sin ella, la dirección es texto. */
   puedeCorregirDireccion?: boolean;
+  /** `hasFuncion('impuestos.recibos.reemplazar')` (HU #13270): sin ella «Reemplazar comprobante» no se pinta. */
+  puedeReemplazarComprobante?: boolean;
 }) {
   const [accion, setAccion] = useState<Accion>('idle');
   const [motivo, setMotivo] = useState('');
@@ -54,6 +63,8 @@ export default function DetalleImpuesto({
   const [reciboCaja, setReciboCaja] = useState(false);
   // Comprobante por fase (HU #13209), encima del detalle.
   const [comprobante, setComprobante] = useState(false);
+  // Reemplazo del comprobante de pago (HU #13270), encima del detalle.
+  const [reemplazo, setReemplazo] = useState(false);
   // Mismo hueco que `pagadoDesde`, para «Cargar comprobante»: si la carga completa las dos fases el
   // botón se apaga en el commit del cierre y el foco cae en «Ver soporte», no en un botón que se va.
   const [ambosDesdeCarga, setAmbosDesdeCarga] = useState(false);
@@ -92,6 +103,16 @@ export default function DetalleImpuesto({
   const ofreceComprobante = puedeCargarComprobante && !soloLectura && !ambosDesdeCarga
     && (enGestion || imp.estado === EstadoImpuesto.PAGADO) && imp.documentos !== 'ambos';
   const sinLiquidacion = imp.liquidadoEn === null;
+  // HU #13270: «hay comprobante de pago vigente». `imp.documentos` NO sirve solo: cuenta el recibo de
+  // caja como «pago» (`documentosDe` en el API) y el reemplazo solo toca el `recibo_impuesto`. Con el
+  // detalle cargado se mira el tipo de sus soportes no descartados; mientras carga (o si el API no
+  // los trae) vale el proxy de `documentos`, y el 409 `sin_comprobante_vigente` ataja el resto.
+  const soportesDetalle = carga.fase === 'listo' ? carga.datos.soportes : undefined;
+  const tienePagoVigente = soportesDetalle
+    ? soportesDetalle.some((s) => s.tipo === TipoSoporte.RECIBO_IMPUESTO)
+    : imp.documentos === 'pago' || imp.documentos === 'ambos';
+  const ofreceReemplazo = puedeReemplazarComprobante && !soloLectura
+    && imp.estado === EstadoImpuesto.PAGADO && tienePagoVigente;
 
   const ejecutar = async (fn: () => Promise<unknown>) => {
     setEnviando(true); setError(null);
@@ -159,6 +180,16 @@ export default function DetalleImpuesto({
     onTraspaso();
   };
 
+  /** 200 `reemplazado`: cierra, un solo toast y dos refrescos sin cerrar el detalle (AC4). */
+  const listoReemplazo = (envio: ReprogramacionEnvioFlit2 | undefined) => {
+    setReemplazo(false);
+    const { texto, largo } = textoToastReemplazo(envio);
+    toastOk(texto, largo ? { duracionMs: 8_000 } : {});
+    recargar();
+    onTraspaso();
+  };
+  const refrescarTodo = () => { recargar(); onTraspaso(); };
+
   return (
     <FlitModal title={`Impuesto · ${imp.placa ?? imp.vin}`} onClose={onClose} wide>
       <div className="space-y-3 text-sm">
@@ -211,6 +242,12 @@ export default function DetalleImpuesto({
                     Cargar recibo de caja
                   </button>
                 )}
+                {ofreceReemplazo && (
+                  <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+                    onClick={() => setReemplazo(true)}>
+                    Reemplazar comprobante
+                  </button>
+                )}
               </div>
               {ofreceCaja && sinLiquidacion && (
                 <p id="recibo-caja-motivo" className="mt-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
@@ -221,6 +258,7 @@ export default function DetalleImpuesto({
               )}
             </dd>
           </div>
+          <CeldaEnvioFlit2 carga={carga} recargar={recargar} hayCargarComprobante={ofreceComprobante} />
           <Dato k="Enviado por" v={imp.enviadoPorNombre ?? '—'} /><Dato k="Enviado" v={fecha(imp.enviadoEn)} />
         </dl>
 
@@ -253,6 +291,12 @@ export default function DetalleImpuesto({
         {comprobante && (
           <ModalCargaReciboFase imp={imp} restoreFocusRef={verSoporteRef}
             onClose={() => setComprobante(false)} onListo={listoComprobante} onRefrescar={onTraspaso} />
+        )}
+
+        {reemplazo && (
+          <ModalReemplazoComprobante imp={imp} restoreFocusRef={verSoporteRef}
+            envioActual={carga.fase === 'listo' ? carga.datos.envioFlit2 : undefined}
+            onClose={() => setReemplazo(false)} onReemplazado={listoReemplazo} onRefrescar={refrescarTodo} />
         )}
 
         <HistorialEstados concepto="impuesto" registroId={imp.id} />

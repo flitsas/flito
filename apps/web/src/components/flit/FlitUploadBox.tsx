@@ -28,12 +28,14 @@ interface FlitUploadBoxProps {
    * escribe fuera no forma parte del nombre accesible del control.
    */
   hint?: string;
+  /** `aria-describedby` del input (HU #13270: el aviso de descarte se lee al llegar al campo). Opcional. */
+  describedBy?: string;
 }
 
 const ACCEPT_POR_DEFECTO = '.pdf,.png,.jpg,.jpeg';
 
 export default function FlitUploadBox(
-  { label, required, state, count, onFile, accept = ACCEPT_POR_DEFECTO, hint }: FlitUploadBoxProps,
+  { label, required, state, count, onFile, accept = ACCEPT_POR_DEFECTO, hint, describedBy }: FlitUploadBoxProps,
 ) {
   const color =
     state === 'rejected' ? 'var(--flit-danger)'
@@ -73,6 +75,7 @@ export default function FlitUploadBox(
       <input
         type="file"
         accept={accept}
+        aria-describedby={describedBy}
         className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ''; }}
       />
