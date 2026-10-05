@@ -182,39 +182,67 @@ describe('TC #12272 AC8 — marcarle TODAS las funciones a un rol externo (CF-13
 // que se DERIVA del `funcion` que cada entrada de `RUTAS_PERMITIDAS_CLIENTE` declara. Lo que este bloque
 // fija: cada código declarado existe en el catálogo y es EXACTAMENTE el que `exigirFuncion` monta en la
 // ruta correspondiente del fuente (por método y ruta relativa a `/api/flito/soat`); las tres entradas
-// sin guarda (`/auth/me`, `/permisos/mios`, `/auth/logout`) no declaran ninguna; y son doce (HU #12815, +2 HU #12997, +1 HU #12998).
+// sin guarda (`/auth/me`, `/permisos/mios`, `/auth/logout`) no declaran ninguna; y son trece (HU #12815, +2 HU #12997, +1 HU #12998,
+// +1 HU #13255).
+// Excepción NOMBRADA — `GUARDAS_EN_HANDLER` (HU #13255): `PATCH /api/users/:id/password` declara
+// `pagina.perfil`, que es una PÁGINA y no se monta con `exigirFuncion` (lo exige el handler solo para un
+// externo; montarlo le quitaría al interno sin Perfil su propia contraseña). Para esas entradas se
+// aserta otra cosa: que la función existe en el catálogo como `pagina`. La guarda real la prueban los
+// tests de comportamiento de `users.password-perfil.test.ts`.
 // Mutación M12: quitar `funcion: 'soat.cola.ver'` de la lista → rojo aquí (y el PUT empieza a avisar de más).
 describe('HU #12084 RN-A1 — FUNCIONES_DEL_CANAL_EXTERNO se deriva de la lista y coincide con la guarda montada', () => {
   const PREFIJO = '/api/flito/soat';
+  const GUARDAS_EN_HANDLER: Readonly<Record<string, string>> = { 'PATCH /api/users/:id/password': 'pagina.perfil' };
+  const clave = (r: { metodo: string; patron: string }) => `${r.metodo} ${r.patron}`;
   const conFuncion = RUTAS_PERMITIDAS_CLIENTE.filter((r) => r.funcion !== undefined);
+  const conExigirFuncion = conFuncion.filter((r) => !(clave(r) in GUARDAS_EN_HANDLER));
   const sinFuncion = RUTAS_PERMITIDAS_CLIENTE.filter((r) => r.funcion === undefined);
 
-  it('son doce rutas con función y tres sin ella, y el conjunto derivado son esas doce', () => {
+  it('son trece rutas con función y tres sin ella, y el conjunto derivado son esas trece', () => {
     // HU #12815: la novena es `POST /soportes/zip` → `soat.soportes.descargar`. HU #12997: la décima y
     // la undécima son `POST /cliente/incompletas/buscar` y `GET /cliente/incompletas/:id`. HU #12998: la
     // duodécima es `POST /cliente/incompletas/:id/reintentar` → `soat.solicitud.reintentar_runt`.
-    expect(conFuncion).toHaveLength(12);
+    // HU #13255: la decimotercera es `PATCH /api/users/:id/password` → `pagina.perfil` (guarda en handler).
+    expect(conFuncion).toHaveLength(13);
+    expect(conExigirFuncion).toHaveLength(12);
     expect(sinFuncion.map((r) => r.patron).sort()).toEqual(['/api/auth/logout', '/api/auth/me', '/api/permisos/mios']);
     expect([...FUNCIONES_DEL_CANAL_EXTERNO].sort()).toEqual(conFuncion.map((r) => r.funcion!).sort());
-    expect(FUNCIONES_DEL_CANAL_EXTERNO.size).toBe(12);
+    expect(FUNCIONES_DEL_CANAL_EXTERNO.size).toBe(13);
+    expect(FUNCIONES_DEL_CANAL_EXTERNO.has('pagina.perfil')).toBe(true);
     expect(FUNCIONES_DEL_CANAL_EXTERNO.has('soat.soportes.descargar')).toBe(true);
   });
 
   it('cada función declarada existe en el catálogo como operación', () => {
     const catalogo = new Map(catalogoCompleto().map((f) => [f.codigo, f]));
-    for (const r of conFuncion) {
+    for (const r of conExigirFuncion) {
       expect(catalogo.get(r.funcion!)?.tipo, `${r.metodo} ${r.patron} → ${r.funcion}`).toBe('operacion');
     }
   });
 
   it('cada función declarada es la que exigirFuncion monta en esa ruta del fuente (mismo método, misma ruta)', () => {
     const montajes = montajesDeFunciones().filter((m) => m.fichero.startsWith('flito-soat/'));
-    for (const r of conFuncion) {
+    for (const r of conExigirFuncion) {
       const ruta = r.patron.slice(PREFIJO.length) || '/';
       const montaje = montajes.find((m) => m.metodo === r.metodo && m.ruta === ruta);
+      // (la iteración es sobre `conExigirFuncion`: las de `GUARDAS_EN_HANDLER` tienen su propio aserto)
       expect(montaje, `${r.metodo} ${r.patron}: hay una ruta guardada en flito-soat/`).toBeDefined();
       expect(montaje!.codigo, `${r.metodo} ${r.patron}`).toBe(r.funcion);
     }
+  });
+
+  it('GUARDAS_EN_HANDLER: cada excepción está en la lista con ESA función, y la función existe en el catálogo como página', () => {
+    const catalogo = new Map(catalogoCompleto().map((f) => [f.codigo, f]));
+    for (const [k, codigo] of Object.entries(GUARDAS_EN_HANDLER)) {
+      const entrada = conFuncion.find((r) => clave(r) === k);
+      expect(entrada, k).toBeDefined();
+      expect(entrada!.funcion, k).toBe(codigo);
+      expect(catalogo.get(codigo)?.tipo, `${k} → ${codigo}`).toBe('pagina');
+    }
+    expect(rutaPermitidaParaCliente('PATCH', '/api/users/42/password')).toBe(true);
+    // Un solo segmento: no abre nada debajo ni otro método.
+    expect(rutaPermitidaParaCliente('PATCH', '/api/users/42/password/x')).toBe(false);
+    expect(rutaPermitidaParaCliente('PUT', '/api/users/42/password')).toBe(false);
+    expect(rutaPermitidaParaCliente('PATCH', '/api/users/42')).toBe(false);
   });
 });
 

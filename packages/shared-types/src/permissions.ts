@@ -100,6 +100,9 @@ export const ROLE_LABELS: Record<UserRole, string> = {
 // ============================================================================
 export const PAGES = {
   dashboard: 'Tablero de control',
+  // HU #13255 (Feature #13254): ver los datos propios y cambiar la contraseña propia. Fuera de
+  // `ROLE_DEFAULT_PAGES`: la 0218 solo la reparte a `admin`; el resto la recibe desde el panel.
+  perfil: 'Perfil',
   vehicles: 'Vehículos',
   clients: 'Clientes y proveedores',
   soat: 'SOAT',
@@ -245,7 +248,7 @@ export const PAGES = {
 export type PageSlug = keyof typeof PAGES;
 
 export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
-  { label: 'General', pages: ['dashboard'] },
+  { label: 'General', pages: ['dashboard', 'perfil'] },
   { label: 'Operaciones', pages: ['vehicles', 'soat', 'tramite', 'tax_reader', 'transito', 'drive'] },
   { label: 'Flota', pages: ['fleet'] },
   { label: 'Mantenimiento', pages: ['maintenance'] },

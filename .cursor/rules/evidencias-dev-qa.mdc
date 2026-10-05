@@ -1,0 +1,28 @@
+---
+description: Gate irrompible — evidencias del Feature en DEV antes de QA; tag QA + Daniel Amado al promover.
+alwaysApply: true
+---
+
+# Evidencias DEV y entrega a QA
+
+Esta regla **prevalece** sobre «promueve a QA» / `flit-release` si el Feature no tiene
+evidencias de la sesión conjunta en DEV.
+
+## Tras Deploy DEV (o antes de QA)
+
+Tras `flit-integration-ado` Modo B (`DeployDEV`) + `devops-agent` M1, el hilo **carga**
+la skill `flit-evidencias-dev` y prueba el flujo **con el humano** (Claude in Chrome +
+Playwright, capturas). Las evidencias van al **Feature** (`Custom.Evidences` + adjuntos),
+no a Discussion ni solo a la HU.
+
+**Hard-stop:** no crear ni mergear el PR `develop → staging` si el Feature no está
+`COMPLETO` (todas las HUs/Bugs que viajan, con captura). Vitest, `qa-agent` B o el M1
+**no** sustituyen esa sesión.
+
+## Al desplegar a QA (`staging`)
+
+`flit-gestion-hu` Paso 3 **siempre**, por cada WI y en el Feature:
+
+1. Tag `QA` en petición **aparte** (`System.Tags`; no mezclar con otros campos).
+2. Mención en Discussion a **Daniel Amado** (`mailto:daniel.amado@flitsas.com`).
+3. `Resolved` de HUs/Bugs → cascada Feature → Épica (Pasos 3 y 4).

@@ -315,12 +315,17 @@ describe('AC2 · B — `GET /:id/soportes` con el token del cliente', () => {
     // el reintento manual de la consulta al RUNT, guardado por `soat.solicitud.reintentar_runt`. La 0212
     // la siembra solo a admin; el Cliente la alcanza solo si el administrador se la da en el panel.
     //
+    // **Y CRECE con la HU #13255** (Feature #13254): entra `PATCH /api/users/:id/password`, el cambio
+    // de la PROPIA contraseña desde Perfil. Es la primera fuera de `flito-soat`; la guarda vive en el
+    // handler (externo ⇒ solo su id y con `pagina.perfil`).
+    //
     // El orden es el de declaración del middleware —lecturas, luego escrituras por HU—: se afirma
     // tal cual para que el diff del rojo señale el sitio exacto de la lista.
     expect(RUTAS_PERMITIDAS_CLIENTE.map((r) => `${r.metodo} ${r.patron}`)).toEqual([
       'GET /api/auth/me',
       'GET /api/permisos/mios',
       'POST /api/auth/logout',
+      'PATCH /api/users/:id/password',
       'GET /api/flito/soat',
       'GET /api/flito/soat/facetas',
       'GET /api/flito/soat/:id',
