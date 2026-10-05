@@ -131,6 +131,30 @@ describe('AC2 — sin la función → 403 y nada cambia', () => {
     expect(extraerMock).not.toHaveBeenCalled();
     nadaEscrito();
   });
+
+  it('sin la función y con un archivo NO permitido → 403 (no el 400 de multer): la guarda va antes que el archivo', async () => {
+    const app = await buildApp();
+    const res = await post(app, await auth('admin', 12, []))
+      .attach('archivo', Buffer.from('hola'), { filename: 'x.txt', contentType: 'text/plain' });
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({ funcion: CODIGO, motivo: 'sin_funcion' });
+    expect(res.body.codigo).toBeUndefined();
+    expect(kdb.select).not.toHaveBeenCalled();
+    expect(extraerMock).not.toHaveBeenCalled();
+    nadaEscrito();
+  });
+
+  it('los 403 no consumen el limitador (30): tras 31 rechazos, el mismo usuario ya con la función pasa', async () => {
+    const app = await buildApp();
+    const sinFuncion = await auth('admin', 13, []);
+    for (let i = 0; i < 31; i++) {
+      expect((await request(app).post(RUTA).set('Authorization', sinFuncion)).status).toBe(403);
+    }
+    const conFuncion = await auth('admin', 13);
+    const r = await request(app).post(RUTA).set('Authorization', conFuncion);
+    expect(r.status).toBe(400); // sin archivo: pasó el limitador (no 429)
+    expect(r.body.codigo).toBe('archivo_invalido');
+  });
 });
 
 describe('AC1 — con la función: reemplaza y reprograma el envío', () => {
