@@ -25,7 +25,7 @@
 // del proceso, y ahí las dos implementaciones se separan.
 process.env.TZ = 'UTC';
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { createKeyedDb } from '../helpers/keyed-db.js';
@@ -328,6 +328,19 @@ describe('`esRenovacionAnticipada` — la frontera es INCLUSIVE y sin fecha no s
 // ═══════════ El punto ÚNICO de decisión: el clasificador (AC6 y AC7) ═════════
 
 describe('`clasificarDesenlaceRunt` — la bifurcación vive en el paso 5 y no altera el orden', () => {
+  // Bug #13273: `hoy` viaja por parámetro, pero `soatVigenteSegunRunt` → `derivePreflightChecks`
+  // decide la vigencia con el reloj REAL del proceso. Sin congelarlo, las fechas del escenario del
+  // PO (vence 2026-10-05, frontera 2026-10-09…) caducan solas y el caso pasa de `renovacion_anticipada`
+  // a `ok`. Se congela solo `Date` —al mediodía de Bogotá de HOY_AC— para no tocar los temporizadores
+  // ni las promesas de los mocks.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(`${HOY_AC}T17:00:00Z`));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   const clasificar = async (respuesta: unknown, hoy = HOY_AC, vin = VIN_RUNT) => {
     const { clasificarDesenlaceRunt } = await umbral();
     return clasificarDesenlaceRunt(respuesta as never, vin, hoy);
