@@ -4,9 +4,18 @@
 //
 // `crearFlit2SyncFake(paginas)` acepta páginas a medida (los tests). Cada página se sirve cuando la
 // posición pedida es su `desde` (`null` = la primera, pedida con `since`). Registra las llamadas.
+//
+// HU #13268 `enviarAdjunto`: simulador del endpoint de adjuntos (FLIT 2 aún no lo expone). Por defecto
+// responde `enviado` (201) con un `adjuntoId` determinista y el sha256 REAL de los bytes; el mismo
+// sha256 otra vez para el mismo trámite → 200 idempotente (`nuevo: false`, AC8); otro sha256 → 201 con
+// `reemplazoDe`. `programarRespuestaAdjunto(idFlit2, [...])` encola desenlaces a medida (uno por llamada).
 
+import { createHash } from 'crypto';
 import { aItemFlit2 } from './flit2-sync-http.adapter.js';
-import type { Flit2SyncPort, ItemFlit2, PaginaFlit2, PosicionLectura, UrlAdjuntoFlit2 } from './flit2-sync.port.js';
+import { TIPO_LIQUIDACION_IMPUESTO } from './flit2-adjuntos.js';
+import type {
+  ArchivoAdjuntoFlit2, Flit2SyncPort, ItemFlit2, PaginaFlit2, PosicionLectura, ResultadoEnvioAdjunto, UrlAdjuntoFlit2,
+} from './flit2-sync.port.js';
 
 export interface PaginaFake {
   /** Cursor con el que se pide esta página; `null` = primera página (con `since`). */
@@ -67,15 +76,45 @@ export interface Flit2SyncFake extends Flit2SyncPort {
    */
   adjuntos: Map<string, UrlAdjuntoFlit2>;
   llamadasAdjunto: { idFlit2: string; adjuntoId: string }[];
+  /** HU #13268: envíos recibidos (sin los bytes: solo tamaño, tipo y sha256). */
+  llamadasEnvio: { idFlit2: string; contentType: string; nombreArchivo: string; tamano: number; sha256: string }[];
+  /** HU #13268: guion por trámite; cada llamada consume el primero. Vacío = comportamiento por defecto. */
+  programarRespuestaAdjunto(idFlit2: string, resultados: ResultadoEnvioAdjunto[]): void;
 }
+
+/** uuid v4 con forma válida derivado del sha256: el mismo archivo da el mismo `adjuntoId`. */
+const uuidDeSha = (h: string): string => `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
 
 export function crearFlit2SyncFake(paginas: PaginaFake[] = paginasPorDefecto()): Flit2SyncFake {
   const llamadas: Flit2SyncFake['llamadas'] = [];
+  const guiones = new Map<string, ResultadoEnvioAdjunto[]>();
+  /** Adjunto vigente DE FLITO por trámite (la idempotencia del contrato compara contra él). */
+  const vigentes = new Map<string, { adjuntoId: string; sha256: string }>();
   const fake: Flit2SyncFake = {
     llamadas,
     conPii: true,
     adjuntos: new Map(),
     llamadasAdjunto: [],
+    llamadasEnvio: [],
+    programarRespuestaAdjunto(idFlit2: string, resultados: ResultadoEnvioAdjunto[]): void {
+      guiones.set(idFlit2, [...(guiones.get(idFlit2) ?? []), ...resultados]);
+    },
+    async enviarAdjunto(idFlit2: string, archivo: ArchivoAdjuntoFlit2): Promise<ResultadoEnvioAdjunto> {
+      const sha256 = createHash('sha256').update(archivo.bytes).digest('hex');
+      fake.llamadasEnvio.push({ idFlit2, contentType: archivo.contentType, nombreArchivo: archivo.nombreArchivo, tamano: archivo.bytes.length, sha256 });
+      const guion = guiones.get(idFlit2);
+      if (guion && guion.length > 0) return guion.shift()!;
+      const previo = vigentes.get(idFlit2);
+      if (previo && previo.sha256 === sha256) {
+        return { tipo: 'enviado', nuevo: false, recibido: { adjuntoId: previo.adjuntoId, tipo: TIPO_LIQUIDACION_IMPUESTO, sha256, reemplazoDe: null, enMatriz: true, pagadoMarcado: true } };
+      }
+      const adjuntoId = uuidDeSha(sha256);
+      vigentes.set(idFlit2, { adjuntoId, sha256 });
+      return {
+        tipo: 'enviado', nuevo: true,
+        recibido: { adjuntoId, tipo: TIPO_LIQUIDACION_IMPUESTO, sha256, reemplazoDe: previo?.adjuntoId ?? null, enMatriz: true, pagadoMarcado: true },
+      };
+    },
     async obtenerUrlAdjunto(idFlit2: string, adjuntoId: string): Promise<UrlAdjuntoFlit2 | null> {
       fake.llamadasAdjunto.push({ idFlit2, adjuntoId });
       return fake.adjuntos.get(`${idFlit2}/${adjuntoId}`) ?? null;

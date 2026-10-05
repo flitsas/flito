@@ -14,6 +14,11 @@ const updateMock = vi.fn();
 const insertMock = vi.fn();
 const transactionMock = vi.fn();
 
+// HU #13268: el enganche al outbox de FLIT 2 se prueba en flito-impuestos.envio-flit2.test.ts; el stub
+// de `tx` de este spec no trae `select`, así que el módulo se sustituye.
+vi.mock('../../src/modules/flito-impuestos/flito-impuestos.envio-flit2.service.js', () => ({
+  programarEnvioFlit2: vi.fn(async () => 'no_flit2'), completarComprobanteFlit2: vi.fn(async () => {}), envioFlit2DeImpuesto: vi.fn(async () => null),
+}));
 vi.mock('../../src/db/client.js', () => ({
   db: { select: selectMock, insert: insertMock, update: updateMock, delete: vi.fn(), transaction: transactionMock, execute: vi.fn() },
   getPoolStats: vi.fn(),
@@ -29,6 +34,8 @@ const {
   confirmar, camposEsperados, listar, resolver, descartar, storageKeySoporte,
 } = await import('../../src/modules/flito-revisiones/flito-revisiones.service.js');
 const { default: revisionesRoutes } = await import('../../src/modules/flito-revisiones/flito-revisiones.routes.js');
+// HU #13268: el módulo del outbox está sustituido arriba; aquí se comprueba la LLAMADA.
+const envio = await import('../../src/modules/flito-impuestos/flito-impuestos.envio-flit2.service.js');
 
 // Ejecuta el callback de tx con un stub que registra las llamadas update/insert.
 function txStub() {
@@ -43,6 +50,7 @@ function txStub() {
 beforeEach(() => {
   selectMock.mockReset(); updateMock.mockReset(); insertMock.mockReset(); transactionMock.mockReset();
   marcarPagadoMock.mockClear();
+  vi.mocked(envio.programarEnvioFlit2).mockClear();
   updateMock.mockReturnValue(chain([]));
   transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(txStub().tx));
 });
@@ -132,11 +140,32 @@ describe('resolver — impuesto en gestión pasa a pagado; factura de venta reac
     expect(transactionMock).toHaveBeenCalled();
   });
 
+  it('HU #13268 (AC1): resolver a pagado programa el envío a FLIT 2 con la tx de la revisión y el impuesto', async () => {
+    const { tx } = txStub();
+    transactionMock.mockImplementation(async (cb: (t: unknown) => Promise<unknown>) => cb(tx));
+    selectMock
+      .mockReturnValueOnce(chain([{ id: 'r1', resuelto: false, modulo: FlujoRevision.IMPUESTOS, extraccion: {}, soporteId: 's1', motivo: 'x' }]))
+      .mockReturnValueOnce(chain([{ id: 'imp1', estado: EstadoImpuesto.SOLICITADO, valorLiquidado: '100' }]));
+    await resolver('r1', 'imp1', { [CampoImpuesto.VALOR_TOTAL]: '634900' }, 'valida', ctx);
+    expect(vi.mocked(envio.programarEnvioFlit2).mock.calls).toEqual([[tx, 'imp1']]);
+    expect(vi.mocked(envio.programarEnvioFlit2).mock.calls[0]![0]).toBe(tx);
+  });
+
+  it('HU #13268: la revisión contable de un impuesto YA pagado no es un camino a pagado → no programa', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([{ id: 'r1', resuelto: false, modulo: FlujoRevision.IMPUESTOS, extraccion: {}, soporteId: 's1', motivo: 'diferencia_valor' }]))
+      .mockReturnValueOnce(chain([{ id: 'imp1', estado: EstadoImpuesto.PAGADO, valorLiquidado: '100' }]));
+    await expect(resolver('r1', 'imp1', {}, 'cerrada', ctx)).resolves.toBeUndefined();
+    expect(transactionMock).toHaveBeenCalled();
+    expect(envio.programarEnvioFlit2).not.toHaveBeenCalled();
+  });
+
   it('impuesto que no está en gestión ni pagado → 400', async () => {
     selectMock
       .mockReturnValueOnce(chain([{ id: 'r1', resuelto: false, modulo: FlujoRevision.IMPUESTOS, extraccion: {}, soporteId: 's1', motivo: 'x' }]))
       .mockReturnValueOnce(chain([{ id: 'imp1', estado: EstadoImpuesto.PENDIENTE, valorLiquidado: null }]));
     await expect(resolver('r1', 'imp1', {}, 'm', ctx)).rejects.toMatchObject({ status: 400 });
+    expect(envio.programarEnvioFlit2).not.toHaveBeenCalled();
   });
 
   it('factura de venta contra impuesto que ya no espera factura (ya solicitado) → 400', async () => {

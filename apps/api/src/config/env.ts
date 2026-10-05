@@ -160,6 +160,10 @@ const envSchema = z.object({
   // 'false'/'0' la apaga. Aun encendida, sin acceso vigente la corrida no llama a FLIT 2.
   // Transform explícito: z.coerce.boolean vería "false" como true.
   FLIT2_SYNC_CRON: z.string().optional().transform((v) => v !== 'false' && v !== '0'),
+  // HU #13268 (ADR-0020): envío del comprobante de pago a FLIT 2. APAGADA por defecto en todos los
+  // ambientes: se enciende cuando FLIT 2 tenga la ruta de adjuntos desplegada allí (D-9). Apagada, el
+  // pago sigue programando la fila del outbox y el cron no toma nada ni gasta intentos.
+  FLIT2_ADJUNTOS_ENVIO_HABILITADO: z.string().optional().transform((v) => v === 'true' || v === '1'),
   // `mock` por defecto: sin credenciales reales, un test o un dev no deben salir a la red.
   COMPARENDOS_SIMIT_MODE: z.enum(['mock', 'real']).default('mock'),
   // Retención del histórico de registros/timeline (CF Habeas Data, Ley 1581). 24 meses por defecto,

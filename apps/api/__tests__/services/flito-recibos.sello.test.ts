@@ -24,6 +24,11 @@ const insertMock = vi.fn();
 const updateMock = vi.fn();
 const transactionMock = vi.fn();
 
+// HU #13268: el enganche al outbox de FLIT 2 se prueba en flito-impuestos.envio-flit2.test.ts; el stub
+// de `tx` de este spec no trae `select`, así que el módulo se sustituye.
+vi.mock('../../src/modules/flito-impuestos/flito-impuestos.envio-flit2.service.js', () => ({
+  programarEnvioFlit2: vi.fn(async () => 'no_flit2'), completarComprobanteFlit2: vi.fn(async () => {}), envioFlit2DeImpuesto: vi.fn(async () => null),
+}));
 vi.mock('../../src/db/client.js', () => ({
   db: { select: selectMock, insert: insertMock, update: updateMock, delete: vi.fn(), transaction: transactionMock, execute: vi.fn() },
   getPoolStats: vi.fn(),
