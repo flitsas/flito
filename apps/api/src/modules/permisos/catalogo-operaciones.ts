@@ -37,6 +37,7 @@ const SOAT_CLI = 'flito-soat/flito-soat-cliente.routes.ts';
 const SOAT_INC = 'flito-soat/flito-soat-incompletas.routes.ts';
 const IMP = 'flito-impuestos/flito-impuestos.routes.ts';
 const IMP_DIR = 'flito-impuestos/flito-impuestos.direccion.routes.ts';
+const IMP_REEMP = 'flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts';
 const DER = 'flito-derechos/flito-derechos.routes.ts';
 const REV = 'flito-revisiones/flito-revisiones.routes.ts';
 const COMP = 'flito-compuerta/flito-compuerta.routes.ts';
@@ -120,6 +121,8 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${IMP} POST /:id/recibo-caja`, 'impuestos.recibos.cargar_caja', 'Cargar recibo de caja', 'Cargar sobre un impuesto con liquidación el recibo de caja del pago en ventanilla y dejarlo pagado.'),
   // HU #12833: textos byte a byte con la 0208.
   op(`${IMP_DIR} PATCH /:id/direccion`, 'impuestos.tramite.corregir_direccion', 'Corregir dirección del comprador', 'Guardar la dirección, municipio y departamento correctos del comprador de un trámite de impuestos.'),
+  // HU #13269: textos byte a byte con la 0220. Nace sin rol (AC7).
+  op(`${IMP_REEMP} POST /:id/recibos/reemplazar-pago`, 'impuestos.recibos.reemplazar', 'Reemplazar el comprobante de pago de un impuesto', 'Sustituir el comprobante de pago ya cargado en un impuesto por otro corregido y, si el trámite viene de FLIT 2, reenviarlo allá.'),
 
   // ── Derechos de tránsito ──────────────────────────────────────────────────────────────────────
   op(`${DER} GET /`, 'derechos.cola.ver', 'Ver los derechos de tránsito', 'Abrir el listado de recibos de derechos cobrados por el organismo.'),
