@@ -28,7 +28,6 @@
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, CLIENTE_USER, CLIENTE_CON_CANAL, OPERACIONES_USER } from '../helpers/auth';
-import { fechaLarga } from '../../src/lib/soatCliente';
 
 const PLACA = 'ABC123';
 const VIN = '9BWZZZ377VT004251';
@@ -98,6 +97,18 @@ function aDias(n: number): string {
 const VENCE_PRONTO = aDias(10);
 /** El día anterior, para el aserto negativo del desfase del huso. */
 const VISPERA = aDias(9);
+
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+/**
+ * `yyyy-mm-dd` → «5 de octubre de 2026», leyendo los componentes del texto. Es a propósito un
+ * formateador PROPIO del test y no `fechaLarga` de la pantalla: si el de producción volviera a
+ * leer la fecha como medianoche UTC, el esperado no se movería con él y el aserto lo mataría.
+ */
+function enLargo(iso: string): string {
+  const [anio, mes, dia] = iso.split('-').map(Number);
+  return `${dia} de ${MESES[mes - 1]} de ${anio}`;
+}
 
 /** Un 200 que SÍ trae aviso. `venceEl` en `yyyy-mm-dd`, como lo manda el servidor. */
 const runtConAviso = (venceEl: unknown, soat: Record<string, unknown> = {}) => ({
@@ -1137,14 +1148,14 @@ test.describe('HU #12213 · AC1/AC3 — vigencia próxima: avisa y deja enviar',
     await expect(aviso).toContainText('Puede continuar');
     // La fecha, en largo y **sin el desfase del huso**: `new Date('yyyy-mm-dd')` es medianoche UTC y
     // en Colombia (−05) diría la víspera. El aserto negativo es el que lo mata; el positivo solo, no.
-    // El texto esperado sale del mismo formateador que la pantalla (`fechaLarga`), no de un literal.
+    // El esperado sale de `enLargo` (propio del test), nunca del formateador de la pantalla.
     await expect(aviso).toContainText('Este vehículo todavía tiene SOAT activo');
-    await expect(aviso).toContainText(`Vence el ${fechaLarga(VENCE_PRONTO)}`);
-    await expect(aviso).not.toContainText(fechaLarga(VISPERA));
+    await expect(aviso).toContainText(`Vence el ${enLargo(VENCE_PRONTO)}`);
+    await expect(aviso).not.toContainText(enLargo(VISPERA));
     await expect(aviso).toContainText('Como le faltan 30 días o menos, sí puede enviar la solicitud.');
     // HU #12844 (AC2): los seis datos, en la misma tarjeta que el bloqueo.
     await expect(aviso.locator('dd')).toHaveText([
-      'ASEGURADORA FICTICIA S.A.', fechaLarga(VENCE_PRONTO), 'AT-0000-TEST-01',
+      'ASEGURADORA FICTICIA S.A.', enLargo(VENCE_PRONTO), 'AT-0000-TEST-01',
       '15 de marzo de 2026', '10 de marzo de 2026', 'VIGENTE',
     ]);
     // AC3: la variante difiere en título, icono y chip, no solo en color.
