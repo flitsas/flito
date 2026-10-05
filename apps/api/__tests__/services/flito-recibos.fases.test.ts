@@ -45,6 +45,8 @@ const uploadMock = vi.fn();
 vi.mock('../../src/services/storage.js', () => ({ uploadEntityDocument: uploadMock }));
 
 const { cargarRecibos } = await import('../../src/modules/flito-impuestos/flito-recibos.service.js');
+// HU #13268: los enganches del outbox (el módulo está sustituido arriba; aquí se comprueba la LLAMADA).
+const envio = await import('../../src/modules/flito-impuestos/flito-impuestos.envio-flit2.service.js');
 const { OcrNoDisponibleError } = await import('../../src/modules/flito-ocr/flito-ocr.service.js');
 const { flitoImpuestos, flitoSoportes, flitoRevisiones, auditLogs, flitoEstadoHistorial } = await import('../../src/db/schema.js');
 
@@ -96,7 +98,11 @@ function txQueCaptura() {
   };
   const insert = vi.fn(conTabla('insert'));
   const update = vi.fn(conTabla('update'));
-  transactionMock.mockImplementation(async (cb: (tx: unknown) => unknown) => cb({ insert, update }));
+  // Una sola referencia: los enganches del outbox deben recibir ESTA tx, no `db`.
+  const tx = { insert, update };
+  transactionMock.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+  vi.mocked(envio.programarEnvioFlit2).mockClear();
+  vi.mocked(envio.completarComprobanteFlit2).mockClear();
   const en = (op: Escritura['op'], tabla: string) => escrituras.filter((e) => e.op === op && e.tabla === tabla);
   /** El ÚNICO update sobre `flito_impuestos`; lanza si hubo cero o más de uno. */
   const setImpuesto = (): Record<string, unknown> => {
@@ -104,7 +110,7 @@ function txQueCaptura() {
     expect(u, 'se esperaba exactamente un UPDATE sobre flito_impuestos').toHaveLength(1);
     return u[0]!.datos;
   };
-  return { escrituras, insert, update, en, setImpuesto };
+  return { escrituras, insert, update, en, setImpuesto, tx };
 }
 
 /** Secuencia de `selectMock` para UN suelto de admin: hash libre → candidato → sin nº repetido. */
@@ -243,6 +249,11 @@ describe('AC4 — el pago con marca es la única vía a pagado', () => {
     expect(set.valorPagado).toBe('634900');
     const [soporte] = tx.en('insert', T_SOPORTES);
     expect(soporte!.datos.tipo).toBe(TipoSoporte.RECIBO_IMPUESTO);
+    // HU #13268 (AC1): `conciliar` programa el envío a FLIT 2 con la tx del pago y el impuesto.
+    expect(envio.programarEnvioFlit2).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(envio.programarEnvioFlit2).mock.calls[0]![0]).toBe(tx.tx);
+    expect(vi.mocked(envio.programarEnvioFlit2).mock.calls[0]![1]).toBe(UUID);
+    expect(envio.completarComprobanteFlit2).not.toHaveBeenCalled();
   });
 
   it('(b) pago posterior sobre un liquidado → paga y CONSERVA liquidadoEn y valorLiquidado', async () => {
@@ -369,6 +380,21 @@ describe('AC6 — una liquidación que llega después del pago es un complemento
       expect(set, `el complemento no debe escribir \`${clave}\``).not.toHaveProperty(clave);
     }
     expect(tx.en('insert', T_REVISIONES)).toHaveLength(0);
+  });
+
+  it('HU #13268 (AC4): el recibo que llega a un impuesto ya pagado llama completarComprobanteFlit2(tx, impuestoId) y NO programa', async () => {
+    sobrePagado(candidato({ estado: EstadoImpuesto.PAGADO, liquidadoEn: null }));
+    extraerMock.mockResolvedValueOnce(recibo());
+    const tx = txQueCaptura();
+
+    const res = await cargarRecibos([pdf('QTQ100.pdf', '%PDF-pago-tardio')], FaseRecibo.PAGO, ADMIN);
+
+    expect(res.complementos).toHaveLength(1);
+    expect(envio.completarComprobanteFlit2).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(envio.completarComprobanteFlit2).mock.calls[0]![0]).toBe(tx.tx);
+    expect(vi.mocked(envio.completarComprobanteFlit2).mock.calls[0]![1]).toBe(UUID);
+    // RN-02: el complemento no es un camino a pagado; crear fila aquí sería retroactivo.
+    expect(envio.programarEnvioFlit2).not.toHaveBeenCalled();
   });
 
   it('con liquidadoEn ya puesto no se reescribe: cero updates', async () => {

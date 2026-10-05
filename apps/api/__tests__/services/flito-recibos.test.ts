@@ -49,6 +49,8 @@ vi.mock('../../src/modules/flito-impuestos/flito-recibos.compresion.js', async (
 });
 
 const { evaluarReciboImpuesto, evaluarDiferencia, cargarRecibos } = await import('../../src/modules/flito-impuestos/flito-recibos.service.js');
+// HU #13268: el módulo del outbox está sustituido arriba; aquí se comprueba la LLAMADA.
+const envio = await import('../../src/modules/flito-impuestos/flito-impuestos.envio-flit2.service.js');
 const { umbralPara } = await import('../../src/modules/flito-parametrizacion/flito-parametrizacion.service.js');
 
 beforeEach(() => { selectMock.mockReset(); insertMock.mockReset(); updateMock.mockReset(); transactionMock.mockReset(); extraerMock.mockReset(); uploadMock.mockClear(); });
@@ -169,15 +171,20 @@ describe('recibos — flujo', () => {
     // este test por una razón que no tiene que ver con lo que comprueba.
     const txInsert = vi.fn().mockReturnValueOnce(chain([{ id: 'sop1' }])).mockReturnValue(chain([]));
     const txUpdate = vi.fn().mockReturnValue(chain([]));
-    transactionMock.mockImplementation(async (cb: (tx: unknown) => unknown) => cb({ insert: txInsert, update: txUpdate }));
+    const tx = { insert: txInsert, update: txUpdate };
+    transactionMock.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+    vi.mocked(envio.programarEnvioFlit2).mockClear();
 
     const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin')).attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
     expect(r.status).toBe(200);
     expect(r.body.conciliados).toHaveLength(1);
     expect(txUpdate).toHaveBeenCalledTimes(1); // → PAGADO
+    // HU #13268 (AC1): la carga masiva programa el envío a FLIT 2 DENTRO de la tx del pago.
+    expect(vi.mocked(envio.programarEnvioFlit2).mock.calls).toEqual([[tx, candidato.impuestoId]]);
   });
 
   it('cruza pero baja confianza en valorTotal → revisión (CA-06), no paga', async () => {
+    vi.mocked(envio.programarEnvioFlit2).mockClear();
     selectMock.mockReturnValueOnce(chain([]));           // dedup hash
     extraerMock.mockResolvedValueOnce({ ...reciboOk, [CampoImpuesto.VALOR_TOTAL]: campo('634900', 0.3) });
     selectMock.mockReturnValueOnce(chain([candidato]));  // candidato EN_GESTION
