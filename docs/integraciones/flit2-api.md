@@ -302,3 +302,25 @@ todo el histórico desde el principio.
 Cada solicitud queda registrada en FLIT (cliente, rango de `syncVersion`, cantidad de ítems, compañías
 tocadas, IP, duración, resultado), con una **retención de 12 meses**. El consumidor es responsable del tratamiento posterior de los datos
 personales conforme a la Ley 1581 de 2012 y de no exponerlos en logs ni documentación.
+
+## 7. Envío de adjuntos (FLITO → FLIT 2)
+
+**Referencia del contrato:** `flitsas/flit@c2b7f68db` (PR flitsas/flit#513, `x-estado: anunciada`):
+`contracts/openapi/external-api.v1.json`, operationId `enviarAdjunto`, schemas `AdjuntoEnvio` /
+`AdjuntoRecibido` / `Problem`. Diseño en FLITO: `docs/diseno/feature-13267-envio-comprobante-flit2.md`
+(HU #13268, ADR-0020).
+
+### `POST /api/v1/external/tramites/{id}/adjuntos`
+
+- `multipart/form-data`: `tipo=liquidacion_impuesto` y `file` (el `Content-Type` de la parte es el MIME
+  que FLIT 2 usa: `application/pdf`, `image/jpeg`, `image/png` o `image/webp`; ≤ 20 MB; no vacío).
+- Scope `external.tramites.attachments.write`. JWT del mismo pase que el feed (cacheado).
+- `201` / `200` → `AdjuntoRecibido` (`adjuntoId`, `tipo`, `sha256`, `reemplazoDe`, `enMatriz`,
+  `pagadoMarcado`). El `200` es idempotente: mismo `sha256` que el adjunto vigente **del consumidor**.
+- `409 attachment_exists` (el gestor cargó primero), `409 not_allowed_in_state` con `estado` y
+  `terminal` (true = nunca lo admitirá; false = todavía no), `429` con `Retry-After`, `404
+  procedure_not_found`; un `404` **sin cuerpo** significa que la ruta aún no existe en ese ambiente.
+- Cuota: 120 req/min por `client_id` en ventana deslizante, compartida con el feed y la URL de factura.
+
+Cómo lo consume FLITO (outbox, reintentos, pausa global, `en_espera` guiada por el feed): diseño §5-§7.
+La activación por ambiente es la variable `FLIT2_ADJUNTOS_ENVIO_HABILITADO` (apagada por defecto).

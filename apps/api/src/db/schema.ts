@@ -39,6 +39,9 @@ export { flitoComprobantes };
 // HU #12996: `flito_soat_incompletas` vive en `./schema/flito-soat-incompletas.ts` por el mismo techo.
 import { flitoSoatIncompletas } from './schema/flito-soat-incompletas.js';
 export { flitoSoatIncompletas };
+// HU #13268: `flito_impuesto_envios_flit2` (outbox del envío a FLIT 2) vive en `./schema/` por el mismo techo.
+import { flitoImpuestoEnviosFlit2 } from './schema/flito-impuesto-envios-flit2.js';
+export { flitoImpuestoEnviosFlit2 };
 // HU #12619: `flito_tramite_viajes_logistica` vive en `./schema/flito-logistica-viajes.ts` por el mismo techo.
 import { flitoTramiteViajesLogistica } from './schema/flito-logistica-viajes.js';
 export { flitoTramiteViajesLogistica };

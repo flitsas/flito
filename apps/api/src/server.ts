@@ -22,6 +22,7 @@ import { startAnthropicHealthCron, stopAnthropicHealthCron } from './modules/ai/
 import { startPortalReminderCron, stopPortalReminderCron } from './modules/tramites/portal-reminder.cron.js';
 import { startValidacionStaleCron, stopValidacionStaleCron } from './modules/tramites/validacion-stale.cron.js';
 import { startImpuestosAnalisisCron, stopImpuestosAnalisisCron } from './modules/flito-impuestos/flito-impuestos-analisis.cron.js';
+import { startImpuestosEnvioFlit2Cron, stopImpuestosEnvioFlit2Cron } from './modules/flito-impuestos/flito-impuestos-envio-flit2.cron.js';
 import { registrarPasosAnalisisImpuestos } from './modules/flito-impuestos/flito-impuestos.analisis.pasos.js';
 import { startFlitSync, stopFlitSync } from './modules/flito-sync/flito-sync.cron.js';
 import { startSiigoArchivoCron, stopSiigoArchivoCron } from './modules/siigo/siigo.archivo.cron.js';
@@ -83,6 +84,8 @@ const server = app.listen(env.PORT, () => {
     startPortalReminderCron();
     startValidacionStaleCron();
     startImpuestosAnalisisCron();
+    // HU #13268: envío del comprobante de pago a FLIT 2 (no toma nada con FLIT2_ADJUNTOS_ENVIO_HABILITADO apagada).
+    startImpuestosEnvioFlit2Cron();
     // FLITO: sincronización desde FLIT (noop si SYNC_HABILITADO=false).
     startFlitSync();
     // FLITO/Siigo (Bug #11649): estado efectivo de los tres crons, en UNA línea y SIEMPRE, encendidos
@@ -142,6 +145,7 @@ function shutdown(signal: string) {
   stopPortalReminderCron();
   stopValidacionStaleCron();
   stopImpuestosAnalisisCron();
+  stopImpuestosEnvioFlit2Cron();
   stopDerechosDriveCron();
   stopFlitSync();
   stopSiigoArchivoCron();
