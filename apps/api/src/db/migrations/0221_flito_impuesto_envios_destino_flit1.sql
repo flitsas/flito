@@ -10,10 +10,14 @@
 --   - Idempotente: ADD COLUMN IF NOT EXISTS; cada CHECK se añade solo si no existe en pg_constraint.
 --   - Sin backfill de filas nuevas (AC8: no hay envío retroactivo). La tabla NO se renombra.
 
--- Las filas existentes son todas de FLIT 2: el DEFAULT las rellena (metadato en PG >= 11, sin reescritura)
--- y se retira para que ninguna fila nueva quede en 'flit2' por omisión.
+-- Las filas existentes son todas de FLIT 2: el DEFAULT las rellena (metadato en PG >= 11, sin reescritura).
+-- El DEFAULT 'flit2' es TRANSITORIO y se conserva a propósito: compatibilidad en caliente con el binario
+-- anterior, cuyo pago inserta en este outbox sin `destino` dentro de su transacción (sin DEFAULT → 23502 y
+-- pago abortado en la ventana del CD o tras un rollback de imagen). Se retira en una migración posterior,
+-- cuando el binario de la #13310 esté en todos los ambientes (README de migraciones: los cierres de
+-- NOT NULL/retiros en tabla existente van en la migración siguiente). Drizzle no lo declara: TS obliga a
+-- pasar `destino` en todo insert nuevo.
 ALTER TABLE flito_impuesto_envios_flit2 ADD COLUMN IF NOT EXISTS destino varchar(10) NOT NULL DEFAULT 'flit2';
-ALTER TABLE flito_impuesto_envios_flit2 ALTER COLUMN destino DROP DEFAULT;
 -- Id del archivo en FLIT 1 (paso 1), solo tras subirlo bien (paso 2): permite reintentar solo el PUT.
 ALTER TABLE flito_impuesto_envios_flit2 ADD COLUMN IF NOT EXISTS archivo_flit1_id varchar(100) NULL;
 -- Paso (1-3) del último desenlace de FLIT 1; null en pre-validación local.

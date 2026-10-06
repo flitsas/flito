@@ -47,6 +47,11 @@ export const flitoImpuestoEnviosFlit2 = pgTable('flito_impuesto_envios_flit2', {
   tomadoPor: varchar('tomado_por', { length: 100 }),
   tomadoEn: timestamp('tomado_en', { withTimezone: true }),
   /** HU #13310 (0221, ADR-0021): a quién va el envío. Se fija al crear la fila y no cambia. */
+  /**
+   * Sin `.default()` a propósito: TS obliga a pasar `destino` en todo insert nuevo. La BD conserva un DEFAULT
+   * 'flit2' TRANSITORIO (0221) por compatibilidad en caliente con el binario anterior; se retira en una
+   * migración posterior cuando el binario de la #13310 esté en todos los ambientes.
+   */
   destino: varchar('destino', { length: 10 }).$type<DestinoEnvioComprobante>().notNull(),
   /** FLIT 1: id del archivo (paso 1), persistido SOLO tras subirlo bien (paso 2): el reintento hace solo el PUT. */
   archivoFlit1Id: varchar('archivo_flit1_id', { length: 100 }),

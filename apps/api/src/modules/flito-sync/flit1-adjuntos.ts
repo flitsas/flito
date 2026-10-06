@@ -47,6 +47,7 @@ export function urlSubidaFlit1Permitida(url: unknown): URL | null {
   let u: URL;
   try { u = new URL(url); } catch { return null; }
   if (u.protocol !== 'https:' || u.username || u.password) return null;
+  if (u.port !== '' && u.port !== '443') return null; // solo el puerto estándar de S3
   const host = u.hostname.toLowerCase();
   if (!host.endsWith(SUFIJO_S3) || host.length === SUFIJO_S3.length) return null;
   return u;

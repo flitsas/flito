@@ -58,10 +58,10 @@ describe('0221 — análisis estático', () => {
     }
   });
 
-  it('destino: NOT NULL con DEFAULT flit2 solo para rellenar las filas existentes, y el DEFAULT se retira', () => {
+  it('destino: NOT NULL con DEFAULT flit2 transitorio que la 0221 NO retira (binario anterior inserta sin destino)', () => {
     expect(SIN_COMENTARIOS).toMatch(/ADD COLUMN IF NOT EXISTS destino varchar\(10\) NOT NULL DEFAULT 'flit2';/);
-    expect(SIN_COMENTARIOS).toMatch(/ALTER COLUMN destino DROP DEFAULT;/);
-    expect(SIN_COMENTARIOS.indexOf('DROP DEFAULT')).toBeGreaterThan(SIN_COMENTARIOS.indexOf("DEFAULT 'flit2'"));
+    // Retirarlo aquí haría fallar con 23502 el pago del binario anterior en la ventana del CD o tras rollback.
+    expect(SIN_COMENTARIOS).not.toMatch(/DROP DEFAULT/i);
   });
 
   it('CHECK de semántica: FLIT 1 sin columnas ni estados de FLIT 2; FLIT 2 sin columnas de FLIT 1; paso 1-3', () => {
@@ -102,13 +102,22 @@ describe.skipIf(!URL_BASE)('0221 — aplicar ×2 sobre BD ya migrada (P6)', () =
   beforeAll(() => { sql = postgres(URL_BASE!, { max: 1, onnotice: () => {} }); });
   afterAll(async () => { await sql?.end(); });
 
-  it('segunda pasada no rompe; los CHECK de destino muerden', async () => {
+  it('segunda pasada no rompe; el DEFAULT transitorio rellena el insert sin destino; los CHECK muerden', async () => {
     try {
       await sql.begin(async (tx) => {
         await tx.unsafe(SQL_0221);
         await tx.unsafe(SQL_0221);
+        const [col] = await tx<{ column_default: string | null }[]>`
+          SELECT column_default FROM information_schema.columns
+          WHERE table_name = 'flito_impuesto_envios_flit2' AND column_name = 'destino'`;
+        expect(col?.column_default).toMatch(/^'flit2'/);
         const [imp] = await tx<{ id: string }[]>`SELECT id FROM flito_impuestos LIMIT 1`;
         if (imp) {
+          // Binario anterior: inserta sin `destino` → el DEFAULT transitorio lo rellena (no 23502).
+          await tx`DELETE FROM flito_impuesto_envios_flit2 WHERE impuesto_id = ${imp.id}`;
+          const [fila] = await tx<{ destino: string }[]>`INSERT INTO flito_impuesto_envios_flit2 (impuesto_id, estado) VALUES (${imp.id}, 'sin_comprobante') RETURNING destino`;
+          expect(fila.destino).toBe('flit2');
+          await tx`DELETE FROM flito_impuesto_envios_flit2 WHERE impuesto_id = ${imp.id}`;
           await expect(tx.savepoint((sp) => sp`INSERT INTO flito_impuesto_envios_flit2 (impuesto_id, estado, destino) VALUES (${imp.id}, 'sin_comprobante', 'flit3')`))
             .rejects.toMatchObject({ code: '23514' });
           await expect(tx.savepoint((sp) => sp`INSERT INTO flito_impuesto_envios_flit2 (impuesto_id, estado, destino, archivo_flit1_id) VALUES (${imp.id}, 'sin_comprobante', 'flit2', 'x')`))

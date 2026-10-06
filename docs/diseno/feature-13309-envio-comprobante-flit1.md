@@ -288,10 +288,10 @@ En todas las filas escritas: `ultimo_paso` = paso del desenlace (null en pre-val
 -- Reglas: sin BEGIN/COMMIT (el runner envuelve); idempotente (ADD COLUMN IF NOT EXISTS; CHECK por
 --   pg_constraint); sin backfill de filas nuevas (no hay envío retroactivo). La tabla NO se renombra.
 
--- Las filas existentes son todas de FLIT 2: el DEFAULT las rellena (metadato en PG ≥ 11, sin reescritura)
--- y se retira para que ninguna fila nueva quede en 'flit2' por omisión.
+-- Las filas existentes son todas de FLIT 2: el DEFAULT las rellena (metadato en PG ≥ 11, sin reescritura).
+-- DEFAULT 'flit2' TRANSITORIO (db-review, 2026-10-06): se conserva por compatibilidad en caliente con el binario
+-- anterior (inserta sin destino dentro de la tx del pago); se retira en una migración posterior. Drizzle sin .default().
 ALTER TABLE flito_impuesto_envios_flit2 ADD COLUMN IF NOT EXISTS destino varchar(10) NOT NULL DEFAULT 'flit2';
-ALTER TABLE flito_impuesto_envios_flit2 ALTER COLUMN destino DROP DEFAULT;
 -- Id del archivo en FLIT 1 (paso 1), solo tras subirlo bien (paso 2): permite reintentar solo el PUT.
 ALTER TABLE flito_impuesto_envios_flit2 ADD COLUMN IF NOT EXISTS archivo_flit1_id varchar(100) NULL;
 -- Paso (1-3) del último desenlace de FLIT 1; null en pre-validación local.
@@ -484,7 +484,7 @@ Ningún archivo nuevo o tocado se acerca a 800 líneas; el service FLIT 2 **baja
 
 | Archivo | Cubre |
 |---|---|
-| `apps/api/__tests__/db/migracion-0221.test.ts` | columnas, 4 CHECK (nombres y predicados), `DROP DEFAULT`, idempotencia textual; asertar «la anterior es 0220», **no** «es la última» |
+| `apps/api/__tests__/db/migracion-0221.test.ts` | columnas, 4 CHECK (nombres y predicados), DEFAULT 'flit2' transitorio **sin** `DROP DEFAULT`, idempotencia textual; asertar «la anterior es 0220», **no** «es la última» |
 | `apps/api/__tests__/services/flit1-adjuntos.test.ts` | puras + adaptador con `fetch` espiado (orden de partes, `file` última, `redirect:'error'`, timeouts, validación A-1, pausa A-2) |
 | `apps/api/__tests__/services/flito-impuestos.envio-flit1.test.ts` | ciclo, una fila, `cambiosPorResultadoFlit1`, toma (SQL renderizado) |
 | `apps/api/__tests__/services/flito-impuestos.envio-flit2.test.ts` / `.enganches.test.ts` / `.reprogramar.test.ts` | ajustes por el movimiento de helpers y `programarEnvioComprobante`; regresión AC8 |

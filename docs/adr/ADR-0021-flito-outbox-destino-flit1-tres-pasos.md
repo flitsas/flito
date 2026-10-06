@@ -28,7 +28,7 @@ límites del archivo antes de llamar; sin retroactivo; la `presignedUrl` no se p
    por impuesto sigue siendo la regla (un trámite tiene una sola fuente). CHECK nuevos impiden a una fila `flit1`
    los estados y columnas de FLIT 2 (`en_espera`, `ya_cargado_gestor`, `estado_flit2`, `adjunto_id`, espera) y a
    una fila `flit2` las columnas de FLIT 1. Columnas nuevas: `archivo_flit1_id` (se persiste **solo** tras el paso
-   2) y `ultimo_paso` (1-3). El `DEFAULT 'flit2'` solo rellena las filas existentes y se retira.
+   2) y `ultimo_paso` (1-3). El `DEFAULT 'flit2'` rellena las filas existentes y queda **transitorio** (compatibilidad con el binario anterior, que inserta sin `destino`); se retira en una migración posterior.
 2. **Ciclo FLIT 1 propio** (servicio, toma `SKIP LOCKED`, pausa en `system_locks` y cron con su `withLock`),
    que comparte con FLIT 2 la fila, el upsert del pago (`programarEnvioComprobante`, mapea fuente → destino), la
    lectura del detalle y los helpers del soporte (archivo común `flito-impuestos.envio-comun.ts`). La toma FLIT 2

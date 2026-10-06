@@ -76,13 +76,13 @@ describe('D-8 — baseFlit1Valida', () => {
 });
 
 describe('A-1 — urlSubidaFlit1Permitida (validación fija, sin variable)', () => {
-  it.each([SUBIDA, 'https://flito-ejemplo.s3.amazonaws.com/', 'https://FLITO-EJEMPLO.S3.AMAZONAWS.COM/x?X-Amz-Signature=1'])('%s pasa', (u) => {
+  it.each([SUBIDA, 'https://flito-ejemplo.s3.amazonaws.com/', 'https://FLITO-EJEMPLO.S3.AMAZONAWS.COM/x?X-Amz-Signature=1', 'https://x.s3.amazonaws.com:443/'])('%s pasa', (u) => {
     expect(puras.urlSubidaFlit1Permitida(u)).not.toBeNull();
   });
   it.each([
     'https://evilamazonaws.com/', 'https://amazonaws.com/', 'http://flito-ejemplo.s3.amazonaws.com/',
     'https://u:p@flito-ejemplo.s3.amazonaws.com/', 'https://flito-ejemplo.s3.amazonaws.com.evil.test/',
-    'https://bucket.ejemplo.test/subida', 'no-url', 42, null,
+    'https://bucket.ejemplo.test/subida', 'https://x.s3.amazonaws.com:8443/', 'no-url', 42, null,
   ])('%j NO pasa', (u) => { expect(puras.urlSubidaFlit1Permitida(u)).toBeNull(); });
 });
 
