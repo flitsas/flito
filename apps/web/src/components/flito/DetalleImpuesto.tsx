@@ -2,11 +2,12 @@
 // #12592: la página rozaba `max-lines` y el detalle gana aquí el chip de documentos, el dato
 // «Liquidado el», el botón «Cargar recibo de caja» y su modal. La HU #13209 suma al lado «Cargar
 // comprobante» (liquidación o pago por fase, `ModalCargaReciboFase`). La HU #13270 suma la celda
-// «Comprobante en FLIT 2» (solo lectura) y «Reemplazar comprobante» (`ModalReemplazoComprobante`).
+// «Comprobante en FLIT 2» (solo lectura) y «Reemplazar comprobante» (`ModalReemplazoComprobante`); la
+// HU #13312 la generaliza a FLIT 1 (`EnvioComprobante`).
 
 import { useRef, useState, type ReactNode } from 'react';
 import {
-  ESTADO_IMPUESTO_LABEL, EstadoImpuesto, TipoSoporte, type DireccionCompradorImpuesto, type FaseRecibo, type ReprogramacionEnvioFlit2,
+  ESTADO_IMPUESTO_LABEL, EstadoImpuesto, TipoSoporte, type DireccionCompradorImpuesto, type FaseRecibo, type ReprogramacionEnvioComprobante,
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../../lib/api';
 import FlitModal from '../flit/FlitModal';
@@ -20,7 +21,7 @@ import { FlitField, flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSeconda
 import ModalReciboCaja from './ModalReciboCaja';
 import ModalCargaReciboFase, { type ResultadoConEscritura } from './ModalCargaReciboFase';
 import ModalReemplazoComprobante from './ModalReemplazoComprobante';
-import { CeldaEnvioFlit2, textoToastReemplazo } from './EnvioFlit2';
+import { CeldaEnvioComprobante, textoToastReemplazo } from './EnvioComprobante';
 import { toastOk } from '../flit/ToastFlito';
 import { ChipDocumentos, TONO_IMPUESTO, fecha, pesos, type ImpuestoItem } from './ImpuestoCola';
 import { SeccionValidacion, useDetalleValidacion, type Carga } from './ValidacionRunt';
@@ -181,7 +182,7 @@ export default function DetalleImpuesto({
   };
 
   /** 200 `reemplazado`: cierra, un solo toast y dos refrescos sin cerrar el detalle (AC4). */
-  const listoReemplazo = (envio: ReprogramacionEnvioFlit2 | undefined) => {
+  const listoReemplazo = (envio: ReprogramacionEnvioComprobante | undefined) => {
     setReemplazo(false);
     const { texto, largo } = textoToastReemplazo(envio);
     toastOk(texto, largo ? { duracionMs: 8_000 } : {});
@@ -258,7 +259,7 @@ export default function DetalleImpuesto({
               )}
             </dd>
           </div>
-          <CeldaEnvioFlit2 carga={carga} recargar={recargar} hayCargarComprobante={ofreceComprobante} />
+          <CeldaEnvioComprobante impId={imp.id} carga={carga} recargar={recargar} hayCargarComprobante={ofreceComprobante} />
           <Dato k="Enviado por" v={imp.enviadoPorNombre ?? '—'} /><Dato k="Enviado" v={fecha(imp.enviadoEn)} />
         </dl>
 
@@ -295,7 +296,7 @@ export default function DetalleImpuesto({
 
         {reemplazo && (
           <ModalReemplazoComprobante imp={imp} restoreFocusRef={verSoporteRef}
-            envioActual={carga.fase === 'listo' ? carga.datos.envioFlit2 : undefined}
+            envioComprobante={carga.fase === 'listo' ? carga.datos.envioComprobante : undefined}
             onClose={() => setReemplazo(false)} onReemplazado={listoReemplazo} onRefrescar={refrescarTodo} />
         )}
 

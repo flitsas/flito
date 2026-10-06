@@ -5,8 +5,10 @@ import { correrAxe, esperarSinViolacionesGraves } from '../helpers/axe';
 
 // FLITO — Impuestos · HU #13270: indicador «Comprobante en FLIT 2» (solo lectura) y «Reemplazar
 // comprobante» desde el detalle del impuesto. Spec UX: docs/ux/flito-impuestos-envio-flit2-y-reemplazo.md.
-// Backend mockeado (`GET /api/flito/impuestos/:id` con `envioFlit2` y `soportes`;
-// `POST …/recibos/reemplazar-pago`, HU #13269), mismo patrón que `flito-impuestos-carga-comprobante`.
+// HU #13312: el indicador se generaliza a FLIT 1 (`envioComprobante` con `destino`) y el toast del
+// reemplazo lee `envio` (HU #13311). Spec UX: docs/ux/flito-impuestos-envio-comprobante-flit1.md.
+// Backend mockeado (`GET /api/flito/impuestos/:id` con `envioComprobante` y `soportes`;
+// `POST …/recibos/reemplazar-pago`, HU #13269/#13311), mismo patrón que `flito-impuestos-carga-comprobante`.
 //
 // `impuestos.recibos.reemplazar` (0220) NO la trae ningún rol, ni admin: por eso no va a
 // `FUNCIONES_POR_ROL` (que replica lo que siembra el servidor) y el spec la añade por usuario.
@@ -23,7 +25,7 @@ const BASE = {
   semaforo: 'verde', motivoSemaforo: null, estado: 'pagado',
 };
 
-type Envio = { estado: string; intentos: number; ultimoIntentoEn: string | null } | null;
+type Envio = { estado: string; intentos: number; ultimoIntentoEn: string | null; destino?: 'flit1' | 'flit2' } | null;
 type Fila = Record<string, unknown> & { id: string; placa: string };
 type Soporte = { id: string; tipo: string; nombreArchivo: string; subidoEn: string };
 
@@ -45,6 +47,12 @@ const iniciales = (): Record<string, { envio: Envio; soportes: Soporte[] }> => (
   nf: { envio: null, soportes: [LIQ, PAGO] },
   cj: { envio: null, soportes: [LIQ, CAJA] },
   so: { envio: null, soportes: [LIQ] },
+  // HU #13312 — trámites de FLIT 1.
+  p1: { envio: { destino: 'flit1', estado: 'pendiente', intentos: 1, ultimoIntentoEn: INTENTO }, soportes: [LIQ, PAGO] },
+  e1: { envio: { destino: 'flit1', estado: 'enviado', intentos: 1, ultimoIntentoEn: INTENTO }, soportes: [LIQ, PAGO] },
+  r1: { envio: { destino: 'flit1', estado: 'error', intentos: 3, ultimoIntentoEn: INTENTO }, soportes: [LIQ, PAGO] },
+  s1: { envio: { destino: 'flit1', estado: 'sin_comprobante', intentos: 0, ultimoIntentoEn: null }, soportes: [LIQ] },
+  w1: { envio: { destino: 'flit1', estado: 'en_espera', intentos: 0, ultimoIntentoEn: INTENTO }, soportes: [LIQ, PAGO] },
 });
 
 const filasIniciales = (): Fila[] => [
@@ -54,6 +62,8 @@ const filasIniciales = (): Fila[] => [
   // Pago solo por recibo de caja: `documentos` dice «ambos», pero no hay `recibo_impuesto` que reemplazar.
   fila('cj', 'CAJ001'),
   fila('so', 'SOL001', { estado: 'solicitado', documentos: 'liquidacion', valorPagado: null, pagadoEn: null }),
+  fila('p1', 'UNO001'), fila('e1', 'UNO002'), fila('r1', 'UNO003'),
+  fila('s1', 'UNO004', { documentos: 'liquidacion' }), fila('w1', 'UNO005'),
 ];
 
 type Respuesta = { status: number; body?: unknown; abortar?: boolean };
@@ -113,7 +123,8 @@ async function mock(page: Page) {
     return route.fulfill({
       status: 200, contentType: 'application/json',
       body: JSON.stringify({
-        ...f, direccionComprador: null, soportes: x.soportes, envioFlit2: x.envio,
+        ...f, direccionComprador: null, soportes: x.soportes,
+        envioComprobante: x.envio ? { destino: 'flit2', ...x.envio } : null,
         comparacion: { version: 1, motivo: null, campos: [], resumen: { coinciden: 0, difieren: 0, noVerificables: 0 }, calculadoEn: '2026-09-02T12:05:00Z' },
       }),
     });
@@ -137,7 +148,7 @@ const abrirDetalle = async (page: Page, placa: string) => {
   return detalle;
 };
 
-const celda = (detalle: Locator) => detalle.getByTestId('envio-flit2');
+const celda = (detalle: Locator) => detalle.getByTestId('envio-comprobante');
 const PDF = { name: 'nuevo-recibo.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n%%EOF') };
 
 const abrirReemplazo = async (page: Page, placa: string) => {
@@ -167,6 +178,7 @@ test.describe('FLITO — Impuestos · envío del comprobante a FLIT 2 y reemplaz
       const detalle = await abrirDetalle(page, c.placa);
       const cel = celda(detalle);
       await expect(cel.locator('dt')).toHaveText('Comprobante en FLIT 2');
+      await expect(cel).toHaveAttribute('data-destino', 'flit2');
       await expect(cel.locator('dd')).toContainText(c.chip);
       const lineas = await cel.locator('dd p').allInnerTexts();
       const conFecha = lineas.filter((l) => /^(Último intento|Enviado el)/.test(l));
@@ -183,7 +195,7 @@ test.describe('FLITO — Impuestos · envío del comprobante a FLIT 2 y reemplaz
     }
   });
 
-  test('AC2 · con envioFlit2 null la celda no existe y no hay reintentar en ningún lado', async ({ page }) => {
+  test('AC2 · con envioComprobante null la celda no existe y no hay reintentar en ningún lado', async ({ page }) => {
     await iniciar(page);
     const detalle = await abrirDetalle(page, 'NOF001');
     await expect(celda(detalle)).toHaveCount(0);
@@ -223,7 +235,7 @@ test.describe('FLITO — Impuestos · envío del comprobante a FLIT 2 y reemplaz
     await expect(modal.getByText('Elige el archivo del nuevo comprobante.')).toBeVisible();
     await expect(modal.getByLabel(/Nuevo comprobante de pago/)).toBeAttached();
 
-    estado.respuesta = { status: 200, body: { resultado: 'reemplazado', soporteId: 'nuevo', soportesDescartados: ['sp'], envioFlit2: { reenviado: true } } };
+    estado.respuesta = { status: 200, body: { resultado: 'reemplazado', soporteId: 'nuevo', soportesDescartados: ['sp'], envio: { destino: 'flit2', reenviado: true } } };
     estado.envioTrasReemplazo = { estado: 'pendiente', intentos: 0, ultimoIntentoEn: null };
     const antes = { detalles: estado.detalles, listados: estado.listados };
     await reemplazarCon(modal);
@@ -241,16 +253,15 @@ test.describe('FLITO — Impuestos · envío del comprobante a FLIT 2 y reemplaz
     await expect(toast).toHaveCount(0);
   });
 
-  test('AC4 · variantes del toast según envioFlit2 (sin reenvío)', async ({ page }) => {
+  test('AC4 · variantes del toast según envio FLIT 2 (sin reenvío), idénticas a #13270', async ({ page }) => {
     await iniciar(page);
     const variantes: Array<[string, string]> = [
       ['ya_cargado_gestor', 'Comprobante reemplazado en FLITO. No se envía a FLIT 2: el gestor ya cargó el suyo allá.'],
-      ['no_flit2', 'Comprobante reemplazado. Este trámite no es de FLIT 2, así que no hay nada que enviar.'],
       ['sin_envio_previo', 'Comprobante reemplazado en FLITO. No se envía a FLIT 2 porque el impuesto se pagó antes del envío automático.'],
     ];
     for (const [motivo, copy] of variantes) {
       const { modal } = await abrirReemplazo(page, 'NOF001');
-      estado.respuesta = { status: 200, body: { resultado: 'reemplazado', soporteId: 'n', soportesDescartados: ['sp'], envioFlit2: { reenviado: false, motivo } } };
+      estado.respuesta = { status: 200, body: { resultado: 'reemplazado', soporteId: 'n', soportesDescartados: ['sp'], envio: { destino: 'flit2', reenviado: false, motivo } } };
       await reemplazarCon(modal);
       await expect(page.getByRole('status').filter({ hasText: copy })).toBeVisible();
       await page.keyboard.press('Escape');
@@ -313,7 +324,10 @@ test.describe('FLITO — Impuestos · envío del comprobante a FLIT 2 y reemplaz
     await page.getByRole('row').filter({ hasText: 'ERR001' }).getByRole('button', { name: 'Ver', exact: true }).click();
     const detalle = page.getByRole('dialog', { name: 'Impuesto · ERR001' });
     const cel = celda(detalle);
-    await expect(cel).toContainText('No se pudo consultar el envío a FLIT 2.');
+    // HU #13312: en la primera carga el destino aún no se conoce → rótulo y copy neutros.
+    await expect(cel.locator('dt')).toHaveText('Envío del comprobante');
+    await expect(cel).not.toHaveAttribute('data-destino');
+    await expect(cel).toContainText('No se pudo consultar el envío del comprobante.');
     await expect(cel).not.toContainText('boom');
     estado.detalleRoto = false;
     await cel.getByRole('button', { name: 'Reintentar' }).click();
@@ -326,7 +340,7 @@ test.describe('FLITO — Impuestos · envío del comprobante a FLIT 2 y reemplaz
     await page.getByRole('row').filter({ hasText: 'ENV001' }).getByRole('button', { name: 'Ver', exact: true }).click();
     const detalle = page.getByRole('dialog', { name: 'Impuesto · ENV001' });
     const cel = celda(detalle);
-    await expect(cel.locator('dt')).toHaveText('Comprobante en FLIT 2');
+    await expect(cel.locator('dt')).toHaveText('Envío del comprobante');
     await expect(cel.locator('dd[aria-busy="true"]')).toBeVisible();
     await expect(cel).not.toContainText('Enviado a FLIT 2');
     estado.retenerDetalle = false;
@@ -338,7 +352,7 @@ test.describe('FLITO — Impuestos · envío del comprobante a FLIT 2 y reemplaz
     await iniciar(page);
     const { modal } = await abrirReemplazo(page, 'ENV001');
     estado.retenerPost = true;
-    estado.respuesta = { status: 200, body: { resultado: 'reemplazado', soporteId: 'n', soportesDescartados: ['sp'], envioFlit2: { reenviado: true } } };
+    estado.respuesta = { status: 200, body: { resultado: 'reemplazado', soporteId: 'n', soportesDescartados: ['sp'], envio: { destino: 'flit2', reenviado: true } } };
     await reemplazarCon(modal);
     await expect(modal.getByRole('button', { name: 'Validando el comprobante…' })).toBeDisabled();
     await expect(modal.getByRole('button', { name: 'Cancelar' })).toBeDisabled();
@@ -389,5 +403,124 @@ test.describe('FLITO — Impuestos · envío del comprobante a FLIT 2 y reemplaz
     const { modal } = await abrirReemplazo(page, 'ERR001');
     await expect(modal).toBeVisible();
     esperarSinViolacionesGraves(await correrAxe(page), 'reemplazo de comprobante');
+  });
+});
+
+test.describe('FLITO — Impuestos · envío del comprobante a FLIT 1 (HU #13312)', () => {
+  /** Chip + líneas de la celda (fecha y ayuda), para asertar el copy exacto de la spec. */
+  const leer = async (detalle: Locator) => {
+    const cel = celda(detalle);
+    await expect(cel.locator('dd[aria-busy="true"]')).toHaveCount(0);
+    return { cel, lineas: await cel.locator('dd p').allInnerTexts() };
+  };
+
+  test('AC1 · enviado: «Comprobante en FLIT 1», chip «Enviado a FLIT 1» y fecha; sin FLIT 2 en la celda', async ({ page }) => {
+    await iniciar(page);
+    const { cel, lineas } = await leer(await abrirDetalle(page, 'UNO002'));
+    await expect(cel).toHaveAttribute('data-destino', 'flit1');
+    await expect(cel.locator('dt')).toHaveText('Comprobante en FLIT 1');
+    await expect(cel.locator('dd')).toContainText('Enviado a FLIT 1');
+    expect(lineas).toHaveLength(1);
+    expect(lineas[0]).toMatch(/^Enviado el \S/);
+    await expect(cel).not.toContainText('FLIT 2');
+    await expect(cel.getByRole('button')).toHaveCount(0);
+  });
+
+  test('AC2 · error: chip, último intento y ayuda que nombra FLIT 1 y ofrece reemplazar', async ({ page }) => {
+    await iniciar(page);
+    const { cel, lineas } = await leer(await abrirDetalle(page, 'UNO003'));
+    await expect(cel.locator('dd')).toContainText('Error de envío');
+    expect(lineas[0]).toMatch(/^Último intento: /);
+    expect(lineas).toContain('FLITO no pudo enviarlo a FLIT 1 tras 3 intentos. El motivo quedó registrado; si el archivo estaba mal, reemplázalo.');
+    await expect(cel).not.toContainText('FLIT 2');
+  });
+
+  test('AC3 · pendiente y sin comprobante con la ayuda de FLIT 1; estado ajeno a FLIT 1 cae al chip neutro', async ({ page }) => {
+    await iniciar(page);
+    let r = await leer(await abrirDetalle(page, 'UNO001'));
+    await expect(r.cel.locator('dd')).toContainText('Pendiente');
+    expect(r.lineas).toEqual([expect.stringMatching(/^Último intento: /), 'FLITO lo enviará solo a FLIT 1; no tienes que hacer nada.']);
+    await page.keyboard.press('Escape');
+    r = await leer(await abrirDetalle(page, 'UNO004'));
+    await expect(r.cel.locator('dd')).toContainText('Sin comprobante');
+    expect(r.lineas).toEqual(['Se enviará a FLIT 1 cuando cargues el comprobante de pago con «Cargar comprobante».']);
+    await page.keyboard.press('Escape');
+    // `en_espera` no existe en FLIT 1: nunca «En espera de FLIT 2» bajo un rótulo FLIT 1.
+    r = await leer(await abrirDetalle(page, 'UNO005'));
+    await expect(r.cel.locator('dt')).toHaveText('Comprobante en FLIT 1');
+    await expect(r.cel.locator('dd')).toContainText('Estado desconocido');
+    expect(r.lineas).toEqual([]);
+    await expect(r.cel).not.toContainText('FLIT 2');
+  });
+
+  test('AC5 · sin envío (envioComprobante null) no hay celda ni rótulo de FLIT 1', async ({ page }) => {
+    await iniciar(page);
+    const detalle = await abrirDetalle(page, 'NOF001');
+    await expect(celda(detalle)).toHaveCount(0);
+    await expect(detalle.getByText('Comprobante en FLIT 1')).toHaveCount(0);
+  });
+
+  test('AC6 · tras un reemplazo en FLIT 1, el cargando y el error del refresco nombran FLIT 1', async ({ page }) => {
+    await iniciar(page);
+    const { detalle, modal } = await abrirReemplazo(page, 'UNO003');
+    estado.respuesta = { status: 200, body: { resultado: 'reemplazado', soporteId: 'n', soportesDescartados: ['sp'], envio: { destino: 'flit1', reenviado: true } } };
+    estado.retenerDetalle = true;
+    estado.detalleRoto = true;
+    await reemplazarCon(modal);
+    await expect(modal).toHaveCount(0);
+    const cel = celda(detalle);
+    await expect(cel.locator('dd[aria-busy="true"]')).toBeVisible();
+    await expect(cel.locator('dt')).toHaveText('Comprobante en FLIT 1');
+    estado.retenerDetalle = false;
+    await expect(cel).toContainText('No se pudo consultar el envío a FLIT 1.');
+    await expect(cel.locator('dt')).toHaveText('Comprobante en FLIT 1');
+    estado.detalleRoto = false;
+    await cel.getByRole('button', { name: 'Reintentar' }).click();
+    await expect(cel.locator('dd')).toContainText('Error de envío');
+  });
+
+  test('AC7 · toast del reemplazo por cada combinación de envio; nunca «no es de FLIT 2»', async ({ page }) => {
+    await iniciar(page);
+    const variantes: Array<[unknown, string]> = [
+      [{ destino: 'flit1', reenviado: true }, 'Comprobante reemplazado. FLITO enviará el nuevo a FLIT 1.'],
+      [{ destino: 'flit1', reenviado: false, motivo: 'sin_envio_previo' },
+        'Comprobante reemplazado en FLITO. No se envía a FLIT 1 porque el impuesto se pagó antes del envío automático.'],
+      [{ destino: 'flit1', reenviado: false, motivo: 'ya_cargado_gestor' }, 'Comprobante reemplazado en FLITO. No se envía a FLIT 1.'],
+      [{ destino: null, reenviado: false, motivo: 'no_aplica' },
+        'Comprobante reemplazado. Este trámite no envía el comprobante a otro sistema: queda solo en FLITO.'],
+      [undefined, 'Comprobante reemplazado.'],
+    ];
+    for (const [envio, copy] of variantes) {
+      const { modal } = await abrirReemplazo(page, 'UNO002');
+      // `envioFlit2` viejo con `no_flit2` sigue en el contrato: la UI ya no lo lee.
+      estado.respuesta = { status: 200, body: { resultado: 'reemplazado', soporteId: 'n', soportesDescartados: ['sp'], envioFlit2: { reenviado: false, motivo: 'no_flit2' }, envio } };
+      await reemplazarCon(modal);
+      // Texto exacto: el respaldo «Comprobante reemplazado.» es prefijo de los demás.
+      await expect(page.getByRole('status').getByText(copy, { exact: true })).toBeVisible();
+      await expect(page.getByText(/no es de FLIT 2/)).toHaveCount(0);
+      await page.keyboard.press('Escape');
+    }
+  });
+
+  test('AC7 · en FLIT 1 el diálogo de reemplazo nunca muestra la línea del gestor', async ({ page }) => {
+    await iniciar(page);
+    const { modal } = await abrirReemplazo(page, 'UNO002');
+    await expect(modal.getByText('El gestor ya cargó su comprobante en FLIT 2', { exact: false })).toHaveCount(0);
+  });
+
+  test('AC8 · a 360 px la celda FLIT 1 con la ayuda más larga envuelve sin desbordar', async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 780 });
+    await iniciar(page);
+    // Mismo criterio que el AC6 de #13270: el shell ya desborda con un modal abierto a <=375 px; se
+    // mide la celda y el diálogo por dentro y contra el viewport.
+    const detalle = await abrirDetalle(page, 'UNO003');
+    const { cel } = await leer(detalle);
+    for (const loc of [cel, cel.locator('dd p').last(), detalle]) {
+      expect(await loc.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+      const b = await loc.boundingBox();
+      expect(b).not.toBeNull();
+      expect(b!.x).toBeGreaterThanOrEqual(0);
+      expect(b!.x + b!.width).toBeLessThanOrEqual(360);
+    }
   });
 });
