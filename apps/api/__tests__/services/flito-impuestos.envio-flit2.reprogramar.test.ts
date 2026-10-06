@@ -86,8 +86,9 @@ describe('RN-10 — filas reprogramables vuelven a pendiente desde cero con el s
 
     const lectura = q(/^select .* from "flito_impuesto_envios_flit2"/);
     expect(lectura).toHaveLength(1);
-    expect(lectura[0]!.sql).toMatch(/where "flito_impuesto_envios_flit2"\."impuesto_id" = \$1 for update$/);
-    expect(lectura[0]!.params).toEqual([IMP]);
+    // HU #13310 D-12: solo la fila destino flit2.
+    expect(lectura[0]!.sql).toMatch(/where \("flito_impuesto_envios_flit2"\."impuesto_id" = \$1 and "flito_impuesto_envios_flit2"\."destino" = \$2\) for update$/);
+    expect(lectura[0]!.params).toEqual([IMP, 'flit2']);
 
     const [u, ...resto] = updates();
     expect(resto).toHaveLength(0);
@@ -146,6 +147,17 @@ describe('RN-10 — lo que NO se reenvía', () => {
   it('sin fila y trámite que no es de FLIT 2 (AC5) → no_flit2; no crea fila', async () => {
     base(null, 'flit1');
     expect(await svc.reprogramarEnvioFlit2(db as never, IMP, NUEVO, CTX, AHORA)).toEqual({ reenviado: false, motivo: 'no_flit2' });
+    expect(updates()).toHaveLength(0);
+    expect(q(/^insert/)).toHaveLength(0);
+  });
+
+  it('HU #13310 D-12: la lectura FOR UPDATE solo toma la fila destino flit2; un trámite de FLIT 1 → no_flit2 sin tocar su fila', async () => {
+    base(null, 'flit');
+    expect(await svc.reprogramarEnvioFlit2(db as never, IMP, NUEVO, CTX, AHORA)).toEqual({ reenviado: false, motivo: 'no_flit2' });
+    const [sel] = q(/^select .* from "flito_impuesto_envios_flit2"/s);
+    expect(sel.sql).toMatch(/"flito_impuesto_envios_flit2"\."destino" = \$\d+/);
+    expect(sel.sql).toMatch(/for update/);
+    expect(sel.params).toEqual(expect.arrayContaining([IMP, 'flit2']));
     expect(updates()).toHaveLength(0);
     expect(q(/^insert/)).toHaveLength(0);
   });

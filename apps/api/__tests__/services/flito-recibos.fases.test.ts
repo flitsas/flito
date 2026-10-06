@@ -28,7 +28,7 @@ const transactionMock = vi.fn();
 // HU #13268: el enganche al outbox de FLIT 2 se prueba en flito-impuestos.envio-flit2.test.ts; el stub
 // de `tx` de este spec no trae `select`, así que el módulo se sustituye.
 vi.mock('../../src/modules/flito-impuestos/flito-impuestos.envio-flit2.service.js', () => ({
-  programarEnvioFlit2: vi.fn(async () => 'no_flit2'), completarComprobanteFlit2: vi.fn(async () => {}), envioFlit2DeImpuesto: vi.fn(async () => null),
+  programarEnvioComprobante: vi.fn(async () => 'sin_destino'), completarComprobanteFlit2: vi.fn(async () => {}), envioDeImpuesto: vi.fn(async () => ({ envioComprobante: null, envioFlit2: null })),
 }));
 vi.mock('../../src/db/client.js', () => ({
   db: { select: selectMock, insert: insertMock, update: updateMock, delete: vi.fn(), transaction: transactionMock, execute: vi.fn() },
@@ -101,7 +101,7 @@ function txQueCaptura() {
   // Una sola referencia: los enganches del outbox deben recibir ESTA tx, no `db`.
   const tx = { insert, update };
   transactionMock.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
-  vi.mocked(envio.programarEnvioFlit2).mockClear();
+  vi.mocked(envio.programarEnvioComprobante).mockClear();
   vi.mocked(envio.completarComprobanteFlit2).mockClear();
   const en = (op: Escritura['op'], tabla: string) => escrituras.filter((e) => e.op === op && e.tabla === tabla);
   /** El ÚNICO update sobre `flito_impuestos`; lanza si hubo cero o más de uno. */
@@ -250,9 +250,9 @@ describe('AC4 — el pago con marca es la única vía a pagado', () => {
     const [soporte] = tx.en('insert', T_SOPORTES);
     expect(soporte!.datos.tipo).toBe(TipoSoporte.RECIBO_IMPUESTO);
     // HU #13268 (AC1): `conciliar` programa el envío a FLIT 2 con la tx del pago y el impuesto.
-    expect(envio.programarEnvioFlit2).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(envio.programarEnvioFlit2).mock.calls[0]![0]).toBe(tx.tx);
-    expect(vi.mocked(envio.programarEnvioFlit2).mock.calls[0]![1]).toBe(UUID);
+    expect(envio.programarEnvioComprobante).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(envio.programarEnvioComprobante).mock.calls[0]![0]).toBe(tx.tx);
+    expect(vi.mocked(envio.programarEnvioComprobante).mock.calls[0]![1]).toBe(UUID);
     expect(envio.completarComprobanteFlit2).not.toHaveBeenCalled();
   });
 
@@ -394,7 +394,7 @@ describe('AC6 — una liquidación que llega después del pago es un complemento
     expect(vi.mocked(envio.completarComprobanteFlit2).mock.calls[0]![0]).toBe(tx.tx);
     expect(vi.mocked(envio.completarComprobanteFlit2).mock.calls[0]![1]).toBe(UUID);
     // RN-02: el complemento no es un camino a pagado; crear fila aquí sería retroactivo.
-    expect(envio.programarEnvioFlit2).not.toHaveBeenCalled();
+    expect(envio.programarEnvioComprobante).not.toHaveBeenCalled();
   });
 
   it('con liquidadoEn ya puesto no se reescribe: cero updates', async () => {

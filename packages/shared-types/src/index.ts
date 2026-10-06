@@ -117,6 +117,7 @@ export * from './flito-comparendos.js';
 // Acceso de FLITO a FLIT 2 (Feature #13057, HU #13061).
 export * from './flito-flit2.js';
 export * from './flito-envio-flit2.js';
+export * from './flito-envio-comprobante.js';
 // Conciliación de boletas de pago externo contra los SOAT: estados, desenlaces del cruce y la
 // normalización del número de póliza, que tiene que ser la misma en la base, el API y la pantalla.
 export * from './flito-conciliacion.js';

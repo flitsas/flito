@@ -20,6 +20,14 @@ const SQL_0219 = readFileSync(path.join(DIR, ARCHIVO), 'utf8');
 const SIN_COMENTARIOS = SQL_0219.replace(/--[^\n]*/g, '');
 const SQLS = readdirSync(DIR).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
 
+const DE_LA_0221 = {
+  columnas: ['destino', 'archivo_flit1_id', 'ultimo_paso'],
+  checks: [
+    'ck_flito_impuesto_envios_flit2_destino', 'ck_flito_impuesto_envios_flit2_flit1_estado',
+    'ck_flito_impuesto_envios_flit2_flit1_cols', 'ck_flito_impuesto_envios_flit2_ultimo_paso',
+  ],
+};
+
 const estadosDelCheck = (): string[] => {
   const m = SIN_COMENTARIOS.match(/ck_flito_impuesto_envios_flit2_estado\s+CHECK \(estado IN \(([^)]*)\)\)/);
   return (m?.[1] ?? '').split(',').map((s) => s.trim().replace(/'/g, '')).filter(Boolean);
@@ -69,10 +77,11 @@ describe('0219 — análisis estático', () => {
     const t = getTableConfig(flitoImpuestoEnviosFlit2);
     expect(t.name).toBe('flito_impuesto_envios_flit2');
     const columnasSql = [...SIN_COMENTARIOS.matchAll(/^\s{2}([a-z_0-9]+)\s+(uuid|varchar|smallint|timestamptz|bigint|boolean|integer)/gm)].map((m) => m[1]).sort();
-    expect(t.columns.map((c) => c.name).sort()).toEqual(columnasSql);
+    // HU #13310: la 0221 añade estas columnas y CHECK (los cubre migracion-0221.test.ts).
+    expect(t.columns.map((c) => c.name).filter((n) => !DE_LA_0221.columnas.includes(n)).sort()).toEqual(columnasSql);
     expect(t.columns.find((c) => c.name === 'sync_version_espera')?.getSQLType()).toBe('bigint');
     expect(t.indexes.map((i) => i.config.name).sort()).toEqual(['idx_flito_impuesto_envios_flit2_cola', 'uq_flito_impuesto_envios_flit2_impuesto']);
-    expect(t.checks.map((c) => c.name).sort()).toEqual([
+    expect(t.checks.map((c) => c.name).filter((n) => !DE_LA_0221.checks.includes(n)).sort()).toEqual([
       'ck_flito_impuesto_envios_flit2_espera', 'ck_flito_impuesto_envios_flit2_estado',
       'ck_flito_impuesto_envios_flit2_intentos', 'ck_flito_impuesto_envios_flit2_soporte',
     ]);
@@ -96,9 +105,10 @@ describe.skipIf(!URL_BASE)('0219 — aplicar ×2 sobre BD ya migrada (P6)', () =
         await tx.unsafe(SQL_0219);
         const [imp] = await tx<{ id: string }[]>`SELECT id FROM flito_impuestos LIMIT 1`;
         if (imp) {
-          await expect(tx.savepoint((sp) => sp`INSERT INTO flito_impuesto_envios_flit2 (impuesto_id, estado, soporte_id) VALUES (${imp.id}, 'en_espera', gen_random_uuid())`))
+          // `destino` (NOT NULL desde la 0221, HU #13310) va explícito para que muerda el CHECK de la 0219.
+          await expect(tx.savepoint((sp) => sp`INSERT INTO flito_impuesto_envios_flit2 (impuesto_id, estado, soporte_id, destino) VALUES (${imp.id}, 'en_espera', gen_random_uuid(), 'flit2')`))
             .rejects.toMatchObject({ code: '23514' });
-          await expect(tx.savepoint((sp) => sp`INSERT INTO flito_impuesto_envios_flit2 (impuesto_id, estado) VALUES (${imp.id}, 'pendiente')`))
+          await expect(tx.savepoint((sp) => sp`INSERT INTO flito_impuesto_envios_flit2 (impuesto_id, estado, destino) VALUES (${imp.id}, 'pendiente', 'flit2')`))
             .rejects.toMatchObject({ code: '23514' });
         }
         throw ROLLBACK;
