@@ -9,7 +9,7 @@
 
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import {
-  CodigoErrorReemplazoComprobante, type EnvioComprobanteFlit2, type ReprogramacionEnvioFlit2,
+  CodigoErrorReemplazoComprobante, type EnvioComprobante, type ReprogramacionEnvioComprobante,
   type RespuestaReemplazoComprobante,
 } from '@operaciones/shared-types';
 import { ApiError, impuestosApi } from '../../lib/api';
@@ -72,16 +72,16 @@ const secundario = { color: 'var(--flit-text-secondary)' };
 
 type Paso = 'inicial' | 'cargando' | 'resultado' | 'error';
 
-export default function ModalReemplazoComprobante({ imp, envioActual, restoreFocusRef, onClose, onReemplazado, onRefrescar }: {
+export default function ModalReemplazoComprobante({ imp, envioComprobante, restoreFocusRef, onClose, onReemplazado, onRefrescar }: {
   imp: Pick<ImpuestoItem, 'id' | 'placa' | 'vin' | 'organismoNombre' | 'organismoCodigo'>;
-  /** Estado del envío a FLIT 2 que ya trae el detalle: con `ya_cargado_gestor` se avisa antes. */
-  envioActual: EnvioComprobanteFlit2 | null | undefined;
+  /** Envío que ya trae el detalle (HU #13312): solo FLIT 2 con `ya_cargado_gestor` avisa antes. */
+  envioComprobante: EnvioComprobante | null | undefined;
   /** Respaldo del foco si el botón que abrió el modal ya no existe tras el refresco. */
   restoreFocusRef?: RefObject<HTMLElement | null>;
   /** Cierre sin escritura (inicial, error, rechazo). */
   onClose: () => void;
   /** 200 `reemplazado`: quien lo monta cierra, avisa con toast y refresca. */
-  onReemplazado: (envio: ReprogramacionEnvioFlit2 | undefined) => void;
+  onReemplazado: (envio: ReprogramacionEnvioComprobante | undefined) => void;
   /** Refrescar sin cerrar el detalle (404 / 409). */
   onRefrescar: () => void;
 }) {
@@ -115,7 +115,7 @@ export default function ModalReemplazoComprobante({ imp, envioActual, restoreFoc
     setPaso('cargando');
     try {
       const r = await impuestosApi.reemplazarComprobantePago(imp.id, archivo);
-      if (r.resultado === 'reemplazado') { onReemplazado(r.envioFlit2); return; }
+      if (r.resultado === 'reemplazado') { onReemplazado(r.envio); return; }
       setRechazo(r); setPaso('resultado');
     } catch (e) {
       setClave(clasificarError(e)); setPaso('error');
@@ -165,7 +165,7 @@ export default function ModalReemplazoComprobante({ imp, envioActual, restoreFoc
             <div id={idAviso} className="space-y-1 rounded-md border p-3"
               style={{ borderColor: 'var(--flit-warning)', color: 'var(--flit-text-primary)' }}>
               <p>El comprobante de pago actual se descarta y queda el nuevo. El valor pagado y la fecha de pago no cambian.</p>
-              {envioActual?.estado === 'ya_cargado_gestor' && (
+              {envioComprobante?.destino === 'flit2' && envioComprobante.estado === 'ya_cargado_gestor' && (
                 <p>El gestor ya cargó su comprobante en FLIT 2: el nuevo queda solo en FLITO.</p>
               )}
             </div>
