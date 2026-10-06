@@ -71,6 +71,7 @@ vi.mock('../../src/modules/flito-sync/flito-sync-interruptor.service.js', () => 
 const svc = await import('../../src/modules/flito-impuestos/flito-impuestos.envio-flit1.service.js');
 const cola = await import('../../src/modules/flito-impuestos/flito-impuestos.envio-flit1.cola.js');
 const svc2 = await import('../../src/modules/flito-impuestos/flito-impuestos.envio-flit2.service.js');
+const { db } = await import('../../src/db/client.js');
 const { crearFlit2SyncFake } = await import('../../src/modules/flito-sync/flit2-sync-fake.adapter.js');
 
 const IMP = '11111111-1111-4111-8111-111111111111';
@@ -245,6 +246,91 @@ describe('AC1 — envío exitoso', () => {
     programar(p1Ok(), vacio(204), json({}));
     await ciclo();
     expect(llamadas()[2]).toEqual(['PUT', `${TRAMITES}/api/v1/vehicleTaxesQuery/45`]);
+  });
+});
+
+// ── HU #13311: reemplazo del comprobante → reprogramar y siguiente ciclo ──────────────────────────
+describe('HU #13311 — reemplazo: la fila FLIT 1 se reprograma y el ciclo siguiente repite P1 → P2 → P3 con el soporte nuevo', () => {
+  const CTX = { userId: 7, username: 'op@flitsas.io' };
+  const KEY_NUEVO = 'impuestos/recibos/nuevo.pdf';
+  /** Lectura FOR UPDATE de reprogramar: fila FLIT 1 en `desde`. */
+  const responderReprogramar = (desde: string) => (g: Grabada): unknown[] =>
+    (/^select .* from "flito_impuesto_envios_flit2"/s.test(g.sql) ? [{ id: FILA, estado: desde, destino: 'flit1' }] : []);
+  /** El ciclo toma la fila TAL COMO la dejó el UPDATE de reprogramar (soporte y archivo leídos del SET). */
+  function cicloTrasReprogramar(up: Grabada, previa: Record<string, unknown>) {
+    const fila = tomada({ ...previa, soporte_id: valorSet(up, 'soporte_id'), archivo_flit1_id: valorSet(up, 'archivo_flit1_id'), intentos: 0, version: 2 });
+    estado.grabadas = [];
+    estado.responder = (g) => {
+      if (/from "flito_soportes"/.test(g.sql)) return [{ id: SOP2, storageKey: KEY_NUEVO, descartado: false, impuestoId: IMP }];
+      return responderCiclo({ filas: [fila] })(g);
+    };
+  }
+
+  it.each([
+    ['AC1: enviado', 'enviado', { archivo_flit1_id: 'adj-777' }],
+    ['AC2: error con archivo de un intento a medias (soporte viejo)', 'error', { archivo_flit1_id: 'adj-777', intentos: 3 }],
+    ['AC2: pendiente con archivo de un intento a medias', 'pendiente', { archivo_flit1_id: 'adj-777', intentos: 1 }],
+  ])('%s → reprogramado (destino flit1); el ciclo siguiente sube el soporte nuevo con P1 → P2 → P3 y el PUT lleva el id nuevo', async (_n, desde, previa) => {
+    estado.responder = responderReprogramar(desde);
+    expect(await svc2.reprogramarEnvioComprobante(db as never, IMP, SOP2, CTX, AHORA)).toEqual({ destino: 'flit1', reenviado: true });
+    expect(fetchMock).not.toHaveBeenCalled();
+    const [lectura] = q(/^select .* from "flito_impuesto_envios_flit2"/s);
+    expect(lectura!.sql).not.toMatch(/"destino" = /); // sin la guarda D-12 de la #13310
+    const [up, ...resto] = updatesDeFila();
+    expect(resto).toHaveLength(0);
+    expect(valorSet(up!, 'estado')).toBe('pendiente');
+    expect(valorSet(up!, 'soporte_id')).toBe(SOP2);
+    expect(asigna(up!, 'archivo_flit1_id')).toBe(true);
+    expect(valorSet(up!, 'archivo_flit1_id')).toBeNull();
+    expect(asigna(up!, 'ultimo_paso')).toBe(true);
+    expect(valorSet(up!, 'ultimo_paso')).toBeNull();
+    expect(up!.sql).toMatch(/"version" = "flito_impuesto_envios_flit2"\."version" \+ 1/);
+    expect(audits()[0]!.params).toContain(`Envío a FLIT 1 reprogramado por reemplazo (estaba ${desde}). Soporte ${SOP2}.`);
+
+    cicloTrasReprogramar(up!, previa);
+    programar(p1Ok('adj-888'), vacio(204), json({}));
+    expect(await ciclo()).toMatchObject({ tomadas: 1, escritas: 1 });
+    expect(llamadas()).toEqual([['POST', `${ARCHIVOS}/api/v1/files`], ['POST', SUBIDA], ['PUT', `${TRAMITES}/api/v1/vehicleTaxesQuery/2345`]]);
+    expect(storage.stream.mock.calls.flat()).toContain(KEY_NUEVO);
+    expect(JSON.parse(String((fetchMock.mock.calls[2]![1] as RequestInit).body))).toMatchObject({ idAttachedPaymentReceipt: 'adj-888' });
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain('adj-777');
+    const [fin] = updatesDeFila();
+    expect(valorSet(fin!, 'estado')).toBe('enviado');
+    expect(valorSet(fin!, 'archivo_flit1_id')).toBe('adj-888');
+    expect(valorSet(fin!, 'soporte_enviado_id')).toBe(SOP2);
+  });
+
+  it('AC4: ni el reemplazo ni el ciclo siguiente llaman a borrar nada en FLIT 1 (control positivo: sí hay 3 llamadas)', async () => {
+    estado.responder = responderReprogramar('enviado');
+    await svc2.reprogramarEnvioComprobante(db as never, IMP, SOP2, CTX, AHORA);
+    cicloTrasReprogramar(updatesDeFila()[0]!, {});
+    programar(p1Ok('adj-888'), vacio(204), json({}));
+    await ciclo();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(llamadas().map(([m]) => m)).not.toContain('DELETE');
+  });
+
+  it('AC6: envío apagado → el reemplazo deja la fila pendiente y el ciclo no la toma hasta que se encienda', async () => {
+    estado.env.FLIT1_ADJUNTOS_ENVIO_HABILITADO = false;
+    estado.responder = responderReprogramar('enviado');
+    expect(await svc2.reprogramarEnvioComprobante(db as never, IMP, SOP2, CTX, AHORA)).toEqual({ destino: 'flit1', reenviado: true });
+    expect(valorSet(updatesDeFila()[0]!, 'estado')).toBe('pendiente');
+    cicloTrasReprogramar(updatesDeFila()[0]!, {});
+    expect(await ciclo()).toMatchObject({ omitido: 'apagado', tomadas: 0 });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(estado.grabadas).toHaveLength(0);
+    estado.env.FLIT1_ADJUNTOS_ENVIO_HABILITADO = true; // control positivo: encendido, sí sale
+    programar(p1Ok('adj-888'), vacio(204), json({}));
+    expect(await ciclo()).toMatchObject({ tomadas: 1, escritas: 1 });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('AC3: trámite FLIT 1 sin fila de envío → sin_envio_previo con destino flit1; no crea fila ni llama', async () => {
+    estado.responder = (g) => (/"flito_tramites"\."fuente"/.test(g.sql) ? [{ fuente: 'flit' }] : []);
+    expect(await svc2.reprogramarEnvioComprobante(db as never, IMP, SOP2, CTX, AHORA))
+      .toEqual({ destino: 'flit1', reenviado: false, motivo: 'sin_envio_previo' });
+    expect(q(/^(update|insert)/)).toHaveLength(0);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

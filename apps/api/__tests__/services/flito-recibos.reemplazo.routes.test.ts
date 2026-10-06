@@ -65,7 +65,7 @@ const candidato = () => ({
 });
 
 /** Feliz: acceso → vigentes → hash libre → candidato → (tx) FOR UPDATE → vigentes → fila del envío. */
-function armarReemplazo(envio: string | null = 'enviado') {
+function armarReemplazo(envio: string | null = 'enviado', destino: 'flit1' | 'flit2' = 'flit2') {
   kdb.when
     .selectOnce(T_IMPUESTOS, [filaAcceso()])
     .selectOnce(T_SOPORTES, [{ id: 'sop-viejo' }])
@@ -73,7 +73,7 @@ function armarReemplazo(envio: string | null = 'enviado') {
     .selectOnce(T_IMPUESTOS, [candidato()])
     .selectOnce(T_IMPUESTOS, [{ estado: EstadoImpuesto.PAGADO }])
     .selectOnce(T_SOPORTES, [{ id: 'sop-viejo' }])
-    .select(T_ENVIOS, envio ? [{ id: 'fila-1', estado: envio }] : [])
+    .select(T_ENVIOS, envio ? [{ id: 'fila-1', estado: envio, destino }] : [])
     .insert(T_SOPORTES, [{ id: 'sop-nuevo' }]);
 }
 
@@ -173,7 +173,10 @@ describe('AC1 — con la función: reemplaza y reprograma el envío', () => {
     });
     const res = await post(app, await auth('admin')).attach('archivo', PDF, 'nuevo.pdf');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ resultado: 'reemplazado', soporteId: 'sop-nuevo', soportesDescartados: ['sop-viejo'], envioFlit2: { reenviado: true } });
+    expect(res.body).toEqual({
+      resultado: 'reemplazado', soporteId: 'sop-nuevo', soportesDescartados: ['sop-viejo'],
+      envioFlit2: { reenviado: true }, envio: { destino: 'flit2', reenviado: true },
+    });
     expect(kdb.transaction).toHaveBeenCalledTimes(1);
     expect(tablasActualizadas()).toEqual([T_SOPORTES, T_ENVIOS]);
     expect(capturados[0]).toMatchObject({ tipo: TipoSoporte.RECIBO_IMPUESTO, contentType: 'application/pdf', impuestoId: ID });
@@ -181,6 +184,19 @@ describe('AC1 — con la función: reemplaza y reprograma el envío', () => {
     expect(auditMock.mock.calls[0]![1]).toEqual({
       action: 'upload', resource: 'flito_impuesto', resourceId: ID,
       detail: 'Reemplazo del comprobante de pago: soporte(s) sop-viejo → sop-nuevo. Envío a FLIT 2: reprogramado.',
+    });
+  });
+
+  it('HU #13311 AC1: trámite FLIT 1 con envío enviado → 200; `envio` dice destino flit1 reprogramado; `envioFlit2` no_flit2; audit FLIT 1', async () => {
+    const app = await buildApp();
+    armarReemplazo('enviado', 'flit1');
+    const res = await post(app, await auth('admin')).attach('archivo', PDF, 'nuevo.pdf');
+    expect(res.status).toBe(200);
+    expect(res.body.envio).toEqual({ destino: 'flit1', reenviado: true });
+    expect(res.body.envioFlit2).toEqual({ reenviado: false, motivo: 'no_flit2' });
+    expect(tablasActualizadas()).toEqual([T_SOPORTES, T_ENVIOS]);
+    expect(auditMock.mock.calls[0]![1]).toMatchObject({
+      detail: 'Reemplazo del comprobante de pago: soporte(s) sop-viejo → sop-nuevo. Envío a FLIT 1: reprogramado.',
     });
   });
 

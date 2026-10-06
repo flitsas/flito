@@ -1,5 +1,6 @@
-// FLITO Impuestos — reemplazo del comprobante de pago de un impuesto pagado y reenvío a FLIT 2
-// (HU #13269, Feature #13267, Épica #12741, ADR-0020; diseño `docs/diseno/feature-13267-…` §12).
+// FLITO Impuestos — reemplazo del comprobante de pago de un impuesto pagado y reenvío a FLIT 2 o FLIT 1
+// (HU #13269, Feature #13267, Épica #12741, ADR-0020; diseño `docs/diseno/feature-13267-…` §12;
+// destino FLIT 1 desde la HU #13311, ADR-0021, `docs/diseno/feature-13309-…` §12).
 //
 // RN-R1 Solo sobre un impuesto `pagado` con comprobante de pago (`recibo_impuesto`) VIGENTE. Sin él →
 //   409 `sin_comprobante_vigente`: se usa la carga normal (AC4). El recibo de caja no se reemplaza aquí.
@@ -9,8 +10,10 @@
 //   (salvo la auditoría del rechazo): el comprobante anterior sigue vigente y no se envía nada (AC3).
 // RN-R3 UNA transacción, con el impuesto bloqueado (`FOR UPDATE`) y los vigentes releídos dentro:
 //   descarta los vigentes → inserta el nuevo → audita (usuario, impuesto, ids; sin PII) →
-//   `reprogramarEnvioFlit2` con ESA tx (RN-10 del envío). Si entre la lectura y el bloqueo otro
-//   reemplazo se llevó los vigentes, o el impuesto dejó de estar pagado, → 409 sin escribir.
+//   `reprogramarEnvioComprobante` con ESA tx (RN-10 del envío). La respuesta lleva `envio` (con
+//   destino) y `envioFlit2` (proyección a FLIT 2 que lee la UI de la #13270 hasta la #13312).
+//   Si entre la lectura y el bloqueo otro reemplazo se llevó los vigentes, o el impuesto dejó de
+//   estar pagado, → 409 sin escribir.
 // RN-R4 Solo cambia el documento: `extraccion`, `valor_pagado` y `pagado_en` del impuesto no se tocan.
 
 import { createHash } from 'crypto';
@@ -21,7 +24,7 @@ import {
 import { db } from '../../db/client.js';
 import { flitoImpuestos, flitoSoportes } from '../../db/schema.js';
 import { buscarConAcceso } from './flito-impuestos.service.js';
-import { reprogramarEnvioFlit2 } from './flito-impuestos.envio-flit2.service.js';
+import { aReprogramacionFlit2, reprogramarEnvioComprobante } from './flito-impuestos.envio-flit2.service.js';
 import {
   DETALLE_CARGA_POR_FASE, archivar, auditEnTx, candidatoPorImpuestoId, hashReciboYaCargado, insertarSoporte,
   validarComprobantePorId,
@@ -91,8 +94,8 @@ export async function reemplazarComprobantePago(
       const soporteId = await insertarSoporte(tx, impuestoId, archivo, TipoSoporte.RECIBO_IMPUESTO, ctx, guardado, hash);
       await auditEnTx(tx, ctx, impuestoId,
         `Comprobante de pago reemplazado. Descartado(s): ${descartados.join(', ')}. Nuevo soporte ${soporteId}. Trámite ${cand.tramiteIdFlit}.`);
-      const envioFlit2 = await reprogramarEnvioFlit2(tx, impuestoId, soporteId, ctx);
-      return { resultado: 'reemplazado', soporteId, soportesDescartados: descartados, envioFlit2 };
+      const envio = await reprogramarEnvioComprobante(tx, impuestoId, soporteId, ctx);
+      return { resultado: 'reemplazado', soporteId, soportesDescartados: descartados, envioFlit2: aReprogramacionFlit2(envio), envio };
     });
   } catch (e) {
     if (e instanceof PagoCambiadoError) {

@@ -19,7 +19,7 @@ vi.mock('../../src/db/client.js', () => ({
 }));
 const imp = vi.hoisted(() => ({ buscarConAcceso: vi.fn() }));
 vi.mock('../../src/modules/flito-impuestos/flito-impuestos.service.js', () => imp);
-const envio = vi.hoisted(() => ({ reprogramarEnvioFlit2: vi.fn() }));
+const envio = vi.hoisted(() => ({ reprogramarEnvioComprobante: vi.fn(), aReprogramacionFlit2: vi.fn() }));
 vi.mock('../../src/modules/flito-impuestos/flito-impuestos.envio-flit2.service.js', () => envio);
 const rec = vi.hoisted(() => ({
   archivar: vi.fn(), auditEnTx: vi.fn(), candidatoPorImpuestoId: vi.fn(), hashReciboYaCargado: vi.fn(),
@@ -67,19 +67,20 @@ function armarFeliz() {
   rec.archivar.mockResolvedValue(GUARDADO);
   rec.insertarSoporte.mockResolvedValue('sop-nuevo');
   rec.auditEnTx.mockResolvedValue(undefined);
-  envio.reprogramarEnvioFlit2.mockResolvedValue({ reenviado: true });
+  envio.reprogramarEnvioComprobante.mockResolvedValue({ destino: 'flit2', reenviado: true });
+  envio.aReprogramacionFlit2.mockReturnValue({ reenviado: true });
 }
 
 function nadaEscrito() {
   expect(transactionMock).not.toHaveBeenCalled();
   expect(rec.archivar).not.toHaveBeenCalled();
   expect(rec.insertarSoporte).not.toHaveBeenCalled();
-  expect(envio.reprogramarEnvioFlit2).not.toHaveBeenCalled();
+  expect(envio.reprogramarEnvioComprobante).not.toHaveBeenCalled();
 }
 
 beforeEach(() => {
   selectMock.mockReset(); transactionMock.mockReset(); imp.buscarConAcceso.mockReset();
-  envio.reprogramarEnvioFlit2.mockReset();
+  envio.reprogramarEnvioComprobante.mockReset(); envio.aReprogramacionFlit2.mockReset();
   for (const f of Object.values(rec)) f.mockReset();
 });
 
@@ -106,12 +107,12 @@ describe('AC1 — reemplazo: descarta, inserta y reprograma en UNA transacción'
     expect(rec.hashReciboYaCargado).toHaveBeenCalledWith(hash);
   });
 
-  it('reprogramarEnvioFlit2 recibe la tx de la transacción (identidad), el impuesto, el soporte NUEVO y el actor', async () => {
+  it('reprogramarEnvioComprobante recibe la tx de la transacción (identidad), el impuesto, el soporte NUEVO y el actor', async () => {
     armarFeliz();
     const { tx } = txDelReemplazo();
     await reemplazarComprobantePago(ID, PDF, CTX);
-    expect(envio.reprogramarEnvioFlit2).toHaveBeenCalledTimes(1);
-    const [txEnvio, impuestoId, soporteId, ctx] = envio.reprogramarEnvioFlit2.mock.calls[0]!;
+    expect(envio.reprogramarEnvioComprobante).toHaveBeenCalledTimes(1);
+    const [txEnvio, impuestoId, soporteId, ctx] = envio.reprogramarEnvioComprobante.mock.calls[0]!;
     expect(txEnvio).toBe(tx); // NO `db`: el outbox es atómico con el reemplazo
     expect([impuestoId, soporteId, ctx]).toEqual([ID, 'sop-nuevo', CTX]);
   });
@@ -122,7 +123,7 @@ describe('AC1 — reemplazo: descarta, inserta y reprograma en UNA transacción'
     await reemplazarComprobantePago(ID, PDF, CTX);
     const orden = [
       tx.update.mock.invocationCallOrder[0]!, rec.insertarSoporte.mock.invocationCallOrder[0]!,
-      rec.auditEnTx.mock.invocationCallOrder[0]!, envio.reprogramarEnvioFlit2.mock.invocationCallOrder[0]!,
+      rec.auditEnTx.mock.invocationCallOrder[0]!, envio.reprogramarEnvioComprobante.mock.invocationCallOrder[0]!,
     ];
     expect([...orden].sort((a, b) => a - b)).toEqual(orden);
   });
@@ -146,7 +147,10 @@ describe('AC1 — reemplazo: descarta, inserta y reprograma en UNA transacción'
     armarFeliz();
     txDelReemplazo({ vigentes: ['sop-a', 'sop-b'] });
     const r = await reemplazarComprobantePago(ID, PDF, CTX);
-    expect(r).toEqual({ resultado: 'reemplazado', soporteId: 'sop-nuevo', soportesDescartados: ['sop-a', 'sop-b'], envioFlit2: { reenviado: true } });
+    expect(r).toEqual({
+      resultado: 'reemplazado', soporteId: 'sop-nuevo', soportesDescartados: ['sop-a', 'sop-b'],
+      envioFlit2: { reenviado: true }, envio: { destino: 'flit2', reenviado: true },
+    });
   });
 
   it('la validación es la de la carga por id, en fase PAGO y con el candidato del impuesto', async () => {
@@ -159,15 +163,19 @@ describe('AC1 — reemplazo: descarta, inserta y reprograma en UNA transacción'
 
 describe('AC5 / AC6 — el reemplazo se hace en FLITO y se informa el envío sin reenviar', () => {
   it.each([
-    ['ya_cargado_gestor (AC6)', { reenviado: false, motivo: 'ya_cargado_gestor' }],
-    ['trámite que no es de FLIT 2 (AC5)', { reenviado: false, motivo: 'no_flit2' }],
-  ])('%s → reemplazado y envioFlit2 tal cual', async (_n, envioFlit2) => {
+    ['ya_cargado_gestor (#13269 AC6)', { destino: 'flit2', reenviado: false, motivo: 'ya_cargado_gestor' }, { reenviado: false, motivo: 'ya_cargado_gestor' }],
+    ['trámite de otra fuente (#13311 AC5)', { destino: null, reenviado: false, motivo: 'no_aplica' }, { reenviado: false, motivo: 'no_flit2' }],
+    ['FLIT 1 sin fila (#13311 AC3)', { destino: 'flit1', reenviado: false, motivo: 'sin_envio_previo' }, { reenviado: false, motivo: 'no_flit2' }],
+    ['FLIT 1 reprogramado (#13311 AC1)', { destino: 'flit1', reenviado: true }, { reenviado: false, motivo: 'no_flit2' }],
+  ])('%s → reemplazado; `envio` es lo que devolvió reprogramar y `envioFlit2` su proyección', async (_n, envioDestino, envioFlit2) => {
     armarFeliz();
-    envio.reprogramarEnvioFlit2.mockResolvedValue(envioFlit2);
+    envio.reprogramarEnvioComprobante.mockResolvedValue(envioDestino);
+    envio.aReprogramacionFlit2.mockReturnValue(envioFlit2);
     const { sets } = txDelReemplazo();
     const r = await reemplazarComprobantePago(ID, PDF, CTX);
     expect(sets).toEqual([{ descartado: true }]);
-    expect(r).toMatchObject({ resultado: 'reemplazado', envioFlit2 });
+    expect(envio.aReprogramacionFlit2).toHaveBeenCalledWith(envioDestino);
+    expect(r).toMatchObject({ resultado: 'reemplazado', envio: envioDestino, envioFlit2 });
   });
 });
 
@@ -232,6 +240,6 @@ describe('AC4 / estado / frontera — errores claros, sin efectos', () => {
     await expect(reemplazarComprobantePago(ID, PDF, CTX)).rejects.toMatchObject({ status: 409, codigo: 'sin_comprobante_vigente' });
     expect(tx.update).not.toHaveBeenCalled();
     expect(rec.insertarSoporte).not.toHaveBeenCalled();
-    expect(envio.reprogramarEnvioFlit2).not.toHaveBeenCalled();
+    expect(envio.reprogramarEnvioComprobante).not.toHaveBeenCalled();
   });
 });
