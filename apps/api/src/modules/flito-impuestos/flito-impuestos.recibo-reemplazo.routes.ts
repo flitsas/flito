@@ -62,7 +62,8 @@ export default function reciboReemplazoRouter(contextoImpuesto: Contexto): Route
         const r = await reemplazarComprobantePago(id.data, archivo, ctx);
         const detalle = r.resultado === 'reemplazado'
           ? `Reemplazo del comprobante de pago: soporte(s) ${r.soportesDescartados.join(', ')} → ${r.soporteId}. ` +
-            `Envío a FLIT 2: ${r.envioFlit2.reenviado ? 'reprogramado' : `no (${r.envioFlit2.motivo})`}.`
+            `Envío${r.envio.destino ? ` a ${r.envio.destino === 'flit1' ? 'FLIT 1' : 'FLIT 2'}` : ''}: ` +
+            `${r.envio.reenviado ? 'reprogramado' : `no (${r.envio.motivo})`}.`
           : `Reemplazo del comprobante de pago rechazado: ${r.resultado}.`;
         await audit(req, { action: 'upload', resource: 'flito_impuesto', resourceId: id.data, detail: detalle });
         res.json(r);

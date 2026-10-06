@@ -2,6 +2,8 @@
 // FLIT 2 (outbox `flito_impuesto_envios_flit2`, migración 0219). Los seis valores deben coincidir con
 // el CHECK `ck_flito_impuesto_envios_flit2_estado` (test de paridad en apps/api).
 
+import type { ReprogramacionEnvioComprobante } from './flito-envio-comprobante.js';
+
 export const EstadoEnvioFlit2 = {
   PENDIENTE: 'pendiente',
   /** FLIT 2 aún no admite el adjunto (409 terminal:false): espera a que el trámite cambie. */
@@ -65,5 +67,11 @@ export type CodigoErrorReemplazoComprobante =
  * escribieron nada y traen el `detalle` (mismos textos que la carga por fase).
  */
 export type RespuestaReemplazoComprobante =
-  | { resultado: 'reemplazado'; soporteId: string; soportesDescartados: string[]; envioFlit2: ReprogramacionEnvioFlit2 }
+  | {
+    resultado: 'reemplazado'; soporteId: string; soportesDescartados: string[];
+    /** Solo FLIT 2 (contrato de la HU #13269; un trámite de FLIT 1 dice `no_flit2`). */
+    envioFlit2: ReprogramacionEnvioFlit2;
+    /** HU #13311: el envío con su destino (FLIT 1 o FLIT 2). */
+    envio: ReprogramacionEnvioComprobante;
+  }
   | { resultado: 'duplicado' | 'fase_no_coincide' | 'placa_no_coincide'; detalle: string };

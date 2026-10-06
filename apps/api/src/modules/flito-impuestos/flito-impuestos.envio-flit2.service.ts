@@ -23,14 +23,17 @@
 //   `error` local. Logs: solo ids, status y códigos. Nunca placa, documento, nombre de archivo ni URL.
 // RN-09 Lectura (AC10). `envioFlit2DeImpuesto` → null si el trámite no es de FLIT 2 o no hay fila
 //   (resuelve la fuente por join: el ítem del detalle no la trae). El detalle usa `envioDeImpuesto`.
-// RN-10 Reemplazo (HU #13269). `reprogramarEnvioFlit2` en la tx del reemplazo: vuelve a `pendiente`
-//   con el soporte nuevo y `version + 1`; `ya_cargado_gestor` no se reenvía; sin fila no se envía.
-//   Solo filas `destino = 'flit2'` (ADR-0021 D-12): el reemplazo de FLIT 1 es la HU #13311.
+// RN-10 Reemplazo (HU #13269, #13311). `reprogramarEnvioComprobante` en la tx del reemplazo: vuelve a
+//   `pendiente` con el soporte nuevo y `version + 1`, para la fila de CUALQUIER destino; `ya_cargado_gestor`
+//   no se reenvía; sin fila no se envía. Fila `flit1`: además `archivo_flit1_id = NULL, ultimo_paso = NULL`
+//   (repite los 3 pasos; el PUT sobrescribe `idAttachedPaymentReceipt`; el archivo viejo NO se borra en
+//   FLIT 1). `reprogramarEnvioFlit2` queda como alias con el contrato de la #13269 (solo FLIT 2).
 // La toma FLIT 2 filtra `destino = 'flit2'` (cola): el ciclo FLIT 1 vive en `envio-flit1.service.ts`.
 
 import { and, eq, sql } from 'drizzle-orm';
 import {
-  EstadoEnvioFlit2, MAX_INTENTOS_ENVIO_FLIT2, type EnvioComprobanteFlit2, type ReprogramacionEnvioFlit2,
+  EstadoEnvioFlit2, MAX_INTENTOS_ENVIO_FLIT2, type EnvioComprobanteFlit2, type ReprogramacionEnvioComprobante,
+  type ReprogramacionEnvioFlit2,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { auditLogs, flitoImpuestoEnviosFlit2 } from '../../db/schema.js';
@@ -48,7 +51,7 @@ import {
   quitarPausaEnvio, tomarLoteEnvios, type FilaEnvioTomada,
 } from './flito-impuestos.envio-flit2.cola.js';
 import {
-  EnvioComprobanteError, SALE_DE_ESPERA, auditar, elegirComprobante, envioDeImpuesto, escribir as escribirComun, fuenteDelImpuesto,
+  EnvioComprobanteError, SALE_DE_ESPERA, auditar, destinoDeFuente, elegirComprobante, envioDeImpuesto, escribir as escribirComun, fuenteDelImpuesto,
   leerBytes, registrarLecturaPii, soporteVigente, type Cambios, type Escritor,
 } from './flito-impuestos.envio-comun.js';
 
@@ -103,32 +106,52 @@ const REPROGRAMABLES: readonly EstadoEnvioFlit2[] = [
 ];
 
 /**
- * RN-10 (HU #13269, diseño §12). DENTRO de la transacción del reemplazo, después de descartar el
- * soporte viejo e insertar el nuevo. Nunca crea fila (D-5): sin fila no se envía. Con fila
- * reprogramable: `pendiente` desde cero con el soporte nuevo y `version + 1`, que es lo que impide
- * (guarda de RN-07) que un envío en vuelo del soporte viejo pise la reprogramación. Limpia la toma,
- * el último resultado y la espera (el CHECK de la 0219 exige `en_espera` ⇔ ambas columnas).
+ * RN-10 (HU #13269 y #13311, diseño 13267 §12 y 13309 §12). DENTRO de la transacción del reemplazo,
+ * después de descartar el soporte viejo e insertar el nuevo. Nunca crea fila (D-5): sin fila no se
+ * envía. Con fila reprogramable (de cualquier destino): `pendiente` desde cero con el soporte nuevo y
+ * `version + 1`, que es lo que impide (guarda de RN-07) que un envío en vuelo del soporte viejo pise
+ * la reprogramación. Limpia la toma, el último resultado y la espera (el CHECK de la 0219 exige
+ * `en_espera` ⇔ ambas columnas). Fila `flit1`: borra además el progreso de los pasos
+ * (`archivo_flit1_id`, `ultimo_paso`), así el archivo subido con el soporte viejo nunca se reutiliza y
+ * el siguiente ciclo repite P1→P2→P3 (AC1/AC2). Nada se borra en FLIT 1 (AC4). La habilitación del
+ * envío no se mira aquí: con el envío apagado la fila espera `pendiente` (AC6).
  */
-export async function reprogramarEnvioFlit2(
+export async function reprogramarEnvioComprobante(
   tx: Escritor, impuestoId: string, soporteNuevoId: string, ctx: { userId: number | null; username: string }, ahora: Date = new Date(),
-): Promise<ReprogramacionEnvioFlit2> {
-  // D-12 (ADR-0021): solo la fila FLIT 2; una fila FLIT 1 no se toca aquí (HU #13311).
-  const [fila] = await tx.select({ id: T.id, estado: T.estado }).from(T)
-    .where(and(eq(T.impuestoId, impuestoId), eq(T.destino, 'flit2'))).for('update');
+): Promise<ReprogramacionEnvioComprobante> {
+  // Una fila por impuesto (índice único de la 0219): sin filtro de destino desde la HU #13311.
+  const [fila] = await tx.select({ id: T.id, estado: T.estado, destino: T.destino }).from(T)
+    .where(eq(T.impuestoId, impuestoId)).for('update');
   if (!fila) {
-    return { reenviado: false, motivo: await fuenteDelImpuesto(tx, impuestoId) === 'flit2' ? 'sin_envio_previo' : 'no_flit2' };
+    const destino = destinoDeFuente(await fuenteDelImpuesto(tx, impuestoId));
+    return destino ? { destino, reenviado: false, motivo: 'sin_envio_previo' } : { destino: null, reenviado: false, motivo: 'no_aplica' };
   }
-  if (!REPROGRAMABLES.includes(fila.estado)) return { reenviado: false, motivo: 'ya_cargado_gestor' };
+  const destino = fila.destino;
+  if (!REPROGRAMABLES.includes(fila.estado)) return { destino, reenviado: false, motivo: 'ya_cargado_gestor' };
   await tx.update(T).set({
     estado: EstadoEnvioFlit2.PENDIENTE, soporteId: soporteNuevoId, intentos: 0, proximoIntentoEn: ahora,
     version: sql`${T.version} + 1`, tomadoPor: null, tomadoEn: null, ultimoResultado: null,
     syncVersionEspera: null, enEsperaDesde: null, updatedAt: ahora,
+    ...(destino === 'flit1' ? { archivoFlit1Id: null, ultimoPaso: null } : {}),
   }).where(eq(T.id, fila.id));
   await tx.insert(auditLogs).values({
     userId: ctx.userId, userEmail: ctx.username, action: 'update', resource: 'flito_impuesto', resourceId: impuestoId,
-    detail: `Envío a FLIT 2 reprogramado por reemplazo (estaba ${fila.estado}). Soporte ${soporteNuevoId}.`,
+    detail: `Envío a ${destino === 'flit1' ? 'FLIT 1' : 'FLIT 2'} reprogramado por reemplazo (estaba ${fila.estado}). Soporte ${soporteNuevoId}.`,
   });
-  return { reenviado: true };
+  return { destino, reenviado: true };
+}
+
+/** Proyección al contrato de la #13269 (`envioFlit2`): solo habla de FLIT 2; otro destino = `no_flit2`. */
+export function aReprogramacionFlit2(r: ReprogramacionEnvioComprobante): ReprogramacionEnvioFlit2 {
+  if (r.destino !== 'flit2') return { reenviado: false, motivo: 'no_flit2' };
+  return r.reenviado ? { reenviado: true } : { reenviado: false, motivo: r.motivo };
+}
+
+/** Alias con el contrato de la HU #13269. Ya no filtra por destino: una fila FLIT 1 también se reprograma. */
+export async function reprogramarEnvioFlit2(
+  tx: Escritor, impuestoId: string, soporteNuevoId: string, ctx: { userId: number | null; username: string }, ahora: Date = new Date(),
+): Promise<ReprogramacionEnvioFlit2> {
+  return aReprogramacionFlit2(await reprogramarEnvioComprobante(tx, impuestoId, soporteNuevoId, ctx, ahora));
 }
 
 // ── RN-09 / AC10: lectura para el detalle ───────────────────────────────────────────────────────

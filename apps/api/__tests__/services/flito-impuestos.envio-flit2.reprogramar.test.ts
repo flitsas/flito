@@ -1,5 +1,7 @@
-// HU #13269 (Feature #13267, diseño §12) — RN-10 `reprogramarEnvioFlit2`: la reprogramación del envío
-// a FLIT 2 cuando se reemplaza el comprobante de pago.
+// HU #13269 (Feature #13267, diseño §12) y HU #13311 (Feature #13309, diseño §12) — RN-10
+// `reprogramarEnvioComprobante` (alias `reprogramarEnvioFlit2`): la reprogramación del envío a FLIT 2 o
+// FLIT 1 cuando se reemplaza el comprobante de pago. El ciclo FLIT 1 tras reprogramar se prueba en
+// flito-impuestos.envio-flit1.test.ts.
 //
 // Misma «grabadora» que flito-impuestos.envio-flit2.test.ts: Drizzle REAL que renderiza con `toSQL()`
 // y responde por patrón, para asertar sobre el SQL y los parámetros reales (el mock `chain` ignora el
@@ -63,10 +65,10 @@ const updates = () => q(/^update "flito_impuesto_envios_flit2"/);
 const auditorias = () => q(/^insert into "audit_logs"/);
 
 /** Responde la lectura FOR UPDATE de la fila y, si se pide, la fuente del trámite. */
-function base(filaEstado: string | null, fuente: string | null = 'flit2') {
+function base(filaEstado: string | null, fuente: string | null = 'flit2', destino: 'flit1' | 'flit2' = 'flit2') {
   estado.responder = (g) => {
     if (/from "flito_impuesto_envios_flit2"/.test(g.sql) && /^select/.test(g.sql)) {
-      return filaEstado ? [{ id: FILA, estado: filaEstado }] : [];
+      return filaEstado ? [{ id: FILA, estado: filaEstado, destino }] : [];
     }
     if (/"flito_tramites"\."fuente"/.test(g.sql)) return fuente ? [{ fuente }] : [];
     return [];
@@ -81,14 +83,16 @@ describe('RN-10 — filas reprogramables vuelven a pendiente desde cero con el s
     EstadoEnvioFlit2.EN_ESPERA, EstadoEnvioFlit2.SIN_COMPROBANTE,
   ])('%s → reenviado:true; UPDATE de la fila con todos los campos del diseño §12', async (desde) => {
     base(desde);
-    const r = await svc.reprogramarEnvioFlit2(db as never, IMP, NUEVO, CTX, AHORA);
-    expect(r).toEqual({ reenviado: true });
+    const r = await svc.reprogramarEnvioComprobante(db as never, IMP, NUEVO, CTX, AHORA);
+    expect(r).toEqual({ destino: 'flit2', reenviado: true });
 
     const lectura = q(/^select .* from "flito_impuesto_envios_flit2"/);
     expect(lectura).toHaveLength(1);
-    // HU #13310 D-12: solo la fila destino flit2.
-    expect(lectura[0]!.sql).toMatch(/where \("flito_impuesto_envios_flit2"\."impuesto_id" = \$1 and "flito_impuesto_envios_flit2"\."destino" = \$2\) for update$/);
-    expect(lectura[0]!.params).toEqual([IMP, 'flit2']);
+    // HU #13311: sin la guarda D-12 de la #13310; la fila del impuesto, de cualquier destino.
+    expect(lectura[0]!.sql).toMatch(/where "flito_impuesto_envios_flit2"\."impuesto_id" = \$1 for update$/);
+    expect(lectura[0]!.params).toEqual([IMP]);
+    // Fila FLIT 2: el progreso de FLIT 1 no se toca (sus columnas ya son null por el CHECK de la 0221).
+    expect(updates()[0]!.sql).not.toMatch(/"archivo_flit1_id"|"ultimo_paso"/);
 
     const [u, ...resto] = updates();
     expect(resto).toHaveLength(0);
@@ -139,33 +143,72 @@ describe('RN-10 — filas reprogramables vuelven a pendiente desde cero con el s
 describe('RN-10 — lo que NO se reenvía', () => {
   it('ya_cargado_gestor (AC6) → { reenviado:false, motivo:ya_cargado_gestor }; ni UPDATE ni auditoría', async () => {
     base(EstadoEnvioFlit2.YA_CARGADO_GESTOR);
-    expect(await svc.reprogramarEnvioFlit2(db as never, IMP, NUEVO, CTX, AHORA)).toEqual({ reenviado: false, motivo: 'ya_cargado_gestor' });
+    expect(await svc.reprogramarEnvioComprobante(db as never, IMP, NUEVO, CTX, AHORA)).toEqual({ destino: 'flit2', reenviado: false, motivo: 'ya_cargado_gestor' });
     expect(updates()).toHaveLength(0);
     expect(q(/^insert/)).toHaveLength(0);
   });
 
-  it('sin fila y trámite que no es de FLIT 2 (AC5) → no_flit2; no crea fila', async () => {
-    base(null, 'flit1');
+  it('sin fila y trámite de otra fuente (#13311 AC5) → no_aplica sin destino; el alias dice no_flit2; no crea fila', async () => {
+    base(null, 'runt');
+    expect(await svc.reprogramarEnvioComprobante(db as never, IMP, NUEVO, CTX, AHORA)).toEqual({ destino: null, reenviado: false, motivo: 'no_aplica' });
+    base(null, 'runt');
     expect(await svc.reprogramarEnvioFlit2(db as never, IMP, NUEVO, CTX, AHORA)).toEqual({ reenviado: false, motivo: 'no_flit2' });
-    expect(updates()).toHaveLength(0);
-    expect(q(/^insert/)).toHaveLength(0);
-  });
-
-  it('HU #13310 D-12: la lectura FOR UPDATE solo toma la fila destino flit2; un trámite de FLIT 1 → no_flit2 sin tocar su fila', async () => {
-    base(null, 'flit');
-    expect(await svc.reprogramarEnvioFlit2(db as never, IMP, NUEVO, CTX, AHORA)).toEqual({ reenviado: false, motivo: 'no_flit2' });
-    const [sel] = q(/^select .* from "flito_impuesto_envios_flit2"/s);
-    expect(sel.sql).toMatch(/"flito_impuesto_envios_flit2"\."destino" = \$\d+/);
-    expect(sel.sql).toMatch(/for update/);
-    expect(sel.params).toEqual(expect.arrayContaining([IMP, 'flit2']));
     expect(updates()).toHaveLength(0);
     expect(q(/^insert/)).toHaveLength(0);
   });
 
   it('sin fila y trámite de FLIT 2 pagado antes del envío automático (D-5) → sin_envio_previo; no crea fila', async () => {
     base(null, 'flit2');
+    expect(await svc.reprogramarEnvioComprobante(db as never, IMP, NUEVO, CTX, AHORA)).toEqual({ destino: 'flit2', reenviado: false, motivo: 'sin_envio_previo' });
     expect(await svc.reprogramarEnvioFlit2(db as never, IMP, NUEVO, CTX, AHORA)).toEqual({ reenviado: false, motivo: 'sin_envio_previo' });
     expect(updates()).toHaveLength(0);
     expect(q(/^insert/)).toHaveLength(0);
+  });
+
+  it('sin fila y trámite de FLIT 1 pagado antes del despliegue (#13311 AC3) → sin_envio_previo con destino flit1; no crea fila', async () => {
+    base(null, 'flit');
+    expect(await svc.reprogramarEnvioComprobante(db as never, IMP, NUEVO, CTX, AHORA)).toEqual({ destino: 'flit1', reenviado: false, motivo: 'sin_envio_previo' });
+    expect(updates()).toHaveLength(0);
+    expect(q(/^insert/)).toHaveLength(0);
+  });
+});
+
+describe('HU #13311 — fila FLIT 1: se reprograma y pierde el progreso de los pasos', () => {
+  it.each([EstadoEnvioFlit2.ENVIADO, EstadoEnvioFlit2.ERROR, EstadoEnvioFlit2.PENDIENTE, EstadoEnvioFlit2.SIN_COMPROBANTE])(
+    '%s → { destino: flit1, reenviado: true }; SET archivo_flit1_id = NULL, ultimo_paso = NULL, version + 1', async (desde) => {
+      base(desde, 'flit', 'flit1');
+      expect(await svc.reprogramarEnvioComprobante(db as never, IMP, NUEVO, CTX, AHORA)).toEqual({ destino: 'flit1', reenviado: true });
+      const [u, ...resto] = updates();
+      expect(resto).toHaveLength(0);
+      const set = u!.sql.slice(u!.sql.indexOf(' set ') + 5, u!.sql.indexOf(' where ')).split(', ');
+      const valor = (col: string): unknown => {
+        const a = set.find((x) => x.startsWith(`"${col}" = $`));
+        return a ? u!.params[Number(/\$(\d+)/.exec(a)![1]) - 1] : 'NO-ASIGNADA';
+      };
+      expect(valor('archivo_flit1_id')).toBeNull();
+      expect(valor('ultimo_paso')).toBeNull();
+      expect(valor('estado')).toBe('pendiente');
+      expect(valor('soporte_id')).toBe(NUEVO);
+      expect(u!.sql).toMatch(/"version" = "flito_impuesto_envios_flit2"\."version" \+ 1/);
+      expect(auditorias()[0]!.params).toContain(`Envío a FLIT 1 reprogramado por reemplazo (estaba ${desde}). Soporte ${NUEVO}.`);
+    });
+
+  it('alias reprogramarEnvioFlit2 sobre una fila FLIT 1: la reprograma igual y responde no_flit2 (contrato #13269)', async () => {
+    base(EstadoEnvioFlit2.ENVIADO, 'flit', 'flit1');
+    expect(await svc.reprogramarEnvioFlit2(db as never, IMP, NUEVO, CTX, AHORA)).toEqual({ reenviado: false, motivo: 'no_flit2' });
+    expect(updates()).toHaveLength(1);
+  });
+});
+
+describe('aReprogramacionFlit2 (puro) — proyección al contrato de la #13269', () => {
+  it.each([
+    [{ destino: 'flit2', reenviado: true }, { reenviado: true }],
+    [{ destino: 'flit2', reenviado: false, motivo: 'ya_cargado_gestor' }, { reenviado: false, motivo: 'ya_cargado_gestor' }],
+    [{ destino: 'flit2', reenviado: false, motivo: 'sin_envio_previo' }, { reenviado: false, motivo: 'sin_envio_previo' }],
+    [{ destino: 'flit1', reenviado: true }, { reenviado: false, motivo: 'no_flit2' }],
+    [{ destino: 'flit1', reenviado: false, motivo: 'sin_envio_previo' }, { reenviado: false, motivo: 'no_flit2' }],
+    [{ destino: null, reenviado: false, motivo: 'no_aplica' }, { reenviado: false, motivo: 'no_flit2' }],
+  ])('%j → %j', (entrada, salida) => {
+    expect(svc.aReprogramacionFlit2(entrada as never)).toEqual(salida);
   });
 });
