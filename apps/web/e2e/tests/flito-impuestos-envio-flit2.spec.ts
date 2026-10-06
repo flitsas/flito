@@ -53,6 +53,9 @@ const iniciales = (): Record<string, { envio: Envio; soportes: Soporte[] }> => (
   r1: { envio: { destino: 'flit1', estado: 'error', intentos: 3, ultimoIntentoEn: INTENTO }, soportes: [LIQ, PAGO] },
   s1: { envio: { destino: 'flit1', estado: 'sin_comprobante', intentos: 0, ultimoIntentoEn: null }, soportes: [LIQ] },
   w1: { envio: { destino: 'flit1', estado: 'en_espera', intentos: 0, ultimoIntentoEn: INTENTO }, soportes: [LIQ, PAGO] },
+  // Defensivo: el tipo admite `ya_cargado_gestor` con destino FLIT 1 aunque el backend no lo emita.
+  // Es el único estado en que la guarda de destino de la línea del gestor decide algo.
+  g1: { envio: { destino: 'flit1', estado: 'ya_cargado_gestor', intentos: 1, ultimoIntentoEn: INTENTO }, soportes: [LIQ, PAGO] },
 });
 
 const filasIniciales = (): Fila[] => [
@@ -63,7 +66,7 @@ const filasIniciales = (): Fila[] => [
   fila('cj', 'CAJ001'),
   fila('so', 'SOL001', { estado: 'solicitado', documentos: 'liquidacion', valorPagado: null, pagadoEn: null }),
   fila('p1', 'UNO001'), fila('e1', 'UNO002'), fila('r1', 'UNO003'),
-  fila('s1', 'UNO004', { documentos: 'liquidacion' }), fila('w1', 'UNO005'),
+  fila('s1', 'UNO004', { documentos: 'liquidacion' }), fila('w1', 'UNO005'), fila('g1', 'GES101'),
 ];
 
 type Respuesta = { status: number; body?: unknown; abortar?: boolean };
@@ -504,8 +507,17 @@ test.describe('FLITO — Impuestos · envío del comprobante a FLIT 1 (HU #13312
 
   test('AC7 · en FLIT 1 el diálogo de reemplazo nunca muestra la línea del gestor', async ({ page }) => {
     await iniciar(page);
-    const { modal } = await abrirReemplazo(page, 'UNO002');
-    await expect(modal.getByText('El gestor ya cargó su comprobante en FLIT 2', { exact: false })).toHaveCount(0);
+    const LINEA = 'El gestor ya cargó su comprobante en FLIT 2';
+    // Control positivo: con destino FLIT 2 y `ya_cargado_gestor` la línea sí aparece.
+    const flit2 = await abrirReemplazo(page, 'GES001');
+    await expect(flit2.modal.getByText(LINEA, { exact: false })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(flit2.modal).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(flit2.detalle).toHaveCount(0);
+    // Mismo estado con destino FLIT 1: solo la guarda de destino evita la línea.
+    const { modal } = await abrirReemplazo(page, 'GES101');
+    await expect(modal.getByText(LINEA, { exact: false })).toHaveCount(0);
   });
 
   test('AC8 · a 360 px la celda FLIT 1 con la ayuda más larga envuelve sin desbordar', async ({ page }) => {
