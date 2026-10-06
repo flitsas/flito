@@ -82,7 +82,7 @@ export function sentenciaTomaEnvios(entrada: EntradaTomaEnvio) {
         JOIN flito_impuestos i ON i.id = e.impuesto_id
         JOIN flito_tramites t ON t.id = i.tramite_id
        WHERE i.estado = ${EstadoImpuesto.PAGADO}
-         AND t.fuente = 'flit2' AND t.id_flit2 IS NOT NULL
+         AND e.destino = 'flit2' AND t.fuente = 'flit2' AND t.id_flit2 IS NOT NULL
          AND (e.tomado_en IS NULL OR e.tomado_en < ${corte}::timestamptz)
          AND (
               (e.estado = 'pendiente' AND e.proximo_intento_en <= ${ahora}::timestamptz)

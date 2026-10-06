@@ -81,7 +81,7 @@ import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametriz
 import { uploadEntityDocument } from '../../services/storage.js';
 import { comprimirComprobante } from './flito-recibos.compresion.js';
 import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
-import { completarComprobanteFlit2, programarEnvioFlit2 } from './flito-impuestos.envio-flit2.service.js';
+import { completarComprobanteFlit2, programarEnvioComprobante } from './flito-impuestos.envio-flit2.service.js';
 import type { ArchivoSubido, ImpuestoCtx } from './flito-factura-venta.service.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -631,7 +631,7 @@ export async function conciliar(
     usuarioId: ctx.userId, usuarioEmail: ctx.username,
   });
   // HU #13268 (AC1): solo programa la fila del outbox; el envío lo hace el cron, fuera de la tx.
-  await programarEnvioFlit2(tx, cand.impuestoId);
+  await programarEnvioComprobante(tx, cand.impuestoId);
   return { valorPagado, marcadoPorDiferencia };
 }
 

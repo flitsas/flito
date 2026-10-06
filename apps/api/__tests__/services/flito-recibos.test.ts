@@ -22,7 +22,7 @@ const transactionMock = vi.fn();
 // HU #13268: el enganche al outbox de FLIT 2 se prueba en flito-impuestos.envio-flit2.test.ts; el stub
 // de `tx` de este spec no trae `select`, así que el módulo se sustituye.
 vi.mock('../../src/modules/flito-impuestos/flito-impuestos.envio-flit2.service.js', () => ({
-  programarEnvioFlit2: vi.fn(async () => 'no_flit2'), completarComprobanteFlit2: vi.fn(async () => {}), envioFlit2DeImpuesto: vi.fn(async () => null),
+  programarEnvioComprobante: vi.fn(async () => 'sin_destino'), completarComprobanteFlit2: vi.fn(async () => {}), envioDeImpuesto: vi.fn(async () => ({ envioComprobante: null, envioFlit2: null })),
 }));
 vi.mock('../../src/db/client.js', () => ({
   db: { select: selectMock, insert: insertMock, update: updateMock, delete: vi.fn(), transaction: transactionMock, execute: vi.fn() },
@@ -173,18 +173,18 @@ describe('recibos — flujo', () => {
     const txUpdate = vi.fn().mockReturnValue(chain([]));
     const tx = { insert: txInsert, update: txUpdate };
     transactionMock.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
-    vi.mocked(envio.programarEnvioFlit2).mockClear();
+    vi.mocked(envio.programarEnvioComprobante).mockClear();
 
     const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin')).attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
     expect(r.status).toBe(200);
     expect(r.body.conciliados).toHaveLength(1);
     expect(txUpdate).toHaveBeenCalledTimes(1); // → PAGADO
     // HU #13268 (AC1): la carga masiva programa el envío a FLIT 2 DENTRO de la tx del pago.
-    expect(vi.mocked(envio.programarEnvioFlit2).mock.calls).toEqual([[tx, candidato.impuestoId]]);
+    expect(vi.mocked(envio.programarEnvioComprobante).mock.calls).toEqual([[tx, candidato.impuestoId]]);
   });
 
   it('cruza pero baja confianza en valorTotal → revisión (CA-06), no paga', async () => {
-    vi.mocked(envio.programarEnvioFlit2).mockClear();
+    vi.mocked(envio.programarEnvioComprobante).mockClear();
     selectMock.mockReturnValueOnce(chain([]));           // dedup hash
     extraerMock.mockResolvedValueOnce({ ...reciboOk, [CampoImpuesto.VALOR_TOTAL]: campo('634900', 0.3) });
     selectMock.mockReturnValueOnce(chain([candidato]));  // candidato EN_GESTION

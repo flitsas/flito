@@ -164,6 +164,14 @@ const envSchema = z.object({
   // ambientes: se enciende cuando FLIT 2 tenga la ruta de adjuntos desplegada allí (D-9). Apagada, el
   // pago sigue programando la fila del outbox y el cron no toma nada ni gasta intentos.
   FLIT2_ADJUNTOS_ENVIO_HABILITADO: z.string().optional().transform((v) => v === 'true' || v === '1'),
+  // HU #13310 (ADR-0021): envío del comprobante de pago a FLIT 1 en tres pasos. Bases solo por env (el
+  // repo es público; sin host por defecto). Se validan en `baseFlit1Valida` (https, sin credenciales,
+  // sin query/hash): ausente o inválida = envío FLIT 1 apagado, sin tumbar el arranque. La URL de subida
+  // (paso 2) NO es variable: sale de la respuesta del paso 1 y se valida en código (ajuste A-1).
+  FLIT1_ARCHIVOS_BASE_URL: z.preprocess(vacioComoAusente, z.string().optional()),
+  FLIT1_TRAMITES_BASE_URL: z.preprocess(vacioComoAusente, z.string().optional()),
+  // APAGADA por defecto: se enciende tras probar un envío real en el ambiente.
+  FLIT1_ADJUNTOS_ENVIO_HABILITADO: z.string().optional().transform((v) => v === 'true' || v === '1'),
   // `mock` por defecto: sin credenciales reales, un test o un dev no deben salir a la red.
   COMPARENDOS_SIMIT_MODE: z.enum(['mock', 'real']).default('mock'),
   // Retención del histórico de registros/timeline (CF Habeas Data, Ley 1581). 24 meses por defecto,

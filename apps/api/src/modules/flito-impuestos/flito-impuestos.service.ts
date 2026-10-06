@@ -20,13 +20,13 @@ import { clasificacionDeTipoFlit, expresionesFlitRaw } from '../../shared/export
 import {
   ANS_OPERATIVO, EstadoImpuesto, ESTADO_IMPUESTO_LABEL, NOMBRE_CERTIFICADOR_AUTOMATICO, SemaforoImpuesto,
   TipoSoporte, esMotivoSemaforoRojo, type AnalisisEstadoImpuesto, type ComparacionFacturaRunt,
-  type DireccionCompradorImpuesto, type DocumentosImpuesto, type EnvioComprobanteFlit2, type MotivoSemaforoRojo,
+  type DireccionCompradorImpuesto, type DocumentosImpuesto, type EnvioComprobante, type EnvioComprobanteFlit2, type MotivoSemaforoRojo,
 } from '@operaciones/shared-types';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
 import { encolarAnalisis, marcarEnCursoEnTx } from './flito-impuestos.analisis.service.js';
 import { bloqueDireccionDetalle, direccionFlitDe } from './flito-impuestos.direccion.js';
-import { envioFlit2DeImpuesto, programarEnvioFlit2 } from './flito-impuestos.envio-flit2.service.js';
+import { envioDeImpuesto, programarEnvioComprobante } from './flito-impuestos.envio-flit2.service.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -634,6 +634,8 @@ export interface ImpuestoDetalle extends ImpuestoColaItem {
   soportes: Array<{ id: string; tipo: string; nombreArchivo: string; subidoEn: string }>;
   /** HU #13268 (AC10): estado del envío del comprobante a FLIT 2; null si el trámite no es de FLIT 2 o no hay envío. */
   envioFlit2: EnvioComprobanteFlit2 | null;
+  /** HU #13310 (AC10): el envío del comprobante con su destino (FLIT 1 o FLIT 2); null si la fuente no envía o no hay fila. */
+  envioComprobante: EnvioComprobante | null;
 }
 
 export async function detalleImpuesto(id: string, ctx: ImpuestoCtx): Promise<ImpuestoDetalle | null> {
@@ -644,13 +646,15 @@ export async function detalleImpuesto(id: string, ctx: ImpuestoCtx): Promise<Imp
   if (!item) return null;
   const soportes = await db.select({ id: flitoSoportes.id, tipo: flitoSoportes.tipo, nombreArchivo: flitoSoportes.nombreArchivo, subidoEn: flitoSoportes.subidoEn })
     .from(flitoSoportes).where(and(eq(flitoSoportes.impuestoId, id), eq(flitoSoportes.descartado, false))).orderBy(asc(flitoSoportes.subidoEn));
+  const envio = await envioDeImpuesto(id);
   return {
     ...item, extraccion: imp.extraccion, extraccionFacturaVenta: imp.extraccionFacturaVenta,
     pagadoEn: imp.pagadoEn ? imp.pagadoEn.toISOString() : null,
     direccionComprador: bloqueDireccionDetalle(imp, await direccionFlitDe(imp.tramiteId)),
     comparacion: imp.comparacionFacturaRunt ?? null,
     soportes: soportes.map((s) => ({ ...s, subidoEn: s.subidoEn.toISOString() })),
-    envioFlit2: await envioFlit2DeImpuesto(id),
+    envioFlit2: envio.envioFlit2,
+    envioComprobante: envio.envioComprobante,
   };
 }
 
@@ -828,7 +832,7 @@ export async function reversar(id: string, estadoDestino: EstadoImpuesto, motivo
       motivo: `Reversa: ${motivo.trim()}`, usuarioId: ctx.userId, usuarioEmail: ctx.username,
     });
     // HU #13268 (AC1): la reversa manual a pagado también programa el envío a FLIT 2.
-    if (estadoDestino === EstadoImpuesto.PAGADO) await programarEnvioFlit2(tx, id);
+    if (estadoDestino === EstadoImpuesto.PAGADO) await programarEnvioComprobante(tx, id);
     return u;
   });
 }

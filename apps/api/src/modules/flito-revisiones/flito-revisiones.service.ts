@@ -18,7 +18,7 @@ import { db } from '../../db/client.js';
 import { auditLogs, flitoImpuestos, flitoRevisiones, flitoSoat, flitoSoportes } from '../../db/schema.js';
 import { marcarPagado } from '../flito-soat/flito-soat.service.js';
 import { registrarDesdeRevision } from '../flito-derechos/flito-derechos.service.js';
-import { programarEnvioFlit2 } from '../flito-impuestos/flito-impuestos.envio-flit2.service.js';
+import { programarEnvioComprobante } from '../flito-impuestos/flito-impuestos.envio-flit2.service.js';
 
 export interface RevisionCtx { userId: number; username: string; role: string }
 
@@ -287,7 +287,7 @@ async function resolverImpuesto(revisionId: string, soporteId: string, motivoOri
       `Revisión resuelta (en_gestion→pagado). Valor pagado ${valorPagado ?? '—'}, liquidado ${impuesto.valorLiquidado ?? '—'}. ` +
       `Revisión ${revisionId} (${motivoOriginal}). Soporte ${soporteId}. ${motivo.trim()}`);
     // HU #13268 (AC1): pagado por revisión OCR → programa el envío a FLIT 2 dentro de la misma tx.
-    await programarEnvioFlit2(tx, impuestoId);
+    await programarEnvioComprobante(tx, impuestoId);
   });
 }
 

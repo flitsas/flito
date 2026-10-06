@@ -130,33 +130,52 @@ describe('AC2 — elección del comprobante', () => {
 });
 
 // ── AC1 / AC3 / AC4 — RN-01 ──────────────────────────────────────────────────────────────────────
-describe('RN-01 programarEnvioFlit2 (dentro de la tx del pago)', () => {
+describe('RN-01 programarEnvioComprobante (dentro de la tx del pago)', () => {
   const responderCon = (fuente: string, soportes: Array<{ id: string; tipo: string; subidoEn: Date }>) => (g: Grabada) => {
     if (/"flito_tramites"\."fuente"/.test(g.sql) && /inner join "flito_tramites"/.test(g.sql)) return [{ fuente }];
     if (/from "flito_soportes"/.test(g.sql)) return soportes;
     return [];
   };
 
-  it('AC3: trámite que no es de FLIT 2 → no escribe nada', async () => {
-    estado.responder = responderCon('flit', [{ id: SOP, tipo: 'recibo_impuesto', subidoEn: AHORA }]);
-    expect(await svc.programarEnvioFlit2(db as never, IMP, AHORA)).toBe('no_flit2');
+  it.each(['manual', null])('AC3 / HU #13310 AC8: trámite de fuente %s (ni flit ni flit2) → sin_destino, no escribe nada', async (fuente) => {
+    estado.responder = responderCon(fuente as string, [{ id: SOP, tipo: 'recibo_impuesto', subidoEn: AHORA }]);
+    expect(await svc.programarEnvioComprobante(db as never, IMP, AHORA)).toBe('sin_destino');
     expect(q(/insert into "flito_impuesto_envios_flit2"/)).toHaveLength(0);
     expect(q(/from "flito_soportes"/)).toHaveLength(0);
   });
 
+  it('HU #13310 AC8: trámite de FLIT 1 (fuente flit) → la fila nace con destino flit1; el ON CONFLICT no cambia el destino y limpia archivo_flit1_id/ultimo_paso', async () => {
+    estado.responder = responderCon('flit', [{ id: SOP, tipo: 'recibo_impuesto', subidoEn: AHORA }]);
+    expect(await svc.programarEnvioComprobante(db as never, IMP, AHORA)).toBe('programado');
+    const [ins] = q(/insert into "flito_impuesto_envios_flit2"/);
+    expect(ins.params).toEqual(expect.arrayContaining([IMP, 'flit1', 'pendiente', SOP]));
+    expect(ins.params).not.toContain('flit2');
+    const set = ins.sql.slice(ins.sql.indexOf('do update set'));
+    expect(set).not.toMatch(/"destino" =/);
+    expect(set).toMatch(/"archivo_flit1_id" = \$\d+/);
+    expect(set).toMatch(/"ultimo_paso" = \$\d+/);
+  });
+
+  it('HU #13310 AC8: FLIT 1 sin recibo → sin_comprobante con destino flit1', async () => {
+    estado.responder = responderCon('flit', []);
+    expect(await svc.programarEnvioComprobante(db as never, IMP, AHORA)).toBe('sin_comprobante');
+    const [ins] = q(/insert into "flito_impuesto_envios_flit2"/);
+    expect(ins.params).toEqual(expect.arrayContaining(['flit1', 'sin_comprobante']));
+  });
+
   it('AC4: FLIT 2 sin recibo de pago ni de caja → sin_comprobante, sin intentos, ON CONFLICT DO NOTHING', async () => {
     estado.responder = responderCon('flit2', []);
-    expect(await svc.programarEnvioFlit2(db as never, IMP, AHORA)).toBe('sin_comprobante');
+    expect(await svc.programarEnvioComprobante(db as never, IMP, AHORA)).toBe('sin_comprobante');
     const [ins] = q(/insert into "flito_impuesto_envios_flit2"/);
     expect(ins.sql).toMatch(/on conflict \("impuesto_id"\) do nothing/);
-    expect(ins.params).toContain('sin_comprobante');
+    expect(ins.params).toEqual(expect.arrayContaining(['flit2', 'sin_comprobante']));
   });
 
   it('AC1: FLIT 2 con recibo → pendiente con cita ahora; el upsert solo reabre sin_comprobante y enviado-con-otro-soporte', async () => {
     estado.responder = responderCon('flit2', [{ id: SOP, tipo: 'recibo_impuesto', subidoEn: AHORA }]);
-    expect(await svc.programarEnvioFlit2(db as never, IMP, AHORA)).toBe('programado');
+    expect(await svc.programarEnvioComprobante(db as never, IMP, AHORA)).toBe('programado');
     const [ins] = q(/insert into "flito_impuesto_envios_flit2"/);
-    expect(ins.params).toEqual(expect.arrayContaining([IMP, 'pendiente', SOP]));
+    expect(ins.params).toEqual(expect.arrayContaining([IMP, 'flit2', 'pendiente', SOP]));
     expect(ins.sql).toMatch(/on conflict \("impuesto_id"\) do update set/);
     // Transiciones de la tabla RN-01, en el WHERE del DO UPDATE.
     expect(ins.sql).toMatch(/where "flito_impuesto_envios_flit2"\."estado" = 'sin_comprobante'/);
@@ -256,7 +275,8 @@ describe('RN-03 toma (SQL renderizado)', () => {
     expect(g.sql).toMatch(/FOR UPDATE OF e SKIP LOCKED/);
     expect(g.sql).toMatch(/i\.estado = \$1/);
     expect(g.params[0]).toBe('pagado');
-    expect(g.sql).toMatch(/t\.fuente = 'flit2' AND t\.id_flit2 IS NOT NULL/);
+    // HU #13310 (AC8): la toma FLIT 2 no se lleva filas de FLIT 1.
+    expect(g.sql).toMatch(/e\.destino = 'flit2' AND t\.fuente = 'flit2' AND t\.id_flit2 IS NOT NULL/);
     expect(g.sql).toMatch(/e\.estado = 'pendiente' AND e\.proximo_intento_en <= \$\d+::timestamptz/);
     expect(g.sql).toMatch(/e\.estado = 'en_espera' AND \(\s*e\.proximo_intento_en <= \$\d+::timestamptz\s*OR \(t\.sync_version > e\.sync_version_espera AND t\.flit_estado IN \(\$\d+, \$\d+, \$\d+, \$\d+\)\)\)/);
     // La grafía la deriva `estadoDesdeFlit2` (la que escribe el feed), no un literal a mano.
@@ -452,6 +472,26 @@ describe('AC10 — estado del envío en el detalle', () => {
     expect(svc.envioFlit2DesdeFila({ fuente: 'flit2', estado: EstadoEnvioFlit2.EN_ESPERA, intentos: 2, ultimoIntentoEn: AHORA }))
       .toEqual({ estado: 'en_espera', intentos: 2, ultimoIntentoEn: AHORA.toISOString() });
   });
+  it('HU #13310 AC10: envioDesdeFila da el destino; FLIT 1 no aparece en envioFlit2; destino que no casa con la fuente → null', () => {
+    const f1 = { fuente: 'flit', destino: 'flit1', estado: EstadoEnvioFlit2.PENDIENTE, intentos: 2, ultimoIntentoEn: new Date('2026-10-06T15:00:00.000Z') };
+    expect(svc.envioDesdeFila(f1)).toEqual({ destino: 'flit1', estado: 'pendiente', intentos: 2, ultimoIntentoEn: '2026-10-06T15:00:00.000Z' });
+    expect(svc.envioFlit2DesdeFila(f1)).toBeNull();
+    expect(svc.envioDesdeFila({ ...f1, fuente: 'manual', destino: null })).toBeNull();
+    expect(svc.envioDesdeFila({ ...f1, fuente: 'flit2' })).toBeNull(); // fila flit1 de un trámite que hoy es flit2
+    const f2 = { fuente: 'flit2', destino: 'flit2', estado: EstadoEnvioFlit2.ENVIADO, intentos: 1, ultimoIntentoEn: AHORA };
+    expect(svc.envioDesdeFila(f2)).toEqual({ destino: 'flit2', estado: 'enviado', intentos: 1, ultimoIntentoEn: AHORA.toISOString() });
+    expect(svc.envioFlit2DesdeFila(f2)).toEqual({ estado: 'enviado', intentos: 1, ultimoIntentoEn: AHORA.toISOString() });
+  });
+
+  it('HU #13310 AC10: envioDeImpuesto lee destino y estado en UNA consulta', async () => {
+    estado.responder = () => [{ fuente: 'flit', destino: 'flit1', estado: 'error', intentos: 3, ultimoIntentoEn: AHORA }];
+    expect(await svc.envioDeImpuesto(IMP)).toEqual({
+      envioComprobante: { destino: 'flit1', estado: 'error', intentos: 3, ultimoIntentoEn: AHORA.toISOString() }, envioFlit2: null,
+    });
+    expect(estado.grabadas).toHaveLength(1);
+    expect(estado.grabadas[0].sql).toMatch(/"flito_impuesto_envios_flit2"\."destino"/);
+  });
+
   it('la lectura resuelve la fuente por join y deja el envío en LEFT JOIN', async () => {
     estado.responder = () => [{ fuente: 'flit2', estado: 'pendiente', intentos: 0, ultimoIntentoEn: null }];
     expect(await svc.envioFlit2DeImpuesto(IMP)).toEqual({ estado: 'pendiente', intentos: 0, ultimoIntentoEn: null });

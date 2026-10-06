@@ -8,12 +8,12 @@ import {
   pgTable, uuid, varchar, boolean, timestamp, integer, bigint, smallint, index, uniqueIndex, check,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-import type { EstadoEnvioFlit2 } from '@operaciones/shared-types';
+import type { DestinoEnvioComprobante, EstadoEnvioFlit2 } from '@operaciones/shared-types';
 import { flitoImpuestos } from '../schema.js';
 
 /**
- * HU #13268 (migración 0219, ADR-0020): outbox del envío del comprobante de pago a FLIT 2. Una fila
- * por impuesto. La programa el pago dentro de su transacción; la vacía `flito-impuestos-envio-flit2.cron`.
+ * HU #13268 (migración 0219, ADR-0020): outbox del envío del comprobante de pago. Pese al nombre, desde la
+ * 0221 (HU #13310, ADR-0021) sirve a FLIT 2 y a FLIT 1 según `destino`. Una fila por impuesto. La programa el pago dentro de su transacción; la vacía `flito-impuestos-envio-flit2.cron`.
  */
 export const flitoImpuestoEnviosFlit2 = pgTable('flito_impuesto_envios_flit2', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -46,6 +46,12 @@ export const flitoImpuestoEnviosFlit2 = pgTable('flito_impuesto_envios_flit2', {
   version: integer('version').notNull().default(1),
   tomadoPor: varchar('tomado_por', { length: 100 }),
   tomadoEn: timestamp('tomado_en', { withTimezone: true }),
+  /** HU #13310 (0221, ADR-0021): a quién va el envío. Se fija al crear la fila y no cambia. */
+  destino: varchar('destino', { length: 10 }).$type<DestinoEnvioComprobante>().notNull(),
+  /** FLIT 1: id del archivo (paso 1), persistido SOLO tras subirlo bien (paso 2): el reintento hace solo el PUT. */
+  archivoFlit1Id: varchar('archivo_flit1_id', { length: 100 }),
+  /** FLIT 1: paso (1-3) del último desenlace; null en pre-validación local. */
+  ultimoPaso: smallint('ultimo_paso'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -59,4 +65,12 @@ export const flitoImpuestoEnviosFlit2 = pgTable('flito_impuesto_envios_flit2', {
   esperaCk: check('ck_flito_impuesto_envios_flit2_espera',
     sql`(${t.estado} = 'en_espera') = (${t.syncVersionEspera} IS NOT NULL AND ${t.enEsperaDesde} IS NOT NULL)`),
   intentosCk: check('ck_flito_impuesto_envios_flit2_intentos', sql`${t.intentos} BETWEEN 0 AND 10`),
+  // 0221 (HU #13310): destino y semántica por destino.
+  destinoCk: check('ck_flito_impuesto_envios_flit2_destino', sql`${t.destino} IN ('flit1','flit2')`),
+  flit1EstadoCk: check('ck_flito_impuesto_envios_flit2_flit1_estado',
+    sql`${t.destino} = 'flit2' OR (${t.estado} IN ('pendiente','enviado','error','sin_comprobante')
+      AND ${t.syncVersionEspera} IS NULL AND ${t.enEsperaDesde} IS NULL AND ${t.estadoFlit2} IS NULL AND ${t.adjuntoId} IS NULL)`),
+  flit1ColsCk: check('ck_flito_impuesto_envios_flit2_flit1_cols',
+    sql`${t.destino} = 'flit1' OR (${t.archivoFlit1Id} IS NULL AND ${t.ultimoPaso} IS NULL)`),
+  ultimoPasoCk: check('ck_flito_impuesto_envios_flit2_ultimo_paso', sql`${t.ultimoPaso} IS NULL OR ${t.ultimoPaso} BETWEEN 1 AND 3`),
 }));
