@@ -23,12 +23,13 @@ import { registrarUsuarioDePrueba } from '../helpers/auth.js';
 const kdb = createKeyedDb();
 const espia = crearEspia(kdb);
 const accesoMock = vi.hoisted(() => vi.fn());
+const piiMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const firmarMock = vi.hoisted(() => vi.fn((k: string) => `/api/files?key=${encodeURIComponent(k)}&sig=x`));
 
 vi.mock('../../src/db/client.js', () => ({ db: kdb.db, getPoolStats: vi.fn() }));
 vi.mock('../../src/shared/middleware/audit.js', () => ({ audit: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
-vi.mock('../../src/shared/pii-audit.js', () => ({ logPiiAccess: vi.fn().mockResolvedValue(undefined) }));
+vi.mock('../../src/shared/pii-audit.js', () => ({ logPiiAccess: piiMock }));
 vi.mock('../../src/services/storage.js', () => ({
   firmarDescargaEntidad: firmarMock, uploadEntityDocument: vi.fn(), deleteEntityDocument: vi.fn(),
 }));
@@ -76,6 +77,7 @@ beforeEach(() => {
   espia.reiniciar();
   accesoMock.mockReset().mockResolvedValue({ id: ID });
   firmarMock.mockClear();
+  piiMock.mockClear();
 });
 
 describe('TC-15 — con la función y acceso a la solicitud', () => {
@@ -96,6 +98,23 @@ describe('TC-15 — con la función y acceso a la solicitud', () => {
     expect(JSON.stringify(r.body)).not.toContain('storageKey');
   });
 
+  it('security: la entrega queda en pii_access_log (Ley 1581 art. 17) con el SOAT, las filas y el campo', async () => {
+    kdb.when.select('flito_soportes', [
+      { id: 's-1', etiqueta: 'Cédula', contentType: 'application/pdf', tamanoBytes: 1, subidoEn: T0, subidoPorNombre: 'c', storageKey: 'k1' },
+      { id: 's-2', etiqueta: 'Foto', contentType: 'image/png', tamanoBytes: 1, subidoEn: T1, subidoPorNombre: 'c', storageKey: 'k2' },
+    ]);
+    const r = await get(await auth([VER]));
+    expect(r.status).toBe(200);
+    expect(piiMock).toHaveBeenCalledTimes(1);
+    const [, entrada] = piiMock.mock.calls[0];
+    expect(entrada).toEqual({
+      resourceTipo: expect.any(String), resourceId: null, accion: 'read',
+      camposAccedidos: ['documentos_adicionales'],
+      motivo: `Lectura de SOAT — soat ${ID} · filas=2`,
+    });
+    expect(String(entrada.motivo)).not.toMatch(/k1|k2|Cédula/);
+  });
+
   it('la consulta lee SOLO los adicionales vivos de ESA solicitud (SQL leído, no filas del mock)', async () => {
     kdb.when.select('flito_soportes', []);
     await get(await auth([VER]));
@@ -113,6 +132,7 @@ describe('TC-16 — sin acceso a la solicitud → 404, como el detalle', () => {
     const r = await get(await auth([VER], 'interno', 'proveedor_soat'));
     expect(r.status).toBe(404);
     expect(lecturaDeSoportes(), 'ni se leen los soportes').toBeUndefined();
+    expect(piiMock, 'un 404 no accedió a nada').not.toHaveBeenCalled();
   });
 });
 
@@ -122,6 +142,7 @@ describe('TC-17 — sin documentos', () => {
     const r = await get(await auth([VER]));
     expect(r.status).toBe(200);
     expect(r.body).toEqual({ documentos: [] });
+    expect(piiMock, 'lista vacía: no se entregó nada').not.toHaveBeenCalled();
   });
 });
 
@@ -133,6 +154,7 @@ describe('TC-18 — sin la función → 403', () => {
     const r = await get(await token());
     expect(r.status).toBe(403);
     expect(accesoMock).not.toHaveBeenCalled();
+    expect(piiMock).not.toHaveBeenCalled();
   });
 
   it('id que no es uuid → 404 sin consultar', async () => {

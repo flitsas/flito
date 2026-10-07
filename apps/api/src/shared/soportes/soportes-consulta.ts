@@ -38,6 +38,12 @@ function ordenar(soportes: SoporteVista[]): SoporteVista[] {
 }
 
 /**
+ * HU #13362 (AC9) — tipos que NUNCA salen en la lista general de soportes, para ningún rol ni origen:
+ * los documentos adicionales del alta de SOAT se leen solo por su propia ruta, con su propia función.
+ */
+export const TIPOS_SOPORTE_FUERA_DE_LISTA: readonly string[] = [TipoSoporte.DOCUMENTO_ADICIONAL_SOAT];
+
+/**
  * Soportes de `flito_soportes` que cuelgan de un registro concreto (SOAT, impuesto o derecho).
  *
  * Los descartados en la cola de revisión no son evidencia de nada: quedan fuera.
@@ -48,12 +54,6 @@ function ordenar(soportes: SoporteVista[]): SoporteVista[] {
  * además en memoria, y esa redundancia es deliberada — así la garantía no depende de que este
  * `where` siga aquí, y se puede afirmar sin una base de datos real.
  */
-/**
- * HU #13362 (AC9) — tipos que NUNCA salen en la lista general de soportes, para ningún rol ni origen:
- * los documentos adicionales del alta de SOAT se leen solo por su propia ruta, con su propia función.
- */
-export const TIPOS_SOPORTE_FUERA_DE_LISTA: readonly string[] = [TipoSoporte.DOCUMENTO_ADICIONAL_SOAT];
-
 async function porRegistro(
   columna: typeof flitoSoportes.soatId | typeof flitoSoportes.impuestoId
     | typeof flitoSoportes.derechoId | typeof flitoSoportes.siigoFacturaId,
