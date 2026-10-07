@@ -441,7 +441,11 @@ test.describe('HU #13363 · detalle — AC8: los 4 estados', () => {
   });
 
   test('TC-08c: vacío', async ({ page }) => {
-    await loginAs(page, OPERACIONES_USER);
+    // Sin `.cargar` (HU #13365): con ella el vacío invita a cargar y lo prueba el spec de edición.
+    await loginAs(page, {
+      ...OPERACIONES_USER,
+      funciones: FUNCIONES_POR_ROL.admin.filter((f) => f !== 'soat.documentos_adicionales.cargar'),
+    });
     await montarDetalle(page, { status: 200, cuerpo: { documentos: [] } });
     await expect(seccion(page).getByText('Sin documentos adicionales.', { exact: true })).toBeVisible();
     await expect(seccion(page).getByText('Aquí aparecen los que se adjunten en la solicitud.')).toBeVisible();

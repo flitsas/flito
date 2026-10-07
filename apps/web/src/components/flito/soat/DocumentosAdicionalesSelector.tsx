@@ -1,8 +1,9 @@
 // FLITO — selector de documentos adicionales del SOAT (HU #13363).
 //
 // Spec: docs/ux/flito-soat-documentos-adicionales.md §3.1–§3.3, §6, §7. **Controlado**: no sabe nada
-// del alta ni del envío (§5). La HU #13365 lo monta en el detalle con su propio botón de enviar y
-// `presentes` = los documentos ya guardados.
+// del alta ni del envío (§5). La HU #13365 lo monta en el detalle (`CargarDocumentosAdicionales`) con
+// su propio botón de enviar, `contexto="detalle"` y SIN `presentes`: los cupos son por carga y el
+// repetido contra lo ya guardado lo detecta el servidor.
 //
 // Los inválidos no viajan, no bloquean el envío y no suman a la frase de faltantes del alta (AC3):
 // se pintan aparte, con su motivo, y se pueden descartar de la vista. Copy del alta: **usted**.
@@ -14,27 +15,35 @@ import { flitBtnSecondary, flitBtnSecondaryStyle, flitInp } from '../../flit/fli
 import { Seccion } from '../soat-cliente/bloques';
 import {
   ACCEPT_ADICIONALES, LARGO_ETIQUETA_ADICIONAL, MAX_TOTAL_ADICIONALES, aPresentes, motivoEnPantalla,
-  tamanoLegible, tipoLegible, validarAdicionales, validos, type ElegidoAdicional, type PresenteAdicional,
+  tamanoLegible, tipoLegible, validarAdicionales, validos, type ContextoAdicionales, type ElegidoAdicional,
+  type PresenteAdicional,
 } from './documentosAdicionales';
 import { MotivoDescarteDocumentoAdicional } from '@operaciones/shared-types';
 
 const BOTON_ICONO =
-  'flit-focus grid h-8 w-8 shrink-0 place-items-center rounded transition-colors hover:bg-[var(--flit-bg-hover)]';
+  'flit-focus grid h-8 w-8 shrink-0 place-items-center rounded transition-colors hover:bg-[var(--flit-bg-hover)] disabled:cursor-not-allowed disabled:opacity-60';
 
 export const TITULO_BLOQUE_ADICIONALES = '4 · Documentos adicionales (opcional)';
 
 /** Plural «para adjuntar» del chip (§3.2): cuenta solo los válidos. */
 const archivos = (n: number) => (n === 1 ? '1 archivo' : `${n} archivos`);
 
-export default function DocumentosAdicionalesSelector({ value, onChange, presentes = [], ajenos = [], idBase = 'adic' }: {
+export default function DocumentosAdicionalesSelector({
+  value, onChange, presentes = [], ajenos = [], idBase = 'adic', contexto = 'alta', deshabilitado = false,
+}: {
   value: ElegidoAdicional[];
   onChange: (lista: ElegidoAdicional[]) => void;
-  /** Ya guardados (HU #13365): cuentan para cupos y repetidos. */
+  /** Ya válidos en otra lista: cuentan para cupos y repetidos. */
   presentes?: PresenteAdicional[];
   /** Solo para «repetido» (la factura de venta del alta). */
   ajenos?: PresenteAdicional[];
   idBase?: string;
+  /** HU #13365: en el detalle solo cambian 3 frases (spec #13365 §4). */
+  contexto?: ContextoAdicionales;
+  /** Mientras viaja la carga del detalle: nada se edita (spec #13365 §3.3). */
+  deshabilitado?: boolean;
 }) {
+  const detalle = contexto === 'detalle';
   const ok = validos(value);
   const malos = value.filter((e) => e.motivo);
   const total = ok.reduce((s, e) => s + e.archivo.size, 0);
@@ -79,12 +88,12 @@ export default function DocumentosAdicionalesSelector({ value, onChange, present
         </>
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <label className={`${flitBtnSecondary} w-full cursor-pointer justify-center focus-within:shadow-[0_0_0_3px_var(--flit-border-focus)] sm:w-auto`}
+          <label className={`${flitBtnSecondary} w-full justify-center focus-within:shadow-[0_0_0_3px_var(--flit-border-focus)] sm:w-auto ${deshabilitado ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
             style={flitBtnSecondaryStyle}>
             <Upload size={16} aria-hidden="true" className="shrink-0" />
             Elegir más archivos
             <input
-              type="file" multiple accept={ACCEPT_ADICIONALES} className="sr-only"
+              type="file" multiple accept={ACCEPT_ADICIONALES} className="sr-only" disabled={deshabilitado}
               onChange={(e) => { const l = Array.from(e.target.files ?? []); if (l.length) elegir(l); e.target.value = ''; }}
             />
           </label>
@@ -112,7 +121,7 @@ export default function DocumentosAdicionalesSelector({ value, onChange, present
                       </p>
                     </div>
                     <button type="button" data-quitar={e.clave} aria-label={`Quitar ${e.archivo.name}`} title={`Quitar ${e.archivo.name}`}
-                      className={BOTON_ICONO} style={{ color: 'var(--flit-text-secondary)' }}
+                      className={BOTON_ICONO} disabled={deshabilitado} style={{ color: 'var(--flit-text-secondary)' }}
                       onClick={() => quitar(e.clave, ok)}>
                       <X size={16} aria-hidden="true" />
                     </button>
@@ -123,7 +132,7 @@ export default function DocumentosAdicionalesSelector({ value, onChange, present
                     </label>
                     <input
                       id={idEtiqueta} type="text" className={flitInp} aria-describedby={idNombre}
-                      value={e.etiqueta} maxLength={LARGO_ETIQUETA_ADICIONAL} autoComplete="off"
+                      value={e.etiqueta} maxLength={LARGO_ETIQUETA_ADICIONAL} autoComplete="off" disabled={deshabilitado}
                       placeholder={i === 0 ? 'Ej.: Poder autenticado' : undefined}
                       onChange={(ev) => etiquetar(e.clave, ev.target.value)}
                     />
@@ -141,7 +150,7 @@ export default function DocumentosAdicionalesSelector({ value, onChange, present
       {malos.length > 0 && (
         <div role="status" className="space-y-2">
           <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
-            No se van a adjuntar ({malos.length})
+            {detalle ? 'No se van a cargar' : 'No se van a adjuntar'} ({malos.length})
           </p>
           <ul className="divide-y rounded-lg border" style={{ borderColor: 'var(--flit-border-soft)' }}>
             {malos.map((e) => (
@@ -152,10 +161,10 @@ export default function DocumentosAdicionalesSelector({ value, onChange, present
                     {e.archivo.name}
                     {e.motivo === MotivoDescarteDocumentoAdicional.SUPERA_TAMANO && ` · ${tamanoLegible(e.archivo.size)}`}
                   </p>
-                  <p className="text-xs" style={{ color: 'var(--flit-danger-text)' }}>{motivoEnPantalla(e.motivo ?? '')}</p>
+                  <p className="text-xs" style={{ color: 'var(--flit-danger-text)' }}>{motivoEnPantalla(e.motivo ?? '', contexto)}</p>
                 </div>
                 <button type="button" data-quitar={e.clave} aria-label={`Descartar ${e.archivo.name}`} title={`Descartar ${e.archivo.name}`}
-                  className={BOTON_ICONO} style={{ color: 'var(--flit-text-secondary)' }}
+                  className={BOTON_ICONO} disabled={deshabilitado} style={{ color: 'var(--flit-text-secondary)' }}
                   onClick={() => quitar(e.clave, malos)}>
                   <X size={16} aria-hidden="true" />
                 </button>
@@ -163,7 +172,7 @@ export default function DocumentosAdicionalesSelector({ value, onChange, present
             ))}
           </ul>
           <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-            Puede enviar la solicitud igual: estos archivos no viajan.
+            {detalle ? 'Estos archivos no se cargan; los demás sí.' : 'Puede enviar la solicitud igual: estos archivos no viajan.'}
           </p>
         </div>
       )}
