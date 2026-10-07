@@ -3425,8 +3425,9 @@ export const flitoSoportes = pgTable('flito_soportes', {
   // de `factura_venta`, justo encima). Hasta aquí esta tabla no tenía NINGÚN índice por `soat_id`
   // solo: los tres de arriba son parciales sobre otras FK o sobre otro tipo, así que el `EXISTS`
   // del censo recorría `flito_soportes` entera una vez por SOAT candidato.
-  soatTipoIdx: index('idx_flito_soportes_soat_tipo').on(t.soatId, t.tipo)
-    .where(sql`${t.soatId} IS NOT NULL AND ${t.descartado} = false`),
+  soatTipoIdx: index('idx_flito_soportes_soat_tipo').on(t.soatId, t.tipo).where(sql`${t.soatId} IS NOT NULL AND ${t.descartado} = false`),
+  // HU #13364 (migración 0223): un adicional vivo por contenido y solicitud; cierra la carrera de dos cargas simultáneas.
+  adicionalSoatHashUq: uniqueIndex('uq_flito_soportes_adicional_soat_hash').on(t.soatId, t.hash).where(sql`${t.tipo} = 'documento_adicional_soat' AND ${t.descartado} = false AND ${t.soatId} IS NOT NULL`),
   // HU #12590 (migración 0196): calcado del anterior para `impuesto_id` — la cola de impuestos lee los documentos de cada página con `impuesto_id IN (...) AND tipo IN (...)`.
   impuestoTipoIdx: index('idx_flito_soportes_impuesto_tipo').on(t.impuestoId, t.tipo)
     .where(sql`${t.impuestoId} IS NOT NULL AND ${t.descartado} = false`),

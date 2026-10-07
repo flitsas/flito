@@ -12,6 +12,9 @@
 //     aparcamiento, D3-bis), contra la solicitud o contra la por validar.
 //   · `vincularAdicionalesAlSoat` — al completar una por validar, los adicionales ganan `soat_id`.
 //   · `listarDocumentosAdicionales` — la lectura de `GET /:id/documentos-adicionales` (AC8).
+//   · `cargarDocumentosAdicionales` / `eliminarDocumentoAdicional` — la carga posterior y el borrado
+//     definitivo sobre una solicitud existente (HU #13364; diseño
+//     docs/arquitectura/hu-13364-cargar-eliminar-documentos-adicionales-soat.md).
 //
 // ── Regla de negocio ────────────────────────────────────────────────────────────────────────────
 //
@@ -19,22 +22,32 @@
 //        HEIC/HEIF. Lo que se persiste es el mime DETECTADO.
 // RN-DA2 15 MB por archivo (inclusivo), 20 aceptados y 250 MB acumulados por envío, en orden.
 // RN-DA3 Un adicional idéntico (sha256) a otro del envío —incluida la factura de venta— se
-//        descarta como «documento repetido».
+//        descarta como «documento repetido». En la carga posterior (HU #13364) también el idéntico a
+//        un adicional YA guardado en la solicitud o a su factura de venta viva (decisión de David,
+//        2026-10-07). Los cupos de RN-DA2 son POR ENVÍO: sin techo acumulado por solicitud.
+// RN-DA4 El borrado es DEFINITIVO, en cualquier estado y por cualquiera con la función: primero la
+//        fila (ya no se lista ni se descarga), después el objeto, con 3 intentos. Si el objeto no se
+//        borra queda registrado (`soat.adicional.objeto_huerfano` + Bitácora), nunca un 5xx.
 
 import { readFile } from 'fs/promises';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import {
   MotivoDescarteDocumentoAdicional, TipoSoporte,
   type DocumentoAdicionalSoat, type ResultadoDocumentosAdicionales,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import { flitoSoportes } from '../../db/schema.js';
-import { deleteEntityDocument, firmarDescargaEntidad, uploadEntityDocument } from '../../services/storage.js';
+import { clients, flitoSoportes } from '../../db/schema.js';
+import {
+  deleteEntityDocument, firmarDescargaEntidad, removeEntityDocument, uploadEntityDocument,
+} from '../../services/storage.js';
+import { loggerFor } from '../../shared/logger.js';
+import { carpetaDe } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { detectMime } from '../pesv/magic-number.js';
 import { buscarConAcceso, type SoatCtx } from './flito-soat.service.js';
 import { TAMANO_MAX_ARCHIVO, type ArchivoAdicionalRecibido } from './flito-soat-documentos.upload.js';
 
 const MB = 1024 * 1024;
+const log = loggerFor('flito-soat-documentos');
 
 /** Los topes de negocio (RN-DA2). Parámetro de `clasificarAdicionales` para poder probarlos en pequeño. */
 export interface UmbralesAdicionales { tamanoMax: number; cantidadMax: number; totalMax: number }
@@ -112,11 +125,13 @@ export function normalizarEtiquetas(v: unknown): string[] {
 export async function clasificarAdicionales(
   archivos: readonly ArchivoAdicionalRecibido[],
   etiquetasCrudas: unknown,
-  hashFactura: string | null,
+  /** Huellas contra las que también es «repetido»: la factura del alta, o lo ya guardado (HU #13364). */
+  hashesPrevios: string | readonly string[] | null,
   umbrales: UmbralesAdicionales = UMBRALES_ADICIONALES,
 ): Promise<Clasificacion> {
   const etiquetas = normalizarEtiquetas(etiquetasCrudas);
-  const vistos = new Set<string>(hashFactura ? [hashFactura] : []);
+  const previos = hashesPrevios == null ? [] : typeof hashesPrevios === 'string' ? [hashesPrevios] : hashesPrevios;
+  const vistos = new Set<string>(previos.filter((h) => !!h));
   const aceptados: AdicionalAceptado[] = [];
   const descartados: Clasificacion['descartados'] = [];
   let acumulado = 0;
@@ -243,13 +258,21 @@ export function resultadoAdicionales(
   };
 }
 
-/** AC10 — el `detail` de la Bitácora: sin contenido y sin el nombre completo del archivo. */
-export function detalleBitacoraAdicional(g: AdicionalGuardado): string {
-  if (!g.etiquetaDeNombre) return `Documento adicional cargado (soporte=${g.id}, etiqueta=${g.etiqueta})`;
+/**
+ * AC10 (#13362) / AC9 (#13364) — el `detail` de la Bitácora: sin contenido y sin el nombre completo
+ * del archivo. El verbo cambia con la acción; `pendienteDeBorrar` deja rastro del objeto huérfano.
+ */
+export function detalleBitacoraAdicional(
+  g: Pick<AdicionalGuardado, 'id' | 'etiqueta' | 'etiquetaDeNombre' | 'nombreArchivo'>,
+  accion: 'cargado' | 'eliminado' = 'cargado',
+  pendienteDeBorrar = false,
+): string {
+  const extra = pendienteDeBorrar ? ', objeto pendiente de borrar' : '';
+  if (!g.etiquetaDeNombre) return `Documento adicional ${accion} (soporte=${g.id}, etiqueta=${g.etiqueta}${extra})`;
   const nombre = g.nombreArchivo.length > LARGO_NOMBRE_BITACORA
     ? `${g.nombreArchivo.slice(0, LARGO_NOMBRE_BITACORA)}…`
     : g.nombreArchivo;
-  return `Documento adicional cargado (soporte=${g.id}, nombre=${nombre})`;
+  return `Documento adicional ${accion} (soporte=${g.id}, nombre=${nombre}${extra})`;
 }
 
 /**
@@ -274,4 +297,165 @@ export async function listarDocumentosAdicionales(id: string, ctx: SoatCtx): Pro
     subidoEn: new Date(f.subidoEn).toISOString(), subidoPorNombre: f.subidoPorNombre,
     url: firmarDescargaEntidad(f.storageKey),
   }));
+}
+
+// ── HU #13364 — carga posterior y borrado definitivo ────────────────────────────────────────────
+
+const NO_ENCONTRADA = 'Solicitud de SOAT no encontrada';
+export const MENSAJE_SIN_ARCHIVOS = 'Adjunta al menos un documento';
+export const MENSAJE_DOCUMENTO_NO_ENCONTRADO = 'Documento adicional no encontrado';
+
+/**
+ * El predicado del índice único parcial `uq_flito_soportes_adicional_soat_hash` (migración 0223).
+ * El `ON CONFLICT … WHERE` de la carga debe repetirlo: si no, Postgres responde 42P10.
+ */
+export const PREDICADO_INDICE_ADICIONAL_HASH = sql`tipo = 'documento_adicional_soat' AND descartado = false AND soat_id IS NOT NULL`;
+
+/**
+ * Huellas contra las que un adicional nuevo es «repetido»: los adicionales vivos de la solicitud Y
+ * su factura de venta viva (decisión de David, 2026-10-07: igual que en el alta).
+ */
+export async function hashesPreviosDeSolicitud(soatId: string): Promise<string[]> {
+  const filas = await db.select({ hash: flitoSoportes.hash }).from(flitoSoportes).where(and(
+    eq(flitoSoportes.soatId, soatId),
+    inArray(flitoSoportes.tipo, [TipoSoporte.DOCUMENTO_ADICIONAL_SOAT, TipoSoporte.FACTURA_VENTA]),
+    eq(flitoSoportes.descartado, false),
+  ));
+  return filas.map((f) => f.hash);
+}
+
+/**
+ * D4 — como `insertarAdicionales`, pero el índice único parcial cierra la carrera de dos cargas
+ * simultáneas del mismo archivo: el que pierde no vuelve en `returning` y sale en `perdedores`, sin
+ * abortar la transacción.
+ */
+export async function insertarAdicionalesDeCarga(
+  tx: Tx, subidos: readonly AdicionalSubido[], soatId: string, autor: { id: number; nombre: string },
+): Promise<{ guardados: AdicionalGuardado[]; perdedores: AdicionalSubido[] }> {
+  const guardados: AdicionalGuardado[] = [];
+  const perdedores: AdicionalSubido[] = [];
+  for (const s of subidos) {
+    const filas = await tx.insert(flitoSoportes).values({
+      tipo: TipoSoporte.DOCUMENTO_ADICIONAL_SOAT,
+      etiqueta: s.etiqueta,
+      nombreArchivo: s.nombreArchivo,
+      contentType: s.contentType,
+      storageKey: s.storageKey,
+      hash: s.hash,
+      tamanoBytes: s.tamanoBytes,
+      soatId,
+      soatIncompletaId: null,
+      subidoPorId: autor.id,
+      subidoPorNombre: autor.nombre,
+    }).onConflictDoNothing({
+      target: [flitoSoportes.soatId, flitoSoportes.hash],
+      where: PREDICADO_INDICE_ADICIONAL_HASH,
+    }).returning({ id: flitoSoportes.id });
+    const fila = filas[0];
+    if (!fila) { perdedores.push(s); continue; }
+    guardados.push({
+      id: fila.id, etiqueta: s.etiqueta, etiquetaDeNombre: s.etiquetaDeNombre,
+      nombreArchivo: s.nombreArchivo, contentType: s.contentType, tamanoBytes: s.tamanoBytes,
+    });
+  }
+  return { guardados, perdedores };
+}
+
+async function carpetaAdicionalesDe(companiaId: number): Promise<string> {
+  const [c] = await db.select({ carpeta: clients.flitoCarpetaStorage }).from(clients)
+    .where(eq(clients.id, companiaId)).limit(1);
+  return carpetaDe({ id: companiaId, flitoCarpetaStorage: c?.carpeta ?? null }, CARPETA_ADICIONALES);
+}
+
+/**
+ * AC1/AC2 (#13364) — carga posterior sobre una solicitud existente, en CUALQUIER estado. Mismas
+ * reglas que el alta (`clasificarAdicionales`), cupos por envío, y repetido también contra lo ya
+ * guardado. S3 fuera de la transacción; si la transacción falla, nada queda (compensación).
+ */
+export async function cargarDocumentosAdicionales(
+  id: string, ctx: SoatCtx, archivos: readonly ArchivoAdicionalRecibido[], etiquetas: unknown,
+): Promise<{ guardados: AdicionalGuardado[]; resultado: ResultadoDocumentosAdicionales }> {
+  const soat = await buscarConAcceso(id, ctx);
+  if (!soat) throw new DocumentoAdicionalError(NO_ENCONTRADA, 404);
+  if (archivos.length === 0) throw new DocumentoAdicionalError(MENSAJE_SIN_ARCHIVOS, 400);
+
+  const previos = await hashesPreviosDeSolicitud(soat.id);
+  const clasificacion = await clasificarAdicionales(archivos, etiquetas, previos);
+  if (clasificacion.aceptados.length === 0) {
+    return { guardados: [], resultado: resultadoAdicionales([], clasificacion.descartados) };
+  }
+  const carpeta = await carpetaAdicionalesDe(soat.companiaId);
+  const subidos = await subirAdicionales(carpeta, soat.id, clasificacion.aceptados);
+  let insercion: Awaited<ReturnType<typeof insertarAdicionalesDeCarga>>;
+  try {
+    insercion = await db.transaction((tx) =>
+      insertarAdicionalesDeCarga(tx, subidos, soat.id, { id: ctx.userId, nombre: ctx.username }));
+  } catch (e) {
+    await compensarAdicionales(subidos);
+    throw e;
+  }
+  // Los que perdieron la carrera: su objeto sobra y salen como repetidos.
+  await compensarAdicionales(insercion.perdedores);
+  const repetido = MotivoDescarteDocumentoAdicional.DOCUMENTO_REPETIDO;
+  const descartados = [
+    ...clasificacion.descartados,
+    ...insercion.perdedores.map((p) => ({ nombreArchivo: p.nombreArchivo, codigo: repetido, motivo: MOTIVO_DESCARTE_TEXTO[repetido] })),
+  ];
+  return { guardados: insercion.guardados, resultado: resultadoAdicionales(insercion.guardados, descartados) };
+}
+
+/** Esperas antes de cada intento de borrado del objeto (D6): 3 intentos. */
+export const ESPERAS_BORRADO_MS: readonly number[] = [0, 200, 800];
+
+/**
+ * Borra el objeto con reintentos. `false` si los 3 fallan: queda `soat.adicional.objeto_huerfano`
+ * en el log, solo con la clave opaca (sin nombre ni PII). Nunca lanza.
+ */
+export async function borrarObjetoConReintento(
+  soporteId: string, storageKey: string, esperas: readonly number[] = ESPERAS_BORRADO_MS,
+): Promise<boolean> {
+  for (const ms of esperas) {
+    if (ms > 0) await new Promise((r) => setTimeout(r, ms));
+    try { await removeEntityDocument(storageKey); return true; } catch { /* siguiente intento */ }
+  }
+  log.error({ evento: 'soat.adicional.objeto_huerfano', soporteId, storageKey },
+    'No se pudo borrar de storage el objeto de un documento adicional eliminado');
+  return false;
+}
+
+export interface AdicionalEliminado {
+  id: string; etiqueta: string; etiquetaDeNombre: boolean; nombreArchivo: string;
+  /** El objeto no se pudo borrar de storage tras los reintentos. */
+  objetoPendiente: boolean;
+}
+
+/**
+ * AC5–AC8 (#13364) — borrado DEFINITIVO de un adicional de la solicitud. Sin acceso → 404; la fila
+ * debe ser de ESA solicitud y de tipo adicional (la factura u otra solicitud → 404). No filtra por
+ * autor (AC6) ni por estado. Primero la fila, después el objeto (D6).
+ */
+export async function eliminarDocumentoAdicional(
+  id: string, soporteId: string, ctx: SoatCtx, esperas: readonly number[] = ESPERAS_BORRADO_MS,
+): Promise<AdicionalEliminado> {
+  const soat = await buscarConAcceso(id, ctx);
+  if (!soat) throw new DocumentoAdicionalError(NO_ENCONTRADA, 404);
+  const [fila] = await db.delete(flitoSoportes).where(and(
+    eq(flitoSoportes.id, soporteId),
+    eq(flitoSoportes.soatId, soat.id),
+    eq(flitoSoportes.tipo, TipoSoporte.DOCUMENTO_ADICIONAL_SOAT),
+    eq(flitoSoportes.descartado, false),
+  )).returning({
+    id: flitoSoportes.id, storageKey: flitoSoportes.storageKey,
+    etiqueta: flitoSoportes.etiqueta, nombreArchivo: flitoSoportes.nombreArchivo,
+  });
+  if (!fila) throw new DocumentoAdicionalError(MENSAJE_DOCUMENTO_NO_ENCONTRADO, 404);
+  const borrado = await borrarObjetoConReintento(fila.id, fila.storageKey, esperas);
+  const { nombreArchivo } = fila;
+  const etiqueta = fila.etiqueta ?? '';
+  return {
+    id: fila.id, etiqueta, nombreArchivo,
+    // La fila no guarda si la etiqueta salió del nombre: se reconstruye (D7).
+    etiquetaDeNombre: etiqueta === nombreArchivo.slice(0, LARGO_ETIQUETA),
+    objetoPendiente: !borrado,
+  };
 }

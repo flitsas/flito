@@ -55,6 +55,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0218_pagina_perfil.sql',
   '0220_permiso_impuestos_recibos_reemplazar.sql',
   '0222_flito_soportes_documentos_adicionales_soat.sql',
+  '0223_flito_soportes_documentos_adicionales_carga_eliminar.sql',
 ] as const;
 
 function sinComentariosSql(sql: string): string {
