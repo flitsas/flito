@@ -363,6 +363,21 @@ describe('DELETE /:id — soft delete + cleanup S3', () => {
     );
   });
 
+  it('HU #13410 AC9: el borrado del objeto falla (`deleteEntityDocument` → false) → sigue 200 y soft delete', async () => {
+    deleteEntityDocumentMock.mockResolvedValueOnce(false);
+    selectMock.mockReturnValueOnce(chain([{ id: 1, archivoStorageKey: 'drivers/documents/5/abc.pdf' }]));
+    let updateValues: any = null;
+    updateMock.mockReturnValueOnce({
+      set: (v: any) => { updateValues = v; return { where: () => Promise.resolve(undefined) }; },
+    });
+    const token = await adminToken();
+    const app = await buildApp();
+    const r = await request(app).delete('/api/driver-docs/1').set('Authorization', `Bearer ${token}`);
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ ok: true });
+    expect(updateValues.estado).toBe('archivado');
+  });
+
   it('doc SIN archivo → soft delete BD sin llamar deleteEntityDocument', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 1, archivoStorageKey: null }]));
     updateMock.mockReturnValueOnce({
