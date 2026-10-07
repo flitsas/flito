@@ -34,6 +34,9 @@ import {
 import {
   startSoatVigenciaCron, stopSoatVigenciaCron,
 } from './modules/flito-soat/flito-soat-vigencia.cron.js';
+import {
+  startSoatRetencionCron, stopSoatRetencionCron,
+} from './modules/flito-soat/flito-soat-retencion.cron.js';
 import { verificarCatalogoAlArrancar } from './modules/permisos/permisos.service.js';
 import { closeRedis } from './shared/redis.js';
 import { loggerFor } from './shared/logger.js';
@@ -114,6 +117,10 @@ const server = app.listen(env.PORT, () => {
     // SOAT_VIGENCIA_CRON_ENABLED!=1. Un solo servidor la ejecuta (candado `flito-soat-vigencia`) y
     // un intento que deja vehículos sin verificar se reprograma cada hora, hasta tres veces.
     startSoatVigenciaCron();
+    // FLITO SOAT: retención (HU #13409, Ley 1581) — borra la factura y los adicionales de las
+    // solicitudes por validar descartadas hace 30 días o más (03:00 de Colombia). Noop si
+    // SOAT_RETENCION_CRON_ENABLED!=1. Candado `flito-soat-retencion`.
+    startSoatRetencionCron();
   }
 });
 
@@ -156,6 +163,7 @@ function shutdown(signal: string) {
   stopSiigoColaCron();
   stopComparendosPurgaCron();
   stopSoatVigenciaCron();
+  stopSoatRetencionCron();
 
   const forceExitTimer = setTimeout(() => {
     log.error('grace expirado — forzando salida');
