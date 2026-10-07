@@ -13,7 +13,9 @@
 //   sistema (AC9) → si hay `archivo_flit1_id` del MISMO soporte, solo el PUT (AC5); si no, desde el paso 1.
 // RN-F1-03 Desenlace (`cambiosPorResultadoFlit1`, §5.1). 3 intentos en total (un intento = una pasada,
 //   haga 1, 2 o 3 pasos); backoff 5/30 min. `archivo_flit1_id` se guarda SOLO si el paso 2 terminó bien
-//   (AC4/AC5). Definitivo → `error` con status y paso, sin cuerpo (AC6). Escritura con guarda de versión.
+//   (AC4/AC5), también tras una `pausa` del paso 3 (sin intento ni cambio de estado): un archivo ya subido
+//   al bucket no se vuelve a subir. Definitivo → `error` con status y paso, sin cuerpo (AC6). Escritura con
+//   guarda de versión.
 // RN-F1-04 Bitácora (AC9). `audit_logs` por intento: resultado, paso y status. Nunca URL, fields, nombre
 //   de archivo ni datos del propietario.
 
@@ -110,6 +112,10 @@ export function cambiosPorResultadoFlit1(
 
 async function aplicar(fila: FilaEnvioFlit1Tomada, soporteId: string, r: ResultadoEnvioFlit1, ahora: Date): Promise<DesenlaceFilaFlit1> {
   if (r.tipo === 'pausa') {
+    // Pausa del paso 3: el archivo ya está en el bucket y no se vuelve a subir. Se guarda su id con el
+    // soporte (AC5) sin consumir intento, sin cambiar estado ni `proximo_intento_en`; el sondeo siguiente
+    // hace solo el PUT.
+    if (r.archivoId) await escribir(fila, { archivoFlit1Id: r.archivoId, soporteId }, ahora);
     await liberarEnvio(fila);
     return { tipo: 'pausa', codigo: r.codigo, hasta: new Date(ahora.getTime() + PAUSA_ENVIO_FLIT1_MS) };
   }

@@ -14,9 +14,12 @@ ADR-0020 creó el outbox `flito_impuesto_envios_flit2` (migración 0219, aplicad
 de pago del impuesto a FLIT 2. Los trámites de FLIT 1 (`flito_tramites.fuente = 'flit'`) necesitan el mismo envío,
 pero el contrato es otro y **sin autenticación**: (1) `POST {FLIT1_ARCHIVOS_BASE_URL}/api/v1/files` registra el
 archivo y devuelve su `id` y una `presignedUrl` de S3; (2) `POST` multipart a esa URL con sus `fields` + `file`;
-(3) `PUT {FLIT1_TRAMITES_BASE_URL}/api/v1/vehicleTaxesQuery/{idReal}` enlaza el `id` como recibo de pago. El
+(3) `PUT {FLIT1_TRAMITES_BASE_URL}/api/v1/vehicle-registration/{idReal}` enlaza el `id` como recibo de pago. El
 `idReal` se deriva de `id_flit` (`FLIT-0[124]<dígitos>`). La respuesta del paso 3 y sus errores son desconocidos.
 La URL del paso 2 la dicta una respuesta remota: es una superficie SSRF/exfiltración del comprobante (PII).
+
+> **2026-10-07 — ruta del paso 3 corregida:** David corrigió el contrato dado el 2026-10-06; la ruta es
+> `/api/v1/vehicle-registration/{idReal}`; con la ruta anterior FLIT 1 respondía 404.
 
 Ya acordado y fuera de discusión aquí: reintento desde el paso 1 si fallan el 1 o el 2; solo el PUT si falla el 3
 con el archivo subido; 5xx/429/red reintentables y el resto de 4xx definitivos (código + paso, sin cuerpo);
@@ -56,6 +59,11 @@ límites del archivo antes de llamar; sin retroactivo; la `presignedUrl` no se p
    cualquier paso hacia los hosts `FLIT1_*` = **pausa global** persistida en `system_locks`, sondeo de una sola
    petición cada 20 min, sin consumir intento (calco de ADR-0020 §4). El resto de 4xx ≠ 429 = `error` definitivo
    (código + paso, sin cuerpo).
+
+   > **2026-10-07 — archivo subido al bucket no se vuelve a subir, tampoco tras una pausa del paso 3:** la `pausa`
+   > del paso 3 trae el `archivoId` y la fila guarda `archivo_flit1_id` + `soporte_id` sin consumir intento, sin cambiar
+   > estado ni `proximo_intento_en`; el sondeo siguiente hace solo el PUT.
+
 10. **Cuerpo del paso 3:** `{ idAttachmentPdfDraft: "", idAttachmentPdfPrepared: "", idAttachedPaymentReceipt }` —
    cadena vacía, ni `null` ni ausente. `filename` = `impuesto-<uuid>.<ext>` con la extensión del MIME real detectado
    por bytes (`pdf|jpg|png|webp`); `category` siempre `"impuestos-flito"`.

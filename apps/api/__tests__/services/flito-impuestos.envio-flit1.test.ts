@@ -218,7 +218,7 @@ describe('AC1 — envío exitoso', () => {
   it('TC-01a/f + TC-02c: P1 → P2 → P3 a los hosts correctos; fila enviada con archivo, paso 3 y fecha del intento', async () => {
     programar(p1Ok(), vacio(204), json({}));
     await ciclo();
-    expect(llamadas()).toEqual([['POST', `${ARCHIVOS}/api/v1/files`], ['POST', SUBIDA], ['PUT', `${TRAMITES}/api/v1/vehicleTaxesQuery/2345`]]);
+    expect(llamadas()).toEqual([['POST', `${ARCHIVOS}/api/v1/files`], ['POST', SUBIDA], ['PUT', `${TRAMITES}/api/v1/vehicle-registration/2345`]]);
     const [up] = updatesDeFila();
     expect(up.sql).toMatch(/where \("flito_impuesto_envios_flit2"\."id" = \$\d+ and "flito_impuesto_envios_flit2"\."version" = \$\d+\)/);
     expect(valorSet(up, 'estado')).toBe('enviado');
@@ -241,11 +241,11 @@ describe('AC1 — envío exitoso', () => {
     expect(((fetchMock.mock.calls[1]![1] as RequestInit).body as FormData).get('file')).toMatchObject({ type: 'image/jpeg' });
   });
 
-  it('TC-02d (A-3): FLIT-010045 → PUT /vehicleTaxesQuery/45', async () => {
+  it('TC-02d (A-3): FLIT-010045 → PUT /vehicle-registration/45', async () => {
     estado.responder = responderCiclo({ filas: [tomada({ id_flit: 'FLIT-010045' })] });
     programar(p1Ok(), vacio(204), json({}));
     await ciclo();
-    expect(llamadas()[2]).toEqual(['PUT', `${TRAMITES}/api/v1/vehicleTaxesQuery/45`]);
+    expect(llamadas()[2]).toEqual(['PUT', `${TRAMITES}/api/v1/vehicle-registration/45`]);
   });
 });
 
@@ -290,7 +290,7 @@ describe('HU #13311 — reemplazo: la fila FLIT 1 se reprograma y el ciclo sigui
     cicloTrasReprogramar(up!, previa);
     programar(p1Ok('adj-888'), vacio(204), json({}));
     expect(await ciclo()).toMatchObject({ tomadas: 1, escritas: 1 });
-    expect(llamadas()).toEqual([['POST', `${ARCHIVOS}/api/v1/files`], ['POST', SUBIDA], ['PUT', `${TRAMITES}/api/v1/vehicleTaxesQuery/2345`]]);
+    expect(llamadas()).toEqual([['POST', `${ARCHIVOS}/api/v1/files`], ['POST', SUBIDA], ['PUT', `${TRAMITES}/api/v1/vehicle-registration/2345`]]);
     expect(storage.stream.mock.calls.flat()).toContain(KEY_NUEVO);
     expect(JSON.parse(String((fetchMock.mock.calls[2]![1] as RequestInit).body))).toMatchObject({ idAttachedPaymentReceipt: 'adj-888' });
     expect(JSON.stringify(fetchMock.mock.calls)).not.toContain('adj-777');
@@ -447,7 +447,7 @@ describe('AC5 — fallo transitorio del PUT con el archivo ya subido', () => {
       estado.responder = responderCiclo({ filas: [tomada({ intentos: 1, archivo_flit1_id: 'adj-777' })] });
       programar(json({}));
       await ciclo();
-      expect(llamadas()).toEqual([['PUT', `${TRAMITES}/api/v1/vehicleTaxesQuery/2345`]]);
+      expect(llamadas()).toEqual([['PUT', `${TRAMITES}/api/v1/vehicle-registration/2345`]]);
       expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body)).idAttachedPaymentReceipt).toBe('adj-777');
       expect(valorSet(updatesDeFila()[0]!, 'estado')).toBe('enviado');
     });
@@ -502,6 +502,30 @@ describe('A-1 / A-2 — pausa global de configuración (sin consumir intento)', 
     expect(fetchMock).toHaveBeenCalledTimes(nFetch); // A-1: nada se sube a la URL no permitida
     expect(q(/^update "flito_impuesto_envios_flit2" set "tomado_por" = \$1, "tomado_en" = \$2/)).toHaveLength(1); // liberada
     expect(JSON.stringify(logMock.error.mock.calls)).not.toMatch(/evilamazonaws|flito-ejemplo/);
+  });
+
+  it('pausa del paso 3 con el archivo ya subido → guarda archivo_flit1_id + soporte sin intento ni estado; el sondeo siguiente hace SOLO el PUT', async () => {
+    programar(p1Ok('adj-777'), vacio(204), vacio(404));
+    expect(await ciclo()).toMatchObject({ corte: 'pausa', escritas: 0 });
+    const conArchivo = updatesDeFila().filter((u) => asigna(u, 'archivo_flit1_id'));
+    expect(conArchivo).toHaveLength(1);
+    const [up] = conArchivo;
+    expect(valorSet(up!, 'archivo_flit1_id')).toBe('adj-777');
+    expect(valorSet(up!, 'soporte_id')).toBe(SOP);
+    for (const col of ['intentos', 'estado', 'proximo_intento_en', 'ultimo_intento_en', 'ultimo_resultado']) expect(asigna(up!, col)).toBe(false);
+    expect(up!.sql).toMatch(/"version" = \$\d+/); // guarda de versión
+    expect(audits()).toHaveLength(0);
+    // Sondeo siguiente: la fila trae el id persistido y el mismo soporte → una sola llamada, el PUT.
+    estado.grabadas = [];
+    estado.responder = responderCiclo({
+      pausa: { hasta: new Date(AHORA.getTime() - 1), codigo: 'no_disponible' },
+      filas: [tomada({ archivo_flit1_id: valorSet(up!, 'archivo_flit1_id') })],
+    });
+    programar(json({}));
+    expect((await ciclo()).sondeo).toBe(true);
+    expect(llamadas()).toEqual([['PUT', `${TRAMITES}/api/v1/vehicle-registration/2345`]]);
+    expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body)).idAttachedPaymentReceipt).toBe('adj-777');
+    expect(valorSet(updatesDeFila()[0]!, 'estado')).toBe('enviado');
   });
 
   it('pausa vigente → no toma; vencida → sondeo de 1 fila y, si sale bien, borra la marca', async () => {
@@ -563,7 +587,7 @@ describe('AC9 — sin secretos ni PII en logs ni bitácora', () => {
 // ── RN-F1-03 puro ────────────────────────────────────────────────────────────────────────────────
 describe('cambiosPorResultadoFlit1 (puro)', () => {
   it('pausa no escribe desenlace; reintentable del almacén no tiene paso de FLIT 1', () => {
-    expect(svc.cambiosPorResultadoFlit1({ intentos: 0 }, SOP, { tipo: 'pausa', paso: 3, codigo: 'no_disponible', status: 404 }, AHORA)).toBeNull();
+    expect(svc.cambiosPorResultadoFlit1({ intentos: 0 }, SOP, { tipo: 'pausa', paso: 3, codigo: 'no_disponible', status: 404, archivoId: 'adj-777' }, AHORA)).toBeNull();
     const c = svc.cambiosPorResultadoFlit1({ intentos: 0 }, SOP, { tipo: 'reintentable', paso: 1, codigo: 'almacen_no_disponible', status: null, archivoId: null }, AHORA)!;
     expect(c.cambios.ultimoPaso).toBeNull();
   });

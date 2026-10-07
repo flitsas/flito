@@ -1,7 +1,7 @@
 // HU #13310 (Feature #13309, ADR-0021 §3) — puerto del envío del comprobante de pago a FLIT 1 en tres
 // pasos: (1) `POST {archivos}/api/v1/files` registra el archivo y devuelve `id` + `presignedUrl`;
 // (2) `POST` multipart a `presignedUrl.url` con sus `fields` y `file` al final; (3) `PUT
-// {tramites}/api/v1/vehicleTaxesQuery/{idReal}` enlaza el `id` como recibo de pago.
+// {tramites}/api/v1/vehicle-registration/{idReal}` enlaza el `id` como recibo de pago.
 //
 // El puerto DEVUELVE el desenlace clasificado (calco de `Flit2SyncPort.enviarAdjunto`): nunca lanza por
 // HTTP ni por red. La `presignedUrl` (url y fields) NUNCA sale del adaptador (D-5, AC9).
@@ -26,9 +26,10 @@ export type ResultadoEnvioFlit1 =
   /**
    * Configuración, no consume intento (ADR-0021 A-1/A-2): la URL de subida no pasa la validación fija
    * (`url_subida_no_permitida`), o un host FLIT1_* respondió 403/404 sin cuerpo o con el de API Gateway
-   * (`no_disponible`).
+   * (`no_disponible`). `archivoId` solo si la pausa fue en el paso 3 (el archivo ya está en el bucket y
+   * no se vuelve a subir); null en los pasos 1 y 2.
    */
-  | { tipo: 'pausa'; paso: PasoEnvioFlit1; codigo: 'url_subida_no_permitida' | 'no_disponible'; status: number | null };
+  | { tipo: 'pausa'; paso: PasoEnvioFlit1; codigo: 'url_subida_no_permitida' | 'no_disponible'; status: number | null; archivoId: string | null };
 
 export interface Flit1AdjuntosPort {
   /** Nunca lanza por HTTP ni red: todo sale clasificado. `archivoIdSubido` ≠ null → solo el paso 3. */

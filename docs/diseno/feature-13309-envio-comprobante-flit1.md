@@ -55,7 +55,10 @@
 |---|---|---|
 | 1 | `POST {FLIT1_ARCHIVOS_BASE_URL}/api/v1/files` JSON `{ filename, category: "impuestos-flito" }` | 2xx con `{ id, presignedUrl: { url, fields{…} }, … }` |
 | 2 | `POST presignedUrl.url` `multipart/form-data`: todos los `fields` en el orden recibido + `file` **última parte** | 2xx sin cuerpo |
-| 3 | `PUT {FLIT1_TRAMITES_BASE_URL}/api/v1/vehicleTaxesQuery/{idReal}` JSON `{ idAttachmentPdfDraft: "", idAttachmentPdfPrepared: "", idAttachedPaymentReceipt: "<id paso 1>" }` | 2xx (cuerpo desconocido: no se lee) |
+| 3 | `PUT {FLIT1_TRAMITES_BASE_URL}/api/v1/vehicle-registration/{idReal}` JSON `{ idAttachmentPdfDraft: "", idAttachmentPdfPrepared: "", idAttachedPaymentReceipt: "<id paso 1>" }` | 2xx (cuerpo desconocido: no se lee) |
+
+> **2026-10-07 — ruta del paso 3 corregida:** David corrigió el contrato dado el 2026-10-06; la ruta es
+> `/api/v1/vehicle-registration/{idReal}`; con la ruta anterior FLIT 1 respondía 404.
 
 La decisión de las **dos variables de host** (`FLIT1_ARCHIVOS_BASE_URL`, `FLIT1_TRAMITES_BASE_URL`) sustituye el
 supuesto S1 de la HU («host = `FLIT_BASE_URL`»): el AC1 se lee con esas dos bases.
@@ -169,7 +172,7 @@ sequenceDiagram
   Svc->>Svc: logPii (acceso del sistema, AC9)
   alt archivo_flit1_id ∧ mismo soporte (AC5)
     Svc->>Ad: enviar(idReal, archivo, archivoIdSubido)
-    Ad->>Tram: PUT /api/v1/vehicleTaxesQuery/{idReal}
+    Ad->>Tram: PUT /api/v1/vehicle-registration/{idReal}
   else desde el paso 1
     Svc->>Ad: enviar(idReal, archivo, null)
     Ad->>Arch: POST /api/v1/files {filename, category}
@@ -177,7 +180,7 @@ sequenceDiagram
     Ad->>Ad: url https, sin credenciales, *.amazonaws.com? si no → pausa (A-1)
     Ad->>S3: POST multipart (fields… + file)
     S3-->>Ad: 2xx
-    Ad->>Tram: PUT /api/v1/vehicleTaxesQuery/{idReal} {idAttachedPaymentReceipt: id}
+    Ad->>Tram: PUT /api/v1/vehicle-registration/{idReal} {idAttachedPaymentReceipt: id}
   end
   Tram-->>Ad: 2xx | 4xx | 5xx | red
   Ad-->>Svc: desenlace clasificado {tipo, paso, status, archivoId?} (sin URL firmada)
@@ -266,6 +269,10 @@ Funciones puras en `flito-sync/flit1-adjuntos.ts` (testeables sin red): `idRealD
 | 3 | 2xx | `enviado` | sí | `enviado`, `enviado_en`, `soporte_enviado_id` | id del paso 1 |
 | 3 | red / timeout / 3xx / 5xx / 429 | reintentable | sí | `pendiente` (o `error`) | **id del paso 1** (el siguiente intento solo hace el PUT) |
 | 3 | otro 4xx (p. ej. 404 trámite inexistente) | definitivo `http_<status>` | sí | `error` | id del paso 1 (traza) |
+
+> **2026-10-07 — archivo subido al bucket no se vuelve a subir, tampoco tras una pausa del paso 3:** la `pausa`
+> del paso 3 trae el `archivoId` y la fila guarda `archivo_flit1_id` + `soporte_id` sin consumir intento, sin cambiar
+> estado ni `proximo_intento_en`; el sondeo siguiente hace solo el PUT.
 
 En todas las filas escritas: `ultimo_paso` = paso del desenlace (null en pre-validación), `ultimo_status`,
 `ultimo_resultado` (≤ 40 chars, sin cuerpo), `ultimo_intento_en`, y auditoría `audit_logs` sin PII.
@@ -494,7 +501,7 @@ Ningún archivo nuevo o tocado se acerca a 800 líneas; el service FLIT 2 **baja
 
 | AC | Test (nombre de comportamiento) |
 |---|---|
-| AC1 | adaptador: paso 1 con `{filename:'impuesto-<uuid>.pdf', category:'impuestos-flito'}` contra `FLIT1_ARCHIVOS_BASE_URL`; paso 2 multipart con todos los `fields` y `file` última parte; paso 3 PUT a `FLIT1_TRAMITES_BASE_URL/api/v1/vehicleTaxesQuery/2345` con el id del paso 1 y los dos vacíos. Servicio: fila → `enviado` + `ultimo_intento_en` + `archivo_flit1_id` |
+| AC1 | adaptador: paso 1 con `{filename:'impuesto-<uuid>.pdf', category:'impuestos-flito'}` contra `FLIT1_ARCHIVOS_BASE_URL`; paso 2 multipart con todos los `fields` y `file` última parte; paso 3 PUT a `FLIT1_TRAMITES_BASE_URL/api/v1/vehicle-registration/2345` con el id del paso 1 y los dos vacíos. Servicio: fila → `enviado` + `ultimo_intento_en` + `archivo_flit1_id` |
 | AC2 | `idRealDeIdFlit`: `FLIT-012345`→`2345`, `FLIT-022345`, `FLIT-042345` válidos; `FLIT-032345`, `12345`, `FLIT-01`, `FLIT-0100` (todo ceros) inválidos. Servicio: `error` `id_flit_invalido`, **fetch no llamado** |
 | AC3 | vacío, 20 MB + 1, bytes no-PDF/JPEG/PNG/WebP → `error` con su motivo, fetch no llamado |
 | AC4 | 5xx/429/red en paso 1 y en paso 2 → `pendiente`, `intentos+1`, `proximo_intento_en` = backoff, `archivo_flit1_id` NULL; el siguiente intento vuelve a llamar al paso 1; al 3.º → `error` |
