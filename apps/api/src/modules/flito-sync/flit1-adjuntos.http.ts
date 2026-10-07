@@ -70,7 +70,7 @@ async function falloPorStatus(paso: PasoEnvioFlit1, res: Response, archivoId: st
   if ((status === 403 || status === 404) && paso !== 2) cuerpo = await leerTextoAcotado(res, MAX_CUERPO_ERROR_BYTES);
   else descartar(res);
   const clase = clasificarStatusFlit1(paso, status, cuerpo);
-  if (clase === 'pausa') return { tipo: 'pausa', paso, codigo: 'no_disponible', status };
+  if (clase === 'pausa') return { tipo: 'pausa', paso, codigo: 'no_disponible', status, archivoId };
   return { tipo: clase, paso, codigo: `http_${status}`, status, archivoId } as Fallo;
 }
 
@@ -137,7 +137,7 @@ export function crearFlit1AdjuntosHttp(cfg: ConfigFlit1Adjuntos): Flit1AdjuntosP
 
       // A-1: la URL de subida se valida antes de tocarla.
       if (!urlSubidaFlit1Permitida(archivoFlit1.url)) {
-        const r: ResultadoEnvioFlit1 = { tipo: 'pausa', paso: 2, codigo: 'url_subida_no_permitida', status: null };
+        const r: ResultadoEnvioFlit1 = { tipo: 'pausa', paso: 2, codigo: 'url_subida_no_permitida', status: null, archivoId: null };
         registrar(2, Date.now(), r);
         return r;
       }

@@ -26,9 +26,10 @@ export type ResultadoEnvioFlit1 =
   /**
    * Configuración, no consume intento (ADR-0021 A-1/A-2): la URL de subida no pasa la validación fija
    * (`url_subida_no_permitida`), o un host FLIT1_* respondió 403/404 sin cuerpo o con el de API Gateway
-   * (`no_disponible`).
+   * (`no_disponible`). `archivoId` solo si la pausa fue en el paso 3 (el archivo ya está en el bucket y
+   * no se vuelve a subir); null en los pasos 1 y 2.
    */
-  | { tipo: 'pausa'; paso: PasoEnvioFlit1; codigo: 'url_subida_no_permitida' | 'no_disponible'; status: number | null };
+  | { tipo: 'pausa'; paso: PasoEnvioFlit1; codigo: 'url_subida_no_permitida' | 'no_disponible'; status: number | null; archivoId: string | null };
 
 export interface Flit1AdjuntosPort {
   /** Nunca lanza por HTTP ni red: todo sale clasificado. `archivoIdSubido` ≠ null → solo el paso 3. */

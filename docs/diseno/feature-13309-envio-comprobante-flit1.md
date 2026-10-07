@@ -270,6 +270,10 @@ Funciones puras en `flito-sync/flit1-adjuntos.ts` (testeables sin red): `idRealD
 | 3 | red / timeout / 3xx / 5xx / 429 | reintentable | sí | `pendiente` (o `error`) | **id del paso 1** (el siguiente intento solo hace el PUT) |
 | 3 | otro 4xx (p. ej. 404 trámite inexistente) | definitivo `http_<status>` | sí | `error` | id del paso 1 (traza) |
 
+> **2026-10-07 — archivo subido al bucket no se vuelve a subir, tampoco tras una pausa del paso 3:** la `pausa`
+> del paso 3 trae el `archivoId` y la fila guarda `archivo_flit1_id` + `soporte_id` sin consumir intento, sin cambiar
+> estado ni `proximo_intento_en`; el sondeo siguiente hace solo el PUT.
+
 En todas las filas escritas: `ultimo_paso` = paso del desenlace (null en pre-validación), `ultimo_status`,
 `ultimo_resultado` (≤ 40 chars, sin cuerpo), `ultimo_intento_en`, y auditoría `audit_logs` sin PII.
 

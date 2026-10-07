@@ -200,19 +200,26 @@ describe('Ajustes A-1 / A-2 — pausa de configuración', () => {
   it.each(['https://evilamazonaws.com/', 'http://flito-ejemplo.s3.amazonaws.com/', 'https://u:p@flito-ejemplo.s3.amazonaws.com/', 'https://bucket.ejemplo.test/subida'])(
     'A-1: presignedUrl %s → pausa url_subida_no_permitida; NO se sube nada', async (u) => {
       programar(p1Ok('adj-777', u));
-      expect(await adapter().enviarComprobante('2345', archivo, null)).toEqual({ tipo: 'pausa', paso: 2, codigo: 'url_subida_no_permitida', status: null });
+      expect(await adapter().enviarComprobante('2345', archivo, null)).toEqual({ tipo: 'pausa', paso: 2, codigo: 'url_subida_no_permitida', status: null, archivoId: null });
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(logs()).not.toContain(u);
     });
 
+  // Pausa del paso 3: el archivo ya está en el bucket → el desenlace trae el id del paso 1 (no se vuelve a subir).
   it.each([
-    ['P1 404 sin cuerpo', [vacio(404)], 1, 404],
-    ['P1 403 Missing Authentication Token', [json({ message: 'Missing Authentication Token' }, 403)], 1, 403],
-    ['P3 403 Forbidden', [p1Ok(), vacio(204), json({ message: 'Forbidden' }, 403)], 3, 403],
-    ['P3 404 no JSON', [p1Ok(), vacio(204), new Response('Not Found', { status: 404 })], 3, 404],
-  ] as Array<[string, Paso[], number, number]>)('A-2: %s → pausa no_disponible', async (_n, pasos, paso, status) => {
+    ['P1 404 sin cuerpo', [vacio(404)], 1, 404, null],
+    ['P1 403 Missing Authentication Token', [json({ message: 'Missing Authentication Token' }, 403)], 1, 403, null],
+    ['P3 403 Forbidden', [p1Ok(), vacio(204), json({ message: 'Forbidden' }, 403)], 3, 403, 'adj-777'],
+    ['P3 404 no JSON', [p1Ok(), vacio(204), new Response('Not Found', { status: 404 })], 3, 404, 'adj-777'],
+  ] as Array<[string, Paso[], number, number, string | null]>)('A-2: %s → pausa no_disponible (archivoId %s)', async (_n, pasos, paso, status, archivoId) => {
     programar(...pasos);
-    expect(await adapter().enviarComprobante('2345', archivo, null)).toEqual({ tipo: 'pausa', paso, codigo: 'no_disponible', status });
+    expect(await adapter().enviarComprobante('2345', archivo, null)).toEqual({ tipo: 'pausa', paso, codigo: 'no_disponible', status, archivoId });
+  });
+
+  it('A-2 en un intento de solo-PUT (archivoIdSubido): pausa del paso 3 con ese mismo id, una sola llamada', async () => {
+    programar(vacio(404));
+    expect(await adapter().enviarComprobante('2345', archivo, 'adj-previo')).toEqual({ tipo: 'pausa', paso: 3, codigo: 'no_disponible', status: 404, archivoId: 'adj-previo' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('A-2 no aplica al paso 2 (S3): 403 sin cuerpo → definitivo', async () => {

@@ -59,6 +59,11 @@ límites del archivo antes de llamar; sin retroactivo; la `presignedUrl` no se p
    cualquier paso hacia los hosts `FLIT1_*` = **pausa global** persistida en `system_locks`, sondeo de una sola
    petición cada 20 min, sin consumir intento (calco de ADR-0020 §4). El resto de 4xx ≠ 429 = `error` definitivo
    (código + paso, sin cuerpo).
+
+   > **2026-10-07 — archivo subido al bucket no se vuelve a subir, tampoco tras una pausa del paso 3:** la `pausa`
+   > del paso 3 trae el `archivoId` y la fila guarda `archivo_flit1_id` + `soporte_id` sin consumir intento, sin cambiar
+   > estado ni `proximo_intento_en`; el sondeo siguiente hace solo el PUT.
+
 10. **Cuerpo del paso 3:** `{ idAttachmentPdfDraft: "", idAttachmentPdfPrepared: "", idAttachedPaymentReceipt }` —
    cadena vacía, ni `null` ni ausente. `filename` = `impuesto-<uuid>.<ext>` con la extensión del MIME real detectado
    por bytes (`pdf|jpg|png|webp`); `category` siempre `"impuestos-flito"`.

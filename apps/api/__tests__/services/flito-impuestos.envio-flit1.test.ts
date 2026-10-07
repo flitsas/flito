@@ -504,6 +504,30 @@ describe('A-1 / A-2 — pausa global de configuración (sin consumir intento)', 
     expect(JSON.stringify(logMock.error.mock.calls)).not.toMatch(/evilamazonaws|flito-ejemplo/);
   });
 
+  it('pausa del paso 3 con el archivo ya subido → guarda archivo_flit1_id + soporte sin intento ni estado; el sondeo siguiente hace SOLO el PUT', async () => {
+    programar(p1Ok('adj-777'), vacio(204), vacio(404));
+    expect(await ciclo()).toMatchObject({ corte: 'pausa', escritas: 0 });
+    const conArchivo = updatesDeFila().filter((u) => asigna(u, 'archivo_flit1_id'));
+    expect(conArchivo).toHaveLength(1);
+    const [up] = conArchivo;
+    expect(valorSet(up!, 'archivo_flit1_id')).toBe('adj-777');
+    expect(valorSet(up!, 'soporte_id')).toBe(SOP);
+    for (const col of ['intentos', 'estado', 'proximo_intento_en', 'ultimo_intento_en', 'ultimo_resultado']) expect(asigna(up!, col)).toBe(false);
+    expect(up!.sql).toMatch(/"version" = \$\d+/); // guarda de versión
+    expect(audits()).toHaveLength(0);
+    // Sondeo siguiente: la fila trae el id persistido y el mismo soporte → una sola llamada, el PUT.
+    estado.grabadas = [];
+    estado.responder = responderCiclo({
+      pausa: { hasta: new Date(AHORA.getTime() - 1), codigo: 'no_disponible' },
+      filas: [tomada({ archivo_flit1_id: valorSet(up!, 'archivo_flit1_id') })],
+    });
+    programar(json({}));
+    expect((await ciclo()).sondeo).toBe(true);
+    expect(llamadas()).toEqual([['PUT', `${TRAMITES}/api/v1/vehicle-registration/2345`]]);
+    expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body)).idAttachedPaymentReceipt).toBe('adj-777');
+    expect(valorSet(updatesDeFila()[0]!, 'estado')).toBe('enviado');
+  });
+
   it('pausa vigente → no toma; vencida → sondeo de 1 fila y, si sale bien, borra la marca', async () => {
     estado.responder = responderCiclo({ pausa: { hasta: new Date(AHORA.getTime() + 60_000), codigo: 'no_disponible' } });
     expect((await ciclo()).omitido).toBe('pausa');
@@ -563,7 +587,7 @@ describe('AC9 — sin secretos ni PII en logs ni bitácora', () => {
 // ── RN-F1-03 puro ────────────────────────────────────────────────────────────────────────────────
 describe('cambiosPorResultadoFlit1 (puro)', () => {
   it('pausa no escribe desenlace; reintentable del almacén no tiene paso de FLIT 1', () => {
-    expect(svc.cambiosPorResultadoFlit1({ intentos: 0 }, SOP, { tipo: 'pausa', paso: 3, codigo: 'no_disponible', status: 404 }, AHORA)).toBeNull();
+    expect(svc.cambiosPorResultadoFlit1({ intentos: 0 }, SOP, { tipo: 'pausa', paso: 3, codigo: 'no_disponible', status: 404, archivoId: 'adj-777' }, AHORA)).toBeNull();
     const c = svc.cambiosPorResultadoFlit1({ intentos: 0 }, SOP, { tipo: 'reintentable', paso: 1, codigo: 'almacen_no_disponible', status: null, archivoId: null }, AHORA)!;
     expect(c.cambios.ultimoPaso).toBeNull();
   });
