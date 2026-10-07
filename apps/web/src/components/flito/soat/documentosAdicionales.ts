@@ -2,7 +2,7 @@
 //
 // Spec: docs/ux/flito-soat-documentos-adicionales.md §3.3, §3.4, §5. Un solo módulo para el selector
 // del alta, el toast del 201, la tarjeta del 202 y la lista del detalle — y para la HU #13365, que
-// monta el mismo selector en el detalle con `presentes` = los documentos ya guardados.
+// monta el mismo selector en el detalle (contexto `'detalle'`, cupos por carga, sin `presentes`).
 //
 // Los descartes del servidor se traducen **por `codigo`** (`MotivoDescarteDocumentoAdicional`),
 // nunca por su `motivo` de texto: ese texto es del servidor y cambia con cualquier corrección de
@@ -111,13 +111,24 @@ export function adjuntarAdicionales(form: FormData, lista: ElegidoAdicional[]): 
 
 // ── Copy ────────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Dónde se monta el selector: el alta (#13363) o la carga posterior desde el detalle (#13365). En el
+ * detalle los cupos son **por carga** (no hay techo acumulado), y el copy lo dice (spec #13365 §4).
+ */
+export type ContextoAdicionales = 'alta' | 'detalle';
+
+const MB_MAX_TOTAL = MAX_TOTAL_ADICIONALES / MB;
+
 /** El motivo en pantalla (frase completa, con punto). Validación local del selector. */
-export function motivoEnPantalla(codigo: string): string {
+export function motivoEnPantalla(codigo: string, contexto: ContextoAdicionales = 'alta'): string {
+  const detalle = contexto === 'detalle';
   switch (codigo) {
     case MotivoDescarteDocumentoAdicional.FORMATO_NO_PERMITIDO: return 'Formato no permitido. Use PDF, JPG, PNG, WEBP o HEIC.';
     case MotivoDescarteDocumentoAdicional.SUPERA_TAMANO: return 'Pesa más de 15 MB.';
-    case MotivoDescarteDocumentoAdicional.SUPERA_CANTIDAD: return 'Ya hay 20 archivos, que es el máximo.';
-    case MotivoDescarteDocumentoAdicional.SUPERA_TOTAL: return 'Con este archivo se superarían los 250 MB en total.';
+    case MotivoDescarteDocumentoAdicional.SUPERA_CANTIDAD:
+      return detalle ? `Se cargan hasta ${MAX_ADICIONALES} archivos a la vez.` : 'Ya hay 20 archivos, que es el máximo.';
+    case MotivoDescarteDocumentoAdicional.SUPERA_TOTAL:
+      return detalle ? `Con este archivo la carga pasaría de ${MB_MAX_TOTAL} MB.` : 'Con este archivo se superarían los 250 MB en total.';
     case MotivoDescarteDocumentoAdicional.DOCUMENTO_REPETIDO: return 'Ya lo eligió.';
     default: return 'No se pudo adjuntar este archivo.';
   }
@@ -159,6 +170,39 @@ export function textoToastDescartes(descartados: Descartado[]): string {
 /** Línea de estado de la barra mientras viaja un alta con adicionales (§3.4). */
 export function textoEnviandoAdicionales(n: number): string {
   return `Enviando la solicitud y ${documentos(n)}… puede tardar si son pesados.`;
+}
+
+// ── Copy de la carga y la eliminación desde el detalle (HU #13365, spec §3.3–§3.6, §5.3) ─────────
+
+/** Toast de la carga limpia. */
+export function textoCargados(n: number): string {
+  return n === 1 ? 'Se cargó 1 documento.' : `Se cargaron ${n} documentos.`;
+}
+
+/** Línea `role="status"` mientras viaja la carga. */
+export function textoGuardandoAdicionales(n: number): string {
+  return `Guardando ${documentos(n)}… puede tardar si son pesados.`;
+}
+
+/** Encabezado del aviso de descartes. */
+export function textoResumenDescartes(aceptados: number, total: number): string {
+  return aceptados === 0 ? 'No se cargó ningún documento.' : `Se cargaron ${aceptados} de ${total} documentos.`;
+}
+
+/** Error de la carga por estado HTTP; `reintentable` = se ofrece «Reintentar». Nunca el texto del servidor. */
+export function errorDeCarga(status: number): { texto: string; reintentable: boolean } {
+  if (status === 429) return { texto: 'Se hicieron muchas cargas seguidas. Espere unos minutos e intente de nuevo.', reintentable: true };
+  if (status === 413) return { texto: 'Son demasiados archivos para una sola carga. Quite algunos e intente de nuevo.', reintentable: true };
+  if (status === 403) return { texto: 'Este usuario ya no tiene permiso para cargar documentos.', reintentable: false };
+  if (status === 404) return { texto: 'Esta solicitud ya no está disponible. Cierre el detalle y vuelva a abrirlo.', reintentable: false };
+  return { texto: 'No se pudieron guardar los documentos. Intente de nuevo.', reintentable: true };
+}
+
+/** Error de la eliminación por estado HTTP (el 404 no es error: la fila se quita). */
+export function errorDeEliminacion(status: number): { texto: string; reintentable: boolean } {
+  if (status === 429) return { texto: 'Se hicieron muchos cambios seguidos. Espere unos minutos e intente de nuevo.', reintentable: true };
+  if (status === 403) return { texto: 'Este usuario ya no tiene permiso para eliminar documentos.', reintentable: false };
+  return { texto: 'No se pudo eliminar. Intente de nuevo.', reintentable: true };
 }
 
 /** Línea de la tarjeta del 202 con aceptados (§3.4). */
