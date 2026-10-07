@@ -129,7 +129,7 @@ describe('AC1 — adaptador: tres pasos', () => {
     const r = await adapter().enviarComprobante('2345', archivo, null);
     expect(r).toEqual({ tipo: 'enviado', archivoId: 'adj-777', status: 200 });
     expect(fetchMock.mock.calls.map(([u, i]) => [(i as RequestInit).method, u])).toEqual([
-      ['POST', `${ARCHIVOS}/api/v1/files`], ['POST', SUBIDA], ['PUT', `${TRAMITES}/api/v1/vehicleTaxesQuery/2345`],
+      ['POST', `${ARCHIVOS}/api/v1/files`], ['POST', SUBIDA], ['PUT', `${TRAMITES}/api/v1/vehicle-registration/2345`],
     ]);
     // TC-01b: filename y categoría.
     expect(JSON.parse(String(llamada(0)[1].body))).toEqual({ filename: `impuesto-${IMP}.pdf`, category: 'impuestos-flito' });
@@ -153,7 +153,7 @@ describe('AC1 — adaptador: tres pasos', () => {
     programar(json({}));
     expect(await adapter().enviarComprobante('2345', archivo, 'adj-777')).toMatchObject({ tipo: 'enviado', archivoId: 'adj-777' });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(llamada(0)[0]).toBe(`${TRAMITES}/api/v1/vehicleTaxesQuery/2345`);
+    expect(llamada(0)[0]).toBe(`${TRAMITES}/api/v1/vehicle-registration/2345`);
   });
 
   it('timeouts por paso: 10/60/15 s', () => {

@@ -218,7 +218,7 @@ describe('AC1 — envío exitoso', () => {
   it('TC-01a/f + TC-02c: P1 → P2 → P3 a los hosts correctos; fila enviada con archivo, paso 3 y fecha del intento', async () => {
     programar(p1Ok(), vacio(204), json({}));
     await ciclo();
-    expect(llamadas()).toEqual([['POST', `${ARCHIVOS}/api/v1/files`], ['POST', SUBIDA], ['PUT', `${TRAMITES}/api/v1/vehicleTaxesQuery/2345`]]);
+    expect(llamadas()).toEqual([['POST', `${ARCHIVOS}/api/v1/files`], ['POST', SUBIDA], ['PUT', `${TRAMITES}/api/v1/vehicle-registration/2345`]]);
     const [up] = updatesDeFila();
     expect(up.sql).toMatch(/where \("flito_impuesto_envios_flit2"\."id" = \$\d+ and "flito_impuesto_envios_flit2"\."version" = \$\d+\)/);
     expect(valorSet(up, 'estado')).toBe('enviado');
@@ -241,11 +241,11 @@ describe('AC1 — envío exitoso', () => {
     expect(((fetchMock.mock.calls[1]![1] as RequestInit).body as FormData).get('file')).toMatchObject({ type: 'image/jpeg' });
   });
 
-  it('TC-02d (A-3): FLIT-010045 → PUT /vehicleTaxesQuery/45', async () => {
+  it('TC-02d (A-3): FLIT-010045 → PUT /vehicle-registration/45', async () => {
     estado.responder = responderCiclo({ filas: [tomada({ id_flit: 'FLIT-010045' })] });
     programar(p1Ok(), vacio(204), json({}));
     await ciclo();
-    expect(llamadas()[2]).toEqual(['PUT', `${TRAMITES}/api/v1/vehicleTaxesQuery/45`]);
+    expect(llamadas()[2]).toEqual(['PUT', `${TRAMITES}/api/v1/vehicle-registration/45`]);
   });
 });
 
@@ -290,7 +290,7 @@ describe('HU #13311 — reemplazo: la fila FLIT 1 se reprograma y el ciclo sigui
     cicloTrasReprogramar(up!, previa);
     programar(p1Ok('adj-888'), vacio(204), json({}));
     expect(await ciclo()).toMatchObject({ tomadas: 1, escritas: 1 });
-    expect(llamadas()).toEqual([['POST', `${ARCHIVOS}/api/v1/files`], ['POST', SUBIDA], ['PUT', `${TRAMITES}/api/v1/vehicleTaxesQuery/2345`]]);
+    expect(llamadas()).toEqual([['POST', `${ARCHIVOS}/api/v1/files`], ['POST', SUBIDA], ['PUT', `${TRAMITES}/api/v1/vehicle-registration/2345`]]);
     expect(storage.stream.mock.calls.flat()).toContain(KEY_NUEVO);
     expect(JSON.parse(String((fetchMock.mock.calls[2]![1] as RequestInit).body))).toMatchObject({ idAttachedPaymentReceipt: 'adj-888' });
     expect(JSON.stringify(fetchMock.mock.calls)).not.toContain('adj-777');
@@ -447,7 +447,7 @@ describe('AC5 — fallo transitorio del PUT con el archivo ya subido', () => {
       estado.responder = responderCiclo({ filas: [tomada({ intentos: 1, archivo_flit1_id: 'adj-777' })] });
       programar(json({}));
       await ciclo();
-      expect(llamadas()).toEqual([['PUT', `${TRAMITES}/api/v1/vehicleTaxesQuery/2345`]]);
+      expect(llamadas()).toEqual([['PUT', `${TRAMITES}/api/v1/vehicle-registration/2345`]]);
       expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body)).idAttachedPaymentReceipt).toBe('adj-777');
       expect(valorSet(updatesDeFila()[0]!, 'estado')).toBe('enviado');
     });

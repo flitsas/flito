@@ -90,7 +90,7 @@ export function crearFlit1AdjuntosHttp(cfg: ConfigFlit1Adjuntos): Flit1AdjuntosP
 
   async function paso3(idReal: string, archivoId: string): Promise<ResultadoEnvioFlit1> {
     const inicio = Date.now();
-    const res = await llamar(3, `${cfg.tramitesBase}/api/v1/vehicleTaxesQuery/${encodeURIComponent(idReal)}`, {
+    const res = await llamar(3, `${cfg.tramitesBase}/api/v1/vehicle-registration/${encodeURIComponent(idReal)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ idAttachmentPdfDraft: '', idAttachmentPdfPrepared: '', idAttachedPaymentReceipt: archivoId }),

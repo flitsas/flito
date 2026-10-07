@@ -1,7 +1,7 @@
 // HU #13310 (Feature #13309, ADR-0021 §3) — puerto del envío del comprobante de pago a FLIT 1 en tres
 // pasos: (1) `POST {archivos}/api/v1/files` registra el archivo y devuelve `id` + `presignedUrl`;
 // (2) `POST` multipart a `presignedUrl.url` con sus `fields` y `file` al final; (3) `PUT
-// {tramites}/api/v1/vehicleTaxesQuery/{idReal}` enlaza el `id` como recibo de pago.
+// {tramites}/api/v1/vehicle-registration/{idReal}` enlaza el `id` como recibo de pago.
 //
 // El puerto DEVUELVE el desenlace clasificado (calco de `Flit2SyncPort.enviarAdjunto`): nunca lanza por
 // HTTP ni por red. La `presignedUrl` (url y fields) NUNCA sale del adaptador (D-5, AC9).
