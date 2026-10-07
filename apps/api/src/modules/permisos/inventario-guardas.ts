@@ -110,6 +110,7 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'impuestos', fichero: 'flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts' },
   // HU #12997: lectura de las solicitudes SOAT incompletas (RUNT caído); fichero hermano de soat.
   { modulo: 'soat', fichero: 'flito-soat/flito-soat-incompletas.routes.ts' },
+  { modulo: 'soat', fichero: 'flito-soat/flito-soat-documentos.routes.ts' }, // HU #13362
 ];
 
 /** Quita comentarios de bloque y de línea sin tocar el contenido de las cadenas simples. */

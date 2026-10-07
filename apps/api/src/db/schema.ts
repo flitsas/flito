@@ -3399,8 +3399,13 @@ export const flitoSoportes = pgTable('flito_soportes', {
   // Descartado en la cola de revisión OCR: libera su hash para permitir recargar el mismo archivo
   // (un documento rechazado no debe contar como duplicado). Se excluye del dedup y de los listados.
   descartado: boolean('descartado').notNull().default(false),
+  // HU #13362 (0222): documento adicional del alta de SOAT — etiqueta, y la por validar de la que cuelga (sin CASCADE).
+  etiqueta: varchar('etiqueta', { length: 150 }),
+  soatIncompletaId: uuid('soat_incompleta_id').references(() => flitoSoatIncompletas.id),
 }, (t) => ({
   hashIdx: index('idx_flito_soportes_hash').on(t.hash),
+  soatIncompletaIdx: index('idx_flito_soportes_soat_incompleta').on(t.soatIncompletaId).where(sql`${t.soatIncompletaId} IS NOT NULL`),
+  documentoAdicionalChk: check('flito_soportes_documento_adicional_chk', sql`${t.tipo} <> 'documento_adicional_soat' OR (${t.etiqueta} IS NOT NULL AND (${t.soatId} IS NOT NULL OR ${t.soatIncompletaId} IS NOT NULL))`),
   // AC3 — un solo documento de cada tipo por factura. La garantía es de la base y no del servicio:
   // entre el «¿ya está?» y el INSERT de un barrido periódico cabe otro ciclo.
   facturaTipoUq: uniqueIndex('idx_flito_soportes_factura_tipo').on(t.siigoFacturaId, t.tipo)

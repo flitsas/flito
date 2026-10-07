@@ -46,6 +46,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   // flito-soat/flito-soat-incompletas.routes.ts (HU #12997)
   { fichero: 'flito-soat/flito-soat-incompletas.routes.ts', metodo: 'POST', ruta: '/cliente/incompletas/buscar', codigo: 'soat.incompletas.buscar' },
   { fichero: 'flito-soat/flito-soat-incompletas.routes.ts', metodo: 'GET', ruta: '/cliente/incompletas/:id', codigo: 'soat.incompleta.ver' },
+  // HU #13362: sub-router propio de la lectura de documentos adicionales.
+  { fichero: 'flito-soat/flito-soat-documentos.routes.ts', metodo: 'GET', ruta: '/:id/documentos-adicionales', codigo: 'soat.documentos_adicionales.ver' },
   // HU #12998
   { fichero: 'flito-soat/flito-soat-incompletas.routes.ts', metodo: 'POST', ruta: '/cliente/incompletas/:id/reintentar', codigo: 'soat.solicitud.reintentar_runt' },
   // HU #13061: acceso de FLITO a FLIT 2 (0214, solo admin).

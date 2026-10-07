@@ -207,6 +207,17 @@ describe('AC1 — el RUNT responde OK: la incompleta pasa a Solicitado por el ca
     expect(comp[0]!.filtros).toContain(ID);
   });
 
+  it('HU #13362 (D3-bis §3): los documentos adicionales de ESTA incompleta pasan al SOAT (UPDATE acotado por incompleta Y tipo)', async () => {
+    escenario();
+    await reintentar(await buildApp());
+    const sop = espia.updatesEn('flito_soportes');
+    expect(sop).toHaveLength(1);
+    expect(sop[0]!.datos).toEqual({ soatId: RESERVADO });
+    const q = renderizar(sop[0]!.condiciones[0] as never);
+    expect(q.sql).toMatch(/"flito_soportes"\."soat_incompleta_id" = \$1 and "flito_soportes"\."tipo" = \$2/);
+    expect(q.params).toEqual([ID, 'documento_adicional_soat']);
+  });
+
   it('la incompleta queda completada con soat_id, quién y cuándo, e intentos + 1', async () => {
     escenario();
     await reintentar(await buildApp());
@@ -302,6 +313,8 @@ describe('AC4 — el VIN ya tiene solicitud o SOAT: se descarta con solicitud_ex
     expect(kdb.transaction).toHaveBeenCalledTimes(2);
     // El INSERT del SOAT lanzó antes de re-apuntar el propietario o completar la incompleta.
     expect(espia.updatesEn('flito_compradores')).toHaveLength(0);
+    // …ni los documentos adicionales (HU #13362): siguen colgados de la incompleta, sin soat_id.
+    expect(espia.updatesEn('flito_soportes')).toHaveLength(0);
     const u = updatesIncompleta();
     expect(u).toHaveLength(1);
     expect(u[0]).toMatchObject({ estado: 'descartada', motivoDescarte: 'solicitud_existente' });
