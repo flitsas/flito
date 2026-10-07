@@ -7,9 +7,9 @@ import { sql, desc } from 'drizzle-orm';
 // FLITO (migración): tipos de extracción OCR persistidos en columnas jsonb.
 import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVentaImpuesto, ExtraccionDerechoTramite, ComparacionFacturaRunt } from '@operaciones/shared-types';
 // Certificación de impuestos contra el RUNT (Feature #11159): detalle por campo en columna jsonb.
-import type { ComparacionCampo } from '@operaciones/shared-types';
 // Entrega de la factura por correo (HU #11334): destinatarios con su procedencia, en columna jsonb.
-import type { SiigoDestinatario } from '@operaciones/shared-types';
+// (Un solo import para los dos: HU #13410 necesitó la línea por el techo de max-lines.)
+import type { ComparacionCampo, SiigoDestinatario } from '@operaciones/shared-types';
 // SOAT canal Cliente (HU #12093): de dónde salió cada dato del propietario, en columna jsonb.
 import type { ProcedenciaCompradorPersistida } from '@operaciones/shared-types';
 // Verificación diaria de vigencia del SOAT (HU #12096): motivos de caída de una corrida, en jsonb.
@@ -39,6 +39,8 @@ export { flitoComprobantes };
 // HU #12996: `flito_soat_incompletas` vive en `./schema/flito-soat-incompletas.ts` por el mismo techo.
 import { flitoSoatIncompletas } from './schema/flito-soat-incompletas.js';
 export { flitoSoatIncompletas };
+// HU #13410: `flito_storage_borrados_pendientes` vive en `./schema/flito-storage-borrados-pendientes.ts`.
+export { flitoStorageBorradosPendientes } from './schema/flito-storage-borrados-pendientes.js';
 // HU #13268: `flito_impuesto_envios_flit2` (outbox del envío a FLIT 2) vive en `./schema/` por el mismo techo.
 import { flitoImpuestoEnviosFlit2 } from './schema/flito-impuesto-envios-flit2.js';
 export { flitoImpuestoEnviosFlit2 };

@@ -34,14 +34,18 @@
 // `removeEntityDocument` y no `deleteEntityDocument`: el segundo se traga el error (y loguea la
 // clave), y la purga necesita saber si falló para no dar por borrado lo que sigue en el bucket.
 
-import { createHash } from 'node:crypto';
 import { and, asc, eq, isNull, lte, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { auditLogs, flitoSoatIncompletas, flitoSoportes } from '../../db/schema.js';
 import { removeEntityDocument } from '../../services/storage.js';
+import { esObjetoInexistente, huellaClave, nombreDeError } from '../../services/storage-errores.js';
 import { loggerFor } from '../../shared/logger.js';
 
 const log = loggerFor('flito-soat-retencion');
+
+// HU #13410: los helpers del borrado pasaron a `services/storage-errores.ts`; se re-exportan aquí
+// para no mover a quien ya los importaba de la retención.
+export { esObjetoInexistente, huellaClave };
 
 /** Días de retención tras el descarte (RN-RET1). 30 × 24 h exactas, no días de calendario. */
 export const DIAS_RETENCION = 30;
@@ -88,30 +92,6 @@ export function condicionAdicionales(incompletaId: string): SQL {
     isNull(flitoSoportes.soatId),
     eq(flitoSoportes.tipo, TIPO_ADICIONAL),
   )!;
-}
-
-/** Huella corta de una clave para correlacionar en el log sin escribirla (sha256, 16 hex). */
-export function huellaClave(key: string): string {
-  return createHash('sha256').update(key).digest('hex').slice(0, 16);
-}
-
-/** ¿El almacenamiento dijo «ese objeto no existe»? Para la purga eso es «borrado» (AC4). */
-export function esObjetoInexistente(e: unknown): boolean {
-  if (!e || typeof e !== 'object') return false;
-  const o = e as { code?: unknown; name?: unknown; statusCode?: unknown; $metadata?: { httpStatusCode?: unknown } };
-  const codigos = ['NoSuchKey', 'NotFound', 'NoSuchObject'];
-  return codigos.includes(String(o.code)) || codigos.includes(String(o.name))
-    || o.statusCode === 404 || o.$metadata?.httpStatusCode === 404;
-}
-
-/** Nombre/código del error para el log: nunca el mensaje, que puede repetir la clave. */
-function nombreDeError(e: unknown): string {
-  if (e && typeof e === 'object') {
-    const o = e as { code?: unknown; name?: unknown };
-    if (typeof o.code === 'string' && o.code) return o.code;
-    if (typeof o.name === 'string' && o.name) return o.name;
-  }
-  return 'error';
 }
 
 /** Borra un objeto. `true` si quedó borrado (incluido «no existía»); `false` si el bucket falló. */
