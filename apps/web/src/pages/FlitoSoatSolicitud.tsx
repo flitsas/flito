@@ -63,7 +63,7 @@ import {
 import { toastOk } from '../components/flit/ToastFlito';
 import {
   CodigoErrorSolicitudSoat, PROCEDENCIA_POR_DEFECTO, ProcedenciaDato,
-  type ExtraccionFacturaVenta, type RespuestaAltaSolicitudSoat, type SoatActivoRunt,
+  type ExtraccionFacturaVenta, type RespuestaAltaSolicitudSoat, type ResultadoDocumentosAdicionales, type SoatActivoRunt,
 } from '@operaciones/shared-types';
 import { api } from '../lib/api';
 import { puedeSolicitarSoat, useAuth } from '../lib/auth';
@@ -89,6 +89,11 @@ import {
 } from '../components/flito/soat-cliente/PasoVin';
 import { TarjetaCanalAjeno, TarjetaCanalDeshabilitado } from '../components/flito/soat-cliente/TarjetaCanal';
 import FichaRunt from '../components/flito/soat-cliente/FichaRunt';
+import { BloqueDocumentosAdicionales } from '../components/flito/soat/DocumentosAdicionalesSelector';
+import {
+  TIMEOUT_ALTA_CON_ADICIONALES_MS, adjuntarAdicionales, textoEnviandoAdicionales, textoToastDescartes, validos,
+  type ElegidoAdicional,
+} from '../components/flito/soat/documentosAdicionales';
 import {
   AvisoLectura, BandaSobrescritura, BloqueFactura, BloquePropietario, CAMPOS_NOMBRE, Campo,
   ID_CAMPO, ID_CONFIRMAR, PROPIETARIO_VACIO, Seccion, useFocoPrimerError,
@@ -200,6 +205,8 @@ function Alta() {
   const [vin, setVin] = useState('');
   const [propietario, setPropietario] = useState<Propietario>(PROPIETARIO_VACIO);
   const [archivo, setArchivo] = useState<File | null>(null);
+  // HU #13363: bloque 4. Sobrevive a un error del alta (AC5): ni el `catch` ni el `finally` lo vacían.
+  const [adicionales, setAdicionales] = useState<ElegidoAdicional[]>([]);
 
   const [consulta, setConsulta] = useState<Consulta>({ fase: 'inicial' });
   const [modal, setModal] = useState<FalloCanal | null>(null);
@@ -248,7 +255,7 @@ function Alta() {
    * HU #12996 (AC3/AC8): el alta respondió `202 incompleta`. El VIN que se guardó, para la tarjeta de
    * confirmación que REEMPLAZA al formulario. `null` = el formulario sigue en pantalla.
    */
-  const [guardada, setGuardada] = useState<{ vin: string } | null>(null);
+  const [guardada, setGuardada] = useState<{ vin: string; adicionales?: ResultadoDocumentosAdicionales } | null>(null);
   /** Sube con «Solicitar otro SOAT»: el efecto enfoca el VIN cuando el formulario vuelve a montarse. */
   const [reinicios, setReinicios] = useState(0);
 
@@ -308,7 +315,7 @@ function Alta() {
   useEffect(() => { procedenciaRef.current = procedencia; }, [procedencia]);
 
   // Tras guardar, el registro ya existe: salir no descarta nada y no pide confirmación (UX §2.3).
-  const hayDatos = !guardada && Boolean(vin || archivo || Object.values(propietario).some(Boolean));
+  const hayDatos = !guardada && Boolean(vin || archivo || adicionales.length || Object.values(propietario).some(Boolean));
   /**
    * **La compuerta del RUNT, y solo eso.** Hasta la HU #12079 esto se llamaba `puedeEnviar` y
    * decidía DOS cosas: el aspecto del botón y a dónde va el foco al pulsarlo. Redefinirlo para que
@@ -680,6 +687,7 @@ function Alta() {
       form.append('municipio', propietario.municipio.trim());
       form.append('departamento', propietario.departamento.trim());
       form.append('facturaVenta', archivo!);
+      const conAdicionales = adjuntarAdicionales(form, adicionales) > 0;
       /**
        * De dónde salió cada dato del comprador (AC7), **como cadena JSON dentro del multipart**.
        *
@@ -699,17 +707,23 @@ function Alta() {
       // `nombreCompleto` ya no viaja (lo deriva el servidor) y marca, línea, modelo, clase,
       // cilindraje, carrocería y organismo NO viajan nunca: los resuelve el servidor consultando
       // otra vez. La pantalla no le reenvía lo que él mismo le mostró en la preconsulta.
-      const resp = await api.post<RespuestaAltaSolicitudSoat | undefined>('/flito/soat/cliente', form);
+      // Con adicionales (hasta 250 MB) el corte de 90 s no alcanza: solo ESTA llamada pide más.
+      const resp = conAdicionales
+        ? await api.postConTimeout<RespuestaAltaSolicitudSoat | undefined>('/flito/soat/cliente', form, TIMEOUT_ALTA_CON_ADICIONALES_MS)
+        : await api.post<RespuestaAltaSolicitudSoat | undefined>('/flito/soat/cliente', form);
       // HU #12996: el `202 incompleta` NO es un éxito de envío. Su `id` no es un SOAT (el detalle
       // daría 404), así que no se navega ni se tuesta: la tarjeta de confirmación reemplaza al
       // formulario (AC8). Vale también si la consulta salió OK y el RUNT cayó al enviar (AC3). Una
       // API anterior sin `desenlace` sigue por el flujo de siempre.
       if (resp?.desenlace === 'incompleta') {
-        setGuardada({ vin });
+        setGuardada({ vin, adicionales: resp.documentosAdicionales });
         return;
       }
       // Cerrable (HU #12819): `toast.success` no se podía cerrar.
-      toastOk(TOAST_ENVIADA);
+      // HU #13363 (AC4): con descartes, UN toast que sustituye al de éxito.
+      const descartes = resp?.documentosAdicionales?.descartados ?? [];
+      if (descartes.length) toastOk(textoToastDescartes(descartes), { duracionMs: 10_000 });
+      else toastOk(TOAST_ENVIADA);
       navigate(COLA);
     } catch (e) {
       encajarFallo(leerFallo(e), 'envio');
@@ -761,6 +775,7 @@ function Alta() {
     setVin('');
     setPropietario(PROPIETARIO_VACIO);
     setArchivo(null);
+    setAdicionales([]);
     setConsulta({ fase: 'inicial' });
     setLectura({ fase: 'inicial' });
     setProcedencia({});
@@ -851,7 +866,7 @@ function Alta() {
       </div>
 
       {guardada ? (
-        <TarjetaSolicitudGuardada vin={guardada.vin} onIrACola={() => navigate(COLA, { state: { pastilla: 'incompleta' } })} onSolicitarOtro={solicitarOtro} />
+        <TarjetaSolicitudGuardada vin={guardada.vin} adicionales={guardada.adicionales} onIrACola={() => navigate(COLA, { state: { pastilla: 'incompleta' } })} onSolicitarOtro={solicitarOtro} />
       ) : (
       <>
       {/* ── Bloque 1 · Vehículo ─────────────────────────────────────────────────────────────────
@@ -977,6 +992,9 @@ function Alta() {
         />
       </Seccion>
 
+      {/* ── Bloque 4 · Documentos adicionales (HU #13363): opcional, no suma a lo que falta. */}
+      <BloqueDocumentosAdicionales value={adicionales} onChange={setAdicionales} factura={archivo} />
+
       {/* Barra de envío PEGAJOSA (HU #12819, §12.2): la frase de lo que falta y «Enviar al gestor»
           quedan a la vista durante todo el formulario, que tiene doce campos. En `lg` se levanta
           sobre la barra de módulos flotante del shell, que vive fija al pie. */}
@@ -1001,7 +1019,9 @@ function Alta() {
                   No se guarda como borrador: al enviarla, entra en gestión.
                 </p>
               )}
-              {enviando && <span role="status" className="sr-only">{modoCaido ? 'Guardando…' : 'Enviando…'}</span>}
+              {enviando && (validos(adicionales).length
+                ? <p role="status" className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{textoEnviandoAdicionales(validos(adicionales).length)}</p>
+                : <span role="status" className="sr-only">{modoCaido ? 'Guardando…' : 'Enviando…'}</span>)}
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {/* **Texto plano con `id`, no una región viva.** El botón la referencia con
                     `aria-describedby` mientras está bloqueado, así que el lector anuncia «Enviar al

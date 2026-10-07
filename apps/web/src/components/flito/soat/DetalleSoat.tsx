@@ -27,6 +27,7 @@ import {
   FlitField, flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary,
 } from '../../flit/flitPageKit';
 import ChipEstadoSoat from './ChipEstadoSoat';
+import { DocumentosAdicionalesSeccion } from './DocumentosAdicionalesLista';
 import { ESTADOS_DESTINO_REVERSA, fecha, fechaDia, pesos, type Proveedor, type SoatItem } from './tipos';
 
 type Accion = 'idle' | 'rechazar' | 'reactivar' | 'reversar' | 'proveedor' | 'asumir' | 'devolver';
@@ -175,6 +176,8 @@ export default function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura
             vacio="Este SOAT no tiene ninguna factura cargada todavía."
             onClose={() => setVerSoportes(false)} />
         )}
+        {/* 4b · documentos adicionales (HU #13363): solo con `soat.documentos_adicionales.ver`. */}
+        <DocumentosAdicionalesSeccion soatId={soat.id} />
 
         {/* 5 · datos. Los de la trastienda no se pintan «—» para el Cliente: se omiten, porque el
             backend no se los manda y una fila vacía sugiere un dato que existe y no cargó. Las
