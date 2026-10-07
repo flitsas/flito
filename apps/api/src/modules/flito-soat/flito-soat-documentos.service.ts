@@ -29,7 +29,6 @@
 //        fila (ya no se lista ni se descarga), después el objeto, con 3 intentos. Si el objeto no se
 //        borra queda registrado (`soat.adicional.objeto_huerfano` + Bitácora), nunca un 5xx.
 
-import { createHash } from 'crypto';
 import { readFile } from 'fs/promises';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import {
@@ -37,14 +36,16 @@ import {
   type DocumentoAdicionalSoat, type ResultadoDocumentosAdicionales,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import { clients, flitoSoportes } from '../../db/schema.js';
+import { clients, flitoSoportes, flitoStorageBorradosPendientes } from '../../db/schema.js';
 import {
   deleteEntityDocument, firmarDescargaEntidad, removeEntityDocument, uploadEntityDocument,
 } from '../../services/storage.js';
+import { esObjetoInexistente, huellaClave, nombreDeError } from '../../services/storage-errores.js';
 import { loggerFor } from '../../shared/logger.js';
 import { carpetaDe } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { detectMime } from '../pesv/magic-number.js';
 import { buscarConAcceso, type SoatCtx } from './flito-soat.service.js';
+import { cerrarPendienteTrasBorrado, type ResultadoBorradoObjeto } from './flito-soat-borrados-pendientes.service.js';
 import { TAMANO_MAX_ARCHIVO, type ArchivoAdicionalRecibido } from './flito-soat-documentos.upload.js';
 
 const MB = 1024 * 1024;
@@ -408,23 +409,35 @@ export async function cargarDocumentosAdicionales(
 /** Esperas antes de cada intento de borrado del objeto (D6): 3 intentos. */
 export const ESPERAS_BORRADO_MS: readonly number[] = [0, 200, 800];
 
+/** `origen` del borrado pendiente de un documento adicional (HU #13410). */
+export const ORIGEN_ADICIONAL_SOAT = 'soat.documento_adicional';
+
 /**
- * Borra el objeto con reintentos. `false` si los 3 fallan: queda `soat.adicional.objeto_huerfano`
- * en el log con el `soporteId` y un hash corto de la clave (`claveHash`). La clave NO va al log: lleva
- * la carpeta de la compañía (suele ser el NIT) y puede llevar el nombre del archivo (PII, AGENTS.md §14).
- * Nunca lanza.
+ * Borra el objeto con reintentos y devuelve QUÉ pasó (HU #13410): `borrado` si el almacenamiento lo
+ * confirmó o respondió que no existía (`motivo` lo distingue); si los 3 intentos fallan queda
+ * `soat.adicional.objeto_huerfano` en el log con el `soporteId` y la huella de la clave (`claveHash`),
+ * y `error` lleva el código/nombre del último fallo. La clave NO va al log: lleva la carpeta de la
+ * compañía (suele ser el NIT) y puede llevar el nombre del archivo (PII, AGENTS.md §14). Nunca lanza.
  */
 export async function borrarObjetoConReintento(
   soporteId: string, storageKey: string, esperas: readonly number[] = ESPERAS_BORRADO_MS,
-): Promise<boolean> {
+): Promise<ResultadoBorradoObjeto> {
+  let intentos = 0;
+  let error: string | null = null;
   for (const ms of esperas) {
     if (ms > 0) await new Promise((r) => setTimeout(r, ms));
-    try { await removeEntityDocument(storageKey); return true; } catch { /* siguiente intento */ }
+    intentos += 1;
+    try {
+      await removeEntityDocument(storageKey);
+      return { borrado: true, motivo: 'borrado', intentos, error: null };
+    } catch (e) {
+      if (esObjetoInexistente(e)) return { borrado: true, motivo: 'inexistente', intentos, error: null };
+      error = nombreDeError(e);
+    }
   }
-  const claveHash = createHash('sha256').update(storageKey).digest('hex').slice(0, 16);
-  log.error({ evento: 'soat.adicional.objeto_huerfano', soporteId, claveHash },
+  log.error({ evento: 'soat.adicional.objeto_huerfano', soporteId, claveHash: huellaClave(storageKey) },
     'No se pudo borrar de storage el objeto de un documento adicional eliminado');
-  return false;
+  return { borrado: false, motivo: null, intentos, error };
 }
 
 export interface AdicionalEliminado {
@@ -437,29 +450,43 @@ export interface AdicionalEliminado {
  * AC5–AC8 (#13364) — borrado DEFINITIVO de un adicional de la solicitud. Sin acceso → 404; la fila
  * debe ser de ESA solicitud y de tipo adicional (la factura u otra solicitud → 404). No filtra por
  * autor (AC6) ni por estado. Primero la fila, después el objeto (D6).
+ *
+ * HU #13410 AC1/AC2 — la fila se borra y el BORRADO PENDIENTE del objeto se registra en la MISMA
+ * transacción: si el proceso muere antes de borrar el objeto, el pendiente sigue y el cron horario lo
+ * termina. Tras el intento inmediato se cierra (o se anota el fallo) sin cambiar la respuesta.
  */
 export async function eliminarDocumentoAdicional(
   id: string, soporteId: string, ctx: SoatCtx, esperas: readonly number[] = ESPERAS_BORRADO_MS,
 ): Promise<AdicionalEliminado> {
   const soat = await buscarConAcceso(id, ctx);
   if (!soat) throw new DocumentoAdicionalError(NO_ENCONTRADA, 404);
-  const [fila] = await db.delete(flitoSoportes).where(and(
-    eq(flitoSoportes.id, soporteId),
-    eq(flitoSoportes.soatId, soat.id),
-    eq(flitoSoportes.tipo, TipoSoporte.DOCUMENTO_ADICIONAL_SOAT),
-    eq(flitoSoportes.descartado, false),
-  )).returning({
-    id: flitoSoportes.id, storageKey: flitoSoportes.storageKey,
-    etiqueta: flitoSoportes.etiqueta, nombreArchivo: flitoSoportes.nombreArchivo,
+  const borrada = await db.transaction(async (tx) => {
+    const [fila] = await tx.delete(flitoSoportes).where(and(
+      eq(flitoSoportes.id, soporteId),
+      eq(flitoSoportes.soatId, soat.id),
+      eq(flitoSoportes.tipo, TipoSoporte.DOCUMENTO_ADICIONAL_SOAT),
+      eq(flitoSoportes.descartado, false),
+    )).returning({
+      id: flitoSoportes.id, storageKey: flitoSoportes.storageKey,
+      etiqueta: flitoSoportes.etiqueta, nombreArchivo: flitoSoportes.nombreArchivo,
+    });
+    // Sin fila no hay nada que borrar: ni pendiente ni objeto (404 fuera de la transacción).
+    if (!fila) return null;
+    const [pendiente] = await tx.insert(flitoStorageBorradosPendientes).values({
+      storageKey: fila.storageKey, claveHash: huellaClave(fila.storageKey), origen: ORIGEN_ADICIONAL_SOAT,
+    }).returning({ id: flitoStorageBorradosPendientes.id });
+    return { fila, pendienteId: pendiente?.id ?? null };
   });
-  if (!fila) throw new DocumentoAdicionalError(MENSAJE_DOCUMENTO_NO_ENCONTRADO, 404);
-  const borrado = await borrarObjetoConReintento(fila.id, fila.storageKey, esperas);
+  if (!borrada) throw new DocumentoAdicionalError(MENSAJE_DOCUMENTO_NO_ENCONTRADO, 404);
+  const { fila } = borrada;
+  const resultado = await borrarObjetoConReintento(fila.id, fila.storageKey, esperas);
+  await cerrarPendienteTrasBorrado(borrada.pendienteId, resultado);
   const { nombreArchivo } = fila;
   const etiqueta = fila.etiqueta ?? '';
   return {
     id: fila.id, etiqueta, nombreArchivo,
     // La fila no guarda si la etiqueta salió del nombre: se reconstruye (D7).
     etiquetaDeNombre: etiqueta === nombreArchivo.slice(0, LARGO_ETIQUETA),
-    objetoPendiente: !borrado,
+    objetoPendiente: !resultado.borrado,
   };
 }

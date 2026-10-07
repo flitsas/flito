@@ -37,6 +37,9 @@ import {
 import {
   startSoatRetencionCron, stopSoatRetencionCron,
 } from './modules/flito-soat/flito-soat-retencion.cron.js';
+import {
+  startSoatBorradosPendientesCron, stopSoatBorradosPendientesCron,
+} from './modules/flito-soat/flito-soat-borrados-pendientes.cron.js';
 import { verificarCatalogoAlArrancar } from './modules/permisos/permisos.service.js';
 import { closeRedis } from './shared/redis.js';
 import { loggerFor } from './shared/logger.js';
@@ -121,6 +124,10 @@ const server = app.listen(env.PORT, () => {
     // solicitudes por validar descartadas hace 30 días o más (03:00 de Colombia). Noop si
     // SOAT_RETENCION_CRON_ENABLED!=1. Candado `flito-soat-retencion`.
     startSoatRetencionCron();
+    // FLITO SOAT: borrados pendientes del almacenamiento (HU #13410) — reintenta cada hora el borrado
+    // de los objetos de adicionales eliminados. Noop si SOAT_BORRADOS_PENDIENTES_CRON_ENABLED!=1.
+    // Candado `flito-storage-borrados-pendientes`.
+    startSoatBorradosPendientesCron();
   }
 });
 
@@ -164,6 +171,7 @@ function shutdown(signal: string) {
   stopComparendosPurgaCron();
   stopSoatVigenciaCron();
   stopSoatRetencionCron();
+  stopSoatBorradosPendientesCron();
 
   const forceExitTimer = setTimeout(() => {
     log.error('grace expirado — forzando salida');
