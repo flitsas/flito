@@ -29,6 +29,7 @@
 //        fila (ya no se lista ni se descarga), después el objeto, con 3 intentos. Si el objeto no se
 //        borra queda registrado (`soat.adicional.objeto_huerfano` + Bitácora), nunca un 5xx.
 
+import { createHash } from 'crypto';
 import { readFile } from 'fs/promises';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import {
@@ -409,7 +410,9 @@ export const ESPERAS_BORRADO_MS: readonly number[] = [0, 200, 800];
 
 /**
  * Borra el objeto con reintentos. `false` si los 3 fallan: queda `soat.adicional.objeto_huerfano`
- * en el log, solo con la clave opaca (sin nombre ni PII). Nunca lanza.
+ * en el log con el `soporteId` y un hash corto de la clave (`claveHash`). La clave NO va al log: lleva
+ * la carpeta de la compañía (suele ser el NIT) y puede llevar el nombre del archivo (PII, AGENTS.md §14).
+ * Nunca lanza.
  */
 export async function borrarObjetoConReintento(
   soporteId: string, storageKey: string, esperas: readonly number[] = ESPERAS_BORRADO_MS,
@@ -418,7 +421,8 @@ export async function borrarObjetoConReintento(
     if (ms > 0) await new Promise((r) => setTimeout(r, ms));
     try { await removeEntityDocument(storageKey); return true; } catch { /* siguiente intento */ }
   }
-  log.error({ evento: 'soat.adicional.objeto_huerfano', soporteId, storageKey },
+  const claveHash = createHash('sha256').update(storageKey).digest('hex').slice(0, 16);
+  log.error({ evento: 'soat.adicional.objeto_huerfano', soporteId, claveHash },
     'No se pudo borrar de storage el objeto de un documento adicional eliminado');
   return false;
 }

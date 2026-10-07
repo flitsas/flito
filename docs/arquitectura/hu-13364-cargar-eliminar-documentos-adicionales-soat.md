@@ -117,7 +117,8 @@ Por qué este orden:
 - **Storage primero** dejaría, si el DELETE falla, una fila visible apuntando a un objeto inexistente (enlace roto en la UI,
   AC5 incumplido de cara a la persona).
 - **BD primero**: si storage falla, queda un objeto **inalcanzable** desde la app (sin fila no se lista, no se firma URL, no
-  se descarga), clave opaca sin PII en el nombre. Es el mal menor y es recuperable.
+  se descarga). La clave **no** es opaca (lleva la carpeta de la compañía y puede llevar el nombre del archivo), así que no
+  va a los logs. Es el mal menor y es recuperable.
 
 Tratamiento del fallo de storage:
 - `deleteEntityDocument` **traga** el error (`log.warn`) y no avisa a quien llama. Se añade en `apps/api/src/services/storage.ts`
@@ -125,7 +126,8 @@ Tratamiento del fallo de storage:
   para los demás usos).
 - `borrarObjetoConReintento` (en el servicio de documentos): 3 intentos con espera corta (p. ej. 0 / 200 / 800 ms). `removeObject`
   de MinIO es idempotente sobre una clave ya inexistente. Si los 3 fallan: `logger.error({ evento: 'soat.adicional.objeto_huerfano',
-  soporteId, storageKey }, …)` — la clave es opaca, sin nombre ni PII — y la respuesta **sigue siendo 204** (el documento ya
+  soporteId, claveHash }, …)` — `claveHash` = sha256 de la clave, 16 hex; la clave no se registra porque puede llevar NIT y
+  nombre de archivo (security-agent, 2026-10-07) — y la respuesta **sigue siendo 204** (el documento ya
   no existe para el producto). La Bitácora lo deja dicho (`…, objeto pendiente de borrar`), para que la recuperación manual
   tenga rastro sin depender del log.
 - No se crea tabla de pendientes ni cron (sería contrato nuevo y no lo pide el AC). Si negocio quiere garantía dura de borrado
@@ -217,7 +219,7 @@ Extiende rutas, tabla y motor existentes de la #13362; sin dependencia ni contra
 - Mínimo P1 + `NODE_OPTIONS=--max-old-space-size=8192 npm run build:api`. shared-types no cambia.
 
 **security-agent**: limitador antes de multer; función antes del limitador; temporales con `finally`; respuesta del POST sin
-URL ni clave de storage; log del huérfano solo con la clave opaca.
+URL ni clave de storage; log del huérfano solo con `soporteId` y `claveHash`, nunca la clave.
 
 **frontend-agent**: fuera de esta HU (botones de cargar/eliminar en el detalle van en la HU hermana). Contrato estable arriba.
 

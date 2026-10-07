@@ -17,6 +17,7 @@ import 'express-async-errors';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
+import { createHash } from 'node:crypto';
 import { SignJWT } from 'jose';
 import type { SQL } from 'drizzle-orm';
 import { createKeyedDb } from '../helpers/keyed-db.js';
@@ -133,17 +134,23 @@ describe('TC-37 AC5 — borrado físico de un adicional de una solicitud pagada'
 });
 
 describe('TC-39 AC5 — storage falla: 3 intentos, rastro y 204', () => {
-  it('evento objeto_huerfano con la clave opaca; Bitácora con «objeto pendiente de borrar»', async () => {
+  it('evento objeto_huerfano SIN la clave ni el nombre (hash corto); Bitácora con «objeto pendiente de borrar» sin la clave', async () => {
     removeMock.mockRejectedValue(new Error('minio caído'));
     const r = await borrar(await auth([ELIMINAR]));
     expect(r.status).toBe(204);
     expect(removeMock).toHaveBeenCalledTimes(3);
     expect(removeMock.mock.calls.every((c) => c[0] === KEY)).toBe(true);
     const huerfano = logMock.error.mock.calls.find((c) => (c[0] as { evento?: string })?.evento === 'soat.adicional.objeto_huerfano');
-    expect(huerfano?.[0]).toEqual({ evento: 'soat.adicional.objeto_huerfano', soporteId: SOP, storageKey: KEY });
-    expect(JSON.stringify(huerfano)).not.toContain('cedula-de-juan');
+    const claveHash = createHash('sha256').update(KEY).digest('hex').slice(0, 16);
+    expect(huerfano?.[0]).toEqual({ evento: 'soat.adicional.objeto_huerfano', soporteId: SOP, claveHash });
+    const payload = JSON.stringify(huerfano);
+    expect(payload).not.toContain(KEY);
+    expect(payload).not.toContain('clientes/acme');
+    expect(payload).not.toContain('k1.pdf');
+    expect(payload).not.toContain('cedula-de-juan');
     expect(auditMock).toHaveBeenCalledTimes(1);
     expect(auditMock.mock.calls[0][1].detail).toBe(`Documento adicional eliminado (soporte=${SOP}, etiqueta=Cédula, objeto pendiente de borrar)`);
+    expect(JSON.stringify(auditMock.mock.calls[0][1])).not.toContain(KEY);
   }, 10_000);
 
   it('al segundo intento basta: sin evento de huérfano', async () => {
