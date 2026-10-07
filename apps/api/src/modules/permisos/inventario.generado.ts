@@ -41,6 +41,8 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "soat", fichero: "flito-soat/flito-soat-incompletas.routes.ts", metodo: "POST", ruta: "/cliente/incompletas/:id/reintentar", roles: ["admin"], heredada: false },
   // HU #13362 (0222): documentos adicionales de una solicitud — operación FLIT y proveedor SOAT; el cliente NO.
   { modulo: "soat", fichero: "flito-soat/flito-soat-documentos.routes.ts", metodo: "GET", ruta: "/:id/documentos-adicionales", roles: ["admin","proveedor"], heredada: false },
+  { modulo: "soat", fichero: "flito-soat/flito-soat-documentos.routes.ts", metodo: "POST", ruta: "/:id/documentos-adicionales", roles: ["admin","proveedor"], heredada: false },
+  { modulo: "soat", fichero: "flito-soat/flito-soat-documentos.routes.ts", metodo: "DELETE", ruta: "/:id/documentos-adicionales/:soporteId", roles: ["admin","proveedor"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "GET", ruta: "/:id/factura-venta", roles: ["admin","gestor_impuestos"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "POST", ruta: "/soportes/zip", roles: ["admin","gestor_impuestos"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor","gestor_impuestos"], heredada: false },

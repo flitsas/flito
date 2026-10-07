@@ -20,6 +20,7 @@ import { renderizar } from '../helpers/sql-ligado.js';
 vi.mock('../../src/db/client.js', () => ({ db: {}, getPoolStats: vi.fn() }));
 vi.mock('../../src/services/storage.js', () => ({
   uploadEntityDocument: vi.fn(), deleteEntityDocument: vi.fn(), firmarDescargaEntidad: vi.fn(),
+  removeEntityDocument: vi.fn(),
 }));
 
 const {
@@ -207,5 +208,49 @@ describe('D3-bis §3 — completar vincula SOLO los adicionales de esa incomplet
     expect(q.sql).toMatch(/"flito_soportes"\."soat_incompleta_id" = \$1/);
     expect(q.sql).toMatch(/"flito_soportes"\."tipo" = \$2/);
     expect(q.params).toEqual(['inc-1', 'documento_adicional_soat']);
+  });
+});
+
+// ── HU #13364 — carga posterior: repetido contra lo YA guardado (AC2, TC-30/TC-31) ─────────────────
+
+describe('HU #13364 TC-31 — repetido contra las huellas previas de la solicitud', () => {
+  it('el idéntico a una huella previa (adicional guardado o factura) es «documento repetido»; el resto entra', async () => {
+    const guardado = recibido(BYTES.pdf, { originalname: 'ya-guardado.pdf' });
+    const factura = recibido(BYTES.png, { originalname: 'igual-a-la-factura.png' });
+    const nuevo = recibido(BYTES.jpg, { originalname: 'nuevo.jpg' });
+    const r = await clasificarAdicionales([guardado, factura, nuevo], [], [guardado.sha256, factura.sha256]);
+    expect(r.aceptados.map((a) => a.nombreArchivo)).toEqual(['nuevo.jpg']);
+    expect(r.descartados).toEqual([
+      { nombreArchivo: 'ya-guardado.pdf', codigo: 'documento_repetido', motivo: 'documento repetido' },
+      { nombreArchivo: 'igual-a-la-factura.png', codigo: 'documento_repetido', motivo: 'documento repetido' },
+    ]);
+  });
+
+  it('el alta sigue pasando UN string (la factura) y lo trata igual que una lista de uno', async () => {
+    const a = recibido(BYTES.pdf);
+    const comoString = await clasificarAdicionales([a], [], a.sha256);
+    const comoLista = await clasificarAdicionales([a], [], [a.sha256]);
+    expect(comoString.descartados.map((d) => d.codigo)).toEqual(['documento_repetido']);
+    expect(comoLista).toEqual(comoString);
+  });
+
+  it('TC-30: los cupos son POR ENVÍO — con 20 huellas previas, 20 nuevos distintos entran todos', async () => {
+    const previos = Array.from({ length: 20 }, (_, i) => `previo-${i}`);
+    const nuevos = Array.from({ length: 20 }, () => recibido(BYTES.png));
+    const r = await clasificarAdicionales(nuevos, [], previos, UMBRALES_ADICIONALES);
+    expect(r.aceptados).toHaveLength(20);
+    expect(r.descartados).toEqual([]);
+  });
+});
+
+describe('HU #13364 AC9 — Bitácora del borrado', () => {
+  it('«eliminado» con la etiqueta; el nombre largo truncado si la etiqueta salió del nombre; rastro del objeto pendiente', () => {
+    const conEtiqueta = { id: 's-1', etiqueta: 'Cédula', etiquetaDeNombre: false, nombreArchivo: 'cedula-de-juan-perez-completa.pdf' };
+    expect(detalleBitacoraAdicional(conEtiqueta, 'eliminado')).toBe('Documento adicional eliminado (soporte=s-1, etiqueta=Cédula)');
+    const largo = 'x'.repeat(60) + '.pdf';
+    const deNombre = { id: 's-2', etiqueta: largo, etiquetaDeNombre: true, nombreArchivo: largo };
+    expect(detalleBitacoraAdicional(deNombre, 'eliminado', true))
+      .toBe(`Documento adicional eliminado (soporte=s-2, nombre=${'x'.repeat(40)}…, objeto pendiente de borrar)`);
+    expect(detalleBitacoraAdicional(conEtiqueta)).toBe('Documento adicional cargado (soporte=s-1, etiqueta=Cédula)');
   });
 });

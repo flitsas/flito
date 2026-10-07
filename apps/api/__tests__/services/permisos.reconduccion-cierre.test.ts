@@ -161,10 +161,10 @@ describe('AC1/AC2 — cada router.<método>( de los 24 ficheros lleva exigirFunc
 });
 
 describe('el lector de montajes cubre la foto entera', () => {
-  it('270 montajes = 238 previos + 2 de la #12089 (baja/reactivar) + 4 de la #12541 (servicios adicionales) + 3 por la HU #12545 (servicios por trámite) + 1 por la HU #12591 (recibo de caja) + 5 por la HU #12611 (comprobantes) + 3 por la HU #12619 (viajes de logística) + 3 por la HU #12629 (comprobantes F2) + 1 por la HU #12654 (comprobantes F3: aceptar diferencia) + 2 por el Bug #12642 (export ampliado, en línea) + 1 por la HU #12833 (corregir dirección) + 2 por la HU #12997 (incompletas SOAT: buscar y ver) + 1 por la HU #12998 (reintentar la consulta RUNT) + 2 por la HU #13061 (acceso a FLIT 2: ver y guardar) + 1 por la HU #13237 (interruptor por fuente) + 1 por la HU #13362 (documentos adicionales del SOAT); los códigos son exactamente los de la foto', () => {
+  it('272 montajes = 238 previos + 2 de la #12089 (baja/reactivar) + 4 de la #12541 (servicios adicionales) + 3 por la HU #12545 (servicios por trámite) + 1 por la HU #12591 (recibo de caja) + 5 por la HU #12611 (comprobantes) + 3 por la HU #12619 (viajes de logística) + 3 por la HU #12629 (comprobantes F2) + 1 por la HU #12654 (comprobantes F3: aceptar diferencia) + 2 por el Bug #12642 (export ampliado, en línea) + 1 por la HU #12833 (corregir dirección) + 2 por la HU #12997 (incompletas SOAT: buscar y ver) + 1 por la HU #12998 (reintentar la consulta RUNT) + 2 por la HU #13061 (acceso a FLIT 2: ver y guardar) + 1 por la HU #13237 (interruptor por fuente) + 1 por la HU #13362 (documentos adicionales del SOAT) + 2 por la HU #13364 (cargar y eliminar documentos adicionales); los códigos son exactamente los de la foto', () => {
     const montajes = montajesDeFunciones();
-    expect(GUARDAS_MEDIDAS).toHaveLength(270);
-    expect(montajes).toHaveLength(270);
+    expect(GUARDAS_MEDIDAS).toHaveLength(272);
+    expect(montajes).toHaveLength(272);
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     expect(montajes.filter((m) => m.metodo === null)).toHaveLength(4);

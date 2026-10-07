@@ -474,6 +474,28 @@ describe('storage — deleteFleetDocument / deleteEntityDocument (errores silenc
     const { deleteEntityDocument } = await import('../../src/services/storage.js');
     await expect(deleteEntityDocument('x/1/y')).resolves.toBeUndefined();
   });
+
+  it('deleteEntityDocument delega en removeObject con bucket + clave exacta (HU #13364)', async () => {
+    const { deleteEntityDocument } = await import('../../src/services/storage.js');
+    await deleteEntityDocument('soat/documentos-adicionales/abc/k.pdf');
+    expect(removeObjectMock).toHaveBeenCalledTimes(1);
+    expect(removeObjectMock.mock.calls[0][1]).toBe('soat/documentos-adicionales/abc/k.pdf');
+  });
+});
+
+describe('storage — removeEntityDocument (HU #13364: el borrado que SÍ avisa)', () => {
+  it('llama removeObject con la clave exacta y resuelve', async () => {
+    const { removeEntityDocument } = await import('../../src/services/storage.js');
+    await expect(removeEntityDocument('soat/documentos-adicionales/abc/k.pdf')).resolves.toBeUndefined();
+    expect(removeObjectMock).toHaveBeenCalledTimes(1);
+    expect(removeObjectMock.mock.calls[0][1]).toBe('soat/documentos-adicionales/abc/k.pdf');
+  });
+
+  it('si removeObject falla, el error SE PROPAGA (a diferencia de deleteEntityDocument)', async () => {
+    removeObjectMock.mockRejectedValueOnce(new Error('minio caído'));
+    const { removeEntityDocument } = await import('../../src/services/storage.js');
+    await expect(removeEntityDocument('x/1/y')).rejects.toThrow('minio caído');
+  });
 });
 
 describe('storage — Client singleton (lazy)', () => {
