@@ -216,6 +216,8 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     'soat.soportes.descargar',
     // HU #13363: sección «Documentos adicionales» del detalle (0222: admin y proveedor, no cliente).
     'soat.documentos_adicionales.ver',
+    // HU #13365: cargar y eliminar adicionales desde el detalle (0223: admin y proveedor, no cliente).
+    'soat.documentos_adicionales.cargar', 'soat.documentos_adicionales.eliminar',
     'impuestos.cola.ver', 'impuestos.recibos.cargar', 'impuestos.tramite.enviar',
     // HU #12832: «Reintentar validación» cuelga de certificar (0179: admin y gestor_impuestos).
     'impuestos.tramite.certificar',
@@ -252,7 +254,11 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     'logistica.viajes.registrar',
     'logistica.viajes.quitar',
   ],
-  proveedor: [...SOAT_LEER, 'soat.comprobante.cargar', 'soat.soportes.descargar', 'soat.documentos_adicionales.ver'],
+  proveedor: [
+    ...SOAT_LEER, 'soat.comprobante.cargar', 'soat.soportes.descargar', 'soat.documentos_adicionales.ver',
+    // HU #13365 (0223): cargar y eliminar adicionales desde el detalle.
+    'soat.documentos_adicionales.cargar', 'soat.documentos_adicionales.eliminar',
+  ],
   cliente: [...SOAT_LEER, 'soat.solicitud.crear', 'soat.runt.preconsultar', 'soat.factura.leer'],
   gestor_impuestos: [
     'impuestos.cola.ver', 'impuestos.recibos.cargar', 'impuestos.tramite.certificar',
