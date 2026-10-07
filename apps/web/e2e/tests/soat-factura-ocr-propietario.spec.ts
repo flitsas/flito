@@ -166,7 +166,8 @@ const CLAVES_NATURAL = [
 ];
 
 async function adjuntar(page: Page, nombre = 'factura.pdf') {
-  await page.locator('input[type="file"]').setInputFiles({
+  // HU #13363: el bloque 4 suma otro input de archivo; la factura se busca en su bloque.
+  await page.getByRole('region', { name: '2 · Factura de venta' }).locator('input[type="file"]').setInputFiles({
     name: nombre, mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 e2e'),
   });
 }

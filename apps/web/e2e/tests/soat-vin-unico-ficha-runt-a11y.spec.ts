@@ -61,7 +61,8 @@ async function montarAlta(
 }
 
 async function adjuntar(page: Page) {
-  await page.locator('input[type="file"]').setInputFiles({
+  // HU #13363: el bloque 4 suma otro input de archivo; la factura se busca en su bloque.
+  await page.getByRole('region', { name: '2 · Factura de venta' }).locator('input[type="file"]').setInputFiles({
     name: 'factura.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 e2e'),
   });
 }
