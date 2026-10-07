@@ -845,6 +845,11 @@ export interface PropietarioSolicitudIncompleta {
 export interface SolicitudIncompletaDetalle extends SolicitudIncompletaFila {
   propietario: PropietarioSolicitudIncompleta | null;
   factura: { nombreArchivo: string; contentType: string; tamanoBytes: number };
+  /**
+   * HU #13409: ISO de cuándo la retención (30 días tras el descarte) borró la factura y los
+   * documentos adicionales del almacenamiento. `null` = no purgada.
+   */
+  archivosPurgadosEn: string | null;
 }
 
 /** Respuesta de `POST /api/flito/soat/cliente/incompletas/buscar`. `conteos` alimenta las pastillas. */

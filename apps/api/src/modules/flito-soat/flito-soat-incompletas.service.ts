@@ -350,13 +350,14 @@ export async function detalleIncompleta(id: string, ctx: SoatCtx): Promise<Solic
     facturaNombreArchivo: flitoSoatIncompletas.facturaNombreArchivo,
     facturaContentType: flitoSoatIncompletas.facturaContentType,
     facturaTamanoBytes: flitoSoatIncompletas.facturaTamanoBytes,
+    archivosPurgadosEn: flitoSoatIncompletas.archivosPurgadosEn,
   })
     .from(flitoSoatIncompletas)
     .leftJoin(clients, eq(clients.id, flitoSoatIncompletas.companiaId))
     .leftJoin(flitoCompradores, and(
       eq(flitoCompradores.soatIncompletaId, flitoSoatIncompletas.id), eq(flitoCompradores.orden, 0)))
     .where(and(eq(flitoSoatIncompletas.id, id), alcance))
-    .limit(1) as (FilaCruda & { facturaNombreArchivo: string; facturaContentType: string; facturaTamanoBytes: number })[];
+    .limit(1) as (FilaCruda & { facturaNombreArchivo: string; facturaContentType: string; facturaTamanoBytes: number; archivosPurgadosEn: Date | string | null })[];
   if (!fila) return null;
 
   const [p] = await db.select({
@@ -390,5 +391,7 @@ export async function detalleIncompleta(id: string, ctx: SoatCtx): Promise<Solic
       contentType: fila.facturaContentType,
       tamanoBytes: fila.facturaTamanoBytes,
     },
+    // HU #13409 (AC8): la retención ya borró los archivos; null si no.
+    archivosPurgadosEn: fila.archivosPurgadosEn ? iso(fila.archivosPurgadosEn) : null,
   };
 }

@@ -262,6 +262,10 @@ const envSchema = z.object({
   // acabará consultando una fuente externa por cada vehículo con comprobante cargado (HU #12096), y
   // un contenedor mal configurado no debe ser suficiente para desatarla.
   SOAT_VIGENCIA_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
+  // HU #13409 — purga por retención de los archivos de las solicitudes de SOAT por validar
+  // DESCARTADAS (30 días tras el descarte, Ley 1581). Puerta POSITIVA como las de arriba: un job que
+  // BORRA no se enciende por desplegarse; sin el '1' explícito no arranca y lo dice en el log.
+  SOAT_RETENCION_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
   // HU #12096 — cuántos vehículos se consultan al RUNT A LA VEZ dentro de la corrida de vigencia.
   //
   // **Default 2 y no 5, al revés que COMPARENDOS_SYNC_CONCURRENCIA de arriba**, y la diferencia no

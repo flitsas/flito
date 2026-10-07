@@ -47,11 +47,18 @@ export const flitoSoatIncompletas = pgTable('flito_soat_incompletas', {
   resueltaPorNombre: varchar('resuelta_por_nombre', { length: 150 }),
   resueltaEn: timestamp('resuelta_en', { withTimezone: true }),
   motivoDescarte: varchar('motivo_descarte', { length: 40 }),
+  /**
+   * HU #13409 (0224): cuándo la retención borró del almacenamiento la factura y los adicionales de la
+   * descartada (30 días tras `resuelta_en`). NULL = pendiente. `factura_storage_key` se conserva.
+   */
+  archivosPurgadosEn: timestamp('archivos_purgados_en', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   vinAbiertaUq: uniqueIndex('uq_flito_soat_incompletas_vin_abierta').on(t.vin)
     .where(sql`${t.estado} = 'incompleta'`),
   companiaEstadoIdx: index('idx_flito_soat_incompletas_compania_estado').on(t.companiaId, t.estado),
+  retencionPendienteIdx: index('idx_flito_soat_incompletas_retencion_pendiente').on(t.resueltaEn)
+    .where(sql`${t.estado} = 'descartada' AND ${t.archivosPurgadosEn} IS NULL`),
   estadoChk: check('flito_soat_incompletas_estado_chk',
     sql`${t.estado} IN ('incompleta', 'completada', 'descartada')`),
   motivoChk: check('flito_soat_incompletas_motivo_chk',
