@@ -28,7 +28,7 @@ function ToastFlito({ t, texto, error, onReintentar }: {
   return (
     <div role={error ? 'alert' : 'status'} className="flex max-w-sm items-start gap-3 rounded-lg border p-3 text-sm"
       style={{ background: 'var(--flit-bg-card)', color: 'var(--flit-text-primary)', borderColor: 'var(--flit-border-soft)' }}>
-      <p className="flex-1 self-center">{texto}</p>
+      <p className="flex-1 self-center whitespace-pre-line">{texto}</p>
       <div className="flex shrink-0 items-center gap-1">
         {onReintentar && (
           <button type="button"
