@@ -254,6 +254,23 @@ export const soatClienteLimiter = rateLimit({
 });
 
 /**
+ * HU #13364 (AC10) — carga posterior de documentos adicionales (`POST /api/flito/soat/:id/documentos-adicionales`).
+ * 30 envíos / 15 min por usuario + IP. Presupuesto PROPIO: otro público (operación y proveedor) y
+ * otra ruta que el canal Cliente. Va DESPUÉS de `exigirFuncion` y ANTES de multer: quien no tiene la
+ * función no gasta presupuesto, y quien lo agotó no escribe nada a disco.
+ */
+export const soatDocumentosAdicionalesLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('soat-doc-adic:'),
+  handler: frenoConRastro('soat-doc-adic'),
+  message: { error: 'Demasiadas cargas de documentos adicionales. Espera unos minutos e intenta de nuevo.' },
+  store: makeStore('rl:soat-doc-adic:'),
+});
+
+/**
  * Sub-límite SOLO de `POST /cliente/preconsulta`: 15 / 15 min / usuario (HU #12090, bloqueante 3;
  * el techo sube de 8 a 15 en la HU #12214).
  *

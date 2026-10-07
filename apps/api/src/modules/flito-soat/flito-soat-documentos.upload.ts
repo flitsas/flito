@@ -175,26 +175,46 @@ const motor: multer.StorageEngine = {
  * es `verificarPdfReal`, por bytes). Los adicionales pasan todos: el filtro de verdad es
  * `detectMime` en `clasificarAdicionales`, que descarta sin tumbar el alta.
  */
-const multerAlta = multer({
-  storage: motor,
-  limits: { fileSize: 251 * MB, files: 1 + MAX_TECNICO_ADICIONALES, fields: 200 },
-  fileFilter: (_req, file, cb) => {
-    if (file.fieldname === CAMPO_ADICIONALES) { cb(null, true); return; }
-    if (file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf')) cb(null, true);
-    else cb(new Error(`Tipo de archivo no permitido: ${file.mimetype}`));
-  },
-}).fields([
+const filtroArchivos: multer.Options['fileFilter'] = (_req, file, cb) => {
+  if (file.fieldname === CAMPO_ADICIONALES) { cb(null, true); return; }
+  if (file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf')) cb(null, true);
+  else cb(new Error(`Tipo de archivo no permitido: ${file.mimetype}`));
+};
+
+/**
+ * HU #13364 (D2) — la misma pieza para el alta y para la carga posterior: mismo motor, mismo filtro,
+ * mismo techo técnico. Solo cambian los campos admitidos.
+ */
+function crearUpload(campos: multer.Field[]) {
+  const archivos = campos.reduce((n, c) => n + (c.maxCount ?? 1), 0);
+  return multer({
+    storage: motor,
+    limits: { fileSize: 251 * MB, files: archivos, fields: 200 },
+    fileFilter: filtroArchivos,
+  }).fields(campos);
+}
+
+const multerAlta = crearUpload([
   { name: CAMPO_FACTURA, maxCount: 1 },
   { name: CAMPO_ADICIONALES, maxCount: MAX_TECNICO_ADICIONALES },
 ]);
 
+/** Carga posterior (HU #13364): SOLO adicionales, hasta el techo técnico. */
+const multerAdicionales = crearUpload([{ name: CAMPO_ADICIONALES, maxCount: MAX_TECNICO_ADICIONALES }]);
+
 export const MENSAJE_DEMASIADOS_ARCHIVOS =
   `Se enviaron demasiados archivos (máximo técnico ${MAX_TECNICO_ADICIONALES} documentos adicionales por envío)`;
+export const MENSAJE_CAMPO_NO_PERMITIDO = 'Campo de archivo no permitido';
 
 /** El exceso del techo técnico: por cantidad total o por el `maxCount` del campo de adicionales. */
 function esExcesoDeArchivos(e: unknown): boolean {
   if (!(e instanceof multer.MulterError)) return false;
   return e.code === 'LIMIT_FILE_COUNT' || (e.code === 'LIMIT_UNEXPECTED_FILE' && e.field === CAMPO_ADICIONALES);
+}
+
+/** Un archivo en un campo que esta ruta no admite (p. ej. `facturaVenta` en la carga posterior). */
+function esCampoAjeno(e: unknown): boolean {
+  return e instanceof multer.MulterError && e.code === 'LIMIT_UNEXPECTED_FILE' && e.field !== CAMPO_ADICIONALES;
 }
 
 /**
@@ -206,6 +226,21 @@ export function uploadAlta(req: Request, res: Response, next: NextFunction): voi
     if (!e) { next(); return; }
     void limpiarTemporales(req).finally(() => {
       if (esExcesoDeArchivos(e)) { res.status(413).json({ error: MENSAJE_DEMASIADOS_ARCHIVOS }); return; }
+      next(e);
+    });
+  });
+}
+
+/**
+ * Middleware de la carga posterior (HU #13364). Igual que `uploadAlta`, y además un archivo en otro
+ * campo es un **400** (no un 500 del manejador global).
+ */
+export function uploadAdicionales(req: Request, res: Response, next: NextFunction): void {
+  multerAdicionales(req, res, (e?: unknown) => {
+    if (!e) { next(); return; }
+    void limpiarTemporales(req).finally(() => {
+      if (esExcesoDeArchivos(e)) { res.status(413).json({ error: MENSAJE_DEMASIADOS_ARCHIVOS }); return; }
+      if (esCampoAjeno(e)) { res.status(400).json({ error: MENSAJE_CAMPO_NO_PERMITIDO }); return; }
       next(e);
     });
   });
@@ -230,4 +265,10 @@ export function archivosDelAlta(req: Request): {
     adicionales: (files[CAMPO_ADICIONALES] ?? []) as unknown as ArchivoAdicionalRecibido[],
     etiquetas: (req.body as Record<string, unknown> | undefined)?.[CAMPO_ETIQUETAS],
   };
+}
+
+/** Lo que recibió la carga posterior (HU #13364): solo adicionales y sus etiquetas. */
+export function archivosDeCarga(req: Request): { adicionales: ArchivoAdicionalRecibido[]; etiquetas: unknown } {
+  const { adicionales, etiquetas } = archivosDelAlta(req);
+  return { adicionales, etiquetas };
 }

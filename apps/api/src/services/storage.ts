@@ -227,9 +227,15 @@ export async function getEntityDocumentStream(key: string) {
   return client.getObject(BUCKET, key);
 }
 
+/** Borra el objeto y LANZA si storage falla: para quien necesita saberlo (reintento, rastro). */
+export async function removeEntityDocument(key: string): Promise<void> {
+  await getClient().removeObject(BUCKET, key);
+}
+
+/** Borrado best-effort: traga el error (solo `log.warn`). Delegado en {@link removeEntityDocument}. */
 export async function deleteEntityDocument(key: string): Promise<void> {
-  const client = getClient();
-  try { await client.removeObject(BUCKET, key); } catch (e) { log.warn({ err: e, key }, 'delete entity doc failed'); }
+  getClient(); // como antes: un cliente mal configurado SÍ rechaza; solo se traga el fallo del borrado
+  try { await removeEntityDocument(key); } catch (e) { log.warn({ err: e, key }, 'delete entity doc failed'); }
 }
 
 // URL de descarga temporal firmada por NOSOTROS, servida por la API (GET /api/files).

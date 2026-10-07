@@ -98,6 +98,8 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${SOAT_INC} POST /cliente/incompletas/:id/reintentar`, 'soat.solicitud.reintentar_runt', 'Reintentar la consulta al RUNT de una solicitud de SOAT por validar', 'Volver a consultar el RUNT para completar, descartar o dejar por validar una solicitud que se guardó porque el RUNT no respondió.'),
   op(`${SOAT_INC} GET /cliente/incompletas/:id`, 'soat.incompleta.ver', 'Ver una solicitud de SOAT por validar o descartada', 'Abrir el detalle de una solicitud guardada sin validar con el RUNT: propietario, factura y motivo del descarte.'),
   op(`${SOAT_DOC} GET /:id/documentos-adicionales`, 'soat.documentos_adicionales.ver', 'Ver los documentos adicionales de una solicitud de SOAT', 'Abrir y descargar los documentos adicionales que el cliente adjuntó a la solicitud de SOAT.'),
+  op(`${SOAT_DOC} POST /:id/documentos-adicionales`, 'soat.documentos_adicionales.cargar', 'Cargar documentos adicionales en una solicitud de SOAT', 'Adjuntar documentos adicionales a una solicitud de SOAT existente, en cualquier estado.'),
+  op(`${SOAT_DOC} DELETE /:id/documentos-adicionales/:soporteId`, 'soat.documentos_adicionales.eliminar', 'Eliminar documentos adicionales de una solicitud de SOAT', 'Borrar definitivamente un documento adicional de una solicitud de SOAT, en cualquier estado, aunque lo haya cargado otra persona.'),
 
   // ── Impuestos ─────────────────────────────────────────────────────────────────────────────────
   op(`${IMP} GET /`, 'impuestos.cola.ver', 'Ver la cola de impuestos', 'Abrir la bandeja de trámites de impuesto vehicular.'),
