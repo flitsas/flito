@@ -54,6 +54,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0217_sync_interruptor_fuente.sql',
   '0218_pagina_perfil.sql',
   '0220_permiso_impuestos_recibos_reemplazar.sql',
+  '0222_flito_soportes_documentos_adicionales_soat.sql',
 ] as const;
 
 function sinComentariosSql(sql: string): string {

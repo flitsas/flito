@@ -9,7 +9,7 @@
 //
 // Todas las URLs son enlaces firmados y con caducidad (`/api/files?...`): el storage no se expone.
 
-import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, notInArray, sql } from 'drizzle-orm';
 import { EstadoComprobante, EstadoSoat, TipoSoporte } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
@@ -48,6 +48,12 @@ function ordenar(soportes: SoporteVista[]): SoporteVista[] {
  * además en memoria, y esa redundancia es deliberada — así la garantía no depende de que este
  * `where` siga aquí, y se puede afirmar sin una base de datos real.
  */
+/**
+ * HU #13362 (AC9) — tipos que NUNCA salen en la lista general de soportes, para ningún rol ni origen:
+ * los documentos adicionales del alta de SOAT se leen solo por su propia ruta, con su propia función.
+ */
+export const TIPOS_SOPORTE_FUERA_DE_LISTA: readonly string[] = [TipoSoporte.DOCUMENTO_ADICIONAL_SOAT];
+
 async function porRegistro(
   columna: typeof flitoSoportes.soatId | typeof flitoSoportes.impuestoId
     | typeof flitoSoportes.derechoId | typeof flitoSoportes.siigoFacturaId,
@@ -62,6 +68,7 @@ async function porRegistro(
     .where(and(
       eq(columna, registroId),
       eq(flitoSoportes.descartado, false),
+      notInArray(flitoSoportes.tipo, [...TIPOS_SOPORTE_FUERA_DE_LISTA]),
       ...(tipos === null ? [] : [inArray(flitoSoportes.tipo, [...tipos])]),
     ));
   return filas.map((f) => ({

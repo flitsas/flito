@@ -27,6 +27,7 @@ import permisosRoutes from './modules/permisos/permisos.routes.js';
 import flitoSoatRoutes from './modules/flito-soat/flito-soat.routes.js';
 import flitoSoatClienteRoutes from './modules/flito-soat/flito-soat-cliente.routes.js';
 import flitoSoatIncompletasRoutes from './modules/flito-soat/flito-soat-incompletas.routes.js';
+import flitoSoatDocumentosRoutes from './modules/flito-soat/flito-soat-documentos.routes.js';
 import flitoImpuestosRoutes from './modules/flito-impuestos/flito-impuestos.routes.js';
 import flitoDerechosRoutes from './modules/flito-derechos/flito-derechos.routes.js';
 import flitoLiquidacionRoutes from './modules/flito-liquidacion/flito-liquidacion.routes.js';
@@ -265,6 +266,7 @@ export function createApp() {
   app.use('/api/flito/soat', flitoSoatClienteRoutes);
   // Lectura de las incompletas por RUNT caído (HU #12997): `/cliente/incompletas/…`, antes del módulo.
   app.use('/api/flito/soat', flitoSoatIncompletasRoutes);
+  app.use('/api/flito/soat', flitoSoatDocumentosRoutes); // HU #13362: GET /:id/documentos-adicionales
   app.use('/api/flito/soat', flitoSoatRoutes);
   app.use('/api/flito/impuestos', flitoImpuestosRoutes);
   app.use('/api/flito/derechos', flitoDerechosRoutes);
