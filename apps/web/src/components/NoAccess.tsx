@@ -1,34 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { PAGES, rutaInicio, PageSlug } from '../lib/permissions';
 import { useAuth } from '../lib/auth';
-import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondarySm } from './flit/flitPageKit';
-
-/**
- * HU #12872 (UX §1): la primera carga de `/permisos/mios` falló. «No saber no es no tener»: no se
- * pinta «sin acceso», se avisa en la página y se ofrece reintentar. Aviso persistente, no toast.
- */
-export function AvisoPermisosNoComprobados() {
-  const { refrescarSesion } = useAuth();
-  const [reintentando, setReintentando] = useState(false);
-  const reintentar = async () => {
-    setReintentando(true);
-    try { await refrescarSesion(); } finally { setReintentando(false); }
-  };
-  return (
-    <div
-      role="status"
-      data-testid="aviso-permisos-error"
-      className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm"
-      style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)', color: 'var(--flit-danger-text)' }}
-    >
-      <span>No pudimos comprobar tus permisos. Revisa tu conexión e inténtalo de nuevo.</span>
-      <button type="button" className={flitBtnSecondarySm} onClick={reintentar} disabled={reintentando}>
-        {reintentando ? 'Reintentando…' : 'Reintentar'}
-      </button>
-    </div>
-  );
-}
+import { flitBtnPrimary, flitBtnPrimaryStyle } from './flit/flitPageKit';
 
 /**
  * Estado "sin acceso a sección" — reemplaza el redirect mudo a "/" de ProtectedRoute.

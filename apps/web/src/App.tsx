@@ -5,7 +5,6 @@ import { ThemeProvider } from './lib/theme';
 import { hasPage, rutaInicio, PageSlug } from './lib/permissions';
 import { puedeVerAyudaFlito } from './lib/ayudaFlito';
 import Layout from './components/Layout';
-import NoAccess, { AvisoPermisosNoComprobados } from './components/NoAccess';
 import PageContentSkeleton from './components/flit/PageContentSkeleton';
 import Login from './pages/Login';
 import { lazy, Suspense } from 'react';
@@ -111,6 +110,19 @@ const PublicManifiesto = lazy(() => import('./pages/PublicManifiesto'));
 const PublicTramiteVerify = lazy(() => import('./pages/PublicTramiteVerify'));
 const PublicTramitePortal = lazy(() => import('./pages/PublicTramitePortal'));
 const FlitoAyuda = lazy(() => import('./pages/FlitoAyuda'));
+
+// Presupuesto del entry de /login (`check:bundle`): `NoAccess` y el aviso de permisos solo se pintan
+// con sesión, y arrastran `flitPageKit`. Van en su chunk; la guarda de ruta los envuelve en Suspense.
+const NoAccessPantalla = lazy(() => import('./components/NoAccess'));
+const AvisoPermisosNoComprobadosLazy = lazy(() => import('./components/AvisoPermisosNoComprobados'));
+
+function NoAccess(props: { page?: PageSlug; label?: string }) {
+  return <Suspense fallback={<PageContentSkeleton />}><NoAccessPantalla {...props} /></Suspense>;
+}
+
+function AvisoPermisosNoComprobados() {
+  return <Suspense fallback={null}><AvisoPermisosNoComprobadosLazy /></Suspense>;
+}
 
 function ProtectedRoute({ children, page }: { children: React.ReactNode; page?: PageSlug }) {
   const { user, loading, permisosError } = useAuth();
