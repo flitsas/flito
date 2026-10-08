@@ -18,7 +18,6 @@ import { useNavigate } from 'react-router-dom';
 import { EstadoBoleta, type BoletaDetalleDto, type BoletaListadoDto } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { puedeConciliar } from '../lib/conciliacion';
 import NoAccess from '../components/NoAccess';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import PageContentSkeleton from '../components/flit/PageContentSkeleton';
@@ -32,8 +31,9 @@ import {
 } from '../components/flit/flitPageKit';
 
 export default function FlitoConciliacion() {
-  const { user } = useAuth();
-  if (!puedeConciliar(user?.role)) return <NoAccess page="flito_conciliacion" />;
+  const { hasFuncion } = useAuth();
+  // HU #12872: la función de la guarda del listado, no el nombre del rol.
+  if (!hasFuncion('conciliacion.boletas.listar')) return <NoAccess page="flito_conciliacion" />;
   return <Conciliacion />;
 }
 

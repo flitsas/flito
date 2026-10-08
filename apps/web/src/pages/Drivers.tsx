@@ -29,8 +29,8 @@ const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--fl
 const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
 
 export default function Drivers() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const { hasFuncion } = useAuth();
+  const isAdmin = hasFuncion('drivers.conductores.administrar');
   const [items, setItems] = useState<Driver[]>([]);
   const [search, setSearch] = useState('');
   const [vencidos, setVencidos] = useState(false);

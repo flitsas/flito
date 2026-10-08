@@ -17,8 +17,8 @@ const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--fl
 const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
 
 export default function SafetyTrainings() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const { hasFuncion } = useAuth();
+  const isAdmin = hasFuncion('drivers.capacitaciones.administrar');
   const [items, setItems] = useState<Training[]>([]);
   const [showCreate, setShowCreate] = useState(false);
 

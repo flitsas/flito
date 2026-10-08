@@ -18,7 +18,7 @@ import {
 } from '@operaciones/shared-types';
 import { ApiError, api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { etiquetaPeriodo, periodoActual, puedeVerBolsas, ultimosPeriodos } from '../lib/bolsas';
+import { etiquetaPeriodo, periodoActual, ultimosPeriodos } from '../lib/bolsas';
 import NoAccess from '../components/NoAccess';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
@@ -34,10 +34,11 @@ import BolsasTablero from '../components/flito/BolsasTablero';
 const PERIODOS_OFRECIDOS = 12;
 
 export default function FlitoBolsas() {
-  const { user } = useAuth();
-  // El gate va aquí y no solo en el router: con el permiso concedido a mano a un rol que la API no
-  // admite, la pantalla cargaría para soltar seis 403 seguidos en vez de decir que no hay acceso.
-  if (!puedeVerBolsas(user?.role)) return <NoAccess page="flito_bolsas" />;
+  const { hasFuncion } = useAuth();
+  // El gate va aquí y no solo en el router: con la página pero sin la función de ver la bolsa, la
+  // pantalla cargaría para soltar 403 seguidos en vez de decir que no hay acceso. HU #12872: es la
+  // función de la guarda (`bolsas.bolsa.ver`), no el nombre del rol.
+  if (!hasFuncion('bolsas.bolsa.ver')) return <NoAccess page="flito_bolsas" />;
   return <Bolsas />;
 }
 

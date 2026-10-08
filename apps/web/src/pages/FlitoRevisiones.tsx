@@ -219,13 +219,14 @@ function Formulario({ revision, soloLectura, onResuelta }: { revision: RevisionI
 }
 
 export default function FlitoRevisiones() {
-  const { user } = useAuth();
+  const { hasFuncion } = useAuth();
   const [grupo, setGrupo] = useState<Grupo>('soat');
   const [incluirResueltas, setIncluirResueltas] = useState(false);
   const [seleccionadaId, setSeleccionadaId] = useState<string | null>(null);
   const [recarga, setRecarga] = useState(0);
 
-  const soloLectura = user?.role === 'auditor';
+  // HU #12872: solo lectura = sin la función de resolver (la guarda de `POST /:id/resolver`).
+  const soloLectura = !hasFuncion('revisiones.revision.resolver');
 
   const rSoat = useRevisiones('soat', incluirResueltas, recarga);
   const rImp = useRevisiones('impuestos', incluirResueltas, recarga);

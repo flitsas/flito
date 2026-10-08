@@ -26,8 +26,8 @@ type Tab = 'datos' | 'mediciones' | 'vinculos' | 'documentos' | 'pasaporte';
 
 export default function FleetVehicleDetail() {
   const { id } = useParams<{ id: string }>();
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const { hasFuncion } = useAuth();
+  const isAdmin = hasFuncion('fleet.flota.administrar');
   const [detail, setDetail] = useState<DetailResp | null>(null);
   const [tab, setTab] = useState<Tab>('datos');
 

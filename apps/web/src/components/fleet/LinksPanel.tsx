@@ -75,7 +75,7 @@ export default function LinksPanel({ vehicleId, canEdit, onChanged }: { vehicleI
 
 function LinkForm({ currentId, onClose, onSaved }: { currentId: number; onClose: () => void; onSaved: () => void }) {
   const [otherId, setOtherId] = useState('');
-  const [role, setRole] = useState<'principal' | 'vinculado'>('principal');
+  const [tipoVinculo, setTipoVinculo] = useState<'principal' | 'vinculado'>('principal');
   const [submitting, setSubmitting] = useState(false);
   useEscape(onClose, !submitting);
 
@@ -86,7 +86,7 @@ function LinkForm({ currentId, onClose, onSaved }: { currentId: number; onClose:
     if (otherNum === currentId) { toast.error('No puede vincular el vehículo consigo mismo'); return; }
     setSubmitting(true);
     try {
-      const body = role === 'principal'
+      const body = tipoVinculo === 'principal'
         ? { vehiculoPrincipalId: currentId, vehiculoVinculadoId: otherNum }
         : { vehiculoPrincipalId: otherNum, vehiculoVinculadoId: currentId };
       await api.post('/fleet/links', body);
@@ -100,7 +100,7 @@ function LinkForm({ currentId, onClose, onSaved }: { currentId: number; onClose:
     <FlitModal title="Vincular equipo" onClose={onClose}>
       <form onSubmit={submit} className="px-6 pb-6 space-y-3">
           <Field label="Este vehículo es…">
-            <select value={role} onChange={(e) => setRole(e.target.value as 'principal' | 'vinculado')} className={inputCls}>
+            <select value={tipoVinculo} onChange={(e) => setTipoVinculo(e.target.value as 'principal' | 'vinculado')} className={inputCls}>
               <option value="principal">Cabezote (principal)</option>
               <option value="vinculado">Trailer (vinculado)</option>
             </select>
