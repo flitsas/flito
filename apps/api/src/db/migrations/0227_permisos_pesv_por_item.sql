@@ -25,10 +25,13 @@
 --   - Paso 3b (security-agent, pre-PR): raci, normativa y retencion pedian TAMBIEN pagina.pesv (la
 --     guarda de router de tablero/huerfanos en /api/pesv se ejecutaba antes). Al quitarla, su reparto
 --     se recorta a la interseccion: quien tenga una de esas tres paginas tenia pagina.pesv efectiva.
---   - Roles literales (lider_pesv, supervisor_flota, compliance) en el Paso 5: si un ambiente borro
---     uno de esos roles desde el panel, la FK hace fallar el archivo ENTERO (falla cerrado, nada a
---     medias). Se deja literal porque el test de paridad parsea esa forma; se corrige creando el rol
---     o con una migracion nueva (db-review N1).
+--   - Roles literales (admin, lider_pesv, supervisor_flota, compliance) en el Paso 5: cada fila pasa
+--     por JOIN con permisos_roles y solo entra si el rol EXISTE en ese ambiente. Un rol sin fila en
+--     permisos_roles no concede nada hoy (la FK lo impide), asi que omitir su fila no cambia ningun
+--     acceso efectivo: no hay perdida de paridad.
+-- Correccion del 2026-10-08 tras el fallo del CD en DEV (FK permisos_rol_funcion_rol_codigo_fkey: el
+--   Paso 5 nombraba lider_pesv/supervisor_flota/compliance, que DEV no tiene). Editada en su sitio
+--   porque nunca se aplico en un ambiente compartido (el runner la revirtio entera).
 
 -- ── Paso 1 — Las 21 paginas nuevas (una por item del menu PESV) ───────────────────────────────
 INSERT INTO permisos_funciones (codigo, modulo, nombre_negocio, descripcion, tipo) VALUES
@@ -193,7 +196,9 @@ INSERT INTO permisos_funciones (codigo, modulo, nombre_negocio, descripcion, tip
 ON CONFLICT (codigo) DO NOTHING;
 
 -- ── Paso 5 — Reparto literal: admin en TODO lo nuevo (AC7) + la lista de cada `requireRole` ─────
-INSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo) VALUES
+-- Solo a roles que existen en este ambiente (JOIN con permisos_roles; correccion del 2026-10-08).
+INSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo)
+  SELECT v.rol, v.fn FROM (VALUES
   ('admin', 'pagina.pesv_conductores'),
   ('admin', 'pagina.pesv_capacitaciones'),
   ('admin', 'pagina.pesv_incidentes'),
@@ -256,6 +261,8 @@ INSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo) VALUES
   ('admin', 'pesv.retencion.administrar'),
   ('admin', 'pesv.tablero_ejecutivo.administrar'),
   ('admin', 'rum.resumen.ver')
+  ) AS v(rol, fn)
+  JOIN permisos_roles r ON r.codigo = v.rol
 ON CONFLICT (rol_codigo, funcion_codigo) DO NOTHING;
 
 -- ── Resumen y control de paridad, dentro de la transaccion del runner ─────────────────────────────

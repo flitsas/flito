@@ -77,6 +77,23 @@ describe('0227 — reglas del archivo (análisis estático)', () => {
     expect(cabecera).toMatch(/BEGIN \.\.\. ROLLBACK/);
   });
 
+  // Corrección del 2026-10-08: el CD de DEV cayó por la FK permisos_rol_funcion_rol_codigo_fkey porque
+  // el Paso 5 insertaba `VALUES ('lider_pesv', …)` y DEV no tiene ese rol (ni supervisor_flota ni
+  // compliance). Mutante nombrado M6: volver a `INSERT INTO permisos_rol_funcion (…) VALUES (…)` cae aquí.
+  it('M6: toda fila de rol LITERAL pasa por JOIN con permisos_roles (solo entra si el rol existe en el ambiente)', () => {
+    expect(SIN_COMENTARIOS).not.toMatch(/INSERT INTO permisos_rol_funcion\s*\([^)]*\)\s*VALUES/);
+    const conJoin = [...SIN_COMENTARIOS.matchAll(/INSERT INTO permisos_rol_funcion \(rol_codigo, funcion_codigo\)\s+SELECT v\.rol, v\.fn FROM \(VALUES([\s\S]*?)\) AS v\(rol, fn\)\s+JOIN permisos_roles r ON r\.codigo = v\.rol\s+ON CONFLICT \(rol_codigo, funcion_codigo\) DO NOTHING;/g)];
+    expect(conJoin).toHaveLength(1);
+    const filas = [...conJoin[0]![1]!.matchAll(/\('([a-z_]+)', '[a-z0-9_.]+'\)/g)].map((m) => m[1]!);
+    const porRol = filas.reduce<Record<string, number>>((acc, r) => ({ ...acc, [r]: (acc[r] ?? 0) + 1 }), {});
+    expect(porRol).toEqual({ admin: 46, lider_pesv: 13, supervisor_flota: 2, compliance: 1 });
+    // Ningún otro INSERT en permisos_rol_funcion nombra un rol entre comillas: los demás copian de filas existentes.
+    const otros = [...SIN_COMENTARIOS.matchAll(/INSERT INTO permisos_rol_funcion[\s\S]*?;/g)].map((m) => m[0]).filter((b) => !/JOIN permisos_roles r/.test(b));
+    for (const b of otros) expect(b).not.toMatch(/'(admin|lider_pesv|supervisor_flota|compliance)'/);
+    const cabecera = SQL.split('\n').slice(0, 40).join('\n');
+    expect(cabecera).toMatch(/Correccion del 2026-10-08 tras el fallo del CD en DEV/);
+  });
+
   it('db-review N2: las operaciones se cuentan con la lista CERRADA de las 25, no por prefijo', () => {
     expect(SIN_COMENTARIOS).not.toMatch(/LIKE/);
     const listas = [...SIN_COMENTARIOS.matchAll(/codigo IN \(('[a-z_.]+'(?:,'[a-z_.]+')*)\)/g)]
