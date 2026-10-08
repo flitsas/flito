@@ -13,7 +13,8 @@
 import { Router, type Request, type Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import {
@@ -24,8 +25,6 @@ import {
 const router = Router();
 router.use(authMiddleware);
 
-const LECTURA = requireRole('admin', 'auditor', 'financiera');
-const ESCRITURA = requireRole('admin');
 
 /**
  * La recarga no gasta cuota de Siigo, pero sí escribe 4.605 filas y las lee todas antes.
@@ -50,17 +49,17 @@ const busquedaSchema = z.object({
 });
 
 // GET / — estado del catálogo: si está cargado, cuántas trae y de qué versión (AC1).
-router.get('/', LECTURA, async (_req: Request, res: Response) => {
+router.get('/', exigirFuncion('siigo.parametrizacion.ver'), async (_req: Request, res: Response) => {
   res.json(await resumenCiudades());
 });
 
 // GET /paises
-router.get('/paises', LECTURA, async (_req: Request, res: Response) => {
+router.get('/paises', exigirFuncion('siigo.parametrizacion.ver'), async (_req: Request, res: Response) => {
   res.json({ data: await listarPaises() });
 });
 
 // GET /buscar?q=...&pais=Co — va ANTES de /:pais para que Express no lo tome por un código.
-router.get('/buscar', LECTURA, async (req: Request, res: Response) => {
+router.get('/buscar', exigirFuncion('siigo.parametrizacion.ver'), async (req: Request, res: Response) => {
   const parsed = busquedaSchema.safeParse(req.query);
   if (!parsed.success) {
     res.status(400).json({ error: 'Búsqueda inválida', details: parsed.error.flatten() });
@@ -70,14 +69,14 @@ router.get('/buscar', LECTURA, async (req: Request, res: Response) => {
 });
 
 // GET /:pais/departamentos
-router.get('/:pais/departamentos', LECTURA, async (req: Request, res: Response) => {
+router.get('/:pais/departamentos', exigirFuncion('siigo.parametrizacion.ver'), async (req: Request, res: Response) => {
   const parsed = paisSchema.safeParse(req.params);
   if (!parsed.success) { res.status(400).json({ error: 'País inválido' }); return; }
   res.json({ data: await listarDepartamentos(parsed.data.pais) });
 });
 
 // GET /:pais/:departamento/ciudades
-router.get('/:pais/:departamento/ciudades', LECTURA, async (req: Request, res: Response) => {
+router.get('/:pais/:departamento/ciudades', exigirFuncion('siigo.parametrizacion.ver'), async (req: Request, res: Response) => {
   const parsed = departamentoSchema.safeParse(req.params);
   if (!parsed.success) { res.status(400).json({ error: 'País o departamento inválido' }); return; }
   res.json({ data: await listarCiudades(parsed.data.pais, parsed.data.departamento) });
@@ -87,7 +86,7 @@ router.get('/:pais/:departamento/ciudades', LECTURA, async (req: Request, res: R
 //
 // El orden importa: la guarda de rol va ANTES del limitador, para que un rechazo por permiso no
 // consuma el cupo de quien sí lo tiene.
-router.post('/cargar', ESCRITURA, cargaLimiter, async (req: Request, res: Response) => {
+router.post('/cargar', exigirFuncion('siigo.parametrizacion.administrar'), cargaLimiter, async (req: Request, res: Response) => {
   try {
     const resultado = await cargarCiudades();
     await audit(req, {

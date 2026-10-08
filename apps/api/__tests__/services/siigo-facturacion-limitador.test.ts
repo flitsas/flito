@@ -17,8 +17,8 @@
 // Que hoy `emitir` y `reactivar` resuelvan a la misma lista de roles hace que ningún rol pueda
 // llegar a la segunda guarda y ser rechazado ahí — hoy. La pregunta 16 del diseño sigue abierta y
 // el propio comentario de la ruta anticipa el día en que alguien restrinja `reactivar`. Ese
-// escenario se ejerce aquí restringiendo la acción en el catálogo, que es de donde sale la
-// decisión, y NO tocando el mecanismo que se está probando.
+// escenario se ejerce aquí con un `admin` al que el MOTOR no le da `siigo.factura.reactivar` (HU
+// #13423: de ahí sale la decisión), y NO tocando el mecanismo que se está probando.
 //
 // La cuota se lleva por usuario (`userOrIpKey`), así que cada prueba usa su propio `sub`: quien
 // insiste sin permiso se frena a sí mismo y no al que factura.
@@ -27,7 +27,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import 'express-async-errors';
 import express from 'express';
-import { testToken, type TestRole } from '../helpers/auth.js';
+import { operacionesDePartida, registrarUsuarioDePrueba, testToken, type TestRole } from '../helpers/auth.js';
 
 vi.mock('../../src/db/client.js', () => ({
   db: {
@@ -44,24 +44,6 @@ vi.mock('../../src/shared/redis.js', () => ({
 vi.mock('../../src/shared/middleware/audit.js', () => ({
   audit: vi.fn().mockResolvedValue(undefined),
 }));
-
-/**
- * `reactivar` se niega a todo el mundo; `emitir` conserva su fila real.
- *
- * Es la única forma de provocar hoy una denegación de la SEGUNDA guarda, que es lo que hace
- * distinta a esta ruta. Se interviene el CATÁLOGO —que es donde el diseño dice que se decide quién
- * puede qué, y donde la pregunta 16 acabará cambiando algo— y no `exigirAccionSiigo` ni el orden
- * del router, que es justo lo que se está midiendo.
- */
-vi.mock('@operaciones/shared-types', async (original) => {
-  const real = await original<typeof import('@operaciones/shared-types')>();
-  return {
-    ...real,
-    puedeEjecutar: (rol: string, accion: string) => (
-      accion === 'reactivar' ? false : real.puedeEjecutar(rol as never, accion as never)
-    ),
-  };
-});
 
 /** La bitácora WORM: aquí es donde se cuentan las filas que un denegado puede provocar. */
 const registrarOperacionMock = vi.fn().mockResolvedValue(undefined);
@@ -97,6 +79,16 @@ async function buildApp() {
 
 const auth = async (role: TestRole, sub: number) =>
   `Bearer ${await testToken({ sub, username: `${role}-${sub}@flit.io`, role })}`;
+
+/** Un `admin` con todo su reparto de partida MENOS `siigo.factura.reactivar`: emite, no reactiva. */
+const authSinReactivar = async (sub: number) => {
+  const token = await auth('admin', sub);
+  await registrarUsuarioDePrueba(sub, {
+    rol: 'admin', tipoPrincipal: 'interno', tipoEnlace: 'ninguno', excepciones: [],
+    funcionesDelRol: operacionesDePartida('admin').filter((c) => c !== 'siigo.factura.reactivar'),
+  });
+  return token;
+};
 
 const RUTA = '/api/siigo/facturacion';
 const TRAMITE = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
@@ -164,7 +156,7 @@ describe('la segunda guarda: `exigirReactivar` también escribe, y también qued
     const app = await buildApp();
 
     const r = await request(app).post(RUTA)
-      .set('Authorization', await auth('admin', 303)).send({ ...CUERPO, reactivar: true });
+      .set('Authorization', await authSinReactivar(303)).send({ ...CUERPO, reactivar: true });
 
     expect(r.status).toBe(403);
     // Viene de la SEGUNDA guarda: la primera habría dicho `emitir`, y `admin` sí puede emitir.
@@ -181,7 +173,7 @@ describe('la segunda guarda: `exigirReactivar` también escribe, y también qued
     const app = await buildApp();
 
     const r = await request(app).post(RUTA)
-      .set('Authorization', await auth('admin', 304)).send({ ...CUERPO, reactivar: true });
+      .set('Authorization', await authSinReactivar(304)).send({ ...CUERPO, reactivar: true });
 
     expect(r.status).toBe(403);
     expect(r.headers['x-ratelimit-limit']).toBe(String(MAX_VENTANA));
@@ -190,7 +182,7 @@ describe('la segunda guarda: `exigirReactivar` también escribe, y también qued
 
   it('y tiene tope: agotada la ventana deja de escribir', async () => {
     const app = await buildApp();
-    const token = await auth('admin', 305);
+    const token = await authSinReactivar(305);
     const cuerpo = { ...CUERPO, reactivar: true };
 
     for (let i = 0; i < MAX_VENTANA; i += 1) {

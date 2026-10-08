@@ -102,11 +102,13 @@ describe('GET / — listado con search + masking PII', () => {
     expect(r.body[0].ownerDocument).toBe('1036640908');
   });
 
-  it('no-admin (transito) → ownerDocument enmascarado (4 chars + ****)', async () => {
+  // HU #13423: el listado pide `vehicles.vehiculos.consultar`; `supervisor_flota` la tiene de partida
+  // (pagina.vehicles) y NO tiene `vehicles.propietario.ver_documento`: ve el documento enmascarado.
+  it('sin `vehicles.propietario.ver_documento` (supervisor_flota) → ownerDocument enmascarado (4 chars + ****)', async () => {
     stubListQuery([
       { id: 1, vin: 'V1', plate: 'ABC', ownerDocument: '1036640908', soatStatus: 'aprobado' },
     ]);
-    const token = await testToken({ sub: 1, role: 'transito' });
+    const token = await testToken({ sub: 1, role: 'supervisor_flota' });
     const app = await buildApp();
     const r = await request(app).get('/api/vehicles').set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(200);
@@ -115,11 +117,19 @@ describe('GET / — listado con search + masking PII', () => {
 
   it('ownerDocument null no rompe masking', async () => {
     stubListQuery([{ id: 1, vin: 'V1', ownerDocument: null, soatStatus: null }]);
-    const token = await testToken({ sub: 1, role: 'transito' });
+    const token = await testToken({ sub: 1, role: 'supervisor_flota' });
     const app = await buildApp();
     const r = await request(app).get('/api/vehicles').set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(200);
     expect(r.body[0].ownerDocument).toBeNull();
+  });
+
+  it('HU #13423 — sin `vehicles.vehiculos.consultar` (transito) → 403 del motor', async () => {
+    const token = await testToken({ sub: 1, role: 'transito' });
+    const app = await buildApp();
+    const r = await request(app).get('/api/vehicles').set('Authorization', `Bearer ${token}`);
+    expect(r.status).toBe(403);
+    expect(r.body).toMatchObject({ funcion: 'vehicles.vehiculos.consultar' });
   });
 
   it('filtro status post-fetch (sin_solicitud cuando soatStatus null)', async () => {

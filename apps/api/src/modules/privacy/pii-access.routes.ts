@@ -7,12 +7,13 @@ import { Router, Request, Response } from 'express';
 import { eq, and, gte, lte, desc, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { piiAccessLog } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 
 const router = Router();
-router.use(authMiddleware, requireRole('admin', 'compliance'));
+router.use(authMiddleware);
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('privacy.accesos_pii.ver'), async (req: Request, res: Response) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
   const userId = req.query.userId ? parseInt(req.query.userId as string, 10) : undefined;
@@ -36,7 +37,7 @@ router.get('/', async (req: Request, res: Response) => {
   res.json({ rows, total: count, limit, offset });
 });
 
-router.get('/stats', async (_req: Request, res: Response) => {
+router.get('/stats', exigirFuncion('privacy.accesos_pii.ver'), async (_req: Request, res: Response) => {
   // Resumen ejecutivo: accesos por usuario y por tipo en últimos 30 días.
   const since = new Date(Date.now() - 30 * 24 * 3600_000);
   const rowsUser = await db.execute(sql`

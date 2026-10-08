@@ -27,7 +27,6 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  puedeEjecutar,
   type MotivoNoFacturable, type ResumenValidacionClientes,
 } from '@operaciones/shared-types';
 import { api } from '../../lib/api';
@@ -47,7 +46,7 @@ interface CompuertaServidor {
 }
 
 export default function PanelTerceros() {
-  const { user } = useAuth();
+  const { user, hasFuncion } = useAuth();
   const esAdmin = user?.role === 'admin';
   /**
    * Una entrada por acción, y al lado la guarda del servidor que refleja. No es seguridad —el 403
@@ -59,9 +58,9 @@ export default function PanelTerceros() {
    * —esta HU es el precedente— se moverá sola, sin arrastrar a las otras.
    */
   const permisos = {
-    /** `POST /siigo/terceros/cliente/:id` → `exigirAccionSiigo('emitir')`. Se lee de la MISMA tabla
-     *  que usa el servidor, así que cambiarla mueve las dos a la vez. */
-    sincronizar: puedeEjecutar(user?.role, 'emitir'),
+    /** `POST /siigo/terceros/cliente/:id` → `exigirAccionSiigo('emitir')`, que pregunta al motor por
+     *  `siigo.factura.emitir` (HU #13423): la pantalla pregunta lo mismo. */
+    sincronizar: hasFuncion('siigo.factura.emitir'),
     /** `POST /siigo/clientes-ciudades/:id/confirmar` → `requireRole('admin')`, y con razón: fija el
      *  municipio que sale impreso en la factura ante la DIAN. */
     confirmarCiudad: esAdmin,

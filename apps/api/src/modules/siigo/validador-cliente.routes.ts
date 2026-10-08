@@ -21,7 +21,8 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { MOTIVOS_NO_FACTURABLE_CODIGOS } from '@operaciones/shared-types';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
   CAMPOS_PII_RESUMEN, CAMPOS_PII_VEREDICTO, registrarAccesoCliente,
@@ -33,8 +34,6 @@ import {
 const router = Router();
 router.use(authMiddleware);
 
-const LECTURA = requireRole('admin', 'auditor', 'financiera');
-const ESCRITURA = requireRole('admin');
 
 const informeSchema = z.object({
   motivo: z.enum(MOTIVOS_NO_FACTURABLE_CODIGOS as [string, ...string[]]).optional(),
@@ -50,7 +49,7 @@ const informeSchema = z.object({
 // Registra el barrido con la lista de campos VACÍA (`CAMPOS_PII_RESUMEN`): recorre el padrón entero
 // pero no devuelve ni un nombre ni una identificación. `evaluados` deja constancia del tamaño del
 // recorrido, que es lo único personal-adyacente que hay aquí.
-router.get('/validacion', LECTURA, async (req: Request, res: Response) => {
+router.get('/validacion', exigirFuncion('siigo.parametrizacion.ver'), async (req: Request, res: Response) => {
   const resumen = await resumenValidacionClientes();
   await registrarAccesoCliente(req, {
     accion: 'search',
@@ -61,7 +60,7 @@ router.get('/validacion', LECTURA, async (req: Request, res: Response) => {
 });
 
 // GET /validacion/detalle — la lista, filtrable por motivo (AC5).
-router.get('/validacion/detalle', LECTURA, async (req: Request, res: Response) => {
+router.get('/validacion/detalle', exigirFuncion('siigo.parametrizacion.ver'), async (req: Request, res: Response) => {
   const parsed = informeSchema.safeParse(req.query);
   if (!parsed.success) {
     res.status(400).json({ error: 'Filtros inválidos', details: parsed.error.flatten() });
@@ -92,7 +91,7 @@ router.get('/validacion/detalle', LECTURA, async (req: Request, res: Response) =
 // GET /:id/validacion — el veredicto de un cliente puntual (AC5).
 //
 // Va DESPUÉS de las rutas fijas para que Express no capture `validacion` como un identificador.
-router.get('/:id/validacion', LECTURA, async (req: Request, res: Response) => {
+router.get('/:id/validacion', exigirFuncion('siigo.parametrizacion.ver'), async (req: Request, res: Response) => {
   const id = Number.parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
 
@@ -116,7 +115,7 @@ router.get('/:id/validacion', LECTURA, async (req: Request, res: Response) => {
 // La migración 0132 marcó los duplicados que existían entonces, pero nada volvía a mirarlos: uno
 // creado después quedaría sin marca y por tanto pareciendo limpio, y uno ya resuelto arrastraría la
 // marca para siempre. Es idempotente y no toca ningún otro campo.
-router.post('/validacion/recalcular-duplicados', ESCRITURA, async (req: Request, res: Response) => {
+router.post('/validacion/recalcular-duplicados', exigirFuncion('siigo.parametrizacion.administrar'), async (req: Request, res: Response) => {
   const resultado = await recalcularDuplicados();
   await audit(req, {
     action: 'update',

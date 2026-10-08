@@ -8,12 +8,13 @@ import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { db } from '../../../db/client.js';
 import { pesvRetencionPoliticas } from '../../../db/schema.js';
-import { authMiddleware, requireRole } from '../../../shared/middleware/auth.js';
+import { authMiddleware } from '../../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../../shared/middleware/exigir-funcion.js';
 import { laftAudit } from '../audit.service.js';
 import { anonimizarLaftCounterparties } from './anonimizar.service.js';
 
 const router = Router();
-router.use(authMiddleware, requireRole('admin'));
+router.use(authMiddleware);
 
 const TIPOS = ['laft_counterparty'] as const;
 
@@ -22,7 +23,7 @@ const runSchema = z.object({
   razon: z.string().min(10).max(2000),
 });
 
-router.post('/anonimizar/:tipo', async (req: Request, res: Response) => {
+router.post('/anonimizar/:tipo', exigirFuncion('laft.retencion.administrar'), async (req: Request, res: Response) => {
   const tipo = req.params.tipo as typeof TIPOS[number];
   if (!(TIPOS as readonly string[]).includes(tipo)) {
     res.status(400).json({ error: `tipo no soportado, usar uno de: ${TIPOS.join(', ')}` });

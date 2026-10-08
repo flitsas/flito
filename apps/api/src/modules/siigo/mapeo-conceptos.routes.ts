@@ -20,7 +20,8 @@ import {
   CLASIFICACIONES_TRIBUTARIAS, CONCEPTOS_FACTURABLES, CODIGO_PRODUCTO_SIIGO_RE,
 } from '@operaciones/shared-types';
 import rateLimit from 'express-rate-limit';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { env } from '../../config/env.js';
@@ -37,11 +38,8 @@ router.use(authMiddleware);
 
 // Lectura: administración, auditoría y finanzas. Ver la parametrización que respalda una factura
 // emitida es parte del trabajo de auditar, y no expone ningún secreto.
-const LECTURA = requireRole('admin', 'auditor', 'financiera');
 // Escritura del mapeo: solo administración (AC8).
-const ESCRITURA = requireRole('admin');
 // La confirmación contable la firma también Finanzas (AC8).
-const CONFIRMACION = requireRole('admin', 'financiera');
 
 const ambienteSchema = z.enum(['pruebas', 'produccion']);
 
@@ -120,7 +118,7 @@ function resumen(m: MapeoConcepto): string {
 }
 
 // GET / — mapeo completo del ambiente.
-router.get('/', LECTURA, async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('siigo.parametrizacion.ver'), async (req: Request, res: Response) => {
   const ambiente = ambienteDe(req);
   const incluirInactivos = req.query.incluirInactivos === 'true';
   const data = await listarMapeo(ambiente, { incluirInactivos });
@@ -128,7 +126,7 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
 });
 
 // GET /estado — cuánto falta para poder facturar en este ambiente.
-router.get('/estado', LECTURA, async (req: Request, res: Response) => {
+router.get('/estado', exigirFuncion('siigo.parametrizacion.ver'), async (req: Request, res: Response) => {
   res.json(await estadoMapeo(ambienteDe(req)));
 });
 
@@ -169,7 +167,7 @@ const revalidacionLimiter = rateLimit({
 // El orden importa: la guarda de rol va ANTES del limitador. Lo que este freno protege es la cuota
 // de Siigo, y una petición rechazada por rol no consume ni una llamada — cobrarle cupo dejaría que
 // un rol sin permiso agotara el presupuesto de quien sí lo tiene.
-router.post('/revalidar', ESCRITURA, revalidacionLimiter, async (req: Request, res: Response) => {
+router.post('/revalidar', exigirFuncion('siigo.parametrizacion.administrar'), revalidacionLimiter, async (req: Request, res: Response) => {
   const ambiente = ambienteDe(req);
   const usuarioId = req.user?.sub as number;
 
@@ -186,7 +184,7 @@ router.post('/revalidar', ESCRITURA, revalidacionLimiter, async (req: Request, r
 });
 
 // POST / — configuración específica por tipo de trámite (AC5). La genérica ya existe: se edita.
-router.post('/', ESCRITURA, async (req: Request, res: Response) => {
+router.post('/', exigirFuncion('siigo.parametrizacion.administrar'), async (req: Request, res: Response) => {
   const parsed = crearSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
@@ -239,7 +237,7 @@ const crearProductoSchema = z.object({
 //
 // Escritura del mapeo: solo `admin`, igual que el resto de ediciones (AC8 de la HU #11282). Crear
 // un producto en el catálogo de la empresa es más consecuente que editar una fila, no menos.
-router.post('/:id/producto', ESCRITURA, creacionProductoLimiter, async (req: Request, res: Response) => {
+router.post('/:id/producto', exigirFuncion('siigo.parametrizacion.administrar'), creacionProductoLimiter, async (req: Request, res: Response) => {
   if (!UUID_RE.test(req.params.id)) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = crearProductoSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -260,7 +258,7 @@ router.post('/:id/producto', ESCRITURA, creacionProductoLimiter, async (req: Req
 });
 
 // GET /:id — una fila concreta.
-router.get('/:id', LECTURA, async (req: Request, res: Response) => {
+router.get('/:id', exigirFuncion('siigo.parametrizacion.ver'), async (req: Request, res: Response) => {
   if (!UUID_RE.test(req.params.id)) { res.status(400).json({ error: 'ID inválido' }); return; }
   try {
     res.json(await obtenerMapeo(req.params.id));
@@ -268,7 +266,7 @@ router.get('/:id', LECTURA, async (req: Request, res: Response) => {
 });
 
 // PATCH /:id — edita el mapeo. Puede tumbar la confirmación de contabilidad (AC4).
-router.patch('/:id', ESCRITURA, async (req: Request, res: Response) => {
+router.patch('/:id', exigirFuncion('siigo.parametrizacion.administrar'), async (req: Request, res: Response) => {
   if (!UUID_RE.test(req.params.id)) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = camposEditablesSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -292,7 +290,7 @@ router.patch('/:id', ESCRITURA, async (req: Request, res: Response) => {
 });
 
 // POST /:id/confirmar — firma de contabilidad (AC4, AC8). También la aplica `financiera`.
-router.post('/:id/confirmar', CONFIRMACION, async (req: Request, res: Response) => {
+router.post('/:id/confirmar', exigirFuncion('siigo.conceptos.confirmar'), async (req: Request, res: Response) => {
   if (!UUID_RE.test(req.params.id)) { res.status(400).json({ error: 'ID inválido' }); return; }
   const usuarioId = req.user?.sub as number;
 
@@ -308,7 +306,7 @@ router.post('/:id/confirmar', CONFIRMACION, async (req: Request, res: Response) 
 });
 
 // DELETE /:id — desactiva una configuración específica. Las genéricas no se eliminan (AC1).
-router.delete('/:id', ESCRITURA, async (req: Request, res: Response) => {
+router.delete('/:id', exigirFuncion('siigo.parametrizacion.administrar'), async (req: Request, res: Response) => {
   if (!UUID_RE.test(req.params.id)) { res.status(400).json({ error: 'ID inválido' }); return; }
   const usuarioId = req.user?.sub as number;
 

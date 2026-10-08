@@ -13,7 +13,8 @@ import { Router, type Request, type Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { SIIGO_TIPOS_CATALOGO } from '@operaciones/shared-types';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { exigirAccionSiigo } from './siigo.permisos.js';
@@ -25,8 +26,6 @@ import {
 const router = Router();
 router.use(authMiddleware);
 
-const LECTURA = requireRole('admin', 'financiera');
-const ESCRITURA = requireRole('admin');
 
 const tipoSchema = z.enum(SIIGO_TIPOS_CATALOGO);
 const ambienteSchema = z.enum(['pruebas', 'produccion']);
@@ -51,7 +50,7 @@ const listarSchema = z.object({
 const resumenSchema = z.object({ ambiente: ambienteSchema.optional() });
 
 // GET /catalogos — resumen de los seis catálogos con su última sincronización.
-router.get('/catalogos', LECTURA, async (req: Request, res: Response) => {
+router.get('/catalogos', exigirFuncion('siigo.emision.ver'), async (req: Request, res: Response) => {
   const query = resumenSchema.safeParse(req.query);
   if (!query.success) {
     res.status(400).json({ error: 'Parámetros inválidos', details: query.error.flatten() });
@@ -115,7 +114,7 @@ router.get('/catalogos-vivo/:tipo', exigirAccionSiigo('consultar'), vivoLimiter,
   });
 
 // GET /catalogos/:tipo — elementos de un catálogo, desde la copia local. Nunca llama a Siigo (AC3).
-router.get('/catalogos/:tipo', LECTURA, async (req: Request, res: Response) => {
+router.get('/catalogos/:tipo', exigirFuncion('siigo.emision.ver'), async (req: Request, res: Response) => {
   const tipo = tipoSchema.safeParse(req.params.tipo);
   if (!tipo.success) {
     res.status(400).json({
@@ -149,7 +148,7 @@ router.get('/catalogos/:tipo', LECTURA, async (req: Request, res: Response) => {
 // `vaciadoMasivo` viaja por el mismo canal y es independiente de `ok`: un catálogo que estaba
 // poblado y volvió vacío es una sincronización exitosa cuyo efecto es dejar la parametrización sin
 // opciones. La pantalla tiene que poder distinguirlo de un verde normal.
-router.post('/catalogos/sincronizar', ESCRITURA, async (req: Request, res: Response) => {
+router.post('/catalogos/sincronizar', exigirFuncion('siigo.parametrizacion.administrar'), async (req: Request, res: Response) => {
   const parsed = sincronizarSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });

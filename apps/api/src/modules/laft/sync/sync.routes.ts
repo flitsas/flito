@@ -12,7 +12,8 @@ import rateLimit from 'express-rate-limit';
 import { eq, desc } from 'drizzle-orm';
 import { db } from '../../../db/client.js';
 import { laftListsSyncJobs } from '../../../db/schema.js';
-import { authMiddleware, requireRole } from '../../../shared/middleware/auth.js';
+import { authMiddleware } from '../../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../../shared/middleware/exigir-funcion.js';
 import { userOrIpKey } from '../../../shared/middleware/rateLimiter.js';
 import { laftAudit } from '../audit.service.js';
 import { syncOneList } from './sync.cron.js';
@@ -21,7 +22,7 @@ import { loggerFor } from '../../../shared/logger.js';
 const log = loggerFor('laft-sync-routes');
 
 const router = Router();
-router.use(authMiddleware, requireRole('admin', 'compliance'));
+router.use(authMiddleware);
 
 // El sync manual descarga MB de XML/CSV — máx 6 disparos por hora (admin only).
 const manualSyncLimiter = rateLimit({
@@ -34,7 +35,7 @@ const manualSyncLimiter = rateLimit({
 const ALLOWED_CODES = new Set(['OFAC', 'UN', 'EU']);
 
 // === GET /jobs ============================================================
-router.get('/jobs', async (req: Request, res: Response) => {
+router.get('/jobs', exigirFuncion('laft.sincronizacion.ver'), async (req: Request, res: Response) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
   const listCode = (req.query.listCode as string | undefined)?.toUpperCase();
@@ -66,7 +67,7 @@ router.get('/jobs', async (req: Request, res: Response) => {
 });
 
 // === GET /jobs/:id ========================================================
-router.get('/jobs/:id', async (req: Request, res: Response) => {
+router.get('/jobs/:id', exigirFuncion('laft.sincronizacion.ver'), async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
 
@@ -77,9 +78,9 @@ router.get('/jobs/:id', async (req: Request, res: Response) => {
 });
 
 // === POST /run/:listCode ==================================================
-// Trigger manual del sync. requireRole('admin') (compliance puede leer pero no disparar).
+// Trigger manual del sync: `laft.sincronizacion.administrar` (compliance puede leer pero no disparar).
 // Asíncrono: retorna 202 con jobId, el sync corre en background.
-router.post('/run/:listCode', manualSyncLimiter, requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/run/:listCode', exigirFuncion('laft.sincronizacion.administrar'), manualSyncLimiter, async (req: Request, res: Response) => {
   const listCode = req.params.listCode.toUpperCase();
   if (!ALLOWED_CODES.has(listCode)) {
     return res.status(400).json({ error: `listCode debe ser uno de: ${[...ALLOWED_CODES].join(', ')}` });

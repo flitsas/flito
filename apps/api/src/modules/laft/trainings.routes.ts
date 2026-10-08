@@ -3,11 +3,12 @@ import { z } from 'zod';
 import { desc, eq, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { laftTrainings, laftTrainingAttendees, users } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { laftAudit } from './audit.service.js';
 
 const router = Router();
-router.use(authMiddleware, requireRole('admin', 'compliance'));
+router.use(authMiddleware);
 
 const trainingSchema = z.object({
   title: z.string().min(3).max(200),
@@ -29,7 +30,7 @@ const attendanceSchema = z.object({
 });
 
 // === Listado de capacitaciones ==============================================
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', exigirFuncion('laft.capacitaciones.operar'), async (_req: Request, res: Response) => {
   const rows = await db.select({
     id: laftTrainings.id,
     title: laftTrainings.title,
@@ -46,7 +47,7 @@ router.get('/', async (_req: Request, res: Response) => {
 });
 
 // === Detalle con asistentes =================================================
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', exigirFuncion('laft.capacitaciones.operar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
 
@@ -70,7 +71,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 });
 
 // === Crear capacitación =====================================================
-router.post('/', requireRole('admin', 'compliance'), async (req: Request, res: Response) => {
+router.post('/', exigirFuncion('laft.capacitaciones.operar'), async (req: Request, res: Response) => {
   const parsed = trainingSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   const data = parsed.data;
@@ -92,7 +93,7 @@ router.post('/', requireRole('admin', 'compliance'), async (req: Request, res: R
 });
 
 // === Registrar asistencia (upsert por user) =================================
-router.post('/:id/attendance', async (req: Request, res: Response) => {
+router.post('/:id/attendance', exigirFuncion('laft.capacitaciones.operar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = attendanceSchema.safeParse(req.body);

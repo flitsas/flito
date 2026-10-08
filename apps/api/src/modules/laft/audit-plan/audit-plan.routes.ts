@@ -14,7 +14,8 @@ import rateLimit from 'express-rate-limit';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { db } from '../../../db/client.js';
 import { laftAuditPlans, users } from '../../../db/schema.js';
-import { authMiddleware, requireRole } from '../../../shared/middleware/auth.js';
+import { authMiddleware } from '../../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../../shared/permissions.js';
 import { laftAudit } from '../audit.service.js';
 import { uploadEntityDocument } from '../../../services/storage.js';
@@ -108,7 +109,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 // ============================================================================
 // POST / — crear plan (idempotente por (anio, tipo))
 // ============================================================================
-router.post('/', writeLimiter, requireRole('admin', 'compliance'), async (req: Request, res: Response) => {
+router.post('/', exigirFuncion('laft.plan_auditoria.administrar'), writeLimiter, async (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' }); return; }
   const data = parsed.data;
@@ -148,7 +149,7 @@ router.post('/', writeLimiter, requireRole('admin', 'compliance'), async (req: R
 // ============================================================================
 // PATCH /:id — actualizar progreso
 // ============================================================================
-router.patch('/:id', writeLimiter, requireRole('admin', 'compliance'), async (req: Request, res: Response) => {
+router.patch('/:id', exigirFuncion('laft.plan_auditoria.administrar'), writeLimiter, async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = updateSchema.safeParse(req.body);
@@ -171,7 +172,7 @@ router.patch('/:id', writeLimiter, requireRole('admin', 'compliance'), async (re
 // ============================================================================
 // POST /:id/evidencia — subir archivo de evidencia (multipart)
 // ============================================================================
-router.post('/:id/evidencia', writeLimiter, requireRole('admin', 'compliance'), upload.single('archivo'),
+router.post('/:id/evidencia', exigirFuncion('laft.plan_auditoria.administrar'), writeLimiter, upload.single('archivo'),
   async (req: Request, res: Response) => {
     const id = parseId(req.params.id);
     if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
@@ -204,7 +205,7 @@ router.post('/:id/evidencia', writeLimiter, requireRole('admin', 'compliance'), 
 // ============================================================================
 // POST /:id/cerrar — cerrar plan (requiere hallazgos+conclusiones+evidencia)
 // ============================================================================
-router.post('/:id/cerrar', writeLimiter, requireRole('admin', 'compliance'), async (req: Request, res: Response) => {
+router.post('/:id/cerrar', exigirFuncion('laft.plan_auditoria.administrar'), writeLimiter, async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
 

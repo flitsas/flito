@@ -107,7 +107,9 @@ const vehicleSchema = z.object({
 });
 
 // List vehicles with latest SOAT status
-router.get('/', async (req: Request, res: Response) => {
+// HU #13423 (ADR-0023): el listado, el pasaporte (historial, sincronizarlo, certificado) pedían solo sesión.
+// `vehicles.vehiculos.consultar` es copia viva de las 4 páginas que los llaman: vehicles, soat, fleet y tramite.
+router.get('/', exigirFuncion('vehicles.vehiculos.consultar'), async (req: Request, res: Response) => {
   const search = req.query.search ? (req.query.search as string).slice(0, 100) : undefined;
   const status = req.query.status as string | undefined;
   const rango = parseFechaRangoQuery(req.query as Record<string, unknown>);
@@ -437,13 +439,13 @@ router.get('/pipeline/stats', exigirFuncion('vehicles.vehiculos.administrar'), a
 
 // TRAM-INNOV B1 — pasaporte vehicular: historial encadenado + certificado.
 // Rutas de 2 segmentos por VIN; no colisionan con las de `/:id` (numéricas).
-router.get('/:vin/historial', async (req: Request, res: Response) => {
+router.get('/:vin/historial', exigirFuncion('vehicles.vehiculos.consultar'), async (req: Request, res: Response) => {
   const vin = normalizeVin(req.params.vin);
   if (!vin) { res.status(400).json({ error: 'VIN inválido' }); return; }
   res.json(await getHistorial(vin, { hydrate: true }));
 });
 
-router.post('/:vin/historial/sync', async (req: Request, res: Response) => {
+router.post('/:vin/historial/sync', exigirFuncion('vehicles.vehiculos.consultar'), async (req: Request, res: Response) => {
   const vin = normalizeVin(req.params.vin);
   if (!vin) { res.status(400).json({ error: 'VIN inválido' }); return; }
   const added = await hydratePasaporteFromLegacy(vin);
@@ -451,7 +453,7 @@ router.post('/:vin/historial/sync', async (req: Request, res: Response) => {
   res.json({ ...resultado, imported: added });
 });
 
-router.get('/:vin/certificado', async (req: Request, res: Response) => {
+router.get('/:vin/certificado', exigirFuncion('vehicles.vehiculos.consultar'), async (req: Request, res: Response) => {
   const vin = normalizeVin(req.params.vin);
   if (!vin) { res.status(400).json({ error: 'VIN inválido' }); return; }
   const resultado = await getHistorial(vin);

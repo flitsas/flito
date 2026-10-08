@@ -16,7 +16,8 @@ import request from 'supertest';
 import express from 'express';
 import 'express-async-errors';
 import { testToken, type TestRole } from '../helpers/auth.js';
-import { ROLES_POR_ACCION, type SiigoRespuestaEnvio } from '@operaciones/shared-types';
+import type { SiigoRespuestaEnvio } from '@operaciones/shared-types';
+import { catalogoCompleto } from '../../src/modules/permisos/catalogo.js';
 import type { RegistroOperacion } from '../../src/modules/siigo/siigo.operaciones.repo.js';
 
 vi.mock('../../src/db/client.js', () => ({
@@ -138,13 +139,16 @@ beforeEach(() => {
 
 // ── AC6 — solo el rol autorizado emite ──────────────────────────────────────
 
-describe('AC6 — quién puede emitir lo decide UNA constante compartida', () => {
-  it('la lista de la acción `emitir` es la misma que la guarda de «Facturar»', () => {
+/** HU #13423: los roles de partida de `siigo.factura.emitir` (la tabla de roles por acción ya no existe). */
+const rolesDeEmitir = () => [...catalogoCompleto().find((f) => f.codigo === 'siigo.factura.emitir')!.roles].sort();
+
+describe('AC6 — quién puede emitir lo decide UNA función del motor', () => {
+  it('el reparto de partida de `siigo.factura.emitir` es el de la guarda de «Facturar»', () => {
     // `POST /flito/liquidacion/:tramiteId/facturar` usa `requireRole('admin', 'financiera')`, y la
     // emisión electrónica es el paso siguiente a ese botón: quien puede lo uno puede lo otro. Si
     // alguien cambia una de las dos sin la otra, aparece un botón que el servidor rechaza —o al
     // revés—, y ninguno de los dos fallos se ve en los tests de la otra mitad.
-    expect([...ROLES_POR_ACCION.emitir].sort()).toEqual(['admin', 'financiera']);
+    expect(rolesDeEmitir()).toEqual(['admin', 'financiera']);
   });
 
   it('y lo compara contra el reparto de PARTIDA del botón «Facturar», no contra un literal copiado', async () => {
@@ -152,14 +156,14 @@ describe('AC6 — quién puede emitir lo decide UNA constante compartida', () =>
     // cambiar la guarda de «Facturar» no rompía nada y las dos definiciones se separaban en
     // silencio. Desde la HU #12083 esa guarda es `exigirFuncion('liquidacion.liquidacion.facturar')`
     // y sus roles de partida están en la foto `inventario.generado.ts` (lo que la 0179 sembró): se
-    // compara contra eso. Siigo conserva su `puedeEjecutar` compilado (AC4: referencia, no se mueve).
+    // compara contra eso. Desde la HU #13423, Siigo también decide con el motor (`siigo.factura.emitir`).
     const { GUARDAS_MEDIDAS } = await import('../../src/modules/permisos/inventario.generado.js');
     const { OPERACIONES_DECLARADAS } = await import('../../src/modules/permisos/catalogo-operaciones.js');
     const { llaveDe } = await import('../../src/modules/permisos/inventario-guardas.js');
     const llave = OPERACIONES_DECLARADAS.find((o) => o.codigo === 'liquidacion.liquidacion.facturar')!.llave;
     const facturar = GUARDAS_MEDIDAS.find((g) => llaveDe(g) === llave)!;
 
-    expect([...ROLES_POR_ACCION.emitir].sort()).toEqual([...facturar.roles].sort());
+    expect(rolesDeEmitir()).toEqual([...facturar.roles].sort());
   });
 
   it('reactivar lo dado por perdido exige la acción `reactivar`, no la de `emitir`', async () => {

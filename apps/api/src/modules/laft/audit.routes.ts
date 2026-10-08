@@ -2,13 +2,14 @@ import { Router, Request, Response } from 'express';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { laftAuditLog } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 
 const router = Router();
-router.use(authMiddleware, requireRole('admin', 'compliance'));
+router.use(authMiddleware);
 
 // Audit log es READ-ONLY (append-only por GRANT en BD).
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('laft.bitacora.ver'), async (req: Request, res: Response) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
   const resource = req.query.resource as string | undefined;

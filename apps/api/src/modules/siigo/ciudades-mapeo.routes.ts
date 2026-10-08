@@ -30,7 +30,8 @@
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
   CAMPOS_PII_EQUIVALENCIA_OBSOLETA, CAMPOS_PII_PROPUESTA_CIUDAD, registrarAccesoCliente,
@@ -43,8 +44,6 @@ import {
 const router = Router();
 router.use(authMiddleware);
 
-const LECTURA = requireRole('admin', 'auditor', 'financiera');
-const ESCRITURA = requireRole('admin');
 
 const paisSchema = z.object({ pais: z.string().regex(/^[A-Za-z]{2}$/).optional() });
 
@@ -96,7 +95,7 @@ function responderError(res: Response, e: unknown): boolean {
 }
 
 // GET /estado — cuánto falta y de qué tipo (AC6).
-router.get('/estado', LECTURA, async (req: Request, res: Response) => {
+router.get('/estado', exigirFuncion('siigo.parametrizacion.ver'), async (req: Request, res: Response) => {
   const parsed = paisSchema.safeParse(req.query);
   if (!parsed.success) { res.status(400).json({ error: 'País inválido' }); return; }
   try {
@@ -107,7 +106,7 @@ router.get('/estado', LECTURA, async (req: Request, res: Response) => {
 });
 
 // GET /propuestas — la equivalencia propuesta de cada cliente pendiente (AC1, AC2, AC3).
-router.get('/propuestas', LECTURA, async (req: Request, res: Response) => {
+router.get('/propuestas', exigirFuncion('siigo.parametrizacion.ver'), async (req: Request, res: Response) => {
   const parsed = propuestasSchema.safeParse(req.query);
   if (!parsed.success) { res.status(400).json({ error: 'Filtros inválidos' }); return; }
   const { pais, limit, offset } = parsed.data;
@@ -130,7 +129,7 @@ router.get('/propuestas', LECTURA, async (req: Request, res: Response) => {
 });
 
 // GET /obsoletas — equivalencias cuyo texto de origen cambió después de confirmarse.
-router.get('/obsoletas', LECTURA, async (req: Request, res: Response) => {
+router.get('/obsoletas', exigirFuncion('siigo.parametrizacion.ver'), async (req: Request, res: Response) => {
   // Sin `pais`: esta lista no consulta el catálogo, compara dos columnas del cliente. Hasta aquí no
   // validaba la query en absoluto, que es la otra cara de no tener tope.
   const parsed = tramoSchema.safeParse(req.query);
@@ -148,7 +147,7 @@ router.get('/obsoletas', LECTURA, async (req: Request, res: Response) => {
 });
 
 // GET /:id/propuesta — la equivalencia de UN cliente, para su ficha fiscal (HU #11298).
-router.get('/:id/propuesta', LECTURA, async (req: Request, res: Response) => {
+router.get('/:id/propuesta', exigirFuncion('siigo.parametrizacion.ver'), async (req: Request, res: Response) => {
   const id = Number.parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = paisSchema.safeParse(req.query);
@@ -161,7 +160,7 @@ router.get('/:id/propuesta', LECTURA, async (req: Request, res: Response) => {
 });
 
 // POST /:id/confirmar — fija los códigos de un cliente (AC4).
-router.post('/:id/confirmar', ESCRITURA, async (req: Request, res: Response) => {
+router.post('/:id/confirmar', exigirFuncion('siigo.parametrizacion.administrar'), async (req: Request, res: Response) => {
   const id = Number.parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
 

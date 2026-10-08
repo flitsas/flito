@@ -3,6 +3,7 @@
 //
 //   npm run permisos:en-seco -w apps/api -- --hu 13421 > /tmp/reparto-13421.md
 //   npm run permisos:en-seco -w apps/api -- --hu 13422 > /tmp/reparto-13422.md   (HU #13422)
+//   npm run permisos:en-seco -w apps/api -- --hu 13423 > /tmp/reparto-13423.md   (HU #13423)
 //
 // Solo LEE: una transacción `READ ONLY` con tres SELECT (usuarios activos, reparto por rol y
 // excepciones por usuario). Lo propuesto se simula en memoria con el núcleo puro
@@ -33,7 +34,7 @@ import {
   type FilaRolEnSeco, type FilaUsuarioEnSeco, type RutaEnSeco, type UsuarioEnSeco,
 } from '../modules/permisos/reparto-en-seco.js';
 
-const HU_SOPORTADAS = ['13421', '13422'];
+const HU_SOPORTADAS = ['13421', '13422', '13423'];
 const DIRECTORIOS = ['pesv', 'drivers', 'jornadas', 'rum'];
 const CON_PAGINA_PROPIA = new Map([
   ['pesv/raci.routes.ts', 'pagina.pesv_raci'],
@@ -154,6 +155,87 @@ function propuestaHu13422() {
   return { copias: [{ origen: 'pagina.maintenance', destinos }], literales };
 }
 
+// ── HU #13423 — laft/, privacy/, firma/, drive/, soat/ (antiguo), siigo/ y las 4 de solo sesión ──────
+// «Antes» medido en la base de la HU (a2b2cd47, HU #13422):
+//   · las rutas de los seis directorios exigían la lista literal de su `requireRole` (la foto
+//     `inventario.generado.ts`); las que además llevan `requirePage` a nivel de router (laft: plan de
+//     auditorías, manual, oficial, tablero) la conservan antes y después;
+//   · las acciones de Siigo (`exigirAccionSiigo`) decidían con la fila de su acción en la vieja tabla de
+//     roles por acción (misma foto: guardas en línea de `siigo/siigo.permisos.ts`);
+//   · las cuatro operaciones de solo sesión (`vehicles.vehiculos.consultar`, `runt.persona.consultar`,
+//     `runt.cedula.leer`, `integraciones.fasecolda.buscar`) las alcanzaba todo usuario activo.
+const FICHEROS_13423 = GUARDAS_MEDIDAS.filter((g) => /^(laft|privacy|firma|drive|soat|siigo|runt|integraciones)\//.test(g.fichero)
+  || (g.fichero === 'vehicles/vehicles.routes.ts' && !g.condicion));
+const SESION_13423: Record<string, string[]> = {
+  'vehicles.vehiculos.consultar': ['pagina.vehicles', 'pagina.soat', 'pagina.fleet', 'pagina.tramite'],
+  'runt.persona.consultar': ['pagina.tramite'],
+  'runt.cedula.leer': ['pagina.tramite'],
+  'integraciones.fasecolda.buscar': ['pagina.tramite'],
+};
+
+function rutasHu13423(raiz = RAIZ_MODULOS): { rutas: RutaEnSeco[]; abiertas: { llave: string; motivo: string }[]; sesion: Map<string, string[]> } {
+  const codigoDeLlave = new Map<string, string>();
+  const paginaDeRouter = new Map<string, string | undefined>();
+  const sesion = new Map<string, string[]>();
+  for (const fichero of new Set(FICHEROS_13423.map((g) => g.fichero))) {
+    const fuente = sinComentarios(readFileSync(join(raiz, fichero), 'utf8'));
+    const p = /router\.use\([^)]*requirePage\('([a-z_]+)'\)/.exec(fuente)?.[1];
+    paginaDeRouter.set(fichero, p ? `pagina.${p}` : undefined);
+    for (const m of fuente.matchAll(RUTA)) {
+      const funcion = /exigirFuncion\('([a-z0-9_.]+)'\)/.exec(m[3]!)?.[1];
+      if (funcion) codigoDeLlave.set(`${fichero} ${m[1]!.toUpperCase()} ${m[2]}`, funcion);
+    }
+    for (const m of fuente.matchAll(/case '([a-z_]+)': return tieneFuncion\(req, '([a-z0-9_.]+)'\)/g)) {
+      codigoDeLlave.set(`${fichero} ${m[1] === 'consultar' ? 'GET' : 'POST'} * [${m[1]}]`, m[2]!);
+    }
+  }
+  const rutas: RutaEnSeco[] = [];
+  const abiertas: { llave: string; motivo: string }[] = [];
+  for (const g of FICHEROS_13423) {
+    const llave = llaveDe(g);
+    const codigo = codigoDeLlave.get(llave);
+    if (!codigo) { abiertas.push({ llave, motivo: 'en la foto pero sin guarda en el fuente' }); continue; }
+    const pagina = paginaDeRouter.get(g.fichero);
+    const deSesion = codigo in SESION_13423;
+    if (deSesion) sesion.set(codigo, [...(sesion.get(codigo) ?? []), llave]);
+    rutas.push({
+      llave,
+      antes: deSesion ? { codigos: [] } : { codigos: pagina ? [pagina] : [], roles: g.roles },
+      despues: { codigos: [...(pagina ? [pagina] : []), codigo] },
+    });
+  }
+  return { rutas, abiertas, sesion };
+}
+
+/** Lo que la 0230 propone: reparto literal del catálogo (admin en todo) y copia viva de las páginas para las 4 de sesión. */
+function propuestaHu13423() {
+  const prefijos = /^(laft|privacy|firma|drive|siigo|runt|integraciones)\.|^soat\.antiguo\.|^vehicles\.vehiculos\.consultar$/;
+  const ops = catalogoCompleto().filter((f) => f.tipo === 'operacion' && prefijos.test(f.codigo));
+  const literales: FilaRolEnSeco[] = ops.flatMap((f) => (f.codigo in SESION_13423 ? ['admin'] : f.roles).map((rol) => ({ rol, codigo: f.codigo })));
+  const porOrigen = new Map<string, string[]>();
+  for (const [codigo, paginas] of Object.entries(SESION_13423)) for (const p of paginas) porOrigen.set(p, [...(porOrigen.get(p) ?? []), codigo]);
+  return { copias: [...porOrigen].map(([origen, destinos]) => ({ origen, destinos })), literales };
+}
+
+/** AC7: por cada operación de solo sesión, qué roles la usan hoy (sus páginas) y cuántos usuarios dejan de alcanzarla. */
+function informeSesion13423(
+  sesion: Map<string, string[]>, informe: ReturnType<typeof repartoEnSeco>, filasRol: FilaRolEnSeco[], usuarios: UsuarioEnSeco[],
+): string {
+  const l = ['## 6. Las 4 operaciones que hoy solo exigen sesión (AC7)', '',
+    '| Operación | Páginas que la llaman | Roles con esas páginas (hoy) | Usuarios que hoy la alcanzan | Después | Dejan de alcanzarla (por rol) |', '|---|---|---|---|---|---|'];
+  for (const [codigo, paginas] of Object.entries(SESION_13423)) {
+    const roles = [...new Set(filasRol.filter((f) => paginas.includes(f.codigo)).map((f) => f.rol))].sort();
+    const llaves = sesion.get(codigo) ?? [];
+    const pierden = new Map<number, string>();
+    for (const d of informe.detalle) if (llaves.includes(d.llave) && d.cambio === 'pierde') pierden.set(d.userId, d.rol);
+    const porRol: Record<string, number> = {};
+    for (const r of pierden.values()) porRol[r] = (porRol[r] ?? 0) + 1;
+    const despues = Math.min(...informe.rutas.filter((r) => llaves.includes(r.llave)).map((r) => r.despues));
+    l.push(`| \`${codigo}\` | ${paginas.join(', ')} | ${roles.join(', ') || '—'} | ${usuarios.length} | ${despues} | ${Object.entries(porRol).sort().map(([r, n]) => `${r} (${n})`).join(', ') || '—'} (total ${pierden.size}) |`);
+  }
+  return l.join('\n');
+}
+
 async function main(): Promise<number> {
   const i = process.argv.indexOf('--hu');
   const hu = i >= 0 ? process.argv[i + 1] : undefined;
@@ -173,10 +255,12 @@ async function main(): Promise<number> {
   const filasUsuario: FilaUsuarioEnSeco[] = [...filas.usr].map((r) => ({
     userId: Number(r.user_id), codigo: String(r.funcion_codigo), efecto: r.efecto === 'revocar' ? 'revocar' : 'conceder',
   }));
-  const { rutas, abiertas } = hu === '13422' ? rutasHu13422() : rutasHu13421();
-  const propuesta = hu === '13422' ? propuestaHu13422() : propuestaHu13421();
+  const r13423 = hu === '13423' ? rutasHu13423() : undefined;
+  const { rutas, abiertas } = r13423 ?? (hu === '13422' ? rutasHu13422() : rutasHu13421());
+  const propuesta = hu === '13423' ? propuestaHu13423() : hu === '13422' ? propuestaHu13422() : propuestaHu13421();
   const informe = repartoEnSeco({ usuarios, filasRol, filasUsuario, propuesta, rutas, abiertas });
   console.log(informeMarkdown(informe, `HU #${hu} (${usuarios.length} usuarios activos, ${rutas.length} rutas)`));
+  if (r13423) console.log(informeSesion13423(r13423.sesion, informe, filasRol, usuarios));
   return 0;
 }
 
