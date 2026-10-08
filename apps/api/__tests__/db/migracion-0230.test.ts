@@ -13,7 +13,10 @@
 //     (sería una ganancia, AC6).
 //   · M6 — volver a `INSERT INTO permisos_rol_funcion (…) VALUES (…)` con roles literales: cae el aserto
 //     del JOIN con permisos_roles (lección del CD de DEV con la 0227).
-import { describe, it, expect } from 'vitest';
+//   · M7 — volver a copiar las excepciones de `vehicles.vehiculos.consultar` página a página (gana la
+//     primera con ON CONFLICT): caen los escenarios por efecto de la mitad CON BASE (TEST_DATABASE_URL).
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import postgres from 'postgres';
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -68,9 +71,9 @@ describe('0230 — reglas del archivo (análisis estático)', () => {
 
   it('idempotente (AC10): todo INSERT con ON CONFLICT DO NOTHING; ni UPDATE, ni DELETE, ni tablas temporales', () => {
     const inserts = SIN_COMENTARIOS.match(/INSERT INTO permisos_/g) ?? [];
-    // funciones + literal + (rol + usuario) × 4 páginas de origen
-    expect(inserts).toHaveLength(10);
-    expect(SIN_COMENTARIOS.match(/ON CONFLICT \([a-z_, ]+\) DO NOTHING;/g)).toHaveLength(10);
+    // funciones + literal + rol × 4 páginas de origen + usuario de pagina.tramite + conceder/revocar agregados de vehículos
+    expect(inserts).toHaveLength(9);
+    expect(SIN_COMENTARIOS.match(/ON CONFLICT \([a-z_, ]+\) DO NOTHING;/g)).toHaveLength(9);
     expect(SIN_COMENTARIOS).not.toMatch(/DO UPDATE|UPDATE permisos_|DELETE FROM|CREATE TEMP/);
   });
 
@@ -140,13 +143,18 @@ describe('0230 — reparto con paridad (AC6) y admin explícito (AC8)', () => {
     expect(Object.fromEntries([...porDestino].map(([d, os]) => [d, [...os].sort()]))).toEqual(SESION);
   });
 
-  it('las excepciones por usuario se copian con su `efecto` desde las mismas páginas', () => {
+  it('las excepciones por usuario de los destinos de UNA página se copian con su `efecto`; las de vehículos no se copian página a página', () => {
     const re = /INSERT INTO permisos_usuario_funcion \(user_id, funcion_codigo, efecto\)\s+SELECT o\.user_id, v\.fn, o\.efecto FROM permisos_usuario_funcion o CROSS JOIN \(VALUES([\s\S]*?)\) AS v\(fn\)\s+WHERE o\.funcion_codigo = '([a-z_.]+)'\s+ON CONFLICT \(user_id, funcion_codigo\) DO NOTHING;/g;
     const porDestino = new Map<string, string[]>();
     for (const m of SIN_COMENTARIOS.matchAll(re)) {
       for (const d of [...m[1]!.matchAll(/'([a-z_.]+)'/g)].map((x) => x[1]!)) porDestino.set(d, [...(porDestino.get(d) ?? []), m[2]!]);
     }
-    expect(Object.fromEntries([...porDestino].map(([d, os]) => [d, [...os].sort()]))).toEqual(SESION);
+    const unaPagina = Object.fromEntries(Object.entries(SESION).filter(([, ps]) => ps.length === 1));
+    expect(Object.fromEntries([...porDestino].map(([d, os]) => [d, [...os].sort()]))).toEqual(unaPagina);
+    // vehicles.vehiculos.consultar: un INSERT de `conceder` y otro de `revocar`, agregados sobre las cuatro páginas.
+    const agregados = [...SIN_COMENTARIOS.matchAll(/SELECT DISTINCT o\.user_id, 'vehicles\.vehiculos\.consultar', '(conceder|revocar)' FROM permisos_usuario_funcion o\s+JOIN \(VALUES ([^)]*\)(?:, \('[a-z_.]+'\))*)\)/g)];
+    expect(agregados.map((m) => m[1])).toEqual(['conceder', 'revocar']);
+    for (const m of agregados) expect([...m[2]!.matchAll(/'([a-z_.]+)'/g)].map((x) => x[1]).sort()).toEqual(SESION['vehicles.vehiculos.consultar']);
   });
 
   it('M2: admin recibe TODO lo nuevo en este mismo archivo (AC8)', () => {
@@ -188,4 +196,83 @@ describe('0230 — reparto con paridad (AC6) y admin explícito (AC8)', () => {
       expect(OPERACIONES.find((f) => f.codigo === c)!.roles.slice().sort(), c).toEqual(sembrado);
     }
   });
+});
+
+const URL_BASE = process.env.TEST_DATABASE_URL;
+const VVC = 'vehicles.vehiculos.consultar';
+
+// Escenarios por EFECTO del destino de cuatro páginas, con la semántica del motor (shared/permisos-efectivos.ts:
+// (R ∪ C) \ V, revocar gana). Todo en una transacción que se revierte; requiere la base ya migrada.
+describe.skipIf(!URL_BASE)('0230 — excepciones de vehicles.vehiculos.consultar por efecto (BD, rollback)', () => {
+  let sql: postgres.Sql;
+  const ROLLBACK = Symbol('rollback');
+  beforeAll(() => { sql = postgres(URL_BASE!, { max: 1, onnotice: () => {} }); });
+  afterAll(async () => { await sql?.end(); });
+
+  async function enTx<T>(fn: (tx: postgres.TransactionSql) => Promise<T>): Promise<T> {
+    let salida!: T;
+    try {
+      await sql.begin(async (tx) => { salida = await fn(tx); throw ROLLBACK; });
+    } catch (e) { if (e !== ROLLBACK) throw e; }
+    return salida;
+  }
+
+  /** Dos roles de prueba (fleet+soat y ninguna página) y un usuario por escenario con sus excepciones. */
+  async function sembrar(tx: postgres.TransactionSql, usuarios: { clave: string; rol: 'fs' | 'nada'; excepciones: [string, 'conceder' | 'revocar'][] }[]) {
+    await tx`INSERT INTO permisos_roles (codigo, nombre) VALUES ('t13423_fs', 'Prueba fleet+soat'), ('t13423_nada', 'Prueba sin páginas')`;
+    await tx`INSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo) VALUES ('t13423_fs', 'pagina.fleet'), ('t13423_fs', 'pagina.soat')`;
+    const ids: Record<string, number> = {};
+    for (const u of usuarios) {
+      const [fila] = await tx<{ id: number }[]>`INSERT INTO users (name, username, password_hash, role)
+        VALUES (${'Prueba ' + u.clave}, ${'t13423_' + u.clave}, 'x', ${'t13423_' + u.rol}) RETURNING id`;
+      ids[u.clave] = fila!.id;
+      for (const [codigo, efecto] of u.excepciones) {
+        await tx`INSERT INTO permisos_usuario_funcion (user_id, funcion_codigo, efecto) VALUES (${fila!.id}, ${codigo}, ${efecto})`;
+      }
+    }
+    return ids;
+  }
+
+  async function efectoVvc(tx: postgres.TransactionSql, userId: number): Promise<string | null> {
+    const filas = await tx<{ efecto: string }[]>`SELECT efecto FROM permisos_usuario_funcion WHERE user_id = ${userId} AND funcion_codigo = ${VVC}`;
+    return filas[0]?.efecto ?? null;
+  }
+
+  it('revocar en fleet con rol que da soat: NO queda revocado (conserva SOAT, conserva /api/vehicles)', async () => {
+    await enTx(async (tx) => {
+      const ids = await sembrar(tx, [{ clave: 'r1', rol: 'fs', excepciones: [['pagina.fleet', 'revocar']] }]);
+      await tx.unsafe(SQL);
+      expect(await efectoVvc(tx, ids.r1!)).toBeNull();
+      const [rol] = await tx`SELECT 1 FROM permisos_rol_funcion WHERE rol_codigo = 't13423_fs' AND funcion_codigo = ${VVC}`;
+      expect(rol).toBeDefined();
+    });
+  }, 60_000);
+
+  it('sin acceso efectivo a ninguna de las cuatro (revocadas las del rol, o rol sin ellas): SÍ queda revocado', async () => {
+    await enTx(async (tx) => {
+      const ids = await sembrar(tx, [
+        { clave: 'r2a', rol: 'fs', excepciones: [['pagina.fleet', 'revocar'], ['pagina.soat', 'revocar'], ['pagina.tramite', 'revocar'], ['pagina.vehicles', 'revocar']] },
+        { clave: 'r2b', rol: 'nada', excepciones: [['pagina.fleet', 'revocar']] },
+      ]);
+      await tx.unsafe(SQL);
+      expect(await efectoVvc(tx, ids.r2a!)).toBe('revocar');
+      expect(await efectoVvc(tx, ids.r2b!)).toBe('revocar');
+    });
+  }, 60_000);
+
+  it('conceder en soat + revocar en fleet: queda conceder', async () => {
+    await enTx(async (tx) => {
+      const ids = await sembrar(tx, [{ clave: 'r3', rol: 'nada', excepciones: [['pagina.fleet', 'revocar'], ['pagina.soat', 'conceder']] }]);
+      await tx.unsafe(SQL);
+      expect(await efectoVvc(tx, ids.r3!)).toBe('conceder');
+    });
+  }, 60_000);
+
+  it('el bloque DO aborta si alguien queda revocado en vehículos mientras conserva acceso efectivo a una página de origen', async () => {
+    await expect(enTx(async (tx) => {
+      const ids = await sembrar(tx, [{ clave: 'r4', rol: 'fs', excepciones: [['pagina.fleet', 'revocar']] }]);
+      await tx`INSERT INTO permisos_usuario_funcion (user_id, funcion_codigo, efecto) VALUES (${ids.r4!}, ${VVC}, 'revocar')`;
+      await tx.unsafe(SQL);
+    })).rejects.toThrow(/revocar en vehicles\.vehiculos\.consultar y acceso efectivo/);
+  }, 60_000);
 });
