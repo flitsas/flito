@@ -1,12 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { eq, and, desc, gte, lte } from 'drizzle-orm';
+import { eq, and, desc, gte, lte, inArray } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { alcoholTests, driverProfile, users } from '../../db/schema.js';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { usuariosConFuncion } from '../../shared/permisos-efectivos.js';
 import { sendEmail, isSmtpConfigured } from '../../services/email.js';
 import { pesvAlertRecipients } from '../../config/env.js';
 
@@ -129,14 +130,17 @@ router.post('/', requirePage('pesv_alcoholimetria'), exigirFuncion('drivers.alco
     detail: `${data.tipo} ${resultado} ${data.valorMg}mg/L`,
   });
 
-  // Alerta PESV: destinatarios desde PESV_ALERT_RECIPIENTS (env). Fallback a admins activos.
+  // Alerta PESV: destinatarios desde PESV_ALERT_RECIPIENTS (env). Fallback: quien puede levantar la
+  // suspensión, es decir, la función `drivers.alcoholimetria.administrar` (la 0227 la siembra solo a
+  // `admin`: mismo conjunto que antes, sin depender del nombre del rol — HU #13425).
   // Decisión: jamás dirigir alerta operacional al proveedor del software (kyverum.com).
   if (resultado === 'positivo' && isSmtpConfigured()) {
     let recipients: string[] = pesvAlertRecipients;
     if (recipients.length === 0) {
-      const admins = await db.select({ email: users.email })
+      const ids = await usuariosConFuncion('drivers.alcoholimetria.administrar');
+      const admins = ids.length === 0 ? [] : await db.select({ email: users.email })
         .from(users)
-        .where(and(eq(users.role, 'admin'), eq(users.active, true)));
+        .where(and(inArray(users.id, ids), eq(users.active, true)));
       recipients = admins.map((a) => a.email).filter((e): e is string => !!e && e.includes('@'));
     }
     if (recipients.length > 0) {

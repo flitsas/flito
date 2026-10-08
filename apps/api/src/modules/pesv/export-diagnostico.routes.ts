@@ -145,15 +145,15 @@ router.get(
       resourceId: `${id}/${codigo}`,
       detail: `evidencias=${evidencias.length}/${evidenciaKeys.length}`,
     });
-    if (req.user?.role === 'compliance') {
-      await logPiiAccess(req, {
-        resourceTipo: 'pesv_evidence',
-        resourceId: id,
-        accion: 'export',
-        camposAccedidos: ['evidencia_documental'],
-        motivo: `export estandar=${codigo}`,
-      });
-    }
+    // HU #13425: el acceso a la evidencia documental se registra para TODO el que exporta (la ruta
+    // ya exige `pesv.diagnostico_consulta.administrar`), no solo para un nombre de rol (Ley 1581).
+    await logPiiAccess(req, {
+      resourceTipo: 'pesv_evidence',
+      resourceId: id,
+      accion: 'export',
+      camposAccedidos: ['evidencia_documental'],
+      motivo: `export estandar=${codigo}`,
+    });
 
     await zip.finalize();
   },
@@ -244,15 +244,15 @@ router.get(
       resourceId: String(id),
       detail: `expediente completo evidencias=${evidencias.length}/${totalKeys}`,
     });
-    if (req.user?.role === 'compliance') {
-      await logPiiAccess(req, {
-        resourceTipo: 'pesv_evidence',
-        resourceId: id,
-        accion: 'export',
-        camposAccedidos: ['evidencia_documental'],
-        motivo: 'export expediente completo',
-      });
-    }
+    // HU #13425: el acceso a la evidencia documental se registra para TODO el que exporta (la ruta
+    // ya exige `pesv.diagnostico_consulta.administrar`), no solo para un nombre de rol (Ley 1581).
+    await logPiiAccess(req, {
+      resourceTipo: 'pesv_evidence',
+      resourceId: id,
+      accion: 'export',
+      camposAccedidos: ['evidencia_documental'],
+      motivo: 'export expediente completo',
+    });
 
     await zip.finalize();
   },

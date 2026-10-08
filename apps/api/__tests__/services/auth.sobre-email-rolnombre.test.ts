@@ -78,7 +78,7 @@ async function buildApp() {
 
 /** Login + /me del mismo usuario. Consultas: usuario → puente → clients (cliente con compañía). */
 async function ambosSobres(fila: Record<string, unknown>) {
-  await registrarUsuarioDePrueba(42, { rol: 'cliente', tipoPrincipal: 'externo', funcionesDelRol: ['pagina.flito_soat'], excepciones: [] });
+  await registrarUsuarioDePrueba(42, { rol: 'cliente', tipoPrincipal: 'externo', funcionesDelRol: ['pagina.flito_soat', 'soat.solicitud.crear'], excepciones: [] });
   argonVerifyMock.mockResolvedValueOnce(true);
   selectMock
     .mockImplementationOnce(espia([fila]))

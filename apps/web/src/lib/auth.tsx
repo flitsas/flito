@@ -9,6 +9,11 @@ interface User {
   name: string;
   role: UserRole;
   allowedPages: string[];
+  /**
+   * HU #13425: códigos de las funciones EFECTIVAS del usuario (mismo resolutor que decide en el
+   * servidor), ordenados. Opcional: un `/me` anterior no la trae. La web aún no la consume aquí.
+   */
+  funciones?: string[];
   transitoCodigo?: string | null;
   /** Correo del usuario (HU #13255). Lo pinta solo `/perfil`; nunca va a consola ni a la URL. */
   email?: string | null;
@@ -18,8 +23,9 @@ interface User {
    * Capacidad de interfaz del canal Cliente (Feature #11912, HU #11914): ¿la compañía de este
    * usuario tiene encendido «SOAT sin trámite»?
    *
-   * La calcula el servidor en `GET /auth/me` (`auth.routes.ts:157`) y vale `false` para todo rol
-   * que no sea `cliente`, sin JOIN. Viaja aquí y no en el sobre de la cola por dos motivos: `/me`
+   * La calcula el servidor en `GET /auth/me` desde los permisos (HU #13425: función
+   * `soat.solicitud.crear` + principal externo + compañía con SOAT sin trámite), nunca por el nombre
+   * del rol; sin la función vale `false` sin JOIN. Viaja aquí y no en el sobre de la cola por dos motivos: `/me`
    * resuelve ANTES de que la cola termine —así el botón «Solicitar SOAT» no parpadea de «puedo» a
    * «no puedo»— y es una capacidad del usuario, no una propiedad de una página de resultados. El
    * precedente exacto es `transitoCodigo`, aquí arriba.

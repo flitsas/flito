@@ -214,11 +214,15 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     expect(() => catalogoDeOperaciones(faltante)).toThrow(/SIN guarda viva/);
   });
 
-  it('las cuatro guardas en línea van con su condición en la llave y no colisionan con la ruta que las contiene (dos son del Bug #12642)', () => {
+  it('las ocho guardas en línea van con su condición en la llave y no colisionan con la ruta que las contiene (dos son del Bug #12642, cuatro de la HU #13425)', () => {
     const enLinea = guardas.filter((g) => g.condicion);
     expect(enLinea.map(llaveDe).sort()).toEqual([
       'flito-impuestos/flito-impuestos.routes.ts POST /export [incluirPago]',
+      'flito-logistica/flito-logistica.routes.ts POST /actas/:id/entregar [operarAjenas]',
       'flito-soat/flito-soat.routes.ts POST /export [incluirPago]',
+      'jornadas/jornadas.routes.ts POST /abrir [jornadaAjena]',
+      'pesv/diagnostico.routes.ts GET /:id [sugerirAuditoria]',
+      'pesv/diagnostico.routes.ts GET /:id [vistaAuditoria]',
       'tramites/tramites.routes.ts PATCH /:id [_forzarContinuar]',
       'users/users.routes.ts PATCH /:id/password [ajena]',
     ]);
@@ -226,6 +230,11 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     expect(codigoDeLlave.get('flito-soat/flito-soat.routes.ts POST /export [incluirPago]')).toBe('soat.excel.exportar_pago');
     expect(codigoDeLlave.get('tramites/tramites.routes.ts PATCH /:id')).toBe('tramite.tramite.editar');
     expect(codigoDeLlave.get('tramites/tramites.routes.ts PATCH /:id [_forzarContinuar]')).toBe('tramite.tramite.forzar_continuar');
+    expect(codigoDeLlave.get('flito-logistica/flito-logistica.routes.ts POST /actas/:id/entregar')).toBe('logistica.actas.entregar');
+    expect(codigoDeLlave.get('flito-logistica/flito-logistica.routes.ts POST /actas/:id/entregar [operarAjenas]')).toBe('logistica.actas.operar_ajenas');
+    expect(codigoDeLlave.get('jornadas/jornadas.routes.ts POST /abrir [jornadaAjena]')).toBe('jornadas.control.administrar');
+    expect(codigoDeLlave.get('pesv/diagnostico.routes.ts GET /:id [vistaAuditoria]')).toBe('pesv.diagnostico_consulta.administrar');
+    expect(codigoDeLlave.get('pesv/diagnostico.routes.ts GET /:id [sugerirAuditoria]')).toBe('pesv.diagnostico.administrar');
   });
 });
 

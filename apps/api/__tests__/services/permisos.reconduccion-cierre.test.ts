@@ -54,7 +54,7 @@ const AUTH_EN_RUTA_IDENTIDAD = [
   'GET /documentos/:tramiteId', 'POST /certificado/:tramiteId', 'POST /recortar-cedula',
 ];
 
-/** AC3 — las 11 comparaciones de ámbito que se quedan, y por qué (15 hasta la HU #12815; 13 hasta el Bug #12869). */
+/** AC3 — las 8 comparaciones de ámbito que se quedan, y por qué (15 hasta la HU #12815; 13 hasta el Bug #12869; 11 hasta la HU #13425). */
 const AMBITO: { fichero: string; patron: RegExp; veces: number; porque: string }[] = [
   // HU #12815: la frontera por compañía del EXTERNO ya no es una comparación de rol — la decide
   // `tipo_principal` vía `resolverPermisos` (`SoatCtx.externo`), así que el patrón sigue buscando
@@ -68,7 +68,9 @@ const AMBITO: { fichero: string; patron: RegExp; veces: number; porque: string }
   { fichero: 'flito-impuestos/flito-recibos.service.ts', patron: /role === 'gestor_impuestos'/g, veces: 1, porque: 'recibos: frontera por organismo' },
   { fichero: 'tramites/transito-scope.ts', patron: /role (===|!==) '(admin|transito)'/g, veces: 2, porque: 'resolveTransitoScope: organismo del usuario de tránsito' },
   { fichero: 'tramites/transito-config.routes.ts', patron: /role === 'transito'/g, veces: 3, porque: 'organismo del transito al leer config, checklist y logo' },
-  { fichero: 'flito-logistica/flito-logistica.service.ts', patron: /role === 'mensajero'/g, veces: 3, porque: 'el mensajero solo toca sus propias actas' },
+  // HU #13425: no era ámbito de filas sino una REGLA de propiedad; la decide la función
+  // `logistica.actas.operar_ajenas`. Cero, y el patrón se conserva para que su reaparición ponga esto rojo.
+  { fichero: 'flito-logistica/flito-logistica.service.ts', patron: /role === 'mensajero'/g, veces: 0, porque: 'HU #13425: la propiedad del acta la decide logistica.actas.operar_ajenas' },
 ];
 
 function ficherosTs(dir: string): string[] {
@@ -163,13 +165,15 @@ describe('AC1/AC2 — cada router.<método>( de los 24 ficheros lleva exigirFunc
 });
 
 describe('el lector de montajes cubre la foto entera', () => {
-  it('273 montajes = 238 previos + 2 de la #12089 (baja/reactivar) + 4 de la #12541 (servicios adicionales) + 3 por la HU #12545 (servicios por trámite) + 1 por la HU #12591 (recibo de caja) + 5 por la HU #12611 (comprobantes) + 3 por la HU #12619 (viajes de logística) + 3 por la HU #12629 (comprobantes F2) + 1 por la HU #12654 (comprobantes F3: aceptar diferencia) + 2 por el Bug #12642 (export ampliado, en línea) + 1 por la HU #12833 (corregir dirección) + 2 por la HU #12997 (incompletas SOAT: buscar y ver) + 1 por la HU #12998 (reintentar la consulta RUNT) + 2 por la HU #13061 (acceso a FLIT 2: ver y guardar) + 1 por la HU #13237 (interruptor por fuente) + 1 por la HU #13269 (reemplazar el comprobante de pago) + 1 por la HU #13362 (documentos adicionales del SOAT) + 2 por la HU #13364 (cargar y eliminar documentos adicionales) + 76 por la HU #13421 (pesv 48, drivers 24, jornadas 3, rum 1); los códigos son exactamente los de la foto', () => {
+  it('353 montajes = 238 previos + 2 de la #12089 (baja/reactivar) + 4 de la #12541 (servicios adicionales) + 3 por la HU #12545 (servicios por trámite) + 1 por la HU #12591 (recibo de caja) + 5 por la HU #12611 (comprobantes) + 3 por la HU #12619 (viajes de logística) + 3 por la HU #12629 (comprobantes F2) + 1 por la HU #12654 (comprobantes F3: aceptar diferencia) + 2 por el Bug #12642 (export ampliado, en línea) + 1 por la HU #12833 (corregir dirección) + 2 por la HU #12997 (incompletas SOAT: buscar y ver) + 1 por la HU #12998 (reintentar la consulta RUNT) + 2 por la HU #13061 (acceso a FLIT 2: ver y guardar) + 1 por la HU #13237 (interruptor por fuente) + 1 por la HU #13269 (reemplazar el comprobante de pago) + 1 por la HU #13362 (documentos adicionales del SOAT) + 2 por la HU #13364 (cargar y eliminar documentos adicionales) + 76 por la HU #13421 (pesv 48, drivers 24, jornadas 3, rum 1) + 1 por la HU #13425 (operar actas ajenas, en línea) + 3 por la HU #13425 fase B (jornada ajena; vista de auditoría del diagnóstico: abrirla y sugerirla; en línea); los códigos son exactamente los de la foto', () => {
     const montajes = montajesDeFunciones();
-    expect(GUARDAS_MEDIDAS).toHaveLength(349);
-    expect(montajes).toHaveLength(349);
+    expect(GUARDAS_MEDIDAS).toHaveLength(353);
+    expect(montajes).toHaveLength(353);
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
-    expect(montajes.filter((m) => m.metodo === null)).toHaveLength(4);
+    // En línea: 2 del Bug #12642 + forzar_continuar + contraseña ajena + operar actas ajenas (HU #13425)
+    // + jornada ajena + vista de auditoría (abrir y sugerir) de la fase B de la HU #13425.
+    expect(montajes.filter((m) => m.metodo === null)).toHaveLength(8);
   });
 
   it('un exigirFuncion sin literal hace que el lector LANCE en vez de adivinar', () => {
@@ -183,7 +187,7 @@ describe('el lector de montajes cubre la foto entera', () => {
   });
 });
 
-describe('AC3 — el ámbito no se toca: las 11 comparaciones de rol que deciden QUÉ filas se ven siguen ahí', () => {
+describe('AC3 — el ámbito no se toca: las 8 comparaciones de rol que deciden QUÉ filas se ven siguen ahí', () => {
   for (const { fichero, patron, veces, porque } of AMBITO) {
     it(`${fichero}: ${veces} (${porque})`, () => {
       const fuente = sinComentarios(leer(fichero));
@@ -191,8 +195,8 @@ describe('AC3 — el ámbito no se toca: las 11 comparaciones de rol que deciden
     });
   }
 
-  it('son 11 en total, y fuera de ellas no queda ninguna comparación de rol en users (HU #12088, HU #13424)', () => {
-    expect(AMBITO.reduce((n, a) => n + a.veces, 0)).toBe(11);
+  it('son 8 en total, y fuera de ellas no queda ninguna comparación de rol en users (HU #12088, HU #13424)', () => {
+    expect(AMBITO.reduce((n, a) => n + a.veces, 0)).toBe(8);
     const enUsers = sinComentarios(leer('users/users.routes.ts')).match(/\brole (===|!==) '[a-z_]+'/g) ?? [];
     // Antes #12088 había ~27 (superRefine + filtros de ámbito por rol). El ámbito del gestor
     // pasó a la puente `flito_gestor_organismos` y quedaron 3 de validación (`role !== 'admin'`,
@@ -238,13 +242,9 @@ const HEREDAN_AUTH: Record<string, { fichero: string; montaje: string }> = {
 };
 
 /** HU #13425 (fuera de alcance): comparaciones de nombre de rol DENTRO de handlers que siguen ahí. */
-const PENDIENTES_13425: { fichero: string; veces: number; que: string }[] = [
-  { fichero: 'jornadas/jornadas.routes.ts', veces: 6, que: "«otro conductor salvo admin» (`role !== 'admin'`)" },
-  { fichero: 'pesv/diagnostico.routes.ts', veces: 2, que: 'vista de auditoría por rol (compliance / lista)' },
-  { fichero: 'pesv/export-diagnostico.routes.ts', veces: 2, que: "PII enmascarada para `compliance`" },
-  { fichero: 'drivers/alcohol.routes.ts', veces: 1, que: 'destinatarios del aviso: `users.role = admin`' },
-  { fichero: 'jornadas/notify.ts', veces: 1, que: 'destinatarios del aviso: `users.role = admin`' },
-];
+// HU #13425 (fase B): las 12 reglas por nombre de rol que quedaban dentro de los handlers (jornadas 6 +
+// notify 1, pesv/diagnostico 2, pesv/export-diagnostico 2, drivers/alcohol 1) pasaron a funciones del motor.
+const PENDIENTES_13425: { fichero: string; veces: number; que: string }[] = [];
 const COMPARACION_DE_ROL = /\brole\s*(?:===|!==)\s*'[a-z_]+'|\]\.includes\(req\.user[!?]?\.role\)|eq\(users\.role,\s*'[a-z_]+'\)/g;
 const RUTA_LEGADO = /router\.(get|post|put|patch|delete)\(\s*'([^']*)'\s*,([\s\S]{0,500}?)(?:async\s*\(|\(\s*_?req\b|\(\s*\)\s*=>|\);)/g;
 
