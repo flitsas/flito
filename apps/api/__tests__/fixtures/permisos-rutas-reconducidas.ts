@@ -7,7 +7,7 @@
 // la 0181)— no derivan de esta ni esta de ellas. Una fila de aquí sin `exigirFuncion` en el código es
 // rojo; un `exigirFuncion` en el código sin fila aquí, también.
 //
-// `condicion` marca las dos guardas EN LÍNEA (`tieneFuncion` dentro del handler): no tienen montaje a
+// `condicion` marca las guardas EN LÍNEA (`tieneFuncion` dentro del handler): no tienen montaje a
 // nivel de ruta y el lector las devuelve con método y ruta nulos.
 
 export interface RutaReconducida {
@@ -359,6 +359,9 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'pesv/diagnostico.routes.ts', metodo: 'GET', ruta: '/:id/preflight', codigo: 'pesv.diagnostico_consulta.administrar' },
   { fichero: 'pesv/diagnostico.routes.ts', metodo: 'POST', ruta: '/:id/cerrar', codigo: 'pesv.diagnostico.administrar' },
   { fichero: 'pesv/diagnostico.routes.ts', metodo: 'GET', ruta: '/:id/items/:estandarId/historial', codigo: 'pesv.diagnostico_consulta.administrar' },
+  // HU #13425 — guardas EN LÍNEA de GET /:id (antes por nombre de rol): vista de auditoría y sugerencia de redirección.
+  { fichero: 'pesv/diagnostico.routes.ts', metodo: 'GET', ruta: '/:id', condicion: 'vistaAuditoria', codigo: 'pesv.diagnostico_consulta.administrar' },
+  { fichero: 'pesv/diagnostico.routes.ts', metodo: 'GET', ruta: '/:id', condicion: 'sugerirAuditoria', codigo: 'pesv.diagnostico.administrar' },
   { fichero: 'pesv/diagnostico-evidencias.routes.ts', metodo: 'POST', ruta: '/:id/items/:estandarId/evidencias', codigo: 'pesv.diagnostico.administrar' },
   { fichero: 'pesv/diagnostico-evidencias.routes.ts', metodo: 'DELETE', ruta: '/:id/items/:estandarId/evidencias/:keyHash', codigo: 'pesv.diagnostico.administrar' },
   { fichero: 'pesv/diagnostico-evidencias.routes.ts', metodo: 'GET', ruta: '/:id/items/:estandarId/evidencias/:keyHash', codigo: 'pesv.diagnostico_consulta.administrar' },
@@ -426,5 +429,7 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'jornadas/jornadas.routes.ts', metodo: 'GET', ruta: '/', codigo: 'jornadas.control.administrar' },
   { fichero: 'jornadas/jornadas.routes.ts', metodo: 'POST', ruta: '/alarmas/:alarmaId/ack', codigo: 'jornadas.control.administrar' },
   { fichero: 'jornadas/jornadas.routes.ts', metodo: 'POST', ruta: '/reporte-mensual/regenerar', codigo: 'jornadas.control.administrar' },
+  // HU #13425 — guarda EN LÍNEA (`operaJornadaAjena`): operar la jornada de otro conductor.
+  { fichero: 'jornadas/jornadas.routes.ts', metodo: 'POST', ruta: '/abrir', condicion: 'jornadaAjena', codigo: 'jornadas.control.administrar' },
   { fichero: 'rum/rum.routes.ts', metodo: 'GET', ruta: '/summary', codigo: 'rum.resumen.ver' },
 ];
