@@ -116,9 +116,10 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
   it('el SQL sembrado conoce cada código de la lista (0179 ∪ 0181)', () => {
     const sembrados = new Set([...leerRepartoSembrado().values()].flatMap((s) => [...s]));
     const desconocidos = RUTAS_RECONDUCIDAS.filter((r) => !sembrados.has(r.codigo)).map(etiqueta);
-    // Un código que NINGÚN rol tiene sembrado sería una guarda que responde 403 a todo el mundo; hoy
-    // no existe ninguna (todas tienen al menos `admin` o `cliente`).
-    expect(desconocidos).toEqual([]);
+    // Un código que NINGÚN rol tiene sembrado es una guarda que responde 403 a todo el mundo. Solo hay
+    // una, a propósito: el reemplazo del comprobante de pago nace sin rol (AC7 de la HU #13269) y el
+    // administrador lo concede desde el panel. Cualquier otra es un olvido.
+    expect(desconocidos).toEqual(['flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts POST /:id/recibos/reemplazar-pago']);
   });
 });
 

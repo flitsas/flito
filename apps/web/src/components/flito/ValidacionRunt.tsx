@@ -14,7 +14,7 @@ import {
   ANALISIS_ESTADO_IMPUESTO_LABEL, CAMPO_COMPARACION_FACTURA_RUNT_LABEL, MOTIVO_SEMAFORO_ROJO_LABEL,
   SEMAFORO_IMPUESTO_LABEL,
   type AnalisisEstadoImpuesto, type ComparacionCampoFacturaRunt, type ComparacionFacturaRunt,
-  type DireccionCompradorImpuesto, type MotivoSemaforoRojo, type SemaforoImpuesto,
+  type DireccionCompradorImpuesto, type EnvioComprobante, type EnvioComprobanteFlit2, type MotivoSemaforoRojo, type SemaforoImpuesto,
 } from '@operaciones/shared-types';
 import { ApiError, api } from '../../lib/api';
 import FlitModal from '../flit/FlitModal';
@@ -158,6 +158,12 @@ export function AvisoAnalisis({ envio, onActualizar, onCerrar }: {
 export interface DetalleValidacion extends ValidacionFila {
   comparacion: ComparacionFacturaRunt | null;
   direccionComprador: DireccionCompradorImpuesto | null;
+  /** HU #13270: estado del envío del comprobante a FLIT 2; `null` = el trámite no es de FLIT 2 o no hay envío. */
+  envioFlit2?: EnvioComprobanteFlit2 | null;
+  /** HU #13312: el envío del comprobante con su destino (FLIT 1 o FLIT 2); `null` = sin envío. La UI lee solo este. */
+  envioComprobante?: EnvioComprobante | null;
+  /** Soportes no descartados del impuesto (HU #13270: decide si hay comprobante de pago que reemplazar). */
+  soportes?: Array<{ id: string; tipo: string }>;
 }
 
 export type Carga =

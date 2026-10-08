@@ -46,7 +46,7 @@ export async function catalogoAgrupado(): Promise<GrupoDeFunciones[]> {
 /**
  * Las funciones del catálogo que NO se le conceden a `admin`, y por qué está bien (AC6).
  *
- * Son las tres del canal Cliente, guardadas con `requireRole` de `cliente` a secas: `admin` NO entra a
+ * Son las tres del canal Cliente (más la del reemplazo de comprobante, HU #13269, que nace sin rol), guardadas con `requireRole` de `cliente` a secas: `admin` NO entra a
  * ellas hoy, y sembrárselas para que la cuenta cuadre sería inventar un permiso que el código no da.
  * El AC6 pedía «falla si alguna función no está concedida a admin»; medido contra el código, eso es
  * falso para estas tres, así que la comprobación las nombra una a una en vez de aflojarse. Añadir una
@@ -56,6 +56,10 @@ export const FUNCIONES_SIN_ADMIN: readonly string[] = [
   'soat.solicitud.crear',   // POST /flito/soat/cliente          — requireRole de cliente
   'soat.runt.preconsultar', // POST /flito/soat/cliente/preconsulta
   'soat.factura.leer',      // POST /flito/soat/cliente/factura/lectura
+  // HU #13269 (AC7): reemplazar el comprobante de pago descarta un soporte vigente y lo reenvía a
+  // FLIT 2. La 0220 la siembra SIN reparto, ni siquiera a admin: el administrador la concede desde el
+  // panel a quien deba tenerla (también a sí mismo).
+  'impuestos.recibos.reemplazar', // POST /flito/impuestos/:id/recibos/reemplazar-pago
 ];
 
 export class ArranquePermisosError extends Error {}

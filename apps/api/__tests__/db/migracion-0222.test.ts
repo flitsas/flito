@@ -24,13 +24,13 @@ const LLAVE = 'flito-soat/flito-soat-documentos.routes.ts GET /:id/documentos-ad
 const ROLES = ['admin', 'proveedor'];
 
 describe('0222 — análisis estático', () => {
-  it('sin BEGIN/COMMIT; DO etiquetados; sin `$$` sin etiqueta; número único; la anterior es la 0218_ (en staging no viajan 0219-0221, promoción selectiva Épica #13201)', () => {
+  it('sin BEGIN/COMMIT; DO etiquetados; sin `$$` sin etiqueta; número único; la anterior es la 0221_', () => {
     expect(scanForTxControl(ARCHIVO, SQL_0222)).toEqual([]);
     expect(SQL_0222).toMatch(/DO \$resumen0222\$/);
     expect(SIN_COMENTARIOS).not.toMatch(/\$\$/);
     const sqls = readdirSync(DIR).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
     expect(sqls.filter((f) => f.startsWith('0222_'))).toEqual([ARCHIVO]);
-    expect(sqls[sqls.indexOf(ARCHIVO) - 1]).toMatch(/^0218_/);
+    expect(sqls[sqls.indexOf(ARCHIVO) - 1]).toMatch(/^0221_/);
     expect(SQL_0222.split('\n')[0]).toBe(`-- ${ARCHIVO}`);
     expect(SQL_0222).toMatch(/^-- Autor: /m);
   });

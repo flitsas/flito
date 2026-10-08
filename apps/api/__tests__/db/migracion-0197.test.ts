@@ -83,13 +83,14 @@ describe('0197 — análisis estático', () => {
     expect(repartoDePartida().filter(([, c]) => c === CODIGO)).toEqual([['admin', CODIGO]]);
   });
 
-  it('los cardinales del catálogo suben en 1 operación de impuestos (18 → 19; 20 con la 0203 del Bug #12642; 21 con la 0208 de la HU #12833)', () => {
+  it('los cardinales del catálogo suben en 1 operación de impuestos (18 → 19; 20 con la 0203 del Bug #12642; 21 con la 0208 de la HU #12833; 22 con la 0220 de la HU #13269)', () => {
     // El centinela cuenta TODAS las operaciones de impuestos, así que cada función posterior lo
     // mueve: la 0203 (Bug #12642, `impuestos.excel.exportar_pago`, guarda en línea del mismo
     // fichero) lo dejó en 20; la 0208 (HU #12833, `impuestos.tramite.corregir_direccion`, en su sub-router
-    // propio) en 21. Lo que esta migración prueba es «+1», no el número absoluto.
+    // propio) en 21; la 0220 (HU #13269, `impuestos.recibos.reemplazar`, en su sub-router propio) en 22.
+    // Lo que esta migración prueba es «+1», no el número absoluto.
     const impuestos = catalogoCompleto().filter((c) => c.tipo === 'operacion' && c.modulo === 'impuestos');
-    expect(impuestos).toHaveLength(21);
+    expect(impuestos).toHaveLength(22);
     expect(OPERACIONES_DECLARADAS.filter((o) => o.llave.startsWith('flito-impuestos/flito-impuestos.routes.ts '))).toHaveLength(20);
     expect(impuestos.map((c) => c.codigo)).toContain(CODIGO);
   });

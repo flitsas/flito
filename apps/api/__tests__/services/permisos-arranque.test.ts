@@ -168,12 +168,12 @@ describe('AC6 — añadir una función obliga a decidir sobre `admin`', () => {
     expect((error as Error).message).toMatch(/FUNCIONES_SIN_ADMIN/);
   });
 
-  it('las tres del canal Cliente NO protestan: están declaradas con su motivo', async () => {
+  it('las tres del canal Cliente y la que nace sin rol (HU #13269) NO protestan: están declaradas con su motivo', async () => {
     conBase(CODIGOS);
     await expect(verificarCatalogoAlArrancar()).resolves.toBeUndefined();
-    // Y son exactamente las tres, no «las que falten»: el reparto encolado no incluye ninguna.
+    // Y son exactamente esas cuatro, no «las que falten»: el reparto encolado no incluye ninguna.
     expect([...FUNCIONES_SIN_ADMIN].sort())
-      .toEqual(['soat.factura.leer', 'soat.runt.preconsultar', 'soat.solicitud.crear']);
+      .toEqual(['impuestos.recibos.reemplazar', 'soat.factura.leer', 'soat.runt.preconsultar', 'soat.solicitud.crear']);
   });
 
   it('las filas de OTROS roles no cuentan como concesión a `admin`', async () => {

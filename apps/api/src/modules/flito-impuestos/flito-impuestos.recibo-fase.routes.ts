@@ -25,7 +25,7 @@ import { audit } from '../../shared/middleware/audit.js';
 import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { clasificarBytes } from '../../shared/soportes/soportes-zip.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
-import type { ImpuestoCtx } from './flito-factura-venta.service.js';
+import type { ArchivoSubido, ImpuestoCtx } from './flito-factura-venta.service.js';
 import { CargaPorFaseError, cargarReciboPorFase } from './flito-recibos.service.js';
 
 type Contexto = (user: NonNullable<Request['user']>) => Promise<ImpuestoCtx>;
@@ -67,12 +67,15 @@ const MOTIVO_MULTER: Record<string, string> = {
 const MOTIVO_GENERICO = 'Archivo inválido';
 const MOTIVO_TIPO = 'Tipo de archivo no permitido: solo PDF, JPEG o PNG';
 
-const archivoInvalido = (res: Response, error: string): void => {
+export const archivoInvalido = (res: Response, error: string): void => {
   res.status(400).json({ error, codigo: CodigoErrorCargaPorFase.ARCHIVO_INVALIDO });
 };
 
-/** multer envuelto: sus rechazos salen como 400 con `codigo`, no como el 500 del error handler. */
-function recibir(req: Request, res: Response, next: NextFunction): void {
+/**
+ * multer envuelto: sus rechazos salen como 400 con `codigo`, no como el 500 del error handler. Lo
+ * reutiliza el reemplazo del comprobante (HU #13269): mismos límites, mismos textos.
+ */
+export function recibir(req: Request, res: Response, next: NextFunction): void {
   upload.single('archivo')(req, res, (err: unknown) => {
     if (!err) { next(); return; }
     // Solo textos propios: un error de busboy («Unexpected end of form»…) no sale crudo (AC10).
@@ -80,6 +83,21 @@ function recibir(req: Request, res: Response, next: NextFunction): void {
       : err instanceof Error && err.message === MOTIVO_TIPO ? MOTIVO_TIPO : undefined;
     archivoInvalido(res, motivo ?? MOTIVO_GENERICO);
   });
+}
+
+/**
+ * Tras `recibir`: el archivo con el MIME que dicen sus BYTES (D-6), o null con el 400 ya respondido.
+ * Compartido con el reemplazo del comprobante (HU #13269, AC3: mismo rechazo).
+ */
+export function archivoConMimeReal(req: Request, res: Response): ArchivoSubido | null {
+  const file = req.file;
+  if (!file) { archivoInvalido(res, 'No se adjuntó ningún archivo'); return null; }
+  const clase = clasificarBytes(file.buffer);
+  if (!clase || MIME_POR_CLASE[clase] !== file.mimetype) {
+    archivoInvalido(res, 'El contenido del archivo no corresponde a un PDF, JPEG o PNG');
+    return null;
+  }
+  return { originalname: file.originalname, mimetype: MIME_POR_CLASE[clase], buffer: file.buffer, size: file.size };
 }
 
 const idSchema = z.string().uuid();
@@ -96,14 +114,8 @@ export default function reciboFaseRouter(contextoImpuesto: Contexto): Router {
    */
   router.post('/:id/recibos', exigirFuncion('impuestos.recibos.cargar'), reciboFaseLimiter, recibir,
     async (req: Request, res: Response) => {
-      const file = req.file;
-      if (!file) { archivoInvalido(res, 'No se adjuntó ningún archivo'); return; }
-      // MIME real (D-6): los bytes tienen que decir lo mismo que el cliente declaró.
-      const clase = clasificarBytes(file.buffer);
-      if (!clase || MIME_POR_CLASE[clase] !== file.mimetype) {
-        archivoInvalido(res, 'El contenido del archivo no corresponde a un PDF, JPEG o PNG');
-        return;
-      }
+      const archivo = archivoConMimeReal(req, res);
+      if (!archivo) return;
       const cuerpo = cuerpoSchema.safeParse(req.body);
       if (!cuerpo.success) {
         res.status(400).json({ error: 'La fase debe ser liquidación o pago', codigo: CodigoErrorCargaPorFase.FASE_INVALIDA });
@@ -116,7 +128,6 @@ export default function reciboFaseRouter(contextoImpuesto: Contexto): Router {
       }
       try {
         const ctx = await contextoImpuesto(req.user!);
-        const archivo = { originalname: file.originalname, mimetype: MIME_POR_CLASE[clase], buffer: file.buffer, size: file.size };
         const r = await cargarReciboPorFase(id.data, cuerpo.data.fase, archivo, ctx);
         const soporte = 'soporteId' in r ? ` Soporte ${r.soporteId}.` : '';
         await audit(req, { action: 'upload', resource: 'flito_impuesto', resourceId: id.data,

@@ -136,6 +136,7 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/:id/devolver-gestor', codigo: 'impuestos.tramite.devolver' },
   // HU #12833: sub-router propio de la corrección de dirección.
   { fichero: 'flito-impuestos/flito-impuestos.direccion.routes.ts', metodo: 'PATCH', ruta: '/:id/direccion', codigo: 'impuestos.tramite.corregir_direccion' },
+  { fichero: 'flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts', metodo: 'POST', ruta: '/:id/recibos/reemplazar-pago', codigo: 'impuestos.recibos.reemplazar' },
   // flito-derechos/flito-derechos.routes.ts
   { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'POST', ruta: '/cargar', codigo: 'derechos.recibos.cargar' },
   { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'GET', ruta: '/', codigo: 'derechos.cola.ver' },

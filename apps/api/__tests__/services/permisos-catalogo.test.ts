@@ -240,13 +240,14 @@ describe('AC4 — el reparto de partida reproduce el estado de hoy (CF-16)', () 
     expect(suyas).toHaveLength(49); // HU #13255: +`pagina.perfil` (la 0218 la reparte a admin)
   });
 
-  it('`admin` tiene todas las operaciones salvo las tres del canal Cliente, que son de `cliente`', () => {
+  it('`admin` tiene todas las operaciones salvo las tres del canal Cliente, que son de `cliente`, y la que nace sin rol (HU #13269)', () => {
     const suyas = new Set(porRol('admin'));
     const sinAdmin = operaciones.filter((f) => !suyas.has(f.codigo)).map((f) => f.codigo).sort();
     expect(sinAdmin).toEqual([...FUNCIONES_SIN_ADMIN].sort());
-    // Y no están huérfanas: son del canal Cliente, con `requireRole('cliente')` a secas.
+    // Y no están huérfanas: son del canal Cliente, con `requireRole('cliente')` a secas; salvo el
+    // reemplazo del comprobante de pago, que la 0220 siembra sin reparto (AC7 de la HU #13269).
     for (const c of sinAdmin) {
-      expect(operaciones.find((f) => f.codigo === c)!.roles).toEqual(['cliente']);
+      expect(operaciones.find((f) => f.codigo === c)!.roles).toEqual(c === 'impuestos.recibos.reemplazar' ? [] : ['cliente']);
     }
   });
 
@@ -262,11 +263,12 @@ describe('AC4 — el reparto de partida reproduce el estado de hoy (CF-16)', () 
 });
 
 describe('AC6 — añadir una función obliga a decidir sobre `admin`', () => {
-  it('la lista de excepciones nombra las tres, y solo las tres', () => {
+  it('la lista de excepciones nombra las tres del canal Cliente y la del reemplazo (HU #13269), y solo esas', () => {
     // Un `FUNCIONES_SIN_ADMIN` que crezca sin que nadie lo note es exactamente el fallo que el AC6
     // quiere evitar. Aquí se fija su contenido: ampliarla obliga a tocar este caso y explicarse.
+    // HU #13269 (AC7): `impuestos.recibos.reemplazar` nace sin rol; el administrador la concede.
     expect([...FUNCIONES_SIN_ADMIN].sort())
-      .toEqual(['soat.factura.leer', 'soat.runt.preconsultar', 'soat.solicitud.crear']);
+      .toEqual(['impuestos.recibos.reemplazar', 'soat.factura.leer', 'soat.runt.preconsultar', 'soat.solicitud.crear']);
   });
 
   it('todas las excepciones existen de verdad en el catálogo', () => {
