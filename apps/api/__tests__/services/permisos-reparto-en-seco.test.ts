@@ -97,6 +97,25 @@ describe('reparto en seco — el diff por ruta (AC6)', () => {
     expect(i.detalle).toEqual([{ llave: 'raci GET /', userId: 6, rol: 'compliance', cambio: 'gana' }]);
   });
 
+  it('con el recorte del Paso 3b (0226): raci queda en la intersección con pagina.pesv → PARIDAD, revocado y concedido por excepción incluidos', () => {
+    const usuarios: UsuarioEnSeco[] = [...USUARIOS, { id: 7, rol: 'compliance' }, { id: 8, rol: 'compliance' }];
+    const filasUsuario: FilaUsuarioEnSeco[] = [
+      ...FILAS_USR,
+      { userId: 7, codigo: 'pagina.pesv', efecto: 'conceder' },   // compliance con pesv propio: SÍ pasaba
+      { userId: 5, codigo: 'pagina.pesv_raci', efecto: 'conceder' }, // transito con pesv concedido: SÍ pasaba
+      { userId: 3, codigo: 'pagina.pesv_raci', efecto: 'conceder' }, // conductor: tenía pesv por rol: SÍ pasaba
+      { userId: 4, codigo: 'pagina.pesv_raci', efecto: 'conceder' }, // conductor con pesv REVOCADO: NO pasaba
+    ];
+    const raci = { llave: 'raci GET /', antes: { codigos: ['pagina.pesv', 'pagina.pesv_raci'] }, despues: { codigos: ['pagina.pesv_raci'] } };
+    const recortes = [{ paginas: ['pagina.pesv_raci'], requisito: 'pagina.pesv' }];
+    const sinRecorte = repartoEnSeco(entrada({ usuarios, filasUsuario, rutas: [raci] }));
+    expect(sinRecorte.detalle.map((d) => d.userId).sort()).toEqual([4, 6, 8]);
+    const conRecorte = repartoEnSeco(entrada({ usuarios, filasUsuario, rutas: [raci], propuesta: { ...PROPUESTA, recortes } }));
+    expect(conRecorte.diferencias).toBe(0);
+    expect(conRecorte.rutas[0]!.despues).toBe(conRecorte.rutas[0]!.antes);
+    expect(conRecorte.rutas[0]!.antes).toBe(4); // 1 (admin), 3 y 5 (raci propia), 7 (pesv propio); 2 no tiene raci
+  });
+
   it('el Markdown no lleva PII: solo user_id y rol en el detalle', () => {
     const md = informeMarkdown(repartoEnSeco(entrada({
       propuesta: { ...PROPUESTA, literales: [...PROPUESTA.literales, { rol: 'conductor', codigo: 'pesv.comite.administrar' }] },

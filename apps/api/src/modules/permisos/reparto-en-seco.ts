@@ -18,10 +18,15 @@ export interface RequisitoEnSeco { codigos: string[]; roles?: string[] }
 
 export interface RutaEnSeco { llave: string; antes: RequisitoEnSeco; despues: RequisitoEnSeco }
 
-/** Las filas que la migración propone: copias vivas (origen → destinos) y filas literales por rol. */
+/**
+ * Las filas que la migración propone: copias vivas (origen → destinos), filas literales por rol y
+ * RECORTES a una intersección (0226 Paso 3b): cada página de `paginas` queda efectiva solo para quien
+ * hoy la tiene Y tiene `requisito` efectivo.
+ */
 export interface PropuestaEnSeco {
   copias: { origen: string; destinos: string[] }[];
   literales: FilaRolEnSeco[];
+  recortes?: { paginas: string[]; requisito: string }[];
 }
 
 export interface EntradaEnSeco {
@@ -72,6 +77,38 @@ export function simularPropuesta(
   return { filasRol: [...rol.values()], filasUsuario: [...usr.values()] };
 }
 
+/**
+ * El recorte del Paso 3b, igual que el SQL: el objetivo se calcula con las filas de HOY; luego (a.1) el
+ * rol sin `requisito` deja de conceder la página, (a.2) se retira el `conceder` sin objetivo, (a.3) se
+ * copian las revocaciones de `requisito`, (a.4) se revoca donde el rol aún concede y (a.5) se concede a
+ * quien sí pasaba y perdió la página por el rol.
+ */
+export function aplicarRecortes(
+  usuarios: UsuarioEnSeco[], hoy: Map<number, Set<string>>,
+  filasRol: FilaRolEnSeco[], filasUsuario: FilaUsuarioEnSeco[], recortes: { paginas: string[]; requisito: string }[],
+): { filasRol: FilaRolEnSeco[]; filasUsuario: FilaUsuarioEnSeco[] } {
+  let rol = [...filasRol];
+  let usr = [...filasUsuario];
+  for (const { paginas, requisito } of recortes) {
+    for (const pagina of paginas) {
+      const objetivo = new Map(usuarios.map((u) => [u.id, hoy.get(u.id)!.has(requisito) && hoy.get(u.id)!.has(pagina)]));
+      const rolesConRequisito = new Set(rol.filter((f) => f.codigo === requisito).map((f) => f.rol));
+      rol = rol.filter((f) => f.codigo !== pagina || rolesConRequisito.has(f.rol));
+      usr = usr.filter((f) => !(f.codigo === pagina && f.efecto === 'conceder' && objetivo.get(f.userId) === false));
+      const hay = (id: number) => usr.some((f) => f.userId === id && f.codigo === pagina);
+      for (const f of filasUsuario.filter((x) => x.codigo === requisito && x.efecto === 'revocar')) {
+        if (!hay(f.userId)) usr.push({ userId: f.userId, codigo: pagina, efecto: 'revocar' });
+      }
+      const rolConcede = (r: string) => rol.some((f) => f.rol === r && f.codigo === pagina);
+      for (const u of usuarios) {
+        if (!objetivo.get(u.id) && rolConcede(u.rol) && !hay(u.id)) usr.push({ userId: u.id, codigo: pagina, efecto: 'revocar' });
+        if (objetivo.get(u.id) && !rolConcede(u.rol) && !hay(u.id)) usr.push({ userId: u.id, codigo: pagina, efecto: 'conceder' });
+      }
+    }
+  }
+  return { filasRol: rol, filasUsuario: usr };
+}
+
 /** El conjunto efectivo de cada usuario: `(R ∪ C) \ V`, igual que `resolverPermisos`. */
 export function efectivas(
   usuarios: UsuarioEnSeco[], filasRol: FilaRolEnSeco[], filasUsuario: FilaUsuarioEnSeco[],
@@ -98,7 +135,8 @@ const sumar = (m: Record<string, number>, k: string) => { m[k] = (m[k] ?? 0) + 1
 /** El diff completo. Determinista: rutas en el orden recibido; detalle por ruta y `user_id`. */
 export function repartoEnSeco(e: EntradaEnSeco): InformeEnSeco {
   const hoy = efectivas(e.usuarios, e.filasRol, e.filasUsuario);
-  const sim = simularPropuesta(e.filasRol, e.filasUsuario, e.propuesta);
+  const copiado = simularPropuesta(e.filasRol, e.filasUsuario, e.propuesta);
+  const sim = aplicarRecortes(e.usuarios, hoy, copiado.filasRol, copiado.filasUsuario, e.propuesta.recortes ?? []);
   const manana = efectivas(e.usuarios, sim.filasRol, sim.filasUsuario);
 
   const nuevos = [...new Set([...e.propuesta.copias.flatMap((c) => c.destinos), ...e.propuesta.literales.map((f) => f.codigo)])].sort();

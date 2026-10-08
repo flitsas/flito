@@ -155,6 +155,12 @@ describe('0179 — el archivo dice lo mismo que schema.ts (análisis estático)'
 });
 
 const URL_BASE = process.env.TEST_DATABASE_URL;
+/**
+ * Orden por PUNTO DE CÓDIGO, que es lo que devuelve el `ORDER BY` de Postgres con la colación de la
+ * base (C). `CATALOGO` y `REPARTO` vienen ordenados con `localeCompare`, que pone `pagina.pesv_raci`
+ * y `pesv.*` en otro orden: comparar contra ellos sin reordenar es un falso rojo (QA, HU #13421).
+ */
+const porPuntoDeCodigo = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const ROLLBACK = Symbol('rollback');
 
 describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idempotencia)', () => {
@@ -195,7 +201,7 @@ describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idemp
     const filas = await sql`
       SELECT codigo, modulo, nombre_negocio, descripcion, tipo, activo
         FROM permisos_funciones ORDER BY codigo`;
-    expect(filas.map((f) => f.codigo)).toEqual(CATALOGO.map((f) => f.codigo));
+    expect(filas.map((f) => f.codigo)).toEqual(CATALOGO.map((f) => f.codigo).sort(porPuntoDeCodigo));
     for (const f of filas) {
       const enCodigo = CATALOGO.find((c) => c.codigo === f.codigo)!;
       expect(f.modulo).toBe(enCodigo.modulo);
@@ -277,7 +283,7 @@ describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idemp
     const enBase = (await sql`
       SELECT rol_codigo, funcion_codigo FROM permisos_rol_funcion
        ORDER BY rol_codigo, funcion_codigo`).map((f) => `${f.rol_codigo}|${f.funcion_codigo}`);
-    expect(enBase).toEqual(REPARTO.map(([r, c]) => `${r}|${c}`));
+    expect(enBase).toEqual(REPARTO.map(([r, c]) => `${r}|${c}`).sort(porPuntoDeCodigo));
   });
 
   it('AC4 — el backfill por usuario copia `allowed_pages`, y solo lo válido', async () => {
