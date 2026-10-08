@@ -37,7 +37,12 @@ import {
 } from '../../src/db/schema.js';
 import { USER_ROLES, paginasPorDefecto, isValidPage } from '@operaciones/shared-types';
 import { catalogoCompleto, repartoDePartida, PAGINAS_NO_CONCEDIBLES } from '../../src/modules/permisos/catalogo.js';
-import { FUNCIONES_SIN_ADMIN } from '../../src/modules/permisos/permisos.service.js';
+/**
+ * HU #13424 (ADR-0022): `FUNCIONES_SIN_ADMIN` salió del servicio con el check de arranque. Tras la
+ * 0226 las únicas funciones sin `admin` son las tres del canal SOAT sin trámite (sus rutas no tienen
+ * otra guarda que la función; motivo y lista vigilada en `permisos-siembra-admin.test.ts`).
+ */
+const FUNCIONES_SIN_ADMIN: readonly string[] = ['soat.factura.leer', 'soat.runt.preconsultar', 'soat.solicitud.crear'];
 import {
   funcionesDeSql, leerFuncionesSembradas, leerReagrupacionesSembradas, leerRepartoSembrado,
   leerRetirosSembrados, repartoDeSql,
@@ -250,7 +255,7 @@ describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idemp
     for (const c of suyas) expect(isValidPage(c.replace('pagina.', ''))).toBe(true);
   });
 
-  it('AC6 — `admin` no se queda fuera en silencio: solo las tres del canal Cliente', async () => {
+  it('AC6 — `admin` no se queda fuera en silencio: solo las tres del canal Cliente (HU #13424, tras la 0226)', async () => {
     const sinAdmin = (await sql`
       SELECT f.codigo FROM permisos_funciones f
        WHERE NOT EXISTS (

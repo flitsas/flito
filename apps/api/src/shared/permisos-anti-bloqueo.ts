@@ -1,10 +1,13 @@
 // HU #12084 (Feature #12072, CF-12, RN-A1) — El invariante anti-bloqueo: el sistema nunca se queda
 // sin nadie que pueda administrar permisos ni sin nadie que pueda administrar usuarios.
+// HU #13424 (ADR-0022 §D3) — y ese «alguien» es UNA persona: las cuatro funciones en el mismo usuario.
 //
 // ── Qué afirma ──────────────────────────────────────────────────────────────────────────────────
 //
-// «Tras esta escritura sigue habiendo, para CADA una de `FUNCIONES_DE_ADMINISTRACION`, al menos un
-// usuario activo, vivo, de un rol INTERNO, cuyo conjunto efectivo la contiene.» El conjunto efectivo
+// «Tras esta escritura sigue habiendo al menos UN usuario activo, vivo, de un rol INTERNO, cuyo
+// conjunto efectivo contiene A LA VEZ todas las `FUNCIONES_DE_ADMINISTRACION`.» Hasta la HU #13424
+// bastaba un titular por función (podían ser dos personas distintas); ahora es la conjunción, y no
+// mira el NOMBRE del rol: `admin` es un rol editable más (ADR-0022 §D1). El conjunto efectivo
 // es la regla del resolutor (`permisos-efectivos.ts`, `(R ∪ C) \ V`) escrita en SQL para `operacion.*`:
 // la tiene si su rol se la da O se la concedieron a título personal, Y no se la revocaron. Sin las
 // dos ramas de `permisos_usuario_funcion` el invariante ignoraría a quien la tiene concedida y, peor,
@@ -28,7 +31,11 @@
 //   1. BLOQUEAR PRIMERO la población que hoy sostiene la administración: `SELECT … FOR UPDATE OF
 //      users ORDER BY id`. Solo las filas de `users` que cuentan (dos en DEV), no toda la tabla.
 //   2. Ejecutar la escritura.
-//   3. Contar. Cero en cualquiera de las funciones → `BloqueoAdministracionError` → la ruta responde 409.
+//   3. Contar a quien reúne TODAS. Cero → `BloqueoAdministracionError` → la ruta responde 409.
+//
+// El lock (paso 1) sigue con `OR` y no con `AND`, a propósito: la población bloqueada tiene que ser un
+// SUPERCONJUNTO de la contada. Bloquear solo a quien ya tiene las cuatro dejaría sin lock a quien está
+// a una escritura concurrente de completarlas.
 //
 // Dos administradores que se retiran el permiso el uno al otro: A bloquea {X, Y}, escribe, cuenta
 // (X ya no cuenta, Y sí) y confirma. B se quedó esperando en X; al despertar, `FOR UPDATE` reevalúa
@@ -57,9 +64,11 @@
 // ── Si ya hay cero administradores ──────────────────────────────────────────────────────────────
 //
 // El invariante rechaza TODA operación de las cinco, incluida la que intente arreglarlo. No hay ruta
-// que lo cause; si un día ocurre, la vía es `psql`:
+// que lo cause; si un día ocurre, la vía es `psql`, marcándole las cuatro al rol (interno) que deba
+// tenerlas —`<rol>` es su código; sin preferencia de nombre—:
 //     INSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo)
-//       VALUES ('admin', 'permisos.cuadro.guardar'), ('admin', 'usuarios.usuario.editar')
+//       VALUES ('<rol>', 'pagina.users'), ('<rol>', 'usuarios.usuario.editar'),
+//              ('<rol>', 'pagina.roles_permisos'), ('<rol>', 'permisos.cuadro.guardar')
 //       ON CONFLICT DO NOTHING;
 //
 // Vive en `shared/` y no en `modules/permisos/`: lo invocan `users.service.ts` y
@@ -75,10 +84,13 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type EjecutorSeguro = Pick<Tx, 'select'>;
 
 /**
- * Las dos capacidades que nunca pueden quedar sin titular activo (AC4): administrar permisos
- * (`PUT /api/permisos/roles/:codigo/funciones`) y administrar usuarios (`PATCH /api/users/:id`).
+ * Lo que el panel llama «Usuarios» y «Roles y permisos» (HU #13424, decisión P-2 del PO): la página
+ * y la función de API de cada uno. Sin la `pagina.*`, quien conserva la función de API queda fuera
+ * de la SPA y su única salida es `curl`/`psql`: eso también es un bloqueo.
  */
-export const FUNCIONES_DE_ADMINISTRACION = ['permisos.cuadro.guardar', 'usuarios.usuario.editar'] as const;
+export const FUNCIONES_DE_ADMINISTRACION = [
+  'pagina.users', 'usuarios.usuario.editar', 'pagina.roles_permisos', 'permisos.cuadro.guardar',
+] as const;
 
 /**
  * HU #12089 — un usuario «vivo» es el que no está dado de baja. Se usa en el lock y en la cuenta del
@@ -86,14 +98,16 @@ export const FUNCIONES_DE_ADMINISTRACION = ['permisos.cuadro.guardar', 'usuarios
  */
 export const CONDICION_USUARIO_VIVO: SQL = isNull(users.deletedAt);
 
-const MENSAJE: Record<string, string> = {
-  'permisos.cuadro.guardar': 'Dejaría cero usuarios activos capaces de administrar permisos',
-  'usuarios.usuario.editar': 'Dejaría cero usuarios activos capaces de administrar usuarios',
-};
+export const MENSAJE_BLOQUEO_ADMINISTRACION =
+  'No se puede guardar: FLITO se quedaría sin ningún usuario activo que pueda administrar Usuarios y Roles y permisos.';
 
+/**
+ * `funcion`: la primera de las funciones que se quedó sin ningún titular, o —si cada una conserva
+ * alguno pero nadie las reúne todas— la primera de la lista. Contrato 409 `{ error, funcion }`.
+ */
 export class BloqueoAdministracionError extends Error {
   constructor(public readonly funcion: string) {
-    super(MENSAJE[funcion] ?? `Dejaría cero usuarios activos con la función ${funcion}`);
+    super(MENSAJE_BLOQUEO_ADMINISTRACION);
     this.name = 'BloqueoAdministracionError';
   }
 }
@@ -119,8 +133,8 @@ function poblacionAdministradora(): SQL {
 }
 
 /**
- * 1) bloquea la población administradora, 2) ejecuta la escritura, 3) comprueba; si alguna función
- * se queda sin titular, lanza `BloqueoAdministracionError` y la transacción que envuelve revierte.
+ * 1) bloquea la población administradora, 2) ejecuta la escritura, 3) comprueba; si nadie reúne todas
+ * las funciones, lanza `BloqueoAdministracionError` y la transacción que envuelve revierte.
  *
  * `funciones` existe SOLO para el test de concurrencia, que cuenta sobre una función temporal para
  * no depender de los administradores reales de la base. Producción no lo pasa.
@@ -140,16 +154,21 @@ export async function conSeguroAntiBloqueo<T>(
   // 2. La escritura.
   const resultado = await escritura();
 
-  // 3. La cuenta, en la misma transacción: ve la escritura propia sin confirmar.
-  const contadores = Object.fromEntries(funciones.map((f, i) => [
-    `f${i}`, sql<number>`count(*) filter (where ${tiene(f)})::int`,
-  ]));
+  // 3. La cuenta, en la misma transacción: ve la escritura propia sin confirmar. `todas` es la que
+  // decide (la conjunción en el MISMO usuario); las `f<i>` solo eligen qué función nombrar en el 409.
+  const contadores: Record<string, SQL<number>> = {
+    todas: sql<number>`count(*) filter (where ${sql.join(funciones.map((f) => tiene(f)), sql` and `)})::int`,
+  };
+  for (const [i, f] of funciones.entries()) {
+    contadores[`f${i}`] = sql<number>`count(*) filter (where ${tiene(f)})::int`;
+  }
   const [fila] = await tx.select(contadores).from(users)
     .innerJoin(permisosRoles, eq(permisosRoles.codigo, users.role))
     .where(poblacionAdministradora());
-  for (const [i, f] of funciones.entries()) {
-    const n = Number((fila as Record<string, unknown> | undefined)?.[`f${i}`] ?? 0);
-    if (n === 0) throw new BloqueoAdministracionError(f);
+  const leer = (k: string) => Number((fila as Record<string, unknown> | undefined)?.[k] ?? 0);
+  if (leer('todas') === 0) {
+    const huerfana = funciones.find((_, i) => leer(`f${i}`) === 0) ?? funciones[0];
+    throw new BloqueoAdministracionError(huerfana);
   }
   return resultado;
 }

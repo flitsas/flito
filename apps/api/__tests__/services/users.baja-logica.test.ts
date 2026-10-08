@@ -44,8 +44,9 @@ vi.mock('../../src/db/client.js', () => ({
   getPoolStats: vi.fn().mockResolvedValue({ utilization: 0, total: 0, idle: 0, waiting: 0 }),
 }));
 
+const auditMock = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../src/shared/middleware/audit.js', () => ({
-  audit: vi.fn().mockResolvedValue(undefined),
+  audit: (...args: unknown[]) => auditMock(...args),
 }));
 
 vi.mock('../../src/shared/redis.js', () => ({
@@ -71,11 +72,13 @@ vi.mock('../../src/modules/users/users.service.js', async (importOriginal) => {
   };
 });
 
+/** HU #13424: passthrough por defecto; un caso lo hace lanzar para probar el 409 de la baja (AC4/AC8). */
+const seguroMock = vi.fn(async (_tx: unknown, escritura: () => Promise<unknown>) => escritura());
 vi.mock('../../src/shared/permisos-anti-bloqueo.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/shared/permisos-anti-bloqueo.js')>();
   return {
     ...actual,
-    conSeguroAntiBloqueo: async <T>(_tx: unknown, escritura: () => Promise<T>) => escritura(),
+    conSeguroAntiBloqueo: async <T>(tx: unknown, escritura: () => Promise<T>) => seguroMock(tx, escritura) as Promise<T>,
   };
 });
 
@@ -116,6 +119,8 @@ beforeEach(() => {
   deleteMock.mockReset();
   invalidarCacheMock.mockReset();
   auditoriaMock.mockReset().mockResolvedValue(undefined);
+  auditMock.mockClear();
+  seguroMock.mockClear();
   transactionMock.mockReset().mockImplementation(async (cb: (tx: unknown) => unknown) => cb(dbMock));
   process.env.AUTH_SKIP_SESSION_INVAL_CHECK = '1';
 });
@@ -234,6 +239,27 @@ describe('DELETE /api/users/:id — baja lógica', () => {
     expect(cambio.usuarioAfectado).toEqual({ id: OTRO, rol: 'operario' });
 
     vi.useRealTimers();
+  });
+
+  it('HU #13424 AC4/AC8: si la baja dejaría a nadie con las cuatro → 409, nada guardado, rechazo registrado sin PII', async () => {
+    const { BloqueoAdministracionError, MENSAJE_BLOQUEO_ADMINISTRACION } = await import('../../src/shared/permisos-anti-bloqueo.js');
+    selectMock
+      .mockReturnValueOnce(chain([{ id: OTRO, deletedAt: null, role: 'admin', active: true }]))
+      .mockReturnValueOnce(chain([{ deletedAt: null, role: 'admin' }]));
+    seguroMock.mockImplementationOnce(async () => { throw new BloqueoAdministracionError('pagina.users'); });
+
+    const res = await request(app).delete(`/api/users/${OTRO}`).set('Authorization', await authAdmin());
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: MENSAJE_BLOQUEO_ADMINISTRACION, funcion: 'pagina.users' });
+    expect(updateMock).not.toHaveBeenCalled();
+    expect(invalidarCacheMock).not.toHaveBeenCalled();
+    expect(auditMock).toHaveBeenCalledTimes(1);
+    const entrada = auditMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(entrada).toEqual({
+      action: 'update', resource: 'user', resourceId: String(OTRO),
+      detail: `resultado=rechazado_anti_bloqueo operacion=baja objetivo=usuario:${OTRO} funcion=pagina.users`,
+    });
   });
 
   it('usuario inexistente → 404', async () => {

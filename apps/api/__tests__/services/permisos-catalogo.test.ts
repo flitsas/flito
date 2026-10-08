@@ -30,7 +30,17 @@ import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.
 import {
   OPERACIONES_DECLARADAS, OPERACIONES_RETIRADAS_CANAL_CLIENTE,
 } from '../../src/modules/permisos/catalogo-operaciones.js';
-import { FUNCIONES_SIN_ADMIN } from '../../src/modules/permisos/permisos.service.js';
+
+/**
+ * Las funciones que el reparto DE PARTIDA (la siembra que genera `catalogo.ts`) no le da a `admin`.
+ * HU #13424 (ADR-0022): ya no son una excepción del motor —`FUNCIONES_SIN_ADMIN` se retiró con el
+ * check de arranque—; la 0226 le marca a `admin` `impuestos.recibos.reemplazar` y deja fuera las tres
+ * del canal SOAT sin trámite (motivo en `permisos-siembra-admin.test.ts`, `EXCLUIDAS_DE_ADMIN`).
+ * Se fija aquí para que el reparto de partida no cambie en silencio.
+ */
+const SIN_ADMIN_EN_EL_REPARTO_DE_PARTIDA: readonly string[] = [
+  'impuestos.recibos.reemplazar', 'soat.factura.leer', 'soat.runt.preconsultar', 'soat.solicitud.crear',
+];
 
 const catalogo = catalogoCompleto();
 const paginas = catalogo.filter((f) => f.tipo === 'pagina');
@@ -243,7 +253,7 @@ describe('AC4 — el reparto de partida reproduce el estado de hoy (CF-16)', () 
   it('`admin` tiene todas las operaciones salvo las tres del canal Cliente, que son de `cliente`, y la que nace sin rol (HU #13269)', () => {
     const suyas = new Set(porRol('admin'));
     const sinAdmin = operaciones.filter((f) => !suyas.has(f.codigo)).map((f) => f.codigo).sort();
-    expect(sinAdmin).toEqual([...FUNCIONES_SIN_ADMIN].sort());
+    expect(sinAdmin).toEqual([...SIN_ADMIN_EN_EL_REPARTO_DE_PARTIDA].sort());
     // Y no están huérfanas: son del canal Cliente, con `requireRole('cliente')` a secas; salvo el
     // reemplazo del comprobante de pago, que la 0220 siembra sin reparto (AC7 de la HU #13269).
     for (const c of sinAdmin) {
@@ -262,18 +272,16 @@ describe('AC4 — el reparto de partida reproduce el estado de hoy (CF-16)', () 
   });
 });
 
-describe('AC6 — añadir una función obliga a decidir sobre `admin`', () => {
-  it('la lista de excepciones nombra las tres del canal Cliente y la del reemplazo (HU #13269), y solo esas', () => {
-    // Un `FUNCIONES_SIN_ADMIN` que crezca sin que nadie lo note es exactamente el fallo que el AC6
-    // quiere evitar. Aquí se fija su contenido: ampliarla obliga a tocar este caso y explicarse.
-    // HU #13269 (AC7): `impuestos.recibos.reemplazar` nace sin rol; el administrador la concede.
-    expect([...FUNCIONES_SIN_ADMIN].sort())
+describe('HU #13424 — lo que el reparto de partida no da a `admin` (la 0226 completa todo salvo las tres del canal)', () => {
+  it('son las tres del canal Cliente y la del reemplazo (HU #13269), y solo esas', () => {
+    // El aserto «toda siembra marca a `admin`» vive en `permisos-siembra-admin.test.ts`.
+    expect([...SIN_ADMIN_EN_EL_REPARTO_DE_PARTIDA].sort())
       .toEqual(['impuestos.recibos.reemplazar', 'soat.factura.leer', 'soat.runt.preconsultar', 'soat.solicitud.crear']);
   });
 
-  it('todas las excepciones existen de verdad en el catálogo', () => {
+  it('todas existen de verdad en el catálogo', () => {
     const codigos = new Set(catalogo.map((f) => f.codigo));
-    for (const c of FUNCIONES_SIN_ADMIN) expect(codigos).toContain(c);
+    for (const c of SIN_ADMIN_EN_EL_REPARTO_DE_PARTIDA) expect(codigos).toContain(c);
   });
 });
 

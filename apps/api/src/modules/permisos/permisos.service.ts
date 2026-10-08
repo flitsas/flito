@@ -1,7 +1,7 @@
 // HU #12081 — Lectura del catálogo de funciones (AC5) y la comprobación de arranque (AC6).
 import { asc, desc } from 'drizzle-orm';
 import { db } from '../../db/client.js';
-import { permisosFunciones, permisosRolFuncion } from '../../db/schema.js';
+import { permisosFunciones } from '../../db/schema.js';
 import { catalogoCompleto } from './catalogo.js';
 
 export interface FuncionDeGrupo {
@@ -43,30 +43,13 @@ export async function catalogoAgrupado(): Promise<GrupoDeFunciones[]> {
   return [...grupos.entries()].map(([modulo, funciones]) => ({ modulo, funciones }));
 }
 
-/**
- * Las funciones del catálogo que NO se le conceden a `admin`, y por qué está bien (AC6).
- *
- * Son las tres del canal Cliente (más la del reemplazo de comprobante, HU #13269, que nace sin rol), guardadas con `requireRole` de `cliente` a secas: `admin` NO entra a
- * ellas hoy, y sembrárselas para que la cuenta cuadre sería inventar un permiso que el código no da.
- * El AC6 pedía «falla si alguna función no está concedida a admin»; medido contra el código, eso es
- * falso para estas tres, así que la comprobación las nombra una a una en vez de aflojarse. Añadir una
- * función nueva sigue obligando a decidir: o se le concede a `admin`, o se escribe aquí y se explica.
- */
-export const FUNCIONES_SIN_ADMIN: readonly string[] = [
-  'soat.solicitud.crear',   // POST /flito/soat/cliente          — requireRole de cliente
-  'soat.runt.preconsultar', // POST /flito/soat/cliente/preconsulta
-  'soat.factura.leer',      // POST /flito/soat/cliente/factura/lectura
-  // HU #13269 (AC7): reemplazar el comprobante de pago descarta un soporte vigente y lo reenvía a
-  // FLIT 2. La 0220 la siembra SIN reparto, ni siquiera a admin: el administrador la concede desde el
-  // panel a quien deba tenerla (también a sí mismo).
-  'impuestos.recibos.reemplazar', // POST /flito/impuestos/:id/recibos/reemplazar-pago
-];
-
 export class ArranquePermisosError extends Error {}
 
 /**
  * Comprobación de arranque (AC6): el catálogo que el CÓDIGO declara y el que hay en la BASE son el
- * mismo, y `admin` no se ha quedado sin ninguna función en silencio.
+ * mismo. HU #13424 (ADR-0022 §D1): ya NO mira qué tiene `admin` en la base viva —eso volvía al rol no
+ * editable: desmarcarle una función desde el panel dejaba la API sin arrancar—. Que toda siembra le
+ * marque a `admin` lo nuevo lo vigila en CI `permisos-siembra-admin.test.ts`, sobre las migraciones.
  *
  * Falla ruidosamente y a propósito: un catálogo desincronizado no se manifiesta como un error, se
  * manifiesta como una pantalla que desaparece para alguien. Si la tabla está vacía —una base sin la
@@ -114,25 +97,4 @@ export async function verificarCatalogoAlArrancar(): Promise<void> {
       '`npm run permisos:seed -w apps/api -- --reagrupar`.',
     );
   }
-
-  const sinAdmin = await funcionesSinAdmin();
-  const inesperadas = sinAdmin.filter((c) => !FUNCIONES_SIN_ADMIN.includes(c));
-  if (inesperadas.length) {
-    throw new ArranquePermisosError(
-      `El rol admin no tiene concedidas ${inesperadas.length} funciones del catálogo: ` +
-      `${inesperadas.join(', ')}. O se le conceden, o se declaran en FUNCIONES_SIN_ADMIN con su ` +
-      'motivo: una función nueva no puede dejar al administrador fuera en silencio (AC6).',
-    );
-  }
-}
-
-/** Los códigos del catálogo que `admin` NO tiene concedidos hoy en la base. */
-export async function funcionesSinAdmin(): Promise<string[]> {
-  const todas = await db.select({ codigo: permisosFunciones.codigo }).from(permisosFunciones);
-  const filas = await db.select({
-    rol: permisosRolFuncion.rolCodigo,
-    codigo: permisosRolFuncion.funcionCodigo,
-  }).from(permisosRolFuncion);
-  const deAdmin = new Set(filas.filter((f) => f.rol === 'admin').map((f) => f.codigo));
-  return todas.map((f) => f.codigo).filter((c) => !deAdmin.has(c)).sort();
 }

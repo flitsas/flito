@@ -97,8 +97,9 @@ export function catalogoDePaginas(): FuncionCatalogo[] {
 
 /** Los roles de sistema a los que hoy corresponde este slug. */
 function rolesQueConcedenLaPagina(slug: PageSlug): string[] {
-  // `admin` los recibe todos: es la materialización del comodín que esta HU retira. Los otros once,
-  // lo que diga su fila. `paginasPorDefecto` y no la indexación directa: la tabla ya es parcial.
+  // Tiempo de SIEMBRA, no de petición: `admin` recibe en la siembra todo lo que exista; después es un
+  // rol editable más (HU #13424, ADR-0022 §D1 — nada lo concede en runtime por su nombre). Los otros
+  // once, lo que diga su fila. `paginasPorDefecto` y no la indexación directa: la tabla ya es parcial.
   return USER_ROLES.filter((rol) => rol === 'admin' || paginasPorDefecto(rol).includes(slug)).slice();
 }
 
