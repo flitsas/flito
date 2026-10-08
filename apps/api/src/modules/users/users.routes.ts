@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import argon2 from 'argon2';
-import { and, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { clients, permisosRoles, users } from '../../db/schema.js';
 import { authMiddleware, invalidateSessionCacheFor } from '../../shared/middleware/auth.js';
@@ -17,7 +17,7 @@ import {
   codificarExcepcion, isKnownOrganismoCodigo, type FuncionDeUsuario, type UserRole,
 } from '@operaciones/shared-types';
 import { loggerFor } from '../../shared/logger.js';
-import { actorDeRequest } from '../../shared/historial/permisos-auditoria.js';
+import { actorDeRequest, registrarRechazoAntiBloqueo } from '../../shared/historial/permisos-auditoria.js';
 import {
   actualizarUsuario, cambiarActivo, crearUsuario, funcionesDeVarios, listarUsuarios, nombresDeAmbito,
   organismosDe, organismosDeVarios, organismosInexistentes, proveedorSoatExiste, restablecerContrasena,
@@ -604,15 +604,6 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
         const rolActual = await rolAsignable(before.role);
         tipoEnlaceEfectivo = rolActual?.tipoEnlace ?? 'ninguno';
     }
-    // Si se está degradando a un admin, asegurar que quede al menos otro admin activo.
-    if (data.role && data.role !== 'admin' && before.role === 'admin') {
-        const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(users)
-            .where(and(eq(users.role, 'admin'), eq(users.active, true), ne(users.id, id)));
-        if (count === 0) {
-            res.status(409).json({ error: 'No se puede cambiar el rol del último admin activo' });
-            return;
-        }
-    }
     if (tipoEnlaceEfectivo !== null) {
         // Sobra: solo campos TRAÍDOS en el body que no corresponden al enlace destino.
         if (tipoEnlaceEfectivo !== 'compania' && data.companiaId != null) {
@@ -707,8 +698,8 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
         || data.companiaId !== undefined
         || data.flitoProveedorSoatId !== undefined
         || data.organismosCodigos !== undefined;
-    // HU #12084 (AC4): la guarda de «último admin» de arriba es el pre-check con mensaje claro; la
-    // verdad la decide el invariante DENTRO de la transacción.
+    // HU #12084 (AC4) / #13424 (ADR-0022): nada por nombre de rol; lo decide el invariante (las cuatro
+    // funciones de administración en un mismo usuario activo) DENTRO de la transacción.
     let r;
     try {
         r = await actualizarUsuario(id, {
@@ -717,6 +708,7 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
     }
     catch (e) {
         if (e instanceof BloqueoAdministracionError) {
+            await registrarRechazoAntiBloqueo(req, { operacion: 'actualizar_usuario', objetivo: { tipo: 'usuario', id }, funcion: e.funcion });
             res.status(409).json({ error: e.message, funcion: e.funcion });
             return;
         }
@@ -770,15 +762,6 @@ router.patch('/:id/toggle', exigirFuncion('usuarios.usuario.activar'), async (re
         res.status(404).json({ error: 'Usuario no encontrado' });
         return;
     }
-    // Guard 2: si va a desactivar a un admin activo, asegurar que quede al menos otro admin activo.
-    if (before.active && before.role === 'admin') {
-        const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(users)
-            .where(and(eq(users.role, 'admin'), eq(users.active, true), ne(users.id, id)));
-        if (count === 0) {
-            res.status(409).json({ error: 'No se puede desactivar al último admin activo' });
-            return;
-        }
-    }
     // HU #12171: el `UPDATE` y su fila de historial (`active`, antes/después) van en una transacción
     // del servicio; el «antes» sale del propio UPDATE atómico, no del `before` de las guardas.
     let updated;
@@ -786,8 +769,10 @@ router.patch('/:id/toggle', exigirFuncion('usuarios.usuario.activar'), async (re
         updated = await cambiarActivo(id, actorDeRequest(req));
     }
     catch (e) {
-        // HU #12084 (AC4): el invariante decide dentro de la transacción; el Guard 2 es el pre-check.
+        // HU #12084 (AC4) / #13424: el invariante decide dentro de la transacción; el rechazo se
+        // registra aquí, fuera de la transacción que ya revirtió (AC8).
         if (e instanceof BloqueoAdministracionError) {
+            await registrarRechazoAntiBloqueo(req, { operacion: 'desactivar', objetivo: { tipo: 'usuario', id }, funcion: e.funcion });
             res.status(409).json({ error: e.message, funcion: e.funcion });
             return;
         }

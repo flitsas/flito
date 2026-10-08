@@ -1,7 +1,9 @@
 // HU #12084 AC4 — El invariante anti-bloqueo (`shared/permisos-anti-bloqueo.ts`): orden lock →
 // escritura → cuenta; el lock lleva `FOR UPDATE OF users` y `ORDER BY id`; la cuenta lleva el
-// predicado del resolutor (`interno`, `active`, rol ∪ concedida, ∖ revocada); cero en cualquiera de
-// las dos funciones → lanza con la función que faltó.
+// predicado del resolutor (`interno`, `active`, rol ∪ concedida, ∖ revocada).
+// HU #13424 (ADR-0022 §D3, AC3–AC7) — cuatro funciones y CONJUNCIÓN: cuenta a quien las reúne todas
+// en el mismo usuario; cero → lanza nombrando la que quedó sin titular (o la primera de la lista).
+// La fila de la cuenta llega en el orden de la proyección: [todas, f0, f1, f2, f3].
 //
 // Sin base y sin el mock `chain`: el mock keyed ignora `orderBy` y `for` (memoria del repo: «el mock
 // ignora orderBy»), así que un aserto sobre el lock escrito contra él sería verde vacío. Aquí el
@@ -34,7 +36,7 @@ vi.mock('../../src/db/client.js', async () => {
   const base = proxy(async (sql: string, params: unknown[]) => {
     servicios.sentencias.push({ sql, params });
     if (/for update of "users"/i.test(sql)) return { rows: [[1]] };
-    if (/count\(\*\) filter/i.test(sql)) return { rows: [[1, 1]] };
+    if (/count\(\*\) filter/i.test(sql)) return { rows: [[1, 1, 1, 1, 1]] };
     if (/from "permisos_roles"[\s\S]*for update$/i.test(sql)) return { rows: [rol('interno')] };
     if (/^update "permisos_roles"/i.test(sql)) return { rows: [rol('externo')] };
     if (/count\(\*\)::int/i.test(sql)) return { rows: [[0]] };
@@ -55,7 +57,7 @@ interface Sentencia { sql: string; params: unknown[] }
  * Un ejecutor que renderiza SQL de verdad y responde por FORMA de sentencia: al lock (`for update`)
  * con ids, a la cuenta (`count(*) filter`) con los contadores que el caso fije.
  */
-function ejecutor(contadores: number[] = [1, 1]) {
+function ejecutor(contadores: number[] = [1, 1, 1, 1, 1]) {
   const sentencias: Sentencia[] = [];
   const eventos: string[] = [];
   const db = drizzle(async (sql, params) => {
@@ -88,7 +90,7 @@ describe('AC4 — conSeguroAntiBloqueo: orden y forma del lock', () => {
     expect(lock.sql).not.toMatch(/for update of "permisos_roles"/);
   });
 
-  it('el lock restringe a activos, vivos y de rol interno, y a quienes hoy tienen ALGUNA de las dos funciones', async () => {
+  it('el lock restringe a activos, vivos y de rol interno, y a quienes hoy tienen ALGUNA de las cuatro funciones', async () => {
     const { tx, sentencias } = ejecutor();
     await conSeguroAntiBloqueo(tx, async () => undefined);
     const lock = lockDe(sentencias);
@@ -96,31 +98,46 @@ describe('AC4 — conSeguroAntiBloqueo: orden y forma del lock', () => {
     expect(lock.sql).toMatch(/"permisos_roles"\."tipo_principal" = \$\d+/);
     expect(lock.params).toContain(true);
     expect(lock.params).toContain('interno');
-    // Las dos funciones de administración, unidas por OR.
-    expect(lock.params.filter((p) => p === 'permisos.cuadro.guardar')).toHaveLength(3);
-    expect(lock.params.filter((p) => p === 'usuarios.usuario.editar')).toHaveLength(3);
+    // Las cuatro funciones de administración, unidas por OR: el lock es SUPERCONJUNTO de la población
+    // contada (bloquear solo a quien ya reúne las cuatro dejaría fuera a quien está a una escritura).
+    for (const f of FUNCIONES_DE_ADMINISTRACION) expect(lock.params.filter((p) => p === f), f).toHaveLength(3);
     expect(lock.sql).toMatch(/\) or exists \(/);
+    expect(lock.sql).not.toMatch(/\) and \(\(exists/);
   });
 });
 
 describe('AC4 — el predicado es el del resolutor: (rol ∪ concedida) ∖ revocada, sobre internos activos (M7, M8)', () => {
-  it('la cuenta lleva un `count(*) filter` por función con las TRES ramas de permisos_usuario_funcion', async () => {
+  it('la cuenta lleva el `count(*) filter` conjunto y uno por función, con las TRES ramas de permisos_usuario_funcion', async () => {
     const { tx, sentencias } = ejecutor();
     await conSeguroAntiBloqueo(tx, async () => undefined);
     const cuenta = cuentaDe(sentencias);
-    expect(cuenta.sql.match(/count\(\*\) filter \(where/g)).toHaveLength(2);
-    // Por cada función: rol (exists permisos_rol_funcion) OR concedida (exists … 'conceder'), AND NOT revocada.
-    expect(cuenta.sql.match(/exists \(select 1 from "permisos_rol_funcion"/g)).toHaveLength(2);
-    expect(cuenta.sql.match(/exists \(select 1 from "permisos_usuario_funcion"/g)).toHaveLength(4);
-    expect(cuenta.sql.match(/not exists \(select 1 from "permisos_usuario_funcion"/g)).toHaveLength(2);
-    expect(cuenta.params.filter((p) => p === 'conceder')).toHaveLength(2);
-    expect(cuenta.params.filter((p) => p === 'revocar')).toHaveLength(2);
+    // 1 conjunto (las cuatro con AND) + 4 individuales (solo para nombrar la función del 409).
+    expect(cuenta.sql.match(/count\(\*\) filter \(where/g)).toHaveLength(5);
+    // Por cada aparición de `tiene(F)`: rol (exists permisos_rol_funcion) OR concedida, AND NOT revocada.
+    expect(cuenta.sql.match(/exists \(select 1 from "permisos_rol_funcion"/g)).toHaveLength(8);
+    expect(cuenta.sql.match(/exists \(select 1 from "permisos_usuario_funcion"/g)).toHaveLength(16);
+    expect(cuenta.sql.match(/not exists \(select 1 from "permisos_usuario_funcion"/g)).toHaveLength(8);
+    expect(cuenta.params.filter((p) => p === 'conceder')).toHaveLength(8);
+    expect(cuenta.params.filter((p) => p === 'revocar')).toHaveLength(8);
     // Correlación con la fila exterior: por el rol del usuario y por su id.
     expect(cuenta.sql).toMatch(/"permisos_rol_funcion"\."rol_codigo" = "users"\."role"/);
     expect(cuenta.sql).toMatch(/"permisos_usuario_funcion"\."user_id" = "users"\."id"/);
     // Y la población: activos, internos y vivos (deleted_at IS NULL, HU #12089).
     expect(cuenta.sql).toMatch(/where \("users"\."active" = \$\d+ and "permisos_roles"\."tipo_principal" = \$\d+ and "users"\."deleted_at" is null\)/);
     expect(cuenta.params).toContain('interno');
+  });
+
+  it('HU #13424 — el primer contador es la CONJUNCIÓN: las cuatro funciones, unidas por AND, en el mismo usuario', async () => {
+    const { tx, sentencias } = ejecutor();
+    await conSeguroAntiBloqueo(tx, async () => undefined);
+    const cuenta = cuentaDe(sentencias);
+    const primero = cuenta.sql.slice(cuenta.sql.indexOf('count(*) filter'), cuenta.sql.indexOf('count(*) filter', 1 + cuenta.sql.indexOf('count(*) filter')));
+    expect(primero.match(/exists \(select 1 from "permisos_rol_funcion"/g)).toHaveLength(4);
+    expect(primero.match(/\) and \(\(exists/g)).toHaveLength(3); // tiene(f1) and tiene(f2) and …
+    expect(primero).not.toMatch(/\)\) or \(\(exists/);
+    // Cada `tiene(F)` aporta 5 parámetros; los 20 primeros son los del contador conjunto: las cuatro.
+    const delConjunto = cuenta.params.slice(0, 20);
+    for (const f of FUNCIONES_DE_ADMINISTRACION) expect(delConjunto, f).toContain(f);
   });
 
   it('CONDICION_USUARIO_VIVO es deleted_at IS NULL (HU #12089) y ya está en el lock y en la cuenta', async () => {
@@ -135,23 +152,31 @@ describe('AC4 — el predicado es el del resolutor: (rol ∪ concedida) ∖ revo
   });
 });
 
-describe('AC4 — cero titulares en cualquiera de las dos → lanza con la función que faltó (M1)', () => {
-  it('cero para «administrar permisos» → BloqueoAdministracionError(permisos.cuadro.guardar), tras haber escrito', async () => {
-    const { tx, eventos } = ejecutor([0, 1]);
+describe('HU #13424 AC3/AC4 — nadie reúne las cuatro → lanza nombrando la función (M1)', () => {
+  const MENSAJE = 'No se puede guardar: FLITO se quedaría sin ningún usuario activo que pueda administrar Usuarios y Roles y permisos.';
+
+  it('una función se queda sin ningún titular → BloqueoAdministracionError con ESA función, tras haber escrito', async () => {
+    // [todas, pagina.users, usuarios.usuario.editar, pagina.roles_permisos, permisos.cuadro.guardar]
+    const { tx, eventos } = ejecutor([0, 2, 2, 0, 2]);
     const p = conSeguroAntiBloqueo(tx, async () => { eventos.push('escritura'); });
     await expect(p).rejects.toBeInstanceOf(BloqueoAdministracionError);
-    await expect(p).rejects.toMatchObject({ funcion: 'permisos.cuadro.guardar' });
-    await expect(p).rejects.toThrow(/cero usuarios activos capaces de administrar permisos/);
+    await expect(p).rejects.toMatchObject({ funcion: 'pagina.roles_permisos', message: MENSAJE });
     // La escritura SÍ corrió: es la transacción la que revierte al recibir la excepción.
     expect(eventos).toEqual(['lock', 'escritura', 'cuenta']);
   });
 
-  it('cero para «administrar usuarios» → BloqueoAdministracionError(usuarios.usuario.editar)', async () => {
-    const { tx } = ejecutor([3, 0]);
+  it('cada función conserva algún titular pero NADIE las reúne todas → lanza igual (la conjunción manda)', async () => {
+    // El caso que el invariante viejo («≥ 1 por función») dejaba pasar: dos personas que se reparten
+    // las cuatro. Mutante nombrado: decidir con los contadores individuales en vez de `todas` → no lanza.
+    const { tx } = ejecutor([0, 1, 1, 1, 1]);
     await expect(conSeguroAntiBloqueo(tx, async () => undefined)).rejects.toMatchObject({
-      funcion: 'usuarios.usuario.editar',
-      message: expect.stringMatching(/administrar usuarios/),
+      funcion: FUNCIONES_DE_ADMINISTRACION[0], message: MENSAJE,
     });
+  });
+
+  it('AC6 — queda al menos un usuario con las cuatro → no lanza', async () => {
+    const { tx } = ejecutor([1, 1, 1, 1, 1]);
+    await expect(conSeguroAntiBloqueo(tx, async () => 'ok')).resolves.toBe('ok');
   });
 
   it('un contador ausente (fila vacía) cuenta como cero: negar por defecto', async () => {
@@ -159,8 +184,8 @@ describe('AC4 — cero titulares en cualquiera de las dos → lanza con la funci
     await expect(conSeguroAntiBloqueo(tx, async () => undefined)).rejects.toBeInstanceOf(BloqueoAdministracionError);
   });
 
-  it('≥1 en las dos → no lanza', async () => {
-    const { tx } = ejecutor([1, 1]);
+  it('≥1 con las cuatro → no lanza', async () => {
+    const { tx } = ejecutor([3, 5, 4, 3, 6]);
     await expect(conSeguroAntiBloqueo(tx, async () => 42)).resolves.toBe(42);
   });
 
@@ -175,8 +200,8 @@ describe('AC4 — cero titulares en cualquiera de las dos → lanza con la funci
     const { tx, sentencias } = ejecutor();
     await conSeguroAntiBloqueo(tx, async () => undefined);
     const cuenta = cuentaDe(sentencias);
-    expect(cuenta.sql.match(/not exists \(select 1 from "permisos_usuario_funcion"/g)).toHaveLength(2);
-    expect(cuenta.params.filter((p) => p === 'revocar')).toHaveLength(2);
+    expect(cuenta.sql.match(/not exists \(select 1 from "permisos_usuario_funcion"/g)).toHaveLength(8);
+    expect(cuenta.params.filter((p) => p === 'revocar')).toHaveLength(8);
     expect(cuenta.params).toContain('permisos.cuadro.guardar');
     // La exclusión va atada al mismo user_id / funcion_codigo que la concesión.
     expect(cuenta.sql).toMatch(/"permisos_usuario_funcion"\."user_id" = "users"\."id"/);
@@ -185,16 +210,19 @@ describe('AC4 — cero titulares en cualquiera de las dos → lanza con la funci
 });
 
 describe('AC4 — el parámetro `funciones` existe para el test de concurrencia', () => {
-  it('por defecto son las dos de administración y nada más', () => {
-    expect(FUNCIONES_DE_ADMINISTRACION).toEqual(['permisos.cuadro.guardar', 'usuarios.usuario.editar']);
+  it('por defecto son las cuatro de «Usuarios» y «Roles y permisos» (HU #13424, P-2) y nada más', () => {
+    expect(FUNCIONES_DE_ADMINISTRACION).toEqual([
+      'pagina.users', 'usuarios.usuario.editar', 'pagina.roles_permisos', 'permisos.cuadro.guardar',
+    ]);
   });
 
   it('con una lista propia, el lock y la cuenta miran SOLO esa función', async () => {
-    const { tx, sentencias } = ejecutor([1]);
+    const { tx, sentencias } = ejecutor([1, 1]);
     await conSeguroAntiBloqueo(tx, async () => undefined, ['zz.prueba.administrar']);
     expect(lockDe(sentencias).params).not.toContain('permisos.cuadro.guardar');
     expect(lockDe(sentencias).params.filter((p) => p === 'zz.prueba.administrar')).toHaveLength(3);
-    expect(cuentaDe(sentencias).sql.match(/count\(\*\) filter/g)).toHaveLength(1);
+    // El conjunto (de una sola función) y su contador individual.
+    expect(cuentaDe(sentencias).sql.match(/count\(\*\) filter/g)).toHaveLength(2);
   });
 });
 
@@ -271,6 +299,17 @@ describe('AC4 — el invariante vive en UN sitio y lo invocan las cinco operacio
     expect(src).toMatch(/db\.transaction\(async \(tx\) => conSeguroAntiBloqueo\(tx, async \(\): Promise<RespuestaGuardarCuadro>/);
     const crear = src.slice(src.indexOf('export async function crearRol'), src.indexOf('export type ResultadoEditarRol'));
     expect(crear).not.toMatch(/conSeguroAntiBloqueo/);
+  });
+
+  it('HU #13424 AC1 — el motor no trata a `admin` por su nombre: ni en el seguro, ni en el servicio de permisos, ni en users', () => {
+    // ADR-0022 §D1.4: fuera de comentarios, ningún literal `'admin'` decide en estos archivos.
+    for (const rel of [
+      'shared/permisos-anti-bloqueo.ts', 'shared/permisos-efectivos.ts', 'modules/permisos/permisos.service.ts',
+      'modules/permisos/permisos-roles.service.ts', 'modules/users/users.service.ts', 'modules/users/users.routes.ts',
+      'modules/users/users-baja.ts',
+    ]) {
+      expect(sinComentarios(fuente(rel)), rel).not.toMatch(/'admin'/);
+    }
   });
 
   it('nadie copia la cuenta: fuera de permisos-anti-bloqueo.ts no hay otro `count(*) filter` sobre users con tipo_principal', () => {

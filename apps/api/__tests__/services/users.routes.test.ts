@@ -472,21 +472,10 @@ describe('PATCH /api/users/:id — editar', () => {
     expect(r.body.error).toMatch(/sin cambios/i);
   });
 
-  it('degradar último admin → 409 (guard de safety)', async () => {
-    selectMock.mockReturnValueOnce(chain([{ id: 1, role: 'admin', active: true }])); // before
-    selectMock.mockReturnValueOnce(chain([{ count: 0 }])); // no hay otro admin activo
-    const token = await testToken({ sub: 1, role: 'admin' });
-    const app = await buildApp();
-    const r = await request(app).patch('/api/users/1').set('Authorization', `Bearer ${token}`)
-      .send({ role: 'proveedor' });
-    expect(r.status).toBe(409);
-    expect(r.body.error).toMatch(/último admin/i);
-    expect(updateMock).not.toHaveBeenCalled();
-  });
-
-  it('degradar admin cuando hay OTRO admin activo → 200', async () => {
+  // HU #13424 (ADR-0022): ya no hay guarda «último admin» por nombre; el 409 lo decide el invariante
+  // (ver «HU #13424 AC6» y «HU #12084 AC4» más abajo).
+  it('degradar a un admin → 200 cuando el invariante deja pasar', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 1, role: 'admin', active: true }]));
-    selectMock.mockReturnValueOnce(chain([{ count: 1 }])); // hay otro admin
     selectMock.mockReturnValueOnce(chain([{ id: 1, role: 'admin', active: true }])); // antes, dentro de la tx y con FOR UPDATE (HU #12171)
     selectMock.mockReturnValueOnce(chain([])); // organismos del usuario (HU #12053)
     selectMock.mockReturnValueOnce(chain([])); // funciones del usuario (HU #12087)
@@ -616,19 +605,8 @@ describe('PATCH /:id/toggle — activar/desactivar', () => {
     expect(r.status).toBe(404);
   });
 
-  it('desactivar último admin activo → 409', async () => {
+  it('desactivar a un admin → 200 cuando el invariante deja pasar (sin guarda por nombre, HU #13424)', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 9, role: 'admin', active: true }]));
-    selectMock.mockReturnValueOnce(chain([{ count: 0 }]));
-    const token = await testToken({ sub: 1, role: 'admin' });
-    const app = await buildApp();
-    const r = await request(app).patch('/api/users/9/toggle').set('Authorization', `Bearer ${token}`);
-    expect(r.status).toBe(409);
-    expect(updateMock).not.toHaveBeenCalled();
-  });
-
-  it('desactivar admin cuando hay otro activo → 200', async () => {
-    selectMock.mockReturnValueOnce(chain([{ id: 9, role: 'admin', active: true }]));
-    selectMock.mockReturnValueOnce(chain([{ count: 2 }]));
     selectMock.mockReturnValueOnce(chain([])); // organismos del usuario (HU #12053)
     selectMock.mockReturnValueOnce(chain([])); // funciones del usuario (HU #12087)
     updateMock.mockReturnValueOnce({
@@ -1675,13 +1653,12 @@ describe('HU #12171 — permisos_auditoria: antes/después de cada cambio, en la
 });
 
 // ─────────── HU #12084 (AC4): las dos rutas pasan por el invariante anti-bloqueo, dentro de su tx ───────────
-const { BloqueoAdministracionError } = await import('../../src/shared/permisos-anti-bloqueo.js');
+const { BloqueoAdministracionError, MENSAJE_BLOQUEO_ADMINISTRACION } = await import('../../src/shared/permisos-anti-bloqueo.js');
 
 describe('HU #12084 AC4 — el invariante anti-bloqueo envuelve cambiar el rol y desactivar', () => {
 
   it('PATCH /:id con `role`: el invariante se invoca con el `tx` de la transacción y envuelve el UPDATE', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'admin', active: true }])); // before
-    selectMock.mockReturnValueOnce(chain([{ count: 1 }])); // pre-check: hay otro admin
     selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'admin', active: true }])); // anterior (tx, FOR UPDATE)
     selectMock.mockReturnValueOnce(chain([])); // organismos
     selectMock.mockReturnValueOnce(chain([])); // funciones (HU #12087)
@@ -1724,28 +1701,37 @@ describe('HU #12084 AC4 — el invariante anti-bloqueo envuelve cambiar el rol y
     expect(seguroMock.mock.calls[0][0]).toBe(dbMock);
   });
 
-  it('PATCH /:id: si el invariante lanza, 409 con el motivo, sin commit y sin invalidar nada', async () => {
+  it('PATCH /:id: si el invariante lanza, 409 con el motivo, sin commit y sin invalidar nada (AC4)', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'admin', active: true }]));
-    selectMock.mockReturnValueOnce(chain([{ count: 1 }]));
     seguroMock.mockImplementationOnce(async () => { throw new BloqueoAdministracionError('usuarios.usuario.editar'); });
     rolAsignableMock.mockResolvedValueOnce({ tipoEnlace: 'ninguno' });
     const token = await testToken({ sub: 1, role: 'admin' });
     const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', `Bearer ${token}`).send({ role: 'auditor' });
     expect(r.status).toBe(409);
-    expect(r.body).toEqual({ error: 'Dejaría cero usuarios activos capaces de administrar usuarios', funcion: 'usuarios.usuario.editar' });
+    expect(r.body).toEqual({ error: MENSAJE_BLOQUEO_ADMINISTRACION, funcion: 'usuarios.usuario.editar' });
     expect(eventos).not.toContain('commit');
     expect(invalidarPermisosMock).not.toHaveBeenCalled();
     expect(invalidarCacheMock).not.toHaveBeenCalled();
+    // AC8: el rechazo queda en la bitácora, fuera de la tx revertida: actor, usuario afectado, resultado.
+    expect(auditMock).toHaveBeenCalledTimes(1);
+    const [reqAudit, entrada] = auditMock.mock.calls[0];
+    expect(reqAudit.user.sub).toBe(1);
+    expect(entrada).toEqual({
+      action: 'update', resource: 'user', resourceId: '5',
+      detail: 'resultado=rechazado_anti_bloqueo operacion=actualizar_usuario objetivo=usuario:5 funcion=usuarios.usuario.editar',
+    });
   });
 
   it('PATCH /:id/toggle: el invariante envuelve el UPDATE y su excepción es 409 sin commit', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 9, role: 'admin', active: true }]));
-    selectMock.mockReturnValueOnce(chain([{ count: 2 }])); // pre-check: hay otro admin
     seguroMock.mockImplementationOnce(async () => { throw new BloqueoAdministracionError('permisos.cuadro.guardar'); });
     const token = await testToken({ sub: 1, role: 'admin' });
     const r = await request(await buildApp()).patch('/api/users/9/toggle').set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(409);
-    expect(r.body.error).toMatch(/administrar permisos/);
+    expect(r.body).toEqual({ error: MENSAJE_BLOQUEO_ADMINISTRACION, funcion: 'permisos.cuadro.guardar' });
+    // AC8: rechazo registrado (sin PII del titular: solo su id opaco).
+    expect(auditMock).toHaveBeenCalledTimes(1);
+    expect(auditMock.mock.calls[0][1].detail).toBe('resultado=rechazado_anti_bloqueo operacion=desactivar objetivo=usuario:9 funcion=permisos.cuadro.guardar');
     expect(seguroMock).toHaveBeenCalledTimes(1);
     expect(seguroMock.mock.calls[0][0]).toBe(dbMock);
     expect(eventos).not.toContain('commit');
@@ -1761,6 +1747,44 @@ describe('HU #12084 AC4 — el invariante anti-bloqueo envuelve cambiar el rol y
     });
     const token = await testToken({ sub: 1, role: 'admin' });
     const r = await request(await buildApp()).patch('/api/users/5/toggle').set('Authorization', `Bearer ${token}`);
+    expect(r.status).toBe(200);
+    expect(seguroMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─────────── HU #13424 (ADR-0022) AC6: nada por llamarse `admin` — decide solo el invariante ───────────
+//
+// El último usuario de rol `admin` se puede desactivar o cambiar de rol si OTRO usuario activo (de
+// cualquier rol) reúne las cuatro funciones de administración. Aquí el seguro es el passthrough del
+// mock (= la cuenta conjunta dio ≥ 1): la ruta no puede añadir una guarda por nombre de rol que
+// consulte cuántos `admin` quedan. Con la guarda vieja puesta, la segunda lectura se consumía como
+// `[{ count }]` y la cola posicional se desordenaba (rojo antes de quitarla).
+describe('HU #13424 AC6 — el último `admin` se puede retirar si otro rol reúne las cuatro funciones', () => {
+  it('PATCH /:id/toggle: desactivar al único `admin` activo → 200 (sin pre-check por nombre)', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 9, role: 'admin', active: true }])); // before
+    selectMock.mockReturnValueOnce(chain([])); // organismos del usuario
+    selectMock.mockReturnValueOnce(chain([])); // funciones del usuario
+    updateMock.mockReturnValueOnce({
+      set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 9, active: false, name: 'A', username: 'a', email: null, role: 'admin', createdAt: new Date() }]) }) }),
+    });
+    const token = await testToken({ sub: 1, role: 'admin' });
+    const r = await request(await buildApp()).patch('/api/users/9/toggle').set('Authorization', `Bearer ${token}`);
+    expect(r.status).toBe(200);
+    expect(r.body.active).toBe(false);
+    expect(seguroMock).toHaveBeenCalledTimes(1);
+    // Ninguna lectura de conteo de `admin` fuera de la transacción: before + 2 del historial, nada más.
+    expect(selectMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('PATCH /:id: cambiar de rol al único `admin` activo → 200 (sin pre-check por nombre)', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'admin', active: true }])); // before
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'admin', active: true }])); // anterior (tx, FOR UPDATE)
+    selectMock.mockReturnValueOnce(chain([])); // organismos
+    selectMock.mockReturnValueOnce(chain([])); // funciones
+    updateMock.mockReturnValueOnce(updateProyectado({ id: 5, role: 'auditor', active: true, name: 'A', username: 'a', email: null, createdAt: new Date() }, () => {}));
+    rolAsignableMock.mockResolvedValueOnce({ tipoEnlace: 'ninguno' });
+    const token = await testToken({ sub: 1, role: 'admin' });
+    const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', `Bearer ${token}`).send({ role: 'auditor' });
     expect(r.status).toBe(200);
     expect(seguroMock).toHaveBeenCalledTimes(1);
   });

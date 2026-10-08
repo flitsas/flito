@@ -56,8 +56,12 @@ const ROL = (extra: Record<string, unknown> = {}) => ({
   esSistema: false, activo: true, createdAt: AHORA, updatedAt: AHORA, ...extra,
 });
 const ADMIN = ROL({ codigo: 'admin', nombre: 'Administrador', esSistema: true });
-/** Lo que el invariante cuenta: ≥1 en las dos funciones (con `n` para `usuariosDelRol`). */
-const USERS_OK = { n: 0, f0: 1, f1: 1 };
+/** Lo que el invariante cuenta: alguien reúne las cuatro y ≥1 en cada una (con `n` para `usuariosDelRol`). */
+// HU #13424: `todas` es la conjunción (quien reúne las cuatro); `f0..f3`, una por función.
+const USERS_OK = { n: 0, todas: 1, f0: 1, f1: 1, f2: 1, f3: 1 };
+const MENSAJE_409 = 'No se puede guardar: FLITO se quedaría sin ningún usuario activo que pueda administrar Usuarios y Roles y permisos.';
+/** Las filas de `audit_logs` (AC8: el rechazo del seguro se registra ahí, fuera de la tx). */
+const rechazos = () => espia.insertsEn('audit_logs').flatMap((m) => [m.datos].flat() as Record<string, unknown>[]);
 
 const auditadas = () => espia.insertsEn('permisos_auditoria').flatMap((m) => m.datos as unknown as Record<string, unknown>[]);
 
@@ -251,17 +255,18 @@ describe('AC2 — PATCH /roles/:codigo', () => {
   });
 
   it('tipoPrincipal pasa por el invariante: con la cuenta a cero → 409, sin commit, sin invalidar', async () => {
-    kdb.when.select('permisos_roles', [ADMIN]).select('users', [{ n: 2, f0: 0, f1: 0 }]);
+    kdb.when.select('permisos_roles', [ADMIN]).select('users', [{ n: 2, todas: 0, f0: 0, f1: 0, f2: 0, f3: 0 }]);
     kdb.when.update('permisos_roles', [{ ...ADMIN, tipoPrincipal: 'externo' }]);
     const r = await request(app()).patch('/api/permisos/roles/admin').set('Authorization', await admin()).send({ tipoPrincipal: 'externo' });
     expect(r.status).toBe(409);
-    expect(r.body.error).toMatch(/cero usuarios activos capaces de administrar permisos/);
+    expect(r.body).toEqual({ error: MENSAJE_409, funcion: 'pagina.users' });
+    expect(rechazos().map((f) => f.detail)).toEqual(['resultado=rechazado_anti_bloqueo operacion=editar_rol objetivo=rol:admin funcion=pagina.users']);
     expect(eventos).not.toContain('commit');
     expect(invalidarRolMock).not.toHaveBeenCalled();
   });
 
   it('tipoPrincipal con la cuenta ≥1 → 200, fila `tipo_principal` y la invalidación DESPUÉS del commit', async () => {
-    kdb.when.select('permisos_roles', [ROL()]).select('users', [{ n: 2, f0: 1, f1: 1 }]);
+    kdb.when.select('permisos_roles', [ROL()]).select('users', [{ n: 2, todas: 1, f0: 1, f1: 1, f2: 1, f3: 1 }]);
     kdb.when.update('permisos_roles', [ROL({ tipoPrincipal: 'externo' })]);
     const r = await request(app()).patch('/api/permisos/roles/gestor_x').set('Authorization', await admin()).send({ tipoPrincipal: 'externo' });
     expect(r.status).toBe(200);
@@ -319,7 +324,7 @@ describe('AC3 — DELETE /roles/:codigo y el listado', () => {
   });
 
   it('un 23503 que llegue a pesar del conteo (alta concurrente) responde el mismo 409 con N releído', async () => {
-    kdb.when.select('permisos_roles', [ROL()]).select('users', [{ n: 0, f0: 1, f1: 1 }]);
+    kdb.when.select('permisos_roles', [ROL()]).select('users', [{ n: 0, todas: 1, f0: 1, f1: 1, f2: 1, f3: 1 }]);
     kdb.when.delete('permisos_roles', () => { throw Object.assign(new Error('fk'), { code: '23503' }); });
     // En orden de ejecución: el lock de la población P (primero, db-review), el conteo del rol dentro, y el N releído fuera.
     kdb.when.selectOnce('users', [{ id: 1 }]).selectOnce('users', [{ n: 0 }]).selectOnce('users', [{ n: 1 }]);
@@ -441,14 +446,73 @@ describe('AC5 — GET y PUT /roles/:codigo/funciones', () => {
   });
 
   it('AC4/M1: vaciar el cuadro de `admin` cuando nadie más administra → 409 del invariante, sin commit ni invalidación', async () => {
-    kdb.when.select('permisos_roles', [{ tipoPrincipal: 'interno' }]).select('users', [{ n: 2, f0: 0, f1: 1 }])
+    kdb.when.select('permisos_roles', [{ tipoPrincipal: 'interno' }]).select('users', [{ n: 2, todas: 0, f0: 1, f1: 1, f2: 1, f3: 0 }])
       .select('permisos_rol_funcion', [{ codigo: 'permisos.cuadro.guardar' }]);
     const r = await request(app()).put('/api/permisos/roles/admin/funciones').set('Authorization', await admin()).send({ funciones: [] });
     expect(r.status).toBe(409);
-    expect(r.body).toEqual({ error: 'Dejaría cero usuarios activos capaces de administrar permisos', funcion: 'permisos.cuadro.guardar' });
+    expect(r.body).toEqual({ error: MENSAJE_409, funcion: 'permisos.cuadro.guardar' });
     // La escritura ocurrió dentro de la transacción (y la transacción no confirmó).
     expect(borrados).toEqual([{ tabla: 'permisos_rol_funcion', filtros: ['admin'] }]);
     expect(eventos).not.toContain('commit');
     expect(invalidarRolMock).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────── HU #13424 (ADR-0022) — `admin` editable y el seguro por conjunción ───────────
+describe('HU #13424 — admin editable (AC1), conjunción en el cuadro (AC3), borrar rol (AC5) y bitácora del rechazo (AC8)', () => {
+  it('AC1: quitarle a `admin` una función no crítica → 200 y la caché del rol se invalida DESPUÉS del commit (≤ 60 s)', async () => {
+    kdb.when.select('permisos_funciones', [{ codigo: 'pagina.users' }, { codigo: 'usuarios.usuario.editar' }, { codigo: 'pagina.roles_permisos' }, { codigo: 'permisos.cuadro.guardar' }])
+      .select('permisos_roles', [{ tipoPrincipal: 'interno' }]).select('users', [USERS_OK])
+      .select('permisos_rol_funcion', [{ codigo: 'pagina.users' }, { codigo: 'usuarios.usuario.editar' }, { codigo: 'pagina.roles_permisos' }, { codigo: 'permisos.cuadro.guardar' }, { codigo: 'soat.cola.ver' }]);
+    const cuatro = ['pagina.users', 'usuarios.usuario.editar', 'pagina.roles_permisos', 'permisos.cuadro.guardar'];
+    const r = await request(app()).put('/api/permisos/roles/admin/funciones').set('Authorization', await admin()).send({ funciones: cuatro });
+    expect(r.status).toBe(200);
+    // Se reescribe el cuadro de `admin` como el de cualquier rol: sin `soat.cola.ver`.
+    expect(borrados).toEqual([{ tabla: 'permisos_rol_funcion', filtros: ['admin'] }]);
+    expect((espia.ultimoInsertEn('permisos_rol_funcion') as unknown as Record<string, unknown>[]).map((f) => f.funcionCodigo)).toEqual([...cuatro].sort());
+    expect(eventos).toEqual(['commit', 'invalidar-rol:admin']);
+    expect(rechazos()).toEqual([]);
+  });
+
+  it('AC3: cada función tiene titular por separado pero nadie reúne las cuatro → 409, nada confirmado, rechazo registrado', async () => {
+    kdb.when.select('permisos_funciones', [{ codigo: 'soat.cola.ver' }])
+      .select('permisos_roles', [{ tipoPrincipal: 'interno' }]).select('users', [{ n: 0, todas: 0, f0: 1, f1: 1, f2: 1, f3: 1 }])
+      .select('permisos_rol_funcion', [{ codigo: 'pagina.roles_permisos' }, { codigo: 'soat.cola.ver' }]);
+    const r = await request(app()).put('/api/permisos/roles/gestor_x/funciones').set('Authorization', await admin()).send({ funciones: ['soat.cola.ver'] });
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: MENSAJE_409, funcion: 'pagina.users' });
+    expect(eventos).not.toContain('commit');
+    expect(invalidarRolMock).not.toHaveBeenCalled();
+    // AC8: actor (id opaco + su correo, RN-A10), rol afectado y resultado; ni un dato del titular.
+    const [fila] = rechazos();
+    expect(fila).toMatchObject({
+      action: 'update', resource: 'permisos_rol', resourceId: 'gestor_x',
+      detail: 'resultado=rechazado_anti_bloqueo operacion=guardar_cuadro objetivo=rol:gestor_x funcion=pagina.users',
+      userEmail: 'admin@flit.test',
+    });
+    expect(rechazos()).toHaveLength(1);
+  });
+
+  it('AC5: borrar un rol (sin usuarios asignados) cuando nadie más reuniría las cuatro → 409 sin DELETE confirmado y rechazo registrado', async () => {
+    kdb.when.select('permisos_roles', [ROL()]).select('users', [{ n: 0, todas: 0, f0: 0, f1: 0, f2: 0, f3: 0 }])
+      .select('permisos_rol_funcion', []);
+    const r = await request(app()).delete('/api/permisos/roles/gestor_x').set('Authorization', await admin());
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: MENSAJE_409, funcion: 'pagina.users' });
+    expect(eventos).not.toContain('commit');
+    expect(invalidarRolMock).not.toHaveBeenCalled();
+    expect(rechazos().map((f) => [f.action, f.resource, f.resourceId, f.detail])).toEqual([
+      ['delete', 'permisos_rol', 'gestor_x', 'resultado=rechazado_anti_bloqueo operacion=borrar_rol objetivo=rol:gestor_x funcion=pagina.users'],
+    ]);
+  });
+
+  it('AC6: con otro usuario que reúne las cuatro, el mismo PUT pasa y no se registra rechazo', async () => {
+    kdb.when.select('permisos_funciones', [{ codigo: 'soat.cola.ver' }])
+      .select('permisos_roles', [{ tipoPrincipal: 'interno' }]).select('users', [USERS_OK])
+      .select('permisos_rol_funcion', [{ codigo: 'pagina.roles_permisos' }]);
+    const r = await request(app()).put('/api/permisos/roles/gestor_x/funciones').set('Authorization', await admin()).send({ funciones: ['soat.cola.ver'] });
+    expect(r.status).toBe(200);
+    expect(eventos).toEqual(['commit', 'invalidar-rol:gestor_x']);
+    expect(rechazos()).toEqual([]);
   });
 });

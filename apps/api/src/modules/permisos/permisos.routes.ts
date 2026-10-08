@@ -14,7 +14,9 @@ import { TIPOS_ENLACE, TIPOS_PRINCIPALES } from '@operaciones/shared-types';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { invalidarPermisosDeRol, resolverPermisos } from '../../shared/permisos-efectivos.js';
-import { actorDeRequest } from '../../shared/historial/permisos-auditoria.js';
+import {
+  actorDeRequest, registrarRechazoAntiBloqueo, type OperacionAntiBloqueo,
+} from '../../shared/historial/permisos-auditoria.js';
 import { BloqueoAdministracionError } from '../../shared/permisos-anti-bloqueo.js';
 import { catalogoAgrupado } from './permisos.service.js';
 import {
@@ -93,6 +95,16 @@ function responderErrorDeDominio(res: Response, e: unknown): boolean {
   return false;
 }
 
+/**
+ * HU #13424 (ADR-0022 §D4, AC8): si el seguro anti-bloqueo rechazó la escritura, deja constancia
+ * (actor, rol afectado, resultado) FUERA de la transacción, que ya revirtió. Cualquier otro error, nada.
+ */
+async function registrarSiRechazo(req: Request, e: unknown, operacion: OperacionAntiBloqueo, codigo: string): Promise<void> {
+  if (e instanceof BloqueoAdministracionError) {
+    await registrarRechazoAntiBloqueo(req, { operacion, objetivo: { tipo: 'rol', codigo }, funcion: e.funcion });
+  }
+}
+
 function codigoDeRuta(req: Request, res: Response): string | null {
   const parsed = codigoRol.safeParse(req.params.codigo);
   if (!parsed.success) { res.status(400).json({ error: 'Código de rol inválido' }); return null; }
@@ -130,6 +142,7 @@ router.patch('/roles/:codigo', exigirFuncion('permisos.rol.editar'), async (req:
     invalidarPermisosDeRol(codigo);
     res.json({ rol: r.rol });
   } catch (e) {
+    await registrarSiRechazo(req, e, 'editar_rol', codigo);
     if (!responderErrorDeDominio(res, e)) throw e;
   }
 });
@@ -144,6 +157,7 @@ router.delete('/roles/:codigo', exigirFuncion('permisos.rol.borrar'), async (req
     invalidarPermisosDeRol(codigo);
     res.status(204).end();
   } catch (e) {
+    await registrarSiRechazo(req, e, 'borrar_rol', codigo);
     if (!responderErrorDeDominio(res, e)) throw e;
   }
 });
@@ -175,6 +189,7 @@ router.put('/roles/:codigo/funciones', exigirFuncion('permisos.cuadro.guardar'),
     invalidarPermisosDeRol(codigo);
     res.json(r);
   } catch (e) {
+    await registrarSiRechazo(req, e, 'guardar_cuadro', codigo);
     if (!responderErrorDeDominio(res, e)) throw e;
   }
 });
