@@ -12,13 +12,13 @@
 //   2. **El ambiente sale de `env.SIIGO_AMBIENTE` y NUNCA del cuerpo.** Los esquemas son `.strict()`
 //      para que intentarlo dé un 400 ruidoso en vez de ignorarse: un campo ignorado deja a quien
 //      llama convencido de que se le hizo caso.
-//   3. **Ni un `requireRole` nuevo, ni una constante de permisos nueva.** `ACCIONES_SIIGO` ya trae
+//   3. **Ni una guarda de rol nueva, ni una constante de permisos nueva.** `ACCIONES_SIIGO` ya trae
 //      `consultar`, `reintentar`, `reenviar_correo`, `marcar_fallido` y `reactivar` con sus filas de
 //      roles; el slug de página `siigo_operacion` ya existe y ya lo tienen `financiera` y `auditor`.
 //      Esta historia no crea permisos: los consume. Las guardas van como middleware ANTES del
 //      handler —nunca dentro— para que una ruta que se olvide de una se note leyendo el `router.<verbo>`.
 //   4. **`auditor` ve la bandeja y no ejecuta nada** (AC7). No es una línea de este archivo: es
-//      `ROLES_POR_ACCION`, donde `consultar` incluye a auditoría y el resto no. Auditar es mirar.
+//      el reparto de `siigo.factura.*` (HU #13423): `consultar` incluye a auditoría y el resto no.
 //   5. **Dos endpoints de reintento y no uno.** El de emisión encola y vuelve en milisegundos → 202,
 //      porque cuando contesta la factura todavía no existe. El de correo llama a Siigo dentro de la
 //      petición y gasta cuota → 200, porque el acta ya existe. Uno solo tendría que mentir sobre uno

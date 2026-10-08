@@ -59,6 +59,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0227_permisos_pesv_por_item.sql', // HU #13421 (ADR-0023); la 0226 de la HU #13424 no siembra en forma parseable
   '0228_permiso_logistica_operar_ajenas.sql', // HU #13425
   '0229_permisos_operacion_por_item.sql', // HU #13422 (ADR-0023)
+  '0230_permisos_sensibles_por_permiso.sql', // HU #13423 (ADR-0023)
 ] as const;
 
 function sinComentariosSql(sql: string): string {

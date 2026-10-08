@@ -174,7 +174,7 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     const codigosLegado = new Set(guardas.filter((g) => legado.has(g.fichero)).map((g) => codigoDeLlave.get(llaveDe(g))!));
     expect(operaciones).toHaveLength(guardasFlito.length + codigosLegado.size);
     expect(new Set(operaciones.map((f) => f.codigo)).size).toBe(operaciones.length);
-    expect(codigosLegado.size).toBe(38); // 25 de la HU #13421 + 13 de la HU #13422
+    expect(codigosLegado.size).toBe(80); // 25 de la HU #13421 + 13 de la HU #13422 + 42 de la HU #13423
   });
 
   it('HU #13421 — varias guardas con el mismo código exigen IGUALDAD de reparto: una lista distinta revienta (no se une)', () => {
@@ -215,7 +215,7 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     expect(() => catalogoDeOperaciones(faltante)).toThrow(/SIN guarda viva/);
   });
 
-  it('las nueve guardas en línea van con su condición en la llave y no colisionan con la ruta que las contiene (dos son del Bug #12642, cuatro de la HU #13425, una de la HU #13422)', () => {
+  it('las diecisiete guardas en línea van con su condición en la llave y no colisionan con la ruta que las contiene (dos son del Bug #12642, cuatro de la HU #13425, una de la HU #13422, ocho de la HU #13423: las acciones de Siigo)', () => {
     const enLinea = guardas.filter((g) => g.condicion);
     expect(enLinea.map(llaveDe).sort()).toEqual([
       'flito-impuestos/flito-impuestos.routes.ts POST /export [incluirPago]',
@@ -224,6 +224,14 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       'jornadas/jornadas.routes.ts POST /abrir [jornadaAjena]',
       'pesv/diagnostico.routes.ts GET /:id [sugerirAuditoria]',
       'pesv/diagnostico.routes.ts GET /:id [vistaAuditoria]',
+      'siigo/siigo.permisos.ts GET * [consultar]',
+      'siigo/siigo.permisos.ts POST * [anular]',
+      'siigo/siigo.permisos.ts POST * [corregir]',
+      'siigo/siigo.permisos.ts POST * [emitir]',
+      'siigo/siigo.permisos.ts POST * [marcar_fallido]',
+      'siigo/siigo.permisos.ts POST * [reactivar]',
+      'siigo/siigo.permisos.ts POST * [reenviar_correo]',
+      'siigo/siigo.permisos.ts POST * [reintentar]',
       'tramites/tramites.routes.ts PATCH /:id [_forzarContinuar]',
       'users/users.routes.ts PATCH /:id/password [ajena]',
       'vehicles/vehicles.routes.ts GET / [documentoCompleto]',
@@ -337,9 +345,10 @@ describe('HU #12716 — cada página se agrupa con las acciones de su módulo', 
     expect(modulos.has('parametrizacion')).toBe(false);
     expect(modulos.has('sync')).toBe(false);
     expect(paginas.filter((f) => f.modulo === 'flito_soat_e_impuestos')).toEqual([]);
-    // `finanzas` sigue existiendo como módulo de PÁGINAS sin acciones (gastos diarios, Siigo), pero
-    // ninguna operación queda ahí: las de servicios adicionales se fueron a su pantalla.
-    expect(operaciones.filter((f) => f.modulo === 'finanzas')).toEqual([]);
+    // `finanzas` sigue existiendo como módulo de PÁGINAS (gastos diarios, Siigo); las de servicios
+    // adicionales se fueron a su pantalla. Desde la HU #13423 las únicas operaciones de `finanzas` son
+    // las de Siigo, que se agrupan con sus páginas (`siigo_operacion`, `siigo_parametrizacion`).
+    expect(operaciones.filter((f) => f.modulo === 'finanzas' && !f.codigo.startsWith('siigo.'))).toEqual([]);
     for (const m of ['clientes', 'tarifas', 'servicios_adicionales', 'catalogos_compartidos']) expect(modulos).toContain(m);
   });
 

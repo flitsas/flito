@@ -20,16 +20,17 @@ import {
   laftCounterparties, laftRosDrafts, laftEmployeesKyc, laftAuditPlans,
   laftTrainings, laftTrainingAttendees, laftManualVersions, laftComplianceOfficers,
 } from '../../../db/schema.js';
-import { authMiddleware, requireRole } from '../../../shared/middleware/auth.js';
+import { authMiddleware } from '../../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../../shared/permissions.js';
 import { loggerFor } from '../../../shared/logger.js';
 
 const slog = loggerFor('laft-dashboard');
 
 const router = Router();
-router.use(authMiddleware, requirePage('laft_dashboard'), requireRole('admin', 'compliance', 'auditor'));
+router.use(authMiddleware, requirePage('laft_dashboard'));
 
-router.get('/', async (_req, res: Response) => {
+router.get('/', exigirFuncion('laft.tablero.ver'), async (_req, res: Response) => {
   const today = new Date();
   const todayIso = today.toISOString().slice(0, 10);
   const anioActual = today.getUTCFullYear();

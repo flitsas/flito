@@ -17,8 +17,8 @@
 // existen: eso es la tabla `permisos_roles`, y `users.role` es un varchar con FK a
 // ella. Lo que esta tupla sigue siendo —y por eso no se toca— es la lista de los
 // doce códigos que el CÓDIGO conoce por su nombre, y la que da exhaustividad en
-// compilación a los tres `Record<UserRole, …>` (ROLE_LABELS, ROLE_DEFAULT_PAGES y
-// ROLES_POR_ACCION de siigo-permisos.ts).
+// compilación a los `Record<UserRole, …>` (ROLE_LABELS y ROLE_DEFAULT_PAGES; la tabla
+// de roles por acción de Siigo se retiró con la HU #13423).
 //
 // Añadir aquí un rol nuevo NO lo crea: crearlo es insertar una fila (CF-03). Esta
 // tupla solo crece cuando el código va a tratar ese rol por su nombre, y entonces

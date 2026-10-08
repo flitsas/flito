@@ -5,7 +5,8 @@ import rateLimit from 'express-rate-limit';
 import { and, desc, eq, lte, sql } from 'drizzle-orm';
 import { db } from '../../../db/client.js';
 import { laftEmployeesKyc, users } from '../../../db/schema.js';
-import { authMiddleware, requireRole } from '../../../shared/middleware/auth.js';
+import { authMiddleware } from '../../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../../shared/middleware/exigir-funcion.js';
 import { userOrIpKey } from '../../../shared/middleware/rateLimiter.js';
 import { laftAudit } from '../audit.service.js';
 import { checkAllLists, decideFromMatches } from '../match.service.js';
@@ -16,7 +17,7 @@ import { loggerFor } from '../../../shared/logger.js';
 const log = loggerFor('laft-employees');
 
 const router = Router();
-router.use(authMiddleware, requireRole('admin', 'compliance'));
+router.use(authMiddleware);
 
 // Rate limit estricto LAFT (paralelo a counterparties).
 const laftWriteLimiter = rateLimit({
@@ -91,7 +92,7 @@ function readIdempKey(req: Request): string | null {
 // =============================================================================
 
 // === Listado con filtros y paginación ========================================
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('laft.empleados.operar'), async (req: Request, res: Response) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
   const risk = req.query.risk_level as string | undefined;
@@ -123,7 +124,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // === Detalle por user_id =====================================================
-router.get('/:userId', async (req: Request, res: Response) => {
+router.get('/:userId', exigirFuncion('laft.empleados.operar'), async (req: Request, res: Response) => {
   const userId = parseInt(req.params.userId, 10);
   if (!Number.isFinite(userId) || userId <= 0) { res.status(400).json({ error: 'userId inválido' }); return; }
   const [row] = await db.select().from(laftEmployeesKyc).where(eq(laftEmployeesKyc.userId, userId)).limit(1);
@@ -132,7 +133,7 @@ router.get('/:userId', async (req: Request, res: Response) => {
 });
 
 // === Crear KYC para empleado =================================================
-router.post('/:userId/kyc', laftWriteLimiter, async (req: Request, res: Response) => {
+router.post('/:userId/kyc', exigirFuncion('laft.empleados.operar'), laftWriteLimiter, async (req: Request, res: Response) => {
   const userId = parseInt(req.params.userId, 10);
   if (!Number.isFinite(userId) || userId <= 0) { res.status(400).json({ error: 'userId inválido' }); return; }
 
@@ -231,7 +232,7 @@ router.post('/:userId/kyc', laftWriteLimiter, async (req: Request, res: Response
 });
 
 // === Update KYC (optimistic locking) =========================================
-router.patch('/:userId', laftWriteLimiter, async (req: Request, res: Response) => {
+router.patch('/:userId', exigirFuncion('laft.empleados.operar'), laftWriteLimiter, async (req: Request, res: Response) => {
   const userId = parseInt(req.params.userId, 10);
   if (!Number.isFinite(userId) || userId <= 0) { res.status(400).json({ error: 'userId inválido' }); return; }
 
@@ -306,7 +307,7 @@ router.patch('/:userId', laftWriteLimiter, async (req: Request, res: Response) =
 });
 
 // === Antecedentes (upload + resultados) ======================================
-router.post('/:userId/antecedentes', laftWriteLimiter, upload.single('file'), async (req: Request, res: Response) => {
+router.post('/:userId/antecedentes', exigirFuncion('laft.empleados.operar'), laftWriteLimiter, upload.single('file'), async (req: Request, res: Response) => {
   const userId = parseInt(req.params.userId, 10);
   if (!Number.isFinite(userId) || userId <= 0) { res.status(400).json({ error: 'userId inválido' }); return; }
 
@@ -361,7 +362,7 @@ router.post('/:userId/antecedentes', laftWriteLimiter, upload.single('file'), as
 });
 
 // === ReKYC manual (extiende next_review_at +1 año) ==========================
-router.post('/:userId/rekyc', laftWriteLimiter, async (req: Request, res: Response) => {
+router.post('/:userId/rekyc', exigirFuncion('laft.empleados.operar'), laftWriteLimiter, async (req: Request, res: Response) => {
   const userId = parseInt(req.params.userId, 10);
   if (!Number.isFinite(userId) || userId <= 0) { res.status(400).json({ error: 'userId inválido' }); return; }
 
