@@ -19,6 +19,8 @@
 --       runt.persona.consultar         <- pagina.tramite
 --       runt.cedula.leer               <- pagina.tramite
 --       integraciones.fasecolda.buscar <- pagina.tramite
+--     Las excepciones por usuario de vehicles.vehiculos.consultar (cuatro origenes) no se copian:
+--     se agregan con la semantica del motor (ver Paso 3); el control las verifica por efecto.
 --     Quien no tiene ninguna de esas paginas deja de alcanzarlas: lo lista el reporte en seco
 --     (`npm run permisos:en-seco -w apps/api -- --hu 13423`) y lo aprueba el PO antes de DEV (AC7).
 --   - Roles literales SOLO por JOIN con permisos_roles (leccion del CD de DEV con la 0227).
@@ -160,26 +162,12 @@ INSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo)
   WHERE o.funcion_codigo = 'pagina.fleet'
 ON CONFLICT (rol_codigo, funcion_codigo) DO NOTHING;
 
-INSERT INTO permisos_usuario_funcion (user_id, funcion_codigo, efecto)
-  SELECT o.user_id, v.fn, o.efecto FROM permisos_usuario_funcion o CROSS JOIN (VALUES
-  ('vehicles.vehiculos.consultar')
-  ) AS v(fn)
-  WHERE o.funcion_codigo = 'pagina.fleet'
-ON CONFLICT (user_id, funcion_codigo) DO NOTHING;
-
 INSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo)
   SELECT o.rol_codigo, v.fn FROM permisos_rol_funcion o CROSS JOIN (VALUES
   ('vehicles.vehiculos.consultar')
   ) AS v(fn)
   WHERE o.funcion_codigo = 'pagina.soat'
 ON CONFLICT (rol_codigo, funcion_codigo) DO NOTHING;
-
-INSERT INTO permisos_usuario_funcion (user_id, funcion_codigo, efecto)
-  SELECT o.user_id, v.fn, o.efecto FROM permisos_usuario_funcion o CROSS JOIN (VALUES
-  ('vehicles.vehiculos.consultar')
-  ) AS v(fn)
-  WHERE o.funcion_codigo = 'pagina.soat'
-ON CONFLICT (user_id, funcion_codigo) DO NOTHING;
 
 INSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo)
   SELECT o.rol_codigo, v.fn FROM permisos_rol_funcion o CROSS JOIN (VALUES
@@ -195,8 +183,7 @@ INSERT INTO permisos_usuario_funcion (user_id, funcion_codigo, efecto)
   SELECT o.user_id, v.fn, o.efecto FROM permisos_usuario_funcion o CROSS JOIN (VALUES
   ('integraciones.fasecolda.buscar'),
   ('runt.cedula.leer'),
-  ('runt.persona.consultar'),
-  ('vehicles.vehiculos.consultar')
+  ('runt.persona.consultar')
   ) AS v(fn)
   WHERE o.funcion_codigo = 'pagina.tramite'
 ON CONFLICT (user_id, funcion_codigo) DO NOTHING;
@@ -208,18 +195,34 @@ INSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo)
   WHERE o.funcion_codigo = 'pagina.vehicles'
 ON CONFLICT (rol_codigo, funcion_codigo) DO NOTHING;
 
+-- vehicles.vehiculos.consultar es el UNICO destino con cuatro paginas de origen: sus excepciones por
+-- usuario NO se copian pagina a pagina (con ON CONFLICT ganaria la primera que llega, y el motor
+-- —shared/permisos-efectivos.ts, (R ∪ C) \ V, revocar gana— la aplicaria sobre todo). Se agregan con
+-- la semantica del motor. Acceso efectivo a la pagina p = (el rol de users.role tiene p, o el usuario
+-- tiene `conceder` en p) y el usuario no tiene `revocar` en p.
+--   (a) `conceder` a quien tenga `conceder` en cualquiera de las cuatro paginas;
+--   (b) `revocar` solo a quien, con alguna `revocar` entre ellas, no conserve acceso efectivo a NINGUNA.
 INSERT INTO permisos_usuario_funcion (user_id, funcion_codigo, efecto)
-  SELECT o.user_id, v.fn, o.efecto FROM permisos_usuario_funcion o CROSS JOIN (VALUES
-  ('vehicles.vehiculos.consultar')
-  ) AS v(fn)
-  WHERE o.funcion_codigo = 'pagina.vehicles'
+  SELECT DISTINCT o.user_id, 'vehicles.vehiculos.consultar', 'conceder' FROM permisos_usuario_funcion o
+  JOIN (VALUES ('pagina.fleet'), ('pagina.soat'), ('pagina.tramite'), ('pagina.vehicles')) AS p(pagina) ON p.pagina = o.funcion_codigo
+  WHERE o.efecto = 'conceder'
+ON CONFLICT (user_id, funcion_codigo) DO NOTHING;
+
+INSERT INTO permisos_usuario_funcion (user_id, funcion_codigo, efecto)
+  SELECT DISTINCT o.user_id, 'vehicles.vehiculos.consultar', 'revocar' FROM permisos_usuario_funcion o
+  JOIN (VALUES ('pagina.fleet'), ('pagina.soat'), ('pagina.tramite'), ('pagina.vehicles')) AS q(pagina) ON q.pagina = o.funcion_codigo
+  WHERE o.efecto = 'revocar'
+    AND NOT EXISTS (SELECT 1 FROM (VALUES ('pagina.fleet'), ('pagina.soat'), ('pagina.tramite'), ('pagina.vehicles')) AS p(pagina)
+      WHERE NOT EXISTS (SELECT 1 FROM permisos_usuario_funcion x WHERE x.user_id = o.user_id AND x.funcion_codigo = p.pagina AND x.efecto = 'revocar')
+        AND (EXISTS (SELECT 1 FROM users u2 JOIN permisos_rol_funcion rf ON rf.rol_codigo = u2.role::text AND rf.funcion_codigo = p.pagina WHERE u2.id = o.user_id)
+          OR EXISTS (SELECT 1 FROM permisos_usuario_funcion c WHERE c.user_id = o.user_id AND c.funcion_codigo = p.pagina AND c.efecto = 'conceder')))
 ON CONFLICT (user_id, funcion_codigo) DO NOTHING;
 
 -- ── Resumen y control, dentro de la transaccion del runner ─────────────────────────────────────────
 -- Un rol no-admin que falte en el ambiente NO aborta: el JOIN ya lo omitio y no concede nada hoy.
 DO $resumen0230$
 DECLARE
-  n_ops int; n_sin_admin int; n_cortas int; n_rol_nuevas int;
+  n_ops int; n_sin_admin int; n_cortas int; n_rol_nuevas int; n_revocado_con_acceso int; n_sin_alcance int;
 BEGIN
   SELECT count(*) INTO n_ops FROM permisos_funciones WHERE tipo = 'operacion' AND codigo IN ('drive.archivos.administrar','firma.estado.ver','firma.solicitud.administrar','integraciones.fasecolda.buscar','laft.bitacora.ver','laft.capacitaciones.operar','laft.contrapartes.operar','laft.efectivo.operar','laft.empleados.operar','laft.inusuales.operar','laft.listas.administrar','laft.listas.operar','laft.manual.administrar','laft.manual.firmar','laft.oficial.administrar','laft.plan_auditoria.administrar','laft.retencion.administrar','laft.ros.exportar','laft.ros.operar','laft.sincronizacion.administrar','laft.sincronizacion.ver','laft.tablero.ver','privacy.accesos_pii.ver','privacy.olvido.administrar','privacy.titulares.operar','runt.cedula.leer','runt.persona.consultar','siigo.conceptos.confirmar','siigo.emision.ver','siigo.factura.anular','siigo.factura.consultar','siigo.factura.corregir','siigo.factura.emitir','siigo.factura.marcar_fallido','siigo.factura.reactivar','siigo.factura.reenviar_correo','siigo.factura.reintentar','siigo.parametrizacion.administrar','siigo.parametrizacion.ver','soat.antiguo.administrar','soat.antiguo.operar','vehicles.vehiculos.consultar');
   IF n_ops <> 42 THEN
@@ -233,22 +236,45 @@ BEGIN
       RAISE EXCEPTION '0230: % funciones nuevas sin admin (AC8)', n_sin_admin;
     END IF;
   END IF;
-  -- Paridad de la copia viva: cada rol (y excepcion de usuario) de una pagina de origen tiene su destino.
+  -- Paridad de la copia viva: cada rol de una pagina de origen tiene su destino; y cada excepcion de
+  -- usuario, en los destinos de UNA sola pagina (pagina.tramite). El de cuatro se mira por efecto, abajo.
   SELECT count(*) INTO n_cortas FROM (VALUES
-    ('pagina.fleet', 'vehicles.vehiculos.consultar'),
-    ('pagina.soat', 'vehicles.vehiculos.consultar'),
-    ('pagina.tramite', 'integraciones.fasecolda.buscar'),
-    ('pagina.tramite', 'runt.cedula.leer'),
-    ('pagina.tramite', 'runt.persona.consultar'),
-    ('pagina.tramite', 'vehicles.vehiculos.consultar'),
-    ('pagina.vehicles', 'vehicles.vehiculos.consultar')
-  ) AS v(origen, fn)
+    ('pagina.fleet', 'vehicles.vehiculos.consultar', false),
+    ('pagina.soat', 'vehicles.vehiculos.consultar', false),
+    ('pagina.tramite', 'integraciones.fasecolda.buscar', true),
+    ('pagina.tramite', 'runt.cedula.leer', true),
+    ('pagina.tramite', 'runt.persona.consultar', true),
+    ('pagina.tramite', 'vehicles.vehiculos.consultar', false),
+    ('pagina.vehicles', 'vehicles.vehiculos.consultar', false)
+  ) AS v(origen, fn, copia_usuario)
     WHERE EXISTS (SELECT 1 FROM permisos_rol_funcion o WHERE o.funcion_codigo = v.origen
                     AND NOT EXISTS (SELECT 1 FROM permisos_rol_funcion d WHERE d.rol_codigo = o.rol_codigo AND d.funcion_codigo = v.fn))
-       OR EXISTS (SELECT 1 FROM permisos_usuario_funcion o WHERE o.funcion_codigo = v.origen
-                    AND NOT EXISTS (SELECT 1 FROM permisos_usuario_funcion d WHERE d.user_id = o.user_id AND d.funcion_codigo = v.fn));
+       OR (v.copia_usuario AND EXISTS (SELECT 1 FROM permisos_usuario_funcion o WHERE o.funcion_codigo = v.origen
+                    AND NOT EXISTS (SELECT 1 FROM permisos_usuario_funcion d WHERE d.user_id = o.user_id AND d.funcion_codigo = v.fn AND d.efecto = o.efecto)));
   IF n_cortas <> 0 THEN
     RAISE EXCEPTION '0230: % copias con MENOS reparto que su pagina de origen (paridad)', n_cortas;
+  END IF;
+  -- vehicles.vehiculos.consultar, por EFECTO: nadie que conserve acceso efectivo a alguna de las cuatro
+  -- paginas queda revocado, y todo el que lo conserva la alcanza ((rol o conceder) y no revocar).
+  SELECT count(*) INTO n_revocado_con_acceso FROM users u
+    WHERE EXISTS (SELECT 1 FROM permisos_usuario_funcion r WHERE r.user_id = u.id AND r.funcion_codigo = 'vehicles.vehiculos.consultar' AND r.efecto = 'revocar')
+      AND EXISTS (SELECT 1 FROM (VALUES ('pagina.fleet'), ('pagina.soat'), ('pagina.tramite'), ('pagina.vehicles')) AS p(pagina)
+        WHERE NOT EXISTS (SELECT 1 FROM permisos_usuario_funcion x WHERE x.user_id = u.id AND x.funcion_codigo = p.pagina AND x.efecto = 'revocar')
+          AND (EXISTS (SELECT 1 FROM users u2 JOIN permisos_rol_funcion rf ON rf.rol_codigo = u2.role::text AND rf.funcion_codigo = p.pagina WHERE u2.id = u.id)
+            OR EXISTS (SELECT 1 FROM permisos_usuario_funcion c WHERE c.user_id = u.id AND c.funcion_codigo = p.pagina AND c.efecto = 'conceder')));
+  IF n_revocado_con_acceso <> 0 THEN
+    RAISE EXCEPTION '0230: % usuarios con revocar en vehicles.vehiculos.consultar y acceso efectivo a una pagina de origen', n_revocado_con_acceso;
+  END IF;
+  SELECT count(*) INTO n_sin_alcance FROM users u
+    WHERE EXISTS (SELECT 1 FROM (VALUES ('pagina.fleet'), ('pagina.soat'), ('pagina.tramite'), ('pagina.vehicles')) AS p(pagina)
+        WHERE NOT EXISTS (SELECT 1 FROM permisos_usuario_funcion x WHERE x.user_id = u.id AND x.funcion_codigo = p.pagina AND x.efecto = 'revocar')
+          AND (EXISTS (SELECT 1 FROM users u2 JOIN permisos_rol_funcion rf ON rf.rol_codigo = u2.role::text AND rf.funcion_codigo = p.pagina WHERE u2.id = u.id)
+            OR EXISTS (SELECT 1 FROM permisos_usuario_funcion c WHERE c.user_id = u.id AND c.funcion_codigo = p.pagina AND c.efecto = 'conceder')))
+      AND NOT ((EXISTS (SELECT 1 FROM permisos_rol_funcion rf WHERE rf.rol_codigo = u.role::text AND rf.funcion_codigo = 'vehicles.vehiculos.consultar')
+                OR EXISTS (SELECT 1 FROM permisos_usuario_funcion c WHERE c.user_id = u.id AND c.funcion_codigo = 'vehicles.vehiculos.consultar' AND c.efecto = 'conceder'))
+               AND NOT EXISTS (SELECT 1 FROM permisos_usuario_funcion r WHERE r.user_id = u.id AND r.funcion_codigo = 'vehicles.vehiculos.consultar' AND r.efecto = 'revocar'));
+  IF n_sin_alcance <> 0 THEN
+    RAISE EXCEPTION '0230: % usuarios con acceso efectivo a una pagina de origen que no alcanzan vehicles.vehiculos.consultar', n_sin_alcance;
   END IF;
   SELECT count(*) INTO n_rol_nuevas FROM permisos_rol_funcion WHERE funcion_codigo IN ('drive.archivos.administrar','firma.estado.ver','firma.solicitud.administrar','integraciones.fasecolda.buscar','laft.bitacora.ver','laft.capacitaciones.operar','laft.contrapartes.operar','laft.efectivo.operar','laft.empleados.operar','laft.inusuales.operar','laft.listas.administrar','laft.listas.operar','laft.manual.administrar','laft.manual.firmar','laft.oficial.administrar','laft.plan_auditoria.administrar','laft.retencion.administrar','laft.ros.exportar','laft.ros.operar','laft.sincronizacion.administrar','laft.sincronizacion.ver','laft.tablero.ver','privacy.accesos_pii.ver','privacy.olvido.administrar','privacy.titulares.operar','runt.cedula.leer','runt.persona.consultar','siigo.conceptos.confirmar','siigo.emision.ver','siigo.factura.anular','siigo.factura.consultar','siigo.factura.corregir','siigo.factura.emitir','siigo.factura.marcar_fallido','siigo.factura.reactivar','siigo.factura.reenviar_correo','siigo.factura.reintentar','siigo.parametrizacion.administrar','siigo.parametrizacion.ver','soat.antiguo.administrar','soat.antiguo.operar','vehicles.vehiculos.consultar');
   RAISE NOTICE '0230: % operaciones; % filas de rol en las nuevas', n_ops, n_rol_nuevas;
