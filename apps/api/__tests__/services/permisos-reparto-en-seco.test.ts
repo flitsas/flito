@@ -97,7 +97,7 @@ describe('reparto en seco — el diff por ruta (AC6)', () => {
     expect(i.detalle).toEqual([{ llave: 'raci GET /', userId: 6, rol: 'compliance', cambio: 'gana' }]);
   });
 
-  it('con el recorte del Paso 3b (0226): raci queda en la intersección con pagina.pesv → PARIDAD, revocado y concedido por excepción incluidos', () => {
+  it('con el recorte del Paso 3b (0227): raci queda en la intersección con pagina.pesv → PARIDAD, revocado y concedido por excepción incluidos', () => {
     const usuarios: UsuarioEnSeco[] = [...USUARIOS, { id: 7, rol: 'compliance' }, { id: 8, rol: 'compliance' }];
     const filasUsuario: FilaUsuarioEnSeco[] = [
       ...FILAS_USR,

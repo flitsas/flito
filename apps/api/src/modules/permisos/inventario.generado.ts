@@ -312,7 +312,7 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   // HU #13421 (ADR-0023): las 76 guardas `requireRole` de pesv/ (48), drivers/ (24), jornadas/ (3) y rum/ (1)
   // el día que dejaron de decidir (develop 29d3461e). `roles` = la lista literal de su `requireRole`, que es
   // también el reparto de su código: las guardas que comparten código tienen la misma lista (ver
-  // catalogo-operaciones.legado.ts). Sembradas por la 0226 (número provisional hasta el rebase).
+  // catalogo-operaciones.legado.ts). Sembradas por la 0227.
   { modulo: "pesv", fichero: "pesv/export.routes.ts", metodo: "POST", ruta: "/sisi", roles: ["admin"], heredada: false },
   { modulo: "pesv", fichero: "pesv/export-diagnostico.routes.ts", metodo: "GET", ruta: "/diagnostico/:id/estandar/:codigo", roles: ["admin","compliance","lider_pesv"], heredada: false },
   { modulo: "pesv", fichero: "pesv/export-diagnostico.routes.ts", metodo: "GET", ruta: "/diagnostico/:id", roles: ["admin","compliance","lider_pesv"], heredada: false },

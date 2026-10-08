@@ -130,7 +130,7 @@ describe('AC6 — rol por rol: lo sembrado es lo que la foto concedía', () => {
 
   it('los roles con operaciones son los once de la foto, y conductor no tiene ninguna', () => {
     // HU #13421: compliance, lider_pesv y supervisor_flota reciben los transitorios «Administrar <ítem>»
-    // de PESV que hoy les daba su `requireRole` (antes de la 0226 no tenían ninguna operación).
+    // de PESV que hoy les daba su `requireRole` (antes de la 0227 no tenían ninguna operación).
     const conOperaciones = USER_ROLES.filter((r) => operacionesDe(r).length > 0).sort();
     expect(conOperaciones).toEqual(['admin', 'auditor', 'cliente', 'compliance', 'financiera', 'gestor_impuestos', 'lider_pesv', 'mensajero', 'proveedor', 'supervisor_flota', 'transito']);
   });

@@ -81,8 +81,8 @@ describe('AC1 — ninguna ruta de pesv/ pide la página única', () => {
   });
 
   // La guarda decide SOLO por `pagina.pesv_raci`; la paridad con el «pesv Y raci» de antes la da la
-  // 0226 (Paso 3b): nadie conserva raci/normativa/retención sin haber tenido `pagina.pesv` efectiva
-  // (migracion-0226.test.ts y el reporte en seco con el recorte lo comprueban).
+  // 0227 (Paso 3b): nadie conserva raci/normativa/retención sin haber tenido `pagina.pesv` efectiva
+  // (migracion-0227.test.ts y el reporte en seco con el recorte lo comprueban).
   it('raci ya no hereda `pagina.pesv` de la guarda de router de /api/pesv: con solo `pagina.pesv_raci` entra', async () => {
     const auth = await usuario(9104, 'compliance', ['pagina.pesv_raci']);
     const r = await request(app).get('/api/pesv/raci').set('Authorization', auth);
@@ -92,7 +92,7 @@ describe('AC1 — ninguna ruta de pesv/ pide la página única', () => {
 });
 
 describe('AC5 — raci/normativa/retención: sin la página propia no se entra aunque se tenga `pagina.pesv`', () => {
-  it('con `pagina.pesv` y sin `pagina.pesv_normativa` → 403 en normativa (el recorte de la 0226 es lo único que la concede)', async () => {
+  it('con `pagina.pesv` y sin `pagina.pesv_normativa` → 403 en normativa (el recorte de la 0227 es lo único que la concede)', async () => {
     const auth = await usuario(9113, 'conductor', ['pagina.pesv']);
     const r = await request(app).get('/api/pesv/normativa').set('Authorization', auth);
     expect(r.status).toBe(403);
