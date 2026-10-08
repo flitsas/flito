@@ -271,6 +271,43 @@ describe('transito-config — logo upload (TRAM-MT-02 F2b)', () => {
     expect(r.body.logoStorageKey).toBeNull();
   });
 
+  it('HU #13410 AC9: DELETE logo con el borrado del objeto fallido (`deleteEntityDocument` → false) → sigue 200', async () => {
+    const key = 'transito/organismos/05001/logo/x.png';
+    storageMocks.deleteEntityDocument.mockResolvedValueOnce(false);
+    selectMock
+      .mockReturnValueOnce(chain([{ k: key }]))
+      .mockReturnValueOnce(chain([{ codigo: '05001', alias: null, logoUrl: null, logoStorageKey: null, activo: true, updatedAt: new Date() }]))
+      .mockReturnValueOnce(chain([{ c: 0 }]));
+    insertMock.mockReturnValue(chain([]));
+    const token = await testToken({ sub: 1, role: 'admin' });
+    const app = await buildApp();
+    const r = await request(app)
+      .delete('/api/transito/organismos-config/05001/logo')
+      .set('Authorization', `Bearer ${token}`);
+    expect(r.status).toBe(200);
+    expect(r.body.logoStorageKey).toBeNull();
+  });
+
+  it('HU #13410 AC9: POST logo reemplazo con el borrado del anterior fallido (→ false) → sigue 200', async () => {
+    const prev = 'transito/organismos/05001/logo/old.png';
+    const next = 'transito/organismos/05001/logo/new.png';
+    storageMocks.uploadEntityDocument.mockResolvedValue(next);
+    storageMocks.deleteEntityDocument.mockResolvedValueOnce(false);
+    selectMock
+      .mockReturnValueOnce(chain([{ k: prev }]))
+      .mockReturnValueOnce(chain([{ codigo: '05001', alias: null, logoUrl: null, logoStorageKey: next, activo: true, updatedAt: new Date() }]))
+      .mockReturnValueOnce(chain([{ c: 0 }]));
+    insertMock.mockReturnValue(chain([]));
+    const token = await testToken({ sub: 1, role: 'admin' });
+    const app = await buildApp();
+    const r = await request(app)
+      .post('/api/transito/organismos-config/05001/logo')
+      .set('Authorization', `Bearer ${token}`)
+      .attach('file', PNG, { filename: 'logo.png', contentType: 'image/png' });
+    expect(r.status).toBe(200);
+    expect(storageMocks.deleteEntityDocument).toHaveBeenCalledWith(prev);
+  });
+
   it('GET logo otro organismo (transito) → 403', async () => {
     const token = await testToken({ sub: 4, role: 'transito', transitoCodigo: '05001' });
     const app = await buildApp();

@@ -35,6 +35,7 @@ const op = (llave: string, codigo: string, nombre: string, descripcion: string):
 const SOAT = 'flito-soat/flito-soat.routes.ts';
 const SOAT_CLI = 'flito-soat/flito-soat-cliente.routes.ts';
 const SOAT_INC = 'flito-soat/flito-soat-incompletas.routes.ts';
+const SOAT_DOC = 'flito-soat/flito-soat-documentos.routes.ts';
 const IMP = 'flito-impuestos/flito-impuestos.routes.ts';
 const IMP_DIR = 'flito-impuestos/flito-impuestos.direccion.routes.ts';
 const DER = 'flito-derechos/flito-derechos.routes.ts';
@@ -95,6 +96,9 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   // por la 0212 (P-8); el administrador la reparte. Textos byte a byte con la 0212.
   op(`${SOAT_INC} POST /cliente/incompletas/:id/reintentar`, 'soat.solicitud.reintentar_runt', 'Reintentar la consulta al RUNT de una solicitud de SOAT por validar', 'Volver a consultar el RUNT para completar, descartar o dejar por validar una solicitud que se guardó porque el RUNT no respondió.'),
   op(`${SOAT_INC} GET /cliente/incompletas/:id`, 'soat.incompleta.ver', 'Ver una solicitud de SOAT por validar o descartada', 'Abrir el detalle de una solicitud guardada sin validar con el RUNT: propietario, factura y motivo del descarte.'),
+  op(`${SOAT_DOC} GET /:id/documentos-adicionales`, 'soat.documentos_adicionales.ver', 'Ver los documentos adicionales de una solicitud de SOAT', 'Abrir y descargar los documentos adicionales que el cliente adjuntó a la solicitud de SOAT.'),
+  op(`${SOAT_DOC} POST /:id/documentos-adicionales`, 'soat.documentos_adicionales.cargar', 'Cargar documentos adicionales en una solicitud de SOAT', 'Adjuntar documentos adicionales a una solicitud de SOAT existente, en cualquier estado.'),
+  op(`${SOAT_DOC} DELETE /:id/documentos-adicionales/:soporteId`, 'soat.documentos_adicionales.eliminar', 'Eliminar documentos adicionales de una solicitud de SOAT', 'Borrar definitivamente un documento adicional de una solicitud de SOAT, en cualquier estado, aunque lo haya cargado otra persona.'),
 
   // ── Impuestos ─────────────────────────────────────────────────────────────────────────────────
   op(`${IMP} GET /`, 'impuestos.cola.ver', 'Ver la cola de impuestos', 'Abrir la bandeja de trámites de impuesto vehicular.'),

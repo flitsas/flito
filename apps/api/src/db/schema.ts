@@ -7,9 +7,9 @@ import { sql, desc } from 'drizzle-orm';
 // FLITO (migración): tipos de extracción OCR persistidos en columnas jsonb.
 import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVentaImpuesto, ExtraccionDerechoTramite, ComparacionFacturaRunt } from '@operaciones/shared-types';
 // Certificación de impuestos contra el RUNT (Feature #11159): detalle por campo en columna jsonb.
-import type { ComparacionCampo } from '@operaciones/shared-types';
 // Entrega de la factura por correo (HU #11334): destinatarios con su procedencia, en columna jsonb.
-import type { SiigoDestinatario } from '@operaciones/shared-types';
+// (Un solo import para los dos: HU #13410 necesitó la línea por el techo de max-lines.)
+import type { ComparacionCampo, SiigoDestinatario } from '@operaciones/shared-types';
 // SOAT canal Cliente (HU #12093): de dónde salió cada dato del propietario, en columna jsonb.
 import type { ProcedenciaCompradorPersistida } from '@operaciones/shared-types';
 // Verificación diaria de vigencia del SOAT (HU #12096): motivos de caída de una corrida, en jsonb.
@@ -39,6 +39,8 @@ export { flitoComprobantes };
 // HU #12996: `flito_soat_incompletas` vive en `./schema/flito-soat-incompletas.ts` por el mismo techo.
 import { flitoSoatIncompletas } from './schema/flito-soat-incompletas.js';
 export { flitoSoatIncompletas };
+// HU #13410: `flito_storage_borrados_pendientes` vive en `./schema/flito-storage-borrados-pendientes.ts`.
+export { flitoStorageBorradosPendientes } from './schema/flito-storage-borrados-pendientes.js';
 // HU #12619: `flito_tramite_viajes_logistica` vive en `./schema/flito-logistica-viajes.ts` por el mismo techo.
 import { flitoTramiteViajesLogistica } from './schema/flito-logistica-viajes.js';
 export { flitoTramiteViajesLogistica };
@@ -3396,8 +3398,13 @@ export const flitoSoportes = pgTable('flito_soportes', {
   // Descartado en la cola de revisión OCR: libera su hash para permitir recargar el mismo archivo
   // (un documento rechazado no debe contar como duplicado). Se excluye del dedup y de los listados.
   descartado: boolean('descartado').notNull().default(false),
+  // HU #13362 (0222): documento adicional del alta de SOAT — etiqueta, y la por validar de la que cuelga (sin CASCADE).
+  etiqueta: varchar('etiqueta', { length: 150 }),
+  soatIncompletaId: uuid('soat_incompleta_id').references(() => flitoSoatIncompletas.id),
 }, (t) => ({
   hashIdx: index('idx_flito_soportes_hash').on(t.hash),
+  soatIncompletaIdx: index('idx_flito_soportes_soat_incompleta').on(t.soatIncompletaId).where(sql`${t.soatIncompletaId} IS NOT NULL`),
+  documentoAdicionalChk: check('flito_soportes_documento_adicional_chk', sql`${t.tipo} <> 'documento_adicional_soat' OR (${t.etiqueta} IS NOT NULL AND (${t.soatId} IS NOT NULL OR ${t.soatIncompletaId} IS NOT NULL))`),
   // AC3 — un solo documento de cada tipo por factura. La garantía es de la base y no del servicio:
   // entre el «¿ya está?» y el INSERT de un barrido periódico cabe otro ciclo.
   facturaTipoUq: uniqueIndex('idx_flito_soportes_factura_tipo').on(t.siigoFacturaId, t.tipo)
@@ -3417,8 +3424,9 @@ export const flitoSoportes = pgTable('flito_soportes', {
   // de `factura_venta`, justo encima). Hasta aquí esta tabla no tenía NINGÚN índice por `soat_id`
   // solo: los tres de arriba son parciales sobre otras FK o sobre otro tipo, así que el `EXISTS`
   // del censo recorría `flito_soportes` entera una vez por SOAT candidato.
-  soatTipoIdx: index('idx_flito_soportes_soat_tipo').on(t.soatId, t.tipo)
-    .where(sql`${t.soatId} IS NOT NULL AND ${t.descartado} = false`),
+  soatTipoIdx: index('idx_flito_soportes_soat_tipo').on(t.soatId, t.tipo).where(sql`${t.soatId} IS NOT NULL AND ${t.descartado} = false`),
+  // HU #13364 (migración 0223): un adicional vivo por contenido y solicitud; cierra la carrera de dos cargas simultáneas.
+  adicionalSoatHashUq: uniqueIndex('uq_flito_soportes_adicional_soat_hash').on(t.soatId, t.hash).where(sql`${t.tipo} = 'documento_adicional_soat' AND ${t.descartado} = false AND ${t.soatId} IS NOT NULL`),
   // HU #12590 (migración 0196): calcado del anterior para `impuesto_id` — la cola de impuestos lee los documentos de cada página con `impuesto_id IN (...) AND tipo IN (...)`.
   impuestoTipoIdx: index('idx_flito_soportes_impuesto_tipo').on(t.impuestoId, t.tipo)
     .where(sql`${t.impuestoId} IS NOT NULL AND ${t.descartado} = false`),

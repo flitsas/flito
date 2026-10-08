@@ -28,12 +28,23 @@ interface FlitUploadBoxProps {
    * escribe fuera no forma parte del nombre accesible del control.
    */
   hint?: string;
+  /**
+   * Varios archivos a la vez (HU #13363, documentos adicionales del SOAT). Con `multiple` la caja
+   * entrega la lista entera por `onFiles` y el input queda alcanzable con el tabulador (`sr-only` en
+   * vez de `hidden`), con el foco y un velo de hover sobre la caja. Sin la prop, nada cambia.
+   */
+  multiple?: boolean;
+  onFiles?: (files: File[]) => void;
 }
 
 const ACCEPT_POR_DEFECTO = '.pdf,.png,.jpg,.jpeg';
 
+/** Hover (velo) y foco del kit sobre la caja cuando el input es alcanzable por teclado. */
+const MULTIPLE_FEEDBACK =
+  'hover:shadow-[inset_0_0_0_999px_var(--flit-bg-hover)] focus-within:shadow-[0_0_0_3px_var(--flit-border-focus)]';
+
 export default function FlitUploadBox(
-  { label, required, state, count, onFile, accept = ACCEPT_POR_DEFECTO, hint }: FlitUploadBoxProps,
+  { label, required, state, count, onFile, accept = ACCEPT_POR_DEFECTO, hint, multiple, onFiles }: FlitUploadBoxProps,
 ) {
   const color =
     state === 'rejected' ? 'var(--flit-danger)'
@@ -52,7 +63,7 @@ export default function FlitUploadBox(
 
   return (
     <label
-      className={`flit-focus relative block cursor-pointer rounded-[12px] p-4 transition-colors ${state === 'uploading' ? 'pointer-events-none opacity-60' : ''}`}
+      className={`flit-focus relative block cursor-pointer rounded-[12px] p-4 transition-colors ${multiple ? MULTIPLE_FEEDBACK : ''} ${state === 'uploading' ? 'pointer-events-none opacity-60' : ''}`}
       style={{ border: `2px dashed ${color}`, background: bg }}
     >
       <div className="text-center">
@@ -73,8 +84,14 @@ export default function FlitUploadBox(
       <input
         type="file"
         accept={accept}
-        className="hidden"
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ''; }}
+        multiple={multiple}
+        className={multiple ? 'sr-only' : 'hidden'}
+        onChange={(e) => {
+          const lista = Array.from(e.target.files ?? []);
+          if (multiple && onFiles) { if (lista.length) onFiles(lista); }
+          else if (lista[0]) onFile(lista[0]);
+          e.target.value = '';
+        }}
       />
     </label>
   );

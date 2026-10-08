@@ -21,6 +21,14 @@ vi.mock('minio', () => ({
   Client: MockClient,
 }));
 
+// HU #13410 AC9: el `warn` de `deleteEntityDocument` se lee para comprobar que no lleva la clave.
+const logMock = vi.hoisted(() => {
+  const l: Record<string, unknown> = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), trace: vi.fn(), fatal: vi.fn() };
+  l.child = () => l;
+  return l as Record<string, ReturnType<typeof vi.fn>>;
+});
+vi.mock('../../src/shared/logger.js', () => ({ logger: logMock, loggerFor: () => logMock }));
+
 beforeEach(() => {
   bucketExistsMock.mockReset();
   makeBucketMock.mockReset();
@@ -469,10 +477,61 @@ describe('storage — deleteFleetDocument / deleteEntityDocument (errores silenc
     await expect(deleteFleetDocument('fleet/documents/1/x')).resolves.toBeUndefined();
   });
 
-  it('deleteEntityDocument: si removeObject throws → silencioso', async () => {
+  it('deleteEntityDocument: si removeObject throws → NO propaga y devuelve false (HU #13410 AC9)', async () => {
     removeObjectMock.mockRejectedValueOnce(new Error('boom'));
     const { deleteEntityDocument } = await import('../../src/services/storage.js');
-    await expect(deleteEntityDocument('x/1/y')).resolves.toBeUndefined();
+    await expect(deleteEntityDocument('x/1/y')).resolves.toBe(false);
+  });
+
+  it('deleteEntityDocument: borrado OK → true (HU #13410 AC9)', async () => {
+    const { deleteEntityDocument } = await import('../../src/services/storage.js');
+    await expect(deleteEntityDocument('x/1/y')).resolves.toBe(true);
+  });
+
+  it('deleteEntityDocument: «no existe» (NoSuchKey) cuenta como borrado → true, sin warn (HU #13410 AC9)', async () => {
+    logMock.warn.mockClear();
+    removeObjectMock.mockRejectedValueOnce(Object.assign(new Error('The specified key does not exist.'), { code: 'NoSuchKey' }));
+    const { deleteEntityDocument } = await import('../../src/services/storage.js');
+    await expect(deleteEntityDocument('x/1/y')).resolves.toBe(true);
+    expect(logMock.warn).not.toHaveBeenCalled();
+  });
+
+  it('deleteEntityDocument: el warn lleva claveHash (16 hex) y el CÓDIGO del error; nunca la clave ni el mensaje (HU #13410 AC9)', async () => {
+    logMock.warn.mockClear();
+    const KEY = 'clientes/900123456/soat/documentos-adicionales/abc/cedula-de-juan-perez.pdf';
+    const { createHash } = await import('node:crypto');
+    removeObjectMock.mockRejectedValueOnce(Object.assign(new Error(`AccessDenied on ${KEY}`), { code: 'AccessDenied' }));
+    const { deleteEntityDocument } = await import('../../src/services/storage.js');
+    await expect(deleteEntityDocument(KEY)).resolves.toBe(false);
+    expect(logMock.warn).toHaveBeenCalledTimes(1);
+    expect(logMock.warn.mock.calls[0][0]).toEqual({
+      claveHash: createHash('sha256').update(KEY).digest('hex').slice(0, 16), err: 'AccessDenied',
+    });
+    const serial = JSON.stringify(logMock.warn.mock.calls);
+    expect(serial).not.toContain('900123456');
+    expect(serial).not.toContain('cedula-de-juan-perez');
+  });
+
+  it('deleteEntityDocument delega en removeObject con bucket + clave exacta (HU #13364)', async () => {
+    const { deleteEntityDocument } = await import('../../src/services/storage.js');
+    await deleteEntityDocument('soat/documentos-adicionales/abc/k.pdf');
+    expect(removeObjectMock).toHaveBeenCalledTimes(1);
+    expect(removeObjectMock.mock.calls[0][1]).toBe('soat/documentos-adicionales/abc/k.pdf');
+  });
+});
+
+describe('storage — removeEntityDocument (HU #13364: el borrado que SÍ avisa)', () => {
+  it('llama removeObject con la clave exacta y resuelve', async () => {
+    const { removeEntityDocument } = await import('../../src/services/storage.js');
+    await expect(removeEntityDocument('soat/documentos-adicionales/abc/k.pdf')).resolves.toBeUndefined();
+    expect(removeObjectMock).toHaveBeenCalledTimes(1);
+    expect(removeObjectMock.mock.calls[0][1]).toBe('soat/documentos-adicionales/abc/k.pdf');
+  });
+
+  it('si removeObject falla, el error SE PROPAGA (a diferencia de deleteEntityDocument)', async () => {
+    removeObjectMock.mockRejectedValueOnce(new Error('minio caído'));
+    const { removeEntityDocument } = await import('../../src/services/storage.js');
+    await expect(removeEntityDocument('x/1/y')).rejects.toThrow('minio caído');
   });
 });
 

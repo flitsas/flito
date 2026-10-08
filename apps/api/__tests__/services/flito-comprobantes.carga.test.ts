@@ -274,8 +274,12 @@ describe('AC4 — duplicado por contenido', () => {
     const { createHash } = await import('node:crypto');
     expect(ligadoA(q, '"flito_soportes"."hash"')).toBe(createHash('sha256').update(PDF).digest('hex'));
     expect(ligadoA(q, '"flito_soportes"."descartado"')).toBe(false);
-    // Sin ningún filtro por `tipo`: el hash cuenta venga de la puerta que venga.
-    expect(q.sql).not.toMatch(/"flito_soportes"\."tipo"/);
+    // El hash cuenta venga de la puerta que venga, SALVO un documento adicional del alta de SOAT
+    // (HU #13362): única condición por `tipo`, un `<>` ligado a ese valor.
+    const tipo = /"flito_soportes"\."tipo" <> \$(\d+)/.exec(q.sql);
+    expect(tipo, q.sql).not.toBeNull();
+    expect(q.params[Number(tipo![1]) - 1]).toBe(TipoSoporte.DOCUMENTO_ADICIONAL_SOAT);
+    expect(q.sql.match(/"flito_soportes"\."tipo"/g)).toHaveLength(1);
   });
 
   it.each([

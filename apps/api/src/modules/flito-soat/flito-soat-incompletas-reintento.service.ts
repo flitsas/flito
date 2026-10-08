@@ -41,6 +41,7 @@ import {
   type DestinoCanalCliente, type PropietarioSolicitud,
 } from './flito-soat-cliente.service.js';
 import { condicionAlcance } from './flito-soat-incompletas.service.js';
+import { vincularAdicionalesAlSoat } from './flito-soat-documentos.service.js';
 
 const log = loggerFor('flito-soat-incompletas');
 
@@ -271,6 +272,8 @@ async function completar(
 
     await tx.update(flitoCompradores).set({ soatId })
       .where(eq(flitoCompradores.soatIncompletaId, inc.id));
+    // HU #13362 (D3-bis §3): los documentos adicionales del alta aparcada pasan a la solicitud.
+    await vincularAdicionalesAlSoat(tx, inc.id, soatId);
 
     await tx.update(flitoSoatIncompletas).set({
       estado: EstadoSolicitudIncompletaSoat.COMPLETADA,

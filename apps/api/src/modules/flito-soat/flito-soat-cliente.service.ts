@@ -137,6 +137,10 @@ import {
   type DatosRuntCanal,
 } from './flito-soat-cliente-runt.js';
 import { aparcarSolicitud, MENSAJE_SOLICITUD_INCOMPLETA } from './flito-soat-incompletas.service.js';
+import {
+  CARPETA_ADICIONALES, compensarAdicionales, insertarAdicionales, subirAdicionales,
+  type AdicionalAceptado, type AdicionalGuardado, type AdicionalSubido,
+} from './flito-soat-documentos.service.js';
 
 export {
   extraerDatosCanal,
@@ -1263,6 +1267,8 @@ export interface SolicitudCreada {
    * `res.json(creada)` de antes se lo habría contado sin que nadie lo pidiera.
    */
   destino: DestinoCanalCliente;
+  /** HU #13362: los documentos adicionales guardados, para la Bitácora y el 201. */
+  adicionalesGuardados: AdicionalGuardado[];
 }
 
 /**
@@ -1274,6 +1280,8 @@ export interface SolicitudAparcada {
   id: string;
   estado: typeof EstadoSolicitudIncompletaSoat.INCOMPLETA;
   mensaje: string;
+  /** HU #13362 (D3-bis): guardados contra la por validar, con la misma forma que en el 201. */
+  adicionalesGuardados: AdicionalGuardado[];
 }
 
 /**
@@ -1286,13 +1294,14 @@ export interface SolicitudAparcada {
  */
 async function aparcarPorRuntCaido(
   entrada: EntradaSolicitud, archivo: ArchivoSolicitud, ctx: SoatCtx, canal: CanalCompania, vin: string,
+  adicionales: AdicionalAceptado[],
 ): Promise<SolicitudAparcada> {
   const r = await aparcarSolicitud({
     vin, companiaId: canal.companiaId, carpetaStorage: canal.carpetaStorage,
     propietario: entrada.propietario,
     nombreCompleto: nombreCompletoDe(entrada.propietario),
     procedencia: procedenciaCompleta(entrada.procedencia),
-    archivo,
+    archivo, adicionales,
   }, ctx);
   if (!r.aparcada) {
     await verificarRn01(vin, canal.companiaId);
@@ -1301,6 +1310,7 @@ async function aparcarPorRuntCaido(
   return {
     desenlace: 'incompleta', id: r.id,
     estado: EstadoSolicitudIncompletaSoat.INCOMPLETA, mensaje: MENSAJE_SOLICITUD_INCOMPLETA,
+    adicionalesGuardados: r.adicionalesGuardados,
   };
 }
 
@@ -1336,6 +1346,8 @@ export async function crearSolicitud(
   entrada: EntradaSolicitud,
   archivo: ArchivoSolicitud,
   ctx: SoatCtx,
+  /** HU #13362: ya clasificados por `clasificarAdicionales`; se suben tras la factura y se insertan en la tx. */
+  adicionales: AdicionalAceptado[] = [],
 ): Promise<SolicitudCreada | SolicitudAparcada> {
   const canal = await canalDeLaCompania(ctx);
   await verificarPdfReal(archivo);
@@ -1351,7 +1363,7 @@ export async function crearSolicitud(
     runt = await verificarRuntCompuerta(vinTecleado);
   } catch (e) {
     if (e instanceof SolicitudSoatError && e.codigo === CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE) {
-      return aparcarPorRuntCaido(entrada, archivo, ctx, canal, vinTecleado);
+      return aparcarPorRuntCaido(entrada, archivo, ctx, canal, vinTecleado, adicionales);
     }
     throw e;
   }
@@ -1370,8 +1382,13 @@ export async function crearSolicitud(
     carpetaDe({ id: canal.companiaId, flitoCarpetaStorage: canal.carpetaStorage }, 'soat/facturas-venta'),
     soatId, archivo.originalname, archivo.buffer, archivo.mimetype,
   );
+  const subidos: AdicionalSubido[] = await subirAdicionales(
+    carpetaDe({ id: canal.companiaId, flitoCarpetaStorage: canal.carpetaStorage }, CARPETA_ADICIONALES),
+    soatId, adicionales,
+  );
 
   let destino!: DestinoCanalCliente;
+  let adicionalesGuardados: AdicionalGuardado[] = [];
   // Un solo instante para `enviado_en` y para `gestion_operaciones_en`: son el mismo hecho —esta
   // solicitud se despachó ahora— y dos `new Date()` los separarían por milisegundos sin motivo.
   const ahora = new Date();
@@ -1413,8 +1430,12 @@ export async function crearSolicitud(
         procedencia: procedenciaCompleta(entrada.procedencia),
         orden: 0,
       });
+
+      adicionalesGuardados = await insertarAdicionales(tx, subidos, { soatId }, { id: ctx.userId, nombre: ctx.username });
     });
   } catch (e) {
+    // AC7 de la HU #13362: sin COMMIT, ningún adicional queda en storage. (La factura no se compensa: deuda previa.)
+    await compensarAdicionales(subidos);
     if ((e as { code?: string })?.code === UNIQUE_VIOLATION) {
       throw vehiculoAjeno();
     }
@@ -1424,7 +1445,7 @@ export async function crearSolicitud(
   // Sin `setImmediate` y sin job: la verificación ya ocurrió, dentro de la petición. La función que
   // la #11935 programaba aquí (`verificarRuntPostAlta`) se BORRÓ con esta HU, y ese borrado es lo
   // que hace estructural el «las filas ya radicadas no se reconsultan» del AC6.
-  return { desenlace: 'creada', id: soatId, estado: EstadoSoat.SOLICITADO, placa: datos.placa, destino };
+  return { desenlace: 'creada', id: soatId, estado: EstadoSoat.SOLICITADO, placa: datos.placa, destino, adicionalesGuardados };
 }
 
 // ═════════ Lectura OCR de la factura de venta (Feature #12073, HU #12092) ════

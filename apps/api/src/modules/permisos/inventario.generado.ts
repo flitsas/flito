@@ -11,7 +11,7 @@
 // `permisos-catalogo.test.ts` comprueba que los montajes del fuente cubren exactamente esta foto.
 import type { GuardaLeida } from './inventario-guardas.js';
 
-/** 217 rutas guardadas medidas el 9/09/2026 + 11 añadidas por la HU #12083 (dos en línea); +2 −1 por la HU #12373 (tarifas); +2 por la HU #12171; +7 por la HU #12084 (permisos); +4 por la HU #12541 (servicios adicionales); +1 por la HU #12591 (recibo de caja); +5 por la HU #12611 (comprobantes); +3 por la HU #12619 (viajes de logística); +3 por la HU #12629 (comprobantes F2: buscar, aplicar, descartar); +1 por la HU #12654 (comprobantes F3: aceptar diferencia); +2 por el Bug #12642 (export ampliado con datos de pago, dos en línea); +1 por la HU #12833 (corregir dirección del comprador); +2 por la HU #12997 (incompletas SOAT: buscar y ver); +1 por la HU #12998 (reintentar la consulta RUNT de una incompleta); +2 por la HU #13061 (acceso a FLIT 2: ver y guardar); +1 por la HU #13237 (interruptor de sincronización por fuente). */
+/** 217 rutas guardadas medidas el 9/09/2026 + 11 añadidas por la HU #12083 (dos en línea); +2 −1 por la HU #12373 (tarifas); +2 por la HU #12171; +7 por la HU #12084 (permisos); +4 por la HU #12541 (servicios adicionales); +1 por la HU #12591 (recibo de caja); +5 por la HU #12611 (comprobantes); +3 por la HU #12619 (viajes de logística); +3 por la HU #12629 (comprobantes F2: buscar, aplicar, descartar); +1 por la HU #12654 (comprobantes F3: aceptar diferencia); +2 por el Bug #12642 (export ampliado con datos de pago, dos en línea); +1 por la HU #12833 (corregir dirección del comprador); +2 por la HU #12997 (incompletas SOAT: buscar y ver); +1 por la HU #12998 (reintentar la consulta RUNT de una incompleta); +2 por la HU #13061 (acceso a FLIT 2: ver y guardar); +1 por la HU #13237 (interruptor de sincronización por fuente); +1 por la HU #13362 (documentos adicionales del SOAT). */
 export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor","cliente","proveedor"], heredada: false },
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "POST", ruta: "/export", roles: ["admin","proveedor"], heredada: false },
@@ -39,6 +39,10 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "soat", fichero: "flito-soat/flito-soat-incompletas.routes.ts", metodo: "GET", ruta: "/cliente/incompletas/:id", roles: ["admin","auditor","cliente","proveedor"], heredada: false },
   // HU #12998: la acción de reintentar; de partida solo admin (0212, P-8).
   { modulo: "soat", fichero: "flito-soat/flito-soat-incompletas.routes.ts", metodo: "POST", ruta: "/cliente/incompletas/:id/reintentar", roles: ["admin"], heredada: false },
+  // HU #13362 (0222): documentos adicionales de una solicitud — operación FLIT y proveedor SOAT; el cliente NO.
+  { modulo: "soat", fichero: "flito-soat/flito-soat-documentos.routes.ts", metodo: "GET", ruta: "/:id/documentos-adicionales", roles: ["admin","proveedor"], heredada: false },
+  { modulo: "soat", fichero: "flito-soat/flito-soat-documentos.routes.ts", metodo: "POST", ruta: "/:id/documentos-adicionales", roles: ["admin","proveedor"], heredada: false },
+  { modulo: "soat", fichero: "flito-soat/flito-soat-documentos.routes.ts", metodo: "DELETE", ruta: "/:id/documentos-adicionales/:soporteId", roles: ["admin","proveedor"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "GET", ruta: "/:id/factura-venta", roles: ["admin","gestor_impuestos"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "POST", ruta: "/soportes/zip", roles: ["admin","gestor_impuestos"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor","gestor_impuestos"], heredada: false },

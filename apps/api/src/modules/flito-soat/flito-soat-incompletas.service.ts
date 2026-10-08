@@ -56,6 +56,10 @@ import { carpetaDe } from '../flito-parametrizacion/flito-parametrizacion.servic
 import { uploadEntityDocument } from '../../services/storage.js';
 import { loggerFor } from '../../shared/logger.js';
 import type { SoatCtx } from './flito-soat.service.js';
+import {
+  CARPETA_ADICIONALES, compensarAdicionales, insertarAdicionales, subirAdicionales,
+  type AdicionalAceptado, type AdicionalGuardado,
+} from './flito-soat-documentos.service.js';
 import type {
   ArchivoSolicitud,
   PropietarioSolicitud,
@@ -86,10 +90,12 @@ export interface EntradaAparcar {
   /** Mapa completo (`procedenciaCompleta`), igual que el alta normal. */
   procedencia: ProcedenciaComprador;
   archivo: ArchivoSolicitud;
+  /** HU #13362 (D3-bis): los adicionales aceptados también se guardan, contra la por validar. */
+  adicionales?: AdicionalAceptado[];
 }
 
 export type ResultadoAparcar =
-  | { aparcada: true; id: string; soatIdReservado: string }
+  | { aparcada: true; id: string; soatIdReservado: string; adicionalesGuardados: AdicionalGuardado[] }
   /**
    * Otra petición abrió una incompleta para el mismo VIN entre la comprobación de la RN-01 y el
    * INSERT (el índice único parcial saltó). Quien llama decide el 409 volviendo a mirar la RN-01,
@@ -117,9 +123,15 @@ export async function aparcarSolicitud(entrada: EntradaAparcar, ctx: SoatCtx): P
     carpetaDe({ id: entrada.companiaId, flitoCarpetaStorage: entrada.carpetaStorage }, 'soat/facturas-venta'),
     soatIdReservado, archivo.originalname, archivo.buffer, archivo.mimetype,
   );
+  // Mismo `entityId` que la factura: al completar, el `soat_id` final ES el reservado (D3-bis §2).
+  const subidos = await subirAdicionales(
+    carpetaDe({ id: entrada.companiaId, flitoCarpetaStorage: entrada.carpetaStorage }, CARPETA_ADICIONALES),
+    soatIdReservado, entrada.adicionales ?? [],
+  );
 
   const ahora = new Date();
   let id!: string;
+  let adicionalesGuardados: AdicionalGuardado[] = [];
   try {
     await db.transaction(async (tx) => {
       const [fila] = await tx.insert(flitoSoatIncompletas).values({
@@ -158,8 +170,14 @@ export async function aparcarSolicitud(entrada: EntradaAparcar, ctx: SoatCtx): P
         procedencia: entrada.procedencia,
         orden: 0,
       });
+
+      adicionalesGuardados = await insertarAdicionales(
+        tx, subidos, { soatIncompletaId: id }, { id: ctx.userId, nombre: ctx.username },
+      );
     });
   } catch (e) {
+    // AC7 de la HU #13362: si no hay COMMIT, ningún adicional queda en storage (también con `vin_ocupado`).
+    await compensarAdicionales(subidos);
     if ((e as { code?: string })?.code === UNIQUE_VIOLATION) {
       log.warn({ companiaId: entrada.companiaId, desenlace: 'vin_ocupado' },
         'Solicitud SOAT incompleta no aparcada: el VIN ya tenía una incompleta abierta');
@@ -170,7 +188,7 @@ export async function aparcarSolicitud(entrada: EntradaAparcar, ctx: SoatCtx): P
 
   log.info({ incompletaId: id, companiaId: entrada.companiaId },
     'Solicitud SOAT del canal Cliente aparcada como incompleta: el RUNT no respondió');
-  return { aparcada: true, id, soatIdReservado };
+  return { aparcada: true, id, soatIdReservado, adicionalesGuardados };
 }
 
 // ─────────────────────────────── Lectura (HU #12997) ────────────────────────────────────────────
@@ -332,13 +350,14 @@ export async function detalleIncompleta(id: string, ctx: SoatCtx): Promise<Solic
     facturaNombreArchivo: flitoSoatIncompletas.facturaNombreArchivo,
     facturaContentType: flitoSoatIncompletas.facturaContentType,
     facturaTamanoBytes: flitoSoatIncompletas.facturaTamanoBytes,
+    archivosPurgadosEn: flitoSoatIncompletas.archivosPurgadosEn,
   })
     .from(flitoSoatIncompletas)
     .leftJoin(clients, eq(clients.id, flitoSoatIncompletas.companiaId))
     .leftJoin(flitoCompradores, and(
       eq(flitoCompradores.soatIncompletaId, flitoSoatIncompletas.id), eq(flitoCompradores.orden, 0)))
     .where(and(eq(flitoSoatIncompletas.id, id), alcance))
-    .limit(1) as (FilaCruda & { facturaNombreArchivo: string; facturaContentType: string; facturaTamanoBytes: number })[];
+    .limit(1) as (FilaCruda & { facturaNombreArchivo: string; facturaContentType: string; facturaTamanoBytes: number; archivosPurgadosEn: Date | string | null })[];
   if (!fila) return null;
 
   const [p] = await db.select({
@@ -372,5 +391,7 @@ export async function detalleIncompleta(id: string, ctx: SoatCtx): Promise<Solic
       contentType: fila.facturaContentType,
       tamanoBytes: fila.facturaTamanoBytes,
     },
+    // HU #13409 (AC8): la retención ya borró los archivos; null si no.
+    archivosPurgadosEn: fila.archivosPurgadosEn ? iso(fila.archivosPurgadosEn) : null,
   };
 }

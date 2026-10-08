@@ -346,6 +346,10 @@ export const TipoSoporte = {
   CONSOLIDADO_COMPROBANTES: 'consolidado_comprobantes',
   COMPROBANTE_PAGO: 'comprobante_pago',
   DOCUMENTO_TRAMITE: 'documento_tramite',
+  // Épica #13201, HU #13362 — documento adicional que el cliente adjunta al alta de SOAT (PDF o
+  // imagen, con etiqueta). Fuera de la lista general de soportes, del ZIP y de las exportaciones:
+  // se lee solo por `GET /api/flito/soat/:id/documentos-adicionales`.
+  DOCUMENTO_ADICIONAL_SOAT: 'documento_adicional_soat',
 } as const;
 
 export type TipoSoporte = (typeof TipoSoporte)[keyof typeof TipoSoporte];
@@ -841,6 +845,11 @@ export interface PropietarioSolicitudIncompleta {
 export interface SolicitudIncompletaDetalle extends SolicitudIncompletaFila {
   propietario: PropietarioSolicitudIncompleta | null;
   factura: { nombreArchivo: string; contentType: string; tamanoBytes: number };
+  /**
+   * HU #13409: ISO de cuándo la retención (30 días tras el descarte) borró la factura y los
+   * documentos adicionales del almacenamiento. `null` = no purgada.
+   */
+  archivosPurgadosEn: string | null;
 }
 
 /** Respuesta de `POST /api/flito/soat/cliente/incompletas/buscar`. `conteos` alimenta las pastillas. */
@@ -860,13 +869,51 @@ export interface RespuestaBuscarIncompletas {
  *     fila de `flito_soat_incompletas`, no un id de SOAT.
  */
 export type RespuestaAltaSolicitudSoat =
-  | { desenlace: 'creada'; id: string; estado: EstadoSoat }
+  | { desenlace: 'creada'; id: string; estado: EstadoSoat; documentosAdicionales?: ResultadoDocumentosAdicionales }
   | {
     desenlace: 'incompleta';
     id: string;
     estado: typeof EstadoSolicitudIncompletaSoat.INCOMPLETA;
     mensaje: string;
+    documentosAdicionales?: ResultadoDocumentosAdicionales;
   };
+
+/**
+ * HU #13362 — por qué se descartó un documento adicional del alta de SOAT. La primera regla que
+ * falla decide, en este orden: tamaño (>15 MB), formato (por bytes), repetido (incluye la factura de
+ * venta del mismo envío), cantidad (>20 aceptados) y total (>250 MB acumulados). Un descarte nunca
+ * tumba el alta.
+ */
+export const MotivoDescarteDocumentoAdicional = {
+  SUPERA_TAMANO: 'supera_tamano',
+  FORMATO_NO_PERMITIDO: 'formato_no_permitido',
+  DOCUMENTO_REPETIDO: 'documento_repetido',
+  SUPERA_CANTIDAD: 'supera_cantidad',
+  SUPERA_TOTAL: 'supera_total',
+} as const;
+export type MotivoDescarteDocumentoAdicional =
+  (typeof MotivoDescarteDocumentoAdicional)[keyof typeof MotivoDescarteDocumentoAdicional];
+
+/**
+ * HU #13362 — `documentosAdicionales` del 201/202 de `POST /api/flito/soat/cliente`. Solo viaja si
+ * se envió al menos un adicional; sin adicionales, el cuerpo es el de siempre.
+ */
+export interface ResultadoDocumentosAdicionales {
+  aceptados: { id: string; etiqueta: string; nombreArchivo: string; tipoContenido: string; tamanoBytes: number }[];
+  descartados: { nombreArchivo: string; codigo: MotivoDescarteDocumentoAdicional; motivo: string }[];
+}
+
+/** HU #13362 — fila de `GET /api/flito/soat/:id/documentos-adicionales`. `subidoEn` en ISO 8601. */
+export interface DocumentoAdicionalSoat {
+  id: string;
+  etiqueta: string;
+  tipoContenido: string;
+  tamanoBytes: number;
+  subidoEn: string;
+  subidoPorNombre: string;
+  /** URL de descarga firmada y temporal (`/api/files?...`). Nunca la clave de storage. */
+  url: string;
+}
 
 /**
  * `200` de `POST /api/flito/soat/cliente/incompletas/:id/reintentar` (HU #12998, diseño §4 y §4.1).

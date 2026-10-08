@@ -47,6 +47,7 @@
 // ningún AC de esta HU y no se ha hecho: sigue siendo deuda PREEXISTENTE (no la introduce este
 // canal), ahora sin dueño asignado. Ver el HANDOFF de la HU.
 
+import { createHash } from 'crypto';
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
@@ -66,6 +67,11 @@ import {
   preconsulta, SolicitudSoatError,
   type ArchivoSolicitud, type PropietarioSolicitud,
 } from './flito-soat-cliente.service.js';
+import { archivosDelAlta, limpiarTemporales, uploadAlta } from './flito-soat-documentos.upload.js';
+import {
+  clasificarAdicionales, detalleBitacoraAdicional, resultadoAdicionales,
+  type AdicionalGuardado, type Clasificacion,
+} from './flito-soat-documentos.service.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -552,18 +558,40 @@ const altaSchema = vehiculoSchema.merge(documentoSchema).extend(titularCampos).e
  * titularidad, y confundir la compuerta del RUNT con esa comprobación es el error que este párrafo
  * existe para evitar.
  */
-router.post('/cliente', exigirFuncion('soat.solicitud.crear'), soatClienteLimiter, upload.single('facturaVenta'), async (req: Request, res: Response) => {
+// HU #13362: `uploadAlta` recibe además `documentosAdicionales` (a disco; ver su cabecera). Los
+// temporales se borran en el `finally` de abajo, en TODOS los caminos.
+router.post('/cliente', exigirFuncion('soat.solicitud.crear'), soatClienteLimiter, uploadAlta, async (req: Request, res: Response) => {
+  try { await altaCliente(req, res); } finally { await limpiarTemporales(req); }
+});
+
+/** La Bitácora de cada adicional guardado (AC10) y el bloque del 201/202, solo si se envió alguno. */
+async function auditarAdicionales(
+  req: Request, resource: 'flito_soat' | 'flito_soat_incompletas', resourceId: string, guardados: AdicionalGuardado[],
+): Promise<void> {
+  for (const g of guardados) {
+    await audit(req, { action: 'create', resource, resourceId, detail: detalleBitacoraAdicional(g) });
+  }
+}
+const bloqueAdicionales = (enviados: number, guardados: AdicionalGuardado[], c: Clasificacion) =>
+  (enviados > 0 ? { documentosAdicionales: resultadoAdicionales(guardados, c.descartados) } : {});
+
+async function altaCliente(req: Request, res: Response): Promise<void> {
   const parsed = altaSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
-  if (!req.file) { res.status(400).json({ error: 'Falta la factura de venta (PDF)' }); return; }
+  const { factura, adicionales: recibidos, etiquetas } = archivosDelAlta(req);
+  if (!factura) { res.status(400).json({ error: 'Falta la factura de venta (PDF)' }); return; }
 
   const { vin } = parsed.data;
   const archivo: ArchivoSolicitud = {
-    originalname: req.file.originalname, mimetype: req.file.mimetype,
-    buffer: req.file.buffer, size: req.file.size,
+    originalname: factura.originalname, mimetype: factura.mimetype,
+    buffer: factura.buffer, size: factura.size,
   };
 
   try {
+    // D2: puro, antes de cualquier E/S. Un adicional inválido se descarta, no tumba el alta.
+    const clasificacion = await clasificarAdicionales(
+      recibidos, etiquetas, createHash('sha256').update(archivo.buffer).digest('hex'),
+    );
     const ctx = await contextoSoat(req.user!);
     const creada = await crearSolicitud(
       {
@@ -575,7 +603,7 @@ router.post('/cliente', exigirFuncion('soat.solicitud.crear'), soatClienteLimite
         // ruta. `?? null` y no `?? {}` para que «no vino» siga siendo distinguible aquí arriba.
         procedencia: (parsed.data.procedencia as ProcedenciaCompradorPersistida | undefined) ?? null,
       },
-      archivo, ctx,
+      archivo, ctx, clasificacion.aceptados,
     );
     // ── HU #12996: el RUNT no respondió y la solicitud quedó APARCADA → 202 ─────────────────────
     //
@@ -592,8 +620,10 @@ router.post('/cliente', exigirFuncion('soat.solicitud.crear'), soatClienteLimite
         action: 'create', resource: 'flito_soat_incompletas', resourceId: creada.id,
         detail: 'Solicitud SOAT del canal Cliente aparcada como incompleta: el RUNT no respondió (estado=incompleta)',
       });
+      await auditarAdicionales(req, 'flito_soat_incompletas', creada.id, creada.adicionalesGuardados);
       res.status(202).json({
         desenlace: creada.desenlace, id: creada.id, estado: creada.estado, mensaje: creada.mensaje,
+        ...bloqueAdicionales(recibidos.length, creada.adicionalesGuardados, clasificacion),
       } satisfies RespuestaAltaSolicitudSoat);
       return;
     }
@@ -634,14 +664,16 @@ router.post('/cliente', exigirFuncion('soat.solicitud.crear'), soatClienteLimite
     // aseguradora despachó su compañía: eso no es asunto suyo, y el AC1 dice `{ id, estado }`. Es el
     // mismo patrón que mordió en la HU #12093 con el `.returning()` sin proyección.
     // `desenlace: 'creada'` es ADITIVO (HU #12996): el `{ id, estado }` de siempre sigue igual.
+    await auditarAdicionales(req, 'flito_soat', creada.id, creada.adicionalesGuardados);
     res.status(201).json({
       desenlace: creada.desenlace, id: creada.id, estado: creada.estado,
+      ...bloqueAdicionales(recibidos.length, creada.adicionalesGuardados, clasificacion),
     } satisfies RespuestaAltaSolicitudSoat);
   } catch (e) {
     await registrarIntentoRunt(req, vin, e, 'alta');
     manejarError(res, e);
   }
-});
+}
 
 /**
  * El titular del cuerpo validado al que espera el servicio, con la partición ya resuelta.

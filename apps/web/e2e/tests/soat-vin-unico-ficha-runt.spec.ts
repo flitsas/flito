@@ -136,7 +136,8 @@ async function llenarPropietario(page: Page) {
 }
 
 async function adjuntarFactura(page: Page) {
-  await page.locator('input[type="file"]').setInputFiles({
+  // HU #13363: el bloque 4 suma otro input de archivo; la factura se busca en su bloque.
+  await page.getByRole('region', { name: '2 · Factura de venta' }).locator('input[type="file"]').setInputFiles({
     name: 'factura.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 e2e'),
   });
 }
@@ -303,7 +304,8 @@ test.describe('HU #12091 · AC2 — el orden de la pantalla', () => {
     // Un array y no tres `toBeVisible()` sueltos: lo que el AC2 pide es el ORDEN, y tres asertos de
     // visibilidad pasan igual con los bloques al revés.
     await expect(page.getByRole('heading', { level: 2 }))
-      .toHaveText(['1 · Vehículo', '2 · Factura de venta', '3 · Propietario']);
+      // HU #13363: el bloque 4 (opcional) va al final, después del propietario.
+      .toHaveText(['1 · Vehículo', '2 · Factura de venta', '3 · Propietario', '4 · Documentos adicionales (opcional)']);
 
     // Y no hay asistente por pasos ni borrador: crear sigue siendo enviar.
     await expect(page.getByRole('button', { name: /Siguiente|Continuar|Guardar borrador/ })).toHaveCount(0);
