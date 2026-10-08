@@ -1,7 +1,34 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PAGES, rutaInicio, PageSlug } from '../lib/permissions';
 import { useAuth } from '../lib/auth';
+import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondarySm } from './flit/flitPageKit';
+
+/**
+ * HU #12872 (UX §1): la primera carga de `/permisos/mios` falló. «No saber no es no tener»: no se
+ * pinta «sin acceso», se avisa en la página y se ofrece reintentar. Aviso persistente, no toast.
+ */
+export function AvisoPermisosNoComprobados() {
+  const { refrescarSesion } = useAuth();
+  const [reintentando, setReintentando] = useState(false);
+  const reintentar = async () => {
+    setReintentando(true);
+    try { await refrescarSesion(); } finally { setReintentando(false); }
+  };
+  return (
+    <div
+      role="status"
+      data-testid="aviso-permisos-error"
+      className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm"
+      style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)', color: 'var(--flit-danger-text)' }}
+    >
+      <span>No pudimos comprobar tus permisos. Revisa tu conexión e inténtalo de nuevo.</span>
+      <button type="button" className={flitBtnSecondarySm} onClick={reintentar} disabled={reintentando}>
+        {reintentando ? 'Reintentando…' : 'Reintentar'}
+      </button>
+    </div>
+  );
+}
 
 /**
  * Estado "sin acceso a sección" — reemplaza el redirect mudo a "/" de ProtectedRoute.
@@ -10,11 +37,11 @@ import { useAuth } from '../lib/auth';
  */
 export default function NoAccess({ page, label }: { page?: PageSlug; label?: string }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const { user } = useAuth();
+  const { user, funciones } = useAuth();
   // La salida es la página de INICIO del usuario, no `/` fijo (HU #11913). Con `/` fijo, un rol sin
   // `dashboard` volvía al `NoAccess` del tablero: el botón de escape devolvía al mismo callejón.
   // Quien tiene `dashboard` sigue viendo «Volver al tablero», palabra por palabra.
-  const inicio = rutaInicio(user);
+  const inicio = rutaInicio(user, funciones);
 
   useEffect(() => {
     headingRef.current?.focus();
@@ -58,14 +85,15 @@ export default function NoAccess({ page, label }: { page?: PageSlug; label?: str
         </h1>
 
         <p className="mt-3 flit-tone-secondary">
-          Tu rol actual no incluye esta sección. Si crees que deberías tener acceso, pídele a un
-          administrador que la habilite.
+          Tu usuario no tiene el permiso para ver esta sección. Si la necesitas para tu trabajo,
+          pídele a un administrador que te la habilite.
         </p>
 
         <div className="mt-8 flex justify-center">
           <Link
             to={inicio.to}
-            className="inline-flex h-10 items-center justify-center rounded-xl bg-[color:var(--flit-blue)] px-5 text-sm font-medium text-[color:var(--color-text-on-accent)] transition-colors hover:bg-[color:var(--flit-blue)]-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--color-surface)]"
+            className={flitBtnPrimary}
+            style={flitBtnPrimaryStyle}
           >
             {inicio.to === '/' ? 'Volver al tablero' : `Ir a ${inicio.etiqueta}`}
           </Link>

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { useAuth } from '../../lib/auth';
 import { FLIT_PRODUCT_NAME } from '../../lib/flitBrand';
 import { SECTION_LABEL, SECTION_ORDER, type NavItem } from '../shell/navItems';
 import { useNavSections } from '../shell/useNavSections';
@@ -37,24 +36,19 @@ interface FlitSidebarProps {
 }
 
 export default function FlitSidebar({ open, onClose }: FlitSidebarProps) {
-  const { user } = useAuth();
   // Mismo filtrado por permisos que la barra horizontal y la CommandPalette.
   const { grouped, routeSection } = useNavSections();
 
   const [openSections, setOpenSections] = useState<Set<NavItem['section']>>(() => {
-    // Admin: todas las secciones visibles por defecto (superusuario debe ver el catálogo
-    // completo sin depender de sessionStorage ni de expandir Gestión manualmente).
-    if (user?.role === 'admin') return new Set(SECTION_ORDER);
+    // HU #12872: sin nombre de rol. Sin estado guardado, todas las secciones visibles abiertas (lo
+    // que antes solo veía `admin`); con estado guardado, lo guardado ∪ la sección de la ruta.
     const saved = loadOpenSections();
-    if (saved && saved.size > 0) return saved;
-    return routeSection ? new Set([routeSection]) : new Set<NavItem['section']>(['general']);
+    if (saved && saved.size > 0) {
+      if (routeSection) saved.add(routeSection);
+      return saved;
+    }
+    return new Set(SECTION_ORDER);
   });
-
-  // Si el usuario carga después del primer paint (token /me), aplicar política admin.
-  useEffect(() => {
-    if (user?.role !== 'admin') return;
-    setOpenSections(new Set(SECTION_ORDER));
-  }, [user?.role]);
 
   // Al cambiar de ruta, abrir el módulo que contiene la página activa.
   useEffect(() => {

@@ -24,15 +24,16 @@ export interface NavSections {
 }
 
 export function useNavSections(): NavSections {
-  const { user } = useAuth();
+  const { user, funciones } = useAuth();
   const { pathname } = useLocation();
 
   const allowed = useMemo(() => effectivePages(user), [user]);
 
-  // Doble filtro: permiso de página + `roles` opcional del ítem. `flito_ayuda` usa el helper derivado.
+  // Doble filtro: permiso de página + `funcion` opcional del ítem (HU #12872, sin nombre de rol).
+  // `flito_ayuda` usa el helper derivado.
   const visibleItems = useMemo(
-    () => NAV_ITEMS.filter((it) => navItemPermitido(it, user, allowed)),
-    [allowed, user],
+    () => NAV_ITEMS.filter((it) => navItemPermitido(it, user, allowed, funciones)),
+    [allowed, user, funciones],
   );
 
   const grouped = useMemo(

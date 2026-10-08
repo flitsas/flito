@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, useRef, useState, useEffect, ReactNode } from 'react';
 import { api, permisosApi, setToken, clearToken, SESSION_ENDED_EVENT } from './api';
 import { limpiarAvisos } from './conciliacionAviso';
 import { hasFuncion as hasFuncionDe, type UserRole } from './permissions';
@@ -38,6 +38,11 @@ interface User {
    * `?` y no `| null`: un `/me` anterior a esta HU no la trae, y ausente significa «no».
    */
   puedeSolicitarSoat?: boolean;
+  /**
+   * HU #12872: frontera interno/externo de `/permisos/mios`, fusionada por el provider en el `user`
+   * del contexto (no viene de `/auth/me`). La consume la Ayuda; no es el nombre del rol.
+   */
+  tipoPrincipal?: 'interno' | 'externo' | null;
 }
 
 /** ¿Este usuario puede radicar una solicitud del canal Cliente? Por capacidad, nunca por rol. */
@@ -55,7 +60,23 @@ interface AuthContextType {
   funciones: string[] | null;
   /** Atajo reactivo al helper de `permissions.ts`. */
   hasFuncion: (codigo: string) => boolean;
-  /** Vuelve a pedir `/mios` (p. ej. tras editar el propio cuadro en Roles y permisos). */
+  /**
+   * Frontera interno/externo del principal (`/permisos/mios`, HU #12872). No es el nombre del rol:
+   * la usa la Ayuda para no ofrecer fichas internas a un usuario externo. `null` = aún no llegó.
+   */
+  tipoPrincipal: 'interno' | 'externo' | null;
+  /**
+   * `true` si la PRIMERA carga de `/permisos/mios` falló (red/5xx). «No saber no es no tener»: la
+   * guarda de ruta muestra un aviso con reintento en vez de «sin acceso» (HU #12872, UX §1).
+   */
+  permisosError: boolean;
+  /**
+   * HU #12872 (AC7): vuelve a pedir `/auth/me` y `/permisos/mios` y actualiza la foto de sesión SOLO
+   * si cambió algo. Un fallo transitorio CONSERVA la foto anterior (nunca vacía el menú). Una sola
+   * petición en vuelo: las llamadas concurrentes reutilizan la misma promesa.
+   */
+  refrescarSesion: () => Promise<void>;
+  /** Alias histórico de `refrescarSesion` (lo usa Roles y permisos tras editar el propio cuadro). */
   refrescarFunciones: () => Promise<void>;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
@@ -63,20 +84,60 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+/** Huella estable de lo que decide qué se pinta: si no cambia, el refresco no re-renderiza el árbol. */
+function huellaUsuario(u: User): string {
+  return JSON.stringify({ ...u, allowedPages: [...(u.allowedPages ?? [])].sort(), funciones: [...(u.funciones ?? [])].sort() });
+}
+
+function mismasFunciones(a: readonly string[] | null, b: readonly string[]): boolean {
+  if (!a || a.length !== b.length) return false;
+  const sa = [...a].sort();
+  const sb = [...b].sort();
+  return sa.every((c, i) => c === sb[i]);
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   // `null` hasta que `/mios` responda: los botones no se pintan permitidos (AC1).
   const [funciones, setFunciones] = useState<string[] | null>(null);
+  const [tipoPrincipal, setTipoPrincipal] = useState<'interno' | 'externo' | null>(null);
+  const [permisosError, setPermisosError] = useState(false);
+  const enVuelo = useRef<Promise<void> | null>(null);
 
   const cargarMios = useCallback(async () => {
     try {
       const mios = await permisosApi.mios();
       setFunciones(mios.funciones);
+      setTipoPrincipal(mios.tipoPrincipal ?? null);
+      setPermisosError(false);
     } catch {
-      // Sin `/mios` no inventamos un conjunto: vacío = «llegó y no puede nada» (fail-closed).
+      // Sin `/mios` no inventamos un conjunto: vacío = «llegó y no puede nada» (fail-closed). Y se
+      // marca el error para que la guarda diga «no pudimos comprobar», no «no tienes acceso».
       setFunciones([]);
+      setPermisosError(true);
     }
+  }, []);
+
+  const refrescarSesion = useCallback((): Promise<void> => {
+    if (enVuelo.current) return enVuelo.current;
+    if (!localStorage.getItem('token')) return Promise.resolve();
+    const p = (async () => {
+      const [me, mios] = await Promise.allSettled([api.get<User>('/auth/me'), permisosApi.mios()]);
+      // `prev == null` = la sesión se cerró mientras volaba la petición: no se resucita.
+      if (me.status === 'fulfilled') {
+        setUser((prev) => (prev == null || huellaUsuario(prev) === huellaUsuario(me.value) ? prev : me.value));
+      }
+      if (mios.status === 'fulfilled') {
+        const nuevas = mios.value.funciones;
+        setFunciones((prev) => (mismasFunciones(prev, nuevas) ? prev : nuevas));
+        setTipoPrincipal(mios.value.tipoPrincipal ?? null);
+        setPermisosError(false);
+      }
+      // Fallo de red/5xx: se CONSERVA la foto anterior. El 401 lo resuelve `SESSION_ENDED_EVENT`.
+    })().finally(() => { enVuelo.current = null; });
+    enVuelo.current = p;
+    return p;
   }, []);
 
   useEffect(() => {
@@ -88,6 +149,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // el evento `storage`. Sin token no hay sesión cuyo aviso convenga preservar.
       limpiarAvisos();
       setFunciones(null);
+      setTipoPrincipal(null);
       setLoading(false);
       return;
     }
@@ -118,6 +180,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       limpiarAvisos();
       setUser(null);
       setFunciones(null);
+      setTipoPrincipal(null);
+      setPermisosError(false);
     };
     window.addEventListener(SESSION_ENDED_EVENT, onSessionEnded);
     return () => window.removeEventListener(SESSION_ENDED_EVENT, onSessionEnded);
@@ -137,6 +201,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     limpiarAvisos();
     setUser(null);
     setFunciones(null);
+    setTipoPrincipal(null);
+    setPermisosError(false);
   };
 
   const hasFuncion = useCallback(
@@ -144,9 +210,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [funciones],
   );
 
+  // El `user` del contexto lleva `tipoPrincipal` (de `/mios`) para que Ayuda y menú no miren el rol.
+  const userCtx = useMemo(() => (user ? { ...user, tipoPrincipal } : null), [user, tipoPrincipal]);
+
   return (
     <AuthContext.Provider value={{
-      user, loading, funciones, hasFuncion, refrescarFunciones: cargarMios, login, logout,
+      user: userCtx, loading, funciones, tipoPrincipal, permisosError, hasFuncion,
+      refrescarSesion, refrescarFunciones: refrescarSesion, login, logout,
     }}>
       {children}
     </AuthContext.Provider>
