@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { api, errorMessage } from '../lib/api';
+import { api, ApiError, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useEscape } from '../lib/hooks';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
@@ -154,6 +154,7 @@ function GravedadPill({ g }: { g: string }) {
 function CreateIncidentModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [driversError, setDriversError] = useState<string | null>(null);
   const [tipo, setTipo] = useState<'accidente' | 'casi_accidente' | 'comparendo'>('accidente');
   const [vehicleId, setVehicleId] = useState('');
   const [conductorId, setConductorId] = useState('');
@@ -171,12 +172,16 @@ function CreateIncidentModal({ onClose, onSaved }: { onClose: () => void; onSave
   useEscape(onClose, !submitting);
 
   useEffect(() => {
-    Promise.all([
-      api.get<{ data: Vehicle[] }>('/fleet/vehicles?limit=500'),
-      api.get<{ data: Driver[] }>('/drivers'),
-    ])
-      .then(([v, d]) => { setVehicles(v.data); setDrivers(d.data); })
+    api.get<{ data: Vehicle[] }>('/fleet/vehicles?limit=500')
+      .then((v) => setVehicles(v.data))
       .catch((err) => toast.error(errorMessage(err)));
+    // HU #13421: la lista de conductores cuelga del ítem «Conductores». Sin él, `/drivers` responde
+    // 403 y el selector degrada a «sin conductor» con un aviso, sin tumbar el resto del formulario.
+    api.get<{ data: Driver[] }>('/drivers')
+      .then((d) => setDrivers(d.data))
+      .catch((err) => setDriversError(err instanceof ApiError && err.status === 403
+        ? 'No tienes acceso a la lista de conductores; registra el incidente sin conductor o pide el permiso de Conductores.'
+        : 'No se pudo cargar la lista de conductores.'));
   }, []);
 
   const submit = async (e: FormEvent) => {
@@ -235,10 +240,11 @@ function CreateIncidentModal({ onClose, onSaved }: { onClose: () => void; onSave
           </select>
         </Field>
         <Field label="Conductor">
-          <select value={conductorId} onChange={(e) => setConductorId(e.target.value)} className={inputCls}>
+          <select value={conductorId} onChange={(e) => setConductorId(e.target.value)} className={inputCls} disabled={driversError !== null} aria-describedby={driversError ? 'incidente-conductores-aviso' : undefined}>
             <option value="">— sin conductor —</option>
             {drivers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
+          {driversError && <p id="incidente-conductores-aviso" role="status" className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{driversError}</p>}
         </Field>
         <Field label="Lugar"><input value={lugar} onChange={(e) => setLugar(e.target.value)} maxLength={300} className={inputCls} /></Field>
         <Field label="Descripción"><textarea value={descripcion} onChange={(e) => setDescripcion(e.target.value)} maxLength={2000} rows={3} className={inputCls} /></Field>

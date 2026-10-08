@@ -76,12 +76,31 @@ export const AGRUPACION_DE_OPERACION: Readonly<Record<string, string>> = {
   'parametrizacion.organismos.listar': 'catalogos_compartidos',
 };
 
+/**
+ * HU #13421 (ADR-0023): las operaciones legacy cuyo prefijo (módulo del fichero) no es el de su
+ * pantalla. Mapa APARTE de `AGRUPACION_DE_OPERACION` porque aquel es la fuente congelada de la 0205
+ * (`reagrupaciones()`): estas funciones nacen ya con su módulo agrupado en la migración que las
+ * siembra, no hay nada que reagrupar. Códigos exactos, mismas reglas (entrada muerta = error).
+ */
+export const AGRUPACION_DE_OPERACION_LEGADO: Readonly<Record<string, string>> = {
+  // Conductores, capacitaciones, incidentes, checklists, alcoholimetría, emergencias y jornada viven
+  // en el menú PESV aunque sus rutas estén bajo /api/drivers y /api/jornadas.
+  'drivers.conductores.administrar': 'pesv',
+  'drivers.capacitaciones.administrar': 'pesv',
+  'drivers.incidentes.administrar': 'pesv',
+  'drivers.incidentes_registro.administrar': 'pesv',
+  'drivers.checklists.administrar': 'pesv',
+  'drivers.alcoholimetria.administrar': 'pesv',
+  'drivers.emergencias.administrar': 'pesv',
+  'jornadas.control.administrar': 'pesv',
+};
+
 /** El módulo de agrupación de un código, o el estructural si el código no está en ningún mapa. */
 export function moduloAgrupado(codigo: string, moduloEstructural: string): string {
   if (codigo.startsWith('pagina.')) {
     return AGRUPACION_DE_PAGINA[codigo.slice('pagina.'.length) as PageSlug] ?? moduloEstructural;
   }
-  return AGRUPACION_DE_OPERACION[codigo] ?? moduloEstructural;
+  return AGRUPACION_DE_OPERACION[codigo] ?? AGRUPACION_DE_OPERACION_LEGADO[codigo] ?? moduloEstructural;
 }
 
 /** Los pares `[codigo, modulo]` de los dos mapas, ordenados por código: lo que la 0205 escribe. */

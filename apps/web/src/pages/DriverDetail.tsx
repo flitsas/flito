@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { api, errorMessage } from '../lib/api';
+import { api, ApiError, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import DriverDocumentsPanel from '../components/pesv/DriverDocumentsPanel';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
@@ -127,6 +127,7 @@ function DatosPanel({ p }: { p: Profile }) {
 
 function CapacitacionesPanel({ userId }: { userId: number }) {
   const [rows, setRows] = useState<{ year: number; horas: number }[]>([]);
+  const [aviso, setAviso] = useState<string | null>(null);
   useEffect(() => {
     const year = new Date().getFullYear();
     api.get<{ data: { userId: number; horas: number }[] }>(`/drivers/trainings/report/horas-conductor?year=${year}`)
@@ -134,11 +135,12 @@ function CapacitacionesPanel({ userId }: { userId: number }) {
         const mine = r.data.find((x) => x.userId === userId);
         setRows([{ year, horas: mine?.horas ?? 0 }]);
       })
-      .catch((err) => toast.error(errorMessage(err)));
+      .catch((err) => setAviso(avisoPanel(err, 'Capacitaciones', 'las horas de capacitación')));
   }, [userId]);
   return (
     <div className="bg-white p-6" style={CARD}>
       <h3 className="mb-2 text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Horas de capacitación por año</h3>
+      {aviso && <p role="status" className="py-2 text-sm" style={{ color: 'var(--flit-text-muted)' }}>{aviso}</p>}
       <ul className="text-sm">
         {rows.map((r) => (
           <li key={r.year} className="flex items-center justify-between border-t py-2 first:border-0" style={{ borderColor: 'var(--flit-border-soft)' }}>
@@ -154,11 +156,15 @@ function CapacitacionesPanel({ userId }: { userId: number }) {
 
 function IncidentesPanel({ userId }: { userId: number }) {
   const [items, setItems] = useState<IncidentRow[]>([]);
+  const [aviso, setAviso] = useState<string | null>(null);
   useEffect(() => {
     api.get<{ data: IncidentRow[] }>(`/drivers/incidents?conductorId=${userId}`)
       .then((r) => setItems(r.data))
-      .catch((err) => toast.error(errorMessage(err)));
+      .catch((err) => setAviso(avisoPanel(err, 'Incidentes', 'los incidentes del conductor')));
   }, [userId]);
+  if (aviso) {
+    return <p role="status" className="p-6 text-sm" style={{ ...CARD, background: 'var(--flit-bg-card)', color: 'var(--flit-text-muted)' }}>{aviso}</p>;
+  }
   return (
     <div className="overflow-hidden bg-white" style={CARD}>
       <div className="overflow-x-auto">
@@ -183,6 +189,14 @@ function IncidentesPanel({ userId }: { userId: number }) {
       </div>
     </div>
   );
+}
+
+// HU #13421: las pestañas del detalle leen endpoints de OTROS ítems del menú (Capacitaciones,
+// Incidentes). Quien tiene «Conductores» sin ese ítem recibe 403: la pestaña lo dice en su sitio,
+// sin toast ni error crudo, y el resto del detalle sigue funcionando.
+function avisoPanel(err: unknown, item: string, que: string): string {
+  if (err instanceof ApiError && err.status === 403) return `No tienes acceso a ${que}: depende del permiso de ${item}.`;
+  return `No se pudieron cargar ${que}. Vuelve a abrir la pestaña para reintentar.`;
 }
 
 function Th({ children }: { children?: ReactNode }) {

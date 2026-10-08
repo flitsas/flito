@@ -5,7 +5,7 @@ import { authMiddleware } from '../../shared/middleware/auth.js';
 import { requirePage } from '../../shared/permissions.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('pesv'));
+router.use(authMiddleware);
 
 function clampDate(raw: unknown, fallbackOffsetDays: number): string {
   const s = typeof raw === 'string' ? raw : '';
@@ -25,7 +25,7 @@ function diasLaborales(desde: string, hasta: string): number {
   return count;
 }
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requirePage('pesv_indicadores_operacion'), async (req: Request, res: Response) => {
   const desde = clampDate(req.query.desde, -30);
   const hasta = clampDate(req.query.hasta, 0);
   const umbralAlcohol = Number(req.query.umbralAlcohol ?? 1);

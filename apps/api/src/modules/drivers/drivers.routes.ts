@@ -3,13 +3,14 @@ import { z } from 'zod';
 import { eq, and, asc, sql, ilike, or, isNull } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { users, driverProfile } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { encryptPii, decryptPii, hmacCedula, newUuid, normalizeDocument } from '../../shared/utils/crypto.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('pesv'));
+router.use(authMiddleware);
 
 function parseId(raw: string): number | null {
   const n = parseInt(raw, 10);
@@ -60,7 +61,7 @@ function decryptField(row: any, field: 'cedula' | 'licenciaNumero' | 'runtPayloa
   return typeof legacy === 'string' ? legacy : JSON.stringify(legacy);
 }
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requirePage('pesv_conductores'), async (req: Request, res: Response) => {
   const q = req.query.q ? String(req.query.q).slice(0, 100) : null;
   const vencidos = req.query.vencidos === 'true';
   const today = new Date().toISOString().slice(0, 10);
@@ -129,7 +130,7 @@ router.get('/', async (req: Request, res: Response) => {
   res.json({ data: filtered });
 });
 
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', requirePage('pesv_conductores'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
 
@@ -223,7 +224,7 @@ const createSchema = z.object({
   profile: profileSchema,
 });
 
-router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/', requirePage('pesv_conductores'), exigirFuncion('drivers.conductores.administrar'), async (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validación', details: parsed.error.flatten() }); return; }
   const { userId, profile } = parsed.data;
@@ -277,7 +278,7 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
   }
 });
 
-router.patch('/:id/profile', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/:id/profile', requirePage('pesv_conductores'), exigirFuncion('drivers.conductores.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = profileSchema.partial().safeParse(req.body);
@@ -320,7 +321,7 @@ router.patch('/:id/profile', requireRole('admin'), async (req: Request, res: Res
   res.json({ ok: true });
 });
 
-router.delete('/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.delete('/:id', requirePage('pesv_conductores'), exigirFuncion('drivers.conductores.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [updated] = await db.update(users).set({ esConductor: false }).where(eq(users.id, id)).returning({ id: users.id });
@@ -330,7 +331,7 @@ router.delete('/:id', requireRole('admin'), async (req: Request, res: Response) 
 });
 
 // Lista de users que NO son aún conductores (para promover desde UI)
-router.get('/candidates/non-driver', requireRole('admin'), async (_req, res: Response) => {
+router.get('/candidates/non-driver', requirePage('pesv_conductores'), exigirFuncion('drivers.conductores.administrar'), async (_req, res: Response) => {
   const rows = await db.select({ id: users.id, name: users.name, username: users.username })
     .from(users)
     .where(and(eq(users.esConductor, false), eq(users.active, true), isNull(users.deletedAt)))

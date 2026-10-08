@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { eq, and, desc, gte, lte, ne, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { roadIncidents, incidentActions, vehicles, users } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { notifyPesvAdmin } from '../jornadas/notify.js';
@@ -30,14 +31,14 @@ async function pasaporteDesdeIncidente(
 }
 
 const router = Router();
-router.use(authMiddleware, requirePage('pesv'));
+router.use(authMiddleware);
 
 function parseId(raw: string): number | null {
   const n = parseInt(raw, 10);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requirePage('pesv_incidentes'), async (req: Request, res: Response) => {
   const tipo = req.query.tipo as string | undefined;
   const gravedad = req.query.gravedad as string | undefined;
   const from = req.query.from as string | undefined;
@@ -76,7 +77,7 @@ router.get('/', async (req: Request, res: Response) => {
 
 // /stats DEBE ir antes de /:id en el orden de Express (sino /:id lo intercepta).
 // Definición real más abajo (PESV-S8). Aquí solo reservamos el orden de match.
-router.get('/:id(\\d+)', async (req: Request, res: Response) => {
+router.get('/:id(\\d+)', requirePage('pesv_incidentes'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [inc] = await db.select().from(roadIncidents).where(eq(roadIncidents.id, id)).limit(1);
@@ -105,7 +106,7 @@ const incidentSchema = z.object({
 
 // PESV-S8 Paso 21 — agregados estadísticos de siniestros viales para indicadores PESV.
 // Read-only; cualquier rol con page=pesv puede consultar para análisis.
-router.get('/stats', async (req: Request, res: Response) => {
+router.get('/stats', requirePage('pesv_siniestralidad'), async (req: Request, res: Response) => {
   // Periodo por defecto: últimos 12 meses.
   const fromIso = req.query.from
     ? new Date(String(req.query.from)).toISOString()
@@ -202,7 +203,7 @@ router.get('/stats', async (req: Request, res: Response) => {
   });
 });
 
-router.post('/', requireRole('admin', 'lider_pesv', 'supervisor_flota'), async (req: Request, res: Response) => {
+router.post('/', requirePage('pesv_incidentes'), exigirFuncion('drivers.incidentes_registro.administrar'), async (req: Request, res: Response) => {
   const parsed = incidentSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validación', details: parsed.error.flatten() }); return; }
   const data = parsed.data;
@@ -241,7 +242,7 @@ const mobileReportSchema = z.object({
   fotoMime: z.enum(['image/jpeg', 'image/png']).optional().nullable(),
 });
 
-router.post('/report-mobile', async (req: Request, res: Response) => {
+router.post('/report-mobile', requirePage('pesv_reportar_incidente'), async (req: Request, res: Response) => {
   const parsed = mobileReportSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validación', details: parsed.error.flatten() }); return; }
   const data = parsed.data;
@@ -308,7 +309,7 @@ router.post('/report-mobile', async (req: Request, res: Response) => {
   res.status(201).json({ data: created, fotoKey });
 });
 
-router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/:id', requirePage('pesv_incidentes'), exigirFuncion('drivers.incidentes.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = incidentSchema.partial().safeParse(req.body);
@@ -330,7 +331,7 @@ const actionSchema = z.object({
   fechaLimite: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
 });
 
-router.post('/:id/actions', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/actions', requirePage('pesv_incidentes'), exigirFuncion('drivers.incidentes.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = actionSchema.safeParse(req.body);
@@ -344,7 +345,7 @@ router.post('/:id/actions', requireRole('admin'), async (req: Request, res: Resp
   res.status(201).json({ data: created });
 });
 
-router.patch('/:id/actions/:actionId', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/:id/actions/:actionId', requirePage('pesv_incidentes'), exigirFuncion('drivers.incidentes.administrar'), async (req: Request, res: Response) => {
   const actionId = parseId(req.params.actionId);
   if (!actionId) { res.status(400).json({ error: 'ID inválido' }); return; }
   const schema = z.object({
@@ -359,7 +360,7 @@ router.patch('/:id/actions/:actionId', requireRole('admin'), async (req: Request
 });
 
 // Cierre de incidente: solo si todas las acciones están cumplidas.
-router.post('/:id/close', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/close', requirePage('pesv_incidentes'), exigirFuncion('drivers.incidentes.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   try {

@@ -282,32 +282,32 @@ function AppRoutes() {
         <Route path="/maintenance/work-orders/:id" element={<ProtectedRoute page="maintenance"><Lazy><WorkOrderDetail /></Lazy></ProtectedRoute>} />
         <Route path="/maintenance/indicators" element={<ProtectedRoute page="maintenance"><Lazy><MaintenanceIndicators /></Lazy></ProtectedRoute>} />
         <Route path="/pesv" element={<ProtectedRoute page="pesv"><Lazy><PesvDashboard /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/conductores" element={<ProtectedRoute page="pesv"><Lazy><Drivers /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/conductores/:id" element={<ProtectedRoute page="pesv"><Lazy><DriverDetail /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/capacitaciones" element={<ProtectedRoute page="pesv"><Lazy><SafetyTrainings /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/incidentes" element={<ProtectedRoute page="pesv"><Lazy><RoadIncidents /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/incidentes/stats" element={<ProtectedRoute page="pesv"><Lazy><RoadIncidentsStats /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/checklists" element={<ProtectedRoute page="pesv"><Lazy><Checklists /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/checklists/nuevo" element={<ProtectedRoute page="pesv"><Lazy><ChecklistRun /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/alcoholimetria" element={<ProtectedRoute page="pesv"><Lazy><AlcoholTests /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/emergencias" element={<ProtectedRoute page="pesv"><Lazy><Emergency /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/operacion-indicadores" element={<ProtectedRoute page="pesv"><Lazy><OperationalIndicators /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/politica" element={<ProtectedRoute page="pesv"><Lazy><PesvPolicy /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/comite" element={<ProtectedRoute page="pesv"><Lazy><PesvComite /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/plan" element={<ProtectedRoute page="pesv"><Lazy><PesvPlan /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/diagnostico" element={<ProtectedRoute page="pesv"><Lazy><PesvDiagnostico /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/diagnostico/:id" element={<ProtectedRoute page="pesv"><Lazy><PesvDiagnostico /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/diagnostico/:id/auditoria" element={<ProtectedRoute page="pesv"><Lazy><PesvDiagnosticoAuditoria /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/tablero" element={<ProtectedRoute page="pesv"><Lazy><PesvTablero /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/reportar" element={<ProtectedRoute page="pesv"><Lazy><ReportarIncidente /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/auditorias" element={<ProtectedRoute page="pesv"><Lazy><PesvAuditorias /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/comunicaciones" element={<ProtectedRoute page="pesv"><Lazy><PesvComunicaciones /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/contratistas" element={<ProtectedRoute page="pesv"><Lazy><PesvContratistas /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/conductores" element={<ProtectedRoute page="pesv_conductores"><Lazy><Drivers /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/conductores/:id" element={<ProtectedRoute page="pesv_conductores"><Lazy><DriverDetail /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/capacitaciones" element={<ProtectedRoute page="pesv_capacitaciones"><Lazy><SafetyTrainings /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/incidentes" element={<ProtectedRoute page="pesv_incidentes"><Lazy><RoadIncidents /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/incidentes/stats" element={<ProtectedRoute page="pesv_siniestralidad"><Lazy><RoadIncidentsStats /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/checklists" element={<ProtectedRoute page="pesv_checklists"><Lazy><Checklists /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/checklists/nuevo" element={<ProtectedRoute page="pesv_checklists"><Lazy><ChecklistRun /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/alcoholimetria" element={<ProtectedRoute page="pesv_alcoholimetria"><Lazy><AlcoholTests /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/emergencias" element={<ProtectedRoute page="pesv_emergencias"><Lazy><Emergency /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/operacion-indicadores" element={<ProtectedRoute page="pesv_indicadores_operacion"><Lazy><OperationalIndicators /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/politica" element={<ProtectedRoute page="pesv_politica"><Lazy><PesvPolicy /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/comite" element={<ProtectedRoute page="pesv_comite"><Lazy><PesvComite /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/plan" element={<ProtectedRoute page="pesv_plan"><Lazy><PesvPlan /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/diagnostico" element={<ProtectedRoute page="pesv_diagnostico"><Lazy><PesvDiagnostico /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/diagnostico/:id" element={<ProtectedRoute page="pesv_diagnostico"><Lazy><PesvDiagnostico /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/diagnostico/:id/auditoria" element={<ProtectedRoute page="pesv_diagnostico"><Lazy><PesvDiagnosticoAuditoria /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/tablero" element={<ProtectedRoute page="pesv_tablero_ejecutivo"><Lazy><PesvTablero /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/reportar" element={<ProtectedRoute page="pesv_reportar_incidente"><Lazy><ReportarIncidente /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/auditorias" element={<ProtectedRoute page="pesv_auditorias"><Lazy><PesvAuditorias /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/comunicaciones" element={<ProtectedRoute page="pesv_comunicaciones"><Lazy><PesvComunicaciones /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/contratistas" element={<ProtectedRoute page="pesv_contratistas"><Lazy><PesvContratistas /></Lazy></ProtectedRoute>} />
         <Route path="/privacy/log-pii" element={<ProtectedRoute page="privacy"><Lazy><PesvLogPii /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/jornadas" element={<ProtectedRoute page="pesv"><Lazy><JornadasConductor /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/mi-jornada" element={<ProtectedRoute page="pesv"><Lazy><MiJornada /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/rutas" element={<ProtectedRoute page="pesv"><Lazy><PesvRoutes /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/pernocta" element={<ProtectedRoute page="pesv"><Lazy><PesvPernocta /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/jornadas" element={<ProtectedRoute page="pesv_jornadas"><Lazy><JornadasConductor /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/mi-jornada" element={<ProtectedRoute page="pesv_mi_jornada"><Lazy><MiJornada /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/rutas" element={<ProtectedRoute page="pesv_rutas"><Lazy><PesvRoutes /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/pernocta" element={<ProtectedRoute page="pesv_pernocta"><Lazy><PesvPernocta /></Lazy></ProtectedRoute>} />
         <Route path="/pesv/raci" element={<ProtectedRoute page="pesv_raci"><Lazy><PesvRaci /></Lazy></ProtectedRoute>} />
         <Route path="/pesv/normativa" element={<ProtectedRoute page="pesv_normativa"><Lazy><PesvNormativa /></Lazy></ProtectedRoute>} />
         <Route path="/pesv/retencion" element={<ProtectedRoute page="pesv_retencion"><Lazy><PesvRetencion /></Lazy></ProtectedRoute>} />

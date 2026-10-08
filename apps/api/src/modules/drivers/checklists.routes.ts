@@ -8,7 +8,8 @@ import {
   checklistTemplates, checklistTemplateItems, checklists, checklistResponses,
   vehicles, users, driverProfile, vehicleMeasurements,
 } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 
@@ -47,18 +48,18 @@ router.get('/qr/:token', async (req: Request, res: Response) => {
 });
 
 // El resto requiere auth + permiso PESV.
-router.use(authMiddleware, requirePage('pesv'));
+router.use(authMiddleware);
 
 // --- Plantillas ---
 
-router.get('/templates', async (_req, res: Response) => {
+router.get('/templates', requirePage('pesv_checklists'), async (_req, res: Response) => {
   const tpls = await db.select().from(checklistTemplates)
     .where(eq(checklistTemplates.vigente, true))
     .orderBy(checklistTemplates.titulo);
   res.json({ data: tpls });
 });
 
-router.get('/templates/:id', async (req: Request, res: Response) => {
+router.get('/templates/:id', requirePage('pesv_checklists'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [tpl] = await db.select().from(checklistTemplates).where(eq(checklistTemplates.id, id)).limit(1);
@@ -71,7 +72,7 @@ router.get('/templates/:id', async (req: Request, res: Response) => {
 
 // --- Ejecuciones (listado) ---
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requirePage('pesv_checklists'), async (req: Request, res: Response) => {
   const vehicleId = req.query.vehicleId ? parseId(String(req.query.vehicleId)) : null;
   const conductorId = req.query.conductorId ? parseId(String(req.query.conductorId)) : null;
   const decision = req.query.decision as string | undefined;
@@ -104,7 +105,7 @@ router.get('/', async (req: Request, res: Response) => {
   res.json({ data: rows });
 });
 
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', requirePage('pesv_checklists'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [c] = await db.select().from(checklists).where(eq(checklists.id, id)).limit(1);
@@ -130,7 +131,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 // --- Setear PIN del conductor (autocrédito o admin) ---
 
-router.post('/me/set-pin', async (req: Request, res: Response) => {
+router.post('/me/set-pin', requirePage('pesv_checklists'), async (req: Request, res: Response) => {
   const schema = z.object({ pin: z.string().regex(/^\d{4,6}$/, 'PIN debe ser 4-6 dígitos') });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validación', details: parsed.error.flatten() }); return; }
@@ -166,7 +167,7 @@ const createSchema = z.object({
   responses: z.array(responseSchema).min(1),
 });
 
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', requirePage('pesv_checklists'), async (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validación', details: parsed.error.flatten() }); return; }
   const data = parsed.data;
@@ -260,7 +261,7 @@ router.post('/', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/:id/anular', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/anular', requirePage('pesv_checklists'), exigirFuncion('drivers.checklists.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const schema = z.object({ motivo: z.string().min(5).max(500) });

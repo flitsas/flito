@@ -6,14 +6,14 @@ import { z } from 'zod';
 import { eq, and, desc, sql, lte, gte } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { pesvNormativa, pesvNormativaRevisiones } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('pesv_normativa'));
+router.use(authMiddleware);
 
-const ADMIN_OR_LIDER = ['admin', 'lider_pesv'] as const;
 const TIPOS = ['ley', 'decreto', 'resolucion', 'concepto', 'circular', 'norma_tecnica'] as const;
 
 const normSchema = z.object({
@@ -30,7 +30,7 @@ const normSchema = z.object({
   notasMd: z.string().max(20000).optional().nullable(),
 });
 
-router.get('/', async (req, res) => {
+router.get('/', requirePage('pesv_normativa'), async (req, res) => {
   const tipo = typeof req.query.tipo === 'string' ? req.query.tipo : undefined;
   const aplicaA = typeof req.query.aplicaA === 'string' ? req.query.aplicaA : undefined;
   const vigentes = req.query.vigentes === 'true' || req.query.vigentes === undefined; // default true
@@ -48,7 +48,7 @@ router.get('/', async (req, res) => {
   res.json({ data: rows });
 });
 
-router.get('/:id(\\d+)', async (req, res) => {
+router.get('/:id(\\d+)', requirePage('pesv_normativa'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const [row] = await db.select().from(pesvNormativa).where(eq(pesvNormativa.id, id)).limit(1);
   if (!row) return res.status(404).json({ error: 'No encontrada' });
@@ -59,7 +59,7 @@ router.get('/:id(\\d+)', async (req, res) => {
   res.json({ ...row, revisiones });
 });
 
-router.post('/', requireRole(...ADMIN_OR_LIDER), async (req: Request, res: Response) => {
+router.post('/', requirePage('pesv_normativa'), exigirFuncion('pesv.normativa_edicion.administrar'), async (req: Request, res: Response) => {
   const parsed = normSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
   const d = parsed.data;
@@ -86,7 +86,7 @@ router.post('/', requireRole(...ADMIN_OR_LIDER), async (req: Request, res: Respo
   }
 });
 
-router.patch('/:id(\\d+)', requireRole(...ADMIN_OR_LIDER), async (req: Request, res: Response) => {
+router.patch('/:id(\\d+)', requirePage('pesv_normativa'), exigirFuncion('pesv.normativa_edicion.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   const parsed = normSchema.partial().safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
@@ -118,7 +118,7 @@ const revSchema = z.object({
   cambiosObservados: z.string().max(5000).optional().nullable(),
   proximaRevisionAt: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)),
 });
-router.post('/:id(\\d+)/revisar', requireRole(...ADMIN_OR_LIDER), async (req: Request, res: Response) => {
+router.post('/:id(\\d+)/revisar', requirePage('pesv_normativa'), exigirFuncion('pesv.normativa_edicion.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   const parsed = revSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
@@ -149,7 +149,7 @@ router.post('/:id(\\d+)/revisar', requireRole(...ADMIN_OR_LIDER), async (req: Re
   res.json(result.row);
 });
 
-router.delete('/:id(\\d+)', requireRole('admin'), async (req: Request, res: Response) => {
+router.delete('/:id(\\d+)', requirePage('pesv_normativa'), exigirFuncion('pesv.normativa.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   const result = await db.delete(pesvNormativa).where(eq(pesvNormativa.id, id)).returning();
   if (!result.length) return res.status(404).json({ error: 'No encontrada' });

@@ -4,7 +4,8 @@ import crypto from 'crypto';
 import { eq, and, desc, ne } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { pesvPolicy, users } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { buildPolicyPdf } from './pdf-builder.js';
@@ -14,7 +15,7 @@ import { loggerFor } from '../../shared/logger.js';
 const slog = loggerFor('pesv-policy');
 
 const router = Router();
-router.use(authMiddleware, requirePage('pesv'));
+router.use(authMiddleware);
 
 const createSchema = z.object({
   titulo: z.string().min(5).max(200),
@@ -32,19 +33,19 @@ function sha256(buf: string): Buffer {
   return crypto.createHash('sha256').update(buf, 'utf8').digest();
 }
 
-router.get('/current', async (_req, res) => {
+router.get('/current', requirePage('pesv_politica'), async (_req, res) => {
   const [row] = await db.select().from(pesvPolicy).where(eq(pesvPolicy.estado, 'vigente')).limit(1);
   if (!row) return res.status(404).json({ error: 'Sin política vigente' });
   res.json(row);
 });
 
-router.get('/', async (req, res) => {
+router.get('/', requirePage('pesv_politica'), async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
   const rows = await db.select().from(pesvPolicy).orderBy(desc(pesvPolicy.version)).limit(limit);
   res.json({ data: rows });
 });
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', requirePage('pesv_politica'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const [row] = await db.select().from(pesvPolicy).where(eq(pesvPolicy.id, id)).limit(1);
@@ -52,7 +53,7 @@ router.get('/:id', async (req, res) => {
   res.json(row);
 });
 
-router.post('/', requireRole('admin', 'lider_pesv'), async (req: Request, res: Response) => {
+router.post('/', requirePage('pesv_politica'), exigirFuncion('pesv.politica_edicion.administrar'), async (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
   const data = parsed.data;
@@ -82,7 +83,7 @@ router.post('/', requireRole('admin', 'lider_pesv'), async (req: Request, res: R
   res.status(201).json(inserted);
 });
 
-router.patch('/:id', requireRole('admin', 'lider_pesv'), async (req: Request, res: Response) => {
+router.patch('/:id', requirePage('pesv_politica'), exigirFuncion('pesv.politica_edicion.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = updateSchema.safeParse(req.body);
@@ -120,7 +121,7 @@ router.patch('/:id', requireRole('admin', 'lider_pesv'), async (req: Request, re
   res.json(updated);
 });
 
-router.post('/:id/firmar', requireRole('admin', 'lider_pesv'), async (req: Request, res: Response) => {
+router.post('/:id/firmar', requirePage('pesv_politica'), exigirFuncion('pesv.politica_edicion.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
 
@@ -169,7 +170,7 @@ router.post('/:id/firmar', requireRole('admin', 'lider_pesv'), async (req: Reque
   res.json(result.row);
 });
 
-router.get('/:id/pdf-firmado', async (req: Request, res: Response) => {
+router.get('/:id/pdf-firmado', requirePage('pesv_politica'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const [row] = await db.select().from(pesvPolicy).where(eq(pesvPolicy.id, id)).limit(1);
@@ -186,7 +187,7 @@ router.get('/:id/pdf-firmado', async (req: Request, res: Response) => {
   }
 });
 
-router.delete('/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.delete('/:id', requirePage('pesv_politica'), exigirFuncion('pesv.politica.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   // WORM trigger bloquea DELETE en estado terminal. Solo borrador admite DELETE.

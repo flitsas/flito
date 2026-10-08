@@ -15,14 +15,13 @@ import {
   pesvContratistas,
   roadIncidents,
 } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('pesv'));
-
-const ADMIN_OR_LIDER = ['admin', 'lider_pesv'] as const;
+router.use(authMiddleware);
 
 // ============ AUDITORIAS ============
 const auditoriaSchema = z.object({
@@ -34,7 +33,7 @@ const auditoriaSchema = z.object({
   auditorLiderId: z.number().int().positive().optional().nullable(),
 });
 
-router.get('/auditorias', async (req, res) => {
+router.get('/auditorias', requirePage('pesv_auditorias'), async (req, res) => {
   const anio = req.query.anio ? parseInt(req.query.anio as string, 10) : undefined;
   const conds: any[] = [];
   if (anio) conds.push(eq(pesvAuditorias.anio, anio));
@@ -43,7 +42,7 @@ router.get('/auditorias', async (req, res) => {
   res.json({ data: rows });
 });
 
-router.get('/auditorias/:id', async (req, res) => {
+router.get('/auditorias/:id', requirePage('pesv_auditorias'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const [a] = await db.select().from(pesvAuditorias).where(eq(pesvAuditorias.id, id)).limit(1);
@@ -52,7 +51,7 @@ router.get('/auditorias/:id', async (req, res) => {
   res.json({ ...a, hallazgos });
 });
 
-router.post('/auditorias', requireRole(...ADMIN_OR_LIDER), async (req: Request, res: Response) => {
+router.post('/auditorias', requirePage('pesv_auditorias'), exigirFuncion('pesv.auditorias.administrar'), async (req: Request, res: Response) => {
   const parsed = auditoriaSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
   const [row] = await db.insert(pesvAuditorias).values({
@@ -65,7 +64,7 @@ router.post('/auditorias', requireRole(...ADMIN_OR_LIDER), async (req: Request, 
   res.status(201).json(row);
 });
 
-router.post('/auditorias/:id/cerrar', requireRole(...ADMIN_OR_LIDER), async (req: Request, res: Response) => {
+router.post('/auditorias/:id/cerrar', requirePage('pesv_auditorias'), exigirFuncion('pesv.auditorias.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const today = new Date().toISOString().slice(0, 10);
@@ -92,7 +91,7 @@ const hallazgoSchema = z.object({
   accionesMd: z.string().optional().nullable(),
 });
 
-router.post('/auditorias/:id/hallazgos', requireRole(...ADMIN_OR_LIDER), async (req: Request, res: Response) => {
+router.post('/auditorias/:id/hallazgos', requirePage('pesv_auditorias'), exigirFuncion('pesv.auditorias.administrar'), async (req: Request, res: Response) => {
   const auditoriaId = parseInt(req.params.id, 10);
   if (!Number.isFinite(auditoriaId) || auditoriaId <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = hallazgoSchema.safeParse(req.body);
@@ -111,7 +110,7 @@ router.post('/auditorias/:id/hallazgos', requireRole(...ADMIN_OR_LIDER), async (
   }
 });
 
-router.post('/hallazgos/:hallazgoId/cerrar', requireRole(...ADMIN_OR_LIDER), async (req: Request, res: Response) => {
+router.post('/hallazgos/:hallazgoId/cerrar', requirePage('pesv_auditorias'), exigirFuncion('pesv.auditorias.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.hallazgoId, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const obs = typeof req.body?.cierreObservaciones === 'string' ? String(req.body.cierreObservaciones).slice(0, 2000) : null;
@@ -132,7 +131,7 @@ const comSchema = z.object({
   vencimientoAcuse: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
 });
 
-router.get('/comunicaciones', async (req, res) => {
+router.get('/comunicaciones', requirePage('pesv_comunicaciones'), async (req, res) => {
   const tipo = req.query.tipo as string | undefined;
   const conds: any[] = [];
   if (tipo) conds.push(eq(pesvComunicaciones.tipo, tipo as any));
@@ -141,7 +140,7 @@ router.get('/comunicaciones', async (req, res) => {
   res.json({ data: rows });
 });
 
-router.get('/comunicaciones/:id', async (req, res) => {
+router.get('/comunicaciones/:id', requirePage('pesv_comunicaciones'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const [c] = await db.select().from(pesvComunicaciones).where(eq(pesvComunicaciones.id, id)).limit(1);
@@ -149,7 +148,7 @@ router.get('/comunicaciones/:id', async (req, res) => {
   res.json(c);
 });
 
-router.post('/comunicaciones', requireRole(...ADMIN_OR_LIDER), async (req: Request, res: Response) => {
+router.post('/comunicaciones', requirePage('pesv_comunicaciones'), exigirFuncion('pesv.comunicaciones.administrar'), async (req: Request, res: Response) => {
   const parsed = comSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
   const [row] = await db.insert(pesvComunicaciones).values({
@@ -160,7 +159,7 @@ router.post('/comunicaciones', requireRole(...ADMIN_OR_LIDER), async (req: Reque
   res.status(201).json(row);
 });
 
-router.post('/comunicaciones/:id/publicar', requireRole(...ADMIN_OR_LIDER), async (req: Request, res: Response) => {
+router.post('/comunicaciones/:id/publicar', requirePage('pesv_comunicaciones'), exigirFuncion('pesv.comunicaciones.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const [row] = await db.update(pesvComunicaciones).set({
@@ -172,7 +171,7 @@ router.post('/comunicaciones/:id/publicar', requireRole(...ADMIN_OR_LIDER), asyn
 });
 
 // Acuse de recibo — cualquier user con rol PESV puede confirmar lectura.
-router.post('/comunicaciones/:id/acusar', async (req: Request, res: Response) => {
+router.post('/comunicaciones/:id/acusar', requirePage('pesv_comunicaciones'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const ip = String(req.headers['x-forwarded-for'] ?? '').split(',')[0]?.trim() || req.ip || null;
@@ -208,7 +207,7 @@ const contratSchema = z.object({
   observaciones: z.string().max(2000).optional().nullable(),
 });
 
-router.get('/contratistas', async (req, res) => {
+router.get('/contratistas', requirePage('pesv_contratistas'), async (req, res) => {
   const estado = req.query.estado as string | undefined;
   const conds: any[] = [];
   if (estado) conds.push(eq(pesvContratistas.estado, estado as any));
@@ -217,7 +216,7 @@ router.get('/contratistas', async (req, res) => {
   res.json({ data: rows });
 });
 
-router.post('/contratistas', requireRole(...ADMIN_OR_LIDER), async (req: Request, res: Response) => {
+router.post('/contratistas', requirePage('pesv_contratistas'), exigirFuncion('pesv.contratistas.administrar'), async (req: Request, res: Response) => {
   const parsed = contratSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
   const d = parsed.data;
@@ -236,7 +235,7 @@ router.post('/contratistas', requireRole(...ADMIN_OR_LIDER), async (req: Request
   }
 });
 
-router.patch('/contratistas/:id', requireRole(...ADMIN_OR_LIDER), async (req: Request, res: Response) => {
+router.patch('/contratistas/:id', requirePage('pesv_contratistas'), exigirFuncion('pesv.contratistas.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = contratSchema.partial().safeParse(req.body);
@@ -256,7 +255,7 @@ const causaRaizSchema = z.object({
   cerrarInvestigacion: z.boolean().default(false),
 });
 
-router.patch('/incidents/:id/causa-raiz', requireRole(...ADMIN_OR_LIDER, 'supervisor_flota'), async (req: Request, res: Response) => {
+router.patch('/incidents/:id/causa-raiz', requirePage('pesv_incidentes'), exigirFuncion('pesv.incidentes_causa_raiz.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = causaRaizSchema.safeParse(req.body);

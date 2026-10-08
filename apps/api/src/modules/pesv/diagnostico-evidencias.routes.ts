@@ -19,7 +19,8 @@ import crypto from 'crypto';
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { pesvDiagnosticos } from '../../db/schema.js';
-import { requireRole } from '../../shared/middleware/auth.js';
+import { requirePage } from '../../shared/permissions.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { pesvUploadLimiter } from '../../shared/middleware/rateLimiter.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { logPiiAccess } from '../../shared/pii-audit.js';
@@ -76,8 +77,9 @@ function decodeFilename(storageKey: string): string {
 // ----------------------------------------------------------------------------
 router.post(
   '/:id/items/:estandarId/evidencias',
+  requirePage('pesv_diagnostico'),
   pesvUploadLimiter,  // BELK B3: 50 uploads/15min por usuario (contención cuenta comprometida)
-  requireRole('admin', 'lider_pesv'),
+  exigirFuncion('pesv.diagnostico.administrar'),
   upload.single('archivo'),
   async (req: Request, res: Response) => {
     const id = parseId(req.params.id);
@@ -229,7 +231,8 @@ router.post(
 // ----------------------------------------------------------------------------
 router.delete(
   '/:id/items/:estandarId/evidencias/:keyHash',
-  requireRole('admin', 'lider_pesv'),
+  requirePage('pesv_diagnostico'),
+  exigirFuncion('pesv.diagnostico.administrar'),
   async (req: Request, res: Response) => {
     const id = parseId(req.params.id);
     const estandarId = parseId(req.params.estandarId);
@@ -286,7 +289,8 @@ router.delete(
 // ----------------------------------------------------------------------------
 router.get(
   '/:id/items/:estandarId/evidencias/:keyHash',
-  requireRole('admin', 'lider_pesv', 'compliance'),
+  requirePage('pesv_diagnostico'),
+  exigirFuncion('pesv.diagnostico_consulta.administrar'),
   async (req: Request, res: Response) => {
     const id = parseId(req.params.id);
     const estandarId = parseId(req.params.estandarId);

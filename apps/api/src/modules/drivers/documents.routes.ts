@@ -4,13 +4,14 @@ import { eq, and, asc, ne } from 'drizzle-orm';
 import multer from 'multer';
 import { db } from '../../db/client.js';
 import { users, driverDocuments, driverDocumentTypes, driverAlertsSent } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { uploadEntityDocument, getEntityDocumentStream, deleteEntityDocument } from '../../services/storage.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('pesv'));
+router.use(authMiddleware);
 
 const ALLOWED_MIMES = ['application/pdf', 'image/jpeg', 'image/png'];
 const upload = multer({
@@ -27,14 +28,14 @@ function parseId(raw: string): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-router.get('/types', async (_req, res: Response) => {
+router.get('/types', requirePage('pesv_conductores'), async (_req, res: Response) => {
   const rows = await db.select().from(driverDocumentTypes)
     .where(eq(driverDocumentTypes.activo, true))
     .orderBy(asc(driverDocumentTypes.orden));
   res.json({ data: rows });
 });
 
-router.get('/user/:id', async (req: Request, res: Response) => {
+router.get('/user/:id', requirePage('pesv_conductores'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const rows = await db.select({
@@ -72,7 +73,7 @@ const docSchema = z.object({
   notas: z.string().max(1000).optional().nullable(),
 });
 
-router.post('/', requireRole('admin'), upload.single('archivo'), async (req: Request, res: Response) => {
+router.post('/', requirePage('pesv_conductores'), exigirFuncion('drivers.conductores.administrar'), upload.single('archivo'), async (req: Request, res: Response) => {
   const parsed = docSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validación', details: parsed.error.flatten() }); return; }
   const data = parsed.data;
@@ -115,7 +116,7 @@ router.post('/', requireRole('admin'), upload.single('archivo'), async (req: Req
 
 const patchSchema = docSchema.omit({ userId: true, tipoId: true }).partial();
 
-router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/:id', requirePage('pesv_conductores'), exigirFuncion('drivers.conductores.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = patchSchema.safeParse(req.body);
@@ -138,7 +139,7 @@ router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) =
   res.json({ data: updated });
 });
 
-router.delete('/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.delete('/:id', requirePage('pesv_conductores'), exigirFuncion('drivers.conductores.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [doc] = await db.select().from(driverDocuments).where(eq(driverDocuments.id, id)).limit(1);
@@ -149,7 +150,7 @@ router.delete('/:id', requireRole('admin'), async (req: Request, res: Response) 
   res.json({ ok: true });
 });
 
-router.get('/:id/download', async (req: Request, res: Response) => {
+router.get('/:id/download', requirePage('pesv_conductores'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [doc] = await db.select().from(driverDocuments).where(eq(driverDocuments.id, id)).limit(1);

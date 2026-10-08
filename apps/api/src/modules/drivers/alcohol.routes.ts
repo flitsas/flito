@@ -3,14 +3,15 @@ import { z } from 'zod';
 import { eq, and, desc, gte, lte } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { alcoholTests, driverProfile, users } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { sendEmail, isSmtpConfigured } from '../../services/email.js';
 import { pesvAlertRecipients } from '../../config/env.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('pesv'));
+router.use(authMiddleware);
 
 function parseId(raw: string): number | null {
   const n = parseInt(raw, 10);
@@ -25,7 +26,7 @@ function gradoAlcohol(valorMg: number): number {
   return 3;
 }
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requirePage('pesv_alcoholimetria'), async (req: Request, res: Response) => {
   const conductorId = req.query.conductorId ? parseId(String(req.query.conductorId)) : null;
   const tipo = req.query.tipo as string | undefined;
   const resultado = req.query.resultado as string | undefined;
@@ -58,7 +59,7 @@ router.get('/', async (req: Request, res: Response) => {
   res.json({ data: rows });
 });
 
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', requirePage('pesv_alcoholimetria'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [t] = await db.select().from(alcoholTests).where(eq(alcoholTests.id, id)).limit(1);
@@ -76,7 +77,7 @@ const createSchema = z.object({
   accionTomada: z.string().max(2000).optional().nullable(),
 });
 
-router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/', requirePage('pesv_alcoholimetria'), exigirFuncion('drivers.alcoholimetria.administrar'), async (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validación', details: parsed.error.flatten() }); return; }
   const data = parsed.data;
@@ -153,7 +154,7 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
   res.status(201).json({ data: test, suspendido: resultado === 'positivo' });
 });
 
-router.post('/:id/levantar-suspension', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/levantar-suspension', requirePage('pesv_alcoholimetria'), exigirFuncion('drivers.alcoholimetria.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const schema = z.object({ motivo: z.string().min(5).max(500) });

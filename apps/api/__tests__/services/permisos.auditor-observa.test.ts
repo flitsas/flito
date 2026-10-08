@@ -122,13 +122,16 @@ describe('AC6 — el auditor conserva todas las lecturas y ninguna ejecución', 
 describe('AC6 — rol por rol: lo sembrado es lo que la foto concedía', () => {
   for (const rol of USER_ROLES) {
     it(`${rol}: sus operaciones en el seed son exactamente las de las rutas que la foto le daba`, () => {
-      const desdeFoto = GUARDAS_MEDIDAS.filter((g) => g.roles.includes(rol)).map(codigoDe).sort();
+      // Sin repetidos: desde la HU #13421 varias guardas legacy comparten código («Administrar <ítem>»).
+      const desdeFoto = [...new Set(GUARDAS_MEDIDAS.filter((g) => g.roles.includes(rol)).map(codigoDe))].sort();
       expect(operacionesDe(rol)).toEqual(desdeFoto);
     });
   }
 
-  it('los roles con operaciones son los ocho de la foto, y conductor / compliance / lider_pesv / supervisor_flota no tienen ninguna', () => {
+  it('los roles con operaciones son los once de la foto, y conductor no tiene ninguna', () => {
+    // HU #13421: compliance, lider_pesv y supervisor_flota reciben los transitorios «Administrar <ítem>»
+    // de PESV que hoy les daba su `requireRole` (antes de la 0227 no tenían ninguna operación).
     const conOperaciones = USER_ROLES.filter((r) => operacionesDe(r).length > 0).sort();
-    expect(conOperaciones).toEqual(['admin', 'auditor', 'cliente', 'financiera', 'gestor_impuestos', 'mensajero', 'proveedor', 'transito']);
+    expect(conOperaciones).toEqual(['admin', 'auditor', 'cliente', 'compliance', 'financiera', 'gestor_impuestos', 'lider_pesv', 'mensajero', 'proveedor', 'supervisor_flota', 'transito']);
   });
 });

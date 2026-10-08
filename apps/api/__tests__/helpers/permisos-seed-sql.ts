@@ -56,6 +56,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0220_permiso_impuestos_recibos_reemplazar.sql',
   '0222_flito_soportes_documentos_adicionales_soat.sql',
   '0223_flito_soportes_documentos_adicionales_carga_eliminar.sql',
+  '0227_permisos_pesv_por_item.sql', // HU #13421 (ADR-0023); la 0226 de la HU #13424 no siembra en forma parseable
 ] as const;
 
 function sinComentariosSql(sql: string): string {
@@ -78,6 +79,32 @@ function bloquesInsert(sql: string, tabla: string): string[] {
 function bloquesInsertCondicionado(sql: string): string[] {
   const re = /INSERT INTO permisos_rol_funcion \(rol_codigo, funcion_codigo\)\s+SELECT v\.rol, v\.fn FROM \(VALUES([\s\S]*?)\) AS v\(rol, fn, origen\)\s+WHERE EXISTS \(SELECT 1 FROM permisos_rol_funcion o WHERE o\.rol_codigo = v\.rol AND o\.funcion_codigo = v\.origen\)\s+ON CONFLICT \(rol_codigo, funcion_codigo\) DO NOTHING\s*;/g;
   return [...sinComentariosSql(sql).matchAll(re)].map((m) => m[1]!);
+}
+
+/**
+ * Cada bloque de reparto COPIADO de una función de origen (HU #13421, ADR-0023 §D5): `INSERT INTO
+ * permisos_rol_funcion (rol_codigo, funcion_codigo) SELECT o.rol_codigo, v.fn FROM permisos_rol_funcion o
+ * CROSS JOIN (VALUES ('<destino>'), …) AS v(fn) WHERE o.funcion_codigo = '<origen>' ON CONFLICT … ;`.
+ * Cada rol que tenga el origen recibe cada destino. Solo se reconoce ESTA forma canónica.
+ */
+function bloquesCopiaRol(sql: string): { origen: string; destinos: string[] }[] {
+  const re = /INSERT INTO permisos_rol_funcion \(rol_codigo, funcion_codigo\)\s+SELECT o\.rol_codigo, v\.fn FROM permisos_rol_funcion o CROSS JOIN \(VALUES([\s\S]*?)\) AS v\(fn\)\s+WHERE o\.funcion_codigo = '([a-z0-9_.]+)'\s+ON CONFLICT \(rol_codigo, funcion_codigo\) DO NOTHING\s*;/g;
+  return [...sinComentariosSql(sql).matchAll(re)].map((m) => ({ origen: m[2]!, destinos: literales(m[1]!) }));
+}
+
+/** Los pares `origen → destinos` que copian reparto (para que el test de la migración los nombre). */
+export function copiasDeReparto(sql: string): { origen: string; destinos: string[] }[] {
+  return bloquesCopiaRol(sql);
+}
+
+/**
+ * Cada `UPDATE permisos_funciones SET nombre_negocio = '<n>', descripcion = '<d>' WHERE codigo = '<c>'
+ * AND (nombre_negocio, descripcion) IS DISTINCT FROM ('<n>', '<d>');` (HU #13421: `pagina.pesv` pasa a
+ * «Tablero PESV»). Devuelve `[codigo, nombre, descripcion]`.
+ */
+function bloquesUpdateNombre(sql: string): [string, string, string][] {
+  const re = /UPDATE permisos_funciones SET nombre_negocio = ('(?:[^']|'')*'), descripcion = ('(?:[^']|'')*')\s+WHERE codigo = '([a-z0-9_.]+)' AND \(nombre_negocio, descripcion\) IS DISTINCT FROM \(\1, \2\)\s*;/g;
+  return [...sinComentariosSql(sql).matchAll(re)].map((m) => [m[3]!, literales(m[1]!)[0]!, literales(m[2]!)[0]!]);
 }
 
 /**
@@ -135,6 +162,12 @@ export function repartoDeSql(sqls: readonly string[], nombre = 'sql'): Map<strin
         reparto.get(rol)!.add(codigo);
       }
     }
+    // La copia viva (0227): cada rol que YA tiene el origen recibe los destinos, como el SELECT en la base.
+    for (const { origen, destinos } of bloquesCopiaRol(sql)) {
+      for (const codigos of reparto.values()) {
+        if (codigos.has(origen)) for (const d of destinos) codigos.add(d);
+      }
+    }
     for (const bloque of bloquesDelete(sql, 'permisos_rol_funcion')) {
       for (const [rol, codigo] of tuplas(bloque)) reparto.get(rol!)?.delete(codigo!);
     }
@@ -167,6 +200,12 @@ export function funcionesDeSql(sqls: readonly string[]): Map<string, FuncionSemb
         if (!fila || !modulo) throw new Error(`UPDATE de modulo sobre una función no sembrada antes: ${codigo}`);
         fila.modulo = modulo;
       }
+    }
+    for (const [codigo, nombre, descripcion] of bloquesUpdateNombre(sql)) {
+      const fila = funciones.get(codigo);
+      if (!fila) throw new Error(`UPDATE de nombre sobre una función no sembrada antes: ${codigo}`);
+      fila.nombre = nombre;
+      fila.descripcion = descripcion;
     }
   }
   return funciones;
@@ -208,4 +247,13 @@ export function leerReagrupacionesSembradas(archivos: readonly string[] = MIGRAC
     }
   }
   return reagrupadas;
+}
+
+/** Lo que las migraciones RENOMBRARON (HU #13421): `codigo → { nombre, descripcion }`, el último gana. */
+export function leerRenombresSembrados(archivos: readonly string[] = MIGRACIONES_CON_REPARTO): Map<string, { nombre: string; descripcion: string }> {
+  const renombres = new Map<string, { nombre: string; descripcion: string }>();
+  for (const archivo of archivos) {
+    for (const [codigo, nombre, descripcion] of bloquesUpdateNombre(leer(archivo))) renombres.set(codigo, { nombre, descripcion });
+  }
+  return renombres;
 }

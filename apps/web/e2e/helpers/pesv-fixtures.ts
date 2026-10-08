@@ -1,8 +1,8 @@
 // Helpers compartidos para specs PESV Diagnóstico (sprint Lerdorf).
 //
 // Define:
-//   - Usuarios stub líder PESV y compliance con `allowedPages` que incluyen 'pesv'
-//     (alineado con apps/web/src/lib/permissions.ts:44).
+//   - Usuarios stub líder PESV y compliance con `allowedPages` que incluyen el tablero PESV y las
+//     páginas por ítem (HU #13421: `PAGINAS_PESV_POR_ITEM` de shared-types).
 //   - Builders de payloads alineados con los contratos zod en
 //     apps/api/src/modules/pesv/diagnostico.schemas.ts.
 //   - Mock router helper `mockPesvBackend()` que registra los handlers comunes
@@ -16,15 +16,18 @@
 //   - Microcopy oficial: "Res. 40595/2022" (NO 20223040045295). MOLANO.
 
 import { Page, Route, Locator } from '@playwright/test';
+import { PAGINAS_PESV_POR_ITEM } from '@operaciones/shared-types';
 
 // ─── Fixtures de usuario ──────────────────────────────────────────────────
-// Alineado con apps/web/src/lib/permissions.ts: lider_pesv y compliance ven 'pesv'.
+// Alineado con DEFAULTS_POR_ROL de shared-types: lider_pesv y compliance ven el tablero PESV y cada
+// ítem del menú con su propia página (HU #13421).
+const PESV_PAGINAS = ['pesv', ...PAGINAS_PESV_POR_ITEM, 'pesv_raci', 'pesv_normativa', 'pesv_retencion'];
 export const LIDER_PESV_USER = {
   id: 1001,
   username: 'e2e_lider_pesv',
   name: 'Líder PESV E2E',
   role: 'lider_pesv' as const,
-  allowedPages: ['pesv', 'pesv_raci', 'pesv_normativa', 'pesv_retencion'],
+  allowedPages: PESV_PAGINAS,
 };
 
 export const LIDER_PESV_ALT_USER = {
@@ -32,7 +35,7 @@ export const LIDER_PESV_ALT_USER = {
   username: 'e2e_lider_pesv_alt',
   name: 'Líder PESV E2E (sesión B)',
   role: 'lider_pesv' as const,
-  allowedPages: ['pesv', 'pesv_raci', 'pesv_normativa', 'pesv_retencion'],
+  allowedPages: PESV_PAGINAS,
 };
 
 export const COMPLIANCE_USER = {
@@ -40,7 +43,7 @@ export const COMPLIANCE_USER = {
   username: 'e2e_compliance',
   name: 'Compliance E2E',
   role: 'compliance' as const,
-  allowedPages: ['dashboard', 'laft', 'pesv', 'pesv_raci', 'pesv_normativa', 'pesv_retencion'],
+  allowedPages: ['dashboard', 'laft', ...PESV_PAGINAS],
 };
 
 // ─── Builders ─────────────────────────────────────────────────────────────

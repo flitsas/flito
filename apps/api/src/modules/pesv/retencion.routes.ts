@@ -6,14 +6,14 @@ import { z } from 'zod';
 import { eq, and, desc } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { pesvRetencionPoliticas, pesvRetencionLog } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('pesv_retencion'));
+router.use(authMiddleware);
 
-const ADMIN_OR_LIDER = ['admin', 'lider_pesv'] as const;
 const ACCIONES = ['purgar', 'archivar_offline', 'anonimizar'] as const;
 
 const polSchema = z.object({
@@ -25,12 +25,12 @@ const polSchema = z.object({
   notasMd: z.string().max(10000).optional().nullable(),
 });
 
-router.get('/politicas', async (_req, res) => {
+router.get('/politicas', requirePage('pesv_retencion'), async (_req, res) => {
   const rows = await db.select().from(pesvRetencionPoliticas).orderBy(pesvRetencionPoliticas.tipoDocumento).limit(200);
   res.json({ data: rows });
 });
 
-router.post('/politicas', requireRole(...ADMIN_OR_LIDER), async (req: Request, res: Response) => {
+router.post('/politicas', requirePage('pesv_retencion'), exigirFuncion('pesv.retencion_edicion.administrar'), async (req: Request, res: Response) => {
   const parsed = polSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
   const d = parsed.data;
@@ -46,7 +46,7 @@ router.post('/politicas', requireRole(...ADMIN_OR_LIDER), async (req: Request, r
   }
 });
 
-router.patch('/politicas/:id(\\d+)', requireRole(...ADMIN_OR_LIDER), async (req: Request, res: Response) => {
+router.patch('/politicas/:id(\\d+)', requirePage('pesv_retencion'), exigirFuncion('pesv.retencion_edicion.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   const parsed = polSchema.partial().safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
@@ -68,7 +68,7 @@ router.patch('/politicas/:id(\\d+)', requireRole(...ADMIN_OR_LIDER), async (req:
   res.json(row);
 });
 
-router.delete('/politicas/:id(\\d+)', requireRole('admin'), async (req: Request, res: Response) => {
+router.delete('/politicas/:id(\\d+)', requirePage('pesv_retencion'), exigirFuncion('pesv.retencion.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   const result = await db.delete(pesvRetencionPoliticas).where(eq(pesvRetencionPoliticas.id, id)).returning();
   if (!result.length) return res.status(404).json({ error: 'No encontrada' });
@@ -77,7 +77,7 @@ router.delete('/politicas/:id(\\d+)', requireRole('admin'), async (req: Request,
 });
 
 // Log de ejecuciones — read only para UI (escribe el cron + endpoint /run-now manual)
-router.get('/log', async (req, res) => {
+router.get('/log', requirePage('pesv_retencion'), async (req, res) => {
   const tipo = typeof req.query.tipo === 'string' ? req.query.tipo : undefined;
   const limit = Math.min(parseInt(String(req.query.limit ?? '100'), 10) || 100, 500);
   const conds: any[] = [];
@@ -93,7 +93,7 @@ const runSchema = z.object({
   tipoDocumento: z.string().min(2).max(60),
   confirm: z.boolean().default(false),
 });
-router.post('/run', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/run', requirePage('pesv_retencion'), exigirFuncion('pesv.retencion.administrar'), async (req: Request, res: Response) => {
   const parsed = runSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
   const { tipoDocumento, confirm } = parsed.data;
