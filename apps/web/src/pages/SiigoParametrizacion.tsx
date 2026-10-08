@@ -67,8 +67,8 @@ interface EstadoCompuerta {
 }
 
 export default function SiigoParametrizacion() {
-  const { user } = useAuth();
-  const puedeEditar = user?.role === 'admin';
+  const { hasFuncion } = useAuth();
+  const puedeEditar = hasFuncion('siigo.parametrizacion.administrar');
 
   const [ambiente, setAmbiente] = useState<Ambiente>('pruebas');
   const [compuerta, setCompuerta] = useState<EstadoCompuerta | null>(null);

@@ -26,7 +26,7 @@ interface Props {
 // paleta; si mueves un `kbd` de contenedor, cambia el fondo que compone y hay que remedirlo
 // (`scripts/check-contraste-paleta.mjs` y `e2e/tests/command-palette-oscuro.spec.ts`).
 export default function CommandPalette({ open, onClose }: Props) {
-  const { user } = useAuth();
+  const { user, funciones } = useAuth();
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
@@ -36,7 +36,7 @@ export default function CommandPalette({ open, onClose }: Props) {
   const optionId = (idx: number): string => `${listboxId}-opt-${idx}`;
 
   const allowed = useMemo(() => effectivePages(user), [user]);
-  const items = useMemo(() => NAV_ITEMS.filter((it) => navItemPermitido(it, user, allowed)), [allowed, user]);
+  const items = useMemo(() => NAV_ITEMS.filter((it) => navItemPermitido(it, user, allowed, funciones)), [allowed, user, funciones]);
 
   const filtered = useMemo<NavItem[]>(() => {
     if (!query.trim()) return items;

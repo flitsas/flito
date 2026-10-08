@@ -247,9 +247,26 @@ const SENSIBLES_13423 = [
   'runt.cedula.leer', 'integraciones.fasecolda.buscar',
 ] as const;
 
+/**
+ * HU #12872: códigos que la web empezó a consultar con `hasFuncion` al quitar el nombre del rol. Se
+ * reparten a quien hoy pasaba la regla por nombre, para que los specs vecinos sigan verdes.
+ */
+const SOAT_DETALLE_OPERACIONES_12872 = [
+  'soat.solicitud.rechazar', 'soat.solicitud.reactivar', 'soat.solicitud.reversar',
+  'soat.proveedor.cambiar', 'soat.solicitud.asumir', 'soat.solicitud.devolver',
+] as const;
+const BOLSAS_CONCILIACION_12872 = ['bolsas.bolsa.ver', 'conciliacion.boletas.listar', 'conciliacion.boleta.ver'] as const;
+const ADMIN_12872 = [
+  ...SOAT_DETALLE_OPERACIONES_12872, ...BOLSAS_CONCILIACION_12872,
+  'tramite.metricas.ver_resumen', 'usuarios.usuario.crear', 'usuarios.usuario.exportar',
+  'revisiones.revision.resolver',
+] as const;
+
 export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
   admin: [
     ...SOAT_LEER, 'soat.comprobante.cargar', 'soat.solicitud.enviar',
+    // HU #12872 (AC3): Excel y carga masiva por su función (0179: admin y proveedor).
+    'soat.excel.exportar', 'soat.masiva.cargar',
     // HU #12998: «Reintentar consulta» de una incompleta (0211: sembrada solo a `admin`).
     'soat.solicitud.reintentar_runt',
     // HU #13064: «Acceso a FLIT 2» en Gestión Trámites (0214: sembradas solo a `admin`).
@@ -303,6 +320,8 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     ...OPERACION_13422,
     // HU #13423 (0230): los seis sensibles y las cuatro de solo sesión, sembrados a `admin`.
     ...SENSIBLES_13423,
+    // HU #12872: lo que la web pregunta ahora por función donde antes miraba `role === 'admin'`.
+    ...ADMIN_12872,
   ],
   // HU #13421 (0226): lo que la migración siembra a los roles PESV; el conductor no recibe ninguna.
   lider_pesv: [
@@ -317,10 +336,13 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
   supervisor_flota: ['pesv.incidentes_causa_raiz.administrar', 'drivers.incidentes_registro.administrar', 'vehicles.vehiculos.consultar'],
   proveedor: [
     ...SOAT_LEER, 'soat.comprobante.cargar', 'soat.soportes.descargar', 'soat.documentos_adicionales.ver',
+    'soat.excel.exportar', 'soat.masiva.cargar', // HU #12872 (AC3), 0179
     // HU #13365 (0223): cargar y eliminar adicionales desde el detalle.
     'soat.documentos_adicionales.cargar', 'soat.documentos_adicionales.eliminar',
     // HU #13423 (0230): SOAT antiguo y la consulta de vehículos (copia viva de pagina.soat).
     'soat.antiguo.operar', 'vehicles.vehiculos.consultar',
+    // HU #12872: «Rechazar» del detalle por su función (el gestor lo tenía por modo).
+    'soat.solicitud.rechazar',
   ],
   cliente: [...SOAT_LEER, 'soat.solicitud.crear', 'soat.runt.preconsultar', 'soat.factura.leer'],
   gestor_impuestos: [
@@ -340,9 +362,12 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     ...LECTURAS_13422,
     // HU #13423 (0230): Siigo (la vieja tabla de roles por acción le daba todas las acciones).
     ...SIIGO_FACTURA_OPERAR, ...SIIGO_LEER_13423, 'siigo.conceptos.confirmar', 'siigo.emision.ver',
+    // HU #12872: Bolsas y Conciliación por función (antes `ROLES_BOLSAS`/`ROLES_CONCILIACION`).
+    ...BOLSAS_CONCILIACION_12872,
   ],
   transito: ['transito.tramite.tomar', 'transito.bandeja.ver_pendientes', 'firma.estado.ver'],
-  mensajero: [],
+  // HU #12872 (AC5): «Mi ruta» por función, la misma que exige `GET /flito/logistica/mi-ruta`.
+  mensajero: ['logistica.ruta.ver'],
   conductor: [],
 };
 
@@ -365,7 +390,9 @@ export function funcionesDe(user: UsuarioFixture): string[] {
 
 /** Cuerpo de `GET /api/permisos/mios` como lo arma el servidor (HU #12170). */
 export function sobreDeMios(user: UsuarioFixture, funciones = funcionesDe(user)) {
-  const externo = user.role === 'cliente' || user.role === 'proveedor';
+  // Como la 0178: solo `cliente` es externo; `proveedor` es INTERNO (`tipo_principal = 'interno'`).
+  // HU #12872: la Ayuda decide por este campo, así que el fixture tiene que decir lo que dice la base.
+  const externo = user.role === 'cliente';
   return {
     funciones, rol: user.role, tipoPrincipal: externo ? 'externo' : 'interno',
     version: 1, resueltoEn: '2026-09-14T12:00:00.000Z',

@@ -12,32 +12,17 @@
 //     `Record<ResultadoCruce, …>` exhaustivo es además lo que hace que añadir un octavo desenlace en
 //     la base no compile aquí, que es la forma barata de enterarse.
 //
-// Roles: `admin` y `financiera`, calcado de `puedeVerBolsas`. Ni `auditor` ni `proveedor` — el
-// router de `/api/flito/conciliacion` exige esos dos y nada más (ADR-0006 §7, CF-08).
+// Acceso: por función (`conciliacion.*`), nunca por nombre de rol (HU #12872).
 
 import {
   ESTADO_SOAT_LABEL, EstadoBoleta, ResultadoCruce,
   type BoletaDetalleDto, type ConciliacionRealizadaDto, type EstadoSoat, type LineaBoletaDto,
-  type UserRole,
 } from '@operaciones/shared-types';
 import { ApiError } from './api';
 import type { AvisoConciliacion } from './conciliacionAviso';
 import { pesos } from './bolsas';
 import type { ChipTone } from '../components/flit/StatusChip';
 
-/**
- * Quién ve la pantalla. Espejo del `requireRole('admin', 'financiera')` del router: sin este gate,
- * un rol con el slug concedido a mano entraría a soltar un 403 por cada petición en vez de leer que
- * no tiene acceso — que es justo lo que el AC1 prohíbe.
- */
-export const ROLES_CONCILIACION: readonly UserRole[] = ['admin', 'financiera'];
-
-export function puedeConciliar(role: string | undefined): boolean {
-  // El rol llega como `string` desde `/auth/me`, no como `UserRole`: la lista se declara tipada
-  // —para que renombrar un rol en shared-types rompa AQUÍ y no en producción— y la comparación se
-  // hace contra strings, que es lo que de verdad viaja en el token.
-  return role !== undefined && (ROLES_CONCILIACION as readonly string[]).includes(role);
-}
 
 // ─────────────────────────── El estado de una boleta ─────────────────────────────────────────────
 

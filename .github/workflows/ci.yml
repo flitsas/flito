@@ -48,6 +48,13 @@ jobs:
       - name: Rules of Hooks scan (web)
         run: npm run check:hooks
 
+      # HU #12872 (AC8) — la web no decide acceso por el nombre del rol (Épica #13411). AST, sin
+      # build; su propio test con node:test (fixtures positivos/negativos y la excepción declarada).
+      - name: Sin nombre de rol en la web (check + test)
+        run: |
+          node --test scripts/check-roles-web.test.mjs
+          npm run check:roles-web
+
       # Contraste, DOS invariantes distintas en el mismo script:
       #   · Bug #11720 (oscuro) · Bug #11767 (claro) — la CommandPalette en LOS DOS temas. El
       #     claro es el de por defecto y estuvo sin cubrir hasta el #11767: se medía sólo el

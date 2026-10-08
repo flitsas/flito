@@ -23,7 +23,15 @@ const normalizeName = (s: string | null | undefined): string =>
     .replace(/\bS\.?\s*A\.?\s*S\.?\b/g, '').replace(/\bLTDA\.?\b/g, '').replace(/[^A-Z0-9]/g, ' ')
     .replace(/\s+/g, ' ').trim();
 interface Vehicle { id: number; vin: string; plate: string | null; ownerName: string | null; }
-interface UserOption { id: number; name: string; role: string; }
+interface UserOption { id: number; name: string; flitoProveedorSoatId?: number | null; }
+
+/**
+ * HU #12872: asignables = usuarios ENLAZADOS a un proveedor SOAT (ámbito del usuario, la misma
+ * columna que pinta «Ámbito» en Usuarios), no quienes se llaman `proveedor` de rol.
+ */
+function esUsuarioDeProveedor(u: UserOption): boolean {
+  return u.flitoProveedorSoatId != null;
+}
 
 interface RuntSoatRecord {
   numSoat?: string;
@@ -119,7 +127,7 @@ export default function Soat() {
       api.get<Vehicle[]>('/vehicles'),
       puedeListarUsuarios ? api.get<UserOption[]>('/users') : Promise.resolve([]),
     ]);
-    setVehicles(v); setProviders((u as UserOption[]).filter((u) => u.role === 'proveedor')); setSelectedVehicles([]); setShowCreate(true);
+    setVehicles(v); setProviders((u as UserOption[]).filter(esUsuarioDeProveedor)); setSelectedVehicles([]); setShowCreate(true);
   };
 
   const handleCreate = async () => {

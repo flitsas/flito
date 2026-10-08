@@ -17,16 +17,16 @@ import UsersGestion from './users/UsersGestion';
 import HistorialPermisos from './users/HistorialPermisos';
 
 export default function Users() {
-  const { user: me } = useAuth();
+  const { hasFuncion } = useAuth();
 
   /**
    * Quién gestiona y quién exporta. Las condiciones están AQUÍ, con nombre y una sola definición,
    * en vez de incrustadas en el JSX: la HU #12170 las sustituye por la función de permiso
-   * (`/api/permisos/mios`) y tiene que poder cambiar una línea. Hoy es el rol que ya gobierna esta
-   * pantalla entera; el auditor tiene `pagina.users` desde la 0185 pero no `usuarios.usuario.listar`.
+   * (`/api/permisos/mios`) y tiene que poder cambiar una línea. HU #12872: son ya las funciones de
+   * las guardas (`POST /users` y `GET /users/export`), nunca el nombre del rol.
    */
-  const puedeGestionar = me?.role === 'admin';
-  const puedeExportar = me?.role === 'admin';
+  const puedeGestionar = hasFuncion('usuarios.usuario.crear');
+  const puedeExportar = hasFuncion('usuarios.usuario.exportar');
 
   if (puedeGestionar) return <UsersGestion puedeExportar={puedeExportar} />;
 

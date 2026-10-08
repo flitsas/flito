@@ -23,8 +23,8 @@ interface ScheduleRow {
 const ESTADO_FILTERS = ['pendiente', 'ejecutada', 'vencida', 'cancelada'] as const;
 
 export default function Schedule() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const { hasFuncion } = useAuth();
+  const isAdmin = hasFuncion('maintenance.inicio.administrar');
   const [items, setItems] = useState<ScheduleRow[]>([]);
   const [estado, setEstado] = useState('pendiente');
   const [recomputing, setRecomputing] = useState(false);

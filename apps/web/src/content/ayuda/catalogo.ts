@@ -7,9 +7,9 @@ import type { PageSlug } from '../../lib/permissions';
 // Las 19 están publicadas (Gestión #11894; Finanzas y Administración #11895). Ausencia de
 // archivo = «Ficha pendiente», no error.
 //
-// `siigo_credenciales` NO es un PageSlug en este worktree (lo añade otra HU). En el catálogo
-// se lista solo si `user.role === 'admin'`. Prohibido aliasarla a `siigo_parametrizacion`:
-// Financiera tiene parametrización y no debe ver el capítulo de credenciales.
+// `siigo_credenciales` cuelga de su propio PageSlug (HU #12872; antes, del nombre del rol).
+// Prohibido aliasarla a `siigo_parametrizacion`: Financiera tiene parametrización y no debe ver el
+// capítulo de credenciales.
 
 export type AyudaGrupo = 'gestion' | 'finanzas' | 'administracion';
 
@@ -46,7 +46,7 @@ export interface EntradaAyuda {
   /** Ruta de producto. Ausente = no se pinta «Ir a la pantalla». */
   to?: string;
   /**
-   * PageSlug para `hasPage`. Ausente solo en `siigo_credenciales` (visibilidad = rol admin).
+   * PageSlug para `hasPage`. Ausente = la ficha no se lista (fail-closed).
    * Nunca alias a otro slug.
    */
   permiso?: PageSlug;
@@ -83,6 +83,6 @@ export const CATALOGO_AYUDA: readonly EntradaAyuda[] = [
   { clave: 'flito_comprobantes', grupo: 'finanzas', etiqueta: 'Comprobantes', resumen: 'Cargue cualquier comprobante y revise lo que FLITO leyó.', to: '/flito/comprobantes', permiso: 'flito_comprobantes' },
   { clave: 'siigo_parametrizacion', grupo: 'finanzas', etiqueta: 'Facturación electrónica · Parametrización', resumen: 'Catálogos, mapeo de conceptos y emisión.', to: '/siigo/parametrizacion', permiso: 'siigo_parametrizacion' },
   { clave: 'siigo_operacion', grupo: 'finanzas', etiqueta: 'Facturación electrónica · Operación', resumen: 'Bandeja de facturas y acciones del día a día.', to: '/siigo/operacion', permiso: 'siigo_operacion' },
-  { clave: 'siigo_credenciales', grupo: 'administracion', etiqueta: 'Facturación electrónica · Credenciales', resumen: 'Credenciales de la integración. Solo administración.' },
+  { clave: 'siigo_credenciales', grupo: 'administracion', etiqueta: 'Facturación electrónica · Credenciales', resumen: 'Credenciales de la integración. Solo administración.', to: '/siigo/credenciales', permiso: 'siigo_credenciales' },
   { clave: 'roles_permisos', grupo: 'administracion', etiqueta: 'Roles y permisos', resumen: 'Qué puede hacer cada rol dentro de FLITO.', to: '/roles-permisos', permiso: 'roles_permisos' },
 ];

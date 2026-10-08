@@ -46,8 +46,8 @@ const TIPO_LABEL: Record<string, string> = {
 };
 
 export default function WorkOrders() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const { hasFuncion } = useAuth();
+  const isAdmin = hasFuncion('maintenance.ordenes.administrar');
   const [items, setItems] = useState<WorkOrder[]>([]);
   const [estadoFilter, setEstadoFilter] = useState('');
   const [showCreate, setShowCreate] = useState(false);

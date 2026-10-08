@@ -33,7 +33,7 @@ import {
 } from '../components/flito/soat/tipos';
 import BarraFiltrosSoat, { type PresetSoat } from '../components/flito/soat/BarraFiltrosSoat';
 import TablaColaSoat from '../components/flito/soat/TablaColaSoat';
-import DetalleSoat from '../components/flito/soat/DetalleSoat';
+import DetalleSoat, { FUNCION_ACCION_SOAT, type PermisosDetalleSoat } from '../components/flito/soat/DetalleSoat';
 import CargaMasiva from '../components/flito/soat/CargaMasivaSoat';
 import DetalleIncompletaSoat from '../components/flito/soat/DetalleIncompletaSoat';
 import useIncompletasSoat from '../components/flito/soat/useIncompletasSoat';
@@ -72,6 +72,10 @@ export default function FlitoSoat() {
   const puedeVerIncompleta = hasFuncion('soat.incompleta.ver');
   // HU #12998: sin la función el botón no se pinta (ni en la fila ni en el detalle).
   const puedeReintentar = hasFuncion(FUNCION_REINTENTAR_RUNT);
+  // HU #12872 (AC4): cada acción del detalle por la función de su endpoint, una por una.
+  const puedeDetalle = Object.fromEntries(
+    Object.entries(FUNCION_ACCION_SOAT).map(([accion, codigo]) => [accion, hasFuncion(codigo)]),
+  ) as unknown as PermisosDetalleSoat;
   // Con las pastillas nuevas el orden es el del Cliente también para Operaciones (UX §3.2).
   const estadosDisponibles = esGestor ? ESTADOS_GESTOR : esCliente || conIncompletas ? ESTADOS_CLIENTE : ESTADOS_ADMIN;
   // AC9: «Ir a mis SOAT» de la tarjeta de la solicitud guardada abre «Por validar». Llega por el
@@ -299,7 +303,10 @@ export default function FlitoSoat() {
   // el proveedor, quién despachó y lo que FLITO pagó—: eso sería otra HU, no una condición más.
   // En «Por validar»/«Descartadas» no se pinta: el Excel es de SOAT y no cambia (HU #12997), así
   // que ahí no sería «lo que estoy viendo».
-  const puedeExportar = (esOperaciones || esGestor) && !vistaIncompletas;
+  // HU #12872 (AC3): cada botón por la función de SU endpoint (`POST /export` exige
+  // `soat.excel.exportar`; `POST /facturas`, `soat.masiva.cargar`), no por el «modo» de la pantalla.
+  const puedeExportar = hasFuncion('soat.excel.exportar') && !vistaIncompletas;
+  const puedeCargaMasiva = hasFuncion('soat.masiva.cargar');
   // Quién DESCARGA SOPORTES: la función que exige el POST del ZIP (HU #12815), no el rol. La casilla
   // sirve también para «Enviar al gestor»: sin ninguna de las dos, no hay columna (AC7).
   const puedeDescargar = hasFuncion('soat.soportes.descargar');
@@ -398,7 +405,8 @@ export default function FlitoSoat() {
           : 'Cola de adquisición del SOAT: de Pendiente a Pagado.'}
         actions={(
           <>
-            {(esOperaciones || esGestor) && (
+            {/* HU #12872 (AC3): la carga masiva por la función de SU endpoint (POST /facturas). */}
+            {puedeCargaMasiva && (
               <button type="button" className={`${flitBtnPrimary} ${ACCION_CABECERA}`} style={flitBtnPrimaryStyle} onClick={() => setCargaMasiva(true)}>
                 <Upload size={16} aria-hidden="true" className="shrink-0" />
                 Cargar facturas (masivo)
@@ -587,7 +595,7 @@ export default function FlitoSoat() {
       )}
 
       {detalle && (
-        <DetalleSoat soat={detalle} esOperaciones={esOperaciones} esGestor={esGestor} soloLectura={soloLectura}
+        <DetalleSoat soat={detalle} puede={puedeDetalle} soloLectura={soloLectura && !Object.values(puedeDetalle).some(Boolean)}
           esCliente={esCliente} restoreFocusRef={refPills}
           descarga={puedeDescargar ? descargaComprobante : null}
           proveedores={proveedores} onClose={() => setDetalleId(null)}

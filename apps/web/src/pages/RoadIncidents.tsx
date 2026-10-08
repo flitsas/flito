@@ -45,8 +45,8 @@ const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--fl
 const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
 
 export default function RoadIncidents() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const { hasFuncion } = useAuth();
+  const isAdmin = hasFuncion('drivers.incidentes_registro.administrar');
   const [items, setItems] = useState<Incident[]>([]);
   const [tipoFilter, setTipoFilter] = useState('');
   const [showCreate, setShowCreate] = useState(false);

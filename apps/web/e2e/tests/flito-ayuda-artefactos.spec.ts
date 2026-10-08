@@ -75,6 +75,10 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
       expect(catalogo).toContain(`clave: '${c}'`);
     }
     expect(catalogo).toMatch(/clave: 'siigo_credenciales', grupo: 'administracion'/);
-    expect(catalogo).not.toMatch(/clave: 'siigo_credenciales'[^}]*permiso:/);
+    // HU #12872: la ficha cuelga de SU slug y enlaza la pantalla real. Nunca alias a parametrización
+    // (Financiera la tiene y vería credenciales).
+    expect(catalogo).toMatch(/clave: 'siigo_credenciales'[^}]*to: '\/siigo\/credenciales'/);
+    expect(catalogo).toMatch(/clave: 'siigo_credenciales'[^}]*permiso: 'siigo_credenciales'/);
+    expect(catalogo).not.toMatch(/clave: 'siigo_credenciales'[^}]*permiso: 'siigo_parametrizacion'/);
   });
 });

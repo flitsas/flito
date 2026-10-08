@@ -2,8 +2,8 @@
 // Patrón RumSummary.tsx: guard admin, selector de ventana, tarjetas KPI + tablas FLIT.
 
 import { useCallback, useEffect, useState } from 'react';
-import { Navigate } from 'react-router-dom';
 import { api } from '../../lib/api';
+import NoAccess from '../../components/NoAccess';
 import { useAuth } from '../../lib/auth';
 import PageHeaderCard from '../../components/flit/PageHeaderCard';
 import StatusChip, { type ChipTone } from '../../components/flit/StatusChip';
@@ -67,7 +67,9 @@ function MiniTable({ title, head, rows, empty }: { title: string; head: string[]
 const pct = (a: number, b: number) => (b > 0 ? `${Math.round((a / b) * 100)}%` : '—');
 
 export default function TramitesMetricas() {
-  const { user } = useAuth();
+  const { hasFuncion } = useAuth();
+  // HU #12872: la función de la guarda del endpoint, no el nombre del rol.
+  const puedeVer = hasFuncion('tramite.metricas.ver_resumen');
   const [days, setDays] = useState<(typeof DAY_OPTIONS)[number]>(30);
   const [data, setData] = useState<MetricsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -84,9 +86,9 @@ export default function TramitesMetricas() {
     } finally { setLoading(false); }
   }, [days]);
 
-  useEffect(() => { if (user?.role !== 'admin') return; load(); }, [user?.role, load]);
+  useEffect(() => { if (!puedeVer) return; load(); }, [puedeVer, load]);
 
-  if (user?.role !== 'admin') return <Navigate to="/" replace />;
+  if (!puedeVer) return <NoAccess label="Métricas de trámites" />;
 
   const preflightTotal = data?.preflight.reduce((s, p) => s + p.n, 0) ?? 0;
   const preflightVerde = data?.preflight.find((p) => p.overall_status === 'green')?.n ?? 0;
