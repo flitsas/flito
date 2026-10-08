@@ -265,6 +265,8 @@ const ADMIN_12872 = [
 export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
   admin: [
     ...SOAT_LEER, 'soat.comprobante.cargar', 'soat.solicitud.enviar',
+    // HU #12872 (AC3): Excel y carga masiva por su función (0179: admin y proveedor).
+    'soat.excel.exportar', 'soat.masiva.cargar',
     // HU #12998: «Reintentar consulta» de una incompleta (0211: sembrada solo a `admin`).
     'soat.solicitud.reintentar_runt',
     // HU #13064: «Acceso a FLIT 2» en Gestión Trámites (0214: sembradas solo a `admin`).
@@ -334,6 +336,7 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
   supervisor_flota: ['pesv.incidentes_causa_raiz.administrar', 'drivers.incidentes_registro.administrar', 'vehicles.vehiculos.consultar'],
   proveedor: [
     ...SOAT_LEER, 'soat.comprobante.cargar', 'soat.soportes.descargar', 'soat.documentos_adicionales.ver',
+    'soat.excel.exportar', 'soat.masiva.cargar', // HU #12872 (AC3), 0179
     // HU #13365 (0223): cargar y eliminar adicionales desde el detalle.
     'soat.documentos_adicionales.cargar', 'soat.documentos_adicionales.eliminar',
     // HU #13423 (0230): SOAT antiguo y la consulta de vehículos (copia viva de pagina.soat).
