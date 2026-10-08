@@ -163,7 +163,7 @@ function IncidentesPanel({ userId }: { userId: number }) {
       .catch((err) => setAviso(avisoPanel(err, 'Incidentes', 'los incidentes del conductor')));
   }, [userId]);
   if (aviso) {
-    return <p role="status" className="bg-white p-6 text-sm" style={{ ...CARD, color: 'var(--flit-text-muted)' }}>{aviso}</p>;
+    return <p role="status" className="p-6 text-sm" style={{ ...CARD, background: 'var(--flit-bg-card)', color: 'var(--flit-text-muted)' }}>{aviso}</p>;
   }
   return (
     <div className="overflow-hidden bg-white" style={CARD}>

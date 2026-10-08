@@ -144,7 +144,7 @@ function CreateAlcoholModal({ onClose, onSaved }: { onClose: () => void; onSaved
             <option value="">— seleccione —</option>
             {drivers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
-          {driversError && <p id="alcohol-conductores-aviso" role="status" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-ink)' }}>{driversError}</p>}
+          {driversError && <p id="alcohol-conductores-aviso" role="status" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-text)' }}>{driversError}</p>}
         </Field>
         <Field label="Tipo">
           <select value={tipo} onChange={(e) => setTipo(e.target.value as AlcoholTipo)} className={inputCls}>
