@@ -121,7 +121,13 @@ export const PAGES = {
   transito_organismos: 'Organismos de tránsito',
   privacy: 'Privacidad y datos',
   fleet: 'Flota',
+  // HU #13422 (ADR-0023): `maintenance` dejó de abrir nada —ninguna ruta del API ni ítem del menú la
+  // pide— y cada ítem del menú Mantenimiento tiene su página, con el label LITERAL de `navItems.ts`.
+  // Se conserva en el catálogo (con su reparto) hasta que se decida su retiro.
   maintenance: 'Mantenimiento',
+  maintenance_inicio: 'Mantenimiento — Mantenimiento',
+  maintenance_ordenes: 'Mantenimiento — Órdenes de trabajo',
+  maintenance_indicadores: 'Mantenimiento — Indicadores mant.',
   // HU #13421 (ADR-0023): `pesv` dejó de ser «todo PESV» y es el ítem raíz del menú («Tablero PESV»);
   // cada ítem del menú PESV tiene su propia página, con el label LITERAL de `navItems.ts`.
   pesv: 'PESV — Tablero PESV',
@@ -282,11 +288,19 @@ export const PAGINAS_PESV_POR_ITEM = [
   'pesv_comunicaciones', 'pesv_contratistas', 'pesv_jornadas', 'pesv_mi_jornada', 'pesv_rutas', 'pesv_pernocta',
 ] as const satisfies readonly PageSlug[];
 
+/**
+ * HU #13422 (ADR-0023): las páginas de los ítems del menú Mantenimiento que antes compartían
+ * `maintenance`, en el orden del menú. Misma regla que `PAGINAS_PESV_POR_ITEM`.
+ */
+export const PAGINAS_MANTENIMIENTO_POR_ITEM = [
+  'maintenance_inicio', 'maintenance_ordenes', 'maintenance_indicadores',
+] as const satisfies readonly PageSlug[];
+
 export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   { label: 'General', pages: ['dashboard', 'perfil'] },
   { label: 'Operaciones', pages: ['vehicles', 'soat', 'tramite', 'tax_reader', 'transito', 'drive'] },
   { label: 'Flota', pages: ['fleet'] },
-  { label: 'Mantenimiento', pages: ['maintenance'] },
+  { label: 'Mantenimiento', pages: ['maintenance', ...PAGINAS_MANTENIMIENTO_POR_ITEM] },
   { label: 'PESV', pages: ['pesv', ...PAGINAS_PESV_POR_ITEM, 'pesv_raci', 'pesv_normativa', 'pesv_retencion'] },
   { label: 'RNDC', pages: ['rndc', 'rndc_admin'] },
   { label: 'Cumplimiento LAFT', pages: ['laft', 'laft_unusual', 'laft_trainings', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard'] },
@@ -315,9 +329,9 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
 const DEFAULTS_POR_ROL: Record<Exclude<UserRole, 'admin'>, readonly PageSlug[]> = {
   compliance: ['dashboard', 'laft', 'laft_unusual', 'laft_trainings', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard', 'privacy', 'pesv', ...PAGINAS_PESV_POR_ITEM, 'pesv_raci', 'pesv_normativa', 'pesv_retencion'],
   // Líder PESV: gestión completa del PESV pero NO acceso a SOAT/RNDC/LAFT.
-  lider_pesv: ['dashboard', 'pesv', ...PAGINAS_PESV_POR_ITEM, 'fleet', 'maintenance', 'pesv_raci', 'pesv_normativa', 'pesv_retencion'],
+  lider_pesv: ['dashboard', 'pesv', ...PAGINAS_PESV_POR_ITEM, 'fleet', 'maintenance', ...PAGINAS_MANTENIMIENTO_POR_ITEM, 'pesv_raci', 'pesv_normativa', 'pesv_retencion'],
   // Supervisor de flota: ve flota+PESV+mantenimiento, opera incidentes/checklists.
-  supervisor_flota: ['dashboard', 'pesv', ...PAGINAS_PESV_POR_ITEM, 'fleet', 'maintenance', 'vehicles'],
+  supervisor_flota: ['dashboard', 'pesv', ...PAGINAS_PESV_POR_ITEM, 'fleet', 'maintenance', ...PAGINAS_MANTENIMIENTO_POR_ITEM, 'vehicles'],
   // Conductor: ve solo su jornada propia + reporta incidentes desde móvil.
   conductor: ['dashboard', 'pesv', ...PAGINAS_PESV_POR_ITEM],
   transito: ['dashboard', 'transito'],

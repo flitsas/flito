@@ -4,7 +4,8 @@ import { eq, and, desc, isNotNull, lte, asc, ne, inArray } from 'drizzle-orm';
 import multer from 'multer';
 import { db } from '../../db/client.js';
 import { vehicles, vehicleDocuments, documentTypes, alertsSent } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { uploadFleetDocument, getFleetDocumentStream, deleteFleetDocument } from '../../services/storage.js';
@@ -45,7 +46,7 @@ const typeSchema = z.object({
   orden: z.number().int().min(0).max(9999).default(100),
 });
 
-router.post('/types', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/types', exigirFuncion('fleet.flota.administrar'), async (req: Request, res: Response) => {
   const parsed = typeSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validación', details: parsed.error.flatten() }); return; }
   const [created] = await db.insert(documentTypes).values(parsed.data).returning();
@@ -53,7 +54,7 @@ router.post('/types', requireRole('admin'), async (req: Request, res: Response) 
   res.status(201).json({ data: created });
 });
 
-router.patch('/types/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/types/:id', exigirFuncion('fleet.flota.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = typeSchema.partial().safeParse(req.body);
@@ -104,7 +105,7 @@ const docSchema = z.object({
   notas: z.string().max(1000).optional().nullable(),
 });
 
-router.post('/', requireRole('admin'), upload.single('archivo'), async (req: Request, res: Response) => {
+router.post('/', exigirFuncion('fleet.flota.administrar'), upload.single('archivo'), async (req: Request, res: Response) => {
   const parsed = docSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validación', details: parsed.error.flatten() }); return; }
   const data = parsed.data;
@@ -150,7 +151,7 @@ router.post('/', requireRole('admin'), upload.single('archivo'), async (req: Req
 
 const patchSchema = docSchema.omit({ vehicleId: true, tipoId: true }).partial();
 
-router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/:id', exigirFuncion('fleet.flota.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = patchSchema.safeParse(req.body);
@@ -173,7 +174,7 @@ router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) =
   res.json({ data: updated });
 });
 
-router.delete('/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.delete('/:id', exigirFuncion('fleet.flota.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [doc] = await db.select().from(vehicleDocuments).where(eq(vehicleDocuments.id, id)).limit(1);

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
@@ -8,7 +9,7 @@ import {
 } from './credenciales.service.js';
 
 const router = Router();
-router.use(authMiddleware, requireRole('admin'), requirePage('rndc_admin'));
+router.use(authMiddleware, requirePage('rndc_admin'));
 
 const credSchema = z.object({
   empresaNit: z.string().min(8).max(20).regex(/^\d+$/),
@@ -19,12 +20,12 @@ const credSchema = z.object({
   notas: z.string().max(500).optional(),
 });
 
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', exigirFuncion('rndc.credenciales.administrar'), async (_req: Request, res: Response) => {
   const rows = await listCredencialesPublic();
   res.json({ data: rows });
 });
 
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', exigirFuncion('rndc.credenciales.administrar'), async (req: Request, res: Response) => {
   const parsed = credSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   const userId = (req as any).user?.sub;
@@ -37,7 +38,7 @@ router.post('/', async (req: Request, res: Response) => {
   res.status(201).json(created);
 });
 
-router.delete('/:id', async (req: Request, res: Response) => {
+router.delete('/:id', exigirFuncion('rndc.credenciales.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) { res.status(400).json({ error: 'ID inválido' }); return; }
   const userId = (req as any).user?.sub;

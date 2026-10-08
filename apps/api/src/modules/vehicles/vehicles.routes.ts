@@ -4,7 +4,8 @@ import { eq, ilike, or, sql, and, desc, type SQL } from 'drizzle-orm';
 import multer from 'multer';
 import { db } from '../../db/client.js';
 import { vehicles, soatRequests } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { sendExcel, limitesXlsx, rechazoXlsxAHttp, bufferParaExcelJS, MIME_XLSX } from '../../shared/utils/excel.js';
 import { medirXlsx } from '../../shared/utils/xlsx-zip.js';
 import { audit } from '../../shared/middleware/audit.js';
@@ -166,7 +167,11 @@ router.get('/', async (req: Request, res: Response) => {
   const result = await query.orderBy(desc(vehicles.createdAt));
 
   const filtered = status ? result.filter((r) => (r.soatStatus || 'sin_solicitud') === status) : result;
-  const masked = (req.user!.role !== 'admin') ? filtered.map((r: any) => ({
+  // HU #13422 (ADR-0023): el documento completo del propietario lo decide la función
+  // `vehicles.propietario.ver_documento` (sembrada solo a admin, quien lo veía por nombre de rol), no
+  // el nombre del rol. La ruta sigue pidiendo solo sesión (su guarda es de la HU #13423).
+  const documentoCompleto = await tieneFuncion(req, 'vehicles.propietario.ver_documento');
+  const masked = !documentoCompleto ? filtered.map((r: any) => ({
     ...r,
     ownerDocument: r.ownerDocument ? r.ownerDocument.slice(0, 4) + '****' : null,
   })) : filtered;
@@ -174,7 +179,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // Create single vehicle
-router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/', exigirFuncion('vehicles.vehiculos.administrar'), async (req: Request, res: Response) => {
   const parsed = vehicleSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
@@ -197,7 +202,7 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
 });
 
 // Update vehicle (assign plate, etc.)
-router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/:id', exigirFuncion('vehicles.vehiculos.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = vehicleSchema.partial().safeParse(req.body);
@@ -220,7 +225,7 @@ router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) =
 });
 
 // Bulk upload from Excel (auto-detect RUNT format or simple format)
-router.post('/upload', requireRole('admin'), recibirXlsx, async (req: Request, res: Response) => {
+router.post('/upload', exigirFuncion('vehicles.vehiculos.administrar'), recibirXlsx, async (req: Request, res: Response) => {
   if (!req.file) {
     res.status(400).json({ error: 'Archivo requerido' });
     return;
@@ -309,7 +314,7 @@ router.post('/upload', requireRole('admin'), recibirXlsx, async (req: Request, r
 });
 
 // Export vehicles to Excel
-router.get('/export', requireRole('admin'), async (req: Request, res: Response) => {
+router.get('/export', exigirFuncion('vehicles.vehiculos.administrar'), async (req: Request, res: Response) => {
   const result = await db.select().from(vehicles);
 
   await sendExcel(res, 'vehiculos.xlsx', [
@@ -326,7 +331,7 @@ router.get('/export', requireRole('admin'), async (req: Request, res: Response) 
 });
 
 // Delete vehicle
-router.delete('/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.delete('/:id', exigirFuncion('vehicles.vehiculos.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
 
@@ -359,7 +364,7 @@ const multasSchema = z.object({
   { message: 'Si hay multas, total y cantidad deben ser mayores a 0', path: ['total'] },
 );
 
-router.patch('/:id/multas', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/:id/multas', exigirFuncion('vehicles.vehiculos.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = multasSchema.safeParse(req.body);
@@ -397,7 +402,7 @@ router.patch('/:id/multas', requireRole('admin'), async (req: Request, res: Resp
 });
 
 // Update vehicle stage (pipeline)
-router.patch('/:id/stage', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/:id/stage', exigirFuncion('vehicles.vehiculos.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const { stage } = req.body;
@@ -410,7 +415,7 @@ router.patch('/:id/stage', requireRole('admin'), async (req: Request, res: Respo
 });
 
 // Assign client to vehicle
-router.patch('/:id/client', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/:id/client', exigirFuncion('vehicles.vehiculos.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const { clientId } = req.body;
@@ -420,7 +425,7 @@ router.patch('/:id/client', requireRole('admin'), async (req: Request, res: Resp
 });
 
 // Pipeline stats (?desde=&hasta= o ?fecha= — mismo criterio que listado)
-router.get('/pipeline/stats', requireRole('admin'), async (req: Request, res: Response) => {
+router.get('/pipeline/stats', exigirFuncion('vehicles.vehiculos.administrar'), async (req: Request, res: Response) => {
   const rangoCond = createdInRangeCondition(vehicles.createdAt, parseFechaRangoQuery(req.query as Record<string, unknown>));
   let statsQuery = db.select({ stage: vehicles.stage, count: sql<number>`count(*)::int` }).from(vehicles).$dynamic();
   if (rangoCond) statsQuery = statsQuery.where(rangoCond);

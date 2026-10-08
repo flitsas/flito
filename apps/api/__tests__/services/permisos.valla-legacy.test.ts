@@ -28,14 +28,15 @@ import { RAIZ_MODULOS, sinComentarios } from '../../src/modules/permisos/inventa
 /** Los 11 del AC4 (con `soat/` del AC5) y el número medido el día de la valla. */
 // HU #13421 (ADR-0023): `pesv/` (48), `drivers/` (24) y `jornadas/` (3) salen de la valla y pasan a
 // `DIRECTORIOS_RECONDUCIDOS` (permisos.reconduccion-cierre.test.ts), igual que `rum/` (1) de la otra lista.
+// HU #13422: `maintenance/` (33), `rutas/` (16), `vehicles/` (10), `fleet/` (10) y `rndc/` (3) salen
+// también, con `clients/` (3), `liquidacion/` (1) y `finanzas/` (1) de la otra lista.
 export const VALLA_AC4: Record<string, number> = {
-  maintenance: 33, laft: 27, siigo: 16, rutas: 16,
-  soat: 11, vehicles: 10, fleet: 10, rndc: 3,
+  laft: 27, siigo: 16, soat: 11,
 };
 
 /** Fuera del enunciado: ni en el AC4 ni en los 20 reconducidos. Misma regla. */
 export const VALLA_FUERA_DEL_ENUNCIADO: Record<string, number> = {
-  clients: 3, privacy: 3, firma: 2, drive: 2, liquidacion: 1, finanzas: 1,
+  privacy: 3, firma: 2, drive: 2,
 };
 
 function ficherosTs(dir: string): string[] {
@@ -82,10 +83,12 @@ describe('AC4 — siigo/ se toma como referencia y no se mueve', () => {
     expect(fuente).not.toMatch(/exigirFuncion|resolverPermisos|tieneFuncion/);
   });
 
-  it('la medición cubre exactamente 14 directorios (8 + 6; `permisos/` salió con la HU #12084; `pesv/`, `drivers/`, `jornadas/` y `rum/` con la HU #13421) y ninguno de los reconducidos', () => {
+  it('la medición cubre exactamente 6 directorios (3 + 3; `permisos/` salió con la HU #12084; `pesv/`, `drivers/`, `jornadas/` y `rum/` con la HU #13421; los ocho de operación con la HU #13422) y ninguno de los reconducidos', () => {
     const todos = { ...VALLA_AC4, ...VALLA_FUERA_DEL_ENUNCIADO };
-    expect(Object.keys(todos)).toHaveLength(14);
-    for (const d of ['pesv', 'drivers', 'jornadas', 'rum']) expect(todos, d).not.toHaveProperty(d);
+    expect(Object.keys(todos)).toHaveLength(6);
+    for (const d of ['pesv', 'drivers', 'jornadas', 'rum', 'maintenance', 'vehicles', 'fleet', 'rndc', 'rutas', 'liquidacion', 'finanzas', 'clients']) {
+      expect(todos, d).not.toHaveProperty(d);
+    }
     for (const d of Object.keys(todos)) {
       expect(d.startsWith('flito-') || d === 'tramites' || d === 'users' || d === 'permisos', d).toBe(false);
     }

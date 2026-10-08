@@ -92,7 +92,18 @@ export const AGRUPACION_DE_OPERACION_LEGADO: Readonly<Record<string, string>> = 
   'drivers.checklists.administrar': 'pesv',
   'drivers.alcoholimetria.administrar': 'pesv',
   'drivers.emergencias.administrar': 'pesv',
-  'jornadas.control.administrar': 'pesv',
+  'jornadas.control.administrar': 'pesv',  // HU #13422: cada operación con la pantalla (y el módulo de su página) donde se usa.
+  'maintenance.inicio.administrar': 'mantenimiento',
+  'maintenance.ordenes.administrar': 'mantenimiento',
+  'liquidacion.pago_manual.administrar': 'mantenimiento', // el panel de liquidación vive en la orden de trabajo
+  'vehicles.vehiculos.administrar': 'operaciones',
+  'vehicles.propietario.ver_documento': 'operaciones',
+  'fleet.flota.administrar': 'flota',
+  'rutas.rutas.administrar': 'pesv',
+  'rutas.pernocta.administrar': 'pesv',
+  'finanzas.reporte_costos.ver': 'liquidacion', // como `pagina.finanzas_reporte_costos`
+  'clients.clientes.ver': 'clientes',
+  'clients.clientes.administrar': 'clientes',
 };
 
 /** El módulo de agrupación de un código, o el estructural si el código no está en ningún mapa. */

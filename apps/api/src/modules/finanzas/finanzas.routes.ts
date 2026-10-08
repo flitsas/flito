@@ -3,7 +3,8 @@
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { logPiiAccess } from '../../shared/pii-audit.js';
 import { soportesDeTramite } from '../../shared/soportes/soportes-consulta.js';
@@ -30,7 +31,8 @@ router.use(authMiddleware);
 // `auditor` estaba documentado en la cabecera de este archivo desde el principio pero NO en el
 // requireRole, así que un auditor recibía 403 en el reporte mientras sí podía ver los derechos que
 // lo alimentan. Se corrige aquí.
-const LECTURA = requireRole('financiera', 'admin', 'auditor');
+// HU #13422 (ADR-0023): la guarda de lectura del reporte es la función `finanzas.reporte_costos.ver`
+// (sembrada a financiera, admin y auditor: la lista que exigía el rol), no el nombre del rol.
 
 /**
  * Habeas Data (HU #12432, Ley 1581 art. 17): desde esa HU cada fila del reporte y del archivo lleva
@@ -103,14 +105,14 @@ function filtrosDe(q: Request['query']): FiltrosReporte {
 }
 
 // GET /reporte-costos — listado con valores sellados o estimados, y totales del universo filtrado.
-router.get('/reporte-costos', LECTURA, async (req: Request, res: Response) => {
+router.get('/reporte-costos', exigirFuncion('finanzas.reporte_costos.ver'), async (req: Request, res: Response) => {
   const reporte = await reporteCostos(filtrosDe(req.query));
   await registrarAccesoPii(req, 'read');
   res.json(reporte);
 });
 
 // GET /reporte-costos/facetas — valores para los filtros (estados, empresas, tipos).
-router.get('/reporte-costos/facetas', LECTURA, async (_req: Request, res: Response) => {
+router.get('/reporte-costos/facetas', exigirFuncion('finanzas.reporte_costos.ver'), async (_req: Request, res: Response) => {
   res.json(await facetas());
 });
 
@@ -125,7 +127,7 @@ router.get('/reporte-costos/facetas', LECTURA, async (_req: Request, res: Respon
  * llama a Siigo (AC5): la pantalla lo consulta cada vez que se abre, y si cada apertura gastara
  * peticiones de la ventana de 100 por minuto, mirar el reporte frenaría la emisión.
  */
-router.get('/reporte-costos/facturacion-electronica', LECTURA, async (req: Request, res: Response) => {
+router.get('/reporte-costos/facturacion-electronica', exigirFuncion('finanzas.reporte_costos.ver'), async (req: Request, res: Response) => {
   res.json(await resumenFacturacionElectronicaDelReporte(filtrosDe(req.query)));
 });
 
@@ -138,14 +140,14 @@ router.get('/reporte-costos/facturacion-electronica', LECTURA, async (req: Reque
  *
  * Sin registro PII: el consolidado no lleva titular ni placa, solo el cliente (empresa) y cifras.
  */
-router.get('/reporte-costos/consolidado', LECTURA, async (req: Request, res: Response) => {
+router.get('/reporte-costos/consolidado', exigirFuncion('finanzas.reporte_costos.ver'), async (req: Request, res: Response) => {
   res.json(await consolidadoReporte(filtrosDe(req.query), periodoConsolidado(req.query.periodo)));
 });
 
 /**
  * GET /gastos-diarios — serie por día del evento y totales por categoría con GMF estimado (HU #12623).
  *
- * Guarda por PÁGINA y no por rol (`requirePage`, no `LECTURA`): la misma función que abre la
+ * Guarda por PÁGINA y no por rol (`requirePage`, no la función de lectura del reporte): la misma función que abre la
  * pantalla «Gastos diarios» (HU #12624) abre su consulta, así que quien reciba la página en el panel
  * de roles recibe la consulta con ella, y nadie más. Hasta que la migración siembre la función,
  * 403 para todos: es lo esperado.
@@ -220,7 +222,7 @@ const responderCuerpoInvalido = (res: Response, e: z.ZodError): void => {
  * CSV: no existe variante GET —un `router.get` aquí devolvería `buscar` (placa, VIN, nombre,
  * documento) a la URL, a los logs de nginx y al `Referer` (AGENTS.md §14)—.
  *
- * Misma guarda de lectura que el resto del reporte (`LECTURA`): quien puede ver el reporte puede
+ * Misma guarda de lectura que el resto del reporte (`finanzas.reporte_costos.ver`): quien puede ver el reporte puede
  * llevárselo, y nadie más. `exportColaLimiter` es la MISMA bolsa de 5/min por usuario que SOAT e
  * Impuestos, y es una decisión, no un descuido: el recurso que se raciona es el heap del único
  * proceso —`sendExcel` arma el libro entero en memoria— y una bolsa propia le daría a una sesión el
@@ -230,7 +232,7 @@ const responderCuerpoInvalido = (res: Response, e: z.ZodError): void => {
  * Orden: validar → consultar (el tope lanza dentro) → `await` del rastro PII con el número de filas
  * → `Cache-Control: no-store` → archivo. El rastro va ANTES del primer byte (Ley 1581 art. 17).
  */
-router.post('/reporte-costos/export', LECTURA, exportColaLimiter, async (req: Request, res: Response) => {
+router.post('/reporte-costos/export', exigirFuncion('finanzas.reporte_costos.ver'), exportColaLimiter, async (req: Request, res: Response) => {
   const parsed = exportDetalleSchema.safeParse(req.body ?? {});
   if (!parsed.success) { responderCuerpoInvalido(res, parsed.error); return; }
 
@@ -269,7 +271,7 @@ router.post('/reporte-costos/export', LECTURA, exportColaLimiter, async (req: Re
  * Sin registro PII: el consolidado no lleva titular ni placa, solo el cliente (empresa) y cifras
  * (la misma decisión que su GET, HU #12433).
  */
-router.post('/reporte-costos/consolidado/export', LECTURA, exportColaLimiter, async (req: Request, res: Response) => {
+router.post('/reporte-costos/consolidado/export', exigirFuncion('finanzas.reporte_costos.ver'), exportColaLimiter, async (req: Request, res: Response) => {
   const parsed = exportConsolidadoSchema.safeParse(req.body ?? {});
   if (!parsed.success) { responderCuerpoInvalido(res, parsed.error); return; }
 
@@ -293,7 +295,7 @@ router.post('/reporte-costos/consolidado/export', LECTURA, exportColaLimiter, as
  * un solo concepto desde el detalle de un SOAT o de un impuesto. Lo que cambia entre esas rutas es
  * el rol que entra, no cómo se arma la lista.
  */
-router.get('/tramites/:id/soportes', LECTURA, async (req: Request, res: Response) => {
+router.get('/tramites/:id/soportes', exigirFuncion('finanzas.reporte_costos.ver'), async (req: Request, res: Response) => {
   const soportes = await soportesDeTramite(req.params.id);
   if (!soportes) { res.status(404).json({ error: 'El trámite no existe' }); return; }
   // Sin caché: un soporte cargado hace un minuto tiene que salir sin recargar la pantalla.
@@ -305,12 +307,12 @@ router.get('/tramites/:id/soportes', LECTURA, async (req: Request, res: Response
  * GET /tramites/:id/viajes-logistica — de qué se compone la celda «Logística» del reporte (HU #12627):
  * la tarifa (viaje 1) y cada viaje adicional, con su precio. Solo lectura.
  *
- * La MISMA guarda `LECTURA` que el reporte: quien puede ver la celda puede ver su desglose, y nadie
+ * La MISMA guarda `finanzas.reporte_costos.ver` que el reporte: quien puede ver la celda puede ver su desglose, y nadie
  * más. No se inventa una función del motor —el módulo `finanzas/` sigue vallado por rol
  * (`permisos.valla-legacy.test.ts`)—; registrar y quitar viajes viven en `flito-logistica` con las
  * suyas. Un id que no es uuid o que no existe es 404: el id es opaco.
  */
-router.get('/tramites/:id/viajes-logistica', LECTURA, async (req: Request, res: Response) => {
+router.get('/tramites/:id/viajes-logistica', exigirFuncion('finanzas.reporte_costos.ver'), async (req: Request, res: Response) => {
   try {
     const desglose = await desgloseViajesLogistica(req.params.id);
     // Sin caché: un viaje registrado hace un minuto tiene que salir sin recargar la pantalla.
