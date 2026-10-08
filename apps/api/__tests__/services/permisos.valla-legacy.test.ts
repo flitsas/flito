@@ -1,96 +1,102 @@
-// HU #12083 — La VALLA de los módulos que NO se reconducen (AC4, AC5).
+// HU #12083 nació como la VALLA de los módulos que NO se reconducían (AC4, AC5): once directorios
+// legacy con su `requireRole` cableado, y un test que fallaba si alguno se reconducía «de paso».
 //
-// Once directorios legacy (205 `requireRole` medidos en el enunciado) siguen con su guarda de rol
-// cableada hasta que haya decisión de producto; `soat/` (AC5) es uno más de la misma tabla. Este
-// test falla si alguno los reconduce «de paso»: dos asertos por directorio.
+// HU #13423 (Épica #13411, ADR-0023, AC9) — CIERRE de la valla. #13421 movió pesv/, drivers/,
+// jornadas/ y rum/; #13422, los ocho de operación; esta HU, los seis últimos (laft/, siigo/, soat/,
+// privacy/, firma/, drive/). La valla queda VACÍA y se retira: lo que este fichero vigila ahora es lo
+// contrario — que NINGÚN directorio de `apps/api/src/modules` vuelva a decidir por el nombre del rol.
 //
-//   1. `requireRole(` fuera de comentarios ≥ el medido el día en que se escribió esto. No exacto: a
-//      `pesv/` le llegan merges de otras sesiones y un número exacto convertiría cada HU legacy en un
-//      rojo de esta valla. Lo que el AC pide es que nadie PIERDA guardas, y «≥ por directorio» lo
-//      cubre sin que el crecimiento de uno tape la pérdida de otro.
-//   2. Ningún fichero del directorio importa `exigir-funcion.js`. Esta es la valla real: reconducir
-//      «de paso» es exactamente cambiar un import, y se ve aunque el conteo no baje.
+//   1. Cero `requireRole(` fuera de comentarios en todo `modules/` (todos los ficheros `.ts`, no solo
+//      los de rutas) y cero import de `requireRole`.
+//   2. En los seis directorios de esta HU no aparece ninguna comparación del nombre del rol (`role ===
+//      '…'`, `[…].includes(req.user.role)`, `eq(users.role, '…')`) fuera de las 4 de ámbito medidas.
+//   3. Siigo decide con el motor (`tieneFuncion`), no con una tabla compilada: la tabla de roles por
+//      acción no existe ni en el API ni en shared-types ni en la web (AC2).
 //
-// Medido el 10/09/2026 con `sinComentarios` del lector (misma poda de comentarios que usa el catálogo):
-//   for d in <dirs>; do grep -rho "requireRole(" apps/api/src/modules/$d | wc -l; done — y restados
-//   los que están en comentarios. Quien vuelva a medir, cambia el número aquí y lo dice en el PR.
-//
-// Una segunda lista, rotulada «fuera del enunciado», cubre los 7 directorios con `requireRole` que el
-// AC4 no nombra ni la HU reconduce (decisión del 10/09/2026): misma regla, para que tampoco se muevan
-// sin decisión. `permisos/` estuvo aquí (1 guarda) hasta la HU #12084, que lo reconduce y lo lleva a
-// `DIRECTORIOS_RECONDUCIDOS` (permisos.reconduccion-cierre.test.ts). `siigo/` conserva además su `puedeEjecutar` compilado (AC4: «referencia, no se mueve»).
+// Mutación del AC9: devolver `requireRole('admin')` a cualquier ruta de cualquier módulo → rojo en (1).
 
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { RAIZ_MODULOS, sinComentarios } from '../../src/modules/permisos/inventario-guardas.js';
 
-/** Los 11 del AC4 (con `soat/` del AC5) y el número medido el día de la valla. */
-// HU #13421 (ADR-0023): `pesv/` (48), `drivers/` (24) y `jornadas/` (3) salen de la valla y pasan a
-// `DIRECTORIOS_RECONDUCIDOS` (permisos.reconduccion-cierre.test.ts), igual que `rum/` (1) de la otra lista.
-// HU #13422: `maintenance/` (33), `rutas/` (16), `vehicles/` (10), `fleet/` (10) y `rndc/` (3) salen
-// también, con `clients/` (3), `liquidacion/` (1) y `finanzas/` (1) de la otra lista.
-export const VALLA_AC4: Record<string, number> = {
-  laft: 27, siigo: 16, soat: 11,
-};
+/** La valla de la #12083, vacía desde la HU #13423. Se conserva el nombre para que su reaparición se note. */
+export const VALLA_AC4: Record<string, number> = {};
+export const VALLA_FUERA_DEL_ENUNCIADO: Record<string, number> = {};
 
-/** Fuera del enunciado: ni en el AC4 ni en los 20 reconducidos. Misma regla. */
-export const VALLA_FUERA_DEL_ENUNCIADO: Record<string, number> = {
-  privacy: 3, firma: 2, drive: 2,
-};
+const DIRECTORIOS_13423 = ['laft', 'privacy', 'firma', 'drive', 'soat', 'siigo'] as const;
 
-function ficherosTs(dir: string): string[] {
+function ficherosTs(dir: string, extension = /\.ts$/): string[] {
   const salida: string[] = [];
   for (const nombre of readdirSync(dir)) {
     const ruta = join(dir, nombre);
-    if (statSync(ruta).isDirectory()) salida.push(...ficherosTs(ruta));
-    else if (ruta.endsWith('.ts')) salida.push(ruta);
+    if (statSync(ruta).isDirectory()) salida.push(...ficherosTs(ruta, extension));
+    else if (extension.test(ruta)) salida.push(ruta);
   }
   return salida;
 }
 
-function medir(directorio: string): { guardas: number; importanElMotor: string[] } {
-  let guardas = 0;
-  const importanElMotor: string[] = [];
-  for (const f of ficherosTs(join(RAIZ_MODULOS, directorio))) {
-    const fuente = readFileSync(f, 'utf8');
-    guardas += (sinComentarios(fuente).match(/requireRole\(/g) ?? []).length;
-    if (/exigir-funcion\.js/.test(sinComentarios(fuente))) importanElMotor.push(f.replace(RAIZ_MODULOS, ''));
-  }
-  return { guardas, importanElMotor };
-}
+const rel = (f: string) => f.replace(`${RAIZ_MODULOS}/`, '');
 
-function valla(titulo: string, tabla: Record<string, number>) {
-  describe(titulo, () => {
-    for (const [directorio, medido] of Object.entries(tabla)) {
-      it(`${directorio}/ conserva sus ${medido} requireRole( (o más) y ningún fichero importa exigir-funcion.js`, () => {
-        const { guardas, importanElMotor } = medir(directorio);
-        expect(guardas, `${directorio}/ perdió guardas requireRole: ${guardas} < ${medido}`).toBeGreaterThanOrEqual(medido);
-        expect(importanElMotor, `${directorio}/ importa el motor; reconducirlo exige decisión de producto`).toEqual([]);
-      });
-    }
+describe('AC9 — la valla legacy queda vacía: ningún módulo decide por requireRole', () => {
+  it('la valla de la #12083 está vacía (sus 6 últimos directorios los movió la HU #13423)', () => {
+    expect({ ...VALLA_AC4, ...VALLA_FUERA_DEL_ENUNCIADO }).toEqual({});
   });
-}
 
-valla('AC4/AC5 — los once directorios fuera de alcance quedan vallados, no reconducidos', VALLA_AC4);
-valla('fuera del enunciado — los siete directorios que ni el AC4 nombra ni la HU reconduce', VALLA_FUERA_DEL_ENUNCIADO);
+  it('cero `requireRole(` fuera de comentarios en TODO apps/api/src/modules', () => {
+    const medidas: Record<string, number> = {};
+    for (const f of ficherosTs(RAIZ_MODULOS)) {
+      const n = (sinComentarios(readFileSync(f, 'utf8')).match(/requireRole\(/g) ?? []).length;
+      if (n) medidas[rel(f)] = n;
+    }
+    expect(medidas).toEqual({});
+  });
 
-describe('AC4 — siigo/ se toma como referencia y no se mueve', () => {
-  it('`exigirAccionSiigo` sigue decidiendo con el `puedeEjecutar` / `ROLES_POR_ACCION` compilados de shared-types, no con el motor', () => {
+  it('ningún fichero de modules/ importa requireRole', () => {
+    const importan = ficherosTs(RAIZ_MODULOS)
+      .filter((f) => /import\s*\{[^}]*\brequireRole\b[^}]*\}\s*from/.test(sinComentarios(readFileSync(f, 'utf8'))))
+      .map(rel);
+    expect(importan).toEqual([]);
+  });
+
+  // Lo que queda medido el día del cierre NO decide quién entra a una ruta: es ÁMBITO de filas (el
+  // proveedor del SOAT antiguo ve solo lo asignado a él) y DESTINATARIOS de un cron (el aviso AROS va a
+  // los usuarios `admin`). Cambiarlos es decisión de producto fuera de esta HU; el test se pone rojo si
+  // aparece una comparación más (o en otro fichero).
+  const AMBITO_13423: Record<string, number> = {
+    'laft/cash/aros.cron.ts': 2, // destinatarios y autor del AROS trimestral: usuarios con rol `admin`
+    'soat/soat.routes.ts': 2, // ámbito: el proveedor solo ve y compra lo asignado a él
+  };
+
+  it('los seis directorios de la HU #13423 no comparan el nombre del rol fuera del ámbito medido', () => {
+    const COMPARACION = /\brole\s*(?:===|!==)\s*'[a-z_]+'|\]\.includes\(req\.user[!?]?\.role\)|eq\(users\.role,\s*'[a-z_]+'\)/g;
+    const medidas: Record<string, number> = {};
+    for (const d of DIRECTORIOS_13423) {
+      for (const f of ficherosTs(join(RAIZ_MODULOS, d))) {
+        const n = (sinComentarios(readFileSync(f, 'utf8')).match(COMPARACION) ?? []).length;
+        if (n) medidas[rel(f)] = n;
+      }
+    }
+    expect(medidas).toEqual(AMBITO_13423);
+  });
+});
+
+describe('AC2 — Siigo decide con el motor y la tabla de roles por acción ya no existe', () => {
+  it('`exigirAccionSiigo` pregunta al motor (`tieneFuncion`) por `siigo.factura.<accion>`, no por el rol', () => {
     const fuente = sinComentarios(readFileSync(join(RAIZ_MODULOS, 'siigo/siigo.permisos.ts'), 'utf8'));
-    expect(fuente).toMatch(/puedeEjecutar\(req\.user\.role, accion\)/);
-    expect(fuente).toMatch(/ROLES_POR_ACCION/);
-    expect(fuente).not.toMatch(/exigirFuncion|resolverPermisos|tieneFuncion/);
+    expect(fuente).toMatch(/tieneFuncion\(req, 'siigo\.factura\.emitir'\)/);
+    expect(fuente).not.toMatch(/puedeEjecutar|rolesDe\(|req\.user\.role\s*,\s*accion/);
   });
 
-  it('la medición cubre exactamente 6 directorios (3 + 3; `permisos/` salió con la HU #12084; `pesv/`, `drivers/`, `jornadas/` y `rum/` con la HU #13421; los ocho de operación con la HU #13422) y ninguno de los reconducidos', () => {
-    const todos = { ...VALLA_AC4, ...VALLA_FUERA_DEL_ENUNCIADO };
-    expect(Object.keys(todos)).toHaveLength(6);
-    for (const d of ['pesv', 'drivers', 'jornadas', 'rum', 'maintenance', 'vehicles', 'fleet', 'rndc', 'rutas', 'liquidacion', 'finanzas', 'clients']) {
-      expect(todos, d).not.toHaveProperty(d);
-    }
-    for (const d of Object.keys(todos)) {
-      expect(d.startsWith('flito-') || d === 'tramites' || d === 'users' || d === 'permisos', d).toBe(false);
-    }
+  it('`ROLES_POR_ACCION`, `puedeEjecutar` y `rolesDe` no aparecen en el API, en shared-types ni en la web', () => {
+    const raices = [
+      RAIZ_MODULOS,
+      join(RAIZ_MODULOS, '..', '..', '..', '..', 'packages', 'shared-types', 'src'),
+      join(RAIZ_MODULOS, '..', '..', '..', 'web', 'src'),
+    ];
+    const hallados = raices
+      .flatMap((r) => ficherosTs(r, /\.tsx?$/))
+      .filter((f) => /ROLES_POR_ACCION|\bpuedeEjecutar\b|\brolesDe\b/.test(readFileSync(f, 'utf8')));
+    expect(hallados).toEqual([]);
   });
 });

@@ -9,7 +9,8 @@ import {
   driverProfile, tramitesValidaciones, alcoholTests, roadIncidents,
   manifiestos, tenedores, propietariosCarga, destinatariosCarga,
 } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { purgarDestinatariosDeClientes } from '../siigo/siigo.envio-correo.service.js';
@@ -22,7 +23,7 @@ import { logger } from '../../shared/logger.js';
 import crypto from 'crypto';
 
 const router = Router();
-router.use(authMiddleware, requireRole('admin', 'compliance'));
+router.use(authMiddleware);
 const log = logger.child({ component: 'privacy-forget' });
 
 // Preview es read-only pero expone existencia de docs en BD — limit estricto contra enumeración.
@@ -91,7 +92,7 @@ function hashDoc(doc: string): string {
 }
 
 // Solo admin ejecuta forget; compliance puede revisar pero no anonimizar (segregation of duties).
-router.post('/forget', forgetLimiter, requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/forget', exigirFuncion('privacy.olvido.administrar'), forgetLimiter, async (req: Request, res: Response) => {
   const parsed = requestSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   const { docNumber, reason } = parsed.data;
@@ -451,7 +452,7 @@ router.post('/forget', forgetLimiter, requireRole('admin'), async (req: Request,
 });
 
 // Endpoint de consulta previa: ¿qué se afectaría si se anonimiza este documento?
-router.get('/preview/:docNumber', previewLimiter, async (req: Request, res: Response) => {
+router.get('/preview/:docNumber', exigirFuncion('privacy.titulares.operar'), previewLimiter, async (req: Request, res: Response) => {
   const docUpper = req.params.docNumber.toUpperCase().trim();
   if (docUpper.length < 3 || docUpper.length > 20) { res.status(400).json({ error: 'Documento inválido' }); return; }
 

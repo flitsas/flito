@@ -16,7 +16,8 @@
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { env } from '../../config/env.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
 import { estadoCompuerta } from './siigo.compuerta.service.js';
@@ -24,7 +25,6 @@ import { estadoCompuerta } from './siigo.compuerta.service.js';
 const router = Router();
 router.use(authMiddleware);
 
-const LECTURA = requireRole('admin', 'auditor', 'financiera');
 
 const ambienteSchema = z.enum(['pruebas', 'produccion']);
 const consultaSchema = z.object({ ambiente: ambienteSchema.optional() });
@@ -40,7 +40,7 @@ function ambienteDe(req: Request): SiigoAmbiente | null {
 }
 
 // GET / — estado de la compuerta (AC5). Evalúa sobre todos los conceptos facturables del catálogo.
-router.get('/', LECTURA, async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('siigo.parametrizacion.ver'), async (req: Request, res: Response) => {
   const ambiente = ambienteDe(req);
   if (ambiente === null) {
     res.status(400).json({ error: 'El ambiente debe ser «pruebas» o «produccion».' });

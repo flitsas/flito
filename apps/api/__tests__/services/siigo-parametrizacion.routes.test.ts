@@ -94,7 +94,8 @@ describe('AC7 — solo quien administra la parametrización sincroniza', () => {
       .send({});
 
     expect(r.status).toBe(403);
-    expect(r.body.error).toBe('Sin permisos');
+    // HU #13423: decide el motor (`siigo.parametrizacion.administrar`), no la guarda de rol.
+    expect(r.body).toMatchObject({ funcion: 'siigo.parametrizacion.administrar' });
     nadieLlamoASiigo();
   });
 

@@ -1,17 +1,18 @@
-// Siigo — la tabla de quién puede qué (HU #11342, AC1, AC2 y AC4).
+// Siigo — quién puede qué (HU #11342, AC1, AC2 y AC4; motor desde la HU #13423).
 //
-// Estos tests son la MITAD del punto de extensión: la HU promete que cambiar quién emite es editar
-// `ROLES_POR_ACCION` y su prueba. Esa prueba es esta. Si mañana se decide que solo `admin` emite,
-// aquí se ve el cambio completo y no hace falta abrir ningún router.
+// Desde la HU #13423 (Épica #13411) no hay tabla de roles por acción: cada acción es la función del
+// motor `siigo.factura.<accion>`, y su reparto de partida —el que la 0230 siembra y el que `testToken`
+// da por rol— sale de la foto del catálogo. Estos tests fijan ese reparto: es el mismo que tenía la
+// tabla retirada (escritura = admin + financiera; lectura añade auditor). Cambiar quién emite es
+// repartir `siigo.factura.emitir` desde el panel; aquí se ve si alguien cambia la partida.
 //
 // La frontera HTTP se prueba aparte, en siigo-permisos.routes.test.ts.
 
 import { describe, it, expect, vi } from 'vitest';
 import {
-  ACCIONES_SIIGO, ROLES_POR_ACCION, esAccionDeOperacion, esAccionSiigo,
-  motivoDenegacion, puedeEjecutar, rolesDe,
+  ACCIONES_SIIGO, esAccionDeOperacion, esAccionSiigo, motivoDenegacion,
 } from '../../src/modules/siigo/siigo.permisos.js';
-import type { UserRole } from '@operaciones/shared-types';
+import { catalogoCompleto } from '../../src/modules/permisos/catalogo.js';
 
 // Importar el módulo arrastra la bitácora → db/client. Se mockea para no abrir conexión real.
 vi.mock('../../src/db/client.js', () => ({
@@ -20,30 +21,34 @@ vi.mock('../../src/db/client.js', () => ({
 }));
 
 const ACCIONES_DE_OPERACION = ACCIONES_SIIGO.filter((a) => a !== 'consultar');
+const CATALOGO = catalogoCompleto();
+/** Los roles de partida de una acción: los de su función `siigo.factura.<accion>` en la foto. */
+const rolesDe = (accion: string) => [...(CATALOGO.find((f) => f.codigo === `siigo.factura.${accion}`)?.roles ?? [])].sort();
+const puedeDePartida = (rol: string, accion: string) => rolesDe(accion).includes(rol);
 
-describe('AC1 — una sola tabla decide, y su contenido es el de hoy', () => {
+describe('AC1 — una función por acción, con el reparto que tenía la tabla retirada', () => {
   it('escritura = admin + financiera; lectura añade auditor', () => {
     // Heredado de finanzas.routes.ts y flito-liquidacion.routes.ts: el dinero de FLITO ya se opera
     // así. Este es el valor conservador mientras la pregunta 16 del diseño sigue abierta.
     for (const accion of ACCIONES_DE_OPERACION) {
-      expect([...ROLES_POR_ACCION[accion]].sort()).toEqual(['admin', 'financiera']);
+      expect(rolesDe(accion), accion).toEqual(['admin', 'financiera']);
     }
-    expect([...ROLES_POR_ACCION.consultar].sort()).toEqual(['admin', 'auditor', 'financiera']);
+    expect(rolesDe('consultar')).toEqual(['admin', 'auditor', 'financiera']);
   });
 
-  it('toda acción declarada tiene al menos un rol: ninguna queda muerta por descuido', () => {
+  it('toda acción declarada tiene su función en el catálogo, con al menos un rol: ninguna queda muerta por descuido', () => {
     for (const accion of ACCIONES_SIIGO) {
-      expect(ROLES_POR_ACCION[accion].length).toBeGreaterThan(0);
+      expect(rolesDe(accion).length, accion).toBeGreaterThan(0);
     }
   });
 
   it('ningún otro rol del sistema entra a facturación electrónica', async () => {
     const { USER_ROLES } = await import('@operaciones/shared-types');
-    const permitidos = new Set<UserRole>(['admin', 'financiera', 'auditor']);
+    const permitidos = new Set<string>(['admin', 'financiera', 'auditor']);
     for (const role of USER_ROLES) {
       if (permitidos.has(role)) continue;
       for (const accion of ACCIONES_SIIGO) {
-        expect(puedeEjecutar(role, accion)).toBe(false);
+        expect(puedeDePartida(role, accion), `${role} ${accion}`).toBe(false);
       }
     }
   });
@@ -53,8 +58,8 @@ describe('AC2 — las acciones se declaran aunque su ruta no exista todavía', (
   it('emitir, corregir y anular ya tienen rol asignado aunque su flujo sea de otra Feature', () => {
     for (const accion of ['emitir', 'corregir', 'anular'] as const) {
       expect(esAccionSiigo(accion)).toBe(true);
-      expect(puedeEjecutar('financiera', accion)).toBe(true);
-      expect(puedeEjecutar('admin', accion)).toBe(true);
+      expect(puedeDePartida('financiera', accion)).toBe(true);
+      expect(puedeDePartida('admin', accion)).toBe(true);
     }
   });
 
@@ -65,26 +70,25 @@ describe('AC2 — las acciones se declaran aunque su ruta no exista todavía', (
     ]);
   });
 
-  it('una acción NO declarada se niega por defecto, también al admin', () => {
-    // Lo importante no es que «devuelva false»: es que un nombre mal escrito en una ruta futura
-    // produzca un 403 evidente en vez de una puerta abierta.
+  it('una acción NO declarada no tiene función: nadie la tiene, tampoco el admin', () => {
+    // Lo importante es que un nombre mal escrito en una ruta futura produzca un 403 evidente en vez
+    // de una puerta abierta (el tipo `AccionSiigo` ya lo impide en compilación).
     expect(rolesDe('emitr')).toEqual([]);
-    expect(puedeEjecutar('admin', 'emitr')).toBe(false);
-    expect(puedeEjecutar('admin', 'borrar_todo')).toBe(false);
-    expect(puedeEjecutar('admin', '')).toBe(false);
+    expect(puedeDePartida('admin', 'borrar_todo')).toBe(false);
+    expect(esAccionSiigo('emitr')).toBe(false);
   });
 
-  it('sin rol —petición sin autenticar— no se puede nada', () => {
-    expect(puedeEjecutar(undefined, 'consultar')).toBe(false);
-    expect(puedeEjecutar(null, 'emitir')).toBe(false);
+  it('las ocho funciones son exactamente las de las ocho acciones', () => {
+    const siigoFactura = CATALOGO.filter((f) => f.codigo.startsWith('siigo.factura.')).map((f) => f.codigo).sort();
+    expect(siigoFactura).toEqual(ACCIONES_SIIGO.map((a) => `siigo.factura.${a}`).sort());
   });
 });
 
 describe('AC4 — ver y operar no son el mismo permiso', () => {
   it('auditor consulta todo pero no ejecuta ninguna acción de operación', () => {
-    expect(puedeEjecutar('auditor', 'consultar')).toBe(true);
+    expect(puedeDePartida('auditor', 'consultar')).toBe(true);
     for (const accion of ACCIONES_DE_OPERACION) {
-      expect(puedeEjecutar('auditor', accion)).toBe(false);
+      expect(puedeDePartida('auditor', accion)).toBe(false);
     }
   });
 

@@ -1,15 +1,16 @@
 import { Router, Request, Response } from 'express';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { listFiles, listFolders, downloadFile, searchFiles } from '../../services/googleDrive.js';
 import { env } from '../../config/env.js';
 
 const router = Router();
-router.use(authMiddleware, requireRole('admin'));
+router.use(authMiddleware);
 
 const ROOT_FOLDER = env.GOOGLE_DRIVE_FOLDER_ID || '';
 
 // GET / — Listar archivos de la carpeta raíz o subfolder
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('drive.archivos.administrar'), async (req: Request, res: Response) => {
   try {
     const folderId = (req.query.folder as string) || ROOT_FOLDER;
     if (!folderId) { res.status(400).json({ error: 'GOOGLE_DRIVE_FOLDER_ID no configurado' }); return; }
@@ -26,7 +27,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // GET /search — Buscar archivos
-router.get('/search', async (req: Request, res: Response) => {
+router.get('/search', exigirFuncion('drive.archivos.administrar'), async (req: Request, res: Response) => {
   try {
     const q = (req.query.q as string) || '';
     if (!q || q.length < 2) { res.status(400).json({ error: 'Query mínimo 2 caracteres' }); return; }
@@ -37,7 +38,7 @@ router.get('/search', async (req: Request, res: Response) => {
 });
 
 // GET /download/:fileId — Descargar archivo
-router.get('/download/:fileId', async (req: Request, res: Response) => {
+router.get('/download/:fileId', exigirFuncion('drive.archivos.administrar'), async (req: Request, res: Response) => {
   try {
     const { buffer, name, mimeType } = await downloadFile(req.params.fileId);
     res.setHeader('Content-Type', mimeType || 'application/octet-stream');
@@ -47,7 +48,7 @@ router.get('/download/:fileId', async (req: Request, res: Response) => {
 });
 
 // GET /preview/:fileId — Preview como base64 para el frontend
-router.get('/preview/:fileId', async (req: Request, res: Response) => {
+router.get('/preview/:fileId', exigirFuncion('drive.archivos.administrar'), async (req: Request, res: Response) => {
   try {
     const { buffer, mimeType } = await downloadFile(req.params.fileId);
     const b64 = buffer.toString('base64');

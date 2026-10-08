@@ -56,7 +56,22 @@ export const LECTURAS_DEL_AUDITOR = {
   finanzas: ['finanzas.servicios_adicionales.ver', 'finanzas.reporte_costos.ver'],
   // HU #13422: el listado de clientes y proveedores (la `LECTURA` legacy por rol).
   clients: ['clients.clientes.ver'],
+  // HU #13423: el tablero LAFT (la guarda de rol lo incluía), la parametrización de Siigo y la acción
+  // `consultar` (la vieja tabla de roles por acción le daba ambas) y la consulta de vehículos (antes la
+  // alcanzaba cualquier sesión; la 0230 la copia de `pagina.soat`, que el auditor tiene).
+  laft: ['laft.tablero.ver'],
+  siigo: ['siigo.parametrizacion.ver', 'siigo.factura.consultar'],
+  vehicles: ['vehicles.vehiculos.consultar'],
 } as const;
+
+/**
+ * HU #13423 — lecturas cuya guarda NO es una ruta GET simple, cada una con su porqué:
+ *   · `siigo.factura.consultar` se decide EN LÍNEA (`siigo.permisos.ts`, una guarda por acción) y su
+ *     verbo es el nombre de la acción de Siigo, no una ejecución;
+ *   · `vehicles.vehiculos.consultar` cubre también `POST /:vin/historial/sync` (refrescar el pasaporte),
+ *     que antes alcanzaba cualquier sesión: quitárselo al auditor sería una pérdida (AC6).
+ */
+const LECTURAS_13423_NO_GET = ['siigo.factura.consultar', 'vehicles.vehiculos.consultar'] as const;
 
 /**
  * Sufijos que en la foto solo aparecen en rutas NO-GET (medidos el 10/09/2026). `exportar` y
@@ -86,10 +101,10 @@ const operacionesDe = (rol: string) => [...(sembrado.get(rol) ?? [])].filter((c)
 describe('AC6 — el auditor conserva todas las lecturas y ninguna ejecución', () => {
   const esperadas: string[] = Object.values(LECTURAS_DEL_AUDITOR).flat().slice().sort();
   const porPost = new Set<string>(LECTURAS_POR_POST);
-  const exportan = new Set<string>(EXPORTACIONES_POR_POST);
+  const exportan = new Set<string>([...EXPORTACIONES_POR_POST, ...LECTURAS_13423_NO_GET]);
 
-  it('la lista fijada son 46 códigos, todos de rutas GET de la foto con `auditor`', () => {
-    expect(esperadas).toHaveLength(46);
+  it('la lista fijada son 50 códigos (46 + 4 de la HU #13423), todos de rutas GET de la foto con `auditor`', () => {
+    expect(esperadas).toHaveLength(50);
     const enFoto = new Set(GUARDAS_MEDIDAS.filter((g) => g.metodo === 'GET' && g.roles.includes('auditor')).map(codigoDe));
     expect([...enFoto].sort()).toEqual(esperadas);
   });
@@ -118,7 +133,7 @@ describe('AC6 — el auditor conserva todas las lecturas y ninguna ejecución', 
     }
   });
 
-  it('(1) el seed le da EXACTAMENTE esos 46 más las lecturas por POST: ni uno más, ni uno menos', () => {
+  it('(1) el seed le da EXACTAMENTE esos 50 más las lecturas por POST: ni uno más, ni uno menos', () => {
     const suyas = operacionesDe('auditor').filter((c) => !porPost.has(c));
     for (const c of LECTURAS_POR_POST) expect(operacionesDe('auditor'), c).toContain(c);
     const deMas = suyas.filter((c) => !esperadas.includes(c));
@@ -133,7 +148,7 @@ describe('AC6 — el auditor conserva todas las lecturas y ninguna ejecución', 
   });
 
   it('(3) ninguno de sus códigos termina en verbo de ejecución', () => {
-    expect(operacionesDe('auditor').filter((c) => VERBOS_DE_EJECUCION.test(c) && !porPost.has(c))).toEqual([]);
+    expect(operacionesDe('auditor').filter((c) => VERBOS_DE_EJECUCION.test(c) && !porPost.has(c) && !exportan.has(c))).toEqual([]);
   });
 
   it('los tres GET sin auditor siguen sin él: la factura de venta, el certificado y la ruta del mensajero', () => {

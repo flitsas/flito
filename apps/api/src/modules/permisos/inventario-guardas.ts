@@ -64,8 +64,8 @@ export interface FicheroEnAlcance {
  *
  * `clients` queda FUERA a propósito (el Feature lo excluye) y también todo lo legacy que no es ni
  * FLITO ni trámites: PESV, mantenimiento, LAFT, flota, conductores, rutas, SOAT legacy, RNDC,
- * privacidad, Siigo y vehículos. Sus guardas siguen siendo `requireRole` cableado hasta que otra
- * oleada las traiga; que no estén aquí no es un olvido, es el alcance (AC4/AC5 de la #12083).
+ * privacidad, Siigo y vehículos. Esos los trajeron después las HU #13421, #13422 y #13423 (ADR-0023)
+ * a `FICHEROS_LEGADO_EN_ALCANCE`; que no estén aquí no es un olvido, es el alcance (AC4/AC5 de la #12083).
  */
 export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'soat', fichero: 'flito-soat/flito-soat.routes.ts' },
@@ -160,6 +160,44 @@ export const FICHEROS_LEGADO_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'liquidacion', fichero: 'liquidacion/liquidacion.routes.ts' },
   { modulo: 'finanzas', fichero: 'finanzas/finanzas.routes.ts' },
   { modulo: 'clients', fichero: 'clients/clients.routes.ts' },
+  // HU #13423 (ADR-0023): los seis directorios sensibles (siigo/ con sus acciones, en línea en
+  // `siigo.permisos.ts`) y las cuatro operaciones que solo pedían sesión (runt/, integraciones/).
+  { modulo: 'laft', fichero: 'laft/lists.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/counterparties.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/audit.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/trainings.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/unusual.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/audit-plan/audit-plan.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/ros.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/sirel/ros-export.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/cash/aros.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/cash/rte.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/cash/cash.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/employees/employees.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/manual/manual.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/retencion/retencion.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/dashboard/dashboard.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/sync/sync.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/officer/officer.routes.ts' },
+  { modulo: 'privacy', fichero: 'privacy/privacy.routes.ts' },
+  { modulo: 'privacy', fichero: 'privacy/pii-access.routes.ts' },
+  { modulo: 'firma', fichero: 'firma/firma.routes.ts' },
+  { modulo: 'drive', fichero: 'drive/drive.routes.ts' },
+  { modulo: 'drive', fichero: 'drive/procesador.routes.ts' },
+  { modulo: 'soat', fichero: 'soat/batch.routes.ts' },
+  { modulo: 'soat', fichero: 'soat/soat.routes.ts' },
+  { modulo: 'siigo', fichero: 'siigo/credenciales.routes.ts' },
+  { modulo: 'siigo', fichero: 'siigo/compuerta.routes.ts' },
+  { modulo: 'siigo', fichero: 'siigo/ciudades-mapeo.routes.ts' },
+  { modulo: 'siigo', fichero: 'siigo/ciudades.routes.ts' },
+  { modulo: 'siigo', fichero: 'siigo/mapeo-conceptos.routes.ts' },
+  { modulo: 'siigo', fichero: 'siigo/linea-tiempo.routes.ts' },
+  { modulo: 'siigo', fichero: 'siigo/freno.routes.ts' },
+  { modulo: 'siigo', fichero: 'siigo/parametrizacion.routes.ts' },
+  { modulo: 'siigo', fichero: 'siigo/validador-cliente.routes.ts' },
+  { modulo: 'siigo', fichero: 'siigo/siigo.permisos.ts' },
+  { modulo: 'runt', fichero: 'runt/runt.routes.ts' },
+  { modulo: 'integraciones', fichero: 'integraciones/integraciones.routes.ts' },
 ];
 
 /** Quita comentarios de bloque y de línea sin tocar el contenido de las cadenas simples. */

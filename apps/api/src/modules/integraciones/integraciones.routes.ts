@@ -5,6 +5,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { consultarSimit, buscarFasecolda, precioMercadoLibre } from './integraciones.service.js';
 
 // Montado en `/api` (junto a otros routers): el auth se aplica POR RUTA, no con
@@ -29,7 +30,8 @@ router.post('/simit/consulta', authMiddleware, async (req: Request, res: Respons
   res.json(result);
 });
 
-router.get('/fasecolda/buscar', authMiddleware, async (req: Request, res: Response) => {
+// HU #13423 (ADR-0023): antes bastaba la sesión. Copia viva de `pagina.tramite` (paso comercial del traspaso).
+router.get('/fasecolda/buscar', authMiddleware, exigirFuncion('integraciones.fasecolda.buscar'), async (req: Request, res: Response) => {
   const marca = String(req.query.marca || '').trim();
   const anio = String(req.query.anio || '').trim();
   if (!marca || !anio) { res.status(400).json({ ok: false, message: 'marca y anio requeridos' }); return; }

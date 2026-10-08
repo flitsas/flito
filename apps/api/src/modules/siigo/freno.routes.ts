@@ -15,7 +15,8 @@
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { env } from '../../config/env.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
@@ -24,8 +25,6 @@ import { estadoFreno, reactivarIntegracion } from './siigo.freno.service.js';
 const router = Router();
 router.use(authMiddleware);
 
-const LECTURA = requireRole('admin', 'auditor', 'financiera');
-const ESCRITURA = requireRole('admin');
 
 const ambienteSchema = z.enum(['pruebas', 'produccion']);
 const consultaSchema = z.object({ ambiente: ambienteSchema.optional() });
@@ -46,7 +45,7 @@ function ambienteDe(valor: string | undefined): SiigoAmbiente {
 
 // GET / — estado del freno (AC6): si está frenada, la proporción, la ventana, el umbral y desde
 // cuándo. Se recalcula en cada consulta: un veredicto cacheado sería una foto vieja de la salud.
-router.get('/', LECTURA, async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('siigo.parametrizacion.ver'), async (req: Request, res: Response) => {
   const query = consultaSchema.safeParse(req.query);
   if (!query.success) {
     res.status(400).json({ error: 'El ambiente debe ser «pruebas» o «produccion».' });
@@ -61,7 +60,7 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
 // Es idempotente y se acepta aunque no esté frenada: reactivar es «da por revisado lo medido hasta
 // ahora», y obligar a que esté frenada convertiría una carrera entre dos administradores en un 409
 // que no aporta nada. La auditoría registra quién y cuándo en los dos casos.
-router.post('/reactivar', ESCRITURA, async (req: Request, res: Response) => {
+router.post('/reactivar', exigirFuncion('siigo.parametrizacion.administrar'), async (req: Request, res: Response) => {
   const parsed = reactivarSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });

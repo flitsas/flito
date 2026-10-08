@@ -284,36 +284,29 @@ describe('AC5 — la pantalla no gasta cuota de Siigo', () => {
   });
 });
 
-describe('AC1 — la pantalla y el servidor leen LA MISMA tabla de permisos', () => {
-  it('el catálogo vive en tipos compartidos, alcanzable desde las dos mitades', async () => {
+describe('AC1 — la pantalla y el servidor preguntan LO MISMO: la función del motor', () => {
+  // HU #13423: la tabla de roles por acción que compartían pantalla y servidor ya no existe. Las dos
+  // mitades preguntan por la función `siigo.factura.<accion>` (servidor: `exigirAccionSiigo` →
+  // `tieneFuncion`; pantalla: `hasFuncion`), y su reparto de partida sale de la foto del catálogo.
+  it('el catálogo de acciones sigue en tipos compartidos, alcanzable desde las dos mitades', async () => {
     const compartido = await import('@operaciones/shared-types');
     const delServidor = await import('../../src/modules/siigo/siigo.permisos.js');
-
-    // Mientras el catálogo vivió solo en `apps/api`, la pantalla reimplementaba la regla
-    // (`role === 'admin' || 'financiera'`) y eran dos definiciones de lo mismo que coincidían por
-    // costumbre. El día que una cambiara, la pantalla ofrecería un botón que el servidor rechaza —o
-    // escondería uno que sí se puede pulsar— y ninguno de los dos fallos aparece en los tests de la
-    // otra mitad.
-    expect(compartido.ROLES_POR_ACCION).toBe(delServidor.ROLES_POR_ACCION);
-    expect(compartido.puedeEjecutar).toBe(delServidor.puedeEjecutar);
+    expect(compartido.ACCIONES_SIIGO).toBe(delServidor.ACCIONES_SIIGO);
+    expect('ROLES_POR_ACCION' in compartido).toBe(false);
+    expect('puedeEjecutar' in compartido).toBe(false);
   });
 
-  it('quien reenvía el correo es exactamente quien el servidor deja reenviar', async () => {
-    const { puedeEjecutar } = await import('@operaciones/shared-types');
-
-    for (const rol of ['admin', 'financiera']) {
-      expect(puedeEjecutar(rol, 'reenviar_correo'), rol).toBe(true);
-    }
+  it('quien reenvía el correo es exactamente quien tiene `siigo.factura.reenviar_correo` de partida', async () => {
+    const { catalogoCompleto } = await import('../../src/modules/permisos/catalogo.js');
+    const roles = catalogoCompleto().find((f) => f.codigo === 'siigo.factura.reenviar_correo')!.roles;
+    expect([...roles].sort()).toEqual(['admin', 'financiera']);
     // `auditor` lee el estado y no reenvía: auditar es mirar.
-    for (const rol of ['auditor', 'proveedor', 'conductor', 'transito']) {
-      expect(puedeEjecutar(rol, 'reenviar_correo'), rol).toBe(false);
-    }
-    expect(puedeEjecutar(null, 'reenviar_correo')).toBe(false);
+    for (const rol of ['auditor', 'proveedor', 'conductor', 'transito']) expect(roles, rol).not.toContain(rol);
   });
 
   it('`auditor` sí puede consultar: la ficha se ve, la acción no', async () => {
-    const { puedeEjecutar } = await import('@operaciones/shared-types');
-    expect(puedeEjecutar('auditor', 'consultar')).toBe(true);
+    const { catalogoCompleto } = await import('../../src/modules/permisos/catalogo.js');
+    expect(catalogoCompleto().find((f) => f.codigo === 'siigo.factura.consultar')!.roles).toContain('auditor');
   });
 });
 

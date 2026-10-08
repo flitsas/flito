@@ -34,7 +34,8 @@ const SIN_COMENTARIOS = SQL.replace(/--[^\n]*/g, '');
 const PAGINAS = PAGINAS_MANTENIMIENTO_POR_ITEM.map((s) => `pagina.${s}`);
 const CATALOGO = catalogoCompleto();
 const PERMANENTES = ['clients.clientes.ver', 'finanzas.reporte_costos.ver', 'vehicles.propietario.ver_documento'];
-const OPERACIONES = CATALOGO.filter((f) => f.tipo === 'operacion'
+// `vehicles.vehiculos.consultar` la siembra la 0230 (HU #13423), no esta.
+const OPERACIONES = CATALOGO.filter((f) => f.tipo === 'operacion' && f.codigo !== 'vehicles.vehiculos.consultar'
   && /^(maintenance|vehicles|fleet|rndc|rutas|liquidacion\.pago_manual|finanzas\.reporte_costos|clients)\./.test(f.codigo));
 
 describe('0229 — reglas del archivo (análisis estático)', () => {

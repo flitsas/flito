@@ -7,7 +7,8 @@ import path from 'path';
 import { db } from '../../db/client.js';
 import { soatRequests, vehicles, tramitesDigitales, users } from '../../db/schema.js';
 import { appendEventoSafe } from '../vehicles/vehiculo-historial.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { parseExcel, sendExcel, limitesXlsx, rechazoXlsxAHttp, MIME_XLSX } from '../../shared/utils/excel.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { consultarVehiculoRunt } from '../runt/runt.service.js';
@@ -106,7 +107,7 @@ const createSchema = z.object({
   assignedTo: z.number().int().positive().optional(),
 });
 
-router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/', exigirFuncion('soat.antiguo.administrar'), async (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
 
@@ -146,7 +147,7 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
 });
 
 // List SOAT requests (admin: all, proveedor: only assigned)
-router.get('/', requireRole('admin', 'proveedor'), async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('soat.antiguo.operar'), async (req: Request, res: Response) => {
   const status = req.query.status as string | undefined;
   const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
@@ -210,7 +211,7 @@ const handleMulterError = (req: Request, res: Response, next: NextFunction) => {
   });
 };
 
-router.patch('/:id/purchase', requireRole('admin', 'proveedor'), handleMulterError, async (req: Request, res: Response) => {
+router.patch('/:id/purchase', exigirFuncion('soat.antiguo.operar'), handleMulterError, async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
 
@@ -324,7 +325,7 @@ router.patch('/:id/purchase', requireRole('admin', 'proveedor'), handleMulterErr
 
 // Refrescar datos de póliza desde RUNT (reemplaza placeholder por datos reales).
 // La lógica vive en refresh.service.ts para que reconciliador cron la reutilice.
-router.patch('/:id/refresh-runt', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/:id/refresh-runt', exigirFuncion('soat.antiguo.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (id === null) { res.status(400).json({ error: 'ID inválido' }); return; }
 
@@ -339,7 +340,7 @@ router.patch('/:id/refresh-runt', requireRole('admin'), async (req: Request, res
 });
 
 // Verificar individualmente un SOAT comprado → verificado
-router.patch('/:id/verify', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/:id/verify', exigirFuncion('soat.antiguo.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (id === null) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [request] = await db.select().from(soatRequests).where(eq(soatRequests.id, id)).limit(1);
@@ -385,7 +386,7 @@ router.patch('/:id/verify', requireRole('admin'), async (req: Request, res: Resp
 });
 
 // Rechazar un SOAT
-router.patch('/:id/reject', requireRole('admin', 'proveedor'), async (req: Request, res: Response) => {
+router.patch('/:id/reject', exigirFuncion('soat.antiguo.operar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (id === null) { res.status(400).json({ error: 'ID inválido' }); return; }
   const reason = String(req.body?.reason || '').trim();
@@ -405,7 +406,7 @@ router.patch('/:id/reject', requireRole('admin', 'proveedor'), async (req: Reque
 });
 
 // S3: Bulk purchase from Excel — solo admin
-router.post('/upload-purchases', requireRole('admin'), recibirXlsx, async (req: Request, res: Response) => {
+router.post('/upload-purchases', exigirFuncion('soat.antiguo.administrar'), recibirXlsx, async (req: Request, res: Response) => {
   if (!req.file) { res.status(400).json({ error: 'Archivo requerido' }); return; }
 
   const parseada = await parseExcel(req.file.buffer, (row) => {
@@ -472,7 +473,7 @@ router.post('/upload-purchases', requireRole('admin'), recibirXlsx, async (req: 
 });
 
 // Export SOAT requests to Excel
-router.get('/export', requireRole('admin'), async (req: Request, res: Response) => {
+router.get('/export', exigirFuncion('soat.antiguo.administrar'), async (req: Request, res: Response) => {
   const status = req.query.status as string | undefined;
 
   const conditions = [];
@@ -506,7 +507,7 @@ router.get('/export', requireRole('admin'), async (req: Request, res: Response) 
 });
 
 // Dashboard stats
-router.get('/stats', requireRole('admin'), async (_req: Request, res: Response) => {
+router.get('/stats', exigirFuncion('soat.antiguo.administrar'), async (_req: Request, res: Response) => {
   const result = await db.select({
     status: soatRequests.status,
     count: sql<number>`count(*)::int`,
@@ -520,7 +521,7 @@ router.get('/stats', requireRole('admin'), async (_req: Request, res: Response) 
 });
 
 // #7: Verificación RUNT automática de SOATs comprados
-router.post('/verificar-runt', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/verificar-runt', exigirFuncion('soat.antiguo.administrar'), async (req: Request, res: Response) => {
   try {
     const pendientes = await db.select().from(soatRequests)
       .where(and(eq(soatRequests.status, 'comprado'), eq(soatRequests.runtVerified, false)))

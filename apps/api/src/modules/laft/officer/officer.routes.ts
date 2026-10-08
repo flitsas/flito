@@ -15,7 +15,8 @@ import rateLimit from 'express-rate-limit';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { db } from '../../../db/client.js';
 import { laftComplianceOfficers, users } from '../../../db/schema.js';
-import { authMiddleware, requireRole } from '../../../shared/middleware/auth.js';
+import { authMiddleware } from '../../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../../shared/permissions.js';
 import { laftAudit } from '../audit.service.js';
 import { uploadEntityDocument } from '../../../services/storage.js';
@@ -140,8 +141,8 @@ router.get('/', async (req: Request, res: Response) => {
 // ============================================================================
 router.post(
   '/',
+  exigirFuncion('laft.oficial.administrar'),
   writeLimiter,
-  requireRole('admin'),
   upload.fields([
     { name: 'actaJunta', maxCount: 1 },
     { name: 'certificacion', maxCount: 1 },
@@ -225,7 +226,7 @@ router.post(
 // ============================================================================
 // POST /:id/revocar — revocar designación (no borra)
 // ============================================================================
-router.post('/:id/revocar', writeLimiter, requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/revocar', exigirFuncion('laft.oficial.administrar'), writeLimiter, async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = revocarSchema.safeParse(req.body);

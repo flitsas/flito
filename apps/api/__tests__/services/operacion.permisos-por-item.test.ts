@@ -202,12 +202,13 @@ describe('AC8 — el documento del propietario en /api/vehicles lo decide `vehic
 
   it('un rol llamado `admin` sin la función lo recibe enmascarado; con la función (cualquier rol), completo', async () => {
     selectMock.mockImplementation(() => chain([FILA]));
-    const sin = await usuario(9221, 'admin', []);
+    // HU #13423: el listado pide además `vehicles.vehiculos.consultar` (antes bastaba la sesión).
+    const sin = await usuario(9221, 'admin', ['vehicles.vehiculos.consultar']);
     const a = await request(app).get('/api/vehicles').set('Authorization', sin);
     expect(a.status).toBe(200);
     expect(a.body[0].ownerDocument).toBe('1020****');
 
-    const con = await usuario(9222, 'supervisor_flota', ['vehicles.propietario.ver_documento']);
+    const con = await usuario(9222, 'supervisor_flota', ['vehicles.vehiculos.consultar', 'vehicles.propietario.ver_documento']);
     const b = await request(app).get('/api/vehicles').set('Authorization', con);
     expect(b.status).toBe(200);
     expect(b.body[0].ownerDocument).toBe('1020304050');

@@ -225,6 +225,27 @@ const OPERACION_13422 = [
   'rndc.credenciales.administrar', 'rndc.manifiestos.administrar', 'rutas.rutas.administrar',
   'rutas.pernocta.administrar', 'clients.clientes.administrar', ...LECTURAS_13422,
 ] as const;
+// HU #13423 (0230, ADR-0023): LAFT, Privacidad, Firma, Drive, SOAT antiguo, Siigo y las cuatro de solo
+// sesión. Lo que la 0230 siembra a cada rol (reparto de partida); admin, todo.
+const SIIGO_FACTURA_OPERAR = [
+  'siigo.factura.emitir', 'siigo.factura.reintentar', 'siigo.factura.reenviar_correo', 'siigo.factura.marcar_fallido',
+  'siigo.factura.reactivar', 'siigo.factura.corregir', 'siigo.factura.anular',
+] as const;
+const SIIGO_LEER_13423 = ['siigo.factura.consultar', 'siigo.parametrizacion.ver'] as const;
+const LAFT_COMPLIANCE_13423 = [
+  'laft.listas.operar', 'laft.contrapartes.operar', 'laft.bitacora.ver', 'laft.capacitaciones.operar',
+  'laft.inusuales.operar', 'laft.plan_auditoria.administrar', 'laft.ros.operar', 'laft.ros.exportar',
+  'laft.efectivo.operar', 'laft.empleados.operar', 'laft.manual.firmar', 'laft.tablero.ver', 'laft.sincronizacion.ver',
+  'privacy.titulares.operar', 'privacy.accesos_pii.ver',
+] as const;
+const SENSIBLES_13423 = [
+  ...LAFT_COMPLIANCE_13423, ...SIIGO_FACTURA_OPERAR, ...SIIGO_LEER_13423,
+  'laft.listas.administrar', 'laft.manual.administrar', 'laft.retencion.administrar', 'laft.sincronizacion.administrar',
+  'laft.oficial.administrar', 'privacy.olvido.administrar', 'firma.solicitud.administrar', 'firma.estado.ver',
+  'drive.archivos.administrar', 'soat.antiguo.administrar', 'soat.antiguo.operar', 'siigo.parametrizacion.administrar',
+  'siigo.conceptos.confirmar', 'siigo.emision.ver', 'vehicles.vehiculos.consultar', 'runt.persona.consultar',
+  'runt.cedula.leer', 'integraciones.fasecolda.buscar',
+] as const;
 
 export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
   admin: [
@@ -280,6 +301,8 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     ...PESV_TRANSITORIAS,
     // HU #13422 (0229, ADR-0023): los ocho directorios de operación, sembrados a `admin`.
     ...OPERACION_13422,
+    // HU #13423 (0230): los seis sensibles y las cuatro de solo sesión, sembrados a `admin`.
+    ...SENSIBLES_13423,
   ],
   // HU #13421 (0226): lo que la migración siembra a los roles PESV; el conductor no recibe ninguna.
   lider_pesv: [
@@ -288,28 +311,37 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     'pesv.incidentes_causa_raiz.administrar', 'pesv.raci.administrar', 'pesv.normativa_edicion.administrar',
     'pesv.retencion_edicion.administrar', 'pesv.diagnostico.administrar', 'pesv.diagnostico_consulta.administrar',
     'drivers.incidentes_registro.administrar',
+    'vehicles.vehiculos.consultar', // HU #13423: copia viva de pagina.fleet
   ],
-  compliance: ['pesv.diagnostico_consulta.administrar'],
-  supervisor_flota: ['pesv.incidentes_causa_raiz.administrar', 'drivers.incidentes_registro.administrar'],
+  compliance: ['pesv.diagnostico_consulta.administrar', ...LAFT_COMPLIANCE_13423],
+  supervisor_flota: ['pesv.incidentes_causa_raiz.administrar', 'drivers.incidentes_registro.administrar', 'vehicles.vehiculos.consultar'],
   proveedor: [
     ...SOAT_LEER, 'soat.comprobante.cargar', 'soat.soportes.descargar', 'soat.documentos_adicionales.ver',
     // HU #13365 (0223): cargar y eliminar adicionales desde el detalle.
     'soat.documentos_adicionales.cargar', 'soat.documentos_adicionales.eliminar',
+    // HU #13423 (0230): SOAT antiguo y la consulta de vehículos (copia viva de pagina.soat).
+    'soat.antiguo.operar', 'vehicles.vehiculos.consultar',
   ],
   cliente: [...SOAT_LEER, 'soat.solicitud.crear', 'soat.runt.preconsultar', 'soat.factura.leer'],
   gestor_impuestos: [
     'impuestos.cola.ver', 'impuestos.recibos.cargar', 'impuestos.tramite.certificar',
     'impuestos.certificado.descargar',
   ],
-  auditor: [...SOAT_LEER, 'impuestos.cola.ver', 'tablero.tablero.ver', SERVICIOS_DE_TRAMITE_VER, 'tramites.tramite.ver_soportes', ...LECTURAS_13422],
+  auditor: [
+    ...SOAT_LEER, 'impuestos.cola.ver', 'tablero.tablero.ver', SERVICIOS_DE_TRAMITE_VER, 'tramites.tramite.ver_soportes', ...LECTURAS_13422,
+    // HU #13423 (0230): lecturas de Siigo, el tablero LAFT y la consulta de vehículos (copia de pagina.soat).
+    ...SIIGO_LEER_13423, 'laft.tablero.ver', 'vehicles.vehiculos.consultar',
+  ],
 
   financiera: [
     'liquidacion.liquidacion.liquidar', 'liquidacion.liquidacion.facturar', ...SERVICIOS_ADICIONALES,
     SERVICIOS_DE_TRAMITE_VER, ...SERVICIOS_DE_TRAMITE_ESCRIBIR,
     ...COMPROBANTES,
     ...LECTURAS_13422,
+    // HU #13423 (0230): Siigo (la vieja tabla de roles por acción le daba todas las acciones).
+    ...SIIGO_FACTURA_OPERAR, ...SIIGO_LEER_13423, 'siigo.conceptos.confirmar', 'siigo.emision.ver',
   ],
-  transito: ['transito.tramite.tomar', 'transito.bandeja.ver_pendientes'],
+  transito: ['transito.tramite.tomar', 'transito.bandeja.ver_pendientes', 'firma.estado.ver'],
   mensajero: [],
   conductor: [],
 };

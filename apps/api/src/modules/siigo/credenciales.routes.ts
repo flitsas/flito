@@ -4,7 +4,8 @@
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { SiigoEncKeyError, siigoEncKeyDisponible } from '../../shared/utils/crypto.js';
 import {
@@ -13,7 +14,7 @@ import {
 import { probarConexion } from './siigo.diagnostico.service.js';
 
 const router = Router();
-router.use(authMiddleware, requireRole('admin'));
+router.use(authMiddleware);
 
 const credencialSchema = z.object({
   ambiente: z.enum(['pruebas', 'produccion']),
@@ -23,13 +24,13 @@ const credencialSchema = z.object({
 });
 
 // GET / — listado sin secretos. `accessKey` siempre viene enmascarada.
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', exigirFuncion('siigo.parametrizacion.administrar'), async (_req: Request, res: Response) => {
   const data = await listarCredenciales();
   res.json({ data, llaveMaestraConfigurada: siigoEncKeyDisponible() });
 });
 
 // POST / — registra la credencial del ambiente. Reemplaza la activa anterior conservando historial.
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', exigirFuncion('siigo.parametrizacion.administrar'), async (req: Request, res: Response) => {
   const parsed = credencialSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
@@ -62,7 +63,7 @@ router.post('/', async (req: Request, res: Response) => {
 // Siempre responde 200 con el resultado dentro del cuerpo, incluso cuando la prueba falla. Un
 // diagnóstico que devuelve 503 obliga a quien lo consume a leer el error de dos sitios distintos;
 // aquí el veredicto viaja siempre en el mismo campo.
-router.post('/probar-conexion', async (req: Request, res: Response) => {
+router.post('/probar-conexion', exigirFuncion('siigo.parametrizacion.administrar'), async (req: Request, res: Response) => {
   const ambiente = req.body?.ambiente === 'produccion' || req.body?.ambiente === 'pruebas'
     ? req.body.ambiente as 'produccion' | 'pruebas'
     : undefined;
@@ -72,7 +73,7 @@ router.post('/probar-conexion', async (req: Request, res: Response) => {
 });
 
 // DELETE /:id — desactiva (soft delete). El historial de credenciales nunca se borra.
-router.delete('/:id', async (req: Request, res: Response) => {
+router.delete('/:id', exigirFuncion('siigo.parametrizacion.administrar'), async (req: Request, res: Response) => {
   const id = Number.parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) { res.status(400).json({ error: 'ID inválido' }); return; }
   const userId = req.user?.sub as number;

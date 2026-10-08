@@ -16,7 +16,8 @@ import { eq } from 'drizzle-orm';
 import rateLimit from 'express-rate-limit';
 import { db } from '../../../db/client.js';
 import { laftRosDrafts, laftUnusualOperations, laftCounterparties, users } from '../../../db/schema.js';
-import { authMiddleware, requireRole } from '../../../shared/middleware/auth.js';
+import { authMiddleware } from '../../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../../shared/middleware/exigir-funcion.js';
 import { userOrIpKey } from '../../../shared/middleware/rateLimiter.js';
 import { laftAudit } from '../audit.service.js';
 import { buildRosExport } from './sirel-export.builder.js';
@@ -26,7 +27,7 @@ import { loggerFor } from '../../../shared/logger.js';
 const log = loggerFor('laft-ros-export');
 
 const router = Router();
-router.use(authMiddleware, requireRole('admin', 'compliance'));
+router.use(authMiddleware);
 
 const writeLimiter = rateLimit({
   windowMs: 60_000, max: 20,
@@ -35,7 +36,7 @@ const writeLimiter = rateLimit({
 });
 
 // POST /:id/export — genera PDF + CSV, sube a MinIO, persiste storage_keys + sha256.
-router.post('/:id/export', writeLimiter, async (req: Request, res: Response) => {
+router.post('/:id/export', exigirFuncion('laft.ros.exportar'), writeLimiter, async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const idempKey = req.header('Idempotency-Key');
@@ -102,7 +103,7 @@ router.post('/:id/export', writeLimiter, async (req: Request, res: Response) => 
 });
 
 // GET /:id/export/pdf — descarga PDF firmado.
-router.get('/:id/export/pdf', async (req: Request, res: Response) => {
+router.get('/:id/export/pdf', exigirFuncion('laft.ros.exportar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [ros] = await db.select({ key: laftRosDrafts.exportPdfStorageKey }).from(laftRosDrafts).where(eq(laftRosDrafts.id, id));
@@ -120,7 +121,7 @@ router.get('/:id/export/pdf', async (req: Request, res: Response) => {
 });
 
 // GET /:id/export/csv — descarga CSV.
-router.get('/:id/export/csv', async (req: Request, res: Response) => {
+router.get('/:id/export/csv', exigirFuncion('laft.ros.exportar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [ros] = await db.select({ key: laftRosDrafts.exportCsvStorageKey }).from(laftRosDrafts).where(eq(laftRosDrafts.id, id));

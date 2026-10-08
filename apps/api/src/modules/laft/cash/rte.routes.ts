@@ -7,7 +7,8 @@ import {
   laftCounterparties,
   laftReportesUiaf,
 } from '../../../db/schema.js';
-import { authMiddleware, requireRole } from '../../../shared/middleware/auth.js';
+import { authMiddleware } from '../../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../../shared/middleware/exigir-funcion.js';
 import { userOrIpKey } from '../../../shared/middleware/rateLimiter.js';
 import { laftAudit } from '../audit.service.js';
 import { loggerFor } from '../../../shared/logger.js';
@@ -16,7 +17,7 @@ import { uploadReporte, downloadReporte } from './reportes-storage.js';
 const log = loggerFor('laft-rte');
 
 const router = Router();
-router.use(authMiddleware, requireRole('admin', 'compliance'));
+router.use(authMiddleware);
 
 const generateLimiter = rateLimit({
   windowMs: 60_000, max: 10,
@@ -69,7 +70,7 @@ function buildCsv(rows: Array<{
 }
 
 // === POST /generar/:anio/:mes — generar RTE mensual =========================
-router.post('/generar/:anio/:mes', generateLimiter, async (req: Request, res: Response) => {
+router.post('/generar/:anio/:mes', exigirFuncion('laft.efectivo.operar'), generateLimiter, async (req: Request, res: Response) => {
   const p = parseAnioMes(req);
   if (!p) { res.status(400).json({ error: 'Año o mes inválido' }); return; }
   const { anio, mes } = p;
@@ -180,7 +181,7 @@ router.post('/generar/:anio/:mes', generateLimiter, async (req: Request, res: Re
 });
 
 // === GET /:anio/:mes/download — descargar CSV ===============================
-router.get('/:anio/:mes/download', async (req: Request, res: Response) => {
+router.get('/:anio/:mes/download', exigirFuncion('laft.efectivo.operar'), async (req: Request, res: Response) => {
   const p = parseAnioMes(req);
   if (!p) { res.status(400).json({ error: 'Año o mes inválido' }); return; }
   const [row] = await db.select().from(laftReportesUiaf).where(and(
@@ -203,7 +204,7 @@ router.get('/:anio/:mes/download', async (req: Request, res: Response) => {
 });
 
 // === GET / — list paginado =================================================
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('laft.efectivo.operar'), async (req: Request, res: Response) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
   const rows = await db.select().from(laftReportesUiaf)

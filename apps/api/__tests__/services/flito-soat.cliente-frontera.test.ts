@@ -44,6 +44,7 @@ import request from 'supertest';
 import express from 'express';
 import { chain } from '../helpers/db.js';
 import { testToken } from '../helpers/auth.js';
+import { catalogoCompleto } from '../../src/modules/permisos/catalogo.js';
 
 const selectMock = vi.fn();
 
@@ -119,6 +120,9 @@ const auth = async (role: string, sub = 1) => `Bearer ${await testToken({ sub, u
 
 const SOAT_ID = '00000000-0000-0000-0000-0000000000aa';
 
+/** Los roles a los que la foto del catálogo concede un código (lo que `testToken` les da por rol). */
+const operacionesDePartidaDe = (codigo: string) => catalogoCompleto().find((f) => f.codigo === codigo)!.roles;
+
 /** Los 11 roles que YA existían. Ninguno puede cambiar de comportamiento por esta corrección. */
 const ROLES_INTERNOS = [
   'admin', 'proveedor', 'transito', 'compliance', 'lider_pesv', 'supervisor_flota',
@@ -141,15 +145,26 @@ describe('B1 — lo que el `cliente` NO puede pedir (y los internos sí siguen p
     expect(selectMock).not.toHaveBeenCalled();
   });
 
-  it('los 11 roles internos siguen entrando a GET /api/vehicles exactamente como antes', async () => {
+  // HU #13423: GET /api/vehicles dejó de bastar con la sesión y pide `vehicles.vehiculos.consultar`
+  // (copia viva de las páginas que lo llaman). La frontera sigue igual para los internos: los que
+  // tienen la función entran como antes; los que no, reciben el 403 del MOTOR (con `funcion`), no el
+  // de la frontera.
+  it('los roles internos con `vehicles.vehiculos.consultar` siguen entrando a GET /api/vehicles; el resto recibe el 403 del motor', async () => {
     const app = await buildApp();
+    const conFuncion = new Set(operacionesDePartidaDe('vehicles.vehiculos.consultar'));
+    expect([...conFuncion].sort()).toEqual(['admin', 'auditor', 'lider_pesv', 'proveedor', 'supervisor_flota']);
     for (const rol of ROLES_INTERNOS) {
       selectMock.mockReturnValue(chain([
         { id: 1, vin: 'VIN1', plate: 'ABC123', ownerName: 'PEDRO GÓMEZ', ownerDocument: '79345612' },
       ]));
       const r = await request(app).get('/api/vehicles').set('Authorization', await auth(rol));
-      expect(r.status, `rol ${rol}`).toBe(200);
-      expect(r.body[0].vin, `rol ${rol}`).toBe('VIN1');
+      if (conFuncion.has(rol)) {
+        expect(r.status, `rol ${rol}`).toBe(200);
+        expect(r.body[0].vin, `rol ${rol}`).toBe('VIN1');
+      } else {
+        expect(r.status, `rol ${rol}`).toBe(403);
+        expect(r.body, `rol ${rol}`).toMatchObject({ funcion: 'vehicles.vehiculos.consultar' });
+      }
     }
   });
 
