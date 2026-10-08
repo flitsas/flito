@@ -303,7 +303,10 @@ export default function FlitoSoat() {
   // el proveedor, quién despachó y lo que FLITO pagó—: eso sería otra HU, no una condición más.
   // En «Por validar»/«Descartadas» no se pinta: el Excel es de SOAT y no cambia (HU #12997), así
   // que ahí no sería «lo que estoy viendo».
-  const puedeExportar = (esOperaciones || esGestor) && !vistaIncompletas;
+  // HU #12872 (AC3): cada botón por la función de SU endpoint (`POST /export` exige
+  // `soat.excel.exportar`; `POST /facturas`, `soat.masiva.cargar`), no por el «modo» de la pantalla.
+  const puedeExportar = hasFuncion('soat.excel.exportar') && !vistaIncompletas;
+  const puedeCargaMasiva = hasFuncion('soat.masiva.cargar');
   // Quién DESCARGA SOPORTES: la función que exige el POST del ZIP (HU #12815), no el rol. La casilla
   // sirve también para «Enviar al gestor»: sin ninguna de las dos, no hay columna (AC7).
   const puedeDescargar = hasFuncion('soat.soportes.descargar');
@@ -402,7 +405,8 @@ export default function FlitoSoat() {
           : 'Cola de adquisición del SOAT: de Pendiente a Pagado.'}
         actions={(
           <>
-            {(esOperaciones || esGestor) && (
+            {/* HU #12872 (AC3): la carga masiva por la función de SU endpoint (POST /facturas). */}
+            {puedeCargaMasiva && (
               <button type="button" className={`${flitBtnPrimary} ${ACCION_CABECERA}`} style={flitBtnPrimaryStyle} onClick={() => setCargaMasiva(true)}>
                 <Upload size={16} aria-hidden="true" className="shrink-0" />
                 Cargar facturas (masivo)
@@ -591,7 +595,7 @@ export default function FlitoSoat() {
       )}
 
       {detalle && (
-        <DetalleSoat soat={detalle} puede={puedeDetalle} soloLectura={soloLectura}
+        <DetalleSoat soat={detalle} puede={puedeDetalle} soloLectura={soloLectura && !Object.values(puedeDetalle).some(Boolean)}
           esCliente={esCliente} restoreFocusRef={refPills}
           descarga={puedeDescargar ? descargaComprobante : null}
           proveedores={proveedores} onClose={() => setDetalleId(null)}

@@ -243,3 +243,126 @@ test.describe('HU #12872 — AC7 · refresco de permisos en la sesión', () => {
     await expect(enlaceMenu(page, 'SOAT')).toHaveCount(0);
   });
 });
+
+// ── AC3/AC4 · botones de SOAT por la función de SU endpoint (TC-03a..c, TC-04a..g, TC-04z) ─────────
+//
+// Misma trampa de `sobreDeMe`: rol `financiera` (sus defaults NO dan `flito_soat`), la página llega
+// solo por `allowedPages`, y las funciones son EXACTAMENTE la lectura + la que se prueba (sin los
+// defaults del rol), para que cada botón dependa de una sola función y de ninguna otra.
+
+/** Lectura de SOAT, sin ninguna función de gestión. */
+const LECTURA_SOAT = ['soat.cola.ver', 'soat.cola.filtrar', 'soat.solicitud.ver', 'soat.solicitud.ver_historial', 'soat.solicitud.ver_soportes'];
+
+const filaSoat = (id: string, placa: string, estado: string, extra: Record<string, unknown> = {}) => ({
+  id, vin: `VIN00000000000${id}`, placa, marca: 'Kia', linea: 'Picanto', cilindraje: '1248', carroceria: 'HATCHBACK',
+  tipoServicio: 'Particular', estado, esMultiplePropietario: false, companiaNombre: 'Concesionario Sur',
+  organismoNombre: 'STT Pereira', proveedorSoatId: 'p1', proveedorSoatNombre: 'Seguros Alfa', gestionOperaciones: false,
+  compradores: [], tramitesFlit: ['FLIT-2001'], tipoTramite: 'Traspaso',
+  fechaAprobacion: null, fechaCreacion: '2026-04-01T10:00:00Z', enviadoPorNombre: 'Operaciones E2E', enviadoEn: '2026-04-02T12:00:00Z',
+  pagadoEn: null, valorPagado: null, estancado: false, motivoRechazo: estado === 'con_novedad' ? 'Datos del comprador incompletos' : null,
+  creadoEn: '2026-04-02T12:00:00Z', ...extra,
+});
+
+async function mockColaConFila(page: Page, fila: unknown) {
+  await page.route(/\/api\/flito\/soat(\?|$)/, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    return route.fulfill(json({ items: [fila], total: 1, page: 1, pageSize: 50 }));
+  });
+  await page.route(/\/api\/flito\/soat\/facetas/, (route) => route.fulfill(json({ companias: [], organismos: [], proveedores: [] })));
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (route) => route.fulfill(json([{ id: 'p1', nombre: 'Seguros Alfa', activo: true }])));
+  await page.route(/\/api\/flito\/soat\/[^/?]+\/historial/, (route) => route.fulfill(json([])));
+}
+
+async function sesionSoat(page: Page, funciones: string[]) {
+  await loginAs(page, { ...FINANCIERA_USER, allowedPages: ['flito_soat'] }, { funciones: [...LECTURA_SOAT, ...funciones] });
+}
+
+/** Los siete controles de gestión del detalle, cada uno con la función de su endpoint. */
+const ACCIONES_DETALLE = [
+  { tc: 'TC-04a', funcion: 'soat.comprobante.cargar', control: 'Cargar factura', fila: filaSoat('11', 'CAR011', 'solicitado') },
+  { tc: 'TC-04b', funcion: 'soat.solicitud.rechazar', control: 'Rechazar', fila: filaSoat('12', 'REC012', 'solicitado') },
+  { tc: 'TC-04c', funcion: 'soat.solicitud.reactivar', control: 'Reactivar', fila: filaSoat('13', 'REA013', 'con_novedad') },
+  { tc: 'TC-04d', funcion: 'soat.solicitud.reversar', control: 'Reversar', fila: filaSoat('14', 'REV014', 'pagado', { pagadoEn: '2026-04-05T12:00:00Z', valorPagado: 740800 }) },
+  { tc: 'TC-04e', funcion: 'soat.proveedor.cambiar', control: 'Cambiar proveedor', fila: filaSoat('15', 'PRO015', 'con_novedad') },
+  { tc: 'TC-04f', funcion: 'soat.solicitud.asumir', control: 'Asumir en Operaciones', fila: filaSoat('16', 'ASU016', 'solicitado') },
+  { tc: 'TC-04g', funcion: 'soat.solicitud.devolver', control: 'Devolver al proveedor', fila: filaSoat('17', 'DEV017', 'solicitado', { gestionOperaciones: true }) },
+] as const;
+
+/** «Cargar factura» es un `<label>` con el input de archivo dentro; el resto, botones. */
+const controlDetalle = (dialogo: ReturnType<Page['getByRole']>, nombre: string) =>
+  nombre === 'Cargar factura'
+    ? dialogo.locator('label').filter({ hasText: /^(Cargar factura|Cargando…)$/ })
+    : dialogo.getByRole('button', { name: nombre, exact: true });
+
+async function abrirDetalle(page: Page) {
+  await page.goto('/flito/soat');
+  await expect(page.getByRole('heading', { name: 'SOAT', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Ver' }).first().click();
+  const dialogo = page.getByRole('dialog');
+  await expect(dialogo).toBeVisible();
+  // El detalle se lee siempre: el bloque de datos está pintado antes de contar botones.
+  await expect(dialogo.getByText('Compañía', { exact: true })).toBeVisible();
+  return dialogo;
+}
+
+test.describe('HU #12872 — AC4 · acciones del detalle SOAT, una función cada vez', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  for (const caso of ACCIONES_DETALLE) {
+    test(`${caso.tc} — solo \`${caso.funcion}\`: «${caso.control}» y ningún otro control de gestión`, async ({ page }) => {
+      await mockColaConFila(page, caso.fila);
+      await sesionSoat(page, [caso.funcion]);
+      const dialogo = await abrirDetalle(page);
+      await expect(controlDetalle(dialogo, caso.control)).toBeVisible();
+      for (const otro of ACCIONES_DETALLE) {
+        if (otro.control === caso.control) continue;
+        await expect(controlDetalle(dialogo, otro.control), `«${otro.control}» sin \`${otro.funcion}\``).toHaveCount(0);
+      }
+    });
+  }
+
+  // Control negativo de cada positivo: el MISMO estado que habilita el botón, sin ninguna función.
+  for (const caso of ACCIONES_DETALLE) {
+    test(`TC-04z (${caso.tc}) — solo lectura en el estado que habilita «${caso.control}»: ningún control de gestión`, async ({ page }) => {
+      await mockColaConFila(page, caso.fila);
+      await sesionSoat(page, []);
+      const dialogo = await abrirDetalle(page);
+      for (const otro of ACCIONES_DETALLE) await expect(controlDetalle(dialogo, otro.control)).toHaveCount(0);
+      await expect(dialogo.getByText('Corregir el caso', { exact: true })).toHaveCount(0);
+    });
+  }
+});
+
+test.describe('HU #12872 — AC3 · Excel y carga masiva de SOAT por su función', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  const botonExcel = (page: Page) => page.getByRole('button', { name: 'Exportar a Excel', exact: true });
+  const botonCarga = (page: Page) => page.getByRole('button', { name: 'Cargar facturas (masivo)', exact: true });
+
+  for (const usuario of [FINANCIERA_USER, AUDITOR_USER]) {
+    test(`TC-03a/c — ${usuario.role} con «Exportar a Excel» y sin la carga: ve Excel, no la carga`, async ({ page }) => {
+      await mockColaConFila(page, filaSoat('21', 'EXC021', 'solicitado'));
+      await loginAs(page, { ...usuario, allowedPages: ['flito_soat'] }, { funciones: [...LECTURA_SOAT, 'soat.excel.exportar'] });
+      await page.goto('/flito/soat');
+      await expect(botonExcel(page)).toBeVisible();
+      await expect(botonCarga(page)).toHaveCount(0);
+    });
+  }
+
+  test('TC-03b — con la carga masiva y sin «Exportar a Excel»: ve la carga, no Excel', async ({ page }) => {
+    await mockColaConFila(page, filaSoat('22', 'CMA022', 'solicitado'));
+    await sesionSoat(page, ['soat.masiva.cargar']);
+    await page.goto('/flito/soat');
+    await expect(botonCarga(page)).toBeVisible();
+    await expect(botonExcel(page)).toHaveCount(0);
+  });
+
+  test('TC-03 control — solo lectura: ni Excel ni carga masiva', async ({ page }) => {
+    await mockColaConFila(page, filaSoat('23', 'LEC023', 'solicitado'));
+    await sesionSoat(page, []);
+    await page.goto('/flito/soat');
+    await expect(page.getByText('LEC023')).toBeVisible();
+    await expect(botonExcel(page)).toHaveCount(0);
+    await expect(botonCarga(page)).toHaveCount(0);
+  });
+});
