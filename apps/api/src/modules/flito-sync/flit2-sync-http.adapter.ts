@@ -11,7 +11,11 @@
 // - HU #13095 `obtenerUrlAdjunto`: `GET …/tramites/{id}/adjuntos/{adjuntoId}/url`. Cualquier 404 → null.
 //   `adjuntoId` vacío, `.` o `..` → null SIN llamar (no se recorren rutas del host de FLIT 2). Ni la
 //   ruta pedida (lleva ids) ni la URL firmada de la respuesta van al log.
+// - HU #13268 `enviarAdjunto`: `POST …/tramites/{id}/adjuntos` multipart (`tipo` + `file`). No lanza por
+//   respuestas de FLIT 2: las clasifica con `clasificarRespuestaAdjunto` (`flit2-adjuntos.ts`). Al log
+//   solo van `idFlit2`, `status` y `codigo`: nunca la URL, el cuerpo, `detail` ni el nombre de archivo.
 
+import { createHash } from 'crypto';
 import { z } from 'zod';
 import { env } from '../../config/env.js';
 import { loggerFor } from '../../shared/logger.js';
@@ -20,14 +24,18 @@ import { MAX_DATOS_VEHICULO } from './flit-http.adapter.js';
 import { obtenerPase, conPase } from './flit2-pase.service.js';
 import { Flit2Error, Flit2NoConfiguradoError, Flit2NoRespondeError, Flit2RespuestaError } from './flit2.errors.js';
 import { rawSinPii } from './flit2-mapeo.js';
+import { TIPO_LIQUIDACION_IMPUESTO, clasificarRespuestaAdjunto, leerProblema, urlDeEnvioAdjunto } from './flit2-adjuntos.js';
 import type {
-  CompradorFlit2, Flit2SyncPort, ItemFlit2, PaginaFlit2, PosicionLectura, UrlAdjuntoFlit2, VehiculoFlit2,
+  ArchivoAdjuntoFlit2, CompradorFlit2, Flit2SyncPort, ItemFlit2, PaginaFlit2, PosicionLectura, ResultadoEnvioAdjunto,
+  UrlAdjuntoFlit2, VehiculoFlit2,
 } from './flit2-sync.port.js';
 
 const log = loggerFor('flito-sync-flit2');
 
 const RUTA_SYNC = '/api/v1/external/tramites/sync';
 const TIMEOUT_MS = 30_000;
+/** HU #13268: el envío sube hasta 20 MB; más holgura que la lectura. */
+const TIMEOUT_ENVIO_MS = 60_000;
 /** Ancho de las columnas de `vehicles` que no cubre `MAX_DATOS_VEHICULO`. */
 const MAX_VEHICULO = { vin: 17, placa: 10, marca: 50, linea: 50 } as const;
 
@@ -316,6 +324,52 @@ export function crearFlit2SyncHttp(): Flit2SyncPort {
         nombreArchivo: s(r.data.nombreArchivo),
         expiraEn: s(r.data.expiraEn),
       };
+    },
+
+    async enviarAdjunto(idFlit2: string, archivo: ArchivoAdjuntoFlit2): Promise<ResultadoEnvioAdjunto> {
+      const url = urlDeEnvioAdjunto(base(), idFlit2);
+      if (!url) {
+        log.warn({ idFlit2 }, 'trámite de FLIT 2 con identificador no válido: el adjunto no se envía');
+        return { tipo: 'definitivo', motivo: 'procedure_not_found', status: null };
+      }
+      const sha256Local = createHash('sha256').update(archivo.bytes).digest('hex');
+      let res: Response;
+      try {
+        // El cuerpo se arma en cada llamada: `conPase` puede repetirla una vez tras renovar ante 401.
+        res = await conPase((pase) => {
+          const form = new FormData();
+          form.append('tipo', TIPO_LIQUIDACION_IMPUESTO);
+          form.append('file', new Blob([new Uint8Array(archivo.bytes)], { type: archivo.contentType }), archivo.nombreArchivo);
+          return fetch(url, {
+            method: 'POST',
+            headers: { Authorization: pase.authorization.unwrap(), Accept: 'application/json' },
+            body: form,
+            redirect: 'error',
+            signal: AbortSignal.timeout(TIMEOUT_ENVIO_MS),
+          });
+        });
+      } catch (e) {
+        // Errores del pase (sin acceso, rechazado, bloqueado…): los trata el cron como pausa global.
+        if (e instanceof Flit2Error) throw e;
+        log.warn({ idFlit2, causa: e instanceof Error ? e.name : typeof e }, 'FLIT 2 no respondió al envío del adjunto');
+        return { tipo: 'reintentable', codigo: 'red', status: null };
+      }
+
+      let resultado: ResultadoEnvioAdjunto;
+      if (res.status === 200 || res.status === 201) {
+        let cuerpo: unknown = null;
+        try { cuerpo = await res.json(); } catch { /* ilegible: lo clasifica como respuesta_invalida */ }
+        resultado = clasificarRespuestaAdjunto(res.status, null, null, { cuerpo, sha256Local });
+      } else {
+        const problema = await leerProblema(res);
+        const retryAfter = res.status === 429 ? segundosRetryAfter(res.headers.get('retry-after')) : null;
+        resultado = clasificarRespuestaAdjunto(res.status, problema, retryAfter);
+      }
+      const codigo = resultado.tipo === 'reintentable' || resultado.tipo === 'pausa' ? resultado.codigo
+        : resultado.tipo === 'definitivo' ? resultado.motivo : resultado.tipo;
+      if (resultado.tipo === 'enviado') log.info({ idFlit2, status: res.status, codigo }, 'adjunto enviado a FLIT 2');
+      else log.warn({ idFlit2, status: res.status, codigo }, 'FLIT 2 no aceptó el adjunto');
+      return resultado;
     },
   };
 }

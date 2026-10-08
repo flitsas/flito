@@ -28,6 +28,8 @@ interface FlitUploadBoxProps {
    * escribe fuera no forma parte del nombre accesible del control.
    */
   hint?: string;
+  /** `aria-describedby` del input (HU #13270: el aviso de descarte se lee al llegar al campo). Opcional. */
+  describedBy?: string;
   /**
    * Varios archivos a la vez (HU #13363, documentos adicionales del SOAT). Con `multiple` la caja
    * entrega la lista entera por `onFiles` y el input queda alcanzable con el tabulador (`sr-only` en
@@ -44,7 +46,7 @@ const MULTIPLE_FEEDBACK =
   'hover:shadow-[inset_0_0_0_999px_var(--flit-bg-hover)] focus-within:shadow-[0_0_0_3px_var(--flit-border-focus)]';
 
 export default function FlitUploadBox(
-  { label, required, state, count, onFile, accept = ACCEPT_POR_DEFECTO, hint, multiple, onFiles }: FlitUploadBoxProps,
+  { label, required, state, count, onFile, accept = ACCEPT_POR_DEFECTO, hint, describedBy, multiple, onFiles }: FlitUploadBoxProps,
 ) {
   const color =
     state === 'rejected' ? 'var(--flit-danger)'
@@ -85,6 +87,7 @@ export default function FlitUploadBox(
         type="file"
         accept={accept}
         multiple={multiple}
+        aria-describedby={describedBy}
         className={multiple ? 'sr-only' : 'hidden'}
         onChange={(e) => {
           const lista = Array.from(e.target.files ?? []);

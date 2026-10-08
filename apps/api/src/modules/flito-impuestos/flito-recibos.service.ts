@@ -81,6 +81,7 @@ import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametriz
 import { uploadEntityDocument } from '../../services/storage.js';
 import { comprimirComprobante } from './flito-recibos.compresion.js';
 import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
+import { completarComprobanteFlit2, programarEnvioComprobante } from './flito-impuestos.envio-flit2.service.js';
 import type { ArchivoSubido, ImpuestoCtx } from './flito-factura-venta.service.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -149,7 +150,7 @@ export class ReciboCajaError extends Error {
 }
 
 /** Escribe en `audit_logs` con la tx abierta o, para un rechazo que no abre ninguna, con `db` directo. */
-async function auditEnTx(escritor: Pick<typeof db, 'insert'>, ctx: ImpuestoCtx, resourceId: string, detail: string): Promise<void> {
+export async function auditEnTx(escritor: Pick<typeof db, 'insert'>, ctx: ImpuestoCtx, resourceId: string, detail: string): Promise<void> {
   await escritor.insert(auditLogs).values({ userId: ctx.userId, userEmail: ctx.username, action: 'update', resource: 'flito_impuesto', resourceId, detail });
 }
 
@@ -354,7 +355,7 @@ export function remarcarConfiable(extraccion: ExtraccionImpuesto, umbral: number
 }
 
 /** CA-08 (1): el mismo archivo, byte por byte, ya está cargado. */
-async function hashReciboYaCargado(hash: string): Promise<string | null> {
+export async function hashReciboYaCargado(hash: string): Promise<string | null> {
   const [dup] = await db.select({ impuestoId: flitoSoportes.impuestoId }).from(flitoSoportes)
     .where(and(eq(flitoSoportes.hash, hash), inArray(flitoSoportes.tipo, TIPOS_RECIBO), eq(flitoSoportes.descartado, false))).limit(1);
   return dup?.impuestoId ?? null;
@@ -556,6 +557,8 @@ async function adjuntarAPagado(
     const id = await insertarSoporte(tx, pagado.impuestoId, archivo, tipo, ctx, guardado, hash);
     if (marcaLiquidado) await tx.update(flitoImpuestos).set({ liquidadoEn: new Date(), updatedAt: new Date() }).where(eq(flitoImpuestos.id, pagado.impuestoId));
     await auditEnTx(tx, ctx, pagado.impuestoId, `Comprobante complementario (${cual}) adjuntado al pago de ${pagado.tramiteIdFlit}.${marcaLiquidado ? ' Queda marcado como liquidado.' : ''} Soporte ${id}.`);
+    // HU #13268 (AC4, RN-02): el recibo que llega después saca de `sin_comprobante`; nunca crea fila.
+    await completarComprobanteFlit2(tx, pagado.impuestoId);
     return id;
   });
   return { soporteId, cual };
@@ -627,6 +630,8 @@ export async function conciliar(
     motivo: `Pago conciliado. Valor ${valorPagado ?? '—'}.${notaDiferencia}`,
     usuarioId: ctx.userId, usuarioEmail: ctx.username,
   });
+  // HU #13268 (AC1): solo programa la fila del outbox; el envío lo hace el cron, fuera de la tx.
+  await programarEnvioComprobante(tx, cand.impuestoId);
   return { valorPagado, marcadoPorDiferencia };
 }
 
@@ -654,7 +659,7 @@ async function aRevision(tx: Tx, soporteId: string, extraccion: ExtraccionImpues
   return r.id;
 }
 
-async function insertarSoporte(tx: Tx, impuestoId: string, archivo: ArchivoSubido, tipo: string, ctx: ImpuestoCtx, guardado: Guardado, hash: string): Promise<string> {
+export async function insertarSoporte(tx: Tx, impuestoId: string, archivo: ArchivoSubido, tipo: string, ctx: ImpuestoCtx, guardado: Guardado, hash: string): Promise<string> {
   const [s] = await tx.insert(flitoSoportes).values({
     tipo, nombreArchivo: archivo.originalname, contentType: archivo.mimetype, storageKey: guardado.storageKey, hash, tamanoBytes: guardado.tamanoBytes,
     impuestoId, subidoPorId: ctx.userId, subidoPorNombre: ctx.username,
@@ -663,11 +668,11 @@ async function insertarSoporte(tx: Tx, impuestoId: string, archivo: ArchivoSubid
 }
 
 /** Lo que quedó en storage: la clave y el tamaño de lo GUARDADO (puede ser el comprimido, HU #13207). */
-interface Guardado { storageKey: string; tamanoBytes: number }
+export interface Guardado { storageKey: string; tamanoBytes: number }
 
 // HU #13207: se comprime aquí, después del hash, del OCR y del dedupe (todos sobre el original). `archivo`
 // no se muta: el hash que llega a `insertarSoporte` sigue siendo el sha256 de lo subido.
-async function archivar(cand: Candidato, archivo: ArchivoSubido): Promise<Guardado> {
+export async function archivar(cand: Candidato, archivo: ArchivoSubido): Promise<Guardado> {
   const carpeta = carpetaDe({ id: cand.companiaId, flitoCarpetaStorage: cand.carpeta }, 'impuestos/recibos');
   const c = await comprimirComprobante({ buffer: archivo.buffer, mimetype: archivo.mimetype });
   const storageKey = await uploadEntityDocument(carpeta, cand.impuestoId, archivo.originalname, c.buffer, archivo.mimetype);
@@ -896,28 +901,9 @@ export async function cargarReciboPorFase(impuestoId: string, fase: FaseRecibo, 
   const cand = await candidatoPorImpuestoId(impuestoId);
   if (!cand) throw new CargaPorFaseError(404, CodigoErrorCargaPorFase.NO_ENCONTRADO, 'El impuesto no existe');
 
-  const lote = await abrirLote(ctx);
-  // El OCR va ANTES de archivar y de abrir la transacción: si no responde, el 503 sale limpio.
-  const extraido = await extraerReciboImpuesto(docDe(archivo, lote.porDefecto));
-  const umbral = umbralDelCandidato(lote, cand.organismoCodigo);
-  const extraccion = remarcarConfiable(extraido, umbral);
-
-  const placa = extraccion[CampoImpuesto.PLACA];
-  if (placa?.confiable && placa.valor && cand.placa && normalizarLlave(placa.valor) !== normalizarLlave(cand.placa)) {
-    await auditEnTx(db, ctx, cand.impuestoId,
-      `Comprobante rechazado por placa (fase ${fase}; leída ${placa.valor} con confianza ${placa.confianza}, umbral ${umbral}; el impuesto es de ${cand.placa}). Trámite ${cand.tramiteIdFlit}.`);
-    return { resultado: 'placa_no_coincide', detalle: DETALLE_CARGA_POR_FASE.PLACA_DISTINTA };
-  }
-  const rechazo = vigilarFase(fase, leerSello(extraccion));
-  if (rechazo) {
-    const lectura = extraccion[CampoImpuesto.SELLO_PAGADO];
-    await auditEnTx(db, ctx, cand.impuestoId,
-      `Comprobante rechazado por fase (declarada ${fase}; sello PAGADO leído ${lectura?.valor ?? '—'} con confianza ${lectura?.confianza ?? 0}, umbral ${umbral}). ${rechazo.detalle} Trámite ${cand.tramiteIdFlit}.`);
-    return { resultado: 'fase_no_coincide', detalle: rechazo.detalle };
-  }
-  if (await numeroReciboEnOtro(extraccion[CampoImpuesto.NUMERO_RECIBO]?.valor ?? null, cand.impuestoId)) {
-    return { resultado: 'duplicado', detalle: DETALLE_CARGA_POR_FASE.NUMERO_REPETIDO };
-  }
+  const validado = await validarComprobantePorId(cand, fase, archivo, ctx);
+  if (validado.rechazo) return validado.rechazo;
+  const { extraccion, umbral } = validado;
 
   const recomprobar = recomprobarDentro(cand.impuestoId, estado, tipo);
   try {
@@ -935,6 +921,43 @@ export async function cargarReciboPorFase(impuestoId: string, fase: FaseRecibo, 
     if (err instanceof FaseOcupadaError) return { resultado: 'duplicado', detalle: detalleFaseOcupada(fase) };
     throw err;
   }
+}
+
+/** Un rechazo sin escritura (salvo la auditoría): la misma forma en la carga por fase y en el reemplazo. */
+export type RechazoComprobante = Extract<RespuestaCargaPorFase, { detalle: string }>;
+
+/**
+ * Las validaciones de un comprobante cargado por id, DESPUÉS del hash y ANTES de archivar: OCR (503 si
+ * no responde), placa leída con confianza y distinta (AC5), sello que contradice la fase (AC3) y
+ * número de recibo ya en otro impuesto (AC4). La comparten la carga por fase (HU #13208) y el
+ * reemplazo del comprobante de pago (HU #13269): los rechazos son los mismos, con los mismos textos.
+ */
+export async function validarComprobantePorId(
+  cand: Candidato, fase: FaseRecibo, archivo: ArchivoSubido, ctx: ImpuestoCtx,
+): Promise<{ rechazo: RechazoComprobante } | { rechazo: null; extraccion: ExtraccionImpuesto; umbral: number }> {
+  const lote = await abrirLote(ctx);
+  // El OCR va ANTES de archivar y de abrir la transacción: si no responde, el 503 sale limpio.
+  const extraido = await extraerReciboImpuesto(docDe(archivo, lote.porDefecto));
+  const umbral = umbralDelCandidato(lote, cand.organismoCodigo);
+  const extraccion = remarcarConfiable(extraido, umbral);
+
+  const placa = extraccion[CampoImpuesto.PLACA];
+  if (placa?.confiable && placa.valor && cand.placa && normalizarLlave(placa.valor) !== normalizarLlave(cand.placa)) {
+    await auditEnTx(db, ctx, cand.impuestoId,
+      `Comprobante rechazado por placa (fase ${fase}; leída ${placa.valor} con confianza ${placa.confianza}, umbral ${umbral}; el impuesto es de ${cand.placa}). Trámite ${cand.tramiteIdFlit}.`);
+    return { rechazo: { resultado: 'placa_no_coincide', detalle: DETALLE_CARGA_POR_FASE.PLACA_DISTINTA } };
+  }
+  const rechazo = vigilarFase(fase, leerSello(extraccion));
+  if (rechazo) {
+    const lectura = extraccion[CampoImpuesto.SELLO_PAGADO];
+    await auditEnTx(db, ctx, cand.impuestoId,
+      `Comprobante rechazado por fase (declarada ${fase}; sello PAGADO leído ${lectura?.valor ?? '—'} con confianza ${lectura?.confianza ?? 0}, umbral ${umbral}). ${rechazo.detalle} Trámite ${cand.tramiteIdFlit}.`);
+    return { rechazo: { resultado: 'fase_no_coincide', detalle: rechazo.detalle } };
+  }
+  if (await numeroReciboEnOtro(extraccion[CampoImpuesto.NUMERO_RECIBO]?.valor ?? null, cand.impuestoId)) {
+    return { rechazo: { resultado: 'duplicado', detalle: DETALLE_CARGA_POR_FASE.NUMERO_REPETIDO } };
+  }
+  return { rechazo: null, extraccion, umbral };
 }
 
 // ─────────────────────────── Reintento de pendientes ─────────────────────────
