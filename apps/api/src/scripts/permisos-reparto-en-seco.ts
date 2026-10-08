@@ -2,6 +2,7 @@
 // para cada ruta del alcance, quién pasa hoy y quién pasaría con las filas que la migración propone.
 //
 //   npm run permisos:en-seco -w apps/api -- --hu 13421 > /tmp/reparto-13421.md
+//   npm run permisos:en-seco -w apps/api -- --hu 13422 > /tmp/reparto-13422.md   (HU #13422)
 //
 // Solo LEE: una transacción `READ ONLY` con tres SELECT (usuarios activos, reparto por rol y
 // excepciones por usuario). Lo propuesto se simula en memoria con el núcleo puro
@@ -22,7 +23,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from 'drizzle-orm';
-import { PAGINAS_PESV_POR_ITEM } from '@operaciones/shared-types';
+import { PAGINAS_MANTENIMIENTO_POR_ITEM, PAGINAS_PESV_POR_ITEM } from '@operaciones/shared-types';
 import { db } from '../db/client.js';
 import { RAIZ_MODULOS, llaveDe, sinComentarios } from '../modules/permisos/inventario-guardas.js';
 import { GUARDAS_MEDIDAS } from '../modules/permisos/inventario.generado.js';
@@ -32,7 +33,7 @@ import {
   type FilaRolEnSeco, type FilaUsuarioEnSeco, type RutaEnSeco, type UsuarioEnSeco,
 } from '../modules/permisos/reparto-en-seco.js';
 
-const HU_SOPORTADAS = ['13421'];
+const HU_SOPORTADAS = ['13421', '13422'];
 const DIRECTORIOS = ['pesv', 'drivers', 'jornadas', 'rum'];
 const CON_PAGINA_PROPIA = new Map([
   ['pesv/raci.routes.ts', 'pagina.pesv_raci'],
@@ -82,6 +83,77 @@ function propuestaHu13421() {
   return { copias: [{ origen: 'pagina.pesv', destinos }], literales, recortes };
 }
 
+// ── HU #13422 — maintenance/, vehicles/, fleet/, rndc/, rutas/, liquidacion/, finanzas/ y clients/ ──
+// «Antes» medido en develop 8f0d8b85:
+//   · maintenance/: toda ruta exigía `pagina.maintenance` (`router.use(…requirePage('maintenance'))` en
+//     cada router, y el de /api/maintenance se ejecutaba para toda petición bajo ese prefijo);
+//   · rutas/: toda ruta exigía `pagina.pesv` (misma forma, montada en /api/rutas);
+//   · fleet/ y rndc/ conservan su página a nivel de router, antes y después (`pagina.fleet`,
+//     `pagina.rndc`; `pagina.rndc_admin` en credenciales);
+//   · vehicles/, liquidacion/, finanzas/ y clients/: solo el rol (o solo sesión).
+// La guarda en línea del documento del propietario y el aviso del envío RNDC fallido van como
+// requisitos sueltos: no son rutas, pero también decidían por el nombre `admin`.
+const DIRECTORIOS_13422 = ['maintenance', 'vehicles', 'fleet', 'rndc', 'rutas', 'liquidacion', 'finanzas', 'clients'];
+const PAGINA_DE_ROUTER_13422: Record<string, string> = { fleet: 'pagina.fleet', rndc: 'pagina.rndc' };
+const PAGINA_ANTES_13422: Record<string, string> = { maintenance: 'pagina.maintenance', rutas: 'pagina.pesv', ...PAGINA_DE_ROUTER_13422 };
+
+/** La página de router que se conserva (antes y después) para un fichero de fleet/ o rndc/. */
+function paginaDeRouter13422(fichero: string, d: string): string | undefined {
+  if (fichero === 'rndc/qr.routes.ts') return undefined; // pública, sin auth
+  if (fichero === 'rndc/credenciales.routes.ts') return 'pagina.rndc_admin';
+  return PAGINA_DE_ROUTER_13422[d];
+}
+
+function rutasHu13422(raiz = RAIZ_MODULOS): { rutas: RutaEnSeco[]; abiertas: { llave: string; motivo: string }[] } {
+  const rolesAntes = new Map(GUARDAS_MEDIDAS.map((g) => [llaveDe(g), g.roles]));
+  const rutas: RutaEnSeco[] = [];
+  const abiertas: { llave: string; motivo: string }[] = [];
+  for (const d of DIRECTORIOS_13422) {
+    for (const nombre of readdirSync(join(raiz, d)).filter((n) => n.endsWith('.routes.ts')).sort()) {
+      const fichero = `${d}/${nombre}`;
+      const fuente = sinComentarios(readFileSync(join(raiz, fichero), 'utf8'));
+      const deRouter = paginaDeRouter13422(fichero, d);
+      const paginaAntes = fichero === 'rndc/qr.routes.ts' ? undefined
+        : fichero === 'rndc/credenciales.routes.ts' ? 'pagina.rndc_admin' : PAGINA_ANTES_13422[d];
+      for (const m of fuente.matchAll(RUTA)) {
+        const llave = `${fichero} ${m[1]!.toUpperCase()} ${m[2]}`;
+        const pagina = /requirePage\('([a-z_]+)'\)/.exec(m[3]!)?.[1];
+        const funcion = /exigirFuncion\('([a-z0-9_.]+)'\)/.exec(m[3]!)?.[1];
+        const despues = [deRouter, pagina && `pagina.${pagina}`, funcion].filter((c): c is string => !!c);
+        const roles = rolesAntes.get(llave);
+        const antes = [paginaAntes, pagina && d !== 'maintenance' && d !== 'rutas' ? `pagina.${pagina}` : undefined]
+          .filter((c): c is string => !!c);
+        if (despues.length === 0 && !roles && antes.length === 0) {
+          abiertas.push({ llave, motivo: fichero === 'vehicles/vehicles.routes.ts' ? 'solo sesión (su guarda es de la HU #13423)' : 'sin guarda de función antes ni después' });
+          continue;
+        }
+        rutas.push({ llave, antes: { codigos: [...new Set(antes)], roles }, despues: { codigos: [...new Set(despues)] } });
+      }
+    }
+  }
+  rutas.push({
+    llave: 'vehicles/vehicles.routes.ts GET / [documentoCompleto]',
+    antes: { codigos: [], roles: ['admin'] }, despues: { codigos: ['vehicles.propietario.ver_documento'] },
+  });
+  rutas.push({
+    llave: 'rndc/envio.service.ts aviso de envío fallido (destinatarios)',
+    antes: { codigos: [], roles: ['admin'] }, despues: { codigos: ['rndc.manifiestos.administrar'] },
+  });
+  return { rutas, abiertas };
+}
+
+/** Lo que la 0229 propone: copia viva de `pagina.maintenance` a sus 3 páginas y el reparto literal del catálogo. */
+function propuestaHu13422() {
+  const destinos = PAGINAS_MANTENIMIENTO_POR_ITEM.map((s) => `pagina.${s}`);
+  const prefijos = /^(maintenance|vehicles|fleet|rndc|rutas|liquidacion\.pago_manual|finanzas\.reporte_costos|clients)\./;
+  const ops = catalogoCompleto().filter((f) => f.tipo === 'operacion' && prefijos.test(f.codigo));
+  const literales: FilaRolEnSeco[] = [
+    ...destinos.map((codigo) => ({ rol: 'admin', codigo })),
+    ...ops.flatMap((f) => f.roles.map((rol) => ({ rol, codigo: f.codigo }))),
+  ];
+  return { copias: [{ origen: 'pagina.maintenance', destinos }], literales };
+}
+
 async function main(): Promise<number> {
   const i = process.argv.indexOf('--hu');
   const hu = i >= 0 ? process.argv[i + 1] : undefined;
@@ -101,8 +173,9 @@ async function main(): Promise<number> {
   const filasUsuario: FilaUsuarioEnSeco[] = [...filas.usr].map((r) => ({
     userId: Number(r.user_id), codigo: String(r.funcion_codigo), efecto: r.efecto === 'revocar' ? 'revocar' : 'conceder',
   }));
-  const { rutas, abiertas } = rutasHu13421();
-  const informe = repartoEnSeco({ usuarios, filasRol, filasUsuario, propuesta: propuestaHu13421(), rutas, abiertas });
+  const { rutas, abiertas } = hu === '13422' ? rutasHu13422() : rutasHu13421();
+  const propuesta = hu === '13422' ? propuestaHu13422() : propuestaHu13421();
+  const informe = repartoEnSeco({ usuarios, filasRol, filasUsuario, propuesta, rutas, abiertas });
   console.log(informeMarkdown(informe, `HU #${hu} (${usuarios.length} usuarios activos, ${rutas.length} rutas)`));
   return 0;
 }

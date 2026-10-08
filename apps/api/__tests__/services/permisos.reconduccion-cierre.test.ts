@@ -27,9 +27,9 @@ import {
 } from '../../src/modules/permisos/inventario-guardas.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
-import { PAGINAS_PESV_POR_ITEM } from '@operaciones/shared-types';
+import { PAGINAS_MANTENIMIENTO_POR_ITEM, PAGINAS_PESV_POR_ITEM } from '@operaciones/shared-types';
 
-/** Los 26 directorios: los 19 del enunciado (cadena SOAT + resto de FLITO, trámites incluidos, y usuarios) + permisos (HU #12084) + finanzas-servicios-adicionales (HU #12545, nace reconducido) + flito-comprobantes (HU #12611, nace reconducido) + los legacy pesv, drivers, jornadas y rum (HU #13421, ADR-0023). */
+/** Los 26 directorios: los 19 del enunciado (cadena SOAT + resto de FLITO, trámites incluidos, y usuarios) + permisos (HU #12084) + finanzas-servicios-adicionales (HU #12545, nace reconducido) + flito-comprobantes (HU #12611, nace reconducido) + los legacy pesv, drivers, jornadas y rum (HU #13421, ADR-0023) + los ocho de operación (HU #13422). */
 export const DIRECTORIOS_RECONDUCIDOS = [
   'flito-soat', 'flito-parametrizacion', 'flito-compuerta', 'flito-bolsas', 'flito-revisiones', 'flito-sync',
   'flito-excepciones', 'flito-ocr',
@@ -37,6 +37,7 @@ export const DIRECTORIOS_RECONDUCIDOS = [
   'flito-liquidacion', 'flito-logistica', 'flito-tablero', 'flito-bitacora', 'flito-derechos', 'users',
   'permisos', 'finanzas-servicios-adicionales', 'flito-comprobantes',
   'pesv', 'drivers', 'jornadas', 'rum',
+  'maintenance', 'vehicles', 'fleet', 'rndc', 'rutas', 'liquidacion', 'finanzas', 'clients',
 ] as const;
 
 /** Rutas de los 24 ficheros que NO llevan guarda de función y siguen igual (§4 del diseño; `/mios`: HU #12084). */
@@ -99,8 +100,8 @@ describe('AC1/AC2 — en los 21 directorios ya no decide ningún requireRole', (
     });
   }
 
-  it('los directorios son 26 (19 del enunciado + permisos + finanzas-servicios-adicionales + flito-comprobantes + pesv, drivers, jornadas y rum de la HU #13421) y los 32 ficheros de rutas del alcance viven en ellos (flito-logistica aporta dos: el legado y el de viajes, HU #12619; flito-impuestos otros tres: el de la cola, el de la dirección, HU #12833, y el del reemplazo del comprobante, HU #13269; flito-soat cuatro: módulo, canal Cliente, incompletas, HU #12997, y documentos adicionales, HU #13362; flito-sync tres: el de sync, el del acceso a FLIT 2, HU #13061, y el del interruptor por fuente, HU #13237)', () => {
-    expect(DIRECTORIOS_RECONDUCIDOS).toHaveLength(26);
+  it('los directorios son 34 (19 del enunciado + permisos + finanzas-servicios-adicionales + flito-comprobantes + pesv, drivers, jornadas y rum de la HU #13421 + los ocho de operación de la HU #13422) y los 32 ficheros de rutas del alcance viven en ellos (flito-logistica aporta dos: el legado y el de viajes, HU #12619; flito-impuestos otros tres: el de la cola, el de la dirección, HU #12833, y el del reemplazo del comprobante, HU #13269; flito-soat cuatro: módulo, canal Cliente, incompletas, HU #12997, y documentos adicionales, HU #13362; flito-sync tres: el de sync, el del acceso a FLIT 2, HU #13061, y el del interruptor por fuente, HU #13237)', () => {
+    expect(DIRECTORIOS_RECONDUCIDOS).toHaveLength(34);
     expect(FICHEROS_DE_RUTAS).toHaveLength(32);
     for (const f of FICHEROS_DE_RUTAS) {
       expect((DIRECTORIOS_RECONDUCIDOS as readonly string[]).includes(f.split('/')[0]!), f).toBe(true);
@@ -165,15 +166,16 @@ describe('AC1/AC2 — cada router.<método>( de los 24 ficheros lleva exigirFunc
 });
 
 describe('el lector de montajes cubre la foto entera', () => {
-  it('353 montajes = 238 previos + 2 de la #12089 (baja/reactivar) + 4 de la #12541 (servicios adicionales) + 3 por la HU #12545 (servicios por trámite) + 1 por la HU #12591 (recibo de caja) + 5 por la HU #12611 (comprobantes) + 3 por la HU #12619 (viajes de logística) + 3 por la HU #12629 (comprobantes F2) + 1 por la HU #12654 (comprobantes F3: aceptar diferencia) + 2 por el Bug #12642 (export ampliado, en línea) + 1 por la HU #12833 (corregir dirección) + 2 por la HU #12997 (incompletas SOAT: buscar y ver) + 1 por la HU #12998 (reintentar la consulta RUNT) + 2 por la HU #13061 (acceso a FLIT 2: ver y guardar) + 1 por la HU #13237 (interruptor por fuente) + 1 por la HU #13269 (reemplazar el comprobante de pago) + 1 por la HU #13362 (documentos adicionales del SOAT) + 2 por la HU #13364 (cargar y eliminar documentos adicionales) + 76 por la HU #13421 (pesv 48, drivers 24, jornadas 3, rum 1) + 1 por la HU #13425 (operar actas ajenas, en línea) + 3 por la HU #13425 fase B (jornada ajena; vista de auditoría del diagnóstico: abrirla y sugerirla; en línea); los códigos son exactamente los de la foto', () => {
+  it('353 montajes = 238 previos + 2 de la #12089 (baja/reactivar) + 4 de la #12541 (servicios adicionales) + 3 por la HU #12545 (servicios por trámite) + 1 por la HU #12591 (recibo de caja) + 5 por la HU #12611 (comprobantes) + 3 por la HU #12619 (viajes de logística) + 3 por la HU #12629 (comprobantes F2) + 1 por la HU #12654 (comprobantes F3: aceptar diferencia) + 2 por el Bug #12642 (export ampliado, en línea) + 1 por la HU #12833 (corregir dirección) + 2 por la HU #12997 (incompletas SOAT: buscar y ver) + 1 por la HU #12998 (reintentar la consulta RUNT) + 2 por la HU #13061 (acceso a FLIT 2: ver y guardar) + 1 por la HU #13237 (interruptor por fuente) + 1 por la HU #13269 (reemplazar el comprobante de pago) + 1 por la HU #13362 (documentos adicionales del SOAT) + 2 por la HU #13364 (cargar y eliminar documentos adicionales) + 76 por la HU #13421 (pesv 48, drivers 24, jornadas 3, rum 1) + 1 por la HU #13425 (operar actas ajenas, en línea) + 3 por la HU #13425 fase B (jornada ajena; vista de auditoría del diagnóstico: abrirla y sugerirla; en línea) + 92 por la HU #13422 (maintenance 33, vehicles 12 + 1 en línea, fleet 10, rndc 5, rutas 16, liquidacion 4, finanzas 8, clients 3); los códigos son exactamente los de la foto', () => {
     const montajes = montajesDeFunciones();
-    expect(GUARDAS_MEDIDAS).toHaveLength(353);
-    expect(montajes).toHaveLength(353);
+    expect(GUARDAS_MEDIDAS).toHaveLength(445);
+    expect(montajes).toHaveLength(445);
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     // En línea: 2 del Bug #12642 + forzar_continuar + contraseña ajena + operar actas ajenas (HU #13425)
-    // + jornada ajena + vista de auditoría (abrir y sugerir) de la fase B de la HU #13425.
-    expect(montajes.filter((m) => m.metodo === null)).toHaveLength(8);
+    // + jornada ajena + vista de auditoría (abrir y sugerir) de la fase B de la HU #13425
+    // + documento completo del propietario en el listado de vehículos (HU #13422).
+    expect(montajes.filter((m) => m.metodo === null)).toHaveLength(9);
   });
 
   it('un exigirFuncion sin literal hace que el lector LANCE en vez de adivinar', () => {
@@ -225,6 +227,8 @@ const DIRECTORIOS_13421 = ['pesv', 'drivers', 'jornadas', 'rum'] as const;
 const PAGINAS_PESV = new Set<string>(['pesv', ...PAGINAS_PESV_POR_ITEM, 'pesv_raci', 'pesv_normativa', 'pesv_retencion']);
 
 /** Todos los `*.routes.ts` de los cuatro directorios, leídos del disco (un fichero nuevo entra solo). */
+/** Los de FICHEROS_LEGADO_EN_ALCANCE que son de estos cuatro directorios (la HU #13422 añadió los suyos). */
+const LEGADO_13421 = FICHEROS_LEGADO_EN_ALCANCE.filter(({ fichero }) => (DIRECTORIOS_13421 as readonly string[]).includes(fichero.split('/')[0]!));
 const FICHEROS_LEGADO_DE_RUTAS = DIRECTORIOS_13421.flatMap((d) =>
   readdirSync(join(RAIZ_MODULOS, d)).filter((n) => n.endsWith('.routes.ts')).map((n) => `${d}/${n}`)).sort();
 
@@ -251,8 +255,8 @@ const RUTA_LEGADO = /router\.(get|post|put|patch|delete)\(\s*'([^']*)'\s*,([\s\S
 describe('HU #13421 — pesv/, drivers/, jornadas/ y rum/: página por ítem y «Administrar <ítem>»', () => {
   it('los ficheros de rutas son los 23 medidos y los 20 con guarda de función están en FICHEROS_LEGADO_EN_ALCANCE', () => {
     expect(FICHEROS_LEGADO_DE_RUTAS).toHaveLength(23);
-    for (const { fichero } of FICHEROS_LEGADO_EN_ALCANCE) expect(FICHEROS_LEGADO_DE_RUTAS, fichero).toContain(fichero);
-    expect(FICHEROS_LEGADO_EN_ALCANCE).toHaveLength(20);
+    for (const { fichero } of LEGADO_13421) expect(FICHEROS_LEGADO_DE_RUTAS, fichero).toContain(fichero);
+    expect(LEGADO_13421).toHaveLength(20);
   });
 
   for (const fichero of FICHEROS_LEGADO_DE_RUTAS) {
@@ -290,7 +294,7 @@ describe('HU #13421 — pesv/, drivers/, jornadas/ y rum/: página por ítem y �
     }
     const rum = sinComentarios(leer('rum/rum.routes.ts'));
     expect(rum).toMatch(/router\.get\('\/summary', authMiddleware, exigirFuncion\('rum\.resumen\.ver'\),/);
-    const legado = new Set(FICHEROS_LEGADO_EN_ALCANCE.map((f) => f.fichero));
+    const legado = new Set(LEGADO_13421.map((f) => f.fichero));
     const codigos = new Set(OPERACIONES_DECLARADAS.filter((o) => legado.has(o.llave.split(' ')[0]!)).map((o) => o.codigo));
     expect([...codigos].filter((c) => !c.endsWith('.administrar'))).toEqual(['rum.resumen.ver']);
   });
@@ -314,3 +318,84 @@ describe('HU #13421 — pesv/, drivers/, jornadas/ y rum/: página por ítem y �
   });
 });
 
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// HU #13422 (ADR-0023) — maintenance/, vehicles/, fleet/, rndc/, rutas/, liquidacion/, finanzas/ y
+// clients/ piden permiso, no rol.
+//
+//   · AC1: cada ruta de maintenance/ lleva la página de SU ítem (`maintenance_inicio|_ordenes|
+//     _indicadores`), nunca la página única `maintenance`, y ningún router de maintenance/ ni de rutas/
+//     lleva página a nivel de router (en /api/maintenance y /api/rutas se montan varios routers: la
+//     guarda de router de uno se filtraba a los siguientes). rutas/ pasa a `pesv_rutas`/`pesv_pernocta`.
+//   · AC3/AC4: lo que exigía rol lleva `exigirFuncion('<…>.administrar')` (transitorio, HU #13429) o una
+//     de las tres permanentes (dos lecturas y el documento del propietario).
+//   · AC8: cero `requireRole(` (bloque AC1/AC2 de arriba, por DIRECTORIOS_RECONDUCIDOS), ninguna
+//     comparación de nombre de rol en NINGÚN fichero de los ocho, y ninguna en la declaración de una ruta.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+const DIRECTORIOS_13422 = ['maintenance', 'vehicles', 'fleet', 'rndc', 'rutas', 'liquidacion', 'finanzas', 'clients'] as const;
+const PERMANENTES_13422 = ['clients.clientes.ver', 'finanzas.reporte_costos.ver', 'vehicles.propietario.ver_documento'];
+const FICHEROS_13422 = DIRECTORIOS_13422.flatMap((d) =>
+  readdirSync(join(RAIZ_MODULOS, d)).filter((n) => n.endsWith('.routes.ts')).map((n) => `${d}/${n}`)).sort();
+const LEGADO_13422 = FICHEROS_LEGADO_EN_ALCANCE.filter(({ fichero }) => (DIRECTORIOS_13422 as readonly string[]).includes(fichero.split('/')[0]!));
+
+describe('HU #13422 — los ocho directorios de operación: página por ítem y «Administrar <ítem>»', () => {
+  it('los ficheros de rutas son los 27 medidos y los 19 con guarda de función están en FICHEROS_LEGADO_EN_ALCANCE', () => {
+    expect(FICHEROS_13422).toHaveLength(27);
+    for (const { fichero } of LEGADO_13422) expect(FICHEROS_13422, fichero).toContain(fichero);
+    expect(LEGADO_13422).toHaveLength(19);
+    for (const f of FICHEROS_13422) {
+      const tieneGuarda = /exigirFuncion\(|tieneFuncion\(/.test(sinComentarios(leer(f)));
+      expect(LEGADO_13422.some((x) => x.fichero === f), `${f} con guarda y fuera del lector`).toBe(tieneGuarda);
+    }
+  });
+
+  for (const fichero of FICHEROS_13422) {
+    it(`${fichero}: ninguna guarda de función en el router, ninguna ruta compara roles, páginas por ítem`, () => {
+      const fuente = sinComentarios(leer(fichero));
+      expect(fuente).not.toMatch(/router\.use\([^)]*exigirFuncion/);
+      if (fichero.startsWith('maintenance/') || fichero.startsWith('rutas/')) {
+        expect(fuente, 'sin página a nivel de router').not.toMatch(/\brouter\.use\([^)]*requirePage/);
+        expect(fuente).toMatch(/router\.use\(\s*authMiddleware\s*\)/);
+      }
+      for (const m of fuente.matchAll(RUTA_LEGADO)) {
+        const llave = `${fichero} ${m[1]!.toUpperCase()} ${m[2]}`;
+        expect(m[3], `${llave}: la declaración no compara roles`).not.toMatch(/\brole\b|requireRole/);
+        const pagina = /requirePage\('([a-z_]+)'\)/.exec(m[3]!)?.[1];
+        if (fichero.startsWith('maintenance/')) {
+          expect(pagina, `${llave} sin página de ítem`).toBeDefined();
+          expect((PAGINAS_MANTENIMIENTO_POR_ITEM as readonly string[]).includes(pagina!), `${llave}: ${pagina}`).toBe(true);
+        }
+        if (fichero.startsWith('rutas/')) {
+          expect(pagina, llave).toBe(fichero === 'rutas/pernocta.routes.ts' ? 'pesv_pernocta' : 'pesv_rutas');
+        }
+        const funcion = /exigirFuncion\('([a-z0-9_.]+)'\)/.exec(m[3]!)?.[1];
+        if (funcion && !PERMANENTES_13422.includes(funcion)) expect(funcion, llave).toMatch(/\.administrar$/);
+      }
+    });
+  }
+
+  it('AC8 — ninguna comparación de nombre de rol en los ocho directorios (fichero a fichero, no solo rutas)', () => {
+    const medidas: Record<string, number> = {};
+    for (const d of DIRECTORIOS_13422) {
+      for (const f of ficherosTs(join(RAIZ_MODULOS, d))) {
+        const n = (sinComentarios(readFileSync(f, 'utf8')).match(COMPARACION_DE_ROL) ?? []).length
+          + (sinComentarios(readFileSync(f, 'utf8')).match(/\.role\s*(?:===|!==)/g) ?? []).length;
+        if (n) medidas[f.replace(`${RAIZ_MODULOS}/`, '')] = n;
+      }
+    }
+    expect(medidas).toEqual({});
+  });
+
+  it('las tres operaciones permanentes y la guarda en línea del documento del propietario están montadas', () => {
+    expect(sinComentarios(leer('vehicles/vehicles.routes.ts'))).toMatch(/tieneFuncion\(req, 'vehicles\.propietario\.ver_documento'\)/);
+    const codigos = new Set(OPERACIONES_DECLARADAS.filter((o) => LEGADO_13422.some((f) => o.llave.startsWith(`${f.fichero} `))).map((o) => o.codigo));
+    expect([...codigos].filter((c) => !c.endsWith('.administrar')).sort()).toEqual([...PERMANENTES_13422].sort());
+  });
+
+  it('el aviso del envío RNDC fallido va a quien tiene `rndc.manifiestos.administrar`, no al rol `admin`', () => {
+    const envio = sinComentarios(leer('rndc/envio.service.ts'));
+    expect(envio).toMatch(/usuariosConFuncion\('rndc\.manifiestos\.administrar'\)/);
+    expect(envio).not.toMatch(/users\.role/);
+  });
+});

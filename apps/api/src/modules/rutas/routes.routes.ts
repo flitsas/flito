@@ -3,12 +3,13 @@ import { z } from 'zod';
 import { eq, and, desc, asc, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { routes, routeWaypoints } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('pesv'));
+router.use(authMiddleware);
 
 const CRITICIDADES = ['baja', 'media', 'alta', 'critica'] as const;
 const WAYPOINT_TIPOS = ['origen', 'destino', 'parada_segura', 'area_descanso', 'punto_riesgo', 'zona_peligrosa', 'peaje', 'pernocta', 'cargue', 'descargue'] as const;
@@ -43,7 +44,7 @@ const waypointSchema = z.object({
   observaciones: z.string().max(2000).optional().nullable(),
 });
 
-router.get('/', async (req, res) => {
+router.get('/', requirePage('pesv_rutas'), async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
   const activo = req.query.activo === 'false' ? false : true;
@@ -53,7 +54,7 @@ router.get('/', async (req, res) => {
   res.json({ data: rows, limit, offset });
 });
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', requirePage('pesv_rutas'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const [route] = await db.select().from(routes).where(eq(routes.id, id)).limit(1);
@@ -62,7 +63,7 @@ router.get('/:id', async (req, res) => {
   res.json({ ...route, waypoints });
 });
 
-router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/', requirePage('pesv_rutas'), exigirFuncion('rutas.rutas.administrar'), async (req: Request, res: Response) => {
   const parsed = routeCreateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
   const data = parsed.data;
@@ -88,7 +89,7 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
   }
 });
 
-router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/:id', requirePage('pesv_rutas'), exigirFuncion('rutas.rutas.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = routeUpdateSchema.safeParse(req.body);
@@ -119,7 +120,7 @@ router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) =
 
 // ============ WAYPOINTS ============
 
-router.post('/:id/waypoints', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/waypoints', requirePage('pesv_rutas'), exigirFuncion('rutas.rutas.administrar'), async (req: Request, res: Response) => {
   const routeId = parseInt(req.params.id, 10);
   if (!Number.isFinite(routeId) || routeId <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = waypointSchema.safeParse(req.body);
@@ -147,7 +148,7 @@ router.post('/:id/waypoints', requireRole('admin'), async (req: Request, res: Re
   }
 });
 
-router.patch('/waypoints/:wpId', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/waypoints/:wpId', requirePage('pesv_rutas'), exigirFuncion('rutas.rutas.administrar'), async (req: Request, res: Response) => {
   const wpId = parseInt(req.params.wpId, 10);
   if (!Number.isFinite(wpId) || wpId <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = waypointSchema.partial().safeParse(req.body);
@@ -173,7 +174,7 @@ router.patch('/waypoints/:wpId', requireRole('admin'), async (req: Request, res:
   }
 });
 
-router.delete('/waypoints/:wpId', requireRole('admin'), async (req: Request, res: Response) => {
+router.delete('/waypoints/:wpId', requirePage('pesv_rutas'), exigirFuncion('rutas.rutas.administrar'), async (req: Request, res: Response) => {
   const wpId = parseInt(req.params.wpId, 10);
   if (!Number.isFinite(wpId) || wpId <= 0) return res.status(400).json({ error: 'id inválido' });
   await db.delete(routeWaypoints).where(eq(routeWaypoints.id, wpId));
@@ -181,7 +182,7 @@ router.delete('/waypoints/:wpId', requireRole('admin'), async (req: Request, res
   res.json({ ok: true });
 });
 
-router.post('/:id/waypoints/reorder', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/waypoints/reorder', requirePage('pesv_rutas'), exigirFuncion('rutas.rutas.administrar'), async (req: Request, res: Response) => {
   const routeId = parseInt(req.params.id, 10);
   if (!Number.isFinite(routeId) || routeId <= 0) return res.status(400).json({ error: 'id inválido' });
   const ordenSchema = z.array(z.object({ id: z.number().int().positive(), orden: z.number().int().min(0).max(999) })).min(1);

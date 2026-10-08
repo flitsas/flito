@@ -7,12 +7,13 @@ import {
   workOrders, woJobs, woParts,
   vehicles, maintenanceJobs, parts,
 } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('maintenance'));
+router.use(authMiddleware);
 
 function parseId(raw: string): number | null {
   const n = parseInt(raw, 10);
@@ -42,7 +43,7 @@ async function nextWorkOrderNumero(): Promise<string> {
   return `OT-${yyyymm}-${String(seq).padStart(4, '0')}`;
 }
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requirePage('maintenance_ordenes'), async (req: Request, res: Response) => {
   const estado = req.query.estado as string | undefined;
   const vehicleId = req.query.vehicleId ? parseId(String(req.query.vehicleId)) : null;
   const conds: any[] = [];
@@ -66,7 +67,7 @@ router.get('/', async (req: Request, res: Response) => {
   res.json({ data: rows });
 });
 
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', requirePage('maintenance_ordenes'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [po] = await db.select().from(preOrders).where(eq(preOrders.id, id)).limit(1);
@@ -91,7 +92,7 @@ const createSchema = z.object({
   observaciones: z.string().max(2000).optional().nullable(),
 });
 
-router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/', requirePage('maintenance_ordenes'), exigirFuncion('maintenance.ordenes.administrar'), async (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validación', details: parsed.error.flatten() }); return; }
   const numero = await nextPreOrderNumero();
@@ -105,7 +106,7 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
   res.status(201).json({ data: created });
 });
 
-router.post('/:id/jobs', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/jobs', requirePage('maintenance_ordenes'), exigirFuncion('maintenance.ordenes.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const schema = z.object({ jobId: z.number().int().positive(), costoEstimado: z.number().min(0).default(0) });
@@ -120,7 +121,7 @@ router.post('/:id/jobs', requireRole('admin'), async (req: Request, res: Respons
   res.status(201).json({ ok: true });
 });
 
-router.post('/:id/parts', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/parts', requirePage('maintenance_ordenes'), exigirFuncion('maintenance.ordenes.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const schema = z.object({
@@ -140,7 +141,7 @@ router.post('/:id/parts', requireRole('admin'), async (req: Request, res: Respon
   res.status(201).json({ ok: true });
 });
 
-router.post('/:id/approve', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/approve', requirePage('maintenance_ordenes'), exigirFuncion('maintenance.ordenes.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [updated] = await db.update(preOrders)
@@ -153,7 +154,7 @@ router.post('/:id/approve', requireRole('admin'), async (req: Request, res: Resp
 });
 
 // Genera OT desde una preorden aprobada. Copia jobs y parts. NO descuenta inventario.
-router.post('/:id/generate-ot', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/generate-ot', requirePage('maintenance_ordenes'), exigirFuncion('maintenance.ordenes.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const numeroOt = await nextWorkOrderNumero();

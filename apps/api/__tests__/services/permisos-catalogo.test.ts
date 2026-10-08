@@ -47,7 +47,7 @@ const paginas = catalogo.filter((f) => f.tipo === 'pagina');
 const operaciones = catalogo.filter((f) => f.tipo === 'operacion');
 
 describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo era', () => {
-  it('`PAGE_GROUPS` trae 71 entradas para 70 slugs únicos: `transito` está dos veces', () => {
+  it('`PAGE_GROUPS` trae 74 entradas para 73 slugs únicos: `transito` está dos veces', () => {
     // 44 → 45 / 43 → 44 desde la HU #12375: entra `flito_tarifas` en «Finanzas».
     // 45 → 46 / 44 → 45 desde la HU #12085: entra `roles_permisos` en «Administración».
     // 46 → 47 / 45 → 46 desde la HU #12542: entra `flito_servicios_adicionales` en «Finanzas».
@@ -55,9 +55,10 @@ describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo e
     // 48 → 49 / 47 → 48 desde la HU #12623: entra `finanzas_gastos_diarios` en «Finanzas».
     // 49 → 50 / 48 → 49 desde la HU #13255: entra `perfil` en «General».
     // 50 → 71 / 49 → 70 desde la HU #13421: entran las 21 páginas por ítem del menú PESV.
+    // 71 → 74 / 70 → 73 desde la HU #13422: entran las 3 páginas por ítem del menú Mantenimiento.
     const entradas = PAGE_GROUPS.flatMap((g) => g.pages);
-    expect(entradas).toHaveLength(71);
-    expect(new Set(entradas).size).toBe(70);
+    expect(entradas).toHaveLength(74);
+    expect(new Set(entradas).size).toBe(73);
     const repetidos = entradas.filter((s, i) => entradas.indexOf(s) !== i);
     expect(repetidos).toEqual(['transito']);
   });
@@ -83,10 +84,10 @@ describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo e
     expect(catalogo.map((f) => f.codigo)).not.toContain('pagina.flito_ayuda');
   });
 
-  it('las funciones de tipo `pagina` son 70: los 71 slugs de PAGES menos `flito_ayuda`', () => {
-    // HU #13255: +1 (`perfil`). HU #13421: +21 (una por ítem del menú PESV).
-    expect(Object.keys(PAGES)).toHaveLength(71);
-    expect(paginas).toHaveLength(70);
+  it('las funciones de tipo `pagina` son 73: los 74 slugs de PAGES menos `flito_ayuda`', () => {
+    // HU #13255: +1 (`perfil`). HU #13421: +21 (una por ítem del menú PESV). HU #13422: +3 (Mantenimiento).
+    expect(Object.keys(PAGES)).toHaveLength(74);
+    expect(paginas).toHaveLength(73);
     const esperados = Object.keys(PAGES).filter((s) => s !== 'flito_ayuda').sort();
     expect(paginas.map((f) => f.codigo.replace('pagina.', '')).sort()).toEqual(esperados);
   });
@@ -173,7 +174,7 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     const codigosLegado = new Set(guardas.filter((g) => legado.has(g.fichero)).map((g) => codigoDeLlave.get(llaveDe(g))!));
     expect(operaciones).toHaveLength(guardasFlito.length + codigosLegado.size);
     expect(new Set(operaciones.map((f) => f.codigo)).size).toBe(operaciones.length);
-    expect(codigosLegado.size).toBe(25);
+    expect(codigosLegado.size).toBe(38); // 25 de la HU #13421 + 13 de la HU #13422
   });
 
   it('HU #13421 — varias guardas con el mismo código exigen IGUALDAD de reparto: una lista distinta revienta (no se une)', () => {
@@ -194,7 +195,7 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     }
   });
 
-  it('la foto cubre el alcance del Feature —incluido `users/` desde la #12083— y NO se cuela `clients`, que queda fuera', () => {
+  it('la foto cubre el alcance del Feature —incluido `users/` desde la #12083— y `clients` entra solo como legacy (HU #13422), no en el alcance FLITO', () => {
     expect(FICHEROS_EN_ALCANCE.some((f) => f.fichero.startsWith('clients/'))).toBe(false);
     expect(new Set(guardas.map((g) => g.fichero))).toEqual(new Set([...FICHEROS_EN_ALCANCE, ...FICHEROS_LEGADO_EN_ALCANCE].map((f) => f.fichero)));
     expect(guardas.some((g) => g.fichero === 'users/users.routes.ts')).toBe(true);
@@ -214,7 +215,7 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     expect(() => catalogoDeOperaciones(faltante)).toThrow(/SIN guarda viva/);
   });
 
-  it('las ocho guardas en línea van con su condición en la llave y no colisionan con la ruta que las contiene (dos son del Bug #12642, cuatro de la HU #13425)', () => {
+  it('las nueve guardas en línea van con su condición en la llave y no colisionan con la ruta que las contiene (dos son del Bug #12642, cuatro de la HU #13425, una de la HU #13422)', () => {
     const enLinea = guardas.filter((g) => g.condicion);
     expect(enLinea.map(llaveDe).sort()).toEqual([
       'flito-impuestos/flito-impuestos.routes.ts POST /export [incluirPago]',
@@ -225,7 +226,9 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       'pesv/diagnostico.routes.ts GET /:id [vistaAuditoria]',
       'tramites/tramites.routes.ts PATCH /:id [_forzarContinuar]',
       'users/users.routes.ts PATCH /:id/password [ajena]',
+      'vehicles/vehicles.routes.ts GET / [documentoCompleto]',
     ]);
+    expect(codigoDeLlave.get('vehicles/vehicles.routes.ts GET / [documentoCompleto]')).toBe('vehicles.propietario.ver_documento');
     expect(codigoDeLlave.get('flito-soat/flito-soat.routes.ts POST /export')).toBe('soat.excel.exportar');
     expect(codigoDeLlave.get('flito-soat/flito-soat.routes.ts POST /export [incluirPago]')).toBe('soat.excel.exportar_pago');
     expect(codigoDeLlave.get('tramites/tramites.routes.ts PATCH /:id')).toBe('tramite.tramite.editar');
@@ -272,7 +275,7 @@ describe('AC4 — el reparto de partida reproduce el estado de hoy (CF-16)', () 
     // queda sin pantallas el día del merge: no es un test de forma, es el seguro de la HU.
     const suyas = porRol('admin').filter((c) => c.startsWith('pagina.')).sort();
     expect(suyas).toEqual(paginas.map((f) => f.codigo).sort());
-    expect(suyas).toHaveLength(70); // HU #13255: +`pagina.perfil` (la 0218 la reparte a admin); HU #13421: +21 PESV
+    expect(suyas).toHaveLength(73); // HU #13255: +`pagina.perfil` (la 0218 la reparte a admin); HU #13421: +21 PESV; HU #13422: +3 Mantenimiento
   });
 
   it('`admin` tiene todas las operaciones salvo las tres del canal Cliente, que son de `cliente`, y la que nace sin rol (HU #13269)', () => {

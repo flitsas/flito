@@ -2,12 +2,13 @@
 
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { crearLiquidacion, listLiquidaciones, getLiquidacion, confirmarPago } from './liquidacion.service.js';
 
 const router = Router();
-router.use(authMiddleware, requireRole('admin'));
+router.use(authMiddleware);
 
 const itemSchema = z.object({
   descripcion: z.string().min(1).max(200),
@@ -30,7 +31,7 @@ const pagoSchema = z.object({
 }).strict();
 
 // POST / — crear liquidación (borrador) desde OT y/o trámite.
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', exigirFuncion('liquidacion.pago_manual.administrar'), async (req: Request, res: Response) => {
   const parsed = crearSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   try {
@@ -41,7 +42,7 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 // GET /?woId=&tramiteId= — listar liquidaciones de una OT o trámite.
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('liquidacion.pago_manual.administrar'), async (req: Request, res: Response) => {
   const woId = req.query.woId ? Number(req.query.woId) : undefined;
   const tramiteId = req.query.tramiteId ? Number(req.query.tramiteId) : undefined;
   if (!woId && !tramiteId) { res.status(400).json({ error: 'Requiere woId o tramiteId' }); return; }
@@ -50,7 +51,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // GET /:id — detalle (items + pagos).
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', exigirFuncion('liquidacion.pago_manual.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   try {
@@ -61,7 +62,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 });
 
 // POST /:id/confirmar-pago — registrar pago manual + marcar confirmada.
-router.post('/:id/confirmar-pago', async (req: Request, res: Response) => {
+router.post('/:id/confirmar-pago', exigirFuncion('liquidacion.pago_manual.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = pagoSchema.safeParse(req.body);

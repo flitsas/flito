@@ -3,12 +3,13 @@ import { z } from 'zod';
 import { eq, and, desc } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { routeRiskAnalyses, routeRiskItems } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('pesv'));
+router.use(authMiddleware);
 
 const trimestreRegex = /^[0-9]{4}-Q[1-4]$/;
 
@@ -31,7 +32,7 @@ const itemSchema = z.object({
   fechaLimite: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
 });
 
-router.get('/', async (req, res) => {
+router.get('/', requirePage('pesv_rutas'), async (req, res) => {
   const routeId = req.query.routeId ? parseInt(req.query.routeId as string, 10) : undefined;
   const conds: any[] = [];
   if (routeId) conds.push(eq(routeRiskAnalyses.routeId, routeId));
@@ -40,7 +41,7 @@ router.get('/', async (req, res) => {
   res.json({ data: rows });
 });
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', requirePage('pesv_rutas'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const [a] = await db.select().from(routeRiskAnalyses).where(eq(routeRiskAnalyses.id, id)).limit(1);
@@ -49,7 +50,7 @@ router.get('/:id', async (req, res) => {
   res.json({ ...a, items });
 });
 
-router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/', requirePage('pesv_rutas'), exigirFuncion('rutas.rutas.administrar'), async (req: Request, res: Response) => {
   const parsed = riskCreateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
   try {
@@ -69,7 +70,7 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
   }
 });
 
-router.post('/:id/aprobar', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/aprobar', requirePage('pesv_rutas'), exigirFuncion('rutas.rutas.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const result = await db.transaction(async (tx) => {
@@ -89,7 +90,7 @@ router.post('/:id/aprobar', requireRole('admin'), async (req: Request, res: Resp
   res.json(result.row);
 });
 
-router.post('/:id/items', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/items', requirePage('pesv_rutas'), exigirFuncion('rutas.rutas.administrar'), async (req: Request, res: Response) => {
   const analisisId = parseInt(req.params.id, 10);
   if (!Number.isFinite(analisisId) || analisisId <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = itemSchema.safeParse(req.body);
@@ -122,7 +123,7 @@ router.post('/:id/items', requireRole('admin'), async (req: Request, res: Respon
   }
 });
 
-router.patch('/items/:itemId', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/items/:itemId', requirePage('pesv_rutas'), exigirFuncion('rutas.rutas.administrar'), async (req: Request, res: Response) => {
   const itemId = parseInt(req.params.itemId, 10);
   if (!Number.isFinite(itemId) || itemId <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = itemSchema.partial().safeParse(req.body);
@@ -150,7 +151,7 @@ router.patch('/items/:itemId', requireRole('admin'), async (req: Request, res: R
   res.json(row);
 });
 
-router.delete('/items/:itemId', requireRole('admin'), async (req: Request, res: Response) => {
+router.delete('/items/:itemId', requirePage('pesv_rutas'), exigirFuncion('rutas.rutas.administrar'), async (req: Request, res: Response) => {
   const itemId = parseInt(req.params.itemId, 10);
   if (!Number.isFinite(itemId) || itemId <= 0) return res.status(400).json({ error: 'id inválido' });
   const [item] = await db.select().from(routeRiskItems).where(eq(routeRiskItems.id, itemId)).limit(1);

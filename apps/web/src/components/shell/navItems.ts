@@ -119,9 +119,10 @@ export const NAV_ITEMS: NavItem[] = [
   { page: 'transito',    to: '/transito',                        section: 'transito',      label: 'Bandeja de trámites',     keywords: 'transito tránsito bandeja stt placa asignar pendientes' },
   { page: 'transito_organismos', to: '/transito/organismos',      section: 'transito',      label: 'Organismos STT',          keywords: 'transito organismo secretaria logo alias configuracion modalidad autogestion admin operaciones' },
   { page: 'fleet',       to: '/fleet',                           section: 'flota',         label: 'Flota',                   keywords: 'vehiculos flota carga documentos' },
-  { page: 'maintenance', to: '/maintenance',                     section: 'mantenimiento', label: 'Mantenimiento',           keywords: 'taller orden trabajo' },
-  { page: 'maintenance', to: '/maintenance/work-orders',         section: 'mantenimiento', label: 'Órdenes de trabajo',      keywords: 'wo work order taller' },
-  { page: 'maintenance', to: '/maintenance/indicators',          section: 'mantenimiento', label: 'Indicadores mant.',       keywords: 'kpi metricas mantenimiento' },
+  // HU #13422 (ADR-0023): una página por ítem del menú Mantenimiento (`PAGINAS_MANTENIMIENTO_POR_ITEM`).
+  { page: 'maintenance_inicio', to: '/maintenance',              section: 'mantenimiento', label: 'Mantenimiento',           keywords: 'taller orden trabajo' },
+  { page: 'maintenance_ordenes', to: '/maintenance/work-orders', section: 'mantenimiento', label: 'Órdenes de trabajo',      keywords: 'wo work order taller' },
+  { page: 'maintenance_indicadores', to: '/maintenance/indicators', section: 'mantenimiento', label: 'Indicadores mant.',    keywords: 'kpi metricas mantenimiento' },
   { page: 'pesv',        to: '/pesv',                            section: 'pesv',          label: 'Tablero PESV',            keywords: 'seguridad vial conductor' },
   { page: 'pesv_conductores', to: '/pesv/conductores',                section: 'pesv',          label: 'Conductores',             keywords: 'driver licencia documentos' },
   { page: 'pesv_capacitaciones', to: '/pesv/capacitaciones',             section: 'pesv',          label: 'Capacitaciones',          keywords: 'training curso inducción' },

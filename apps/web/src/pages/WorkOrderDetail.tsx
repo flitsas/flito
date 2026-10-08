@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, FormEvent, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { api, errorMessage } from '../lib/api';
+import { api, ApiError, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useEscape } from '../lib/hooks';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
@@ -43,17 +43,25 @@ export default function WorkOrderDetail() {
   const [showAddGasto, setShowAddGasto] = useState(false);
   const [showSeguimiento, setShowSeguimiento] = useState(false);
   const [closing, setClosing] = useState<'tecnica' | 'final' | null>(null);
+  // HU #13422: los catálogos (trabajos, repuestos, bodegas) son del ítem «Mantenimiento». Sin esa
+  // página la orden se sigue viendo; solo los selectores de agregar quedan vacíos, con aviso.
+  const [sinCatalogos, setSinCatalogos] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
     try {
+      let sinPermiso = false;
+      const catalogo = <T,>(ruta: string) => api.get<{ data: T[] }>(ruta).catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 403) { sinPermiso = true; return { data: [] as T[] }; }
+        throw err;
+      });
       const [det, j, p, l] = await Promise.all([
         api.get<Detail>(`/maintenance/work-orders/${id}`),
-        api.get<{ data: Job[] }>('/maintenance/jobs'),
-        api.get<{ data: Part[] }>('/parts'),
-        api.get<{ data: Loc[] }>('/parts/locations'),
+        catalogo<Job>('/maintenance/jobs'),
+        catalogo<Part>('/parts'),
+        catalogo<Loc>('/parts/locations'),
       ]);
-      setD(det); setJobs(j.data); setParts(p.data); setLocs(l.data);
+      setD(det); setJobs(j.data); setParts(p.data); setLocs(l.data); setSinCatalogos(sinPermiso);
     } catch (err) { toast.error(errorMessage(err)); }
   }, [id]);
   useEffect(() => { load(); }, [load]);
@@ -95,6 +103,11 @@ export default function WorkOrderDetail() {
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
       <Link to="/maintenance/work-orders" className="text-xs hover:underline" style={{ color: 'var(--flit-blue)' }}>← Órdenes de trabajo</Link>
+      {sinCatalogos && (
+        <p role="status" className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>
+          No tienes acceso a «Mantenimiento»: los catálogos de trabajos y repuestos no se cargan para agregar a esta orden.
+        </p>
+      )}
       <PageHeaderCard
         title={wo.numero}
         subtitle={`${wo.tipoTrabajo} · vehículo #${wo.vehicleId}${wo.falla ? ` · Falla: ${wo.falla}` : ''}`}

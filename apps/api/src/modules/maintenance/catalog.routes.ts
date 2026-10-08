@@ -3,12 +3,13 @@ import { z } from 'zod';
 import { eq, ilike, and, asc, sql, isNull } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { maintenanceSystems, maintenanceSubsystems, maintenanceJobs, users } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('maintenance'));
+router.use(authMiddleware);
 
 function parseId(raw: string): number | null {
   const n = parseInt(raw, 10);
@@ -17,7 +18,7 @@ function parseId(raw: string): number | null {
 
 // ------ Sistemas ------
 
-router.get('/systems', async (_req, res: Response) => {
+router.get('/systems', requirePage('maintenance_inicio'), async (_req, res: Response) => {
   const rows = await db.select().from(maintenanceSystems)
     .where(eq(maintenanceSystems.activo, true))
     .orderBy(asc(maintenanceSystems.orden));
@@ -30,7 +31,7 @@ const systemSchema = z.object({
   orden: z.number().int().min(0).max(9999).default(100),
 });
 
-router.post('/systems', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/systems', requirePage('maintenance_inicio'), exigirFuncion('maintenance.inicio.administrar'), async (req: Request, res: Response) => {
   const parsed = systemSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validación', details: parsed.error.flatten() }); return; }
   const [created] = await db.insert(maintenanceSystems).values(parsed.data).returning();
@@ -40,7 +41,7 @@ router.post('/systems', requireRole('admin'), async (req: Request, res: Response
 
 // ------ Subsistemas ------
 
-router.get('/subsystems', async (req: Request, res: Response) => {
+router.get('/subsystems', requirePage('maintenance_inicio'), async (req: Request, res: Response) => {
   const systemId = req.query.systemId ? parseId(String(req.query.systemId)) : null;
   const cond = systemId
     ? and(eq(maintenanceSubsystems.activo, true), eq(maintenanceSubsystems.systemId, systemId))
@@ -55,7 +56,7 @@ const subsystemSchema = z.object({
   nombre: z.string().min(1).max(80),
 });
 
-router.post('/subsystems', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/subsystems', requirePage('maintenance_inicio'), exigirFuncion('maintenance.inicio.administrar'), async (req: Request, res: Response) => {
   const parsed = subsystemSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validación', details: parsed.error.flatten() }); return; }
   const [created] = await db.insert(maintenanceSubsystems).values(parsed.data).returning();
@@ -65,7 +66,7 @@ router.post('/subsystems', requireRole('admin'), async (req: Request, res: Respo
 
 // ------ Jobs (trabajos atómicos) ------
 
-router.get('/jobs', async (req: Request, res: Response) => {
+router.get('/jobs', requirePage('maintenance_inicio'), async (req: Request, res: Response) => {
   const q = req.query.q ? String(req.query.q).slice(0, 100) : null;
   const systemId = req.query.systemId ? parseId(String(req.query.systemId)) : null;
   const conds = [eq(maintenanceJobs.activo, true)];
@@ -84,7 +85,7 @@ const jobSchema = z.object({
   descripcion: z.string().max(2000).optional().nullable(),
 });
 
-router.post('/jobs', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/jobs', requirePage('maintenance_inicio'), exigirFuncion('maintenance.inicio.administrar'), async (req: Request, res: Response) => {
   const parsed = jobSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validación', details: parsed.error.flatten() }); return; }
   const [created] = await db.insert(maintenanceJobs).values(parsed.data as any).returning();
@@ -92,7 +93,7 @@ router.post('/jobs', requireRole('admin'), async (req: Request, res: Response) =
   res.status(201).json({ data: created });
 });
 
-router.patch('/jobs/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/jobs/:id', requirePage('maintenance_inicio'), exigirFuncion('maintenance.inicio.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = jobSchema.partial().safeParse(req.body);
@@ -105,7 +106,7 @@ router.patch('/jobs/:id', requireRole('admin'), async (req: Request, res: Respon
 
 // ------ Mecánicos (vista filtrada de users) ------
 
-router.get('/mechanics', async (_req, res: Response) => {
+router.get('/mechanics', requirePage('maintenance_inicio'), async (_req, res: Response) => {
   const rows = await db.select({
     id: users.id,
     name: users.name,
@@ -125,7 +126,7 @@ const mechanicSchema = z.object({
   especialidades: z.array(z.string().max(60)).max(20).optional(),
 });
 
-router.patch('/mechanics/:userId', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/mechanics/:userId', requirePage('maintenance_inicio'), exigirFuncion('maintenance.inicio.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.userId);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = mechanicSchema.safeParse(req.body);
