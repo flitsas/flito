@@ -8,7 +8,7 @@ import { clients, flitoGestorOrganismos, permisosRoles, users } from '../../db/s
 import { env } from '../../config/env.js';
 import { authMiddleware, blacklistToken } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
-import { paginasEfectivasDeUsuario } from '../../shared/permisos-efectivos.js';
+import { paginasEfectivasDeUsuario, resolverPermisos, type PermisosResueltos } from '../../shared/permisos-efectivos.js';
 import { checkLockout, registerFailed, clearLockout } from './loginLockout.js';
 import { isUserLaftBlocked } from '../laft/employees/auth-block.service.js';
 import { laftAudit } from '../laft/audit.service.js';
@@ -99,9 +99,10 @@ router.post('/login', async (req: Request, res: Response) => {
   // Las páginas EFECTIVAS, como vista del resolutor único (HU #12082). Ya no viajan en el token:
   // cada petición resuelve contra la base (`resolverPermisos`, RN-A5). El sobre las lleva solo para
   // pintar el menú; la decisión la toma `exigirFuncion` en cada ruta.
-  const paginas = await paginasEfectivasDeUsuario(user.id);
   // HU #12088: el código del token sale de la puente, no de users.transito_codigo (obsoleta).
   const transitoCodigo = await transitoCodigoDesdePuente(user.id);
+  // HU #13425: páginas, funciones e indicador del canal SOAT, de la misma foto que `/me`.
+  const sobre = await sobreDePermisos(user.id, user.companiaId);
 
   const token = await new SignJWT({
     sub: String(user.id),
@@ -126,9 +127,8 @@ router.post('/login', async (req: Request, res: Response) => {
     user: {
       id: user.id, name: user.name, username: user.username, email: user.email ?? null, role: user.role,
       rolNombre: user.rolNombre ?? null,
-      allowedPages: paginas,
       transitoCodigo,
-      puedeSolicitarSoat: await puedeSolicitarSoat({ role: user.role, companiaId: user.companiaId }),
+      ...sobre,
     },
   });
 });
@@ -146,14 +146,32 @@ router.post('/login', async (req: Request, res: Response) => {
  * `allowedPages`: la SPA usa ese sobre hasta el reload, y un flag ausente pinta el canal apagado
  * (Bug #11937). `companiaId` no sale en ninguna de las dos respuestas.
  *
- * `false` para los otros once roles SIN consultar nada: el JOIN a `clients` es solo para `cliente`
- * con `companiaId`. Un JOIN aquí lo pagarían todos los logins del producto por un dato que solo usa uno.
+ * HU #13425: se decide por la FUNCIÓN `soat.solicitud.crear` del conjunto efectivo (la misma foto
+ * que guarda los endpoints del canal), por el TIPO de principal (externo: el canal Cliente; un interno
+ * de la cola SOAT con compañía no radica por este canal — riesgo R1 del diseño) y por la compañía
+ * enlazada y su flag — nunca por el nombre del rol. Si falta algo, `false` sin consultar `clients`:
+ * el JOIN solo lo paga quien puede radicar.
  */
-async function puedeSolicitarSoat(user: { role: string; companiaId: number | null }): Promise<boolean> {
-  if (user.role !== 'cliente' || !user.companiaId) return false;
+async function puedeSolicitarSoat(p: PermisosResueltos, companiaId: number | null): Promise<boolean> {
+  if (!p.ok || p.tipoPrincipal !== 'externo' || !p.funciones.has('soat.solicitud.crear') || !companiaId) return false;
   const [compania] = await db.select({ sinTramite: clients.soatSinTramite })
-    .from(clients).where(eq(clients.id, user.companiaId)).limit(1);
+    .from(clients).where(eq(clients.id, companiaId)).limit(1);
   return compania?.sinTramite === true;
+}
+
+/**
+ * HU #13425 — Lo que la sesión sabe de los permisos del usuario, de UNA lectura del resolutor
+ * (cacheado 60 s): páginas, funciones efectivas (códigos, ordenados) y el indicador del canal SOAT.
+ * Con el resolutor en `ok:false` todo sale vacío/`false` (falla cerrado; el servidor decide igual).
+ */
+async function sobreDePermisos(userId: number, companiaId: number | null) {
+  const p = await resolverPermisos(userId);
+  const funciones: ReadonlySet<string> = p.ok ? p.funciones : new Set<string>();
+  return {
+    allowedPages: await paginasEfectivasDeUsuario(userId),
+    funciones: [...funciones].sort(),
+    puedeSolicitarSoat: await puedeSolicitarSoat(p, companiaId),
+  };
 }
 
 router.get('/me', authMiddleware, async (req: Request, res: Response) => {
@@ -192,8 +210,7 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
     email: publico.email ?? null,
     rolNombre: publico.rolNombre ?? null,
     transitoCodigo,
-    allowedPages: await paginasEfectivasDeUsuario(req.user!.sub),
-    puedeSolicitarSoat: await puedeSolicitarSoat({ role: user.role, companiaId }),
+    ...(await sobreDePermisos(req.user!.sub, companiaId)),
   });
 });
 

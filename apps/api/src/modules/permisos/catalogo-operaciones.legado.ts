@@ -91,6 +91,9 @@ export const OPERACIONES_DECLARADAS_LEGADO: OperacionDeclarada[] = [
   op(`${PESV_DIA} GET /:id/preflight`, 'pesv.diagnostico_consulta.administrar'),
   op(`${PESV_DIA} POST /:id/cerrar`, 'pesv.diagnostico.administrar'),
   op(`${PESV_DIA} GET /:id/items/:estandarId/historial`, 'pesv.diagnostico_consulta.administrar'),
+  // HU #13425: en línea en el detalle (antes, por nombre de rol).
+  op(`${PESV_DIA} GET /:id [vistaAuditoria]`, 'pesv.diagnostico_consulta.administrar'),
+  op(`${PESV_DIA} GET /:id [sugerirAuditoria]`, 'pesv.diagnostico.administrar'),
   op(`${PESV_EVI} POST /:id/items/:estandarId/evidencias`, 'pesv.diagnostico.administrar'),
   op(`${PESV_EVI} DELETE /:id/items/:estandarId/evidencias/:keyHash`, 'pesv.diagnostico.administrar'),
   op(`${PESV_EVI} GET /:id/items/:estandarId/evidencias/:keyHash`, 'pesv.diagnostico_consulta.administrar'),
@@ -158,5 +161,7 @@ export const OPERACIONES_DECLARADAS_LEGADO: OperacionDeclarada[] = [
   op(`${JOR} GET /`, 'jornadas.control.administrar'),
   op(`${JOR} POST /alarmas/:alarmaId/ack`, 'jornadas.control.administrar'),
   op(`${JOR} POST /reporte-mensual/regenerar`, 'jornadas.control.administrar'),
+  // HU #13425: en línea (`operaJornadaAjena`) para las 6 rutas de «jornada de otro conductor».
+  op(`${JOR} POST /abrir [jornadaAjena]`, 'jornadas.control.administrar'),
   op(`${RUM} GET /summary`, 'rum.resumen.ver'),
 ];

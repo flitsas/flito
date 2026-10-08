@@ -1,15 +1,17 @@
 // Helper para encolar emails de notificación PESV vía notification_outbox.
 // El cron rndc/retry.cron.ts envía outbox con retry exponencial; aquí solo INSERT.
 //
-// Si pesvAlertRecipients env no está, fallback: emails de admins activos.
+// Si pesvAlertRecipients env no está, fallback: emails de quien administra el control de jornada
+// (función `jornadas.control.administrar`, HU #13425 — antes, por nombre de rol).
 // Diseño: nunca lanzamos throw aquí — la notificación es best-effort. Una falla en outbox
 // no debe abortar el cierre de jornada / reporte mensual / etc.
 
 import { db } from '../../db/client.js';
 import { notificationOutbox, users } from '../../db/schema.js';
-import { eq, and, isNotNull, isNull } from 'drizzle-orm';
+import { eq, and, isNotNull, isNull, inArray } from 'drizzle-orm';
 import { pesvAlertRecipients } from '../../config/env.js';
 import { loggerFor } from '../../shared/logger.js';
+import { usuariosConFuncion } from '../../shared/permisos-efectivos.js';
 
 const log = loggerFor('jornadas-notify');
 
@@ -22,11 +24,15 @@ const ALARMA_LABELS: Record<string, string> = {
 };
 
 export async function getAdminEmails(): Promise<string[]> {
-  // Recipientes configurables vía env; si vacío, fallback admins activos.
+  // Recipientes configurables vía env; si vacío, fallback a quien atiende las alarmas: la función
+  // `jornadas.control.administrar` (la que guarda el ack). La 0227 la siembra solo a `admin`, así que
+  // el conjunto es el mismo de antes; ya no depende del nombre del rol (HU #13425).
   if (pesvAlertRecipients.length) return pesvAlertRecipients;
+  const ids = await usuariosConFuncion('jornadas.control.administrar');
+  if (ids.length === 0) return [];
   const rows = await db.select({ email: users.email })
     .from(users)
-    .where(and(eq(users.role, 'admin'), eq(users.active, true), isNotNull(users.email), isNull(users.deletedAt)));
+    .where(and(inArray(users.id, ids), eq(users.active, true), isNotNull(users.email), isNull(users.deletedAt)));
   return rows.map((r) => r.email!).filter(Boolean);
 }
 

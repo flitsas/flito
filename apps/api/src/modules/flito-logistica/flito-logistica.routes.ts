@@ -6,7 +6,7 @@ import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { EstadoDocumentoLogistica } from '@operaciones/shared-types';
 import { authMiddleware } from '../../shared/middleware/auth.js';
-import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
+import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
   actaDetalle, buscarIdempotencia, cerrarLote, despachar, entregar, escanearLt, facetas,
@@ -18,8 +18,21 @@ const router = Router();
 router.use(authMiddleware);
 
 
+/**
+ * Contexto de las operaciones SIN regla de propiedad (escanear, novedad, lote, despacho, reversa):
+ * `operaAjenas` no se consulta ahí, así que va en `false` (cerrado) sin preguntar al resolutor.
+ */
 function ctxDe(user: { sub: number; username: string; role: string }): LogisticaCtx {
-  return { userId: user.sub, username: user.username, role: user.role };
+  return { userId: user.sub, username: user.username, role: user.role, operaAjenas: false };
+}
+
+/**
+ * Contexto de las operaciones CON regla de propiedad (mi ruta, entregar, devolver; CA-11). HU #13425:
+ * quién opera actas ajenas lo decide la función `logistica.actas.operar_ajenas`, no el nombre del rol.
+ * Es la única guarda en línea del fichero, en un solo sitio para las tres rutas.
+ */
+async function ctxConPropiedad(req: Request): Promise<LogisticaCtx> {
+  return { ...ctxDe(req.user!), operaAjenas: await tieneFuncion(req, 'logistica.actas.operar_ajenas') };
 }
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined);
@@ -76,7 +89,7 @@ router.get('/facetas', exigirFuncion('logistica.consola.filtrar'), async (_req: 
 
 // GET /mi-ruta — ruta del mensajero (PWA): recogidas por organismo + entregas asignadas (CA-11).
 router.get('/mi-ruta', exigirFuncion('logistica.ruta.ver'), async (req: Request, res: Response) => {
-  res.json(await miRuta(ctxDe(req.user!)));
+  res.json(await miRuta(await ctxConPropiedad(req)));
 });
 
 // GET /actas — panel de despacho/entrega (todas las actas con su estado y mensajero).
@@ -172,7 +185,7 @@ router.post('/actas/:id/entregar', exigirFuncion('logistica.actas.entregar'), as
   const parsed = entregarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   await conIdempotencia(req, res, async () => {
-    const r = await entregar(req.params.id, parsed.data, ctxDe(req.user!));
+    const r = await entregar(req.params.id, parsed.data, await ctxConPropiedad(req));
     await audit(req, { action: 'update', resource: 'flito_logistica_acta', resourceId: req.params.id, detail: `Entrega a ${parsed.data.receptorNombre}` });
     return { body: r };
   });
@@ -183,7 +196,7 @@ router.post('/actas/:id/devolucion', exigirFuncion('logistica.actas.devolver'), 
   const parsed = motivoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
   await conIdempotencia(req, res, async () => {
-    const r = await registrarDevolucion(req.params.id, parsed.data.motivo, ctxDe(req.user!));
+    const r = await registrarDevolucion(req.params.id, parsed.data.motivo, await ctxConPropiedad(req));
     await audit(req, { action: 'update', resource: 'flito_logistica_acta', resourceId: req.params.id, detail: `Devolución: ${parsed.data.motivo}` });
     return { body: r };
   });

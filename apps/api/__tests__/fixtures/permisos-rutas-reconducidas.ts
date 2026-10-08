@@ -179,6 +179,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/cerrar-lote', codigo: 'logistica.lote.cerrar' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/actas/:id/despachar', codigo: 'logistica.actas.despachar' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/actas/:id/entregar', codigo: 'logistica.actas.entregar' },
+  // HU #13425: en línea (`ctxConPropiedad`): sin ella, cada usuario solo opera sus propias actas.
+  { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/actas/:id/entregar', condicion: 'operarAjenas', codigo: 'logistica.actas.operar_ajenas' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/actas/:id/devolucion', codigo: 'logistica.actas.devolver' },
   { fichero: 'flito-logistica/flito-logistica.routes.ts', metodo: 'POST', ruta: '/documentos/:id/reversar', codigo: 'logistica.documento.reversar' },
   // flito-conciliacion/flito-conciliacion.routes.ts

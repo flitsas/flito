@@ -37,8 +37,9 @@ const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*])/;
 const PASSWORD_MSG = 'Mín 8 caracteres, 1 mayúscula, 1 minúscula, 1 número, 1 especial';
 // Cambio de contraseña — auth solo; el handler decide: la propia siempre, la AJENA con la función
 // `usuarios.contrasena.cambiar_ajena` (guarda en línea, HU #12083; de partida solo `admin`).
-// HU #13255: un principal EXTERNO (canal Cliente) solo cambia la SUYA y solo con `pagina.perfil`;
-// la ajena le está vedada aunque tenga `cambiar_ajena`. Freno por usuario: `passwordChangeLimiter`.
+// HU #13255: un principal EXTERNO (canal Cliente) solo cambia la SUYA; la ajena le está vedada aunque
+// tenga `cambiar_ajena`. HU #13425 (AC4): la propia ya no exige `pagina.perfil` (nadie se queda sin
+// poder cambiar su contraseña); el resto de Perfil sigue con su guarda. Freno por usuario: `passwordChangeLimiter`.
 const passwordSchema = z.object({
     currentPassword: z.string().min(1),
     newPassword: z.string().min(8).regex(PASSWORD_REGEX, PASSWORD_MSG),
@@ -57,7 +58,10 @@ router.patch('/:id/password', authMiddleware, passwordChangeLimiter, async (req:
         // como una OPERACIÓN montada del catálogo, y `pagina.perfil` es una página.
         const p = await resolverPermisos(req.user!.sub);
         const externo = !p.ok || p.tipoPrincipal === 'externo';
-        if (externo && (req.user!.sub !== id || !p.ok || !p.funciones.has('pagina.perfil'))) {
+        // HU #13425 (AC4, decisión del PO del 2026-10-07): la contraseña PROPIA se cambia siempre, sin el
+        // permiso de Perfil, para internos y externos; la ajena le sigue vedada al externo. Un resolutor
+        // que no decide (`ok:false`) sigue cerrando, también para la propia.
+        if (!p.ok || (externo && req.user!.sub !== id)) {
             res.status(403).json({ error: 'Sin permisos' });
             return;
         }
