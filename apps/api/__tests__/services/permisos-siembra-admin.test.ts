@@ -6,7 +6,8 @@
 // función dejaba la API sin arrancar). Ahora:
 //
 //   1. Toda migración ≥ 0226 que INSERTE en `permisos_funciones` marca a `admin` cada código nuevo en
-//      el MISMO archivo: una fila literal `('admin', '<codigo>')` en `permisos_rol_funcion`, o el
+//      el MISMO archivo: una fila literal `('admin', '<codigo>')` en `permisos_rol_funcion` (en un
+//      `VALUES` directo o en el `FROM (VALUES …) AS v(rol, fn) JOIN permisos_roles` de la 0227), o el
 //      `SELECT 'admin', … FROM permisos_funciones` genérico (con su `NOT IN` de exclusiones, si lo hay).
 //      Las únicas funciones que pueden quedar sin `admin` son `EXCLUIDAS_DE_ADMIN`, y ninguna
 //      migración ≥ 0226 puede marcárselas.
@@ -18,6 +19,7 @@ import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { catalogoCompleto } from '../../src/modules/permisos/catalogo.js';
+import { bloquesInsertSiRolExiste } from '../helpers/permisos-seed-sql.js';
 
 /**
  * Las tres funciones del canal SOAT sin trámite que `admin` NO tiene (decisión del PO del 2026-10-07).
@@ -70,11 +72,14 @@ export function marcaAAdmin(sql: string, codigo: string): boolean {
   const limpio = sinComentarios(sql);
   const excluidas = exclusionesDelSelectGenerico(sql);
   if (excluidas !== null && !excluidas.includes(codigo)) return true;
+  const fila = new RegExp(`\\(\\s*'admin'\\s*,\\s*'${codigo.replace(/\./g, '\\.')}'\\s*\\)`, 'i');
   for (const m of limpio.matchAll(/insert\s+into\s+permisos_rol_funcion\s*\([^)]*\)\s*values([\s\S]*?);/gi)) {
-    const fila = new RegExp(`\\(\\s*'admin'\\s*,\\s*'${codigo.replace(/\./g, '\\.')}'\\s*\\)`, 'i');
     if (fila.test(m[1])) return true;
   }
-  return false;
+  // HU #13421 (0227 corregida): `SELECT v.rol, v.fn FROM (VALUES ('admin', '<codigo>'), …) AS v(rol, fn)
+  // JOIN permisos_roles r ON r.codigo = v.rol` — la fila literal de `admin` dentro de ese VALUES cuenta
+  // igual: `admin` existe en todo ambiente, así que el JOIN no la filtra. Mismo lector que la paridad.
+  return bloquesInsertSiRolExiste(sql).some((bloque) => fila.test(bloque));
 }
 
 /** Los códigos que un archivo siembra sin marcarlos a `admin`. */
@@ -106,6 +111,11 @@ ON CONFLICT (codigo) DO NOTHING;`;
     const sql = `${SIEMBRA}\nINSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo)\nSELECT 'admin', f.codigo FROM permisos_funciones f\nWHERE f.codigo NOT IN ('pagina.nueva')\nON CONFLICT DO NOTHING;`;
     expect(exclusionesDelSelectGenerico(sql)).toEqual(['pagina.nueva']);
     expect(sinMarcarAAdmin(sql)).toEqual(['pagina.nueva']);
+  });
+
+  it('el reparto `FROM (VALUES …) AS v(rol, fn) JOIN permisos_roles` (0227) cuenta la fila de `admin` y solo esa', () => {
+    const sql = `${SIEMBRA}\nINSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo)\nSELECT v.rol, v.fn FROM (VALUES\n  ('admin', 'pagina.nueva'), ('gerente', 'modulo.nueva.ver')\n) AS v(rol, fn)\nJOIN permisos_roles r ON r.codigo = v.rol\nON CONFLICT (rol_codigo, funcion_codigo) DO NOTHING;`;
+    expect(sinMarcarAAdmin(sql)).toEqual(['modulo.nueva.ver']);
   });
 
   it('un comentario que menciona la marca no cuenta como marca', () => {
