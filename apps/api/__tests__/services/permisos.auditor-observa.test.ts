@@ -10,7 +10,10 @@
 // motor con `ver` para admin, financiera y auditor, con el mismo alcance que la `LECTURA` del reporte
 // de costos (ADR-0017); `asignar` y `quitar` se quedan en admin y financiera. 43. La HU #12997 le da
 // el detalle de las incompletas SOAT (GET): 44, y la búsqueda (`POST …/buscar`, PII en el cuerpo), que
-// es la única lectura por POST y va en `LECTURAS_POR_POST`.
+// es la única lectura por POST y va en `LECTURAS_POR_POST`. La HU #13422 trae al motor las dos
+// `LECTURA` legacy por rol (admin, auditor, financiera): `clients.clientes.ver` (GET) y
+// `finanzas.reporte_costos.ver`, que cubre los GET del reporte Y sus dos `POST …/export` —el auditor ya
+// exportaba con aquella `LECTURA`—: 46, y la exportación va en `EXPORTACIONES_POR_POST`.
 //
 // Tres asertos sobre el auditor, contra el SEED parseado (0179 + 0181, `helpers/permisos-seed-sql.ts`),
 // no contra la foto ni el catálogo: lo que decide en producción es lo sembrado.
@@ -49,7 +52,10 @@ export const LECTURAS_DEL_AUDITOR = {
   usuarios: ['usuarios.auditoria.ver', 'usuarios.auditoria.filtrar'],
   // HU #12545 / ADR-0017 — los servicios adicionales asignados a un trámite: el GET los concede a
   // admin, financiera y auditor; `asignar` y `quitar` (POST / DELETE) no son del auditor.
-  finanzas: ['finanzas.servicios_adicionales.ver'],
+  // HU #13422: + el reporte de costos (sus GET; sus exportaciones POST, en EXPORTACIONES_POR_POST).
+  finanzas: ['finanzas.servicios_adicionales.ver', 'finanzas.reporte_costos.ver'],
+  // HU #13422: el listado de clientes y proveedores (la `LECTURA` legacy por rol).
+  clients: ['clients.clientes.ver'],
 } as const;
 
 /**
@@ -65,6 +71,13 @@ const VERBOS_DE_EJECUCION = /\.(accionar|activar|asignar|asumir|borrar|buscar|ca
  */
 const LECTURAS_POR_POST = ['soat.incompletas.buscar'] as const;
 
+/**
+ * HU #13422 — códigos de LECTURA cuyas guardas son GET y, además, `POST …/export` (descargar el mismo
+ * reporte que se lee). Es la `LECTURA` legacy del reporte de costos, que ya cubría el export para el
+ * auditor. El aserto exige que sus guardas no-GET sean todas `POST …/export` con `auditor`.
+ */
+const EXPORTACIONES_POR_POST = ['finanzas.reporte_costos.ver'] as const;
+
 const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
 const codigoDe = (g: (typeof GUARDAS_MEDIDAS)[number]) => codigoDeLlave.get(llaveDe(g))!;
 const sembrado = leerRepartoSembrado();
@@ -73,9 +86,10 @@ const operacionesDe = (rol: string) => [...(sembrado.get(rol) ?? [])].filter((c)
 describe('AC6 — el auditor conserva todas las lecturas y ninguna ejecución', () => {
   const esperadas: string[] = Object.values(LECTURAS_DEL_AUDITOR).flat().slice().sort();
   const porPost = new Set<string>(LECTURAS_POR_POST);
+  const exportan = new Set<string>(EXPORTACIONES_POR_POST);
 
-  it('la lista fijada son 44 códigos, todos de rutas GET de la foto con `auditor`', () => {
-    expect(esperadas).toHaveLength(44);
+  it('la lista fijada son 46 códigos, todos de rutas GET de la foto con `auditor`', () => {
+    expect(esperadas).toHaveLength(46);
     const enFoto = new Set(GUARDAS_MEDIDAS.filter((g) => g.metodo === 'GET' && g.roles.includes('auditor')).map(codigoDe));
     expect([...enFoto].sort()).toEqual(esperadas);
   });
@@ -91,7 +105,20 @@ describe('AC6 — el auditor conserva todas las lecturas y ninguna ejecución', 
     }
   });
 
-  it('(1) el seed le da EXACTAMENTE esos 44 más las lecturas por POST: ni uno más, ni uno menos', () => {
+  it('HU #13422 — las exportaciones por POST: sus guardas no-GET son todas `POST …/export` con `auditor`', () => {
+    for (const c of EXPORTACIONES_POR_POST) {
+      const noGet = GUARDAS_MEDIDAS.filter((g) => codigoDe(g) === c && g.metodo !== 'GET');
+      expect(noGet.length, c).toBeGreaterThan(0);
+      for (const g of noGet) {
+        expect(g.metodo, llaveDe(g)).toBe('POST');
+        expect(g.ruta, llaveDe(g)).toMatch(/\/export$/);
+        expect(g.condicion).toBeUndefined();
+        expect(g.roles).toContain('auditor');
+      }
+    }
+  });
+
+  it('(1) el seed le da EXACTAMENTE esos 46 más las lecturas por POST: ni uno más, ni uno menos', () => {
     const suyas = operacionesDe('auditor').filter((c) => !porPost.has(c));
     for (const c of LECTURAS_POR_POST) expect(operacionesDe('auditor'), c).toContain(c);
     const deMas = suyas.filter((c) => !esperadas.includes(c));
@@ -102,7 +129,7 @@ describe('AC6 — el auditor conserva todas las lecturas y ninguna ejecución', 
 
   it('(2) ninguno de sus códigos es de una ruta no-GET de la foto ni de una guarda en línea', () => {
     const noLectura = new Set(GUARDAS_MEDIDAS.filter((g) => g.metodo !== 'GET' || g.condicion).map(codigoDe));
-    expect(operacionesDe('auditor').filter((c) => noLectura.has(c) && !porPost.has(c))).toEqual([]);
+    expect(operacionesDe('auditor').filter((c) => noLectura.has(c) && !porPost.has(c) && !exportan.has(c))).toEqual([]);
   });
 
   it('(3) ninguno de sus códigos termina en verbo de ejecución', () => {

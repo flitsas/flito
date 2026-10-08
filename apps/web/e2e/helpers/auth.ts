@@ -217,6 +217,15 @@ const PESV_TRANSITORIAS = [
   'rum.resumen.ver',
 ] as const;
 
+/** HU #13422: los 13 códigos de la 0229 (todos a `admin`; las dos lecturas también a auditor y financiera). */
+const LECTURAS_13422 = ['clients.clientes.ver', 'finanzas.reporte_costos.ver'] as const;
+const OPERACION_13422 = [
+  'maintenance.inicio.administrar', 'maintenance.ordenes.administrar', 'liquidacion.pago_manual.administrar',
+  'vehicles.vehiculos.administrar', 'vehicles.propietario.ver_documento', 'fleet.flota.administrar',
+  'rndc.credenciales.administrar', 'rndc.manifiestos.administrar', 'rutas.rutas.administrar',
+  'rutas.pernocta.administrar', 'clients.clientes.administrar', ...LECTURAS_13422,
+] as const;
+
 export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
   admin: [
     ...SOAT_LEER, 'soat.comprobante.cargar', 'soat.solicitud.enviar',
@@ -269,6 +278,8 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     // HU #13421 (0226, ADR-0023): operaciones de los módulos legacy PESV/drivers/jornadas/RUM,
     // sembradas a `admin` (las «administrar» son transitorias; `rum.resumen.ver` es permanente).
     ...PESV_TRANSITORIAS,
+    // HU #13422 (0229, ADR-0023): los ocho directorios de operación, sembrados a `admin`.
+    ...OPERACION_13422,
   ],
   // HU #13421 (0226): lo que la migración siembra a los roles PESV; el conductor no recibe ninguna.
   lider_pesv: [
@@ -290,12 +301,13 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     'impuestos.cola.ver', 'impuestos.recibos.cargar', 'impuestos.tramite.certificar',
     'impuestos.certificado.descargar',
   ],
-  auditor: [...SOAT_LEER, 'impuestos.cola.ver', 'tablero.tablero.ver', SERVICIOS_DE_TRAMITE_VER, 'tramites.tramite.ver_soportes'],
+  auditor: [...SOAT_LEER, 'impuestos.cola.ver', 'tablero.tablero.ver', SERVICIOS_DE_TRAMITE_VER, 'tramites.tramite.ver_soportes', ...LECTURAS_13422],
 
   financiera: [
     'liquidacion.liquidacion.liquidar', 'liquidacion.liquidacion.facturar', ...SERVICIOS_ADICIONALES,
     SERVICIOS_DE_TRAMITE_VER, ...SERVICIOS_DE_TRAMITE_ESCRIBIR,
     ...COMPROBANTES,
+    ...LECTURAS_13422,
   ],
   transito: ['transito.tramite.tomar', 'transito.bandeja.ver_pendientes'],
   mensajero: [],

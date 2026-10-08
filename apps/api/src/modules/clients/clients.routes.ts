@@ -15,7 +15,8 @@ import {
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { clients, flitoProveedoresSoat } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { maskName } from '../../shared/utils/pii.js';
 import {
@@ -124,7 +125,8 @@ export function incoherenciasFiscales(fila: {
 // Lectura alineada con la del módulo fusionado (HU #10979): antes bastaba con estar autenticado,
 // mientras que su gemelo `GET /flito/parametrizacion/companias` —la misma tabla— exigía rol. Dos
 // puertas distintas a los mismos datos no es una decisión, es un descuido.
-const LECTURA = requireRole('admin', 'auditor', 'financiera');
+// HU #13422 (ADR-0023): la lectura la decide `clients.clientes.ver` (sembrada a admin, auditor y
+// financiera, la lista que exigía el rol) y escribir, el transitorio `clients.clientes.administrar`.
 
 /**
  * Campos fiscales que se pueden escribir en la auditoría tal cual.
@@ -211,7 +213,7 @@ async function parejaOcupada(document: string, branchOffice: number, excluirId?:
  * El porqué de sacarlo por esta ruta y no por parametrización está en `clients.pii.ts`, junto a la
  * proyección: `financiera` ve esta pantalla y no aquella.
  */
-router.get('/', LECTURA, async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('clients.clientes.ver'), async (req: Request, res: Response) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
   const result = await db.select(COLUMNAS_LISTADO_CON_GESTOR).from(clients)
@@ -221,7 +223,7 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
   res.json(result.map(clienteListadoDto));
 });
 
-router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/', exigirFuncion('clients.clientes.administrar'), async (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
 
@@ -263,7 +265,7 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
   res.status(201).json(client);
 });
 
-router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/:id', exigirFuncion('clients.clientes.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = createSchema.partial().safeParse(req.body);

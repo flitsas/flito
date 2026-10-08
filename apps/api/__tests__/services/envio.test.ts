@@ -43,6 +43,14 @@ vi.mock('../../src/modules/rndc/operaciones.repo.js', () => ({
   logOperacion: logOperacionMock,
 }));
 
+// HU #13422: los destinatarios del aviso de envío fallido son quienes tienen `rndc.manifiestos.administrar`
+// (antes, `users.role = 'admin'`). El resolutor se sustituye: aquí solo importa que se pregunte por ESA función.
+const usuariosConFuncionMock = vi.fn().mockResolvedValue([1]);
+vi.mock('../../src/shared/permisos-efectivos.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/shared/permisos-efectivos.js')>()),
+  usuariosConFuncion: usuariosConFuncionMock,
+}));
+
 const VALID_CREDS = {
   creds: {
     numNit: '900123456-1',
@@ -372,6 +380,7 @@ describe('envio.service — llamada SOAP', () => {
     expect(r.ok).toBe(false);
     expect(r.estadoFinal).toBe('fallido_definitivo');
     expect(logOperacionMock).toHaveBeenCalledWith(expect.objectContaining({ resultado: 'error_negocio' }));
+    expect(usuariosConFuncionMock).toHaveBeenCalledWith('rndc.manifiestos.administrar');
   });
 
   it('SOAP duplicate (ER07) → reconcilia consultando estado → aceptado', async () => {

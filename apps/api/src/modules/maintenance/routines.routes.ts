@@ -6,12 +6,13 @@ import {
   maintenanceRoutines, routineJobs, routineParts, routinePeriodicity,
   maintenanceSchedule, vehicles,
 } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('maintenance'));
+router.use(authMiddleware);
 
 function parseId(raw: string): number | null {
   const n = parseInt(raw, 10);
@@ -20,14 +21,14 @@ function parseId(raw: string): number | null {
 
 // ------ Rutinas ------
 
-router.get('/', async (_req, res: Response) => {
+router.get('/', requirePage('maintenance_inicio'), async (_req, res: Response) => {
   const rows = await db.select().from(maintenanceRoutines)
     .where(eq(maintenanceRoutines.activo, true))
     .orderBy(asc(maintenanceRoutines.codigo));
   res.json({ data: rows });
 });
 
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', requirePage('maintenance_inicio'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [routine] = await db.select().from(maintenanceRoutines).where(eq(maintenanceRoutines.id, id)).limit(1);
@@ -46,7 +47,7 @@ const routineSchema = z.object({
   descripcion: z.string().max(2000).optional().nullable(),
 });
 
-router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/', requirePage('maintenance_inicio'), exigirFuncion('maintenance.inicio.administrar'), async (req: Request, res: Response) => {
   const parsed = routineSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validación', details: parsed.error.flatten() }); return; }
   const [created] = await db.insert(maintenanceRoutines).values(parsed.data).returning();
@@ -54,7 +55,7 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
   res.status(201).json({ data: created });
 });
 
-router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/:id', requirePage('maintenance_inicio'), exigirFuncion('maintenance.inicio.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = routineSchema.partial().safeParse(req.body);
@@ -70,7 +71,7 @@ router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) =
 
 // ------ Jobs y Parts asociados ------
 
-router.post('/:id/jobs', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/jobs', requirePage('maintenance_inicio'), exigirFuncion('maintenance.inicio.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const schema = z.object({ jobId: z.number().int().positive(), orden: z.number().int().min(1).default(1) });
@@ -81,7 +82,7 @@ router.post('/:id/jobs', requireRole('admin'), async (req: Request, res: Respons
   res.status(201).json({ ok: true });
 });
 
-router.delete('/:id/jobs/:jobId', requireRole('admin'), async (req: Request, res: Response) => {
+router.delete('/:id/jobs/:jobId', requirePage('maintenance_inicio'), exigirFuncion('maintenance.inicio.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   const jobId = parseId(req.params.jobId);
   if (!id || !jobId) { res.status(400).json({ error: 'ID inválido' }); return; }
@@ -89,7 +90,7 @@ router.delete('/:id/jobs/:jobId', requireRole('admin'), async (req: Request, res
   res.json({ ok: true });
 });
 
-router.post('/:id/parts', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/parts', requirePage('maintenance_inicio'), exigirFuncion('maintenance.inicio.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const schema = z.object({ partId: z.number().int().positive(), cantidad: z.number().positive().max(9999) });
@@ -100,7 +101,7 @@ router.post('/:id/parts', requireRole('admin'), async (req: Request, res: Respon
   res.status(201).json({ ok: true });
 });
 
-router.delete('/:id/parts/:partId', requireRole('admin'), async (req: Request, res: Response) => {
+router.delete('/:id/parts/:partId', requirePage('maintenance_inicio'), exigirFuncion('maintenance.inicio.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   const partId = parseId(req.params.partId);
   if (!id || !partId) { res.status(400).json({ error: 'ID inválido' }); return; }
@@ -127,7 +128,7 @@ const periodicitySchema = z.object({
   return false;
 }, { message: 'El criterio requiere su referencia correspondiente' });
 
-router.post('/:id/periodicity', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/periodicity', requirePage('maintenance_inicio'), exigirFuncion('maintenance.inicio.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = periodicitySchema.safeParse(req.body);
@@ -143,7 +144,7 @@ router.post('/:id/periodicity', requireRole('admin'), async (req: Request, res: 
   res.status(201).json({ data: created });
 });
 
-router.delete('/:id/periodicity/:periodId', requireRole('admin'), async (req: Request, res: Response) => {
+router.delete('/:id/periodicity/:periodId', requirePage('maintenance_inicio'), exigirFuncion('maintenance.inicio.administrar'), async (req: Request, res: Response) => {
   const periodId = parseId(req.params.periodId);
   if (!periodId) { res.status(400).json({ error: 'ID inválido' }); return; }
   await db.delete(routinePeriodicity).where(eq(routinePeriodicity.id, periodId));

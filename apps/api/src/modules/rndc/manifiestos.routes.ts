@@ -7,7 +7,8 @@ import {
   manifiestos, manifiestoRemesas, remesas, vehicles, users, tenedores,
   rndcMunicipios, vehicleEquipmentLinks, vehicleDocuments, documentTypes,
 } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { listOperaciones } from './operaciones.repo.js';
@@ -456,7 +457,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
 });
 
 // ENCOLAR ENVÍO RNDC (admin) — marca pendiente_envio para que cron retry lo procese.
-router.post('/:id/encolar-envio', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/encolar-envio', exigirFuncion('rndc.manifiestos.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id); if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   await encolarManifiesto(id);
   await audit(req, { action: 'update', resource: 'manifiesto', resourceId: String(id), detail: 'encolar_envio_rndc' });
@@ -464,7 +465,7 @@ router.post('/:id/encolar-envio', requireRole('admin'), async (req: Request, res
 });
 
 // REINTENTAR AHORA (admin) — ejecuta procesarManifiesto sincrónicamente.
-router.post('/:id/reintentar-envio', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/reintentar-envio', exigirFuncion('rndc.manifiestos.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id); if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || undefined;
   const result = await procesarManifiesto(id, ip);

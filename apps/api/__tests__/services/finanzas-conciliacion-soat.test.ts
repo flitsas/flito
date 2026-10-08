@@ -562,8 +562,10 @@ describe('AC5 — sin permisos nuevos', () => {
     const { readFileSync } = await import('node:fs');
     const fuente = readFileSync(
       new URL('../../src/modules/finanzas/finanzas.routes.ts', import.meta.url), 'utf8');
-    expect(fuente).toContain("requireRole('financiera', 'admin', 'auditor')");
-    // Una segunda guarda sería una segunda verdad sobre quién puede mirar lo mismo.
-    expect((fuente.match(/requireRole\(/g) ?? []).length).toBe(1);
+    // HU #13422: la guarda de lectura del reporte es la función `finanzas.reporte_costos.ver` (antes
+    // `requireRole('financiera', 'admin', 'auditor')`). Una segunda guarda sería una segunda verdad.
+    expect(fuente).toMatch(/router\.get\('\/reporte-costos\/facturacion-electronica', exigirFuncion\('finanzas\.reporte_costos\.ver'\),/);
+    expect((fuente.match(/requireRole\(/g) ?? []).length).toBe(0);
+    expect(new Set(fuente.match(/exigirFuncion\('[a-z0-9_.]+'\)/g))).toEqual(new Set(["exigirFuncion('finanzas.reporte_costos.ver')"]));
   });
 });

@@ -1,5 +1,6 @@
 // HU #13421 (ADR-0023, Feature #13413) — Cómo se llama en el negocio cada operación de los módulos
-// LEGACY que dejaron de decidir por `requireRole`: pesv/, drivers/, jornadas/ y rum/.
+// LEGACY que dejaron de decidir por `requireRole`: pesv/, drivers/, jornadas/ y rum/ (HU #13421); maintenance/,
+// vehicles/, fleet/, rndc/, rutas/, liquidacion/, finanzas/ y clients/ (HU #13422).
 //
 // Misma regla que `catalogo-operaciones.ts` (de donde se concatena con un spread): la llave es la
 // guarda real `<fichero> <MÉTODO> <ruta>` y el código lleva el prefijo del módulo del fichero
@@ -34,6 +35,26 @@ const DRV_ALC = 'drivers/alcohol.routes.ts';
 const DRV_EME = 'drivers/emergency.routes.ts';
 const JOR = 'jornadas/jornadas.routes.ts';
 const RUM = 'rum/rum.routes.ts';
+// HU #13422
+const MAIN_CATALOG = 'maintenance/catalog.routes.ts';
+const MAIN_ROUTINES = 'maintenance/routines.routes.ts';
+const MAIN_SCHEDULE = 'maintenance/schedule.routes.ts';
+const MAIN_PARTS = 'maintenance/parts.routes.ts';
+const MAIN_PREORDERS = 'maintenance/preorders.routes.ts';
+const MAIN_WORKORDERS = 'maintenance/workorders.routes.ts';
+const VEHI_VEHICLES = 'vehicles/vehicles.routes.ts';
+const VEHI_OCR = 'vehicles/ocr.routes.ts';
+const FLEE_VEHICLES = 'fleet/vehicles.routes.ts';
+const FLEE_LINKS = 'fleet/links.routes.ts';
+const FLEE_DOCUMENTS = 'fleet/documents.routes.ts';
+const RNDC_CREDENCIALES = 'rndc/credenciales.routes.ts';
+const RNDC_MANIFIESTOS = 'rndc/manifiestos.routes.ts';
+const RUTA_ROUTES = 'rutas/routes.routes.ts';
+const RUTA_RISK = 'rutas/risk.routes.ts';
+const RUTA_PERNOCTA = 'rutas/pernocta.routes.ts';
+const LIQU_LIQUIDACION = 'liquidacion/liquidacion.routes.ts';
+const FINA_FINANZAS = 'finanzas/finanzas.routes.ts';
+const CLIE_CLIENTS = 'clients/clients.routes.ts';
 
 /** Nombre y descripción de cada código: uno por código, no por guarda (las guardas lo comparten). */
 export const NOMBRES_LEGADO: Readonly<Record<string, { nombre: string; descripcion: string }>> = {
@@ -65,7 +86,31 @@ export const NOMBRES_LEGADO: Readonly<Record<string, { nombre: string; descripci
   'rum.resumen.ver': {
     nombre: 'Ver el resumen de rendimiento web (RUM)',
     descripcion: 'Leer las métricas Web Vitals agregadas (p75 por métrica, ruta y dispositivo) que reportan los navegadores.',
+  },  // HU #13422 (ADR-0023): los ocho directorios de operación. Todas sus guardas de rol `admin` van a un
+  // transitorio por ítem del menú; las dos `LECTURA` (admin, auditor, financiera) y el documento del
+  // propietario son permanentes: no son «administrar», son leer.
+  'maintenance.inicio.administrar': transitorio('Mantenimiento'),
+  'maintenance.ordenes.administrar': transitorio('Órdenes de trabajo'),
+  'liquidacion.pago_manual.administrar': transitorio('Órdenes de trabajo', 'liquidación y pago manual', 'liquidar y confirmar el pago manual de una orden'),
+  'vehicles.vehiculos.administrar': transitorio('Vehículos'),
+  'vehicles.propietario.ver_documento': {
+    nombre: 'Ver el documento completo del propietario',
+    descripcion: 'En el listado de vehículos, ver el número de documento del propietario sin enmascarar.',
   },
+  'fleet.flota.administrar': transitorio('Flota'),
+  'rndc.credenciales.administrar': transitorio('Credenciales RNDC'),
+  'rndc.manifiestos.administrar': transitorio('Manifiestos', undefined, 'encolar y reintentar el envío al RNDC (y recibir el aviso del envío fallido)'),
+  'rutas.rutas.administrar': transitorio('Rutas operativas'),
+  'rutas.pernocta.administrar': transitorio('Zonas de pernocta'),
+  'finanzas.reporte_costos.ver': {
+    nombre: 'Ver el reporte de costos',
+    descripcion: 'Leer y exportar el reporte de costos, su consolidado, su facturación electrónica y los soportes y viajes de un trámite.',
+  },
+  'clients.clientes.ver': {
+    nombre: 'Ver clientes y proveedores',
+    descripcion: 'Leer el listado de clientes y proveedores.',
+  },
+  'clients.clientes.administrar': transitorio('Clientes y proveedores'),
 };
 
 /** «Administrar <label del menú>» (y « — <acción>» si es el segundo transitorio del ítem). */
@@ -163,5 +208,97 @@ export const OPERACIONES_DECLARADAS_LEGADO: OperacionDeclarada[] = [
   op(`${JOR} POST /reporte-mensual/regenerar`, 'jornadas.control.administrar'),
   // HU #13425: en línea (`operaJornadaAjena`) para las 6 rutas de «jornada de otro conductor».
   op(`${JOR} POST /abrir [jornadaAjena]`, 'jornadas.control.administrar'),
-  op(`${RUM} GET /summary`, 'rum.resumen.ver'),
+  op(`${RUM} GET /summary`, 'rum.resumen.ver'),  // HU #13422 (ADR-0023)
+  op(`${MAIN_CATALOG} POST /systems`, 'maintenance.inicio.administrar'),
+  op(`${MAIN_CATALOG} POST /subsystems`, 'maintenance.inicio.administrar'),
+  op(`${MAIN_CATALOG} POST /jobs`, 'maintenance.inicio.administrar'),
+  op(`${MAIN_CATALOG} PATCH /jobs/:id`, 'maintenance.inicio.administrar'),
+  op(`${MAIN_CATALOG} PATCH /mechanics/:userId`, 'maintenance.inicio.administrar'),
+  op(`${MAIN_ROUTINES} POST /`, 'maintenance.inicio.administrar'),
+  op(`${MAIN_ROUTINES} PATCH /:id`, 'maintenance.inicio.administrar'),
+  op(`${MAIN_ROUTINES} POST /:id/jobs`, 'maintenance.inicio.administrar'),
+  op(`${MAIN_ROUTINES} DELETE /:id/jobs/:jobId`, 'maintenance.inicio.administrar'),
+  op(`${MAIN_ROUTINES} POST /:id/parts`, 'maintenance.inicio.administrar'),
+  op(`${MAIN_ROUTINES} DELETE /:id/parts/:partId`, 'maintenance.inicio.administrar'),
+  op(`${MAIN_ROUTINES} POST /:id/periodicity`, 'maintenance.inicio.administrar'),
+  op(`${MAIN_ROUTINES} DELETE /:id/periodicity/:periodId`, 'maintenance.inicio.administrar'),
+  op(`${MAIN_SCHEDULE} POST /`, 'maintenance.inicio.administrar'),
+  op(`${MAIN_SCHEDULE} PATCH /:id/cancel`, 'maintenance.inicio.administrar'),
+  op(`${MAIN_SCHEDULE} POST /recompute`, 'maintenance.inicio.administrar'),
+  op(`${MAIN_PARTS} POST /locations`, 'maintenance.inicio.administrar'),
+  op(`${MAIN_PARTS} POST /`, 'maintenance.inicio.administrar'),
+  op(`${MAIN_PARTS} PATCH /:id`, 'maintenance.inicio.administrar'),
+  op(`${MAIN_PARTS} POST /movements`, 'maintenance.inicio.administrar'),
+  op(`${MAIN_PREORDERS} POST /`, 'maintenance.ordenes.administrar'),
+  op(`${MAIN_PREORDERS} POST /:id/jobs`, 'maintenance.ordenes.administrar'),
+  op(`${MAIN_PREORDERS} POST /:id/parts`, 'maintenance.ordenes.administrar'),
+  op(`${MAIN_PREORDERS} POST /:id/approve`, 'maintenance.ordenes.administrar'),
+  op(`${MAIN_PREORDERS} POST /:id/generate-ot`, 'maintenance.ordenes.administrar'),
+  op(`${MAIN_WORKORDERS} POST /`, 'maintenance.ordenes.administrar'),
+  op(`${MAIN_WORKORDERS} POST /:id/jobs`, 'maintenance.ordenes.administrar'),
+  op(`${MAIN_WORKORDERS} POST /:id/parts`, 'maintenance.ordenes.administrar'),
+  op(`${MAIN_WORKORDERS} POST /:id/otros-gastos`, 'maintenance.ordenes.administrar'),
+  op(`${MAIN_WORKORDERS} POST /:id/seguimiento`, 'maintenance.ordenes.administrar'),
+  op(`${MAIN_WORKORDERS} POST /:id/close-tecnica`, 'maintenance.ordenes.administrar'),
+  op(`${MAIN_WORKORDERS} POST /:id/close-final`, 'maintenance.ordenes.administrar'),
+  op(`${MAIN_WORKORDERS} POST /:id/anular`, 'maintenance.ordenes.administrar'),
+  op(`${VEHI_VEHICLES} POST /`, 'vehicles.vehiculos.administrar'),
+  op(`${VEHI_VEHICLES} PATCH /:id`, 'vehicles.vehiculos.administrar'),
+  op(`${VEHI_VEHICLES} POST /upload`, 'vehicles.vehiculos.administrar'),
+  op(`${VEHI_VEHICLES} GET /export`, 'vehicles.vehiculos.administrar'),
+  op(`${VEHI_VEHICLES} DELETE /:id`, 'vehicles.vehiculos.administrar'),
+  op(`${VEHI_VEHICLES} PATCH /:id/multas`, 'vehicles.vehiculos.administrar'),
+  op(`${VEHI_VEHICLES} PATCH /:id/stage`, 'vehicles.vehiculos.administrar'),
+  op(`${VEHI_VEHICLES} PATCH /:id/client`, 'vehicles.vehiculos.administrar'),
+  op(`${VEHI_VEHICLES} GET /pipeline/stats`, 'vehicles.vehiculos.administrar'),
+  op(`${VEHI_VEHICLES} GET / [documentoCompleto]`, 'vehicles.propietario.ver_documento'),
+  op(`${VEHI_OCR} POST /ocr`, 'vehicles.vehiculos.administrar'),
+  op(`${VEHI_OCR} POST /ocr-export`, 'vehicles.vehiculos.administrar'),
+  op(`${VEHI_OCR} POST /ocr-import`, 'vehicles.vehiculos.administrar'),
+  op(`${FLEE_VEHICLES} POST /`, 'fleet.flota.administrar'),
+  op(`${FLEE_VEHICLES} PATCH /:id`, 'fleet.flota.administrar'),
+  op(`${FLEE_VEHICLES} POST /:id/convert`, 'fleet.flota.administrar'),
+  op(`${FLEE_LINKS} POST /`, 'fleet.flota.administrar'),
+  op(`${FLEE_LINKS} PATCH /:id/close`, 'fleet.flota.administrar'),
+  op(`${FLEE_DOCUMENTS} POST /types`, 'fleet.flota.administrar'),
+  op(`${FLEE_DOCUMENTS} PATCH /types/:id`, 'fleet.flota.administrar'),
+  op(`${FLEE_DOCUMENTS} POST /`, 'fleet.flota.administrar'),
+  op(`${FLEE_DOCUMENTS} PATCH /:id`, 'fleet.flota.administrar'),
+  op(`${FLEE_DOCUMENTS} DELETE /:id`, 'fleet.flota.administrar'),
+  op(`${RNDC_CREDENCIALES} GET /`, 'rndc.credenciales.administrar'),
+  op(`${RNDC_CREDENCIALES} POST /`, 'rndc.credenciales.administrar'),
+  op(`${RNDC_CREDENCIALES} DELETE /:id`, 'rndc.credenciales.administrar'),
+  op(`${RNDC_MANIFIESTOS} POST /:id/encolar-envio`, 'rndc.manifiestos.administrar'),
+  op(`${RNDC_MANIFIESTOS} POST /:id/reintentar-envio`, 'rndc.manifiestos.administrar'),
+  op(`${RUTA_ROUTES} POST /`, 'rutas.rutas.administrar'),
+  op(`${RUTA_ROUTES} PATCH /:id`, 'rutas.rutas.administrar'),
+  op(`${RUTA_ROUTES} POST /:id/waypoints`, 'rutas.rutas.administrar'),
+  op(`${RUTA_ROUTES} PATCH /waypoints/:wpId`, 'rutas.rutas.administrar'),
+  op(`${RUTA_ROUTES} DELETE /waypoints/:wpId`, 'rutas.rutas.administrar'),
+  op(`${RUTA_ROUTES} POST /:id/waypoints/reorder`, 'rutas.rutas.administrar'),
+  op(`${RUTA_RISK} POST /`, 'rutas.rutas.administrar'),
+  op(`${RUTA_RISK} POST /:id/aprobar`, 'rutas.rutas.administrar'),
+  op(`${RUTA_RISK} POST /:id/items`, 'rutas.rutas.administrar'),
+  op(`${RUTA_RISK} PATCH /items/:itemId`, 'rutas.rutas.administrar'),
+  op(`${RUTA_RISK} DELETE /items/:itemId`, 'rutas.rutas.administrar'),
+  op(`${RUTA_PERNOCTA} POST /pernocta`, 'rutas.pernocta.administrar'),
+  op(`${RUTA_PERNOCTA} PATCH /pernocta/:id`, 'rutas.pernocta.administrar'),
+  op(`${RUTA_PERNOCTA} DELETE /pernocta/:id`, 'rutas.pernocta.administrar'),
+  op(`${RUTA_PERNOCTA} POST /assignments`, 'rutas.pernocta.administrar'),
+  op(`${RUTA_PERNOCTA} DELETE /assignments/:id`, 'rutas.pernocta.administrar'),
+  op(`${LIQU_LIQUIDACION} POST /`, 'liquidacion.pago_manual.administrar'),
+  op(`${LIQU_LIQUIDACION} GET /`, 'liquidacion.pago_manual.administrar'),
+  op(`${LIQU_LIQUIDACION} GET /:id`, 'liquidacion.pago_manual.administrar'),
+  op(`${LIQU_LIQUIDACION} POST /:id/confirmar-pago`, 'liquidacion.pago_manual.administrar'),
+  op(`${FINA_FINANZAS} GET /reporte-costos`, 'finanzas.reporte_costos.ver'),
+  op(`${FINA_FINANZAS} GET /reporte-costos/facetas`, 'finanzas.reporte_costos.ver'),
+  op(`${FINA_FINANZAS} GET /reporte-costos/facturacion-electronica`, 'finanzas.reporte_costos.ver'),
+  op(`${FINA_FINANZAS} GET /reporte-costos/consolidado`, 'finanzas.reporte_costos.ver'),
+  op(`${FINA_FINANZAS} POST /reporte-costos/export`, 'finanzas.reporte_costos.ver'),
+  op(`${FINA_FINANZAS} POST /reporte-costos/consolidado/export`, 'finanzas.reporte_costos.ver'),
+  op(`${FINA_FINANZAS} GET /tramites/:id/soportes`, 'finanzas.reporte_costos.ver'),
+  op(`${FINA_FINANZAS} GET /tramites/:id/viajes-logistica`, 'finanzas.reporte_costos.ver'),
+  op(`${CLIE_CLIENTS} GET /`, 'clients.clientes.ver'),
+  op(`${CLIE_CLIENTS} POST /`, 'clients.clientes.administrar'),
+  op(`${CLIE_CLIENTS} PATCH /:id`, 'clients.clientes.administrar'),
 ];

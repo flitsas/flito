@@ -274,13 +274,15 @@ function AppRoutes() {
         <Route path="/privacy" element={<ProtectedRoute page="privacy"><Lazy><Privacy /></Lazy></ProtectedRoute>} />
         <Route path="/fleet" element={<ProtectedRoute page="fleet"><Lazy><Fleet /></Lazy></ProtectedRoute>} />
         <Route path="/fleet/:id" element={<ProtectedRoute page="fleet"><Lazy><FleetVehicleDetail /></Lazy></ProtectedRoute>} />
-        <Route path="/maintenance" element={<ProtectedRoute page="maintenance"><Lazy><Maintenance /></Lazy></ProtectedRoute>} />
-        <Route path="/maintenance/routines" element={<ProtectedRoute page="maintenance"><Lazy><Routines /></Lazy></ProtectedRoute>} />
-        <Route path="/maintenance/schedule" element={<ProtectedRoute page="maintenance"><Lazy><Schedule /></Lazy></ProtectedRoute>} />
-        <Route path="/parts" element={<ProtectedRoute page="maintenance"><Lazy><Parts /></Lazy></ProtectedRoute>} />
-        <Route path="/maintenance/work-orders" element={<ProtectedRoute page="maintenance"><Lazy><WorkOrders /></Lazy></ProtectedRoute>} />
-        <Route path="/maintenance/work-orders/:id" element={<ProtectedRoute page="maintenance"><Lazy><WorkOrderDetail /></Lazy></ProtectedRoute>} />
-        <Route path="/maintenance/indicators" element={<ProtectedRoute page="maintenance"><Lazy><MaintenanceIndicators /></Lazy></ProtectedRoute>} />
+        {/* HU #13422 (ADR-0023): cada ítem del menú Mantenimiento con su página; rutinas, programación
+            y repuestos se abren desde el ítem «Mantenimiento». */}
+        <Route path="/maintenance" element={<ProtectedRoute page="maintenance_inicio"><Lazy><Maintenance /></Lazy></ProtectedRoute>} />
+        <Route path="/maintenance/routines" element={<ProtectedRoute page="maintenance_inicio"><Lazy><Routines /></Lazy></ProtectedRoute>} />
+        <Route path="/maintenance/schedule" element={<ProtectedRoute page="maintenance_inicio"><Lazy><Schedule /></Lazy></ProtectedRoute>} />
+        <Route path="/parts" element={<ProtectedRoute page="maintenance_inicio"><Lazy><Parts /></Lazy></ProtectedRoute>} />
+        <Route path="/maintenance/work-orders" element={<ProtectedRoute page="maintenance_ordenes"><Lazy><WorkOrders /></Lazy></ProtectedRoute>} />
+        <Route path="/maintenance/work-orders/:id" element={<ProtectedRoute page="maintenance_ordenes"><Lazy><WorkOrderDetail /></Lazy></ProtectedRoute>} />
+        <Route path="/maintenance/indicators" element={<ProtectedRoute page="maintenance_indicadores"><Lazy><MaintenanceIndicators /></Lazy></ProtectedRoute>} />
         <Route path="/pesv" element={<ProtectedRoute page="pesv"><Lazy><PesvDashboard /></Lazy></ProtectedRoute>} />
         <Route path="/pesv/conductores" element={<ProtectedRoute page="pesv_conductores"><Lazy><Drivers /></Lazy></ProtectedRoute>} />
         <Route path="/pesv/conductores/:id" element={<ProtectedRoute page="pesv_conductores"><Lazy><DriverDetail /></Lazy></ProtectedRoute>} />

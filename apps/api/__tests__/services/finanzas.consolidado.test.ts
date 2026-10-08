@@ -496,14 +496,15 @@ describe('AC7 — misma guarda de lectura (CF-19)', () => {
     }
   });
 
-  it('las dos rutas se registran bajo LECTURA y el archivo no añade otro requireRole( ni exigirFuncion', () => {
+  // HU #13422: la guarda de lectura del reporte pasó de `LECTURA = requireRole(…)` a la función
+  // `finanzas.reporte_costos.ver`; sigue siendo UNA guarda para todo el reporte.
+  it('las dos rutas se registran bajo la lectura del reporte y el archivo no añade otra guarda', () => {
     const fuente = readFileSync(new URL('../../src/modules/finanzas/finanzas.routes.ts', import.meta.url), 'utf8');
-    expect(fuente).toMatch(/router\.get\('\/reporte-costos\/consolidado', LECTURA,/);
+    expect(fuente).toMatch(/router\.get\('\/reporte-costos\/consolidado', exigirFuncion\('finanzas\.reporte_costos\.ver'\),/);
     // HU #12531: POST, bajo la misma guarda y con la bolsa compartida del limitador delante del handler.
-    expect(fuente).toMatch(/router\.post\('\/reporte-costos\/consolidado\/export', LECTURA, exportColaLimiter,/);
+    expect(fuente).toMatch(/router\.post\('\/reporte-costos\/consolidado\/export', exigirFuncion\('finanzas\.reporte_costos\.ver'\), exportColaLimiter,/);
     expect(fuente).not.toMatch(/router\.get\('\/reporte-costos\/consolidado\/export'/);
-    expect(fuente.match(/requireRole\(/g)).toHaveLength(1);
-    expect(fuente).not.toContain('exigirFuncion');
-    expect(fuente).not.toContain('exigir-funcion');
+    expect(fuente.match(/requireRole\(/g)).toBeNull();
+    expect(new Set(fuente.match(/exigirFuncion\('[a-z0-9_.]+'\)/g))).toEqual(new Set(["exigirFuncion('finanzas.reporte_costos.ver')"]));
   });
 });

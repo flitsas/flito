@@ -140,7 +140,26 @@ export const FICHEROS_LEGADO_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'drivers', fichero: 'drivers/alcohol.routes.ts' },
   { modulo: 'drivers', fichero: 'drivers/emergency.routes.ts' },
   { modulo: 'jornadas', fichero: 'jornadas/jornadas.routes.ts' },
-  { modulo: 'rum', fichero: 'rum/rum.routes.ts' },
+  { modulo: 'rum', fichero: 'rum/rum.routes.ts' },  // HU #13422 (ADR-0023): los ocho directorios de operación.
+  { modulo: 'maintenance', fichero: 'maintenance/catalog.routes.ts' },
+  { modulo: 'maintenance', fichero: 'maintenance/routines.routes.ts' },
+  { modulo: 'maintenance', fichero: 'maintenance/schedule.routes.ts' },
+  { modulo: 'maintenance', fichero: 'maintenance/parts.routes.ts' },
+  { modulo: 'maintenance', fichero: 'maintenance/preorders.routes.ts' },
+  { modulo: 'maintenance', fichero: 'maintenance/workorders.routes.ts' },
+  { modulo: 'vehicles', fichero: 'vehicles/vehicles.routes.ts' },
+  { modulo: 'vehicles', fichero: 'vehicles/ocr.routes.ts' },
+  { modulo: 'fleet', fichero: 'fleet/vehicles.routes.ts' },
+  { modulo: 'fleet', fichero: 'fleet/links.routes.ts' },
+  { modulo: 'fleet', fichero: 'fleet/documents.routes.ts' },
+  { modulo: 'rndc', fichero: 'rndc/credenciales.routes.ts' },
+  { modulo: 'rndc', fichero: 'rndc/manifiestos.routes.ts' },
+  { modulo: 'rutas', fichero: 'rutas/routes.routes.ts' },
+  { modulo: 'rutas', fichero: 'rutas/risk.routes.ts' },
+  { modulo: 'rutas', fichero: 'rutas/pernocta.routes.ts' },
+  { modulo: 'liquidacion', fichero: 'liquidacion/liquidacion.routes.ts' },
+  { modulo: 'finanzas', fichero: 'finanzas/finanzas.routes.ts' },
+  { modulo: 'clients', fichero: 'clients/clients.routes.ts' },
 ];
 
 /** Quita comentarios de bloque y de línea sin tocar el contenido de las cadenas simples. */

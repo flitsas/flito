@@ -3,12 +3,13 @@ import { z } from 'zod';
 import { eq, and, sql, isNull, desc, asc } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { routePernoctaZones, routeAssignments } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('pesv'));
+router.use(authMiddleware);
 
 const numericish = z.union([z.string(), z.number()]).transform((v) => String(v));
 
@@ -36,13 +37,13 @@ const assignmentSchema = z.object({
 
 // ============ PERNOCTA ============
 
-router.get('/pernocta', async (req, res) => {
+router.get('/pernocta', requirePage('pesv_pernocta'), async (req, res) => {
   const vigente = req.query.vigente === 'false' ? false : true;
   const rows = await db.select().from(routePernoctaZones).where(eq(routePernoctaZones.vigente, vigente)).orderBy(asc(routePernoctaZones.nombre));
   res.json({ data: rows });
 });
 
-router.get('/pernocta/cercanas', async (req, res) => {
+router.get('/pernocta/cercanas', requirePage('pesv_pernocta'), async (req, res) => {
   const lat = parseFloat(req.query.lat as string);
   const lng = parseFloat(req.query.lng as string);
   const radioKm = Math.min(parseFloat(req.query.radioKm as string) || 50, 500);
@@ -63,7 +64,7 @@ router.get('/pernocta/cercanas', async (req, res) => {
   res.json({ data: all.filter((r: any) => Number(r.distancia_km) <= radioKm) });
 });
 
-router.post('/pernocta', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/pernocta', requirePage('pesv_pernocta'), exigirFuncion('rutas.pernocta.administrar'), async (req: Request, res: Response) => {
   const parsed = pernoctaSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
   const d = parsed.data;
@@ -88,7 +89,7 @@ router.post('/pernocta', requireRole('admin'), async (req: Request, res: Respons
   }
 });
 
-router.patch('/pernocta/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/pernocta/:id', requirePage('pesv_pernocta'), exigirFuncion('rutas.pernocta.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = pernoctaSchema.partial().safeParse(req.body);
@@ -110,7 +111,7 @@ router.patch('/pernocta/:id', requireRole('admin'), async (req: Request, res: Re
   res.json(row);
 });
 
-router.delete('/pernocta/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.delete('/pernocta/:id', requirePage('pesv_pernocta'), exigirFuncion('rutas.pernocta.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   // Soft archive: vigente=false (preservación histórica).
@@ -122,7 +123,7 @@ router.delete('/pernocta/:id', requireRole('admin'), async (req: Request, res: R
 
 // ============ ASSIGNMENTS ============
 
-router.get('/assignments', async (req, res) => {
+router.get('/assignments', requirePage('pesv_pernocta'), async (req, res) => {
   const routeId = req.query.routeId ? parseInt(req.query.routeId as string, 10) : undefined;
   const conds: any[] = [];
   if (routeId) conds.push(eq(routeAssignments.routeId, routeId));
@@ -131,7 +132,7 @@ router.get('/assignments', async (req, res) => {
   res.json({ data: rows });
 });
 
-router.post('/assignments', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/assignments', requirePage('pesv_pernocta'), exigirFuncion('rutas.pernocta.administrar'), async (req: Request, res: Response) => {
   const parsed = assignmentSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
   const d = parsed.data;
@@ -153,7 +154,7 @@ router.post('/assignments', requireRole('admin'), async (req: Request, res: Resp
   }
 });
 
-router.delete('/assignments/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.delete('/assignments/:id', requirePage('pesv_pernocta'), exigirFuncion('rutas.pernocta.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   await db.delete(routeAssignments).where(eq(routeAssignments.id, id));

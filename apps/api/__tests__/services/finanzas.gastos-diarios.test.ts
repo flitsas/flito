@@ -473,7 +473,7 @@ describe('AC2 — la ruta y su guarda', () => {
     expect(res.body.serie.map((d: { dia: string }) => d.dia)).toEqual(['2026-09-10', '2026-09-11', '2026-09-12']);
   });
 
-  it('la pila de middlewares de la ruta lleva requirePage y NO requireRole/LECTURA (y el archivo sigue con un solo requireRole)', async () => {
+  it('la pila de middlewares de la ruta lleva requirePage y NO la lectura del reporte (y el archivo ya no tiene requireRole, HU #13422)', async () => {
     const { default: router } = await import('../../src/modules/finanzas/finanzas.routes.js');
     const capa = (router as unknown as { stack: Array<{ route?: { path: string; stack: Array<{ handle: () => void }> } }> }).stack
       .find((l) => l.route?.path === '/gastos-diarios')!.route!;
@@ -486,8 +486,9 @@ describe('AC2 — la ruta y su guarda', () => {
     expect(guarda).toBe(requirePage('finanzas_gastos_diarios').toString());
     expect(guarda).not.toBe(requireRole('admin').toString());
     const fuente = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src/modules/finanzas/finanzas.routes.ts'), 'utf8');
-    expect(fuente.match(/requireRole\(/g)).toHaveLength(1);
+    expect(fuente.match(/requireRole\(/g)).toBeNull();
     expect(fuente).toMatch(/router\.get\('\/gastos-diarios', requirePage\('finanzas_gastos_diarios'\)/);
+    expect(fuente).not.toMatch(/router\.get\('\/gastos-diarios',[^\n]*reporte_costos/);
   });
 
   it('400 de rango con el nombre del parámetro (no 500 ni «todo el histórico»)', async () => {

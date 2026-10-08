@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { eq, and, or, desc, isNull } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { vehicles, vehicleEquipmentLinks } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 
@@ -37,7 +38,7 @@ const createLinkSchema = z.object({
   message: 'El cabezote y el trailer no pueden ser el mismo vehículo',
 });
 
-router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/', exigirFuncion('fleet.flota.administrar'), async (req: Request, res: Response) => {
   const parsed = createLinkSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Validación', details: parsed.error.flatten() });
@@ -83,7 +84,7 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
   res.status(201).json({ data: created });
 });
 
-router.patch('/:id/close', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/:id/close', exigirFuncion('fleet.flota.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [updated] = await db.update(vehicleEquipmentLinks)

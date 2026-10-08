@@ -753,18 +753,19 @@ describe('AC11 — el acceso al titular queda registrado (Ley 1581)', () => {
 // ───────────────────────────── AC12 — la guarda no cambia ─────────────────────────────
 
 describe('AC12 — sin permisos nuevos', () => {
-  it('todas las rutas /reporte-costos* siguen bajo requireRole(financiera, admin, auditor)', async () => {
+  // HU #13422: la guarda es la función `finanzas.reporte_costos.ver` (sembrada a financiera, admin y
+  // auditor, la lista del antiguo `requireRole`); el aserto sigue siendo «todas bajo la misma».
+  it('todas las rutas /reporte-costos* siguen bajo la misma guarda de lectura (finanzas.reporte_costos.ver)', async () => {
     const { readFileSync } = await import('node:fs');
     const fuente = readFileSync(new URL('../../src/modules/finanzas/finanzas.routes.js', import.meta.url).pathname.replace(/\.js$/, '.ts'), 'utf8');
-    expect(fuente).toContain("const LECTURA = requireRole('financiera', 'admin', 'auditor');");
-    expect(fuente).not.toContain('exigirFuncion');
+    expect(fuente).not.toContain('LECTURA = ');
     // No se congela el número (la HU #12433 sumó el consolidado y la #12531 pasó los exports a POST
     // bajo la MISMA guarda): lo que se afirma es que ninguna ruta del reporte —GET o POST— se
     // registra con otra guarda o sin ella.
     const rutas = fuente.match(/router\.(get|post)\('\/reporte-costos[^']*',/g) ?? [];
-    const bajoLectura = fuente.match(/router\.(get|post)\('\/reporte-costos[^']*', LECTURA,/g) ?? [];
+    const bajoLectura = fuente.match(/router\.(get|post)\('\/reporte-costos[^']*', exigirFuncion\('finanzas\.reporte_costos\.ver'\),/g) ?? [];
     expect(rutas.length).toBeGreaterThanOrEqual(6);
     expect(bajoLectura).toHaveLength(rutas.length);
-    expect(fuente.match(/requireRole\(/g)).toHaveLength(1);
+    expect(fuente.match(/requireRole\(/g)).toBeNull();
   });
 });
