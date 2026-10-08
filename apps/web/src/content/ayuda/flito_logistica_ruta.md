@@ -4,11 +4,11 @@ Pantalla de campo del Mensajero: escanear las licencias de tránsito en el organ
 
 ## Para quién
 
-Mensajero. El Administrador despacha desde **Logística**; no usa esta vista como consola.
+Quien tenga el permiso de **Mi ruta**; de partida, el Mensajero (se reparte desde **Roles y permisos**). El Administrador despacha desde **Logística**; no usa esta vista como consola.
 
 ## Cómo se entra
 
-En el menú lateral, sección **Gestión**, ítem **Mi ruta** (visible para el rol Mensajero). Ruta `/flito/ruta`.
+En el menú lateral, sección **Gestión**, ítem **Mi ruta** (visible para quien tenga el permiso de **Mi ruta**; de partida, el Mensajero). Ruta `/flito/ruta`.
 
 ## Pasos
 
@@ -30,4 +30,4 @@ En el menú lateral, sección **Gestión**, ítem **Mi ruta** (visible para el r
 - No lista todos los trámites de Operaciones: usted no elige el trámite; el cruce es por placa y VIN.
 - No genera actas ni elige mensajero: eso es **Logística**.
 - No gestiona SOAT, impuestos ni comparendos.
-- El Auditor y el Administrador no tienen esta pantalla por defecto (el Administrador opera la consola **Logística**).
+- De partida, el Auditor y el Administrador no tienen el permiso de **Mi ruta** (el Administrador opera la consola **Logística**); el Administrador puede repartirlo desde **Roles y permisos**.

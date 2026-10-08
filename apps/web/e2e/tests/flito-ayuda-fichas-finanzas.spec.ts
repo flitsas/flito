@@ -28,6 +28,7 @@ const FICHAS_FINANZAS = [
 const FICHA_CREDENCIALES = {
   clave: 'siigo_credenciales',
   etiqueta: 'Facturación electrónica · Credenciales',
+  to: '/siigo/credenciales',
 } as const;
 
 function leerFicha(clave: string): string {
@@ -72,19 +73,22 @@ test.describe('FLITO — Ayuda · fichas de finanzas (HU #11895)', () => {
     }
   });
 
-  test('TC-11895-03 AC1 — Credenciales publicada; sin Ir a la pantalla; no inventa menú ni UI', async ({ page }) => {
+  test('TC-11895-03 AC1 — Credenciales publicada; Ir a la pantalla real; no aliasa a Parametrización (HU #12872)', async ({ page }) => {
     const md = leerFicha(FICHA_CREDENCIALES.clave);
     const entra = seccion(md, 'Cómo se entra');
-    expect(entra).toMatch(/solo Administración|Administración/i);
+    expect(entra).toMatch(/Administración/);
+    expect(entra).toMatch(/Integración con Siigo/);
     expect(entra).not.toMatch(/NAV_ITEMS/);
-    expect(entra).not.toMatch(/en el menú.{0,80}Credenciales/i);
-    expect(entra).toMatch(/no está publicada|no hay un destino de producto/i);
-    expect(md).toMatch(/\/rndc\/admin\/credenciales/);
-    expect(md).not.toMatch(/\/siigo\/credenciales/);
+    expect(entra).toMatch(/Credenciales RNDC/);
+    expect(md).not.toMatch(/no está publicada/i);
+    // Internals fuera de la ficha (plantilla): ni rutas del API ni nombres del router.
+    expect(md).not.toMatch(/requireRole|exigirFuncion|router/i);
 
     const nav = readFileSync(resolve(raiz, 'apps/web/src/components/shell/navItems.ts'), 'utf8');
-    expect(nav).not.toMatch(/page:\s*'siigo_credenciales'/);
-    expect(nav).not.toMatch(/to:\s*'\/siigo\/credenciales'/);
+    expect(nav).toMatch(/page:\s*'siigo_credenciales',\s*to:\s*'\/siigo\/credenciales'/);
+    const catalogo = readFileSync(resolve(raiz, 'apps/web/src/content/ayuda/catalogo.ts'), 'utf8');
+    expect(catalogo).toMatch(/clave: 'siigo_credenciales'[^}]*permiso: 'siigo_credenciales'/);
+    expect(catalogo).not.toMatch(/clave: 'siigo_credenciales'[^}]*permiso: 'siigo_parametrizacion'/);
 
     await loginAs(page, OPERACIONES_USER);
     await page.goto(`/flito/ayuda/${FICHA_CREDENCIALES.clave}`);
@@ -95,8 +99,9 @@ test.describe('FLITO — Ayuda · fichas de finanzas (HU #11895)', () => {
     for (const h of SECCIONES) {
       await expect(articulo.getByRole('heading', { name: h, exact: true })).toBeVisible();
     }
-    await expect(page.getByRole('link', { name: /Ir a la pantalla/ })).toHaveCount(0);
-    await expect(articulo.getByText('/rndc/admin/credenciales').first()).toBeVisible();
+    await expect(articulo.locator('img')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: `Ir a la pantalla ${FICHA_CREDENCIALES.etiqueta}` }))
+      .toHaveAttribute('href', FICHA_CREDENCIALES.to);
   });
 
   test('TC-11895-04 AC1 — artefactos: 6 .md con plantilla, usted, Facturar ≠ emisión, sin captura/endpoint/tabla', () => {
@@ -143,7 +148,10 @@ test.describe('FLITO — Ayuda · fichas de finanzas (HU #11895)', () => {
   test('TC-11895-06 AC2 — financiera: deep-link a Credenciales es NoAccess, no la ficha', async ({ page }) => {
     await loginAs(page, FINANCIERA_USER);
     await page.goto('/flito/ayuda/siigo_credenciales');
-    await expect(page.getByRole('heading', { name: /no tienes acceso a facturación electrónica · credenciales/i })).toBeVisible();
+    // HU #12872: la ficha ya cuelga del slug `siigo_credenciales`, así que NoAccess nombra la PÁGINA
+    // («— Credenciales», etiqueta de PAGE_LABELS), no la etiqueta del catálogo («· Credenciales»).
+    // Mismo patrón que Bolsas (TC-11895-08).
+    await expect(page.getByRole('heading', { name: /no tienes acceso a facturación electrónica — credenciales/i })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Qué es', exact: true })).toHaveCount(0);
     await expect(page.getByText('Esta ficha está pendiente.')).toHaveCount(0);
   });
