@@ -216,7 +216,7 @@ const CLIENTE_LOGIN = {
 
 describe('POST /api/auth/login — `puedeSolicitarSoat` (Bug #11937)', () => {
   it('cliente cuya compañía tiene el flag ENCENDIDO → true y la clave viene', async () => {
-    await registrarUsuarioDePrueba(5, { rol: 'cliente', tipoPrincipal: 'externo', allowedPages: [], funcionesDelRol: ['pagina.flito_soat'], excepciones: [] });
+    await registrarUsuarioDePrueba(5, { rol: 'cliente', tipoPrincipal: 'externo', allowedPages: [], funcionesDelRol: ['pagina.flito_soat', 'soat.solicitud.crear'], excepciones: [] });
     selectMock
       .mockReturnValueOnce(chain([CLIENTE_LOGIN]))
       .mockReturnValueOnce(chain([])) // puente #12088
@@ -233,7 +233,7 @@ describe('POST /api/auth/login — `puedeSolicitarSoat` (Bug #11937)', () => {
   });
 
   it('flag APAGADO → false, y no es «no vino el campo»', async () => {
-    await registrarUsuarioDePrueba(5, { rol: 'cliente', tipoPrincipal: 'externo', allowedPages: [], funcionesDelRol: ['pagina.flito_soat'], excepciones: [] });
+    await registrarUsuarioDePrueba(5, { rol: 'cliente', tipoPrincipal: 'externo', allowedPages: [], funcionesDelRol: ['pagina.flito_soat', 'soat.solicitud.crear'], excepciones: [] });
     selectMock
       .mockReturnValueOnce(chain([CLIENTE_LOGIN]))
       .mockReturnValueOnce(chain([])) // puente #12088

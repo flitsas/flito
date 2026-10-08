@@ -1,5 +1,6 @@
 // HU #13255 (Feature #13254) — `PATCH /api/users/:id/password` abierto al canal externo SOLO para la
-// propia contraseña y SOLO con `pagina.perfil` (AC2-AC7), con freno por usuario (D2).
+// propia contraseña (AC2-AC7), con freno por usuario (D2). HU #13425 (AC4): la propia ya no exige
+// `pagina.perfil` (decisión del PO del 2026-10-07); la ajena sigue vedada al externo.
 //
 // `authMiddleware` y `guardiaCanalCliente` son los de VERDAD: el principal externo se decide por
 // `tipo_principal` del resolutor (el helper `testToken` registra `cliente` como externo), así que un
@@ -81,13 +82,32 @@ function claveIntacta() {
 }
 
 describe('HU #13255 — cambio de la PROPIA contraseña desde el canal externo', () => {
-  it('AC2: externo SIN `pagina.perfil` sobre su propio id → 403 `Sin permisos`, y la clave no se toca', async () => {
+  // HU #13425 (AC4, decisión del PO del 2026-10-07) sustituye el AC2 de la #13255: la contraseña
+  // PROPIA se cambia sin el permiso de Perfil, también desde el canal externo.
+  it('HU #13425 AC4: externo SIN `pagina.perfil` cambia SU propia contraseña → 200 {ok:true}, verificando la actual', async () => {
     const token = await testToken({ sub: 301, role: 'cliente' });
+    titular(301, 'cliente');
     const r = await patch(await buildApp(), 301, token);
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ ok: true });
+    expect(argonVerifyMock).toHaveBeenCalledWith('hash-viejo', 'Actual1!');
+    expect(escrituras.filter((e) => e.op === 'update')).toEqual([{ op: 'update', valores: { passwordHash: 'HASH-NUEVO' } }]);
+  });
+
+  it('HU #13425 AC4: externo SIN `pagina.perfil` sobre OTRO id → 403 `Sin permisos`, clave intacta', async () => {
+    const token = await testToken({ sub: 310, role: 'cliente' });
+    const r = await patch(await buildApp(), 999, token);
     expect(r.status).toBe(403);
     expect(r.body).toEqual({ error: 'Sin permisos' });
-    // Ni siquiera llegó a leer al titular: la guarda va antes.
     expect(selectMock).not.toHaveBeenCalled();
+    claveIntacta();
+  });
+
+  it('HU #13425 AC4: resolutor que no decide (sin fila de permisos) → 403 también para la propia (falla cerrado)', async () => {
+    const token = await testToken({ sub: 311, role: 'cliente' });
+    await registrarUsuarioDePrueba(311, null as never);
+    const r = await patch(await buildApp(), 311, token);
+    expect(r.status).toBe(403);
     claveIntacta();
   });
 
@@ -137,14 +157,17 @@ describe('HU #13255 — cambio de la PROPIA contraseña desde el canal externo',
     claveIntacta();
   });
 
-  it('un rol EXTERNO creado desde el panel (no el literal `cliente`) sigue la misma regla', async () => {
+  it('un rol EXTERNO creado desde el panel (no el literal `cliente`) sigue la misma regla: la propia sí, la ajena no', async () => {
     const token = await testToken({ sub: 306, role: 'proveedor' });
     // Se re-registra DESPUÉS de emitir el token: decide `tipo_principal` del resolutor, no el rol del JWT.
-    await registrarUsuarioDePrueba(306, { rol: 'aliado_x', tipoPrincipal: 'externo', tipoEnlace: 'ninguno', funcionesDelRol: [], excepciones: [] });
-    const r = await patch(await buildApp(), 306, token);
-    expect(r.status).toBe(403);
-    expect(r.body).toEqual({ error: 'Sin permisos' });
+    await registrarUsuarioDePrueba(306, { rol: 'aliado_x', tipoPrincipal: 'externo', tipoEnlace: 'ninguno', funcionesDelRol: ['usuarios.contrasena.cambiar_ajena'], excepciones: [] });
+    const ajena = await patch(await buildApp(), 999, token);
+    expect(ajena.status).toBe(403);
+    expect(ajena.body).toEqual({ error: 'Sin permisos' });
     claveIntacta();
+    titular(306, 'aliado_x');
+    const propia = await patch(await buildApp(), 306, token);
+    expect(propia.status).toBe(200);
   });
 
   it('AC6: interno SIN `pagina.perfil` sigue cambiando la propia → 200', async () => {

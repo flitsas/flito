@@ -31,7 +31,7 @@ vi.mock('../../src/services/storage.js', () => ({
 const svc = await import('../../src/modules/flito-logistica/flito-logistica.service.js');
 const { default: logisticaRoutes } = await import('../../src/modules/flito-logistica/flito-logistica.routes.js');
 
-const ctx = { userId: 1, username: 'op', role: 'admin' };
+const ctx = { userId: 1, username: 'op', role: 'admin', operaAjenas: true };
 const txObj = { select: selectMock, insert: insertMock, update: updateMock, delete: deleteMock };
 
 // PDF417 de ejemplo (rawValue real de BarcodeDetector): licencia, C.C., propietario, dirección,

@@ -13,6 +13,11 @@ vi.mock('../../src/db/client.js', () => ({
 }));
 const withLockMock = vi.fn();
 vi.mock('../../src/shared/utils/lock.js', () => ({ withLock: withLockMock }));
+// HU #13425: `getAdminEmails` lee los titulares de `jornadas.control.administrar` (antes, `users.role`).
+vi.mock('../../src/shared/permisos-efectivos.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/shared/permisos-efectivos.js')>()),
+  usuariosConFuncion: vi.fn().mockResolvedValue([1]),
+}));
 vi.mock('../../src/shared/redis.js', () => ({
   getRedis: () => null, closeRedis: vi.fn().mockResolvedValue(undefined), redisHealthy: vi.fn().mockResolvedValue(false),
 }));

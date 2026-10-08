@@ -44,7 +44,7 @@
 // importarse, para que los ~172 ficheros que firman tokens de prueba no consuman tres `selectMock` por
 // petición. No es una bandera de entorno a propósito (§10 del diseño).
 import { createHash } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { permisosRoles, permisosRolFuncion, permisosUsuarioFuncion, users } from '../db/schema.js';
 import { isValidPage, type PageSlug } from '@operaciones/shared-types';
@@ -255,4 +255,65 @@ export async function paginasEfectivasDeUsuario(userId: number): Promise<PageSlu
     if (esPaginaViva(codigo)) paginas.push(codigo.slice(PREFIJO.length) as PageSlug);
   }
   return paginas;
+}
+
+/**
+ * HU #13425 — Quién tiene HOY una función (y, opcionalmente, no tiene otra), para reglas del tipo
+ * «a quién se le puede asignar» o «quién recibe el aviso» que antes filtraban por `users.role`.
+ *
+ * Misma semántica que `resolverPermisos` por construcción: lee las mismas filas (rol ∪ conceder ∖
+ * revocar, rol presente en `permisos_roles`) y las pliega con el MISMO `conjuntoEfectivo`; lo único
+ * que cambia es que son tres consultas para todos los usuarios activos, no N resoluciones. Solo
+ * usuarios sin baja lógica. `permisos.usuarios-con-funcion.test.ts` lo compara contra el resolutor
+ * sobre el mismo fixture.
+ */
+export async function usuariosConFuncion(codigo: string, opts: { sin?: string } = {}): Promise<number[]> {
+  const codigos = opts.sin ? [codigo, opts.sin] : [codigo];
+  const principales = await db.select({
+    id: users.id,
+    rol: users.role,
+    tipoPrincipal: permisosRoles.tipoPrincipal,
+    tipoEnlace: permisosRoles.tipoEnlace,
+  })
+    .from(users)
+    .innerJoin(permisosRoles, eq(permisosRoles.codigo, users.role))
+    .where(isNull(users.deletedAt));
+  if (principales.length === 0) return [];
+
+  const delRol = await db.select({ rol: permisosRolFuncion.rolCodigo, codigo: permisosRolFuncion.funcionCodigo })
+    .from(permisosRolFuncion)
+    .where(inArray(permisosRolFuncion.funcionCodigo, codigos));
+  const propias = await db.select({
+    userId: permisosUsuarioFuncion.userId,
+    codigo: permisosUsuarioFuncion.funcionCodigo,
+    efecto: permisosUsuarioFuncion.efecto,
+  })
+    .from(permisosUsuarioFuncion)
+    .where(and(inArray(permisosUsuarioFuncion.funcionCodigo, codigos)));
+
+  const filas = new Map<number, FilasPermisos>();
+  for (const p of principales) {
+    filas.set(p.id, {
+      rol: p.rol,
+      tipoPrincipal: p.tipoPrincipal === 'externo' ? 'externo' : 'interno',
+      tipoEnlace: p.tipoEnlace,
+      funcionesDelRol: delRol.filter((r) => r.rol === p.rol).map((r) => r.codigo),
+      excepciones: propias.filter((e) => e.userId === p.id)
+        .map((e) => ({ codigo: e.codigo, efecto: e.efecto === 'revocar' ? 'revocar' : 'conceder' })),
+    });
+  }
+  return filtrarPorFuncion(filas, codigo, opts.sin);
+}
+
+/**
+ * El pliegue puro de `usuariosConFuncion`, exportado para la prueba de equivalencia con el resolutor.
+ * Devuelve los ids ordenados de menor a mayor.
+ */
+export function filtrarPorFuncion(filas: ReadonlyMap<number, FilasPermisos>, codigo: string, sin?: string): number[] {
+  const ids: number[] = [];
+  for (const [id, f] of filas) {
+    const conjunto = conjuntoEfectivo(f);
+    if (conjunto.has(codigo) && !(sin && conjunto.has(sin))) ids.push(id);
+  }
+  return ids.sort((a, b) => a - b);
 }

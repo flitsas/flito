@@ -10,7 +10,7 @@ import crypto from 'crypto';
 import { db } from '../../db/client.js';
 import { pesvDiagnosticos, pesvDiagnosticoItems, pesvEstandaresCatalogo, auditLogs } from '../../db/schema.js';
 import { authMiddleware } from '../../shared/middleware/auth.js';
-import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
+import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { pesvDiagnosticoCerradoTotal } from '../../shared/metrics.js';
@@ -59,11 +59,16 @@ router.get('/:id', requirePage('pesv_diagnostico'), async (req: Request, res: Re
   const [diag] = await db.select().from(pesvDiagnosticos).where(eq(pesvDiagnosticos.id, id)).limit(1);
   if (!diag) { res.status(404).json({ error: 'no encontrado' }); return; }
 
-  // Compliance sin view=auditoria: el frontend decide cómo redirigir.
-  if (!auditoria && req.user?.role === 'compliance') {
+  // HU #13425 — por funciones, no por nombre de rol. La vista de auditoría la abre quien CONSULTA el
+  // diagnóstico (`pesv.diagnostico_consulta.administrar`: la 0227 la siembra a admin, compliance y
+  // lider_pesv, la misma lista de antes). Quien consulta pero no lo administra
+  // (`pesv.diagnostico.administrar`: admin y lider_pesv) es el revisor de solo lectura: sin
+  // view=auditoria se le sugiere esa vista y el frontend decide cómo redirigir.
+  const consulta = await tieneFuncion(req, 'pesv.diagnostico_consulta.administrar');
+  if (!auditoria && consulta && !(await tieneFuncion(req, 'pesv.diagnostico.administrar'))) {
     res.setHeader('X-Redirect-To', `/pesv/diagnostico/${id}/auditoria`);
   }
-  if (auditoria && !['compliance', 'lider_pesv', 'admin'].includes(req.user!.role)) {
+  if (auditoria && !consulta) {
     res.status(403).json({ error: 'Sin permisos para vista auditoría' }); return;
   }
 

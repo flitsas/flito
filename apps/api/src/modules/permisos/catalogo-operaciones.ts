@@ -186,6 +186,8 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${LOG} POST /cerrar-lote`, 'logistica.lote.cerrar', 'Cerrar un lote de logística', 'Dar por armado el lote de documentos que va a despacharse.'),
   op(`${LOG} POST /actas/:id/despachar`, 'logistica.actas.despachar', 'Despachar un acta', 'Poner en ruta el acta y sus documentos.'),
   op(`${LOG} POST /actas/:id/entregar`, 'logistica.actas.entregar', 'Entregar un acta', 'Registrar la entrega del acta en destino.'),
+  // HU #13425: en línea (`ctxConPropiedad`), para mi ruta, entregar y devolver. Sin ella, solo las propias (CA-11).
+  op(`${LOG} POST /actas/:id/entregar [operarAjenas]`, 'logistica.actas.operar_ajenas', 'Operar actas asignadas a otro mensajero', 'Entregar, devolver y ver en la ruta las actas asignadas a otros usuarios, no solo las propias.'),
   op(`${LOG} POST /actas/:id/devolucion`, 'logistica.actas.devolver', 'Devolver un acta', 'Registrar que el acta vuelve sin haberse entregado.'),
   op(`${LOG} POST /documentos/:id/reversar`, 'logistica.documento.reversar', 'Reversar un paso de logística', 'Deshacer el último movimiento registrado sobre el documento.'),
 

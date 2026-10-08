@@ -11,7 +11,7 @@
 // `permisos-catalogo.test.ts` comprueba que los montajes del fuente cubren exactamente esta foto.
 import type { GuardaLeida } from './inventario-guardas.js';
 
-/** 217 rutas guardadas medidas el 9/09/2026 + 11 añadidas por la HU #12083 (dos en línea); +2 −1 por la HU #12373 (tarifas); +2 por la HU #12171; +7 por la HU #12084 (permisos); +4 por la HU #12541 (servicios adicionales); +1 por la HU #12591 (recibo de caja); +5 por la HU #12611 (comprobantes); +3 por la HU #12619 (viajes de logística); +3 por la HU #12629 (comprobantes F2: buscar, aplicar, descartar); +1 por la HU #12654 (comprobantes F3: aceptar diferencia); +2 por el Bug #12642 (export ampliado con datos de pago, dos en línea); +1 por la HU #12833 (corregir dirección del comprador); +2 por la HU #12997 (incompletas SOAT: buscar y ver); +1 por la HU #12998 (reintentar la consulta RUNT de una incompleta); +2 por la HU #13061 (acceso a FLIT 2: ver y guardar); +1 por la HU #13237 (interruptor de sincronización por fuente); +1 por la HU #13269 (reemplazar el comprobante de pago, sin rol); +1 por la HU #13362 (documentos adicionales del SOAT); +76 por la HU #13421 (pesv, drivers, jornadas y rum legacy). */
+/** 217 rutas guardadas medidas el 9/09/2026 + 11 añadidas por la HU #12083 (dos en línea); +2 −1 por la HU #12373 (tarifas); +2 por la HU #12171; +7 por la HU #12084 (permisos); +4 por la HU #12541 (servicios adicionales); +1 por la HU #12591 (recibo de caja); +5 por la HU #12611 (comprobantes); +3 por la HU #12619 (viajes de logística); +3 por la HU #12629 (comprobantes F2: buscar, aplicar, descartar); +1 por la HU #12654 (comprobantes F3: aceptar diferencia); +2 por el Bug #12642 (export ampliado con datos de pago, dos en línea); +1 por la HU #12833 (corregir dirección del comprador); +2 por la HU #12997 (incompletas SOAT: buscar y ver); +1 por la HU #12998 (reintentar la consulta RUNT de una incompleta); +2 por la HU #13061 (acceso a FLIT 2: ver y guardar); +1 por la HU #13237 (interruptor de sincronización por fuente); +1 por la HU #13269 (reemplazar el comprobante de pago, sin rol); +1 por la HU #13362 (documentos adicionales del SOAT); +76 por la HU #13421 (pesv, drivers, jornadas y rum legacy); +1 por la HU #13425 (operar actas ajenas, en línea); +3 por la HU #13425 fase B (jornada ajena y vista de auditoría del diagnóstico, en línea). */
 export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor","cliente","proveedor"], heredada: false },
   { modulo: "soat", fichero: "flito-soat/flito-soat.routes.ts", metodo: "POST", ruta: "/export", roles: ["admin","proveedor"], heredada: false },
@@ -114,6 +114,7 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/cerrar-lote", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/actas/:id/despachar", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/actas/:id/entregar", roles: ["admin","mensajero"], heredada: false },
+  { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/actas/:id/entregar", condicion: "operarAjenas", roles: ["admin"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/actas/:id/devolucion", roles: ["admin","mensajero"], heredada: false },
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica.routes.ts", metodo: "POST", ruta: "/documentos/:id/reversar", roles: ["admin"], heredada: false },
   { modulo: "bolsas", fichero: "flito-bolsas/flito-bolsas.routes.ts", metodo: "GET", ruta: "/consolidado", roles: ["admin","financiera"], heredada: false },
@@ -321,6 +322,9 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "pesv", fichero: "pesv/diagnostico.routes.ts", metodo: "GET", ruta: "/:id/preflight", roles: ["admin","compliance","lider_pesv"], heredada: false },
   { modulo: "pesv", fichero: "pesv/diagnostico.routes.ts", metodo: "POST", ruta: "/:id/cerrar", roles: ["admin","lider_pesv"], heredada: false },
   { modulo: "pesv", fichero: "pesv/diagnostico.routes.ts", metodo: "GET", ruta: "/:id/items/:estandarId/historial", roles: ["admin","compliance","lider_pesv"], heredada: false },
+  // HU #13425: las dos guardas EN LÍNEA del detalle (antes, por nombre de rol): abrir la vista de auditoría y sugerirla al que solo consulta.
+  { modulo: "pesv", fichero: "pesv/diagnostico.routes.ts", metodo: "GET", ruta: "/:id", condicion: "vistaAuditoria", roles: ["admin","compliance","lider_pesv"], heredada: false },
+  { modulo: "pesv", fichero: "pesv/diagnostico.routes.ts", metodo: "GET", ruta: "/:id", condicion: "sugerirAuditoria", roles: ["admin","lider_pesv"], heredada: false },
   { modulo: "pesv", fichero: "pesv/diagnostico-evidencias.routes.ts", metodo: "POST", ruta: "/:id/items/:estandarId/evidencias", roles: ["admin","lider_pesv"], heredada: false },
   { modulo: "pesv", fichero: "pesv/diagnostico-evidencias.routes.ts", metodo: "DELETE", ruta: "/:id/items/:estandarId/evidencias/:keyHash", roles: ["admin","lider_pesv"], heredada: false },
   { modulo: "pesv", fichero: "pesv/diagnostico-evidencias.routes.ts", metodo: "GET", ruta: "/:id/items/:estandarId/evidencias/:keyHash", roles: ["admin","compliance","lider_pesv"], heredada: false },
@@ -388,5 +392,7 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "jornadas", fichero: "jornadas/jornadas.routes.ts", metodo: "GET", ruta: "/", roles: ["admin"], heredada: false },
   { modulo: "jornadas", fichero: "jornadas/jornadas.routes.ts", metodo: "POST", ruta: "/alarmas/:alarmaId/ack", roles: ["admin"], heredada: false },
   { modulo: "jornadas", fichero: "jornadas/jornadas.routes.ts", metodo: "POST", ruta: "/reporte-mensual/regenerar", roles: ["admin"], heredada: false },
+  // HU #13425: la guarda EN LÍNEA «jornada de otro conductor» (`operaJornadaAjena`, antes `role !== 'admin'`), una para las 6 rutas.
+  { modulo: "jornadas", fichero: "jornadas/jornadas.routes.ts", metodo: "POST", ruta: "/abrir", condicion: "jornadaAjena", roles: ["admin"], heredada: false },
   { modulo: "rum", fichero: "rum/rum.routes.ts", metodo: "GET", ruta: "/summary", roles: ["admin"], heredada: false },
 ];

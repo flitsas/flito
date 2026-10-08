@@ -22,6 +22,14 @@ vi.mock('../../src/db/client.js', () => ({
 }));
 
 const auditMock = vi.fn().mockResolvedValue(undefined);
+// HU #13425: los destinatarios del aviso son quienes tienen `drivers.alcoholimetria.administrar`
+// (antes, `users.role = 'admin'`). Solo se sustituye esa función; el resto del motor queda real.
+const usuariosConFuncionMock = vi.fn();
+vi.mock('../../src/shared/permisos-efectivos.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/shared/permisos-efectivos.js')>()),
+  usuariosConFuncion: (...a: unknown[]) => usuariosConFuncionMock(...a),
+}));
+
 vi.mock('../../src/shared/middleware/audit.js', () => ({
   audit: auditMock,
 }));
@@ -48,6 +56,7 @@ beforeEach(() => {
   auditMock.mockClear();
   sendEmailMock.mockClear().mockResolvedValue({ ok: true, messageId: 'm-001' });
   isSmtpConfiguredMock.mockClear().mockReturnValue(true);
+  usuariosConFuncionMock.mockReset().mockResolvedValue([1]);
 });
 
 async function buildApp() {
@@ -302,6 +311,37 @@ describe('POST / — crear test (CERO ALCOHOL + alerta PESV)', () => {
     expect(call.html).toContain('Juan Pérez');
     expect(call.html).toContain('0.85 mg/L');
     expect(call.html).toContain('Grado: 3');
+  });
+
+  it('HU #13425: los destinatarios son quienes tienen drivers.alcoholimetria.administrar, no un nombre de rol', async () => {
+    usuariosConFuncionMock.mockResolvedValueOnce([7, 9]);
+    selectMock.mockReturnValueOnce(chain([{ id: 5, name: 'Juan', email: 'j@x.com' }]));
+    transactionMock.mockImplementationOnce(async (cb) => cb({
+      insert: vi.fn(() => ({ values: () => ({ returning: () => Promise.resolve([{ id: 101 }]) }) })),
+      update: vi.fn(() => ({ set: () => ({ where: () => Promise.resolve(undefined) }) })),
+    }));
+    selectMock.mockReturnValueOnce(chain([{ email: 'lider@x.com' }]));
+    const app = await buildApp();
+    await request(app).post('/api/alcohol').set('Authorization', `Bearer ${await adminToken()}`)
+      .send({ conductorId: 5, tipo: 'aleatoria', valorMg: 0.5 });
+    await new Promise(r => setImmediate(r));
+    expect(usuariosConFuncionMock).toHaveBeenCalledWith('drivers.alcoholimetria.administrar');
+    expect(sendEmailMock.mock.calls[0][0].to).toEqual(['lider@x.com']);
+  });
+
+  it('HU #13425: nadie con la función → no consulta correos ni envía', async () => {
+    usuariosConFuncionMock.mockResolvedValueOnce([]);
+    selectMock.mockReturnValueOnce(chain([{ id: 5, name: 'Juan', email: 'j@x.com' }]));
+    transactionMock.mockImplementationOnce(async (cb) => cb({
+      insert: vi.fn(() => ({ values: () => ({ returning: () => Promise.resolve([{ id: 102 }]) }) })),
+      update: vi.fn(() => ({ set: () => ({ where: () => Promise.resolve(undefined) }) })),
+    }));
+    const app = await buildApp();
+    await request(app).post('/api/alcohol').set('Authorization', `Bearer ${await adminToken()}`)
+      .send({ conductorId: 5, tipo: 'aleatoria', valorMg: 0.5 });
+    await new Promise(r => setImmediate(r));
+    expect(selectMock).toHaveBeenCalledTimes(1);
+    expect(sendEmailMock).not.toHaveBeenCalled();
   });
 });
 
