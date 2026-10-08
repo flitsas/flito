@@ -83,6 +83,18 @@ function bloquesInsertCondicionado(sql: string): string[] {
 }
 
 /**
+ * Cada bloque de reparto literal SOLO A ROLES QUE EXISTEN (HU #13421, corrección del 2026-10-08 de la
+ * 0227 tras el fallo del CD en DEV por FK): `INSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo)
+ * SELECT v.rol, v.fn FROM (VALUES ('<rol>', '<codigo>'), …) AS v(rol, fn) JOIN permisos_roles r ON
+ * r.codigo = v.rol ON CONFLICT … ;`. Sin base no hay catálogo de roles: se pliega como el literal (el
+ * ambiente que no tenga el rol tampoco tiene a quién concedérselo).
+ */
+export function bloquesInsertSiRolExiste(sql: string): string[] {
+  const re = /INSERT INTO permisos_rol_funcion \(rol_codigo, funcion_codigo\)\s+SELECT v\.rol, v\.fn FROM \(VALUES([\s\S]*?)\) AS v\(rol, fn\)\s+JOIN permisos_roles r ON r\.codigo = v\.rol\s+ON CONFLICT \(rol_codigo, funcion_codigo\) DO NOTHING\s*;/g;
+  return [...sinComentariosSql(sql).matchAll(re)].map((m) => m[1]!);
+}
+
+/**
  * Cada bloque de reparto COPIADO de una función de origen (HU #13421, ADR-0023 §D5): `INSERT INTO
  * permisos_rol_funcion (rol_codigo, funcion_codigo) SELECT o.rol_codigo, v.fn FROM permisos_rol_funcion o
  * CROSS JOIN (VALUES ('<destino>'), …) AS v(fn) WHERE o.funcion_codigo = '<origen>' ON CONFLICT … ;`.
@@ -147,7 +159,7 @@ const leer = (archivo: string): string => readFileSync(path.join(MIGRACIONES, ar
 export function repartoDeSql(sqls: readonly string[], nombre = 'sql'): Map<string, Set<string>> {
   const reparto = new Map<string, Set<string>>();
   for (const sql of sqls) {
-    for (const bloque of bloquesInsert(sql, 'permisos_rol_funcion')) {
+    for (const bloque of [...bloquesInsert(sql, 'permisos_rol_funcion'), ...bloquesInsertSiRolExiste(sql)]) {
       for (const [rol, codigo] of tuplas(bloque)) {
         if (!rol || !codigo) throw new Error(`${nombre}: fila de permisos_rol_funcion incompleta`);
         if (!reparto.has(rol)) reparto.set(rol, new Set());
