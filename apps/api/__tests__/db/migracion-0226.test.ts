@@ -59,12 +59,24 @@ describe('0226 — reglas del archivo (análisis estático)', () => {
     expect(sqls[sqls.indexOf(ARCHIVO) - 1]).toBe(ANTERIOR);
   });
 
-  it('idempotente: todo INSERT con ON CONFLICT DO NOTHING, sin DO UPDATE ni DELETE', () => {
+  it('idempotente: todo INSERT con ON CONFLICT DO NOTHING, sin DO UPDATE; los dos DELETE son los del Paso 3b', () => {
     const inserts = SIN_COMENTARIOS.match(/INSERT INTO permisos_/g) ?? [];
-    expect(inserts).toHaveLength(5);
-    expect(SIN_COMENTARIOS.match(/ON CONFLICT \([a-z_, ]+\) DO NOTHING;/g)).toHaveLength(5);
-    expect(SIN_COMENTARIOS).not.toMatch(/DO UPDATE|DELETE FROM/);
+    expect(inserts).toHaveLength(8);
+    expect(SIN_COMENTARIOS.match(/ON CONFLICT \([a-z_, ]+\) DO NOTHING;/g)).toHaveLength(8);
+    expect(SIN_COMENTARIOS).not.toMatch(/DO UPDATE/);
+    expect(SIN_COMENTARIOS.match(/DELETE FROM/g)).toHaveLength(2);
     expect(SIN_COMENTARIOS).toMatch(/IS DISTINCT FROM/);
+    // La tabla temporal se va con la transacción del runner: una segunda pasada la vuelve a crear.
+    expect(SIN_COMENTARIOS).toMatch(/CREATE TEMP TABLE m0226_objetivo ON COMMIT DROP AS/);
+  });
+
+  it('db-review N2: las operaciones se cuentan con la lista CERRADA de las 25, no por prefijo', () => {
+    expect(SIN_COMENTARIOS).not.toMatch(/LIKE/);
+    const listas = [...SIN_COMENTARIOS.matchAll(/codigo IN \(('[a-z_.]+'(?:,'[a-z_.]+')*)\)/g)]
+      .map((m) => m[1]!.split(',').map((x) => x.slice(1, -1)))
+      .filter((l) => l.some((c) => !c.startsWith('pagina.')));
+    expect(listas).toHaveLength(2);
+    for (const l of listas) expect([...l].sort()).toEqual(OPERACIONES.map((f) => f.codigo).sort());
   });
 });
 
@@ -144,3 +156,50 @@ describe('0226 — reparto con paridad (AC5) y admin explícito (AC7)', () => {
     expect(SIN_COMENTARIOS).toMatch(/IF n_paginas <> 21 OR n_ops <> 25 THEN\s*RAISE EXCEPTION/);
   });
 });
+
+// security-agent (pre-PR, bloqueante): raci, normativa y retención pedían su página Y `pagina.pesv`
+// (guarda de router filtrada en /api/pesv). Quitarla sin recortar el reparto daba acceso a quien tenía
+// la página sin `pagina.pesv`. Mutantes nombrados (los dos se probaron también contra Postgres, en una
+// transacción con ROLLBACK, y el DO abortó):
+//   · M4 — quitar (a.2) (retirar el `conceder` sin pagina.pesv): cae «(a) recorta…» y el DO aborta.
+//   · M5 — quitar el control (b) del DO: cae «(b) el DO aborta…».
+describe('0226 — raci, normativa y retención recortadas a la intersección con pagina.pesv', () => {
+  const TRES = ['pagina.pesv_raci', 'pagina.pesv_normativa', 'pagina.pesv_retencion'];
+  const EFECTIVA_PESV = /\(EXISTS \(SELECT 1 FROM permisos_rol_funcion r WHERE r\.rol_codigo = u\.role AND r\.funcion_codigo = 'pagina\.pesv'\)\s+OR EXISTS \(SELECT 1 FROM permisos_usuario_funcion c WHERE c\.user_id = u\.id AND c\.funcion_codigo = 'pagina\.pesv' AND c\.efecto = 'conceder'\)\)\s+AND NOT EXISTS \(SELECT 1 FROM permisos_usuario_funcion x WHERE x\.user_id = u\.id AND x\.funcion_codigo = 'pagina\.pesv' AND x\.efecto = 'revocar'\)/;
+
+  it('el objetivo se calcula ANTES de tocar filas, con la regla del motor (R ∪ C) \\ V sobre pagina.pesv y sobre la página', () => {
+    const iObjetivo = SIN_COMENTARIOS.indexOf('CREATE TEMP TABLE m0226_objetivo');
+    expect(iObjetivo).toBeGreaterThan(-1);
+    expect(iObjetivo).toBeLessThan(SIN_COMENTARIOS.indexOf('DELETE FROM'));
+    const objetivo = SIN_COMENTARIOS.slice(iObjetivo, SIN_COMENTARIOS.indexOf(';', iObjetivo));
+    expect(objetivo).toMatch(EFECTIVA_PESV);
+    for (const p of TRES) expect(objetivo).toContain(`('${p}')`);
+  });
+
+  it('(a) recorta: rol sin pagina.pesv deja de conceder, se retira el conceder de usuario sin objetivo, se copian las revocaciones de pagina.pesv y se revoca donde el rol aún concede (M4)', () => {
+    expect(SIN_COMENTARIOS).toMatch(/DELETE FROM permisos_rol_funcion rf\s+WHERE rf\.funcion_codigo = ANY \(ARRAY\['pagina\.pesv_raci', 'pagina\.pesv_normativa', 'pagina\.pesv_retencion'\]\)\s+AND NOT EXISTS \(SELECT 1 FROM permisos_rol_funcion o WHERE o\.rol_codigo = rf\.rol_codigo AND o\.funcion_codigo = 'pagina\.pesv'\);/);
+    expect(SIN_COMENTARIOS).toMatch(/DELETE FROM permisos_usuario_funcion p\s+USING m0226_objetivo t\s+WHERE p\.user_id = t\.user_id AND p\.funcion_codigo = t\.fn AND p\.efecto = 'conceder' AND NOT t\.objetivo;/);
+    expect(SIN_COMENTARIOS).toMatch(/SELECT o\.user_id, v\.fn, 'revocar' FROM permisos_usuario_funcion o[\s\S]{0,200}WHERE o\.funcion_codigo = 'pagina\.pesv' AND o\.efecto = 'revocar'/);
+    expect(SIN_COMENTARIOS).toMatch(/SELECT t\.user_id, t\.fn, 'revocar' FROM m0226_objetivo t\s+WHERE NOT t\.objetivo/);
+    // Paridad hacia abajo: quien SÍ pasaba conserva la página como excepción propia.
+    expect(SIN_COMENTARIOS).toMatch(/SELECT t\.user_id, t\.fn, 'conceder' FROM m0226_objetivo t\s+WHERE t\.objetivo/);
+  });
+
+  it('(b) el DO aborta si alguien queda con una de las tres sin pagina.pesv efectiva, o distinto del objetivo (M5)', () => {
+    const iDo = SIN_COMENTARIOS.indexOf('DO $resumen0226$');
+    const bloque = SIN_COMENTARIOS.slice(iDo);
+    expect(bloque).toMatch(EFECTIVA_PESV);
+    expect(bloque).toMatch(/IF n_sin_pesv <> 0 THEN\s*RAISE EXCEPTION/);
+    expect(bloque).toMatch(/t\.objetivo IS DISTINCT FROM/);
+    expect(bloque).toMatch(/IF n_difieren <> 0 THEN\s*RAISE EXCEPTION/);
+  });
+
+  it('el recorte no lo pliega el helper como retiro (ni la forma DELETE … IN): el reparto de partida no tiene roles con esas páginas sin pagina.pesv', () => {
+    expect(leerRetirosSembrados([ARCHIVO])).toEqual({ funciones: new Set(), reparto: new Set() });
+    const total = leerRepartoSembrado();
+    for (const [rol, cs] of total) {
+      for (const p of TRES) if (cs.has(p)) expect(cs.has('pagina.pesv'), `${rol} ${p}`).toBe(true);
+    }
+  });
+});
+

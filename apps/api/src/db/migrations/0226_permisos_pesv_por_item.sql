@@ -18,6 +18,13 @@
 --     editado. Los transitorios llevan la lista LITERAL de su `requireRole` (que solo miraba el rol).
 --   - `admin` recibe explicitamente cada funcion nueva (AC7, ADR-0022).
 --   - Formas parseables por __tests__/helpers/permisos-seed-sql.ts (MIGRACIONES_CON_REPARTO).
+--   - Paso 3b (security-agent, pre-PR): raci, normativa y retencion pedian TAMBIEN pagina.pesv (la
+--     guarda de router de tablero/huerfanos en /api/pesv se ejecutaba antes). Al quitarla, su reparto
+--     se recorta a la interseccion: quien tenga una de esas tres paginas tenia pagina.pesv efectiva.
+--   - Roles literales (lider_pesv, supervisor_flota, compliance) en el Paso 5: si un ambiente borro
+--     uno de esos roles desde el panel, la FK hace fallar el archivo ENTERO (falla cerrado, nada a
+--     medias). Se deja literal porque el test de paridad parsea esa forma; se corrige creando el rol
+--     o con una migracion nueva (db-review N1).
 
 -- ── Paso 1 — Las 21 paginas nuevas (una por item del menu PESV) ───────────────────────────────
 INSERT INTO permisos_funciones (codigo, modulo, nombre_negocio, descripcion, tipo) VALUES
@@ -101,6 +108,55 @@ INSERT INTO permisos_usuario_funcion (user_id, funcion_codigo, efecto)
   ('pagina.pesv_pernocta')
   ) AS v(fn)
   WHERE o.funcion_codigo = 'pagina.pesv'
+ON CONFLICT (user_id, funcion_codigo) DO NOTHING;
+
+-- ── Paso 3b — raci, normativa y retencion: su reparto pasa a la INTERSECCION con pagina.pesv ────
+-- Hoy esas rutas exigian su pagina Y pagina.pesv. Se calcula, ANTES de tocar nada, el objetivo por
+-- usuario con la regla del motor (R union C) menos V: tiene la pagina hoy Y tiene pagina.pesv hoy.
+-- Luego se recortan las filas para que la pagina efectiva sea exactamente ese objetivo.
+CREATE TEMP TABLE m0226_objetivo ON COMMIT DROP AS
+  SELECT u.id AS user_id, u.role AS rol, v.fn,
+    (
+      (EXISTS (SELECT 1 FROM permisos_rol_funcion r WHERE r.rol_codigo = u.role AND r.funcion_codigo = 'pagina.pesv')
+        OR EXISTS (SELECT 1 FROM permisos_usuario_funcion c WHERE c.user_id = u.id AND c.funcion_codigo = 'pagina.pesv' AND c.efecto = 'conceder'))
+      AND NOT EXISTS (SELECT 1 FROM permisos_usuario_funcion x WHERE x.user_id = u.id AND x.funcion_codigo = 'pagina.pesv' AND x.efecto = 'revocar')
+    ) AND (
+      (EXISTS (SELECT 1 FROM permisos_rol_funcion r WHERE r.rol_codigo = u.role AND r.funcion_codigo = v.fn)
+        OR EXISTS (SELECT 1 FROM permisos_usuario_funcion c WHERE c.user_id = u.id AND c.funcion_codigo = v.fn AND c.efecto = 'conceder'))
+      AND NOT EXISTS (SELECT 1 FROM permisos_usuario_funcion x WHERE x.user_id = u.id AND x.funcion_codigo = v.fn AND x.efecto = 'revocar')
+    ) AS objetivo
+  FROM users u CROSS JOIN (VALUES ('pagina.pesv_raci'), ('pagina.pesv_normativa'), ('pagina.pesv_retencion')) AS v(fn);
+
+-- (a.1) Un ROL que no tiene pagina.pesv deja de conceder estas tres paginas.
+DELETE FROM permisos_rol_funcion rf
+  WHERE rf.funcion_codigo = ANY (ARRAY['pagina.pesv_raci', 'pagina.pesv_normativa', 'pagina.pesv_retencion'])
+    AND NOT EXISTS (SELECT 1 FROM permisos_rol_funcion o WHERE o.rol_codigo = rf.rol_codigo AND o.funcion_codigo = 'pagina.pesv');
+
+-- (a.2) Un `conceder` de usuario sin pagina.pesv efectiva se retira.
+DELETE FROM permisos_usuario_funcion p
+  USING m0226_objetivo t
+  WHERE p.user_id = t.user_id AND p.funcion_codigo = t.fn AND p.efecto = 'conceder' AND NOT t.objetivo;
+
+-- (a.3) Las revocaciones de pagina.pesv se copian a las tres (quien no ve PESV no ve estas paginas).
+INSERT INTO permisos_usuario_funcion (user_id, funcion_codigo, efecto)
+  SELECT o.user_id, v.fn, 'revocar' FROM permisos_usuario_funcion o
+    CROSS JOIN (VALUES ('pagina.pesv_raci'), ('pagina.pesv_normativa'), ('pagina.pesv_retencion')) AS v(fn)
+  WHERE o.funcion_codigo = 'pagina.pesv' AND o.efecto = 'revocar'
+ON CONFLICT (user_id, funcion_codigo) DO NOTHING;
+
+-- (a.4) Si el rol aun la concede y el objetivo es NO, se revoca al usuario.
+INSERT INTO permisos_usuario_funcion (user_id, funcion_codigo, efecto)
+  SELECT t.user_id, t.fn, 'revocar' FROM m0226_objetivo t
+  WHERE NOT t.objetivo
+    AND EXISTS (SELECT 1 FROM permisos_rol_funcion r WHERE r.rol_codigo = t.rol AND r.funcion_codigo = t.fn)
+ON CONFLICT (user_id, funcion_codigo) DO NOTHING;
+
+-- (a.5) Paridad hacia abajo: quien SI pasaba (pagina.pesv por excepcion propia) y perdio la pagina
+-- porque su rol dejo de concederla, la conserva como excepcion propia.
+INSERT INTO permisos_usuario_funcion (user_id, funcion_codigo, efecto)
+  SELECT t.user_id, t.fn, 'conceder' FROM m0226_objetivo t
+  WHERE t.objetivo
+    AND NOT EXISTS (SELECT 1 FROM permisos_rol_funcion r WHERE r.rol_codigo = t.rol AND r.funcion_codigo = t.fn)
 ON CONFLICT (user_id, funcion_codigo) DO NOTHING;
 
 -- ── Paso 4 — Las 25 operaciones: 24 transitorios «Administrar <item>» y `rum.resumen.ver` ──────
@@ -202,16 +258,16 @@ ON CONFLICT (rol_codigo, funcion_codigo) DO NOTHING;
 DO $resumen0226$
 DECLARE
   n_paginas int; n_ops int; n_sin_admin int; n_rol_raiz int; n_usr_raiz int; n_cortas int; n_rol_nuevas int;
+  n_sin_pesv int; n_difieren int;
 BEGIN
   SELECT count(*) INTO n_paginas FROM permisos_funciones WHERE tipo = 'pagina' AND codigo IN ('pagina.pesv_conductores','pagina.pesv_capacitaciones','pagina.pesv_incidentes','pagina.pesv_siniestralidad','pagina.pesv_checklists','pagina.pesv_alcoholimetria','pagina.pesv_emergencias','pagina.pesv_indicadores_operacion','pagina.pesv_politica','pagina.pesv_comite','pagina.pesv_plan','pagina.pesv_diagnostico','pagina.pesv_tablero_ejecutivo','pagina.pesv_reportar_incidente','pagina.pesv_auditorias','pagina.pesv_comunicaciones','pagina.pesv_contratistas','pagina.pesv_jornadas','pagina.pesv_mi_jornada','pagina.pesv_rutas','pagina.pesv_pernocta');
   SELECT count(*) INTO n_ops FROM permisos_funciones WHERE tipo = 'operacion'
-    AND (codigo LIKE 'pesv.%' OR codigo LIKE 'drivers.%' OR codigo LIKE 'jornadas.%' OR codigo LIKE 'rum.%');
+    AND codigo IN ('drivers.alcoholimetria.administrar','drivers.capacitaciones.administrar','drivers.checklists.administrar','drivers.conductores.administrar','drivers.emergencias.administrar','drivers.incidentes_registro.administrar','drivers.incidentes.administrar','jornadas.control.administrar','pesv.auditorias.administrar','pesv.comite.administrar','pesv.comunicaciones.administrar','pesv.contratistas.administrar','pesv.diagnostico_consulta.administrar','pesv.diagnostico.administrar','pesv.incidentes_causa_raiz.administrar','pesv.normativa_edicion.administrar','pesv.normativa.administrar','pesv.plan.administrar','pesv.politica_edicion.administrar','pesv.politica.administrar','pesv.raci.administrar','pesv.retencion_edicion.administrar','pesv.retencion.administrar','pesv.tablero_ejecutivo.administrar','rum.resumen.ver');
   IF n_paginas <> 21 OR n_ops <> 25 THEN
     RAISE EXCEPTION '0226: catalogo incompleto (paginas=% de 21, operaciones=% de 25)', n_paginas, n_ops;
   END IF;
   SELECT count(*) INTO n_sin_admin FROM permisos_funciones f
-    WHERE (f.codigo IN ('pagina.pesv_conductores','pagina.pesv_capacitaciones','pagina.pesv_incidentes','pagina.pesv_siniestralidad','pagina.pesv_checklists','pagina.pesv_alcoholimetria','pagina.pesv_emergencias','pagina.pesv_indicadores_operacion','pagina.pesv_politica','pagina.pesv_comite','pagina.pesv_plan','pagina.pesv_diagnostico','pagina.pesv_tablero_ejecutivo','pagina.pesv_reportar_incidente','pagina.pesv_auditorias','pagina.pesv_comunicaciones','pagina.pesv_contratistas','pagina.pesv_jornadas','pagina.pesv_mi_jornada','pagina.pesv_rutas','pagina.pesv_pernocta') OR (f.tipo = 'operacion'
-      AND (f.codigo LIKE 'pesv.%' OR f.codigo LIKE 'drivers.%' OR f.codigo LIKE 'jornadas.%' OR f.codigo LIKE 'rum.%')))
+    WHERE (f.codigo IN ('pagina.pesv_conductores','pagina.pesv_capacitaciones','pagina.pesv_incidentes','pagina.pesv_siniestralidad','pagina.pesv_checklists','pagina.pesv_alcoholimetria','pagina.pesv_emergencias','pagina.pesv_indicadores_operacion','pagina.pesv_politica','pagina.pesv_comite','pagina.pesv_plan','pagina.pesv_diagnostico','pagina.pesv_tablero_ejecutivo','pagina.pesv_reportar_incidente','pagina.pesv_auditorias','pagina.pesv_comunicaciones','pagina.pesv_contratistas','pagina.pesv_jornadas','pagina.pesv_mi_jornada','pagina.pesv_rutas','pagina.pesv_pernocta') OR f.codigo IN ('drivers.alcoholimetria.administrar','drivers.capacitaciones.administrar','drivers.checklists.administrar','drivers.conductores.administrar','drivers.emergencias.administrar','drivers.incidentes_registro.administrar','drivers.incidentes.administrar','jornadas.control.administrar','pesv.auditorias.administrar','pesv.comite.administrar','pesv.comunicaciones.administrar','pesv.contratistas.administrar','pesv.diagnostico_consulta.administrar','pesv.diagnostico.administrar','pesv.incidentes_causa_raiz.administrar','pesv.normativa_edicion.administrar','pesv.normativa.administrar','pesv.plan.administrar','pesv.politica_edicion.administrar','pesv.politica.administrar','pesv.raci.administrar','pesv.retencion_edicion.administrar','pesv.retencion.administrar','pesv.tablero_ejecutivo.administrar','rum.resumen.ver'))
       AND NOT EXISTS (SELECT 1 FROM permisos_rol_funcion rf WHERE rf.rol_codigo = 'admin' AND rf.funcion_codigo = f.codigo);
   IF n_sin_admin <> 0 THEN
     RAISE EXCEPTION '0226: % funciones nuevas sin admin (AC7)', n_sin_admin;
@@ -227,7 +283,28 @@ BEGIN
   IF n_cortas <> 0 THEN
     RAISE EXCEPTION '0226: % paginas nuevas con MENOS reparto que pagina.pesv (paridad)', n_cortas;
   END IF;
+  -- (b) Nadie puede quedar con raci, normativa o retencion efectiva sin pagina.pesv efectiva, y la
+  -- pagina efectiva de cada usuario es EXACTAMENTE el objetivo calculado antes de tocar nada.
+  SELECT count(*) INTO n_sin_pesv FROM users u
+    CROSS JOIN (VALUES ('pagina.pesv_raci'), ('pagina.pesv_normativa'), ('pagina.pesv_retencion')) AS v(fn)
+    WHERE ((EXISTS (SELECT 1 FROM permisos_rol_funcion r WHERE r.rol_codigo = u.role AND r.funcion_codigo = v.fn)
+            OR EXISTS (SELECT 1 FROM permisos_usuario_funcion c WHERE c.user_id = u.id AND c.funcion_codigo = v.fn AND c.efecto = 'conceder'))
+           AND NOT EXISTS (SELECT 1 FROM permisos_usuario_funcion x WHERE x.user_id = u.id AND x.funcion_codigo = v.fn AND x.efecto = 'revocar'))
+      AND NOT ((EXISTS (SELECT 1 FROM permisos_rol_funcion r WHERE r.rol_codigo = u.role AND r.funcion_codigo = 'pagina.pesv')
+                OR EXISTS (SELECT 1 FROM permisos_usuario_funcion c WHERE c.user_id = u.id AND c.funcion_codigo = 'pagina.pesv' AND c.efecto = 'conceder'))
+               AND NOT EXISTS (SELECT 1 FROM permisos_usuario_funcion x WHERE x.user_id = u.id AND x.funcion_codigo = 'pagina.pesv' AND x.efecto = 'revocar'));
+  IF n_sin_pesv <> 0 THEN
+    RAISE EXCEPTION '0226: % accesos a raci/normativa/retencion sin pagina.pesv efectiva (ganancia)', n_sin_pesv;
+  END IF;
+  SELECT count(*) INTO n_difieren FROM m0226_objetivo t JOIN users u ON u.id = t.user_id
+    WHERE t.objetivo IS DISTINCT FROM (
+      (EXISTS (SELECT 1 FROM permisos_rol_funcion r WHERE r.rol_codigo = u.role AND r.funcion_codigo = t.fn)
+        OR EXISTS (SELECT 1 FROM permisos_usuario_funcion c WHERE c.user_id = u.id AND c.funcion_codigo = t.fn AND c.efecto = 'conceder'))
+      AND NOT EXISTS (SELECT 1 FROM permisos_usuario_funcion x WHERE x.user_id = u.id AND x.funcion_codigo = t.fn AND x.efecto = 'revocar'));
+  IF n_difieren <> 0 THEN
+    RAISE EXCEPTION '0226: % accesos a raci/normativa/retencion distintos del objetivo (paridad)', n_difieren;
+  END IF;
   SELECT count(*) INTO n_rol_nuevas FROM permisos_rol_funcion WHERE funcion_codigo IN ('pagina.pesv_conductores','pagina.pesv_capacitaciones','pagina.pesv_incidentes','pagina.pesv_siniestralidad','pagina.pesv_checklists','pagina.pesv_alcoholimetria','pagina.pesv_emergencias','pagina.pesv_indicadores_operacion','pagina.pesv_politica','pagina.pesv_comite','pagina.pesv_plan','pagina.pesv_diagnostico','pagina.pesv_tablero_ejecutivo','pagina.pesv_reportar_incidente','pagina.pesv_auditorias','pagina.pesv_comunicaciones','pagina.pesv_contratistas','pagina.pesv_jornadas','pagina.pesv_mi_jornada','pagina.pesv_rutas','pagina.pesv_pernocta');
-  RAISE NOTICE '0226: % paginas y % operaciones; pagina.pesv con % roles y % excepciones, copiadas (% filas de rol en las nuevas)',
+  RAISE NOTICE '0226: % paginas y % operaciones; pagina.pesv con % roles y % excepciones, copiadas (% filas de rol en las nuevas); raci/normativa/retencion recortadas a pagina.pesv (0 sin ella)',
     n_paginas, n_ops, n_rol_raiz, n_usr_raiz, n_rol_nuevas;
 END $resumen0226$;
