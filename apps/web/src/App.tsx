@@ -5,7 +5,7 @@ import { ThemeProvider } from './lib/theme';
 import { hasPage, rutaInicio, PageSlug } from './lib/permissions';
 import { puedeVerAyudaFlito } from './lib/ayudaFlito';
 import Layout from './components/Layout';
-import NoAccess from './components/NoAccess';
+import NoAccess, { AvisoPermisosNoComprobados } from './components/NoAccess';
 import PageContentSkeleton from './components/flit/PageContentSkeleton';
 import Login from './pages/Login';
 import { lazy, Suspense } from 'react';
@@ -113,13 +113,20 @@ const PublicTramitePortal = lazy(() => import('./pages/PublicTramitePortal'));
 const FlitoAyuda = lazy(() => import('./pages/FlitoAyuda'));
 
 function ProtectedRoute({ children, page }: { children: React.ReactNode; page?: PageSlug }) {
-  const { user, loading } = useAuth();
+  const { user, loading, permisosError } = useAuth();
 
-  if (loading) return <div className="flex items-center justify-center h-screen text-text-tertiary">Cargando...</div>;
+  if (loading) return page ? <PageContentSkeleton /> : <div className="flex items-center justify-center h-screen text-text-tertiary">Cargando...</div>;
   if (!user) return <Navigate to="/login" />;
+  // HU #12872 (AC7): `user.allowedPages` se refresca en sesión (`useRefrescoPermisos`); al perder la
+  // página, esta guarda re-evalúa y pinta «sin acceso» en el sitio, sin redirigir ni toast.
   if (page && !hasPage(user, page)) return <NoAccess page={page} />;
 
-  return <>{children}</>;
+  return (
+    <>
+      {page && permisosError && <AvisoPermisosNoComprobados />}
+      {children}
+    </>
+  );
 }
 
 // Ayuda FLITO: el gate es la intersección con el catálogo, NO hasPage('flito_ayuda').
@@ -140,22 +147,23 @@ function AyudaFlitoGate({ children }: { children: React.ReactNode }) {
 // exactamente lo de siempre. Y si `rutaInicio` no encuentra destino devuelve `/`, así que el
 // `Navigate` no puede apuntarse a sí mismo: se cae al `NoAccess` de siempre.
 function InicioGate() {
-  const { user } = useAuth();
+  const { user, funciones } = useAuth();
   if (user && !hasPage(user, 'dashboard')) {
-    const { to } = rutaInicio(user);
+    const { to } = rutaInicio(user, funciones);
     if (to !== '/') return <Navigate to={to} replace />;
   }
   return <ProtectedRoute page="dashboard"><Lazy><Dashboard /></Lazy></ProtectedRoute>;
 }
 
-// TRAM-TRASPASO-F5 — gate del wizard de traspaso: el operador STT (role
-// `transito`) no usa el wizard del gestor CEA; se le redirige a su expediente
-// STT (/transito/traspaso?id=N) o a la bandeja si entra sin id.
+// TRAM-TRASPASO-F5 — gate del wizard de traspaso: el operador STT no usa el wizard del gestor CEA;
+// se le redirige a su expediente STT (/transito/traspaso?id=N) o a la bandeja si entra sin id.
+// HU #12872: «operador STT» = la misma regla por función que `TramiteTraspaso.tsx` (`isTransito`),
+// no el nombre del rol.
 function TramiteTraspasoGate() {
-  const { user } = useAuth();
+  const { user, hasFuncion } = useAuth();
   const [searchParams] = useSearchParams();
   const id = searchParams.get('id');
-  if (user?.role === 'transito') {
+  if (hasFuncion('transito.tramite.tomar') && !hasFuncion('tramite.tramite.forzar_continuar')) {
     return id ? <Navigate to={`/transito/traspaso?id=${id}`} replace /> : <Navigate to="/transito" replace />;
   }
   if (!user || !hasPage(user, 'tramite')) return <NoAccess page="tramite" />;

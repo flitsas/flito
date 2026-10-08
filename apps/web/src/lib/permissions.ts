@@ -3,7 +3,7 @@
 // la HU #12170, `effectiveFunctions`/`hasFuncion` sobre el conjunto que entrega
 // `GET /api/permisos/mios` (HU #12082). La SPA no recalcula (R ∪ C) \ V: obedece lo ya resuelto.
 
-import { isValidPage, type PageSlug, type UserRole } from '@operaciones/shared-types';
+import { isValidPage, type PageSlug } from '@operaciones/shared-types';
 // `rutaInicio` (abajo) deriva el destino del catálogo de navegación. El import es de VALOR y va en
 // este sentido; el que `navItems.ts` hace de este módulo es `import type` y se borra al compilar,
 // así que no hay ciclo en ejecución. Ver la nota de `lib/ayudaFlito.ts`.
@@ -36,7 +36,7 @@ export {
 export type { FuncionesEfectivas };
 
 /** Lo mínimo que hay que saber de un usuario para resolver sus páginas. */
-export type UsuarioPermisos = { role: string; allowedPages?: string[] | null };
+export type UsuarioPermisos = { allowedPages?: string[] | null; tipoPrincipal?: 'interno' | 'externo' | null };
 
 /**
  * Páginas efectivas en el menú: exactamente lo que trajo `/me` (ya resuelto en servidor).
@@ -76,7 +76,10 @@ export function hasPage(user: UsuarioPermisos | null, page: PageSlug): boolean {
  */
 export interface DestinoInicio { to: string; etiqueta: string }
 
-export function rutaInicio(user: UsuarioPermisos | null): DestinoInicio {
+export function rutaInicio(
+  user: UsuarioPermisos | null,
+  funciones: readonly string[] | null = null,
+): DestinoInicio {
   const TABLERO: DestinoInicio = { to: '/', etiqueta: 'Tablero' };
   if (!user || hasPage(user, 'dashboard')) return TABLERO;
 
@@ -85,7 +88,7 @@ export function rutaInicio(user: UsuarioPermisos | null): DestinoInicio {
     // «Ayuda FLITO» nunca es el sitio donde se trabaja: es documentación, y su visibilidad además
     // es derivada. Aterrizar ahí sería mandar a alguien a leer sobre pantallas que no tiene.
     it.page !== 'flito_ayuda'
-    && navItemPermitido(it, user as { role: UserRole; allowedPages?: string[] | null }, permitidas),
+    && navItemPermitido(it, user, permitidas, funciones),
   );
   // Sin ninguna entrada permitida no hay a dónde ir: se devuelve `/` a propósito para que el
   // `InicioGate` acabe en el `NoAccess` de siempre en vez de en un `Navigate` sobre sí mismo.

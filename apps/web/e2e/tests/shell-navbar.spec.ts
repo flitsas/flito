@@ -18,7 +18,10 @@ const TABLERO_VACIO = {
 
 async function mockApi(page: import('@playwright/test').Page) {
   await page.route('**/api/**', async (route) => {
-    if (route.request().url().includes('/auth/me')) return route.fallback();
+    // HU #12872: el menú también pregunta funciones (`/permisos/mios`, que mockea `loginAs`); el
+    // catch-all no puede taparlo con `[]` o SOAT/Impuestos/«Mi ruta» desaparecerían por fail-closed.
+    const url = route.request().url();
+    if (url.includes('/auth/me') || url.includes('/permisos/mios')) return route.fallback();
     return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
   });
   // Registrado después → tiene prioridad para /flito/tablero.
@@ -557,6 +560,9 @@ test.describe('Shell · SOAT e Impuestos abiertos a Operaciones (HU #11151)', ()
     await loginAs(page, CONDUCTOR_USER);
     await mockApi(page);
     await page.goto('/');
+    // El atajo ⌘K lo escucha `Layout`: esperar a un control suyo antes de teclear (y antes de contar
+    // ausencias, que si no pasan en verde contra una página sin pintar).
+    await expect(page.getByRole('button', { name: /Buscar o ir a secci/ })).toBeVisible();
 
     // Ni en el menú…
     await expect(page.getByRole('link', { name: 'SOAT', exact: true })).toHaveCount(0);
