@@ -36,8 +36,8 @@ const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(-
 
 export default function DriverDetail() {
   const { id } = useParams<{ id: string }>();
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const { hasFuncion } = useAuth();
+  const isAdmin = hasFuncion('drivers.conductores.administrar');
   const [d, setD] = useState<Detail | null>(null);
   const [tab, setTab] = useState<Tab>('datos');
 

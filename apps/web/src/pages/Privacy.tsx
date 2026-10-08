@@ -28,13 +28,13 @@ interface ForgetResponse {
 }
 
 export default function Privacy() {
-  const { user } = useAuth();
+  const { hasFuncion } = useAuth();
   const [docNumber, setDocNumber] = useState('');
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = hasFuncion('privacy.olvido.administrar');
 
   const handlePreview = async (e: FormEvent) => {
     e.preventDefault();

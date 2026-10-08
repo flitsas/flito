@@ -31,8 +31,8 @@ const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(-
 type Tab = 'contactos' | 'protocolos' | 'simulacros';
 
 export default function Emergency() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const { hasFuncion } = useAuth();
+  const isAdmin = hasFuncion('drivers.emergencias.administrar');
   const [tab, setTab] = useState<Tab>('contactos');
 
   return (

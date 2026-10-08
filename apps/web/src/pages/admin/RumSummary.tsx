@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Navigate } from 'react-router-dom';
 import { api } from '../../lib/api';
+import NoAccess from '../../components/NoAccess';
 import { useAuth } from '../../lib/auth';
 import PageHeaderCard from '../../components/flit/PageHeaderCard';
 import StatusChip from '../../components/flit/StatusChip';
@@ -59,7 +59,9 @@ function p75Tone(metric: string, raw: number | string): 'success' | 'warning' | 
 }
 
 export default function RumSummary() {
-  const { user } = useAuth();
+  const { hasFuncion } = useAuth();
+  // HU #12872: la función de la guarda del endpoint, no el nombre del rol.
+  const puedeVer = hasFuncion('rum.resumen.ver');
   const [days, setDays] = useState<(typeof DAY_OPTIONS)[number]>(7);
   const [data, setData] = useState<RumSummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -84,11 +86,11 @@ export default function RumSummary() {
   }, [days]);
 
   useEffect(() => {
-    if (user?.role !== 'admin') return;
+    if (!puedeVer) return;
     load();
-  }, [user?.role, load]);
+  }, [puedeVer, load]);
 
-  if (user?.role !== 'admin') return <Navigate to="/" replace />;
+  if (!puedeVer) return <NoAccess label="Rendimiento (RUM)" />;
 
   return (
     <div className="flex flex-col gap-6">

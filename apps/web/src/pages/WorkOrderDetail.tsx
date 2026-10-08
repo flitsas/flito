@@ -32,8 +32,8 @@ const fmtCurrency = (n: number) => n.toLocaleString('es-CO', { style: 'currency'
 
 export default function WorkOrderDetail() {
   const { id } = useParams<{ id: string }>();
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const { hasFuncion } = useAuth();
+  const isAdmin = hasFuncion('maintenance.ordenes.administrar');
   const [d, setD] = useState<Detail | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [parts, setParts] = useState<Part[]>([]);
@@ -194,7 +194,7 @@ export default function WorkOrderDetail() {
       </Section>
 
       {/* TRAM-INNOV-B5-MVP: liquidación + pago manual de la OT. */}
-      <LiquidacionPanel woId={Number(id)} isAdmin={isAdmin} />
+      <LiquidacionPanel woId={Number(id)} isAdmin={hasFuncion('liquidacion.pago_manual.administrar')} />
 
       {showAddJob && <AddJobForm woId={Number(id)} jobs={jobs} onClose={() => setShowAddJob(false)} onSaved={() => { setShowAddJob(false); load(); }} />}
       {showAddPart && <AddPartForm woId={Number(id)} parts={parts} locs={locs} onClose={() => setShowAddPart(false)} onSaved={() => { setShowAddPart(false); load(); }} />}

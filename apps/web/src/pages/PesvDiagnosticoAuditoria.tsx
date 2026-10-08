@@ -42,8 +42,6 @@ interface DiagDetail {
   nivelCriterioJustificacion?: string | null; observaciones?: string | null;
 }
 
-const ROL_PERMITIDO = new Set(['compliance', 'lider_pesv', 'admin']);
-
 const NIVEL_TONE: Record<NivelRubrica, ChipTone> = {
   no_implementado: 'neutral', en_desarrollo: 'warning',
   implementado: 'active', sostenido: 'success',
@@ -56,7 +54,9 @@ export default function PesvDiagnosticoAuditoria() {
   const { id: idParam } = useParams<{ id: string }>();
   const id = parseInt(idParam ?? '', 10);
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, hasFuncion } = useAuth();
+  const puedeConsultar = hasFuncion('pesv.diagnostico_consulta.administrar');
+  const puedeEditar = hasFuncion('pesv.diagnostico.administrar');
   const [detail, setDetail] = useState<DiagDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -90,8 +90,8 @@ export default function PesvDiagnosticoAuditoria() {
     return map;
   }, [detail]);
 
-  // Guard de rol — el backend rechaza con 403 pero damos UX clara antes del request.
-  if (user && !ROL_PERMITIDO.has(user.role)) {
+  // Guarda por función (HU #12872) — el backend rechaza con 403 pero damos UX clara antes del request.
+  if (user && !puedeConsultar) {
     return <Sin403 />;
   }
 
@@ -107,7 +107,7 @@ export default function PesvDiagnosticoAuditoria() {
 
   // Empty state: borrador todavía no auditable
   if (detail.estado !== 'cerrado') {
-    return <EmptyBorrador id={id} anio={detail.anio} canEdit={user?.role !== 'compliance'} navigate={navigate} />;
+    return <EmptyBorrador id={id} anio={detail.anio} canEdit={puedeEditar} navigate={navigate} />;
   }
 
   const verEvidencia = async (item: ItemDetail, ev: EvidenciaPublic) => {
@@ -126,7 +126,7 @@ export default function PesvDiagnosticoAuditoria() {
   const exportarExpediente = () => { window.location.href = `/api/pesv/export/diagnostico/${id}`; };
   const imprimir = () => window.print();
 
-  const puedeVolverEditor = user?.role === 'admin' || user?.role === 'lider_pesv';
+  const puedeVolverEditor = puedeEditar;
 
   return (
     <div className="mx-auto max-w-[1200px] print:p-0">

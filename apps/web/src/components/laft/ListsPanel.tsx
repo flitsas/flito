@@ -29,7 +29,7 @@ const AUTO_SYNC_CODES = ['OFAC', 'UN', 'EU'];
 const MANUAL_UPLOAD_CODES = ['PROCURADURIA', 'CONTRALORIA', 'POLICIA', 'INTERPOL', 'CLINTON'];
 
 export default function ListsPanel({ onClose }: { onClose: () => void }) {
-  const { user } = useAuth();
+  const { hasFuncion } = useAuth();
   const [lists, setLists] = useState<RestrictiveList[]>([]);
   useEscape(onClose);
   const [loading, setLoading] = useState(true);
@@ -89,7 +89,7 @@ export default function ListsPanel({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = hasFuncion('laft.listas.administrar');
 
   return (
     <ModalPortal>

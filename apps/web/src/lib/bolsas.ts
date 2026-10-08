@@ -11,19 +11,6 @@ import {
 import { api, errorMessage } from './api';
 import type { ChipTone } from '../components/flit/StatusChip';
 
-/**
- * Roles que pueden ver una bolsa. Espeja el `requireRole('admin', 'financiera')` del router: sin
- * esto la página cargaría para un rol que va a recibir 403 en las seis peticiones, y el usuario
- * vería una pantalla de errores en vez de un «no tienes acceso».
- *
- * Auditoría queda fuera a propósito, a diferencia del resto de FLITO: el Feature es explícito en que
- * ningún otro rol accede a los movimientos crudos.
- */
-export const ROLES_BOLSAS = ['admin', 'financiera'];
-
-export function puedeVerBolsas(role: string | undefined): boolean {
-  return role !== undefined && ROLES_BOLSAS.includes(role);
-}
 
 /**
  * El color del riesgo. `sin_recargas` es NEUTRO y no de alarma: un cliente que aún no ha recibido su
