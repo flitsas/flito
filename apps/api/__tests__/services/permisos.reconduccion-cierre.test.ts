@@ -189,13 +189,14 @@ describe('AC3 — el ámbito no se toca: las 11 comparaciones de rol que deciden
     });
   }
 
-  it('son 11 en total, y fuera de ellas solo quedan 3 de validación en users (HU #12088)', () => {
+  it('son 11 en total, y fuera de ellas no queda ninguna comparación de rol en users (HU #12088, HU #13424)', () => {
     expect(AMBITO.reduce((n, a) => n + a.veces, 0)).toBe(11);
     const enUsers = sinComentarios(leer('users/users.routes.ts')).match(/\brole (===|!==) '[a-z_]+'/g) ?? [];
     // Antes #12088 había ~27 (superRefine + filtros de ámbito por rol). El ámbito del gestor
-    // pasó a la puente `flito_gestor_organismos`; quedan 3 comparaciones de validación
-    // (`role !== 'admin'`, `role === 'admin'` ×2) sobre el usuario editado, no sobre `req.user`.
-    expect(enUsers.length).toBe(3);
+    // pasó a la puente `flito_gestor_organismos` y quedaron 3 de validación (`role !== 'admin'`,
+    // `role === 'admin'` ×2): las guardas «último admin activo». La HU #13424 (ADR-0022 §D1) las
+    // retiró: el último administrador lo protege el seguro anti-bloqueo por permisos, no el nombre.
+    expect(enUsers.length).toBe(0);
     expect(sinComentarios(leer('users/users.routes.ts'))).not.toMatch(/req\.user!?\.role (===|!==)/);
   });
 });
