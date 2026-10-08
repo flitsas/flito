@@ -25,7 +25,8 @@ vi.mock('../../src/db/client.js', () => ({
   getPoolStats: vi.fn(),
 }));
 
-const { verificarCatalogoAlArrancar, ArranquePermisosError, FUNCIONES_SIN_ADMIN } =
+const permisosService = await import('../../src/modules/permisos/permisos.service.js');
+const { verificarCatalogoAlArrancar, ArranquePermisosError } =
   await import('../../src/modules/permisos/permisos.service.js');
 const { catalogoCompleto } = await import('../../src/modules/permisos/catalogo.js');
 
@@ -34,24 +35,17 @@ const CODIGOS = CATALOGO.map((f) => f.codigo);
 const MODULO_DE = new Map(CATALOGO.map((f) => [f.codigo, f.modulo]));
 
 /**
- * Encola las tres consultas de la comprobación en su orden: el catálogo de la base, y las dos de
- * `funcionesSinAdmin()` (el catálogo otra vez y el reparto entero).
- *
- * `repartoAdmin` por defecto le concede a `admin` todo el catálogo menos las tres del canal Cliente,
- * que es el estado sano — así los casos de desajuste de catálogo fallan por el catálogo y no por
- * arrastrar de paso un `admin` incompleto.
+ * Encola la única consulta de la comprobación: el catálogo de la base (código y módulo).
+ * HU #13424 (ADR-0022 §D1): ya no hay segunda ni tercera —el reparto de `admin`—, porque el arranque
+ * dejó de exigir nada a `admin`.
  */
 function conBase(
   codigosEnBase: string[],
-  repartoAdmin = codigosEnBase.filter((c) => !FUNCIONES_SIN_ADMIN.includes(c)),
   /** HU #12716: el módulo que la BASE declara por código; por defecto el del catálogo (base al día). */
   moduloEnBase: (codigo: string) => string = (codigo) => MODULO_DE.get(codigo) ?? 'inventado',
 ) {
   const filasCatalogo = codigosEnBase.map((codigo) => ({ codigo, modulo: moduloEnBase(codigo) }));
-  selectMock
-    .mockReturnValueOnce(chain(filasCatalogo))
-    .mockReturnValueOnce(chain(filasCatalogo))
-    .mockReturnValueOnce(chain(repartoAdmin.map((codigo) => ({ rol: 'admin', codigo }))));
+  selectMock.mockReturnValueOnce(chain(filasCatalogo));
 }
 
 beforeEach(() => { selectMock.mockReset(); });
@@ -115,7 +109,7 @@ describe('HU #12716 AC7 — el arranque compara también el módulo de agrupaci�
     // que la comparación de códigos NO lo ve; solo la de módulo. Mutante nombrado: quitar la
     // comparación de `modulo` en `verificarCatalogoAlArrancar` → este caso resuelve en vez de caer.
     const viejo = (c: string) => (c === 'pagina.flito_soat' ? 'flito_soat_e_impuestos' : MODULO_DE.get(c)!);
-    conBase(CODIGOS, undefined, viejo);
+    conBase(CODIGOS, viejo);
     const error = await verificarCatalogoAlArrancar().catch((e: Error) => e);
 
     expect(error).toBeInstanceOf(ArranquePermisosError);
@@ -134,7 +128,7 @@ describe('HU #12716 AC7 — el arranque compara también el módulo de agrupaci�
       if (!reagrupadas.has(c)) return MODULO_DE.get(c)!;
       return c.startsWith('pagina.') ? 'grupo_viejo' : c.slice(0, c.indexOf('.'));
     };
-    conBase(CODIGOS, undefined, viejo);
+    conBase(CODIGOS, viejo);
     const error = await verificarCatalogoAlArrancar().catch((e: Error) => e);
 
     expect(error).toBeInstanceOf(ArranquePermisosError);
@@ -149,46 +143,25 @@ describe('HU #12716 AC7 — el arranque compara también el módulo de agrupaci�
     conBase(CODIGOS);
     await expect(verificarCatalogoAlArrancar()).resolves.toBeUndefined();
     // Si además falta un código, se reporta la falta de código (la comparación de módulo va después).
-    conBase(CODIGOS.filter((c) => c !== 'soat.solicitud.enviar'), undefined, () => 'lo_que_sea');
+    conBase(CODIGOS.filter((c) => c !== 'soat.solicitud.enviar'), () => 'lo_que_sea');
     await expect(verificarCatalogoAlArrancar())
       .rejects.toThrow(/El código exige y la base no declara \(1\): soat\.solicitud\.enviar/);
   });
 });
 
-describe('AC6 — añadir una función obliga a decidir sobre `admin`', () => {
-  it('una función que `admin` no tiene concedida se detecta y se nombra', async () => {
-    // El catálogo y la base coinciden; lo que falta es la marca de `admin`. Es el desajuste que no
-    // rompe nada visible el día del despliegue y deja al administrador sin una pantalla.
-    const sinUna = CODIGOS.filter((c) => !FUNCIONES_SIN_ADMIN.includes(c) && c !== 'pagina.users');
-    conBase(CODIGOS, sinUna);
-
-    const error = await verificarCatalogoAlArrancar().catch((e: Error) => e);
-    expect(error).toBeInstanceOf(ArranquePermisosError);
-    expect((error as Error).message).toMatch(/El rol admin no tiene concedidas 1 funciones del catálogo: pagina\.users/);
-    expect((error as Error).message).toMatch(/FUNCIONES_SIN_ADMIN/);
-  });
-
-  it('las tres del canal Cliente y la que nace sin rol (HU #13269) NO protestan: están declaradas con su motivo', async () => {
+describe('HU #13424 AC1 — `admin` es editable: el arranque no exige nada de su reparto', () => {
+  it('con la base al día arranca leyendo SOLO el catálogo, sin consultar qué tiene `admin`', async () => {
+    // Antes: una segunda y tercera lectura (`funcionesSinAdmin`) y un `ArranquePermisosError` si al
+    // rol `admin` le faltaba una función en la base viva — desmarcarle P desde el panel dejaba la API
+    // sin arrancar en el siguiente reinicio. Mutante nombrado: volver a leer `permisos_rol_funcion`
+    // aquí → `selectMock` se llama dos veces (y la cola, vacía, rompe la comprobación).
     conBase(CODIGOS);
     await expect(verificarCatalogoAlArrancar()).resolves.toBeUndefined();
-    // Y son exactamente esas cuatro, no «las que falten»: el reparto encolado no incluye ninguna.
-    expect([...FUNCIONES_SIN_ADMIN].sort())
-      .toEqual(['impuestos.recibos.reemplazar', 'soat.factura.leer', 'soat.runt.preconsultar', 'soat.solicitud.crear']);
+    expect(selectMock).toHaveBeenCalledTimes(1);
   });
 
-  it('las filas de OTROS roles no cuentan como concesión a `admin`', async () => {
-    // `funcionesSinAdmin` filtra por `rol === 'admin'`. Sin ese filtro, el reparto de `auditor`
-    // taparía el hueco de `admin` y el aviso no llegaría nunca.
-    const filasCatalogo = CODIGOS.map((codigo) => ({ codigo, modulo: MODULO_DE.get(codigo) }));
-    selectMock
-      .mockReturnValueOnce(chain(filasCatalogo))
-      .mockReturnValueOnce(chain(filasCatalogo))
-      .mockReturnValueOnce(chain(CODIGOS.map((codigo) => ({ rol: 'auditor', codigo }))));
-
-    // Todas las del catálogo menos las tres del canal Cliente: el número sale del catálogo, no se
-    // escribe a mano (la HU #12083 lo subió de 257 a 268 al añadir 11 funciones).
-    const esperadas = CODIGOS.length - FUNCIONES_SIN_ADMIN.length;
-    await expect(verificarCatalogoAlArrancar())
-      .rejects.toThrow(new RegExp(`El rol admin no tiene concedidas ${esperadas} funciones del catálogo`));
+  it('el servicio ya no exporta la lista de excepciones de `admin` ni su lector', () => {
+    expect(permisosService).not.toHaveProperty('FUNCIONES_SIN_ADMIN');
+    expect(permisosService).not.toHaveProperty('funcionesSinAdmin');
   });
 });
