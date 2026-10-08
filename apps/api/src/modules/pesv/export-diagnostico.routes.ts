@@ -14,7 +14,8 @@ import archiver from 'archiver';
 import crypto from 'crypto';
 import { db } from '../../db/client.js';
 import { pesvDiagnosticos } from '../../db/schema.js';
-import { requireRole } from '../../shared/middleware/auth.js';
+import { requirePage } from '../../shared/permissions.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { logPiiAccess } from '../../shared/pii-audit.js';
 import { buildDiagnosticoPdf } from './pdf-builder.js';
@@ -67,7 +68,8 @@ async function downloadEvidencias(
 // ============================================================================
 router.get(
   '/diagnostico/:id/estandar/:codigo',
-  requireRole('admin', 'lider_pesv', 'compliance'),
+  requirePage('pesv_diagnostico'),
+  exigirFuncion('pesv.diagnostico_consulta.administrar'),
   async (req: Request, res: Response) => {
     const id = parseInt(req.params.id, 10);
     const codigo = String(req.params.codigo || '').trim();
@@ -162,7 +164,8 @@ router.get(
 // ============================================================================
 router.get(
   '/diagnostico/:id',
-  requireRole('admin', 'lider_pesv', 'compliance'),
+  requirePage('pesv_diagnostico'),
+  exigirFuncion('pesv.diagnostico_consulta.administrar'),
   async (req: Request, res: Response) => {
     const id = parseInt(req.params.id, 10);
     if (!Number.isFinite(id) || id <= 0) {

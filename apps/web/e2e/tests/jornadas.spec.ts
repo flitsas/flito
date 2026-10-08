@@ -6,7 +6,7 @@ import { loginAs, ADMIN_USER } from '../helpers/auth';
 
 const CONDUCTOR_USER = {
   id: 5, username: 'e2e_conductor', name: 'Conductor E2E',
-  role: 'conductor' as const, allowedPages: ['pesv'],
+  role: 'conductor' as const, allowedPages: ['pesv_mi_jornada'], // HU #13421: página por ítem
 };
 
 test.describe('Mi Jornada — vista conductor', () => {

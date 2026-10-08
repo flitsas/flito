@@ -3,19 +3,20 @@ import { z } from 'zod';
 import { eq, and, desc, sql, inArray, isNull } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { safetyTrainings, trainingAttendees, users } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('pesv'));
+router.use(authMiddleware);
 
 function parseId(raw: string): number | null {
   const n = parseInt(raw, 10);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-router.get('/', async (_req, res: Response) => {
+router.get('/', requirePage('pesv_capacitaciones'), async (_req, res: Response) => {
   const rows = await db.execute<any>(sql`
     SELECT st.*, COUNT(ta.user_id)::int AS asistentes_count,
            COUNT(*) FILTER (WHERE ta.asistio)::int AS asistio_count
@@ -28,7 +29,7 @@ router.get('/', async (_req, res: Response) => {
   res.json({ data: (rows as any).rows ?? rows });
 });
 
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', requirePage('pesv_capacitaciones'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [training] = await db.select().from(safetyTrainings).where(eq(safetyTrainings.id, id)).limit(1);
@@ -57,7 +58,7 @@ const trainingSchema = z.object({
   vigenciaMeses: z.number().int().min(1).max(120).optional().nullable(),
 });
 
-router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/', requirePage('pesv_capacitaciones'), exigirFuncion('drivers.capacitaciones.administrar'), async (req: Request, res: Response) => {
   const parsed = trainingSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validación', details: parsed.error.flatten() }); return; }
   const [created] = await db.insert(safetyTrainings).values({
@@ -67,7 +68,7 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
   res.status(201).json({ data: created });
 });
 
-router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/:id', requirePage('pesv_capacitaciones'), exigirFuncion('drivers.capacitaciones.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = trainingSchema.partial().safeParse(req.body);
@@ -80,7 +81,7 @@ router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) =
   res.json({ data: updated });
 });
 
-router.post('/:id/attendees', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/attendees', requirePage('pesv_capacitaciones'), exigirFuncion('drivers.capacitaciones.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const schema = z.object({ userIds: z.array(z.number().int().positive()).min(1).max(500) });
@@ -104,7 +105,7 @@ router.post('/:id/attendees', requireRole('admin'), async (req: Request, res: Re
   res.status(201).json({ ok: true, registered: validIds.length });
 });
 
-router.patch('/:id/attendees/:userId', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/:id/attendees/:userId', requirePage('pesv_capacitaciones'), exigirFuncion('drivers.capacitaciones.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   const userId = parseId(req.params.userId);
   if (!id || !userId) { res.status(400).json({ error: 'ID inválido' }); return; }
@@ -125,7 +126,7 @@ router.patch('/:id/attendees/:userId', requireRole('admin'), async (req: Request
 });
 
 // Reporte: horas anuales de capacitación por conductor.
-router.get('/report/horas-conductor', async (req: Request, res: Response) => {
+router.get('/report/horas-conductor', requirePage('pesv_capacitaciones'), async (req: Request, res: Response) => {
   const year = parseInt(String(req.query.year ?? new Date().getFullYear()), 10);
   if (!Number.isFinite(year) || year < 2020 || year > 2100) { res.status(400).json({ error: 'Año inválido' }); return; }
   const rows = await db.execute<any>(sql`

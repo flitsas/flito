@@ -6,14 +6,14 @@ import { z } from 'zod';
 import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { pesvRaci } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('pesv_raci'));
+router.use(authMiddleware);
 
-const ADMIN_OR_LIDER = ['admin', 'lider_pesv'] as const;
 const ROLES_VALIDOS = ['admin', 'proveedor', 'transito', 'compliance', 'lider_pesv', 'supervisor_flota', 'conductor'] as const;
 
 const raciSchema = z.object({
@@ -25,7 +25,7 @@ const raciSchema = z.object({
 });
 
 // Lista plana — el frontend pivotea a matriz.
-router.get('/', async (req, res) => {
+router.get('/', requirePage('pesv_raci'), async (req, res) => {
   const proceso = typeof req.query.proceso === 'string' ? req.query.proceso : undefined;
   const rol = typeof req.query.rol === 'string' ? req.query.rol : undefined;
   const conds: any[] = [];
@@ -37,7 +37,7 @@ router.get('/', async (req, res) => {
 });
 
 // Vista pivote: { procesos: [...], roles: [...], celdas: { [proc]: { [rol]: ['R','A',...] } } }
-router.get('/matriz', async (_req, res) => {
+router.get('/matriz', requirePage('pesv_raci'), async (_req, res) => {
   const rows = await db.select().from(pesvRaci).orderBy(pesvRaci.procesoCodigo, pesvRaci.rol);
   const procesos = new Map<string, string>();
   const roles = new Set<string>();
@@ -56,7 +56,7 @@ router.get('/matriz', async (_req, res) => {
   });
 });
 
-router.post('/', requireRole(...ADMIN_OR_LIDER), async (req: Request, res: Response) => {
+router.post('/', requirePage('pesv_raci'), exigirFuncion('pesv.raci.administrar'), async (req: Request, res: Response) => {
   const parsed = raciSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
   const d = parsed.data;
@@ -77,7 +77,7 @@ router.post('/', requireRole(...ADMIN_OR_LIDER), async (req: Request, res: Respo
   }
 });
 
-router.patch('/:id(\\d+)', requireRole(...ADMIN_OR_LIDER), async (req: Request, res: Response) => {
+router.patch('/:id(\\d+)', requirePage('pesv_raci'), exigirFuncion('pesv.raci.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   const parsed = raciSchema.partial().safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
@@ -95,7 +95,7 @@ router.patch('/:id(\\d+)', requireRole(...ADMIN_OR_LIDER), async (req: Request, 
   res.json(row);
 });
 
-router.delete('/:id(\\d+)', requireRole(...ADMIN_OR_LIDER), async (req: Request, res: Response) => {
+router.delete('/:id(\\d+)', requirePage('pesv_raci'), exigirFuncion('pesv.raci.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   const result = await db.delete(pesvRaci).where(eq(pesvRaci.id, id)).returning();
   if (!result.length) return res.status(404).json({ error: 'No encontrado' });
@@ -114,7 +114,7 @@ const bulkSchema = z.object({
   })).max(50),
 });
 
-router.put('/proceso', requireRole(...ADMIN_OR_LIDER), async (req: Request, res: Response) => {
+router.put('/proceso', requirePage('pesv_raci'), exigirFuncion('pesv.raci.administrar'), async (req: Request, res: Response) => {
   const parsed = bulkSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
   const d = parsed.data;

@@ -9,7 +9,8 @@ import { eq, and, desc, sql } from 'drizzle-orm';
 import crypto from 'crypto';
 import { db } from '../../db/client.js';
 import { pesvDiagnosticos, pesvDiagnosticoItems, pesvEstandaresCatalogo, auditLogs } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { pesvDiagnosticoCerradoTotal } from '../../shared/metrics.js';
@@ -23,7 +24,7 @@ import evidenciasRouter from './diagnostico-evidencias.routes.js';
 
 const log = loggerFor('pesv.diagnostico');
 const router = Router();
-router.use(authMiddleware, requirePage('pesv'));
+router.use(authMiddleware);
 router.use('/', evidenciasRouter);  // upload/delete/get presigned + view audit
 
 // Orden enum para filtrar catálogo por nivel acumulativo (basico<estandar<avanzado).
@@ -41,7 +42,7 @@ function parseId(raw: string): number | null {
 // ============================================================================
 // GET / — listado de diagnósticos
 // ============================================================================
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', requirePage('pesv_diagnostico'), async (_req: Request, res: Response) => {
   const rows = await db.select().from(pesvDiagnosticos).orderBy(desc(pesvDiagnosticos.anio));
   res.json({ data: rows });
 });
@@ -49,7 +50,7 @@ router.get('/', async (_req: Request, res: Response) => {
 // ============================================================================
 // GET /:id — detalle (con view=auditoria opcional)
 // ============================================================================
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', requirePage('pesv_diagnostico'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'id inválido' }); return; }
   const view = String(req.query.view ?? '').toLowerCase();
@@ -158,7 +159,7 @@ function inferMime(name: string): string {
 // ============================================================================
 // POST / — crear diagnóstico (filtrado de catálogo por nivelEmpresa)
 // ============================================================================
-router.post('/', requireRole('admin', 'lider_pesv'), async (req: Request, res: Response) => {
+router.post('/', requirePage('pesv_diagnostico'), exigirFuncion('pesv.diagnostico.administrar'), async (req: Request, res: Response) => {
   const parsed = diagnosticoCreateSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' }); return; }
   const data = parsed.data;
@@ -216,7 +217,7 @@ router.post('/', requireRole('admin', 'lider_pesv'), async (req: Request, res: R
 // ============================================================================
 // PATCH /:id/items/:estandarId — actualizar item (rúbrica permisiva)
 // ============================================================================
-router.patch('/:id/items/:estandarId', requireRole('admin', 'lider_pesv'), async (req: Request, res: Response) => {
+router.patch('/:id/items/:estandarId', requirePage('pesv_diagnostico'), exigirFuncion('pesv.diagnostico.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   const estandarId = parseId(req.params.estandarId);
   if (!id || !estandarId) { res.status(400).json({ error: 'parámetros inválidos' }); return; }
@@ -319,7 +320,7 @@ async function computePreflight(diagnosticoId: number): Promise<PreflightRespons
 // ============================================================================
 // GET /:id/preflight — diagnóstico previo al cierre
 // ============================================================================
-router.get('/:id/preflight', requireRole('admin', 'lider_pesv', 'compliance'), async (req: Request, res: Response) => {
+router.get('/:id/preflight', requirePage('pesv_diagnostico'), exigirFuncion('pesv.diagnostico_consulta.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'id inválido' }); return; }
   const [diag] = await db.select().from(pesvDiagnosticos).where(eq(pesvDiagnosticos.id, id)).limit(1);
@@ -331,7 +332,7 @@ router.get('/:id/preflight', requireRole('admin', 'lider_pesv', 'compliance'), a
 // ============================================================================
 // POST /:id/cerrar — cierre WORM con preflight server-side (BICHO A5)
 // ============================================================================
-router.post('/:id/cerrar', requireRole('admin', 'lider_pesv'), async (req: Request, res: Response) => {
+router.post('/:id/cerrar', requirePage('pesv_diagnostico'), exigirFuncion('pesv.diagnostico.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'id inválido' }); return; }
 
@@ -382,7 +383,7 @@ router.post('/:id/cerrar', requireRole('admin', 'lider_pesv'), async (req: Reque
 // ============================================================================
 // GET /:id/items/:estandarId/historial — audit log corto del item
 // ============================================================================
-router.get('/:id/items/:estandarId/historial', requireRole('admin', 'lider_pesv', 'compliance'), async (req: Request, res: Response) => {
+router.get('/:id/items/:estandarId/historial', requirePage('pesv_diagnostico'), exigirFuncion('pesv.diagnostico_consulta.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   const estandarId = parseId(req.params.estandarId);
   if (!id || !estandarId) { res.status(400).json({ error: 'parámetros inválidos' }); return; }
@@ -411,7 +412,7 @@ router.get('/:id/items/:estandarId/historial', requireRole('admin', 'lider_pesv'
 // Catálogo público (autenticado) — usado por modal de creación
 // ============================================================================
 const estandaresRouter = Router();
-estandaresRouter.use(authMiddleware, requirePage('pesv'));
+estandaresRouter.use(authMiddleware, requirePage('pesv_diagnostico'));
 estandaresRouter.get('/', async (_req: Request, res: Response) => {
   const rows = await db.select().from(pesvEstandaresCatalogo)
     .where(eq(pesvEstandaresCatalogo.vigente, true))

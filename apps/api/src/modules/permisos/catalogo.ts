@@ -20,7 +20,7 @@ import { llaveDe, type GuardaLeida } from './inventario-guardas.js';
 // que sí relee los ficheros — en CI el árbol está y en el contenedor no hace falta.
 import { GUARDAS_MEDIDAS } from './inventario.generado.js';
 import { OPERACIONES_DECLARADAS } from './catalogo-operaciones.js';
-import { AGRUPACION_DE_OPERACION, AGRUPACION_DE_PAGINA, moduloAgrupado } from './catalogo-agrupacion.js';
+import { AGRUPACION_DE_OPERACION, AGRUPACION_DE_OPERACION_LEGADO, AGRUPACION_DE_PAGINA, moduloAgrupado } from './catalogo-agrupacion.js';
 
 export interface FuncionCatalogo {
   codigo: string;
@@ -117,6 +117,11 @@ export function catalogoDeOperaciones(guardas: GuardaLeida[] = GUARDAS_MEDIDAS):
   const usadas = new Set<string>();
   const salida: FuncionCatalogo[] = [];
   const sinNombre: string[] = [];
+  // HU #13421 (ADR-0023): varias guardas pueden exigir el MISMO código (el transitorio «Administrar
+  // <ítem>» cubre todas las rutas del ítem que hoy exigen rol). Se emite UNA función por código y se
+  // exige IGUALDAD —no unión— de nombre, descripción, módulo y roles entre sus guardas: una unión
+  // daría el permiso a quien solo pasaba alguna de las rutas (ganancia silenciosa, AC5).
+  const porCodigo = new Map<string, { llave: string; f: FuncionCatalogo }>();
 
   for (const g of guardas) {
     const llave = llaveDe(g);
@@ -128,7 +133,7 @@ export function catalogoDeOperaciones(guardas: GuardaLeida[] = GUARDAS_MEDIDAS):
         `El código «${decl.codigo}» no empieza por el módulo «${g.modulo}» de ${llave}.`,
       );
     }
-    salida.push({
+    const f: FuncionCatalogo = {
       codigo: decl.codigo,
       // El prefijo ya quedó comprobado contra `g.modulo` (estructural); lo que se guarda es el de
       // agrupación, que para 23 operaciones es otro (HU #12716).
@@ -137,7 +142,20 @@ export function catalogoDeOperaciones(guardas: GuardaLeida[] = GUARDAS_MEDIDAS):
       descripcion: decl.descripcion,
       tipo: 'operacion',
       roles: g.roles,
-    });
+    };
+    const previa = porCodigo.get(decl.codigo);
+    if (previa) {
+      const firma = (x: FuncionCatalogo) => JSON.stringify([x.modulo, x.nombreNegocio, x.descripcion, [...x.roles].sort()]);
+      if (firma(previa.f) !== firma(f)) {
+        throw new CatalogoIncoherenteError(
+          `El código «${decl.codigo}» lo exigen guardas con distinto nombre o reparto: ${previa.llave} ` +
+          `[${previa.f.roles.join(',')}] y ${llave} [${f.roles.join(',')}]. Un código, un reparto.`,
+        );
+      }
+      continue;
+    }
+    porCodigo.set(decl.codigo, { llave, f });
+    salida.push(f);
   }
 
   const huerfanas = OPERACIONES_DECLARADAS.filter((o) => !usadas.has(o.llave)).map((o) => o.llave);
@@ -170,6 +188,7 @@ export function catalogoCompleto(guardas?: GuardaLeida[]): FuncionCatalogo[] {
   const declaradas = [
     ...Object.keys(AGRUPACION_DE_PAGINA).map((slug) => `pagina.${slug}`),
     ...Object.keys(AGRUPACION_DE_OPERACION),
+    ...Object.keys(AGRUPACION_DE_OPERACION_LEGADO),
   ];
   const muertas = declaradas.filter((c) => !cuenta.has(c));
   if (muertas.length) {

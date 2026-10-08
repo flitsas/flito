@@ -204,6 +204,19 @@ const COMPROBANTES = [
  * SOAT) carga comprobantes; el auditor solo lee; financiera liquida y factura; los de campo no
  * tienen ninguna. Un rol que no esté aquí recibe `[]`, lo mismo que daba el catch-all.
  */
+/** HU #13421: los 25 códigos de `catalogo-operaciones.legado.ts` (0226 los siembra a `admin`). */
+const PESV_TRANSITORIAS = [
+  'pesv.tablero_ejecutivo.administrar', 'pesv.diagnostico.administrar', 'pesv.diagnostico_consulta.administrar',
+  'pesv.comite.administrar', 'pesv.plan.administrar', 'pesv.politica.administrar',
+  'pesv.politica_edicion.administrar', 'pesv.auditorias.administrar', 'pesv.comunicaciones.administrar',
+  'pesv.contratistas.administrar', 'pesv.incidentes_causa_raiz.administrar', 'pesv.raci.administrar',
+  'pesv.normativa.administrar', 'pesv.normativa_edicion.administrar', 'pesv.retencion.administrar',
+  'pesv.retencion_edicion.administrar', 'drivers.conductores.administrar', 'drivers.capacitaciones.administrar',
+  'drivers.incidentes.administrar', 'drivers.incidentes_registro.administrar', 'drivers.checklists.administrar',
+  'drivers.alcoholimetria.administrar', 'drivers.emergencias.administrar', 'jornadas.control.administrar',
+  'rum.resumen.ver',
+] as const;
+
 export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
   admin: [
     ...SOAT_LEER, 'soat.comprobante.cargar', 'soat.solicitud.enviar',
@@ -214,9 +227,16 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     // HU #12815: el ZIP de comprobantes de la cola SOAT cuelga de su propia función (0179: admin y
     // proveedor). Sin ella no hay botón «Descargar soportes».
     'soat.soportes.descargar',
+    // HU #13363: sección «Documentos adicionales» del detalle (0222: admin y proveedor, no cliente).
+    'soat.documentos_adicionales.ver',
+    // HU #13365: cargar y eliminar adicionales desde el detalle (0223: admin y proveedor, no cliente).
+    'soat.documentos_adicionales.cargar', 'soat.documentos_adicionales.eliminar',
     'impuestos.cola.ver', 'impuestos.recibos.cargar', 'impuestos.tramite.enviar',
     // HU #12832: «Reintentar validación» cuelga de certificar (0179: admin y gestor_impuestos).
     'impuestos.tramite.certificar',
+    // HU #13206: el chip «Certificado» de la fila y el ZIP de certificados cuelgan de su función
+    // (0179: admin y gestor_impuestos).
+    'impuestos.certificado.descargar',
     // HU #12592: recibo de caja puntual desde el detalle (migración 0197: hoy solo `admin`).
     'impuestos.recibos.cargar_caja',
     // HU #12834: la 0208 siembra la corrección de la dirección del comprador solo a admin.
@@ -246,10 +266,30 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     'logistica.viajes.ver',
     'logistica.viajes.registrar',
     'logistica.viajes.quitar',
+    // HU #13421 (0226, ADR-0023): operaciones de los módulos legacy PESV/drivers/jornadas/RUM,
+    // sembradas a `admin` (las «administrar» son transitorias; `rum.resumen.ver` es permanente).
+    ...PESV_TRANSITORIAS,
   ],
-  proveedor: [...SOAT_LEER, 'soat.comprobante.cargar', 'soat.soportes.descargar'],
+  // HU #13421 (0226): lo que la migración siembra a los roles PESV; el conductor no recibe ninguna.
+  lider_pesv: [
+    'pesv.comite.administrar', 'pesv.plan.administrar', 'pesv.politica_edicion.administrar',
+    'pesv.auditorias.administrar', 'pesv.comunicaciones.administrar', 'pesv.contratistas.administrar',
+    'pesv.incidentes_causa_raiz.administrar', 'pesv.raci.administrar', 'pesv.normativa_edicion.administrar',
+    'pesv.retencion_edicion.administrar', 'pesv.diagnostico.administrar', 'pesv.diagnostico_consulta.administrar',
+    'drivers.incidentes_registro.administrar',
+  ],
+  compliance: ['pesv.diagnostico_consulta.administrar'],
+  supervisor_flota: ['pesv.incidentes_causa_raiz.administrar', 'drivers.incidentes_registro.administrar'],
+  proveedor: [
+    ...SOAT_LEER, 'soat.comprobante.cargar', 'soat.soportes.descargar', 'soat.documentos_adicionales.ver',
+    // HU #13365 (0223): cargar y eliminar adicionales desde el detalle.
+    'soat.documentos_adicionales.cargar', 'soat.documentos_adicionales.eliminar',
+  ],
   cliente: [...SOAT_LEER, 'soat.solicitud.crear', 'soat.runt.preconsultar', 'soat.factura.leer'],
-  gestor_impuestos: ['impuestos.cola.ver', 'impuestos.recibos.cargar', 'impuestos.tramite.certificar'],
+  gestor_impuestos: [
+    'impuestos.cola.ver', 'impuestos.recibos.cargar', 'impuestos.tramite.certificar',
+    'impuestos.certificado.descargar',
+  ],
   auditor: [...SOAT_LEER, 'impuestos.cola.ver', 'tablero.tablero.ver', SERVICIOS_DE_TRAMITE_VER, 'tramites.tramite.ver_soportes'],
 
   financiera: [
