@@ -1,11 +1,11 @@
-// HU #13421 (Feature #13413, ADR-0023) — La 0226: PESV, Jornadas, Conductores y RUM piden permiso,
+// HU #13421 (Feature #13413, ADR-0023) — La 0227: PESV, Jornadas, Conductores y RUM piden permiso,
 // no rol. Siembra las 21 páginas por ítem del menú PESV con reparto COPIADO de `pagina.pesv` (roles y
 // excepciones por usuario), renombra `pagina.pesv` a «Tablero PESV», y siembra los 24 transitorios
 // «Administrar <ítem>» más la operación permanente `rum.resumen.ver` con la lista literal de su
 // `requireRole`. `admin` recibe todo lo nuevo en el mismo archivo (AC7, ADR-0022).
 //
-// NÚMERO PROVISIONAL: en el rebase previo al PR se renombra el archivo, este test, la entrada de
-// MIGRACIONES_CON_REPARTO y el aserto de «la anterior» (ADR-0023 §D5).
+// Numerada 0227 en el rebase sobre develop 696fbb9a (la 0226 es de la HU #13424). Solo se aplica dentro
+// de una transacción (CREATE TEMP TABLE … ON COMMIT DROP): lo dice la cabecera y lo comprueba este test.
 //
 // Solo la mitad ESTÁTICA (el CI no levanta Postgres). La idempotencia y el control de paridad del
 // bloque DO se acreditan a mano sobre la base local (dos pasadas). Mutantes nombrados:
@@ -26,8 +26,10 @@ import {
 } from '../helpers/permisos-seed-sql.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ARCHIVO = '0226_permisos_pesv_por_item.sql';
-const ANTERIOR = '0223_flito_soportes_documentos_adicionales_carga_eliminar.sql';
+const ARCHIVO = '0227_permisos_pesv_por_item.sql';
+const ANTERIOR = '0226_permisos_admin_todo_marcado.sql';
+/** La anterior DENTRO de MIGRACIONES_CON_REPARTO (la 0226 de la #13424 no siembra en forma parseable). */
+const ANTERIOR_CON_REPARTO = '0223_flito_soportes_documentos_adicionales_carga_eliminar.sql';
 const RUTA = path.resolve(__dirname, '../../src/db/migrations', ARCHIVO);
 const SQL = readFileSync(RUTA, 'utf8');
 const SIN_COMENTARIOS = SQL.replace(/--[^\n]*/g, '');
@@ -36,11 +38,11 @@ const PAGINAS = PAGINAS_PESV_POR_ITEM.map((s) => `pagina.${s}`);
 const CATALOGO = catalogoCompleto();
 const OPERACIONES = CATALOGO.filter((f) => f.tipo === 'operacion' && /^(pesv|drivers|jornadas|rum)\./.test(f.codigo));
 
-describe('0226 — reglas del archivo (análisis estático)', () => {
+describe('0227 — reglas del archivo (análisis estático)', () => {
   it('no trae control de transacción propio (ADR-DB-001) y el bloque DO lleva dollar-quoting etiquetado', () => {
     expect(scanForTxControl(ARCHIVO, SQL)).toEqual([]);
-    expect(SQL).toMatch(/DO \$resumen0226\$/);
-    expect(SQL).toMatch(/END \$resumen0226\$;/);
+    expect(SQL).toMatch(/DO \$resumen0227\$/);
+    expect(SQL).toMatch(/END \$resumen0227\$;/);
     expect(SIN_COMENTARIOS).not.toMatch(/\$\$/);
     expect(SQL.match(/--[^\n]*\$/g)).toBeNull();
   });
@@ -53,9 +55,9 @@ describe('0226 — reglas del archivo (análisis estático)', () => {
     expect(cabecera).toMatch(/HU #13421/);
   });
 
-  it('el número no colisiona y la anterior en este árbol es la 0223 (provisional: 0224/0225 son de otras HUs)', () => {
+  it('el número no colisiona y la anterior es la 0226 de la HU #13424 (sin hueco)', () => {
     const sqls = readdirSync(path.dirname(RUTA)).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
-    expect(sqls.filter((f) => f.startsWith('0226_'))).toEqual([ARCHIVO]);
+    expect(sqls.filter((f) => f.startsWith('0227_'))).toEqual([ARCHIVO]);
     expect(sqls[sqls.indexOf(ARCHIVO) - 1]).toBe(ANTERIOR);
   });
 
@@ -67,7 +69,12 @@ describe('0226 — reglas del archivo (análisis estático)', () => {
     expect(SIN_COMENTARIOS.match(/DELETE FROM/g)).toHaveLength(2);
     expect(SIN_COMENTARIOS).toMatch(/IS DISTINCT FROM/);
     // La tabla temporal se va con la transacción del runner: una segunda pasada la vuelve a crear.
-    expect(SIN_COMENTARIOS).toMatch(/CREATE TEMP TABLE m0226_objetivo ON COMMIT DROP AS/);
+    expect(SIN_COMENTARIOS).toMatch(/CREATE TEMP TABLE m0227_objetivo ON COMMIT DROP AS/);
+    // db-review N-A: en autocommit fallaría a medias; la cabecera lo advierte con la forma de verificarla.
+    const cabecera = SQL.split('\n').slice(0, 20).join('\n');
+    expect(cabecera).toMatch(/SOLO DENTRO DE UNA TRANSACCION/);
+    expect(cabecera).toMatch(/psql -1 -v ON_ERROR_STOP=1 -f/);
+    expect(cabecera).toMatch(/BEGIN \.\.\. ROLLBACK/);
   });
 
   it('db-review N2: las operaciones se cuentan con la lista CERRADA de las 25, no por prefijo', () => {
@@ -80,7 +87,7 @@ describe('0226 — reglas del archivo (análisis estático)', () => {
   });
 });
 
-describe('0226 — lo que siembra es lo que el catálogo del código declara', () => {
+describe('0227 — lo que siembra es lo que el catálogo del código declara', () => {
   // Lo que ESTE archivo añade al catálogo plegado (el UPDATE de `pagina.pesv` necesita la 0179 detrás).
   const previas = leerFuncionesSembradas(MIGRACIONES_CON_REPARTO.filter((m) => m !== ARCHIVO));
   const sembradas = new Map([...leerFuncionesSembradas()].filter(([c]) => !previas.has(c)));
@@ -113,7 +120,7 @@ describe('0226 — lo que siembra es lo que el catálogo del código declara', (
   });
 });
 
-describe('0226 — reparto con paridad (AC5) y admin explícito (AC7)', () => {
+describe('0227 — reparto con paridad (AC5) y admin explícito (AC7)', () => {
   it('la copia de roles va de `pagina.pesv` a las 21 páginas (M1)', () => {
     expect(copiasDeReparto(SQL)).toEqual([{ origen: 'pagina.pesv', destinos: PAGINAS }]);
   });
@@ -143,7 +150,7 @@ describe('0226 — reparto con paridad (AC5) y admin explícito (AC7)', () => {
 
   it('plegadas todas las migraciones, cada rol que tiene `pagina.pesv` tiene las 21 páginas, y nadie más las tiene', () => {
     expect(MIGRACIONES_CON_REPARTO).toContain(ARCHIVO);
-    expect(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO)).toBe(MIGRACIONES_CON_REPARTO.indexOf(ANTERIOR) + 1);
+    expect(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO)).toBe(MIGRACIONES_CON_REPARTO.indexOf(ANTERIOR_CON_REPARTO) + 1);
     const total = leerRepartoSembrado();
     for (const [rol, cs] of total) {
       for (const p of PAGINAS) expect(cs.has(p), `${rol} ${p}`).toBe(cs.has('pagina.pesv'));
@@ -163,12 +170,12 @@ describe('0226 — reparto con paridad (AC5) y admin explícito (AC7)', () => {
 // transacción con ROLLBACK, y el DO abortó):
 //   · M4 — quitar (a.2) (retirar el `conceder` sin pagina.pesv): cae «(a) recorta…» y el DO aborta.
 //   · M5 — quitar el control (b) del DO: cae «(b) el DO aborta…».
-describe('0226 — raci, normativa y retención recortadas a la intersección con pagina.pesv', () => {
+describe('0227 — raci, normativa y retención recortadas a la intersección con pagina.pesv', () => {
   const TRES = ['pagina.pesv_raci', 'pagina.pesv_normativa', 'pagina.pesv_retencion'];
   const EFECTIVA_PESV = /\(EXISTS \(SELECT 1 FROM permisos_rol_funcion r WHERE r\.rol_codigo = u\.role AND r\.funcion_codigo = 'pagina\.pesv'\)\s+OR EXISTS \(SELECT 1 FROM permisos_usuario_funcion c WHERE c\.user_id = u\.id AND c\.funcion_codigo = 'pagina\.pesv' AND c\.efecto = 'conceder'\)\)\s+AND NOT EXISTS \(SELECT 1 FROM permisos_usuario_funcion x WHERE x\.user_id = u\.id AND x\.funcion_codigo = 'pagina\.pesv' AND x\.efecto = 'revocar'\)/;
 
   it('el objetivo se calcula ANTES de tocar filas, con la regla del motor (R ∪ C) \\ V sobre pagina.pesv y sobre la página', () => {
-    const iObjetivo = SIN_COMENTARIOS.indexOf('CREATE TEMP TABLE m0226_objetivo');
+    const iObjetivo = SIN_COMENTARIOS.indexOf('CREATE TEMP TABLE m0227_objetivo');
     expect(iObjetivo).toBeGreaterThan(-1);
     expect(iObjetivo).toBeLessThan(SIN_COMENTARIOS.indexOf('DELETE FROM'));
     const objetivo = SIN_COMENTARIOS.slice(iObjetivo, SIN_COMENTARIOS.indexOf(';', iObjetivo));
@@ -178,15 +185,15 @@ describe('0226 — raci, normativa y retención recortadas a la intersección co
 
   it('(a) recorta: rol sin pagina.pesv deja de conceder, se retira el conceder de usuario sin objetivo, se copian las revocaciones de pagina.pesv y se revoca donde el rol aún concede (M4)', () => {
     expect(SIN_COMENTARIOS).toMatch(/DELETE FROM permisos_rol_funcion rf\s+WHERE rf\.funcion_codigo = ANY \(ARRAY\['pagina\.pesv_raci', 'pagina\.pesv_normativa', 'pagina\.pesv_retencion'\]\)\s+AND NOT EXISTS \(SELECT 1 FROM permisos_rol_funcion o WHERE o\.rol_codigo = rf\.rol_codigo AND o\.funcion_codigo = 'pagina\.pesv'\);/);
-    expect(SIN_COMENTARIOS).toMatch(/DELETE FROM permisos_usuario_funcion p\s+USING m0226_objetivo t\s+WHERE p\.user_id = t\.user_id AND p\.funcion_codigo = t\.fn AND p\.efecto = 'conceder' AND NOT t\.objetivo;/);
+    expect(SIN_COMENTARIOS).toMatch(/DELETE FROM permisos_usuario_funcion p\s+USING m0227_objetivo t\s+WHERE p\.user_id = t\.user_id AND p\.funcion_codigo = t\.fn AND p\.efecto = 'conceder' AND NOT t\.objetivo;/);
     expect(SIN_COMENTARIOS).toMatch(/SELECT o\.user_id, v\.fn, 'revocar' FROM permisos_usuario_funcion o[\s\S]{0,200}WHERE o\.funcion_codigo = 'pagina\.pesv' AND o\.efecto = 'revocar'/);
-    expect(SIN_COMENTARIOS).toMatch(/SELECT t\.user_id, t\.fn, 'revocar' FROM m0226_objetivo t\s+WHERE NOT t\.objetivo/);
+    expect(SIN_COMENTARIOS).toMatch(/SELECT t\.user_id, t\.fn, 'revocar' FROM m0227_objetivo t\s+WHERE NOT t\.objetivo/);
     // Paridad hacia abajo: quien SÍ pasaba conserva la página como excepción propia.
-    expect(SIN_COMENTARIOS).toMatch(/SELECT t\.user_id, t\.fn, 'conceder' FROM m0226_objetivo t\s+WHERE t\.objetivo/);
+    expect(SIN_COMENTARIOS).toMatch(/SELECT t\.user_id, t\.fn, 'conceder' FROM m0227_objetivo t\s+WHERE t\.objetivo/);
   });
 
   it('(b) el DO aborta si alguien queda con una de las tres sin pagina.pesv efectiva, o distinto del objetivo (M5)', () => {
-    const iDo = SIN_COMENTARIOS.indexOf('DO $resumen0226$');
+    const iDo = SIN_COMENTARIOS.indexOf('DO $resumen0227$');
     const bloque = SIN_COMENTARIOS.slice(iDo);
     expect(bloque).toMatch(EFECTIVA_PESV);
     expect(bloque).toMatch(/IF n_sin_pesv <> 0 THEN\s*RAISE EXCEPTION/);

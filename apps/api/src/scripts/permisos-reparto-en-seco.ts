@@ -69,7 +69,7 @@ function rutasHu13421(raiz = RAIZ_MODULOS): { rutas: RutaEnSeco[]; abiertas: { l
   return { rutas, abiertas };
 }
 
-/** Lo que la 0226 propone: copia viva de `pagina.pesv` a las 21 páginas, reparto literal del catálogo y el recorte del Paso 3b. */
+/** Lo que la 0227 propone: copia viva de `pagina.pesv` a las 21 páginas, reparto literal del catálogo y el recorte del Paso 3b. */
 function propuestaHu13421() {
   const destinos = PAGINAS_PESV_POR_ITEM.map((s) => `pagina.${s}`);
   const ops = catalogoCompleto().filter((f) => f.tipo === 'operacion' && /^(pesv|drivers|jornadas|rum)\./.test(f.codigo));
@@ -77,7 +77,7 @@ function propuestaHu13421() {
     ...destinos.map((codigo) => ({ rol: 'admin', codigo })),
     ...ops.flatMap((f) => f.roles.map((rol) => ({ rol, codigo: f.codigo }))),
   ];
-  // 0226 Paso 3b: raci, normativa y retención pedían también `pagina.pesv`; su reparto se recorta a esa intersección.
+  // 0227 Paso 3b: raci, normativa y retención pedían también `pagina.pesv`; su reparto se recorta a esa intersección.
   const recortes = [{ paginas: ['pagina.pesv_raci', 'pagina.pesv_normativa', 'pagina.pesv_retencion'], requisito: 'pagina.pesv' }];
   return { copias: [{ origen: 'pagina.pesv', destinos }], literales, recortes };
 }

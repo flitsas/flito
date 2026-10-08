@@ -135,7 +135,7 @@ describe('0179 — el archivo dice lo mismo que schema.ts (análisis estático)'
     const retiros = leerRetirosSembrados();
     const reagrupadas = leerReagrupacionesSembradas();
     expect(reagrupadas.size).toBe(47);
-    // HU #13421: la 0226 RENOMBRA `pagina.pesv` («PESV — Conductores» → «PESV — Tablero PESV»); el
+    // HU #13421: la 0227 RENOMBRA `pagina.pesv` («PESV — Conductores» → «PESV — Tablero PESV»); el
     // nombre y la descripción se sustituyen solo donde una migración con nombre lo dice.
     const renombradas = leerRenombresSembrados();
     expect([...renombradas.keys()]).toEqual(['pagina.pesv']);
@@ -217,7 +217,7 @@ describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idemp
     // siembra `pagina.roles_permisos`); 45 → 46 desde la HU #12542 (0192 siembra
     // `pagina.flito_servicios_adicionales`); 46 → 47 desde la HU #12611 (0198 siembra
     // `pagina.flito_comprobantes`); 47 → 48 desde la HU #12623 (0200 siembra
-    // `pagina.finanzas_gastos_diarios`); 48 → 49 con la 0218 (`pagina.perfil`); 49 → 70 con la 0226
+    // `pagina.finanzas_gastos_diarios`); 48 → 49 con la 0218 (`pagina.perfil`); 49 → 70 con la 0227
     // (HU #13421, 21 páginas por ítem del menú PESV): la base ya migrada las tiene todas.
     const [{ n }] = await sql`SELECT count(*)::int AS n FROM permisos_funciones WHERE tipo = 'pagina'`;
     expect(n).toBe(70);
@@ -260,7 +260,7 @@ describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idemp
       SELECT funcion_codigo FROM permisos_rol_funcion
        WHERE rol_codigo = 'admin' AND funcion_codigo LIKE 'pagina.%'
        ORDER BY funcion_codigo`).map((f) => f.funcion_codigo as string);
-    expect(suyas).toHaveLength(70); // HU #13255: +`pagina.perfil` (0218); HU #13421: +21 (0226)
+    expect(suyas).toHaveLength(70); // HU #13255: +`pagina.perfil` (0218); HU #13421: +21 (0227)
     const todas = (await sql`
       SELECT codigo FROM permisos_funciones WHERE tipo = 'pagina' ORDER BY codigo`)
       .map((f) => f.codigo as string);

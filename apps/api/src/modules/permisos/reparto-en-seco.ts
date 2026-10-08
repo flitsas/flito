@@ -20,7 +20,7 @@ export interface RutaEnSeco { llave: string; antes: RequisitoEnSeco; despues: Re
 
 /**
  * Las filas que la migración propone: copias vivas (origen → destinos), filas literales por rol y
- * RECORTES a una intersección (0226 Paso 3b): cada página de `paginas` queda efectiva solo para quien
+ * RECORTES a una intersección (0227 Paso 3b): cada página de `paginas` queda efectiva solo para quien
  * hoy la tiene Y tiene `requisito` efectivo.
  */
 export interface PropuestaEnSeco {

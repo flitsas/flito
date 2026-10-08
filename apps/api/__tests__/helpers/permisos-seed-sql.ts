@@ -56,7 +56,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0220_permiso_impuestos_recibos_reemplazar.sql',
   '0222_flito_soportes_documentos_adicionales_soat.sql',
   '0223_flito_soportes_documentos_adicionales_carga_eliminar.sql',
-  '0226_permisos_pesv_por_item.sql', // HU #13421 — número provisional hasta el rebase (ADR-0023 §D5)
+  '0227_permisos_pesv_por_item.sql', // HU #13421 (ADR-0023); la 0226 de la HU #13424 no siembra en forma parseable
 ] as const;
 
 function sinComentariosSql(sql: string): string {
@@ -162,7 +162,7 @@ export function repartoDeSql(sqls: readonly string[], nombre = 'sql'): Map<strin
         reparto.get(rol)!.add(codigo);
       }
     }
-    // La copia viva (0226): cada rol que YA tiene el origen recibe los destinos, como el SELECT en la base.
+    // La copia viva (0227): cada rol que YA tiene el origen recibe los destinos, como el SELECT en la base.
     for (const { origen, destinos } of bloquesCopiaRol(sql)) {
       for (const codigos of reparto.values()) {
         if (codigos.has(origen)) for (const d of destinos) codigos.add(d);
