@@ -113,6 +113,36 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'soat', fichero: 'flito-soat/flito-soat-documentos.routes.ts' }, // HU #13362
 ];
 
+/**
+ * HU #13421 (ADR-0023): los ficheros LEGACY reconducidos que montan `exigirFuncion` (transitorios
+ * «Administrar <ítem>» y operaciones permanentes). Lista aparte de `FICHEROS_EN_ALCANCE` porque su
+ * forma es otra: cada ruta lleva su página por ítem (`requirePage('pesv_<item>')`) y solo las que
+ * hoy exigían rol llevan además `exigirFuncion`; las de solo lectura no son operaciones del catálogo.
+ * Su red de cierre está en `permisos.reconduccion-cierre.test.ts` (FICHEROS_LEGADO_DE_RUTAS).
+ */
+export const FICHEROS_LEGADO_EN_ALCANCE: FicheroEnAlcance[] = [
+  { modulo: 'pesv', fichero: 'pesv/export.routes.ts' },
+  { modulo: 'pesv', fichero: 'pesv/export-diagnostico.routes.ts' },
+  { modulo: 'pesv', fichero: 'pesv/diagnostico.routes.ts' },
+  { modulo: 'pesv', fichero: 'pesv/diagnostico-evidencias.routes.ts' },
+  { modulo: 'pesv', fichero: 'pesv/comite.routes.ts' },
+  { modulo: 'pesv', fichero: 'pesv/plan.routes.ts' },
+  { modulo: 'pesv', fichero: 'pesv/policy.routes.ts' },
+  { modulo: 'pesv', fichero: 'pesv/huerfanos.routes.ts' },
+  { modulo: 'pesv', fichero: 'pesv/raci.routes.ts' },
+  { modulo: 'pesv', fichero: 'pesv/normativa.routes.ts' },
+  { modulo: 'pesv', fichero: 'pesv/retencion.routes.ts' },
+  { modulo: 'drivers', fichero: 'drivers/drivers.routes.ts' },
+  { modulo: 'drivers', fichero: 'drivers/documents.routes.ts' },
+  { modulo: 'drivers', fichero: 'drivers/trainings.routes.ts' },
+  { modulo: 'drivers', fichero: 'drivers/incidents.routes.ts' },
+  { modulo: 'drivers', fichero: 'drivers/checklists.routes.ts' },
+  { modulo: 'drivers', fichero: 'drivers/alcohol.routes.ts' },
+  { modulo: 'drivers', fichero: 'drivers/emergency.routes.ts' },
+  { modulo: 'jornadas', fichero: 'jornadas/jornadas.routes.ts' },
+  { modulo: 'rum', fichero: 'rum/rum.routes.ts' },
+];
+
 /** Quita comentarios de bloque y de línea sin tocar el contenido de las cadenas simples. */
 export function sinComentarios(fuente: string): string {
   return fuente
@@ -172,7 +202,7 @@ export function leerMontajes({ fichero }: FicheroEnAlcance, raiz = RAIZ_MODULOS)
 
 /** Todos los montajes del alcance, en orden estable (fichero, posición en el fuente). */
 export function montajesDeFunciones(raiz = RAIZ_MODULOS): MontajeLeido[] {
-  return FICHEROS_EN_ALCANCE.flatMap((f) => leerMontajes(f, raiz));
+  return [...FICHEROS_EN_ALCANCE, ...FICHEROS_LEGADO_EN_ALCANCE].flatMap((f) => leerMontajes(f, raiz));
 }
 
 /**

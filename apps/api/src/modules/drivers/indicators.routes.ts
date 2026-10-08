@@ -5,7 +5,7 @@ import { authMiddleware } from '../../shared/middleware/auth.js';
 import { requirePage } from '../../shared/permissions.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('pesv'));
+router.use(authMiddleware);
 
 // Indicadores oficiales PESV (Paso 20 Resolución 40595/2022).
 // Implementados: tasa accidentalidad/lesionados/fatalidades por km, severidad,
@@ -17,7 +17,7 @@ function clampDate(raw: unknown, fallbackOffsetDays: number): string {
   return new Date(Date.now() + fallbackOffsetDays * 86_400_000).toISOString().slice(0, 10);
 }
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requirePage('pesv'), async (req: Request, res: Response) => {
   const desde = clampDate(req.query.desde, -90);
   const hasta = clampDate(req.query.hasta, 0);
   const today = new Date().toISOString().slice(0, 10);

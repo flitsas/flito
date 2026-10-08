@@ -57,7 +57,7 @@ const { exigirFuncion, tieneFuncion, motivoDenegacionFuncion, textoDe } = await 
 const { VENTANA_DEDUP_MS } = await import('../../src/shared/historial/permisos-intentos-denegados.js');
 const { authMiddleware } = await import('../../src/shared/middleware/auth.js');
 const { catalogoCompleto } = await import('../../src/modules/permisos/catalogo.js');
-const { AGRUPACION_DE_OPERACION } = await import('../../src/modules/permisos/catalogo-agrupacion.js');
+const { AGRUPACION_DE_OPERACION, AGRUPACION_DE_OPERACION_LEGADO } = await import('../../src/modules/permisos/catalogo-agrupacion.js');
 
 const ok = (funciones: string[], extra: Partial<Extract<PermisosResueltos, { ok: true }>> = {}): PermisosResueltos => ({
   ok: true, userId: 7, rol: 'gestor', tipoPrincipal: 'interno', funciones: new Set(funciones),
@@ -299,7 +299,7 @@ describe('TC #12264 AC5 — el 403 trae { error, funcion } y distingue sin_funci
   it('el «módulo» es el de AGRUPACIÓN del catálogo (HU #12716 AC8): el prefijo del código para las operaciones salvo las reagrupadas; el de una página es el de sus acciones', () => {
     const catalogo = catalogoCompleto();
     for (const f of catalogo.filter((x) => x.tipo === 'operacion')) {
-      const reagrupada = AGRUPACION_DE_OPERACION[f.codigo];
+      const reagrupada = AGRUPACION_DE_OPERACION[f.codigo] ?? AGRUPACION_DE_OPERACION_LEGADO[f.codigo];
       expect(f.modulo, f.codigo).toBe(reagrupada ?? f.codigo.split('.')[0]);
     }
     // `pagina.users` ya no está en «Administración»: está con las acciones de usuarios.

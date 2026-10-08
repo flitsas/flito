@@ -6,14 +6,15 @@ import {
   jornadasConductor, jornadasPausas, jornadasAlarmas, jornadasReportesMensuales,
   jornadasIdempotencyKeys, users,
 } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { JORNADA_LIMITS, computarAlarmasCierre } from './limits.js';
 import { notifyJornadaAlarmas } from './notify.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('pesv'));
+router.use(authMiddleware);
 
 const abrirSchema = z.object({
   vehicleId: z.number().int().positive().optional().nullable(),
@@ -38,7 +39,7 @@ const pausaCerrarSchema = z.object({
 
 // ============ ABRIR JORNADA ============
 
-router.post('/abrir', async (req: Request, res: Response) => {
+router.post('/abrir', requirePage('pesv_mi_jornada'), async (req: Request, res: Response) => {
   const idempKey = req.header('Idempotency-Key');
   if (!idempKey || idempKey.length < 8 || idempKey.length > 80) {
     return res.status(400).json({ error: 'Idempotency-Key requerido (8-80 chars)' });
@@ -103,7 +104,7 @@ router.post('/abrir', async (req: Request, res: Response) => {
 
 // ============ CERRAR JORNADA ============
 
-router.post('/:id/cerrar', async (req: Request, res: Response) => {
+router.post('/:id/cerrar', requirePage('pesv_mi_jornada'), async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const idempKey = req.header('Idempotency-Key');
@@ -195,7 +196,7 @@ router.post('/:id/cerrar', async (req: Request, res: Response) => {
 
 // ============ PAUSAS ============
 
-router.post('/:id/pausa/abrir', async (req: Request, res: Response) => {
+router.post('/:id/pausa/abrir', requirePage('pesv_mi_jornada'), async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = pausaAbrirSchema.safeParse(req.body);
@@ -224,7 +225,7 @@ router.post('/:id/pausa/abrir', async (req: Request, res: Response) => {
   res.status(201).json(result.row);
 });
 
-router.post('/:id/pausa/cerrar', async (req: Request, res: Response) => {
+router.post('/:id/pausa/cerrar', requirePage('pesv_mi_jornada'), async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = pausaCerrarSchema.safeParse(req.body);
@@ -238,7 +239,7 @@ router.post('/:id/pausa/cerrar', async (req: Request, res: Response) => {
 
 // ============ READ ============
 
-router.get('/abierta', async (req: Request, res: Response) => {
+router.get('/abierta', requirePage('pesv_mi_jornada'), async (req: Request, res: Response) => {
   const conductorId = Number(req.query.conductorId) || req.user!.sub;
   if (conductorId !== req.user!.sub && req.user!.role !== 'admin') return res.status(403).json({ error: 'No autorizado' });
   const [j] = await db.select().from(jornadasConductor)
@@ -249,7 +250,7 @@ router.get('/abierta', async (req: Request, res: Response) => {
   res.json({ ...j, pausas });
 });
 
-router.get('/', requireRole('admin'), async (req: Request, res: Response) => {
+router.get('/', requirePage('pesv_jornadas'), exigirFuncion('jornadas.control.administrar'), async (req: Request, res: Response) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
   const conductorId = req.query.conductorId ? Number(req.query.conductorId) : undefined;
@@ -262,7 +263,7 @@ router.get('/', requireRole('admin'), async (req: Request, res: Response) => {
   res.json({ data: rows, limit, offset });
 });
 
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', requirePage('pesv_jornadas'), async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const [j] = await db.select().from(jornadasConductor).where(eq(jornadasConductor.id, id)).limit(1);
@@ -275,7 +276,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 // ============ ALARMAS — ack ============
 
-router.post('/alarmas/:alarmaId/ack', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/alarmas/:alarmaId/ack', requirePage('pesv_jornadas'), exigirFuncion('jornadas.control.administrar'), async (req: Request, res: Response) => {
   const alarmaId = Number(req.params.alarmaId);
   if (!Number.isFinite(alarmaId) || alarmaId <= 0) return res.status(400).json({ error: 'id inválido' });
   const obs = typeof req.body?.observaciones === 'string' ? String(req.body.observaciones).slice(0, 1000) : null;
@@ -288,7 +289,7 @@ router.post('/alarmas/:alarmaId/ack', requireRole('admin'), async (req: Request,
 
 // ============ REPORTES MENSUALES ============
 
-router.get('/reporte-mensual', async (req: Request, res: Response) => {
+router.get('/reporte-mensual', requirePage('pesv_jornadas'), async (req: Request, res: Response) => {
   const conductorId = Number(req.query.conductorId);
   const anio = Number(req.query.anio);
   const mes = Number(req.query.mes);
@@ -302,7 +303,7 @@ router.get('/reporte-mensual', async (req: Request, res: Response) => {
   res.json(r);
 });
 
-router.post('/reporte-mensual/regenerar', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/reporte-mensual/regenerar', requirePage('pesv_jornadas'), exigirFuncion('jornadas.control.administrar'), async (req: Request, res: Response) => {
   const conductorId = Number(req.body?.conductorId);
   const anio = Number(req.body?.anio);
   const mes = Number(req.body?.mes);

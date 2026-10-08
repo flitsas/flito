@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, FormEvent, type ReactNode } from 'react';
 import toast from 'react-hot-toast';
-import { api, errorMessage } from '../lib/api';
+import { api, ApiError, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useEscape } from '../lib/hooks';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
@@ -91,6 +91,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function CreateAlcoholModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [driversError, setDriversError] = useState<string | null>(null);
   const [conductorId, setConductorId] = useState('');
   type AlcoholTipo = 'preoperacional' | 'aleatoria' | 'post_incidente' | 'periodica';
   const [tipo, setTipo] = useState<AlcoholTipo>('aleatoria');
@@ -101,7 +102,12 @@ function CreateAlcoholModal({ onClose, onSaved }: { onClose: () => void; onSaved
   useEscape(onClose, !submitting);
 
   useEffect(() => {
-    api.get<{ data: Driver[] }>('/drivers').then((r) => setDrivers(r.data)).catch(() => {});
+    // HU #13421: `/drivers` cuelga del ítem «Conductores»; sin él responde 403. Antes el error se
+    // tragaba y el selector quedaba vacío sin explicación: ahora se dice por qué.
+    api.get<{ data: Driver[] }>('/drivers').then((r) => setDrivers(r.data))
+      .catch((err) => setDriversError(err instanceof ApiError && err.status === 403
+        ? 'No tienes acceso a la lista de conductores; pide el permiso de Conductores para registrar la prueba.'
+        : 'No se pudo cargar la lista de conductores.'));
   }, []);
 
   const valor = parseFloat(valorMg);
@@ -134,10 +140,11 @@ function CreateAlcoholModal({ onClose, onSaved }: { onClose: () => void; onSaved
     <FlitModal title="Registrar prueba de alcoholimetría" onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
         <Field label="Conductor *">
-          <select value={conductorId} onChange={(e) => setConductorId(e.target.value)} className={inputCls}>
+          <select value={conductorId} onChange={(e) => setConductorId(e.target.value)} className={inputCls} disabled={driversError !== null} aria-describedby={driversError ? 'alcohol-conductores-aviso' : undefined}>
             <option value="">— seleccione —</option>
             {drivers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
+          {driversError && <p id="alcohol-conductores-aviso" role="status" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-ink)' }}>{driversError}</p>}
         </Field>
         <Field label="Tipo">
           <select value={tipo} onChange={(e) => setTipo(e.target.value as AlcoholTipo)} className={inputCls}>

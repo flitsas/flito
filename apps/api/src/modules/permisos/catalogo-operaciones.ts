@@ -18,6 +18,8 @@
 // los montajes leídos del fuente, porque un número escrito a mano es justo lo que dejó nueve
 // operaciones fuera del enunciado original de la #12081.
 
+import { OPERACIONES_DECLARADAS_LEGADO } from './catalogo-operaciones.legado.js';
+
 export interface OperacionDeclarada {
   /** `<fichero> <MÉTODO> <ruta>` — la guarda real. */
   llave: string;
@@ -65,7 +67,7 @@ const FSA = 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.route
 const CPR = 'flito-comprobantes/flito-comprobantes.routes.ts';
 const LOGV = 'flito-logistica/flito-logistica-viajes.routes.ts';
 
-export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
+const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // ── SOAT (portal FLITO) ───────────────────────────────────────────────────────────────────────
   op(`${SOAT} GET /`, 'soat.cola.ver', 'Ver la cola de SOAT', 'Abrir la bandeja de solicitudes de SOAT y recorrer su listado.'),
   op(`${SOAT} GET /facetas`, 'soat.cola.filtrar', 'Filtrar la cola de SOAT', 'Leer los contadores y las facetas con las que se acota la bandeja.'),
@@ -401,6 +403,9 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${CPR} POST /:id/descartar`, 'comprobantes.comprobante.descartar', 'Descartar un comprobante', 'Sacar de la cola un comprobante que no corresponde, dejando el motivo.'),
   op(`${CPR} POST /:id/diferencia/aceptar`, 'comprobantes.diferencia.aceptar', 'Aceptar la diferencia de un comprobante', 'Aceptar con motivo la diferencia entre el valor del comprobante y la tarifa de referencia.'),
 ];
+
+// HU #13421 (ADR-0023): los módulos legacy reconducidos se declaran aparte (regla de 800 líneas).
+export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [...OPERACIONES_FLITO, ...OPERACIONES_DECLARADAS_LEGADO];
 
 /**
  * Las CUATRO operaciones del canal Cliente que el Feature #12074 retiró (AC3).

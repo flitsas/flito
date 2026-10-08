@@ -44,7 +44,7 @@ import { catalogoCompleto, repartoDePartida, PAGINAS_NO_CONCEDIBLES } from '../.
  */
 const FUNCIONES_SIN_ADMIN: readonly string[] = ['soat.factura.leer', 'soat.runt.preconsultar', 'soat.solicitud.crear'];
 import {
-  funcionesDeSql, leerFuncionesSembradas, leerReagrupacionesSembradas, leerRepartoSembrado,
+  funcionesDeSql, leerFuncionesSembradas, leerReagrupacionesSembradas, leerRenombresSembrados, leerRepartoSembrado,
   leerRetirosSembrados, repartoDeSql,
 } from '../helpers/permisos-seed-sql.js';
 
@@ -135,9 +135,16 @@ describe('0179 — el archivo dice lo mismo que schema.ts (análisis estático)'
     const retiros = leerRetirosSembrados();
     const reagrupadas = leerReagrupacionesSembradas();
     expect(reagrupadas.size).toBe(47);
+    // HU #13421: la 0226 RENOMBRA `pagina.pesv` («PESV — Conductores» → «PESV — Tablero PESV»); el
+    // nombre y la descripción se sustituyen solo donde una migración con nombre lo dice.
+    const renombradas = leerRenombresSembrados();
+    expect([...renombradas.keys()]).toEqual(['pagina.pesv']);
     for (const [codigo, f] of leerFuncionesSembradas([ARCHIVO])) {
       if (retiros.funciones.has(codigo)) continue;
-      expect(funcionesGeneradas.get(codigo), codigo).toEqual({ ...f, modulo: reagrupadas.get(codigo) ?? f.modulo });
+      const r = renombradas.get(codigo);
+      expect(funcionesGeneradas.get(codigo), codigo).toEqual({
+        ...f, modulo: reagrupadas.get(codigo) ?? f.modulo, ...(r ? { nombre: r.nombre, descripcion: r.descripcion } : {}),
+      });
     }
     for (const par of aPares(leerRepartoSembrado([ARCHIVO]))) {
       if (retiros.reparto.has(par)) continue;
@@ -199,14 +206,15 @@ describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idemp
     }
   });
 
-  it('48 funciones de tipo `pagina` y ninguna es `flito_ayuda` (AC2-bis)', async () => {
+  it('70 funciones de tipo `pagina` y ninguna es `flito_ayuda` (AC2-bis)', async () => {
     // 43 → 44 desde la HU #12375 (0184 siembra `pagina.flito_tarifas`); 44 → 45 desde la HU #12085 (0187
     // siembra `pagina.roles_permisos`); 45 → 46 desde la HU #12542 (0192 siembra
     // `pagina.flito_servicios_adicionales`); 46 → 47 desde la HU #12611 (0198 siembra
     // `pagina.flito_comprobantes`); 47 → 48 desde la HU #12623 (0200 siembra
-    // `pagina.finanzas_gastos_diarios`): la base ya migrada las tiene todas.
+    // `pagina.finanzas_gastos_diarios`); 48 → 49 con la 0218 (`pagina.perfil`); 49 → 70 con la 0226
+    // (HU #13421, 21 páginas por ítem del menú PESV): la base ya migrada las tiene todas.
     const [{ n }] = await sql`SELECT count(*)::int AS n FROM permisos_funciones WHERE tipo = 'pagina'`;
-    expect(n).toBe(48);
+    expect(n).toBe(70);
     const [{ hay }] = await sql`
       SELECT count(*)::int AS hay FROM permisos_funciones WHERE codigo = 'pagina.flito_ayuda'`;
     expect(hay).toBe(0);
@@ -241,12 +249,12 @@ describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idemp
     }
   });
 
-  it('AC4 — `admin` tiene las 49 páginas marcadas UNA A UNA (lo que hace neutro retirar los atajos)', async () => {
+  it('AC4 — `admin` tiene las 70 páginas marcadas UNA A UNA (lo que hace neutro retirar los atajos)', async () => {
     const suyas = (await sql`
       SELECT funcion_codigo FROM permisos_rol_funcion
        WHERE rol_codigo = 'admin' AND funcion_codigo LIKE 'pagina.%'
        ORDER BY funcion_codigo`).map((f) => f.funcion_codigo as string);
-    expect(suyas).toHaveLength(49); // HU #13255: +`pagina.perfil` (0218)
+    expect(suyas).toHaveLength(70); // HU #13255: +`pagina.perfil` (0218); HU #13421: +21 (0226)
     const todas = (await sql`
       SELECT codigo FROM permisos_funciones WHERE tipo = 'pagina' ORDER BY codigo`)
       .map((f) => f.codigo as string);

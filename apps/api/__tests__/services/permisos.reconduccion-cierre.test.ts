@@ -23,18 +23,20 @@ import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  FICHEROS_EN_ALCANCE, RAIZ_MODULOS, leerMontajes, llaveDe, montajesDeFunciones, sinComentarios,
+  FICHEROS_EN_ALCANCE, FICHEROS_LEGADO_EN_ALCANCE, RAIZ_MODULOS, leerMontajes, llaveDe, montajesDeFunciones, sinComentarios,
 } from '../../src/modules/permisos/inventario-guardas.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
+import { PAGINAS_PESV_POR_ITEM } from '@operaciones/shared-types';
 
-/** Los 22 directorios: los 19 del enunciado (cadena SOAT + resto de FLITO, trámites incluidos, y usuarios) + permisos (HU #12084) + finanzas-servicios-adicionales (HU #12545, nace reconducido) + flito-comprobantes (HU #12611, nace reconducido). */
+/** Los 26 directorios: los 19 del enunciado (cadena SOAT + resto de FLITO, trámites incluidos, y usuarios) + permisos (HU #12084) + finanzas-servicios-adicionales (HU #12545, nace reconducido) + flito-comprobantes (HU #12611, nace reconducido) + los legacy pesv, drivers, jornadas y rum (HU #13421, ADR-0023). */
 export const DIRECTORIOS_RECONDUCIDOS = [
   'flito-soat', 'flito-parametrizacion', 'flito-compuerta', 'flito-bolsas', 'flito-revisiones', 'flito-sync',
   'flito-excepciones', 'flito-ocr',
   'tramites', 'flito-tramites', 'flito-impuestos', 'flito-comparendos', 'flito-conciliacion',
   'flito-liquidacion', 'flito-logistica', 'flito-tablero', 'flito-bitacora', 'flito-derechos', 'users',
   'permisos', 'finanzas-servicios-adicionales', 'flito-comprobantes',
+  'pesv', 'drivers', 'jornadas', 'rum',
 ] as const;
 
 /** Rutas de los 24 ficheros que NO llevan guarda de función y siguen igual (§4 del diseño; `/mios`: HU #12084). */
@@ -95,8 +97,8 @@ describe('AC1/AC2 — en los 21 directorios ya no decide ningún requireRole', (
     });
   }
 
-  it('los directorios son 22 (19 del enunciado + permisos + finanzas-servicios-adicionales + flito-comprobantes) y los 32 ficheros de rutas del alcance viven en ellos (flito-logistica aporta dos: el legado y el de viajes, HU #12619; flito-impuestos otros tres: el de la cola, el de la dirección, HU #12833, y el del reemplazo del comprobante, HU #13269; flito-soat cuatro: módulo, canal Cliente, incompletas, HU #12997, y documentos adicionales, HU #13362; flito-sync tres: el de sync, el del acceso a FLIT 2, HU #13061, y el del interruptor por fuente, HU #13237)', () => {
-    expect(DIRECTORIOS_RECONDUCIDOS).toHaveLength(22);
+  it('los directorios son 26 (19 del enunciado + permisos + finanzas-servicios-adicionales + flito-comprobantes + pesv, drivers, jornadas y rum de la HU #13421) y los 32 ficheros de rutas del alcance viven en ellos (flito-logistica aporta dos: el legado y el de viajes, HU #12619; flito-impuestos otros tres: el de la cola, el de la dirección, HU #12833, y el del reemplazo del comprobante, HU #13269; flito-soat cuatro: módulo, canal Cliente, incompletas, HU #12997, y documentos adicionales, HU #13362; flito-sync tres: el de sync, el del acceso a FLIT 2, HU #13061, y el del interruptor por fuente, HU #13237)', () => {
+    expect(DIRECTORIOS_RECONDUCIDOS).toHaveLength(26);
     expect(FICHEROS_DE_RUTAS).toHaveLength(32);
     for (const f of FICHEROS_DE_RUTAS) {
       expect((DIRECTORIOS_RECONDUCIDOS as readonly string[]).includes(f.split('/')[0]!), f).toBe(true);
@@ -161,10 +163,10 @@ describe('AC1/AC2 — cada router.<método>( de los 24 ficheros lleva exigirFunc
 });
 
 describe('el lector de montajes cubre la foto entera', () => {
-  it('273 montajes = 238 previos + 2 de la #12089 (baja/reactivar) + 4 de la #12541 (servicios adicionales) + 3 por la HU #12545 (servicios por trámite) + 1 por la HU #12591 (recibo de caja) + 5 por la HU #12611 (comprobantes) + 3 por la HU #12619 (viajes de logística) + 3 por la HU #12629 (comprobantes F2) + 1 por la HU #12654 (comprobantes F3: aceptar diferencia) + 2 por el Bug #12642 (export ampliado, en línea) + 1 por la HU #12833 (corregir dirección) + 2 por la HU #12997 (incompletas SOAT: buscar y ver) + 1 por la HU #12998 (reintentar la consulta RUNT) + 2 por la HU #13061 (acceso a FLIT 2: ver y guardar) + 1 por la HU #13237 (interruptor por fuente) + 1 por la HU #13269 (reemplazar el comprobante de pago) + 1 por la HU #13362 (documentos adicionales del SOAT) + 2 por la HU #13364 (cargar y eliminar documentos adicionales); los códigos son exactamente los de la foto', () => {
+  it('273 montajes = 238 previos + 2 de la #12089 (baja/reactivar) + 4 de la #12541 (servicios adicionales) + 3 por la HU #12545 (servicios por trámite) + 1 por la HU #12591 (recibo de caja) + 5 por la HU #12611 (comprobantes) + 3 por la HU #12619 (viajes de logística) + 3 por la HU #12629 (comprobantes F2) + 1 por la HU #12654 (comprobantes F3: aceptar diferencia) + 2 por el Bug #12642 (export ampliado, en línea) + 1 por la HU #12833 (corregir dirección) + 2 por la HU #12997 (incompletas SOAT: buscar y ver) + 1 por la HU #12998 (reintentar la consulta RUNT) + 2 por la HU #13061 (acceso a FLIT 2: ver y guardar) + 1 por la HU #13237 (interruptor por fuente) + 1 por la HU #13269 (reemplazar el comprobante de pago) + 1 por la HU #13362 (documentos adicionales del SOAT) + 2 por la HU #13364 (cargar y eliminar documentos adicionales) + 76 por la HU #13421 (pesv 48, drivers 24, jornadas 3, rum 1); los códigos son exactamente los de la foto', () => {
     const montajes = montajesDeFunciones();
-    expect(GUARDAS_MEDIDAS).toHaveLength(273);
-    expect(montajes).toHaveLength(273);
+    expect(GUARDAS_MEDIDAS).toHaveLength(349);
+    expect(montajes).toHaveLength(349);
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     expect(montajes.filter((m) => m.metodo === null)).toHaveLength(4);
@@ -200,3 +202,115 @@ describe('AC3 — el ámbito no se toca: las 11 comparaciones de rol que deciden
     expect(sinComentarios(leer('users/users.routes.ts'))).not.toMatch(/req\.user!?\.role (===|!==)/);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// HU #13421 (ADR-0023) — pesv/, drivers/, jornadas/ y rum/ por permiso, una página por ítem del menú.
+//
+//   · AC1: cada ruta de sus ficheros de rutas lleva SU página (`requirePage('pesv_<item>')`, la del ítem
+//     dueño); ninguna ruta de pesv/ queda protegida por la página única `pesv` y no queda ningún
+//     `router.use(…requirePage…)` (en /api/pesv se montan varios routers: una guarda de router se
+//     filtraba a los siguientes, y así raci/normativa/retención pedían también `pagina.pesv`).
+//   · AC3/AC4: lo que exigía rol lleva `exigirFuncion('<…>.administrar')` (transitorio, HU #13429) o la
+//     única permanente `rum.resumen.ver`.
+//   · AC8: cero `requireRole(` (bloque AC1/AC2 de arriba, por DIRECTORIOS_RECONDUCIDOS) y ninguna
+//     comparación de nombre de rol en la declaración de una ruta. Las comparaciones DENTRO de handlers
+//     son de la HU #13425 y se enumeran aquí por fichero y número: si aparece otra, rojo.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+const DIRECTORIOS_13421 = ['pesv', 'drivers', 'jornadas', 'rum'] as const;
+const PAGINAS_PESV = new Set<string>(['pesv', ...PAGINAS_PESV_POR_ITEM, 'pesv_raci', 'pesv_normativa', 'pesv_retencion']);
+
+/** Todos los `*.routes.ts` de los cuatro directorios, leídos del disco (un fichero nuevo entra solo). */
+const FICHEROS_LEGADO_DE_RUTAS = DIRECTORIOS_13421.flatMap((d) =>
+  readdirSync(join(RAIZ_MODULOS, d)).filter((n) => n.endsWith('.routes.ts')).map((n) => `${d}/${n}`)).sort();
+
+/** Rutas legacy sin página, y por qué. */
+const LISTA_BLANCA_LEGADO = new Map([
+  ['drivers/checklists.routes.ts GET /qr/:token', 'pública: el QR del vehículo, antes de authMiddleware'],
+  ['rum/rum.routes.ts POST /', 'pública: Web Vitals se reportan antes del login (con limitador)'],
+  ['rum/rum.routes.ts GET /summary', 'authMiddleware + exigirFuncion permanente: no cuelga de un ítem del menú'],
+]);
+
+/** Sub-routers que heredan `authMiddleware` del router que los monta. */
+const HEREDAN_AUTH: Record<string, { fichero: string; montaje: string }> = {
+  'pesv/diagnostico-evidencias.routes.ts': { fichero: 'pesv/diagnostico.routes.ts', montaje: "router.use('/', evidenciasRouter)" },
+  'pesv/export-diagnostico.routes.ts': { fichero: 'pesv/export.routes.ts', montaje: "router.use('/', diagnosticoExportRouter)" },
+};
+
+/** HU #13425 (fuera de alcance): comparaciones de nombre de rol DENTRO de handlers que siguen ahí. */
+const PENDIENTES_13425: { fichero: string; veces: number; que: string }[] = [
+  { fichero: 'jornadas/jornadas.routes.ts', veces: 6, que: "«otro conductor salvo admin» (`role !== 'admin'`)" },
+  { fichero: 'pesv/diagnostico.routes.ts', veces: 2, que: 'vista de auditoría por rol (compliance / lista)' },
+  { fichero: 'pesv/export-diagnostico.routes.ts', veces: 2, que: "PII enmascarada para `compliance`" },
+  { fichero: 'drivers/alcohol.routes.ts', veces: 1, que: 'destinatarios del aviso: `users.role = admin`' },
+  { fichero: 'jornadas/notify.ts', veces: 1, que: 'destinatarios del aviso: `users.role = admin`' },
+];
+const COMPARACION_DE_ROL = /\brole\s*(?:===|!==)\s*'[a-z_]+'|\]\.includes\(req\.user[!?]?\.role\)|eq\(users\.role,\s*'[a-z_]+'\)/g;
+const RUTA_LEGADO = /router\.(get|post|put|patch|delete)\(\s*'([^']*)'\s*,([\s\S]{0,500}?)(?:async\s*\(|\(\s*_?req\b|\(\s*\)\s*=>|\);)/g;
+
+describe('HU #13421 — pesv/, drivers/, jornadas/ y rum/: página por ítem y «Administrar <ítem>»', () => {
+  it('los ficheros de rutas son los 23 medidos y los 20 con guarda de función están en FICHEROS_LEGADO_EN_ALCANCE', () => {
+    expect(FICHEROS_LEGADO_DE_RUTAS).toHaveLength(23);
+    for (const { fichero } of FICHEROS_LEGADO_EN_ALCANCE) expect(FICHEROS_LEGADO_DE_RUTAS, fichero).toContain(fichero);
+    expect(FICHEROS_LEGADO_EN_ALCANCE).toHaveLength(20);
+  });
+
+  for (const fichero of FICHEROS_LEGADO_DE_RUTAS) {
+    it(`${fichero}: cada ruta lleva su página PESV (o está en la lista blanca) y ninguna guarda de router`, () => {
+      const fuente = sinComentarios(leer(fichero));
+      expect(fuente, 'sin página ni función a nivel de router').not.toMatch(/\brouter\.use\([^)]*(requirePage|exigirFuncion)/);
+      const padre = HEREDAN_AUTH[fichero];
+      if (padre) {
+        // Sub-router sin auth propio: lo monta su padre DESPUÉS de `router.use(authMiddleware)`.
+        const p = sinComentarios(leer(padre.fichero));
+        expect(p.indexOf(padre.montaje), `${padre.fichero} monta ${fichero}`).toBeGreaterThan(p.search(/router\.use\(\s*authMiddleware\s*\)/));
+        expect(p.search(/router\.use\(\s*authMiddleware\s*\)/)).toBeGreaterThan(-1);
+      } else if (fichero !== 'rum/rum.routes.ts') expect(fuente).toMatch(/router\.use\(\s*authMiddleware\s*\)/);
+      const rutas = [...fuente.matchAll(RUTA_LEGADO)];
+      expect(rutas.length).toBeGreaterThan(0);
+      for (const m of rutas) {
+        const llave = `${fichero} ${m[1]!.toUpperCase()} ${m[2]}`;
+        expect(m[3], `${llave}: la declaración de la ruta no compara nombres de rol`).not.toMatch(/\brole\b|requireRole/);
+        const pagina = /requirePage\('([a-z_]+)'\)/.exec(m[3]!);
+        if (LISTA_BLANCA_LEGADO.has(llave)) { expect(pagina, llave).toBeNull(); continue; }
+        expect(pagina, `${llave} sin requirePage`).not.toBeNull();
+        expect(PAGINAS_PESV.has(pagina![1]!), `${llave}: ${pagina![1]} no es una página PESV`).toBe(true);
+        if (fichero.startsWith('pesv/')) expect(pagina![1], `${llave}: página única`).not.toBe('pesv');
+        const funcion = /exigirFuncion\('([a-z0-9_.]+)'\)/.exec(m[3]!);
+        if (funcion) expect(funcion[1], llave).toMatch(/\.administrar$/);
+      }
+    });
+  }
+
+  it('la lista blanca existe tal cual y `rum.resumen.ver` es la única operación permanente', () => {
+    for (const llave of LISTA_BLANCA_LEGADO.keys()) {
+      const [fichero, metodo, ruta] = llave.split(' ');
+      const hay = [...sinComentarios(leer(fichero!)).matchAll(RUTA_LEGADO)].some((m) => m[1] === metodo!.toLowerCase() && m[2] === ruta);
+      expect(hay, llave).toBe(true);
+    }
+    const rum = sinComentarios(leer('rum/rum.routes.ts'));
+    expect(rum).toMatch(/router\.get\('\/summary', authMiddleware, exigirFuncion\('rum\.resumen\.ver'\),/);
+    const legado = new Set(FICHEROS_LEGADO_EN_ALCANCE.map((f) => f.fichero));
+    const codigos = new Set(OPERACIONES_DECLARADAS.filter((o) => legado.has(o.llave.split(' ')[0]!)).map((o) => o.codigo));
+    expect([...codigos].filter((c) => !c.endsWith('.administrar'))).toEqual(['rum.resumen.ver']);
+  });
+
+  it('cada fichero con guarda de función importa exigirFuncion del motor', () => {
+    for (const { fichero } of FICHEROS_LEGADO_EN_ALCANCE) {
+      expect(sinComentarios(leer(fichero)), fichero)
+        .toMatch(/import \{[^}]*\bexigirFuncion\b[^}]*\} from '\.\.\/\.\.\/shared\/middleware\/exigir-funcion\.js';/);
+    }
+  });
+
+  it('AC8 — las comparaciones de nombre de rol que quedan son SOLO las pendientes de la HU #13425 (fichero y número)', () => {
+    const medidas: Record<string, number> = {};
+    for (const d of DIRECTORIOS_13421) {
+      for (const f of ficherosTs(join(RAIZ_MODULOS, d))) {
+        const n = (sinComentarios(readFileSync(f, 'utf8')).match(COMPARACION_DE_ROL) ?? []).length;
+        if (n) medidas[f.replace(`${RAIZ_MODULOS}/`, '')] = n;
+      }
+    }
+    expect(medidas).toEqual(Object.fromEntries(PENDIENTES_13425.map((p) => [p.fichero, p.veces])));
+  });
+});
+
