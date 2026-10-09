@@ -57,13 +57,13 @@ import { audit } from '../../shared/middleware/audit.js';
 import { soatClienteLimiter, soatPreconsultaLimiter, soatLecturaFacturaLimiter } from '../../shared/middleware/rateLimiter.js';
 import {
   CAMPOS_COMPRADOR_FACTURA, CodigoErrorSolicitudSoat, PROCEDENCIAS_DATO, TIPOS_DOCUMENTO_RUNT,
-  type ProcedenciaCompradorPersistida, type RespuestaAltaSolicitudSoat, type TipoDocumentoRunt,
+  type CompaniasCanalSoat, type ProcedenciaCompradorPersistida, type RespuestaAltaSolicitudSoat, type TipoDocumentoRunt,
 } from '@operaciones/shared-types';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { contextoSoat } from './flito-soat.service.js';
 import { registrarAccesoRuntCliente, registrarLecturaFacturaCliente } from './flito-soat.pii.js';
 import {
-  crearSolicitud, DESENLACE_HABLA_DEL_VEHICULO, leerFacturaVenta, nombreCompletoDe, normalizarId,
+  companiasDelCanal, crearSolicitud, DESENLACE_HABLA_DEL_VEHICULO, leerFacturaVenta, nombreCompletoDe, normalizarId,
   preconsulta, SolicitudSoatError,
   type ArchivoSolicitud, type PropietarioSolicitud,
 } from './flito-soat-cliente.service.js';
@@ -228,7 +228,18 @@ const vehiculoSchema = z.object({
   ),
 });
 
-const preconsultaSchema = vehiculoSchema;
+/**
+ * HU #12874 — A nombre de qué compañía se radica. Opcional en los tres endpoints del formulario: con
+ * enlace `compania` sobra (y si llega distinta de la suya es 403); sin enlace es obligatoria, pero esa
+ * regla la decide el servicio con el enlace (`canalDeLaCompania`), no el esquema. Llega como texto en
+ * los multipart, de ahí el `coerce`; vacío equivale a ausente.
+ */
+const companiaIdSchema = z.preprocess(
+  vacioANull,
+  z.coerce.number().int('La compañía no es válida').positive('La compañía no es válida').nullable().optional(),
+);
+
+const preconsultaSchema = vehiculoSchema.extend({ companiaId: companiaIdSchema });
 
 /**
  * El documento del PROPIETARIO, que desde la HU #12090 es solo del alta.
@@ -287,7 +298,7 @@ router.post('/cliente/preconsulta', exigirFuncion('soat.runt.preconsultar'), soa
   const { vin } = parsed.data;
   try {
     const ctx = await contextoSoat(req.user!);
-    const resultado = await preconsulta(vin, ctx);
+    const resultado = await preconsulta(vin, ctx, parsed.data.companiaId ?? null);
     // El VIN va TECLEADO y no el efectivo del RUNT, y son el mismo valor en todo camino que llega
     // aquí: `campoQueNoCuadra` corta con 422 si difieren y con `runt_sin_vin` si el RUNT no lo
     // publica, así que solo el desenlace `ok` sigue. Se toma el tecleado porque es `string` —el del
@@ -533,7 +544,20 @@ const procedenciaCruda = (v: unknown): unknown => {
 
 const altaSchema = vehiculoSchema.merge(documentoSchema).extend(titularCampos).extend({
   procedencia: z.preprocess(procedenciaCruda, procedenciaMapaSchema.optional()),
+  companiaId: companiaIdSchema,
 }).superRefine(refinarTitular);
+
+/**
+ * HU #12874 — Las compañías a cuyo nombre puede radicar quien llena el formulario (`fija` con enlace
+ * `compania`; a escoger sin enlace). Misma función que el alta: quien no puede radicar no necesita la
+ * lista. Sin query ni PII en la URL; el DTO es `id` + `nombre`.
+ */
+router.get('/cliente/companias', exigirFuncion('soat.solicitud.crear'), async (req: Request, res: Response) => {
+  try {
+    const ctx = await contextoSoat(req.user!);
+    res.json(await companiasDelCanal(ctx) satisfies CompaniasCanalSoat);
+  } catch (e) { manejarError(res, e); }
+});
 
 /**
  * POST /cliente — crear ES enviar (AC1). Sin borrador.
@@ -593,6 +617,7 @@ async function altaCliente(req: Request, res: Response): Promise<void> {
       recibidos, etiquetas, createHash('sha256').update(archivo.buffer).digest('hex'),
     );
     const ctx = await contextoSoat(req.user!);
+    const companiaIdPedida = parsed.data.companiaId ?? null;
     const creada = await crearSolicitud(
       {
         // Sin `placa`: la del alta es la que devuelve el RUNT (HU #12090, AC5), y `EntradaSolicitud`
@@ -603,8 +628,12 @@ async function altaCliente(req: Request, res: Response): Promise<void> {
         // ruta. `?? null` y no `?? {}` para que «no vino» siga siendo distinguible aquí arriba.
         procedencia: (parsed.data.procedencia as ProcedenciaCompradorPersistida | undefined) ?? null,
       },
-      archivo, ctx, clasificacion.aceptados,
+      archivo, ctx, clasificacion.aceptados, companiaIdPedida,
     );
+    // HU #12874: a nombre de qué compañía quedó radicada (id opaco, no PII). Pasada la guarda es la
+    // pedida (sin enlace) o la del enlace —una pedida distinta ya fue 403—. Solo Bitácora: no se
+    // le muestra al cliente (decisión del PO). Quién radicó lo pone `audit` con el usuario.
+    const compania = `compania=${companiaIdPedida ?? ctx.companiaId}`;
     // ── HU #12996: el RUNT no respondió y la solicitud quedó APARCADA → 202 ─────────────────────
     //
     // Mismo rastro de PII que el intento de hoy con el RUNT caído (`resultado: runt_no_disponible`,
@@ -618,7 +647,7 @@ async function altaCliente(req: Request, res: Response): Promise<void> {
       } catch { /* el rastro no puede tapar el alta ya guardada: mismo criterio que `registrarIntentoRunt` */ }
       await audit(req, {
         action: 'create', resource: 'flito_soat_incompletas', resourceId: creada.id,
-        detail: 'Solicitud SOAT del canal Cliente aparcada como incompleta: el RUNT no respondió (estado=incompleta)',
+        detail: `Solicitud SOAT del canal Cliente aparcada como incompleta: el RUNT no respondió (estado=incompleta, ${compania})`,
       });
       await auditarAdicionales(req, 'flito_soat_incompletas', creada.id, creada.adicionalesGuardados);
       res.status(202).json({
@@ -657,7 +686,7 @@ async function altaCliente(req: Request, res: Response): Promise<void> {
       : `proveedor=${creada.destino.proveedorSoatId}`;
     await audit(req, {
       action: 'create', resource: 'flito_soat', resourceId: creada.id,
-      detail: `Alta de solicitud SOAT del canal Cliente (origen=cliente, estado=${creada.estado}, destino=${destino})`,
+      detail: `Alta de solicitud SOAT del canal Cliente (origen=cliente, estado=${creada.estado}, destino=${destino}, ${compania})`,
     });
     // **Proyección explícita, y no `json(creada)`.** `crearSolicitud` devuelve también el destino
     // —lo necesita el `audit()` de arriba—, y devolver el objeto entero le contaría al CLIENTE a qué
@@ -724,6 +753,7 @@ const lecturaFacturaSchema = z.object({
     vacioANull,
     z.string().uuid('El identificador de la solicitud no es válido').nullable().optional(),
   ),
+  companiaId: companiaIdSchema,
 });
 
 /**
@@ -779,7 +809,7 @@ router.post(
 
     try {
       const ctx = await contextoSoat(req.user!);
-      const extraccion = await leerFacturaVenta(archivo, ctx, solicitudId);
+      const extraccion = await leerFacturaVenta(archivo, ctx, solicitudId, parsed.data.companiaId ?? null);
       // Después de la extracción y no antes: lo que se registra es que los datos personales SE
       // ENTREGARON. Una lectura que acabó en 503 no accedió a nada de nadie.
       await registrarLecturaFacturaCliente(req, { solicitudId });

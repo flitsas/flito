@@ -41,6 +41,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'POST', ruta: '/facturas', codigo: 'soat.masiva.cargar' },
   // flito-soat/flito-soat-cliente.routes.ts
   { fichero: 'flito-soat/flito-soat-cliente.routes.ts', metodo: 'POST', ruta: '/cliente/preconsulta', codigo: 'soat.runt.preconsultar' },
+  // HU #12874: la lista de compañías del formulario reutiliza la función del alta (decisión del PO).
+  { fichero: 'flito-soat/flito-soat-cliente.routes.ts', metodo: 'GET', ruta: '/cliente/companias', codigo: 'soat.solicitud.crear' },
   { fichero: 'flito-soat/flito-soat-cliente.routes.ts', metodo: 'POST', ruta: '/cliente', codigo: 'soat.solicitud.crear' },
   { fichero: 'flito-soat/flito-soat-cliente.routes.ts', metodo: 'POST', ruta: '/cliente/factura/lectura', codigo: 'soat.factura.leer' },
   // flito-soat/flito-soat-incompletas.routes.ts (HU #12997)

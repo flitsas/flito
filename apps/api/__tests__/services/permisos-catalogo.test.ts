@@ -172,7 +172,17 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     const legado = new Set(FICHEROS_LEGADO_EN_ALCANCE.map((f) => f.fichero));
     const guardasFlito = guardas.filter((g) => !legado.has(g.fichero));
     const codigosLegado = new Set(guardas.filter((g) => legado.has(g.fichero)).map((g) => codigoDeLlave.get(llaveDe(g))!));
-    expect(operaciones).toHaveLength(guardasFlito.length + codigosLegado.size);
+    // HU #12874 — ÚNICA excepción FLITO, nombrada y no genérica: `GET /cliente/companias` reutiliza
+    // `soat.solicitud.crear` del alta por decisión del PO (sin función nueva ni migración). El catálogo
+    // ya exige igualdad de nombre y reparto entre las dos guardas; aquí se fija que no haya otra.
+    const porCodigoFlito = new Map<string, number>();
+    for (const g of guardasFlito) {
+      const c = codigoDeLlave.get(llaveDe(g))!;
+      porCodigoFlito.set(c, (porCodigoFlito.get(c) ?? 0) + 1);
+    }
+    const compartidosFlito = [...porCodigoFlito].filter(([, n]) => n > 1);
+    expect(compartidosFlito).toEqual([['soat.solicitud.crear', 2]]);
+    expect(operaciones).toHaveLength(porCodigoFlito.size + codigosLegado.size);
     expect(new Set(operaciones.map((f) => f.codigo)).size).toBe(operaciones.length);
     expect(codigosLegado.size).toBe(80); // 25 de la HU #13421 + 13 de la HU #13422 + 42 de la HU #13423
   });

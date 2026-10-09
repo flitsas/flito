@@ -316,7 +316,7 @@ describe('AC3 · C — `POST /:id/factura` (OCR) sigue siendo la única puerta a
     }
   });
 
-  it('el canal Cliente no expone ninguna ruta que pague: sus tres rutas son otras', async () => {
+  it('el canal Cliente no expone ninguna ruta que pague: sus cuatro rutas son otras', async () => {
     // El `\s*` tras el paréntesis NO es cosmético: la #12092 declara su ruta partiendo la llamada en
     // varias líneas (`router.post(\n  '/cliente/factura/lectura',`) y el patrón anterior —anclado a
     // `router.post('`— no la veía. El centinela seguía verde CONTANDO SEIS mientras el fichero
@@ -330,6 +330,8 @@ describe('AC3 · C — `POST /:id/factura` (OCR) sigue siendo la única puerta a
     // que las justificaba (Feature #12074). Se enumera el conjunto y no su tamaño: así, tanto una
     // ruta nueva como el regreso de una de las cuatro ponen rojo este aserto nombrándola.
     expect(declaradas.sort()).toEqual([
+      // HU #12874: la lista de compañías del formulario. Solo lectura (`id` + `nombre`), no paga.
+      'GET /cliente/companias',
       'POST /cliente',
       // Es de escritura por el verbo y el adjunto, no por efecto: lee el PDF y responde; no toca
       // storage, ni `flito_soportes`, ni ninguna fila (#12092).
