@@ -257,13 +257,17 @@ describe('AC1 — el alta crea la fila del canal y la DESPACHA (invertido por la
     expect(soat.id).toBe(r.body.id);
   });
 
-  it('la compañía es la del USUARIO, no la del formulario', async () => {
+  it('**la compañía es la del USUARIO, no la del formulario** (INVERTIDO por la #12874: ya no se ignora, es 403)', async () => {
     escenario();
-    // El cuerpo intenta radicar para otra compañía. Se ignora: `companiaId` no está en el schema de
-    // Zod y el servicio lo toma de `contextoSoat()`.
-    await alta(await buildApp(), await auth('cliente', siguienteUsuario()), { campos: { companiaId: '99' } });
+    // Decía «se ignora: `companiaId` no está en el schema». Desde la #12874 el campo existe (sin
+    // enlace se escoge la compañía), así que con enlace `compania` otra compañía es un intento de
+    // radicar a nombre ajeno y sale como 403 visible, sin crear nada.
+    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()), { campos: { companiaId: '99' } });
 
-    expect(espia.ultimoInsertEn('flito_soat').companiaId).toBe(COMPANIA);
+    expect(r.status).toBe(403);
+    expect(r.body.codigo).toBe('compania_no_permitida');
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
   });
 
   it('**el alta ESPERA a Kyverum: si el RUNT no responde, NO hay SOAT** (INVERTIDO por la #11966; 202 desde la #12996)', async () => {
@@ -1151,5 +1155,137 @@ describe('catálogo RUNT de tipos de documento: lo que el producto ofrece y lo q
     for (const tipo of TIPOS_DOCUMENTO_RUNT) {
       expect(mapTipoDocUiToRunt(tipo), `${tipo} no tiene código RUNT`).not.toBeNull();
     }
+  });
+});
+
+// ───────────────── HU #12874 — compañía fija (enlace) o escogida (sin enlace) ─────────────────
+
+describe('HU #12874 — a nombre de qué compañía se radica, en el alta, la preconsulta y la lectura', () => {
+  /** Un rol SIN enlace con las tres funciones del formulario (lo que el PO concede por configuración). */
+  const sinEnlace = async (id: number, tipoEnlace = 'ninguno') => `Bearer ${await testToken({
+    sub: id, username: 'interno@flit.io', role: 'admin', tipoEnlace,
+    funciones: ['soat.solicitud.crear', 'soat.runt.preconsultar', 'soat.factura.leer'],
+  })}`;
+  const preconsultar = async (token: string, extra: Record<string, unknown> = {}) =>
+    request(await buildApp()).post('/api/flito/soat/cliente/preconsulta').set('Authorization', token)
+      .send({ vin: '9FKRG2222T2042405', ...extra });
+  const leerFactura = async (token: string, campos: Record<string, string> = {}) => {
+    const req = request(await buildApp()).post('/api/flito/soat/cliente/factura/lectura').set('Authorization', token);
+    for (const [k, v] of Object.entries(campos)) req.field(k, v);
+    return req.attach('facturaVenta', PDF, { filename: 'factura.pdf', contentType: 'application/pdf' });
+  };
+
+  it('**AC2 — sin enlace + compañía escogida con canal → 201, la fila es de ESA compañía y la Bitácora la nombra**', async () => {
+    escenario();
+    const r = await alta(await buildApp(), await sinEnlace(siguienteUsuario()), { campos: { companiaId: String(COMPANIA) } });
+
+    expect(r.status).toBe(201);
+    expect(espia.ultimoInsertEn('flito_soat').companiaId).toBe(COMPANIA);
+    const entrada = auditMock.mock.calls.find((c) => c[1].resource === 'flito_soat')![1];
+    expect(entrada.detail).toContain(`compania=${COMPANIA}`);
+    // Ni el body del 201 ni nada que vea el cliente lleva la compañía: solo Bitácora (decisión del PO).
+    expect(r.body.companiaId).toBeUndefined();
+  });
+
+  it('**AC3 — sin enlace y SIN compañía → 400 `compania_requerida`, sin RUNT ni INSERT**', async () => {
+    escenario();
+    const r = await alta(await buildApp(), await sinEnlace(siguienteUsuario()));
+
+    expect(r.status).toBe(400);
+    expect(r.body.codigo).toBe('compania_requerida');
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+  });
+
+  it('**sin enlace + compañía con el canal APAGADO → 403 `canal_desactivado`**', async () => {
+    escenario({ clients: [{ id: COMPANIA, sinTramite: false, carpeta: null }] });
+    const r = await alta(await buildApp(), await sinEnlace(siguienteUsuario()), { campos: { companiaId: String(COMPANIA) } });
+
+    expect(r.status).toBe(403);
+    expect(r.body.codigo).toBe('canal_desactivado');
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+  });
+
+  it('**sin enlace + compañía INEXISTENTE → la MISMA respuesta que canal apagado** (sin oráculo)', async () => {
+    escenario({ clients: [{ id: COMPANIA, sinTramite: false, carpeta: null }] });
+    const apagada = await alta(await buildApp(), await sinEnlace(siguienteUsuario()), { campos: { companiaId: String(COMPANIA) } });
+    escenario({ clients: [] });
+    const inexistente = await alta(await buildApp(), await sinEnlace(siguienteUsuario()), { campos: { companiaId: '424242' } });
+
+    expect(inexistente.status).toBe(403);
+    expect(inexistente.body).toEqual(apagada.body);
+  });
+
+  it('**AC1 — enlace compañía sin `companiaId` → 201 con la suya, y la Bitácora la nombra**', async () => {
+    escenario();
+    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
+
+    expect(r.status).toBe(201);
+    const entrada = auditMock.mock.calls.find((c) => c[1].resource === 'flito_soat')![1];
+    expect(entrada.detail).toContain(`compania=${COMPANIA}`);
+  });
+
+  it('enlace compañía mandando SU MISMA compañía → 201 (no es manipulación)', async () => {
+    escenario();
+    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()), { campos: { companiaId: String(COMPANIA) } });
+    expect(r.status).toBe(201);
+  });
+
+  it('`companiaId` que no es entero positivo → 400 de Zod', async () => {
+    escenario();
+    for (const malo of ['abc', '0', '-3', '1.5']) {
+      const r = await alta(await buildApp(), await sinEnlace(siguienteUsuario()), { campos: { companiaId: malo } });
+      expect(r.status).toBe(400);
+    }
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+  });
+
+  it('**proveedor con `soat.solicitud.crear` → 403**, sin RUNT ni INSERT', async () => {
+    escenario();
+    const token = `Bearer ${await testToken({ sub: siguienteUsuario(), role: 'proveedor', funciones: ['soat.solicitud.crear'] })}`;
+    const r = await alta(await buildApp(), token, { campos: { companiaId: String(COMPANIA) } });
+
+    expect(r.status).toBe(403);
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+  });
+
+  it('**organismos de tránsito con `soat.solicitud.crear` → 403**, sin RUNT ni INSERT', async () => {
+    escenario();
+    const r = await alta(await buildApp(), await sinEnlace(siguienteUsuario(), 'organismos_transito'), { campos: { companiaId: String(COMPANIA) } });
+
+    expect(r.status).toBe(403);
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+  });
+
+  it('**preconsulta**: sin enlace con compañía → 200; sin compañía → 400 `compania_requerida`', async () => {
+    escenario();
+    expect((await preconsultar(await sinEnlace(siguienteUsuario()), { companiaId: COMPANIA })).status).toBe(200);
+
+    const sinCompania = await preconsultar(await sinEnlace(siguienteUsuario()));
+    expect(sinCompania.status).toBe(400);
+    expect(sinCompania.body.codigo).toBe('compania_requerida');
+  });
+
+  it('**preconsulta**: enlace compañía con compañía ajena → 403 `compania_no_permitida` y el RUNT no se consulta', async () => {
+    escenario();
+    consultarVehiculoRuntMock.mockClear();
+    const r = await preconsultar(await auth('cliente', siguienteUsuario()), { companiaId: COMPANIA + 1 });
+
+    expect(r.status).toBe(403);
+    expect(r.body.codigo).toBe('compania_no_permitida');
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
+  });
+
+  it('**lectura de factura**: sin enlace sin compañía → 400; enlace compañía con ajena → 403', async () => {
+    escenario();
+    const sinCompania = await leerFactura(await sinEnlace(siguienteUsuario()));
+    expect(sinCompania.status).toBe(400);
+    expect(sinCompania.body.codigo).toBe('compania_requerida');
+
+    const ajena = await leerFactura(await auth('cliente', siguienteUsuario()), { companiaId: String(COMPANIA + 1) });
+    expect(ajena.status).toBe(403);
+    expect(ajena.body.codigo).toBe('compania_no_permitida');
   });
 });

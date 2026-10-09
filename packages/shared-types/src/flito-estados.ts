@@ -671,6 +671,16 @@ export const CodigoErrorSolicitudSoat = {
   SIN_COMPANIA: 'sin_compania',
   /** La compañía tiene el flag «SOAT sin trámite» APAGADO (AC5). */
   CANAL_DESACTIVADO: 'canal_desactivado',
+  /**
+   * HU #12874: un usuario SIN enlace radica a nombre de una compañía que escoge en el formulario y
+   * no mandó `companiaId` (400). Con enlace `compania` la compañía es fija y no hace falta.
+   */
+  COMPANIA_REQUERIDA: 'compania_requerida',
+  /**
+   * HU #12874: un usuario con enlace `compania` mandó un `companiaId` distinto del suyo (403). No se
+   * ignora en silencio: el intento de radicar a nombre de otra compañía queda visible.
+   */
+  COMPANIA_NO_PERMITIDA: 'compania_no_permitida',
   /** El RUNT no respondió o respondió un fallo (AC2) → el formulario puede reintentar. */
   RUNT_NO_DISPONIBLE: 'runt_no_disponible',
   /** El RUNT respondió, pero no tiene ese vehículo registrado (AC2). */
@@ -767,6 +777,17 @@ export const CodigoErrorSolicitudSoat = {
 
 export type CodigoErrorSolicitudSoat =
   (typeof CodigoErrorSolicitudSoat)[keyof typeof CodigoErrorSolicitudSoat];
+
+/**
+ * HU #12874 — `GET /api/flito/soat/cliente/companias`: a nombre de qué compañía puede radicar quien
+ * pide la lista. `fija: true` (enlace `compania`) → solo la suya, de solo lectura; `fija: false` (sin
+ * enlace) → todas las compañías con el canal «SOAT sin trámite» activo, para escoger una. Solo `id` y
+ * `nombre`: nunca el NIT ni las banderas de la compañía.
+ */
+export interface CompaniasCanalSoat {
+  fija: boolean;
+  companias: { id: number; nombre: string }[];
+}
 
 /**
  * Estados de una solicitud del canal Cliente APARCADA porque el RUNT no respondió (Feature #12841,

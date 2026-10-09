@@ -39,13 +39,16 @@ const fila = (role: string, rolNombre: string) => ({
 });
 
 /** `/me` de un usuario con ese código de rol y esas funciones. Consultas: usuario → puente → clients. */
-async function me(rol: string, rolNombre: string, funciones: string[], tipoEnlace = 'compania', sinTramite = true) {
+async function me(
+  rol: string, rolNombre: string, funciones: string[], tipoEnlace = 'compania', sinTramite = true,
+  filasClients: unknown[] = [{ sinTramite }],
+) {
   const token = await testToken({ sub: 5, role: 'cliente' });
   await registrarUsuarioDePrueba(5, { rol, tipoEnlace, funcionesDelRol: funciones, excepciones: [] });
   selectMock
     .mockReturnValueOnce(chain([fila(rol, rolNombre)]))
     .mockReturnValueOnce(chain([]))
-    .mockReturnValueOnce(chain([{ sinTramite }]));
+    .mockReturnValueOnce(chain(filasClients));
   return request(await buildApp()).get('/api/auth/me').set('Authorization', `Bearer ${token}`);
 }
 
@@ -74,10 +77,18 @@ describe('HU #13425 AC1 — /me con permisos efectivos e indicadores desde permi
     expect(r.body.puedeSolicitarSoat).toBe(true);
   });
 
-  it('HU #12875: las mismas funciones con enlace `ninguno` → false, y sin consultar la compañía', async () => {
-    const r = await me('cola_soat', 'Cola SOAT', FUNCIONES_CANAL, 'ninguno');
+  // INVERTIDO por la HU #12874: decía «enlace `ninguno` → false, y sin consultar la compañía». Sin
+  // enlace ahora se radica a nombre de una compañía escogida, así que la capacidad depende de que
+  // exista AL MENOS UNA con el canal (y sin ninguna se oculta, decisión del PO).
+  it('HU #12874: las mismas funciones con enlace `ninguno` y ≥1 compañía con el canal → true', async () => {
+    const r = await me('cola_soat', 'Cola SOAT', FUNCIONES_CANAL, 'ninguno', true, [{ id: 3 }]);
+    expect(r.body.puedeSolicitarSoat).toBe(true);
+    expect(selectMock).toHaveBeenCalledTimes(3); // usuario + puente + ∃ compañía con el canal
+  });
+
+  it('HU #12874: enlace `ninguno` y NINGUNA compañía con el canal → false', async () => {
+    const r = await me('cola_soat', 'Cola SOAT', FUNCIONES_CANAL, 'ninguno', true, []);
     expect(r.body.puedeSolicitarSoat).toBe(false);
-    expect(selectMock).toHaveBeenCalledTimes(2); // usuario + puente; `clients` no
   });
 
   it('HU #12875: enlace `proveedor` con la función → false (el canal Cliente es del enlace compañía)', async () => {

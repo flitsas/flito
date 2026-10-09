@@ -364,11 +364,14 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
 
 /**
  * Foto de las rutas de los cuatro routers de `/api/flito/soat` (orden de montaje y de declaración).
- * Las 25 acotan por `contextoSoat` (compañía / proveedor) o por `buscarConAcceso` (404-no-403 fuera de
+ * Las 26 acotan por `contextoSoat` (compañía / proveedor) o por `buscarConAcceso` (404-no-403 fuera de
  * su alcance); por eso ninguna lleva `soloSinEnlace()` en #12875. Añadir una aquí es decidir eso.
  */
 const RUTAS_SOAT_ABIERTAS: string[] = [
   'POST /api/flito/soat/cliente/preconsulta',
+  // HU #12874 (añadida a propósito): la lista de compañías del formulario. Acota por `contextoSoat`
+  // (`ctx.alcance`), no por `soloSinEnlace()`: el enlace `compania` también entra (la suya, fija).
+  'GET /api/flito/soat/cliente/companias',
   'POST /api/flito/soat/cliente',
   'POST /api/flito/soat/cliente/factura/lectura',
   'POST /api/flito/soat/cliente/incompletas/buscar',
