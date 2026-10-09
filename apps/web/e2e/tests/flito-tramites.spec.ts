@@ -1,5 +1,5 @@
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, funcionesDe, OPERACIONES_USER, AUDITOR_USER } from '../helpers/auth';
+import { loginAs, funcionesDe, sobreDeMios, OPERACIONES_USER, AUDITOR_USER } from '../helpers/auth';
 
 // FLITO — Trámites unificado (Fase 6). Vista de despacho: una fila por trámite,
 // solicitud de SOAT/impuestos/ambos y entrega en lote. Operaciones muta; Auditoría
@@ -452,6 +452,26 @@ test.describe('FLITO — Trámites: listas de apoyo por enlace (HU #13452)', () 
     await expect(page.getByRole('button', { name: /^Solicitar ambos/ })).toHaveCount(0);
     // Ningún error por permisos en pantalla.
     await expect(page.getByText(/permis|403/i)).toHaveCount(0);
+    expect(pedidas).toEqual([]);
+  });
+
+  // TC-05: `/mios` puede responder `tipoEnlace: null` («aún no se sabe»; `AuthProvider` también arranca
+  // así). Hasta saberlo no se pide parametrización: tratar `null` como «sin enlace» dispararía el 403.
+  test('TC-05: con tipoEnlace null en /mios no pide parametrización', async ({ page }) => {
+    // `funciones: null`: el spec trae su propio `/mios` (si no, el de `loginAs` lo taparía).
+    await loginAs(page, OPERACIONES_USER, { funciones: null });
+    await page.route(/\/api\/permisos\/mios$/, (route) => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ ...sobreDeMios(OPERACIONES_USER), tipoEnlace: null }),
+    }));
+    await mockLista(page);
+    const pedidas: string[] = [];
+    await page.route(/\/api\/flito\/parametrizacion\//, (route) => { pedidas.push(route.request().url()); return route.abort(); });
+
+    await page.goto('/flito/tramites');
+    await expect(page.getByText('FLIT-1001')).toBeVisible();
+    // Margen para que los efectos que piden listas tras pintar la cola hayan tenido ocasión de dispararse.
+    await page.waitForTimeout(500);
     expect(pedidas).toEqual([]);
   });
 
