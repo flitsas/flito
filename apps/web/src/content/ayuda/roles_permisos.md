@@ -17,8 +17,14 @@ Menú **Administración**, ítem **Roles y permisos**, junto a **Usuarios**.
 3. Pulse **Guardar cambios**. El cambio queda aplicado en la siguiente acción de cada usuario con ese rol; nadie tiene que volver a entrar.
 4. Para repartirlo todo de una vez, use **Marcar todas las funciones**; **Desmarcar todas** hace lo contrario. Ninguno de los dos guarda por sí solo.
 5. **Descartar** devuelve el cuadro a lo guardado y pide confirmación.
-6. **Nuevo rol** abre el formulario: nombre, descripción, **Ámbito de sus usuarios** y **Tipo de acceso** (interno o externo). El código se genera del nombre y no se puede cambiar después.
-7. **Editar rol** permite corregir nombre, descripción, ámbito, tipo de acceso y si **Se puede asignar a usuarios nuevos**.
+6. **Nuevo rol** abre el formulario: nombre, descripción y **Enlace**, que decide qué datos ven las personas con ese rol. Elija una de cuatro opciones; cada una explica debajo lo que verá el rol:
+   - **Ninguno** (viene marcado): ve todos los datos de los módulos que el rol tenga marcados.
+   - **Compañía**: ve solo lo de su compañía en Gestión Trámites, SOAT, Impuestos, su bolsa, Comprobantes y Logística. No ve catálogos ni configuración; el resto le queda cerrado.
+   - **Proveedor**: ve solo lo asignado a su proveedor. Hoy aplica a SOAT.
+   - **Organismos**: ve solo lo de sus secretarías de tránsito en Impuestos y Derechos de tránsito. El resto le queda cerrado.
+
+   La compañía, el proveedor o las secretarías concretas de cada persona se eligen en **Usuarios**, no aquí. El código del rol se genera del nombre y no se puede cambiar después.
+7. **Editar rol** permite corregir nombre, descripción, enlace y si **Se puede asignar a usuarios nuevos**. El enlace solo se puede cambiar mientras ningún usuario tenga el rol; si lo tiene alguien, el formulario lo avisa y hay que cambiarles el rol primero en **Usuarios**.
 8. **Borrar rol** solo está disponible cuando ningún usuario lo tiene y no es un rol del sistema; la cabecera dice por qué cuando no se puede.
 
 ## Estados
@@ -26,7 +32,8 @@ Menú **Administración**, ítem **Roles y permisos**, junto a **Usuarios**.
 - **Cargando**: esqueleto de dos columnas.
 - **Error**: «No se pudo cargar el catálogo de roles y funciones.» con el detalle y **Reintentar**.
 - **Vacío**: sin roles se ofrece **Nuevo rol**; si el catálogo de funciones llega vacío se ofrece **Reintentar**; un rol sin funciones marcadas avisa de que quien lo tenga no verá nada al entrar.
-- **Lleno**: lista de roles y cuadro del rol seleccionado con sus tres secciones; una sección sin módulos no se muestra. Con cambios pendientes aparece la barra **Sin guardar** con **Descartar** y **Guardar cambios**.
+- **Lleno**: lista de roles y cuadro del rol seleccionado con sus tres secciones; una sección sin módulos no se muestra. La cabecera del cuadro dice el enlace del rol y cuántos usuarios lo tienen. Con cambios pendientes aparece la barra **Sin guardar** con **Descartar** y **Guardar cambios**.
+- **Error al guardar el rol**: el formulario muestra «No se pudo guardar el rol. Inténtalo de nuevo; si se repite, recarga la página.» sin cerrarse.
 - **Acciones marcadas sin la pantalla**: si un rol guardado tiene acciones de un módulo sin su pantalla, el encabezado del módulo añade **· n sin pantalla** y, al abrirlo, un aviso dice «n acciones marcadas sin la pantalla» con el botón **Desmarcarlas**. Esas acciones se ven marcadas pero bloqueadas hasta que marque la pantalla o las desmarque; si no toca nada, se guardan tal como estaban.
 
 ## Qué no hace

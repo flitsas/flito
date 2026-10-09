@@ -24,7 +24,7 @@ const CUADRO_AUDITOR = ['pagina.dashboard'];
 
 /** Fila mínima de `GET /permisos/roles`: el `<select>` «Rol base» es del catálogo (HU #12088). */
 const rolCatalogo = (codigo: string, nombre: string) => ({
-  codigo, nombre, descripcion: null, tipoEnlace: 'ninguno', tipoPrincipal: 'interno',
+  codigo, nombre, descripcion: null, tipoEnlace: 'ninguno',
   esSistema: true, activo: true, usuarios: 0, borrable: false, motivoNoBorrable: null,
   createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
 });
@@ -47,7 +47,6 @@ function mockPermisos(page: Page, cuadros: Record<string, string[]> = {
     const codigo = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-2) ?? '');
     return route.fulfill(json({
       codigo,
-      tipoPrincipal: 'interno',
       funciones: cuadros[codigo] ?? [],
     }));
   });

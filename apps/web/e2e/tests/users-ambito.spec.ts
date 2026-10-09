@@ -1,4 +1,4 @@
-// HU #12053 (Feature #12052) — Ámbito del usuario: proveedor SOAT (uno) y organismos del gestor
+// HU #12053 (Feature #12052) — Ámbito del usuario: proveedor (uno) y organismos del gestor
 // (varios). Plan de casos y mutantes: `docs/ux/usuarios-ambito-proveedor-y-gestor-impuestos.md`,
 // sección «Notas para QA». Contrato: `docs/diseno-hu-12053-atadura-proveedor-organismos.md` §3.
 //
@@ -58,7 +58,7 @@ const json = (body: unknown, status = 200) => ({ status, contentType: 'applicati
 /** Fila mínima de `GET /permisos/roles` (HU #12088: el select y el ámbito leen `tipoEnlace`). */
 function rolCatalogo(over: Fila): Fila {
   return {
-    codigo: 'x', nombre: 'X', descripcion: null, tipoEnlace: 'ninguno', tipoPrincipal: 'interno',
+    codigo: 'x', nombre: 'X', descripcion: null, tipoEnlace: 'ninguno',
     esSistema: true, activo: true, usuarios: 0, borrable: false, motivoNoBorrable: null,
     createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', ...over,
   };
@@ -69,7 +69,7 @@ const ROLES_CATALOGO = [
   rolCatalogo({ codigo: 'admin', nombre: 'Administrador' }),
   rolCatalogo({ codigo: 'compliance', nombre: 'Compliance' }),
   rolCatalogo({ codigo: 'transito', nombre: 'Tránsito', tipoEnlace: 'organismos_transito' }),
-  rolCatalogo({ codigo: 'proveedor', nombre: 'Proveedor', tipoEnlace: 'proveedor_soat', tipoPrincipal: 'externo' }),
+  rolCatalogo({ codigo: 'proveedor', nombre: 'Proveedor', tipoEnlace: 'proveedor' }),
   rolCatalogo({ codigo: 'lider_pesv', nombre: 'Líder PESV' }),
   rolCatalogo({ codigo: 'supervisor_flota', nombre: 'Supervisor de flota' }),
   rolCatalogo({ codigo: 'conductor', nombre: 'Conductor' }),
@@ -77,7 +77,7 @@ const ROLES_CATALOGO = [
   rolCatalogo({ codigo: 'gestor_impuestos', nombre: 'Gestor de Impuestos', tipoEnlace: 'organismos_transito' }),
   rolCatalogo({ codigo: 'mensajero', nombre: 'Mensajero' }),
   rolCatalogo({ codigo: 'financiera', nombre: 'Financiera' }),
-  rolCatalogo({ codigo: 'cliente', nombre: 'Cliente', tipoEnlace: 'compania', tipoPrincipal: 'externo' }),
+  rolCatalogo({ codigo: 'cliente', nombre: 'Cliente', tipoEnlace: 'compania' }),
   // Rol nuevo: mismo enlace que gestor/tránsito — la UI no hardcodea el código.
   rolCatalogo({
     codigo: 'consulta_organismos', nombre: 'Consulta organismos', tipoEnlace: 'organismos_transito',
@@ -100,7 +100,7 @@ async function mockCatalogos(page: Page, opts: {
   })));
   await page.route(/\/api\/permisos\/roles\/[^/]+\/funciones$/, (r) => {
     const codigo = decodeURIComponent(new URL(r.request().url()).pathname.split('/').at(-2) ?? '');
-    return r.fulfill(json({ codigo, tipoPrincipal: 'interno', funciones: ['pagina.dashboard'] }));
+    return r.fulfill(json({ codigo, funciones: ['pagina.dashboard'] }));
   });
 }
 
@@ -148,15 +148,17 @@ async function abrirAlta(page: Page, role: string) {
 // ───────────────────────── AC1 · el campo aparece con el enlace, y solo con él ───────────────────
 
 test.describe('HU #12088 · AC1 — un tipoEnlace, un campo de ámbito', () => {
-  test('TC-12088-01 · proveedor_soat trae su selector y NO el grupo de organismos', async ({ page }) => {
+  test('TC-12088-01 · el enlace proveedor trae su selector y NO el grupo de organismos (HU #12876 TC-03b: se llama «Proveedor»)', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     mockUsers(page);
     await mockCatalogos(page);
     await abrirAlta(page, 'proveedor');
 
-    await expect(page.getByLabel('Proveedor SOAT')).toBeVisible();
+    await expect(page.getByLabel('Proveedor', { exact: true })).toBeVisible();
     // El aserto negativo es el único que mata «pintar los dos campos sin condicionar al enlace».
     await expect(grupoOrganismos(page)).toHaveCount(0);
+    // HU #12876 (AC3): ni el editor ni la página dicen «gestor SOAT» / «proveedor SOAT».
+    await expect(page.getByText(/gestor SOAT|proveedor SOAT/i)).toHaveCount(0);
   });
 
   test('TC-12088-02 · organismos_transito (gestor) trae el grupo y NO el selector de proveedor', async ({ page }) => {
@@ -166,11 +168,11 @@ test.describe('HU #12088 · AC1 — un tipoEnlace, un campo de ámbito', () => {
     await abrirAlta(page, 'gestor_impuestos');
 
     await expect(grupoOrganismos(page)).toBeVisible();
-    await expect(page.getByLabel('Proveedor SOAT')).toHaveCount(0);
+    await expect(page.getByLabel('Proveedor', { exact: true })).toHaveCount(0);
     // Roles con enlace `ninguno` no traen ninguno de los dos.
     await page.getByLabel('Rol base').selectOption('auditor');
     await expect(grupoOrganismos(page)).toHaveCount(0);
-    await expect(page.getByLabel('Proveedor SOAT')).toHaveCount(0);
+    await expect(page.getByLabel('Proveedor', { exact: true })).toHaveCount(0);
   });
 
   test('TC-12088-02b · un rol NUEVO con organismos_transito usa el mismo OrganismosField', async ({ page }) => {
@@ -180,7 +182,7 @@ test.describe('HU #12088 · AC1 — un tipoEnlace, un campo de ámbito', () => {
     await abrirAlta(page, 'consulta_organismos');
 
     await expect(grupoOrganismos(page)).toBeVisible();
-    await expect(page.getByLabel('Proveedor SOAT')).toHaveCount(0);
+    await expect(page.getByLabel('Proveedor', { exact: true })).toHaveCount(0);
     await casilla(page, 'Medellín · 05001').check();
     await page.getByRole('button', { name: 'Crear usuario' }).click();
     await expect.poll(() => posts.length).toBe(1);
@@ -199,7 +201,7 @@ test.describe('HU #12053 · los catálogos: activos al ofrecer, sin perder al as
     await mockCatalogos(page);
     await abrirAlta(page, 'proveedor');
 
-    const select = page.getByLabel('Proveedor SOAT');
+    const select = page.getByLabel('Proveedor', { exact: true });
     // Opción vacía + los dos activos. «La Previsora» viene en la respuesta y NO se ofrece: dar de
     // alta a alguien atado a una aseguradora que ya no opera es crear el problema.
     await expect(select.getByRole('option')).toHaveText(['Seleccione proveedor…', 'SURA', 'Mundial de Seguros']);
@@ -215,7 +217,7 @@ test.describe('HU #12053 · los catálogos: activos al ofrecer, sin perder al as
     await page.goto('/users');
     await page.getByRole('button', { name: 'Editar' }).first().click();
 
-    const select = page.getByLabel('Proveedor SOAT');
+    const select = page.getByLabel('Proveedor', { exact: true });
     // Mutante: filtrar por `activo` sin reinyectar → el `<select>` se pinta en blanco y guardar se
     // lleva la atadura por delante. El valor es lo que lo mata; el matiz es lo que lo explica.
     await expect(select).toHaveValue(PREVISORA);
@@ -334,9 +336,9 @@ test.describe('HU #12053 · AC3 — el rechazo se ve, se enfoca y NO viaja', () 
 
     await abrirAlta(page, 'proveedor');
     await page.getByRole('button', { name: 'Crear usuario' }).click();
-    await expect(page.getByRole('alert')).toHaveText('Selecciona el proveedor SOAT para este rol.');
-    await expect(page.getByLabel('Proveedor SOAT')).toBeFocused();
-    await expect(page.getByLabel('Proveedor SOAT')).toHaveAttribute('aria-invalid', 'true');
+    await expect(page.getByRole('alert')).toHaveText('Selecciona el proveedor para este rol.');
+    await expect(page.getByLabel('Proveedor', { exact: true })).toBeFocused();
+    await expect(page.getByLabel('Proveedor', { exact: true })).toHaveAttribute('aria-invalid', 'true');
 
     await page.getByLabel('Rol base').selectOption('gestor_impuestos');
     // Cambiar de rol se lleva también el mensaje del campo anterior: si no, reaparecería robando
@@ -407,7 +409,7 @@ test.describe('HU #12053 · AC4 — el aviso antes y el toast después', () => {
 
     // En el alta la frase sería falsa: no hay sesión que cerrar.
     await page.getByRole('button', { name: 'Nuevo usuario' }).click();
-    await expect(page.getByLabel('Proveedor SOAT')).toBeVisible();
+    await expect(page.getByLabel('Proveedor', { exact: true })).toBeVisible();
     await expect(page.getByText('Al guardar, este usuario deberá volver a iniciar sesión.')).toHaveCount(0);
     await expect(page.getByText('Define qué cola de SOAT ve este usuario')).toBeVisible();
   });
@@ -426,7 +428,7 @@ test.describe('HU #12053 · el ida y vuelta entre roles', () => {
     await page.getByRole('button', { name: 'Editar' }).first().click();
     await page.getByLabel('Rol base').selectOption('proveedor');
     await expect(grupoOrganismos(page)).toHaveCount(0);
-    await expect(page.getByLabel('Proveedor SOAT')).toBeVisible();
+    await expect(page.getByLabel('Proveedor', { exact: true })).toBeVisible();
 
     await page.getByLabel('Rol base').selectOption('gestor_impuestos');
     // Vuelven las TRES guardadas: rehacer seis casillas por un clic mal dado en el rol no es
@@ -480,7 +482,7 @@ test.describe('HU #12053 · los 4 estados, los dos catálogos', () => {
     })));
     await page.route(/\/api\/permisos\/roles\/[^/]+\/funciones$/, (r) => {
       const codigo = decodeURIComponent(new URL(r.request().url()).pathname.split('/').at(-2) ?? '');
-      return r.fulfill(json({ codigo, tipoPrincipal: 'interno', funciones: ['pagina.dashboard'] }));
+      return r.fulfill(json({ codigo, funciones: ['pagina.dashboard'] }));
     });
 
     // UNA sola ruta con un interruptor, y no tres `page.route` encadenados: el catálogo se pide dos
@@ -497,8 +499,8 @@ test.describe('HU #12053 · los 4 estados, los dos catálogos', () => {
 
     // Estado 1 — cargando. El control está inhabilitado y el envío, bloqueado.
     await abrirAlta(page, 'proveedor');
-    await expect(page.getByText('Cargando proveedores SOAT…')).toBeVisible();
-    await expect(page.getByLabel('Proveedor SOAT')).toBeDisabled();
+    await expect(page.getByText('Cargando proveedores…')).toBeVisible();
+    await expect(page.getByLabel('Proveedor', { exact: true })).toBeDisabled();
     await page.getByRole('button', { name: 'Crear usuario' }).click();
     expect(posts).toHaveLength(0);
 
@@ -508,15 +510,15 @@ test.describe('HU #12053 · los 4 estados, los dos catálogos', () => {
     soltar();
     await page.reload();
     await page.getByRole('button', { name: 'Nuevo usuario' }).click();
-    await expect(page.getByText('No se pudieron cargar los proveedores SOAT.')).toBeVisible();
+    await expect(page.getByText('No se pudieron cargar los proveedores.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Volver a cargar proveedores' })).toBeVisible();
 
     // Estado 3 — vacío. Mensaje DISTINTO del de error, y sin reintento: recargar no crea nada.
     estado = 'vacio';
     await page.getByRole('button', { name: 'Volver a cargar proveedores' }).click();
-    await expect(page.getByText('No hay proveedores SOAT activos. Crea uno en Clientes y proveedores antes de asignar este ámbito.')).toBeVisible();
+    await expect(page.getByText('No hay proveedores activos. Crea uno en Clientes y proveedores antes de asignar este enlace.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Volver a cargar proveedores' })).toHaveCount(0);
-    await expect(page.getByLabel('Proveedor SOAT')).toBeDisabled();
+    await expect(page.getByLabel('Proveedor', { exact: true })).toBeDisabled();
   });
 
   test('TC-12053-17 · organismos: sin caja en los tres estados, reintento solo en el error', async ({ page }) => {
@@ -529,7 +531,7 @@ test.describe('HU #12053 · los 4 estados, los dos catálogos', () => {
     })));
     await page.route(/\/api\/permisos\/roles\/[^/]+\/funciones$/, (r) => {
       const codigo = decodeURIComponent(new URL(r.request().url()).pathname.split('/').at(-2) ?? '');
-      return r.fulfill(json({ codigo, tipoPrincipal: 'interno', funciones: ['pagina.dashboard'] }));
+      return r.fulfill(json({ codigo, funciones: ['pagina.dashboard'] }));
     });
 
     let estado: 'error' | 'vacio' | 'lleno' = 'error';
@@ -623,7 +625,7 @@ test.describe('HU #12088 · organismos_transito unifica tránsito y gestor', () 
     await expect(grupoOrganismos(page)).toBeVisible();
     // Ya no existe el rótulo/ayuda del combobox nacional de un solo código.
     await expect(page.getByText('Define qué bandeja verá este usuario (aislamiento Medellín ≠ Envigado.)')).toHaveCount(0);
-    await expect(page.getByLabel('Proveedor SOAT')).toHaveCount(0);
+    await expect(page.getByLabel('Proveedor', { exact: true })).toHaveCount(0);
 
     await casilla(page, 'Medellín · 05001').check();
     await page.getByRole('button', { name: 'Crear usuario' }).click();

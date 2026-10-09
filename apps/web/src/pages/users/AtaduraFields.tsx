@@ -22,14 +22,14 @@ import FlitSelect from '../../components/flit/FlitSelect';
 
 // ─────────────────────────────── Copy exacto (UX §5.1 a §5.4) ────────────────────────────────────
 
-export const PROVEEDOR_LABEL = 'Proveedor SOAT';
+export const PROVEEDOR_LABEL = 'Proveedor';
 const PROVEEDOR_VACIA = 'Seleccione proveedor…';
 const PROVEEDOR_AYUDA = 'Define qué cola de SOAT ve este usuario: solo los trámites de ese proveedor.';
-const PROVEEDOR_CARGANDO = 'Cargando proveedores SOAT…';
-const PROVEEDOR_ERROR = 'No se pudieron cargar los proveedores SOAT.';
-const PROVEEDOR_VACIO = 'No hay proveedores SOAT activos. Crea uno en Clientes y proveedores antes de asignar este ámbito.';
+const PROVEEDOR_CARGANDO = 'Cargando proveedores…';
+const PROVEEDOR_ERROR = 'No se pudieron cargar los proveedores.';
+const PROVEEDOR_VACIO = 'No hay proveedores activos. Crea uno en Clientes y proveedores antes de asignar este enlace.';
 const PROVEEDOR_REINTENTO = 'Volver a cargar proveedores';
-export const PROVEEDOR_REQUERIDO = 'Selecciona el proveedor SOAT para este rol.';
+export const PROVEEDOR_REQUERIDO = 'Selecciona el proveedor para este rol.';
 export const PROVEEDOR_RELOGIN = 'El usuario debe volver a iniciar sesión para aplicar el nuevo proveedor.';
 
 export const ORGANISMOS_LABEL = 'Organismos de tránsito';
