@@ -49,7 +49,7 @@ const VACIO_INCOMPLETAS = {
 const ACCION_CABECERA = 'w-full justify-center sm:w-auto';
 
 export default function FlitoSoat() {
-  const { user, hasFuncion, funciones } = useAuth();
+  const { user, hasFuncion, funciones, tipoEnlace } = useAuth();
   // HU #12170: modos de UI derivados de funciones del catálogo, no de `role ===`.
   const esOperaciones = hasFuncion('soat.solicitud.enviar');
   const esGestor = hasFuncion('soat.comprobante.cargar') && !esOperaciones;
@@ -73,9 +73,15 @@ export default function FlitoSoat() {
   // HU #12998: sin la función el botón no se pinta (ni en la fila ni en el detalle).
   const puedeReintentar = hasFuncion(FUNCION_REINTENTAR_RUNT);
   // HU #12872 (AC4): cada acción del detalle por la función de su endpoint, una por una.
+  // HU #13452: el catálogo de proveedores vive en parametrización, cerrada a todo enlace (#12875).
+  // Enviar, cambiar o devolver al proveedor eligen de ese catálogo y son operación interna: con
+  // enlace no se pintan y el catálogo no se pide. `null` = «aún no se sabe»: tampoco se pide.
+  const sinEnlace = tipoEnlace === 'ninguno';
+  const puedeEnviarProveedor = esOperaciones && sinEnlace;
   const puedeDetalle = Object.fromEntries(
     Object.entries(FUNCION_ACCION_SOAT).map(([accion, codigo]) => [accion, hasFuncion(codigo)]),
   ) as unknown as PermisosDetalleSoat;
+  if (!sinEnlace) { puedeDetalle.cambiarProveedor = false; puedeDetalle.devolver = false; }
   // Con las pastillas nuevas el orden es el del Cliente también para Operaciones (UX §3.2).
   const estadosDisponibles = esGestor ? ESTADOS_GESTOR : esCliente || conIncompletas ? ESTADOS_CLIENTE : ESTADOS_ADMIN;
   // AC9: «Ir a mis SOAT» de la tarjeta de la solicitud guardada abre «Por validar». Llega por el
@@ -240,9 +246,9 @@ export default function FlitoSoat() {
   }, []);
 
   useEffect(() => {
-    if (!esOperaciones) return;
+    if (!puedeEnviarProveedor) return;
     api.get<Proveedor[]>('/flito/parametrizacion/proveedores-soat').then(setProveedores).catch(() => setProveedores([]));
-  }, [esOperaciones]);
+  }, [puedeEnviarProveedor]);
 
   // Llegada desde el modal del AC4 con «Ver la solicitud» (HU #11914). El uuid viaja en el ESTADO de
   // navegación y NO en la URL: el detalle de esta cola es un modal y no tiene dirección propia, y
@@ -520,7 +526,7 @@ export default function FlitoSoat() {
       {conCasillas && seleccion.size > 0 && (
         <div className="sticky top-[calc(var(--flit-topbar-height)+0.5rem)] z-20">
           <BarraEnvioSoat marcadas={seleccion.size} enviables={enviables.map((f) => f.id)} descargables={descargables}
-            puedeEnviar={esOperaciones} puedeDescargar={puedeDescargar} proveedores={proveedores} zip={descargaZip}
+            puedeEnviar={puedeEnviarProveedor} puedeDescargar={puedeDescargar} proveedores={proveedores} zip={descargaZip}
             onQuitar={() => setSeleccion(new Set())}
             onEnviado={(n, aOperaciones) => {
               toastOk(`${n} SOAT enviados ${aOperaciones ? 'a Operaciones' : 'al gestor'}.`);

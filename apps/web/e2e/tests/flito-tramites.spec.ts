@@ -1,5 +1,5 @@
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, OPERACIONES_USER, AUDITOR_USER } from '../helpers/auth';
+import { loginAs, funcionesDe, OPERACIONES_USER, AUDITOR_USER } from '../helpers/auth';
 
 // FLITO — Trámites unificado (Fase 6). Vista de despacho: una fila por trámite,
 // solicitud de SOAT/impuestos/ambos y entrega en lote. Operaciones muta; Auditoría
@@ -421,5 +421,56 @@ test.describe('HU #12635 · ?placa= al montar (aditivo)', () => {
     await expect(page.getByPlaceholder('Buscar placa, VIN, id o comprador…')).toHaveValue('');
     await expect.poll(() => gets.at(-1)).not.toContain('buscar=');
     expect(gets.at(-1)).not.toContain('alerta=');
+  });
+});
+
+// HU #13452: las listas de parametrización están cerradas a todo enlace desde #12875 (403). Con
+// enlace la pantalla no las pide, oculta el filtro de empresa gestora (el listado ya viene acotado)
+// y las acciones que eligen proveedor; sin enlace queda como antes.
+test.describe('FLITO — Trámites: listas de apoyo por enlace (HU #13452)', () => {
+  // Mismas funciones que Operaciones, pero con enlace de compañía (`sobreDeMios` lo deriva del rol):
+  // así lo único que cambia entre los dos casos es el enlace.
+  const CON_ENLACE = { ...OPERACIONES_USER, id: 71, username: 'e2e_enlace', role: 'cliente', funciones: funcionesDe(OPERACIONES_USER) };
+
+  test('con enlace no pide parametrización, ni pinta el filtro de empresa ni las acciones con proveedor', async ({ page }) => {
+    await loginAs(page, CON_ENLACE);
+    await mockLista(page);
+    const pedidas: string[] = [];
+    // Registrada después de `mockLista`: Playwright evalúa las rutas en orden inverso, así que esta manda.
+    await page.route(/\/api\/flito\/parametrizacion\//, (route) => { pedidas.push(route.request().url()); return route.abort(); });
+
+    await page.goto('/flito/tramites');
+    await expect(page.getByText('FLIT-1001')).toBeVisible();
+    // La secretaría sigue saliendo de las facetas del módulo.
+    await expect(page.getByRole('columnheader', { name: /Empresa gestora/ })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: /Empresa gestora/ }).getByText('Todas')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '+ Trámite demo' })).toHaveCount(0);
+
+    await page.getByLabel('Seleccionar ABC123').check();
+    await expect(page.getByRole('button', { name: /^Solicitar Impuestos/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Solicitar SOAT/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Solicitar ambos/ })).toHaveCount(0);
+    // Ningún error por permisos en pantalla.
+    await expect(page.getByText(/permis|403/i)).toHaveCount(0);
+    expect(pedidas).toEqual([]);
+  });
+
+  test('sin enlace pide las listas y pinta el filtro de empresa y las acciones, como antes', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockLista(page);
+    const pedidas: string[] = [];
+    await page.route(/\/api\/flito\/parametrizacion\/companias/, (route) => {
+      pedidas.push('companias');
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: 1, nit: '900111', nombre: 'Concesionario Norte' }]) });
+    });
+
+    await page.goto('/flito/tramites');
+    await expect(page.getByText('FLIT-1001')).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: /Empresa gestora/ }).getByText('Todas')).toBeVisible();
+    await expect(page.getByRole('button', { name: '+ Trámite demo' })).toBeVisible();
+    await page.getByLabel('Seleccionar ABC123').check();
+    await expect(page.getByRole('button', { name: 'Solicitar SOAT (1)', exact: true })).toBeVisible();
+    // Puede pedirse más de una vez (la sesión remonta la página al cargar): basta con que se pida.
+    expect(pedidas).toContain('companias');
   });
 });
