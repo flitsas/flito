@@ -24,6 +24,8 @@ import {
 } from '@operaciones/shared-types';
 import { ImpuestoError, esGestorDeOrganismo as esGestor, fueraDelAlcanceImpuestos, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import { condicionAlcanceImpuesto, exigirCompaniaPropia, exigirImpuestosPropios } from './flito-impuestos.alcance.js';
+import { actorVisible } from '../../shared/alcance-filas.js';
+import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
 import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
 import { encolarAnalisis, marcarEnCursoEnTx } from './flito-impuestos.analisis.service.js';
 import { bloqueDireccionDetalle, direccionFlitDe } from './flito-impuestos.direccion.js';
@@ -111,7 +113,7 @@ export interface ImpuestoColaItem {
    * muestra.
    */
   certificacion: {
-    id: string; certificadoEn: string; certificadoPorNombre: string;
+    id: string; certificadoEn: string; certificadoPorNombre: string | null;
     /** HU #12830/#12832: `true` = la firmó el análisis post-envío (12828), no una persona. */
     automatica: boolean;
   } | null;
@@ -398,7 +400,7 @@ export async function colaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuestos = 
   ]);
 
   return {
-    items: await ensamblar(rows),
+    items: await ensamblar(rows, ctx.alcance),
     total: Number(countRows[0]?.total ?? 0),
     page,
     pageSize,
@@ -443,7 +445,11 @@ export async function facetasColaImpuestos(ctx: ImpuestoCtx): Promise<FacetasCol
   };
 }
 
-async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
+/**
+ * `alcance` decide la proyección (HU #13426, Habeas Data): la compañía no recibe el nombre de quien
+ * envió ni de quien certificó (`actorVisible` → `null`). `organismos_transito` sigue como estaba.
+ */
+async function ensamblar(rows: FilaCola[], alcance: AlcanceResuelto): Promise<ImpuestoColaItem[]> {
   const tramiteIds = [...new Set(rows.map((r) => r.tramiteId))];
   const compradores = tramiteIds.length
     ? await db.select().from(flitoCompradores).where(inArray(flitoCompradores.tramiteId, tramiteIds)).orderBy(asc(flitoCompradores.orden))
@@ -505,7 +511,8 @@ async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
     return {
       certificacion: cert
         ? {
-          id: cert.id, certificadoEn: cert.createdAt.toISOString(), certificadoPorNombre: cert.certificadoPorNombre,
+          id: cert.id, certificadoEn: cert.createdAt.toISOString(),
+          certificadoPorNombre: actorVisible(alcance, cert.certificadoPorNombre), // `null` para la compañía
           // Sin usuario Y con la firma del sistema: un manual de usuario borrado (FK SET NULL) no cuenta.
           automatica: cert.certificadoPorId == null && cert.certificadoPorNombre === NOMBRE_CERTIFICADOR_AUTOMATICO,
         }
@@ -530,7 +537,7 @@ async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
       valorLiquidado: r.valorLiquidado === null ? null : Number(r.valorLiquidado),
       valorPagado: r.valorPagado === null ? null : Number(r.valorPagado),
       marcadoPorDiferencia: r.marcadoPorDiferencia, tieneFacturaVenta: r.facturaVentaFlitId !== null,
-      enviadoPorNombre: r.enviadoPorNombre, enviadoEn: r.enviadoEn ? r.enviadoEn.toISOString() : null,
+      enviadoPorNombre: actorVisible(alcance, r.enviadoPorNombre), enviadoEn: r.enviadoEn ? r.enviadoEn.toISOString() : null,
       pagadoEn: r.pagadoEn ? r.pagadoEn.toISOString() : null,
       estancado: estaEstancado(r.estado, r.enviadoEn, r.gestionOperaciones, r.organismoSla),
       gestionOperaciones: r.gestionOperaciones,
@@ -648,7 +655,7 @@ export async function detalleImpuesto(id: string, ctx: ImpuestoCtx): Promise<Imp
   const imp = await buscarConAcceso(id, ctx); // frontera (404-no-403)
   if (!imp) return null;
   const rows = await fromCola().where(eq(flitoImpuestos.id, id)).limit(1);
-  const [item] = await ensamblar(rows);
+  const [item] = await ensamblar(rows, ctx.alcance);
   if (!item) return null;
   const soportes = await db.select({ id: flitoSoportes.id, tipo: flitoSoportes.tipo, nombreArchivo: flitoSoportes.nombreArchivo, subidoEn: flitoSoportes.subidoEn })
     .from(flitoSoportes).where(and(eq(flitoSoportes.impuestoId, id), eq(flitoSoportes.descartado, false))).orderBy(asc(flitoSoportes.subidoEn));

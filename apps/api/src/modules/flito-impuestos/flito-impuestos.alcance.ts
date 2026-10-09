@@ -8,6 +8,8 @@ import { flitoImpuestos } from '../../db/schema.js';
 import { AlcanceAjenoError, condicionPorCompania, condicionPorOrganismos } from '../../shared/alcance-filas.js';
 import { esGestorDeOrganismo as esGestor, type ImpuestoCtx } from './flito-factura-venta.service.js';
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * HU #13426: la condición de ALCANCE del enlace sobre `flito_impuestos`. `undefined` = sin acotar
  * (enlace `ninguno`). Compañía → su `compania_id`; organismos → sus secretarías; cualquier otro
@@ -27,6 +29,8 @@ export async function exigirImpuestosPropios(ids: readonly string[], ctx: Impues
   const cond = condicionAlcanceImpuesto(ctx);
   if (!cond || ids.length === 0) return;
   const unicos = [...new Set(ids)];
+  // Un id que no es uuid no puede ser suyo: 403 aquí, no un 500 de Postgres (22P02) en el `inArray`.
+  if (unicos.some((id) => !UUID.test(id))) throw new AlcanceAjenoError();
   const propios = await db.select({ id: flitoImpuestos.id }).from(flitoImpuestos)
     .where(and(inArray(flitoImpuestos.id, unicos), cond));
   if (new Set(propios.map((p) => p.id)).size !== unicos.length) throw new AlcanceAjenoError();

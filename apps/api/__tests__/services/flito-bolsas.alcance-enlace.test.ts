@@ -128,3 +128,36 @@ describe('AC4 — las bolsas de tránsito (de FLIT, por secretaría) cerradas a 
     expect(h.cap.consultas).toEqual([]);
   });
 });
+
+describe('Habeas Data (bloqueante de security) — la compañía no recibe nombres de empleados de FLIT', () => {
+  const VER = [...FUNCIONES, 'bolsas.cierres.ver'];
+  const conVer = async (tipoEnlace: string, role = 'xyz_renombrado') =>
+    `Bearer ${await testToken({ sub: ++sub, role: role as never, tipoEnlace, funciones: VER })}`;
+  const EN = new Date('2026-10-01T00:00:00Z');
+  const MOV = { m: { id: 'm1', companiaId: C, tipo: 'entrada', origen: 'recarga', concepto: null, organismoCodigo: null, tramiteId: null, valor: '10', saldoResultante: '10', periodo: '2026-10', fecha: '2026-10-01', observacion: null, soporteId: null, registradoPorNombre: 'Ana Interna', createdAt: EN }, idFlit: null };
+  const CIERRE = { id: 'k1', companiaId: C, periodo: '2026-09', saldoInicial: '0', totalEntradas: '10', totalSalidas: '0', saldoFinal: '10', movimientos: 1, observaciones: null, cerradoPorNombre: 'Beto Interno', cerradoEn: EN };
+
+  it('compañía: movimientos y cierres sin el nombre de quien los registró (`\'\'`, el vacío del contrato)', async () => {
+    deC();
+    h.cap.responder([MOV]);
+    const m = await request(await app()).get(`/api/flito/bolsas/${C}/movimientos`).set('Authorization', await conVer('compania'));
+    expect(m.status).toBe(200);
+    expect(m.body).toEqual([expect.objectContaining({ id: 'm1', registradoPorNombre: '' })]);
+    h.cap.reset();
+    deC();
+    h.cap.responder([CIERRE]);
+    const c = await request(await app()).get(`/api/flito/bolsas/${C}/cierres`).set('Authorization', await conVer('compania'));
+    expect(c.status).toBe(200);
+    expect(c.body).toEqual([expect.objectContaining({ id: 'k1', cerradoPorNombre: '' })]);
+    expect(JSON.stringify([m.body, c.body])).not.toMatch(/Ana Interna|Beto Interno/);
+  });
+
+  it('sin enlace: movimientos y cierres nombran a quien los registró', async () => {
+    h.cap.responder([MOV]);
+    const m = await request(await app()).get(`/api/flito/bolsas/${C}/movimientos`).set('Authorization', await conVer('ninguno', 'admin'));
+    expect(m.body[0].registradoPorNombre).toBe('Ana Interna');
+    h.cap.responder([CIERRE]);
+    const c = await request(await app()).get(`/api/flito/bolsas/${C}/cierres`).set('Authorization', await conVer('ninguno', 'admin'));
+    expect(c.body[0].cerradoPorNombre).toBe('Beto Interno');
+  });
+});

@@ -126,3 +126,61 @@ describe('P-2 — escaneo, validación por placa y ruta del mensajero cerrados a
     for (const x of wheres()) expect(x.sql).not.toContain('compania_id" =');
   });
 });
+
+describe('Habeas Data (bloqueante de security) — la compañía no recibe nombres de empleados de FLIT', () => {
+  const VER = [...FUNCIONES, 'logistica.viajes.ver'];
+  const conVer = async (tipoEnlace: string, role = 'xyz_renombrado') =>
+    `Bearer ${await testToken({ sub: ++sub, role: role as never, tipoEnlace, funciones: VER })}`;
+  const EN = new Date('2026-10-01T00:00:00Z');
+  const CAB = { id: ACTA, companiaId: C, companiaNombre: 'Cia', estado: 'abierta', mensajeroId: 3, mensajeroNombre: 'Mensajero', receptorNombre: null, entregadoEn: null, creadoEn: EN, pdfStorageKey: null, firmaEntregaKey: null, entregaNombre: null, firmaRecibeKey: null };
+  const EV = { id: 'e1', documentoId: 'd1', placa: 'ABC123', estadoAnterior: null, estadoNuevo: 'escaneado', actorNombre: 'Ana Interna', lat: null, lng: null, motivo: null, origen: 'usuario', creadoEn: EN };
+  const TRAM = { id: TRAMITE, docId: 'd1', idFlit: 'F-1', createdAt: EN, fechaAprobacion: EN };
+  const VIAJE = { id: 'v1', numero: 2, modo: 'moto', valor: '1000', tarifaVigente: null, motivo: 'otro', motivoDetalle: null, registradoPorId: 7, registradoPorNombre: 'Ana Interna', registradoEn: EN };
+
+  it('compañía: la bitácora del acta sale con `actorNombre` null', async () => {
+    deC();
+    h.cap.responder([{ id: ACTA }], [CAB], [], [EV]);
+    const r = await request(await app()).get(`/api/flito/logistica/actas/${ACTA}`).set('Authorization', await conVer('compania'));
+    expect(r.status).toBe(200);
+    expect(r.body.bitacora).toEqual([expect.objectContaining({ id: 'e1', actorNombre: null })]);
+    expect(JSON.stringify(r.body)).not.toContain('Ana Interna');
+  });
+
+  it('sin enlace: la bitácora del acta nombra al actor', async () => {
+    h.cap.responder([CAB], [], [EV]);
+    const r = await request(await app()).get(`/api/flito/logistica/actas/${ACTA}`).set('Authorization', await conVer('ninguno', 'admin'));
+    expect(r.status).toBe(200);
+    expect(r.body.bitacora[0].actorNombre).toBe('Ana Interna');
+  });
+
+  it('compañía / sin enlace: la bitácora del trámite (`eventos`) sin nombre / con nombre', async () => {
+    deC();
+    h.cap.responder([{ id: TRAMITE }], [TRAM], [{ propietarioDocumento: null, combustible: null, fotoStorageKey: null }], [EV]);
+    const c = await request(await app()).get(`/api/flito/logistica/${TRAMITE}`).set('Authorization', await conVer('compania'));
+    expect(c.status).toBe(200);
+    expect(c.body.eventos).toEqual([expect.objectContaining({ id: 'e1', actorNombre: null })]);
+    h.cap.responder([TRAM], [{ propietarioDocumento: null, combustible: null, fotoStorageKey: null }], [EV]);
+    const n = await request(await app()).get(`/api/flito/logistica/${TRAMITE}`).set('Authorization', await conVer('ninguno', 'admin'));
+    expect(n.body.eventos[0].actorNombre).toBe('Ana Interna');
+  });
+
+  it('compañía / sin enlace: los viajes adicionales sin / con `registradoPorNombre`', async () => {
+    const CTX = { id: TRAMITE, idFlit: 'F-1', companiaId: C, logisticaAutogestionable: false, excepcionViva: false };
+    // Cuántas lecturas hay entre el contexto y los viajes (liquidación, tarifa): se miden, no se suponen.
+    h.cap.reset();
+    h.cap.responder([CTX]);
+    await request(await app()).get(`/api/flito/logistica/tramites/${TRAMITE}/viajes`).set('Authorization', await conVer('ninguno', 'admin'));
+    const medio = Array.from({ length: h.cap.consultas.length - 2 }, () => []);
+    h.cap.reset();
+    deC();
+    h.cap.responder([{ id: TRAMITE }], [CTX], ...medio, [VIAJE]);
+    const c = await request(await app()).get(`/api/flito/logistica/tramites/${TRAMITE}/viajes`).set('Authorization', await conVer('compania'));
+    expect(c.status).toBe(200);
+    expect(c.body.items).toEqual([expect.objectContaining({ id: 'v1', registradoPorNombre: null })]);
+    expect(JSON.stringify(c.body)).not.toContain('Ana Interna');
+    h.cap.reset();
+    h.cap.responder([CTX], ...medio, [VIAJE]);
+    const n = await request(await app()).get(`/api/flito/logistica/tramites/${TRAMITE}/viajes`).set('Authorization', await conVer('ninguno', 'admin'));
+    expect(n.body.items[0].registradoPorNombre).toBe('Ana Interna');
+  });
+});

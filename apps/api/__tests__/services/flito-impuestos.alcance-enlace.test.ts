@@ -4,7 +4,7 @@
 // Router REAL montado como en `app.ts`; doble de drizzle que captura los `where` (asertos sobre el SQL
 // del COUNT y de la página, no sobre filas inventadas).
 import 'express-async-errors';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { testToken } from '../helpers/auth.js';
@@ -133,6 +133,14 @@ describe('AC3 — escribir para otra compañía → 403 sin guardar', () => {
     expect([r.status, r.body]).toEqual([403, { error: 'Sin permisos' }]);
     expect(h.cap.consultas.filter((c) => c.tipo !== 'select')).toEqual([]);
   });
+
+  it('`reactivar` con un id que no es uuid → 403 sin llegar a consultar impuestos (no un 500 de Postgres)', async () => {
+    h.cap.responder([{ c: C, p: null }]);
+    const r = await request(await app()).post('/api/flito/impuestos/no-es-uuid/reactivar')
+      .set('Authorization', await como('compania')).send({ motivo: 'se corrigió la factura' });
+    expect([r.status, r.body]).toEqual([403, { error: 'Sin permisos' }]);
+    expect(h.cap.consultas).toHaveLength(1); // solo la lectura del alcance
+  });
 });
 
 describe('P-3 — enviar con `gestionOperaciones` (contingencia) también es interno', () => {
@@ -159,5 +167,72 @@ describe('AC1 / AC5 — sin enlace ve todo; proveedor cerrado', () => {
   it('proveedor → 403 de la frontera', async () => {
     const r = await request(await app()).get('/api/flito/impuestos').set('Authorization', await como('proveedor'));
     expect([r.status, r.body]).toEqual([403, { error: 'Sin permisos' }]);
+  });
+});
+
+describe('Habeas Data (bloqueante de security) — la compañía no recibe nombres de empleados de FLIT', () => {
+  const VER = [...FUNCIONES, 'impuestos.tramite.ver', 'impuestos.tramite.ver_historial'];
+  const conVer = async (tipoEnlace: string, role = 'xyz_renombrado') =>
+    `Bearer ${await testToken({ sub: ++sub, role: role as never, tipoEnlace, funciones: VER })}`;
+  const IMP = { id: I1, tramiteId: 't1', companiaId: C, organismoCodigo: S1, gestionOperaciones: false, pagadoEn: null, extraccion: null, extraccionFacturaVenta: null, comparacionFacturaRunt: null };
+  const FILA = {
+    id: I1, tramiteId: 't1', idFlit: 'F-1', placa: 'ABC123', vin: null, marca: null, linea: null, tipoTramite: 'traspaso',
+    fechaAprobacion: null, fechaCreacion: null, estado: 'solicitado', companiaNombre: 'Cia', organismoCodigo: S1, organismoNombre: 'Med',
+    valorLiquidado: null, valorPagado: null, marcadoPorDiferencia: false, facturaVentaFlitId: null,
+    enviadoPorNombre: 'Ana Interna', enviadoEn: new Date('2026-10-01T00:00:00Z'), pagadoEn: null, gestionOperaciones: false,
+    organismoSla: null, motivoRechazo: null, createdAt: new Date('2026-10-01T00:00:00Z'), analisisEstado: null, semaforo: null,
+    motivoSemaforo: null, liquidadoEn: null, tipoTitularFlit: null,
+  };
+  const CERT = { id: 'c1', impuestoId: I1, createdAt: new Date('2026-10-02T00:00:00Z'), certificadoPorNombre: 'Beto Interno', certificadoPorId: 7 };
+  const HIST = { id: 'h1', estadoAnterior: 'pendiente', estadoNuevo: 'solicitado', motivo: null, origen: 'usuario', usuarioNombre: 'Ana Interna', usuarioEmail: 'ana@flit.co', usuarioRol: 'admin', creadoEn: new Date('2026-10-01T00:00:00Z') };
+  /** Las lecturas de `detalleImpuesto`: frontera, fila de la cola, compradores, certificación vigente. */
+  const detalle = () => h.cap.responder([{ imp: IMP, dentroDeFrontera: true }], [FILA], [], [CERT]);
+  /**
+   * Respuestas vacías para el resto de lecturas de `detalleImpuesto` (soportes, envío, dirección): las
+   * que haya hoy, medidas con un detalle de prueba, para que la siguiente sea la del historial.
+   */
+  let restantes = -1;
+  const relleno = (): unknown[][] => Array.from({ length: restantes }, () => []);
+  beforeAll(async () => {
+    h.cap.reset();
+    detalle();
+    await request(await app()).get(`/api/flito/impuestos/${I1}`).set('Authorization', await conVer('ninguno', 'admin'));
+    restantes = h.cap.consultas.length - 4;
+    h.cap.reset();
+  });
+
+  it('compañía: detalle con `enviadoPorNombre` y `certificadoPorNombre` en null', async () => {
+    h.cap.responder([{ c: C, p: null }]);
+    detalle();
+    const r = await request(await app()).get(`/api/flito/impuestos/${I1}`).set('Authorization', await conVer('compania'));
+    expect(r.status).toBe(200);
+    expect(r.body.enviadoPorNombre).toBeNull();
+    expect(r.body.certificacion).toEqual(expect.objectContaining({ id: 'c1', certificadoPorNombre: null }));
+    expect(JSON.stringify(r.body)).not.toMatch(/Ana Interna|Beto Interno/);
+  });
+
+  it('sin enlace: el detalle nombra a quien envió y a quien certificó', async () => {
+    detalle();
+    const r = await request(await app()).get(`/api/flito/impuestos/${I1}`).set('Authorization', await conVer('ninguno', 'admin'));
+    expect(r.status).toBe(200);
+    expect([r.body.enviadoPorNombre, r.body.certificacion.certificadoPorNombre]).toEqual(['Ana Interna', 'Beto Interno']);
+  });
+
+  it('compañía: el historial sale con `usuario` en null (ni nombre ni correo)', async () => {
+    h.cap.responder([{ c: C, p: null }]);
+    detalle();
+    h.cap.responder(...relleno(), [HIST]);
+    const r = await request(await app()).get(`/api/flito/impuestos/${I1}/historial`).set('Authorization', await conVer('compania'));
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual([expect.objectContaining({ id: 'h1', usuario: null })]);
+    expect(JSON.stringify(r.body)).not.toMatch(/Ana Interna|ana@flit\.co/);
+  });
+
+  it('sin enlace: el historial nombra al actor', async () => {
+    detalle();
+    h.cap.responder(...relleno(), [HIST]);
+    const r = await request(await app()).get(`/api/flito/impuestos/${I1}/historial`).set('Authorization', await conVer('ninguno', 'admin'));
+    expect(r.status).toBe(200);
+    expect(r.body[0].usuario).toBe('Ana Interna');
   });
 });

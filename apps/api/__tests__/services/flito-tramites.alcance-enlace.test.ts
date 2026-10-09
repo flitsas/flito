@@ -149,3 +149,23 @@ describe('AC4 — catálogo y operación interna cerrados a la compañía', () =
     expect([r.status, r.body]).toEqual([403, { error: 'Sin permisos' }]);
   });
 });
+
+describe('Habeas Data (bloqueante de security) — el historial no nombra a FLIT ante la compañía', () => {
+  const FILA = { id: 'h1', campo: 'estado', valorAnterior: 'a', valorNuevo: 'b', origen: 'usuario', usuarioNombre: 'Ana Interna', creadoEn: new Date('2026-10-01T00:00:00Z') };
+
+  it('compañía: `usuarioNombre` llega `null` (la forma del DTO no cambia)', async () => {
+    deCompania();
+    h.cap.responder([{ id: T1 }], [FILA]); // `tramiteEnAlcance` y luego el historial
+    const r = await request(await app()).get(`/api/flito/tramites/${T1}/historial`).set('Authorization', await como('compania'));
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual([expect.objectContaining({ id: 'h1', usuarioNombre: null })]);
+    expect(JSON.stringify(r.body)).not.toContain('Ana Interna');
+  });
+
+  it('sin enlace: el nombre llega tal cual', async () => {
+    h.cap.responder([FILA]);
+    const r = await request(await app()).get(`/api/flito/tramites/${T1}/historial`).set('Authorization', await como('ninguno', 'admin'));
+    expect(r.status).toBe(200);
+    expect(r.body[0].usuarioNombre).toBe('Ana Interna');
+  });
+});

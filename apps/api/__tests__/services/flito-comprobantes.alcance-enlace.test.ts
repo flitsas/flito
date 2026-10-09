@@ -82,3 +82,39 @@ describe('P-2 — la escritura y el buscador por placa son internos de FLIT: 403
     expect(h.cap.consultas).toEqual([]);
   });
 });
+
+describe('Habeas Data (bloqueante de security) — la compañía no recibe nombres de empleados de FLIT', () => {
+  const FILA = {
+    id: ID, loteId: 'l1', estado: 'aplicado', tramiteId: null, tramiteIdFlit: null, createdAt: new Date('2026-10-01T00:00:00Z'),
+    aplicadoEn: new Date('2026-10-02T00:00:00Z'), descartadoEn: null, aplicadoAutomaticamente: false, diferenciaAceptadaEn: null,
+    subidoPorNombre: 'Ana Interna', aplicadoPorNombre: 'beto.interno', descartadoPorNombre: 'caro.interna',
+  };
+  const LECTURA = { extraccion: {}, extraccionDestino: null, aplicadoMotivo: null, descartadoMotivo: null, soporteAplicadoId: null, diferenciaAceptadaEn: null, diferenciaAceptadaMotivo: null, diferenciaAceptadaPorNombre: 'dani.interno' };
+  const NOMBRES = /Ana Interna|beto\.interno|caro\.interna|dani\.interno/;
+
+  it('compañía: listado sin `subidoPorNombre` / `aplicadoPorNombre` / `descartadoPorNombre`', async () => {
+    h.cap.responder([{ c: C, p: null }], [{ total: 1 }], [FILA]);
+    const r = await request(await app()).get('/api/flito/comprobantes').set('Authorization', await como('compania'));
+    expect(r.status).toBe(200);
+    expect(r.body.items[0]).toEqual(expect.objectContaining({ subidoPorNombre: '', aplicadoPorNombre: null, descartadoPorNombre: null }));
+    expect(JSON.stringify(r.body)).not.toMatch(NOMBRES);
+  });
+
+  it('compañía: detalle sin esos nombres ni `diferenciaAceptadaPorNombre`', async () => {
+    h.cap.responder([{ c: C, p: null }], [FILA], [LECTURA]);
+    const r = await request(await app()).get(`/api/flito/comprobantes/${ID}`).set('Authorization', await como('compania'));
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual(expect.objectContaining({ subidoPorNombre: '', aplicadoPorNombre: null, descartadoPorNombre: null, diferenciaAceptadaPorNombre: null }));
+    expect(JSON.stringify(r.body)).not.toMatch(NOMBRES);
+  });
+
+  it('sin enlace: listado y detalle nombran a cada actor', async () => {
+    h.cap.responder([{ total: 1 }], [FILA]);
+    const l = await request(await app()).get('/api/flito/comprobantes').set('Authorization', await como('ninguno', 'admin'));
+    expect(l.body.items[0]).toEqual(expect.objectContaining({ subidoPorNombre: 'Ana Interna', aplicadoPorNombre: 'beto.interno', descartadoPorNombre: 'caro.interna' }));
+    h.cap.responder([FILA], [LECTURA]);
+    const d = await request(await app()).get(`/api/flito/comprobantes/${ID}`).set('Authorization', await como('ninguno', 'admin'));
+    expect(d.status).toBe(200);
+    expect(d.body.diferenciaAceptadaPorNombre).toBe('dani.interno');
+  });
+});
