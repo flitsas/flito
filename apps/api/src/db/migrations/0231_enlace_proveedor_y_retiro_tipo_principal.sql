@@ -5,6 +5,8 @@
 -- Autor: equipo FLITO. Antecedente: 0230 (la anterior); 0178 (CHECK y trigger que aquí se reescriben).
 --
 -- Qué hace:
+--   0. GUARDA: aborta (RAISE) si existe un rol `tipo_principal='externo'` con `tipo_enlace='ninguno'`:
+--      sin el tipo interno/externo ese rol pasaría de cerrado a alcance total. Se asigna enlace antes.
 --   1. Renombra el valor de enlace `proveedor_soat` → `proveedor` en `permisos_roles.tipo_enlace`, con
 --      su CHECK nuevo de cuatro valores y una fila de auditoría de sistema por rol renombrado (AC8).
 --   2. Reescribe `users_ambito_requerido()` (trigger de la 0178) con el literal de enlace nuevo; el
@@ -16,8 +18,24 @@
 -- Sin NINGÚN literal de código de rol (lección de la 0227: un literal de rol rompió el CD de DEV por
 -- la FK a `permisos_roles`). Todo se decide por el valor de enlace.
 --
--- Idempotente: la segunda pasada no encuentra filas `proveedor_soat` (UPDATE de 0 filas, INSERT de 0
+-- Idempotente: la guarda solo lee; la segunda pasada no encuentra filas `proveedor_soat` (UPDATE de 0 filas, INSERT de 0
 -- filas), el CHECK se reemplaza por el mismo y la función por la misma.
+
+-- ── 0. Guarda: ningún rol externo sin enlace (security, HU #12875) ─────────────────────────────
+-- Antes de esta HU un rol `tipo_principal='externo'` con `tipo_enlace='ninguno'` quedaba doblemente
+-- cerrado (las rutas del canal y el alcance SOAT 'nada'). Desde aquí la frontera la decide SOLO el
+-- enlace, y `ninguno` = alcance total: ese rol se abriría a todo en silencio. La migración se niega a
+-- aplicarse mientras exista alguno; los códigos del mensaje salen de la BD (no hay literales de rol).
+-- Va ANTES de cualquier cambio. Idempotente: solo lee; con 0 filas no hace nada.
+DO $guarda$
+BEGIN
+  IF EXISTS (SELECT 1 FROM permisos_roles WHERE tipo_principal = 'externo' AND tipo_enlace = 'ninguno') THEN
+    RAISE EXCEPTION 'HU #12875: hay roles externos sin enlace (%); asígneles un enlace antes de aplicar esta migración',
+      (SELECT string_agg(codigo, ', ' ORDER BY codigo)
+         FROM permisos_roles WHERE tipo_principal = 'externo' AND tipo_enlace = 'ninguno')
+      USING ERRCODE = '23514';
+  END IF;
+END $guarda$;
 
 -- ── 1. Enlace `proveedor_soat` → `proveedor` ───────────────────────────────────────────────────
 -- El CHECK viejo no admite `proveedor`: se quita ANTES del UPDATE y se repone después.

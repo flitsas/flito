@@ -43,6 +43,22 @@ describe('0231 — reglas del archivo', () => {
   });
 });
 
+describe('0231 — guarda de security: ningún rol externo sin enlace pasa a alcance total', () => {
+  it('un DO con RAISE si hay roles externo+ninguno, ANTES de cualquier cambio (DROP CONSTRAINT / UPDATE / COMMENT)', () => {
+    const guarda = /DO \$guarda\$[\s\S]*?END \$guarda\$;/.exec(SIN_COMENTARIOS);
+    expect(guarda).not.toBeNull();
+    const cuerpo = guarda![0];
+    expect(cuerpo).toMatch(/IF EXISTS \(SELECT 1 FROM permisos_roles WHERE tipo_principal = 'externo' AND tipo_enlace = 'ninguno'\) THEN/);
+    expect(cuerpo).toMatch(/RAISE EXCEPTION 'HU #12875: hay roles externos sin enlace \(%\)/);
+    // Los códigos del mensaje salen de la BD, no de un literal.
+    expect(cuerpo).toMatch(/string_agg\(codigo, ', ' ORDER BY codigo\)/);
+    const pos = SIN_COMENTARIOS.indexOf('DO $guarda$');
+    for (const cambio of ['DROP CONSTRAINT', 'UPDATE permisos_roles', 'CREATE OR REPLACE FUNCTION', 'COMMENT ON COLUMN']) {
+      expect(SIN_COMENTARIOS.indexOf(cambio), cambio).toBeGreaterThan(pos);
+    }
+  });
+});
+
 describe('0231 — AC8: `proveedor_soat` → `proveedor`, idempotente', () => {
   it('el CHECK se quita ANTES del UPDATE y se repone DESPUÉS, con los cuatro valores nuevos', () => {
     const drop = SIN_COMENTARIOS.indexOf('DROP CONSTRAINT IF EXISTS permisos_roles_tipo_enlace_chk');
