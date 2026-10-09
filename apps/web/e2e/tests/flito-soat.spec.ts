@@ -1,5 +1,5 @@
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, OPERACIONES_USER, AUDITOR_USER, PROVEEDOR_USER, CLIENTE_USER, CLIENTE_CON_CANAL } from '../helpers/auth';
+import { loginAs, funcionesDe, OPERACIONES_USER, AUDITOR_USER, PROVEEDOR_USER, CLIENTE_USER, CLIENTE_CON_CANAL } from '../helpers/auth';
 
 // FLITO — Portal SOAT (Fase 6). Cola de adquisición: envío atómico al gestor,
 // detalle por VIN y solo-lectura para Auditoría. Backend mockeado.
@@ -1211,5 +1211,33 @@ test.describe('HU #12819 — los botones del kit reaccionan al puntero (§9)', (
     await expect.poll(sombra).not.toBe(sombraReposo);
     await secundaria.hover();
     await expect.poll(fondo).not.toBe(fondoReposo);
+  });
+});
+
+// HU #13452: con enlace la cola no pide el catálogo de proveedores (parametrización, 403 para todo
+// enlace) ni ofrece enviar/cambiar/devolver al proveedor; los filtros salen de sus facetas.
+test.describe('FLITO — SOAT: listas de apoyo por enlace (HU #13452)', () => {
+  const CON_ENLACE = { ...OPERACIONES_USER, id: 72, username: 'e2e_enlace_prov', role: 'proveedor', funciones: funcionesDe(OPERACIONES_USER) };
+
+  test('con enlace no pide parametrización ni ofrece «Enviar a»', async ({ page }) => {
+    await loginAs(page, CON_ENLACE);
+    await mock(page);
+    const pedidas: string[] = [];
+    await page.route(/\/api\/flito\/parametrizacion\//, (route) => { pedidas.push(route.request().url()); return route.abort(); });
+
+    await page.goto('/flito/soat');
+    await expect(page.getByText('ABC123')).toBeVisible();
+    await page.getByLabel('Seleccionar ABC123').check();
+    await expect(page.getByText('1 seleccionado(s)')).toBeVisible();
+    await expect(page.getByLabel('Enviar a')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Enviar al gestor/i })).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Ver' }).first().click();
+    const modal = page.getByRole('dialog');
+    await expect(modal).toBeVisible();
+    await expect(modal.getByRole('button', { name: 'Cambiar proveedor' })).toHaveCount(0);
+    await expect(modal.getByRole('button', { name: 'Devolver al proveedor' })).toHaveCount(0);
+    await expect(page.getByText(/permis|403/i)).toHaveCount(0);
+    expect(pedidas).toEqual([]);
   });
 });
