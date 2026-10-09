@@ -33,7 +33,7 @@ import GradientButton from '../../components/flit/GradientButton';
 import StatusChip from '../../components/flit/StatusChip';
 import { FlitCard, flitBtnSecondary, flitBtnSecondarySm, flitBtnSecondaryStyle } from '../../components/flit/flitPageKit';
 import {
-  ENLACE_EN_CABECERA, desmarcadas, etiquetaModulo, funcionesFueraDelCanal, kDeNMarcadas, marcadas,
+  ETIQUETA_ENLACE, desmarcadas, etiquetaModulo, kDeNMarcadas, marcadas,
   seccionesVisibles,
 } from './modulos';
 import {
@@ -44,19 +44,12 @@ import {
 export const COPY_VACIO_ROL_SIN_FUNCIONES =
   'Este rol no tiene ninguna función marcada: quien lo tenga no verá nada al entrar. Abre un módulo y marca lo que deba hacer, o usa «Marcar todas las funciones».';
 
-export const COPY_EXTERNO_GENERAL =
-  'Este rol es externo: sus usuarios entran solo al canal de cliente y ven únicamente lo de su compañía. Lo que se marque fuera del canal no lo van a poder ejercer.';
-
 interface Props {
   rol: RolCatalogo;
   grupos: GrupoDeFunciones[];
-  /** Nombre de negocio por código, para listar el aviso del servidor sin pintar códigos. */
-  nombrePorCodigo: Map<string, string>;
   /** Conjunto guardado (línea base) y conjunto en edición. */
   base: ReadonlySet<string>;
   borrador: ReadonlySet<string>;
-  /** Lo que el `PUT` devolvió en `aviso.funciones` para ESTE rol (vacío si no hubo aviso). */
-  avisoFueraDelCanal: string[];
   guardando: boolean;
   errorGuardado: string | null;
   onToggle: (codigo: string, marcado: boolean) => void;
@@ -70,7 +63,7 @@ interface Props {
 const STICKY = 'lg:sticky lg:top-[calc(var(--flit-topbar-height)_+_var(--flit-navbar-height)_+_1rem)] z-10';
 
 export default function CuadroRol({
-  rol, grupos, nombrePorCodigo, base, borrador, avisoFueraDelCanal, guardando, errorGuardado,
+  rol, grupos, base, borrador, guardando, errorGuardado,
   onToggle, onMarcarConjunto, onGuardar, onDescartar, onEditar, onBorrar,
 }: Props) {
   const [abiertos, setAbiertos] = useState<Set<string>>(() => new Set());
@@ -85,9 +78,6 @@ export default function CuadroRol({
   const nuevas = [...borrador].filter((c) => !base.has(c)).length;
   const quitadas = [...base].filter((c) => !borrador.has(c)).length;
   const hayCambios = nuevas + quitadas > 0;
-  // HU #12875: el aviso del canal Cliente lo decide el enlace `compania` (el tipo interno/externo se retiró).
-  const externo = rol.tipoEnlace === 'compania';
-  const fueraDelCanal = externo ? avisoFueraDelCanal.filter((c) => borrador.has(c)) : [];
 
   const alternar = (modulo: string) => setAbiertos((prev) => {
     const s = new Set(prev);
@@ -106,24 +96,11 @@ export default function CuadroRol({
           {!rol.activo && <StatusChip tone="draft">Inactivo</StatusChip>}
         </div>
         <p className="mt-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-          {ENLACE_EN_CABECERA[rol.tipoEnlace]} · {rol.usuarios === 1 ? '1 usuario' : `${rol.usuarios} usuarios`}
+          Enlace: {ETIQUETA_ENLACE[rol.tipoEnlace]} · {rol.usuarios === 1 ? '1 usuario' : `${rol.usuarios} usuarios`}
         </p>
         <p className="mt-2 text-sm" style={{ color: rol.descripcion ? 'var(--flit-text-primary)' : 'var(--flit-text-muted)' }}>
           {rol.descripcion || 'Sin descripción'}
         </p>
-
-        {externo && (
-          <p className="mt-3 text-sm font-medium" style={{ color: 'var(--flit-warning-ink)' }}>
-            {fueraDelCanal.length > 0
-              ? `Este rol es externo: sus usuarios entran solo al canal de cliente y ven únicamente lo de su compañía. Tiene ${funcionesFueraDelCanal(fueraDelCanal.length)} que no va a poder ejercer. Desmárcalas o cambia el tipo de acceso en «Editar rol».`
-              : COPY_EXTERNO_GENERAL}
-            {fueraDelCanal.length > 0 && (
-              <span className="mt-1 block font-normal">
-                {fueraDelCanal.map((c) => nombrePorCodigo.get(c) ?? c).join(' · ')}
-              </span>
-            )}
-          </p>
-        )}
 
         {!rol.borrable && rol.motivoNoBorrable && (
           <p id={idMotivo} className="mt-3 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
@@ -233,7 +210,6 @@ export default function CuadroRol({
                       marcada={marcada}
                       deshabilitada={bloqueada}
                       describedByExtra={motivo}
-                      noAplica={externo && marcada && avisoFueraDelCanal.includes(f.codigo)}
                       inputRef={esPantalla && i === 0 ? (el) => {
                         if (el) pantallaRefs.current.set(g.modulo, el); else pantallaRefs.current.delete(g.modulo);
                       } : undefined}
@@ -297,13 +273,12 @@ export default function CuadroRol({
   );
 }
 
-function Casilla({ codigo, nombre, descripcion, rol, marcada, deshabilitada, describedByExtra, noAplica, inputRef, onToggle }: {
+function Casilla({ codigo, nombre, descripcion, rol, marcada, deshabilitada, describedByExtra, inputRef, onToggle }: {
   codigo: string; nombre: string; descripcion: string | null; rol: string; marcada: boolean;
   /** HU #12717: acción sin pantalla marcada en su módulo → `disabled` nativo (decisión 30). */
   deshabilitada: boolean;
   /** `id` de la línea del módulo que explica por qué está deshabilitada (explicación o aviso). */
   describedByExtra?: string;
-  noAplica: boolean;
   inputRef?: (el: HTMLInputElement | null) => void;
   onToggle: (codigo: string, marcado: boolean) => void;
 }) {
@@ -327,11 +302,6 @@ function Casilla({ codigo, nombre, descripcion, rol, marcada, deshabilitada, des
           {nombre}
           <span className="sr-only"> · rol {rol}</span>
         </span>
-        {noAplica && (
-          <span className="ml-auto shrink-0 text-[11px] font-semibold uppercase" style={{ color: 'var(--flit-warning-ink)' }}>
-            No aplica a roles externos
-          </span>
-        )}
       </label>
       {descripcion && (
         <p id={idDescripcion} className="ml-7 mt-0.5 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{descripcion}</p>

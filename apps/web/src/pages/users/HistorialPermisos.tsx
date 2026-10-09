@@ -286,8 +286,10 @@ export default function HistorialPermisos() {
 
 const etiquetaRol = (codigo: string) => (ROLE_LABELS as Record<string, string>)[codigo] ?? codigo;
 
+// HU #12876: mismos nombres que el panel de roles. `proveedor_soat` se conserva para pintar los
+// registros auditados antes de #12875; los nuevos traen `proveedor`.
 const TIPO_ENLACE: Record<string, string> = {
-  ninguno: 'No se atan a nada', compania: 'Una compañía', proveedor_soat: 'Un gestor SOAT', organismos_transito: 'Organismos de tránsito',
+  ninguno: 'Ninguno', compania: 'Compañía', proveedor: 'Proveedor', proveedor_soat: 'Proveedor', organismos_transito: 'Organismos',
 };
 const TIPO_PRINCIPAL: Record<string, string> = { interno: 'Interno', externo: 'Externo' };
 
@@ -371,7 +373,7 @@ function escalar(campo: ItemAuditoriaPermisos['campo'], v: ValorAuditable | null
     case 'active': return v ? 'Activo' : 'Inactivo';
     case 'activo': return v ? 'Sí' : 'No';
     case 'compania_id': return `Compañía #${v}`;
-    case 'flito_proveedor_soat_id': return `Gestor SOAT ${v}`;
+    case 'flito_proveedor_soat_id': return `Proveedor ${v}`;
     case 'tipo_enlace': return TIPO_ENLACE[String(v)] ?? String(v);
     case 'tipo_principal': return TIPO_PRINCIPAL[String(v)] ?? String(v);
     default: return typeof v === 'boolean' ? (v ? 'Sí' : 'No') : String(v);

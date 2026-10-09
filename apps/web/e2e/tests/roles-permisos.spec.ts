@@ -42,7 +42,7 @@ const TOTAL = TODAS.length;
 
 function rol(over: Item): Item {
   return {
-    codigo: 'x', nombre: 'X', descripcion: null, tipoEnlace: 'ninguno', tipoPrincipal: 'interno', esSistema: false,
+    codigo: 'x', nombre: 'X', descripcion: null, tipoEnlace: 'ninguno', esSistema: false,
     activo: true, usuarios: 0, borrable: true, motivoNoBorrable: null, createdAt: '2026-09-01T00:00:00.000Z', updatedAt: '2026-09-01T00:00:00.000Z', ...over,
   };
 }
@@ -51,7 +51,7 @@ const ROLES: Item[] = [
   rol({ codigo: 'admin', nombre: 'Administrador', esSistema: true, usuarios: 2, borrable: false, motivoNoBorrable: 'El rol admin es de sistema y no se puede borrar.' }),
   rol({ codigo: 'gestor_impuestos', nombre: 'Gestor de Impuestos', descripcion: 'Atiende la cola de impuestos de los organismos que se le asignen.', tipoEnlace: 'organismos_transito', usuarios: 4, borrable: false, motivoNoBorrable: '4 usuarios tienen este rol' }),
   rol({ codigo: 'consulta_contable', nombre: 'Consulta contable', usuarios: 0 }),
-  rol({ codigo: 'cliente', nombre: 'Cliente', tipoEnlace: 'compania', tipoPrincipal: 'externo', usuarios: 3, borrable: false, motivoNoBorrable: '3 usuarios tienen este rol' }),
+  rol({ codigo: 'cliente', nombre: 'Cliente', tipoEnlace: 'compania', usuarios: 3, borrable: false, motivoNoBorrable: '3 usuarios tienen este rol' }),
   rol({ codigo: 'sin_funciones', nombre: 'Sin funciones', usuarios: 0 }),
 ];
 
@@ -81,7 +81,7 @@ function mockPermisos(page: Page, o: Opciones = {}) {
   const gets: string[] = [];
   const cuadros = o.cuadros ?? CUADROS;
   page.route(/\/api\/permisos\/funciones$/, (route) => { gets.push('funciones'); return route.fulfill(json({ grupos: o.grupos ?? GRUPOS })); });
-  page.route(/\/api\/permisos\/mios$/, (route) => { gets.push('mios'); return route.fulfill((o.mios ?? (() => json({ funciones: TODAS, rol: 'admin', tipoPrincipal: 'interno', version: 7, resueltoEn: '2026-09-10T12:00:00.000Z' })))()); });
+  page.route(/\/api\/permisos\/mios$/, (route) => { gets.push('mios'); return route.fulfill((o.mios ?? (() => json({ funciones: TODAS, rol: 'admin', version: 7, resueltoEn: '2026-09-10T12:00:00.000Z' })))()); });
   page.route(/\/api\/permisos\/roles$/, (route) => {
     const req = route.request();
     if (req.method() === 'POST') {
@@ -111,7 +111,7 @@ function mockPermisos(page: Page, o: Opciones = {}) {
       return route.fulfill(responder(codigo, enviadas));
     }
     gets.push(`cuadro:${codigo}`);
-    return route.fulfill(json({ codigo, tipoPrincipal: codigo === 'cliente' ? 'externo' : 'interno', funciones: cuadros[codigo] ?? [] }));
+    return route.fulfill(json({ codigo, funciones: cuadros[codigo] ?? [] }));
   });
   return { pedidos, gets };
 }
@@ -343,7 +343,7 @@ test.describe('Roles y permisos — cuadro rol × función (HU #12085)', () => {
     await expect(page.getByText(/Sin guardar/)).toHaveCount(0);
   });
 
-  test('TC-d (AC3): crear rol con ámbito y tipo de acceso; el código se deriva del nombre y el nuevo rol queda seleccionado con su vacío', async ({ page }) => {
+  test('TC-d (AC3): crear rol con enlace (HU #12876: sin tipo de acceso); el código se deriva del nombre y el nuevo rol queda seleccionado con su vacío', async ({ page }) => {
     const { pedidos } = mockPermisos(page);
     await abrir(page);
     await page.getByRole('button', { name: 'Nuevo rol' }).click();
@@ -361,24 +361,23 @@ test.describe('Roles y permisos — cuadro rol × función (HU #12085)', () => {
     await expect(modal.getByText('gestion_contable')).toBeVisible();
     await expect(modal.getByText(/no se puede cambiar después/)).toBeVisible();
     await modal.getByLabel('Descripción').fill('Consulta los cierres contables.');
-    await modal.getByLabel('Ámbito de sus usuarios').selectOption('compania');
-    await expect(modal.getByText(/habrá que elegirle una compañía/)).toBeVisible();
-    await modal.getByRole('radio', { name: /^Externo — solo el canal de cliente/ }).check();
-    await expect(modal.getByText('Tipo de acceso', { exact: true })).toBeVisible();
+    await modal.getByRole('radio', { name: 'Compañía', exact: true }).check();
+    await expect(modal.getByText(/Tipo de acceso/)).toHaveCount(0);
     await modal.getByRole('button', { name: 'Crear rol' }).click();
 
     expect(pedidos).toHaveLength(1);
     expect(pedidos[0].method()).toBe('POST');
     expect(pedidos[0].postDataJSON()).toEqual({
-      codigo: 'gestion_contable', nombre: 'Gestión Contable', descripcion: 'Consulta los cierres contables.', tipoEnlace: 'compania', tipoPrincipal: 'externo',
+      codigo: 'gestion_contable', nombre: 'Gestión Contable', descripcion: 'Consulta los cierres contables.', tipoEnlace: 'compania',
     });
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(botonRol(page, 'Gestión Contable')).toHaveAttribute('aria-current', 'true');
     await expect(botonRol(page, 'Gestión Contable')).toContainText(`0/${TOTAL}`);
     await expect(page.getByText(/quien lo tenga no verá nada al entrar/)).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Gestión Contable', level: 2 })).toBeVisible();
-    // Externo: el aviso general del canal.
-    await expect(page.getByText(/Este rol es externo: sus usuarios entran solo al canal de cliente/)).toBeVisible();
+    // HU #12876: la cabecera dice el enlace; ya no hay aviso de canal externo.
+    await expect(page.getByText('Enlace: Compañía · 0 usuarios')).toBeVisible();
+    await expect(page.getByText(/Este rol es externo/)).toHaveCount(0);
     expect(urlLimpia(page)).toEqual({ pathname: '/roles-permisos', search: '', hash: '' });
   });
 
@@ -399,13 +398,17 @@ test.describe('Roles y permisos — cuadro rol × función (HU #12085)', () => {
     await expect(edicion.getByRole('heading', { name: 'Editar el rol Gestor de Impuestos' })).toBeVisible();
     await expect(edicion.getByText(/Código:/)).toHaveCount(0);
     await edicion.getByLabel('Se puede asignar a usuarios nuevos').uncheck();
-    await edicion.getByRole('radio', { name: /^Externo/ }).check();
-    await expect(edicion.getByText('4 usuarios tienen este rol. Al guardar, dejan de entrar a las pantallas internas de FLITO.')).toBeVisible();
+    // HU #12876: cambiar el enlace con usuarios avisa; volver al guardado lo retira y no viaja.
+    await expect(edicion.getByRole('radio', { name: 'Organismos', exact: true })).toBeChecked();
+    await edicion.getByRole('radio', { name: 'Ninguno', exact: true }).check();
+    await expect(edicion.getByText('4 usuarios ya tienen este rol: FLITO no deja cambiar el enlace mientras alguien lo tenga. Cámbiales el rol en Usuarios y vuelve aquí.')).toBeVisible();
+    await edicion.getByRole('radio', { name: 'Organismos', exact: true }).check();
+    await expect(edicion.getByText(/no deja cambiar el enlace/)).toHaveCount(0);
     await edicion.getByRole('button', { name: 'Guardar cambios' }).click();
     const patch = pedidos.at(-1)!;
     expect(patch.method()).toBe('PATCH');
     expect(new URL(patch.url()).pathname).toBe('/api/permisos/roles/gestor_impuestos');
-    expect(patch.postDataJSON()).toEqual({ tipoPrincipal: 'externo', activo: false });
+    expect(patch.postDataJSON()).toEqual({ activo: false });
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(botonRol(page, 'Gestor de Impuestos')).toContainText('Inactivo');
   });
@@ -418,7 +421,7 @@ test.describe('Roles y permisos — cuadro rol × función (HU #12085)', () => {
     await expect(borrar).toBeDisabled();
     await expect(page.getByText('4 usuarios tienen este rol')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Gestor de Impuestos', level: 2 })).toBeVisible();
-    await expect(page.getByText('Interno · Se atan a organismos de tránsito · 4 usuarios')).toBeVisible();
+    await expect(page.getByText('Enlace: Organismos · 4 usuarios')).toBeVisible();
 
     // Rol borrable: el modal de confirmación; el servidor responde 409 (alguien se lo asignó entre medias).
     await botonRol(page, 'Consulta contable').click();
@@ -468,7 +471,7 @@ test.describe('Roles y permisos — cuadro rol × función (HU #12085)', () => {
     await expect(page.locator(`[id="${describedBy}"]`)).toContainText('El rol admin es de sistema y no se puede borrar.');
   });
 
-  test('TC-g (AC4): «Marcar todas las funciones» marca todas sin guardar; rol externo → advertencia y, tras guardar, las funciones fuera del canal', async ({ page }) => {
+  test('TC-g (AC4): «Marcar todas las funciones» marca todas sin guardar; HU #12876: ningún aviso de canal externo, ni aunque el PUT traiga uno', async ({ page }) => {
     const { pedidos } = mockPermisos(page, {
       put: (codigo, enviadas) => json({
         codigo, funciones: enviadas, concedidas: [], revocadas: [],
@@ -477,7 +480,8 @@ test.describe('Roles y permisos — cuadro rol × función (HU #12085)', () => {
     });
     await abrir(page);
     await botonRol(page, 'Cliente').click();
-    await expect(page.getByText('Este rol es externo: sus usuarios entran solo al canal de cliente y ven únicamente lo de su compañía. Lo que se marque fuera del canal no lo van a poder ejercer.')).toBeVisible();
+    await expect(page.getByText('Enlace: Compañía · 3 usuarios')).toBeVisible();
+    await expect(page.getByText(/Este rol es externo/)).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Marcar todas las funciones', exact: true }).click();
     await expect(page.getByText(`Sin guardar: ${TOTAL - 1} marcadas`)).toBeVisible();
@@ -487,7 +491,6 @@ test.describe('Roles y permisos — cuadro rol × función (HU #12085)', () => {
     for (const c of ['pagina.pesv', 'pesv.incidente.crear', 'pagina.users', 'usuarios.usuario.crear']) await expect(casilla(page, c)).toBeChecked();
     // No guardó sola.
     expect(pedidos).toHaveLength(0);
-    await expect(page.getByText(/no aplica a roles externos/i)).toHaveCount(0);
 
     // Marcar todas del MÓDULO y desmarcar todas del módulo.
     await page.getByRole('button', { name: 'Desmarcar todas las funciones de Usuarios' }).click();
@@ -497,14 +500,10 @@ test.describe('Roles y permisos — cuadro rol × función (HU #12085)', () => {
 
     await page.getByRole('button', { name: 'Guardar cambios' }).click();
     expect(pedidos.at(-1)!.postDataJSON()).toEqual({ funciones: [...TODAS].sort() });
-    // El aviso con el conteo del servidor, los nombres (no los códigos) y la marca solo en esas casillas.
-    await expect(page.getByText(/Tiene 3 funciones marcadas fuera del canal que no va a poder ejercer/)).toBeVisible();
-    await expect(page.getByText('Entrar al tablero PESV · Registrar un incidente vial · Entrar a Usuarios')).toBeVisible();
-    await expect(page.getByText(/no aplica a roles externos/i)).toHaveCount(3);
-    // Desmarcar una de ellas la saca del aviso: «2 funciones».
-    await casilla(page, 'pagina.users').uncheck();
-    await expect(page.getByText(/Tiene 2 funciones marcadas fuera del canal/)).toBeVisible();
-    await expect(page.getByText(/no aplica a roles externos/i)).toHaveCount(2);
+    await expect(page.getByText(`${TOTAL}/${TOTAL}`).first()).toBeVisible();
+    // TC-01d (HU #12876): ni el aviso de canal, ni la lista de funciones fuera, ni la marca por casilla.
+    await expect(page.getByText(/fuera del canal|Este rol es externo|no aplica a roles externos/i)).toHaveCount(0);
+    await expect(page.getByText('Entrar al tablero PESV · Registrar un incidente vial · Entrar a Usuarios')).toHaveCount(0);
     // «Desmarcar todas» global.
     await page.getByRole('button', { name: 'Desmarcar todas', exact: true }).click();
     await expect(page.getByText(`Sin guardar: ${TOTAL} desmarcadas`)).toBeVisible();
@@ -520,7 +519,7 @@ test.describe('Roles y permisos — cuadro rol × función (HU #12085)', () => {
         codigo, funciones: ['impuestos.cola.exportar', 'impuestos.recibo.pagar', 'pagina.dashboard', 'pagina.flito_impuestos'],
         concedidas: ['impuestos.cola.exportar', 'pagina.dashboard'], revocadas: [], aviso: null,
       }),
-      mios: () => json({ funciones: TODAS, rol: 'admin', tipoPrincipal: 'interno', version, resueltoEn: '2026-09-10T12:00:00.000Z' }),
+      mios: () => json({ funciones: TODAS, rol: 'admin', version, resueltoEn: '2026-09-10T12:00:00.000Z' }),
     });
     await abrir(page);
     await botonRol(page, 'Gestor de Impuestos').click();
@@ -663,8 +662,8 @@ test.describe('Roles y permisos — cuadro rol × función (HU #12085)', () => {
       return route.fulfill(json({ grupos: modo === 'sinFunciones' ? [] : GRUPOS }));
     });
     await page.route(/\/api\/permisos\/roles$/, (route) => { roles++; return route.fulfill(json({ roles: modo === 'sinRoles' ? [] : ROLES })); });
-    await page.route(/\/api\/permisos\/roles\/([^/]+)\/funciones$/, (route) => route.fulfill(json({ codigo: 'x', tipoPrincipal: 'interno', funciones: [] })));
-    await page.route(/\/api\/permisos\/mios$/, (route) => route.fulfill(json({ funciones: [], rol: 'admin', tipoPrincipal: 'interno', version: 1, resueltoEn: '' })));
+    await page.route(/\/api\/permisos\/roles\/([^/]+)\/funciones$/, (route) => route.fulfill(json({ codigo: 'x', funciones: [] })));
+    await page.route(/\/api\/permisos\/mios$/, (route) => route.fulfill(json({ funciones: [], rol: 'admin', version: 1, resueltoEn: '' })));
 
     // 1 · Cargando.
     await abrir(page);
@@ -1213,5 +1212,173 @@ test.describe('Roles y permisos — cuadro rol × función (HU #12085)', () => {
     await page.getByRole('button', { name: 'Guardar cambios' }).click();
     await expect(page.getByText(/ya está aplicado/)).toBeVisible();
     expect(pedidos.at(-1)!.postDataJSON()).toEqual({ funciones: [...TODAS_DEP].sort() });
+  });
+});
+
+// ─── HU #12876 — panel de roles sin tipo y con enlace único de cuatro opciones ───────────────────
+// TCs de `docs/qa/hu-12876-tcs.md`. Mutantes nombrados: W1 (sigue mandando `tipoPrincipal`) lo matan
+// TC-01b/TC-01c; W2 (`proveedor_soat`) lo mata TC-02d; W3 (casillas) lo matan TC-02a/TC-02b.
+const ENLACES = ['Ninguno', 'Compañía', 'Proveedor', 'Organismos'] as const;
+const grupoEnlace = (modal: Locator) => modal.getByRole('radiogroup', { name: 'Enlace' });
+const radioEnlace = (modal: Locator, nombre: string) => grupoEnlace(modal).getByRole('radio', { name: nombre, exact: true });
+
+async function abrirNuevoRol(page: Page) {
+  await page.getByRole('button', { name: 'Nuevo rol' }).click();
+  const modal = page.getByRole('dialog');
+  await expect(modal.getByRole('heading', { name: 'Nuevo rol' })).toBeVisible();
+  return modal;
+}
+
+test.describe('HU #12876 · panel de roles: sin tipo y con enlace único', () => {
+  test('TC-01a · el formulario no tiene tipo de acceso ni «interno/externo»', async ({ page }) => {
+    mockPermisos(page);
+    await abrir(page);
+    const modal = await abrirNuevoRol(page);
+    await expect(modal.getByText(/interno|externo/i)).toHaveCount(0);
+    await expect(modal.getByLabel(/tipo de acceso/i)).toHaveCount(0);
+    await expect(modal.getByText(/tipo de acceso/i)).toHaveCount(0);
+  });
+
+  test('TC-01b + TC-02d · crear con Proveedor manda `proveedor` y sin `tipoPrincipal`', async ({ page }) => {
+    const { pedidos } = mockPermisos(page);
+    await abrir(page);
+    const modal = await abrirNuevoRol(page);
+    await modal.getByLabel('Nombre del rol').fill('Proveedor externo');
+    await modal.getByLabel('Descripción').fill('Atiende la cola de su proveedor.');
+    await radioEnlace(modal, 'Proveedor').check();
+    await modal.getByRole('button', { name: 'Crear rol' }).click();
+    expect(pedidos).toHaveLength(1);
+    const body = pedidos[0].postDataJSON() as Item;
+    expect(body).not.toHaveProperty('tipoPrincipal');
+    expect(body.tipoEnlace).toBe('proveedor');
+    expect(body).toEqual({ codigo: 'proveedor_externo', nombre: 'Proveedor externo', descripcion: 'Atiende la cola de su proveedor.', tipoEnlace: 'proveedor' });
+    await expect(page.getByText('Enlace: Proveedor · 0 usuarios')).toBeVisible();
+  });
+
+  test('TC-01c · editar un rol de compañía manda solo lo que cambió, sin `tipoPrincipal`', async ({ page }) => {
+    const { pedidos } = mockPermisos(page);
+    await abrir(page);
+    await botonRol(page, 'Cliente').click();
+    await page.getByRole('button', { name: 'Editar rol' }).click();
+    const edicion = page.getByRole('dialog');
+    await expect(radioEnlace(edicion, 'Compañía')).toBeChecked();
+    await edicion.getByLabel('Se puede asignar a usuarios nuevos').uncheck();
+    await edicion.getByRole('button', { name: 'Guardar cambios' }).click();
+    const patch = pedidos.at(-1)!;
+    expect(patch.method()).toBe('PATCH');
+    expect(patch.postDataJSON()).not.toHaveProperty('tipoPrincipal');
+    expect(patch.postDataJSON()).toEqual({ activo: false });
+  });
+
+  test('TC-02a + TC-02b + TC-02c · cuatro radios en orden fijo, una sola marcada, cada una con su ayuda', async ({ page }) => {
+    mockPermisos(page);
+    await abrir(page);
+    const modal = await abrirNuevoRol(page);
+    const radios = grupoEnlace(modal).getByRole('radio');
+    await expect(radios).toHaveCount(4);
+    await expect(grupoEnlace(modal).getByRole('checkbox')).toHaveCount(0);
+    const nombres = await radios.evaluateAll((ns) => ns.map((n) => document.getElementById(n.getAttribute('aria-labelledby') ?? '')?.textContent ?? ''));
+    expect(nombres).toEqual([...ENLACES]);
+    // Al crear viene Ninguno.
+    await expect(radioEnlace(modal, 'Ninguno')).toBeChecked();
+    // Selección única.
+    await radioEnlace(modal, 'Compañía').check();
+    await radioEnlace(modal, 'Proveedor').check();
+    await expect(radioEnlace(modal, 'Proveedor')).toBeChecked();
+    await expect(radioEnlace(modal, 'Compañía')).not.toBeChecked();
+    await expect(radioEnlace(modal, 'Ninguno')).not.toBeChecked();
+    // Una ayuda no vacía y distinta por opción, asociada por aria-describedby.
+    const ayudas = await radios.evaluateAll((ns) => ns.map((n) => document.getElementById(n.getAttribute('aria-describedby') ?? '')?.textContent?.trim() ?? ''));
+    expect(ayudas.every((a) => a.length > 0)).toBe(true);
+    expect(new Set(ayudas).size).toBe(4);
+    expect(ayudas[2]).toBe('Ve solo lo asignado a su proveedor. Hoy aplica a SOAT.');
+    // Ayuda del grupo.
+    await expect(modal.getByText('Decide qué datos ven las personas con este rol. La compañía, el proveedor o las secretarías de cada una se eligen en Usuarios.')).toBeVisible();
+  });
+
+  test('TC-02e · al editar aparece marcado el enlace guardado; cambiarlo a Ninguno lo manda', async ({ page }) => {
+    const { pedidos } = mockPermisos(page);
+    await abrir(page);
+    await botonRol(page, 'Gestor de Impuestos').click();
+    await page.getByRole('button', { name: 'Editar rol' }).click();
+    const edicion = page.getByRole('dialog');
+    await expect(radioEnlace(edicion, 'Organismos')).toBeChecked();
+    await radioEnlace(edicion, 'Ninguno').check();
+    // Con usuarios: el aviso del 409 nombra el enlace y queda en la descripción del grupo.
+    const aviso = edicion.getByText(/FLITO no deja cambiar el enlace mientras alguien lo tenga/);
+    await expect(aviso).toBeVisible();
+    await expect(grupoEnlace(edicion)).toHaveAttribute('aria-describedby', /rol-enlace-bloqueo/);
+    await edicion.getByRole('button', { name: 'Guardar cambios' }).click();
+    expect(pedidos.at(-1)!.method()).toBe('PATCH');
+    expect(pedidos.at(-1)!.postDataJSON()).toEqual({ tipoEnlace: 'ninguno' });
+  });
+
+  test('TC-03a · un rol de enlace proveedor se lee «Proveedor»; nunca «gestor/proveedor SOAT»', async ({ page }) => {
+    const roles = [...ROLES, rol({ codigo: 'proveedor', nombre: 'Aliado', tipoEnlace: 'proveedor', usuarios: 1 })];
+    mockPermisos(page, { roles, cuadros: { ...CUADROS, proveedor: ['pagina.dashboard'] } });
+    await abrir(page);
+    await botonRol(page, 'Aliado').click();
+    await expect(page.getByText('Enlace: Proveedor · 1 usuario')).toBeVisible();
+    await expect(page.getByText(/gestor SOAT|proveedor SOAT/i)).toHaveCount(0);
+    await page.getByRole('button', { name: 'Editar rol' }).click();
+    const edicion = page.getByRole('dialog');
+    await expect(radioEnlace(edicion, 'Proveedor')).toBeChecked();
+    await expect(edicion.getByText(/gestor SOAT|proveedor SOAT/i)).toHaveCount(0);
+  });
+
+  test('TC-04a + TC-04b · grupo con nombre accesible; Tab y flechas con foco visible', async ({ page }) => {
+    mockPermisos(page);
+    await abrir(page);
+    const modal = await abrirNuevoRol(page);
+    await expect(grupoEnlace(modal)).toBeVisible();
+    await modal.getByLabel('Descripción').focus();
+    await page.keyboard.press('Tab');
+    const ninguno = radioEnlace(modal, 'Ninguno');
+    await expect(ninguno).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    const compania = radioEnlace(modal, 'Compañía');
+    await expect(compania).toBeFocused();
+    await expect(compania).toBeChecked();
+    const anillo = await compania.evaluate((n) => { const c = getComputedStyle(n); return { outline: c.outlineStyle, sombra: c.boxShadow }; });
+    expect(anillo.outline !== 'none' || anillo.sombra !== 'none').toBe(true);
+  });
+
+  test('error al guardar: copy pulido en el modal con role=alert, nunca el error crudo', async ({ page }) => {
+    mockPermisos(page, { post: () => json({ error: 'duplicate key value violates unique constraint "permisos_roles_pkey"' }, 500) });
+    await abrir(page);
+    const modal = await abrirNuevoRol(page);
+    await modal.getByLabel('Nombre del rol').fill('Auditoría');
+    await modal.getByLabel('Descripción').fill('Revisa.');
+    await modal.getByRole('button', { name: 'Crear rol' }).click();
+    await expect(modal.getByRole('alert')).toHaveText('No se pudo guardar el rol. Inténtalo de nuevo; si se repite, recarga la página.');
+    await expect(modal.getByText(/duplicate key|permisos_roles_pkey/)).toHaveCount(0);
+    await expect(page.getByRole('dialog')).toHaveCount(1);
+  });
+
+  test.describe('móvil 390×844', () => {
+    test.use({ viewport: { width: 390, height: 844 } });
+    test('TC-04c + TC-04d · el formulario no desborda y las cuatro opciones son pulsables; axe sin graves', async ({ page }) => {
+      mockPermisos(page);
+      await abrir(page);
+      const modal = await abrirNuevoRol(page);
+      for (const n of ENLACES) {
+        await radioEnlace(modal, n).scrollIntoViewIfNeeded();
+        await expect(radioEnlace(modal, n)).toBeVisible();
+      }
+      await radioEnlace(modal, 'Organismos').check();
+      await expect(radioEnlace(modal, 'Organismos')).toBeChecked();
+      // Se mide el MODAL: la barra superior del shell desborda a 390 px por su cuenta (preexistente,
+      // fuera de esta HU; declarado en el HANDOFF).
+      const desborde = await page.evaluate(() => {
+        const d = document.querySelector('[role="dialog"]') as HTMLElement;
+        const caja = d.getBoundingClientRect();
+        const fuera = [...d.querySelectorAll('*')].filter((e) => e.getBoundingClientRect().right > caja.right + 1).length;
+        return { scroll: d.scrollWidth - d.clientWidth, derecha: caja.right - window.innerWidth, fuera };
+      });
+      expect(desborde).toEqual({ scroll: 0, derecha: expect.any(Number) as number, fuera: 0 });
+      expect(desborde.derecha).toBeLessThanOrEqual(0);
+      await cargarAxe(page);
+      esperarSinViolacionesGraves(await correrAxe(page), 'roles y permisos · modal de rol en móvil');
+    });
   });
 });
