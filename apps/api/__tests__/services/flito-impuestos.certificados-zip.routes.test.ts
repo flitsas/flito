@@ -13,7 +13,7 @@ import { testToken, type TestRole, neutralizarEnlaceDe } from '../helpers/auth.j
 // HU #12875: este fichero mide la regla del MÓDULO con roles de fábrica que la frontera por enlace
 // cierra hasta la #13426 (decisión (b) del PO); su enlace se neutraliza aquí, a la vista. El cierre lo
 // prueban `frontera-por-enlace.test.ts` y `frontera-enlace.centinela.test.ts`.
-neutralizarEnlaceDe('gestor_impuestos', 'transito', 'proveedor');
+neutralizarEnlaceDe('proveedor'); // HU #13426: gestor y tránsito llevan su enlace real (organismos_transito)
 
 const kdb = createKeyedDb();
 
@@ -89,7 +89,8 @@ async function buildApp() {
     next();
   });
   const { default: router } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
-  app.use('/api/flito/impuestos', router);
+  const { conAlcance } = await import('../../src/shared/middleware/frontera-enlace.js');
+  app.use('/api/flito/impuestos', conAlcance('impuestos', router)); // HU #13426: como en app.ts
   return app;
 }
 

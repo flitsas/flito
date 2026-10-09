@@ -15,6 +15,7 @@ import { audit } from '../../shared/middleware/audit.js';
 import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import type { ImpuestoCtx } from './flito-factura-venta.service.js';
 import { buscarConAcceso } from './flito-impuestos.service.js';
+import { exigirCompaniaPropia } from './flito-impuestos.alcance.js';
 import { reanalizarImpuesto } from './flito-impuestos.analisis.service.js';
 
 type Contexto = (user: NonNullable<Request['user']>) => Promise<ImpuestoCtx>;
@@ -54,6 +55,7 @@ export default function analisisRouter(contextoImpuesto: Contexto): Router {
       const id = idSchema.safeParse(req.params.id);
       if (!id.success) { res.status(400).json({ error: 'Id inválido' }); return; }
       const ctx = await contextoImpuesto(req.user!);
+      await exigirCompaniaPropia([id.data], ctx); // HU #13426 (AC3)
       if (!await buscarConAcceso(id.data, ctx)) { res.status(404).json({ error: 'El impuesto no existe' }); return; }
 
       const r = await reanalizarImpuesto(id.data);

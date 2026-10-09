@@ -10,7 +10,7 @@ import { testToken, neutralizarEnlaceDe } from '../helpers/auth.js';
 // HU #12875: este fichero mide la regla del MÓDULO con roles de fábrica que la frontera por enlace
 // cierra hasta la #13426 (decisión (b) del PO); su enlace se neutraliza aquí, a la vista. El cierre lo
 // prueban `frontera-por-enlace.test.ts` y `frontera-enlace.centinela.test.ts`.
-neutralizarEnlaceDe('gestor_impuestos', 'transito', 'proveedor');
+neutralizarEnlaceDe('proveedor'); // HU #13426: gestor y tránsito llevan su enlace real (organismos_transito)
 
 const selectMock = vi.fn();
 const updateMock = vi.fn();
@@ -35,7 +35,8 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
-  app.use('/api/flito/impuestos', router);
+  const { conAlcance } = await import('../../src/shared/middleware/frontera-enlace.js');
+  app.use('/api/flito/impuestos', conAlcance('impuestos', router)); // HU #13426: como en app.ts
   return app;
 }
 const auth = async (role: string) => `Bearer ${await testToken({ sub: 5, username: 'u@x.io', role: role as never })}`;
@@ -45,7 +46,7 @@ describe('flito-impuestos — RBAC', () => {
   it('gestor_impuestos → GET / (cola) 200', async () => {
     // La cola pagina desde la HU #10984: son dos consultas, el conteo y la página.
     // `contextoImpuesto` lee `flito_gestor_organismos` desde la HU #12053: una fila por organismo.
-    selectMock.mockReturnValueOnce(chain([{ codigo: '05001' }]));
+    selectMock.mockReturnValueOnce(chain([{ c: '05001' }]));
     selectMock.mockReturnValueOnce(chain([{ total: 0 }]));   // conteo
     selectMock.mockReturnValueOnce(chain([]));               // página vacía
     const r = await request(await buildApp()).get('/api/flito/impuestos').set('Authorization', await auth('gestor_impuestos'));
@@ -65,14 +66,15 @@ describe('flito-impuestos — RBAC', () => {
 describe('flito-impuestos — fronteras (CA-05/CA-10)', () => {
   it('gestor sin NINGÚN organismo → cola vacía', async () => {
     selectMock.mockReturnValueOnce(chain([])); // contexto: la tabla puente no tiene filas suyas
+    selectMock.mockReturnValueOnce(chain([{ t: null }])); // HU #13426 (P-4): fallback a users.transito_codigo, vacío
     const r = await request(await buildApp()).get('/api/flito/impuestos').set('Authorization', await auth('gestor_impuestos'));
     expect(r.status).toBe(200);
     expect(r.body).toEqual({ items: [], total: 0, page: 1, pageSize: 50 });
-    expect(selectMock).toHaveBeenCalledTimes(1); // ni siquiera consulta la cola: ni el conteo
+    expect(selectMock).toHaveBeenCalledTimes(2); // puente + fallback (P-4); la cola no: ni el conteo
   });
 
   it('gestor consulta un impuesto de OTRO organismo → 404 (no 403)', async () => {
-    selectMock.mockReturnValueOnce(chain([{ codigo: '05001' }])); // contexto gestor: organismo 05001
+    selectMock.mockReturnValueOnce(chain([{ c: '05001' }])); // contexto gestor: organismo 05001
     selectMock.mockReturnValueOnce(chain([{ imp: { id: UUID, organismoCodigo: '08001', estado: 'solicitado' }, dentroDeFrontera: true }]));
     const r = await request(await buildApp()).get(`/api/flito/impuestos/${UUID}`).set('Authorization', await auth('gestor_impuestos'));
     expect(r.status).toBe(404);

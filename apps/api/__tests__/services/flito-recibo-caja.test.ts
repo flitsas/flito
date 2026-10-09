@@ -82,7 +82,7 @@ afterEach(() => { vi.useRealTimers(); });
 
 const campo = (valor: string | null, confianza: number) => ({ valor, confianza, confiable: confianza >= 0.85 });
 const UUID = '00000000-0000-0000-0000-0000000000dd';
-const ADMIN = { userId: 5, username: 'ops@flito.co', role: 'admin', organismos: [] as string[] };
+const ADMIN = { userId: 5, username: 'ops@flito.co', role: 'admin', organismos: [] as string[], alcance: { enlace: 'ninguno' as const } };
 const LIQUIDADO_EN = new Date('2026-09-01T00:00:00Z');
 const pdf = (nombre: string, contenido: string) => ({ originalname: nombre, mimetype: 'application/pdf', buffer: Buffer.from(contenido), size: contenido.length });
 const sha = (a: { buffer: Buffer }) => createHash('sha256').update(a.buffer).digest('hex');

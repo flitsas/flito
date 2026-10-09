@@ -5,7 +5,7 @@
 // `registrarMovimiento` ya recibe concepto, organismo, trámite y llave de idempotencia aunque una
 // recarga no use ninguno.
 
-import { and, desc, eq, exists, isNotNull, isNull, like, lt, notExists, or, sql } from 'drizzle-orm';
+import { and, desc, eq, exists, isNotNull, isNull, like, lt, notExists, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
   clients, flitoBolsaCierres, flitoBolsaMovimientos, flitoBolsas, flitoBolsaTransitoMovimientos,
@@ -770,14 +770,18 @@ export async function corregirMovimiento(
   valorCorregido: number,
   motivoBruto: string,
   ctx: CtxUsuario,
+  companiaId?: CompaniaDeAlcance,
 ): Promise<{ correccion: MovimientoBolsaDto; saldo: number }> {
   const motivo = motivoValido(motivoBruto);
 
+  // HU #13426 (AC3): con enlace, el movimiento tiene que ser del libro de SU compañía (en el WHERE);
+  // si no aparece, 403 sin distinguir «ajeno» de «inexistente».
   const [original] = await db
     .select()
     .from(flitoBolsaMovimientos)
-    .where(eq(flitoBolsaMovimientos.id, movimientoId))
+    .where(and(eq(flitoBolsaMovimientos.id, movimientoId), soloCompania(flitoBolsaMovimientos.companiaId, companiaId)))
     .limit(1);
+  if (!original && companiaId !== undefined) throw new BolsaError('Sin permisos', 403);
   if (!original) throw new BolsaError('El movimiento no existe', 404);
 
   if (original.origen !== 'manual') {
@@ -1068,7 +1072,17 @@ export async function bolsaConRiesgoDe(companiaId: number): Promise<BolsaConRies
  * recargar, y dejar que cada cliente la ordene invitaría a que dos vistas muestren prioridades
  * distintas del mismo dato.
  */
-export async function bolsasConRiesgo(periodo?: string): Promise<BolsaConRiesgo[]> {
+/**
+ * HU #13426 (AC2/AC9): acota un AGREGADO a la compañía del enlace. `undefined` = global (sin enlace);
+ * `null` = cero filas (enlace sin compañía, o que no es de compañía). Lo calcula `companiaDeAlcance`.
+ */
+export type CompaniaDeAlcance = number | null | undefined;
+function soloCompania(col: AnyColumn, companiaId: CompaniaDeAlcance): SQL | undefined {
+  if (companiaId === undefined) return undefined;
+  return companiaId === null ? sql`false` : eq(col, companiaId);
+}
+
+export async function bolsasConRiesgo(periodo?: string, companiaId?: CompaniaDeAlcance): Promise<BolsaConRiesgo[]> {
   const filas = await db
     .select({
       id: flitoBolsas.id,
@@ -1079,7 +1093,8 @@ export async function bolsasConRiesgo(periodo?: string): Promise<BolsaConRiesgo[
       ultimaRecargaEn: flitoBolsas.ultimaRecargaEn,
     })
     .from(flitoBolsas)
-    .innerJoin(clients, eq(flitoBolsas.companiaId, clients.id));
+    .innerJoin(clients, eq(flitoBolsas.companiaId, clients.id))
+    .where(soloCompania(flitoBolsas.companiaId, companiaId));
 
   // Los totales del periodo salen de UNA consulta agrupada, no de una por cliente. El tablero los
   // pinta en cada tarjeta, así que pedirlos uno a uno convertía abrir la pantalla en tantas
@@ -1093,7 +1108,7 @@ export async function bolsasConRiesgo(periodo?: string): Promise<BolsaConRiesgo[
         salidas: sql<string>`coalesce(sum(case when ${flitoBolsaMovimientos.tipo} = 'salida' then ${flitoBolsaMovimientos.valor} else 0 end), 0)`,
       })
       .from(flitoBolsaMovimientos)
-      .where(eq(flitoBolsaMovimientos.periodo, periodo))
+      .where(and(eq(flitoBolsaMovimientos.periodo, periodo), soloCompania(flitoBolsaMovimientos.companiaId, companiaId)))
       .groupBy(flitoBolsaMovimientos.companiaId);
     for (const a of agregados) {
       totales.set(a.companiaId, {
@@ -1135,8 +1150,8 @@ export async function bolsasConRiesgo(periodo?: string): Promise<BolsaConRiesgo[
  * `sin_recargas` NO alerta: un cliente que aún no ha recibido su primera recarga no tiene un
  * problema de saldo, y colarlo aquí llenaría el panel de ruido el día que se den de alta clientes.
  */
-export async function alertasDeSaldo(): Promise<AlertaBolsa[]> {
-  const bolsas = await bolsasConRiesgo();
+export async function alertasDeSaldo(companiaId?: CompaniaDeAlcance): Promise<AlertaBolsa[]> {
+  const bolsas = await bolsasConRiesgo(undefined, companiaId);
   return bolsas
     .filter((b) => b.nivel !== NivelRiesgoBolsa.NORMAL && b.nivel !== NivelRiesgoBolsa.SIN_RECARGAS)
     .map((b) => ({
@@ -1150,6 +1165,22 @@ export async function alertasDeSaldo(): Promise<AlertaBolsa[]> {
         ? `La bolsa de ${b.companiaNombre} está agotada (saldo ${b.saldo}).`
         : `${b.companiaNombre} tiene ${NIVEL_RIESGO_BOLSA_LABEL[b.nivel].toLowerCase()}: ${b.porcentaje} % de su última recarga.`,
     }));
+}
+
+/** Salidas automáticas (o adoptadas por una conciliación) que siguen sin soporte. */
+function condicionSinSoporte(): SQL {
+  return and(
+    or(
+      eq(flitoBolsaMovimientos.origen, 'automatico'),
+      // Adoptado por una conciliación: lo asentó el sellado y sigue sin soporte. Ver la cabecera.
+      and(
+        eq(flitoBolsaMovimientos.origen, 'conciliacion'),
+        isNotNull(flitoBolsaMovimientos.tramiteId),
+      ),
+    ),
+    eq(flitoBolsaMovimientos.tipo, 'salida'),
+    isNull(flitoBolsaMovimientos.soporteId),
+  )!;
 }
 
 /**
@@ -1181,7 +1212,14 @@ export async function alertasDeSaldo(): Promise<AlertaBolsa[]> {
  * NULL` = «esto lo asentó el sellado y sigue sin comprobante». Conserva la alerta preexistente sin
  * crear ninguna incerrable.
  */
-export async function alertasDeConciliacion(): Promise<AlertasConciliacion> {
+export async function alertasDeConciliacion(companiaId?: CompaniaDeAlcance): Promise<AlertasConciliacion> {
+  // HU #13426: para una compañía solo cuenta lo de SU libro (movimientos sin soporte). Los soportes sin
+  // trámite y las boletas de conciliación son operación interna de FLIT: 0, sin consultarse.
+  if (companiaId !== undefined) {
+    const [propios] = await db.select({ n: sql<number>`count(*)::int` }).from(flitoBolsaMovimientos)
+      .where(and(condicionSinSoporte(), soloCompania(flitoBolsaMovimientos.companiaId, companiaId)));
+    return { soportesSinTramite: 0, movimientosSinSoporte: propios?.n ?? 0, boletasSinComprobante: 0 };
+  }
   const [pendientes] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(flitoDerechosPendientes)
@@ -1190,18 +1228,7 @@ export async function alertasDeConciliacion(): Promise<AlertasConciliacion> {
   const [sinSoporte] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(flitoBolsaMovimientos)
-    .where(and(
-      or(
-        eq(flitoBolsaMovimientos.origen, 'automatico'),
-        // Adoptado por una conciliación: lo asentó el sellado y sigue sin soporte. Ver la cabecera.
-        and(
-          eq(flitoBolsaMovimientos.origen, 'conciliacion'),
-          isNotNull(flitoBolsaMovimientos.tramiteId),
-        ),
-      ),
-      eq(flitoBolsaMovimientos.tipo, 'salida'),
-      isNull(flitoBolsaMovimientos.soporteId),
-    ));
+    .where(condicionSinSoporte());
 
   // AC6 de la HU #11678 — la otra mitad, la que el comentario de arriba dejaba anotada como hueco.
   //
@@ -1253,7 +1280,7 @@ export async function alertasDeConciliacion(): Promise<AlertasConciliacion> {
  * rutas donde el dueño es parte de la dirección.
  */
 export async function storageKeySoporteDeBolsa(
-  soporteId: string,
+  soporteId: string, companiaId?: CompaniaDeAlcance,
 ): Promise<{ storageKey: string; nombreArchivo: string; contentType: string } | null> {
   // El id llega del path: si no es un uuid, la comparación explotaría con un 22P02 (500) en vez de
   // devolver el 404 que corresponde a «eso no existe».
@@ -1266,12 +1293,16 @@ export async function storageKeySoporteDeBolsa(
   }).from(flitoSoportes)
     .where(and(
       eq(flitoSoportes.id, soporteId),
-      or(
-        exists(db.select({ uno: sql`1` }).from(flitoBolsaMovimientos)
-          .where(eq(flitoBolsaMovimientos.soporteId, flitoSoportes.id))),
-        exists(db.select({ uno: sql`1` }).from(flitoBolsaTransitoMovimientos)
-          .where(eq(flitoBolsaTransitoMovimientos.soporteId, flitoSoportes.id))),
-      ),
+      // HU #13426 (AC2): con enlace de compañía, solo un soporte de SU libro; el de tránsito, nunca.
+      companiaId !== undefined
+        ? exists(db.select({ uno: sql`1` }).from(flitoBolsaMovimientos)
+          .where(and(eq(flitoBolsaMovimientos.soporteId, flitoSoportes.id), soloCompania(flitoBolsaMovimientos.companiaId, companiaId))))
+        : or(
+          exists(db.select({ uno: sql`1` }).from(flitoBolsaMovimientos)
+            .where(eq(flitoBolsaMovimientos.soporteId, flitoSoportes.id))),
+          exists(db.select({ uno: sql`1` }).from(flitoBolsaTransitoMovimientos)
+            .where(eq(flitoBolsaTransitoMovimientos.soporteId, flitoSoportes.id))),
+        ),
     ))
     .limit(1);
   return s ?? null;
@@ -1288,12 +1319,13 @@ export async function storageKeySoporteDeBolsa(
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Saldo total prepago de todos los clientes. Lo consume el tablero de la HU #11127. */
-export async function saldoConsolidado(): Promise<{ clientes: number; saldoTotal: number }> {
+export async function saldoConsolidado(companiaId?: CompaniaDeAlcance): Promise<{ clientes: number; saldoTotal: number }> {
   const [fila] = await db
     .select({
       clientes: sql<number>`count(*)::int`,
       saldoTotal: sql<string>`coalesce(sum(${flitoBolsas.saldo}), 0)`,
     })
-    .from(flitoBolsas);
+    .from(flitoBolsas)
+    .where(soloCompania(flitoBolsas.companiaId, companiaId)); // HU #13426: solo la bolsa de C
   return { clientes: fila?.clientes ?? 0, saldoTotal: num(fila?.saldoTotal ?? '0') };
 }

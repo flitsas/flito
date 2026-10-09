@@ -8,6 +8,8 @@ import { EstadoDocumentoLogistica } from '@operaciones/shared-types';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { alcanceDe, soloSinEnlace } from '../../shared/middleware/frontera-enlace.js';
+import { enAlcanceLogistica, exigirPropioLogistica } from './flito-logistica.alcance.js';
 import {
   actaDetalle, buscarIdempotencia, cerrarLote, despachar, entregar, escanearLt, facetas,
   guardarIdempotencia, listar, listarActas, LogisticaError, miRuta, registrarDevolucion,
@@ -79,38 +81,43 @@ router.get('/', exigirFuncion('logistica.consola.ver'), async (req: Request, res
     empresas: lista(q.empresas), organismos: lista(q.organismos), actas: lista(q.actas),
     page: Number(q.page) || 1, pageSize: Number(q.pageSize) || 50,
   };
-  res.json(await listar(filtros));
+  res.json(await listar(filtros, await alcanceDe(req)));
 });
 
 // GET /facetas — valores para los dropdowns de filtro, compañías cerrables y mensajeros.
-router.get('/facetas', exigirFuncion('logistica.consola.filtrar'), async (_req: Request, res: Response) => {
-  res.json(await facetas());
+router.get('/facetas', exigirFuncion('logistica.consola.filtrar'), async (req: Request, res: Response) => {
+  res.json(await facetas(await alcanceDe(req)));
 });
 
 // GET /mi-ruta — ruta del mensajero (PWA): recogidas por organismo + entregas asignadas (CA-11).
-router.get('/mi-ruta', exigirFuncion('logistica.ruta.ver'), async (req: Request, res: Response) => {
+// HU #13426 (P-2): la ruta del mensajero es de personal de FLITO (sin enlace, AC1) → cerrada a enlaces.
+router.get('/mi-ruta', soloSinEnlace(), exigirFuncion('logistica.ruta.ver'), async (req: Request, res: Response) => {
   res.json(await miRuta(await ctxConPropiedad(req)));
 });
 
 // GET /actas — panel de despacho/entrega (todas las actas con su estado y mensajero).
-router.get('/actas', exigirFuncion('logistica.actas.listar'), async (_req: Request, res: Response) => {
-  res.json(await listarActas());
+router.get('/actas', exigirFuncion('logistica.actas.listar'), async (req: Request, res: Response) => {
+  res.json(await listarActas(await alcanceDe(req)));
 });
 
 // GET /actas/:id — detalle del acta: documentos + bitácora del despacho (CA-13).
 router.get('/actas/:id', exigirFuncion('logistica.actas.ver'), async (req: Request, res: Response) => {
+  // HU #13426 (AC2): un acta de otra compañía responde 404, igual que una inexistente.
+  if (!await enAlcanceLogistica('acta', req.params.id, await alcanceDe(req))) { res.status(404).json({ error: 'El acta no existe' }); return; }
   const r = await ejecutar(res, () => actaDetalle(req.params.id));
   if (r !== undefined) res.json(r);
 });
 
 // GET /actas/:id/pdf — URL prefirmada del PDF base del acta (se genera si falta).
 router.get('/actas/:id/pdf', exigirFuncion('logistica.actas.descargar'), async (req: Request, res: Response) => {
+  if (!await enAlcanceLogistica('acta', req.params.id, await alcanceDe(req))) { res.status(404).json({ error: 'El acta no existe' }); return; }
   const url = await ejecutar(res, () => urlActaPdf(req.params.id));
   if (url !== undefined) res.json({ url });
 });
 
 // GET /:id — detalle del trámite aprobado + su LT + bitácora (CA-07).
 router.get('/:id', exigirFuncion('logistica.documento.ver'), async (req: Request, res: Response) => {
+  if (!await enAlcanceLogistica('tramite', req.params.id, await alcanceDe(req))) { res.status(404).json({ error: 'El trámite no existe' }); return; }
   const r = await ejecutar(res, () => tramiteDetalle(req.params.id));
   if (r !== undefined) res.json(r);
 });
@@ -118,7 +125,8 @@ router.get('/:id', exigirFuncion('logistica.documento.ver'), async (req: Request
 // POST /validar-lt — valida el match de una LT SIN persistir (el mensajero escanea en lote; solo al
 // confirmar se llama a /escanear por cada LT relacionada). Solo lectura → sin idempotencia ni auditoría.
 const validarSchema = z.object({ rawValue: z.string().min(1) });
-router.post('/validar-lt', exigirFuncion('logistica.lt.validar'), async (req: Request, res: Response) => {
+// HU #13426 (P-2): buscan por placa/VIN entre TODOS los trámites → oráculo para una compañía: cerradas.
+router.post('/validar-lt', soloSinEnlace(), exigirFuncion('logistica.lt.validar'), async (req: Request, res: Response) => {
   const parsed = validarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   const r = await ejecutar(res, () => validarLt(parsed.data.rawValue));
@@ -129,7 +137,7 @@ router.post('/validar-lt', exigirFuncion('logistica.lt.validar'), async (req: Re
 const escanearSchema = z.object({
   rawValue: z.string().min(1), numeroLt: z.string().optional(), lat: z.string().optional(), lng: z.string().optional(),
 });
-router.post('/escanear', exigirFuncion('logistica.documento.escanear'), async (req: Request, res: Response) => {
+router.post('/escanear', soloSinEnlace(), exigirFuncion('logistica.documento.escanear'), async (req: Request, res: Response) => {
   const parsed = escanearSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   await conIdempotencia(req, res, async () => {
@@ -144,6 +152,7 @@ const motivoSchema = z.object({ motivo: z.string().trim().min(1) });
 router.post('/documentos/:id/novedad', exigirFuncion('logistica.documento.reportar_novedad'), async (req: Request, res: Response) => {
   const parsed = motivoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
+  await exigirPropioLogistica('documento', req.params.id, await alcanceDe(req)); // HU #13426 (AC3)
   await conIdempotencia(req, res, async () => {
     await registrarNovedad(req.params.id, parsed.data.motivo, ctxDe(req.user!));
     await audit(req, { action: 'update', resource: 'flito_logistica', resourceId: req.params.id, detail: `Novedad: ${parsed.data.motivo}` });
@@ -156,6 +165,12 @@ const cerrarLoteSchema = z.object({ companiaId: z.number().int().positive() });
 router.post('/cerrar-lote', exigirFuncion('logistica.lote.cerrar'), async (req: Request, res: Response) => {
   const parsed = cerrarLoteSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+  // HU #13426 (AC3): una compañía solo cierra SU lote; otro id → 403 sin comprobar si existe.
+  const a = await alcanceDe(req);
+  if (a.enlace !== 'ninguno' && !(a.enlace === 'compania' && a.companiaId === parsed.data.companiaId)) {
+    res.status(403).json({ error: 'Sin permisos' });
+    return;
+  }
   const r = await ejecutar(res, () => cerrarLote(parsed.data.companiaId, ctxDe(req.user!)));
   if (r === undefined) return;
   await audit(req, { action: 'create', resource: 'flito_logistica_acta', detail: `Acta generada para compañía ${parsed.data.companiaId}: ${JSON.stringify(r)}` });
@@ -170,6 +185,7 @@ const despacharSchema = z.object({
 router.post('/actas/:id/despachar', exigirFuncion('logistica.actas.despachar'), async (req: Request, res: Response) => {
   const parsed = despacharSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'La firma de quien entrega es obligatoria' }); return; }
+  await exigirPropioLogistica('acta', req.params.id, await alcanceDe(req));
   const r = await ejecutar(res, () => despachar(req.params.id, parsed.data, ctxDe(req.user!)));
   if (r === undefined) return;
   await audit(req, { action: 'update', resource: 'flito_logistica_acta', resourceId: req.params.id, detail: `Despacho a mensajero ${parsed.data.mensajeroId}` });
@@ -184,6 +200,7 @@ const entregarSchema = z.object({
 router.post('/actas/:id/entregar', exigirFuncion('logistica.actas.entregar'), async (req: Request, res: Response) => {
   const parsed = entregarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+  await exigirPropioLogistica('acta', req.params.id, await alcanceDe(req));
   await conIdempotencia(req, res, async () => {
     const r = await entregar(req.params.id, parsed.data, await ctxConPropiedad(req));
     await audit(req, { action: 'update', resource: 'flito_logistica_acta', resourceId: req.params.id, detail: `Entrega a ${parsed.data.receptorNombre}` });
@@ -195,6 +212,7 @@ router.post('/actas/:id/entregar', exigirFuncion('logistica.actas.entregar'), as
 router.post('/actas/:id/devolucion', exigirFuncion('logistica.actas.devolver'), async (req: Request, res: Response) => {
   const parsed = motivoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
+  await exigirPropioLogistica('acta', req.params.id, await alcanceDe(req));
   await conIdempotencia(req, res, async () => {
     const r = await registrarDevolucion(req.params.id, parsed.data.motivo, await ctxConPropiedad(req));
     await audit(req, { action: 'update', resource: 'flito_logistica_acta', resourceId: req.params.id, detail: `Devolución: ${parsed.data.motivo}` });
@@ -207,6 +225,7 @@ const reversarSchema = z.object({ estadoDestino: z.nativeEnum(EstadoDocumentoLog
 router.post('/documentos/:id/reversar', exigirFuncion('logistica.documento.reversar'), async (req: Request, res: Response) => {
   const parsed = reversarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+  await exigirPropioLogistica('documento', req.params.id, await alcanceDe(req));
   const r = await ejecutar(res, () => reversar(req.params.id, parsed.data.estadoDestino, parsed.data.motivo, ctxDe(req.user!)));
   if (r === undefined && res.headersSent) return;
   await audit(req, { action: 'update', resource: 'flito_logistica', resourceId: req.params.id, detail: `Reversa a "${parsed.data.estadoDestino}": ${parsed.data.motivo}` });

@@ -26,6 +26,8 @@ import {
 import { loggerFor } from '../../shared/logger.js';
 import { usuariosConFuncion } from '../../shared/permisos-efectivos.js';
 import { getEntityDocumentStream, presignedGetEntityDocument, uploadEntityDocument } from '../../services/storage.js';
+import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
+import { condicionActasLogistica, condicionDocumentosLogistica, condicionTramitesLogistica } from './flito-logistica.alcance.js';
 
 const log = loggerFor('flito-logistica');
 
@@ -305,10 +307,12 @@ function aFila(f: FilaCruda): TramiteFila {
   };
 }
 
-export async function listar(filtros: FiltrosLogistica = {}): Promise<ListadoLogistica> {
+export async function listar(filtros: FiltrosLogistica = {}, alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<ListadoLogistica> {
   const page = Math.max(1, Math.floor(filtros.page ?? 1));
   const pageSize = Math.min(200, Math.max(1, Math.floor(filtros.pageSize ?? 50)));
   const conds = construirCondiciones(filtros);
+  const porAlcance = condicionTramitesLogistica(alcance); // HU #13426: página y COUNT
+  if (porAlcance) conds.push(porAlcance);
 
   const countRows = await db.select({ total: sql<number>`count(distinct ${flitoTramites.id})::int` })
     .from(flitoTramites)
@@ -573,9 +577,11 @@ async function mensajerosAsignables(): Promise<Array<{ id: number; nombre: strin
     .where(and(inArray(users.id, ids), isNull(users.deletedAt)));
 }
 
-export async function facetas(): Promise<FacetasLogistica> {
+export async function facetas(alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<FacetasLogistica> {
   // Todas las facetas se restringen a compañías gestionadas por FLITO (logisticaAutogestionable = false).
-  const gestionable = eq(clients.logisticaAutogestionable, false);
+  // HU #13426 (AC7): y al alcance del enlace; los mensajeros (personal de FLITO) no se listan a una compañía.
+  const gestionable = and(eq(clients.logisticaAutogestionable, false), condicionTramitesLogistica(alcance))!;
+  const gestionableDocs = and(eq(clients.logisticaAutogestionable, false), condicionDocumentosLogistica(alcance))!;
   const [empresas, organismos, cerrables, mensajeros] = await Promise.all([
     db.selectDistinct({ nit: flitoTramites.companiaNit, nombre: clients.name })
       .from(flitoTramites).leftJoin(clients, eq(flitoTramites.companiaId, clients.id))
@@ -587,11 +593,11 @@ export async function facetas(): Promise<FacetasLogistica> {
       .where(and(aprobadoSql, gestionable, sql`${flitoTramites.organismoCodigo} is not null`)),
     db.select({ companiaId: flitoLogisticaDocumentos.companiaId, nombre: clients.name, disponibles: sql<number>`count(*)::int` })
       .from(flitoLogisticaDocumentos).leftJoin(clients, eq(flitoLogisticaDocumentos.companiaId, clients.id))
-      .where(and(eq(flitoLogisticaDocumentos.estado, EstadoDocumentoLogistica.CLASIFICADO), gestionable, sql`${flitoLogisticaDocumentos.companiaId} is not null`))
+      .where(and(eq(flitoLogisticaDocumentos.estado, EstadoDocumentoLogistica.CLASIFICADO), gestionableDocs, sql`${flitoLogisticaDocumentos.companiaId} is not null`))
       .groupBy(flitoLogisticaDocumentos.companiaId, clients.name),
     // HU #13425: asignable = quien entrega actas y NO opera las ajenas (hoy: el rol mensajero), leído
     // de sus funciones efectivas y no del nombre del rol.
-    mensajerosAsignables(),
+    alcance.enlace === 'ninguno' ? mensajerosAsignables() : Promise.resolve([]),
   ]);
   return {
     // Vocabulario SIMPLE (5 estados) para los filtros de la consola.
@@ -611,7 +617,7 @@ export interface ActaFila {
   mensajeroId: number | null; mensajeroNombre: string | null; documentos: number;
   receptorNombre: string | null; entregadoEn: string | null; creadoEn: string;
 }
-export async function listarActas(): Promise<ActaFila[]> {
+export async function listarActas(alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<ActaFila[]> {
   const rows = await db.select({
     id: flitoLogisticaActas.id, companiaId: flitoLogisticaActas.companiaId, companiaNombre: clients.name,
     estado: flitoLogisticaActas.estado, mensajeroId: flitoLogisticaActas.mensajeroId, mensajeroNombre: users.name,
@@ -621,6 +627,7 @@ export async function listarActas(): Promise<ActaFila[]> {
   }).from(flitoLogisticaActas)
     .leftJoin(clients, eq(flitoLogisticaActas.companiaId, clients.id))
     .leftJoin(users, eq(flitoLogisticaActas.mensajeroId, users.id))
+    .where(condicionActasLogistica(alcance)) // HU #13426
     .orderBy(desc(flitoLogisticaActas.createdAt));
   return rows.map((r) => ({
     ...r,

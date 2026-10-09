@@ -207,7 +207,7 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
-  app.use(BASE, router);
+  app.use(BASE, conAlcance('impuestos', router)); // HU #13426: como en app.ts
   return app;
 }
 
@@ -220,7 +220,7 @@ async function buildAppAmbas() {
   app.use(express.json());
   const { default: impuestos } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
   const { default: soat } = await import('../../src/modules/flito-soat/flito-soat.routes.js');
-  app.use(BASE, impuestos);
+  app.use(BASE, conAlcance('impuestos', impuestos)); // HU #13426: como en app.ts
   app.use('/api/flito/soat', conAlcance('soat', soat));
   return app;
 }
@@ -231,7 +231,7 @@ let siguienteSub = 9500;
 // (decisión (b) del PO). Lo que aquí se mide es el FILTRO DEL SERVICIO del gestor, que sigue en pie
 // y que la #13426 vuelve a abrir: por eso su sesión lleva el enlace neutralizado (`ninguno`). El
 // cierre en sí lo prueba `frontera-por-enlace.test.ts`.
-const ENLACE_DE_PRUEBA = (role: TestRole) => (role === 'gestor_impuestos' ? 'ninguno' : undefined);
+const ENLACE_DE_PRUEBA = (_role: TestRole): string | undefined => undefined; // HU #13426: enlace real
 const sesion = async (role: TestRole = 'admin'): Promise<string> =>
   `Bearer ${await testToken({ sub: siguienteSub++, username: 'ops@flit.io', role, tipoEnlace: ENLACE_DE_PRUEBA(role) })}`;
 
@@ -1078,8 +1078,8 @@ describe('fronteras — quién puede descargar y qué', () => {
   it('el gestor de impuestos arrastra su frontera al WHERE del archivo', async () => {
     kdb.when.scenario({
       // La atadura CA-10 vive en `flito_gestor_organismos` desde la HU #12053: una fila por
-      // organismo, no una columna de `users`.
-      flito_gestor_organismos: [{ codigo: '25473' }],
+      // organismo, no una columna de `users`. HU #13426: la lee `alcanceDeUsuario` (proyección `c`).
+      flito_gestor_organismos: [{ c: '25473' }],
       flito_impuestos: filas(1), flito_compradores: [],
     });
 
@@ -1105,7 +1105,7 @@ describe('fronteras — quién puede descargar y qué', () => {
    */
   it('TC-12053-24: el .xlsx del gestor con DOS organismos arrastra los DOS al WHERE', async () => {
     kdb.when.scenario({
-      flito_gestor_organismos: [{ codigo: '25473' }, { codigo: '05001' }],
+      flito_gestor_organismos: [{ c: '25473' }, { c: '05001' }],
       flito_impuestos: filas(1), flito_compradores: [],
     });
 

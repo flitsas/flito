@@ -35,8 +35,8 @@ const T_CERT = getTableName(flitoImpuestoCertificaciones);
 const T_COMPRADORES = getTableName(flitoCompradores);
 const T_SOPORTES = getTableName(flitoSoportes);
 
-const ADMIN = { userId: 1, username: 'ops@flitsas.io', role: 'admin', organismos: [] as string[] };
-const GESTOR = { userId: 2, username: 'gestor@flitsas.io', role: 'gestor_impuestos', organismos: ['05001'] };
+const ADMIN = { userId: 1, username: 'ops@flitsas.io', role: 'admin', organismos: [] as string[], alcance: { enlace: 'ninguno' as const } };
+const GESTOR = { userId: 2, username: 'gestor@flitsas.io', role: 'gestor_impuestos', organismos: ['05001'], alcance: { enlace: 'organismos_transito' as const, organismos: ['05001'] } };
 const ID = '71030cce-1a4c-4fb6-855d-fcc80aadc4e9';
 const LIQUIDADO_EN = new Date('2026-09-15T14:30:00Z');
 

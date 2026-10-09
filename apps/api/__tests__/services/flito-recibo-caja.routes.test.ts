@@ -88,7 +88,8 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
-  app.use('/api/flito/impuestos', router);
+  const { conAlcance } = await import('../../src/shared/middleware/frontera-enlace.js');
+  app.use('/api/flito/impuestos', conAlcance('impuestos', router)); // HU #13426: como en app.ts
   // 500 a propósito: un 400 solo puede venir de la ruta.
   app.use((err: { message?: string }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     res.status(500).json({ error: 'fallback', detalle: err.message });
@@ -97,7 +98,7 @@ async function buildApp() {
 }
 // HU #12875: Impuestos está cerrado por la frontera al enlace `organismos_transito` hasta la #13426;
 // aquí se mide el filtro del SERVICIO del gestor, así que su sesión lleva el enlace neutralizado.
-const auth = async (role: TestRole, sub = 7) => `Bearer ${await testToken({ sub, username: 'u@flitsas.io', role, tipoEnlace: role === 'gestor_impuestos' ? 'ninguno' : undefined })}`;
+const auth = async (role: TestRole, sub = 7) => `Bearer ${await testToken({ sub, username: 'u@flitsas.io', role })}`;
 
 beforeEach(() => {
   kdb.reset();
