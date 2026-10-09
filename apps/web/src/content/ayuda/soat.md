@@ -41,6 +41,7 @@ En el menú lateral, sección **Gestión**, ítem **SOAT**. La ruta de esta cola
 - No liquida, no **Factura** en sentido FLITO (congelar liquidación) ni hace **emisión electrónica**.
 - No gestiona impuestos, derechos de tránsito ni comparendos.
 - El Proveedor no ve ni envía los **Pendiente**; esa frontera la resuelve el Administrador.
+- Si su rol está ligado a una compañía, un proveedor o unas secretarías, no verá **Enviar a** ni **Enviar al gestor**, y en el detalle tampoco **Cambiar proveedor** ni **Devolver al proveedor**: escoger o cambiar el proveedor lo hace FLITO, aunque su rol tenga esas funciones. Los filtros de **Más filtros** le muestran solo las compañías, secretarías y proveedores de su propia cola.
 - **Rechazar** deja el SOAT en **Con novedad** y lo resuelve FLITO con el gestor: no devuelve la solicitud a quien la radicó ni le pide corregir nada. El Cliente lo ve así en el detalle y no tiene que hacer nada.
 - Esta pantalla no revisa ni aprueba solicitudes: una solicitud del canal **SOAT sin trámite** entra directamente en gestión. No hay **Validar**, ni causales de rechazo de solicitud, ni **Corregir y reenviar**.
 - Una solicitud radicada no se edita. Si el VIN o el propietario están mal, la solicitud correcta es otra: avise a FLITO y radique la que corresponda.
