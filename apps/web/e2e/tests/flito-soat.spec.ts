@@ -1,5 +1,5 @@
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, funcionesDe, OPERACIONES_USER, AUDITOR_USER, PROVEEDOR_USER, CLIENTE_USER, CLIENTE_CON_CANAL } from '../helpers/auth';
+import { loginAs, funcionesDe, sobreDeMios, OPERACIONES_USER, AUDITOR_USER, PROVEEDOR_USER, CLIENTE_USER, CLIENTE_CON_CANAL } from '../helpers/auth';
 
 // FLITO — Portal SOAT (Fase 6). Cola de adquisición: envío atómico al gestor,
 // detalle por VIN y solo-lectura para Auditoría. Backend mockeado.
@@ -1218,6 +1218,26 @@ test.describe('HU #12819 — los botones del kit reaccionan al puntero (§9)', (
 // enlace) ni ofrece enviar/cambiar/devolver al proveedor; los filtros salen de sus facetas.
 test.describe('FLITO — SOAT: listas de apoyo por enlace (HU #13452)', () => {
   const CON_ENLACE = { ...OPERACIONES_USER, id: 72, username: 'e2e_enlace_prov', role: 'proveedor', funciones: funcionesDe(OPERACIONES_USER) };
+
+  // TC-05: `/mios` puede responder `tipoEnlace: null` («aún no se sabe»; `AuthProvider` también arranca
+  // así). Hasta saberlo no se pide parametrización: tratar `null` como «sin enlace» dispararía el 403.
+  test('TC-05: con tipoEnlace null en /mios no pide parametrización', async ({ page }) => {
+    // `funciones: null`: el spec trae su propio `/mios` (si no, el de `loginAs` lo taparía).
+    await loginAs(page, OPERACIONES_USER, { funciones: null });
+    await page.route(/\/api\/permisos\/mios$/, (route) => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ ...sobreDeMios(OPERACIONES_USER), tipoEnlace: null }),
+    }));
+    await mock(page);
+    const pedidas: string[] = [];
+    await page.route(/\/api\/flito\/parametrizacion\//, (route) => { pedidas.push(route.request().url()); return route.abort(); });
+
+    await page.goto('/flito/soat');
+    await expect(page.getByText('ABC123')).toBeVisible();
+    // Margen para que los efectos que piden listas tras pintar la cola hayan tenido ocasión de dispararse.
+    await page.waitForTimeout(500);
+    expect(pedidas).toEqual([]);
+  });
 
   test('con enlace no pide parametrización ni ofrece «Enviar a»', async ({ page }) => {
     await loginAs(page, CON_ENLACE);
