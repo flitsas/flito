@@ -354,10 +354,10 @@ router.post('/export', exigirFuncion('soat.excel.exportar'), exportColaLimiter, 
  *
  * `soat.solicitud.ver_soportes` la tienen `auditor` y `cliente`; ver no es descargar en lote. El
  * AC7 (HU #11910) dice expresamente que auditoría no descarga: recibe 403 porque no tiene esta
- * función. Desde la HU #12815 (Épica #12810) el canal Cliente SÍ alcanza esta ruta —está en
- * `RUTAS_PERMITIDAS_CLIENTE`— pero solo con la función marcada a su rol; sin ella, 403 aquí. Lo que
+ * función. Desde la HU #12815 (Épica #12810) el canal Cliente SÍ alcanza esta ruta —el montaje
+ * de SOAT está abierto al enlace `compania` (HU #12875)— pero solo con la función marcada a su rol; sin ella, 403 aquí. Lo que
  * le llega está acotado dos veces en el servicio: su compañía (`condicionesCola`, rama
- * `esExterno`: TODO rol externo, no el literal `cliente`) y solo SOAT `pagado`
+ * `acotadoACompania`: todo rol de enlace `compania`, no el literal `cliente`) y solo SOAT `pagado`
  * (`registrosZipSoat`), la misma regla de la póliza que aplica `TIPOS_SOPORTE_VISIBLES_CLIENTE`.
  *
  * ── El orden de la respuesta ─────────────────────────────────────────────────────────────────────
@@ -522,9 +522,8 @@ router.get('/:id/historial', exigirFuncion('soat.solicitud.ver_historial'), asyn
  * **Y desde la HU #11916 viaja también el ESTADO, que es la tercera pregunta** («¿ya hay algo que
  * enseñar?»): para el `cliente`, la póliza solo sale con el SOAT en `pagado` (AC2/AC3). El estado
  * sale del detalle que acaba de autorizar el acceso y no de una segunda lectura: son el mismo hecho,
- * y dos lecturas podrían discrepar entre sí. Esta ruta sigue sirviendo al canal Cliente sin ninguna
- * entrada nueva en `canal-cliente.ts` — `GET /api/flito/soat/:id/soportes` ya estaba inscrita desde
- * la #11913, y el archivo se descarga por `GET /api/files?…`, que es público y va firmado.
+ * y dos lecturas podrían discrepar entre sí. Esta ruta sirve al canal Cliente porque el montaje de
+ * SOAT está declarado con `conAlcance('soat', …)` (HU #12875), y el archivo se descarga por `GET /api/files?…`, que es público y va firmado.
  */
 router.get('/:id/soportes', exigirFuncion('soat.solicitud.ver_soportes'), async (req: Request, res: Response) => {
   const ctx = await contextoSoat(req.user!);
@@ -532,7 +531,7 @@ router.get('/:id/soportes', exigirFuncion('soat.solicitud.ver_soportes'), async 
   if (!d) { res.status(404).json({ error: 'El SOAT no existe' }); return; }
   // Sin caché: una factura cargada hace un minuto tiene que salir sin recargar la pantalla.
   res.set('Cache-Control', 'no-store');
-  res.json(await soportesDeSoat(req.params.id, { rol: ctx.role, externo: ctx.externo || ctx.alcance === 'compania', estadoSoat: d.estado }));
+  res.json(await soportesDeSoat(req.params.id, { rol: ctx.role, proyeccionCliente: ctx.proyeccionCliente, estadoSoat: d.estado }));
 });
 
 // POST /enviar — Pendiente → En adquisición, atómico (CA-04). Solo Operaciones.

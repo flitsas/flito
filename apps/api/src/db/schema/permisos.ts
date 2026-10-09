@@ -22,12 +22,14 @@ export const permisosRoles = pgTable('permisos_roles', {
   codigo: varchar('codigo', { length: 40 }).primaryKey(),
   nombre: varchar('nombre', { length: 80 }).notNull(),
   descripcion: text('descripcion'),
-  // 'ninguno' | 'compania' | 'proveedor_soat' | 'organismos_transito'. El ROL dice si se enlaza y a
-  // QUÉ tipo (RN-A3); el usuario dice a cuál. Lo hacen cumplir los dos triggers de la 0178
+  // 'ninguno' | 'compania' | 'proveedor' | 'organismos_transito' (`proveedor_soat` → `proveedor` en la
+  // 0231). El ROL dice si se enlaza y a QUÉ tipo (RN-A3); el usuario dice a cuál. Desde la HU #12875 es
+  // la ÚNICA frontera (`frontera-enlace.ts`, ADR-0024). Lo hacen cumplir los dos triggers de la 0178
   // (`users_ambito_trg` y `users_ambito_organismos_trg`), que Drizzle no sabe declarar.
   tipoEnlace: varchar('tipo_enlace', { length: 24 }).notNull().default('ninguno'),
-  // 'interno' | 'externo'. Lo consume el motor (HU #12082): `resolverPermisos` lo devuelve cacheado y
-  // `guardiaCanalCliente` dispara la frontera del canal externo por este valor, no por el literal del rol.
+  /** @deprecated HU #12875 — RETIRADA (expand/contract): sin lectores ni escritores en el código. Se
+   * conserva para no abrir deriva schema↔BD y para que un rollback de imagen arranque; DROP en el WI
+   * de contracción, cuando la versión sin lectores esté en PDN. */
   tipoPrincipal: varchar('tipo_principal', { length: 10 }).notNull().default('interno'),
   // Candado de BORRADO (ADR-0015 §Decisión 5), no marca de origen: true ⇒ el rol no se borra. Solo
   // `admin`: el candado temporal de `cliente` lo retiró la 0180 (HU #12082 AC8). Editar sigue permitido (CF-04).
@@ -38,7 +40,7 @@ export const permisosRoles = pgTable('permisos_roles', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   tipoEnlaceChk: check('permisos_roles_tipo_enlace_chk',
-    sql`${t.tipoEnlace} IN ('ninguno','compania','proveedor_soat','organismos_transito')`),
+    sql`${t.tipoEnlace} IN ('ninguno','compania','proveedor','organismos_transito')`),
   tipoPrincipalChk: check('permisos_roles_tipo_principal_chk',
     sql`${t.tipoPrincipal} IN ('interno','externo')`),
 }));

@@ -64,7 +64,7 @@ export const CAMPO_LABELS: Record<CampoAuditable, string> = {
   nombre: 'Nombre',
   descripcion: 'Descripción',
   tipo_enlace: 'Tipo de enlace',
-  tipo_principal: 'Tipo principal',
+  tipo_principal: 'Tipo de acceso (retirado)', // HU #12875: histórico; el campo ya no se escribe
   activo: 'Activo',
   conjunto: 'Conjunto de funciones',
 };

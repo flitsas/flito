@@ -24,6 +24,7 @@ import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
 import { ligadoA, renderizar } from '../helpers/sql-ligado.js';
 import { registrarUsuarioDePrueba } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 const kdb = createKeyedDb();
 const espia = crearEspia(kdb);
@@ -49,7 +50,7 @@ vi.mock('../../src/services/storage.js', () => ({
 vi.mock('../../src/modules/flito-soat/flito-soat.service.js', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   contextoSoat: vi.fn(async (u: { id: number; username: string; role: string }) => ({
-    userId: u.id, username: u.username, role: u.role, externo: false, alcance: 'todo',
+    userId: u.id, username: u.username, role: u.role, proyeccionCliente: false, alcance: 'todo',
   })),
   buscarConAcceso: accesoMock,
 }));
@@ -63,7 +64,7 @@ let sub = 13364700;
 async function auth(funciones: string[]) {
   sub += 1;
   await registrarUsuarioDePrueba(sub, {
-    rol: 'rol_prueba', tipoPrincipal: 'interno', tipoEnlace: 'ninguno', excepciones: [],
+    rol: 'rol_prueba', tipoEnlace: 'ninguno', excepciones: [],
     funcionesDelRol: ['pagina.flito_soat', ...funciones],
   });
   const t = await new SignJWT({ username: 'operador@flit.co', role: 'rol_prueba' })
@@ -75,7 +76,7 @@ async function auth(funciones: string[]) {
 async function borrar(token: string, id = ID, soporteId = SOP) {
   const app = express();
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat-documentos.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return request(app).delete(`/api/flito/soat/${id}/documentos-adicionales/${soporteId}`).set('Authorization', token);
 }
 

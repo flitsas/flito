@@ -39,7 +39,9 @@ async function buildApp() {
   app.use('/api/flito/impuestos', router);
   return app;
 }
-const auth = async (role: string) => `Bearer ${await testToken({ sub: USER_ID, username: 'ops@flitsas.com', role: role as never })}`;
+// HU #12875: Impuestos está cerrado por la frontera al enlace organismos hasta #13426; aquí se mide la
+// regla del módulo (por función/organismo), así que el gestor lleva el enlace neutralizado.
+const auth = async (role: string) => `Bearer ${await testToken({ sub: USER_ID, username: 'ops@flitsas.com', role: role as never, tipoEnlace: role === 'gestor_impuestos' ? 'ninguno' : undefined })}`;
 
 /** Igual que en SOAT: el helper `chain` no registra argumentos, así que se envuelve para capturarlos. */
 function montarTx(filasBloqueadas: { id: string }[] = [{ id: IMP_ID }], filaActualizada: unknown = { id: IMP_ID }) {

@@ -52,19 +52,19 @@ import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
 import { EXISTS_COMPROBANTE_SOAT, TIPO_FACTURA_SOAT } from './flito-soat-censo.js';
 import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
 import { resolverPermisos, type PermisosResueltos } from '../../shared/permisos-efectivos.js';
+import { alcanceDeUsuario } from '../../shared/middleware/frontera-enlace.js';
 
 export interface SoatCtx {
   userId: number;
   username: string;
   role: string;
   /**
-   * El rol es EXTERNO (`permisos_roles.tipo_principal = 'externo'`), resuelto con el MISMO resolutor
-   * que la guarda del canal (`resolverPermisos`) y con el mismo fallo cerrado: si no se puede leer el
-   * tipo, se trata como externo. Decide la frontera por compañía y la proyección de campos (HU #12815).
-   * NO se deduce del literal `'cliente'`: desde la HU #12082 el panel crea roles externos con
-   * cualquier código, y comparar con el literal les daba la vista de admin.
+   * HU #12875: la PROYECCIÓN de campos del canal Cliente (sin nombres de empleados, soportes en
+   * allowlist) la decide el ENLACE: `alcance ∈ {compania, nada}`. Un rol interno ligado a compañía
+   * también la recibe (una regla por enlace); fallo de resolución → `nada` → proyección (cerrado).
+   * NO se deduce del literal `'cliente'` ni del tipo interno/externo (retirado).
    */
-  externo: boolean;
+  proyeccionCliente: boolean;
   /**
    * Bug #12869 — el ALCANCE de filas, derivado del `tipo_enlace` del rol (no del literal del rol ni
    * del tipo interno/externo): `todo` (enlace `ninguno`), `compania` (su compañía), `proveedor` (la
@@ -93,46 +93,37 @@ export interface SoatCtx {
 export type AlcanceSoat = 'todo' | 'compania' | 'proveedor' | 'nada';
 
 /**
- * Bug #12869 — el alcance lo decide el ENLACE del rol. `tipoPrincipal` solo interviene en la
- * excepción transitoria: un rol externo SIN enlace no ve nada (el tipo se retira en otro Feature;
- * hasta entonces no se abre). Exportada para que las pruebas fijen la tabla entera.
+ * Bug #12869 / HU #12875 — el alcance lo decide SOLO el ENLACE del rol: `ninguno` → todo (decide el
+ * permiso, AC4). Exportada para que las pruebas fijen la tabla entera.
  */
 export function alcanceSoatDe(p: PermisosResueltos): AlcanceSoat {
   if (!p.ok) return 'nada';
   switch (p.tipoEnlace) {
-    case 'ninguno': return p.tipoPrincipal === 'externo' ? 'nada' : 'todo';
+    case 'ninguno': return 'todo';
     case 'compania': return 'compania';
-    case 'proveedor_soat': return 'proveedor';
+    case 'proveedor': return 'proveedor';
     default: return 'nada'; // organismos_transito y cualquier valor desconocido
   }
 }
 
 export async function contextoSoat(user: { sub: number; username: string; role: string }): Promise<SoatCtx> {
-  let proveedorSoatId: string | null = null;
-  let companiaId: number | null = null;
   const p = await resolverPermisos(user.sub);
-  // HU #12815: el tipo del rol decide la PROYECCIÓN de campos (qué columnas ve), con `!p.ok` ⇒ externo.
-  const externo = !p.ok || p.tipoPrincipal === 'externo';
-  // Bug #12869: el ENLACE decide el alcance de FILAS. El id se lee de la base en cada petición (§9.3).
+  // Bug #12869 / HU #12875: el ENLACE decide filas y proyección. El id se lee de la base en cada
+  // petición (§9.3) con el enganche de la frontera (`alcanceDeUsuario`), el mismo que usará #13426.
   const alcance = alcanceSoatDe(p);
-  if (alcance === 'compania' || alcance === 'proveedor') {
-    const [u] = await db.select({ c: users.companiaId, p: users.flitoProveedorSoatId })
-      .from(users).where(eq(users.id, user.sub)).limit(1);
-    if (alcance === 'compania') companiaId = u?.c ?? null;
-    else proveedorSoatId = u?.p ?? null;
-  }
-  return { userId: user.sub, username: user.username, role: user.role, externo, alcance, proveedorSoatId, companiaId };
+  const a = alcance === 'compania' || alcance === 'proveedor' ? await alcanceDeUsuario(user.sub, alcance) : null;
+  const companiaId = a?.enlace === 'compania' ? a.companiaId : null;
+  const proveedorSoatId = a?.enlace === 'proveedor' ? a.proveedorId : null;
+  const proyeccionCliente = alcance === 'compania' || alcance === 'nada';
+  return { userId: user.sub, username: user.username, role: user.role, proyeccionCliente, alcance, proveedorSoatId, companiaId };
 }
 
-/** Frontera del gestor: CUALQUIER rol con enlace `proveedor_soat` (Bug #12869), no el literal `proveedor`. */
+/** Frontera del gestor: CUALQUIER rol con enlace `proveedor` (Bug #12869), no un literal de rol. */
 const esGestor = (ctx: SoatCtx) => ctx.alcance === 'proveedor';
 /** Frontera por compañía: CUALQUIER rol con enlace `compania`, interno o externo (Bug #12869). */
 const acotadoACompania = (ctx: SoatCtx) => ctx.alcance === 'compania';
-/**
- * Usuario de un rol EXTERNO —el `cliente` de siempre o cualquier rol externo creado en el panel—.
- * Decide la PROYECCIÓN (qué campos), no las filas: eso es `alcance` (Bug #12869).
- */
-const esExterno = (ctx: SoatCtx) => ctx.externo;
+/** Decide la PROYECCIÓN del canal Cliente (qué campos), no las filas: eso es `alcance` (Bug #12869). */
+const esExterno = (ctx: SoatCtx) => ctx.proyeccionCliente;
 
 /**
  * El valor de `flito_soat.origen` que marca las filas del canal Cliente (Feature #11912).

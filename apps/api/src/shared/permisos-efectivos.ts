@@ -2,10 +2,11 @@
 //
 // Nació en la HU #12081 resolviendo solo las páginas (`paginasEfectivasDeUsuario`) y desde esta HU
 // es el motor entero: `resolverPermisos(userId)` devuelve el conjunto efectivo de funciones
-// (`pagina.*` y `operacion.*`), el rol, su `tipo_principal` y su `tipo_enlace` (Bug #12869), y lo cachea 60 s por usuario.
+// (`pagina.*` y `operacion.*`), el rol y su `tipo_enlace` (Bug #12869; desde la HU #12875 la única
+// frontera, ADR-0024), y lo cachea 60 s por usuario.
 // Lo consumen `exigirFuncion` (la guarda HTTP), `requirePage` (que es `exigirFuncion('pagina.<slug>')`),
-// `guardiaCanalCliente` (la frontera del canal externo, que lee `tipoPrincipal` de aquí y no del
-// literal del rol), `GET /api/permisos/mios`, el login y `/me`. No hay una segunda definición de
+// `guardiaFrontera` (la frontera por enlace, que lee `tipoEnlace` de aquí y no del literal del rol),
+// `GET /api/permisos/mios`, el login y `/me`. No hay una segunda definición de
 // «quién puede»: la pantalla y el servidor leen la misma foto.
 //
 // ── La regla: (R ∪ C) \ V, y qué fuente decide cada familia ─────────────────────────────────────
@@ -47,27 +48,32 @@ import { createHash } from 'node:crypto';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { permisosRoles, permisosRolFuncion, permisosUsuarioFuncion, users } from '../db/schema.js';
-import { isValidPage, type PageSlug } from '@operaciones/shared-types';
+import { isValidPage, TIPOS_ENLACE, type PageSlug, type TipoEnlace as TipoEnlaceContrato } from '@operaciones/shared-types';
 import { loggerFor } from './logger.js';
 
 const log = loggerFor('permisos');
 
 const PREFIJO = 'pagina.';
 
-export type TipoPrincipal = 'interno' | 'externo';
+/**
+ * Bug #12869 / HU #12875 — `permisos_roles.tipo_enlace`: a qué entidad ata el rol a sus usuarios.
+ * Decide la FRONTERA (qué módulos alcanza, `frontera-enlace.ts`) y el ALCANCE de datos (qué filas ve).
+ * `null` = un valor que este código no conoce: quien lo consuma debe tratarlo como «nada» (fallo
+ * cerrado), nunca como `ninguno` (que significa «decide el permiso»).
+ */
+export type TipoEnlace = TipoEnlaceContrato;
 
 /**
- * Bug #12869 — `permisos_roles.tipo_enlace`: a qué entidad ata el rol a sus usuarios. Decide el
- * ALCANCE de datos (qué filas ve), que no es lo mismo que el tipo interno/externo (qué campos ve).
- * `null` = un valor que este código no conoce: quien lo consuma debe tratarlo como «nada» (fallo
- * cerrado), nunca como `ninguno` (que en SOAT significa «todo»).
+ * Alias TRANSITORIO (HU #12875, diseño §7.2): `'proveedor_soat'` es el valor previo a la 0231. Si la
+ * imagen nueva arranca antes de que alguien aplique la 0231 a mano (PDN), los gestores no pierden
+ * SOAT. Se retira con la columna del tipo interno/externo (retirada) en el WI de contracción.
  */
-export type TipoEnlace = 'ninguno' | 'compania' | 'proveedor_soat' | 'organismos_transito';
+const ALIAS_ENLACE: Readonly<Record<string, TipoEnlace>> = Object.freeze({ proveedor_soat: 'proveedor' });
 
-const ENLACES: readonly TipoEnlace[] = ['ninguno', 'compania', 'proveedor_soat', 'organismos_transito'];
-
-function enlaceConocido(v: string | null | undefined): TipoEnlace | null {
-  return (ENLACES as readonly (string | null | undefined)[]).includes(v) ? (v as TipoEnlace) : null;
+export function enlaceConocido(v: string | null | undefined): TipoEnlace | null {
+  if (v == null) return null;
+  if ((TIPOS_ENLACE as readonly string[]).includes(v)) return v as TipoEnlace;
+  return ALIAS_ENLACE[v] ?? null;
 }
 
 export interface PermisosOk {
@@ -75,8 +81,6 @@ export interface PermisosOk {
   userId: number;
   /** `users.role` leído de la base, NO del token. */
   rol: string;
-  /** `permisos_roles.tipo_principal` del rol. */
-  tipoPrincipal: TipoPrincipal;
   /** `permisos_roles.tipo_enlace` del rol (Bug #12869); `null` si el valor no es uno conocido. */
   tipoEnlace: TipoEnlace | null;
   /** El conjunto efectivo: (R ∪ C) \ V. */
@@ -93,7 +97,6 @@ export type PermisosResueltos =
 /** Las filas crudas de las que sale la decisión. Es lo que el double de pruebas sustituye. */
 export interface FilasPermisos {
   rol: string;
-  tipoPrincipal: TipoPrincipal;
   /** Crudo, como viene de la base; `resolverPermisos` lo normaliza (desconocido → `null`). */
   tipoEnlace: string | null;
   funcionesDelRol: string[];
@@ -115,7 +118,6 @@ const cache = new Map<number, { valor: PermisosOk; expiraEn: number }>();
 async function leerFilasDePermisos(userId: number): Promise<FilasPermisos | null> {
   const [fila] = await db.select({
     rol: users.role,
-    tipoPrincipal: permisosRoles.tipoPrincipal,
     tipoEnlace: permisosRoles.tipoEnlace,
   })
     .from(users)
@@ -137,7 +139,6 @@ async function leerFilasDePermisos(userId: number): Promise<FilasPermisos | null
 
   return {
     rol: fila.rol,
-    tipoPrincipal: fila.tipoPrincipal === 'externo' ? 'externo' : 'interno',
     tipoEnlace: fila.tipoEnlace,
     funcionesDelRol: delRol.map((r) => r.codigo),
     excepciones: propias.map((p) => ({
@@ -190,9 +191,9 @@ function conjuntoEfectivo(filas: FilasPermisos): Set<string> {
   return conjunto;
 }
 
-function versionDe(rol: string, tipoPrincipal: TipoPrincipal, funciones: Set<string>): string {
+function versionDe(rol: string, tipoEnlace: TipoEnlace | null, funciones: Set<string>): string {
   return createHash('sha256')
-    .update(`${rol}|${tipoPrincipal}|${[...funciones].sort().join(',')}`)
+    .update(`${rol}|${tipoEnlace ?? '?'}|${[...funciones].sort().join(',')}`)
     .digest('hex')
     .slice(0, 16);
 }
@@ -216,14 +217,14 @@ export async function resolverPermisos(userId: number): Promise<PermisosResuelto
   if (!filas) return { ok: false, userId, motivo: 'sin_usuario' };
 
   const funciones = conjuntoEfectivo(filas);
+  const tipoEnlace = enlaceConocido(filas.tipoEnlace);
   const valor: PermisosOk = {
     ok: true,
     userId,
     rol: filas.rol,
-    tipoPrincipal: filas.tipoPrincipal,
-    tipoEnlace: enlaceConocido(filas.tipoEnlace),
+    tipoEnlace,
     funciones,
-    version: versionDe(filas.rol, filas.tipoPrincipal, funciones),
+    version: versionDe(filas.rol, tipoEnlace, funciones),
     resueltoEn: new Date(ahora),
   };
   cache.set(userId, { valor, expiraEn: ahora + PERMISOS_CACHE_TTL_MS });
@@ -272,7 +273,6 @@ export async function usuariosConFuncion(codigo: string, opts: { sin?: string } 
   const principales = await db.select({
     id: users.id,
     rol: users.role,
-    tipoPrincipal: permisosRoles.tipoPrincipal,
     tipoEnlace: permisosRoles.tipoEnlace,
   })
     .from(users)
@@ -295,7 +295,6 @@ export async function usuariosConFuncion(codigo: string, opts: { sin?: string } 
   for (const p of principales) {
     filas.set(p.id, {
       rol: p.rol,
-      tipoPrincipal: p.tipoPrincipal === 'externo' ? 'externo' : 'interno',
       tipoEnlace: p.tipoEnlace,
       funcionesDelRol: delRol.filter((r) => r.rol === p.rol).map((r) => r.codigo),
       excepciones: propias.filter((e) => e.userId === p.id)

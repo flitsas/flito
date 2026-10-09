@@ -36,6 +36,7 @@ import { getTableName } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { testToken, type TestRole } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 /** Tope de filas del export durante esta suite. Pequeño a propósito (ver cabecera). */
 const TOPE = 3;
@@ -220,14 +221,19 @@ async function buildAppAmbas() {
   const { default: impuestos } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
   const { default: soat } = await import('../../src/modules/flito-soat/flito-soat.routes.js');
   app.use(BASE, impuestos);
-  app.use('/api/flito/soat', soat);
+  app.use('/api/flito/soat', conAlcance('soat', soat));
   return app;
 }
 
 /** `sub` nuevo por caso: el limitador cuenta 5/min y usuario, y su ventana no se reinicia. */
 let siguienteSub = 9500;
+// HU #12875: Impuestos está CERRADO por la frontera al enlace `organismos_transito` hasta la #13426
+// (decisión (b) del PO). Lo que aquí se mide es el FILTRO DEL SERVICIO del gestor, que sigue en pie
+// y que la #13426 vuelve a abrir: por eso su sesión lleva el enlace neutralizado (`ninguno`). El
+// cierre en sí lo prueba `frontera-por-enlace.test.ts`.
+const ENLACE_DE_PRUEBA = (role: TestRole) => (role === 'gestor_impuestos' ? 'ninguno' : undefined);
 const sesion = async (role: TestRole = 'admin'): Promise<string> =>
-  `Bearer ${await testToken({ sub: siguienteSub++, username: 'ops@flit.io', role })}`;
+  `Bearer ${await testToken({ sub: siguienteSub++, username: 'ops@flit.io', role, tipoEnlace: ENLACE_DE_PRUEBA(role) })}`;
 
 const exportar = async (cabecera: string, cuerpo: unknown = {}) =>
   request(await buildApp())
@@ -1540,7 +1546,7 @@ describe('archivo ampliado — la función decide, no el rol; y el 403 no deja r
 
   it('un `gestor_impuestos` al que el admin le repartió la función baja el ampliado: decide la función', async () => {
     kdb.when.scenario({ flito_impuestos: [filaPagada()], flito_compradores: [comprador()] });
-    const cabecera = `Bearer ${await testToken({ sub: siguienteSub++, username: 'gestor@flit.io', role: 'gestor_impuestos', funciones: ['impuestos.excel.exportar_pago'] })}`;
+    const cabecera = `Bearer ${await testToken({ sub: siguienteSub++, username: 'gestor@flit.io', role: 'gestor_impuestos', funciones: ['impuestos.excel.exportar_pago'], tipoEnlace: 'ninguno' })}`;
     const r = await exportarAmpliado(cabecera);
     expect(r.status).toBe(200);
     expect((await libro(r.body as Buffer)).columnCount).toBe(39);

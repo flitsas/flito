@@ -10,11 +10,10 @@
 // `POST /:id/validar` y `POST /:id/rechazar-solicitud`— es correcto: eran de `admin`, ningún router
 // las declara ya y Express responde su 404 por defecto.
 //
-// **`PATCH /:id/solicitud` llamada por un `cliente` responde 403, no 404**, y no es un detalle de
-// forma. `guardiaCanalCliente` se invoca desde el final de `authMiddleware`
-// (`shared/middleware/auth.ts`), o sea ANTES de que Express intente enrutar: al sacar la ruta de
-// `RUTAS_PERMITIDAS_CLIENTE` la petición muere allí con `{ error: 'Sin permisos' }` y nunca llega al
-// router que ya no la tiene. Los demás roles no pasan por esa lista, así que ellos sí ven el 404.
+// **Desde la HU #12875 `PATCH /:id/solicitud` llamada por un `cliente` responde 404** como para el
+// admin: la frontera por enlace abre el MONTAJE de SOAT al enlace compañía. Quien sí recibe 403 antes
+// del enrutado es un enlace al que SOAT no está abierto (`organismos_transito`): `guardiaFrontera`
+// corre al final de `authMiddleware`, antes de que Express intente casar el patrón.
 //
 // Se afirman los DOS códigos, cada uno con su rol, porque un test que afirmara 404 para los dos
 // estaría verde contra un supuesto equivocado el día que alguien mueva el guarda de sitio: el 403
@@ -37,6 +36,7 @@ import request from 'supertest';
 import express from 'express';
 import { chain } from '../helpers/db.js';
 import { testToken, type TestRole } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 // Mocks EXPLÍCITOS de `select`/`update`/`transaction`, como en `flito-soat.contingencia.test.ts`.
 // El doble keyed no sirve para este archivo: el AC2 necesita llegar a 200 y afirmar el `set`, y para
@@ -63,7 +63,7 @@ const OTRO_PROVEEDOR = '7c000000-0000-4000-8000-0000000012b1';
 const COMPANIA = 7;
 
 /**
- * Los DOS routers, en el MISMO orden que `app.ts` (`app.use('/api/flito/soat', cliente)` y luego el
+ * Los DOS routers, en el MISMO orden que `app.ts` (`app.use('/api/flito/soat', conAlcance('soat', cliente))` y luego el
  * del módulo). El orden importa para este archivo más que para ningún otro: si se montara solo uno,
  * el 404 del `admin` probaría que la ruta no está en ESE router, no que no está en ninguno.
  */
@@ -72,8 +72,8 @@ async function buildApp() {
   app.use(express.json());
   const { default: cliente } = await import('../../src/modules/flito-soat/flito-soat-cliente.routes.js');
   const { default: modulo } = await import('../../src/modules/flito-soat/flito-soat.routes.js');
-  app.use('/api/flito/soat', cliente);
-  app.use('/api/flito/soat', modulo);
+  app.use('/api/flito/soat', conAlcance('soat', cliente));
+  app.use('/api/flito/soat', conAlcance('soat', modulo));
   return app;
 }
 
@@ -217,38 +217,27 @@ describe('AC1 — las cuatro rutas de la revisión ya no están montadas', () =>
     expect(selectMock).not.toHaveBeenCalled();
   });
 
-  it('**`PATCH /:id/solicitud` para el `cliente` → 403, y NO 404**: el guarda corre antes del enrutado', async () => {
-    // La corrección al enunciado del AC. `guardiaCanalCliente` vive al final de `authMiddleware`, o
-    // sea dentro del primer router que Express entra y antes de que intente casar ningún patrón. Al
-    // salir de `RUTAS_PERMITIDAS_CLIENTE`, la subsanación deja de estar inscrita y el rol externo
-    // recibe el 403 genérico —el MISMO cuerpo que devuelve `requireRole`, para que quien sondee no
-    // pueda distinguir «no está en mi lista» de «exige otro rol» y mapear la API a base de códigos—.
-    // Ni un mock de base: la petición muere en `authMiddleware`, antes de tocar nada.
+  it('HU #12875: `PATCH /:id/solicitud` para el `cliente` → 404 como el admin: el montaje SOAT está abierto a su enlace', async () => {
+    // Antes era 403: la lista por ruta del canal cortaba ANTES del enrutado. Desde la HU #12875 la
+    // frontera abre el MONTAJE de SOAT al enlace compañía (`conAlcance('soat', …)`), así que el
+    // `cliente` llega al enrutado y recibe el mismo 404 que cualquiera: la ruta no existe.
     const r = await request(await buildApp())
       .patch(`/api/flito/soat/${SOAT_ID}/solicitud`)
       .set('Authorization', await auth('cliente'))
       .field('tipoDocumento', 'CC');
-
-    expect(r.status).toBe(403);
-    expect(r.body).toEqual({ error: 'Sin permisos' });
+    expect(r.status).toBe(404);
   });
 
-  it('la subsanación tampoco está inscrita en la allowlist, medido en la lista y no en la respuesta', async () => {
-    // La otra mitad del caso de arriba: el 403 se obtendría igual si alguien rompiera el guarda para
-    // TODO. Esto pregunta directamente a la función que decide.
-    const { rutaPermitidaParaCliente, RUTAS_PERMITIDAS_CLIENTE } =
-      await import('../../src/shared/middleware/canal-cliente.js');
-
-    expect(rutaPermitidaParaCliente('PATCH', `/api/flito/soat/${SOAT_ID}/solicitud`)).toBe(false);
-    // Y la de al lado sigue abierta: sin esto, «devuelve false» pasaría con la lista vacía.
-    expect(rutaPermitidaParaCliente('POST', '/api/flito/soat/cliente')).toBe(true);
-    // Ninguna entrada de la lista menciona ya la subsanación, ni en su patrón ni en su `porque`: un
-    // `porque` que describe un flujo inexistente es lo que convierte una allowlist en folclore.
-    for (const entrada of RUTAS_PERMITIDAS_CLIENTE) {
-      expect(entrada.patron, 'la subsanación sigue inscrita').not.toContain('/solicitud');
-      expect(entrada.porque.toLowerCase(), `el «porque» de ${entrada.patron} cita la subsanación`)
-        .not.toMatch(/subsan/);
-    }
+  it('HU #12875: la misma petición con un enlace al que SOAT no está abierto → 403 ANTES del enrutado', async () => {
+    // El control: con `organismos_transito` la frontera corta en `authMiddleware`, antes de que Express
+    // intente casar patrones, con el cuerpo genérico (indistinguible de otras capas). Ni un mock de base.
+    const r = await request(await buildApp())
+      .patch(`/api/flito/soat/${SOAT_ID}/solicitud`)
+      .set('Authorization', await auth('transito'))
+      .field('tipoDocumento', 'CC');
+    expect(r.status).toBe(403);
+    expect(r.body).toEqual({ error: 'Sin permisos' });
+    expect(selectMock).not.toHaveBeenCalled();
   });
 
   it('**el filtro `?estado=` de la cola ya no acepta los dos estados retirados** (si no, es un 500)', async () => {
@@ -353,14 +342,16 @@ describe('AC2 (regresión) — las tres vías del gestor y de Operaciones sobrev
     expect(sets[0]).not.toHaveProperty('estado');
   });
 
-  it('las tres siguen exigiendo su ROL: el `cliente` no alcanza ninguna', async () => {
-    // La otra mitad del «no se tocan»: que sigan existiendo no puede significar que se hayan
-    // abierto. El rol externo se topa con la allowlist del canal —ninguna de las tres está
-    // inscrita—, así que ni siquiera llega al `requireRole` de su router.
-    const { rutaPermitidaParaCliente } = await import('../../src/shared/middleware/canal-cliente.js');
+  it('las tres siguen exigiendo su FUNCIÓN: el `cliente` (sin ellas) no alcanza ninguna', async () => {
+    // HU #12875: el montaje SOAT está abierto al enlace compañía, así que lo que cierra las tres al
+    // `cliente` es `exigirFuncion` (no tiene esas funciones de partida). Medido por HTTP.
+    const app = await buildApp();
     for (const ruta of ['rechazar', 'asumir-operaciones', 'devolver-gestor']) {
-      expect(rutaPermitidaParaCliente('POST', `/api/flito/soat/${SOAT_ID}/${ruta}`), ruta).toBe(false);
+      const r = await request(app).post(`/api/flito/soat/${SOAT_ID}/${ruta}`).send({ motivo: 'motivo largo' })
+        .set('Authorization', await auth('cliente'));
+      expect(r.status, ruta).toBe(403);
     }
+    expect(updateMock).not.toHaveBeenCalled();
   });
 
   it('**las tres siguen DECLARADAS en `flito-soat.routes.ts`**, con su verbo y su patrón exactos', async () => {

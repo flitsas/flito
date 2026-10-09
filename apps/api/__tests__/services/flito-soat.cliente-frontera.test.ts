@@ -7,7 +7,7 @@
 //   B1 · Negación por defecto. Un JWT `cliente` alcanzaba `GET /api/vehicles` (nombre y cédula del
 //        propietario de TODAS las compañías, 500 por página), `POST /api/runt/consulta-persona` (el
 //        RUNT de cualquier cédula colombiana) y siete rutas más, porque esos routers montan
-//        `authMiddleware` sin `requireRole`. Ahora solo pasa lo que está en la allowlist.
+//        `authMiddleware` sin `requireRole`. Ahora solo pasa lo declarado para su enlace (HU #12875).
 //   B2 · Proyección por rol. El aislamiento por compañía (probado en
 //        `flito-soat.cliente-aislamiento.test.ts`) decide QUÉ FILAS ve; esto decide QUÉ CAMPOS de
 //        esas filas. La forma de la respuesta se diseñó para lectores internos.
@@ -21,7 +21,7 @@
 // `Object.keys()` del objeto que la RUTA SERIALIZA —la respuesta HTTP—, con un mock que devuelve
 // deliberadamente la fila completa con todos los campos internos rellenos: si la proyección
 // desaparece, esos campos aparecen en la respuesta y el test cae. Comprobado con ONCE mutantes, uno
-// por corrección: `sinCamposInternos` sin borrar nada, `guardiaCanalCliente` sustituido por `next()`,
+// por corrección: `sinCamposInternos` sin borrar nada, la guarda de la frontera sustituida por `next()`,
 // el patrón `:id` convertido en prefijo laxo, el `registrarAccesoSoat` de la cola quitado, el recorte
 // del historial ignorado, el filtro por tipo de los soportes anulado, las facetas volviendo a
 // consultar proveedores, el `motivo` del historial sirviéndose verbatim, las tres plantillas
@@ -45,6 +45,7 @@ import express from 'express';
 import { chain } from '../helpers/db.js';
 import { testToken } from '../helpers/auth.js';
 import { catalogoCompleto } from '../../src/modules/permisos/catalogo.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 const selectMock = vi.fn();
 
@@ -84,8 +85,8 @@ vi.mock('../../src/modules/runt/runt.service.js', () => ({
   consultarVehiculoRunt: (...a: unknown[]) => consultarVehiculoRuntMock(...a),
 }));
 
-const { RUTAS_PERMITIDAS_CLIENTE, rutaPermitidaParaCliente } =
-  await import('../../src/shared/middleware/canal-cliente.js');
+const { RUTAS_TRANSVERSALES, esRutaTransversal } =
+  await import('../../src/shared/middleware/frontera-enlace.js');
 const { CAMPOS_PII_SOAT, RECURSO_SOAT } = await import('../../src/modules/flito-soat/flito-soat.pii.js');
 const { AUTOR_INTERNO_ANONIMO } = await import('../../src/shared/historial/estado-historial.js');
 
@@ -112,7 +113,7 @@ async function buildApp() {
   ]);
   app.use('/api/vehicles', vehiculos.default);
   app.use('/api/runt', runt.default);
-  app.use('/api/flito/soat', soat.default);
+  app.use('/api/flito/soat', conAlcance('soat', soat.default));
   return app;
 }
 
@@ -149,16 +150,22 @@ describe('B1 — lo que el `cliente` NO puede pedir (y los internos sí siguen p
   // (copia viva de las páginas que lo llaman). La frontera sigue igual para los internos: los que
   // tienen la función entran como antes; los que no, reciben el 403 del MOTOR (con `funcion`), no el
   // de la frontera.
-  it('los roles internos con `vehicles.vehiculos.consultar` siguen entrando a GET /api/vehicles; el resto recibe el 403 del motor', async () => {
+  it('los roles SIN enlace con `vehicles.vehiculos.consultar` siguen entrando a GET /api/vehicles; los de enlace reciben el 403 de la frontera; el resto, el del motor', async () => {
     const app = await buildApp();
     const conFuncion = new Set(operacionesDePartidaDe('vehicles.vehiculos.consultar'));
     expect([...conFuncion].sort()).toEqual(['admin', 'auditor', 'lider_pesv', 'proveedor', 'supervisor_flota']);
+    // HU #12875 (AC2/AC7): los roles de fábrica con enlace no alcanzan `/api/vehicles` (montaje sin
+    // `conAlcance`), aunque tengan la función: `proveedor` la pierde hasta que un módulo la declare.
+    const conEnlace = new Set(['proveedor', 'transito', 'gestor_impuestos']);
     for (const rol of ROLES_INTERNOS) {
       selectMock.mockReturnValue(chain([
         { id: 1, vin: 'VIN1', plate: 'ABC123', ownerName: 'PEDRO GÓMEZ', ownerDocument: '79345612' },
       ]));
       const r = await request(app).get('/api/vehicles').set('Authorization', await auth(rol));
-      if (conFuncion.has(rol)) {
+      if (conEnlace.has(rol)) {
+        expect(r.status, `rol ${rol}`).toBe(403);
+        expect(r.body, `rol ${rol}`).toEqual({ error: 'Sin permisos' });
+      } else if (conFuncion.has(rol)) {
         expect(r.status, `rol ${rol}`).toBe(200);
         expect(r.body[0].vin, `rol ${rol}`).toBe('VIN1');
       } else {
@@ -243,24 +250,26 @@ describe('B1 — lo que el `cliente` SÍ puede pedir: su única pantalla, entera
   });
 });
 
-describe('B1 — la allowlist, como función pura (el patrón, no el prefijo)', () => {
-  it('un prefijo laxo `/api/flito/soat` NO abre las rutas de mutación del mismo router', () => {
-    expect(rutaPermitidaParaCliente('POST', '/api/flito/soat/enviar')).toBe(false);
-    expect(rutaPermitidaParaCliente('POST', `/api/flito/soat/${SOAT_ID}/factura`)).toBe(false);
-    expect(rutaPermitidaParaCliente('POST', '/api/flito/soat')).toBe(false);
-    // Y el patrón está anclado por los DOS extremos: sin el `$`, `/api/flito/soat` abriría
-    // cualquier ruta que empiece igual —incluido un router hermano que se monte mañana.
-    expect(rutaPermitidaParaCliente('GET', '/api/flito/soat-interno')).toBe(false);
-    expect(rutaPermitidaParaCliente('GET', '/otra/api/flito/soat')).toBe(false);
+// HU #12875: la lista por ruta del canal externo se retiró. SOAT se abre por MONTAJE
+// (`conAlcance('soat', …)`, probado en `frontera-por-enlace.test.ts`); lo que queda como lista por
+// ruta son las TRANSVERSALES de sesión, y su forma (patrón anclado, `:id` de un segmento, porqué
+// escrito) se sigue fijando aquí.
+describe('B1 — las rutas transversales, como función pura (el patrón, no el prefijo)', () => {
+  it('ninguna ruta de SOAT es transversal: el módulo entra por su montaje, no por la lista', () => {
+    expect(esRutaTransversal('POST', '/api/flito/soat/enviar')).toBe(false);
+    expect(esRutaTransversal('GET', '/api/flito/soat')).toBe(false);
+    expect(esRutaTransversal('GET', `/api/flito/soat/${SOAT_ID}`)).toBe(false);
   });
 
-  it('`:id` casa UN segmento y no una cola entera', () => {
-    expect(rutaPermitidaParaCliente('GET', `/api/flito/soat/${SOAT_ID}`)).toBe(true);
-    expect(rutaPermitidaParaCliente('GET', `/api/flito/soat/${SOAT_ID}/historial`)).toBe(true);
-    expect(rutaPermitidaParaCliente('GET', `/api/flito/soat/${SOAT_ID}/historial/algo-mas`)).toBe(false);
+  it('`:id` casa UN segmento y no una cola entera; el patrón está anclado por los dos extremos', () => {
+    expect(esRutaTransversal('PATCH', '/api/users/5/password')).toBe(true);
+    expect(esRutaTransversal('PATCH', '/api/users/5/password/otra')).toBe(false);
+    expect(esRutaTransversal('PATCH', '/api/users/5')).toBe(false);
+    expect(esRutaTransversal('GET', '/api/auth/me-interno')).toBe(false);
+    expect(esRutaTransversal('GET', '/otra/api/auth/me')).toBe(false);
   });
 
-  it('las nueve rutas que el auditor midió como alcanzables están fuera', () => {
+  it('las nueve rutas que el auditor midió como alcanzables no son transversales', () => {
     const auditadas: Array<[string, string]> = [
       ['GET', '/api/vehicles'],
       ['GET', '/api/vehicles/1HGCM82633A004352/historial'],
@@ -273,28 +282,23 @@ describe('B1 — la allowlist, como función pura (el patrón, no el prefijo)', 
       ['GET', '/api/mercadolibre/precio'],
     ];
     for (const [metodo, ruta] of auditadas) {
-      expect(rutaPermitidaParaCliente(metodo, ruta), `${metodo} ${ruta}`).toBe(false);
+      expect(esRutaTransversal(metodo, ruta), `${metodo} ${ruta}`).toBe(false);
     }
   });
 
   it('la sesión de la SPA entra entera: `/auth/me` y `/auth/logout` incluidos', () => {
-    expect(rutaPermitidaParaCliente('GET', '/api/auth/me')).toBe(true);
-    expect(rutaPermitidaParaCliente('POST', '/api/auth/logout')).toBe(true);
+    expect(esRutaTransversal('GET', '/api/auth/me')).toBe(true);
+    expect(esRutaTransversal('POST', '/api/auth/logout')).toBe(true);
     // Y nada más de `auth`: el resto del router no se abre por vecindad.
-    expect(rutaPermitidaParaCliente('POST', '/api/auth/login')).toBe(false);
-    expect(rutaPermitidaParaCliente('GET', '/api/auth/logout')).toBe(false);
+    expect(esRutaTransversal('POST', '/api/auth/login')).toBe(false);
+    expect(esRutaTransversal('GET', '/api/auth/logout')).toBe(false);
   });
 
-  it('cada entrada declarada casa con su propio patrón (nadie escribe una que no aplica)', () => {
-    for (const r of RUTAS_PERMITIDAS_CLIENTE) {
-      const concreta = r.patron.replace(':id', SOAT_ID);
-      expect(rutaPermitidaParaCliente(r.metodo, concreta), `${r.metodo} ${concreta}`).toBe(true);
-    }
-  });
-
-  it('cada entrada de la lista lleva escrito su porqué (una lista sin motivo se infla sola)', () => {
-    expect(RUTAS_PERMITIDAS_CLIENTE.length).toBeGreaterThan(0);
-    for (const r of RUTAS_PERMITIDAS_CLIENTE) {
+  it('cada entrada declarada casa con su propio patrón y lleva escrito su porqué', () => {
+    expect(RUTAS_TRANSVERSALES.length).toBeGreaterThan(0);
+    for (const r of RUTAS_TRANSVERSALES) {
+      const concreta = r.patron.replace(':id', '5');
+      expect(esRutaTransversal(r.metodo, concreta), `${r.metodo} ${concreta}`).toBe(true);
       expect(r.porque.trim().length, `${r.metodo} ${r.patron}`).toBeGreaterThan(20);
       expect(r.patron.startsWith('/api/'), r.patron).toBe(true);
     }
@@ -497,7 +501,7 @@ describe('B2 — las plantillas del historial dejan de escribir datos internos e
     await marcarPagado(
       SOAT_ID,
       { valorTotal: { valor: '412300', confiable: true }, numeroPoliza: { valor: '999', confiable: true } } as never,
-      { userId: 1, username: 'ana@flit.com.co', role: 'admin', externo: false, alcance: 'todo' as const, proveedorSoatId: null, companiaId: null },
+      { userId: 1, username: 'ana@flit.com.co', role: 'admin', proyeccionCliente: false, alcance: 'todo' as const, proveedorSoatId: null, companiaId: null },
     );
 
     const fila = insertados.find((v) => 'estadoNuevo' in v);
@@ -527,7 +531,7 @@ describe('B2 — las plantillas del historial dejan de escribir datos internos e
     };
     (db.transaction as unknown as ReturnType<typeof vi.fn>)
       .mockImplementation((cb: (t: unknown) => Promise<unknown>) => cb(tx));
-    const ctx = { userId: 1, username: 'u', role: 'admin', externo: false, alcance: 'todo' as const, proveedorSoatId: null, companiaId: null };
+    const ctx = { userId: 1, username: 'u', role: 'admin', proyeccionCliente: false, alcance: 'todo' as const, proveedorSoatId: null, companiaId: null };
 
     // Asumir: el SOAT está con un proveedor y en un estado que admite traspaso.
     selectMock.mockReturnValueOnce(chain([{ id: SOAT_ID, estado: 'solicitado', gestionOperaciones: false, proveedorSoatId: PROV }]));

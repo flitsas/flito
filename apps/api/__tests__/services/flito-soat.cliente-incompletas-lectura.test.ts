@@ -17,6 +17,7 @@ import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
 import { ligadoA, renderizar } from '../helpers/sql-ligado.js';
 import { registrarUsuarioDePrueba } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 const kdb = createKeyedDb();
 const piiMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
@@ -38,13 +39,11 @@ const T1 = new Date('2026-09-28T10:00:00Z');
 
 let sub = 9600;
 
-async function auth(opts: {
-  tipoPrincipal: 'interno' | 'externo'; tipoEnlace: string; funciones: string[]; rol?: string;
-}) {
+async function auth(opts: { tipoEnlace: string; funciones: string[]; rol?: string }) {
   sub += 1;
   const rol = opts.rol ?? 'rol_prueba';
   await registrarUsuarioDePrueba(sub, {
-    rol, tipoPrincipal: opts.tipoPrincipal, tipoEnlace: opts.tipoEnlace, excepciones: [],
+    rol, tipoEnlace: opts.tipoEnlace, excepciones: [],
     funcionesDelRol: ['pagina.flito_soat', ...opts.funciones],
   });
   const t = await new SignJWT({ username: 'u@x.co', role: rol })
@@ -54,15 +53,15 @@ async function auth(opts: {
 }
 
 const LECTURA = ['soat.incompletas.buscar', 'soat.incompleta.ver'];
-const clienteCompania = () => auth({ tipoPrincipal: 'externo', tipoEnlace: 'compania', funciones: LECTURA });
-const operaciones = () => auth({ tipoPrincipal: 'interno', tipoEnlace: 'ninguno', funciones: LECTURA });
-const gestorProveedor = () => auth({ tipoPrincipal: 'interno', tipoEnlace: 'proveedor_soat', funciones: LECTURA });
+const clienteCompania = () => auth({ tipoEnlace: 'compania', funciones: LECTURA });
+const operaciones = () => auth({ tipoEnlace: 'ninguno', funciones: LECTURA });
+const gestorProveedor = () => auth({ tipoEnlace: 'proveedor', funciones: LECTURA });
 
 async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat-incompletas.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
 
@@ -210,7 +209,7 @@ describe('AC4 — sin la función de lectura', () => {
   it('sin soat.incompletas.buscar → 403 (aunque tenga el detalle y la cola de hoy)', async () => {
     const espia = crearEspia(kdb);
     const r = await request(await buildApp()).post(URL_BUSCAR)
-      .set('Authorization', await auth({ tipoPrincipal: 'externo', tipoEnlace: 'compania', funciones: ['soat.incompleta.ver', 'soat.cola.ver'] }))
+      .set('Authorization', await auth({ tipoEnlace: 'compania', funciones: ['soat.incompleta.ver', 'soat.cola.ver'] }))
       .send({});
     expect(r.status).toBe(403);
     expect(seLeyoIncompletas(espia)).toBe(false);
@@ -290,7 +289,7 @@ describe('AC3 / AC7 — GET …/incompletas/:id', () => {
 
   it('sin soat.incompleta.ver → 403 (aunque tenga la búsqueda y el detalle SOAT de hoy)', async () => {
     const r = await request(await buildApp()).get(`/api/flito/soat/cliente/incompletas/${ID}`)
-      .set('Authorization', await auth({ tipoPrincipal: 'externo', tipoEnlace: 'compania', funciones: ['soat.incompletas.buscar', 'soat.solicitud.ver'] }));
+      .set('Authorization', await auth({ tipoEnlace: 'compania', funciones: ['soat.incompletas.buscar', 'soat.solicitud.ver'] }));
     expect(r.status).toBe(403);
   });
 
@@ -340,13 +339,14 @@ describe('AC3 / AC7 — GET …/incompletas/:id', () => {
   });
 });
 
-describe('Canal externo: las dos rutas están inscritas en la allowlist', () => {
-  it('rutaPermitidaParaCliente las deja pasar, y solo con su método', async () => {
-    const { rutaPermitidaParaCliente } = await import('../../src/shared/middleware/canal-cliente.js');
-    expect(rutaPermitidaParaCliente('POST', URL_BUSCAR)).toBe(true);
-    expect(rutaPermitidaParaCliente('DELETE', URL_BUSCAR)).toBe(false);
-    expect(rutaPermitidaParaCliente('POST', `/api/flito/soat/cliente/incompletas/${ID}`)).toBe(false);
-    expect(rutaPermitidaParaCliente('GET', `/api/flito/soat/cliente/incompletas/${ID}`)).toBe(true);
-    expect(rutaPermitidaParaCliente('GET', `/api/flito/soat/cliente/incompletas/${ID}/otra`)).toBe(false);
+// HU #12875: ya no hay lista por ruta. Las dos rutas entran por el montaje de SOAT declarado
+// (`conAlcance('soat', …)`), abierto al enlace compañía; el control negativo es el enlace que la
+// frontera NO abre a SOAT (organismos) con las mismas funciones.
+describe('Frontera por enlace: el montaje de las incompletas está abierto a compañía y cerrado a organismos', () => {
+  it('organismos_transito con las funciones de lectura → 403 de la frontera, sin consultar nada', async () => {
+    const r = await request(await buildApp()).post(URL_BUSCAR).send({})
+      .set('Authorization', await auth({ tipoEnlace: 'organismos_transito', funciones: LECTURA }));
+    expect(r.status).toBe(403);
+    expect(r.body).toEqual({ error: 'Sin permisos' });
   });
 });

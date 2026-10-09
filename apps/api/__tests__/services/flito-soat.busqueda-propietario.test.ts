@@ -28,6 +28,7 @@ import express from 'express';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import type { SQL } from 'drizzle-orm';
 import { testToken } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 const selectMock = vi.fn();
 
@@ -66,7 +67,7 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
 const adminAuth = async () => `Bearer ${await testToken({ sub: 1, username: 'admin@flit.io', role: 'admin' })}`;

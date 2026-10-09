@@ -40,6 +40,7 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 import { CABECERAS_ZIP_SOPORTES, EstadoSoat, ZIP_SOPORTES_MAX_REGISTROS } from '@operaciones/shared-types';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { registrarUsuarioDePrueba, testToken, type TestRole } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 import { SignJWT } from 'jose';
 import { anchosDe, pdfCifrado, pdfFirma } from '../helpers/pdf-firma.js';
 
@@ -199,7 +200,7 @@ async function buildApp() {
   const { default: soat } = await import('../../src/modules/flito-soat/flito-soat.routes.js');
   const { default: impuestos } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
   const { default: tramites } = await import('../../src/modules/flito-tramites/flito-tramites.routes.js');
-  app.use(SOAT, soat);
+  app.use(SOAT, conAlcance('soat', soat));
   app.use(IMPUESTOS, impuestos);
   app.use(TRAMITES, tramites);
   return app;
@@ -207,8 +208,13 @@ async function buildApp() {
 
 /** `sub` nuevo por caso: el limitador cuenta 5/min y usuario, y su ventana no se reinicia. */
 let siguienteSub = 7100;
+// HU #12875: Impuestos está CERRADO por la frontera al enlace `organismos_transito` hasta la #13426
+// (decisión (b) del PO). Lo que aquí se mide es el FILTRO DEL SERVICIO del gestor, que sigue en pie
+// y que la #13426 vuelve a abrir: por eso su sesión lleva el enlace neutralizado (`ninguno`). El
+// cierre en sí lo prueba `frontera-por-enlace.test.ts`.
+const ENLACE_DE_PRUEBA = (role: TestRole) => (role === 'gestor_impuestos' ? 'ninguno' : undefined);
 const sesion = async (role: TestRole = 'admin', funciones?: string[]): Promise<string> =>
-  `Bearer ${await testToken({ sub: siguienteSub++, username: 'ops@flit.io', role, funciones })}`;
+  `Bearer ${await testToken({ sub: siguienteSub++, username: 'ops@flit.io', role, funciones, tipoEnlace: ENLACE_DE_PRUEBA(role) })}`;
 
 const pedirZip = async (base: string, cabecera: string, cuerpo: unknown) =>
   request(await buildApp())
@@ -1184,7 +1190,7 @@ describe('HU #12815 — rol externo NO-`cliente` (`davivienda`) con la función:
   const sesionDavivienda = async (): Promise<string> => {
     const sub = siguienteSub++;
     await registrarUsuarioDePrueba(sub, {
-      rol: 'davivienda', tipoPrincipal: 'externo', tipoEnlace: 'compania', funcionesDelRol: ['soat.soportes.descargar'], excepciones: [],
+      rol: 'davivienda', tipoEnlace: 'compania', funcionesDelRol: ['soat.soportes.descargar'], excepciones: [],
     });
     const t = await new SignJWT({ username: 'd@banco.co', role: 'davivienda' })
       .setProtectedHeader({ alg: 'HS256' }).setSubject(String(sub)).setExpirationTime('1h')

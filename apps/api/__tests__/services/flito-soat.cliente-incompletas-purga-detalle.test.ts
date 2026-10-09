@@ -12,6 +12,7 @@ import { SignJWT } from 'jose';
 import { getTableColumns } from 'drizzle-orm';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { registrarUsuarioDePrueba } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 const kdb = createKeyedDb();
 vi.mock('../../src/db/client.js', () => ({ db: kdb.db, getPoolStats: vi.fn() }));
@@ -31,7 +32,7 @@ async function operaciones() {
   sub += 1;
   const rol = 'rol_prueba';
   await registrarUsuarioDePrueba(sub, {
-    rol, tipoPrincipal: 'interno', tipoEnlace: 'ninguno', excepciones: [],
+    rol, tipoEnlace: 'ninguno', excepciones: [],
     funcionesDelRol: ['pagina.flito_soat', 'soat.incompletas.buscar', 'soat.incompleta.ver'],
   });
   const t = await new SignJWT({ username: 'op@flit.co', role: rol })
@@ -44,7 +45,7 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat-incompletas.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
 

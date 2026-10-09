@@ -6,7 +6,7 @@ import { db } from '../../db/client.js';
 import { clients, permisosRoles, users } from '../../db/schema.js';
 import { authMiddleware, invalidateSessionCacheFor } from '../../shared/middleware/auth.js';
 import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
-import { invalidarPermisosDe, resolverPermisos } from '../../shared/permisos-efectivos.js';
+import { enlaceConocido, invalidarPermisosDe, resolverPermisos } from '../../shared/permisos-efectivos.js';
 import { passwordChangeLimiter } from '../../shared/middleware/rateLimiter.js';
 import { BloqueoAdministracionError } from '../../shared/permisos-anti-bloqueo.js';
 import { audit } from '../../shared/middleware/audit.js';
@@ -21,10 +21,20 @@ import { actorDeRequest, registrarRechazoAntiBloqueo } from '../../shared/histor
 import {
   actualizarUsuario, cambiarActivo, crearUsuario, funcionesDeVarios, listarUsuarios, nombresDeAmbito,
   organismosDe, organismosDeVarios, organismosInexistentes, proveedorSoatExiste, restablecerContrasena,
-  resumenUsuarios, rolAsignable,
+  resumenUsuarios, rolAsignable as rolAsignableCrudo,
   type FiltrosUsuarios, type PaginacionUsuarios,
 } from './users.service.js';
 import { handleDarDeBaja, handleReactivar } from './users-baja.js';
+/**
+ * HU #12875: el enlace del rol, normalizado con el MISMO `enlaceConocido` del resolutor (alias
+ * `proveedor_soat` → `proveedor` mientras la 0231 no esté aplicada). Un valor desconocido se deja
+ * tal cual: no casa con ningún enlace y sigue fallando como antes.
+ */
+const enlaceNormalizado = (v: string): string => enlaceConocido(v) ?? v;
+async function rolAsignable(codigo: string): Promise<{ tipoEnlace: string } | null> {
+    const rol = await rolAsignableCrudo(codigo);
+    return rol && { ...rol, tipoEnlace: enlaceNormalizado(rol.tipoEnlace) };
+}
 // HU #12087: la existencia de los códigos se pregunta al mismo sitio que el cuadro del rol
 // (dependencia en un solo sentido: `users` → `permisos`; `permisos` no importa nada de aquí).
 import { FuncionesInexistentesError, funcionesInexistentes } from '../permisos/permisos-roles.service.js';
@@ -51,17 +61,17 @@ router.patch('/:id/password', authMiddleware, passwordChangeLimiter, async (req:
             res.status(400).json({ error: 'ID inválido' });
             return;
         }
-        // Externo = la misma regla que `guardiaCanalCliente` (un resolutor que no decide, cierra). La
-        // foto ya está en caché: la pidió el canal dentro de `authMiddleware`. Mismo cuerpo que el 403
-        // del canal, para que no se distinga qué capa negó. La página se mira en ESA foto y no con
+        // Con enlace = la misma regla que `guardiaFrontera` (HU #12875; un resolutor que no decide,
+        // cierra). La foto ya está en caché: la pidió la frontera dentro de `authMiddleware`. Mismo
+        // cuerpo que su 403, para que no se distinga qué capa negó. La página se mira en ESA foto y no con
         // `tieneFuncion`: el lector de guardas (`inventario-guardas.ts`) trata todo `tieneFuncion(req, …)`
         // como una OPERACIÓN montada del catálogo, y `pagina.perfil` es una página.
         const p = await resolverPermisos(req.user!.sub);
-        const externo = !p.ok || p.tipoPrincipal === 'externo';
+        const conEnlace = !p.ok || p.tipoEnlace !== 'ninguno';
         // HU #13425 (AC4, decisión del PO del 2026-10-07): la contraseña PROPIA se cambia siempre, sin el
-        // permiso de Perfil, para internos y externos; la ajena le sigue vedada al externo. Un resolutor
+        // permiso de Perfil, con o sin enlace; la ajena le sigue vedada a quien tiene enlace. Un resolutor
         // que no decide (`ok:false`) sigue cerrando, también para la propia.
-        if (!p.ok || (externo && req.user!.sub !== id)) {
+        if (!p.ok || (conEnlace && req.user!.sub !== id)) {
             res.status(403).json({ error: 'Sin permisos' });
             return;
         }
@@ -157,7 +167,7 @@ function textoAmbito(
         return organismos.join(', ');
     if (tipoEnlace === 'compania')
         return u.companiaId ? (companias.get(u.companiaId) ?? `Compañía ${u.companiaId}`) : '';
-    if (tipoEnlace === 'proveedor_soat')
+    if (tipoEnlace === 'proveedor')
         return u.flitoProveedorSoatId ? (proveedores.get(u.flitoProveedorSoatId) ?? 'Proveedor') : '';
     return '';
 }
@@ -188,7 +198,7 @@ router.get('/export', exigirFuncion('usuarios.usuario.exportar'), async (req: Re
     if (rolesUnicos.length > 0) {
         const filasRol = await db.select({ codigo: permisosRoles.codigo, tipoEnlace: permisosRoles.tipoEnlace })
             .from(permisosRoles).where(inArray(permisosRoles.codigo, rolesUnicos));
-        for (const r of filasRol) enlacePorRol.set(r.codigo, r.tipoEnlace);
+        for (const r of filasRol) enlacePorRol.set(r.codigo, enlaceNormalizado(r.tipoEnlace));
     }
     const rows = filas.map((u) => ({
         username: u.username,
@@ -377,7 +387,7 @@ function assertAmbitoSegunEnlace(tipoEnlace: string, body: AmbitoBody): string |
             if (tieneOrgs) return MSG_ORGANISMOS_SOBRAN;
             if (!tieneCompania) return MSG_COMPANIA_REQUERIDA;
             return null;
-        case 'proveedor_soat':
+        case 'proveedor':
             if (tieneCompania) return MSG_COMPANIA_SOBRA;
             if (tieneOrgs) return MSG_ORGANISMOS_SOBRAN;
             if (!tieneProveedor) return MSG_PROVEEDOR_REQUERIDO;
@@ -514,7 +524,7 @@ router.post('/', exigirFuncion('usuarios.usuario.crear'), async (req: Request, r
         res.status(400).json({ error: MSG_COMPANIA_NO_EXISTE });
         return;
     }
-    if (rol.tipoEnlace === 'proveedor_soat' && !(await proveedorSoatExiste(flitoProveedorSoatId!))) {
+    if (rol.tipoEnlace === 'proveedor' && !(await proveedorSoatExiste(flitoProveedorSoatId!))) {
         res.status(400).json({ error: MSG_PROVEEDOR_NO_EXISTE });
         return;
     }
@@ -543,7 +553,7 @@ router.post('/', exigirFuncion('usuarios.usuario.crear'), async (req: Request, r
             funciones: funciones ?? [],
             transitoCodigo: null,
             companiaId: rol.tipoEnlace === 'compania' ? companiaId! : null,
-            flitoProveedorSoatId: rol.tipoEnlace === 'proveedor_soat' ? flitoProveedorSoatId! : null,
+            flitoProveedorSoatId: rol.tipoEnlace === 'proveedor' ? flitoProveedorSoatId! : null,
             organismosCodigos: rol.tipoEnlace === 'organismos_transito' ? organismosCodigos! : [],
         }, actorDeRequest(req));
     }
@@ -614,7 +624,7 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
             res.status(400).json({ error: MSG_COMPANIA_SOBRA });
             return;
         }
-        if (tipoEnlaceEfectivo !== 'proveedor_soat' && data.flitoProveedorSoatId != null) {
+        if (tipoEnlaceEfectivo !== 'proveedor' && data.flitoProveedorSoatId != null) {
             res.status(400).json({ error: MSG_PROVEEDOR_SOBRA });
             return;
         }
@@ -630,7 +640,7 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
                 return;
             }
         }
-        if (tipoEnlaceEfectivo === 'proveedor_soat') {
+        if (tipoEnlaceEfectivo === 'proveedor') {
             const p = data.flitoProveedorSoatId !== undefined ? data.flitoProveedorSoatId : before.flitoProveedorSoatId;
             if (p == null) {
                 res.status(400).json({ error: MSG_PROVEEDOR_REQUERIDO });
@@ -688,7 +698,7 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
     }
     if (data.flitoProveedorSoatId !== undefined)
         updates.flitoProveedorSoatId = data.flitoProveedorSoatId;
-    if (data.role !== undefined && tipoEnlaceEfectivo !== 'proveedor_soat' && data.flitoProveedorSoatId === undefined) {
+    if (data.role !== undefined && tipoEnlaceEfectivo !== 'proveedor' && data.flitoProveedorSoatId === undefined) {
         updates.flitoProveedorSoatId = null;
     }
     /**

@@ -2,13 +2,13 @@ import { CATALOGO_AYUDA, type ClaveAyuda, type EntradaAyuda } from '../content/a
 // HU #12087: se mira `allowedPages` del sobre `/me` (ya resuelto). NO se importa `hasPage` de
 // `lib/permissions`: desde la HU #11913 ese módulo consume `NAV_ITEMS` para `rutaInicio`, y
 // `navItems.ts` consume este — importar `hasPage` cerraría el ciclo en tiempo de ejecución.
-import { isValidPage } from '@operaciones/shared-types';
+import { isValidPage, type TipoEnlace } from '@operaciones/shared-types';
 
 /**
- * HU #12872: `tipoPrincipal` (de `/permisos/mios`) es la frontera interno/externo, no el nombre del
- * rol. Ausente = aún no se sabe → se trata como interno solo para fichas cuya página ya tiene.
+ * HU #12875: `tipoEnlace` (de `/permisos/mios`) es la frontera, no el nombre del rol. Ausente = aún no
+ * se sabe → se trata como sin enlace solo para fichas cuya página ya tiene.
  */
-export type UsuarioAyuda = { allowedPages?: string[] | null; tipoPrincipal?: 'interno' | 'externo' | null };
+export type UsuarioAyuda = { allowedPages?: string[] | null; tipoEnlace?: TipoEnlace | null };
 
 /**
  * Visibilidad de UNA ficha: la página de su `permiso`. `siigo_credenciales` cuelga de su propio slug;
@@ -16,7 +16,7 @@ export type UsuarioAyuda = { allowedPages?: string[] | null; tipoPrincipal?: 'in
  */
 export function puedeVerEntradaAyuda(user: UsuarioAyuda | null, entrada: EntradaAyuda): boolean {
   if (!user) return false;
-  // FLITO — principal EXTERNO (Feature #11912; HU #12872 lo decide por `tipoPrincipal`, no por el
+  // FLITO — usuario CON ENLACE (Feature #11912; HU #12875 lo decide por `tipoEnlace`, no por el
   // nombre del rol): ninguna ficha. Va aquí y no en el catálogo porque la
   // visibilidad de «Ayuda FLITO» es DERIVADA (`puedeVerAyudaFlito` = ≥1 ficha visible): apagarla
   // aquí retira de una vez el ítem del menú, la entrada de la ⌘K y el gate de `/flito/ayuda`, que
@@ -27,7 +27,7 @@ export function puedeVerEntradaAyuda(user: UsuarioAyuda | null, entrada: Entrada
   // debajo (hoy ya por slug). El ADR daba por buena esa segunda entrada («consecuencia buscada»); el AC1 y el doc de
   // UX §3.2 no, y manda el AC. Revertirlo el día que el Cliente merezca ficha propia —la #11914—
   // es borrar esta línea.
-  if (user.tipoPrincipal === 'externo') return false;
+  if (user.tipoEnlace != null && user.tipoEnlace !== 'ninguno') return false;
   if (!entrada.permiso) return false;
   return (user.allowedPages ?? []).filter(isValidPage).includes(entrada.permiso);
 }

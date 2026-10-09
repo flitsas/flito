@@ -158,7 +158,7 @@ describe('AC1 — cada ruta exige su función del motor; el reparto de partida e
     // permisos dura 60 s y el sub 11 se reutiliza entre casos: se invalida antes de cada uno.
     const bearer = await auth('financiera', 11);
     invalidarPermisosDe(11);
-    fijarFuenteDePermisos(async (sub) => (sub === 11 ? { rol: 'financiera', tipoPrincipal: 'interno' as const, funcionesDelRol: otras, excepciones: [] } : null));
+    fijarFuenteDePermisos(async (sub) => (sub === 11 ? { rol: 'financiera', tipoEnlace: 'ninguno', funcionesDelRol: otras, excepciones: [] } : null));
     const res = await pedir(request(app)).set('Authorization', bearer);
     expect(res.status).toBe(403);
     expect(res.body).toMatchObject({ funcion: codigo, motivo: 'sin_funcion' });

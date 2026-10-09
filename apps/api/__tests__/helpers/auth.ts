@@ -62,6 +62,13 @@ interface TestUserOpts {
    */
   funciones?: string[];
   transitoCodigo?: string;
+  /**
+   * HU #12875: el `tipo_enlace` del rol en el double, si no es el de fábrica. Lo usan las pruebas que
+   * miden el FILTRO DEL SERVICIO de un módulo que la frontera aún tiene cerrado a ese enlace (p. ej.
+   * Impuestos para `organismos_transito`, que abre #13426): con `'ninguno'` la petición llega al
+   * servicio. El cierre en sí lo prueba `frontera-por-enlace.test.ts`.
+   */
+  tipoEnlace?: string;
 }
 
 // ── El double de permisos (HU #12082, §10 del diseño) ─────────────────────────────────────────────
@@ -104,13 +111,28 @@ export async function registrarUsuarioDePrueba(sub: number, filas: FilasPermisos
   }
 }
 
-/** `permisos_roles.tipo_enlace` de los roles de fábrica, como los siembra la 0178. */
+/** `permisos_roles.tipo_enlace` de los roles de fábrica (0178; `proveedor_soat` → `proveedor` en la 0231). */
 const ENLACE_DE_FABRICA: Record<string, string> = {
-  proveedor: 'proveedor_soat',
+  proveedor: 'proveedor',
   transito: 'organismos_transito',
   gestor_impuestos: 'organismos_transito',
   cliente: 'compania',
 };
+
+/**
+ * HU #12875 — Roles de fábrica cuyo enlace se NEUTRALIZA (`ninguno`) en este fichero de pruebas.
+ *
+ * La frontera por enlace cierra a `gestor_impuestos`/`transito` (organismos) y a `proveedor` todo
+ * módulo que no sea SOAT hasta la #13426 (decisión (b) del PO). Las pruebas que miden la REGLA de un
+ * módulo legacy o de Impuestos/Derechos/Trámites con esos roles (por función, organismo o asignación)
+ * la declaran aquí, a la vista, y siguen midiendo el módulo; el cierre en sí lo prueban
+ * `frontera-por-enlace.test.ts` y `frontera-enlace.centinela.test.ts`. Vitest aísla los módulos por
+ * fichero, así que la lista vale solo para el fichero que la llama.
+ */
+const ENLACE_NEUTRO = new Set<string>();
+export function neutralizarEnlaceDe(...roles: string[]): void {
+  for (const r of roles) ENLACE_NEUTRO.add(r);
+}
 
 export async function testToken(opts: TestUserOpts = {}): Promise<string> {
   const secret = new TextEncoder().encode(process.env.JWT_SECRET);
@@ -129,9 +151,8 @@ export async function testToken(opts: TestUserOpts = {}): Promise<string> {
   const paginasPropias = opts.allowedPages ?? (role === 'admin' ? PAGINAS_DE_ADMIN : []);
   await registrarUsuarioDePrueba(sub, {
     rol: role,
-    tipoPrincipal: role === 'cliente' ? 'externo' : 'interno',
     // Bug #12869: el enlace de fábrica (siembra de la 0178). En SOAT decide el alcance de filas.
-    tipoEnlace: ENLACE_DE_FABRICA[role] ?? 'ninguno',
+    tipoEnlace: opts.tipoEnlace ?? (ENLACE_NEUTRO.has(role) ? 'ninguno' : ENLACE_DE_FABRICA[role]) ?? 'ninguno',
     funcionesDelRol: [
       ...operacionesDePartida(role),
       ...paginasPorDefecto(role as RoleCode).map((s) => `pagina.${s}`),

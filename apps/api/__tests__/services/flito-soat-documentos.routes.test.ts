@@ -19,6 +19,7 @@ import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
 import { ligadoA, renderizar } from '../helpers/sql-ligado.js';
 import { registrarUsuarioDePrueba } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 const kdb = createKeyedDb();
 const espia = crearEspia(kdb);
@@ -36,7 +37,7 @@ vi.mock('../../src/services/storage.js', () => ({
 vi.mock('../../src/modules/flito-soat/flito-soat.service.js', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   contextoSoat: vi.fn(async (u: { id: number; username: string; role: string }) => ({
-    userId: u.id, username: u.username, role: u.role, externo: false, alcance: 'todo',
+    userId: u.id, username: u.username, role: u.role, proyeccionCliente: false, alcance: 'todo',
   })),
   buscarConAcceso: accesoMock,
 }));
@@ -47,10 +48,10 @@ const T1 = new Date('2026-10-07T15:00:05Z');
 const VER = 'soat.documentos_adicionales.ver';
 
 let sub = 13362500;
-async function auth(funciones: string[], tipoPrincipal: 'interno' | 'externo' = 'interno', tipoEnlace = 'ninguno') {
+async function auth(funciones: string[], tipoEnlace = 'ninguno') {
   sub += 1;
   await registrarUsuarioDePrueba(sub, {
-    rol: 'rol_prueba', tipoPrincipal, tipoEnlace, excepciones: [], funcionesDelRol: ['pagina.flito_soat', ...funciones],
+    rol: 'rol_prueba', tipoEnlace, excepciones: [], funcionesDelRol: ['pagina.flito_soat', ...funciones],
   });
   const t = await new SignJWT({ username: 'u@x.co', role: 'rol_prueba' })
     .setProtectedHeader({ alg: 'HS256' }).setSubject(String(sub)).setExpirationTime('1h')
@@ -62,7 +63,7 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat-documentos.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
 
@@ -129,7 +130,7 @@ describe('TC-15 — con la función y acceso a la solicitud', () => {
 describe('TC-16 — sin acceso a la solicitud → 404, como el detalle', () => {
   it('proveedor con la función pero sin la solicitud asignada', async () => {
     accesoMock.mockResolvedValue(null);
-    const r = await get(await auth([VER], 'interno', 'proveedor_soat'));
+    const r = await get(await auth([VER], 'proveedor'));
     expect(r.status).toBe(404);
     expect(lecturaDeSoportes(), 'ni se leen los soportes').toBeUndefined();
     expect(piiMock, 'un 404 no accedió a nada').not.toHaveBeenCalled();
@@ -149,7 +150,7 @@ describe('TC-17 — sin documentos', () => {
 describe('TC-18 — sin la función → 403', () => {
   it.each([
     ['rol interno sin la función', () => auth(['soat.solicitud.ver'])],
-    ['cliente que creó la solicitud', () => auth(['soat.solicitud.crear', 'soat.solicitud.ver'], 'externo', 'compania')],
+    ['cliente que creó la solicitud', () => auth(['soat.solicitud.crear', 'soat.solicitud.ver'], 'compania')],
   ])('%s', async (_n, token) => {
     const r = await get(await token());
     expect(r.status).toBe(403);

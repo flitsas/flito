@@ -192,7 +192,7 @@ export interface SoporteVisibleCliente {
    * acabado en un `if` de la ruta —lejos de la lista, donde nadie la ve al revisar qué se abrió—.
    */
   soloEn: EstadoSoat | null;
-  /** Qué se rompe si se quita. Mismo gesto que `RutaCliente.porque` en `canal-cliente.ts`. */
+  /** Qué se rompe si se quita. Mismo gesto que `RutaTransversal.porque` en `frontera-enlace.ts`. */
   porque: string;
 }
 
@@ -268,12 +268,12 @@ function tiposVisiblesCliente(estadoSoat: string): readonly string[] {
 export interface ActorSoporte {
   rol: string;
   /**
-   * El rol es EXTERNO (`tipo_principal = 'externo'`, `SoatCtx.externo`). Decide la allowlist
-   * `TIPOS_SOPORTE_VISIBLES_CLIENTE` para TODO rol externo, no solo para el literal `'cliente'`: un
-   * rol externo creado en el panel con otro código veía la lista completa (HU #12815). Obligatorio
-   * por lo mismo que `rol`: un opcional se olvida y el olvido abre.
+   * La proyección del canal Cliente (`SoatCtx.proyeccionCliente`, HU #12875: por ENLACE). Decide la
+   * allowlist `TIPOS_SOPORTE_VISIBLES_CLIENTE` para todo rol con esa proyección, no solo para el
+   * literal `'cliente'` (HU #12815). Obligatorio por lo mismo que `rol`: un opcional se olvida y el
+   * olvido abre.
    */
-  externo: boolean;
+  proyeccionCliente: boolean;
   /**
    * El estado del SOAT que se está mirando, tal como lo devolvió la consulta que ya autorizó el
    * acceso (`detalle()` → `buscarConAcceso()`). **Obligatorio**, por lo mismo que `rol`: un campo
@@ -312,13 +312,13 @@ export async function soportesDeSoat(
   // ni se emite — no se lee lo que no se va a devolver, el mismo criterio que ya aplica la línea de
   // abajo con el comprobante PSE. Esa rama no es teórica: basta con vaciar la lista, o con que un
   // día todas las entradas lleven `soloEn`.
-  const tiposVisibles = actor.externo ? tiposVisiblesCliente(actor.estadoSoat) : null;
+  const tiposVisibles = actor.proyeccionCliente ? tiposVisiblesCliente(actor.estadoSoat) : null;
   const [propios, conciliacion] = await Promise.all([
     tiposVisibles !== null && tiposVisibles.length === 0
       ? Promise.resolve([] as SoporteVista[])
       : porRegistro(flitoSoportes.soatId, soatId, 'soat', tiposVisibles),
     // Un rol externo nunca, aunque su código coincidiera con uno de la lista (HU #12815).
-    !actor.externo && ROLES_COMPROBANTE_PSE.includes(actor.rol) ? comprobanteDeConciliacion(soatId) : [],
+    !actor.proyeccionCliente && ROLES_COMPROBANTE_PSE.includes(actor.rol) ? comprobanteDeConciliacion(soatId) : [],
   ]);
   const visibles = tiposVisibles === null ? propios : propios.filter((s) => tiposVisibles.includes(s.tipo));
   return ordenar([...visibles, ...conciliacion]);

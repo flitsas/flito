@@ -7,7 +7,7 @@
 // capitalizada y sin `_`, para que un módulo nuevo del catálogo se vea antes de que alguien lo
 // bautice aquí. Ningún número del catálogo se cablea: la pantalla cuenta lo que llega (ficha §2).
 
-import type { TipoEnlace, TipoPrincipalRol } from '@operaciones/shared-types';
+import type { TipoEnlace } from '@operaciones/shared-types';
 import type { GrupoDeFunciones } from '../../lib/api';
 
 const ETIQUETAS_MODULO: Record<string, string> = {
@@ -182,7 +182,7 @@ export function kDeNMarcadas(k: number, n: number): string {
 export const ETIQUETA_ENLACE: Record<TipoEnlace, string> = {
   ninguno: 'No se atan a nada',
   compania: 'Una compañía',
-  proveedor_soat: 'Un gestor SOAT',
+  proveedor: 'Un gestor SOAT',
   organismos_transito: 'Organismos de tránsito',
 };
 
@@ -190,7 +190,7 @@ export const ETIQUETA_ENLACE: Record<TipoEnlace, string> = {
 export const AYUDA_ENLACE: Record<TipoEnlace, string> = {
   ninguno: 'Sus usuarios ven lo que este cuadro tenga marcado, sin filtro por entidad.',
   compania: 'Al crear un usuario con este rol habrá que elegirle una compañía, y solo verá lo de esa compañía.',
-  proveedor_soat: 'Al crear un usuario con este rol habrá que elegirle un gestor SOAT, y solo verá los trámites de ese gestor.',
+  proveedor: 'Al crear un usuario con este rol habrá que elegirle un gestor SOAT, y solo verá los trámites de ese gestor.',
   organismos_transito: 'Al crear un usuario con este rol habrá que marcarle uno o más organismos, y solo verá lo de esos organismos.',
 };
 
@@ -198,13 +198,8 @@ export const AYUDA_ENLACE: Record<TipoEnlace, string> = {
 export const ENLACE_EN_CABECERA: Record<TipoEnlace, string> = {
   ninguno: 'No se atan a nada',
   compania: 'Se atan a una compañía',
-  proveedor_soat: 'Se atan a un gestor SOAT',
+  proveedor: 'Se atan a un gestor SOAT',
   organismos_transito: 'Se atan a organismos de tránsito',
-};
-
-export const ETIQUETA_ACCESO: Record<TipoPrincipalRol, string> = {
-  interno: 'Interno',
-  externo: 'Externo',
 };
 
 /** «1 usuario tiene este rol.» / «4 usuarios tienen este rol.» */

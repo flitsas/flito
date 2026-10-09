@@ -13,7 +13,12 @@ import request from 'supertest';
 import express from 'express';
 import { MotivoNoElegible, ResultadoCertificacion } from '@operaciones/shared-types';
 import { createKeyedDb } from '../helpers/keyed-db.js';
-import { testToken, type TestRole } from '../helpers/auth.js';
+import { testToken, type TestRole, neutralizarEnlaceDe } from '../helpers/auth.js';
+
+// HU #12875: este fichero mide la regla del MÓDULO con roles de fábrica que la frontera por enlace
+// cierra hasta la #13426 (decisión (b) del PO); su enlace se neutraliza aquí, a la vista. El cierre lo
+// prueban `frontera-por-enlace.test.ts` y `frontera-enlace.centinela.test.ts`.
+neutralizarEnlaceDe('gestor_impuestos', 'transito', 'proveedor');
 
 const kdb = createKeyedDb();
 

@@ -204,7 +204,7 @@ beforeEach(() => {
   // HU #12088: el mock debe devolver el tipoEnlace coherente con el rol del body.
   // Si siempre devolviera `ninguno`, los 400 de ámbito no dispararían (o dispararían al revés).
   const TIPO_ENLACE_POR_ROL: Record<string, string> = {
-    admin: 'ninguno', proveedor: 'proveedor_soat', transito: 'organismos_transito',
+    admin: 'ninguno', proveedor: 'proveedor', transito: 'organismos_transito',
     compliance: 'ninguno', lider_pesv: 'ninguno', supervisor_flota: 'ninguno', conductor: 'ninguno',
     auditor: 'ninguno', gestor_impuestos: 'organismos_transito', mensajero: 'ninguno',
     financiera: 'ninguno', cliente: 'compania', consulta_cliente: 'ninguno',
@@ -863,6 +863,35 @@ describe('POST /api/users — las dos ataduras al crear (AC1/AC2/AC3)', () => {
     // Dos gestores del mismo proveedor es el escenario de CA-04 (toma atómica de la misma cola):
     // que compartan proveedor no es un choque, es el caso de uso.
     expect(filasDe('users')).toHaveLength(2);
+  });
+
+  // HU #12875 (nota de security): el enlace del rol se normaliza con el mismo `enlaceConocido` del
+  // resolutor. Un rol que aún dice `proveedor_soat` (imagen nueva antes de aplicar la 0231) es un
+  // rol `proveedor`: exige y escribe el proveedor SOAT. Sin el alias, el alta daría 400 «sobra» y la
+  // edición dejaría quitar el proveedor sin pedirlo.
+  it('HU #12875: rol con enlace alias `proveedor_soat` al CREAR → se trata como `proveedor` (201 y FK escrita)', async () => {
+    rolAsignableMock.mockReset().mockResolvedValue({ tipoEnlace: 'proveedor_soat' });
+    selectMock.mockReturnValueOnce(chain([]));                      // username libre
+    selectMock.mockReturnValueOnce(chain([]));                      // email libre
+    selectMock.mockReturnValueOnce(chain([{ id: PROVEEDOR }]));     // el proveedor existe
+
+    const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
+      .send({ ...BODY_PROVEEDOR, flitoProveedorSoatId: PROVEEDOR });
+
+    expect(r.status).toBe(201);
+    expect((filasDe('users')[0].valores as Record<string, unknown>).flitoProveedorSoatId).toBe(PROVEEDOR);
+  });
+
+  it('HU #12875: rol con enlace alias `proveedor_soat` al EDITAR → quitar el proveedor es 400 «requerido», como con `proveedor`', async () => {
+    rolAsignableMock.mockReset().mockResolvedValue({ tipoEnlace: 'proveedor_soat' });
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'proveedor', active: true, flitoProveedorSoatId: PROVEEDOR }])); // before
+
+    const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', await cabecera())
+      .send({ flitoProveedorSoatId: null });
+
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('Proveedor SOAT requerido para este rol');
+    expect(updateMock).not.toHaveBeenCalled();
   });
 
   it('TC-12053-05: gestor con DOS organismos → quedan los DOS, y los DOS vuelven', async () => {

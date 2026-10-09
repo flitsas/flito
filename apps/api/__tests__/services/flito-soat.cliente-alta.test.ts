@@ -87,6 +87,7 @@ import express from 'express';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
 import { testToken } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 const kdb = createKeyedDb();
 const espia = crearEspia(kdb);
@@ -164,7 +165,7 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat-cliente.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
 
@@ -933,18 +934,11 @@ describe('el canal es del rol `cliente`, y su ruta está inscrita en la allowlis
     expect((await alta(await buildApp(), await auth('proveedor', siguienteUsuario()))).status).toBe(403);
   });
 
-  it('**el `cliente` LLEGA a la ruta: si no estuviera en `RUTAS_PERMITIDAS_CLIENTE`, el guarda de negación por defecto la cortaría antes**', async () => {
+  it('**el `cliente` LLEGA a la ruta: el montaje SOAT está declarado y abierto a su enlace (HU #12875)**', async () => {
     escenario();
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
-    // 201 y no 403: el guarda de `authMiddleware` corre de verdad en este test.
+    // 201 y no 403: la frontera de `authMiddleware` corre de verdad en este test.
     expect(r.status).toBe(201);
-
-    const { rutaPermitidaParaCliente } = await import('../../src/shared/middleware/canal-cliente.js');
-    expect(rutaPermitidaParaCliente('POST', '/api/flito/soat/cliente')).toBe(true);
-    expect(rutaPermitidaParaCliente('POST', '/api/flito/soat/cliente/preconsulta')).toBe(true);
-    // Y no abre de paso las mutaciones del router hermano.
-    expect(rutaPermitidaParaCliente('POST', '/api/flito/soat/enviar')).toBe(false);
-    expect(rutaPermitidaParaCliente('POST', '/api/flito/soat/aaaa/factura')).toBe(false);
   });
 });
 

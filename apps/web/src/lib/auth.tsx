@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useMemo, useRef, useState, useE
 import { api, permisosApi, setToken, clearToken, SESSION_ENDED_EVENT } from './api';
 import { limpiarAvisos } from './conciliacionAviso';
 import { hasFuncion as hasFuncionDe, type UserRole } from './permissions';
+import type { TipoEnlace } from '@operaciones/shared-types';
 
 interface User {
   id: number;
@@ -39,10 +40,10 @@ interface User {
    */
   puedeSolicitarSoat?: boolean;
   /**
-   * HU #12872: frontera interno/externo de `/permisos/mios`, fusionada por el provider en el `user`
-   * del contexto (no viene de `/auth/me`). La consume la Ayuda; no es el nombre del rol.
+   * HU #12875: el enlace del rol de `/permisos/mios` (la frontera), fusionado por el provider en el
+   * `user` del contexto (no viene de `/auth/me`). La consume la Ayuda; no es el nombre del rol.
    */
-  tipoPrincipal?: 'interno' | 'externo' | null;
+  tipoEnlace?: TipoEnlace | null;
 }
 
 /** ¿Este usuario puede radicar una solicitud del canal Cliente? Por capacidad, nunca por rol. */
@@ -61,10 +62,10 @@ interface AuthContextType {
   /** Atajo reactivo al helper de `permissions.ts`. */
   hasFuncion: (codigo: string) => boolean;
   /**
-   * Frontera interno/externo del principal (`/permisos/mios`, HU #12872). No es el nombre del rol:
-   * la usa la Ayuda para no ofrecer fichas internas a un usuario externo. `null` = aún no llegó.
+   * Enlace del rol (`/permisos/mios`, HU #12875). No es el nombre del rol: la usa la Ayuda para no
+   * ofrecer fichas internas a un usuario con enlace. `null` = aún no llegó.
    */
-  tipoPrincipal: 'interno' | 'externo' | null;
+  tipoEnlace: TipoEnlace | null;
   /**
    * `true` si la PRIMERA carga de `/permisos/mios` falló (red/5xx). «No saber no es no tener»: la
    * guarda de ruta muestra un aviso con reintento en vez de «sin acceso» (HU #12872, UX §1).
@@ -101,7 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   // `null` hasta que `/mios` responda: los botones no se pintan permitidos (AC1).
   const [funciones, setFunciones] = useState<string[] | null>(null);
-  const [tipoPrincipal, setTipoPrincipal] = useState<'interno' | 'externo' | null>(null);
+  const [tipoEnlace, setTipoEnlace] = useState<TipoEnlace | null>(null);
   const [permisosError, setPermisosError] = useState(false);
   const enVuelo = useRef<Promise<void> | null>(null);
 
@@ -109,7 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const mios = await permisosApi.mios();
       setFunciones(mios.funciones);
-      setTipoPrincipal(mios.tipoPrincipal ?? null);
+      setTipoEnlace(mios.tipoEnlace ?? null);
       setPermisosError(false);
     } catch {
       // Sin `/mios` no inventamos un conjunto: vacío = «llegó y no puede nada» (fail-closed). Y se
@@ -131,7 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (mios.status === 'fulfilled') {
         const nuevas = mios.value.funciones;
         setFunciones((prev) => (mismasFunciones(prev, nuevas) ? prev : nuevas));
-        setTipoPrincipal(mios.value.tipoPrincipal ?? null);
+        setTipoEnlace(mios.value.tipoEnlace ?? null);
         setPermisosError(false);
       }
       // Fallo de red/5xx: se CONSERVA la foto anterior. El 401 lo resuelve `SESSION_ENDED_EVENT`.
@@ -149,7 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // el evento `storage`. Sin token no hay sesión cuyo aviso convenga preservar.
       limpiarAvisos();
       setFunciones(null);
-      setTipoPrincipal(null);
+      setTipoEnlace(null);
       setLoading(false);
       return;
     }
@@ -180,7 +181,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       limpiarAvisos();
       setUser(null);
       setFunciones(null);
-      setTipoPrincipal(null);
+      setTipoEnlace(null);
       setPermisosError(false);
     };
     window.addEventListener(SESSION_ENDED_EVENT, onSessionEnded);
@@ -201,7 +202,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     limpiarAvisos();
     setUser(null);
     setFunciones(null);
-    setTipoPrincipal(null);
+    setTipoEnlace(null);
     setPermisosError(false);
   };
 
@@ -210,12 +211,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [funciones],
   );
 
-  // El `user` del contexto lleva `tipoPrincipal` (de `/mios`) para que Ayuda y menú no miren el rol.
-  const userCtx = useMemo(() => (user ? { ...user, tipoPrincipal } : null), [user, tipoPrincipal]);
+  // El `user` del contexto lleva `tipoEnlace` (de `/mios`) para que Ayuda y menú no miren el rol.
+  const userCtx = useMemo(() => (user ? { ...user, tipoEnlace } : null), [user, tipoEnlace]);
 
   return (
     <AuthContext.Provider value={{
-      user: userCtx, loading, funciones, tipoPrincipal, permisosError, hasFuncion,
+      user: userCtx, loading, funciones, tipoEnlace, permisosError, hasFuncion,
       refrescarSesion, refrescarFunciones: refrescarSesion, login, logout,
     }}>
       {children}

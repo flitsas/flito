@@ -1,5 +1,5 @@
 import type {
-  CrearRolInput, CuadroRol, EditarRolInput, RespuestaGuardarCuadro, RespuestaReemplazoComprobante, RolCatalogo, TipoPrincipalRol,
+  CrearRolInput, CuadroRol, EditarRolInput, RespuestaGuardarCuadro, RespuestaReemplazoComprobante, RolCatalogo, TipoEnlace,
 } from '@operaciones/shared-types';
 
 const BASE = '/api';
@@ -544,7 +544,8 @@ export interface GrupoDeFunciones {
 export interface PermisosMios {
   funciones: string[];
   rol: string;
-  tipoPrincipal: TipoPrincipalRol;
+  /** HU #12875: el enlace del rol (el tipo interno/externo se retiró). */
+  tipoEnlace: TipoEnlace | null;
   version: number;
   resueltoEn: string;
 }
