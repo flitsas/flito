@@ -164,7 +164,7 @@ describe('POST /api/auth/login — éxito', () => {
     // HU #12082: `allowedPages` es una vista del resolutor único. Aquí el resolutor lee del registro
     // del helper (no de `selectMock`): el reparto del rol trae `pagina.dashboard` justo para comprobar
     // que el sobre lleva el SLUG y no el código de la función.
-    await registrarUsuarioDePrueba(42, { rol: 'admin', tipoPrincipal: 'interno', funcionesDelRol: ['pagina.dashboard'], excepciones: [] });
+    await registrarUsuarioDePrueba(42, { rol: 'admin', tipoEnlace: 'ninguno', funcionesDelRol: ['pagina.dashboard'], excepciones: [] });
     argonVerifyMock.mockResolvedValueOnce(true);
     const app = await buildApp();
     const r = await request(app).post('/api/auth/login').send({ username: 'admin', password: 'OK' });
@@ -216,7 +216,7 @@ const CLIENTE_LOGIN = {
 
 describe('POST /api/auth/login — `puedeSolicitarSoat` (Bug #11937)', () => {
   it('cliente cuya compañía tiene el flag ENCENDIDO → true y la clave viene', async () => {
-    await registrarUsuarioDePrueba(5, { rol: 'cliente', tipoPrincipal: 'externo', allowedPages: [], funcionesDelRol: ['pagina.flito_soat', 'soat.solicitud.crear'], excepciones: [] });
+    await registrarUsuarioDePrueba(5, { rol: 'cliente', tipoEnlace: 'compania', allowedPages: [], funcionesDelRol: ['pagina.flito_soat', 'soat.solicitud.crear'], excepciones: [] });
     selectMock
       .mockReturnValueOnce(chain([CLIENTE_LOGIN]))
       .mockReturnValueOnce(chain([])) // puente #12088
@@ -233,7 +233,7 @@ describe('POST /api/auth/login — `puedeSolicitarSoat` (Bug #11937)', () => {
   });
 
   it('flag APAGADO → false, y no es «no vino el campo»', async () => {
-    await registrarUsuarioDePrueba(5, { rol: 'cliente', tipoPrincipal: 'externo', allowedPages: [], funcionesDelRol: ['pagina.flito_soat', 'soat.solicitud.crear'], excepciones: [] });
+    await registrarUsuarioDePrueba(5, { rol: 'cliente', tipoEnlace: 'compania', allowedPages: [], funcionesDelRol: ['pagina.flito_soat', 'soat.solicitud.crear'], excepciones: [] });
     selectMock
       .mockReturnValueOnce(chain([CLIENTE_LOGIN]))
       .mockReturnValueOnce(chain([])) // puente #12088

@@ -22,6 +22,7 @@ import express from 'express';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
 import { testToken } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 // El fallback local (`OCR_LOCAL=1`) no lanza y devolvería los catorce campos vacíos: sería un 200
 // que no mide nada. Aquí se ejercita la ruta de Anthropic, mockeada.
@@ -81,7 +82,7 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat-cliente.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
 
@@ -280,24 +281,7 @@ describe('AC6 — la lectura devuelve la extracción y NO persiste ni archiva na
 
 // ───────────────────── Quién puede entrar ────────────────────────────────────
 
-describe('la ruta es del `cliente` y está inscrita en la allowlist del canal', () => {
-  it('**la entrada existe en `RUTAS_PERMITIDAS_CLIENTE`, con su método y su `porque`**', async () => {
-    const { RUTAS_PERMITIDAS_CLIENTE, rutaPermitidaParaCliente } =
-      await import('../../src/shared/middleware/canal-cliente.js');
-
-    expect(rutaPermitidaParaCliente('POST', RUTA)).toBe(true);
-    const entrada = RUTAS_PERMITIDAS_CLIENTE.find((r) => r.patron === RUTA);
-    expect(entrada?.metodo).toBe('POST');
-    expect(entrada!.porque.length).toBeGreaterThan(40);
-  });
-
-  it('la allowlist NO abre de más: ni el GET de esa ruta ni un hermano inventado', async () => {
-    const { rutaPermitidaParaCliente } = await import('../../src/shared/middleware/canal-cliente.js');
-    expect(rutaPermitidaParaCliente('GET', RUTA)).toBe(false);
-    expect(rutaPermitidaParaCliente('POST', '/api/flito/soat/cliente/factura')).toBe(false);
-    expect(rutaPermitidaParaCliente('POST', '/api/flito/soat/cliente/factura/lectura/extra')).toBe(false);
-  });
-
+describe('la ruta es del `cliente`: la alcanza por el montaje SOAT abierto a su enlace (HU #12875)', () => {
   it('**un `admin` recibe 403**: radicar y leer la factura del titular es del canal, no de Operaciones', async () => {
     // Desde la HU #12083 la guarda es `exigirFuncion('soat.factura.leer')` y el 403 viene explicado
     // (#12082 AC5): el admin tiene OTRAS funciones `soat.*`, así que el motivo es `sin_funcion`.
@@ -380,13 +364,12 @@ describe('AC7 — queda escrito quién leyó, cuándo y sobre qué solicitud; y 
 
   it('**ningún dato personal viaja en la URL**: `solicitudId` va en el cuerpo del multipart', async () => {
     escenario();
-    const { rutaPermitidaParaCliente } = await import('../../src/shared/middleware/canal-cliente.js');
-
-    // El patrón inscrito no tiene ningún `:param`: no hay dónde meter un identificador.
+    // El patrón de la ruta no tiene ningún `:param`: no hay dónde meter un identificador.
     expect(RUTA).not.toContain(':');
-    // Y la variante con el uuid en la ruta no está abierta, así que nadie puede «simplificar» el
-    // cliente moviéndolo allí sin tocar la allowlist.
-    expect(rutaPermitidaParaCliente('POST', `${RUTA}/${SOAT_PROPIO}`)).toBe(false);
+    // Y la variante con el uuid en la ruta no existe (404), así que nadie la usa sin declararla.
+    const variante = await request(await buildApp()).post(`${RUTA}/${SOAT_PROPIO}`)
+      .set('Authorization', await auth('cliente', siguienteUsuario()));
+    expect(variante.status).toBe(404);
 
     const r = await lectura(await buildApp(), await auth('cliente', siguienteUsuario()), {
       campos: { solicitudId: SOAT_PROPIO },

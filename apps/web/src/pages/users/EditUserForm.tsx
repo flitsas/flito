@@ -110,9 +110,9 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
       if (enlace !== 'compania' && user.companiaId) body.companiaId = null;
 
       const proveedorPrevio = user.flitoProveedorSoatId ?? '';
-      const proveedorChanged = enlace === 'proveedor_soat' && f.flitoProveedorSoatId !== proveedorPrevio;
+      const proveedorChanged = enlace === 'proveedor' && f.flitoProveedorSoatId !== proveedorPrevio;
       if (proveedorChanged) body.flitoProveedorSoatId = f.flitoProveedorSoatId;
-      if (enlace !== 'proveedor_soat' && user.flitoProveedorSoatId) body.flitoProveedorSoatId = null;
+      if (enlace !== 'proveedor' && user.flitoProveedorSoatId) body.flitoProveedorSoatId = null;
 
       const organismosChanged = enlace === 'organismos_transito' && !mismoConjunto(f.organismosCodigos, user.organismosCodigos);
       if (organismosChanged) body.organismosCodigos = f.organismosCodigos;
@@ -139,7 +139,7 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
     e.preventDefault();
     if (submitting) return;
     if (enlace === 'compania' && !f.companiaId) { setErrorCompania(COMPANIA_REQUERIDA); return; }
-    if (enlace === 'proveedor_soat' && !f.flitoProveedorSoatId) { setErrorProveedor(PROVEEDOR_REQUERIDO); return; }
+    if (enlace === 'proveedor' && !f.flitoProveedorSoatId) { setErrorProveedor(PROVEEDOR_REQUERIDO); return; }
     if (enlace === 'organismos_transito' && f.organismosCodigos.length === 0) { setErrorOrganismos(ORGANISMOS_REQUERIDO); return; }
     setErrorCompania(null); setErrorProveedor(null); setErrorOrganismos(null);
 
@@ -173,7 +173,7 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
                   role: nuevo,
                   // Limpiar ataduras que ya no aplican; conservar las del mismo tipo de enlace.
                   companiaId: nuevoEnlace === 'compania' ? f.companiaId : '',
-                  flitoProveedorSoatId: nuevoEnlace === 'proveedor_soat' ? f.flitoProveedorSoatId : '',
+                  flitoProveedorSoatId: nuevoEnlace === 'proveedor' ? f.flitoProveedorSoatId : '',
                   organismosCodigos: nuevoEnlace === 'organismos_transito'
                     ? (enlaceUsuario === 'organismos_transito' ? user.organismosCodigos : [])
                     : [],

@@ -10,7 +10,7 @@
 // La invalidación de la caché del motor (`invalidarPermisosDeRol`) va SIEMPRE después del commit.
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { TIPOS_ENLACE, TIPOS_PRINCIPALES } from '@operaciones/shared-types';
+import { TIPOS_ENLACE } from '@operaciones/shared-types';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { invalidarPermisosDeRol, resolverPermisos } from '../../shared/permisos-efectivos.js';
@@ -36,7 +36,8 @@ router.get('/funciones', exigirFuncion('permisos.catalogo.ver'), async (_req: Re
  * GET /mios — lo que ESTE usuario puede, tal cual lo usa el servidor: el mismo resolutor, la misma
  * foto cacheada, sin recalcular la regla aquí. Sin guarda de permiso a propósito: cualquier
  * autenticado ve SU conjunto y solo el suyo (la query se ignora: `?userId=8` no existe para esta
- * ruta). Entra en `RUTAS_PERMITIDAS_CLIENTE` para que el canal externo también tenga menú.
+ * ruta). Es una de las `RUTAS_TRANSVERSALES` de la frontera por enlace (HU #12875) para que un rol
+ * con enlace también tenga menú. Devuelve el `tipoEnlace` del rol, no el tipo interno/externo retirado.
  *
  * `version` es el hash del conjunto: cambia cuando cambia lo que este usuario puede, y es lo que la
  * pantalla compara para saber si refrescar. `resueltoEn` dice cuán vieja es la foto (≤ 60 s).
@@ -50,7 +51,7 @@ router.get('/mios', async (req: Request, res: Response) => {
   res.json({
     funciones: [...p.funciones].sort(),
     rol: p.rol,
-    tipoPrincipal: p.tipoPrincipal,
+    tipoEnlace: p.tipoEnlace,
     version: p.version,
     resueltoEn: p.resueltoEn.toISOString(),
   });
@@ -65,18 +66,17 @@ const crearSchema = z.object({
   codigo: codigoRol,
   nombre: z.string().trim().min(1).max(80),
   descripcion: z.string().trim().max(2000).nullable().optional(),
+  // Sin default, a propósito (AC1): el enlace es la frontera (HU #12875); equivocarse por omisión abre.
   tipoEnlace: z.enum(TIPOS_ENLACE),
-  // Sin default, a propósito (AC1): equivocarse por omisión abre la superficie interna a un rol de cliente.
-  tipoPrincipal: z.enum(TIPOS_PRINCIPALES),
   funciones: listaFunciones.default([]),
-});
+}).strict(); // HU #12875 AC6: el campo del tipo interno/externo retirado (o cualquier clave extra) → 400.
 
-// `.strict()`: `codigo` (ADR-0015 §1), `esSistema` (el candado) y `funciones` (otra ruta) → 400.
+// `.strict()`: `codigo` (ADR-0015 §1), `esSistema` (el candado), `funciones` (otra ruta) y el
+// campo del tipo interno/externo retirado (HU #12875 AC6) → 400.
 const editarSchema = z.object({
   nombre: z.string().trim().min(1).max(80).optional(),
   descripcion: z.string().trim().max(2000).nullable().optional(),
   tipoEnlace: z.enum(TIPOS_ENLACE).optional(),
-  tipoPrincipal: z.enum(TIPOS_PRINCIPALES).optional(),
   activo: z.boolean().optional(),
 }).strict();
 
@@ -137,7 +137,7 @@ router.patch('/roles/:codigo', exigirFuncion('permisos.rol.editar'), async (req:
   try {
     const r = await editarRol(codigo, parsed.data, actorDeRequest(req));
     if (r.estado === 'sin_cambios') { res.status(400).json({ error: 'Sin cambios' }); return; }
-    // Después del commit. Siempre que hubo cambios: el resolutor solo lee `tipo_principal`, pero un
+    // Después del commit. Siempre que hubo cambios: el resolutor solo lee `tipo_enlace`, pero un
     // `if` que alguien olvide cuesta más que un recorrido de la caché.
     invalidarPermisosDeRol(codigo);
     res.json({ rol: r.rol });
@@ -175,8 +175,8 @@ router.get('/roles/:codigo/funciones', exigirFuncion('permisos.cuadro.ver'), asy
 
 /**
  * PUT /roles/:codigo/funciones — CF-02 / RN-A1. El conjunto COMPLETO: se reescribe, no se suma.
- * 400 con la lista de inexistentes; 409 del invariante; `aviso` si el rol es externo y hay funciones
- * fuera de su canal. No cierra sesiones (decisión del 10/09): invalida la caché del rol y aplica en
+ * 400 con la lista de inexistentes; 409 del invariante; `aviso` si el rol tiene enlace y hay funciones
+ * de módulos que la frontera no le abre (HU #12875). No cierra sesiones (decisión del 10/09): invalida la caché del rol y aplica en
  * la siguiente petición de cada usuario.
  */
 router.put('/roles/:codigo/funciones', exigirFuncion('permisos.cuadro.guardar'), async (req: Request, res: Response) => {

@@ -48,7 +48,7 @@ async function buildApp() {
 /** Token de `sub` con un rol de ESE nombre y SOLO esas funciones (el registro se fija tras firmar). */
 async function sesion(sub: number, rol: string, funciones: string[]): Promise<string> {
   const token = await testToken({ sub, role: 'admin' });
-  await registrarUsuarioDePrueba(sub, { rol, tipoPrincipal: 'interno', tipoEnlace: 'ninguno', funcionesDelRol: funciones, excepciones: [] });
+  await registrarUsuarioDePrueba(sub, { rol, tipoEnlace: 'ninguno', funcionesDelRol: funciones, excepciones: [] });
   return `Bearer ${token}`;
 }
 

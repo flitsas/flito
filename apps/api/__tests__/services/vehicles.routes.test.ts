@@ -125,7 +125,7 @@ describe('GET / — listado con search + masking PII', () => {
   });
 
   it('HU #13423 — sin `vehicles.vehiculos.consultar` (transito) → 403 del motor', async () => {
-    const token = await testToken({ sub: 1, role: 'transito' });
+    const token = await testToken({ sub: 1, role: 'transito', tipoEnlace: 'ninguno' }); // HU #12875: enlace neutralizado; aquí se mide la regla del módulo legacy, no la frontera (cerrado a este enlace hasta #13426)
     const app = await buildApp();
     const r = await request(app).get('/api/vehicles').set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(403);

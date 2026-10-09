@@ -4,13 +4,6 @@
 // compuerta. NO duplica lógica de negocio: cada acción resuelve tramiteId → soatId/impuestoId y DELEGA
 // en el servicio dueño de la regla (SOAT/Impuestos para el envío al gestor, Compuerta para el veredicto
 // y la entrega). Aquí solo vive el mapeo y el reporte agregado.
-//
-// RN-13585-P (Bug #13585, retrabajo 2 — decisión del humano): el trámite muestra SUS datos, no los del
-//            vehículo enlazado. La placa de la bandeja es SOLO `flito_tramites.plate_complete`, en
-//            cualquier estado y sin caer a `vehicles.plate`: dos trámites del mismo VIN comparten
-//            vehículo, y leer su placa le ponía al anulado la del aprobado. La búsqueda por placa usa la
-//            MISMA columna. `registrosZipTramites`, `solicitarImpuestos` y `entregar` siguen con
-//            `vehicles.plate` a propósito: son operativos sobre trámites vigentes.
 
 import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import {
@@ -34,9 +27,9 @@ export interface TramitesCtx { userId: number; username: string; role: string }
 
 // Ni proveedor ni compañía: el actor de Gestión Trámites es Operaciones, así que este contexto no
 // activa la frontera del gestor ni la del canal Cliente (Feature #11912).
-// `externo: false`: Trámites es superficie interna — ningún rol externo la alcanza (la lista blanca de
-// `canal-cliente.ts` no tiene rutas de `/api/flito/tramites`), así que aquí no hay compañía que acotar.
-const soatCtx = (ctx: TramitesCtx) => ({ userId: ctx.userId, username: ctx.username, role: ctx.role, externo: false, proveedorSoatId: null, companiaId: null });
+// `proyeccionCliente: false`: en #12875 Trámites no se abre a ningún enlace (`FRONTERA_POR_ENLACE`),
+// así que aquí no hay compañía que acotar; #13426 la abre junto con su filtro.
+const soatCtx = (ctx: TramitesCtx) => ({ userId: ctx.userId, username: ctx.username, role: ctx.role, proyeccionCliente: false, alcance: 'todo' as const, proveedorSoatId: null, companiaId: null });
 const impuestoCtx = (ctx: TramitesCtx) => ({ userId: ctx.userId, username: ctx.username, role: ctx.role, organismos: [] });
 
 export interface Comprador {
@@ -282,8 +275,7 @@ function proyeccion() {
     idFlit: flitoTramites.idFlit,
     fuente: flitoTramites.fuente,
     estadoTramite: flitoTramites.estado,
-    // RN-13585-P: la placa es la del trámite, no la del vehículo (ver cabecera).
-    placa: flitoTramites.plateComplete,
+    placa: vehicles.plate,
     companiaNombre: clients.name,
     soatAutogestionable: clients.soatAutogestionable,
     impuestosAutogestionable: clients.impuestosAutogestionable,
@@ -551,7 +543,7 @@ function construirCondiciones(f: FiltrosListado): SQL[] {
       ));
     conds.push(or(
       sql`UPPER(${flitoTramites.idFlit}) LIKE ${patronTexto}`,
-      sql`UPPER(REPLACE(${flitoTramites.plateComplete}, '-', '')) LIKE ${patron}`, // RN-13585-P: la que se muestra
+      sql`UPPER(REPLACE(${vehicles.plate}, '-', '')) LIKE ${patron}`,
       sql`UPPER(${vehicles.vin}) LIKE ${patron}`,
       inArray(flitoTramites.id, compradorMatch),
     )!);
@@ -740,6 +732,9 @@ export async function registrosZipTramites(ids: string[]): Promise<RegistroZip[]
     soatId: flitoTramites.soatId,
     impuestoId: flitoImpuestos.id,
     facturaVentaFlitId: flitoTramites.facturaVentaFlitId,
+    // Bug #13230: la factura de un trámite de FLIT 2 se pide al puerto de FLIT 2.
+    fuente: flitoTramites.fuente,
+    idFlit2: flitoTramites.idFlit2,
   }).from(flitoTramites)
     .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
     .leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
@@ -755,6 +750,8 @@ export async function registrosZipTramites(ids: string[]): Promise<RegistroZip[]
     soatId: f.soatId,
     impuestoId: f.impuestoId,
     facturaVentaFlitId: f.facturaVentaFlitId,
+    fuente: f.fuente ?? null,
+    idFlit2: f.idFlit2 ?? null,
   }));
 }
 

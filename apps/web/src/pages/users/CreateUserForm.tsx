@@ -63,7 +63,7 @@ export default function CreateForm({ companias, proveedores, organismos, catalog
     e.preventDefault();
     if (submitting) return;
     if (enlace === 'compania' && !f.companiaId) { setErrorCompania(COMPANIA_REQUERIDA); return; }
-    if (enlace === 'proveedor_soat' && !f.flitoProveedorSoatId) { setErrorProveedor(PROVEEDOR_REQUERIDO); return; }
+    if (enlace === 'proveedor' && !f.flitoProveedorSoatId) { setErrorProveedor(PROVEEDOR_REQUERIDO); return; }
     if (enlace === 'organismos_transito' && f.organismosCodigos.length === 0) { setErrorOrganismos(ORGANISMOS_REQUERIDO); return; }
     setErrorCompania(null); setErrorProveedor(null); setErrorOrganismos(null);
     setSubmitting(true);
@@ -72,7 +72,7 @@ export default function CreateForm({ companias, proveedores, organismos, catalog
       if (f.email.trim()) body.email = f.email.trim();
       if (funcionesOk && f.excepciones.length > 0) body.funciones = f.excepciones;
       if (enlace === 'compania') body.companiaId = Number(f.companiaId);
-      if (enlace === 'proveedor_soat') body.flitoProveedorSoatId = f.flitoProveedorSoatId;
+      if (enlace === 'proveedor') body.flitoProveedorSoatId = f.flitoProveedorSoatId;
       if (enlace === 'organismos_transito') body.organismosCodigos = f.organismosCodigos;
       await api.post('/users', body);
       toast.success('Usuario creado');

@@ -1,4 +1,6 @@
-import type { CrearRolInput, CuadroRol, EditarRolInput, RespuestaGuardarCuadro, RolCatalogo, TipoPrincipalRol } from '@operaciones/shared-types';
+import type {
+  CrearRolInput, CuadroRol, EditarRolInput, RespuestaGuardarCuadro, RespuestaReemplazoComprobante, RolCatalogo, TipoEnlace,
+} from '@operaciones/shared-types';
 
 const BASE = '/api';
 
@@ -542,7 +544,8 @@ export interface GrupoDeFunciones {
 export interface PermisosMios {
   funciones: string[];
   rol: string;
-  tipoPrincipal: TipoPrincipalRol;
+  /** HU #12875: el enlace del rol (el tipo interno/externo se retiró). */
+  tipoEnlace: TipoEnlace | null;
   version: number;
   resueltoEn: string;
 }
@@ -559,4 +562,14 @@ export const permisosApi = {
   guardarCuadro: (codigo: string, funciones: string[]) =>
     api.put<RespuestaGuardarCuadro>(`/permisos/roles/${encodeURIComponent(codigo)}/funciones`, { funciones }),
   mios: () => api.get<PermisosMios>('/permisos/mios'),
+};
+
+/** FLITO Impuestos — acciones del detalle que no caben en el CRUD genérico. */
+export const impuestosApi = {
+  /**
+   * HU #13270: reemplaza el comprobante de pago vigente (`POST …/recibos/reemplazar-pago`, HU #13269).
+   * Multipart `archivo`, mismo patrón que la carga por fase. Solo el id opaco va en la URL.
+   */
+  reemplazarComprobantePago: (impuestoId: string, archivo: File) =>
+    api.upload<RespuestaReemplazoComprobante>(`/flito/impuestos/${encodeURIComponent(impuestoId)}/recibos/reemplazar-pago`, archivo, 'archivo'),
 };

@@ -4,6 +4,8 @@
 //   npm run permisos:en-seco -w apps/api -- --hu 13421 > /tmp/reparto-13421.md
 //   npm run permisos:en-seco -w apps/api -- --hu 13422 > /tmp/reparto-13422.md   (HU #13422)
 //   npm run permisos:en-seco -w apps/api -- --hu 13423 > /tmp/reparto-13423.md   (HU #13423)
+//   npm run permisos:en-seco -w apps/api -- --hu 12875 > /tmp/frontera-12875.md   (HU #12875, AC9:
+//     frontera por enlace; núcleo `modules/permisos/frontera-en-seco.ts`, sin ids de usuario)
 //
 // Solo LEE: una transacción `READ ONLY` con tres SELECT (usuarios activos, reparto por rol y
 // excepciones por usuario). Lo propuesto se simula en memoria con el núcleo puro
@@ -33,8 +35,9 @@ import {
   informeMarkdown, repartoEnSeco,
   type FilaRolEnSeco, type FilaUsuarioEnSeco, type RutaEnSeco, type UsuarioEnSeco,
 } from '../modules/permisos/reparto-en-seco.js';
+import { fronteraEnSeco, informeFronteraMarkdown, montajesDeAppTs, type RolFronteraEnSeco } from '../modules/permisos/frontera-en-seco.js';
 
-const HU_SOPORTADAS = ['13421', '13422', '13423'];
+const HU_SOPORTADAS = ['13421', '13422', '13423', '12875'];
 const DIRECTORIOS = ['pesv', 'drivers', 'jornadas', 'rum'];
 const CON_PAGINA_PROPIA = new Map([
   ['pesv/raci.routes.ts', 'pagina.pesv_raci'],
@@ -236,6 +239,35 @@ function informeSesion13423(
   return l.join('\n');
 }
 
+/**
+ * HU #12875 (AC9): por rol, el enlace, el tipo de antes, usuarios activos y cuántos no tienen el id que
+ * su enlace exige. Solo conteos y códigos de rol. Lee la columna del tipo retirado a propósito: es la
+ * foto del «antes» (diseño §10). READ ONLY.
+ */
+async function informeHu12875(): Promise<string> {
+  const filas = await db.transaction(async (tx) => {
+    await tx.execute(sql`SET TRANSACTION READ ONLY`);
+    return tx.execute(sql`
+      SELECT r.codigo, r.tipo_principal AS tipo_antes, r.tipo_enlace, r.activo,
+             count(u.id) FILTER (WHERE u.active AND u.deleted_at IS NULL)::int AS usuarios,
+             count(u.id) FILTER (WHERE u.active AND u.deleted_at IS NULL AND (
+               (r.tipo_enlace = 'compania' AND u.compania_id IS NULL)
+               OR (r.tipo_enlace IN ('proveedor', 'proveedor_soat') AND u.flito_proveedor_soat_id IS NULL)
+               OR (r.tipo_enlace = 'organismos_transito' AND u.transito_codigo IS NULL
+                   AND NOT EXISTS (SELECT 1 FROM flito_gestor_organismos g WHERE g.user_id = u.id))
+             ))::int AS sin_id
+        FROM permisos_roles r LEFT JOIN users u ON u.role = r.codigo
+       GROUP BY r.codigo, r.tipo_principal, r.tipo_enlace, r.activo`);
+  });
+  const roles: RolFronteraEnSeco[] = [...filas].map((r) => ({
+    codigo: String(r.codigo), tipoAntes: r.tipo_antes == null ? null : String(r.tipo_antes),
+    tipoEnlace: String(r.tipo_enlace), activo: r.activo === true,
+    usuarios: Number(r.usuarios), sinIdDeEnlace: Number(r.sin_id),
+  }));
+  const montajes = montajesDeAppTs(readFileSync(join(RAIZ_MODULOS, '..', 'app.ts'), 'utf8'));
+  return informeFronteraMarkdown(fronteraEnSeco(roles, montajes), `HU #12875 (${roles.length} roles)`);
+}
+
 async function main(): Promise<number> {
   const i = process.argv.indexOf('--hu');
   const hu = i >= 0 ? process.argv[i + 1] : undefined;
@@ -243,6 +275,7 @@ async function main(): Promise<number> {
     console.error(`Uso: npm run permisos:en-seco -w apps/api -- --hu <${HU_SOPORTADAS.join('|')}>`);
     return 2;
   }
+  if (hu === '12875') { console.log(await informeHu12875()); return 0; }
   const filas = await db.transaction(async (tx) => {
     await tx.execute(sql`SET TRANSACTION READ ONLY`);
     const usuarios = await tx.execute(sql`SELECT id, role FROM users WHERE active = true AND deleted_at IS NULL`);

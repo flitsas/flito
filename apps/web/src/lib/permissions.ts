@@ -3,7 +3,7 @@
 // la HU #12170, `effectiveFunctions`/`hasFuncion` sobre el conjunto que entrega
 // `GET /api/permisos/mios` (HU #12082). La SPA no recalcula (R ∪ C) \ V: obedece lo ya resuelto.
 
-import { isValidPage, type PageSlug } from '@operaciones/shared-types';
+import { isValidPage, type PageSlug, type TipoEnlace } from '@operaciones/shared-types';
 // `rutaInicio` (abajo) deriva el destino del catálogo de navegación. El import es de VALOR y va en
 // este sentido; el que `navItems.ts` hace de este módulo es `import type` y se borra al compilar,
 // así que no hay ciclo en ejecución. Ver la nota de `lib/ayudaFlito.ts`.
@@ -36,7 +36,7 @@ export {
 export type { FuncionesEfectivas };
 
 /** Lo mínimo que hay que saber de un usuario para resolver sus páginas. */
-export type UsuarioPermisos = { allowedPages?: string[] | null; tipoPrincipal?: 'interno' | 'externo' | null };
+export type UsuarioPermisos = { allowedPages?: string[] | null; tipoEnlace?: TipoEnlace | null };
 
 /**
  * Páginas efectivas en el menú: exactamente lo que trajo `/me` (ya resuelto en servidor).

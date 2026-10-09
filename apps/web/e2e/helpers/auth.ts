@@ -390,11 +390,11 @@ export function funcionesDe(user: UsuarioFixture): string[] {
 
 /** Cuerpo de `GET /api/permisos/mios` como lo arma el servidor (HU #12170). */
 export function sobreDeMios(user: UsuarioFixture, funciones = funcionesDe(user)) {
-  // Como la 0178: solo `cliente` es externo; `proveedor` es INTERNO (`tipo_principal = 'interno'`).
-  // HU #12872: la Ayuda decide por este campo, así que el fixture tiene que decir lo que dice la base.
-  const externo = user.role === 'cliente';
+  // HU #12875: `/mios` devuelve el ENLACE del rol (el tipo interno/externo se retiró). Como la base:
+  // `cliente` → compania, `proveedor` → proveedor; el resto, ninguno. La Ayuda decide por este campo.
+  const tipoEnlace = user.role === 'cliente' ? 'compania' : user.role === 'proveedor' ? 'proveedor' : 'ninguno';
   return {
-    funciones, rol: user.role, tipoPrincipal: externo ? 'externo' : 'interno',
+    funciones, rol: user.role, tipoEnlace,
     version: 1, resueltoEn: '2026-09-14T12:00:00.000Z',
   };
 }

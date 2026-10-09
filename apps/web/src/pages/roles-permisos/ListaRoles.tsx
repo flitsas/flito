@@ -29,7 +29,7 @@ export default function ListaRoles({ roles, cuentaPorRol, total, seleccionado, o
           opciones={roles.map((r) => ({
             valor: r.codigo,
             etiqueta: r.nombre,
-            nota: [r.tipoPrincipal === 'externo' ? 'externo' : null, r.activo ? null : 'inactivo'].filter(Boolean).join(', ') || undefined,
+            nota: r.activo ? undefined : 'inactivo',
           }))}
           onChange={onSeleccionar}
         />
@@ -58,7 +58,6 @@ export default function ListaRoles({ roles, cuentaPorRol, total, seleccionado, o
                 >
                   <span className="flex min-w-0 items-center gap-2">
                     <span className="truncate">{r.nombre}</span>
-                    {r.tipoPrincipal === 'externo' && <StatusChip tone="warning">Externo</StatusChip>}
                     {!r.activo && <StatusChip tone="draft">Inactivo</StatusChip>}
                   </span>
                   <span className="shrink-0 text-xs tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>

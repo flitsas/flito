@@ -55,6 +55,7 @@ import { fileURLToPath } from 'node:url';
 import { getTableName } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { createKeyedDb } from '../helpers/keyed-db.js';
+import { conAlcance } from '../helpers/frontera.js';
 import { testToken, type TestRole } from '../helpers/auth.js';
 
 /** Tope de filas del export durante esta suite. Pequeño a propósito (ver cabecera). */
@@ -303,7 +304,7 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat.routes.js');
-  app.use(BASE, router);
+  app.use(BASE, conAlcance('soat', router));
   return app;
 }
 
@@ -318,7 +319,7 @@ async function buildAppAmbas() {
   app.use(express.json());
   const { default: soat } = await import('../../src/modules/flito-soat/flito-soat.routes.js');
   const { default: impuestos } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
-  app.use(BASE, soat);
+  app.use(BASE, conAlcance('soat', soat));
   app.use('/api/flito/impuestos', impuestos);
   return app;
 }
@@ -1243,14 +1244,17 @@ describe('fronteras — quién puede descargar y qué', () => {
     expect(lecturasDe(TABLA)).toHaveLength(0);
   });
 
-  it('el export NO está en la allowlist del canal Cliente (la capa que decide primero)', async () => {
-    // El 403 de arriba llega por DOS capas independientes y conviene saber cuál: la allowlist de
-    // `canal-cliente.ts` niega por defecto todo lo que no esté escrito, y `OPS_O_GESTOR` niega
-    // después. El aserto de la respuesta por sí solo seguiría verde si alguien colgara el export de
-    // `LECTURA`, porque la allowlist lo taparía —y quedaría un endpoint abierto al `auditor` con una
-    // sola línea de distancia—. Esto fija la primera capa por su lado.
-    const { RUTAS_PERMITIDAS_CLIENTE } = await import('../../src/shared/middleware/canal-cliente.js');
-    expect(RUTAS_PERMITIDAS_CLIENTE.some((r) => r.patron.includes('export'))).toBe(false);
+  it('HU #12875: el montaje SOAT está abierto al enlace compañía; el export lo cierra la FUNCIÓN', async () => {
+    // Ya no hay lista por ruta: la frontera abre el MONTAJE de SOAT al enlace `compania`, así que el
+    // 403 de arriba lo pone `exigirFuncion('soat.excel.exportar')`. El control: el MISMO rol con la
+    // función pasa (decisión (d) del PO), y el archivo sale acotado a su compañía (WHERE de la lectura).
+    kdb.when.scenario({ users: [{ c: 7, p: null }], flito_soat: filas(1), flito_tramites: [], flito_compradores: [] });
+    const cabecera = `Bearer ${await testToken({ sub: siguienteSub++, username: 'c@x.co', role: 'cliente', funciones: ['soat.excel.exportar'] })}`;
+    const r = await exportar(cabecera);
+    expect(r.status).toBe(200);
+    const { sql, params } = whereDelExport();
+    expect(sql).toContain('"flito_soat"."compania_id" =');
+    expect(params).toContain(7);
   });
 
   it('el gestor arrastra su frontera al WHERE del archivo', async () => {

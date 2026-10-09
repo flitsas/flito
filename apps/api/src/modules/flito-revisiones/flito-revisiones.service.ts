@@ -18,6 +18,7 @@ import { db } from '../../db/client.js';
 import { auditLogs, flitoImpuestos, flitoRevisiones, flitoSoat, flitoSoportes } from '../../db/schema.js';
 import { marcarPagado } from '../flito-soat/flito-soat.service.js';
 import { registrarDesdeRevision } from '../flito-derechos/flito-derechos.service.js';
+import { programarEnvioComprobante } from '../flito-impuestos/flito-impuestos.envio-flit2.service.js';
 
 export interface RevisionCtx { userId: number; username: string; role: string }
 
@@ -210,10 +211,10 @@ export async function aplicarFacturaSoat(
   });
 
   // `companiaId: null` — quien resuelve una revisión es Operaciones, no un usuario de compañía
-  // (Feature #11912). Sin proveedor ni compañía, este contexto no aplica ninguna frontera; `externo:
-  // false` por lo mismo (HU #12815): la bandeja de revisiones no está en la lista blanca del canal.
+  // (Feature #11912). Sin proveedor ni compañía, este contexto no aplica ninguna frontera;
+  // `proyeccionCliente: false` por lo mismo: la bandeja de revisiones no se abre a ningún enlace.
   await marcarPagado(soatId, extraccion, {
-    userId: ctx.userId, username: ctx.username, role: ctx.role, externo: false, proveedorSoatId: null, companiaId: null,
+    userId: ctx.userId, username: ctx.username, role: ctx.role, proyeccionCliente: false, alcance: 'todo' as const, proveedorSoatId: null, companiaId: null,
   });
 }
 
@@ -285,6 +286,8 @@ async function resolverImpuesto(revisionId: string, soporteId: string, motivoOri
     await auditEnTx(tx, ctx, 'flito_impuesto', impuestoId,
       `Revisión resuelta (en_gestion→pagado). Valor pagado ${valorPagado ?? '—'}, liquidado ${impuesto.valorLiquidado ?? '—'}. ` +
       `Revisión ${revisionId} (${motivoOriginal}). Soporte ${soporteId}. ${motivo.trim()}`);
+    // HU #13268 (AC1): pagado por revisión OCR → programa el envío a FLIT 2 dentro de la misma tx.
+    await programarEnvioComprobante(tx, impuestoId);
   });
 }
 

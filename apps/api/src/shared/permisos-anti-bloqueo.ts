@@ -14,8 +14,8 @@
 // contaría a quien la tiene REVOCADA. No se llama a `resolverPermisos()` porque ese lee de la caché y
 // de `db`, no de la transacción abierta, y no vería la escritura propia.
 //
-// Y exige rol `interno`: un `admin` pasado a `externo` no puede llegar a `/api/permisos/roles` porque
-// `guardiaCanalCliente` lo cierra antes de que `exigirFuncion` mire el conjunto.
+// Y exige enlace `ninguno` (HU #12875, ADR-0024 modifica ADR-0022): un rol con enlace no alcanza
+// `/api/permisos/roles` porque `guardiaFrontera` lo cierra antes de que `exigirFuncion` mire el conjunto.
 //
 // ── Por qué un ENVOLTORIO y no una simulación ───────────────────────────────────────────────────
 //
@@ -51,9 +51,10 @@
 //   · `actualizarUsuario` y `cambiarActivo` (users.service.ts): P → `for('update')` del titular
 //     (re-bloquear una fila propia es un no-op) → `UPDATE users` (su `KEY SHARE` sobre
 //     `permisos_roles` también queda después de P).
-//   · `guardarCuadro`, `borrarRol` y `editarRol` con `tipoPrincipal` (permisos-roles.service.ts):
+//   · `guardarCuadro` y `borrarRol` (permisos-roles.service.ts):
 //     P → `for('update')` de la fila de `permisos_roles` → escritura.
-//   · `editarRol` SIN `tipoPrincipal` no toma P: su `FOR UPDATE` del rol va solo y no puede cruzarse.
+//   · `editarRol` no toma P (HU #12875): el enlace se cambia solo con 0 usuarios, así que ningún campo
+//     editable mueve P; su `FOR UPDATE` del rol va solo y no puede cruzarse.
 // Un `FOR UPDATE` del rol ANTES de P (como tenían `borrarRol` y `editarRol` hasta el db-review de la
 // HU #12084) contra `guardarCuadro` del mismo rol era un `40P01` servido como 500.
 //
@@ -127,9 +128,9 @@ function tiene(funcion: string): SQL {
   return sql`((${porRol} or ${concedida}) and not ${revocada})`;
 }
 
-/** Activo, vivo y de rol interno: la población que puede administrar. */
+/** Activo, vivo y de rol SIN enlace (HU #12875): la población que puede administrar. */
 function poblacionAdministradora(): SQL {
-  return and(eq(users.active, true), eq(permisosRoles.tipoPrincipal, 'interno'), CONDICION_USUARIO_VIVO)!;
+  return and(eq(users.active, true), eq(permisosRoles.tipoEnlace, 'ninguno'), CONDICION_USUARIO_VIVO)!;
 }
 
 /**

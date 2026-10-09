@@ -92,9 +92,9 @@ describe('servicio — la propiedad la decide `operaAjenas`, no `role`', () => {
     selectMock
       .mockReturnValueOnce(chain([])) // compañías cerrables
       .mockReturnValueOnce(chain([ // usuarios activos con su rol
-        { id: 9, rol: 'repartidor_norte', tipoPrincipal: 'interno', tipoEnlace: 'ninguno' },
-        { id: 10, rol: 'admin', tipoPrincipal: 'interno', tipoEnlace: 'ninguno' },
-        { id: 11, rol: 'mensajero', tipoPrincipal: 'interno', tipoEnlace: 'ninguno' },
+        { id: 9, rol: 'repartidor_norte', tipoEnlace: 'ninguno' },
+        { id: 10, rol: 'admin', tipoEnlace: 'ninguno' },
+        { id: 11, rol: 'mensajero', tipoEnlace: 'ninguno' },
       ]))
       .mockReturnValueOnce(chain([ // reparto de las dos funciones
         { rol: 'repartidor_norte', codigo: 'logistica.actas.entregar' },
@@ -134,7 +134,7 @@ describe('rutas — AC3/AC7: mismo resultado con otro nombre de rol y los mismos
     selectMock.mockReturnValue(chain([ACTA_DE_9]));
     const token = await testToken({ sub: 51, role: 'mensajero' });
     await registrarUsuarioDePrueba(51, {
-      rol: 'repartidor_norte', tipoPrincipal: 'interno', tipoEnlace: 'ninguno',
+      rol: 'repartidor_norte', tipoEnlace: 'ninguno',
       funcionesDelRol: ['logistica.actas.entregar', 'logistica.actas.devolver', 'logistica.ruta.ver'], excepciones: [],
     });
     const r = await entregar(token);
@@ -146,7 +146,7 @@ describe('rutas — AC3/AC7: mismo resultado con otro nombre de rol y los mismos
     selectMock.mockReturnValue(chain([ACTA_DE_9]));
     const token = await testToken({ sub: 52, role: 'admin' });
     await registrarUsuarioDePrueba(52, {
-      rol: 'admin', tipoPrincipal: 'interno', tipoEnlace: 'ninguno',
+      rol: 'admin', tipoEnlace: 'ninguno',
       funcionesDelRol: ['logistica.actas.entregar'], excepciones: [],
     });
     const r = await entregar(token);
@@ -157,7 +157,7 @@ describe('rutas — AC3/AC7: mismo resultado con otro nombre de rol y los mismos
     selectMock.mockReturnValue(chain([ACTA_DE_9]));
     const token = await testToken({ sub: 53, role: 'mensajero' });
     await registrarUsuarioDePrueba(53, {
-      rol: 'mensajero', tipoPrincipal: 'interno', tipoEnlace: 'ninguno',
+      rol: 'mensajero', tipoEnlace: 'ninguno',
       funcionesDelRol: ['logistica.actas.entregar'], excepciones: [{ codigo: 'logistica.actas.operar_ajenas', efecto: 'conceder' }],
     });
     const r = await entregar(token);

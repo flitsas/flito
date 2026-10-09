@@ -2,16 +2,52 @@
 //
 // Lo que aquí se declara lo leen dos sitios: las rutas de `apps/api/src/modules/permisos/
 // permisos.routes.ts` (los `z.enum` se construyen desde estas constantes, patrón `USER_ROLES`) y la
-// pantalla de la HU #12085. Los literales de `tipo_enlace` y `tipo_principal` son los del CHECK de la
-// 0178 (`permisos_roles_tipo_enlace_chk`, `permisos_roles_tipo_principal_chk`).
+// pantalla de la HU #12085. Los literales de `tipo_enlace` son los del CHECK
+// `permisos_roles_tipo_enlace_chk` (0178, renombrado `proveedor_soat` → `proveedor` en la 0231).
+//
+// HU #12875 (ADR-0024): el tipo interno/externo del rol se RETIRA del contrato. El
+// enlace es la única frontera: `ninguno` → decide el permiso; cualquier otro → solo los módulos que
+// `FRONTERA_POR_ENLACE` le abre más las rutas transversales de sesión.
 
 /** El ROL dice si se enlaza y a QUÉ tipo de ámbito (RN-A3); el usuario dice a cuál. */
-export const TIPOS_ENLACE = ['ninguno', 'compania', 'proveedor_soat', 'organismos_transito'] as const;
+export const TIPOS_ENLACE = ['ninguno', 'compania', 'proveedor', 'organismos_transito'] as const;
 export type TipoEnlace = (typeof TIPOS_ENLACE)[number];
 
-/** `externo` dispara la frontera del canal (`guardiaCanalCliente`); `interno` es la plantilla de FLIT. */
-export const TIPOS_PRINCIPALES = ['interno', 'externo'] as const;
-export type TipoPrincipalRol = (typeof TIPOS_PRINCIPALES)[number];
+/** Cómo se nombra cada enlace en pantalla (el panel de #12876 lo explica con `FRONTERA_POR_ENLACE`). */
+export const ETIQUETA_ENLACE: Readonly<Record<TipoEnlace, string>> = Object.freeze({
+  ninguno: 'Ninguno',
+  compania: 'Compañía',
+  proveedor: 'Proveedor',
+  organismos_transito: 'Organismos de tránsito',
+});
+
+/** Los módulos que la frontera conoce (= códigos de módulo del catálogo de funciones). */
+export const MODULOS_FRONTERA = [
+  'soat', 'impuestos', 'derechos', 'tramites', 'bolsas', 'comprobantes', 'logistica', 'tablero',
+] as const;
+export type ModuloFrontera = (typeof MODULOS_FRONTERA)[number];
+
+export type EnlaceRestringido = Exclude<TipoEnlace, 'ninguno'>;
+
+/**
+ * HU #12875 (ADR-0024) — Qué enlaces alcanzan cada módulo HOY. Es CÓDIGO, congelado: no se lee de
+ * ninguna tabla y ninguna ruta lo modifica. Abrir un módulo a un enlace se hace en el MISMO PR que
+ * hace que su servicio filtre las filas por ese enlace (`alcanceDe(req)`); abrirlo antes es una fuga.
+ *
+ *   · soat — filtra por enlace desde el Bug #12869 (`alcanceSoatDe`, `condicionesCola`).
+ *   · impuestos → #13426 (compania, organismos_transito) · derechos → #13426 (organismos_transito).
+ *   · tramites / bolsas / comprobantes / logistica / tablero → #13426 (compania).
+ */
+export const FRONTERA_POR_ENLACE: Readonly<Record<ModuloFrontera, readonly EnlaceRestringido[]>> = Object.freeze({
+  soat: Object.freeze(['compania', 'proveedor'] as const),
+  impuestos: Object.freeze([] as const),
+  derechos: Object.freeze([] as const),
+  tramites: Object.freeze([] as const),
+  bolsas: Object.freeze([] as const),
+  comprobantes: Object.freeze([] as const),
+  logistica: Object.freeze([] as const),
+  tablero: Object.freeze([] as const),
+});
 
 /** Una fila de `GET /api/permisos/roles`. Sin PII: `usuarios` es un conteo, nunca una lista. */
 export interface RolCatalogo {
@@ -19,7 +55,6 @@ export interface RolCatalogo {
   nombre: string;
   descripcion: string | null;
   tipoEnlace: TipoEnlace;
-  tipoPrincipal: TipoPrincipalRol;
   /** Candado de borrado (ADR-0015 §Decisión 5). Solo `admin`. No se edita por API. */
   esSistema: boolean;
   /** Gobierna la ASIGNACIÓN, no la autenticación. */
@@ -39,31 +74,32 @@ export interface CrearRolInput {
   nombre: string;
   descripcion?: string | null;
   tipoEnlace: TipoEnlace;
-  /** Obligatorio, sin valor por defecto (AC1): equivocarse por omisión abre la superficie interna. */
-  tipoPrincipal: TipoPrincipalRol;
   funciones?: string[];
 }
 
-/** `codigo` y `esSistema` no están a propósito: la ruta los rechaza con `.strict()`. */
+/** `codigo`, `esSistema` y el tipo interno/externo retirado no están: la ruta los rechaza con `.strict()`. */
 export interface EditarRolInput {
   nombre?: string;
   descripcion?: string | null;
   tipoEnlace?: TipoEnlace;
-  tipoPrincipal?: TipoPrincipalRol;
   activo?: boolean;
 }
 
 /** `GET /api/permisos/roles/:codigo/funciones`. */
 export interface CuadroRol {
   codigo: string;
-  tipoPrincipal: TipoPrincipalRol;
+  tipoEnlace: TipoEnlace;
   /** Ordenadas por código. */
   funciones: string[];
 }
 
-/** Aviso de RN-A1: el rol es externo y hay funciones que la guarda de canal no dejará pasar. */
-export interface AvisoFueraDelCanal {
-  tipo: 'fuera_del_canal';
+/**
+ * Aviso de RN-A1 (HU #12875: por enlace): el rol tiene enlace y hay funciones de módulos que la
+ * frontera no le abre a ese enlace; marcarlas no tiene efecto por HTTP.
+ */
+export interface AvisoFueraDelEnlace {
+  tipo: 'fuera_del_enlace';
+  tipoEnlace: EnlaceRestringido;
   mensaje: string;
   funciones: string[];
 }
@@ -74,7 +110,7 @@ export interface RespuestaGuardarCuadro {
   funciones: string[];
   concedidas: string[];
   revocadas: string[];
-  aviso: AvisoFueraDelCanal | null;
+  aviso: AvisoFueraDelEnlace | null;
 }
 
 // ── HU #12087 — Excepciones por usuario sobre lo que da su rol ──────────────────────────────────

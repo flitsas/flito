@@ -23,7 +23,7 @@ const ENTREGAR = 'logistica.actas.entregar';
 const AJENAS = 'logistica.actas.operar_ajenas';
 
 const fila = (rol: string, funcionesDelRol: string[], excepciones: FilasPermisos['excepciones'] = []): FilasPermisos =>
-  ({ rol, tipoPrincipal: 'interno', tipoEnlace: 'ninguno', funcionesDelRol, excepciones });
+  ({ rol, tipoEnlace: 'ninguno', funcionesDelRol, excepciones });
 
 /** Reparto por rol (como `permisos_rol_funcion`) y usuarios con sus excepciones. */
 const REPARTO: Record<string, string[]> = {

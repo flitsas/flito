@@ -36,6 +36,7 @@ import { getTableName } from 'drizzle-orm';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
 import { testToken, type TestRole } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 const kdb = createKeyedDb();
 const espia = crearEspia(kdb);
@@ -92,7 +93,7 @@ async function appAlta() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat-cliente.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
 
@@ -189,6 +190,8 @@ function escenario(gestor: { proveedorId: string | null; activo: boolean | null 
     vehicles: [],
   });
   kdb.when.insert('vehicles', [{ id: VEHICULO_ID }]);
+  // HU #12996: con el RUNT caído el alta APARCA la solicitud en `flito_soat_incompletas` (202).
+  kdb.when.insert('flito_soat_incompletas', [{ id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }]);
 }
 
 const CAMPOS: Record<string, string> = {
@@ -306,7 +309,8 @@ describe('AC1 — el alta nace en `solicitado` y con destino resuelto', () => {
     const r = await alta(await appAlta(), await auth('cliente', siguienteUsuario()));
 
     expect(r.status).toBe(201);
-    expect(Object.keys(r.body).sort()).toEqual(['estado', 'id']);
+    // `desenlace` es ADITIVO desde la HU #12996 (unión 201/202); el resto sigue siendo `{ id, estado }`.
+    expect(Object.keys(r.body).sort()).toEqual(['desenlace', 'estado', 'id']);
     expect(r.body.estado).toBe('solicitado');
     expect(JSON.stringify(r.body)).not.toContain(GESTOR);
     expect(JSON.stringify(r.body)).not.toContain('gestionOperaciones');
@@ -471,7 +475,7 @@ describe('AC2e — el destino del SOAT POR TRÁMITE no depende de la configuraci
 
     const r = await enviarAlGestor(
       ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
-      { userId: 1, username: 'ops@flito.co', role: 'admin', proveedorSoatId: null, companiaId: null },
+      { userId: 1, username: 'ops@flito.co', role: 'admin', proyeccionCliente: false, alcance: 'todo' as const, proveedorSoatId: null, companiaId: null },
       { proveedorSoatId: OTRO_GESTOR },
     );
 
@@ -630,7 +634,8 @@ describe('el gestor por defecto no sale por ninguna respuesta que no lo haya ped
     const r = await alta(await appAlta(), await auth('cliente', siguienteUsuario()));
 
     expect(r.status).toBe(201);
-    expect(Object.keys(r.body).sort()).toEqual(['estado', 'id']);
+    // `desenlace` es ADITIVO desde la HU #12996 (unión 201/202); el resto sigue siendo `{ id, estado }`.
+    expect(Object.keys(r.body).sort()).toEqual(['desenlace', 'estado', 'id']);
     expect(JSON.stringify(r.body)).not.toContain(GESTOR);
   });
 });

@@ -8,8 +8,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express, { Router, type Request, type Response } from 'express';
-import { testToken, type TestRole } from '../helpers/auth.js';
+import { testToken, type TestRole, neutralizarEnlaceDe } from '../helpers/auth.js';
 import type { RegistroOperacion } from '../../src/modules/siigo/siigo.operaciones.repo.js';
+
+// HU #12875: este fichero mide la regla del MÓDULO con roles de fábrica que la frontera por enlace
+// cierra hasta la #13426 (decisión (b) del PO); su enlace se neutraliza aquí, a la vista. El cierre lo
+// prueban `frontera-por-enlace.test.ts` y `frontera-enlace.centinela.test.ts`.
+neutralizarEnlaceDe('gestor_impuestos', 'transito', 'proveedor');
 
 /** La bitácora se mockea: aquí importa QUÉ se registra, no que llegue a Postgres. */
 const registrarMock = vi.fn<(r: RegistroOperacion) => Promise<void>>();

@@ -10,7 +10,7 @@
 // y, si aun así se envía, se pinta el 409 del servidor.
 
 import { useRef, useState, type FormEvent } from 'react';
-import { TIPOS_ENLACE, type CrearRolInput, type EditarRolInput, type RolCatalogo, type TipoEnlace, type TipoPrincipalRol } from '@operaciones/shared-types';
+import { TIPOS_ENLACE, type CrearRolInput, type EditarRolInput, type RolCatalogo, type TipoEnlace } from '@operaciones/shared-types';
 import { ApiError, errorMessage, permisosApi } from '../../lib/api';
 import FlitModal from '../../components/flit/FlitModal';
 import FlitSelect from '../../components/flit/FlitSelect';
@@ -23,16 +23,6 @@ type Props = {
   restoreFocusRef: React.RefObject<HTMLElement | null>;
 } & ({ modo: 'crear'; onListo: (rol: RolCatalogo) => void } | { modo: 'editar'; rol: RolCatalogo; onListo: (rol: RolCatalogo) => void });
 
-const AYUDA_ACCESO: Record<TipoPrincipalRol, string> = {
-  interno: 'Ve las pantallas internas que se le marquen en el cuadro de funciones.',
-  externo: 'Entra únicamente al portal del cliente y ve solo lo de su compañía. Aunque se le marquen funciones internas, no las va a poder ejercer.',
-};
-
-const ETIQUETA_OPCION_ACCESO: Record<TipoPrincipalRol, string> = {
-  interno: 'Interno — trabaja dentro de FLITO',
-  externo: 'Externo — solo el canal de cliente',
-};
-
 const CLASE_AYUDA = 'mt-1 text-xs';
 const ESTILO_AYUDA = { color: 'var(--flit-text-secondary)' } as const;
 
@@ -42,7 +32,6 @@ export default function RolFormModal(props: Props) {
   const [nombre, setNombre] = useState(original?.nombre ?? '');
   const [descripcion, setDescripcion] = useState(original?.descripcion ?? '');
   const [tipoEnlace, setTipoEnlace] = useState<TipoEnlace>(original?.tipoEnlace ?? 'ninguno');
-  const [tipoPrincipal, setTipoPrincipal] = useState<TipoPrincipalRol>(original?.tipoPrincipal ?? 'interno');
   const [activo, setActivo] = useState(original?.activo ?? true);
   const [errorNombre, setErrorNombre] = useState<string | null>(null);
   const [errorDescripcion, setErrorDescripcion] = useState<string | null>(null);
@@ -53,7 +42,6 @@ export default function RolFormModal(props: Props) {
 
   const codigo = derivarCodigo(nombre);
   const usuarios = original?.usuarios ?? 0;
-  const cambiaAcceso = original !== null && original.tipoPrincipal !== tipoPrincipal && usuarios > 0;
   const cambiaAmbito = original !== null && original.tipoEnlace !== tipoEnlace && usuarios > 0;
 
   const validar = (): boolean => {
@@ -88,7 +76,7 @@ export default function RolFormModal(props: Props) {
     try {
       if (!original) {
         const input: CrearRolInput = {
-          codigo, nombre: nombre.trim(), descripcion: descripcion.trim(), tipoEnlace, tipoPrincipal,
+          codigo, nombre: nombre.trim(), descripcion: descripcion.trim(), tipoEnlace,
         };
         const { rol } = await permisosApi.crearRol(input);
         props.onListo(rol);
@@ -97,7 +85,6 @@ export default function RolFormModal(props: Props) {
         if (nombre.trim() !== original.nombre) cambios.nombre = nombre.trim();
         if ((descripcion.trim() || null) !== original.descripcion) cambios.descripcion = descripcion.trim() || null;
         if (tipoEnlace !== original.tipoEnlace) cambios.tipoEnlace = tipoEnlace;
-        if (tipoPrincipal !== original.tipoPrincipal) cambios.tipoPrincipal = tipoPrincipal;
         if (activo !== original.activo) cambios.activo = activo;
         if (Object.keys(cambios).length === 0) { onClose(); return; }
         const { rol } = await permisosApi.editarRol(original.codigo, cambios);
@@ -174,39 +161,7 @@ export default function RolFormModal(props: Props) {
           )}
         />
 
-        <fieldset>
-          <legend className="mb-1 text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Tipo de acceso</legend>
-          <div className="flex flex-col gap-2">
-            {(['interno', 'externo'] as const).map((v) => (
-              <label key={v} className="flex items-start gap-2">
-                <input
-                  type="radio"
-                  name="rol-tipo-acceso"
-                  className="flit-focus mt-1"
-                  value={v}
-                  checked={tipoPrincipal === v}
-                  aria-describedby={`rol-acceso-${v}-ayuda`}
-                  onChange={() => setTipoPrincipal(v)}
-                />
-                <span className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
-                  {ETIQUETA_OPCION_ACCESO[v]}
-                  <span id={`rol-acceso-${v}-ayuda`} className="block text-xs" style={ESTILO_AYUDA}>{AYUDA_ACCESO[v]}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-          <p className={CLASE_AYUDA} style={ESTILO_AYUDA}>
-            El tipo de acceso no se deduce del nombre del rol: lo decide esta elección, y es la que más consecuencias tiene de todo el formulario.
-          </p>
-          {cambiaAcceso && (
-            <p className={CLASE_AYUDA} style={{ color: 'var(--flit-warning-ink)' }}>
-              {usuarios === 1 ? '1 usuario tiene este rol.' : `${usuarios} usuarios tienen este rol.`}{' '}
-              {tipoPrincipal === 'externo'
-                ? 'Al guardar, dejan de entrar a las pantallas internas de FLITO.'
-                : 'Al guardar, salen del canal de cliente y pasan a ver lo que este cuadro tenga marcado.'}
-            </p>
-          )}
-        </fieldset>
+        {/* HU #12875: el tipo de acceso interno/externo se retiró; el enlace de arriba es la frontera (panel de #12876). */}
 
         {original && (
           <div>

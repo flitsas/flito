@@ -66,7 +66,7 @@ vi.mock('../../src/modules/users/users.service.js', async (importOriginal) => {
     ...actual,
     rolAsignable: vi.fn(async (codigo: string) => (
       codigo === 'admin' || codigo === 'operario'
-        ? { codigo, tipoEnlace: 'ninguno', tipoPrincipal: 'interno', activo: true }
+        ? { codigo, tipoEnlace: 'ninguno', activo: true }
         : null
     )),
   };

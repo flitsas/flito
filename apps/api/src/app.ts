@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import cors from 'cors';
 import helmet from 'helmet';
 import { sql } from 'drizzle-orm';
-import { CABECERAS_ZIP_SOPORTES } from '@operaciones/shared-types';
+import { CABECERA_CERTIFICADOS_OMITIDOS, CABECERAS_ZIP_SOPORTES } from '@operaciones/shared-types';
 import { env, corsOrigins } from './config/env.js';
 import { db, getPoolStats } from './db/client.js';
 import { errorHandler } from './shared/middleware/errorHandler.js';
@@ -25,7 +25,10 @@ import flitoSyncRoutes from './modules/flito-sync/flito-sync.routes.js';
 import flit2Routes from './modules/flito-sync/flit2.routes.js';
 import permisosRoutes from './modules/permisos/permisos.routes.js';
 import flitoSoatRoutes from './modules/flito-soat/flito-soat.routes.js';
+import { conAlcance } from './shared/middleware/frontera-enlace.js';
 import flitoSoatClienteRoutes from './modules/flito-soat/flito-soat-cliente.routes.js';
+import flitoSoatIncompletasRoutes from './modules/flito-soat/flito-soat-incompletas.routes.js';
+import flitoSoatDocumentosRoutes from './modules/flito-soat/flito-soat-documentos.routes.js';
 import flitoImpuestosRoutes from './modules/flito-impuestos/flito-impuestos.routes.js';
 import flitoDerechosRoutes from './modules/flito-derechos/flito-derechos.routes.js';
 import flitoLiquidacionRoutes from './modules/flito-liquidacion/flito-liquidacion.routes.js';
@@ -187,7 +190,7 @@ export function createApp() {
     // front cross-origin no tendría de dónde leer el total.
     exposedHeaders: [
       CABECERAS_ZIP_SOPORTES.incluidos, CABECERAS_ZIP_SOPORTES.registros, CABECERAS_ZIP_SOPORTES.omitidos,
-      'X-Total-Count',
+      'X-Total-Count', CABECERA_CERTIFICADOS_OMITIDOS,
     ],
   }));
 
@@ -227,17 +230,14 @@ export function createApp() {
   app.use('/api/auth/login', authLimiter);
   app.use('/api', apiLimiter);
 
-  // ── Dónde está la frontera del rol `cliente` (Feature #11912) ───────────────────────────────
+  // ── Dónde está la frontera por enlace (HU #12875, ADR-0024) ─────────────────────────────────
   //
-  // No hay un `app.use` de negación aquí, y no es un olvido: en esta aplicación la autenticación
-  // NO vive en `app.ts` —cada router monta `authMiddleware`—, así que un middleware colocado en
-  // esta lista vería `req.user === undefined` y no podría decidir nada sin verificar el JWT por
-  // segunda vez en cada petición de toda la API.
-  //
-  // La negación por defecto para `cliente` —el primer principal externo a FLIT— se aplica desde el
-  // final de `authMiddleware`, que es el único punto donde la autenticación termina, con la
-  // allowlist de `shared/middleware/canal-cliente.ts`. Un router nuevo montado en esta lista nace
-  // CERRADO para ese rol; para abrirle una ruta hay que escribirla allí con su motivo.
+  // No hay un `app.use` de negación aquí, y no es un olvido: la autenticación NO vive en `app.ts`
+  // —cada router monta `authMiddleware`— y la frontera corre al final de `authMiddleware`
+  // (`shared/middleware/frontera-enlace.ts`). Lo que SÍ vive aquí es la DECLARACIÓN: un montaje
+  // envuelto en `conAlcance('<modulo>', router)` queda abierto a los enlaces que `FRONTERA_POR_ENLACE`
+  // (shared-types) le asigna a ese módulo. Un montaje sin `conAlcance` nace CERRADO para todo usuario
+  // con enlace (compañía, proveedor, organismos); el enlace `ninguno` lo decide el permiso.
 
   // Routes
   app.use('/api/rum', rumRoutes); // RUM Web Vitals — público (se reporta pre-login)
@@ -261,8 +261,11 @@ export function createApp() {
   // del módulo tiene el techo de líneas congelado y estas rutas traen consigo su rate limit, su
   // validación de MIME real y su `requireRole('cliente')`. Primero el específico: hoy ningún patrón
   // del router de abajo casa con `/cliente`, y si mañana alguien añadiera uno, gana este.
-  app.use('/api/flito/soat', flitoSoatClienteRoutes);
-  app.use('/api/flito/soat', flitoSoatRoutes);
+  app.use('/api/flito/soat', conAlcance('soat', flitoSoatClienteRoutes));
+  // Lectura de las incompletas por RUNT caído (HU #12997): `/cliente/incompletas/…`, antes del módulo.
+  app.use('/api/flito/soat', conAlcance('soat', flitoSoatIncompletasRoutes));
+  app.use('/api/flito/soat', conAlcance('soat', flitoSoatDocumentosRoutes)); // HU #13362: GET /:id/documentos-adicionales
+  app.use('/api/flito/soat', conAlcance('soat', flitoSoatRoutes));
   app.use('/api/flito/impuestos', flitoImpuestosRoutes);
   app.use('/api/flito/derechos', flitoDerechosRoutes);
   app.use('/api/flito/liquidacion', flitoLiquidacionRoutes);

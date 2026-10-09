@@ -2,9 +2,9 @@
 // propia contraseña (AC2-AC7), con freno por usuario (D2). HU #13425 (AC4): la propia ya no exige
 // `pagina.perfil` (decisión del PO del 2026-10-07); la ajena sigue vedada al externo.
 //
-// `authMiddleware` y `guardiaCanalCliente` son los de VERDAD: el principal externo se decide por
-// `tipo_principal` del resolutor (el helper `testToken` registra `cliente` como externo), así que un
-// 403 de aquí sale de la cadena real y no de un mock. «Clave intacta» se afirma sobre la escritura:
+// `authMiddleware` y `guardiaFrontera` son los de VERDAD: desde la HU #12875 la regla es por ENLACE
+// del resolutor (el helper `testToken` registra `cliente` con enlace compañía y `proveedor` con enlace
+// proveedor): con enlace, la propia sí y la ajena nunca. Un 403 de aquí sale de la cadena real. «Clave intacta» se afirma sobre la escritura:
 // ni `transaction` (donde `restablecerContrasena` escribe el hash) ni `argon2.hash` se tocan.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
@@ -157,10 +157,10 @@ describe('HU #13255 — cambio de la PROPIA contraseña desde el canal externo',
     claveIntacta();
   });
 
-  it('un rol EXTERNO creado desde el panel (no el literal `cliente`) sigue la misma regla: la propia sí, la ajena no', async () => {
-    const token = await testToken({ sub: 306, role: 'proveedor' });
-    // Se re-registra DESPUÉS de emitir el token: decide `tipo_principal` del resolutor, no el rol del JWT.
-    await registrarUsuarioDePrueba(306, { rol: 'aliado_x', tipoPrincipal: 'externo', tipoEnlace: 'ninguno', funcionesDelRol: ['usuarios.contrasena.cambiar_ajena'], excepciones: [] });
+  it('HU #12875: un rol CON ENLACE creado desde el panel (no el literal `cliente`) sigue la misma regla: la propia sí, la ajena no', async () => {
+    const token = await testToken({ sub: 306, role: 'financiera' });
+    // Se re-registra DESPUÉS de emitir el token: decide el ENLACE del resolutor, no el rol del JWT.
+    await registrarUsuarioDePrueba(306, { rol: 'aliado_x', tipoEnlace: 'proveedor', funcionesDelRol: ['usuarios.contrasena.cambiar_ajena'], excepciones: [] });
     const ajena = await patch(await buildApp(), 999, token);
     expect(ajena.status).toBe(403);
     expect(ajena.body).toEqual({ error: 'Sin permisos' });
@@ -170,7 +170,7 @@ describe('HU #13255 — cambio de la PROPIA contraseña desde el canal externo',
     expect(propia.status).toBe(200);
   });
 
-  it('AC6: interno SIN `pagina.perfil` sigue cambiando la propia → 200', async () => {
+  it('AC6: con enlace (proveedor) y SIN `pagina.perfil` sigue cambiando la propia → 200', async () => {
     const token = await testToken({ sub: 307, role: 'proveedor' });
     titular(307, 'proveedor');
     const r = await patch(await buildApp(), 307, token);
@@ -178,17 +178,17 @@ describe('HU #13255 — cambio de la PROPIA contraseña desde el canal externo',
     expect(r.body).toEqual({ ok: true });
   });
 
-  it('AC7: interno CON `cambiar_ajena` cambia la de otro → 200, sin pedir la actual', async () => {
-    const token = await testToken({ sub: 308, role: 'proveedor', funciones: ['usuarios.contrasena.cambiar_ajena'] });
-    titular(9, 'proveedor');
+  it('AC7: SIN enlace y CON `cambiar_ajena` cambia la de otro → 200, sin pedir la actual', async () => {
+    const token = await testToken({ sub: 308, role: 'financiera', funciones: ['usuarios.contrasena.cambiar_ajena'] });
+    titular(9, 'financiera');
     argonVerifyMock.mockReset();
     const r = await patch(await buildApp(), 9, token);
     expect(r.status).toBe(200);
     expect(argonVerifyMock).not.toHaveBeenCalled();
   });
 
-  it('AC7: interno SIN `cambiar_ajena` sobre otro id → 403, clave intacta', async () => {
-    const token = await testToken({ sub: 309, role: 'proveedor', funciones: ['pagina.perfil'] });
+  it('AC7: SIN enlace y SIN `cambiar_ajena` sobre otro id → 403, clave intacta', async () => {
+    const token = await testToken({ sub: 309, role: 'financiera', funciones: ['pagina.perfil'] });
     const r = await patch(await buildApp(), 9, token);
     expect(r.status).toBe(403);
     claveIntacta();

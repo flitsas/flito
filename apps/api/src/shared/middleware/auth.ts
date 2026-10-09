@@ -6,7 +6,7 @@ import { getRedis } from '../redis.js';
 import { db } from '../../db/client.js';
 import { users } from '../../db/schema.js';
 import { loggerFor } from '../logger.js';
-import { guardiaCanalCliente } from './canal-cliente.js';
+import { guardiaFrontera } from './frontera-enlace.js';
 import type { RoleCode, UserRole } from '@operaciones/shared-types';
 
 const log = loggerFor('auth');
@@ -195,19 +195,16 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
         ? payload.transitoCodigo.trim()
         : undefined,
     };
-    // Negación por defecto para los roles EXTERNOS (Feature #11912; por `tipo_principal` desde la
-    // HU #12082). Va AQUÍ, y no como un `app.use` en `app.ts`, porque este es el único punto de la
-    // aplicación en el que la autenticación TERMINA: cada router monta `authMiddleware` por su
-    // cuenta, así que un middleware montado antes de los routers vería `req.user === undefined` y
-    // tendría que verificar el JWT una segunda vez en cada petición para saber a quién está mirando.
-    // El porqué completo —y la allowlist con el motivo de cada entrada— están en `canal-cliente.ts`.
+    // Frontera por ENLACE (HU #12875, ADR-0024; sustituye la del canal externo). Va AQUÍ, y no como
+    // un `app.use` en `app.ts`, porque este es el único punto de la aplicación en el que la
+    // autenticación TERMINA: cada router monta `authMiddleware` por su cuenta. El porqué completo, la
+    // tabla por módulo y las rutas transversales están en `frontera-enlace.ts`.
     //
-    // Para un rol interno esto es resolver sus permisos (acierto de caché tras la primera petición
-    // del minuto; la misma foto que luego usa `exigirFuncion`) y un `next()`. Lo que se consigue
-    // poniéndolo aquí es que un router NUEVO nazca CERRADO para cualquier rol externo —incluido uno
-    // creado desde el panel— sin que su autor tenga que saber que existe. El resolutor no rechaza,
-    // así que el `catch` de abajo sigue siendo solo el del token.
-    await guardiaCanalCliente(req, res, next);
+    // Un rol de enlace `ninguno` resuelve sus permisos (acierto de caché) y sigue: decide el permiso.
+    // Un rol con enlace solo pasa si el MONTAJE declaró un módulo (`conAlcance`) abierto a su enlace,
+    // así que un router NUEVO nace CERRADO para él. El resolutor no rechaza: el `catch` de abajo
+    // sigue siendo solo el del token.
+    await guardiaFrontera(req, res, next);
   } catch {
     res.status(401).json({ error: 'Token inválido o expirado' });
   }
