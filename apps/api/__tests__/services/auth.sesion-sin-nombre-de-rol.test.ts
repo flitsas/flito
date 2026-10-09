@@ -39,9 +39,9 @@ const fila = (role: string, rolNombre: string) => ({
 });
 
 /** `/me` de un usuario con ese código de rol y esas funciones. Consultas: usuario → puente → clients. */
-async function me(rol: string, rolNombre: string, funciones: string[], tipoPrincipal: 'interno' | 'externo' = 'externo', sinTramite = true) {
+async function me(rol: string, rolNombre: string, funciones: string[], tipoEnlace = 'compania', sinTramite = true) {
   const token = await testToken({ sub: 5, role: 'cliente' });
-  await registrarUsuarioDePrueba(5, { rol, tipoPrincipal, tipoEnlace: 'compania', funcionesDelRol: funciones, excepciones: [] });
+  await registrarUsuarioDePrueba(5, { rol, tipoEnlace, funcionesDelRol: funciones, excepciones: [] });
   selectMock
     .mockReturnValueOnce(chain([fila(rol, rolNombre)]))
     .mockReturnValueOnce(chain([]))
@@ -67,8 +67,21 @@ describe('HU #13425 AC1 — /me con permisos efectivos e indicadores desde permi
     expect(selectMock).toHaveBeenCalledTimes(2); // usuario + puente; `clients` no
   });
 
-  it('interno con compañía y `soat.solicitud.crear` → false (el canal es del principal externo; riesgo R1)', async () => {
-    const r = await me('cola_soat', 'Cola SOAT', FUNCIONES_CANAL, 'interno');
+  // HU #12875 (decisión (c) del PO): una regla por ENLACE. Un rol de la operación con enlace compañía
+  // recibe el canal Cliente; el mismo conjunto SIN enlace no radica por el canal (el control negativo).
+  it('HU #12875: rol de cola SOAT con enlace compañía y `soat.solicitud.crear` → true (decide el enlace, no el tipo)', async () => {
+    const r = await me('cola_soat', 'Cola SOAT', FUNCIONES_CANAL, 'compania');
+    expect(r.body.puedeSolicitarSoat).toBe(true);
+  });
+
+  it('HU #12875: las mismas funciones con enlace `ninguno` → false, y sin consultar la compañía', async () => {
+    const r = await me('cola_soat', 'Cola SOAT', FUNCIONES_CANAL, 'ninguno');
+    expect(r.body.puedeSolicitarSoat).toBe(false);
+    expect(selectMock).toHaveBeenCalledTimes(2); // usuario + puente; `clients` no
+  });
+
+  it('HU #12875: enlace `proveedor` con la función → false (el canal Cliente es del enlace compañía)', async () => {
+    const r = await me('gestor_x', 'Gestor X', FUNCIONES_CANAL, 'proveedor');
     expect(r.body.puedeSolicitarSoat).toBe(false);
   });
 });
@@ -90,7 +103,7 @@ describe('HU #13425 AC7 — rol renombrado u otro código con las mismas funcion
   });
 
   it('login y /me llevan las MISMAS `funciones` y el mismo indicador (Bug #11937: un sobre no diverge del otro)', async () => {
-    await registrarUsuarioDePrueba(5, { rol: 'cliente_corporativo', tipoPrincipal: 'externo', tipoEnlace: 'compania', funcionesDelRol: FUNCIONES_CANAL, excepciones: [] });
+    await registrarUsuarioDePrueba(5, { rol: 'cliente_corporativo', tipoEnlace: 'compania', funcionesDelRol: FUNCIONES_CANAL, excepciones: [] });
     argonVerifyMock.mockResolvedValueOnce(true);
     selectMock
       .mockReturnValueOnce(chain([{ ...fila('cliente_corporativo', 'Cliente corporativo'), passwordHash: 'h', active: true, deletedAt: null }]))

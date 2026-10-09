@@ -7,6 +7,7 @@ import express from 'express';
 import { chain } from '../helpers/db.js';
 import { testToken } from '../helpers/auth.js';
 import { CampoSoat, CARGA_MASIVA_MAX_BYTES_ARCHIVO } from '@operaciones/shared-types';
+import { conAlcance } from '../helpers/frontera.js';
 
 const selectMock = vi.fn();
 const updateMock = vi.fn();
@@ -47,7 +48,7 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   app.use((err: { code?: string; message?: string }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     res.status(400).json({ error: err.message ?? String(err), code: err.code });
   });

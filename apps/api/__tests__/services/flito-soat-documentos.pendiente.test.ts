@@ -93,7 +93,7 @@ const SOP = '5d0c0000-0000-4000-8000-0000000134aa';
 const KEY = `clientes/900123456/soat/documentos-adicionales/${ID}/cedula-de-juan-perez.pdf`;
 const HASH = createHash('sha256').update(KEY).digest('hex').slice(0, 16);
 const FILA = { id: SOP, storageKey: KEY, etiqueta: 'Cédula', nombreArchivo: 'cedula-de-juan-perez.pdf' };
-const CTX = { userId: 1, username: 'op', role: 'admin', externo: false, alcance: 'todo' } as never;
+const CTX = { userId: 1, username: 'op', role: 'admin', proyeccionCliente: false, alcance: 'todo' } as never;
 const AHORA = new Date('2026-10-07T15:00:00.000Z');
 const SIN_ESPERA = [0, 0, 0];
 

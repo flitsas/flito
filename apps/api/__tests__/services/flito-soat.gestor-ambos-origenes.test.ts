@@ -35,6 +35,7 @@ import express from 'express';
 import type { SQL } from 'drizzle-orm';
 import { testToken } from '../helpers/auth.js';
 import { ligadosA, renderizar } from '../helpers/sql-ligado.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 const selectMock = vi.fn();
 
@@ -75,7 +76,7 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
 const auth = async (role: string) => `Bearer ${await testToken({ sub: 1, username: 'u', role: role as never })}`;
@@ -198,7 +199,7 @@ describe('AC1 — el detalle: `buscarConAcceso` aplica la MISMA lista blanca', (
     },
     dentroDeFrontera: true,
   });
-  const ctxGestor = { userId: 1, username: 'u', role: 'proveedor', externo: false, alcance: 'proveedor' as const, proveedorSoatId: PROVEEDOR, companiaId: null };
+  const ctxGestor = { userId: 1, username: 'u', role: 'proveedor', proyeccionCliente: false, alcance: 'proveedor' as const, proveedorSoatId: PROVEEDOR, companiaId: null };
 
   const buscar = async (estado: string, origen: string) => {
     selectMock.mockImplementationOnce(() => chainEspia([filaDe(estado, origen)]));

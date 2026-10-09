@@ -95,7 +95,9 @@ async function buildApp() {
   });
   return app;
 }
-const auth = async (role: TestRole, sub = 7) => `Bearer ${await testToken({ sub, username: 'u@flitsas.io', role })}`;
+// HU #12875: Impuestos está cerrado por la frontera al enlace `organismos_transito` hasta la #13426;
+// aquí se mide el filtro del SERVICIO del gestor, así que su sesión lleva el enlace neutralizado.
+const auth = async (role: TestRole, sub = 7) => `Bearer ${await testToken({ sub, username: 'u@flitsas.io', role, tipoEnlace: role === 'gestor_impuestos' ? 'ninguno' : undefined })}`;
 
 beforeEach(() => {
   kdb.reset();
@@ -148,7 +150,7 @@ describe('AC2 — acceso por función `impuestos.recibos.cargar_caja`', () => {
     const app = await buildApp();
     const bearer = await auth('admin', 9);
     // Fuente propia y MUTABLE: quitar la función después no vacía la caché (a diferencia de re-registrar).
-    const filas = { rol: 'admin', tipoPrincipal: 'interno' as const, funcionesDelRol: [...operacionesDePartida('admin')], excepciones: [] };
+    const filas = { rol: 'admin', tipoEnlace: 'ninguno', funcionesDelRol: [...operacionesDePartida('admin')], excepciones: [] };
     fijarFuenteDePermisos(async (sub) => (sub === 9 ? filas : null));
 
     armarCarga();

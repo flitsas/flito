@@ -27,6 +27,7 @@ import express from 'express';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { ligadosA, renderizar } from '../helpers/sql-ligado.js';
 import { testToken, type TestRole } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 const kdb = createKeyedDb();
 
@@ -60,7 +61,7 @@ describe('AC2/AC3 · A — la allowlist del cliente, por tipo Y por estado', () 
   const pedir = async (rol: string, estadoSoat: string) => {
     kdb.when.select('flito_soportes', TODOS).select('flito_conciliacion_lineas', [TODOS[3]]);
     const { soportesDeSoat } = await import('../../src/shared/soportes/soportes-consulta.js');
-    return (await soportesDeSoat(SOAT_ID, { rol, externo: rol === 'cliente', estadoSoat })).map((s) => s.tipo).sort();
+    return (await soportesDeSoat(SOAT_ID, { rol, proyeccionCliente: rol === 'cliente', estadoSoat })).map((s) => s.tipo).sort();
   };
 
   it('cliente + `pagado` → la póliza y su propia factura de venta, y NADA más (AC2)', async () => {
@@ -103,7 +104,7 @@ describe('AC2/AC3 · A — la allowlist del cliente, por tipo Y por estado', () 
     kdb.when.select('flito_soportes', TODOS).select('flito_conciliacion_lineas', [TODOS[3]]);
 
     const { soportesDeSoat } = await import('../../src/shared/soportes/soportes-consulta.js');
-    await soportesDeSoat(SOAT_ID, { rol: 'cliente', externo: true, estadoSoat: 'pagado' });
+    await soportesDeSoat(SOAT_ID, { rol: 'cliente', proyeccionCliente: true, estadoSoat: 'pagado' });
 
     expect(tablas).not.toContain('flito_conciliacion_lineas');
   });
@@ -135,20 +136,20 @@ describe('AC2/AC3 · A — la allowlist del cliente, por tipo Y por estado', () 
     kdb.when.select('flito_soportes', TODOS);
     const { soportesDeSoat } = await import('../../src/shared/soportes/soportes-consulta.js');
 
-    await soportesDeSoat(SOAT_ID, { rol: 'cliente', externo: true, estadoSoat: 'pagado' });
+    await soportesDeSoat(SOAT_ID, { rol: 'cliente', proyeccionCliente: true, estadoSoat: 'pagado' });
     const pagado = espia.condicionesLeidas().map((c) => renderizar(c as never));
     expect(ligadosA(pagado[0], '"flito_soportes"."tipo"')).toEqual(['factura_soat', 'factura_venta']);
 
     espia.reiniciar();
     kdb.when.select('flito_soportes', TODOS);
-    await soportesDeSoat(SOAT_ID, { rol: 'cliente', externo: true, estadoSoat: 'solicitado' });
+    await soportesDeSoat(SOAT_ID, { rol: 'cliente', proyeccionCliente: true, estadoSoat: 'solicitado' });
     const noPagado = espia.condicionesLeidas().map((c) => renderizar(c as never));
     expect(ligadosA(noPagado[0], '"flito_soportes"."tipo"')).toEqual(['factura_venta']);
 
     // Y para un rol interno no hay recorte por tipo en absoluto (`ligadosA` lanza si no lo hay).
     espia.reiniciar();
     kdb.when.select('flito_soportes', TODOS).select('flito_conciliacion_lineas', []);
-    await soportesDeSoat(SOAT_ID, { rol: 'admin', externo: false, estadoSoat: 'solicitado' });
+    await soportesDeSoat(SOAT_ID, { rol: 'admin', proyeccionCliente: false, estadoSoat: 'solicitado' });
     const admin = espia.condicionesLeidas().map((c) => renderizar(c as never));
     expect(() => ligadosA(admin[0], '"flito_soportes"."tipo"')).toThrow();
   });
@@ -175,7 +176,7 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
 
@@ -268,80 +269,22 @@ describe('AC2 · B — `GET /:id/soportes` con el token del cliente', () => {
     expect((r.body as Array<{ tipo: string }>).map((s) => s.tipo)).toEqual(['factura_venta']);
   });
 
-  it('la descarga NO necesitó ninguna entrada nueva en la allowlist del canal', async () => {
-    // `GET /api/flito/soat/:id/soportes` ya estaba inscrita desde la #11913 y el archivo baja por
-    // `GET /api/files?…`, que es público y va firmado: no pasa por `authMiddleware` y por tanto
-    // tampoco por este guarda. Lo que se afirma aquí es que abrir la póliza no se convierta en la
-    // excusa para inscribir una ruta más «de paso».
-    const { RUTAS_PERMITIDAS_CLIENTE, rutaPermitidaParaCliente } =
-      await import('../../src/shared/middleware/canal-cliente.js');
-
-    expect(rutaPermitidaParaCliente('GET', `/api/flito/soat/${SOAT_ID}/soportes`)).toBe(true);
-    expect(rutaPermitidaParaCliente('GET', '/api/files')).toBe(false);
-
-    // Por CONTENIDO y no por conteo. Hasta la #12092 esto era un `toHaveLength(10)`, y el conteo
-    // solo no bastaba: cuando esa HU inscribió la 11.ª entrada el aserto se pudo «arreglar»
-    // cambiando el 10 por un 11, y a partir de ahí el centinela habría dejado pasar CUALQUIER ruta
-    // futura mientras el número cuadrara —justo lo que existe para impedir—. Enumerado el conjunto
-    // exacto, inscribir una ruta nueva, o cambiarle el método o el patrón a una ya inscrita, pone
-    // rojo este test NOMBRANDO la intrusa, y abrirle algo al rol `cliente` obliga a escribirlo aquí.
-    //
-    // Esta lista es además el sitio donde se lee, fuera del middleware, QUÉ puede alcanzar el rol
-    // externo. **Ninguna afirmación de este bloque es un NÚMERO, y eso es deliberado**: un
-    // `toHaveLength(N)` se «arregla» cambiando la N y a partir de ahí deja pasar cualquier ruta
-    // mientras el conteo cuadre. Enumerado el conjunto por MÉTODO + PATRÓN, inscribir una ruta
-    // nueva, o cambiarle el verbo o el patrón a una ya inscrita, pone rojo este test nombrando la
-    // intrusa.
-    //
-    // **La lista ENCOGE con la HU #12080**: sale `PATCH /api/flito/soat/:id/solicitud`, la
-    // subsanación, porque el circuito de revisión al que respondía se retira entero (Feature
-    // #12074). Que un centinela así se ponga rojo al QUITAR una entrada es tan valioso como que se
-    // ponga rojo al añadirla: obliga a que la retirada de una puerta sea una decisión escrita.
-    //
-    // **Y CRECE con la HU #12082**: entra `GET /api/permisos/mios`, el conjunto efectivo del propio
-    // usuario, para que el canal externo tenga menú cuando la SPA (#12083) deje de leerlo de
-    // `/auth/me`. Devuelve solo lo del usuario que pregunta; el catálogo (`/funciones`) sigue fuera.
-    //
-    // **Y CRECE con la HU #12815** (Épica #12810): entra `POST /api/flito/soat/soportes/zip`, la
-    // descarga masiva de comprobantes, guardada por `soat.soportes.descargar`, acotada a su compañía
-    // y solo a SOAT `pagado`. `POST` porque los ids van en el cuerpo, no porque escriba.
-    //
-    // **Y CRECE con la HU #12997** (Feature #12841): entran `POST …/cliente/incompletas/buscar` y
-    // `GET …/cliente/incompletas/:id`, la lectura de las solicitudes «Por validar» y «Descartadas»,
-    // guardadas por `soat.incompletas.buscar` / `soat.incompleta.ver` y acotadas a su compañía.
-    // `POST` en la búsqueda porque el filtro (VIN o documento) va en el cuerpo, no porque escriba.
-    //
-    // **Y CRECE con la HU #12998** (Feature #12841): entra `POST …/cliente/incompletas/:id/reintentar`,
-    // el reintento manual de la consulta al RUNT, guardado por `soat.solicitud.reintentar_runt`. La 0212
-    // la siembra solo a admin; el Cliente la alcanza solo si el administrador se la da en el panel.
-    //
-    // **Y CRECE con la HU #13255** (Feature #13254): entra `PATCH /api/users/:id/password`, el cambio
-    // de la PROPIA contraseña desde Perfil. Es la primera fuera de `flito-soat`; la guarda vive en el
-    // handler (externo ⇒ solo su id y con `pagina.perfil`).
-    //
-    // El orden es el de declaración del middleware —lecturas, luego escrituras por HU—: se afirma
-    // tal cual para que el diff del rojo señale el sitio exacto de la lista.
-    expect(RUTAS_PERMITIDAS_CLIENTE.map((r) => `${r.metodo} ${r.patron}`)).toEqual([
+  it('HU #12875: la descarga no necesita ninguna ruta transversal nueva — SOAT entra por su montaje', async () => {
+    // `GET /api/flito/soat/:id/soportes` la alcanza el `cliente` porque el MONTAJE de SOAT está
+    // declarado (`conAlcance('soat', …)`) y abierto al enlace compañía; el archivo baja por
+    // `GET /api/files?…`, público y firmado, que no pasa por `authMiddleware`. Lo que se fija aquí es
+    // que abrir la póliza no se convierta en la excusa para ampliar las TRANSVERSALES «de paso».
+    // La foto congelada de la lista del canal (16 entradas) se partió en dos centinelas: estas cuatro
+    // transversales, y el snapshot de rutas del montaje SOAT en `frontera-enlace.centinela.test.ts`.
+    const { RUTAS_TRANSVERSALES, esRutaTransversal } = await import('../../src/shared/middleware/frontera-enlace.js');
+    expect(esRutaTransversal('GET', `/api/flito/soat/${SOAT_ID}/soportes`)).toBe(false);
+    expect(esRutaTransversal('GET', '/api/files')).toBe(false);
+    expect(RUTAS_TRANSVERSALES.map((r) => `${r.metodo} ${r.patron}`)).toEqual([
       'GET /api/auth/me',
       'GET /api/permisos/mios',
       'POST /api/auth/logout',
       'PATCH /api/users/:id/password',
-      'GET /api/flito/soat',
-      'GET /api/flito/soat/facetas',
-      'GET /api/flito/soat/:id',
-      'GET /api/flito/soat/:id/historial',
-      'GET /api/flito/soat/:id/soportes',
-      'POST /api/flito/soat/cliente/incompletas/buscar',
-      'GET /api/flito/soat/cliente/incompletas/:id',
-      'POST /api/flito/soat/cliente/incompletas/:id/reintentar',
-      'POST /api/flito/soat/soportes/zip',
-      'POST /api/flito/soat/cliente/preconsulta',
-      'POST /api/flito/soat/cliente',
-      'POST /api/flito/soat/cliente/factura/lectura',
     ]);
-    // Y la que se fue, nombrada: si alguien la reinscribe sin pasar por este archivo, el `toEqual`
-    // de arriba lo caza; esto dice además POR QUÉ no debería volver.
-    expect(rutaPermitidaParaCliente('PATCH', `/api/flito/soat/${SOAT_ID}/solicitud`)).toBe(false);
   });
 });
 
@@ -395,10 +338,7 @@ describe('AC3 · C — `POST /:id/factura` (OCR) sigue siendo la única puerta a
     ]);
   });
 
-  it('el cliente pidiendo `POST /:id/factura` → 403, dos veces (rol y allowlist)', async () => {
-    const { rutaPermitidaParaCliente } = await import('../../src/shared/middleware/canal-cliente.js');
-    expect(rutaPermitidaParaCliente('POST', `/api/flito/soat/${SOAT_ID}/factura`)).toBe(false);
-    expect(rutaPermitidaParaCliente('POST', '/api/flito/soat/facturas')).toBe(false);
+  it('el cliente pidiendo `POST /:id/factura` → 403 de la FUNCIÓN (HU #12875: el montaje está abierto a su enlace)', async () => {
 
     const r = await request(await buildApp()).post(`/api/flito/soat/${SOAT_ID}/factura`)
       .set('Authorization', await auth('cliente'));

@@ -22,6 +22,7 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 import type { SQL } from 'drizzle-orm';
 import { SignJWT } from 'jose';
 import { registrarUsuarioDePrueba, testToken } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 const selectMock = vi.fn();
 vi.mock('../../src/db/client.js', () => ({
@@ -67,14 +68,14 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
 
 /** Un rol PROPIO (código libre del panel) con el tipo y el enlace que se pida. */
-async function registrar(sub: number, rol: string, tipoPrincipal: 'interno' | 'externo', tipoEnlace: string) {
+async function registrar(sub: number, rol: string, tipoEnlace: string) {
   await registrarUsuarioDePrueba(sub, {
-    rol, tipoPrincipal, tipoEnlace, funcionesDelRol: ['pagina.flito_soat', 'soat.cola.ver'], excepciones: [],
+    rol, tipoEnlace, funcionesDelRol: ['pagina.flito_soat', 'soat.cola.ver'], excepciones: [],
   });
   const t = await new SignJWT({ username: 'u@x.co', role: rol })
     .setProtectedHeader({ alg: 'HS256' }).setSubject(String(sub)).setExpirationTime('1h')
@@ -97,21 +98,21 @@ const params = (conds: SQL[] | null) => (sqlDe(conds) ?? []).flatMap((q) => q.pa
 // ─────────── La tabla: enlace → alcance ───────────
 
 describe('Bug #12869 — alcanceSoatDe: el enlace decide, con fallo cerrado', () => {
-  const ok = (tipoPrincipal: 'interno' | 'externo', tipoEnlace: string | null) => ({
-    ok: true as const, userId: 1, rol: 'x', tipoPrincipal, tipoEnlace: tipoEnlace as never,
+  const ok = (tipoEnlace: string | null) => ({
+    ok: true as const, userId: 1, rol: 'x', tipoEnlace: tipoEnlace as never,
     funciones: new Set<string>(), version: 'v', resueltoEn: new Date(),
   });
+  // HU #12875: solo el enlace decide; `ninguno` → todo (AC4, ya no hay excepción por tipo). El valor
+  // `proveedor_soat` lo resuelve el resolutor (alias transitorio), no esta tabla: aquí es desconocido.
   it.each([
-    ['interno', 'ninguno', 'todo'],
-    ['externo', 'ninguno', 'nada'], // excepción transitoria: externo sin enlace no abre
-    ['interno', 'compania', 'compania'],
-    ['externo', 'compania', 'compania'],
-    ['interno', 'proveedor_soat', 'proveedor'],
-    ['externo', 'proveedor_soat', 'proveedor'],
-    ['interno', 'organismos_transito', 'nada'],
-    ['interno', null, 'nada'],
-  ] as const)('%s + %s → %s', (tp, te, esperado) => {
-    expect(alcanceSoatDe(ok(tp, te))).toBe(esperado);
+    ['ninguno', 'todo'],
+    ['compania', 'compania'],
+    ['proveedor', 'proveedor'],
+    ['organismos_transito', 'nada'],
+    ['proveedor_soat', 'nada'],
+    [null, 'nada'],
+  ] as const)('%s → %s', (te, esperado) => {
+    expect(alcanceSoatDe(ok(te))).toBe(esperado);
   });
   it('ok:false → nada', () => {
     expect(alcanceSoatDe({ ok: false, userId: 1, motivo: 'resolucion' })).toBe('nada');
@@ -122,23 +123,23 @@ describe('Bug #12869 — alcanceSoatDe: el enlace decide, con fallo cerrado', ()
 // ─────────── contextoSoat + condicionesCola por enlace ───────────
 
 describe('Bug #12869 — contextoSoat deriva la frontera del enlace', () => {
-  it('rol propio INTERNO con enlace compañía → solo su compañía', async () => {
-    await registrar(9101, 'aseguradora_interna', 'interno', 'compania');
+  it('rol propio (antes interno) con enlace compañía → solo su compañía y la proyección del canal Cliente (AC7)', async () => {
+    await registrar(9101, 'aseguradora_interna', 'compania');
     const ctx = await ctxDe(9101, 'aseguradora_interna', { c: 7 });
-    expect(ctx).toMatchObject({ alcance: 'compania', companiaId: 7, proveedorSoatId: null, externo: false });
+    expect(ctx).toMatchObject({ alcance: 'compania', companiaId: 7, proveedorSoatId: null, proyeccionCliente: true });
     const conds = condicionesCola(ctx, {});
     expect(contiene(conds, '"flito_soat"."compania_id" =')).toBe(true);
     expect(params(conds)).toContain(7);
   });
 
   it('enlace compañía SIN companiaId → nada', async () => {
-    await registrar(9102, 'aseguradora_interna', 'interno', 'compania');
+    await registrar(9102, 'aseguradora_interna', 'compania');
     const ctx = await ctxDe(9102, 'aseguradora_interna', { c: null });
     expect(condicionesCola(ctx, {})).toBeNull();
   });
 
-  it('rol propio con enlace proveedor_soat → exactamente la frontera del gestor', async () => {
-    await registrar(9103, 'gestor_soat_b', 'interno', 'proveedor_soat');
+  it('rol propio con el valor previo `proveedor_soat` (alias transitorio del resolutor) → la frontera del gestor', async () => {
+    await registrar(9103, 'gestor_soat_b', 'proveedor_soat');
     const ctx = await ctxDe(9103, 'gestor_soat_b', { p: PROV });
     expect(ctx).toMatchObject({ alcance: 'proveedor', proveedorSoatId: PROV, companiaId: null });
     const conds = condicionesCola(ctx, {});
@@ -148,24 +149,26 @@ describe('Bug #12869 — contextoSoat deriva la frontera del enlace', () => {
     expect(params(conds)).toContain('solicitado'); // estado por defecto del gestor
   });
 
-  it('enlace proveedor_soat SIN proveedor → nada', async () => {
-    await registrar(9104, 'gestor_soat_b', 'interno', 'proveedor_soat');
+  it('enlace proveedor SIN proveedor → nada', async () => {
+    await registrar(9104, 'gestor_soat_b', 'proveedor');
     const ctx = await ctxDe(9104, 'gestor_soat_b', { p: null });
     expect(condicionesCola(ctx, {})).toBeNull();
   });
 
   it('enlace organismos_transito → nada en SOAT (y no lee el usuario)', async () => {
-    await registrar(9105, 'transito', 'interno', 'organismos_transito');
+    await registrar(9105, 'transito', 'organismos_transito');
     const ctx = await contextoSoat({ sub: 9105, username: 'u', role: 'transito' });
     expect(ctx.alcance).toBe('nada');
     expect(condicionesCola(ctx, {})).toBeNull();
     expect(selectMock).not.toHaveBeenCalled();
   });
 
-  it('rol externo SIN enlace → nada (excepción transitoria)', async () => {
-    await registrar(9106, 'externo_suelto', 'externo', 'ninguno');
+  it('HU #12875 AC4: rol SIN enlace (aunque antes fuera externo) → todo, sin proyección y sin leer el usuario', async () => {
+    await registrar(9106, 'externo_suelto', 'ninguno');
     const ctx = await contextoSoat({ sub: 9106, username: 'u', role: 'externo_suelto' });
-    expect(condicionesCola(ctx, {})).toBeNull();
+    expect(ctx).toMatchObject({ alcance: 'todo', proyeccionCliente: false, companiaId: null });
+    expect(condicionesCola(ctx, {})).not.toBeNull();
+    expect(selectMock).not.toHaveBeenCalled();
   });
 
   it('resolverPermisos ok:false → nada', async () => {
@@ -181,7 +184,7 @@ describe('Bug #12869 — contextoSoat deriva la frontera del enlace', () => {
   });
 
   it('rol propio interno con enlace ninguno → sin frontera de compañía ni proveedor', async () => {
-    await registrar(9108, 'analista', 'interno', 'ninguno');
+    await registrar(9108, 'analista', 'ninguno');
     const ctx = await contextoSoat({ sub: 9108, username: 'u', role: 'analista' });
     const conds = condicionesCola(ctx, {});
     expect(conds).not.toBeNull();
@@ -191,19 +194,19 @@ describe('Bug #12869 — contextoSoat deriva la frontera del enlace', () => {
 });
 
 describe('Bug #12869 — regresión de los roles de fábrica', () => {
-  it('cliente (externo + compania) → su compañía', async () => {
+  it('cliente (enlace compania) → su compañía', async () => {
     await testToken({ sub: 9201, role: 'cliente' as never });
     const ctx = await ctxDe(9201, 'cliente', { c: 5 });
-    expect(ctx).toMatchObject({ alcance: 'compania', externo: true, companiaId: 5 });
+    expect(ctx).toMatchObject({ alcance: 'compania', proyeccionCliente: true, companiaId: 5 });
     const conds = condicionesCola(ctx, {});
     expect(contiene(conds, '"flito_soat"."compania_id" =')).toBe(true);
     expect(params(conds)).toContain(5);
   });
 
-  it('proveedor (enlace proveedor_soat) → frontera del gestor', async () => {
+  it('proveedor (enlace proveedor) → frontera del gestor', async () => {
     await testToken({ sub: 9202, role: 'proveedor' as never });
     const ctx = await ctxDe(9202, 'proveedor', { p: PROV });
-    expect(ctx).toMatchObject({ alcance: 'proveedor', externo: false, proveedorSoatId: PROV });
+    expect(ctx).toMatchObject({ alcance: 'proveedor', proyeccionCliente: false, proveedorSoatId: PROV });
     const conds = condicionesCola(ctx, {});
     expect(params(conds)).toContain(PROV);
     expect(contiene(conds, '"flito_soat"."gestion_operaciones" =')).toBe(true);
@@ -212,7 +215,7 @@ describe('Bug #12869 — regresión de los roles de fábrica', () => {
   it('admin (ninguno) → sin frontera y sin leer el usuario', async () => {
     await testToken({ sub: 9203, role: 'admin' });
     const ctx = await contextoSoat({ sub: 9203, username: 'u', role: 'admin' });
-    expect(ctx).toMatchObject({ alcance: 'todo', externo: false, companiaId: null, proveedorSoatId: null });
+    expect(ctx).toMatchObject({ alcance: 'todo', proyeccionCliente: false, companiaId: null, proveedorSoatId: null });
     const conds = condicionesCola(ctx, {});
     expect(contiene(conds, 'compania_id" =')).toBe(false);
     expect(contiene(conds, 'proveedor_soat_id" =')).toBe(false);
@@ -224,7 +227,7 @@ describe('Bug #12869 — regresión de los roles de fábrica', () => {
 
 describe('Bug #12869 — la cola HTTP, el ZIP y el Excel reciben la frontera del enlace', () => {
   it('GET /api/flito/soat con rol INTERNO enlace compañía → conteo y página llevan SU compania_id', async () => {
-    const auth = await registrar(9301, 'aseguradora_interna', 'interno', 'compania');
+    const auth = await registrar(9301, 'aseguradora_interna', 'compania');
     selectMock.mockImplementationOnce(() => chainEspia([{ c: 7, p: null }]));
     selectMock.mockImplementationOnce(() => chainEspia([{ total: 0 }]));
     selectMock.mockImplementationOnce(() => chainEspia([]));
@@ -239,16 +242,16 @@ describe('Bug #12869 — la cola HTTP, el ZIP y el Excel reciben la frontera del
     }
   });
 
-  it('GET /api/flito/soat con enlace organismos_transito → vacío y ninguna consulta a flito_soat', async () => {
-    const auth = await registrar(9302, 'transito_propio', 'interno', 'organismos_transito');
+  it('HU #12875: GET /api/flito/soat con enlace organismos_transito → 403 de la frontera y ninguna consulta', async () => {
+    const auth = await registrar(9302, 'transito_propio', 'organismos_transito');
     const r = await request(await buildApp()).get('/api/flito/soat').set('Authorization', auth);
-    expect(r.status).toBe(200);
-    expect(r.body).toEqual({ items: [], total: 0, page: 1, pageSize: 50 });
+    expect(r.status).toBe(403);
+    expect(r.body).toEqual({ error: 'Sin permisos' });
     expect(selectMock).not.toHaveBeenCalled();
   });
 
   it('ZIP: el WHERE del lote lleva la compañía del rol interno con enlace compañía', async () => {
-    await registrar(9303, 'aseguradora_interna', 'interno', 'compania');
+    await registrar(9303, 'aseguradora_interna', 'compania');
     const ctx = await ctxDe(9303, 'aseguradora_interna', { c: 7 });
     wheres.length = 0;
     selectMock.mockImplementationOnce(() => chainEspia([]));
@@ -260,14 +263,14 @@ describe('Bug #12869 — la cola HTTP, el ZIP y el Excel reciben la frontera del
   });
 
   it('ZIP y Excel con alcance nada → vacío sin consultar', async () => {
-    const nada: SoatCtx = { userId: 1, username: 'u', role: 'transito', externo: false, alcance: 'nada', proveedorSoatId: null, companiaId: null };
+    const nada: SoatCtx = { userId: 1, username: 'u', role: 'transito', proyeccionCliente: false, alcance: 'nada', proveedorSoatId: null, companiaId: null };
     expect(await registrosZipSoat([PROV], nada)).toEqual([]);
     expect(await construirFilasExportSoat(nada, {})).toEqual([]);
     expect(selectMock).not.toHaveBeenCalled();
   });
 
   it('Excel: la consulta base lleva la compañía del rol interno con enlace compañía', async () => {
-    await registrar(9304, 'aseguradora_interna', 'interno', 'compania');
+    await registrar(9304, 'aseguradora_interna', 'compania');
     const ctx = await ctxDe(9304, 'aseguradora_interna', { c: 7 });
     wheres.length = 0;
     selectMock.mockImplementation(() => chainEspia([]));
@@ -284,7 +287,7 @@ describe('Bug #12869 — buscarConAcceso (detalle, historial, soportes) por enla
     soat: { id: 's1', companiaId, proveedorSoatId: PROV, gestionOperaciones: false, estado: 'solicitado' },
     dentroDeFrontera: true,
   });
-  const base: SoatCtx = { userId: 1, username: 'u', role: 'aseguradora_interna', externo: false, alcance: 'compania', proveedorSoatId: null, companiaId: 7 };
+  const base: SoatCtx = { userId: 1, username: 'u', role: 'aseguradora_interna', proyeccionCliente: false, alcance: 'compania', proveedorSoatId: null, companiaId: 7 };
 
   it('interno con enlace compañía: SOAT de OTRA compañía → null (404); de la suya → la fila', async () => {
     selectMock.mockImplementationOnce(() => chainEspia([fila(9)]));

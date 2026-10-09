@@ -59,7 +59,7 @@ type Excepcion = { codigo: string; efecto: 'conceder' | 'revocar' };
  */
 function usuario(role: string, propias: (string | Excepcion)[] | null, ...reparto: string[]) {
   respuestas = [
-    [{ rol: role, tipoPrincipal: 'interno' }],
+    [{ rol: role, tipoEnlace: 'ninguno' }],
     reparto.map((codigo) => ({ codigo })),
     (propias ?? []).map((p) => (typeof p === 'string' ? { codigo: `pagina.${p}`, efecto: 'conceder' } : p)),
   ];
@@ -116,10 +116,10 @@ describe('paginasEfectivasDeUsuario — del reparto sembrado a la lista de slugs
     expect(await paginasEfectivasDeUsuario(9)).toEqual(['dashboard']);
   });
 
-  it('de `users` pide `role` y el tipo del rol, y NO `allowed_pages`: la columna está congelada (0188)', async () => {
+  it('de `users` pide `role` y el ENLACE del rol (no el tipo retirado), y NO `allowed_pages`: la columna está congelada (0188)', async () => {
     usuario('auditor', ['pesv'], 'pagina.dashboard');
     await paginasEfectivasDeUsuario(1);
-    expect(Object.keys(selectMock.mock.calls[0]![0] as object).sort()).toEqual(['rol', 'tipoEnlace', 'tipoPrincipal']);
+    expect(Object.keys(selectMock.mock.calls[0]![0] as object).sort()).toEqual(['rol', 'tipoEnlace']); // HU #12875: sin el tipo retirado
   });
 
   it('un rol sin reparto y sin páginas propias no ve NADA: el fallo por defecto es cerrado', async () => {

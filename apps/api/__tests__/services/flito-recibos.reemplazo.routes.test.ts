@@ -11,7 +11,12 @@ import express from 'express';
 import { getTableName } from 'drizzle-orm';
 import { CampoImpuesto, CARGA_MASIVA_MAX_BYTES_ARCHIVO, EstadoImpuesto, TipoSoporte } from '@operaciones/shared-types';
 import { createKeyedDb } from '../helpers/keyed-db.js';
-import { testToken, operacionesDePartida, fuenteDePrueba, type TestRole } from '../helpers/auth.js';
+import { testToken, operacionesDePartida, fuenteDePrueba, type TestRole, neutralizarEnlaceDe } from '../helpers/auth.js';
+
+// HU #12875: este fichero mide la regla del MÓDULO con roles de fábrica que la frontera por enlace
+// cierra hasta la #13426 (decisión (b) del PO); su enlace se neutraliza aquí, a la vista. El cierre lo
+// prueban `frontera-por-enlace.test.ts` y `frontera-enlace.centinela.test.ts`.
+neutralizarEnlaceDe('gestor_impuestos', 'transito', 'proveedor');
 
 const kdb = createKeyedDb();
 vi.mock('../../src/db/client.js', () => ({ db: kdb.db, getPoolStats: vi.fn().mockResolvedValue({ utilization: 0, total: 0, idle: 0, waiting: 0 }) }));

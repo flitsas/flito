@@ -84,10 +84,10 @@ router.use(authMiddleware);
  * `FUNCIONES_SIN_ADMIN` deja fuera del administrador) y no un error a mitad de camino hace explícito
  * de quién es este canal.
  *
- * Es la SEGUNDA cerradura: la primera es `RUTAS_PERMITIDAS_CLIENTE` (`shared/middleware/
- * canal-cliente.ts`), que niega por defecto todo lo que no esté inscrito allí. Las dos hacen falta
- * y en sentidos opuestos: aquella impide que el `cliente` alcance el resto de la API, esta impide
- * que el resto de los roles alcance el canal.
+ * Es la SEGUNDA cerradura: la primera es la frontera por enlace (`shared/middleware/
+ * frontera-enlace.ts`, HU #12875), que niega por defecto a un rol con enlace todo módulo no declarado.
+ * Las dos hacen falta y en sentidos opuestos: aquella impide que el rol de compañía alcance el resto
+ * de la API, esta impide que el resto de los roles alcance el canal.
  */
 
 // Aquí vivía `REVISION_OPERACIONES`, la guarda de `admin` de las cuatro rutas de la revisión. Se va

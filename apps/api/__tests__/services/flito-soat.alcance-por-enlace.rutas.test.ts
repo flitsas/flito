@@ -3,7 +3,7 @@
 // comprobantes (con qué SOAT puede cruzar un archivo).
 //
 // Mutantes que estas pruebas matan, nombrados:
-//   · `flito-soat.routes.ts` vuelve a `externo: ctx.externo` en `GET /:id/soportes` → A (un rol
+//   · `flito-soat.routes.ts` deja de pasar `proyeccionCliente` en `GET /:id/soportes` → A (un rol
 //     INTERNO con enlace compañía dejaría de recibir la allowlist del canal compañía y leería la
 //     factura electrónica y el comprobante PSE).
 //   · `buscarEnAdquisicion` pierde la rama `acotadoACompania` → B (un comprobante de ese rol
@@ -20,6 +20,7 @@ import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
 import { ligadoA, ligadosA, renderizar } from '../helpers/sql-ligado.js';
 import { registrarUsuarioDePrueba } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 const kdb = createKeyedDb();
 
@@ -33,7 +34,7 @@ vi.mock('../../src/shared/pii-audit.js', () => ({ logPiiAccess: vi.fn().mockReso
 /**
  * `detalle` es la puerta de acceso de la ruta y ya tiene su prueba por enlace (`buscarConAcceso` en
  * el archivo hermano). Aquí se fija su salida para aislar lo que decide la línea medida: con qué
- * `externo` llama la RUTA a `soportesDeSoat`. `contextoSoat` y `soportesDeSoat` corren reales.
+ * `proyeccionCliente` llama la RUTA a `soportesDeSoat`. `contextoSoat` y `soportesDeSoat` corren reales.
  */
 vi.mock('../../src/modules/flito-soat/flito-soat.service.js', async (original) => ({
   ...(await original<typeof import('../../src/modules/flito-soat/flito-soat.service.js')>()),
@@ -54,9 +55,9 @@ const COMPANIA = 7;
 
 beforeEach(() => { kdb.reset(); });
 
-async function authRol(sub: number, rol: string, tipoPrincipal: 'interno' | 'externo', tipoEnlace: string) {
+async function authRol(sub: number, rol: string, tipoEnlace: string) {
   await registrarUsuarioDePrueba(sub, {
-    rol, tipoPrincipal, tipoEnlace, excepciones: [],
+    rol, tipoEnlace, excepciones: [],
     funcionesDelRol: ['pagina.flito_soat', 'soat.solicitud.ver_soportes'],
   });
   const t = await new SignJWT({ username: 'u@x.co', role: rol })
@@ -69,7 +70,7 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
 
@@ -91,7 +92,7 @@ describe('Bug #12869 · A — GET /:id/soportes: rol INTERNO con enlace compañ�
       .select('flito_soportes', TODOS).select('flito_conciliacion_lineas', [TODOS[3]]);
 
     const r = await request(await buildApp()).get(`/api/flito/soat/${SOAT_ID}/soportes`)
-      .set('Authorization', await authRol(9401, 'aseguradora_interna', 'interno', 'compania'));
+      .set('Authorization', await authRol(9401, 'aseguradora_interna', 'compania'));
 
     expect(r.status).toBe(200);
     const sops = condicionesSobre(espia, 'flito_soportes');
@@ -107,7 +108,7 @@ describe('Bug #12869 · A — GET /:id/soportes: rol INTERNO con enlace compañ�
     kdb.when.select('flito_soportes', TODOS).select('flito_conciliacion_lineas', []);
 
     const r = await request(await buildApp()).get(`/api/flito/soat/${SOAT_ID}/soportes`)
-      .set('Authorization', await authRol(9402, 'admin', 'interno', 'ninguno'));
+      .set('Authorization', await authRol(9402, 'admin', 'ninguno'));
 
     expect(r.status).toBe(200);
     const sops = condicionesSobre(espia, 'flito_soportes');
@@ -121,7 +122,7 @@ describe('Bug #12869 · B — carga masiva de comprobantes: rol INTERNO con enla
     kdb.when.select('flito_soportes', []).select('flito_soat', []);
     const { cargarFacturasMasivo } = await import('../../src/modules/flito-soat/flito-soat.service.js');
     const ctx = {
-      userId: 1, username: 'u', role: 'aseguradora_interna', externo: false,
+      userId: 1, username: 'u', role: 'aseguradora_interna', proyeccionCliente: false,
       alcance: 'compania' as const, proveedorSoatId: null, companiaId: COMPANIA,
     };
 
@@ -141,7 +142,7 @@ describe('Bug #12869 · B — carga masiva de comprobantes: rol INTERNO con enla
     kdb.when.select('flito_soportes', []).select('flito_soat', []);
     const { cargarFacturasMasivo } = await import('../../src/modules/flito-soat/flito-soat.service.js');
     const ctx = {
-      userId: 1, username: 'u', role: 'transito', externo: false,
+      userId: 1, username: 'u', role: 'transito', proyeccionCliente: false,
       alcance: 'nada' as const, proveedorSoatId: null, companiaId: null,
     };
     const res = await cargarFacturasMasivo(

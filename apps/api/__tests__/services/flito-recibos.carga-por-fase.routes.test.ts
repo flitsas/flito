@@ -86,7 +86,9 @@ async function buildApp() {
   });
   return app;
 }
-const auth = async (role: TestRole, sub = 7) => `Bearer ${await testToken({ sub, username: 'u@flitsas.io', role })}`;
+// HU #12875: Impuestos está cerrado por la frontera al enlace organismos hasta #13426; aquí se mide la
+// regla del módulo (por función/organismo), así que el gestor lleva el enlace neutralizado.
+const auth = async (role: TestRole, sub = 7) => `Bearer ${await testToken({ sub, username: 'u@flitsas.io', role, tipoEnlace: role === 'gestor_impuestos' ? 'ninguno' : undefined })}`;
 /** Sin `await` sobre el Test de supertest: es thenable y lo enviaría antes de adjuntar nada. */
 const post = (app: express.Express, bearer: string) => request(app).post(RUTA).set('Authorization', bearer);
 

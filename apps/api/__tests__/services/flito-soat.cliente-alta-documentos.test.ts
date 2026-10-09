@@ -27,6 +27,7 @@ import os from 'node:os';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
 import { testToken } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 const kdb = createKeyedDb();
 const espia = crearEspia(kdb);
@@ -88,7 +89,7 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat-cliente.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
 

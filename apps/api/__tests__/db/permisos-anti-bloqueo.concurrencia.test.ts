@@ -87,7 +87,7 @@ describe.skipIf(!URL)('AC4 — dos administradores que se retiran el permiso a l
 
   beforeAll(async () => {
     await limpiar();
-    await db.insert(permisosRoles).values({ codigo: ROL, nombre: 'Prueba 12084', tipoEnlace: 'ninguno', tipoPrincipal: 'interno' });
+    await db.insert(permisosRoles).values({ codigo: ROL, nombre: 'Prueba 12084', tipoEnlace: 'ninguno',  });
     await db.insert(permisosFunciones).values({ codigo: FUNCION, modulo: 'zz', nombreNegocio: 'Prueba', descripcion: 'Temporal del test de la HU #12084.', tipo: 'operacion' });
     await db.insert(permisosRolFuncion).values({ rolCodigo: ROL, funcionCodigo: FUNCION });
     const filas = await db.insert(users).values([
@@ -189,7 +189,7 @@ describe.skipIf(!URL)('AC4 — dos administradores que se retiran el permiso a l
       return r instanceof Error ? `${r.name}${causa?.code ? ` [${causa.code}]` : ''}: ${r.message.split('\n')[0]}` : String(r);
     };
     for (let i = 0; i < 3; i++) {
-      await sql`INSERT INTO permisos_roles (codigo, nombre, tipo_enlace, tipo_principal) VALUES (${ROL_B}, 'Prueba B', 'ninguno', 'interno')`;
+      await sql`INSERT INTO permisos_roles (codigo, nombre, tipo_enlace) VALUES (${ROL_B}, 'Prueba B', 'ninguno')`;
       const [rb, rg] = await Promise.all([
         servicios.borrarRol(ROL_B, ACTOR).then(() => 'ok' as const, (e: unknown) => e),
         servicios.guardarCuadro(ROL_B, [FUNCION], ACTOR).then(() => 'ok' as const, (e: unknown) => e),

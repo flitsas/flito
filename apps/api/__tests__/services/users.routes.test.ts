@@ -204,7 +204,7 @@ beforeEach(() => {
   // HU #12088: el mock debe devolver el tipoEnlace coherente con el rol del body.
   // Si siempre devolviera `ninguno`, los 400 de ámbito no dispararían (o dispararían al revés).
   const TIPO_ENLACE_POR_ROL: Record<string, string> = {
-    admin: 'ninguno', proveedor: 'proveedor_soat', transito: 'organismos_transito',
+    admin: 'ninguno', proveedor: 'proveedor', transito: 'organismos_transito',
     compliance: 'ninguno', lider_pesv: 'ninguno', supervisor_flota: 'ninguno', conductor: 'ninguno',
     auditor: 'ninguno', gestor_impuestos: 'organismos_transito', mensajero: 'ninguno',
     financiera: 'ninguno', cliente: 'compania', consulta_cliente: 'ninguno',

@@ -171,7 +171,7 @@ function instalarBd(esc: Escenario): Espia {
     if (claves === 'codigo,tipoEnlace') {
       const roles = [...new Set(esc.filas.map((f) => String(f.role)))];
       const enlace: Record<string, string> = {
-        admin: 'ninguno', gestor_impuestos: 'organismos_transito', proveedor: 'proveedor_soat',
+        admin: 'ninguno', gestor_impuestos: 'organismos_transito', proveedor: 'proveedor',
         cliente: 'compania',
       };
       return chain(roles.map((codigo) => ({ codigo, tipoEnlace: enlace[codigo] ?? 'ninguno' })));
@@ -219,7 +219,7 @@ const ESCENARIO: Escenario = {
   rolesEnlace: [
     { codigo: 'admin', tipoEnlace: 'ninguno' },
     { codigo: 'gestor_impuestos', tipoEnlace: 'organismos_transito' },
-    { codigo: 'proveedor', tipoEnlace: 'proveedor_soat' },
+    { codigo: 'proveedor', tipoEnlace: 'proveedor' },
     { codigo: 'cliente', tipoEnlace: 'compania' },
   ],
   companias: [{ id: 7, name: 'Transportes Zeta S.A.S.' }],

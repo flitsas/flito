@@ -30,7 +30,7 @@ export interface User {
   transitoCodigo?: string | null;
   /** Compañía cuando `tipoEnlace = 'compania'`. */
   companiaId?: number | null;
-  /** Proveedor SOAT cuando `tipoEnlace = 'proveedor_soat'`. */
+  /** Proveedor SOAT cuando `tipoEnlace = 'proveedor'`. */
   flitoProveedorSoatId: string | null;
   /**
    * Organismos cuando `tipoEnlace = 'organismos_transito'` (gestor, tránsito, roles nuevos).

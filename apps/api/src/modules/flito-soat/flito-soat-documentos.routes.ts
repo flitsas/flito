@@ -15,10 +15,11 @@
 // acceso a la solicitud se comprueba DESPUÉS de multer (responder sin consumir el multipart rompe la
 // conexión del cliente); los temporales se borran en el `finally`, en todos los caminos.
 //
-// `:id` es un uuid opaco (permitido en el path, AGENTS.md §14). No se inscribe en
-// `shared/middleware/canal-cliente.ts`: el cliente no tiene la función y la guardia del canal ya le
-// cierra la ruta. La respuesta lleva URL firmada y temporal, nunca la clave de storage, y cada
-// entrega no vacía queda en `pii_access_log` (`registrarAccesoSoat`).
+// `:id` es un uuid opaco (permitido en el path, AGENTS.md §14). El montaje de SOAT está
+// abierto a los enlaces `compania` y `proveedor` (HU #12875); quien tenga la función la usa acotado a
+// su compañía/proveedor (`buscarConAcceso` vía `contextoSoat`, 404-no-403 fuera de ella). La
+// respuesta lleva URL firmada y temporal, nunca la clave de storage, y cada entrega no vacía queda en
+// `pii_access_log` (`registrarAccesoSoat`).
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';

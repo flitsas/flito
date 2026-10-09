@@ -19,6 +19,7 @@ import request from 'supertest';
 import express from 'express';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { testToken, type TestRole } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 const kdb = createKeyedDb();
 
@@ -36,7 +37,7 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
 
@@ -286,11 +287,11 @@ describe('AC5 — auditoría ve el SOAT entero MENOS el comprobante del pago', (
       return c;
     });
 
-    await soportesDeSoat(SOAT_ID, { rol: 'auditor', externo: false, estadoSoat: 'pagado' });
+    await soportesDeSoat(SOAT_ID, { rol: 'auditor', proyeccionCliente: false, estadoSoat: 'pagado' });
     expect(tablas).not.toContain('flito_conciliacion_lineas');
 
     tablas.length = 0;
-    await soportesDeSoat(SOAT_ID, { rol: 'admin', externo: false, estadoSoat: 'pagado' });
+    await soportesDeSoat(SOAT_ID, { rol: 'admin', proyeccionCliente: false, estadoSoat: 'pagado' });
     expect(tablas).toContain('flito_conciliacion_lineas');
   });
 
@@ -317,7 +318,7 @@ describe('el puente soporte → boleta → línea → SOAT, en el where', () => 
     });
 
     const { soportesDeSoat } = await import('../../src/shared/soportes/soportes-consulta.js');
-    await soportesDeSoat(SOAT_ID, { rol: 'admin', externo: false, estadoSoat: 'pagado' });
+    await soportesDeSoat(SOAT_ID, { rol: 'admin', proyeccionCliente: false, estadoSoat: 'pagado' });
 
     const dialecto = new PgDialect();
     const textos = condiciones.map((c) => dialecto.sqlToQuery(c as never).sql);

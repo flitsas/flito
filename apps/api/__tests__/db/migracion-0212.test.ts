@@ -18,7 +18,7 @@ import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-oper
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import { llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
 import { catalogoCompleto, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
-import { RUTAS_PERMITIDAS_CLIENTE } from '../../src/shared/middleware/canal-cliente.js';
+import { funcionesAlcanzables } from '../../src/shared/middleware/frontera-enlace.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ARCHIVO = '0212_permiso_soat_reintentar_runt.sql';
@@ -85,11 +85,9 @@ describe('0212 — análisis estático', () => {
     expect(total.get('auditor')?.has(CODIGO) ?? false).toBe(false);
   });
 
-  it('el Cliente PUEDE recibirla desde el panel: su ruta está en RUTAS_PERMITIDAS_CLIENTE con esta función', () => {
-    const e = RUTAS_PERMITIDAS_CLIENTE.find((x) => x.funcion === CODIGO);
-    expect(e).toBeDefined();
-    expect(e!.metodo).toBe('POST');
-    expect(e!.patron).toBe('/api/flito/soat/cliente/incompletas/:id/reintentar');
+  it('el Cliente PUEDE recibirla desde el panel: su enlace (compañía) alcanza esta función (HU #12875: por módulo, no por lista)', () => {
+    expect(funcionesAlcanzables('compania')(CODIGO)).toBe(true);
+    expect(funcionesAlcanzables('organismos_transito')(CODIGO)).toBe(false);
   });
 
   it('no retira nada y el helper de paridad la lee justo después de la 0211', () => {

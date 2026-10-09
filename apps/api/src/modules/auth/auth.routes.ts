@@ -147,13 +147,12 @@ router.post('/login', async (req: Request, res: Response) => {
  * (Bug #11937). `companiaId` no sale en ninguna de las dos respuestas.
  *
  * HU #13425: se decide por la FUNCIÓN `soat.solicitud.crear` del conjunto efectivo (la misma foto
- * que guarda los endpoints del canal), por el TIPO de principal (externo: el canal Cliente; un interno
- * de la cola SOAT con compañía no radica por este canal — riesgo R1 del diseño) y por la compañía
- * enlazada y su flag — nunca por el nombre del rol. Si falta algo, `false` sin consultar `clients`:
+ * que guarda los endpoints del canal), por el ENLACE `compania` del rol (HU #12875: el tipo
+ * interno/externo se retiró; una regla por enlace) y por la compañía enlazada y su flag — nunca por el nombre del rol. Si falta algo, `false` sin consultar `clients`:
  * el JOIN solo lo paga quien puede radicar.
  */
 async function puedeSolicitarSoat(p: PermisosResueltos, companiaId: number | null): Promise<boolean> {
-  if (!p.ok || p.tipoPrincipal !== 'externo' || !p.funciones.has('soat.solicitud.crear') || !companiaId) return false;
+  if (!p.ok || p.tipoEnlace !== 'compania' || !p.funciones.has('soat.solicitud.crear') || !companiaId) return false;
   const [compania] = await db.select({ sinTramite: clients.soatSinTramite })
     .from(clients).where(eq(clients.id, companiaId)).limit(1);
   return compania?.sinTramite === true;

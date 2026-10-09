@@ -12,7 +12,7 @@
 // verdad (dos sesiones) está en `__tests__/db/permisos-anti-bloqueo.concurrencia.test.ts`.
 //
 // Mutaciones que este fichero ve: M1 (`=== 0` → `> 0`, o quitar el `throw`), M3 (quitar
-// `.for('update')`), M4 (quitar `orderBy(users.id)`), M7 (quitar `tipo_principal = 'interno'`),
+// `.for('update')`), M4 (quitar `orderBy(users.id)`), M7 (quitar `tipo_enlace = 'ninguno'`, HU #12875),
 // M8 (quitar la rama `revocar`).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -32,7 +32,8 @@ const servicios = vi.hoisted(() => ({ sentencias: [] as { sql: string; params: u
 vi.mock('../../src/db/client.js', async () => {
   const { drizzle: proxy } = await import('drizzle-orm/pg-proxy');
   const AHORA = new Date('2026-09-10T12:00:00Z');
-  const rol = (tipoPrincipal: string) => ['gestor_x', 'Gestor X', null, 'ninguno', tipoPrincipal, false, true, AHORA, AHORA];
+  // Fila cruda de `permisos_roles` en el orden de columnas del esquema (la retirada sigue en la tabla).
+  const rol = (tipoRetirado: string) => ['gestor_x', 'Gestor X', null, 'ninguno', tipoRetirado, false, true, AHORA, AHORA];
   const base = proxy(async (sql: string, params: unknown[]) => {
     servicios.sentencias.push({ sql, params });
     if (/for update of "users"/i.test(sql)) return { rows: [[1]] };
@@ -90,14 +91,16 @@ describe('AC4 — conSeguroAntiBloqueo: orden y forma del lock', () => {
     expect(lock.sql).not.toMatch(/for update of "permisos_roles"/);
   });
 
-  it('el lock restringe a activos, vivos y de rol interno, y a quienes hoy tienen ALGUNA de las cuatro funciones', async () => {
+  it('el lock restringe a activos, vivos y de rol SIN enlace, y a quienes hoy tienen ALGUNA de las cuatro funciones', async () => {
     const { tx, sentencias } = ejecutor();
     await conSeguroAntiBloqueo(tx, async () => undefined);
     const lock = lockDe(sentencias);
     expect(lock.sql).toMatch(/"users"\."active" = \$\d+/);
-    expect(lock.sql).toMatch(/"permisos_roles"\."tipo_principal" = \$\d+/);
+    // HU #12875 (ADR-0024 modifica ADR-0022): la población es la de enlace `ninguno`, no la «interna».
+    expect(lock.sql).toMatch(/"permisos_roles"\."tipo_enlace" = \$\d+/);
+    expect(lock.sql).not.toMatch(/tipo_principal/);
     expect(lock.params).toContain(true);
-    expect(lock.params).toContain('interno');
+    expect(lock.params).toContain('ninguno');
     // Las cuatro funciones de administración, unidas por OR: el lock es SUPERCONJUNTO de la población
     // contada (bloquear solo a quien ya reúne las cuatro dejaría fuera a quien está a una escritura).
     for (const f of FUNCIONES_DE_ADMINISTRACION) expect(lock.params.filter((p) => p === f), f).toHaveLength(3);
@@ -123,8 +126,8 @@ describe('AC4 — el predicado es el del resolutor: (rol ∪ concedida) ∖ revo
     expect(cuenta.sql).toMatch(/"permisos_rol_funcion"\."rol_codigo" = "users"\."role"/);
     expect(cuenta.sql).toMatch(/"permisos_usuario_funcion"\."user_id" = "users"\."id"/);
     // Y la población: activos, internos y vivos (deleted_at IS NULL, HU #12089).
-    expect(cuenta.sql).toMatch(/where \("users"\."active" = \$\d+ and "permisos_roles"\."tipo_principal" = \$\d+ and "users"\."deleted_at" is null\)/);
-    expect(cuenta.params).toContain('interno');
+    expect(cuenta.sql).toMatch(/where \("users"\."active" = \$\d+ and "permisos_roles"\."tipo_enlace" = \$\d+ and "users"\."deleted_at" is null\)/);
+    expect(cuenta.params).toContain('ninguno');
   });
 
   it('HU #13424 — el primer contador es la CONJUNCIÓN: las cuatro funciones, unidas por AND, en el mismo usuario', async () => {
@@ -247,18 +250,7 @@ describe('db-review HU #12084 — orden de locks en los servicios de roles: la p
     expect(indiceDe(/count\(\*\) filter/i)).toBeGreaterThan(del);
   });
 
-  it('editarRol con `tipoPrincipal`: P primero, el rol después, el UPDATE tras los dos', async () => {
-    const { editarRol } = await import('../../src/modules/permisos/permisos-roles.service.js');
-    const r = await editarRol('gestor_x', { tipoPrincipal: 'externo' }, ACTOR);
-    expect(r.estado).toBe('ok');
-    const p = indiceDe(LOCK_P);
-    const rol = indiceDe(LOCK_ROL);
-    expect(p, servicios.sentencias.map((x) => x.sql).join('\n')).toBe(0);
-    expect(rol).toBeGreaterThan(p);
-    expect(indiceDe(/^update "permisos_roles"/i)).toBeGreaterThan(rol);
-  });
-
-  it('editarRol SIN `tipoPrincipal` (solo nombre) no toma P: el `for update` del rol va solo', async () => {
+  it('HU #12875: editarRol no toma P en ningún caso (el enlace solo cambia con 0 usuarios): el `for update` del rol va solo', async () => {
     const { editarRol } = await import('../../src/modules/permisos/permisos-roles.service.js');
     const r = await editarRol('gestor_x', { nombre: 'Otro' }, ACTOR);
     expect(r.estado).toBe('ok');
@@ -292,10 +284,10 @@ describe('AC4 — el invariante vive en UN sitio y lo invocan las cinco operacio
 
   it('permisos-roles.service.ts: borrar el rol y guardar el cuadro lo invocan con su `tx`; crear no (añadir nunca bloquea)', () => {
     const src = sinComentarios(fuente('modules/permisos/permisos-roles.service.ts'));
-    expect(src.match(/conSeguroAntiBloqueo\(tx,/g)).toHaveLength(3); // borrar, editar tipoPrincipal, guardar cuadro
+    expect(src.match(/conSeguroAntiBloqueo\(tx,/g)).toHaveLength(2); // borrar, guardar cuadro (HU #12875: editar ya no)
     // Los tres envuelven la transacción ENTERA (población primero; db-review de la HU #12084).
     expect(src).toMatch(/db\.transaction\(async \(tx\) => conSeguroAntiBloqueo\(tx, async \(\) => \{\s*const \[rol\] = await tx\.select\(\)\.from\(permisosRoles\)/);
-    expect(src).toMatch(/cambios\.tipoPrincipal !== undefined \? conSeguroAntiBloqueo\(tx, \(\) => cuerpo\(tx\)\) : cuerpo\(tx\)/);
+    expect(src).toMatch(/return db\.transaction\(async \(tx\) => cuerpo\(tx\)\);/);
     expect(src).toMatch(/db\.transaction\(async \(tx\) => conSeguroAntiBloqueo\(tx, async \(\): Promise<RespuestaGuardarCuadro>/);
     const crear = src.slice(src.indexOf('export async function crearRol'), src.indexOf('export type ResultadoEditarRol'));
     expect(crear).not.toMatch(/conSeguroAntiBloqueo/);
@@ -312,7 +304,7 @@ describe('AC4 — el invariante vive en UN sitio y lo invocan las cinco operacio
     }
   });
 
-  it('nadie copia la cuenta: fuera de permisos-anti-bloqueo.ts no hay otro `count(*) filter` sobre users con tipo_principal', () => {
+  it('nadie copia la cuenta: fuera de permisos-anti-bloqueo.ts no hay otro `count(*) filter` sobre la población administradora', () => {
     for (const rel of ['modules/users/users.service.ts', 'modules/permisos/permisos-roles.service.ts', 'modules/users/users.routes.ts', 'modules/permisos/permisos.routes.ts']) {
       expect(sinComentarios(fuente(rel)), rel).not.toMatch(/count\(\*\) filter/);
       expect(sinComentarios(fuente(rel)), rel).not.toMatch(/FUNCIONES_DE_ADMINISTRACION/);

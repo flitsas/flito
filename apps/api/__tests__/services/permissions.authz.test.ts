@@ -108,7 +108,10 @@ describe('requirePage — autorización server-side por página', () => {
 describe('authMiddleware — el JWT ya no lleva allowedPages y, si lo trae, se ignora (HU #12082)', () => {
   it('token del helper → req.user SIN allowedPages; requirePage decide con el registro y permite', async () => {
     const { authMiddleware } = await import('../../src/shared/middleware/auth.js');
-    const token = await testToken({ sub: 34, role: 'proveedor', allowedPages: ['transito'] });
+    // HU #12875: lo que se mide aquí son los claims del JWT, no la frontera; el rol `proveedor` lleva
+    // enlace `proveedor` de fábrica y este `req` no viene de ningún montaje declarado, así que se
+    // neutraliza el enlace (la frontera la prueba `frontera-por-enlace.test.ts`).
+    const token = await testToken({ sub: 34, role: 'proveedor', allowedPages: ['transito'], tipoEnlace: 'ninguno' });
     const req = { headers: { authorization: `Bearer ${token}` } } as unknown as Request;
     const res = mockRes();
     const next = vi.fn();
@@ -125,7 +128,7 @@ describe('authMiddleware — el JWT ya no lleva allowedPages y, si lo trae, se i
   it('token con un claim allowedPages manipulado → el claim no llega a req.user y la página se niega igual', async () => {
     const { authMiddleware } = await import('../../src/shared/middleware/auth.js');
     const { SignJWT } = await import('jose');
-    await testToken({ sub: 35, role: 'proveedor', allowedPages: [] }); // lo que la base dice
+    await testToken({ sub: 35, role: 'proveedor', allowedPages: [], tipoEnlace: 'ninguno' }); // lo que la base dice (enlace neutralizado, HU #12875)
     const secret = new TextEncoder().encode(process.env.JWT_SECRET);
     const manipulado = await new SignJWT({ username: 'u', role: 'proveedor', allowedPages: ['transito'] })
       .setProtectedHeader({ alg: 'HS256' }).setSubject('35').setExpirationTime('1h').sign(secret);

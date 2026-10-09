@@ -60,7 +60,7 @@ const { catalogoCompleto } = await import('../../src/modules/permisos/catalogo.j
 const { AGRUPACION_DE_OPERACION, AGRUPACION_DE_OPERACION_LEGADO } = await import('../../src/modules/permisos/catalogo-agrupacion.js');
 
 const ok = (funciones: string[], extra: Partial<Extract<PermisosResueltos, { ok: true }>> = {}): PermisosResueltos => ({
-  ok: true, userId: 7, rol: 'gestor', tipoPrincipal: 'interno', funciones: new Set(funciones),
+  ok: true, userId: 7, rol: 'gestor', tipoEnlace: 'ninguno', funciones: new Set(funciones),
   version: 'v1', resueltoEn: new Date(), ...extra,
 });
 const fallo: PermisosResueltos = { ok: false, userId: 7, motivo: 'resolucion' };

@@ -33,7 +33,7 @@ import GradientButton from '../../components/flit/GradientButton';
 import StatusChip from '../../components/flit/StatusChip';
 import { FlitCard, flitBtnSecondary, flitBtnSecondarySm, flitBtnSecondaryStyle } from '../../components/flit/flitPageKit';
 import {
-  ENLACE_EN_CABECERA, ETIQUETA_ACCESO, desmarcadas, etiquetaModulo, funcionesFueraDelCanal, kDeNMarcadas, marcadas,
+  ENLACE_EN_CABECERA, desmarcadas, etiquetaModulo, funcionesFueraDelCanal, kDeNMarcadas, marcadas,
   seccionesVisibles,
 } from './modulos';
 import {
@@ -85,7 +85,8 @@ export default function CuadroRol({
   const nuevas = [...borrador].filter((c) => !base.has(c)).length;
   const quitadas = [...base].filter((c) => !borrador.has(c)).length;
   const hayCambios = nuevas + quitadas > 0;
-  const externo = rol.tipoPrincipal === 'externo';
+  // HU #12875: el aviso del canal Cliente lo decide el enlace `compania` (el tipo interno/externo se retiró).
+  const externo = rol.tipoEnlace === 'compania';
   const fueraDelCanal = externo ? avisoFueraDelCanal.filter((c) => borrador.has(c)) : [];
 
   const alternar = (modulo: string) => setAbiertos((prev) => {
@@ -102,11 +103,10 @@ export default function CuadroRol({
       <FlitCard>
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-lg font-bold" style={{ color: 'var(--flit-blue-text)' }}>{rol.nombre}</h2>
-          {externo && <StatusChip tone="warning">Externo</StatusChip>}
           {!rol.activo && <StatusChip tone="draft">Inactivo</StatusChip>}
         </div>
         <p className="mt-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-          {ETIQUETA_ACCESO[rol.tipoPrincipal]} · {ENLACE_EN_CABECERA[rol.tipoEnlace]} · {rol.usuarios === 1 ? '1 usuario' : `${rol.usuarios} usuarios`}
+          {ENLACE_EN_CABECERA[rol.tipoEnlace]} · {rol.usuarios === 1 ? '1 usuario' : `${rol.usuarios} usuarios`}
         </p>
         <p className="mt-2 text-sm" style={{ color: rol.descripcion ? 'var(--flit-text-primary)' : 'var(--flit-text-muted)' }}>
           {rol.descripcion || 'Sin descripción'}

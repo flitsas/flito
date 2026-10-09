@@ -34,7 +34,7 @@ const { exigirFuncion } = await import('../../src/shared/middleware/exigir-funci
 const { authMiddleware } = await import('../../src/shared/middleware/auth.js');
 
 const ok = (funciones: string[], rol = 'gestor'): PermisosResueltos => ({
-  ok: true, userId: 7, rol, tipoPrincipal: 'interno', funciones: new Set(funciones),
+  ok: true, userId: 7, rol, tipoEnlace: 'ninguno', funciones: new Set(funciones),
   version: 'v1', resueltoEn: new Date(), ...({} as object),
 });
 

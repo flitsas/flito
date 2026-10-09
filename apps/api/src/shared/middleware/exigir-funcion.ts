@@ -7,7 +7,7 @@
 // contra la base (`resolverPermisos(req.user.sub)`, RN-A5). Del token se usa `sub`, y `role` solo
 // para el texto de la bitácora (AC3).
 //
-// Vive en `shared/middleware/` junto a `requireRole` y `guardiaCanalCliente` porque es transversal a
+// Vive en `shared/middleware/` junto a `requireRole` y `guardiaFrontera` porque es transversal a
 // todos los módulos. `requirePage(slug)` (shared/permissions.ts) es `exigirFuncion('pagina.<slug>')`:
 // páginas y operaciones pasan por el mismo camino (AC7, RN-A4).
 //

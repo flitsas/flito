@@ -57,7 +57,7 @@ export function AmbitoCelda({ user: u, tipoEnlace, nombreCompania, proveedores, 
         ) : (
           <span style={{ color: 'var(--flit-warning)' }}>Sin asignar</span>
         )
-      ) : tipoEnlace === 'proveedor_soat' ? (
+      ) : tipoEnlace === 'proveedor' ? (
         u.flitoProveedorSoatId ? (
           nombreProveedor(proveedores.data, u.flitoProveedorSoatId)
             ? <span>{nombreProveedor(proveedores.data, u.flitoProveedorSoatId)}</span>
@@ -114,7 +114,7 @@ export function AmbitoCampos({
           onInvalido={() => setErrorCompania(COMPANIA_REQUERIDA)}
         />
       )}
-      {tipoEnlace === 'proveedor_soat' && (
+      {tipoEnlace === 'proveedor' && (
         <ProveedorSoatField
           proveedores={proveedores}
           value={valores.flitoProveedorSoatId}

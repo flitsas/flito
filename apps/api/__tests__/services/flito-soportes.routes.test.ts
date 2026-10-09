@@ -13,6 +13,7 @@ import request from 'supertest';
 import express from 'express';
 import { chain } from '../helpers/db.js';
 import { testToken, type TestRole } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 // Lo único que llega a la BD de verdad en estas rutas es el organismo del gestor de impuestos, que
 // se lee de `users` para armar su contexto (§9.3). Todo lo demás está mockeado más abajo.
@@ -65,11 +66,13 @@ const [{ default: tramitesRoutes }, { default: soatRoutes }, { default: impuesto
 const app = express();
 app.use(express.json());
 app.use('/api/flito/tramites', tramitesRoutes);
-app.use('/api/flito/soat', soatRoutes);
+app.use('/api/flito/soat', conAlcance('soat', soatRoutes));
 app.use('/api/flito/impuestos', impuestosRoutes);
 
+// HU #12875: Impuestos está cerrado por la frontera al enlace `organismos_transito` hasta la #13426;
+// aquí se mide el filtro del SERVICIO del gestor, así que su sesión lleva el enlace neutralizado.
 const get = async (ruta: string, role: TestRole) =>
-  request(app).get(ruta).set('Authorization', `Bearer ${await testToken({ role })}`);
+  request(app).get(ruta).set('Authorization', `Bearer ${await testToken({ role, tipoEnlace: role === 'gestor_impuestos' ? 'ninguno' : undefined })}`);
 
 const UN_SOPORTE = [{ id: 's1', origen: 'soat', tipo: 'factura_soat', nombreArchivo: 'soat.pdf', url: '/api/files?key=a', subidoEn: '2026-07-01T00:00:00.000Z' }];
 

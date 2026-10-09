@@ -45,7 +45,7 @@ beforeEach(async () => {
 
 /** Un usuario con EXACTAMENTE estas funciones en su rol (nombre de rol a elección). */
 async function usuario(sub: number, rol: string, funciones: string[]): Promise<string> {
-  await registrarUsuarioDePrueba(sub, { rol, tipoPrincipal: 'interno', tipoEnlace: 'ninguno', funcionesDelRol: funciones, excepciones: [] });
+  await registrarUsuarioDePrueba(sub, { rol, tipoEnlace: 'ninguno', funcionesDelRol: funciones, excepciones: [] });
   const secret = new TextEncoder().encode(process.env.JWT_SECRET);
   const jwt = await new SignJWT({ username: `u${sub}`, role: rol })
     .setProtectedHeader({ alg: 'HS256' }).setSubject(String(sub)).setExpirationTime('1h').sign(secret);

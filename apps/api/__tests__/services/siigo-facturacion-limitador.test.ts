@@ -84,7 +84,7 @@ const auth = async (role: TestRole, sub: number) =>
 const authSinReactivar = async (sub: number) => {
   const token = await auth('admin', sub);
   await registrarUsuarioDePrueba(sub, {
-    rol: 'admin', tipoPrincipal: 'interno', tipoEnlace: 'ninguno', excepciones: [],
+    rol: 'admin', tipoEnlace: 'ninguno', excepciones: [],
     funcionesDelRol: operacionesDePartida('admin').filter((c) => c !== 'siigo.factura.reactivar'),
   });
   return token;
