@@ -548,7 +548,7 @@ describe('HU #12654 — GET /:id trae diferenciaAceptada, diferenciaAceptadaEn, 
     const { readFileSync } = await import('node:fs');
     const { join } = await import('node:path');
     const rutas = readFileSync(join(import.meta.dirname, '../../src/modules/flito-comprobantes/flito-comprobantes.routes.ts'), 'utf8');
-    expect(rutas).toMatch(/router\.post\('\/:id\/diferencia\/aceptar', exigirFuncion\('comprobantes\.diferencia\.aceptar'\), exigirIdUuid,/);
+    expect(rutas).toMatch(/router\.post\('\/:id\/diferencia\/aceptar', soloSinEnlace\(\), exigirFuncion\('comprobantes\.diferencia\.aceptar'\), exigirIdUuid,/); // HU #13426: P-2
     expect(rutas).not.toMatch(/requireRole\(/);
   });
 });

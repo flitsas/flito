@@ -36,12 +36,13 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
-  app.use('/api/flito/impuestos', router);
+  const { conAlcance } = await import('../../src/shared/middleware/frontera-enlace.js');
+  app.use('/api/flito/impuestos', conAlcance('impuestos', router)); // HU #13426: como en app.ts
   return app;
 }
-// HU #12875: Impuestos está cerrado por la frontera al enlace organismos hasta #13426; aquí se mide la
-// regla del módulo (por función/organismo), así que el gestor lleva el enlace neutralizado.
-const auth = async (role: string) => `Bearer ${await testToken({ sub: USER_ID, username: 'ops@flitsas.com', role: role as never, tipoEnlace: role === 'gestor_impuestos' ? 'ninguno' : undefined })}`;
+// HU #13426: Impuestos está abierto al enlace organismos; el gestor lleva su enlace REAL y el router se
+// monta con `conAlcance('impuestos', …)` como en `app.ts`.
+const auth = async (role: string) => `Bearer ${await testToken({ sub: USER_ID, username: 'ops@flitsas.com', role: role as never })}`;
 
 /** Igual que en SOAT: el helper `chain` no registra argumentos, así que se envuelve para capturarlos. */
 function montarTx(filasBloqueadas: { id: string }[] = [{ id: IMP_ID }], filaActualizada: unknown = { id: IMP_ID }) {
@@ -301,7 +302,7 @@ const ORGANISMO = '08001';
 describe('flito-impuestos — frontera del gestor del organismo (HU #11156)', () => {
   const comoGestor = (impFila: Record<string, unknown>) => {
     // `contextoImpuesto` lee `flito_gestor_organismos` desde la HU #12053.
-    selectMock.mockReturnValueOnce(chain([{ codigo: ORGANISMO }]));
+    selectMock.mockReturnValueOnce(chain([{ c: ORGANISMO }]));
     selectMock.mockReturnValueOnce(chain([{ imp: impFila, dentroDeFrontera: true }])); // buscarConAcceso
     selectMock.mockReturnValue(chain([]));
   };
@@ -309,7 +310,7 @@ describe('flito-impuestos — frontera del gestor del organismo (HU #11156)', ()
     impuestoEn({ organismoCodigo: ORGANISMO, ...over });
 
   it('AC1 — la cola del gestor filtra por la bandera, en la condición compartida con el conteo', async () => {
-    selectMock.mockReturnValueOnce(chain([{ codigo: ORGANISMO }]));
+    selectMock.mockReturnValueOnce(chain([{ c: ORGANISMO }]));
     const { wheres, columnas } = capturarCola();
 
     const r = await request(await buildApp()).get('/api/flito/impuestos')

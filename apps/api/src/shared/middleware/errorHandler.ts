@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { loggerFor } from '../logger.js';
+import { AlcanceAjenoError } from '../alcance-filas.js';
 
 const log = loggerFor('http');
 
@@ -10,6 +11,12 @@ export function errorHandler(err: any, req: Request, res: Response, _next: NextF
     if (!res.headersSent) {
       res.status(413).json({ ok: false, message: 'Las fotos superan el tamaño permitido. Reduce la resolución o acércate más al documento.' });
     }
+    return;
+  }
+
+  // HU #13426: escritura fuera del alcance del enlace → 403 con el cuerpo de la frontera.
+  if (err instanceof AlcanceAjenoError) {
+    if (!res.headersSent) res.status(403).json({ error: 'Sin permisos' });
     return;
   }
 

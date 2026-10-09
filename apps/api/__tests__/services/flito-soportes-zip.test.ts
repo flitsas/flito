@@ -201,7 +201,7 @@ async function buildApp() {
   const { default: impuestos } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
   const { default: tramites } = await import('../../src/modules/flito-tramites/flito-tramites.routes.js');
   app.use(SOAT, conAlcance('soat', soat));
-  app.use(IMPUESTOS, impuestos);
+  app.use(IMPUESTOS, conAlcance('impuestos', impuestos)); // HU #13426: como en app.ts
   app.use(TRAMITES, tramites);
   return app;
 }
@@ -212,7 +212,7 @@ let siguienteSub = 7100;
 // (decisión (b) del PO). Lo que aquí se mide es el FILTRO DEL SERVICIO del gestor, que sigue en pie
 // y que la #13426 vuelve a abrir: por eso su sesión lleva el enlace neutralizado (`ninguno`). El
 // cierre en sí lo prueba `frontera-por-enlace.test.ts`.
-const ENLACE_DE_PRUEBA = (role: TestRole) => (role === 'gestor_impuestos' ? 'ninguno' : undefined);
+const ENLACE_DE_PRUEBA = (_role: TestRole): string | undefined => undefined; // HU #13426: enlace real
 const sesion = async (role: TestRole = 'admin', funciones?: string[]): Promise<string> =>
   `Bearer ${await testToken({ sub: siguienteSub++, username: 'ops@flit.io', role, funciones, tipoEnlace: ENLACE_DE_PRUEBA(role) })}`;
 

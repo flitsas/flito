@@ -24,7 +24,7 @@ const { enviarAlGestor } = await import('../../src/modules/flito-impuestos/flito
 
 const A = '00000000-0000-0000-0000-00000000000a';
 const B = '00000000-0000-0000-0000-00000000000b';
-const CTX = { userId: 5, username: 'u@x.io', role: 'admin', organismos: [] };
+const CTX = { userId: 5, username: 'u@x.io', role: 'admin', organismos: [], alcance: { enlace: 'ninguno' as const } };
 const render = (w: SQL) => new PgDialect().sqlToQuery(w);
 
 function montarTx(locked: unknown[]) {

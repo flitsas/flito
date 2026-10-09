@@ -22,7 +22,10 @@ import {
   TipoSoporte, esMotivoSemaforoRojo, type AnalisisEstadoImpuesto, type ComparacionFacturaRunt,
   type DireccionCompradorImpuesto, type DocumentosImpuesto, type EnvioComprobante, type EnvioComprobanteFlit2, type MotivoSemaforoRojo,
 } from '@operaciones/shared-types';
-import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
+import { ImpuestoError, esGestorDeOrganismo as esGestor, fueraDelAlcanceImpuestos, type ImpuestoCtx } from './flito-factura-venta.service.js';
+import { condicionAlcanceImpuesto, exigirCompaniaPropia, exigirImpuestosPropios } from './flito-impuestos.alcance.js';
+import { actorVisible } from '../../shared/alcance-filas.js';
+import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
 import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
 import { encolarAnalisis, marcarEnCursoEnTx } from './flito-impuestos.analisis.service.js';
 import { bloqueDireccionDetalle, direccionFlitDe } from './flito-impuestos.direccion.js';
@@ -56,7 +59,6 @@ export function documentosDe(tipos: ReadonlySet<string>): DocumentosImpuesto | n
   return null;
 }
 
-const esGestor = (ctx: ImpuestoCtx) => ctx.role === 'gestor_impuestos';
 
 /**
  * Quién entra en la cola: lo de las compañías que NO autogestionan, más lo que se desbloqueó
@@ -111,7 +113,7 @@ export interface ImpuestoColaItem {
    * muestra.
    */
   certificacion: {
-    id: string; certificadoEn: string; certificadoPorNombre: string;
+    id: string; certificadoEn: string; certificadoPorNombre: string | null;
     /** HU #12830/#12832: `true` = la firmó el análisis post-envío (12828), no una persona. */
     automatica: boolean;
   } | null;
@@ -252,6 +254,9 @@ const EXPR_ESTANCADO_IMP = sql`(${flitoImpuestos.estado} = ${EstadoImpuesto.SOLI
  */
 export function condicionesColaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuestos): SQL[] | null {
   const conds = [FRONTERA_AUTOGESTION_IMP];
+  // HU #13426: enlace que Impuestos no contempla → nada. Compañía → solo la suya (AC2).
+  if (fueraDelAlcanceImpuestos(ctx)) return null;
+  if (ctx.alcance.enlace === 'compania') conds.push(condicionAlcanceImpuesto(ctx)!);
 
   if (esGestor(ctx)) {
     // Sin organismos no hay frontera → nada. El retorno temprano va ANTES del `inArray` también por
@@ -395,7 +400,7 @@ export async function colaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuestos = 
   ]);
 
   return {
-    items: await ensamblar(rows),
+    items: await ensamblar(rows, ctx.alcance),
     total: Number(countRows[0]?.total ?? 0),
     page,
     pageSize,
@@ -440,7 +445,11 @@ export async function facetasColaImpuestos(ctx: ImpuestoCtx): Promise<FacetasCol
   };
 }
 
-async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
+/**
+ * `alcance` decide la proyección (HU #13426, Habeas Data): la compañía no recibe el nombre de quien
+ * envió ni de quien certificó (`actorVisible` → `null`). `organismos_transito` sigue como estaba.
+ */
+async function ensamblar(rows: FilaCola[], alcance: AlcanceResuelto): Promise<ImpuestoColaItem[]> {
   const tramiteIds = [...new Set(rows.map((r) => r.tramiteId))];
   const compradores = tramiteIds.length
     ? await db.select().from(flitoCompradores).where(inArray(flitoCompradores.tramiteId, tramiteIds)).orderBy(asc(flitoCompradores.orden))
@@ -502,7 +511,8 @@ async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
     return {
       certificacion: cert
         ? {
-          id: cert.id, certificadoEn: cert.createdAt.toISOString(), certificadoPorNombre: cert.certificadoPorNombre,
+          id: cert.id, certificadoEn: cert.createdAt.toISOString(),
+          certificadoPorNombre: actorVisible(alcance, cert.certificadoPorNombre), // `null` para la compañía
           // Sin usuario Y con la firma del sistema: un manual de usuario borrado (FK SET NULL) no cuenta.
           automatica: cert.certificadoPorId == null && cert.certificadoPorNombre === NOMBRE_CERTIFICADOR_AUTOMATICO,
         }
@@ -527,7 +537,7 @@ async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
       valorLiquidado: r.valorLiquidado === null ? null : Number(r.valorLiquidado),
       valorPagado: r.valorPagado === null ? null : Number(r.valorPagado),
       marcadoPorDiferencia: r.marcadoPorDiferencia, tieneFacturaVenta: r.facturaVentaFlitId !== null,
-      enviadoPorNombre: r.enviadoPorNombre, enviadoEn: r.enviadoEn ? r.enviadoEn.toISOString() : null,
+      enviadoPorNombre: actorVisible(alcance, r.enviadoPorNombre), enviadoEn: r.enviadoEn ? r.enviadoEn.toISOString() : null,
       pagadoEn: r.pagadoEn ? r.pagadoEn.toISOString() : null,
       estancado: estaEstancado(r.estado, r.enviadoEn, r.gestionOperaciones, r.organismoSla),
       gestionOperaciones: r.gestionOperaciones,
@@ -559,9 +569,12 @@ export function estaEstancado(estado: string, enviadoEn: Date | null, gestionOpe
  * existe): registro autogestionado, de otro organismo, o en estado no visible → null.
  */
 export async function buscarConAcceso(id: string, ctx: ImpuestoCtx): Promise<typeof flitoImpuestos.$inferSelect | null> {
+  if (fueraDelAlcanceImpuestos(ctx)) return null;
+  // HU #13426 (AC2): la compañía va EN EL WHERE: lo ajeno responde igual que lo inexistente.
+  const porCompania = ctx.alcance.enlace === 'compania' ? condicionAlcanceImpuesto(ctx) : undefined;
   const [row] = await db.select({ imp: flitoImpuestos, dentroDeFrontera: FRONTERA_AUTOGESTION_IMP })
     .from(flitoImpuestos).innerJoin(clients, eq(flitoImpuestos.companiaId, clients.id))
-    .where(eq(flitoImpuestos.id, id)).limit(1);
+    .where(and(eq(flitoImpuestos.id, id), porCompania)).limit(1);
   if (!row) return null;
   // La misma frontera que la cola: el desbloqueo excepcional vale en todo el flujo, no solo para
   // aparecer en la lista (HU #11021).
@@ -642,7 +655,7 @@ export async function detalleImpuesto(id: string, ctx: ImpuestoCtx): Promise<Imp
   const imp = await buscarConAcceso(id, ctx); // frontera (404-no-403)
   if (!imp) return null;
   const rows = await fromCola().where(eq(flitoImpuestos.id, id)).limit(1);
-  const [item] = await ensamblar(rows);
+  const [item] = await ensamblar(rows, ctx.alcance);
   if (!item) return null;
   const soportes = await db.select({ id: flitoSoportes.id, tipo: flitoSoportes.tipo, nombreArchivo: flitoSoportes.nombreArchivo, subidoEn: flitoSoportes.subidoEn })
     .from(flitoSoportes).where(and(eq(flitoSoportes.impuestoId, id), eq(flitoSoportes.descartado, false))).orderBy(asc(flitoSoportes.subidoEn));
@@ -672,6 +685,7 @@ export interface ResultadoEnvio { enviados: string[]; yaEnviados: string[] }
  */
 export async function enviarAlGestor(ids: string[], ctx: ImpuestoCtx, gestionOperaciones = false): Promise<ResultadoEnvio> {
   if (ids.length === 0) return { enviados: [], yaEnviados: [] };
+  await exigirImpuestosPropios(ids, ctx); // HU #13426 (AC3): un id ajeno → 403 y no se envía nada
   const { enviados, porAnalizar } = await db.transaction(async (tx) => {
     const locked = await tx.select({ id: flitoImpuestos.id, analizadoEn: flitoImpuestos.analizadoEn }).from(flitoImpuestos)
       .innerJoin(clients, eq(flitoImpuestos.companiaId, clients.id))
@@ -780,6 +794,7 @@ export async function devolverAlGestor(id: string, motivo: string, ctx: Impuesto
 
 /** Rechazo del gestor. Solo desde En gestión; motivo obligatorio. */
 export async function rechazar(id: string, motivo: string, ctx: ImpuestoCtx): Promise<typeof flitoImpuestos.$inferSelect> {
+  await exigirCompaniaPropia([id], ctx);
   const imp = await buscarConAcceso(id, ctx);
   if (!imp) throw new ImpuestoError(404, 'El impuesto no existe');
   if (imp.estado !== EstadoImpuesto.SOLICITADO) throw new ImpuestoError(400, 'Solo se puede rechazar un impuesto en gestión');
@@ -798,6 +813,7 @@ export async function rechazar(id: string, motivo: string, ctx: ImpuestoCtx): Pr
 
 /** Devuelve un impuesto rechazado a la cola. Solo Operaciones, solo desde Rechazado. */
 export async function reactivar(id: string, motivo: string, ctx: ImpuestoCtx): Promise<typeof flitoImpuestos.$inferSelect> {
+  await exigirImpuestosPropios([id], ctx); // HU #13426 (P-3): acotado a su alcance
   const [imp] = await db.select().from(flitoImpuestos).where(eq(flitoImpuestos.id, id)).limit(1);
   if (!imp) throw new ImpuestoError(404, 'El impuesto no existe');
   if (imp.estado !== EstadoImpuesto.CON_NOVEDAD) throw new ImpuestoError(400, `Solo un impuesto rechazado vuelve a Pendiente. Este está en "${ESTADO_IMPUESTO_LABEL[imp.estado as EstadoImpuesto]}".`);
@@ -816,6 +832,7 @@ export async function reactivar(id: string, motivo: string, ctx: ImpuestoCtx): P
 
 /** Reversa manual por Operaciones. Motivo ≥5. Reversar a Pendiente limpia envío/pago/marca. */
 export async function reversar(id: string, estadoDestino: EstadoImpuesto, motivo: string, ctx: ImpuestoCtx): Promise<typeof flitoImpuestos.$inferSelect> {
+  await exigirImpuestosPropios([id], ctx); // HU #13426 (P-3): acotado a su alcance
   const [imp] = await db.select().from(flitoImpuestos).where(eq(flitoImpuestos.id, id)).limit(1);
   if (!imp) throw new ImpuestoError(404, 'El impuesto no existe');
   if (!motivo?.trim() || motivo.trim().length < 5) throw new ImpuestoError(400, 'La reversa exige un motivo que explique el porqué');

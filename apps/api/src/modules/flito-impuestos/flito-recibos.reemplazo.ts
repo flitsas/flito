@@ -24,6 +24,7 @@ import {
 import { db } from '../../db/client.js';
 import { flitoImpuestos, flitoSoportes } from '../../db/schema.js';
 import { buscarConAcceso } from './flito-impuestos.service.js';
+import { exigirCompaniaPropia } from './flito-impuestos.alcance.js';
 import { aReprogramacionFlit2, reprogramarEnvioComprobante } from './flito-impuestos.envio-flit2.service.js';
 import {
   DETALLE_CARGA_POR_FASE, archivar, auditEnTx, candidatoPorImpuestoId, hashReciboYaCargado, insertarSoporte,
@@ -65,6 +66,7 @@ async function pagosVigentes(escritor: Pick<typeof db, 'select'>, impuestoId: st
 export async function reemplazarComprobantePago(
   impuestoId: string, archivo: ArchivoSubido, ctx: ImpuestoCtx,
 ): Promise<RespuestaReemplazoComprobante> {
+  await exigirCompaniaPropia([impuestoId], ctx); // HU #13426 (AC3)
   const imp = await buscarConAcceso(impuestoId, ctx);
   if (!imp) throw new ReemplazoComprobanteError(404, CodigoErrorReemplazoComprobante.NO_ENCONTRADO, 'El impuesto no existe');
   if (imp.estado !== EstadoImpuesto.PAGADO) {

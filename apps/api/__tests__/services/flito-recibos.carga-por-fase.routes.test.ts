@@ -80,15 +80,16 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
-  app.use('/api/flito/impuestos', router);
+  const { conAlcance } = await import('../../src/shared/middleware/frontera-enlace.js');
+  app.use('/api/flito/impuestos', conAlcance('impuestos', router)); // HU #13426: como en app.ts
   app.use((err: { message?: string }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     res.status(500).json({ error: 'fallback', detalle: err.message });
   });
   return app;
 }
-// HU #12875: Impuestos está cerrado por la frontera al enlace organismos hasta #13426; aquí se mide la
-// regla del módulo (por función/organismo), así que el gestor lleva el enlace neutralizado.
-const auth = async (role: TestRole, sub = 7) => `Bearer ${await testToken({ sub, username: 'u@flitsas.io', role, tipoEnlace: role === 'gestor_impuestos' ? 'ninguno' : undefined })}`;
+// HU #13426: Impuestos está abierto al enlace organismos; el gestor lleva su enlace REAL y el router se
+// monta con `conAlcance('impuestos', …)` como en `app.ts`.
+const auth = async (role: TestRole, sub = 7) => `Bearer ${await testToken({ sub, username: 'u@flitsas.io', role })}`;
 /** Sin `await` sobre el Test de supertest: es thenable y lo enviaría antes de adjuntar nada. */
 const post = (app: express.Express, bearer: string) => request(app).post(RUTA).set('Authorization', bearer);
 
@@ -144,7 +145,7 @@ describe('AC1/AC6 — frontera', () => {
   it('gestor con la función y el impuesto de SU organismo → 200 (AC6)', async () => {
     expect(operacionesDePartida('gestor_impuestos')).toContain(CODIGO);
     const app = await buildApp();
-    kdb.when.select(T_GESTOR_ORG, [{ codigo: '05001' }]).select(T_ORGANISMOS, [{ codigo: '05001', u: null }]);
+    kdb.when.select(T_GESTOR_ORG, [{ c: '05001' }]).select(T_ORGANISMOS, [{ codigo: '05001', u: null }]);
     armarCarga();
     const res = await post(app, await auth('gestor_impuestos', 31)).field('fase', 'liquidacion').attach('archivo', PDF, 'r.pdf');
     expect(res.status).toBe(200);
@@ -153,7 +154,7 @@ describe('AC1/AC6 — frontera', () => {
 
   it('gestor con un impuesto de OTRO organismo → 404 no_encontrado; sin OCR ni escritura (AC6)', async () => {
     const app = await buildApp();
-    kdb.when.select(T_GESTOR_ORG, [{ codigo: '11001' }]);
+    kdb.when.select(T_GESTOR_ORG, [{ c: '11001' }]);
     armarCarga();
     const res = await post(app, await auth('gestor_impuestos', 32)).field('fase', 'pago').attach('archivo', PDF, 'r.pdf');
     expect(res.status).toBe(404);

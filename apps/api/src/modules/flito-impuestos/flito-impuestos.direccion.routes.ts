@@ -17,6 +17,7 @@ import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import type { ImpuestoCtx } from './flito-factura-venta.service.js';
 import { buscarConAcceso } from './flito-impuestos.service.js';
+import { exigirCompaniaPropia } from './flito-impuestos.alcance.js';
 import { corregirDireccionImpuesto } from './flito-impuestos.direccion.js';
 import { registrarAccesoImpuesto } from './flito-impuestos.pii.js';
 
@@ -47,6 +48,7 @@ export default function direccionRouter(contextoImpuesto: Contexto): Router {
       // Sin `details`: el error de Zod no arrastra valores, pero no hace falta devolver la forma.
       if (!body.success) { res.status(400).json({ error: 'Dirección, municipio y departamento son obligatorios' }); return; }
       const ctx = await contextoImpuesto(req.user!);
+      await exigirCompaniaPropia([id.data], ctx); // HU #13426 (AC3)
       if (!await buscarConAcceso(id.data, ctx)) { res.status(404).json({ error: 'El impuesto no existe' }); return; }
 
       const bloque = await corregirDireccionImpuesto(id.data, body.data, { userId: ctx.userId, nombre: ctx.username });

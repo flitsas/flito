@@ -29,6 +29,8 @@ import { uploadEntityDocument } from '../../services/storage.js';
 import { expandirZips, type ArchivoPlano } from '../../shared/archivos/expandir-zip.js';
 import { separarPaginas, nombrePagina, PdfDemasiadoGrandeError } from '../../shared/pdf/separar-paginas.js';
 import { loggerFor } from '../../shared/logger.js';
+import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
+import { condicionPorOrganismos } from '../../shared/alcance-filas.js';
 
 const log = loggerFor('flito-derechos');
 
@@ -41,7 +43,15 @@ const CARPETA_SIN_ASOCIAR = '_derechos-sin-asociar';
 
 export type OrigenDerecho = 'manual' | 'drive';
 
-export interface DerechoCtx { userId: number; username: string; role: string }
+/**
+ * HU #13426: `alcance` del enlace (`organismos_transito` → solo sus secretarías). Ausente = sin acotar
+ * (procesos internos: Drive, cron). El filtro nunca mira el nombre del rol (AC9).
+ */
+export interface DerechoCtx { userId: number; username: string; role: string; alcance?: AlcanceResuelto }
+
+/** Condición de alcance sobre una columna de organismo. `undefined` = sin acotar. */
+const porOrganismos = (col: Parameters<typeof condicionPorOrganismos>[0], a?: AlcanceResuelto): SQL | undefined =>
+  (a ? condicionPorOrganismos(col, a) : undefined);
 
 export class DerechoError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -161,7 +171,7 @@ function sqlEstadosConDerecho() {
 }
 
 /** Trámites de esa placa que pueden tener un derecho pagado (aprobados por el organismo). */
-export async function buscarCandidatos(placa: string): Promise<CandidatoTramite[]> {
+export async function buscarCandidatos(placa: string, alcance?: AlcanceResuelto): Promise<CandidatoTramite[]> {
   return db.select({
     tramiteId: flitoTramites.id,
     idFlit: flitoTramites.idFlit,
@@ -182,6 +192,9 @@ export async function buscarCandidatos(placa: string): Promise<CandidatoTramite[
       // No se filtra además por el enum interno `estado`: es redundante (Aprobado siempre mapea a
       // 'aprobado') y excluiría de más las filas donde el enum quedó NULL por datos antiguos.
       sql`LOWER(COALESCE(${flitoTramites.flitEstado}, '')) IN (${sqlEstadosConDerecho()})`,
+      // HU #13426 (riesgo §7.3): la búsqueda por placa de quien tiene enlace no cruza con trámites
+      // de otra secretaría.
+      porOrganismos(flitoTramites.organismoCodigo, alcance),
     ))
     .orderBy(desc(flitoTramites.createdAt));
 }
@@ -385,7 +398,7 @@ async function procesarExtraccion(
     return;
   }
 
-  const candidatos = await buscarCandidatos(placa);
+  const candidatos = await buscarCandidatos(placa, ctx.alcance);
 
   // Sin trámite: se DESCARTA. No se sube el archivo ni se deja registro.
   //
@@ -673,22 +686,27 @@ export interface FiltrosDerechos {
 }
 
 /** Facetas del listado: solo lo que de verdad hay, para no ofrecer filtros que no devuelven nada. */
-export async function facetasDerechos(): Promise<{ organismos: string[]; origenes: string[] }> {
+export async function facetasDerechos(alcance?: AlcanceResuelto): Promise<{ organismos: string[]; origenes: string[] }> {
+  // HU #13426 (AC7): las facetas salen del universo del alcance.
+  const a = porOrganismos(flitoDerechosTramite.organismoCodigo, alcance);
   const orgs = await db.selectDistinct({ v: flitoDerechosTramite.organismoCodigo })
-    .from(flitoDerechosTramite).orderBy(flitoDerechosTramite.organismoCodigo);
+    .from(flitoDerechosTramite).where(a).orderBy(flitoDerechosTramite.organismoCodigo);
   const origs = await db.selectDistinct({ v: flitoDerechosTramite.origen })
-    .from(flitoDerechosTramite).orderBy(flitoDerechosTramite.origen);
+    .from(flitoDerechosTramite).where(a).orderBy(flitoDerechosTramite.origen);
   return {
     organismos: orgs.map((o) => o.v).filter((v): v is string => Boolean(v)),
     origenes: origs.map((o) => o.v).filter((v): v is string => Boolean(v)),
   };
 }
 
-export async function listarDerechos(f: FiltrosDerechos = {}) {
+export async function listarDerechos(f: FiltrosDerechos = {}, alcance?: AlcanceResuelto) {
   const page = Math.max(1, Math.floor(f.page ?? 1));
   const pageSize = Math.min(200, Math.max(1, Math.floor(f.pageSize ?? 50)));
   const texto = f.buscar?.trim();
   const conds: SQL[] = [];
+  // HU #13426 (AC6): en las condiciones compartidas por la página y el COUNT.
+  const a = porOrganismos(flitoDerechosTramite.organismoCodigo, alcance);
+  if (a) conds.push(a);
   if (texto) {
     conds.push(or(
       sql`UPPER(REPLACE(${vehicles.plate}, '-', '')) LIKE ${`%${normalizarTexto(texto)}%`}`,
@@ -761,6 +779,19 @@ export async function listarDerechos(f: FiltrosDerechos = {}) {
     .limit(pageSize).offset((page - 1) * pageSize);
 
   return { items, total: Number(total ?? 0), page, pageSize };
+}
+
+/**
+ * HU #13426 (AC2): ¿el soporte es de un derecho dentro del alcance? Sin enlace, sí (no se consulta).
+ * Fuera de alcance → la ruta responde 404, igual que un soporte inexistente.
+ */
+export async function soporteEnAlcance(soporteId: string, alcance: AlcanceResuelto): Promise<boolean> {
+  const a = porOrganismos(flitoDerechosTramite.organismoCodigo, alcance);
+  if (!a) return true;
+  if (!/^[0-9a-f-]{36}$/i.test(soporteId)) return false;
+  const [f] = await db.select({ id: flitoDerechosTramite.id }).from(flitoDerechosTramite)
+    .where(and(eq(flitoDerechosTramite.soporteId, soporteId), a)).limit(1);
+  return !!f;
 }
 
 /** Trámites candidatos de una placa, para que la cola de revisión ofrezca entre cuáles elegir. */

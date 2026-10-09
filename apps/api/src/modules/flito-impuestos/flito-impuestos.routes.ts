@@ -26,9 +26,9 @@ import { consolidarPorRegistro, emitirZipConsolidado } from '../../shared/soport
 import {
   construirFilasExportImpuestos, nombreArchivoExportImpuestos,
 } from './flito-impuestos.export.service.js';
-import { db } from '../../db/client.js';
-import { flitoGestorOrganismos } from '../../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { resolverPermisos } from '../../shared/permisos-efectivos.js';
+import { alcanceDeUsuario, soloSinEnlace } from '../../shared/middleware/frontera-enlace.js';
+import { esProyeccionCliente } from '../../shared/alcance-filas.js';
 import {
   CARGA_MASIVA_ARCHIVOS_POR_PETICION, CARGA_MASIVA_MAX_BYTES_ARCHIVO, CodigoErrorReciboCaja, EstadoImpuesto, FASES_RECIBO,
   FaseRecibo, ResultadoCertificacion, TipoSoporteZip, CABECERA_DIRECCIONES_SIN_CONFIRMAR, SEMAFOROS_IMPUESTO,
@@ -109,21 +109,16 @@ function recibirReciboCaja(req: Request, res: Response, next: (e?: unknown) => v
 }
 
 /**
- * Contexto del gestor de impuestos: la atadura de visibilidad por organismo vive en
- * `flito_gestor_organismos` (HU #12053), leída de BD, no del JWT — así un cambio de ámbito surte
- * efecto sin re-emitir el token. Para el resto de roles la lista queda vacía.
- *
- * Vacía significa **no ve nada** en el caso del gestor; los demás roles ni siquiera la consultan
- * (`esGestor(ctx)` decide antes).
+ * Contexto del actor en Impuestos. HU #13426 (AC8/AC9): el alcance sale del ENLACE del usuario
+ * (`alcanceDeUsuario`, leído de BD en cada petición — un cambio de ámbito surte efecto sin re-emitir
+ * el token), nunca del nombre del rol. Con enlace `organismos_transito` la lista son sus secretarías
+ * (`flito_gestor_organismos`, HU #12053); vacía significa **no ve nada**. Sin enlace no se consulta.
  */
 export async function contextoImpuesto(user: { sub: number; username: string; role: string }): Promise<ImpuestoCtx> {
-  let organismos: string[] = [];
-  if (user.role === 'gestor_impuestos') {
-    const filas = await db.select({ codigo: flitoGestorOrganismos.organismoCodigo })
-      .from(flitoGestorOrganismos).where(eq(flitoGestorOrganismos.userId, user.sub));
-    organismos = filas.map((f) => f.codigo);
-  }
-  return { userId: user.sub, username: user.username, role: user.role, organismos };
+  const p = await resolverPermisos(user.sub);
+  const alcance = await alcanceDeUsuario(user.sub, p.ok ? p.tipoEnlace : null);
+  const organismos = alcance.enlace === 'organismos_transito' ? alcance.organismos : [];
+  return { userId: user.sub, username: user.username, role: user.role, organismos, alcance };
 }
 
 function handleError(res: Response, e: unknown): void {
@@ -549,7 +544,10 @@ router.get('/:id/historial', exigirFuncion('impuestos.tramite.ver_historial'), a
   const ctx = await contextoImpuesto(req.user!);
   const d = await detalleImpuesto(req.params.id, ctx);
   if (!d) { res.status(404).json({ error: 'El impuesto no existe' }); return; }
-  res.json(await historialDe('impuesto', req.params.id));
+  // HU #13426 (Habeas Data): la compañía no recibe quién de FLIT movió el impuesto (`usuario` → null;
+  // `historialDe` ya resuelve nombre-o-correo en ese único campo). `organismos_transito` sigue igual.
+  const filas = await historialDe('impuesto', req.params.id);
+  res.json(esProyeccionCliente(ctx.alcance) ? filas.map((f) => ({ ...f, usuario: null })) : filas);
 });
 
 /**
@@ -722,6 +720,9 @@ router.post('/enviar', exigirFuncion('impuestos.tramite.enviar'), async (req: Re
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   const ctx = await contextoImpuesto(req.user!);
   const { ids, gestionOperaciones } = parsed.data;
+  // HU #13426 (P-3): enviar directo a la gestión de Operaciones es la misma contingencia interna que
+  // `asumir-operaciones` → cerrada a todo enlace.
+  if (gestionOperaciones && ctx.alcance.enlace !== 'ninguno') { res.status(403).json({ error: 'Sin permisos' }); return; }
   const resultado = await enviarAlGestor(ids, ctx, gestionOperaciones);
   if (resultado.enviados.length > 0) {
     const destino = gestionOperaciones ? 'gestión de Operaciones' : 'gestor del organismo';
@@ -753,8 +754,9 @@ const traspaso = (
     await responderDetalle(res, ctx, imp);
   } catch (e) { handleError(res, e); }
 };
-router.post('/:id/asumir-operaciones', exigirFuncion('impuestos.tramite.asumir'), traspaso(asumirEnOperaciones, 'Gestión asumida por Operaciones'));
-router.post('/:id/devolver-gestor', exigirFuncion('impuestos.tramite.devolver'), traspaso(devolverAlGestor, 'Gestión devuelta al gestor del organismo'));
+// HU #13426 (P-3): la contingencia de Operaciones es interna de FLIT → cerrada a todo enlace.
+router.post('/:id/asumir-operaciones', soloSinEnlace(), exigirFuncion('impuestos.tramite.asumir'), traspaso(asumirEnOperaciones, 'Gestión asumida por Operaciones'));
+router.post('/:id/devolver-gestor', soloSinEnlace(), exigirFuncion('impuestos.tramite.devolver'), traspaso(devolverAlGestor, 'Gestión devuelta al gestor del organismo'));
 
 const motivoSchema = z.object({ motivo: z.string().min(1, 'El motivo es obligatorio') });
 

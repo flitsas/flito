@@ -36,7 +36,7 @@ const dbMock = (await import('../../src/db/client.js')).db as unknown as {
   insert: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>;
 };
 
-const ctx = { userId: 1, username: 'op', role: 'admin' };
+const ctx = { userId: 1, username: 'op', role: 'admin', alcance: { enlace: 'ninguno' as const } };
 
 beforeEach(() => {
   selectMock.mockReset();

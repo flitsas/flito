@@ -3,9 +3,11 @@
 //   1. Recorre cada prefijo MONTADO en `app.ts` (internals de Express 4 SOLO aquí, nunca en runtime) y
 //      lo sondea con un usuario de enlace compañía que tiene el catálogo ENTERO: nunca un 2xx. Un router
 //      nuevo que alguien monte mañana sin `conAlcance` cae en este recorrido y tiene que salir cerrado.
-//   2. Snapshot EXACTO de los montajes declarados (`conAlcance`) y de las rutas de cada router abierto:
-//      una ruta nueva en un módulo abierto pone esto rojo y obliga a decidir (¿acota por enlace, o va
-//      con `soloSinEnlace()`?). Es la foto congelada que sustituye a la lista del canal externo.
+//   2. Snapshot EXACTO de los montajes declarados (`conAlcance`) y de las rutas de cada router abierto
+//      (incluidos los sub-routers anidados): una ruta nueva en un módulo abierto pone esto rojo y obliga
+//      a decidir (¿acota por enlace, o va con `soloSinEnlace()`?). HU #13426: la decisión de cada ruta
+//      de los módulos que abre está escrita en `RUTAS_13426` y se COMPRUEBA contra el código (la marca
+//      de `soloSinEnlace()` en la pila de la ruta), no solo se lista.
 //   3. `conAlcance` restaura la marca: dos montajes sobre el mismo prefijo no se la heredan (§6.3).
 //   4. TC-06d: el tipo interno/externo retirado no tiene lectores en el código.
 //
@@ -61,7 +63,6 @@ type Capa = {
   };
   route_?: never;
 };
-type CapaRuta = Capa & { route: { path: string; methods: Record<string, boolean> } };
 
 /** El prefijo de un `app.use('<prefijo>', …)` a partir de la expresión que Express 4 compila. */
 function prefijoDe(re: RegExp): string | null {
@@ -120,8 +121,9 @@ describe('AC3 — recorrido de la app real: ningún prefijo montado le da un 2xx
   it('el prefijo raíz de los legacy sensibles, uno a uno: vehículos, RUNT, usuarios, catálogos → 403 de la frontera', async () => {
     for (const [metodo, ruta] of [
       ['get', '/api/vehicles'], ['post', '/api/runt/consulta-persona'], ['get', '/api/users'],
-      ['get', '/api/flito/parametrizacion/companias'], ['get', '/api/permisos/roles'], ['get', '/api/flito/impuestos'],
-      ['get', '/api/flito/tablero'], ['get', '/api/transito/pendientes'],
+      ['get', '/api/flito/parametrizacion/companias'], ['get', '/api/permisos/roles'], ['get', '/api/flito/liquidacion'],
+      // HU #13426: Tránsito se abre SOLO a `organismos_transito`; para una compañía sigue cerrado.
+      ['get', '/api/transito/pendientes'], ['get', '/api/transito/organismos'],
     ] as const) {
       const r = await request(app)[metodo](ruta).set('Authorization', auth).send({});
       expect([r.status, r.body], `${metodo} ${ruta}`).toEqual([403, { error: 'Sin permisos' }]);
@@ -130,7 +132,7 @@ describe('AC3 — recorrido de la app real: ningún prefijo montado le da un 2xx
 });
 
 describe('AC3 — snapshot de lo declarado: montajes con `conAlcance` y rutas de los routers abiertos', () => {
-  it('los montajes declarados son EXACTAMENTE los cuatro de SOAT (#12875); #13426 añade los suyos aquí', () => {
+  it('los montajes declarados: los cuatro de SOAT (#12875) y los de #13426 (Tránsito: solo `transitoRoutes`)', () => {
     const declarados = montajes().filter((m) => m.capa.handle.fronteraModulo)
       .map((m) => ({ prefijo: m.prefijo, modulo: m.capa.handle.fronteraModulo }));
     expect(declarados).toEqual([
@@ -138,14 +140,28 @@ describe('AC3 — snapshot de lo declarado: montajes con `conAlcance` y rutas de
       { prefijo: '/api/flito/soat', modulo: 'soat' },
       { prefijo: '/api/flito/soat', modulo: 'soat' },
       { prefijo: '/api/flito/soat', modulo: 'soat' },
+      { prefijo: '/api/flito/impuestos', modulo: 'impuestos' },
+      { prefijo: '/api/flito/derechos', modulo: 'derechos' },
+      { prefijo: '/api/flito/tramites', modulo: 'tramites' },
+      { prefijo: '/api/flito/tablero', modulo: 'tablero' },
+      { prefijo: '/api/flito/logistica', modulo: 'logistica' },
+      { prefijo: '/api/flito/logistica', modulo: 'logistica' },
+      { prefijo: '/api/flito/bolsas', modulo: 'bolsas' },
+      { prefijo: '/api/flito/comprobantes', modulo: 'comprobantes' },
+      { prefijo: '/api/transito', modulo: 'transito' },
     ]);
   });
 
-  it('las rutas de los routers abiertos (método + path): una ruta nueva obliga a decidir si acota por enlace', () => {
-    const rutas = montajes().filter((m) => m.capa.handle.fronteraModulo).flatMap((m) =>
-      (m.capa.handle.fronteraRouter!.stack as CapaRuta[]).filter((c) => c.route).flatMap((c) =>
-        Object.keys(c.route.methods).map((verbo) => `${verbo.toUpperCase()} ${m.prefijo}${c.route.path === '/' ? '' : c.route.path}`)));
-    expect(rutas).toEqual(RUTAS_SOAT_ABIERTAS);
+  it('las rutas de los routers abiertos (método + path, sub-routers incluidos): una ruta nueva obliga a decidir', () => {
+    expect(rutasAbiertas().map((r) => r.ruta)).toEqual([...RUTAS_SOAT_ABIERTAS, ...RUTAS_13426.map(([r]) => r)]);
+  });
+
+  it('HU #13426 — la decisión escrita de cada ruta es la del código: `soloSinEnlace` ⇔ la ruta lleva su guarda', () => {
+    const enCodigo = rutasAbiertas().filter((r) => !r.ruta.includes('/api/flito/soat'))
+      .map((r) => [r.ruta, r.cerrada ? 'soloSinEnlace' : 'filtra']);
+    expect(enCodigo).toEqual(RUTAS_13426);
+    // SOAT acota todas por `contextoSoat` (#12875): ninguna lleva la guarda.
+    expect(rutasAbiertas().filter((r) => r.ruta.includes('/api/flito/soat') && r.cerrada)).toEqual([]);
   });
 });
 
@@ -215,6 +231,136 @@ describe('TC-06d — el tipo interno/externo retirado no tiene lectores ni escri
     expect(conTipo).toEqual(['permisos-auditoria.ts']);
   });
 });
+
+type CapaPila = {
+  route?: { path: string; methods: Record<string, boolean>; stack: { handle: { fronteraSoloSinEnlace?: boolean } }[] };
+  handle: { stack?: CapaPila[] };
+};
+/** Rutas de una pila de Express, entrando en los sub-routers (`router.use(subRouter)`). */
+function rutasDePila(pila: CapaPila[]): { verbo: string; path: string; cerrada: boolean }[] {
+  return pila.flatMap((c) => {
+    if (c.route) {
+      const cerrada = c.route.stack.some((l) => l.handle.fronteraSoloSinEnlace === true);
+      return Object.keys(c.route.methods).map((v) => ({ verbo: v.toUpperCase(), path: c.route!.path, cerrada }));
+    }
+    return c.handle.stack ? rutasDePila(c.handle.stack) : [];
+  });
+}
+function rutasAbiertas(): { ruta: string; cerrada: boolean }[] {
+  return montajes().filter((m) => m.capa.handle.fronteraModulo).flatMap((m) =>
+    rutasDePila(m.capa.handle.fronteraRouter!.stack as unknown as CapaPila[]).map((r) => ({
+      ruta: `${r.verbo} ${m.prefijo}${r.path === '/' ? '' : r.path}`, cerrada: r.cerrada,
+    })));
+}
+
+/**
+ * HU #13426 — Rutas de los routers que abre esta HU, en orden de montaje, con su DECISIÓN (diseño §3):
+ *   · `filtra`        → acota por el enlace en el servicio (lectura: solo su alcance, detalle ajeno 404;
+ *                       escritura sobre lo ajeno 403 sin comprobar existencia).
+ *   · `soloSinEnlace` → catálogo, configuración u operación interna de FLIT: 403 a todo enlace.
+ * Revisada una a una al abrir cada módulo; NO se regenera a ciegas. Una ruta nueva exige su fila.
+ */
+const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
+  ['POST /api/flito/impuestos/:id/reanalizar',                                 'filtra'],
+  ['PATCH /api/flito/impuestos/:id/direccion',                                 'filtra'],
+  ['POST /api/flito/impuestos/certificados/zip',                               'filtra'],
+  ['POST /api/flito/impuestos/:id/recibos',                                    'filtra'],
+  ['POST /api/flito/impuestos/:id/recibos/reemplazar-pago',                    'filtra'],
+  ['GET /api/flito/impuestos/:id/factura-venta',                               'filtra'],
+  ['POST /api/flito/impuestos/soportes/zip',                                   'filtra'],
+  ['GET /api/flito/impuestos',                                                 'filtra'],
+  ['POST /api/flito/impuestos/export',                                         'filtra'],
+  ['GET /api/flito/impuestos/facetas',                                         'filtra'],
+  ['GET /api/flito/impuestos/:id',                                             'filtra'],
+  ['GET /api/flito/impuestos/:id/historial',                                   'filtra'],
+  ['GET /api/flito/impuestos/:id/soportes',                                    'filtra'],
+  ['POST /api/flito/impuestos/:id/certificar',                                 'filtra'],
+  ['POST /api/flito/impuestos/certificar',                                     'filtra'],
+  ['GET /api/flito/impuestos/:id/certificado',                                 'filtra'],
+  ['POST /api/flito/impuestos/enviar',                                         'filtra'],
+  ['POST /api/flito/impuestos/:id/asumir-operaciones',                         'soloSinEnlace'],
+  ['POST /api/flito/impuestos/:id/devolver-gestor',                            'soloSinEnlace'],
+  ['POST /api/flito/impuestos/:id/rechazar',                                   'filtra'],
+  ['POST /api/flito/impuestos/:id/reactivar',                                  'filtra'],
+  ['POST /api/flito/impuestos/:id/reversar',                                   'filtra'],
+  ['POST /api/flito/impuestos/recibos',                                        'filtra'],
+  ['POST /api/flito/impuestos/:id/recibo-caja',                                'filtra'],
+  ['POST /api/flito/derechos/cargar',                                          'filtra'],
+  ['GET /api/flito/derechos',                                                  'filtra'],
+  ['GET /api/flito/derechos/facetas',                                          'filtra'],
+  ['GET /api/flito/derechos/drive/archivos',                                   'soloSinEnlace'],
+  ['GET /api/flito/derechos/drive/registro',                                   'soloSinEnlace'],
+  ['POST /api/flito/derechos/drive/procesar',                                  'soloSinEnlace'],
+  ['GET /api/flito/derechos/candidatos/:placa',                                'soloSinEnlace'],
+  ['GET /api/flito/derechos/soporte/:id',                                      'filtra'],
+  ['GET /api/flito/tramites',                                                  'filtra'],
+  ['GET /api/flito/tramites/facetas',                                          'filtra'],
+  ['GET /api/flito/tramites/:id/historial',                                    'filtra'],
+  ['GET /api/flito/tramites/:id/soportes',                                     'filtra'],
+  ['POST /api/flito/tramites/soportes/zip',                                    'filtra'],
+  ['POST /api/flito/tramites/crear-empresa',                                   'soloSinEnlace'],
+  ['POST /api/flito/tramites/demo',                                            'soloSinEnlace'],
+  ['POST /api/flito/tramites/solicitar-soat',                                  'filtra'],
+  ['POST /api/flito/tramites/solicitar-impuestos',                             'filtra'],
+  ['POST /api/flito/tramites/solicitar-ambos',                                 'filtra'],
+  ['POST /api/flito/tramites/entregar',                                        'filtra'],
+  ['POST /api/flito/tramites/:id/desbloquear-autogestion',                     'filtra'],
+  ['POST /api/flito/tramites/:id/revocar-autogestion',                         'filtra'],
+  ['GET /api/flito/tablero',                                                   'filtra'],
+  ['GET /api/flito/logistica',                                                 'filtra'],
+  ['GET /api/flito/logistica/facetas',                                         'filtra'],
+  ['GET /api/flito/logistica/mi-ruta',                                         'soloSinEnlace'],
+  ['GET /api/flito/logistica/actas',                                           'filtra'],
+  ['GET /api/flito/logistica/actas/:id',                                       'filtra'],
+  ['GET /api/flito/logistica/actas/:id/pdf',                                   'filtra'],
+  ['GET /api/flito/logistica/:id',                                             'filtra'],
+  ['POST /api/flito/logistica/validar-lt',                                     'soloSinEnlace'],
+  ['POST /api/flito/logistica/escanear',                                       'soloSinEnlace'],
+  ['POST /api/flito/logistica/documentos/:id/novedad',                         'filtra'],
+  ['POST /api/flito/logistica/cerrar-lote',                                    'filtra'],
+  ['POST /api/flito/logistica/actas/:id/despachar',                            'filtra'],
+  ['POST /api/flito/logistica/actas/:id/entregar',                             'filtra'],
+  ['POST /api/flito/logistica/actas/:id/devolucion',                           'filtra'],
+  ['POST /api/flito/logistica/documentos/:id/reversar',                        'filtra'],
+  ['GET /api/flito/logistica/tramites/:tramiteId/viajes',                      'filtra'],
+  ['POST /api/flito/logistica/tramites/:tramiteId/viajes',                     'filtra'],
+  ['DELETE /api/flito/logistica/tramites/:tramiteId/viajes/:viajeId',          'filtra'],
+  ['GET /api/flito/bolsas/consolidado',                                        'filtra'],
+  ['GET /api/flito/bolsas/riesgo',                                             'filtra'],
+  ['GET /api/flito/bolsas/alertas',                                            'filtra'],
+  ['GET /api/flito/bolsas/transito',                                           'soloSinEnlace'],
+  ['POST /api/flito/bolsas/transito',                                          'soloSinEnlace'],
+  ['GET /api/flito/bolsas/:companiaId',                                        'filtra'],
+  ['GET /api/flito/bolsas/:companiaId/movimientos',                            'filtra'],
+  ['POST /api/flito/bolsas/:companiaId/recargas',                              'filtra'],
+  ['GET /api/flito/bolsas/soportes/:soporteId',                                'filtra'],
+  ['GET /api/flito/bolsas/transito/:bolsaId',                                  'soloSinEnlace'],
+  ['PATCH /api/flito/bolsas/transito/:bolsaId',                                'soloSinEnlace'],
+  ['GET /api/flito/bolsas/transito/:bolsaId/movimientos',                      'soloSinEnlace'],
+  ['POST /api/flito/bolsas/transito/:bolsaId/cargas',                          'soloSinEnlace'],
+  ['GET /api/flito/bolsas/:companiaId/extracto',                               'filtra'],
+  ['POST /api/flito/bolsas/:companiaId/movimientos-manuales',                  'filtra'],
+  ['POST /api/flito/bolsas/:companiaId/movimientos/:movimientoId/correccion',  'filtra'],
+  ['GET /api/flito/bolsas/:companiaId/cierres',                                'filtra'],
+  ['POST /api/flito/bolsas/:companiaId/cierres',                               'filtra'],
+  ['POST /api/flito/comprobantes',                                             'soloSinEnlace'],
+  ['GET /api/flito/comprobantes',                                              'filtra'],
+  ['POST /api/flito/comprobantes/tramites/buscar',                             'soloSinEnlace'],
+  ['GET /api/flito/comprobantes/:id',                                          'filtra'],
+  ['GET /api/flito/comprobantes/:id/archivo',                                  'filtra'],
+  ['POST /api/flito/comprobantes/:id/releer',                                  'soloSinEnlace'],
+  ['POST /api/flito/comprobantes/:id/aplicar',                                 'soloSinEnlace'],
+  ['POST /api/flito/comprobantes/:id/descartar',                               'soloSinEnlace'],
+  ['POST /api/flito/comprobantes/:id/diferencia/aceptar',                      'soloSinEnlace'],
+  ['GET /api/transito/organismos',                                             'filtra'],
+  ['GET /api/transito/pendientes',                                             'filtra'],
+  ['GET /api/transito/mis-tramites',                                           'filtra'],
+  ['GET /api/transito/traspasos',                                              'filtra'],
+  ['GET /api/transito/traspasos/:id',                                          'filtra'],
+  ['POST /api/transito/tomar/:id',                                             'filtra'],
+  ['POST /api/transito/asignar-placa/:id',                                     'filtra'],
+  ['POST /api/transito/confirmar-placa/:id',                                   'filtra'],
+];
 
 /**
  * Foto de las rutas de los cuatro routers de `/api/flito/soat` (orden de montaje y de declaración).

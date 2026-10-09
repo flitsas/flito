@@ -180,14 +180,18 @@ export async function guardiaFrontera(req: Request, res: Response, next: NextFun
 
 /**
  * Middleware de RUTA: cierra a todo enlace una ruta concreta dentro de un router abierto
- * (configuración o catálogo). Existe para #13426; en #12875 ninguna ruta SOAT lo necesita (todas
- * acotan por `contextoSoat`).
+ * (configuración, catálogo u operación interna de FLIT). Lo usa #13426; ninguna ruta SOAT lo necesita
+ * (todas acotan por `contextoSoat`).
  */
 export function soloSinEnlace(): RequestHandler {
-  return (req, res, next) => {
+  const guarda: RequestHandler = (req, res, next) => {
     if (req.frontera?.enlace === 'ninguno') { next(); return; }
     res.status(403).json({ error: 'Sin permisos' });
   };
+  // HU #13426: marca para el centinela (qué rutas de un router abierto quedan cerradas a todo enlace).
+  // Enumerable por lo mismo que `fronteraModulo` (express-async-errors copia solo las enumerables).
+  Object.defineProperty(guarda, 'fronteraSoloSinEnlace', { value: true, enumerable: true });
+  return guarda;
 }
 
 /** El id del enlace de un usuario, leído de la base. Un id ausente → el módulo devuelve CERO filas. */
@@ -204,7 +208,12 @@ export async function alcanceDeUsuario(userId: number, enlace: TipoEnlace | null
     case 'organismos_transito': {
       const filas = await db.select({ c: flitoGestorOrganismos.organismoCodigo })
         .from(flitoGestorOrganismos).where(eq(flitoGestorOrganismos.userId, userId));
-      return { enlace, organismos: filas.map((f) => f.c).sort() };
+      if (filas.length > 0) return { enlace, organismos: filas.map((f) => f.c).sort() };
+      // HU #13426 (P-4): fallback a la columna OBSOLETA `users.transito_codigo` (HU #12088) para los
+      // usuarios que aún no tengan filas en la puente. Se conserva lo que hacía `transito-scope.ts`.
+      const [u] = await db.select({ t: users.transitoCodigo }).from(users).where(eq(users.id, userId)).limit(1);
+      const legado = u?.t?.trim();
+      return { enlace, organismos: legado ? [legado] : [] };
     }
     default: return { enlace: null };
   }

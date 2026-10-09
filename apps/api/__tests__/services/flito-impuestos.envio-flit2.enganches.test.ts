@@ -33,7 +33,7 @@ vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: 
 const { reversar, detalleImpuesto } = await import('../../src/modules/flito-impuestos/flito-impuestos.service.js');
 
 const UUID = '00000000-0000-4000-8000-0000000000cc';
-const CTX = { userId: 1, username: 'op@x.io', role: 'admin', organismos: [] as string[] };
+const CTX = { userId: 1, username: 'op@x.io', role: 'admin', organismos: [] as string[], alcance: { enlace: 'ninguno' as const } };
 
 /** La `tx` que recibe el callback de la reversa: una referencia propia, para compararla por identidad. */
 function txDeReversa() {
