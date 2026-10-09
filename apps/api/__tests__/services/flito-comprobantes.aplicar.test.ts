@@ -1253,7 +1253,7 @@ describe('AC9 — :id no-UUID → 404; motivo como enum; limitador delante de mu
     const { readFileSync } = await import('node:fs');
     const { join } = await import('node:path');
     const rutas = readFileSync(join(import.meta.dirname, '../../src/modules/flito-comprobantes/flito-comprobantes.routes.ts'), 'utf8');
-    expect(rutas).toMatch(/router\.post\('\/', exigirFuncion\('comprobantes\.lote\.cargar'\), comprobantesCargaLimiter, recibirArchivos,/);
+    expect(rutas).toMatch(/router\.post\('\/', soloSinEnlace\(\), exigirFuncion\('comprobantes\.lote\.cargar'\), comprobantesCargaLimiter, recibirArchivos,/); // HU #13426: P-2
     const limiter = readFileSync(join(import.meta.dirname, '../../src/shared/middleware/rateLimiter.ts'), 'utf8');
     const bloque = limiter.slice(limiter.indexOf('export const comprobantesCargaLimiter'));
     expect(bloque).toMatch(/keyGenerator: userOrIpKey\('comprobantes-carga:'\)/);
@@ -1266,7 +1266,7 @@ describe('AC9 — :id no-UUID → 404; motivo como enum; limitador delante de mu
       .find((l) => l.route?.path === '/' && l.route.methods.post)!.route!;
     const nombres = capa.stack.map((s) => s.name);
     expect(nombres.indexOf('recibirArchivos')).toBeGreaterThan(0);
-    expect(nombres.slice(0, nombres.indexOf('recibirArchivos'))).toHaveLength(2); // exigirFuncion + el limitador
+    expect(nombres.slice(0, nombres.indexOf('recibirArchivos'))).toHaveLength(3); // soloSinEnlace (HU #13426) + exigirFuncion + el limitador
   });
 });
 

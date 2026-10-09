@@ -24,6 +24,7 @@ export const ETIQUETA_ENLACE: Readonly<Record<TipoEnlace, string>> = Object.free
 /** Los módulos que la frontera conoce (= códigos de módulo del catálogo de funciones). */
 export const MODULOS_FRONTERA = [
   'soat', 'impuestos', 'derechos', 'tramites', 'bolsas', 'comprobantes', 'logistica', 'tablero',
+  'transito',
 ] as const;
 export type ModuloFrontera = (typeof MODULOS_FRONTERA)[number];
 
@@ -35,18 +36,20 @@ export type EnlaceRestringido = Exclude<TipoEnlace, 'ninguno'>;
  * hace que su servicio filtre las filas por ese enlace (`alcanceDe(req)`); abrirlo antes es una fuga.
  *
  *   · soat — filtra por enlace desde el Bug #12869 (`alcanceSoatDe`, `condicionesCola`).
- *   · impuestos → #13426 (compania, organismos_transito) · derechos → #13426 (organismos_transito).
- *   · tramites / bolsas / comprobantes / logistica / tablero → #13426 (compania).
+ *   · impuestos (compania, organismos_transito) · derechos (organismos_transito) — #13426.
+ *   · tramites / bolsas / comprobantes / logistica / tablero (compania) — #13426 (`alcance-filas.ts`).
+ *   · transito (organismos_transito) — página Tránsito antigua `/api/transito`, #13426 (AC6).
  */
 export const FRONTERA_POR_ENLACE: Readonly<Record<ModuloFrontera, readonly EnlaceRestringido[]>> = Object.freeze({
   soat: Object.freeze(['compania', 'proveedor'] as const),
-  impuestos: Object.freeze([] as const),
-  derechos: Object.freeze([] as const),
-  tramites: Object.freeze([] as const),
-  bolsas: Object.freeze([] as const),
-  comprobantes: Object.freeze([] as const),
-  logistica: Object.freeze([] as const),
-  tablero: Object.freeze([] as const),
+  impuestos: Object.freeze(['compania', 'organismos_transito'] as const),
+  derechos: Object.freeze(['organismos_transito'] as const),
+  tramites: Object.freeze(['compania'] as const),
+  bolsas: Object.freeze(['compania'] as const),
+  comprobantes: Object.freeze(['compania'] as const),
+  logistica: Object.freeze(['compania'] as const),
+  tablero: Object.freeze(['compania'] as const),
+  transito: Object.freeze(['organismos_transito'] as const),
 });
 
 /** Una fila de `GET /api/permisos/roles`. Sin PII: `usuarios` es un conteo, nunca una lista. */

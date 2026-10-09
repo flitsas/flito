@@ -8,17 +8,19 @@
 // Fase A: ámbito `auth`, `users` y todos los `flito-*`. Fase B (tras rebasar sobre la HU #13421):
 // `jornadas`, `pesv` y `drivers`, cuyas reglas por nombre pasaron a funciones del motor.
 //
-// Confirmado leyendo el código (2026-10-07) que las tres de `PENDIENTES_12871` solo ACOTAN filas:
-//   · flito-impuestos.service.ts `esGestor` → `return null` / `inArray(organismos)` en la cola y el detalle.
-//   · flito-recibos.service.ts `esGestor` → `inArray(flitoImpuestos.organismoCodigo, organismos)` del lote.
-//   · flito-impuestos.routes.ts `contextoImpuesto` → carga los organismos del gestor (vacío = no ve nada).
-// Ninguna devuelve 403 ni habilita una acción.
+// HU #13426 (Feature #12871, AC9): las tres que quedaban (`contextoImpuesto` y los dos `esGestor` de
+// Impuestos) deciden ahora por el ENLACE (`alcanceDe` / `ctx.alcance.enlace`). `PENDIENTES_12871`
+// queda vacía y el tope en 0. El ámbito suma un FICHERO legacy concreto, `tramites/transito-scope.ts`
+// (no la carpeta `tramites/`, que es legacy con reglas propias): AC9 lo nombra.
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const MODULOS = fileURLToPath(new URL('../../src/modules', import.meta.url));
+
+/** HU #13426 (AC9): ficheros sueltos fuera de esos directorios que también se miden. */
+const FICHEROS_SUELTOS = ['tramites/transito-scope.ts'];
 
 /** Directorios de `src/modules` en el ámbito de la HU (Fase A + Fase B). */
 const DIRECTORIOS = readdirSync(MODULOS)
@@ -57,8 +59,9 @@ function ficherosTs(dir: string): string[] {
 /** `{ fichero, veces }` por cada fichero del ámbito con al menos una comparación, ordenado. */
 function medir(): { fichero: string; veces: number }[] {
   const medidas: { fichero: string; veces: number }[] = [];
-  for (const dir of DIRECTORIOS) {
-    for (const ruta of ficherosTs(join(MODULOS, dir))) {
+  const rutas = [...DIRECTORIOS.flatMap((d) => ficherosTs(join(MODULOS, d))), ...FICHEROS_SUELTOS.map((f) => join(MODULOS, f))];
+  {
+    for (const ruta of rutas) {
       const fuente = sinComentarios(readFileSync(ruta, 'utf8'));
       const veces = COMPARACION_DE_ROL.reduce((n, re) => n + (fuente.match(re)?.length ?? 0), 0);
       if (veces > 0) medidas.push({ fichero: relative(MODULOS, ruta), veces });
@@ -67,15 +70,11 @@ function medir(): { fichero: string; veces: number }[] {
   return medidas.sort((a, b) => a.fichero.localeCompare(b.fichero));
 }
 
-/** Filtros de DATOS (ámbito de filas por organismo del gestor): los reconduce la HU #12871. */
-const PENDIENTES_12871: { fichero: string; veces: number; que: string }[] = [
-  { fichero: 'flito-impuestos/flito-impuestos.routes.ts', veces: 1, que: 'contextoImpuesto: carga los organismos del gestor' },
-  { fichero: 'flito-impuestos/flito-impuestos.service.ts', veces: 1, que: 'esGestor: cola y detalle acotados a sus organismos' },
-  { fichero: 'flito-impuestos/flito-recibos.service.ts', veces: 1, que: 'esGestor: lote de recibos acotado a sus organismos' },
-];
+/** Filtros de DATOS por nombre de rol pendientes. Vacía desde la HU #13426: deciden por enlace. */
+const PENDIENTES_12871: { fichero: string; veces: number; que: string }[] = [];
 
 /** Solo puede BAJAR. Subirlo exige decisión del Líder Técnico (una regla nueva por nombre de rol). */
-const TOPE_13425 = 3;
+const TOPE_13425 = 0;
 
 describe('HU #13425 AC6 — ninguna regla del servidor decide por el nombre del rol (auth, users, flito-*, jornadas, pesv, drivers)', () => {
   it('el ámbito incluye auth, users, jornadas, pesv, drivers y los módulos flito-* (no se queda vacío por un renombre de carpeta)', () => {
@@ -95,6 +94,19 @@ describe('HU #13425 AC6 — ninguna regla del servidor decide por el nombre del 
   it(`el total no supera el tope (${TOPE_13425}) — ratchet: solo puede bajar`, () => {
     expect(PENDIENTES_12871.reduce((n, p) => n + p.veces, 0)).toBeLessThanOrEqual(TOPE_13425);
     expect(medir().reduce((n, m) => n + m.veces, 0)).toBeLessThanOrEqual(TOPE_13425);
+  });
+
+  it('HU #13426 AC9 — el fichero legacy `tramites/transito-scope.ts` está en el ámbito y existe (no se mide un fichero borrado)', () => {
+    expect(FICHEROS_SUELTOS).toEqual(['tramites/transito-scope.ts']);
+    for (const f of FICHEROS_SUELTOS) expect(statSync(join(MODULOS, f)).isFile()).toBe(true);
+  });
+
+  it('HU #13426 AC9 — flito-impuestos, flito-derechos, flito-tramites, flito-bolsas, flito-comprobantes, flito-logistica y transito-scope: cero comparaciones', () => {
+    const conAlgo = medir().map((m) => m.fichero);
+    for (const m of ['flito-impuestos', 'flito-derechos', 'flito-tramites', 'flito-bolsas', 'flito-comprobantes', 'flito-logistica']) {
+      expect(conAlgo.filter((f) => f.startsWith(`${m}/`))).toEqual([]);
+    }
+    expect(conAlgo).not.toContain('tramites/transito-scope.ts');
   });
 
   it('auth, users, flito-logistica, jornadas, pesv y drivers: cero comparaciones (las reglas de la HU van por función)', () => {

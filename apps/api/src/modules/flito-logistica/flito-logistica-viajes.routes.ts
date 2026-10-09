@@ -19,6 +19,8 @@ import { audit } from '../../shared/middleware/audit.js';
 import {
   TramiteNoEncontradoError, ViajeLogisticaError, ViajeNoEncontradoError, listar, quitar, registrar,
 } from './flito-logistica-viajes.service.js';
+import { alcanceDe } from '../../shared/middleware/frontera-enlace.js';
+import { enAlcanceLogistica, exigirPropioLogistica } from './flito-logistica.alcance.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -71,6 +73,8 @@ function fallo(res: Response, e: unknown): void {
 router.get('/tramites/:tramiteId/viajes', exigirFuncion('logistica.viajes.ver'), async (req: Request, res: Response) => {
   const tramiteId = idUuid(req.params.tramiteId);
   if (tramiteId === null) { res.status(404).json(NO_EXISTE_TRAMITE); return; }
+  // HU #13426 (AC2): trámite de otra compañía → 404, igual que uno inexistente.
+  if (!await enAlcanceLogistica('tramite', tramiteId, await alcanceDe(req))) { res.status(404).json(NO_EXISTE_TRAMITE); return; }
   try {
     const cuerpo = await listar(tramiteId);
     // Sin caché: un viaje registrado hace un segundo tiene que salir sin recargar la pantalla.
@@ -84,6 +88,7 @@ router.post('/tramites/:tramiteId/viajes', exigirFuncion('logistica.viajes.regis
   if (!parsed.success) { res.status(400).json({ error: mensajeDe(parsed.error) }); return; }
   const tramiteId = idUuid(req.params.tramiteId);
   if (tramiteId === null) { res.status(404).json(NO_EXISTE_TRAMITE); return; }
+  await exigirPropioLogistica('tramite', tramiteId, await alcanceDe(req)); // HU #13426 (AC3): 403
   try {
     const { viaje, idFlit } = await registrar(tramiteId, parsed.data, req.user?.sub ?? null);
     await audit(req, {
@@ -99,6 +104,7 @@ router.delete('/tramites/:tramiteId/viajes/:viajeId', exigirFuncion('logistica.v
   if (tramiteId === null) { res.status(404).json(NO_EXISTE_TRAMITE); return; }
   const viajeId = idUuid(req.params.viajeId);
   if (viajeId === null) { fallo(res, new ViajeNoEncontradoError()); return; }
+  await exigirPropioLogistica('tramite', tramiteId, await alcanceDe(req));
   try {
     const quitado = await quitar(tramiteId, viajeId);
     // El `detail` lleva número, modo y valor porque la fila ya no existe.

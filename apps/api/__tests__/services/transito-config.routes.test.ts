@@ -8,7 +8,7 @@ import { testToken, neutralizarEnlaceDe } from '../helpers/auth.js';
 // HU #12875: este fichero mide la regla del MÓDULO con roles de fábrica que la frontera por enlace
 // cierra hasta la #13426 (decisión (b) del PO); su enlace se neutraliza aquí, a la vista. El cierre lo
 // prueban `frontera-por-enlace.test.ts` y `frontera-enlace.centinela.test.ts`.
-neutralizarEnlaceDe('gestor_impuestos', 'transito', 'proveedor');
+neutralizarEnlaceDe('proveedor'); // HU #13426: gestor y tránsito llevan su enlace real (organismos_transito)
 
 const selectMock = vi.fn();
 const insertMock = vi.fn();
@@ -55,6 +55,7 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/tramites/transito-config.routes.js');
+  // HU #13426: montaje como en app.ts — la config queda SIN `conAlcance` → cerrada a todo enlace.
   app.use('/api/transito', router);
   return app;
 }
@@ -85,18 +86,27 @@ describe('transito-config — scope transito', () => {
     expect(r.status).toBe(403);
   });
 
-  it('GET propio organismo sin fila config → 200 con defaults', async () => {
+  it('HU #13426: ni su PROPIO organismo — la configuración es cerrada a todo enlace (403 de la frontera, sin consultar)', async () => {
+    const token = await testToken({ sub: 4, role: 'transito', transitoCodigo: '05001' });
+    const app = await buildApp();
+    const r = await request(app)
+      .get('/api/transito/organismos-config/05001')
+      .set('Authorization', `Bearer ${token}`);
+    expect([r.status, r.body]).toEqual([403, { error: 'Sin permisos' }]);
+    expect(selectMock).not.toHaveBeenCalled();
+  });
+
+  it('control: sin enlace (admin) el propio organismo sin fila config → 200 con defaults', async () => {
     selectMock
       .mockReturnValueOnce(chain([]))
       .mockReturnValueOnce(chain([{ c: 2 }]));
-    const token = await testToken({ sub: 4, role: 'transito', transitoCodigo: '05001' });
+    const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
     const r = await request(app)
       .get('/api/transito/organismos-config/05001')
       .set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(200);
     expect(r.body.codigo).toBe('05001');
-    expect(r.body.ciudad).toBe('Medellín');
     expect(r.body.userCount).toBe(2);
   });
 });

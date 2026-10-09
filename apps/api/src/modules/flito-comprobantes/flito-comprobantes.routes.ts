@@ -20,6 +20,7 @@ import {
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { alcanceDe, soloSinEnlace } from '../../shared/middleware/frontera-enlace.js';
 import { comprobantesCargaLimiter } from '../../shared/middleware/rateLimiter.js';
 import { esUuid } from '../../shared/utils/uuid.js';
 import { cargarLote, type ArchivoCargado } from './flito-comprobantes.carga.js';
@@ -74,7 +75,8 @@ const aArchivo = (f: Express.Multer.File): ArchivoCargado => ({ originalname: f.
 export const cargaSchema = z.object({ loteId: z.string().uuid() });
 
 // El limitador va DELANTE de multer (AC9): un exceso se frena antes de leer 75 MB de cuerpo.
-router.post('/', exigirFuncion('comprobantes.lote.cargar'), comprobantesCargaLimiter, recibirArchivos, async (req: Request, res: Response) => {
+// HU #13426 (P-2): toda escritura de Comprobantes (conciliación interna de FLIT) → cerrada a enlaces.
+router.post('/', soloSinEnlace(), exigirFuncion('comprobantes.lote.cargar'), comprobantesCargaLimiter, recibirArchivos, async (req: Request, res: Response) => {
   const parsed = cargaSchema.safeParse(req.body ?? {});
   if (!parsed.success) { res.status(400).json({ error: 'loteId inválido', codigo: CodigoErrorComprobante.DATOS_INVALIDOS }); return; }
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
@@ -102,13 +104,14 @@ export const listarSchema = z.object({
 router.get('/', exigirFuncion('comprobantes.cola.ver'), async (req: Request, res: Response) => {
   const parsed = listarSchema.safeParse(req.query);
   if (!parsed.success) { res.status(400).json({ error: 'Filtros inválidos', codigo: CodigoErrorComprobante.DATOS_INVALIDOS }); return; }
-  try { res.json(await listar(parsed.data)); } catch (e) { handleError(res, e); }
+  try { res.json(await listar(parsed.data, await alcanceDe(req))); } catch (e) { handleError(res, e); }
 });
 
 // ── Buscador de trámites: por BODY, para que la llave no quede en la URL ni en los logs de acceso ──
 export const buscarTramitesSchema = z.object({ buscar: z.string().trim().min(3).max(60) });
 
-router.post('/tramites/buscar', exigirFuncion('comprobantes.tramites.buscar'), async (req: Request, res: Response) => {
+// HU #13426 (P-2, riesgo §7.3): busca entre TODOS los trámites y solo sirve a `aplicar` → cerrado a enlaces.
+router.post('/tramites/buscar', soloSinEnlace(), exigirFuncion('comprobantes.tramites.buscar'), async (req: Request, res: Response) => {
   const parsed = buscarTramitesSchema.safeParse(req.body ?? {});
   if (!parsed.success) { res.status(400).json({ error: 'Escribe entre 3 y 60 caracteres', codigo: CodigoErrorComprobante.DATOS_INVALIDOS }); return; }
   try {
@@ -121,7 +124,7 @@ router.post('/tramites/buscar', exigirFuncion('comprobantes.tramites.buscar'), a
 // ── Detalle ──────────────────────────────────────────────────────────────────────────────────────
 router.get('/:id', exigirFuncion('comprobantes.comprobante.ver'), exigirIdUuid, async (req: Request, res: Response) => {
   try {
-    const dto = await detalle(req.params.id);
+    const dto = await detalle(req.params.id, await alcanceDe(req));
     res.setHeader('Cache-Control', 'no-store');
     res.json(dto);
   } catch (e) { handleError(res, e); }
@@ -130,14 +133,14 @@ router.get('/:id', exigirFuncion('comprobantes.comprobante.ver'), exigirIdUuid, 
 // ── Archivo: URL prefirmada de corta vida (calco de flito-revisiones) ────────────────────────────
 router.get('/:id/archivo', exigirFuncion('comprobantes.archivo.descargar'), exigirIdUuid, async (req: Request, res: Response) => {
   try {
-    const url = await urlArchivo(req.params.id, req.query.aplicado === '1');
+    const url = await urlArchivo(req.params.id, req.query.aplicado === '1', await alcanceDe(req));
     res.setHeader('Cache-Control', 'no-store');
     res.redirect(302, url);
   } catch (e) { handleError(res, e); }
 });
 
 // ── Releer: solo sobre `ocr_no_disponible`; nunca crea filas ─────────────────────────────────────
-router.post('/:id/releer', exigirFuncion('comprobantes.comprobante.releer'), exigirIdUuid, async (req: Request, res: Response) => {
+router.post('/:id/releer', soloSinEnlace(), exigirFuncion('comprobantes.comprobante.releer'), exigirIdUuid, async (req: Request, res: Response) => {
   try {
     const dto = await releer(req.params.id, ctxDe(req.user!));
     await audit(req, { action: 'update', resource: 'flito_comprobante', resourceId: req.params.id, detail: `Comprobante releído: ${dto.motivoPendiente}.` });
@@ -147,7 +150,7 @@ router.post('/:id/releer', exigirFuncion('comprobantes.comprobante.releer'), exi
 });
 
 // ── Aplicar: 404 → 409 ya_resuelto → 400 → (pago: guarda del dueño 409 ya_pagado/destino_no_admite) → tx con FOR UPDATE ─
-router.post('/:id/aplicar', exigirFuncion('comprobantes.comprobante.aplicar'), exigirIdUuid, async (req: Request, res: Response) => {
+router.post('/:id/aplicar', soloSinEnlace(), exigirFuncion('comprobantes.comprobante.aplicar'), exigirIdUuid, async (req: Request, res: Response) => {
   try {
     const comprobante = await aplicar(req.params.id, req.body, ctxDe(req.user!));
     const motivo = typeof req.body?.motivo === 'string' && req.body.motivo.trim() ? ` Motivo: ${req.body.motivo.trim()}` : '';
@@ -161,7 +164,7 @@ router.post('/:id/aplicar', exigirFuncion('comprobantes.comprobante.aplicar'), e
 });
 
 // ── Descartar: libera el archivo solo si ningún otro comprobante vivo lo comparte ─────────────────
-router.post('/:id/descartar', exigirFuncion('comprobantes.comprobante.descartar'), exigirIdUuid, async (req: Request, res: Response) => {
+router.post('/:id/descartar', soloSinEnlace(), exigirFuncion('comprobantes.comprobante.descartar'), exigirIdUuid, async (req: Request, res: Response) => {
   const parsed = motivoSchema.safeParse(req.body ?? {});
   if (!parsed.success) { res.status(400).json({ error: 'El motivo va entre 5 y 500 caracteres', codigo: CodigoErrorComprobante.DATOS_INVALIDOS }); return; }
   try {
@@ -173,7 +176,7 @@ router.post('/:id/descartar', exigirFuncion('comprobantes.comprobante.descartar'
 
 // ── Aceptar diferencia (F3, HU #12654): 404 → 409 sin_diferencia → tx con FOR UPDATE del comprobante ──
 // Constancia, no dinero: no cambia valor ni tarifa, no toca flito_liquidaciones, se permite con el trámite sellado.
-router.post('/:id/diferencia/aceptar', exigirFuncion('comprobantes.diferencia.aceptar'), exigirIdUuid, async (req: Request, res: Response) => {
+router.post('/:id/diferencia/aceptar', soloSinEnlace(), exigirFuncion('comprobantes.diferencia.aceptar'), exigirIdUuid, async (req: Request, res: Response) => {
   const parsed = motivoSchema.safeParse(req.body ?? {});
   if (!parsed.success) { res.status(400).json({ error: 'El motivo va entre 5 y 500 caracteres', codigo: CodigoErrorComprobante.DATOS_INVALIDOS }); return; }
   try {

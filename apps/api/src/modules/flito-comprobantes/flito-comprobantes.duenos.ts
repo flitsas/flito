@@ -133,11 +133,12 @@ export interface PagoArgs {
  * `conciliar` calculó; `null` para los otros dueños. El umbral: el usuario de comprobantes no es gestor
  * de organismo (`organismos: []`), así que aplica el de Operaciones —lo mismo que `umbralDelCandidato`
  * hace en recibos para quien no es gestor—.
+ * HU #13426: las escrituras de Comprobantes son `soloSinEnlace` (P-2), así que el alcance es `ninguno`.
  */
 export async function pagarEnTx(tx: Tx, destino: DestinoPago, a: PagoArgs): Promise<{ valorPagado: string | null; marcadoPorDiferencia: boolean } | null> {
   if (destino.concepto !== ConceptoCosto.IMPUESTO || !destino.candidato) return null;
   const extraccion = remarcarConfiable(a.extraccionDestino as ExtraccionImpuesto, umbralPara(null));
-  return conciliar(tx, destino.candidato, extraccion, a.soporteAplicadoId, { ...a.ctx, organismos: [] }, a.fechaPago ?? new Date());
+  return conciliar(tx, destino.candidato, extraccion, a.soporteAplicadoId, { ...a.ctx, organismos: [], alcance: { enlace: 'ninguno' } }, a.fechaPago ?? new Date());
 }
 
 /**

@@ -28,6 +28,8 @@ import { umbralPara } from '../flito-parametrizacion/flito-parametrizacion.servi
 import { leerSubDocumento, type LecturaSubDocumento, type SubDocumentoApi } from './flito-comprobantes.ocr.js';
 import { candidatosPorLlave, cruzarLectura, type ResultadoCruce } from './flito-comprobantes.cruce.js';
 import { autoAplicar, resumenFallo } from './flito-comprobantes.auto.js';
+import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
+import { companiaDeAlcance } from '../../shared/alcance-filas.js';
 
 const log = loggerFor('flito-comprobantes');
 
@@ -200,6 +202,18 @@ export function condicionesListado(f: FiltrosListado): SQL | undefined {
   return c.length ? and(...c) : undefined;
 }
 
+/**
+ * HU #13426 (AC2): con enlace `compania`, solo los comprobantes ASOCIADOS a un trámite de su compañía
+ * (la misma asociación `tramite_id` → `flito_tramites.compania_id` del cruce). Uno sin dueño todavía
+ * queda invisible para la compañía. `undefined` = sin acotar; enlace sin compañía → cero filas.
+ */
+export function condicionAlcanceComprobantes(a: AlcanceResuelto): SQL | undefined {
+  const c = companiaDeAlcance(a);
+  if (c === undefined) return undefined;
+  if (c === null) return sql`false`;
+  return sql`${flitoComprobantes.tramiteId} in (select ${flitoTramites.id} from ${flitoTramites} where ${flitoTramites.companiaId} = ${c})`;
+}
+
 /** created_at DESC, luego nombre de archivo, luego la primera página (los de un consolidado, en orden). */
 export function ordenListado(): SQL[] {
   return [
@@ -293,8 +307,8 @@ function consultaLista() {
     .leftJoin(descartadoPor, eq(descartadoPor.id, flitoComprobantes.descartadoPorId));
 }
 
-export async function listar(f: FiltrosListado): Promise<ListaComprobantesDto> {
-  const where = condicionesListado(f);
+export async function listar(f: FiltrosListado, alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<ListaComprobantesDto> {
+  const where = and(condicionesListado(f), condicionAlcanceComprobantes(alcance)); // página y COUNT
   const [conteo] = await db.select({ total: sql<number>`count(*)::int` }).from(flitoComprobantes).where(where);
   const filas = await consultaLista().where(where).orderBy(...ordenListado())
     .limit(f.pageSize).offset((f.page - 1) * f.pageSize);
@@ -320,8 +334,9 @@ export function camposDe(extraccion: ExtraccionComprobante, extraccionDestino: R
   return [...universales, ...destino];
 }
 
-export async function detalle(id: string): Promise<ComprobanteDetalleDto> {
-  const [fila] = await consultaLista().where(eq(flitoComprobantes.id, id)).limit(1);
+export async function detalle(id: string, alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<ComprobanteDetalleDto> {
+  // HU #13426 (AC2): el alcance va EN EL WHERE: lo ajeno responde igual que lo inexistente (404).
+  const [fila] = await consultaLista().where(and(eq(flitoComprobantes.id, id), condicionAlcanceComprobantes(alcance))).limit(1);
   if (!fila) throw new ComprobanteError(404, CodigoErrorComprobante.NO_ENCONTRADO, 'El comprobante no existe');
   // Lo que SOLO el detalle expone: la lectura cruda y, para la ficha (HU #12634 AC6), los motivos y el
   // soporte hijo aplicado; y la constancia de la diferencia aceptada (F3, HU #12654: quién, cuándo y
@@ -338,7 +353,9 @@ export async function detalle(id: string): Promise<ComprobanteDetalleDto> {
     .where(eq(flitoComprobantes.id, id)).limit(1);
   const base = aListaDto(fila as FilaLista);
   // Candidatos solo en pendientes (AC5): en aplicados y descartados ya no hay nada que elegir.
-  const candidatos = base.estado === EstadoComprobante.PENDIENTE
+  // HU #13426: los candidatos se buscan entre TODOS los trámites (por placa/VIN): a quien tiene enlace no
+  // se le ofrecen (aplicar es `soloSinEnlace`, P-2), así no hacen de oráculo de trámites ajenos.
+  const candidatos = base.estado === EstadoComprobante.PENDIENTE && alcance.enlace === 'ninguno'
     ? (await candidatosPorLlave({ idFlit: base.idFlitLeido, vin: base.vinLeido, placa: base.placaLeida })).candidatos
     : [];
   return {
@@ -360,9 +377,9 @@ export async function detalle(id: string): Promise<ComprobanteDetalleDto> {
  * URL prefirmada (300 s) del archivo del comprobante: el original (`soporte_id`) o, con `aplicado`,
  * el hijo recortado que vio el destino (`soporte_aplicado_id`, F2) — 404 si no lo hay.
  */
-export async function urlArchivo(id: string, aplicado: boolean): Promise<string> {
+export async function urlArchivo(id: string, aplicado: boolean, alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<string> {
   const [c] = await db.select({ soporteId: flitoComprobantes.soporteId, soporteAplicadoId: flitoComprobantes.soporteAplicadoId })
-    .from(flitoComprobantes).where(eq(flitoComprobantes.id, id)).limit(1);
+    .from(flitoComprobantes).where(and(eq(flitoComprobantes.id, id), condicionAlcanceComprobantes(alcance))).limit(1);
   if (!c) throw new ComprobanteError(404, CodigoErrorComprobante.NO_ENCONTRADO, 'El comprobante no existe');
   const soporteId = aplicado ? c.soporteAplicadoId : c.soporteId;
   if (!soporteId) throw new ComprobanteError(404, CodigoErrorComprobante.NO_ENCONTRADO, 'El comprobante no tiene archivo aplicado');

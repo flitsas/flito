@@ -66,11 +66,11 @@ describe('TC-09a — una entrada por rol, con lo que pierde y lo que gana', () =
     expect(de('gestor_soat').pierde).toContain('/api/vehicles');
   });
 
-  it('«lo que cada enlace pierde hasta #13426»: organismos no tiene nada abierto; compañía y proveedor, SOAT', () => {
+  it('«lo que cada enlace pierde»: lee la tabla VIVA (HU #13426 abrió Impuestos, Derechos, Tránsito y los de compañía)', () => {
     const porEnlace = Object.fromEntries(inf.interinos.map((i) => [i.enlace, i]));
-    expect(porEnlace.organismos_transito!.abiertos).toEqual([]);
-    expect(porEnlace.organismos_transito!.cerradosHasta13426).toContain('impuestos');
-    expect(porEnlace.compania!.abiertos).toEqual(['soat']);
+    expect(porEnlace.organismos_transito!.abiertos).toEqual(['impuestos', 'derechos', 'transito']);
+    expect(porEnlace.organismos_transito!.cerradosHasta13426).toContain('soat');
+    expect(porEnlace.compania!.abiertos).toEqual(['soat', 'impuestos', 'tramites', 'bolsas', 'comprobantes', 'logistica', 'tablero']);
     expect(porEnlace.proveedor!.roles).toEqual(['gestor_soat']);
   });
 
@@ -102,10 +102,23 @@ describe('TC-09b — el script solo LEE y los montajes salen del fuente de app.t
     expect(src).toMatch(/const HU_SOPORTADAS = \[[^\]]*'12875'/);
   });
 
-  it('`montajesDeAppTs` lee el app.ts real: los 4 de SOAT declarados, los públicos y los limitadores fuera', () => {
+  it('`montajesDeAppTs` lee el app.ts real: los declarados (4 de SOAT + los de #13426), los públicos y los limitadores fuera', () => {
     const fuente = readFileSync(path.resolve(aqui, '../../src/app.ts'), 'utf8');
     const m = montajesDeAppTs(fuente);
-    expect(m.filter((x) => x.modulo)).toEqual(Array(4).fill({ prefijo: '/api/flito/soat', modulo: 'soat' }));
+    expect(m.filter((x) => x.modulo)).toEqual([
+      ...Array(4).fill({ prefijo: '/api/flito/soat', modulo: 'soat' }),
+      { prefijo: '/api/flito/impuestos', modulo: 'impuestos' },
+      { prefijo: '/api/flito/derechos', modulo: 'derechos' },
+      { prefijo: '/api/flito/tramites', modulo: 'tramites' },
+      { prefijo: '/api/flito/tablero', modulo: 'tablero' },
+      { prefijo: '/api/flito/logistica', modulo: 'logistica' },
+      { prefijo: '/api/flito/logistica', modulo: 'logistica' },
+      { prefijo: '/api/flito/bolsas', modulo: 'bolsas' },
+      { prefijo: '/api/flito/comprobantes', modulo: 'comprobantes' },
+      { prefijo: '/api/transito', modulo: 'transito' },
+    ]);
+    // La configuración de Tránsito, sobre el mismo prefijo, queda SIN declarar (cerrada).
+    expect(m.filter((x) => x.prefijo === '/api/transito').map((x) => x.modulo)).toEqual(['transito', null]);
     expect(m.some((x) => x.prefijo === '/api/files' || x.prefijo === '/api/rum')).toBe(false);
     expect(m.some((x) => x.prefijo === '/api/vehicles' && x.modulo === null)).toBe(true);
     expect(m.length).toBeGreaterThan(80);

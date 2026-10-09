@@ -57,7 +57,7 @@ const AUTH_EN_RUTA_IDENTIDAD = [
   'GET /documentos/:tramiteId', 'POST /certificado/:tramiteId', 'POST /recortar-cedula',
 ];
 
-/** AC3 — las 8 comparaciones de ámbito que se quedan, y por qué (15 hasta la HU #12815; 13 hasta el Bug #12869; 11 hasta la HU #13425). */
+/** AC3 — las 3 comparaciones de ámbito que se quedan, y por qué (15 hasta la HU #12815; 13 hasta el Bug #12869; 11 hasta la HU #13425; 8 hasta la HU #13426). */
 const AMBITO: { fichero: string; patron: RegExp; veces: number; porque: string }[] = [
   // HU #12815: la frontera por compañía del EXTERNO ya no es una comparación de rol — la decide
   // `tipo_principal` vía `resolverPermisos` (`SoatCtx.externo`), así que el patrón sigue buscando
@@ -66,10 +66,12 @@ const AMBITO: { fichero: string; patron: RegExp; veces: number; porque: string }
   // (`permisos_roles.tipo_enlace` → `SoatCtx.alcance`), no su código: cero comparaciones, y el
   // patrón se conserva para que la reaparición de `role === 'proveedor'|'cliente'` ponga esto rojo.
   { fichero: 'flito-soat/flito-soat.service.ts', patron: /role === '(proveedor|cliente)'/g, veces: 0, porque: 'Bug #12869: el alcance lo decide el enlace del rol (tipo_enlace), no el literal' },
-  { fichero: 'flito-impuestos/flito-impuestos.routes.ts', patron: /role === 'gestor_impuestos'/g, veces: 1, porque: 'contextoImpuesto: organismos del gestor' },
-  { fichero: 'flito-impuestos/flito-impuestos.service.ts', patron: /role === 'gestor_impuestos'/g, veces: 1, porque: 'contextoImpuesto: frontera por organismo' },
-  { fichero: 'flito-impuestos/flito-recibos.service.ts', patron: /role === 'gestor_impuestos'/g, veces: 1, porque: 'recibos: frontera por organismo' },
-  { fichero: 'tramites/transito-scope.ts', patron: /role (===|!==) '(admin|transito)'/g, veces: 2, porque: 'resolveTransitoScope: organismo del usuario de tránsito' },
+  // HU #13426 (AC9): Impuestos y la bandeja de Tránsito deciden por el ENLACE (`alcanceDe`), no por el
+  // literal del rol. Cero, y los patrones se conservan para que su reaparición ponga esto rojo.
+  { fichero: 'flito-impuestos/flito-impuestos.routes.ts', patron: /role === 'gestor_impuestos'/g, veces: 0, porque: 'HU #13426: contextoImpuesto lee el alcance del enlace' },
+  { fichero: 'flito-impuestos/flito-impuestos.service.ts', patron: /role === 'gestor_impuestos'/g, veces: 0, porque: 'HU #13426: la frontera por organismo la decide el enlace' },
+  { fichero: 'flito-impuestos/flito-recibos.service.ts', patron: /role === 'gestor_impuestos'/g, veces: 0, porque: 'HU #13426: el lote de recibos lo acota el enlace' },
+  { fichero: 'tramites/transito-scope.ts', patron: /role (===|!==) '(admin|transito)'/g, veces: 0, porque: 'HU #13426: resolveTransitoScope sale de alcanceDe (todas sus secretarías)' },
   { fichero: 'tramites/transito-config.routes.ts', patron: /role === 'transito'/g, veces: 3, porque: 'organismo del transito al leer config, checklist y logo' },
   // HU #13425: no era ámbito de filas sino una REGLA de propiedad; la decide la función
   // `logistica.actas.operar_ajenas`. Cero, y el patrón se conserva para que su reaparición ponga esto rojo.
@@ -192,7 +194,7 @@ describe('el lector de montajes cubre la foto entera', () => {
   });
 });
 
-describe('AC3 — el ámbito no se toca: las 8 comparaciones de rol que deciden QUÉ filas se ven siguen ahí', () => {
+describe('AC3 — el ámbito no se toca: las 3 comparaciones de rol que deciden QUÉ filas se ven siguen ahí (HU #13426 retiró 5)', () => {
   for (const { fichero, patron, veces, porque } of AMBITO) {
     it(`${fichero}: ${veces} (${porque})`, () => {
       const fuente = sinComentarios(leer(fichero));
@@ -200,8 +202,8 @@ describe('AC3 — el ámbito no se toca: las 8 comparaciones de rol que deciden 
     });
   }
 
-  it('son 8 en total, y fuera de ellas no queda ninguna comparación de rol en users (HU #12088, HU #13424)', () => {
-    expect(AMBITO.reduce((n, a) => n + a.veces, 0)).toBe(8);
+  it('son 3 en total, y fuera de ellas no queda ninguna comparación de rol en users (HU #12088, HU #13424)', () => {
+    expect(AMBITO.reduce((n, a) => n + a.veces, 0)).toBe(3);
     const enUsers = sinComentarios(leer('users/users.routes.ts')).match(/\brole (===|!==) '[a-z_]+'/g) ?? [];
     // Antes #12088 había ~27 (superRefine + filtros de ámbito por rol). El ámbito del gestor
     // pasó a la puente `flito_gestor_organismos` y quedaron 3 de validación (`role !== 'admin'`,

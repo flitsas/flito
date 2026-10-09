@@ -96,7 +96,7 @@ function app(): Express {
   a.use('/api/users', routerCon([['get', '/', 'usuarios.usuarios.listar']]));
   // El único módulo abierto en #12875.
   a.use('/api/flito/soat', conAlcance('soat', routerCon([['get', '/', 'soat.cola.ver'], ['post', '/enviar', 'soat.solicitud.enviar']])));
-  // Declarados pero cerrados hasta #13426.
+  // HU #13426: Impuestos abierto a compañía y organismos; Tablero solo a compañía.
   a.use('/api/flito/impuestos', conAlcance('impuestos', routerCon([['get', '/', 'impuestos.cola.ver']])));
   a.use('/api/flito/tablero', conAlcance('tablero', routerCon([['get', '/', 'tablero.tablero.ver']])));
   // Sin declarar: legacy, catálogo y una ruta «nueva» (AC3).
@@ -157,12 +157,13 @@ describe('AC2 / AC7 — lo que no está declarado para su enlace, cerrado', () =
     expect(esFrontera(await pide('get', '/api/users', 1))).toBe(true);
   });
 
-  it('módulo DECLARADO pero cerrado a su enlace hasta #13426 (Impuestos, Tablero) → 403 de la frontera', async () => {
-    for (const sub of [1, 2, 3]) {
-      expect(esFrontera(await pide('get', '/api/flito/impuestos', sub)), `sub ${sub}`).toBe(true);
-      expect(esFrontera(await pide('get', '/api/flito/tablero', sub)), `sub ${sub}`).toBe(true);
-    }
-    expect(handler).not.toHaveBeenCalled();
+  it('HU #13426: Impuestos se abre a compañía y organismos (no a proveedor); Tablero solo a compañía', async () => {
+    expect((await pide('get', '/api/flito/impuestos', 1)).status).toBe(200);
+    expect((await pide('get', '/api/flito/impuestos', 3)).status).toBe(200);
+    expect(esFrontera(await pide('get', '/api/flito/impuestos', 2))).toBe(true);
+    expect((await pide('get', '/api/flito/tablero', 1)).status).toBe(200);
+    expect(esFrontera(await pide('get', '/api/flito/tablero', 2))).toBe(true);
+    expect(esFrontera(await pide('get', '/api/flito/tablero', 3))).toBe(true);
   });
 
   it('organismos_transito no alcanza SOAT (no está en su lista)', async () => {
@@ -192,10 +193,14 @@ describe('AC3 — lo nuevo nace cerrado', () => {
     expect(Object.isFrozen(FRONTERA_POR_ENLACE)).toBe(true);
     for (const m of MODULOS_FRONTERA) expect(Object.isFrozen(FRONTERA_POR_ENLACE[m]), m).toBe(true);
     expect(() => { (FRONTERA_POR_ENLACE.impuestos as unknown as string[]).push('compania'); }).toThrow();
-    // En #12875 SOLO SOAT está abierto, y solo a compañía y proveedor (decisión (b) del PO).
-    const abiertos = MODULOS_FRONTERA.filter((m) => FRONTERA_POR_ENLACE[m].length > 0);
-    expect(abiertos).toEqual(['soat']);
-    expect([...FRONTERA_POR_ENLACE.soat].sort()).toEqual(['compania', 'proveedor']);
+    // HU #13426 (decisión del PO 2026-10-09): la tabla EXACTA. Abrir un enlace más es decidirlo aquí.
+    expect(Object.fromEntries(MODULOS_FRONTERA.map((m) => [m, [...FRONTERA_POR_ENLACE[m]].sort()]))).toEqual({
+      soat: ['compania', 'proveedor'],
+      impuestos: ['compania', 'organismos_transito'],
+      derechos: ['organismos_transito'],
+      tramites: ['compania'], bolsas: ['compania'], comprobantes: ['compania'], logistica: ['compania'], tablero: ['compania'],
+      transito: ['organismos_transito'],
+    });
     // El panel no la puede ampliar: las rutas de permisos no la importan; el servicio de roles solo
     // LEE `funcionesAlcanzables` para el aviso.
     expect(fuente('modules/permisos/permisos.routes.ts')).not.toMatch(/frontera-enlace|FRONTERA_POR_ENLACE/);
@@ -264,12 +269,18 @@ describe('AC5 — catálogos y configuración cerrados; la sesión, abierta', ()
 });
 
 describe('RN-A1 — qué funciones alcanza cada enlace (el aviso del panel)', () => {
-  it('`ninguno` alcanza todo; compañía y proveedor solo SOAT; organismos nada (hasta #13426)', () => {
+  it('`ninguno` alcanza todo; cada enlace, solo los módulos que la tabla le abre (#13426)', () => {
     expect(funcionesAlcanzables('ninguno')('impuestos.cola.ver')).toBe(true);
     expect(funcionesAlcanzables('compania')('soat.cola.ver')).toBe(true);
-    expect(funcionesAlcanzables('compania')('impuestos.cola.ver')).toBe(false);
+    expect(funcionesAlcanzables('compania')('impuestos.cola.ver')).toBe(true);
+    expect(funcionesAlcanzables('compania')('derechos.cola.ver')).toBe(false);
     expect(funcionesAlcanzables('proveedor')('soat.solicitud.reversar')).toBe(true);
+    expect(funcionesAlcanzables('proveedor')('impuestos.cola.ver')).toBe(false);
     expect(funcionesAlcanzables('organismos_transito')('soat.cola.ver')).toBe(false);
+    expect(funcionesAlcanzables('organismos_transito')('impuestos.cola.ver')).toBe(true);
+    expect(funcionesAlcanzables('organismos_transito')('derechos.cola.ver')).toBe(true);
+    expect(funcionesAlcanzables('organismos_transito')('transito.bandeja.ver_pendientes')).toBe(true);
+    expect(funcionesAlcanzables('compania')('transito.bandeja.ver_pendientes')).toBe(false);
     // `soat.antiguo.*` es del módulo legacy `operaciones` del catálogo, no de SOAT: cerrado.
     expect(funcionesAlcanzables('compania')('soat.antiguo.operar')).toBe(false);
     expect(funcionesAlcanzables('compania')('no.existe.nada')).toBe(false);
@@ -311,6 +322,20 @@ describe('Enganche de #13426 — `alcanceDe(req)` y `soloSinEnlace()`', () => {
     expect(selectMock).not.toHaveBeenCalled();
     selectMock.mockReturnValue(chain([{ c: '05001' }, { c: '11001' }]));
     expect(await alcanceDe(req(3))).toEqual({ enlace: 'organismos_transito', organismos: ['05001', '11001'] });
+  });
+
+  it('HU #13426 (P-4): organismos SIN filas en la puente → fallback a `users.transito_codigo`; sin columna → []', async () => {
+    selectMock.mockReturnValueOnce(chain([])).mockReturnValueOnce(chain([{ t: ' 05001 ' }]));
+    expect(await alcanceDe(req(3))).toEqual({ enlace: 'organismos_transito', organismos: ['05001'] });
+    expect(selectMock).toHaveBeenCalledTimes(2);
+    selectMock.mockReset();
+    selectMock.mockReturnValueOnce(chain([])).mockReturnValueOnce(chain([{ t: null }]));
+    expect(await alcanceDe(req(3))).toEqual({ enlace: 'organismos_transito', organismos: [] });
+    // Con filas en la puente, la columna NO se consulta (la puente es la fuente, HU #12088).
+    selectMock.mockReset();
+    selectMock.mockReturnValueOnce(chain([{ c: '11001' }]));
+    expect(await alcanceDe(req(3))).toEqual({ enlace: 'organismos_transito', organismos: ['11001'] });
+    expect(selectMock).toHaveBeenCalledTimes(1);
   });
 
   it('`soloSinEnlace()` cierra una ruta de un router abierto a todo enlace y la deja a `ninguno`', async () => {

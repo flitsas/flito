@@ -1,58 +1,46 @@
-import { eq, asc } from 'drizzle-orm';
 import type { Request } from 'express';
 import { isKnownOrganismoCodigo } from '@operaciones/shared-types';
-import { db } from '../../db/client.js';
-import { flitoGestorOrganismos, users } from '../../db/schema.js';
+import { alcanceDe } from '../../shared/middleware/frontera-enlace.js';
 
+// HU #13426 (Feature #12871, AC6/AC8/AC9): el alcance de la bandeja de Tránsito sale del ENLACE del
+// usuario (`alcanceDe`), nunca del nombre de su rol. El permiso de cada ruta lo pone `exigirFuncion`.
+//   · `ninguno` → todas las bandejas; `?organismo=` opcional acota a una (un código no es PII).
+//   · `organismos_transito` → TODAS sus secretarías (S1 y S2), no solo la primera.
+//   · Cualquier otro enlace → 403 (la frontera ya lo corta antes; aquí falla cerrado).
 export type TransitoScope =
-  | { ok: true; codigo: string | null }
+  | { ok: true; codigos: string[] | null }
   | { ok: false; status: number; error: string };
 
-/** Primer código de la puente, ordenado; o null si no hay filas. */
-async function primerOrganismoPuente(userId: number): Promise<string | null> {
-  const [row] = await db
-    .select({ c: flitoGestorOrganismos.organismoCodigo })
-    .from(flitoGestorOrganismos)
-    .where(eq(flitoGestorOrganismos.userId, userId))
-    .orderBy(asc(flitoGestorOrganismos.organismoCodigo))
-    .limit(1);
-  return row?.c?.trim() || null;
-}
-
-/** Admin: null = todas las bandejas; query ?organismo=05001 filtra. Tránsito: scope fijo. */
 export async function resolveTransitoScope(req: Request): Promise<TransitoScope> {
-  const user = req.user!;
-  if (user.role === 'admin') {
+  const a = await alcanceDe(req);
+  if (a.enlace === 'ninguno') {
     const q = typeof req.query.organismo === 'string' ? req.query.organismo.trim() : '';
     if (q) {
       if (!isKnownOrganismoCodigo(q)) {
         return { ok: false, status: 400, error: 'Código de organismo inválido' };
       }
-      return { ok: true, codigo: q };
+      return { ok: true, codigos: [q] };
     }
-    return { ok: true, codigo: null };
+    return { ok: true, codigos: null };
   }
 
-  if (user.role !== 'transito') {
+  if (a.enlace !== 'organismos_transito') {
     return { ok: false, status: 403, error: 'Sin permisos' };
   }
 
-  // HU #12088: fuente = puente; fallback a la columna mientras queden filas legacy sin migrar.
-  let codigo = await primerOrganismoPuente(user.sub);
-  if (!codigo) {
-    codigo = user.transitoCodigo?.trim() || null;
-  }
-  if (!codigo) {
-    const [row] = await db.select({ c: users.transitoCodigo }).from(users).where(eq(users.id, user.sub)).limit(1);
-    codigo = row?.c?.trim() || null;
-  }
-
-  if (!codigo || !isKnownOrganismoCodigo(codigo)) {
+  const codigos = a.organismos.map((c) => c.trim()).filter((c) => c && isKnownOrganismoCodigo(c));
+  if (codigos.length === 0) {
     return {
       ok: false,
       status: 403,
       error: 'Su cuenta no tiene organismo de tránsito asignado. Contacte al administrador FLIT.',
     };
   }
-  return { ok: true, codigo };
+  return { ok: true, codigos };
+}
+
+/** ¿Está el organismo dentro del alcance? `null` = sin acotar (enlace `ninguno` sin `?organismo=`). */
+export function organismoEnAlcance(codigos: string[] | null, organismo: string | null | undefined): boolean {
+  if (codigos === null) return true;
+  return organismo != null && codigos.includes(organismo);
 }

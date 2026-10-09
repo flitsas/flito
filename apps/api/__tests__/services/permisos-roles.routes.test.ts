@@ -422,17 +422,18 @@ describe('AC5 — GET y PUT /roles/:codigo/funciones', () => {
   });
 
   it('RN-A1 (HU #12875): rol con enlace compañía y funciones de módulos que la frontera no le abre → se guarda igual y AVISA cuáles (M12)', async () => {
-    kdb.when.select('permisos_funciones', [{ codigo: 'soat.cola.ver' }, { codigo: 'impuestos.cola.ver' }, { codigo: 'pagina.flito_soat' }])
+    // HU #13426 abrió Impuestos a compañía: el módulo que sigue cerrado para ella es Derechos.
+    kdb.when.select('permisos_funciones', [{ codigo: 'soat.cola.ver' }, { codigo: 'derechos.cola.ver' }, { codigo: 'pagina.flito_soat' }])
       .select('permisos_roles', [{ tipoEnlace: 'compania' }]).select('users', [USERS_OK])
       .select('permisos_rol_funcion', []);
     const r = await request(app()).put('/api/permisos/roles/cliente/funciones').set('Authorization', await admin())
-      .send({ funciones: ['soat.cola.ver', 'impuestos.cola.ver', 'pagina.flito_soat'] });
+      .send({ funciones: ['soat.cola.ver', 'derechos.cola.ver', 'pagina.flito_soat'] });
     expect(r.status).toBe(200);
     expect(r.body.aviso).toEqual({
       tipo: 'fuera_del_enlace',
       tipoEnlace: 'compania',
       mensaje: 'El rol tiene enlace: la frontera solo le abre los módulos de ese enlace y estas funciones no tendrán efecto por HTTP',
-      funciones: ['impuestos.cola.ver'],
+      funciones: ['derechos.cola.ver'],
     });
     // Se guardó completo: las tres, no solo las alcanzables.
     expect(espia.ultimoInsertEn('permisos_rol_funcion')).toHaveLength(3);

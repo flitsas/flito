@@ -22,15 +22,26 @@ import { decidir, entregar as entregarCompuerta } from '../flito-compuerta/flito
 import { enviarAlGestor as enviarSoat } from '../flito-soat/flito-soat.service.js';
 import { enviarAlGestor as enviarImpuestos } from '../flito-impuestos/flito-impuestos.service.js';
 import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
+import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
+import type { SoatCtx } from '../flito-soat/flito-soat.service.js';
+import type { ImpuestoCtx } from '../flito-impuestos/flito-factura-venta.service.js';
+import { condicionAlcanceTramites } from './flito-tramites.alcance.js';
 
-export interface TramitesCtx { userId: number; username: string; role: string }
+export interface TramitesCtx { userId: number; username: string; role: string; alcance: AlcanceResuelto }
 
-// Ni proveedor ni compañía: el actor de Gestión Trámites es Operaciones, así que este contexto no
-// activa la frontera del gestor ni la del canal Cliente (Feature #11912).
-// `proyeccionCliente: false`: en #12875 Trámites no se abre a ningún enlace (`FRONTERA_POR_ENLACE`),
-// así que aquí no hay compañía que acotar; #13426 la abre junto con su filtro.
-const soatCtx = (ctx: TramitesCtx) => ({ userId: ctx.userId, username: ctx.username, role: ctx.role, proyeccionCliente: false, alcance: 'todo' as const, proveedorSoatId: null, companiaId: null });
-const impuestoCtx = (ctx: TramitesCtx) => ({ userId: ctx.userId, username: ctx.username, role: ctx.role, organismos: [] });
+// HU #13426 (riesgo §7.4): el contexto que se REENVÍA a SOAT e Impuestos lleva el ALCANCE del actor.
+// Si no viajara, Gestión Trámites abriría por la puerta de atrás lo que SOAT e Impuestos cierran.
+// Para una compañía: su `companiaId` y la proyección del canal Cliente (sin nombres de empleados).
+// Cualquier enlace que no sea `ninguno` ni `compania` → `nada` (falla cerrado).
+export function soatCtx(ctx: TramitesCtx): SoatCtx {
+  const a = ctx.alcance;
+  const alcance = a.enlace === 'ninguno' ? 'todo' as const : a.enlace === 'compania' ? 'compania' as const : 'nada' as const;
+  const companiaId = a.enlace === 'compania' ? a.companiaId : null;
+  return { userId: ctx.userId, username: ctx.username, role: ctx.role, proyeccionCliente: alcance !== 'todo', alcance, proveedorSoatId: null, companiaId };
+}
+export function impuestoCtx(ctx: TramitesCtx): ImpuestoCtx {
+  return { userId: ctx.userId, username: ctx.username, role: ctx.role, organismos: [], alcance: ctx.alcance };
+}
 
 export interface Comprador {
   nombreCompleto: string; numeroDocumento: string; correo: string | null; celular: string | null;
@@ -110,6 +121,7 @@ export interface HistorialItem {
 
 /** Historial de cambios de un trámite (auditoría campo por campo). Más reciente primero. */
 export async function historial(tramiteId: string): Promise<HistorialItem[]> {
+  // HU #13426: el alcance lo comprueba la ruta (`tramiteEnAlcance`, 404) antes de llamar.
   const rows = await db.select({
     id: flitoTramiteHistorial.id, campo: flitoTramiteHistorial.campo,
     valorAnterior: flitoTramiteHistorial.valorAnterior, valorNuevo: flitoTramiteHistorial.valorNuevo,
@@ -591,10 +603,13 @@ function construirCondiciones(f: FiltrosListado): SQL[] {
  * Listado paginado de la tabla unificada. Filtros y paginación se resuelven EN SQL (LIMIT/OFFSET +
  * COUNT); el cliente ya no descarga todos los trámites. Devuelve la página + el total para paginar.
  */
-export async function listar(filtros: FiltrosListado = {}): Promise<ListadoTramites> {
+export async function listar(filtros: FiltrosListado = {}, alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<ListadoTramites> {
   const page = Math.max(1, Math.floor(filtros.page ?? 1));
   const pageSize = Math.min(200, Math.max(1, Math.floor(filtros.pageSize ?? 50)));
   const conds = construirCondiciones(filtros);
+  // HU #13426 (AC2): la condición de alcance va en las condiciones COMPARTIDAS por página y COUNT.
+  const porAlcance = condicionAlcanceTramites(alcance);
+  if (porAlcance) conds.push(porAlcance);
 
   // Total con los mismos joins que gobiernan los filtros (todos 1-0..1 → count(distinct) exacto).
   const countRows = await db.select({ total: sql<number>`count(distinct ${flitoTramites.id})::int` })
@@ -682,13 +697,16 @@ export async function listar(filtros: FiltrosListado = {}): Promise<ListadoTrami
  * estados, ofrecer un desplegable que no incluye Borrador ni los terminados deja al usuario sin
  * forma de filtrar justo lo que sí está viendo.
  */
-export async function facetas(): Promise<FacetasTramites> {
+export async function facetas(alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<FacetasTramites> {
+  // HU #13426 (AC7): las listas de apoyo salen del universo del alcance, no de la tabla entera.
+  const a = condicionAlcanceTramites(alcance);
   const [estados, tramites, ciudades, transitos] = await Promise.all([
-    db.selectDistinct({ v: flitoTramites.flitEstado }).from(flitoTramites).where(sql`${flitoTramites.flitEstado} is not null`),
-    db.selectDistinct({ v: flitoTramites.tipoTramite }).from(flitoTramites).where(sql`${flitoTramites.tipoTramite} is not null`),
-    db.selectDistinct({ v: flitoTramites.ciudad }).from(flitoTramites).where(sql`${flitoTramites.ciudad} is not null`),
+    db.selectDistinct({ v: flitoTramites.flitEstado }).from(flitoTramites).where(and(sql`${flitoTramites.flitEstado} is not null`, a)),
+    db.selectDistinct({ v: flitoTramites.tipoTramite }).from(flitoTramites).where(and(sql`${flitoTramites.tipoTramite} is not null`, a)),
+    db.selectDistinct({ v: flitoTramites.ciudad }).from(flitoTramites).where(and(sql`${flitoTramites.ciudad} is not null`, a)),
     db.selectDistinct({ v: sql<string | null>`COALESCE(${flitoTramites.transitoNombreFlit}, ${organismosTransitoConfig.alias})` })
-      .from(flitoTramites).leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo)),
+      .from(flitoTramites).leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
+      .where(a),
   ]);
   const vals = (rows: { v: string | null }[]) => rows.map((r) => r.v).filter((v): v is string => !!v).sort();
   return { estados: vals(estados), tramites: vals(tramites), ciudades: vals(ciudades), transitos: vals(transitos) };
@@ -721,7 +739,7 @@ export async function facetas(): Promise<FacetasTramites> {
  * nullable cuando el cruce por nombre no encontró la secretaría—, así que el nombre puede caer a
  * `SIN-ORGANISMO`, que es lo que el AC5 prevé.
  */
-export async function registrosZipTramites(ids: string[]): Promise<RegistroZip[]> {
+export async function registrosZipTramites(ids: string[], alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<RegistroZip[]> {
   if (ids.length === 0) return [];
   const filas = await db.select({
     id: flitoTramites.id,
@@ -739,7 +757,8 @@ export async function registrosZipTramites(ids: string[]): Promise<RegistroZip[]
     .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
     .leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
     .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id))
-    .where(inArray(flitoTramites.id, ids));
+    // HU #13426: un id fuera del alcance se OMITE sin avisar (sin oráculo), como `certificados-zip`.
+    .where(and(inArray(flitoTramites.id, ids), condicionAlcanceTramites(alcance)));
 
   return filas.map((f) => ({
     registroId: f.id,

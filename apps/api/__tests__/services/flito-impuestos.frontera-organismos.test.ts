@@ -29,7 +29,7 @@ import { testToken, type TestRole, neutralizarEnlaceDe } from '../helpers/auth.j
 // HU #12875: este fichero mide la regla del MÓDULO con roles de fábrica que la frontera por enlace
 // cierra hasta la #13426 (decisión (b) del PO); su enlace se neutraliza aquí, a la vista. El cierre lo
 // prueban `frontera-por-enlace.test.ts` y `frontera-enlace.centinela.test.ts`.
-neutralizarEnlaceDe('gestor_impuestos', 'transito', 'proveedor');
+neutralizarEnlaceDe('proveedor'); // HU #13426: gestor y tránsito llevan su enlace real (organismos_transito)
 
 const selectMock = vi.fn();
 const updateMock = vi.fn();
@@ -70,7 +70,8 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
-  app.use('/api/flito/impuestos', router);
+  const { conAlcance } = await import('../../src/shared/middleware/frontera-enlace.js');
+  app.use('/api/flito/impuestos', conAlcance('impuestos', router)); // HU #13426: como en app.ts
   return app;
 }
 
@@ -87,8 +88,14 @@ const render = (cond: unknown) => {
   return { sql: q.sql, params: q.params as unknown[] };
 };
 
-/** `contextoImpuesto` lee `flito_gestor_organismos`: una fila por organismo. */
-const contexto = (...codigos: string[]) => selectMock.mockReturnValueOnce(chain(codigos.map((codigo) => ({ codigo }))));
+/**
+ * `contextoImpuesto` lee `flito_gestor_organismos` (vía `alcanceDeUsuario`, HU #13426): una fila por
+ * organismo. Con la puente vacía hay una segunda lectura, el fallback a `users.transito_codigo` (P-4).
+ */
+const contexto = (...codigos: string[]) => {
+  selectMock.mockReturnValueOnce(chain(codigos.map((c) => ({ c }))));
+  if (codigos.length === 0) selectMock.mockReturnValueOnce(chain([{ t: null }]));
+};
 
 /** Encola las dos consultas de la cola (conteo y página) capturando su WHERE. */
 function capturarCola(): void {
@@ -137,7 +144,7 @@ describe('CA-10 con lista — la cola (AC6)', () => {
     expect(r.body).toEqual({ items: [], total: 0, page: 1, pageSize: 50 });
     // «Sin frontera no ve nada», no «sin filtros»: el defecto que esto mata es servirle la tabla
     // ENTERA. Ni el conteo se emite, así que ni siquiera sabe cuántas filas hay.
-    expect(selectMock).toHaveBeenCalledTimes(1);
+    expect(selectMock).toHaveBeenCalledTimes(2); // la puente y el fallback de la columna (P-4); la cola, no
     expect(wheres).toHaveLength(0);
   });
 
@@ -169,7 +176,7 @@ describe('CA-10 con lista — el detalle (AC6)', () => {
    * frontera, y por HTTP el camino feliz arrastra tres consultas más (la fila de la cola, el
    * ensamblado y los soportes) que no tienen nada que ver con lo que se prueba aquí.
    */
-  const ctxDe = (...organismos: string[]) => ({ userId: 5, username: 'gestor@flito.co', role: 'gestor_impuestos', organismos });
+  const ctxDe = (...organismos: string[]) => ({ userId: 5, username: 'gestor@flito.co', role: 'gestor_impuestos', organismos, alcance: { enlace: 'organismos_transito' as const, organismos: organismos } });
 
   it('TC-12053-23 (bis): el SEGUNDO organismo de la lista SÍ se le sirve', async () => {
     const { buscarConAcceso } = await import('../../src/modules/flito-impuestos/flito-impuestos.service.js');
@@ -201,7 +208,7 @@ describe('CA-10 con lista — la conciliación de recibos', () => {
     const res = await cargarRecibos(
       [{ originalname: 'recibo.pdf', mimetype: 'application/pdf', buffer: Buffer.from('x'), size: 1 }],
       true,
-      { userId: 5, username: 'gestor@flito.co', role: 'gestor_impuestos', organismos: [] },
+      { userId: 5, username: 'gestor@flito.co', role: 'gestor_impuestos', organismos: [], alcance: { enlace: 'organismos_transito' as const, organismos: [] } },
     );
 
     expect(res.conciliados).toHaveLength(0);
