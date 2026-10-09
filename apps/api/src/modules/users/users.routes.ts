@@ -6,7 +6,7 @@ import { db } from '../../db/client.js';
 import { clients, permisosRoles, users } from '../../db/schema.js';
 import { authMiddleware, invalidateSessionCacheFor } from '../../shared/middleware/auth.js';
 import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
-import { invalidarPermisosDe, resolverPermisos } from '../../shared/permisos-efectivos.js';
+import { enlaceConocido, invalidarPermisosDe, resolverPermisos } from '../../shared/permisos-efectivos.js';
 import { passwordChangeLimiter } from '../../shared/middleware/rateLimiter.js';
 import { BloqueoAdministracionError } from '../../shared/permisos-anti-bloqueo.js';
 import { audit } from '../../shared/middleware/audit.js';
@@ -21,10 +21,20 @@ import { actorDeRequest, registrarRechazoAntiBloqueo } from '../../shared/histor
 import {
   actualizarUsuario, cambiarActivo, crearUsuario, funcionesDeVarios, listarUsuarios, nombresDeAmbito,
   organismosDe, organismosDeVarios, organismosInexistentes, proveedorSoatExiste, restablecerContrasena,
-  resumenUsuarios, rolAsignable,
+  resumenUsuarios, rolAsignable as rolAsignableCrudo,
   type FiltrosUsuarios, type PaginacionUsuarios,
 } from './users.service.js';
 import { handleDarDeBaja, handleReactivar } from './users-baja.js';
+/**
+ * HU #12875: el enlace del rol, normalizado con el MISMO `enlaceConocido` del resolutor (alias
+ * `proveedor_soat` → `proveedor` mientras la 0231 no esté aplicada). Un valor desconocido se deja
+ * tal cual: no casa con ningún enlace y sigue fallando como antes.
+ */
+const enlaceNormalizado = (v: string): string => enlaceConocido(v) ?? v;
+async function rolAsignable(codigo: string): Promise<{ tipoEnlace: string } | null> {
+    const rol = await rolAsignableCrudo(codigo);
+    return rol && { ...rol, tipoEnlace: enlaceNormalizado(rol.tipoEnlace) };
+}
 // HU #12087: la existencia de los códigos se pregunta al mismo sitio que el cuadro del rol
 // (dependencia en un solo sentido: `users` → `permisos`; `permisos` no importa nada de aquí).
 import { FuncionesInexistentesError, funcionesInexistentes } from '../permisos/permisos-roles.service.js';
@@ -188,7 +198,7 @@ router.get('/export', exigirFuncion('usuarios.usuario.exportar'), async (req: Re
     if (rolesUnicos.length > 0) {
         const filasRol = await db.select({ codigo: permisosRoles.codigo, tipoEnlace: permisosRoles.tipoEnlace })
             .from(permisosRoles).where(inArray(permisosRoles.codigo, rolesUnicos));
-        for (const r of filasRol) enlacePorRol.set(r.codigo, r.tipoEnlace);
+        for (const r of filasRol) enlacePorRol.set(r.codigo, enlaceNormalizado(r.tipoEnlace));
     }
     const rows = filas.map((u) => ({
         username: u.username,
