@@ -31,7 +31,7 @@ test.describe('Usuarios — gestión y permisos', () => {
         admin: ['pagina.users', 'pagina.dashboard', 'pagina.rndc'],
         proveedor: ['pagina.dashboard'],
       };
-      return route.fulfill(json({ codigo, tipoPrincipal: 'interno', funciones: cuadros[codigo] ?? ['pagina.dashboard'] }));
+      return route.fulfill(json({ codigo, funciones: cuadros[codigo] ?? ['pagina.dashboard'] }));
     });
   });
 

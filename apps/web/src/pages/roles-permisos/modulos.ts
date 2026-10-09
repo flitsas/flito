@@ -179,28 +179,24 @@ export function kDeNMarcadas(k: number, n: number): string {
   return `${k} de ${n} ${k === 1 ? 'marcada' : 'marcadas'}`;
 }
 
+/** HU #12876: nombre de cada enlace, en el radio del formulario y en la cabecera del cuadro. */
 export const ETIQUETA_ENLACE: Record<TipoEnlace, string> = {
-  ninguno: 'No se atan a nada',
-  compania: 'Una compañía',
-  proveedor: 'Un gestor SOAT',
-  organismos_transito: 'Organismos de tránsito',
+  ninguno: 'Ninguno',
+  compania: 'Compañía',
+  proveedor: 'Proveedor',
+  organismos_transito: 'Organismos',
 };
 
-/** Ayuda de cada ámbito en el formulario (ficha §8.5). */
+/** Ayuda breve de cada enlace (spec UX de la HU #12876). Ninguna menciona nombres de rol. */
 export const AYUDA_ENLACE: Record<TipoEnlace, string> = {
-  ninguno: 'Sus usuarios ven lo que este cuadro tenga marcado, sin filtro por entidad.',
-  compania: 'Al crear un usuario con este rol habrá que elegirle una compañía, y solo verá lo de esa compañía.',
-  proveedor: 'Al crear un usuario con este rol habrá que elegirle un gestor SOAT, y solo verá los trámites de ese gestor.',
-  organismos_transito: 'Al crear un usuario con este rol habrá que marcarle uno o más organismos, y solo verá lo de esos organismos.',
+  ninguno: 'Ve todos los datos de los módulos que este rol tenga marcados.',
+  compania: 'Ve solo lo de su compañía en Gestión Trámites, SOAT, Impuestos, su bolsa, Comprobantes y Logística. No ve catálogos ni configuración; el resto le queda cerrado.',
+  proveedor: 'Ve solo lo asignado a su proveedor. Hoy aplica a SOAT.',
+  organismos_transito: 'Ve solo lo de sus secretarías de tránsito en Impuestos y Derechos de tránsito. El resto le queda cerrado.',
 };
 
-/** Cómo se lee el ámbito en la cabecera del rol («Se atan a…»). */
-export const ENLACE_EN_CABECERA: Record<TipoEnlace, string> = {
-  ninguno: 'No se atan a nada',
-  compania: 'Se atan a una compañía',
-  proveedor: 'Se atan a un gestor SOAT',
-  organismos_transito: 'Se atan a organismos de tránsito',
-};
+/** Orden fijo del grupo de radios, independiente del orden de `TIPOS_ENLACE`. */
+export const ORDEN_ENLACE: readonly TipoEnlace[] = ['ninguno', 'compania', 'proveedor', 'organismos_transito'];
 
 /** «1 usuario tiene este rol.» / «4 usuarios tienen este rol.» */
 export function usuariosTienenEsteRol(n: number): string {
@@ -220,11 +216,6 @@ export function desmarcadas(n: number): string {
 /** «1 cambio» / «3 cambios». */
 export function cambios(n: number): string {
   return n === 1 ? '1 cambio' : `${n} cambios`;
-}
-
-/** «1 función marcada fuera del canal» / «7 funciones marcadas fuera del canal». */
-export function funcionesFueraDelCanal(n: number): string {
-  return n === 1 ? '1 función marcada fuera del canal' : `${n} funciones marcadas fuera del canal`;
 }
 
 /**

@@ -11,8 +11,7 @@
 //     eso no viaja en `/roles`. Todo queda cacheado por código en estado.
 //   · El `PUT` no tiene 409 de «conflicto de versión» (§11-4): el último que guarda gana. Se declara
 //     como límite en la ficha de ayuda de la pantalla.
-//   · `canalExterno` por función no viaja: el aviso de rol externo es el general de §8.1 y, tras
-//     guardar, se listan las funciones que el `PUT` devuelve en `aviso.funciones`.
+//   · HU #12876: sin aviso de canal externo; el enlace del rol es la única frontera.
 //   · Tras guardar, el cuadro pinta EXACTAMENTE `funciones` de la respuesta del `PUT` (AC7), no lo
 //     que se envió ni nada recalculado en el cliente.
 //   · AC5 / RN-A4: tras guardar se vuelve a pedir `/mios` y se compara `version` con la del montaje
@@ -62,7 +61,6 @@ export default function RolesPermisos() {
   const [versionMia, setVersionMia] = useState<number | null>(null);
   const [seleccionado, setSeleccionado] = useState<string | null>(null);
   const [borrador, setBorrador] = useState<Set<string>>(() => new Set());
-  const [avisoFueraDelCanal, setAvisoFueraDelCanal] = useState<string[]>([]);
   const [guardando, setGuardando] = useState(false);
   const [errorGuardado, setErrorGuardado] = useState<string | null>(null);
   const [avisoPropio, setAvisoPropio] = useState<string | null>(null);
@@ -90,7 +88,6 @@ export default function RolesPermisos() {
       const primero = ordenados[0]?.codigo ?? null;
       setSeleccionado(primero);
       setBorrador(new Set(primero ? mapa[primero] : []));
-      setAvisoFueraDelCanal([]);
       setErrorGuardado(null);
       setCarga('ok');
     } catch (e) {
@@ -103,10 +100,6 @@ export default function RolesPermisos() {
 
   const gruposVisibles = useMemo(() => modulosVisibles(grupos), [grupos]);
   const total = useMemo(() => gruposVisibles.reduce((n, g) => n + g.funciones.length, 0), [gruposVisibles]);
-  const nombrePorCodigo = useMemo(
-    () => new Map(gruposVisibles.flatMap((g) => g.funciones.map((f) => [f.codigo, f.nombreNegocio] as const))),
-    [gruposVisibles],
-  );
   // HU #12717: el grupo (tal como se PINTA, tras `seccionesVisibles`) de cada código, para que
   // desmarcar una pantalla desmarque las acciones del mismo acordeón que el administrador ve.
   const grupoPorCodigo = useMemo(
@@ -141,7 +134,6 @@ export default function RolesPermisos() {
     if (!confirmarSalida()) return;
     setSeleccionado(codigo);
     setBorrador(new Set(cuadros[codigo] ?? []));
-    setAvisoFueraDelCanal([]);
     setErrorGuardado(null);
   };
 
@@ -178,7 +170,6 @@ export default function RolesPermisos() {
       // AC7: la nueva línea base es lo que el servidor APLICÓ, no lo que se envió.
       setCuadros((prev) => ({ ...prev, [seleccionado]: respuesta.funciones }));
       setBorrador(new Set(respuesta.funciones));
-      setAvisoFueraDelCanal(respuesta.aviso?.funciones ?? []);
       toast.success(COPY_GUARDADO, { duration: 6000 });
       try {
         const mios = await permisosApi.mios();
@@ -204,7 +195,6 @@ export default function RolesPermisos() {
     if (confirmarSalida()) {
       setSeleccionado(nuevo.codigo);
       setBorrador(new Set());
-      setAvisoFueraDelCanal([]);
       setErrorGuardado(null);
     }
   };
@@ -223,7 +213,6 @@ export default function RolesPermisos() {
       const primero = restantes[0]?.codigo ?? null;
       setSeleccionado(primero);
       setBorrador(new Set(primero ? cuadros[primero] ?? [] : []));
-      setAvisoFueraDelCanal([]);
       setErrorGuardado(null);
     }
   };
@@ -289,10 +278,8 @@ export default function RolesPermisos() {
             key={rol.codigo}
             rol={rol}
             grupos={gruposVisibles}
-            nombrePorCodigo={nombrePorCodigo}
             base={base}
             borrador={borrador}
-            avisoFueraDelCanal={avisoFueraDelCanal}
             guardando={guardando}
             errorGuardado={errorGuardado}
             onToggle={alternar}
