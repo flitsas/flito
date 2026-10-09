@@ -40,3 +40,4 @@ En el menú lateral, sección **Gestión**, ítem **Gestión Trámites**. Tambi�
 - **Facturar** un trámite (congelar la liquidación) y la **emisión electrónica** no se hacen aquí.
 - No entrega licencias de tránsito: eso es **Logística** / **Mi ruta**.
 - El Auditor no descarga soportes en lote, aunque sí puede marcar trámites y usar todos los filtros.
+- Si su rol está ligado a una compañía, la pantalla le muestra solo los trámites de esa compañía. Por eso no verá el filtro de compañía, ni **Solicitar SOAT**, **Solicitar ambos** o el **Solicitar** de la columna SOAT (escoger el proveedor del SOAT lo hace FLITO), ni **+ Trámite demo**. **Solicitar Impuestos**, **Entregar** y **Descargar soportes** siguen disponibles si su rol tiene esas funciones.
