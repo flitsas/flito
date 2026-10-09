@@ -75,3 +75,19 @@ export function companiaDeAlcance(a: AlcanceResuelto): number | null | undefined
   if (a.enlace === 'ninguno') return undefined;
   return a.enlace === 'compania' ? a.companiaId : null;
 }
+
+/**
+ * HU #13426 (Habeas Data, bloqueante de security): ¿lee la COMPAÑÍA? Mismo criterio que SOAT
+ * (`SoatCtx.proyeccionCliente`): enlace `compania`, o enlace sin resolver (`null`, falla cerrado). Quien
+ * lee así no recibe nombres ni
+ * correos de los empleados de FLIT que movieron sus registros: los campos `*PorNombre` /
+ * `usuarioNombre` se emiten `null`, sin cambiar la forma del DTO.
+ */
+export function esProyeccionCliente(a: AlcanceResuelto): boolean {
+  return a.enlace === 'compania' || a.enlace === null;
+}
+
+/** El nombre del actor tal cual, o `null` si el lector es la compañía (`esProyeccionCliente`). */
+export function actorVisible<T>(a: AlcanceResuelto, valor: T): T | null {
+  return esProyeccionCliente(a) ? null : valor;
+}

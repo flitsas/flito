@@ -28,6 +28,7 @@ import {
 } from './flito-impuestos.export.service.js';
 import { resolverPermisos } from '../../shared/permisos-efectivos.js';
 import { alcanceDeUsuario, soloSinEnlace } from '../../shared/middleware/frontera-enlace.js';
+import { esProyeccionCliente } from '../../shared/alcance-filas.js';
 import {
   CARGA_MASIVA_ARCHIVOS_POR_PETICION, CARGA_MASIVA_MAX_BYTES_ARCHIVO, CodigoErrorReciboCaja, EstadoImpuesto, FASES_RECIBO,
   FaseRecibo, ResultadoCertificacion, TipoSoporteZip, CABECERA_DIRECCIONES_SIN_CONFIRMAR, SEMAFOROS_IMPUESTO,
@@ -543,7 +544,10 @@ router.get('/:id/historial', exigirFuncion('impuestos.tramite.ver_historial'), a
   const ctx = await contextoImpuesto(req.user!);
   const d = await detalleImpuesto(req.params.id, ctx);
   if (!d) { res.status(404).json({ error: 'El impuesto no existe' }); return; }
-  res.json(await historialDe('impuesto', req.params.id));
+  // HU #13426 (Habeas Data): la compañía no recibe quién de FLIT movió el impuesto (`usuario` → null;
+  // `historialDe` ya resuelve nombre-o-correo en ese único campo). `organismos_transito` sigue igual.
+  const filas = await historialDe('impuesto', req.params.id);
+  res.json(esProyeccionCliente(ctx.alcance) ? filas.map((f) => ({ ...f, usuario: null })) : filas);
 });
 
 /**

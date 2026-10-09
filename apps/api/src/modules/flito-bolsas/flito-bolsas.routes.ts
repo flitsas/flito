@@ -16,7 +16,7 @@ import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { alcanceDe, soloSinEnlace } from '../../shared/middleware/frontera-enlace.js';
-import { companiaDeAlcance } from '../../shared/alcance-filas.js';
+import { companiaDeAlcance, esProyeccionCliente } from '../../shared/alcance-filas.js';
 import { carpetaDe } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { checkMagicNumber } from '../pesv/magic-number.js';
 import {
@@ -187,7 +187,10 @@ router.get('/:companiaId/movimientos', exigirFuncion('bolsas.movimientos.ver'), 
   const parsed = filtroSchema.safeParse(req.query);
   if (!parsed.success) { res.status(400).json({ error: 'Filtros inválidos' }); return; }
   try {
-    res.json(await movimientosDe(companiaIdDe(req), parsed.data));
+    const movs = await movimientosDe(companiaIdDe(req), parsed.data);
+    // Habeas Data (HU #13426): la compañía no recibe el nombre de quien de FLIT registró cada movimiento
+    // (`''`: el contrato lo declara `string`, y su vacío no cambia la forma).
+    res.json(esProyeccionCliente(await alcanceDe(req)) ? movs.map((m) => ({ ...m, registradoPorNombre: '' })) : movs);
   } catch (e) { fallo(res, e); }
 });
 
@@ -507,7 +510,8 @@ router.post('/:companiaId/movimientos/:movimientoId/correccion', exigirFuncion('
 // GET /:companiaId/cierres — reportes de cierre del cliente, del más reciente al más antiguo.
 router.get('/:companiaId/cierres', exigirFuncion('bolsas.cierres.ver'), companiaPropia('leer'), async (req: Request, res: Response) => {
   try {
-    res.json(await cierresDe(companiaIdDe(req)));
+    const cierres = await cierresDe(companiaIdDe(req));
+    res.json(esProyeccionCliente(await alcanceDe(req)) ? cierres.map((c) => ({ ...c, cerradoPorNombre: '' })) : cierres); // ídem
   } catch (e) { fallo(res, e); }
 });
 

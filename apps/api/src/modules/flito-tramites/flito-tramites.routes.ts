@@ -8,6 +8,7 @@ import { esAlertaOperativa, esFuenteTramite, TipoSoporteZip } from '@operaciones
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { alcanceDe, soloSinEnlace } from '../../shared/middleware/frontera-enlace.js';
+import { esProyeccionCliente } from '../../shared/alcance-filas.js';
 import { exigirTramitesPropios, tramiteEnAlcance } from './flito-tramites.alcance.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { soportesDeTramite } from '../../shared/soportes/soportes-consulta.js';
@@ -79,8 +80,11 @@ router.get('/facetas', exigirFuncion('tramites.cola.filtrar'), async (req: Reque
 // GET /:id/historial — auditoría de cambios del trámite (campo por campo). Operaciones/Auditoría.
 router.get('/:id/historial', exigirFuncion('tramites.tramite.ver_historial'), async (req: Request, res: Response) => {
   // HU #13426 (AC2): un trámite fuera del alcance responde 404, igual que uno inexistente.
-  if (!await tramiteEnAlcance(req.params.id, await alcanceDe(req))) { res.status(404).json({ error: 'El trámite no existe' }); return; }
-  res.json(await historial(req.params.id));
+  const alcance = await alcanceDe(req);
+  if (!await tramiteEnAlcance(req.params.id, alcance)) { res.status(404).json({ error: 'El trámite no existe' }); return; }
+  // Habeas Data (HU #13426): la compañía no recibe el nombre de quien de FLIT hizo cada cambio.
+  const filas = await historial(req.params.id);
+  res.json(esProyeccionCliente(alcance) ? filas.map((f) => ({ ...f, usuarioNombre: null })) : filas);
 });
 
 /**

@@ -20,6 +20,7 @@ import {
   TramiteNoEncontradoError, ViajeLogisticaError, ViajeNoEncontradoError, listar, quitar, registrar,
 } from './flito-logistica-viajes.service.js';
 import { alcanceDe } from '../../shared/middleware/frontera-enlace.js';
+import { esProyeccionCliente } from '../../shared/alcance-filas.js';
 import { enAlcanceLogistica, exigirPropioLogistica } from './flito-logistica.alcance.js';
 
 const router = Router();
@@ -74,9 +75,13 @@ router.get('/tramites/:tramiteId/viajes', exigirFuncion('logistica.viajes.ver'),
   const tramiteId = idUuid(req.params.tramiteId);
   if (tramiteId === null) { res.status(404).json(NO_EXISTE_TRAMITE); return; }
   // HU #13426 (AC2): trámite de otra compañía → 404, igual que uno inexistente.
-  if (!await enAlcanceLogistica('tramite', tramiteId, await alcanceDe(req))) { res.status(404).json(NO_EXISTE_TRAMITE); return; }
+  const alcance = await alcanceDe(req);
+  if (!await enAlcanceLogistica('tramite', tramiteId, alcance)) { res.status(404).json(NO_EXISTE_TRAMITE); return; }
   try {
-    const cuerpo = await listar(tramiteId);
+    const lista = await listar(tramiteId);
+    // Habeas Data (HU #13426): la compañía no recibe el nombre de quien de FLIT registró el viaje.
+    const cuerpo = esProyeccionCliente(alcance)
+      ? { ...lista, items: lista.items.map((v) => ({ ...v, registradoPorNombre: null })) } : lista;
     // Sin caché: un viaje registrado hace un segundo tiene que salir sin recargar la pantalla.
     res.set('Cache-Control', 'no-store');
     res.json(cuerpo);

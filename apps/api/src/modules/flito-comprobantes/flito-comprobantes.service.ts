@@ -29,7 +29,7 @@ import { leerSubDocumento, type LecturaSubDocumento, type SubDocumentoApi } from
 import { candidatosPorLlave, cruzarLectura, type ResultadoCruce } from './flito-comprobantes.cruce.js';
 import { autoAplicar, resumenFallo } from './flito-comprobantes.auto.js';
 import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
-import { companiaDeAlcance } from '../../shared/alcance-filas.js';
+import { actorVisible, companiaDeAlcance } from '../../shared/alcance-filas.js';
 
 const log = loggerFor('flito-comprobantes');
 
@@ -264,7 +264,12 @@ type FilaLista = { [K in keyof typeof PROYECCION_LISTA]: (typeof PROYECCION_LIST
 const iso = (d: Date | string | null | undefined): string | null => (d ? new Date(d).toISOString() : null);
 const num = (v: string | number | null | undefined): number | null => (v === null || v === undefined ? null : Number(v));
 
-function aListaDto(r: FilaLista): ComprobanteListaDto {
+/**
+ * `alcance` decide la proyección (HU #13426, Habeas Data): la compañía no recibe quién de FLIT subió,
+ * aplicó o descartó (`actorVisible`). `subidoPorNombre` es `string` en el contrato: va `''`, su vacío.
+ */
+function aListaDto(r: FilaLista, alcance: AlcanceResuelto): ComprobanteListaDto {
+  const actor = <T>(v: T): T | null => actorVisible(alcance, v);
   return {
     id: r.id!,
     loteId: r.loteId!,
@@ -292,9 +297,9 @@ function aListaDto(r: FilaLista): ComprobanteListaDto {
     aplicadoEn: iso(r.aplicadoEn),
     aplicadoAutomaticamente: r.aplicadoAutomaticamente ?? false,
     descartadoEn: iso(r.descartadoEn),
-    subidoPorNombre: r.subidoPorNombre ?? '',
-    aplicadoPorNombre: r.aplicadoPorNombre ?? null,
-    descartadoPorNombre: r.descartadoPorNombre ?? null,
+    subidoPorNombre: actor(r.subidoPorNombre) ?? '',
+    aplicadoPorNombre: actor(r.aplicadoPorNombre) ?? null,
+    descartadoPorNombre: actor(r.descartadoPorNombre) ?? null,
   };
 }
 
@@ -312,7 +317,7 @@ export async function listar(f: FiltrosListado, alcance: AlcanceResuelto = { enl
   const [conteo] = await db.select({ total: sql<number>`count(*)::int` }).from(flitoComprobantes).where(where);
   const filas = await consultaLista().where(where).orderBy(...ordenListado())
     .limit(f.pageSize).offset((f.page - 1) * f.pageSize);
-  return { items: (filas as FilaLista[]).map(aListaDto), total: conteo?.total ?? 0, page: f.page, pageSize: f.pageSize };
+  return { items: (filas as FilaLista[]).map((r) => aListaDto(r, alcance)), total: conteo?.total ?? 0, page: f.page, pageSize: f.pageSize };
 }
 
 // ─────────────────────────── Detalle ─────────────────────────────────────────
@@ -351,7 +356,7 @@ export async function detalle(id: string, alcance: AlcanceResuelto = { enlace: '
   }).from(flitoComprobantes)
     .leftJoin(diferenciaAceptadaPor, eq(diferenciaAceptadaPor.id, flitoComprobantes.diferenciaAceptadaPorId))
     .where(eq(flitoComprobantes.id, id)).limit(1);
-  const base = aListaDto(fila as FilaLista);
+  const base = aListaDto(fila as FilaLista, alcance);
   // Candidatos solo en pendientes (AC5): en aplicados y descartados ya no hay nada que elegir.
   // HU #13426: los candidatos se buscan entre TODOS los trámites (por placa/VIN): a quien tiene enlace no
   // se le ofrecen (aplicar es `soloSinEnlace`, P-2), así no hacen de oráculo de trámites ajenos.
@@ -367,7 +372,7 @@ export async function detalle(id: string, alcance: AlcanceResuelto = { enlace: '
     soporteAplicadoId: lectura?.soporteAplicadoId ?? null,
     diferenciaAceptadaEn: iso(lectura?.diferenciaAceptadaEn),
     diferenciaAceptadaMotivo: lectura?.diferenciaAceptadaMotivo ?? null,
-    diferenciaAceptadaPorNombre: lectura?.diferenciaAceptadaPorNombre ?? null,
+    diferenciaAceptadaPorNombre: actorVisible(alcance, lectura?.diferenciaAceptadaPorNombre ?? null),
   };
 }
 

@@ -10,11 +10,15 @@ import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-func
 import { audit } from '../../shared/middleware/audit.js';
 import { alcanceDe, soloSinEnlace } from '../../shared/middleware/frontera-enlace.js';
 import { enAlcanceLogistica, exigirPropioLogistica } from './flito-logistica.alcance.js';
+import { esProyeccionCliente } from '../../shared/alcance-filas.js';
 import {
   actaDetalle, buscarIdempotencia, cerrarLote, despachar, entregar, escanearLt, facetas,
   guardarIdempotencia, listar, listarActas, LogisticaError, miRuta, registrarDevolucion,
   registrarNovedad, reversar, tramiteDetalle, urlActaPdf, validarLt, type FiltrosLogistica, type LogisticaCtx,
 } from './flito-logistica.service.js';
+
+/** La bitácora sin el nombre del actor (HU #13426): la forma del DTO no cambia. */
+const sinActor = <T extends { actorNombre: string | null }>(xs: T[]): T[] => xs.map((e) => ({ ...e, actorNombre: null }));
 
 const router = Router();
 router.use(authMiddleware);
@@ -44,7 +48,7 @@ const lista = (v: unknown): string[] | undefined => {
 };
 
 /** Ejecuta la acción del servicio y traduce LogisticaError a su código HTTP; el resto es 500. */
-async function ejecutar(res: Response, fn: () => Promise<unknown>): Promise<unknown | undefined> {
+async function ejecutar<T>(res: Response, fn: () => Promise<T>): Promise<T | undefined> {
   try {
     return await fn();
   } catch (error) {
@@ -103,9 +107,11 @@ router.get('/actas', exigirFuncion('logistica.actas.listar'), async (req: Reques
 // GET /actas/:id — detalle del acta: documentos + bitácora del despacho (CA-13).
 router.get('/actas/:id', exigirFuncion('logistica.actas.ver'), async (req: Request, res: Response) => {
   // HU #13426 (AC2): un acta de otra compañía responde 404, igual que una inexistente.
-  if (!await enAlcanceLogistica('acta', req.params.id, await alcanceDe(req))) { res.status(404).json({ error: 'El acta no existe' }); return; }
+  const alcance = await alcanceDe(req);
+  if (!await enAlcanceLogistica('acta', req.params.id, alcance)) { res.status(404).json({ error: 'El acta no existe' }); return; }
   const r = await ejecutar(res, () => actaDetalle(req.params.id));
-  if (r !== undefined) res.json(r);
+  // Habeas Data (HU #13426): la compañía no recibe quién de FLIT movió cada documento de la bitácora.
+  if (r !== undefined) res.json(esProyeccionCliente(alcance) ? { ...r, bitacora: sinActor(r.bitacora) } : r);
 });
 
 // GET /actas/:id/pdf — URL prefirmada del PDF base del acta (se genera si falta).
@@ -117,9 +123,10 @@ router.get('/actas/:id/pdf', exigirFuncion('logistica.actas.descargar'), async (
 
 // GET /:id — detalle del trámite aprobado + su LT + bitácora (CA-07).
 router.get('/:id', exigirFuncion('logistica.documento.ver'), async (req: Request, res: Response) => {
-  if (!await enAlcanceLogistica('tramite', req.params.id, await alcanceDe(req))) { res.status(404).json({ error: 'El trámite no existe' }); return; }
+  const alcance = await alcanceDe(req);
+  if (!await enAlcanceLogistica('tramite', req.params.id, alcance)) { res.status(404).json({ error: 'El trámite no existe' }); return; }
   const r = await ejecutar(res, () => tramiteDetalle(req.params.id));
-  if (r !== undefined) res.json(r);
+  if (r !== undefined) res.json(esProyeccionCliente(alcance) ? { ...r, eventos: sinActor(r.eventos) } : r); // ídem acta
 });
 
 // POST /validar-lt — valida el match de una LT SIN persistir (el mensajero escanea en lote; solo al
