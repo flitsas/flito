@@ -7,7 +7,7 @@
 //   · «Solicitar SOAT e impuestos a la vez» no es acción: exige las dos de solicitar (el API lo resuelve).
 //   · Impuestos NO repite las acciones de SOAT sin operación propia (P-5).
 //   · Revisiones OCR: «Ver» + una sola «Revisar lecturas» (P-7). Mi ruta: ver, escanear, novedad (P-8).
-//   · Tablero FLITO no está aquí: pasa al Tablero de General (P-11), que es de la #13428.
+//   · Tablero FLITO no está aquí: pasa al Tablero de General (P-11, `general.ts`, #13428).
 import type { NodoArbolDef } from './index.js';
 import { itemsANodos, type AccionDef, type ItemDef } from './nodos.js';
 
@@ -93,5 +93,26 @@ export const ITEMS_GESTION: readonly ItemDef[] = [
   ] },
 ];
 
+/**
+ * HU #13428 — Clientes y proveedores y Bitácora cuelgan de Gestión (decisión del PO del 9-oct; el AC1 de la
+ * HU los ponía en Administración) y van al final del elemento. Lista aparte de `ITEMS_GESTION` porque su
+ * mapeo y su paso son de la #13428 (`acciones-administracion.ts`, 0236/0237), no de la #12873.
+ * «Ver clientes y proveedores» es P-21 (2026-10-13).
+ */
+export const ITEMS_CLIENTES_Y_BITACORA: readonly ItemDef[] = [
+  { slug: 'clients', clave: 'clientes', nombre: 'Clientes y proveedores', elemento: 'gestion', orden: 90, acciones: [
+    a('ver', 'Ver clientes y proveedores', 'Consultar los clientes, las compañías y los proveedores de SOAT.'),
+    a('crear_editar_clientes', 'Crear y editar clientes', 'Crear clientes y empresas, y editar sus datos generales.'),
+    a('crear_editar_proveedores', 'Crear y editar proveedores', 'Crear y editar los proveedores de SOAT.'),
+    a('autogestion', 'Habilitar o revocar la autogestión del cliente', 'Habilitar o revocar la autogestión de SOAT, impuestos y logística de un cliente.'),
+    a('soat_sin_tramite', 'Configurar «SOAT sin trámite»', 'Permitir a un cliente solicitar SOAT sin trámite y elegir su proveedor.'),
+    a('datos_fiscales', 'Datos fiscales', 'Registrar y editar los datos fiscales de un cliente.'),
+  ] },
+  { slug: 'flito_bitacora', clave: 'bitacora', nombre: 'Bitácora', elemento: 'gestion', orden: 100, acciones: [
+    a('ver', 'Ver la bitácora', 'Consultar la bitácora de cambios y la de cada registro.'),
+  ] },
+];
+
 /** Ítems y acciones del área, padres antes que hijos. */
 export const ARBOL_GESTION: readonly NodoArbolDef[] = itemsANodos(ITEMS_GESTION);
+export const ARBOL_CLIENTES_Y_BITACORA: readonly NodoArbolDef[] = itemsANodos(ITEMS_CLIENTES_Y_BITACORA);

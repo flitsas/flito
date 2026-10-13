@@ -7,13 +7,16 @@
 //      lectura, decisión del PO del 2026-10-13; `cumpleGrupo`).
 //   2. Usuario U: con `viejo(U)` = (rol ∪ conceder) \ revocar sobre el grupo, `conceder A` si U tenía
 //      todas y su rol (ya repartido) no tiene A; `revocar A` si su rol tiene A y a U le faltaba alguna.
+//   1b. HU #13428 (P-22): las de reparto universal (y la página de su ítem) a CADA rol, si ningún rol la tenía.
 //   2b. AC8 (PO, 2026-10-13): `ROL_CON_TODAS_LAS_ACCIONES` recibe TODAS las acciones (después del 2).
 //   3. Se borran las marcas de los códigos absorbidos (roles y usuarios).
 // Una acción cuyo grupo ya no existe (`existentes`) no se toca: es la segunda corrida (idempotencia).
 // Sin PII (Ley 1581): el detalle es `user_id` + rol.
 import type { FilaRolEnSeco, FilaUsuarioEnSeco, UsuarioEnSeco } from '../reparto-en-seco.js';
-import { PARTIDA_DE_OPERACION_NUEVA } from './acciones-finanzas.js';
-import { ACCIONES_ARBOL, CODIGOS_ABSORBIDOS, CONJUNCIONES_ARBOL, cumpleGrupo, expandir, operacionesDe, predecesoresDe, predecesorNoAbsorbido, ROL_CON_TODAS_LAS_ACCIONES } from './expansion.js';
+import {
+  ACCIONES_ARBOL, ACCIONES_UNIVERSALES, CODIGOS_ABSORBIDOS, CONJUNCIONES_ARBOL, cumpleGrupo, esUniversal, expandir, operacionesDe,
+  PARTIDAS_DE_OPERACIONES_NUEVAS as PARTIDA_DE_OPERACION_NUEVA, predecesoresDe, predecesorNoAbsorbido, ROL_CON_TODAS_LAS_ACCIONES,
+} from './expansion.js';
 
 export interface FilasReparto { filasRol: FilaRolEnSeco[]; filasUsuario: FilaUsuarioEnSeco[] }
 
@@ -59,12 +62,24 @@ export function repartirPorTodos(
   const roles = porRol(filas.filasRol);
   const nuevasRol: FilaRolEnSeco[] = [];
   for (const [rol, codigos] of roles) {
-    for (const a of accionesPorTodos(codigos, existentes, acciones)) if (!codigos.has(a)) nuevasRol.push({ rol, codigo: a });
+    for (const a of accionesPorTodos(codigos, existentes, acciones)) {
+      if (!codigos.has(a) && !esUniversal(a)) nuevasRol.push({ rol, codigo: a });
+    }
+  }
+  // Paso 1b, como la 0237: a cada rol conocido (los de las filas y los de los usuarios), si ningún rol la tenía.
+  const todosLosRoles = [...new Set([...roles.keys(), ...usuarios.map((u) => u.rol)])].sort();
+  for (const { accion, pagina } of ACCIONES_UNIVERSALES.filter((u) => acciones.includes(u.accion))) {
+    if (filas.filasRol.some((f) => f.codigo === accion)) continue;
+    for (const rol of todosLosRoles) {
+      for (const codigo of [accion, pagina]) {
+        if (!(roles.get(rol)?.has(codigo)) && !nuevasRol.some((f) => f.rol === rol && f.codigo === codigo)) nuevasRol.push({ rol, codigo });
+      }
+    }
   }
   const rolesDespues = porRol([...filas.filasRol, ...nuevasRol]);
   const ocupadas = new Set(filas.filasUsuario.map((f) => `${f.userId}\u0000${f.codigo}`));
   const nuevasUsuario: FilaUsuarioEnSeco[] = [];
-  const vivas = accionesVivas(existentes, acciones);
+  const vivas = accionesVivas(existentes, acciones).filter((a) => !esUniversal(a)); // la CTE de usuarios no toca las universales
   for (const u of usuarios) {
     const delRol = roles.get(u.rol) ?? new Set<string>();
     const propias = filas.filasUsuario.filter((f) => f.userId === u.id);
@@ -128,8 +143,11 @@ export function codigosVigilados(acciones: readonly string[] = TODAS): string[] 
  * «ganancia» lo que la persona ya podía hacer.
  */
 function conOperacionesNuevas(efectivas: Map<number, Set<string>>): Map<number, Set<string>> {
+  // HU #13428: lo de una acción universal lo hace hoy CUALQUIERA (contraseña propia desde #13425, `/me`).
+  const deTodos = ACCIONES_UNIVERSALES.flatMap((u) => operacionesDe(u.accion));
   for (const s of efectivas.values()) {
     for (const [nueva, partida] of Object.entries(PARTIDA_DE_OPERACION_NUEVA)) if (s.has(partida)) s.add(nueva);
+    for (const op of deTodos) s.add(op);
   }
   return efectivas;
 }

@@ -38,7 +38,8 @@ import {
 import { db } from '../../db/client.js';
 import { flitoGestorOrganismos, users } from '../../db/schema.js';
 import { resolverPermisos } from '../permisos-efectivos.js';
-import { catalogoCompleto } from '../../modules/permisos/catalogo.js';
+import { catalogoCompleto, catalogoOperacionesNuevas, catalogoPlano } from '../../modules/permisos/catalogo.js';
+import { operacionesDe } from '../../modules/permisos/arbol/expansion.js';
 
 /** Lo que la guarda deja en la petición para quien venga detrás (#13426). */
 export interface FronteraResuelta {
@@ -98,8 +99,13 @@ export const RUTAS_TRANSVERSALES: readonly RutaTransversal[] = congelar([
   {
     metodo: 'PATCH', patron: '/api/users/:id/password',
     porque: 'Cambiar SU PROPIA contraseña desde Perfil (HU #13255). El handler responde 403 a un '
-      + 'usuario con enlace sobre un id que no es el suyo o sin `pagina.perfil`, exige la contraseña '
-      + 'actual y `passwordChangeLimiter` pone la cuota.',
+      + 'usuario con enlace sobre un id que no es el suyo o sin `perfil.contrasena.cambiar` (HU #13428), '
+      + 'exige la contraseña actual y `passwordChangeLimiter` pone la cuota.',
+  },
+  {
+    metodo: 'GET', patron: '/api/auth/perfil',
+    porque: '«Ver mis datos» de Perfil (HU #13428, P-22: a todos los roles). Devuelve SOLO los datos del '
+      + 'propio usuario (`sub` del token, sin `:id`), como `/auth/me`, y exige `perfil.datos.ver`.',
   },
 ]);
 
@@ -232,17 +238,27 @@ export function alcanceDe(req: Request): Promise<AlcanceResuelto> {
 
 let moduloDeFuncion: Map<string, string> | null = null;
 
+/** HU #13428: las operaciones cuya ruta es TRANSVERSAL (Perfil): las alcanza todo enlace. */
+const OPERACIONES_TRANSVERSALES: ReadonlySet<string> = new Set(['perfil.datos.ver', 'perfil.contrasena.cambiar']);
+
 /**
  * Para el aviso del panel (RN-A1): ¿alcanza este enlace por HTTP una función? Sí si su módulo del
- * catálogo está abierto al enlace. `ninguno` alcanza todo. Una función fuera del catálogo, no.
+ * catálogo está abierto al enlace, o si es una operación de ruta transversal. `ninguno` alcanza todo.
+ * Una función fuera del catálogo, no. HU #13428: una ACCIÓN del árbol la alcanza si alcanza alguna de
+ * las operaciones que concede (su módulo es el de su página: «Ver el tablero» es de `general`, pero su
+ * operación `tablero.tablero.ver` es del módulo `tablero`, abierto a compañía). Las operaciones absorbidas
+ * se leen con su módulo del catálogo plano.
  */
 export function funcionesAlcanzables(enlace: TipoEnlace): (codigo: string) => boolean {
   if (enlace === 'ninguno') return () => true;
-  moduloDeFuncion ??= new Map(catalogoCompleto().map((f) => [f.codigo, f.modulo]));
+  moduloDeFuncion ??= new Map([...catalogoPlano(), ...catalogoOperacionesNuevas(), ...catalogoCompleto()].map((f) => [f.codigo, f.modulo]));
   const mapa = moduloDeFuncion;
-  return (codigo) => {
+  const abierta = (codigo: string): boolean => {
+    if (!mapa.has(codigo)) return false;
+    if (OPERACIONES_TRANSVERSALES.has(codigo)) return true;
     const modulo = mapa.get(codigo);
     return (MODULOS_FRONTERA as readonly string[]).includes(modulo ?? '')
       && moduloAbiertoA(modulo as ModuloFrontera, enlace);
   };
+  return (codigo) => abierta(codigo) || (mapa.has(codigo) && operacionesDe(codigo).some(abierta));
 }

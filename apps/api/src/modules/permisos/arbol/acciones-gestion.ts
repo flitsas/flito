@@ -41,6 +41,12 @@ export interface AccionArbol {
    * `operaciones`.
    */
   predecesores?: readonly string[];
+  /**
+   * HU #13428 (diseño §5-ter.1 punto 3, P-22): la acción se reparte a TODOS los roles existentes (fila a
+   * fila de `permisos_roles`, sin literales), junto con la página de su ítem, y no por un grupo. Se
+   * declara con `predecesores: []`. La CTE de usuarios no la toca (nadie la tenía revocada: no existía).
+   */
+  repartoUniversal?: true;
 }
 
 export const ACCIONES_GESTION: Readonly<Record<string, AccionArbol>> = {

@@ -160,7 +160,8 @@ describe('HU #13255 — cambio de la PROPIA contraseña desde el canal externo',
   it('HU #12875: un rol CON ENLACE creado desde el panel (no el literal `cliente`) sigue la misma regla: la propia sí, la ajena no', async () => {
     const token = await testToken({ sub: 306, role: 'financiera' });
     // Se re-registra DESPUÉS de emitir el token: decide el ENLACE del resolutor, no el rol del JWT.
-    await registrarUsuarioDePrueba(306, { rol: 'aliado_x', tipoEnlace: 'proveedor', funcionesDelRol: ['usuarios.contrasena.cambiar_ajena'], excepciones: [] });
+    // HU #13428 (P-22): todo rol tiene «Cambiar mi contraseña»; sin ella la propia también es 403 (users-perfil-guardas).
+    await registrarUsuarioDePrueba(306, { rol: 'aliado_x', tipoEnlace: 'proveedor', funcionesDelRol: ['usuarios.contrasena.cambiar_ajena', 'accion.perfil.cambiar_contrasena'], excepciones: [] });
     const ajena = await patch(await buildApp(), 999, token);
     expect(ajena.status).toBe(403);
     expect(ajena.body).toEqual({ error: 'Sin permisos' });

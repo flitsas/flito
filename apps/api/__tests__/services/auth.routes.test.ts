@@ -275,7 +275,8 @@ describe('GET /api/auth/me', () => {
     expect(Array.isArray(r.body.allowedPages)).toBe(true);
     // Lo que viaja son SLUGS, resueltos por el mismo resolutor que decide en el servidor.
     // HU #12873 (P-10): la Compuerta la abre «Entregar trámites», que el admin tiene de partida.
-    expect(r.body.allowedPages).toEqual(['dashboard', 'flito_compuerta']);
+    // HU #13428 (P-11): el Tablero FLITO lo abre «Ver el tablero» de General, que el admin tiene de partida.
+    expect(r.body.allowedPages).toEqual(['dashboard', 'flito_tablero', 'flito_compuerta']);
     expect(r.body.puedeSolicitarSoat).toBe(false);
     expect(selectMock).toHaveBeenCalledTimes(3); // usuario + puente + compañías con el canal (AC8)
   });

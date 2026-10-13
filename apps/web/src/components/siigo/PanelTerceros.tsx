@@ -66,8 +66,10 @@ export default function PanelTerceros() {
     /** `POST /siigo/clientes/validacion/recalcular-duplicados` → `siigo.terceros.configurar` (HU #13427).
      *  Reescribe las marcas de identificación de las fichas; no es «parte de sincronizar». */
     recalcularDuplicados: hasFuncion('siigo.terceros.configurar'),
-    /** `PATCH /clients/:id` → `clients.clientes.administrar`. Sin ella, la ficha abre en solo lectura. */
-    editarFicha: hasFuncion('clients.clientes.administrar'),
+    /** `PATCH /clients/:id` (HU #13428): la ficha manda datos generales (nombre, documento, dirección) Y
+     *  fiscales, así que el API pide `clients.clientes.editar` y `clients.clientes.datos_fiscales`.
+     *  Sin las dos, la ficha abre en solo lectura. */
+    editarFicha: hasFuncion('clients.clientes.editar') && hasFuncion('clients.clientes.datos_fiscales'),
   };
 
   /** Sube cada vez que algo pudo mover la cartera: una ficha guardada, una ciudad, un tercero. */

@@ -57,7 +57,10 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-sync/flito-sync-interruptores.routes.ts', metodo: 'PUT', ruta: '/interruptores/:fuente', codigo: 'tramites.sincronizacion.configurar' },
   // flito-parametrizacion/flito-parametrizacion.routes.ts
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'GET', ruta: '/companias', codigo: 'parametrizacion.companias.listar' },
-  { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'PATCH', ruta: '/companias/:id', codigo: 'parametrizacion.companias.editar' },
+  // HU #13428 (§5-ter.1 punto 2): el PATCH decide en línea por grupo de campos.
+  { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'PATCH', ruta: '/companias/:id', condicion: 'general', codigo: 'parametrizacion.companias.editar' },
+  { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'PATCH', ruta: '/companias/:id', condicion: 'autogestion', codigo: 'parametrizacion.companias.autogestion' },
+  { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'PATCH', ruta: '/companias/:id', condicion: 'sinTramite', codigo: 'parametrizacion.companias.soat_sin_tramite' },
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'GET', ruta: '/proveedores-soat', codigo: 'parametrizacion.proveedores.listar' },
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'POST', ruta: '/proveedores-soat', codigo: 'parametrizacion.proveedores.crear' },
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'PATCH', ruta: '/proveedores-soat/:id', codigo: 'parametrizacion.proveedores.editar' },
@@ -308,6 +311,9 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'users/users.routes.ts', metodo: 'POST', ruta: '/:id/reactivar', codigo: 'usuarios.usuario.reactivar' },
   { fichero: 'users/users.routes.ts', metodo: 'POST', ruta: '/:id/invalidate-sessions', codigo: 'usuarios.sesiones.invalidar' },
   { fichero: 'users/users.routes.ts', metodo: 'PATCH', ruta: '/:id/password', condicion: 'ajena', codigo: 'usuarios.contrasena.cambiar_ajena' },
+  // HU #13428 (AC3): Perfil — la contraseña propia (en línea) y los datos propios. Antes no tenían guarda (cualquiera).
+  { fichero: 'users/users.routes.ts', metodo: 'PATCH', ruta: '/:id/password', condicion: 'propia', codigo: 'perfil.contrasena.cambiar' },
+  { fichero: 'auth/auth.routes.ts', metodo: 'GET', ruta: '/perfil', codigo: 'perfil.datos.ver' },
   // HU #12171 — el historial de cambios: dos rutas nuevas con codigo propio (admin y auditor).
   { fichero: 'users/users.routes.ts', metodo: 'GET', ruta: '/auditoria', codigo: 'usuarios.auditoria.ver' },
   { fichero: 'users/users.routes.ts', metodo: 'GET', ruta: '/auditoria/titulares', codigo: 'usuarios.auditoria.filtrar' },
@@ -523,8 +529,10 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'finanzas/finanzas.routes.ts', metodo: 'GET', ruta: '/tramites/:id/viajes-logistica', codigo: 'finanzas.reporte_costos.ver_viajes' },
   { fichero: 'finanzas/finanzas.routes.ts', metodo: 'GET', ruta: '/gastos-diarios', codigo: 'finanzas.gastos_diarios.ver' },
   { fichero: 'clients/clients.routes.ts', metodo: 'GET', ruta: '/', codigo: 'clients.clientes.ver' },
-  { fichero: 'clients/clients.routes.ts', metodo: 'POST', ruta: '/', codigo: 'clients.clientes.administrar' },
-  { fichero: 'clients/clients.routes.ts', metodo: 'PATCH', ruta: '/:id', codigo: 'clients.clientes.administrar' },
+  // HU #13428: el transitorio `clients.clientes.administrar` partido en crear, editar (en línea) y datos fiscales (en línea).
+  { fichero: 'clients/clients.routes.ts', metodo: 'POST', ruta: '/', codigo: 'clients.clientes.crear' },
+  { fichero: 'clients/clients.routes.ts', metodo: 'PATCH', ruta: '/:id', condicion: 'editar', codigo: 'clients.clientes.editar' },
+  { fichero: 'clients/clients.routes.ts', metodo: 'POST', ruta: '*', condicion: 'fiscal', codigo: 'clients.clientes.datos_fiscales' },
   // ── HU #13423 (ADR-0023): laft/, privacy/, firma/, drive/, soat/ antiguo, siigo/ y las 4 de solo sesión ──
   { fichero: 'laft/lists.routes.ts', metodo: 'GET', ruta: '/', codigo: 'laft.listas.operar' },
   { fichero: 'laft/lists.routes.ts', metodo: 'POST', ruta: '/:code/sync', codigo: 'laft.listas.administrar' },

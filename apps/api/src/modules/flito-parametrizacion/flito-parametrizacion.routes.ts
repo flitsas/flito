@@ -17,7 +17,7 @@ import {
   organismosTransitoConfig,
 } from '../../db/schema.js';
 import { authMiddleware } from '../../shared/middleware/auth.js';
-import { exigirFuncion, funcionesConcedidas } from '../../shared/middleware/exigir-funcion.js';
+import { exigirFuncion, funcionesConcedidas, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
   AmbitoReglaProveedor,
@@ -159,7 +159,30 @@ const CHK_SIN_TRAMITE_GESTOR = 'clients_sin_tramite_gestor_chk';
 // `next` solo para el `catch` del CHECK: lo que NO sea `23514` tiene que seguir su camino hasta
 // `errorHandler` (que ya lo registra y responde 500), no convertirse en un 400 que mande a buscar un
 // problema de configuración donde hay uno de red.
-router.patch('/companias/:id', exigirFuncion('parametrizacion.companias.editar'), async (req: Request, res: Response, next: NextFunction) => {
+//
+// HU #13428 (diseño §5-ter.1 punto 2): la guarda se parte por GRUPO DE CAMPOS del cuerpo, cada uno con
+// su operación en línea — autogestión (`[autogestion]`), «SOAT sin trámite» (`[sinTramite]`) y el resto
+// (`[general]`, `parametrizacion.companias.editar`). Cada grupo presente exige la suya; un cuerpo sin
+// ningún campo conocido → 400. Se decide antes de validar el cuerpo (403 antes que 400).
+const CAMPOS_AUTOGESTION = ['soatAutogestionable', 'impuestosAutogestionable', 'logisticaAutogestionable'];
+const CAMPOS_SIN_TRAMITE = ['soatSinTramite', 'proveedorSoatSinTramiteId'];
+const CAMPOS_GENERALES = ['logisticaPermiteParcial', 'carpetaStorage', 'toleranciaValorImpuesto'];
+
+/** `null` = puede; `'vacio'` = el cuerpo no trae ningún grupo; si no, el grupo al que le faltó su operación. */
+async function grupoDenegadoCompania(req: Request): Promise<null | 'vacio' | 'general' | 'autogestion' | 'sinTramite'> {
+  const claves = req.body && typeof req.body === 'object' ? Object.keys(req.body) : [];
+  const trae = (grupo: string[]) => claves.some((k) => grupo.includes(k));
+  if (!trae(CAMPOS_AUTOGESTION) && !trae(CAMPOS_SIN_TRAMITE) && !trae(CAMPOS_GENERALES)) return 'vacio';
+  if (trae(CAMPOS_GENERALES) && !(await tieneFuncion(req, 'parametrizacion.companias.editar'))) return 'general';
+  if (trae(CAMPOS_AUTOGESTION) && !(await tieneFuncion(req, 'parametrizacion.companias.autogestion'))) return 'autogestion';
+  if (trae(CAMPOS_SIN_TRAMITE) && !(await tieneFuncion(req, 'parametrizacion.companias.soat_sin_tramite'))) return 'sinTramite';
+  return null;
+}
+
+router.patch('/companias/:id', async (req: Request, res: Response, next: NextFunction) => {
+  const denegado = await grupoDenegadoCompania(req);
+  if (denegado === 'vacio') { res.status(400).json({ error: 'Datos inválidos: no hay ningún campo que cambiar' }); return; }
+  if (denegado) { res.status(403).json({ error: 'Sin permisos', grupo: denegado }); return; }
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = actualizarCompaniaSchema.safeParse(req.body);
