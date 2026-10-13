@@ -151,11 +151,12 @@ export async function cuadroDe(codigo: string): Promise<CuadroRol> {
  */
 /**
  * HU #13428 (decisión de David, 2026-10-13) — un rol NUEVO nace con Perfil: las acciones de reparto universal
- * («Ver mis datos», «Cambiar mi contraseña»; P-22) se le marcan por defecto, sin literales de rol ni de acción
- * (salen de `ACCIONES_UNIVERSALES`). Quedan desmarcables: el cuadro (`guardarCuadro`) reescribe el conjunto
+ * («Ver mis datos», «Cambiar mi contraseña»; P-22) y la página de su ítem se le marcan por defecto, sin literales
+ * de rol ni de acción (salen de `ACCIONES_UNIVERSALES`, la misma fuente del paso 1b de la 0237). Quedan desmarcables: el cuadro (`guardarCuadro`) reescribe el conjunto
  * entero, así que quitarlas después no las devuelve. Si la base aún no las tiene (antes de la 0236), no se marcan.
  */
-const ACCIONES_POR_DEFECTO_DE_ROL_NUEVO: readonly string[] = ACCIONES_UNIVERSALES.map((u) => u.accion);
+// También la PÁGINA de su ítem (`pagina.perfil`), como el paso 1b de la 0237: sin ella el rol no abre Perfil en la web.
+const ACCIONES_POR_DEFECTO_DE_ROL_NUEVO: readonly string[] = [...new Set(ACCIONES_UNIVERSALES.flatMap((u) => [u.accion, u.pagina]))];
 
 export async function crearRol(input: CrearRolInput, actor: ActorAuditoria): Promise<RolCatalogo> {
   if (RESERVADOS.includes(input.codigo)) throw new CodigoReservadoError(input.codigo);
