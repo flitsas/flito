@@ -12,7 +12,7 @@
 // Una acción cuyo grupo ya no existe (`existentes`) no se toca: es la segunda corrida (idempotencia).
 // Sin PII (Ley 1581): el detalle es `user_id` + rol.
 import type { FilaRolEnSeco, FilaUsuarioEnSeco, UsuarioEnSeco } from '../reparto-en-seco.js';
-import { ACCIONES_ARBOL, CODIGOS_ABSORBIDOS, cumpleGrupo, expandir, operacionesDe, predecesoresDe, ROL_CON_TODAS_LAS_ACCIONES } from './expansion.js';
+import { ACCIONES_ARBOL, CODIGOS_ABSORBIDOS, CONJUNCIONES_ARBOL, cumpleGrupo, expandir, operacionesDe, predecesoresDe, ROL_CON_TODAS_LAS_ACCIONES } from './expansion.js';
 
 export interface FilasReparto { filasRol: FilaRolEnSeco[]; filasUsuario: FilaUsuarioEnSeco[] }
 
@@ -26,6 +26,15 @@ const porRol = (filas: FilaRolEnSeco[]) => {
 function accionesVivas(existentes?: ReadonlySet<string>): string[] {
   return Object.keys(ACCIONES_ARBOL).sort()
     .filter((a) => !existentes || predecesoresDe(a).every((p) => existentes.has(p)));
+}
+
+/** Lo que el paso 3 retira dados los `existentes`: los grupos vivos y las conjunciones con todas sus acciones vivas. */
+export function absorbidosVivos(existentes?: ReadonlySet<string>): Set<string> {
+  const vivas = new Set(accionesVivas(existentes));
+  return new Set([
+    ...[...vivas].flatMap((a) => predecesoresDe(a)),
+    ...CONJUNCIONES_ARBOL.filter((c) => c.acciones.every((a) => vivas.has(a))).map((c) => c.operacion),
+  ]);
 }
 
 /** Paso 1 sobre `rol → códigos`: devuelve las acciones que gana cada rol (sin borrar nada). */
@@ -64,9 +73,12 @@ export function repartirPorTodos(
     const ya = rolesDespues.get(ROL_CON_TODAS_LAS_ACCIONES) ?? new Set<string>();
     for (const a of Object.keys(ACCIONES_ARBOL).sort()) if (!ya.has(a)) nuevasRol.push({ rol: ROL_CON_TODAS_LAS_ACCIONES, codigo: a });
   }
+  // Paso 3, como la 0233: se retira SOLO lo de los grupos que sobreviven al recorte (y la conjunción si
+  // sobreviven todas sus acciones). Un grupo incompleto no reparte su acción ni pierde a sus miembros.
+  const retirados = absorbidosVivos(existentes);
   return {
-    filasRol: [...filas.filasRol, ...nuevasRol].filter((f) => !CODIGOS_ABSORBIDOS.has(f.codigo)),
-    filasUsuario: [...filas.filasUsuario, ...nuevasUsuario].filter((f) => !CODIGOS_ABSORBIDOS.has(f.codigo)),
+    filasRol: [...filas.filasRol, ...nuevasRol].filter((f) => !retirados.has(f.codigo)),
+    filasUsuario: [...filas.filasUsuario, ...nuevasUsuario].filter((f) => !retirados.has(f.codigo)),
   };
 }
 

@@ -83,6 +83,16 @@ describe('0233 — análisis estático', () => {
     expect(retiro).toBeGreaterThan(admin);
   });
 
+  it('lo absorbido se llena DESPUÉS del recorte de grupos incompletos (un grupo incompleto no pierde miembros)', () => {
+    const recorte = SIN_COMENTARIOS.search(/DELETE FROM tmp_arbol_12873 t WHERE t\.accion IN/);
+    const llenado = SIN_COMENTARIOS.search(/INSERT INTO tmp_absorbidas_12873 \(fn\) SELECT DISTINCT fn FROM tmp_arbol_12873;/);
+    const conjuncion = SIN_COMENTARIOS.search(/HAVING bool_and\(EXISTS \(SELECT 1 FROM tmp_arbol_12873 t WHERE t\.accion = c\.accion\)\)/);
+    expect(recorte).toBeGreaterThan(0);
+    expect(llenado).toBeGreaterThan(recorte);
+    expect(conjuncion).toBeGreaterThan(llenado);
+    expect(SIN_COMENTARIOS.match(/INSERT INTO tmp_absorbidas_12873/g)).toHaveLength(2);
+  });
+
   it('el paso 3 retira lo absorbido de las tres tablas, en orden de FK (marcas antes que el catálogo)', () => {
     const i = (re: RegExp) => SIN_COMENTARIOS.search(re);
     const rol = i(/DELETE FROM permisos_rol_funcion WHERE funcion_codigo IN \(SELECT fn FROM tmp_absorbidas_12873\);/);

@@ -28,7 +28,7 @@
 -- el paso 2b repite sus filas con ON CONFLICT DO NOTHING.
 
 -- ÁRBOL GENERADO (inicio)
--- 128 pares acción → código de su grupo «todos». Generado: no editar a mano.
+-- 125 pares acción → código de su grupo «todos». Generado: no editar a mano.
 -- Regenerar con: npm run permisos:seed -w apps/api -- --arbol gestion --reparto
 DROP TABLE IF EXISTS tmp_arbol_12873;
 CREATE TEMP TABLE tmp_arbol_12873 (accion varchar(80) NOT NULL, fn varchar(80) NOT NULL, PRIMARY KEY (accion, fn));
@@ -52,7 +52,6 @@ INSERT INTO tmp_arbol_12873 (accion, fn) VALUES
   ('accion.comparendos.ver_listado', 'comparendos.registro.ver'),
   ('accion.comparendos.ver_listado', 'comparendos.registro.ver_eventos'),
   ('accion.comparendos.ver_listado', 'comparendos.registros.buscar'),
-  ('accion.comparendos.ver_listado', 'comparendos.registros.exportar'),
   ('accion.comparendos.ver_listado', 'comparendos.registros.listar'),
   ('accion.derechos.cargar', 'derechos.candidatos.ver'),
   ('accion.derechos.cargar', 'derechos.recibos.cargar'),
@@ -92,7 +91,6 @@ INSERT INTO tmp_arbol_12873 (accion, fn) VALUES
   ('accion.logistica.registrar_viajes', 'logistica.viajes.registrar'),
   ('accion.logistica.registrar_viajes', 'logistica.viajes.ver'),
   ('accion.logistica.reversar_paso', 'logistica.documento.reversar'),
-  ('accion.logistica.ver_actas', 'logistica.actas.descargar'),
   ('accion.logistica.ver_actas', 'logistica.actas.listar'),
   ('accion.logistica.ver_actas', 'logistica.actas.ver'),
   ('accion.logistica.ver_consola', 'logistica.consola.filtrar'),
@@ -117,7 +115,6 @@ INSERT INTO tmp_arbol_12873 (accion, fn) VALUES
   ('accion.revisiones.revisar_lecturas', 'revisiones.revision.resolver'),
   ('accion.revisiones.ver', 'revisiones.campos.ver'),
   ('accion.revisiones.ver', 'revisiones.cola.ver'),
-  ('accion.revisiones.ver', 'revisiones.soporte.descargar'),
   ('accion.soat.cambiar_proveedor', 'soat.proveedor.cambiar'),
   ('accion.soat.cargar_comprobantes', 'soat.comprobante.cargar'),
   ('accion.soat.cargar_comprobantes', 'soat.masiva.cargar'),
@@ -162,19 +159,26 @@ INSERT INTO tmp_arbol_12873 (accion, fn) VALUES
   ('accion.tramites.ver_listado', 'tramites.cola.ver'),
   ('accion.tramites.ver_listado', 'tramites.tramite.ver_historial');
 
--- Lo absorbido: todo código de un grupo y las operaciones que exigen VARIAS acciones (conjunción).
-DROP TABLE IF EXISTS tmp_absorbidas_12873;
-CREATE TEMP TABLE tmp_absorbidas_12873 (fn varchar(80) PRIMARY KEY);
-INSERT INTO tmp_absorbidas_12873 (fn) SELECT DISTINCT fn FROM tmp_arbol_12873;
-INSERT INTO tmp_absorbidas_12873 (fn) VALUES
-  ('tramites.solicitud.pedir_ambos')
-ON CONFLICT (fn) DO NOTHING;
-
 -- Idempotencia: una acción se reparte solo si su grupo existe ENTERO. En la segunda corrida ya no
 -- existe ninguno (paso 3) y no se reparte ni se revoca nada.
 DELETE FROM tmp_arbol_12873 t WHERE t.accion IN (
   SELECT x.accion FROM tmp_arbol_12873 x
    WHERE NOT EXISTS (SELECT 1 FROM permisos_funciones f WHERE f.codigo = x.fn));
+
+-- Lo absorbido, DESPUÉS del recorte: solo los códigos de los grupos que sobreviven, y la operación de
+-- una conjunción solo si sobreviven TODAS sus acciones. Un grupo incompleto no reparte su acción y
+-- tampoco pierde ninguno de sus miembros (nota de db-review, 2026-10-13).
+DROP TABLE IF EXISTS tmp_absorbidas_12873;
+CREATE TEMP TABLE tmp_absorbidas_12873 (fn varchar(80) PRIMARY KEY);
+INSERT INTO tmp_absorbidas_12873 (fn) SELECT DISTINCT fn FROM tmp_arbol_12873;
+INSERT INTO tmp_absorbidas_12873 (fn)
+SELECT c.fn FROM (VALUES
+  ('tramites.solicitud.pedir_ambos', 'accion.tramites.solicitar_impuestos'),
+  ('tramites.solicitud.pedir_ambos', 'accion.tramites.solicitar_soat')
+) AS c(fn, accion)
+ GROUP BY c.fn
+HAVING bool_and(EXISTS (SELECT 1 FROM tmp_arbol_12873 t WHERE t.accion = c.accion))
+ON CONFLICT (fn) DO NOTHING;
 
 -- Acciones de LECTURA (decisión del PO del 2026-10-13): se reciben con ALGUNA operación del grupo.
 DROP TABLE IF EXISTS tmp_lectura_12873;
@@ -182,7 +186,6 @@ CREATE TEMP TABLE tmp_lectura_12873 (accion varchar(80) PRIMARY KEY);
 INSERT INTO tmp_lectura_12873 (accion) VALUES
   ('accion.comparendos.ver_listado'),
   ('accion.derechos.ver_listado'),
-  ('accion.derechos.ver_soportes'),
   ('accion.impuestos.ver_listado'),
   ('accion.impuestos.ver_soportes'),
   ('accion.logistica.ver_actas'),

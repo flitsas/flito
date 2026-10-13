@@ -90,15 +90,17 @@ export const ACCIONES_GESTION: Readonly<Record<string, AccionArbol>> = {
   'accion.derechos.ver_listado': { lectura: true, operaciones: ['derechos.cola.ver', 'derechos.cola.filtrar'] },
   'accion.derechos.cargar': { operaciones: ['derechos.recibos.cargar', 'derechos.candidatos.ver'] },
   'accion.derechos.procesar_drive': { operaciones: ['derechos.drive.listar', 'derechos.drive.procesar', 'derechos.drive.ver_registro'] },
-  'accion.derechos.ver_soportes': { lectura: true, operaciones: ['derechos.soporte.descargar'] },
+  // Es una DESCARGA (una sola operación): no es de lectura (PO, 2026-10-13); con una sola, «todos» = «alguna».
+  'accion.derechos.ver_soportes': { operaciones: ['derechos.soporte.descargar'] },
   // ── Revisiones OCR (P-7) ──
-  'accion.revisiones.ver': { lectura: true, operaciones: ['revisiones.cola.ver', 'revisiones.campos.ver', 'revisiones.soporte.descargar'] },
+  // PO 2026-10-13: en las de lectura, descargar/exportar es OPCIONAL (quien lo tenía lo conserva; nadie lo gana).
+  'accion.revisiones.ver': { lectura: true, operaciones: ['revisiones.cola.ver', 'revisiones.campos.ver'], opcionales: ['revisiones.soporte.descargar'] },
   'accion.revisiones.revisar_lecturas': { operaciones: ['revisiones.revision.resolver', 'revisiones.revision.descartar'] },
   // ── Logística ──
   'accion.logistica.ver_consola': { lectura: true, operaciones: ['logistica.consola.ver', 'logistica.consola.filtrar', 'logistica.documento.ver'] },
   'accion.logistica.registrar_viajes': { operaciones: ['logistica.viajes.ver', 'logistica.viajes.registrar', 'logistica.viajes.quitar'] },
   'accion.logistica.generar_actas': { operaciones: ['logistica.lt.validar'] },
-  'accion.logistica.ver_actas': { lectura: true, operaciones: ['logistica.actas.listar', 'logistica.actas.ver', 'logistica.actas.descargar'] },
+  'accion.logistica.ver_actas': { lectura: true, operaciones: ['logistica.actas.listar', 'logistica.actas.ver'], opcionales: ['logistica.actas.descargar'] },
   'accion.logistica.despachar_entregar_devolver': {
     // PO 2026-10-13: despachar y operar ajenas son OPCIONALES: el mensajero recibe la acción (entregar y
     // devolver) sin despachar ni operar actas ajenas; quien las tenía las conserva como marca directa.
@@ -113,7 +115,8 @@ export const ACCIONES_GESTION: Readonly<Record<string, AccionArbol>> = {
   'accion.mi_ruta.reportar_novedad': { operaciones: ['logistica.documento.reportar_novedad'] },
   // ── Comparendos ──
   'accion.comparendos.ver_listado': { lectura: true,
-    operaciones: ['comparendos.registros.listar', 'comparendos.registros.buscar', 'comparendos.registros.exportar', 'comparendos.registro.ver', 'comparendos.registro.ver_eventos'],
+    operaciones: ['comparendos.registros.listar', 'comparendos.registros.buscar', 'comparendos.registro.ver', 'comparendos.registro.ver_eventos'],
+    opcionales: ['comparendos.registros.exportar'],
   },
   'accion.comparendos.gestionar': { operaciones: ['comparendos.registro.gestionar'] },
   'accion.comparendos.sincronizar': { operaciones: ['comparendos.sync.lanzar', 'comparendos.sync.ver_corridas', 'comparendos.sync.ver_corrida'] },
