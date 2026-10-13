@@ -85,7 +85,11 @@ const authSinReactivar = async (sub: number) => {
   const token = await auth('admin', sub);
   await registrarUsuarioDePrueba(sub, {
     rol: 'admin', tipoEnlace: 'ninguno', excepciones: [],
-    funcionesDelRol: operacionesDePartida('admin').filter((c) => c !== 'siigo.factura.reactivar'),
+    // HU #13427: `reactivar` llega por la acción «Reintentar, reenviar…, reactivar»; sin la acción y con sus otras tres sueltas.
+    funcionesDelRol: [
+      ...operacionesDePartida('admin').filter((c) => c !== 'siigo.factura.reactivar' && c !== 'accion.facturacion_operacion.gestionar'),
+      'siigo.factura.reintentar', 'siigo.factura.reenviar_correo', 'siigo.factura.marcar_fallido',
+    ],
   });
   return token;
 };

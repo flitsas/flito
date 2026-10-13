@@ -12,7 +12,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   ACCIONES_SIIGO, esAccionDeOperacion, esAccionSiigo, motivoDenegacion,
 } from '../../src/modules/siigo/siigo.permisos.js';
-import { catalogoCompleto } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano } from '../../src/modules/permisos/catalogo.js';
 
 // Importar el módulo arrastra la bitácora → db/client. Se mockea para no abrir conexión real.
 vi.mock('../../src/db/client.js', () => ({
@@ -21,7 +21,7 @@ vi.mock('../../src/db/client.js', () => ({
 }));
 
 const ACCIONES_DE_OPERACION = ACCIONES_SIIGO.filter((a) => a !== 'consultar');
-const CATALOGO = catalogoCompleto();
+const CATALOGO = catalogoPlano();
 /** Los roles de partida de una acción: los de su función `siigo.factura.<accion>` en la foto. */
 const rolesDe = (accion: string) => [...(CATALOGO.find((f) => f.codigo === `siigo.factura.${accion}`)?.roles ?? [])].sort();
 const puedeDePartida = (rol: string, accion: string) => rolesDe(accion).includes(rol);

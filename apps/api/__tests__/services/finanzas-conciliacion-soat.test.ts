@@ -566,6 +566,11 @@ describe('AC5 — sin permisos nuevos', () => {
     // `requireRole('financiera', 'admin', 'auditor')`). Una segunda guarda sería una segunda verdad.
     expect(fuente).toMatch(/router\.get\('\/reporte-costos\/facturacion-electronica', exigirFuncion\('finanzas\.reporte_costos\.ver'\),/);
     expect((fuente.match(/requireRole\(/g) ?? []).length).toBe(0);
-    expect(new Set(fuente.match(/exigirFuncion\('[a-z0-9_.]+'\)/g))).toEqual(new Set(["exigirFuncion('finanzas.reporte_costos.ver')"]));
+    // HU #13427: el archivo parte la guarda en las acciones de Reporte de costos y Gastos diarios; esta ruta sigue con la de lectura.
+    expect(new Set(fuente.match(/exigirFuncion\('[a-z0-9_.]+'\)/g))).toEqual(new Set([
+      "exigirFuncion('finanzas.reporte_costos.ver')", "exigirFuncion('finanzas.reporte_costos.exportar')",
+      "exigirFuncion('finanzas.reporte_costos.ver_soportes')", "exigirFuncion('finanzas.reporte_costos.ver_viajes')",
+      "exigirFuncion('finanzas.gastos_diarios.ver')",
+    ]));
   });
 });

@@ -86,7 +86,7 @@ router.get('/:pais/:departamento/ciudades', exigirFuncion('siigo.parametrizacion
 //
 // El orden importa: la guarda de rol va ANTES del limitador, para que un rechazo por permiso no
 // consuma el cupo de quien sí lo tiene.
-router.post('/cargar', exigirFuncion('siigo.parametrizacion.administrar'), cargaLimiter, async (req: Request, res: Response) => {
+router.post('/cargar', exigirFuncion('siigo.terceros.configurar'), cargaLimiter, async (req: Request, res: Response) => {
   try {
     const resultado = await cargarCiudades();
     await audit(req, {

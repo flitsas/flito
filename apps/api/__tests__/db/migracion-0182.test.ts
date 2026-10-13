@@ -25,8 +25,8 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { TIPOS_TRAMITE_TARIFA } from '@operaciones/shared-types';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
-import { catalogoCompleto } from '../../src/modules/permisos/catalogo.js';
-import { leerFuncionesSembradas, leerRepartoSembrado, leerRetirosSembrados } from '../helpers/permisos-seed-sql.js';
+import { catalogoPlano } from '../../src/modules/permisos/catalogo.js';
+import { leerFuncionesSembradas, leerRepartoSembrado, leerRetirosSembrados, MIGRACIONES_ANTES_DEL_ARBOL } from '../helpers/permisos-seed-sql.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ARCHIVO = '0182_tarifas_vigencias.sql';
@@ -90,7 +90,7 @@ describe('0182 — reglas del archivo y lo que siembra/retira (análisis estáti
     expect(SIN_COMENTARIOS).toMatch(/ON CONFLICT \(rol_codigo, funcion_codigo\) DO NOTHING;/);
     const sembradas = leerFuncionesSembradas([ARCHIVO]);
     expect([...sembradas.keys()].sort()).toEqual([...NUEVAS]);
-    const catalogo = new Map(catalogoCompleto().map((f) => [f.codigo, f]));
+    const catalogo = new Map(catalogoPlano().map((f) => [f.codigo, f]));
     for (const codigo of NUEVAS) {
       const f = catalogo.get(codigo);
       expect(f, `${codigo} en el catálogo del código`).toBeDefined();
@@ -116,7 +116,7 @@ describe('0182 — reglas del archivo y lo que siembra/retira (análisis estáti
     expect(iUsr).toBeGreaterThan(iRol);
     expect(iFun).toBeGreaterThan(iUsr);
     // Y el código ya no declara `borrar`: una función en la base sin guarda viva no arrancaría.
-    const codigos = new Set(catalogoCompleto().map((f) => f.codigo));
+    const codigos = new Set(catalogoPlano().map((f) => f.codigo));
     expect(codigos.has(RETIRADA)).toBe(false);
     for (const c of NUEVAS) expect(codigos.has(c)).toBe(true);
   });

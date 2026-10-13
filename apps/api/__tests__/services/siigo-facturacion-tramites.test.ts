@@ -297,16 +297,16 @@ describe('AC1 — la pantalla y el servidor preguntan LO MISMO: la función del 
   });
 
   it('quien reenvía el correo es exactamente quien tiene `siigo.factura.reenviar_correo` de partida', async () => {
-    const { catalogoCompleto } = await import('../../src/modules/permisos/catalogo.js');
-    const roles = catalogoCompleto().find((f) => f.codigo === 'siigo.factura.reenviar_correo')!.roles;
+    const { catalogoPlano } = await import('../../src/modules/permisos/catalogo.js');
+    const roles = catalogoPlano().find((f) => f.codigo === 'siigo.factura.reenviar_correo')!.roles;
     expect([...roles].sort()).toEqual(['admin', 'financiera']);
     // `auditor` lee el estado y no reenvía: auditar es mirar.
     for (const rol of ['auditor', 'proveedor', 'conductor', 'transito']) expect(roles, rol).not.toContain(rol);
   });
 
   it('`auditor` sí puede consultar: la ficha se ve, la acción no', async () => {
-    const { catalogoCompleto } = await import('../../src/modules/permisos/catalogo.js');
-    expect(catalogoCompleto().find((f) => f.codigo === 'siigo.factura.consultar')!.roles).toContain('auditor');
+    const { catalogoPlano } = await import('../../src/modules/permisos/catalogo.js');
+    expect(catalogoPlano().find((f) => f.codigo === 'siigo.factura.consultar')!.roles).toContain('auditor');
   });
 });
 

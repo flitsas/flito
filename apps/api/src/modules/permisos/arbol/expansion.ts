@@ -9,6 +9,7 @@
 //
 // Expansión PLANA hasta la #13429 (diseño §4.3): aquí no se exige que la página o el elemento padre
 // estén marcados; el gating de ancestros llega con el resolver en cadena completa.
+import { ACCIONES_FINANZAS } from './acciones-finanzas.js';
 import { ACCIONES_GESTION, CONJUNCIONES_GESTION, type AccionArbol } from './acciones-gestion.js';
 
 /**
@@ -19,9 +20,18 @@ import { ACCIONES_GESTION, CONJUNCIONES_GESTION, type AccionArbol } from './acci
  */
 export const ROL_CON_TODAS_LAS_ACCIONES = 'admin';
 
-/** Todas las acciones del árbol (hoy solo Gestión y Tránsito; #13427/#13428/#13429 añaden su área). */
-export const ACCIONES_ARBOL: Readonly<Record<string, AccionArbol>> = { ...ACCIONES_GESTION };
+/** Todas las acciones del árbol: Gestión y Tránsito (#12873) y Finanzas (#13427); #13428/#13429 añaden su área. */
+export const ACCIONES_ARBOL: Readonly<Record<string, AccionArbol>> = { ...ACCIONES_GESTION, ...ACCIONES_FINANZAS };
 export const CONJUNCIONES_ARBOL = [...CONJUNCIONES_GESTION];
+
+/** Las áreas del árbol con su par de migraciones propio (siembra + reparto). */
+export type AreaArbol = 'gestion' | 'finanzas';
+
+/** Las acciones de cada área (para generar SU migración y SU reporte en seco). */
+export const ACCIONES_POR_AREA: Readonly<Record<AreaArbol, readonly string[]>> = {
+  gestion: Object.keys(ACCIONES_GESTION).sort(),
+  finanzas: Object.keys(ACCIONES_FINANZAS).sort(),
+};
 
 const OPS_DE = new Map<string, readonly string[]>(
   Object.entries(ACCIONES_ARBOL).map(([accion, a]) => [accion, [...a.operaciones, ...(a.apoyo ?? [])]]),
@@ -51,7 +61,17 @@ export function cumpleGrupo(accion: string, tiene: (codigo: string) => boolean):
 
 /** El grupo de la acción: lo que había que tener (todo, o algo si es de lectura) para recibirla en el paso. */
 export function predecesoresDe(accion: string): readonly string[] {
-  return ACCIONES_ARBOL[accion]?.operaciones ?? [];
+  const a = ACCIONES_ARBOL[accion];
+  return a?.predecesores ?? a?.operaciones ?? [];
+}
+
+/**
+ * HU #13427 (§5-bis.1): un predecesor de PÁGINA que la acción no concede (`pagina.finanzas_gastos_diarios`)
+ * NO se absorbe: la página sigue siendo el ítem. Una página que la acción sí concede (la compuerta, P-10 de
+ * #12873) sí se absorbe.
+ */
+export function predecesorNoAbsorbido(accion: string, codigo: string): boolean {
+  return codigo.startsWith('pagina.') && !(ACCIONES_ARBOL[accion]?.operaciones ?? []).includes(codigo);
 }
 
 /**
@@ -61,6 +81,8 @@ export function predecesoresDe(accion: string): readonly string[] {
  */
 export const CODIGOS_ABSORBIDOS: ReadonlySet<string> = new Set([
   ...Object.values(ACCIONES_ARBOL).flatMap((a) => a.operaciones),
+  // HU #13427: el código viejo que se parte (predecesor explícito) también deja de concederse; la página no.
+  ...Object.entries(ACCIONES_ARBOL).flatMap(([accion, a]) => (a.predecesores ?? []).filter((p) => !predecesorNoAbsorbido(accion, p))),
   ...CONJUNCIONES_ARBOL.map((c) => c.operacion),
 ]);
 

@@ -34,6 +34,13 @@ export interface AccionArbol {
    * excepciones no se tocan). Quien no las tenía sigue sin tenerlas aunque reciba o se le marque la acción.
    */
   opcionales?: readonly string[];
+  /**
+   * HU #13427 (diseño §5-bis.1): el grupo del PASO cuando no es `operaciones`. Hace falta cuando la acción
+   * concede operaciones NUEVAS (una guarda vieja partida en varias) cuyo código viejo es quien decide
+   * quién la recibe; o cuando el predecesor es una página (`pagina.*`), que no se absorbe. Por defecto,
+   * `operaciones`.
+   */
+  predecesores?: readonly string[];
 }
 
 export const ACCIONES_GESTION: Readonly<Record<string, AccionArbol>> = {

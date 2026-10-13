@@ -101,8 +101,13 @@ async function buildApp() {
   return app;
 }
 let sub = 6100;
-const auth = async (role: TestRole = 'financiera', allowedPages?: string[]) =>
-  `Bearer ${await testToken({ sub: sub++, username: `${role}@flit.io`, role, allowedPages })}`;
+// HU #13427 (P-19): quien tiene la página recibe en la 0235 la acción «Ver los gastos diarios» (predecesor =
+// la página); el double lo replica. `sinAccion` mide la guarda nueva por separado.
+const auth = async (role: TestRole = 'financiera', allowedPages?: string[], sinAccion = false) =>
+  `Bearer ${await testToken({
+    sub: sub++, username: `${role}@flit.io`, role, allowedPages,
+    funciones: !sinAccion && allowedPages?.includes('finanzas_gastos_diarios') ? ['accion.gastos_diarios.ver'] : [],
+  })}`;
 const CON_PAGINA = ['finanzas_gastos_diarios'];
 
 beforeEach(() => {
@@ -431,6 +436,13 @@ describe('AC2 — la ruta y su guarda', () => {
     expect(res.body.error).toEqual(expect.any(String));
   });
 
+  it('HU #13427 (P-19): con la página y sin la acción «Ver los gastos diarios» → 403 de la operación nueva', async () => {
+    const app = await buildApp();
+    const res = await request(app).get('/api/finanzas/gastos-diarios').set('Authorization', await auth('financiera', CON_PAGINA, true));
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({ funcion: 'finanzas.gastos_diarios.ver' });
+  });
+
   it('401 sin token', async () => {
     const app = await buildApp();
     expect((await request(app).get('/api/finanzas/gastos-diarios')).status).toBe(401);
@@ -473,13 +485,13 @@ describe('AC2 — la ruta y su guarda', () => {
     expect(res.body.serie.map((d: { dia: string }) => d.dia)).toEqual(['2026-09-10', '2026-09-11', '2026-09-12']);
   });
 
-  it('la pila de middlewares de la ruta lleva requirePage y NO la lectura del reporte (y el archivo ya no tiene requireRole, HU #13422)', async () => {
+  it('la pila de middlewares de la ruta lleva requirePage + la acción propia (HU #13427) y NO la lectura del reporte (y el archivo ya no tiene requireRole, HU #13422)', async () => {
     const { default: router } = await import('../../src/modules/finanzas/finanzas.routes.js');
     const capa = (router as unknown as { stack: Array<{ route?: { path: string; stack: Array<{ handle: () => void }> } }> }).stack
       .find((l) => l.route?.path === '/gastos-diarios')!.route!;
     // Los handlers son closures anónimos: se compara su CÓDIGO con el que fabrican `requirePage` y
     // `requireRole` (cada llamada crea una closure nueva, así que la identidad no sirve).
-    expect(capa.stack).toHaveLength(2);
+    expect(capa.stack).toHaveLength(3);
     const { requireRole } = await import('../../src/shared/middleware/auth.js');
     const { requirePage } = await import('../../src/shared/permissions.js');
     const guarda = capa.stack[0]!.handle.toString();
@@ -487,7 +499,7 @@ describe('AC2 — la ruta y su guarda', () => {
     expect(guarda).not.toBe(requireRole('admin').toString());
     const fuente = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src/modules/finanzas/finanzas.routes.ts'), 'utf8');
     expect(fuente.match(/requireRole\(/g)).toBeNull();
-    expect(fuente).toMatch(/router\.get\('\/gastos-diarios', requirePage\('finanzas_gastos_diarios'\)/);
+    expect(fuente).toMatch(/router\.get\('\/gastos-diarios', requirePage\('finanzas_gastos_diarios'\), exigirFuncion\('finanzas\.gastos_diarios\.ver'\),/);
     expect(fuente).not.toMatch(/router\.get\('\/gastos-diarios',[^\n]*reporte_costos/);
   });
 

@@ -63,6 +63,8 @@ export const MIGRACIONES_CON_REPARTO = [
   '0230_permisos_sensibles_por_permiso.sql', // HU #13423 (ADR-0023)
   '0232_permisos_arbol_gestion_siembra.sql', // HU #12873 (ADR-0025): acciones de Gestión y Tránsito
   '0233_permisos_arbol_gestion_reparto.sql', // HU #12873: regla «todos» + retiro de lo absorbido
+  '0234_permisos_arbol_finanzas_siembra.sql', // HU #13427: acciones de Finanzas e Integración con Siigo
+  '0235_permisos_arbol_finanzas_reparto.sql', // HU #13427: regla «todos»/«alguna» + retiro (incluido el transitorio de Siigo)
 ] as const;
 
 /**
@@ -180,6 +182,10 @@ export function reglaTodosDeSql(sql: string): { grupos: Map<string, string[]>; a
   const grupos = new Map<string, string[]>();
   for (const [accion, fn] of tuplas(pares[1]!)) grupos.set(accion!, [...(grupos.get(accion!) ?? []), fn!]);
   const absorbidos = new Set([...grupos.values()].flat());
+  // HU #13427 (P-19): `… SELECT DISTINCT fn FROM tmp_arbol_<hu>\n WHERE fn NOT IN ('pagina.…')` — el predecesor de
+  // página que la acción no concede no se absorbe.
+  const noAbs = /INSERT INTO tmp_absorbidas_\d+ \(fn\) SELECT DISTINCT fn FROM tmp_arbol_\d+\n WHERE fn NOT IN \(([^)]*)\);/.exec(limpio);
+  for (const fn of noAbs ? literales(noAbs[1]!) : []) absorbidos.delete(fn);
   // Conjunciones (forma de la nota de db-review, 2026-10-13): `SELECT c.fn FROM (VALUES ('<op>', '<accion>'), …)
   // AS c(fn, accion) … HAVING bool_and(…)`. En el pliegue todos los grupos existen: se absorben todas.
   const conj = /INSERT INTO tmp_absorbidas_\d+ \(fn\)\nSELECT c\.fn FROM \(VALUES([\s\S]*?)\) AS c\(fn, accion\)/.exec(limpio);

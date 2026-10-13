@@ -763,9 +763,12 @@ describe('AC12 — sin permisos nuevos', () => {
     // bajo la MISMA guarda): lo que se afirma es que ninguna ruta del reporte —GET o POST— se
     // registra con otra guarda o sin ella.
     const rutas = fuente.match(/router\.(get|post)\('\/reporte-costos[^']*',/g) ?? [];
-    const bajoLectura = fuente.match(/router\.(get|post)\('\/reporte-costos[^']*', exigirFuncion\('finanzas\.reporte_costos\.ver'\),/g) ?? [];
+    // HU #13427: los dos exportes pasan a «Exportar a Excel» (`finanzas.reporte_costos.exportar`); el resto, la lectura.
+    const bajoLectura = fuente.match(/router\.get\('\/reporte-costos[^']*', exigirFuncion\('finanzas\.reporte_costos\.ver'\),/g) ?? [];
+    const bajoExportar = fuente.match(/router\.post\('\/reporte-costos[^']*\/export', exigirFuncion\('finanzas\.reporte_costos\.exportar'\),/g) ?? [];
     expect(rutas.length).toBeGreaterThanOrEqual(6);
-    expect(bajoLectura).toHaveLength(rutas.length);
+    expect(bajoExportar).toHaveLength(2);
+    expect(bajoLectura.length + bajoExportar.length).toBe(rutas.length);
     expect(fuente.match(/requireRole\(/g)).toBeNull();
   });
 });

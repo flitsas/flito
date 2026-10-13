@@ -139,6 +139,16 @@ export async function listarCredenciales(): Promise<SiigoCredencialPublica[]> {
   return rows.map((r) => aPublica({ ...r, descifradoFallidoEn: r.descifradoFallidoEn }));
 }
 
+/**
+ * HU #13427 — El ambiente de una credencial, para decidir el permiso ANTES de desactivarla (registrar o
+ * borrar credenciales de producción es otra acción que las de pruebas). `null` si no existe.
+ */
+export async function ambienteDeCredencial(id: number): Promise<SiigoAmbiente | null> {
+  const [fila] = await db.select({ ambiente: siigoCredenciales.ambiente }).from(siigoCredenciales)
+    .where(eq(siigoCredenciales.id, id)).limit(1);
+  return fila ? (fila.ambiente as SiigoAmbiente) : null;
+}
+
 export async function desactivarCredencial(id: number, userId: number): Promise<boolean> {
   const r = await db.update(siigoCredenciales)
     .set({ activo: false, updatedBy: userId, updatedAt: new Date() })

@@ -242,7 +242,10 @@ const SENSIBLES_13423 = [
   ...LAFT_COMPLIANCE_13423, ...SIIGO_FACTURA_OPERAR, ...SIIGO_LEER_13423,
   'laft.listas.administrar', 'laft.manual.administrar', 'laft.retencion.administrar', 'laft.sincronizacion.administrar',
   'laft.oficial.administrar', 'privacy.olvido.administrar', 'firma.solicitud.administrar', 'firma.estado.ver',
-  'drive.archivos.administrar', 'soat.antiguo.administrar', 'soat.antiguo.operar', 'siigo.parametrizacion.administrar',
+  'drive.archivos.administrar', 'soat.antiguo.administrar', 'soat.antiguo.operar',
+  // HU #13427 (0235): el transitorio de Siigo se parte en las operaciones de sus acciones (admin las tiene todas).
+  'siigo.conceptos.administrar', 'siigo.catalogos.sincronizar', 'siigo.terceros.configurar', 'siigo.freno.reactivar',
+  'siigo.credenciales.ver', 'siigo.credenciales.registrar_pruebas', 'siigo.credenciales.registrar_produccion', 'siigo.credenciales.probar',
   'siigo.conceptos.confirmar', 'siigo.emision.ver', 'vehicles.vehiculos.consultar', 'runt.persona.consultar',
   'runt.cedula.leer', 'integraciones.fasecolda.buscar',
 ] as const;

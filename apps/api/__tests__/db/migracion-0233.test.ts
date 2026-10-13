@@ -14,7 +14,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
 import { sqlRepartoArbol } from '../../src/modules/permisos/arbol/sql-arbol.js';
-import { ACCIONES_LECTURA, CODIGOS_ABSORBIDOS, predecesoresDe, ACCIONES_ARBOL } from '../../src/modules/permisos/arbol/expansion.js';
+import { ACCIONES_LECTURA, ACCIONES_POR_AREA, predecesoresDe } from '../../src/modules/permisos/arbol/expansion.js';
+import { ACCIONES_GESTION, CONJUNCIONES_GESTION } from '../../src/modules/permisos/arbol/acciones-gestion.js';
+
+// HU #13427: el árbol ya tiene Finanzas (0234/0235); la 0233 es SOLO Gestión y Tránsito.
+const GESTION = ACCIONES_POR_AREA.gestion;
+const ABSORBIDOS_GESTION = new Set([...Object.values(ACCIONES_GESTION).flatMap((a) => a.operaciones), ...CONJUNCIONES_GESTION.map((c) => c.operacion)]);
 import { catalogoCompleto, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
 import {
   MIGRACIONES_CON_REPARTO, bloqueGenerado, bloquesInsertSiRolExiste, leerFuncionesSembradas, leerRepartoSembrado, literalesDeRol, reglaTodosDeSql,
@@ -37,7 +42,7 @@ describe('0233 — análisis estático', () => {
   });
 
   it('el bloque entre marcas es EXACTAMENTE la salida del generador (`--arbol gestion --reparto`)', () => {
-    expect(bloqueGenerado(SQL)).toBe(sqlRepartoArbol());
+    expect(bloqueGenerado(SQL)).toBe(sqlRepartoArbol('gestion'));
   });
 
   it('sin literales de rol: ni `VALUES (\'<rol>\'…)` ni `rol_codigo = \'<rol>\'`; todo reparto es INSERT … SELECT', () => {
@@ -73,7 +78,7 @@ describe('0233 — análisis estático', () => {
     expect(bloques).toHaveLength(1);
     const pares = [...bloques[0]!.matchAll(/\('([^']+)', '([^']+)'\)/g)].map((m) => [m[1], m[2]]);
     expect([...new Set(pares.map(([r]) => r))]).toEqual(['admin']);
-    expect(pares.map(([, a]) => a).sort()).toEqual(Object.keys(ACCIONES_ARBOL).sort());
+    expect(pares.map(([, a]) => a).sort()).toEqual([...GESTION]);
     expect(pares.map(([, a]) => a)).toContain('accion.soat.solicitar_sin_tramite');
     const i = (re: RegExp) => SIN_COMENTARIOS.search(re);
     const usuarios = i(/INSERT INTO permisos_usuario_funcion/);
@@ -105,10 +110,10 @@ describe('0233 — análisis estático', () => {
 
   it('el helper de paridad lee la regla: los grupos son los predecesores del código, lo absorbido es `CODIGOS_ABSORBIDOS`', () => {
     const r = reglaTodosDeSql(SQL)!;
-    expect([...r.grupos.keys()].sort()).toEqual(Object.keys(ACCIONES_ARBOL).sort());
+    expect([...r.grupos.keys()].sort()).toEqual([...GESTION]);
     for (const [a, g] of r.grupos) expect([...g].sort(), a).toEqual([...predecesoresDe(a)].sort());
-    expect([...r.absorbidos].sort()).toEqual([...CODIGOS_ABSORBIDOS].sort());
-    expect([...r.lectura].sort()).toEqual([...ACCIONES_LECTURA].sort());
+    expect([...r.absorbidos].sort()).toEqual([...ABSORBIDOS_GESTION].sort());
+    expect([...r.lectura].sort()).toEqual([...ACCIONES_LECTURA].filter((a) => GESTION.includes(a)).sort());
     expect(r.absorbidos.has('logistica.actas.operar_ajenas')).toBe(false);
     expect(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO)).toBe(MIGRACIONES_CON_REPARTO.indexOf('0232_permisos_arbol_gestion_siembra.sql') + 1);
   });
