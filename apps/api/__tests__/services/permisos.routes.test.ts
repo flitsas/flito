@@ -7,6 +7,7 @@
 // porque el mock de este repo devuelve la fila entera aunque el `select` pida menos y su `orderBy` es
 // un passthrough: un aserto de orden escrito sobre el mock sería verde vacío.
 
+import { expandir } from '../../src/modules/permisos/arbol/expansion.js';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
@@ -184,7 +185,8 @@ describe('TC #12270 AC7 — GET /api/permisos/mios devuelve el mismo conjunto ef
     expect(res.body).not.toHaveProperty('tipoPrincipal');
     // HU #12083: el helper carga las operaciones de partida del rol (la foto); `cliente` tiene su
     // página y sus ocho `soat.*` de lectura y del canal, y nada más.
-    expect(res.body.funciones).toEqual(['pagina.flito_soat', ...operacionesDePartida('cliente')].sort());
+    // HU #12873: `/mios` sirve el conjunto EXPANDIDO (acciones + las operaciones que conceden).
+    expect(res.body.funciones).toEqual([...expandir(['pagina.flito_soat', ...operacionesDePartida('cliente')])].sort());
   });
 
   it('?userId=8 se ignora: nunca devuelve el conjunto de otro usuario', async () => {

@@ -12,7 +12,7 @@
 // Desde la HU #12716 el `modulo` de cada función es el de AGRUPACIÓN (el que pinta la pantalla de
 // permisos y nombra la bitácora del 403), aplicado con `catalogo-agrupacion.ts` DESPUÉS de construir
 // cada mitad. El prefijo del código sigue siendo el módulo del FICHERO: esa comprobación se conserva.
-import { PAGES, PAGE_GROUPS, USER_ROLES, paginasPorDefecto, type PageSlug } from '@operaciones/shared-types';
+import { ARBOL_GESTION, PAGES, PAGE_GROUPS, PREFIJO_ACCION, PREFIJO_ELEMENTO, USER_ROLES, paginasPorDefecto, type NodoArbolDef, type PageSlug } from '@operaciones/shared-types';
 import { llaveDe, type GuardaLeida } from './inventario-guardas.js';
 // El SNAPSHOT y no el lector de fuentes: la imagen de producción no lleva los `.ts` (el Dockerfile
 // copia `dist` y poco más), así que un `readFileSync` de una ruta `.routes.ts` reventaría en el
@@ -21,15 +21,20 @@ import { llaveDe, type GuardaLeida } from './inventario-guardas.js';
 import { GUARDAS_MEDIDAS } from './inventario.generado.js';
 import { OPERACIONES_DECLARADAS } from './catalogo-operaciones.js';
 import { AGRUPACION_DE_OPERACION, AGRUPACION_DE_OPERACION_LEGADO, AGRUPACION_DE_PAGINA, moduloAgrupado } from './catalogo-agrupacion.js';
+import { ACCIONES_ARBOL, ACCIONES_LECTURA, CODIGOS_ABSORBIDOS, operacionesDe, predecesoresDe, ROL_CON_TODAS_LAS_ACCIONES } from './arbol/expansion.js';
 
 export interface FuncionCatalogo {
   codigo: string;
   modulo: string;
   nombreNegocio: string;
   descripcion: string;
-  tipo: 'pagina' | 'operacion';
+  tipo: 'pagina' | 'operacion' | 'accion';
   /** Roles a los que el estado de HOY concede esta función (CF-16). */
   roles: string[];
+  /** HU #12873 (ADR-0025): solo los nodos del árbol. Padre en la BASE (los `menu.*` llegan con #13429). */
+  padre?: string;
+  nivel?: number;
+  orden?: number;
 }
 
 /**
@@ -171,10 +176,10 @@ export function catalogoDeOperaciones(guardas: GuardaLeida[] = GUARDAS_MEDIDAS):
 }
 
 /**
- * El catálogo entero. Falla si dos funciones comparten código: la PK lo rechazaría igual, pero aquí
+ * El catálogo PLANO (páginas + operaciones, el de antes del árbol). Falla si dos funciones comparten código: la PK lo rechazaría igual, pero aquí
  * el error dice CUÁL, y no «duplicate key value violates unique constraint» a mitad del seed.
  */
-export function catalogoCompleto(guardas?: GuardaLeida[]): FuncionCatalogo[] {
+export function catalogoPlano(guardas?: GuardaLeida[]): FuncionCatalogo[] {
   const todas = [...catalogoDePaginas(), ...catalogoDeOperaciones(guardas)];
   const cuenta = new Map<string, number>();
   for (const f of todas) cuenta.set(f.codigo, (cuenta.get(f.codigo) ?? 0) + 1);
@@ -198,6 +203,74 @@ export function catalogoCompleto(guardas?: GuardaLeida[]): FuncionCatalogo[] {
     );
   }
   return todas.sort((a, b) => a.codigo.localeCompare(b.codigo));
+}
+
+/** Los nodos de acción del árbol (shared-types), en el orden del árbol. */
+const NODOS_ACCION: readonly NodoArbolDef[] = ARBOL_GESTION.filter((n) => n.tipo === 'accion');
+
+/**
+ * HU #12873 (ADR-0025) — Las acciones (nivel 3) como funciones del catálogo. `modulo` = el de la página
+ * de su ítem (así el panel plano las pinta junto a ella hasta la #13430); `roles` = la regla «todos»
+ * sobre los roles de partida de su grupo, la misma que aplica la 0233 sobre la base.
+ */
+export function catalogoDeAcciones(plano: FuncionCatalogo[] = catalogoPlano()): FuncionCatalogo[] {
+  const porCodigo = new Map(plano.map((f) => [f.codigo, f]));
+  const nodos = new Map(ARBOL_GESTION.map((n) => [n.codigo, n]));
+  const enArbol = new Set(NODOS_ACCION.map((n) => n.codigo));
+  const errores: string[] = [];
+  for (const a of Object.keys(ACCIONES_ARBOL)) if (!enArbol.has(a)) errores.push(`acción sin nodo en el árbol: ${a}`);
+  for (const a of enArbol) if (!(a in ACCIONES_ARBOL)) errores.push(`nodo de acción sin operaciones: ${a}`);
+  for (const a of Object.keys(ACCIONES_ARBOL)) {
+    if (predecesoresDe(a).length === 0) errores.push(`acción sin operaciones: ${a}`);
+    for (const op of operacionesDe(a)) if (!porCodigo.has(op)) errores.push(`${a} concede un código inexistente: ${op}`);
+    for (const op of ACCIONES_ARBOL[a]!.opcionales ?? []) {
+      if (!porCodigo.has(op)) errores.push(`${a} declara un opcional inexistente: ${op}`);
+      if (CODIGOS_ABSORBIDOS.has(op)) errores.push(`${a} declara opcional un código que otra acción absorbe: ${op}`);
+    }
+  }
+  for (const f of plano) {
+    if (f.codigo.startsWith(PREFIJO_ACCION) || f.codigo.startsWith(PREFIJO_ELEMENTO)) errores.push(`operación con prefijo de nodo: ${f.codigo}`);
+  }
+  if (errores.length) throw new CatalogoIncoherenteError(`El árbol de permisos y el catálogo no coinciden:\n  ${errores.join('\n  ')}`);
+
+  const item = (n: NodoArbolDef): NodoArbolDef => (n.tipo === 'item' ? n : item(nodos.get(n.padre!)!));
+  return NODOS_ACCION.map((n) => {
+    const pagina = porCodigo.get(item(n).codigo)!;
+    const grupos = predecesoresDe(n.codigo).map((p) => porCodigo.get(p)!.roles);
+    return {
+      codigo: n.codigo,
+      modulo: pagina.modulo,
+      nombreNegocio: n.nombre,
+      descripcion: n.descripcion ?? n.nombre,
+      tipo: 'accion' as const,
+      // La regla del paso (`cumpleGrupo`) sobre los roles de partida: de lectura → unión; si modifica → intersección.
+      roles: [...new Set([
+        ...(ACCIONES_LECTURA.has(n.codigo) ? grupos.flat() : grupos[0]!.filter((r) => grupos.every((g) => g.includes(r)))),
+        ROL_CON_TODAS_LAS_ACCIONES,
+      ])].sort(),
+      padre: n.padre!,
+      nivel: 3,
+      orden: n.orden,
+    };
+  });
+}
+
+/** Las páginas que son ítem del árbol, con su `nivel` y su `orden` (sin padre en la base hasta la #13429). */
+const ITEMS_ARBOL = new Map(ARBOL_GESTION.filter((n) => n.tipo === 'item').map((n) => [n.codigo, n.orden]));
+
+/**
+ * El catálogo entero: el plano MENOS lo que absorbió el árbol (operaciones y la página de la compuerta,
+ * que ya no se conceden directo) MÁS las acciones. Es lo que la base debe tener (arranque, AC9) y lo
+ * que siembran las migraciones.
+ */
+export function catalogoCompleto(guardas?: GuardaLeida[]): FuncionCatalogo[] {
+  const plano = catalogoPlano(guardas);
+  const acciones = catalogoDeAcciones(plano);
+  const vivas = plano.filter((f) => !CODIGOS_ABSORBIDOS.has(f.codigo)).map((f) => {
+    const orden = ITEMS_ARBOL.get(f.codigo);
+    return orden === undefined ? f : { ...f, nivel: 2, orden };
+  });
+  return [...vivas, ...acciones].sort((a, b) => a.codigo.localeCompare(b.codigo));
 }
 
 /** El reparto rol × función que se siembra: `[rol, codigo]` ordenado y sin repetir. */

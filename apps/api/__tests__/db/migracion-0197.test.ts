@@ -15,10 +15,10 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
 import {
-  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql,
+  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql, MIGRACIONES_ANTES_DEL_ARBOL,
 } from '../helpers/permisos-seed-sql.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
-import { catalogoCompleto, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ARCHIVO = '0197_permiso_recibo_caja.sql';
@@ -66,7 +66,7 @@ describe('0197 — análisis estático', () => {
       codigo: CODIGO, modulo: 'impuestos', nombre: op!.nombre, descripcion: op!.descripcion, tipo: 'operacion',
     });
     expect(op!.nombre).toBe('Cargar recibo de caja');
-    const f = catalogoCompleto().find((c) => c.codigo === CODIGO);
+    const f = catalogoPlano().find((c) => c.codigo === CODIGO);
     expect(f).toBeDefined();
     expect(f!.tipo).toBe('operacion');
     expect(f!.modulo).toBe('impuestos');
@@ -78,15 +78,21 @@ describe('0197 — análisis estático', () => {
     expect([...reparto.get('admin')!]).toEqual([CODIGO]);
     expect(reparto.get('gestor_impuestos')?.has(CODIGO) ?? false).toBe(false);
     // Paridad con inventario.generado.ts (lo que siembra testToken vía repartoDePartida).
-    const f = catalogoCompleto().find((c) => c.codigo === CODIGO)!;
+    const f = catalogoPlano().find((c) => c.codigo === CODIGO)!;
     expect(f.roles).toEqual(['admin']);
-    expect(repartoDePartida().filter(([, c]) => c === CODIGO)).toEqual([['admin', CODIGO]]);
+    expect(repartoDePartida(catalogoPlano()).filter(([, c]) => c === CODIGO)).toEqual([['admin', CODIGO]]);
   });
 
-  it('los cardinales del catálogo suben en 1 operación de impuestos (18 → 19)', () => {
-    const impuestos = catalogoCompleto().filter((c) => c.tipo === 'operacion' && c.modulo === 'impuestos');
-    expect(impuestos).toHaveLength(19);
-    expect(OPERACIONES_DECLARADAS.filter((o) => o.llave.startsWith('flito-impuestos/flito-impuestos.routes.ts '))).toHaveLength(19);
+  it('los cardinales del catálogo suben en 1 operación de impuestos (18 → 19; 20 con la 0203 del Bug #12642; 21 con la 0208 de la HU #12833; 22 con la 0220 de la HU #13269)', () => {
+    // El centinela cuenta TODAS las operaciones de impuestos, así que cada función posterior lo
+    // mueve: la 0203 (Bug #12642, `impuestos.excel.exportar_pago`, guarda en línea del mismo
+    // fichero) lo dejó en 20; la 0208 (HU #12833, `impuestos.tramite.corregir_direccion`, en su sub-router
+    // propio) en 21; la 0220 (HU #13269, `impuestos.recibos.reemplazar`, en su sub-router propio) en 22.
+    // Lo que esta migración prueba es «+1», no el número absoluto.
+    const impuestos = catalogoPlano().filter((c) => c.tipo === 'operacion' && c.modulo === 'impuestos');
+    expect(impuestos).toHaveLength(22);
+    expect(OPERACIONES_DECLARADAS.filter((o) => o.llave.startsWith('flito-impuestos/flito-impuestos.routes.ts '))).toHaveLength(20);
+    expect(impuestos.map((c) => c.codigo)).toContain(CODIGO);
   });
 
   it('no retira nada y el helper de paridad la lee justo después de la 0193; plegado, admin sí y gestor/auditor no', () => {
@@ -94,7 +100,7 @@ describe('0197 — análisis estático', () => {
     expect(retiros.funciones.size).toBe(0);
     expect(retiros.reparto.size).toBe(0);
     expect(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO)).toBe(MIGRACIONES_CON_REPARTO.indexOf('0193_tramite_servicios_adicionales.sql') + 1);
-    const total = leerRepartoSembrado();
+    const total = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
     expect(total.get('admin')!.has(CODIGO)).toBe(true);
     expect(total.get('gestor_impuestos')?.has(CODIGO) ?? false).toBe(false);
     expect(total.get('auditor')?.has(CODIGO) ?? false).toBe(false);

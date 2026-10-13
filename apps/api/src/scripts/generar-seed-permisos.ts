@@ -4,6 +4,8 @@
 //   npm run permisos:seed -w apps/api        → escupe el bloque SQL por stdout
 //   npm run permisos:seed -w apps/api -- --reagrupar
 //       → solo el UPDATE de `modulo` de la HU #12716 (lo pegado en 0205_permisos_reagrupar_modulos.sql)
+//   npm run permisos:seed -w apps/api -- --arbol gestion [--reparto]
+//       → HU #12873 (ADR-0025): la siembra del árbol (0232) o su reparto «todos» (0233)
 //
 // Lo que sale por stdout es EXACTAMENTE lo que está pegado entre las marcas «SEED GENERADO» de
 // `0179_permisos_modelo.sql` más las filas que la 0181 añadió. Volver a correrlo sobre el mismo
@@ -18,8 +20,9 @@
 //
 // El seed NO se aplica desde aquí. Escribir en la base es cosa del runner de migraciones, que es
 // quien tiene la transacción y el registro de lo aplicado.
-import { catalogoCompleto, repartoDePartida, type FuncionCatalogo } from '../modules/permisos/catalogo.js';
+import { catalogoCompleto, catalogoPlano, repartoDePartida, type FuncionCatalogo } from '../modules/permisos/catalogo.js';
 import { reagrupaciones } from '../modules/permisos/catalogo-agrupacion.js';
+import { sqlRepartoArbol, sqlSiembraArbol } from '../modules/permisos/arbol/sql-arbol.js';
 
 /** Literal SQL de una cadena: comilla simple doblada. Sin concatenar nada más (regla 3 de AGENTS). */
 const lit = (s: string): string => `'${s.replace(/'/g, "''")}'`;
@@ -46,7 +49,9 @@ function sqlReparto(pares: [string, string][]): string {
 }
 
 function seed(): string {
-  const catalogo = catalogoCompleto();
+  // El seed HISTÓRICO (0179 + 0181…): el catálogo PLANO, de antes del árbol. Lo que el árbol absorbe y
+  // añade desde la HU #12873 lo emite `--arbol` (0232/0233), no este modo.
+  const catalogo = catalogoPlano();
   const pares = repartoDePartida(catalogo);
   const paginas = catalogo.filter((f) => f.tipo === 'pagina').length;
   const operaciones = catalogo.length - paginas;
@@ -83,5 +88,12 @@ function reagrupar(): string {
   ].join('\n');
 }
 
-const modo = process.argv.includes('--reagrupar') ? reagrupar : seed;
+/** HU #12873: solo `gestion` existe hoy; las áreas de #13427/#13428/#13429 se añaden aquí. */
+function arbol(): string {
+  const area = process.argv[process.argv.indexOf('--arbol') + 1];
+  if (area !== 'gestion') throw new Error(`--arbol: área no soportada «${area}» (soportadas: gestion).`);
+  return process.argv.includes('--reparto') ? sqlRepartoArbol() : sqlSiembraArbol();
+}
+
+const modo = process.argv.includes('--arbol') ? arbol : process.argv.includes('--reagrupar') ? reagrupar : seed;
 process.stdout.write(modo() + '\n');

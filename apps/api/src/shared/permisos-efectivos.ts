@@ -50,6 +50,7 @@ import { db } from '../db/client.js';
 import { permisosRoles, permisosRolFuncion, permisosUsuarioFuncion, users } from '../db/schema.js';
 import { isValidPage, TIPOS_ENLACE, type PageSlug, type TipoEnlace as TipoEnlaceContrato } from '@operaciones/shared-types';
 import { loggerFor } from './logger.js';
+import { codigosQueConceden, expandir } from '../modules/permisos/arbol/expansion.js';
 
 const log = loggerFor('permisos');
 
@@ -172,7 +173,10 @@ function esPaginaViva(codigo: string): boolean {
   return codigo.startsWith(PREFIJO) && isValidPage(codigo.slice(PREFIJO.length));
 }
 
-/** (R ∪ C) \ V. La resta es lo último: revocar gana ante cualquier colisión. */
+/**
+ * (R ∪ C) \ V, y desde la HU #12873 (ADR-0025) EXPANDIDO: cada `accion.*` efectiva aporta sus
+ * operaciones (`arbol/expansion.ts`). La resta va al final también sobre lo expandido: revocar gana.
+ */
 function conjuntoEfectivo(filas: FilasPermisos): Set<string> {
   const conjunto = new Set<string>();
   for (const codigo of filas.funcionesDelRol) {
@@ -185,10 +189,9 @@ function conjuntoEfectivo(filas: FilasPermisos): Set<string> {
     if (e.codigo.startsWith(PREFIJO)) { if (esPaginaViva(e.codigo)) conjunto.add(e.codigo); }
     else conjunto.add(e.codigo);
   }
-  for (const e of filas.excepciones) {
-    if (e.efecto === 'revocar') conjunto.delete(e.codigo);
-  }
-  return conjunto;
+  const revocados = filas.excepciones.filter((e) => e.efecto === 'revocar').map((e) => e.codigo);
+  for (const r of revocados) conjunto.delete(r);
+  return expandir(conjunto, revocados);
 }
 
 function versionDe(rol: string, tipoEnlace: TipoEnlace | null, funciones: Set<string>): string {
@@ -269,7 +272,8 @@ export async function paginasEfectivasDeUsuario(userId: number): Promise<PageSlu
  * sobre el mismo fixture.
  */
 export async function usuariosConFuncion(codigo: string, opts: { sin?: string } = {}): Promise<number[]> {
-  const codigos = opts.sin ? [codigo, opts.sin] : [codigo];
+  // HU #12873: una operación absorbida por el árbol ya no tiene filas propias; la dan sus acciones.
+  const codigos = [...new Set([...codigosQueConceden(codigo), ...(opts.sin ? codigosQueConceden(opts.sin) : [])])];
   const principales = await db.select({
     id: users.id,
     rol: users.role,

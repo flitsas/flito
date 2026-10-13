@@ -28,7 +28,9 @@
 
 import { describe, it, expect } from 'vitest';
 import { USER_ROLES } from '@operaciones/shared-types';
-import { leerRepartoSembrado } from '../helpers/permisos-seed-sql.js';
+// HU #12873: el seed de la reconducción es el del mundo PLANO (≤ 0231); el árbol (0232/0233) y sus
+// pérdidas por la regla «todos» los vigilan `migracion-0233.test.ts` y el reporte en seco de la HU.
+import { leerRepartoSembrado, MIGRACIONES_ANTES_DEL_ARBOL } from '../helpers/permisos-seed-sql.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
 import { llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
@@ -95,7 +97,7 @@ const EXPORTACIONES_POR_POST = ['finanzas.reporte_costos.ver'] as const;
 
 const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
 const codigoDe = (g: (typeof GUARDAS_MEDIDAS)[number]) => codigoDeLlave.get(llaveDe(g))!;
-const sembrado = leerRepartoSembrado();
+const sembrado = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
 const operacionesDe = (rol: string) => [...(sembrado.get(rol) ?? [])].filter((c) => !c.startsWith('pagina.')).sort();
 
 describe('AC6 — el auditor conserva todas las lecturas y ninguna ejecución', () => {

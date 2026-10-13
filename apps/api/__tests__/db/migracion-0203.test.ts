@@ -21,12 +21,12 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
 import {
-  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql,
+  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql, MIGRACIONES_ANTES_DEL_ARBOL,
 } from '../helpers/permisos-seed-sql.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import { llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
-import { catalogoCompleto, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ARCHIVO = '0203_permiso_excel_exportar_pago.sql';
@@ -65,9 +65,7 @@ describe('0203 — análisis estático', () => {
   it('la anterior es la 0202_ (HU #12654) — nunca «es la última»', () => {
     const sqls = readdirSync(DIR).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
     // No exige «es la última»: la convención pide max+1 EN SU MOMENTO.
-    // En release (promoción selectiva del Feature 12072) no existen 0191-0202: la anterior es la 0190,
-    // o la 0200 desde la promoción selectiva de la Épica #12248 (gastos diarios).
-    expect(sqls[sqls.indexOf(ARCHIVO) - 1]).toMatch(/^(0202|0200|0190)_/);
+    expect(sqls[sqls.indexOf(ARCHIVO) - 1]).toMatch(/^0202_/);
   });
 
   it('la cabecera cumple la convención del README: archivo, motivo (Bug/Feature) y autor', () => {
@@ -90,7 +88,7 @@ describe('0203 — análisis estático', () => {
   it('siembra las DOS operaciones (una por módulo, tipo operacion) con los textos byte a byte del catálogo', () => {
     const funciones = funcionesDeSql([SQL_0203]);
     expect([...funciones.keys()].sort()).toEqual([...OPS].sort());
-    const catalogo = catalogoCompleto();
+    const catalogo = catalogoPlano();
     for (const codigo of OPS) {
       const op = OPERACIONES_DECLARADAS.find((o) => o.codigo === codigo);
       expect(op, codigo).toBeDefined();
@@ -124,10 +122,10 @@ describe('0203 — análisis estático', () => {
     expect([...reparto.keys()]).toEqual(['admin']);
     expect([...reparto.get('admin')!].sort()).toEqual([...OPS].sort());
     expect([...reparto.values()].reduce((n, s) => n + s.size, 0)).toBe(2);
-    const catalogo = catalogoCompleto();
+    const catalogo = catalogoPlano();
     for (const codigo of OPS) {
       expect(catalogo.find((c) => c.codigo === codigo)!.roles, codigo).toEqual(['admin']);
-      expect(repartoDePartida().filter(([, c]) => c === codigo).map(([r]) => r)).toEqual(['admin']);
+      expect(repartoDePartida(catalogoPlano()).filter(([, c]) => c === codigo).map(([r]) => r)).toEqual(['admin']);
     }
   });
 
@@ -136,10 +134,8 @@ describe('0203 — análisis estático', () => {
     expect(retiros.funciones.size).toBe(0);
     expect(retiros.reparto.size).toBe(0);
     // Posición RELATIVA (detrás de la 0202), no «es la última» de la lista.
-    // En release (promoción selectiva del Feature 12072) la 0202 no existe: va detrás de la 0190, o de
-    // la 0200 desde la promoción selectiva de la Épica #12248.
-    expect(MIGRACIONES_CON_REPARTO[MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO) - 1]).toMatch(/^(0202|0200|0190)_/);
-    const total = leerRepartoSembrado();
+    expect(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO)).toBe(MIGRACIONES_CON_REPARTO.indexOf('0202_comprobantes_diferencia.sql') + 1);
+    const total = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
     for (const codigo of OPS) {
       expect(total.get('admin')!.has(codigo)).toBe(true);
       expect(total.get('proveedor')?.has(codigo) ?? false).toBe(false);

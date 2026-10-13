@@ -282,14 +282,21 @@ describe('AC6 — la lectura devuelve la extracción y NO persiste ni archiva na
 // ───────────────────── Quién puede entrar ────────────────────────────────────
 
 describe('la ruta es del `cliente`: la alcanza por el montaje SOAT abierto a su enlace (HU #12875)', () => {
-  it('**un `admin` recibe 403**: radicar y leer la factura del titular es del canal, no de Operaciones', async () => {
+  it('**un rol con OTRAS funciones de SOAT y sin esta (auditor) recibe 403** `sin_funcion`', async () => {
     // Desde la HU #12083 la guarda es `exigirFuncion('soat.factura.leer')` y el 403 viene explicado
-    // (#12082 AC5): el admin tiene OTRAS funciones `soat.*`, así que el motivo es `sin_funcion`.
+    // (#12082 AC5): el auditor tiene OTRAS funciones `soat.*`, así que el motivo es `sin_funcion`.
     escenario();
-    const r = await lectura(await buildApp(), await auth('admin', siguienteUsuario()));
+    const r = await lectura(await buildApp(), await auth('auditor', siguienteUsuario()));
     expect(r.status).toBe(403);
     expect(r.body).toMatchObject({ funcion: 'soat.factura.leer', motivo: 'sin_funcion' });
     expect(anthropicMock).not.toHaveBeenCalled();
+  });
+
+  it('HU #12873 AC8: `admin` la tiene por «Solicitar SOAT sin trámite» y la guarda ya no lo frena', async () => {
+    escenario();
+    const r = await lectura(await buildApp(), await auth('admin', siguienteUsuario()));
+    expect(r.body.motivo).not.toBe('sin_funcion');
+    expect(r.status).not.toBe(403);
   });
 
   it('un `gestor` (rol que la foto no conoce) recibe 403 `sin_modulo`: ninguna función de SOAT', async () => {

@@ -28,7 +28,9 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import postgres from 'postgres';
 import { USER_ROLES } from '@operaciones/shared-types';
 import { RUTAS_RECONDUCIDAS, type RutaReconducida } from '../fixtures/permisos-rutas-reconducidas.js';
-import { leerRepartoSembrado } from '../helpers/permisos-seed-sql.js';
+// HU #12873: el seed de la reconducción es el del mundo PLANO (≤ 0231); el árbol (0232/0233) y sus
+// pérdidas por la regla «todos» los vigilan `migracion-0233.test.ts` y el reporte en seco de la HU.
+import { leerRepartoSembrado, MIGRACIONES_ANTES_DEL_ARBOL } from '../helpers/permisos-seed-sql.js';
 import { montajesDeFunciones, llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import {
@@ -114,7 +116,7 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
   });
 
   it('el SQL sembrado conoce cada código de la lista (0179 ∪ 0181)', () => {
-    const sembrados = new Set([...leerRepartoSembrado().values()].flatMap((s) => [...s]));
+    const sembrados = new Set([...leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL).values()].flatMap((s) => [...s]));
     const desconocidos = RUTAS_RECONDUCIDAS.filter((r) => !sembrados.has(r.codigo)).map(etiqueta);
     // Un código que NINGÚN rol tiene sembrado sería una guarda que responde 403 a todo el mundo; hoy
     // no existe ninguna (todas tienen al menos `admin` o `cliente`).
@@ -122,7 +124,7 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
   });
 });
 
-matriz('AC7 — el motor alimentado con el SQL de la 0179 + 0181 decide, ruta a ruta y rol a rol, lo mismo que el requireRole de antes', () => leerRepartoSembrado());
+matriz('AC7 — el motor alimentado con el SQL de la 0179 + 0181 decide, ruta a ruta y rol a rol, lo mismo que el requireRole de antes', () => leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL));
 
 // ── Variante contra la base real ─────────────────────────────────────────────────────────────────
 const URL_BASE = process.env.TEST_DATABASE_URL;

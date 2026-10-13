@@ -270,15 +270,16 @@ describe('AC5 — catálogos y configuración cerrados; la sesión, abierta', ()
 
 describe('RN-A1 — qué funciones alcanza cada enlace (el aviso del panel)', () => {
   it('`ninguno` alcanza todo; cada enlace, solo los módulos que la tabla le abre (#13426)', () => {
-    expect(funcionesAlcanzables('ninguno')('impuestos.cola.ver')).toBe(true);
-    expect(funcionesAlcanzables('compania')('soat.cola.ver')).toBe(true);
-    expect(funcionesAlcanzables('compania')('impuestos.cola.ver')).toBe(true);
-    expect(funcionesAlcanzables('compania')('derechos.cola.ver')).toBe(false);
-    expect(funcionesAlcanzables('proveedor')('soat.solicitud.reversar')).toBe(true);
-    expect(funcionesAlcanzables('proveedor')('impuestos.cola.ver')).toBe(false);
-    expect(funcionesAlcanzables('organismos_transito')('soat.cola.ver')).toBe(false);
-    expect(funcionesAlcanzables('organismos_transito')('impuestos.cola.ver')).toBe(true);
-    expect(funcionesAlcanzables('organismos_transito')('derechos.cola.ver')).toBe(true);
+    // HU #12873: lo concedible de SOAT/Impuestos/Derechos son acciones del árbol (módulo = el de su página).
+    expect(funcionesAlcanzables('ninguno')('accion.impuestos.ver_listado')).toBe(true);
+    expect(funcionesAlcanzables('compania')('accion.soat.ver_listado')).toBe(true);
+    expect(funcionesAlcanzables('compania')('accion.impuestos.ver_listado')).toBe(true);
+    expect(funcionesAlcanzables('compania')('accion.derechos.ver_listado')).toBe(false);
+    expect(funcionesAlcanzables('proveedor')('accion.soat.gestionar_solicitudes')).toBe(true);
+    expect(funcionesAlcanzables('proveedor')('accion.impuestos.ver_listado')).toBe(false);
+    expect(funcionesAlcanzables('organismos_transito')('accion.soat.ver_listado')).toBe(false);
+    expect(funcionesAlcanzables('organismos_transito')('accion.impuestos.ver_listado')).toBe(true);
+    expect(funcionesAlcanzables('organismos_transito')('accion.derechos.ver_listado')).toBe(true);
     expect(funcionesAlcanzables('organismos_transito')('transito.bandeja.ver_pendientes')).toBe(true);
     expect(funcionesAlcanzables('compania')('transito.bandeja.ver_pendientes')).toBe(false);
     // `soat.antiguo.*` es del módulo legacy `operaciones` del catálogo, no de SOAT: cerrado.

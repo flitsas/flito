@@ -21,6 +21,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { USER_ROLES } from '@operaciones/shared-types';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRACIONES = path.resolve(__dirname, '../../src/db/migrations');
@@ -60,7 +61,17 @@ export const MIGRACIONES_CON_REPARTO = [
   '0228_permiso_logistica_operar_ajenas.sql', // HU #13425
   '0229_permisos_operacion_por_item.sql', // HU #13422 (ADR-0023)
   '0230_permisos_sensibles_por_permiso.sql', // HU #13423 (ADR-0023)
+  '0232_permisos_arbol_gestion_siembra.sql', // HU #12873 (ADR-0025): acciones de Gestión y Tránsito
+  '0233_permisos_arbol_gestion_reparto.sql', // HU #12873: regla «todos» + retiro de lo absorbido
 ] as const;
+
+/**
+ * HU #12873 — Las migraciones del mundo PLANO (antes del árbol, ≤ 0231). Los tests de cada migración
+ * histórica comparan su archivo con `catalogoPlano()` sobre este pliegue: la 0233 absorbe después
+ * muchas de sus operaciones, y eso no cambia lo que cada una sembró. La paridad del mundo de HOY
+ * (todas las migraciones contra `catalogoCompleto()`) la vigila `migracion-0233.test.ts`.
+ */
+export const MIGRACIONES_ANTES_DEL_ARBOL = MIGRACIONES_CON_REPARTO.filter((m) => m < '0232');
 
 function sinComentariosSql(sql: string): string {
   return sql.replace(/--[^\n]*/g, '');
@@ -155,6 +166,28 @@ function tuplas(bloque: string): string[][] {
   return salida;
 }
 
+/**
+ * HU #12873 (ADR-0025) — El reparto «todos los del grupo» de la 0233, en su forma canónica (la que
+ * emite `arbol/sql-arbol.ts`): los pares `(accion, fn)` de `INSERT INTO tmp_arbol_<hu> (accion, fn)
+ * VALUES …;` y las conjunciones de `INSERT INTO tmp_absorbidas_<hu> (fn) VALUES …`. Se pliega como en
+ * la base: el rol que tiene TODO el grupo recibe la acción; después lo absorbido (cada `fn` y cada
+ * conjunción) sale del reparto y del catálogo. `null` si el archivo no tiene esa forma.
+ */
+export function reglaTodosDeSql(sql: string): { grupos: Map<string, string[]>; absorbidos: Set<string>; lectura: Set<string> } | null {
+  const limpio = sinComentariosSql(sql);
+  const pares = /INSERT INTO tmp_arbol_\d+ \(accion, fn\) VALUES([\s\S]*?);/.exec(limpio);
+  if (!pares) return null;
+  const grupos = new Map<string, string[]>();
+  for (const [accion, fn] of tuplas(pares[1]!)) grupos.set(accion!, [...(grupos.get(accion!) ?? []), fn!]);
+  const absorbidos = new Set([...grupos.values()].flat());
+  const conj = /INSERT INTO tmp_absorbidas_\d+ \(fn\) VALUES([\s\S]*?)ON CONFLICT \(fn\) DO NOTHING;/.exec(limpio);
+  for (const [fn] of conj ? tuplas(conj[1]!) : []) absorbidos.add(fn!);
+  // Decisión del PO del 2026-10-13: las de `tmp_lectura_<hu>` se reciben con ALGUNA del grupo.
+  const lect = /INSERT INTO tmp_lectura_\d+ \(accion\) VALUES([\s\S]*?);/.exec(limpio);
+  const lectura = new Set((lect ? tuplas(lect[1]!) : []).map(([a]) => a!));
+  return { grupos, absorbidos, lectura };
+}
+
 const leer = (archivo: string): string => readFileSync(path.join(MIGRACIONES, archivo), 'utf8');
 
 /** `rol → conjunto de códigos` que dejan esos textos SQL aplicados en orden: INSERT suma, DELETE resta. */
@@ -186,6 +219,16 @@ export function repartoDeSql(sqls: readonly string[], nombre = 'sql'): Map<strin
     for (const bloque of bloquesDelete(sql, 'permisos_rol_funcion')) {
       for (const [rol, codigo] of tuplas(bloque)) reparto.get(rol!)?.delete(codigo!);
     }
+    const todos = reglaTodosDeSql(sql);
+    if (todos) {
+      for (const codigos of reparto.values()) {
+        for (const [accion, grupo] of todos.grupos) {
+          const cumple = todos.lectura.has(accion) ? grupo.some((g) => codigos.has(g)) : grupo.every((g) => codigos.has(g));
+          if (cumple) codigos.add(accion);
+        }
+      }
+      for (const codigos of reparto.values()) for (const a of todos.absorbidos) codigos.delete(a);
+    }
   }
   return reparto;
 }
@@ -216,6 +259,7 @@ export function funcionesDeSql(sqls: readonly string[]): Map<string, FuncionSemb
         fila.modulo = modulo;
       }
     }
+    for (const a of reglaTodosDeSql(sql)?.absorbidos ?? []) funciones.delete(a);
     for (const [codigo, nombre, descripcion] of bloquesUpdateNombre(sql)) {
       const fila = funciones.get(codigo);
       if (!fila) throw new Error(`UPDATE de nombre sobre una función no sembrada antes: ${codigo}`);
@@ -271,4 +315,27 @@ export function leerRenombresSembrados(archivos: readonly string[] = MIGRACIONES
     for (const [codigo, nombre, descripcion] of bloquesUpdateNombre(leer(archivo))) renombres.set(codigo, { nombre, descripcion });
   }
   return renombres;
+}
+
+/** HU #12873 — Lo pegado entre las marcas «ÁRBOL GENERADO» de una migración del árbol (0232/0233). */
+export function bloqueGenerado(sql: string): string {
+  const m = /-- ÁRBOL GENERADO \(inicio\)\n([\s\S]*?)\n-- ÁRBOL GENERADO \(fin\)/.exec(sql);
+  return m?.[1] ?? '';
+}
+
+/**
+ * HU #12873 — Los códigos de rol del producto (`USER_ROLES`) que aparecen entre comillas fuera de
+ * comentarios. Una migración del árbol no puede tener ninguno: un literal de rol es una FK rota en el
+ * ambiente que no tenga ese rol (memoria: la 0227 tumbó el CD de DEV el 2026-10-08).
+ */
+export function literalesDeRol(sql: string): string[] {
+  // Solo las sentencias que tocan un ROL (reparto, catálogo de roles, `users.role`): `'transito'` es
+  // también un MÓDULO de agrupación, y como valor de `modulo` no es un literal de rol.
+  // La forma `… AS v(rol, fn) JOIN permisos_roles r ON r.codigo = v.rol` (0227 corregida) NO cuenta: un
+  // ambiente sin el rol recibe 0 filas, no una FK rota. Es la del paso 2b de la 0233 (AC8, `admin`).
+  const guardadas = new Set(bloquesInsertSiRolExiste(sql));
+  const sentencias = sinComentariosSql(sql).split(';')
+    .filter((x) => ![...guardadas].some((g) => x.includes(g)))
+    .filter((x) => /permisos_rol_funcion|permisos_roles|\brole\b|rol_codigo/.test(x));
+  return USER_ROLES.filter((r) => sentencias.some((x) => x.includes(`'${r}'`)));
 }
