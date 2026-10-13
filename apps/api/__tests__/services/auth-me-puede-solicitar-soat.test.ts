@@ -93,9 +93,10 @@ describe('GET /api/auth/me — `puedeSolicitarSoat`', () => {
     expect(selectMock).toHaveBeenCalledTimes(CONSULTAS_BASE);
   });
 
-  it('**admin → false y NI UNA consulta de más**: los otros once roles no pagan este dato', async () => {
-    conUsuario(ADMIN);
-    const r = await request(await buildApp()).get('/api/auth/me').set('Authorization', await token('admin'));
+  it('**un rol sin la función (auditor) → false y NI UNA consulta de más**: los que no la tienen no pagan este dato', async () => {
+    // HU #12873 AC8: `admin` ya tiene la función («Solicitar SOAT sin trámite»); su caso es el del enlace (#12874).
+    conUsuario({ ...ADMIN, role: 'auditor' });
+    const r = await request(await buildApp()).get('/api/auth/me').set('Authorization', await token('auditor'));
 
     expect(r.body.puedeSolicitarSoat).toBe(false);
     expect(selectMock).toHaveBeenCalledTimes(CONSULTAS_BASE);
@@ -136,8 +137,9 @@ describe('GET /api/auth/me — `puedeSolicitarSoat` por enlace (HU #12874)', () 
   });
 
   it('sin enlace SIN la función → false y sin consultar `clients` (lo de arriba es la función, no el enlace)', async () => {
-    conUsuario(ADMIN);
-    const r = await request(await buildApp()).get('/api/auth/me').set('Authorization', await token('admin'));
+    // HU #12873 AC8: `admin` ya la tiene por rol; el «sin la función» lo pone un rol que no la tiene.
+    conUsuario({ ...ADMIN, role: 'auditor' });
+    const r = await request(await buildApp()).get('/api/auth/me').set('Authorization', await token('auditor'));
 
     expect(r.body.puedeSolicitarSoat).toBe(false);
     expect(selectMock).toHaveBeenCalledTimes(CONSULTAS_BASE);

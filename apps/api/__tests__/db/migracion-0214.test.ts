@@ -15,12 +15,12 @@ import postgres from 'postgres';
 import { getTableConfig } from 'drizzle-orm/pg-core';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
 import {
-  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql,
+  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql, MIGRACIONES_ANTES_DEL_ARBOL,
 } from '../helpers/permisos-seed-sql.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import { llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
-import { catalogoCompleto, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
 import { flitoSyncFlit2Acceso } from '../../src/db/schema.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -97,7 +97,7 @@ describe('0214 — análisis estático', () => {
       expect(funciones.get(codigo)).toEqual({
         codigo, modulo: 'tramites', nombre: op!.nombre, descripcion: op!.descripcion, tipo: 'operacion',
       });
-      const f = catalogoCompleto().find((c) => c.codigo === codigo)!;
+      const f = catalogoPlano().find((c) => c.codigo === codigo)!;
       expect(f.modulo).toBe('tramites');
       expect(f.tipo).toBe('operacion');
     }
@@ -111,7 +111,7 @@ describe('0214 — análisis estático', () => {
       expect(g).toBeDefined();
       expect(g!.heredada).toBe(false);
       expect([...g!.roles]).toEqual(['admin']);
-      expect(repartoDePartida().filter(([, c]) => c === codigo).map(([r]) => r)).toEqual(['admin']);
+      expect(repartoDePartida(catalogoPlano()).filter(([, c]) => c === codigo).map(([r]) => r)).toEqual(['admin']);
     }
   });
 
@@ -119,7 +119,7 @@ describe('0214 — análisis estático', () => {
     const r = repartoDeSql([SQL_0214]);
     expect([...r.keys()]).toEqual(['admin']);
     expect([...r.get('admin')!].sort()).toEqual([GUARDAR, VER]);
-    const total = leerRepartoSembrado();
+    const total = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
     for (const codigo of [VER, GUARDAR]) {
       expect([...total.entries()].filter(([, fs]) => fs.has(codigo)).map(([rol]) => rol)).toEqual(['admin']);
     }

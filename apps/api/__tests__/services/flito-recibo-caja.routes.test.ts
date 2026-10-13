@@ -11,6 +11,7 @@ process.env.TZ = 'UTC';
 // Mutante M-D: `exigirFuncion('impuestos.recibos.cargar')` en la ruta → «gestor → 403» deja de serlo
 // (el gestor SÍ tiene esa función de partida) y `permisos-catalogo` cae por montaje ≠ foto.
 
+import { codigosQueConceden, expandir } from '../../src/modules/permisos/arbol/expansion.js';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
@@ -124,8 +125,9 @@ describe('AC2 — acceso por función `impuestos.recibos.cargar_caja`', () => {
   });
 
   it('gestor_impuestos (que SÍ tiene impuestos.recibos.cargar de partida) → 403 del motor; nada se consulta ni escribe (M-D)', async () => {
-    expect(operacionesDePartida('gestor_impuestos')).toContain('impuestos.recibos.cargar');
-    expect(operacionesDePartida('gestor_impuestos')).not.toContain(CODIGO);
+    // HU #12873: de partida tiene ACCIONES; lo que cuenta es lo que expanden.
+    expect(expandir(operacionesDePartida('gestor_impuestos'))).toContain('impuestos.recibos.cargar');
+    expect(expandir(operacionesDePartida('gestor_impuestos'))).not.toContain(CODIGO);
     const app = await buildApp();
     const res = await request(app).post(RUTA).set('Authorization', await auth('gestor_impuestos')).attach('archivo', PDF, 'caja.pdf');
     expect(res.status).toBe(403);
@@ -157,7 +159,8 @@ describe('AC2 — acceso por función `impuestos.recibos.cargar_caja`', () => {
     armarCarga();
     expect((await request(app).post(RUTA).set('Authorization', bearer).attach('archivo', PDF, 'caja.pdf')).status).toBe(200);
 
-    filas.funcionesDelRol = filas.funcionesDelRol.filter((c) => c !== CODIGO);
+    // HU #12873: quitar la función es quitar lo que la concede (la acción «Cargar recibo de caja»).
+    filas.funcionesDelRol = filas.funcionesDelRol.filter((c) => !codigosQueConceden(CODIGO).includes(c));
     armarCarga();
     expect((await request(app).post(RUTA).set('Authorization', bearer).attach('archivo', PDF, 'caja.pdf')).status).toBe(200);
 

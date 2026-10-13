@@ -58,15 +58,15 @@ describe('AC6 — la comprobación de arranque detecta el desajuste de catálogo
 
   // ── Sentido 1: el código exige algo que la base no declara ────────────────────────────────────
   it('una guarda que exige una función AUSENTE del catálogo se detecta y se nombra', async () => {
-    // La base se quedó en la versión anterior: la guarda `POST /flito/soat/enviar` existe en el
-    // código y su función no está sembrada. Es el caso real de desplegar el API sin aplicar la
-    // migración que la trae.
-    conBase(CODIGOS.filter((c) => c !== 'soat.solicitud.enviar'));
+    // La base se quedó en la versión anterior: la acción que concede `POST /flito/soat/enviar`
+    // (HU #12873) existe en el código y no está sembrada. Es el caso real de desplegar el API sin
+    // aplicar la migración que la trae (la 0232).
+    conBase(CODIGOS.filter((c) => c !== 'accion.soat.gestionar_solicitudes'));
 
     await expect(verificarCatalogoAlArrancar()).rejects.toThrow(ArranquePermisosError);
-    conBase(CODIGOS.filter((c) => c !== 'soat.solicitud.enviar'));
+    conBase(CODIGOS.filter((c) => c !== 'accion.soat.gestionar_solicitudes'));
     await expect(verificarCatalogoAlArrancar())
-      .rejects.toThrow(/El código exige y la base no declara \(1\): soat\.solicitud\.enviar/);
+      .rejects.toThrow(/El código exige y la base no declara \(1\): accion\.soat\.gestionar_solicitudes/);
   });
 
   // ── Sentido 2: la base declara algo que ninguna guarda usa ────────────────────────────────────
@@ -86,11 +86,11 @@ describe('AC6 — la comprobación de arranque detecta el desajuste de catálogo
     // Si una de las dos direcciones dejara de calcularse, este caso seguiría en verde por la otra…
     // salvo que se exijan LAS DOS frases. Ese es el mutante que mata: borrar `faltan` o borrar
     // `sobran` deja aquí media verdad.
-    conBase([...CODIGOS.filter((c) => c !== 'impuestos.cola.ver'), 'tramite.ocr.inventado']);
+    conBase([...CODIGOS.filter((c) => c !== 'accion.impuestos.ver_listado'), 'tramite.ocr.inventado']);
     const error = await verificarCatalogoAlArrancar().catch((e: Error) => e);
 
     expect(error).toBeInstanceOf(ArranquePermisosError);
-    expect((error as Error).message).toMatch(/El código exige y la base no declara \(1\): impuestos\.cola\.ver/);
+    expect((error as Error).message).toMatch(/El código exige y la base no declara \(1\): accion\.impuestos\.ver_listado/);
     expect((error as Error).message).toMatch(/La base declara y el código no usa \(1\): tramite\.ocr\.inventado/);
     // Y dice dónde se arregla, que es la mitad útil de un error de arranque.
     expect((error as Error).message).toMatch(/npm run permisos:seed -w apps\/api/);
@@ -133,9 +133,12 @@ describe('HU #12716 AC7 — el arranque compara también el módulo de agrupaci�
 
     expect(error).toBeInstanceOf(ArranquePermisosError);
     // 47 pares en el mapa; `pagina.transito_organismos` se simula con `grupo_viejo`, así que aquí
-    // difieren las 47 (es la simulación, no la 0205: la 0205 cambia 46).
-    expect((error as Error).message).toMatch(/difiere entre la base y el código en 47 funciones/);
-    expect((error as Error).message).toMatch(/… y 37 más/);
+    // difieren todas las que siguen en el catálogo (es la simulación, no la 0205: la 0205 cambia 46).
+    // HU #12873: las que absorbió el árbol (`sync.sync.*`, `pagina.flito_compuerta`) ya no están.
+    const vivas = [...reagrupadas].filter((c) => MODULO_DE.has(c)).length;
+    expect(vivas).toBe(40);
+    expect((error as Error).message).toMatch(new RegExp(`difiere entre la base y el código en ${vivas} funciones`));
+    expect((error as Error).message).toMatch(new RegExp(`… y ${vivas - 10} más`));
     expect(((error as Error).message.match(/^\s+«/gm) ?? [])).toHaveLength(10);
   });
 
@@ -143,9 +146,9 @@ describe('HU #12716 AC7 — el arranque compara también el módulo de agrupaci�
     conBase(CODIGOS);
     await expect(verificarCatalogoAlArrancar()).resolves.toBeUndefined();
     // Si además falta un código, se reporta la falta de código (la comparación de módulo va después).
-    conBase(CODIGOS.filter((c) => c !== 'soat.solicitud.enviar'), () => 'lo_que_sea');
+    conBase(CODIGOS.filter((c) => c !== 'accion.soat.gestionar_solicitudes'), () => 'lo_que_sea');
     await expect(verificarCatalogoAlArrancar())
-      .rejects.toThrow(/El código exige y la base no declara \(1\): soat\.solicitud\.enviar/);
+      .rejects.toThrow(/El código exige y la base no declara \(1\): accion\.soat\.gestionar_solicitudes/);
   });
 });
 
@@ -164,4 +167,20 @@ describe('HU #13424 AC1 — `admin` es editable: el arranque no exige nada de su
     expect(permisosService).not.toHaveProperty('FUNCIONES_SIN_ADMIN');
     expect(permisosService).not.toHaveProperty('funcionesSinAdmin');
   });
+});
+
+describe('HU #12873 AC9 — una operación absorbida por el árbol que sigue en la base se detecta', () => {
+  // TC-09d. El caso real: se despliega el código del árbol y la base conserva lo que la 0233 borra
+  // (operaciones del grupo de una acción, o la página de la Compuerta que dejó de ser ítem). Si el
+  // arranque las tolerase, la pantalla de permisos seguiría ofreciendo conceder casillas muertas.
+  it.each(['soat.cola.ver', 'compuerta.tramite.entregar', 'pagina.flito_compuerta'])(
+    '«%s» en la base y fuera del código se nombra', async (absorbida) => {
+      expect(CODIGOS).not.toContain(absorbida);
+      conBase([...CODIGOS, absorbida]);
+      const error = await verificarCatalogoAlArrancar().catch((e: Error) => e);
+      expect(error).toBeInstanceOf(ArranquePermisosError);
+      const escapado = absorbida.replace(/\./g, '\\.');
+      expect((error as Error).message).toMatch(new RegExp(`La base declara y el código no usa \\(1\\): ${escapado}`));
+    },
+  );
 });

@@ -12,12 +12,12 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
 import {
-  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql,
+  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql, MIGRACIONES_ANTES_DEL_ARBOL,
 } from '../helpers/permisos-seed-sql.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import { llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
-import { catalogoCompleto, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
 import { funcionesAlcanzables } from '../../src/shared/middleware/frontera-enlace.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -58,7 +58,7 @@ describe('0212 — análisis estático', () => {
     const op = OPERACIONES_DECLARADAS.find((o) => o.codigo === CODIGO);
     expect(op).toBeDefined();
     expect(op!.llave).toBe(LLAVE);
-    const f = catalogoCompleto().find((c) => c.codigo === CODIGO)!;
+    const f = catalogoPlano().find((c) => c.codigo === CODIGO)!;
     expect(funciones.get(CODIGO)).toEqual({
       codigo: CODIGO, modulo: 'soat', nombre: op!.nombre, descripcion: op!.descripcion, tipo: 'operacion',
     });
@@ -72,22 +72,23 @@ describe('0212 — análisis estático', () => {
     expect(g!.heredada).toBe(false);
     expect(g!.metodo).toBe('POST');
     expect([...g!.roles]).toEqual(['admin']);
-    expect(repartoDePartida().filter(([, c]) => c === CODIGO).map(([r]) => r)).toEqual(['admin']);
+    expect(repartoDePartida(catalogoPlano()).filter(([, c]) => c === CODIGO).map(([r]) => r)).toEqual(['admin']);
   });
 
   it('reparto: SOLO admin (P-8); el auditor NO la recibe (es una acción) y nadie más', () => {
     const r = repartoDeSql([SQL_0212]);
     expect([...r.keys()]).toEqual(['admin']);
     expect([...r.get('admin')!]).toEqual([CODIGO]);
-    const total = leerRepartoSembrado();
+    const total = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
     const conElla = [...total.entries()].filter(([, fs]) => fs.has(CODIGO)).map(([rol]) => rol);
     expect(conElla).toEqual(['admin']);
     expect(total.get('auditor')?.has(CODIGO) ?? false).toBe(false);
   });
 
   it('el Cliente PUEDE recibirla desde el panel: su enlace (compañía) alcanza esta función (HU #12875: por módulo, no por lista)', () => {
-    expect(funcionesAlcanzables('compania')(CODIGO)).toBe(true);
-    expect(funcionesAlcanzables('organismos_transito')(CODIGO)).toBe(false);
+    // HU #12873: la operación ya no se concede sola; la concede `accion.soat.ver_por_validar` (módulo soat).
+    expect(funcionesAlcanzables('compania')('accion.soat.ver_por_validar')).toBe(true);
+    expect(funcionesAlcanzables('organismos_transito')('accion.soat.ver_por_validar')).toBe(false);
   });
 
   it('no retira nada y el helper de paridad la lee justo después de la 0211', () => {

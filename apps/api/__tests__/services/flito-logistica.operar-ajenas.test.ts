@@ -123,8 +123,14 @@ describe('rutas — AC3/AC7: mismo resultado con otro nombre de rol y los mismos
     .set('Authorization', `Bearer ${token}`).send(ENTREGA);
 
   it('`mensajero` (sin la función) entregando un acta ajena → 403', async () => {
+    // HU #12873 (P-9 revisada, PO 2026-10-13): `operar_ajenas` es OPCIONAL de «Despachar, entregar y
+    // devolver» y la acción NO la expande: con la acción y sin la opcional, la regla de dominio decide.
     selectMock.mockReturnValue(chain([ACTA_DE_9]));
     const token = await testToken({ sub: 50, role: 'mensajero' });
+    await registrarUsuarioDePrueba(50, {
+      rol: 'mensajero', tipoEnlace: 'ninguno',
+      funcionesDelRol: ['accion.logistica.despachar_entregar_devolver'], excepciones: [],
+    });
     const r = await entregar(token);
     expect(r.status).toBe(403);
     expect(r.body.error).toBe('Solo puedes entregar tus propias actas');

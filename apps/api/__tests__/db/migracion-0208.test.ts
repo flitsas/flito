@@ -12,12 +12,12 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
 import {
-  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql,
+  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql, MIGRACIONES_ANTES_DEL_ARBOL,
 } from '../helpers/permisos-seed-sql.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import { llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
-import { catalogoCompleto, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ARCHIVO = '0208_flito_impuestos_direccion_factura.sql';
@@ -96,7 +96,7 @@ describe('0208 — análisis estático', () => {
     expect(op!.llave).toBe(LLAVE);
     expect(op!.nombre).toBe(NOMBRE);
     expect(funciones.get(CODIGO)).toEqual({ codigo: CODIGO, modulo: 'impuestos', nombre: op!.nombre, descripcion: op!.descripcion, tipo: 'operacion' });
-    const f = catalogoCompleto().find((c) => c.codigo === CODIGO);
+    const f = catalogoPlano().find((c) => c.codigo === CODIGO);
     expect(f?.tipo).toBe('operacion');
     expect(f?.modulo).toBe('impuestos');
   });
@@ -112,8 +112,8 @@ describe('0208 — análisis estático', () => {
     const reparto = repartoDeSql([SQL_0208]);
     expect([...reparto.keys()]).toEqual(['admin']);
     expect([...reparto.get('admin')!]).toEqual([CODIGO]);
-    expect(catalogoCompleto().find((c) => c.codigo === CODIGO)!.roles).toEqual(['admin']);
-    expect(repartoDePartida().filter(([, c]) => c === CODIGO).map(([r]) => r)).toEqual(['admin']);
+    expect(catalogoPlano().find((c) => c.codigo === CODIGO)!.roles).toEqual(['admin']);
+    expect(repartoDePartida(catalogoPlano()).filter(([, c]) => c === CODIGO).map(([r]) => r)).toEqual(['admin']);
   });
 
   it('no retira nada y el helper de paridad la lee detrás de la 0205; plegado, admin sí y los demás no', () => {
@@ -121,7 +121,7 @@ describe('0208 — análisis estático', () => {
     expect(retiros.funciones.size).toBe(0);
     expect(retiros.reparto.size).toBe(0);
     expect(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO)).toBe(MIGRACIONES_CON_REPARTO.indexOf('0205_permisos_reagrupar_modulos.sql') + 1);
-    const total = leerRepartoSembrado();
+    const total = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
     expect(total.get('admin')!.has(CODIGO)).toBe(true);
     for (const rol of ['proveedor', 'gestor_impuestos', 'auditor']) expect(total.get(rol)?.has(CODIGO) ?? false, rol).toBe(false);
   });

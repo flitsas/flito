@@ -12,12 +12,12 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
 import {
-  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql,
+  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql, MIGRACIONES_ANTES_DEL_ARBOL,
 } from '../helpers/permisos-seed-sql.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import { llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
-import { catalogoCompleto, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ARCHIVO = '0211_permisos_soat_incompletas.sql';
@@ -64,7 +64,7 @@ describe('0211 — análisis estático', () => {
       const op = OPERACIONES_DECLARADAS.find((o) => o.codigo === codigo);
       expect(op, codigo).toBeDefined();
       expect(op!.llave).toBe(NUEVAS[codigo][0]);
-      const f = catalogoCompleto().find((c) => c.codigo === codigo)!;
+      const f = catalogoPlano().find((c) => c.codigo === codigo)!;
       expect(funciones.get(codigo)).toEqual({
         codigo, modulo: f.modulo, nombre: op!.nombre, descripcion: op!.descripcion, tipo: 'operacion',
       });
@@ -78,7 +78,7 @@ describe('0211 — análisis estático', () => {
       const g = GUARDAS_MEDIDAS.find((x) => llaveDe(x) === llave);
       expect(g, llave).toBeDefined();
       expect(g!.heredada).toBe(false);
-      const deOrigen = catalogoCompleto().find((c) => c.codigo === origen)!.roles;
+      const deOrigen = catalogoPlano().find((c) => c.codigo === origen)!.roles;
       expect([...g!.roles].sort()).toEqual([...deOrigen].sort());
       expect([...g!.roles].sort()).toEqual(ROLES_PARTIDA);
     }
@@ -96,7 +96,7 @@ describe('0211 — análisis estático', () => {
     // Sin la condición no hay VALUES suelto de reparto: el único INSERT … VALUES es el de funciones.
     expect(SIN_COMENTARIOS.match(/INSERT INTO permisos_rol_funcion \(rol_codigo, funcion_codigo\) VALUES/g)).toBeNull();
     for (const codigo of CODIGOS) {
-      expect(repartoDePartida().filter(([, c]) => c === codigo).map(([r]) => r).sort()).toEqual(ROLES_PARTIDA);
+      expect(repartoDePartida(catalogoPlano()).filter(([, c]) => c === codigo).map(([r]) => r).sort()).toEqual(ROLES_PARTIDA);
     }
   });
 
@@ -132,7 +132,7 @@ describe('0211 — análisis estático', () => {
     expect(retiros.reparto.size).toBe(0);
     expect(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO))
       .toBe(MIGRACIONES_CON_REPARTO.indexOf('0208_flito_impuestos_direccion_factura.sql') + 1);
-    const total = leerRepartoSembrado();
+    const total = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
     for (const rol of ROLES_PARTIDA) for (const c of CODIGOS) expect(total.get(rol)!.has(c), `${rol} ${c}`).toBe(true);
     for (const c of CODIGOS) expect(total.get('gestor_impuestos')?.has(c) ?? false).toBe(false);
   });

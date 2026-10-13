@@ -17,7 +17,7 @@
 import { describe, it, expect } from 'vitest';
 import { PAGES, PAGE_GROUPS, USER_ROLES, paginasPorDefecto } from '@operaciones/shared-types';
 import {
-  catalogoCompleto, catalogoDePaginas, catalogoDeOperaciones, repartoDePartida, moduloDeGrupo,
+  catalogoPlano, catalogoDePaginas, catalogoDeOperaciones, repartoDePartida, moduloDeGrupo,
   PAGINAS_NO_CONCEDIBLES, CatalogoIncoherenteError,
 } from '../../src/modules/permisos/catalogo.js';
 import {
@@ -42,7 +42,7 @@ const SIN_ADMIN_EN_EL_REPARTO_DE_PARTIDA: readonly string[] = [
   'impuestos.recibos.reemplazar', 'soat.factura.leer', 'soat.runt.preconsultar', 'soat.solicitud.crear',
 ];
 
-const catalogo = catalogoCompleto();
+const catalogo = catalogoPlano();
 const paginas = catalogo.filter((f) => f.tipo === 'pagina');
 const operaciones = catalogo.filter((f) => f.tipo === 'operacion');
 
@@ -423,12 +423,12 @@ describe('HU #12716 — cada página se agrupa con las acciones de su módulo', 
     const mapa = AGRUPACION_DE_OPERACION as Record<string, string>;
     mapa['parametrizacion.tarifas.borrar'] = 'tarifas';
     try {
-      expect(() => catalogoCompleto()).toThrow(CatalogoIncoherenteError);
-      expect(() => catalogoCompleto()).toThrow(/Agrupación declarada para un código que no existe: parametrizacion\.tarifas\.borrar/);
+      expect(() => catalogoPlano()).toThrow(CatalogoIncoherenteError);
+      expect(() => catalogoPlano()).toThrow(/Agrupación declarada para un código que no existe: parametrizacion\.tarifas\.borrar/);
     } finally {
       delete mapa['parametrizacion.tarifas.borrar'];
     }
-    expect(() => catalogoCompleto()).not.toThrow();
+    expect(() => catalogoPlano()).not.toThrow();
   });
 
   it('la comprobación estructural del prefijo se conserva: una guarda cuyo código no empiece por su módulo de fichero revienta aunque el mapa la reagrupe (AC3)', () => {

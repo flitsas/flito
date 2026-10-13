@@ -12,12 +12,12 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
 import {
-  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql,
+  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql, MIGRACIONES_ANTES_DEL_ARBOL,
 } from '../helpers/permisos-seed-sql.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import { llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
-import { catalogoCompleto, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ARCHIVO = '0220_permiso_impuestos_recibos_reemplazar.sql';
@@ -60,7 +60,7 @@ describe('0220 — análisis estático', () => {
     expect(funciones.get(CODIGO)).toEqual({
       codigo: CODIGO, modulo: 'impuestos', nombre: op!.nombre, descripcion: op!.descripcion, tipo: 'operacion',
     });
-    const f = catalogoCompleto().find((c) => c.codigo === CODIGO)!;
+    const f = catalogoPlano().find((c) => c.codigo === CODIGO)!;
     expect(f.modulo).toBe('impuestos');
     expect(f.tipo).toBe('operacion');
   });
@@ -71,13 +71,13 @@ describe('0220 — análisis estático', () => {
     expect(g!.heredada).toBe(false);
     expect(g!.metodo).toBe('POST');
     expect(g!.roles).toEqual([]);
-    expect(repartoDePartida().filter(([, c]) => c === CODIGO)).toEqual([]);
+    expect(repartoDePartida(catalogoPlano()).filter(([, c]) => c === CODIGO)).toEqual([]);
   });
 
   it('reparto: NINGUNO (AC7) — ni en este archivo ni en la suma de las migraciones de permisos', () => {
     expect(repartoDeSql([SQL_0220]).size).toBe(0);
     expect(SIN_COMENTARIOS).not.toMatch(/INSERT INTO permisos_rol_funcion/);
-    const conElla = [...leerRepartoSembrado().entries()].filter(([, fs]) => fs.has(CODIGO)).map(([rol]) => rol);
+    const conElla = [...leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL).entries()].filter(([, fs]) => fs.has(CODIGO)).map(([rol]) => rol);
     expect(conElla).toEqual([]);
   });
 

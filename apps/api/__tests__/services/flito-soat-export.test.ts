@@ -2251,12 +2251,17 @@ describe('archivo ampliado — la función decide, no el rol; y el 403 no deja r
   });
 
   it('la función y su reparto: `soat.excel.exportar_pago` es de `soat`, tipo operación, y de partida SOLO admin', async () => {
-    const { catalogoCompleto } = await import('../../src/modules/permisos/catalogo.js');
-    const f = catalogoCompleto().find((c) => c.codigo === 'soat.excel.exportar_pago');
+    const { catalogoCompleto, catalogoPlano } = await import('../../src/modules/permisos/catalogo.js');
+    const f = catalogoPlano().find((c) => c.codigo === 'soat.excel.exportar_pago');
     expect(f).toBeDefined();
     expect(f!.modulo).toBe('soat');
     expect(f!.tipo).toBe('operacion');
     expect(f!.roles).toEqual(['admin']);
+    // HU #12873 (ADR-0025): desde la 0233 la concede la acción hija «Exportar con datos de pago y trazabilidad», con el
+    // mismo reparto de partida (regla «todos» sobre un grupo de una operación) y colgada de «Exportar».
+    const a = catalogoCompleto().find((c) => c.codigo === 'accion.soat.exportar_pago');
+    expect(a).toMatchObject({ modulo: 'soat', tipo: 'accion', roles: ['admin'], padre: 'accion.soat.exportar' });
+    expect(catalogoCompleto().some((c) => c.codigo === 'soat.excel.exportar_pago')).toBe(false);
   });
 });
 

@@ -9,8 +9,8 @@
 //      el MISMO archivo: una fila literal `('admin', '<codigo>')` en `permisos_rol_funcion` (en un
 //      `VALUES` directo o en el `FROM (VALUES …) AS v(rol, fn) JOIN permisos_roles` de la 0227), o el
 //      `SELECT 'admin', … FROM permisos_funciones` genérico (con su `NOT IN` de exclusiones, si lo hay).
-//      Las únicas funciones que pueden quedar sin `admin` son `EXCLUIDAS_DE_ADMIN`, y ninguna
-//      migración ≥ 0226 puede marcárselas.
+//      Las únicas que la 0226 dejó sin `admin` son `EXCLUIDAS_DE_ADMIN`; desde la 0233 (HU #12873, AC8)
+//      las absorbe una acción que `admin` sí recibe, así que hoy `admin` lo tiene TODO.
 //   2. Red contra el parser: todo código de `catalogoCompleto()` que no aparezca en ninguna migración
 //      ≤ 0225 tiene que aparecer en una ≥ 0226. Si una siembra se escribe con otra forma (`COPY`, un
 //      DO-block) y el parser no la ve, este aserto se pone rojo en vez de dejar pasar el hueco.
@@ -18,8 +18,9 @@
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { catalogoCompleto } from '../../src/modules/permisos/catalogo.js';
-import { bloquesInsertSiRolExiste } from '../helpers/permisos-seed-sql.js';
+import { catalogoCompleto, catalogoPlano } from '../../src/modules/permisos/catalogo.js';
+import { expandir, operacionesDe } from '../../src/modules/permisos/arbol/expansion.js';
+import { bloquesInsertSiRolExiste, leerRepartoSembrado } from '../helpers/permisos-seed-sql.js';
 
 /**
  * Las tres funciones del canal SOAT sin trámite que `admin` NO tiene (decisión del PO del 2026-10-07).
@@ -30,6 +31,14 @@ import { bloquesInsertSiRolExiste } from '../helpers/permisos-seed-sql.js';
  * retira de aquí y una migración nueva se las marca. Ampliar esta lista exige decisión del PO.
  */
 const EXCLUIDAS_DE_ADMIN: readonly string[] = ['soat.factura.leer', 'soat.runt.preconsultar', 'soat.solicitud.crear'];
+
+/**
+ * HU #12873 AC8 (decisión del PO del 2026-10-13): desde la 0233 las tres son el grupo de «Solicitar SOAT
+ * sin trámite», y `admin` recibe esa acción como TODAS las demás (paso 2b, por JOIN a `permisos_roles`).
+ * La exclusión de la 0226 era temporal hasta la #12874 y deja de regir: `EXCLUIDAS_DE_ADMIN` queda solo
+ * como el texto congelado de la 0226 (aplicada, no se edita).
+ */
+const ACCION_QUE_LAS_AGRUPA = 'accion.soat.solicitar_sin_tramite';
 
 const DIR = fileURLToPath(new URL('../../src/db/migrations/', import.meta.url));
 const PRIMERA_VIGILADA = 226;
@@ -137,21 +146,39 @@ describe('HU #13424 AC2 — toda siembra desde la 0226 marca a `admin`', () => {
 
   const vigiladas = archivos.filter((a) => a.numero >= PRIMERA_VIGILADA);
 
-  it('ninguna migración ≥ 0226 siembra un permiso sin marcárselo a `admin` en el mismo archivo (salvo las tres excluidas)', () => {
+  // HU #12873: las acciones del árbol se SIEMBRAN en la 0232 y se le marcan a `admin` en la 0233 (paso 2b,
+  // después del reparto por la regla «todos»): para `accion.*` vale la marca en cualquier migración vigilada.
+  const marcadaEnAlguna = (c: string) => vigiladas.some((a) => marcaAAdmin(a.sql, c));
+
+  it('ninguna migración ≥ 0226 siembra un permiso sin marcárselo a `admin` (en el mismo archivo; las acciones del árbol, en el de su reparto)', () => {
     const huecos = vigiladas.flatMap((a) => sinMarcarAAdmin(a.sql)
-      .filter((c) => !EXCLUIDAS_DE_ADMIN.includes(c)).map((c) => `${a.nombre}: ${c}`));
+      .filter((c) => !(c.startsWith('accion.') && marcadaEnAlguna(c))).map((c) => `${a.nombre}: ${c}`));
     expect(huecos).toEqual([]);
   });
 
-  it('ninguna migración ≥ 0226 le marca a `admin` una de las tres excluidas (ni por fila ni por SELECT genérico sin excluirla)', () => {
-    const marcadas = vigiladas.flatMap((a) => EXCLUIDAS_DE_ADMIN
-      .filter((c) => marcaAAdmin(a.sql, c)).map((c) => `${a.nombre}: ${c}`));
-    expect(marcadas).toEqual([]);
+  it('HU #12873 AC8: plegadas todas las migraciones, `admin` tiene TODAS las acciones, también «Solicitar SOAT sin trámite»', () => {
+    const acciones = catalogoCompleto().filter((f) => f.tipo === 'accion').map((f) => f.codigo);
+    expect(acciones.length).toBeGreaterThan(50);
+    expect(acciones.filter((a) => !marcadaEnAlguna(a))).toEqual([]);
+    const admin = leerRepartoSembrado().get('admin')!;
+    expect(acciones.filter((a) => !admin.has(a))).toEqual([]);
+    expect(admin.has(ACCION_QUE_LAS_AGRUPA)).toBe(true);
+    // El catálogo del código dice lo mismo (lo que el arranque y el panel leen).
+    expect(catalogoCompleto().filter((f) => f.tipo === 'accion' && !f.roles.includes('admin')).map((f) => f.codigo)).toEqual([]);
   });
 
-  it('las tres excluidas existen en el catálogo (una exclusión de un código muerto no excluye nada)', () => {
-    const codigos = new Set(catalogoCompleto().map((f) => f.codigo));
-    for (const c of EXCLUIDAS_DE_ADMIN) expect(codigos, c).toContain(c);
+  it('HU #12873 AC8: las tres que la 0226 excluyó ya no se conceden sueltas y `admin` las tiene por la acción que las agrupa', () => {
+    const hoy = new Set(catalogoCompleto().map((f) => f.codigo));
+    for (const c of EXCLUIDAS_DE_ADMIN) expect(hoy.has(c), c).toBe(false);
+    expect([...operacionesDe(ACCION_QUE_LAS_AGRUPA)].sort()).toEqual([...EXCLUIDAS_DE_ADMIN].sort());
+    const efectivoAdmin = expandir(leerRepartoSembrado().get('admin')!);
+    for (const c of EXCLUIDAS_DE_ADMIN) expect(efectivoAdmin.has(c), c).toBe(true);
+  });
+
+  it('las tres excluidas existen en el catálogo plano, y la acción que las agrupa en el de hoy (una exclusión de un código muerto no excluye nada)', () => {
+    const planos = new Set(catalogoPlano().map((f) => f.codigo));
+    for (const c of EXCLUIDAS_DE_ADMIN) expect(planos, c).toContain(c);
+    expect(catalogoCompleto().map((f) => f.codigo)).toContain(ACCION_QUE_LAS_AGRUPA);
   });
 
   it('todo código del catálogo nuevo desde la 0226 aparece en una migración ≥ 0226 (el parser no se perdió una siembra)', () => {

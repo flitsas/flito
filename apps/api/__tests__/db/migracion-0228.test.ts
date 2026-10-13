@@ -14,12 +14,12 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
 import {
-  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql,
+  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql, MIGRACIONES_ANTES_DEL_ARBOL,
 } from '../helpers/permisos-seed-sql.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import { llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
-import { catalogoCompleto, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ARCHIVO = '0228_permiso_logistica_operar_ajenas.sql';
@@ -62,7 +62,7 @@ describe('0228 — análisis estático', () => {
     expect(funciones.get(CODIGO)).toEqual({
       codigo: CODIGO, modulo: 'logistica', nombre: op!.nombre, descripcion: op!.descripcion, tipo: 'operacion',
     });
-    const f = catalogoCompleto().find((c) => c.codigo === CODIGO)!;
+    const f = catalogoPlano().find((c) => c.codigo === CODIGO)!;
     expect(f.modulo).toBe('logistica');
     expect(f.tipo).toBe('operacion');
   });
@@ -75,12 +75,12 @@ describe('0228 — análisis estático', () => {
     // Los roles de partida de entregar eran admin y mensajero: la función es esos menos mensajero.
     const entregar = GUARDAS_MEDIDAS.find((x) => llaveDe(x) === 'flito-logistica/flito-logistica.routes.ts POST /actas/:id/entregar')!;
     expect(entregar.roles.filter((r) => r !== 'mensajero')).toEqual(g!.roles);
-    expect(repartoDePartida().filter(([, c]) => c === CODIGO).map(([r]) => r)).toEqual(['admin']);
+    expect(repartoDePartida(catalogoPlano()).filter(([, c]) => c === CODIGO).map(([r]) => r)).toEqual(['admin']);
   });
 
   it('reparto literal: admin y SOLO admin (0226); en la suma de las migraciones de permisos, ni mensajero', () => {
     expect([...repartoDeSql([SQL_0228]).entries()].map(([rol, cs]) => [rol, [...cs]])).toEqual([['admin', [CODIGO]]]);
-    const conElla = [...leerRepartoSembrado().entries()].filter(([, fs]) => fs.has(CODIGO)).map(([rol]) => rol);
+    const conElla = [...leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL).entries()].filter(([, fs]) => fs.has(CODIGO)).map(([rol]) => rol);
     expect(conElla).toEqual(['admin']);
   });
 

@@ -926,11 +926,19 @@ describe('el canal es del rol `cliente`, y su ruta está inscrita en la allowlis
     expect((await alta(await buildApp(), 'Bearer no-es-un-token')).status).toBe(401);
   });
 
-  it('admin → 403: radicar es un acto de la compañía, y un admin no tiene compañía', async () => {
+  it('un rol SIN la función (auditor) → 403: radicar exige `soat.solicitud.crear`', async () => {
     escenario();
-    const r = await alta(await buildApp(), await auth('admin', siguienteUsuario()));
+    const r = await alta(await buildApp(), await auth('auditor', siguienteUsuario()));
     expect(r.status).toBe(403);
     expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+  });
+
+  it('HU #12873 AC8: `admin` tiene «Solicitar SOAT sin trámite» y ya no lo frena la guarda de la función', async () => {
+    // Decisión del PO del 2026-10-13: la exclusión de la 0226 era temporal hasta la #12874.
+    escenario();
+    const r = await alta(await buildApp(), await auth('admin', siguienteUsuario()));
+    expect(r.body.motivo).not.toBe('sin_funcion');
+    expect(r.status).not.toBe(403);
   });
 
   it('proveedor (el gestor) → 403', async () => {

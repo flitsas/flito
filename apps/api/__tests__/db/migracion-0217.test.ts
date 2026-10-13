@@ -13,12 +13,12 @@ import postgres from 'postgres';
 import { getTableConfig } from 'drizzle-orm/pg-core';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
 import {
-  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql,
+  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql, MIGRACIONES_ANTES_DEL_ARBOL,
 } from '../helpers/permisos-seed-sql.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import { llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
-import { catalogoCompleto, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
 import { flitoSyncInterruptor } from '../../src/db/schema.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -88,7 +88,7 @@ describe('0217 — análisis estático', () => {
       codigo: CONFIGURAR, modulo: 'tramites', nombre: op!.nombre, descripcion: op!.descripcion, tipo: 'operacion',
     });
     expect(funciones.get(CONFIGURAR)!.nombre).toBe('Configurar la sincronización con FLIT');
-    const f = catalogoCompleto().find((c) => c.codigo === CONFIGURAR)!;
+    const f = catalogoPlano().find((c) => c.codigo === CONFIGURAR)!;
     expect(f.modulo).toBe('tramites');
     expect(f.tipo).toBe('operacion');
   });
@@ -98,14 +98,14 @@ describe('0217 — análisis estático', () => {
     expect(g).toBeDefined();
     expect(g!.heredada).toBe(false);
     expect([...g!.roles]).toEqual(['admin']);
-    expect(repartoDePartida().filter(([, c]) => c === CONFIGURAR).map(([r]) => r)).toEqual(['admin']);
+    expect(repartoDePartida(catalogoPlano()).filter(([, c]) => c === CONFIGURAR).map(([r]) => r)).toEqual(['admin']);
   });
 
   it('reparto: SOLO admin; nadie más la recibe', () => {
     const r = repartoDeSql([SQL_0217]);
     expect([...r.keys()]).toEqual(['admin']);
     expect([...r.get('admin')!]).toEqual([CONFIGURAR]);
-    const total = leerRepartoSembrado();
+    const total = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
     expect([...total.entries()].filter(([, fs]) => fs.has(CONFIGURAR)).map(([rol]) => rol)).toEqual(['admin']);
   });
 

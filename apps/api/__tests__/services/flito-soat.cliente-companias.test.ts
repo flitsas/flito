@@ -50,12 +50,12 @@ const ctx = (alcance: string, companiaId: number | null) => ({
   userId: 1, username: 'u', role: 'admin', proyeccionCliente: alcance === 'compania', alcance, proveedorSoatId: null, companiaId,
 });
 
-async function pedir(funciones: string[] = ['soat.solicitud.crear']) {
+async function pedir(funciones: string[] = ['soat.solicitud.crear'], role: 'admin' | 'auditor' = 'admin') {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat-cliente.routes.js');
   app.use('/api/flito/soat', router);
-  const token = `Bearer ${await testToken({ sub: 9100 + consultas.length, role: 'admin', funciones })}`;
+  const token = `Bearer ${await testToken({ sub: 9100 + consultas.length, role, funciones })}`;
   return request(app).get('/api/flito/soat/cliente/companias').set('Authorization', token);
 }
 
@@ -116,9 +116,18 @@ describe('GET /cliente/companias (HU #12874)', () => {
   });
 
   it('sin `soat.solicitud.crear` → 403 de la función, antes de leer nada', async () => {
+    // HU #12873 AC8 (ganancia aprobada): `admin` ya la tiene por «Solicitar SOAT sin trámite», así que el
+    // «sin la función» lo pone un rol que no la tiene de partida (auditor).
     ctxMock.mockResolvedValue(ctx('todo', null));
-    const r = await pedir([]);
+    const r = await pedir([], 'auditor');
     expect(r.status).toBe(403);
     expect(ctxMock).not.toHaveBeenCalled();
+  });
+
+  it('HU #12873 AC8: `admin` sin funciones añadidas ya pasa la guarda (la acción le da `soat.solicitud.crear`)', async () => {
+    ctxMock.mockResolvedValue(ctx('todo', null));
+    const r = await pedir([]);
+    expect(r.status).not.toBe(403);
+    expect(ctxMock).toHaveBeenCalled();
   });
 });
