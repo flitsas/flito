@@ -7,7 +7,9 @@
 --
 -- Regla del paso (decisiones del PO, AC5 y 2026-10-13), para roles Y para excepciones por usuario:
 --   · acción que MODIFICA → se concede a quien tenía TODOS los códigos de su grupo;
---   · acción de LECTURA (lista en `tmp_lectura_13428`) → basta ALGUNO. Opcionales del área: ninguno.
+--   · acción de LECTURA (lista en `tmp_lectura_13428`) → basta ALGUNO.
+-- OPCIONAL (ni grupo, ni expansión, ni retiro; quien lo tiene lo conserva): `parametrizacion.proveedores.listar`
+-- en «Ver clientes y proveedores» (David, 2026-10-13: financiera no gana el catálogo de proveedores SOAT).
 -- El grupo es el PREDECESOR de la acción (§5-ter.1 punto 2): el transitorio `clients.clientes.administrar`
 -- y `parametrizacion.companias.editar` se partieron en operaciones nuevas (crear, editar, datos fiscales;
 -- autogestión y «SOAT sin trámite» de la compañía), y quien tenía el código viejo recibe las acciones
@@ -29,7 +31,7 @@
 -- ON CONFLICT DO NOTHING.
 
 -- ÁRBOL GENERADO (inicio)
--- 36 pares acción → código de su grupo «todos». Generado: no editar a mano.
+-- 35 pares acción → código de su grupo «todos». Generado: no editar a mano.
 -- Regenerar con: npm run permisos:seed -w apps/api -- --arbol administracion --reparto
 DROP TABLE IF EXISTS tmp_arbol_13428;
 CREATE TEMP TABLE tmp_arbol_13428 (accion varchar(80) NOT NULL, fn varchar(80) NOT NULL, PRIMARY KEY (accion, fn));
@@ -48,7 +50,6 @@ INSERT INTO tmp_arbol_13428 (accion, fn) VALUES
   ('accion.clientes.soat_sin_tramite', 'parametrizacion.companias.editar'),
   ('accion.clientes.ver', 'clients.clientes.ver'),
   ('accion.clientes.ver', 'parametrizacion.companias.listar'),
-  ('accion.clientes.ver', 'parametrizacion.proveedores.listar'),
   ('accion.dashboard.ver', 'pagina.flito_tablero'),
   ('accion.dashboard.ver', 'tablero.tablero.ver'),
   ('accion.roles_permisos.asignar', 'permisos.cuadro.guardar'),
