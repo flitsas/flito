@@ -15,7 +15,7 @@ Esta pantalla no aparece en la navegación lateral. Escriba `/flito/tablero` en 
 1. El Administrador puede pulsar **Sincronizar desde FLIT** (el botón pasa a **Sincronizando…**). El recuento de **Trámites nuevos**, **SOAT creados** e **Impuestos creados** aparece debajo.
 2. Lea los indicadores **Revisiones pendientes**, **Fuera de ANS**, **Diferencias de valor** y **Habilitados para entrega**. Un valor en riesgo muestra el chip **atención**.
 3. En **Alertas operativas**, pulse una tarjeta (**Más de N días en borrador**, **SOAT solicitado sin gestión**, etc.) para abrir **Gestión Trámites** filtrado. El chip **Requiere atención** marca las que tienen trámites.
-4. Revise **SOAT por estado** e **Impuestos por estado** (Pendiente, Solicitado, Con novedad, Pagado).
+4. Revise **SOAT por estado** e **Impuestos por estado** (Pendiente, Solicitado, Con novedad, Pagado). Cada bloque aparece solo si su rol puede ver esa cola; si no, el tablero lo omite y los indicadores que se parten por módulo cuentan solo el que usted ve.
 
 ## Estados
 
