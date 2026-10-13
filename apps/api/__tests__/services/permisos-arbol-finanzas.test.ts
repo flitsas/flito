@@ -152,7 +152,11 @@ describe('Regla vigente (PO, 2026-10-13): en las de lectura, exportar/descargar 
 
   it('ninguna acción de lectura de Finanzas expande a exportar/descargar ni a nada que escriba (código y guarda real)', () => {
     const llavesDe = (op: string) => OPERACIONES_DECLARADAS.filter((o) => o.codigo === op).map((o) => o.llave);
-    const descarga = (op: string, llave: string) => /\.(exportar|descargar)\w*$/.test(op) || / \S*(export|descarg|zip|\/pdf|\/archivo)\S*( \[[^\]]+\])?$/i.test(llave);
+    // Como el de #12873 (que añadió la factura de venta: un PDF), pero la «factura» de Finanzas NO es un documento:
+    // `siigo.factura.consultar` (bandeja, línea de tiempo) y `GET /reporte-costos/facturacion-electronica` devuelven
+    // JSON (ningún `siigo/*.routes.ts` ni `finanzas.routes.ts` sirve PDF, XML ni `Content-Disposition`). Por eso aquí se
+    // reconoce el DOCUMENTO por la ruta (`factura-venta`, `/pdf`, `/xml`), no la palabra en el código.
+    const descarga = (op: string, llave: string) => /\.(exportar|descargar)\w*$/.test(op) || / \S*(export|descarg|zip|\/pdf|\/xml|\/archivo|factura-venta)\S*( \[[^\]]+\])?$/i.test(llave);
     const escribe = (llave: string) => !(/ GET /.test(llave) || / POST \S*\/buscar( \[[^\]]+\])?$/.test(llave));
     const malas = FINANZAS.filter((a) => ACCIONES_LECTURA.has(a)).flatMap((a) => operacionesDe(a).flatMap((op) => {
       const llaves = llavesDe(op);
@@ -160,6 +164,7 @@ describe('Regla vigente (PO, 2026-10-13): en las de lectura, exportar/descargar 
       return llaves.filter((l) => descarga(op, l) || escribe(l)).map((l) => `${a}: ${op} (${l})`);
     }));
     expect(malas).toEqual([]);
+    expect(descarga('impuestos.factura.ver', 'flito-impuestos/flito-impuestos.routes.ts GET /:id/factura-venta')).toBe(true);
     // Control: las tres descargas que la regla pasó a opcionales SÍ las ve el detector.
     for (const op of ['bolsas.soporte.descargar', 'comprobantes.archivo.descargar', 'conciliacion.comprobante.descargar']) {
       expect(llavesDe(op).some((l) => descarga(op, l)), op).toBe(true);
