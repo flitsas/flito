@@ -18,10 +18,9 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
 import {
-  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql,
-} from '../helpers/permisos-seed-sql.js';
+  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql, MIGRACIONES_ANTES_DEL_ARBOL } from '../helpers/permisos-seed-sql.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
-import { catalogoCompleto } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano } from '../../src/modules/permisos/catalogo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ARCHIVO = '0193_tramite_servicios_adicionales.sql';
@@ -108,7 +107,7 @@ describe('0193 — análisis estático', () => {
     expect([...reparto.get('financiera')!].sort()).toEqual(FUNCIONES);
     expect([...reparto.get('auditor')!]).toEqual([VER]);
     // Y el catálogo del código dice lo mismo (paridad con inventario.generado.ts).
-    const catalogo = catalogoCompleto().filter((c) => c.codigo.startsWith('finanzas.servicios_adicionales.'));
+    const catalogo = catalogoPlano().filter((c) => c.codigo.startsWith('finanzas.servicios_adicionales.'));
     expect(catalogo.map((c) => c.codigo).sort()).toEqual(FUNCIONES);
     expect(catalogo.find((c) => c.codigo === VER)!.roles).toEqual(['admin', 'auditor', 'financiera']);
     expect(catalogo.find((c) => c.codigo === ASIGNAR)!.roles).toEqual(['admin', 'financiera']);
@@ -120,7 +119,7 @@ describe('0193 — análisis estático', () => {
     expect(retiros.funciones.size).toBe(0);
     expect(retiros.reparto.size).toBe(0);
     expect(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO)).toBe(MIGRACIONES_CON_REPARTO.indexOf('0192_pagina_flito_servicios_adicionales.sql') + 1);
-    const total = leerRepartoSembrado();
+    const total = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
     for (const rol of ['admin', 'financiera']) for (const f of FUNCIONES) expect(total.get(rol)!.has(f), `${rol} ${f}`).toBe(true);
     expect(total.get('auditor')!.has(VER)).toBe(true);
     expect(total.get('auditor')!.has(ASIGNAR)).toBe(false);

@@ -17,7 +17,7 @@ import express from 'express';
 import 'express-async-errors';
 import { testToken, type TestRole } from '../helpers/auth.js';
 import type { SiigoRespuestaEnvio } from '@operaciones/shared-types';
-import { catalogoCompleto } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano } from '../../src/modules/permisos/catalogo.js';
 import type { RegistroOperacion } from '../../src/modules/siigo/siigo.operaciones.repo.js';
 
 vi.mock('../../src/db/client.js', () => ({
@@ -140,7 +140,7 @@ beforeEach(() => {
 // ── AC6 — solo el rol autorizado emite ──────────────────────────────────────
 
 /** HU #13423: los roles de partida de `siigo.factura.emitir` (la tabla de roles por acción ya no existe). */
-const rolesDeEmitir = () => [...catalogoCompleto().find((f) => f.codigo === 'siigo.factura.emitir')!.roles].sort();
+const rolesDeEmitir = () => [...catalogoPlano().find((f) => f.codigo === 'siigo.factura.emitir')!.roles].sort();
 
 describe('AC6 — quién puede emitir lo decide UNA función del motor', () => {
   it('el reparto de partida de `siigo.factura.emitir` es el de la guarda de «Facturar»', () => {

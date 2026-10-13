@@ -160,7 +160,7 @@ router.get('/:id/propuesta', exigirFuncion('siigo.parametrizacion.ver'), async (
 });
 
 // POST /:id/confirmar — fija los códigos de un cliente (AC4).
-router.post('/:id/confirmar', exigirFuncion('siigo.parametrizacion.administrar'), async (req: Request, res: Response) => {
+router.post('/:id/confirmar', exigirFuncion('siigo.terceros.configurar'), async (req: Request, res: Response) => {
   const id = Number.parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
 

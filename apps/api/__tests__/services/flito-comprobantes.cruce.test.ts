@@ -27,6 +27,8 @@ import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
 import { renderizar, ligadoA } from '../helpers/sql-ligado.js';
 import { testToken, fuenteDePrueba, operacionesDePartida } from '../helpers/auth.js';
+// HU #13427: Comprobantes pasó al árbol; la operación la da la acción de partida (expansión del resolutor).
+import { expandir } from '../../src/modules/permisos/arbol/expansion.js';
 
 const kdb = createKeyedDb();
 vi.mock('../../src/db/client.js', () => ({ db: kdb.db, getPoolStats: vi.fn().mockResolvedValue({ utilization: 0, total: 0, idle: 0, waiting: 0 }) }));
@@ -375,8 +377,8 @@ describe('AC5 — GET /:id devuelve candidatos; POST /tramites/buscar por body',
 
   it('POST /tramites/buscar { buscar }: exige comprobantes.tramites.buscar (auditor → 403); 3..60 caracteres; no-store; misma forma y el mismo admite', async () => {
     const app = await buildApp();
-    expect(operacionesDePartida('financiera')).toContain('comprobantes.tramites.buscar');
-    expect(operacionesDePartida('auditor')).not.toContain('comprobantes.tramites.buscar');
+    expect([...expandir(operacionesDePartida('financiera'))]).toContain('comprobantes.tramites.buscar');
+    expect([...expandir(operacionesDePartida('auditor'))]).not.toContain('comprobantes.tramites.buscar');
     expect((await request(app).post(`${BASE}/tramites/buscar`).send({ buscar: 'ABC123' })).status).toBe(401);
     expect((await request(app).post(`${BASE}/tramites/buscar`).set('Authorization', await auth('auditor')).send({ buscar: 'ABC123' })).status).toBe(403);
     expect((await request(app).post(`${BASE}/tramites/buscar`).set('Authorization', await auth()).send({ buscar: 'AB' })).status).toBe(400);

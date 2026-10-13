@@ -60,12 +60,12 @@ export default function PanelTerceros() {
     /** `POST /siigo/terceros/cliente/:id` → `exigirAccionSiigo('emitir')`, que pregunta al motor por
      *  `siigo.factura.emitir` (HU #13423): la pantalla pregunta lo mismo. */
     sincronizar: hasFuncion('siigo.factura.emitir'),
-    /** `POST /siigo/clientes-ciudades/:id/confirmar` → `siigo.parametrizacion.administrar`: fija el
+    /** `POST /siigo/clientes-ciudades/:id/confirmar` → `siigo.terceros.configurar` (HU #13427): fija el
      *  municipio que sale impreso en la factura ante la DIAN. */
-    confirmarCiudad: hasFuncion('siigo.parametrizacion.administrar'),
-    /** `POST /siigo/clientes/validacion/recalcular-duplicados` → `siigo.parametrizacion.administrar`.
+    confirmarCiudad: hasFuncion('siigo.terceros.configurar'),
+    /** `POST /siigo/clientes/validacion/recalcular-duplicados` → `siigo.terceros.configurar` (HU #13427).
      *  Reescribe las marcas de identificación de las fichas; no es «parte de sincronizar». */
-    recalcularDuplicados: hasFuncion('siigo.parametrizacion.administrar'),
+    recalcularDuplicados: hasFuncion('siigo.terceros.configurar'),
     /** `PATCH /clients/:id` → `clients.clientes.administrar`. Sin ella, la ficha abre en solo lectura. */
     editarFicha: hasFuncion('clients.clientes.administrar'),
   };

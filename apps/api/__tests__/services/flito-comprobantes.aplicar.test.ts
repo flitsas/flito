@@ -47,6 +47,8 @@ import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
 import { renderizar, ligadoA } from '../helpers/sql-ligado.js';
 import { testToken, fuenteDePrueba, operacionesDePartida } from '../helpers/auth.js';
+// HU #13427: Comprobantes pasó al árbol; la operación la da la acción de partida (expansión del resolutor).
+import { expandir } from '../../src/modules/permisos/arbol/expansion.js';
 
 const kdb = createKeyedDb();
 vi.mock('../../src/db/client.js', () => ({ db: kdb.db, getPoolStats: vi.fn().mockResolvedValue({ utilization: 0, total: 0, idle: 0, waiting: 0 }) }));
@@ -206,7 +208,7 @@ afterEach(() => { fijarFuenteDePermisos(fuenteDePrueba); });
 describe('AC6 — POST /:id/descartar', () => {
   it('exige comprobantes.comprobante.descartar (auditor → 403); motivo 5..500 (400 datos_invalidos sin tocar la base)', async () => {
     const app = await buildApp();
-    expect(operacionesDePartida('financiera')).toContain('comprobantes.comprobante.descartar');
+    expect([...expandir(operacionesDePartida('financiera'))]).toContain('comprobantes.comprobante.descartar');
     expect((await request(app).post(`${BASE}/${ID}/descartar`).set('Authorization', await auth('auditor')).send({ motivo: 'no corresponde' })).status).toBe(403);
     for (const body of [{}, { motivo: 'no' }, { motivo: 'x'.repeat(501) }]) {
       const res = await request(app).post(`${BASE}/${ID}/descartar`).set('Authorization', await auth()).send(body);
@@ -332,8 +334,8 @@ describe('AC7 — POST /:id/aplicar', () => {
 
   it('exige comprobantes.comprobante.aplicar (auditor → 403)', async () => {
     const app = await buildApp();
-    expect(operacionesDePartida('financiera')).toContain('comprobantes.comprobante.aplicar');
-    expect(operacionesDePartida('admin')).toContain('comprobantes.comprobante.aplicar');
+    expect([...expandir(operacionesDePartida('financiera'))]).toContain('comprobantes.comprobante.aplicar');
+    expect([...expandir(operacionesDePartida('admin'))]).toContain('comprobantes.comprobante.aplicar');
     expect((await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth('auditor')).send(body())).status).toBe(403);
     expect(kdb.select).not.toHaveBeenCalled();
   });
@@ -1294,9 +1296,9 @@ describe('HU #12654 — POST /:id/diferencia/aceptar', () => {
 
   it('exige comprobantes.diferencia.aceptar (auditor → 403; admin y financiera la tienen de partida); motivo ausente, <5 o >500 → 400 datos_invalidos sin tocar la base', async () => {
     const app = await buildApp();
-    expect(operacionesDePartida('financiera')).toContain('comprobantes.diferencia.aceptar');
-    expect(operacionesDePartida('admin')).toContain('comprobantes.diferencia.aceptar');
-    expect(operacionesDePartida('auditor')).not.toContain('comprobantes.diferencia.aceptar');
+    expect([...expandir(operacionesDePartida('financiera'))]).toContain('comprobantes.diferencia.aceptar');
+    expect([...expandir(operacionesDePartida('admin'))]).toContain('comprobantes.diferencia.aceptar');
+    expect([...expandir(operacionesDePartida('auditor'))]).not.toContain('comprobantes.diferencia.aceptar');
     expect((await aceptar(app, { motivo: MOTIVO }, 'auditor')).status).toBe(403);
     for (const body of [{}, { motivo: 'abcd' }, { motivo: '   ab   ' }, { motivo: 'x'.repeat(501) }]) {
       const res = await aceptar(app, body);

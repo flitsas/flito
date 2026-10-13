@@ -97,7 +97,7 @@ const CASOS_AC1: Caso[] = [
   ['get', '/api/soat', 'soat.antiguo.operar', 'proveedor'],
   ['get', '/api/soat/stats', 'soat.antiguo.administrar', 'admin'],
   ['get', '/api/siigo/compuerta', 'siigo.parametrizacion.ver', 'auditor'],
-  ['get', '/api/siigo/credenciales', 'siigo.parametrizacion.administrar', 'admin'],
+  ['get', '/api/siigo/credenciales', 'siigo.credenciales.ver', 'admin'], // HU #13427: el transitorio se partió
   ['get', '/api/siigo/parametrizacion/catalogos', 'siigo.emision.ver', 'financiera'],
   ['get', '/api/siigo/linea-tiempo/00000000-0000-4000-8000-000000000001', 'siigo.factura.consultar', 'auditor'],
 ];
@@ -195,7 +195,7 @@ describe('AC5 — con el ítem habilitado y sin «Administrar <ítem>», la escr
     ['post', '/api/privacy/forget', 'privacy.olvido.administrar', 'privacy.titulares.operar', { docNumber: CEDULA }],
     // El manual conserva su página a nivel de router (`pagina.laft_manual`): se la damos para llegar a la guarda.
     ['post', '/api/laft/manual', 'laft.manual.administrar', ['pagina.laft_manual', 'laft.manual.firmar'], {}],
-    ['post', '/api/siigo/freno/reactivar', 'siigo.parametrizacion.administrar', 'siigo.parametrizacion.ver', {}],
+    ['post', '/api/siigo/freno/reactivar', 'siigo.freno.reactivar', 'siigo.parametrizacion.ver', {}], // HU #13427: «Quitar el freno de emisión»
     ['patch', '/api/soat/1/verify', 'soat.antiguo.administrar', 'soat.antiguo.operar', {}],
     ['post', '/api/tramites/1/firma/solicitar', 'firma.solicitud.administrar', 'firma.estado.ver', { rol: 'comprador' }],
   ];

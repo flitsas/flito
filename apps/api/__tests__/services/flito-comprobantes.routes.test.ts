@@ -26,6 +26,8 @@ import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
 import { renderizar, ligadoA } from '../helpers/sql-ligado.js';
 import { testToken, operacionesDePartida, fuenteDePrueba, type TestRole } from '../helpers/auth.js';
+// HU #13427: Comprobantes pasó al árbol; la operación la da la acción de partida (expansión del resolutor).
+import { expandir } from '../../src/modules/permisos/arbol/expansion.js';
 
 const kdb = createKeyedDb();
 vi.mock('../../src/db/client.js', () => ({ db: kdb.db, getPoolStats: vi.fn().mockResolvedValue({ utilization: 0, total: 0, idle: 0, waiting: 0 }) }));
@@ -142,7 +144,7 @@ describe('AC1 — cada ruta exige su función del motor; el reparto de partida e
   it.each(RUTAS)('%s: sin token → 401; auditor (sin la función) → 403 del motor sin tocar la base', async (codigo, pedir) => {
     const app = await buildApp();
     expect((await pedir(request(app))).status).toBe(401);
-    expect(operacionesDePartida('auditor')).not.toContain(codigo);
+    expect([...expandir(operacionesDePartida('auditor'))]).not.toContain(codigo);
     const res = await pedir(request(app)).set('Authorization', await auth('auditor'));
     expect(res.status).toBe(403);
     // `sin_modulo`: el auditor no tiene NINGUNA función de `comprobantes`, y el motor lo dice antes de mirar la función.
@@ -167,9 +169,9 @@ describe('AC1 — cada ruta exige su función del motor; el reparto de partida e
 
   it('admin y financiera tienen las cinco de partida; auditor, gestor_impuestos y proveedor ninguna', () => {
     for (const [codigo] of RUTAS) {
-      expect(operacionesDePartida('admin')).toContain(codigo);
-      expect(operacionesDePartida('financiera')).toContain(codigo);
-      for (const rol of ['auditor', 'gestor_impuestos', 'proveedor', 'cliente']) expect(operacionesDePartida(rol), `${rol} ${codigo}`).not.toContain(codigo);
+      expect([...expandir(operacionesDePartida('admin'))]).toContain(codigo);
+      expect([...expandir(operacionesDePartida('financiera'))]).toContain(codigo);
+      for (const rol of ['auditor', 'gestor_impuestos', 'proveedor', 'cliente']) expect([...expandir(operacionesDePartida(rol))], `${rol} ${codigo}`).not.toContain(codigo);
     }
   });
 

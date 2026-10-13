@@ -21,11 +21,10 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
-import { catalogoCompleto } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano } from '../../src/modules/permisos/catalogo.js';
 import {
   MIGRACIONES_CON_REPARTO, copiasDeReparto, leerFuncionesSembradas, leerRenombresSembrados,
-  leerRepartoSembrado, leerRetirosSembrados,
-} from '../helpers/permisos-seed-sql.js';
+  leerRepartoSembrado, leerRetirosSembrados, MIGRACIONES_ANTES_DEL_ARBOL } from '../helpers/permisos-seed-sql.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ARCHIVO = '0230_permisos_sensibles_por_permiso.sql';
@@ -34,7 +33,7 @@ const RUTA = path.resolve(__dirname, '../../src/db/migrations', ARCHIVO);
 const SQL = readFileSync(RUTA, 'utf8');
 const SIN_COMENTARIOS = SQL.replace(/--[^\n]*/g, '');
 
-const CATALOGO = catalogoCompleto();
+const CATALOGO = catalogoPlano();
 /** Las cuatro operaciones que solo exigían sesión y las páginas cuyas pantallas las llaman (grep sobre apps/web/src). */
 const SESION: Record<string, string[]> = {
   'vehicles.vehiculos.consultar': ['pagina.fleet', 'pagina.soat', 'pagina.tramite', 'pagina.vehicles'],
@@ -108,8 +107,8 @@ describe('0230 — reglas del archivo (análisis estático)', () => {
 });
 
 describe('0230 — lo que siembra es lo que el catálogo del código declara', () => {
-  const previas = leerFuncionesSembradas(MIGRACIONES_CON_REPARTO.filter((m) => m !== ARCHIVO));
-  const sembradas = new Map([...leerFuncionesSembradas()].filter(([c]) => !previas.has(c)));
+  const previas = leerFuncionesSembradas(MIGRACIONES_ANTES_DEL_ARBOL.filter((m) => m !== ARCHIVO));
+  const sembradas = new Map([...leerFuncionesSembradas(MIGRACIONES_ANTES_DEL_ARBOL)].filter(([c]) => !previas.has(c)));
 
   it('siembra exactamente las 42 operaciones, con los textos y el módulo del catálogo', () => {
     expect(OPERACIONES).toHaveLength(42);
@@ -181,7 +180,7 @@ describe('0230 — reparto con paridad (AC6) y admin explícito (AC8)', () => {
   it('plegadas todas las migraciones, cada operación de sesión la tiene EXACTAMENTE quien tiene alguna de sus páginas', () => {
     expect(MIGRACIONES_CON_REPARTO).toContain(ARCHIVO);
     expect(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO)).toBe(MIGRACIONES_CON_REPARTO.indexOf(ANTERIOR) + 1);
-    const total = leerRepartoSembrado();
+    const total = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
     for (const [rol, cs] of total) {
       for (const [codigo, paginas] of Object.entries(SESION)) {
         expect(cs.has(codigo), `${rol} ${codigo}`).toBe(paginas.some((p) => cs.has(p)));
@@ -190,7 +189,7 @@ describe('0230 — reparto con paridad (AC6) y admin explícito (AC8)', () => {
   });
 
   it('la foto del catálogo de las cuatro de sesión coincide con el reparto plegado (los tests firman tokens con ella)', () => {
-    const total = leerRepartoSembrado();
+    const total = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
     for (const c of Object.keys(SESION)) {
       const sembrado = [...total.entries()].filter(([, cs]) => cs.has(c)).map(([r]) => r).sort();
       expect(OPERACIONES.find((f) => f.codigo === c)!.roles.slice().sort(), c).toEqual(sembrado);

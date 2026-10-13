@@ -20,10 +20,9 @@ import postgres from 'postgres';
 import { getTableConfig } from 'drizzle-orm/pg-core';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
 import {
-  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql,
-} from '../helpers/permisos-seed-sql.js';
+  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql, MIGRACIONES_ANTES_DEL_ARBOL } from '../helpers/permisos-seed-sql.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
-import { catalogoCompleto, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
 import { flitoComprobantes } from '../../src/db/schema.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -128,7 +127,7 @@ describe('0198 — análisis estático', () => {
     expect(funciones.get(PAGINA)).toEqual({
       codigo: PAGINA, modulo: 'finanzas', nombre: 'Finanzas — Comprobantes', descripcion: 'Entrar a la pantalla «Finanzas — Comprobantes».', tipo: 'pagina',
     });
-    const catalogo = catalogoCompleto();
+    const catalogo = catalogoPlano();
     const pagina = catalogo.find((c) => c.codigo === PAGINA);
     expect(pagina).toBeDefined();
     expect(pagina!.tipo).toBe('pagina');
@@ -151,16 +150,16 @@ describe('0198 — análisis estático', () => {
     expect([...reparto.keys()].sort()).toEqual(['admin', 'financiera']);
     for (const rol of ['admin', 'financiera']) expect([...reparto.get(rol)!].sort()).toEqual([PAGINA, ...OPS].sort());
     expect(reparto.get('auditor')).toBeUndefined();
-    const catalogo = catalogoCompleto();
+    const catalogo = catalogoPlano();
     for (const codigo of [PAGINA, ...OPS]) {
       expect(catalogo.find((c) => c.codigo === codigo)!.roles, codigo).toEqual(['admin', 'financiera']);
-      expect(repartoDePartida().filter(([, c]) => c === codigo).map(([r]) => r).sort()).toEqual(['admin', 'financiera']);
+      expect(repartoDePartida(catalogoPlano()).filter(([, c]) => c === codigo).map(([r]) => r).sort()).toEqual(['admin', 'financiera']);
     }
   });
 
   it('los cardinales del catálogo: 9 operaciones de comprobantes (5 de la 0198 + 3 de la 0201 + 1 de la 0202, HU #12654), y las 9 llaves del fichero de rutas', () => {
     // 5 → 8 desde la HU #12629 (F2 #12606: buscar trámites, aplicar, descartar); 8 → 9 desde la HU #12654 (F3: aceptar diferencia). Las cinco de ESTA migración siguen siendo las de `OPS`.
-    expect(catalogoCompleto().filter((c) => c.tipo === 'operacion' && c.modulo === 'comprobantes')).toHaveLength(9);
+    expect(catalogoPlano().filter((c) => c.tipo === 'operacion' && c.modulo === 'comprobantes')).toHaveLength(9);
     expect(OPERACIONES_DECLARADAS.filter((o) => o.llave.startsWith('flito-comprobantes/flito-comprobantes.routes.ts '))).toHaveLength(9);
     for (const codigo of OPS) expect(OPERACIONES_DECLARADAS.find((o) => o.codigo === codigo), codigo).toBeDefined();
   });
@@ -170,7 +169,7 @@ describe('0198 — análisis estático', () => {
     expect(retiros.funciones.size).toBe(0);
     expect(retiros.reparto.size).toBe(0);
     expect(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO)).toBe(MIGRACIONES_CON_REPARTO.indexOf('0197_permiso_recibo_caja.sql') + 1);
-    const total = leerRepartoSembrado();
+    const total = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
     for (const codigo of [PAGINA, ...OPS]) {
       expect(total.get('admin')!.has(codigo)).toBe(true);
       expect(total.get('financiera')!.has(codigo)).toBe(true);

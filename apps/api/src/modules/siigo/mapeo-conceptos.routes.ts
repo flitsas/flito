@@ -167,7 +167,7 @@ const revalidacionLimiter = rateLimit({
 // El orden importa: la guarda de rol va ANTES del limitador. Lo que este freno protege es la cuota
 // de Siigo, y una petición rechazada por rol no consume ni una llamada — cobrarle cupo dejaría que
 // un rol sin permiso agotara el presupuesto de quien sí lo tiene.
-router.post('/revalidar', exigirFuncion('siigo.parametrizacion.administrar'), revalidacionLimiter, async (req: Request, res: Response) => {
+router.post('/revalidar', exigirFuncion('siigo.conceptos.administrar'), revalidacionLimiter, async (req: Request, res: Response) => {
   const ambiente = ambienteDe(req);
   const usuarioId = req.user?.sub as number;
 
@@ -184,7 +184,7 @@ router.post('/revalidar', exigirFuncion('siigo.parametrizacion.administrar'), re
 });
 
 // POST / — configuración específica por tipo de trámite (AC5). La genérica ya existe: se edita.
-router.post('/', exigirFuncion('siigo.parametrizacion.administrar'), async (req: Request, res: Response) => {
+router.post('/', exigirFuncion('siigo.conceptos.administrar'), async (req: Request, res: Response) => {
   const parsed = crearSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
@@ -237,7 +237,7 @@ const crearProductoSchema = z.object({
 //
 // Escritura del mapeo: solo `admin`, igual que el resto de ediciones (AC8 de la HU #11282). Crear
 // un producto en el catálogo de la empresa es más consecuente que editar una fila, no menos.
-router.post('/:id/producto', exigirFuncion('siigo.parametrizacion.administrar'), creacionProductoLimiter, async (req: Request, res: Response) => {
+router.post('/:id/producto', exigirFuncion('siigo.conceptos.administrar'), creacionProductoLimiter, async (req: Request, res: Response) => {
   if (!UUID_RE.test(req.params.id)) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = crearProductoSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -266,7 +266,7 @@ router.get('/:id', exigirFuncion('siigo.parametrizacion.ver'), async (req: Reque
 });
 
 // PATCH /:id — edita el mapeo. Puede tumbar la confirmación de contabilidad (AC4).
-router.patch('/:id', exigirFuncion('siigo.parametrizacion.administrar'), async (req: Request, res: Response) => {
+router.patch('/:id', exigirFuncion('siigo.conceptos.administrar'), async (req: Request, res: Response) => {
   if (!UUID_RE.test(req.params.id)) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = camposEditablesSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -306,7 +306,7 @@ router.post('/:id/confirmar', exigirFuncion('siigo.conceptos.confirmar'), async 
 });
 
 // DELETE /:id — desactiva una configuración específica. Las genéricas no se eliminan (AC1).
-router.delete('/:id', exigirFuncion('siigo.parametrizacion.administrar'), async (req: Request, res: Response) => {
+router.delete('/:id', exigirFuncion('siigo.conceptos.administrar'), async (req: Request, res: Response) => {
   if (!UUID_RE.test(req.params.id)) { res.status(400).json({ error: 'ID inválido' }); return; }
   const usuarioId = req.user?.sub as number;
 

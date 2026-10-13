@@ -182,9 +182,12 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     }
     const compartidosFlito = [...porCodigoFlito].filter(([, n]) => n > 1);
     expect(compartidosFlito).toEqual([['soat.solicitud.crear', 2]]);
-    expect(operaciones).toHaveLength(porCodigoFlito.size + codigosLegado.size);
-    expect(new Set(operaciones.map((f) => f.codigo)).size).toBe(operaciones.length);
-    expect(codigosLegado.size).toBe(80); // 25 de la HU #13421 + 13 de la HU #13422 + 42 de la HU #13423
+    // HU #13427: las de HOY (con las operaciones nuevas que parten una guarda vieja), no las del mundo plano.
+    const deHoy = catalogoDeOperaciones();
+    expect(deHoy).toHaveLength(porCodigoFlito.size + codigosLegado.size);
+    expect(new Set(deHoy.map((f) => f.codigo)).size).toBe(deHoy.length);
+    // 25 de la HU #13421 + 13 de la HU #13422 + 42 de la HU #13423 + 11 de la HU #13427 (12 nuevas − el transitorio de Siigo)
+    expect(codigosLegado.size).toBe(91);
   });
 
   it('HU #13421 — varias guardas con el mismo código exigen IGUALDAD de reparto: una lista distinta revienta (no se une)', () => {
@@ -225,7 +228,7 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     expect(() => catalogoDeOperaciones(faltante)).toThrow(/SIN guarda viva/);
   });
 
-  it('las diecisiete guardas en línea van con su condición en la llave y no colisionan con la ruta que las contiene (dos son del Bug #12642, cuatro de la HU #13425, una de la HU #13422, ocho de la HU #13423: las acciones de Siigo)', () => {
+  it('las diecinueve guardas en línea van con su condición en la llave y no colisionan con la ruta que las contiene (dos son del Bug #12642, cuatro de la HU #13425, una de la HU #13422, ocho de la HU #13423: las acciones de Siigo; dos de la HU #13427: credenciales de Siigo por ambiente)', () => {
     const enLinea = guardas.filter((g) => g.condicion);
     expect(enLinea.map(llaveDe).sort()).toEqual([
       'flito-impuestos/flito-impuestos.routes.ts POST /export [incluirPago]',
@@ -234,6 +237,8 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       'jornadas/jornadas.routes.ts POST /abrir [jornadaAjena]',
       'pesv/diagnostico.routes.ts GET /:id [sugerirAuditoria]',
       'pesv/diagnostico.routes.ts GET /:id [vistaAuditoria]',
+      'siigo/credenciales.routes.ts POST * [produccion]',
+      'siigo/credenciales.routes.ts POST * [pruebas]',
       'siigo/siigo.permisos.ts GET * [consultar]',
       'siigo/siigo.permisos.ts POST * [anular]',
       'siigo/siigo.permisos.ts POST * [corregir]',

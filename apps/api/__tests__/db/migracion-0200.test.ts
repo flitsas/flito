@@ -20,10 +20,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PAGES, PAGE_GROUPS, USER_ROLES, paginasPorDefecto } from '@operaciones/shared-types';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
-import { catalogoCompleto } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano } from '../../src/modules/permisos/catalogo.js';
 import {
-  MIGRACIONES_CON_REPARTO, leerFuncionesSembradas, leerRepartoSembrado, leerRetirosSembrados,
-} from '../helpers/permisos-seed-sql.js';
+  MIGRACIONES_CON_REPARTO, leerFuncionesSembradas, leerRepartoSembrado, leerRetirosSembrados, MIGRACIONES_ANTES_DEL_ARBOL } from '../helpers/permisos-seed-sql.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ARCHIVO = '0200_pagina_finanzas_gastos_diarios.sql';
@@ -71,7 +70,7 @@ describe('0200 — reglas del archivo y lo que siembra (análisis estático)', (
     // Reparto solo admin: `financiera` y `auditor` (los lectores del reporte de costos) NO la reciben
     // por defecto; la HU lo deja en manos del panel de roles. `admin` no tiene fila en
     // `ROLE_DEFAULT_PAGES` (recibe todas las de PAGE_GROUPS por el generador), así que aquí NINGÚN
-    // rol la trae; que admin sí la concede lo dice `catalogoCompleto()` en el aserto de reparto.
+    // rol la trae; que admin sí la concede lo dice `catalogoPlano()` en el aserto de reparto.
     for (const rol of USER_ROLES) expect(paginasPorDefecto(rol).includes(SLUG), rol).toBe(false);
   });
 
@@ -82,7 +81,7 @@ describe('0200 — reglas del archivo y lo que siembra (análisis estático)', (
     expect(SIN_COMENTARIOS).not.toMatch(/DO UPDATE/);
     const sembradas = leerFuncionesSembradas([ARCHIVO]);
     expect([...sembradas.keys()]).toEqual([CODIGO]);
-    const f = catalogoCompleto().find((c) => c.codigo === CODIGO);
+    const f = catalogoPlano().find((c) => c.codigo === CODIGO);
     expect(f, `${CODIGO} en el catálogo del código`).toBeDefined();
     expect(f!.tipo).toBe('pagina');
     expect(f!.modulo).toBe('finanzas');
@@ -94,7 +93,7 @@ describe('0200 — reglas del archivo y lo que siembra (análisis estático)', (
     const reparto = leerRepartoSembrado([ARCHIVO]);
     expect([...reparto.keys()]).toEqual(['admin']);
     expect([...reparto.get('admin')!]).toEqual([CODIGO]);
-    const f = catalogoCompleto().find((c) => c.codigo === CODIGO)!;
+    const f = catalogoPlano().find((c) => c.codigo === CODIGO)!;
     expect(f.roles).toEqual(['admin']);
   });
 
@@ -105,7 +104,7 @@ describe('0200 — reglas del archivo y lo que siembra (análisis estático)', (
     expect(MIGRACIONES_CON_REPARTO).toContain(ARCHIVO);
     expect(MIGRACIONES_CON_REPARTO[MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO) - 1]).toMatch(/^(0199_tramite_viajes_logistica|0190_users_baja_logica)\.sql$/);
     // Plegadas todas las migraciones con reparto, la página sigue concedida solo a admin.
-    const total = leerRepartoSembrado();
+    const total = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
     expect(total.get('admin')!.has(CODIGO)).toBe(true);
     for (const rol of [...total.keys()].filter((r) => r !== 'admin')) {
       expect(total.get(rol)!.has(CODIGO), rol).toBe(false);

@@ -148,7 +148,7 @@ router.get('/catalogos/:tipo', exigirFuncion('siigo.emision.ver'), async (req: R
 // `vaciadoMasivo` viaja por el mismo canal y es independiente de `ok`: un catálogo que estaba
 // poblado y volvió vacío es una sincronización exitosa cuyo efecto es dejar la parametrización sin
 // opciones. La pantalla tiene que poder distinguirlo de un verde normal.
-router.post('/catalogos/sincronizar', exigirFuncion('siigo.parametrizacion.administrar'), async (req: Request, res: Response) => {
+router.post('/catalogos/sincronizar', exigirFuncion('siigo.catalogos.sincronizar'), async (req: Request, res: Response) => {
   const parsed = sincronizarSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });

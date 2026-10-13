@@ -501,10 +501,14 @@ describe('AC7 — misma guarda de lectura (CF-19)', () => {
   it('las dos rutas se registran bajo la lectura del reporte y el archivo no añade otra guarda', () => {
     const fuente = readFileSync(new URL('../../src/modules/finanzas/finanzas.routes.ts', import.meta.url), 'utf8');
     expect(fuente).toMatch(/router\.get\('\/reporte-costos\/consolidado', exigirFuncion\('finanzas\.reporte_costos\.ver'\),/);
-    // HU #12531: POST, bajo la misma guarda y con la bolsa compartida del limitador delante del handler.
-    expect(fuente).toMatch(/router\.post\('\/reporte-costos\/consolidado\/export', exigirFuncion\('finanzas\.reporte_costos\.ver'\), exportColaLimiter,/);
+    // HU #12531: POST con la bolsa compartida del limitador delante del handler. HU #13427: bajo «Exportar a Excel».
+    expect(fuente).toMatch(/router\.post\('\/reporte-costos\/consolidado\/export', exigirFuncion\('finanzas\.reporte_costos\.exportar'\), exportColaLimiter,/);
     expect(fuente).not.toMatch(/router\.get\('\/reporte-costos\/consolidado\/export'/);
     expect(fuente.match(/requireRole\(/g)).toBeNull();
-    expect(new Set(fuente.match(/exigirFuncion\('[a-z0-9_.]+'\)/g))).toEqual(new Set(["exigirFuncion('finanzas.reporte_costos.ver')"]));
+    expect(new Set(fuente.match(/exigirFuncion\('[a-z0-9_.]+'\)/g))).toEqual(new Set([
+      "exigirFuncion('finanzas.reporte_costos.ver')", "exigirFuncion('finanzas.reporte_costos.exportar')",
+      "exigirFuncion('finanzas.reporte_costos.ver_soportes')", "exigirFuncion('finanzas.reporte_costos.ver_viajes')",
+      "exigirFuncion('finanzas.gastos_diarios.ver')",
+    ]));
   });
 });

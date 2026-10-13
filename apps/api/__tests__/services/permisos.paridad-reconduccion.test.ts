@@ -33,6 +33,13 @@ import { RUTAS_RECONDUCIDAS, type RutaReconducida } from '../fixtures/permisos-r
 import { leerRepartoSembrado, MIGRACIONES_ANTES_DEL_ARBOL } from '../helpers/permisos-seed-sql.js';
 import { montajesDeFunciones, llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
+import { PARTIDA_DE_OPERACION_NUEVA } from '../../src/modules/permisos/arbol/acciones-finanzas.js';
+
+/**
+ * HU #13427: en el mundo PLANO (seed ≤ 0231) una operación nueva que parte una guarda vieja se decide con su código de
+ * PARTIDA (`finanzas.reporte_costos.exportar` → `finanzas.reporte_costos.ver`; gastos diarios → su página).
+ */
+const enPlano = (codigo: string) => PARTIDA_DE_OPERACION_NUEVA[codigo] ?? codigo;
 import {
   fijarFuenteDePermisos, invalidarPermisosDe, resolverPermisos, type FilasPermisos,
 } from '../../src/shared/permisos-efectivos.js';
@@ -64,7 +71,7 @@ function antesDe(r: RutaReconducida): string[] {
   return g.roles;
 }
 
-function matriz(nombre: string, reparto: () => Map<string, Set<string>>) {
+function matriz(nombre: string, reparto: () => Map<string, Set<string>>, codigoDe: (c: string) => string = (c) => c) {
   describe(nombre, () => {
     beforeAll(() => {
       fijarFuenteDePermisos(fuenteDesde(reparto()));
@@ -78,7 +85,7 @@ function matriz(nombre: string, reparto: () => Map<string, Set<string>>) {
         const desacuerdos: string[] = [];
         for (const rol of ROLES) {
           const p = await resolverPermisos(subDe(rol));
-          const motor = p.ok && p.funciones.has(fila.codigo);
+          const motor = p.ok && p.funciones.has(codigoDe(fila.codigo));
           const previo = antes.includes(rol);
           if (motor !== previo) {
             desacuerdos.push(`${etiqueta(fila)} · rol ${rol}: antes ${previo ? 'SÍ' : 'NO'}, motor ${motor ? 'SÍ' : 'NO'}`);
@@ -117,14 +124,15 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
 
   it('el SQL sembrado conoce cada código de la lista (0179 ∪ 0181)', () => {
     const sembrados = new Set([...leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL).values()].flatMap((s) => [...s]));
-    const desconocidos = RUTAS_RECONDUCIDAS.filter((r) => !sembrados.has(r.codigo)).map(etiqueta);
-    // Un código que NINGÚN rol tiene sembrado sería una guarda que responde 403 a todo el mundo; hoy
-    // no existe ninguna (todas tienen al menos `admin` o `cliente`).
-    expect(desconocidos).toEqual([]);
+    const desconocidos = RUTAS_RECONDUCIDAS.filter((r) => !sembrados.has(enPlano(r.codigo))).map(etiqueta);
+    // Un código que NINGÚN rol tiene sembrado es una guarda que responde 403 a todo el mundo. Solo hay
+    // una, a propósito: el reemplazo del comprobante de pago nace sin rol (AC7 de la HU #13269) y el
+    // administrador lo concede desde el panel. Cualquier otra es un olvido.
+    expect(desconocidos).toEqual(['flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts POST /:id/recibos/reemplazar-pago']);
   });
 });
 
-matriz('AC7 — el motor alimentado con el SQL de la 0179 + 0181 decide, ruta a ruta y rol a rol, lo mismo que el requireRole de antes', () => leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL));
+matriz('AC7 — el motor alimentado con el SQL de la 0179 + 0181 decide, ruta a ruta y rol a rol, lo mismo que el requireRole de antes', () => leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL), enPlano);
 
 // ── Variante contra la base real ─────────────────────────────────────────────────────────────────
 const URL_BASE = process.env.TEST_DATABASE_URL;

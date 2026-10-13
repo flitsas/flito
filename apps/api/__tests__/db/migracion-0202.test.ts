@@ -23,10 +23,9 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
 import {
-  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql,
-} from '../helpers/permisos-seed-sql.js';
+  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql, MIGRACIONES_ANTES_DEL_ARBOL } from '../helpers/permisos-seed-sql.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
-import { catalogoCompleto, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ARCHIVO = '0202_comprobantes_diferencia.sql';
@@ -81,7 +80,7 @@ describe('0202 — análisis estático', () => {
     expect(op!.llave).toBe(RUTA);
     expect(op!.nombre).toBe(NOMBRE);
     expect(funciones.get(OP)).toEqual({ codigo: OP, modulo: 'comprobantes', nombre: op!.nombre, descripcion: op!.descripcion, tipo: 'operacion' });
-    const f = catalogoCompleto().find((c) => c.codigo === OP);
+    const f = catalogoPlano().find((c) => c.codigo === OP);
     expect(f).toBeDefined();
     expect(f!.tipo).toBe('operacion');
     expect(f!.modulo).toBe('comprobantes');
@@ -93,12 +92,12 @@ describe('0202 — análisis estático', () => {
     for (const rol of ['admin', 'financiera']) expect([...reparto.get(rol)!]).toEqual([OP]);
     expect(reparto.get('auditor')).toBeUndefined();
     expect([...reparto.values()].reduce((n, s) => n + s.size, 0)).toBe(2);
-    expect(catalogoCompleto().find((c) => c.codigo === OP)!.roles).toEqual(['admin', 'financiera']);
-    expect(repartoDePartida().filter(([, c]) => c === OP).map(([r]) => r).sort()).toEqual(['admin', 'financiera']);
+    expect(catalogoPlano().find((c) => c.codigo === OP)!.roles).toEqual(['admin', 'financiera']);
+    expect(repartoDePartida(catalogoPlano()).filter(([, c]) => c === OP).map(([r]) => r).sort()).toEqual(['admin', 'financiera']);
   });
 
   it('los cardinales del catálogo: 9 operaciones de comprobantes (5 de la 0198 + 3 de la 0201 + 1), y las 9 llaves del fichero de rutas', () => {
-    expect(catalogoCompleto().filter((c) => c.tipo === 'operacion' && c.modulo === 'comprobantes')).toHaveLength(9);
+    expect(catalogoPlano().filter((c) => c.tipo === 'operacion' && c.modulo === 'comprobantes')).toHaveLength(9);
     expect(OPERACIONES_DECLARADAS.filter((o) => o.llave.startsWith('flito-comprobantes/flito-comprobantes.routes.ts '))).toHaveLength(9);
   });
 
@@ -107,7 +106,7 @@ describe('0202 — análisis estático', () => {
     expect(retiros.funciones.size).toBe(0);
     expect(retiros.reparto.size).toBe(0);
     expect(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO)).toBe(MIGRACIONES_CON_REPARTO.indexOf('0201_comprobantes_aplicar.sql') + 1);
-    const total = leerRepartoSembrado();
+    const total = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
     expect(total.get('admin')!.has(OP)).toBe(true);
     expect(total.get('financiera')!.has(OP)).toBe(true);
     expect(total.get('auditor')?.has(OP) ?? false).toBe(false);

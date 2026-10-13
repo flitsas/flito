@@ -38,7 +38,7 @@ describe('0232 — análisis estático', () => {
   });
 
   it('el bloque entre marcas es EXACTAMENTE la salida del generador (`--arbol gestion`)', () => {
-    expect(bloqueGenerado(SQL)).toBe(sqlSiembraArbol());
+    expect(bloqueGenerado(SQL)).toBe(sqlSiembraArbol('gestion'));
   });
 
   it('DDL idempotente: columnas IF NOT EXISTS, FK guardada por nombre, índice IF NOT EXISTS, CHECK DROP/ADD', () => {
