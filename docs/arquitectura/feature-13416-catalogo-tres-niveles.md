@@ -471,6 +471,265 @@ Finanzas → Facturación electrónica · Operación: Ver las facturas emitidas 
 Administración → Integración con Siigo: Registrar credenciales de pruebas · Registrar credenciales de producción · Probar la conexión
 ```
 
+## 5-ter. Administración, General, Ayuda y Perfil (HU #13428)
+
+Mismo método que el §5-bis: el mapeo va en `arbol/acciones-administracion.ts` (`ACCIONES_ADMINISTRACION`,
+se suma a `ACCIONES_ARBOL` y a `AreaArbol` = `'administracion'` en `expansion.ts`) y el test AC6 lo valida
+en doble sentido contra `OPERACIONES_DECLARADAS` filtradas por
+`AREA_ADMINISTRACION = /^(usuarios|permisos|bitacora|clients|tablero|perfil)\.|^parametrizacion\.(companias|proveedores)\.|^tramites\.(autogestion|empresa)\./`
+(las tres de `tramites.*` ya están en `FUERA_DE_AREA_GESTION` con destino «Clientes y proveedores (#13428)»).
+Reglas del paso (PO, 2026-10-13), las mismas de #12873/#13427: modifica → «todos»; lectura (flag
+`lectura: true`) → «alguna»; exportar/descargar/escribir dentro de una de lectura → opcional, y si es la
+única operación la acción deja de ser de lectura; los opcionales no se expanden y se conservan; admin
+recibe todo. Fuente: `catalogo-operaciones.ts` (`users/`, `permisos/`, `flito-bitacora/`, `flito-tablero/`,
+`flito-parametrizacion/`, `flito-tramites/`) y `catalogo-operaciones.legado.ts` (`clients/`), contrastadas
+con la guarda de cada ruta. Partida = migraciones 0001..0235 plegadas (`leerRepartoSembrado()` del helper
+`__tests__/helpers/permisos-seed-sql.ts`; coincide con `catalogoPlano()` en las 32 operaciones del área).
+
+**Gestión o Administración (AC1 vs. decisión del 9-oct) — manda el 9-oct.** El AC1 sale de la propuesta
+del 7-oct; la decisión del PO del 9-oct (anexo de #13416 y nota en la propia #13428) es posterior y
+mueve «Clientes y proveedores» y «Bitácora» a **Gestión**, que es además donde los tiene el menú (P-2 del
+§8, recomendación ya en ese sentido). No es una contradicción abierta: es un AC desactualizado. Solo
+cambia el `elemento` del `ItemDef` (y con él el `padre_codigo` que siembra #13429); las acciones, el
+mapeo y el reparto son idénticos. Por eso esos dos ítems se declaran en
+`packages/shared-types/src/permisos-arbol/gestion.ts` (`elemento: 'gestion'`, al final de `ITEMS_GESTION`,
+97 líneas hoy) y su mapeo en `acciones-administracion.ts` (mapeo por HU, no por elemento). Pendiente
+humano: corregir el texto del AC1 en ADO (formal, no bloquea).
+
+### 5-ter.1 Delta del modelo (tres piezas que #12873/#13427 no necesitaron)
+
+1. **Anti-bloqueo sobre el conjunto expandido (AC7) — bloqueante.** `shared/permisos-anti-bloqueo.ts`
+   cuenta `FUNCIONES_DE_ADMINISTRACION` (`pagina.users`, `usuarios.usuario.editar`, `pagina.roles_permisos`,
+   `permisos.cuadro.guardar`) leyendo **filas crudas** de `permisos_rol_funcion`/`permisos_usuario_funcion`
+   (`tiene(F)`). La 0237 absorbe `usuarios.usuario.editar` y `permisos.cuadro.guardar` (borra sus filas):
+   sin este cambio la cuenta da 0 para todos y **todo** guardado que pase por `conSeguroAntiBloqueo`
+   (cuadro de rol, borrar rol, editar/desactivar/dar de baja usuario) responde 409. `tiene(F)` pasa a la
+   regla de `expandir`, en el mismo SQL parametrizado (sin `select` extra, por los mocks posicionales):
+   `(∃ c ∈ codigosQueConceden(F) : (porRol(c) ∨ concedida(c)) ∧ ¬revocada(c)) ∧ ¬revocada(F)`, con
+   `inArray`/`ANY(${array})` sobre la lista de `codigosQueConceden`. La lista de funciones **no cambia**
+   (sigue siendo de operaciones y páginas: el invariante es la capacidad, no el nodo). Test: rol con solo
+   `accion.usuarios.editar` + `accion.roles_permisos.asignar` + las dos páginas sostiene el invariante;
+   quitarle la acción → 409; revocar la operación al usuario aunque su rol tenga la acción → 409.
+   El gating por `menu.administracion` lo añade #13429 (§7).
+2. **Guardas partidas en línea por campo.** Dos `PATCH` de hoy mezclan en un cuerpo lo que el catálogo
+   aprobado reparte en acciones distintas. Se parten con el patrón `[incluirPago]` / `siigo.permisos.ts`
+   (decisión en línea con `tieneFuncion(req, '<literal>')` por grupo de campos presente en el cuerpo; el
+   lector de guardas los declara como `PATCH … [etiqueta]`):
+   - `flito-parametrizacion` `PATCH /companias/:id` (hoy `parametrizacion.companias.editar`):
+     `soatAutogestionable`/`impuestosAutogestionable`/`logisticaAutogestionable` → **nueva**
+     `parametrizacion.companias.autogestion` `[autogestion]`; `soatSinTramite`/`proveedorSoatSinTramiteId`
+     → **nueva** `parametrizacion.companias.soat_sin_tramite` `[sinTramite]`; el resto
+     (`logisticaPermiteParcial`, `carpetaStorage`, `toleranciaValorImpuesto`) sigue con
+     `parametrizacion.companias.editar`. La ruta deja de tener `exigirFuncion` de entrada (solo
+     `authMiddleware` del router): cada grupo presente exige su operación, cuerpo sin ningún grupo → 400,
+     y el 403 nombra el grupo que faltó (mismo cuerpo `{ error: 'Sin permisos' }` que hoy).
+   - `clients` `POST /` y `PATCH /:id` (hoy el transitorio `clients.clientes.administrar`): **nuevas**
+     `clients.clientes.crear` (POST) y `clients.clientes.editar` (PATCH, campos generales) y
+     `clients.clientes.datos_fiscales` `[fiscal]` (cualquiera de las claves fiscales de `createSchema`:
+     `personType`…`phoneNumber`, la misma lista de `diffFiscal`). Un PATCH solo con claves fiscales exige
+     únicamente `datos_fiscales` (PanelTerceros); un POST con claves fiscales exige `crear` **y**
+     `datos_fiscales`.
+   Todas nacen absorbidas con su código viejo como partida (`PARTIDA_DE_OPERACION_NUEVA`), como en §5-bis.1.
+3. **Reparto universal (Perfil, condicionado a P-22).** «Cambiar mi contraseña» hoy no tiene operación:
+   la propia la cambia **cualquiera** (#13425 AC4, guarda en línea de `users.routes.ts`). Con
+   `predecesores` no hay forma de decir «todos los roles» sin literal de rol. Se añade a `AccionArbol`
+   `repartoUniversal?: true`: el reparto la marca a **cada fila de `permisos_roles`**
+   (`INSERT … SELECT codigo, '<accion>' FROM permisos_roles ON CONFLICT DO NOTHING`; sin literales, rol
+   ausente = 0 filas) y la CTE de usuarios no la toca (nadie la tenía revocada: no existía).
+   `cumpleGrupo` devuelve `true`; `catalogoDeAcciones` emite `roles` = todos los del catálogo. Si el PO
+   dice «no» en P-22, la pieza no se construye y el predecesor es `pagina.perfil`.
+
+### 5-ter.2 Tabla de acciones
+
+`L` = lectura (umbral 1), `M` = modifica (umbral |grupo|). «Pred.» solo cuando difiere del grupo.
+Partida = roles que hoy tienen **todo** el grupo (o alguna en `L`), plegando 0001..0235.
+
+| Ítem (`pagina.*`) · elemento | Acción `accion.<item>.<accion>` — nombre literal | Tipo | Grupo de operaciones (guarda real) | Partida |
+|---|---|---|---|---|
+| Usuarios (`users`) · Administración | `usuarios.ver` — Ver usuarios | L | `usuarios.usuario.listar` (GET `/`), `.ver_resumen` (GET `/resumen`) | admin |
+| | `usuarios.crear` — Crear usuario | M | `usuarios.usuario.crear` (POST `/`) | admin |
+| | `usuarios.editar` — Editar usuario | M | `usuarios.usuario.editar` (PATCH `/:id`, también las excepciones `funciones` de #12087) | admin |
+| | `usuarios.cambiar_contrasena` — Cambiar la contraseña de otro usuario | M | `usuarios.contrasena.cambiar_ajena` (PATCH `/:id/password` `[ajena]`, en línea) | admin |
+| | `usuarios.desactivar_reactivar` — Desactivar o reactivar | M | `usuarios.usuario.activar` (PATCH `/:id/toggle`) | admin |
+| | `usuarios.dar_de_baja` — Dar de baja (eliminar) | M | `usuarios.usuario.baja` (DELETE `/:id`), `.reactivar` (POST `/:id/reactivar`, deshace la baja) | admin |
+| | `usuarios.ver_historial` — Ver el historial | L | `usuarios.auditoria.ver` (GET `/auditoria`), `.auditoria.filtrar` (GET `/auditoria/titulares`) | admin, auditor |
+| | `usuarios.exportar` — Exportar a Excel | M (única op) | `usuarios.usuario.exportar` (GET `/export`) | admin |
+| | `usuarios.cerrar_sesiones` — Cerrar sesiones | M | `usuarios.sesiones.invalidar` (POST `/:id/invalidate-sessions`) | admin |
+| Roles y permisos (`roles_permisos`) · Administración | `roles_permisos.ver` — Ver roles | L | `permisos.rol.listar` (GET `/roles`), `permisos.cuadro.ver` (GET `/roles/:codigo/funciones`), `permisos.catalogo.ver` (GET `/funciones`) | admin |
+| | `roles_permisos.crear` — Crear rol | M | `permisos.rol.crear` (POST `/roles`) | admin |
+| | `roles_permisos.editar` — Editar rol | M | `permisos.rol.editar` (PATCH `/roles/:codigo`) | admin |
+| | `roles_permisos.asignar` — Asignar permisos | M | `permisos.cuadro.guardar` (PUT `/roles/:codigo/funciones`) | admin |
+| | `roles_permisos.eliminar` — Eliminar rol | M | `permisos.rol.borrar` (DELETE `/roles/:codigo`) | admin |
+| Bitácora (`flito_bitacora`) · **Gestión** | `bitacora.ver` — Ver la bitácora | L | `bitacora.bitacora.ver` (GET `/`), `.ver_recurso` (GET `/:resource/:resourceId`) | admin, auditor |
+| Clientes y proveedores (`clients`) · **Gestión** | `clientes.ver` — Ver clientes y proveedores (**P-21**, no está en el AC1) | L | `clients.clientes.ver` (clients GET `/`), `parametrizacion.companias.listar` (GET `/companias`), `parametrizacion.proveedores.listar` (GET `/proveedores-soat`) | admin, auditor, financiera |
+| | `clientes.crear_editar_clientes` — Crear y editar clientes | M | **nuevas** `clients.clientes.crear` (POST `/`), `clients.clientes.editar` (PATCH `/:id`); `parametrizacion.companias.editar` (PATCH `/companias/:id`, campos generales); `tramites.empresa.crear` (POST `/crear-empresa`) · pred. `clients.clientes.administrar`, `parametrizacion.companias.editar`, `tramites.empresa.crear` · apoyo `clients.clientes.ver`, `parametrizacion.companias.listar` | admin |
+| | `clientes.crear_editar_proveedores` — Crear y editar proveedores | M | `parametrizacion.proveedores.crear` (POST `/proveedores-soat`), `.editar` (PATCH `/proveedores-soat/:id`) · apoyo `parametrizacion.proveedores.listar` | admin |
+| | `clientes.autogestion` — Habilitar o revocar la autogestión del cliente | M | `tramites.autogestion.desbloquear`, `.revocar` (POST `/:id/desbloquear-autogestion`, `/:id/revocar-autogestion`); **nueva** `parametrizacion.companias.autogestion` (PATCH `/companias/:id` `[autogestion]`) · pred. `tramites.autogestion.desbloquear`, `.revocar`, `parametrizacion.companias.editar` · apoyo `parametrizacion.companias.listar` | admin |
+| | `clientes.soat_sin_tramite` — Configurar «SOAT sin trámite» | M | **nueva** `parametrizacion.companias.soat_sin_tramite` (PATCH `/companias/:id` `[sinTramite]`) · pred. `parametrizacion.companias.editar` · apoyo `parametrizacion.companias.listar`, `parametrizacion.proveedores.listar` (selector del gestor) | admin |
+| | `clientes.datos_fiscales` — Datos fiscales | M | **nueva** `clients.clientes.datos_fiscales` (POST `/` y PATCH `/:id` `[fiscal]`) · pred. `clients.clientes.administrar` · apoyo `clients.clientes.ver` | admin |
+| Tablero (`dashboard`) · General | `dashboard.ver` — Ver el tablero (solo ver) | L | `tablero.tablero.ver` (`flito-tablero` GET `/`), `pagina.flito_tablero` (absorbida, patrón compuerta P-10; **P-11**) | admin, auditor |
+| Perfil (`perfil`) · Perfil | `perfil.ver_datos` — Ver mis datos | L | **nueva** `perfil.datos.ver` (**nuevo** `GET /api/auth/perfil`, ver §5-ter.5) · pred. `pagina.perfil` (no absorbida) o universal (**P-22**) | admin (P-22 sí: todos) |
+| | `perfil.cambiar_contrasena` — Cambiar mi contraseña | M | **nueva** `perfil.contrasena.cambiar` (PATCH `/users/:id/password` `[propia]`, en línea) · `repartoUniversal` (**P-22**) o pred. `pagina.perfil` | todos los roles (P-22 no: admin) |
+| Ayuda FLITO · Ayuda | — (sin permiso: derivada de ≥1 capítulo visible) | — | ninguna; `menu.ayuda` ya es `derivado: true` y `pagina.flito_ayuda` sigue en `PAGINAS_NO_CONCEDIBLES` | — |
+
+Opcionales del área: **ninguno**. La única de exportar es «Exportar a Excel», que es su única operación
+y por eso es `M`. Apoyo: `clients.clientes.ver`, `parametrizacion.companias.listar` y
+`parametrizacion.proveedores.listar` (además de grupo de «Ver clientes y proveedores»).
+
+Decisiones de diseño que **no** son del PO (no cambian el reparto de nadie: todo el grupo es solo de admin):
+`usuarios.usuario.reactivar` va en «Dar de baja (eliminar)» y no en «Desactivar o reactivar», porque
+deshace la **baja** (`deleted_at`), no la desactivación (`active`, que es el toggle): quien solo puede
+suspender no debe poder resucitar a un dado de baja. `tramites.empresa.crear` va en «Crear y editar
+clientes» (línea de Gestión, `FUERA_DE_AREA_GESTION`). La partición de `PATCH /companias/:id` y de
+`clients` en guardas en línea (§5-ter.1 punto 2).
+
+### 5-ter.3 Cobertura total (32 códigos del área + 7 nuevos)
+
+| Familia | Códigos | Destino |
+|---|---|---|
+| `usuarios.*` | 12 | 9 acciones de Usuarios (2+1+1+1+1+2+2+1+1) |
+| `permisos.*` | 7 | 5 acciones de Roles y permisos (3+1+1+1+1) |
+| `bitacora.*` | 2 | Ver la bitácora |
+| `clients.clientes.ver` | 1 | Ver clientes y proveedores (P-21) + apoyo de Crear/editar clientes y Datos fiscales |
+| `clients.clientes.administrar` | 1 | **retirado** (transitorio): predecesor de Crear y editar clientes y de Datos fiscales |
+| `parametrizacion.companias.*` | 2 | `listar` → Ver (P-21) + apoyo; `editar` → Crear y editar clientes (grupo) y predecesor de Autogestión y SOAT sin trámite |
+| `parametrizacion.proveedores.*` | 3 | `listar` → Ver (P-21) + apoyo; `crear`, `editar` → Crear y editar proveedores |
+| `tramites.autogestion.*` | 2 | Habilitar o revocar la autogestión |
+| `tramites.empresa.crear` | 1 | Crear y editar clientes |
+| `tablero.tablero.ver` (+ `pagina.flito_tablero`) | 1 (+1) | Ver el tablero (P-11) |
+| **nuevas** | 7 | `clients.clientes.crear`, `.editar`, `.datos_fiscales`; `parametrizacion.companias.autogestion`, `.soat_sin_tramite`; `perfil.datos.ver`, `perfil.contrasena.cambiar` |
+
+Ninguna huérfana. Si el PO dice «no» a P-21, `clients.clientes.ver`, `companias.listar` y `proveedores.listar`
+quedan solo como apoyo (siguen vivas hasta #13429, que retira toda operación concedible: ahí auditor y
+financiera perderían el listado, ver §5-ter.4). `pagina.users`, `pagina.roles_permisos`, `pagina.clients`,
+`pagina.flito_bitacora`, `pagina.dashboard` y `pagina.perfil` son ítems (nivel 2): no se absorben.
+`laft.bitacora.ver` es de LAFT (#13429), no de esta Bitácora.
+
+### 5-ter.4 Pérdidas previsibles por rol (partida 0001..0235)
+
+| Rol | Con las recomendaciones (P-11, P-21, P-22) | Si el PO dice «no» |
+|---|---|---|
+| admin | ninguna (tiene todos los predecesores, los dos transitorios y `pagina.perfil`; además `ROL_CON_TODAS_LAS_ACCIONES`) | ninguna |
+| auditor | ninguna; recibe Ver el historial (usuarios), Ver la bitácora, Ver el tablero y Ver clientes y proveedores; **gana** Perfil (ver mis datos) | P-21 no: pierde el listado de clientes y proveedores (al cerrar #13429). P-22 no: **pierde cambiar su contraseña** |
+| financiera | ninguna; recibe Ver clientes y proveedores; gana Perfil | P-21 no: pierde el listado de clientes. P-22 no: pierde cambiar su contraseña |
+| proveedor, transito, compliance, lider_pesv, supervisor_flota, conductor, gestor_impuestos, mensajero | ninguna (solo tenían `pagina.dashboard`, que sigue siendo ítem; ninguno tenía `tablero.tablero.ver`); ganan Perfil | P-22 no: **todos pierden cambiar su contraseña** (hoy la cambia cualquiera, #13425) |
+| roles creados desde el panel (p. ej. `cliente` en DEV) | solo los ve el reporte en seco (`--hu 13428`) | ídem |
+
+El grueso del riesgo es P-22: con el predecesor `pagina.perfil` (solo admin en la partida) el AC3 deja a
+**todo el que no es admin** sin poder cambiar su contraseña desde el día del despliegue.
+
+### 5-ter.5 AC3 (Perfil), AC4 (Tablero) y AC7 (admin y anti-bloqueo)
+
+- **AC3 — Perfil por permiso.** Rutas actuales: cambio de contraseña propia y ajena en
+  `users/users.routes.ts` `PATCH /:id/password` (`authMiddleware` + `passwordChangeLimiter`; la propia sin
+  operación desde #13425, la ajena con `tieneFuncion('usuarios.contrasena.cambiar_ajena')`); los datos de
+  Perfil salen de `auth/auth.routes.ts` `GET /me`, que **no** se puede guardar (lo pide el shell de todos).
+  - «Cambiar mi contraseña»: en el handler, `sub === id` exige `tieneFuncion(req, 'perfil.contrasena.cambiar')`
+    (en línea, declarada `PATCH /:id/password [propia]`), antes de leer el cuerpo; con o sin enlace (la
+    regla de enlace de hoy solo veda la **ajena**). 403 con el cuerpo de siempre.
+  - **El «cambio obligatorio» no existe hoy en el código**: no hay `mustChangePassword`/`debeCambiarPassword`
+    ni equivalente en `schema.ts`, en `auth.routes.ts`, en `users.routes.ts` ni en `apps/web/src` (búsqueda
+    del 2026-10-13; el §6 lo nombra como si existiera). La excepción del AC3 no tiene nada a qué aplicarse
+    (**P-23**). Si la HU la quiere, el punto de enganche es el mismo `if`, pero el flag y el flujo de login son
+    alcance nuevo.
+  - «Ver mis datos»: **nuevo** `GET /api/auth/perfil` con `exigirFuncion('perfil.datos.ver')`, que devuelve
+    lo que Perfil pinta (`name`, `username`, `email`, `rolNombre`) del propio `req.user.sub` (sin `:id`, sin
+    PII en la URL). `/auth/me` **no cambia** en esta HU (quitarle `email` es de #13431, cuando Perfil lea
+    el endpoint nuevo). Sin «ver mis datos» → 403 en el API; el 403 de la **ruta web** `/perfil` es de #13431.
+- **AC4 — Tablero por bloques: ya está casi todo hecho; no se rediseña.** #12872 dejó `Dashboard.tsx`
+  pintando cada bloque si y solo si el usuario puede abrir su página y tiene la operación de su
+  endpoint; #13426 dejó `flito-tablero` `GET /` con `alcanceDe(req)` → `resumenDeCompania` (con enlace
+  compañía solo cuenta su compañía). **Delta único:** `resumen()` devuelve juntos los bloques de SOAT e
+  Impuestos (`soat`, `impuestos`, `revisionesPendientes`, `estancados`) aunque el usuario solo vea uno de
+  los dos módulos. La ruta omite el de SOAT si el conjunto efectivo no tiene `soat.cola.ver` y el de
+  Impuestos si no tiene `impuestos.cola.ver` (las operaciones de «Ver el listado» de cada uno). Mirarlo
+  en la foto de `resolverPermisos(req.user!.sub)` y **no** con `tieneFuncion(req, …)`: el lector de guardas
+  tomaría cada `tieneFuncion` como una operación montada en `GET /` (mismo motivo que la página en
+  `PATCH /:id/password`). Forma: los bloques pasan a opcionales en `TableroResumen`; `FlitoTablero.tsx`
+  debe tolerar su ausencia (grep obligatorio, regla 7). Con la partida no cambia nada para nadie (admin y
+  auditor ven los dos módulos); es la garantía para roles editados.
+- **AC7 — admin y anti-bloqueo.** Admin recibe todas las acciones por la regla «todos» (tiene todos los
+  predecesores, incluidos los transitorios y `pagina.perfil`) y, además, por `ROL_CON_TODAS_LAS_ACCIONES`
+  (`JOIN permisos_roles`, sin literal). El anti-bloqueo es el delta 1 del §5-ter.1: sin él, la 0237 deja el
+  sistema respondiendo 409 a todo guardado de usuarios y roles. El reporte en seco verifica «el rol que
+  tenía todo tiene todo».
+
+### 5-ter.6 Preguntas para el PO (con recomendación)
+
+- **P-2 (cerrada por el 9-oct, solo trámite):** Clientes y proveedores y Bitácora cuelgan de **Gestión**.
+  *Rec.:* corregir el texto del AC1 en ADO. No bloquea; afecta solo al `elemento` del ítem.
+- **P-11 — Tablero FLITO.** «Ver el tablero» absorbe `tablero.tablero.ver` y la página `flito_tablero` (sale
+  del árbol como ítem, la pantalla sigue abriendo por la acción, patrón compuerta). *Rec.:* sí (era la
+  recomendación del §8 y el catálogo aprobado solo tiene un Tablero, el de General). Si no, `flito_tablero`
+  se queda como ítem propio de Gestión con su «Ver» y #13429 lo ubica.
+- **P-21 — «Ver clientes y proveedores» no está en el catálogo aprobado.** Las cinco acciones del AC1
+  modifican; la lectura (`clients.clientes.ver`, `companias.listar`, `proveedores.listar`) la tienen hoy
+  auditor y financiera sin poder editar. *Rec.:* añadir «Ver clientes y proveedores» (lectura) como primera
+  acción del ítem. Si no, auditor y financiera pierden el listado cuando #13429 retire las operaciones
+  concedibles.
+- **P-22 — A quién se le da Perfil en el paso.** AC3 exige «Cambiar mi contraseña»; hoy la cambia
+  cualquiera (#13425) y `pagina.perfil` solo la tiene admin. Con el predecesor `pagina.perfil`, todo el que
+  no sea admin pierde cambiar su contraseña al desplegar. *Rec.:* repartir «Ver mis datos» y «Cambiar mi
+  contraseña» (y `pagina.perfil`) a **todos los roles existentes** en la 0237 (`repartoUniversal`): nadie
+  pierde lo que tiene hoy, Perfil solo muestra datos propios (sin PII de terceros), y desde el panel se
+  puede quitar a quien no deba.
+- **P-23 — «Salvo el cambio obligatorio».** No hay cambio de contraseña obligatorio en FLITO hoy. *Rec.:*
+  implementar la guarda sin excepción (la excepción no tiene a quién aplicarse) y, si el PO quiere ese
+  flujo (contraseña temporal al crear o al restablecer), abrirlo como HU aparte; con P-22 = sí, el riesgo es
+  nulo.
+
+### 5-ter.7 Migraciones y archivos
+
+- **0236** `0236_permisos_arbol_administracion_siembra.sql` y **0237** `0237_permisos_arbol_administracion_reparto.sql`.
+  Confirmado el 2026-10-13: `git ls-tree origin/develop` termina en `0235_permisos_arbol_finanzas_reparto.sql`
+  y ninguna rama de `origin` trae 0236+. Generadas (`--arbol administracion`), tablas temporales
+  `tmp_*_13428`, test de la 0237 con la paridad plegando 0001..0237 y sin literales de `USER_ROLES`.
+  Retiran `clients.clientes.administrar` y `pagina.flito_tablero` (si P-11) además de las absorbidas.
+- **API:** `apps/api/src/modules/permisos/arbol/acciones-administracion.ts` (nuevo: `ACCIONES_ADMINISTRACION`,
+  `AREA_ADMINISTRACION`, `PARTIDA_DE_OPERACION_NUEVA` del área), `arbol/expansion.ts` (área, `repartoUniversal`),
+  `arbol/sql-arbol.ts` / `reparto-arbol.ts` (reparto universal), `catalogo.ts` (`catalogoDeAcciones` con
+  universal), `catalogo-operaciones.ts` (`perfil.*`, `[autogestion]`, `[sinTramite]`), `catalogo-operaciones.legado.ts`
+  (`clients.clientes.crear/.editar/.datos_fiscales`; fuera el transitorio), `inventario.generado.ts` (foto),
+  `src/scripts/generar-seed-permisos.ts`, `shared/permisos-anti-bloqueo.ts` (§5-ter.1 punto 1).
+- **Guardas:** `users/users.routes.ts` (`[propia]`), `auth/auth.routes.ts` (`GET /perfil`),
+  `clients/clients.routes.ts` (POST/PATCH + `[fiscal]`), `flito-parametrizacion/flito-parametrizacion.routes.ts`
+  (`PATCH /companias/:id` partido), `flito-tablero/flito-tablero.routes.ts` + `.service.ts` (bloques por módulo).
+- **shared-types:** `permisos-arbol/administracion.ts` (Usuarios, Roles y permisos, junto a Integración con
+  Siigo), `gestion.ts` (Clientes y proveedores, Bitácora; elemento Gestión), `general.ts` (Tablero) y
+  `perfil.ts` (Perfil) nuevos, `index.ts`. `elementos.ts` no cambia (`menu.ayuda` ya es derivado).
+- **Web — mínimo de esta HU (sin él admin pierde algo):**
+  - `apps/web/src/components/siigo/PanelTerceros.tsx:70` pregunta por `clients.clientes.administrar`, que
+    deja de existir → `clients.clientes.datos_fiscales` (o `.editar` si la ficha manda campos generales;
+    lo decide el cuerpo que envía).
+  - `apps/web/e2e/helpers/auth.ts:221,226` (`FUNCIONES_POR_ROL`): `clients.clientes.administrar` → los
+    códigos nuevos (`accion.clientes.*` y sus operaciones); `perfil.*` donde un spec abra Perfil o cambie
+    la contraseña (`e2e/tests/perfil.spec.ts`).
+  - Si P-11 = sí: nada (la expansión sigue dando `pagina.flito_tablero` a quien tiene la acción).
+  - `FlitoTablero.tsx` / `Dashboard.tsx` solo si `TableroResumen` pasa a bloques opcionales (AC4).
+  - `Clients.tsx:94` usa `tramites.autogestion.desbloquear` como permiso de toda la edición: sigue
+    funcionando para admin (la expansión la da); afinarlo por acción **no** es de esta HU.
+- **Web — de #13431 (no tocar aquí):** ruta `/perfil` en `App.tsx` con `hasFuncion('perfil.datos.ver')` y
+  `Perfil.tsx` leyendo `GET /auth/perfil`; formulario de contraseña con `hasFuncion('perfil.contrasena.cambiar')`;
+  `FlitoTopbar.tsx:41` (menú de usuario, hoy `hasPage('perfil')`); `navItems.ts` (Clientes y Bitácora bajo
+  Gestión, Tablero FLITO fuera del menú si P-11, grupo Ayuda); quitar `email` de `/auth/me`.
+- **Tests:** `permisos-arbol-administracion.test.ts` (catálogo literal + AC6), `migracion-0236/0237.test.ts`,
+  anti-bloqueo sobre el expandido (tres casos del punto 1), supertest 200/403 por acción en las guardas
+  partidas (`[autogestion]`, `[sinTramite]`, `[fiscal]`, `[propia]`, `GET /auth/perfil`) y en el tablero
+  (bloque omitido sin `soat.cola.ver`).
+- **Gates:** db-review + security (rutas nuevas, guardas en `auth`/`users`, PII de Perfil).
+
+### Anexo — catálogo aprobado (AC1 de #13428, propuesta del 2026-10-07 con los [+]; elemento según el 9-oct)
+
+```
+Administración → Usuarios: Ver usuarios · Crear usuario · Editar usuario · Cambiar la contraseña de otro usuario · Desactivar o reactivar · Dar de baja (eliminar) · Ver el historial · Exportar a Excel · Cerrar sesiones
+Administración → Roles y permisos: Ver roles · Crear rol · Editar rol · Asignar permisos · Eliminar rol
+Gestión → Bitácora: Ver la bitácora                                        (AC1: Administración)
+Gestión → Clientes y proveedores: Crear y editar clientes · Crear y editar proveedores · Habilitar o revocar la autogestión del cliente · Configurar «SOAT sin trámite» · Datos fiscales   (AC1: Administración; P-21 propone «Ver clientes y proveedores»)
+General → Tablero: Ver (solo ver)
+Perfil → Perfil: Ver mis datos · Cambiar mi contraseña
+Ayuda → Ayuda FLITO: sin permiso propio (se ve con ≥1 capítulo visible)
+```
+
 ## 6. Web
 
 ### #13430 — panel en tres niveles
