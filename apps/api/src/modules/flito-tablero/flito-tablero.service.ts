@@ -21,11 +21,15 @@ import { condicionAlerta } from '../flito-tramites/flito-tramites.service.js';
 import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
 import { condicionPorCompania } from '../../shared/alcance-filas.js';
 
+/**
+ * HU #13428 (AC4): los bloques de SOAT y de Impuestos son OPCIONALES — la ruta omite el del módulo que el
+ * usuario no ve (`sinBloquesAjenos`). `resumen()` sigue devolviéndolos todos.
+ */
 export interface TableroResumen {
-  soat: Record<string, number>;
-  impuestos: Record<string, number>;
-  revisionesPendientes: { soat: number; impuestos: number };
-  estancados: { soat: number; impuestos: number };
+  soat?: Record<string, number>;
+  impuestos?: Record<string, number>;
+  revisionesPendientes: { soat?: number; impuestos?: number };
+  estancados: { soat?: number; impuestos?: number };
   diferenciasDeValor: number;
   compuertaHabilitados: number;
   /** Alertas operativas (Feature #10942). Cada conteo es el total del listado con esa alerta. */
@@ -159,4 +163,22 @@ export async function resumen(alcance: AlcanceResuelto = { enlace: 'ninguno' }):
     compuertaHabilitados: habilitados.length,
     alertas,
   };
+}
+
+/** Qué módulos del tablero ve el usuario (HU #13428, AC4). */
+export interface ModulosVisibles { soat: boolean; impuestos: boolean }
+
+/**
+ * HU #13428 (AC4) — Quita del resumen el bloque de cada módulo que el usuario no ve: el conteo por estado
+ * y su parte de «revisiones pendientes» y de «fuera de ANS». Puro: no consulta nada.
+ */
+export function sinBloquesAjenos(r: TableroResumen, ve: ModulosVisibles): TableroResumen {
+  const salida: TableroResumen = { ...r, revisionesPendientes: { ...r.revisionesPendientes }, estancados: { ...r.estancados } };
+  for (const m of ['soat', 'impuestos'] as const) {
+    if (ve[m]) continue;
+    delete salida[m];
+    delete salida.revisionesPendientes[m];
+    delete salida.estancados[m];
+  }
+  return salida;
 }

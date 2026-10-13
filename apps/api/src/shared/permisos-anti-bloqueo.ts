@@ -78,6 +78,7 @@
 import { and, eq, isNull, or, sql, type SQL } from 'drizzle-orm';
 import type { db } from '../db/client.js';
 import { permisosRoles, permisosRolFuncion, permisosUsuarioFuncion, users } from '../db/schema.js';
+import { codigosQueConceden } from '../modules/permisos/arbol/expansion.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -114,18 +115,28 @@ export class BloqueoAdministracionError extends Error {
 }
 
 /**
- * `tiene(F)` para la fila de `users` del FROM exterior: la regla del resolutor para `operacion.*`.
- * Se escribe con el `sql` parametrizado de drizzle (tablas y columnas interpoladas, `F` como
- * parámetro; ningún `sql.raw`) y NO con `tx.select(...)` en los EXISTS, a propósito: cada subconsulta
+ * `tiene(F)` para la fila de `users` del FROM exterior: la regla del resolutor sobre el conjunto
+ * EXPANDIDO (HU #13428, diseño §5-ter.1 punto 1). Desde la 0237 `usuarios.usuario.editar` y
+ * `permisos.cuadro.guardar` ya no tienen filas: las concede su acción del árbol. Por eso F se cuenta
+ * si alguno de los códigos que la conceden (`codigosQueConceden(F)`: F misma y las acciones que la
+ * contienen) está marcado por el rol o concedido y no revocado, Y F misma no está revocada («revocar
+ * gana» también sobre lo que traería una acción), igual que `expandir`. Leer filas crudas de F daba 0
+ * titulares tras la 0237 y un 409 en todo guardado.
+ *
+ * Se escribe con el `sql` parametrizado de drizzle (tablas y columnas interpoladas, los códigos como
+ * parámetros; ningún `sql.raw`) y NO con `tx.select(...)` en los EXISTS, a propósito: cada subconsulta
  * construida con el builder es una llamada más a `select` sobre el ejecutor, y los specs que
  * encolan respuestas por posición (`selectMock.mockReturnValueOnce`) se desordenan con seis llamadas
  * invisibles. Así el invariante cuesta exactamente DOS `select`: el lock y la cuenta.
  */
 function tiene(funcion: string): SQL {
-  const porRol = sql`exists (select 1 from ${permisosRolFuncion} where ${permisosRolFuncion.rolCodigo} = ${users.role} and ${permisosRolFuncion.funcionCodigo} = ${funcion})`;
-  const concedida = sql`exists (select 1 from ${permisosUsuarioFuncion} where ${permisosUsuarioFuncion.userId} = ${users.id} and ${permisosUsuarioFuncion.funcionCodigo} = ${funcion} and ${permisosUsuarioFuncion.efecto} = ${'conceder'})`;
+  const lista = sql.join(codigosQueConceden(funcion).map((c) => sql`${c}`), sql`, `);
+  const revocadaC = sql`exists (select 1 from ${permisosUsuarioFuncion} r where r.user_id = ${users.id} and r.funcion_codigo = c.codigo and r.efecto = ${'revocar'})`;
+  const porRol = sql`exists (select 1 from ${permisosRolFuncion} where ${permisosRolFuncion.rolCodigo} = ${users.role} and ${permisosRolFuncion.funcionCodigo} = c.codigo)`;
+  const concedida = sql`exists (select 1 from ${permisosUsuarioFuncion} k where k.user_id = ${users.id} and k.funcion_codigo = c.codigo and k.efecto = ${'conceder'})`;
+  const alguno = sql`exists (select 1 from unnest(array[${lista}]::text[]) as c(codigo) where (${porRol} or ${concedida}) and not ${revocadaC})`;
   const revocada = sql`exists (select 1 from ${permisosUsuarioFuncion} where ${permisosUsuarioFuncion.userId} = ${users.id} and ${permisosUsuarioFuncion.funcionCodigo} = ${funcion} and ${permisosUsuarioFuncion.efecto} = ${'revocar'})`;
-  return sql`((${porRol} or ${concedida}) and not ${revocada})`;
+  return sql`(${alguno} and not ${revocada})`;
 }
 
 /** Activo, vivo y de rol SIN enlace (HU #12875): la población que puede administrar. */

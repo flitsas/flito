@@ -7,6 +7,7 @@ import { db } from '../../db/client.js';
 import { clients, flitoGestorOrganismos, permisosRoles, users } from '../../db/schema.js';
 import { env } from '../../config/env.js';
 import { authMiddleware, blacklistToken } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { paginasEfectivasDeUsuario, resolverPermisos, type PermisosResueltos } from '../../shared/permisos-efectivos.js';
 import { checkLockout, registerFailed, clearLockout } from './loginLockout.js';
@@ -223,6 +224,25 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
     transitoCodigo,
     ...(await sobreDePermisos(req.user!.sub, companiaId)),
   });
+});
+
+// HU #13428 (AC3) — «Ver mis datos»: lo que pinta Perfil, del PROPIO usuario (`sub` del token; sin `:id`
+// ni PII en la URL). `/me` no se guarda (lo pide el shell de todos); este sí, con `perfil.datos.ver`
+// (repartida a todos los roles en la 0237, P-22). Sin ella → 403 con fila en la bitácora de denegados.
+router.get('/perfil', authMiddleware, exigirFuncion('perfil.datos.ver'), async (req: Request, res: Response) => {
+  const [user] = await db.select({
+    name: users.name,
+    username: users.username,
+    email: users.email,
+    rolNombre: permisosRoles.nombre,
+  }).from(users)
+    .leftJoin(permisosRoles, eq(permisosRoles.codigo, users.role))
+    .where(eq(users.id, req.user!.sub)).limit(1);
+  if (!user) {
+    res.status(404).json({ error: 'Usuario no encontrado' });
+    return;
+  }
+  res.json({ name: user.name, username: user.username, email: user.email ?? null, rolNombre: user.rolNombre ?? null });
 });
 
 // VUL-07: Endpoint logout con revocación de token (Redis-backed con fallback in-memory).

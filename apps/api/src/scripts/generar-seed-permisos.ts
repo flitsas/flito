@@ -4,7 +4,7 @@
 //   npm run permisos:seed -w apps/api        → escupe el bloque SQL por stdout
 //   npm run permisos:seed -w apps/api -- --reagrupar
 //       → solo el UPDATE de `modulo` de la HU #12716 (lo pegado en 0205_permisos_reagrupar_modulos.sql)
-//   npm run permisos:seed -w apps/api -- --arbol gestion|finanzas [--reparto]
+//   npm run permisos:seed -w apps/api -- --arbol gestion|finanzas|administracion [--reparto]
 //       → HU #12873 (ADR-0025): la siembra del árbol (0232) o su reparto «todos» (0233)
 //
 // Lo que sale por stdout es EXACTAMENTE lo que está pegado entre las marcas «SEED GENERADO» de
@@ -91,8 +91,10 @@ function reagrupar(): string {
 /** HU #12873: solo `gestion` existe hoy; las áreas de #13427/#13428/#13429 se añaden aquí. */
 function arbol(): string {
   const area = process.argv[process.argv.indexOf('--arbol') + 1];
-  // HU #13427: `finanzas` (0234/0235).
-  if (area !== 'gestion' && area !== 'finanzas') throw new Error(`--arbol: área no soportada «${area}» (soportadas: gestion, finanzas).`);
+  // HU #13427: `finanzas` (0234/0235). HU #13428: `administracion` (0236/0237).
+  if (area !== 'gestion' && area !== 'finanzas' && area !== 'administracion') {
+    throw new Error(`--arbol: área no soportada «${area}» (soportadas: gestion, finanzas, administracion).`);
+  }
   return process.argv.includes('--reparto') ? sqlRepartoArbol(area) : sqlSiembraArbol(area);
 }
 

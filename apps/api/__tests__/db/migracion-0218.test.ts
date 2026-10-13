@@ -84,12 +84,13 @@ describe('0218 — reglas del archivo y lo que siembra (análisis estático)', (
     expect(sembradas.get(CODIGO)!.descripcion).toBe('Entrar a la pantalla «Perfil».');
   });
 
-  it('el reparto es SOLO admin, igual en el SQL que en el catálogo del código (mutantes M1 y M2)', () => {
+  it('el reparto de la 0218 es SOLO admin (mutantes M1 y M2); desde la HU #13428 (P-22) el catálogo de hoy la da a todos', () => {
     const reparto = leerRepartoSembrado([ARCHIVO]);
     expect([...reparto.keys()]).toEqual(['admin']);
     expect([...reparto.get('admin')!]).toEqual([CODIGO]);
+    // La 0237 reparte «Ver mis datos», «Cambiar mi contraseña» y esta página a cada rol (decisión P-22 del PO).
     const f = catalogoCompleto().find((c) => c.codigo === CODIGO)!;
-    expect(f.roles).toEqual(['admin']);
+    expect(f.roles).toEqual([...USER_ROLES].sort());
   });
 
   it('no retira nada, y el helper de paridad la lee (está en MIGRACIONES_CON_REPARTO, después de la 0217)', () => {
@@ -98,12 +99,15 @@ describe('0218 — reglas del archivo y lo que siembra (análisis estático)', (
     expect(retiros.reparto.size).toBe(0);
     expect(MIGRACIONES_CON_REPARTO).toContain(ARCHIVO);
     expect(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO)).toBe(MIGRACIONES_CON_REPARTO.indexOf('0217_sync_interruptor_fuente.sql') + 1);
-    // Plegadas todas las migraciones con reparto, la página sigue concedida solo a admin.
-    const total = leerRepartoSembrado();
-    expect(total.get('admin')!.has(CODIGO)).toBe(true);
-    for (const rol of [...total.keys()].filter((r) => r !== 'admin')) {
-      expect(total.get(rol)!.has(CODIGO), rol).toBe(false);
+    // Plegadas las migraciones hasta la 0235, la página sigue concedida solo a admin; la 0237 (HU #13428,
+    // P-22) se la da a todos los roles.
+    const hasta0235 = leerRepartoSembrado(MIGRACIONES_CON_REPARTO.filter((m) => m < '0236'));
+    expect(hasta0235.get('admin')!.has(CODIGO)).toBe(true);
+    for (const rol of [...hasta0235.keys()].filter((r) => r !== 'admin')) {
+      expect(hasta0235.get(rol)!.has(CODIGO), rol).toBe(false);
     }
+    const total = leerRepartoSembrado();
+    for (const rol of total.keys()) expect(total.get(rol)!.has(CODIGO), rol).toBe(true);
   });
 
   it('el resumen final revienta si la función o el reparto quedaron inconsistentes (no hay verde silencioso)', () => {

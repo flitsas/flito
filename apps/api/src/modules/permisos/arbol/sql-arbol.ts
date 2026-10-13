@@ -12,12 +12,15 @@
 //     permisos_roles` de la 0227 corregida, que en un ambiente sin el rol también da 0 filas.
 //   · Solo literales del código (códigos, nombres): comilla doblada, nada de entrada externa (regla 3).
 import { catalogoCompleto, type FuncionCatalogo } from '../catalogo.js';
-import { ACCIONES_LECTURA, ACCIONES_POR_AREA, CONJUNCIONES_ARBOL, predecesoresDe, predecesorNoAbsorbido, ROL_CON_TODAS_LAS_ACCIONES, type AreaArbol } from './expansion.js';
+import {
+  ACCIONES_LECTURA, ACCIONES_POR_AREA, ACCIONES_UNIVERSALES, CONJUNCIONES_ARBOL, predecesoresDe, predecesorNoAbsorbido,
+  ROL_CON_TODAS_LAS_ACCIONES, type AreaArbol,
+} from './expansion.js';
 
 const lit = (s: string): string => `'${s.replace(/'/g, "''")}'`;
 
 /** La HU dueña de cada área: sufijo de las tablas temporales, para que dos repartos no compartan nombre. */
-export const HU_DE_AREA: Readonly<Record<AreaArbol, string>> = { gestion: '12873', finanzas: '13427' };
+export const HU_DE_AREA: Readonly<Record<AreaArbol, string>> = { gestion: '12873', finanzas: '13427', administracion: '13428' };
 
 /** Las tablas temporales del reparto de un área. */
 export function tablasTemporales(area: AreaArbol) {
@@ -84,6 +87,7 @@ export function sqlRepartoArbol(area: AreaArbol = 'gestion'): string {
   // HU #13427 (P-19): el predecesor de página que la acción no concede no se absorbe (la página sigue siendo el ítem).
   const paginasNoAbsorbidas = [...new Set(delArea.flatMap((a) => predecesoresDe(a).filter((p) => predecesorNoAbsorbido(a, p))))].sort();
   const lectura = delArea.filter((a) => ACCIONES_LECTURA.has(a));
+  const universales = ACCIONES_UNIVERSALES.filter((u) => delArea.includes(u.accion));
   return [
     `-- ${pares.length} pares acción → código de su grupo «todos». Generado: no editar a mano.`,
     `-- Regenerar con: npm run permisos:seed -w apps/api -- --arbol ${area} --reparto`,
@@ -142,6 +146,21 @@ export function sqlRepartoArbol(area: AreaArbol = 'gestion'): string {
     `HAVING count(DISTINCT rf.funcion_codigo) >= (SELECT u.k FROM ${TMP_UMBRAL} u WHERE u.accion = t.accion)`,
     'ON CONFLICT (rol_codigo, funcion_codigo) DO NOTHING;',
     '',
+    ...(universales.length === 0 ? [] : [
+      '-- Paso 1b — Reparto UNIVERSAL (HU #13428, P-22): la acción y la página de su ítem, a CADA rol de',
+      '-- permisos_roles (sin literales de rol: un rol ausente = 0 filas). Solo si la acción existe y aún no la',
+      '-- tiene ningún rol: en la segunda corrida (o tras quitársela a un rol desde el panel) no reparte nada.',
+      'INSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo)',
+      'SELECT r.codigo, v.fn',
+      '  FROM permisos_roles r',
+      ' CROSS JOIN (VALUES',
+      universales.flatMap((u) => [`  (${lit(u.accion)}, ${lit(u.accion)})`, `  (${lit(u.accion)}, ${lit(u.pagina)})`]).join(',\n'),
+      ' ) AS v(accion, fn)',
+      ' WHERE EXISTS (SELECT 1 FROM permisos_funciones f WHERE f.codigo = v.accion)',
+      '   AND NOT EXISTS (SELECT 1 FROM permisos_rol_funcion x WHERE x.funcion_codigo = v.accion)',
+      'ON CONFLICT (rol_codigo, funcion_codigo) DO NOTHING;',
+      '',
+    ]),
     '-- Paso 2 — Usuarios: la misma regla (todos / alguno) sobre SU conjunto efectivo viejo, (rol ∪ conceder) \\ revocar.',
     '-- conceder si lo tenía todo y su rol (ya repartido) no da la acción; revocar si su rol la da y le',
     '-- faltaba algo. Así cada persona queda con exactamente la regla «todos» (AC5).',

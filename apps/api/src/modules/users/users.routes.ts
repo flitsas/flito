@@ -48,8 +48,10 @@ const PASSWORD_MSG = 'Mín 8 caracteres, 1 mayúscula, 1 minúscula, 1 número, 
 // Cambio de contraseña — auth solo; el handler decide: la propia siempre, la AJENA con la función
 // `usuarios.contrasena.cambiar_ajena` (guarda en línea, HU #12083; de partida solo `admin`).
 // HU #13255: un principal EXTERNO (canal Cliente) solo cambia la SUYA; la ajena le está vedada aunque
-// tenga `cambiar_ajena`. HU #13425 (AC4): la propia ya no exige `pagina.perfil` (nadie se queda sin
-// poder cambiar su contraseña); el resto de Perfil sigue con su guarda. Freno por usuario: `passwordChangeLimiter`.
+// tenga `cambiar_ajena`. HU #13425 (AC4): la propia ya no exige `pagina.perfil`. HU #13428 (AC3, P-22/P-23):
+// la propia exige la operación `perfil.contrasena.cambiar` (acción «Cambiar mi contraseña», repartida a
+// TODOS los roles en la 0237, así que nadie la pierde), sin excepción de «cambio obligatorio» (ese flujo
+// no existe). Freno por usuario: `passwordChangeLimiter`.
 const passwordSchema = z.object({
     currentPassword: z.string().min(1),
     newPassword: z.string().min(8).regex(PASSWORD_REGEX, PASSWORD_MSG),
@@ -68,14 +70,20 @@ router.patch('/:id/password', authMiddleware, passwordChangeLimiter, async (req:
         // como una OPERACIÓN montada del catálogo, y `pagina.perfil` es una página.
         const p = await resolverPermisos(req.user!.sub);
         const conEnlace = !p.ok || p.tipoEnlace !== 'ninguno';
-        // HU #13425 (AC4, decisión del PO del 2026-10-07): la contraseña PROPIA se cambia siempre, sin el
-        // permiso de Perfil, con o sin enlace; la ajena le sigue vedada a quien tiene enlace. Un resolutor
-        // que no decide (`ok:false`) sigue cerrando, también para la propia.
+        // HU #13425 (AC4, decisión del PO del 2026-10-07): la contraseña PROPIA no pasa por la frontera de
+        // enlace; la ajena le sigue vedada a quien tiene enlace. Un resolutor que no decide (`ok:false`)
+        // sigue cerrando, también para la propia. Desde la HU #13428 la propia exige su operación (abajo).
         if (!p.ok || (conEnlace && req.user!.sub !== id)) {
             res.status(403).json({ error: 'Sin permisos' });
             return;
         }
         if (req.user!.sub !== id && !(await tieneFuncion(req, 'usuarios.contrasena.cambiar_ajena'))) {
+            res.status(403).json({ error: 'Sin permisos' });
+            return;
+        }
+        // HU #13428 (AC3) — la propia: `[propia]` en el catálogo. `tieneFuncion` deja la fila del intento
+        // denegado en `permisos_intentos_denegados`, como cualquier guarda.
+        if (req.user!.sub === id && !(await tieneFuncion(req, 'perfil.contrasena.cambiar'))) {
             res.status(403).json({ error: 'Sin permisos' });
             return;
         }

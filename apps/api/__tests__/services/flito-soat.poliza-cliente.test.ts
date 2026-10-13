@@ -284,6 +284,8 @@ describe('AC2 · B — `GET /:id/soportes` con el token del cliente', () => {
       'GET /api/permisos/mios',
       'POST /api/auth/logout',
       'PATCH /api/users/:id/password',
+      // HU #13428 (P-22): «Ver mis datos» de Perfil, solo datos propios. Nada del montaje SOAT.
+      'GET /api/auth/perfil',
     ]);
   });
 });

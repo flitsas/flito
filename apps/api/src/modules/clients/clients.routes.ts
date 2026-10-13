@@ -16,7 +16,7 @@ import {
 import { db } from '../../db/client.js';
 import { clients, flitoProveedoresSoat } from '../../db/schema.js';
 import { authMiddleware } from '../../shared/middleware/auth.js';
-import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
+import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { maskName } from '../../shared/utils/pii.js';
 import {
@@ -126,7 +126,11 @@ export function incoherenciasFiscales(fila: {
 // mientras que su gemelo `GET /flito/parametrizacion/companias` —la misma tabla— exigía rol. Dos
 // puertas distintas a los mismos datos no es una decisión, es un descuido.
 // HU #13422 (ADR-0023): la lectura la decide `clients.clientes.ver` (sembrada a admin, auditor y
-// financiera, la lista que exigía el rol) y escribir, el transitorio `clients.clientes.administrar`.
+// financiera, la lista que exigía el rol). HU #13428 (diseño §5-ter.1 punto 2): el transitorio
+// `clients.clientes.administrar` se parte por GRUPO DE CAMPOS del cuerpo — crear (`POST /`), editar los
+// datos generales (`PATCH /:id [editar]`) y los datos fiscales (`[fiscal]`, cualquier clave de
+// `CAMPOS_FISCALES`). Un PATCH solo con claves fiscales exige únicamente `datos_fiscales`; un POST con
+// claves fiscales exige `crear` Y `datos_fiscales`. Se decide ANTES de validar el cuerpo (403 antes que 400).
 
 /**
  * Campos fiscales que se pueden escribir en la auditoría tal cual.
@@ -144,6 +148,16 @@ const CAMPOS_FISCALES_PII = [
   'commercialName', 'contactFirstName', 'contactLastName', 'contactEmail',
   'phoneIndicative', 'phoneNumber',
 ] as const;
+
+/** Las claves fiscales del cuerpo (las de `createSchema` del bloque «Datos fiscales para Siigo»). */
+const CAMPOS_FISCALES: ReadonlySet<string> = new Set([...CAMPOS_FISCALES_TRAZABLES, ...CAMPOS_FISCALES_PII]);
+
+const clavesDe = (body: unknown): string[] => (body && typeof body === 'object' ? Object.keys(body) : []);
+
+/** `[fiscal]`: un solo `tieneFuncion` literal para POST y PATCH (el intento denegado queda en la bitácora). */
+function puedeDatosFiscales(req: Request): Promise<boolean> {
+  return tieneFuncion(req, 'clients.clientes.datos_fiscales');
+}
 
 function comoTexto(v: unknown): string {
   if (v === null || v === undefined || v === '') return '∅';
@@ -223,7 +237,11 @@ router.get('/', exigirFuncion('clients.clientes.ver'), async (req: Request, res:
   res.json(result.map(clienteListadoDto));
 });
 
-router.post('/', exigirFuncion('clients.clientes.administrar'), async (req: Request, res: Response) => {
+router.post('/', exigirFuncion('clients.clientes.crear'), async (req: Request, res: Response) => {
+  if (clavesDe(req.body).some((k) => CAMPOS_FISCALES.has(k)) && !(await puedeDatosFiscales(req))) {
+    res.status(403).json({ error: 'Sin permisos' });
+    return;
+  }
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
 
@@ -265,7 +283,16 @@ router.post('/', exigirFuncion('clients.clientes.administrar'), async (req: Requ
   res.status(201).json(client);
 });
 
-router.patch('/:id', exigirFuncion('clients.clientes.administrar'), async (req: Request, res: Response) => {
+router.patch('/:id', async (req: Request, res: Response) => {
+  const claves = clavesDe(req.body);
+  const fiscales = claves.some((k) => CAMPOS_FISCALES.has(k));
+  // Sin claves fiscales (también el cuerpo vacío) es una edición general: exige `editar`.
+  const generales = !fiscales || claves.some((k) => !CAMPOS_FISCALES.has(k));
+  if ((generales && !(await tieneFuncion(req, 'clients.clientes.editar')))
+    || (fiscales && !(await puedeDatosFiscales(req)))) {
+    res.status(403).json({ error: 'Sin permisos' });
+    return;
+  }
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = createSchema.partial().safeParse(req.body);

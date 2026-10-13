@@ -15,10 +15,11 @@ import { flitBtnPrimary, flitBtnPrimaryStyle } from '../components/flit/flitPage
 import type { ChipTone } from '../components/flit/StatusChip';
 
 interface TableroResumen {
-  soat: Record<string, number>;
-  impuestos: Record<string, number>;
-  revisionesPendientes: { soat: number; impuestos: number };
-  estancados: { soat: number; impuestos: number };
+  // HU #13428 (AC4): el API omite el bloque del módulo que el usuario no ve.
+  soat?: Record<string, number>;
+  impuestos?: Record<string, number>;
+  revisionesPendientes: { soat?: number; impuestos?: number };
+  estancados: { soat?: number; impuestos?: number };
   diferenciasDeValor: number;
   compuertaHabilitados: number;
   alertas?: Record<AlertaOperativa, number>;
@@ -65,7 +66,15 @@ function ConteosPorEstado({ titulo, conteos, etiquetas, destino }: {
 // malformadas (mock/proxy) que, sin error boundary, dejarían el shell en blanco.
 function esResumenValido(r: unknown): r is TableroResumen {
   return !!r && typeof r === 'object' && !Array.isArray(r)
-    && 'revisionesPendientes' in r && 'estancados' in r && 'soat' in r && 'impuestos' in r;
+    && 'revisionesPendientes' in r && 'estancados' in r;
+}
+
+/** Suma y detalle de un indicador partido por módulo, solo con los módulos que llegaron (HU #13428). */
+function porModulo(v: { soat?: number; impuestos?: number }): [number, string] {
+  const partes: string[] = [];
+  if (v.soat !== undefined) partes.push(`SOAT ${v.soat}`);
+  if (v.impuestos !== undefined) partes.push(`Impuestos ${v.impuestos}`);
+  return [(v.soat ?? 0) + (v.impuestos ?? 0), partes.join(' · ')];
 }
 
 export default function FlitoTablero() {
@@ -137,8 +146,8 @@ export default function FlitoTablero() {
       {data && (
         <>
           <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {kpi('Revisiones pendientes', data.revisionesPendientes.soat + data.revisionesPendientes.impuestos, `SOAT ${data.revisionesPendientes.soat} · Impuestos ${data.revisionesPendientes.impuestos}`, 'warning')}
-            {kpi('Fuera de ANS', data.estancados.soat + data.estancados.impuestos, `SOAT ${data.estancados.soat} · Impuestos ${data.estancados.impuestos}`, 'warning')}
+            {kpi('Revisiones pendientes', ...porModulo(data.revisionesPendientes), 'warning')}
+            {kpi('Fuera de ANS', ...porModulo(data.estancados), 'warning')}
             {kpi('Diferencias de valor', data.diferenciasDeValor, 'Pagados cuyo recibo no cuadra con lo liquidado.', 'warning')}
             {kpi('Habilitados para entrega', data.compuertaHabilitados, 'SOAT e impuestos resueltos. Falta ejecutar.', null)}
           </section>
@@ -160,8 +169,8 @@ export default function FlitoTablero() {
           )}
 
           <section className="grid gap-3 md:grid-cols-2">
-            <ConteosPorEstado titulo="SOAT por estado" conteos={data.soat} etiquetas={ESTADO_SOAT_LABEL as Record<EstadoSoat, string>} destino="/flito/soat" />
-            <ConteosPorEstado titulo="Impuestos por estado" conteos={data.impuestos} etiquetas={ESTADO_IMPUESTO_LABEL as Record<EstadoImpuesto, string>} destino="/flito/impuestos" />
+            {data.soat && <ConteosPorEstado titulo="SOAT por estado" conteos={data.soat} etiquetas={ESTADO_SOAT_LABEL as Record<EstadoSoat, string>} destino="/flito/soat" />}
+            {data.impuestos && <ConteosPorEstado titulo="Impuestos por estado" conteos={data.impuestos} etiquetas={ESTADO_IMPUESTO_LABEL as Record<EstadoImpuesto, string>} destino="/flito/impuestos" />}
           </section>
         </>
       )}

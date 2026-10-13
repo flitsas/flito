@@ -256,12 +256,14 @@ describe('quién lo ve', () => {
   });
 });
 
-describe('el catálogo de proveedores NO se abre a nadie nuevo', () => {
+describe('el catálogo de proveedores: solo con «Ver clientes y proveedores» (HU #13428, P-21)', () => {
   /**
-   * La otra mitad de la decisión: el gestor viaja resuelto POR `GET /clients` precisamente para no
-   * tener que darle a `financiera` la lista completa de gestores con sus umbrales de OCR y sus SLA.
-   * Si alguien «simplificara» abriendo esa ruta, esta HU dejaría de tener sentido y nada más se
-   * pondría rojo.
+   * Hasta la HU #13428 esta ruta le estaba cerrada a `financiera`: el gestor viaja resuelto POR
+   * `GET /clients` para no darle la lista completa de gestores con sus umbrales de OCR y sus SLA.
+   * La HU #13428 (decisión P-21 del PO, 2026-10-13) crea «Ver clientes y proveedores» —de LECTURA, con
+   * `clients.clientes.ver`, `parametrizacion.companias.listar` y `parametrizacion.proveedores.listar`— y la
+   * regla del paso («alguna» en las de lectura) se la da a quien tenía `clients.clientes.ver`: financiera
+   * incluida. Lo que se sigue midiendo: la ruta la abre ESA acción, y un rol sin ella sigue en 403.
    */
   async function appParametrizacion() {
     const app = express();
@@ -271,13 +273,14 @@ describe('el catálogo de proveedores NO se abre a nadie nuevo', () => {
     return app;
   }
 
-  it('`financiera` sigue recibiendo 403 en `GET /flito/parametrizacion/proveedores-soat`', async () => {
+  it('`financiera` (con «Ver clientes y proveedores», P-21) recibe 200; un rol sin la acción sigue en 403', async () => {
     const app = await appParametrizacion();
-
-    const r = await request(app).get('/api/flito/parametrizacion/proveedores-soat')
+    selectMock.mockReturnValueOnce(chain([]));
+    const si = await request(app).get('/api/flito/parametrizacion/proveedores-soat')
       .set('Authorization', await auth('financiera'));
-
-    expect(r.status).toBe(403);
-    expect(selectMock).not.toHaveBeenCalled();
+    expect(si.status).toBe(200);
+    const no = await request(app).get('/api/flito/parametrizacion/proveedores-soat')
+      .set('Authorization', await auth('conductor'));
+    expect(no.status).toBe(403);
   });
 });

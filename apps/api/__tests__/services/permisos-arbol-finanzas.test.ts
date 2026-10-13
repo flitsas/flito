@@ -17,6 +17,7 @@ const { catalogoCompleto, catalogoPlano, catalogoOperacionesNuevas } = await imp
 const { OPERACIONES_DECLARADAS } = await import('../../src/modules/permisos/catalogo-operaciones.js');
 const { montajesDeFunciones } = await import('../../src/modules/permisos/inventario-guardas.js');
 const { ACCIONES_FINANZAS, AREA_FINANZAS, FUERA_DE_AREA_FINANZAS, PARTIDA_DE_OPERACION_NUEVA } = await import('../../src/modules/permisos/arbol/acciones-finanzas.js');
+const { PARTIDA_DE_OPERACION_NUEVA_ADMINISTRACION } = await import('../../src/modules/permisos/arbol/acciones-administracion.js');
 const {
   ACCIONES_LECTURA, ACCIONES_POR_AREA, CODIGOS_ABSORBIDOS, ROL_CON_TODAS_LAS_ACCIONES, expandir, operacionesDe, predecesoresDe,
 } = await import('../../src/modules/permisos/arbol/expansion.js');
@@ -42,7 +43,8 @@ Finanzas → Facturación electrónica · Operación: Ver las facturas emitidas 
 Administración → Integración con Siigo: Registrar credenciales de pruebas · Registrar credenciales de producción · Probar la conexión
 `.trim().split('\n');
 
-const ARBOL = [...ARBOL_FINANZAS, ...ARBOL_ADMINISTRACION];
+// HU #13428: Administración ya trae Usuarios y Roles y permisos (su test: permisos-arbol-administracion); aquí, solo Integración con Siigo.
+const ARBOL = [...ARBOL_FINANZAS, ...ARBOL_ADMINISTRACION.filter((n) => n.codigo === 'pagina.siigo_credenciales' || n.padre === 'pagina.siigo_credenciales')];
 const ELEMENTO: Record<string, string> = { 'menu.finanzas': 'Finanzas', 'menu.administracion': 'Administración' };
 
 describe('AC1 — nivel 2 y nivel 3 exactamente según el catálogo aprobado (anexo literal)', () => {
@@ -106,7 +108,9 @@ describe('AC6 — cobertura: los 68 códigos del área, en los dos sentidos', ()
   });
 
   it('las operaciones nuevas son EXACTAMENTE las que exige hoy alguna guarda y no existían; su partida es el código viejo', () => {
-    expect(catalogoOperacionesNuevas().map((f) => f.codigo).sort()).toEqual(Object.keys(PARTIDA_DE_OPERACION_NUEVA).sort());
+    // HU #13428 suma las suyas (`PARTIDA_DE_OPERACION_NUEVA_ADMINISTRACION`): aquí, las de Finanzas.
+    expect(catalogoOperacionesNuevas().map((f) => f.codigo).filter((c) => !(c in PARTIDA_DE_OPERACION_NUEVA_ADMINISTRACION)).sort())
+      .toEqual(Object.keys(PARTIDA_DE_OPERACION_NUEVA).sort());
     for (const [nueva, partida] of Object.entries(PARTIDA_DE_OPERACION_NUEVA)) {
       expect(plano.some((f) => f.codigo === nueva), nueva).toBe(false);
       // La acción que la concede tiene la partida como predecesor (salvo la de apoyo, que la dan las tres de Integración).

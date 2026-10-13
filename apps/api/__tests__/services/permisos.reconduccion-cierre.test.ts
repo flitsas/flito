@@ -49,6 +49,8 @@ const LISTA_BLANCA = new Set([
   'tramites/identidad.routes.ts POST /recortar-cedula',   // solo authMiddleware
   'users/users.routes.ts PATCH /:id/password',            // authMiddleware; la AJENA es guarda en línea
   'permisos/permisos.routes.ts GET /mios',                // authMiddleware: cada uno ve SU conjunto
+  // HU #13428: el PATCH decide en línea por grupo de campos (`[general]`, `[autogestion]`, `[sinTramite]`).
+  'flito-parametrizacion/flito-parametrizacion.routes.ts PATCH /companias/:id',
 ]);
 
 /** En identidad no hay `router.use(authMiddleware)`: lo llevan estas 7 rutas, una a una. */
@@ -149,8 +151,8 @@ describe('AC1/AC2 — cada router.<método>( de los 24 ficheros lleva exigirFunc
     });
   }
 
-  it('la lista blanca son exactamente 5 rutas, y todas existen sin guarda de función', () => {
-    expect(LISTA_BLANCA.size).toBe(5);
+  it('la lista blanca son exactamente 6 rutas, y todas existen sin guarda de función', () => {
+    expect(LISTA_BLANCA.size).toBe(6);
     for (const llave of LISTA_BLANCA) {
       const [fichero, metodo, ruta] = llave.split(' ');
       const fuente = sinComentarios(leer(fichero!));
@@ -173,17 +175,19 @@ describe('el lector de montajes cubre la foto entera', () => {
   it('353 montajes = 238 previos + 2 de la #12089 (baja/reactivar) + 4 de la #12541 (servicios adicionales) + 3 por la HU #12545 (servicios por trámite) + 1 por la HU #12591 (recibo de caja) + 5 por la HU #12611 (comprobantes) + 3 por la HU #12619 (viajes de logística) + 3 por la HU #12629 (comprobantes F2) + 1 por la HU #12654 (comprobantes F3: aceptar diferencia) + 2 por el Bug #12642 (export ampliado, en línea) + 1 por la HU #12833 (corregir dirección) + 2 por la HU #12997 (incompletas SOAT: buscar y ver) + 1 por la HU #12998 (reintentar la consulta RUNT) + 2 por la HU #13061 (acceso a FLIT 2: ver y guardar) + 1 por la HU #13237 (interruptor por fuente) + 1 por la HU #13269 (reemplazar el comprobante de pago) + 1 por la HU #13362 (documentos adicionales del SOAT) + 2 por la HU #13364 (cargar y eliminar documentos adicionales) + 76 por la HU #13421 (pesv 48, drivers 24, jornadas 3, rum 1) + 1 por la HU #13425 (operar actas ajenas, en línea) + 3 por la HU #13425 fase B (jornada ajena; vista de auditoría del diagnóstico: abrirla y sugerirla; en línea) + 92 por la HU #13422 (maintenance 33, vehicles 12 + 1 en línea, fleet 10, rndc 5, rutas 16, liquidacion 4, finanzas 8, clients 3) + 134 por la HU #13423 (laft 60, siigo 35 + 8 en línea, soat 12, drive 6, privacy 4, firma 2, vehicles 4, runt 2, integraciones 1) + 1 por la HU #12874 (compañías del canal SOAT sin trámite); los códigos son exactamente los de la foto', () => {
     const montajes = montajesDeFunciones();
     // +1 por la HU #12874 (compañías del canal SOAT sin trámite); +1 por la HU #13427 (gastos diarios; las
-    // credenciales de Siigo cambian POST / y DELETE /:id por dos guardas en línea por ambiente: mismo total).
-    expect(GUARDAS_MEDIDAS).toHaveLength(581);
-    expect(montajes).toHaveLength(581);
+    // credenciales de Siigo cambian POST / y DELETE /:id por dos guardas en línea por ambiente: mismo total);
+    // +5 por la HU #13428 (compañía: 1 → 3 en línea; clientes: PATCH → en línea + `[fiscal]`; `[propia]`; `GET /auth/perfil`).
+    expect(GUARDAS_MEDIDAS).toHaveLength(586);
+    expect(montajes).toHaveLength(586);
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     // En línea: 2 del Bug #12642 + forzar_continuar + contraseña ajena + operar actas ajenas (HU #13425)
     // + jornada ajena + vista de auditoría (abrir y sugerir) de la fase B de la HU #13425
     // + documento completo del propietario en el listado de vehículos (HU #13422)
     // + las 8 acciones de Siigo, en línea en `siigo.permisos.ts` (HU #13423)
-    // + registrar credenciales de Siigo de pruebas y de producción (HU #13427).
-    expect(montajes.filter((m) => m.metodo === null)).toHaveLength(19);
+    // + registrar credenciales de Siigo de pruebas y de producción (HU #13427)
+    // + compañía por grupo (general, autogestión, sin trámite), clientes editar y fiscal, contraseña propia (HU #13428).
+    expect(montajes.filter((m) => m.metodo === null)).toHaveLength(25);
   });
 
   it('un exigirFuncion sin literal hace que el lector LANCE en vez de adivinar', () => {
@@ -348,6 +352,8 @@ const PERMANENTES_13422 = [
   'clients.clientes.ver', 'finanzas.reporte_costos.ver', 'vehicles.propietario.ver_documento',
   // HU #13427: las guardas partidas de Finanzas (operaciones de acciones del árbol, no transitorios).
   'finanzas.reporte_costos.exportar', 'finanzas.reporte_costos.ver_soportes', 'finanzas.reporte_costos.ver_viajes', 'finanzas.gastos_diarios.ver',
+  // HU #13428: el transitorio de clientes partido (operaciones de acciones del árbol; editar y fiscal, en línea).
+  'clients.clientes.crear', 'clients.clientes.editar', 'clients.clientes.datos_fiscales',
 ];
 const FICHEROS_13422 = DIRECTORIOS_13422.flatMap((d) =>
   readdirSync(join(RAIZ_MODULOS, d)).filter((n) => n.endsWith('.routes.ts')).map((n) => `${d}/${n}`)).sort();

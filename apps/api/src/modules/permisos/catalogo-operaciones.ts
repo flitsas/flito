@@ -259,7 +259,10 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
 
   // ── Parametrización FLITO ─────────────────────────────────────────────────────────────────────
   op(`${PAR} GET /companias`, 'parametrizacion.companias.listar', 'Ver las compañías cliente', 'Consultar las compañías dadas de alta y su configuración.'),
-  op(`${PAR} PATCH /companias/:id`, 'parametrizacion.companias.editar', 'Editar una compañía cliente', 'Cambiar la configuración comercial y operativa de la compañía.'),
+  // HU #13428 (§5-ter.1 punto 2): el PATCH se parte por grupo de campos, en línea.
+  op(`${PAR} PATCH /companias/:id [general]`, 'parametrizacion.companias.editar', 'Editar una compañía cliente', 'Cambiar la configuración comercial y operativa de la compañía.'),
+  op(`${PAR} PATCH /companias/:id [autogestion]`, 'parametrizacion.companias.autogestion', 'Habilitar o revocar la autogestión de una compañía', 'Encender o apagar la autogestión de SOAT, impuestos y logística de la compañía.'),
+  op(`${PAR} PATCH /companias/:id [sinTramite]`, 'parametrizacion.companias.soat_sin_tramite', 'Configurar «SOAT sin trámite» de una compañía', 'Abrir o cerrar el canal «SOAT sin trámite» de la compañía y elegir su gestor por defecto.'),
   op(`${PAR} GET /proveedores-soat`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),
   op(`${PAR} POST /proveedores-soat`, 'parametrizacion.proveedores.crear', 'Añadir un proveedor SOAT', 'Registrar un gestor SOAT nuevo.'),
   op(`${PAR} PATCH /proveedores-soat/:id`, 'parametrizacion.proveedores.editar', 'Editar un proveedor SOAT', 'Cambiar los datos o el estado de un gestor SOAT.'),
@@ -380,6 +383,9 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${USR} POST /:id/reactivar`, 'usuarios.usuario.reactivar', 'Reactivar un usuario dado de baja', 'Quitar la marca de baja de un usuario para que vuelva a poder iniciar sesión.'),
   op(`${USR} POST /:id/invalidate-sessions`, 'usuarios.sesiones.invalidar', 'Cerrar las sesiones de un usuario', 'Invalidar todos los tokens vivos de un usuario para que vuelva a iniciar sesión.'),
   op(`${USR} PATCH /:id/password [ajena]`, 'usuarios.contrasena.cambiar_ajena', 'Cambiar la contraseña de otro usuario', 'Fijar una contraseña nueva a un usuario distinto de uno mismo.'),
+  // HU #13428 (AC3): Perfil — la contraseña propia (en línea) y los datos propios (`GET /api/auth/perfil`).
+  op(`${USR} PATCH /:id/password [propia]`, 'perfil.contrasena.cambiar', 'Cambiar la contraseña propia', 'Cambiar la contraseña con la que uno mismo entra.'),
+  op('auth/auth.routes.ts GET /perfil', 'perfil.datos.ver', 'Ver los datos propios', 'Leer el nombre, el usuario, el correo y el rol propios.'),
   // HU #12171 — el historial de cambios (CF-19). Dos codigos y no uno: el catalogo es «una funcion por
   // ruta» y los codigos son unicos (precedente: `soat.cola.ver` / `soat.cola.filtrar`). Textos de
   // negocio fijados el 10/09/2026; los mismos que siembra la 0185 (el test de la 0179 compara literal).

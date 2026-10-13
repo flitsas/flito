@@ -29,8 +29,10 @@ async function app() {
   return a;
 }
 let sub = 8700;
-const como = async (tipoEnlace: string, role = 'xyz_renombrado') =>
-  `Bearer ${await testToken({ sub: ++sub, role: role as never, tipoEnlace, funciones: ['tablero.tablero.ver'] })}`;
+// HU #13428 (AC4): sin `soat.cola.ver` / `impuestos.cola.ver` el bloque de ese módulo no sale; por defecto, los dos.
+const VE_LOS_DOS = ['tablero.tablero.ver', 'soat.cola.ver', 'impuestos.cola.ver'];
+const como = async (tipoEnlace: string, role = 'xyz_renombrado', funciones = VE_LOS_DOS) =>
+  `Bearer ${await testToken({ sub: ++sub, role: role as never, tipoEnlace, funciones })}`;
 const wheres = () => h.cap.sqlDeWheres().filter((w) => !w.sql.includes('"users"'));
 
 beforeEach(() => { h.cap.reset(); h.compuerta.mockReset().mockResolvedValue([{}, {}]); });
@@ -68,5 +70,41 @@ describe('AC4 / P-5 — la compañía ve solo los bloques de SU compañía', () 
       const r = await request(await app()).get('/api/flito/tablero').set('Authorization', await como(e));
       expect([r.status, r.body], e).toEqual([403, { error: 'Sin permisos' }]);
     }
+  });
+});
+
+describe('HU #13428 AC4 — tablero por bloques: el de cada módulo solo con su «Ver el listado»', () => {
+  it('compañía con SOAT y sin Impuestos: sale el bloque de SOAT y no el de Impuestos (ni su parte de los indicadores)', async () => {
+    h.cap.responder([{ c: C, p: null }]);
+    const r = await request(await app()).get('/api/flito/tablero')
+      .set('Authorization', await como('compania', 'xyz_renombrado', ['tablero.tablero.ver', 'soat.cola.ver']));
+    expect(r.status).toBe(200);
+    expect(r.body).toHaveProperty('soat');
+    expect(r.body).not.toHaveProperty('impuestos');
+    expect(r.body.revisionesPendientes).toEqual({ soat: 0 });
+    expect(r.body.estancados).toEqual({ soat: 0 });
+    expect(r.body).toHaveProperty('alertas');
+  });
+
+  it('sin enlace y sin ninguno de los dos: ni SOAT ni Impuestos; el resto del tablero sí', async () => {
+    h.cap.responder(...Array.from({ length: 20 }, () => [{ n: 0 }]));
+    const r = await request(await app()).get('/api/flito/tablero')
+      .set('Authorization', await como('ninguno', 'mensajero', ['tablero.tablero.ver']));
+    expect(r.status).toBe(200);
+    expect(r.body).not.toHaveProperty('soat');
+    expect(r.body).not.toHaveProperty('impuestos');
+    expect(r.body.revisionesPendientes).toEqual({});
+    expect(r.body.estancados).toEqual({});
+    expect(r.body.compuertaHabilitados).toBe(2);
+  });
+
+  it('con «Ver el tablero» por la ACCIÓN y los listados por sus acciones: salen los dos bloques (expansión)', async () => {
+    h.cap.responder(...Array.from({ length: 20 }, () => [{ n: 0 }]));
+    const r = await request(await app()).get('/api/flito/tablero')
+      .set('Authorization', await como('ninguno', 'mensajero', ['accion.dashboard.ver', 'accion.soat.ver_listado', 'accion.impuestos.ver_listado']));
+    expect(r.status).toBe(200);
+    expect(r.body).toHaveProperty('soat');
+    expect(r.body).toHaveProperty('impuestos');
+    expect(Object.keys(r.body.revisionesPendientes).sort()).toEqual(['impuestos', 'soat']);
   });
 });

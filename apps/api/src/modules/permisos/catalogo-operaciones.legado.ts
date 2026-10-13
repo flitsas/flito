@@ -118,6 +118,10 @@ export const NOMBRES_LEGADO: Readonly<Record<string, { nombre: string; descripci
     descripcion: 'Leer el listado de clientes y proveedores.',
   },
   'clients.clientes.administrar': transitorio('Clientes y proveedores'),
+  // HU #13428 (§5-ter.1 punto 2): operaciones NUEVAS que parten el transitorio. Nacen absorbidas.
+  'clients.clientes.crear': { nombre: 'Crear un cliente', descripcion: 'Dar de alta un cliente.' },
+  'clients.clientes.editar': { nombre: 'Editar un cliente', descripcion: 'Editar los datos generales de un cliente.' },
+  'clients.clientes.datos_fiscales': { nombre: 'Registrar los datos fiscales de un cliente', descripcion: 'Registrar y editar los datos fiscales de un cliente para Siigo.' },
   // HU #13423 (ADR-0023): laft/, privacy/, firma/, drive/, soat/ antiguo, siigo/ y las cuatro de solo sesión.
   // Transitorio («Administrar <ítem>») lo que exigía un rol de escritura; permanente lo que es leer u operar
   // el día a día del ítem con la lista de roles que ya lo hacía.
@@ -362,8 +366,9 @@ export const OPERACIONES_DECLARADAS_LEGADO: OperacionDeclarada[] = [
   op(`${FINA_FINANZAS} GET /tramites/:id/viajes-logistica`, 'finanzas.reporte_costos.ver_viajes'),
   op(`${FINA_FINANZAS} GET /gastos-diarios`, 'finanzas.gastos_diarios.ver'), // HU #13427 (P-19)
   op(`${CLIE_CLIENTS} GET /`, 'clients.clientes.ver'),
-  op(`${CLIE_CLIENTS} POST /`, 'clients.clientes.administrar'),
-  op(`${CLIE_CLIENTS} PATCH /:id`, 'clients.clientes.administrar'),
+  op(`${CLIE_CLIENTS} POST /`, 'clients.clientes.crear'), // HU #13428
+  op(`${CLIE_CLIENTS} PATCH /:id [editar]`, 'clients.clientes.editar'), // HU #13428, en línea
+  op(`${CLIE_CLIENTS} POST * [fiscal]`, 'clients.clientes.datos_fiscales'), // HU #13428, en línea (POST y PATCH)
   // HU #13423 (ADR-0023). En siigo/, las 8 acciones se deciden EN LÍNEA en `siigo.permisos.ts` (una por acción).
   op('laft/lists.routes.ts GET /', 'laft.listas.operar'),
   op('laft/lists.routes.ts POST /:code/sync', 'laft.listas.administrar'),

@@ -33,13 +33,22 @@ import { RUTAS_RECONDUCIDAS, type RutaReconducida } from '../fixtures/permisos-r
 import { leerRepartoSembrado, MIGRACIONES_ANTES_DEL_ARBOL } from '../helpers/permisos-seed-sql.js';
 import { montajesDeFunciones, llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
-import { PARTIDA_DE_OPERACION_NUEVA } from '../../src/modules/permisos/arbol/acciones-finanzas.js';
+import {
+  ACCIONES_UNIVERSALES, operacionesDe, PARTIDAS_DE_OPERACIONES_NUEVAS as PARTIDA_DE_OPERACION_NUEVA,
+} from '../../src/modules/permisos/arbol/expansion.js';
 
 /**
  * HU #13427: en el mundo PLANO (seed ≤ 0231) una operación nueva que parte una guarda vieja se decide con su código de
  * PARTIDA (`finanzas.reporte_costos.exportar` → `finanzas.reporte_costos.ver`; gastos diarios → su página).
  */
 const enPlano = (codigo: string) => PARTIDA_DE_OPERACION_NUEVA[codigo] ?? codigo;
+
+/**
+ * HU #13428 (P-22): las guardas de Perfil no tienen equivalente en el mundo plano — antes NO había guarda y las
+ * pasaba cualquiera; su partida (`pagina.perfil`) solo la tenía admin. Su paridad no es la de la foto sino la
+ * del reparto universal: plegado hasta la 0237, cada rol tiene la acción que las concede (caso propio, abajo).
+ */
+const DE_TODOS = new Set(ACCIONES_UNIVERSALES.flatMap((u) => operacionesDe(u.accion)));
 import {
   fijarFuenteDePermisos, invalidarPermisosDe, resolverPermisos, type FilasPermisos,
 } from '../../src/shared/permisos-efectivos.js';
@@ -79,7 +88,7 @@ function matriz(nombre: string, reparto: () => Map<string, Set<string>>, codigoD
     });
     afterAll(() => { fijarFuenteDePermisos(null); });
 
-    for (const fila of RUTAS_RECONDUCIDAS) {
+    for (const fila of RUTAS_RECONDUCIDAS.filter((f) => !DE_TODOS.has(f.codigo))) {
       it(`${etiqueta(fila)} → ${fila.codigo}: los 12 roles deciden como antes`, async () => {
         const antes = antesDe(fila);
         const desacuerdos: string[] = [];
@@ -129,6 +138,28 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
     // una, a propósito: el reemplazo del comprobante de pago nace sin rol (AC7 de la HU #13269) y el
     // administrador lo concede desde el panel. Cualquier otra es un olvido.
     expect(desconocidos).toEqual(['flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts POST /:id/recibos/reemplazar-pago']);
+  });
+});
+
+describe('HU #13428 (P-22) — las guardas de Perfil: antes las pasaba cualquiera; después, cada rol por su acción', () => {
+  it('las dos filas de Perfil están en la lista y en la foto con los 12 roles', () => {
+    const filas = RUTAS_RECONDUCIDAS.filter((f) => DE_TODOS.has(f.codigo));
+    expect(filas.map((f) => f.codigo).sort()).toEqual(['perfil.contrasena.cambiar', 'perfil.datos.ver']);
+    for (const f of filas) expect([...antesDe(f)].sort()).toEqual([...ROLES].sort());
+  });
+
+  it('plegadas las migraciones hasta la 0237, el motor se las concede a los 12 roles', async () => {
+    fijarFuenteDePermisos(fuenteDesde(leerRepartoSembrado()));
+    try {
+      for (const rol of ROLES) invalidarPermisosDe(subDe(rol));
+      for (const rol of ROLES) {
+        const p = await resolverPermisos(subDe(rol));
+        for (const op of DE_TODOS) expect(p.ok && p.funciones.has(op), `${rol} ${op}`).toBe(true);
+      }
+    } finally {
+      fijarFuenteDePermisos(null);
+      for (const rol of ROLES) invalidarPermisosDe(subDe(rol));
+    }
   });
 });
 
