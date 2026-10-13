@@ -6,8 +6,8 @@
 //
 // Decisiones del PO (2026-10-13) que se leen aquí:
 //   · P-11: «Ver el tablero» absorbe `pagina.flito_tablero` (la pantalla la abre la acción).
-//   · P-21: «Ver clientes y proveedores» (lectura) con `clients.clientes.ver` y `companias.listar`;
-//     `proveedores.listar` es OPCIONAL (David, 2026-10-13: financiera no gana el catálogo de proveedores).
+//   · P-21: «Ver clientes y proveedores» (lectura) con `clients.clientes.ver`; `companias.listar` y
+//     `proveedores.listar` son OPCIONALES (David, 2026-10-13: financiera no gana nada en el paso).
 //   · P-22: «Ver mis datos» y «Cambiar mi contraseña» (y `pagina.perfil`) se reparten a TODOS los roles
 //     (`repartoUniversal`, sin literales de rol). P-23: la guarda de la propia contraseña, sin excepción.
 //   · Regla vigente: modifica → «todos»; lectura (flag) → «alguna». «Exportar a Excel» de Usuarios es su
@@ -41,12 +41,13 @@ export const ACCIONES_ADMINISTRACION: Readonly<Record<string, AccionArbol>> = {
   // ── Gestión · Bitácora ──
   'accion.bitacora.ver': { lectura: true, operaciones: ['bitacora.bitacora.ver', 'bitacora.bitacora.ver_recurso'] },
   // ── Gestión · Clientes y proveedores ──
-  // Decisión de David (2026-10-13): el catálogo de proveedores SOAT (umbrales de OCR, SLA) es OPCIONAL de la
-  // lectura: quien lo tiene lo conserva y nadie lo gana por «alguna» (financiera sigue sin él; el gestor le
-  // llega resuelto por `GET /clients`). Sigue siendo apoyo de las dos acciones de admin que lo necesitan.
+  // Decisiones de David (2026-10-13): el catálogo de proveedores SOAT (umbrales de OCR, SLA) y el de compañías
+  // (su configuración) son OPCIONALES de la lectura: quien los tiene los conserva y nadie los gana por «alguna»
+  // (financiera no gana nada; el gestor le llega resuelto por `GET /clients`). Siguen siendo apoyo de las
+  // acciones de admin que los necesitan.
   'accion.clientes.ver': {
-    lectura: true, operaciones: ['clients.clientes.ver', 'parametrizacion.companias.listar'],
-    opcionales: ['parametrizacion.proveedores.listar'],
+    lectura: true, operaciones: ['clients.clientes.ver'],
+    opcionales: ['parametrizacion.companias.listar', 'parametrizacion.proveedores.listar'],
   },
   'accion.clientes.crear_editar_clientes': {
     operaciones: ['clients.clientes.crear', 'clients.clientes.editar', COMPANIAS_EDITAR, 'tramites.empresa.crear'],
