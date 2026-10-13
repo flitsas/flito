@@ -175,13 +175,22 @@ describe('rutas — lectura Operaciones/Auditoría; entregar solo Operaciones', 
   app.use(express.json());
   app.use('/api/flito/compuerta', compuertaRoutes);
 
-  it('Auditoría lista (200) pero no entrega (403)', async () => {
+  it('HU #12873 (pérdida aprobada): Auditoría ya no lista ni entrega (403); la compuerta la abre «Entregar trámites»', async () => {
+    // P-10 + regla «todos»: la compuerta dejó de ser ítem y va dentro de «Entregar trámites», que
+    // modifica. El auditor no tenía entregar, así que no recibe la acción y pierde también el listado.
     selectMock.mockReturnValue(chain([]));
     const token = await testToken({ role: 'auditor' });
     const list = await request(app).get('/api/flito/compuerta').set('Authorization', `Bearer ${token}`);
-    expect(list.status).toBe(200);
+    expect(list.status).toBe(403);
     const entrega = await request(app).post('/api/flito/compuerta/t1/entregar').set('Authorization', `Bearer ${token}`);
     expect(entrega.status).toBe(403);
+  });
+
+  it('HU #12873: quien tiene «Entregar trámites» (admin) lista la compuerta (200)', async () => {
+    selectMock.mockReturnValue(chain([]));
+    const token = await testToken({ role: 'admin' });
+    const list = await request(app).get('/api/flito/compuerta').set('Authorization', `Bearer ${token}`);
+    expect(list.status).toBe(200);
   });
 
   it('un gestor no ve la compuerta (403)', async () => {

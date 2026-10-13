@@ -89,9 +89,12 @@ describe('GET /flito/tramites/:id/soportes — Gestión de trámites', () => {
     expect(res.body).toHaveLength(1);
   });
 
-  it('auditoría también: observar es justo lo suyo', async () => {
+  it('HU #12873 (pérdida aprobada): auditoría ya no — «Descargar soportes» es descarga y se recibe con «todos»', async () => {
+    // `tramites.tramite.ver_soportes` va con `tramites.soportes.descargar` (ZIP) en «Descargar soportes».
+    // Descargar no es de lectura (PO, 2026-10-13) y el auditor no tenía el ZIP: no recibe la acción.
     soportesDeTramiteMock.mockResolvedValue([]);
-    expect((await get('/api/flito/tramites/t1/soportes', 'auditor')).status).toBe(200);
+    expect((await get('/api/flito/tramites/t1/soportes', 'auditor')).status).toBe(403);
+    expect(soportesDeTramiteMock).not.toHaveBeenCalled();
   });
 
   it('un trámite inexistente es 404, no una lista vacía que parezca «sin documentos»', async () => {

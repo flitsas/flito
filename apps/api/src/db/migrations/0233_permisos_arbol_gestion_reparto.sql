@@ -28,7 +28,7 @@
 -- el paso 2b repite sus filas con ON CONFLICT DO NOTHING.
 
 -- ÁRBOL GENERADO (inicio)
--- 125 pares acción → código de su grupo «todos». Generado: no editar a mano.
+-- 124 pares acción → código de su grupo «todos». Generado: no editar a mano.
 -- Regenerar con: npm run permisos:seed -w apps/api -- --arbol gestion --reparto
 DROP TABLE IF EXISTS tmp_arbol_12873;
 CREATE TEMP TABLE tmp_arbol_12873 (accion varchar(80) NOT NULL, fn varchar(80) NOT NULL, PRIMARY KEY (accion, fn));
@@ -79,7 +79,6 @@ INSERT INTO tmp_arbol_12873 (accion, fn) VALUES
   ('accion.impuestos.reemplazar_comprobante', 'impuestos.recibos.reemplazar'),
   ('accion.impuestos.ver_listado', 'impuestos.cola.filtrar'),
   ('accion.impuestos.ver_listado', 'impuestos.cola.ver'),
-  ('accion.impuestos.ver_listado', 'impuestos.factura.ver'),
   ('accion.impuestos.ver_listado', 'impuestos.tramite.ver'),
   ('accion.impuestos.ver_listado', 'impuestos.tramite.ver_historial'),
   ('accion.impuestos.ver_soportes', 'impuestos.tramite.ver_soportes'),

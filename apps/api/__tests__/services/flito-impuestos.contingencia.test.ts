@@ -42,7 +42,12 @@ async function buildApp() {
 }
 // HU #13426: Impuestos está abierto al enlace organismos; el gestor lleva su enlace REAL y el router se
 // monta con `conAlcance('impuestos', …)` como en `app.ts`.
-const auth = async (role: string) => `Bearer ${await testToken({ sub: USER_ID, username: 'ops@flitsas.com', role: role as never })}`;
+const auth = async (role: string, funciones?: string[]) => `Bearer ${await testToken({ sub: USER_ID, username: 'ops@flitsas.com', role: role as never, funciones })}`;
+/**
+ * HU #12873 (pérdida aprobada, regla «todos»): el gestor_impuestos no tenía todo «Gestionar solicitudes» y pierde
+ * rechazar; lo recupera si se le marca la acción. Los casos de frontera que rechazan la marcan.
+ */
+const CON_GESTIONAR = ['accion.impuestos.gestionar_solicitudes'];
 
 /** Igual que en SOAT: el helper `chain` no registra argumentos, así que se envuelve para capturarlos. */
 function montarTx(filasBloqueadas: { id: string }[] = [{ id: IMP_ID }], filaActualizada: unknown = { id: IMP_ID }) {
@@ -374,7 +379,7 @@ describe('flito-impuestos — frontera del gestor del organismo (HU #11156)', ()
     comoGestor(suyo({ gestionOperaciones: true }));
     const { txUpdate } = montarTx();
     const r = await request(await buildApp()).post(`/api/flito/impuestos/${IMP_ID}/rechazar`)
-      .set('Authorization', await auth('gestor_impuestos')).send({ motivo: 'no me consta' });
+      .set('Authorization', await auth('gestor_impuestos', CON_GESTIONAR)).send({ motivo: 'no me consta' });
     expect(r.status).toBe(404);
     expect(txUpdate).not.toHaveBeenCalled();
   });
@@ -383,9 +388,19 @@ describe('flito-impuestos — frontera del gestor del organismo (HU #11156)', ()
     comoGestor(suyo({ gestionOperaciones: false }));
     const { txUpdate } = montarTx();
     const r = await request(await buildApp()).post(`/api/flito/impuestos/${IMP_ID}/rechazar`)
-      .set('Authorization', await auth('gestor_impuestos')).send({ motivo: 'el recibo no corresponde' });
+      .set('Authorization', await auth('gestor_impuestos', CON_GESTIONAR)).send({ motivo: 'el recibo no corresponde' });
     expect(r.status).toBe(200);
     expect(txUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('HU #12873 (pérdida aprobada): SIN «Gestionar solicitudes», el gestor de partida ya no rechaza (403, sin tocar nada)', async () => {
+    comoGestor(suyo({ gestionOperaciones: false }));
+    const { txUpdate } = montarTx();
+    const r = await request(await buildApp()).post(`/api/flito/impuestos/${IMP_ID}/rechazar`)
+      .set('Authorization', await auth('gestor_impuestos')).send({ motivo: 'el recibo no corresponde' });
+    expect(r.status).toBe(403);
+    expect(r.body).toMatchObject({ funcion: 'impuestos.tramite.rechazar', motivo: 'sin_funcion' });
+    expect(txUpdate).not.toHaveBeenCalled();
   });
 
   it('la bandera decide, no el organismo: sigue siendo el suyo y aun así no lo ve', async () => {

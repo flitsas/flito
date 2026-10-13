@@ -70,8 +70,11 @@ export const ACCIONES_GESTION: Readonly<Record<string, AccionArbol>> = {
   'accion.soat.cargar_documentos_adicionales': { operaciones: ['soat.documentos_adicionales.cargar'] },
   'accion.soat.eliminar_documentos_adicionales': { operaciones: ['soat.documentos_adicionales.eliminar'] },
   // ── Impuestos ──
+  // La factura de venta (P-6) es un DOCUMENTO con datos del titular (`GET /:id/factura-venta` sirve el
+  // PDF): en una acción de lectura es OPCIONAL, como exportar/descargar. Quien la tenía la conserva.
   'accion.impuestos.ver_listado': { lectura: true,
-    operaciones: ['impuestos.cola.ver', 'impuestos.cola.filtrar', 'impuestos.tramite.ver', 'impuestos.tramite.ver_historial', 'impuestos.factura.ver'],
+    operaciones: ['impuestos.cola.ver', 'impuestos.cola.filtrar', 'impuestos.tramite.ver', 'impuestos.tramite.ver_historial'],
+    opcionales: ['impuestos.factura.ver'],
   },
   'accion.impuestos.ver_soportes': { lectura: true, operaciones: ['impuestos.tramite.ver_soportes'] },
   'accion.impuestos.cargar_comprobantes': { operaciones: ['impuestos.recibos.cargar'] },
