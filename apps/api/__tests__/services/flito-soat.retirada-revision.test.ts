@@ -77,8 +77,8 @@ async function buildApp() {
   return app;
 }
 
-const auth = async (role: TestRole, sub = 42) =>
-  `Bearer ${await testToken({ sub, username: 'quien@flito.co', role })}`;
+const auth = async (role: TestRole, sub = 42, funciones?: string[]) =>
+  `Bearer ${await testToken({ sub, username: 'quien@flito.co', role, funciones })}`;
 
 beforeEach(() => { selectMock.mockReset(); updateMock.mockReset(); transactionMock.mockReset(); });
 
@@ -297,8 +297,10 @@ describe('AC2 (regresión) — las tres vías del gestor y de Operaciones sobrev
     comoGestor(soatDelCanal());
     const { sets, txUpdate } = montarTx();
 
+    // HU #12873 (pérdida aprobada): el proveedor de partida ya no tiene rechazar (regla «todos» sobre
+    // «Gestionar solicitudes»); la vía sigue viva para el gestor que tenga la acción marcada.
     const r = await request(await buildApp()).post(`/api/flito/soat/${SOAT_ID}/rechazar`)
-      .set('Authorization', await auth('proveedor'))
+      .set('Authorization', await auth('proveedor', 42, ['accion.soat.gestionar_solicitudes']))
       .send({ motivo: 'La aseguradora no expide sobre este vehículo' });
 
     expect(r.status).toBe(200);

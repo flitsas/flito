@@ -45,7 +45,12 @@ async function buildApp() {
   app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
-const auth = async (role: string) => `Bearer ${await testToken({ sub: USER_ID, username: 'ops@flitsas.com', role: role as never })}`;
+const auth = async (role: string, funciones?: string[]) => `Bearer ${await testToken({ sub: USER_ID, username: 'ops@flitsas.com', role: role as never, funciones })}`;
+/**
+ * HU #12873 (pérdida aprobada, regla «todos»): el proveedor no tenía todo «Gestionar solicitudes» y pierde
+ * rechazar; lo recupera si se le marca la acción. Los casos de frontera que rechazan la marcan.
+ */
+const CON_GESTIONAR = ['accion.soat.gestionar_solicitudes'];
 
 /**
  * Monta la transacción del envío y devuelve lo que se escribió: los payloads de `update().set()` y
@@ -486,7 +491,7 @@ describe('flito-soat — frontera del proveedor ante la contingencia (HU #11154)
     comoGestor(suyo({ gestionOperaciones: true }));
     const { txUpdate } = montarTx();
     const r = await request(await buildApp()).post(`/api/flito/soat/${SOAT_ID}/rechazar`)
-      .set('Authorization', await auth('proveedor')).send({ motivo: 'no me consta' });
+      .set('Authorization', await auth('proveedor', CON_GESTIONAR)).send({ motivo: 'no me consta' });
     expect(r.status).toBe(404);
     expect(txUpdate).not.toHaveBeenCalled();
   });
@@ -495,9 +500,19 @@ describe('flito-soat — frontera del proveedor ante la contingencia (HU #11154)
     comoGestor(suyo({ gestionOperaciones: false }));
     const { txUpdate } = montarTx();
     const r = await request(await buildApp()).post(`/api/flito/soat/${SOAT_ID}/rechazar`)
-      .set('Authorization', await auth('proveedor')).send({ motivo: 'la póliza no corresponde' });
+      .set('Authorization', await auth('proveedor', CON_GESTIONAR)).send({ motivo: 'la póliza no corresponde' });
     expect(r.status).toBe(200);
     expect(txUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('HU #12873 (pérdida aprobada): SIN «Gestionar solicitudes», el proveedor de partida ya no rechaza (403, sin tocar nada)', async () => {
+    comoGestor(suyo({ gestionOperaciones: false }));
+    const { txUpdate } = montarTx();
+    const r = await request(await buildApp()).post(`/api/flito/soat/${SOAT_ID}/rechazar`)
+      .set('Authorization', await auth('proveedor')).send({ motivo: 'la póliza no corresponde' });
+    expect(r.status).toBe(403);
+    expect(r.body).toMatchObject({ funcion: 'soat.solicitud.rechazar', motivo: 'sin_funcion' });
+    expect(txUpdate).not.toHaveBeenCalled();
   });
 
   it('la bandera decide, no el proveedor: sigue siendo suyo y aun así no lo ve', async () => {

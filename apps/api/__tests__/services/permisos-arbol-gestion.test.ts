@@ -78,7 +78,9 @@ describe('AC1 — el catálogo de Gestión y Tránsito es la lista aprobada', ()
     for (const c of ['cambiar_proveedor', 'solicitar_sin_tramite', 'ver_por_validar', 'ver_documentos_adicionales']) {
       expect(codigos, c).not.toContain(`accion.impuestos.${c}`);
     }
-    expect(operacionesDe('accion.impuestos.ver_listado')).toContain('impuestos.factura.ver');
+    // P-6: la factura de venta va con «Ver el listado» de Impuestos, como OPCIONAL (es un documento con datos del titular).
+    expect(ACCIONES_GESTION['accion.impuestos.ver_listado']!.opcionales).toEqual(['impuestos.factura.ver']);
+    expect(operacionesDe('accion.impuestos.ver_listado')).not.toContain('impuestos.factura.ver');
     expect(operacionesDe('accion.revisiones.revisar_lecturas')).toEqual(['revisiones.revision.resolver', 'revisiones.revision.descartar']);
   });
 
@@ -88,7 +90,7 @@ describe('AC1 — el catálogo de Gestión y Tránsito es la lista aprobada', ()
     // Control: lo absorbido existía en el mundo plano (si no, la intersección vacía no prueba nada).
     const plano = new Set(catalogoPlano().map((f) => f.codigo));
     expect([...CODIGOS_ABSORBIDOS].filter((c) => !plano.has(c))).toEqual([]);
-    expect(CODIGOS_ABSORBIDOS.size).toBe(126); // 132 operaciones del área menos los 6 opcionales (PO, 2026-10-13)
+    expect(CODIGOS_ABSORBIDOS.size).toBe(125); // 132 operaciones del área menos los 7 opcionales (PO, 2026-10-13)
     // Y el paso no deja ninguna marca (rol ni usuario) sobre lo absorbido, aunque la tuviera antes.
     const todo = [...CODIGOS_ABSORBIDOS];
     const r = repartirPorTodos([{ id: 1, rol: 'r' }], {
@@ -251,7 +253,8 @@ describe('AC4 — la regla del paso sobre los roles: «todos» si modifica, «al
     // Mutante que esto mata (QA, 2026-10-13): volver a meter `comparendos.registros.exportar` en
     // «Ver el listado» de Comparendos (POST /registros/export pasaba la regex anterior de «consulta»).
     const llavesDe = (op: string) => OPERACIONES_DECLARADAS.filter((o) => o.codigo === op).map((o) => o.llave);
-    const descarga = (op: string, llave: string) => /\.(exportar|descargar)\w*$/.test(op) || / \S*(export|descarg|zip|\/pdf|\/archivo)\S*( \[[^\]]+\])?$/i.test(llave);
+    // `factura`: la factura de venta se sirve como documento (PDF con datos del titular, HU #11910).
+    const descarga = (op: string, llave: string) => /\.(exportar|descargar)\w*$/.test(op) || /\.factura\./.test(op) || / \S*(export|descarg|zip|\/pdf|\/archivo|factura)\S*( \[[^\]]+\])?$/i.test(llave);
     const escribe = (llave: string) => !(/ GET /.test(llave) || / POST \S*\/buscar( \[[^\]]+\])?$/.test(llave));
     const malas = [...ACCIONES_LECTURA].flatMap((a) => operacionesDe(a).flatMap((op) => {
       const llaves = llavesDe(op);
@@ -263,6 +266,7 @@ describe('AC4 — la regla del paso sobre los roles: «todos» si modifica, «al
     expect(descarga('comparendos.registros.exportar', 'flito-comparendos/flito-comparendos.routes.ts POST /registros/export')).toBe(true);
     expect(descarga('revisiones.soporte.descargar', 'flito-revisiones/flito-revisiones.routes.ts GET /soporte/:soporteId/archivo')).toBe(true);
     expect(descarga('logistica.actas.descargar', 'flito-logistica/flito-logistica.routes.ts GET /actas/:id/pdf')).toBe(true);
+    expect(descarga('impuestos.factura.ver', 'flito-impuestos/flito-impuestos.routes.ts GET /:id/factura-venta')).toBe(true);
     expect(escribe('x.ts POST /registros/export')).toBe(true);
   });
 
@@ -347,6 +351,7 @@ describe('Opcionales (PO, 2026-10-13): ni grupo, ni expansión, ni retiro', () =
     expect([...OPCIONALES_ARBOL].sort()).toEqual([
       AJENAS, DESPACHAR, RUNT,
       'comparendos.registros.exportar', 'logistica.actas.descargar', 'revisiones.soporte.descargar',
+      'impuestos.factura.ver',
     ].sort());
   });
 
