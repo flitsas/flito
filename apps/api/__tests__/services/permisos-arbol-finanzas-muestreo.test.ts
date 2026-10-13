@@ -12,7 +12,9 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import request from 'supertest';
 
 vi.mock('../../src/db/client.js', () => ({ db: {}, getPoolStats: vi.fn() }));
-vi.mock('../../src/shared/historial/permisos-intentos-denegados.js', () => ({ registrarIntentoDenegado: vi.fn().mockResolvedValue(undefined) }));
+// Implementación en el constructor (sobrevive a `mockReset`): el escritor real devuelve una promesa y `decidir` le hace `.catch`.
+const bitacora = vi.hoisted(() => ({ registrarIntentoDenegado: vi.fn(async (_fila: { metodo: string; codigo: string; userId: number }) => undefined) }));
+vi.mock('../../src/shared/historial/permisos-intentos-denegados.js', () => bitacora);
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
 vi.mock('../../src/shared/logger.js', () => {
   const l = { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() };
@@ -106,6 +108,7 @@ describe('AC2 — Integración con Siigo: el router real decide por ambiente', (
 
   beforeEach(() => {
     for (const f of Object.values(svc)) f.mockReset();
+    bitacora.registrarIntentoDenegado.mockClear();
     svc.guardarCredencial.mockImplementation(async (x: { ambiente: string }) => ({ id: 7, ambiente: x.ambiente, username: 'usuario' }));
     svc.desactivarCredencial.mockResolvedValue(true);
     svc.listarCredenciales.mockResolvedValue([]);
@@ -135,6 +138,22 @@ describe('AC2 — Integración con Siigo: el router real decide por ambiente', (
     expect(svc.ambienteDeCredencial).not.toHaveBeenCalled();
     svc.ambienteDeCredencial.mockResolvedValue(null);
     expect((await request(app).delete('/c/5').set('x-sub', '1')).status).toBe(404);
+  });
+
+  it('sin ninguna de las dos: el 403 temprano deja fila en la bitácora de intentos denegados (POST con su ambiente; DELETE como producción)', async () => {
+    const filas = () => bitacora.registrarIntentoDenegado.mock.calls.map(([f]) => `${f.metodo} ${f.codigo} ${f.userId}`);
+    expect((await request(app).post('/c').set('x-sub', '3').send({ ambiente: 'pruebas' })).status).toBe(403);
+    expect((await request(app).post('/c').set('x-sub', '4').send({})).status).toBe(403);
+    expect((await request(app).delete('/c/5').set('x-sub', '4')).status).toBe(403);
+    expect(filas()).toEqual([
+      'POST siigo.credenciales.registrar_pruebas 3',
+      'POST siigo.credenciales.registrar_produccion 4',
+      'DELETE siigo.credenciales.registrar_produccion 4',
+    ]);
+    // Sin tocar la base de credenciales ni el servicio.
+    expect(svc.ambienteDeCredencial).not.toHaveBeenCalled();
+    expect(svc.guardarCredencial).not.toHaveBeenCalled();
+    expect(svc.desactivarCredencial).not.toHaveBeenCalled();
   });
 
   it('probar la conexión solo con «Probar la conexión»; el listado con cualquiera de las tres (apoyo)', async () => {

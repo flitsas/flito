@@ -41,9 +41,16 @@ function puedeAmbiente(req: Request, ambiente: SiigoAmbiente): Promise<boolean> 
 
 const SIN_PERMISO = 'No tiene permiso para registrar ni desactivar credenciales de Siigo de este ambiente.';
 
-/** Quien no tiene NINGUNA de las dos no llega a la validación ni a la base (sonda, sin bitácora). */
-async function puedeAlguno(req: Request): Promise<boolean> {
-  return (await funcionesConcedidas(req, REGISTRAR)).size > 0;
+/**
+ * Quien no tiene NINGUNA de las dos no llega a la validación ni a la base. La sonda (`funcionesConcedidas`)
+ * no deja rastro, así que el NO se decide otra vez con `puedeAmbiente` (→ `tieneFuncion`), que registra el
+ * intento denegado en `permisos_intentos_denegados` igual que hacía `exigirFuncion` antes de partir la guarda.
+ * `ambiente` = el que nombra el intento: el del cuerpo si es válido; si no se conoce, `produccion`.
+ */
+async function puedeAlguno(req: Request, ambiente: SiigoAmbiente): Promise<boolean> {
+  if ((await funcionesConcedidas(req, REGISTRAR)).size > 0) return true;
+  await puedeAmbiente(req, ambiente);
+  return false;
 }
 
 // GET / — listado sin secretos. `accessKey` siempre viene enmascarada.
@@ -54,7 +61,8 @@ router.get('/', exigirFuncion('siigo.credenciales.ver'), async (_req: Request, r
 
 // POST / — registra la credencial del ambiente. Reemplaza la activa anterior conservando historial.
 router.post('/', async (req: Request, res: Response) => {
-  if (!(await puedeAlguno(req))) { res.status(403).json({ error: SIN_PERMISO }); return; }
+  const pedido: SiigoAmbiente = req.body?.ambiente === 'pruebas' ? 'pruebas' : 'produccion';
+  if (!(await puedeAlguno(req, pedido))) { res.status(403).json({ error: SIN_PERMISO }); return; }
   const parsed = credencialSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
@@ -99,7 +107,9 @@ router.post('/probar-conexion', exigirFuncion('siigo.credenciales.probar'), asyn
 
 // DELETE /:id — desactiva (soft delete). El historial de credenciales nunca se borra.
 router.delete('/:id', async (req: Request, res: Response) => {
-  if (!(await puedeAlguno(req))) { res.status(403).json({ error: SIN_PERMISO }); return; }
+  // Aquí aún no se conoce el ambiente (leerlo exigiría tocar la base de credenciales antes de decidir): el
+  // intento se registra como `registrar_produccion`, la acción más sensible que podría estar pidiendo.
+  if (!(await puedeAlguno(req, 'produccion'))) { res.status(403).json({ error: SIN_PERMISO }); return; }
   const id = Number.parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) { res.status(400).json({ error: 'ID inválido' }); return; }
   const userId = req.user?.sub as number;
