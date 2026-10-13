@@ -6,6 +6,7 @@ process.env.TZ = 'UTC';
 // La app se monta SIN fallback 400: el error handler responde 500, así que un 400 solo puede venir de
 // la ruta (AC10). En producción `errorHandler.ts` no traduce `MulterError`.
 
+import { expandir } from '../../src/modules/permisos/arbol/expansion.js';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
@@ -143,7 +144,7 @@ describe('AC1/AC6 — frontera', () => {
   });
 
   it('gestor con la función y el impuesto de SU organismo → 200 (AC6)', async () => {
-    expect(operacionesDePartida('gestor_impuestos')).toContain(CODIGO);
+    expect(expandir(operacionesDePartida('gestor_impuestos'))).toContain(CODIGO); // HU #12873: lo que expanden sus acciones
     const app = await buildApp();
     kdb.when.select(T_GESTOR_ORG, [{ c: '05001' }]).select(T_ORGANISMOS, [{ codigo: '05001', u: null }]);
     armarCarga();

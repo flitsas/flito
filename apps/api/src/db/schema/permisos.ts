@@ -6,7 +6,7 @@
 // Import circular a propósito: `users.role` referencia `permisosRoles.codigo` y `permisos_usuario_funcion`
 // / `permisos_intentos_denegados` referencian `users.id`. Las FK de Drizzle son callbacks perezosos,
 // así que el ciclo ESM resuelve sin problema (`migracion-0178.test.ts` lo comprueba con `getTableConfig`).
-import { pgTable, varchar, text, boolean, timestamp, integer, index, uniqueIndex, bigserial, primaryKey, check, jsonb, uuid } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, text, boolean, timestamp, integer, smallint, index, uniqueIndex, bigserial, primaryKey, check, jsonb, uuid, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { sql, desc } from 'drizzle-orm';
 import { CAMPOS_AUDITABLES } from '@operaciones/shared-types';
 import { users } from '../schema.js';
@@ -61,9 +61,19 @@ export const permisosFunciones = pgTable('permisos_funciones', {
   descripcion: text('descripcion').notNull(),
   tipo: varchar('tipo', { length: 10 }).notNull(),
   activo: boolean('activo').notNull().default(true),
+  // HU #12873 (ADR-0025, migración 0232) — el árbol de permisos: elemento (`menu.*`, nivel 1) → ítem
+  // (`pagina.*`, nivel 2) → acción (`accion.*`, nivel 3; la anidada cuelga de su acción madre).
+  // `nivel` NULL = operación aún concedible de un área no migrada. `padre_codigo` RESTRICT: no se
+  // borra un nodo con hijos; CASCADE en UPDATE por simetría con el diseño (la PK es inmutable igual).
+  padreCodigo: varchar('padre_codigo', { length: 80 })
+    .references((): AnyPgColumn => permisosFunciones.codigo, { onDelete: 'restrict', onUpdate: 'cascade' }),
+  nivel: smallint('nivel'),
+  orden: integer('orden').notNull().default(0),
 }, (t) => ({
-  tipoChk: check('permisos_funciones_tipo_chk', sql`${t.tipo} IN ('pagina','operacion')`),
+  tipoChk: check('permisos_funciones_tipo_chk', sql`${t.tipo} IN ('pagina','operacion','elemento','accion')`),
   moduloIdx: index('idx_permisos_funciones_modulo').on(t.modulo),
+  nivelChk: check('permisos_funciones_nivel_chk', sql`${t.nivel} IS NULL OR ${t.nivel} BETWEEN 1 AND 3`),
+  padreIdx: index('permisos_funciones_padre_idx').on(t.padreCodigo),
 }));
 
 /** Lo que un ROL concede: el reparto de partida del AC4, y lo que edita la #12082. */

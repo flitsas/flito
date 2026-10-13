@@ -36,16 +36,19 @@ import {
   permisosFunciones, permisosRolFuncion, permisosUsuarioFuncion,
 } from '../../src/db/schema.js';
 import { USER_ROLES, paginasPorDefecto, isValidPage } from '@operaciones/shared-types';
-import { catalogoCompleto, repartoDePartida, PAGINAS_NO_CONCEDIBLES } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano, repartoDePartida, PAGINAS_NO_CONCEDIBLES } from '../../src/modules/permisos/catalogo.js';
 /**
  * HU #13424 (ADR-0022): `FUNCIONES_SIN_ADMIN` salió del servicio con el check de arranque. Tras la
  * 0226 las únicas funciones sin `admin` son las tres del canal SOAT sin trámite (sus rutas no tienen
  * otra guarda que la función; motivo y lista vigilada en `permisos-siembra-admin.test.ts`).
  */
-const FUNCIONES_SIN_ADMIN: readonly string[] = ['soat.factura.leer', 'soat.runt.preconsultar', 'soat.solicitud.crear'];
+//
+// HU #12873 AC8 (decisión del PO del 2026-10-13): desde la 0233 esas tres las absorbe «Solicitar SOAT sin
+// trámite», que `admin` recibe como TODAS las acciones. Con la base al día, `admin` no carece de ninguna.
+const FUNCIONES_SIN_ADMIN: readonly string[] = [];
 import {
   funcionesDeSql, leerFuncionesSembradas, leerReagrupacionesSembradas, leerRenombresSembrados, leerRepartoSembrado,
-  leerRetirosSembrados, repartoDeSql,
+  leerRetirosSembrados, repartoDeSql, MIGRACIONES_ANTES_DEL_ARBOL,
 } from '../helpers/permisos-seed-sql.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -54,7 +57,7 @@ const RUTA = path.resolve(__dirname, '../../src/db/migrations', ARCHIVO);
 const SQL_0179 = readFileSync(RUTA, 'utf8');
 const SIN_COMENTARIOS = SQL_0179.replace(/--[^\n]*/g, '');
 
-const CATALOGO = catalogoCompleto();
+const CATALOGO = catalogoPlano();
 const REPARTO = repartoDePartida(CATALOGO);
 
 describe('0179 — el archivo dice lo mismo que schema.ts (análisis estático)', () => {
@@ -123,21 +126,21 @@ describe('0179 — el archivo dice lo mismo que schema.ts (análisis estático)'
     const repartoGenerado = repartoDeSql([salida]);
     const aPares = (m: Map<string, Set<string>>) => [...m.entries()].flatMap(([r, cs]) => [...cs].map((c) => `${r} ${c}`)).sort();
 
-    const funcionesSembradas = leerFuncionesSembradas();
+    const funcionesSembradas = leerFuncionesSembradas(MIGRACIONES_ANTES_DEL_ARBOL);
     expect([...funcionesSembradas.keys()].sort()).toEqual([...funcionesGeneradas.keys()].sort());
     for (const [codigo, f] of funcionesSembradas) expect(f, codigo).toEqual(funcionesGeneradas.get(codigo));
-    expect(aPares(leerRepartoSembrado())).toEqual(aPares(repartoGenerado));
+    expect(aPares(leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL))).toEqual(aPares(repartoGenerado));
 
     // Y cada fila de la 0179 SOLA sigue en lo generado, o la retiró una migración posterior con nombre,
     // o le cambió el MÓDULO una migración posterior con nombre (la 0205, HU #12716): nadie reescribió
     // la 0179 (una migración aplicada no se edita). El módulo se sustituye solo donde la 0205 lo dice;
     // nombre, descripción y tipo se siguen comparando byte a byte contra lo generado.
-    const retiros = leerRetirosSembrados();
-    const reagrupadas = leerReagrupacionesSembradas();
+    const retiros = leerRetirosSembrados(MIGRACIONES_ANTES_DEL_ARBOL);
+    const reagrupadas = leerReagrupacionesSembradas(MIGRACIONES_ANTES_DEL_ARBOL);
     expect(reagrupadas.size).toBe(47);
     // HU #13421: la 0227 RENOMBRA `pagina.pesv` («PESV — Conductores» → «PESV — Tablero PESV»); el
     // nombre y la descripción se sustituyen solo donde una migración con nombre lo dice.
-    const renombradas = leerRenombresSembrados();
+    const renombradas = leerRenombresSembrados(MIGRACIONES_ANTES_DEL_ARBOL);
     expect([...renombradas.keys()]).toEqual(['pagina.pesv']);
     for (const [codigo, f] of leerFuncionesSembradas([ARCHIVO])) {
       if (retiros.funciones.has(codigo)) continue;
@@ -269,7 +272,7 @@ describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idemp
     for (const c of suyas) expect(isValidPage(c.replace('pagina.', ''))).toBe(true);
   });
 
-  it('AC6 — `admin` no se queda fuera en silencio: solo las tres del canal Cliente (HU #13424, tras la 0226)', async () => {
+  it('AC6 — `admin` no se queda fuera en silencio: con la base al día lo tiene TODO (HU #12873 AC8, tras la 0233)', async () => {
     const sinAdmin = (await sql`
       SELECT f.codigo FROM permisos_funciones f
        WHERE NOT EXISTS (

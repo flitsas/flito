@@ -20,10 +20,10 @@ import postgres from 'postgres';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
 import {
   MIGRACIONES_CON_REPARTO, funcionesDeSql, leerReagrupacionesSembradas, leerRepartoSembrado,
-  leerRetirosSembrados, repartoDeSql,
+  leerRetirosSembrados, repartoDeSql, MIGRACIONES_ANTES_DEL_ARBOL,
 } from '../helpers/permisos-seed-sql.js';
 import { reagrupaciones } from '../../src/modules/permisos/catalogo-agrupacion.js';
-import { catalogoCompleto } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano } from '../../src/modules/permisos/catalogo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ARCHIVO = '0205_permisos_reagrupar_modulos.sql';
@@ -76,7 +76,7 @@ describe('0205 — análisis estático', () => {
     expect(tuplas).toHaveLength(47);
     expect(tuplas).toEqual([...PARES]);
     // Y todas existen en el catálogo del código con ESE módulo (la 0205 escribe lo que el código dice).
-    const catalogo = new Map(catalogoCompleto().map((f) => [f.codigo, f.modulo]));
+    const catalogo = new Map(catalogoPlano().map((f) => [f.codigo, f.modulo]));
     for (const [codigo, modulo] of tuplas) expect(catalogo.get(codigo), codigo).toBe(modulo);
   });
 
@@ -89,7 +89,7 @@ describe('0205 — análisis estático', () => {
     expect(SQL_0205.slice(inicio, fin)).toBe(salida);
   }, 60_000);
 
-  it('el helper de paridad la pliega: `leerReagrupacionesSembradas()` devuelve los 47 pares y `funcionesDeSql` cambia el módulo', () => {
+  it('el helper de paridad la pliega: `leerReagrupacionesSembradas(MIGRACIONES_ANTES_DEL_ARBOL)` devuelve los 47 pares y `funcionesDeSql` cambia el módulo', () => {
     // Posición RELATIVA (detrás de la 0203), nunca «es la última»: la 0208 (HU #12833) va detrás.
     expect(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO)).toBe(MIGRACIONES_CON_REPARTO.indexOf('0203_permiso_excel_exportar_pago.sql') + 1);
     const sembradas = leerReagrupacionesSembradas([ARCHIVO]);

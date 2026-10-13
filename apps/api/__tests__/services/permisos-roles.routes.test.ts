@@ -423,34 +423,35 @@ describe('AC5 — GET y PUT /roles/:codigo/funciones', () => {
 
   it('RN-A1 (HU #12875): rol con enlace compañía y funciones de módulos que la frontera no le abre → se guarda igual y AVISA cuáles (M12)', async () => {
     // HU #13426 abrió Impuestos a compañía: el módulo que sigue cerrado para ella es Derechos.
-    kdb.when.select('permisos_funciones', [{ codigo: 'soat.cola.ver' }, { codigo: 'derechos.cola.ver' }, { codigo: 'pagina.flito_soat' }])
+    // HU #12873: lo concedible de SOAT y Derechos son acciones del árbol (módulo = el de su página).
+    kdb.when.select('permisos_funciones', [{ codigo: 'accion.soat.ver_listado' }, { codigo: 'accion.derechos.ver_listado' }, { codigo: 'pagina.flito_soat' }])
       .select('permisos_roles', [{ tipoEnlace: 'compania' }]).select('users', [USERS_OK])
       .select('permisos_rol_funcion', []);
     const r = await request(app()).put('/api/permisos/roles/cliente/funciones').set('Authorization', await admin())
-      .send({ funciones: ['soat.cola.ver', 'derechos.cola.ver', 'pagina.flito_soat'] });
+      .send({ funciones: ['accion.soat.ver_listado', 'accion.derechos.ver_listado', 'pagina.flito_soat'] });
     expect(r.status).toBe(200);
     expect(r.body.aviso).toEqual({
       tipo: 'fuera_del_enlace',
       tipoEnlace: 'compania',
       mensaje: 'El rol tiene enlace: la frontera solo le abre los módulos de ese enlace y estas funciones no tendrán efecto por HTTP',
-      funciones: ['derechos.cola.ver'],
+      funciones: ['accion.derechos.ver_listado'],
     });
     // Se guardó completo: las tres, no solo las alcanzables.
     expect(espia.ultimoInsertEn('permisos_rol_funcion')).toHaveLength(3);
   });
 
   it('RN-A1: enlace compañía SOLO con funciones de SOAT (y páginas) → sin aviso; enlace `ninguno` con cualquier cosa → sin aviso; organismos con SOAT → aviso', async () => {
-    kdb.when.select('permisos_funciones', [{ codigo: 'soat.cola.ver' }, { codigo: 'soat.solicitud.enviar' }, { codigo: 'pagina.flito_soat' }])
+    kdb.when.select('permisos_funciones', [{ codigo: 'accion.soat.ver_listado' }, { codigo: 'accion.soat.gestionar_solicitudes' }, { codigo: 'pagina.flito_soat' }])
       .select('users', [USERS_OK]).select('permisos_rol_funcion', []);
     kdb.when.select('permisos_roles', [{ tipoEnlace: 'compania' }]);
-    const a = await request(app()).put('/api/permisos/roles/cliente/funciones').set('Authorization', await admin()).send({ funciones: ['soat.cola.ver', 'soat.solicitud.enviar', 'pagina.flito_soat'] });
+    const a = await request(app()).put('/api/permisos/roles/cliente/funciones').set('Authorization', await admin()).send({ funciones: ['accion.soat.ver_listado', 'accion.soat.gestionar_solicitudes', 'pagina.flito_soat'] });
     expect(a.body.aviso).toBeNull();
     kdb.when.select('permisos_roles', [{ tipoEnlace: 'ninguno' }]);
-    const b = await request(app()).put('/api/permisos/roles/gestor_x/funciones').set('Authorization', await admin()).send({ funciones: ['soat.solicitud.enviar'] });
+    const b = await request(app()).put('/api/permisos/roles/gestor_x/funciones').set('Authorization', await admin()).send({ funciones: ['accion.soat.gestionar_solicitudes'] });
     expect(b.body.aviso).toBeNull();
     kdb.when.select('permisos_roles', [{ tipoEnlace: 'organismos_transito' }]);
-    const c = await request(app()).put('/api/permisos/roles/transito_x/funciones').set('Authorization', await admin()).send({ funciones: ['soat.cola.ver'] });
-    expect(c.body.aviso).toMatchObject({ tipo: 'fuera_del_enlace', tipoEnlace: 'organismos_transito', funciones: ['soat.cola.ver'] });
+    const c = await request(app()).put('/api/permisos/roles/transito_x/funciones').set('Authorization', await admin()).send({ funciones: ['accion.soat.ver_listado'] });
+    expect(c.body.aviso).toMatchObject({ tipo: 'fuera_del_enlace', tipoEnlace: 'organismos_transito', funciones: ['accion.soat.ver_listado'] });
   });
 
   it('AC4/M1: vaciar el cuadro de `admin` cuando nadie más administra → 409 del invariante, sin commit ni invalidación', async () => {

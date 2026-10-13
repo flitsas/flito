@@ -8,11 +8,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
-import { MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado } from '../helpers/permisos-seed-sql.js';
+import { MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, MIGRACIONES_ANTES_DEL_ARBOL } from '../helpers/permisos-seed-sql.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import { llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
-import { catalogoCompleto } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano } from '../../src/modules/permisos/catalogo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ARCHIVO = '0222_flito_soportes_documentos_adicionales_soat.sql';
@@ -48,7 +48,7 @@ describe('0222 — análisis estático', () => {
     expect([...funciones.keys()]).toEqual([CODIGO]);
     const op = OPERACIONES_DECLARADAS.find((o) => o.codigo === CODIGO)!;
     expect(op.llave).toBe(LLAVE);
-    const f = catalogoCompleto().find((c) => c.codigo === CODIGO)!;
+    const f = catalogoPlano().find((c) => c.codigo === CODIGO)!;
     expect(funciones.get(CODIGO)).toEqual({
       codigo: CODIGO, modulo: f.modulo, nombre: op.nombre, descripcion: op.descripcion, tipo: 'operacion',
     });
@@ -58,7 +58,7 @@ describe('0222 — análisis estático', () => {
     const g = GUARDAS_MEDIDAS.find((x) => llaveDe(x) === LLAVE)!;
     expect([...g.roles].sort()).toEqual(ROLES);
     expect(MIGRACIONES_CON_REPARTO).toContain(ARCHIVO);
-    const total = leerRepartoSembrado();
+    const total = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
     for (const rol of ROLES) expect(total.get(rol)!.has(CODIGO), rol).toBe(true);
     expect(total.get('cliente')?.has(CODIGO) ?? false).toBe(false);
     expect(SIN_COMENTARIOS).toMatch(/IF n_ops <> 1 OR n_cliente <> 0 THEN\s*RAISE EXCEPTION/);

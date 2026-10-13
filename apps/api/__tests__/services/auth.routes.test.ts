@@ -261,7 +261,10 @@ describe('GET /api/auth/me', () => {
       .mockReturnValueOnce(chain([{
         id: 1, username: 'admin', name: 'A', role: 'admin', allowedPages: null,
       }]))
-      .mockReturnValueOnce(chain([])); // puente #12088 → transitoCodigo null
+      .mockReturnValueOnce(chain([])) // puente #12088 → transitoCodigo null
+      // HU #12873 AC8: `admin` tiene «Solicitar SOAT sin trámite» → `/me` mira si alguna compañía tiene el
+      // canal (#12874, admin sin enlace). Ninguna → `puedeSolicitarSoat: false`.
+      .mockReturnValueOnce(chain([]));
     // HU #12082: las páginas las sirve el resolutor (el registro del helper); `allowedPages` del helper
     // es `users.allowed_pages`, y el admin no tiene fila de defaults, así que sale exactamente esto.
     const token = await testToken({ sub: 1, role: 'admin', allowedPages: ['dashboard'] });
@@ -271,8 +274,10 @@ describe('GET /api/auth/me', () => {
     expect(r.body.id).toBe(1);
     expect(Array.isArray(r.body.allowedPages)).toBe(true);
     // Lo que viaja son SLUGS, resueltos por el mismo resolutor que decide en el servidor.
-    expect(r.body.allowedPages).toEqual(['dashboard']);
-    expect(selectMock).toHaveBeenCalledTimes(2); // usuario + puente
+    // HU #12873 (P-10): la Compuerta la abre «Entregar trámites», que el admin tiene de partida.
+    expect(r.body.allowedPages).toEqual(['dashboard', 'flito_compuerta']);
+    expect(r.body.puedeSolicitarSoat).toBe(false);
+    expect(selectMock).toHaveBeenCalledTimes(3); // usuario + puente + compañías con el canal (AC8)
   });
 
   it('token válido pero user no existe en BD → 404', async () => {

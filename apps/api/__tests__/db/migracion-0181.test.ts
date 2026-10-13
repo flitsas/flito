@@ -18,8 +18,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
-import { catalogoCompleto, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
-import { leerFuncionesSembradas, leerRepartoSembrado } from '../helpers/permisos-seed-sql.js';
+import { catalogoPlano, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
+import { leerFuncionesSembradas, leerRepartoSembrado, MIGRACIONES_ANTES_DEL_ARBOL } from '../helpers/permisos-seed-sql.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ARCHIVO = '0181_permisos_reconduccion.sql';
@@ -71,7 +71,7 @@ describe('0181 — el archivo siembra lo que el catálogo del código declara (a
   it('siembra exactamente las once funciones, con el módulo, el nombre y la descripción del catálogo del código', () => {
     const sembradas = leerFuncionesSembradas([ARCHIVO]);
     expect([...sembradas.keys()].sort()).toEqual([...FUNCIONES_0181].sort());
-    const catalogo = new Map(catalogoCompleto().map((f) => [f.codigo, f]));
+    const catalogo = new Map(catalogoPlano().map((f) => [f.codigo, f]));
     for (const codigo of FUNCIONES_0181) {
       const f = catalogo.get(codigo);
       expect(f, `${codigo} en el catálogo del código`).toBeDefined();
@@ -85,7 +85,7 @@ describe('0181 — el archivo siembra lo que el catálogo del código declara (a
     const reparto = leerRepartoSembrado([ARCHIVO]);
     expect([...reparto.keys()]).toEqual(['admin']);
     expect([...reparto.get('admin')!].sort()).toEqual([...FUNCIONES_0181].sort());
-    const desdeElCodigo = repartoDePartida().filter(([, c]) => (FUNCIONES_0181 as readonly string[]).includes(c));
+    const desdeElCodigo = repartoDePartida(catalogoPlano()).filter(([, c]) => (FUNCIONES_0181 as readonly string[]).includes(c));
     expect(desdeElCodigo.map(([r, c]) => `${r} ${c}`).sort())
       .toEqual([...FUNCIONES_0181].map((c) => `admin ${c}`).sort());
   });
@@ -96,9 +96,9 @@ describe('0181 — el archivo siembra lo que el catálogo del código declara (a
   });
 
   it('0179 + 0181 producen el mismo reparto que el generador sobre la foto ampliada', () => {
-    const sembrado = leerRepartoSembrado();
+    const sembrado = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
     const pares = [...sembrado.entries()].flatMap(([r, cs]) => [...cs].map((c) => `${r} ${c}`)).sort();
-    expect(pares).toEqual(repartoDePartida().map(([r, c]) => `${r} ${c}`).sort());
+    expect(pares).toEqual(repartoDePartida(catalogoPlano()).map(([r, c]) => `${r} ${c}`).sort());
   });
 });
 

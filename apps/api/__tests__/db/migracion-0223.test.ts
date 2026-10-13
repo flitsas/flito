@@ -15,11 +15,11 @@ import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql as dsql } from 'drizzle-orm';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
-import { MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado } from '../helpers/permisos-seed-sql.js';
+import { MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, MIGRACIONES_ANTES_DEL_ARBOL } from '../helpers/permisos-seed-sql.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import { llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
-import { catalogoCompleto } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano } from '../../src/modules/permisos/catalogo.js';
 import * as schema from '../../src/db/schema.js';
 import { insertarAdicionalesDeCarga } from '../../src/modules/flito-soat/flito-soat-documentos.service.js';
 
@@ -68,7 +68,7 @@ describe('0223 — análisis estático', () => {
     for (const { codigo, llave } of FUNCIONES) {
       const op = OPERACIONES_DECLARADAS.find((o) => o.codigo === codigo)!;
       expect(op.llave).toBe(llave);
-      const f = catalogoCompleto().find((c) => c.codigo === codigo)!;
+      const f = catalogoPlano().find((c) => c.codigo === codigo)!;
       expect(funciones.get(codigo)).toEqual({
         codigo, modulo: f.modulo, nombre: op.nombre, descripcion: op.descripcion, tipo: 'operacion',
       });
@@ -77,7 +77,7 @@ describe('0223 — análisis estático', () => {
 
   it('reparto: admin y proveedor; el cliente NO (foto, SQL y plegado de todas las migraciones)', () => {
     expect(MIGRACIONES_CON_REPARTO).toContain(ARCHIVO);
-    const total = leerRepartoSembrado();
+    const total = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
     for (const { codigo, llave } of FUNCIONES) {
       const g = GUARDAS_MEDIDAS.find((x) => llaveDe(x) === llave)!;
       expect([...g.roles].sort(), llave).toEqual(ROLES);

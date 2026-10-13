@@ -20,10 +20,10 @@ import { fileURLToPath } from 'node:url';
 import { getTableConfig } from 'drizzle-orm/pg-core';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
 import {
-  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql,
+  MIGRACIONES_CON_REPARTO, funcionesDeSql, leerRepartoSembrado, leerRetirosSembrados, repartoDeSql, MIGRACIONES_ANTES_DEL_ARBOL,
 } from '../helpers/permisos-seed-sql.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
-import { catalogoCompleto, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
 import { flitoTramiteViajesLogistica } from '../../src/db/schema.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -118,7 +118,7 @@ describe('0199 — análisis estático', () => {
     expect(SIN_COMENTARIOS).not.toMatch(/'pagina'/);
     const funciones = funcionesDeSql([SQL_0199]);
     expect([...funciones.keys()].sort()).toEqual([...OPS].sort());
-    const catalogo = catalogoCompleto();
+    const catalogo = catalogoPlano();
     for (const codigo of OPS) {
       const op = OPERACIONES_DECLARADAS.find((o) => o.codigo === codigo);
       expect(op, codigo).toBeDefined();
@@ -139,15 +139,15 @@ describe('0199 — análisis estático', () => {
     const tuplas = SIN_COMENTARIOS.match(/\('\w+', 'logistica\.viajes\.\w+'\)/g) ?? [];
     expect(tuplas).toHaveLength(3);
     for (const t of tuplas) expect(t).toMatch(/^\('admin', /);
-    const catalogo = catalogoCompleto();
+    const catalogo = catalogoPlano();
     for (const codigo of OPS) {
       expect(catalogo.find((c) => c.codigo === codigo)!.roles, codigo).toEqual(['admin']);
-      expect(repartoDePartida().filter(([, c]) => c === codigo).map(([r]) => r)).toEqual(['admin']);
+      expect(repartoDePartida(catalogoPlano()).filter(([, c]) => c === codigo).map(([r]) => r)).toEqual(['admin']);
     }
   });
 
   it('los cardinales del catálogo: 3 operaciones logistica.viajes.*, y las 3 llaves del fichero de rutas', () => {
-    expect(catalogoCompleto().filter((c) => c.tipo === 'operacion' && c.codigo.startsWith('logistica.viajes.'))).toHaveLength(3);
+    expect(catalogoPlano().filter((c) => c.tipo === 'operacion' && c.codigo.startsWith('logistica.viajes.'))).toHaveLength(3);
     expect(OPERACIONES_DECLARADAS.filter((o) => o.llave.startsWith(`${FICHERO} `))).toHaveLength(3);
   });
 
@@ -156,7 +156,7 @@ describe('0199 — análisis estático', () => {
     expect(retiros.funciones.size).toBe(0);
     expect(retiros.reparto.size).toBe(0);
     expect(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO)).toBe(MIGRACIONES_CON_REPARTO.indexOf(ANTERIOR) + 1);
-    const total = leerRepartoSembrado();
+    const total = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
     for (const codigo of OPS) {
       for (const [rol, funciones] of total) expect(funciones.has(codigo), `${rol} ${codigo}`).toBe(rol === 'admin');
     }
