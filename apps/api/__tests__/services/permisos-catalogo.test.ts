@@ -187,7 +187,8 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     expect(deHoy).toHaveLength(porCodigoFlito.size + codigosLegado.size);
     expect(new Set(deHoy.map((f) => f.codigo)).size).toBe(deHoy.length);
     // 25 de la HU #13421 + 13 de la HU #13422 + 42 de la HU #13423 + 11 de la HU #13427 (12 nuevas − el transitorio de Siigo)
-    expect(codigosLegado.size).toBe(91);
+    // + 3 de la HU #13428 (3 nuevas de clientes − el transitorio `clients.clientes.administrar` + `perfil.datos.ver`)
+    expect(codigosLegado.size).toBe(94);
   });
 
   it('HU #13421 — varias guardas con el mismo código exigen IGUALDAD de reparto: una lista distinta revienta (no se une)', () => {
@@ -228,11 +229,16 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     expect(() => catalogoDeOperaciones(faltante)).toThrow(/SIN guarda viva/);
   });
 
-  it('las diecinueve guardas en línea van con su condición en la llave y no colisionan con la ruta que las contiene (dos son del Bug #12642, cuatro de la HU #13425, una de la HU #13422, ocho de la HU #13423: las acciones de Siigo; dos de la HU #13427: credenciales de Siigo por ambiente)', () => {
+  it('las veinticinco guardas en línea van con su condición en la llave y no colisionan con la ruta que las contiene (dos son del Bug #12642, cuatro de la HU #13425, una de la HU #13422, ocho de la HU #13423: las acciones de Siigo; dos de la HU #13427: credenciales de Siigo por ambiente; seis de la HU #13428: compañía por grupo de campos, clientes editar y fiscal, contraseña propia)', () => {
     const enLinea = guardas.filter((g) => g.condicion);
     expect(enLinea.map(llaveDe).sort()).toEqual([
+      'clients/clients.routes.ts PATCH /:id [editar]',
+      'clients/clients.routes.ts POST * [fiscal]',
       'flito-impuestos/flito-impuestos.routes.ts POST /export [incluirPago]',
       'flito-logistica/flito-logistica.routes.ts POST /actas/:id/entregar [operarAjenas]',
+      'flito-parametrizacion/flito-parametrizacion.routes.ts PATCH /companias/:id [autogestion]',
+      'flito-parametrizacion/flito-parametrizacion.routes.ts PATCH /companias/:id [general]',
+      'flito-parametrizacion/flito-parametrizacion.routes.ts PATCH /companias/:id [sinTramite]',
       'flito-soat/flito-soat.routes.ts POST /export [incluirPago]',
       'jornadas/jornadas.routes.ts POST /abrir [jornadaAjena]',
       'pesv/diagnostico.routes.ts GET /:id [sugerirAuditoria]',
@@ -249,6 +255,7 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       'siigo/siigo.permisos.ts POST * [reintentar]',
       'tramites/tramites.routes.ts PATCH /:id [_forzarContinuar]',
       'users/users.routes.ts PATCH /:id/password [ajena]',
+      'users/users.routes.ts PATCH /:id/password [propia]',
       'vehicles/vehicles.routes.ts GET / [documentoCompleto]',
     ]);
     expect(codigoDeLlave.get('vehicles/vehicles.routes.ts GET / [documentoCompleto]')).toBe('vehicles.propietario.ver_documento');

@@ -176,14 +176,14 @@ describe('AC4 — escribir en un ítem exige «Administrar <ítem>»', () => {
     expect(ok.status).toBe(400); // la misma validación de hoy: pasó la guarda
   });
 
-  it('flota: con `pagina.fleet` y sin `fleet.flota.administrar` → 403 al vincular; clientes: sin `clients.clientes.administrar` → 403 al crear', async () => {
+  it('flota: con `pagina.fleet` y sin `fleet.flota.administrar` → 403 al vincular; clientes: sin `clients.clientes.crear` (HU #13428, antes el transitorio) → 403 al crear', async () => {
     const auth = await usuario(9219, 'supervisor_flota', ['pagina.fleet', 'clients.clientes.ver']);
     const f = await request(app).post('/api/fleet/links').set('Authorization', auth).send({});
     expect(f.status).toBe(403);
     expect(f.body).toMatchObject({ funcion: 'fleet.flota.administrar' });
     const c = await request(app).post('/api/clients').set('Authorization', auth).send({});
     expect(c.status).toBe(403);
-    expect(c.body).toMatchObject({ funcion: 'clients.clientes.administrar' });
+    expect(c.body).toMatchObject({ funcion: 'clients.clientes.crear' });
   });
 
   it('la partida de `supervisor_flota` (catálogo) entra a las tres páginas de Mantenimiento y NO crea órdenes (solo admin hoy)', async () => {

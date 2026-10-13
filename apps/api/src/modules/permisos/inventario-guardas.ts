@@ -198,6 +198,9 @@ export const FICHEROS_LEGADO_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'siigo', fichero: 'siigo/siigo.permisos.ts' },
   { modulo: 'runt', fichero: 'runt/runt.routes.ts' },
   { modulo: 'integraciones', fichero: 'integraciones/integraciones.routes.ts' },
+  // HU #13428 (AC3): `GET /api/auth/perfil` («Ver mis datos»). El resto de `auth/` (login, `/me`, logout) no
+  // lleva guarda de función: es la entrada a la sesión y el shell de todos.
+  { modulo: 'perfil', fichero: 'auth/auth.routes.ts' },
 ];
 
 /** Quita comentarios de bloque y de línea sin tocar el contenido de las cadenas simples. */

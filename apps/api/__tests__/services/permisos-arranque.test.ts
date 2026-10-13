@@ -135,9 +135,11 @@ describe('HU #12716 AC7 — el arranque compara también el módulo de agrupaci�
     // 47 pares en el mapa; `pagina.transito_organismos` se simula con `grupo_viejo`, así que aquí
     // difieren todas las que siguen en el catálogo (es la simulación, no la 0205: la 0205 cambia 46).
     // HU #12873: las que absorbió el árbol (`sync.sync.*`, `pagina.flito_compuerta`) ya no están; HU #13427:
-    // tampoco las 12 de Finanzas que absorbió (servicios adicionales, tarifas, reporte, liquidación, transitorio de Siigo…).
+    // tampoco las 12 de Finanzas que absorbió (servicios adicionales, tarifas, reporte, liquidación, transitorio de Siigo…);
+    // HU #13428: ni las 4 de Clientes y proveedores que absorbió (compañías y proveedores editar/crear, `clients.clientes.*`);
+    // `parametrizacion.companias.listar` y `.proveedores.listar` siguen vivas: son OPCIONALES de «Ver clientes y proveedores».
     const vivas = [...reagrupadas].filter((c) => MODULO_DE.has(c)).length;
-    expect(vivas).toBe(28);
+    expect(vivas).toBe(24);
     expect((error as Error).message).toMatch(new RegExp(`difiere entre la base y el código en ${vivas} funciones`));
     expect((error as Error).message).toMatch(new RegExp(`… y ${vivas - 10} más`));
     expect(((error as Error).message.match(/^\s+«/gm) ?? [])).toHaveLength(10);

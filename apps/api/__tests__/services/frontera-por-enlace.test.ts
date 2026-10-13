@@ -41,7 +41,7 @@ const {
   conAlcance, RUTAS_TRANSVERSALES, esRutaTransversal, moduloAbiertoA, funcionesAlcanzables, alcanceDe, soloSinEnlace,
 } = await import('../../src/shared/middleware/frontera-enlace.js');
 const { FRONTERA_POR_ENLACE, MODULOS_FRONTERA } = await import('@operaciones/shared-types');
-const { catalogoCompleto } = await import('../../src/modules/permisos/catalogo.js');
+const { catalogoCompleto, catalogoPlano } = await import('../../src/modules/permisos/catalogo.js');
 
 const aqui = path.dirname(fileURLToPath(import.meta.url));
 const fuente = (rel: string) => readFileSync(path.resolve(aqui, '../../src', rel), 'utf8');
@@ -92,6 +92,7 @@ function app(): Express {
   a.get('/api/auth/me', authMiddleware, handler);
   a.post('/api/auth/logout', authMiddleware, handler);
   a.patch('/api/users/:id/password', authMiddleware, handler);
+  a.get('/api/auth/perfil', authMiddleware, handler); // HU #13428
   a.use('/api/permisos', routerCon([['get', '/mios', null], ['get', '/roles', 'permisos.rol.listar']]));
   a.use('/api/users', routerCon([['get', '/', 'usuarios.usuarios.listar']]));
   // El único módulo abierto en #12875.
@@ -248,13 +249,18 @@ describe('AC5 — catálogos y configuración cerrados; la sesión, abierta', ()
       expect((await pide('get', '/api/permisos/mios', sub)).status, `mios ${sub}`).toBe(200);
       expect((await pide('post', '/api/auth/logout', sub)).status, `logout ${sub}`).toBe(200);
       expect((await pide('patch', `/api/users/${sub}/password`, sub)).status, `password ${sub}`).toBe(200);
+      expect((await pide('get', '/api/auth/perfil', sub)).status, `perfil ${sub}`).toBe(200);
     }
   });
 
-  it('TC-05c: las transversales son un array congelado de cuatro, cada una con su porqué; su forma es exacta', () => {
+  it('TC-05c: las transversales son un array congelado de cinco, cada una con su porqué; su forma es exacta', () => {
+    // HU #13428 (P-22): «Ver mis datos» (`GET /api/auth/perfil`, solo datos propios) se suma a las de sesión.
     expect(RUTAS_TRANSVERSALES.map((r) => `${r.metodo} ${r.patron}`)).toEqual([
       'GET /api/auth/me', 'GET /api/permisos/mios', 'POST /api/auth/logout', 'PATCH /api/users/:id/password',
+      'GET /api/auth/perfil',
     ]);
+    expect(esRutaTransversal('GET', '/api/auth/perfil')).toBe(true);
+    expect(esRutaTransversal('GET', '/api/auth/perfil/7')).toBe(false);
     expect(Object.isFrozen(RUTAS_TRANSVERSALES)).toBe(true);
     for (const r of RUTAS_TRANSVERSALES) expect(Object.isFrozen(r)).toBe(true);
     const primera = RUTAS_TRANSVERSALES[0]!;
@@ -294,9 +300,21 @@ describe('RN-A1 — qué funciones alcanza cada enlace (el aviso del panel)', ()
     expect(moduloAbiertoA('soat', null)).toBe(false);
   });
 
-  it('cada módulo de `FRONTERA_POR_ENLACE` existe como módulo del catálogo de funciones', () => {
-    const modulos = new Set(catalogoCompleto().map((f) => f.modulo));
+  it('cada módulo de `FRONTERA_POR_ENLACE` existe como módulo del catálogo de funciones (el de hoy o, si el árbol lo absorbió, el plano)', () => {
+    // HU #13428 (P-11): `tablero.tablero.ver` lo absorbe «Ver el tablero» de General; el módulo `tablero` vive en el plano.
+    const modulos = new Set([...catalogoCompleto(), ...catalogoPlano()].map((f) => f.modulo));
     for (const m of MODULOS_FRONTERA) expect(modulos.has(m), m).toBe(true);
+  });
+
+  it('HU #13428 — una acción la alcanza el enlace que alcanza alguna de sus operaciones; Perfil, todo enlace', () => {
+    // «Ver el tablero» es del módulo `general` (su página), pero su operación es del módulo `tablero` (abierto a compañía).
+    expect(funcionesAlcanzables('compania')('accion.dashboard.ver')).toBe(true);
+    expect(funcionesAlcanzables('proveedor')('accion.dashboard.ver')).toBe(false);
+    for (const enlace of ['compania', 'proveedor', 'organismos_transito'] as const) {
+      expect(funcionesAlcanzables(enlace)('accion.perfil.ver_datos'), enlace).toBe(true);
+      expect(funcionesAlcanzables(enlace)('accion.perfil.cambiar_contrasena'), enlace).toBe(true);
+      expect(funcionesAlcanzables(enlace)('accion.usuarios.ver'), enlace).toBe(false);
+    }
   });
 });
 

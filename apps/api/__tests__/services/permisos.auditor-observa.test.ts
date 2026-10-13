@@ -34,7 +34,8 @@ import { leerRepartoSembrado, MIGRACIONES_ANTES_DEL_ARBOL } from '../helpers/per
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
 import { llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
-import { PARTIDA_DE_OPERACION_NUEVA } from '../../src/modules/permisos/arbol/acciones-finanzas.js';
+// HU #13428: la unión de las operaciones nuevas de todas las áreas (Finanzas y Administración/Clientes/Perfil).
+import { PARTIDAS_DE_OPERACIONES_NUEVAS as PARTIDA_DE_OPERACION_NUEVA } from '../../src/modules/permisos/arbol/expansion.js';
 
 /** Los 43 códigos de lectura del auditor, fijados a mano desde la foto y agrupados por módulo. */
 export const LECTURAS_DEL_AUDITOR = {

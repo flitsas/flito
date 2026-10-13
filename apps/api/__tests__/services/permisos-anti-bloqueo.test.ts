@@ -103,9 +103,10 @@ describe('AC4 — conSeguroAntiBloqueo: orden y forma del lock', () => {
     expect(lock.params).toContain('ninguno');
     // Las cuatro funciones de administración, unidas por OR: el lock es SUPERCONJUNTO de la población
     // contada (bloquear solo a quien ya reúne las cuatro dejaría fuera a quien está a una escritura).
-    for (const f of FUNCIONES_DE_ADMINISTRACION) expect(lock.params.filter((p) => p === f), f).toHaveLength(3);
-    expect(lock.sql).toMatch(/\) or exists \(/);
-    expect(lock.sql).not.toMatch(/\) and \(\(exists/);
+    // HU #13428: cada `tiene(F)` nombra F dos veces — en la lista de `codigosQueConceden(F)` y en su revocación.
+    for (const f of FUNCIONES_DE_ADMINISTRACION) expect(lock.params.filter((p) => p === f), f).toHaveLength(2);
+    expect(lock.sql).toMatch(/\) or \(exists \(select 1 from unnest/);
+    expect(lock.sql).not.toMatch(/\) and \(exists \(select 1 from unnest/);
   });
 });
 
@@ -116,12 +117,13 @@ describe('AC4 — el predicado es el del resolutor: (rol ∪ concedida) ∖ revo
     const cuenta = cuentaDe(sentencias);
     // 1 conjunto (las cuatro con AND) + 4 individuales (solo para nombrar la función del 409).
     expect(cuenta.sql.match(/count\(\*\) filter \(where/g)).toHaveLength(5);
-    // Por cada aparición de `tiene(F)`: rol (exists permisos_rol_funcion) OR concedida, AND NOT revocada.
+    // Por cada aparición de `tiene(F)` (HU #13428, sobre el expandido): para algún código que concede F, rol
+    // (exists permisos_rol_funcion) OR concedida, AND NOT revocado ese código; y además NOT revocada F.
     expect(cuenta.sql.match(/exists \(select 1 from "permisos_rol_funcion"/g)).toHaveLength(8);
-    expect(cuenta.sql.match(/exists \(select 1 from "permisos_usuario_funcion"/g)).toHaveLength(16);
-    expect(cuenta.sql.match(/not exists \(select 1 from "permisos_usuario_funcion"/g)).toHaveLength(8);
+    expect(cuenta.sql.match(/exists \(select 1 from "permisos_usuario_funcion"/g)).toHaveLength(24);
+    expect(cuenta.sql.match(/not exists \(select 1 from "permisos_usuario_funcion"/g)).toHaveLength(16);
     expect(cuenta.params.filter((p) => p === 'conceder')).toHaveLength(8);
-    expect(cuenta.params.filter((p) => p === 'revocar')).toHaveLength(8);
+    expect(cuenta.params.filter((p) => p === 'revocar')).toHaveLength(16);
     // Correlación con la fila exterior: por el rol del usuario y por su id.
     expect(cuenta.sql).toMatch(/"permisos_rol_funcion"\."rol_codigo" = "users"\."role"/);
     expect(cuenta.sql).toMatch(/"permisos_usuario_funcion"\."user_id" = "users"\."id"/);
@@ -136,10 +138,10 @@ describe('AC4 — el predicado es el del resolutor: (rol ∪ concedida) ∖ revo
     const cuenta = cuentaDe(sentencias);
     const primero = cuenta.sql.slice(cuenta.sql.indexOf('count(*) filter'), cuenta.sql.indexOf('count(*) filter', 1 + cuenta.sql.indexOf('count(*) filter')));
     expect(primero.match(/exists \(select 1 from "permisos_rol_funcion"/g)).toHaveLength(4);
-    expect(primero.match(/\) and \(\(exists/g)).toHaveLength(3); // tiene(f1) and tiene(f2) and …
-    expect(primero).not.toMatch(/\)\) or \(\(exists/);
-    // Cada `tiene(F)` aporta 5 parámetros; los 20 primeros son los del contador conjunto: las cuatro.
-    const delConjunto = cuenta.params.slice(0, 20);
+    expect(primero.match(/\) and \(exists \(select 1 from unnest/g)).toHaveLength(3); // tiene(f1) and tiene(f2) and …
+    expect(primero).not.toMatch(/\) or \(exists \(select 1 from unnest/);
+    // Cada `tiene(F)` aporta |codigosQueConceden(F)| + 4 parámetros: 5 + 6 + 5 + 6 = 22 en el contador conjunto.
+    const delConjunto = cuenta.params.slice(0, 22);
     for (const f of FUNCIONES_DE_ADMINISTRACION) expect(delConjunto, f).toContain(f);
   });
 
@@ -203,8 +205,8 @@ describe('HU #13424 AC3/AC4 — nadie reúne las cuatro → lanza nombrando la f
     const { tx, sentencias } = ejecutor();
     await conSeguroAntiBloqueo(tx, async () => undefined);
     const cuenta = cuentaDe(sentencias);
-    expect(cuenta.sql.match(/not exists \(select 1 from "permisos_usuario_funcion"/g)).toHaveLength(8);
-    expect(cuenta.params.filter((p) => p === 'revocar')).toHaveLength(8);
+    expect(cuenta.sql.match(/not exists \(select 1 from "permisos_usuario_funcion"/g)).toHaveLength(16);
+    expect(cuenta.params.filter((p) => p === 'revocar')).toHaveLength(16);
     expect(cuenta.params).toContain('permisos.cuadro.guardar');
     // La exclusión va atada al mismo user_id / funcion_codigo que la concesión.
     expect(cuenta.sql).toMatch(/"permisos_usuario_funcion"\."user_id" = "users"\."id"/);
@@ -223,7 +225,7 @@ describe('AC4 — el parámetro `funciones` existe para el test de concurrencia'
     const { tx, sentencias } = ejecutor([1, 1]);
     await conSeguroAntiBloqueo(tx, async () => undefined, ['zz.prueba.administrar']);
     expect(lockDe(sentencias).params).not.toContain('permisos.cuadro.guardar');
-    expect(lockDe(sentencias).params.filter((p) => p === 'zz.prueba.administrar')).toHaveLength(3);
+    expect(lockDe(sentencias).params.filter((p) => p === 'zz.prueba.administrar')).toHaveLength(2);
     // El conjunto (de una sola función) y su contador individual.
     expect(cuentaDe(sentencias).sql.match(/count\(\*\) filter/g)).toHaveLength(2);
   });
@@ -309,5 +311,27 @@ describe('AC4 — el invariante vive en UN sitio y lo invocan las cinco operacio
       expect(sinComentarios(fuente(rel)), rel).not.toMatch(/count\(\*\) filter/);
       expect(sinComentarios(fuente(rel)), rel).not.toMatch(/FUNCIONES_DE_ADMINISTRACION/);
     }
+  });
+});
+
+describe('HU #13428 AC7 — el invariante cuenta sobre el conjunto EXPANDIDO (la 0237 absorbe dos de las cuatro)', () => {
+  // Sin este cambio `tiene(F)` leía filas crudas de F: tras la 0237 nadie tiene filas de
+  // `usuarios.usuario.editar` ni de `permisos.cuadro.guardar` (las concede su acción) y TODO guardado daba 409.
+  // Mutante nombrado: volver a `funcion_codigo = F` → la acción no aparece en los parámetros y cae aquí.
+  // La semántica (rol con solo las acciones sostiene; sin la acción o con la operación revocada, 409) está
+  // contra Postgres en `__tests__/db/permisos-anti-bloqueo.expandido.test.ts`.
+  it('la acción que concede cada función entra en su `tiene(F)`, y la función misma sigue revocable', async () => {
+    const { tx, sentencias } = ejecutor();
+    await conSeguroAntiBloqueo(tx, async () => undefined);
+    for (const s of [lockDe(sentencias), cuentaDe(sentencias)]) {
+      expect(s.params).toContain('accion.usuarios.editar');
+      expect(s.params).toContain('accion.roles_permisos.asignar');
+      expect(s.sql).toMatch(/from unnest\(array\[\$\d+, \$\d+\]::text\[\]\) as c\(codigo\)/);
+    }
+    const cuenta = cuentaDe(sentencias);
+    // Cada código de la lista se mira en el rol y en las excepciones del usuario, con `revocar gana` por código.
+    expect(cuenta.sql).toMatch(/"permisos_rol_funcion"\."funcion_codigo" = c\.codigo/);
+    expect(cuenta.sql).toMatch(/k\.funcion_codigo = c\.codigo and k\.efecto = \$\d+/);
+    expect(cuenta.sql).toMatch(/r\.funcion_codigo = c\.codigo and r\.efecto = \$\d+/);
   });
 });

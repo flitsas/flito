@@ -148,6 +148,44 @@ describe('AC1 — POST /roles', () => {
     }
   });
 
+  it('HU #13428 — un rol nuevo nace con las dos acciones de Perfil y su página marcadas (si la base las tiene), en la misma transacción', async () => {
+    kdb.when.select('permisos_funciones', [
+      { codigo: 'soat.cola.ver' }, { codigo: 'pagina.dashboard' },
+      { codigo: 'accion.perfil.cambiar_contrasena' }, { codigo: 'accion.perfil.ver_datos' }, { codigo: 'pagina.perfil' },
+    ]);
+    kdb.when.insert('permisos_roles', [ROL({ descripcion: 'Prueba' })]);
+    const r = await request(app()).post('/api/permisos/roles').set('Authorization', await admin()).send(cuerpo);
+    expect(r.status).toBe(201);
+    expect(espia.ultimoInsertEn('permisos_rol_funcion')).toEqual([
+      { rolCodigo: 'gestor_x', funcionCodigo: 'accion.perfil.cambiar_contrasena' },
+      { rolCodigo: 'gestor_x', funcionCodigo: 'accion.perfil.ver_datos' },
+      { rolCodigo: 'gestor_x', funcionCodigo: 'pagina.dashboard' }, { rolCodigo: 'gestor_x', funcionCodigo: 'pagina.perfil' },
+      { rolCodigo: 'gestor_x', funcionCodigo: 'soat.cola.ver' },
+    ]);
+    expect(eventos).toEqual(['commit']);
+    expect(auditadas().find((f) => f.campo === 'conjunto')!.valorDespues).toEqual({
+      conjunto: ['accion.perfil.cambiar_contrasena', 'accion.perfil.ver_datos', 'pagina.dashboard', 'pagina.perfil', 'soat.cola.ver'],
+    });
+    // Y sin `funciones` en el cuerpo: solo las de Perfil.
+    espia.reiniciar();
+    kdb.when.select('permisos_funciones', [{ codigo: 'accion.perfil.cambiar_contrasena' }, { codigo: 'accion.perfil.ver_datos' }, { codigo: 'pagina.perfil' }]);
+    kdb.when.insert('permisos_roles', [ROL()]);
+    const { funciones: _f, ...sinFunciones } = cuerpo;
+    expect((await request(app()).post('/api/permisos/roles').set('Authorization', await admin()).send(sinFunciones)).status).toBe(201);
+    expect(espia.ultimoInsertEn('permisos_rol_funcion')!.map((x: { funcionCodigo: string }) => x.funcionCodigo))
+      .toEqual(['accion.perfil.cambiar_contrasena', 'accion.perfil.ver_datos', 'pagina.perfil']);
+  });
+
+  it('HU #13428 — desmarcables (las dos acciones y la página): si se quitan y se guarda el cuadro, no reaparecen (el PUT escribe solo lo pedido)', async () => {
+    kdb.when.select('permisos_funciones', [{ codigo: 'soat.cola.ver' }])
+      .select('permisos_roles', [{ tipoEnlace: 'ninguno' }]).select('users', [USERS_OK])
+      .select('permisos_rol_funcion', [{ codigo: 'accion.perfil.cambiar_contrasena' }, { codigo: 'accion.perfil.ver_datos' }, { codigo: 'pagina.perfil' }, { codigo: 'soat.cola.ver' }]);
+    const r = await request(app()).put('/api/permisos/roles/gestor_x/funciones').set('Authorization', await admin()).send({ funciones: ['soat.cola.ver'] });
+    expect(r.status).toBe(200);
+    expect(r.body.revocadas).toEqual(['accion.perfil.cambiar_contrasena', 'accion.perfil.ver_datos', 'pagina.perfil']);
+    expect(espia.ultimoInsertEn('permisos_rol_funcion')).toEqual([{ rolCodigo: 'gestor_x', funcionCodigo: 'soat.cola.ver' }]);
+  });
+
   it('sin `funciones` ni `descripcion`: cuadro vacío, sin INSERT del cuadro ni fila de conjunto', async () => {
     kdb.when.insert('permisos_roles', [ROL()]);
     const { funciones: _f, descripcion: _d, ...sinFunciones } = cuerpo;

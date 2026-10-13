@@ -189,11 +189,16 @@ describe('AC6 — árbol ↔ operaciones reales, en los dos sentidos', () => {
     expect([...concedidas].filter((c) => !declaradas.has(c) && !paginas.has(c))).toEqual([]);
   });
 
-  it('lo de fuera de área NO lo absorbe el árbol (sigue concediéndose directo), y existe', () => {
+  it('lo de fuera de área NO lo absorbe Gestión; existe, y lo absorbe su área de destino cuando ya está migrada', () => {
     for (const c of Object.keys(FUERA_DE_AREA_GESTION)) {
       expect(declaradas.has(c), c).toBe(true);
-      expect(CODIGOS_ABSORBIDOS.has(c), c).toBe(false);
+      expect(ABSORBIDOS_GESTION.has(c), c).toBe(false);
     }
+    // HU #13428: autogestión y empresa ya las absorbe «Clientes y proveedores»; el SOAT antiguo sigue directo (#13429).
+    const destino13428 = Object.entries(FUERA_DE_AREA_GESTION).filter(([, d]) => d.includes('#13428')).map(([c]) => c);
+    expect(destino13428.sort()).toEqual(['tramites.autogestion.desbloquear', 'tramites.autogestion.revocar', 'tramites.empresa.crear']);
+    for (const c of destino13428) expect(ACCIONES_POR_AREA.administracion.some((a) => operacionesDe(a).includes(c)), c).toBe(true);
+    for (const c of Object.keys(FUERA_DE_AREA_GESTION).filter((x) => !destino13428.includes(x))) expect(CODIGOS_ABSORBIDOS.has(c), c).toBe(false);
   });
 
   it('ningún código de operación ni de guarda empieza por `accion.` o `menu.`', () => {
@@ -446,11 +451,12 @@ describe('Grupo incompleto en un ambiente (nota de db-review, 2026-10-13)', () =
     const existentes = new Set(catalogoPlano().map((f) => f.codigo));
     existentes.delete('soat.solicitud.rechazar'); // falta un miembro de «Gestionar solicitudes»
     const vivos = PARCIAL; // los otros 5
-    const r = repartirPorTodos([{ id: 1, rol: 'r' }], { filasRol: vivos.map((codigo) => ({ rol: 'r', codigo })), filasUsuario: [] }, existentes);
+    // Solo Gestión (HU #13428: con el árbol entero, el reparto universal de Perfil también llegaría a `r`).
+    const r = repartirPorTodos([{ id: 1, rol: 'r' }], { filasRol: vivos.map((codigo) => ({ rol: 'r', codigo })), filasUsuario: [] }, existentes, GESTION);
     expect(r.filasRol.map((f) => f.codigo).sort()).toEqual([...vivos].sort());
     expect(absorbidosVivos(existentes).has('soat.solicitud.enviar')).toBe(false);
     // Control: con el grupo entero, sí se absorbe y la acción llega.
-    const todos = repartirPorTodos([{ id: 1, rol: 'r' }], { filasRol: GRUPO_GESTION.map((codigo) => ({ rol: 'r', codigo })), filasUsuario: [] }, new Set(catalogoPlano().map((f) => f.codigo)));
+    const todos = repartirPorTodos([{ id: 1, rol: 'r' }], { filasRol: GRUPO_GESTION.map((codigo) => ({ rol: 'r', codigo })), filasUsuario: [] }, new Set(catalogoPlano().map((f) => f.codigo)), GESTION);
     expect(todos.filasRol.map((f) => f.codigo)).toEqual(['accion.soat.gestionar_solicitudes']);
   });
 
@@ -486,6 +492,6 @@ describe('AC8 — el rol que tenía todo lo absorbido queda con todas las accion
   it('segunda corrida (los grupos ya no existen en la base): no reparte ni revoca nada', () => {
     const existentes = new Set(catalogoCompleto().map((f) => f.codigo));
     const filas = { filasRol: [{ rol: 'r', codigo: 'accion.soat.ver_listado' }], filasUsuario: [] };
-    expect(repartirPorTodos([{ id: 1, rol: 'r' }], filas, existentes)).toEqual(filas);
+    expect(repartirPorTodos([{ id: 1, rol: 'r' }], filas, existentes, GESTION)).toEqual(filas);
   });
 });

@@ -223,7 +223,9 @@ const OPERACION_13422 = [
   'maintenance.inicio.administrar', 'maintenance.ordenes.administrar', 'liquidacion.pago_manual.administrar',
   'vehicles.vehiculos.administrar', 'vehicles.propietario.ver_documento', 'fleet.flota.administrar',
   'rndc.credenciales.administrar', 'rndc.manifiestos.administrar', 'rutas.rutas.administrar',
-  'rutas.pernocta.administrar', 'clients.clientes.administrar', ...LECTURAS_13422,
+  'rutas.pernocta.administrar', ...LECTURAS_13422,
+  // HU #13428 (0237): el transitorio `clients.clientes.administrar` se parte en crear, editar y datos fiscales.
+  'clients.clientes.crear', 'clients.clientes.editar', 'clients.clientes.datos_fiscales',
 ] as const;
 // HU #13423 (0230, ADR-0023): LAFT, Privacidad, Firma, Drive, SOAT antiguo, Siigo y las cuatro de solo
 // sesión. Lo que la 0230 siembra a cada rol (reparto de partida); admin, todo.

@@ -33,6 +33,7 @@ import { funcionesAlcanzables } from '../../shared/middleware/frontera-enlace.js
 import { enlaceConocido } from '../../shared/permisos-efectivos.js';
 import { conSeguroAntiBloqueo } from '../../shared/permisos-anti-bloqueo.js';
 import { esCodigoPg } from '../../shared/utils/pg-error.js';
+import { ACCIONES_UNIVERSALES } from './arbol/expansion.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -148,11 +149,23 @@ export async function cuadroDe(codigo: string): Promise<CuadroRol> {
  * dice la PK (`23505`), no un «consultar y luego insertar»: dos POST simultáneos pasarían los dos la
  * consulta. `es_sistema` nace `false` y `activo` nace `true` (asignable de inmediato).
  */
+/**
+ * HU #13428 (decisión de David, 2026-10-13) — un rol NUEVO nace con Perfil: las acciones de reparto universal
+ * («Ver mis datos», «Cambiar mi contraseña»; P-22) y la página de su ítem se le marcan por defecto, sin literales
+ * de rol ni de acción (salen de `ACCIONES_UNIVERSALES`, la misma fuente del paso 1b de la 0237). Quedan desmarcables: el cuadro (`guardarCuadro`) reescribe el conjunto
+ * entero, así que quitarlas después no las devuelve. Si la base aún no las tiene (antes de la 0236), no se marcan.
+ */
+// También la PÁGINA de su ítem (`pagina.perfil`), como el paso 1b de la 0237: sin ella el rol no abre Perfil en la web.
+const ACCIONES_POR_DEFECTO_DE_ROL_NUEVO: readonly string[] = [...new Set(ACCIONES_UNIVERSALES.flatMap((u) => [u.accion, u.pagina]))];
+
 export async function crearRol(input: CrearRolInput, actor: ActorAuditoria): Promise<RolCatalogo> {
   if (RESERVADOS.includes(input.codigo)) throw new CodigoReservadoError(input.codigo);
-  const funciones = conjunto(input.funciones ?? []);
-  const inexistentes = await funcionesInexistentes(funciones);
+  const pedidas = conjunto(input.funciones ?? []);
+  // Una sola consulta para lo pedido y lo de por defecto: solo lo PEDIDO inexistente es error.
+  const faltan = new Set(await funcionesInexistentes(conjunto([...pedidas, ...ACCIONES_POR_DEFECTO_DE_ROL_NUEVO])));
+  const inexistentes = pedidas.filter((c) => faltan.has(c));
   if (inexistentes.length) throw new FuncionesInexistentesError(inexistentes);
+  const funciones = conjunto([...pedidas, ...ACCIONES_POR_DEFECTO_DE_ROL_NUEVO.filter((c) => !faltan.has(c))]);
 
   try {
     return await db.transaction(async (tx) => {

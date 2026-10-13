@@ -21,8 +21,10 @@ import { llaveDe, type GuardaLeida } from './inventario-guardas.js';
 import { GUARDAS_MEDIDAS } from './inventario.generado.js';
 import { OPERACIONES_DECLARADAS } from './catalogo-operaciones.js';
 import { AGRUPACION_DE_OPERACION, AGRUPACION_DE_OPERACION_LEGADO, AGRUPACION_DE_PAGINA, moduloAgrupado } from './catalogo-agrupacion.js';
-import { ACCIONES_ARBOL, ACCIONES_LECTURA, CODIGOS_ABSORBIDOS, operacionesDe, predecesoresDe, ROL_CON_TODAS_LAS_ACCIONES } from './arbol/expansion.js';
-import { PARTIDA_DE_OPERACION_NUEVA } from './arbol/acciones-finanzas.js';
+import {
+  ACCIONES_ARBOL, ACCIONES_LECTURA, ACCIONES_UNIVERSALES, CODIGOS_ABSORBIDOS, esUniversal, operacionesDe,
+  PARTIDAS_DE_OPERACIONES_NUEVAS as PARTIDA_DE_OPERACION_NUEVA, predecesoresDe, ROL_CON_TODAS_LAS_ACCIONES,
+} from './arbol/expansion.js';
 import { NOMBRES_LEGADO } from './catalogo-operaciones.legado.js';
 
 export interface FuncionCatalogo {
@@ -215,10 +217,14 @@ export function catalogoPlano(guardas?: GuardaLeida[]): FuncionCatalogo[] {
  */
 function aCodigoDePartida(operaciones: FuncionCatalogo[]): FuncionCatalogo[] {
   const salida = new Map<string, FuncionCatalogo>();
-  for (const f of operaciones) {
+  // HU #13428: una partida que SIGUE teniendo guarda propia (`parametrizacion.companias.editar`, partida de
+  // `[autogestion]` y `[sinTramite]`) se lee de esa guarda; las nuevas solo comprueban que el reparto cuadre.
+  const vivas = new Map(operaciones.filter((f) => !(f.codigo in PARTIDA_DE_OPERACION_NUEVA)).map((f) => [f.codigo, f]));
+  for (const f of [...operaciones].sort((a, b) => Number(a.codigo in PARTIDA_DE_OPERACION_NUEVA) - Number(b.codigo in PARTIDA_DE_OPERACION_NUEVA))) {
     const partida = PARTIDA_DE_OPERACION_NUEVA[f.codigo];
     if (partida?.startsWith('pagina.')) continue;
-    const g = partida ? deOperacionLegado(partida, f.roles) : f;
+    const viva = partida ? vivas.get(partida) : undefined;
+    const g = !partida ? f : viva ? { ...viva, roles: f.roles } : deOperacionLegado(partida, f.roles);
     const previa = salida.get(g.codigo);
     if (previa && [...previa.roles].sort().join() !== [...g.roles].sort().join()) {
       throw new CatalogoIncoherenteError(`«${f.codigo}» parte «${g.codigo}» con otro reparto: [${f.roles.join(',')}] frente a [${previa.roles.join(',')}].`);
@@ -262,7 +268,7 @@ export function catalogoDeAcciones(plano: FuncionCatalogo[] = catalogoPlano()): 
   for (const a of Object.keys(ACCIONES_ARBOL)) if (!enArbol.has(a)) errores.push(`acción sin nodo en el árbol: ${a}`);
   for (const a of enArbol) if (!(a in ACCIONES_ARBOL)) errores.push(`nodo de acción sin operaciones: ${a}`);
   for (const a of Object.keys(ACCIONES_ARBOL)) {
-    if (predecesoresDe(a).length === 0) errores.push(`acción sin operaciones: ${a}`);
+    if (predecesoresDe(a).length === 0 && !esUniversal(a)) errores.push(`acción sin operaciones: ${a}`);
     for (const op of operacionesDe(a)) if (!porCodigo.has(op) && !nuevas.has(op)) errores.push(`${a} concede un código inexistente: ${op}`);
     for (const p of predecesoresDe(a)) if (!porCodigo.has(p)) errores.push(`${a} tiene un predecesor que el mundo plano no conoce: ${p}`);
     for (const op of ACCIONES_ARBOL[a]!.opcionales ?? []) {
@@ -286,8 +292,10 @@ export function catalogoDeAcciones(plano: FuncionCatalogo[] = catalogoPlano()): 
       descripcion: n.descripcion ?? n.nombre,
       tipo: 'accion' as const,
       // La regla del paso (`cumpleGrupo`) sobre los roles de partida: de lectura → unión; si modifica → intersección.
+      // HU #13428 (P-22): la de reparto universal, a todos los roles.
       roles: [...new Set([
-        ...(ACCIONES_LECTURA.has(n.codigo) ? grupos.flat() : grupos[0]!.filter((r) => grupos.every((g) => g.includes(r)))),
+        ...(esUniversal(n.codigo) ? USER_ROLES
+          : ACCIONES_LECTURA.has(n.codigo) ? grupos.flat() : grupos[0]!.filter((r) => grupos.every((g) => g.includes(r)))),
         ROL_CON_TODAS_LAS_ACCIONES,
       ])].sort(),
       padre: n.padre!,
@@ -308,9 +316,12 @@ const ITEMS_ARBOL = new Map(ARBOL_ITEMS_Y_ACCIONES.filter((n) => n.tipo === 'ite
 export function catalogoCompleto(guardas?: GuardaLeida[]): FuncionCatalogo[] {
   const plano = catalogoPlano(guardas);
   const acciones = catalogoDeAcciones(plano);
+  // HU #13428 (P-22): la página de una acción de reparto universal (`pagina.perfil`) viaja con ella a todos los roles.
+  const universales = new Set(ACCIONES_UNIVERSALES.map((u) => u.pagina));
   const vivas = plano.filter((f) => !CODIGOS_ABSORBIDOS.has(f.codigo)).map((f) => {
     const orden = ITEMS_ARBOL.get(f.codigo);
-    return orden === undefined ? f : { ...f, nivel: 2, orden };
+    const g = universales.has(f.codigo) ? { ...f, roles: [...USER_ROLES].sort() } : f;
+    return orden === undefined ? g : { ...g, nivel: 2, orden };
   });
   return [...vivas, ...acciones].sort((a, b) => a.codigo.localeCompare(b.codigo));
 }

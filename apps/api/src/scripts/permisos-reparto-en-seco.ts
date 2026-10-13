@@ -7,6 +7,7 @@
 //   npm run permisos:en-seco -w apps/api -- --hu 12875 > /tmp/frontera-12875.md   (HU #12875, AC9:
 //     frontera por enlace; núcleo `modules/permisos/frontera-en-seco.ts`, sin ids de usuario)
 //   npm run permisos:en-seco -w apps/api -- --hu 13427 > /tmp/arbol-13427.md   (HU #13427: Finanzas, mismo informe)
+//   npm run permisos:en-seco -w apps/api -- --hu 13428 > /tmp/arbol-13428.md   (HU #13428: Administración, General, Perfil)
 //   npm run permisos:en-seco -w apps/api -- --hu 12873 > /tmp/arbol-12873.md   (HU #12873: regla «todos»
 //     de Gestión y Tránsito, pérdidas y ganancias de operaciones por rol y por usuario; núcleo
 //     `modules/permisos/arbol/reparto-arbol.ts`, el mismo que reproduce la 0233)
@@ -43,7 +44,7 @@ import { fronteraEnSeco, informeFronteraMarkdown, montajesDeAppTs, type RolFront
 import { informeArbol, informeArbolMarkdown } from '../modules/permisos/arbol/reparto-arbol.js';
 import { ACCIONES_POR_AREA } from '../modules/permisos/arbol/expansion.js';
 
-const HU_SOPORTADAS = ['13421', '13422', '13423', '12875', '12873', '13427'];
+const HU_SOPORTADAS = ['13421', '13422', '13423', '12875', '12873', '13427', '13428'];
 const DIRECTORIOS = ['pesv', 'drivers', 'jornadas', 'rum'];
 const CON_PAGINA_PROPIA = new Map([
   ['pesv/raci.routes.ts', 'pagina.pesv_raci'],
@@ -294,10 +295,10 @@ async function main(): Promise<number> {
   const filasUsuario: FilaUsuarioEnSeco[] = [...filas.usr].map((r) => ({
     userId: Number(r.user_id), codigo: String(r.funcion_codigo), efecto: r.efecto === 'revocar' ? 'revocar' : 'conceder',
   }));
-  if (hu === '12873' || hu === '13427') {
+  if (hu === '12873' || hu === '13427' || hu === '13428') {
     // Se corre ANTES de la reparto del área (0233 / 0235): con la base ya migrada los grupos no existen y
     // el informe sale vacío. Cada HU simula SOLO las acciones de su área (HU #13427: Finanzas).
-    const area = hu === '12873' ? 'gestion' : 'finanzas';
+    const area = hu === '12873' ? 'gestion' : hu === '13427' ? 'finanzas' : 'administracion';
     const existentes = new Set([...(await db.execute(sql`SELECT codigo FROM permisos_funciones`))].map((r) => String(r.codigo)));
     const informe = informeArbol(usuarios, { filasRol, filasUsuario }, existentes, ACCIONES_POR_AREA[area]);
     console.log(informeArbolMarkdown(informe, `HU #${hu} (${usuarios.length} usuarios activos)`, usuarios, filasRol));

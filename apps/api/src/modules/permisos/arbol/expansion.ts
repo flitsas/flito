@@ -9,7 +9,9 @@
 //
 // Expansión PLANA hasta la #13429 (diseño §4.3): aquí no se exige que la página o el elemento padre
 // estén marcados; el gating de ancestros llega con el resolver en cadena completa.
-import { ACCIONES_FINANZAS } from './acciones-finanzas.js';
+import { ARBOL_ITEMS_Y_ACCIONES } from '@operaciones/shared-types';
+import { ACCIONES_ADMINISTRACION, PARTIDA_DE_OPERACION_NUEVA_ADMINISTRACION } from './acciones-administracion.js';
+import { ACCIONES_FINANZAS, PARTIDA_DE_OPERACION_NUEVA } from './acciones-finanzas.js';
 import { ACCIONES_GESTION, CONJUNCIONES_GESTION, type AccionArbol } from './acciones-gestion.js';
 
 /**
@@ -20,18 +22,49 @@ import { ACCIONES_GESTION, CONJUNCIONES_GESTION, type AccionArbol } from './acci
  */
 export const ROL_CON_TODAS_LAS_ACCIONES = 'admin';
 
-/** Todas las acciones del árbol: Gestión y Tránsito (#12873) y Finanzas (#13427); #13428/#13429 añaden su área. */
-export const ACCIONES_ARBOL: Readonly<Record<string, AccionArbol>> = { ...ACCIONES_GESTION, ...ACCIONES_FINANZAS };
+/**
+ * Todas las acciones del árbol: Gestión y Tránsito (#12873), Finanzas (#13427) y Administración, Clientes,
+ * Bitácora, Tablero y Perfil (#13428); #13429 añade el legado.
+ */
+export const ACCIONES_ARBOL: Readonly<Record<string, AccionArbol>> = { ...ACCIONES_GESTION, ...ACCIONES_FINANZAS, ...ACCIONES_ADMINISTRACION };
 export const CONJUNCIONES_ARBOL = [...CONJUNCIONES_GESTION];
 
 /** Las áreas del árbol con su par de migraciones propio (siembra + reparto). */
-export type AreaArbol = 'gestion' | 'finanzas';
+export type AreaArbol = 'gestion' | 'finanzas' | 'administracion';
 
 /** Las acciones de cada área (para generar SU migración y SU reporte en seco). */
 export const ACCIONES_POR_AREA: Readonly<Record<AreaArbol, readonly string[]>> = {
   gestion: Object.keys(ACCIONES_GESTION).sort(),
   finanzas: Object.keys(ACCIONES_FINANZAS).sort(),
+  administracion: Object.keys(ACCIONES_ADMINISTRACION).sort(),
 };
+
+/**
+ * Las operaciones NUEVAS de todas las áreas (una guarda vieja partida, o una guarda que no existía) con su
+ * código de PARTIDA: #13427 (Finanzas) y #13428 (Administración, Clientes, Perfil).
+ */
+export const PARTIDAS_DE_OPERACIONES_NUEVAS: Readonly<Record<string, string>> = {
+  ...PARTIDA_DE_OPERACION_NUEVA, ...PARTIDA_DE_OPERACION_NUEVA_ADMINISTRACION,
+};
+
+/** HU #13428 (P-22): las acciones de reparto universal y la página de su ítem, que viaja con ellas. */
+export const ACCIONES_UNIVERSALES: readonly { accion: string; pagina: string }[] = Object.entries(ACCIONES_ARBOL)
+  .filter(([, a]) => a.repartoUniversal)
+  .map(([accion]) => ({ accion, pagina: paginaDeAccion(accion) }))
+  .sort((x, y) => x.accion.localeCompare(y.accion));
+
+/** La página (ítem) de una acción, subiendo por el árbol de shared-types. */
+function paginaDeAccion(accion: string): string {
+  const padre = new Map(ARBOL_ITEMS_Y_ACCIONES.map((n) => [n.codigo, n.padre]));
+  let c: string | null | undefined = padre.get(accion);
+  while (c?.startsWith('accion.')) c = padre.get(c);
+  if (!c?.startsWith('pagina.')) throw new Error(`La acción ${accion} no cuelga de ninguna página del árbol.`);
+  return c;
+}
+
+export function esUniversal(accion: string): boolean {
+  return ACCIONES_ARBOL[accion]?.repartoUniversal === true;
+}
 
 const OPS_DE = new Map<string, readonly string[]>(
   Object.entries(ACCIONES_ARBOL).map(([accion, a]) => [accion, [...a.operaciones, ...(a.apoyo ?? [])]]),
@@ -55,6 +88,7 @@ export const OPCIONALES_ARBOL: ReadonlySet<string> = new Set(Object.values(ACCIO
  * La usan el reparto en memoria, el catálogo del código y (en SQL) la 0233 vía `tmp_lectura_12873`.
  */
 export function cumpleGrupo(accion: string, tiene: (codigo: string) => boolean): boolean {
+  if (esUniversal(accion)) return true; // HU #13428 (P-22): a todos, sin grupo.
   const grupo = predecesoresDe(accion);
   return ACCIONES_LECTURA.has(accion) ? grupo.some(tiene) : grupo.every(tiene);
 }

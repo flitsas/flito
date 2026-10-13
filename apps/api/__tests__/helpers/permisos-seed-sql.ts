@@ -65,6 +65,8 @@ export const MIGRACIONES_CON_REPARTO = [
   '0233_permisos_arbol_gestion_reparto.sql', // HU #12873: regla «todos» + retiro de lo absorbido
   '0234_permisos_arbol_finanzas_siembra.sql', // HU #13427: acciones de Finanzas e Integración con Siigo
   '0235_permisos_arbol_finanzas_reparto.sql', // HU #13427: regla «todos»/«alguna» + retiro (incluido el transitorio de Siigo)
+  '0236_permisos_arbol_administracion_siembra.sql', // HU #13428: acciones de Administración, Clientes, Bitácora, Tablero y Perfil
+  '0237_permisos_arbol_administracion_reparto.sql', // HU #13428: regla «todos»/«alguna», reparto universal de Perfil (P-22) + retiro
 ] as const;
 
 /**
@@ -107,6 +109,17 @@ function bloquesInsertCondicionado(sql: string): string[] {
 export function bloquesInsertSiRolExiste(sql: string): string[] {
   const re = /INSERT INTO permisos_rol_funcion \(rol_codigo, funcion_codigo\)\s+SELECT v\.rol, v\.fn FROM \(VALUES([\s\S]*?)\) AS v\(rol, fn\)\s+JOIN permisos_roles r ON r\.codigo = v\.rol\s+ON CONFLICT \(rol_codigo, funcion_codigo\) DO NOTHING\s*;/g;
   return [...sinComentariosSql(sql).matchAll(re)].map((m) => m[1]!);
+}
+
+/**
+ * HU #13428 (P-22) — el reparto UNIVERSAL de la forma que emite `sql-arbol.ts` (paso 1b): `INSERT INTO
+ * permisos_rol_funcion … SELECT r.codigo, v.fn FROM permisos_roles r CROSS JOIN (VALUES ('<accion>',
+ * '<fn>'), …) AS v(accion, fn) WHERE EXISTS (…) AND NOT EXISTS (… v.accion) ON CONFLICT …;`. Devuelve los
+ * pares `[accion, fn]`; `repartoDeSql` da cada `fn` a cada rol si NINGÚN rol tenía `accion` al empezar el archivo.
+ */
+export function bloquesRepartoUniversal(sql: string): [string, string][] {
+  const re = /INSERT INTO permisos_rol_funcion \(rol_codigo, funcion_codigo\)\s+SELECT r\.codigo, v\.fn\s+FROM permisos_roles r\s+CROSS JOIN \(VALUES([\s\S]*?)\s*\) AS v\(accion, fn\)\s+WHERE EXISTS[^;]*?ON CONFLICT \(rol_codigo, funcion_codigo\) DO NOTHING\s*;/g;
+  return [...sinComentariosSql(sql).matchAll(re)].flatMap((m) => tuplas(m[1]!).map(([a, f]) => [a!, f!] as [string, string]));
 }
 
 /**
@@ -202,6 +215,9 @@ const leer = (archivo: string): string => readFileSync(path.join(MIGRACIONES, ar
 export function repartoDeSql(sqls: readonly string[], nombre = 'sql'): Map<string, Set<string>> {
   const reparto = new Map<string, Set<string>>();
   for (const sql of sqls) {
+    // HU #13428: el reparto universal mira el estado de ANTES del archivo (en la base corre antes del paso 2b).
+    const universal = bloquesRepartoUniversal(sql);
+    const yaRepartidas = new Set(universal.map(([a]) => a).filter((a) => [...reparto.values()].some((c) => c.has(a))));
     for (const bloque of [...bloquesInsert(sql, 'permisos_rol_funcion'), ...bloquesInsertSiRolExiste(sql)]) {
       for (const [rol, codigo] of tuplas(bloque)) {
         if (!rol || !codigo) throw new Error(`${nombre}: fila de permisos_rol_funcion incompleta`);
@@ -228,6 +244,10 @@ export function repartoDeSql(sqls: readonly string[], nombre = 'sql'): Map<strin
       for (const [rol, codigo] of tuplas(bloque)) reparto.get(rol!)?.delete(codigo!);
     }
     const todos = reglaTodosDeSql(sql);
+    // Sin base no hay catálogo de roles: «cada rol» = los que ya tienen alguna fila (en el pliegue, los doce).
+    for (const [accion, fn] of universal) {
+      if (!yaRepartidas.has(accion)) for (const codigos of reparto.values()) codigos.add(fn);
+    }
     if (todos) {
       for (const codigos of reparto.values()) {
         for (const [accion, grupo] of todos.grupos) {
