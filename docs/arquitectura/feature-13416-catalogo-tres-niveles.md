@@ -146,9 +146,9 @@ sesiones migrando):
 | HU | Siembra | Reparto | Qué |
 |---|---|---|---|
 | #12873 | 0232 | 0233 | columnas del árbol; `accion.*` de Gestión Trámites, SOAT, Impuestos, Logística, Mi ruta, Derechos, Comparendos, Organismos STT, Revisiones OCR; retira operaciones absorbidas y `pagina.flito_compuerta` |
-| #13427 | 0234 | 0235 | Finanzas (+ Integración Siigo, ver P-3); retira operaciones `liquidacion.*`, `bolsas.*`, `conciliacion.*`, `comprobantes.*`, `parametrizacion.tarifas.*`, `*.servicios_adicionales.*`, `siigo.*`, `finanzas.*` y el transitorio `siigo.parametrizacion.administrar`, `liquidacion.pago_manual.administrar` |
+| #13427 | 0234 | 0235 | Finanzas (+ Integración Siigo, ver P-3); retira operaciones `liquidacion.liquidacion.*`, `bolsas.*`, `conciliacion.*`, `comprobantes.*`, `parametrizacion.tarifas.*`, `*.servicios_adicionales.*`, `siigo.*` (salvo los opcionales), `finanzas.*` y el transitorio `siigo.parametrizacion.administrar`. `liquidacion.pago_manual.administrar` NO (P-14: Órdenes de trabajo, va a #13429) |
 | #13428 | 0236 | 0237 | Usuarios, Roles y permisos, Bitácora, Clientes y proveedores, Tablero, Perfil; operaciones nuevas de Perfil + guardas en sus rutas; retira `clients.clientes.administrar` |
-| #13429 | 0238 | 0239 | `menu.*` + `padre_codigo` de cada `pagina.*`; legacy a nivel 2; retira los transitorios restantes y las operaciones legacy concedibles |
+| #13429 | 0238 | 0239 | `menu.*` + `padre_codigo` de cada `pagina.*`; legacy a nivel 2; retira los transitorios restantes (incluido `liquidacion.pago_manual.administrar`, P-14) y las operaciones legacy concedibles |
 | #13430, #13431 | — | — | solo web (si #13431 necesita sembrar una página, migración de siembra propia) |
 
 Orden: **#12873 → #13427 → #13428 → #13429 → (#13430 ∥ #13431)**, cadena apilada. #13427/#13428 no
@@ -322,7 +322,7 @@ Partida = roles que hoy tienen **todo** el grupo (o alguna en `L`).
 | | `reporte_costos.enviar_siigo` — Enviar a Siigo | M | `siigo.factura.emitir` (POST `/api/siigo/facturacion`, POST `/api/siigo/terceros/cliente/:id`) | admin, financiera |
 | | `reporte_costos.reversar_liquidacion` — Reversar una liquidación | M | `liquidacion.liquidacion.reversar` | admin |
 | Gastos diarios (`finanzas_gastos_diarios`) | `gastos_diarios.ver` — Ver los gastos diarios | L | **nueva** `finanzas.gastos_diarios.ver` (GET `/api/finanzas/gastos-diarios`, junto al `requirePage` actual) · pred. `pagina.finanzas_gastos_diarios` (P-19) | admin |
-| Bolsas (`flito_bolsas`) | `bolsas.ver_clientes` — Ver bolsas de clientes | L | `bolsas.consolidado.ver`, `.bolsa.ver`, `.movimientos.ver`, `.cierres.ver`, `.soporte.descargar` | admin, financiera |
+| Bolsas (`flito_bolsas`) | `bolsas.ver_clientes` — Ver bolsas de clientes | L | `bolsas.consolidado.ver`, `.bolsa.ver`, `.movimientos.ver`, `.cierres.ver` · **opcional** `.soporte.descargar` | admin, financiera |
 | | `bolsas.ver_transito` — Ver bolsas de tránsito | L | `bolsas.transito.listar`, `.transito.ver`, `.transito.ver_movimientos` | admin, financiera |
 | | `bolsas.crear` — Crear bolsas | M | `bolsas.transito.crear` | admin, financiera |
 | | `bolsas.editar` — Editar bolsas | M | `bolsas.transito.editar` | admin, financiera |
@@ -335,24 +335,26 @@ Partida = roles que hoy tienen **todo** el grupo (o alguna en `L`).
 | Servicios adicionales (`flito_servicios_adicionales`) | `servicios_adicionales.ver` · `.crear` · `.editar` · `.dar_de_baja` — Ver · Crear · Editar · Dar de baja | L · M · M · M | 1:1 `parametrizacion.servicios_adicionales.listar` · `.crear` · `.editar` · `.dar_de_baja` | admin, financiera |
 | Comprobantes (`flito_comprobantes`) | `comprobantes.cargar` — Cargar comprobantes | M | `comprobantes.lote.cargar` | admin, financiera |
 | | `comprobantes.asociar` — Asociar manualmente | M | `comprobantes.tramites.buscar`, `comprobantes.comprobante.aplicar` | admin, financiera |
-| | `comprobantes.ver_cola` — Ver la cola de comprobantes | L | `comprobantes.cola.ver`, `.comprobante.ver`, `.archivo.descargar` | admin, financiera |
+| | `comprobantes.ver_cola` — Ver la cola de comprobantes | L | `comprobantes.cola.ver`, `.comprobante.ver` · **opcional** `.archivo.descargar` | admin, financiera |
 | | `comprobantes.resolver` — Descartar, releer o aceptar una diferencia | M | `comprobantes.comprobante.descartar`, `.comprobante.releer`, `.diferencia.aceptar` | admin, financiera |
-| Conciliación (`flito_conciliacion`) | `conciliacion.ver_boletas` — Ver las boletas cargadas | L | `conciliacion.boletas.listar`, `.boleta.ver`, `.comprobante.descargar` | admin, financiera |
+| Conciliación (`flito_conciliacion`) | `conciliacion.ver_boletas` — Ver las boletas cargadas | L | `conciliacion.boletas.listar`, `.boleta.ver` · **opcional** `.comprobante.descargar` | admin, financiera |
 | | `conciliacion.cargar_boleta` — Cargar boleta | M | `conciliacion.boleta.cargar` | admin, financiera |
 | | `conciliacion.conciliar` — Conciliar, descartar o volver a cruzar | M | `conciliacion.boleta.conciliar`, `.boleta.descartar`, `.boleta.recruzar` | admin, financiera |
 | | `conciliacion.comprobante` — Cargar o reemplazar el comprobante de la boleta | M | `conciliacion.comprobante.cargar`, `.comprobante.reemplazar` | admin, financiera |
 | Facturación electrónica · Parametrización (`siigo_parametrizacion`) | `facturacion_parametrizacion.mapeo_conceptos` — Mapeo de conceptos | M | **nuevas** `siigo.conceptos.administrar` (mapeo-conceptos POST `/`, POST `/revalidar`, POST `/:id/producto`, PATCH `/:id`, DELETE `/:id`), `siigo.catalogos.sincronizar` (parametrizacion POST `/catalogos/sincronizar`) · pred. `siigo.parametrizacion.administrar` · **opcional** `siigo.conceptos.confirmar` (P-16) | admin |
 | | `facturacion_parametrizacion.terceros` — Configuración de terceros | M | **nueva** `siigo.terceros.configurar` (ciudades POST `/cargar`, clientes-ciudades POST `/:id/confirmar`, clientes POST `/validacion/recalcular-duplicados`) · pred. `siigo.parametrizacion.administrar` | admin |
-| | *(propuesta P-15)* `facturacion_parametrizacion.ver` — Ver la parametrización | L | `siigo.parametrizacion.ver` (compuerta, ciudades, mapeo, validación GETs), `siigo.emision.ver` (GET `/catalogos`, `/catalogos/:tipo`) | admin, auditor, financiera |
+| | `facturacion_parametrizacion.ver` — Ver la parametrización (P-15) | L | `siigo.parametrizacion.ver` (compuerta, ciudades, mapeo, validación GETs), `siigo.emision.ver` (GET `/catalogos`, `/catalogos/:tipo`) | admin, auditor, financiera |
 | Facturación electrónica · Operación (`siigo_operacion`) | `facturacion_operacion.ver_facturas` — Ver las facturas emitidas | L | `siigo.factura.consultar` (bandeja, línea de tiempo, facturación GETs, correcciones/envíos GETs, terceros/productos/elegibilidad GETs, `catalogos-vivo` P-20) · apoyo `siigo.parametrizacion.ver` (estado del freno) | admin, auditor, financiera |
 | | `facturacion_operacion.gestionar` — Reintentar, reenviar el correo, marcar como fallida y reactivar | M | `siigo.factura.reintentar`, `.reenviar_correo`, `.marcar_fallido` (bandeja + reconciliación), `.reactivar` · **opcionales** `siigo.factura.corregir`, `siigo.factura.anular` (P-17) | admin, financiera |
-| | `facturacion_operacion.freno` — Activar o quitar el freno de emisión | M | **nueva** `siigo.freno.reactivar` (freno POST `/reactivar`) · pred. `siigo.parametrizacion.administrar` (P-18) | admin |
+| | `facturacion_operacion.freno` — Quitar el freno de emisión | M | **nueva** `siigo.freno.reactivar` (freno POST `/reactivar`) · pred. `siigo.parametrizacion.administrar` (P-18) | admin |
 | Integración con Siigo (`siigo_credenciales`, elemento Administración, P-3) | `integracion_siigo.credenciales_pruebas` — Registrar credenciales de pruebas | M | **nueva** `siigo.credenciales.registrar_pruebas` (POST `/` y DELETE `/:id` con `ambiente = pruebas`) · apoyo **nueva** `siigo.credenciales.ver` (GET `/`) · pred. `siigo.parametrizacion.administrar` | admin |
 | | `integracion_siigo.credenciales_produccion` — Registrar credenciales de producción | M | **nueva** `siigo.credenciales.registrar_produccion` (ídem, `ambiente = produccion`) · apoyo `siigo.credenciales.ver` · pred. ídem | admin |
 | | `integracion_siigo.probar_conexion` — Probar la conexión | M | **nueva** `siigo.credenciales.probar` (POST `/probar-conexion`) · apoyo `siigo.credenciales.ver` · pred. ídem | admin |
 
 Opcionales del área: `siigo.conceptos.confirmar` (Mapeo de conceptos), `siigo.factura.corregir` y
-`siigo.factura.anular` (Gestionar facturas). Apoyo: `finanzas.servicios_adicionales.ver` (en Asignar,
+`siigo.factura.anular` (Gestionar facturas) y, por la regla vigente del 2026-10-13 (descargar en una acción de
+lectura), `bolsas.soporte.descargar` (Ver bolsas de clientes), `comprobantes.archivo.descargar` (Ver la cola de
+comprobantes) y `conciliacion.comprobante.descargar` (Ver las boletas cargadas). Apoyo: `finanzas.servicios_adicionales.ver` (en Asignar,
 además de grupo de Ver el listado), `siigo.parametrizacion.ver` (en Ver las facturas emitidas, si P-15
 se aprueba; si no, ver P-15), `siigo.credenciales.ver`.
 
@@ -401,32 +403,26 @@ La partida no es DEV: las marcas editadas desde el panel solo las ve el reporte 
 seco (`--hu 13427`), obligatorio en la Discussion antes del PR (§4.2). Con un único rol completo por
 grupo, el riesgo de «todos» aquí es bajo; lo vigilable es quien tenga un subconjunto editado a mano.
 
-### 5-bis.6 Preguntas para el PO (con recomendación)
+### 5-bis.6 Preguntas para el PO — **Decidido** (PO, 2026-10-13)
 
-- **P-14** — `liquidacion.pago_manual.administrar` está en el §4 como de #13427, pero es el transitorio
-  de **Órdenes de trabajo** (Mantenimiento, `liquidacion/` legacy, pago manual de una OT); no cabe en
-  ninguna acción de Finanzas. *Rec.:* moverlo a #13429 (legado) y corregir el §4.
-- **P-15** — Parametrización de facturación no tiene acción «Ver», y sus dos acciones aprobadas
-  modifican y quedan solo para admin: auditor y financiera perderían lo que hoy leen
-  (`siigo.parametrizacion.ver`, y financiera `siigo.emision.ver`). *Rec.:* añadir «Ver la
-  parametrización» (lectura) con esas dos operaciones, y `siigo.parametrizacion.ver` como apoyo de
-  «Ver las facturas emitidas» (el freno se lee en Operación). Alternativa sin acción nueva: ambas como
-  apoyo de «Ver las facturas emitidas».
-- **P-16** — `siigo.conceptos.confirmar` (admin, financiera) cae dentro de «Mapeo de conceptos», cuyo
-  grupo es el transitorio (solo admin): financiera dejaría de confirmar mapeos. *Rec.:* opcional de
-  «Mapeo de conceptos» (la conserva quien la tiene, nadie la gana).
-- **P-17** — `siigo.factura.corregir` (ruta viva: corrige y vuelve a emitir, escritura en Siigo) y
-  `siigo.factura.anular` (declarada, sin ruta aún) no caben en ninguna acción aprobada. *Rec.:*
-  opcionales de «Reintentar, reenviar…» (mismos titulares hoy; ni se ganan ni se pierden).
-- **P-18** — «Activar o quitar el freno»: solo existe **quitar** (POST `/api/siigo/freno/reactivar`);
-  el freno se activa solo. *Rec.:* mantener la acción con esa operación y ajustar el copy a «Quitar el
-  freno de emisión», o dejar el nombre aprobado y documentarlo en la ficha de ayuda.
-- **P-19** — «Ver los gastos diarios» no tiene operación: la ruta solo pide la página. *Rec.:* operación
-  nueva `finanzas.gastos_diarios.ver` en la ruta, con la página como predecesor (hoy solo admin).
-- **P-20** — `siigo.factura.consultar` (lectura) también guarda `GET /api/siigo/parametrizacion/catalogos-vivo/:tipo`,
-  que **sale a la red contra Siigo** (coste de cuota, sin escritura). *Rec.:* dejarlo así (decisión ya
-  documentada en la ruta, con `vivoLimiter`); la alternativa es moverlo a «Enviar a Siigo», que es donde
-  se usa.
+- **P-14 — Decidido:** `liquidacion.pago_manual.administrar` NO es de #13427 (Órdenes de trabajo,
+  `liquidacion/` legacy): va a #13429 (legado). §4 corregido. Decisión técnica del hilo.
+- **P-15 — Decidido: sí.** Se agrega «Ver la parametrización» (lectura) a Facturación electrónica ·
+  Parametrización con `siigo.parametrizacion.ver` + `siigo.emision.ver`; `siigo.parametrizacion.ver`
+  es además apoyo de «Ver las facturas emitidas» (el freno se lee en Operación).
+- **P-16 — Decidido: sí.** `siigo.conceptos.confirmar` es opcional de «Mapeo de conceptos».
+- **P-17 — Decidido: sí.** `siigo.factura.corregir` y `siigo.factura.anular` son opcionales de
+  «Reintentar, reenviar el correo, marcar como fallida y reactivar».
+- **P-18 — Decidido:** la acción se llama «Quitar el freno de emisión».
+- **P-19 — Decidido: sí.** Operación nueva `finanzas.gastos_diarios.ver` con `pagina.finanzas_gastos_diarios`
+  como predecesor (no absorbido).
+- **P-20 — Decidido:** se queda como está (`catalogos-vivo` bajo `siigo.factura.consultar`, con `vivoLimiter`).
+- **Regla vigente (PO, 2026-10-13):** en las acciones de LECTURA toda operación de exportar o descargar
+  es OPCIONAL, salvo que sea la única del grupo (entonces la acción deja de ser de lectura); lo mismo
+  para todo lo que escriba o tenga coste externo. En Finanzas: `bolsas.soporte.descargar` (Ver bolsas de
+  clientes), `comprobantes.archivo.descargar` (Ver la cola de comprobantes) y
+  `conciliacion.comprobante.descargar` (Ver las boletas cargadas) pasan a opcionales. «Exportar a Excel»
+  y «Cerrar periodo y descargar extracto» ya modifican (regla «todos»): no cambian.
 
 Decisiones de diseño que **no** son del PO (no cambian el reparto de nadie): partir
 `finanzas.reporte_costos.ver` y `siigo.parametrizacion.administrar` en operaciones nuevas (§5-bis.1);
@@ -470,8 +466,8 @@ Finanzas → Tarifas: Ver las tarifas (incluye historial) · Crear y modificar t
 Finanzas → Servicios adicionales: Ver · Crear · Editar · Dar de baja
 Finanzas → Comprobantes: Cargar comprobantes · Asociar manualmente · Ver la cola de comprobantes · Descartar, releer o aceptar una diferencia
 Finanzas → Conciliación: Ver las boletas cargadas · Cargar boleta · Conciliar, descartar o volver a cruzar · Cargar o reemplazar el comprobante de la boleta
-Finanzas → Facturación electrónica · Parametrización: Mapeo de conceptos · Configuración de terceros
-Finanzas → Facturación electrónica · Operación: Ver las facturas emitidas · Reintentar, reenviar el correo, marcar como fallida y reactivar · Activar o quitar el freno de emisión
+Finanzas → Facturación electrónica · Parametrización: Ver la parametrización · Mapeo de conceptos · Configuración de terceros
+Finanzas → Facturación electrónica · Operación: Ver las facturas emitidas · Reintentar, reenviar el correo, marcar como fallida y reactivar · Quitar el freno de emisión
 Administración → Integración con Siigo: Registrar credenciales de pruebas · Registrar credenciales de producción · Probar la conexión
 ```
 

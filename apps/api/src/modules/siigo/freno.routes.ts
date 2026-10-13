@@ -60,7 +60,7 @@ router.get('/', exigirFuncion('siigo.parametrizacion.ver'), async (req: Request,
 // Es idempotente y se acepta aunque no esté frenada: reactivar es «da por revisado lo medido hasta
 // ahora», y obligar a que esté frenada convertiría una carrera entre dos administradores en un 409
 // que no aporta nada. La auditoría registra quién y cuándo en los dos casos.
-router.post('/reactivar', exigirFuncion('siigo.parametrizacion.administrar'), async (req: Request, res: Response) => {
+router.post('/reactivar', exigirFuncion('siigo.freno.reactivar'), async (req: Request, res: Response) => {
   const parsed = reactivarSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });

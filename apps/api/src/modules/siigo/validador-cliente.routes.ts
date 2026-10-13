@@ -115,7 +115,7 @@ router.get('/:id/validacion', exigirFuncion('siigo.parametrizacion.ver'), async 
 // La migración 0132 marcó los duplicados que existían entonces, pero nada volvía a mirarlos: uno
 // creado después quedaría sin marca y por tanto pareciendo limpio, y uno ya resuelto arrastraría la
 // marca para siempre. Es idempotente y no toca ningún otro campo.
-router.post('/validacion/recalcular-duplicados', exigirFuncion('siigo.parametrizacion.administrar'), async (req: Request, res: Response) => {
+router.post('/validacion/recalcular-duplicados', exigirFuncion('siigo.terceros.configurar'), async (req: Request, res: Response) => {
   const resultado = await recalcularDuplicados();
   await audit(req, {
     action: 'update',

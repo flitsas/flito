@@ -12,26 +12,37 @@
 //     permisos_roles` de la 0227 corregida, que en un ambiente sin el rol también da 0 filas.
 //   · Solo literales del código (códigos, nombres): comilla doblada, nada de entrada externa (regla 3).
 import { catalogoCompleto, type FuncionCatalogo } from '../catalogo.js';
-import { ACCIONES_ARBOL, ACCIONES_LECTURA, CONJUNCIONES_ARBOL, predecesoresDe, ROL_CON_TODAS_LAS_ACCIONES } from './expansion.js';
+import { ACCIONES_LECTURA, ACCIONES_POR_AREA, CONJUNCIONES_ARBOL, predecesoresDe, predecesorNoAbsorbido, ROL_CON_TODAS_LAS_ACCIONES, type AreaArbol } from './expansion.js';
 
 const lit = (s: string): string => `'${s.replace(/'/g, "''")}'`;
 
-/** Las tablas temporales del reparto (sufijo = HU, para que dos repartos no compartan nombre). */
+/** La HU dueña de cada área: sufijo de las tablas temporales, para que dos repartos no compartan nombre. */
+export const HU_DE_AREA: Readonly<Record<AreaArbol, string>> = { gestion: '12873', finanzas: '13427' };
+
+/** Las tablas temporales del reparto de un área. */
+export function tablasTemporales(area: AreaArbol) {
+  const hu = HU_DE_AREA[area];
+  return { grupos: `tmp_arbol_${hu}`, absorbidas: `tmp_absorbidas_${hu}`, lectura: `tmp_lectura_${hu}`, umbral: `tmp_umbral_${hu}` };
+}
+
+/** Las de Gestión (#12873), con su nombre de siempre. */
 export const TMP_GRUPOS = 'tmp_arbol_12873';
 export const TMP_ABSORBIDAS = 'tmp_absorbidas_12873';
 export const TMP_LECTURA = 'tmp_lectura_12873';
 export const TMP_UMBRAL = 'tmp_umbral_12873';
 
-/** Siembra: las acciones (padres antes que hijas) y el `nivel`/`orden` de las páginas que son ítem. */
-export function sqlSiembraArbol(catalogo: FuncionCatalogo[] = catalogoCompleto()): string {
-  const acciones = catalogo.filter((f) => f.tipo === 'accion');
+/** Siembra de un área: sus acciones (padres antes que hijas) y el `nivel`/`orden` de sus páginas que son ítem. */
+export function sqlSiembraArbol(area: AreaArbol = 'gestion', catalogo: FuncionCatalogo[] = catalogoCompleto()): string {
+  const delArea = new Set(ACCIONES_POR_AREA[area]);
+  const acciones = catalogo.filter((f) => f.tipo === 'accion' && delArea.has(f.codigo));
+  const paginasDelArea = new Set(acciones.map((f) => itemDe(f, catalogo)));
   // Padres antes que hijas: la FK `padre_codigo` se comprueba fila a fila dentro del INSERT.
   const nivelDe = (f: FuncionCatalogo): number => (f.padre?.startsWith('accion.') ? 1 : 0);
   const ordenadas = [...acciones].sort((a, b) => nivelDe(a) - nivelDe(b) || a.codigo.localeCompare(b.codigo));
-  const items = catalogo.filter((f) => f.tipo === 'pagina' && f.nivel === 2);
+  const items = catalogo.filter((f) => f.tipo === 'pagina' && f.nivel === 2 && paginasDelArea.has(f.codigo));
   return [
     `-- ${acciones.length} acciones (nivel 3). Generado: no editar a mano.`,
-    '-- Regenerar con: npm run permisos:seed -w apps/api -- --arbol gestion',
+    `-- Regenerar con: npm run permisos:seed -w apps/api -- --arbol ${area}`,
     'INSERT INTO permisos_funciones (codigo, modulo, nombre_negocio, descripcion, tipo, padre_codigo, nivel, orden) VALUES',
     ordenadas.map((f) => `  (${[f.codigo, f.modulo, f.nombreNegocio, f.descripcion, f.tipo, f.padre!, String(f.nivel), String(f.orden)].map(lit).join(', ')})`).join(',\n'),
     'ON CONFLICT (codigo) DO UPDATE SET modulo = EXCLUDED.modulo, nombre_negocio = EXCLUDED.nombre_negocio,',
@@ -53,15 +64,29 @@ export function sqlSiembraArbol(catalogo: FuncionCatalogo[] = catalogoCompleto()
   ].join('\n');
 }
 
-/** Reparto: grupos «todos», roles, usuarios, y retiro de lo absorbido. Ver la cabecera de la 0233. */
-export function sqlRepartoArbol(): string {
+/** La página (ítem) de una acción: se sube por `padre` hasta un `pagina.*`. */
+function itemDe(f: FuncionCatalogo, catalogo: FuncionCatalogo[]): string {
+  const porCodigo = new Map(catalogo.map((x) => [x.codigo, x]));
+  let padre = f.padre!;
+  while (padre.startsWith('accion.')) padre = porCodigo.get(padre)!.padre!;
+  return padre;
+}
+
+/** Reparto de un área: grupos «todos», roles, usuarios, y retiro de lo absorbido. Ver la cabecera de la 0233. */
+export function sqlRepartoArbol(area: AreaArbol = 'gestion'): string {
   catalogoCompleto(); // valida árbol ↔ catálogo antes de escribir una migración sobre nada
-  const pares = Object.keys(ACCIONES_ARBOL).sort()
+  const { grupos: TMP_GRUPOS, absorbidas: TMP_ABSORBIDAS, lectura: TMP_LECTURA, umbral: TMP_UMBRAL } = tablasTemporales(area);
+  const delArea = ACCIONES_POR_AREA[area];
+  const pares = delArea
     .flatMap((a) => [...predecesoresDe(a)].sort().map((fn) => `  (${lit(a)}, ${lit(fn)})`));
-  const conjunciones = CONJUNCIONES_ARBOL.flatMap((c) => [...c.acciones].sort().map((a) => `  (${lit(c.operacion)}, ${lit(a)})`));
+  const conjuncionesDelArea = CONJUNCIONES_ARBOL.filter((c) => c.acciones.every((a) => delArea.includes(a)));
+  const conjunciones = conjuncionesDelArea.flatMap((c) => [...c.acciones].sort().map((a) => `  (${lit(c.operacion)}, ${lit(a)})`));
+  // HU #13427 (P-19): el predecesor de página que la acción no concede no se absorbe (la página sigue siendo el ítem).
+  const paginasNoAbsorbidas = [...new Set(delArea.flatMap((a) => predecesoresDe(a).filter((p) => predecesorNoAbsorbido(a, p))))].sort();
+  const lectura = delArea.filter((a) => ACCIONES_LECTURA.has(a));
   return [
     `-- ${pares.length} pares acción → código de su grupo «todos». Generado: no editar a mano.`,
-    '-- Regenerar con: npm run permisos:seed -w apps/api -- --arbol gestion --reparto',
+    `-- Regenerar con: npm run permisos:seed -w apps/api -- --arbol ${area} --reparto`,
     `DROP TABLE IF EXISTS ${TMP_GRUPOS};`,
     `CREATE TEMP TABLE ${TMP_GRUPOS} (accion varchar(80) NOT NULL, fn varchar(80) NOT NULL, PRIMARY KEY (accion, fn));`,
     `INSERT INTO ${TMP_GRUPOS} (accion, fn) VALUES`,
@@ -78,20 +103,28 @@ export function sqlRepartoArbol(): string {
     '-- tampoco pierde ninguno de sus miembros (nota de db-review, 2026-10-13).',
     `DROP TABLE IF EXISTS ${TMP_ABSORBIDAS};`,
     `CREATE TEMP TABLE ${TMP_ABSORBIDAS} (fn varchar(80) PRIMARY KEY);`,
-    `INSERT INTO ${TMP_ABSORBIDAS} (fn) SELECT DISTINCT fn FROM ${TMP_GRUPOS};`,
-    `INSERT INTO ${TMP_ABSORBIDAS} (fn)`,
-    'SELECT c.fn FROM (VALUES',
-    conjunciones.join(',\n'),
-    ') AS c(fn, accion)',
-    ' GROUP BY c.fn',
-    `HAVING bool_and(EXISTS (SELECT 1 FROM ${TMP_GRUPOS} t WHERE t.accion = c.accion))`,
-    'ON CONFLICT (fn) DO NOTHING;',
+    paginasNoAbsorbidas.length === 0
+      ? `INSERT INTO ${TMP_ABSORBIDAS} (fn) SELECT DISTINCT fn FROM ${TMP_GRUPOS};`
+      : [
+        '-- La página que es predecesor sin que la acción la conceda NO se absorbe: sigue siendo el ítem.',
+        `INSERT INTO ${TMP_ABSORBIDAS} (fn) SELECT DISTINCT fn FROM ${TMP_GRUPOS}`,
+        ` WHERE fn NOT IN (${paginasNoAbsorbidas.map(lit).join(', ')});`,
+      ].join('\n'),
+    ...(conjunciones.length === 0 ? [] : [
+      `INSERT INTO ${TMP_ABSORBIDAS} (fn)`,
+      'SELECT c.fn FROM (VALUES',
+      conjunciones.join(',\n'),
+      ') AS c(fn, accion)',
+      ' GROUP BY c.fn',
+      `HAVING bool_and(EXISTS (SELECT 1 FROM ${TMP_GRUPOS} t WHERE t.accion = c.accion))`,
+      'ON CONFLICT (fn) DO NOTHING;',
+    ]),
     '',
     '-- Acciones de LECTURA (decisión del PO del 2026-10-13): se reciben con ALGUNA operación del grupo.',
     `DROP TABLE IF EXISTS ${TMP_LECTURA};`,
     `CREATE TEMP TABLE ${TMP_LECTURA} (accion varchar(80) PRIMARY KEY);`,
     `INSERT INTO ${TMP_LECTURA} (accion) VALUES`,
-    [...ACCIONES_LECTURA].sort().map((a) => `  (${lit(a)})`).join(',\n') + ';',
+    lectura.map((a) => `  (${lit(a)})`).join(',\n') + ';',
     '',
     '-- Umbral de cada acción viva: cuántos códigos del grupo hay que tener (todos; 1 si es de lectura).',
     `DROP TABLE IF EXISTS ${TMP_UMBRAL};`,
@@ -135,7 +168,7 @@ export function sqlRepartoArbol(): string {
     '-- rol no tenía entero. JOIN a permisos_roles: un ambiente sin el rol recibe 0 filas, no una FK rota.',
     'INSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo)',
     'SELECT v.rol, v.fn FROM (VALUES',
-    Object.keys(ACCIONES_ARBOL).sort().map((a) => `  (${lit(ROL_CON_TODAS_LAS_ACCIONES)}, ${lit(a)})`).join(',\n'),
+    delArea.map((a) => `  (${lit(ROL_CON_TODAS_LAS_ACCIONES)}, ${lit(a)})`).join(',\n'),
     ') AS v(rol, fn)',
     'JOIN permisos_roles r ON r.codigo = v.rol',
     'ON CONFLICT (rol_codigo, funcion_codigo) DO NOTHING;',

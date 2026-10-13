@@ -8,11 +8,8 @@
 //   · Impuestos NO repite las acciones de SOAT sin operación propia (P-5).
 //   · Revisiones OCR: «Ver» + una sola «Revisar lecturas» (P-7). Mi ruta: ver, escanear, novedad (P-8).
 //   · Tablero FLITO no está aquí: pasa al Tablero de General (P-11), que es de la #13428.
-import type { PageSlug } from '../permissions.js';
 import type { NodoArbolDef } from './index.js';
-
-interface AccionDef { clave: string; nombre: string; descripcion: string; hijas?: AccionDef[] }
-interface ItemDef { slug: PageSlug; clave: string; nombre: string; elemento: string; orden: number; acciones: AccionDef[] }
+import { itemsANodos, type AccionDef, type ItemDef } from './nodos.js';
 
 const a = (clave: string, nombre: string, descripcion: string, hijas?: AccionDef[]): AccionDef =>
   ({ clave, nombre, descripcion, ...(hijas ? { hijas } : {}) });
@@ -96,16 +93,5 @@ export const ITEMS_GESTION: readonly ItemDef[] = [
   ] },
 ];
 
-function nodosDeAcciones(padre: string, item: string, acciones: AccionDef[]): NodoArbolDef[] {
-  return acciones.flatMap((x, i) => {
-    const codigo = `accion.${item}.${x.clave}`;
-    const nodo: NodoArbolDef = { codigo, nombre: x.nombre, tipo: 'accion', padre, orden: (i + 1) * 10, descripcion: x.descripcion };
-    return [nodo, ...nodosDeAcciones(codigo, item, x.hijas ?? [])];
-  });
-}
-
 /** Ítems y acciones del área, padres antes que hijos. */
-export const ARBOL_GESTION: readonly NodoArbolDef[] = ITEMS_GESTION.flatMap((it) => [
-  { codigo: `pagina.${it.slug}`, nombre: it.nombre, tipo: 'item' as const, padre: `menu.${it.elemento}`, orden: it.orden, slug: it.slug },
-  ...nodosDeAcciones(`pagina.${it.slug}`, it.clave, it.acciones),
-]);
+export const ARBOL_GESTION: readonly NodoArbolDef[] = itemsANodos(ITEMS_GESTION);

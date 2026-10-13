@@ -99,8 +99,8 @@ describe('AC7 — solo quien administra la parametrización sincroniza', () => {
       .send({});
 
     expect(r.status).toBe(403);
-    // HU #13423: decide el motor (`siigo.parametrizacion.administrar`), no la guarda de rol.
-    expect(r.body).toMatchObject({ funcion: 'siigo.parametrizacion.administrar' });
+    // HU #13423: decide el motor, no la guarda de rol. HU #13427: la operación de «Mapeo de conceptos».
+    expect(r.body).toMatchObject({ funcion: 'siigo.catalogos.sincronizar' });
     nadieLlamoASiigo();
   });
 
@@ -114,13 +114,23 @@ describe('AC7 — solo quien administra la parametrización sincroniza', () => {
     nadieLlamoASiigo();
   });
 
-  it('auditor tampoco: leer la parametrización no es su función aquí', async () => {
+  it('HU #13427 (P-15): auditor SÍ lee la copia local de catálogos — «Ver la parametrización» se recibe con alguna lectura (ganancia aprobada)', async () => {
     const r = await request(app)
       .get('/api/siigo/parametrizacion/catalogos')
       .set('Authorization', await auditorAuth());
 
+    expect(r.status).toBe(200);
+    expect(resumenCatalogosMock).toHaveBeenCalled();
+  });
+
+  it('auditor tampoco sincroniza: «Mapeo de conceptos» no es suya', async () => {
+    const r = await request(app)
+      .post('/api/siigo/parametrizacion/catalogos/sincronizar')
+      .set('Authorization', await auditorAuth())
+      .send({});
+
     expect(r.status).toBe(403);
-    expect(resumenCatalogosMock).not.toHaveBeenCalled();
+    nadieLlamoASiigo();
   });
 
   it('admin sí sincroniza', async () => {

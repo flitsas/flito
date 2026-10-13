@@ -147,17 +147,17 @@ router.get('/reporte-costos/consolidado', exigirFuncion('finanzas.reporte_costos
 /**
  * GET /gastos-diarios — serie por día del evento y totales por categoría con GMF estimado (HU #12623).
  *
- * Guarda por PÁGINA y no por rol (`requirePage`, no la función de lectura del reporte): la misma función que abre la
- * pantalla «Gastos diarios» (HU #12624) abre su consulta, así que quien reciba la página en el panel
- * de roles recibe la consulta con ella, y nadie más. Hasta que la migración siembre la función,
- * 403 para todos: es lo esperado.
+ * Guarda por PÁGINA y no por rol (`requirePage`, no la función de lectura del reporte) MÁS, desde la HU #13427
+ * (P-19), la acción «Ver los gastos diarios» (`finanzas.gastos_diarios.ver`): la 0235 se la da a quien tenía la
+ * página (su predecesor), así que nadie la pierde; desde entonces el panel la reparte aparte.
  *
  * `desde`/`hasta` en `YYYY-MM-DD`; sin los dos, los últimos 30 días (hoy incluido, en Bogotá). Uno
  * solo, una fecha que no es un día, `hasta < desde` o más de 366 días → 400 nombrando el parámetro.
  * `empresas` con la misma `lista()` del reporte. Sin registro PII: la respuesta son días, cantidades
  * y sumas (motivo en la cabecera del servicio).
  */
-router.get('/gastos-diarios', requirePage('finanzas_gastos_diarios'), async (req: Request, res: Response) => {
+// HU #13427 (P-19): además de la página, la acción «Ver los gastos diarios» (operación nueva; predecesor = la página).
+router.get('/gastos-diarios', requirePage('finanzas_gastos_diarios'), exigirFuncion('finanzas.gastos_diarios.ver'), async (req: Request, res: Response) => {
   const rango = resolverRango(str(req.query.desde), str(req.query.hasta));
   if (!rango.ok) { res.status(400).json({ error: rango.error, parametro: rango.parametro }); return; }
   res.json(await gastosDiarios(rango.rango, lista(req.query.empresas)));
@@ -222,8 +222,8 @@ const responderCuerpoInvalido = (res: Response, e: z.ZodError): void => {
  * CSV: no existe variante GET —un `router.get` aquí devolvería `buscar` (placa, VIN, nombre,
  * documento) a la URL, a los logs de nginx y al `Referer` (AGENTS.md §14)—.
  *
- * Misma guarda de lectura que el resto del reporte (`finanzas.reporte_costos.ver`): quien puede ver el reporte puede
- * llevárselo, y nadie más. `exportColaLimiter` es la MISMA bolsa de 5/min por usuario que SOAT e
+ * Guarda «Exportar a Excel» (`finanzas.reporte_costos.exportar`, HU #13427): la 0235 se la da a quien podía ver el
+ * reporte (predecesor `finanzas.reporte_costos.ver`); desde entonces ver y llevárselo se reparten aparte. `exportColaLimiter` es la MISMA bolsa de 5/min por usuario que SOAT e
  * Impuestos, y es una decisión, no un descuido: el recurso que se raciona es el heap del único
  * proceso —`sendExcel` arma el libro entero en memoria— y una bolsa propia le daría a una sesión el
  * doble de exports simultáneos sobre el presupuesto que ADR-0004 midió para cinco. Lo que se paga:
@@ -232,7 +232,8 @@ const responderCuerpoInvalido = (res: Response, e: z.ZodError): void => {
  * Orden: validar → consultar (el tope lanza dentro) → `await` del rastro PII con el número de filas
  * → `Cache-Control: no-store` → archivo. El rastro va ANTES del primer byte (Ley 1581 art. 17).
  */
-router.post('/reporte-costos/export', exigirFuncion('finanzas.reporte_costos.ver'), exportColaLimiter, async (req: Request, res: Response) => {
+// HU #13427: «Exportar a Excel» (operación nueva; predecesor `finanzas.reporte_costos.ver`).
+router.post('/reporte-costos/export', exigirFuncion('finanzas.reporte_costos.exportar'), exportColaLimiter, async (req: Request, res: Response) => {
   const parsed = exportDetalleSchema.safeParse(req.body ?? {});
   if (!parsed.success) { responderCuerpoInvalido(res, parsed.error); return; }
 
@@ -271,7 +272,7 @@ router.post('/reporte-costos/export', exigirFuncion('finanzas.reporte_costos.ver
  * Sin registro PII: el consolidado no lleva titular ni placa, solo el cliente (empresa) y cifras
  * (la misma decisión que su GET, HU #12433).
  */
-router.post('/reporte-costos/consolidado/export', exigirFuncion('finanzas.reporte_costos.ver'), exportColaLimiter, async (req: Request, res: Response) => {
+router.post('/reporte-costos/consolidado/export', exigirFuncion('finanzas.reporte_costos.exportar'), exportColaLimiter, async (req: Request, res: Response) => {
   const parsed = exportConsolidadoSchema.safeParse(req.body ?? {});
   if (!parsed.success) { responderCuerpoInvalido(res, parsed.error); return; }
 
@@ -295,7 +296,8 @@ router.post('/reporte-costos/consolidado/export', exigirFuncion('finanzas.report
  * un solo concepto desde el detalle de un SOAT o de un impuesto. Lo que cambia entre esas rutas es
  * el rol que entra, no cómo se arma la lista.
  */
-router.get('/tramites/:id/soportes', exigirFuncion('finanzas.reporte_costos.ver'), async (req: Request, res: Response) => {
+// HU #13427: «Ver soportes» y «Ver viajes adicionales» (operaciones nuevas; predecesor `finanzas.reporte_costos.ver`).
+router.get('/tramites/:id/soportes', exigirFuncion('finanzas.reporte_costos.ver_soportes'), async (req: Request, res: Response) => {
   const soportes = await soportesDeTramite(req.params.id);
   if (!soportes) { res.status(404).json({ error: 'El trámite no existe' }); return; }
   // Sin caché: un soporte cargado hace un minuto tiene que salir sin recargar la pantalla.
@@ -307,12 +309,12 @@ router.get('/tramites/:id/soportes', exigirFuncion('finanzas.reporte_costos.ver'
  * GET /tramites/:id/viajes-logistica — de qué se compone la celda «Logística» del reporte (HU #12627):
  * la tarifa (viaje 1) y cada viaje adicional, con su precio. Solo lectura.
  *
- * La MISMA guarda `finanzas.reporte_costos.ver` que el reporte: quien puede ver la celda puede ver su desglose, y nadie
- * más. No se inventa una función del motor —el módulo `finanzas/` sigue vallado por rol
+ * Guarda «Ver viajes adicionales» (`finanzas.reporte_costos.ver_viajes`, HU #13427): la 0235 se la da a quien podía
+ * ver el reporte; desde entonces se reparte aparte. No se inventa una función del motor —el módulo `finanzas/` sigue vallado por rol
  * (`permisos.valla-legacy.test.ts`)—; registrar y quitar viajes viven en `flito-logistica` con las
  * suyas. Un id que no es uuid o que no existe es 404: el id es opaco.
  */
-router.get('/tramites/:id/viajes-logistica', exigirFuncion('finanzas.reporte_costos.ver'), async (req: Request, res: Response) => {
+router.get('/tramites/:id/viajes-logistica', exigirFuncion('finanzas.reporte_costos.ver_viajes'), async (req: Request, res: Response) => {
   try {
     const desglose = await desgloseViajesLogistica(req.params.id);
     // Sin caché: un viaje registrado hace un minuto tiene que salir sin recargar la pantalla.

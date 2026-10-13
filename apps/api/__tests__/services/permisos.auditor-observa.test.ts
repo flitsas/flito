@@ -34,6 +34,7 @@ import { leerRepartoSembrado, MIGRACIONES_ANTES_DEL_ARBOL } from '../helpers/per
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
 import { llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
+import { PARTIDA_DE_OPERACION_NUEVA } from '../../src/modules/permisos/arbol/acciones-finanzas.js';
 
 /** Los 43 códigos de lectura del auditor, fijados a mano desde la foto y agrupados por módulo. */
 export const LECTURAS_DEL_AUDITOR = {
@@ -96,7 +97,12 @@ const LECTURAS_POR_POST = ['soat.incompletas.buscar'] as const;
 const EXPORTACIONES_POR_POST = ['finanzas.reporte_costos.ver'] as const;
 
 const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
-const codigoDe = (g: (typeof GUARDAS_MEDIDAS)[number]) => codigoDeLlave.get(llaveDe(g))!;
+// HU #13427: este archivo mide el mundo PLANO (seed ≤ 0231): una guarda que hoy pide una operación nueva se lee
+// con su código de PARTIDA (la de página, `finanzas.gastos_diarios.ver`, no es operación del mundo plano).
+const codigoDe = (g: (typeof GUARDAS_MEDIDAS)[number]) => {
+  const c = codigoDeLlave.get(llaveDe(g))!;
+  return PARTIDA_DE_OPERACION_NUEVA[c] ?? c;
+};
 const sembrado = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
 const operacionesDe = (rol: string) => [...(sembrado.get(rol) ?? [])].filter((c) => !c.startsWith('pagina.')).sort();
 
@@ -107,7 +113,7 @@ describe('AC6 — el auditor conserva todas las lecturas y ninguna ejecución', 
 
   it('la lista fijada son 50 códigos (46 + 4 de la HU #13423), todos de rutas GET de la foto con `auditor`', () => {
     expect(esperadas).toHaveLength(50);
-    const enFoto = new Set(GUARDAS_MEDIDAS.filter((g) => g.metodo === 'GET' && g.roles.includes('auditor')).map(codigoDe));
+    const enFoto = new Set(GUARDAS_MEDIDAS.filter((g) => g.metodo === 'GET' && g.roles.includes('auditor')).map(codigoDe).filter((c) => !c.startsWith('pagina.')));
     expect([...enFoto].sort()).toEqual(esperadas);
   });
 
@@ -167,7 +173,7 @@ describe('AC6 — rol por rol: lo sembrado es lo que la foto concedía', () => {
   for (const rol of USER_ROLES) {
     it(`${rol}: sus operaciones en el seed son exactamente las de las rutas que la foto le daba`, () => {
       // Sin repetidos: desde la HU #13421 varias guardas legacy comparten código («Administrar <ítem>»).
-      const desdeFoto = [...new Set(GUARDAS_MEDIDAS.filter((g) => g.roles.includes(rol)).map(codigoDe))].sort();
+      const desdeFoto = [...new Set(GUARDAS_MEDIDAS.filter((g) => g.roles.includes(rol)).map(codigoDe).filter((c) => !c.startsWith('pagina.')))].sort();
       expect(operacionesDe(rol)).toEqual(desdeFoto);
     });
   }

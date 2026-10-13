@@ -21,7 +21,7 @@ const { ARBOL_GESTION, ARBOL_PERMISOS, ITEMS_GESTION, PREFIJO_ACCION, PREFIJO_EL
 const { catalogoCompleto, catalogoDeAcciones, catalogoPlano } = await import('../../src/modules/permisos/catalogo.js');
 const { OPERACIONES_DECLARADAS } = await import('../../src/modules/permisos/catalogo-operaciones.js');
 const { ACCIONES_GESTION, AREA_GESTION, CONJUNCIONES_GESTION, FUERA_DE_AREA_GESTION } = await import('../../src/modules/permisos/arbol/acciones-gestion.js');
-const { ACCIONES_LECTURA, CODIGOS_ABSORBIDOS, OPCIONALES_ARBOL, codigosQueConceden, expandir, operacionesDe, predecesoresDe } = await import('../../src/modules/permisos/arbol/expansion.js');
+const { ACCIONES_LECTURA, ACCIONES_POR_AREA, CODIGOS_ABSORBIDOS, OPCIONALES_ARBOL, codigosQueConceden, expandir, operacionesDe, predecesoresDe } = await import('../../src/modules/permisos/arbol/expansion.js');
 const { absorbidosVivos, efectivasExpandidas, informeArbol, repartirPorTodos } = await import('../../src/modules/permisos/arbol/reparto-arbol.js');
 const { filtrarPorFuncion } = await import('../../src/shared/permisos-efectivos.js');
 
@@ -48,6 +48,11 @@ const CLAVE_ITEM: Record<string, string> = {
 const ACCIONES_APROBADAS = Object.entries(APROBADO).flatMap(([item, claves]) => claves.map((c) => `accion.${CLAVE_ITEM[item]}.${c}`)).sort();
 
 const nodo = new Map(ARBOL_GESTION.map((n) => [n.codigo, n]));
+// HU #13427: el árbol ya tiene Finanzas; este archivo mide SOLO Gestión y Tránsito (Finanzas: permisos-arbol-finanzas.test.ts).
+const GESTION = ACCIONES_POR_AREA.gestion;
+const DE_GESTION = new Set(GESTION);
+const ABSORBIDOS_GESTION = new Set([...Object.values(ACCIONES_GESTION).flatMap((a) => a.operaciones), ...CONJUNCIONES_GESTION.map((c) => c.operacion)]);
+const OPCIONALES_GESTION = new Set(Object.values(ACCIONES_GESTION).flatMap((a) => a.opcionales ?? []));
 /** El ítem (nivel 2) de un nodo de acción, subiendo por la acción madre si es anidada. */
 const itemDe = (codigo: string): string => {
   const n = nodo.get(codigo)!;
@@ -89,15 +94,15 @@ describe('AC1 — el catálogo de Gestión y Tránsito es la lista aprobada', ()
     expect([...CODIGOS_ABSORBIDOS].filter((c) => hoy.has(c))).toEqual([]);
     // Control: lo absorbido existía en el mundo plano (si no, la intersección vacía no prueba nada).
     const plano = new Set(catalogoPlano().map((f) => f.codigo));
-    expect([...CODIGOS_ABSORBIDOS].filter((c) => !plano.has(c))).toEqual([]);
-    expect(CODIGOS_ABSORBIDOS.size).toBe(125); // 132 operaciones del área menos los 7 opcionales (PO, 2026-10-13)
+    expect([...ABSORBIDOS_GESTION].filter((c) => !plano.has(c))).toEqual([]);
+    expect(ABSORBIDOS_GESTION.size).toBe(125); // 132 operaciones del área menos los 7 opcionales (PO, 2026-10-13)
     // Y el paso no deja ninguna marca (rol ni usuario) sobre lo absorbido, aunque la tuviera antes.
-    const todo = [...CODIGOS_ABSORBIDOS];
+    const todo = [...ABSORBIDOS_GESTION];
     const r = repartirPorTodos([{ id: 1, rol: 'r' }], {
       filasRol: todo.map((codigo) => ({ rol: 'r', codigo })),
       filasUsuario: todo.slice(0, 5).map((codigo) => ({ userId: 1, codigo, efecto: 'conceder' as const })),
-    });
-    expect([...r.filasRol, ...r.filasUsuario].filter((f) => CODIGOS_ABSORBIDOS.has(f.codigo))).toEqual([]);
+    }, undefined, GESTION);
+    expect([...r.filasRol, ...r.filasUsuario].filter((f) => ABSORBIDOS_GESTION.has(f.codigo))).toEqual([]);
   });
 
   it('elementos de nivel 1 en el orden del menú, con «LAFT» (P-13) y «Ayuda» derivada', () => {
@@ -109,7 +114,7 @@ describe('AC1 — el catálogo de Gestión y Tránsito es la lista aprobada', ()
 
   it('el catálogo del código emite las 55 acciones (nivel 3, padre en la base) y marca nivel 2 a los 9 ítems', () => {
     const cat = catalogoCompleto();
-    const acciones = cat.filter((f) => f.tipo === 'accion');
+    const acciones = cat.filter((f) => f.tipo === 'accion' && DE_GESTION.has(f.codigo));
     expect(ACCIONES_APROBADAS).toHaveLength(55);
     expect(acciones.map((f) => f.codigo).sort()).toEqual(ACCIONES_APROBADAS);
     expect(Object.keys(ACCIONES_GESTION).sort()).toEqual(ACCIONES_APROBADAS);
@@ -118,7 +123,7 @@ describe('AC1 — el catálogo de Gestión y Tránsito es la lista aprobada', ()
       expect(a.codigo.startsWith(PREFIJO_ACCION)).toBe(true);
       expect(a.padre, a.codigo).toBe(nodo.get(a.codigo)!.padre);
     }
-    expect(cat.filter((f) => f.nivel === 2).map((f) => f.codigo).sort()).toEqual(Object.keys(APROBADO).sort());
+    expect(cat.filter((f) => f.nivel === 2 && nodo.has(f.codigo)).map((f) => f.codigo).sort()).toEqual(Object.keys(APROBADO).sort());
     // El panel plano (hasta #13430) agrupa la acción con su página: mismo `modulo`.
     const moduloDe = new Map(cat.map((f) => [f.codigo, f.modulo]));
     for (const a of acciones) expect(a.modulo, a.codigo).toBe(moduloDe.get(itemDe(a.codigo)));
@@ -242,7 +247,7 @@ describe('AC4 — la regla del paso sobre los roles: «todos» si modifica, «al
       'accion.soat.ver_soportes', 'accion.tramites.ver_listado',
     ];
     expect(LECTURA).toHaveLength(14); // «Ver soportes» de Derechos es una descarga: no es de lectura (PO, 2026-10-13)
-    expect([...ACCIONES_LECTURA].sort()).toEqual(LECTURA);
+    expect([...ACCIONES_LECTURA].filter((a) => DE_GESTION.has(a)).sort()).toEqual(LECTURA);
     // Descargar y exportar no son de lectura (la auditoría no descarga): «Descargar soportes» de Trámites sigue con «todos».
     expect(ACCIONES_LECTURA.has('accion.tramites.descargar_soportes')).toBe(false);
     expect(ACCIONES_LECTURA.has('accion.derechos.ver_soportes')).toBe(false);
@@ -348,7 +353,7 @@ describe('Opcionales (PO, 2026-10-13): ni grupo, ni expansión, ni retiro', () =
   const RUNT = 'soat.solicitud.reintentar_runt';
 
   it('son EXACTAMENTE despachar y operar ajenas, reintentar el RUNT, y exportar/descargar dentro de las de lectura', () => {
-    expect([...OPCIONALES_ARBOL].sort()).toEqual([
+    expect([...OPCIONALES_GESTION].sort()).toEqual([
       AJENAS, DESPACHAR, RUNT,
       'comparendos.registros.exportar', 'logistica.actas.descargar', 'revisiones.soporte.descargar',
       'impuestos.factura.ver',
@@ -458,16 +463,16 @@ describe('Grupo incompleto en un ambiente (nota de db-review, 2026-10-13)', () =
 
 describe('AC8 — el rol que tenía todo lo absorbido queda con todas las acciones', () => {
   it('por la regla, sin nombrarlo', () => {
-    const todo = [...CODIGOS_ABSORBIDOS].map((codigo) => ({ rol: 'rol_con_todo', codigo }));
-    const i = informeArbol([{ id: 1, rol: 'rol_con_todo' }], { filasRol: todo, filasUsuario: [] });
+    const todo = [...ABSORBIDOS_GESTION].map((codigo) => ({ rol: 'rol_con_todo', codigo }));
+    const i = informeArbol([{ id: 1, rol: 'rol_con_todo' }], { filasRol: todo, filasUsuario: [] }, undefined, GESTION);
     expect(i.rolesConTodo).toEqual([{ rol: 'rol_con_todo', faltabanAntes: [], faltan: [] }]);
     expect(i.cambios).toEqual([]);
   });
 
   it('`admin` (decisión del PO del 2026-10-13) recibe TODAS, también aquella cuyo grupo no tenía entero, y a sus usuarios no se les revoca', () => {
-    const sinGrupoSoat = [...CODIGOS_ABSORBIDOS].filter((c) => !['soat.solicitud.crear', 'soat.runt.preconsultar', 'soat.factura.leer'].includes(c));
+    const sinGrupoSoat = [...ABSORBIDOS_GESTION].filter((c) => !['soat.solicitud.crear', 'soat.runt.preconsultar', 'soat.factura.leer'].includes(c));
     const filas = { filasRol: sinGrupoSoat.map((codigo) => ({ rol: 'admin', codigo })), filasUsuario: [] };
-    const r = repartirPorTodos([{ id: 7, rol: 'admin' }], filas);
+    const r = repartirPorTodos([{ id: 7, rol: 'admin' }], filas, undefined, GESTION);
     const deAdmin = r.filasRol.filter((f) => f.rol === 'admin').map((f) => f.codigo).sort();
     expect(deAdmin).toEqual(ACCIONES_APROBADAS);
     expect(r.filasUsuario).toEqual([]);

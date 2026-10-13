@@ -12,7 +12,8 @@
 // Una acción cuyo grupo ya no existe (`existentes`) no se toca: es la segunda corrida (idempotencia).
 // Sin PII (Ley 1581): el detalle es `user_id` + rol.
 import type { FilaRolEnSeco, FilaUsuarioEnSeco, UsuarioEnSeco } from '../reparto-en-seco.js';
-import { ACCIONES_ARBOL, CODIGOS_ABSORBIDOS, CONJUNCIONES_ARBOL, cumpleGrupo, expandir, operacionesDe, predecesoresDe, ROL_CON_TODAS_LAS_ACCIONES } from './expansion.js';
+import { PARTIDA_DE_OPERACION_NUEVA } from './acciones-finanzas.js';
+import { ACCIONES_ARBOL, CODIGOS_ABSORBIDOS, CONJUNCIONES_ARBOL, cumpleGrupo, expandir, operacionesDe, predecesoresDe, predecesorNoAbsorbido, ROL_CON_TODAS_LAS_ACCIONES } from './expansion.js';
 
 export interface FilasReparto { filasRol: FilaRolEnSeco[]; filasUsuario: FilaUsuarioEnSeco[] }
 
@@ -22,39 +23,48 @@ const porRol = (filas: FilaRolEnSeco[]) => {
   return m;
 };
 
-/** Las acciones que el paso reparte: todas las del árbol cuyo grupo existe entero en `existentes`. */
-function accionesVivas(existentes?: ReadonlySet<string>): string[] {
-  return Object.keys(ACCIONES_ARBOL).sort()
+/** Todas las acciones del árbol, ordenadas (el alcance por defecto de un reparto). */
+const TODAS = Object.keys(ACCIONES_ARBOL).sort();
+
+/**
+ * Las acciones que el paso reparte: las del alcance (`acciones`, por defecto todo el árbol; un área cuando
+ * se simula SU migración) cuyo grupo existe entero en `existentes`.
+ */
+function accionesVivas(existentes?: ReadonlySet<string>, acciones: readonly string[] = TODAS): string[] {
+  return [...acciones].sort()
     .filter((a) => !existentes || predecesoresDe(a).every((p) => existentes.has(p)));
 }
 
-/** Lo que el paso 3 retira dados los `existentes`: los grupos vivos y las conjunciones con todas sus acciones vivas. */
-export function absorbidosVivos(existentes?: ReadonlySet<string>): Set<string> {
-  const vivas = new Set(accionesVivas(existentes));
+/**
+ * Lo que el paso 3 retira dados los `existentes`: los grupos vivos (menos los predecesores de página que la
+ * acción no concede, HU #13427 P-19) y las conjunciones con todas sus acciones vivas.
+ */
+export function absorbidosVivos(existentes?: ReadonlySet<string>, acciones: readonly string[] = TODAS): Set<string> {
+  const vivas = new Set(accionesVivas(existentes, acciones));
   return new Set([
-    ...[...vivas].flatMap((a) => predecesoresDe(a)),
+    ...[...vivas].flatMap((a) => predecesoresDe(a).filter((p) => !predecesorNoAbsorbido(a, p))),
     ...CONJUNCIONES_ARBOL.filter((c) => c.acciones.every((a) => vivas.has(a))).map((c) => c.operacion),
   ]);
 }
 
 /** Paso 1 sobre `rol → códigos`: devuelve las acciones que gana cada rol (sin borrar nada). */
-export function accionesPorTodos(codigosDelRol: ReadonlySet<string>, existentes?: ReadonlySet<string>): string[] {
-  return accionesVivas(existentes).filter((a) => cumpleGrupo(a, (p) => codigosDelRol.has(p)));
+export function accionesPorTodos(codigosDelRol: ReadonlySet<string>, existentes?: ReadonlySet<string>, acciones: readonly string[] = TODAS): string[] {
+  return accionesVivas(existentes, acciones).filter((a) => cumpleGrupo(a, (p) => codigosDelRol.has(p)));
 }
 
 /** Los pasos 1-3 de la migración, sobre las filas de `permisos_rol_funcion` y `permisos_usuario_funcion`. */
 export function repartirPorTodos(
-  usuarios: UsuarioEnSeco[], filas: FilasReparto, existentes?: ReadonlySet<string>,
+  usuarios: UsuarioEnSeco[], filas: FilasReparto, existentes?: ReadonlySet<string>, acciones: readonly string[] = TODAS,
 ): FilasReparto {
   const roles = porRol(filas.filasRol);
   const nuevasRol: FilaRolEnSeco[] = [];
   for (const [rol, codigos] of roles) {
-    for (const a of accionesPorTodos(codigos, existentes)) if (!codigos.has(a)) nuevasRol.push({ rol, codigo: a });
+    for (const a of accionesPorTodos(codigos, existentes, acciones)) if (!codigos.has(a)) nuevasRol.push({ rol, codigo: a });
   }
   const rolesDespues = porRol([...filas.filasRol, ...nuevasRol]);
   const ocupadas = new Set(filas.filasUsuario.map((f) => `${f.userId}\u0000${f.codigo}`));
   const nuevasUsuario: FilaUsuarioEnSeco[] = [];
-  const vivas = accionesVivas(existentes);
+  const vivas = accionesVivas(existentes, acciones);
   for (const u of usuarios) {
     const delRol = roles.get(u.rol) ?? new Set<string>();
     const propias = filas.filasUsuario.filter((f) => f.userId === u.id);
@@ -71,11 +81,11 @@ export function repartirPorTodos(
   // las acciones del árbol y solo si el rol existe (en la base, el JOIN a `permisos_roles`).
   if (roles.has(ROL_CON_TODAS_LAS_ACCIONES) || usuarios.some((u) => u.rol === ROL_CON_TODAS_LAS_ACCIONES)) {
     const ya = rolesDespues.get(ROL_CON_TODAS_LAS_ACCIONES) ?? new Set<string>();
-    for (const a of Object.keys(ACCIONES_ARBOL).sort()) if (!ya.has(a)) nuevasRol.push({ rol: ROL_CON_TODAS_LAS_ACCIONES, codigo: a });
+    for (const a of [...acciones].sort()) if (!ya.has(a)) nuevasRol.push({ rol: ROL_CON_TODAS_LAS_ACCIONES, codigo: a });
   }
   // Paso 3, como la 0233: se retira SOLO lo de los grupos que sobreviven al recorte (y la conjunción si
   // sobreviven todas sus acciones). Un grupo incompleto no reparte su acción ni pierde a sus miembros.
-  const retirados = absorbidosVivos(existentes);
+  const retirados = absorbidosVivos(existentes, acciones);
   return {
     filasRol: [...filas.filasRol, ...nuevasRol].filter((f) => !retirados.has(f.codigo)),
     filasUsuario: [...filas.filasUsuario, ...nuevasUsuario].filter((f) => !retirados.has(f.codigo)),
@@ -97,9 +107,31 @@ export function efectivasExpandidas(usuarios: UsuarioEnSeco[], filas: FilasRepar
   return salida;
 }
 
-/** Los códigos cuyo acceso puede cambiar con el paso: los absorbidos y los de apoyo. */
-export function codigosVigilados(): string[] {
-  return [...new Set([...CODIGOS_ABSORBIDOS, ...Object.keys(ACCIONES_ARBOL).flatMap((a) => operacionesDe(a))])].sort();
+/**
+ * HU #13427 — Los códigos viejos que se PARTEN en operaciones nuevas y ya no los pide ninguna guarda (el
+ * transitorio `siigo.parametrizacion.administrar`): no son una pérdida, los representan sus operaciones nuevas.
+ */
+const PARTIDAS_RETIRADAS: ReadonlySet<string> = new Set(Object.values(PARTIDA_DE_OPERACION_NUEVA)
+  .filter((p) => !p.startsWith('pagina.') && !Object.values(ACCIONES_ARBOL).some((a) => a.operaciones.includes(p))));
+
+/** Los códigos cuyo acceso puede cambiar con el paso: los absorbidos y los de apoyo (no las partidas retiradas). */
+export function codigosVigilados(acciones: readonly string[] = TODAS): string[] {
+  return [...new Set([
+    ...(acciones === TODAS ? CODIGOS_ABSORBIDOS : acciones.flatMap((a) => predecesoresDe(a))),
+    ...acciones.flatMap((a) => operacionesDe(a)),
+  ])].filter((c) => !PARTIDAS_RETIRADAS.has(c)).sort();
+}
+
+/**
+ * El efectivo de HOY con las operaciones nuevas que ya da su código de partida (la guarda de hoy pide la
+ * partida): quien tiene `finanzas.reporte_costos.ver` hoy exporta. Sin esto el informe contaría como
+ * «ganancia» lo que la persona ya podía hacer.
+ */
+function conOperacionesNuevas(efectivas: Map<number, Set<string>>): Map<number, Set<string>> {
+  for (const s of efectivas.values()) {
+    for (const [nueva, partida] of Object.entries(PARTIDA_DE_OPERACION_NUEVA)) if (s.has(partida)) s.add(nueva);
+  }
+  return efectivas;
 }
 
 export interface CambioUsuario { userId: number; rol: string; pierde: string[]; gana: string[] }
@@ -115,11 +147,13 @@ export interface InformeArbol {
 }
 
 /** El diff del paso para los usuarios dados: pérdidas y ganancias de operaciones efectivas. */
-export function informeArbol(usuarios: UsuarioEnSeco[], antes: FilasReparto, existentes?: ReadonlySet<string>): InformeArbol {
-  const despues = repartirPorTodos(usuarios, antes, existentes);
-  const hoy = efectivasExpandidas(usuarios, antes);
+export function informeArbol(
+  usuarios: UsuarioEnSeco[], antes: FilasReparto, existentes?: ReadonlySet<string>, acciones: readonly string[] = TODAS,
+): InformeArbol {
+  const despues = repartirPorTodos(usuarios, antes, existentes, acciones);
+  const hoy = conOperacionesNuevas(efectivasExpandidas(usuarios, antes));
   const manana = efectivasExpandidas(usuarios, despues);
-  const vigilados = codigosVigilados();
+  const vigilados = codigosVigilados(acciones);
   const cambios: CambioUsuario[] = [];
   for (const u of [...usuarios].sort((x, y) => x.id - y.id)) {
     const a = hoy.get(u.id)!;
@@ -128,7 +162,7 @@ export function informeArbol(usuarios: UsuarioEnSeco[], antes: FilasReparto, exi
     const gana = vigilados.filter((c) => !a.has(c) && m.has(c));
     if (pierde.length || gana.length) cambios.push({ userId: u.id, rol: u.rol, pierde, gana });
   }
-  const acciones = Object.keys(ACCIONES_ARBOL).sort().map((codigo) => ({
+  const filasAccion = [...acciones].sort().map((codigo) => ({
     codigo,
     roles: [...new Set(despues.filasRol.filter((f) => f.codigo === codigo).map((f) => f.rol))].sort(),
     conceder: despues.filasUsuario.filter((f) => f.codigo === codigo && f.efecto === 'conceder').length,
@@ -136,12 +170,12 @@ export function informeArbol(usuarios: UsuarioEnSeco[], antes: FilasReparto, exi
   }));
   const rolesAntes = porRol(antes.filasRol);
   const rolesDespues = porRol(despues.filasRol);
-  const absorbidos = [...CODIGOS_ABSORBIDOS];
+  const absorbidos = [...absorbidosVivos(undefined, acciones)];
   const rolesConTodo = [...rolesAntes].sort(([a], [b]) => a.localeCompare(b))
     .map(([rol, c]) => ({ rol, faltabanAntes: absorbidos.filter((x) => !c.has(x)).sort() }))
     .filter((r) => r.faltabanAntes.length <= 3)
-    .map((r) => ({ ...r, faltan: Object.keys(ACCIONES_ARBOL).filter((x) => !rolesDespues.get(r.rol)?.has(x)).sort() }));
-  return { acciones, cambios, rolesConTodo };
+    .map((r) => ({ ...r, faltan: [...acciones].filter((x) => !rolesDespues.get(r.rol)?.has(x)).sort() }));
+  return { acciones: filasAccion, cambios, rolesConTodo };
 }
 
 const conteo = (cambios: CambioUsuario[], campo: 'pierde' | 'gana') => {

@@ -18,11 +18,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PAGES, PAGINAS_MANTENIMIENTO_POR_ITEM } from '@operaciones/shared-types';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
-import { catalogoCompleto } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano } from '../../src/modules/permisos/catalogo.js';
 import {
   MIGRACIONES_CON_REPARTO, copiasDeReparto, leerFuncionesSembradas, leerRenombresSembrados,
-  leerRepartoSembrado, leerRetirosSembrados,
-} from '../helpers/permisos-seed-sql.js';
+  leerRepartoSembrado, leerRetirosSembrados, MIGRACIONES_ANTES_DEL_ARBOL } from '../helpers/permisos-seed-sql.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ARCHIVO = '0229_permisos_operacion_por_item.sql';
@@ -32,7 +31,7 @@ const SQL = readFileSync(RUTA, 'utf8');
 const SIN_COMENTARIOS = SQL.replace(/--[^\n]*/g, '');
 
 const PAGINAS = PAGINAS_MANTENIMIENTO_POR_ITEM.map((s) => `pagina.${s}`);
-const CATALOGO = catalogoCompleto();
+const CATALOGO = catalogoPlano();
 const PERMANENTES = ['clients.clientes.ver', 'finanzas.reporte_costos.ver', 'vehicles.propietario.ver_documento'];
 // `vehicles.vehiculos.consultar` la siembra la 0230 (HU #13423), no esta.
 const OPERACIONES = CATALOGO.filter((f) => f.tipo === 'operacion' && f.codigo !== 'vehicles.vehiculos.consultar'
@@ -92,8 +91,8 @@ describe('0229 — reglas del archivo (análisis estático)', () => {
 });
 
 describe('0229 — lo que siembra es lo que el catálogo del código declara', () => {
-  const previas = leerFuncionesSembradas(MIGRACIONES_CON_REPARTO.filter((m) => m !== ARCHIVO));
-  const sembradas = new Map([...leerFuncionesSembradas()].filter(([c]) => !previas.has(c)));
+  const previas = leerFuncionesSembradas(MIGRACIONES_ANTES_DEL_ARBOL.filter((m) => m !== ARCHIVO));
+  const sembradas = new Map([...leerFuncionesSembradas(MIGRACIONES_ANTES_DEL_ARBOL)].filter(([c]) => !previas.has(c)));
 
   it('siembra exactamente las 3 páginas y las 13 operaciones, con los textos y el módulo del catálogo', () => {
     expect([...sembradas.keys()].sort()).toEqual([...PAGINAS, ...OPERACIONES.map((f) => f.codigo)].sort());
@@ -159,7 +158,7 @@ describe('0229 — reparto con paridad (AC5) y admin explícito (AC7)', () => {
   it('plegadas todas las migraciones, cada rol que tiene `pagina.maintenance` tiene las 3 páginas, y nadie más las tiene', () => {
     expect(MIGRACIONES_CON_REPARTO).toContain(ARCHIVO);
     expect(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO)).toBe(MIGRACIONES_CON_REPARTO.indexOf(ANTERIOR) + 1);
-    const total = leerRepartoSembrado();
+    const total = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
     for (const [rol, cs] of total) {
       for (const p of PAGINAS) expect(cs.has(p), `${rol} ${p}`).toBe(cs.has('pagina.maintenance'));
     }

@@ -37,7 +37,7 @@
 // La `ruta` de la bitácora es la plantilla de la ruta o el path enmascarado (`rutaDe`): ni cédula, ni
 // placa, ni VIN, ni token entran en `permisos_intentos_denegados` (ADR-0016 §2).
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
-import { catalogoCompleto, catalogoPlano } from '../../modules/permisos/catalogo.js';
+import { catalogoCompleto, catalogoOperacionesNuevas, catalogoPlano } from '../../modules/permisos/catalogo.js';
 import { resolverPermisos } from '../permisos-efectivos.js';
 import {
   registrarIntentoDenegado, type MotivoDenegacion,
@@ -55,7 +55,8 @@ function catalogoIndexado(): Map<string, EntradaCatalogo> {
     // HU #12873 (ADR-0025): las guardas siguen pidiendo OPERACIONES que el árbol absorbió (ya no son
     // concedibles, no están en `catalogoCompleto()`); su nombre y su módulo salen del catálogo plano,
     // o el 403 diría «Función no reconocida» a quien solo le falta la acción que la concede.
-    indice = new Map([...catalogoPlano(), ...catalogoCompleto()]
+    // HU #13427: y las operaciones NUEVAS que parten una guarda vieja (nacen absorbidas, no están en ninguno de los dos).
+    indice = new Map([...catalogoPlano(), ...catalogoOperacionesNuevas(), ...catalogoCompleto()]
       .map((f) => [f.codigo, { modulo: f.modulo, nombreNegocio: f.nombreNegocio }]));
   }
   return indice;
