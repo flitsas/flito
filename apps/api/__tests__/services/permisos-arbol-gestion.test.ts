@@ -261,7 +261,8 @@ describe('AC4 — la regla del paso sobre los roles: «todos» si modifica, «al
     // `factura`: la factura de venta se sirve como documento (PDF con datos del titular, HU #11910).
     const descarga = (op: string, llave: string) => /\.(exportar|descargar)\w*$/.test(op) || /\.factura\./.test(op) || / \S*(export|descarg|zip|\/pdf|\/archivo|factura)\S*( \[[^\]]+\])?$/i.test(llave);
     const escribe = (llave: string) => !(/ GET /.test(llave) || / POST \S*\/buscar( \[[^\]]+\])?$/.test(llave));
-    const malas = [...ACCIONES_LECTURA].flatMap((a) => operacionesDe(a).flatMap((op) => {
+    // HU #13427: SOLO las de Gestión y Tránsito; Finanzas tiene su propio detector (permisos-arbol-finanzas.test.ts).
+    const malas = [...ACCIONES_LECTURA].filter((a) => DE_GESTION.has(a)).flatMap((a) => operacionesDe(a).flatMap((op) => {
       const llaves = llavesDe(op);
       if (llaves.length === 0) return [`${a}: ${op} sin guarda declarada`];
       return llaves.filter((l) => descarga(op, l) || escribe(l)).map((l) => `${a}: ${op} (${l})`);
