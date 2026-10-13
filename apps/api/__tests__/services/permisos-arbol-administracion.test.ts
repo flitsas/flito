@@ -79,14 +79,17 @@ describe('AC6 — cobertura: los 32 códigos del área + 7 nuevos, en los dos se
   const delArea = [...new Set(plano.filter((f) => f.tipo === 'operacion' && AREA_ADMINISTRACION.test(f.codigo)).map((f) => f.codigo))].sort();
   const cubiertas = new Set(AREA.flatMap((a) => [...operacionesDe(a), ...predecesoresDe(a), ...(ACCIONES_ADMINISTRACION[a]!.opcionales ?? [])]));
 
-  it('son 32 en la partida, y cada uno está en ≥1 acción (grupo, predecesor, apoyo u opcional); un solo opcional', () => {
+  it('son 32 en la partida, y cada uno está en ≥1 acción (grupo, predecesor, apoyo u opcional); dos opcionales', () => {
     expect(delArea).toHaveLength(32);
     expect(delArea.filter((c) => !cubiertas.has(c))).toEqual([]);
-    // David, 2026-10-13: el catálogo de proveedores SOAT es opcional de «Ver clientes y proveedores».
-    expect(AREA.flatMap((a) => ACCIONES_ADMINISTRACION[a]!.opcionales ?? [])).toEqual(['parametrizacion.proveedores.listar']);
-    expect(CODIGOS_ABSORBIDOS.has('parametrizacion.proveedores.listar')).toBe(false);
-    expect(catalogoCompleto().some((f) => f.codigo === 'parametrizacion.proveedores.listar')).toBe(true);
-    expect(expandir(['accion.clientes.ver']).has('parametrizacion.proveedores.listar')).toBe(false);
+    // David, 2026-10-13: los catálogos de compañías y de proveedores SOAT son opcionales de «Ver clientes y proveedores».
+    expect(AREA.flatMap((a) => ACCIONES_ADMINISTRACION[a]!.opcionales ?? [])).toEqual(['parametrizacion.companias.listar', 'parametrizacion.proveedores.listar']);
+    expect(predecesoresDe('accion.clientes.ver')).toEqual(['clients.clientes.ver']);
+    for (const op of ['parametrizacion.companias.listar', 'parametrizacion.proveedores.listar']) {
+      expect(CODIGOS_ABSORBIDOS.has(op), op).toBe(false);
+      expect(catalogoCompleto().some((f) => f.codigo === op), op).toBe(true);
+      expect(expandir(['accion.clientes.ver']).has(op), op).toBe(false);
+    }
   });
 
   it('las 7 operaciones nuevas las exige hoy una guarda, no existían en el plano, y su acción tiene la partida como predecesor (o es universal)', () => {
@@ -186,17 +189,15 @@ describe('AC4/AC5/AC7 — el paso sobre la partida real (0001..0235 plegadas): r
     for (const u of usuarios) expect(despues.filasRol.some((f) => f.rol === u.rol && f.codigo === 'pagina.perfil'), u.rol).toBe(true);
   });
 
-  it('AC5: pérdidas y ganancias por rol sobre la partida — nadie pierde; financiera gana solo la lectura de compañías (P-21), no la de proveedores', () => {
+  it('AC5: pérdidas y ganancias por rol sobre la partida — nadie pierde y nadie gana (financiera tampoco: compañías y proveedores son opcionales)', () => {
     const i = informeArbol(usuarios, { filasRol, filasUsuario: [] }, undefined, AREA);
-    expect(i.cambios.flatMap((c) => c.pierde)).toEqual([]);
-    const porRol = Object.fromEntries(i.cambios.map((c) => [c.rol, c.gana]));
-    expect(porRol).toEqual({ financiera: ['parametrizacion.companias.listar'] });
-    // El opcional se conserva donde estaba y no llega a nadie más.
+    expect(i.cambios).toEqual([]);
+    // Los opcionales se conservan donde estaban y no llegan a nadie más.
     const ef = efectivasExpandidas(usuarios, despues);
-    for (const u of usuarios) {
-      expect(ef.get(u.id)!.has('parametrizacion.proveedores.listar'), u.rol).toBe(partida.get(u.rol)?.has('parametrizacion.proveedores.listar') || u.rol === 'admin');
+    for (const op of ['parametrizacion.companias.listar', 'parametrizacion.proveedores.listar']) {
+      for (const u of usuarios) expect(ef.get(u.id)!.has(op), `${u.rol} ${op}`).toBe(partida.get(u.rol)?.has(op) || u.rol === 'admin');
+      expect(ef.get(usuarios.find((u) => u.rol === 'financiera')!.id)!.has(op), op).toBe(false);
     }
-    expect(ef.get(usuarios.find((u) => u.rol === 'financiera')!.id)!.has('parametrizacion.proveedores.listar')).toBe(false);
     expect(i.rolesConTodo.find((r) => r.rol === 'admin')).toEqual({ rol: 'admin', faltabanAntes: [], faltan: [] });
     // Control: lo que admin tenía por el transitorio sigue efectivo por las acciones.
     const e = efectivasExpandidas(usuarios, despues).get(usuarios.find((u) => u.rol === 'admin')!.id)!;
@@ -206,16 +207,19 @@ describe('AC4/AC5/AC7 — el paso sobre la partida real (0001..0235 plegadas): r
   it('AC5: «todos» si modifica — con desbloquear y sin revocar NO llega la autogestión; «alguna» si es de lectura', () => {
     const r = repartirPorTodos([], { filasRol: [
       { rol: 'parcial', codigo: 'tramites.autogestion.desbloquear' }, { rol: 'parcial', codigo: 'parametrizacion.companias.editar' },
-      { rol: 'lector', codigo: 'parametrizacion.companias.listar' },
+      { rol: 'lector', codigo: 'clients.clientes.ver' },
       { rol: 'solo_proveedores', codigo: 'parametrizacion.proveedores.listar' },
+      { rol: 'solo_companias', codigo: 'parametrizacion.companias.listar' },
       { rol: 'ancla', codigo: 'accion.perfil.ver_datos' }, { rol: 'ancla', codigo: 'accion.perfil.cambiar_contrasena' },
     ], filasUsuario: [] }, undefined, AREA);
     const de = (rol: string) => r.filasRol.filter((f) => f.rol === rol && f.codigo.startsWith('accion.')).map((f) => f.codigo).sort();
     expect(de('parcial')).toEqual(['accion.clientes.soat_sin_tramite']);
     expect(de('lector')).toEqual(['accion.clientes.ver']);
-    // El opcional ni agrupa ni se expande: con solo el catálogo de proveedores no llega la acción, y lo conserva.
+    // Los opcionales ni agrupan ni se expanden: con solo uno de los catálogos no llega la acción, y lo conserva.
     expect(de('solo_proveedores')).toEqual([]);
+    expect(de('solo_companias')).toEqual([]);
     expect(r.filasRol.filter((f) => f.rol === 'solo_proveedores').map((f) => f.codigo)).toEqual(['parametrizacion.proveedores.listar']);
+    expect(r.filasRol.filter((f) => f.rol === 'solo_companias').map((f) => f.codigo)).toEqual(['parametrizacion.companias.listar']);
   });
 
   it('P-22: el reparto universal no corre si algún rol ya tiene la acción (segunda corrida, o quitada desde el panel)', () => {
