@@ -58,7 +58,7 @@ export function sqlRepartoArbol(): string {
   catalogoCompleto(); // valida árbol ↔ catálogo antes de escribir una migración sobre nada
   const pares = Object.keys(ACCIONES_ARBOL).sort()
     .flatMap((a) => [...predecesoresDe(a)].sort().map((fn) => `  (${lit(a)}, ${lit(fn)})`));
-  const conjunciones = CONJUNCIONES_ARBOL.map((c) => `  (${lit(c.operacion)})`);
+  const conjunciones = CONJUNCIONES_ARBOL.flatMap((c) => [...c.acciones].sort().map((a) => `  (${lit(c.operacion)}, ${lit(a)})`));
   return [
     `-- ${pares.length} pares acción → código de su grupo «todos». Generado: no editar a mano.`,
     '-- Regenerar con: npm run permisos:seed -w apps/api -- --arbol gestion --reparto',
@@ -67,19 +67,25 @@ export function sqlRepartoArbol(): string {
     `INSERT INTO ${TMP_GRUPOS} (accion, fn) VALUES`,
     pares.join(',\n') + ';',
     '',
-    '-- Lo absorbido: todo código de un grupo y las operaciones que exigen VARIAS acciones (conjunción).',
-    `DROP TABLE IF EXISTS ${TMP_ABSORBIDAS};`,
-    `CREATE TEMP TABLE ${TMP_ABSORBIDAS} (fn varchar(80) PRIMARY KEY);`,
-    `INSERT INTO ${TMP_ABSORBIDAS} (fn) SELECT DISTINCT fn FROM ${TMP_GRUPOS};`,
-    `INSERT INTO ${TMP_ABSORBIDAS} (fn) VALUES`,
-    conjunciones.join(',\n'),
-    'ON CONFLICT (fn) DO NOTHING;',
-    '',
     '-- Idempotencia: una acción se reparte solo si su grupo existe ENTERO. En la segunda corrida ya no',
     '-- existe ninguno (paso 3) y no se reparte ni se revoca nada.',
     `DELETE FROM ${TMP_GRUPOS} t WHERE t.accion IN (`,
     `  SELECT x.accion FROM ${TMP_GRUPOS} x`,
     '   WHERE NOT EXISTS (SELECT 1 FROM permisos_funciones f WHERE f.codigo = x.fn));',
+    '',
+    '-- Lo absorbido, DESPUÉS del recorte: solo los códigos de los grupos que sobreviven, y la operación de',
+    '-- una conjunción solo si sobreviven TODAS sus acciones. Un grupo incompleto no reparte su acción y',
+    '-- tampoco pierde ninguno de sus miembros (nota de db-review, 2026-10-13).',
+    `DROP TABLE IF EXISTS ${TMP_ABSORBIDAS};`,
+    `CREATE TEMP TABLE ${TMP_ABSORBIDAS} (fn varchar(80) PRIMARY KEY);`,
+    `INSERT INTO ${TMP_ABSORBIDAS} (fn) SELECT DISTINCT fn FROM ${TMP_GRUPOS};`,
+    `INSERT INTO ${TMP_ABSORBIDAS} (fn)`,
+    'SELECT c.fn FROM (VALUES',
+    conjunciones.join(',\n'),
+    ') AS c(fn, accion)',
+    ' GROUP BY c.fn',
+    `HAVING bool_and(EXISTS (SELECT 1 FROM ${TMP_GRUPOS} t WHERE t.accion = c.accion))`,
+    'ON CONFLICT (fn) DO NOTHING;',
     '',
     '-- Acciones de LECTURA (decisión del PO del 2026-10-13): se reciben con ALGUNA operación del grupo.',
     `DROP TABLE IF EXISTS ${TMP_LECTURA};`,

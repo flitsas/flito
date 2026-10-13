@@ -180,7 +180,9 @@ export function reglaTodosDeSql(sql: string): { grupos: Map<string, string[]>; a
   const grupos = new Map<string, string[]>();
   for (const [accion, fn] of tuplas(pares[1]!)) grupos.set(accion!, [...(grupos.get(accion!) ?? []), fn!]);
   const absorbidos = new Set([...grupos.values()].flat());
-  const conj = /INSERT INTO tmp_absorbidas_\d+ \(fn\) VALUES([\s\S]*?)ON CONFLICT \(fn\) DO NOTHING;/.exec(limpio);
+  // Conjunciones (forma de la nota de db-review, 2026-10-13): `SELECT c.fn FROM (VALUES ('<op>', '<accion>'), …)
+  // AS c(fn, accion) … HAVING bool_and(…)`. En el pliegue todos los grupos existen: se absorben todas.
+  const conj = /INSERT INTO tmp_absorbidas_\d+ \(fn\)\nSELECT c\.fn FROM \(VALUES([\s\S]*?)\) AS c\(fn, accion\)/.exec(limpio);
   for (const [fn] of conj ? tuplas(conj[1]!) : []) absorbidos.add(fn!);
   // Decisión del PO del 2026-10-13: las de `tmp_lectura_<hu>` se reciben con ALGUNA del grupo.
   const lect = /INSERT INTO tmp_lectura_\d+ \(accion\) VALUES([\s\S]*?);/.exec(limpio);

@@ -22,7 +22,7 @@ const { catalogoCompleto, catalogoDeAcciones, catalogoPlano } = await import('..
 const { OPERACIONES_DECLARADAS } = await import('../../src/modules/permisos/catalogo-operaciones.js');
 const { ACCIONES_GESTION, AREA_GESTION, CONJUNCIONES_GESTION, FUERA_DE_AREA_GESTION } = await import('../../src/modules/permisos/arbol/acciones-gestion.js');
 const { ACCIONES_LECTURA, CODIGOS_ABSORBIDOS, OPCIONALES_ARBOL, codigosQueConceden, expandir, operacionesDe, predecesoresDe } = await import('../../src/modules/permisos/arbol/expansion.js');
-const { efectivasExpandidas, informeArbol, repartirPorTodos } = await import('../../src/modules/permisos/arbol/reparto-arbol.js');
+const { absorbidosVivos, efectivasExpandidas, informeArbol, repartirPorTodos } = await import('../../src/modules/permisos/arbol/reparto-arbol.js');
 const { filtrarPorFuncion } = await import('../../src/shared/permisos-efectivos.js');
 
 /** El catálogo aprobado (Discussion de #13416, decisiones del PO del 2026-10-09), ítem → acciones. */
@@ -88,7 +88,7 @@ describe('AC1 — el catálogo de Gestión y Tránsito es la lista aprobada', ()
     // Control: lo absorbido existía en el mundo plano (si no, la intersección vacía no prueba nada).
     const plano = new Set(catalogoPlano().map((f) => f.codigo));
     expect([...CODIGOS_ABSORBIDOS].filter((c) => !plano.has(c))).toEqual([]);
-    expect(CODIGOS_ABSORBIDOS.size).toBe(129); // 132 operaciones del área menos los 3 opcionales (PO, 2026-10-13)
+    expect(CODIGOS_ABSORBIDOS.size).toBe(126); // 132 operaciones del área menos los 6 opcionales (PO, 2026-10-13)
     // Y el paso no deja ninguna marca (rol ni usuario) sobre lo absorbido, aunque la tuviera antes.
     const todo = [...CODIGOS_ABSORBIDOS];
     const r = repartirPorTodos([{ id: 1, rol: 'r' }], {
@@ -233,25 +233,37 @@ describe('AC4 — la regla del paso sobre los roles: «todos» si modifica, «al
 
   it('las acciones de lectura son EXACTAMENTE la lista aprobada (flag explícito, no el nombre)', () => {
     const LECTURA = [
-      'accion.comparendos.ver_listado', 'accion.derechos.ver_listado', 'accion.derechos.ver_soportes',
+      'accion.comparendos.ver_listado', 'accion.derechos.ver_listado',
       'accion.impuestos.ver_listado', 'accion.impuestos.ver_soportes', 'accion.logistica.ver_actas',
       'accion.logistica.ver_consola', 'accion.mi_ruta.ver', 'accion.organismos_stt.ver', 'accion.revisiones.ver',
       'accion.soat.ver_documentos_adicionales', 'accion.soat.ver_listado', 'accion.soat.ver_por_validar',
       'accion.soat.ver_soportes', 'accion.tramites.ver_listado',
     ];
-    expect(LECTURA).toHaveLength(15);
+    expect(LECTURA).toHaveLength(14); // «Ver soportes» de Derechos es una descarga: no es de lectura (PO, 2026-10-13)
     expect([...ACCIONES_LECTURA].sort()).toEqual(LECTURA);
     // Descargar y exportar no son de lectura (la auditoría no descarga): «Descargar soportes» de Trámites sigue con «todos».
     expect(ACCIONES_LECTURA.has('accion.tramites.descargar_soportes')).toBe(false);
+    expect(ACCIONES_LECTURA.has('accion.derechos.ver_soportes')).toBe(false);
   });
 
-  it('cada operación de una acción de lectura solo está tras guardas de consulta (GET, o POST de búsqueda/exportación/descarga)', () => {
-    const llaves = OPERACIONES_DECLARADAS.map((o) => [o.codigo, o.llave] as const);
-    const consulta = (llave: string) => / GET /.test(llave) || / POST \S*(buscar|export|descargar|zip)\S*( \[[^\]]+\])?$/i.test(llave);
-    const malas = [...ACCIONES_LECTURA].flatMap((a) => predecesoresDe(a)
-      .flatMap((op) => llaves.filter(([c]) => c === op).map(([, l]) => l))
-      .filter((l) => !consulta(l)).map((l) => `${a}: ${l}`));
+  it('ninguna acción de lectura expande a una operación de exportar o descargar, ni a nada que escriba', () => {
+    // Por dos vías independientes del flag: el código de la operación y la guarda real que la pide.
+    // Mutante que esto mata (QA, 2026-10-13): volver a meter `comparendos.registros.exportar` en
+    // «Ver el listado» de Comparendos (POST /registros/export pasaba la regex anterior de «consulta»).
+    const llavesDe = (op: string) => OPERACIONES_DECLARADAS.filter((o) => o.codigo === op).map((o) => o.llave);
+    const descarga = (op: string, llave: string) => /\.(exportar|descargar)\w*$/.test(op) || / \S*(export|descarg|zip|\/pdf|\/archivo)\S*( \[[^\]]+\])?$/i.test(llave);
+    const escribe = (llave: string) => !(/ GET /.test(llave) || / POST \S*\/buscar( \[[^\]]+\])?$/.test(llave));
+    const malas = [...ACCIONES_LECTURA].flatMap((a) => operacionesDe(a).flatMap((op) => {
+      const llaves = llavesDe(op);
+      if (llaves.length === 0) return [`${a}: ${op} sin guarda declarada`];
+      return llaves.filter((l) => descarga(op, l) || escribe(l)).map((l) => `${a}: ${op} (${l})`);
+    }));
     expect(malas).toEqual([]);
+    // Control: el detector SÍ ve las tres que la decisión pasó a opcionales.
+    expect(descarga('comparendos.registros.exportar', 'flito-comparendos/flito-comparendos.routes.ts POST /registros/export')).toBe(true);
+    expect(descarga('revisiones.soporte.descargar', 'flito-revisiones/flito-revisiones.routes.ts GET /soporte/:soporteId/archivo')).toBe(true);
+    expect(descarga('logistica.actas.descargar', 'flito-logistica/flito-logistica.routes.ts GET /actas/:id/pdf')).toBe(true);
+    expect(escribe('x.ts POST /registros/export')).toBe(true);
   });
 
   it('modifica («Gestionar solicitudes»): el rol con las 6 la recibe; el que tiene 5 de 6 NO', () => {
@@ -331,8 +343,23 @@ describe('Opcionales (PO, 2026-10-13): ni grupo, ni expansión, ni retiro', () =
   const AJENAS = 'logistica.actas.operar_ajenas';
   const RUNT = 'soat.solicitud.reintentar_runt';
 
-  it('son EXACTAMENTE despachar y operar ajenas (Logística) y reintentar el RUNT (Ver por validar)', () => {
-    expect([...OPCIONALES_ARBOL].sort()).toEqual([AJENAS, DESPACHAR, RUNT].sort());
+  it('son EXACTAMENTE despachar y operar ajenas, reintentar el RUNT, y exportar/descargar dentro de las de lectura', () => {
+    expect([...OPCIONALES_ARBOL].sort()).toEqual([
+      AJENAS, DESPACHAR, RUNT,
+      'comparendos.registros.exportar', 'logistica.actas.descargar', 'revisiones.soporte.descargar',
+    ].sort());
+  });
+
+  it('en las de lectura, quien tenía exportar/descargar lo conserva y nadie lo gana', () => {
+    const us = [{ id: 1, rol: 'r_lee' }, { id: 2, rol: 'r_exporta' }];
+    const antes = { filasRol: [
+      { rol: 'r_lee', codigo: 'comparendos.registros.listar' },
+      { rol: 'r_exporta', codigo: 'comparendos.registros.listar' }, { rol: 'r_exporta', codigo: 'comparendos.registros.exportar' },
+    ], filasUsuario: [] };
+    const e = efectivasExpandidas(us, repartirPorTodos(us, antes));
+    expect(e.get(1)!.has('comparendos.registro.ver')).toBe(true);
+    expect(e.get(1)!.has('comparendos.registros.exportar')).toBe(false);
+    expect(e.get(2)!.has('comparendos.registros.exportar')).toBe(true);
   });
 
   it('ninguna acción absorbe un opcional, ninguna lo expande y siguen en el catálogo de hoy', () => {
@@ -400,6 +427,27 @@ describe('AC7 — documentos adicionales: 1:1, conservan roles y excepciones', (
     const hoy = efectivasExpandidas(us, antes);
     const manana = efectivasExpandidas(us, repartirPorTodos(us, antes));
     for (const u of us) for (const [, op] of OPS) expect(manana.get(u.id)!.has(op), `${u.id} ${op}`).toBe(hoy.get(u.id)!.has(op));
+  });
+});
+
+describe('Grupo incompleto en un ambiente (nota de db-review, 2026-10-13)', () => {
+  it('si falta un código de un grupo, su acción no se reparte y sus demás miembros NO se borran', () => {
+    const existentes = new Set(catalogoPlano().map((f) => f.codigo));
+    existentes.delete('soat.solicitud.rechazar'); // falta un miembro de «Gestionar solicitudes»
+    const vivos = PARCIAL; // los otros 5
+    const r = repartirPorTodos([{ id: 1, rol: 'r' }], { filasRol: vivos.map((codigo) => ({ rol: 'r', codigo })), filasUsuario: [] }, existentes);
+    expect(r.filasRol.map((f) => f.codigo).sort()).toEqual([...vivos].sort());
+    expect(absorbidosVivos(existentes).has('soat.solicitud.enviar')).toBe(false);
+    // Control: con el grupo entero, sí se absorbe y la acción llega.
+    const todos = repartirPorTodos([{ id: 1, rol: 'r' }], { filasRol: GRUPO_GESTION.map((codigo) => ({ rol: 'r', codigo })), filasUsuario: [] }, new Set(catalogoPlano().map((f) => f.codigo)));
+    expect(todos.filasRol.map((f) => f.codigo)).toEqual(['accion.soat.gestionar_solicitudes']);
+  });
+
+  it('la conjunción solo se absorbe si sobreviven TODAS sus acciones', () => {
+    const existentes = new Set(catalogoPlano().map((f) => f.codigo));
+    existentes.delete('tramites.solicitud.pedir_soat');
+    expect(absorbidosVivos(existentes).has('tramites.solicitud.pedir_ambos')).toBe(false);
+    expect(absorbidosVivos(new Set(catalogoPlano().map((f) => f.codigo))).has('tramites.solicitud.pedir_ambos')).toBe(true);
   });
 });
 
