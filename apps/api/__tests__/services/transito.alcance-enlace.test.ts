@@ -24,7 +24,9 @@ await import('../../src/db/client.js');
 
 const S1 = '05001';
 const S2 = '11001';
-const FUNCIONES = ['transito.bandeja.ver_pendientes', 'transito.organismos.listar', 'transito.tramite.tomar', 'transito.traspasos.ver'];
+const MED = '05001';
+const ENV = '05266';
+const FUNCIONES = ['transito.bandeja.ver_pendientes', 'transito.bandeja.ver_propios', 'transito.traspasos.listar', 'transito.organismos.listar', 'transito.tramite.tomar', 'transito.placa.asignar', 'transito.traspasos.ver'];
 
 async function app() {
   const a = express();
@@ -43,13 +45,13 @@ const wheres = () => h.cap.sqlDeWheres().filter((w) => !w.sql.includes('flito_ge
 beforeEach(() => { h.cap.reset(); });
 
 describe('AC6 / AC9 — todas sus secretarías, decida el enlace', () => {
-  it('un rol RENOMBRADO con enlace organismos [S1, S2] → pendientes con `organismo_codigo in (S1, S2)`', async () => {
-    h.cap.responder([{ c: S1 }, { c: S2 }], []);
+  it('un rol RENOMBRADO con enlace organismos [S1, S2] → `organismo_codigo in (...)` acotado a la por defecto', async () => {
+    h.cap.responder([{ c: S1 }, { c: S2 }], [{ t: null }], []);
     const r = await request(await app()).get('/api/transito/pendientes').set('Authorization', await como('organismos_transito'));
     expect(r.status).toBe(200);
     const [w] = wheres();
-    expect(w!.sql).toMatch(/"tramites_digitales"\."organismo_codigo" in \(\$\d+, \$\d+\)/);
-    expect(w!.params).toEqual(expect.arrayContaining([S1, S2]));
+    expect(w!.sql).toMatch(/"tramites_digitales"\."organismo_codigo" in \(\$\d+\)/);
+    expect(w!.params).toContain(S1);
   });
 
   it('el detalle de un traspaso de S2 (la SEGUNDA secretaría) se sirve; uno de otra → 404', async () => {
@@ -70,7 +72,7 @@ describe('AC6 / AC9 — todas sus secretarías, decida el enlace', () => {
   });
 
   it('AC7 — GET /organismos: solo SUS secretarías del catálogo', async () => {
-    h.cap.responder([{ c: S1 }, { c: S2 }]);
+    h.cap.responder([{ c: S1 }, { c: S2 }], [{ t: null }]);
     const r = await request(await app()).get('/api/transito/organismos').set('Authorization', await como('organismos_transito'));
     expect(r.body.map((o: { codigo: string }) => o.codigo).sort()).toEqual([S1, S2]);
   });
@@ -103,5 +105,102 @@ describe('AC1 / AC4 — sin enlace ve todo; compañía y configuración cerradas
     const r = await request(await app()).get(`/api/transito/organismos-config/${S1}`).set('Authorization', await como('organismos_transito'));
     expect([r.status, r.body]).toEqual([403, { error: 'Sin permisos' }]);
     expect(h.cap.consultas).toEqual([]);
+  });
+});
+
+// Corrección de #13426 (sesión de evidencias, decisión de David): la Bandeja muestra UNA secretaría a la
+// vez, elegida con `?organismo=` entre las asignadas por el enlace; la cabecera la refleja.
+describe('Selector de secretaría — Medellín (05001) + Envigado (05266)', () => {
+  const tramitesWhere = () => wheres().find((w) => w.sql.includes('organismo_codigo'));
+
+  it('elige 05266 → las listas (pendientes, propios, traspasos) traen SOLO 05266', async () => {
+    for (const ruta of ['pendientes', 'mis-tramites', 'traspasos']) {
+      h.cap.reset();
+      h.cap.responder([{ c: MED }, { c: ENV }], []);
+      const r = await request(await app()).get(`/api/transito/${ruta}?organismo=${ENV}`).set('Authorization', await como('organismos_transito'));
+      expect([ruta, r.status]).toEqual([ruta, 200]);
+      const w = tramitesWhere()!;
+      expect(w.sql).toMatch(/"tramites_digitales"\."organismo_codigo" in \(\$\d+\)/);
+      expect(w.params).toContain(ENV);
+      expect(w.params).not.toContain(MED);
+    }
+  });
+
+  it('pide una NO asignada (o un código inexistente) → el mismo 403, sin consultar trámites', async () => {
+    for (const codigo of ['08001', '99999']) {
+      h.cap.reset();
+      h.cap.responder([{ c: MED }, { c: ENV }]);
+      const r = await request(await app()).get(`/api/transito/pendientes?organismo=${codigo}`).set('Authorization', await como('organismos_transito'));
+      expect([r.status, r.body]).toEqual([403, { error: 'La secretaría pedida no está asignada a su cuenta' }]);
+      expect(h.cap.consultas).toHaveLength(1); // solo la puente: nada de tramites_digitales
+    }
+  });
+
+  it('sin parámetro → la por defecto: `users.transito_codigo` si está asignada; si no, la primera por código', async () => {
+    h.cap.responder([{ c: MED }, { c: ENV }], [{ t: ENV }], []);
+    await request(await app()).get('/api/transito/pendientes').set('Authorization', await como('organismos_transito'));
+    expect(tramitesWhere()!.params).toEqual(expect.arrayContaining([ENV]));
+    expect(tramitesWhere()!.params).not.toContain(MED);
+
+    h.cap.reset();
+    h.cap.responder([{ c: MED }, { c: ENV }], [{ t: '08001' }], []); // columna con una NO asignada → la primera
+    await request(await app()).get('/api/transito/pendientes').set('Authorization', await como('organismos_transito'));
+    expect(tramitesWhere()!.params).toContain(MED);
+    expect(tramitesWhere()!.params).not.toContain(ENV);
+  });
+
+  it('GET /organismos → las asignadas (código + nombre del catálogo, sin PII), por código, con `porDefecto`', async () => {
+    h.cap.responder([{ c: ENV }, { c: MED }], [{ t: ENV }]);
+    const r = await request(await app()).get('/api/transito/organismos').set('Authorization', await como('organismos_transito'));
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual([
+      { codigo: MED, nombre: 'STRIA TTEyTTO MEDELLIN', ciudad: 'Medellín' },
+      { codigo: ENV, nombre: 'STRIA TTEyTTO ENVIGADO', ciudad: 'Envigado', porDefecto: true },
+    ]);
+  });
+
+  it('una sola secretaría → la lista trae una, por defecto (sin selector) y no se lee `users`', async () => {
+    h.cap.responder([{ c: ENV }]);
+    const r = await request(await app()).get('/api/transito/organismos').set('Authorization', await como('organismos_transito'));
+    expect(r.body).toEqual([{ codigo: ENV, nombre: 'STRIA TTEyTTO ENVIGADO', ciudad: 'Envigado', porDefecto: true }]);
+    expect(h.cap.consultas).toHaveLength(1);
+  });
+
+  it('operador sin enlace → igual que hoy: pendientes sin acotar y /organismos = catálogo sin `porDefecto`', async () => {
+    h.cap.responder([]);
+    const r = await request(await app()).get('/api/transito/pendientes').set('Authorization', await como('ninguno', 'admin'));
+    expect(r.status).toBe(200);
+    expect(wheres()[0]!.sql).not.toContain('organismo_codigo');
+    h.cap.reset();
+    const s = await request(await app()).get('/api/transito/organismos').set('Authorization', await como('ninguno', 'admin'));
+    const { ORGANISMOS_TRANSITO } = await import('@operaciones/shared-types');
+    expect([s.status, s.body]).toEqual([200, ORGANISMOS_TRANSITO]);
+    expect(h.cap.consultas).toEqual([]);
+  });
+
+  it('escritura: tomar un trámite de una secretaría NO asignada → 403 y no se actualiza', async () => {
+    h.cap.responder([{ c: MED }, { c: ENV }], [{ estado: 'enviado_transito', organismoCodigo: '08001' }]);
+    const r = await request(await app()).post('/api/transito/tomar/5').set('Authorization', await como('organismos_transito'));
+    expect(r.status).toBe(403);
+    expect(h.cap.consultas.filter((c) => c.tipo === 'update')).toEqual([]);
+  });
+
+  it('escritura: con `?organismo=` NO asignado → 403 antes de leer el trámite (tomar y asignar placa)', async () => {
+    for (const ruta of ['tomar/5', 'asignar-placa/5']) {
+      h.cap.reset();
+      h.cap.responder([{ c: MED }, { c: ENV }]);
+      const r = await request(await app()).post(`/api/transito/${ruta}?organismo=08001`)
+        .set('Authorization', await como('organismos_transito')).send({ placa: 'ABC123' });
+      expect([ruta, r.status]).toEqual([ruta, 403]);
+      expect(h.cap.consultas).toHaveLength(1);
+    }
+  });
+
+  it('escritura: tomar un trámite de 05266 (la que NO es por defecto) sin parámetro → se toma', async () => {
+    h.cap.responder([{ c: MED }, { c: ENV }], [{ estado: 'enviado_transito', organismoCodigo: ENV }], [{ id: 5 }]);
+    const r = await request(await app()).post('/api/transito/tomar/5').set('Authorization', await como('organismos_transito'));
+    expect(r.status).toBe(200);
+    const upd = h.cap.consultas.filter((c) => c.tipo === 'update');
+    expect(upd).toHaveLength(1);
   });
 });

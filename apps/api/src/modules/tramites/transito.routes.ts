@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { eq, sql, and, inArray } from 'drizzle-orm';
-import { ORGANISMOS_TRANSITO, isEstadoSttTraspaso } from '@operaciones/shared-types';
+import { isEstadoSttTraspaso } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { tramitesDigitales, vehicles, soatRequests } from '../../db/schema.js';
 import { authMiddleware } from '../../shared/middleware/auth.js';
@@ -9,15 +9,15 @@ import { audit } from '../../shared/middleware/audit.js';
 import { emitEvento } from './eventos.js';
 import { notifyEstado } from './notificaciones.js';
 import { appendEventoSafe } from '../vehicles/vehiculo-historial.js';
-import { resolveTransitoScope, organismoEnAlcance } from './transito-scope.js';
-import { alcanceDe } from '../../shared/middleware/frontera-enlace.js';
+import { resolveTransitoScope, organismoEnAlcance, secretariasAsignadas } from './transito-scope.js';
 import { soatVigenteDeRunt } from './soat-vigencia.js';
 
 /**
  * TRAM-13 + TRAM-MT-01 — Bandeja de tránsito multitenant por organismo.
  * - Router: `authMiddleware`; cada ruta exige su función `transito.*` (de partida, `admin` | `transito`).
- * - Scope por ENLACE (HU #13426): `organismos_transito` ve todas sus secretarías; sin enlace, todas
- *   (o ?organismo=). Nunca por nombre de rol.
+ * - Scope por ENLACE (HU #13426): `organismos_transito` ve UNA de sus secretarías a la vez en las listas
+ *   (`?organismo=` del selector, o la por defecto); detalle y escrituras validan contra todas las
+ *   asignadas. Sin enlace, todas (o ?organismo=). Nunca por nombre de rol.
  * - POST tomar/asignar/confirmar: validación de scope + recibidoPor donde aplica.
  */
 const router = Router();
@@ -29,18 +29,17 @@ function organismoFilter(codigos: string[] | null) {
   return inArray(tramitesDigitales.organismoCodigo, codigos);
 }
 
-// GET /organismos — Catálogo nacional; con enlace `organismos_transito`, solo sus secretarías (AC7).
+// GET /organismos — Catálogo nacional; con enlace `organismos_transito`, solo sus secretarías (AC7),
+// por código ascendente y con `porDefecto: true` en la que muestran las listas sin `?organismo=`
+// (selector de la Bandeja, corrección de #13426). Código + nombre + ciudad del catálogo: sin PII.
 router.get('/organismos', exigirFuncion('transito.organismos.listar'), async (req: Request, res: Response) => {
-  const a = await alcanceDe(req);
-  if (a.enlace === 'ninguno') { res.json(ORGANISMOS_TRANSITO); return; }
-  const propios = a.enlace === 'organismos_transito' ? a.organismos : [];
-  res.json(ORGANISMOS_TRANSITO.filter((o) => propios.includes(o.codigo)));
+  res.json(await secretariasAsignadas(req));
 });
 
 // GET /pendientes — Trámites enviados a tránsito (sin tomar), filtrados por organismo.
 router.get('/pendientes', exigirFuncion('transito.bandeja.ver_pendientes'), async (req: Request, res: Response) => {
   try {
-    const scope = await resolveTransitoScope(req);
+    const scope = await resolveTransitoScope(req, { unaSecretaria: true });
     if (!scope.ok) { res.status(scope.status).json({ error: scope.error }); return; }
 
     const conditions = [eq(tramitesDigitales.estado, 'enviado_transito')];
@@ -57,7 +56,7 @@ router.get('/pendientes', exigirFuncion('transito.bandeja.ver_pendientes'), asyn
 // GET /mis-tramites — Trámites tomados por este usuario de tránsito (scope organismo).
 router.get('/mis-tramites', exigirFuncion('transito.bandeja.ver_propios'), async (req: Request, res: Response) => {
   try {
-    const scope = await resolveTransitoScope(req);
+    const scope = await resolveTransitoScope(req, { unaSecretaria: true });
     if (!scope.ok) { res.status(scope.status).json({ error: scope.error }); return; }
 
     const conditions = [
@@ -77,7 +76,7 @@ router.get('/mis-tramites', exigirFuncion('transito.bandeja.ver_propios'), async
 // GET /traspasos — Bandeja STT de traspasos (modalidad traspaso + estados STT activos).
 router.get('/traspasos', exigirFuncion('transito.traspasos.listar'), async (req: Request, res: Response) => {
   try {
-    const scope = await resolveTransitoScope(req);
+    const scope = await resolveTransitoScope(req, { unaSecretaria: true });
     if (!scope.ok) { res.status(scope.status).json({ error: scope.error }); return; }
 
     const estadoQ = typeof req.query.estado === 'string' ? req.query.estado.trim() : '';

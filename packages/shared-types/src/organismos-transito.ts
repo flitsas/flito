@@ -7,6 +7,16 @@ export interface OrganismoTransito {
   codigo: string;
 }
 
+/**
+ * Elemento de `GET /api/transito/organismos` (selector de la Bandeja de tránsito, corrección de HU #13426).
+ * Con enlace `organismos_transito`: solo las secretarías asignadas, por código ascendente, y
+ * `porDefecto: true` en la que muestran las listas cuando no se manda `?organismo=`. Sin enlace: el
+ * catálogo nacional, sin `porDefecto`.
+ */
+export interface OrganismoTransitoAsignado extends OrganismoTransito {
+  porDefecto?: true;
+}
+
 export const ORGANISMOS_TRANSITO: readonly OrganismoTransito[] = [
   { nombre: 'STRIA TTEyTTO ENVIGADO', ciudad: 'Envigado', codigo: '05266' },
   { nombre: 'STRIA TTEyTTO MEDELLIN', ciudad: 'Medellín', codigo: '05001' },
