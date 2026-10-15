@@ -4,7 +4,7 @@ Pantalla **Integración con Siigo**: con qué usuario se conecta FLITO a Siigo e
 
 ## Para quién
 
-Quien tenga la página **Facturación electrónica — Credenciales**. De partida, solo el Administrador; se reparte desde **Roles y permisos**. Consultar, registrar, probar y desactivar requieren además el permiso de administración de Siigo (de partida, el Administrador; se reparte desde **Roles y permisos**): si a un usuario se le da la página sin ese permiso, entra, pero la pantalla le dice que su usuario no tiene permiso para ver las credenciales.
+Quien tenga el ítem **Integración con Siigo**. De partida, solo el Administrador; se reparte desde **Roles y permisos**. Consultar, registrar, probar y desactivar requieren además el permiso de administración de Siigo (de partida, el Administrador; se reparte desde **Roles y permisos**): si a un usuario se le da la página sin ese permiso, entra, pero la pantalla le dice que su usuario no tiene permiso para ver las credenciales.
 
 ## Cómo se entra
 

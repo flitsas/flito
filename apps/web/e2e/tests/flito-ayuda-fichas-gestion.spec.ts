@@ -25,7 +25,6 @@ const FICHAS_GESTION = [
   { clave: 'flito_impuestos', etiqueta: 'Impuestos', to: '/flito/impuestos' },
   { clave: 'flito_derechos', etiqueta: 'Derechos', to: '/flito/derechos' },
   { clave: 'flito_revisiones', etiqueta: 'Revisiones OCR', to: '/flito/revisiones' },
-  { clave: 'flito_compuerta', etiqueta: 'Compuerta de entrega', to: '/flito/compuerta' },
   { clave: 'flito_tablero', etiqueta: 'Tablero', to: '/' },
   { clave: 'flito_bitacora', etiqueta: 'Bitácora', to: '/flito/bitacora' },
   { clave: 'flito_logistica', etiqueta: 'Logística', to: '/flito/logistica' },
@@ -144,7 +143,7 @@ test.describe('FLITO — Ayuda · fichas de gestión (HU #11894)', () => {
     await expect(page.getByText('Esta ficha está pendiente.')).toHaveCount(0);
   });
 
-  test('TC-11894-08 AC3 — Tablero es el de General (P-11); Compuerta cita la ruta y no finge ítem de menú', async ({ page }) => {
+  test('TC-11894-08 AC3 — Tablero es el de General (P-11); «Entregar trámites» vive en Gestión Trámites, sin ficha Compuerta', async ({ page }) => {
     // HU #13431: el «Tablero FLITO» se absorbió en el Tablero de General (P-11). La ficha lleva al
     // ítem del menú y ya no a una pantalla aparte por dirección.
     const tablero = leerFicha('flito_tablero');
@@ -153,19 +152,24 @@ test.describe('FLITO — Ayuda · fichas de gestión (HU #11894)', () => {
     expect(entraTablero).not.toMatch(/\/flito\/tablero/);
     expect(entraTablero).not.toMatch(/NAV_ITEMS/);
     expect(tablero).not.toMatch(/Tablero FLITO/);
+    // Épica 13411: «Para quién» se dice por permiso, no por nombre de rol.
+    const paraQuien = seccion(tablero, 'Para quién');
+    expect(paraQuien).toMatch(/ítem \*\*Tablero\*\*/);
+    // La copia literal de la pantalla («Auditoría observa…») no es un nombre de rol.
+    expect(paraQuien).not.toMatch(/(?<!\p{L})(Administrador|Auditor)(?!\p{L})/u);
 
-    const compuerta = leerFicha('flito_compuerta');
-    const entraCompuerta = seccion(compuerta, 'Cómo se entra');
-    expect(entraCompuerta).toMatch(/\/flito\/compuerta/);
-    expect(entraCompuerta).not.toMatch(/NAV_ITEMS/);
-    expect(entraCompuerta).not.toMatch(/en el menú.{0,80}Compuerta/i);
-    expect(entraCompuerta).not.toMatch(/ítem de menú/i);
+    // HU #13431: «Entregar trámites» es una acción de Gestión Trámites; la ficha Compuerta se retiró.
+    expect(existsSync(resolve(raiz, 'apps/web/src/content/ayuda/flito_compuerta.md'))).toBe(false);
+    const tramites = leerFicha('flito_tramites');
+    const entregar = seccion(tramites, 'Entregar trámites');
+    expect(entregar).toMatch(/Listo para entregar/);
+    expect(entregar).toMatch(/\busted\b/);
+    expect(entregar).not.toMatch(/\/api\/|\/flito\/compuerta/);
+    expect(tramites).not.toMatch(/Tablero FLITO/);
 
-    const nav = readFileSync(resolve(raiz, 'apps/web/src/components/shell/navItems.ts'), 'utf8');
+    const nav = readFileSync(resolve(raiz, 'apps/web/src/components/shell/navEntradas.ts'), 'utf8');
     expect(nav).not.toMatch(/page:\s*'flito_tablero'/);
     expect(nav).not.toMatch(/page:\s*'flito_compuerta'/);
-    expect(nav).not.toMatch(/to:\s*'\/flito\/tablero'/);
-    expect(nav).not.toMatch(/to:\s*'\/flito\/compuerta'/);
 
     await loginAs(page, OPERACIONES_USER);
     await page.goto('/flito/ayuda/flito_tablero');
@@ -173,10 +177,13 @@ test.describe('FLITO — Ayuda · fichas de gestión (HU #11894)', () => {
     await expect(artTablero.getByText('/flito/tablero')).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Ir a la pantalla Tablero' })).toHaveAttribute('href', '/');
 
+    await page.goto('/flito/ayuda/flito_tramites');
+    await expect(page.getByRole('article', { name: 'Gestión Trámites' }).getByRole('heading', { name: 'Entregar trámites', exact: true })).toBeVisible();
+
+    // Clave retirada = clave fuera del catálogo: «Esta ficha no existe», con vuelta al índice.
     await page.goto('/flito/ayuda/flito_compuerta');
-    const artCompuerta = page.getByRole('article', { name: 'Compuerta de entrega' });
-    await expect(artCompuerta.getByText('/flito/compuerta')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Ir a la pantalla Compuerta de entrega' })).toHaveAttribute('href', '/flito/compuerta');
+    await expect(page.getByText('Esta ficha no existe.')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Volver al índice' }).first()).toBeVisible();
   });
 
   test('TC-11894-09 AC4 — SOAT es la cola /flito/soat, no el legacy /soat', async ({ page }) => {

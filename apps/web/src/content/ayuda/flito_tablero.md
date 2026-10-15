@@ -4,7 +4,7 @@ Es el **Tablero** de General, la pantalla de inicio. Resume las retenciones, los
 
 ## Para quién
 
-Administrador (consulta y puede **Sincronizar desde FLIT**). Auditor (solo lectura: **Solo lectura · Auditoría observa el tablero; no ejecuta acciones sobre él.**).
+Quien tiene asignado el ítem **Tablero** en **Roles y permisos**: lo ve como pantalla de inicio. **Sincronizar desde FLIT** aparece solo si además tiene el permiso de sincronizar; sin él, la pantalla muestra **Solo lectura · Auditoría observa el tablero; no ejecuta acciones sobre él.** y usted consulta sin ejecutar acciones. Los bloques de **SOAT** e **Impuestos** aparecen según las colas que usted puede ver.
 
 ## Cómo se entra
 
