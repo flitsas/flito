@@ -1669,3 +1669,65 @@ describe('HU #13237 · interruptor de FLIT 2', () => {
     expect(logMock.warn).toHaveBeenCalledWith({ fuente: 'flit2' }, expect.stringContaining('sin fila'));
   });
 });
+
+// ── Bug #13585 · RN-26 ──────────────────────────────────────────────────────────────────────────
+// Un VIN anulado y recreado: el ítem anulado/revocado (otro radicado, mismo VIN, otra marca y otro
+// titular) no modifica el vehículo del trámite vigente. Asertos sobre la fila real de `vehicles`.
+describe('Bug #13585 · RN-26 — un anulado/revocado no modifica el vehículo existente', () => {
+  const VIN = '9FKTEST0000000001';
+  const vehiculo = () => filas(S.vehicles).find((v) => v.vin === VIN);
+  const otroTitular = () => [{ ...compradores()[1], ordinal: 1, porcentajeParticipacion: 100 }];
+  const anuladoMismoVin = (estado: string, over: Fila = {}) => crudo({
+    id: U2, radicado: 'FT1-0000002', estado, compradores: otroTitular(),
+    vehiculo: { ...crudo().vehiculo as Fila, placa: null, marca: 'MARCA ANULADA', linea: 'LINEA ANULADA', carroceria: 'SEDAN', cilindraje: 999 },
+    ...over,
+  });
+
+  it.each(['revocado', 'anulado'])('vigente y luego %s del mismo VIN → el vehículo no recibe UPDATE y conserva los datos del vigente', async (estado) => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([crudo({ estado: 'aprobado' })], 'c1')]).port);
+    const antes = structuredClone(vehiculo()!);
+    expect(antes).toMatchObject({ plate: 'ZZZ001', brand: 'MARCA EJEMPLO', ownerDocument: DOC_1 });
+    mem.escrituras = [];
+
+    const r = await leerIncremental({ ahora: reloj() }, puerto([pagina([anuladoMismoVin(estado)], 'c2')]).port);
+    expect(r.nuevos).toBe(1);
+    expect(mem.escrituras.filter((w) => w.tabla === 'vehicles')).toEqual([]);
+    expect(vehiculo()).toEqual(antes);
+    expect(filas(S.vehicles)).toHaveLength(1);
+    // El trámite anulado sí se guarda, colgado del mismo vehículo y con la placa conocida (RN-04).
+    expect(tramite(U2)).toMatchObject({ estado: 'anulado', vehiculoId: antes.id, plateComplete: 'ZZZ001' });
+  });
+
+  it('el mismo trámite que pasa a revocado tampoco modifica su vehículo', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([crudo({ estado: 'aprobado' })], 'c1')]).port);
+    const antes = structuredClone(vehiculo()!);
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([anuladoMismoVin('revocado', { id: U1, radicado: 'FT1-0001234', syncVersion: 11 })], 'c2')]).port);
+    expect(vehiculo()).toEqual(antes);
+    expect(tramite(U1)).toMatchObject({ estado: 'anulado', flitEstado: 'Revocado' });
+  });
+
+  it('anulado con VIN que no existe → SÍ da de alta el vehículo', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([anuladoMismoVin('anulado')], 'c1')]).port);
+    expect(vehiculo()).toMatchObject({ brand: 'MARCA ANULADA' });
+    expect(tramite(U2)).toMatchObject({ estado: 'anulado', vehiculoId: vehiculo()!.id });
+  });
+
+  it('orden inverso: anulado (crea el vehículo sin placa) y luego vigente del mismo VIN → quedan los datos del vigente', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([anuladoMismoVin('anulado')], 'c1')]).port);
+    expect(vehiculo()).toMatchObject({ brand: 'MARCA ANULADA' });
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([crudo({ estado: 'aprobado' })], 'c2')]).port);
+    expect(vehiculo()).toMatchObject({ plate: 'ZZZ001', brand: 'MARCA EJEMPLO', ownerDocument: DOC_1 });
+    expect(filas(S.vehicles)).toHaveLength(1);
+  });
+
+  it('control: un vigente posterior del mismo VIN sí actualiza el vehículo', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([crudo({ estado: 'aprobado' })], 'c1')]).port);
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([anuladoMismoVin('asignado')], 'c2')]).port);
+    expect(vehiculo()).toMatchObject({ brand: 'MARCA ANULADA', plate: 'ZZZ001' });
+  });
+});
