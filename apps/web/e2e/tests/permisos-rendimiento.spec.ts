@@ -3,7 +3,8 @@
 //
 // Mapa AC → test:
 //   AC4 → «menú: Rendimiento dentro de Administración»
-//   AC5 → «sin el ítem: el Tablero no ofrece Rendimiento ni pide el resumen» (sin aviso de error)
+//   AC5 → «sin el ítem: el Tablero no ofrece Rendimiento ni pide el resumen» (sin aviso de error) y su
+//         control positivo «con el ítem: el Tablero ofrece Rendimiento (RUM)»
 //   AC6 → «sin el ítem: /admin/rendimiento es página no permitida» y «con el ítem: cuatro estados»
 //
 //   TZ=UTC npx playwright test e2e/tests/permisos-rendimiento.spec.ts
@@ -19,6 +20,17 @@ const nav = (page: Page) => page.getByRole('navigation', { name: 'Navegación pr
 const SIN_RENDIMIENTO = {
   id: 31, username: 'e2e_sin_rendimiento', name: 'Sin Rendimiento E2E', role: 'auditor' as const, allowedPages: ['dashboard'],
 };
+
+/**
+ * AC5 — Tablero ANTIGUO: sin `tablero.tablero.ver` (con ella `Dashboard` devuelve el tablero FLITO antes de
+ * llegar a los enlaces y el aserto sería vacuo) y con Vehículos, que es lo que pinta el bloque de enlaces
+ * donde vive «Rendimiento (RUM)». `funciones: []` fija `/mios` sin la del tablero FLITO.
+ */
+const TABLERO_ANTIGUO = {
+  id: 32, username: 'e2e_tablero_antiguo', name: 'Tablero Antiguo E2E', role: 'auditor' as const,
+  allowedPages: ['dashboard', 'vehicles'],
+};
+const SIN_FUNCIONES = { funciones: [] as string[] };
 
 const resumen = (groups: unknown[]) => ({ ok: true, windowDays: 7, minSamples: 3, totalRows: groups.length * 5, groups });
 const GRUPO = {
@@ -41,13 +53,21 @@ test.describe('HU #13589 · Rendimiento como ítem de Administración', () => {
   test('AC5 · sin el ítem: el Tablero no ofrece Rendimiento ni pide el resumen, sin aviso de error', async ({ page }) => {
     const pedidas: string[] = [];
     page.on('request', (r) => { if (r.url().includes('/api/rum/summary')) pedidas.push(r.url()); });
-    await loginAs(page, SIN_RENDIMIENTO);
+    await loginAs(page, TABLERO_ANTIGUO, SIN_FUNCIONES);
     await page.goto('/');
-    await expect(nav(page)).toBeVisible();
+    // Primero: la página cargó y es el tablero antiguo con su bloque de enlaces.
+    await expect(page.getByRole('link', { name: 'Ver vehículos' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Rendimiento (RUM)' })).toHaveCount(0);
     await expect(nav(page).getByRole('link', { name: 'Rendimiento', exact: true })).toHaveCount(0);
     await expect(page.getByText(COPY_ERROR_RUM)).toHaveCount(0);
     expect(pedidas).toEqual([]);
+  });
+
+  test('AC5 · control positivo: con el ítem, el mismo Tablero ofrece «Rendimiento (RUM)»', async ({ page }) => {
+    await loginAs(page, { ...TABLERO_ANTIGUO, allowedPages: [...TABLERO_ANTIGUO.allowedPages, 'admin_rendimiento'] }, SIN_FUNCIONES);
+    await page.goto('/');
+    await expect(page.getByRole('link', { name: 'Ver vehículos' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Rendimiento (RUM)' })).toHaveAttribute('href', '/admin/rendimiento');
   });
 
   test('AC6 · sin el ítem: /admin/rendimiento es página no permitida y no pide el resumen', async ({ page }) => {
@@ -64,10 +84,10 @@ test.describe('HU #13589 · Rendimiento como ítem de Administración', () => {
     let fase: 'error' | 'vacio' | 'lleno' = 'error';
     let liberar: (() => void) | null = null;
     const primera = new Promise<void>((res) => { liberar = res; });
-    let n = 0;
+    // Retiene TODAS las respuestas hasta liberar: en dev el doble efecto de StrictMode dispara dos
+    // cargas, y retener solo la primera dejaba que la segunda quitara «cargando» antes del aserto.
     await page.route('**/api/rum/summary**', async (r) => {
-      n += 1;
-      if (n === 1) await primera; // retiene la primera respuesta para ver «cargando»
+      await primera;
       if (fase === 'error') return r.fulfill(json({ error: 'relation "rum_samples" does not exist' }, 500));
       if (fase === 'vacio') return r.fulfill(json(resumen([])));
       return r.fulfill(json(resumen([GRUPO])));
