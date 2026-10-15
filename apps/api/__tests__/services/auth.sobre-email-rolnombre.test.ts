@@ -1,12 +1,16 @@
 // HU #13255 (Feature #13254) — AC8 + decisión D1: los dos sobres de sesión (`POST /api/auth/login`
-// → `user` y `GET /api/auth/me`) llevan `email` del PROPIO usuario y `rolNombre`
-// (`permisos_roles.nombre` de su rol, `null` sin fila), y coinciden entre sí (Bug #11937: la SPA usa
-// el sobre del login hasta el primer reload). `companiaId` sigue fuera de los dos.
+// → `user` y `GET /api/auth/me`) llevan `rolNombre` (`permisos_roles.nombre` de su rol, `null` sin
+// fila) y coinciden en él (Bug #11937: la SPA usa el sobre del login hasta el primer reload).
+// `companiaId` sigue fuera de los dos.
+//
+// HU #13431 (Feature #13416): `GET /api/auth/me` YA NO lleva `email` —ni lo pide al SELECT—. Perfil lo
+// lee de `GET /api/auth/perfil` (guarda `perfil.datos.ver`, HU #13428); `/me` corre en cada carga de
+// pantalla y no debe arrastrar un dato personal de más. El sobre del login no cambia en esta HU.
 //
 // Por qué se mira el SELECT y no solo la respuesta: el `chain` de los helpers devuelve la fila
 // ENTERA aunque la proyección pidiera menos («El mock `chain` inventa columnas»). Un aserto sobre la
 // respuesta pasaría en verde sin el cambio de producción. Por eso se captura la proyección de cada
-// `select` y se aserta que pide `email` y `rolNombre`, y que el `rolNombre` sale del LEFT JOIN con
+// `select` y se aserta qué pide (`rolNombre` en los dos; `email` solo el login), y que el `rolNombre` sale del LEFT JOIN con
 // `permisos_roles` (no de una consulta de más: el conteo de `select` no cambia).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
@@ -96,28 +100,32 @@ async function ambosSobres(fila: Record<string, unknown>) {
   return { login, me, consultasLogin, consultasMe: selectMock.mock.calls.length - consultasLogin };
 }
 
-describe('AC8 + D1 — `email` y `rolNombre` en los dos sobres de sesión', () => {
-  it('login y /me devuelven el email del propio usuario y el nombre del rol, y COINCIDEN', async () => {
+describe('AC8 + D1 — `rolNombre` en los dos sobres de sesión; `email` solo en el login (HU #13431)', () => {
+  it('login devuelve el email; /me NO lo trae (ni la clave) y sí el resto del sobre; el nombre del rol COINCIDE', async () => {
     const { login, me } = await ambosSobres(FILA);
     expect(login.status).toBe(200);
     expect(me.status).toBe(200);
     expect(login.body.user.email).toBe(EMAIL);
-    expect(me.body.email).toBe(EMAIL);
+    // HU #13431: ni el valor ni la clave (un `email: null` seguiría siendo un dato de más en el contrato).
+    expect(Object.keys(me.body)).not.toContain('email');
+    expect(JSON.stringify(me.body)).not.toContain(EMAIL);
+    // Lo que /me sí sigue trayendo.
+    expect(me.body).toMatchObject({ id: 42, username: 'ana', name: 'Ana Pérez', role: 'cliente', rolNombre: 'Cliente corporativo' });
+    expect(Object.keys(me.body)).toEqual(expect.arrayContaining(['allowedPages', 'transitoCodigo']));
     expect(login.body.user.rolNombre).toBe('Cliente corporativo');
     expect(me.body.rolNombre).toBe('Cliente corporativo');
-    expect(login.body.user.email).toBe(me.body.email);
     expect(login.body.user.rolNombre).toBe(me.body.rolNombre);
   });
 
-  it('las dos consultas del usuario PIDEN `email` y `rolNombre`, este por LEFT JOIN a `permisos_roles` (sin consulta de más)', async () => {
+  it('las dos consultas PIDEN `rolNombre` por LEFT JOIN a `permisos_roles` (sin consulta de más); solo la del login pide `email`', async () => {
     const { consultasLogin, consultasMe } = await ambosSobres(FILA);
     // Login: la proyección es `{...columnas de users, rolNombre}`; /me: la proyección explícita.
     const [pLogin] = [proyecciones[0]!];
     const pMe = proyecciones[consultasLogin]!;
-    for (const p of [pLogin, pMe]) {
-      expect(Object.keys(p)).toContain('email');
-      expect(Object.keys(p)).toContain('rolNombre');
-    }
+    for (const p of [pLogin, pMe]) expect(Object.keys(p)).toContain('rolNombre');
+    expect(Object.keys(pLogin)).toContain('email');
+    // HU #13431: /me ni siquiera lo lee de la base (el mock `chain` lo inventaría en la respuesta).
+    expect(Object.keys(pMe)).not.toContain('email');
     expect(joins[0]).toEqual(['permisos_roles']);
     expect(joins[consultasLogin]).toEqual(['permisos_roles']);
     // usuario + puente + clients, en los dos: el JOIN no añadió una lectura.
@@ -125,12 +133,12 @@ describe('AC8 + D1 — `email` y `rolNombre` en los dos sobres de sesión', () =
     expect(consultasMe).toBe(3);
   });
 
-  it('sin fila de rol en el catálogo ni correo → las dos claves SALEN y valen null (no desaparecen)', async () => {
+  it('sin fila de rol en el catálogo ni correo → las claves SALEN y valen null (no desaparecen); /me sigue sin `email`', async () => {
     const { login, me } = await ambosSobres({ ...FILA, email: null, rolNombre: undefined });
     expect(Object.keys(login.body.user)).toEqual(expect.arrayContaining(['email', 'rolNombre']));
-    expect(Object.keys(me.body)).toEqual(expect.arrayContaining(['email', 'rolNombre']));
+    expect(Object.keys(me.body)).toContain('rolNombre');
+    expect(Object.keys(me.body)).not.toContain('email');
     expect(login.body.user.email).toBeNull();
-    expect(me.body.email).toBeNull();
     expect(login.body.user.rolNombre).toBeNull();
     expect(me.body.rolNombre).toBeNull();
   });
