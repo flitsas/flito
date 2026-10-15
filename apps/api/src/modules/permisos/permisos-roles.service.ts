@@ -31,9 +31,9 @@ import {
 } from '../../shared/historial/permisos-auditoria.js';
 import { funcionesAlcanzables } from '../../shared/middleware/frontera-enlace.js';
 import { enlaceConocido } from '../../shared/permisos-efectivos.js';
-import { conSeguroAntiBloqueo } from '../../shared/permisos-anti-bloqueo.js';
+import { BloqueoAdministracionError, conSeguroAntiBloqueo } from '../../shared/permisos-anti-bloqueo.js';
 import { esCodigoPg } from '../../shared/utils/pg-error.js';
-import { ACCIONES_UNIVERSALES } from './arbol/expansion.js';
+import { ACCIONES_UNIVERSALES, ancestrosDe, nodoDesmarcado } from './arbol/expansion.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -156,7 +156,9 @@ export async function cuadroDe(codigo: string): Promise<CuadroRol> {
  * entero, así que quitarlas después no las devuelve. Si la base aún no las tiene (antes de la 0236), no se marcan.
  */
 // También la PÁGINA de su ítem (`pagina.perfil`), como el paso 1b de la 0237: sin ella el rol no abre Perfil en la web.
-const ACCIONES_POR_DEFECTO_DE_ROL_NUEVO: readonly string[] = [...new Set(ACCIONES_UNIVERSALES.flatMap((u) => [u.accion, u.pagina]))];
+// HU #13429 (§5-quater.6): la CADENA completa (acción + ítem + elemento, `menu.perfil`), derivada del árbol: con el
+// resolver en cadena, sin el elemento el rol nuevo no podría cambiar su contraseña.
+const ACCIONES_POR_DEFECTO_DE_ROL_NUEVO: readonly string[] = [...new Set(ACCIONES_UNIVERSALES.flatMap((u) => [u.accion, ...ancestrosDe(u.accion)]))];
 
 export async function crearRol(input: CrearRolInput, actor: ActorAuditoria): Promise<RolCatalogo> {
   if (RESERVADOS.includes(input.codigo)) throw new CodigoReservadoError(input.codigo);
@@ -297,6 +299,16 @@ export async function guardarCuadro(codigo: string, pedidas: string[], actor: Ac
   const inexistentes = await funcionesInexistentes(despues);
   if (inexistentes.length) throw new FuncionesInexistentesError(inexistentes);
 
+  try {
+    return await guardarCuadroEnTx(codigo, despues, actor);
+  } catch (e) {
+    // HU #13429 (AC8): el 409 dice además QUÉ eslabón de la cadena quedó desmarcado en lo pedido (sin consulta extra).
+    if (e instanceof BloqueoAdministracionError) e.nodo = nodoDesmarcado(e.funcion, new Set(despues));
+    throw e;
+  }
+}
+
+function guardarCuadroEnTx(codigo: string, despues: string[], actor: ActorAuditoria): Promise<RespuestaGuardarCuadro> {
   return db.transaction(async (tx) => conSeguroAntiBloqueo(tx, async (): Promise<RespuestaGuardarCuadro> => {
     const [rol] = await tx.select({ tipoEnlace: permisosRoles.tipoEnlace }).from(permisosRoles)
       .where(eq(permisosRoles.codigo, codigo)).limit(1).for('update');

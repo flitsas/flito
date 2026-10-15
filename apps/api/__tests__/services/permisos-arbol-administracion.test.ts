@@ -70,7 +70,7 @@ describe('AC1 — el catálogo es exactamente la lista aprobada', () => {
     const cat = new Set(catalogoCompleto().map((f) => f.codigo));
     expect(cat.has('pagina.flito_ayuda')).toBe(false);
     expect(cat.has('pagina.flito_tablero')).toBe(false);
-    expect(expandir(['accion.dashboard.ver']).has('pagina.flito_tablero')).toBe(true);
+    expect(expandir(['menu.general', 'pagina.dashboard', 'accion.dashboard.ver']).has('pagina.flito_tablero')).toBe(true); // HU #13429: con su cadena
   });
 });
 

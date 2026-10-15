@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { chain } from '../helpers/db.js';
-import { registrarUsuarioDePrueba, testToken } from '../helpers/auth.js';
+import { registrarUsuarioDePrueba, soloEstas, testToken } from '../helpers/auth.js';
 
 const selectMock = vi.fn();
 const insertMock = vi.fn();
@@ -271,7 +271,8 @@ const filaTarifa = (over: Record<string, unknown> = {}) => ({
 /** Un usuario cuyo ROL tiene exactamente estas funciones de tarifas (y nada más): la prueba por reparto. */
 async function tokenConFunciones(sub: number, role: 'financiera' | 'auditor' | 'admin', funciones: string[]) {
   const token = `Bearer ${await testToken({ sub, role })}`;
-  await registrarUsuarioDePrueba(sub, { rol: role, tipoEnlace: 'ninguno', funcionesDelRol: funciones, excepciones: [] });
+  // HU #13429: «tiene EXACTAMENTE estas operaciones» (su acción con su cadena, y las hermanas revocadas).
+  await registrarUsuarioDePrueba(sub, { rol: role, tipoEnlace: 'ninguno', ...soloEstas(funciones) });
   return token;
 }
 

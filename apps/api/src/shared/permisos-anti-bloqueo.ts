@@ -78,7 +78,7 @@
 import { and, eq, isNull, or, sql, type SQL } from 'drizzle-orm';
 import type { db } from '../db/client.js';
 import { permisosRoles, permisosRolFuncion, permisosUsuarioFuncion, users } from '../db/schema.js';
-import { codigosQueConceden } from '../modules/permisos/arbol/expansion.js';
+import { alternativasDe } from '../modules/permisos/arbol/expansion.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -108,6 +108,11 @@ export const MENSAJE_BLOQUEO_ADMINISTRACION =
  * alguno pero nadie las reúne todas— la primera de la lista. Contrato 409 `{ error, funcion }`.
  */
 export class BloqueoAdministracionError extends Error {
+  /**
+   * HU #13429 (§5-quater.5): `nodo` es ADITIVO en el 409 — el eslabón más alto de la cadena de `funcion` que
+   * faltó en lo que se intentó guardar (`nodoDesmarcado`). Lo pone el servicio, que conoce lo pedido.
+   */
+  public nodo?: string;
   constructor(public readonly funcion: string) {
     super(MENSAJE_BLOQUEO_ADMINISTRACION);
     this.name = 'BloqueoAdministracionError';
@@ -115,7 +120,13 @@ export class BloqueoAdministracionError extends Error {
 }
 
 /**
- * `tiene(F)` para la fila de `users` del FROM exterior: la regla del resolutor sobre el conjunto
+ * HU #13429 (§5-quater.5, AC8): `tiene(F)` = alguna ALTERNATIVA que concede F está marcada con TODA su
+ * cadena (`alternativasDe(F)`: la acción con su ítem y su elemento; la página con su elemento), cada eslabón
+ * `(rol ∨ conceder) ∧ ¬revocar`, y F misma no revocada. Desmarcar Administración (nivel 1) o Usuarios / Roles y
+ * permisos (nivel 2) en el último rol que la sostiene deja la cuenta en 0 → 409. Mismo SQL parametrizado
+ * (`unnest` por alternativa) y mismas DOS `select`.
+ *
+ * Antes (HU #13428): `tiene(F)` para la fila de `users` del FROM exterior: la regla del resolutor sobre el conjunto
  * EXPANDIDO (HU #13428, diseño §5-ter.1 punto 1). Desde la 0237 `usuarios.usuario.editar` y
  * `permisos.cuadro.guardar` ya no tienen filas: las concede su acción del árbol. Por eso F se cuenta
  * si alguno de los códigos que la conceden (`codigosQueConceden(F)`: F misma y las acciones que la
@@ -130,11 +141,17 @@ export class BloqueoAdministracionError extends Error {
  * invisibles. Así el invariante cuesta exactamente DOS `select`: el lock y la cuenta.
  */
 function tiene(funcion: string): SQL {
-  const lista = sql.join(codigosQueConceden(funcion).map((c) => sql`${c}`), sql`, `);
   const revocadaC = sql`exists (select 1 from ${permisosUsuarioFuncion} r where r.user_id = ${users.id} and r.funcion_codigo = c.codigo and r.efecto = ${'revocar'})`;
   const porRol = sql`exists (select 1 from ${permisosRolFuncion} where ${permisosRolFuncion.rolCodigo} = ${users.role} and ${permisosRolFuncion.funcionCodigo} = c.codigo)`;
   const concedida = sql`exists (select 1 from ${permisosUsuarioFuncion} k where k.user_id = ${users.id} and k.funcion_codigo = c.codigo and k.efecto = ${'conceder'})`;
-  const alguno = sql`exists (select 1 from unnest(array[${lista}]::text[]) as c(codigo) where (${porRol} or ${concedida}) and not ${revocadaC})`;
+  // Una alternativa vale si NINGÚN eslabón de su cadena falta. Un código fuera del árbol (solo la función
+  // temporal del test de concurrencia: las cuatro de producción están todas en él) se cuenta por su fila.
+  const alternativas = alternativasDe(funcion);
+  const cadenas = (alternativas.length ? alternativas : [[funcion]]).map((cadena) => {
+    const lista = sql.join(cadena.map((c) => sql`${c}`), sql`, `);
+    return sql`not exists (select 1 from unnest(array[${lista}]::text[]) as c(codigo) where not ((${porRol} or ${concedida}) and not ${revocadaC}))`;
+  });
+  const alguno = sql`(${sql.join(cadenas, sql` or `)})`;
   const revocada = sql`exists (select 1 from ${permisosUsuarioFuncion} where ${permisosUsuarioFuncion.userId} = ${users.id} and ${permisosUsuarioFuncion.funcionCodigo} = ${funcion} and ${permisosUsuarioFuncion.efecto} = ${'revocar'})`;
   return sql`(${alguno} and not ${revocada})`;
 }

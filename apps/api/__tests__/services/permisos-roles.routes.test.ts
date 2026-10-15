@@ -497,7 +497,8 @@ describe('AC5 — GET y PUT /roles/:codigo/funciones', () => {
       .select('permisos_rol_funcion', [{ codigo: 'permisos.cuadro.guardar' }]);
     const r = await request(app()).put('/api/permisos/roles/admin/funciones').set('Authorization', await admin()).send({ funciones: [] });
     expect(r.status).toBe(409);
-    expect(r.body).toEqual({ error: MENSAJE_409, funcion: 'permisos.cuadro.guardar' });
+    // HU #13429 (AC8): `nodo` aditivo = el eslabón más alto de la cadena que falta en lo pedido.
+    expect(r.body).toEqual({ error: MENSAJE_409, funcion: 'permisos.cuadro.guardar', nodo: 'menu.administracion' });
     // La escritura ocurrió dentro de la transacción (y la transacción no confirmó).
     expect(borrados).toEqual([{ tabla: 'permisos_rol_funcion', filtros: ['admin'] }]);
     expect(eventos).not.toContain('commit');
@@ -527,7 +528,7 @@ describe('HU #13424 — admin editable (AC1), conjunción en el cuadro (AC3), bo
       .select('permisos_rol_funcion', [{ codigo: 'pagina.roles_permisos' }, { codigo: 'soat.cola.ver' }]);
     const r = await request(app()).put('/api/permisos/roles/gestor_x/funciones').set('Authorization', await admin()).send({ funciones: ['soat.cola.ver'] });
     expect(r.status).toBe(409);
-    expect(r.body).toEqual({ error: MENSAJE_409, funcion: 'pagina.users' });
+    expect(r.body).toEqual({ error: MENSAJE_409, funcion: 'pagina.users', nodo: 'menu.administracion' }); // HU #13429: `nodo` aditivo
     expect(eventos).not.toContain('commit');
     expect(invalidarRolMock).not.toHaveBeenCalled();
     // AC8: actor (id opaco + su correo, RN-A10), rol afectado y resultado; ni un dato del titular.

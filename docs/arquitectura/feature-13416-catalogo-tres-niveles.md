@@ -730,6 +730,354 @@ Perfil → Perfil: Ver mis datos · Cambiar mi contraseña
 Ayuda → Ayuda FLITO: sin permiso propio (se ve con ≥1 capítulo visible)
 ```
 
+## 5-quater. Árbol de tres niveles y módulos antiguos (HU #13429)
+
+Diseño **slim** sobre el patrón ya construido: `arbol/expansion.ts` (resolver puro), `arbol/acciones-<area>.ts`
+(mapeo por HU), `catalogo.ts` (`catalogoCompleto` + arranque), `shared/permisos-anti-bloqueo.ts` (`tiene(F)` en
+SQL) y el par siembra/reparto generado (§4.1). No reabre ADR-0025: aplica su fórmula (§2.4) y cierra lo que ella
+dejó a esta HU. Habla con el motor `modules/permisos/` + `shared/permisos-*`. Los módulos **legacy** (sin prefijo)
+solo entran como ítems de nivel 2; sus guardas **no cambian**. ADR: **no aplica** (no hay tradeoff nuevo de modelo).
+
+Partida medida el 2026-10-13 con `leerRepartoSembrado()` (migraciones 0001..0237 plegadas, los 12 roles del
+pliegue): es lo que usan las tablas de abajo. Las marcas editadas en DEV desde el panel y las excepciones por
+usuario solo las ve el reporte en seco (§5-quater.8).
+
+### 5-quater.1 Resolver en cadena (AC1, AC4, AC5, AC7)
+
+**Dónde.** Todo en `arbol/expansion.ts::expandir(marcados, revocados)`: misma firma, mismo llamador
+(`conjuntoEfectivo` de `shared/permisos-efectivos.ts`, que ya resta lo revocado antes de llamarla). Ni
+`resolverPermisos`, ni `exigirFuncion`, ni `requirePage`, ni la caché cambian. `filtrarPorFuncion` hereda la
+regla porque pliega con el mismo `conjuntoEfectivo`.
+
+**Regla (la de ADR-0025 §2.4, ahora completa):**
+
+```
+M            = (R ∪ C) \ V                                   -- por código, ya lo calcula conjuntoEfectivo
+efectivo(n)  = n ∈ M ∧ (padre(n) = null ∨ efectivo(padre(n))) -- nodos: menu.* → pagina.* → accion.* (→ accion.* anidada)
+funciones    = { n nodo : efectivo(n) }
+             ∪ ops(a)  para cada acción a efectiva               -- igual que hoy, ahora con gating
+             ∪ ops(i)  para cada ítem ANTIGUO i efectivo          -- expansión del ítem (§5-quater.3)
+             ∪ { o ∈ M : o opcional ∧ efectivo(padre(o)) }        -- opcionales de acción o de ítem antiguo
+             ∪ { o ∈ M : o transversal }                         -- sin gating (§5-quater.2)
+             ∪ conjunciones (pedir_ambos)
+             \ V                                                 -- «revocar gana» también sobre lo expandido
+```
+
+- `PADRE: Map<codigo, padre>` se construye **una vez** al cargar el módulo desde `ARBOL_PERMISOS` (shared-types,
+  ahora con `menu.*` y el legado) más los opcionales (padre = la acción o el ítem que los declara). `efectivo` se
+  memoiza por llamada. Un código de `M` que no es nodo, ni opcional, ni transversal **no entra** (fallo cerrado):
+  tras la 0239 no existe ninguno, y el arranque lo garantiza (siguiente punto).
+- **Arranque (`catalogoCompleto` / `verificarCatalogoAlArrancar`):** toda fila concedible de `permisos_funciones`
+  está clasificada en exactamente una de: elemento, ítem, acción, opcional (con padre), transversal. Una
+  `pagina.*` de `PageSlug` concedible que no esté en el árbol → `CatalogoIncoherenteError` (así una página nueva no
+  nace muerta en silencio). Cierra el R4 de UX con la excepción declarada de los transversales.
+- **Desmarcar conserva (AC4/AC5):** el `PUT` reemplaza el conjunto tal cual llega; no hay limpieza de hijos en
+  `guardarCuadro` (verificado: es `delete + insert` del conjunto pedido, sin la regla 4 de #12717). Desmarcar
+  `menu.x` quita una fila; las de dentro quedan y vuelven a ser efectivas al remarcar. Nada que construir aquí salvo
+  el test.
+- **Ancestros que la cadena exige:** elemento para un ítem; elemento + ítem para una acción; + acción madre para la
+  anidada (`exportar_pago` sin `exportar` deja de valer: hoy vale, es pérdida a reportar, §5-quater.8).
+
+**Excepciones por usuario en cada nivel — recomendación: opción A (P-25).**
+
+| | Opción A — la excepción marca el **nodo** y la cadena se evalúa después (recomendada) | Opción B — la cadena se evalúa con el **rol** y la excepción se suma/resta al expandido |
+|---|---|---|
+| Conceder `accion.soat.exportar` a un usuario cuyo rol no tiene `pagina.flito_soat` | **No** la habilita: el panel la pinta marcada e inactiva; hay que conceder también el ítem (y el elemento si falta) | La habilita: el usuario exporta sin ver SOAT en el menú |
+| Revocar `menu.gestion` a un usuario | Corta todo Gestión para él, conserva lo de dentro (AC4 por usuario) | Hay que traducir «revocar elemento» a revocar cada operación expandida: no hay fórmula única |
+| Coherencia con el panel de usuario (UX #13430: «excepción en nivel 1 deja sus hijos visibles, inactivos») | Exacta: misma fórmula en rol y usuario | El panel diría «inactivo» de algo que sí funciona |
+| Lectura del AC7 («exige niveles y DESPUÉS aplica la excepción») | La excepción entra al calcular `M` (el «después» es respecto del rol) | Literal |
+
+A es la fórmula de ADR-0025 y de la UX ya aprobada; B abre una puerta lateral al gating (una excepción de nivel 3
+salta los niveles 1 y 2). **Revocar una operación suelta** (transversal u opcional) sigue valiendo y se aplica al
+final, como hoy.
+
+### 5-quater.2 Operaciones sueltas que no son nodos
+
+Medido sobre `OPERACIONES_DECLARADAS` menos `CODIGOS_ABSORBIDOS` tras #13428: quedan tres clases.
+
+| Clase | Códigos | Cómo se conceden desde la 0239 |
+|---|---|---|
+| **Opcionales de acción FLITO** (P-9, P-16, P-17, regla del 2026-10-13) | `bolsas.soporte.descargar`, `comparendos.registros.exportar`, `comprobantes.archivo.descargar`, `conciliacion.comprobante.descargar`, `impuestos.factura.ver`, `logistica.actas.descargar`, `.despachar`, `.operar_ajenas`, `revisiones.soporte.descargar`, `soat.solicitud.reintentar_runt`, `siigo.conceptos.confirmar`, `siigo.factura.corregir`, `.anular`, `parametrizacion.companias.listar`, `parametrizacion.proveedores.listar` | Siguen siendo filas marcables (`nivel` NULL) con `padre_codigo` = la acción que los declara. Efectivas solo si esa acción es efectiva (si las declaran dos acciones, basta una). Quien las tiene las conserva (no se tocan sus marcas) |
+| **Opcionales de ítem antiguo** (operación permanente que hoy tiene solo una parte de quien tiene el ítem; ver la regla de §5-quater.3) | `vehicles.propietario.ver_documento` (PII: documento sin enmascarar), `laft.manual.firmar`, `soat.antiguo.operar` | Igual: filas marcables con `padre_codigo` = `pagina.<item>`; el ítem **no** las expande |
+| **Transversales** (sin ítem del menú: búsquedas de sesión de #13423 y RUM) | `vehicles.vehiculos.consultar`, `runt.persona.consultar`, `runt.cedula.leer`, `integraciones.fasecolda.buscar`, `rum.resumen.ver` | Filas marcables con `padre_codigo` y `nivel` NULL, **sin gating**: `vehicles.vehiculos.consultar` la usan hoy admin, auditor, lider_pesv, proveedor y supervisor_flota desde pantallas distintas; colgarla de un ítem haría perder a quien no lo tiene |
+
+El panel (#13430) pinta los opcionales como hijos de su acción o ítem (nivel visual 4 o 3) y los transversales en
+un bloque final propio (P-29); el contrato los entrega así (§5-quater.5).
+
+### 5-quater.3 Módulos antiguos en nivel 2
+
+**Regla de expansión (deducida para cumplir AC2 + AC3 + «0 pérdidas»):** `ops(i)` de un ítem antiguo =
+(a) **sus transitorios** `*.administrar` (AC3: ganancia aprobada) + (b) **sus operaciones permanentes que hoy tiene
+todo rol que tiene el ítem** (no hay ganancia). Una permanente que solo tiene una parte de quienes tienen el ítem
+pasa a **opcional del ítem** (§5-quater.2), porque expandirla sería una ganancia que el AC3 no aprobó (P-26).
+Una operación puede estar en varios ítems: así la Bandeja de trámites conserva las `tramite.*` que usa `transito`,
+rol que no tiene Trámite Digital. Todo lo que entra en algún `ops(i)` queda **absorbido** (se borra de
+`permisos_funciones` y de las marcas, como en #12873); las guardas de las rutas no cambian.
+
+Datos en `apps/api/src/modules/permisos/arbol/acciones-legado.ts` (nuevo: `ITEMS_LEGADO: Record<'pagina.<slug>',
+{ operaciones; opcionales? }>`, `TRANSVERSALES`, `TRANSITORIOS_RETIRADOS`) y la estructura/nombres en
+`packages/shared-types/src/permisos-arbol/legado.ts` (`ItemDef` con `acciones: []` y `legado: true`; nombre = el
+rótulo actual de `navItems.ts`, para que el menú de #13431 lea una sola fuente).
+
+| Elemento | Ítem (`pagina.*`) — nombre | `ops(i)` (expande) | Opcionales del ítem |
+|---|---|---|---|
+| Gestión | `vehicles` — Vehículos | `vehicles.vehiculos.administrar` | `vehicles.propietario.ver_documento` |
+| | `tramite` — Trámite Digital | todas las `tramite.*` (51), `firma.solicitud.administrar`, `firma.estado.ver` | — |
+| | `soat` — SOAT (antiguo) · `tax_reader` — Lector de impuestos (antiguo) (P-28) | `soat.antiguo.administrar` · — | `soat.antiguo.operar` · — |
+| Tránsito | `transito` — Bandeja de trámites | `transito.*` (8), las `tramite.*` que hoy tiene `transito` (39), `firma.estado.ver` | — |
+| Administración | `privacy` — Privacidad y datos (incluye Log accesos PII, P-27) | `privacy.titulares.operar`, `privacy.olvido.administrar`, `privacy.accesos_pii.ver` | — |
+| | `drive` — Google Drive | `drive.archivos.administrar` | — |
+| Flota | `fleet` — Flota | `fleet.flota.administrar` | — |
+| Mantenimiento | `maintenance_inicio` — Mantenimiento · `maintenance_ordenes` — Órdenes de trabajo · `maintenance_indicadores` · `maintenance` (general, P-28) | `maintenance.inicio.administrar` · `maintenance.ordenes.administrar` + `liquidacion.pago_manual.administrar` (P-14) · — · — | — |
+| PESV | `pesv` (Tablero PESV) y los 24 `pesv_*` | por ítem: `tablero_ejecutivo`, `diagnostico` (+`_consulta`), `comite`, `plan`, `politica` (+`_edicion`), `auditorias`, `comunicaciones`, `contratistas`, `incidentes` (`pesv.incidentes_causa_raiz`, `drivers.incidentes`, `drivers.incidentes_registro`), `raci`, `normativa` (+`_edicion`), `retencion` (+`_edicion`), `conductores`, `capacitaciones`, `checklists`, `alcoholimetria`, `emergencias` (`drivers.*`), `jornadas` (`jornadas.control`), `rutas`, `pernocta` (`rutas.*`); sin ops: `pesv`, `siniestralidad`, `indicadores_operacion`, `reportar_incidente`, `mi_jornada` | — |
+| RNDC | `rndc` — RNDC (tablero, remesas, manifiestos y maestros: 4 enlaces, un ítem) · `rndc_admin` — Credenciales RNDC | `rndc.manifiestos.administrar` · `rndc.credenciales.administrar` | — |
+| LAFT | `laft` — Cumplimiento LAFT | `laft.listas.operar/.administrar`, `.contrapartes.operar`, `.bitacora.ver`, `.efectivo.operar`, `.empleados.operar`, `.retencion.administrar`, `.sincronizacion.ver/.administrar` | — |
+| | `laft_unusual` · `laft_trainings` · `laft_manual` · `laft_oficial` · `laft_audit_plan` · `laft_dashboard` | `laft.inusuales.operar`, `laft.ros.operar`, `.ros.exportar` · `laft.capacitaciones.operar` · `laft.manual.administrar` · `laft.oficial.administrar` · `laft.plan_auditoria.administrar` · `laft.tablero.ver` | `laft.manual.firmar` (en `laft_manual`) |
+
+46 ítems antiguos. La asignación fichero → ítem es borrador por módulo de ruta (la tabla es lo esperado); la **fija
+el test**, no esta tabla: `permisos-arbol-legado.test.ts` exige, sobre el pliegue 0001..0239, (1) toda operación
+legacy viva está en ≥1 `ops(i)`, es opcional de un ítem, o es transversal; (2) ningún rol pierde una operación que
+tenía (paridad 0 pérdidas); (3) toda ganancia es un transitorio (lista cerrada de §5-quater.4) o una visibilidad de
+la siembra (§5-quater.6). Si (2) falla, la operación se añade al `ops(i)` del ítem que ese rol sí tiene (como la
+Bandeja), nunca se acepta la pérdida en silencio.
+
+**Compuerta** (en la lista del 7-oct) **no** es ítem antiguo: el 9-oct (P-10, #12873) su página quedó absorbida por
+«Entregar trámites» de Gestión Trámites. No se re-crea. **Log PII** y **Privacidad** son hoy la misma página
+(`pagina.privacy`, dos enlaces del menú): un solo ítem (P-27).
+
+### 5-quater.4 Transitorios a retirar (AC3)
+
+Sacados de `NOMBRES_LEGADO` (los que usan `transitorio(...)`) contra el pliegue: **43** códigos vivos.
+`siigo.parametrizacion.administrar` (#13427) y `clients.clientes.administrar` (#13428) ya se retiraron; quedan en
+`NOMBRES_LEGADO` solo como nombre de partida. **`siigo.conceptos.administrar` NO se retira**: es una operación de
+la acción «Mapeo de conceptos» de #13427, no un transitorio (no usa `transitorio(...)`), aunque termine en
+`.administrar`; el test filtra por la marca de `NOMBRES_LEGADO`, nunca por el sufijo.
+
+| Familia | Transitorios | Ítem que los absorbe |
+|---|---|---|
+| `pesv.*` (16) | `tablero_ejecutivo`, `diagnostico`, `diagnostico_consulta`, `comite`, `plan`, `politica`, `politica_edicion`, `auditorias`, `comunicaciones`, `contratistas`, `incidentes_causa_raiz`, `raci`, `normativa`, `normativa_edicion`, `retencion`, `retencion_edicion` | su `pesv_*` |
+| `drivers.*` (7) | `conductores`, `capacitaciones`, `incidentes`, `incidentes_registro`, `checklists`, `alcoholimetria`, `emergencias` | `pesv_*` |
+| `jornadas.control`, `rutas.rutas`, `rutas.pernocta` (3) | | `pesv_jornadas`, `pesv_rutas`, `pesv_pernocta` |
+| `maintenance.inicio`, `maintenance.ordenes`, **`liquidacion.pago_manual`** (3) | | `maintenance_inicio`, `maintenance_ordenes` (×2) |
+| `vehicles.vehiculos`, `fleet.flota`, `drive.archivos`, `soat.antiguo`, `firma.solicitud`, `privacy.olvido` (6) | | `vehicles`, `fleet`, `drive`, `soat`, `tramite`, `privacy` |
+| `rndc.credenciales`, `rndc.manifiestos` (2) | | `rndc_admin`, `rndc` |
+| `laft.*` (6) | `listas`, `plan_auditoria`, `manual`, `retencion`, `sincronizacion`, `oficial` | `laft`, `laft_audit_plan`, `laft_manual`, `laft`, `laft`, `laft_oficial` |
+
+Los códigos siguen siendo **identificadores de guarda** (como `soat.cola.ver` tras #12873): no se renombran 43
+códigos en ~80 guardas. Solo cambia su `descripcion` en `NOMBRES_LEGADO` (sin «Transitorio (retira la HU
+#13429)»), porque la bitácora del 403 la muestra. Quien tenía el transitorio tenía también la página del ítem en
+todos los casos del pliegue (ninguna pérdida); para usuarios con `conceder` del transitorio sin la página, la 0239
+concede la página (§5-quater.6).
+
+**Ganancias previsibles por rol (partida 0001..0237; AC3 = ganancia aprobada):**
+
+| Rol | Gana (transitorios, por tener el ítem) | Visibilidad nueva (siembra de cadena) |
+|---|---|---|
+| admin | ninguna (ya los tiene todos) | — |
+| compliance | **31**: Privacidad «derecho al olvido» (`privacy.olvido`); LAFT `listas`, `retencion`, `sincronizacion`, `manual`, `oficial`; PESV los 25 de la tabla menos `diagnostico_consulta`, que ya tenía | — |
+| conductor | **21**: PESV `tablero_ejecutivo`, `diagnostico` (+consulta), `comite`, `plan`, `politica` (+edición), `auditorias`, `comunicaciones`, `contratistas`, `incidentes_causa_raiz`, `drivers.*` (7 con registro), `jornadas.control`, `rutas.rutas`, `rutas.pernocta` | — |
+| supervisor_flota | **24**: los 19 PESV de sus ítems + `fleet.flota`, `maintenance.inicio`, `maintenance.ordenes`, **`liquidacion.pago_manual`**, `vehicles.vehiculos` | — |
+| lider_pesv | **17**: `pesv.tablero_ejecutivo`, `.politica`, `.normativa`, `.retencion`, `drivers.*` (6, sin registro), `jornadas.control`, `rutas.*` (2) + `fleet.flota`, `maintenance.inicio`, `.ordenes`, **`liquidacion.pago_manual`** | — |
+| auditor | **4**: `laft.manual`, `laft.oficial`, `laft.plan_auditoria`, `soat.antiguo` | `pagina.transito_organismos` + `menu.transito` (tenía «Ver» de Organismos STT sin la página) |
+| proveedor | **1**: `soat.antiguo.administrar` | — |
+| transito | ninguna (la Bandeja conserva sus `tramite.*`, `transito.*` y `firma.estado.ver`) | `pagina.transito_organismos` (mismo caso que auditor) |
+| mensajero | ninguna | `pagina.flito_logistica` (tiene «Generar actas» y «Despachar, entregar y devolver» sin la página) |
+| financiera, gestor_impuestos, cliente | ninguna | — |
+
+**No** ganan (opcionales del ítem): supervisor_flota `vehicles.propietario.ver_documento`; auditor
+`laft.manual.firmar` y `soat.antiguo.operar`. Todos los roles reciben `menu.*` de los elementos de sus ítems
+(§5-quater.6): eso no es ganancia, es el contenedor de lo que ya ven. El reparto rol × ganancia **lo verifica el
+reporte en seco**, no esta tabla.
+
+### 5-quater.5 Contrato del API para #13430
+
+| Método y ruta | Guarda | Respuesta |
+|---|---|---|
+| `GET /api/permisos/arbol` | `permisos.catalogo.ver` | `{ arbol: NodoArbol[], transversales: NodoArbol[] }` sin marcas (sucesor de `GET /funciones`, que queda hasta #13430) |
+| `GET /api/permisos/roles/:codigo/arbol` | `permisos.cuadro.ver` | `{ rol: { codigo, nombre, tipoEnlace }, arbol: NodoArbolRol[], transversales: NodoArbolRol[] }` |
+| `GET /api/permisos/usuarios/:id/arbol` | la misma que hoy protege la lectura de excepciones en `users.routes.ts` (#12087); backend la confirma, no se inventa otra | `{ userId, rol, arbol: NodoArbolUsuario[], transversales: NodoArbolUsuario[] }` |
+| `PUT /api/permisos/roles/:codigo/funciones` | `permisos.cuadro.guardar` | **sin cambio de forma**: `{ funciones: string[] }` = todos los nodos marcados, incluidos los inactivos; 400 `FuncionesInexistentes` (incluye `menu.ayuda`, que no se siembra); 409 |
+| `PATCH /api/users/:id` `{ funciones: [{ codigo, efecto }] }` | la de hoy | **sin cambio**: ya corre dentro de `conSeguroAntiBloqueo` (`actualizarUsuario`) |
+
+`NodoArbol` (shared-types, `permisos-arbol/index.ts`): `{ codigo, nombre, descripcion?, tipo: 'elemento' | 'item' |
+'accion' | 'operacion', nivel: 1|2|3|4 (profundidad visual), padre: string | null, orden, slug?, legado?, derivado?,
+opcional? }`. `tipo: 'operacion'` es nuevo (opcionales y transversales): cambiar la unión exige `grep` en
+`apps/web` (regla 7; hoy solo la importa shared-types). `NodoArbolRol` añade `marcado`, `efectivo`, `sinAcciones`,
+`hijos`; `NodoArbolUsuario`, `heredado` y `excepcion` (forma ya declarada en §3).
+
+- `marcado` = el código está en las filas (rol) o en `(R ∪ C) \ V` (usuario); `efectivo` = la cadena entera
+  (§5-quater.1). Se calculan en el servidor con la misma función que el resolver (`efectivoDeNodos`, exportada de
+  `expansion.ts`), no con otra.
+- **`sinAcciones` (AC6)** = ítem **FLITO** (`!legado`) **marcado** sin ninguna acción hija marcada. Se define sobre
+  `marcado` y no sobre `efectivo` (enmienda a §2.4): el panel lo pinta aunque el elemento esté desmarcado. Ítems
+  antiguos: siempre `false` (`legado: true` lo dice).
+- «Ayuda» viaja con `derivado: true`, sin `marcado` ni casilla (decisión del PO: sin permiso propio).
+
+**409 anti-bloqueo con niveles (AC8).** `tiene(F)` (anti-bloqueo) pasa de «algún código que concede F está marcado»
+a «alguna **alternativa** que concede F está marcada **con toda su cadena**». Para las cuatro
+`FUNCIONES_DE_ADMINISTRACION`:
+
+| Función | Alternativas (cadena entera, cada eslabón `(rol ∨ conceder) ∧ ¬revocar`) |
+|---|---|
+| `pagina.users` | `pagina.users` ← `menu.administracion` |
+| `usuarios.usuario.editar` | `accion.usuarios.editar` ← `pagina.users` ← `menu.administracion` |
+| `pagina.roles_permisos` | `pagina.roles_permisos` ← `menu.administracion` |
+| `permisos.cuadro.guardar` | `accion.roles_permisos.asignar` ← `pagina.roles_permisos` ← `menu.administracion` |
+
+Sale de una función nueva `alternativasDe(F): string[][]` en `expansion.ts` (las de hoy, `codigosQueConceden`, más
+la cadena de cada una). Mismo SQL parametrizado (`unnest` por alternativa, sin `sql.raw`) y **mismas dos** `select`
+(lock + cuenta): los specs con `selectMock` posicional no se desordenan. Desmarcar Administración (nivel 1) o
+Usuarios / Roles y permisos (nivel 2) en el último rol que sostiene la conjunción → cuenta 0 → 409, nada escrito.
+La semántica sigue siendo ADR-0022/0024: cuenta **usuarios** activos, vivos, de rol sin enlace (un rol sin usuarios
+no sostiene nada; es lo que el AC llama «el último rol con ellos»).
+
+Cuerpo: `{ error, funcion, nodo? }`. `nodo` es **aditivo**: el código del árbol más alto de la cadena de `funcion`
+que quedó desmarcado en el conjunto que se intentó guardar (en el `PUT`, el del rol; en el `PATCH`, el del usuario).
+Le sirve al «Mostrar dónde está» de la UX (desplegar hasta `menu.administracion` en vez de hasta `pagina.users`).
+Se calcula en el servicio sobre el conjunto pedido, sin consulta extra.
+
+**Huecos frente a `docs/ux/hu-13430-panel-tres-niveles.md` (declarados, no bloquean el API):**
+1. La UX no prevé **opcionales** ni **transversales**: el contrato los da (hijos `tipo: 'operacion'` con
+   `opcional: true`, y el arreglo `transversales`). UX debe decidir su copy (P-29); mientras, el bloque final
+   «Sin elemento del menú» que ya diseñó como defensa de R4 sirve para los transversales.
+2. La UX dice que Ayuda se ve «por permiso (elemento Ayuda + su ítem)» (delta #13431): contradice la decisión del PO
+   (Ayuda derivada, sin permiso). Manda el PO; corregir la UX.
+3. La UX lista R5 (códigos de Roles y permisos): sin cambio, la web sigue preguntando por la operación (§9 R5).
+
+### 5-quater.6 Siembra de `menu.*` y paridad (migraciones)
+
+`git ls-tree origin/develop apps/api/src/db/migrations/` (2026-10-13) termina en
+`0237_permisos_arbol_administracion_reparto.sql`: esta HU usa **0238** y **0239** (se reasignan en el rebase si otra
+sesión entra antes). **`schema.ts` no cambia**: `padre_codigo`, `nivel` (CHECK 1..3, NULL permitido) y `orden`
+existen desde la 0232, y el CHECK de `tipo` ya admite `elemento`. Generadas con `--arbol legado` (no tecleadas),
+tablas temporales `tmp_*_13429`, **sin literales de rol**.
+
+**0238 — siembra (idempotente):**
+1. `INSERT … ON CONFLICT (codigo) DO UPDATE` de los 11 `menu.*` (tipo `elemento`, nivel 1, padre NULL, orden de
+   `ELEMENTOS_PERMISOS`). **No** `menu.ayuda` (derivado).
+2. `UPDATE permisos_funciones SET padre_codigo = 'menu.<x>', nivel = 2, orden` para **toda** `pagina.*` (FLITO y
+   antiguas), y `padre_codigo` = acción / ítem para los opcionales (`nivel` NULL). Transversales sin tocar.
+
+**0239 — reparto (transaccional, idempotente, en este orden):**
+1. **Ítem de las acciones** (roles): `INSERT … SELECT DISTINCT rf.rol_codigo, <página del ítem>` para cada rol con
+   una `accion.*` cuyo ítem no tiene (CTE recursivo por `padre_codigo`; en el pliegue: auditor y transito →
+   Organismos STT, mensajero → Logística). Acción anidada sin su madre: **no** se siembra la madre (daría la
+   exportación sin pago a quien solo tenía la de pago); va al reporte como pérdida a decidir.
+2. **Elemento de los ítems** (roles): `INSERT … SELECT DISTINCT rf.rol_codigo, f.padre_codigo FROM permisos_rol_funcion
+   rf JOIN permisos_funciones f ON f.codigo = rf.funcion_codigo WHERE f.nivel = 2`. Incluye **`menu.perfil`** para
+   todos (la 0237 les dio `pagina.perfil` y las dos acciones; sin `menu.perfil` nadie cambiaría su contraseña) y
+   `menu.general` a todo el que tiene el Tablero.
+3. **Usuarios** (CTE como §4.1 paso 2): para cada `conceder` de un nodo cuya cadena no queda marcada en
+   `(rol ∪ conceder) \ revocar`, `conceder` del ancestro que falte (ítem y/o elemento). **Si el ancestro está
+   revocado al usuario, no se toca** (la revocación fue explícita): pérdida declarada en el reporte.
+4. **Transitorios y operaciones absorbidas por ítems antiguos**: borrar sus marcas (`permisos_rol_funcion`,
+   `permisos_usuario_funcion`) y sus filas de `permisos_funciones` (43 transitorios + las permanentes de los
+   `ops(i)`). Un `revocar` de usuario sobre un transitorio desaparece con él: ese usuario **gana** la acción por el
+   ítem de su rol (AC3), y va al reporte.
+5. `permisos_auditoria` por lote con `origen = 'migracion'` (si el CHECK no lo admite, Nota, como en las anteriores).
+
+Segunda corrida: pasos 1–3 son `ON CONFLICT DO NOTHING` sobre lo ya sembrado y 4 no encuentra filas (AC10). Test
+de la 0239: paridad plegando 0001..0239 (0 pérdidas, ganancias = la lista cerrada de §5-quater.4) y sin literales
+de `USER_ROLES`.
+
+**`crearRol`:** `ACCIONES_POR_DEFECTO_DE_ROL_NUEVO` pasa a la **cadena completa** de las acciones universales
+(acción + página + elemento), derivada de `PADRE`, sin literales: hoy daría `pagina.perfil` y las dos acciones sin
+`menu.perfil`, y el rol nuevo no podría cambiar su contraseña.
+
+### 5-quater.7 #13431 (shell): qué necesita del API
+
+- **Nombres:** de `ARBOL_PERMISOS` (shared-types, estático), que tras esta HU incluye `legado.ts`: nombre del
+  elemento = rótulo de sección, nombre del ítem = rótulo del enlace. RNDC es un ítem con 4 enlaces (misma página):
+  el menú los sigue pintando bajo un solo permiso.
+- **Visibilidad:** basta lo que ya llega. `GET /api/permisos/mios` (y el login / `/auth/me`, que usan el mismo
+  resolver) devuelve `funciones` ya **gateadas**: una `pagina.*` solo aparece si su `menu.*` es efectivo, así que
+  `hasPage(slug)` apaga sola la sección. La sección se pinta si tiene ≥1 ítem visible; `menu.<x>` en `funciones`
+  sirve de confirmación, no hace falta. **Sin endpoint nuevo.** Ayuda: derivada (`puedeVerAyudaFlito`), como decidió
+  el PO.
+- **Perfil:** `hasFuncion('perfil.datos.ver')` ya implica la cadena (`menu.perfil` + `pagina.perfil`).
+- **Corregir el AC3 de #13431:** nombra un «cambio de contraseña obligatorio» que **no existe** (P-23 del §5-ter.6,
+  decidido por el PO: no hay ese flujo). Pendiente humano: reescribir ese AC en ADO antes de #13431.
+
+### 5-quater.8 Reporte en seco (AC9) y riesgos
+
+`npm run permisos:en-seco -w apps/api -- --hu 13429`, contra una copia de DEV, pegado en la Discussion **antes del
+PR** (no se commitea). Debe mostrar, por rol y por usuario:
+1. **Pérdidas por gating** — tiene que dar **0**; cualquier fila bloquea el PR: acción anidada sin su madre, acción
+   o página con ancestro revocado al usuario, roles editados en DEV con acciones sin página.
+2. **Ganancias de AC3** — cada transitorio absorbido que el rol/usuario gana por tener el ítem (la tabla de
+   §5-quater.4 para los roles del pliegue + roles creados desde el panel, p. ej. `cliente`), y los `revocar` de
+   transitorio que desaparecen.
+3. **Visibilidad sembrada** — páginas y `menu.*` añadidos (pasos 1–3 de la 0239).
+4. **Clasificación** — cuántas operaciones quedaron absorbidas por ítem, opcionales y transversales; cero sin clase.
+5. «El rol que tenía todo tiene todo» (admin).
+
+| Riesgo | Mitigación |
+|---|---|
+| **El gating corta a quien hoy tiene operaciones sueltas** (lección del PR #494: la suite de rutas por rol) | La fuente de pruebas (`__tests__/helpers/auth.ts`, `fijarFuenteDePermisos`) y los fixtures que inyectan códigos crudos pasan por la misma `expandir`: un fixture con `pesv.plan.administrar` sin `menu.pesv` + `pagina.pesv_plan` dará 403. Helper `conCadena(codigos)` que añade los ancestros, y los fixtures de rol se derivan de `repartoDePartida()` en vez de listas a mano. La suite de rutas por rol debe seguir verde **sin** tocar asertos de estado; en web, `FUNCIONES_POR_ROL` del E2E ya trae efectivos (no cambia hasta #13431) |
+| `usuariosConFuncion` (avisos) | hoy filtra filas por `codigosQueConceden(codigo)`: con cadena **debe** leer también los ancestros (`alternativasDe(codigo).flat()`), o los avisos perderían destinatarios. Test de equivalencia con el resolver (ya existe) sobre un fixture con cadena |
+| Rendimiento del resolver | O(nodos ≈ 11 + 71 páginas + 120 acciones + 20 sueltas) por resolución, `PADRE` precalculado, caché 60 s sin cambio. Anti-bloqueo: 4 funciones × ≤2 alternativas × ≤4 eslabones `EXISTS` sobre la población administradora (dos usuarios en DEV); mismas dos consultas |
+| Ganancias amplias en roles operativos (conductor 21, supervisor_flota 24, compliance 31) | AC3 las aprueba; el reporte en seco las lista con nombre y el PO las confirma antes del PR (P-24) |
+| PII: `vehicles.propietario.ver_documento` | opcional del ítem, nunca expandido (P-26); security-agent lo verifica |
+| Caché 60 s (AC7) | la migración arranca con caché vacía; `guardarCuadro` y el `PATCH` ya invalidan tras commit |
+| Cadena apilada | promover #12873, #13427, #13428 y #13429 juntas (§4.3): esta HU quita los transitorios a los que las anteriores no tocaron |
+
+### 5-quater.9 Archivos
+
+| Capa | Archivo | Qué |
+|---|---|---|
+| API | `apps/api/src/modules/permisos/arbol/expansion.ts` | `PADRE`, gating de ancestros en `expandir`, ítems antiguos, opcionales con padre, transversales, `efectivoDeNodos`, `alternativasDe` |
+| | `apps/api/src/modules/permisos/arbol/acciones-legado.ts` (nuevo) | `ITEMS_LEGADO`, `TRANSVERSALES`, `TRANSITORIOS_RETIRADOS` |
+| | `apps/api/src/modules/permisos/arbol/sql-arbol.ts`, `reparto-arbol.ts` | área `legado`: pasos 1–4 de la 0239 |
+| | `apps/api/src/modules/permisos/catalogo.ts` | `menu.*`, padre de páginas y opcionales, absorbidas del legado, clasificación total en el arranque |
+| | `apps/api/src/modules/permisos/catalogo-operaciones.legado.ts` | descripción de los 43 sin «Transitorio» (guardas sin cambio) |
+| | `apps/api/src/modules/permisos/permisos-arbol.service.ts` (nuevo) + `permisos.routes.ts` | los tres `GET …/arbol` |
+| | `apps/api/src/modules/permisos/permisos-roles.service.ts` | `crearRol` con cadena; `nodo` del 409 |
+| | `apps/api/src/shared/permisos-anti-bloqueo.ts` | `tiene(F)` por alternativas con cadena; `nodo` |
+| | `apps/api/src/shared/permisos-efectivos.ts` | `usuariosConFuncion` lee ancestros |
+| | `apps/api/src/modules/users/users.routes.ts` | 409 con `nodo` (aditivo) |
+| | `apps/api/src/scripts/generar-seed-permisos.ts` (`--arbol legado`), `permisos-reparto-en-seco.ts` + `modules/permisos/reparto-en-seco.ts` (`--hu 13429`) | generador y reporte |
+| | `apps/api/src/db/migrations/0238_permisos_arbol_legado_siembra.sql`, `0239_permisos_arbol_legado_reparto.sql` | §5-quater.6 |
+| Tests | `permisos-expansion.test.ts` (gating, AC4/AC5 conservar y recuperar, excepciones opción A), `permisos-arbol-legado.test.ts` (clasificación + paridad), `migracion-0238/0239.test.ts`, anti-bloqueo (desmarcar `menu.administracion`, `pagina.users`, `pagina.roles_permisos` → 409; `nodo`), `permisos-arbol.routes.test.ts` (forma de los GET, `sinAcciones`), `__tests__/helpers/auth.ts` (`conCadena`) | |
+| shared-types | `packages/shared-types/src/permisos-arbol/legado.ts` (nuevo), `index.ts` (ARBOL con legado; `tipo: 'operacion'`, `nivel`, `opcional`), `nodos.ts` (`legado` en `ItemDef`) | `grep` en `apps/web` (regla 7) |
+| Web | ninguno en esta HU | #13430 consume los GET; #13431 el árbol estático |
+
+Gates: db-review (migraciones) + security (rutas nuevas, anti-bloqueo, PII de `ver_documento`) + qa B.
+
+### 5-quater.10 Preguntas para el PO (con recomendación)
+
+> **Decisiones de David (2026-10-13), cerradas.**
+>
+> - **P-24 resuelto: A1.** Los 20 ítems PESV con operaciones llevan una acción de nivel 3 `accion.pesv_<x>.administrar` («Administrar») que absorbe sus transitorios. Los 5 sin operaciones (`pesv`, `siniestralidad`, `indicadores_operacion`, `reportar_incidente`, `mi_jornada`) siguen siendo antiguos puros.
+>   - La 0239 reparte la acción por una regla de dato, sin literales de rol (salvo el JOIN de admin): la recibe el rol que hoy tiene **alguna** administración PESV (`alguna` sobre la familia de 26) **y** la página del ítem (`exigeItem`).
+>   - Resultado: compliance, supervisor_flota y lider_pesv ganan lo aprobado en los ítems que ya tienen. El conductor gana 0 y conserva sus 22 pantallas.
+>   - El AC1 queda «los ítems antiguos no tienen nivel 3, salvo los PESV con acción Administrar».
+> - **P-25** opción A. **P-26** opcionales. **P-27** un solo ítem. **P-28** ítems antiguos. **P-29** bloque `transversales`. **P-30** sembrar por JOIN o dato.
+>
+> **Implementación (#13429): dos desvíos menores.**
+> - `siigo.conceptos.confirmar` pasa a ser opcional también de «Ver» de Facturación · Parametrización. Basta una acción, y así financiera no lo pierde con el gating.
+> - El árbol de un usuario se sirve en `GET /api/users/:id/arbol`, no en `/api/permisos/usuarios/:id/arbol`. Usa la guarda del módulo `usuarios`.
+
+
+- **P-24 — Confirmar las ganancias de AC3 por rol.** Con la regla literal, conductor gana 21 administraciones de
+  PESV, supervisor_flota y lider_pesv ganan además **pago manual de órdenes de trabajo**, compliance gana el
+  **derecho al olvido** (anonimización irreversible) y auditor/proveedor ganan administrar SOAT antiguo. *Rec.:*
+  confirmar viendo el reporte en seco; la única alternativa sin construir nivel 3 en los antiguos es quitarles el
+  ítem desde el panel, que les quita también la lectura.
+- **P-25 — Excepciones por usuario.** *Rec.:* opción A (la excepción marca el nodo y la cadena manda; conceder una
+  acción sin su ítem no la habilita). Es la fórmula de ADR-0025 y la de la UX aprobada.
+- **P-26 — Operaciones permanentes de un ítem antiguo que hoy solo tiene una parte de sus usuarios**
+  (`vehicles.propietario.ver_documento`, `laft.manual.firmar`, `soat.antiguo.operar`). *Rec.:* opcionales del ítem
+  (se conservan, no se ganan): el AC3 aprueba ganar administración, no ver documentos sin enmascarar ni firmar el
+  manual.
+- **P-27 — Privacidad y Log PII** son una sola página hoy. *Rec.:* un solo ítem «Privacidad y datos» (sin página
+  nueva). Si se quieren separados, es una página nueva con su siembra (alcance de otra HU).
+- **P-28 — SOAT (antiguo), Lector de impuestos (antiguo) y Mantenimiento (general)** no están en la lista del 7-oct
+  y no salen en el menú, pero tienen ruta o reparto. *Rec.:* ítems antiguos (0 pérdidas); su retiro, HU aparte.
+- **P-29 — Transversales** (consulta de vehículo por placa, RUNT por persona y cédula, Fasecolda, resumen RUM).
+  *Rec.:* fuera del árbol, en un bloque final del panel «Permisos que no dependen del menú», sin gating.
+- **P-30 — Visibilidad sembrada.** auditor y transito verían Organismos STT; mensajero, Logística (tenían acciones
+  sin la página). *Rec.:* sembrar (paridad: sin la página perderían lo que hoy hacen por API).
+
 ## 6. Web
 
 ### #13430 — panel en tres niveles

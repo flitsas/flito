@@ -309,6 +309,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'users/users.routes.ts', metodo: 'GET', ruta: '/export', codigo: 'usuarios.usuario.exportar' },
   { fichero: 'users/users.routes.ts', metodo: 'GET', ruta: '/resumen', codigo: 'usuarios.usuario.ver_resumen' },
   { fichero: 'users/users.routes.ts', metodo: 'GET', ruta: '/', codigo: 'usuarios.usuario.listar' },
+  // HU #13429: el árbol de permisos de un usuario, con la guarda de la lectura de sus excepciones.
+  { fichero: 'users/users.routes.ts', metodo: 'GET', ruta: '/:id/arbol', codigo: 'usuarios.usuario.listar' },
   { fichero: 'users/users.routes.ts', metodo: 'POST', ruta: '/', codigo: 'usuarios.usuario.crear' },
   { fichero: 'users/users.routes.ts', metodo: 'PATCH', ruta: '/:id', codigo: 'usuarios.usuario.editar' },
   { fichero: 'users/users.routes.ts', metodo: 'PATCH', ruta: '/:id/toggle', codigo: 'usuarios.usuario.activar' },
@@ -326,6 +328,9 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   // ── Oleada 6 — permisos/ (HU #12084: `GET /funciones` reconducida + 6 rutas nuevas de roles) ──
   // permisos/permisos.routes.ts
   { fichero: 'permisos/permisos.routes.ts', metodo: 'GET', ruta: '/funciones', codigo: 'permisos.catalogo.ver' },
+  // HU #13429: el árbol (sucesor de `GET /funciones`) y el árbol de un rol, con las guardas de su lectura.
+  { fichero: 'permisos/permisos.routes.ts', metodo: 'GET', ruta: '/arbol', codigo: 'permisos.catalogo.ver' },
+  { fichero: 'permisos/permisos.routes.ts', metodo: 'GET', ruta: '/roles/:codigo/arbol', codigo: 'permisos.cuadro.ver' },
   { fichero: 'permisos/permisos.routes.ts', metodo: 'GET', ruta: '/roles', codigo: 'permisos.rol.listar' },
   { fichero: 'permisos/permisos.routes.ts', metodo: 'POST', ruta: '/roles', codigo: 'permisos.rol.crear' },
   { fichero: 'permisos/permisos.routes.ts', metodo: 'PATCH', ruta: '/roles/:codigo', codigo: 'permisos.rol.editar' },

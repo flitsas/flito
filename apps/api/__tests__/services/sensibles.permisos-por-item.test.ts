@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import { SignJWT } from 'jose';
 import { chain } from '../helpers/db.js';
-import { registrarUsuarioDePrueba } from '../helpers/auth.js';
+import { registrarUsuarioDePrueba, soloEstas } from '../helpers/auth.js';
 
 const selectMock = vi.fn();
 const insertMock = vi.fn();
@@ -66,9 +66,12 @@ beforeEach(async () => {
 });
 afterEach(() => { for (const e of espias) e.mockRestore(); });
 
-/** Un usuario con EXACTAMENTE estas funciones en su rol (nombre de rol a elección). */
+/**
+ * Un usuario con EXACTAMENTE estas funciones en su rol (nombre de rol a elección). HU #13429: con la cadena, la
+ * operación llega por su ítem (que trae las hermanas): `soloEstas` le da la cadena y revoca lo que no se pidió.
+ */
 async function usuario(sub: number, rol: string, funciones: string[]): Promise<string> {
-  await registrarUsuarioDePrueba(sub, { rol, tipoEnlace: 'ninguno', funcionesDelRol: funciones, excepciones: [] });
+  await registrarUsuarioDePrueba(sub, { rol, tipoEnlace: 'ninguno', ...soloEstas(funciones) });
   const secret = new TextEncoder().encode(process.env.JWT_SECRET);
   const jwt = await new SignJWT({ username: `u${sub}`, role: rol })
     .setProtectedHeader({ alg: 'HS256' }).setSubject(String(sub)).setExpirationTime('1h').sign(secret);

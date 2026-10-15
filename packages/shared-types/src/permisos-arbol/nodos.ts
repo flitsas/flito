@@ -4,7 +4,11 @@ import type { PageSlug } from '../permissions.js';
 import type { NodoArbolDef } from './index.js';
 
 export interface AccionDef { clave: string; nombre: string; descripcion: string; hijas?: AccionDef[] }
-export interface ItemDef { slug: PageSlug; clave: string; nombre: string; elemento: string; orden: number; acciones: AccionDef[] }
+/**
+ * `legado` (HU #13429): ítem ANTIGUO del nivel 2. Concede todo lo suyo sin nivel 3 (el API lo expande), salvo los
+ * PESV con operaciones, que llevan una sola acción «Administrar» (decisión A1 de P-24, 2026-10-13).
+ */
+export interface ItemDef { slug: PageSlug; clave: string; nombre: string; elemento: string; orden: number; acciones: AccionDef[]; legado?: true }
 
 function nodosDeAcciones(padre: string, item: string, acciones: AccionDef[]): NodoArbolDef[] {
   return acciones.flatMap((x, i) => {
@@ -17,7 +21,7 @@ function nodosDeAcciones(padre: string, item: string, acciones: AccionDef[]): No
 /** Ítems y acciones, padres antes que hijos. */
 export function itemsANodos(items: readonly ItemDef[]): NodoArbolDef[] {
   return items.flatMap((it) => [
-    { codigo: `pagina.${it.slug}`, nombre: it.nombre, tipo: 'item' as const, padre: `menu.${it.elemento}`, orden: it.orden, slug: it.slug },
+    { codigo: `pagina.${it.slug}`, nombre: it.nombre, tipo: 'item' as const, padre: `menu.${it.elemento}`, orden: it.orden, slug: it.slug, ...(it.legado ? { legado: true } : {}) },
     ...nodosDeAcciones(`pagina.${it.slug}`, it.clave, it.acciones),
   ]);
 }

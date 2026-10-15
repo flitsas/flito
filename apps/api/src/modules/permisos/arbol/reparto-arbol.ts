@@ -14,7 +14,7 @@
 // Sin PII (Ley 1581): el detalle es `user_id` + rol.
 import type { FilaRolEnSeco, FilaUsuarioEnSeco, UsuarioEnSeco } from '../reparto-en-seco.js';
 import {
-  ACCIONES_ARBOL, ACCIONES_UNIVERSALES, CODIGOS_ABSORBIDOS, CONJUNCIONES_ARBOL, cumpleGrupo, esUniversal, expandir, operacionesDe,
+  ACCIONES_ARBOL, ACCIONES_UNIVERSALES, CODIGOS_ABSORBIDOS, CONJUNCIONES_ARBOL, cumpleGrupo, esUniversal, expandirSinCadena, operacionesDe,
   PARTIDAS_DE_OPERACIONES_NUEVAS as PARTIDA_DE_OPERACION_NUEVA, predecesoresDe, predecesorNoAbsorbido, ROL_CON_TODAS_LAS_ACCIONES,
 } from './expansion.js';
 
@@ -107,7 +107,11 @@ export function repartirPorTodos(
   };
 }
 
-/** El conjunto efectivo EXPANDIDO de cada usuario: `expandir((R ∪ C) \ V, V)`, igual que el resolutor. */
+/**
+ * El conjunto efectivo EXPANDIDO de cada usuario: `(R ∪ C) \ V` con la expansión de las acciones. Es el de los
+ * repartos por ÁREA (0233/0235/0237), que corrieron sobre el mundo sin cadena: HU #13429 lo fija a la regla de
+ * entonces (`expandirSinCadena`). El de la cadena completa lo simula `reparto-legado.ts` (0239).
+ */
 export function efectivasExpandidas(usuarios: UsuarioEnSeco[], filas: FilasReparto): Map<number, Set<string>> {
   const roles = porRol(filas.filasRol);
   const salida = new Map<number, Set<string>>();
@@ -117,7 +121,7 @@ export function efectivasExpandidas(usuarios: UsuarioEnSeco[], filas: FilasRepar
     for (const f of propias) if (f.efecto === 'conceder') s.add(f.codigo);
     const revocados = propias.filter((f) => f.efecto === 'revocar').map((f) => f.codigo);
     for (const r of revocados) s.delete(r);
-    salida.set(u.id, expandir(s, revocados));
+    salida.set(u.id, expandirSinCadena(s, revocados));
   }
   return salida;
 }

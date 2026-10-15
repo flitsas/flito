@@ -19,6 +19,7 @@ import {
 } from '../../shared/historial/permisos-auditoria.js';
 import { BloqueoAdministracionError } from '../../shared/permisos-anti-bloqueo.js';
 import { catalogoAgrupado } from './permisos.service.js';
+import { arbolDef, arbolDeRol } from './permisos-arbol.service.js';
 import {
   CodigoReservadoError, FuncionesInexistentesError, RolConflictoError, RolNoEncontradoError,
   borrarRol, crearRol, cuadroDe, editarRol, guardarCuadro, listarRoles,
@@ -30,6 +31,14 @@ router.use(authMiddleware);
 /** GET /funciones — el catálogo agrupado por módulo. */
 router.get('/funciones', exigirFuncion('permisos.catalogo.ver'), async (_req: Request, res: Response) => {
   res.json({ grupos: await catalogoAgrupado() });
+});
+
+/**
+ * HU #13429 (§5-quater.5) — GET /arbol: la estructura del árbol (elementos, ítems, acciones, opcionales) y los
+ * transversales aparte, sin marcas. Sucesor de `GET /funciones`, que queda hasta #13430.
+ */
+router.get('/arbol', exigirFuncion('permisos.catalogo.ver'), (_req: Request, res: Response) => {
+  res.json(arbolDef());
 });
 
 /**
@@ -89,7 +98,10 @@ function responderErrorDeDominio(res: Response, e: unknown): boolean {
     res.status(409).json({ error: e.message, ...(e.usuarios !== undefined ? { usuarios: e.usuarios } : {}) });
     return true;
   }
-  if (e instanceof BloqueoAdministracionError) { res.status(409).json({ error: e.message, funcion: e.funcion }); return true; }
+  if (e instanceof BloqueoAdministracionError) {
+    res.status(409).json({ error: e.message, funcion: e.funcion, ...(e.nodo ? { nodo: e.nodo } : {}) });
+    return true;
+  }
   if (e instanceof FuncionesInexistentesError) { res.status(400).json({ error: e.message, funciones: e.funciones }); return true; }
   if (e instanceof CodigoReservadoError) { res.status(400).json({ error: e.message }); return true; }
   return false;
@@ -168,6 +180,17 @@ router.get('/roles/:codigo/funciones', exigirFuncion('permisos.cuadro.ver'), asy
   if (codigo === null) return;
   try {
     res.json(await cuadroDe(codigo));
+  } catch (e) {
+    if (!responderErrorDeDominio(res, e)) throw e;
+  }
+});
+
+/** HU #13429 — GET /roles/:codigo/arbol: el árbol del rol con `marcado`, `efectivo` y `sinAcciones` (AC1, AC6). */
+router.get('/roles/:codigo/arbol', exigirFuncion('permisos.cuadro.ver'), async (req: Request, res: Response) => {
+  const codigo = codigoDeRuta(req, res);
+  if (codigo === null) return;
+  try {
+    res.json(await arbolDeRol(codigo));
   } catch (e) {
     if (!responderErrorDeDominio(res, e)) throw e;
   }

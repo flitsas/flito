@@ -35,6 +35,8 @@ const ARBOL = [
   '0232_permisos_arbol_gestion_siembra.sql', '0233_permisos_arbol_gestion_reparto.sql',
   '0234_permisos_arbol_finanzas_siembra.sql', '0235_permisos_arbol_finanzas_reparto.sql',
   '0236_permisos_arbol_administracion_siembra.sql', '0237_permisos_arbol_administracion_reparto.sql',
+  // HU #13429: con la cadena, el rol de prueba necesita también `menu.administracion` (la 0238 lo siembra).
+  '0238_permisos_arbol_legado_siembra.sql', '0239_permisos_arbol_legado_reparto.sql',
 ];
 const ROL = 'zz_prueba13428';
 const USUARIO = 'zz_prueba13428_u';
@@ -52,12 +54,12 @@ async function enTransaccion(caso: (tx: Tx, userId: number) => Promise<void>): P
   let resultado: Resultado = '';
   try {
     await db.transaction(async (tx) => {
-      const [{ hay }] = (await tx.execute(sql`SELECT EXISTS (SELECT 1 FROM permisos_funciones WHERE codigo = 'accion.usuarios.editar') AS hay`)) as unknown as { hay: boolean }[];
+      const [{ hay }] = (await tx.execute(sql`SELECT EXISTS (SELECT 1 FROM permisos_funciones WHERE codigo = 'menu.administracion') AS hay`)) as unknown as { hay: boolean }[];
       if (!hay) for (const f of ARBOL) await tx.execute(sql.raw(readFileSync(path.join(DIR, f), 'utf8')));
       await tx.execute(sql`UPDATE users SET active = false`);
       await tx.execute(sql`INSERT INTO permisos_roles (codigo, nombre, tipo_enlace) VALUES (${ROL}, 'Prueba 13428', 'ninguno')`);
       await tx.execute(sql`INSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo)
-        SELECT ${ROL}, c FROM unnest(ARRAY['pagina.users', 'pagina.roles_permisos', 'accion.usuarios.editar', 'accion.roles_permisos.asignar']) AS c`);
+        SELECT ${ROL}, c FROM unnest(ARRAY['menu.administracion', 'pagina.users', 'pagina.roles_permisos', 'accion.usuarios.editar', 'accion.roles_permisos.asignar']) AS c`);
       const [{ id }] = (await tx.execute(sql`INSERT INTO users (username, name, password_hash, role, active)
         VALUES (${USUARIO}, 'Prueba 13428', 'x', ${ROL}, true) RETURNING id`)) as unknown as { id: number }[];
       await caso(tx, id);

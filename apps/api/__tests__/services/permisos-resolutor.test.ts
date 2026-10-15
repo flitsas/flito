@@ -10,6 +10,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
+import { conCadena, conCadenaEnFuente } from '../helpers/auth.js';
 
 const selectMock = vi.fn();
 const warnMock = vi.fn();
@@ -63,17 +64,25 @@ function base(opts: {
     rol: opts.usuario?.rol ?? 'gestor',
     tipoEnlace: opts.usuario?.tipoEnlace ?? 'ninguno',
   }];
-  respuestas = [u, (opts.rol ?? []).map((codigo) => ({ codigo })), opts.propias ?? []];
+  // HU #13429: con el resolutor en cadena, lo del rol y lo concedido llegan con su cadena (`conCadena`, como tras la
+  // 0239); lo que este fichero mide —la regla (R ∪ C) \ V— se lee sobre los códigos que nombra el caso.
+  const propias = opts.propias ?? [];
+  mencionados = new Set([...(opts.rol ?? []), ...propias.map((p) => p.codigo)]);
+  respuestas = [u, conCadena(opts.rol ?? []).map((codigo) => ({ codigo })), [
+    ...conCadena(propias.filter((p) => p.efecto === 'conceder').map((p) => p.codigo)).map((codigo) => ({ codigo, efecto: 'conceder' })),
+    ...propias.filter((p) => p.efecto !== 'conceder'),
+  ]];
 }
+let mencionados: Set<string> | null = null;
 
 const conjunto = async (userId: number) => {
   const p = await resolverPermisos(userId);
   if (!p.ok) throw new Error(`no resolvió: ${p.motivo}`);
-  return [...p.funciones].sort();
+  return [...p.funciones].filter((c) => !mencionados || mencionados.has(c)).sort();
 };
 
 beforeEach(() => {
-  condiciones = []; selecciones = []; respuestas = [];
+  condiciones = []; selecciones = []; respuestas = []; mencionados = null;
   selectMock.mockReset().mockImplementation(chainEspia);
   warnMock.mockReset();
   // Cada caso parte sin caché: la fuente real, recién fijada, la vacía.
@@ -318,10 +327,11 @@ describe('el seam de pruebas', () => {
   });
 
   it('sustituye las FILAS y no la regla: la resta sigue ganando sobre el double', async () => {
-    fijarFuenteDePermisos(async () => ({
+    mencionados = new Set(['soat.cola.ver', 'pagina.fleet']);
+    fijarFuenteDePermisos(conCadenaEnFuente(async () => ({
       rol: 'gestor', tipoEnlace: 'ninguno',
       funcionesDelRol: ['soat.cola.ver', 'pagina.fleet'], excepciones: [{ codigo: 'pagina.fleet', efecto: 'revocar' }],
-    }));
+    })));
     expect(await conjunto(7)).toEqual(['soat.cola.ver']);
     expect(selectMock).not.toHaveBeenCalled();
   });

@@ -18,12 +18,20 @@ vi.mock('../../src/db/client.js', () => ({
 const {
   filtrarPorFuncion, fijarFuenteDePermisos, resolverPermisos, usuariosConFuncion,
 } = await import('../../src/shared/permisos-efectivos.js');
+const { conCadena } = await import('../helpers/auth.js');
 
 const ENTREGAR = 'logistica.actas.entregar';
 const AJENAS = 'logistica.actas.operar_ajenas';
 
-const fila = (rol: string, funcionesDelRol: string[], excepciones: FilasPermisos['excepciones'] = []): FilasPermisos =>
-  ({ rol, tipoEnlace: 'ninguno', funcionesDelRol, excepciones });
+// HU #13429: cada fila llega con su cadena (`conCadena`: acción, ítem y elemento), como tras la 0239; las revocaciones
+// se quedan como están. Lo que se compara —el pliegue puro contra el resolutor— no cambia.
+const fila = (rol: string, funcionesDelRol: string[], excepciones: FilasPermisos['excepciones'] = []): FilasPermisos => ({
+  rol, tipoEnlace: 'ninguno', funcionesDelRol: conCadena(funcionesDelRol),
+  excepciones: [
+    ...conCadena(excepciones.filter((e) => e.efecto === 'conceder').map((e) => e.codigo)).map((codigo) => ({ codigo, efecto: 'conceder' as const })),
+    ...excepciones.filter((e) => e.efecto === 'revocar'),
+  ],
+});
 
 /** Reparto por rol (como `permisos_rol_funcion`) y usuarios con sus excepciones. */
 const REPARTO: Record<string, string[]> = {
@@ -63,7 +71,7 @@ async function segunResolutor(codigo: string, sin?: string): Promise<number[]> {
 /** Sirve las filas del fixture con la forma de las tres consultas de `usuariosConFuncion`. */
 function servirFixture() {
   const principales = [...FIXTURE].map(([id, f]) => ({ id, rol: f.rol, tipoPrincipal: f.tipoPrincipal, tipoEnlace: f.tipoEnlace }));
-  const delRol = Object.entries(REPARTO).flatMap(([rol, cs]) => cs.map((codigo) => ({ rol, codigo })));
+  const delRol = Object.entries(REPARTO).flatMap(([rol, cs]) => conCadena(cs).map((codigo) => ({ rol, codigo })));
   const propias = [...FIXTURE].flatMap(([userId, f]) => f.excepciones.map((e) => ({ userId, codigo: e.codigo, efecto: e.efecto })));
   selectMock
     .mockReturnValueOnce(chain(principales))

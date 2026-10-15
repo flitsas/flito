@@ -9,6 +9,8 @@ import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-func
 import { enlaceConocido, invalidarPermisosDe, resolverPermisos } from '../../shared/permisos-efectivos.js';
 import { passwordChangeLimiter } from '../../shared/middleware/rateLimiter.js';
 import { BloqueoAdministracionError } from '../../shared/permisos-anti-bloqueo.js';
+import { nodoRevocado } from '../permisos/arbol/expansion.js';
+import { arbolDeUsuario, UsuarioNoEncontradoError } from '../permisos/permisos-arbol.service.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { sendExcel } from '../../shared/utils/excel.js';
 import { errorPg } from '../../shared/utils/pg-error.js';
@@ -583,6 +585,27 @@ router.post('/', exigirFuncion('usuarios.usuario.crear'), async (req: Request, r
     await audit(req, { action: 'create', resource: 'user', resourceId: String(user.id), detail: `Usuario creado: ${username} (${role})` });
     res.status(201).json(user);
 });
+// === HU #13429: árbol de permisos de un usuario =================================
+// Lo heredado de su rol y sus excepciones, con `marcado`/`efectivo` de la cadena (contrato para #13430, §5-quater.5).
+// Misma guarda que la lectura de sus excepciones (`GET /`, #12087). Vive aquí y no en /api/permisos porque la
+// guarda es del módulo `usuarios` (el catálogo exige que el código empiece por el módulo del fichero). Sin PII.
+router.get('/:id/arbol', exigirFuncion('usuarios.usuario.listar'), async (req: Request, res: Response) => {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id) || id <= 0) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+    }
+    try {
+        res.json(await arbolDeUsuario(id));
+    }
+    catch (e) {
+        if (e instanceof UsuarioNoEncontradoError) {
+            res.status(404).json({ error: e.message });
+            return;
+        }
+        throw e;
+    }
+});
 // === Editar usuario (nombre, email, rol) =====================================
 router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Request, res: Response) => {
     const id = parseInt(req.params.id, 10);
@@ -731,7 +754,9 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
     catch (e) {
         if (e instanceof BloqueoAdministracionError) {
             await registrarRechazoAntiBloqueo(req, { operacion: 'actualizar_usuario', objetivo: { tipo: 'usuario', id }, funcion: e.funcion });
-            res.status(409).json({ error: e.message, funcion: e.funcion });
+            // HU #13429 (AC8): `nodo` aditivo, calculado sobre lo pedido: el eslabón más alto de la cadena que se revoca.
+            const nodo = nodoRevocado(e.funcion, new Set((data.funciones ?? []).filter((f) => f.efecto === 'revocar').map((f) => f.codigo)));
+            res.status(409).json({ error: e.message, funcion: e.funcion, ...(nodo ? { nodo } : {}) });
             return;
         }
         if (e instanceof FuncionesInexistentesError) {
