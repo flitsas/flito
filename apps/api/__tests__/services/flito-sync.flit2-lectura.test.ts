@@ -1715,6 +1715,15 @@ describe('Bug #13585 · RN-26 — un anulado/revocado no modifica el vehículo e
     expect(tramite(U2)).toMatchObject({ estado: 'anulado', vehiculoId: vehiculo()!.id });
   });
 
+  it('orden inverso: anulado (crea el vehículo sin placa) y luego vigente del mismo VIN → quedan los datos del vigente', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([anuladoMismoVin('anulado')], 'c1')]).port);
+    expect(vehiculo()).toMatchObject({ brand: 'MARCA ANULADA' });
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([crudo({ estado: 'aprobado' })], 'c2')]).port);
+    expect(vehiculo()).toMatchObject({ plate: 'ZZZ001', brand: 'MARCA EJEMPLO', ownerDocument: DOC_1 });
+    expect(filas(S.vehicles)).toHaveLength(1);
+  });
+
   it('control: un vigente posterior del mismo VIN sí actualiza el vehículo', async () => {
     sembrarLectura({ sinceArranque: ARRANQUE });
     await leerIncremental({ ahora: reloj() }, puerto([pagina([crudo({ estado: 'aprobado' })], 'c1')]).port);
