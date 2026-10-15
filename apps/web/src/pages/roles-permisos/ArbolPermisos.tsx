@@ -27,10 +27,14 @@ interface Props {
   abiertosIniciales?: Iterable<string>;
   foco?: FocoArbol | null;
   usarEfectivoServidor?: boolean;
+  /** HU #13452: nodos cerrados por el enlace del rol (deshabilitados, con nota en el ítem). */
+  cerrados?: ReadonlyMap<string, string>;
+  notaCerrado?: string;
 }
 
 export default function ArbolPermisos({
   arbol, indice, marcados, modo, editable, onToggle, onConjunto, abiertosIniciales, foco, usarEfectivoServidor = false,
+  cerrados, notaCerrado,
 }: Props) {
   const idBase = useId();
   const [abiertos, setAbiertos] = useState<Set<string>>(() => new Set(abiertosIniciales ?? []));
@@ -67,7 +71,8 @@ export default function ArbolPermisos({
 
   const ctx = useMemo<ContextoArbol>(() => ({
     indice, marcados, modo, editable, usarEfectivoServidor, abiertos, alternarAbierto, onToggle, onConjunto, registrarInput, idBase,
-  }), [indice, marcados, modo, editable, usarEfectivoServidor, abiertos, alternarAbierto, onToggle, onConjunto, registrarInput, idBase]);
+    cerrados, notaCerrado,
+  }), [indice, marcados, modo, editable, usarEfectivoServidor, abiertos, alternarAbierto, onToggle, onConjunto, registrarInput, idBase, cerrados, notaCerrado]);
 
   return (
     <ArbolCtx.Provider value={ctx}>

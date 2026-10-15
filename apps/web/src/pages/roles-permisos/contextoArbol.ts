@@ -28,6 +28,13 @@ export interface ContextoArbol {
   registrarInput: (codigo: string, el: HTMLInputElement | null) => void;
   /** Prefijo de ids (de `useId`), para enlazar `aria-describedby` sin colisiones entre árboles. */
   idBase: string;
+  /**
+   * HU #13452: nodos que el enlace del rol cierra → código del ítem que lleva la nota. Se pintan
+   * deshabilitados. Vacío (o ausente) fuera del panel de un rol con enlace.
+   */
+  cerrados?: ReadonlyMap<string, string>;
+  /** La nota de una línea del ítem cerrado; solo con `cerrados` no vacío. */
+  notaCerrado?: string;
 }
 
 export const ArbolCtx = createContext<ContextoArbol | null>(null);

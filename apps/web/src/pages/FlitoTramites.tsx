@@ -17,6 +17,7 @@ import {
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { conEnlace } from '../lib/copyEnlace';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
@@ -359,7 +360,8 @@ export default function FlitoTramites() {
             onClick={() => setCrearDemo(true)}>+ Trámite demo</button>
         ) : undefined} />
 
-      <SincronizacionTramites esOperaciones={esOperaciones} onSincronizado={refrescar} />
+      {/* HU #13452: sincronizar con FLIT 1/FLIT 2 es operación interna: con enlace el bloque no se pinta. */}
+      {sinEnlace && <SincronizacionTramites esOperaciones={esOperaciones} onSincronizado={refrescar} />}
 
       {error && <FlitCard><p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p></FlitCard>}
 
@@ -423,7 +425,7 @@ export default function FlitoTramites() {
 
       {data !== null && !hayTramitesSistema && !hayFiltros && !buscar.trim() && (
         <FlitCard>
-          <FlitEmpty>No hay trámites. Sincroniza desde FLIT para traer trámites.</FlitEmpty>
+          <FlitEmpty>{conEnlace(tipoEnlace) ? 'No hay trámites de su compañía.' : 'No hay trámites. Sincroniza desde FLIT para traer trámites.'}</FlitEmpty>
         </FlitCard>
       )}
 

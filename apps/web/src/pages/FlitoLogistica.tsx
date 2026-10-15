@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { ESTADO_LOGISTICA_SIMPLE_LABEL, type EstadoLogisticaSimple } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { conEnlace } from '../lib/copyEnlace';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, FlitField, flitInp, flitBtnPrimary, flitBtnPrimaryStyle,
@@ -56,7 +57,7 @@ const fecha = (iso: string | null) => (iso ? new Date(iso).toLocaleString('es-CO
 type Tab = 'tramites' | 'actas-gen' | 'actas';
 
 export default function FlitoLogistica() {
-  const { hasFuncion } = useAuth();
+  const { hasFuncion, tipoEnlace } = useAuth();
   // HU #12170
   const esOperaciones = hasFuncion('logistica.lote.cerrar');
 
@@ -168,7 +169,10 @@ export default function FlitoLogistica() {
           </FlitCard>
 
           {data && filas.length === 0 && (
-            <FlitCard><FlitEmpty>No hay trámites aprobados. Sincroniza desde FLIT: los trámites en estado «Aprobado» aparecen aquí a la espera de su licencia de tránsito.</FlitEmpty></FlitCard>
+            <FlitCard><FlitEmpty>{conEnlace(tipoEnlace)
+              // HU #13452: con enlace, sin mandar a sincronizar (operación interna).
+              ? 'No hay trámites aprobados de su compañía. Los trámites en estado «Aprobado» aparecen aquí a la espera de su licencia de tránsito.'
+              : 'No hay trámites aprobados. Sincroniza desde FLIT: los trámites en estado «Aprobado» aparecen aquí a la espera de su licencia de tránsito.'}</FlitEmpty></FlitCard>
           )}
 
           {filas.length > 0 && (

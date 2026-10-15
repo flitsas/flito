@@ -3,7 +3,7 @@
 // la HU #12170, `effectiveFunctions`/`hasFuncion` sobre el conjunto que entrega
 // `GET /api/permisos/mios` (HU #12082). La SPA no recalcula (R ∪ C) \ V: obedece lo ya resuelto.
 
-import { isValidPage, type PageSlug, type TipoEnlace } from '@operaciones/shared-types';
+import { isValidPage, paginaAbiertaAlEnlace, type PageSlug, type TipoEnlace } from '@operaciones/shared-types';
 // `rutaInicio` (abajo) deriva el destino del catálogo de navegación. El import es de VALOR y va en
 // este sentido; el que `navEntradas.ts` hace de este módulo es `import type` y se borra al compilar,
 // así que no hay ciclo en ejecución. Ver la nota de `lib/ayudaFlito.ts`. Se importan las ENTRADAS
@@ -42,10 +42,17 @@ export type UsuarioPermisos = { allowedPages?: string[] | null; tipoEnlace?: Tip
 /**
  * Páginas efectivas en el menú: exactamente lo que trajo `/me` (ya resuelto en servidor).
  * Sin unión con defaults compilados — eso tapaba `revocar` / cuadros editados (#12085+#12087).
+ *
+ * HU #13452: menos las que el ENLACE del usuario cierra (`FRONTERA_POR_ENLACE`, ADR-0024). El API
+ * las cierra con 403 aunque el rol las tenga marcadas; ofrecerlas en el menú, en ⌘K o dejar que su
+ * ruta monte la pantalla era un callejón («Sin permisos» + «Reintentar»). Como todo pasa por aquí,
+ * `hasPage`, la guarda de ruta, el menú y `rutaInicio` lo heredan. Sin enlace, nada cambia.
  */
 export function effectivePages(user: UsuarioPermisos | null): Set<PageSlug> {
   if (!user) return new Set();
-  return new Set((user.allowedPages ?? []).filter(isValidPage));
+  return new Set(
+    (user.allowedPages ?? []).filter(isValidPage).filter((p) => paginaAbiertaAlEnlace(p, user.tipoEnlace)),
+  );
 }
 
 export function hasPage(user: UsuarioPermisos | null, page: PageSlug): boolean {

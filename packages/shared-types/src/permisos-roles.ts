@@ -9,6 +9,8 @@
 // enlace es la única frontera: `ninguno` → decide el permiso; cualquier otro → solo los módulos que
 // `FRONTERA_POR_ENLACE` le abre más las rutas transversales de sesión.
 
+import type { PageSlug } from './permissions.js';
+
 /** El ROL dice si se enlaza y a QUÉ tipo de ámbito (RN-A3); el usuario dice a cuál. */
 export const TIPOS_ENLACE = ['ninguno', 'compania', 'proveedor', 'organismos_transito'] as const;
 export type TipoEnlace = (typeof TIPOS_ENLACE)[number];
@@ -51,6 +53,56 @@ export const FRONTERA_POR_ENLACE: Readonly<Record<ModuloFrontera, readonly Enlac
   tablero: Object.freeze(['compania'] as const),
   transito: Object.freeze(['organismos_transito'] as const),
 });
+
+/**
+ * HU #13452 (corrección de la sesión de evidencias) — A qué módulo de la frontera pertenece cada
+ * PANTALLA. Lo lee la web para no ofrecer (menú, ⌘K, guarda de ruta, panel de roles) una pantalla que
+ * el enlace del usuario cierra: el API la cierra igual con 403, pero ofrecerla es un callejón.
+ *
+ * Calca las tuplas `pagina.* → módulo` del catálogo (`catalogo-agrupacion.ts` del API, migración 0205)
+ * SOLO para los módulos que la frontera conoce. Una pantalla que no está aquí no es de ningún módulo
+ * abierto → cerrada para todo enlace, como el montaje sin `conAlcance` en el API (ADR-0024).
+ *
+ * Fuera a propósito, aunque el catálogo las agrupe en un módulo de la frontera: «Google Drive»
+ * (`pagina.drive` → derechos; su API `/api/drive` no se monta con `conAlcance`) y «Organismos STT»
+ * (`pagina.transito_organismos` → transito; es configuración y pide `/flito/parametrizacion/organismos`,
+ * cerrado a todo enlace). Ofrecerlas sería volver al callejón que esta lista evita.
+ */
+export const MODULO_FRONTERA_DE_PAGINA: Readonly<Partial<Record<PageSlug, ModuloFrontera>>> = Object.freeze({
+  flito_soat: 'soat',
+  flito_impuestos: 'impuestos',
+  flito_derechos: 'derechos',
+  flito_tramites: 'tramites',
+  flito_bolsas: 'bolsas',
+  flito_comprobantes: 'comprobantes',
+  flito_logistica: 'logistica',
+  flito_logistica_ruta: 'logistica',
+  flito_tablero: 'tablero',
+  // «Bandeja de trámites» (`/api/transito`, abierto con `conAlcance('transito')`).
+  transito: 'transito',
+});
+
+/**
+ * Pantallas de la SESIÓN que ningún enlace cierra: Perfil (sus rutas son `RUTAS_TRANSVERSALES` del
+ * API) y Ayuda FLITO (markdown del bundle, no llama al API; su visibilidad es derivada).
+ */
+export const PAGINAS_DE_SESION: readonly PageSlug[] = Object.freeze(['perfil', 'flito_ayuda'] as PageSlug[]);
+
+/** ¿Abre la frontera este módulo a este enlace? (La misma regla que `moduloAbiertoA` del API.) */
+export function moduloAbiertoAlEnlace(modulo: ModuloFrontera, enlace: EnlaceRestringido): boolean {
+  return (FRONTERA_POR_ENLACE[modulo] as readonly EnlaceRestringido[]).includes(enlace);
+}
+
+/**
+ * ¿Deja el enlace entrar a esta pantalla? `ninguno` y `null`/`undefined` (aún no llegó `/permisos/mios`)
+ * no restringen: el usuario sin enlace sigue exactamente como antes y el API es la frontera real.
+ */
+export function paginaAbiertaAlEnlace(page: PageSlug, enlace: TipoEnlace | null | undefined): boolean {
+  if (!enlace || enlace === 'ninguno') return true;
+  if (PAGINAS_DE_SESION.includes(page)) return true;
+  const modulo = MODULO_FRONTERA_DE_PAGINA[page];
+  return modulo !== undefined && moduloAbiertoAlEnlace(modulo, enlace);
+}
 
 /** Una fila de `GET /api/permisos/roles`. Sin PII: `usuarios` es un conteo, nunca una lista. */
 export interface RolCatalogo {

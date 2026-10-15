@@ -20,15 +20,16 @@ Menú **Administración**, ítem **Roles y permisos**, junto a **Usuarios**.
    - Las operaciones **Opcional** (por ejemplo, ver el documento del propietario sin enmascarar) no vienen con su ítem: se marcan aparte.
    - Un ítem marcado sin ninguna acción avisa «Marcado sin ninguna acción: …»; marque al menos una o desmarque el ítem.
    - **Ayuda** no se marca: cada usuario la ve sola, con los capítulos de lo que puede usar.
+   - En un rol con enlace, los ítems de las pantallas que ese enlace cierra salen deshabilitados con la nota «Cerrado por el enlace «Compañía»: este rol no lo verá aunque lo marque». Tampoco aparecen en el menú de quien tenga el rol, y **Marcar todo** no los marca.
    - Algunas operaciones se usan desde varias pantallas y **vienen con el módulo donde se usan**, sin casilla propia: consultar vehículos viene con **Vehículos**, **SOAT antiguo**, **Flota** y **Trámite Digital**; consultar una persona en el RUNT, leer la cédula y buscar en Fasecolda vienen con **Trámite Digital**, que incluye Traspaso. Basta con marcar el ítem.
    - El resumen de rendimiento de FLITO es el ítem **Rendimiento** de **Administración**: quien lo tenga lo verá en el menú, dentro de Administración.
 5. Pulse **Guardar cambios**. El cambio queda aplicado en la siguiente acción de cada usuario con ese rol; nadie tiene que volver a entrar. La barra **Sin guardar** cuenta lo pendiente y **Descartar** lo devuelve a lo guardado.
 6. Para repartirlo todo de una vez use **Marcar todo**, que marca todos los ítems y acciones del árbol, pero **no** los opcionales; **Desmarcar todo** quita todo. Ninguno de los dos guarda por sí solo.
 7. **Nuevo rol** abre el formulario: nombre, descripción y **Enlace**, que decide qué datos ven las personas con ese rol. Elija una de cuatro opciones; cada una explica debajo lo que verá el rol:
    - **Ninguno** (viene marcado): ve todos los datos de los módulos que el rol tenga marcados.
-   - **Compañía**: ve solo lo de su compañía en Gestión Trámites, SOAT, Impuestos, su bolsa, Comprobantes y Logística. No ve catálogos ni configuración; el resto le queda cerrado.
+   - **Compañía**: ve solo lo de su compañía en Gestión Trámites, SOAT, Impuestos, Bolsas, Comprobantes y Logística. No ve catálogos ni configuración; el resto le queda cerrado.
    - **Proveedor**: ve solo lo asignado a su proveedor. Hoy aplica a SOAT.
-   - **Organismos**: ve solo lo de sus secretarías de tránsito en Impuestos y Derechos. El resto le queda cerrado.
+   - **Organismos**: ve solo lo de sus secretarías de tránsito en Impuestos, Derechos y la Bandeja de trámites. El resto le queda cerrado.
 
    La compañía, el proveedor o las secretarías concretas de cada persona se eligen en **Usuarios**, no aquí. El código del rol se genera del nombre y no se puede cambiar después. El rol nuevo nace con **Perfil** marcado (ver sus datos y cambiar su contraseña) para que nadie se quede sin poder cambiarla; si no lo quiere, desmárquelo y guarde.
 8. **Editar rol** permite corregir nombre, descripción, enlace y si **Se puede asignar a usuarios nuevos**. El enlace solo se puede cambiar mientras ningún usuario tenga el rol; si lo tiene alguien, el formulario lo avisa y hay que cambiarles el rol primero en **Usuarios**.

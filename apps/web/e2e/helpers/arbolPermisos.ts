@@ -39,6 +39,8 @@ export function arbolRol(defs: readonly NodoDef[], marcas: ReadonlySet<string>, 
     return {
       codigo: d.codigo, nombre: d.nombre, tipo: d.tipo, padre, orden: (i + 1) * 10, nivel,
       ...(d.descripcion ? { descripcion: d.descripcion } : {}),
+      // Como el API (`itemsANodos`): el ítem lleva la página que representa (HU #13452 lo lee).
+      ...(d.tipo === 'item' ? { slug: d.codigo.slice('pagina.'.length) as NodoArbolRol['slug'] } : {}),
       ...(d.legado ? { legado: true } : {}), ...(d.derivado ? { derivado: true } : {}), ...(d.opcional ? { opcional: true } : {}),
       marcado,
       efectivo: marcado && cadena,

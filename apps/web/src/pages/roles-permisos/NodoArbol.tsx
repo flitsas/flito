@@ -117,7 +117,9 @@ export function FilaNodo({ nodo, padre, idRotulo }: { nodo: Nodo; padre?: Nodo; 
   let estaInactivo = inactivo(nodo.codigo, marcados, indice);
   // R6 (delta §2): el opcional con dos padres solo es fiable con el `efectivo` del servidor; sin cambios, manda ese.
   if (ctx.usarEfectivoServidor && nodo.opcional && marcado && nodo.efectivoServidor !== undefined) estaInactivo = !nodo.efectivoServidor;
-  const deshabilitada = !editable || estaInactivo;
+  // HU #13452: cerrado por el enlace del rol → deshabilitado; la nota la lleva el ítem que lo cierra.
+  const cerradoPor = ctx.cerrados?.get(nodo.codigo) ?? null;
+  const deshabilitada = !editable || estaInactivo || cerradoPor !== null;
   const id = (pieza: string) => idDe(idBase, pieza, nodo.codigo);
 
   const conSinAcciones = sinAcciones(nodo, marcados);
@@ -143,11 +145,12 @@ export function FilaNodo({ nodo, padre, idRotulo }: { nodo: Nodo; padre?: Nodo; 
     cercano ? idDe(idBase, 'expl', cercano) : null,
     conSinAcciones ? id('sinacc') : null,
     explicacionItem ? id('antiguo') : null,
+    cerradoPor ? idDe(idBase, 'enlace', cerradoPor) : null,
     idRotulo ?? null,
     mostrarOrigen ? id('origen') : null,
   ].filter(Boolean).join(' ') || undefined;
 
-  const nombreColor = esElemento && !estaInactivo ? 'var(--flit-blue-text)' : estaInactivo ? 'var(--flit-text-secondary)' : 'var(--flit-text-primary)';
+  const nombreColor = cerradoPor ? 'var(--flit-text-secondary)' : esElemento && !estaInactivo ? 'var(--flit-blue-text)' : estaInactivo ? 'var(--flit-text-secondary)' : 'var(--flit-text-primary)';
   const hover = deshabilitada ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-[var(--flit-bg-hover)]';
 
   return (
@@ -189,6 +192,9 @@ export function FilaNodo({ nodo, padre, idRotulo }: { nodo: Nodo; padre?: Nodo; 
             <p id={id('sinacc')} className="ml-8 text-sm" style={SECUNDARIO} data-aviso="sin-acciones">{avisoSinAcciones(nodo.nombre, modo.tipo)}</p>
           )}
           {explicacionItem && <p id={id('antiguo')} className="ml-8 text-sm" style={SECUNDARIO}>{explicacionItem}</p>}
+          {cerradoPor === nodo.codigo && ctx.notaCerrado && (
+            <p id={id('enlace')} className="ml-8 text-sm" style={SECUNDARIO} data-aviso="cerrado-por-enlace">{ctx.notaCerrado}</p>
+          )}
         </div>
       </div>
       {abierto && <PanelNodo nodo={nodo} panelId={id('panel')} />}
@@ -213,7 +219,7 @@ function PanelNodo({ nodo, panelId }: { nodo: Nodo; panelId: string }) {
       {antiguo && <p className="text-sm" style={SECUNDARIO}>{antiguo}</p>}
       {conBotones && (
         <div className="flex flex-wrap gap-2">
-          <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => ctx.onConjunto?.(codigosMarcarTodo([nodo]), true)}>
+          <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => ctx.onConjunto?.(codigosMarcarTodo([nodo]).filter((c) => !ctx.cerrados?.has(c)), true)}>
             Marcar todo<span className="sr-only"> en {nodo.nombre}</span>
           </button>
           <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => ctx.onConjunto?.(codigosDesmarcarTodo([nodo]), false)}>

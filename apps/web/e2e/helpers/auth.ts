@@ -419,7 +419,10 @@ export function funcionesDe(user: UsuarioFixture): string[] {
 export function sobreDeMios(user: UsuarioFixture, funciones = funcionesDe(user)) {
   // HU #12875: `/mios` devuelve el ENLACE del rol (el tipo interno/externo se retiró). Como la base:
   // `cliente` → compania, `proveedor` → proveedor; el resto, ninguno. La Ayuda decide por este campo.
-  const tipoEnlace = user.role === 'cliente' ? 'compania' : user.role === 'proveedor' ? 'proveedor' : 'ninguno';
+  // HU #13452: un fixture puede declarar su `tipoEnlace` (rol cualquiera con enlace, p. ej. «Prueba compañía»).
+  const tipoEnlace = typeof user.tipoEnlace === 'string'
+    ? user.tipoEnlace
+    : user.role === 'cliente' ? 'compania' : user.role === 'proveedor' ? 'proveedor' : 'ninguno';
   return {
     funciones, rol: user.role, tipoEnlace,
     version: 1, resueltoEn: '2026-09-14T12:00:00.000Z',
