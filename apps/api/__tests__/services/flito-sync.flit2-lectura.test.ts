@@ -1695,8 +1695,20 @@ describe('Bug #13585 · RN-26 — un anulado/revocado no modifica el vehículo e
     expect(mem.escrituras.filter((w) => w.tabla === 'vehicles')).toEqual([]);
     expect(vehiculo()).toEqual(antes);
     expect(filas(S.vehicles)).toHaveLength(1);
-    // El trámite anulado sí se guarda, colgado del mismo vehículo y con la placa conocida (RN-04).
-    expect(tramite(U2)).toMatchObject({ estado: 'anulado', vehiculoId: antes.id, plateComplete: 'ZZZ001' });
+    // El trámite anulado sí se guarda, colgado del mismo vehículo, pero SIN la placa del vehículo
+    // (retrabajo 2): no trae placa propia ni tenía una antes → null. El vigente conserva la suya.
+    expect(tramite(U2)).toMatchObject({ estado: 'anulado', vehiculoId: antes.id, plateComplete: null });
+    expect(tramite(U1)).toMatchObject({ plateComplete: 'ZZZ001' });
+  });
+
+  it('anulado del mismo VIN que SÍ trae placa propia → guarda la suya, no la del vehículo', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([crudo({ estado: 'aprobado' })], 'c1')]).port);
+    const propio = anuladoMismoVin('anulado');
+    propio.vehiculo = { ...propio.vehiculo as Fila, placa: 'ANU123' };
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([propio], 'c2')]).port);
+    expect(tramite(U2)).toMatchObject({ estado: 'anulado', plateComplete: 'ANU123' });
+    expect(vehiculo()).toMatchObject({ plate: 'ZZZ001' });
   });
 
   it('el mismo trámite que pasa a revocado tampoco modifica su vehículo', async () => {
@@ -1705,7 +1717,8 @@ describe('Bug #13585 · RN-26 — un anulado/revocado no modifica el vehículo e
     const antes = structuredClone(vehiculo()!);
     await leerIncremental({ ahora: reloj() }, puerto([pagina([anuladoMismoVin('revocado', { id: U1, radicado: 'FT1-0001234', syncVersion: 11 })], 'c2')]).port);
     expect(vehiculo()).toEqual(antes);
-    expect(tramite(U1)).toMatchObject({ estado: 'anulado', flitEstado: 'Revocado' });
+    // Sin placa en el ítem, el revocado conserva la que ESE trámite ya tenía (no la pierde).
+    expect(tramite(U1)).toMatchObject({ estado: 'anulado', flitEstado: 'Revocado', plateComplete: 'ZZZ001' });
   });
 
   it('anulado con VIN que no existe → SÍ da de alta el vehículo', async () => {
@@ -1729,5 +1742,7 @@ describe('Bug #13585 · RN-26 — un anulado/revocado no modifica el vehículo e
     await leerIncremental({ ahora: reloj() }, puerto([pagina([crudo({ estado: 'aprobado' })], 'c1')]).port);
     await leerIncremental({ ahora: reloj() }, puerto([pagina([anuladoMismoVin('asignado')], 'c2')]).port);
     expect(vehiculo()).toMatchObject({ brand: 'MARCA ANULADA', plate: 'ZZZ001' });
+    // RN-04 intacta para los vigentes: sin placa en el ítem, toma la conocida del vehículo.
+    expect(tramite(U2)).toMatchObject({ estado: 'asignado', plateComplete: 'ZZZ001' });
   });
 });
