@@ -8,7 +8,7 @@ Administrador (opera, sincroniza y despacha). Auditor (solo lectura). El Proveed
 
 ## Cómo se entra
 
-En el menú lateral, sección **Gestión**, ítem **Gestión Trámites**. También desde **Tablero FLITO**, al pulsar una alerta operativa (el listado llega con el filtro ya aplicado).
+En el menú lateral, sección **Gestión**, ítem **Gestión Trámites**. También desde el **Tablero** de General, al pulsar una alerta operativa (el listado llega con el filtro ya aplicado).
 
 ## Pasos
 
@@ -24,6 +24,15 @@ En el menú lateral, sección **Gestión**, ítem **Gestión Trámites**. Tambi�
 5. Con la selección, pulse **Solicitar SOAT**, **Solicitar Impuestos**, **Solicitar ambos** o **Entregar**. Esas acciones siguen aplicando **solo** a los trámites que ya las admitían, y el botón se lo dice: con tres marcados de los que dos se pueden despachar, verá **Solicitar SOAT (2 de 3)**. **Entregar** solo aplica si la fila muestra **Listo para entregar**.
 6. Con trámites marcados, pulse **Descargar soportes (N)**. Se abre **Documentos del ZIP**, donde elige **Factura de venta**, **Recibo del impuesto**, **Comprobante del SOAT** o los que necesite, y obtiene **un solo** archivo ZIP con todo lo elegido. Cada trámite llega como **un solo PDF** con sus documentos en este orden: factura de venta, recibo del impuesto y comprobante del SOAT; el archivo se llama con la placa (por ejemplo, **ABC123.pdf**). Si un documento viene protegido y no se puede unir, va aparte, tal cual, como **ABC123-2.pdf**. Si un documento está dañado y no se puede leer, queda fuera y el aviso final le dice cuántos. Mientras se prepara verá **Preparando el archivo…**; con muchos trámites puede tardar unos minutos. Antes este botón traía solo las facturas de venta. Si ninguno de los trámites marcados tiene el documento que eligió, **no** se descarga un ZIP vacío: verá un aviso. En una fila, **Crear empresa**, el historial o **Soportes** abren el detalle de esa compañía o de ese trámite.
 7. **Acceso a FLIT 2** (solo administradores): el botón del grupo **FLIT 2** abre un panel con el usuario de servicio con el que FLITO entra a FLIT 2, quién lo guardó y desde cuándo. La contraseña no se muestra nunca. Si aún no hay acceso, el panel lo dice. Con permiso de guardar, escriba el usuario y la contraseña que entregó FLIT 2 y pulse **Guardar acceso**: los campos se vacían al guardar. Con un acceso ya guardado, **Probar conexión** comprueba si FLIT 2 lo acepta y deja el resultado en un aviso dentro del panel (conectado, sin permiso de datos personales, rechazado, bloqueado un rato, o FLIT 2 que no responde); el botón no aparece hasta que haya un acceso guardado. Sin ese permiso, solo verá el estado.
+
+## Entregar trámites
+
+Entregar no es una pantalla aparte: es una acción de esta pantalla.
+
+1. Un trámite se puede entregar cuando está **Asignado** y tiene resueltos el SOAT y los impuestos. Esa fila muestra **Listo para entregar**.
+2. Que SOAT e impuestos estén resueltos es necesario, no suficiente: el trámite pasa a «Entregado» solo cuando usted lo marca y pulsa **Entregar**.
+3. Si una fila no muestra **Listo para entregar**, revise las columnas **SOAT** e **Impuestos**: ahí ve qué le falta.
+4. Puede marcar varios y entregarlos a la vez. El número del botón (por ejemplo, **Entregar (2 de 3)**) le dice sobre cuántos de los marcados actúa; los que no están listos no se entregan.
 
 ## Estados
 

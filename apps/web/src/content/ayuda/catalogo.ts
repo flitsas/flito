@@ -1,17 +1,19 @@
 import type { PageSlug } from '../../lib/permissions';
 
-// Catálogo de 19 fichas de Ayuda FLITO (HU #11893; la 19.ª, Roles y permisos, es de la HU #12085). Fuente de verdad de QUÉ puede aparecer
-// en el índice. El orden de cada grupo es el de NAV_ITEMS cuando el ítem existe; si no hay
-// ítem de menú (Compuerta, Credenciales), al final del grupo. La etiqueta es el nombre del ítem
-// del menú (P-33, HU #13431).
+// Catálogo de las fichas de Ayuda FLITO (HU #11893; Roles y permisos de la HU #12085; Gastos diarios de
+// la HU #12624). Fuente de verdad de QUÉ puede aparecer en el índice. Ausencia de archivo = «Ficha
+// pendiente», no error.
 //
-// `flito_tablero` (clave y archivo se conservan para no romper enlaces a la ficha) es desde P-11
-// (HU #13428) el **Tablero** de General: el ítem «Tablero FLITO» ya no existe y su contenido es lo
-// que se ve en el inicio (`/`). Cuelga de `flito_tablero` porque «Ver el tablero» lo expande junto
-// con la función que pinta ese contenido; `dashboard` lo tiene también quien ve el inicio genérico.
-//
-// Las 19 están publicadas (Gestión #11894; Finanzas y Administración #11895). Ausencia de
-// archivo = «Ficha pendiente», no error.
+// HU #13431 (P-33): la etiqueta de cada capítulo es el nombre de su ítem del menú y el orden de cada
+// grupo es el de `NAV_ENTRADAS` (components/shell/navEntradas.ts) — lo vigila
+// `e2e/tests/flito-ayuda-indice.spec.ts`. Solo se listan pantallas que son un ítem del menú:
+//   · `flito_tablero` (clave y archivo se conservan para no romper enlaces) es desde P-11 (HU #13428)
+//     el **Tablero** de General (`/`). Cuelga de `flito_tablero` porque «Ver el tablero» lo expande
+//     junto con la función que pinta ese contenido; `dashboard` lo tiene también quien ve el inicio
+//     genérico.
+//   · La antigua «Compuerta de entrega» no es un ítem del menú: «Entregar trámites» es una acción de
+//     Gestión Trámites y se explica en su ficha. `/flito/ayuda/flito_compuerta` cae en «Esta ficha no
+//     existe», como cualquier clave fuera del catálogo.
 //
 // `siigo_credenciales` cuelga de su propio PageSlug (HU #12872; antes, del nombre del rol).
 // Prohibido aliasarla a `siigo_parametrizacion`: Financiera tiene parametrización y no debe ver el
@@ -25,7 +27,6 @@ export type ClaveAyuda =
   | 'flito_impuestos'
   | 'flito_derechos'
   | 'flito_revisiones'
-  | 'flito_compuerta'
   | 'flito_tablero'
   | 'flito_bitacora'
   | 'flito_logistica'
@@ -37,6 +38,7 @@ export type ClaveAyuda =
   | 'flito_servicios_adicionales'
   | 'flito_conciliacion'
   | 'finanzas_reporte_costos'
+  | 'finanzas_gastos_diarios'
   | 'flito_comprobantes'
   | 'siigo_parametrizacion'
   | 'siigo_operacion'
@@ -66,28 +68,28 @@ export const GRUPO_AYUDA_LABEL: Record<AyudaGrupo, string> = {
 
 export const CATALOGO_AYUDA: readonly EntradaAyuda[] = [
   { clave: 'flito_tablero', grupo: 'general', etiqueta: 'Tablero', resumen: 'Retenciones, estancamientos y diferencias de operación.', to: '/', permiso: 'flito_tablero' },
+  { clave: 'clients', grupo: 'gestion', etiqueta: 'Clientes y proveedores', resumen: 'Empresas, autogestión y datos comerciales.', to: '/clients', permiso: 'clients' },
   { clave: 'flito_tramites', grupo: 'gestion', etiqueta: 'Gestión Trámites', resumen: 'Cómo despachar SOAT, impuestos y entregas.', to: '/flito/tramites', permiso: 'flito_tramites' },
+  { clave: 'flito_derechos', grupo: 'gestion', etiqueta: 'Derechos', resumen: 'Lo que el organismo cobra por radicar.', to: '/flito/derechos', permiso: 'flito_derechos' },
+  { clave: 'flito_revisiones', grupo: 'gestion', etiqueta: 'Revisiones OCR', resumen: 'Cola de confirmación de campos leídos.', to: '/flito/revisiones', permiso: 'flito_revisiones' },
+  { clave: 'flito_bitacora', grupo: 'gestion', etiqueta: 'Bitácora', resumen: 'Rastro de movimientos de un trámite.', to: '/flito/bitacora', permiso: 'flito_bitacora' },
+  { clave: 'flito_comparendos', grupo: 'gestion', etiqueta: 'Comparendos', resumen: 'Lo que SIMIT y los municipios reportan de los NIT vigilados.', to: '/flito/comparendos', permiso: 'flito_comparendos' },
+  { clave: 'flito_logistica', grupo: 'gestion', etiqueta: 'Logística', resumen: 'Actas, despacho y trazabilidad por documento.', to: '/flito/logistica', permiso: 'flito_logistica' },
+  { clave: 'flito_logistica_ruta', grupo: 'gestion', etiqueta: 'Mi ruta', resumen: 'Recogidas y entregas asignadas al mensajero.', to: '/flito/ruta', permiso: 'flito_logistica_ruta' },
   // La ficha describe `/flito/soat`, y desde el Feature #11912 esa pantalla tiene llave propia:
   // `flito_soat`, no la `soat` del módulo legacy (`/soat`, `Soat.tsx`). Dejar `permiso: 'soat'`
   // ataría la ayuda de una pantalla al permiso de OTRA (ADR-0008 §4).
   { clave: 'soat', grupo: 'gestion', etiqueta: 'SOAT', resumen: 'Cola de pólizas del proveedor.', to: '/flito/soat', permiso: 'flito_soat' },
   { clave: 'flito_impuestos', grupo: 'gestion', etiqueta: 'Impuestos', resumen: 'Cola de recibos del gestor de impuestos.', to: '/flito/impuestos', permiso: 'flito_impuestos' },
-  { clave: 'flito_derechos', grupo: 'gestion', etiqueta: 'Derechos', resumen: 'Lo que el organismo cobra por radicar.', to: '/flito/derechos', permiso: 'flito_derechos' },
-  { clave: 'flito_revisiones', grupo: 'gestion', etiqueta: 'Revisiones OCR', resumen: 'Cola de confirmación de campos leídos.', to: '/flito/revisiones', permiso: 'flito_revisiones' },
-  { clave: 'flito_compuerta', grupo: 'gestion', etiqueta: 'Compuerta de entrega', resumen: 'Habilitar la entrega cuando SOAT e impuestos están resueltos.', to: '/flito/compuerta', permiso: 'flito_compuerta' },
-  { clave: 'flito_bitacora', grupo: 'gestion', etiqueta: 'Bitácora', resumen: 'Rastro de movimientos de un trámite.', to: '/flito/bitacora', permiso: 'flito_bitacora' },
-  { clave: 'flito_logistica', grupo: 'gestion', etiqueta: 'Logística', resumen: 'Actas, despacho y trazabilidad por documento.', to: '/flito/logistica', permiso: 'flito_logistica' },
-  { clave: 'flito_logistica_ruta', grupo: 'gestion', etiqueta: 'Mi ruta', resumen: 'Recogidas y entregas asignadas al mensajero.', to: '/flito/ruta', permiso: 'flito_logistica_ruta' },
-  { clave: 'flito_comparendos', grupo: 'gestion', etiqueta: 'Comparendos', resumen: 'Lo que SIMIT y los municipios reportan de los NIT vigilados.', to: '/flito/comparendos', permiso: 'flito_comparendos' },
-  { clave: 'clients', grupo: 'gestion', etiqueta: 'Clientes y proveedores', resumen: 'Empresas, autogestión y datos comerciales.', to: '/clients', permiso: 'clients' },
+  { clave: 'finanzas_reporte_costos', grupo: 'finanzas', etiqueta: 'Reporte de costos', resumen: 'Costos por trámite para contabilidad y cobros.', to: '/finanzas/reporte-costos', permiso: 'finanzas_reporte_costos' },
+  { clave: 'finanzas_gastos_diarios', grupo: 'finanzas', etiqueta: 'Gastos diarios', resumen: 'Cuánto se pagó cada día por SOAT, impuestos, derechos, logística y servicios adicionales.', to: '/finanzas/gastos-diarios', permiso: 'finanzas_gastos_diarios' },
   { clave: 'flito_bolsas', grupo: 'finanzas', etiqueta: 'Bolsas', resumen: 'Saldos, recargas y cierres.', to: '/flito/bolsas', permiso: 'flito_bolsas' },
   { clave: 'flito_tarifas', grupo: 'finanzas', etiqueta: 'Tarifas', resumen: 'Cuánto se le cobra a cada cliente por trámite y logística.', to: '/flito/tarifas', permiso: 'flito_tarifas' },
   { clave: 'flito_servicios_adicionales', grupo: 'finanzas', etiqueta: 'Servicios adicionales', resumen: 'Catálogo de servicios cobrados aparte del trámite y su valor.', to: '/flito/servicios-adicionales', permiso: 'flito_servicios_adicionales' },
-  { clave: 'flito_conciliacion', grupo: 'finanzas', etiqueta: 'Conciliación', resumen: 'Cruce del recaudo SOAT contra lo emitido.', to: '/flito/conciliacion', permiso: 'flito_conciliacion' },
-  { clave: 'finanzas_reporte_costos', grupo: 'finanzas', etiqueta: 'Reporte de costos', resumen: 'Costos por trámite para contabilidad y cobros.', to: '/finanzas/reporte-costos', permiso: 'finanzas_reporte_costos' },
   { clave: 'flito_comprobantes', grupo: 'finanzas', etiqueta: 'Comprobantes', resumen: 'Cargue cualquier comprobante y revise lo que FLITO leyó.', to: '/flito/comprobantes', permiso: 'flito_comprobantes' },
+  { clave: 'flito_conciliacion', grupo: 'finanzas', etiqueta: 'Conciliación', resumen: 'Cruce del recaudo SOAT contra lo emitido.', to: '/flito/conciliacion', permiso: 'flito_conciliacion' },
   { clave: 'siigo_parametrizacion', grupo: 'finanzas', etiqueta: 'Facturación electrónica · Parametrización', resumen: 'Catálogos, mapeo de conceptos y emisión.', to: '/siigo/parametrizacion', permiso: 'siigo_parametrizacion' },
   { clave: 'siigo_operacion', grupo: 'finanzas', etiqueta: 'Facturación electrónica · Operación', resumen: 'Bandeja de facturas y acciones del día a día.', to: '/siigo/operacion', permiso: 'siigo_operacion' },
-  { clave: 'siigo_credenciales', grupo: 'administracion', etiqueta: 'Facturación electrónica · Credenciales', resumen: 'Credenciales de la integración. Solo administración.', to: '/siigo/credenciales', permiso: 'siigo_credenciales' },
   { clave: 'roles_permisos', grupo: 'administracion', etiqueta: 'Roles y permisos', resumen: 'Qué puede hacer cada rol dentro de FLITO.', to: '/roles-permisos', permiso: 'roles_permisos' },
+  { clave: 'siigo_credenciales', grupo: 'administracion', etiqueta: 'Integración con Siigo', resumen: 'Credenciales de la integración. Solo administración.', to: '/siigo/credenciales', permiso: 'siigo_credenciales' },
 ];

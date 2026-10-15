@@ -8,7 +8,7 @@ Quién la usa en operación (nombres de rol de producto: Administrador, Proveedo
 
 ## Cómo se entra
 
-Cómo se llega con el menú o, si no hay ítem de menú (Compuerta, Tablero FLITO), desde qué pantalla se abre. No incluya direcciones de interfaz ni nombres de tablas.
+Cómo se llega con el menú o, si la pantalla no es un ítem de menú, desde qué pantalla se abre. No incluya direcciones de interfaz ni nombres de tablas.
 
 ## Pasos
 
