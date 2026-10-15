@@ -67,8 +67,8 @@ describe('AC1 / TC-01 — GET /arbol: la estructura del árbol sin marcas', () =
     const accionesBajoAntiguos = arbol.filter((n) => n.tipo === 'accion' && por.get(n.padre!)?.legado).map((n) => n.codigo);
     expect(accionesBajoAntiguos.every((c) => /^accion\.pesv_[a-z_]+\.administrar$/.test(c))).toBe(true);
     expect(accionesBajoAntiguos).toHaveLength(20);
-    // HU #13588 (AC6): ya no hay transversales; el campo se mantiene vacío por compatibilidad con el panel.
-    expect(r.body.transversales).toEqual([]);
+    // HU #13588 (AC6) + HU #13589: ya no hay transversales; la respuesta ya no trae el campo.
+    expect(r.body).not.toHaveProperty('transversales');
   });
 });
 
@@ -115,7 +115,7 @@ describe('AC1, AC4, AC5, AC6 — GET /roles/:codigo/arbol', () => {
     const r = await pedir(['vehicles.propietario.ver_documento', 'vehicles.vehiculos.consultar']);
     expect(buscar(r.body.arbol as NodoArbolRol[], 'vehicles.propietario.ver_documento')).toMatchObject({ marcado: true, efectivo: false });
     expect(buscar(r.body.arbol as NodoArbolRol[], 'vehicles.vehiculos.consultar')).toBeUndefined();
-    expect(r.body.transversales).toEqual([]);
+    expect(r.body).not.toHaveProperty('transversales');
   });
 
   it('404 si el rol no existe', async () => {

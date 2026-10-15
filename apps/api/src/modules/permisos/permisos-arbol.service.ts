@@ -7,8 +7,8 @@
 // desmarcado); un ítem antiguo nunca. Los opcionales cuelgan de su acción o ítem (`tipo: 'operacion'`,
 // `opcional: true`). «Ayuda» viaja `derivado`, sin marca.
 //
-// HU #13588 (P-35..P-37): ya no hay permisos sueltos fuera del menú. `transversales` se MANTIENE en la respuesta,
-// siempre `[]`, por compatibilidad con el panel actual (la HU FRONTEND #13589 lo retira de shared-types).
+// HU #13588 (P-35..P-37): ya no hay permisos sueltos fuera del menú. HU #13589: la respuesta ya no trae el
+// campo `transversales` (retirado de shared-types junto con el bloque del panel).
 // Sin PII: del usuario solo el id y el código de su rol.
 import { eq } from 'drizzle-orm';
 import {
@@ -24,10 +24,10 @@ export class UsuarioNoEncontradoError extends Error {
   constructor() { super('No existe el usuario'); this.name = 'UsuarioNoEncontradoError'; }
 }
 
-let estructura: { arbol: NodoArbolDef[]; transversales: NodoArbolDef[] } | null = null;
+let estructura: { arbol: NodoArbolDef[] } | null = null;
 
-/** La estructura, una vez por proceso: nodos del menú y opcionales colgados; `transversales` vacío (HU #13588). */
-export function arbolDef(): { arbol: NodoArbolDef[]; transversales: NodoArbolDef[] } {
+/** La estructura, una vez por proceso: nodos del menú y opcionales colgados (sin transversales, HU #13588/#13589). */
+export function arbolDef(): { arbol: NodoArbolDef[] } {
   if (estructura) return estructura;
   const nombres = new Map(catalogoCompleto().map((f) => [f.codigo, f]));
   const nodos: NodoArbolDef[] = ARBOL_PERMISOS.map((n) => ({ ...n }));
@@ -48,7 +48,7 @@ export function arbolDef(): { arbol: NodoArbolDef[]; transversales: NodoArbolDef
     nivel.set(n.codigo, v);
     return v;
   };
-  estructura = { arbol: nodos.map((n) => ({ ...n, nivel: nivelDe(n) })), transversales: [] };
+  estructura = { arbol: nodos.map((n) => ({ ...n, nivel: nivelDe(n) })) };
   return estructura;
 }
 
@@ -101,9 +101,9 @@ export async function arbolDeRol(codigo: string) {
   const filas = await db.select({ codigo: permisosRolFuncion.funcionCodigo }).from(permisosRolFuncion)
     .where(eq(permisosRolFuncion.rolCodigo, codigo));
   const marcas = marcasDe(new Set(filas.map((f) => f.codigo)));
-  const { arbol, transversales } = arbolDef();
+  const { arbol } = arbolDef();
   const aRol = (n: NodoArbolDef): NodoArbolRol => ({ ...conMarcas(n, marcas, arbol), hijos: [] });
-  return { rol, arbol: anidar(arbol.map(aRol)), transversales: transversales.map(aRol) };
+  return { rol, arbol: anidar(arbol.map(aRol)) };
 }
 
 /** `GET /usuarios/:id/arbol`: `heredado` = lo marca su rol; `excepcion` = su fila propia, si la hay. */
@@ -120,9 +120,9 @@ export async function arbolDeUsuario(userId: number) {
   for (const [c, e] of excepcion) if (e === 'conceder') m.add(c);
   for (const [c, e] of excepcion) if (e === 'revocar') m.delete(c);
   const marcas = marcasDe(m);
-  const { arbol, transversales } = arbolDef();
+  const { arbol } = arbolDef();
   const aUsuario = (n: NodoArbolDef): NodoArbolUsuario => ({
     ...conMarcas(n, marcas, arbol), heredado: heredadas.has(n.codigo), excepcion: excepcion.get(n.codigo) ?? null, hijos: [],
   });
-  return { userId, rol: u.rol, arbol: anidar(arbol.map(aUsuario)), transversales: transversales.map(aUsuario) };
+  return { userId, rol: u.rol, arbol: anidar(arbol.map(aUsuario)) };
 }

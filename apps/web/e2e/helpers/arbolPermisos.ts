@@ -22,7 +22,6 @@ export const item = (slug: string, nombre: string, hijos: NodoDef[] = [], extra:
 export const accion = (codigo: string, nombre: string, hijos: NodoDef[] = [], descripcion?: string): NodoDef =>
   ({ codigo, nombre, tipo: 'accion', hijos, ...(descripcion ? { descripcion } : {}) });
 export const opcional = (codigo: string, nombre: string): NodoDef => ({ codigo, nombre, tipo: 'operacion', opcional: true });
-export const transversal = (codigo: string, nombre: string): NodoDef => ({ codigo, nombre, tipo: 'operacion' });
 
 /** Todos los códigos marcables (sin derivados), padres antes que hijos. */
 export function codigosDe(defs: readonly NodoDef[]): string[] {

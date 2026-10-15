@@ -355,7 +355,7 @@ function AppRoutes() {
         <Route path="/rndc/manifiestos/nuevo" element={<ProtectedRoute page="rndc"><Lazy><RndcManifiestoWizard /></Lazy></ProtectedRoute>} />
         <Route path="/rndc/manifiestos/:id" element={<ProtectedRoute page="rndc"><Lazy><RndcManifiestoDetail /></Lazy></ProtectedRoute>} />
         <Route path="/rndc/admin/credenciales" element={<ProtectedRoute page="rndc_admin"><Lazy><RndcAdminCredenciales /></Lazy></ProtectedRoute>} />
-        <Route path="/admin/rendimiento" element={<Lazy><RumSummary /></Lazy>} />
+        <Route path="/admin/rendimiento" element={<ProtectedRoute page="admin_rendimiento"><Lazy><RumSummary /></Lazy></ProtectedRoute>} />
         <Route path="/admin/tramites-metricas" element={<Lazy><TramitesMetricas /></Lazy>} />
       </Route>
       <Route path="*" element={<Navigate to="/" />} />

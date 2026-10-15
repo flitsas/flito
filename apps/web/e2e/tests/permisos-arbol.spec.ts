@@ -11,12 +11,16 @@
 // Mapa AC → test: AC1/AC2/AC8 → «árbol»; AC3 (+P-26, P-31, P-32, Ayuda) → «sin acciones, opcionales y
 // marcar todo»; AC5 → «409»; AC6/AC7 → «solo lectura» y «409» (admin editable); AC4 → «usuario»;
 // AC8 axe → «axe».
+//
+// HU #13589 (P-35..P-37): sin bloque «Permisos que no dependen del menú»; el árbol es solo el del menú y
+// Administración trae «Rendimiento». AC1/AC3/AC4 (panel) → «HU #13589 · panel sin permisos sueltos»; AC2 →
+// aserto en «usuario». Menú, Tablero y /admin/rendimiento → `permisos-rendimiento.spec.ts`.
 import type { Page, Request } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER } from '../helpers/auth';
 import { cargarAxe, correrAxe, esperarSinViolacionesGraves } from '../helpers/axe';
 import {
-  accion, arbolRol, arbolUsuario, codigosDe, elemento, item, opcional, transversal, type NodoDef,
+  accion, arbolRol, arbolUsuario, codigosDe, elemento, item, opcional, type NodoDef,
 } from '../helpers/arbolPermisos';
 import {
   COPY_AYUDA_DERIVADA, COPY_ITEM_ANTIGUO, COPY_ITEM_ANTIGUO_OPCIONALES, avisoSinAcciones, explicacionDesmarcado, fraseSinEfecto,
@@ -48,18 +52,18 @@ const ARBOL: NodoDef[] = [
   elemento('administracion', 'Administración', [
     item('users', 'Usuarios', [accion('accion.usuarios.ver', 'Ver usuarios'), accion('accion.usuarios.editar', 'Editar usuario')]),
     item('roles_permisos', 'Roles y permisos', [accion('accion.roles_permisos.ver', 'Ver roles'), accion('accion.roles_permisos.asignar', 'Asignar permisos')]),
+    item('admin_rendimiento', 'Rendimiento', [], { legado: true }),
   ]),
   elemento('ayuda', 'Ayuda', [], { derivado: true }),
   elemento('perfil', 'Perfil', [item('perfil', 'Mi perfil', [], { legado: true })]),
 ];
-const TRANSVERSALES: NodoDef[] = [transversal('vehiculos.placa.consultar', 'Consultar un vehículo por placa'), transversal('fasecolda.buscar', 'Buscar en Fasecolda')];
-const TODO = [...codigosDe(ARBOL), ...codigosDe(TRANSVERSALES)];
+const TODO = codigosDe(ARBOL);
+const TITULO_SUELTOS = 'Permisos que no dependen del menú';
 const ELEMENTOS = ['General', 'Gestión', 'Tránsito', 'PESV', 'Administración', 'Ayuda', 'Perfil'];
 
 const GESTOR = [
   'menu.general', 'pagina.dashboard', 'accion.tablero.ver',
   'menu.gestion', 'pagina.flito_soat', 'accion.soat.ver_listado', 'accion.soat.exportar', 'pagina.vehicles', 'pagina.tramite',
-  'vehiculos.placa.consultar',
 ];
 
 const rol = (codigo: string, nombre: string, usuarios = 0) => ({
@@ -82,7 +86,7 @@ function mockPermisos(page: Page, o: Opciones = {}) {
     const datos = ROLES.find((x) => x.codigo === codigo);
     return r.fulfill(json({
       rol: { codigo, nombre: datos?.nombre ?? codigo, tipoEnlace: 'ninguno' },
-      arbol: arbolRol(ARBOL, marcas), transversales: arbolRol(TRANSVERSALES, marcas),
+      arbol: arbolRol(ARBOL, marcas),
     }));
   });
   page.route(/\/api\/permisos\/roles\/([^/]+)\/funciones$/, (r) => {
@@ -218,19 +222,18 @@ test.describe('HU #13430 · árbol de permisos del rol', () => {
     await expect(casilla(page, 'accion.soat.exportar')).not.toHaveAttribute('aria-checked', /.*/);
     await expect(page.getByText(rotuloOpcional('Exportar a Excel'))).toBeVisible();
 
-    // P-31: «Marcar todo» marca transversales pero NO opcionales; Ayuda no entra.
+    // P-31: «Marcar todo» marca ítems y acciones pero NO opcionales; Ayuda no entra (HU #13589: sin sueltos).
     await page.getByRole('button', { name: 'Marcar todo en el rol Gestor de trámites', exact: true }).click();
     await expect(casilla(page, 'vehiculos.documento.ver')).not.toBeChecked();
     await expect(casilla(page, 'soat.descarga.reintentar')).not.toBeChecked();
     await expect(casilla(page, 'menu.transito')).toBeChecked();
-    await desplegar(page, 'Permisos que no dependen del menú').click();
-    await expect(casilla(page, 'fasecolda.buscar')).toBeChecked();
+    await expect(casilla(page, 'menu.administracion')).toBeChecked();
+    await expect(desplegar(page, TITULO_SUELTOS)).toHaveCount(0);
     // Los opcionales se marcan aparte; «Desmarcar todo» los quita también.
     await casilla(page, 'vehiculos.documento.ver').check();
     await expect(fila(page, 'pagina.vehicles')).toContainText('1 opcional');
     await page.getByRole('button', { name: 'Desmarcar todo en el rol Gestor de trámites', exact: true }).click();
     await expect(casilla(page, 'vehiculos.documento.ver')).not.toBeChecked();
-    await expect(casilla(page, 'fasecolda.buscar')).not.toBeChecked();
     await expect(page.locator('[data-aviso="rol-vacio"]')).toBeVisible();
     await page.getByRole('button', { name: 'Guardar cambios' }).click();
     await expect.poll(() => puts.length).toBe(1);
@@ -368,7 +371,7 @@ test.describe('HU #13430 · árbol de permisos del rol', () => {
     await abrir(page);
     await page.getByLabel('Rol', { exact: true }).selectOption('gestor_tramites');
     await expect(page.getByRole('heading', { name: 'Gestor de trámites', level: 2 })).toBeVisible();
-    for (const nombre of ['Gestión', 'SOAT', 'Exportar a Excel', 'Vehículos', 'PESV', 'Conductores', 'Permisos que no dependen del menú']) {
+    for (const nombre of ['Gestión', 'SOAT', 'Exportar a Excel', 'Vehículos', 'PESV', 'Conductores']) {
       await desplegar(page, nombre).click();
     }
     await casilla(page, 'menu.gestion').click(); // inactivos + explicación: el caso más largo
@@ -387,6 +390,47 @@ test.describe('HU #13430 · árbol de permisos del rol', () => {
 });
 
 
+test.describe('HU #13589 · panel sin permisos sueltos', () => {
+  test('AC1/AC3/AC4: solo el árbol del menú, «N de M» = casillas del árbol, «Rendimiento» marcable en Administración', async ({ page }) => {
+    const { puts } = mockPermisos(page);
+    await abrir(page);
+    await expect(page.getByRole('heading', { name: 'Administrador', level: 2 })).toBeVisible();
+    // AC1: ni el bloque ni sus casillas.
+    await expect(page.getByText(TITULO_SUELTOS)).toHaveCount(0);
+    await expect(page.locator('li[data-codigo-fila="__transversales"]')).toHaveCount(0);
+    for (const nombre of ['Consultar vehículos', 'Consultar persona en el RUNT', 'Leer la cédula', 'Buscar en Fasecolda']) {
+      await expect(page.getByRole('checkbox', { name: new RegExp(`^${nombre}`) })).toHaveCount(0);
+    }
+    // AC3: el total es el de las casillas del árbol (sin Ayuda), nada más.
+    await expect(page.getByRole('status').filter({ hasText: 'Permisos del rol Administrador.' }))
+      .toHaveText(`Permisos del rol Administrador. ${TODO.length} de ${TODO.length} marcados.`);
+    // AC4: Administración trae «Rendimiento», marcable.
+    await desplegar(page, 'Administración').click();
+    const rendimiento = page.getByRole('checkbox', { name: 'Rendimiento · rol Administrador', exact: true });
+    await expect(rendimiento).toBeEnabled();
+    await expect(rendimiento).toBeChecked();
+    await rendimiento.uncheck();
+    await page.getByRole('button', { name: 'Guardar cambios' }).click();
+    await expect.poll(() => puts.length).toBe(1);
+    const enviadas = (puts[0].postDataJSON() as { funciones: string[] }).funciones;
+    expect(enviadas).not.toContain('pagina.admin_rendimiento');
+    expect(enviadas).toHaveLength(TODO.length - 1);
+  });
+
+  test('AC3: «Marcar todo» en un rol vacío marca todo el árbol (sin opcionales) y nada fuera de él', async ({ page }) => {
+    const { puts } = mockPermisos(page);
+    await abrir(page);
+    await botonRol(page, 'Sin nada').click();
+    await page.getByRole('button', { name: 'Marcar todo en el rol Sin nada', exact: true }).click();
+    await page.getByRole('button', { name: 'Guardar cambios' }).click();
+    await expect.poll(() => puts.length).toBe(1);
+    const enviadas = (puts[0].postDataJSON() as { funciones: string[] }).funciones;
+    const opcionales = ['vehiculos.documento.ver', 'soat.descarga.reintentar'];
+    expect([...enviadas].sort()).toEqual(TODO.filter((c) => !opcionales.includes(c)).sort());
+    expect(enviadas).toContain('pagina.admin_rendimiento');
+  });
+});
+
 // ─── AC4: excepciones por usuario en el modal Editar usuario ─────────────────────────────────────
 const USUARIO = {
   id: 2, username: 'gestor1', name: 'Gestor Uno', email: null, role: 'gestor_tramites', active: true, allowedPages: [],
@@ -402,7 +446,7 @@ function mockUsuario(page: Page, patch: () => ReturnType<typeof json>) {
   page.route('**/api/users/2/arbol', (r) => {
     const exc = new Map(USUARIO.funciones.map((f) => [f.codigo, f.efecto as 'conceder' | 'revocar']));
     const rolSet = new Set(GESTOR);
-    return r.fulfill(json({ userId: 2, rol: 'gestor_tramites', arbol: arbolUsuario(ARBOL, rolSet, exc), transversales: arbolUsuario(TRANSVERSALES, rolSet, exc) }));
+    return r.fulfill(json({ userId: 2, rol: 'gestor_tramites', arbol: arbolUsuario(ARBOL, rolSet, exc) }));
   });
   page.route('**/api/users/2', (r) => {
     if (r.request().method() !== 'PATCH') return r.fulfill(json({}, 405));
@@ -424,6 +468,9 @@ test.describe('HU #13430 · excepciones por usuario (AC4)', () => {
     const modal = page.getByRole('dialog');
 
     await expect(modal.getByRole('heading', { name: 'Permisos de este usuario' })).toBeVisible();
+    // HU #13589 (AC2): el modal de excepciones tampoco trae el bloque de permisos sueltos.
+    await expect(modal.getByText(TITULO_SUELTOS)).toHaveCount(0);
+    await expect(modal.locator('li[data-codigo-fila="__transversales"]')).toHaveCount(0);
     await expect(modal.locator('[data-resumen="excepciones"]')).toHaveText(
       'Lo que trae del rol Gestor de trámites, con 2 excepciones: 1 añadida (1 sin efecto) y 1 quitada.',
     );

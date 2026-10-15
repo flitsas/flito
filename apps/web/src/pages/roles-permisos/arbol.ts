@@ -1,5 +1,6 @@
 // HU #13430 (Feature #13416, Épica #13411) — El modelo puro del árbol de permisos: elemento → ítem →
-// acción (→ acción anidada / opcional), más el bloque de transversales.
+// acción (→ acción anidada / opcional). Desde la HU #13589 no hay bloque de transversales: las
+// operaciones sueltas de P-29 vienen con su ítem (P-35..P-37).
 //
 // Diseño: `docs/ux/hu-13430-delta-contrato-arbol.md` (MANDA) y `docs/ux/hu-13430-panel-tres-niveles.md`.
 // Todo se calcula sobre un `Set<string>` de códigos marcados (el borrador del rol, o el conjunto
@@ -11,7 +12,7 @@
 //     desmarcado está INACTIVO aunque conserve su marca.
 //   · P-26: los opcionales no cuentan en «k de n» ni en el parcial; un padre cuyos únicos hijos son
 //     opcionales se comporta como hoja.
-//   · P-31: «Marcar todo» marca transversales pero no opcionales; «Desmarcar todo» quita todo.
+//   · P-31: «Marcar todo» marca ítems y acciones pero no opcionales; «Desmarcar todo» quita todo.
 //   · AC3 (delta §7): `sinAcciones` = ítem FLITO marcado sin ninguna acción marcada.
 //   · P-25 (delta §5): una excepción «conceder» bajo un ancestro que el usuario no tiene es «sin efecto».
 
@@ -54,11 +55,11 @@ export function marcadosDelApi(nodos: readonly (NodoEntrada & { marcado?: boolea
 
 export interface Indice {
   porCodigo: ReadonlyMap<string, Nodo>;
-  /** Ancestros de cada código, de arriba abajo. Los transversales no tienen. */
+  /** Ancestros de cada código, de arriba abajo. Los elementos no tienen. */
   ancestros: ReadonlyMap<string, readonly string[]>;
 }
 
-export function indexar(arbol: readonly Nodo[], transversales: readonly Nodo[]): Indice {
+export function indexar(arbol: readonly Nodo[]): Indice {
   const porCodigo = new Map<string, Nodo>();
   const ancestros = new Map<string, string[]>();
   const recorrer = (lista: readonly Nodo[], camino: string[]) => {
@@ -69,7 +70,6 @@ export function indexar(arbol: readonly Nodo[], transversales: readonly Nodo[]):
     }
   };
   recorrer(arbol, []);
-  recorrer(transversales, []);
   return { porCodigo, ancestros };
 }
 
@@ -150,8 +150,8 @@ export function codigosDesmarcarTodo(nodos: readonly Nodo[]): string[] {
 }
 
 /** Cuántas casillas tiene el árbol entero (para la lista de roles): todo menos lo derivado. */
-export function totalMarcables(arbol: readonly Nodo[], transversales: readonly Nodo[]): number {
-  return codigosDesmarcarTodo([...arbol, ...transversales]).length;
+export function totalMarcables(arbol: readonly Nodo[]): number {
+  return codigosDesmarcarTodo(arbol).length;
 }
 
 /** El conjunto que viaja en el `PUT`: todo lo marcado, inactivos incluidos, nunca `menu.ayuda`. */
@@ -215,9 +215,6 @@ export function resumenExcepciones(
 export const COPY_AYUDA_DERIVADA = 'Ayuda no se marca: cada usuario la ve sola, con los capítulos de lo que puede usar.';
 export const COPY_ITEM_ANTIGUO = 'Este ítem no se divide en acciones: marcarlo da acceso a todo lo de la pantalla.';
 export const COPY_ITEM_ANTIGUO_OPCIONALES = 'Marcarlo da acceso a todo lo de la pantalla, menos lo opcional que se marca aparte.';
-export const TITULO_TRANSVERSALES = 'Permisos que no dependen del menú';
-export const COPY_TRANSVERSALES =
-  'Se usan desde varias pantallas, por ejemplo al buscar un vehículo por placa. Valen aunque el rol no tenga ningún elemento del menú marcado.';
 
 export const rotuloOpcional = (padre: string) => `Opcional: no viene con ${padre}, se marca aparte`;
 
