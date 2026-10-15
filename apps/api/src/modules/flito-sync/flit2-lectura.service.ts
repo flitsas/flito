@@ -122,7 +122,11 @@
 //        anulado (otra marca, otro titular) lo pisaba según el orden del feed. Si el VIN no existe, el
 //        alta se hace igual (el trámite necesita `vehiculo_id`). El trámite anulado se guarda como
 //        siempre (estado, historial, compradores, `vehiculo_id`). La regla vive en `upsertVehiculo`
-//        (`soloAlta`), la misma que usa FLIT 1; `plate_complete` sigue saliendo de RN-04.
+//        (`soloAlta`), la misma que usa FLIT 1.
+//        `plate_complete` del anulado (retrabajo 2): la placa PROPIA del ítem, o la que ese mismo
+//        trámite ya tenía; NUNCA la del vehículo (`placaConocida` cae a ella y le pegaba al anulado la
+//        placa del vigente del mismo VIN). Sin ninguna de las dos queda null. Los vigentes siguen RN-04.
+//        Sin backfill: un anulado que ya heredó la placa la conserva hasta su próxima versión en el feed.
 
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { EstadoTramiteFlito, type Flit2LecturaResultado } from '@operaciones/shared-types';
@@ -324,7 +328,10 @@ async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date, mo
     const vf: VehiculoFlit = { ...it.vehiculo, placa, compradores: paraTitular };
     // RN-26 (Bug #13585): un anulado/revocado no modifica el vehículo existente; solo lo da de alta.
     vehiculoId = await upsertVehiculo(tx, vf, compania?.id ?? null, { soloAlta: mapeo.estado === EstadoTramiteFlito.ANULADO });
-    plateComplete = placa ?? porId?.plateComplete ?? null;
+    // RN-26: el anulado no hereda la placa del vehículo (es la del vigente del mismo VIN).
+    plateComplete = mapeo.estado === EstadoTramiteFlito.ANULADO
+      ? it.vehiculo.placa ?? porId?.plateComplete ?? null
+      : placa ?? porId?.plateComplete ?? null;
   } else {
     // Solo llega aquí un trámite existente (el nuevo sin vehículo salió arriba): conserva el suyo.
     vehiculoId = porId!.vehiculoId;
