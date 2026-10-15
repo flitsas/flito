@@ -28,9 +28,10 @@ export const ITEMS_ADMINISTRACION: readonly ItemDef[] = [
     { clave: 'credenciales_produccion', nombre: 'Registrar credenciales de producción', descripcion: 'Registrar y borrar las credenciales de Siigo del ambiente de producción.' },
     { clave: 'probar_conexion', nombre: 'Probar la conexión', descripcion: 'Probar la conexión con Siigo con las credenciales registradas.' },
   ] },
-  // HU #13588 (P-37): el resumen de rendimiento (RUM). Sin nivel 3: el ítem concede `rum.resumen.ver` (lo expande
+  // HU #13588 (P-37): el resumen de rendimiento (RUM), orden 60 (Privacidad 40 y Google Drive 50 son ítems antiguos de
+  // `legado.ts` bajo el mismo elemento). Sin nivel 3: el ítem concede `rum.resumen.ver` (lo expande
   // el API, `ITEMS_ADMINISTRACION_OPS`), como un ítem antiguo.
-  { slug: 'admin_rendimiento', clave: 'rendimiento', nombre: 'Rendimiento', elemento: 'administracion', orden: 40, acciones: [] },
+  { slug: 'admin_rendimiento', clave: 'rendimiento', nombre: 'Rendimiento', elemento: 'administracion', orden: 60, acciones: [] },
 ];
 
 /** Ítems y acciones del área, padres antes que hijos. */

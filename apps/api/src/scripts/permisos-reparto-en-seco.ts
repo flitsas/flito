@@ -31,7 +31,7 @@
 //   · `rum` GET /summary solo exigía rol.
 //
 // Salida del proceso: 0 si el reporte se generó (haya o no diferencias: es información), 1 si falló,
-// 2 si la HU no está soportada.
+// 2 si la HU no está soportada. HU #13588: 3 si hay pérdidas o ganancias sin aprobar (requiere a David, AC7).
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from 'drizzle-orm';
@@ -47,7 +47,7 @@ import {
 import { fronteraEnSeco, informeFronteraMarkdown, montajesDeAppTs, type RolFronteraEnSeco } from '../modules/permisos/frontera-en-seco.js';
 import { informeArbol, informeArbolMarkdown } from '../modules/permisos/arbol/reparto-arbol.js';
 import { informeLegado, informeLegadoMarkdown } from '../modules/permisos/arbol/reparto-legado.js';
-import { informeSueltos, informeSueltosMarkdown } from '../modules/permisos/arbol/reparto-sueltos.js';
+import { informeSueltos, informeSueltosMarkdown, veredictoSueltos } from '../modules/permisos/arbol/reparto-sueltos.js';
 import { ACCIONES_POR_AREA } from '../modules/permisos/arbol/expansion.js';
 
 const HU_SOPORTADAS = ['13421', '13422', '13423', '12875', '12873', '13427', '13428', '13429', '13588'];
@@ -310,9 +310,12 @@ async function main(): Promise<number> {
   }
   if (hu === '13588') {
     // Se corre ANTES de la 0240: después, las 5 operaciones ya no tienen filas y el informe sale vacío.
+    // Exit 3 (`EXIT_REQUIERE_APROBACION`) si hay pérdidas o ganancias sin aprobar: AC7 exige la aprobación de David.
     const informe = informeSueltos(usuarios, { filasRol, filasUsuario });
     console.log(informeSueltosMarkdown(informe, `HU #13588 (${usuarios.length} usuarios activos)`));
-    return 0;
+    const veredicto = veredictoSueltos(informe);
+    if (veredicto.exitCode !== 0) console.error(veredicto.mensaje);
+    return veredicto.exitCode;
   }
   if (hu === '12873' || hu === '13427' || hu === '13428') {
     // Se corre ANTES de la reparto del área (0233 / 0235): con la base ya migrada los grupos no existen y

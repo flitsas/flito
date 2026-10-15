@@ -10,6 +10,7 @@ import { USER_ROLES } from '@operaciones/shared-types';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
 import { SUELTAS_INCORPORADAS_13588, expandir } from '../../src/modules/permisos/arbol/expansion.js';
 import { catalogoCompleto, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
+import { paresSueltas13588 } from '../../src/modules/permisos/arbol/reparto-sueltos.js';
 import {
   MIGRACIONES_CON_REPARTO, bloquesInsertSiRolExiste, copiasDeReparto, leerFuncionesSembradas, leerRepartoSembrado, literalesDeRol,
 } from '../helpers/permisos-seed-sql.js';
@@ -47,13 +48,13 @@ describe('0240 — análisis estático', () => {
   it('AC8: el ítem y su elemento se COPIAN de `rum.resumen.ver` (regla de dato, no lista de roles)', () => {
     expect(copiasDeReparto(SQL)).toEqual([{ origen: 'rum.resumen.ver', destinos: ['pagina.admin_rendimiento', 'menu.administracion'] }]);
     // El ítem nace con su cadena: nivel 2 bajo Administración.
-    expect(SIN_COMENTARIOS).toMatch(/\('pagina\.admin_rendimiento', 'administracion', 'Rendimiento', [^)]*'pagina', 'menu\.administracion', '2', '40'\)/);
+    expect(SIN_COMENTARIOS).toMatch(/\('pagina\.admin_rendimiento', 'administracion', 'Rendimiento', [^)]*'pagina', 'menu\.administracion', '2', '60'\)/);
   });
 
   it('AC9 idempotencia: upsert con IS DISTINCT FROM; todo reparto sale de `rum.resumen.ver`, que el retiro borra al FINAL', () => {
     expect(SIN_COMENTARIOS).toMatch(/ON CONFLICT \(codigo\) DO UPDATE SET [^;]*IS DISTINCT FROM/);
     const repartos = SIN_COMENTARIOS.match(/INSERT INTO permisos_(rol|usuario)_funcion[^;]*;/g)!
-      .filter((r) => !r.includes('JOIN permisos_roles')); // la marca de `admin` (2b), aparte
+      .filter((r) => !r.includes('JOIN permisos_roles') && !r.includes('tmp_sueltas_13588')); // 2b y 3c, aparte
     expect(repartos).toHaveLength(3);
     for (const r of repartos) {
       expect(r).toMatch(/funcion_codigo = 'rum\.resumen\.ver'/);
@@ -70,6 +71,36 @@ describe('0240 — análisis estático', () => {
   it('usuarios: el `conceder` no pisa una fila propia (revocación explícita); el `revocar` pasa al ítem solo si su rol lo recibe', () => {
     expect(SIN_COMENTARIOS).toMatch(/NOT EXISTS \(SELECT 1 FROM permisos_usuario_funcion x WHERE x\.user_id = k\.user_id AND x\.funcion_codigo = v\.fn\)/);
     expect(SIN_COMENTARIOS).toMatch(/SELECT k\.user_id, 'pagina\.admin_rendimiento', 'revocar'[\s\S]*rx\.funcion_codigo = 'rum\.resumen\.ver'/);
+  });
+});
+
+describe('Seguridad — 3c: el `revocar` de una de las 4 sueltas se convierte (fallo cerrado), simétrico a 3b', () => {
+  const paso3c = /INSERT INTO permisos_usuario_funcion \(user_id, funcion_codigo, efecto\)\s+SELECT DISTINCT k\.user_id, s\.item, 'revocar'[^;]*;/.exec(SIN_COMENTARIOS)?.[0];
+
+  it('(b) los pares operación → ítem de `tmp_sueltas_13588` son EXACTAMENTE los del reparto en memoria', () => {
+    const valores = /INSERT INTO tmp_sueltas_13588 \(fn, item\) VALUES([\s\S]*?);/.exec(SIN_COMENTARIOS)![1]!;
+    const pares = [...valores.matchAll(/\('([^']+)', '([^']+)'\)/g)].map((m) => [m[1], m[2]]);
+    expect(pares).toEqual(paresSueltas13588());
+    expect(pares.map(([fn]) => fn)).not.toContain('rum.resumen.ver'); // ese lo convierte 3b
+  });
+
+  it('(b) solo `revocar`, solo si el usuario tiene el ítem por su rol o por un `conceder`, y el `conceder` pasa a `revocar`', () => {
+    expect(paso3c).toBeDefined();
+    expect(paso3c).toMatch(/WHERE k\.efecto = 'revocar'/);
+    expect(paso3c).toMatch(/rx\.rol_codigo = u\.role AND rx\.funcion_codigo = s\.item/);
+    expect(paso3c).toMatch(/c\.funcion_codigo = s\.item AND c\.efecto = 'conceder'/);
+    expect(paso3c).toMatch(/ON CONFLICT \(user_id, funcion_codigo\) DO UPDATE SET efecto = 'revocar'\s+WHERE permisos_usuario_funcion\.efecto IS DISTINCT FROM 'revocar';$/);
+  });
+
+  it('va ANTES del retiro de las marcas de usuario (si no, no quedaría `revocar` que convertir)', () => {
+    const conv = i(/SELECT DISTINCT k\.user_id, s\.item, 'revocar'/);
+    expect(conv).toBeGreaterThan(0);
+    expect(i(/DELETE FROM permisos_usuario_funcion WHERE funcion_codigo IN/)).toBeGreaterThan(conv);
+  });
+
+  it('la cabecera no atribuye a David una aprobación de pérdidas que no dio', () => {
+    expect(SQL).not.toMatch(/aprobada por la decisión de David/);
+    expect(SQL).toMatch(/requieren la aprobación de David antes de aplicar\s*(--\s*)?en cada ambiente/);
   });
 });
 

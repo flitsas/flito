@@ -205,7 +205,6 @@ export function claseDe(codigo: string): 'nodo' | 'opcional' | null {
   if (PADRE.has(codigo)) return 'nodo';
   if (PADRES_DE_OPCIONAL.has(codigo)) return 'opcional';
   return null; // HU #13588: sin clase «transversal»; una fila directa heredada no entra (fallo cerrado).
-
 }
 
 /**
