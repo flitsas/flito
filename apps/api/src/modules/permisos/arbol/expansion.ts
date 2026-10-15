@@ -7,12 +7,18 @@
 //   funciones = marcados ∪ ⋃ ops(a) para a ∈ marcados ∪ {o | o exige varias acciones y están todas}
 //               \ revocados            ← «revocar gana» también sobre lo que traería una acción
 //
-// Expansión PLANA hasta la #13429 (diseño §4.3): aquí no se exige que la página o el elemento padre
-// estén marcados; el gating de ancestros llega con el resolver en cadena completa.
-import { ARBOL_ITEMS_Y_ACCIONES } from '@operaciones/shared-types';
+// HU #13429 (diseño §5-quater.1) — Resolver en CADENA: un nodo cuenta si está marcado Y su padre cuenta
+// (`menu.*` → `pagina.*` → `accion.*` → acción anidada). Lo efectivo es:
+//   · los nodos efectivos, las operaciones de cada acción efectiva y las de cada ítem ANTIGUO efectivo;
+//   · los opcionales marcados cuya acción o ítem es efectivo; los transversales marcados (sin gating);
+//   · las conjunciones; y al final se resta lo revocado.
+// Un código marcado que no es nodo, ni opcional, ni transversal NO entra (fallo cerrado): tras la 0239 no
+// existe ninguno en la base, y el catálogo lo garantiza al arrancar.
+import { ARBOL_ITEMS_Y_ACCIONES, ARBOL_PERMISOS } from '@operaciones/shared-types';
 import { ACCIONES_ADMINISTRACION, PARTIDA_DE_OPERACION_NUEVA_ADMINISTRACION } from './acciones-administracion.js';
 import { ACCIONES_FINANZAS, PARTIDA_DE_OPERACION_NUEVA } from './acciones-finanzas.js';
 import { ACCIONES_GESTION, CONJUNCIONES_GESTION, type AccionArbol } from './acciones-gestion.js';
+import { ACCIONES_LEGADO, ITEMS_LEGADO_OPS, TRANSVERSALES } from './acciones-legado.js';
 
 /**
  * HU #12873 AC8 (decisión del PO del 2026-10-13) — el rol que recibe TODAS las acciones del árbol, también
@@ -23,21 +29,30 @@ import { ACCIONES_GESTION, CONJUNCIONES_GESTION, type AccionArbol } from './acci
 export const ROL_CON_TODAS_LAS_ACCIONES = 'admin';
 
 /**
- * Todas las acciones del árbol: Gestión y Tránsito (#12873), Finanzas (#13427) y Administración, Clientes,
- * Bitácora, Tablero y Perfil (#13428); #13429 añade el legado.
+ * Todas las acciones del árbol: Gestión y Tránsito (#12873), Finanzas (#13427), Administración, Clientes,
+ * Bitácora, Tablero y Perfil (#13428) y el «Administrar» de los ítems PESV (#13429, P-24 A1).
  */
-export const ACCIONES_ARBOL: Readonly<Record<string, AccionArbol>> = { ...ACCIONES_GESTION, ...ACCIONES_FINANZAS, ...ACCIONES_ADMINISTRACION };
+export const ACCIONES_ARBOL: Readonly<Record<string, AccionArbol>> = { ...ACCIONES_GESTION, ...ACCIONES_FINANZAS, ...ACCIONES_ADMINISTRACION, ...ACCIONES_LEGADO };
 export const CONJUNCIONES_ARBOL = [...CONJUNCIONES_GESTION];
 
 /** Las áreas del árbol con su par de migraciones propio (siembra + reparto). */
-export type AreaArbol = 'gestion' | 'finanzas' | 'administracion';
+export type AreaArbol = 'gestion' | 'finanzas' | 'administracion' | 'legado';
 
 /** Las acciones de cada área (para generar SU migración y SU reporte en seco). */
 export const ACCIONES_POR_AREA: Readonly<Record<AreaArbol, readonly string[]>> = {
   gestion: Object.keys(ACCIONES_GESTION).sort(),
   finanzas: Object.keys(ACCIONES_FINANZAS).sort(),
   administracion: Object.keys(ACCIONES_ADMINISTRACION).sort(),
+  legado: Object.keys(ACCIONES_LEGADO).sort(),
 };
+
+/** HU #13429 — El padre de cada NODO del árbol (sin «Ayuda», derivada: no es un permiso). */
+export const PADRE: ReadonlyMap<string, string | null> = new Map(
+  ARBOL_PERMISOS.filter((n) => !n.derivado).map((n) => [n.codigo, n.padre]),
+);
+
+/** HU #13429 — Los ítems antiguos (los 46 de `legado.ts`). */
+export const ITEMS_ANTIGUOS: ReadonlySet<string> = new Set(Object.keys(ITEMS_LEGADO_OPS));
 
 /**
  * Las operaciones NUEVAS de todas las áreas (una guarda vieja partida, o una guarda que no existía) con su
@@ -54,7 +69,7 @@ export const ACCIONES_UNIVERSALES: readonly { accion: string; pagina: string }[]
   .sort((x, y) => x.accion.localeCompare(y.accion));
 
 /** La página (ítem) de una acción, subiendo por el árbol de shared-types. */
-function paginaDeAccion(accion: string): string {
+export function paginaDeAccion(accion: string): string {
   const padre = new Map(ARBOL_ITEMS_Y_ACCIONES.map((n) => [n.codigo, n.padre]));
   let c: string | null | undefined = padre.get(accion);
   while (c?.startsWith('accion.')) c = padre.get(c);
@@ -66,9 +81,11 @@ export function esUniversal(accion: string): boolean {
   return ACCIONES_ARBOL[accion]?.repartoUniversal === true;
 }
 
-const OPS_DE = new Map<string, readonly string[]>(
-  Object.entries(ACCIONES_ARBOL).map(([accion, a]) => [accion, [...a.operaciones, ...(a.apoyo ?? [])]]),
-);
+const OPS_DE = new Map<string, readonly string[]>([
+  ...Object.entries(ACCIONES_ARBOL).map(([accion, a]) => [accion, [...a.operaciones, ...(a.apoyo ?? [])]] as const),
+  // HU #13429: un ítem antiguo efectivo expande como una acción.
+  ...Object.entries(ITEMS_LEGADO_OPS).filter(([, i]) => i.operaciones.length).map(([item, i]) => [item, i.operaciones] as const),
+]);
 
 /** Lo que concede la acción (grupo + apoyo; nunca los opcionales). Vacío si el código no es una acción del árbol. */
 export function operacionesDe(accion: string): readonly string[] {
@@ -80,17 +97,38 @@ export const ACCIONES_LECTURA: ReadonlySet<string> = new Set(
   Object.entries(ACCIONES_ARBOL).filter(([, a]) => a.lectura).map(([accion]) => accion),
 );
 
+/** HU #13429 (P-24, A1): las que se reciben con ALGUNA del grupo: las de lectura y las marcadas `alguna`. */
+export const ACCIONES_POR_ALGUNA: ReadonlySet<string> = new Set(
+  Object.entries(ACCIONES_ARBOL).filter(([, a]) => a.lectura || a.alguna).map(([accion]) => accion),
+);
+
 /** Operaciones OPCIONALES de alguna acción (P-9): ni grupo, ni expansión, ni absorbidas. */
 export const OPCIONALES_ARBOL: ReadonlySet<string> = new Set(Object.values(ACCIONES_ARBOL).flatMap((a) => a.opcionales ?? []));
 
 /**
+ * HU #13429 — De quién cuelga cada opcional: las acciones que lo declaran (P-9) o el ítem antiguo (P-26). Basta
+ * que uno sea efectivo. El primero es su `padre_codigo` en la base.
+ */
+export const PADRES_DE_OPCIONAL: ReadonlyMap<string, readonly string[]> = (() => {
+  const m = new Map<string, string[]>();
+  const poner = (op: string, padre: string) => m.set(op, [...(m.get(op) ?? []), padre]);
+  for (const n of ARBOL_ITEMS_Y_ACCIONES) for (const op of ACCIONES_ARBOL[n.codigo]?.opcionales ?? []) poner(op, n.codigo);
+  for (const [item, i] of Object.entries(ITEMS_LEGADO_OPS)) for (const op of i.opcionales ?? []) poner(op, item);
+  return m;
+})();
+
+const ES_TRANSVERSAL: ReadonlySet<string> = new Set(TRANSVERSALES);
+
+/**
  * LA regla del paso, en un solo sitio: de lectura → basta ALGUNA operación del grupo; si modifica → TODAS.
  * La usan el reparto en memoria, el catálogo del código y (en SQL) la 0233 vía `tmp_lectura_12873`.
+ * HU #13429: `alguna` también basta con una; `exigeItem` pide además la página del ítem.
  */
 export function cumpleGrupo(accion: string, tiene: (codigo: string) => boolean): boolean {
   if (esUniversal(accion)) return true; // HU #13428 (P-22): a todos, sin grupo.
   const grupo = predecesoresDe(accion);
-  return ACCIONES_LECTURA.has(accion) ? grupo.some(tiene) : grupo.every(tiene);
+  const ok = ACCIONES_POR_ALGUNA.has(accion) ? grupo.some(tiene) : grupo.every(tiene);
+  return ok && (!ACCIONES_ARBOL[accion]?.exigeItem || tiene(paginaDeAccion(accion)));
 }
 
 /** El grupo de la acción: lo que había que tener (todo, o algo si es de lectura) para recibirla en el paso. */
@@ -118,9 +156,11 @@ export const CODIGOS_ABSORBIDOS: ReadonlySet<string> = new Set([
   // HU #13427: el código viejo que se parte (predecesor explícito) también deja de concederse; la página no.
   ...Object.entries(ACCIONES_ARBOL).flatMap(([accion, a]) => (a.predecesores ?? []).filter((p) => !predecesorNoAbsorbido(accion, p))),
   ...CONJUNCIONES_ARBOL.map((c) => c.operacion),
+  // HU #13429: lo que expande un ítem antiguo (permanentes y transitorios) tampoco se concede ya directo.
+  ...Object.values(ITEMS_LEGADO_OPS).flatMap((i) => i.operaciones),
 ]);
 
-/** Índice inverso: qué acciones (o conjunciones) dan una operación. Para la bitácora y `usuariosConFuncion`. */
+/** Índice inverso: qué acciones, ítems antiguos (o conjunciones) dan una operación. Bitácora y avisos. */
 export function codigosQueConceden(codigo: string): string[] {
   const salida = new Set<string>([codigo]);
   for (const [accion, ops] of OPS_DE) if (ops.includes(codigo)) salida.add(accion);
@@ -128,14 +168,96 @@ export function codigosQueConceden(codigo: string): string[] {
   return [...salida];
 }
 
-/** Marcados (ya `(R ∪ C)` sin lo revocado) → conjunto efectivo expandido. No muta la entrada. */
+/** HU #13429 — Los ancestros de un nodo, del padre a la raíz (`[]` en un elemento o un código que no es nodo). */
+export function ancestrosDe(codigo: string): string[] {
+  const salida: string[] = [];
+  for (let p = PADRE.get(codigo) ?? null; p; p = PADRE.get(p) ?? null) salida.push(p);
+  return salida;
+}
+
+/** HU #13429 — Qué es un código para el resolutor; `null` = no entra (fallo cerrado). */
+export function claseDe(codigo: string): 'nodo' | 'opcional' | 'transversal' | null {
+  if (PADRE.has(codigo)) return 'nodo';
+  if (PADRES_DE_OPCIONAL.has(codigo)) return 'opcional';
+  if (ES_TRANSVERSAL.has(codigo)) return 'transversal';
+  return null;
+}
+
+/**
+ * HU #13429 — Los NODOS efectivos de un conjunto marcado: `efectivo(n) = n ∈ M ∧ (padre(n) = null ∨
+ * efectivo(padre(n)))`. Es la misma función para el resolutor y para el `efectivo` del panel (§5-quater.5).
+ */
+export function efectivoDeNodos(marcados: Iterable<string>): Set<string> {
+  const m = new Set(marcados);
+  const memo = new Map<string, boolean>();
+  const efectivo = (n: string): boolean => {
+    const ya = memo.get(n);
+    if (ya !== undefined) return ya;
+    const p = PADRE.get(n);
+    const v = p !== undefined && m.has(n) && (p === null || efectivo(p));
+    memo.set(n, v);
+    return v;
+  };
+  return new Set([...m].filter(efectivo));
+}
+
+/** Marcados (ya `(R ∪ C)` sin lo revocado) → conjunto efectivo con la cadena y expandido. No muta la entrada. */
 export function expandir(marcados: Iterable<string>, revocados: Iterable<string> = []): Set<string> {
-  const salida = new Set(marcados);
-  const acciones = [...salida].filter((c) => OPS_DE.has(c));
-  for (const a of acciones) for (const op of OPS_DE.get(a)!) salida.add(op);
+  const m = new Set(marcados);
+  const nodos = efectivoDeNodos(m);
+  const salida = new Set(nodos);
+  for (const c of m) {
+    const clase = claseDe(c);
+    if (clase === 'transversal') salida.add(c);
+    else if (clase === 'opcional' && PADRES_DE_OPCIONAL.get(c)!.some((p) => nodos.has(p))) salida.add(c);
+  }
+  for (const n of nodos) for (const op of OPS_DE.get(n) ?? []) salida.add(op);
   for (const c of CONJUNCIONES_ARBOL) {
     if (c.acciones.every((a) => salida.has(a))) salida.add(c.operacion);
   }
   for (const r of revocados) salida.delete(r);
   return salida;
+}
+
+/**
+ * La expansión PLANA de antes de la #13429 (sin cadena, sin ítems antiguos): el «hoy» del reporte en seco.
+ * No la usa ningún resolutor.
+ */
+export function expandirSinCadena(marcados: Iterable<string>, revocados: Iterable<string> = []): Set<string> {
+  const salida = new Set(marcados);
+  for (const a of [...salida]) if (a.startsWith('accion.')) for (const op of OPS_DE.get(a) ?? []) salida.add(op);
+  for (const c of CONJUNCIONES_ARBOL) if (c.acciones.every((a) => salida.has(a))) salida.add(c.operacion);
+  for (const r of revocados) salida.delete(r);
+  return salida;
+}
+
+/**
+ * HU #13429 (§5-quater.5, AC8) — Las ALTERNATIVAS que conceden F, cada una con su cadena entera (el código y sus
+ * ancestros, de abajo arriba): F tiene al usuario si alguna alternativa está marcada eslabón a eslabón. Un código
+ * que no es nodo, ni opcional, ni transversal no es alternativa (no entra en el resolutor).
+ */
+export function alternativasDe(funcion: string): string[][] {
+  const salida: string[][] = [];
+  for (const c of codigosQueConceden(funcion)) {
+    const clase = claseDe(c);
+    if (clase === 'nodo') salida.push([c, ...ancestrosDe(c)]);
+    else if (clase === 'transversal') salida.push([c]);
+    else if (clase === 'opcional') for (const p of PADRES_DE_OPCIONAL.get(c)!) salida.push([c, p, ...ancestrosDe(p)]);
+  }
+  return salida;
+}
+
+/**
+ * HU #13429 — `nodo` del 409: el eslabón MÁS ALTO de la cadena de F que falta en `conjunto` (el que se intentó
+ * guardar). Se mira la primera alternativa que es nodo del árbol (la «de casa» de F); `undefined` si está entera.
+ */
+export function nodoDesmarcado(funcion: string, conjunto: ReadonlySet<string>): string | undefined {
+  const cadena = alternativasDe(funcion).find((a) => PADRE.has(a[0]!));
+  return cadena ? [...cadena].reverse().find((c) => !conjunto.has(c)) : undefined;
+}
+
+/** HU #13429 — `nodo` del 409 del `PATCH` de usuario: el eslabón más alto de la cadena de F que la petición REVOCA. */
+export function nodoRevocado(funcion: string, revocados: ReadonlySet<string>): string | undefined {
+  const cadena = alternativasDe(funcion).find((a) => PADRE.has(a[0]!));
+  return cadena ? [...cadena].reverse().find((c) => revocados.has(c)) : undefined;
 }

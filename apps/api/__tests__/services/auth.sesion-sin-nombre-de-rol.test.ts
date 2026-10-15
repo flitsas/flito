@@ -6,7 +6,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { chain } from '../helpers/db.js';
-import { testToken, registrarUsuarioDePrueba } from '../helpers/auth.js';
+import { testToken, registrarUsuarioDePrueba, conCadena } from '../helpers/auth.js';
+import { expandir } from '../../src/modules/permisos/arbol/expansion.js';
 
 const selectMock = vi.fn();
 vi.mock('../../src/db/client.js', () => ({
@@ -58,7 +59,9 @@ describe('HU #13425 AC1 — /me con permisos efectivos e indicadores desde permi
   it('lleva `funciones` (códigos efectivos, ordenados) y `puedeSolicitarSoat` calculado de ellas', async () => {
     const r = await me('cliente', 'Cliente', FUNCIONES_CANAL);
     expect(r.status).toBe(200);
-    expect(r.body.funciones).toEqual([...FUNCIONES_CANAL].sort());
+    // HU #13429: registradas con su cadena (elemento, ítem y la acción que da cada operación): viaja su expansión.
+    expect(r.body.funciones).toEqual([...expandir(conCadena(FUNCIONES_CANAL))].sort());
+    for (const c of FUNCIONES_CANAL) expect(r.body.funciones).toContain(c);
     expect(r.body.allowedPages).toEqual(['flito_soat']);
     expect(r.body.puedeSolicitarSoat).toBe(true);
     expect(r.body.companiaId).toBeUndefined();

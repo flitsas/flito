@@ -4,8 +4,9 @@
 //   npm run permisos:seed -w apps/api        → escupe el bloque SQL por stdout
 //   npm run permisos:seed -w apps/api -- --reagrupar
 //       → solo el UPDATE de `modulo` de la HU #12716 (lo pegado en 0205_permisos_reagrupar_modulos.sql)
-//   npm run permisos:seed -w apps/api -- --arbol gestion|finanzas|administracion [--reparto]
-//       → HU #12873 (ADR-0025): la siembra del árbol (0232) o su reparto «todos» (0233)
+//   npm run permisos:seed -w apps/api -- --arbol gestion|finanzas|administracion|legado [--reparto]
+//       → HU #12873 (ADR-0025): la siembra del árbol (0232) o su reparto «todos» (0233); `legado` (HU #13429):
+//         elementos, cadena e ítems antiguos (0238) y su reparto con el retiro de transitorios (0239)
 //
 // Lo que sale por stdout es EXACTAMENTE lo que está pegado entre las marcas «SEED GENERADO» de
 // `0179_permisos_modelo.sql` más las filas que la 0181 añadió. Volver a correrlo sobre el mismo
@@ -23,6 +24,7 @@
 import { catalogoCompleto, catalogoPlano, repartoDePartida, type FuncionCatalogo } from '../modules/permisos/catalogo.js';
 import { reagrupaciones } from '../modules/permisos/catalogo-agrupacion.js';
 import { sqlRepartoArbol, sqlSiembraArbol } from '../modules/permisos/arbol/sql-arbol.js';
+import { sqlRepartoLegado, sqlSiembraLegado } from '../modules/permisos/arbol/sql-legado.js';
 
 /** Literal SQL de una cadena: comilla simple doblada. Sin concatenar nada más (regla 3 de AGENTS). */
 const lit = (s: string): string => `'${s.replace(/'/g, "''")}'`;
@@ -92,8 +94,10 @@ function reagrupar(): string {
 function arbol(): string {
   const area = process.argv[process.argv.indexOf('--arbol') + 1];
   // HU #13427: `finanzas` (0234/0235). HU #13428: `administracion` (0236/0237).
+  // HU #13429: `legado` (0238/0239) tiene su propio generador: elementos, cadena e ítems antiguos.
+  if (area === 'legado') return process.argv.includes('--reparto') ? sqlRepartoLegado() : sqlSiembraLegado();
   if (area !== 'gestion' && area !== 'finanzas' && area !== 'administracion') {
-    throw new Error(`--arbol: área no soportada «${area}» (soportadas: gestion, finanzas, administracion).`);
+    throw new Error(`--arbol: área no soportada «${area}» (soportadas: gestion, finanzas, administracion, legado).`);
   }
   return process.argv.includes('--reparto') ? sqlRepartoArbol(area) : sqlSiembraArbol(area);
 }

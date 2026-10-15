@@ -47,6 +47,16 @@ export interface AccionArbol {
    * declara con `predecesores: []`. La CTE de usuarios no la toca (nadie la tenía revocada: no existía).
    */
   repartoUniversal?: true;
+  /**
+   * HU #13429 (P-24, A1): en el paso basta ALGUNO de los predecesores, como en las de lectura, sin que la acción
+   * sea de lectura («Administrar» de PESV: la recibe quien hoy administra algo de PESV).
+   */
+  alguna?: true;
+  /**
+   * HU #13429 (P-24, A1): en el paso, además del grupo, hay que tener la PÁGINA del ítem de la acción. Sin esto la
+   * acción quedaría marcada bajo un ítem que el rol no tiene y se activaría sola el día que se lo marquen.
+   */
+  exigeItem?: true;
 }
 
 export const ACCIONES_GESTION: Readonly<Record<string, AccionArbol>> = {

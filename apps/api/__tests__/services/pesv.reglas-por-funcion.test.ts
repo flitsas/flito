@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import { SignJWT } from 'jose';
 import { chain } from '../helpers/db.js';
-import { registrarUsuarioDePrueba } from '../helpers/auth.js';
+import { registrarUsuarioDePrueba, soloEstas } from '../helpers/auth.js';
 
 const selectMock = vi.fn();
 const insertMock = vi.fn();
@@ -50,7 +50,8 @@ beforeEach(async () => {
 
 /** Un usuario con EXACTAMENTE estas funciones en su rol (nombre de rol a elección). */
 async function usuario(sub: number, rol: string, funciones: string[]): Promise<string> {
-  await registrarUsuarioDePrueba(sub, { rol, tipoEnlace: 'ninguno', funcionesDelRol: funciones, excepciones: [] });
+  // HU #13429: EXACTAMENTE estas — con la cadena (el ítem trae las hermanas) y revocando lo que no se pidió.
+  await registrarUsuarioDePrueba(sub, { rol, tipoEnlace: 'ninguno', ...soloEstas(funciones) });
   const secret = new TextEncoder().encode(process.env.JWT_SECRET);
   const jwt = await new SignJWT({ username: `u${sub}`, role: rol })
     .setProtectedHeader({ alg: 'HS256' }).setSubject(String(sub)).setExpirationTime('1h').sign(secret);

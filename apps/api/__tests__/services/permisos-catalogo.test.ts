@@ -181,7 +181,11 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       porCodigoFlito.set(c, (porCodigoFlito.get(c) ?? 0) + 1);
     }
     const compartidosFlito = [...porCodigoFlito].filter(([, n]) => n > 1);
-    expect(compartidosFlito).toEqual([['soat.solicitud.crear', 2]]);
+    // HU #13429 (diseño §5-quater.5): los tres `GET …/arbol` reutilizan la guarda de la lectura que suceden (el
+    // catálogo, el cuadro del rol y la lectura de las excepciones del usuario), sin función nueva.
+    expect(compartidosFlito.sort()).toEqual([
+      ['permisos.catalogo.ver', 2], ['permisos.cuadro.ver', 2], ['soat.solicitud.crear', 2], ['usuarios.usuario.listar', 2],
+    ]);
     // HU #13427: las de HOY (con las operaciones nuevas que parten una guarda vieja), no las del mundo plano.
     const deHoy = catalogoDeOperaciones();
     expect(deHoy).toHaveLength(porCodigoFlito.size + codigosLegado.size);

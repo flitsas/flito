@@ -177,8 +177,9 @@ describe('el lector de montajes cubre la foto entera', () => {
     // +1 por la HU #12874 (compañías del canal SOAT sin trámite); +1 por la HU #13427 (gastos diarios; las
     // credenciales de Siigo cambian POST / y DELETE /:id por dos guardas en línea por ambiente: mismo total);
     // +5 por la HU #13428 (compañía: 1 → 3 en línea; clientes: PATCH → en línea + `[fiscal]`; `[propia]`; `GET /auth/perfil`).
-    expect(GUARDAS_MEDIDAS).toHaveLength(586);
-    expect(montajes).toHaveLength(586);
+    // +3 por la HU #13429 (los `GET …/arbol` de la estructura, del rol y del usuario, con las guardas de su lectura).
+    expect(GUARDAS_MEDIDAS).toHaveLength(589);
+    expect(montajes).toHaveLength(589);
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     // En línea: 2 del Bug #12642 + forzar_continuar + contraseña ajena + operar actas ajenas (HU #13425)

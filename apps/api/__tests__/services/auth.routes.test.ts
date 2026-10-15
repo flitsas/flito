@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { chain } from '../helpers/db.js';
-import { testToken, registrarUsuarioDePrueba } from '../helpers/auth.js';
+import { testToken, registrarUsuarioDePrueba, conCadena, operacionesDePartida } from '../helpers/auth.js';
+import { expandir } from '../../src/modules/permisos/arbol/expansion.js';
 import { decodeJwt } from 'jose';
 
 const selectMock = vi.fn();
@@ -276,7 +277,12 @@ describe('GET /api/auth/me', () => {
     // Lo que viaja son SLUGS, resueltos por el mismo resolutor que decide en el servidor.
     // HU #12873 (P-10): la Compuerta la abre «Entregar trámites», que el admin tiene de partida.
     // HU #13428 (P-11): el Tablero FLITO lo abre «Ver el tablero» de General, que el admin tiene de partida.
-    expect(r.body.allowedPages).toEqual(['dashboard', 'flito_tablero', 'flito_compuerta']);
+    // HU #13429: el admin de prueba tiene su partida ENTERA (páginas y `menu.*`, como tras la 0239), así que viajan
+    // todas sus páginas efectivas; entre ellas, las dos que abren sus acciones y no son ítem.
+    const esperado = [...expandir(conCadena([...operacionesDePartida('admin'), 'pagina.dashboard']))]
+      .filter((c) => c.startsWith('pagina.')).map((c) => c.slice('pagina.'.length)).sort();
+    expect([...r.body.allowedPages].sort()).toEqual(esperado);
+    for (const s of ['dashboard', 'flito_tablero', 'flito_compuerta']) expect(r.body.allowedPages).toContain(s);
     expect(r.body.puedeSolicitarSoat).toBe(false);
     expect(selectMock).toHaveBeenCalledTimes(3); // usuario + puente + compañías con el canal (AC8)
   });

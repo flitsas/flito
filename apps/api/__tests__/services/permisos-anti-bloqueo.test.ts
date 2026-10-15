@@ -103,10 +103,15 @@ describe('AC4 — conSeguroAntiBloqueo: orden y forma del lock', () => {
     expect(lock.params).toContain('ninguno');
     // Las cuatro funciones de administración, unidas por OR: el lock es SUPERCONJUNTO de la población
     // contada (bloquear solo a quien ya reúne las cuatro dejaría fuera a quien está a una escritura).
-    // HU #13428: cada `tiene(F)` nombra F dos veces — en la lista de `codigosQueConceden(F)` y en su revocación.
-    for (const f of FUNCIONES_DE_ADMINISTRACION) expect(lock.params.filter((p) => p === f), f).toHaveLength(2);
-    expect(lock.sql).toMatch(/\) or \(exists \(select 1 from unnest/);
-    expect(lock.sql).not.toMatch(/\) and \(exists \(select 1 from unnest/);
+    // HU #13429: cada `tiene(F)` nombra F en su revocación y en la CADENA de cada alternativa que la contiene: las
+    // páginas salen en su propia cadena y en la de la acción de debajo (3); las operaciones, solo en su revocación (1).
+    const veces: Record<string, number> = {
+      'pagina.users': 3, 'usuarios.usuario.editar': 1, 'pagina.roles_permisos': 3, 'permisos.cuadro.guardar': 1,
+    };
+    for (const f of FUNCIONES_DE_ADMINISTRACION) expect(lock.params.filter((p) => p === f), f).toHaveLength(veces[f]!);
+    expect(lock.params.filter((p) => p === 'menu.administracion')).toHaveLength(4);
+    expect(lock.sql).toMatch(/\) or \(\(not exists \(select 1 from unnest/);
+    expect(lock.sql).not.toMatch(/\) and \(\(not exists \(select 1 from unnest/);
   });
 });
 
@@ -138,10 +143,11 @@ describe('AC4 — el predicado es el del resolutor: (rol ∪ concedida) ∖ revo
     const cuenta = cuentaDe(sentencias);
     const primero = cuenta.sql.slice(cuenta.sql.indexOf('count(*) filter'), cuenta.sql.indexOf('count(*) filter', 1 + cuenta.sql.indexOf('count(*) filter')));
     expect(primero.match(/exists \(select 1 from "permisos_rol_funcion"/g)).toHaveLength(4);
-    expect(primero.match(/\) and \(exists \(select 1 from unnest/g)).toHaveLength(3); // tiene(f1) and tiene(f2) and …
-    expect(primero).not.toMatch(/\) or \(exists \(select 1 from unnest/);
-    // Cada `tiene(F)` aporta |codigosQueConceden(F)| + 4 parámetros: 5 + 6 + 5 + 6 = 22 en el contador conjunto.
-    const delConjunto = cuenta.params.slice(0, 22);
+    expect(primero.match(/\) and \(\(not exists \(select 1 from unnest/g)).toHaveLength(3); // tiene(f1) and tiene(f2) and …
+    expect(primero).not.toMatch(/\) or \(\(not exists \(select 1 from unnest/);
+    // HU #13429: cada `tiene(F)` aporta |cadena de su alternativa| + 4 parámetros: 6 + 7 + 6 + 7 = 26 en el conjunto.
+    const delConjunto = cuenta.params.slice(0, 26);
+    expect(delConjunto.filter((p) => p === 'menu.administracion')).toHaveLength(4);
     for (const f of FUNCIONES_DE_ADMINISTRACION) expect(delConjunto, f).toContain(f);
   });
 

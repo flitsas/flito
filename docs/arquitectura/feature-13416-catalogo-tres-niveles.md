@@ -1045,6 +1045,19 @@ Gates: db-review (migraciones) + security (rutas nuevas, anti-bloqueo, PII de `v
 
 ### 5-quater.10 Preguntas para el PO (con recomendación)
 
+> **Decisiones de David (2026-10-13), cerradas.**
+>
+> - **P-24 resuelto: A1.** Los 20 ítems PESV con operaciones llevan una acción de nivel 3 `accion.pesv_<x>.administrar` («Administrar») que absorbe sus transitorios. Los 5 sin operaciones (`pesv`, `siniestralidad`, `indicadores_operacion`, `reportar_incidente`, `mi_jornada`) siguen siendo antiguos puros.
+>   - La 0239 reparte la acción por una regla de dato, sin literales de rol (salvo el JOIN de admin): la recibe el rol que hoy tiene **alguna** administración PESV (`alguna` sobre la familia de 26) **y** la página del ítem (`exigeItem`).
+>   - Resultado: compliance, supervisor_flota y lider_pesv ganan lo aprobado en los ítems que ya tienen. El conductor gana 0 y conserva sus 22 pantallas.
+>   - El AC1 queda «los ítems antiguos no tienen nivel 3, salvo los PESV con acción Administrar».
+> - **P-25** opción A. **P-26** opcionales. **P-27** un solo ítem. **P-28** ítems antiguos. **P-29** bloque `transversales`. **P-30** sembrar por JOIN o dato.
+>
+> **Implementación (#13429): dos desvíos menores.**
+> - `siigo.conceptos.confirmar` pasa a ser opcional también de «Ver» de Facturación · Parametrización. Basta una acción, y así financiera no lo pierde con el gating.
+> - El árbol de un usuario se sirve en `GET /api/users/:id/arbol`, no en `/api/permisos/usuarios/:id/arbol`. Usa la guarda del módulo `usuarios`.
+
+
 - **P-24 — Confirmar las ganancias de AC3 por rol.** Con la regla literal, conductor gana 21 administraciones de
   PESV, supervisor_flota y lider_pesv ganan además **pago manual de órdenes de trabajo**, compliance gana el
   **derecho al olvido** (anonimización irreversible) y auditor/proveedor ganan administrar SOAT antiguo. *Rec.:*

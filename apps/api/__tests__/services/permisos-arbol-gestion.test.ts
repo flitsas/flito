@@ -21,7 +21,8 @@ const { ARBOL_GESTION, ARBOL_PERMISOS, ITEMS_GESTION, PREFIJO_ACCION, PREFIJO_EL
 const { catalogoCompleto, catalogoDeAcciones, catalogoPlano } = await import('../../src/modules/permisos/catalogo.js');
 const { OPERACIONES_DECLARADAS } = await import('../../src/modules/permisos/catalogo-operaciones.js');
 const { ACCIONES_GESTION, AREA_GESTION, CONJUNCIONES_GESTION, FUERA_DE_AREA_GESTION } = await import('../../src/modules/permisos/arbol/acciones-gestion.js');
-const { ACCIONES_LECTURA, ACCIONES_POR_AREA, CODIGOS_ABSORBIDOS, OPCIONALES_ARBOL, codigosQueConceden, expandir, operacionesDe, predecesoresDe } = await import('../../src/modules/permisos/arbol/expansion.js');
+const { ACCIONES_LECTURA, ACCIONES_POR_AREA, CODIGOS_ABSORBIDOS, OPCIONALES_ARBOL, PADRES_DE_OPCIONAL, codigosQueConceden, expandir, operacionesDe, predecesoresDe } = await import('../../src/modules/permisos/arbol/expansion.js');
+const { conCadena } = await import('../helpers/auth.js');
 const { absorbidosVivos, efectivasExpandidas, informeArbol, repartirPorTodos } = await import('../../src/modules/permisos/arbol/reparto-arbol.js');
 const { filtrarPorFuncion } = await import('../../src/shared/permisos-efectivos.js');
 
@@ -152,7 +153,7 @@ describe('AC3 — «Entregar trámites» en Gestión Trámites; la Compuerta dej
     const hoy = catalogoCompleto().map((f) => f.codigo);
     expect(hoy).not.toContain('pagina.flito_compuerta');
     expect(hoy.filter((c) => c.startsWith('compuerta.'))).toEqual([]);
-    const efectivo = expandir(['accion.tramites.entregar']);
+    const efectivo = expandir(conCadena(['accion.tramites.entregar'])); // HU #13429: con su ítem y su elemento
     for (const c of ['tramites.tramite.entregar', 'compuerta.cola.ver', 'compuerta.tramite.ver', 'compuerta.tramite.entregar', 'pagina.flito_compuerta']) {
       expect(efectivo.has(c), c).toBe(true);
     }
@@ -160,9 +161,9 @@ describe('AC3 — «Entregar trámites» en Gestión Trámites; la Compuerta dej
 
   it('«Solicitar SOAT e impuestos a la vez» exige las dos acciones de solicitar (conjunción, no acción)', () => {
     expect(CONJUNCIONES_GESTION).toEqual([{ operacion: 'tramites.solicitud.pedir_ambos', acciones: ['accion.tramites.solicitar_soat', 'accion.tramites.solicitar_impuestos'] }]);
-    expect(expandir(['accion.tramites.solicitar_soat']).has('tramites.solicitud.pedir_ambos')).toBe(false);
-    expect(expandir(['accion.tramites.solicitar_impuestos']).has('tramites.solicitud.pedir_ambos')).toBe(false);
-    expect(expandir(['accion.tramites.solicitar_soat', 'accion.tramites.solicitar_impuestos']).has('tramites.solicitud.pedir_ambos')).toBe(true);
+    expect(expandir(conCadena(['accion.tramites.solicitar_soat'])).has('tramites.solicitud.pedir_ambos')).toBe(false);
+    expect(expandir(conCadena(['accion.tramites.solicitar_impuestos'])).has('tramites.solicitud.pedir_ambos')).toBe(false);
+    expect(expandir(conCadena(['accion.tramites.solicitar_soat', 'accion.tramites.solicitar_impuestos'])).has('tramites.solicitud.pedir_ambos')).toBe(true);
     expect(CODIGOS_ABSORBIDOS.has('tramites.solicitud.pedir_ambos')).toBe(true);
   });
 });
@@ -194,11 +195,15 @@ describe('AC6 — árbol ↔ operaciones reales, en los dos sentidos', () => {
       expect(declaradas.has(c), c).toBe(true);
       expect(ABSORBIDOS_GESTION.has(c), c).toBe(false);
     }
-    // HU #13428: autogestión y empresa ya las absorbe «Clientes y proveedores»; el SOAT antiguo sigue directo (#13429).
+    // HU #13428: autogestión y empresa ya las absorbe «Clientes y proveedores». HU #13429: el SOAT antiguo es de su ítem
+    // antiguo (`pagina.soat`): `administrar` lo expande y `operar` es su opcional (P-26).
     const destino13428 = Object.entries(FUERA_DE_AREA_GESTION).filter(([, d]) => d.includes('#13428')).map(([c]) => c);
     expect(destino13428.sort()).toEqual(['tramites.autogestion.desbloquear', 'tramites.autogestion.revocar', 'tramites.empresa.crear']);
     for (const c of destino13428) expect(ACCIONES_POR_AREA.administracion.some((a) => operacionesDe(a).includes(c)), c).toBe(true);
-    for (const c of Object.keys(FUERA_DE_AREA_GESTION).filter((x) => !destino13428.includes(x))) expect(CODIGOS_ABSORBIDOS.has(c), c).toBe(false);
+    for (const c of Object.keys(FUERA_DE_AREA_GESTION).filter((x) => !destino13428.includes(x))) {
+      expect(ACCIONES_POR_AREA.gestion.some((a) => operacionesDe(a).includes(c)), c).toBe(false);
+      expect(CODIGOS_ABSORBIDOS.has(c) || PADRES_DE_OPCIONAL.get(c)?.includes('pagina.soat'), c).toBe(true);
+    }
   });
 
   it('ningún código de operación ni de guarda empieza por `accion.` o `menu.`', () => {
@@ -213,7 +218,7 @@ describe('AC6 — árbol ↔ operaciones reales, en los dos sentidos', () => {
   });
 
   it('revocar gana también sobre lo que traería una acción', () => {
-    const e = expandir(['accion.soat.ver_listado', 'parametrizacion.companias.listar'], ['soat.cola.ver']);
+    const e = expandir(conCadena(['accion.soat.ver_listado', 'parametrizacion.companias.listar']), ['soat.cola.ver']);
     expect(e.has('soat.cola.filtrar')).toBe(true);
     expect(e.has('soat.cola.ver')).toBe(false);
   });
@@ -344,8 +349,13 @@ describe('AC5 — la misma regla sobre las excepciones por usuario', () => {
   it('`usuariosConFuncion` (su pliegue puro) ve el mundo nuevo: la operación la da la acción', () => {
     const filas = new Map(usuarios.map((u) => [u.id, {
       rol: u.rol, tipoEnlace: 'ninguno',
-      funcionesDelRol: despues.filasRol.filter((f) => f.rol === u.rol).map((f) => f.codigo),
-      excepciones: despues.filasUsuario.filter((f) => f.userId === u.id).map((f) => ({ codigo: f.codigo, efecto: f.efecto })),
+      // HU #13429: las filas llegan con su cadena (ítem y elemento), como tras la 0239.
+      funcionesDelRol: conCadena(despues.filasRol.filter((f) => f.rol === u.rol).map((f) => f.codigo)),
+      excepciones: [
+        ...conCadena(despues.filasUsuario.filter((f) => f.userId === u.id && f.efecto === 'conceder').map((f) => f.codigo))
+          .map((codigo) => ({ codigo, efecto: 'conceder' as const })),
+        ...despues.filasUsuario.filter((f) => f.userId === u.id && f.efecto === 'revocar').map((f) => ({ codigo: f.codigo, efecto: f.efecto })),
+      ],
     }]));
     expect(filtrarPorFuncion(filas, 'soat.solicitud.rechazar')).toEqual([1, 4]);
     expect(filtrarPorFuncion(filas, 'soat.cola.ver')).toEqual([1, 3, 5]);

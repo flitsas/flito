@@ -50,7 +50,7 @@ import { db } from '../db/client.js';
 import { permisosRoles, permisosRolFuncion, permisosUsuarioFuncion, users } from '../db/schema.js';
 import { isValidPage, TIPOS_ENLACE, type PageSlug, type TipoEnlace as TipoEnlaceContrato } from '@operaciones/shared-types';
 import { loggerFor } from './logger.js';
-import { codigosQueConceden, expandir } from '../modules/permisos/arbol/expansion.js';
+import { alternativasDe, expandir } from '../modules/permisos/arbol/expansion.js';
 
 const log = loggerFor('permisos');
 
@@ -176,6 +176,8 @@ function esPaginaViva(codigo: string): boolean {
 /**
  * (R ∪ C) \ V, y desde la HU #12873 (ADR-0025) EXPANDIDO: cada `accion.*` efectiva aporta sus
  * operaciones (`arbol/expansion.ts`). La resta va al final también sobre lo expandido: revocar gana.
+ * HU #13429 (P-25, opción A): la excepción del usuario entra en M y DESPUÉS manda la cadena: conceder una
+ * acción cuyo ítem (o elemento) no tiene ni su rol ni él no la habilita.
  */
 function conjuntoEfectivo(filas: FilasPermisos): Set<string> {
   const conjunto = new Set<string>();
@@ -273,7 +275,9 @@ export async function paginasEfectivasDeUsuario(userId: number): Promise<PageSlu
  */
 export async function usuariosConFuncion(codigo: string, opts: { sin?: string } = {}): Promise<number[]> {
   // HU #12873: una operación absorbida por el árbol ya no tiene filas propias; la dan sus acciones.
-  const codigos = [...new Set([...codigosQueConceden(codigo), ...(opts.sin ? codigosQueConceden(opts.sin) : [])])];
+  // HU #13429: y con la cadena hacen falta también sus ancestros (ítem y elemento), o el pliegue los cortaría.
+  const filasDe = (c: string) => [c, ...alternativasDe(c).flat()];
+  const codigos = [...new Set([...filasDe(codigo), ...(opts.sin ? filasDe(opts.sin) : [])])];
   const principales = await db.select({
     id: users.id,
     rol: users.role,

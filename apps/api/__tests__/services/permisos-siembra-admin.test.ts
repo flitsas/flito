@@ -151,8 +151,12 @@ describe('HU #13424 AC2 — toda siembra desde la 0226 marca a `admin`', () => {
   const marcadaEnAlguna = (c: string) => vigiladas.some((a) => marcaAAdmin(a.sql, c));
 
   it('ninguna migración ≥ 0226 siembra un permiso sin marcárselo a `admin` (en el mismo archivo; las acciones del árbol, en el de su reparto)', () => {
+    // HU #13429: los elementos `menu.*` (0238) no llevan literal de rol: la 0239 se los da a quien tiene un ítem
+    // debajo (paso C2), y `admin` los tiene todos en el pliegue.
+    const adminPlegado = leerRepartoSembrado().get('admin')!;
     const huecos = vigiladas.flatMap((a) => sinMarcarAAdmin(a.sql)
-      .filter((c) => !(c.startsWith('accion.') && marcadaEnAlguna(c))).map((c) => `${a.nombre}: ${c}`));
+      .filter((c) => !(c.startsWith('accion.') && marcadaEnAlguna(c)) && !(c.startsWith('menu.') && adminPlegado.has(c)))
+      .map((c) => `${a.nombre}: ${c}`));
     expect(huecos).toEqual([]);
   });
 

@@ -71,7 +71,11 @@ export const ACCIONES_FINANZAS: Readonly<Record<string, AccionArbol>> = {
   'accion.conciliacion.conciliar': { operaciones: ['conciliacion.boleta.conciliar', 'conciliacion.boleta.descartar', 'conciliacion.boleta.recruzar'] },
   'accion.conciliacion.comprobante': { operaciones: ['conciliacion.comprobante.cargar', 'conciliacion.comprobante.reemplazar'] },
   // ── Facturación electrónica · Parametrización ──
-  'accion.facturacion_parametrizacion.ver': { lectura: true, operaciones: ['siigo.parametrizacion.ver', 'siigo.emision.ver'] },
+  // HU #13429: `siigo.conceptos.confirmar` es opcional también de «Ver» (basta una acción efectiva): quien confirma
+  // mapeos sin administrarlos (financiera) lo conserva con el gating de la cadena; nadie lo gana.
+  'accion.facturacion_parametrizacion.ver': {
+    lectura: true, operaciones: ['siigo.parametrizacion.ver', 'siigo.emision.ver'], opcionales: ['siigo.conceptos.confirmar'],
+  },
   'accion.facturacion_parametrizacion.mapeo_conceptos': {
     operaciones: ['siigo.conceptos.administrar', 'siigo.catalogos.sincronizar'], predecesores: [TRANSITORIO_SIIGO],
     opcionales: ['siigo.conceptos.confirmar'],

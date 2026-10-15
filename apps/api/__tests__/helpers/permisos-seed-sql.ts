@@ -67,6 +67,8 @@ export const MIGRACIONES_CON_REPARTO = [
   '0235_permisos_arbol_finanzas_reparto.sql', // HU #13427: regla «todos»/«alguna» + retiro (incluido el transitorio de Siigo)
   '0236_permisos_arbol_administracion_siembra.sql', // HU #13428: acciones de Administración, Clientes, Bitácora, Tablero y Perfil
   '0237_permisos_arbol_administracion_reparto.sql', // HU #13428: regla «todos»/«alguna», reparto universal de Perfil (P-22) + retiro
+  '0238_permisos_arbol_legado_siembra.sql', // HU #13429: elementos `menu.*`, cadena de las páginas y «Administrar» de PESV
+  '0239_permisos_arbol_legado_reparto.sql', // HU #13429: «Administrar» PESV (A1), cadena de roles y retiro del legado
 ] as const;
 
 /**
@@ -188,7 +190,9 @@ function tuplas(bloque: string): string[][] {
  * la base: el rol que tiene TODO el grupo recibe la acción; después lo absorbido (cada `fn` y cada
  * conjunción) sale del reparto y del catálogo. `null` si el archivo no tiene esa forma.
  */
-export function reglaTodosDeSql(sql: string): { grupos: Map<string, string[]>; absorbidos: Set<string>; lectura: Set<string> } | null {
+export function reglaTodosDeSql(sql: string): {
+  grupos: Map<string, string[]>; absorbidos: Set<string>; lectura: Set<string>; requisitos: Map<string, string[]>;
+} | null {
   const limpio = sinComentariosSql(sql);
   const pares = /INSERT INTO tmp_arbol_\d+ \(accion, fn\) VALUES([\s\S]*?);/.exec(limpio);
   if (!pares) return null;
@@ -206,7 +210,26 @@ export function reglaTodosDeSql(sql: string): { grupos: Map<string, string[]>; a
   // Decisión del PO del 2026-10-13: las de `tmp_lectura_<hu>` se reciben con ALGUNA del grupo.
   const lect = /INSERT INTO tmp_lectura_\d+ \(accion\) VALUES([\s\S]*?);/.exec(limpio);
   const lectura = new Set((lect ? tuplas(lect[1]!) : []).map(([a]) => a!));
-  return { grupos, absorbidos, lectura };
+  // HU #13429 (P-24, A1): `tmp_requisito_<hu>` — además del grupo, hay que tener esa función (la página del ítem).
+  const req = /INSERT INTO tmp_requisito_\d+ \(accion, fn\) VALUES([\s\S]*?);/.exec(limpio);
+  const requisitos = new Map<string, string[]>();
+  for (const [a, fn] of req ? tuplas(req[1]!) : []) requisitos.set(a!, [...(requisitos.get(a!) ?? []), fn!]);
+  return { grupos, absorbidos, lectura, requisitos };
+}
+
+/**
+ * HU #13429 — La parte «legado» de la 0239 (forma de `arbol/sql-legado.ts`): los pares `(fn, item)` de
+ * `tmp_legado_13429` y las ternas `(codigo, item, elemento)` de `tmp_cadena_13429`. `null` si no está.
+ */
+export function legadoDeSql(sql: string): { legado: [string, string][]; cadena: [string, string, string][] } | null {
+  const limpio = sinComentariosSql(sql);
+  const l = /INSERT INTO tmp_legado_\d+ \(fn, item\) VALUES([\s\S]*?);/.exec(limpio);
+  const c = /INSERT INTO tmp_cadena_\d+ \(codigo, item, elemento\) VALUES([\s\S]*?);/.exec(limpio);
+  if (!l || !c) return null;
+  return {
+    legado: tuplas(l[1]!).map(([fn, item]) => [fn!, item!]),
+    cadena: tuplas(c[1]!).map(([codigo, item, elemento]) => [codigo!, item!, elemento!]),
+  };
 }
 
 const leer = (archivo: string): string => readFileSync(path.join(MIGRACIONES, archivo), 'utf8');
@@ -252,10 +275,23 @@ export function repartoDeSql(sqls: readonly string[], nombre = 'sql'): Map<strin
       for (const codigos of reparto.values()) {
         for (const [accion, grupo] of todos.grupos) {
           const cumple = todos.lectura.has(accion) ? grupo.some((g) => codigos.has(g)) : grupo.every((g) => codigos.has(g));
-          if (cumple) codigos.add(accion);
+          if (cumple && (todos.requisitos.get(accion) ?? []).every((r) => codigos.has(r))) codigos.add(accion);
         }
       }
       for (const codigos of reparto.values()) for (const a of todos.absorbidos) codigos.delete(a);
+    }
+    // HU #13429: pasos A (ítem de la operación antigua), C1-C2 (ítem de la acción, elemento del ítem) y D (retiro).
+    const leg = legadoDeSql(sql);
+    if (leg) {
+      for (const codigos of reparto.values()) {
+        for (const fn of new Set(leg.legado.map(([f]) => f))) {
+          const items = leg.legado.filter(([f]) => f === fn).map(([, i]) => i).sort();
+          if (codigos.has(fn) && !items.some((i) => codigos.has(i))) codigos.add(items[0]!);
+        }
+        for (const [codigo, item] of leg.cadena) if (codigos.has(codigo)) codigos.add(item);
+        for (const [codigo, , elemento] of leg.cadena) if (codigos.has(codigo)) codigos.add(elemento);
+        for (const [fn] of leg.legado) codigos.delete(fn);
+      }
     }
   }
   return reparto;
@@ -288,6 +324,7 @@ export function funcionesDeSql(sqls: readonly string[]): Map<string, FuncionSemb
       }
     }
     for (const a of reglaTodosDeSql(sql)?.absorbidos ?? []) funciones.delete(a);
+    for (const [fn] of legadoDeSql(sql)?.legado ?? []) funciones.delete(fn); // HU #13429, paso D
     for (const [codigo, nombre, descripcion] of bloquesUpdateNombre(sql)) {
       const fila = funciones.get(codigo);
       if (!fila) throw new Error(`UPDATE de nombre sobre una función no sembrada antes: ${codigo}`);

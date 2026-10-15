@@ -15,7 +15,7 @@ import type { SQL } from 'drizzle-orm';
 import { chain } from '../helpers/db.js';
 import { renderizar } from '../helpers/sql-ligado.js';
 import { terminosDeOrden } from '../helpers/orden-sql.js';
-import { testToken, registrarUsuarioDePrueba, fuenteDePrueba, operacionesDePartida } from '../helpers/auth.js';
+import { testToken, registrarUsuarioDePrueba, fuenteDePrueba, conCadena, funcionesDePartida } from '../helpers/auth.js';
 
 const selectMock = vi.fn();
 vi.mock('../../src/db/client.js', () => ({
@@ -152,7 +152,10 @@ describe('TC #12270 AC7 — GET /api/permisos/mios devuelve el mismo conjunto ef
       version: esperado.version,
       resueltoEn: esperado.resueltoEn.toISOString(),
     });
-    expect(res.body.funciones).toEqual(['pagina.dashboard', 'soat.cola.ver', 'tramite.lote.crear']);
+    // HU #13429: lo registrado llega con su cadena (elemento, ítem y la acción que da cada operación), así que el
+    // conjunto es su expansión; los tres códigos del caso están en él.
+    expect(res.body.funciones).toEqual([...expandir(conCadena(['pagina.dashboard', 'soat.cola.ver', 'tramite.lote.crear']))].sort());
+    for (const c of ['pagina.dashboard', 'soat.cola.ver', 'tramite.lote.crear']) expect(res.body.funciones).toContain(c);
     expect(selectMock).not.toHaveBeenCalled();
   });
 
@@ -186,7 +189,8 @@ describe('TC #12270 AC7 — GET /api/permisos/mios devuelve el mismo conjunto ef
     // HU #12083: el helper carga las operaciones de partida del rol (la foto); `cliente` tiene su
     // página y sus ocho `soat.*` de lectura y del canal, y nada más.
     // HU #12873: `/mios` sirve el conjunto EXPANDIDO (acciones + las operaciones que conceden).
-    expect(res.body.funciones).toEqual([...expandir(['pagina.flito_soat', ...operacionesDePartida('cliente')])].sort());
+    // HU #13429: la partida entera del rol (páginas incluidas) con su cadena, como la registra el helper.
+    expect(res.body.funciones).toEqual([...expandir(conCadena([...funcionesDePartida('cliente'), 'pagina.flito_soat']))].sort());
   });
 
   it('?userId=8 se ignora: nunca devuelve el conjunto de otro usuario', async () => {

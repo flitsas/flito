@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import request from 'supertest';
+import { conCadenaEnFuente } from '../helpers/auth.js';
 
 vi.mock('../../src/db/client.js', () => ({ db: {}, getPoolStats: vi.fn() }));
 // Implementación en el constructor (sobrevive a `mockReset`): el escritor real devuelve una promesa y `decidir` le hace `.catch`.
@@ -53,7 +54,7 @@ let conjuntos: Record<number, readonly string[]> = {};
 function fijar(c: Record<number, readonly string[]>) {
   conjuntos = c;
   for (const id of Object.keys(c)) invalidarPermisosDe(Number(id));
-  fijarFuenteDePermisos(async (userId) => ({ rol: `rol_${userId}`, tipoEnlace: 'ninguno', excepciones: [], funcionesDelRol: [...(conjuntos[userId] ?? [])] }));
+  fijarFuenteDePermisos(conCadenaEnFuente(async (userId) => ({ rol: `rol_${userId}`, tipoEnlace: 'ninguno', excepciones: [], funcionesDelRol: [...(conjuntos[userId] ?? [])] })));
 }
 
 const lab = express();

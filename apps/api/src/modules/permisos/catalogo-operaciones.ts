@@ -374,6 +374,8 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${TRC} DELETE /organismos-config/:codigo/logo`, 'transito.logo.borrar', 'Quitar el logo de un organismo', 'Retirar la imagen del organismo de los documentos.'),
   // ── Usuarios (HU #12083: `users/` entra al catálogo) ───────────────────────────────────────────
   op(`${USR} GET /`, 'usuarios.usuario.listar', 'Ver los usuarios', 'Abrir la pantalla de usuarios y recorrer el listado con sus filtros.'),
+  // HU #13429: el árbol de permisos de un usuario (lo heredado de su rol y sus excepciones), con la guarda de su lectura.
+  op(`${USR} GET /:id/arbol`, 'usuarios.usuario.listar', 'Ver los usuarios', 'Abrir la pantalla de usuarios y recorrer el listado con sus filtros.'),
   op(`${USR} GET /resumen`, 'usuarios.usuario.ver_resumen', 'Ver el conteo de usuarios por rol', 'Leer cuántos usuarios activos e inactivos hay por cada rol.'),
   op(`${USR} GET /export`, 'usuarios.usuario.exportar', 'Exportar los usuarios a Excel', 'Descargar el listado filtrado de usuarios como archivo de Excel.'),
   op(`${USR} POST /`, 'usuarios.usuario.crear', 'Crear un usuario', 'Dar de alta un usuario con su rol, sus páginas y su ámbito.'),
@@ -395,11 +397,14 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // Siete códigos y no cuatro: el catálogo es «una función por ruta» y los códigos son únicos. Ninguno
   // va al auditor: el cuadro de roles es administración, no observación. Textos = los de la 0186.
   op(`${PER} GET /funciones`, 'permisos.catalogo.ver', 'Ver el catálogo de funciones', 'Leer la lista de funciones que existen en el sistema, agrupadas por módulo, para repartirlas entre los roles.'),
+  // HU #13429: el árbol de permisos (sucesor de `GET /funciones`) y el de un rol, con las guardas de su lectura.
+  op(`${PER} GET /arbol`, 'permisos.catalogo.ver', 'Ver el catálogo de funciones', 'Leer la lista de funciones que existen en el sistema, agrupadas por módulo, para repartirlas entre los roles.'),
   op(`${PER} GET /roles`, 'permisos.rol.listar', 'Ver los roles', 'Abrir la lista de roles con cuántos usuarios tiene cada uno y si se puede borrar.'),
   op(`${PER} POST /roles`, 'permisos.rol.crear', 'Crear un rol', 'Dar de alta un rol nuevo con su tipo de enlace, su tipo principal y su cuadro de funciones.'),
   op(`${PER} PATCH /roles/:codigo`, 'permisos.rol.editar', 'Editar un rol', 'Cambiar el nombre, la descripción, el tipo de enlace, el tipo principal o el estado de un rol.'),
   op(`${PER} DELETE /roles/:codigo`, 'permisos.rol.borrar', 'Borrar un rol', 'Eliminar un rol que ningún usuario tiene asignado, junto con su cuadro de funciones.'),
   op(`${PER} GET /roles/:codigo/funciones`, 'permisos.cuadro.ver', 'Ver el cuadro de funciones de un rol', 'Leer qué funciones concede un rol a quienes lo tienen asignado.'),
+  op(`${PER} GET /roles/:codigo/arbol`, 'permisos.cuadro.ver', 'Ver el cuadro de funciones de un rol', 'Leer qué funciones concede un rol a quienes lo tienen asignado.'),
   op(`${PER} PUT /roles/:codigo/funciones`, 'permisos.cuadro.guardar', 'Guardar el cuadro de funciones de un rol', 'Reescribir el conjunto completo de funciones que concede un rol.'),
   // ── Comprobantes (Épica #12245, HU #12611: `flito-comprobantes/` nace reconducido) ────────────
   // Las CINCO de F1 (#12605): cargar, ver la cola, ver uno, abrir el archivo y releer. Textos byte a

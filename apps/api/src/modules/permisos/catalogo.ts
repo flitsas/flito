@@ -12,7 +12,10 @@
 // Desde la HU #12716 el `modulo` de cada función es el de AGRUPACIÓN (el que pinta la pantalla de
 // permisos y nombra la bitácora del 403), aplicado con `catalogo-agrupacion.ts` DESPUÉS de construir
 // cada mitad. El prefijo del código sigue siendo el módulo del FICHERO: esa comprobación se conserva.
-import { ARBOL_ITEMS_Y_ACCIONES, PAGES, PAGE_GROUPS, PREFIJO_ACCION, PREFIJO_ELEMENTO, USER_ROLES, paginasPorDefecto, type NodoArbolDef, type PageSlug } from '@operaciones/shared-types';
+import {
+  ARBOL_ITEMS_Y_ACCIONES, ELEMENTOS_PERMISOS, PAGES, PAGE_GROUPS, PREFIJO_ACCION, PREFIJO_ELEMENTO, USER_ROLES, paginasPorDefecto,
+  type NodoArbolDef, type PageSlug,
+} from '@operaciones/shared-types';
 import { llaveDe, type GuardaLeida } from './inventario-guardas.js';
 // El SNAPSHOT y no el lector de fuentes: la imagen de producción no lleva los `.ts` (el Dockerfile
 // copia `dist` y poco más), así que un `readFileSync` de una ruta `.routes.ts` reventaría en el
@@ -22,9 +25,11 @@ import { GUARDAS_MEDIDAS } from './inventario.generado.js';
 import { OPERACIONES_DECLARADAS } from './catalogo-operaciones.js';
 import { AGRUPACION_DE_OPERACION, AGRUPACION_DE_OPERACION_LEGADO, AGRUPACION_DE_PAGINA, moduloAgrupado } from './catalogo-agrupacion.js';
 import {
-  ACCIONES_ARBOL, ACCIONES_LECTURA, ACCIONES_UNIVERSALES, CODIGOS_ABSORBIDOS, esUniversal, operacionesDe,
-  PARTIDAS_DE_OPERACIONES_NUEVAS as PARTIDA_DE_OPERACION_NUEVA, predecesoresDe, ROL_CON_TODAS_LAS_ACCIONES,
+  ACCIONES_ARBOL, ACCIONES_POR_ALGUNA, ACCIONES_UNIVERSALES, CODIGOS_ABSORBIDOS, claseDe, esUniversal, operacionesDe,
+  PADRE, PADRES_DE_OPCIONAL, paginaDeAccion, PARTIDAS_DE_OPERACIONES_NUEVAS as PARTIDA_DE_OPERACION_NUEVA, predecesoresDe,
+  ROL_CON_TODAS_LAS_ACCIONES,
 } from './arbol/expansion.js';
+import { ITEMS_LEGADO_OPS } from './arbol/acciones-legado.js';
 import { NOMBRES_LEGADO } from './catalogo-operaciones.legado.js';
 
 export interface FuncionCatalogo {
@@ -32,10 +37,10 @@ export interface FuncionCatalogo {
   modulo: string;
   nombreNegocio: string;
   descripcion: string;
-  tipo: 'pagina' | 'operacion' | 'accion';
+  tipo: 'pagina' | 'operacion' | 'accion' | 'elemento';
   /** Roles a los que el estado de HOY concede esta función (CF-16). */
   roles: string[];
-  /** HU #12873 (ADR-0025): solo los nodos del árbol. Padre en la BASE (los `menu.*` llegan con #13429). */
+  /** HU #12873 (ADR-0025): los nodos del árbol y, desde la #13429, los opcionales (padre = su acción o ítem). */
   padre?: string;
   nivel?: number;
   orden?: number;
@@ -292,10 +297,12 @@ export function catalogoDeAcciones(plano: FuncionCatalogo[] = catalogoPlano()): 
       descripcion: n.descripcion ?? n.nombre,
       tipo: 'accion' as const,
       // La regla del paso (`cumpleGrupo`) sobre los roles de partida: de lectura → unión; si modifica → intersección.
-      // HU #13428 (P-22): la de reparto universal, a todos los roles.
+      // HU #13428 (P-22): la de reparto universal, a todos los roles. HU #13429 (A1): `alguna` también es
+      // unión, y `exigeItem` la deja solo a quien ya tiene la página del ítem.
       roles: [...new Set([
         ...(esUniversal(n.codigo) ? USER_ROLES
-          : ACCIONES_LECTURA.has(n.codigo) ? grupos.flat() : grupos[0]!.filter((r) => grupos.every((g) => g.includes(r)))),
+          : ACCIONES_POR_ALGUNA.has(n.codigo) ? grupos.flat() : grupos[0]!.filter((r) => grupos.every((g) => g.includes(r))))
+          .filter((r) => !ACCIONES_ARBOL[n.codigo]!.exigeItem || pagina.roles.includes(r)),
         ROL_CON_TODAS_LAS_ACCIONES,
       ])].sort(),
       padre: n.padre!,
@@ -305,25 +312,66 @@ export function catalogoDeAcciones(plano: FuncionCatalogo[] = catalogoPlano()): 
   });
 }
 
-/** Las páginas que son ítem del árbol, con su `nivel` y su `orden` (sin padre en la base hasta la #13429). */
-const ITEMS_ARBOL = new Map(ARBOL_ITEMS_Y_ACCIONES.filter((n) => n.tipo === 'item').map((n) => [n.codigo, n.orden]));
+/** Los ítems del árbol (FLITO y antiguos) con su nodo: padre (`menu.*`) y orden. */
+const ITEMS_ARBOL = new Map(ARBOL_ITEMS_Y_ACCIONES.filter((n) => n.tipo === 'item').map((n) => [n.codigo, n]));
+
+/** HU #13429 — Las operaciones que expande algún ítem antiguo → esos ítems (orden alfabético; el primero es el de paso). */
+const ITEMS_DE_OPERACION_LEGADA: ReadonlyMap<string, string[]> = (() => {
+  const m = new Map<string, string[]>();
+  for (const [item, i] of Object.entries(ITEMS_LEGADO_OPS)) for (const op of i.operaciones) m.set(op, [...(m.get(op) ?? []), item].sort());
+  return m;
+})();
 
 /**
- * El catálogo entero: el plano MENOS lo que absorbió el árbol (operaciones y la página de la compuerta,
- * que ya no se conceden directo) MÁS las acciones. Es lo que la base debe tener (arranque, AC9) y lo
- * que siembran las migraciones.
+ * El catálogo entero: el plano MENOS lo que absorbió el árbol (operaciones de acciones y de ítems antiguos,
+ * y las páginas que absorbe una acción) MÁS las acciones y, desde la #13429, los elementos `menu.*`. Es lo
+ * que la base debe tener (arranque, AC9) y lo que siembran las migraciones.
+ *
+ * HU #13429 (§5-quater.6) — el reparto que deja la 0239: (1) el rol con una operación de ítem antiguo sin el
+ * ítem recibe el ítem; (2) el rol con una acción recibe la página de su ítem; (3) el rol con algún ítem recibe
+ * el elemento (`menu.*`, incluido `menu.perfil` a todos). Toda página es ítem y toda operación viva es opcional
+ * (de su acción o ítem) o transversal: lo contrario es `CatalogoIncoherenteError` (una página que no esté en
+ * el árbol nacería muerta en silencio).
  */
 export function catalogoCompleto(guardas?: GuardaLeida[]): FuncionCatalogo[] {
   const plano = catalogoPlano(guardas);
   const acciones = catalogoDeAcciones(plano);
   // HU #13428 (P-22): la página de una acción de reparto universal (`pagina.perfil`) viaja con ella a todos los roles.
   const universales = new Set(ACCIONES_UNIVERSALES.map((u) => u.pagina));
-  const vivas = plano.filter((f) => !CODIGOS_ABSORBIDOS.has(f.codigo)).map((f) => {
-    const orden = ITEMS_ARBOL.get(f.codigo);
-    const g = universales.has(f.codigo) ? { ...f, roles: [...USER_ROLES].sort() } : f;
-    return orden === undefined ? g : { ...g, nivel: 2, orden };
-  });
-  return [...vivas, ...acciones].sort((a, b) => a.codigo.localeCompare(b.codigo));
+  const vivas = plano.filter((f) => !CODIGOS_ABSORBIDOS.has(f.codigo));
+  const errores: string[] = [];
+  const rolesPorCodigo = new Map<string, Set<string>>();
+  for (const f of vivas) if (f.tipo === 'pagina') rolesPorCodigo.set(f.codigo, new Set(universales.has(f.codigo) ? USER_ROLES : f.roles));
+  for (const f of plano) {
+    const items = ITEMS_DE_OPERACION_LEGADA.get(f.codigo);
+    if (!items) continue;
+    for (const r of f.roles) if (!items.some((i) => rolesPorCodigo.get(i)?.has(r))) rolesPorCodigo.get(items[0]!)?.add(r);
+  }
+  for (const a of acciones) for (const r of a.roles) rolesPorCodigo.get(paginaDeAccion(a.codigo))?.add(r);
+
+  const salida: FuncionCatalogo[] = [...acciones];
+  for (const f of vivas) {
+    if (f.tipo === 'pagina') {
+      const nodo = ITEMS_ARBOL.get(f.codigo);
+      if (!nodo) { errores.push(`página sin ítem en el árbol: ${f.codigo}`); continue; }
+      salida.push({ ...f, roles: [...rolesPorCodigo.get(f.codigo)!].sort(), padre: nodo.padre!, nivel: 2, orden: nodo.orden });
+      continue;
+    }
+    const clase = claseDe(f.codigo);
+    if (clase === 'opcional') salida.push({ ...f, padre: PADRES_DE_OPCIONAL.get(f.codigo)![0]! });
+    else if (clase === 'transversal') salida.push(f);
+    else errores.push(`operación viva sin clase (ni opcional ni transversal): ${f.codigo}`);
+  }
+  for (const e of ELEMENTOS_PERMISOS.filter((x) => !x.derivado)) {
+    const roles = new Set<string>();
+    for (const [pagina, rs] of rolesPorCodigo) if (PADRE.get(pagina) === e.codigo) for (const r of rs) roles.add(r);
+    salida.push({
+      codigo: e.codigo, modulo: e.codigo.slice(PREFIJO_ELEMENTO.length), nombreNegocio: e.nombre,
+      descripcion: `Ver la sección «${e.nombre}» del menú.`, tipo: 'elemento', roles: [...roles].sort(), nivel: 1, orden: e.orden,
+    });
+  }
+  if (errores.length) throw new CatalogoIncoherenteError(`El árbol de permisos y el catálogo no coinciden:\n  ${errores.join('\n  ')}`);
+  return salida.sort((a, b) => a.codigo.localeCompare(b.codigo));
 }
 
 /** El reparto rol × función que se siembra: `[rol, codigo]` ordenado y sin repetir. */

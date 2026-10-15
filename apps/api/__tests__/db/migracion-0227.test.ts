@@ -19,7 +19,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PAGES, PAGINAS_PESV_POR_ITEM } from '@operaciones/shared-types';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
-import { catalogoCompleto } from '../../src/modules/permisos/catalogo.js';
+import { catalogoPlano } from '../../src/modules/permisos/catalogo.js';
 import {
   MIGRACIONES_CON_REPARTO, copiasDeReparto, leerFuncionesSembradas, leerRenombresSembrados,
   leerRepartoSembrado, leerRetirosSembrados,
@@ -35,7 +35,8 @@ const SQL = readFileSync(RUTA, 'utf8');
 const SIN_COMENTARIOS = SQL.replace(/--[^\n]*/g, '');
 
 const PAGINAS = PAGINAS_PESV_POR_ITEM.map((s) => `pagina.${s}`);
-const CATALOGO = catalogoCompleto();
+// HU #13429: la 0239 retira estos transitorios (los absorben sus ítems): el catálogo de esta migración es el PLANO.
+const CATALOGO = catalogoPlano();
 const OPERACIONES = CATALOGO.filter((f) => f.tipo === 'operacion' && /^(pesv|drivers|jornadas|rum)\./.test(f.codigo));
 
 describe('0227 — reglas del archivo (análisis estático)', () => {
@@ -106,8 +107,9 @@ describe('0227 — reglas del archivo (análisis estático)', () => {
 
 describe('0227 — lo que siembra es lo que el catálogo del código declara', () => {
   // Lo que ESTE archivo añade al catálogo plegado (el UPDATE de `pagina.pesv` necesita la 0179 detrás).
-  const previas = leerFuncionesSembradas(MIGRACIONES_CON_REPARTO.filter((m) => m !== ARCHIVO));
-  const sembradas = new Map([...leerFuncionesSembradas()].filter(([c]) => !previas.has(c)));
+  // HU #13429: plegado HASTA este archivo (la 0239 borra después sus 24 transitorios).
+  const previas = leerFuncionesSembradas(MIGRACIONES_CON_REPARTO.filter((m) => m < ARCHIVO));
+  const sembradas = new Map([...leerFuncionesSembradas(MIGRACIONES_CON_REPARTO.filter((m) => m <= ARCHIVO))].filter(([c]) => !previas.has(c)));
 
   it('siembra exactamente las 21 páginas y las 25 operaciones, con los textos y el módulo del catálogo', () => {
     expect([...sembradas.keys()].sort()).toEqual([...PAGINAS, ...OPERACIONES.map((f) => f.codigo)].sort());

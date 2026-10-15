@@ -9,6 +9,8 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import request from 'supertest';
+import { conCadenaEnFuente } from '../helpers/auth.js';
+import { ancestrosDe } from '../../src/modules/permisos/arbol/expansion.js';
 
 vi.mock('../../src/db/client.js', () => ({ db: {}, getPoolStats: vi.fn() }));
 vi.mock('../../src/shared/historial/permisos-intentos-denegados.js', () => ({ registrarIntentoDenegado: vi.fn().mockResolvedValue(undefined) }));
@@ -33,12 +35,12 @@ const MUESTRA = ACCIONES.map((accion) => {
 
 // Usuario 1: solo la acción i-ésima (se re-fija por caso). Usuario 2: todas MENOS la i-ésima.
 let actual = '';
-fijarFuenteDePermisos(async (userId) => ({
+fijarFuenteDePermisos(conCadenaEnFuente(async (userId) => ({
   rol: `rol_${userId}`,
   tipoEnlace: 'ninguno',
   funcionesDelRol: userId === 1 ? [actual] : ACCIONES.filter((a) => a !== actual),
   excepciones: [],
-}));
+})));
 
 const app = express();
 app.use((req: Request, _res: Response, next: NextFunction) => {
@@ -56,10 +58,11 @@ describe('AC6 — muestreo 200/403 por acción (guarda real, resolutor real)', (
 
   it.each(MUESTRA.map((m, i) => [m.accion, m.op, i] as const))('%s → %s', async (accion, op, i) => {
     actual = accion;
-    fijarFuenteDePermisos(async (userId) => ({
+    fijarFuenteDePermisos(conCadenaEnFuente(async (userId) => ({
       rol: `rol_${userId}`, tipoEnlace: 'ninguno', excepciones: [],
-      funcionesDelRol: userId === 1 ? [accion] : ACCIONES.filter((a) => a !== accion),
-    }));
+      // HU #13429: sin la acción NI sus hijas (una anidada exige a su madre: con la cadena, darla devolvería la madre).
+      funcionesDelRol: userId === 1 ? [accion] : ACCIONES.filter((a) => a !== accion && !ancestrosDe(a).includes(accion)),
+    })));
     const si = await request(app).get(`/m/${i}`).set('x-sub', '1');
     expect(si.status, `${accion} debería conceder ${op}`).toBe(200);
     const no = await request(app).get(`/m/${i}`).set('x-sub', '2');
@@ -81,7 +84,7 @@ describe('AC6 — muestreo 200/403 por acción (guarda real, resolutor real)', (
       2: ['accion.tramites.solicitar_soat'],
       3: ['accion.tramites.solicitar_impuestos'],
     };
-    fijarFuenteDePermisos(async (userId) => ({ rol: 'r', tipoEnlace: 'ninguno', excepciones: [], funcionesDelRol: conjuntos[userId]! }));
+    fijarFuenteDePermisos(conCadenaEnFuente(async (userId) => ({ rol: 'r', tipoEnlace: 'ninguno', excepciones: [], funcionesDelRol: conjuntos[userId]! })));
     expect((await request(appAmbos).post('/ambos').set('x-sub', '1')).status).toBe(200);
     expect((await request(appAmbos).post('/ambos').set('x-sub', '2')).status).toBe(403);
     expect((await request(appAmbos).post('/ambos').set('x-sub', '3')).status).toBe(403);
