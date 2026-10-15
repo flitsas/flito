@@ -4,6 +4,13 @@
 // compuerta. NO duplica lógica de negocio: cada acción resuelve tramiteId → soatId/impuestoId y DELEGA
 // en el servicio dueño de la regla (SOAT/Impuestos para el envío al gestor, Compuerta para el veredicto
 // y la entrega). Aquí solo vive el mapeo y el reporte agregado.
+//
+// RN-13585-P (Bug #13585, retrabajo 2 — decisión del humano): el trámite muestra SUS datos, no los del
+//            vehículo enlazado. La placa de la bandeja es SOLO `flito_tramites.plate_complete`, en
+//            cualquier estado y sin caer a `vehicles.plate`: dos trámites del mismo VIN comparten
+//            vehículo, y leer su placa le ponía al anulado la del aprobado. La búsqueda por placa usa la
+//            MISMA columna. `registrosZipTramites`, `solicitarImpuestos` y `entregar` siguen con
+//            `vehicles.plate` a propósito: son operativos sobre trámites vigentes.
 
 import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import {
@@ -267,7 +274,8 @@ function proyeccion() {
     tramiteId: flitoTramites.id,
     idFlit: flitoTramites.idFlit,
     estadoTramite: flitoTramites.estado,
-    placa: vehicles.plate,
+    // RN-13585-P: la placa es la del trámite, no la del vehículo (ver cabecera).
+    placa: flitoTramites.plateComplete,
     companiaNombre: clients.name,
     soatAutogestionable: clients.soatAutogestionable,
     impuestosAutogestionable: clients.impuestosAutogestionable,
@@ -534,7 +542,7 @@ function construirCondiciones(f: FiltrosListado): SQL[] {
       ));
     conds.push(or(
       sql`UPPER(${flitoTramites.idFlit}) LIKE ${patronTexto}`,
-      sql`UPPER(REPLACE(${vehicles.plate}, '-', '')) LIKE ${patron}`,
+      sql`UPPER(REPLACE(${flitoTramites.plateComplete}, '-', '')) LIKE ${patron}`, // RN-13585-P: la que se muestra
       sql`UPPER(${vehicles.vin}) LIKE ${patron}`,
       inArray(flitoTramites.id, compradorMatch),
     )!);

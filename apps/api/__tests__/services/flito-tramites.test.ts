@@ -9,6 +9,9 @@ import express from 'express';
 import { chain } from '../helpers/db.js';
 import { testToken } from '../helpers/auth.js';
 import { EstadoImpuesto } from '@operaciones/shared-types';
+import { sql as sqlTag, type SQL } from 'drizzle-orm';
+import { flitoTramites, vehicles } from '../../src/db/schema.js';
+import { renderizar } from '../helpers/sql-ligado.js';
 
 const selectMock = vi.fn();
 
@@ -290,5 +293,62 @@ describe('rutas — lectura Operaciones/Auditoría; acciones solo Operaciones; g
     expect(res.status).toBe(200);
     expect(res.body[0]).toMatchObject({ campo: 'flit_estado', valorAnterior: 'Borrador', valorNuevo: 'Asignado', origen: 'api' });
     expect(typeof res.body[0].creadoEn).toBe('string');
+  });
+});
+
+// ── Bug #13585 (retrabajo 2) · RN-13585-P: la placa es la del TRÁMITE ───────────────────────────
+// Dos trámites del mismo VIN comparten `vehiculo_id`: uno anulado sin placa (FLIT 1 nunca se la dio)
+// y uno aprobado con placa. La bandeja leía `vehicles.plate` y pintaba la placa en los dos. Con el
+// `db` mockeado el `chain` devuelve la fila que se le dé, así que el aserto va sobre lo que el
+// servicio PIDE (la columna proyectada y el WHERE renderizado), no sobre la fila que vuelve.
+describe('Bug #13585 · listar — la placa sale de flito_tramites.plate_complete, no del vehículo', () => {
+  const filaBase = {
+    soatAutogestionable: false, impuestosAutogestionable: false, companiaNombre: 'ACME',
+    soatEstado: null, soatValorPagado: null, soatExtraccion: null,
+    impuestoEstado: null, impuestoValorPagado: null, impuestoMarcadoPorDiferencia: false, impuestoExtraccion: null,
+    sincronizadoEn: new Date('2026-07-01T00:00:00Z'), organismoAlias: null, organismoCodigo: null, fechaCreacionFlit: null,
+    creadoEn: new Date('2026-07-01T00:00:00Z'), vin: 'VIN-COMPARTIDO', marca: null, linea: null, tipoVehiculo: null,
+  };
+
+  /** Chain que además guarda la condición que recibió `.where()`. */
+  const chainQueGuardaWhere = (rows: unknown[], guardar: (c: SQL) => void) => {
+    const c = chain(rows) as unknown as Record<string, unknown>;
+    c.where = (cond: SQL) => { guardar(cond); return c; };
+    return c;
+  };
+
+  const mockListado = (filas: unknown[], guardarWhere: (c: SQL) => void = () => {}) => {
+    selectMock
+      .mockReturnValueOnce(chainQueGuardaWhere([{ total: filas.length }], guardarWhere)) // count
+      .mockReturnValueOnce(chain(filas))   // proyeccion (página)
+      .mockReturnValueOnce(chain([]))      // compradores
+      .mockReturnValueOnce(chain([]));     // excepciones de autogestión
+  };
+
+  it('la proyección lee plate_complete y ninguna columna del listado es vehicles.plate', async () => {
+    mockListado([
+      { ...filaBase, tramiteId: 'tA', idFlit: 'F-ANU', estadoTramite: 'anulado', placa: null },
+      { ...filaBase, tramiteId: 'tB', idFlit: 'F-APR', estadoTramite: 'aprobado', placa: 'QTQ100' },
+    ]);
+    const { items } = await listar();
+    const proyeccion = selectMock.mock.calls[1][0] as Record<string, unknown>;
+    expect(proyeccion.placa).toBe(flitoTramites.plateComplete);
+    // Un vigente con plate_complete null y vehículo con placa muestra null: el vehículo no entra.
+    expect(Object.values(proyeccion)).not.toContain(vehicles.plate);
+    expect(items.map((i) => [i.idFlit, i.vehiculo.placa])).toEqual([['F-ANU', null], ['F-APR', 'QTQ100']]);
+  });
+
+  it('buscar por placa compara contra plate_complete (el anulado del mismo VIN no sale)', async () => {
+    let where: SQL | undefined;
+    // `buscar` arma primero la subconsulta de compradores; se sustituye por un SQL real para que el
+    // WHERE completo se pueda renderizar.
+    selectMock.mockReturnValueOnce({ from: () => ({ where: () => sqlTag`(select 'sub')` }) });
+    mockListado([], (c) => { where = c; });
+    await listar({ buscar: 'qtq-100' });
+    const { sql: texto, params } = renderizar(where!);
+    expect(texto).toMatch(/UPPER\(REPLACE\("flito_tramites"\."plate_complete", '-', ''\)\) LIKE \$\d+/);
+    expect(texto).not.toContain('"vehicles"."plate"');
+    const n = Number(texto.match(/"plate_complete", '-', ''\)\) LIKE \$(\d+)/)![1]);
+    expect(params[n - 1]).toBe('%QTQ100%');
   });
 });

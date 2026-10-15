@@ -5,6 +5,11 @@
 // cambian). Nunca se marca "salido" por ausencia (la consulta es por rango de fechas). SOAT e impuestos
 // solo se resuelven para trámites 'Asignado' con compañía y secretaría ya emparejadas. Cada diferencia
 // detectada deja historial (origen 'api'). Idempotente; cada trámite en su propia transacción.
+//
+// Bug #13585: un trámite ANULADO (FLIT 1 «Anulado») no modifica el vehículo que ya existe con su VIN:
+// `upsertVehiculo(…, { soloAlta: true })` devuelve su id sin UPDATE. Un VIN anulado y recreado convive
+// con el trámite vigente, y el anulado (sin placa, con otro titular) pisaba los datos del vigente según
+// el orden del reporte. Si el VIN no existe, el alta se hace igual.
 
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
@@ -157,7 +162,9 @@ async function sincronizarUno(tx: Tx, tf: TramiteFlit, r: ResultadoSync): Promis
   const organismo = await resolverOrganismoDeFlit(tf);
   if ((tf.organismoCodigo || tf.ciudad || tf.transitoNombre) && !organismo) r.organismosSinEmparejar += 1;
 
-  const vehiculoId = await upsertVehiculo(tx, tf, compania?.id ?? null);
+  // Bug #13585: un anulado no modifica el vehículo (solo lo da de alta si no existe).
+  const anulado = estadoEnumDesdeFlit(tf.estadoFlit) === EstadoTramiteFlito.ANULADO;
+  const vehiculoId = await upsertVehiculo(tx, tf, compania?.id ?? null, { soloAlta: anulado });
   const { tramiteId, esNuevo, huboCambios, soatId } = await upsertTramite(tx, tf, vehiculoId, compania?.id ?? null, organismo?.codigo ?? null, r);
 
   // Nuevo / actualizado (llegó con diferencias, deja rastro) / sin cambios (idéntico, sin rastro).
@@ -204,8 +211,11 @@ function titularDe(tf: TramiteFlit): { nombre: string | null; documento: string 
  * condicionales y no asignaciones. Una asignación directa convierte «FLIT no me lo mandó esta vez»
  * en un `SET columna = NULL`, es decir, en borrar el dato que ya teníamos.
  *
- * `plate` es la excepción y ya lo era: FLIT siempre la trae y es la clave por la que el resto del
- * sistema reconoce el vehículo.
+ * `plate` sigue la misma política (Bug #13585). Antes era la excepción con la premisa de que «FLIT
+ * siempre la trae», y es falsa: un trámite anulado y recreado sobre el mismo VIN llega anulado y SIN
+ * placa, y si el reporte lo traía después del vigente, `vehicles.plate` quedaba en NULL y la bandeja
+ * perdía la placa. Además, un anulado ya ni llega aquí con un VIN existente (`soloAlta` de
+ * `upsertVehiculo`); el spread protege igual contra cualquier otro reporte sin placa.
  *
  * `updatedAt` lo pone `upsertVehiculo`, no esta función, para que el valor sea comparable en test.
  *
@@ -216,7 +226,7 @@ function titularDe(tf: TramiteFlit): { nombre: string | null; documento: string 
 export function setVehiculoDesdeFlit(tf: TramiteFlit): Partial<typeof vehicles.$inferInsert> {
   const titular = titularDe(tf);
   return {
-    plate: tf.placa,
+    ...(tf.placa ? { plate: tf.placa } : {}),
     ...(tf.marca ? { brand: tf.marca } : {}),
     ...(tf.linea ? { model: tf.linea } : {}),
     // El titular solo se escribe cuando FLIT lo trae: un reporte sin comprador no puede borrar el
@@ -259,11 +269,18 @@ export function setVehiculoDesdeFlit(tf: TramiteFlit): Partial<typeof vehicles.$
  * borra con cada reporte incompleto lo que ya sabíamos, que es exactamente lo que el bloque del
  * propietario existe para impedir. Y no queda rastro: `registrarDiferencias` solo lleva historial de
  * `flito_tramites`, no de `vehicles`; corregir un valor a vacío es hoy trabajo manual sobre la fila.
+ *
+ * `soloAlta` (Bug #13585): lo pasa FLIT 1 cuando el trámite está ANULADO. Con el VIN ya existente
+ * devuelve su id SIN UPDATE: el vehículo es del trámite vigente que comparte VIN, no del anulado. Sin
+ * vehículo previo, el alta se hace igual, porque el trámite necesita su `vehiculo_id`.
  */
-async function upsertVehiculo(tx: Tx, tf: TramiteFlit, companiaId: number | null): Promise<number> {
+async function upsertVehiculo(
+  tx: Tx, tf: TramiteFlit, companiaId: number | null, opciones: { soloAlta?: boolean } = {},
+): Promise<number> {
   const [existente] = await tx.select({ id: vehicles.id }).from(vehicles).where(eq(vehicles.vin, tf.vin)).limit(1);
   const titular = titularDe(tf);
   if (existente) {
+    if (opciones.soloAlta) return existente.id;
     await tx.update(vehicles).set({ ...setVehiculoDesdeFlit(tf), updatedAt: new Date() }).where(eq(vehicles.id, existente.id));
     return existente.id;
   }
