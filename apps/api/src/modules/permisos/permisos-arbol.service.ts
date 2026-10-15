@@ -5,7 +5,10 @@
 // la MISMA función del resolutor (`efectivoDeNodos`), no con otra. `sinAcciones` (AC6) = ítem FLITO marcado sin
 // ninguna acción marcada debajo (sobre `marcado`, no sobre `efectivo`: el panel lo pinta aunque el elemento esté
 // desmarcado); un ítem antiguo nunca. Los opcionales cuelgan de su acción o ítem (`tipo: 'operacion'`,
-// `opcional: true`); los transversales van en su propio bloque (P-29). «Ayuda» viaja `derivado`, sin marca.
+// `opcional: true`). «Ayuda» viaja `derivado`, sin marca.
+//
+// HU #13588 (P-35..P-37): ya no hay permisos sueltos fuera del menú. `transversales` se MANTIENE en la respuesta,
+// siempre `[]`, por compatibilidad con el panel actual (la HU FRONTEND #13589 lo retira de shared-types).
 // Sin PII: del usuario solo el id y el código de su rol.
 import { eq } from 'drizzle-orm';
 import {
@@ -15,7 +18,6 @@ import { db } from '../../db/client.js';
 import { permisosRoles, permisosRolFuncion, permisosUsuarioFuncion, users } from '../../db/schema.js';
 import { catalogoCompleto } from './catalogo.js';
 import { efectivoDeNodos, PADRES_DE_OPCIONAL } from './arbol/expansion.js';
-import { TRANSVERSALES } from './arbol/acciones-legado.js';
 import { RolNoEncontradoError } from './permisos-roles.service.js';
 
 export class UsuarioNoEncontradoError extends Error {
@@ -24,7 +26,7 @@ export class UsuarioNoEncontradoError extends Error {
 
 let estructura: { arbol: NodoArbolDef[]; transversales: NodoArbolDef[] } | null = null;
 
-/** La estructura, una vez por proceso: nodos del menú, opcionales colgados y transversales aparte. */
+/** La estructura, una vez por proceso: nodos del menú y opcionales colgados; `transversales` vacío (HU #13588). */
 export function arbolDef(): { arbol: NodoArbolDef[]; transversales: NodoArbolDef[] } {
   if (estructura) return estructura;
   const nombres = new Map(catalogoCompleto().map((f) => [f.codigo, f]));
@@ -46,11 +48,7 @@ export function arbolDef(): { arbol: NodoArbolDef[]; transversales: NodoArbolDef
     nivel.set(n.codigo, v);
     return v;
   };
-  const transversales: NodoArbolDef[] = TRANSVERSALES.map((c, i) => {
-    const f = nombres.get(c);
-    return { codigo: c, nombre: f?.nombreNegocio ?? c, descripcion: f?.descripcion, tipo: 'operacion', padre: null, orden: (i + 1) * 10, nivel: 1 };
-  });
-  estructura = { arbol: nodos.map((n) => ({ ...n, nivel: nivelDe(n) })), transversales };
+  estructura = { arbol: nodos.map((n) => ({ ...n, nivel: nivelDe(n) })), transversales: [] };
   return estructura;
 }
 
@@ -64,7 +62,6 @@ function marcasDe(m: ReadonlySet<string>): Marcas {
     efectivo: (n) => {
       if (n.derivado) return false;
       if (n.opcional) return m.has(n.codigo) && PADRES_DE_OPCIONAL.get(n.codigo)!.some((p) => nodos.has(p));
-      if (n.tipo === 'operacion') return m.has(n.codigo); // transversal: sin gating
       return nodos.has(n.codigo);
     },
   };
@@ -81,9 +78,13 @@ function anidar<T extends ConMarcas & { hijos: T[] }>(planos: T[]): T[] {
   return raices;
 }
 
-/** `sinAcciones` (AC6): ítem FLITO marcado sin ninguna acción marcada debajo. */
+/**
+ * `sinAcciones` (AC6): ítem FLITO marcado sin ninguna acción marcada debajo. Un ítem que no tiene acciones en el
+ * árbol («Rendimiento», HU #13588: concede su operación él mismo) nunca.
+ */
 function sinAcciones(n: NodoArbolDef, marcas: Marcas, arbol: NodoArbolDef[]): boolean {
   if (n.tipo !== 'item' || n.legado || !marcas.marcado(n.codigo)) return false;
+  if (!arbol.some((h) => h.padre === n.codigo && h.tipo === 'accion')) return false;
   const debajo = (padre: string): boolean => arbol.some((h) => h.padre === padre && h.tipo === 'accion' && (marcas.marcado(h.codigo) || debajo(h.codigo)));
   return !debajo(n.codigo);
 }

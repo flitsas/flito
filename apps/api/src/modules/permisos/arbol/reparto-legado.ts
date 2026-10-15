@@ -7,7 +7,7 @@
 // pérdida bloquea el PR; toda ganancia se clasifica: transitorio retirado (AC3), página sembrada (P-30) u otra (no
 // aprobada: también bloquea). Sin PII (Ley 1581): el detalle es `user_id` + rol.
 import type { FilaRolEnSeco, FilaUsuarioEnSeco, UsuarioEnSeco } from '../reparto-en-seco.js';
-import { ACCIONES_POR_AREA, expandir, expandirSinCadena } from './expansion.js';
+import { ACCIONES_POR_AREA, expandirComoEn13429, expandirSinCadena } from './expansion.js';
 import { TRANSITORIOS_RETIRADOS } from './acciones-legado.js';
 import { repartirPorTodos, type FilasReparto } from './reparto-arbol.js';
 import { cadenaDelArbol, paresLegado } from './sql-legado.js';
@@ -76,7 +76,8 @@ function efectivoDe(rolCodigos: Iterable<string>, propias: FilaUsuarioEnSeco[], 
   for (const f of propias) if (f.efecto === 'conceder') m.add(f.codigo);
   const revocados = propias.filter((f) => f.efecto === 'revocar').map((f) => f.codigo);
   for (const r of revocados) m.delete(r);
-  return acceso(cadena ? expandir(m, revocados) : expandirSinCadena(m, revocados));
+  // HU #13588: «mañana» es el resolutor de la #13429, con las 5 sueltas aún transversales (su paso es la 0240).
+  return acceso(cadena ? expandirComoEn13429(m, revocados) : expandirSinCadena(m, revocados));
 }
 
 const TRANSITORIOS = new Set(TRANSITORIOS_RETIRADOS);
