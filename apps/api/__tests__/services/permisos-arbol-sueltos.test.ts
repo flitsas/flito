@@ -154,7 +154,7 @@ describe('AC5 — «Rendimiento» (Administración) da el resumen RUM', () => {
   });
 });
 
-describe('AC6 — todo código concedible es nodo, opcional u operación de ítem/acción; `transversales: []`', () => {
+describe('AC6 — todo código concedible es nodo, opcional u operación de ítem/acción; sin `transversales`', () => {
   it('el catálogo del arranque no lanza y no deja ninguna operación sin padre', () => {
     const cat = catalogoCompleto();
     expect(cat.filter((f) => f.tipo === 'operacion' && !f.padre).map((f) => f.codigo)).toEqual([]);
@@ -163,14 +163,14 @@ describe('AC6 — todo código concedible es nodo, opcional u operación de íte
     expect(cat.find((f) => f.codigo === 'pagina.admin_rendimiento')).toMatchObject({ tipo: 'pagina', padre: 'menu.administracion', nivel: 2, orden: 60 }); // tras Privacidad (40) y Google Drive (50)
   });
 
-  it('la estructura del panel de roles mantiene el campo `transversales`, vacío', () => {
-    expect(arbolDef().transversales).toEqual([]);
+  it('HU #13589: la estructura del panel de roles no trae `transversales`', () => {
+    expect(arbolDef()).not.toHaveProperty('transversales');
   });
 
-  it('el árbol de un usuario (excepciones) también devuelve `transversales: []`', async () => {
+  it('HU #13589: el árbol de un usuario (excepciones) tampoco trae `transversales`', async () => {
     selectMock.mockImplementationOnce(() => chain([{ rol: 'admin' }]));
     const u = await arbolDeUsuario(7);
-    expect(u.transversales).toEqual([]);
+    expect(u).not.toHaveProperty('transversales');
     expect(u.arbol.length).toBeGreaterThan(0);
   });
 });

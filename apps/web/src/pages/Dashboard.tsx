@@ -87,7 +87,8 @@ export default function Dashboard() {
   const verMant = puede('maintenance_inicio');
   const verPesv = puede('pesv');
   const verTableroPesv = puede('pesv_tablero_ejecutivo');
-  const verRum = hasFuncion('rum.resumen.ver');
+  // HU #13589: «Rendimiento» es un ítem de Administración (P-35..P-37): se mira la página, como el resto.
+  const verRum = puede('admin_rendimiento');
   const verMetricas = hasFuncion('tramite.metricas.ver_resumen');
   const tableroFlito = hasFuncion('tablero.tablero.ver');
 

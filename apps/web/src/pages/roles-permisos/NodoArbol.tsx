@@ -40,7 +40,7 @@ export function BotonDesplegar({ nombre, abierto, panelId, onClick }: { nombre: 
   );
 }
 
-/** Hueco del chevron (nodo sin hijos) o de la casilla (Ayuda, transversales): alinea los nombres. */
+/** Hueco del chevron (nodo sin hijos) o de la casilla (Ayuda): alinea los nombres. */
 export const Hueco = ({ ancho }: { ancho: 'chevron' | 'casilla' }) => (
   <span aria-hidden="true" className={ancho === 'chevron' ? 'h-7 w-7 shrink-0' : 'h-4 w-4 shrink-0'} />
 );

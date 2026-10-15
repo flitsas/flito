@@ -34,7 +34,7 @@ export const COPY_ERROR_PERMISOS =
   'No se pudieron cargar los permisos del rol. Puedes guardar los demás datos del usuario; sus permisos quedarán como estaban.';
 const vacioDelRol = (rol: string) => `El rol ${rol} no trae nada marcado. Marca aquí lo que este usuario deba tener, o asígnale otro rol.`;
 
-interface Datos { arbol: Nodo[]; transversales: Nodo[]; rol: Set<string>; rolNombre: string }
+interface Datos { arbol: Nodo[]; rol: Set<string>; rolNombre: string }
 
 /** Lo que el API marca como heredado del rol (modo usuario). */
 function heredados(nodos: readonly { codigo: string; heredado?: boolean; hijos?: readonly unknown[] }[]): string[] {
@@ -48,14 +48,12 @@ async function pedir(role: string, userId: number | undefined, rolOriginal: stri
   if (userId !== undefined && role === rolOriginal) {
     const r = await permisosApi.arbolDelUsuario(userId);
     return {
-      arbol: normalizar(r.arbol), transversales: normalizar(r.transversales),
-      rol: new Set([...heredados(r.arbol), ...heredados(r.transversales)]), rolNombre: '',
+      arbol: normalizar(r.arbol), rol: new Set(heredados(r.arbol)), rolNombre: '',
     };
   }
   const r = await permisosApi.arbolDelRol(role);
   return {
-    arbol: normalizar(r.arbol), transversales: normalizar(r.transversales),
-    rol: new Set([...marcadosDelApi(r.arbol), ...marcadosDelApi(r.transversales)]), rolNombre: r.rol.nombre,
+    arbol: normalizar(r.arbol), rol: new Set(marcadosDelApi(r.arbol)), rolNombre: r.rol.nombre,
   };
 }
 
@@ -96,7 +94,7 @@ export default function PermissionsPicker({
 
   useEffect(() => { onDisponibleChange?.(estado === 'ok'); }, [estado, onDisponibleChange]);
 
-  const indice = useMemo(() => indexar(datos?.arbol ?? [], datos?.transversales ?? []), [datos]);
+  const indice = useMemo(() => indexar(datos?.arbol ?? []), [datos]);
   useEffect(() => { if (datos) onIndice?.(indice); }, [datos, indice, onIndice]);
 
   const mapa = useMemo(() => new Map<string, Efecto>(excepciones.map((f) => [f.codigo, f.efecto])), [excepciones]);
@@ -164,7 +162,6 @@ export default function PermissionsPicker({
         <ArbolPermisos
           key={`${role}-${intento}`}
           arbol={datos.arbol}
-          transversales={datos.transversales}
           indice={indice}
           marcados={marcados}
           modo={modo}

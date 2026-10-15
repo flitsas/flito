@@ -27,15 +27,12 @@ export const COPY_SOLO_LECTURA =
 export const COPY_VACIO_ROL =
   'Este rol no tiene nada marcado: quien lo tenga no verá ningún elemento del menú al entrar. Marca los elementos y lo que deba usar dentro de cada uno, o usa «Marcar todo».';
 export const COPY_VACIO_ROL_LECTURA = 'Este rol no tiene nada marcado: quien lo tenga no verá ningún elemento del menú al entrar.';
-export const COPY_SOLO_TRANSVERSALES =
-  'Este rol no tiene ningún elemento del menú marcado: quien lo tenga no verá nada en el menú al entrar, aunque conserve los permisos que no dependen de él. Marca los elementos que deba usar.';
 
 export interface PermisosPantalla { guardar: boolean; editar: boolean; borrar: boolean }
 
 interface Props {
   rol: RolCatalogo;
   arbol: readonly Nodo[];
-  transversales: readonly Nodo[];
   indice: Indice;
   base: ReadonlySet<string>;
   borrador: ReadonlySet<string>;
@@ -58,7 +55,7 @@ interface Props {
 const BARRA = 'sticky bottom-0 z-10 lg:bottom-auto lg:top-[calc(var(--flit-topbar-height)_+_var(--flit-navbar-height)_+_1rem)]';
 
 export default function CuadroRol({
-  rol, arbol, transversales, indice, base, borrador, guardando, errorGuardado, permisos, usarEfectivoServidor, foco,
+  rol, arbol, indice, base, borrador, guardando, errorGuardado, permisos, usarEfectivoServidor, foco,
   guardadoToken, onToggle, onConjunto, onMostrarDonde, onGuardar, onDescartar, onEditar, onBorrar,
 }: Props) {
   const tituloRef = useRef<HTMLHeadingElement>(null);
@@ -74,9 +71,8 @@ export default function CuadroRol({
   useEffect(() => { if (errorGuardado) avisoRef.current?.focus(); }, [errorGuardado]);
 
   const conElemento = arbol.some((n) => !n.derivado && borrador.has(n.codigo));
-  const conAlgo = conElemento || transversales.some((t) => borrador.has(t.codigo));
-  const vacio = !conAlgo ? (editable ? COPY_VACIO_ROL : COPY_VACIO_ROL_LECTURA) : !conElemento ? COPY_SOLO_TRANSVERSALES : null;
-  const todos = [...arbol, ...transversales];
+  const vacio = conElemento ? null : editable ? COPY_VACIO_ROL : COPY_VACIO_ROL_LECTURA;
+  const todos = arbol;
   const idMotivo = `motivo-rol-${rol.codigo}`;
 
   return (
@@ -161,7 +157,6 @@ export default function CuadroRol({
         {vacio && <p className="mb-3 text-sm" style={{ color: 'var(--flit-text-secondary)' }} data-aviso="rol-vacio">{vacio}</p>}
         <ArbolPermisos
           arbol={arbol}
-          transversales={transversales}
           indice={indice}
           marcados={borrador}
           modo={modo}
