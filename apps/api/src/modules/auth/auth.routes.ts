@@ -191,8 +191,9 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
     id: users.id,
     username: users.username,
     name: users.name,
-    // HU #13255: `email` del propio usuario y `rolNombre` del catálogo (LEFT JOIN: misma consulta).
-    email: users.email,
+    // HU #13255: `rolNombre` del catálogo (LEFT JOIN: misma consulta). `email` ya NO se pide (HU #13431):
+    // Perfil lo lee de `GET /auth/perfil` con su propio permiso; `/me` corre en cada carga de pantalla y
+    // no debe arrastrar un dato personal que nadie más usa.
     role: users.role,
     rolNombre: permisosRoles.nombre,
     allowedPages: users.allowedPages,
@@ -219,7 +220,6 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   res.json({
     ...publico,
     // Normalizados: un mock o una fila sin el dato no deben dejar la clave fuera del sobre.
-    email: publico.email ?? null,
     rolNombre: publico.rolNombre ?? null,
     transitoCodigo,
     ...(await sobreDePermisos(req.user!.sub, companiaId)),
