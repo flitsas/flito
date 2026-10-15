@@ -114,9 +114,22 @@
 //        página (nunca dentro). La página en vuelo termina y mueve su cursor; la siguiente no se pide
 //        (`detenidaPor = 'fuente_apagada'`) y la corrida cierra por el camino normal, soltando el
 //        candado. La relectura (RN-20) tiene la misma guarda y no se lanza si la normal se detuvo (AC7).
+//
+// ── Bug #13585 (VIN anulado y recreado) ──────────────────────────────────────────────────────────
+//
+// RN-26  Un ítem cuyo estado FLITO es `anulado` (FLIT 2 `anulado` o `revocado`) NO modifica el vehículo
+//        que ya existe con su VIN: el vehículo es del trámite vigente con el que comparte VIN, y el
+//        anulado (otra marca, otro titular) lo pisaba según el orden del feed. Si el VIN no existe, el
+//        alta se hace igual (el trámite necesita `vehiculo_id`). El trámite anulado se guarda como
+//        siempre (estado, historial, compradores, `vehiculo_id`). La regla vive en `upsertVehiculo`
+//        (`soloAlta`), la misma que usa FLIT 1.
+//        `plate_complete` del anulado (retrabajo 2): la placa PROPIA del ítem, o la que ese mismo
+//        trámite ya tenía; NUNCA la del vehículo (`placaConocida` cae a ella y le pegaba al anulado la
+//        placa del vigente del mismo VIN). Sin ninguna de las dos queda null. Los vigentes siguen RN-04.
+//        Sin backfill: un anulado que ya heredó la placa la conserva hasta su próxima versión en el feed.
 
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import type { Flit2LecturaResultado } from '@operaciones/shared-types';
+import { EstadoTramiteFlito, type Flit2LecturaResultado } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { auditLogs, flitoCompradores, flitoSyncFlit2Lectura, flitoTramites, vehicles } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
@@ -304,6 +317,8 @@ async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date, mo
   // El titular solo sale del principal (orden 0): sin él, los spreads conservan el que había (RN-14).
   const paraTitular = compradores[0]?.orden === 0 ? compradores : [];
 
+  // Antes del vehículo: RN-26 decide si el ítem puede modificarlo.
+  const mapeo = estadoDesdeFlit2(it.estado);
   let vehiculoId: number;
   let plateComplete: string | null;
   let vin: string | null;
@@ -311,8 +326,12 @@ async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date, mo
     vin = it.vehiculo.vin;
     const placa = await placaConocida(tx, it.vehiculo.vin, it.vehiculo.placa);
     const vf: VehiculoFlit = { ...it.vehiculo, placa, compradores: paraTitular };
-    vehiculoId = await upsertVehiculo(tx, vf, compania?.id ?? null);
-    plateComplete = placa ?? porId?.plateComplete ?? null;
+    // RN-26 (Bug #13585): un anulado/revocado no modifica el vehículo existente; solo lo da de alta.
+    vehiculoId = await upsertVehiculo(tx, vf, compania?.id ?? null, { soloAlta: mapeo.estado === EstadoTramiteFlito.ANULADO });
+    // RN-26: el anulado no hereda la placa del vehículo (es la del vigente del mismo VIN).
+    plateComplete = mapeo.estado === EstadoTramiteFlito.ANULADO
+      ? it.vehiculo.placa ?? porId?.plateComplete ?? null
+      : placa ?? porId?.plateComplete ?? null;
   } else {
     // Solo llega aquí un trámite existente (el nuevo sin vehículo salió arriba): conserva el suyo.
     vehiculoId = porId!.vehiculoId;
@@ -320,7 +339,6 @@ async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date, mo
     vin = null; // se lee solo si hace falta arrancar (RN-17)
   }
 
-  const mapeo = estadoDesdeFlit2(it.estado);
   const retrocede = ESTADOS_SIN_ESTADO_FLITO.has(it.estado) || mapeo.desconocido;
   const facturaAdjuntoId = acotado(it.facturaAdjuntoId, 120);
   if (it.facturaAdjuntoId && !facturaAdjuntoId) {
