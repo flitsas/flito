@@ -1,124 +1,152 @@
-// HU #12085 (Feature #12072) — Roles y permisos: el cuadro rol × función.
+// HU #12085 (Feature #12072) → HU #13430 (Feature #13416) — Roles y permisos: el árbol de tres niveles
+// de cada rol.
 //
-// Ficha UX (vinculante): `docs/ux/roles-y-permisos-panel.md`. Disposición A: lista de roles a la
-// izquierda, cuadro del rol seleccionado a la derecha con sus módulos plegados. Una sola primaria
-// («Guardar cambios») y solo cuando hay cambios; en reposo no hay ninguna (decisiones 3 y 4).
+// Fichas UX: `docs/ux/roles-y-permisos-panel.md` (lista de roles, modales, salida con cambios, sin
+// identificadores en la URL) + `docs/ux/hu-13430-panel-tres-niveles.md` y su delta
+// `docs/ux/hu-13430-delta-contrato-arbol.md`, que MANDA (contrato de la #13429).
 //
-// Diferencias con la ficha §7, que se escribió antes del contrato real del API (#12084):
-//   · No hay `GET /api/permisos/cuadro`. Al montar se piden `/funciones`, `/roles` y `/mios` en
-//     paralelo y después el cuadro de CADA rol (`/roles/:codigo/funciones`, también en paralelo),
-//     porque la lista de la izquierda tiene que enseñar cuántas funciones tiene cada uno (§3) y
-//     eso no viaja en `/roles`. Todo queda cacheado por código en estado.
-//   · El `PUT` no tiene 409 de «conflicto de versión» (§11-4): el último que guarda gana. Se declara
-//     como límite en la ficha de ayuda de la pantalla.
-//   · HU #12876: sin aviso de canal externo; el enlace del rol es la única frontera.
-//   · Tras guardar, el cuadro pinta EXACTAMENTE `funciones` de la respuesta del `PUT` (AC7), no lo
-//     que se envió ni nada recalculado en el cliente.
-//   · AC5 / RN-A4: tras guardar se vuelve a pedir `/mios` y se compara `version` con la del montaje
-//     para saber si el propio conjunto cambió; no se recalcula nada localmente.
+// Datos:
+//   · Al montar: `/roles`, `/mios` y el cuadro (`/roles/:codigo/funciones`) de CADA rol, porque la lista
+//     de la izquierda enseña cuántas funciones tiene cada uno; después el árbol del primer rol.
+//   · El árbol de un rol (`/roles/:codigo/arbol`) se pide al seleccionarlo y queda en caché. Su
+//     estructura es la misma para todos; sus marcas se suman al cuadro (la línea base es la unión, para
+//     que el `PUT` no tire ningún código que el cuadro traiga y el árbol no pinte).
+//   · Guardar: `PUT /roles/:codigo/funciones` con TODO lo marcado, inactivos incluidos, nunca
+//     `menu.ayuda`. La nueva base es lo que el servidor aplicó (AC7 de #12085).
 //
-// Salidas con cambios pendientes (decisión 10/09): `beforeunload` + `window.confirm` al cambiar de
-// rol o pulsar «Volver». Ni `useBlocker` ni router de datos; el menú lateral NO se intercepta (§11-3).
-// Ningún identificador de rol viaja en la URL: la selección vive en estado (decisión 13).
+// Salidas con cambios pendientes: `beforeunload` + `window.confirm` al cambiar de rol o pulsar
+// «Volver» (decisión 10/09). Ningún identificador de rol viaja en la URL (decisión 13).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import toast from 'react-hot-toast';
 import type { RolCatalogo } from '@operaciones/shared-types';
-import { ApiError, errorMessage, permisosApi, type GrupoDeFunciones } from '../lib/api';
+import { cuerpoAntiBloqueo, permisosApi } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
+import { toastOk } from '../components/flit/ToastFlito';
 import { FlitCard, FlitEmpty, flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
 import ListaRoles from './roles-permisos/ListaRoles';
-import CuadroRol from './roles-permisos/CuadroRol';
+import CuadroRol, { type PermisosPantalla } from './roles-permisos/CuadroRol';
 import RolFormModal from './roles-permisos/RolFormModal';
 import BorrarRolModal from './roles-permisos/BorrarRolModal';
-import { cambios as textoCambios, modulosVisibles, seccionesVisibles } from './roles-permisos/modulos';
-import { desmarcarPantalla } from './roles-permisos/dependencias';
+import { cambios as textoCambios } from './roles-permisos/modulos';
+import {
+  aviso409, funcionesParaGuardar, indexar, marcadosDelApi, normalizar, totalMarcables, type Aviso409, type Nodo,
+} from './roles-permisos/arbol';
+import type { FocoArbol } from './roles-permisos/ArbolPermisos';
 
-const COPY_ERROR_CARGA = 'No se pudo cargar el catálogo de roles y funciones.';
-const COPY_VACIO_ROLES = 'Todavía no hay roles. Crea el primero para poder repartir funciones.';
+export const COPY_ERROR_CARGA = 'No se pudo cargar el catálogo de roles y permisos. Revisa tu conexión y vuelve a intentarlo.';
+const COPY_ERROR_ARBOL = 'No se pudieron cargar los permisos de este rol. Revisa tu conexión y vuelve a intentarlo.';
+const COPY_VACIO_ROLES = 'Todavía no hay roles. Crea el primero para poder repartir permisos.';
+const COPY_VACIO_ROLES_SIN_CREAR = 'Todavía no hay roles. Pide a quien administre FLITO que cree el primero.';
 const COPY_VACIO_FUNCIONES = 'El catálogo de funciones llegó vacío. No hay nada que marcar. Vuelve a cargar; si sigue vacío es un fallo del despliegue y hay que reportarlo.';
-const COPY_GUARDADO = 'Permisos guardados. El cambio ya está aplicado: se aplica en la siguiente acción de cada usuario. No hay que reiniciar nada.';
-const COPY_ERROR_GUARDADO = 'No se pudieron guardar los permisos. Los cambios siguen aquí; vuelve a intentarlo.';
-const COPY_ANTI_BLOQUEO = 'No se puede guardar: FLITO se quedaría sin nadie que pueda administrar roles y permisos. Deja marcada «Administrar roles y permisos» en al menos un rol que tenga usuarios activos.';
+export const COPY_ERROR_GUARDADO = 'No se pudieron guardar los permisos. Tus cambios siguen aquí; vuelve a intentarlo con «Guardar cambios».';
 const COPY_PROPIO_CAMBIO = 'Este guardado cambió tu propio conjunto de funciones. Ya está aplicado en esta sesión, sin volver a entrar.';
+export const copyGuardado = (rol: string) => `Permisos de ${rol} guardados: cada usuario los verá en su siguiente acción.`;
 
 type Modal = { tipo: 'crear' } | { tipo: 'editar'; rol: RolCatalogo } | { tipo: 'borrar'; rol: RolCatalogo } | null;
+interface ArbolRol { arbol: Nodo[]; transversales: Nodo[]; marcados: string[] }
 
 const porNombre = (a: RolCatalogo, b: RolCatalogo) => a.nombre.localeCompare(b.nombre, 'es');
 
+async function pedirArbol(codigo: string): Promise<ArbolRol> {
+  const r = await permisosApi.arbolDelRol(codigo);
+  return {
+    arbol: normalizar(r.arbol), transversales: normalizar(r.transversales),
+    marcados: [...marcadosDelApi(r.arbol), ...marcadosDelApi(r.transversales)],
+  };
+}
+
+const union = (a: readonly string[] | undefined, b: readonly string[]) => [...new Set([...(a ?? []), ...b])];
+
 export default function RolesPermisos() {
   const navigate = useNavigate();
-  const { refrescarFunciones } = useAuth();
+  const { refrescarFunciones, hasFuncion } = useAuth();
   const tituloRef = useRef<HTMLHeadingElement>(null);
   const [carga, setCarga] = useState<'cargando' | 'error' | 'ok'>('cargando');
-  const [errorCarga, setErrorCarga] = useState('');
-  const [grupos, setGrupos] = useState<GrupoDeFunciones[]>([]);
   const [roles, setRoles] = useState<RolCatalogo[]>([]);
   const [cuadros, setCuadros] = useState<Record<string, string[]>>({});
+  const [arboles, setArboles] = useState<Record<string, ArbolRol>>({});
+  const [cargaArbol, setCargaArbol] = useState<'cargando' | 'error' | 'ok'>('ok');
   const [versionMia, setVersionMia] = useState<number | null>(null);
   const [seleccionado, setSeleccionado] = useState<string | null>(null);
+  const seleccionadoRef = useRef<string | null>(null);
   const [borrador, setBorrador] = useState<Set<string>>(() => new Set());
   const [guardando, setGuardando] = useState(false);
-  const [errorGuardado, setErrorGuardado] = useState<string | null>(null);
+  const [errorGuardado, setErrorGuardado] = useState<Aviso409 | null>(null);
   const [avisoPropio, setAvisoPropio] = useState<string | null>(null);
   const [modal, setModal] = useState<Modal>(null);
+  const [guardados, setGuardados] = useState<Set<string>>(() => new Set());
+  const [foco, setFoco] = useState<FocoArbol | null>(null);
+  const [guardadoToken, setGuardadoToken] = useState(0);
+
+  const permisos: PermisosPantalla = {
+    guardar: hasFuncion('permisos.cuadro.guardar'),
+    editar: hasFuncion('permisos.rol.editar'),
+    borrar: hasFuncion('permisos.rol.borrar'),
+  };
+  const puedeCrear = hasFuncion('permisos.rol.crear');
+
+  const elegir = (codigo: string | null, marcas: readonly string[]) => {
+    seleccionadoRef.current = codigo;
+    setSeleccionado(codigo);
+    setBorrador(new Set(marcas));
+    setErrorGuardado(null);
+    setFoco(null);
+  };
 
   const cargar = useCallback(async () => {
     setCarga('cargando');
-    setErrorCarga('');
     try {
-      const [f, r, m] = await Promise.all([
-        permisosApi.funciones(),
-        permisosApi.roles(),
-        permisosApi.mios().catch(() => null),
-      ]);
+      const [r, m] = await Promise.all([permisosApi.roles(), permisosApi.mios().catch(() => null)]);
       const ordenados = [...r.roles].sort(porNombre);
-      const pares = await Promise.all(ordenados.map(async (rol) => {
-        const cuadro = await permisosApi.cuadroDelRol(rol.codigo);
-        return [rol.codigo, cuadro.funciones] as const;
-      }));
-      const mapa = Object.fromEntries(pares);
-      setGrupos(f.grupos);
+      const pares = await Promise.all(ordenados.map(async (rol) => [rol.codigo, (await permisosApi.cuadroDelRol(rol.codigo)).funciones] as const));
+      const mapa: Record<string, string[]> = Object.fromEntries(pares);
+      const primero = ordenados[0]?.codigo ?? null;
+      const arbolPrimero = primero ? await pedirArbol(primero) : null;
+      if (primero && arbolPrimero) mapa[primero] = union(mapa[primero], arbolPrimero.marcados);
       setRoles(ordenados);
       setCuadros(mapa);
+      setArboles(primero && arbolPrimero ? { [primero]: arbolPrimero } : {});
+      setCargaArbol('ok');
       setVersionMia(m?.version ?? null);
-      const primero = ordenados[0]?.codigo ?? null;
-      setSeleccionado(primero);
-      setBorrador(new Set(primero ? mapa[primero] : []));
-      setErrorGuardado(null);
+      elegir(primero, primero ? mapa[primero] : []);
       setCarga('ok');
-    } catch (e) {
-      setErrorCarga(errorMessage(e));
+    } catch {
       setCarga('error');
     }
   }, []);
 
   useEffect(() => { void cargar(); }, [cargar]);
 
-  const gruposVisibles = useMemo(() => modulosVisibles(grupos), [grupos]);
-  const total = useMemo(() => gruposVisibles.reduce((n, g) => n + g.funciones.length, 0), [gruposVisibles]);
-  // HU #12717: el grupo (tal como se PINTA, tras `seccionesVisibles`) de cada código, para que
-  // desmarcar una pantalla desmarque las acciones del mismo acordeón que el administrador ve.
-  const grupoPorCodigo = useMemo(
-    () => new Map(seccionesVisibles(gruposVisibles).flatMap((s) => s.grupos.flatMap((g) => g.funciones.map((f) => [f.codigo, g] as const)))),
-    [gruposVisibles],
-  );
-  const cuentaPorRol = useMemo(
-    () => Object.fromEntries(roles.map((r) => [r.codigo, cuadros[r.codigo]?.length])),
-    [roles, cuadros],
-  );
+  const cargarArbol = useCallback(async (codigo: string) => {
+    setCargaArbol('cargando');
+    try {
+      const a = await pedirArbol(codigo);
+      setArboles((prev) => ({ ...prev, [codigo]: a }));
+      setCuadros((prev) => ({ ...prev, [codigo]: union(prev[codigo], a.marcados) }));
+      if (seleccionadoRef.current === codigo) setBorrador((prev) => new Set([...prev, ...a.marcados]));
+      setCargaArbol('ok');
+    } catch {
+      if (seleccionadoRef.current === codigo) setCargaArbol('error');
+    }
+  }, []);
+
   const rol = roles.find((r) => r.codigo === seleccionado) ?? null;
+  const actual = seleccionado ? arboles[seleccionado] : undefined;
+  // La estructura es la misma para todos los roles: la de cualquier árbol ya cargado sirve para contar.
+  const estructura = actual ?? Object.values(arboles)[0];
+  const indice = useMemo(() => indexar(actual?.arbol ?? [], actual?.transversales ?? []), [actual]);
+  const total = useMemo(() => (estructura ? totalMarcables(estructura.arbol, estructura.transversales) : 0), [estructura]);
+  const cuentaPorRol = useMemo(() => Object.fromEntries(roles.map((r) => [r.codigo, cuadros[r.codigo]?.length])), [roles, cuadros]);
   const base = useMemo(() => new Set(seleccionado ? cuadros[seleccionado] ?? [] : []), [cuadros, seleccionado]);
   const nCambios = useMemo(
     () => [...borrador].filter((c) => !base.has(c)).length + [...base].filter((c) => !borrador.has(c)).length,
     [borrador, base],
   );
-  const hayCambios = nCambios > 0;
+  const hayCambios = permisos.guardar && nCambios > 0;
 
-  // `beforeunload` mientras haya cambios: el texto lo pone el navegador (§11-3).
   useEffect(() => {
     if (!hayCambios) return undefined;
     const avisar = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
@@ -130,30 +158,22 @@ export default function RolesPermisos() {
     !hayCambios || window.confirm(`Tienes ${textoCambios(nCambios)} sin guardar en el rol ${rol?.nombre ?? ''}. ¿Salir y perderlos?`);
 
   const seleccionar = (codigo: string) => {
-    if (codigo === seleccionado) return;
-    if (!confirmarSalida()) return;
-    setSeleccionado(codigo);
-    setBorrador(new Set(cuadros[codigo] ?? []));
-    setErrorGuardado(null);
+    if (codigo === seleccionado || !confirmarSalida()) return;
+    elegir(codigo, cuadros[codigo] ?? []);
+    if (arboles[codigo]) setCargaArbol('ok'); else void cargarArbol(codigo);
   };
 
-  // HU #12717 (ficha §14, regla 4): desmarcar la última pantalla marcada de un módulo desmarca sus
-  // acciones en el mismo gesto. Marcar no arrastra nada: las acciones solo se HABILITAN (regla 2).
-  const alternar = (codigo: string, marcado: boolean) => setBorrador((prev) => {
-    const grupo = grupoPorCodigo.get(codigo);
-    if (!marcado && grupo && grupo.funciones.some((f) => f.codigo === codigo && f.tipo === 'pagina')) {
-      return desmarcarPantalla(grupo, prev, codigo);
-    }
+  const alternar = useCallback((codigo: string) => setBorrador((prev) => {
     const s = new Set(prev);
-    if (marcado) s.add(codigo); else s.delete(codigo);
+    if (s.has(codigo)) s.delete(codigo); else s.add(codigo);
     return s;
-  });
+  }), []);
 
-  const marcarConjunto = (codigos: string[], marcar: boolean) => setBorrador((prev) => {
+  const marcarConjunto = useCallback((codigos: string[], marcar: boolean) => setBorrador((prev) => {
     const s = new Set(prev);
     for (const c of codigos) { if (marcar) s.add(c); else s.delete(c); }
     return s;
-  });
+  }), []);
 
   const descartar = () => {
     if (!window.confirm(`Vas a perder ${textoCambios(nCambios)} sin guardar en el rol ${rol?.nombre ?? ''}. ¿Descartarlos?`)) return;
@@ -162,25 +182,25 @@ export default function RolesPermisos() {
   };
 
   const guardar = async () => {
-    if (!seleccionado) return;
+    if (!seleccionado || !rol) return;
     setGuardando(true);
     setErrorGuardado(null);
     try {
-      const respuesta = await permisosApi.guardarCuadro(seleccionado, [...borrador].sort());
-      // AC7: la nueva línea base es lo que el servidor APLICÓ, no lo que se envió.
+      const respuesta = await permisosApi.guardarCuadro(seleccionado, funcionesParaGuardar(borrador, indice));
       setCuadros((prev) => ({ ...prev, [seleccionado]: respuesta.funciones }));
       setBorrador(new Set(respuesta.funciones));
-      toast.success(COPY_GUARDADO, { duration: 6000 });
+      setGuardados((prev) => new Set(prev).add(seleccionado));
+      setGuardadoToken((n) => n + 1);
+      toastOk(copyGuardado(rol.nombre), { duracionMs: 6000 });
       try {
         const mios = await permisosApi.mios();
         if (versionMia !== null && mios.version !== versionMia) setAvisoPropio(COPY_PROPIO_CAMBIO);
         setVersionMia(mios.version);
-        // HU #12170: la sesión obedece el mismo `/mios` que pinta botones.
         await refrescarFunciones();
       } catch { /* sin `/mios` no hay comparación que hacer; el guardado ya está aplicado */ }
     } catch (e) {
-      const anti = e instanceof ApiError && e.status === 409;
-      setErrorGuardado(anti ? `${COPY_ANTI_BLOQUEO} ${e.message}` : `${COPY_ERROR_GUARDADO} ${errorMessage(e)}`);
+      const cuerpo = cuerpoAntiBloqueo(e);
+      setErrorGuardado(cuerpo ? aviso409(cuerpo, indice, 'rol') : { texto: COPY_ERROR_GUARDADO, nodo: null });
     } finally {
       setGuardando(false);
     }
@@ -192,11 +212,7 @@ export default function RolesPermisos() {
     setRoles((prev) => [...prev, nuevo].sort(porNombre));
     setCuadros((prev) => ({ ...prev, [nuevo.codigo]: [] }));
     setModal(null);
-    if (confirmarSalida()) {
-      setSeleccionado(nuevo.codigo);
-      setBorrador(new Set());
-      setErrorGuardado(null);
-    }
+    if (confirmarSalida()) { elegir(nuevo.codigo, []); void cargarArbol(nuevo.codigo); }
   };
 
   const alEditar = (editado: RolCatalogo) => {
@@ -211,14 +227,13 @@ export default function RolesPermisos() {
     setModal(null);
     if (seleccionado === codigo) {
       const primero = restantes[0]?.codigo ?? null;
-      setSeleccionado(primero);
-      setBorrador(new Set(primero ? cuadros[primero] ?? [] : []));
-      setErrorGuardado(null);
+      elegir(primero, primero ? cuadros[primero] ?? [] : []);
+      if (primero && !arboles[primero]) void cargarArbol(primero);
     }
   };
 
   const sinRoles = carga === 'ok' && roles.length === 0;
-  const sinFunciones = carga === 'ok' && gruposVisibles.length === 0;
+  const sinFunciones = carga === 'ok' && !!estructura && estructura.arbol.length === 0 && estructura.transversales.length === 0;
 
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
@@ -229,28 +244,24 @@ export default function RolesPermisos() {
         actions={(
           <>
             <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={volver}>Volver</button>
-            {carga === 'ok' && !sinRoles && !sinFunciones && (
+            {carga === 'ok' && !sinRoles && !sinFunciones && puedeCrear && (
               <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setModal({ tipo: 'crear' })}>Nuevo rol</button>
             )}
           </>
         )}
       />
 
-      {/* Única región viva de la pantalla (ficha §9): anuncia el cuadro nuevo al cambiar de rol. */}
+      {/* Única región viva de la pantalla: anuncia el rol al cambiarlo. */}
       <p className="sr-only" role="status">
-        {carga === 'ok' && rol ? `Cuadro del rol ${rol.nombre}. ${base.size} de ${total} funciones marcadas.` : ''}
+        {carga === 'ok' && rol && cargaArbol === 'ok' ? `Permisos del rol ${rol.nombre}. ${base.size} de ${total} marcados.` : ''}
       </p>
-      {avisoPropio && (
-        <p role="status" className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{avisoPropio}</p>
-      )}
+      {avisoPropio && <p role="status" className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{avisoPropio}</p>}
 
       {carga === 'cargando' && <Esqueleto />}
 
       {carga === 'error' && (
         <FlitCard className="mx-auto w-full max-w-xl text-center">
-          <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
-            {COPY_ERROR_CARGA} {errorCarga}
-          </p>
+          <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{COPY_ERROR_CARGA}</p>
           <button type="button" className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle} onClick={() => void cargar()}>Reintentar</button>
         </FlitCard>
       )}
@@ -262,33 +273,51 @@ export default function RolesPermisos() {
         </FlitEmpty>
       )}
 
-      {!sinFunciones && sinRoles && (
+      {sinRoles && (
         <FlitEmpty>
-          <p>{COPY_VACIO_ROLES}</p>
-          <div className="mt-4 flex justify-center">
-            <GradientButton type="button" onClick={() => setModal({ tipo: 'crear' })}>Nuevo rol</GradientButton>
-          </div>
+          <p>{puedeCrear ? COPY_VACIO_ROLES : COPY_VACIO_ROLES_SIN_CREAR}</p>
+          {puedeCrear && (
+            <div className="mt-4 flex justify-center">
+              <GradientButton type="button" onClick={() => setModal({ tipo: 'crear' })}>Nuevo rol</GradientButton>
+            </div>
+          )}
         </FlitEmpty>
       )}
 
       {carga === 'ok' && !sinFunciones && !sinRoles && rol && (
         <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[280px_minmax(0,1fr)] lg:items-start lg:gap-6">
           <ListaRoles roles={roles} cuentaPorRol={cuentaPorRol} total={total} seleccionado={seleccionado} onSeleccionar={seleccionar} />
-          <CuadroRol
-            key={rol.codigo}
-            rol={rol}
-            grupos={gruposVisibles}
-            base={base}
-            borrador={borrador}
-            guardando={guardando}
-            errorGuardado={errorGuardado}
-            onToggle={alternar}
-            onMarcarConjunto={marcarConjunto}
-            onGuardar={() => void guardar()}
-            onDescartar={descartar}
-            onEditar={() => setModal({ tipo: 'editar', rol })}
-            onBorrar={() => setModal({ tipo: 'borrar', rol })}
-          />
+          {cargaArbol === 'cargando' && <EsqueletoArbol />}
+          {cargaArbol === 'error' && (
+            <FlitCard className="text-center">
+              <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{COPY_ERROR_ARBOL}</p>
+              <button type="button" className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle} onClick={() => void cargarArbol(rol.codigo)}>Reintentar</button>
+            </FlitCard>
+          )}
+          {cargaArbol === 'ok' && actual && (
+            <CuadroRol
+              key={rol.codigo}
+              rol={rol}
+              arbol={actual.arbol}
+              transversales={actual.transversales}
+              indice={indice}
+              base={base}
+              borrador={borrador}
+              guardando={guardando}
+              errorGuardado={errorGuardado}
+              permisos={permisos}
+              usarEfectivoServidor={nCambios === 0 && !guardados.has(rol.codigo)}
+              foco={foco}
+              guardadoToken={guardadoToken}
+              onToggle={alternar}
+              onConjunto={marcarConjunto}
+              onMostrarDonde={(codigo) => setFoco({ codigo, token: Date.now() })}
+              onGuardar={() => void guardar()}
+              onDescartar={descartar}
+              onEditar={() => setModal({ tipo: 'editar', rol })}
+              onBorrar={() => setModal({ tipo: 'borrar', rol })}
+            />
+          )}
         </div>
       )}
 
@@ -299,32 +328,43 @@ export default function RolesPermisos() {
   );
 }
 
-/** Esqueleto de DOS columnas, propio: el genérico es de una y el contenido saltaría al llegar (decisión 14). */
+const BARRA_ESQ = 'animate-pulse rounded-[10px]';
+const TONO_ESQ = { background: 'var(--flit-bg-app)' } as const;
+
+/** Tarjeta del rol + tarjeta del árbol con 9 filas (8 elementos visibles + transversales; delta «Estados»). */
+function EsqueletoArbol() {
+  return (
+    <div role="status" aria-busy="true" aria-label="Cargando los permisos del rol">
+      <EsqueletoArbolVisual />
+    </div>
+  );
+}
+
+/** Esqueleto de DOS columnas, propio: el genérico es de una y el contenido saltaría al llegar. */
 function Esqueleto() {
-  const barra = 'animate-pulse rounded-[10px]';
-  const tono = { background: 'var(--flit-bg-app)' } as const;
   return (
     <div role="status" aria-busy="true" aria-label="Cargando roles y permisos" className="flex flex-col gap-4 lg:grid lg:grid-cols-[280px_minmax(0,1fr)] lg:gap-6">
       <FlitCard>
         <div className="flex flex-col gap-2">
-          {Array.from({ length: 6 }, (_, i) => <div key={i} className={`${barra} h-8`} style={tono} />)}
+          {Array.from({ length: 6 }, (_, i) => <div key={i} className={`${BARRA_ESQ} h-8`} style={TONO_ESQ} />)}
         </div>
       </FlitCard>
-      <div className="flex flex-col gap-4">
-        <FlitCard><div className={`${barra} h-24`} style={tono} /></FlitCard>
-        {/* HU #12533 (ficha §13.5): tres secciones —rótulo corto sin tarjeta + 2 barras— para que la
-            estructura no salte al llegar los datos. El rótulo va sobre el fondo de la app, así que
-            su tono es el del borde y no el del fondo. */}
-        <div className="flex flex-col gap-8">
-          {Array.from({ length: 3 }, (_, i) => (
-            <div key={i} className="flex flex-col gap-4">
-              <div className={`${barra} h-3 w-[35%]`} style={{ background: 'var(--flit-border-soft)' }} />
-              <FlitCard><div className={`${barra} h-6`} style={tono} /></FlitCard>
-              <FlitCard><div className={`${barra} h-6`} style={tono} /></FlitCard>
-            </div>
-          ))}
-        </div>
-      </div>
+      <div aria-hidden="true"><EsqueletoArbolVisual /></div>
+    </div>
+  );
+}
+
+function EsqueletoArbolVisual() {
+  return (
+    <div className="flex flex-col gap-4">
+      <FlitCard><div className={`${BARRA_ESQ} h-24`} style={TONO_ESQ} /></FlitCard>
+      <FlitCard>
+        {Array.from({ length: 9 }, (_, i) => (
+          <div key={i} className={i > 0 ? 'border-t py-3' : 'pb-3'} style={{ borderColor: 'var(--flit-border-soft)' }}>
+            <div className={`${BARRA_ESQ} h-6`} style={TONO_ESQ} />
+          </div>
+        ))}
+      </FlitCard>
     </div>
   );
 }

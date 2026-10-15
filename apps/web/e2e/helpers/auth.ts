@@ -311,6 +311,8 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     'liquidacion.liquidacion.liquidar', 'liquidacion.liquidacion.reversar',
     'liquidacion.liquidacion.facturar',
     'usuarios.usuario.listar',
+    // HU #13430 (AC6): los botones de Roles y permisos van por su operación (admin las tiene por `accion.roles_permisos.*`).
+    'permisos.rol.listar', 'permisos.cuadro.ver', 'permisos.cuadro.guardar', 'permisos.rol.crear', 'permisos.rol.editar', 'permisos.rol.borrar',
     ...SERVICIOS_ADICIONALES,
     SERVICIOS_DE_TRAMITE_VER, ...SERVICIOS_DE_TRAMITE_ESCRIBIR,
     ...COMPROBANTES,

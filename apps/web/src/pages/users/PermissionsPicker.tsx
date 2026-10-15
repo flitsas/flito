@@ -1,233 +1,179 @@
-// FLITO — selector de excepciones por usuario sobre el cuadro del rol (HU #12087 / Feature #12072).
-// Cinco estados por casilla (§4-2 del diseño). Catálogo desde el padre; cuadro del rol con caché aquí.
+// FLITO — «Permisos de este usuario»: excepciones por usuario sobre el árbol del rol (HU #12087 →
+// HU #13430, Feature #13416, AC4).
 //
-// **Esto NO es kit.** Un único consumidor: los formularios de alta/edición de usuario.
+// Mismo árbol que Roles y permisos, en modo usuario: la casilla muestra lo que el usuario TENDRÁ
+// (`(rol ∪ añadidos) \ quitados`) y la etiqueta dice de dónde sale (Del rol / Añadido / Quitado /
+// Añadido · sin efecto). P-25: la cadena del rol manda, así que un «Añadido» bajo un ancestro que el
+// usuario no tiene es «sin efecto» y nombra el ancestro que le falta (delta §5).
+//
+// Datos: con el rol que el usuario ya tiene, `GET /users/:id/arbol` (guarda del módulo `usuarios`;
+// `heredado` = lo marca su rol). Al crear o al cambiar el rol en el formulario, `GET
+// /permisos/roles/:codigo/arbol` del rol elegido. Las excepciones viven en el formulario (`excepciones`)
+// y viajan en el `PATCH /users/:id` como hasta ahora.
+//
+// **Esto NO es kit.** Consumidores: los formularios de alta y de edición de usuario.
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { EfectoPermisoUsuario, FuncionDeUsuario } from '@operaciones/shared-types';
-import { errorMessage, permisosApi, type GrupoDeFunciones } from '../../lib/api';
-import FlitAcordeon from '../../components/flit/FlitAcordeon';
-import { etiquetaModulo, modulosVisibles } from '../roles-permisos/modulos';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import type { FuncionDeUsuario } from '@operaciones/shared-types';
+import { permisosApi, type GrupoDeFunciones } from '../../lib/api';
+import { flitBtnSecondarySm, flitBtnSecondaryStyle } from '../../components/flit/flitPageKit';
+import ArbolPermisos, { type FocoArbol } from '../roles-permisos/ArbolPermisos';
+import {
+  alternarExcepcion, indexar, marcadosDelApi, marcadosDelUsuario, normalizar, resumenExcepciones, resumenUsuario,
+  type Efecto, type Indice, type Nodo,
+} from '../roles-permisos/arbol';
+
+/** Catálogo plano de funciones (una vez por página): ya no pinta el bloque; lo usa `CambioRolExcepciones` para los nombres. */
 export type CatalogoFuncionesEstado = {
   grupos: GrupoDeFunciones[] | null;
   error: string | null;
   recargar: () => void;
 };
 
-type EstadoCasilla = 'rol' | 'quitado' | 'anadido' | 'no' | 'sin_efecto';
+export const COPY_ERROR_PERMISOS =
+  'No se pudieron cargar los permisos del rol. Puedes guardar los demás datos del usuario; sus permisos quedarán como estaban.';
+const vacioDelRol = (rol: string) => `El rol ${rol} no trae nada marcado. Marca aquí lo que este usuario deba tener, o asígnale otro rol.`;
 
-const ETIQUETA: Record<EstadoCasilla, string> = {
-  rol: 'Lo trae el rol',
-  quitado: 'Quitado',
-  anadido: 'Añadido',
-  no: '',
-  sin_efecto: 'Sin efecto',
-};
+interface Datos { arbol: Nodo[]; transversales: Nodo[]; rol: Set<string>; rolNombre: string }
 
-const COPY_AYUDA =
-  'Las funciones marcadas como "Lo trae el rol" vienen con el rol. Desmárcalas para quitárselas solo a este usuario, o marca otras para añadírselas.';
-const COPY_ERROR = 'No se pudo cargar el catálogo de funciones o el cuadro del rol.';
-const COPY_CARGANDO = 'Cargando funciones del rol…';
-
-function estadoDe(enRol: boolean, efecto: EfectoPermisoUsuario | undefined): EstadoCasilla {
-  if (enRol && !efecto) return 'rol';
-  if (enRol && efecto === 'revocar') return 'quitado';
-  if (!enRol && efecto === 'conceder') return 'anadido';
-  if (!enRol && !efecto) return 'no';
-  return 'sin_efecto';
+/** Lo que el API marca como heredado del rol (modo usuario). */
+function heredados(nodos: readonly { codigo: string; heredado?: boolean; hijos?: readonly unknown[] }[]): string[] {
+  return nodos.flatMap((n) => [
+    ...(n.heredado ? [n.codigo] : []),
+    ...heredados((n.hijos ?? []) as readonly { codigo: string; heredado?: boolean; hijos?: readonly unknown[] }[]),
+  ]);
 }
 
-function marcadaDe(enRol: boolean, efecto: EfectoPermisoUsuario | undefined): boolean {
-  return enRol ? efecto !== 'revocar' : efecto === 'conceder';
-}
-
-/** Mapa codigo → efecto a partir del array de excepciones. */
-export function mapaExcepciones(lista: FuncionDeUsuario[]): Map<string, EfectoPermisoUsuario> {
-  return new Map(lista.map((f) => [f.codigo, f.efecto]));
+async function pedir(role: string, userId: number | undefined, rolOriginal: string | undefined): Promise<Datos> {
+  if (userId !== undefined && role === rolOriginal) {
+    const r = await permisosApi.arbolDelUsuario(userId);
+    return {
+      arbol: normalizar(r.arbol), transversales: normalizar(r.transversales),
+      rol: new Set([...heredados(r.arbol), ...heredados(r.transversales)]), rolNombre: '',
+    };
+  }
+  const r = await permisosApi.arbolDelRol(role);
+  return {
+    arbol: normalizar(r.arbol), transversales: normalizar(r.transversales),
+    rol: new Set([...marcadosDelApi(r.arbol), ...marcadosDelApi(r.transversales)]), rolNombre: r.rol.nombre,
+  };
 }
 
 export default function PermissionsPicker({
-  role, catalogo, excepciones, onChange, onDisponibleChange,
+  role, rolNombre, userId, rolOriginal, quien, excepciones, onChange, onDisponibleChange, foco, onIndice,
 }: {
-  /** Código del rol en `permisos_roles` (sistema o personalizado). */
+  /** Código del rol elegido en el formulario. */
   role: string;
-  catalogo: CatalogoFuncionesEstado;
+  /** Nombre visible del rol (del catálogo de roles del formulario); si falta, el del API o el código. */
+  rolNombre?: string;
+  /** Edición: el usuario y el rol que tiene guardado (para leer su árbol con la guarda de `usuarios`). */
+  userId?: number;
+  rolOriginal?: string;
+  /** Para los textos de lector de pantalla («· usuario …»). Nunca va a la URL ni a la consola. */
+  quien: string;
   excepciones: FuncionDeUsuario[];
   onChange: (next: FuncionDeUsuario[]) => void;
-  /** `false` si catálogo/cuadro fallaron: el form guarda sin tocar `funciones`. */
+  /** `false` si el árbol falló: el form guarda sin tocar `funciones`. */
   onDisponibleChange?: (ok: boolean) => void;
+  /** «Mostrar dónde está» del aviso 409 del modal. */
+  foco?: FocoArbol | null;
+  /** El índice del árbol cargado, para nombrar el nodo del 409. */
+  onIndice?: (indice: Indice) => void;
 }) {
-  const cache = useRef<Map<string, string[]>>(new Map());
-  const [cuadro, setCuadro] = useState<string[] | null>(null);
-  const [errorCuadro, setErrorCuadro] = useState<string | null>(null);
-  const [cargandoCuadro, setCargandoCuadro] = useState(false);
-  const [abiertos, setAbiertos] = useState<Set<string>>(() => new Set());
-  const exc = useMemo(() => mapaExcepciones(excepciones), [excepciones]);
+  const [datos, setDatos] = useState<Datos | null>(null);
+  const [estado, setEstado] = useState<'cargando' | 'error' | 'ok'>('cargando');
+  const [intento, setIntento] = useState(0);
+  const idTitulo = useId();
 
-  const cargarCuadro = useCallback(async (codigo: string) => {
-    const cached = cache.current.get(codigo);
-    if (cached) { setCuadro(cached); setErrorCuadro(null); return; }
-    setCargandoCuadro(true);
-    setErrorCuadro(null);
-    try {
-      const r = await permisosApi.cuadroDelRol(codigo);
-      cache.current.set(codigo, r.funciones);
-      setCuadro(r.funciones);
-    } catch (e) {
-      setCuadro(null);
-      setErrorCuadro(errorMessage(e));
-    } finally {
-      setCargandoCuadro(false);
-    }
-  }, []);
+  useEffect(() => {
+    let vivo = true;
+    setEstado('cargando');
+    pedir(role, userId, rolOriginal)
+      .then((d) => { if (vivo) { setDatos(d); setEstado('ok'); } })
+      .catch(() => { if (vivo) { setDatos(null); setEstado('error'); } });
+    return () => { vivo = false; };
+  }, [role, userId, rolOriginal, intento]);
 
-  useEffect(() => { void cargarCuadro(role); }, [role, cargarCuadro]);
+  useEffect(() => { onDisponibleChange?.(estado === 'ok'); }, [estado, onDisponibleChange]);
 
-  const error = catalogo.error ?? errorCuadro;
-  const cargando = !error && (catalogo.grupos === null || cargandoCuadro);
-  const listo = !cargando && !error && catalogo.grupos !== null && cuadro !== null;
+  const indice = useMemo(() => indexar(datos?.arbol ?? [], datos?.transversales ?? []), [datos]);
+  useEffect(() => { if (datos) onIndice?.(indice); }, [datos, indice, onIndice]);
 
-  useEffect(() => { onDisponibleChange?.(listo); }, [listo, onDisponibleChange]);
-
-  const enRolSet = useMemo(() => new Set(cuadro ?? []), [cuadro]);
-  const grupos = useMemo(
-    () => (catalogo.grupos ? modulosVisibles(catalogo.grupos) : []),
-    [catalogo.grupos],
+  const mapa = useMemo(() => new Map<string, Efecto>(excepciones.map((f) => [f.codigo, f.efecto])), [excepciones]);
+  const rolSet = datos?.rol;
+  const marcados = useMemo(() => marcadosDelUsuario(rolSet ?? new Set(), mapa), [rolSet, mapa]);
+  const modo = useMemo(
+    () => ({ tipo: 'usuario' as const, quien, rol: rolSet ?? new Set<string>(), excepciones: mapa }),
+    [quien, rolSet, mapa],
+  );
+  // Al abrir, se despliegan los ancestros de cada excepción (ficha full); el resto, plegado.
+  const abiertosIniciales = useMemo(
+    () => (datos ? excepciones.flatMap((e) => indice.ancestros.get(e.codigo) ?? []) : []),
+    // Solo al cargar el árbol: desplegar en cada clic movería lo que el administrador tiene delante.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [datos, indice],
   );
 
-  const reintentar = () => {
-    cache.current.delete(role);
-    catalogo.recargar();
-    void cargarCuadro(role);
-  };
+  const alternar = useCallback((codigo: string) => {
+    if (!rolSet) return;
+    const siguiente = alternarExcepcion(codigo, rolSet, mapa);
+    onChange([...siguiente].map(([c, efecto]) => ({ codigo: c, efecto })));
+  }, [rolSet, mapa, onChange]);
 
-  const aplicar = (codigo: string, efecto: EfectoPermisoUsuario | null) => {
-    const next = excepciones.filter((f) => f.codigo !== codigo);
-    if (efecto) next.push({ codigo, efecto });
-    onChange(next);
-  };
-
-  const toggle = (codigo: string) => {
-    const enRol = enRolSet.has(codigo);
-    const efecto = exc.get(codigo);
-    const marcada = marcadaDe(enRol, efecto);
-    const deseado = !marcada;
-    const siguiente: EfectoPermisoUsuario | null =
-      deseado === enRol ? null : (deseado ? 'conceder' : 'revocar');
-    aplicar(codigo, siguiente);
-  };
-
-  const quitarAdicionales = () => {
-    onChange(excepciones.filter((f) => f.efecto !== 'conceder'));
-  };
-
-  const hayConceder = excepciones.some((f) => f.efecto === 'conceder');
-
-  if (cargando) {
+  if (estado === 'cargando') {
     return (
-      <div className="rounded-xl p-3 text-xs" style={{ border: '1px solid var(--flit-border-soft)', color: 'var(--flit-text-muted)' }} role="status">
-        {COPY_CARGANDO}
+      <div role="status" aria-busy="true" aria-label="Cargando los permisos del rol" className="rounded-xl p-3" style={{ border: '1px solid var(--flit-border-soft)' }}>
+        {Array.from({ length: 6 }, (_, i) => (
+          <div key={i} className={i > 0 ? 'border-t py-2' : 'pb-2'} style={{ borderColor: 'var(--flit-border-soft)' }}>
+            <div className="h-6 animate-pulse rounded-[10px]" style={{ background: 'var(--flit-bg-app)' }} />
+          </div>
+        ))}
       </div>
     );
   }
 
-  if (error) {
+  if (estado === 'error' || !datos || !rolSet) {
     return (
-      <div className="space-y-2 rounded-xl p-3" style={{ border: '1px solid var(--flit-border-soft)' }} role="alert">
-        <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{COPY_ERROR}</p>
-        <p className="text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>{error}</p>
-        <button type="button" onClick={reintentar} className="text-xs font-semibold hover:underline" style={{ color: 'var(--flit-blue)' }}>
-          Reintentar
-        </button>
+      <div role="alert" className="flex flex-wrap items-start gap-3 rounded-xl p-3" style={{ border: '1px solid var(--flit-border-soft)' }}>
+        <p className="min-w-0 flex-[1_1_14rem] text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{COPY_ERROR_PERMISOS}</p>
+        <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => setIntento((n) => n + 1)}>Reintentar</button>
       </div>
     );
   }
+
+  const nombreRol = rolNombre || datos.rolNombre || role;
+  const todos = [...indice.porCodigo.keys()];
+  const resumen = resumenExcepciones(todos, rolSet, mapa, indice);
+  const hayExcepciones = excepciones.length > 0;
+  const vacio = rolSet.size === 0 && !hayExcepciones;
 
   return (
-    <div>
-      <div className="mb-1 flex items-center justify-between">
-        <span className="block text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Permisos individuales</span>
-        {hayConceder && (
-          <button type="button" onClick={quitarAdicionales} className="text-[10px] hover:underline" style={{ color: 'var(--flit-blue)' }}>
-            Quitar adicionales
+    <section aria-labelledby={idTitulo} className="flex flex-col gap-2">
+      <h3 id={idTitulo} className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Permisos de este usuario</h3>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <p className="min-w-0 flex-[1_1_14rem] text-sm" style={{ color: 'var(--flit-text-secondary)' }} data-resumen="excepciones">
+          {vacio ? vacioDelRol(nombreRol) : resumenUsuario(nombreRol, resumen)}
+        </p>
+        {hayExcepciones && (
+          <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => onChange([])}>
+            Quitar las excepciones
           </button>
         )}
       </div>
-      <div className="max-h-72 space-y-2 overflow-y-auto">
-        {grupos.map((g) => {
-          const etiqueta = etiquetaModulo(g.modulo);
-          const abierto = abiertos.has(g.modulo);
-          const marcadas = g.funciones.filter((f) => marcadaDe(enRolSet.has(f.codigo), exc.get(f.codigo))).length;
-          return (
-            <FlitAcordeon
-              key={g.modulo}
-              titulo={etiqueta}
-              cantidad={g.funciones.length}
-              descripcion={`${marcadas} de ${g.funciones.length} marcadas`}
-              abierto={abierto}
-              onToggle={() => setAbiertos((prev) => {
-                const n = new Set(prev);
-                if (n.has(g.modulo)) n.delete(g.modulo); else n.add(g.modulo);
-                return n;
-              })}
-            >
-              <fieldset className="flex flex-col gap-2 px-1 pb-1">
-                <legend className="sr-only">Funciones de {etiqueta}</legend>
-                {g.funciones.map((f) => (
-                  <Casilla
-                    key={f.codigo}
-                    codigo={f.codigo}
-                    nombre={f.nombreNegocio}
-                    enRol={enRolSet.has(f.codigo)}
-                    efecto={exc.get(f.codigo)}
-                    onToggle={() => toggle(f.codigo)}
-                  />
-                ))}
-              </fieldset>
-            </FlitAcordeon>
-          );
-        })}
+      <div className="border-t pt-2" style={{ borderColor: 'var(--flit-border-soft)' }}>
+        <ArbolPermisos
+          key={`${role}-${intento}`}
+          arbol={datos.arbol}
+          transversales={datos.transversales}
+          indice={indice}
+          marcados={marcados}
+          modo={modo}
+          editable
+          onToggle={alternar}
+          abiertosIniciales={abiertosIniciales}
+          foco={foco}
+        />
       </div>
-      <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>{COPY_AYUDA}</p>
-    </div>
-  );
-}
-
-function Casilla({ codigo, nombre, enRol, efecto, onToggle }: {
-  codigo: string;
-  nombre: string;
-  enRol: boolean;
-  efecto: EfectoPermisoUsuario | undefined;
-  onToggle: () => void;
-}) {
-  const id = useId();
-  const estado = estadoDe(enRol, efecto);
-  const marcada = marcadaDe(enRol, efecto);
-  const etiqueta = ETIQUETA[estado];
-  const tinta =
-    estado === 'rol' ? 'var(--flit-success)'
-      : estado === 'quitado' || estado === 'anadido' ? 'var(--flit-blue)'
-        : estado === 'sin_efecto' ? 'var(--flit-text-muted)'
-          : 'var(--flit-text-secondary)';
-
-  return (
-    <label htmlFor={id} className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-[color:var(--flit-bg-app)]" style={{ color: tinta }}>
-      <input
-        id={id}
-        type="checkbox"
-        className="flit-focus mt-0.5 h-4 w-4 shrink-0 rounded"
-        data-codigo={codigo}
-        checked={marcada}
-        onChange={onToggle}
-        style={{ accentColor: 'var(--flit-blue)' }}
-      />
-      <span className="flex-1 font-medium" style={{ color: 'var(--flit-text-primary)' }}>
-        {nombre}
-        <span className="sr-only"> · {etiqueta || 'sin marcar'}</span>
-      </span>
-      {etiqueta && (
-        <span className="shrink-0 text-[10px] font-semibold" style={{ color: tinta }}>{etiqueta}</span>
-      )}
-    </label>
+    </section>
   );
 }
