@@ -25,15 +25,17 @@ function espiarChunk(page: Page): string[] {
 test.describe('FLITO — Ayuda · acceso', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('AC1 — proveedor ve Ayuda FLITO en General y navega', async ({ page }) => {
+  // HU #13431: «Ayuda» es su propio elemento del menú, el último, y con un solo ítem se pinta como
+  // enlace directo (no hay disclosure «General» que abrir).
+  test('AC1 — proveedor ve Ayuda FLITO como último elemento del menú y navega', async ({ page }) => {
     await loginAs(page, PROVEEDOR_USER);
     await page.goto('/');
     await expect(page.getByRole('button', { name: /Buscar o ir a secci/ })).toBeVisible();
 
     const nav = page.getByRole('navigation', { name: 'Navegación principal' });
-    await nav.getByRole('button', { name: 'General', exact: true }).click();
-    const enlace = page.getByRole('link', { name: 'Ayuda FLITO', exact: true });
+    const enlace = nav.getByRole('link', { name: 'Ayuda', exact: true });
     await expect(enlace).toBeVisible();
+    await expect(nav.getByRole('link').last()).toHaveAccessibleName('Ayuda');
     await expect(enlace).toHaveAttribute('href', '/flito/ayuda');
     await enlace.click();
     await expect(page).toHaveURL(/\/flito\/ayuda$/);
@@ -46,15 +48,14 @@ test.describe('FLITO — Ayuda · acceso', () => {
     await expect(page.getByRole('button', { name: /Buscar o ir a secci/ })).toBeVisible();
     await page.keyboard.press('Control+k');
     await page.getByPlaceholder('Buscar o ir a…').fill('ayuda');
-    await expect(page.getByRole('option', { name: /Ayuda FLITO/ })).toBeVisible();
+    await expect(page.getByRole('option', { name: /^Ayuda/ })).toBeVisible();
   });
 
   test('AC1 — admin ve el ítem (Object.keys no es el gate; el helper sí)', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await page.goto('/');
     const nav = page.getByRole('navigation', { name: 'Navegación principal' });
-    await nav.getByRole('button', { name: 'General', exact: true }).click();
-    await expect(page.getByRole('link', { name: 'Ayuda FLITO', exact: true })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Ayuda', exact: true })).toBeVisible();
   });
 
   for (const usuario of SIN_CATALOGO) {
@@ -63,12 +64,11 @@ test.describe('FLITO — Ayuda · acceso', () => {
       const alChunk = espiarChunk(page);
       await page.goto('/');
       await expect(page.getByRole('navigation', { name: 'Navegación principal' })).toBeVisible();
-      await expect(page.getByRole('link', { name: 'Ayuda FLITO', exact: true })).toHaveCount(0);
-      await expect(page.getByRole('button', { name: 'General', exact: true })).toHaveCount(0);
+      await expect(page.getByRole('link', { name: 'Ayuda', exact: true })).toHaveCount(0);
 
       await page.keyboard.press('Control+k');
       await page.getByPlaceholder('Buscar o ir a…').fill('ayuda');
-      await expect(page.getByRole('option', { name: /Ayuda FLITO/ })).toHaveCount(0);
+      await expect(page.getByRole('option', { name: /^Ayuda/ })).toHaveCount(0);
       await page.keyboard.press('Escape');
 
       await page.goto('/flito/ayuda');
