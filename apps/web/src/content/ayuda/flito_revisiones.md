@@ -27,7 +27,7 @@ En el menú lateral, sección **Gestión**, ítem **Revisiones OCR**.
 
 ## Qué no hace
 
-- No sustituye la carga masiva: los archivos entran desde **SOAT**, **Impuestos** o **Derechos de tránsito**.
+- No sustituye la carga masiva: los archivos entran desde **SOAT**, **Impuestos** o **Derechos**.
 - No envía el SOAT al Proveedor ni el impuesto al gestor.
 - No **Factura** ni hace **emisión electrónica**.
 - El Auditor no confirma ni descarta.

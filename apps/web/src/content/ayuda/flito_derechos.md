@@ -8,7 +8,7 @@ Administrador (carga, procesa el Drive y consulta). Auditor (consulta). Financie
 
 ## Cómo se entra
 
-En el menú lateral, sección **Gestión**, ítem **Derechos de tránsito**.
+En el menú lateral, sección **Gestión**, ítem **Derechos**.
 
 ## Pasos
 
