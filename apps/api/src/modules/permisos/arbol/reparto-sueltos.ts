@@ -9,12 +9,22 @@
 import type { FilaRolEnSeco, FilaUsuarioEnSeco, UsuarioEnSeco } from '../reparto-en-seco.js';
 import { expandir, expandirComoEn13429, SUELTAS_INCORPORADAS_13588 } from './expansion.js';
 import type { FilasReparto } from './reparto-arbol.js';
+import { OPERACIONES_INCORPORADAS_13588 } from './acciones-legado.js';
 
 /** El ítem nuevo de Administración (`pagina.admin_rendimiento`) y su elemento. */
 export const ITEM_RENDIMIENTO = 'pagina.admin_rendimiento';
 const ELEMENTO_ADMINISTRACION = 'menu.administracion';
 const RUM = 'rum.resumen.ver';
 const SUELTAS: ReadonlySet<string> = new Set(SUELTAS_INCORPORADAS_13588);
+
+/**
+ * Paso 3c — Los pares operación → ítem antiguo que ahora la concede, ordenados. Es el `tmp_sueltas_13588` de la
+ * 0240: el test de la migración compara su VALUES con esta lista.
+ */
+export function paresSueltas13588(): [string, string][] {
+  return Object.entries(OPERACIONES_INCORPORADAS_13588).flatMap(([item, ops]) => ops.map((fn) => [fn, item] as [string, string]))
+    .sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]));
+}
 
 const porRol = (filas: FilaRolEnSeco[]) => {
   const m = new Map<string, Set<string>>();
@@ -32,7 +42,7 @@ export function repartirSueltos(usuarios: UsuarioEnSeco[], filas: FilasReparto):
     if (!cs.has(RUM)) continue;
     for (const fn of [ITEM_RENDIMIENTO, ELEMENTO_ADMINISTRACION]) if (!tiene(r, fn)) filasRol.push({ rol: r, codigo: fn });
   }
-  const filasUsuario = [...filas.filasUsuario];
+  const filasUsuario = filas.filasUsuario.map((f) => ({ ...f }));
   const rolDe = new Map(usuarios.map((u) => [u.id, u.rol]));
   const filaPropia = (id: number, c: string) => filasUsuario.some((f) => f.userId === id && f.codigo === c);
   for (const k of filas.filasUsuario.filter((f) => f.codigo === RUM)) {
@@ -46,6 +56,18 @@ export function repartirSueltos(usuarios: UsuarioEnSeco[], filas: FilasReparto):
     } else if (rol.get(r)?.has(RUM) && !filaPropia(k.userId, ITEM_RENDIMIENTO)) {
       // Paso 3b.
       filasUsuario.push({ userId: k.userId, codigo: ITEM_RENDIMIENTO, efecto: 'revocar' });
+    }
+  }
+  // Paso 3c (fallo cerrado): el `revocar` de una de las 4 de ítems antiguos pasa a `revocar` de cada ítem que ahora
+  // la concede y que el usuario tiene marcado por su rol o por un `conceder` propio (que se convierte).
+  const pares = paresSueltas13588();
+  for (const k of filas.filasUsuario.filter((f) => f.efecto === 'revocar')) {
+    const r = rolDe.get(k.userId);
+    if (r === undefined) continue;
+    for (const [, item] of pares.filter(([fn]) => fn === k.codigo)) {
+      const propia = filasUsuario.find((f) => f.userId === k.userId && f.codigo === item);
+      if (propia?.efecto === 'conceder') propia.efecto = 'revocar';
+      else if (!propia && tiene(r, item)) filasUsuario.push({ userId: k.userId, codigo: item, efecto: 'revocar' });
     }
   }
   // Paso 4: fuera las marcas de las 5.
@@ -69,8 +91,11 @@ export interface InformeSueltos {
   roles: ({ rol: string; usuarios: number } & CambioSueltos)[];
   usuarios: ({ userId: number; rol: string } & CambioSueltos)[];
   perdidas: number;
-  /** Ganancias que no son la pantalla «Rendimiento» de quien ya veía el resumen RUM. */
-  otrasGanancias: number;
+  /**
+   * Ganancias que NO son la pantalla «Rendimiento» de quien ya veía el resumen RUM: un rol con el ítem y sin la
+   * operación marcada la gana (antes no la tenía), y eso también exige aprobación.
+   */
+  noAprobadas: number;
 }
 
 /** El diff de la 0240 por rol (sus filas) y por usuario con excepciones (con las suyas). */
@@ -78,9 +103,13 @@ export function informeSueltos(usuarios: UsuarioEnSeco[], antes: FilasReparto): 
   const despues = repartirSueltos(usuarios, antes);
   const ra = porRol(antes.filasRol);
   const rd = porRol(despues.filasRol);
-  const diff = (a: Set<string>, m: Set<string>): CambioSueltos => ({
-    pierde: [...a].filter((c) => !m.has(c)).sort(), gana: [...m].filter((c) => !a.has(c)).sort(),
-  });
+  const diff = (a: Set<string>, m: Set<string>): CambioSueltos & { noAprobadas: number } => {
+    const gana = [...m].filter((c) => !a.has(c)).sort();
+    return {
+      pierde: [...a].filter((c) => !m.has(c)).sort(), gana,
+      noAprobadas: gana.filter((g) => !(g === ITEM_RENDIMIENTO && a.has(RUM))).length,
+    };
+  };
   const nombres = [...new Set([...ra.keys(), ...usuarios.map((u) => u.rol)])].sort();
   const roles = nombres.map((rol) => ({
     rol, usuarios: usuarios.filter((u) => u.rol === rol).length,
@@ -95,10 +124,26 @@ export function informeSueltos(usuarios: UsuarioEnSeco[], antes: FilasReparto): 
     ),
   })).filter((c) => c.pierde.length || c.gana.length);
   const todos = [...roles, ...cambios];
+  const sinCuenta = <T extends { noAprobadas: number }>({ noAprobadas: _n, ...resto }: T) => resto;
   return {
-    roles, usuarios: cambios,
+    roles: roles.map(sinCuenta), usuarios: cambios.map(sinCuenta),
     perdidas: todos.reduce((n, c) => n + c.pierde.length, 0),
-    otrasGanancias: todos.reduce((n, c) => n + c.gana.filter((g) => g !== ITEM_RENDIMIENTO).length, 0),
+    noAprobadas: todos.reduce((n, c) => n + c.noAprobadas, 0),
+  };
+}
+
+/** Código de salida del script: 0 = paridad (solo «Rendimiento» para quien veía el RUM); 3 = requiere aprobación. */
+export const EXIT_REQUIERE_APROBACION = 3;
+
+/** AC7 — Lo que decide el exit code de `permisos:en-seco --hu 13588` y el mensaje que lo acompaña. */
+export function veredictoSueltos(i: InformeSueltos): { exitCode: number; mensaje: string } {
+  if (i.perdidas === 0 && i.noAprobadas === 0) {
+    return { exitCode: 0, mensaje: 'PARIDAD: 0 pérdidas; solo «Rendimiento» para quien ya veía el resumen RUM. Se puede aplicar la 0240.' };
+  }
+  return {
+    exitCode: EXIT_REQUIERE_APROBACION,
+    mensaje: `DIFERENCIAS: ${i.perdidas} pérdidas y ${i.noAprobadas} ganancias sin aprobar. Hace falta la aprobación de David `
+      + 'antes de aplicar la 0240 en este ambiente (AC7): adjunta este reporte a la HU #13588.',
   };
 }
 
@@ -119,6 +164,6 @@ export function informeSueltosMarkdown(i: InformeSueltos, titulo: string): strin
     l.push('| user_id | Rol | Pierde | Gana |', '|---|---|---|---|');
     for (const c of i.usuarios) l.push(`| ${c.userId} | ${c.rol} | ${lista(c.pierde)} | ${lista(c.gana)} |`);
   }
-  l.push('', `## 3. Resumen: ${i.perdidas} pérdidas; ${i.otrasGanancias} ganancias distintas de la pantalla «Rendimiento»`, '');
+  l.push('', `## 3. Veredicto: ${veredictoSueltos(i).mensaje}`, '');
   return l.join('\n');
 }

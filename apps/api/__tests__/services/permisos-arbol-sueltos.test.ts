@@ -25,7 +25,7 @@ const { catalogoCompleto } = await import('../../src/modules/permisos/catalogo.j
 const {
   CODIGOS_ABSORBIDOS, SUELTAS_INCORPORADAS_13588, alternativasDe, claseDe, expandir,
 } = await import('../../src/modules/permisos/arbol/expansion.js');
-const { informeSueltos, repartirSueltos } = await import('../../src/modules/permisos/arbol/reparto-sueltos.js');
+const { EXIT_REQUIERE_APROBACION, informeSueltos, informeSueltosMarkdown, repartirSueltos, veredictoSueltos } = await import('../../src/modules/permisos/arbol/reparto-sueltos.js');
 const { arbolDef, arbolDeUsuario } = await import('../../src/modules/permisos/permisos-arbol.service.js');
 const { fijarFuenteDePermisos } = await import('../../src/shared/permisos-efectivos.js');
 
@@ -160,7 +160,7 @@ describe('AC6 — todo código concedible es nodo, opcional u operación de íte
     expect(cat.filter((f) => f.tipo === 'operacion' && !f.padre).map((f) => f.codigo)).toEqual([]);
     for (const f of cat.filter((x) => x.tipo === 'operacion')) expect(claseDe(f.codigo), f.codigo).toBe('opcional');
     for (const s of SUELTAS_INCORPORADAS_13588) expect(cat.some((f) => f.codigo === s), s).toBe(false);
-    expect(cat.find((f) => f.codigo === 'pagina.admin_rendimiento')).toMatchObject({ tipo: 'pagina', padre: 'menu.administracion', nivel: 2, orden: 40 });
+    expect(cat.find((f) => f.codigo === 'pagina.admin_rendimiento')).toMatchObject({ tipo: 'pagina', padre: 'menu.administracion', nivel: 2, orden: 60 }); // tras Privacidad (40) y Google Drive (50)
   });
 
   it('la estructura del panel de roles mantiene el campo `transversales`, vacío', () => {
@@ -176,37 +176,94 @@ describe('AC6 — todo código concedible es nodo, opcional u operación de íte
 });
 
 describe('AC7 — la 0240 en memoria y su reporte en seco: toda pérdida nombrada con su rol', () => {
-  const usuarios = [{ id: 1, rol: 'admin' }, { id: 2, rol: 'flota' }, { id: 3, rol: 'suelto' }, { id: 4, rol: 'admin' }, { id: 5, rol: 'admin' }];
+  const usuarios = [
+    { id: 1, rol: 'admin' }, { id: 2, rol: 'flota' }, { id: 3, rol: 'suelto' }, { id: 4, rol: 'admin' }, { id: 5, rol: 'admin' },
+    { id: 6, rol: 'tramitador' },
+  ];
   const antes = {
     filasRol: [
       ...['menu.gestion', 'pagina.vehicles', 'menu.administracion', RUM, VEH].map((codigo) => ({ rol: 'admin', codigo })),
       ...['menu.flota', 'pagina.fleet', VEH].map((codigo) => ({ rol: 'flota', codigo })),
       ...['menu.general', 'pagina.dashboard', VEH, 'runt.cedula.leer'].map((codigo) => ({ rol: 'suelto', codigo })),
+      // Un rol con Trámite Digital y SIN las operaciones marcadas: tras la 0240 las gana (ganancia sin aprobar).
+      ...['menu.gestion', 'pagina.tramite'].map((codigo) => ({ rol: 'tramitador', codigo })),
     ],
     filasUsuario: [
       { userId: 4, codigo: RUM, efecto: 'revocar' as const },
       { userId: 5, codigo: VEH, efecto: 'revocar' as const },
+      { userId: 6, codigo: 'runt.cedula.leer', efecto: 'revocar' as const },
     ],
   };
 
-  it('reparto: quien tenía RUM recibe el ítem; las 5 salen de rol y de usuario; el `revocar` RUM pasa al ítem', () => {
+  it('reparto: quien tenía RUM recibe el ítem; las 5 salen de rol y de usuario; cada `revocar` pasa a su ítem', () => {
     const d = repartirSueltos(usuarios, antes);
     expect(d.filasRol.filter((f) => f.rol === 'admin').map((f) => f.codigo).sort())
       .toEqual(['menu.administracion', 'menu.gestion', 'pagina.admin_rendimiento', 'pagina.vehicles']);
     expect(d.filasRol.some((f) => SUELTAS_INCORPORADAS_13588.includes(f.codigo))).toBe(false);
-    expect(d.filasUsuario).toEqual([{ userId: 4, codigo: 'pagina.admin_rendimiento', efecto: 'revocar' }]);
+    expect(d.filasUsuario).toEqual([
+      { userId: 4, codigo: 'pagina.admin_rendimiento', efecto: 'revocar' },
+      { userId: 5, codigo: 'pagina.vehicles', efecto: 'revocar' },
+      { userId: 6, codigo: 'pagina.tramite', efecto: 'revocar' },
+    ]);
   });
 
-  it('informe: el rol sin el ítem pierde (nombrado); Flota no pierde; admin gana solo la pantalla Rendimiento', () => {
+  it('(a) rol con Trámite Digital + `revocar` de `runt.cedula.leer` → sin el dato del RUNT ni la pantalla; el informe lo nombra', () => {
+    const d = repartirSueltos(usuarios, antes);
+    const propias = d.filasUsuario.filter((f) => f.userId === 6);
+    const m = new Set(['menu.gestion', 'pagina.tramite']);
+    for (const f of propias) if (f.efecto === 'revocar') m.delete(f.codigo);
+    const efectivo = expandir(m, propias.filter((f) => f.efecto === 'revocar').map((f) => f.codigo));
+    expect(efectivo.has('runt.cedula.leer')).toBe(false);
+    expect(efectivo.has('pagina.tramite')).toBe(false);
+    const u6 = informeSueltos(usuarios, antes).usuarios.find((u) => u.userId === 6)!;
+    expect(u6.rol).toBe('tramitador');
+    expect(u6.pierde).toContain('pagina.tramite');
+    expect(u6.pierde).toContain('tramite.tramite.crear');
+    expect(u6.gana).toEqual([]); // ni `runt.cedula.leer` ni las otras búsquedas
+  });
+
+  it('(a) un `conceder` propio del ítem se convierte en `revocar` (no gana el dato por la excepción)', () => {
+    const d = repartirSueltos([{ id: 7, rol: 'sin_items' }], {
+      filasRol: [{ rol: 'sin_items', codigo: 'menu.gestion' }],
+      filasUsuario: [{ userId: 7, codigo: 'pagina.tramite', efecto: 'conceder' }, { userId: 7, codigo: 'runt.persona.consultar', efecto: 'revocar' }],
+    });
+    expect(d.filasUsuario).toEqual([{ userId: 7, codigo: 'pagina.tramite', efecto: 'revocar' }]);
+  });
+
+  it('un `revocar` sin el ítem (ni por rol ni propio) no siembra nada: no había acceso que quitar', () => {
+    const d = repartirSueltos([{ id: 8, rol: 'suelto' }], {
+      filasRol: [{ rol: 'suelto', codigo: 'menu.general' }], filasUsuario: [{ userId: 8, codigo: 'runt.cedula.leer', efecto: 'revocar' }],
+    });
+    expect(d.filasUsuario).toEqual([]);
+  });
+
+  it('informe: pérdidas nombradas por rol y por usuario; las ganancias de un rol con el ítem salen listadas', () => {
     const i = informeSueltos(usuarios, antes);
     const rol = (r: string) => i.roles.find((x) => x.rol === r)!;
     expect(rol('suelto')).toMatchObject({ usuarios: 1, pierde: ['runt.cedula.leer', VEH], gana: [] });
     expect(rol('flota')).toMatchObject({ pierde: [], gana: [] });
     expect(rol('admin')).toMatchObject({ usuarios: 3, pierde: [], gana: ['pagina.admin_rendimiento'] });
-    // Usuario 4: tenía RUM revocado y lo sigue sin ver. Usuario 5: su revocación de la consulta se pierde → la gana.
-    expect(i.usuarios.map((u) => u.userId)).toEqual([5]); // el 4 no cambia: no sale
-    expect(i.usuarios.find((u) => u.userId === 5)).toMatchObject({ rol: 'admin', gana: ['pagina.admin_rendimiento', VEH] });
-    expect(i.perdidas).toBe(2);
-    expect(i.otrasGanancias).toBe(1);
+    expect(rol('tramitador')).toMatchObject({ pierde: [], gana: [...BUSQUEDAS, VEH].sort() });
+    // Usuario 4: tenía RUM revocado y lo sigue sin ver. Usuario 5: su `revocar` de la consulta le quita Vehículos.
+    expect(i.usuarios.map((u) => u.userId)).toEqual([5, 6]);
+    expect(i.usuarios.find((u) => u.userId === 5)).toMatchObject({
+      rol: 'admin', pierde: ['pagina.vehicles', 'vehicles.vehiculos.administrar'], gana: ['pagina.admin_rendimiento'],
+    });
+    expect(i.noAprobadas).toBe(4);
+    expect(i.perdidas).toBe(4 + i.usuarios.find((u) => u.userId === 6)!.pierde.length);
+  });
+
+  it('(c) el veredicto decide el exit code: ≠ 0 con pérdidas o ganancias sin aprobar, y pide la aprobación de David', () => {
+    const v = veredictoSueltos(informeSueltos(usuarios, antes));
+    expect(v.exitCode).toBe(EXIT_REQUIERE_APROBACION);
+    expect(v.exitCode).not.toBe(0);
+    expect(v.mensaje).toMatch(/aprobación de David antes de aplicar la 0240/);
+    expect(informeSueltosMarkdown(informeSueltos(usuarios, antes), 'x')).toMatch(/Veredicto: DIFERENCIAS/);
+  });
+
+  it('(c) solo «Rendimiento» para quien veía el RUM → exit 0; la misma pantalla para quien NO lo veía → ≠ 0', () => {
+    const solo = { filasRol: ['menu.administracion', 'pagina.users', RUM].map((codigo) => ({ rol: 'admin', codigo })), filasUsuario: [] };
+    expect(veredictoSueltos(informeSueltos([{ id: 1, rol: 'admin' }], solo)).exitCode).toBe(0);
+    expect(veredictoSueltos({ roles: [], usuarios: [], perdidas: 0, noAprobadas: 1 }).exitCode).toBe(EXIT_REQUIERE_APROBACION);
   });
 });
