@@ -15,6 +15,7 @@ import {
   type CertificacionCola, type ResultadoIntento, type ResultadoLote,
 } from '../components/flit/CertificacionRunt';
 import { useAuth } from '../lib/auth';
+import { conEnlace, vacioConEnlace } from '../lib/copyEnlace';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import StatusChip from '../components/flit/StatusChip';
 import AntiguedadPill from '../components/flit/AntiguedadPill';
@@ -28,10 +29,17 @@ import {
 import {
   AvisoSoportesZip, DescargarSoportesZip, ZIP_IMPUESTOS, useDescargaZip,
 } from '../components/flito/DescargarSoportesZip';
+import {
+  AvisoCertificadosZip, DescargarCertificadosZip, useDescargaCertificados,
+} from '../components/flito/DescargarCertificadosZip';
 import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
 import Paginacion from '../components/flit/Paginacion';
 import DetalleImpuesto from '../components/flito/DetalleImpuesto';
 import CargaRecibosImpuestos from '../components/flito/CargaRecibosImpuestos';
+import {
+  AccionesTramite, AvisoAnalisis, ModalValidacion, PRESET_CON_ALERTAS, ReintentarValidacion, SEMAFOROS_ALERTA, VACIO_CON_ALERTAS,
+  type EnvioAnalisis,
+} from '../components/flito/ValidacionRunt';
 import { ChipDocumentos, TONO_IMPUESTO as TONO, fecha, pesos, type ImpuestoItem } from '../components/flito/ImpuestoCola';
 import useDebounce from '../lib/useDebounce';
 import {
@@ -70,7 +78,7 @@ function aResultadoIntento(e: unknown): ResultadoIntento {
 }
 
 export default function FlitoImpuestos() {
-  const { hasFuncion } = useAuth();
+  const { hasFuncion, tipoEnlace } = useAuth();
   // HU #12170: modos por función efectiva, no por rol literal.
   const esOperaciones = hasFuncion('impuestos.tramite.enviar');
   const esGestor = hasFuncion('impuestos.recibos.cargar') && !esOperaciones;
@@ -86,6 +94,7 @@ export default function FlitoImpuestos() {
   const [error, setError] = useState<string | null>(null);
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
   const [detalleId, setDetalleId] = useState<string | null>(null);
+  const [validacionId, setValidacionId] = useState<string | null>(null); // HU #12831: modal del semáforo
   const [cargaRecibos, setCargaRecibos] = useState(false);
   const [recarga, setRecarga] = useState(0);
 
@@ -109,6 +118,9 @@ export default function FlitoImpuestos() {
   const [liquidadoPendiente, setLiquidadoPendiente] = useState(false);
   const [gestionSel, setGestionSel] = useState<'' | 'operaciones' | 'organismo'>('');
   const [preset, setPreset] = useState<string | null>(null);
+  // Preset «Con alertas» (HU #12830): filtro de servidor `semaforo=naranja,rojo`. No es PII.
+  const [soloAlertas, setSoloAlertas] = useState(false);
+  const [envioAnalisis, setEnvioAnalisis] = useState<EnvioAnalisis | null>(null);
   const [page, setPage] = useState(1);
 
   const compKey = companiasSel.join(','); const orgKey = organismosSel.join(',');
@@ -118,13 +130,13 @@ export default function FlitoImpuestos() {
   // «Limpiar filtros», que es la única salida de ese vacío.
   const hayFiltros = companiasSel.length > 0 || organismosSel.length > 0
     || !!solicitadoDesde || !!solicitadoHasta || !!pagadoDesde || !!pagadoHasta
-    || !!creadoDesde || !!creadoHasta || soloEstancado || liquidadoPendiente || !!gestionSel;
+    || !!creadoDesde || !!creadoHasta || soloEstancado || liquidadoPendiente || !!gestionSel || soloAlertas;
 
   const limpiarFiltros = () => {
     setCompaniasSel([]); setOrganismosSel([]);
     setSolicitadoDesde(''); setSolicitadoHasta(''); setPagadoDesde(''); setPagadoHasta('');
     setCreadoDesde(''); setCreadoHasta('');
-    setSoloEstancado(false); setLiquidadoPendiente(false); setGestionSel(''); setTexto(''); setPreset(null);
+    setSoloEstancado(false); setLiquidadoPendiente(false); setGestionSel(''); setTexto(''); setPreset(null); setSoloAlertas(false);
     setEstado(esGestor ? EstadoImpuesto.SOLICITADO : 'todos');
   };
 
@@ -136,7 +148,7 @@ export default function FlitoImpuestos() {
    * propia fila, que ya la marca. Filtrarla en servidor exigiría un campo que la cola no expone
    * como filtro, y prometer más precisión de la que hay es peor que no filtrar.
    */
-  const PRESETS: Array<Preset<{ estado: EstadoImpuesto | 'todos'; estancado: boolean }>> = [
+  const PRESETS: Array<Preset<FiltrosPreset>> = [
     ...(esGestor ? [] : [{
       nombre: 'Listos para enviar',
       descripcion: 'Pendientes; la fila marca si les falta la factura de venta.',
@@ -147,17 +159,19 @@ export default function FlitoImpuestos() {
       descripcion: 'Solicitados que superaron el ANS de su organismo.',
       filtros: { estado: EstadoImpuesto.SOLICITADO, estancado: true },
     },
+    { ...PRESET_CON_ALERTAS, filtros: { estado: esGestor ? EstadoImpuesto.SOLICITADO : 'todos', estancado: false, alertas: true } },
   ];
 
-  const aplicarPreset = (p: Preset<{ estado: EstadoImpuesto | 'todos'; estancado: boolean }>) => {
+  const aplicarPreset = (p: Preset<FiltrosPreset>) => {
     limpiarFiltros();
     setEstado(p.filtros.estado);
     setSoloEstancado(p.filtros.estancado);
+    setSoloAlertas(!!p.filtros.alertas);
     setPreset(p.nombre);
   };
 
   // Cualquier cambio de filtro vuelve a la página 1: si no, se queda en una página que ya no existe.
-  useEffect(() => { setPage(1); }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, liquidadoPendiente, gestionSel]);
+  useEffect(() => { setPage(1); }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, liquidadoPendiente, gestionSel, soloAlertas]);
 
   useEffect(() => {
     setError(null); setSeleccion(new Set());
@@ -175,10 +189,11 @@ export default function FlitoImpuestos() {
     if (soloEstancado) q.set('estancado', 'si');
     if (liquidadoPendiente) q.set('liquidadoPendientePago', 'true');
     if (gestionSel) q.set('gestion', gestionSel);
+    if (soloAlertas) q.set('semaforo', SEMAFOROS_ALERTA.join(','));
     q.set('page', String(page));
     api.get<ColaImpuestos>(`/flito/impuestos?${q}`).then(setData).catch((e) => setError(errorMessage(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, liquidadoPendiente, gestionSel, page, recarga]);
+  }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, liquidadoPendiente, gestionSel, soloAlertas, page, recarga]);
 
   useEffect(() => {
     api.get<FacetasImpuestos>('/flito/impuestos/facetas').then(setFacetas).catch(() => setFacetas(null));
@@ -213,6 +228,14 @@ export default function FlitoImpuestos() {
    * conversión se hace aquí, en el único sitio donde se sabe qué espera el otro lado. En la QUERY de
    * la cola no hace falta: allí todo es texto.
    */
+  // Bug #12642: la casilla del Excel ampliado. Estado de la PÁGINA y no del hook, porque es parte
+  // del cuerpo que se manda, igual que cualquier otro filtro. La función es aparte de la del
+  // export: quien puede descargar el archivo del gestor no necesariamente puede ver el pago.
+  const puedeExportarPago = hasFuncion('impuestos.excel.exportar_pago');
+  // HU #13452: «Incluir datos de pago y trazabilidad» es de uso interno («Solo para Operaciones»): con
+  // enlace no se ofrece aunque el rol tenga la función marcada.
+  const ofrecerExportarPago = puedeExportarPago && tipoEnlace === 'ninguno';
+  const [incluirPago, setIncluirPago] = useState(false);
   const filtrosExport: FiltrosExportCola = {
     ...(estado !== 'todos' ? { estados: [estado] } : {}),
     ...(buscar.trim() ? { buscar: buscar.trim() } : {}),
@@ -227,6 +250,10 @@ export default function FlitoImpuestos() {
     ...(creadoHasta ? { creadoHasta } : {}),
     ...(soloEstancado ? { estancado: true } : {}),
     ...(liquidadoPendiente ? { liquidadoPendientePago: true } : {}),
+    ...(soloAlertas ? { semaforo: [...SEMAFOROS_ALERTA] } : {}),
+    // Bug #12642: la clave viaja SOLO marcada —y solo si se tiene la función, que es lo que pinta la
+    // casilla—: ausente, el cuerpo es el mismo de siempre. Sin la función no hay forma de marcarla.
+    ...(ofrecerExportarPago && incluirPago ? { incluirPago: true } : {}),
   };
   // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
   const exportacion = useExportCola(COLA_IMPUESTOS, filtrosExport);
@@ -236,12 +263,14 @@ export default function FlitoImpuestos() {
 
   const filas = data?.items ?? [];
   const totalPaginas = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
-  // Quién puede DESCARGAR depende solo del rol; qué filas ofrecen CERTIFICAR depende además del
-  // estado. No es lo mismo: un impuesto ya pagado no se certifica, pero su certificado sigue siendo
-  // la evidencia que hay que poder enseñar.
-  const puedeDescargarCert = esOperaciones || esGestor;
+  // DESCARGAR el certificado (fila y ZIP) cuelga de su función (HU #13206, AC4); CERTIFICAR sigue
+  // con su guarda de rol y depende además del estado. Van separadas para que quitar la descarga no
+  // quite certificar: un impuesto ya pagado no se certifica, pero su certificado sigue siendo la
+  // evidencia que hay que poder enseñar.
+  const puedeDescargarCertificados = hasFuncion('impuestos.certificado.descargar');
+  const puedeCertificar = esOperaciones || esGestor;
   const puedeCertificarFila = (f: ImpuestoItem) =>
-    puedeDescargarCert && ESTADOS_IMPUESTO_CERTIFICABLES.includes(f.estado);
+    puedeCertificar && ESTADOS_IMPUESTO_CERTIFICABLES.includes(f.estado);
 
   /**
    * Qué filas puede marcar ESTE usuario, para cualquiera de las dos acciones masivas.
@@ -262,7 +291,11 @@ export default function FlitoImpuestos() {
   const puedeDescargarSoportes = esOperaciones || esGestor;
   // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
   const descargaZip = useDescargaZip(ZIP_IMPUESTOS);
+  const descargaCert = useDescargaCertificados();
+  // Casillas y barra existen si hay al menos una de las dos descargas (HU #13206).
+  const puedeSeleccionar = puedeDescargarSoportes || puedeDescargarCertificados;
   const detalle = filas.find((f) => f.id === detalleId) ?? null;
+  const validacion = filas.find((f) => f.id === validacionId) ?? null;
   const refrescar = () => setRecarga((n) => n + 1);
 
   const toggle = (id: string) => setSeleccion((s) => {
@@ -298,6 +331,17 @@ export default function FlitoImpuestos() {
     }
   };
 
+  // «Reintentar validación» (HU #12832): vive en el modal rojo (primaria) y en el detalle (secundaria),
+  // nunca en la fila. Al encolar se parchea la fila a «Analizando» sin recargar, como `certificar()`.
+  const puedeReintentar = hasFuncion('impuestos.tramite.certificar');
+  const marcarAnalizando = (id: string) => setData((d) => d && ({
+    ...d, items: d.items.map((i) => i.id === id ? { ...i, analisisEstado: 'en_curso' as const } : i),
+  }));
+  const reintento = (f: ImpuestoItem, enModal: boolean) => puedeReintentar ? (
+    <ReintentarValidacion fila={f} principal={enModal} onYaCertificado={refrescar}
+      onEncolado={(encolado) => { marcarAnalizando(f.id); if (encolado && enModal) setValidacionId(null); }} />
+  ) : undefined;
+
   const descargarCertificado = async (f: ImpuestoItem) => {
     try {
       await api.download(`/flito/impuestos/${f.id}/certificado`, `certificado-runt-${f.placa ?? f.idFlit}.pdf`);
@@ -323,7 +367,11 @@ export default function FlitoImpuestos() {
                 que quitarle a alguien la carga masiva no le quite de paso la descarga. Al auditor NO
                 se le pinta deshabilitado: no se pinta. */}
             {puedeExportar && (
-              <BotonExportarCola ocupado={exportacion.ocupado} onExportar={exportacion.exportar} />
+              <BotonExportarCola
+                ocupado={exportacion.ocupado}
+                onExportar={exportacion.exportar}
+                incluirPago={ofrecerExportarPago ? { marcado: incluirPago, onCambio: setIncluirPago } : undefined}
+              />
             )}
           </>
         )}
@@ -331,6 +379,8 @@ export default function FlitoImpuestos() {
 
       {/* La banda se monta solo donde se monta el botón: un `role="alert"` colgado en la pantalla
           del auditor no puede dispararse, pero sí sale en el árbol de accesibilidad. */}
+      <AvisoAnalisis envio={envioAnalisis} onActualizar={refrescar} onCerrar={() => setEnvioAnalisis(null)} />
+
       {puedeExportar && (
         <AvisoExportCola
           cola={COLA_IMPUESTOS}
@@ -412,20 +462,38 @@ export default function FlitoImpuestos() {
 
       {/* Ya no es exclusiva de Operaciones: el gestor certifica en bloque su organismo (HU #11169).
           Qué acción se ofrece lo decide la propia barra según lo seleccionado. */}
-      {puedeDescargarSoportes && seleccion.size > 0 && (
+      {puedeSeleccionar && seleccion.size > 0 && (
         <BarraSeleccion
           filasSeleccionadas={filas.filter((f) => seleccion.has(f.id))}
           puedeEnviarFila={puedeEnviarFila}
           puedeCertificarFila={puedeCertificarFila}
           onListo={() => { setSeleccion(new Set()); refrescar(); }}
+          onEnviados={setEnvioAnalisis}
           onError={setError}
+          descargas={puedeDescargarSoportes && puedeDescargarCertificados
+            ? 'Descargar soportes y certificados usan'
+            : puedeDescargarSoportes ? 'Descargar soportes usa' : 'Descargar certificados usa'}
           descarga={(
-            <DescargarSoportesZip
-              superficie={ZIP_IMPUESTOS}
-              ids={[...seleccion]}
-              ocupado={descargaZip.ocupado}
-              onDescargar={descargaZip.descargar}
-            />
+            <>
+              {puedeDescargarSoportes && (
+                <DescargarSoportesZip
+                  superficie={ZIP_IMPUESTOS}
+                  ids={[...seleccion]}
+                  ocupado={descargaZip.ocupado}
+                  onDescargar={descargaZip.descargar}
+                  llenaEnMovil
+                />
+              )}
+              {puedeDescargarCertificados && (
+                <DescargarCertificadosZip
+                  ids={[...seleccion]}
+                  ocupado={descargaCert.ocupado}
+                  onDescargar={(ids) => descargaCert.descargar(
+                    ids, (id) => filas.find((f) => f.id === id)?.placa ?? null)}
+                  llenaEnMovil
+                />
+              )}
+            </>
           )}
         />
       )}
@@ -441,15 +509,28 @@ export default function FlitoImpuestos() {
           onDescartar={descargaZip.descartar}
         />
       )}
+      {puedeDescargarCertificados && (
+        <AvisoCertificadosZip
+          ocupado={descargaCert.ocupado}
+          marcadas={descargaCert.marcadas}
+          aviso={descargaCert.aviso}
+          onReintentar={descargaCert.reintentar}
+          onDescartar={descargaCert.descartar}
+        />
+      )}
 
       {data && filas.length === 0 && (
         <FlitCard>
           <FlitEmpty>
+            {/* HU #13452: con enlace, sin instrucciones internas (cargar masivo, sincronizar). */}
             {liquidadoPendiente
-              ? 'No hay impuestos liquidados pendientes de pago con estos filtros. Quita el filtro o carga liquidaciones desde «Cargar recibos (masivo)».'
-              : hayFiltros || texto.trim()
+              ? conEnlace(tipoEnlace)
+                ? 'No hay impuestos liquidados pendientes de pago con estos filtros.'
+                : 'No hay impuestos liquidados pendientes de pago con estos filtros. Quita el filtro o carga liquidaciones desde «Cargar recibos (masivo)».'
+              : soloAlertas ? VACIO_CON_ALERTAS : hayFiltros || texto.trim()
                 ? 'Ningún impuesto coincide con los filtros.'
-                : 'No hay impuestos en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.'}
+                : vacioConEnlace('impuestos', tipoEnlace)
+                  ?? 'No hay impuestos en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.'}
           </FlitEmpty>
         </FlitCard>
       )}
@@ -465,7 +546,7 @@ export default function FlitoImpuestos() {
               <FlitTr>
                 {/* Cuelga del PERMISO, no de «hay filas accionables» (AC7). El nombre accesible
                     cambia con el sentido: ya no marca «los que admiten acción masiva». */}
-                {puedeDescargarSoportes && (
+                {puedeSeleccionar && (
                   <FlitTh>
                     <input type="checkbox" aria-label="Seleccionar las filas de esta página"
                       checked={seleccion.size > 0 && seleccion.size === filas.length}
@@ -483,23 +564,23 @@ export default function FlitoImpuestos() {
             <tbody>
               {filas.map((f) => (
                 <FlitTr key={f.id}>
-                  {puedeDescargarSoportes && (
+                  {puedeSeleccionar && (
                     <td className="px-3 py-2">
                       <input type="checkbox" aria-label={`Seleccionar ${f.placa}`}
                         checked={seleccion.has(f.id)} onChange={() => toggle(f.id)} />
                     </td>
                   )}
                   <CeldaTramite idFlit={f.idFlit} tipoTramite={f.tipoTramite}
-                    accion={(
+                    accion={(<AccionesTramite fila={f} onAbrir={() => setValidacionId(f.id)}>
                       <AccionCertificacion
                         certificacion={f.certificacion}
-                        puedeDescargar={puedeDescargarCert}
+                        puedeDescargar={puedeDescargarCertificados}
                         puedeCertificar={puedeCertificarFila(f)}
                         cargando={certificandoId === f.id}
                         onCertificar={() => certificar(f)}
                         onDescargar={() => descargarCertificado(f)}
                       />
-                    )} />
+                    </AccionesTramite>)} />
                   <CeldaVehiculo placa={f.placa} vin={f.vin} marca={f.marca} linea={f.linea} />
                   <CeldaFechas creado={f.fechaCreacion} aprobado={f.fechaAprobacion} />
                   <td className="px-3 py-2 text-sm">{f.companiaNombre}</td>
@@ -543,11 +624,20 @@ export default function FlitoImpuestos() {
           onClose={() => setResultadoCert(null)} />
       )}
 
+      {validacion && (
+        <ModalValidacion imp={validacion} onClose={() => setValidacionId(null)}
+          onVerDetalle={() => { setValidacionId(null); setDetalleId(validacion.id); }}
+          accionReintento={reintento(validacion, true)} sinPermiso={!puedeReintentar} />
+      )}
+
       {detalle && (
         <DetalleImpuesto imp={detalle} esOperaciones={esOperaciones} esGestor={esGestor} soloLectura={soloLectura}
           puedeCargarCaja={hasFuncion('impuestos.recibos.cargar_caja')}
+          puedeCargarComprobante={hasFuncion('impuestos.recibos.cargar')}
+          puedeReemplazarComprobante={hasFuncion('impuestos.recibos.reemplazar')}
+          puedeCorregirDireccion={hasFuncion('impuestos.tramite.corregir_direccion')}
           onClose={() => setDetalleId(null)} onCambio={() => { setDetalleId(null); refrescar(); }}
-          onTraspaso={refrescar} />
+          onTraspaso={refrescar} accionReintento={reintento(detalle, false)} sinPermisoReintento={!puedeReintentar} />
       )}
 
       {cargaRecibos && (
@@ -581,13 +671,16 @@ export default function FlitoImpuestos() {
  * gestor lo determina el organismo del trámite, así que «al gestor» no admite elección y los dos
  * destinos van como botones explícitos que dicen a dónde va cada uno.
  */
-function BarraSeleccion({ filasSeleccionadas, puedeEnviarFila, puedeCertificarFila, onListo, onError, descarga }: {
+function BarraSeleccion({ filasSeleccionadas, puedeEnviarFila, puedeCertificarFila, onListo, onEnviados, onError, descarga, descargas }: {
   filasSeleccionadas: ImpuestoItem[];
   puedeEnviarFila: (f: ImpuestoItem) => boolean;
   puedeCertificarFila: (f: ImpuestoItem) => boolean;
   onListo: () => void;
+  onEnviados: (e: EnvioAnalisis) => void;
   onError: (m: string) => void;
   descarga: ReactNode;
+  /** Cómo se nombran las descargas visibles en la línea de desajuste («Descargar soportes usa»). */
+  descargas: string;
 }) {
   const [enviando, setEnviando] = useState<'gestor' | 'operaciones' | null>(null);
   const [certificando, setCertificando] = useState(false);
@@ -611,8 +704,10 @@ function BarraSeleccion({ filasSeleccionadas, puedeEnviarFila, puedeCertificarFi
   const enviar = async (aOperaciones: boolean) => {
     setEnviando(aOperaciones ? 'operaciones' : 'gestor');
     try {
-      await api.post('/flito/impuestos/enviar',
+      const r = await api.post<{ enviados?: string[] }>('/flito/impuestos/enviar',
         aOperaciones ? { ids: enviables, gestionOperaciones: true } : { ids: enviables });
+      // HU #12830 (AC3): el conteo del aviso sale de la respuesta; sin ella, de lo que se pidió.
+      onEnviados({ n: r?.enviados?.length ?? enviables.length, aOperaciones });
       onListo();
     }
     catch (e) { onError(errorMessage(e)); }
@@ -677,7 +772,7 @@ function BarraSeleccion({ filasSeleccionadas, puedeEnviarFila, puedeCertificarFi
               && `, ${enviables.length} están Pendientes y son las únicas que se envían`}
             {certificables.length > 0 && certificables.length < marcadas
               && `, ${certificables.length} admiten certificación y son las únicas que se certifican`}
-            . Descargar soportes usa las {marcadas}.
+            . {descargas} las {marcadas}.
           </p>
         )}
       </FlitCard>
@@ -704,3 +799,5 @@ function CeldaGestion({ imp }: { imp: ImpuestoItem }) {
     </td>
   );
 }
+
+type FiltrosPreset = { estado: EstadoImpuesto | 'todos'; estancado: boolean; alertas?: boolean };

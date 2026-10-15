@@ -24,7 +24,7 @@ En el menú lateral, sección **Gestión**, ítem **Logística**.
 
 - Cargando: las pestañas se ven; las tablas aparecen al llegar los datos.
 - Error: mensaje en rojo sobre la tarjeta.
-- Vacío en trámites: **No hay trámites aprobados. Sincroniza desde FLIT: los trámites en estado «Aprobado» aparecen aquí a la espera de su licencia de tránsito.** En actas: **No hay LT registradas pendientes de acta…** / **Aún no hay actas. Ve a «Generación de actas»…**
+- Vacío en trámites: **No hay trámites aprobados. Sincroniza desde FLIT: los trámites en estado «Aprobado» aparecen aquí a la espera de su licencia de tránsito.** Con enlace de compañía: **No hay trámites aprobados de su compañía.** seguido de la misma explicación. En actas: **No hay LT registradas pendientes de acta…** / **Aún no hay actas. Ve a «Generación de actas»…**
 - Lleno: listado con placa, propietario, empresa, secretaría, N.º LT y estado.
 - Viajes adicionales (en el detalle): **Cargando viajes…** mientras llega la lista; sin viajes verá **Sin viajes adicionales. El viaje 1 se cobra con la tarifa vigente** y **Viajes: 1**; si el trámite ya está liquidado la sección es de solo lectura (**Trámite liquidado: reversa la liquidación para registrar o quitar viajes**); si la compañía autogestiona la logística verá **La logística de esta compañía la gestiona el cliente** y no podrá registrar; sin tarifa de logística vigente, **Precio inicial** queda deshabilitado y solo puede fijar **Nuevo precio**.
 
