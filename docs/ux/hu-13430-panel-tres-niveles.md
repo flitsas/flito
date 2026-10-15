@@ -1,5 +1,7 @@
 # UX — Permisos: panel de roles y de excepciones en tres niveles (HU #13430) + delta slim del menú (HU #13431)
 
+> **Actualizada por [`hu-13430-delta-contrato-arbol.md`](hu-13430-delta-contrato-arbol.md) (2026-10-15): donde se contradicen, manda el delta** (contrato de la HU #13429, P-24…P-30, 409 con `nodo`, `sinAcciones`, Ayuda derivada).
+
 Feature #13416 · Épica #13411 · Modo **full** (#13430) con **delta slim** (#13431).
 Público: administrador de FLITO (operador interno). Tono: **tú** (calca `RolesPermisos.tsx` y el
 editor de usuarios, que ya tutean).
