@@ -1,5 +1,5 @@
 import type {
-  CrearRolInput, CuadroRol, EditarRolInput, RespuestaGuardarCuadro, RespuestaReemplazoComprobante, RolCatalogo, TipoEnlace,
+  ArbolRolRespuesta, ArbolUsuarioRespuesta, CrearRolInput, CuadroRol, EditarRolInput, RespuestaGuardarCuadro, RespuestaReemplazoComprobante, RolCatalogo, TipoEnlace,
 } from '@operaciones/shared-types';
 
 const BASE = '/api';
@@ -562,7 +562,23 @@ export const permisosApi = {
   guardarCuadro: (codigo: string, funciones: string[]) =>
     api.put<RespuestaGuardarCuadro>(`/permisos/roles/${encodeURIComponent(codigo)}/funciones`, { funciones }),
   mios: () => api.get<PermisosMios>('/permisos/mios'),
+  // HU #13430 (Feature #13416): el árbol de tres niveles que entregó la #13429. El guardado sigue por
+  // `guardarCuadro` (rol) y `PATCH /users/:id` (usuario): el árbol solo cambia cómo se pinta.
+  arbolDelRol: (codigo: string) => api.get<ArbolRolRespuesta>(`/permisos/roles/${encodeURIComponent(codigo)}/arbol`),
+  /** Guarda del módulo `usuarios` (§5-quater.10): la usa el modal de usuario con el rol que ya tiene. */
+  arbolDelUsuario: (id: number) => api.get<ArbolUsuarioRespuesta>(`/users/${id}/arbol`),
 };
+
+/** Cuerpo del 409 anti-bloqueo (ADR-0022 + #13429): `nodo` = el más alto que hay que volver a marcar. */
+export interface CuerpoAntiBloqueo { funcion?: string; nodo?: string }
+
+/** Lee el cuerpo del 409 sin fiarse de su forma; `null` si el error no es un 409. Nunca devuelve el texto del API. */
+export function cuerpoAntiBloqueo(e: unknown): CuerpoAntiBloqueo | null {
+  if (!(e instanceof ApiError) || e.status !== 409) return null;
+  const raw = (e.rawDetails ?? {}) as Record<string, unknown>;
+  const texto = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+  return { funcion: texto(raw.funcion), nodo: texto(raw.nodo) };
+}
 
 /** FLITO Impuestos — acciones del detalle que no caben en el CRUD genérico. */
 export const impuestosApi = {

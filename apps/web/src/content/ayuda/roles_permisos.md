@@ -1,10 +1,10 @@
 ## Qué es
 
-La pantalla donde se decide **qué puede hacer cada rol** dentro de FLITO. Muestra la lista de roles con cuántas funciones tiene cada uno y, al lado, el cuadro del rol seleccionado: sus módulos plegados, repartidos en tres secciones según de dónde viene cada módulo: **FLITO**, **Ya existía y FLITO lo usa** y **Existe pero no se usa**. Cada sección y cada módulo llevan la cuenta de funciones marcadas. Desde aquí también se crean, editan y borran roles.
+La pantalla donde se decide **qué puede ver y hacer cada rol** dentro de FLITO. Muestra la lista de roles con cuántos permisos tiene cada uno y, al lado, los **Permisos del rol** seleccionado, ordenados igual que el menú: cada **elemento del menú** (Gestión, Finanzas, Administración…) contiene sus **ítems** (las pantallas), y cada ítem sus **acciones** (ver, crear, exportar…). Al final va el bloque **Permisos que no dependen del menú**. Desde aquí también se crean, editan y borran roles.
 
 ## Para quién
 
-Administrador. Ningún otro rol la ve.
+Quien tenga el permiso de ver **Roles y permisos**. Para cambiar las marcas hace falta además la acción **Asignar permisos**; para crear, editar o borrar roles, la acción correspondiente. Sin ellas la pantalla se ve en solo lectura.
 
 ## Cómo se entra
 
@@ -13,34 +13,41 @@ Menú **Administración**, ítem **Roles y permisos**, junto a **Usuarios**.
 ## Pasos
 
 1. Elija el rol en la lista de la izquierda (o en el selector **Rol** en pantallas pequeñas).
-2. Busque el módulo en su sección y ábralo para marcar o desmarcar sus funciones. Cada módulo empieza por su pantalla (**Entrar a la pantalla …**) y debajo, separadas por una línea, van sus acciones. Las acciones se habilitan al marcar la pantalla (en los módulos con dos pantallas basta una) y, hasta entonces, se ven apagadas con la nota «Marca primero la pantalla…». Si desmarca la única pantalla marcada, sus acciones se desmarcan en el mismo gesto: la barra **Sin guardar** las cuenta y **Descartar** las devuelve. La cuenta del módulo y la de su sección cambian al momento; la de la lista de roles solo cambia al guardar. Los módulos de **Existe pero no se usa** son anteriores a FLITO: si se marcan, el rol sí entra a esas pantallas, solo que FLITO no las usa hoy.
-3. Pulse **Guardar cambios**. El cambio queda aplicado en la siguiente acción de cada usuario con ese rol; nadie tiene que volver a entrar.
-4. Para repartirlo todo de una vez, use **Marcar todas las funciones**; **Desmarcar todas** hace lo contrario. Ninguno de los dos guarda por sí solo.
-5. **Descartar** devuelve el cuadro a lo guardado y pide confirmación.
-6. **Nuevo rol** abre el formulario: nombre, descripción y **Enlace**, que decide qué datos ven las personas con ese rol. Elija una de cuatro opciones; cada una explica debajo lo que verá el rol:
+2. Despliegue el elemento del menú y el ítem que quiera y marque o desmarque. Un permiso vale solo si están marcados el elemento, el ítem y la acción. Una casilla con unas marcas sí y otras no se ve como **parcial**.
+3. Si desmarca un elemento o un ítem, lo de adentro **no se pierde**: queda visible, apagado y con sus marcas, con la nota «… está desmarcado: lo de adentro no aplica, pero sus marcas se conservan para cuando lo vuelvas a marcar». Al volver a marcarlo, las marcas reaparecen activas.
+4. Algunos casos llevan su propia nota:
+   - Los ítems de módulos anteriores a FLITO no se dividen en acciones: marcarlos da acceso a todo lo de la pantalla. En PESV, crear y editar los registros pide además la acción **Administrar**.
+   - Las operaciones **Opcional** (por ejemplo, ver el documento del propietario sin enmascarar) no vienen con su ítem: se marcan aparte.
+   - Un ítem marcado sin ninguna acción avisa «Marcado sin ninguna acción: …»; marque al menos una o desmarque el ítem.
+   - **Ayuda** no se marca: cada usuario la ve sola, con los capítulos de lo que puede usar.
+   - **Permisos que no dependen del menú** (por ejemplo, buscar un vehículo por placa) valen aunque el rol no tenga ningún elemento marcado.
+5. Pulse **Guardar cambios**. El cambio queda aplicado en la siguiente acción de cada usuario con ese rol; nadie tiene que volver a entrar. La barra **Sin guardar** cuenta lo pendiente y **Descartar** lo devuelve a lo guardado.
+6. Para repartirlo todo de una vez use **Marcar todo**, que marca el árbol y los permisos que no dependen del menú, pero **no** los opcionales; **Desmarcar todo** quita todo. Ninguno de los dos guarda por sí solo.
+7. **Nuevo rol** abre el formulario: nombre, descripción y **Enlace**, que decide qué datos ven las personas con ese rol. Elija una de cuatro opciones; cada una explica debajo lo que verá el rol:
    - **Ninguno** (viene marcado): ve todos los datos de los módulos que el rol tenga marcados.
    - **Compañía**: ve solo lo de su compañía en Gestión Trámites, SOAT, Impuestos, su bolsa, Comprobantes y Logística. No ve catálogos ni configuración; el resto le queda cerrado.
    - **Proveedor**: ve solo lo asignado a su proveedor. Hoy aplica a SOAT.
    - **Organismos**: ve solo lo de sus secretarías de tránsito en Impuestos y Derechos de tránsito. El resto le queda cerrado.
 
    La compañía, el proveedor o las secretarías concretas de cada persona se eligen en **Usuarios**, no aquí. El código del rol se genera del nombre y no se puede cambiar después. El rol nuevo nace con **Perfil** marcado (ver sus datos y cambiar su contraseña) para que nadie se quede sin poder cambiarla; si no lo quiere, desmárquelo y guarde.
-7. **Editar rol** permite corregir nombre, descripción, enlace y si **Se puede asignar a usuarios nuevos**. El enlace solo se puede cambiar mientras ningún usuario tenga el rol; si lo tiene alguien, el formulario lo avisa y hay que cambiarles el rol primero en **Usuarios**.
-8. **Borrar rol** solo está disponible cuando ningún usuario lo tiene y no es un rol del sistema; la cabecera dice por qué cuando no se puede.
+8. **Editar rol** permite corregir nombre, descripción, enlace y si **Se puede asignar a usuarios nuevos**. El enlace solo se puede cambiar mientras ningún usuario tenga el rol; si lo tiene alguien, el formulario lo avisa y hay que cambiarles el rol primero en **Usuarios**.
+9. **Borrar rol** solo está disponible cuando ningún usuario lo tiene y no es un rol del sistema; la cabecera dice por qué cuando no se puede.
 
 ## Estados
 
 - **Cargando**: esqueleto de dos columnas.
-- **Error**: «No se pudo cargar el catálogo de roles y funciones.» con el detalle y **Reintentar**.
-- **Vacío**: sin roles se ofrece **Nuevo rol**; si el catálogo de funciones llega vacío se ofrece **Reintentar**; un rol sin funciones marcadas avisa de que quien lo tenga no verá nada al entrar.
-- **Lleno**: lista de roles y cuadro del rol seleccionado con sus tres secciones; una sección sin módulos no se muestra. La cabecera del cuadro dice el enlace del rol y cuántos usuarios lo tienen. Con cambios pendientes aparece la barra **Sin guardar** con **Descartar** y **Guardar cambios**.
+- **Error**: «No se pudo cargar el catálogo de roles y permisos. Revisa tu conexión y vuelve a intentarlo.» con **Reintentar**. Si falla solo el árbol del rol elegido, el aviso lo dice y ofrece **Reintentar** ahí mismo.
+- **Vacío**: sin roles se ofrece **Nuevo rol**; si el catálogo llega vacío se ofrece **Reintentar**; un rol sin nada marcado avisa de que quien lo tenga no verá ningún elemento del menú al entrar.
+- **Lleno**: lista de roles y árbol del rol seleccionado. La cabecera dice el enlace del rol y cuántos usuarios lo tienen. Con cambios pendientes aparece la barra **Sin guardar** con **Descartar** y **Guardar cambios**.
+- **Solo lectura**: sin la acción **Asignar permisos**, un aviso lo explica y no hay casillas que cambiar.
+- **No se guardó por seguridad**: si el cambio dejaría a FLITO sin ningún usuario activo que pueda administrar Usuarios y Roles y permisos, un aviso en la página lo explica, nombra lo que hay que volver a marcar con **Mostrar dónde está**, y sus cambios siguen ahí sin guardar.
+- **Error al guardar**: «No se pudieron guardar los permisos. Tus cambios siguen aquí; vuelve a intentarlo con «Guardar cambios».»
 - **Error al guardar el rol**: el formulario muestra «No se pudo guardar el rol. Inténtalo de nuevo; si se repite, recarga la página.» sin cerrarse.
-- **Acciones marcadas sin la pantalla**: si un rol guardado tiene acciones de un módulo sin su pantalla, el encabezado del módulo añade **· n sin pantalla** y, al abrirlo, un aviso dice «n acciones marcadas sin la pantalla» con el botón **Desmarcarlas**. Esas acciones se ven marcadas pero bloqueadas hasta que marque la pantalla o las desmarque; si no toca nada, se guardan tal como estaban.
 
 ## Qué no hace
 
 - **El menú lateral y la búsqueda rápida no avisan de cambios sin guardar.** Si sale de la pantalla por ahí con cambios pendientes, se pierden. Sí avisa al cambiar de rol, al pulsar **Volver** y al cerrar o recargar la pestaña.
 - Si dos administradores guardan el mismo rol a la vez, se aplica el último guardado sin aviso.
 - No muestra ni edita usuarios: para cambiarle el rol a alguien vaya a **Usuarios**.
-- No asigna permisos a una persona en particular ni muestra el historial de cambios; eso vive en **Usuarios**.
-- Las secciones solo ordenan la pantalla: no cambian qué se guarda ni qué permisos tiene el rol. Por eso **Privacidad y datos** muestra una función que en otras pantallas aparece bajo **Administración**.
+- No asigna permisos a una persona en particular ni muestra el historial de cambios; eso vive en **Usuarios**, con el mismo árbol. Allí una excepción que añade una acción a la que al rol de la persona le falta el elemento o el ítem se marca «Añadido · sin efecto»: no vale hasta que se añada también lo que falta.
 - La dirección de la pantalla no lleva el rol seleccionado: al recargar se vuelve al primero de la lista.
