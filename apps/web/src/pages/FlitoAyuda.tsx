@@ -24,7 +24,7 @@ import {
 } from '../components/flit/flitPageKit';
 import { isValidPage } from '../lib/permissions';
 
-const GRUPOS_ORDEN: AyudaGrupo[] = ['gestion', 'finanzas', 'administracion'];
+const GRUPOS_ORDEN: AyudaGrupo[] = ['general', 'gestion', 'finanzas', 'administracion'];
 type EstadoCarga = 'cargando' | 'error' | 'listo';
 
 function SkeletonFicha() {

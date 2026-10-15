@@ -2,7 +2,13 @@ import type { PageSlug } from '../../lib/permissions';
 
 // Catálogo de 19 fichas de Ayuda FLITO (HU #11893; la 19.ª, Roles y permisos, es de la HU #12085). Fuente de verdad de QUÉ puede aparecer
 // en el índice. El orden de cada grupo es el de NAV_ITEMS cuando el ítem existe; si no hay
-// ítem de menú (Compuerta, Tablero FLITO, Credenciales), al final del grupo.
+// ítem de menú (Compuerta, Credenciales), al final del grupo. La etiqueta es el nombre del ítem
+// del menú (P-33, HU #13431).
+//
+// `flito_tablero` (clave y archivo se conservan para no romper enlaces a la ficha) es desde P-11
+// (HU #13428) el **Tablero** de General: el ítem «Tablero FLITO» ya no existe y su contenido es lo
+// que se ve en el inicio (`/`). Cuelga de `flito_tablero` porque «Ver el tablero» lo expande junto
+// con la función que pinta ese contenido; `dashboard` lo tiene también quien ve el inicio genérico.
 //
 // Las 19 están publicadas (Gestión #11894; Finanzas y Administración #11895). Ausencia de
 // archivo = «Ficha pendiente», no error.
@@ -11,7 +17,7 @@ import type { PageSlug } from '../../lib/permissions';
 // Prohibido aliasarla a `siigo_parametrizacion`: Financiera tiene parametrización y no debe ver el
 // capítulo de credenciales.
 
-export type AyudaGrupo = 'gestion' | 'finanzas' | 'administracion';
+export type AyudaGrupo = 'general' | 'gestion' | 'finanzas' | 'administracion';
 
 export type ClaveAyuda =
   | 'flito_tramites'
@@ -52,22 +58,23 @@ export interface EntradaAyuda {
 }
 
 export const GRUPO_AYUDA_LABEL: Record<AyudaGrupo, string> = {
+  general: 'General',
   gestion: 'Gestión',
   finanzas: 'Finanzas',
   administracion: 'Administración',
 };
 
 export const CATALOGO_AYUDA: readonly EntradaAyuda[] = [
+  { clave: 'flito_tablero', grupo: 'general', etiqueta: 'Tablero', resumen: 'Retenciones, estancamientos y diferencias de operación.', to: '/', permiso: 'flito_tablero' },
   { clave: 'flito_tramites', grupo: 'gestion', etiqueta: 'Gestión Trámites', resumen: 'Cómo despachar SOAT, impuestos y entregas.', to: '/flito/tramites', permiso: 'flito_tramites' },
   // La ficha describe `/flito/soat`, y desde el Feature #11912 esa pantalla tiene llave propia:
   // `flito_soat`, no la `soat` del módulo legacy (`/soat`, `Soat.tsx`). Dejar `permiso: 'soat'`
   // ataría la ayuda de una pantalla al permiso de OTRA (ADR-0008 §4).
   { clave: 'soat', grupo: 'gestion', etiqueta: 'SOAT', resumen: 'Cola de pólizas del proveedor.', to: '/flito/soat', permiso: 'flito_soat' },
   { clave: 'flito_impuestos', grupo: 'gestion', etiqueta: 'Impuestos', resumen: 'Cola de recibos del gestor de impuestos.', to: '/flito/impuestos', permiso: 'flito_impuestos' },
-  { clave: 'flito_derechos', grupo: 'gestion', etiqueta: 'Derechos de tránsito', resumen: 'Lo que el organismo cobra por radicar.', to: '/flito/derechos', permiso: 'flito_derechos' },
+  { clave: 'flito_derechos', grupo: 'gestion', etiqueta: 'Derechos', resumen: 'Lo que el organismo cobra por radicar.', to: '/flito/derechos', permiso: 'flito_derechos' },
   { clave: 'flito_revisiones', grupo: 'gestion', etiqueta: 'Revisiones OCR', resumen: 'Cola de confirmación de campos leídos.', to: '/flito/revisiones', permiso: 'flito_revisiones' },
   { clave: 'flito_compuerta', grupo: 'gestion', etiqueta: 'Compuerta de entrega', resumen: 'Habilitar la entrega cuando SOAT e impuestos están resueltos.', to: '/flito/compuerta', permiso: 'flito_compuerta' },
-  { clave: 'flito_tablero', grupo: 'gestion', etiqueta: 'Tablero FLITO', resumen: 'Retenciones, estancamientos y diferencias de operación.', to: '/flito/tablero', permiso: 'flito_tablero' },
   { clave: 'flito_bitacora', grupo: 'gestion', etiqueta: 'Bitácora', resumen: 'Rastro de movimientos de un trámite.', to: '/flito/bitacora', permiso: 'flito_bitacora' },
   { clave: 'flito_logistica', grupo: 'gestion', etiqueta: 'Logística', resumen: 'Actas, despacho y trazabilidad por documento.', to: '/flito/logistica', permiso: 'flito_logistica' },
   { clave: 'flito_logistica_ruta', grupo: 'gestion', etiqueta: 'Mi ruta', resumen: 'Recogidas y entregas asignadas al mensajero.', to: '/flito/ruta', permiso: 'flito_logistica_ruta' },
