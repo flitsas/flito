@@ -41,6 +41,7 @@ vi.mock('../../src/db/client.js', () => ({
 }));
 
 const { paginasEfectivasDeUsuario, fijarFuenteDePermisos } = await import('../../src/shared/permisos-efectivos.js');
+const { ancestrosDe } = await import('../../src/modules/permisos/arbol/expansion.js');
 
 const render = (c: unknown) => new PgDialect().sqlToQuery(c as never);
 
@@ -58,10 +59,17 @@ type Excepcion = { codigo: string; efecto: 'conceder' | 'revocar' };
  * tabla como `conceder pagina.<slug>`; `propias` admite slugs (→ `conceder`) o excepciones completas.
  */
 function usuario(role: string, propias: (string | Excepcion)[] | null, ...reparto: string[]) {
+  // HU #13429: cada página llega con su elemento (`menu.*`), como tras la 0239 (el resolutor exige la cadena). Las
+  // operaciones se dejan sueltas a propósito: aquí se mide que NO son pantallas, y sin cadena tampoco entran.
+  const conElemento = (cs: string[]) => [...new Set(cs.flatMap((c) => [c, ...ancestrosDe(c)]))];
+  const excepciones = (propias ?? []).map((p): Excepcion => (typeof p === 'string' ? { codigo: `pagina.${p}`, efecto: 'conceder' } : p));
   respuestas = [
     [{ rol: role, tipoEnlace: 'ninguno' }],
-    reparto.map((codigo) => ({ codigo })),
-    (propias ?? []).map((p) => (typeof p === 'string' ? { codigo: `pagina.${p}`, efecto: 'conceder' } : p)),
+    conElemento(reparto).map((codigo) => ({ codigo })),
+    [
+      ...conElemento(excepciones.filter((e) => e.efecto === 'conceder').map((e) => e.codigo)).map((codigo) => ({ codigo, efecto: 'conceder' })),
+      ...excepciones.filter((e) => e.efecto === 'revocar'),
+    ],
   ];
 }
 

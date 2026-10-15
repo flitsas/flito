@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import { SignJWT } from 'jose';
 import { chain } from '../helpers/db.js';
-import { registrarUsuarioDePrueba, testToken } from '../helpers/auth.js';
+import { registrarUsuarioDePrueba, soloEstas, testToken } from '../helpers/auth.js';
 
 const selectMock = vi.fn();
 const insertMock = vi.fn();
@@ -43,7 +43,8 @@ beforeEach(async () => {
 
 /** Un usuario con EXACTAMENTE estas funciones en su rol (nombre de rol a elección). */
 async function usuario(sub: number, rol: string, funciones: string[]): Promise<string> {
-  await registrarUsuarioDePrueba(sub, { rol, tipoEnlace: 'ninguno', funcionesDelRol: funciones, excepciones: [] });
+  // HU #13429: EXACTAMENTE estas — con la cadena (el ítem trae las hermanas) y revocando lo que no se pidió.
+  await registrarUsuarioDePrueba(sub, { rol, tipoEnlace: 'ninguno', ...soloEstas(funciones) });
   const secret = new TextEncoder().encode(process.env.JWT_SECRET);
   const jwt = await new SignJWT({ username: `u${sub}`, role: rol })
     .setProtectedHeader({ alg: 'HS256' }).setSubject(String(sub)).setExpirationTime('1h').sign(secret);
@@ -151,13 +152,13 @@ describe('AC4 — escribir en un ítem exige «Administrar <ítem>»', () => {
     expect(ok.status).toBe(201);
   });
 
-  it('la partida de `lider_pesv` (catálogo) lo deja crear el comité y NO borrar la política (solo admin hoy)', async () => {
+  // HU #13429 (AC3, P-24 A1 aprobado): lider_pesv ya administraba algo de PESV y tiene el ítem Política → gana su «Administrar».
+  it('la partida de `lider_pesv` (catálogo) lo deja crear el comité y borrar la política (ganancia aprobada AC3 de la #13429)', async () => {
     insertMock.mockReturnValueOnce(chain([{ id: 1, nombre: 'CSV' }]));
     const lider = `Bearer ${await testToken({ role: 'lider_pesv', sub: 9112 })}`;
     expect((await request(app).post('/api/pesv/comite').set('Authorization', lider)
       .send({ nombre: 'CSV', periodicidad: 'trimestral' })).status).toBe(201);
     const del = await request(app).delete('/api/pesv/policy/1').set('Authorization', lider);
-    expect(del.status).toBe(403);
-    expect(del.body).toMatchObject({ funcion: 'pesv.politica.administrar' });
+    expect(del.status).not.toBe(403);
   });
 });

@@ -16,7 +16,7 @@ import { SignJWT } from 'jose';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
 import { ligadoA, renderizar } from '../helpers/sql-ligado.js';
-import { registrarUsuarioDePrueba } from '../helpers/auth.js';
+import { registrarUsuarioDePrueba, soloEstas } from '../helpers/auth.js';
 import { conAlcance } from '../helpers/frontera.js';
 
 const kdb = createKeyedDb();
@@ -42,10 +42,8 @@ let sub = 9600;
 async function auth(opts: { tipoEnlace: string; funciones: string[]; rol?: string }) {
   sub += 1;
   const rol = opts.rol ?? 'rol_prueba';
-  await registrarUsuarioDePrueba(sub, {
-    rol, tipoEnlace: opts.tipoEnlace, excepciones: [],
-    funcionesDelRol: ['pagina.flito_soat', ...opts.funciones],
-  });
+  // HU #13429: «tiene EXACTAMENTE estas operaciones» (su acción con su cadena, y las hermanas revocadas).
+  await registrarUsuarioDePrueba(sub, { rol, tipoEnlace: opts.tipoEnlace, ...soloEstas(['pagina.flito_soat', ...opts.funciones]) });
   const t = await new SignJWT({ username: 'u@x.co', role: rol })
     .setProtectedHeader({ alg: 'HS256' }).setSubject(String(sub)).setExpirationTime('1h')
     .sign(new TextEncoder().encode(process.env.JWT_SECRET));

@@ -24,7 +24,7 @@
 // leyendo `permisos_rol_funcion` de la base real en vez del SQL; en CI (sin Postgres) solo corre el
 // primero.
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import postgres from 'postgres';
 import { USER_ROLES } from '@operaciones/shared-types';
 import { RUTAS_RECONDUCIDAS, type RutaReconducida } from '../fixtures/permisos-rutas-reconducidas.js';
@@ -34,7 +34,7 @@ import { leerRepartoSembrado, MIGRACIONES_ANTES_DEL_ARBOL } from '../helpers/per
 import { montajesDeFunciones, llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import {
-  ACCIONES_UNIVERSALES, operacionesDe, PARTIDAS_DE_OPERACIONES_NUEVAS as PARTIDA_DE_OPERACION_NUEVA,
+  ACCIONES_UNIVERSALES, expandirSinCadena, operacionesDe, PARTIDAS_DE_OPERACIONES_NUEVAS as PARTIDA_DE_OPERACION_NUEVA,
 } from '../../src/modules/permisos/arbol/expansion.js';
 
 /**
@@ -80,21 +80,21 @@ function antesDe(r: RutaReconducida): string[] {
   return g.roles;
 }
 
+/**
+ * HU #13429: el mundo PLANO (≤ 0231) no tiene elementos, ítems en cadena ni acciones; con el resolutor en cadena sus
+ * operaciones sueltas ya no entrarían (fallo cerrado). Esta matriz mide una propiedad HISTÓRICA —el SQL de la
+ * reconducción reproduce el `requireRole`— y la decide con la regla que regía ese mundo: `(R ∪ C) \ V` sin cadena
+ * (`expandirSinCadena`). Que el mundo de HOY (0001..0239) no pierde nada con la cadena lo vigilan, rol a rol,
+ * `permisos-arbol-legado.test.ts` (paridad del pliegue) y el reporte en seco de la #13429.
+ */
 function matriz(nombre: string, reparto: () => Map<string, Set<string>>, codigoDe: (c: string) => string = (c) => c) {
   describe(nombre, () => {
-    beforeAll(() => {
-      fijarFuenteDePermisos(fuenteDesde(reparto()));
-      for (const rol of ROLES) invalidarPermisosDe(subDe(rol));
-    });
-    afterAll(() => { fijarFuenteDePermisos(null); });
-
     for (const fila of RUTAS_RECONDUCIDAS.filter((f) => !DE_TODOS.has(f.codigo))) {
       it(`${etiqueta(fila)} → ${fila.codigo}: los 12 roles deciden como antes`, async () => {
         const antes = antesDe(fila);
         const desacuerdos: string[] = [];
         for (const rol of ROLES) {
-          const p = await resolverPermisos(subDe(rol));
-          const motor = p.ok && p.funciones.has(codigoDe(fila.codigo));
+          const motor = expandirSinCadena(reparto().get(rol) ?? []).has(codigoDe(fila.codigo));
           const previo = antes.includes(rol);
           if (motor !== previo) {
             desacuerdos.push(`${etiqueta(fila)} · rol ${rol}: antes ${previo ? 'SÍ' : 'NO'}, motor ${motor ? 'SÍ' : 'NO'}`);

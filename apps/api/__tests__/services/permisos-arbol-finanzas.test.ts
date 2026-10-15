@@ -96,7 +96,9 @@ describe('AC6 — cobertura: los 68 códigos del área, en los dos sentidos', ()
     expect(delArea).toHaveLength(68);
     expect(delArea.filter((c) => !cubiertas.has(c) && !(c in FUERA_DE_AREA_FINANZAS))).toEqual([]);
     expect(Object.keys(FUERA_DE_AREA_FINANZAS)).toEqual(['liquidacion.pago_manual.administrar']);
-    expect(CODIGOS_ABSORBIDOS.has('liquidacion.pago_manual.administrar')).toBe(false);
+    // HU #13429 (P-14): no lo absorbe Finanzas; lo expande el ítem antiguo «Órdenes de trabajo».
+    expect(FINANZAS.some((a) => operacionesDe(a).includes('liquidacion.pago_manual.administrar'))).toBe(false);
+    expect(CODIGOS_ABSORBIDOS.has('liquidacion.pago_manual.administrar')).toBe(true);
   });
 
   it('toda acción concede ≥1 operación con guarda viva hoy; ningún predecesor es inventado', () => {
@@ -176,7 +178,8 @@ describe('Regla vigente (PO, 2026-10-13): en las de lectura, exportar/descargar 
   });
 
   it('opcionales del área: los de P-16/P-17 y las tres descargas; ni absorbidos ni expandidos, y siguen en el catálogo', () => {
-    const opcionales = FINANZAS.flatMap((a) => ACCIONES_FINANZAS[a]!.opcionales ?? []).sort();
+    // HU #13429: `siigo.conceptos.confirmar` lo declaran dos acciones («Ver» y «Mapeo de conceptos»): un solo opcional.
+    const opcionales = [...new Set(FINANZAS.flatMap((a) => ACCIONES_FINANZAS[a]!.opcionales ?? []))].sort();
     expect(opcionales).toEqual([
       'bolsas.soporte.descargar', 'comprobantes.archivo.descargar', 'conciliacion.comprobante.descargar',
       'siigo.conceptos.confirmar', 'siigo.factura.anular', 'siigo.factura.corregir',

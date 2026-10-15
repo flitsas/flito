@@ -13,19 +13,22 @@
 //   · Solo literales del código (códigos, nombres): comilla doblada, nada de entrada externa (regla 3).
 import { catalogoCompleto, type FuncionCatalogo } from '../catalogo.js';
 import {
-  ACCIONES_LECTURA, ACCIONES_POR_AREA, ACCIONES_UNIVERSALES, CONJUNCIONES_ARBOL, predecesoresDe, predecesorNoAbsorbido,
-  ROL_CON_TODAS_LAS_ACCIONES, type AreaArbol,
+  ACCIONES_ARBOL, ACCIONES_POR_ALGUNA, ACCIONES_POR_AREA, ACCIONES_UNIVERSALES, CONJUNCIONES_ARBOL, paginaDeAccion, predecesoresDe,
+  predecesorNoAbsorbido, ROL_CON_TODAS_LAS_ACCIONES, type AreaArbol,
 } from './expansion.js';
 
-const lit = (s: string): string => `'${s.replace(/'/g, "''")}'`;
+export const lit = (s: string): string => `'${s.replace(/'/g, "''")}'`;
 
 /** La HU dueña de cada área: sufijo de las tablas temporales, para que dos repartos no compartan nombre. */
-export const HU_DE_AREA: Readonly<Record<AreaArbol, string>> = { gestion: '12873', finanzas: '13427', administracion: '13428' };
+export const HU_DE_AREA: Readonly<Record<AreaArbol, string>> = { gestion: '12873', finanzas: '13427', administracion: '13428', legado: '13429' };
 
 /** Las tablas temporales del reparto de un área. */
 export function tablasTemporales(area: AreaArbol) {
   const hu = HU_DE_AREA[area];
-  return { grupos: `tmp_arbol_${hu}`, absorbidas: `tmp_absorbidas_${hu}`, lectura: `tmp_lectura_${hu}`, umbral: `tmp_umbral_${hu}` };
+  return {
+    grupos: `tmp_arbol_${hu}`, absorbidas: `tmp_absorbidas_${hu}`, lectura: `tmp_lectura_${hu}`, umbral: `tmp_umbral_${hu}`,
+    requisito: `tmp_requisito_${hu}`,
+  };
 }
 
 /** Las de Gestión (#12873), con su nombre de siempre. */
@@ -78,7 +81,7 @@ function itemDe(f: FuncionCatalogo, catalogo: FuncionCatalogo[]): string {
 /** Reparto de un área: grupos «todos», roles, usuarios, y retiro de lo absorbido. Ver la cabecera de la 0233. */
 export function sqlRepartoArbol(area: AreaArbol = 'gestion'): string {
   catalogoCompleto(); // valida árbol ↔ catálogo antes de escribir una migración sobre nada
-  const { grupos: TMP_GRUPOS, absorbidas: TMP_ABSORBIDAS, lectura: TMP_LECTURA, umbral: TMP_UMBRAL } = tablasTemporales(area);
+  const { grupos: TMP_GRUPOS, absorbidas: TMP_ABSORBIDAS, lectura: TMP_LECTURA, umbral: TMP_UMBRAL, requisito: TMP_REQUISITO } = tablasTemporales(area);
   const delArea = ACCIONES_POR_AREA[area];
   const pares = delArea
     .flatMap((a) => [...predecesoresDe(a)].sort().map((fn) => `  (${lit(a)}, ${lit(fn)})`));
@@ -86,8 +89,21 @@ export function sqlRepartoArbol(area: AreaArbol = 'gestion'): string {
   const conjunciones = conjuncionesDelArea.flatMap((c) => [...c.acciones].sort().map((a) => `  (${lit(c.operacion)}, ${lit(a)})`));
   // HU #13427 (P-19): el predecesor de página que la acción no concede no se absorbe (la página sigue siendo el ítem).
   const paginasNoAbsorbidas = [...new Set(delArea.flatMap((a) => predecesoresDe(a).filter((p) => predecesorNoAbsorbido(a, p))))].sort();
-  const lectura = delArea.filter((a) => ACCIONES_LECTURA.has(a));
+  const lectura = delArea.filter((a) => ACCIONES_POR_ALGUNA.has(a));
   const universales = ACCIONES_UNIVERSALES.filter((u) => delArea.includes(u.accion));
+  // HU #13429 (P-24, A1): la acción que exige además la página de su ítem (solo el área `legado` la tiene).
+  const requisitos = delArea.filter((a) => ACCIONES_ARBOL[a]!.exigeItem).map((a) => `  (${lit(a)}, ${lit(paginaDeAccion(a))})`);
+  const conRequisito = requisitos.length > 0;
+  const requisitoRol = conRequisito ? [
+    `   AND NOT EXISTS (SELECT 1 FROM ${TMP_REQUISITO} q WHERE q.accion = t.accion`,
+    '                    AND NOT EXISTS (SELECT 1 FROM permisos_rol_funcion ri WHERE ri.rol_codigo = rf.rol_codigo AND ri.funcion_codigo = q.fn))',
+  ] : [];
+  const requisitoUsuario = conRequisito ? [
+    `           AND NOT EXISTS (SELECT 1 FROM ${TMP_REQUISITO} q WHERE q.accion = a.accion AND NOT (`,
+    '                 (EXISTS (SELECT 1 FROM permisos_rol_funcion rf WHERE rf.rol_codigo = u.role AND rf.funcion_codigo = q.fn)',
+    "                  OR EXISTS (SELECT 1 FROM permisos_usuario_funcion c WHERE c.user_id = u.id AND c.funcion_codigo = q.fn AND c.efecto = 'conceder'))",
+    "                 AND NOT EXISTS (SELECT 1 FROM permisos_usuario_funcion v WHERE v.user_id = u.id AND v.funcion_codigo = q.fn AND v.efecto = 'revocar')))",
+  ] : [];
   return [
     `-- ${pares.length} pares acción → código de su grupo «todos». Generado: no editar a mano.`,
     `-- Regenerar con: npm run permisos:seed -w apps/api -- --arbol ${area} --reparto`,
@@ -124,6 +140,14 @@ export function sqlRepartoArbol(area: AreaArbol = 'gestion'): string {
       'ON CONFLICT (fn) DO NOTHING;',
     ]),
     '',
+    ...(conRequisito ? [
+      '-- HU #13429 (P-24, A1): la acción se recibe solo con la PÁGINA de su ítem, además del grupo.',
+      `DROP TABLE IF EXISTS ${TMP_REQUISITO};`,
+      `CREATE TEMP TABLE ${TMP_REQUISITO} (accion varchar(80) NOT NULL, fn varchar(80) NOT NULL, PRIMARY KEY (accion, fn));`,
+      `INSERT INTO ${TMP_REQUISITO} (accion, fn) VALUES`,
+      requisitos.join(',\n') + ';',
+      '',
+    ] : []),
     '-- Acciones de LECTURA (decisión del PO del 2026-10-13): se reciben con ALGUNA operación del grupo.',
     `DROP TABLE IF EXISTS ${TMP_LECTURA};`,
     `CREATE TEMP TABLE ${TMP_LECTURA} (accion varchar(80) PRIMARY KEY);`,
@@ -144,6 +168,7 @@ export function sqlRepartoArbol(area: AreaArbol = 'gestion'): string {
     `  JOIN ${TMP_GRUPOS} t ON t.fn = rf.funcion_codigo`,
     ' GROUP BY rf.rol_codigo, t.accion',
     `HAVING count(DISTINCT rf.funcion_codigo) >= (SELECT u.k FROM ${TMP_UMBRAL} u WHERE u.accion = t.accion)`,
+    ...requisitoRol,
     'ON CONFLICT (rol_codigo, funcion_codigo) DO NOTHING;',
     '',
     ...(universales.length === 0 ? [] : [
@@ -173,7 +198,7 @@ export function sqlRepartoArbol(area: AreaArbol = 'gestion'): string {
     '               AND (EXISTS (SELECT 1 FROM permisos_rol_funcion rf WHERE rf.rol_codigo = u.role AND rf.funcion_codigo = t.fn)',
     "                    OR EXISTS (SELECT 1 FROM permisos_usuario_funcion c WHERE c.user_id = u.id AND c.funcion_codigo = t.fn AND c.efecto = 'conceder'))",
     "               AND NOT EXISTS (SELECT 1 FROM permisos_usuario_funcion v WHERE v.user_id = u.id AND v.funcion_codigo = t.fn AND v.efecto = 'revocar')",
-    '           ) >= a.k AS todos,',
+    ...(conRequisito ? ['           ) >= a.k', ...requisitoUsuario.slice(0, -1), requisitoUsuario.at(-1)! + ' AS todos,'] : ['           ) >= a.k AS todos,']),
     '           EXISTS (SELECT 1 FROM permisos_rol_funcion rf WHERE rf.rol_codigo = u.role AND rf.funcion_codigo = a.accion) AS rol_tiene',
     '      FROM users u',
     `     CROSS JOIN ${TMP_UMBRAL} a`,
@@ -197,6 +222,7 @@ export function sqlRepartoArbol(area: AreaArbol = 'gestion'): string {
     `DELETE FROM permisos_usuario_funcion WHERE funcion_codigo IN (SELECT fn FROM ${TMP_ABSORBIDAS});`,
     `DELETE FROM permisos_funciones WHERE codigo IN (SELECT fn FROM ${TMP_ABSORBIDAS});`,
     '',
+    ...(conRequisito ? [`DROP TABLE ${TMP_REQUISITO};`] : []),
     `DROP TABLE ${TMP_UMBRAL};`,
     `DROP TABLE ${TMP_LECTURA};`,
     `DROP TABLE ${TMP_ABSORBIDAS};`,

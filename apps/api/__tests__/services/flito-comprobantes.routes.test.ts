@@ -25,9 +25,9 @@ import { CampoComprobante, CARGA_MASIVA_MAX_BYTES_ARCHIVO, MotivoPendienteCompro
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
 import { renderizar, ligadoA } from '../helpers/sql-ligado.js';
-import { testToken, operacionesDePartida, fuenteDePrueba, type TestRole } from '../helpers/auth.js';
+import { testToken, operacionesDePartida, fuenteDePrueba, type TestRole, conCadenaEnFuente } from '../helpers/auth.js';
 // HU #13427: Comprobantes pasó al árbol; la operación la da la acción de partida (expansión del resolutor).
-import { expandir } from '../../src/modules/permisos/arbol/expansion.js';
+import { codigosQueConceden, expandir, operacionesDe } from '../../src/modules/permisos/arbol/expansion.js';
 
 const kdb = createKeyedDb();
 vi.mock('../../src/db/client.js', () => ({ db: kdb.db, getPoolStats: vi.fn().mockResolvedValue({ utilization: 0, total: 0, idle: 0, waiting: 0 }) }));
@@ -155,12 +155,15 @@ describe('AC1 — cada ruta exige su función del motor; el reparto de partida e
 
   it.each(RUTAS)('%s: un usuario con las otras cuatro pero sin ESTA → 403 sin_funcion (cada ruta exige la suya)', async (codigo, pedir) => {
     const app = await buildApp();
-    const otras = RUTAS.map(([c]) => c).filter((c) => c !== codigo);
+    // HU #13429: con la cadena, una operación se tiene por su ACCIÓN; «las otras cuatro» = las acciones que dan las
+    // otras y NO dan esta (ver la cola y ver el comprobante comparten «Ver la cola»: tenerla es tener las dos).
+    const otras = [...new Set(RUTAS.map(([c]) => c).filter((c) => c !== codigo)
+      .flatMap((c) => codigosQueConceden(c)).filter((a) => a.startsWith('accion.') && !operacionesDe(a).includes(codigo)))];
     // El bearer PRIMERO (`testToken` re-fija la fuente de prueba); luego la fuente propia. Y la caché de
     // permisos dura 60 s y el sub 11 se reutiliza entre casos: se invalida antes de cada uno.
     const bearer = await auth('financiera', 11);
     invalidarPermisosDe(11);
-    fijarFuenteDePermisos(async (sub) => (sub === 11 ? { rol: 'financiera', tipoEnlace: 'ninguno', funcionesDelRol: otras, excepciones: [] } : null));
+    fijarFuenteDePermisos(conCadenaEnFuente(async (sub) => (sub === 11 ? { rol: 'financiera', tipoEnlace: 'ninguno', funcionesDelRol: otras, excepciones: [] } : null)));
     const res = await pedir(request(app)).set('Authorization', bearer);
     expect(res.status).toBe(403);
     expect(res.body).toMatchObject({ funcion: codigo, motivo: 'sin_funcion' });

@@ -84,12 +84,11 @@ const auth = async (role: TestRole, sub: number) =>
 const authSinReactivar = async (sub: number) => {
   const token = await auth('admin', sub);
   await registrarUsuarioDePrueba(sub, {
-    rol: 'admin', tipoEnlace: 'ninguno', excepciones: [],
-    // HU #13427: `reactivar` llega por la acción «Reintentar, reenviar…, reactivar»; sin la acción y con sus otras tres sueltas.
-    funcionesDelRol: [
-      ...operacionesDePartida('admin').filter((c) => c !== 'siigo.factura.reactivar' && c !== 'accion.facturacion_operacion.gestionar'),
-      'siigo.factura.reintentar', 'siigo.factura.reenviar_correo', 'siigo.factura.marcar_fallido',
-    ],
+    rol: 'admin', tipoEnlace: 'ninguno',
+    // HU #13427: `reactivar` llega por la acción «Reintentar, reenviar…, reactivar». HU #13429: con la cadena, una
+    // operación suelta ya no se concede sola; el admin entero con `reactivar` revocada (revocar gana) es lo mismo.
+    funcionesDelRol: operacionesDePartida('admin'),
+    excepciones: [{ codigo: 'siigo.factura.reactivar', efecto: 'revocar' }],
   });
   return token;
 };

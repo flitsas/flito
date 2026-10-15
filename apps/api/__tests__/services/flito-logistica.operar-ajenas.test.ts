@@ -12,7 +12,7 @@ import express from 'express';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import type { SQL } from 'drizzle-orm';
 import { chain } from '../helpers/db.js';
-import { testToken, registrarUsuarioDePrueba } from '../helpers/auth.js';
+import { testToken, registrarUsuarioDePrueba, conCadena } from '../helpers/auth.js';
 
 const selectMock = vi.fn();
 const selectDistinctMock = vi.fn();
@@ -96,11 +96,10 @@ describe('servicio — la propiedad la decide `operaAjenas`, no `role`', () => {
         { id: 10, rol: 'admin', tipoEnlace: 'ninguno' },
         { id: 11, rol: 'mensajero', tipoEnlace: 'ninguno' },
       ]))
-      .mockReturnValueOnce(chain([ // reparto de las dos funciones
-        { rol: 'repartidor_norte', codigo: 'logistica.actas.entregar' },
-        { rol: 'admin', codigo: 'logistica.actas.entregar' },
-        { rol: 'admin', codigo: 'logistica.actas.operar_ajenas' },
-        { rol: 'mensajero', codigo: 'logistica.actas.entregar' },
+      .mockReturnValueOnce(chain([ // reparto de las dos funciones (HU #13429: con su cadena, como tras la 0239)
+        ...conCadena(['logistica.actas.entregar']).map((codigo) => ({ rol: 'repartidor_norte', codigo })),
+        ...conCadena(['logistica.actas.entregar', 'logistica.actas.operar_ajenas']).map((codigo) => ({ rol: 'admin', codigo })),
+        ...conCadena(['logistica.actas.entregar']).map((codigo) => ({ rol: 'mensajero', codigo })),
       ]))
       .mockReturnValueOnce(chain([{ userId: 11, codigo: 'logistica.actas.entregar', efecto: 'revocar' }]))
       .mockImplementationOnce(() => {

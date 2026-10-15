@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import { SignJWT } from 'jose';
 import { chain } from '../helpers/db.js';
-import { registrarUsuarioDePrueba, testToken } from '../helpers/auth.js';
+import { registrarUsuarioDePrueba, soloEstas, testToken } from '../helpers/auth.js';
 
 const selectMock = vi.fn();
 const insertMock = vi.fn();
@@ -45,7 +45,8 @@ beforeEach(async () => {
 
 /** Un usuario con EXACTAMENTE estas funciones en su rol (nombre de rol a elección). */
 async function usuario(sub: number, rol: string, funciones: string[]): Promise<string> {
-  await registrarUsuarioDePrueba(sub, { rol, tipoEnlace: 'ninguno', funcionesDelRol: funciones, excepciones: [] });
+  // HU #13429: EXACTAMENTE estas — con la cadena (el ítem trae las hermanas) y revocando lo que no se pidió.
+  await registrarUsuarioDePrueba(sub, { rol, tipoEnlace: 'ninguno', ...soloEstas(funciones) });
   const secret = new TextEncoder().encode(process.env.JWT_SECRET);
   const jwt = await new SignJWT({ username: `u${sub}`, role: rol })
     .setProtectedHeader({ alg: 'HS256' }).setSubject(String(sub)).setExpirationTime('1h').sign(secret);
@@ -186,14 +187,14 @@ describe('AC4 — escribir en un ítem exige «Administrar <ítem>»', () => {
     expect(c.body).toMatchObject({ funcion: 'clients.clientes.crear' });
   });
 
-  it('la partida de `supervisor_flota` (catálogo) entra a las tres páginas de Mantenimiento y NO crea órdenes (solo admin hoy)', async () => {
+  // HU #13429 (AC3, P-24 aprobado): el ítem antiguo «Órdenes de trabajo» concede su «Administrar»; supervisor_flota lo gana.
+  it('la partida de `supervisor_flota` (catálogo) entra a las tres páginas de Mantenimiento y crea órdenes (ganancia aprobada AC3 de la #13429)', async () => {
     const sup = `Bearer ${await testToken({ role: 'supervisor_flota', sub: 9220 })}`;
     for (const ruta of ['/api/maintenance/schedule', '/api/maintenance/work-orders', '/api/maintenance/indicators']) {
       expect((await request(app).get(ruta).set('Authorization', sup)).status, ruta).not.toBe(403);
     }
     const r = await request(app).post('/api/maintenance/work-orders').set('Authorization', sup).send({});
-    expect(r.status).toBe(403);
-    expect(r.body).toMatchObject({ funcion: 'maintenance.ordenes.administrar' });
+    expect(r.status).not.toBe(403); // pasa la guarda; el cuerpo vacío lo rechaza la validación
   });
 });
 

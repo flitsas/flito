@@ -18,7 +18,7 @@ import express from 'express';
 import { getTableName } from 'drizzle-orm';
 import { CampoImpuesto, EstadoImpuesto, TipoSoporte } from '@operaciones/shared-types';
 import { createKeyedDb } from '../helpers/keyed-db.js';
-import { testToken, operacionesDePartida, fuenteDePrueba, type TestRole } from '../helpers/auth.js';
+import { testToken, operacionesDePartida, fuenteDePrueba, type TestRole, conCadenaEnFuente } from '../helpers/auth.js';
 
 const kdb = createKeyedDb();
 vi.mock('../../src/db/client.js', () => ({ db: kdb.db, getPoolStats: vi.fn().mockResolvedValue({ utilization: 0, total: 0, idle: 0, waiting: 0 }) }));
@@ -154,7 +154,7 @@ describe('AC2 — acceso por función `impuestos.recibos.cargar_caja`', () => {
     const bearer = await auth('admin', 9);
     // Fuente propia y MUTABLE: quitar la función después no vacía la caché (a diferencia de re-registrar).
     const filas = { rol: 'admin', tipoEnlace: 'ninguno', funcionesDelRol: [...operacionesDePartida('admin')], excepciones: [] };
-    fijarFuenteDePermisos(async (sub) => (sub === 9 ? filas : null));
+    fijarFuenteDePermisos(conCadenaEnFuente(async (sub) => (sub === 9 ? filas : null)));
 
     armarCarga();
     expect((await request(app).post(RUTA).set('Authorization', bearer).attach('archivo', PDF, 'caja.pdf')).status).toBe(200);
