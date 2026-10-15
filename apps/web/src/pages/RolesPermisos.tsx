@@ -46,15 +46,15 @@ const COPY_PROPIO_CAMBIO = 'Este guardado cambió tu propio conjunto de funcione
 export const copyGuardado = (rol: string) => `Permisos de ${rol} guardados: cada usuario los verá en su siguiente acción.`;
 
 type Modal = { tipo: 'crear' } | { tipo: 'editar'; rol: RolCatalogo } | { tipo: 'borrar'; rol: RolCatalogo } | null;
-interface ArbolRol { arbol: Nodo[]; transversales: Nodo[]; marcados: string[] }
+interface ArbolRol { arbol: Nodo[]; marcados: string[] }
 
 const porNombre = (a: RolCatalogo, b: RolCatalogo) => a.nombre.localeCompare(b.nombre, 'es');
 
 async function pedirArbol(codigo: string): Promise<ArbolRol> {
   const r = await permisosApi.arbolDelRol(codigo);
   return {
-    arbol: normalizar(r.arbol), transversales: normalizar(r.transversales),
-    marcados: [...marcadosDelApi(r.arbol), ...marcadosDelApi(r.transversales)],
+    arbol: normalizar(r.arbol),
+    marcados: marcadosDelApi(r.arbol),
   };
 }
 
@@ -137,8 +137,8 @@ export default function RolesPermisos() {
   const actual = seleccionado ? arboles[seleccionado] : undefined;
   // La estructura es la misma para todos los roles: la de cualquier árbol ya cargado sirve para contar.
   const estructura = actual ?? Object.values(arboles)[0];
-  const indice = useMemo(() => indexar(actual?.arbol ?? [], actual?.transversales ?? []), [actual]);
-  const total = useMemo(() => (estructura ? totalMarcables(estructura.arbol, estructura.transversales) : 0), [estructura]);
+  const indice = useMemo(() => indexar(actual?.arbol ?? []), [actual]);
+  const total = useMemo(() => (estructura ? totalMarcables(estructura.arbol) : 0), [estructura]);
   const cuentaPorRol = useMemo(() => Object.fromEntries(roles.map((r) => [r.codigo, cuadros[r.codigo]?.length])), [roles, cuadros]);
   const base = useMemo(() => new Set(seleccionado ? cuadros[seleccionado] ?? [] : []), [cuadros, seleccionado]);
   const nCambios = useMemo(
@@ -233,7 +233,7 @@ export default function RolesPermisos() {
   };
 
   const sinRoles = carga === 'ok' && roles.length === 0;
-  const sinFunciones = carga === 'ok' && !!estructura && estructura.arbol.length === 0 && estructura.transversales.length === 0;
+  const sinFunciones = carga === 'ok' && !!estructura && estructura.arbol.length === 0;
 
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
@@ -299,7 +299,6 @@ export default function RolesPermisos() {
               key={rol.codigo}
               rol={rol}
               arbol={actual.arbol}
-              transversales={actual.transversales}
               indice={indice}
               base={base}
               borrador={borrador}
@@ -331,7 +330,7 @@ export default function RolesPermisos() {
 const BARRA_ESQ = 'animate-pulse rounded-[10px]';
 const TONO_ESQ = { background: 'var(--flit-bg-app)' } as const;
 
-/** Tarjeta del rol + tarjeta del árbol con 9 filas (8 elementos visibles + transversales; delta «Estados»). */
+/** Tarjeta del rol + tarjeta del árbol con 9 filas (8 elementos visibles; delta «Estados»). */
 function EsqueletoArbol() {
   return (
     <div role="status" aria-busy="true" aria-label="Cargando los permisos del rol">

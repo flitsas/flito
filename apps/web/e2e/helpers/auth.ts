@@ -214,8 +214,13 @@ const PESV_TRANSITORIAS = [
   'pesv.retencion_edicion.administrar', 'drivers.conductores.administrar', 'drivers.capacitaciones.administrar',
   'drivers.incidentes.administrar', 'drivers.incidentes_registro.administrar', 'drivers.checklists.administrar',
   'drivers.alcoholimetria.administrar', 'drivers.emergencias.administrar', 'jornadas.control.administrar',
-  'rum.resumen.ver',
 ] as const;
+/**
+ * HU #13588/#13589 (P-35..P-37): `rum.resumen.ver` ya no es suelto: viene con el ítem «Rendimiento»
+ * (`pagina.admin_rendimiento`). Solo `admin` lo tiene (ADMIN_ALLOWED_PAGES incluye `admin_rendimiento`);
+ * un rol sin el ítem no lo recibe.
+ */
+const RENDIMIENTO_13589 = ['rum.resumen.ver'] as const;
 
 /** HU #13422: los 13 códigos de la 0229 (todos a `admin`; las dos lecturas también a auditor y financiera). */
 const LECTURAS_13422 = ['clients.clientes.ver', 'finanzas.reporte_costos.ver'] as const;
@@ -248,8 +253,10 @@ const SENSIBLES_13423 = [
   // HU #13427 (0235): el transitorio de Siigo se parte en las operaciones de sus acciones (admin las tiene todas).
   'siigo.conceptos.administrar', 'siigo.catalogos.sincronizar', 'siigo.terceros.configurar', 'siigo.freno.reactivar',
   'siigo.credenciales.ver', 'siigo.credenciales.registrar_pruebas', 'siigo.credenciales.registrar_produccion', 'siigo.credenciales.probar',
-  'siigo.conceptos.confirmar', 'siigo.emision.ver', 'vehicles.vehiculos.consultar', 'runt.persona.consultar',
-  'runt.cedula.leer', 'integraciones.fasecolda.buscar',
+  'siigo.conceptos.confirmar', 'siigo.emision.ver',
+  // HU #13588/#13589: ya no sueltas; vienen con su ítem (consultar vehículos con Vehículos/SOAT antiguo/Flota/
+  // Trámite Digital; RUNT persona, cédula y Fasecolda con Trámite Digital). admin tiene todos esos ítems.
+  'vehicles.vehiculos.consultar', 'runt.persona.consultar', 'runt.cedula.leer', 'integraciones.fasecolda.buscar',
 ] as const;
 
 /**
@@ -321,8 +328,10 @@ const FUNCIONES_POR_ROL_BASE: Readonly<Record<string, readonly string[]>> = {
     'logistica.viajes.registrar',
     'logistica.viajes.quitar',
     // HU #13421 (0226, ADR-0023): operaciones de los módulos legacy PESV/drivers/jornadas/RUM,
-    // sembradas a `admin` (las «administrar» son transitorias; `rum.resumen.ver` es permanente).
+    // sembradas a `admin` (las «administrar» son transitorias).
     ...PESV_TRANSITORIAS,
+    // HU #13589: el resumen RUM, con el ítem «Rendimiento».
+    ...RENDIMIENTO_13589,
     // HU #13422 (0229, ADR-0023): los ocho directorios de operación, sembrados a `admin`.
     ...OPERACION_13422,
     // HU #13423 (0230): los seis sensibles y las cuatro de solo sesión, sembrados a `admin`.

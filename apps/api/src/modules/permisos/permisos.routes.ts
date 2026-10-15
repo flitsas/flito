@@ -34,8 +34,8 @@ router.get('/funciones', exigirFuncion('permisos.catalogo.ver'), async (_req: Re
 });
 
 /**
- * HU #13429 (§5-quater.5) — GET /arbol: la estructura del árbol (elementos, ítems, acciones, opcionales) y los
- * transversales aparte, sin marcas. Sucesor de `GET /funciones`, que queda hasta #13430.
+ * HU #13429 (§5-quater.5) — GET /arbol: la estructura del árbol (elementos, ítems, acciones, opcionales), sin
+ * marcas (HU #13589: sin bloque de transversales). Sucesor de `GET /funciones`, que queda hasta #13430.
  */
 router.get('/arbol', exigirFuncion('permisos.catalogo.ver'), (_req: Request, res: Response) => {
   res.json(arbolDef());

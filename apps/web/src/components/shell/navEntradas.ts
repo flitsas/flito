@@ -185,4 +185,6 @@ export const NAV_ENTRADAS: NavItemDecl[] = [
   // divergir. Las `keywords` traen «siigo» y «facturacion electronica» para que el Command Palette
   // siga ofreciendo las tres pantallas juntas, que es lo único que se pierde al cambiar de sección.
   { page: 'siigo_credenciales', to: '/siigo/credenciales',        section: 'admin',         keywords: 'siigo credenciales access key llave token integracion facturacion electronica dian ambiente pruebas produccion conexion probar cifrado' },
+  // HU #13589 (P-35..P-37): «Rendimiento» es un ítem de Administración (antes el resumen RUM era un permiso suelto).
+  { page: 'admin_rendimiento', to: '/admin/rendimiento',          section: 'admin',         keywords: 'rendimiento rum web vitals lcp inp cls velocidad' },
 ];

@@ -1,6 +1,6 @@
 ## Qué es
 
-La pantalla donde se decide **qué puede ver y hacer cada rol** dentro de FLITO. Muestra la lista de roles con cuántos permisos tiene cada uno y, al lado, los **Permisos del rol** seleccionado, ordenados igual que el menú: cada **elemento del menú** (Gestión, Finanzas, Administración…) contiene sus **ítems** (las pantallas), y cada ítem sus **acciones** (ver, crear, exportar…). Al final va el bloque **Permisos que no dependen del menú**. Desde aquí también se crean, editan y borran roles.
+La pantalla donde se decide **qué puede ver y hacer cada rol** dentro de FLITO. Muestra la lista de roles con cuántos permisos tiene cada uno y, al lado, los **Permisos del rol** seleccionado, ordenados igual que el menú: cada **elemento del menú** (Gestión, Finanzas, Administración…) contiene sus **ítems** (las pantallas), y cada ítem sus **acciones** (ver, crear, exportar…). Todo lo que se reparte está dentro del menú: no hay permisos sueltos aparte. Desde aquí también se crean, editan y borran roles.
 
 ## Para quién
 
@@ -20,9 +20,10 @@ Menú **Administración**, ítem **Roles y permisos**, junto a **Usuarios**.
    - Las operaciones **Opcional** (por ejemplo, ver el documento del propietario sin enmascarar) no vienen con su ítem: se marcan aparte.
    - Un ítem marcado sin ninguna acción avisa «Marcado sin ninguna acción: …»; marque al menos una o desmarque el ítem.
    - **Ayuda** no se marca: cada usuario la ve sola, con los capítulos de lo que puede usar.
-   - **Permisos que no dependen del menú** (por ejemplo, buscar un vehículo por placa) valen aunque el rol no tenga ningún elemento marcado.
+   - Algunas operaciones se usan desde varias pantallas y **vienen con el módulo donde se usan**, sin casilla propia: consultar vehículos viene con **Vehículos**, **SOAT antiguo**, **Flota** y **Trámite Digital**; consultar una persona en el RUNT, leer la cédula y buscar en Fasecolda vienen con **Trámite Digital**, que incluye Traspaso. Basta con marcar el ítem.
+   - El resumen de rendimiento de FLITO es el ítem **Rendimiento** de **Administración**: quien lo tenga lo verá en el menú, dentro de Administración.
 5. Pulse **Guardar cambios**. El cambio queda aplicado en la siguiente acción de cada usuario con ese rol; nadie tiene que volver a entrar. La barra **Sin guardar** cuenta lo pendiente y **Descartar** lo devuelve a lo guardado.
-6. Para repartirlo todo de una vez use **Marcar todo**, que marca el árbol y los permisos que no dependen del menú, pero **no** los opcionales; **Desmarcar todo** quita todo. Ninguno de los dos guarda por sí solo.
+6. Para repartirlo todo de una vez use **Marcar todo**, que marca todos los ítems y acciones del árbol, pero **no** los opcionales; **Desmarcar todo** quita todo. Ninguno de los dos guarda por sí solo.
 7. **Nuevo rol** abre el formulario: nombre, descripción y **Enlace**, que decide qué datos ven las personas con ese rol. Elija una de cuatro opciones; cada una explica debajo lo que verá el rol:
    - **Ninguno** (viene marcado): ve todos los datos de los módulos que el rol tenga marcados.
    - **Compañía**: ve solo lo de su compañía en Gestión Trámites, SOAT, Impuestos, su bolsa, Comprobantes y Logística. No ve catálogos ni configuración; el resto le queda cerrado.

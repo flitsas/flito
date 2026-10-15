@@ -143,7 +143,7 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
       onClose();
     } catch (err) {
       const cuerpo = cuerpoAntiBloqueo(err);
-      if (cuerpo) setAvisoBloqueo(aviso409(cuerpo, indiceArbol ?? indexar([], []), 'usuario'));
+      if (cuerpo) setAvisoBloqueo(aviso409(cuerpo, indiceArbol ?? indexar([]), 'usuario'));
       else toast.error(formatErrors(err));
     }
     finally { setSubmitting(false); setPendienteRol(false); }

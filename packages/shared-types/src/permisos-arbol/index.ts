@@ -18,7 +18,7 @@ import { ARBOL_PERFIL } from './perfil.js';
 
 /**
  * HU #13429: `operacion` = una operación suelta marcable que no es nodo del menú — opcional de una acción o
- * de un ítem antiguo (`opcional: true`, cuelga de él) o transversal (bloque `transversales`, sin padre).
+ * de un ítem antiguo (`opcional: true`, cuelga de él). HU #13589 (P-35..P-37): ya no hay transversales sin padre.
  */
 export type TipoNodoPermiso = 'elemento' | 'item' | 'accion' | 'operacion';
 
@@ -26,7 +26,7 @@ export interface NodoArbolDef {
   codigo: string;
   nombre: string;
   tipo: TipoNodoPermiso;
-  /** Código del nodo padre; `null` en los elementos (nivel 1) y en los transversales. */
+  /** Código del nodo padre; `null` en los elementos (nivel 1). */
   padre: string | null;
   /** Orden entre hermanos (ascendente). */
   orden: number;
@@ -57,18 +57,17 @@ export interface NodoArbolUsuario extends Omit<NodoArbolRol, 'hijos'> {
   hijos: NodoArbolUsuario[];
 }
 
-/** HU #13429 — `GET /api/permisos/arbol`: la estructura sin marcas. Los transversales van aparte (P-29). */
-export interface ArbolPermisosRespuesta { arbol: NodoArbolDef[]; transversales: NodoArbolDef[] }
+/** HU #13429 — `GET /api/permisos/arbol`: la estructura sin marcas. HU #13589: sin bloque `transversales` (P-35..P-37). */
+export interface ArbolPermisosRespuesta { arbol: NodoArbolDef[] }
 
 /** HU #13429 — `GET /api/permisos/roles/:codigo/arbol`. */
 export interface ArbolRolRespuesta {
   rol: { codigo: string; nombre: string; tipoEnlace: string };
   arbol: NodoArbolRol[];
-  transversales: NodoArbolRol[];
 }
 
 /** HU #13429 — `GET /api/users/:id/arbol` (guarda del módulo `usuarios`; §5-quater.10, desvío). */
-export interface ArbolUsuarioRespuesta { userId: number; rol: string; arbol: NodoArbolUsuario[]; transversales: NodoArbolUsuario[] }
+export interface ArbolUsuarioRespuesta { userId: number; rol: string; arbol: NodoArbolUsuario[] }
 
 export const PREFIJO_ACCION = 'accion.';
 export const PREFIJO_ELEMENTO = 'menu.';
