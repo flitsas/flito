@@ -264,6 +264,11 @@ export const PAGES = {
   // conceder la página a otro rol sería regalarle una pantalla que responde 403 en cada petición.
   // Lo siembra la 0187 (`pagina.roles_permisos`, reparto `admin`).
   roles_permisos: 'Roles y permisos',
+  // HU #13588 (P-37, decisión de David del 2026-10-15): «Rendimiento» (`/admin/rendimiento`, el resumen RUM)
+  // pasa a ser ítem de Administración y concede `rum.resumen.ver`, que deja de ser un permiso suelto. Lo
+  // siembra la 0240 (a quien hoy tiene `rum.resumen.ver`, más `admin` como toda página); la pantalla la gatea
+  // la HU FRONTEND #13589. Sin fila en `ROLE_DEFAULT_PAGES`.
+  admin_rendimiento: 'Rendimiento',
   // Ayuda FLITO (HU #11893): contenedor del índice in-app. El slug existe SOLO para el label de
   // NoAccess y el ítem de nav. NO entra en `PAGE_GROUPS` (Users no debe ofrecer concederlo a mano)
   // ni en ninguna fila de `ROLE_DEFAULT_PAGES`: la visibilidad es derivada (`hasPage` de ≥1 slug
@@ -310,7 +315,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   // grupos —una rareza que nadie sabía explicar— porque el portal la tenía prestada.
   { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'flito_soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta', 'flito_bolsas', 'flito_comparendos', 'flito_conciliacion'] },
   { label: 'Finanzas', pages: ['finanzas_reporte_costos', 'finanzas_gastos_diarios', 'siigo_parametrizacion', 'siigo_operacion', 'flito_tarifas', 'flito_servicios_adicionales', 'flito_comprobantes'] },
-  { label: 'Administración', pages: ['users', 'privacy', 'siigo_credenciales', 'roles_permisos'] },
+  { label: 'Administración', pages: ['users', 'privacy', 'siigo_credenciales', 'roles_permisos', 'admin_rendimiento'] },
 ];
 
 // ============================================================================

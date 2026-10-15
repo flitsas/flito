@@ -130,12 +130,27 @@ export const ITEMS_LEGADO_OPS: Readonly<Record<string, ItemLegado>> = {
 };
 
 /**
- * P-29 — Operaciones TRANSVERSALES: sin ítem del menú (búsquedas de sesión de #13423 y el resumen RUM). Se
- * conceden marcándolas, sin gating: colgarlas de un ítem haría perder a quien las usa desde otra pantalla.
+ * HU #13588 (P-35/P-36, decisión de David del 2026-10-15: «si un permiso está en varios módulos, debería
+ * aparecer en cada uno») — la consulta de vehículos y su pasaporte la usan Vehículos, SOAT (antiguo, validador
+ * por lotes), Flota (pestaña Pasaporte de `/fleet/:id`) y Trámite Digital («Pasaporte VIN»): es operación de
+ * los cuatro ítems.
  */
-export const TRANSVERSALES: readonly string[] = [
-  'integraciones.fasecolda.buscar', 'rum.resumen.ver', 'runt.cedula.leer', 'runt.persona.consultar', 'vehicles.vehiculos.consultar',
-];
+const CONSULTAR_VEHICULOS = 'vehicles.vehiculos.consultar';
+
+/** HU #13588 — Las búsquedas del wizard de Trámite Digital (Traspaso cuelga de él, sin ítem propio). */
+const BUSQUEDAS_DEL_TRAMITE: readonly string[] = ['runt.persona.consultar', 'runt.cedula.leer', 'integraciones.fasecolda.buscar'];
+
+/**
+ * HU #13588 — Las operaciones que la #13429 dejó TRANSVERSALES (P-29) y que ahora concede su ítem antiguo. Van
+ * aparte de `ITEMS_LEGADO_OPS` porque ese mapa es la entrada del bloque generado de la 0239 (ya aplicada): el
+ * reparto de estas lo hace la 0240. Para el resolutor y el catálogo son operaciones del ítem como las demás.
+ */
+export const OPERACIONES_INCORPORADAS_13588: Readonly<Record<string, readonly string[]>> = {
+  'pagina.vehicles': [CONSULTAR_VEHICULOS],
+  'pagina.soat': [CONSULTAR_VEHICULOS],
+  'pagina.fleet': [CONSULTAR_VEHICULOS],
+  'pagina.tramite': [CONSULTAR_VEHICULOS, ...BUSQUEDAS_DEL_TRAMITE],
+};
 
 /** Los 43 transitorios «Administrar <ítem>» que esta HU retira (los de la familia PESV, por su acción). */
 export const TRANSITORIOS_RETIRADOS: readonly string[] = [...new Set([

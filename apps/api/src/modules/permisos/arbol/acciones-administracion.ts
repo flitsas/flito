@@ -77,6 +77,14 @@ export const ACCIONES_ADMINISTRACION: Readonly<Record<string, AccionArbol>> = {
 };
 
 /**
+ * HU #13588 (P-37) — Ítems de Administración SIN nivel 3 que conceden operaciones al ser efectivos (como un ítem
+ * antiguo): «Rendimiento» da el resumen RUM, que deja de ser transversal. La 0240 borra sus filas directas.
+ */
+export const ITEMS_ADMINISTRACION_OPS: Readonly<Record<string, { operaciones: readonly string[] }>> = {
+  'pagina.admin_rendimiento': { operaciones: ['rum.resumen.ver'] },
+};
+
+/**
  * Las operaciones NUEVAS de esta HU y el código de PARTIDA del que salen (mismo contrato que en
  * `acciones-finanzas.ts`). Las de Perfil no existían en el mundo plano: su partida es `pagina.perfil` (no
  * se leen en `catalogoPlano()`); las de compañía parten una guarda que SIGUE viva (`companias.editar`).

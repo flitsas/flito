@@ -1,5 +1,5 @@
 // HU #13427 / #13428 (Feature #13416 F3) — Administración: Usuarios, Roles y permisos (#13428) e
-// «Integración con Siigo» (#13427, P-3), con los nombres literales del catálogo aprobado. Clientes y
+// «Integración con Siigo» (#13427, P-3) y «Rendimiento» (#13588, P-37), con los nombres literales del catálogo aprobado. Clientes y
 // proveedores y Bitácora cuelgan de Gestión (decisión del PO del 9-oct): viven en `gestion.ts`.
 import type { NodoArbolDef } from './index.js';
 import { itemsANodos, type ItemDef } from './nodos.js';
@@ -28,6 +28,10 @@ export const ITEMS_ADMINISTRACION: readonly ItemDef[] = [
     { clave: 'credenciales_produccion', nombre: 'Registrar credenciales de producción', descripcion: 'Registrar y borrar las credenciales de Siigo del ambiente de producción.' },
     { clave: 'probar_conexion', nombre: 'Probar la conexión', descripcion: 'Probar la conexión con Siigo con las credenciales registradas.' },
   ] },
+  // HU #13588 (P-37): el resumen de rendimiento (RUM), orden 60 (Privacidad 40 y Google Drive 50 son ítems antiguos de
+  // `legado.ts` bajo el mismo elemento). Sin nivel 3: el ítem concede `rum.resumen.ver` (lo expande
+  // el API, `ITEMS_ADMINISTRACION_OPS`), como un ítem antiguo.
+  { slug: 'admin_rendimiento', clave: 'rendimiento', nombre: 'Rendimiento', elemento: 'administracion', orden: 60, acciones: [] },
 ];
 
 /** Ítems y acciones del área, padres antes que hijos. */

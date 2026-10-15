@@ -37,8 +37,10 @@ General → Tablero: Ver (solo ver)
 Perfil → Perfil: Ver mis datos · Cambiar mi contraseña
 `.trim().split('\n');
 
+// «Rendimiento» (HU #13588) no es del catálogo aprobado de la #13428: lo cubre `permisos-arbol-sueltos.test.ts`.
+const FUERA = new Set(['pagina.siigo_credenciales', 'pagina.admin_rendimiento']);
 const ARBOL = [
-  ...ARBOL_ADMINISTRACION.filter((n) => n.codigo !== 'pagina.siigo_credenciales' && n.padre !== 'pagina.siigo_credenciales'),
+  ...ARBOL_ADMINISTRACION.filter((n) => !FUERA.has(n.codigo) && !FUERA.has(n.padre ?? '')),
   ...ARBOL_CLIENTES_Y_BITACORA, ...ARBOL_GENERAL, ...ARBOL_PERFIL,
 ];
 const NOMBRE_ELEMENTO = new Map(ARBOL_PERMISOS.filter((n) => n.tipo === 'elemento').map((n) => [n.codigo, n.nombre]));

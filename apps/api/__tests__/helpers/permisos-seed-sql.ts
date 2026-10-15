@@ -69,6 +69,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0237_permisos_arbol_administracion_reparto.sql', // HU #13428: regla «todos»/«alguna», reparto universal de Perfil (P-22) + retiro
   '0238_permisos_arbol_legado_siembra.sql', // HU #13429: elementos `menu.*`, cadena de las páginas y «Administrar» de PESV
   '0239_permisos_arbol_legado_reparto.sql', // HU #13429: «Administrar» PESV (A1), cadena de roles y retiro del legado
+  '0240_permisos_sueltos_a_su_item.sql', // HU #13588: ítem «Rendimiento» (copia de `rum.resumen.ver`) y retiro de los 5 sueltos
 ] as const;
 
 /**
@@ -264,7 +265,11 @@ export function repartoDeSql(sqls: readonly string[], nombre = 'sql'): Map<strin
       }
     }
     for (const bloque of bloquesDelete(sql, 'permisos_rol_funcion')) {
-      for (const [rol, codigo] of tuplas(bloque)) reparto.get(rol!)?.delete(codigo!);
+      for (const [rol, codigo] of tuplas(bloque)) {
+        // HU #13588: `WHERE funcion_codigo IN ('a', …)` (una columna) retira el código de todos los roles.
+        if (codigo === undefined) for (const codigos of reparto.values()) codigos.delete(rol!);
+        else reparto.get(rol!)?.delete(codigo);
+      }
     }
     const todos = reglaTodosDeSql(sql);
     // Sin base no hay catálogo de roles: «cada rol» = los que ya tienen alguna fila (en el pliegue, los doce).

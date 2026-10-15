@@ -26,7 +26,7 @@ describe('la cadena del árbol', () => {
     expect(ancestrosDe('accion.pesv_plan.administrar')).toEqual(['pagina.pesv_plan', 'menu.pesv']);
     expect(PADRE.get('menu.gestion')).toBeNull();
     expect(PADRE.has('menu.ayuda')).toBe(false); // derivada: no es un permiso
-    expect(claseDe('vehicles.vehiculos.consultar')).toBe('transversal');
+    expect(claseDe('vehicles.vehiculos.consultar')).toBeNull(); // HU #13588: ya no es transversal, es de su ítem
     expect(claseDe('vehicles.propietario.ver_documento')).toBe('opcional');
     expect(claseDe('soat.excel.exportar')).toBeNull();
   });
@@ -46,9 +46,9 @@ describe('AC7 / TC-14 — tabla de verdad: la acción es efectiva ⇔ niveles 1 
     expect(efectivo(['menu.gestion', 'pagina.flito_soat', 'accion.soat.exportar_pago']).has('soat.excel.exportar_pago')).toBe(false);
   });
 
-  it('una operación absorbida marcada suelta NO entra (fallo cerrado); un transversal sí, sin cadena', () => {
+  it('una operación absorbida marcada suelta NO entra (fallo cerrado); HU #13588: tampoco una antes transversal', () => {
     expect(efectivo(['soat.excel.exportar']).has('soat.excel.exportar')).toBe(false);
-    expect(efectivo(['vehicles.vehiculos.consultar']).has('vehicles.vehiculos.consultar')).toBe(true);
+    expect(efectivo(['vehicles.vehiculos.consultar']).has('vehicles.vehiculos.consultar')).toBe(false);
   });
 
   it('un opcional vale solo si su acción o su ítem antiguo es efectivo', () => {
@@ -112,8 +112,8 @@ describe('AC7 / TC-15 y TC-12 — opción A (P-25): la excepción entra en M y d
     expect(efectivo(['menu.gestion'], ['accion.soat.exportar', 'pagina.flito_soat']).has('soat.excel.exportar')).toBe(true);
   });
 
-  it('revocar una operación suelta (transversal) sigue valiendo, al final', () => {
-    expect(efectivo(['vehicles.vehiculos.consultar'], [], ['vehicles.vehiculos.consultar']).has('vehicles.vehiculos.consultar')).toBe(false);
+  it('revocar una operación que da un ítem sigue valiendo, al final', () => {
+    expect(efectivo(['menu.gestion', 'pagina.vehicles'], [], ['vehicles.vehiculos.consultar']).has('vehicles.vehiculos.consultar')).toBe(false);
   });
 });
 

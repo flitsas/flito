@@ -67,10 +67,8 @@ describe('AC1 / TC-01 — GET /arbol: la estructura del árbol sin marcas', () =
     const accionesBajoAntiguos = arbol.filter((n) => n.tipo === 'accion' && por.get(n.padre!)?.legado).map((n) => n.codigo);
     expect(accionesBajoAntiguos.every((c) => /^accion\.pesv_[a-z_]+\.administrar$/.test(c))).toBe(true);
     expect(accionesBajoAntiguos).toHaveLength(20);
-    // P-29: los transversales van aparte, sin padre.
-    expect((r.body.transversales as NodoArbolDef[]).map((n) => n.codigo).sort()).toEqual([
-      'integraciones.fasecolda.buscar', 'rum.resumen.ver', 'runt.cedula.leer', 'runt.persona.consultar', 'vehicles.vehiculos.consultar',
-    ]);
+    // HU #13588 (AC6): ya no hay transversales; el campo se mantiene vacío por compatibilidad con el panel.
+    expect(r.body.transversales).toEqual([]);
   });
 });
 
@@ -113,10 +111,11 @@ describe('AC1, AC4, AC5, AC6 — GET /roles/:codigo/arbol', () => {
     expect(buscar(sinElemento, 'pagina.flito_soat')).toMatchObject({ sinAcciones: true, efectivo: false });
   });
 
-  it('opcionales y transversales: el opcional es efectivo solo con su padre; el transversal sin cadena', async () => {
+  it('opcionales: el opcional es efectivo solo con su padre; HU #13588: la antigua transversal no es nodo ni aparte', async () => {
     const r = await pedir(['vehicles.propietario.ver_documento', 'vehicles.vehiculos.consultar']);
     expect(buscar(r.body.arbol as NodoArbolRol[], 'vehicles.propietario.ver_documento')).toMatchObject({ marcado: true, efectivo: false });
-    expect((r.body.transversales as NodoArbolRol[]).find((n) => n.codigo === 'vehicles.vehiculos.consultar')).toMatchObject({ marcado: true, efectivo: true });
+    expect(buscar(r.body.arbol as NodoArbolRol[], 'vehicles.vehiculos.consultar')).toBeUndefined();
+    expect(r.body.transversales).toEqual([]);
   });
 
   it('404 si el rol no existe', async () => {

@@ -19,6 +19,12 @@ export const TMP_LEGADO = 'tmp_legado_13429';
 export const TMP_CADENA = 'tmp_cadena_13429';
 export const TMP_PRIMERA = 'tmp_primera_13429';
 
+/**
+ * HU #13588 — Los nodos del árbol nacidos DESPUÉS de la 0239 (los siembra la 0240). La 0238 y la 0239 ya están
+ * aplicadas: su texto no cambia, así que el generador que lo reproduce byte a byte (TC-24) los deja fuera.
+ */
+export const NACIDOS_DESPUES_DE_0239: ReadonlySet<string> = new Set(['pagina.admin_rendimiento']);
+
 /** Operación de ítem antiguo → ítem, ordenado (lo que lee la 0239 y el pliegue del test). */
 export function paresLegado(): [string, string][] {
   return Object.entries(ITEMS_LEGADO_OPS).flatMap(([item, i]) => i.operaciones.map((fn) => [fn, item] as [string, string]))
@@ -27,7 +33,7 @@ export function paresLegado(): [string, string][] {
 
 /** Cada ítem y cada acción del árbol con su ítem y su elemento (la cadena que la 0239 completa). */
 export function cadenaDelArbol(): [string, string, string][] {
-  return ARBOL_ITEMS_Y_ACCIONES.map((n) => {
+  return ARBOL_ITEMS_Y_ACCIONES.filter((n) => !NACIDOS_DESPUES_DE_0239.has(n.codigo)).map((n) => {
     const item = n.tipo === 'item' ? n.codigo : paginaDeAccion(n.codigo);
     return [n.codigo, item, PADRE.get(item)!] as [string, string, string];
   }).sort((a, b) => a[0].localeCompare(b[0]));
@@ -45,7 +51,7 @@ const upsertFunciones = (cols: string, filas: string[], set: string[]): string[]
 export function sqlSiembraLegado(catalogo: FuncionCatalogo[] = catalogoCompleto()): string {
   const porCodigo = new Map(catalogo.map((f) => [f.codigo, f]));
   const elementos = ELEMENTOS_PERMISOS.filter((e) => !e.derivado).map((e) => porCodigo.get(e.codigo)!);
-  const paginas = catalogo.filter((f) => f.tipo === 'pagina');
+  const paginas = catalogo.filter((f) => f.tipo === 'pagina' && !NACIDOS_DESPUES_DE_0239.has(f.codigo));
   const delArea = new Set(ACCIONES_POR_AREA.legado);
   const acciones = catalogo.filter((f) => delArea.has(f.codigo));
   const opcionales = catalogo.filter((f) => f.tipo === 'operacion' && f.padre);
