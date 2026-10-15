@@ -3,6 +3,7 @@ import PageHeaderCard from '../components/flit/PageHeaderCard';
 import { FlitCard, FlitEmpty, FlitField, flitBtnPrimary, flitBtnPrimaryStyle, flitInp } from '../components/flit/flitPageKit';
 import { toastOk } from '../components/flit/ToastFlito';
 import { api, ApiError } from '../lib/api';
+import { useAuth } from '../lib/auth';
 import { ROLE_LABELS } from '../lib/permissions';
 
 // Mi perfil (HU #13256, spec `docs/ux/perfil.md`).
@@ -15,9 +16,12 @@ import { ROLE_LABELS } from '../lib/permissions';
 // `pages/users/PasswordForm.tsx`); el 5xx/red/429 va en un aviso del formulario; solo el éxito es
 // toast. Nunca se muestra el texto crudo del API.
 
-/** Lo que `/auth/me` trae y esta pantalla pinta (contrato de la HU #13255). */
+/**
+ * Lo que `GET /auth/perfil` trae (HU #13428, guarda «Ver mis datos») y esta pantalla pinta. Desde la
+ * HU #13431 no se lee `/auth/me`: los datos propios tienen su propio permiso. `role` no viene del
+ * endpoint; es el código de la sesión, solo para la etiqueta de respaldo.
+ */
 interface Yo {
-  id: number;
   username?: string | null;
   name?: string | null;
   email?: string | null;
@@ -59,17 +63,23 @@ function etiquetaRol(yo: Yo): string {
 }
 
 export default function Perfil() {
+  const { user, hasFuncion } = useAuth();
   const [carga, setCarga] = useState<Carga>({ estado: 'cargando' });
   const [intento, setIntento] = useState(0);
+  const rolSesion = user?.role ?? null;
 
   useEffect(() => {
     let vivo = true;
     setCarga({ estado: 'cargando' });
-    api.get<Yo>('/auth/me')
-      .then((yo) => { if (vivo) setCarga(yo && typeof yo.id === 'number' ? { estado: 'listo', yo } : { estado: 'error' }); })
+    api.get<Yo>('/auth/perfil')
+      .then((yo) => { if (vivo) setCarga(yo && typeof yo === 'object' ? { estado: 'listo', yo: { ...yo, role: rolSesion } } : { estado: 'error' }); })
       .catch(() => { if (vivo) setCarga({ estado: 'error' }); });
     return () => { vivo = false; };
-  }, [intento]);
+  }, [intento, rolSesion]);
+
+  // HU #13431: el formulario solo con «Cambiar mi contraseña»; el id es el de la sesión (el endpoint
+  // de perfil no lo devuelve y el cambio es siempre sobre la cuenta propia).
+  const puedeCambiar = hasFuncion('perfil.contrasena.cambiar') && typeof user?.id === 'number';
 
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
@@ -80,7 +90,7 @@ export default function Perfil() {
         {carga.estado === 'listo' && (
           <>
             <SuCuenta yo={carga.yo} />
-            <FormContrasena userId={carga.yo.id} />
+            {puedeCambiar && <FormContrasena userId={user!.id} />}
           </>
         )}
       </div>

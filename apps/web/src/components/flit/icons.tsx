@@ -71,3 +71,7 @@ export const IconDot = (p: IconProps) => (
 export const IconWallet = (p: IconProps) => (
   <svg {...base} {...p}><path d="M3 8a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v1" /><path d="M3 8v9a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-2" /><path d="M21 10v5h-4a2.5 2.5 0 0 1 0-5z" /></svg>
 );
+// Ayuda (HU #13431) — el «circle-help» de Lucide, mismo trazo que el resto del set.
+export const IconHelp = (p: IconProps) => (
+  <svg {...base} {...p}><circle cx="12" cy="12" r="9" /><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" /><path d="M12 17h.01" /></svg>
+);
