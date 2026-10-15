@@ -18,6 +18,7 @@
 import type { Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER } from '../helpers/auth';
+import { arbolRol, arbolUsuario, codigosDe, elemento, item, type NodoDef } from '../helpers/arbolPermisos';
 
 // ─────────────────────────────────── Fixtures ────────────────────────────────────────────────────
 
@@ -85,6 +86,16 @@ const ROLES_CATALOGO = [
   }),
 ];
 
+/**
+ * HU #13430: el selector de permisos del modal es el árbol de tres niveles y lo pide a
+ * `GET /permisos/roles/:codigo/arbol` (rol elegido) y a `GET /users/:id/arbol` (rol guardado). Sin
+ * esos dos mocks el árbol cae en su estado de error —un segundo `role="alert"` en el formulario—, que
+ * no es lo que este spec mide. Un árbol mínimo, el mismo cuadro para todos los roles y sin
+ * excepciones: el ámbito por enlace no depende de qué permisos traiga el rol.
+ */
+const ARBOL: NodoDef[] = [elemento('general', 'General', [item('dashboard', 'Entrar al tablero')])];
+const CUADRO = new Set(codigosDe(ARBOL));
+
 async function mockCatalogos(page: Page, opts: {
   proveedores?: unknown[];
   organismos?: unknown[];
@@ -101,6 +112,18 @@ async function mockCatalogos(page: Page, opts: {
   await page.route(/\/api\/permisos\/roles\/[^/]+\/funciones$/, (r) => {
     const codigo = decodeURIComponent(new URL(r.request().url()).pathname.split('/').at(-2) ?? '');
     return r.fulfill(json({ codigo, funciones: ['pagina.dashboard'] }));
+  });
+  await page.route(/\/api\/permisos\/roles\/[^/]+\/arbol$/, (r) => {
+    const codigo = decodeURIComponent(new URL(r.request().url()).pathname.split('/').at(-2) ?? '');
+    const rol = ((opts.roles ?? ROLES_CATALOGO) as Fila[]).find((x) => x.codigo === codigo);
+    return r.fulfill(json({
+      rol: { codigo, nombre: rol?.nombre ?? codigo, tipoEnlace: rol?.tipoEnlace ?? 'ninguno' },
+      arbol: arbolRol(ARBOL, CUADRO), transversales: [],
+    }));
+  });
+  await page.route(/\/api\/users\/(\d+)\/arbol$/, (r) => {
+    const userId = Number(new URL(r.request().url()).pathname.split('/').at(-2));
+    return r.fulfill(json({ userId, rol: 'x', arbol: arbolUsuario(ARBOL, CUADRO, new Map()), transversales: [] }));
   });
 }
 
@@ -702,9 +725,9 @@ test.describe('HU #12175 · AC3 — el corte no reordena el formulario', () => {
     // ninguna otra aserción de la suite ve, porque todas preguntan por presencia y por valor.
     // Se afirma por posición REAL en el documento —no por un índice de hijo del `<form>`—, con los
     // dos anclajes estables que ya usan los TCs vecinos: el grupo accesible del ámbito y el rótulo
-    // del selector de permisos.
+    // del selector de permisos (desde la HU #13430, el título del árbol «Permisos de este usuario»).
     const ambito = grupoOrganismos(page);
-    const permisos = page.getByText('Permisos individuales', { exact: true });
+    const permisos = page.getByRole('heading', { name: 'Permisos de este usuario', exact: true });
     await expect(ambito).toBeVisible();
     await expect(permisos).toBeVisible();
 
