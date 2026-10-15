@@ -16,8 +16,6 @@ interface User {
    */
   funciones?: string[];
   transitoCodigo?: string | null;
-  /** Correo del usuario (HU #13255). Lo pinta solo `/perfil`; nunca va a consola ni a la URL. */
-  email?: string | null;
   /** Nombre de negocio del rol en `permisos_roles` (HU #13255): sirve también a roles del panel. */
   rolNombre?: string | null;
   /**

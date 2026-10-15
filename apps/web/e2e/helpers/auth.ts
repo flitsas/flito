@@ -439,10 +439,14 @@ export interface OpcionesLogin {
  */
 export async function loginAs(page: Page, user: UsuarioFixture = ADMIN_USER, opciones: OpcionesLogin = {}) {
   const me = sobreDeMe(user);
+  // HU #13431: el servidor ya no manda `email` en `/auth/me` (ni en el login); el correo solo llega
+  // por `/auth/perfil`. El mock lo quita aunque el fixture lo traiga, para parecerse al servidor.
+  const meServidor: Record<string, unknown> = { ...me };
+  delete meServidor.email;
   // /me responde 200 con el user — necesario para que useAuth() considere la sesión válida.
   // HU #12087: lista resuelta como el servidor (`sobreDeMe`).
   await page.route('**/api/auth/me', async (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(me) })
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(meServidor) })
   );
   // HU #13431: `/perfil` lee sus datos de `GET /auth/perfil` (guarda «Ver mis datos», HU #13428), con
   // la forma del servidor: sin id ni código de rol.
