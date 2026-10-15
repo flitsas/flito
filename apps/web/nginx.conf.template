@@ -30,8 +30,37 @@ server {
         proxy_pass http://${API_HOST}:${API_PORT};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
+        # IP real del cliente (Bug #12953 — «bloqueo general por intentos de ingreso»).
+        # Hay dos saltos: proxy del HOST (TLS, pone X-Forwarded-For) → este nginx → api, y la
+        # api confía en UN salto (`trust proxy = 1` en apps/api/src/app.ts). Con el
+        # `$proxy_add_x_forwarded_for` de antes, el último elemento del XFF —el que la api toma
+        # como `req.ip`— era la IP del gateway Docker, la MISMA para todos: el `authLimiter` se
+        # volvía un cupo global y el que agotaba sus intentos dejaba fuera a todo el mundo.
+        #
+        # realip reescribe `$remote_addr` con la IP del cliente: toma el XFF y descarta desde la
+        # derecha las direcciones de confianza (redes privadas/Docker); con `real_ip_recursive on`
+        # se queda con la primera NO confiable, la que anotó el proxy del host. Un XFF falso que
+        # mande el propio navegador queda a su izquierda y no la suplanta.
+        #
+        # A la api se le manda SOLO esa IP (sin concatenar el XFF entrante), así su único salto
+        # de confianza la lee tal cual. `trust proxy` NO se sube a 2: el dominio api.* llega
+        # directo del proxy del host (un salto) y ahí abriría la suplantación.
+        #
+        # Todo depende de que el proxy del host ESCRIBA el XFF (lo añada o lo reescriba con la IP
+        # de quien le conecta). Si no lo manda, `$remote_addr` sigue siendo el gateway y el cupo
+        # vuelve a ser global, como antes. Si lo reenviara tal cual llega del navegador, la IP
+        # sería suplantable (solo se esquiva el límite por IP; el bloqueo por usuario sigue).
+        # Verificarlo en cada ambiente: un `X-Forwarded-For: 1.2.3.4` falso no debe esquivar el 429.
+        set_real_ip_from 127.0.0.1;
+        set_real_ip_from ::1;
+        set_real_ip_from 10.0.0.0/8;
+        set_real_ip_from 172.16.0.0/12;
+        set_real_ip_from 192.168.0.0/16;
+        set_real_ip_from fc00::/7;
+        real_ip_header X-Forwarded-For;
+        real_ip_recursive on;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         # La carga masiva de SOAT/impuestos procesa el OCR en serie (~3,4 s por comprobante),
         # asi que una tanda llena supera los tres minutos. Este corte tiene que quedar POR
