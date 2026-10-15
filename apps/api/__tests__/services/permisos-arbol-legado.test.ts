@@ -13,8 +13,9 @@ import { ITEMS_LEGADO, PAGES } from '@operaciones/shared-types';
 import { catalogoCompleto, PAGINAS_NO_CONCEDIBLES } from '../../src/modules/permisos/catalogo.js';
 import { CODIGOS_ABSORBIDOS, expandir, expandirSinCadena, ITEMS_ANTIGUOS, PADRE } from '../../src/modules/permisos/arbol/expansion.js';
 import {
-  FAMILIA_ADMINISTRACION_PESV, ITEMS_LEGADO_OPS, TRANSITORIOS_RETIRADOS, TRANSVERSALES,
+  FAMILIA_ADMINISTRACION_PESV, ITEMS_LEGADO_OPS, TRANSITORIOS_RETIRADOS,
 } from '../../src/modules/permisos/arbol/acciones-legado.js';
+import { SUELTAS_INCORPORADAS_13588 } from '../../src/modules/permisos/arbol/expansion.js';
 import { NOMBRES_LEGADO } from '../../src/modules/permisos/catalogo-operaciones.legado.js';
 import { MIGRACIONES_CON_REPARTO, leerRepartoSembrado } from '../helpers/permisos-seed-sql.js';
 
@@ -72,10 +73,10 @@ describe('AC2 / TC-04 y TC-06 — expansión de los ítems antiguos', () => {
   });
 });
 
-describe('Clasificación — toda operación viva es opcional (de su acción o ítem) o transversal', () => {
-  it('el catálogo no deja ninguna sin clase y los transversales son los 5 de P-29', () => {
+describe('Clasificación — toda operación viva es opcional de su acción o ítem (HU #13588: sin transversales)', () => {
+  it('el catálogo no deja ninguna sin clase ni ninguna suelta sin padre', () => {
     const vivas = catalogoCompleto().filter((f) => f.tipo === 'operacion');
-    expect(vivas.filter((f) => !f.padre).map((f) => f.codigo).sort()).toEqual([...TRANSVERSALES].sort());
+    expect(vivas.filter((f) => !f.padre).map((f) => f.codigo)).toEqual([]);
     for (const f of vivas.filter((x) => x.padre)) expect(PADRE.has(f.padre!), f.codigo).toBe(true);
   });
 });
@@ -103,10 +104,13 @@ describe('AC3 / TC-07 — se retiran los 43 transitorios; `siigo.conceptos.admin
 
 // ── Paridad sobre el pliegue (TC-08, TC-25, TC-28) ──────────────────────────────────────────────────────────────
 
+// La paridad de ESTA HU es 0237 → 0239. Las 5 operaciones que la #13588 retira de sueltas (y su reparto, la 0240)
+// tienen su propia paridad en `permisos-arbol-sueltos.test.ts`: aquí no cuentan ni antes ni después.
 const ANTES = leerRepartoSembrado(MIGRACIONES_CON_REPARTO.filter((m) => m < '0238'));
-const DESPUES = leerRepartoSembrado();
+const DESPUES = leerRepartoSembrado(MIGRACIONES_CON_REPARTO.filter((m) => m < '0240'));
+const SUELTAS = new Set(SUELTAS_INCORPORADAS_13588);
 /** Operaciones y páginas (los `menu.*` y `accion.*` son contenedores, no acceso por sí mismos). */
-const acceso = (s: Set<string>) => new Set([...s].filter((c) => !c.startsWith('menu.') && !c.startsWith('accion.')));
+const acceso = (s: Set<string>) => new Set([...s].filter((c) => !c.startsWith('menu.') && !c.startsWith('accion.') && !SUELTAS.has(c)));
 const hoy = (rol: string) => acceso(expandirSinCadena(ANTES.get(rol) ?? []));
 const manana = (rol: string) => acceso(expandir(DESPUES.get(rol) ?? []));
 

@@ -44,7 +44,8 @@ import request from 'supertest';
 import express from 'express';
 import { chain } from '../helpers/db.js';
 import { testToken } from '../helpers/auth.js';
-import { catalogoCompleto } from '../../src/modules/permisos/catalogo.js';
+import { catalogoCompleto, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
+import { expandir } from '../../src/modules/permisos/arbol/expansion.js';
 import { conAlcance } from '../helpers/frontera.js';
 
 const selectMock = vi.fn();
@@ -121,8 +122,15 @@ const auth = async (role: string, sub = 1) => `Bearer ${await testToken({ sub, u
 
 const SOAT_ID = '00000000-0000-0000-0000-0000000000aa';
 
-/** Los roles a los que la foto del catálogo concede un código (lo que `testToken` les da por rol). */
-const operacionesDePartidaDe = (codigo: string) => catalogoCompleto().find((f) => f.codigo === codigo)!.roles;
+/**
+ * Los roles a los que la foto del catálogo concede un código (lo que `testToken` les da por rol). HU #13588: con el
+ * resolutor, porque `vehicles.vehiculos.consultar` ya no es fila propia: la da el ítem (Vehículos, SOAT, Flota, Trámite).
+ */
+const operacionesDePartidaDe = (codigo: string) => {
+  const porRol = new Map<string, string[]>();
+  for (const [r, c] of repartoDePartida(catalogoCompleto())) porRol.set(r, [...(porRol.get(r) ?? []), c]);
+  return [...porRol].filter(([, cs]) => expandir(cs).has(codigo)).map(([r]) => r);
+};
 
 /** Los 11 roles que YA existían. Ninguno puede cambiar de comportamiento por esta corrección. */
 const ROLES_INTERNOS = [

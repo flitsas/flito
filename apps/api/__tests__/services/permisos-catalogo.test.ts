@@ -56,9 +56,10 @@ describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo e
     // 49 → 50 / 48 → 49 desde la HU #13255: entra `perfil` en «General».
     // 50 → 71 / 49 → 70 desde la HU #13421: entran las 21 páginas por ítem del menú PESV.
     // 71 → 74 / 70 → 73 desde la HU #13422: entran las 3 páginas por ítem del menú Mantenimiento.
+    // 74 → 75 / 73 → 74 desde la HU #13588: entra `admin_rendimiento` («Rendimiento») en «Administración».
     const entradas = PAGE_GROUPS.flatMap((g) => g.pages);
-    expect(entradas).toHaveLength(74);
-    expect(new Set(entradas).size).toBe(73);
+    expect(entradas).toHaveLength(75);
+    expect(new Set(entradas).size).toBe(74);
     const repetidos = entradas.filter((s, i) => entradas.indexOf(s) !== i);
     expect(repetidos).toEqual(['transito']);
   });
@@ -84,11 +85,12 @@ describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo e
     expect(catalogo.map((f) => f.codigo)).not.toContain('pagina.flito_ayuda');
   });
 
-  it('las funciones de tipo `pagina` son 73: los 74 slugs de PAGES menos `flito_ayuda`', () => {
+  it('las funciones de tipo `pagina` del mundo plano son 73: los 75 slugs de PAGES menos `flito_ayuda` y `admin_rendimiento`', () => {
     // HU #13255: +1 (`perfil`). HU #13421: +21 (una por ítem del menú PESV). HU #13422: +3 (Mantenimiento).
-    expect(Object.keys(PAGES)).toHaveLength(74);
+    // HU #13588: +1 en PAGES (`admin_rendimiento`), que nace en el árbol (la 0240): no es del mundo plano (≤ 0231).
+    expect(Object.keys(PAGES)).toHaveLength(75);
     expect(paginas).toHaveLength(73);
-    const esperados = Object.keys(PAGES).filter((s) => s !== 'flito_ayuda').sort();
+    const esperados = Object.keys(PAGES).filter((s) => s !== 'flito_ayuda' && s !== 'admin_rendimiento').sort();
     expect(paginas.map((f) => f.codigo.replace('pagina.', '')).sort()).toEqual(esperados);
   });
 });

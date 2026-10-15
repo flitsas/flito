@@ -10,15 +10,19 @@
 // HU #13429 (diseño §5-quater.1) — Resolver en CADENA: un nodo cuenta si está marcado Y su padre cuenta
 // (`menu.*` → `pagina.*` → `accion.*` → acción anidada). Lo efectivo es:
 //   · los nodos efectivos, las operaciones de cada acción efectiva y las de cada ítem ANTIGUO efectivo;
-//   · los opcionales marcados cuya acción o ítem es efectivo; los transversales marcados (sin gating);
+//   · los opcionales marcados cuya acción o ítem es efectivo;
 //   · las conjunciones; y al final se resta lo revocado.
-// Un código marcado que no es nodo, ni opcional, ni transversal NO entra (fallo cerrado): tras la 0239 no
-// existe ninguno en la base, y el catálogo lo garantiza al arrancar.
+// Un código marcado que no es nodo ni opcional NO entra (fallo cerrado): tras la 0240 no existe ninguno en la
+// base, y el catálogo lo garantiza al arrancar.
+//
+// HU #13588 (P-35..P-37) — Ya no hay transversales: las 5 operaciones sueltas de P-29 se conceden con su ítem
+// (`vehicles.vehiculos.consultar` con Vehículos, SOAT, Flota y Trámite Digital; las búsquedas RUNT/Fasecolda
+// con Trámite Digital; `rum.resumen.ver` con Administración · Rendimiento).
 import { ARBOL_ITEMS_Y_ACCIONES, ARBOL_PERMISOS } from '@operaciones/shared-types';
-import { ACCIONES_ADMINISTRACION, PARTIDA_DE_OPERACION_NUEVA_ADMINISTRACION } from './acciones-administracion.js';
+import { ACCIONES_ADMINISTRACION, ITEMS_ADMINISTRACION_OPS, PARTIDA_DE_OPERACION_NUEVA_ADMINISTRACION } from './acciones-administracion.js';
 import { ACCIONES_FINANZAS, PARTIDA_DE_OPERACION_NUEVA } from './acciones-finanzas.js';
 import { ACCIONES_GESTION, CONJUNCIONES_GESTION, type AccionArbol } from './acciones-gestion.js';
-import { ACCIONES_LEGADO, ITEMS_LEGADO_OPS, TRANSVERSALES } from './acciones-legado.js';
+import { ACCIONES_LEGADO, ITEMS_LEGADO_OPS, OPERACIONES_INCORPORADAS_13588 } from './acciones-legado.js';
 
 /**
  * HU #12873 AC8 (decisión del PO del 2026-10-13) — el rol que recibe TODAS las acciones del árbol, también
@@ -81,10 +85,31 @@ export function esUniversal(accion: string): boolean {
   return ACCIONES_ARBOL[accion]?.repartoUniversal === true;
 }
 
+/**
+ * HU #13588 (P-35..P-37) — Los 5 permisos que eran sueltos (P-29), con el ítem que ahora los concede: los 4 de
+ * ítems antiguos (Vehículos, SOAT, Flota, Trámite Digital) y `rum.resumen.ver` de Administración · Rendimiento.
+ * Es lo que reparte la 0240 (y su reporte en seco).
+ */
+export const INCORPORADAS_13588: Readonly<Record<string, readonly string[]>> = {
+  ...OPERACIONES_INCORPORADAS_13588,
+  ...Object.fromEntries(Object.entries(ITEMS_ADMINISTRACION_OPS).map(([item, i]) => [item, i.operaciones])),
+};
+
+/** HU #13588 — Las 5 operaciones que dejaron de ser sueltas. */
+export const SUELTAS_INCORPORADAS_13588: readonly string[] = [...new Set(Object.values(INCORPORADAS_13588).flat())].sort();
+
+/** Lo que expande cada ítem sin nivel 3 (antiguo, o «Rendimiento»): lo de la #13429 más lo de la #13588. */
+const OPS_DE_ITEM: ReadonlyMap<string, readonly string[]> = (() => {
+  const m = new Map<string, string[]>();
+  for (const [item, i] of Object.entries(ITEMS_LEGADO_OPS)) m.set(item, [...i.operaciones]);
+  for (const [item, ops] of Object.entries(INCORPORADAS_13588)) m.set(item, [...(m.get(item) ?? []), ...ops]);
+  return m;
+})();
+
 const OPS_DE = new Map<string, readonly string[]>([
   ...Object.entries(ACCIONES_ARBOL).map(([accion, a]) => [accion, [...a.operaciones, ...(a.apoyo ?? [])]] as const),
-  // HU #13429: un ítem antiguo efectivo expande como una acción.
-  ...Object.entries(ITEMS_LEGADO_OPS).filter(([, i]) => i.operaciones.length).map(([item, i]) => [item, i.operaciones] as const),
+  // HU #13429: un ítem antiguo efectivo expande como una acción (HU #13588: también «Rendimiento»).
+  ...[...OPS_DE_ITEM].filter(([, ops]) => ops.length),
 ]);
 
 /** Lo que concede la acción (grupo + apoyo; nunca los opcionales). Vacío si el código no es una acción del árbol. */
@@ -116,8 +141,6 @@ export const PADRES_DE_OPCIONAL: ReadonlyMap<string, readonly string[]> = (() =>
   for (const [item, i] of Object.entries(ITEMS_LEGADO_OPS)) for (const op of i.opcionales ?? []) poner(op, item);
   return m;
 })();
-
-const ES_TRANSVERSAL: ReadonlySet<string> = new Set(TRANSVERSALES);
 
 /**
  * LA regla del paso, en un solo sitio: de lectura → basta ALGUNA operación del grupo; si modifica → TODAS.
@@ -158,6 +181,8 @@ export const CODIGOS_ABSORBIDOS: ReadonlySet<string> = new Set([
   ...CONJUNCIONES_ARBOL.map((c) => c.operacion),
   // HU #13429: lo que expande un ítem antiguo (permanentes y transitorios) tampoco se concede ya directo.
   ...Object.values(ITEMS_LEGADO_OPS).flatMap((i) => i.operaciones),
+  // HU #13588: los 5 que eran sueltos, ahora del ítem.
+  ...SUELTAS_INCORPORADAS_13588,
 ]);
 
 /** Índice inverso: qué acciones, ítems antiguos (o conjunciones) dan una operación. Bitácora y avisos. */
@@ -176,11 +201,11 @@ export function ancestrosDe(codigo: string): string[] {
 }
 
 /** HU #13429 — Qué es un código para el resolutor; `null` = no entra (fallo cerrado). */
-export function claseDe(codigo: string): 'nodo' | 'opcional' | 'transversal' | null {
+export function claseDe(codigo: string): 'nodo' | 'opcional' | null {
   if (PADRE.has(codigo)) return 'nodo';
   if (PADRES_DE_OPCIONAL.has(codigo)) return 'opcional';
-  if (ES_TRANSVERSAL.has(codigo)) return 'transversal';
-  return null;
+  return null; // HU #13588: sin clase «transversal»; una fila directa heredada no entra (fallo cerrado).
+
 }
 
 /**
@@ -208,14 +233,28 @@ export function expandir(marcados: Iterable<string>, revocados: Iterable<string>
   const salida = new Set(nodos);
   for (const c of m) {
     const clase = claseDe(c);
-    if (clase === 'transversal') salida.add(c);
-    else if (clase === 'opcional' && PADRES_DE_OPCIONAL.get(c)!.some((p) => nodos.has(p))) salida.add(c);
+    if (clase === 'opcional' && PADRES_DE_OPCIONAL.get(c)!.some((p) => nodos.has(p))) salida.add(c);
   }
   for (const n of nodos) for (const op of OPS_DE.get(n) ?? []) salida.add(op);
   for (const c of CONJUNCIONES_ARBOL) {
     if (c.acciones.every((a) => salida.has(a))) salida.add(c.operacion);
   }
   for (const r of revocados) salida.delete(r);
+  return salida;
+}
+
+/**
+ * HU #13588 — El resolutor tal como era entre la 0239 y la 0240: las 5 sueltas eran TRANSVERSALES (marcadas →
+ * efectivas, sin cadena) y ningún ítem las daba. Solo para los reportes en seco (#13429 «mañana», #13588 «hoy»).
+ */
+export function expandirComoEn13429(marcados: Iterable<string>, revocados: Iterable<string> = []): Set<string> {
+  const m = new Set(marcados);
+  const fuera = new Set(revocados);
+  const salida = expandir(m, fuera);
+  for (const s of SUELTAS_INCORPORADAS_13588) {
+    if (m.has(s) && !fuera.has(s)) salida.add(s);
+    else salida.delete(s);
+  }
   return salida;
 }
 
@@ -234,14 +273,13 @@ export function expandirSinCadena(marcados: Iterable<string>, revocados: Iterabl
 /**
  * HU #13429 (§5-quater.5, AC8) — Las ALTERNATIVAS que conceden F, cada una con su cadena entera (el código y sus
  * ancestros, de abajo arriba): F tiene al usuario si alguna alternativa está marcada eslabón a eslabón. Un código
- * que no es nodo, ni opcional, ni transversal no es alternativa (no entra en el resolutor).
+ * que no es nodo ni opcional no es alternativa (no entra en el resolutor).
  */
 export function alternativasDe(funcion: string): string[][] {
   const salida: string[][] = [];
   for (const c of codigosQueConceden(funcion)) {
     const clase = claseDe(c);
     if (clase === 'nodo') salida.push([c, ...ancestrosDe(c)]);
-    else if (clase === 'transversal') salida.push([c]);
     else if (clase === 'opcional') for (const p of PADRES_DE_OPCIONAL.get(c)!) salida.push([c, p, ...ancestrosDe(p)]);
   }
   return salida;

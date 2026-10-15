@@ -30,6 +30,7 @@ import {
   ROL_CON_TODAS_LAS_ACCIONES,
 } from './arbol/expansion.js';
 import { ITEMS_LEGADO_OPS } from './arbol/acciones-legado.js';
+import { ITEMS_ADMINISTRACION_OPS } from './arbol/acciones-administracion.js';
 import { NOMBRES_LEGADO } from './catalogo-operaciones.legado.js';
 
 export interface FuncionCatalogo {
@@ -75,6 +76,13 @@ export function moduloDeGrupo(label: string): string {
 }
 
 /**
+ * HU #13588 — Páginas que nacen DESPUÉS del mundo plano (la 0240 siembra «Rendimiento»): no son de
+ * `catalogoPlano()` (que sigue siendo exactamente lo sembrado por las migraciones ≤ 0231) y entran en
+ * `catalogoCompleto()` como ítem del árbol.
+ */
+export const PAGINAS_NACIDAS_EN_EL_ARBOL: readonly PageSlug[] = ['admin_rendimiento'];
+
+/**
  * Las funciones de tipo `pagina`: una por slug CONCEDIBLE, con el label de `PAGES` como nombre.
  *
  * Se recorre `PAGE_GROUPS` y NO `PAGES` porque el grupo es lo que da el `modulo`. Ese recorrido tiene
@@ -84,7 +92,7 @@ export function moduloDeGrupo(label: string): string {
  * aparición gana y la segunda se ignora. Se queda con «Operaciones» por ser donde el slug vive junto
  * a los demás de la bandeja diaria; la elección solo afecta a cómo se agrupa en pantalla.
  */
-export function catalogoDePaginas(): FuncionCatalogo[] {
+export function catalogoDePaginas(nacidasEnElArbol: 'fuera' | 'solo' = 'fuera'): FuncionCatalogo[] {
   const vistos = new Set<string>();
   const salida: FuncionCatalogo[] = [];
   for (const grupo of PAGE_GROUPS) {
@@ -92,6 +100,7 @@ export function catalogoDePaginas(): FuncionCatalogo[] {
       if (vistos.has(slug)) continue;
       vistos.add(slug);
       if (PAGINAS_NO_CONCEDIBLES.includes(slug)) continue;
+      if (PAGINAS_NACIDAS_EN_EL_ARBOL.includes(slug) !== (nacidasEnElArbol === 'solo')) continue;
       const codigo = `pagina.${slug}`;
       salida.push({
         codigo,
@@ -315,10 +324,17 @@ export function catalogoDeAcciones(plano: FuncionCatalogo[] = catalogoPlano()): 
 /** Los ítems del árbol (FLITO y antiguos) con su nodo: padre (`menu.*`) y orden. */
 const ITEMS_ARBOL = new Map(ARBOL_ITEMS_Y_ACCIONES.filter((n) => n.tipo === 'item').map((n) => [n.codigo, n]));
 
-/** HU #13429 — Las operaciones que expande algún ítem antiguo → esos ítems (orden alfabético; el primero es el de paso). */
+/**
+ * HU #13429 — Las operaciones que expande algún ítem antiguo → esos ítems (orden alfabético; el primero es el de
+ * paso). HU #13588: también «Rendimiento» (Administración), que concede `rum.resumen.ver` sin nivel 3.
+ */
 const ITEMS_DE_OPERACION_LEGADA: ReadonlyMap<string, string[]> = (() => {
   const m = new Map<string, string[]>();
-  for (const [item, i] of Object.entries(ITEMS_LEGADO_OPS)) for (const op of i.operaciones) m.set(op, [...(m.get(op) ?? []), item].sort());
+  const poner = (op: string, item: string) => m.set(op, [...(m.get(op) ?? []), item].sort());
+  for (const [item, i] of Object.entries(ITEMS_LEGADO_OPS)) for (const op of i.operaciones) poner(op, item);
+  // HU #13588 (AC8): quien tenía `rum.resumen.ver` recibe «Rendimiento». Las 4 de ítems antiguos NO dan el ítem a
+  // quien las tenía sin él: es la pérdida declarada (AC3, AC7) — la 0240 solo borra sus filas.
+  for (const [item, i] of Object.entries(ITEMS_ADMINISTRACION_OPS)) for (const op of i.operaciones) poner(op, item);
   return m;
 })();
 
@@ -330,11 +346,11 @@ const ITEMS_DE_OPERACION_LEGADA: ReadonlyMap<string, string[]> = (() => {
  * HU #13429 (§5-quater.6) — el reparto que deja la 0239: (1) el rol con una operación de ítem antiguo sin el
  * ítem recibe el ítem; (2) el rol con una acción recibe la página de su ítem; (3) el rol con algún ítem recibe
  * el elemento (`menu.*`, incluido `menu.perfil` a todos). Toda página es ítem y toda operación viva es opcional
- * (de su acción o ítem) o transversal: lo contrario es `CatalogoIncoherenteError` (una página que no esté en
+ * (de su acción o ítem; desde la #13588 no hay transversales): lo contrario es `CatalogoIncoherenteError` (una página que no esté en
  * el árbol nacería muerta en silencio).
  */
 export function catalogoCompleto(guardas?: GuardaLeida[]): FuncionCatalogo[] {
-  const plano = catalogoPlano(guardas);
+  const plano = [...catalogoPlano(guardas), ...catalogoDePaginas('solo')]; // HU #13588: + «Rendimiento»
   const acciones = catalogoDeAcciones(plano);
   // HU #13428 (P-22): la página de una acción de reparto universal (`pagina.perfil`) viaja con ella a todos los roles.
   const universales = new Set(ACCIONES_UNIVERSALES.map((u) => u.pagina));
@@ -359,8 +375,7 @@ export function catalogoCompleto(guardas?: GuardaLeida[]): FuncionCatalogo[] {
     }
     const clase = claseDe(f.codigo);
     if (clase === 'opcional') salida.push({ ...f, padre: PADRES_DE_OPCIONAL.get(f.codigo)![0]! });
-    else if (clase === 'transversal') salida.push(f);
-    else errores.push(`operación viva sin clase (ni opcional ni transversal): ${f.codigo}`);
+    else errores.push(`operación viva sin clase (ni nodo del menú ni opcional de un ítem o acción): ${f.codigo}`);
   }
   for (const e of ELEMENTOS_PERMISOS.filter((x) => !x.derivado)) {
     const roles = new Set<string>();
