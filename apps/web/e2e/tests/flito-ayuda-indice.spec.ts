@@ -53,7 +53,7 @@ test.describe('FLITO — Ayuda · índice', () => {
     await expect(page.getByRole('link', { name: /SOAT/ })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /Comparendos/ })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /Clientes/ })).toHaveCount(0);
-    await expect(page.getByRole('link', { name: /Tablero FLITO/ })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /ficha de Tablero/ })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /Compuerta/ })).toHaveCount(0);
   });
 
@@ -112,14 +112,31 @@ test.describe('FLITO — Ayuda · índice', () => {
     await expect(page.getByRole('link', { name: 'Volver al índice' }).first()).toBeVisible();
   });
 
-  test('AC4 — admin ve Compuerta, Tablero FLITO y Credenciales publicados (HU #11895)', async ({ page }) => {
+  test('AC4 — admin ve Compuerta, Tablero y Credenciales publicados (HU #11895)', async ({ page }) => {
     await abrirAyuda(page, OPERACIONES_USER);
     await expect(page.getByRole('link', { name: 'Abrir ficha de Compuerta de entrega' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Abrir ficha de Tablero FLITO' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Abrir ficha de Tablero' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Administración', exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Abrir ficha de Facturación electrónica · Credenciales' })).toBeVisible();
     await expect(page.getByRole('link', { name: /ficha pendiente de Facturación electrónica · Credenciales/i })).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Abrir ficha de Mi ruta' })).toBeVisible();
+  });
+
+  test('HU #13431 — el índice usa los nombres del menú: «Derechos» y el «Tablero» de General', async ({ page }) => {
+    await abrirAyuda(page, OPERACIONES_USER);
+    // P-33: el capítulo de derechos se llama como el ítem del menú.
+    await expect(page.getByRole('link', { name: 'Abrir ficha de Derechos', exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: /Derechos de tránsito/ })).toHaveCount(0);
+    // P-11: el «Tablero FLITO» se absorbió en el Tablero de General; el capítulo vive en ese grupo,
+    // va primero y lleva al inicio (`/`).
+    await expect(page.getByRole('link', { name: /Tablero FLITO/ })).toHaveCount(0);
+    const general = page.locator('section[aria-labelledby="ayuda-grupo-general"]');
+    await expect(general.getByRole('heading', { name: 'General', exact: true })).toBeVisible();
+    await expect(general.getByRole('link', { name: 'Abrir ficha de Tablero', exact: true })).toBeVisible();
+    await expect(page.locator('section[aria-labelledby="ayuda-grupo-gestion"]').getByRole('link', { name: /Tablero/ })).toHaveCount(0);
+    await expect(page.locator('section[aria-labelledby]').first()).toHaveAttribute('aria-labelledby', 'ayuda-grupo-general');
+    await page.goto('/flito/ayuda/flito_tablero');
+    await expect(page.getByRole('link', { name: 'Ir a la pantalla Tablero' })).toHaveAttribute('href', '/');
   });
 });
 

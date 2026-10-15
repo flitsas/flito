@@ -15,15 +15,18 @@ const SECCIONES = [
   'Qué es', 'Para quién', 'Cómo se entra', 'Pasos', 'Estados', 'Qué no hace',
 ] as const;
 
-/** Las 12 de Gestión (catálogo, grupo `gestion`). Etiqueta = `catalogo.ts`. */
+/**
+ * Las 12 fichas de operación (HU #11894). Etiqueta = `catalogo.ts` = nombre del ítem del menú (P-33,
+ * HU #13431). `flito_tablero` es desde P-11 el **Tablero** de General (ruta `/`), no un ítem de Gestión.
+ */
 const FICHAS_GESTION = [
   { clave: 'flito_tramites', etiqueta: 'Gestión Trámites', to: '/flito/tramites' },
   { clave: 'soat', etiqueta: 'SOAT', to: '/flito/soat' },
   { clave: 'flito_impuestos', etiqueta: 'Impuestos', to: '/flito/impuestos' },
-  { clave: 'flito_derechos', etiqueta: 'Derechos de tránsito', to: '/flito/derechos' },
+  { clave: 'flito_derechos', etiqueta: 'Derechos', to: '/flito/derechos' },
   { clave: 'flito_revisiones', etiqueta: 'Revisiones OCR', to: '/flito/revisiones' },
   { clave: 'flito_compuerta', etiqueta: 'Compuerta de entrega', to: '/flito/compuerta' },
-  { clave: 'flito_tablero', etiqueta: 'Tablero FLITO', to: '/flito/tablero' },
+  { clave: 'flito_tablero', etiqueta: 'Tablero', to: '/' },
   { clave: 'flito_bitacora', etiqueta: 'Bitácora', to: '/flito/bitacora' },
   { clave: 'flito_logistica', etiqueta: 'Logística', to: '/flito/logistica' },
   { clave: 'flito_logistica_ruta', etiqueta: 'Mi ruta', to: '/flito/ruta' },
@@ -124,7 +127,7 @@ test.describe('FLITO — Ayuda · fichas de gestión (HU #11894)', () => {
     await expect(page.getByRole('link', { name: /SOAT/ })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /Comparendos/ })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /Clientes/ })).toHaveCount(0);
-    await expect(page.getByRole('link', { name: /Tablero FLITO/ })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /ficha de Tablero/ })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /Compuerta/ })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Finanzas', exact: true })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Administración', exact: true })).toHaveCount(0);
@@ -141,13 +144,15 @@ test.describe('FLITO — Ayuda · fichas de gestión (HU #11894)', () => {
     await expect(page.getByText('Esta ficha está pendiente.')).toHaveCount(0);
   });
 
-  test('TC-11894-08 AC3 — Tablero y Compuerta: Cómo se entra cita la ruta; no fingen ítem de menú', async ({ page }) => {
+  test('TC-11894-08 AC3 — Tablero es el de General (P-11); Compuerta cita la ruta y no finge ítem de menú', async ({ page }) => {
+    // HU #13431: el «Tablero FLITO» se absorbió en el Tablero de General (P-11). La ficha lleva al
+    // ítem del menú y ya no a una pantalla aparte por dirección.
     const tablero = leerFicha('flito_tablero');
     const entraTablero = seccion(tablero, 'Cómo se entra');
-    expect(entraTablero).toMatch(/\/flito\/tablero/);
+    expect(entraTablero).toMatch(/sección \*\*General\*\*, ítem \*\*Tablero\*\*/);
+    expect(entraTablero).not.toMatch(/\/flito\/tablero/);
     expect(entraTablero).not.toMatch(/NAV_ITEMS/);
-    expect(entraTablero).not.toMatch(/en el menú.{0,80}Tablero FLITO/i);
-    expect(entraTablero).not.toMatch(/ítem de menú/i);
+    expect(tablero).not.toMatch(/Tablero FLITO/);
 
     const compuerta = leerFicha('flito_compuerta');
     const entraCompuerta = seccion(compuerta, 'Cómo se entra');
@@ -164,9 +169,9 @@ test.describe('FLITO — Ayuda · fichas de gestión (HU #11894)', () => {
 
     await loginAs(page, OPERACIONES_USER);
     await page.goto('/flito/ayuda/flito_tablero');
-    const artTablero = page.getByRole('article', { name: 'Tablero FLITO' });
-    await expect(artTablero.getByText('/flito/tablero')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Ir a la pantalla Tablero FLITO' })).toHaveAttribute('href', '/flito/tablero');
+    const artTablero = page.getByRole('article', { name: 'Tablero' });
+    await expect(artTablero.getByText('/flito/tablero')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Ir a la pantalla Tablero' })).toHaveAttribute('href', '/');
 
     await page.goto('/flito/ayuda/flito_compuerta');
     const artCompuerta = page.getByRole('article', { name: 'Compuerta de entrega' });
