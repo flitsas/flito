@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../lib/auth';
-import { hasPage } from '../../lib/permissions';
 import { useTheme, type ThemeMode } from '../../lib/theme';
 import { startViewTransition } from '../../lib/viewTransitions';
 import { FLIT_PRODUCT_NAME } from '../../lib/flitBrand';
@@ -17,7 +16,7 @@ interface FlitTopbarProps {
 }
 
 export default function FlitTopbar({ onOpenPalette, onOpenSidebar }: FlitTopbarProps) {
-  const { user, logout } = useAuth();
+  const { user, logout, hasFuncion } = useAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -38,7 +37,9 @@ export default function FlitTopbar({ onOpenPalette, onOpenSidebar }: FlitTopbarP
 
   const initial = user?.name?.charAt(0).toUpperCase() ?? '·';
 
-  const puedeVerPerfil = hasPage(user, 'perfil');
+  // HU #13431 (AC2): Perfil se ve con «Ver mis datos». La función ya implica la cadena del catálogo
+  // (elemento Perfil → ítem Perfil): el resolutor solo la entrega si los dos están efectivos.
+  const puedeVerPerfil = hasFuncion('perfil.datos.ver');
 
   const handlePerfil = (): void => {
     setMenuOpen(false);
@@ -176,7 +177,7 @@ export default function FlitTopbar({ onOpenPalette, onOpenSidebar }: FlitTopbarP
                 <p className="text-[11px] capitalize" style={{ color: 'var(--flit-text-secondary)' }}>{user?.role ?? '—'}</p>
               </div>
               <div className="p-1.5">
-                {/* Perfil (HU #13256): mismo bloque que «Cerrar sesión», encima. Sin `pagina.perfil` no se pinta. */}
+                {/* Perfil (HU #13256): mismo bloque que «Cerrar sesión», encima. Sin «Ver mis datos» no se pinta (HU #13431). */}
                 {puedeVerPerfil && (
                   <button
                     type="button"

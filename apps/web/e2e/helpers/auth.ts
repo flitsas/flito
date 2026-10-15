@@ -267,7 +267,7 @@ const ADMIN_12872 = [
   'revisiones.revision.resolver',
 ] as const;
 
-export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
+const FUNCIONES_POR_ROL_BASE: Readonly<Record<string, readonly string[]>> = {
   admin: [
     ...SOAT_LEER, 'soat.comprobante.cargar', 'soat.solicitud.enviar',
     // HU #12872 (AC3): Excel y carga masiva por su función (0179: admin y proveedor).
@@ -378,6 +378,17 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
   conductor: [],
 };
 
+/**
+ * HU #13431: Perfil (ver mis datos y cambiar la contraseña) se reparte a TODOS los roles (P-22, PO
+ * 2026-10-13) y el shell lo decide por función (`hasFuncion('perfil.datos.ver')`), no por página.
+ * El control negativo de un spec pasa `funciones` sin estos códigos.
+ */
+export const FUNCIONES_PERFIL = ['perfil.datos.ver', 'perfil.contrasena.cambiar'] as const;
+
+export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = Object.fromEntries(
+  Object.entries(FUNCIONES_POR_ROL_BASE).map(([rol, funciones]) => [rol, [...funciones, ...FUNCIONES_PERFIL]]),
+);
+
 /** Forma de un fixture de usuario: lo que `sobreDeMe` necesita más `funciones` opcional. */
 export interface UsuarioFixture {
   id: number;
@@ -428,11 +439,21 @@ export interface OpcionesLogin {
  */
 export async function loginAs(page: Page, user: UsuarioFixture = ADMIN_USER, opciones: OpcionesLogin = {}) {
   const me = sobreDeMe(user);
+  // HU #13431: el servidor ya no manda `email` en `/auth/me` (ni en el login); el correo solo llega
+  // por `/auth/perfil`. El mock lo quita aunque el fixture lo traiga, para parecerse al servidor.
+  const meServidor: Record<string, unknown> = { ...me };
+  delete meServidor.email;
   // /me responde 200 con el user — necesario para que useAuth() considere la sesión válida.
   // HU #12087: lista resuelta como el servidor (`sobreDeMe`).
   await page.route('**/api/auth/me', async (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(me) })
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(meServidor) })
   );
+  // HU #13431: `/perfil` lee sus datos de `GET /auth/perfil` (guarda «Ver mis datos», HU #13428), con
+  // la forma del servidor: sin id ni código de rol.
+  await page.route('**/api/auth/perfil', async (route) => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ name: me.name ?? null, username: me.username ?? null, email: me.email ?? null, rolNombre: me.rolNombre ?? null }),
+  }));
   // HU #12170: `AuthProvider` pide `/permisos/mios` al cuajar la sesión y las pantallas FLITO
   // preguntan `hasFuncion` sobre esa respuesta. Sin esto, el catch-all responde `[]` y la cola se
   // queda en «no tiene ninguna función habilitada». `funciones: null` deja que el spec lo mockee.

@@ -27,7 +27,7 @@ Menú **Administración**, ítem **Roles y permisos**, junto a **Usuarios**.
    - **Ninguno** (viene marcado): ve todos los datos de los módulos que el rol tenga marcados.
    - **Compañía**: ve solo lo de su compañía en Gestión Trámites, SOAT, Impuestos, su bolsa, Comprobantes y Logística. No ve catálogos ni configuración; el resto le queda cerrado.
    - **Proveedor**: ve solo lo asignado a su proveedor. Hoy aplica a SOAT.
-   - **Organismos**: ve solo lo de sus secretarías de tránsito en Impuestos y Derechos de tránsito. El resto le queda cerrado.
+   - **Organismos**: ve solo lo de sus secretarías de tránsito en Impuestos y Derechos. El resto le queda cerrado.
 
    La compañía, el proveedor o las secretarías concretas de cada persona se eligen en **Usuarios**, no aquí. El código del rol se genera del nombre y no se puede cambiar después. El rol nuevo nace con **Perfil** marcado (ver sus datos y cambiar su contraseña) para que nadie se quede sin poder cambiarla; si no lo quiere, desmárquelo y guarde.
 8. **Editar rol** permite corregir nombre, descripción, enlace y si **Se puede asignar a usuarios nuevos**. El enlace solo se puede cambiar mientras ningún usuario tenga el rol; si lo tiene alguien, el formulario lo avisa y hay que cambiarles el rol primero en **Usuarios**.

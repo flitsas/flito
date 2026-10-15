@@ -4,7 +4,6 @@ import { AuthProvider, useAuth } from './lib/auth';
 import { ThemeProvider } from './lib/theme';
 import { hasPage, rutaInicio, PageSlug } from './lib/permissions';
 import { puedeVerAyudaFlito } from './lib/ayudaFlito';
-import Layout from './components/Layout';
 import PageContentSkeleton from './components/flit/PageContentSkeleton';
 import Login from './pages/Login';
 import { lazy, Suspense } from 'react';
@@ -114,6 +113,10 @@ const FlitoAyuda = lazy(() => import('./pages/FlitoAyuda'));
 // Presupuesto del entry de /login (`check:bundle`): `NoAccess` y el aviso de permisos solo se pintan
 // con sesión, y arrastran `flitPageKit`. Van en su chunk; la guarda de ruta los envuelve en Suspense.
 const NoAccessPantalla = lazy(() => import('./components/NoAccess'));
+// HU #13431: el shell (barra, drawer, ⌘K, topbar) es post-login y desde esta HU rotula el menú con
+// `ARBOL_PERMISOS` (~4,6 KB gzip). Estático, ese peso caía en el chunk de /login y rompía
+// `check:bundle`; lazy, /login no lo descarga y el resto de la app lo pide al cuajar la sesión.
+const Layout = lazy(() => import('./components/Layout'));
 const AvisoPermisosNoComprobadosLazy = lazy(() => import('./components/AvisoPermisosNoComprobados'));
 
 function NoAccess(props: { page?: PageSlug; label?: string }) {
@@ -146,6 +149,16 @@ function ProtectedRoute({ children, page }: { children: React.ReactNode; page?: 
 function AyudaFlitoGate({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   if (!puedeVerAyudaFlito(user)) return <NoAccess page="flito_ayuda" />;
+  return <>{children}</>;
+}
+
+// HU #13431 (AC2): ruta que exige una función del catálogo (no solo la página). Perfil se abre con
+// «Ver mis datos», que ya implica su cadena (elemento Perfil → ítem Perfil). Mientras las funciones
+// no llegan (`null`) se espera con el esqueleto; si no la tiene, «sin acceso» en el sitio.
+function FuncionGate({ children, funcion, page }: { children: React.ReactNode; funcion: string; page: PageSlug }) {
+  const { funciones, hasFuncion, permisosError } = useAuth();
+  if (funciones === null && !permisosError) return <PageContentSkeleton />;
+  if (!hasFuncion(funcion)) return <NoAccess page={page} />;
   return <>{children}</>;
 }
 
@@ -205,7 +218,7 @@ function AppRoutes() {
       <Route path="/m/:token" element={<Lazy fallback={fullScreenLoading}><PublicManifiesto /></Lazy>} />
       <Route path="/tramite/verificar" element={<Lazy fallback={fullScreenLoading}><PublicTramiteVerify /></Lazy>} />
       <Route path="/tramite/portal/:token" element={<Lazy fallback={fullScreenLoading}><PublicTramitePortal /></Lazy>} />
-      <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+      <Route element={<ProtectedRoute><Lazy fallback={fullScreenLoading}><Layout /></Lazy></ProtectedRoute>}>
         <Route path="/" element={<InicioGate />} />
         <Route path="/vehicles" element={<ProtectedRoute page="vehicles"><Lazy><Vehicles /></Lazy></ProtectedRoute>} />
         <Route path="/clients" element={<ProtectedRoute page="clients"><Lazy><Clients /></Lazy></ProtectedRoute>} />
@@ -276,7 +289,7 @@ function AppRoutes() {
         <Route path="/users" element={<ProtectedRoute page="users"><Lazy><Users /></Lazy></ProtectedRoute>} />
         {/* Mi perfil (HU #13256). Slug `perfil` (0218 de la HU #13255). Sin datos de persona en la URL:
             el id sale de `/auth/me`. Solo se llega por el menú de sesión del Topbar o por URL. */}
-        <Route path="/perfil" element={<ProtectedRoute page="perfil"><Lazy><Perfil /></Lazy></ProtectedRoute>} />
+        <Route path="/perfil" element={<ProtectedRoute><FuncionGate funcion="perfil.datos.ver" page="perfil"><Lazy><Perfil /></Lazy></FuncionGate></ProtectedRoute>} />
         {/* Roles y permisos (HU #12085). Slug PROPIO `roles_permisos`, que solo reparte la 0187 a `admin`:
             es la pantalla que reparte todas las demás. Sin identificador de rol en la URL (ficha, decisión 13). */}
         <Route path="/roles-permisos" element={<ProtectedRoute page="roles_permisos"><Lazy><RolesPermisos /></Lazy></ProtectedRoute>} />

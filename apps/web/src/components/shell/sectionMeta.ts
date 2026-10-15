@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
 import {
   IconHome, IconClipboard, IconRoad, IconTruck, IconWrench, IconShield,
-  IconPackage, IconScale, IconCog, IconWallet, type IconProps,
+  IconPackage, IconScale, IconCog, IconWallet, IconHelp, type IconProps,
 } from '../flit/icons';
 import type { NavItem } from './navItems';
 
@@ -24,6 +24,7 @@ export const SECTION_ICON: Record<NavItem['section'], ComponentType<IconProps>> 
   // colisión se notaba. Finanzas pasa a IconWallet.
   finanzas: IconWallet,
   admin: IconCog,
+  ayuda: IconHelp,
 };
 
 /** Color de acento del módulo. Siempre un token de marca, nunca un HEX suelto. */
@@ -38,6 +39,7 @@ export const SECTION_ACCENT: Record<NavItem['section'], string> = {
   laft:          'var(--flit-blue-text)',
   finanzas:      'var(--flit-green)',
   admin:         'var(--flit-text-secondary)',
+  ayuda:         'var(--flit-text-secondary)',
 };
 
 // Subgrupos dentro de un módulo, indexados por ruta. Solo los necesitan los

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { PAGES, rutaInicio, PageSlug } from '../lib/permissions';
+import { etiquetaDeRuta } from './shell/navItems';
 import { useAuth } from '../lib/auth';
 import { flitBtnPrimary, flitBtnPrimaryStyle } from './flit/flitPageKit';
 
@@ -69,7 +70,7 @@ export default function NoAccess({ page, label }: { page?: PageSlug; label?: str
             className={flitBtnPrimary}
             style={flitBtnPrimaryStyle}
           >
-            {inicio.to === '/' ? 'Volver al tablero' : `Ir a ${inicio.etiqueta}`}
+            {inicio.to === '/' ? 'Volver al tablero' : `Ir a ${etiquetaDeRuta(inicio.to) ?? 'inicio'}`}
           </Link>
         </div>
       </div>

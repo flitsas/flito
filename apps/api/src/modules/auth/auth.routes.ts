@@ -121,12 +121,13 @@ router.post('/login', async (req: Request, res: Response) => {
   // Devolvemos allowedPages "efectivas" (rol defaults ∪ custom) y `puedeSolicitarSoat`
   // igual que /me, para que el frontend pinte la navegación y el canal de SOAT
   // SIN esperar un reload que dispare /me (Bug #11937).
-  // HU #13255: `email` (el del PROPIO usuario, solo en el cuerpo; nunca en URL ni en logs) y
-  // `rolNombre`, con la misma forma que en `/me` para que los dos sobres no diverjan.
+  // HU #13255: `rolNombre`, con la misma forma que en `/me` para que los dos sobres no diverjan.
+  // HU #13431: `email` ya NO sale en ninguno de los dos sobres de sesión (la SPA lo guardaba en la
+  // sesión sin usarlo); Perfil lo lee de `GET /auth/perfil`, con su propio permiso.
   res.json({
     token,
     user: {
-      id: user.id, name: user.name, username: user.username, email: user.email ?? null, role: user.role,
+      id: user.id, name: user.name, username: user.username, role: user.role,
       rolNombre: user.rolNombre ?? null,
       transitoCodigo,
       ...sobre,
@@ -191,8 +192,9 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
     id: users.id,
     username: users.username,
     name: users.name,
-    // HU #13255: `email` del propio usuario y `rolNombre` del catálogo (LEFT JOIN: misma consulta).
-    email: users.email,
+    // HU #13255: `rolNombre` del catálogo (LEFT JOIN: misma consulta). `email` ya NO se pide (HU #13431):
+    // Perfil lo lee de `GET /auth/perfil` con su propio permiso; `/me` corre en cada carga de pantalla y
+    // no debe arrastrar un dato personal que nadie más usa.
     role: users.role,
     rolNombre: permisosRoles.nombre,
     allowedPages: users.allowedPages,
@@ -219,7 +221,6 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   res.json({
     ...publico,
     // Normalizados: un mock o una fila sin el dato no deben dejar la clave fuera del sobre.
-    email: publico.email ?? null,
     rolNombre: publico.rolNombre ?? null,
     transitoCodigo,
     ...(await sobreDePermisos(req.user!.sub, companiaId)),

@@ -45,7 +45,7 @@ En el menú lateral, sección **Gestión**, ítem **Impuestos**.
 
 - No es **Gestión Trámites**: aquí no se origina el envío masivo de trámites ni se entrega el trámite.
 - No **Factura** la liquidación ni dispara **emisión electrónica**.
-- No carga derechos de tránsito (eso es **Derechos de tránsito**) ni resuelve OCR (eso es **Revisiones OCR**).
+- No carga derechos de tránsito (eso es **Derechos**) ni resuelve OCR (eso es **Revisiones OCR**).
 - El gestor no ve ni envía los **Pendiente**; esa frontera la resuelve el Administrador.
 - **Exportar a Excel** no se lleva la página que está viendo ni las filas marcadas: se lleva el conjunto filtrado completo. Si ese conjunto es demasiado grande, no entrega un archivo recortado; le pide acotar el filtro.
 - El Auditor no exporta: la exportación es del Administrador y del Gestor de Impuestos.

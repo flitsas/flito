@@ -36,7 +36,7 @@ En el menú lateral, sección **Gestión**, ítem **Gestión Trámites**. Tambi�
 ## Qué no hace
 
 - No es la cola del Proveedor (**SOAT**) ni la del Gestor de Impuestos (**Impuestos**).
-- No carga recibos de derechos de tránsito ni resuelve OCR: eso vive en **Derechos de tránsito** y **Revisiones OCR**.
+- No carga recibos de derechos de tránsito ni resuelve OCR: eso vive en **Derechos** y **Revisiones OCR**.
 - **Facturar** un trámite (congelar la liquidación) y la **emisión electrónica** no se hacen aquí.
 - No entrega licencias de tránsito: eso es **Logística** / **Mi ruta**.
 - El Auditor no descarga soportes en lote, aunque sí puede marcar trámites y usar todos los filtros.

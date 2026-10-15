@@ -44,7 +44,7 @@ const dockLocator = (page: import('@playwright/test').Page) =>
 test.describe('Shell · FlitNavBar (dock de escritorio)', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('admin ve los 10 módulos, Finanzas incluida; el panel de PESV abre, navega y cierra', async ({ page }) => {
+  test('admin ve los 10 módulos y «Ayuda», Finanzas incluida; el panel de PESV abre, navega y cierra', async ({ page }) => {
     await loginAs(page, ADMIN_USER);
     await mockApi(page);
     await page.goto('/');
@@ -62,16 +62,19 @@ test.describe('Shell · FlitNavBar (dock de escritorio)', () => {
     //
     // Se afirma también la CUENTA. Sin ella, añadir una sección undécima —o perder una— dejaría
     // este test en verde: comprobar diez nombres no es comprobar que son diez.
-    await expect(nav.getByRole('button')).toHaveCount(9);
-    await expect(nav.getByRole('link')).toHaveCount(1);
+    // HU #13431: los rótulos salen del catálogo (`ARBOL_PERMISOS`): «LAFT», no «Cumplimiento» (P-13).
+    // «Ayuda» es su propio elemento, el último, y con un solo ítem se pinta como enlace directo; así
+    // «General» se queda solo con «Tablero» y vuelve a ser enlace de primer nivel.
+    await expect(nav.getByRole('button')).toHaveCount(8);
+    await expect(nav.getByRole('link')).toHaveCount(3);
     await expect(nav.getByRole('link', { name: 'Flota', exact: true })).toBeVisible();
-    for (const label of ['General', 'Gestión', 'Tránsito', 'Mantenimiento', 'PESV', 'RNDC',
-      'Cumplimiento', 'Finanzas', 'Administración']) {
+    await expect(nav.getByRole('link', { name: 'Tablero', exact: true })).toBeVisible();
+    await expect(nav.getByRole('link').last()).toHaveAccessibleName('Ayuda');
+    for (const label of ['Gestión', 'Tránsito', 'Mantenimiento', 'PESV', 'RNDC',
+      'LAFT', 'Finanzas', 'Administración']) {
       await expect(nav.getByRole('button', { name: label, exact: true })).toBeVisible();
     }
-    // «Tablero» sigue existiendo, dentro de «General»: la deuda era del spec, no del menú.
-    await nav.getByRole('button', { name: 'General', exact: true }).click();
-    await expect(page.getByRole('link', { name: 'Tablero', exact: true })).toBeVisible();
+    await expect(nav.getByRole('button', { name: 'Cumplimiento', exact: true })).toHaveCount(0);
     await page.keyboard.press('Escape');
 
     const pesvTrigger = nav.getByRole('button', { name: 'PESV', exact: true });
@@ -255,11 +258,11 @@ test('1440 px · el dock del admin es UNA fila y con los nombres a la vista (AC1
   await alargarPagina(page);
 
   const m = await medirDock(page);
-  expect(m.pildoras).toBe(10);
+  expect(m.pildoras).toBe(11);
   expect(m.ysDistintas).toBe(1);
   expect(m.alto).toBeLessThanOrEqual(m.altoDeUnaFila);
-  // Los diez nombres a la vista: a 1440 el condensado por ancho NO debe entrar.
-  expect(m.nombresVisibles).toBe(10);
+  // Los once nombres (HU #13431: «Ayuda» es elemento propio) a la vista: a 1440 el condensado por ancho NO debe entrar.
+  expect(m.nombresVisibles).toBe(11);
   // Y sin tooltip: repetir en un `title` el texto que está al lado es ruido.
   expect(m.conTooltip).toBe(0);
 });
@@ -273,7 +276,7 @@ for (const width of [1280, 1100]) {
     await dockLocator(page).waitFor();
 
     const m = await medirDock(page);
-    expect(m.pildoras).toBe(10);
+    expect(m.pildoras).toBe(11);
 
     // La medida del AC2b, por sus dos caras. **Y las dos caras NO son dos salvaguardas
     // independientes**, que es justo lo que parece y lo que hay que dejar escrito para que nadie
@@ -298,9 +301,9 @@ for (const width of [1280, 1100]) {
     expect(m.alto).toBeLessThanOrEqual(m.altoDeUnaFila);
     // Iconos: ningún rótulo ocupa ancho…
     expect(m.nombresVisibles).toBe(0);
-    // …pero los diez nombres siguen en el árbol y además hay tooltip para quien solo ve el icono.
-    expect(m.nombresEnElDom).toBe(10);
-    expect(m.conTooltip).toBe(10);
+    // …pero los once nombres siguen en el árbol y además hay tooltip para quien solo ve el icono.
+    expect(m.nombresEnElDom).toBe(11);
+    expect(m.conTooltip).toBe(11);
     // El nombre accesible no cambia al condensar: es lo que hace que el `sr-only` sea la fuente
     // del nombre y el `title` un extra. Si el rótulo se hubiera borrado del DOM, esto no pasaría.
     await expect(dockLocator(page).getByRole('button', { name: 'Finanzas', exact: true })).toBeVisible();
@@ -365,7 +368,7 @@ test('1100 px · el panel abierto NO deshace el condensado por ancho (enmienda �
 
   await dockLocator(page).getByRole('button', { name: 'PESV', exact: true }).click();
   await expect.poll(async () => (await medirDock(page)).nombresVisibles,
-    { message: 'con sitio de sobra, el panel abierto sí reexpande' }).toBe(10);
+    { message: 'con sitio de sobra, el panel abierto sí reexpande' }).toBe(11);
 });
 
 test('1920 px con scroll abajo · el condensado por scroll NO se pierde: se SUMA al de ancho', async ({ page }) => {
@@ -377,7 +380,7 @@ test('1920 px con scroll abajo · el condensado por scroll NO se pierde: se SUMA
   await alargarPagina(page);
 
   // A 1920 sobra sitio: arriba de página el dock enseña los nombres.
-  expect((await medirDock(page)).nombresVisibles).toBe(10);
+  expect((await medirDock(page)).nombresVisibles).toBe(11);
 
   await page.mouse.wheel(0, 600);
   await expect.poll(async () => (await medirDock(page)).nombresVisibles).toBe(0);
@@ -398,7 +401,7 @@ test('1100 px · un rol con pocos módulos NO se condensa: la cota es el ancho o
   // 800 px a 1100 y con un breakpoint ciego estaría viendo iconos sin motivo. Un `lg:`/`xl:`
   // aplicado a todos pasaría los dos tests de arriba y moriría aquí.
   const m = await medirDock(page);
-  expect(m.pildoras).toBeLessThan(10);
+  expect(m.pildoras).toBeLessThan(11);
   expect(m.nombresVisibles).toBe(m.pildoras);
   expect(m.ysDistintas).toBe(1);
 });
@@ -415,7 +418,7 @@ test('1023 px · bajo lg no hay dock: hamburguesa y drawer, y ningún rail later
   const drawer = page.getByRole('dialog', { name: 'Menú de navegación' });
   await expect(drawer).toBeVisible();
   // Las secciones con NOMBRE visible — el drawer no condensa — y Finanzas entre ellas (AC8).
-  for (const label of ['General', 'Gestión', 'Finanzas', 'Administración']) {
+  for (const label of ['General', 'Gestión', 'Finanzas', 'Administración', 'Ayuda']) {
     await expect(drawer.getByText(label, { exact: true }).first()).toBeVisible();
   }
   // El rail lateral de escritorio sigue descartado (decisión PO 2026-06-12): cerrado el drawer,
