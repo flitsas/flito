@@ -1,14 +1,18 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { ESTADO_STT_LABEL, getOrganismoByCodigo, transicionesDesde, type TramiteEstadoStt } from '@operaciones/shared-types';
-import { api, errorMessage } from '../lib/api';
+import {
+  ESTADO_STT_LABEL, getOrganismoByCodigo, transicionesDesde,
+  type OrganismoTransitoAsignado, type TramiteEstadoStt,
+} from '@operaciones/shared-types';
+import { api, ApiError, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import FlitModal from '../components/flit/FlitModal';
 import FlitOrganismoCombobox from '../components/flit/FlitOrganismoCombobox';
+import FlitSelect from '../components/flit/FlitSelect';
 import ExpedienteTimeline from './tramite/ExpedienteTimeline';
 import TransitoExpedienteMatriculaModal from './tramite/TransitoExpedienteMatriculaModal';
 import RechazarOtModal from './tramite/RechazarOtModal';
@@ -29,6 +33,46 @@ function writeAdminScope(codigo: string) {
     if (codigo) sessionStorage.setItem(ADMIN_SCOPE_KEY, codigo);
     else sessionStorage.removeItem(ADMIN_SCOPE_KEY);
   } catch { /* ignore */ }
+}
+
+// HU #13426: la última secretaría elegida por un usuario con enlace a varias. Solo comodidad: si
+// el storage falla o el código ya no está en su lista, se empieza en la que el servidor marca
+// `porDefecto`.
+const SECRETARIA_KEY = 'flit.transito.secretaria';
+
+function readSecretaria(): string {
+  try {
+    return localStorage.getItem(SECRETARIA_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function writeSecretaria(codigo: string) {
+  try {
+    localStorage.setItem(SECRETARIA_KEY, codigo);
+  } catch { /* ignore */ }
+}
+
+type SecretariasState =
+  | { status: 'cargando' }
+  | { status: 'error' }
+  | { status: 'listo'; lista: OrganismoTransitoAsignado[] };
+
+/**
+ * La lista viene del enlace del usuario si trae un `porDefecto` o tiene un solo elemento. Sin
+ * enlace el servidor devuelve el catálogo completo sin `porDefecto` (operador interno) y `[]` si no
+ * hay nada: en ambos casos se sigue el flujo de siempre.
+ */
+function listaDelEnlace(lista: OrganismoTransitoAsignado[]): OrganismoTransitoAsignado[] | null {
+  if (lista.length === 1 || lista.some((o) => o.porDefecto)) return lista;
+  return null;
+}
+
+function secretariaInicial(lista: OrganismoTransitoAsignado[]): string {
+  const guardada = readSecretaria();
+  if (guardada && lista.some((o) => o.codigo === guardada)) return guardada;
+  return (lista.find((o) => o.porDefecto) ?? lista[0]).codigo;
 }
 
 interface Tramite {
@@ -78,14 +122,51 @@ export default function TransitoBandeja() {
   const [orgConfig, setOrgConfig] = useState<{ alias: string | null; logoUrl: string | null } | null>(null);
   const [tab, setTab] = useState<BandejaTab>('matricula');
   const [traspasos, setTraspasos] = useState<Tramite[]>([]);
+  // HU #13426: secretarías del enlace. El admin no las pide: su flujo (adminScope) no cambia.
+  const [secretarias, setSecretarias] = useState<SecretariasState>(
+    isAdmin ? { status: 'listo', lista: [] } : { status: 'cargando' },
+  );
+  const [secretaria, setSecretaria] = useState('');
 
-  const scopeCodigo = isAdmin ? (adminScope || null) : (user?.transitoCodigo ?? null);
+  // Sin la función de listar organismos no hay selector posible: el flujo de siempre.
+  const puedeListarSecretarias = hasFuncion('transito.organismos.listar');
+
+  const cargarSecretarias = useCallback(async () => {
+    if (isAdmin || !puedeListarSecretarias) {
+      setSecretarias({ status: 'listo', lista: [] });
+      return;
+    }
+    setSecretarias({ status: 'cargando' });
+    try {
+      const lista = await api.get<OrganismoTransitoAsignado[]>('/transito/organismos');
+      const segura = Array.isArray(lista) ? lista : [];
+      const delEnlace = listaDelEnlace(segura);
+      if (delEnlace) setSecretaria(secretariaInicial(delEnlace));
+      setSecretarias({ status: 'listo', lista: segura });
+    } catch (e) {
+      // 403: el servidor no le da catálogo → flujo de siempre, no un callejón.
+      if (e instanceof ApiError && e.status === 403) setSecretarias({ status: 'listo', lista: [] });
+      else setSecretarias({ status: 'error' });
+    }
+  }, [isAdmin, puedeListarSecretarias]);
+
+  useEffect(() => { cargarSecretarias(); }, [cargarSecretarias]);
+
+  const enlace = secretarias.status === 'listo' ? listaDelEnlace(secretarias.lista) : null;
+  const secretariaElegida = enlace?.find((o) => o.codigo === secretaria) ?? null;
+
+  const scopeCodigo = isAdmin
+    ? (adminScope || null)
+    : enlace
+      ? (secretariaElegida?.codigo ?? null)
+      : (user?.transitoCodigo ?? null);
 
   const organismo = useMemo(() => {
+    if (secretariaElegida) return secretariaElegida;
     return scopeCodigo ? getOrganismoByCodigo(scopeCodigo) ?? null : null;
-  }, [scopeCodigo]);
+  }, [scopeCodigo, secretariaElegida]);
 
-  const displayLabel = orgConfig?.alias?.trim() || organismo?.ciudad;
+  const displayLabel = orgConfig?.alias?.trim() || organismo?.ciudad || organismo?.nombre;
 
   useEffect(() => {
     if (!scopeCodigo) {
@@ -99,10 +180,15 @@ export default function TransitoBandeja() {
 
   const showOrganismoBadge = isAdmin && !adminScope;
 
+  // Con enlace, la secretaría elegida acota la consulta; sin ella el servidor usa la suya.
+  const organismoQuery = isAdmin ? (adminScope || null) : enlace ? (secretariaElegida?.codigo ?? null) : null;
+  const secretariasListas = secretarias.status === 'listo';
+
   const load = useCallback(async () => {
+    if (!secretariasListas) return;
     setLoading(true);
     setScopeError(null);
-    const qs = isAdmin && adminScope ? `?organismo=${encodeURIComponent(adminScope)}` : '';
+    const qs = organismoQuery ? `?organismo=${encodeURIComponent(organismoQuery)}` : '';
     try {
       if (tab === 'matricula') {
         const [p, m] = await Promise.all([
@@ -128,13 +214,21 @@ export default function TransitoBandeja() {
     } finally {
       setLoading(false);
     }
-  }, [adminScope, isAdmin, tab, hasFuncion]);
+  }, [organismoQuery, secretariasListas, isAdmin, tab, hasFuncion]);
 
   useEffect(() => { load(); }, [load]);
 
   const handleAdminScope = (codigo: string) => {
     setAdminScope(codigo);
     writeAdminScope(codigo);
+  };
+
+  // Escrituras: el `?organismo=` es opcional; con enlace se manda la secretaría que se está viendo.
+  const escrituraQs = !isAdmin && organismoQuery ? `?organismo=${encodeURIComponent(organismoQuery)}` : '';
+
+  const handleSecretaria = (codigo: string) => {
+    setSecretaria(codigo);
+    writeSecretaria(codigo);
   };
 
   const emptyPendientesHint = organismo
@@ -149,7 +243,7 @@ export default function TransitoBandeja() {
 
   const tomar = async (id: number) => {
     try {
-      await api.post(`/transito/tomar/${id}`);
+      await api.post(`/transito/tomar/${id}${escrituraQs}`);
       toast.success('Trámite tomado');
       load();
     } catch (e) {
@@ -161,7 +255,7 @@ export default function TransitoBandeja() {
     const placa = placaInput[id];
     if (!placa || !placaValida(placa)) { toast.error('Ingrese una placa válida'); return; }
     try {
-      await api.post(`/transito/asignar-placa/${id}`, { placa });
+      await api.post(`/transito/asignar-placa/${id}${escrituraQs}`, { placa });
       toast.success(`Placa ${placa.toUpperCase()} preasignada`);
       setPlacaInput(prev => { const n = { ...prev }; delete n[id]; return n; });
       load();
@@ -172,7 +266,7 @@ export default function TransitoBandeja() {
 
   const confirmarPlaca = async (id: number) => {
     try {
-      await api.post(`/transito/confirmar-placa/${id}`);
+      await api.post(`/transito/confirmar-placa/${id}${escrituraQs}`);
       toast.success('Placa confirmada y enviada al operador');
       load();
     } catch (e) {
@@ -269,6 +363,53 @@ export default function TransitoBandeja() {
         </div>
       )}
 
+      {!isAdmin && secretarias.status === 'cargando' && (
+        <div
+          className="rounded-xl border p-4 text-sm"
+          style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)', color: 'var(--flit-text-secondary)' }}
+          role="status"
+        >
+          Cargando sus secretarías de tránsito…
+        </div>
+      )}
+
+      {!isAdmin && secretarias.status === 'error' && (
+        <div
+          className="flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between"
+          style={{ borderColor: 'var(--flit-danger)', background: 'var(--flit-bg-card)' }}
+          role="status"
+        >
+          <p className="text-sm font-medium" style={{ color: 'var(--flit-danger-ink)' }}>
+            No pudimos cargar sus secretarías de tránsito. Reintente para ver la bandeja.
+          </p>
+          <button
+            type="button"
+            onClick={() => { void cargarSecretarias(); }}
+            className="flit-focus h-10 shrink-0 rounded-[10px] border px-4 text-sm font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
+            style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
+          >
+            Reintentar secretarías
+          </button>
+        </div>
+      )}
+
+      {enlace && enlace.length > 1 && (
+        <div
+          className="flex flex-col gap-2 rounded-xl border p-4 sm:flex-row sm:items-end sm:gap-4"
+          style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)', boxShadow: 'var(--flit-shadow-card)' }}
+        >
+          <div className="min-w-0 flex-1">
+            <FlitSelect
+              label="Secretaría"
+              value={secretaria}
+              onChange={handleSecretaria}
+              opciones={enlace.map((o) => ({ valor: o.codigo, etiqueta: o.ciudad || o.nombre }))}
+              ayuda="La bandeja muestra una secretaría a la vez."
+            />
+          </div>
+        </div>
+      )}
+
       {scopeError && (
         <div
           className="rounded-xl border px-4 py-4 text-sm"
@@ -282,7 +423,7 @@ export default function TransitoBandeja() {
         </div>
       )}
 
-      {loading && (
+      {loading && secretariasListas && (
         <div className="py-16 text-center">
           <div className="inline-block h-10 w-10 animate-spin rounded-full border-4 motion-reduce:animate-none"
             style={{ borderColor: 'var(--flit-border-soft)', borderTopColor: 'var(--flit-blue)' }} />
