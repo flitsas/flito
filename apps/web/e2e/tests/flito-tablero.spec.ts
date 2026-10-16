@@ -2,7 +2,7 @@ import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER, AUDITOR_USER } from '../helpers/auth';
 
 // FLITO — Tablero (Fase 6). Indicadores que el proceso por Excel no dejaba ver.
-// Operaciones sincroniza; Auditoría observa en solo lectura. Backend mockeado.
+// HU #13630: FLIT 1 se lee sola; el Tablero ya no sincroniza ni lleva la nota «Solo lectura». Backend mockeado.
 
 const RESUMEN = {
   soat: { pendiente: 2, solicitado: 1, con_novedad: 0, pagado: 5 },
@@ -20,30 +20,24 @@ async function mock(page: import('@playwright/test').Page) {
 }
 
 test.describe('FLITO — Tablero', () => {
-  test('operaciones ve KPIs, conteos por estado y el botón de sincronizar', async ({ page }) => {
+  test('operaciones ve KPIs y conteos por estado; sin botón de sincronizar ni tarjeta de sincronización (HU #13630 AC7)', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page);
+    let sincronizado = false;
+    await page.route(/\/api\/flito\/sync\/sincronizar$/, (route) => {
+      sincronizado = true;
+      return route.fulfill({ status: 500, contentType: 'application/json', body: '{}' });
+    });
 
     await page.goto('/flito/tablero');
     await expect(page.getByRole('heading', { name: 'Tablero', exact: true })).toBeVisible();
     await expect(page.getByText('Revisiones pendientes')).toBeVisible();
     await expect(page.getByText('SOAT por estado')).toBeVisible();
     await expect(page.getByText('Impuestos por estado')).toBeVisible();
-    await expect(page.getByRole('button', { name: /Sincronizar desde FLIT/i })).toBeVisible();
-  });
-
-  test('sincronizar dispara la petición', async ({ page }) => {
-    await loginAs(page, OPERACIONES_USER);
-    await mock(page);
-    let sincronizado = false;
-    await page.route(/\/api\/flito\/sync\/sincronizar$/, (route) => {
-      sincronizado = true;
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tramitesNuevos: 0, soatCreados: 0 }) });
-    });
-
-    await page.goto('/flito/tablero');
-    await page.getByRole('button', { name: /Sincronizar desde FLIT/i }).click();
-    await expect.poll(() => sincronizado).toBe(true);
+    await expect(page.getByRole('button', { name: /Sincronizar/i })).toHaveCount(0);
+    await expect(page.getByText('Sincronización ejecutada')).toHaveCount(0);
+    await expect(page.getByText(/Solo lectura/i)).toHaveCount(0);
+    expect(sincronizado).toBe(false);
   });
 
   // ── HU #10962 — alertas operativas ──────────────────────────────────────────
@@ -108,13 +102,13 @@ test.describe('FLITO — Tablero', () => {
     await expect(quitar).toHaveCount(0);
   });
 
-  test('auditor observa en solo lectura: sin botón de sincronizar', async ({ page }) => {
+  test('auditor: sin botón de sincronizar y sin la nota «Solo lectura» (HU #13630 AC7)', async ({ page }) => {
     await loginAs(page, AUDITOR_USER);
     await mock(page);
 
     await page.goto('/flito/tablero');
     await expect(page.getByRole('heading', { name: 'Tablero', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: /Sincronizar desde FLIT/i })).toHaveCount(0);
-    await expect(page.getByText(/Auditoría observa el tablero/i)).toBeVisible();
+    await expect(page.getByText(/Auditoría observa el tablero/i)).toHaveCount(0);
   });
 });

@@ -55,21 +55,21 @@ function fechaHora(iso: string | null): string | null {
 }
 
 /** Hora sola si es de hoy en Bogotá; si no, también el día. */
-interface Momento { dia: string | null; hora: string }
+export interface Momento { dia: string | null; hora: string }
 
-function momento(iso: string | null): Momento | null {
+export function momento(iso: string | null): Momento | null {
   const d = fecha(iso);
   if (!d) return null;
   const hoy = fmtClaveDia.format(new Date()) === fmtClaveDia.format(d);
   return { dia: hoy ? null : fmtDia.format(d), hora: fmtHora.format(d) };
 }
 
-const aLas = (m: Momento | null) => (!m ? 'hace poco' : m.dia ? `el ${m.dia} a las ${m.hora}` : `a las ${m.hora}`);
-const ALas = (m: Momento | null) => { const t = aLas(m); return t.charAt(0).toUpperCase() + t.slice(1); };
+export const aLas = (m: Momento | null) => (!m ? 'hace poco' : m.dia ? `el ${m.dia} a las ${m.hora}` : `a las ${m.hora}`);
+export const ALas = (m: Momento | null) => { const t = aLas(m); return t.charAt(0).toUpperCase() + t.slice(1); };
 const deLas = (m: Momento | null) => (!m ? 'más reciente' : m.dia ? `del ${m.dia} a las ${m.hora}` : `de las ${m.hora}`);
 
 /** Cierra con punto sin duplicarlo: la hora de es-CO ya termina en «p. m.». */
-const fin = (t: string) => (t.endsWith('.') ? t : `${t}.`);
+export const fin = (t: string) => (t.endsWith('.') ? t : `${t}.`);
 
 function B({ children }: { children: ReactNode }) {
   return <strong className="font-semibold">{children}</strong>;

@@ -280,11 +280,12 @@ test.describe('HU #13452 · el Tablero de General sigue abierto al enlace Compa�
     await expect(page.getByRole('button', { name: /Sincronizar/ })).toHaveCount(0);
   });
 
-  test('control: sin enlace, el Tablero conserva la nota de Auditoría', async ({ page }) => {
+  test('sin enlace, el Tablero tampoco lleva la nota de Auditoría (HU #13630 AC7)', async ({ page }) => {
     await mockTablero(page);
     await loginAs(page, conTablero('ninguno'));
     await page.goto('/');
-    await expect(page.getByText(NOTA_AUDITORIA)).toBeVisible();
+    await expect(page.getByText('Revisiones pendientes')).toBeVisible();
+    await expect(page.getByText(NOTA_AUDITORIA)).toHaveCount(0);
   });
 
   for (const enlace of ['proveedor', 'organismos_transito']) {
