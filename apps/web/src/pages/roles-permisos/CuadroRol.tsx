@@ -18,8 +18,8 @@ import type { RolCatalogo } from '@operaciones/shared-types';
 import GradientButton from '../../components/flit/GradientButton';
 import StatusChip from '../../components/flit/StatusChip';
 import { FlitCard, flitBtnSecondary, flitBtnSecondarySm, flitBtnSecondaryStyle } from '../../components/flit/flitPageKit';
-import { ETIQUETA_ENLACE, desmarcadas, marcadas } from './modulos';
-import { codigosDesmarcarTodo, codigosMarcarTodo, type Aviso409, type Indice, type Nodo } from './arbol';
+import { ETIQUETA_ENLACE, desmarcadas, marcadas, notaCerradoPorEnlace } from './modulos';
+import { cerradosPorEnlace, codigosDesmarcarTodo, codigosMarcarTodo, type Aviso409, type Indice, type Nodo } from './arbol';
 import ArbolPermisos, { type FocoArbol } from './ArbolPermisos';
 
 export const COPY_SOLO_LECTURA =
@@ -73,6 +73,8 @@ export default function CuadroRol({
   const conElemento = arbol.some((n) => !n.derivado && borrador.has(n.codigo));
   const vacio = conElemento ? null : editable ? COPY_VACIO_ROL : COPY_VACIO_ROL_LECTURA;
   const todos = arbol;
+  // HU #13452: lo que el enlace del rol cierra se pinta deshabilitado y «Marcar todo» no lo marca.
+  const cerrados = useMemo(() => cerradosPorEnlace(arbol, rol.tipoEnlace), [arbol, rol.tipoEnlace]);
   const idMotivo = `motivo-rol-${rol.codigo}`;
 
   return (
@@ -144,7 +146,7 @@ export default function CuadroRol({
           <h3 className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Permisos del rol</h3>
           {editable && (
             <div className="flex flex-wrap gap-2">
-              <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => onConjunto(codigosMarcarTodo(todos), true)}>
+              <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => onConjunto(codigosMarcarTodo(todos).filter((c) => !cerrados.has(c)), true)}>
                 Marcar todo<span className="sr-only"> en el rol {rol.nombre}</span>
               </button>
               <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => onConjunto(codigosDesmarcarTodo(todos), false)}>
@@ -165,6 +167,8 @@ export default function CuadroRol({
           onConjunto={onConjunto}
           foco={foco}
           usarEfectivoServidor={usarEfectivoServidor}
+          cerrados={cerrados}
+          notaCerrado={cerrados.size > 0 ? notaCerradoPorEnlace(rol.tipoEnlace) : undefined}
         />
       </FlitCard>
     </div>

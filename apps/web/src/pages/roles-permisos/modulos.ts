@@ -187,13 +187,20 @@ export const ETIQUETA_ENLACE: Record<TipoEnlace, string> = {
   organismos_transito: 'Organismos',
 };
 
-/** Ayuda breve de cada enlace (spec UX de la HU #12876). Ninguna menciona nombres de rol. */
+/**
+ * Ayuda breve de cada enlace (spec UX de la HU #12876). Ninguna menciona nombres de rol. HU #13452: los
+ * módulos se nombran como en el MENÚ y son los de `FRONTERA_POR_ENLACE` que tienen pantalla en él.
+ */
 export const AYUDA_ENLACE: Record<TipoEnlace, string> = {
   ninguno: 'Ve todos los datos de los módulos que este rol tenga marcados.',
-  compania: 'Ve solo lo de su compañía en Gestión Trámites, SOAT, Impuestos, su bolsa, Comprobantes y Logística. No ve catálogos ni configuración; el resto le queda cerrado.',
+  compania: 'Ve solo lo de su compañía en Gestión Trámites, SOAT, Impuestos, Bolsas, Comprobantes y Logística. No ve catálogos ni configuración; el resto le queda cerrado.',
   proveedor: 'Ve solo lo asignado a su proveedor. Hoy aplica a SOAT.',
-  organismos_transito: 'Ve solo lo de sus secretarías de tránsito en Impuestos y Derechos de tránsito. El resto le queda cerrado.',
+  organismos_transito: 'Ve solo lo de sus secretarías de tránsito en Impuestos, Derechos y la Bandeja de trámites. El resto le queda cerrado.',
 };
+
+/** La nota de una línea bajo el ítem cerrado (copy de la sesión de evidencias de la HU #13452). */
+export const notaCerradoPorEnlace = (enlace: TipoEnlace) =>
+  `Cerrado por el enlace «${ETIQUETA_ENLACE[enlace]}»: este rol no lo verá aunque lo marque.`;
 
 /** Orden fijo del grupo de radios, independiente del orden de `TIPOS_ENLACE`. */
 export const ORDEN_ENLACE: readonly TipoEnlace[] = ['ninguno', 'compania', 'proveedor', 'organismos_transito'];

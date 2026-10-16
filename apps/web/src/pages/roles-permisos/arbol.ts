@@ -16,7 +16,7 @@
 //   · AC3 (delta §7): `sinAcciones` = ítem FLITO marcado sin ninguna acción marcada.
 //   · P-25 (delta §5): una excepción «conceder» bajo un ancestro que el usuario no tiene es «sin efecto».
 
-import type { NodoArbolDef } from '@operaciones/shared-types';
+import { paginaAbiertaAlEnlace, type NodoArbolDef, type TipoEnlace } from '@operaciones/shared-types';
 
 export interface Nodo extends NodoArbolDef {
   hijos: Nodo[];
@@ -298,4 +298,24 @@ export function aviso409(cuerpo: { nodo?: string; funcion?: string }, indice: In
     ? `Deja marcado «${nombre}» en este rol o dáselo antes a otro rol con usuarios activos.`
     : `Deja «${nombre}» a este usuario o dáselo antes a otro usuario activo.`;
   return { texto: `${INICIO_409} ${medio} ${FIN_409}`, nodo: codigo };
+}
+
+/**
+ * HU #13452 — Los nodos del árbol que el ENLACE del rol cierra (`FRONTERA_POR_ENLACE`): cada ítem cuya
+ * pantalla no es de un módulo abierto a ese enlace, y todo lo que cuelga de él. Valor = el código del
+ * ítem que lo cierra (el que lleva la nota). Vacío con enlace `ninguno`: sin enlace nada cambia.
+ */
+export function cerradosPorEnlace(arbol: readonly Nodo[], enlace: TipoEnlace): Map<string, string> {
+  const cerrados = new Map<string, string>();
+  if (enlace === 'ninguno') return cerrados;
+  const visitar = (n: Nodo) => {
+    if (n.tipo === 'item' && n.slug && !paginaAbiertaAlEnlace(n.slug, enlace)) {
+      cerrados.set(n.codigo, n.codigo);
+      for (const d of descendientes(n)) cerrados.set(d.codigo, n.codigo);
+      return;
+    }
+    n.hijos.forEach(visitar);
+  };
+  arbol.forEach(visitar);
+  return cerrados;
 }

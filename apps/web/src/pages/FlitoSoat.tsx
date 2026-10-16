@@ -22,6 +22,7 @@ import {
 import { AvisoSoportesZip, ZIP_SOAT, useDescargaZip } from '../components/flito/DescargarSoportesZip';
 import { useDescargaComprobante } from '../components/flito/DescargarComprobanteSoat';
 import useDebounce from '../lib/useDebounce';
+import { conEnlace, vacioConEnlace } from '../lib/copyEnlace';
 import {
   FlitCard, FlitEmpty, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary,
 } from '../components/flit/flitPageKit';
@@ -280,6 +281,9 @@ export default function FlitoSoat() {
   // del cuerpo que se manda, igual que cualquier otro filtro. La función es aparte de la del
   // export: quien puede descargar el archivo del gestor no necesariamente puede ver el pago.
   const puedeExportarPago = hasFuncion('soat.excel.exportar_pago');
+  // HU #13452: «Incluir datos de pago y trazabilidad» es de uso interno («Solo para Operaciones»): con
+  // enlace no se ofrece aunque el rol tenga la función marcada.
+  const ofrecerExportarPago = puedeExportarPago && sinEnlace;
   const [incluirPago, setIncluirPago] = useState(false);
   const filtrosExport: FiltrosExportCola = {
     ...(estado !== 'todos' && !vistaIncompletas ? { estados: [estado] } : {}),
@@ -300,7 +304,7 @@ export default function FlitoSoat() {
     ...(vigenciaSel ? { vigencia: vigenciaSel } : {}),
     // Bug #12642: la clave viaja SOLO marcada —y solo si se tiene la función, que es lo que pinta la
     // casilla—: ausente, el cuerpo es el mismo de siempre. Sin la función no hay forma de marcarla.
-    ...(puedeExportarPago && incluirPago ? { incluirPago: true } : {}),
+    ...(ofrecerExportarPago && incluirPago ? { incluirPago: true } : {}),
   };
   // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
   const exportacion = useExportCola(COLA_SOAT, filtrosExport);
@@ -435,7 +439,7 @@ export default function FlitoSoat() {
               <BotonExportarCola
                 ocupado={exportacion.ocupado}
                 onExportar={exportacion.exportar}
-                incluirPago={puedeExportarPago ? { marcado: incluirPago, onCambio: setIncluirPago } : undefined}
+                incluirPago={ofrecerExportarPago ? { marcado: incluirPago, onCambio: setIncluirPago } : undefined}
               />
             )}
           </>
@@ -566,13 +570,14 @@ export default function FlitoSoat() {
                   </>
                 )
                 // HU #12819: el gestor no sincroniza el Tablero (no es suyo) y el auditor no trae nada.
-                : esGestor
+                // HU #13452: con enlace el vacío dice de quién son los SOAT, sin mandar a sincronizar.
+                : vacioConEnlace('SOAT', tipoEnlace) ?? (esGestor
                   ? 'No tienes SOAT en esta vista. Aparecerán aquí cuando Operaciones te los envíe.'
                   : soloLectura
                     ? 'No hay SOAT en esta vista. Prueba con otro estado en las pastillas de arriba.'
-                    : 'No hay SOAT en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.'}
+                    : 'No hay SOAT en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.')}
             {(hayFiltros || texto.trim()) && (
-              <p className="mt-1">{esCliente ? 'Quite algún filtro o use «Limpiar filtros».' : 'Quita algún filtro o usa «Limpiar filtros».'}</p>
+              <p className="mt-1">{esCliente || conEnlace(tipoEnlace) ? 'Quite algún filtro o use «Limpiar filtros».' : 'Quita algún filtro o usa «Limpiar filtros».'}</p>
             )}
           </FlitEmpty>
         </FlitCard>
