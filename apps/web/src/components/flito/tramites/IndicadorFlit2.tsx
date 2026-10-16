@@ -95,13 +95,32 @@ interface Vista {
 }
 
 /** Tramo de la frecuencia: «cada 5 min», o nada si no da un entero ≥ 1. */
-function cada(intervaloMs: number | null): string {
+export function cada(intervaloMs: number | null): string {
   if (intervaloMs === null) return '';
   const min = Math.round(intervaloMs / 60_000);
   return Number.isFinite(min) && min >= 1 ? ` cada ${min} min` : '';
 }
 
-type Caso = 'curso' | 'detenida_maestro' | 'detenida_interruptor' | 'apagada' | 'rechazado' | 'bloqueado_hasta' | 'bloqueado' | 'lectura' | 'alerta' | 'encendida';
+/**
+ * HU #13634: umbral de atraso `U = 2 · intervaloMs + 5 min` (el mismo del servidor), en minutos
+ * enteros; null sin un intervalo válido (entonces no se afirma un tiempo).
+ */
+export function umbralMin(intervaloMs: number | null | undefined): number | null {
+  if (typeof intervaloMs !== 'number' || !Number.isFinite(intervaloMs) || intervaloMs <= 0) return null;
+  return Math.round((2 * intervaloMs + 5 * 60_000) / 60_000);
+}
+
+/** «15 minutos» (largo) o «15 min» (corto); desde 60 min, «2 h» o «2 h 5 min» en los dos. */
+export function duracionUmbral(min: number, corto: boolean): string {
+  if (min < 60) return corto ? `${min} min` : `${min} minutos`;
+  const h = Math.floor(min / 60);
+  const r = min % 60;
+  return r === 0 ? `${h} h` : `${h} h ${r} min`;
+}
+
+type Caso =
+  | 'curso' | 'detenida_maestro' | 'detenida_interruptor' | 'apagada' | 'rechazado' | 'bloqueado_hasta' | 'bloqueado'
+  | 'avisos_rechazados' | 'lectura' | 'desconocido' | 'alerta' | 'encendida';
 
 /** Precedencia de la spec (gana la primera que aplique). */
 function casoDe(d: Flit2EstadoConexion, hastaBloqueo: number | null): Caso {
@@ -112,16 +131,21 @@ function casoDe(d: Flit2EstadoConexion, hastaBloqueo: number | null): Caso {
   if (!a.activa) return 'apagada';
   if (d.problema?.tipo === 'rechazado') return 'rechazado';
   if (d.problema?.tipo === 'bloqueado') return hastaBloqueo !== null && hastaBloqueo > Date.now() ? 'bloqueado_hasta' : 'bloqueado';
+  // HU #13634: los avisos con firma rechazada no detienen la lectura; un tipo nuevo no es «falló la lectura».
+  if (d.problema?.tipo === 'avisos_firma') return 'avisos_rechazados';
   if (d.problema?.tipo === 'lectura') return 'lectura';
+  if (d.problema) return 'desconocido';
   if (d.alerta) return 'alerta';
   return 'encendida';
 }
 
-const CON_CUENTA: ReadonlySet<Caso> = new Set<Caso>(['bloqueado', 'lectura', 'alerta', 'encendida']);
+const CON_CUENTA: ReadonlySet<Caso> = new Set<Caso>(['bloqueado', 'avisos_rechazados', 'lectura', 'desconocido', 'alerta', 'encendida']);
+/** Casos en los que la cuenta es la de la próxima lectura normal, no la de un reintento. */
+const PROXIMA_NORMAL: ReadonlySet<Caso> = new Set<Caso>(['avisos_rechazados', 'desconocido', 'encendida']);
 
 function lectorProxima(caso: Caso, proxima: number | null, restante: number | null): string | undefined {
   if (!CON_CUENTA.has(caso) || proxima === null) return undefined;
-  const sujeto = caso === 'encendida' ? 'Próxima lectura' : 'Nuevo intento';
+  const sujeto = PROXIMA_NORMAL.has(caso) ? 'Próxima lectura' : 'Nuevo intento';
   if (restante === null || restante <= 0) return `${sujeto} en unos segundos.`;
   const h = lasHora(proxima);
   return fin(h.art === 'las' ? `${sujeto} a ${h.texto}` : `${sujeto} ${h.texto}`);
@@ -153,10 +177,27 @@ function vistaDe(caso: Caso, d: Flit2EstadoConexion, restante: number | null, ha
     }
     case 'bloqueado':
       return { tono: 'warning', linea: <>Acceso bloqueado · reintenta en {cuenta}</>, anuncio: 'FLIT 2 bloqueó el acceso por un tiempo.' };
+    case 'avisos_rechazados':
+      // `warning` y no `danger`: la lectura automática sigue trayendo trámites (spec HU #13634).
+      return {
+        tono: 'warning',
+        linea: <>Avisos con firma no válida · próxima lectura en {cuenta}</>,
+        anuncio: 'FLIT 2 está enviando avisos con firma no válida.',
+      };
     case 'lectura':
       return { tono: 'warning', linea: <>Falló la última lectura · reintenta en {cuenta}</>, anuncio: 'La última lectura de FLIT 2 falló.' };
-    case 'alerta':
-      return { tono: 'danger', linea: <>Sin leer hace más de 30 min · reintenta en {cuenta}</>, anuncio: 'FLIT 2 lleva más de 30 minutos sin leer.' };
+    case 'desconocido':
+      return { tono: 'warning', linea: <>Conexión por revisar · próxima lectura en {cuenta}</>, anuncio: 'La conexión con FLIT 2 necesita revisión.' };
+    case 'alerta': {
+      const u = umbralMin(a.intervaloMs);
+      return u === null
+        ? { tono: 'danger', linea: <>Sin leer en el tiempo esperado · reintenta en {cuenta}</>, anuncio: 'FLIT 2 no ha leído trámites en el tiempo esperado.' }
+        : {
+          tono: 'danger',
+          linea: <>Sin leer hace más de {duracionUmbral(u, true)} · reintenta en {cuenta}</>,
+          anuncio: `FLIT 2 lleva más de ${duracionUmbral(u, false)} sin leer.`,
+        };
+    }
     default:
       return {
         tono: 'success',
@@ -166,7 +207,7 @@ function vistaDe(caso: Caso, d: Flit2EstadoConexion, restante: number | null, ha
   }
 }
 
-/** Tercera línea del bloque «Última lectura FLIT 2». Solo con el estado cargado y configurado. */
+/** Línea bajo «Última lectura buena» · «Último aviso». Solo con el estado cargado y configurado. */
 export function IndicadorFlit2({ dato, desfaseMs }: { dato: Flit2EstadoConexion; desfaseMs: number }) {
   const hastaBloqueo = dato.problema?.tipo === 'bloqueado' ? instante(dato.problema.hasta) : null;
   const caso = casoDe(dato, hastaBloqueo);

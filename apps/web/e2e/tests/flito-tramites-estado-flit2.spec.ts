@@ -22,7 +22,7 @@ function auto(extra: Record<string, unknown> = {}) {
 
 const SANO = {
   configurado: true, motivoSinConfigurar: null,
-  ultimaExitosaEn: hace(3), ultimoIntentoEn: hace(3),
+  ultimaExitosaEn: hace(3), ultimoIntentoEn: hace(3), ultimoAvisoEn: null,
   atrasada: false, alerta: false, problema: null,
   piiEnmascarada: { tramites: 0, desde: null },
   automatica: auto(),
@@ -82,7 +82,7 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
     await mockCola(page);
     const ctl = await mockEstado(page, 200, { ...SANO, alerta: true });
     await abrir(page);
-    await expect(page.getByText('Última lectura FLIT 2')).toHaveCount(0);
+    await expect(page.getByText('Última lectura buena')).toHaveCount(0);
     await expect(aviso(page)).toHaveCount(0);
     expect(ctl.n).toBe(0);
   });
@@ -115,7 +115,7 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
     expect(ctl.n).toBe(antes);
   });
 
-  test('AC1 + AC2: cargando con esqueleto, luego la última lectura exitosa y «atrasada»; sano sin aviso', async ({ page }) => {
+  test('AC1 + AC2: cargando con esqueleto, luego la última lectura buena y «atrasada»; sano sin aviso', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockCola(page);
     let soltar: () => void = () => {};
@@ -123,7 +123,8 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
     await page.route(RUTA_ESTADO, async (r) => { await pendiente; return json(r, 200, { ...SANO, atrasada: true }); });
     await abrir(page);
     await expect(linea(page)).toHaveAttribute('aria-busy', 'true');
-    await expect(linea(page)).toContainText('Última lectura FLIT 2');
+    await expect(linea(page)).toContainText('Última lectura buena');
+    await expect(linea(page)).toContainText('Último aviso');
     soltar();
     await expect(linea(page)).not.toHaveAttribute('aria-busy', 'true');
     await expect(linea(page)).toContainText(/2026/);
@@ -158,7 +159,9 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
     await expect(linea(page)).toContainText('Sin configurar');
     await expect(aviso(page)).toHaveAttribute('role', 'status');
     await expect(aviso(page)).toHaveText('FLIT 2 sin configurar: FLITO aún no lee trámites de FLIT 2. Configura el acceso en Acceso a FLIT 2.');
-    await expect(page.getByText('FLIT 2 lleva más de 30 minutos')).toHaveCount(0);
+    await expect(page.getByText(/FLIT 2 lleva más de/)).toHaveCount(0);
+    // HU #13634: sin acceso configurado no se habla de avisos.
+    await expect(page.getByTestId('ultimo-aviso-flit2')).toHaveCount(0);
   });
 
   test('AC1: sin configurar y sin permiso de guardar pide a un administrador; «ambiente» tiene su copy', async ({ page }) => {
@@ -184,10 +187,10 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
     });
     await abrir(page);
     await expect(aviso(page)).toHaveAttribute('role', 'alert');
-    // Bug #13198: el título dice la causa (rechazo), aunque además pasen 30 minutos.
+    // Bug #13198: el título dice la causa (rechazo), aunque además pase el umbral de atraso.
     await expect(aviso(page)).toContainText('FLIT 2 rechazó el acceso de FLITO.');
-    await expect(aviso(page)).not.toContainText('más de 30 minutos');
-    await expect(aviso(page)).toContainText(/Última lectura exitosa: .*2026.*\./);
+    await expect(aviso(page)).not.toContainText('sin leer trámites');
+    await expect(aviso(page)).toContainText(/Última lectura buena: .*2026.*\./);
     await expect(aviso(page)).toContainText(/FLIT 2 rechazó el acceso guardado a las \d{1,2}:\d{2}.*\. Revisa el usuario y la contraseña en Acceso a FLIT 2\./);
     await expect(aviso(page).getByRole('button')).toHaveCount(0);
     await expect(page.getByText(/credenciales/)).toHaveCount(0);
@@ -201,17 +204,17 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
     await mockCola(page);
     const ctl = await mockEstado(page, 200, { ...SANO, ultimaExitosaEn: null, alerta: true });
     await abrir(page);
-    await expect(aviso(page)).toContainText('Todavía no hay ninguna lectura exitosa.');
+    await expect(aviso(page)).toContainText('Todavía no hay ninguna lectura buena.');
     await expect(aviso(page)).toContainText(/La lectura automática vuelve a intentarlo en \d+:\d{2}unos minutos; si no lee, revisa Acceso a FLIT 2\./);
-    await expect(textoIndicador(page)).toHaveText(/^Sin leer hace más de 30 min · reintenta en \d+:\d{2}$/);
+    await expect(textoIndicador(page)).toHaveText(/^Sin leer hace más de 15 min · reintenta en \d+:\d{2}$/);
     const antes = await asentado(page, ctl);
     ctl.set(500, { error: CRUDO });
     await volverALaPestana(page);
     await expect.poll(() => ctl.n).toBe(antes + 1);
     await page.waitForTimeout(200);
-    await expect(aviso(page)).toContainText('FLIT 2 lleva más de 30 minutos sin leer trámites.');
+    await expect(aviso(page)).toContainText('FLIT 2 lleva más de 15 minutos sin leer trámites.');
     await expect(linea(page)).not.toContainText('No se pudo consultar');
-    await expect(textoIndicador(page)).toHaveText(/^Sin leer hace más de 30 min · reintenta en \d+:\d{2}$/);
+    await expect(textoIndicador(page)).toHaveText(/^Sin leer hace más de 15 min · reintenta en \d+:\d{2}$/);
     await expect(page.getByText(CRUDO)).toHaveCount(0);
   });
 
@@ -228,7 +231,7 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
     await expect(aviso(page)).not.toContainText('bloqueado');
   });
 
-  test('Bug #13198 (a): bloqueo reciente con alerta → título de bloqueo, no «más de 30 minutos»', async ({ page }) => {
+  test('Bug #13198 (a): bloqueo reciente con alerta → título de bloqueo, no el de atraso', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockCola(page);
     await mockEstado(page, 200, {
@@ -238,8 +241,8 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
     await abrir(page);
     await expect(aviso(page)).toHaveAttribute('role', 'alert');
     await expect(aviso(page).locator('p').first()).toHaveText('FLIT 2 bloqueó el acceso por un tiempo.');
-    await expect(aviso(page)).not.toContainText('más de 30 minutos');
-    await expect(aviso(page)).toContainText(/Última lectura exitosa: .+\./);
+    await expect(aviso(page)).not.toContainText('sin leer trámites');
+    await expect(aviso(page)).toContainText(/Última lectura buena: .+\./);
     await expect(aviso(page)).toContainText(/FLIT 2 bloqueó el acceso por intentos fallidos a las .+, hasta las .+\. FLITO vuelve a leer solo después; no hace falta hacer nada\./);
   });
 
@@ -253,7 +256,7 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
     await abrir(page);
     await expect(aviso(page)).toHaveAttribute('role', 'alert');
     await expect(aviso(page).locator('p').first()).toHaveText('FLIT 2 rechazó el acceso de FLITO.');
-    await expect(aviso(page)).not.toContainText('más de 30 minutos');
+    await expect(aviso(page)).not.toContainText('sin leer trámites');
     await expect(aviso(page)).toContainText(/Revisa el usuario y la contraseña en Acceso a FLIT 2\./);
   });
 
@@ -280,17 +283,17 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
     });
     await abrir(page);
     await expect(aviso(page).locator('p').first()).toHaveText('Falló la última lectura de FLIT 2.');
-    await expect(aviso(page)).not.toContainText('más de 30 minutos');
+    await expect(aviso(page)).not.toContainText('sin leer trámites');
     await expect(page.getByText(/no_responde/)).toHaveCount(0);
   });
 
-  test('Bug #13198 (d): ≥30 min sin lectura y sin problema → título «más de 30 minutos»', async ({ page }) => {
+  test('Bug #13198 (d) + HU #13634: ≥ U sin lectura y sin problema → título con U (R = 5 → 15 minutos)', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockCola(page);
     await mockEstado(page, 200, { ...SANO, ultimaExitosaEn: hace(45), alerta: true });
     await abrir(page);
     await expect(aviso(page)).toHaveAttribute('role', 'alert');
-    await expect(aviso(page).locator('p').first()).toHaveText('FLIT 2 lleva más de 30 minutos sin leer trámites.');
+    await expect(aviso(page).locator('p').first()).toHaveText('FLIT 2 lleva más de 15 minutos sin leer trámites.');
   });
 
   test('AC6: los códigos de lectura se traducen; nunca el código crudo ni el texto del API', async ({ page }) => {
@@ -446,7 +449,7 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
     expect(arbol).not.toMatch(/intentarlo en \d/);
   });
 
-  test('13189 AC8: sin configurar no hay punto ni cuenta; el esqueleto trae dos barras', async ({ page }) => {
+  test('13189 AC8 + 13634: sin configurar no hay punto ni cuenta; el esqueleto trae los dos rótulos y tres barras', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockCola(page);
     let soltar: () => void = () => {};
@@ -456,7 +459,9 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
       return json(r, 200, { ...SANO, configurado: false, motivoSinConfigurar: 'sin_acceso', ultimaExitosaEn: null });
     });
     await abrir(page);
-    await expect(linea(page).locator('.animate-pulse')).toHaveCount(2);
+    await expect(linea(page).locator('.animate-pulse')).toHaveCount(3);
+    await expect(linea(page)).toContainText('Última lectura buena');
+    await expect(linea(page)).toContainText('Último aviso');
     soltar();
     await expect(linea(page)).toContainText('Sin configurar');
     await expect(indicador(page)).toHaveCount(0);
@@ -505,5 +510,124 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
       document.dispatchEvent(new Event('visibilitychange'));
     });
     await expect.poll(() => ctl.n).toBe(antes + 2);
+  });
+  // ── HU #13634: «Último aviso», «Última lectura buena», avisos_firma y umbral 2R + 5 min ──────────
+
+  test('13634 AC1: «Última lectura buena» y «Último aviso» con fecha y hora; el indicador va debajo', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    await mockEstado(page, 200, { ...SANO, ultimaExitosaEn: hace(3), ultimoAvisoEn: hace(1) });
+    await abrir(page);
+    const lectura = page.getByTestId('ultima-lectura-flit2');
+    const avisoUlt = page.getByTestId('ultimo-aviso-flit2');
+    await expect(lectura).toHaveText(/2026, \d{1,2}:\d{2}\s?[ap]\.\s?m\.$/);
+    await expect(avisoUlt).toHaveText(/2026, \d{1,2}:\d{2}\s?[ap]\.\s?m\.$/);
+    await expect(linea(page)).toContainText('Última lectura buena');
+    await expect(linea(page)).toContainText('Último aviso');
+    await expect(page.getByText('Última lectura FLIT 2')).toHaveCount(0);
+    const cajaAviso = await avisoUlt.boundingBox();
+    const cajaIndicador = await indicador(page).boundingBox();
+    expect(cajaAviso && cajaIndicador && cajaIndicador.y > cajaAviso.y).toBeTruthy();
+  });
+
+  test('13634 AC2: sin avisos dice «Sin avisos recibidos», en el tono de los valores y sin alerta', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    await mockEstado(page, 200, { ...SANO, ultimoAvisoEn: null });
+    await abrir(page);
+    const avisoUlt = page.getByTestId('ultimo-aviso-flit2');
+    await expect(avisoUlt).toHaveText('Sin avisos recibidos');
+    const color = (sel: string) => page.getByTestId(sel).evaluate((el) => getComputedStyle(el).color);
+    expect(await color('ultimo-aviso-flit2')).toBe(await color('ultima-lectura-flit2'));
+    await expect(aviso(page)).toHaveCount(0);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    await expect(page.getByTestId('alerta-resumen-flit2')).toHaveCount(0);
+  });
+
+  test('13634 AC3: avisos con firma no válida → aviso de página con copy pulido, sin el código, y «Requiere atención»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    await mockEstado(page, 200, {
+      ...SANO, alerta: true, problema: { tipo: 'avisos_firma', codigo: null, motivo: null, en: null, hasta: null },
+      automatica: auto({ proximaEn: dentro(3) }),
+    });
+    await abrir(page);
+    await expect(aviso(page)).toHaveAttribute('role', 'alert');
+    await expect(aviso(page).locator('p').first()).toHaveText('FLIT 2 está enviando avisos con firma no válida.');
+    await expect(aviso(page)).toContainText(/Última lectura buena: .*2026.*\./);
+    await expect(aviso(page)).toContainText(
+      'FLITO los rechaza y no los tiene en cuenta. Avísale a quien administra el ambiente: hay que revisar que la clave '
+      + 'compartida de los avisos sea la misma en FLIT 2 y en FLITO. Esto no detiene la lectura automática de cada 5 min.',
+    );
+    await expect(textoIndicador(page)).toHaveText(/^Avisos con firma no válida · próxima lectura en (2:5\d|3:00)$/);
+    await expect(indicador(page).getByRole('status')).toHaveText('FLIT 2 está enviando avisos con firma no válida.');
+    await expect(indicador(page)).toContainText(/Próxima lectura a las .+\./);
+    expect(await page.content()).not.toContain('avisos_firma');
+    await expect(page.getByTestId('alerta-resumen-flit2')).toHaveText('Requiere atención');
+    await expect(page.locator('[data-sonner-toast], [role="status"][data-testid*="toast"]')).toHaveCount(0);
+  });
+
+  test('13634 AC4: alerta por respaldos fallidos con U = 2R + 5 min (R = 5 → 15 minutos) y la última lectura buena visible', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    await mockEstado(page, 200, { ...SANO, ultimaExitosaEn: hace(20), alerta: true, automatica: auto({ proximaEn: dentro(3) }) });
+    await abrir(page);
+    await expect(aviso(page).locator('p').first()).toHaveText('FLIT 2 lleva más de 15 minutos sin leer trámites.');
+    await expect(aviso(page)).toContainText(/Última lectura buena: .*2026.*\./);
+    await expect(page.getByTestId('ultima-lectura-flit2')).toHaveText(/2026/);
+    await expect(textoIndicador(page)).toHaveText(/^Sin leer hace más de 15 min · reintenta en \d+:\d{2}$/);
+    await expect(indicador(page).getByRole('status')).toHaveText('FLIT 2 lleva más de 15 minutos sin leer.');
+    await expect(page.getByText(/30 min/)).toHaveCount(0);
+  });
+
+  test('13634 AC4: con R = 60 el umbral se escribe «2 h 5 min» en la tarjeta y en el indicador', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    await mockEstado(page, 200, {
+      ...SANO, ultimaExitosaEn: hace(130), alerta: true, automatica: auto({ intervaloMs: 3_600_000, proximaEn: dentro(3) }),
+    });
+    await abrir(page);
+    await expect(aviso(page).locator('p').first()).toHaveText('FLIT 2 lleva más de 2 h 5 min sin leer trámites.');
+    await expect(textoIndicador(page)).toHaveText(/^Sin leer hace más de 2 h 5 min · reintenta en \d+:\d{2}$/);
+    await expect(page.getByTestId('ultima-lectura-flit2')).toHaveText(/2026/);
+  });
+
+  test('13634: un tipo de problema desconocido usa la frase de reserva, sin el tipo ni «la lectura falló»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    await mockEstado(page, 200, {
+      ...SANO, alerta: true, problema: { tipo: 'xyz_e2e', codigo: 'cod_e2e', motivo: null, en: hace(1), hasta: null },
+      automatica: auto({ proximaEn: dentro(3) }),
+    });
+    await abrir(page);
+    await expect(aviso(page).locator('p').first()).toHaveText('FLIT 2 necesita revisión.');
+    await expect(aviso(page)).toContainText(
+      /A las .+, hay un problema con la conexión a FLIT 2\. Si sigue después de la próxima lectura, avísale a soporte técnico\./,
+    );
+    await expect(textoIndicador(page)).toHaveText(/^Conexión por revisar · próxima lectura en \d+:\d{2}$/);
+    await expect(aviso(page)).not.toContainText('falló');
+    expect(await page.content()).not.toMatch(/xyz_e2e|cod_e2e/);
+  });
+
+  test('13634 AC5: a 375 px los pares se apilan sin desborde horizontal', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page);
+    await mockEstado(page, 200, {
+      ...SANO, ultimoAvisoEn: hace(1), alerta: true,
+      problema: { tipo: 'avisos_firma', codigo: null, motivo: null, en: null, hasta: null },
+    });
+    await abrir(page);
+    await expect(aviso(page)).toBeVisible();
+    await expect(page.getByTestId('ultimo-aviso-flit2')).toBeVisible();
+    // Se mide el grupo FLIT 2 (lo que toca esta HU): ningún descendiente pasa del borde de la ventana.
+    const desborde = await page.evaluate(() => {
+      const bordes = [...document.querySelectorAll('[data-testid="grupo-flit2"] *')].map((el) => el.getBoundingClientRect().right);
+      return { max: Math.max(...bordes), vw: window.innerWidth };
+    });
+    expect(desborde.max).toBeLessThanOrEqual(desborde.vw);
+    const cajaGrupo = await page.getByTestId('grupo-flit2').boundingBox();
+    const cajaLinea = await linea(page).boundingBox();
+    expect(cajaGrupo && cajaLinea && cajaLinea.x + cajaLinea.width <= cajaGrupo.x + cajaGrupo.width + 1).toBeTruthy();
   });
 });

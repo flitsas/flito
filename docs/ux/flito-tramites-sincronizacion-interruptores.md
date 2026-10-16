@@ -1,5 +1,7 @@
 # UX slim — Gestión Trámites · sección «Sincronización» con interruptor por fuente (HU #13238)
 
+> Delta HU #13634 (Último aviso, Última lectura buena, avisos_firma, umbral 2R+5): ver `docs/ux/hu-13634-ultimo-aviso-flit2.md`; sustituye las menciones a «30 minutos».
+
 > **Vigencia (2026-10-16).** El delta de la **HU #13630** (al final de este documento) retira la
 > sincronización manual de FLIT 1 y añade sus parámetros de lectura. Donde choque con lo anterior
 > —«Sincronizar FLIT» como única primaria, «Elegir fecha», «Desde», el toast de la sincronización, el
