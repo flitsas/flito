@@ -87,7 +87,9 @@ describe('0241 — análisis estático', () => {
     expect(cfg.columns.map((c) => c.name).sort()).toEqual([
       'arranque', 'frecuencia_minutos', 'id', 'parametros_actualizados_en', 'parametros_actualizados_por',
       'proxima_prevista_en', 'ultima_buena_en', 'ultimo_fallo_codigo', 'ultimo_fallo_en', 'ventana_dias', 'ventana_nocturna_dias',
-    ]);
+      // HU #13629, migración 0242 (marcas de la lectura automática): las verifica migracion-0242.test.ts.
+      'nocturna_buena_dia', 'ultima_corrida_en',
+    ].sort());
     expect(cfg.columns.find((c) => c.name === 'id')!.primary).toBe(true);
     expect(cfg.checks.map((c) => c.name).sort()).toEqual([...CHECKS].sort());
     for (const nombre of CHECKS) expect(SIN_COMENTARIOS).toContain(`CONSTRAINT ${nombre} `);

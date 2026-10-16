@@ -6,6 +6,12 @@
 //     todo lo demás: no consulta FLIT 1, no escribe y no mueve la última sincronización (AC5).
 //   - GET /estado añade `habilitada` y `motivoDeshabilitada` (AC9; FLIT 1 no tiene maestro).
 //   - GET/PUT /interruptores viven en `flito-sync-interruptores.routes.ts`, montado al final.
+//
+// HU #13629 (decisión P-2): POST /sincronizar toma el MISMO candado que la lectura automática de FLIT 1
+// (`[13_629, 1]`). Si está tomado → 409 `{ codigo: 'LECTURA_EN_CURSO' }` sin llamar a FLIT 1: una manual y
+// una automática sobre el mismo radicado competirían (23505 → «falló» espurio en la Bitácora). El 500 ya no
+// devuelve el mensaje del error (el cuerpo de FLIT 1 podía traer PII): devuelve un código técnico.
+// La manual NO mueve `ultima_buena_en` (su rango es arbitrario).
 
 import { Router, type Request, type Response } from 'express';
 import { authMiddleware } from '../../shared/middleware/auth.js';
@@ -16,6 +22,7 @@ import type { SyncEstadoFlit1 } from '@operaciones/shared-types';
 import { sincronizar, leerUltimaSincronizacion, guardarUltimaSincronizacion, hayTramites } from './flito-sync.service.js';
 import { estadoHabilitacionFlit1, FuenteApagadaError, fuenteHabilitada } from './flito-sync-interruptor.service.js';
 import interruptoresRouter from './flito-sync-interruptores.routes.js';
+import { codigoFalloFlit1, conCandadoLecturaFlit1 } from './flit1-lectura-automatica.service.js';
 
 const log = loggerFor('flito-sync-routes');
 const router = Router();
@@ -63,17 +70,26 @@ router.post('/sincronizar', exigirFuncion('sync.sync.lanzar'), async (req: Reque
   if (!initialDate) { res.status(400).json({ error: 'La primera sincronización requiere una fecha inicial (YYYY-MM-DD).' }); return; }
   const finalDate = hoyYyyymmdd();
   try {
-    const resultado = await sincronizar({ initialDate, finalDate });
-    const at = new Date().toISOString();
-    await guardarUltimaSincronizacion(at);
-    await audit(req, {
-      action: 'update', resource: 'flito_sincronizacion',
-      detail: `Sync ${manual ? 'manual' : 'incremental'} [${initialDate}→${finalDate}]: ${resultado.tramitesLeidos} leídos, ${resultado.tramitesNuevos} nuevos, ${resultado.tramitesActualizados} con cambios, ${resultado.tramitesSinCambios} sin cambios, ${resultado.companiasFaltantes} sin empresa, ${resultado.organismosSinEmparejar} sin secretaría`,
+    const candado = await conCandadoLecturaFlit1(async () => {
+      const resultado = await sincronizar({ initialDate, finalDate });
+      const at = new Date().toISOString();
+      await guardarUltimaSincronizacion(at);
+      await audit(req, {
+        action: 'update', resource: 'flito_sincronizacion',
+        detail: `Sync ${manual ? 'manual' : 'incremental'} [${initialDate}→${finalDate}]: ${resultado.tramitesLeidos} leídos, ${resultado.tramitesNuevos} nuevos, ${resultado.tramitesActualizados} con cambios, ${resultado.tramitesSinCambios} sin cambios, ${resultado.companiasFaltantes} sin empresa, ${resultado.organismosSinEmparejar} sin secretaría`,
+      });
+      return { ...resultado, ultimaSincronizacion: at };
     });
-    res.json({ ...resultado, ultimaSincronizacion: at });
+    if (!candado.tomado) {
+      res.status(409).json({ error: 'Ya hay una lectura de FLIT 1 en curso. Intenta de nuevo en unos minutos.', codigo: 'LECTURA_EN_CURSO' });
+      return;
+    }
+    res.json(candado.valor);
   } catch (error) {
-    log.error({ err: (error as Error).message }, 'sincronización manual falló');
-    res.status(500).json({ error: 'La sincronización falló', detalle: (error as Error).message });
+    // HU #13629 (D8): solo el código técnico, nunca `error.message` (podía traer el cuerpo de FLIT 1).
+    const codigo = codigoFalloFlit1(error);
+    log.error({ codigo }, 'sincronización manual falló');
+    res.status(500).json({ error: 'La sincronización falló', codigo });
   }
 });
 
