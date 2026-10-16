@@ -7,9 +7,12 @@
 // La ruta manual `POST /flito/sync/sincronizar` se retiró en la HU #13631: FLIT 1 solo se lee aquí.
 // `intervalMsFromCron` / `SYNC_CRON` son utilidad histórica, aún con pruebas (P-5: no se tocan aquí).
 //
-// FLIT 2 (HU #13092, Feature #13059): lectura programada cada 5 min mientras `FLIT2_SYNC_CRON` esté
-// encendida (por defecto). Diseño: `docs/diseno/hu-13092-lectura-programada-flit2.md`.
-//   - La primera corrida sale a los 5 min del arranque, nunca en el mismo tick del boot: si la migración
+// FLIT 2 (HU #13092, Feature #13059): lectura programada (respaldo) cada `FLIT2_RESPALDO_MIN` minutos
+// (HU #13633; 5 por defecto, 60 en DEV) mientras `FLIT2_SYNC_CRON` esté encendida (por defecto).
+// Diseño: `docs/diseno/hu-13092-lectura-programada-flit2.md` y `docs/diseno/hu-13633-respaldo-alerta-flit2.md`.
+//   - El intervalo se lee del env al armar el timer (`intervaloFlit2Ms()`), no al importar el módulo; el
+//     mismo valor va al `setInterval`, al pulso (`marcarProgramaEncendido`) y al log.
+//   - La primera corrida sale a un intervalo del arranque, nunca en el mismo tick del boot: si la migración
 //     de la fila de lectura no está aplicada, la corrida lee, falla y se registra, sin tumbar el proceso.
 //   - Sin acceso vigente, o con el acceso rechazado/en pausa, la corrida no llama a FLIT 2: lo decide el
 //     pase (`verificarAcceso`) antes de fijar posición alguna.
@@ -37,8 +40,13 @@ import { detenerAvisosFlit2 } from './flit2-avisos.service.js';
 const log = loggerFor('flito-sync-cron');
 
 const DEFECTO_MS = 5 * 60 * 1000;
-/** Cada cuánto corre la lectura de FLIT 2. El tope de una corrida (4 min) cabe dentro. */
+/** Intervalo por defecto de la lectura de FLIT 2 (sin `FLIT2_RESPALDO_MIN`). El tope de una corrida (4 min) cabe dentro. */
 export const INTERVALO_FLIT2_MS = 5 * 60 * 1000;
+
+/** HU #13633 (AC1/AC2): intervalo del respaldo de FLIT 2 según `FLIT2_RESPALDO_MIN`, leído en cada llamada. */
+export function intervaloFlit2Ms(): number {
+  return env.FLIT2_RESPALDO_MIN * 60_000;
+}
 
 /** Tick de la lectura automática de FLIT 1: la frecuencia real (2–60 min) se decide en la base. */
 export const TICK_FLIT1_MS = 60_000;
@@ -89,7 +97,7 @@ export async function correrLecturaFlit2Programada(): Promise<void> {
     await leerConCandado('cron');
   } catch (e) {
     if (e instanceof FuenteApagadaError) {
-      // HU #13237: apagado intencional, no es falla (cada 5 min no debe ensuciar el log en warn).
+      // HU #13237: apagado intencional, no es falla (cada tick no debe ensuciar el log en warn).
       log.debug('lectura FLIT 2 programada: la fuente está apagada en este ambiente, no corre');
     } else if (e instanceof Flit2SinAccesoError || e instanceof Flit2NoConfiguradoError) {
       log.debug({ codigo: e.codigo }, 'lectura FLIT 2 programada: sin acceso utilizable, no corre');
@@ -124,14 +132,15 @@ export function startFlitSync(): void {
     return;
   }
   if (timerFlit2) return;
-  // setInterval: la primera corrida sale a los 5 min, no en el tick del arranque.
+  const intervaloMs = intervaloFlit2Ms();
+  // setInterval: la primera corrida sale a un intervalo del arranque, no en el tick del arranque.
   timerFlit2 = setInterval(() => {
     registrarTick(new Date());
     void correrLecturaFlit2Programada();
-  }, INTERVALO_FLIT2_MS);
+  }, intervaloMs);
   timerFlit2.unref?.();
-  marcarProgramaEncendido(INTERVALO_FLIT2_MS, new Date());
-  log.info({ cadaMs: INTERVALO_FLIT2_MS }, 'Lectura programada de FLIT 2 encendida.');
+  marcarProgramaEncendido(intervaloMs, new Date());
+  log.info({ cadaMs: intervaloMs }, 'Lectura programada de FLIT 2 encendida.');
 }
 
 export function stopFlitSync(): void {
