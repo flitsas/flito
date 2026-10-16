@@ -1,14 +1,14 @@
 ## Qué es
 
-Resumen operativo de retenciones, estancamientos y diferencias: lo que el proceso por Excel y correo no dejaba ver. Los indicadores llevan a **Gestión Trámites** con el filtro de alerta ya aplicado, para que usted no rearme la búsqueda.
+Es el **Tablero** de General, la pantalla de inicio. Resume las retenciones, los estancamientos y las diferencias de la operación que el proceso por Excel y correo no dejaba ver. Los indicadores llevan a **Gestión Trámites** con el filtro de alerta ya aplicado, para que usted no rearme la búsqueda.
 
 ## Para quién
 
-Administrador (consulta y puede **Sincronizar desde FLIT**). Auditor (solo lectura: **Solo lectura · Auditoría observa el tablero; no ejecuta acciones sobre él.**).
+Quien tiene asignado el ítem **Tablero** en **Roles y permisos**: lo ve como pantalla de inicio. **Sincronizar desde FLIT** aparece solo si además tiene el permiso de sincronizar; sin él, la pantalla muestra **Solo lectura · Auditoría observa el tablero; no ejecuta acciones sobre él.** y usted consulta sin ejecutar acciones. Los bloques de **SOAT** e **Impuestos** aparecen según las colas que usted puede ver.
 
 ## Cómo se entra
 
-Esta pantalla no aparece en la navegación lateral. Escriba `/flito/tablero` en la barra de direcciones, o ábrala desde un enlace interno (por ejemplo, desde esta ficha con **Ir a la pantalla**). No la confunda con **Tablero** de General (el inicio) ni con **Tablero ejecutivo PESV**.
+En el menú lateral, sección **General**, ítem **Tablero**. Es también lo primero que ve al iniciar sesión. No lo confunda con **Tablero ejecutivo PESV**.
 
 ## Pasos
 
@@ -29,4 +29,4 @@ Esta pantalla no aparece en la navegación lateral. Escriba `/flito/tablero` en 
 - No es el listado para despachar: use **Gestión Trámites**.
 - No es la cola **SOAT** ni **Impuestos**.
 - No **Factura** ni hace **emisión electrónica**.
-- No afirma un ítem de menú: hoy no está en la navegación lateral.
+- No es el **Tablero ejecutivo PESV**.

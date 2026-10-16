@@ -49,10 +49,10 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     expect(modo).toMatch(/Skill flit-ayuda-flito/);
   });
 
-  test('HU #11894 AC5 — las 12 fichas de gestión existen en disco', () => {
+  test('HU #11894 AC5 — las fichas de gestión existen en disco (sin Compuerta desde la HU #13431)', () => {
     const gestion = [
       'flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones',
-      'flito_compuerta', 'flito_tablero', 'flito_bitacora', 'flito_logistica',
+      'flito_tablero', 'flito_bitacora', 'flito_logistica',
       'flito_logistica_ruta', 'flito_comparendos', 'clients',
     ];
     for (const c of gestion) {
@@ -62,11 +62,11 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     }
   });
 
-  test('AC6 — el catálogo lista 18 claves y no aliasa credenciales a parametrización', () => {
+  test('AC6 — el catálogo lista sus claves y no aliasa credenciales a parametrización', () => {
     const catalogo = leer('apps/web/src/content/ayuda/catalogo.ts');
     const claves = [
       'flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones',
-      'flito_compuerta', 'flito_tablero', 'flito_bitacora', 'flito_logistica',
+      'flito_tablero', 'flito_bitacora', 'flito_logistica',
       'flito_logistica_ruta', 'flito_comparendos', 'clients', 'flito_bolsas',
       'flito_conciliacion', 'finanzas_reporte_costos', 'siigo_parametrizacion',
       'siigo_operacion', 'siigo_credenciales',
@@ -74,6 +74,8 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     for (const c of claves) {
       expect(catalogo).toContain(`clave: '${c}'`);
     }
+    // HU #13431: la Compuerta no es un ítem del menú; su capítulo se retiró.
+    expect(catalogo).not.toContain("clave: 'flito_compuerta'");
     expect(catalogo).toMatch(/clave: 'siigo_credenciales', grupo: 'administracion'/);
     // HU #12872: la ficha cuelga de SU slug y enlaza la pantalla real. Nunca alias a parametrización
     // (Financiera la tiene y vería credenciales).

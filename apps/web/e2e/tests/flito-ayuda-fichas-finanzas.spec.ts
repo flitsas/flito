@@ -27,7 +27,8 @@ const FICHAS_FINANZAS = [
 
 const FICHA_CREDENCIALES = {
   clave: 'siigo_credenciales',
-  etiqueta: 'Facturación electrónica · Credenciales',
+  // HU #13431 (P-33): la etiqueta es el nombre del ítem del menú.
+  etiqueta: 'Integración con Siigo',
   to: '/siigo/credenciales',
 } as const;
 
@@ -84,7 +85,8 @@ test.describe('FLITO — Ayuda · fichas de finanzas (HU #11895)', () => {
     // Internals fuera de la ficha (plantilla): ni rutas del API ni nombres del router.
     expect(md).not.toMatch(/requireRole|exigirFuncion|router/i);
 
-    const nav = readFileSync(resolve(raiz, 'apps/web/src/components/shell/navItems.ts'), 'utf8');
+    // HU #13431: las entradas del menú viven en navEntradas.ts (navItems.ts solo resuelve nombres).
+    const nav = readFileSync(resolve(raiz, 'apps/web/src/components/shell/navEntradas.ts'), 'utf8');
     expect(nav).toMatch(/page:\s*'siigo_credenciales',\s*to:\s*'\/siigo\/credenciales'/);
     const catalogo = readFileSync(resolve(raiz, 'apps/web/src/content/ayuda/catalogo.ts'), 'utf8');
     expect(catalogo).toMatch(/clave: 'siigo_credenciales'[^}]*permiso: 'siigo_credenciales'/);
@@ -141,7 +143,7 @@ test.describe('FLITO — Ayuda · fichas de finanzas (HU #11895)', () => {
       else await expect(enlace).toBeVisible();
     }
     await expect(page.getByRole('heading', { name: 'Administración', exact: true })).toHaveCount(0);
-    await expect(page.getByRole('link', { name: /Credenciales/ })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Credenciales|Integración con Siigo/ })).toHaveCount(0);
     await expect(page.getByText('Ficha pendiente')).toHaveCount(0);
   });
 
@@ -165,7 +167,7 @@ test.describe('FLITO — Ayuda · fichas de finanzas (HU #11895)', () => {
     await expect(page.getByRole('link', { name: /Bolsas/ })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /Conciliación/ })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Administración', exact: true })).toHaveCount(0);
-    await expect(page.getByRole('link', { name: /Credenciales/ })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Credenciales|Integración con Siigo/ })).toHaveCount(0);
   });
 
   test('TC-11895-08 AC2 — auditor: deep-link a Bolsas es NoAccess', async ({ page }) => {

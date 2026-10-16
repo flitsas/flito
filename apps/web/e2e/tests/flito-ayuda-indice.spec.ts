@@ -1,11 +1,16 @@
 // Ayuda FLITO — índice por permiso y 4 estados (HU #11893, AC3 y AC4).
 // HU #11901: búsqueda de capítulos en el índice (cuerpo Markdown de visibles).
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import {
   loginAs, abrirAyuda, buscarCapitulos, PROVEEDOR_USER, FINANCIERA_USER, GESTOR_IMPUESTOS_USER,
   MENSAJERO_USER, OPERACIONES_USER, CONDUCTOR_USER,
 } from '../helpers/ayuda-fixtures';
+
+const raiz = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../..');
 
 const COPY_CERO = 'Ningún capítulo coincide con su búsqueda.';
 const COPY_PERMISO = 'No hay capítulos de ayuda para las pantallas que usted puede abrir.';
@@ -36,7 +41,7 @@ test.describe('FLITO — Ayuda · índice', () => {
     await expect(page.getByRole('heading', { name: 'Administración', exact: true })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /Impuestos/i })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /Bolsas/i })).toHaveCount(0);
-    await expect(page.getByRole('link', { name: /Credenciales/ })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Credenciales|Integración con Siigo/ })).toHaveCount(0);
     await expect(page.getByText(/no se pudo cargar el índice/i)).toHaveCount(0);
 
     await page.getByRole('link', { name: 'Abrir ficha de SOAT' }).click();
@@ -53,7 +58,7 @@ test.describe('FLITO — Ayuda · índice', () => {
     await expect(page.getByRole('link', { name: /SOAT/ })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /Comparendos/ })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /Clientes/ })).toHaveCount(0);
-    await expect(page.getByRole('link', { name: /Tablero FLITO/ })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /ficha de Tablero/ })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /Compuerta/ })).toHaveCount(0);
   });
 
@@ -73,7 +78,7 @@ test.describe('FLITO — Ayuda · índice', () => {
     await expect(page.getByText('Ficha pendiente')).toHaveCount(0);
     await expect(page.getByRole('link', { name: /SOAT/ })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Administración', exact: true })).toHaveCount(0);
-    await expect(page.getByRole('link', { name: /Credenciales/ })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Credenciales|Integración con Siigo/ })).toHaveCount(0);
   });
 
   test('AC4 — índice lleno; las 6 de Finanzas/Admin publicadas, no vacío pendiente (HU #11895)', async ({ page }) => {
@@ -112,14 +117,100 @@ test.describe('FLITO — Ayuda · índice', () => {
     await expect(page.getByRole('link', { name: 'Volver al índice' }).first()).toBeVisible();
   });
 
-  test('AC4 — admin ve Compuerta, Tablero FLITO y Credenciales publicados (HU #11895)', async ({ page }) => {
+  test('AC4 — admin ve Tablero e Integración con Siigo publicados; sin capítulo Compuerta (HU #11895, #13431)', async ({ page }) => {
     await abrirAyuda(page, OPERACIONES_USER);
-    await expect(page.getByRole('link', { name: 'Abrir ficha de Compuerta de entrega' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Abrir ficha de Tablero FLITO' })).toBeVisible();
+    // HU #13431: «Entregar trámites» es una acción de Gestión Trámites, no un ítem del menú.
+    await expect(page.getByRole('link', { name: /Compuerta/ })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Abrir ficha de Tablero' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Administración', exact: true })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Abrir ficha de Facturación electrónica · Credenciales' })).toBeVisible();
-    await expect(page.getByRole('link', { name: /ficha pendiente de Facturación electrónica · Credenciales/i })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Abrir ficha de Integración con Siigo', exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: /Facturación electrónica · Credenciales/ })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /ficha pendiente de Integración con Siigo/i })).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Abrir ficha de Mi ruta' })).toBeVisible();
+  });
+
+  test('HU #13431 — el índice usa los nombres del menú: «Derechos» y el «Tablero» de General', async ({ page }) => {
+    await abrirAyuda(page, OPERACIONES_USER);
+    // P-33: el capítulo de derechos se llama como el ítem del menú.
+    await expect(page.getByRole('link', { name: 'Abrir ficha de Derechos', exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: /Derechos de tránsito/ })).toHaveCount(0);
+    // P-11: el «Tablero FLITO» se absorbió en el Tablero de General; el capítulo vive en ese grupo,
+    // va primero y lleva al inicio (`/`).
+    await expect(page.getByRole('link', { name: /Tablero FLITO/ })).toHaveCount(0);
+    const general = page.locator('section[aria-labelledby="ayuda-grupo-general"]');
+    await expect(general.getByRole('heading', { name: 'General', exact: true })).toBeVisible();
+    await expect(general.getByRole('link', { name: 'Abrir ficha de Tablero', exact: true })).toBeVisible();
+    await expect(page.locator('section[aria-labelledby="ayuda-grupo-gestion"]').getByRole('link', { name: /Tablero/ })).toHaveCount(0);
+    await expect(page.locator('section[aria-labelledby]').first()).toHaveAttribute('aria-labelledby', 'ayuda-grupo-general');
+    await page.goto('/flito/ayuda/flito_tablero');
+    await expect(page.getByRole('link', { name: 'Ir a la pantalla Tablero' })).toHaveAttribute('href', '/');
+  });
+  test('HU #13431 — cada grupo del índice sigue el orden del menú (NAV_ENTRADAS)', async ({ page }) => {
+    // Fuente: el orden de `page:` en navEntradas.ts por sección, y el de `permiso:` en el catálogo.
+    const nav = readFileSync(resolve(raiz, 'apps/web/src/components/shell/navEntradas.ts'), 'utf8');
+    const ordenMenu = [...nav.matchAll(/\{ page: '(\w+)',[^}]*section: '(\w+)'/g)].map((m) => ({ page: m[1], section: m[2] }));
+    const cat = readFileSync(resolve(raiz, 'apps/web/src/content/ayuda/catalogo.ts'), 'utf8');
+    const capitulos = [...cat.matchAll(/clave: '(\w+)', grupo: '(\w+)', etiqueta: '([^']+)'[^}]*permiso: '(\w+)'/g)]
+      .map((m) => ({ clave: m[1], grupo: m[2], etiqueta: m[3], permiso: m[4] }));
+    expect(capitulos.length).toBeGreaterThan(15);
+    const SECCION: Record<string, string> = { general: 'general', gestion: 'gestion', finanzas: 'finanzas', administracion: 'admin' };
+    // El Tablero de General es el ítem `dashboard` del menú (P-11): su capítulo cuelga de `flito_tablero`.
+    const itemDelMenu = (permiso: string) => (permiso === 'flito_tablero' ? 'dashboard' : permiso);
+    const esperado: Record<string, string[]> = {};
+    for (const grupo of Object.keys(SECCION)) {
+      const delGrupo = capitulos.filter((c) => c.grupo === grupo);
+      const posiciones = delGrupo.map((c) => {
+        const i = ordenMenu.findIndex((e) => e.page === itemDelMenu(c.permiso));
+        expect(i, `${c.clave} es un ítem del menú`).toBeGreaterThanOrEqual(0);
+        expect(ordenMenu[i].section, `${c.clave} va en la sección de su grupo`).toBe(SECCION[grupo]);
+        return i;
+      });
+      expect(posiciones, `orden de ${grupo}`).toEqual([...posiciones].sort((a, b) => a - b));
+      esperado[grupo] = delGrupo.map((c) => `Abrir ficha de ${c.etiqueta}`);
+    }
+
+    // Y lo que se pinta respeta ese orden (admin ve todos los capítulos).
+    await abrirAyuda(page, OPERACIONES_USER);
+    for (const grupo of Object.keys(SECCION)) {
+      const enlaces = page.locator(`section[aria-labelledby="ayuda-grupo-${grupo}"] a`);
+      await expect(enlaces).toHaveCount(esperado[grupo].length);
+      const nombres = await enlaces.evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')));
+      expect(nombres, `índice · ${grupo}`).toEqual(esperado[grupo]);
+    }
+  });
+
+  test('HU #13431 — en 375 px el índice no desborda y las tarjetas usan el token de tarjeta', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await abrirAyuda(page, OPERACIONES_USER);
+    const capitulos = page.getByRole('navigation', { name: 'Capítulos de ayuda' });
+    await expect(capitulos).toBeVisible();
+    // El desborde del header del shell (acciones de la barra superior) es de todas las páginas y
+    // no de esta: se mide el contenido de la Ayuda, no `documentElement.scrollWidth`.
+    const derechaMax = await page.evaluate(() => {
+      const raices = [
+        document.querySelector('nav[aria-label="Capítulos de ayuda"]'),
+        document.getElementById('ayuda-buscar-capitulos'),
+      ];
+      let max = 0;
+      for (const r of raices) {
+        if (!r) continue;
+        for (const el of [r, ...Array.from(r.querySelectorAll('*'))]) max = Math.max(max, el.getBoundingClientRect().right);
+      }
+      return max;
+    });
+    expect(derechaMax).toBeLessThanOrEqual(375);
+    // Sin `bg-white`: la tarjeta toma `--flit-bg-card`, que tiene par oscuro.
+    await expect(capitulos.locator('.bg-white')).toHaveCount(0);
+    const fondo = await capitulos.locator('section > div').first().evaluate((el) => getComputedStyle(el).backgroundColor);
+    const token = await page.evaluate(() => {
+      const d = document.createElement('div');
+      d.style.background = 'var(--flit-bg-card)';
+      document.body.appendChild(d);
+      const c = getComputedStyle(d).backgroundColor;
+      d.remove();
+      return c;
+    });
+    expect(fondo).toBe(token);
   });
 });
 
@@ -151,7 +242,7 @@ test.describe('FLITO — Ayuda · buscar capítulos (HU #11901)', () => {
     await buscarCapitulos(page, 'Credenciales RNDC');
     await expect(page.getByText(COPY_CERO)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Limpiar búsqueda' })).toBeVisible();
-    await expect(page.getByRole('link', { name: /Credenciales/ })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Credenciales|Integración con Siigo/ })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Administración', exact: true })).toHaveCount(0);
     await expect(page.getByText(COPY_PERMISO)).toHaveCount(0);
     await expect(page.getByRole('heading', { name: COPY_ERROR })).toHaveCount(0);
@@ -209,7 +300,7 @@ test.describe('FLITO — Ayuda · buscar capítulos (HU #11901)', () => {
     await expect(page.getByRole('heading', { name: 'Finanzas', exact: true })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Administración', exact: true })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /Bolsas/ })).toHaveCount(0);
-    await expect(page.getByRole('link', { name: /Credenciales/ })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Credenciales|Integración con Siigo/ })).toHaveCount(0);
   });
 
   test('TC-11901-08 AC4 — financiera «Asentar corrección» (NFD) → Bolsas', async ({ page }) => {
