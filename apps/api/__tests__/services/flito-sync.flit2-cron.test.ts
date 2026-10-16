@@ -3,10 +3,19 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const entorno = vi.hoisted(() => ({ cron: true }));
+// HU #13633: `respaldo` = FLIT2_RESPALDO_MIN; undefined = el valor real del env (ausente → 5).
+const entorno = vi.hoisted(() => ({ cron: true, respaldo: undefined as number | undefined }));
 vi.mock('../../src/config/env.js', async (orig) => {
   const real = (await orig()) as { env: Record<string, unknown> };
-  return { env: new Proxy(real.env, { get: (t, k) => (k === 'FLIT2_SYNC_CRON' ? entorno.cron : t[k as string]) }) };
+  return {
+    env: new Proxy(real.env, {
+      get: (t, k) => {
+        if (k === 'FLIT2_SYNC_CRON') return entorno.cron;
+        if (k === 'FLIT2_RESPALDO_MIN' && entorno.respaldo !== undefined) return entorno.respaldo;
+        return t[k as string];
+      },
+    }),
+  };
 });
 const leerConCandadoMock = vi.fn();
 // HU #13626: la corrida ya no se audita (RN-13 retirada); el servicio solo expone `leerConCandado` al cron.
@@ -16,7 +25,7 @@ vi.mock('../../src/modules/flito-sync/flit2-lectura.service.js', () => ({
 const logMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }));
 vi.mock('../../src/shared/logger.js', () => ({ logger: logMock, loggerFor: () => logMock }));
 
-const { startFlitSync, stopFlitSync, correrLecturaFlit2Programada, INTERVALO_FLIT2_MS } =
+const { startFlitSync, stopFlitSync, correrLecturaFlit2Programada, INTERVALO_FLIT2_MS, intervaloFlit2Ms } =
   await import('../../src/modules/flito-sync/flito-sync.cron.js');
 const { Flit2SinAccesoError, Flit2LecturaEnCursoError, Flit2RespuestaError } =
   await import('../../src/modules/flito-sync/flit2.errors.js');
@@ -33,6 +42,7 @@ const RESULTADO = {
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'Date'], now: new Date('2026-09-29T15:00:00Z') });
   entorno.cron = true;
+  entorno.respaldo = undefined;
   reiniciarProgramaParaTest();
   leerConCandadoMock.mockReset().mockResolvedValue(RESULTADO);
   for (const m of Object.values(logMock)) m.mockClear();
@@ -222,5 +232,40 @@ describe('HU #13237 · AC6 · con FLIT 2 apagada el tick no lee ni ensucia el lo
     expect(logMock.debug).toHaveBeenCalledTimes(1);
     expect(logMock.warn).not.toHaveBeenCalled();
     expect(logMock.error).not.toHaveBeenCalled();
+  });
+});
+
+// ── HU #13633 — respaldo configurable (FLIT2_RESPALDO_MIN) ───────────────────────────────────────────
+describe('HU #13633 · intervalo del respaldo de FLIT 2', () => {
+  it('AC2: sin FLIT2_RESPALDO_MIN el respaldo sigue cada 5 min y el pulso publica 300000', async () => {
+    expect(intervaloFlit2Ms()).toBe(5 * 60_000);
+    startFlitSync();
+    expect(leerPrograma()).toMatchObject({ activa: true, intervaloMs: 300_000, proximaEn: new Date('2026-09-29T15:05:00Z') });
+    expect(logMock.info).toHaveBeenCalledWith({ cadaMs: 300_000 }, expect.any(String));
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(leerConCandadoMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('AC1: con FLIT2_RESPALDO_MIN=60 corre cada 60 min y el pulso «automatica» publica 3600000', async () => {
+    entorno.respaldo = 60;
+    expect(intervaloFlit2Ms()).toBe(3_600_000);
+    startFlitSync();
+    const p = leerPrograma();
+    expect(p).toMatchObject({ activa: true, intervaloMs: 3_600_000, proximaEn: new Date('2026-09-29T16:00:00Z') });
+    expect(logMock.info).toHaveBeenCalledWith({ cadaMs: 3_600_000 }, expect.any(String));
+    const estado = componerEstado({ ambienteListo: true, acceso: null, lectura: null, tramitesEnmascarados: 0, programa: p }, new Date());
+    expect(estado.automatica.intervaloMs).toBe(3_600_000);
+
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(leerConCandadoMock).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(55 * 60_000);
+    expect(leerConCandadoMock).toHaveBeenCalledTimes(1);
+    expect(leerPrograma().proximaEn).toEqual(new Date('2026-09-29T17:00:00Z'));
+  });
+
+  it('AC1: el intervalo se lee al armar, no al importar el módulo', () => {
+    entorno.respaldo = 30;
+    startFlitSync();
+    expect(leerPrograma().intervaloMs).toBe(30 * 60_000);
   });
 });

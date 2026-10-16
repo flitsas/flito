@@ -19,6 +19,7 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') });
  * boot, que es justo lo contrario del defecto seguro.
  */
 const vacioComoAusente = (v: unknown) => (v === '' ? undefined : v);
+const MSG_FLIT2_RESPALDO_MIN = 'FLIT2_RESPALDO_MIN debe ser un entero de 1 a 120 (minutos)';
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production']).default('development'),
@@ -160,6 +161,14 @@ const envSchema = z.object({
   // 'false'/'0' la apaga. Aun encendida, sin acceso vigente la corrida no llama a FLIT 2.
   // Transform explícito: z.coerce.boolean vería "false" como true.
   FLIT2_SYNC_CRON: z.string().optional().transform((v) => v !== 'false' && v !== '0'),
+  // HU #13633 (AC1–AC3): cada cuántos minutos corre el respaldo de FLIT 2 (lectura programada). Entero de 1 a
+  // 120; ausente o vacía = 5 (QA y PDN). DEV usa 60 porque allí los avisos firmados traen los cambios. El
+  // umbral de la alerta del estado se deriva de este valor (2·R + 5 min, RN-08 de flit2-estado.service.ts).
+  FLIT2_RESPALDO_MIN: z.preprocess(
+    vacioComoAusente,
+    z.coerce.number({ invalid_type_error: MSG_FLIT2_RESPALDO_MIN })
+      .int(MSG_FLIT2_RESPALDO_MIN).min(1, MSG_FLIT2_RESPALDO_MIN).max(120, MSG_FLIT2_RESPALDO_MIN).default(5),
+  ),
   // HU #13268 (ADR-0020): envío del comprobante de pago a FLIT 2. APAGADA por defecto en todos los
   // ambientes: se enciende cuando FLIT 2 tenga la ruta de adjuntos desplegada allí (D-9). Apagada, el
   // pago sigue programando la fila del outbox y el cron no toma nada ni gasta intentos.

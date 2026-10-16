@@ -1,6 +1,6 @@
 // HU #13097 (Feature #13060) — servicio del estado de la conexión con FLIT 2.
 //
-// `componerEstado` es la lógica pura con reloj fijo (umbral de 30 min, precedencia del problema,
+// `componerEstado` es la lógica pura con reloj fijo (umbral 2·R + 5 min de la HU #13633, precedencia del problema,
 // normalización del motivo, sin configurar). `obtenerEstadoConexion` se prueba contra el mock keyed
 // por tabla para AC4 (conteo), AC6 ('ambiente') y AC7 (lo que se selecciona y lo que sale).
 
@@ -13,7 +13,7 @@ vi.mock('../../src/db/client.js', () => ({
   getPoolStats: vi.fn().mockResolvedValue({ utilization: 0, total: 0, idle: 0, waiting: 0 }),
 }));
 
-const { componerEstado, obtenerEstadoConexion, normalizarMotivoRechazo, codigoPublico, UMBRAL_ALERTA_MS } =
+const { componerEstado, obtenerEstadoConexion, normalizarMotivoRechazo, codigoPublico, umbralAlertaMs } =
   await import('../../src/modules/flito-sync/flit2-estado.service.js');
 const { env } = await import('../../src/config/env.js');
 const { marcarProgramaEncendido, marcarLecturaIniciada, reiniciarProgramaParaTest } =
@@ -50,16 +50,13 @@ describe('HU #13097 · componerEstado', () => {
     expect(componerEstado(entrada(), AHORA).atrasada).toBe(false);
   });
 
-  it.each([[29, false], [30, true], [31, true]])('AC5: %i min desde la última exitosa → alerta %s', (min, esperado) => {
+  // HU #13633: sin `respaldoMs` el umbral es el del respaldo por defecto (R=5 → 15 min).
+  it.each([[14, false], [15, true], [16, true]])('AC5: %i min desde la última exitosa → alerta %s', (min, esperado) => {
     const r = componerEstado(entrada({ lectura: { ...LECTURA, ultimaExitosaEn: menos(min) } }), AHORA);
     expect(r.alerta).toBe(esperado);
   });
 
-  it('AC5: el umbral es exactamente 30 min', () => {
-    expect(UMBRAL_ALERTA_MS).toBe(30 * 60_000);
-  });
-
-  it.each([[29, false], [30, true], [31, true]])('AC5: sin lectura exitosa nunca, cuenta desde el alta del acceso (%i min) → %s', (min, esperado) => {
+  it.each([[14, false], [15, true], [16, true]])('AC5: sin lectura exitosa nunca, cuenta desde el alta del acceso (%i min) → %s', (min, esperado) => {
     const r = componerEstado(entrada({
       acceso: { ...ACCESO, createdAt: menos(min) },
       lectura: { ...LECTURA, ultimaExitosaEn: null },
@@ -68,8 +65,8 @@ describe('HU #13097 · componerEstado', () => {
   });
 
   it('AC5: sin fila de lectura, también cuenta desde el alta del acceso', () => {
-    expect(componerEstado(entrada({ acceso: { ...ACCESO, createdAt: menos(29) }, lectura: null }), AHORA).alerta).toBe(false);
-    expect(componerEstado(entrada({ acceso: { ...ACCESO, createdAt: menos(30) }, lectura: null }), AHORA).alerta).toBe(true);
+    expect(componerEstado(entrada({ acceso: { ...ACCESO, createdAt: menos(14) }, lectura: null }), AHORA).alerta).toBe(false);
+    expect(componerEstado(entrada({ acceso: { ...ACCESO, createdAt: menos(15) }, lectura: null }), AHORA).alerta).toBe(true);
   });
 
   it('AC3/AC5: rechazo reciente → problema rechazado con motivo normalizado y hora; alerta aunque la lectura sea fresca', () => {
@@ -214,6 +211,7 @@ describe('HU #13097 · obtenerEstadoConexion (mock keyed)', () => {
   const filaLectura = {
     id: 1, cursor: 'CURSOR-SECRETO', cursorRelectura: 'RELECTURA-SECRETA', sinceArranque: menos(9000),
     ultimaExitosaEn: menos(5), ultimoIntentoEn: menos(4), ultimoErrorCodigo: null, atrasada: true, piiEnmascaradaDesde: menos(60),
+    rechazosFirmaSeguidos: 0, ultimoAvisoEn: null,
   };
 
   it('AC1/AC2/AC4/AC7: compone desde las tres consultas y la respuesta no lleva nada sensible', async () => {
@@ -230,7 +228,7 @@ describe('HU #13097 · obtenerEstadoConexion (mock keyed)', () => {
     expect(r.problema).toMatchObject({ tipo: 'rechazado', motivo: 'credenciales' });
 
     expect(Object.keys(r).sort()).toEqual(
-      ['alerta', 'atrasada', 'automatica', 'configurado', 'habilitada', 'motivoDeshabilitada', 'motivoSinConfigurar', 'piiEnmascarada', 'problema', 'ultimaExitosaEn', 'ultimoIntentoEn'],
+      ['alerta', 'atrasada', 'automatica', 'configurado', 'habilitada', 'motivoDeshabilitada', 'motivoSinConfigurar', 'piiEnmascarada', 'problema', 'ultimaExitosaEn', 'ultimoAvisoEn', 'ultimoIntentoEn'],
     );
     expect(Object.keys(r.problema!).sort()).toEqual(['codigo', 'en', 'hasta', 'motivo', 'tipo']);
     const json = JSON.stringify(r);
@@ -276,7 +274,7 @@ describe('HU #13237 · componerEstado · habilitada y motivo', () => {
   // Sin lectura exitosa hace 2 h: con la fuente habilitada esto SÍ levanta la alerta (control positivo).
   const viejo = entrada({ lectura: { ...LECTURA, ultimaExitosaEn: menos(120) } });
 
-  it('AC9: maestro e interruptor encendidos → habilitada, sin motivo; la alerta de 30 min sigue viva', () => {
+  it('AC9: maestro e interruptor encendidos → habilitada, sin motivo; la alerta por tiempo sigue viva', () => {
     const r = componerEstado({ ...viejo, maestro: true, interruptorFlit2: true }, AHORA);
     expect(r.habilitada).toBe(true);
     expect(r.motivoDeshabilitada).toBeNull();
@@ -341,5 +339,162 @@ describe('HU #13237 · obtenerEstadoConexion · lee el interruptor y el maestro'
   it('un error de base al leer el interruptor se propaga (no se traga como «encendida»)', async () => {
     kdb.when.selectThrow('flito_sync_interruptor', new Error('db caída'));
     await expect(obtenerEstadoConexion(() => AHORA)).rejects.toThrow('db caída');
+  });
+});
+
+// ── HU #13633 — respaldo configurable y alerta por respaldos fallidos o firmas rechazadas ────────────
+describe('HU #13633 · componerEstado · umbral 2·R + 5 min (AC4)', () => {
+  const R5 = 5 * 60_000;
+  const R60 = 60 * 60_000;
+  const conExitosa = (min: number, respaldoMs: number) =>
+    componerEstado(entrada({ lectura: { ...LECTURA, ultimaExitosaEn: menos(min) }, respaldoMs }), AHORA);
+
+  it('AC4: el umbral es 2·R + 5 min (R=5 → 15 min; R=60 → 125 min)', () => {
+    expect(umbralAlertaMs(R5)).toBe(15 * 60_000);
+    expect(umbralAlertaMs(R60)).toBe(125 * 60_000);
+  });
+
+  it.each([[14, false], [15, true]])('AC4: R=5, %i min sin lectura exitosa → alerta %s', (min, esperado) => {
+    expect(conExitosa(min, R5).alerta).toBe(esperado);
+  });
+
+  it.each([[124, false], [125, true]])('AC4: R=60, %i min sin lectura exitosa → alerta %s', (min, esperado) => {
+    expect(conExitosa(min, R60).alerta).toBe(esperado);
+  });
+
+  it('AC4: un solo respaldo fallido no alerta (R + tope de corrida de 4 min < 2R + 5)', () => {
+    expect(conExitosa(5 + 4, R5).alerta).toBe(false);
+    expect(conExitosa(60 + 4, R60).alerta).toBe(false);
+    // Con el código de error del respaldo fallido en la fila, sigue sin alertar.
+    const r = componerEstado(entrada({
+      lectura: { ...LECTURA, ultimaExitosaEn: menos(64), ultimoErrorCodigo: 'no_responde' }, respaldoMs: R60,
+    }), AHORA);
+    expect(r.problema?.tipo).toBe('lectura');
+    expect(r.alerta).toBe(false);
+  });
+
+  it('AC4: dos respaldos fallidos seguidos sí alertan (R=5)', () => {
+    expect(conExitosa(2 * 5 + 5, R5).alerta).toBe(true);
+  });
+
+  it('AC4: un aviso válido reciente NO cuenta como lectura exitosa', () => {
+    const r = componerEstado(entrada({
+      lectura: { ...LECTURA, ultimaExitosaEn: menos(20), ultimoAvisoEn: menos(1) }, respaldoMs: R5,
+    }), AHORA);
+    expect(r.alerta).toBe(true);
+  });
+});
+
+describe('HU #13633 · componerEstado · avisos_firma (AC5)', () => {
+  const conRechazos = (n: number, extra: Partial<Entrada> = {}) => componerEstado(entrada({
+    lectura: { ...LECTURA, rechazosFirmaSeguidos: n }, avisosHabilitados: true, ...extra,
+  }), AHORA);
+
+  it('AC5: ≥ 3 firmas rechazadas seguidas → problema avisos_firma sin hora y alerta con lectura fresca', () => {
+    for (const n of [3, 4, 50]) {
+      const r = conRechazos(n);
+      expect(r.problema).toEqual({ tipo: 'avisos_firma', codigo: null, motivo: null, en: null, hasta: null });
+      expect(r.alerta).toBe(true);
+    }
+  });
+
+  it('AC5: 2 rechazos no son problema ni alerta', () => {
+    const r = conRechazos(2);
+    expect(r.problema).toBeNull();
+    expect(r.alerta).toBe(false);
+  });
+
+  it('AC5: tras un aviso válido el contador queda en 0 y la alerta se retira', () => {
+    const r = conRechazos(0, { lectura: { ...LECTURA, rechazosFirmaSeguidos: 0, ultimoAvisoEn: menos(1) } });
+    expect(r.problema).toBeNull();
+    expect(r.alerta).toBe(false);
+  });
+
+  it('AC5: con el canal de avisos apagado, el contador de la base no cuenta', () => {
+    for (const extra of [{ avisosHabilitados: false }, { avisosHabilitados: undefined }]) {
+      const r = conRechazos(9, extra);
+      expect(r.problema).toBeNull();
+      expect(r.alerta).toBe(false);
+    }
+  });
+
+  it('AC5: precedencia rechazado > bloqueado > avisos_firma > lectura', () => {
+    const futuro = new Date(AHORA.getTime() + 60_000);
+    const lectura = { ...LECTURA, rechazosFirmaSeguidos: 5, ultimoErrorCodigo: 'no_responde' };
+    expect(conRechazos(5, { lectura, acceso: { ...ACCESO, rechazadoEn: menos(2), bloqueadoHasta: futuro } }).problema?.tipo)
+      .toBe('rechazado');
+    expect(conRechazos(5, { lectura, acceso: { ...ACCESO, bloqueadoHasta: futuro } }).problema?.tipo).toBe('bloqueado');
+    expect(conRechazos(5, { lectura }).problema?.tipo).toBe('avisos_firma');
+    expect(conRechazos(0, { lectura: { ...lectura, rechazosFirmaSeguidos: 0 } }).problema?.tipo).toBe('lectura');
+  });
+});
+
+describe('HU #13633 · componerEstado · ultimoAvisoEn (AC6) y apagado (AC7)', () => {
+  it('AC6: ultimoAvisoEn null sin aviso (y con llamadores previos que no lo pasan)', () => {
+    expect(componerEstado(entrada(), AHORA).ultimoAvisoEn).toBeNull();
+    expect(componerEstado(entrada({ lectura: { ...LECTURA, ultimoAvisoEn: null } }), AHORA).ultimoAvisoEn).toBeNull();
+    expect(componerEstado(entrada({ lectura: null }), AHORA).ultimoAvisoEn).toBeNull();
+  });
+
+  it('AC6: ultimoAvisoEn en ISO junto a ultimaExitosaEn', () => {
+    const r = componerEstado(entrada({ lectura: { ...LECTURA, ultimoAvisoEn: menos(2) } }), AHORA);
+    expect(r.ultimoAvisoEn).toBe(menos(2).toISOString());
+    expect(r.ultimaExitosaEn).toBe(LECTURA.ultimaExitosaEn.toISOString());
+  });
+
+  it('AC7: interruptor apagado o FLIT2_SYNC_CRON=false → alerta false por tiempo y por firmas', () => {
+    const malo = entrada({
+      lectura: { ...LECTURA, ultimaExitosaEn: menos(600), rechazosFirmaSeguidos: 7 }, avisosHabilitados: true, respaldoMs: 5 * 60_000,
+    });
+    expect(componerEstado(malo, AHORA).alerta).toBe(true); // control
+    for (const apagado of [{ maestro: false }, { interruptorFlit2: false }]) {
+      const r = componerEstado({ ...malo, ...apagado }, AHORA);
+      expect(r.alerta).toBe(false);
+      expect(r.problema?.tipo).toBe('avisos_firma');
+    }
+  });
+});
+
+describe('HU #13633 · obtenerEstadoConexion · lee R, el canal y las columnas de la 0244', () => {
+  const antes = {
+    base: env.FLIT2_BASE_URL, llave: env.FLIT2_ENC_KEY, cron: env.FLIT2_SYNC_CRON,
+    respaldo: env.FLIT2_RESPALDO_MIN, avisos: env.FLIT2_AVISOS_HABILITADO,
+  };
+  const fijar = (k: string, v: unknown) => { (env as Record<string, unknown>)[k] = v; };
+  beforeEach(() => {
+    kdb.reset();
+    fijar('FLIT2_BASE_URL', 'https://flit2.test');
+    fijar('FLIT2_ENC_KEY', 'a'.repeat(64));
+    fijar('FLIT2_SYNC_CRON', true);
+  });
+  afterEach(() => {
+    fijar('FLIT2_BASE_URL', antes.base);
+    fijar('FLIT2_ENC_KEY', antes.llave);
+    fijar('FLIT2_SYNC_CRON', antes.cron);
+    fijar('FLIT2_RESPALDO_MIN', antes.respaldo);
+    fijar('FLIT2_AVISOS_HABILITADO', antes.avisos);
+  });
+  const escenario = (lectura: Record<string, unknown>) => kdb.when.scenario({
+    flito_sync_flit2_acceso: [ACCESO], flito_sync_flit2_lectura: [{ ...LECTURA, ...lectura }], flito_tramites: [{ n: 0 }],
+  });
+
+  it('AC4: el umbral sale de FLIT2_RESPALDO_MIN (R=60: 100 min sin leer no alerta; R=5 sí)', async () => {
+    escenario({ ultimaExitosaEn: menos(100) });
+    fijar('FLIT2_RESPALDO_MIN', 60);
+    expect((await obtenerEstadoConexion(() => AHORA)).alerta).toBe(false);
+    fijar('FLIT2_RESPALDO_MIN', 5);
+    expect((await obtenerEstadoConexion(() => AHORA)).alerta).toBe(true);
+  });
+
+  it('AC5/AC6: rechazos y último aviso de la fila; avisos_firma solo con FLIT2_AVISOS_HABILITADO', async () => {
+    escenario({ rechazosFirmaSeguidos: 3, ultimoAvisoEn: menos(7) });
+    fijar('FLIT2_AVISOS_HABILITADO', true);
+    const r = await obtenerEstadoConexion(() => AHORA);
+    expect(r).toMatchObject({ alerta: true, ultimoAvisoEn: menos(7).toISOString() });
+    expect(r.problema).toEqual({ tipo: 'avisos_firma', codigo: null, motivo: null, en: null, hasta: null });
+    expect(JSON.stringify(r)).not.toContain('rechazosFirmaSeguidos');
+
+    fijar('FLIT2_AVISOS_HABILITADO', false);
+    expect(await obtenerEstadoConexion(() => AHORA)).toMatchObject({ alerta: false, problema: null });
   });
 });

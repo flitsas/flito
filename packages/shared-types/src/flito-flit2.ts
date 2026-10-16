@@ -94,7 +94,8 @@ export interface Flit2LecturaResultado {
 // Diseño: `docs/ux/hu-13098-estado-conexion-flit2.md` § «Contrato propuesto». Sin clientId, contraseña,
 // pase, cursores ni textos crudos de FLIT 2: solo fechas ISO, banderas, códigos cerrados y un conteo.
 
-export type Flit2ProblemaTipo = 'rechazado' | 'bloqueado' | 'lectura';
+/** HU #13633: 'avisos_firma' = ≥ 3 avisos de FLIT 2 con firma rechazada seguidos (sin código, motivo ni hora). */
+export type Flit2ProblemaTipo = 'rechazado' | 'bloqueado' | 'avisos_firma' | 'lectura';
 export type Flit2RechazoMotivo = 'credenciales' | 'cambio_clave' | 'otro';
 
 export interface Flit2EstadoProblema {
@@ -181,11 +182,16 @@ export interface Flit2EstadoConexion extends EstadoHabilitacionFuente {
   motivoSinConfigurar: 'sin_acceso' | 'ambiente' | null;
   ultimaExitosaEn: string | null;
   ultimoIntentoEn: string | null;
+  /** HU #13633: último aviso válido de FLIT 2 (ISO) o null. No cuenta como lectura exitosa. */
+  ultimoAvisoEn: string | null;
   /** Hay trabajo pendiente o la posición de lectura no está al día. */
   atrasada: boolean;
-  /** Calculada en el servidor: ≥ 30 min sin lectura exitosa, o acceso rechazado/bloqueado. false sin configurar. */
+  /**
+   * Calculada en el servidor: ≥ 2·respaldo + 5 min sin lectura exitosa (HU #13633; 15 min con el respaldo de
+   * 5 min), o acceso rechazado/bloqueado, o ≥ 3 firmas rechazadas seguidas. false sin configurar.
+   */
   alerta: boolean;
-  /** Uno solo, con precedencia rechazado > bloqueado > lectura. */
+  /** Uno solo, con precedencia rechazado > bloqueado > avisos_firma > lectura. */
   problema: Flit2EstadoProblema | null;
   /** Trámites que llegaron sin los datos del comprador (solo el número). */
   piiEnmascarada: { tramites: number; desde: string | null };
