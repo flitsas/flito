@@ -1,7 +1,11 @@
 // FLITO — sincronización FLIT.
 //
-// FLIT 1: la sync es SOLO MANUAL (Operaciones elige la fecha inicial); no hay corrida automática.
-// `intervalMsFromCron` es utilidad histórica, aún con pruebas.
+// FLIT 1 (HU #13629, Feature #13612): lectura automática con ventana móvil y nocturna. Timer fijo de 60 s
+// (`TICK_FLIT1_MS`, `unref`) armado solo si `SYNC_HABILITADO` (maestro de entorno, encendido por defecto).
+// Cada tick: si el anterior sigue en curso se salta (log `debug`); el resto (interruptor `flit1`, candado,
+// «¿toca?» con la frecuencia leída de la base) vive en `flit1-lectura-automatica.service.ts`.
+// La ruta manual `POST /flito/sync/sincronizar` sigue existiendo y comparte el candado.
+// `intervalMsFromCron` / `SYNC_CRON` son utilidad histórica, aún con pruebas (P-5: no se tocan aquí).
 //
 // FLIT 2 (HU #13092, Feature #13059): lectura programada cada 5 min mientras `FLIT2_SYNC_CRON` esté
 // encendida (por defecto). Diseño: `docs/diseno/hu-13092-lectura-programada-flit2.md`.
@@ -27,6 +31,7 @@ import {
 } from './flit2.errors.js';
 import { FuenteApagadaError } from './flito-sync-interruptor.service.js';
 import { marcarProgramaApagado, marcarProgramaEncendido, registrarTick } from './flit2-programa.js';
+import { correrLecturaFlit1Programada } from './flit1-lectura-automatica.service.js';
 
 const log = loggerFor('flito-sync-cron');
 
@@ -34,8 +39,27 @@ const DEFECTO_MS = 5 * 60 * 1000;
 /** Cada cuánto corre la lectura de FLIT 2. El tope de una corrida (4 min) cabe dentro. */
 export const INTERVALO_FLIT2_MS = 5 * 60 * 1000;
 
+/** Tick de la lectura automática de FLIT 1: la frecuencia real (2–60 min) se decide en la base. */
+export const TICK_FLIT1_MS = 60_000;
+
 let timerFlit2: ReturnType<typeof setInterval> | null = null;
 let enCurso = false;
+let timerFlit1: ReturnType<typeof setInterval> | null = null;
+let enCursoFlit1 = false;
+
+/** Un tick de FLIT 1 (HU #13629). No se encima con el anterior del mismo proceso. Nunca lanza. */
+export async function tickLecturaFlit1(ahora: Date = new Date()): Promise<void> {
+  if (enCursoFlit1) {
+    log.debug('lectura FLIT 1 automática: la anterior sigue en curso, se salta este tick');
+    return;
+  }
+  enCursoFlit1 = true;
+  try {
+    await correrLecturaFlit1Programada(ahora);
+  } finally {
+    enCursoFlit1 = false;
+  }
+}
 
 // Deriva el intervalo (ms) del campo de minutos con paso (p.ej. cada N minutos) de un cron de 6 campos.
 export function intervalMsFromCron(expr: string): number {
@@ -80,8 +104,19 @@ export async function correrLecturaFlit2Programada(): Promise<void> {
   }
 }
 
+function startFlit1(): void {
+  if (!env.SYNC_HABILITADO) {
+    log.info('Lectura automática de FLIT 1 apagada (SYNC_HABILITADO=false).');
+    return;
+  }
+  if (timerFlit1) return;
+  timerFlit1 = setInterval(() => { void tickLecturaFlit1(); }, TICK_FLIT1_MS);
+  timerFlit1.unref?.();
+  log.info({ tickMs: TICK_FLIT1_MS }, 'Lectura automática de FLIT 1 encendida.');
+}
+
 export function startFlitSync(): void {
-  log.info('Sincronización FLIT 1 es manual (integración real): sin cron automático.');
+  startFlit1();
   if (!env.FLIT2_SYNC_CRON) {
     log.info('Lectura programada de FLIT 2 apagada (FLIT2_SYNC_CRON=false).');
     marcarProgramaApagado();
@@ -99,6 +134,8 @@ export function startFlitSync(): void {
 }
 
 export function stopFlitSync(): void {
+  if (timerFlit1) clearInterval(timerFlit1);
+  timerFlit1 = null;
   if (timerFlit2) clearInterval(timerFlit2);
   timerFlit2 = null;
   marcarProgramaApagado();

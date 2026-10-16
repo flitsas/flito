@@ -109,6 +109,10 @@ export const flitoSyncFlit1Lectura = pgTable('flito_sync_flit1_lectura', {
   proximaPrevistaEn: timestamp('proxima_prevista_en', { withTimezone: true }),
   ultimoFalloEn: timestamp('ultimo_fallo_en', { withTimezone: true }),
   ultimoFalloCodigo: varchar('ultimo_fallo_codigo', { length: 40 }),
+  // HU #13629 (0242): marcas de la lectura automática. Inicio de la última corrida (buena o fallida) y
+  // día Bogotá de la última nocturna buena.
+  ultimaCorridaEn: timestamp('ultima_corrida_en', { withTimezone: true }),
+  nocturnaBuenaDia: date('nocturna_buena_dia', { mode: 'string' }),
 }, (t) => ({
   unaFila: check('ck_flito_sync_flit1_lectura_una_fila', sql`${t.id} = 1`),
   frecuencia: check('ck_flito_sync_flit1_lectura_frecuencia', sql`${t.frecuenciaMinutos} BETWEEN 2 AND 60`),

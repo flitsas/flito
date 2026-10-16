@@ -11,6 +11,29 @@ const log = loggerFor('flit-http');
 const BASE = (process.env.FLIT_BASE_URL ?? 'https://1qmxln7fa7.execute-api.us-east-1.amazonaws.com/pdn').replace(/\/$/, '');
 const REPORT_TYPE_ID = 18; // SIEMPRE 18 (doc §parámetros).
 
+/**
+ * Tope de una llamada al reporte (HU #13629, D5). Sin él, un FLIT 1 colgado retendría el candado de la
+ * lectura automática (y su `enCurso`) indefinidamente y pararía todas las lecturas siguientes.
+ */
+export const FLIT1_REPORTE_TIMEOUT_MS = 5 * 60 * 1000;
+
+/**
+ * Fallo al pedir el reporte de FLIT 1 (HU #13629, D5/D8). Lleva un código técnico y el status HTTP, NUNCA
+ * el cuerpo de la respuesta: puede traer PII y antes acababa en el log y en el 500 de la ruta manual.
+ * Códigos (`^[a-z0-9_]{1,40}$`, CHECK de la 0241): `flit1_http_<status>`, `flit1_timeout`, `flit1_red`,
+ * `flit1_respuesta_invalida`.
+ */
+export class Flit1ReporteError extends Error {
+  constructor(public readonly codigo: string, public readonly status: number | null = null) {
+    super(`Reporte de FLIT 1 no disponible (${codigo})`);
+    this.name = 'Flit1ReporteError';
+  }
+}
+
+function esTimeout(e: unknown): boolean {
+  return e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError');
+}
+
 // Item crudo del reporte. Solo tipamos lo que usamos; el resto viaja en `raw`.
 export interface ItemFlit {
   Id: string; Vin?: string; Placa?: string; Ciudad?: string; Estado?: string; Tramite?: string;
@@ -130,9 +153,25 @@ export function createFlitHttpAdapter(): FlitPort {
         'filter.procedure': '$eq:-1',
       });
       const url = `${BASE}/api/v1/report/vehicle-report?${qs.toString()}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`FLIT report ${res.status}: ${await res.text().catch(() => '')}`);
-      const body = await res.json() as { data?: ItemFlit[] };
+      let res: Response;
+      try {
+        res = await fetch(url, { signal: AbortSignal.timeout(FLIT1_REPORTE_TIMEOUT_MS) });
+      } catch (e) {
+        throw new Flit1ReporteError(esTimeout(e) ? 'flit1_timeout' : 'flit1_red');
+      }
+      if (!res.ok) {
+        // El cuerpo se descarta sin leerlo al log ni al error (D8).
+        await res.body?.cancel().catch(() => undefined);
+        throw new Flit1ReporteError(`flit1_http_${res.status}`, res.status);
+      }
+      let body: { data?: ItemFlit[] };
+      try {
+        body = await res.json() as { data?: ItemFlit[] };
+      } catch (e) {
+        throw new Flit1ReporteError(esTimeout(e) ? 'flit1_timeout' : 'flit1_respuesta_invalida', res.status);
+      }
+      // JSON que no es objeto: respuesta inválida. Un objeto sin `data` sigue siendo «cero trámites» (como antes).
+      if (!body || typeof body !== 'object') throw new Flit1ReporteError('flit1_respuesta_invalida', res.status);
       const items = Array.isArray(body.data) ? body.data : [];
       log.info({ total: items.length, rango }, 'reporte FLIT recibido');
       return items.filter((it) => it && it.Id).map(aTramite);
