@@ -33,7 +33,11 @@ const SQL_0205 = readFileSync(RUTA, 'utf8');
 const SIN_COMENTARIOS = SQL_0205.replace(/--[^\n]*/g, '');
 
 const PARES = reagrupaciones();
-const MAPA = new Map(PARES);
+// HU #13631: la 0243 retiró `sync.sync.lanzar` y el mapa del código ya no la reagrupa. La 0205 está
+// aplicada y congelada: sus 47 tuplas son las de hoy más esta. Única diferencia admitida.
+const RETIRADAS_DESPUES: readonly [string, string][] = [['sync.sync.lanzar', 'tramites']];
+const PARES_0205 = [...PARES, ...RETIRADAS_DESPUES].sort(([a], [b]) => a.localeCompare(b));
+const MAPA_0205 = new Map(PARES_0205);
 
 /** Las tuplas `('codigo', 'modulo')` del VALUES tal como están en el archivo, en su orden. */
 function tuplasDelArchivo(): [string, string][] {
@@ -74,10 +78,12 @@ describe('0205 — análisis estático', () => {
   it('las tuplas del archivo son EXACTAMENTE `reagrupaciones()`: 47 pares, mismos valores, orden por código', () => {
     const tuplas = tuplasDelArchivo();
     expect(tuplas).toHaveLength(47);
-    expect(tuplas).toEqual([...PARES]);
-    // Y todas existen en el catálogo del código con ESE módulo (la 0205 escribe lo que el código dice).
+    expect(tuplas).toEqual(PARES_0205);
+    // Y todas existen en el catálogo del código con ESE módulo (la 0205 escribe lo que el código dice),
+    // salvo las retiradas después, que ya no existen.
     const catalogo = new Map(catalogoPlano().map((f) => [f.codigo, f.modulo]));
-    for (const [codigo, modulo] of tuplas) expect(catalogo.get(codigo), codigo).toBe(modulo);
+    const retiradas = new Set(RETIRADAS_DESPUES.map(([c]) => c));
+    for (const [codigo, modulo] of tuplas) expect(catalogo.get(codigo), codigo).toBe(retiradas.has(codigo) ? undefined : modulo);
   });
 
   it('el bloque es byte a byte lo que produce `generar-seed-permisos.ts --reagrupar`', () => {
@@ -86,7 +92,15 @@ describe('0205 — análisis estático', () => {
     });
     const inicio = SQL_0205.indexOf('-- REAGRUPACIÓN GENERADA (inicio)\n') + '-- REAGRUPACIÓN GENERADA (inicio)\n'.length;
     const fin = SQL_0205.indexOf('-- REAGRUPACIÓN GENERADA (fin)');
-    expect(SQL_0205.slice(inicio, fin)).toBe(salida);
+    // Lo congelado menos lo retirado después (HU #13631) = lo que el generador produce hoy.
+    let bloque = SQL_0205.slice(inicio, fin);
+    for (const [c, m] of RETIRADAS_DESPUES) {
+      const linea = `    ('${c}', '${m}'),\n`;
+      expect(bloque).toContain(linea);
+      bloque = bloque.replace(linea, '');
+    }
+    bloque = bloque.replace(/^-- 47 pares /, `-- ${47 - RETIRADAS_DESPUES.length} pares `);
+    expect(bloque).toBe(salida);
   }, 60_000);
 
   it('el helper de paridad la pliega: `leerReagrupacionesSembradas(MIGRACIONES_ANTES_DEL_ARBOL)` devuelve los 47 pares y `funcionesDeSql` cambia el módulo', () => {
@@ -94,7 +108,7 @@ describe('0205 — análisis estático', () => {
     expect(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO)).toBe(MIGRACIONES_CON_REPARTO.indexOf('0203_permiso_excel_exportar_pago.sql') + 1);
     const sembradas = leerReagrupacionesSembradas([ARCHIVO]);
     expect(sembradas.size).toBe(47);
-    expect([...sembradas.entries()].sort()).toEqual([...MAPA.entries()].sort());
+    expect([...sembradas.entries()].sort()).toEqual([...MAPA_0205.entries()].sort());
     // Plegada sobre un INSERT mínimo: el módulo cambia; sobre nada, revienta (error de orden).
     const insert = `INSERT INTO permisos_funciones (codigo, modulo, nombre_negocio, descripcion, tipo) VALUES
       ('pagina.flito_soat', 'flito_soat_e_impuestos', 'SOAT', 'Entrar.', 'pagina') ON CONFLICT (codigo) DO NOTHING;`;
@@ -117,13 +131,13 @@ describe('0205 — análisis estático', () => {
   });
 
   it('los módulos que nacen y los que desaparecen son los de la HU (AC1, AC2)', () => {
-    const destinos = new Set(PARES.map(([, m]) => m));
+    const destinos = new Set(PARES_0205.map(([, m]) => m));
     for (const m of ['clientes', 'tarifas', 'servicios_adicionales', 'catalogos_compartidos', 'transito', 'tramites']) {
       expect(destinos).toContain(m);
     }
     for (const m of ['flito_soat_e_impuestos', 'parametrizacion', 'sync', 'finanzas']) expect(destinos).not.toContain(m);
-    expect(PARES.filter(([c]) => c.startsWith('pagina.'))).toHaveLength(24);
-    expect(PARES.filter(([c]) => !c.startsWith('pagina.'))).toHaveLength(23);
+    expect(PARES_0205.filter(([c]) => c.startsWith('pagina.'))).toHaveLength(24);
+    expect(PARES_0205.filter(([c]) => !c.startsWith('pagina.'))).toHaveLength(23);
   });
 });
 
@@ -167,9 +181,9 @@ describe.skipIf(!URL_BASE)('0205 — aplicar ×2 sobre BD ya migrada (P6)', () =
       const repartoAntes = (await huella(tx))[0].rf;
       await tx.unsafe(SQL_0205);
       const filas = await tx<{ codigo: string; modulo: string }[]>`
-        SELECT codigo, modulo FROM permisos_funciones WHERE codigo = ANY(${[...MAPA.keys()]}) ORDER BY codigo`;
+        SELECT codigo, modulo FROM permisos_funciones WHERE codigo = ANY(${[...MAPA_0205.keys()]}) ORDER BY codigo`;
       expect(filas).toHaveLength(47);
-      for (const f of filas) expect(f.modulo, f.codigo).toBe(MAPA.get(f.codigo));
+      for (const f of filas) expect(f.modulo, f.codigo).toBe(MAPA_0205.get(f.codigo));
       const [{ n }] = await tx<{ n: number }[]>`
         SELECT count(*)::int AS n FROM permisos_funciones WHERE modulo IN ('flito_soat_e_impuestos', 'parametrizacion', 'sync')`;
       expect(n).toBe(0);

@@ -1,6 +1,6 @@
 // HU #13237 (Feature #13236, Épica #12736) — interruptor por fuente de la sincronización FLIT.
-// Frontera HTTP de `/api/flito/sync`: GET/PUT /interruptores (AC1-AC4, AC10), la guarda del
-// POST /sincronizar de FLIT 1 (AC5) y la habilitación en GET /estado de FLIT 1 (AC9).
+// Frontera HTTP de `/api/flito/sync`: GET/PUT /interruptores (AC1-AC4, AC10) y la habilitación en
+// GET /estado de FLIT 1 (AC9). El POST /sincronizar de FLIT 1 (AC5) se retiró en la HU #13631: 404.
 // AC6-AC7 (lectura de FLIT 2) en `flito-sync.flit2-lectura.test.ts` y `flito-sync.flit2-cron.test.ts`;
 // AC8-AC9 de FLIT 2 en `flito-sync.flit2-estado.test.ts`. Datos SINTÉTICOS.
 //
@@ -32,8 +32,8 @@ const sync = vi.hoisted(() => ({
 vi.mock('../../src/modules/flito-sync/flito-sync.service.js', async (orig) => ({
   ...(await orig() as Record<string, unknown>), ...sync,
 }));
-// HU #13629 (P-2): POST /sincronizar toma el candado de la lectura de FLIT 1. Doble del candado: el
-// mecanismo lo cubre `flito-sync.flit2-candado.test.ts`; aquí solo importa tomado / ocupado y la clave.
+// Doble del candado de la lectura de FLIT 1 (HU #13629): la HU #13631 comprueba que el POST retirado
+// ya no lo toma. El mecanismo lo cubre `flito-sync.flit2-candado.test.ts`.
 const candado = vi.hoisted(() => ({ ocupado: false, claves: [] as unknown[] }));
 vi.mock('../../src/modules/flito-sync/candado-advisory.js', () => ({
   conCandado: async (clave: unknown, fn: () => Promise<unknown>) => {
@@ -213,38 +213,25 @@ describe('HU #13237 · AC4 · 401 sin sesión, 403 sin la función', () => {
   });
 });
 
-describe('HU #13237 · AC5 · POST /sincronizar con FLIT 1 apagada', () => {
-  it('409 FUENTE_APAGADA: no consulta FLIT 1, no escribe, no mueve la última sincronización, no audita', async () => {
-    kdb.when.select(TABLA, [{ encendido: false }]);
+// HU #13631 (AC1): la sincronización manual de FLIT 1 se retiró; los tests del 409 FUENTE_APAGADA (HU
+// #13237 AC5), del candado compartido y del 500 sin detalle (HU #13629) cubrían esa ruta y salen con ella.
+describe('HU #13631 · AC1 · POST /sincronizar ya no existe', () => {
+  beforeEach(() => { candado.ocupado = false; candado.claves = []; });
+
+  it.each<[string, TestRole, string[] | undefined]>([
+    ['admin', 'admin', undefined],
+    ['auditor con sync.sync.lanzar en sus funciones', 'auditor', ['sync.sync.lanzar', 'sync.sync.ver_estado']],
+    ['auditor sin funciones de sync', 'auditor', []],
+  ])('%s → 404, sin consultar FLIT 1, sin tomar el candado, sin escribir ni auditar', async (_n, rol, funciones) => {
+    kdb.when.select(TABLA, [{ encendido: true }]);
     const r = await request(await buildApp()).post(`${BASE}/sincronizar`)
-      .set('Authorization', await auth()).send({ initialDate: '2026-09-01' });
-    expect(r.status).toBe(409);
-    expect(r.body).toMatchObject({ codigo: 'FUENTE_APAGADA', fuente: 'flit1' });
-    expect(typeof r.body.error).toBe('string');
+      .set('Authorization', await auth(rol, funciones)).send({ initialDate: '2026-09-01' });
+    expect(r.status).toBe(404);
     expect(sync.sincronizar).not.toHaveBeenCalled();
     expect(sync.leerUltimaSincronizacion).not.toHaveBeenCalled();
     expect(sync.guardarUltimaSincronizacion).not.toHaveBeenCalled();
+    expect(candado.claves).toEqual([]);
     expect(auditMock).not.toHaveBeenCalled();
-  });
-
-  it('control: encendida, la misma petición sincroniza y guarda la última', async () => {
-    kdb.when.select(TABLA, [{ encendido: true }]);
-    const r = await request(await buildApp()).post(`${BASE}/sincronizar`)
-      .set('Authorization', await auth()).send({ initialDate: '2026-09-01' });
-    expect(r.status).toBe(200);
-    expect(sync.sincronizar).toHaveBeenCalledTimes(1);
-    expect(sync.guardarUltimaSincronizacion).toHaveBeenCalledTimes(1);
-  });
-
-  it('si la base falla al leer el interruptor → 500 con copy propio, sin sincronizar (no se toma como «encendido»)', async () => {
-    kdb.when.selectThrow(TABLA, new Error('conexión perdida'));
-    const r = await request(await buildApp()).post(`${BASE}/sincronizar`)
-      .set('Authorization', await auth()).send({ initialDate: '2026-09-01' });
-    expect(r.status).toBe(500);
-    expect(r.body.error).toBe('No se pudo verificar si la sincronización con FLIT 1 está encendida');
-    expect(JSON.stringify(r.body)).not.toContain('conexión perdida');
-    expect(sync.sincronizar).not.toHaveBeenCalled();
-    expect(sync.guardarUltimaSincronizacion).not.toHaveBeenCalled();
   });
 });
 
@@ -301,49 +288,5 @@ describe('HU #13237 · AC10 · auditoría de cada PUT, sin PII', () => {
     await request(await buildApp()).put(`${BASE}/interruptores/flit2`).set('Authorization', await auth()).send({ encendido: false });
     const detalle = String((auditMock.mock.calls[0]![1] as { detail: string }).detail);
     for (const pii of ['Usuaria Ejemplo', 'ops@flit.io', '@', '1300', '1301', '1302']) expect(detalle).not.toContain(pii);
-  });
-});
-
-describe('HU #13629 · P-2 · POST /sincronizar comparte el candado de la lectura automática de FLIT 1', () => {
-  beforeEach(() => { candado.ocupado = false; candado.claves = []; });
-
-  it('candado tomado por la automática → 409 LECTURA_EN_CURSO sin llamar a FLIT 1 ni mover la última', async () => {
-    kdb.when.select(TABLA, [{ encendido: true }]);
-    candado.ocupado = true;
-    const r = await request(await buildApp()).post(`${BASE}/sincronizar`)
-      .set('Authorization', await auth()).send({ initialDate: '2026-09-01' });
-    expect(r.status).toBe(409);
-    expect(r.body).toMatchObject({ codigo: 'LECTURA_EN_CURSO' });
-    expect(typeof r.body.error).toBe('string');
-    expect(candado.claves).toEqual([[13_629, 1]]);
-    expect(sync.sincronizar).not.toHaveBeenCalled();
-    expect(sync.guardarUltimaSincronizacion).not.toHaveBeenCalled();
-    expect(auditMock).not.toHaveBeenCalled();
-  });
-
-  it('candado libre → sincroniza dentro del candado (control)', async () => {
-    kdb.when.select(TABLA, [{ encendido: true }]);
-    const r = await request(await buildApp()).post(`${BASE}/sincronizar`)
-      .set('Authorization', await auth()).send({ initialDate: '2026-09-01' });
-    expect(r.status).toBe(200);
-    expect(candado.claves).toEqual([[13_629, 1]]);
-    expect(sync.sincronizar).toHaveBeenCalledTimes(1);
-  });
-
-  it('D8: el 500 devuelve un código, nunca el mensaje del error (podía traer el cuerpo de FLIT 1)', async () => {
-    kdb.when.select(TABLA, [{ encendido: true }]);
-    const { Flit1ReporteError } = await import('../../src/modules/flito-sync/flit-http.adapter.js');
-    sync.sincronizar.mockRejectedValueOnce(new Flit1ReporteError('flit1_http_502', 502));
-    const r1 = await request(await buildApp()).post(`${BASE}/sincronizar`)
-      .set('Authorization', await auth()).send({ initialDate: '2026-09-01' });
-    expect(r1.status).toBe(500);
-    expect(r1.body).toEqual({ error: 'La sincronización falló', codigo: 'flit1_http_502' });
-
-    sync.sincronizar.mockRejectedValueOnce(new Error('FLIT report 500: {"cedula":"1023456789"}'));
-    const r2 = await request(await buildApp()).post(`${BASE}/sincronizar`)
-      .set('Authorization', await auth()).send({ initialDate: '2026-09-01' });
-    expect(r2.status).toBe(500);
-    expect(r2.body).toEqual({ error: 'La sincronización falló', codigo: 'desconocido' });
-    expect(JSON.stringify(r2.body)).not.toContain('1023456789');
   });
 });

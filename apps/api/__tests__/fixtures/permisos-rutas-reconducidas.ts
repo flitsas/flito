@@ -116,7 +116,6 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-revisiones/flito-revisiones.routes.ts', metodo: 'POST', ruta: '/:id/descartar', codigo: 'revisiones.revision.descartar' },
   // flito-sync/flito-sync.routes.ts
   { fichero: 'flito-sync/flito-sync.routes.ts', metodo: 'GET', ruta: '/estado', codigo: 'sync.sync.ver_estado' },
-  { fichero: 'flito-sync/flito-sync.routes.ts', metodo: 'POST', ruta: '/sincronizar', codigo: 'sync.sync.lanzar' },
 
   // ── Oleada 2 — FLITO sin router.use (72 rutas: 16 + 2 desenrolladas de impuestos) ──
   // flito-impuestos/flito-impuestos.routes.ts

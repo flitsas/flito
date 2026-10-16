@@ -4,7 +4,7 @@
 // (`TICK_FLIT1_MS`, `unref`) armado solo si `SYNC_HABILITADO` (maestro de entorno, encendido por defecto).
 // Cada tick: si el anterior sigue en curso se salta (log `debug`); el resto (interruptor `flit1`, candado,
 // «¿toca?» con la frecuencia leída de la base) vive en `flit1-lectura-automatica.service.ts`.
-// La ruta manual `POST /flito/sync/sincronizar` sigue existiendo y comparte el candado.
+// La ruta manual `POST /flito/sync/sincronizar` se retiró en la HU #13631: FLIT 1 solo se lee aquí.
 // `intervalMsFromCron` / `SYNC_CRON` son utilidad histórica, aún con pruebas (P-5: no se tocan aquí).
 //
 // FLIT 2 (HU #13092, Feature #13059): lectura programada cada 5 min mientras `FLIT2_SYNC_CRON` esté

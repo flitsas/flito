@@ -65,7 +65,7 @@ export const ACCIONES_GESTION: Readonly<Record<string, AccionArbol>> = {
   'accion.tramites.solicitar_soat': { operaciones: ['tramites.solicitud.pedir_soat'] },
   'accion.tramites.solicitar_impuestos': { operaciones: ['tramites.solicitud.pedir_impuestos'] },
   'accion.tramites.descargar_soportes': { operaciones: ['tramites.soportes.descargar', 'tramites.tramite.ver_soportes'] },
-  'accion.tramites.sincronizar': { operaciones: ['sync.sync.lanzar', 'sync.sync.ver_estado'] },
+  'accion.tramites.sincronizar': { operaciones: ['sync.sync.ver_estado'] }, // HU #13631: sin `sync.sync.lanzar` (retirada)
   'accion.tramites.configurar_sincronizacion': {
     operaciones: ['tramites.sincronizacion.configurar', 'tramites.flit2.ver_acceso', 'tramites.flit2.guardar_acceso'],
   },
