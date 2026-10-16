@@ -8,6 +8,7 @@ import {
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { conEnlace } from '../lib/copyEnlace';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import KpiCard from '../components/flit/KpiCard';
 import { FlitCard } from '../components/flit/flitPageKit';
@@ -78,14 +79,18 @@ function porModulo(v: { soat?: number; impuestos?: number }): [number, string] {
 }
 
 export default function FlitoTablero() {
-  const { user, hasFuncion } = useAuth();
+  const { hasFuncion, tipoEnlace } = useAuth();
   const [data, setData] = useState<TableroResumen | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sync, setSync] = useState<ResumenSync | null>(null);
   const [sincronizando, setSincronizando] = useState(false);
 
+  // HU #13452: con enlace (compañía) el Tablero es solo sus cifras. Ni «Sincronizar desde FLIT»
+  // (la sincronización le queda cerrada por el enlace, ADR-0024: sería un 403) ni la nota interna
+  // de Auditoría. Sin enlace, o sin saberlo aún, queda como siempre.
+  const enlazado = conEnlace(tipoEnlace);
   // HU #12170
-  const puedeSincronizar = hasFuncion('sync.sync.lanzar');
+  const puedeSincronizar = hasFuncion('sync.sync.lanzar') && !enlazado;
 
   const cargar = () => {
     setError(null);
@@ -175,7 +180,7 @@ export default function FlitoTablero() {
         </>
       )}
 
-      {hasFuncion('tablero.tablero.ver') && !hasFuncion('sync.sync.lanzar') && (
+      {!enlazado && hasFuncion('tablero.tablero.ver') && !hasFuncion('sync.sync.lanzar') && (
         <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
           Solo lectura · Auditoría observa el tablero; no ejecuta acciones sobre él.
         </p>

@@ -6,6 +6,8 @@ Es el **Tablero** de General, la pantalla de inicio. Resume las retenciones, los
 
 Quien tiene asignado el ítem **Tablero** en **Roles y permisos**: lo ve como pantalla de inicio. **Sincronizar desde FLIT** aparece solo si además tiene el permiso de sincronizar; sin él, la pantalla muestra **Solo lectura · Auditoría observa el tablero; no ejecuta acciones sobre él.** y usted consulta sin ejecutar acciones. Los bloques de **SOAT** e **Impuestos** aparecen según las colas que usted puede ver.
 
+Si su rol tiene enlace **Compañía**, el tablero cuenta solo los trámites de su compañía y no muestra **Sincronizar desde FLIT** ni la nota de solo lectura. Con enlace **Proveedor** u **Organismos** el Tablero no está disponible.
+
 ## Cómo se entra
 
 En el menú lateral, sección **General**, ítem **Tablero**. Es también lo primero que ve al iniciar sesión. No lo confunda con **Tablero ejecutivo PESV**.

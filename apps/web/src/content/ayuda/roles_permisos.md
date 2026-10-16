@@ -27,7 +27,7 @@ Menú **Administración**, ítem **Roles y permisos**, junto a **Usuarios**.
 6. Para repartirlo todo de una vez use **Marcar todo**, que marca todos los ítems y acciones del árbol, pero **no** los opcionales; **Desmarcar todo** quita todo. Ninguno de los dos guarda por sí solo.
 7. **Nuevo rol** abre el formulario: nombre, descripción y **Enlace**, que decide qué datos ven las personas con ese rol. Elija una de cuatro opciones; cada una explica debajo lo que verá el rol:
    - **Ninguno** (viene marcado): ve todos los datos de los módulos que el rol tenga marcados.
-   - **Compañía**: ve solo lo de su compañía en Gestión Trámites, SOAT, Impuestos, Bolsas, Comprobantes y Logística. No ve catálogos ni configuración; el resto le queda cerrado.
+   - **Compañía**: ve solo lo de su compañía en el Tablero, Gestión Trámites, SOAT, Impuestos, Bolsas, Comprobantes y Logística. No ve catálogos ni configuración; el resto le queda cerrado.
    - **Proveedor**: ve solo lo asignado a su proveedor. Hoy aplica a SOAT.
    - **Organismos**: ve solo lo de sus secretarías de tránsito en Impuestos, Derechos y la Bandeja de trámites. El resto le queda cerrado.
 

@@ -497,7 +497,7 @@ test.describe('HU #12876 · panel de roles: sin tipo y con enlace único', () =>
     expect(new Set(ayudas).size).toBe(4);
     expect(ayudas[2]).toBe('Ve solo lo asignado a su proveedor. Hoy aplica a SOAT.');
     // HU #13452: los módulos con el nombre del MENÚ (Bolsas, Derechos) y la Bandeja de trámites de organismos.
-    expect(ayudas[1]).toBe('Ve solo lo de su compañía en Gestión Trámites, SOAT, Impuestos, Bolsas, Comprobantes y Logística. No ve catálogos ni configuración; el resto le queda cerrado.');
+    expect(ayudas[1]).toBe('Ve solo lo de su compañía en el Tablero, Gestión Trámites, SOAT, Impuestos, Bolsas, Comprobantes y Logística. No ve catálogos ni configuración; el resto le queda cerrado.');
     expect(ayudas[3]).toBe('Ve solo lo de sus secretarías de tránsito en Impuestos, Derechos y la Bandeja de trámites. El resto le queda cerrado.');
     // Ayuda del grupo.
     await expect(modal.getByText('Decide qué datos ven las personas con este rol. La compañía, el proveedor o las secretarías de cada una se eligen en Usuarios.')).toBeVisible();

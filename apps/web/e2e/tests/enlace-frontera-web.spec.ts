@@ -236,3 +236,69 @@ test.describe('HU #13452 · panel de roles: lo que el enlace cierra sale deshabi
     await expect(page.locator('[data-aviso="cerrado-por-enlace"]')).toHaveCount(0);
   });
 });
+
+// ───────────────────────── Tablero de General (`pagina.dashboard`) ───────────────────────────────
+// El Tablero de General es el módulo `tablero` de la frontera (P-11 unió Tablero FLITO a General), y
+// `FRONTERA_POR_ENLACE.tablero` lo abre a `compania` (#13426). La PR #508 no mapeaba `dashboard` y la
+// compañía lo perdía en menú, ⌘K y ruta; proveedor y organismos siguen sin él.
+
+const TABLERO = { revisionesPendientes: { soat: 2 }, estancados: { soat: 1 }, diferenciasDeValor: 0, compuertaHabilitados: 0, soat: {} };
+const conTablero = (enlace: string) => ({
+  ...PRUEBA_COMPANIA, tipoEnlace: enlace,
+  allowedPages: ['dashboard', 'flito_soat'], funciones: ['tablero.tablero.ver', 'soat.cola.ver', ...FUNCIONES_PERFIL],
+});
+
+const NOTA_AUDITORIA = 'Solo lectura · Auditoría observa el tablero; no ejecuta acciones sobre él.';
+
+async function mockTablero(page: Page) {
+  await mockColas(page);
+  await page.route(/\/api\/flito\/tablero$/, (r) => r.fulfill(json(TABLERO)));
+}
+
+test.describe('HU #13452 · el Tablero de General sigue abierto al enlace Compañía', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test('compañía: «Tablero» en el menú y / abre el Tablero (no «sin acceso»)', async ({ page }) => {
+    await mockTablero(page);
+    await loginAs(page, conTablero('compania'));
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: 'Tablero', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /No tienes acceso a/ })).toHaveCount(0);
+    await expect(nav(page).getByRole('link', { name: /^Tablero/ })).toHaveCount(1);
+    // Sin copy interno: ni la nota de Auditoría ni mención a Operaciones o a sincronizar.
+    await expect(page.getByText('Revisiones pendientes')).toBeVisible();
+    await expect(page.getByText(NOTA_AUDITORIA)).toHaveCount(0);
+    await expect(page.getByRole('main').getByText(/Auditoría|Operaciones|Sincroniz/)).toHaveCount(0);
+  });
+
+  test('compañía con `sync.sync.lanzar` en el rol: sin «Sincronizar desde FLIT» (la sincronización le queda cerrada)', async ({ page }) => {
+    await mockTablero(page);
+    const u = conTablero('compania');
+    await loginAs(page, { ...u, funciones: [...u.funciones, 'sync.sync.lanzar'] });
+    await page.goto('/');
+    await expect(page.getByText('Revisiones pendientes')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Sincronizar/ })).toHaveCount(0);
+  });
+
+  test('control: sin enlace, el Tablero conserva la nota de Auditoría', async ({ page }) => {
+    await mockTablero(page);
+    await loginAs(page, conTablero('ninguno'));
+    await page.goto('/');
+    await expect(page.getByText(NOTA_AUDITORIA)).toBeVisible();
+  });
+
+  for (const enlace of ['proveedor', 'organismos_transito']) {
+    test(`${enlace}: sin «Tablero» en el menú y / no pide el tablero`, async ({ page }) => {
+      let pedidas = 0;
+      await mockColas(page);
+      await page.route(/\/api\/flito\/tablero$/, (r) => { pedidas += 1; return r.fulfill(json({ error: 'Sin permisos' }, 403)); });
+      await loginAs(page, conTablero(enlace));
+      await page.goto('/flito/soat');
+      await expect(page.getByRole('button', { name: /Buscar o ir a secci/ })).toBeVisible();
+      await expect(nav(page).getByRole('link', { name: /^Tablero/ })).toHaveCount(0);
+      await page.goto('/');
+      await expect(page.getByRole('heading', { name: 'Tablero', level: 1 })).toHaveCount(0);
+      expect(pedidas).toBe(0);
+    });
+  }
+});
