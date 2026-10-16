@@ -78,6 +78,10 @@ export const MODULO_FRONTERA_DE_PAGINA: Readonly<Partial<Record<PageSlug, Modulo
   flito_logistica: 'logistica',
   flito_logistica_ruta: 'logistica',
   flito_tablero: 'tablero',
+  // El Tablero de General (`/` → `InicioGate` → `pagina.dashboard` → `Dashboard.tsx`) ES el módulo
+  // `tablero`: P-11 unió el Tablero FLITO a General y renderiza `FlitoTablero` contra el API acotado
+  // por `conAlcance('tablero')`. Sin esta línea la compañía perdía su Tablero (HU #13452).
+  dashboard: 'tablero',
   // «Bandeja de trámites» (`/api/transito`, abierto con `conAlcance('transito')`).
   transito: 'transito',
 });

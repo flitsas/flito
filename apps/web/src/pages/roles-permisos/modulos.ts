@@ -193,7 +193,7 @@ export const ETIQUETA_ENLACE: Record<TipoEnlace, string> = {
  */
 export const AYUDA_ENLACE: Record<TipoEnlace, string> = {
   ninguno: 'Ve todos los datos de los módulos que este rol tenga marcados.',
-  compania: 'Ve solo lo de su compañía en Gestión Trámites, SOAT, Impuestos, Bolsas, Comprobantes y Logística. No ve catálogos ni configuración; el resto le queda cerrado.',
+  compania: 'Ve solo lo de su compañía en el Tablero, Gestión Trámites, SOAT, Impuestos, Bolsas, Comprobantes y Logística. No ve catálogos ni configuración; el resto le queda cerrado.',
   proveedor: 'Ve solo lo asignado a su proveedor. Hoy aplica a SOAT.',
   organismos_transito: 'Ve solo lo de sus secretarías de tránsito en Impuestos, Derechos y la Bandeja de trámites. El resto le queda cerrado.',
 };
