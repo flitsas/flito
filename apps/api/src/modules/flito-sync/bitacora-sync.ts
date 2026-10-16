@@ -14,10 +14,25 @@
 //        '60.00' = 60; '' = null), para no dejar un «cambió …» falso en cada relectura. Uno que entra o
 //        sale solo cambia el conteo.
 //
+// HU #13627 — fallos. Un trámite cuya escritura lanza (y su transacción se revierte) deja igualmente una
+// entrada, escrita FUERA de esa transacción con `db`:
+// RN-B5  `detail` = `[<fuente>] fallo · radicado <R> · error <Clase|código> · falló`. El error se resume
+//        en su código (`code` de pg/Node, `codigo` de los errores de FLITO) o en el nombre de su clase;
+//        nunca el mensaje, que puede llevar cédulas, correos o placas (AC3). Ni en la Bitácora ni en el log.
+// RN-B6  Deduplicación: si la última entrada `flito_tramite` de ese radicado y fuente ya es ese mismo
+//        «falló» (mismo código), no se escribe otra. FLIT 2 frena la lectura en el ítem que falla y lo
+//        reintenta en cada corrida: sin esto, la Bitácora tendría una entrada idéntica cada 5 minutos.
+// RN-B7  `resourceId` = UUID del trámite si ya existía; null si era nuevo (el radicado va en el detalle).
+// RN-B8  Si escribir la entrada falla, no se propaga: la corrida sigue y queda un log sin PII (AC5).
+//
 // No importa de `flito-sync.service.ts` (que la importa a ella): sin ciclo.
 
-import { db } from '../../db/client.js';
-import { auditLogs } from '../../db/schema.js';
+import { and, desc, eq, like } from 'drizzle-orm';
+import type { db } from '../../db/client.js';
+import { auditLogs, flitoTramites } from '../../db/schema.js';
+import { loggerFor } from '../../shared/logger.js';
+
+const log = loggerFor('flito-sync-bitacora');
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -180,4 +195,62 @@ export async function registrarBitacoraSync(tx: Tx, e: EntradaBitacora & { trami
     userId: null, userEmail: 'sistema', action: e.esNuevo ? 'create' : 'update',
     resource: 'flito_tramite', resourceId: e.tramiteId, detail,
   });
+}
+
+// ── HU #13627: fallos ──────────────────────────────────────────────────────────────────────────────
+
+/** Un código o nombre de clase solo se escribe si es un identificador: nada que pueda ser texto libre. */
+const IDENTIFICADOR = /^[A-Za-z0-9_.-]{1,60}$/;
+const identificador = (v: unknown): string | null => (typeof v === 'string' && IDENTIFICADOR.test(v) ? v : null);
+
+/**
+ * Tipo del error, sin su mensaje (RN-B5): `code` (pg, Node) → `codigo` (errores de FLITO) → `code` de su
+ * `cause` (drizzle envuelve el de pg) → nombre de la clase. `desconocido` si nada de eso es un identificador.
+ */
+export function tipoDeError(e: unknown): string {
+  if (e === null || typeof e !== 'object') return 'desconocido';
+  const o = e as { code?: unknown; codigo?: unknown; cause?: unknown };
+  const causa = o.cause !== null && typeof o.cause === 'object' ? (o.cause as { code?: unknown }).code : undefined;
+  return identificador(o.code) ?? identificador(o.codigo) ?? identificador(causa)
+    ?? identificador((e as object).constructor?.name) ?? 'desconocido';
+}
+
+export interface FalloBitacora {
+  fuente: FuenteBitacora;
+  radicado: string;
+  error: unknown;
+}
+
+/** Único formateador de la entrada de fallo (RN-B5). */
+export function detalleFalloBitacora({ fuente, radicado, error }: FalloBitacora): string {
+  return `[${fuente}] fallo · radicado ${radicado} · error ${tipoDeError(error)} · falló`;
+}
+
+/** `%`, `_` y `\` del radicado, literales en el LIKE (el escape por defecto de PostgreSQL es `\`). */
+const literalLike = (v: string): string => v.replace(/[\\%_]/g, (c) => `\\${c}`);
+
+/**
+ * Escribe la entrada de fallo con `exec` (el `db`, fuera de la transacción revertida). Nunca lanza (RN-B8).
+ * Deduplica contra la última entrada del mismo radicado y fuente (RN-B6).
+ */
+export async function registrarFalloBitacoraSync(exec: typeof db, f: FalloBitacora): Promise<void> {
+  const detail = detalleFalloBitacora(f);
+  try {
+    const [ultima] = await exec.select({ detail: auditLogs.detail }).from(auditLogs)
+      .where(and(
+        eq(auditLogs.resource, 'flito_tramite'),
+        like(auditLogs.detail, `[${f.fuente}] % · radicado ${literalLike(f.radicado)} · %`),
+      ))
+      .orderBy(desc(auditLogs.createdAt), desc(auditLogs.id))
+      .limit(1);
+    if (ultima?.detail === detail) return;
+    const [tramite] = await exec.select({ id: flitoTramites.id }).from(flitoTramites)
+      .where(eq(flitoTramites.idFlit, f.radicado)).limit(1);
+    await exec.insert(auditLogs).values({
+      userId: null, userEmail: 'sistema', action: 'update',
+      resource: 'flito_tramite', resourceId: tramite?.id ?? null, detail,
+    });
+  } catch (e) {
+    log.error({ fuente: f.fuente, radicado: f.radicado, err: tipoDeError(e) }, 'no se pudo registrar el fallo del trámite en la Bitácora');
+  }
 }

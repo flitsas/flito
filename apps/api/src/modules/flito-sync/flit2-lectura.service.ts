@@ -43,6 +43,9 @@
 //        nunca se reinicia sola. Las pausas del pase (423, rechazo) las aplica `flit2-pase.service.ts`.
 // RN-13  La corrida no se audita; cada trámite creado o cambiado deja su entrada en la Bitácora
 //        (`bitacora-sync.ts`, HU #13626). Las vacías o fallidas solo dejan su rastro en la fila de lectura.
+//        HU #13627: si la página falla por un ÍTEM que lanza, ese ítem deja además su entrada «falló»
+//        (fuera de la transacción, deduplicada). La página entera se revierte y la lectura se frena en
+//        él (decisión de David, 2026-10-16): los demás ítems de la página no quedan aplicados.
 //
 // ── HU #13093 (compradores y arranque). Diseño: `docs/diseno/hu-13093-compradores-soat-flit2.md` ──
 //
@@ -142,7 +145,7 @@ import {
   compradoresDesdeFlit2, ESTADOS_SIN_ESTADO_FLITO, estadoDesdeFlit2, familiaATipoTramite, tipoPropiedadPorConteo,
 } from './flit2-mapeo.js';
 import type { CompradorMapeado } from './mapeo-compradores.js';
-import { diferenciasCompradores, registrarBitacoraSync, type Diferencia } from './bitacora-sync.js';
+import { diferenciasCompradores, registrarBitacoraSync, registrarFalloBitacoraSync, type Diferencia } from './bitacora-sync.js';
 import { getFlit2SyncAdapter } from './flit2-sync.adapter.js';
 import type { Flit2SyncPort, ItemFlit2, PaginaFlit2, PosicionLectura } from './flit2-sync.port.js';
 import { conCandadoLectura } from './flit2-candado.js';
@@ -401,11 +404,31 @@ async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date, mo
   }
 }
 
+/**
+ * HU #13627: radicado del ítem cuya escritura lanzó, por error. El error se propaga intacto (la página se
+ * revierte y la lectura se frena en él, como siempre); el `catch` de la corrida lo lee para dejar la
+ * entrada de fallo fuera de la transacción. Conflictos, inválidos y «sin vehículo» no lanzan: no son fallos.
+ */
+const radicadoDelFallo = new WeakMap<object, string>();
+
 /** Aplica los ítems de una página. Los desenlaces esperados se cuentan; solo un fallo de BD lanza. */
 export async function aplicarPagina(
   tx: Tx, items: ItemFlit2[], r: Contadores, ahora: Date = new Date(), modo: ModoAplicar = MODO_NORMAL,
 ): Promise<void> {
-  for (const it of items) await aplicarItem(tx, it, r, ahora, modo);
+  for (const it of items) {
+    try {
+      await aplicarItem(tx, it, r, ahora, modo);
+    } catch (e) {
+      if (e !== null && typeof e === 'object' && !radicadoDelFallo.has(e)) radicadoDelFallo.set(e, it.radicado);
+      throw e;
+    }
+  }
+}
+
+/** Entrada «falló» del ítem que lanzó, si fue un ítem (no el cursor ni el feed). Nunca lanza. */
+async function registrarFalloDelItem(e: unknown): Promise<void> {
+  const radicado = e !== null && typeof e === 'object' ? radicadoDelFallo.get(e) : undefined;
+  if (radicado !== undefined) await registrarFalloBitacoraSync(db, { fuente: 'FLIT 2', radicado, error: e });
 }
 
 /** Scope de la página: el que dijo el adaptador o, si no lo sabe, el del acceso (RN-18). */
@@ -563,6 +586,7 @@ export async function leerIncremental(
     }
     return r;
   } catch (e) {
+    await registrarFalloDelItem(e); // HU #13627: tras el rollback de la página, con `db`
     const codigo = codigoAnotado(e);
     // Solo se sabe que queda feed si alguna página se guardó (su `hasMore`) o si FLIT 2 pidió esperar.
     const atrasada = e instanceof Flit2EsperaFeedError ? true : r.paginas > 0 ? r.hasMore : undefined;
@@ -641,6 +665,7 @@ export async function releerEnmascarados(port: Flit2SyncPort, op: OpcionesRelect
     }
     log.info({ ...res }, 'relectura FLIT 2 de trámites enmascarados');
   } catch (e) {
+    await registrarFalloDelItem(e); // HU #13627: igual que la lectura normal
     log.warn({ codigo: codigoAnotado(e), paginas: res.paginas }, 'relectura FLIT 2 interrumpida: la siguiente corrida la retoma');
   }
   return res;

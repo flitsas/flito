@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  CAMPOS_PII, detalleBitacora, diferenciasCompradores, diferenciasTramite, vistaHistorial, vistaTramite,
+  CAMPOS_PII, detalleBitacora, detalleFalloBitacora, diferenciasCompradores, tipoDeError, diferenciasTramite, vistaHistorial, vistaTramite,
   type CompradorComparable, type Diferencia, type FuenteBitacora,
 } from '../../src/modules/flito-sync/bitacora-sync.js';
 
@@ -121,5 +121,33 @@ describe('HU #13626 · diferencias', () => {
     expect(Object.keys(vistaHistorial(vistaTramite(tramite())))).toEqual([
       'flit_estado', 'factura_venta_flit_id', 'fecha_aprobacion', 'compania_id', 'organismo_codigo', 'tipo_tramite', 'ciudad',
     ]);
+  });
+});
+
+// HU #13627 — entrada de fallo (RN-B5): tipo del error, nunca el mensaje.
+describe('HU #13627 · detalle de fallo', () => {
+  const MSG = `fallo con ${DOC} y ${CORREO}`;
+  it('formato `[<fuente>] fallo · radicado <R> · error <tipo> · falló`, igual para las dos fuentes', () => {
+    const e = Object.assign(new Error(MSG), { code: '23505' });
+    expect(detalleFalloBitacora({ fuente: 'FLIT 1', radicado: 'R-5512', error: e })).toBe('[FLIT 1] fallo · radicado R-5512 · error 23505 · falló');
+    expect(detalleFalloBitacora({ fuente: 'FLIT 2', radicado: 'R-5512', error: e })).toBe('[FLIT 2] fallo · radicado R-5512 · error 23505 · falló');
+  });
+
+  it('tipo: code → codigo → code de la causa → clase; «desconocido» si no hay nada', () => {
+    class MiError extends Error { codigo = 'flit2_rechazado'; }
+    class OtroError extends Error {}
+    expect(tipoDeError(Object.assign(new Error(MSG), { code: 'ECONNRESET' }))).toBe('ECONNRESET');
+    expect(tipoDeError(new MiError(MSG))).toBe('flit2_rechazado');
+    expect(tipoDeError(Object.assign(new Error(MSG), { cause: { code: '23514' } }))).toBe('23514');
+    expect(tipoDeError(new OtroError(MSG))).toBe('OtroError');
+    expect(tipoDeError(MSG)).toBe('desconocido');
+    expect(tipoDeError(null)).toBe('desconocido');
+  });
+
+  it('AC3: un code o codigo que no es identificador (texto libre con PII) no se escribe: cae a la clase', () => {
+    const e = Object.assign(new Error(MSG), { code: `doc ${DOC}`, codigo: CORREO });
+    expect(tipoDeError(e)).toBe('Error');
+    const txt = detalleFalloBitacora({ fuente: 'FLIT 1', radicado: 'R-5512', error: e });
+    for (const x of [DOC, CORREO, 'fallo con']) expect(txt).not.toContain(x);
   });
 });

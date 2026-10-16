@@ -19,6 +19,7 @@
 // HU #13626: cada trámite creado o cambiado deja UNA entrada en la Bitácora (`audit_logs`,
 // `flito_tramite`) desde `bitacora-sync.ts`, la misma función para FLIT 1 y FLIT 2. Reemplaza el audit
 // «Estado FLIT: …» de `escribirTramite`; el historial campo por campo no cambia.
+// HU #13627: un trámite que falla deja su entrada «falló» (RN-B5…B8 de `bitacora-sync.ts`) y el resto sigue.
 
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
@@ -41,7 +42,8 @@ import {
 import { getFlitAdapter } from './flit.adapter.js';
 import { mapearCompradores, type CompradorMapeado } from './mapeo-compradores.js';
 import {
-  diferenciasCompradores, diferenciasTramite, registrarBitacoraSync, vistaHistorial, vistaTramite, type Diferencia,
+  diferenciasCompradores, diferenciasTramite, registrarBitacoraSync, registrarFalloBitacoraSync, tipoDeError, vistaHistorial,
+  vistaTramite, type Diferencia,
 } from './bitacora-sync.js';
 import type { FlitPort, RangoSync, ResultadoSync, TramiteFlit } from './flit.port.js';
 
@@ -134,7 +136,10 @@ export async function sincronizar(rango: RangoSync, flit: FlitPort = getFlitAdap
     try {
       await db.transaction(async (tx) => { await sincronizarUno(tx, tf, r); });
     } catch (error) {
-      log.error({ idFlit: tf.idFlit, err: (error as Error).message }, 'no se pudo sincronizar el trámite');
+      // HU #13627: el tipo del error, nunca su mensaje (puede llevar PII); y la entrada de fallo en la
+      // Bitácora, con `db` porque la transacción del trámite ya se revirtió. No lanza: la corrida sigue.
+      log.error({ idFlit: tf.idFlit, err: tipoDeError(error) }, 'no se pudo sincronizar el trámite');
+      await registrarFalloBitacoraSync(db, { fuente: 'FLIT 1', radicado: tf.idFlit, error });
     }
   }
 
