@@ -1910,6 +1910,20 @@ describe('HU #13627 · Bitácora de fallos (FLIT 2)', () => {
     ]);
   });
 
+  it('RN-B6: la deduplicación filtra por radicado: un fallo de OTRO radicado en medio no hace repetir el de R2', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    const R3 = 'FT1-0000003';
+    mem.errorInsertDe.set(R2, errorConPii('23505'));
+    mem.errorInsertDe.set(R3, errorConPii('23505'));
+    await expect(leer([item2()])).rejects.toThrow();
+    await expect(leer([item3()])).rejects.toThrow(); // la entrada más reciente es ahora de R3
+    await expect(leer([item2()])).rejects.toThrow();
+    expect(bitacora().map((a) => a.detail)).toEqual([
+      `[FLIT 2] fallo · radicado ${R2} · error 23505 · falló`,
+      `[FLIT 2] fallo · radicado ${R3} · error 23505 · falló`,
+    ]);
+  });
+
   it('AC5: si la entrada de fallo tampoco se escribe, la lectura termina como siempre (mismo error, código anotado) y el log no lleva PII', async () => {
     sembrarLectura({ sinceArranque: ARRANQUE });
     mem.errorInsertDe.set(R2, errorConPii());
