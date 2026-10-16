@@ -67,9 +67,14 @@ export const flitoSyncFlit2Lectura = pgTable('flito_sync_flit2_lectura', {
   // HU #13094 (0216): desde cuándo llega enmascarada (null = nada que recuperar) y cursor de la relectura.
   piiEnmascaradaDesde: timestamp('pii_enmascarada_desde', { withTimezone: true }),
   cursorRelectura: text('cursor_relectura'),
+  // HU #13632 (0244): último aviso válido de FLIT 2 y rechazos de firma seguidos (0 tras una firma válida).
+  // Los vuelca la agenda de avisos como mucho cada 5 s por proceso (flit2-avisos.service.ts, decisión C2).
+  ultimoAvisoEn: timestamp('ultimo_aviso_en', { withTimezone: true }),
+  rechazosFirmaSeguidos: integer('rechazos_firma_seguidos').notNull().default(0),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   unaFila: check('ck_flito_sync_flit2_lectura_una_fila', sql`${t.id} = 1`),
+  rechazosNoNegativo: check('ck_flito_sync_flit2_lectura_rechazos_firma', sql`${t.rechazosFirmaSeguidos} >= 0`),
   cursorLen: check('ck_flito_sync_flit2_lectura_cursor_len',
     sql`${t.cursor} IS NULL OR length(${t.cursor}) BETWEEN 1 AND 2000`),
   cursorRelecturaLen: check('ck_flito_sync_flit2_lectura_cursor_relectura_len',
