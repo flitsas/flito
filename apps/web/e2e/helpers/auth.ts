@@ -308,7 +308,8 @@ const FUNCIONES_POR_ROL_BASE: Readonly<Record<string, readonly string[]>> = {
     // auditor; financiera NO la tiene (la reparte el admin desde el panel): el spec la añade por usuario.
     'tramites.tramite.ver_soportes',
     'tramite.tramite.forzar_continuar', 'compuerta.tramite.entregar', 'logistica.lote.cerrar',
-    'tablero.tablero.ver', 'sync.sync.lanzar',
+    'tablero.tablero.ver',
+    // HU #13631: `sync.sync.lanzar` (sincronización manual de FLIT 1) retirada en la 0243.
     // HU #13098: estado de la conexión con FLIT 2 en Gestión Trámites (0179: sembrada a `admin`).
     'sync.sync.ver_estado',
     // HU #13238: interruptores de sincronización por fuente en Gestión Trámites (0217: solo `admin`).

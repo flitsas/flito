@@ -31,6 +31,24 @@ const DIR = path.resolve(__dirname, '../../src/db/migrations');
 const SQL = readFileSync(path.join(DIR, ARCHIVO), 'utf8');
 const SIN_COMENTARIOS = SQL.replace(/--[^\n]*/g, '');
 
+// HU #13631: la 0243 retiró `sync.sync.lanzar` (sincronización manual de FLIT 1) y el código dejó de
+// listarla en `accion.tramites.sincronizar`. La 0233 está aplicada y congelada: el generador de HOY
+// emite un par menos. Esta es la ÚNICA diferencia admitida entre el archivo y el generador.
+const RETIRADAS_DESPUES = new Set(['sync.sync.lanzar']);
+const PARES_RETIRADOS = [`  ('accion.tramites.sincronizar', 'sync.sync.lanzar'),`];
+function generadoDeHoy(bloque: string): string {
+  const lineas = bloque.split('\n');
+  for (const par of PARES_RETIRADOS) {
+    const i = lineas.indexOf(par);
+    if (i < 0) throw new Error(`par retirado ausente del bloque congelado: ${par}`);
+    lineas.splice(i, 1);
+  }
+  const m = /^-- (\d+) pares /.exec(lineas[0]!);
+  if (!m) throw new Error('cabecera del bloque generado sin recuento de pares');
+  lineas[0] = lineas[0]!.replace(m[1]!, String(Number(m[1]) - PARES_RETIRADOS.length));
+  return lineas.join('\n');
+}
+
 describe('0233 — análisis estático', () => {
   it('sin BEGIN/COMMIT propio; número único; la anterior es la 0232', () => {
     expect(scanForTxControl(ARCHIVO, SQL)).toEqual([]);
@@ -41,8 +59,9 @@ describe('0233 — análisis estático', () => {
     expect(SQL.split('\n').slice(0, 6).join('\n')).toMatch(/HU #12873[\s\S]*^-- Autor: /m);
   });
 
-  it('el bloque entre marcas es EXACTAMENTE la salida del generador (`--arbol gestion --reparto`)', () => {
-    expect(bloqueGenerado(SQL)).toBe(sqlRepartoArbol('gestion'));
+  it('el bloque entre marcas es EXACTAMENTE la salida del generador (`--arbol gestion --reparto`), salvo lo retirado después (HU #13631)', () => {
+    expect(bloqueGenerado(SQL)).toContain(PARES_RETIRADOS[0]);
+    expect(generadoDeHoy(bloqueGenerado(SQL))).toBe(sqlRepartoArbol('gestion'));
   });
 
   it('sin literales de rol: ni `VALUES (\'<rol>\'…)` ni `rol_codigo = \'<rol>\'`; todo reparto es INSERT … SELECT', () => {
@@ -111,8 +130,10 @@ describe('0233 — análisis estático', () => {
   it('el helper de paridad lee la regla: los grupos son los predecesores del código, lo absorbido es `CODIGOS_ABSORBIDOS`', () => {
     const r = reglaTodosDeSql(SQL)!;
     expect([...r.grupos.keys()].sort()).toEqual([...GESTION]);
-    for (const [a, g] of r.grupos) expect([...g].sort(), a).toEqual([...predecesoresDe(a)].sort());
-    expect([...r.absorbidos].sort()).toEqual([...ABSORBIDOS_GESTION].sort());
+    const vigentes = (xs: Iterable<string>) => [...xs].filter((x) => !RETIRADAS_DESPUES.has(x)).sort();
+    for (const [a, g] of r.grupos) expect(vigentes(g), a).toEqual([...predecesoresDe(a)].sort());
+    expect(vigentes(r.absorbidos)).toEqual([...ABSORBIDOS_GESTION].sort());
+    expect(r.absorbidos.has('sync.sync.lanzar')).toBe(true); // la 0233 sí la absorbió (HU #13631: retirada en la 0243)
     expect([...r.lectura].sort()).toEqual([...ACCIONES_LECTURA].filter((a) => GESTION.includes(a)).sort());
     expect(r.absorbidos.has('logistica.actas.operar_ajenas')).toBe(false);
     expect(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO)).toBe(MIGRACIONES_CON_REPARTO.indexOf('0232_permisos_arbol_gestion_siembra.sql') + 1);

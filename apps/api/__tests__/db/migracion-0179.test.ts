@@ -150,10 +150,11 @@ describe('0179 — el archivo dice lo mismo que schema.ts (análisis estático)'
       });
     }
     for (const par of aPares(leerRepartoSembrado([ARCHIVO]))) {
-      if (retiros.reparto.has(par)) continue;
+      // HU #13631: retirar una función (0243) retira también todas sus marcas.
+      if (retiros.reparto.has(par) || retiros.funciones.has(par.slice(par.indexOf(' ') + 1))) continue;
       expect(aPares(repartoGenerado), par).toContain(par);
     }
-    expect(retiros.funciones).toEqual(new Set(['parametrizacion.tarifas.borrar']));
+    expect(retiros.funciones).toEqual(new Set(['parametrizacion.tarifas.borrar', 'sync.sync.lanzar'])); // 0182 y 0243 (HU #13631)
   }, 60_000);
 });
 

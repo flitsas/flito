@@ -271,15 +271,6 @@ test.describe('HU #13452 · el Tablero de General sigue abierto al enlace Compa�
     await expect(page.getByRole('main').getByText(/Auditoría|Operaciones|Sincroniz/)).toHaveCount(0);
   });
 
-  test('compañía con `sync.sync.lanzar` en el rol: sin «Sincronizar desde FLIT» (la sincronización le queda cerrada)', async ({ page }) => {
-    await mockTablero(page);
-    const u = conTablero('compania');
-    await loginAs(page, { ...u, funciones: [...u.funciones, 'sync.sync.lanzar'] });
-    await page.goto('/');
-    await expect(page.getByText('Revisiones pendientes')).toBeVisible();
-    await expect(page.getByRole('button', { name: /Sincronizar/ })).toHaveCount(0);
-  });
-
   test('sin enlace, el Tablero tampoco lleva la nota de Auditoría (HU #13630 AC7)', async ({ page }) => {
     await mockTablero(page);
     await loginAs(page, conTablero('ninguno'));

@@ -383,8 +383,9 @@ describe('HU #12716 — cada página se agrupa con las acciones de su módulo', 
     for (const m of ['clientes', 'tarifas', 'servicios_adicionales', 'catalogos_compartidos']) expect(modulos).toContain(m);
   });
 
-  it('los 46 códigos que la HU nombra llevan el módulo esperado (AC1, AC2)', () => {
-    // La tabla literal de la HU: es la afirmación del PO, no se deriva del mapa.
+  it('los 45 códigos que la HU nombra llevan el módulo esperado (AC1, AC2)', () => {
+    // La tabla literal de la HU: es la afirmación del PO, no se deriva del mapa. Eran 46: la HU #13631
+    // retiró `sync.sync.lanzar` (sincronización manual de FLIT 1, migración 0243).
     const esperado: Record<string, string> = {
       'pagina.flito_tramites': 'tramites', 'pagina.flito_soat': 'soat', 'pagina.flito_impuestos': 'impuestos',
       'pagina.flito_derechos': 'derechos', 'pagina.drive': 'derechos', 'pagina.flito_revisiones': 'revisiones',
@@ -395,7 +396,7 @@ describe('HU #12716 — cada página se agrupa con las acciones de su módulo', 
       'pagina.users': 'usuarios', 'pagina.roles_permisos': 'permisos', 'pagina.tramite': 'tramite',
       'pagina.transito': 'transito', 'pagina.clients': 'clientes', 'pagina.flito_tarifas': 'tarifas',
       'pagina.flito_servicios_adicionales': 'servicios_adicionales',
-      'sync.sync.lanzar': 'tramites', 'sync.sync.ver_estado': 'tramites',
+      'sync.sync.ver_estado': 'tramites',
       'parametrizacion.companias.editar': 'clientes',
       'parametrizacion.proveedores.crear': 'clientes', 'parametrizacion.proveedores.editar': 'clientes',
       'parametrizacion.tarifas.crear': 'tarifas', 'parametrizacion.tarifas.editar': 'tarifas',
@@ -414,16 +415,18 @@ describe('HU #12716 — cada página se agrupa con las acciones de su módulo', 
       'parametrizacion.proveedores.listar': 'catalogos_compartidos',
       'parametrizacion.organismos.listar': 'catalogos_compartidos',
     };
-    expect(Object.keys(esperado)).toHaveLength(46);
+    expect(Object.keys(esperado)).toHaveLength(45);
     const porCodigoTodo = new Map(catalogo.map((f) => [f.codigo, f.modulo]));
+    expect(porCodigoTodo.has('sync.sync.lanzar'), 'HU #13631: retirada').toBe(false);
+    expect(porCodigoTodo.get('tramites.sincronizacion.configurar')).toBe('tramites');
     for (const [codigo, modulo] of Object.entries(esperado)) expect(porCodigoTodo.get(codigo), codigo).toBe(modulo);
   });
 
-  it('`reagrupaciones()` tiene 47 pares ordenados por código; 46 cambian el valor estructural y el de `transito_organismos` es no-op', () => {
+  it('`reagrupaciones()` tiene 46 pares ordenados por código (HU #13631: sin `sync.sync.lanzar`); 45 cambian el valor estructural y el de `transito_organismos` es no-op', () => {
     const pares = reagrupaciones();
-    expect(pares).toHaveLength(47);
+    expect(pares).toHaveLength(46);
     expect(pares.map(([c]) => c)).toEqual([...pares.map(([c]) => c)].sort((a, b) => a.localeCompare(b)));
-    expect(new Set(pares.map(([c]) => c)).size).toBe(47);
+    expect(new Set(pares.map(([c]) => c)).size).toBe(46);
 
     // El módulo ESTRUCTURAL: el grupo de PAGE_GROUPS (primera aparición) para páginas y `g.modulo`
     // de la foto para operaciones. Se calcula sin el mapa, que es la otra cuenta.
@@ -434,7 +437,7 @@ describe('HU #12716 — cada página se agrupa con las acciones de su módulo', 
     for (const g of GUARDAS_MEDIDAS) estructural.set(codigoDeLlave.get(llaveDe(g))!, g.modulo);
 
     const cambian = pares.filter(([codigo, modulo]) => estructural.get(codigo) !== modulo);
-    expect(cambian).toHaveLength(46);
+    expect(cambian).toHaveLength(45);
     const noOp = pares.filter(([codigo, modulo]) => estructural.get(codigo) === modulo);
     expect(noOp).toEqual([['pagina.transito_organismos', 'transito']]);
   });
@@ -453,7 +456,7 @@ describe('HU #12716 — cada página se agrupa con las acciones de su módulo', 
   });
 
   it('la comprobación estructural del prefijo se conserva: una guarda cuyo código no empiece por su módulo de fichero revienta aunque el mapa la reagrupe (AC3)', () => {
-    // `sync.sync.lanzar` se reagrupa a `tramites`; si su guarda dijera módulo `tramites`, el prefijo
+    // `sync.sync.ver_estado` se reagrupa a `tramites`; si su guarda dijera módulo `tramites`, el prefijo
     // `sync.` ya no cuadra y tiene que caer ANTES de aplicar el mapa.
     const guardas = GUARDAS_MEDIDAS.map((g) => (g.modulo === 'sync' ? { ...g, modulo: 'tramites' } : g));
     expect(() => catalogoDeOperaciones(guardas)).toThrow(CatalogoIncoherenteError);

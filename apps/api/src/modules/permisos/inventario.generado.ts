@@ -198,7 +198,6 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "PATCH", ruta: "/servicios-adicionales/:id", roles: ["admin","financiera"], heredada: false },
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "POST", ruta: "/servicios-adicionales/:id/baja", roles: ["admin","financiera"], heredada: false },
   { modulo: "sync", fichero: "flito-sync/flito-sync.routes.ts", metodo: "GET", ruta: "/estado", roles: ["admin"], heredada: false },
-  { modulo: "sync", fichero: "flito-sync/flito-sync.routes.ts", metodo: "POST", ruta: "/sincronizar", roles: ["admin"], heredada: false },
   // HU #13061: acceso de FLITO a FLIT 2 (módulo tramites); de partida solo admin (0214).
   { modulo: "tramites", fichero: "flito-sync/flit2.routes.ts", metodo: "GET", ruta: "/acceso", roles: ["admin"], heredada: false },
   { modulo: "tramites", fichero: "flito-sync/flit2.routes.ts", metodo: "PUT", ruta: "/acceso", roles: ["admin"], heredada: false },
