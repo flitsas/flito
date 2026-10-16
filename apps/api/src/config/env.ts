@@ -164,6 +164,19 @@ const envSchema = z.object({
   // ambientes: se enciende cuando FLIT 2 tenga la ruta de adjuntos desplegada allí (D-9). Apagada, el
   // pago sigue programando la fila del outbox y el cron no toma nada ni gasta intentos.
   FLIT2_ADJUNTOS_ENVIO_HABILITADO: z.string().optional().transform((v) => v === 'true' || v === '1'),
+  // HU #13632: avisos firmados de FLIT 2 (`POST /api/flito/sync/flit2/avisos`). APAGADOS por defecto; solo
+  // el literal 'true' los enciende (AC3: a diferencia de los flags vecinos, '1' no vale).
+  FLIT2_AVISOS_HABILITADO: z.string().optional().transform((v) => v === 'true'),
+  // Clave HMAC compartida con FLIT 2 (una por ambiente, fuera de banda). NUNCA se loguea. Sin trim: FLIT 2
+  // firma con los bytes UTF-8 del string tal cual. Con menos de 32 caracteres se trata como ausente (404 y
+  // un warn al arrancar), sin tumbar el arranque. No lleva validación de Zod para que el valor no
+  // aparezca en un error de arranque.
+  FLIT2_AVISOS_SECRETO: z.preprocess(vacioComoAusente, z.string().optional()),
+  // Limitador de avisos en dos niveles por IP real, ambos antes del HMAC (HU #13632, AC9; decisión de David).
+  // General (todas las peticiones, anti-saturación): FLIT 2 manda hasta ~3000 avisos/min desde una IP.
+  FLIT2_AVISOS_LIMITE_MIN: z.preprocess(vacioComoAusente, z.coerce.number().int().min(1).default(3000)),
+  // Fallidos: solo cuentan las respuestas 401 (firma) y 400 (cuerpo). Las 200 no consumen este cupo.
+  FLIT2_AVISOS_LIMITE_FALLIDOS_MIN: z.preprocess(vacioComoAusente, z.coerce.number().int().min(1).default(120)),
   // HU #13310 (ADR-0021): envío del comprobante de pago a FLIT 1 en tres pasos. Bases solo por env (el
   // repo es público; sin host por defecto). Se validan en `baseFlit1Valida` (https, sin credenciales,
   // sin query/hash): ausente o inválida = envío FLIT 1 apagado, sin tumbar el arranque. La URL de subida

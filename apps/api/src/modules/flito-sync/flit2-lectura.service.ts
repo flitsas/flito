@@ -177,7 +177,8 @@ export const ESPERA_429_MAX_S = 60;
 const REINTENTOS_429_MAX = 3;
 
 /** `acceso`: la que arranca sola tras guardar un acceso válido (HU #13190; sustituye al botón). */
-export type OrigenLectura = 'cron' | 'acceso';
+/** `aviso`: la que agenda un aviso firmado de FLIT 2 (HU #13632); mismo contrato, solo cambia el log. */
+export type OrigenLectura = 'cron' | 'acceso' | 'aviso';
 
 export interface OpcionesLectura {
   pageSize?: number;

@@ -32,6 +32,7 @@ import {
 import { FuenteApagadaError } from './flito-sync-interruptor.service.js';
 import { marcarProgramaApagado, marcarProgramaEncendido, registrarTick } from './flit2-programa.js';
 import { correrLecturaFlit1Programada } from './flit1-lectura-automatica.service.js';
+import { detenerAvisosFlit2 } from './flit2-avisos.service.js';
 
 const log = loggerFor('flito-sync-cron');
 
@@ -139,4 +140,6 @@ export function stopFlitSync(): void {
   if (timerFlit2) clearInterval(timerFlit2);
   timerFlit2 = null;
   marcarProgramaApagado();
+  // HU #13632: la agenda de avisos de FLIT 2 tiene sus propios timers (ventana, reintentos, volcado).
+  detenerAvisosFlit2();
 }
