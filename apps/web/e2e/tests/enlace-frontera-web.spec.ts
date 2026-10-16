@@ -20,13 +20,15 @@ const FUNCIONES = [
   // `soat.solicitud.enviar`: el vacío de siempre («Sincroniza desde el Tablero») es el de Operaciones.
   'soat.cola.ver', 'soat.solicitud.enviar', 'soat.excel.exportar', 'soat.excel.exportar_pago',
   'impuestos.cola.ver', 'impuestos.tramite.enviar', 'impuestos.excel.exportar_pago',
+  // Gestión Trámites con su bloque «Sincronización» (visible con `sync.sync.ver_estado`) y Logística.
+  'sync.sync.ver_estado', 'logistica.lote.cerrar',
   ...FUNCIONES_PERFIL,
 ];
 
 /** El usuario de la sesión de evidencias: rol cualquiera, enlace `compania`, con Clientes marcado. */
 const PRUEBA_COMPANIA = {
   id: 913, username: 'prueba.compania', name: 'Prueba Compañía', role: 'prueba_compania',
-  allowedPages: ['flito_soat', 'flito_impuestos', 'clients'], tipoEnlace: 'compania', funciones: FUNCIONES,
+  allowedPages: ['flito_soat', 'flito_impuestos', 'clients', 'flito_tramites', 'flito_logistica'], tipoEnlace: 'compania', funciones: FUNCIONES,
 };
 /** Control: lo mismo, sin enlace. */
 const PRUEBA_SIN_ENLACE = { ...PRUEBA_COMPANIA, tipoEnlace: 'ninguno' };
@@ -37,6 +39,11 @@ async function mockColas(page: Page) {
   await page.route(/\/api\/flito\/soat\?/, (r) => r.fulfill(json({ items: [], total: 0, page: 1, pageSize: 50 })));
   await page.route(/\/api\/flito\/impuestos\/facetas/, (r) => r.fulfill(json({ companias: [], organismos: [] })));
   await page.route(/\/api\/flito\/impuestos\?/, (r) => r.fulfill(json({ items: [], total: 0, page: 1, pageSize: 50 })));
+  await page.route(/\/api\/flito\/tramites\/facetas/, (r) => r.fulfill(json({ estados: [], tramites: [], ciudades: [], transitos: [] })));
+  await page.route(/\/api\/flito\/tramites\?/, (r) => r.fulfill(json({ items: [], total: 0, page: 1, pageSize: 50 })));
+  await page.route(/\/api\/flito\/logistica\/facetas/, (r) => r.fulfill(json({ estados: [], empresas: [], organismos: [], companiasCerrables: [], mensajeros: [] })));
+  await page.route(/\/api\/flito\/logistica\/actas$/, (r) => r.fulfill(json([])));
+  await page.route(/\/api\/flito\/logistica\?/, (r) => r.fulfill(json({ items: [], total: 0, page: 1, pageSize: 50 })));
 }
 
 const nav = (page: Page) => page.getByRole('navigation', { name: 'Navegación principal' });
@@ -120,6 +127,42 @@ test.describe('HU #13452 · sin copy interno para usuarios con enlace', () => {
     await page.goto('/flito/impuestos');
     await expect(page.getByText('No hay impuestos en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.')).toBeVisible();
     await expect(casillaPago(page)).toHaveCount(1);
+  });
+});
+
+const VACIO_TRAMITES = 'No hay trámites. Sincroniza desde FLIT para traer trámites.';
+const VACIO_LOGISTICA = 'No hay trámites aprobados. Sincroniza desde FLIT: los trámites en estado «Aprobado» aparecen aquí a la espera de su licencia de tránsito.';
+const seccionSync = (page: Page) => page.getByTestId('seccion-sincronizacion');
+
+test.describe('HU #13452 · Gestión Trámites y Logística sin copy interno para usuarios con enlace', () => {
+  test('Trámites con enlace compañía: vacío sin «Sincroniza…» y sin el bloque «Sincronización» (FLIT 1 / FLIT 2)', async ({ page }) => {
+    await mockColas(page);
+    await loginAs(page, PRUEBA_COMPANIA);
+    await page.goto('/flito/tramites');
+    await expect(page.getByText('No hay trámites de su compañía en esta vista.')).toBeVisible();
+    await expect(page.getByText(/Sincroniza/)).toHaveCount(0);
+    await expect(seccionSync(page)).toHaveCount(0);
+    await expect(page.getByTestId('cabecera-sincronizacion')).toHaveCount(0);
+    await expect(page.getByText(/FLIT 1|FLIT 2/)).toHaveCount(0);
+  });
+
+  test('Logística con enlace compañía: vacío sin «Sincroniza desde FLIT»', async ({ page }) => {
+    await mockColas(page);
+    await loginAs(page, PRUEBA_COMPANIA);
+    await page.goto('/flito/logistica');
+    await expect(page.getByText('No hay trámites aprobados de su compañía en esta vista. Los trámites en estado «Aprobado» aparecen aquí a la espera de su licencia de tránsito.')).toBeVisible();
+    await expect(page.getByText(/Sincroniza desde FLIT/)).toHaveCount(0);
+  });
+
+  test('control: sin enlace, Trámites conserva el bloque «Sincronización» y su vacío; Logística su vacío', async ({ page }) => {
+    await mockColas(page);
+    await loginAs(page, PRUEBA_SIN_ENLACE);
+    await page.goto('/flito/tramites');
+    await expect(page.getByText(VACIO_TRAMITES)).toBeVisible();
+    await expect(seccionSync(page)).toBeVisible();
+    await expect(page.getByTestId('resumen-flit1')).toBeVisible();
+    await page.goto('/flito/logistica');
+    await expect(page.getByText(VACIO_LOGISTICA)).toBeVisible();
   });
 });
 

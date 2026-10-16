@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react';
 import { ESTADO_LOGISTICA_SIMPLE_LABEL, type EstadoLogisticaSimple } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { conEnlace } from '../lib/copyEnlace';
+import { vacioConEnlace } from '../lib/copyEnlace';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, FlitField, flitInp, flitBtnPrimary, flitBtnPrimaryStyle,
@@ -55,6 +55,14 @@ const ESTADOS_SIMPLE: EstadoLogisticaSimple[] = ['pendiente', 'registrada', 'des
 const fecha = (iso: string | null) => (iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 
 type Tab = 'tramites' | 'actas-gen' | 'actas';
+
+/** HU #13452: con enlace el vacío dice de quién son los trámites y no manda a sincronizar (operación interna). */
+function vacioLogistica(tipoEnlace: Parameters<typeof vacioConEnlace>[1]): string {
+  const conEnlace = vacioConEnlace('trámites aprobados', tipoEnlace);
+  return conEnlace
+    ? `${conEnlace} Los trámites en estado «Aprobado» aparecen aquí a la espera de su licencia de tránsito.`
+    : 'No hay trámites aprobados. Sincroniza desde FLIT: los trámites en estado «Aprobado» aparecen aquí a la espera de su licencia de tránsito.';
+}
 
 export default function FlitoLogistica() {
   const { hasFuncion, tipoEnlace } = useAuth();
@@ -169,10 +177,7 @@ export default function FlitoLogistica() {
           </FlitCard>
 
           {data && filas.length === 0 && (
-            <FlitCard><FlitEmpty>{conEnlace(tipoEnlace)
-              // HU #13452: con enlace, sin mandar a sincronizar (operación interna).
-              ? 'No hay trámites aprobados de su compañía. Los trámites en estado «Aprobado» aparecen aquí a la espera de su licencia de tránsito.'
-              : 'No hay trámites aprobados. Sincroniza desde FLIT: los trámites en estado «Aprobado» aparecen aquí a la espera de su licencia de tránsito.'}</FlitEmpty></FlitCard>
+            <FlitCard><FlitEmpty>{vacioLogistica(tipoEnlace)}</FlitEmpty></FlitCard>
           )}
 
           {filas.length > 0 && (

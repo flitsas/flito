@@ -17,7 +17,7 @@ import {
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { conEnlace } from '../lib/copyEnlace';
+import { vacioConEnlace } from '../lib/copyEnlace';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
@@ -425,7 +425,7 @@ export default function FlitoTramites() {
 
       {data !== null && !hayTramitesSistema && !hayFiltros && !buscar.trim() && (
         <FlitCard>
-          <FlitEmpty>{conEnlace(tipoEnlace) ? 'No hay trámites de su compañía.' : 'No hay trámites. Sincroniza desde FLIT para traer trámites.'}</FlitEmpty>
+          <FlitEmpty>{vacioConEnlace('trámites', tipoEnlace) ?? 'No hay trámites. Sincroniza desde FLIT para traer trámites.'}</FlitEmpty>
         </FlitCard>
       )}
 
