@@ -512,7 +512,11 @@ describe('AC3 · identidad y versión', () => {
     expect(historial().filter((h) => h.campo === 'flit_estado')).toEqual([
       expect.objectContaining({ tramiteId: previo.id, valorAnterior: 'Entregado', valorNuevo: 'Aprobado', origen: 'api' }),
     ]);
-    expect(filas(S.auditLogs)).toHaveLength(1);
+    // HU #13626 AC1: UNA entrada de Bitácora (no la vieja «Estado FLIT: …»).
+    expect(filas(S.auditLogs)).toEqual([expect.objectContaining({
+      resource: 'flito_tramite', resourceId: previo.id, action: 'update', userEmail: 'sistema',
+      detail: '[FLIT 2] cambio de estado · radicado FT1-0001234 · estado: Entregado → Aprobado; compradores: 0 → 2 · aplicado',
+    })]);
     expect(r.actualizados).toBe(1);
   });
 
@@ -789,7 +793,7 @@ describe('AC10 · sin datos personales de más, FLIT 1 intacto', () => {
 
 // ═══ HU #13092 · lectura programada: candado, topes de tiempo y esperas ═══════════════════════════
 const {
-  leerConCandado, auditarLecturaProgramada, LIMITE_CRON_MS, MAX_PAGINAS_SEGURIDAD, ESPERA_429_MAX_S,
+  leerConCandado, LIMITE_CRON_MS, MAX_PAGINAS_SEGURIDAD, ESPERA_429_MAX_S,
 } = await import('../../src/modules/flito-sync/flit2-lectura.service.js');
 const { Flit2EsperaFeedError, Flit2LecturaEnCursoError, Flit2RechazadoError } =
   await import('../../src/modules/flito-sync/flit2.errors.js');
@@ -970,32 +974,13 @@ describe('HU #13092 · topes y esperas', () => {
     expect(candado).toMatchObject({ tomado: false, tomas: 1, sueltas: 1 });
   });
 
-  it('AC8: la corrida programada con ítems se audita como «sistema» con totales y sin PII; la vacía no', async () => {
+  it('HU #13626 AC5: la corrida programada con ítems ya no se audita como corrida (RN-13 retirada); solo queda la creación del trámite', async () => {
     sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
-    const r = await leerConCandado('cron', puerto([pagina([crudo()], 'c1', false)]).port, { ahora: reloj() });
-    await auditarLecturaProgramada(r);
+    await leerConCandado('cron', puerto([pagina([crudo()], 'c1', false)]).port, { ahora: reloj() });
+    await leerConCandado('acceso', puerto([pagina([], 'c2', false)]).port, { ahora: reloj() });
     const logs = filas(S.auditLogs);
-    expect(logs).toHaveLength(1);
-    expect(logs[0]).toMatchObject({ userId: null, userEmail: 'sistema', action: 'update', resource: 'flito_sincronizacion_flit2' });
-    expect(logs[0].detail).toMatch(/^Sync FLIT 2 programada \(cursor\): 1 leídos, 1 nuevos/);
-    const texto = JSON.stringify(logs[0]);
-    for (const pii of ['FT1-0001234', 'ZZZ001', DOC_1, DOC_2, CORREO, CELULAR, '9FKTEST0000000001']) expect(texto).not.toContain(pii);
-
-    const vacia = await leerConCandado('cron', puerto([pagina([], 'c2', false)]).port, { ahora: reloj() });
-    await auditarLecturaProgramada(vacia);
-    expect(filas(S.auditLogs)).toHaveLength(1);
-  });
-
-  it('HU #13190 AC6: la de tras guardar el acceso se audita igual, con detalle que la distingue y sin PII', async () => {
-    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
-    const r = await leerConCandado('acceso', puerto([pagina([crudo()], 'c1', false)]).port, { ahora: reloj() });
-    await auditarLecturaProgramada(r, 'acceso');
-    const logs = filas(S.auditLogs);
-    expect(logs).toHaveLength(1);
-    expect(logs[0]).toMatchObject({ userId: null, userEmail: 'sistema', action: 'update', resource: 'flito_sincronizacion_flit2' });
-    expect(logs[0].detail).toMatch(/^Sync FLIT 2 tras guardar el acceso \(cursor\): 1 leídos, 1 nuevos/);
-    const texto = JSON.stringify(logs[0]);
-    for (const pii of ['FT1-0001234', 'ZZZ001', DOC_1, DOC_2, CORREO, CELULAR, '9FKTEST0000000001']) expect(texto).not.toContain(pii);
+    expect(logs.filter((l) => l.resource === 'flito_sincronizacion_flit2')).toEqual([]);
+    expect(logs.map((l) => [l.resource, l.action])).toEqual([['flito_tramite', 'create']]);
   });
 });
 
@@ -1052,7 +1037,7 @@ describe('HU #13093 · compradores y arranque', () => {
     expect(t.soatId).toBe(soat.id);
     expect(filas(S.flitoImpuestos)).toEqual([expect.objectContaining({ tramiteId: t.id, estado: 'pendiente', modalidadAplicada: 'requiere_gestion' })]);
     expect(impuestoBloqueanteMock).toHaveBeenCalledWith(expect.anything(), t.vehiculoId, expect.any(Number), t.id);
-    expect(filas(S.auditLogs).map((a) => a.resource).sort()).toEqual(['flito_impuesto', 'flito_soat']);
+    expect(filas(S.auditLogs).map((a) => a.resource).sort()).toEqual(['flito_impuesto', 'flito_soat', 'flito_tramite']);
   });
 
   it('AC4: mismas reglas que FLIT 1 — compañía que autogestiona SOAT y organismo autogestionado no crean nada; un SOAT del VIN se enlaza', async () => {
@@ -1368,11 +1353,10 @@ describe('HU #13094 · PII enmascarada', () => {
   it('AC5: ni los logs ni la auditoría llevan datos personales, enmascarados o no, en la lectura y en la relectura', async () => {
     sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
     const primera = puerto([pagina([crudo({ compradores: enmascarados() })], 'c1')], sinPii);
-    const r1 = await leerIncremental({ ahora: reloj() }, primera.port);
+    await leerIncremental({ ahora: reloj() }, primera.port);
     const segunda = puerto([pagina([], 'c1'), pagina([crudo({ estado: 'asignado' })], 'r1')], conPii);
     await leerIncremental({ ahora: reloj() }, segunda.port);
     expect(tramite(U1)!.flit2PiiEnmascarada).toBe(false);
-    await auditarLecturaProgramada(r1);
     const todo = JSON.stringify([logMock.info.mock.calls, logMock.warn.mock.calls, logMock.error.mock.calls, filas(S.auditLogs)]);
     for (const x of [DOC_1, DOC_2, CORREO, CELULAR, DIRECCION, 'PERSONA EJEMPLO', 'EMPRESA EJEMPLO', '****', '***@']) {
       expect(todo).not.toContain(x);
@@ -1744,5 +1728,75 @@ describe('Bug #13585 · RN-26 — un anulado/revocado no modifica el vehículo e
     expect(vehiculo()).toMatchObject({ brand: 'MARCA ANULADA', plate: 'ZZZ001' });
     // RN-04 intacta para los vigentes: sin placa en el ítem, toma la conocida del vehículo.
     expect(tramite(U2)).toMatchObject({ estado: 'asignado', plateComplete: 'ZZZ001' });
+  });
+});
+
+// ═══ HU #13626 · Bitácora de cada trámite creado o cambiado por FLIT 2 ══════════════════════════════
+// Diseño: `docs/diseno/hu-13626-bitacora-cambios-sync.md`. Datos SINTÉTICOS.
+describe('HU #13626 · Bitácora por trámite (FLIT 2)', () => {
+  const PII = [DOC_1, DOC_2, CORREO, CELULAR, DIRECCION, 'PERSONA EJEMPLO', 'EMPRESA EJEMPLO', 'ZZZ001', '3000000000', '3999999999'];
+  const bitacora = () => filas(S.auditLogs).filter((a) => a.resource === 'flito_tramite');
+  const leer = async (items: Fila[], cursor: string) => leerIncremental({ ahora: reloj() }, puerto([pagina(items, cursor)]).port);
+  /** La BD devuelve el numeric como '60.00': se deja así para que la relectura lo compare con 60. */
+  const comoBd = () => {
+    for (const c of filas(S.flitoCompradores)) {
+      if (c.porcentajeParticipacion !== null) c.porcentajeParticipacion = Number(c.porcentajeParticipacion).toFixed(2);
+    }
+  };
+
+  it('AC4: la creación deja UNA entrada «creación» con fuente, radicado y «aplicado», sin PII de compradores', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leer([crudo()], 'c1');
+    const t = tramite(U1)!;
+    expect(bitacora()).toEqual([expect.objectContaining({
+      action: 'create', resourceId: t.id, userId: null, userEmail: 'sistema',
+      detail: '[FLIT 2] creación · radicado FT1-0001234 · aplicado',
+    })]);
+    const texto = JSON.stringify(filas(S.auditLogs));
+    for (const x of PII) expect(texto).not.toContain(x);
+  });
+
+  it('AC2: cambia el celular del comprador 2 → «cambió celular», tipo «cambio de datos», sin el valor anterior ni el nuevo', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leer([crudo()], 'c1');
+    comoBd();
+    filas(S.auditLogs).length = 0;
+    const cs = compradores(); cs[1].celular = '3999999999';
+    await leer([crudo({ syncVersion: 11, compradores: cs })], 'c2');
+    expect(bitacora()).toEqual([expect.objectContaining({
+      action: 'update', resourceId: tramite(U1)!.id,
+      detail: '[FLIT 2] cambio de datos · radicado FT1-0001234 · cambió celular (comprador 2) · aplicado',
+    })]);
+    const texto = JSON.stringify(filas(S.auditLogs));
+    for (const x of PII) expect(texto).not.toContain(x);
+  });
+
+  it('AC6 + riesgo de normalización: solo cambian versión y crudo (y la BD devuelve el porcentaje como «60.00») → 0 entradas', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leer([crudo()], 'c1');
+    comoBd();
+    filas(S.auditLogs).length = 0;
+    const r = await leer([crudo({ syncVersion: 11, fechaUltimoCambio: '2026-09-22T10:00:00-05:00' })], 'c2');
+    expect(tramite(U1)!.syncVersion).toBe(11);
+    expect(filas(S.auditLogs)).toEqual([]);
+    expect(r.sinCambios).toBe(1);
+  });
+
+  it('AC5: 566 trámites releídos sin cambios → 0 entradas en audit_logs (ni de trámite ni de corrida)', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    const N = 566;
+    const id = (i: number) => `0192b7c4-5e6a-7d10-9f21-${String(1000 + i).padStart(12, '0')}`;
+    const lote = (version: number) => Array.from({ length: N }, (_, i) => crudo({
+      id: id(i), radicado: `FT1-${String(100000 + i)}`, syncVersion: version,
+      vehiculo: { ...(crudo().vehiculo as Fila), vin: `9FKLOTE${String(i).padStart(10, '0')}`, placa: `LOT${String(i).padStart(3, '0')}` },
+    }));
+    const r1 = await leerConCandado('cron', puerto([pagina(lote(10), 'c1', false)]).port, { ahora: reloj() });
+    expect(r1.nuevos).toBe(N);
+    expect(bitacora()).toHaveLength(N);
+    comoBd();
+    filas(S.auditLogs).length = 0;
+    const r2 = await leerConCandado('cron', puerto([pagina(lote(11), 'c2', false)]).port, { ahora: reloj() });
+    expect(r2).toMatchObject({ leidos: N, sinCambios: N });
+    expect(filas(S.auditLogs)).toEqual([]);
   });
 });

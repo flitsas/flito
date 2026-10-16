@@ -21,7 +21,7 @@
 
 import { env } from '../../config/env.js';
 import { loggerFor } from '../../shared/logger.js';
-import { auditarLecturaProgramada, leerConCandado } from './flit2-lectura.service.js';
+import { leerConCandado } from './flit2-lectura.service.js';
 import {
   Flit2Error, Flit2LecturaEnCursoError, Flit2NoConfiguradoError, Flit2SinAccesoError,
 } from './flit2.errors.js';
@@ -60,8 +60,8 @@ export async function correrLecturaFlit2Programada(): Promise<void> {
   }
   enCurso = true;
   try {
-    const r = await leerConCandado('cron');
-    await auditarLecturaProgramada(r);
+    // HU #13626: la corrida no se audita; cada trámite creado o cambiado deja su entrada en la Bitácora.
+    await leerConCandado('cron');
   } catch (e) {
     if (e instanceof FuenteApagadaError) {
       // HU #13237: apagado intencional, no es falla (cada 5 min no debe ensuciar el log en warn).

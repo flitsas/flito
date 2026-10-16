@@ -9,9 +9,9 @@ vi.mock('../../src/config/env.js', async (orig) => {
   return { env: new Proxy(real.env, { get: (t, k) => (k === 'FLIT2_SYNC_CRON' ? entorno.cron : t[k as string]) }) };
 });
 const leerConCandadoMock = vi.fn();
-const auditarMock = vi.fn(async () => undefined);
+// HU #13626: la corrida ya no se audita (RN-13 retirada); el servicio solo expone `leerConCandado` al cron.
 vi.mock('../../src/modules/flito-sync/flit2-lectura.service.js', () => ({
-  leerConCandado: leerConCandadoMock, auditarLecturaProgramada: auditarMock,
+  leerConCandado: leerConCandadoMock,
 }));
 const logMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }));
 vi.mock('../../src/shared/logger.js', () => ({ logger: logMock, loggerFor: () => logMock }));
@@ -35,7 +35,6 @@ beforeEach(() => {
   entorno.cron = true;
   reiniciarProgramaParaTest();
   leerConCandadoMock.mockReset().mockResolvedValue(RESULTADO);
-  auditarMock.mockClear();
   for (const m of Object.values(logMock)) m.mockClear();
 });
 afterEach(() => {
@@ -78,16 +77,17 @@ describe('HU #13092 AC1 · cada 5 min con FLIT2_SYNC_CRON encendida', () => {
   it('sin acceso vigente la corrida no llega a leer y no se audita ni se registra como fallo', async () => {
     leerConCandadoMock.mockRejectedValue(new Flit2SinAccesoError());
     await correrLecturaFlit2Programada();
-    expect(auditarMock).not.toHaveBeenCalled();
     expect(logMock.warn).not.toHaveBeenCalled();
     expect(logMock.error).not.toHaveBeenCalled();
   });
 });
 
 describe('HU #13092 · desenlaces de la corrida programada', () => {
-  it('AC8: una corrida que termina bien pasa su resultado a la auditoría del sistema', async () => {
-    await correrLecturaFlit2Programada();
-    expect(auditarMock).toHaveBeenCalledWith(RESULTADO);
+  it('HU #13626 AC5: una corrida que termina bien no deja auditoría de corrida ni log de error', async () => {
+    await expect(correrLecturaFlit2Programada()).resolves.toBeUndefined();
+    expect(leerConCandadoMock).toHaveBeenCalledWith('cron');
+    expect(logMock.warn).not.toHaveBeenCalled();
+    expect(logMock.error).not.toHaveBeenCalled();
   });
 
   it('AC2: un tick que llega con la corrida anterior en curso se salta (no reserva otra conexión)', async () => {
@@ -105,7 +105,6 @@ describe('HU #13092 · desenlaces de la corrida programada', () => {
   it('AC2: con el candado en otro proceso, el tick se salta sin auditar', async () => {
     leerConCandadoMock.mockRejectedValue(new Flit2LecturaEnCursoError());
     await correrLecturaFlit2Programada();
-    expect(auditarMock).not.toHaveBeenCalled();
     expect(logMock.warn).not.toHaveBeenCalled();
   });
 
@@ -117,7 +116,6 @@ describe('HU #13092 · desenlaces de la corrida programada', () => {
     leerConCandadoMock.mockRejectedValueOnce(new Error('relation "flito_sync_flit2_lectura" does not exist'));
     await expect(correrLecturaFlit2Programada()).resolves.toBeUndefined();
     expect(logMock.error).toHaveBeenCalledWith({ err: 'Error' }, expect.any(String));
-    expect(auditarMock).not.toHaveBeenCalled();
   });
 });
 
@@ -206,7 +204,6 @@ describe('HU #13237 · AC6 · con FLIT 2 apagada el tick no lee ni ensucia el lo
     expect(logMock.debug).toHaveBeenCalledTimes(1);
     expect(logMock.warn).not.toHaveBeenCalled();
     expect(logMock.error).not.toHaveBeenCalled();
-    expect(auditarMock).not.toHaveBeenCalled();
   });
 
   it('el timer sigue vivo: apagada no desarma el programa; al encender, el tick siguiente lee', async () => {
@@ -216,7 +213,6 @@ describe('HU #13237 · AC6 · con FLIT 2 apagada el tick no lee ni ensucia el lo
     expect(leerPrograma().activa).toBe(true);
     await vi.advanceTimersByTimeAsync(INTERVALO_FLIT2_MS);
     expect(leerConCandadoMock).toHaveBeenCalledTimes(2);
-    expect(auditarMock).toHaveBeenCalledTimes(1);
   });
 
   it('la lectura tras guardar el acceso: FuenteApagadaError → log debug, sin warn/error y sin auditar', async () => {
@@ -226,6 +222,5 @@ describe('HU #13237 · AC6 · con FLIT 2 apagada el tick no lee ni ensucia el lo
     expect(logMock.debug).toHaveBeenCalledTimes(1);
     expect(logMock.warn).not.toHaveBeenCalled();
     expect(logMock.error).not.toHaveBeenCalled();
-    expect(auditarMock).not.toHaveBeenCalled();
   });
 });
