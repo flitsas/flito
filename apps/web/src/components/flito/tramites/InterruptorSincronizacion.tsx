@@ -52,8 +52,8 @@ function toastExito(fuente: FuenteSincronizacion, encendido: boolean, maestroFli
   const id = `sync-interruptor-${fuente}`;
   if (fuente === 'flit1') {
     toastOk(encendido
-      ? 'FLIT 1 quedó encendida: ya puedes usar «Sincronizar FLIT».'
-      : 'FLIT 1 quedó apagada: «Sincronizar FLIT» queda deshabilitado.', { id });
+      ? 'FLIT 1 quedó encendida: la lectura automática sigue en la próxima vuelta.'
+      : 'FLIT 1 quedó apagada: FLITO deja de leer trámites de FLIT 1.', { id });
   } else if (!encendido) {
     toastOk('FLIT 2 quedó apagada: no entran trámites nuevos de FLIT 2.', { id });
   } else if (!maestroFlit2) {
@@ -150,7 +150,7 @@ export function quienCuando(i: InterruptorFuente): string | null {
 // ── Diálogo de apagado ──────────────────────────────────────────────────────────────────────────
 
 const CUERPO_APAGAR: Record<FuenteSincronizacion, string> = {
-  flit1: 'Mientras esté apagada, no entran trámites de FLIT 1 en este ambiente y nadie puede usar «Sincronizar FLIT». Lo que ya entró no cambia.',
+  flit1: 'Mientras esté apagada, FLITO no lee trámites de FLIT 1 en este ambiente. Lo que ya entró no cambia.',
   flit2: 'Mientras esté apagada, FLITO no lee trámites nuevos de FLIT 2 en este ambiente. Si hay una lectura en curso, termina la página actual y se detiene. Lo que ya entró no cambia y, al encenderla, la lectura sigue donde quedó.',
 };
 

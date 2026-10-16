@@ -93,7 +93,7 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
     await mockCola(page);
     const ctl = await mockEstado(page, 200, { ...SANO, alerta: true });
     await abrir(page);
-    await expect(page.getByRole('button', { name: 'Sincronizar FLIT', exact: true })).toBeVisible();
+    await expect(page.getByTestId('grupo-flit1')).toBeVisible();
     await expect(botonFlit2(page)).toHaveCount(0);
     await expect(linea(page)).toHaveCount(0);
     await expect(aviso(page)).toHaveCount(0);
@@ -130,9 +130,9 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098)', ()
     await expect(linea(page)).toContainText('· lectura atrasada');
     await expect(linea(page)).toContainText('Quedan trámites por leer; la lectura automática sigue donde quedó.');
     await expect(aviso(page)).toHaveCount(0);
-    // HU #13189: sin botón de FLIT 2; el grupo de FLIT 1 sigue igual.
+    // HU #13189: sin botón de FLIT 2; el grupo de FLIT 1 sigue ahí (HU #13630: sin «Sincronizar FLIT»).
     await expect(botonFlit2(page)).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Sincronizar FLIT', exact: true })).toBeVisible();
+    await expect(page.getByTestId('grupo-flit1')).toBeVisible();
   });
 
   test('AC1: error del primer GET con Reintentar, que vuelve a llamar y recupera', async ({ page }) => {

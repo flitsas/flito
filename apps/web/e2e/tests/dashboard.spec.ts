@@ -24,15 +24,15 @@ async function mockTablero(page: import('@playwright/test').Page) {
 }
 
 test.describe('Dashboard', () => {
-  test('admin ve el Tablero FLITO en la home (KPIs de atención + sincronizar)', async ({ page }) => {
+  test('admin ve el Tablero FLITO en la home (KPIs de atención, sin sincronizar: HU #13630)', async ({ page }) => {
     await loginAs(page, ADMIN_USER);
     await mockTablero(page);
 
     await page.goto('/');
     await expect(page).toHaveURL('/');
     await expect(page.getByRole('heading', { name: 'Tablero', exact: true })).toBeVisible();
-    // Acción de sincronización (solo para quien opera).
-    await expect(page.getByRole('button', { name: /Sincronizar desde FLIT/i })).toBeVisible();
+    // HU #13630 (AC7): FLIT 1 se lee sola; el Tablero ya no tiene acción de sincronizar.
+    await expect(page.getByRole('button', { name: /Sincronizar desde FLIT/i })).toHaveCount(0);
     // KPIs del resumen.
     await expect(page.getByText('Revisiones pendientes')).toBeVisible();
     await expect(page.getByText('Habilitados para entrega')).toBeVisible();

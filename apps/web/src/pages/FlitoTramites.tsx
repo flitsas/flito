@@ -361,7 +361,7 @@ export default function FlitoTramites() {
         ) : undefined} />
 
       {/* HU #13452: sincronizar con FLIT 1/FLIT 2 es operación interna: con enlace el bloque no se pinta. */}
-      {sinEnlace && <SincronizacionTramites esOperaciones={esOperaciones} onSincronizado={refrescar} />}
+      {sinEnlace && <SincronizacionTramites />}
 
       {error && <FlitCard><p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p></FlitCard>}
 
@@ -425,7 +425,7 @@ export default function FlitoTramites() {
 
       {data !== null && !hayTramitesSistema && !hayFiltros && !buscar.trim() && (
         <FlitCard>
-          <FlitEmpty>{vacioConEnlace('trámites', tipoEnlace) ?? 'No hay trámites. Sincroniza desde FLIT para traer trámites.'}</FlitEmpty>
+          <FlitEmpty>{vacioConEnlace('trámites', tipoEnlace) ?? 'No hay trámites. FLITO los trae de FLIT automáticamente.'}</FlitEmpty>
         </FlitCard>
       )}
 

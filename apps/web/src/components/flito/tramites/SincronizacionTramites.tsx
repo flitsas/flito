@@ -5,38 +5,32 @@
 // · motivo/aviso · barra de acciones (`mt-auto`, alineada entre grupos).
 //
 // Reglas:
-//   · una sola primaria en toda la zona: «Sincronizar FLIT». «Acceso a FLIT 2» va con peso secundario;
-//   · con FLIT 1 apagada «Sincronizar FLIT» queda aria-disabled (enfocable) y describe el motivo; un 409
-//     `FUENTE_APAGADA` muestra ese mismo motivo y refresca el estado;
-//   · el resultado de sincronizar es un toast de una frase; los errores de la zona nunca pintan el
-//     texto crudo del API (ni en toast ni en la tarjeta de error de la página);
-//   · acordeón (2.º PR de la HU): contraído en CADA visita (no se recuerda), con un resumen por fuente en la
-//     cabecera que no inventa valores mientras carga, y el distintivo de alerta de FLIT 2 con la misma
-//     regla de la tarjeta de aviso (`alertaFlit2`). Contraído, el cuerpo no se monta (nada enfocable).
+//   · HU #13630: FLIT 1 se lee sola. Sin «Sincronizar FLIT» ni fecha inicial; el grupo dice cuándo leyó, cuándo
+//     vuelve a leer y si falló (aviso de página), y quien configura ajusta los parámetros (`LecturaFlit1.tsx`).
+//     La única primaria de la zona es «Guardar parámetros»; «Acceso a FLIT 2» va con peso secundario;
+//   · visible con `configurar`, `sync.sync.ver_estado` o `tramites.flit2.ver_acceso` (la función de lanzar
+//     la sincronización ya no pinta nada: no hay qué lanzar);
+//   · los errores de la zona nunca pintan el texto crudo del API (ni en toast ni en aviso);
+//   · acordeón (2.º PR de la HU #13238): contraído en CADA visita (no se recuerda), con un resumen por fuente
+//     en la cabecera que no inventa valores mientras carga, y el distintivo «Requiere atención» con la misma
+//     regla del aviso de cada grupo. Contraído, el cuerpo no se monta; el borrador de parámetros vive aquí,
+//     fuera del panel, y sobrevive a contraer y abrir.
 
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import type { SyncEstadoFlit1 } from '@operaciones/shared-types';
-import { ApiError, api } from '../../../lib/api';
+import { api } from '../../../lib/api';
 import { useAuth } from '../../../lib/auth';
 import FlitAcordeon from '../../flit/FlitAcordeon';
-import { flitBtnPrimary, flitBtnPrimaryStyle, flitInp } from '../../flit/flitPageKit';
-import { toastError, toastOk } from '../../flit/ToastFlito';
 import AccesoFlit2 from './AccesoFlit2';
 import { AvisoEstadoFlit2, LineaEstadoFlit2, alertaFlit2, automaticaActivaFlit2, useEstadoFlit2 } from './EstadoFlit2';
 import { CabeceraFuente, FUNCION_CONFIGURAR, useInterruptores } from './InterruptorSincronizacion';
-
-const fechaHora = (iso: string | null) => (iso
-  ? new Date(iso).toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-  : null);
-const hace30 = () => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); };
+import {
+  AvisoFalloFlit1, LineaLecturaFlit1, ParametrosLecturaFlit1Form, Reintentar, falloVigenteFlit1,
+  useEstadoLecturaFlit1, useParametrosFlit1,
+} from './LecturaFlit1';
 
 type FaseFlit1 = { fase: 'cargando' } | { fase: 'error' } | { fase: 'listo'; dato: SyncEstadoFlit1 };
-
-interface RespuestaSincronizar {
-  tramitesNuevos?: number; tramitesActualizados?: number;
-  companiasFaltantes?: number; organismosSinEmparejar?: number; ultimaSincronizacion?: string;
-}
 
 const ID_MOTIVO_1 = 'sync-motivo-flit1';
 const ID_MOTIVO_2 = 'sync-motivo-flit2';
@@ -46,7 +40,6 @@ const ESTILO_GRUPO = { borderColor: 'var(--flit-border-soft)', background: 'var(
 const AVISO = 'break-words rounded-lg px-3 py-2.5 text-sm';
 const ESTILO_AVISO = { border: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-card)', color: 'var(--flit-text-primary)' } as const;
 const BARRA = 'mt-auto flex flex-wrap items-center justify-end gap-3 pt-1';
-const ROTULO = 'text-[11px] leading-tight';
 
 /** Valor de una fuente en el resumen de la cabecera. `null` = la fuente no se muestra (sin permiso). */
 type ValorResumen = { tipo: 'cargando' } | { tipo: 'error' } | { tipo: 'valor'; texto: string } | null;
@@ -62,7 +55,7 @@ function ResumenFuente({ nombre, valor, alerta = false, testId }: {
       </span>
       {alerta && (
         <span className="inline-flex items-center gap-1 font-semibold" style={{ color: 'var(--flit-danger-text)' }}
-          data-testid="alerta-resumen-flit2">
+          data-testid={`alerta-${testId}`}>
           <AlertTriangle aria-hidden="true" size={14} className="shrink-0" />
           Requiere atención
         </span>
@@ -71,27 +64,14 @@ function ResumenFuente({ nombre, valor, alerta = false, testId }: {
   );
 }
 
-function Reintentar({ onClick, etiqueta }: { onClick: () => void; etiqueta: string }) {
-  return (
-    <button type="button" onClick={onClick} aria-label={etiqueta}
-      className="flit-focus rounded font-semibold underline-offset-2 transition-colors hover:underline"
-      style={{ color: 'var(--flit-blue-text)' }}>
-      Reintentar
-    </button>
-  );
-}
-
-export default function SincronizacionTramites({ esOperaciones, onSincronizado }: {
-  /** Misma guarda de hoy para «Sincronizar FLIT» (`tramites.solicitud.pedir_soat`). */
-  esOperaciones: boolean;
-  /** Tras sincronizar: recarga la tabla de la página. */
-  onSincronizado: () => void;
-}) {
+export default function SincronizacionTramites() {
   const { hasFuncion } = useAuth();
   const configura = hasFuncion(FUNCION_CONFIGURAR);
-  const visible = configura || esOperaciones || hasFuncion('sync.sync.ver_estado') || hasFuncion('sync.sync.lanzar')
-    || hasFuncion('tramites.flit2.ver_acceso');
+  const verEstado = hasFuncion('sync.sync.ver_estado');
+  const visible = configura || verEstado || hasFuncion('tramites.flit2.ver_acceso');
   const estadoFlit2 = useEstadoFlit2();
+  const lectura1 = useEstadoLecturaFlit1(visible && (configura || verEstado));
+  const parametros1 = useParametrosFlit1(visible && configura, lectura1.refrescar);
 
   const [flit1, setFlit1] = useState<FaseFlit1>({ fase: 'cargando' });
   const cargarFlit1 = useCallback(async (silencioso: boolean) => {
@@ -102,13 +82,12 @@ export default function SincronizacionTramites({ esOperaciones, onSincronizado }
   useEffect(() => { if (visible) void cargarFlit1(false); }, [visible, cargarFlit1]);
 
   const refrescarFlit2 = estadoFlit2.refrescar;
-  const alCambiarInterruptor = useCallback(() => { void cargarFlit1(true); refrescarFlit2(); }, [cargarFlit1, refrescarFlit2]);
+  const refrescarLectura1 = lectura1.refrescar;
+  const alCambiarInterruptor = useCallback(() => { void cargarFlit1(true); refrescarFlit2(); refrescarLectura1(); },
+    [cargarFlit1, refrescarFlit2, refrescarLectura1]);
   const inter = useInterruptores(configura, alCambiarInterruptor);
   const editable = configura && !inter.revocado;
 
-  const [fechaInicial, setFechaInicial] = useState(hace30);
-  const [fechaManual, setFechaManual] = useState(false);
-  const [sincronizando, setSincronizando] = useState(false);
   // Contraído en cada visita: el estado vive solo en este montaje (decisión 1 del acordeón).
   const [abierto, setAbierto] = useState(false);
 
@@ -141,48 +120,12 @@ export default function SincronizacionTramites({ esOperaciones, onSincronizado }
         : d2 ? { tipo: 'valor', texto: d2.habilitada ? 'Encendida' : d2.motivoDeshabilitada === 'maestro' ? 'Apagada en el servidor' : 'Apagada' }
           : { tipo: 'error' };
   const alerta2 = alertaFlit2(estadoFlit2, motivo2 !== null);
-
-  const ultimaSync = d1?.ultimaSincronizacion ?? null;
-  const primeraVez = d1 !== null && ultimaSync === null;
-  const mostrarCampoFecha = primeraVez || fechaManual;
-
-  const sincronizar = async () => {
-    if (apagada1) return;
-    setSincronizando(true);
-    try {
-      const cuerpo = mostrarCampoFecha ? { initialDate: fechaInicial } : {};
-      const r = await api.post<RespuestaSincronizar>('/flito/sync/sincronizar', cuerpo);
-      const faltan = (r.companiasFaltantes ?? 0) + (r.organismosSinEmparejar ?? 0);
-      toastOk(`Sincronización lista: ${r.tramitesNuevos ?? 0} nuevos y ${r.tramitesActualizados ?? 0} con cambios.`
-        + (faltan > 0 ? ` ${faltan} quedaron sin empresa o sin secretaría.` : ''), { id: 'sync-flit1', duracionMs: 6_000 });
-      if (r.ultimaSincronizacion && d1) setFlit1({ fase: 'listo', dato: { ...d1, ultimaSincronizacion: r.ultimaSincronizacion } });
-      setFechaManual(false); // tras sincronizar, vuelve a modo incremental
-      onSincronizado();
-    } catch (e) {
-      const cuerpo = e instanceof ApiError ? e.rawDetails as { codigo?: string } | null : null;
-      if (e instanceof ApiError && e.status === 409 && cuerpo?.codigo === 'FUENTE_APAGADA') {
-        toastError('No se sincronizó: FLIT 1 está apagada en este ambiente.', undefined, { id: 'sync-flit1' });
-        if (d1) setFlit1({ fase: 'listo', dato: { ...d1, habilitada: false, motivoDeshabilitada: 'interruptor' } });
-        void cargarFlit1(true);
-        inter.refrescar();
-      } else {
-        toastError('No se pudo sincronizar con FLIT 1. Inténtalo de nuevo en unos minutos.', () => { void sincronizar(); }, { id: 'sync-flit1' });
-      }
-    } finally { setSincronizando(false); }
-  };
-
-  let valor1: React.ReactNode;
-  if (flit1.fase === 'cargando') {
-    valor1 = <span aria-hidden="true" className="mt-1 block h-3 w-32 animate-pulse rounded" style={{ background: 'var(--flit-bg-hover)' }} />;
-  } else if (flit1.fase === 'error') {
-    valor1 = <>No se pudo consultar · <Reintentar onClick={() => { void cargarFlit1(false); }} etiqueta="Reintentar la consulta del estado de FLIT 1" /></>;
-  } else {
-    valor1 = fechaHora(ultimaSync) ?? 'Nunca sincronizado';
-  }
+  const alerta1 = !apagada1 && falloVigenteFlit1(lectura1);
+  const n1 = parametros1.fase.fase === 'listo' ? parametros1.fase.dato.frecuenciaMinutos : null;
 
   const resumen = (
     <span className="flex flex-wrap items-center gap-x-4 gap-y-1" data-testid="resumen-sincronizacion">
-      {r1 && <ResumenFuente nombre="FLIT 1" valor={r1} testId="resumen-flit1" />}
+      {r1 && <ResumenFuente nombre="FLIT 1" valor={r1} alerta={alerta1} testId="resumen-flit1" />}
       {r2 && <ResumenFuente nombre="FLIT 2" valor={r2} alerta={alerta2} testId="resumen-flit2" />}
     </span>
   );
@@ -207,45 +150,19 @@ export default function SincronizacionTramites({ esOperaciones, onSincronizado }
           <div className={GRUPO} style={ESTILO_GRUPO} data-testid="grupo-flit1">
             <CabeceraFuente fuente="flit1" uso={inter} editable={editable} idMotivo={apagada1 ? ID_MOTIVO_1 : undefined}
               efectiva={d1 ? d1.habilitada : null} />
-            <div className={ROTULO} style={{ color: 'var(--flit-text-muted)' }} data-testid="linea-estado-flit1">
-              <div>Última actualización</div>
-              <div className="font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>{valor1}</div>
-              {primeraVez && esOperaciones && !apagada1 && (
-                <p className="mt-1">Elige desde qué fecha traer trámites y pulsa Sincronizar FLIT.</p>
-              )}
-            </div>
+            <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }} data-testid="explicacion-flit1">
+              {n1 !== null ? `FLITO lee FLIT 1 automáticamente cada ${n1} minutos.` : 'FLITO lee FLIT 1 automáticamente.'}
+            </p>
+            <LineaLecturaFlit1 uso={lectura1} apagada={apagada1} />
             {apagada1 && (
               <div id={ID_MOTIVO_1} role="status" className={AVISO} style={ESTILO_AVISO} data-testid="motivo-flit1">
-                La sincronización con FLIT 1 está apagada desde Sincronización.{' '}
-                {editable ? 'Enciéndela con el interruptor para volver a sincronizar.' : 'Pídele a un administrador que la encienda.'}
+                {editable
+                  ? 'FLIT 1 está apagada: FLITO no lee trámites de FLIT 1. Enciéndela con el interruptor para que la lectura automática siga.'
+                  : 'FLIT 1 está apagada en este ambiente: FLITO no lee trámites de FLIT 1. Pídele a un administrador que la encienda.'}
               </div>
             )}
-            {esOperaciones && (
-              <div className={BARRA}>
-                {!primeraVez && (
-                  <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-[999px] px-3 text-xs transition-colors hover:bg-[var(--flit-bg-hover)]"
-                    style={{ color: 'var(--flit-text-secondary)' }}>
-                    <input type="checkbox" className="flit-focus" checked={fechaManual} onChange={(e) => setFechaManual(e.target.checked)} />
-                    Elegir fecha
-                  </label>
-                )}
-                {mostrarCampoFecha && (
-                  <label className="flex min-w-0 flex-1 items-center gap-2 text-xs sm:flex-none" style={{ color: 'var(--flit-text-muted)' }}>
-                    Desde
-                    <input type="date" className={`${flitInp} h-10 min-w-0 flex-1`} value={fechaInicial} max={new Date().toISOString().slice(0, 10)}
-                      onChange={(e) => setFechaInicial(e.target.value)} />
-                  </label>
-                )}
-                <button type="button" className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle}
-                  disabled={sincronizando || (mostrarCampoFecha && !fechaInicial)}
-                  aria-disabled={apagada1 && !sincronizando ? true : undefined}
-                  aria-describedby={apagada1 ? ID_MOTIVO_1 : undefined}
-                  title={apagada1 ? undefined : mostrarCampoFecha ? 'Sincroniza desde la fecha elegida' : 'Sincroniza desde la última actualización'}
-                  onClick={() => { void sincronizar(); }}>
-                  {sincronizando ? 'Sincronizando…' : 'Sincronizar FLIT'}
-                </button>
-              </div>
-            )}
+            <AvisoFalloFlit1 uso={lectura1} apagada={apagada1} />
+            <ParametrosLecturaFlit1Form uso={parametros1} barra={BARRA} />
           </div>
 
           {/* ── FLIT 2 ── */}
