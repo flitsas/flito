@@ -130,7 +130,7 @@ test.describe('HU #13452 · sin copy interno para usuarios con enlace', () => {
   });
 });
 
-const VACIO_TRAMITES = 'No hay trámites. Sincroniza desde FLIT para traer trámites.';
+const VACIO_TRAMITES = 'No hay trámites. FLITO los trae de FLIT automáticamente.';
 const VACIO_LOGISTICA = 'No hay trámites aprobados. Sincroniza desde FLIT: los trámites en estado «Aprobado» aparecen aquí a la espera de su licencia de tránsito.';
 const seccionSync = (page: Page) => page.getByTestId('seccion-sincronizacion');
 

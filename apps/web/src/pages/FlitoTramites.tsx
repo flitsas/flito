@@ -425,7 +425,7 @@ export default function FlitoTramites() {
 
       {data !== null && !hayTramitesSistema && !hayFiltros && !buscar.trim() && (
         <FlitCard>
-          <FlitEmpty>{vacioConEnlace('trámites', tipoEnlace) ?? 'No hay trámites. Sincroniza desde FLIT para traer trámites.'}</FlitEmpty>
+          <FlitEmpty>{vacioConEnlace('trámites', tipoEnlace) ?? 'No hay trámites. FLITO los trae de FLIT automáticamente.'}</FlitEmpty>
         </FlitCard>
       )}
 
