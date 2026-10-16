@@ -17,7 +17,8 @@ import rateLimit from 'express-rate-limit';
 import { eq, desc, sql } from 'drizzle-orm';
 import { db } from '../../../db/client.js';
 import { laftManualVersions, users } from '../../../db/schema.js';
-import { authMiddleware, requireRole } from '../../../shared/middleware/auth.js';
+import { authMiddleware } from '../../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../../shared/permissions.js';
 import { laftAudit } from '../audit.service.js';
 import { uploadEntityDocument, getEntityDocumentStream } from '../../../services/storage.js';
@@ -117,7 +118,7 @@ router.get('/:id/pdf', async (req: Request, res: Response) => {
 // ============================================================================
 // POST / — crear borrador
 // ============================================================================
-router.post('/', writeLimiter, requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/', exigirFuncion('laft.manual.administrar'), writeLimiter, async (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' }); return; }
   const data = parsed.data;
@@ -173,7 +174,7 @@ router.post('/', writeLimiter, requireRole('admin'), async (req: Request, res: R
 // ============================================================================
 // POST /:id/firmar — registra firma representante u oficial
 // ============================================================================
-router.post('/:id/firmar', writeLimiter, requireRole('admin', 'compliance'), async (req: Request, res: Response) => {
+router.post('/:id/firmar', exigirFuncion('laft.manual.firmar'), writeLimiter, async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = firmarSchema.safeParse(req.body);
@@ -256,7 +257,7 @@ router.post('/:id/firmar', writeLimiter, requireRole('admin', 'compliance'), asy
 // ============================================================================
 // POST /:id/publicar — solo si ambas firmas. Marca publicado=true (WORM).
 // ============================================================================
-router.post('/:id/publicar', writeLimiter, requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/publicar', exigirFuncion('laft.manual.administrar'), writeLimiter, async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
 

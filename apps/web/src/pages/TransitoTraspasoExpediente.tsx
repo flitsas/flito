@@ -345,6 +345,8 @@ export default function TransitoTraspasoExpediente() {
   useEffect(() => { void cargar(); }, [cargar]);
 
   const operativo = tramite ? traspasoSttOperativo(tramite.estado) : false;
+  // Única excepción declarada de `check:roles-web` (HU #12872): la matriz rol×estado del traspaso
+  // vive en shared-types y pasarla a funciones es trabajo pendiente de la Épica #13411.
   const puedeGenerar = tramite && user ? puedeMutarTraspaso(user.role, tramite.estado, 'generar_legal') : false;
   const transiciones = tramite ? transicionesDesde(tramite.estado) : [];
   const veh: TraspasoVehiculo = tramite?.vehiculo || {};

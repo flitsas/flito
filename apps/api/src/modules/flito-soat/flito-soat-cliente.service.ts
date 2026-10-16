@@ -94,7 +94,7 @@
 // proyectado a mano (sin spread, sin payload crudo) y ni la póliza ni el VIN en el log.
 
 import { createHash, randomUUID } from 'crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
   auditLogs,
@@ -111,6 +111,7 @@ import {
 import {
   CAMPOS_COMPRADOR_FACTURA,
   CodigoErrorSolicitudSoat,
+  type CompaniasCanalSoat,
   type DatosSoatVigente409,
   EstadoSoat,
   EstadoSolicitudIncompletaSoat,
@@ -237,6 +238,10 @@ export const DESENLACE_HABLA_DEL_VEHICULO: Record<CodigoErrorSolicitudSoat, bool
   [CodigoErrorSolicitudSoat.SIN_COMPANIA]: false,
   /** De la COMPAÑÍA: el canal está apagado. Ídem. */
   [CodigoErrorSolicitudSoat.CANAL_DESACTIVADO]: false,
+  /** HU #12874 — De la PETICIÓN: un usuario sin enlace no dijo a nombre de qué compañía radica. */
+  [CodigoErrorSolicitudSoat.COMPANIA_REQUERIDA]: false,
+  /** HU #12874 — Del USUARIO: con enlace `compania` pidió otra compañía. Ningún vehículo mirado. */
+  [CodigoErrorSolicitudSoat.COMPANIA_NO_PERMITIDA]: false,
   /** Del ADJUNTO: los bytes no son un PDF. Corta antes de mirar nada del vehículo. */
   [CodigoErrorSolicitudSoat.ARCHIVO_NO_PDF]: false,
   /** De la SOLICITUD pedida, no de un vehículo: lo produce la lectura de factura con `solicitudId`. */
@@ -388,31 +393,87 @@ interface CanalCompania {
 }
 
 /**
- * Las dos guardas que preceden a todo lo demás: el usuario tiene compañía y esa compañía tiene el
- * canal encendido (AC5).
+ * Las guardas que preceden a todo lo demás: a nombre de QUÉ compañía se radica, y que esa compañía
+ * tenga el canal encendido (AC5).
+ *
+ * HU #12874 — la compañía la decide el ENLACE del rol (`ctx.alcance`), no el cliente:
+ * - `compania`: la suya, fija. Si la petición trae OTRA (`companiaIdPedida` ≠ `ctx.companiaId`) es
+ *   403 `COMPANIA_NO_PERMITIDA` — no se ignora en silencio: el intento de manipulación queda visible.
+ * - `todo` (sin enlace): la que escogió en el formulario; sin ella, 400 `COMPANIA_REQUERIDA` (AC3,
+ *   defensa en servidor aunque la web deshabilite «Radicar»).
+ * - `proveedor` / `nada` (organismos, enlace desconocido): 403 `SIN_COMPANIA` — no radican.
  *
  * `ctx.companiaId` sale de `contextoSoat()`, que lo lee de la BASE en cada petición y no del JWT
- * (§3 del ADR): mover a alguien de compañía surte efecto sin re-emitirle el token. Que falte es el
- * usuario que el CHECK `users_cliente_compania_chk` ya no debería permitir; aquí es un 403 y no un
- * 500, y sobre todo no es «pasa».
+ * (§3 del ADR): mover a alguien de compañía surte efecto sin re-emitirle el token. Que falte con
+ * enlace `compania` es el usuario que el CHECK `users_cliente_compania_chk` ya no debería permitir;
+ * aquí es un 403 y no un 500, y sobre todo no es «pasa».
+ *
+ * De ahí en adelante todo (RN-01, tenencia, destino, carpeta, incompletas) usa el `companiaId` que
+ * devuelve esta función, y por eso el cambio de la HU queda localizado aquí.
  */
-async function canalDeLaCompania(ctx: SoatCtx): Promise<CanalCompania> {
-  if (!ctx.companiaId) {
-    throw fallo(403, CodigoErrorSolicitudSoat.SIN_COMPANIA,
-      'Tu usuario no tiene una compañía asignada, así que no puede radicar solicitudes.');
-  }
+async function canalDeLaCompania(ctx: SoatCtx, companiaIdPedida: number | null = null): Promise<CanalCompania> {
+  const companiaId = companiaARadicar(ctx, companiaIdPedida);
   const [compania] = await db
     .select({ id: clients.id, sinTramite: clients.soatSinTramite, carpeta: clients.flitoCarpetaStorage })
-    .from(clients).where(eq(clients.id, ctx.companiaId)).limit(1);
+    .from(clients).where(eq(clients.id, companiaId)).limit(1);
 
   // Sin fila y con el flag apagado son el mismo desenlace y el mismo mensaje a propósito: los dos
   // significan «esta compañía no tiene abierto el canal», y distinguirlos solo le diría a quien
-  // sondea si su compañía existe.
+  // sondea —ahora también quien escoge el `companiaId`— si la compañía existe.
   if (!compania?.sinTramite) {
     throw fallo(403, CodigoErrorSolicitudSoat.CANAL_DESACTIVADO,
-      'Tu compañía no tiene habilitada la solicitud de SOAT sin trámite. Contacta a FLITO para activarla.');
+      'La compañía no tiene habilitada la solicitud de SOAT sin trámite. Contacta a FLITO para activarla.');
   }
   return { companiaId: compania.id, carpetaStorage: compania.carpeta };
+}
+
+/** HU #12874 — La tabla de enlace → compañía de `canalDeLaCompania`, sin tocar la base. */
+function companiaARadicar(ctx: SoatCtx, companiaIdPedida: number | null): number {
+  if (ctx.alcance === 'compania') {
+    if (!ctx.companiaId) {
+      throw fallo(403, CodigoErrorSolicitudSoat.SIN_COMPANIA,
+        'Tu usuario no tiene una compañía asignada, así que no puede radicar solicitudes.');
+    }
+    if (companiaIdPedida != null && companiaIdPedida !== ctx.companiaId) {
+      throw fallo(403, CodigoErrorSolicitudSoat.COMPANIA_NO_PERMITIDA,
+        'Solo puedes radicar solicitudes a nombre de tu compañía.');
+    }
+    return ctx.companiaId;
+  }
+  if (ctx.alcance === 'todo') {
+    if (companiaIdPedida == null) {
+      throw fallo(400, CodigoErrorSolicitudSoat.COMPANIA_REQUERIDA,
+        'Selecciona la compañía a cuyo nombre se radica la solicitud.');
+    }
+    return companiaIdPedida;
+  }
+  throw fallo(403, CodigoErrorSolicitudSoat.SIN_COMPANIA,
+    'Tu usuario no puede radicar solicitudes de SOAT sin trámite.');
+}
+
+/**
+ * HU #12874 — `GET /cliente/companias`: a nombre de qué compañía puede radicar este usuario.
+ *
+ * Enlace `compania` → solo la suya y `fija: true` (lista vacía si su compañía no tiene el canal: la
+ * web pinta el vacío, y la frontera sigue siendo el 403 del alta). Sin enlace → todas las compañías
+ * con el canal activo, por nombre, `fija: false`. Proveedor y organismos → 403. DTO = `id` + `nombre`:
+ * nunca el NIT ni las banderas.
+ */
+export async function companiasDelCanal(ctx: SoatCtx): Promise<CompaniasCanalSoat> {
+  const columnas = { id: clients.id, nombre: clients.name };
+  if (ctx.alcance === 'compania') {
+    if (!ctx.companiaId) return { fija: true, companias: [] };
+    const companias = await db.select(columnas).from(clients)
+      .where(and(eq(clients.id, ctx.companiaId), eq(clients.soatSinTramite, true))).limit(1);
+    return { fija: true, companias };
+  }
+  if (ctx.alcance === 'todo') {
+    const companias = await db.select(columnas).from(clients)
+      .where(eq(clients.soatSinTramite, true)).orderBy(asc(clients.name));
+    return { fija: false, companias };
+  }
+  throw fallo(403, CodigoErrorSolicitudSoat.SIN_COMPANIA,
+    'Tu usuario no puede radicar solicitudes de SOAT sin trámite.');
 }
 
 /**
@@ -785,8 +846,10 @@ export interface Preconsulta {
  *   · `vehiculo.vin` sigue siendo el del RUNT: es el que se va a persistir.
  *   · `organismo.codigo` puede ser `null` (#11966, AC5).
  */
-export async function preconsulta(vin: string, ctx: SoatCtx): Promise<Preconsulta> {
-  const canal = await canalDeLaCompania(ctx);
+export async function preconsulta(
+  vin: string, ctx: SoatCtx, companiaIdPedida: number | null = null,
+): Promise<Preconsulta> {
+  const canal = await canalDeLaCompania(ctx, companiaIdPedida);
   const vinNorm = normalizarId(vin);
 
   // Las dos guardas baratas, ANTES de gastar una consulta a Kyverum. Se vuelven a mirar debajo sobre
@@ -1348,8 +1411,10 @@ export async function crearSolicitud(
   ctx: SoatCtx,
   /** HU #13362: ya clasificados por `clasificarAdicionales`; se suben tras la factura y se insertan en la tx. */
   adicionales: AdicionalAceptado[] = [],
+  /** HU #12874: la compañía escogida en el formulario (solo sin enlace; con enlace debe ser la suya). */
+  companiaIdPedida: number | null = null,
 ): Promise<SolicitudCreada | SolicitudAparcada> {
-  const canal = await canalDeLaCompania(ctx);
+  const canal = await canalDeLaCompania(ctx, companiaIdPedida);
   await verificarPdfReal(archivo);
 
   const vinTecleado = normalizarId(entrada.vin);
@@ -1492,8 +1557,9 @@ export async function leerFacturaVenta(
   archivo: ArchivoSolicitud,
   ctx: SoatCtx,
   solicitudId: string | null = null,
+  companiaIdPedida: number | null = null,
 ): Promise<ExtraccionFacturaVenta> {
-  await canalDeLaCompania(ctx);
+  await canalDeLaCompania(ctx, companiaIdPedida);
   await verificarPdfReal(archivo);
 
   if (solicitudId) {

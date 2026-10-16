@@ -58,7 +58,7 @@
 
 import { createHash } from 'crypto';
 import JSZip from 'jszip';
-import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne, sql, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
   auditLogs, clients, flitoImpuestos, flitoRevisiones, flitoSoportes, flitoTramites,
@@ -74,6 +74,7 @@ import {
   extraerReciboCaja, extraerReciboImpuesto, placaDesdeNombre, type DocumentoAAnalizar,
 } from '../flito-ocr/flito-ocr.service.js';
 import { buscarConAcceso } from './flito-impuestos.service.js';
+import { exigirCompaniaPropia } from './flito-impuestos.alcance.js';
 import {
   carpetaRaiz, faseDeCarpeta, leerSello, liquidacionPrimero, resolverPlacaRepetida, vigilarFase, type EntradaPlaca,
 } from './flito-recibos.fase.js';
@@ -82,7 +83,8 @@ import { uploadEntityDocument } from '../../services/storage.js';
 import { comprimirComprobante } from './flito-recibos.compresion.js';
 import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
 import { completarComprobanteFlit2, programarEnvioComprobante } from './flito-impuestos.envio-flit2.service.js';
-import type { ArchivoSubido, ImpuestoCtx } from './flito-factura-venta.service.js';
+import { esGestorDeOrganismo, type ArchivoSubido, type ImpuestoCtx } from './flito-factura-venta.service.js';
+import { condicionPorCompania } from '../../shared/alcance-filas.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -314,6 +316,8 @@ function consolidarMismoLote(res: ResultadoRecibos): void {
 interface LoteRecibos {
   esGestor: boolean;
   organismos: string[];
+  /** HU #13426: compañía → solo sus impuestos; otro enlace no gestor → `false`. `undefined` = sin acotar. */
+  porAlcance: SQL | undefined;
   /** El umbral con el que se EXTRAE siempre (y el que aplica a Operaciones, sin cambios). */
   porDefecto: number;
   /** código de organismo → su umbral. Solo se consulta para el gestor. */
@@ -321,7 +325,8 @@ interface LoteRecibos {
 }
 
 async function abrirLote(ctx: ImpuestoCtx): Promise<LoteRecibos> {
-  const esGestor = ctx.role === 'gestor_impuestos';
+  // HU #13426 (AC9): «gestor» lo decide el ENLACE `organismos_transito`, no el nombre del rol.
+  const esGestor = esGestorDeOrganismo(ctx);
   const organismos = esGestor ? ctx.organismos : [];
   const umbrales = new Map<string, number>();
   if (organismos.length > 0) {
@@ -329,7 +334,8 @@ async function abrirLote(ctx: ImpuestoCtx): Promise<LoteRecibos> {
       .from(organismosTransitoConfig).where(inArray(organismosTransitoConfig.codigo, organismos));
     for (const f of filas) umbrales.set(f.codigo, umbralPara(f.u));
   }
-  return { esGestor, organismos, porDefecto: umbralPara(null), umbrales };
+  const porAlcance = esGestor ? undefined : condicionPorCompania(flitoImpuestos.companiaId, ctx.alcance);
+  return { esGestor, organismos, porAlcance, porDefecto: umbralPara(null), umbrales };
 }
 
 /**
@@ -504,6 +510,7 @@ async function buscarCandidato(placa: string, estado: EstadoImpuesto, lote: Lote
   // agujero: antes «sin código» era «sin acotar», así que un gestor sin organismo —el que producía
   // la pantalla, porque la API le prohibía tener `transito_codigo`— conciliaba contra impuestos de
   // cualquier organismo, incluidos los asumidos por Operaciones. Dinero real, dos veces.
+  if (lote.porAlcance) conds.push(lote.porAlcance);
   if (lote.esGestor) {
     if (lote.organismos.length === 0) return null;
     conds.push(inArray(flitoImpuestos.organismoCodigo, lote.organismos));
@@ -782,6 +789,7 @@ export async function candidatoPorImpuestoId(id: string): Promise<Candidato | nu
  * función algún día) y el de Operaciones para el resto: `abrirLote` + `umbralDelCandidato`, sin código nuevo.
  */
 export async function cargarReciboCaja(impuestoId: string, archivo: ArchivoSubido, ctx: ImpuestoCtx): Promise<ResultadoReciboCaja> {
+  await exigirCompaniaPropia([impuestoId], ctx); // HU #13426 (AC3)
   const imp = await buscarConAcceso(impuestoId, ctx);
   if (!imp) throw new ReciboCajaError(404, CodigoErrorReciboCaja.NO_ENCONTRADO, 'El impuesto no existe');
   if (imp.liquidadoEn === null) {
@@ -887,6 +895,7 @@ function recomprobarDentro(impuestoId: string, estado: EstadoImpuesto, tipo: Tip
  * Todo lo que se guarda pasa por `archivar` → misma compresión que la masiva (AC9).
  */
 export async function cargarReciboPorFase(impuestoId: string, fase: FaseRecibo, archivo: ArchivoSubido, ctx: ImpuestoCtx): Promise<RespuestaCargaPorFase> {
+  await exigirCompaniaPropia([impuestoId], ctx); // HU #13426 (AC3)
   const imp = await buscarConAcceso(impuestoId, ctx);
   if (!imp) throw new CargaPorFaseError(404, CodigoErrorCargaPorFase.NO_ENCONTRADO, 'El impuesto no existe');
   const estado = imp.estado as EstadoImpuesto;

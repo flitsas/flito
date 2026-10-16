@@ -33,7 +33,7 @@ const { DETALLE_CARGA_POR_FASE } = await import('../../src/modules/flito-impuest
 const { flitoSoportes } = await import('../../src/db/schema.js');
 
 const ID = '71030cce-1a4c-4fb6-855d-fcc80aadc4e9';
-const CTX = { userId: 7, username: 'op@flitsas.io', role: 'admin', organismos: [] as string[] };
+const CTX = { userId: 7, username: 'op@flitsas.io', role: 'admin', organismos: [] as string[], alcance: { enlace: 'ninguno' as const } };
 const PDF = { originalname: 'nuevo.pdf', mimetype: 'application/pdf', buffer: Buffer.from('%PDF-1.7 nuevo'), size: 14 };
 const CAND = { impuestoId: ID, estado: EstadoImpuesto.PAGADO, tramiteIdFlit: 'FLIT-1', placa: 'QIU744', organismoCodigo: '05001' };
 const GUARDADO = { storageKey: 'flito/impuestos/recibos/nuevo.pdf', tamanoBytes: 14 };

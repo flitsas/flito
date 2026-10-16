@@ -2,10 +2,11 @@
 // HU #12175 / Feature #12072. HU #12087: `funciones` + modal de cambio de rol.
 // HU #12088: ámbito por `tipoEnlace`; body sin `transitoCodigo`; organismos vía `organismosCodigos`.
 
-import { useCallback, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import toast from 'react-hot-toast';
 import type { FuncionDeUsuario } from '@operaciones/shared-types';
-import { api } from '../../lib/api';
+import { api, cuerpoAntiBloqueo } from '../../lib/api';
+import { flitBtnSecondarySm, flitBtnSecondaryStyle } from '../../components/flit/flitPageKit';
 import FlitModal from '../../components/flit/FlitModal';
 import { tipoEnlaceDe, type RolOpcion, type User } from './types';
 import { Field, Footer, formatErrors, inputCls } from './UserFormShared';
@@ -13,6 +14,8 @@ import { COMPANIA_REQUERIDA, COMPANIA_RELOGIN, type CatalogoCompanias } from './
 import { AmbitoCampos } from './Ambito';
 import PermissionsPicker, { type CatalogoFuncionesEstado } from './PermissionsPicker';
 import CambioRolExcepciones from './CambioRolExcepciones';
+import { aviso409, indexar, type Aviso409, type Indice } from '../roles-permisos/arbol';
+import type { FocoArbol } from '../roles-permisos/ArbolPermisos';
 import {
   ORGANISMOS_RELOGIN, ORGANISMOS_REQUERIDO, PROVEEDOR_RELOGIN, PROVEEDOR_REQUERIDO,
   type CatalogoOrganismos, type CatalogoProveedores,
@@ -62,6 +65,12 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
   const [errorCompania, setErrorCompania] = useState<string | null>(null);
   const [errorProveedor, setErrorProveedor] = useState<string | null>(null);
   const [errorOrganismos, setErrorOrganismos] = useState<string | null>(null);
+  // HU #13430 (AC5): el 409 anti-bloqueo es un aviso en el modal, nunca un toast ni el texto del API.
+  const [avisoBloqueo, setAvisoBloqueo] = useState<Aviso409 | null>(null);
+  const [indiceArbol, setIndiceArbol] = useState<Indice | null>(null);
+  const [foco, setFoco] = useState<FocoArbol | null>(null);
+  const avisoRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => { if (avisoBloqueo) avisoRef.current?.focus(); }, [avisoBloqueo]);
 
   const enlace = tipoEnlaceDe(f.role, rolesCatalogo);
   const enlaceUsuario = tipoEnlaceDe(user.role, rolesCatalogo);
@@ -89,6 +98,7 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
 
   const enviar = async (funcionesDestino: FuncionDeUsuario[] | null) => {
     setSubmitting(true);
+    setAvisoBloqueo(null);
     try {
       const body: Record<string, unknown> = {};
       if (f.name.trim() !== user.name) body.name = f.name.trim();
@@ -110,9 +120,9 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
       if (enlace !== 'compania' && user.companiaId) body.companiaId = null;
 
       const proveedorPrevio = user.flitoProveedorSoatId ?? '';
-      const proveedorChanged = enlace === 'proveedor_soat' && f.flitoProveedorSoatId !== proveedorPrevio;
+      const proveedorChanged = enlace === 'proveedor' && f.flitoProveedorSoatId !== proveedorPrevio;
       if (proveedorChanged) body.flitoProveedorSoatId = f.flitoProveedorSoatId;
-      if (enlace !== 'proveedor_soat' && user.flitoProveedorSoatId) body.flitoProveedorSoatId = null;
+      if (enlace !== 'proveedor' && user.flitoProveedorSoatId) body.flitoProveedorSoatId = null;
 
       const organismosChanged = enlace === 'organismos_transito' && !mismoConjunto(f.organismosCodigos, user.organismosCodigos);
       if (organismosChanged) body.organismosCodigos = f.organismosCodigos;
@@ -131,7 +141,11 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
       }
       onSaved();
       onClose();
-    } catch (err) { toast.error(formatErrors(err)); }
+    } catch (err) {
+      const cuerpo = cuerpoAntiBloqueo(err);
+      if (cuerpo) setAvisoBloqueo(aviso409(cuerpo, indiceArbol ?? indexar([]), 'usuario'));
+      else toast.error(formatErrors(err));
+    }
     finally { setSubmitting(false); setPendienteRol(false); }
   };
 
@@ -139,7 +153,7 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
     e.preventDefault();
     if (submitting) return;
     if (enlace === 'compania' && !f.companiaId) { setErrorCompania(COMPANIA_REQUERIDA); return; }
-    if (enlace === 'proveedor_soat' && !f.flitoProveedorSoatId) { setErrorProveedor(PROVEEDOR_REQUERIDO); return; }
+    if (enlace === 'proveedor' && !f.flitoProveedorSoatId) { setErrorProveedor(PROVEEDOR_REQUERIDO); return; }
     if (enlace === 'organismos_transito' && f.organismosCodigos.length === 0) { setErrorOrganismos(ORGANISMOS_REQUERIDO); return; }
     setErrorCompania(null); setErrorProveedor(null); setErrorOrganismos(null);
 
@@ -173,7 +187,7 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
                   role: nuevo,
                   // Limpiar ataduras que ya no aplican; conservar las del mismo tipo de enlace.
                   companiaId: nuevoEnlace === 'compania' ? f.companiaId : '',
-                  flitoProveedorSoatId: nuevoEnlace === 'proveedor_soat' ? f.flitoProveedorSoatId : '',
+                  flitoProveedorSoatId: nuevoEnlace === 'proveedor' ? f.flitoProveedorSoatId : '',
                   organismosCodigos: nuevoEnlace === 'organismos_transito'
                     ? (enlaceUsuario === 'organismos_transito' ? user.organismosCodigos : [])
                     : [],
@@ -203,11 +217,28 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
           />
           <PermissionsPicker
             role={f.role}
-            catalogo={catalogo}
+            rolNombre={rolesCatalogo?.find((r) => r.value === f.role)?.label}
+            userId={user.id}
+            rolOriginal={user.role}
+            quien={user.username}
             excepciones={f.excepciones}
             onChange={(exc) => setF({ ...f, excepciones: exc })}
             onDisponibleChange={onDisponible}
+            foco={foco}
+            onIndice={setIndiceArbol}
           />
+          {avisoBloqueo && (
+            <div className="flex flex-wrap items-start gap-3">
+              <p ref={avisoRef} role="alert" tabIndex={-1} className="flit-focus min-w-0 flex-[1_1_16rem] rounded text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+                {avisoBloqueo.texto}
+              </p>
+              {avisoBloqueo.nodo && (
+                <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => setFoco({ codigo: avisoBloqueo.nodo as string, token: Date.now() })}>
+                  Mostrar dónde está
+                </button>
+              )}
+            </div>
+          )}
           <Footer onClose={onClose} submitting={submitting} label="Guardar cambios" />
         </form>
       </FlitModal>

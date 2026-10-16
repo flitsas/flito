@@ -41,6 +41,7 @@ vi.mock('../../src/db/client.js', () => ({
 }));
 
 const { paginasEfectivasDeUsuario, fijarFuenteDePermisos } = await import('../../src/shared/permisos-efectivos.js');
+const { ancestrosDe } = await import('../../src/modules/permisos/arbol/expansion.js');
 
 const render = (c: unknown) => new PgDialect().sqlToQuery(c as never);
 
@@ -58,10 +59,17 @@ type Excepcion = { codigo: string; efecto: 'conceder' | 'revocar' };
  * tabla como `conceder pagina.<slug>`; `propias` admite slugs (→ `conceder`) o excepciones completas.
  */
 function usuario(role: string, propias: (string | Excepcion)[] | null, ...reparto: string[]) {
+  // HU #13429: cada página llega con su elemento (`menu.*`), como tras la 0239 (el resolutor exige la cadena). Las
+  // operaciones se dejan sueltas a propósito: aquí se mide que NO son pantallas, y sin cadena tampoco entran.
+  const conElemento = (cs: string[]) => [...new Set(cs.flatMap((c) => [c, ...ancestrosDe(c)]))];
+  const excepciones = (propias ?? []).map((p): Excepcion => (typeof p === 'string' ? { codigo: `pagina.${p}`, efecto: 'conceder' } : p));
   respuestas = [
-    [{ rol: role, tipoPrincipal: 'interno' }],
-    reparto.map((codigo) => ({ codigo })),
-    (propias ?? []).map((p) => (typeof p === 'string' ? { codigo: `pagina.${p}`, efecto: 'conceder' } : p)),
+    [{ rol: role, tipoEnlace: 'ninguno' }],
+    conElemento(reparto).map((codigo) => ({ codigo })),
+    [
+      ...conElemento(excepciones.filter((e) => e.efecto === 'conceder').map((e) => e.codigo)).map((codigo) => ({ codigo, efecto: 'conceder' })),
+      ...excepciones.filter((e) => e.efecto === 'revocar'),
+    ],
   ];
 }
 
@@ -116,10 +124,10 @@ describe('paginasEfectivasDeUsuario — del reparto sembrado a la lista de slugs
     expect(await paginasEfectivasDeUsuario(9)).toEqual(['dashboard']);
   });
 
-  it('de `users` pide `role` y el tipo del rol, y NO `allowed_pages`: la columna está congelada (0188)', async () => {
+  it('de `users` pide `role` y el ENLACE del rol (no el tipo retirado), y NO `allowed_pages`: la columna está congelada (0188)', async () => {
     usuario('auditor', ['pesv'], 'pagina.dashboard');
     await paginasEfectivasDeUsuario(1);
-    expect(Object.keys(selectMock.mock.calls[0]![0] as object).sort()).toEqual(['rol', 'tipoEnlace', 'tipoPrincipal']);
+    expect(Object.keys(selectMock.mock.calls[0]![0] as object).sort()).toEqual(['rol', 'tipoEnlace']); // HU #12875: sin el tipo retirado
   });
 
   it('un rol sin reparto y sin páginas propias no ve NADA: el fallo por defecto es cerrado', async () => {

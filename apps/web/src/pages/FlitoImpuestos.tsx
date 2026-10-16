@@ -15,6 +15,7 @@ import {
   type CertificacionCola, type ResultadoIntento, type ResultadoLote,
 } from '../components/flit/CertificacionRunt';
 import { useAuth } from '../lib/auth';
+import { conEnlace, vacioConEnlace } from '../lib/copyEnlace';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import StatusChip from '../components/flit/StatusChip';
 import AntiguedadPill from '../components/flit/AntiguedadPill';
@@ -77,7 +78,7 @@ function aResultadoIntento(e: unknown): ResultadoIntento {
 }
 
 export default function FlitoImpuestos() {
-  const { hasFuncion } = useAuth();
+  const { hasFuncion, tipoEnlace } = useAuth();
   // HU #12170: modos por función efectiva, no por rol literal.
   const esOperaciones = hasFuncion('impuestos.tramite.enviar');
   const esGestor = hasFuncion('impuestos.recibos.cargar') && !esOperaciones;
@@ -231,6 +232,9 @@ export default function FlitoImpuestos() {
   // del cuerpo que se manda, igual que cualquier otro filtro. La función es aparte de la del
   // export: quien puede descargar el archivo del gestor no necesariamente puede ver el pago.
   const puedeExportarPago = hasFuncion('impuestos.excel.exportar_pago');
+  // HU #13452: «Incluir datos de pago y trazabilidad» es de uso interno («Solo para Operaciones»): con
+  // enlace no se ofrece aunque el rol tenga la función marcada.
+  const ofrecerExportarPago = puedeExportarPago && tipoEnlace === 'ninguno';
   const [incluirPago, setIncluirPago] = useState(false);
   const filtrosExport: FiltrosExportCola = {
     ...(estado !== 'todos' ? { estados: [estado] } : {}),
@@ -249,7 +253,7 @@ export default function FlitoImpuestos() {
     ...(soloAlertas ? { semaforo: [...SEMAFOROS_ALERTA] } : {}),
     // Bug #12642: la clave viaja SOLO marcada —y solo si se tiene la función, que es lo que pinta la
     // casilla—: ausente, el cuerpo es el mismo de siempre. Sin la función no hay forma de marcarla.
-    ...(puedeExportarPago && incluirPago ? { incluirPago: true } : {}),
+    ...(ofrecerExportarPago && incluirPago ? { incluirPago: true } : {}),
   };
   // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
   const exportacion = useExportCola(COLA_IMPUESTOS, filtrosExport);
@@ -366,7 +370,7 @@ export default function FlitoImpuestos() {
               <BotonExportarCola
                 ocupado={exportacion.ocupado}
                 onExportar={exportacion.exportar}
-                incluirPago={puedeExportarPago ? { marcado: incluirPago, onCambio: setIncluirPago } : undefined}
+                incluirPago={ofrecerExportarPago ? { marcado: incluirPago, onCambio: setIncluirPago } : undefined}
               />
             )}
           </>
@@ -518,11 +522,15 @@ export default function FlitoImpuestos() {
       {data && filas.length === 0 && (
         <FlitCard>
           <FlitEmpty>
+            {/* HU #13452: con enlace, sin instrucciones internas (cargar masivo, sincronizar). */}
             {liquidadoPendiente
-              ? 'No hay impuestos liquidados pendientes de pago con estos filtros. Quita el filtro o carga liquidaciones desde «Cargar recibos (masivo)».'
+              ? conEnlace(tipoEnlace)
+                ? 'No hay impuestos liquidados pendientes de pago con estos filtros.'
+                : 'No hay impuestos liquidados pendientes de pago con estos filtros. Quita el filtro o carga liquidaciones desde «Cargar recibos (masivo)».'
               : soloAlertas ? VACIO_CON_ALERTAS : hayFiltros || texto.trim()
                 ? 'Ningún impuesto coincide con los filtros.'
-                : 'No hay impuestos en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.'}
+                : vacioConEnlace('impuestos', tipoEnlace)
+                  ?? 'No hay impuestos en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.'}
           </FlitEmpty>
         </FlitCard>
       )}

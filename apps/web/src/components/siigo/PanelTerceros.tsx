@@ -21,13 +21,12 @@
 // ── Permisos (AC1) ────────────────────────────────────────────────────────────────────────────
 // **Dos capacidades, no una.** Sincronizar terceros lo hacen administración y financiera; confirmar
 // una equivalencia de ciudad, solo administración. Cada bloque recibe la suya y ninguna se deriva
-// de la otra: mientras las dos colgaron de un único `esAdmin`, la pantalla le negó a financiera una
+// de la otra: mientras las dos colgaron de un único booleano, la pantalla le negó a financiera una
 // escritura que el servidor le concedía desde el primer día. Ver `BotonAccion.tsx`: ahí está
 // escrito por qué esto es una guía de interfaz y NO un control de seguridad.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  puedeEjecutar,
   type MotivoNoFacturable, type ResumenValidacionClientes,
 } from '@operaciones/shared-types';
 import { api } from '../../lib/api';
@@ -47,29 +46,30 @@ interface CompuertaServidor {
 }
 
 export default function PanelTerceros() {
-  const { user } = useAuth();
-  const esAdmin = user?.role === 'admin';
+  const { hasFuncion } = useAuth();
   /**
    * Una entrada por acción, y al lado la guarda del servidor que refleja. No es seguridad —el 403
    * lo da el servidor— pero tiene que decir LO MISMO que él: un solo booleano para acciones que el
    * servidor distingue termina, según hacia dónde se equivoque, negando lo que el endpoint acepta
    * (lo que pasaba con financiera y la sincronización) u ofreciendo lo que va a rechazar.
    *
-   * Tres de las cuatro coinciden hoy en `esAdmin` y aun así se declaran aparte: cuando una cambie
-   * —esta HU es el precedente— se moverá sola, sin arrastrar a las otras.
+   * HU #12872: cada una pregunta la función de SU guarda, nunca el nombre del rol. Se declaran
+   * aparte aunque dos coincidan: cuando una cambie se moverá sola, sin arrastrar a las otras.
    */
   const permisos = {
-    /** `POST /siigo/terceros/cliente/:id` → `exigirAccionSiigo('emitir')`. Se lee de la MISMA tabla
-     *  que usa el servidor, así que cambiarla mueve las dos a la vez. */
-    sincronizar: puedeEjecutar(user?.role, 'emitir'),
-    /** `POST /siigo/clientes-ciudades/:id/confirmar` → `requireRole('admin')`, y con razón: fija el
+    /** `POST /siigo/terceros/cliente/:id` → `exigirAccionSiigo('emitir')`, que pregunta al motor por
+     *  `siigo.factura.emitir` (HU #13423): la pantalla pregunta lo mismo. */
+    sincronizar: hasFuncion('siigo.factura.emitir'),
+    /** `POST /siigo/clientes-ciudades/:id/confirmar` → `siigo.terceros.configurar` (HU #13427): fija el
      *  municipio que sale impreso en la factura ante la DIAN. */
-    confirmarCiudad: esAdmin,
-    /** `POST /siigo/clientes/validacion/recalcular-duplicados` → `requireRole('admin')`. Reescribe
-     *  las marcas de identificación de las fichas; no es «parte de sincronizar». */
-    recalcularDuplicados: esAdmin,
-    /** `PATCH /clients/:id` → `requireRole('admin')`. Financiera abre la ficha en solo lectura. */
-    editarFicha: esAdmin,
+    confirmarCiudad: hasFuncion('siigo.terceros.configurar'),
+    /** `POST /siigo/clientes/validacion/recalcular-duplicados` → `siigo.terceros.configurar` (HU #13427).
+     *  Reescribe las marcas de identificación de las fichas; no es «parte de sincronizar». */
+    recalcularDuplicados: hasFuncion('siigo.terceros.configurar'),
+    /** `PATCH /clients/:id` (HU #13428): la ficha manda datos generales (nombre, documento, dirección) Y
+     *  fiscales, así que el API pide `clients.clientes.editar` y `clients.clientes.datos_fiscales`.
+     *  Sin las dos, la ficha abre en solo lectura. */
+    editarFicha: hasFuncion('clients.clientes.editar') && hasFuncion('clients.clientes.datos_fiscales'),
   };
 
   /** Sube cada vez que algo pudo mover la cartera: una ficha guardada, una ciudad, un tercero. */

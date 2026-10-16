@@ -25,7 +25,9 @@ import { CampoComprobante, CARGA_MASIVA_MAX_BYTES_ARCHIVO, MotivoPendienteCompro
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
 import { renderizar, ligadoA } from '../helpers/sql-ligado.js';
-import { testToken, operacionesDePartida, fuenteDePrueba, type TestRole } from '../helpers/auth.js';
+import { testToken, operacionesDePartida, fuenteDePrueba, type TestRole, conCadenaEnFuente } from '../helpers/auth.js';
+// HU #13427: Comprobantes pasó al árbol; la operación la da la acción de partida (expansión del resolutor).
+import { codigosQueConceden, expandir, operacionesDe } from '../../src/modules/permisos/arbol/expansion.js';
 
 const kdb = createKeyedDb();
 vi.mock('../../src/db/client.js', () => ({ db: kdb.db, getPoolStats: vi.fn().mockResolvedValue({ utilization: 0, total: 0, idle: 0, waiting: 0 }) }));
@@ -142,7 +144,7 @@ describe('AC1 — cada ruta exige su función del motor; el reparto de partida e
   it.each(RUTAS)('%s: sin token → 401; auditor (sin la función) → 403 del motor sin tocar la base', async (codigo, pedir) => {
     const app = await buildApp();
     expect((await pedir(request(app))).status).toBe(401);
-    expect(operacionesDePartida('auditor')).not.toContain(codigo);
+    expect([...expandir(operacionesDePartida('auditor'))]).not.toContain(codigo);
     const res = await pedir(request(app)).set('Authorization', await auth('auditor'));
     expect(res.status).toBe(403);
     // `sin_modulo`: el auditor no tiene NINGUNA función de `comprobantes`, y el motor lo dice antes de mirar la función.
@@ -153,12 +155,15 @@ describe('AC1 — cada ruta exige su función del motor; el reparto de partida e
 
   it.each(RUTAS)('%s: un usuario con las otras cuatro pero sin ESTA → 403 sin_funcion (cada ruta exige la suya)', async (codigo, pedir) => {
     const app = await buildApp();
-    const otras = RUTAS.map(([c]) => c).filter((c) => c !== codigo);
+    // HU #13429: con la cadena, una operación se tiene por su ACCIÓN; «las otras cuatro» = las acciones que dan las
+    // otras y NO dan esta (ver la cola y ver el comprobante comparten «Ver la cola»: tenerla es tener las dos).
+    const otras = [...new Set(RUTAS.map(([c]) => c).filter((c) => c !== codigo)
+      .flatMap((c) => codigosQueConceden(c)).filter((a) => a.startsWith('accion.') && !operacionesDe(a).includes(codigo)))];
     // El bearer PRIMERO (`testToken` re-fija la fuente de prueba); luego la fuente propia. Y la caché de
     // permisos dura 60 s y el sub 11 se reutiliza entre casos: se invalida antes de cada uno.
     const bearer = await auth('financiera', 11);
     invalidarPermisosDe(11);
-    fijarFuenteDePermisos(async (sub) => (sub === 11 ? { rol: 'financiera', tipoPrincipal: 'interno' as const, funcionesDelRol: otras, excepciones: [] } : null));
+    fijarFuenteDePermisos(conCadenaEnFuente(async (sub) => (sub === 11 ? { rol: 'financiera', tipoEnlace: 'ninguno', funcionesDelRol: otras, excepciones: [] } : null)));
     const res = await pedir(request(app)).set('Authorization', bearer);
     expect(res.status).toBe(403);
     expect(res.body).toMatchObject({ funcion: codigo, motivo: 'sin_funcion' });
@@ -167,9 +172,9 @@ describe('AC1 — cada ruta exige su función del motor; el reparto de partida e
 
   it('admin y financiera tienen las cinco de partida; auditor, gestor_impuestos y proveedor ninguna', () => {
     for (const [codigo] of RUTAS) {
-      expect(operacionesDePartida('admin')).toContain(codigo);
-      expect(operacionesDePartida('financiera')).toContain(codigo);
-      for (const rol of ['auditor', 'gestor_impuestos', 'proveedor', 'cliente']) expect(operacionesDePartida(rol), `${rol} ${codigo}`).not.toContain(codigo);
+      expect([...expandir(operacionesDePartida('admin'))]).toContain(codigo);
+      expect([...expandir(operacionesDePartida('financiera'))]).toContain(codigo);
+      for (const rol of ['auditor', 'gestor_impuestos', 'proveedor', 'cliente']) expect([...expandir(operacionesDePartida(rol))], `${rol} ${codigo}`).not.toContain(codigo);
     }
   });
 
@@ -548,7 +553,7 @@ describe('HU #12654 — GET /:id trae diferenciaAceptada, diferenciaAceptadaEn, 
     const { readFileSync } = await import('node:fs');
     const { join } = await import('node:path');
     const rutas = readFileSync(join(import.meta.dirname, '../../src/modules/flito-comprobantes/flito-comprobantes.routes.ts'), 'utf8');
-    expect(rutas).toMatch(/router\.post\('\/:id\/diferencia\/aceptar', exigirFuncion\('comprobantes\.diferencia\.aceptar'\), exigirIdUuid,/);
+    expect(rutas).toMatch(/router\.post\('\/:id\/diferencia\/aceptar', soloSinEnlace\(\), exigirFuncion\('comprobantes\.diferencia\.aceptar'\), exigirIdUuid,/); // HU #13426: P-2
     expect(rutas).not.toMatch(/requireRole\(/);
   });
 });

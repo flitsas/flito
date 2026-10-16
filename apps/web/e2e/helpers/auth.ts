@@ -204,9 +204,81 @@ const COMPROBANTES = [
  * SOAT) carga comprobantes; el auditor solo lee; financiera liquida y factura; los de campo no
  * tienen ninguna. Un rol que no esté aquí recibe `[]`, lo mismo que daba el catch-all.
  */
-export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
+/** HU #13421: los 25 códigos de `catalogo-operaciones.legado.ts` (0226 los siembra a `admin`). */
+const PESV_TRANSITORIAS = [
+  'pesv.tablero_ejecutivo.administrar', 'pesv.diagnostico.administrar', 'pesv.diagnostico_consulta.administrar',
+  'pesv.comite.administrar', 'pesv.plan.administrar', 'pesv.politica.administrar',
+  'pesv.politica_edicion.administrar', 'pesv.auditorias.administrar', 'pesv.comunicaciones.administrar',
+  'pesv.contratistas.administrar', 'pesv.incidentes_causa_raiz.administrar', 'pesv.raci.administrar',
+  'pesv.normativa.administrar', 'pesv.normativa_edicion.administrar', 'pesv.retencion.administrar',
+  'pesv.retencion_edicion.administrar', 'drivers.conductores.administrar', 'drivers.capacitaciones.administrar',
+  'drivers.incidentes.administrar', 'drivers.incidentes_registro.administrar', 'drivers.checklists.administrar',
+  'drivers.alcoholimetria.administrar', 'drivers.emergencias.administrar', 'jornadas.control.administrar',
+] as const;
+/**
+ * HU #13588/#13589 (P-35..P-37): `rum.resumen.ver` ya no es suelto: viene con el ítem «Rendimiento»
+ * (`pagina.admin_rendimiento`). Solo `admin` lo tiene (ADMIN_ALLOWED_PAGES incluye `admin_rendimiento`);
+ * un rol sin el ítem no lo recibe.
+ */
+const RENDIMIENTO_13589 = ['rum.resumen.ver'] as const;
+
+/** HU #13422: los 13 códigos de la 0229 (todos a `admin`; las dos lecturas también a auditor y financiera). */
+const LECTURAS_13422 = ['clients.clientes.ver', 'finanzas.reporte_costos.ver'] as const;
+const OPERACION_13422 = [
+  'maintenance.inicio.administrar', 'maintenance.ordenes.administrar', 'liquidacion.pago_manual.administrar',
+  'vehicles.vehiculos.administrar', 'vehicles.propietario.ver_documento', 'fleet.flota.administrar',
+  'rndc.credenciales.administrar', 'rndc.manifiestos.administrar', 'rutas.rutas.administrar',
+  'rutas.pernocta.administrar', ...LECTURAS_13422,
+  // HU #13428 (0237): el transitorio `clients.clientes.administrar` se parte en crear, editar y datos fiscales.
+  'clients.clientes.crear', 'clients.clientes.editar', 'clients.clientes.datos_fiscales',
+] as const;
+// HU #13423 (0230, ADR-0023): LAFT, Privacidad, Firma, Drive, SOAT antiguo, Siigo y las cuatro de solo
+// sesión. Lo que la 0230 siembra a cada rol (reparto de partida); admin, todo.
+const SIIGO_FACTURA_OPERAR = [
+  'siigo.factura.emitir', 'siigo.factura.reintentar', 'siigo.factura.reenviar_correo', 'siigo.factura.marcar_fallido',
+  'siigo.factura.reactivar', 'siigo.factura.corregir', 'siigo.factura.anular',
+] as const;
+const SIIGO_LEER_13423 = ['siigo.factura.consultar', 'siigo.parametrizacion.ver'] as const;
+const LAFT_COMPLIANCE_13423 = [
+  'laft.listas.operar', 'laft.contrapartes.operar', 'laft.bitacora.ver', 'laft.capacitaciones.operar',
+  'laft.inusuales.operar', 'laft.plan_auditoria.administrar', 'laft.ros.operar', 'laft.ros.exportar',
+  'laft.efectivo.operar', 'laft.empleados.operar', 'laft.manual.firmar', 'laft.tablero.ver', 'laft.sincronizacion.ver',
+  'privacy.titulares.operar', 'privacy.accesos_pii.ver',
+] as const;
+const SENSIBLES_13423 = [
+  ...LAFT_COMPLIANCE_13423, ...SIIGO_FACTURA_OPERAR, ...SIIGO_LEER_13423,
+  'laft.listas.administrar', 'laft.manual.administrar', 'laft.retencion.administrar', 'laft.sincronizacion.administrar',
+  'laft.oficial.administrar', 'privacy.olvido.administrar', 'firma.solicitud.administrar', 'firma.estado.ver',
+  'drive.archivos.administrar', 'soat.antiguo.administrar', 'soat.antiguo.operar',
+  // HU #13427 (0235): el transitorio de Siigo se parte en las operaciones de sus acciones (admin las tiene todas).
+  'siigo.conceptos.administrar', 'siigo.catalogos.sincronizar', 'siigo.terceros.configurar', 'siigo.freno.reactivar',
+  'siigo.credenciales.ver', 'siigo.credenciales.registrar_pruebas', 'siigo.credenciales.registrar_produccion', 'siigo.credenciales.probar',
+  'siigo.conceptos.confirmar', 'siigo.emision.ver',
+  // HU #13588/#13589: ya no sueltas; vienen con su ítem (consultar vehículos con Vehículos/SOAT antiguo/Flota/
+  // Trámite Digital; RUNT persona, cédula y Fasecolda con Trámite Digital). admin tiene todos esos ítems.
+  'vehicles.vehiculos.consultar', 'runt.persona.consultar', 'runt.cedula.leer', 'integraciones.fasecolda.buscar',
+] as const;
+
+/**
+ * HU #12872: códigos que la web empezó a consultar con `hasFuncion` al quitar el nombre del rol. Se
+ * reparten a quien hoy pasaba la regla por nombre, para que los specs vecinos sigan verdes.
+ */
+const SOAT_DETALLE_OPERACIONES_12872 = [
+  'soat.solicitud.rechazar', 'soat.solicitud.reactivar', 'soat.solicitud.reversar',
+  'soat.proveedor.cambiar', 'soat.solicitud.asumir', 'soat.solicitud.devolver',
+] as const;
+const BOLSAS_CONCILIACION_12872 = ['bolsas.bolsa.ver', 'conciliacion.boletas.listar', 'conciliacion.boleta.ver'] as const;
+const ADMIN_12872 = [
+  ...SOAT_DETALLE_OPERACIONES_12872, ...BOLSAS_CONCILIACION_12872,
+  'tramite.metricas.ver_resumen', 'usuarios.usuario.crear', 'usuarios.usuario.exportar',
+  'revisiones.revision.resolver',
+] as const;
+
+const FUNCIONES_POR_ROL_BASE: Readonly<Record<string, readonly string[]>> = {
   admin: [
     ...SOAT_LEER, 'soat.comprobante.cargar', 'soat.solicitud.enviar',
+    // HU #12872 (AC3): Excel y carga masiva por su función (0179: admin y proveedor).
+    'soat.excel.exportar', 'soat.masiva.cargar',
     // HU #12998: «Reintentar consulta» de una incompleta (0211: sembrada solo a `admin`).
     'soat.solicitud.reintentar_runt',
     // HU #13064: «Acceso a FLIT 2» en Gestión Trámites (0214: sembradas solo a `admin`).
@@ -246,6 +318,8 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     'liquidacion.liquidacion.liquidar', 'liquidacion.liquidacion.reversar',
     'liquidacion.liquidacion.facturar',
     'usuarios.usuario.listar',
+    // HU #13430 (AC6): los botones de Roles y permisos van por su operación (admin las tiene por `accion.roles_permisos.*`).
+    'permisos.rol.listar', 'permisos.cuadro.ver', 'permisos.cuadro.guardar', 'permisos.rol.crear', 'permisos.rol.editar', 'permisos.rol.borrar',
     ...SERVICIOS_ADICIONALES,
     SERVICIOS_DE_TRAMITE_VER, ...SERVICIOS_DE_TRAMITE_ESCRIBIR,
     ...COMPROBANTES,
@@ -253,28 +327,76 @@ export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = {
     'logistica.viajes.ver',
     'logistica.viajes.registrar',
     'logistica.viajes.quitar',
+    // HU #13421 (0226, ADR-0023): operaciones de los módulos legacy PESV/drivers/jornadas/RUM,
+    // sembradas a `admin` (las «administrar» son transitorias).
+    ...PESV_TRANSITORIAS,
+    // HU #13589: el resumen RUM, con el ítem «Rendimiento».
+    ...RENDIMIENTO_13589,
+    // HU #13422 (0229, ADR-0023): los ocho directorios de operación, sembrados a `admin`.
+    ...OPERACION_13422,
+    // HU #13423 (0230): los seis sensibles y las cuatro de solo sesión, sembrados a `admin`.
+    ...SENSIBLES_13423,
+    // HU #12872: lo que la web pregunta ahora por función donde antes miraba `role === 'admin'`.
+    ...ADMIN_12872,
   ],
+  // HU #13421 (0226): lo que la migración siembra a los roles PESV; el conductor no recibe ninguna.
+  lider_pesv: [
+    'pesv.comite.administrar', 'pesv.plan.administrar', 'pesv.politica_edicion.administrar',
+    'pesv.auditorias.administrar', 'pesv.comunicaciones.administrar', 'pesv.contratistas.administrar',
+    'pesv.incidentes_causa_raiz.administrar', 'pesv.raci.administrar', 'pesv.normativa_edicion.administrar',
+    'pesv.retencion_edicion.administrar', 'pesv.diagnostico.administrar', 'pesv.diagnostico_consulta.administrar',
+    'drivers.incidentes_registro.administrar',
+    'vehicles.vehiculos.consultar', // HU #13423: copia viva de pagina.fleet
+  ],
+  compliance: ['pesv.diagnostico_consulta.administrar', ...LAFT_COMPLIANCE_13423],
+  supervisor_flota: ['pesv.incidentes_causa_raiz.administrar', 'drivers.incidentes_registro.administrar', 'vehicles.vehiculos.consultar'],
   proveedor: [
     ...SOAT_LEER, 'soat.comprobante.cargar', 'soat.soportes.descargar', 'soat.documentos_adicionales.ver',
+    'soat.excel.exportar', 'soat.masiva.cargar', // HU #12872 (AC3), 0179
     // HU #13365 (0223): cargar y eliminar adicionales desde el detalle.
     'soat.documentos_adicionales.cargar', 'soat.documentos_adicionales.eliminar',
+    // HU #13423 (0230): SOAT antiguo y la consulta de vehículos (copia viva de pagina.soat).
+    'soat.antiguo.operar', 'vehicles.vehiculos.consultar',
+    // HU #12872: «Rechazar» del detalle por su función (el gestor lo tenía por modo).
+    'soat.solicitud.rechazar',
   ],
   cliente: [...SOAT_LEER, 'soat.solicitud.crear', 'soat.runt.preconsultar', 'soat.factura.leer'],
   gestor_impuestos: [
     'impuestos.cola.ver', 'impuestos.recibos.cargar', 'impuestos.tramite.certificar',
     'impuestos.certificado.descargar',
   ],
-  auditor: [...SOAT_LEER, 'impuestos.cola.ver', 'tablero.tablero.ver', SERVICIOS_DE_TRAMITE_VER, 'tramites.tramite.ver_soportes'],
+  auditor: [
+    ...SOAT_LEER, 'impuestos.cola.ver', 'tablero.tablero.ver', SERVICIOS_DE_TRAMITE_VER, 'tramites.tramite.ver_soportes', ...LECTURAS_13422,
+    // HU #13423 (0230): lecturas de Siigo, el tablero LAFT y la consulta de vehículos (copia de pagina.soat).
+    ...SIIGO_LEER_13423, 'laft.tablero.ver', 'vehicles.vehiculos.consultar',
+  ],
 
   financiera: [
     'liquidacion.liquidacion.liquidar', 'liquidacion.liquidacion.facturar', ...SERVICIOS_ADICIONALES,
     SERVICIOS_DE_TRAMITE_VER, ...SERVICIOS_DE_TRAMITE_ESCRIBIR,
     ...COMPROBANTES,
+    ...LECTURAS_13422,
+    // HU #13423 (0230): Siigo (la vieja tabla de roles por acción le daba todas las acciones).
+    ...SIIGO_FACTURA_OPERAR, ...SIIGO_LEER_13423, 'siigo.conceptos.confirmar', 'siigo.emision.ver',
+    // HU #12872: Bolsas y Conciliación por función (antes `ROLES_BOLSAS`/`ROLES_CONCILIACION`).
+    ...BOLSAS_CONCILIACION_12872,
   ],
-  transito: ['transito.tramite.tomar', 'transito.bandeja.ver_pendientes'],
-  mensajero: [],
+  transito: ['transito.tramite.tomar', 'transito.bandeja.ver_pendientes', 'firma.estado.ver'],
+  // HU #12872 (AC5): «Mi ruta» por función, la misma que exige `GET /flito/logistica/mi-ruta`.
+  mensajero: ['logistica.ruta.ver'],
   conductor: [],
 };
+
+/**
+ * HU #13431: Perfil (ver mis datos y cambiar la contraseña) se reparte a TODOS los roles (P-22, PO
+ * 2026-10-13) y el shell lo decide por función (`hasFuncion('perfil.datos.ver')`), no por página.
+ * El control negativo de un spec pasa `funciones` sin estos códigos.
+ */
+export const FUNCIONES_PERFIL = ['perfil.datos.ver', 'perfil.contrasena.cambiar'] as const;
+
+export const FUNCIONES_POR_ROL: Readonly<Record<string, readonly string[]>> = Object.fromEntries(
+  Object.entries(FUNCIONES_POR_ROL_BASE).map(([rol, funciones]) => [rol, [...funciones, ...FUNCIONES_PERFIL]]),
+);
 
 /** Forma de un fixture de usuario: lo que `sobreDeMe` necesita más `funciones` opcional. */
 export interface UsuarioFixture {
@@ -295,9 +417,14 @@ export function funcionesDe(user: UsuarioFixture): string[] {
 
 /** Cuerpo de `GET /api/permisos/mios` como lo arma el servidor (HU #12170). */
 export function sobreDeMios(user: UsuarioFixture, funciones = funcionesDe(user)) {
-  const externo = user.role === 'cliente' || user.role === 'proveedor';
+  // HU #12875: `/mios` devuelve el ENLACE del rol (el tipo interno/externo se retiró). Como la base:
+  // `cliente` → compania, `proveedor` → proveedor; el resto, ninguno. La Ayuda decide por este campo.
+  // HU #13452: un fixture puede declarar su `tipoEnlace` (rol cualquiera con enlace, p. ej. «Prueba compañía»).
+  const tipoEnlace = typeof user.tipoEnlace === 'string'
+    ? user.tipoEnlace
+    : user.role === 'cliente' ? 'compania' : user.role === 'proveedor' ? 'proveedor' : 'ninguno';
   return {
-    funciones, rol: user.role, tipoPrincipal: externo ? 'externo' : 'interno',
+    funciones, rol: user.role, tipoEnlace,
     version: 1, resueltoEn: '2026-09-14T12:00:00.000Z',
   };
 }
@@ -324,11 +451,21 @@ export interface OpcionesLogin {
  */
 export async function loginAs(page: Page, user: UsuarioFixture = ADMIN_USER, opciones: OpcionesLogin = {}) {
   const me = sobreDeMe(user);
+  // HU #13431: el servidor ya no manda `email` en `/auth/me` (ni en el login); el correo solo llega
+  // por `/auth/perfil`. El mock lo quita aunque el fixture lo traiga, para parecerse al servidor.
+  const meServidor: Record<string, unknown> = { ...me };
+  delete meServidor.email;
   // /me responde 200 con el user — necesario para que useAuth() considere la sesión válida.
   // HU #12087: lista resuelta como el servidor (`sobreDeMe`).
   await page.route('**/api/auth/me', async (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(me) })
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(meServidor) })
   );
+  // HU #13431: `/perfil` lee sus datos de `GET /auth/perfil` (guarda «Ver mis datos», HU #13428), con
+  // la forma del servidor: sin id ni código de rol.
+  await page.route('**/api/auth/perfil', async (route) => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ name: me.name ?? null, username: me.username ?? null, email: me.email ?? null, rolNombre: me.rolNombre ?? null }),
+  }));
   // HU #12170: `AuthProvider` pide `/permisos/mios` al cuajar la sesión y las pantallas FLITO
   // preguntan `hasFuncion` sobre esa respuesta. Sin esto, el catch-all responde `[]` y la cola se
   // queda en «no tiene ninguna función habilitada». `funciones: null` deja que el spec lo mockee.

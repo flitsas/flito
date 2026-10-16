@@ -89,6 +89,7 @@ import {
 } from '../components/flito/soat-cliente/PasoVin';
 import { TarjetaCanalAjeno, TarjetaCanalDeshabilitado } from '../components/flito/soat-cliente/TarjetaCanal';
 import FichaRunt from '../components/flito/soat-cliente/FichaRunt';
+import { CampoCompaniaSoat, ITEM_COMPANIA, useCompaniaSoat } from '../components/flito/soat-cliente/CampoCompaniaSoat';
 import { BloqueDocumentosAdicionales } from '../components/flito/soat/DocumentosAdicionalesSelector';
 import {
   TIMEOUT_ALTA_CON_ADICIONALES_MS, adjuntarAdicionales, textoEnviandoAdicionales, textoToastDescartes, validos,
@@ -198,6 +199,8 @@ export default function FlitoSoatSolicitud() {
 
 function Alta() {
   const navigate = useNavigate();
+  // HU #12874: a nombre de qué compañía se radica. Con enlace compañía es la suya y no viaja.
+  const compania = useCompaniaSoat(useAuth().tipoEnlace === 'compania');
   const tituloRef = useRef<HTMLHeadingElement>(null);
   const vinRef = useRef<HTMLInputElement>(null);
   const consultarRef = useRef<HTMLButtonElement>(null);
@@ -487,7 +490,7 @@ function Alta() {
    * El campo del multipart es `facturaVenta`, el mismo del alta. `solicitudId` **no se manda**: en el
    * alta no hay solicitud todavía, y el borde lo declara opcional justo para esto.
    */
-  const leerFactura = async (f: File) => {
+  const leerFactura = async (f: File, companiaId = compania.companiaId) => {
     turnoLectura.current += 1;
     const mio = turnoLectura.current;
     setSobrescritura(null);
@@ -495,6 +498,7 @@ function Alta() {
     try {
       const form = new FormData();
       form.append('facturaVenta', f);
+      if (companiaId) form.append('companiaId', String(companiaId));
       // La respuesta va ENVUELTA en `{ extraccion }`, no plana.
       const { extraccion } = await api.post<{ extraccion: ExtraccionFacturaVenta }>(
         '/flito/soat/cliente/factura/lectura', form,
@@ -503,7 +507,8 @@ function Alta() {
       repartirLectura(camposLeidos(extraccion ?? {}));
     } catch (e) {
       if (turnoLectura.current !== mio) return;
-      const r = reaccionALectura(leerFallo(e));
+      const r = reaccionALectura(leerFallo(e), compania.escoge);
+      if (r.tipo === 'compania') { setLectura({ fase: 'inicial' }); encajarCompania(r); return; }
       if (r.tipo === 'archivo') {
         // El PDF que no lo es se caza al ADJUNTAR y su superficie es la caja de subida, no una banda
         // de lectura: si el archivo no vale, no hay adjunto **ni** lectura que reintentar. Antes esto
@@ -522,7 +527,24 @@ function Alta() {
     const err = errorArchivo(f);
     setErrores((e) => ({ ...e, archivo: err ?? undefined }));
     setArchivo(err ? null : f);
-    if (!err) void leerFactura(f);
+    // HU #12874: sin compañía el servidor no lee (400). Se pide la compañía y la lectura arranca al escogerla.
+    if (!err && compania.faltante) compania.pedir();
+    else if (!err) void leerFactura(f);
+  };
+
+  /**
+   * HU #12874: la compañía alimenta la consulta (RN-01 y tenencia son por compañía), así que cambiarla
+   * retira lo del RUNT como el VIN — pero a `inicial` y no a `invalidada`, cuyo aviso dice «Cambió el VIN».
+   */
+  const cambiarCompania = (v: string) => {
+    compania.cambiar(v);
+    turno.current += 1;
+    setConsulta({ fase: 'inicial' });
+    if (v && archivo && lectura.fase === 'inicial') void leerFactura(archivo, Number(v));
+  };
+  const encajarCompania = (r: { mensaje: string; recargar: boolean }) => {
+    compania.pedir(r.mensaje);
+    if (r.recargar) compania.recargar();
   };
 
   /**
@@ -568,8 +590,12 @@ function Alta() {
    * solo dónde se pinta lo que no es del RUNT: en la consulta no hay tarjeta de envío que usar.
    */
   const encajarFallo = (f: FalloCanal, origen: 'consulta' | 'envio') => {
-    const r = reaccionA(f);
+    const r = reaccionA(f, compania.escoge);
     switch (r.tipo) {
+      case 'compania':
+        if (origen === 'consulta') setConsulta({ fase: 'inicial' });
+        encajarCompania(r);
+        return;
       case 'canal':
         setCanalCaido(true);
         return;
@@ -622,6 +648,7 @@ function Alta() {
   // esquema, que no trae `codigo` del canal y sale por la rama por defecto. El Cliente leería «no
   // pudimos consultar el RUNT» cuando lo que pasa es que le faltan caracteres al VIN.
   const consultar = async () => {
+    if (compania.faltante) { compania.pedir(); return; }
     const errs = validarVehiculo(vin);
     setErrores((e) => ({ ...e, vin: errs.vin }));
     setIntento((n) => n + 1);
@@ -634,7 +661,7 @@ function Alta() {
       // **El cuerpo es `{ vin }` y nada más** (HU #12090, AC1): la modalidad de VIN del RUNT no pide
       // documento del propietario, y mandarlo sería entregar un dato personal sin destino. `vin` ya
       // está normalizado en el estado, con la misma función que aplica el borde.
-      const datos = await api.post<PreconsultaRunt>('/flito/soat/cliente/preconsulta', { vin });
+      const datos = await api.post<PreconsultaRunt>('/flito/soat/cliente/preconsulta', { vin, ...(compania.companiaId ? { companiaId: compania.companiaId } : {}) });
       if (turno.current !== mio) return;
       setConsulta({ fase: 'ok', datos, consultadoEn: new Date() });
     } catch (e) {
@@ -671,6 +698,7 @@ function Alta() {
       // Sin `placa`: la del alta es la que devuelve el RUNT (HU #12090, AC5) y `EntradaSolicitud` la
       // perdió. El VIN va SIEMPRE, que es lo que dejó de ser opcional.
       form.append('vin', vin);
+      if (compania.companiaId) form.append('companiaId', String(compania.companiaId));
       form.append('tipoDocumento', propietario.tipoDocumento);
       form.append('numeroDocumento', propietario.numeroDocumento.trim());
       // Razón social XOR nombre/s + apellido/s: el esquema PROHÍBE los que no tocan, y el CHECK de
@@ -739,6 +767,7 @@ function Alta() {
    * recorrido de tabulación.
    */
   const intentarEnviar = () => {
+    if (compania.faltante) { compania.pedir(); return; }
     if (!compuertaAbierta) { consultarRef.current?.focus(); return; }
     // Con la compuerta abierta se llama a `enviar()` **aunque falten campos**: su primera mitad ya
     // hace `validarTodo` → `setErrores` → `setIntento + 1`, y `useFocoPrimerError` lleva el foco al
@@ -816,8 +845,11 @@ function Alta() {
 
   const faltantes = useMemo(
     // En modo RUNT caído la consulta ya no es un pendiente: lo que falta son los datos (UX §2.2).
-    () => faltaParaEnviar(modoCaido ? 'ok' : consulta.fase, vin, propietario, archivo, pendientesRevision.length),
-    [modoCaido, consulta.fase, vin, propietario, archivo, pendientesRevision.length],
+    () => [
+      ...(compania.faltante ? [ITEM_COMPANIA] : []),
+      ...faltaParaEnviar(modoCaido ? 'ok' : consulta.fase, vin, propietario, archivo, pendientesRevision.length),
+    ],
+    [compania.faltante, modoCaido, consulta.fase, vin, propietario, archivo, pendientesRevision.length],
   );
   const fraseFaltantes = consulta.fase === 'vigente'
     ? AVISO_VIGENTE
@@ -869,6 +901,7 @@ function Alta() {
         <TarjetaSolicitudGuardada vin={guardada.vin} adicionales={guardada.adicionales} onIrACola={() => navigate(COLA, { state: { pastilla: 'incompleta' } })} onSolicitarOtro={solicitarOtro} />
       ) : (
       <>
+      <CampoCompaniaSoat compania={compania} onCambio={cambiarCompania} />
       {/* ── Bloque 1 · Vehículo ─────────────────────────────────────────────────────────────────
           **Un solo campo** (AC1). Placa, tipo y número de documento salieron de aquí: desde la
           HU #12090 el RUNT se interroga por VIN, y un campo que no cambia el resultado de la

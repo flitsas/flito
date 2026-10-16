@@ -17,6 +17,7 @@ import {
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { vacioConEnlace } from '../lib/copyEnlace';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
@@ -111,9 +112,14 @@ function useDebounce<T>(valor: T, ms: number): T {
 }
 
 export default function FlitoTramites() {
-  const { hasFuncion } = useAuth();
+  const { hasFuncion, tipoEnlace } = useAuth();
   // HU #12170
   const esOperaciones = hasFuncion('tramites.solicitud.pedir_soat');
+  // HU #13452: las listas de apoyo de parametrización (compañías, proveedores) están cerradas a todo
+  // enlace desde #12875. Solo el usuario SIN enlace las pide y ve lo que depende de ellas; `null` es
+  // «aún no se sabe» y no pide nada, para que ni la primera pintura dispare un 403.
+  const sinEnlace = tipoEnlace === 'ninguno';
+  const puedePedirSoat = esOperaciones && sinEnlace;
 
   // Semilla desde la URL, solo al montar, para que un enlace de otra pantalla (el detalle del
   // reintento de derechos) llegue con la búsqueda ya aplicada. A partir de ahí manda el usuario.
@@ -219,15 +225,21 @@ export default function FlitoTramites() {
   // Facetas (opciones de los dropdowns) + clientes FLITO (para el multiselect de empresa gestora).
   useEffect(() => {
     api.get<Facetas>('/flito/tramites/facetas').then(setFacetas).catch(() => { /* dropdowns quedan vacíos */ });
+  }, [recarga]);
+
+  // HU #13452: con enlace el filtro de empresa gestora no se pinta (el listado ya viene acotado a su
+  // enlace) y la lista no se pide.
+  useEffect(() => {
+    if (!sinEnlace) return;
     api.get<{ nit: string; nombre: string }[]>('/flito/parametrizacion/companias')
       .then((cs) => setEmpresasOpc(cs.map((c) => ({ nit: c.nit, nombre: c.nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre))))
       .catch(() => setEmpresasOpc([]));
-  }, [recarga]);
+  }, [sinEnlace, recarga]);
 
   useEffect(() => {
-    if (!esOperaciones) return;
+    if (!puedePedirSoat) return;
     api.get<Proveedor[]>('/flito/parametrizacion/proveedores-soat').then(setProveedores).catch(() => setProveedores([]));
-  }, [esOperaciones, recarga]);
+  }, [puedePedirSoat, recarga]);
 
   const filas = data ?? [];
   const totalPaginas = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -343,12 +355,13 @@ export default function FlitoTramites() {
     <div className="space-y-4">
       <PageHeaderCard title="Gestión Trámites"
         subtitle="Centro de gestión de los trámites de FLIT: sincroniza y consulta su estado, y solicita SOAT e impuestos. Solo los trámites Asignados —con empresa y secretaría emparejadas— habilitan esas gestiones."
-        actions={esOperaciones ? (
+        actions={esOperaciones && sinEnlace ? (
           <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} title="Crea un trámite aprobado de prueba para Logística"
             onClick={() => setCrearDemo(true)}>+ Trámite demo</button>
         ) : undefined} />
 
-      <SincronizacionTramites esOperaciones={esOperaciones} onSincronizado={refrescar} />
+      {/* HU #13452: sincronizar con FLIT 1/FLIT 2 es operación interna: con enlace el bloque no se pinta. */}
+      {sinEnlace && <SincronizacionTramites esOperaciones={esOperaciones} onSincronizado={refrescar} />}
 
       {error && <FlitCard><p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p></FlitCard>}
 
@@ -361,9 +374,9 @@ export default function FlitoTramites() {
                 su ausencia. El número del rótulo es el de las filas sobre las que SÍ actúan. */}
             {nAccionables > 0 && (
               <>
-                <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enProceso} onClick={() => setDialogo('soat')}>Solicitar SOAT ({cuentaAccionable})</button>
+                {puedePedirSoat && <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enProceso} onClick={() => setDialogo('soat')}>Solicitar SOAT ({cuentaAccionable})</button>}
                 <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enProceso} onClick={solicitarImpuestos}>Solicitar Impuestos ({cuentaAccionable})</button>
-                <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enProceso} onClick={() => setDialogo('ambos')}>Solicitar ambos ({cuentaAccionable})</button>
+                {puedePedirSoat && <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enProceso} onClick={() => setDialogo('ambos')}>Solicitar ambos ({cuentaAccionable})</button>}
                 <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enProceso} onClick={() => entregar(idsAccionables())}>Entregar ({cuentaAccionable})</button>
               </>
             )}
@@ -412,7 +425,7 @@ export default function FlitoTramites() {
 
       {data !== null && !hayTramitesSistema && !hayFiltros && !buscar.trim() && (
         <FlitCard>
-          <FlitEmpty>No hay trámites. Sincroniza desde FLIT para traer trámites.</FlitEmpty>
+          <FlitEmpty>{vacioConEnlace('trámites', tipoEnlace) ?? 'No hay trámites. Sincroniza desde FLIT para traer trámites.'}</FlitEmpty>
         </FlitCard>
       )}
 
@@ -494,8 +507,10 @@ export default function FlitoTramites() {
                 <FlitTh>Correo</FlitTh>
                 <FlitTh>
                   Empresa gestora
-                  <ThFiltroMulti seleccion={empresasSel} onCambio={setEmpresasSel}
-                    opciones={empresasOpc.map((e) => ({ value: e.nit, label: e.nombre }))} placeholder="Todas" />
+                  {sinEnlace && (
+                    <ThFiltroMulti seleccion={empresasSel} onCambio={setEmpresasSel}
+                      opciones={empresasOpc.map((e) => ({ value: e.nit, label: e.nombre }))} placeholder="Todas" />
+                  )}
                 </FlitTh>
                 <FlitTh>
                   Tránsito
@@ -608,7 +623,7 @@ export default function FlitoTramites() {
                     {!f.secretariaEmparejada && <div className="mt-1"><StatusChip tone="warning">Secretaría sin emparejar</StatusChip></div>}
                   </td>
                   <td className="px-3 py-2 text-xs align-top">{f.ciudad ?? '—'}</td>
-                  <td className="px-3 py-2 align-top"><CeldaSoat fila={f} onSolicitar={esOperaciones ? () => { setFilaSolicitud(f.tramiteId); setDialogo('soat'); } : undefined} /></td>
+                  <td className="px-3 py-2 align-top"><CeldaSoat fila={f} onSolicitar={puedePedirSoat ? () => { setFilaSolicitud(f.tramiteId); setDialogo('soat'); } : undefined} /></td>
                   <td className="px-3 py-2 align-top"><CeldaImpuesto fila={f} onSolicitar={esOperaciones ? () => solicitarImpuestosLote([f.tramiteId]) : undefined} /></td>
                   <td className="px-3 py-2 align-top"><TrackingLogistica estado={f.logistica?.estado ?? null} /></td>
                   <td
@@ -685,7 +700,7 @@ export default function FlitoTramites() {
           onCreado={() => { setCrearEmpresa(null); setRecarga((n) => n + 1); }} />
       )}
 
-      {crearDemo && (
+      {crearDemo && sinEnlace && (
         <ModalCrearTramiteDemo onCerrar={() => setCrearDemo(false)}
           onCreado={() => { setCrearDemo(false); setRecarga((n) => n + 1); }} />
       )}

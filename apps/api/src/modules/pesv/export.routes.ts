@@ -14,7 +14,8 @@ import {
   pesvComite, pesvComiteActas, users,
   jornadasConductor, routes, routeRiskAnalyses,
 } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { JORNADA_LIMITS } from '../jornadas/limits.js';
@@ -22,7 +23,7 @@ import { buildResumenSisiPdf, buildPolicyPdf, buildPlanPdf, buildDiagnosticoPdf 
 import diagnosticoExportRouter from './export-diagnostico.routes.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('pesv'));
+router.use(authMiddleware);
 
 // Sub-router con endpoints del expediente del rediseño UX
 // (export por estándar + expediente completo). Separado por cap 400L.
@@ -34,7 +35,7 @@ function escXml(s: string | null | undefined): string {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c] ?? c));
 }
 
-router.post('/sisi', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/sisi', requirePage('pesv_tablero_ejecutivo'), exigirFuncion('pesv.tablero_ejecutivo.administrar'), async (req: Request, res: Response) => {
   const anio = parseInt(req.body?.anio as string, 10) || new Date().getUTCFullYear();
   const trimestre = `${anio}-Q${Math.floor(new Date().getUTCMonth() / 3) + 1}`;
   const inicioMes = new Date(Date.UTC(anio, new Date().getUTCMonth(), 1));

@@ -8,7 +8,8 @@ import {
   laftCounterparties,
   laftRosDrafts,
 } from '../../../db/schema.js';
-import { authMiddleware, requireRole } from '../../../shared/middleware/auth.js';
+import { authMiddleware } from '../../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../../shared/middleware/exigir-funcion.js';
 import { userOrIpKey } from '../../../shared/middleware/rateLimiter.js';
 import { laftAudit } from '../audit.service.js';
 import { loggerFor } from '../../../shared/logger.js';
@@ -17,7 +18,7 @@ import { registrarCashTxn } from './cash.service.js';
 const log = loggerFor('laft-cash');
 
 const router = Router();
-router.use(authMiddleware, requireRole('admin', 'compliance'));
+router.use(authMiddleware);
 
 // Rate limit más estricto que el global — registro de PII financiera.
 const writeLimiter = rateLimit({
@@ -57,7 +58,7 @@ function readIdempKey(req: Request): string | null {
 }
 
 // === POST / — registrar txn en efectivo (o no efectivo) =====================
-router.post('/', writeLimiter, async (req: Request, res: Response) => {
+router.post('/', exigirFuncion('laft.efectivo.operar'), writeLimiter, async (req: Request, res: Response) => {
   const idempKey = readIdempKey(req);
   if (!idempKey) {
     res.status(400).json({ error: 'Idempotency-Key requerido (8-80 chars)' });
@@ -133,7 +134,7 @@ router.post('/', writeLimiter, async (req: Request, res: Response) => {
 });
 
 // === GET / — list paginado con filtros =====================================
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('laft.efectivo.operar'), async (req: Request, res: Response) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
   const counterpartyId = req.query.counterpartyId ? parseInt(req.query.counterpartyId as string, 10) : null;
@@ -182,7 +183,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // === GET /:id — detalle ====================================================
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', exigirFuncion('laft.efectivo.operar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [row] = await db.select().from(laftCashTxns).where(eq(laftCashTxns.id, id));
@@ -191,7 +192,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 });
 
 // === PATCH /:id/link-ros — vincular a un ROS draft =========================
-router.patch('/:id/link-ros', writeLimiter, async (req: Request, res: Response) => {
+router.patch('/:id/link-ros', exigirFuncion('laft.efectivo.operar'), writeLimiter, async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = linkRosSchema.safeParse(req.body);

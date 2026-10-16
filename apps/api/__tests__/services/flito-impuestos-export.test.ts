@@ -36,6 +36,7 @@ import { getTableName } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { testToken, type TestRole } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 /** Tope de filas del export durante esta suite. Pequeño a propósito (ver cabecera). */
 const TOPE = 3;
@@ -206,7 +207,7 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
-  app.use(BASE, router);
+  app.use(BASE, conAlcance('impuestos', router)); // HU #13426: como en app.ts
   return app;
 }
 
@@ -219,15 +220,20 @@ async function buildAppAmbas() {
   app.use(express.json());
   const { default: impuestos } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
   const { default: soat } = await import('../../src/modules/flito-soat/flito-soat.routes.js');
-  app.use(BASE, impuestos);
-  app.use('/api/flito/soat', soat);
+  app.use(BASE, conAlcance('impuestos', impuestos)); // HU #13426: como en app.ts
+  app.use('/api/flito/soat', conAlcance('soat', soat));
   return app;
 }
 
 /** `sub` nuevo por caso: el limitador cuenta 5/min y usuario, y su ventana no se reinicia. */
 let siguienteSub = 9500;
+// HU #12875: Impuestos está CERRADO por la frontera al enlace `organismos_transito` hasta la #13426
+// (decisión (b) del PO). Lo que aquí se mide es el FILTRO DEL SERVICIO del gestor, que sigue en pie
+// y que la #13426 vuelve a abrir: por eso su sesión lleva el enlace neutralizado (`ninguno`). El
+// cierre en sí lo prueba `frontera-por-enlace.test.ts`.
+const ENLACE_DE_PRUEBA = (_role: TestRole): string | undefined => undefined; // HU #13426: enlace real
 const sesion = async (role: TestRole = 'admin'): Promise<string> =>
-  `Bearer ${await testToken({ sub: siguienteSub++, username: 'ops@flit.io', role })}`;
+  `Bearer ${await testToken({ sub: siguienteSub++, username: 'ops@flit.io', role, tipoEnlace: ENLACE_DE_PRUEBA(role) })}`;
 
 const exportar = async (cabecera: string, cuerpo: unknown = {}) =>
   request(await buildApp())
@@ -1072,8 +1078,8 @@ describe('fronteras — quién puede descargar y qué', () => {
   it('el gestor de impuestos arrastra su frontera al WHERE del archivo', async () => {
     kdb.when.scenario({
       // La atadura CA-10 vive en `flito_gestor_organismos` desde la HU #12053: una fila por
-      // organismo, no una columna de `users`.
-      flito_gestor_organismos: [{ codigo: '25473' }],
+      // organismo, no una columna de `users`. HU #13426: la lee `alcanceDeUsuario` (proyección `c`).
+      flito_gestor_organismos: [{ c: '25473' }],
       flito_impuestos: filas(1), flito_compradores: [],
     });
 
@@ -1099,7 +1105,7 @@ describe('fronteras — quién puede descargar y qué', () => {
    */
   it('TC-12053-24: el .xlsx del gestor con DOS organismos arrastra los DOS al WHERE', async () => {
     kdb.when.scenario({
-      flito_gestor_organismos: [{ codigo: '25473' }, { codigo: '05001' }],
+      flito_gestor_organismos: [{ c: '25473' }, { c: '05001' }],
       flito_impuestos: filas(1), flito_compradores: [],
     });
 
@@ -1540,7 +1546,7 @@ describe('archivo ampliado — la función decide, no el rol; y el 403 no deja r
 
   it('un `gestor_impuestos` al que el admin le repartió la función baja el ampliado: decide la función', async () => {
     kdb.when.scenario({ flito_impuestos: [filaPagada()], flito_compradores: [comprador()] });
-    const cabecera = `Bearer ${await testToken({ sub: siguienteSub++, username: 'gestor@flit.io', role: 'gestor_impuestos', funciones: ['impuestos.excel.exportar_pago'] })}`;
+    const cabecera = `Bearer ${await testToken({ sub: siguienteSub++, username: 'gestor@flit.io', role: 'gestor_impuestos', funciones: ['impuestos.excel.exportar_pago'], tipoEnlace: 'ninguno' })}`;
     const r = await exportarAmpliado(cabecera);
     expect(r.status).toBe(200);
     expect((await libro(r.body as Buffer)).columnCount).toBe(39);
@@ -1555,12 +1561,17 @@ describe('archivo ampliado — la función decide, no el rol; y el 403 no deja r
   });
 
   it('`impuestos.excel.exportar_pago` es de `impuestos`, tipo operación, y de partida SOLO admin', async () => {
-    const { catalogoCompleto } = await import('../../src/modules/permisos/catalogo.js');
-    const f = catalogoCompleto().find((c) => c.codigo === 'impuestos.excel.exportar_pago');
+    const { catalogoCompleto, catalogoPlano } = await import('../../src/modules/permisos/catalogo.js');
+    const f = catalogoPlano().find((c) => c.codigo === 'impuestos.excel.exportar_pago');
     expect(f).toBeDefined();
     expect(f!.modulo).toBe('impuestos');
     expect(f!.tipo).toBe('operacion');
     expect(f!.roles).toEqual(['admin']);
+    // HU #12873 (ADR-0025): desde la 0233 la concede la acción hija «Exportar con datos de pago y trazabilidad», con el
+    // mismo reparto de partida (regla «todos» sobre un grupo de una operación) y colgada de «Exportar».
+    const a = catalogoCompleto().find((c) => c.codigo === 'accion.impuestos.exportar_pago');
+    expect(a).toMatchObject({ modulo: 'impuestos', tipo: 'accion', roles: ['admin'], padre: 'accion.impuestos.exportar' });
+    expect(catalogoCompleto().some((c) => c.codigo === 'impuestos.excel.exportar_pago')).toBe(false);
   });
 });
 

@@ -7,6 +7,7 @@
 // porque el mock de este repo devuelve la fila entera aunque el `select` pida menos y su `orderBy` es
 // un passthrough: un aserto de orden escrito sobre el mock sería verde vacío.
 
+import { expandir } from '../../src/modules/permisos/arbol/expansion.js';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
@@ -14,7 +15,7 @@ import type { SQL } from 'drizzle-orm';
 import { chain } from '../helpers/db.js';
 import { renderizar } from '../helpers/sql-ligado.js';
 import { terminosDeOrden } from '../helpers/orden-sql.js';
-import { testToken, registrarUsuarioDePrueba, fuenteDePrueba, operacionesDePartida } from '../helpers/auth.js';
+import { testToken, registrarUsuarioDePrueba, fuenteDePrueba, conCadena, funcionesDePartida } from '../helpers/auth.js';
 
 const selectMock = vi.fn();
 vi.mock('../../src/db/client.js', () => ({
@@ -126,7 +127,7 @@ describe('AC5 — GET /api/permisos/funciones', () => {
 describe('TC #12270 AC7 — GET /api/permisos/mios devuelve el mismo conjunto efectivo que usa el servidor, ya resuelto, con un identificador de versión que cambia cuando el administrador escribe', () => {
   /** El resolutor real (regla, hash y caché) sobre el registro del helper; espiado, no sustituido. */
   const gestor7 = async (funcionesDelRol: string[]) => registrarUsuarioDePrueba(7, {
-    rol: 'gestor', tipoPrincipal: 'interno', funcionesDelRol, excepciones: [{ codigo: 'pagina.dashboard', efecto: 'conceder' }],
+    rol: 'gestor', tipoEnlace: 'ninguno', funcionesDelRol, excepciones: [{ codigo: 'pagina.dashboard', efecto: 'conceder' }],
   });
 
   it('sin token → 401', async () => {
@@ -134,7 +135,7 @@ describe('TC #12270 AC7 — GET /api/permisos/mios devuelve el mismo conjunto ef
     expect(res.status).toBe(401);
   });
 
-  it('cuerpo { funciones, rol, tipoPrincipal, version, resueltoEn }: funciones es EXACTAMENTE el conjunto del resolutor, ordenado; sin consultar nada más', async () => {
+  it('cuerpo { funciones, rol, tipoEnlace, version, resueltoEn } (HU #12875: sin el tipo retirado): funciones es EXACTAMENTE el conjunto del resolutor, ordenado; sin consultar nada más', async () => {
     const token = await testToken({ sub: 7, role: 'gestor_impuestos' });
     await gestor7(['soat.cola.ver', 'tramite.lote.crear']);
     const { resolverPermisos } = await import('../../src/shared/permisos-efectivos.js');
@@ -147,11 +148,14 @@ describe('TC #12270 AC7 — GET /api/permisos/mios devuelve el mismo conjunto ef
     expect(res.body).toEqual({
       funciones: [...esperado.funciones].sort(),
       rol: 'gestor',
-      tipoPrincipal: 'interno',
+      tipoEnlace: 'ninguno',
       version: esperado.version,
       resueltoEn: esperado.resueltoEn.toISOString(),
     });
-    expect(res.body.funciones).toEqual(['pagina.dashboard', 'soat.cola.ver', 'tramite.lote.crear']);
+    // HU #13429: lo registrado llega con su cadena (elemento, ítem y la acción que da cada operación), así que el
+    // conjunto es su expansión; los tres códigos del caso están en él.
+    expect(res.body.funciones).toEqual([...expandir(conCadena(['pagina.dashboard', 'soat.cola.ver', 'tramite.lote.crear']))].sort());
+    for (const c of ['pagina.dashboard', 'soat.cola.ver', 'tramite.lote.crear']) expect(res.body.funciones).toContain(c);
     expect(selectMock).not.toHaveBeenCalled();
   });
 
@@ -176,18 +180,21 @@ describe('TC #12270 AC7 — GET /api/permisos/mios devuelve el mismo conjunto ef
     expect(igual.body.version).toBe(despues.body.version);
   });
 
-  it('no exige ningún permiso propio: un rol externo con solo su canal también ve SU conjunto', async () => {
+  it('no exige ningún permiso propio: un rol con enlace compañía también ve SU conjunto (ruta transversal)', async () => {
     const token = await testToken({ sub: 8, role: 'cliente' });
     const res = await request(app()).get('/api/permisos/mios').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
-    expect(res.body.tipoPrincipal).toBe('externo');
+    expect(res.body.tipoEnlace).toBe('compania');
+    expect(res.body).not.toHaveProperty('tipoPrincipal');
     // HU #12083: el helper carga las operaciones de partida del rol (la foto); `cliente` tiene su
     // página y sus ocho `soat.*` de lectura y del canal, y nada más.
-    expect(res.body.funciones).toEqual(['pagina.flito_soat', ...operacionesDePartida('cliente')].sort());
+    // HU #12873: `/mios` sirve el conjunto EXPANDIDO (acciones + las operaciones que conceden).
+    // HU #13429: la partida entera del rol (páginas incluidas) con su cadena, como la registra el helper.
+    expect(res.body.funciones).toEqual([...expandir(conCadena([...funcionesDePartida('cliente'), 'pagina.flito_soat']))].sort());
   });
 
   it('?userId=8 se ignora: nunca devuelve el conjunto de otro usuario', async () => {
-    await registrarUsuarioDePrueba(8, { rol: 'admin', tipoPrincipal: 'interno', funcionesDelRol: ['pagina.users'], excepciones: [] });
+    await registrarUsuarioDePrueba(8, { rol: 'admin', tipoEnlace: 'ninguno', funcionesDelRol: ['pagina.users'], excepciones: [] });
     const token = await testToken({ sub: 7, role: 'gestor_impuestos' });
     await gestor7(['soat.cola.ver']);
     const res = await request(app()).get('/api/permisos/mios?userId=8').set('Authorization', `Bearer ${token}`);

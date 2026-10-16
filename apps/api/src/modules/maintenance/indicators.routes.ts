@@ -5,7 +5,7 @@ import { authMiddleware } from '../../shared/middleware/auth.js';
 import { requirePage } from '../../shared/permissions.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('maintenance'));
+router.use(authMiddleware);
 
 // Indicadores diferenciadores (no los tiene CloudFleet):
 //   MTBF — días promedio entre OTs correctivas por vehículo.
@@ -21,7 +21,7 @@ function clampDate(raw: unknown, fallbackOffsetDays: number): string {
   return new Date(Date.now() + fallbackOffsetDays * 86_400_000).toISOString().slice(0, 10);
 }
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requirePage('maintenance_indicadores'), async (req: Request, res: Response) => {
   const desde = clampDate(req.query.desde, -90);
   const hasta = clampDate(req.query.hasta, 0);
   const vehicleParam = req.query.vehicleId ? Number(req.query.vehicleId) : null;

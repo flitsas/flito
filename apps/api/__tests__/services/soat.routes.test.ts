@@ -219,7 +219,7 @@ describe('GET / — listado con filtro por rol', () => {
 
   it('proveedor → solo ve los asignados a él', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 1 }]));
-    const token = await testToken({ sub: 7, role: 'proveedor' });
+    const token = await testToken({ sub: 7, role: 'proveedor', tipoEnlace: 'ninguno' }); // HU #12875: enlace neutralizado; aquí se mide la regla del módulo legacy, no la frontera (cerrado a este enlace hasta #13426)
     const app = await buildApp();
     const r = await request(app).get('/api/soat').set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(200);
@@ -254,7 +254,7 @@ describe('PATCH /:id/purchase — comprar (con optimistic locking)', () => {
 
   it('proveedor intenta comprar SOAT NO asignado → 403', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 1, status: 'pendiente', assignedTo: 99, vehicleId: 5 }]));
-    const token = await testToken({ sub: 7, role: 'proveedor' });
+    const token = await testToken({ sub: 7, role: 'proveedor', tipoEnlace: 'ninguno' }); // HU #12875: enlace neutralizado; aquí se mide la regla del módulo legacy, no la frontera (cerrado a este enlace hasta #13426)
     const app = await buildApp();
     const r = await request(app).patch('/api/soat/1/purchase').set('Authorization', `Bearer ${token}`)
       .send({ policyNumber: 'P-1' });

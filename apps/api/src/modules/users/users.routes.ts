@@ -1,14 +1,16 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import argon2 from 'argon2';
-import { and, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { clients, permisosRoles, users } from '../../db/schema.js';
 import { authMiddleware, invalidateSessionCacheFor } from '../../shared/middleware/auth.js';
 import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
-import { invalidarPermisosDe, resolverPermisos } from '../../shared/permisos-efectivos.js';
+import { enlaceConocido, invalidarPermisosDe, resolverPermisos } from '../../shared/permisos-efectivos.js';
 import { passwordChangeLimiter } from '../../shared/middleware/rateLimiter.js';
 import { BloqueoAdministracionError } from '../../shared/permisos-anti-bloqueo.js';
+import { nodoRevocado } from '../permisos/arbol/expansion.js';
+import { arbolDeUsuario, UsuarioNoEncontradoError } from '../permisos/permisos-arbol.service.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { sendExcel } from '../../shared/utils/excel.js';
 import { errorPg } from '../../shared/utils/pg-error.js';
@@ -17,14 +19,24 @@ import {
   codificarExcepcion, isKnownOrganismoCodigo, type FuncionDeUsuario, type UserRole,
 } from '@operaciones/shared-types';
 import { loggerFor } from '../../shared/logger.js';
-import { actorDeRequest } from '../../shared/historial/permisos-auditoria.js';
+import { actorDeRequest, registrarRechazoAntiBloqueo } from '../../shared/historial/permisos-auditoria.js';
 import {
   actualizarUsuario, cambiarActivo, crearUsuario, funcionesDeVarios, listarUsuarios, nombresDeAmbito,
   organismosDe, organismosDeVarios, organismosInexistentes, proveedorSoatExiste, restablecerContrasena,
-  resumenUsuarios, rolAsignable,
+  resumenUsuarios, rolAsignable as rolAsignableCrudo,
   type FiltrosUsuarios, type PaginacionUsuarios,
 } from './users.service.js';
 import { handleDarDeBaja, handleReactivar } from './users-baja.js';
+/**
+ * HU #12875: el enlace del rol, normalizado con el MISMO `enlaceConocido` del resolutor (alias
+ * `proveedor_soat` → `proveedor` mientras la 0231 no esté aplicada). Un valor desconocido se deja
+ * tal cual: no casa con ningún enlace y sigue fallando como antes.
+ */
+const enlaceNormalizado = (v: string): string => enlaceConocido(v) ?? v;
+async function rolAsignable(codigo: string): Promise<{ tipoEnlace: string } | null> {
+    const rol = await rolAsignableCrudo(codigo);
+    return rol && { ...rol, tipoEnlace: enlaceNormalizado(rol.tipoEnlace) };
+}
 // HU #12087: la existencia de los códigos se pregunta al mismo sitio que el cuadro del rol
 // (dependencia en un solo sentido: `users` → `permisos`; `permisos` no importa nada de aquí).
 import { FuncionesInexistentesError, funcionesInexistentes } from '../permisos/permisos-roles.service.js';
@@ -37,8 +49,11 @@ const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*])/;
 const PASSWORD_MSG = 'Mín 8 caracteres, 1 mayúscula, 1 minúscula, 1 número, 1 especial';
 // Cambio de contraseña — auth solo; el handler decide: la propia siempre, la AJENA con la función
 // `usuarios.contrasena.cambiar_ajena` (guarda en línea, HU #12083; de partida solo `admin`).
-// HU #13255: un principal EXTERNO (canal Cliente) solo cambia la SUYA y solo con `pagina.perfil`;
-// la ajena le está vedada aunque tenga `cambiar_ajena`. Freno por usuario: `passwordChangeLimiter`.
+// HU #13255: un principal EXTERNO (canal Cliente) solo cambia la SUYA; la ajena le está vedada aunque
+// tenga `cambiar_ajena`. HU #13425 (AC4): la propia ya no exige `pagina.perfil`. HU #13428 (AC3, P-22/P-23):
+// la propia exige la operación `perfil.contrasena.cambiar` (acción «Cambiar mi contraseña», repartida a
+// TODOS los roles en la 0237, así que nadie la pierde), sin excepción de «cambio obligatorio» (ese flujo
+// no existe). Freno por usuario: `passwordChangeLimiter`.
 const passwordSchema = z.object({
     currentPassword: z.string().min(1),
     newPassword: z.string().min(8).regex(PASSWORD_REGEX, PASSWORD_MSG),
@@ -50,18 +65,27 @@ router.patch('/:id/password', authMiddleware, passwordChangeLimiter, async (req:
             res.status(400).json({ error: 'ID inválido' });
             return;
         }
-        // Externo = la misma regla que `guardiaCanalCliente` (un resolutor que no decide, cierra). La
-        // foto ya está en caché: la pidió el canal dentro de `authMiddleware`. Mismo cuerpo que el 403
-        // del canal, para que no se distinga qué capa negó. La página se mira en ESA foto y no con
+        // Con enlace = la misma regla que `guardiaFrontera` (HU #12875; un resolutor que no decide,
+        // cierra). La foto ya está en caché: la pidió la frontera dentro de `authMiddleware`. Mismo
+        // cuerpo que su 403, para que no se distinga qué capa negó. La página se mira en ESA foto y no con
         // `tieneFuncion`: el lector de guardas (`inventario-guardas.ts`) trata todo `tieneFuncion(req, …)`
         // como una OPERACIÓN montada del catálogo, y `pagina.perfil` es una página.
         const p = await resolverPermisos(req.user!.sub);
-        const externo = !p.ok || p.tipoPrincipal === 'externo';
-        if (externo && (req.user!.sub !== id || !p.ok || !p.funciones.has('pagina.perfil'))) {
+        const conEnlace = !p.ok || p.tipoEnlace !== 'ninguno';
+        // HU #13425 (AC4, decisión del PO del 2026-10-07): la contraseña PROPIA no pasa por la frontera de
+        // enlace; la ajena le sigue vedada a quien tiene enlace. Un resolutor que no decide (`ok:false`)
+        // sigue cerrando, también para la propia. Desde la HU #13428 la propia exige su operación (abajo).
+        if (!p.ok || (conEnlace && req.user!.sub !== id)) {
             res.status(403).json({ error: 'Sin permisos' });
             return;
         }
         if (req.user!.sub !== id && !(await tieneFuncion(req, 'usuarios.contrasena.cambiar_ajena'))) {
+            res.status(403).json({ error: 'Sin permisos' });
+            return;
+        }
+        // HU #13428 (AC3) — la propia: `[propia]` en el catálogo. `tieneFuncion` deja la fila del intento
+        // denegado en `permisos_intentos_denegados`, como cualquier guarda.
+        if (req.user!.sub === id && !(await tieneFuncion(req, 'perfil.contrasena.cambiar'))) {
             res.status(403).json({ error: 'Sin permisos' });
             return;
         }
@@ -153,7 +177,7 @@ function textoAmbito(
         return organismos.join(', ');
     if (tipoEnlace === 'compania')
         return u.companiaId ? (companias.get(u.companiaId) ?? `Compañía ${u.companiaId}`) : '';
-    if (tipoEnlace === 'proveedor_soat')
+    if (tipoEnlace === 'proveedor')
         return u.flitoProveedorSoatId ? (proveedores.get(u.flitoProveedorSoatId) ?? 'Proveedor') : '';
     return '';
 }
@@ -184,7 +208,7 @@ router.get('/export', exigirFuncion('usuarios.usuario.exportar'), async (req: Re
     if (rolesUnicos.length > 0) {
         const filasRol = await db.select({ codigo: permisosRoles.codigo, tipoEnlace: permisosRoles.tipoEnlace })
             .from(permisosRoles).where(inArray(permisosRoles.codigo, rolesUnicos));
-        for (const r of filasRol) enlacePorRol.set(r.codigo, r.tipoEnlace);
+        for (const r of filasRol) enlacePorRol.set(r.codigo, enlaceNormalizado(r.tipoEnlace));
     }
     const rows = filas.map((u) => ({
         username: u.username,
@@ -373,7 +397,7 @@ function assertAmbitoSegunEnlace(tipoEnlace: string, body: AmbitoBody): string |
             if (tieneOrgs) return MSG_ORGANISMOS_SOBRAN;
             if (!tieneCompania) return MSG_COMPANIA_REQUERIDA;
             return null;
-        case 'proveedor_soat':
+        case 'proveedor':
             if (tieneCompania) return MSG_COMPANIA_SOBRA;
             if (tieneOrgs) return MSG_ORGANISMOS_SOBRAN;
             if (!tieneProveedor) return MSG_PROVEEDOR_REQUERIDO;
@@ -510,7 +534,7 @@ router.post('/', exigirFuncion('usuarios.usuario.crear'), async (req: Request, r
         res.status(400).json({ error: MSG_COMPANIA_NO_EXISTE });
         return;
     }
-    if (rol.tipoEnlace === 'proveedor_soat' && !(await proveedorSoatExiste(flitoProveedorSoatId!))) {
+    if (rol.tipoEnlace === 'proveedor' && !(await proveedorSoatExiste(flitoProveedorSoatId!))) {
         res.status(400).json({ error: MSG_PROVEEDOR_NO_EXISTE });
         return;
     }
@@ -539,7 +563,7 @@ router.post('/', exigirFuncion('usuarios.usuario.crear'), async (req: Request, r
             funciones: funciones ?? [],
             transitoCodigo: null,
             companiaId: rol.tipoEnlace === 'compania' ? companiaId! : null,
-            flitoProveedorSoatId: rol.tipoEnlace === 'proveedor_soat' ? flitoProveedorSoatId! : null,
+            flitoProveedorSoatId: rol.tipoEnlace === 'proveedor' ? flitoProveedorSoatId! : null,
             organismosCodigos: rol.tipoEnlace === 'organismos_transito' ? organismosCodigos! : [],
         }, actorDeRequest(req));
     }
@@ -560,6 +584,27 @@ router.post('/', exigirFuncion('usuarios.usuario.crear'), async (req: Request, r
     invalidarPermisosDe(user.id);
     await audit(req, { action: 'create', resource: 'user', resourceId: String(user.id), detail: `Usuario creado: ${username} (${role})` });
     res.status(201).json(user);
+});
+// === HU #13429: árbol de permisos de un usuario =================================
+// Lo heredado de su rol y sus excepciones, con `marcado`/`efectivo` de la cadena (contrato para #13430, §5-quater.5).
+// Misma guarda que la lectura de sus excepciones (`GET /`, #12087). Vive aquí y no en /api/permisos porque la
+// guarda es del módulo `usuarios` (el catálogo exige que el código empiece por el módulo del fichero). Sin PII.
+router.get('/:id/arbol', exigirFuncion('usuarios.usuario.listar'), async (req: Request, res: Response) => {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id) || id <= 0) {
+        res.status(400).json({ error: 'ID inválido' });
+        return;
+    }
+    try {
+        res.json(await arbolDeUsuario(id));
+    }
+    catch (e) {
+        if (e instanceof UsuarioNoEncontradoError) {
+            res.status(404).json({ error: e.message });
+            return;
+        }
+        throw e;
+    }
 });
 // === Editar usuario (nombre, email, rol) =====================================
 router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Request, res: Response) => {
@@ -604,22 +649,13 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
         const rolActual = await rolAsignable(before.role);
         tipoEnlaceEfectivo = rolActual?.tipoEnlace ?? 'ninguno';
     }
-    // Si se está degradando a un admin, asegurar que quede al menos otro admin activo.
-    if (data.role && data.role !== 'admin' && before.role === 'admin') {
-        const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(users)
-            .where(and(eq(users.role, 'admin'), eq(users.active, true), ne(users.id, id)));
-        if (count === 0) {
-            res.status(409).json({ error: 'No se puede cambiar el rol del último admin activo' });
-            return;
-        }
-    }
     if (tipoEnlaceEfectivo !== null) {
         // Sobra: solo campos TRAÍDOS en el body que no corresponden al enlace destino.
         if (tipoEnlaceEfectivo !== 'compania' && data.companiaId != null) {
             res.status(400).json({ error: MSG_COMPANIA_SOBRA });
             return;
         }
-        if (tipoEnlaceEfectivo !== 'proveedor_soat' && data.flitoProveedorSoatId != null) {
+        if (tipoEnlaceEfectivo !== 'proveedor' && data.flitoProveedorSoatId != null) {
             res.status(400).json({ error: MSG_PROVEEDOR_SOBRA });
             return;
         }
@@ -635,7 +671,7 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
                 return;
             }
         }
-        if (tipoEnlaceEfectivo === 'proveedor_soat') {
+        if (tipoEnlaceEfectivo === 'proveedor') {
             const p = data.flitoProveedorSoatId !== undefined ? data.flitoProveedorSoatId : before.flitoProveedorSoatId;
             if (p == null) {
                 res.status(400).json({ error: MSG_PROVEEDOR_REQUERIDO });
@@ -693,7 +729,7 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
     }
     if (data.flitoProveedorSoatId !== undefined)
         updates.flitoProveedorSoatId = data.flitoProveedorSoatId;
-    if (data.role !== undefined && tipoEnlaceEfectivo !== 'proveedor_soat' && data.flitoProveedorSoatId === undefined) {
+    if (data.role !== undefined && tipoEnlaceEfectivo !== 'proveedor' && data.flitoProveedorSoatId === undefined) {
         updates.flitoProveedorSoatId = null;
     }
     /**
@@ -707,8 +743,8 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
         || data.companiaId !== undefined
         || data.flitoProveedorSoatId !== undefined
         || data.organismosCodigos !== undefined;
-    // HU #12084 (AC4): la guarda de «último admin» de arriba es el pre-check con mensaje claro; la
-    // verdad la decide el invariante DENTRO de la transacción.
+    // HU #12084 (AC4) / #13424 (ADR-0022): nada por nombre de rol; lo decide el invariante (las cuatro
+    // funciones de administración en un mismo usuario activo) DENTRO de la transacción.
     let r;
     try {
         r = await actualizarUsuario(id, {
@@ -717,7 +753,10 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
     }
     catch (e) {
         if (e instanceof BloqueoAdministracionError) {
-            res.status(409).json({ error: e.message, funcion: e.funcion });
+            await registrarRechazoAntiBloqueo(req, { operacion: 'actualizar_usuario', objetivo: { tipo: 'usuario', id }, funcion: e.funcion });
+            // HU #13429 (AC8): `nodo` aditivo, calculado sobre lo pedido: el eslabón más alto de la cadena que se revoca.
+            const nodo = nodoRevocado(e.funcion, new Set((data.funciones ?? []).filter((f) => f.efecto === 'revocar').map((f) => f.codigo)));
+            res.status(409).json({ error: e.message, funcion: e.funcion, ...(nodo ? { nodo } : {}) });
             return;
         }
         if (e instanceof FuncionesInexistentesError) {
@@ -770,15 +809,6 @@ router.patch('/:id/toggle', exigirFuncion('usuarios.usuario.activar'), async (re
         res.status(404).json({ error: 'Usuario no encontrado' });
         return;
     }
-    // Guard 2: si va a desactivar a un admin activo, asegurar que quede al menos otro admin activo.
-    if (before.active && before.role === 'admin') {
-        const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(users)
-            .where(and(eq(users.role, 'admin'), eq(users.active, true), ne(users.id, id)));
-        if (count === 0) {
-            res.status(409).json({ error: 'No se puede desactivar al último admin activo' });
-            return;
-        }
-    }
     // HU #12171: el `UPDATE` y su fila de historial (`active`, antes/después) van en una transacción
     // del servicio; el «antes» sale del propio UPDATE atómico, no del `before` de las guardas.
     let updated;
@@ -786,8 +816,10 @@ router.patch('/:id/toggle', exigirFuncion('usuarios.usuario.activar'), async (re
         updated = await cambiarActivo(id, actorDeRequest(req));
     }
     catch (e) {
-        // HU #12084 (AC4): el invariante decide dentro de la transacción; el Guard 2 es el pre-check.
+        // HU #12084 (AC4) / #13424: el invariante decide dentro de la transacción; el rechazo se
+        // registra aquí, fuera de la transacción que ya revirtió (AC8).
         if (e instanceof BloqueoAdministracionError) {
+            await registrarRechazoAntiBloqueo(req, { operacion: 'desactivar', objetivo: { tipo: 'usuario', id }, funcion: e.funcion });
             res.status(409).json({ error: e.message, funcion: e.funcion });
             return;
         }

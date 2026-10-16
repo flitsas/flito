@@ -11,7 +11,7 @@ import { invalidateSessionCacheFor } from '../../shared/middleware/auth.js';
 import { invalidarPermisosDe } from '../../shared/permisos-efectivos.js';
 import { BloqueoAdministracionError } from '../../shared/permisos-anti-bloqueo.js';
 import { audit } from '../../shared/middleware/audit.js';
-import { actorDeRequest } from '../../shared/historial/permisos-auditoria.js';
+import { actorDeRequest, registrarRechazoAntiBloqueo } from '../../shared/historial/permisos-auditoria.js';
 import { darDeBaja, reactivarUsuario } from './users.service.js';
 
 /** DELETE /api/users/:id — marca deleted_at (nunca hard-delete). */
@@ -38,6 +38,8 @@ export async function handleDarDeBaja(req: Request, res: Response): Promise<void
     updated = await darDeBaja(id, actorDeRequest(req));
   } catch (e) {
     if (e instanceof BloqueoAdministracionError) {
+      // HU #13424 (AC8): la tx ya revirtió; el rechazo se registra fuera de ella.
+      await registrarRechazoAntiBloqueo(req, { operacion: 'baja', objetivo: { tipo: 'usuario', id }, funcion: e.funcion });
       res.status(409).json({ error: e.message, funcion: e.funcion });
       return;
     }

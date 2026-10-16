@@ -13,7 +13,8 @@ import rateLimit from 'express-rate-limit';
 import { sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { rumWebVitals } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 
 const router = Router();
 
@@ -33,7 +34,7 @@ const clip = (v: unknown, n: number): string | null =>
   typeof v === 'string' && v.length > 0 ? v.slice(0, n) : null;
 
 // p75 por métrica/ruta/device — solo admin, para reportes FIONA sin acceso directo a BD.
-router.get('/summary', authMiddleware, requireRole('admin'), async (req: Request, res: Response) => {
+router.get('/summary', authMiddleware, exigirFuncion('rum.resumen.ver'), async (req: Request, res: Response) => {
   try {
     const days = Math.min(90, Math.max(1, Number(req.query.days) || 7));
     const minSamples = Math.min(100, Math.max(1, Number(req.query.min) || 3));

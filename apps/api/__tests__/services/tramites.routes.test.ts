@@ -61,7 +61,7 @@ describe('tramites — auth middleware', () => {
 
   it('rol transito → 200 (acceso permitido)', async () => {
     mockListTramites();
-    const token = await testToken({ sub: 1, role: 'transito' });
+    const token = await testToken({ sub: 1, role: 'transito', tipoEnlace: 'ninguno' }); // HU #12875: enlace neutralizado; aquí se mide la regla del módulo legacy, no la frontera (cerrado a este enlace hasta #13426)
     const app = await buildApp();
     const r = await request(app).get('/api/tramites').set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(200);
@@ -442,7 +442,7 @@ describe('DELETE /api/tramites/:tramiteId/documentos/:docId — ownership check'
   it('traspaso en STT: operador no puede borrar doc de gestión → 409', async () => {
     kdb.when.selectOnce('tramites_documentos', [{ id: 2, tramiteId: 1, tipo: 'compraventa', originalName: 'c.pdf', filename: 'uploads/tramites/1/c.pdf' }]);
     kdb.when.selectOnce('tramites_digitales', [{ modalidad: 'traspaso', estado: 'en_validacion' }]);
-    const token = await testToken({ sub: 9, role: 'transito', transitoCodigo: '05001' });
+    const token = await testToken({ sub: 9, role: 'transito', transitoCodigo: '05001', tipoEnlace: 'ninguno' }); // HU #12875: enlace neutralizado; aquí se mide la regla del módulo legacy, no la frontera (cerrado a este enlace hasta #13426)
     const app = await buildApp();
     const r = await request(app).delete('/api/tramites/1/documentos/2').set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(409);

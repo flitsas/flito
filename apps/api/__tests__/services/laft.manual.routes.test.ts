@@ -77,8 +77,10 @@ describe('LAFT F5 · /laft/manual', () => {
     expect(r.body.version).toBe(1);
   });
 
-  it('compliance no puede CREAR (solo admin) → 403', async () => {
-    const tok = await testToken({ role: 'compliance', sub: 7 });
+  // HU #13429 (AC3, P-24): `laft.manual.administrar` lo expande el ítem «Manual SARLAFT»; compliance y auditor, que lo
+  // tienen, GANAN crear (ganancia aprobada). El 403 se mide con un rol sin el ítem.
+  it('sin el ítem del manual (financiera) no puede CREAR → 403', async () => {
+    const tok = await testToken({ role: 'financiera', sub: 7 });
     const r = await request(app).post('/api/laft/manual').set('Authorization', `Bearer ${tok}`)
       .send({ contenidoMd: 'x'.repeat(50) });
     expect(r.status).toBe(403);

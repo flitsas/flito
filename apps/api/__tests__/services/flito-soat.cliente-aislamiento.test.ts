@@ -19,6 +19,7 @@ import type { SQL } from 'drizzle-orm';
 import { SignJWT } from 'jose';
 import { registrarUsuarioDePrueba, testToken } from '../helpers/auth.js';
 import { ligadoA, renderizar } from '../helpers/sql-ligado.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 const selectMock = vi.fn();
 
@@ -64,7 +65,7 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
 const auth = async (role: string, sub = 1) => `Bearer ${await testToken({ sub, username: 'u', role: role as never })}`;
@@ -237,7 +238,7 @@ describe('buscarConAcceso — 404-no-403 por compañía (detalle, historial, sop
   });
 
   const ctx = (role: string, companiaId: number | null) => ({
-    userId: 1, username: 'u', role, externo: role === 'cliente',
+    userId: 1, username: 'u', role, proyeccionCliente: role === 'cliente',
     // Bug #12869: el alcance sale del enlace (cliente → compania; el resto de estas pruebas, ninguno).
     alcance: (role === 'cliente' ? 'compania' : 'todo') as 'compania' | 'todo', proveedorSoatId: null, companiaId,
   });
@@ -292,14 +293,14 @@ describe('RBAC — el `cliente` lee y no muta', () => {
 
 // ─────────── HU #12815 — la frontera por compañía es de TODO rol EXTERNO, no del literal `cliente` ───────────
 //
-// Desde la HU #12082 el panel crea roles externos con cualquier código (`tipo_principal = 'externo'`).
+// Desde la HU #12082 el panel crea roles con cualquier código; desde la #12875 los acota el ENLACE compañía.
 // `contextoSoat` comparaba con el literal `'cliente'`, así que un rol externo `davivienda` caía en la
 // rama de admin: la cola, las facetas, el detalle y el ZIP sin filtro de compañía. Mutante que esto
 // mata: volver a decidir por `user.role === 'cliente'`.
 
 /** Token de un rol EXTERNO con otro código: el JWT dice `davivienda` y el resolutor, `externo`. */
 async function authExterno(rol: string, sub: number, funciones: string[]): Promise<string> {
-  await registrarUsuarioDePrueba(sub, { rol, tipoPrincipal: 'externo', tipoEnlace: 'compania', funcionesDelRol: funciones, excepciones: [] });
+  await registrarUsuarioDePrueba(sub, { rol, tipoEnlace: 'compania', funcionesDelRol: funciones, excepciones: [] });
   const t = await new SignJWT({ username: 'd@banco.co', role: rol })
     .setProtectedHeader({ alg: 'HS256' }).setSubject(String(sub)).setExpirationTime('1h')
     .sign(new TextEncoder().encode(process.env.JWT_SECRET));
@@ -336,7 +337,7 @@ describe('HU #12815 — rol externo NO-`cliente` (`davivienda`): acotado a su co
     await authExterno('davivienda', 8803, ['pagina.flito_soat']);
     selectMock.mockImplementationOnce(() => chainEspia([{ c: 7 }])); // contextoSoat → users
     const ctx = await contextoSoat({ sub: 8803, username: 'd@banco.co', role: 'davivienda' });
-    expect(ctx.externo).toBe(true);
+    expect(ctx.proyeccionCliente).toBe(true);
     expect(ctx.companiaId).toBe(7);
 
     selectMock.mockImplementationOnce(() => chainEspia([{
@@ -355,7 +356,7 @@ describe('HU #12815 — rol externo NO-`cliente` (`davivienda`): acotado a su co
     // JWT dice `admin`, y aun así no recibe la vista de admin.
     selectMock.mockImplementationOnce(() => chainEspia([{ c: null }]));
     const ctx = await contextoSoat({ sub: 8899001, username: 'x', role: 'admin' });
-    expect(ctx.externo).toBe(true);
+    expect(ctx.proyeccionCliente).toBe(true);
     expect(ctx.companiaId).toBeNull();
     expect(condicionesCola(ctx, {})).toBeNull();
   });

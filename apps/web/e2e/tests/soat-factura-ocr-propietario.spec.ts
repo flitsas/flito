@@ -115,6 +115,9 @@ async function mockCanal(page: Page, opciones: {
       ? json(route, opciones.alta.status, opciones.alta.cuerpo)
       : json(route, 201, { id: UUID_SOLICITUD, estado: 'solicitado' });
   });
+  // HU #12874: el Cliente (enlace compañía) ve la suya fija, sin selector.
+  await page.route(/\/api\/flito\/soat\/cliente\/companias$/, (route) =>
+    json(route, 200, { fija: true, companias: [{ id: 7, nombre: 'Transportes Andinos S.A.S.' }] }));
   await page.route(RE_PRECONSULTA, (route) => {
     preconsultas.push({ post: route.request().postData() });
     return opciones.preconsulta

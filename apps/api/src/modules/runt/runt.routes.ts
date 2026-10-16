@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { consultarVehiculoRunt, consultarPersonaRunt } from './runt.service.js';
 
 const router = Router();
@@ -48,7 +49,9 @@ const personaSchema = z.object({
   tipoDocumento: z.string().max(5).optional(),
 });
 
-router.post('/consulta-persona', async (req: Request, res: Response) => {
+// HU #13423 (ADR-0023): antes bastaba la sesión. Reparto: copia viva de `pagina.tramite`, la pantalla
+// que la usa (asistente de traspaso). La guarda va antes de tocar el cuerpo: un 403 no lee el documento.
+router.post('/consulta-persona', exigirFuncion('runt.persona.consultar'), async (req: Request, res: Response) => {
   const parsed = personaSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ ok: false, message: 'Documento requerido' });
@@ -74,7 +77,8 @@ const ocrCedulaSchema = z.object({
   lado: z.enum(['frontal', 'reverso']),
 });
 
-router.post('/ocr-cedula', async (req: Request, res: Response) => {
+// HU #13423: antes bastaba la sesión (y quemaba el modelo de pago). Copia viva de `pagina.tramite`.
+router.post('/ocr-cedula', exigirFuncion('runt.cedula.leer'), async (req: Request, res: Response) => {
   const parsed = ocrCedulaSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ ok: false, message: 'Imagen y lado requeridos' }); return; }
 

@@ -35,6 +35,7 @@ import {
 } from './certificacion-runt.js';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import { buscarConAcceso, condicionesColaImpuestos, conJoinsColaImpuestos } from './flito-impuestos.service.js';
+import { exigirCompaniaPropia } from './flito-impuestos.alcance.js';
 import { limitadorRunt } from './runt-limitador.js';
 
 const log = loggerFor('flito.impuestos.certificacion');
@@ -164,6 +165,7 @@ async function guardarMotorYSerie(impuestoId: string, vehiculoId: DatosImpuesto[
  * `ImpuestoError` para lo que sí es excepcional: que el impuesto no exista o no sea accesible.
  */
 export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<ResultadoCertificar> {
+  await exigirCompaniaPropia([id], ctx); // HU #13426 (AC3)
   const imp = await buscarConAcceso(id, ctx);
   // 404 y no 403 a propósito: la frontera del gestor no debe revelar que el registro existe.
   if (!imp) throw new ImpuestoError(404, 'El impuesto no existe');
@@ -400,6 +402,8 @@ export async function certificarLote(ids: string[], ctx: ImpuestoCtx): Promise<R
     throw new ImpuestoError(400, `Máximo ${TOPE_LOTE_CERTIFICACION} impuestos por lote. Seleccionaste ${unicos.length}.`);
   }
 
+  // HU #13426 (AC3): un lote de compañía con un id ajeno → 403 y no se certifica nada.
+  await exigirCompaniaPropia(unicos, ctx);
   log.info({ total: unicos.length }, 'certificacion masiva: inicio');
 
   return conConcurrencia(unicos, CONCURRENCIA_CERTIFICACION, async (id): Promise<ResultadoLoteItem> => {

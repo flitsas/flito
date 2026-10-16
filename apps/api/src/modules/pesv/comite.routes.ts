@@ -4,12 +4,13 @@ import crypto from 'crypto';
 import { eq, and, desc, sql, isNull, gte, lte } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { pesvComite, pesvComiteMiembros, pesvComiteActas } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('pesv'));
+router.use(authMiddleware);
 
 const PERIODICIDADES = ['mensual', 'bimestral', 'trimestral', 'semestral'] as const;
 const ROLES = ['presidente', 'secretario', 'lider_pesv', 'vocal', 'representante_conductores', 'hse', 'mantenimiento'] as const;
@@ -38,12 +39,12 @@ function sha256(buf: string): Buffer {
   return crypto.createHash('sha256').update(buf, 'utf8').digest();
 }
 
-router.get('/', async (_req, res) => {
+router.get('/', requirePage('pesv_comite'), async (_req, res) => {
   const rows = await db.select().from(pesvComite).orderBy(desc(pesvComite.createdAt));
   res.json({ data: rows });
 });
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', requirePage('pesv_comite'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const [comite] = await db.select().from(pesvComite).where(eq(pesvComite.id, id)).limit(1);
@@ -52,7 +53,7 @@ router.get('/:id', async (req, res) => {
   res.json({ ...comite, miembros });
 });
 
-router.post('/', requireRole('admin', 'lider_pesv'), async (req: Request, res: Response) => {
+router.post('/', requirePage('pesv_comite'), exigirFuncion('pesv.comite.administrar'), async (req: Request, res: Response) => {
   const parsed = comiteCreateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
   const [row] = await db.insert(pesvComite).values({
@@ -64,7 +65,7 @@ router.post('/', requireRole('admin', 'lider_pesv'), async (req: Request, res: R
   res.status(201).json(row);
 });
 
-router.post('/:id/miembros', requireRole('admin', 'lider_pesv'), async (req: Request, res: Response) => {
+router.post('/:id/miembros', requirePage('pesv_comite'), exigirFuncion('pesv.comite.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = miembroSchema.safeParse(req.body);
@@ -86,7 +87,7 @@ router.post('/:id/miembros', requireRole('admin', 'lider_pesv'), async (req: Req
   }
 });
 
-router.delete('/:id/miembros/:userId', requireRole('admin', 'lider_pesv'), async (req: Request, res: Response) => {
+router.delete('/:id/miembros/:userId', requirePage('pesv_comite'), exigirFuncion('pesv.comite.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   const userId = parseInt(req.params.userId, 10);
   if (!Number.isFinite(id) || id <= 0 || !Number.isFinite(userId) || userId <= 0) {
@@ -104,14 +105,14 @@ router.delete('/:id/miembros/:userId', requireRole('admin', 'lider_pesv'), async
 
 // ============ ACTAS ============
 
-router.get('/:id/actas', async (req, res) => {
+router.get('/:id/actas', requirePage('pesv_comite'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const rows = await db.select().from(pesvComiteActas).where(eq(pesvComiteActas.comiteId, id)).orderBy(desc(pesvComiteActas.fecha));
   res.json({ data: rows });
 });
 
-router.post('/:id/actas', requireRole('admin', 'lider_pesv'), async (req: Request, res: Response) => {
+router.post('/:id/actas', requirePage('pesv_comite'), exigirFuncion('pesv.comite.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = actaCreateSchema.safeParse(req.body);
@@ -144,7 +145,7 @@ router.post('/:id/actas', requireRole('admin', 'lider_pesv'), async (req: Reques
   res.status(201).json(inserted);
 });
 
-router.patch('/:id/actas/:actaId', requireRole('admin', 'lider_pesv'), async (req: Request, res: Response) => {
+router.patch('/:id/actas/:actaId', requirePage('pesv_comite'), exigirFuncion('pesv.comite.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   const actaId = parseInt(req.params.actaId, 10);
   if (!Number.isFinite(id) || id <= 0 || !Number.isFinite(actaId) || actaId <= 0) return res.status(400).json({ error: 'parámetros inválidos' });
@@ -174,7 +175,7 @@ router.patch('/:id/actas/:actaId', requireRole('admin', 'lider_pesv'), async (re
   res.json(row);
 });
 
-router.post('/:id/actas/:actaId/cerrar', requireRole('admin', 'lider_pesv'), async (req: Request, res: Response) => {
+router.post('/:id/actas/:actaId/cerrar', requirePage('pesv_comite'), exigirFuncion('pesv.comite.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   const actaId = parseInt(req.params.actaId, 10);
   if (!Number.isFinite(id) || id <= 0 || !Number.isFinite(actaId) || actaId <= 0) return res.status(400).json({ error: 'parámetros inválidos' });

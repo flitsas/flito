@@ -9,6 +9,7 @@ import express from 'express';
 import { chain } from '../helpers/db.js';
 import { testToken } from '../helpers/auth.js';
 import { CampoSoat, MotivoRevision } from '@operaciones/shared-types';
+import { conAlcance } from '../helpers/frontera.js';
 
 const selectMock = vi.fn();
 const updateMock = vi.fn();
@@ -104,7 +105,7 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
 const auth = async (role: string) => `Bearer ${await testToken({ sub: 7, username: 'gestor@x.io', role: role as never })}`;

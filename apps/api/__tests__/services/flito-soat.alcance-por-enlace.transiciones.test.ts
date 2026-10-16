@@ -39,10 +39,10 @@ const fila = (estado: string, gestionOperaciones = false) => ({
 });
 
 const ctxCompania: SoatCtx = {
-  userId: 5, username: 'u', role: 'aseguradora_interna', externo: false, alcance: 'compania', proveedorSoatId: null, companiaId: 7,
+  userId: 5, username: 'u', role: 'aseguradora_interna', proyeccionCliente: false, alcance: 'compania', proveedorSoatId: null, companiaId: 7,
 };
 const ctxAdmin: SoatCtx = {
-  userId: 1, username: 'a', role: 'admin', externo: false, alcance: 'todo', proveedorSoatId: null, companiaId: null,
+  userId: 1, username: 'a', role: 'admin', proyeccionCliente: false, alcance: 'todo', proveedorSoatId: null, companiaId: null,
 };
 
 let espia: ReturnType<typeof crearEspia>;

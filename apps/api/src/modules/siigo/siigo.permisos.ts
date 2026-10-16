@@ -1,31 +1,28 @@
 // Siigo — quién puede cada acción de facturación electrónica (HU #11342, Feature #11244).
 //
-// ESTE ES EL ÚNICO SITIO donde se decide qué rol puede emitir, reintentar, corregir o anular una
-// factura. Las rutas no deciden: piden `exigirAccionSiigo('<accion>')` y se acabó. Cambiar la
-// respuesta —hoy abierta— es editar `ROLES_POR_ACCION` y su prueba, sin abrir un solo router.
+// Las rutas no deciden: piden `exigirAccionSiigo('<accion>')` y se acabó. Desde la HU #13423 (Épica
+// #13411, ADR-0023) quien decide es el MOTOR de permisos: cada acción es una función
+// `siigo.factura.<accion>` sembrada por la migración 0230 a los roles de la fila que tenía en la vieja
+// tabla de roles por acción de shared-types (consultar → admin, auditor, financiera; las siete de operación → admin y
+// financiera). Esa tabla ya no existe: cambiar quién emite es repartir `siigo.factura.emitir` desde
+// el panel de roles, sin tocar código. El nombre del rol solo queda en el texto de la bitácora.
 //
-// POR QUÉ EXISTE ASÍ. La pregunta «¿quién emite: financiera, admin o ambos?» (pregunta 16 del
-// diseño de la Feature) sigue sin cerrarse. Repartir la respuesta en `requireRole(...)` dentro de
-// cada ruta la habría enterrado en N sitios que hay que encontrar y cambiar a la vez. Aquí se
-// implementa el valor CONSERVADOR de hoy y se deja el cambio a una línea.
+// Lo que se conserva de la #11342: el registro del intento denegado en la bitácora WORM de Siigo
+// (además del de `permisos_intentos_denegados`, que pone `tieneFuncion`) y el texto del 403, que
+// distingue «acción de operación» de «sin acceso».
 //
-// EL VALOR CONSERVADOR NO ES UN INVENTO: es la separación que el repo ya aplica en
-// `finanzas.routes.ts` (`requireRole('financiera','admin','auditor')` para leer) y en
-// `flito-liquidacion.routes.ts` (`ESCRITURA = admin + financiera`, `LECTURA = + auditor`). Se
-// hereda, no se reinventa: el dinero de FLITO ya se opera así.
-//
-// ALCANCE. Esta tabla cubre las acciones de OPERACIÓN sobre facturas. NO cubre la parametrización
-// (mapeo de conceptos, configuración de emisión, credenciales, compuerta), que son otro trabajo,
-// otra pantalla (`siigo_parametrizacion`) y ya tienen sus propias guardas. No unificar las dos
-// cosas: parametrizar se hace una vez, operar se hace todos los días.
+// ALCANCE. Esto cubre las acciones de OPERACIÓN sobre facturas. La parametrización (mapeo de
+// conceptos, configuración de emisión, credenciales, compuerta) tiene sus propias guardas
+// (`siigo.parametrizacion.*`, `siigo.emision.ver`, `siigo.conceptos.confirmar`).
 
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import {
-  ACCIONES_SIIGO, ACCION_DE_LECTURA, ROLES_POR_ACCION,
-  esAccionDeOperacion, esAccionSiigo, puedeEjecutar, rolesDe,
+  ACCIONES_SIIGO, ACCION_DE_LECTURA,
+  esAccionDeOperacion, esAccionSiigo,
   type AccionSiigo,
 } from '@operaciones/shared-types';
 import { env } from '../../config/env.js';
+import { tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { registrarOperacion } from './siigo.operaciones.repo.js';
 
 /**
@@ -42,10 +39,30 @@ import { registrarOperacion } from './siigo.operaciones.repo.js';
 // mismo que coincidían por costumbre. Se reexporta para que todo lo que ya lo importaba de este
 // archivo siga funcionando sin tocar un solo router.
 export {
-  ACCIONES_SIIGO, ACCION_DE_LECTURA, ROLES_POR_ACCION,
-  esAccionDeOperacion, esAccionSiigo, puedeEjecutar, rolesDe,
+  ACCIONES_SIIGO, ACCION_DE_LECTURA,
+  esAccionDeOperacion, esAccionSiigo,
   type AccionSiigo,
 };
+
+/**
+ * La decisión del motor para cada acción. Un `switch` con el código LITERAL en cada rama, y no un
+ * `\`siigo.factura.${accion}\``: el lector de guardas (`inventario-guardas.ts`) solo acepta literales
+ * y así cada función queda montada y en la foto (`inventario.generado.ts`, guardas en línea).
+ * Una acción no declarada no llega aquí (el tipo lo impide); si llegara, se niega.
+ */
+async function puedeAccion(req: Request, accion: AccionSiigo): Promise<boolean> {
+  switch (accion) {
+    case 'consultar': return tieneFuncion(req, 'siigo.factura.consultar');
+    case 'emitir': return tieneFuncion(req, 'siigo.factura.emitir');
+    case 'reintentar': return tieneFuncion(req, 'siigo.factura.reintentar');
+    case 'reenviar_correo': return tieneFuncion(req, 'siigo.factura.reenviar_correo');
+    case 'marcar_fallido': return tieneFuncion(req, 'siigo.factura.marcar_fallido');
+    case 'reactivar': return tieneFuncion(req, 'siigo.factura.reactivar');
+    case 'corregir': return tieneFuncion(req, 'siigo.factura.corregir');
+    case 'anular': return tieneFuncion(req, 'siigo.factura.anular');
+    default: return false;
+  }
+}
 
 /**
  * El texto del 403. Distingue los dos casos porque el usuario hace cosas distintas con cada uno:
@@ -91,7 +108,7 @@ async function registrarIntentoDenegado(req: Request, accion: string): Promise<v
     // módulo para «la operación no procede», y así el tablero de fallos técnicos no se ensucia.
     resultado: 'error_negocio',
     codigo: 'PERMISO_DENEGADO',
-    mensaje: `Rol «${req.user?.role ?? 'sin-rol'}» intentó la acción «${accion}» sin permiso.`,
+    mensaje: `Rol «${req.user?.role ?? 'sin-rol'}» intentó la acción «${accion}» sin la función siigo.factura.${accion}.`,
     createdBy: req.user?.sub ?? null,
   });
 }
@@ -99,20 +116,19 @@ async function registrarIntentoDenegado(req: Request, accion: string): Promise<v
 /**
  * Guarda HTTP de una acción. Se monta DESPUÉS de `authMiddleware`.
  *
- * La evaluación ocurre entera en el servidor y a partir del rol del JWT verificado: un cliente que
- * llame al endpoint saltándose la interfaz recibe el mismo 403, porque aquí no se lee nada que el
- * navegador pueda decidir.
+ * La evaluación ocurre entera en el servidor, con la identidad verificada (`sub`) contra el motor de
+ * permisos: un cliente que llame al endpoint saltándose la interfaz recibe el mismo 403.
  *
  * El intento rechazado se registra ANTES de responder pero sin bloquear la respuesta a que la
  * escritura termine bien: quien es rechazado no debe esperar a la bitácora.
  */
 export function exigirAccionSiigo(accion: AccionSiigo): RequestHandler {
-  return (req: Request, res: Response, next: NextFunction) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
       res.status(401).json({ error: 'Token requerido' });
       return;
     }
-    if (!puedeEjecutar(req.user.role, accion)) {
+    if (!(await puedeAccion(req, accion))) {
       // El `.catch` es cinturón sobre tirantes: `registrarOperacion` ya se traga sus errores, pero
       // si algún día dejara de hacerlo, una promesa rechazada y sin dueño es un `unhandledRejection`
       // que en Node ≥ 15 tumba el proceso entero. Un 403 no puede poder tumbar la API.

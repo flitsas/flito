@@ -1,6 +1,7 @@
 import { SignJWT } from 'jose';
 import { PAGES, paginasPorDefecto, type RoleCode } from '@operaciones/shared-types';
 import { PAGINAS_NO_CONCEDIBLES, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
+import { ancestrosDe, claseDe, codigosQueConceden, expandir, PADRES_DE_OPCIONAL } from '../../src/modules/permisos/arbol/expansion.js';
 import type { FilasPermisos } from '../../src/shared/permisos-efectivos.js';
 
 // Helper para generar JWTs válidos en tests. Firma con JWT_SECRET seteado en __tests__/setup.ts.
@@ -36,12 +37,70 @@ const PAGINAS_DE_ADMIN = Object.keys(PAGES)
 const REPARTO_POR_ROL = new Map<string, string[]>();
 export function operacionesDePartida(rol: string): string[] {
   if (REPARTO_POR_ROL.size === 0) {
-    for (const [r, codigo] of repartoDePartida()) {
-      if (codigo.startsWith('pagina.')) continue;
-      REPARTO_POR_ROL.set(r, [...(REPARTO_POR_ROL.get(r) ?? []), codigo]);
-    }
+    // HU #13429: con la cadena, la partida sin sus páginas no expande nada (la acción exige su ítem): se devuelve
+    // ENTERA (páginas y `menu.*` incluidos), que es lo que la base tiene sembrado tras la 0239.
+    for (const [r, codigo] of repartoDePartida()) REPARTO_POR_ROL.set(r, [...(REPARTO_POR_ROL.get(r) ?? []), codigo]);
   }
   return REPARTO_POR_ROL.get(rol) ?? [];
+}
+
+/**
+ * HU #13429 — Todo lo que el rol tiene sembrado tras la 0239, páginas incluidas: las de `paginasPorDefecto` y las
+ * que la cadena le sembró (Organismos STT al auditor, Logística al mensajero) y sus `menu.*`.
+ */
+export function funcionesDePartida(rol: string): string[] {
+  return operacionesDePartida(rol);
+}
+
+/**
+ * HU #13429 (lección del PR #494) — Con el resolutor en cadena, un fixture que da un código suelto (una página sin su
+ * elemento, una operación absorbida sin su acción) daría 403. `conCadena` añade lo que lo concede de verdad: el
+ * nodo con todos sus ancestros; para una operación absorbida, la primera acción o ítem que la expande y su cadena;
+ * para un opcional, su padre y su cadena. Lo que se pide medir no cambia: el fixture sigue dando ESE código.
+ */
+export function conCadena(codigos: readonly string[]): string[] {
+  const salida = new Set<string>();
+  for (const c of codigos) {
+    salida.add(c);
+    const clase = claseDe(c);
+    if (clase === 'nodo') for (const a of ancestrosDe(c)) salida.add(a);
+    else if (clase === 'opcional') { const p = PADRES_DE_OPCIONAL.get(c)![0]!; for (const a of [p, ...ancestrosDe(p)]) salida.add(a); }
+    // Una PÁGINA absorbida por una acción (la compuerta, el Tablero FLITO) no trae la acción: sería una ganancia.
+    else if (clase === null && !c.startsWith('pagina.')) {
+      const via = codigosQueConceden(c).find((x) => x !== c && claseDe(x) === 'nodo');
+      if (via) for (const a of [via, ...ancestrosDe(via)]) salida.add(a);
+    }
+  }
+  return [...salida];
+}
+
+/**
+ * HU #13429 — «El usuario tiene EXACTAMENTE estas operaciones». Con la cadena, una operación se tiene por su acción,
+ * que trae también sus hermanas; las que no se pidieron se revocan (revocar gana al final). Para los specs que miden
+ * que CADA ruta exige SU operación aunque se tengan las de al lado.
+ */
+export function soloEstas(funciones: readonly string[]): Pick<FilasPermisos, 'funcionesDelRol' | 'excepciones'> {
+  const pedidas = new Set(funciones);
+  const extra = [...expandir(conCadena(funciones))].filter((c) => !pedidas.has(c) && claseDe(c) === null && !c.startsWith('pagina.'));
+  return { funcionesDelRol: conCadena(funciones), excepciones: extra.map((codigo) => ({ codigo, efecto: 'revocar' as const })) };
+}
+
+/**
+ * HU #13429 — Para los specs que fijan su propia fuente de filas con códigos sueltos (`fijarFuenteDePermisos`):
+ * la misma fuente con `conCadena` sobre lo del rol y sobre las excepciones `conceder`. Las `revocar` no se tocan.
+ */
+export function conCadenaEnFuente(fuente: (userId: number) => Promise<FilasPermisos | null>): (userId: number) => Promise<FilasPermisos | null> {
+  return async (userId) => {
+    const f = await fuente(userId);
+    if (!f) return f;
+    const concedidas = conCadena(f.excepciones.filter((e) => e.efecto === 'conceder').map((e) => e.codigo));
+    const revocadas = f.excepciones.filter((e) => e.efecto === 'revocar');
+    return {
+      ...f,
+      funcionesDelRol: conCadena(f.funcionesDelRol),
+      excepciones: [...concedidas.map((codigo) => ({ codigo, efecto: 'conceder' as const })), ...revocadas],
+    };
+  };
 }
 
 export type TestRole = 'admin' | 'proveedor' | 'transito' | 'compliance' | 'lider_pesv' | 'supervisor_flota' | 'conductor' | 'auditor' | 'gestor_impuestos' | 'mensajero' | 'financiera' | 'cliente';
@@ -62,6 +121,13 @@ interface TestUserOpts {
    */
   funciones?: string[];
   transitoCodigo?: string;
+  /**
+   * HU #12875: el `tipo_enlace` del rol en el double, si no es el de fábrica. Lo usan las pruebas que
+   * miden el FILTRO DEL SERVICIO de un módulo que la frontera aún tiene cerrado a ese enlace (p. ej.
+   * Impuestos para `organismos_transito`, que abre #13426): con `'ninguno'` la petición llega al
+   * servicio. El cierre en sí lo prueba `frontera-por-enlace.test.ts`.
+   */
+  tipoEnlace?: string;
 }
 
 // ── El double de permisos (HU #12082, §10 del diseño) ─────────────────────────────────────────────
@@ -92,7 +158,16 @@ const registro = new Map<number, FilasPermisos>();
 export const fuenteDePrueba = async (sub: number): Promise<FilasPermisos | null> => registro.get(sub) ?? null;
 
 export async function registrarUsuarioDePrueba(sub: number, filas: FilasPermisos): Promise<void> {
-  registro.set(sub, filas);
+  // HU #13429: lo que el spec registre con códigos sueltos se completa con su cadena (`conCadena`), igual que en la
+  // base tras la 0239; lo que se mide (que el usuario tiene ESE código) no cambia. `null` = «el resolutor no decide».
+  registro.set(sub, filas === null ? (null as never) : {
+    ...filas,
+    funcionesDelRol: conCadena(filas.funcionesDelRol),
+    excepciones: [
+      ...conCadena(filas.excepciones.filter((e) => e.efecto === 'conceder').map((e) => e.codigo)).map((codigo) => ({ codigo, efecto: 'conceder' as const })),
+      ...filas.excepciones.filter((e) => e.efecto === 'revocar'),
+    ],
+  });
   try {
     // Se fija en CADA registro y no una sola vez: los ficheros que hacen `vi.resetModules()` en su
     // `beforeEach` reciben una instancia nueva del resolutor, con la fuente real, en cada caso.
@@ -104,13 +179,28 @@ export async function registrarUsuarioDePrueba(sub: number, filas: FilasPermisos
   }
 }
 
-/** `permisos_roles.tipo_enlace` de los roles de fábrica, como los siembra la 0178. */
+/** `permisos_roles.tipo_enlace` de los roles de fábrica (0178; `proveedor_soat` → `proveedor` en la 0231). */
 const ENLACE_DE_FABRICA: Record<string, string> = {
-  proveedor: 'proveedor_soat',
+  proveedor: 'proveedor',
   transito: 'organismos_transito',
   gestor_impuestos: 'organismos_transito',
   cliente: 'compania',
 };
+
+/**
+ * HU #12875 — Roles de fábrica cuyo enlace se NEUTRALIZA (`ninguno`) en este fichero de pruebas.
+ *
+ * La frontera por enlace cierra a `gestor_impuestos`/`transito` (organismos) y a `proveedor` todo
+ * módulo que no sea SOAT hasta la #13426 (decisión (b) del PO). Las pruebas que miden la REGLA de un
+ * módulo legacy o de Impuestos/Derechos/Trámites con esos roles (por función, organismo o asignación)
+ * la declaran aquí, a la vista, y siguen midiendo el módulo; el cierre en sí lo prueban
+ * `frontera-por-enlace.test.ts` y `frontera-enlace.centinela.test.ts`. Vitest aísla los módulos por
+ * fichero, así que la lista vale solo para el fichero que la llama.
+ */
+const ENLACE_NEUTRO = new Set<string>();
+export function neutralizarEnlaceDe(...roles: string[]): void {
+  for (const r of roles) ENLACE_NEUTRO.add(r);
+}
 
 export async function testToken(opts: TestUserOpts = {}): Promise<string> {
   const secret = new TextEncoder().encode(process.env.JWT_SECRET);
@@ -129,15 +219,17 @@ export async function testToken(opts: TestUserOpts = {}): Promise<string> {
   const paginasPropias = opts.allowedPages ?? (role === 'admin' ? PAGINAS_DE_ADMIN : []);
   await registrarUsuarioDePrueba(sub, {
     rol: role,
-    tipoPrincipal: role === 'cliente' ? 'externo' : 'interno',
     // Bug #12869: el enlace de fábrica (siembra de la 0178). En SOAT decide el alcance de filas.
-    tipoEnlace: ENLACE_DE_FABRICA[role] ?? 'ninguno',
-    funcionesDelRol: [
-      ...operacionesDePartida(role),
-      ...paginasPorDefecto(role as RoleCode).map((s) => `pagina.${s}`),
-      ...(opts.funciones ?? []),
-    ],
-    excepciones: paginasPropias.map((slug) => ({ codigo: `pagina.${slug}`, efecto: 'conceder' as const })),
+    tipoEnlace: opts.tipoEnlace ?? (ENLACE_NEUTRO.has(role) ? 'ninguno' : ENLACE_DE_FABRICA[role]) ?? 'ninguno',
+    // HU #13429: la partida entera del rol (con su cadena) y, para lo que el test añade, `conCadena`.
+    // La partida ya viene encadenada (es el catálogo de después de la 0239); a las páginas por defecto solo se les
+    // añade su elemento (una página absorbida por una acción, p. ej. la compuerta, NO trae la acción: sería ganancia).
+    funcionesDelRol: [...new Set([
+      ...funcionesDePartida(role),
+      ...paginasPorDefecto(role as RoleCode).flatMap((s) => [`pagina.${s}`, ...ancestrosDe(`pagina.${s}`)]),
+      ...conCadena(opts.funciones ?? []),
+    ])],
+    excepciones: conCadena(paginasPropias.map((slug) => `pagina.${slug}`)).map((codigo) => ({ codigo, efecto: 'conceder' as const })),
   });
 
   return await new SignJWT(payload)

@@ -93,9 +93,10 @@ describe('GET /api/auth/me — `puedeSolicitarSoat`', () => {
     expect(selectMock).toHaveBeenCalledTimes(CONSULTAS_BASE);
   });
 
-  it('**admin → false y NI UNA consulta de más**: los otros once roles no pagan este dato', async () => {
-    conUsuario(ADMIN);
-    const r = await request(await buildApp()).get('/api/auth/me').set('Authorization', await token('admin'));
+  it('**un rol sin la función (auditor) → false y NI UNA consulta de más**: los que no la tienen no pagan este dato', async () => {
+    // HU #12873 AC8: `admin` ya tiene la función («Solicitar SOAT sin trámite»); su caso es el del enlace (#12874).
+    conUsuario({ ...ADMIN, role: 'auditor' });
+    const r = await request(await buildApp()).get('/api/auth/me').set('Authorization', await token('auditor'));
 
     expect(r.body.puedeSolicitarSoat).toBe(false);
     expect(selectMock).toHaveBeenCalledTimes(CONSULTAS_BASE);
@@ -109,5 +110,55 @@ describe('GET /api/auth/me — `puedeSolicitarSoat`', () => {
     // Y lo que ya devolvía sigue estando: esto AÑADE, no reemplaza.
     expect(r.body).toMatchObject({ id: 5, username: 'u@empresa.co', role: 'cliente' });
     expect(Array.isArray(r.body.allowedPages)).toBe(true);
+  });
+});
+
+// HU #12874 — sin enlace también radica (a nombre de una compañía que escoge en el formulario), así
+// que la capacidad ya no es solo del enlace `compania`. Los cuatro casos del AC por enlace.
+describe('GET /api/auth/me — `puedeSolicitarSoat` por enlace (HU #12874)', () => {
+  const conFuncion = async (role: 'admin' | 'proveedor', extra: { tipoEnlace?: string } = {}) =>
+    `Bearer ${await testToken({ sub: 5, username: 'u@flit.io', role, funciones: ['soat.solicitud.crear'], ...extra })}`;
+
+  it('**sin enlace + soat.solicitud.crear + ≥1 compañía con el canal → true**', async () => {
+    conUsuario(ADMIN, [{ id: 3 }]);
+    const r = await request(await buildApp()).get('/api/auth/me').set('Authorization', await conFuncion('admin'));
+
+    expect(r.status).toBe(200);
+    expect(r.body.puedeSolicitarSoat).toBe(true);
+    expect(selectMock).toHaveBeenCalledTimes(CONSULTAS_BASE + 1);
+  });
+
+  it('**sin enlace y NINGUNA compañía con el canal → false** (se oculta la acción, decisión del PO)', async () => {
+    conUsuario(ADMIN, []);
+    const r = await request(await buildApp()).get('/api/auth/me').set('Authorization', await conFuncion('admin'));
+
+    expect(r.body.puedeSolicitarSoat).toBe(false);
+    expect(selectMock).toHaveBeenCalledTimes(CONSULTAS_BASE + 1);
+  });
+
+  it('sin enlace SIN la función → false y sin consultar `clients` (lo de arriba es la función, no el enlace)', async () => {
+    // HU #12873 AC8: `admin` ya la tiene por rol; el «sin la función» lo pone un rol que no la tiene.
+    conUsuario({ ...ADMIN, role: 'auditor' });
+    const r = await request(await buildApp()).get('/api/auth/me').set('Authorization', await token('auditor'));
+
+    expect(r.body.puedeSolicitarSoat).toBe(false);
+    expect(selectMock).toHaveBeenCalledTimes(CONSULTAS_BASE);
+  });
+
+  it('**proveedor con la función → false** y sin consultar `clients`', async () => {
+    conUsuario({ ...ADMIN, role: 'proveedor' });
+    const r = await request(await buildApp()).get('/api/auth/me').set('Authorization', await conFuncion('proveedor', { tipoEnlace: 'proveedor' }));
+
+    expect(r.body.puedeSolicitarSoat).toBe(false);
+    expect(selectMock).toHaveBeenCalledTimes(CONSULTAS_BASE);
+  });
+
+  it('**organismos de tránsito con la función → false** y sin consultar `clients`', async () => {
+    conUsuario(ADMIN);
+    const r = await request(await buildApp()).get('/api/auth/me')
+      .set('Authorization', await conFuncion('admin', { tipoEnlace: 'organismos_transito' }));
+
+    expect(r.body.puedeSolicitarSoat).toBe(false);
+    expect(selectMock).toHaveBeenCalledTimes(CONSULTAS_BASE);
   });
 });

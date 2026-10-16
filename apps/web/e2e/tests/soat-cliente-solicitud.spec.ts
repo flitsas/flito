@@ -214,6 +214,9 @@ async function mockCanal(
       // este archivo cambia de comportamiento y el AC5 queda ejercitado de paso en los ~30.
       : json(route, 200, { extraccion: {} });
   });
+  // HU #12874: el Cliente (enlace compañía) ve la suya fija, sin selector.
+  await page.route(/\/api\/flito\/soat\/cliente\/companias$/, (route) =>
+    json(route, 200, { fija: true, companias: [{ id: 7, nombre: 'Transportes Andinos S.A.S.' }] }));
   await page.route(RE_PRECONSULTA, async (route) => {
     preconsultas.push({ post: route.request().postData() });
     if (opciones.retenerPreconsulta) await enVuelo;

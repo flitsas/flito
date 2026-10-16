@@ -18,6 +18,8 @@
 // los montajes leídos del fuente, porque un número escrito a mano es justo lo que dejó nueve
 // operaciones fuera del enunciado original de la #12081.
 
+import { OPERACIONES_DECLARADAS_LEGADO } from './catalogo-operaciones.legado.js';
+
 export interface OperacionDeclarada {
   /** `<fichero> <MÉTODO> <ruta>` — la guarda real. */
   llave: string;
@@ -65,7 +67,7 @@ const FSA = 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.route
 const CPR = 'flito-comprobantes/flito-comprobantes.routes.ts';
 const LOGV = 'flito-logistica/flito-logistica-viajes.routes.ts';
 
-export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
+const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // ── SOAT (portal FLITO) ───────────────────────────────────────────────────────────────────────
   op(`${SOAT} GET /`, 'soat.cola.ver', 'Ver la cola de SOAT', 'Abrir la bandeja de solicitudes de SOAT y recorrer su listado.'),
   op(`${SOAT} GET /facetas`, 'soat.cola.filtrar', 'Filtrar la cola de SOAT', 'Leer los contadores y las facetas con las que se acota la bandeja.'),
@@ -88,6 +90,10 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${SOAT} POST /facturas`, 'soat.masiva.cargar', 'Cargar comprobantes de SOAT en lote', 'Subir varios comprobantes de una vez y repartirlos por solicitud.'),
   op(`${SOAT_CLI} POST /cliente/preconsulta`, 'soat.runt.preconsultar', 'Preconsultar un vehículo en el RUNT', 'Verificar en el RUNT los datos del vehículo antes de radicar.'),
   op(`${SOAT_CLI} POST /cliente`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
+  // HU #12874: la lista de compañías del formulario reutiliza la función del alta (decisión del PO: sin
+  // función nueva ni migración). Mismo código ⇒ mismo nombre, descripción y reparto que `POST /cliente`
+  // (`catalogoDeOperaciones` lo exige: «un código, un reparto»).
+  op(`${SOAT_CLI} GET /cliente/companias`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
   op(`${SOAT_CLI} POST /cliente/factura/lectura`, 'soat.factura.leer', 'Leer la factura de venta del vehículo', 'Extraer del PDF de la factura los datos del vehículo para prellenar la solicitud.'),
   // HU #12997 (Feature #12841, diseño §11.1): lectura de las solicitudes que esperan al RUNT. Códigos
   // propios —el catálogo es «una función por ruta»— sembrados por la 0211 a todo rol que ya tenga
@@ -184,6 +190,8 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${LOG} POST /cerrar-lote`, 'logistica.lote.cerrar', 'Cerrar un lote de logística', 'Dar por armado el lote de documentos que va a despacharse.'),
   op(`${LOG} POST /actas/:id/despachar`, 'logistica.actas.despachar', 'Despachar un acta', 'Poner en ruta el acta y sus documentos.'),
   op(`${LOG} POST /actas/:id/entregar`, 'logistica.actas.entregar', 'Entregar un acta', 'Registrar la entrega del acta en destino.'),
+  // HU #13425: en línea (`ctxConPropiedad`), para mi ruta, entregar y devolver. Sin ella, solo las propias (CA-11).
+  op(`${LOG} POST /actas/:id/entregar [operarAjenas]`, 'logistica.actas.operar_ajenas', 'Operar actas asignadas a otro mensajero', 'Entregar, devolver y ver en la ruta las actas asignadas a otros usuarios, no solo las propias.'),
   op(`${LOG} POST /actas/:id/devolucion`, 'logistica.actas.devolver', 'Devolver un acta', 'Registrar que el acta vuelve sin haberse entregado.'),
   op(`${LOG} POST /documentos/:id/reversar`, 'logistica.documento.reversar', 'Reversar un paso de logística', 'Deshacer el último movimiento registrado sobre el documento.'),
 
@@ -251,7 +259,10 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
 
   // ── Parametrización FLITO ─────────────────────────────────────────────────────────────────────
   op(`${PAR} GET /companias`, 'parametrizacion.companias.listar', 'Ver las compañías cliente', 'Consultar las compañías dadas de alta y su configuración.'),
-  op(`${PAR} PATCH /companias/:id`, 'parametrizacion.companias.editar', 'Editar una compañía cliente', 'Cambiar la configuración comercial y operativa de la compañía.'),
+  // HU #13428 (§5-ter.1 punto 2): el PATCH se parte por grupo de campos, en línea.
+  op(`${PAR} PATCH /companias/:id [general]`, 'parametrizacion.companias.editar', 'Editar una compañía cliente', 'Cambiar la configuración comercial y operativa de la compañía.'),
+  op(`${PAR} PATCH /companias/:id [autogestion]`, 'parametrizacion.companias.autogestion', 'Habilitar o revocar la autogestión de una compañía', 'Encender o apagar la autogestión de SOAT, impuestos y logística de la compañía.'),
+  op(`${PAR} PATCH /companias/:id [sinTramite]`, 'parametrizacion.companias.soat_sin_tramite', 'Configurar «SOAT sin trámite» de una compañía', 'Abrir o cerrar el canal «SOAT sin trámite» de la compañía y elegir su gestor por defecto.'),
   op(`${PAR} GET /proveedores-soat`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),
   op(`${PAR} POST /proveedores-soat`, 'parametrizacion.proveedores.crear', 'Añadir un proveedor SOAT', 'Registrar un gestor SOAT nuevo.'),
   op(`${PAR} PATCH /proveedores-soat/:id`, 'parametrizacion.proveedores.editar', 'Editar un proveedor SOAT', 'Cambiar los datos o el estado de un gestor SOAT.'),
@@ -363,6 +374,8 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${TRC} DELETE /organismos-config/:codigo/logo`, 'transito.logo.borrar', 'Quitar el logo de un organismo', 'Retirar la imagen del organismo de los documentos.'),
   // ── Usuarios (HU #12083: `users/` entra al catálogo) ───────────────────────────────────────────
   op(`${USR} GET /`, 'usuarios.usuario.listar', 'Ver los usuarios', 'Abrir la pantalla de usuarios y recorrer el listado con sus filtros.'),
+  // HU #13429: el árbol de permisos de un usuario (lo heredado de su rol y sus excepciones), con la guarda de su lectura.
+  op(`${USR} GET /:id/arbol`, 'usuarios.usuario.listar', 'Ver los usuarios', 'Abrir la pantalla de usuarios y recorrer el listado con sus filtros.'),
   op(`${USR} GET /resumen`, 'usuarios.usuario.ver_resumen', 'Ver el conteo de usuarios por rol', 'Leer cuántos usuarios activos e inactivos hay por cada rol.'),
   op(`${USR} GET /export`, 'usuarios.usuario.exportar', 'Exportar los usuarios a Excel', 'Descargar el listado filtrado de usuarios como archivo de Excel.'),
   op(`${USR} POST /`, 'usuarios.usuario.crear', 'Crear un usuario', 'Dar de alta un usuario con su rol, sus páginas y su ámbito.'),
@@ -372,6 +385,9 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${USR} POST /:id/reactivar`, 'usuarios.usuario.reactivar', 'Reactivar un usuario dado de baja', 'Quitar la marca de baja de un usuario para que vuelva a poder iniciar sesión.'),
   op(`${USR} POST /:id/invalidate-sessions`, 'usuarios.sesiones.invalidar', 'Cerrar las sesiones de un usuario', 'Invalidar todos los tokens vivos de un usuario para que vuelva a iniciar sesión.'),
   op(`${USR} PATCH /:id/password [ajena]`, 'usuarios.contrasena.cambiar_ajena', 'Cambiar la contraseña de otro usuario', 'Fijar una contraseña nueva a un usuario distinto de uno mismo.'),
+  // HU #13428 (AC3): Perfil — la contraseña propia (en línea) y los datos propios (`GET /api/auth/perfil`).
+  op(`${USR} PATCH /:id/password [propia]`, 'perfil.contrasena.cambiar', 'Cambiar la contraseña propia', 'Cambiar la contraseña con la que uno mismo entra.'),
+  op('auth/auth.routes.ts GET /perfil', 'perfil.datos.ver', 'Ver los datos propios', 'Leer el nombre, el usuario, el correo y el rol propios.'),
   // HU #12171 — el historial de cambios (CF-19). Dos codigos y no uno: el catalogo es «una funcion por
   // ruta» y los codigos son unicos (precedente: `soat.cola.ver` / `soat.cola.filtrar`). Textos de
   // negocio fijados el 10/09/2026; los mismos que siembra la 0185 (el test de la 0179 compara literal).
@@ -381,11 +397,14 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   // Siete códigos y no cuatro: el catálogo es «una función por ruta» y los códigos son únicos. Ninguno
   // va al auditor: el cuadro de roles es administración, no observación. Textos = los de la 0186.
   op(`${PER} GET /funciones`, 'permisos.catalogo.ver', 'Ver el catálogo de funciones', 'Leer la lista de funciones que existen en el sistema, agrupadas por módulo, para repartirlas entre los roles.'),
+  // HU #13429: el árbol de permisos (sucesor de `GET /funciones`) y el de un rol, con las guardas de su lectura.
+  op(`${PER} GET /arbol`, 'permisos.catalogo.ver', 'Ver el catálogo de funciones', 'Leer la lista de funciones que existen en el sistema, agrupadas por módulo, para repartirlas entre los roles.'),
   op(`${PER} GET /roles`, 'permisos.rol.listar', 'Ver los roles', 'Abrir la lista de roles con cuántos usuarios tiene cada uno y si se puede borrar.'),
   op(`${PER} POST /roles`, 'permisos.rol.crear', 'Crear un rol', 'Dar de alta un rol nuevo con su tipo de enlace, su tipo principal y su cuadro de funciones.'),
   op(`${PER} PATCH /roles/:codigo`, 'permisos.rol.editar', 'Editar un rol', 'Cambiar el nombre, la descripción, el tipo de enlace, el tipo principal o el estado de un rol.'),
   op(`${PER} DELETE /roles/:codigo`, 'permisos.rol.borrar', 'Borrar un rol', 'Eliminar un rol que ningún usuario tiene asignado, junto con su cuadro de funciones.'),
   op(`${PER} GET /roles/:codigo/funciones`, 'permisos.cuadro.ver', 'Ver el cuadro de funciones de un rol', 'Leer qué funciones concede un rol a quienes lo tienen asignado.'),
+  op(`${PER} GET /roles/:codigo/arbol`, 'permisos.cuadro.ver', 'Ver el cuadro de funciones de un rol', 'Leer qué funciones concede un rol a quienes lo tienen asignado.'),
   op(`${PER} PUT /roles/:codigo/funciones`, 'permisos.cuadro.guardar', 'Guardar el cuadro de funciones de un rol', 'Reescribir el conjunto completo de funciones que concede un rol.'),
   // ── Comprobantes (Épica #12245, HU #12611: `flito-comprobantes/` nace reconducido) ────────────
   // Las CINCO de F1 (#12605): cargar, ver la cola, ver uno, abrir el archivo y releer. Textos byte a
@@ -401,6 +420,9 @@ export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [
   op(`${CPR} POST /:id/descartar`, 'comprobantes.comprobante.descartar', 'Descartar un comprobante', 'Sacar de la cola un comprobante que no corresponde, dejando el motivo.'),
   op(`${CPR} POST /:id/diferencia/aceptar`, 'comprobantes.diferencia.aceptar', 'Aceptar la diferencia de un comprobante', 'Aceptar con motivo la diferencia entre el valor del comprobante y la tarifa de referencia.'),
 ];
+
+// HU #13421 (ADR-0023): los módulos legacy reconducidos se declaran aparte (regla de 800 líneas).
+export const OPERACIONES_DECLARADAS: OperacionDeclarada[] = [...OPERACIONES_FLITO, ...OPERACIONES_DECLARADAS_LEGADO];
 
 /**
  * Las CUATRO operaciones del canal Cliente que el Feature #12074 retiró (AC3).

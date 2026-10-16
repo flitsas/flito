@@ -67,8 +67,9 @@ interface EstadoCompuerta {
 }
 
 export default function SiigoParametrizacion() {
-  const { user } = useAuth();
-  const puedeEditar = user?.role === 'admin';
+  const { hasFuncion } = useAuth();
+  // HU #13427: el mapeo de conceptos lo da la acción «Mapeo de conceptos» (`siigo.conceptos.administrar`).
+  const puedeEditar = hasFuncion('siigo.conceptos.administrar');
 
   const [ambiente, setAmbiente] = useState<Ambiente>('pruebas');
   const [compuerta, setCompuerta] = useState<EstadoCompuerta | null>(null);

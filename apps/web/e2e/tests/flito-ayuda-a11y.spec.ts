@@ -24,6 +24,23 @@ async function ratioDe(page: Page, texto: Locator, fondoDe?: Locator): Promise<n
 test.describe('FLITO — Ayuda · AC5 accesibilidad', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
+  test('HU #13431 — índice en tema oscuro: tarjetas con contraste ≥ 4.5:1 (y axe si está disponible)', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('aura-theme', 'dark'));
+    await abrirAyuda(page, OPERACIONES_USER);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    for (const [nombre, etiqueta, resumen] of [
+      ['Abrir ficha de Tablero', 'Tablero', 'Retenciones, estancamientos y diferencias de operación.'],
+      ['Abrir ficha de Integración con Siigo', 'Integración con Siigo', 'Credenciales de la integración. Solo administración.'],
+    ] as const) {
+      const fila = page.getByRole('link', { name: nombre, exact: true });
+      await expect(fila).toBeVisible();
+      await fila.scrollIntoViewIfNeeded();
+      expect(await ratioDe(page, fila.getByText(etiqueta, { exact: true }), fila), `${etiqueta} · título`).toBeGreaterThanOrEqual(MINIMO);
+      expect(await ratioDe(page, fila.getByText(resumen, { exact: true }), fila), `${etiqueta} · resumen`).toBeGreaterThanOrEqual(MINIMO);
+    }
+    if (process.env.QA_AXE_CDN === '1' || process.env.QA_AXE_PATH) await sinViolacionesGraves(page, 'índice oscuro');
+  });
+
   test('AC5 — índice lleno: headings, axe y contraste (SOAT publicado)', async ({ page }) => {
     await abrirAyuda(page, PROVEEDOR_USER);
     await expect(page.getByRole('heading', { level: 1, name: 'Ayuda FLITO' })).toBeVisible();

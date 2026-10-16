@@ -11,7 +11,12 @@ import express from 'express';
 import { getTableName } from 'drizzle-orm';
 import { CampoImpuesto, CARGA_MASIVA_MAX_BYTES_ARCHIVO, EstadoImpuesto, TipoSoporte } from '@operaciones/shared-types';
 import { createKeyedDb } from '../helpers/keyed-db.js';
-import { testToken, operacionesDePartida, fuenteDePrueba, type TestRole } from '../helpers/auth.js';
+import { testToken, operacionesDePartida, fuenteDePrueba, type TestRole, neutralizarEnlaceDe } from '../helpers/auth.js';
+
+// HU #12875: este fichero mide la regla del MÓDULO con roles de fábrica que la frontera por enlace
+// cierra hasta la #13426 (decisión (b) del PO); su enlace se neutraliza aquí, a la vista. El cierre lo
+// prueban `frontera-por-enlace.test.ts` y `frontera-enlace.centinela.test.ts`.
+neutralizarEnlaceDe('proveedor'); // HU #13426: gestor y tránsito llevan su enlace real (organismos_transito)
 
 const kdb = createKeyedDb();
 vi.mock('../../src/db/client.js', () => ({ db: kdb.db, getPoolStats: vi.fn().mockResolvedValue({ utilization: 0, total: 0, idle: 0, waiting: 0 }) }));
@@ -81,7 +86,8 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
-  app.use('/api/flito/impuestos', router);
+  const { conAlcance } = await import('../../src/shared/middleware/frontera-enlace.js');
+  app.use('/api/flito/impuestos', conAlcance('impuestos', router)); // HU #13426: como en app.ts
   app.use((err: { message?: string }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     res.status(500).json({ error: 'fallback', detalle: err.message });
   });
@@ -116,13 +122,15 @@ describe('AC7 — la función nace sin rol', () => {
   });
 });
 
+// HU #12873 AC8: `admin` recibe «Reemplazar comprobante» como todas las acciones; el «sin la función» de
+// estos casos lo pone un rol que no la tiene de partida (auditor).
 describe('AC2 — sin la función → 403 y nada cambia', () => {
   it('sin token → 401', async () => {
     const app = await buildApp();
     expect((await request(app).post(RUTA).attach('archivo', PDF, 'r.pdf')).status).toBe(401);
   });
 
-  it.each(['admin', 'gestor_impuestos'] as const)('%s sin la función → 403 del motor; nada leído ni escrito', async (rol) => {
+  it.each(['auditor', 'gestor_impuestos'] as const)('%s sin la función → 403 del motor; nada leído ni escrito', async (rol) => {
     const app = await buildApp();
     const res = await post(app, await auth(rol, 11, [])).attach('archivo', PDF, 'r.pdf');
     expect(res.status).toBe(403);
@@ -134,7 +142,7 @@ describe('AC2 — sin la función → 403 y nada cambia', () => {
 
   it('sin la función y con un archivo NO permitido → 403 (no el 400 de multer): la guarda va antes que el archivo', async () => {
     const app = await buildApp();
-    const res = await post(app, await auth('admin', 12, []))
+    const res = await post(app, await auth('auditor', 12, []))
       .attach('archivo', Buffer.from('hola'), { filename: 'x.txt', contentType: 'text/plain' });
     expect(res.status).toBe(403);
     expect(res.body).toMatchObject({ funcion: CODIGO, motivo: 'sin_funcion' });
@@ -146,11 +154,11 @@ describe('AC2 — sin la función → 403 y nada cambia', () => {
 
   it('los 403 no consumen el limitador (30): tras 31 rechazos, el mismo usuario ya con la función pasa', async () => {
     const app = await buildApp();
-    const sinFuncion = await auth('admin', 13, []);
+    const sinFuncion = await auth('auditor', 13, []);
     for (let i = 0; i < 31; i++) {
       expect((await request(app).post(RUTA).set('Authorization', sinFuncion)).status).toBe(403);
     }
-    const conFuncion = await auth('admin', 13);
+    const conFuncion = await auth('auditor', 13);
     const r = await request(app).post(RUTA).set('Authorization', conFuncion);
     expect(r.status).toBe(400); // sin archivo: pasó el limitador (no 429)
     expect(r.body.codigo).toBe('archivo_invalido');

@@ -92,6 +92,9 @@ async function mockCanal(
     // Extracción VACÍA: esta HU no prellena nada y sus casos teclean el propietario a mano.
     return json(route, 200, { extraccion: {} });
   });
+  // HU #12874: el Cliente (enlace compañía) ve la suya fija, sin selector.
+  await page.route(/\/api\/flito\/soat\/cliente\/companias$/, (route) =>
+    json(route, 200, { fija: true, companias: [{ id: 7, nombre: 'Transportes Andinos S.A.S.' }] }));
   await page.route(RE_PRECONSULTA, async (route) => {
     preconsultas.push({ post: route.request().postData() });
     if (opciones.retenerPreconsulta) await enVuelo;
@@ -305,7 +308,8 @@ test.describe('HU #12091 · AC2 — el orden de la pantalla', () => {
     // visibilidad pasan igual con los bloques al revés.
     await expect(page.getByRole('heading', { level: 2 }))
       // HU #13363: el bloque 4 (opcional) va al final, después del propietario.
-      .toHaveText(['1 · Vehículo', '2 · Factura de venta', '3 · Propietario', '4 · Documentos adicionales (opcional)']);
+      // HU #12874: la compañía (fija o escogida) abre el formulario: alimenta la consulta del RUNT.
+      .toHaveText(['Compañía', '1 · Vehículo', '2 · Factura de venta', '3 · Propietario', '4 · Documentos adicionales (opcional)']);
 
     // Y no hay asistente por pasos ni borrador: crear sigue siendo enviar.
     await expect(page.getByRole('button', { name: /Siguiente|Continuar|Guardar borrador/ })).toHaveCount(0);

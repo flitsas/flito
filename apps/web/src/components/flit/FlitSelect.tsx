@@ -198,7 +198,7 @@ export default function FlitSelect({
           <button
             type="button"
             onClick={onReintentar}
-            className="flit-focus rounded-[999px] border bg-flit-card px-2 py-0.5 text-xs font-medium"
+            className="flit-focus rounded-[999px] border bg-flit-card px-2 py-0.5 text-xs font-medium transition-colors hover:bg-[var(--flit-bg-hover)]"
             style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}
           >
             {textoReintento ?? `Volver a cargar ${label.toLowerCase()}`}

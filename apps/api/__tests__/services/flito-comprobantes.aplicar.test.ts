@@ -47,6 +47,8 @@ import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
 import { renderizar, ligadoA } from '../helpers/sql-ligado.js';
 import { testToken, fuenteDePrueba, operacionesDePartida } from '../helpers/auth.js';
+// HU #13427: Comprobantes pasó al árbol; la operación la da la acción de partida (expansión del resolutor).
+import { expandir } from '../../src/modules/permisos/arbol/expansion.js';
 
 const kdb = createKeyedDb();
 vi.mock('../../src/db/client.js', () => ({ db: kdb.db, getPoolStats: vi.fn().mockResolvedValue({ utilization: 0, total: 0, idle: 0, waiting: 0 }) }));
@@ -206,7 +208,7 @@ afterEach(() => { fijarFuenteDePermisos(fuenteDePrueba); });
 describe('AC6 — POST /:id/descartar', () => {
   it('exige comprobantes.comprobante.descartar (auditor → 403); motivo 5..500 (400 datos_invalidos sin tocar la base)', async () => {
     const app = await buildApp();
-    expect(operacionesDePartida('financiera')).toContain('comprobantes.comprobante.descartar');
+    expect([...expandir(operacionesDePartida('financiera'))]).toContain('comprobantes.comprobante.descartar');
     expect((await request(app).post(`${BASE}/${ID}/descartar`).set('Authorization', await auth('auditor')).send({ motivo: 'no corresponde' })).status).toBe(403);
     for (const body of [{}, { motivo: 'no' }, { motivo: 'x'.repeat(501) }]) {
       const res = await request(app).post(`${BASE}/${ID}/descartar`).set('Authorization', await auth()).send(body);
@@ -332,8 +334,8 @@ describe('AC7 — POST /:id/aplicar', () => {
 
   it('exige comprobantes.comprobante.aplicar (auditor → 403)', async () => {
     const app = await buildApp();
-    expect(operacionesDePartida('financiera')).toContain('comprobantes.comprobante.aplicar');
-    expect(operacionesDePartida('admin')).toContain('comprobantes.comprobante.aplicar');
+    expect([...expandir(operacionesDePartida('financiera'))]).toContain('comprobantes.comprobante.aplicar');
+    expect([...expandir(operacionesDePartida('admin'))]).toContain('comprobantes.comprobante.aplicar');
     expect((await request(app).post(`${BASE}/${ID}/aplicar`).set('Authorization', await auth('auditor')).send(body())).status).toBe(403);
     expect(kdb.select).not.toHaveBeenCalled();
   });
@@ -589,7 +591,7 @@ describe('HU #12630 — POST /:id/aplicar con esPago=true: SOAT / impuesto / der
     const [soatId, extr, ctx] = marcarPagadoMock.mock.calls[0]!;
     expect(soatId).toBe('soat-1');
     expect(extr).toMatchObject({ numeroPoliza: expect.objectContaining({ valor: 'POL-1' }), valorTotal: expect.objectContaining({ valor: '350000' }) });
-    expect(ctx).toEqual({ userId: 7, username: 'u@flitsas.io', role: 'financiera', externo: false, alcance: 'todo', proveedorSoatId: null, companiaId: null });
+    expect(ctx).toEqual({ userId: 7, username: 'u@flitsas.io', role: 'financiera', proyeccionCliente: false, alcance: 'todo', proveedorSoatId: null, companiaId: null });
     expect(alPagar.soportes).toBeGreaterThanOrEqual(1);
     expect(alPagar.comprobantes).toBe(1);
     expect(espia.updatesEn(T_SOAT)).toEqual([]);
@@ -1253,7 +1255,7 @@ describe('AC9 — :id no-UUID → 404; motivo como enum; limitador delante de mu
     const { readFileSync } = await import('node:fs');
     const { join } = await import('node:path');
     const rutas = readFileSync(join(import.meta.dirname, '../../src/modules/flito-comprobantes/flito-comprobantes.routes.ts'), 'utf8');
-    expect(rutas).toMatch(/router\.post\('\/', exigirFuncion\('comprobantes\.lote\.cargar'\), comprobantesCargaLimiter, recibirArchivos,/);
+    expect(rutas).toMatch(/router\.post\('\/', soloSinEnlace\(\), exigirFuncion\('comprobantes\.lote\.cargar'\), comprobantesCargaLimiter, recibirArchivos,/); // HU #13426: P-2
     const limiter = readFileSync(join(import.meta.dirname, '../../src/shared/middleware/rateLimiter.ts'), 'utf8');
     const bloque = limiter.slice(limiter.indexOf('export const comprobantesCargaLimiter'));
     expect(bloque).toMatch(/keyGenerator: userOrIpKey\('comprobantes-carga:'\)/);
@@ -1266,7 +1268,7 @@ describe('AC9 — :id no-UUID → 404; motivo como enum; limitador delante de mu
       .find((l) => l.route?.path === '/' && l.route.methods.post)!.route!;
     const nombres = capa.stack.map((s) => s.name);
     expect(nombres.indexOf('recibirArchivos')).toBeGreaterThan(0);
-    expect(nombres.slice(0, nombres.indexOf('recibirArchivos'))).toHaveLength(2); // exigirFuncion + el limitador
+    expect(nombres.slice(0, nombres.indexOf('recibirArchivos'))).toHaveLength(3); // soloSinEnlace (HU #13426) + exigirFuncion + el limitador
   });
 });
 
@@ -1294,9 +1296,9 @@ describe('HU #12654 — POST /:id/diferencia/aceptar', () => {
 
   it('exige comprobantes.diferencia.aceptar (auditor → 403; admin y financiera la tienen de partida); motivo ausente, <5 o >500 → 400 datos_invalidos sin tocar la base', async () => {
     const app = await buildApp();
-    expect(operacionesDePartida('financiera')).toContain('comprobantes.diferencia.aceptar');
-    expect(operacionesDePartida('admin')).toContain('comprobantes.diferencia.aceptar');
-    expect(operacionesDePartida('auditor')).not.toContain('comprobantes.diferencia.aceptar');
+    expect([...expandir(operacionesDePartida('financiera'))]).toContain('comprobantes.diferencia.aceptar');
+    expect([...expandir(operacionesDePartida('admin'))]).toContain('comprobantes.diferencia.aceptar');
+    expect([...expandir(operacionesDePartida('auditor'))]).not.toContain('comprobantes.diferencia.aceptar');
     expect((await aceptar(app, { motivo: MOTIVO }, 'auditor')).status).toBe(403);
     for (const body of [{}, { motivo: 'abcd' }, { motivo: '   ab   ' }, { motivo: 'x'.repeat(501) }]) {
       const res = await aceptar(app, body);

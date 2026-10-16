@@ -150,15 +150,15 @@ function Esqueleto() {
   );
 }
 
-function Aviso({ rol, children }: { rol: 'alert' | 'status'; children: ReactNode }) {
+function Aviso({ rol: ariaRole, children }: { rol: 'alert' | 'status'; children: ReactNode }) {
   return (
     <div
-      role={rol}
+      role={ariaRole}
       className="rounded-lg px-3 py-2.5 text-sm"
       style={{
         border: '1px solid var(--flit-border-soft)',
         background: 'var(--flit-bg-card)',
-        color: rol === 'alert' ? 'var(--flit-danger-ink)' : 'var(--flit-text-primary)',
+        color: ariaRole === 'alert' ? 'var(--flit-danger-ink)' : 'var(--flit-text-primary)',
       }}
     >
       {children}

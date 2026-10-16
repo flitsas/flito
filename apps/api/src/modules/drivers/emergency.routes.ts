@@ -3,12 +3,13 @@ import { z } from 'zod';
 import { eq, and, desc, asc } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { emergencyContacts, emergencyProtocols, emergencyDrills } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('pesv'));
+router.use(authMiddleware);
 
 function parseId(raw: string): number | null {
   const n = parseInt(raw, 10);
@@ -17,7 +18,7 @@ function parseId(raw: string): number | null {
 
 // ------ Contactos ------
 
-router.get('/contacts', async (req: Request, res: Response) => {
+router.get('/contacts', requirePage('pesv_emergencias'), async (req: Request, res: Response) => {
   const zona = req.query.zona as string | undefined;
   const tipo = req.query.tipo as string | undefined;
   const conds: any[] = [eq(emergencyContacts.activo, true)];
@@ -40,7 +41,7 @@ const contactSchema = z.object({
   prioridad: z.number().int().min(0).max(999).default(100),
 });
 
-router.post('/contacts', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/contacts', requirePage('pesv_emergencias'), exigirFuncion('drivers.emergencias.administrar'), async (req: Request, res: Response) => {
   const parsed = contactSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validación', details: parsed.error.flatten() }); return; }
   const [created] = await db.insert(emergencyContacts).values(parsed.data as any).returning();
@@ -48,7 +49,7 @@ router.post('/contacts', requireRole('admin'), async (req: Request, res: Respons
   res.status(201).json({ data: created });
 });
 
-router.patch('/contacts/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/contacts/:id', requirePage('pesv_emergencias'), exigirFuncion('drivers.emergencias.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = contactSchema.partial().safeParse(req.body);
@@ -62,7 +63,7 @@ router.patch('/contacts/:id', requireRole('admin'), async (req: Request, res: Re
   res.json({ data: updated });
 });
 
-router.delete('/contacts/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.delete('/contacts/:id', requirePage('pesv_emergencias'), exigirFuncion('drivers.emergencias.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [updated] = await db.update(emergencyContacts).set({ activo: false, updatedAt: new Date() }).where(eq(emergencyContacts.id, id)).returning();
@@ -73,7 +74,7 @@ router.delete('/contacts/:id', requireRole('admin'), async (req: Request, res: R
 
 // ------ Protocolos ------
 
-router.get('/protocols', async (_req, res: Response) => {
+router.get('/protocols', requirePage('pesv_emergencias'), async (_req, res: Response) => {
   const rows = await db.select().from(emergencyProtocols)
     .where(eq(emergencyProtocols.vigente, true))
     .orderBy(asc(emergencyProtocols.categoria), asc(emergencyProtocols.titulo));
@@ -87,7 +88,7 @@ const protocolSchema = z.object({
   zonas: z.array(z.string().max(100)).max(50).default([]),
 });
 
-router.post('/protocols', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/protocols', requirePage('pesv_emergencias'), exigirFuncion('drivers.emergencias.administrar'), async (req: Request, res: Response) => {
   const parsed = protocolSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validación', details: parsed.error.flatten() }); return; }
   const [created] = await db.insert(emergencyProtocols).values({
@@ -100,7 +101,7 @@ router.post('/protocols', requireRole('admin'), async (req: Request, res: Respon
 
 // ------ Simulacros ------
 
-router.get('/drills', async (_req, res: Response) => {
+router.get('/drills', requirePage('pesv_emergencias'), async (_req, res: Response) => {
   const rows = await db.select().from(emergencyDrills).orderBy(desc(emergencyDrills.fecha)).limit(200);
   res.json({ data: rows });
 });
@@ -114,7 +115,7 @@ const drillSchema = z.object({
   planMejora: z.string().max(2000).optional().nullable(),
 });
 
-router.post('/drills', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/drills', requirePage('pesv_emergencias'), exigirFuncion('drivers.emergencias.administrar'), async (req: Request, res: Response) => {
   const parsed = drillSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validación', details: parsed.error.flatten() }); return; }
   const [created] = await db.insert(emergencyDrills).values({

@@ -44,8 +44,32 @@ function textoError(e: unknown, queSeIntento: string): string {
 
 const ROTULO = 'text-[11px] font-semibold uppercase tracking-wide';
 
-export default function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, proveedores, restoreFocusRef, descarga, onClose, onCambio }: {
-  soat: SoatItem; esOperaciones: boolean; esGestor: boolean; soloLectura: boolean; esCliente: boolean;
+/**
+ * HU #12872 (AC4): una entrada por acción del detalle, cada una con la función de SU endpoint. El
+ * «modo» de la pantalla (Operaciones, gestor, Cliente) ya no decide acciones: solo copy y datos.
+ */
+export interface PermisosDetalleSoat {
+  cargarFactura: boolean;    // soat.comprobante.cargar (POST /:id/factura)
+  rechazar: boolean;         // soat.solicitud.rechazar
+  reactivar: boolean;        // soat.solicitud.reactivar
+  reversar: boolean;         // soat.solicitud.reversar
+  cambiarProveedor: boolean; // soat.proveedor.cambiar
+  asumir: boolean;           // soat.solicitud.asumir
+  devolver: boolean;         // soat.solicitud.devolver
+}
+
+export const FUNCION_ACCION_SOAT: Record<keyof PermisosDetalleSoat, string> = {
+  cargarFactura: 'soat.comprobante.cargar',
+  rechazar: 'soat.solicitud.rechazar',
+  reactivar: 'soat.solicitud.reactivar',
+  reversar: 'soat.solicitud.reversar',
+  cambiarProveedor: 'soat.proveedor.cambiar',
+  asumir: 'soat.solicitud.asumir',
+  devolver: 'soat.solicitud.devolver',
+};
+
+export default function DetalleSoat({ soat, puede, soloLectura, esCliente, proveedores, restoreFocusRef, descarga, onClose, onCambio }: {
+  soat: SoatItem; puede: PermisosDetalleSoat; soloLectura: boolean; esCliente: boolean;
   /** `null` = sin `soat.soportes.descargar`: el botón no existe en el DOM (AC4). */
   descarga: EstadoDescargaComprobante | null;
   proveedores: Proveedor[]; restoreFocusRef?: RefObject<HTMLElement | null>;
@@ -67,8 +91,16 @@ export default function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura
   // #12079). El traspaso de gestión solo tiene sentido mientras está en gestión y sin pagar: en
   // Pendiente el destino se elige al enviarlo, y en Pagado el dinero ya salió.
   const traspasable = enAdquisicion || rechazado;
-  const cargaFactura = enAdquisicion && (esOperaciones || esGestor);
-  const hayAccionDelEstado = cargaFactura || (rechazado && esOperaciones);
+  const cargaFactura = enAdquisicion && puede.cargarFactura;
+  const rechazable = enAdquisicion && puede.rechazar;
+  const reactivable = rechazado && puede.reactivar;
+  const hayAccionDelEstado = cargaFactura || rechazable || reactivable;
+  // «Corregir el caso» se pinta si al menos una de sus acciones aplica (estado + función).
+  const corrReversar = puede.reversar;
+  const corrProveedor = !enAdquisicion && puede.cambiarProveedor;
+  const corrAsumir = traspasable && !soat.gestionOperaciones && puede.asumir;
+  const corrDevolver = traspasable && !!soat.gestionOperaciones && puede.devolver;
+  const hayCorreccion = corrReversar || corrProveedor || corrAsumir || corrDevolver;
 
   const cancelar = () => { setAccion('idle'); setMotivo(''); setError(null); };
   const ejecutar = async (fn: () => Promise<unknown>, queSeIntento: string, exito: string) => {
@@ -148,10 +180,10 @@ export default function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) subirFactura(f); e.target.value = ''; }} />
               </label>
             )}
-            {cargaFactura && (
+            {rechazable && (
               <button type="button" className={flitBtnSecondary} onClick={() => setAccion('rechazar')}>Rechazar</button>
             )}
-            {rechazado && esOperaciones && (
+            {reactivable && (
               <button type="button" className={flitBtnSecondary} onClick={() => setAccion('reactivar')}>Reactivar</button>
             )}
           </div>
@@ -217,18 +249,20 @@ export default function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura
         {/* 7 · correcciones de Operaciones: acciones de excepción, aparte, para que no compitan con
             la del día. Sin condición de origen (HU #12079/#12080: el estado que la justificaba ya no
             existe). */}
-        {esOperaciones && (
+        {hayCorreccion && (
           <Seccion titulo="Corregir el caso">
             {accion === 'idle' || accion === 'rechazar' || accion === 'reactivar' ? (
               <div className="flex flex-wrap gap-2">
-                <button type="button" className={flitBtnSecondary} onClick={() => setAccion('reversar')}>Reversar</button>
-                {!enAdquisicion && (
+                {corrReversar && (
+                  <button type="button" className={flitBtnSecondary} onClick={() => setAccion('reversar')}>Reversar</button>
+                )}
+                {corrProveedor && (
                   <button type="button" className={flitBtnSecondary} onClick={() => setAccion('proveedor')}>Cambiar proveedor</button>
                 )}
-                {traspasable && !soat.gestionOperaciones && (
+                {corrAsumir && (
                   <button type="button" className={flitBtnSecondary} onClick={() => setAccion('asumir')}>Asumir en Operaciones</button>
                 )}
-                {traspasable && soat.gestionOperaciones && (
+                {corrDevolver && (
                   <button type="button" className={flitBtnSecondary} onClick={() => setAccion('devolver')}>Devolver al proveedor</button>
                 )}
               </div>

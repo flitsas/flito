@@ -38,6 +38,7 @@ import express from 'express';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
 import { testToken } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 const kdb = createKeyedDb();
 const espia = crearEspia(kdb);
@@ -105,7 +106,7 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat-cliente.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
 
@@ -1156,14 +1157,12 @@ describe('AC6 (RN-B1) — la consulta por VIN no acredita al titular, pero sigue
     expect(String(piiMock.mock.calls[0][1].motivo)).not.toContain(VIN_RUNT);
   });
 
-  it('**el VIN viaja en el CUERPO: la ruta permitida no tiene parámetros ni `:id`**', async () => {
-    // AGENTS.md §14. La allowlist del canal es la que decide qué URL puede tocar un `cliente`, y su
-    // patrón es literal: no hay forma de meter el VIN en la ruta sin cambiarla.
-    const { rutaPermitidaParaCliente } = await import('../../src/shared/middleware/canal-cliente.js');
-
-    expect(rutaPermitidaParaCliente('POST', '/api/flito/soat/cliente/preconsulta')).toBe(true);
-    expect(rutaPermitidaParaCliente('GET', '/api/flito/soat/cliente/preconsulta')).toBe(false);
-    expect(rutaPermitidaParaCliente('POST', `/api/flito/soat/cliente/preconsulta/${VIN_RUNT}`)).toBe(false);
+  it('**el VIN viaja en el CUERPO: la ruta no tiene parámetros ni `:id`**', async () => {
+    // AGENTS.md §14. HU #12875: ya no hay lista por ruta; lo que se fija es que la variante con el VIN
+    // en la URL NO existe en el router (404), así que no hay forma de meterlo ahí sin declararla.
+    const r = await request(await buildApp()).post(`/api/flito/soat/cliente/preconsulta/${VIN_RUNT}`)
+      .set('Authorization', await auth(siguienteUsuario())).send({ vin: VIN_RUNT });
+    expect(r.status).toBe(404);
   });
 
   it('**la preconsulta sigue bajo el limitador del canal**, que es lo que frena el sondeo de VINs', async () => {

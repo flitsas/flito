@@ -17,36 +17,49 @@
 import { describe, it, expect } from 'vitest';
 import { PAGES, PAGE_GROUPS, USER_ROLES, paginasPorDefecto } from '@operaciones/shared-types';
 import {
-  catalogoCompleto, catalogoDePaginas, catalogoDeOperaciones, repartoDePartida, moduloDeGrupo,
+  catalogoPlano, catalogoDePaginas, catalogoDeOperaciones, repartoDePartida, moduloDeGrupo,
   PAGINAS_NO_CONCEDIBLES, CatalogoIncoherenteError,
 } from '../../src/modules/permisos/catalogo.js';
 import {
-  AGRUPACION_DE_OPERACION, AGRUPACION_DE_PAGINA, moduloAgrupado, reagrupaciones,
+  AGRUPACION_DE_OPERACION, AGRUPACION_DE_OPERACION_LEGADO, AGRUPACION_DE_PAGINA, moduloAgrupado, reagrupaciones,
 } from '../../src/modules/permisos/catalogo-agrupacion.js';
 import {
-  leerMontajes, llaveDe, FICHEROS_EN_ALCANCE,
+  leerMontajes, llaveDe, FICHEROS_EN_ALCANCE, FICHEROS_LEGADO_EN_ALCANCE,
 } from '../../src/modules/permisos/inventario-guardas.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import {
   OPERACIONES_DECLARADAS, OPERACIONES_RETIRADAS_CANAL_CLIENTE,
 } from '../../src/modules/permisos/catalogo-operaciones.js';
-import { FUNCIONES_SIN_ADMIN } from '../../src/modules/permisos/permisos.service.js';
 
-const catalogo = catalogoCompleto();
+/**
+ * Las funciones que el reparto DE PARTIDA (la siembra que genera `catalogo.ts`) no le da a `admin`.
+ * HU #13424 (ADR-0022): ya no son una excepción del motor —`FUNCIONES_SIN_ADMIN` se retiró con el
+ * check de arranque—; la 0226 le marca a `admin` `impuestos.recibos.reemplazar` y deja fuera las tres
+ * del canal SOAT sin trámite (motivo en `permisos-siembra-admin.test.ts`, `EXCLUIDAS_DE_ADMIN`).
+ * Se fija aquí para que el reparto de partida no cambie en silencio.
+ */
+const SIN_ADMIN_EN_EL_REPARTO_DE_PARTIDA: readonly string[] = [
+  'impuestos.recibos.reemplazar', 'soat.factura.leer', 'soat.runt.preconsultar', 'soat.solicitud.crear',
+];
+
+const catalogo = catalogoPlano();
 const paginas = catalogo.filter((f) => f.tipo === 'pagina');
 const operaciones = catalogo.filter((f) => f.tipo === 'operacion');
 
 describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo era', () => {
-  it('`PAGE_GROUPS` trae 50 entradas para 49 slugs únicos: `transito` está dos veces', () => {
+  it('`PAGE_GROUPS` trae 74 entradas para 73 slugs únicos: `transito` está dos veces', () => {
     // 44 → 45 / 43 → 44 desde la HU #12375: entra `flito_tarifas` en «Finanzas».
     // 45 → 46 / 44 → 45 desde la HU #12085: entra `roles_permisos` en «Administración».
     // 46 → 47 / 45 → 46 desde la HU #12542: entra `flito_servicios_adicionales` en «Finanzas».
     // 47 → 48 / 46 → 47 desde la HU #12611: entra `flito_comprobantes` en «Finanzas».
     // 48 → 49 / 47 → 48 desde la HU #12623: entra `finanzas_gastos_diarios` en «Finanzas».
     // 49 → 50 / 48 → 49 desde la HU #13255: entra `perfil` en «General».
+    // 50 → 71 / 49 → 70 desde la HU #13421: entran las 21 páginas por ítem del menú PESV.
+    // 71 → 74 / 70 → 73 desde la HU #13422: entran las 3 páginas por ítem del menú Mantenimiento.
+    // 74 → 75 / 73 → 74 desde la HU #13588: entra `admin_rendimiento` («Rendimiento») en «Administración».
     const entradas = PAGE_GROUPS.flatMap((g) => g.pages);
-    expect(entradas).toHaveLength(50);
-    expect(new Set(entradas).size).toBe(49);
+    expect(entradas).toHaveLength(75);
+    expect(new Set(entradas).size).toBe(74);
     const repetidos = entradas.filter((s, i) => entradas.indexOf(s) !== i);
     expect(repetidos).toEqual(['transito']);
   });
@@ -72,11 +85,12 @@ describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo e
     expect(catalogo.map((f) => f.codigo)).not.toContain('pagina.flito_ayuda');
   });
 
-  it('las funciones de tipo `pagina` son 49: los 50 slugs de PAGES menos `flito_ayuda`', () => {
-    // HU #13255: +1 (`perfil`).
-    expect(Object.keys(PAGES)).toHaveLength(50);
-    expect(paginas).toHaveLength(49);
-    const esperados = Object.keys(PAGES).filter((s) => s !== 'flito_ayuda').sort();
+  it('las funciones de tipo `pagina` del mundo plano son 73: los 75 slugs de PAGES menos `flito_ayuda` y `admin_rendimiento`', () => {
+    // HU #13255: +1 (`perfil`). HU #13421: +21 (una por ítem del menú PESV). HU #13422: +3 (Mantenimiento).
+    // HU #13588: +1 en PAGES (`admin_rendimiento`), que nace en el árbol (la 0240): no es del mundo plano (≤ 0231).
+    expect(Object.keys(PAGES)).toHaveLength(75);
+    expect(paginas).toHaveLength(73);
+    const esperados = Object.keys(PAGES).filter((s) => s !== 'flito_ayuda' && s !== 'admin_rendimiento').sort();
     expect(paginas.map((f) => f.codigo.replace('pagina.', '')).sort()).toEqual(esperados);
   });
 });
@@ -96,11 +110,11 @@ describe('AC2 — el catálogo, nombrado como lo nombra el negocio', () => {
 
   it('cada función lleva módulo; el de las operaciones prefija su código o es su reagrupación declarada, y el prefijo sigue siendo un módulo de FICHEROS_EN_ALCANCE', () => {
     expect(catalogo.filter((f) => !f.modulo)).toEqual([]);
-    const modulosDeFichero = new Set(FICHEROS_EN_ALCANCE.map((f) => f.modulo));
+    const modulosDeFichero = new Set([...FICHEROS_EN_ALCANCE, ...FICHEROS_LEGADO_EN_ALCANCE].map((f) => f.modulo));
     for (const f of operaciones) {
       const prefijo = f.codigo.slice(0, f.codigo.indexOf('.'));
       expect(modulosDeFichero, f.codigo).toContain(prefijo);
-      const reagrupada = AGRUPACION_DE_OPERACION[f.codigo];
+      const reagrupada = AGRUPACION_DE_OPERACION[f.codigo] ?? AGRUPACION_DE_OPERACION_LEGADO[f.codigo];
       if (reagrupada) expect(f.modulo, f.codigo).toBe(reagrupada);
       else expect(f.codigo.startsWith(`${f.modulo}.`), f.codigo).toBe(true);
     }
@@ -139,7 +153,7 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     // fuente: una ruta nueva con `exigirFuncion` y sin entrada en la foto (ni migración) se ve aquí;
     // una ruta de la foto que alguien deje sin guarda, también. Las guardas EN LÍNEA (`condicion`) se
     // comprueban por código: `tieneFuncion(req, '<codigo>')` aparece en su fichero.
-    for (const f of FICHEROS_EN_ALCANCE) {
+    for (const f of [...FICHEROS_EN_ALCANCE, ...FICHEROS_LEGADO_EN_ALCANCE]) {
       const esperados = guardas.filter((g) => g.fichero === f.fichero).map((g) => {
         const codigo = codigoDeLlave.get(llaveDe(g));
         return g.condicion ? `${g.fichero} tieneFuncion → ${codigo}` : `${llaveDe(g)} → ${codigo}`;
@@ -151,26 +165,59 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     }
   });
 
-  it('hay exactamente una función por ruta de la foto, y ninguna de sobra', () => {
+  it('hay exactamente una función por ruta de la foto, y ninguna de sobra (salvo las legacy, que comparten código por ítem)', () => {
     // El aserto que el «46» del enunciado habría dejado pasar: conjuntos, no cardinales.
     expect(new Set(OPERACIONES_DECLARADAS.map((o) => o.llave)))
       .toEqual(new Set(guardas.map(llaveDe)));
-    expect(operaciones).toHaveLength(guardas.length);
-    expect(new Set(operaciones.map((f) => f.codigo)).size).toBe(guardas.length);
+    // HU #13421 (ADR-0023): en los ficheros FLITO, una función por ruta; en los legacy, una por
+    // código (el transitorio «Administrar <ítem>» cubre varias rutas). Ningún código se repite.
+    const legado = new Set(FICHEROS_LEGADO_EN_ALCANCE.map((f) => f.fichero));
+    const guardasFlito = guardas.filter((g) => !legado.has(g.fichero));
+    const codigosLegado = new Set(guardas.filter((g) => legado.has(g.fichero)).map((g) => codigoDeLlave.get(llaveDe(g))!));
+    // HU #12874 — ÚNICA excepción FLITO, nombrada y no genérica: `GET /cliente/companias` reutiliza
+    // `soat.solicitud.crear` del alta por decisión del PO (sin función nueva ni migración). El catálogo
+    // ya exige igualdad de nombre y reparto entre las dos guardas; aquí se fija que no haya otra.
+    const porCodigoFlito = new Map<string, number>();
+    for (const g of guardasFlito) {
+      const c = codigoDeLlave.get(llaveDe(g))!;
+      porCodigoFlito.set(c, (porCodigoFlito.get(c) ?? 0) + 1);
+    }
+    const compartidosFlito = [...porCodigoFlito].filter(([, n]) => n > 1);
+    // HU #13429 (diseño §5-quater.5): los tres `GET …/arbol` reutilizan la guarda de la lectura que suceden (el
+    // catálogo, el cuadro del rol y la lectura de las excepciones del usuario), sin función nueva.
+    expect(compartidosFlito.sort()).toEqual([
+      ['permisos.catalogo.ver', 2], ['permisos.cuadro.ver', 2], ['soat.solicitud.crear', 2], ['usuarios.usuario.listar', 2],
+    ]);
+    // HU #13427: las de HOY (con las operaciones nuevas que parten una guarda vieja), no las del mundo plano.
+    const deHoy = catalogoDeOperaciones();
+    expect(deHoy).toHaveLength(porCodigoFlito.size + codigosLegado.size);
+    expect(new Set(deHoy.map((f) => f.codigo)).size).toBe(deHoy.length);
+    // 25 de la HU #13421 + 13 de la HU #13422 + 42 de la HU #13423 + 11 de la HU #13427 (12 nuevas − el transitorio de Siigo)
+    // + 3 de la HU #13428 (3 nuevas de clientes − el transitorio `clients.clientes.administrar` + `perfil.datos.ver`)
+    expect(codigosLegado.size).toBe(94);
+  });
+
+  it('HU #13421 — varias guardas con el mismo código exigen IGUALDAD de reparto: una lista distinta revienta (no se une)', () => {
+    const g = guardas.filter((x) => codigoDeLlave.get(llaveDe(x)) === 'pesv.comite.administrar');
+    expect(g.length).toBeGreaterThan(1);
+    const alterada = guardas.map((x) => (x === g[1] ? { ...x, roles: ['admin'] } : x));
+    expect(() => catalogoDeOperaciones(alterada)).toThrow(CatalogoIncoherenteError);
+    expect(() => catalogoDeOperaciones(alterada)).toThrow(/pesv\.comite\.administrar/);
   });
 
   it('los roles de cada operación son LITERALMENTE los de su entrada en la foto', () => {
     const porLlave = new Map(guardas.map((g) => [llaveDe(g), g]));
     const declPorLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o]));
     for (const f of operaciones) {
-      const llave = [...declPorLlave.entries()].find(([, o]) => o.codigo === f.codigo)![0];
-      expect(f.roles).toEqual(porLlave.get(llave)!.roles);
+      // Todas las llaves del código (las legacy comparten código): cada una con los mismos roles.
+      const llaves = [...declPorLlave.entries()].filter(([, o]) => o.codigo === f.codigo).map(([l]) => l);
+      for (const llave of llaves) expect(f.roles, llave).toEqual(porLlave.get(llave)!.roles);
     }
   });
 
-  it('la foto cubre el alcance del Feature —incluido `users/` desde la #12083— y NO se cuela `clients`, que queda fuera', () => {
+  it('la foto cubre el alcance del Feature —incluido `users/` desde la #12083— y `clients` entra solo como legacy (HU #13422), no en el alcance FLITO', () => {
     expect(FICHEROS_EN_ALCANCE.some((f) => f.fichero.startsWith('clients/'))).toBe(false);
-    expect(new Set(guardas.map((g) => g.fichero))).toEqual(new Set(FICHEROS_EN_ALCANCE.map((f) => f.fichero)));
+    expect(new Set(guardas.map((g) => g.fichero))).toEqual(new Set([...FICHEROS_EN_ALCANCE, ...FICHEROS_LEGADO_EN_ALCANCE].map((f) => f.fichero)));
     expect(guardas.some((g) => g.fichero === 'users/users.routes.ts')).toBe(true);
   });
 
@@ -188,18 +235,45 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     expect(() => catalogoDeOperaciones(faltante)).toThrow(/SIN guarda viva/);
   });
 
-  it('las cuatro guardas en línea van con su condición en la llave y no colisionan con la ruta que las contiene (dos son del Bug #12642)', () => {
+  it('las veinticinco guardas en línea van con su condición en la llave y no colisionan con la ruta que las contiene (dos son del Bug #12642, cuatro de la HU #13425, una de la HU #13422, ocho de la HU #13423: las acciones de Siigo; dos de la HU #13427: credenciales de Siigo por ambiente; seis de la HU #13428: compañía por grupo de campos, clientes editar y fiscal, contraseña propia)', () => {
     const enLinea = guardas.filter((g) => g.condicion);
     expect(enLinea.map(llaveDe).sort()).toEqual([
+      'clients/clients.routes.ts PATCH /:id [editar]',
+      'clients/clients.routes.ts POST * [fiscal]',
       'flito-impuestos/flito-impuestos.routes.ts POST /export [incluirPago]',
+      'flito-logistica/flito-logistica.routes.ts POST /actas/:id/entregar [operarAjenas]',
+      'flito-parametrizacion/flito-parametrizacion.routes.ts PATCH /companias/:id [autogestion]',
+      'flito-parametrizacion/flito-parametrizacion.routes.ts PATCH /companias/:id [general]',
+      'flito-parametrizacion/flito-parametrizacion.routes.ts PATCH /companias/:id [sinTramite]',
       'flito-soat/flito-soat.routes.ts POST /export [incluirPago]',
+      'jornadas/jornadas.routes.ts POST /abrir [jornadaAjena]',
+      'pesv/diagnostico.routes.ts GET /:id [sugerirAuditoria]',
+      'pesv/diagnostico.routes.ts GET /:id [vistaAuditoria]',
+      'siigo/credenciales.routes.ts POST * [produccion]',
+      'siigo/credenciales.routes.ts POST * [pruebas]',
+      'siigo/siigo.permisos.ts GET * [consultar]',
+      'siigo/siigo.permisos.ts POST * [anular]',
+      'siigo/siigo.permisos.ts POST * [corregir]',
+      'siigo/siigo.permisos.ts POST * [emitir]',
+      'siigo/siigo.permisos.ts POST * [marcar_fallido]',
+      'siigo/siigo.permisos.ts POST * [reactivar]',
+      'siigo/siigo.permisos.ts POST * [reenviar_correo]',
+      'siigo/siigo.permisos.ts POST * [reintentar]',
       'tramites/tramites.routes.ts PATCH /:id [_forzarContinuar]',
       'users/users.routes.ts PATCH /:id/password [ajena]',
+      'users/users.routes.ts PATCH /:id/password [propia]',
+      'vehicles/vehicles.routes.ts GET / [documentoCompleto]',
     ]);
+    expect(codigoDeLlave.get('vehicles/vehicles.routes.ts GET / [documentoCompleto]')).toBe('vehicles.propietario.ver_documento');
     expect(codigoDeLlave.get('flito-soat/flito-soat.routes.ts POST /export')).toBe('soat.excel.exportar');
     expect(codigoDeLlave.get('flito-soat/flito-soat.routes.ts POST /export [incluirPago]')).toBe('soat.excel.exportar_pago');
     expect(codigoDeLlave.get('tramites/tramites.routes.ts PATCH /:id')).toBe('tramite.tramite.editar');
     expect(codigoDeLlave.get('tramites/tramites.routes.ts PATCH /:id [_forzarContinuar]')).toBe('tramite.tramite.forzar_continuar');
+    expect(codigoDeLlave.get('flito-logistica/flito-logistica.routes.ts POST /actas/:id/entregar')).toBe('logistica.actas.entregar');
+    expect(codigoDeLlave.get('flito-logistica/flito-logistica.routes.ts POST /actas/:id/entregar [operarAjenas]')).toBe('logistica.actas.operar_ajenas');
+    expect(codigoDeLlave.get('jornadas/jornadas.routes.ts POST /abrir [jornadaAjena]')).toBe('jornadas.control.administrar');
+    expect(codigoDeLlave.get('pesv/diagnostico.routes.ts GET /:id [vistaAuditoria]')).toBe('pesv.diagnostico_consulta.administrar');
+    expect(codigoDeLlave.get('pesv/diagnostico.routes.ts GET /:id [sugerirAuditoria]')).toBe('pesv.diagnostico.administrar');
   });
 });
 
@@ -237,13 +311,13 @@ describe('AC4 — el reparto de partida reproduce el estado de hoy (CF-16)', () 
     // queda sin pantallas el día del merge: no es un test de forma, es el seguro de la HU.
     const suyas = porRol('admin').filter((c) => c.startsWith('pagina.')).sort();
     expect(suyas).toEqual(paginas.map((f) => f.codigo).sort());
-    expect(suyas).toHaveLength(49); // HU #13255: +`pagina.perfil` (la 0218 la reparte a admin)
+    expect(suyas).toHaveLength(73); // HU #13255: +`pagina.perfil` (la 0218 la reparte a admin); HU #13421: +21 PESV; HU #13422: +3 Mantenimiento
   });
 
   it('`admin` tiene todas las operaciones salvo las tres del canal Cliente, que son de `cliente`, y la que nace sin rol (HU #13269)', () => {
     const suyas = new Set(porRol('admin'));
     const sinAdmin = operaciones.filter((f) => !suyas.has(f.codigo)).map((f) => f.codigo).sort();
-    expect(sinAdmin).toEqual([...FUNCIONES_SIN_ADMIN].sort());
+    expect(sinAdmin).toEqual([...SIN_ADMIN_EN_EL_REPARTO_DE_PARTIDA].sort());
     // Y no están huérfanas: son del canal Cliente, con `requireRole('cliente')` a secas; salvo el
     // reemplazo del comprobante de pago, que la 0220 siembra sin reparto (AC7 de la HU #13269).
     for (const c of sinAdmin) {
@@ -262,18 +336,16 @@ describe('AC4 — el reparto de partida reproduce el estado de hoy (CF-16)', () 
   });
 });
 
-describe('AC6 — añadir una función obliga a decidir sobre `admin`', () => {
-  it('la lista de excepciones nombra las tres del canal Cliente y la del reemplazo (HU #13269), y solo esas', () => {
-    // Un `FUNCIONES_SIN_ADMIN` que crezca sin que nadie lo note es exactamente el fallo que el AC6
-    // quiere evitar. Aquí se fija su contenido: ampliarla obliga a tocar este caso y explicarse.
-    // HU #13269 (AC7): `impuestos.recibos.reemplazar` nace sin rol; el administrador la concede.
-    expect([...FUNCIONES_SIN_ADMIN].sort())
+describe('HU #13424 — lo que el reparto de partida no da a `admin` (la 0226 completa todo salvo las tres del canal)', () => {
+  it('son las tres del canal Cliente y la del reemplazo (HU #13269), y solo esas', () => {
+    // El aserto «toda siembra marca a `admin`» vive en `permisos-siembra-admin.test.ts`.
+    expect([...SIN_ADMIN_EN_EL_REPARTO_DE_PARTIDA].sort())
       .toEqual(['impuestos.recibos.reemplazar', 'soat.factura.leer', 'soat.runt.preconsultar', 'soat.solicitud.crear']);
   });
 
-  it('todas las excepciones existen de verdad en el catálogo', () => {
+  it('todas existen de verdad en el catálogo', () => {
     const codigos = new Set(catalogo.map((f) => f.codigo));
-    for (const c of FUNCIONES_SIN_ADMIN) expect(codigos).toContain(c);
+    for (const c of SIN_ADMIN_EN_EL_REPARTO_DE_PARTIDA) expect(codigos).toContain(c);
   });
 });
 
@@ -301,9 +373,10 @@ describe('HU #12716 — cada página se agrupa con las acciones de su módulo', 
     expect(modulos.has('parametrizacion')).toBe(false);
     expect(modulos.has('sync')).toBe(false);
     expect(paginas.filter((f) => f.modulo === 'flito_soat_e_impuestos')).toEqual([]);
-    // `finanzas` sigue existiendo como módulo de PÁGINAS sin acciones (gastos diarios, Siigo), pero
-    // ninguna operación queda ahí: las de servicios adicionales se fueron a su pantalla.
-    expect(operaciones.filter((f) => f.modulo === 'finanzas')).toEqual([]);
+    // `finanzas` sigue existiendo como módulo de PÁGINAS (gastos diarios, Siigo); las de servicios
+    // adicionales se fueron a su pantalla. Desde la HU #13423 las únicas operaciones de `finanzas` son
+    // las de Siigo, que se agrupan con sus páginas (`siigo_operacion`, `siigo_parametrizacion`).
+    expect(operaciones.filter((f) => f.modulo === 'finanzas' && !f.codigo.startsWith('siigo.'))).toEqual([]);
     for (const m of ['clientes', 'tarifas', 'servicios_adicionales', 'catalogos_compartidos']) expect(modulos).toContain(m);
   });
 
@@ -368,12 +441,12 @@ describe('HU #12716 — cada página se agrupa con las acciones de su módulo', 
     const mapa = AGRUPACION_DE_OPERACION as Record<string, string>;
     mapa['parametrizacion.tarifas.borrar'] = 'tarifas';
     try {
-      expect(() => catalogoCompleto()).toThrow(CatalogoIncoherenteError);
-      expect(() => catalogoCompleto()).toThrow(/Agrupación declarada para un código que no existe: parametrizacion\.tarifas\.borrar/);
+      expect(() => catalogoPlano()).toThrow(CatalogoIncoherenteError);
+      expect(() => catalogoPlano()).toThrow(/Agrupación declarada para un código que no existe: parametrizacion\.tarifas\.borrar/);
     } finally {
       delete mapa['parametrizacion.tarifas.borrar'];
     }
-    expect(() => catalogoCompleto()).not.toThrow();
+    expect(() => catalogoPlano()).not.toThrow();
   });
 
   it('la comprobación estructural del prefijo se conserva: una guarda cuyo código no empiece por su módulo de fichero revienta aunque el mapa la reagrupe (AC3)', () => {

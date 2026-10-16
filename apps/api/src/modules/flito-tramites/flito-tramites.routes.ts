@@ -7,6 +7,9 @@ import { z } from 'zod';
 import { esAlertaOperativa, esFuenteTramite, TipoSoporteZip } from '@operaciones/shared-types';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
+import { alcanceDe, soloSinEnlace } from '../../shared/middleware/frontera-enlace.js';
+import { esProyeccionCliente } from '../../shared/alcance-filas.js';
+import { exigirTramitesPropios, tramiteEnAlcance } from './flito-tramites.alcance.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { soportesDeTramite } from '../../shared/soportes/soportes-consulta.js';
 import {
@@ -27,8 +30,10 @@ const router = Router();
 router.use(authMiddleware);
 
 
-function ctxDe(user: { sub: number; username: string; role: string }): TramitesCtx {
-  return { userId: user.sub, username: user.username, role: user.role };
+/** HU #13426: el ctx lleva el ALCANCE del enlace (`alcanceDe`, de la base), que viaja a SOAT/Impuestos. */
+async function ctxDe(req: Request): Promise<TramitesCtx> {
+  const user = req.user!;
+  return { userId: user.sub, username: user.username, role: user.role, alcance: await alcanceDe(req) };
 }
 
 const loteSchema = z.object({ tramiteIds: z.array(z.string().uuid()).min(1) });
@@ -64,17 +69,22 @@ router.get('/', exigirFuncion('tramites.cola.ver'), async (req: Request, res: Re
     aprobadoDesde: fecha(q.aprobadoDesde), aprobadoHasta: fecha(q.aprobadoHasta),
     page: Number(q.page) || 1, pageSize: Number(q.pageSize) || 50,
   };
-  res.json(await listar(filtros));
+  res.json(await listar(filtros, await alcanceDe(req)));
 });
 
 // GET /facetas — valores distintos para los dropdowns de filtro.
-router.get('/facetas', exigirFuncion('tramites.cola.filtrar'), async (_req: Request, res: Response) => {
-  res.json(await facetas());
+router.get('/facetas', exigirFuncion('tramites.cola.filtrar'), async (req: Request, res: Response) => {
+  res.json(await facetas(await alcanceDe(req)));
 });
 
 // GET /:id/historial — auditoría de cambios del trámite (campo por campo). Operaciones/Auditoría.
 router.get('/:id/historial', exigirFuncion('tramites.tramite.ver_historial'), async (req: Request, res: Response) => {
-  res.json(await historial(req.params.id));
+  // HU #13426 (AC2): un trámite fuera del alcance responde 404, igual que uno inexistente.
+  const alcance = await alcanceDe(req);
+  if (!await tramiteEnAlcance(req.params.id, alcance)) { res.status(404).json({ error: 'El trámite no existe' }); return; }
+  // Habeas Data (HU #13426): la compañía no recibe el nombre de quien de FLIT hizo cada cambio.
+  const filas = await historial(req.params.id);
+  res.json(esProyeccionCliente(alcance) ? filas.map((f) => ({ ...f, usuarioNombre: null })) : filas);
 });
 
 /**
@@ -86,6 +96,7 @@ router.get('/:id/historial', exigirFuncion('tramites.tramite.ver_historial'), as
  * propio de aquí es el rol que entra.
  */
 router.get('/:id/soportes', exigirFuncion('tramites.tramite.ver_soportes'), async (req: Request, res: Response) => {
+  if (!await tramiteEnAlcance(req.params.id, await alcanceDe(req))) { res.status(404).json({ error: 'El trámite no existe' }); return; }
   const soportes = await soportesDeTramite(req.params.id);
   if (!soportes) { res.status(404).json({ error: 'El trámite no existe' }); return; }
   // Sin caché: un soporte cargado hace un minuto tiene que salir sin recargar la pantalla.
@@ -133,7 +144,7 @@ router.post('/soportes/zip', exigirFuncion('tramites.soportes.descargar'), zipSo
 
   try {
     comprobarTopeRegistrosZip(parsed.data.ids);
-    const registros = await registrosZipTramites(parsed.data.ids);
+    const registros = await registrosZipTramites(parsed.data.ids, await alcanceDe(req));
     const entradas = await resolverEntradasZip(registros, parsed.data.tipos);
     // HU #12817: un PDF por trámite, consolidado en disco ANTES del primer byte (409 si nada es
     // legible, 422 si los bytes reales se pasan). `filas` del rastro = PDFs que salen.
@@ -172,13 +183,14 @@ const crearEmpresaSchema = z.object({
   soatAutogestionable: z.boolean().optional(), impuestosAutogestionable: z.boolean().optional(),
   logisticaAutogestionable: z.boolean().optional(),
 });
-router.post('/crear-empresa', exigirFuncion('tramites.empresa.crear'), async (req: Request, res: Response) => {
+// HU #13426: crear una compañía es catálogo → cerrado a todo enlace.
+router.post('/crear-empresa', soloSinEnlace(), exigirFuncion('tramites.empresa.crear'), async (req: Request, res: Response) => {
   const parsed = crearEmpresaSchema.safeParse(req.body);
   if (!parsed.success) { bad(res); return; }
   const d = parsed.data;
   const r = await crearEmpresaDesdeTramite(d.nombre, d.nit, {
     soat: d.soatAutogestionable ?? false, impuestos: d.impuestosAutogestionable ?? false, logistica: d.logisticaAutogestionable ?? false,
-  }, ctxDe(req.user!));
+  }, await ctxDe(req));
   await audit(req, { action: 'create', resource: 'flito_tramite', detail: `Empresa ${parsed.data.nit} ${r.yaExistia ? 'reutilizada' : 'creada'}; ${r.revinculados} trámites re-vinculados` });
   res.json(r);
 });
@@ -193,11 +205,11 @@ const demoSchema = z.object({
   transitoNombre: z.string().trim().optional(), idFlit: z.string().trim().optional(),
   flitEstado: z.string().trim().optional(),
 });
-router.post('/demo', exigirFuncion('tramites.demo.sembrar'), async (req: Request, res: Response) => {
+router.post('/demo', soloSinEnlace(), exigirFuncion('tramites.demo.sembrar'), async (req: Request, res: Response) => {
   const parsed = demoSchema.safeParse(req.body);
   if (!parsed.success) { bad(res); return; }
   try {
-    const r = await crearTramiteDemo(parsed.data, ctxDe(req.user!));
+    const r = await crearTramiteDemo(parsed.data, await ctxDe(req));
     await audit(req, { action: 'create', resource: 'flito_tramite', detail: `Trámite DEMO ${r.idFlit} (placa ${r.placa}) creado` });
     res.status(201).json(r);
   } catch (e) {
@@ -209,7 +221,9 @@ router.post('/demo', exigirFuncion('tramites.demo.sembrar'), async (req: Request
 router.post('/solicitar-soat', exigirFuncion('tramites.solicitud.pedir_soat'), async (req: Request, res: Response) => {
   const parsed = soatSchema.safeParse(req.body);
   if (!parsed.success) { bad(res); return; }
-  const r = await solicitarSoat(parsed.data.tramiteIds, parsed.data.proveedorSoatId, ctxDe(req.user!));
+  const ctx = await ctxDe(req);
+  await exigirTramitesPropios(parsed.data.tramiteIds, ctx.alcance); // HU #13426 (AC3)
+  const r = await solicitarSoat(parsed.data.tramiteIds, parsed.data.proveedorSoatId, ctx);
   await audit(req, { action: 'update', resource: 'flito_tramite', detail: `Solicitud SOAT: ${r.enviados} enviados, ${r.yaEnviados} ya enviados, ${r.autogestionados} autogestionados, ${r.sinRegistro} sin registro` });
   res.json(r);
 });
@@ -218,7 +232,9 @@ router.post('/solicitar-soat', exigirFuncion('tramites.solicitud.pedir_soat'), a
 router.post('/solicitar-impuestos', exigirFuncion('tramites.solicitud.pedir_impuestos'), async (req: Request, res: Response) => {
   const parsed = loteSchema.safeParse(req.body);
   if (!parsed.success) { bad(res); return; }
-  const r = await solicitarImpuestos(parsed.data.tramiteIds, ctxDe(req.user!));
+  const ctx = await ctxDe(req);
+  await exigirTramitesPropios(parsed.data.tramiteIds, ctx.alcance);
+  const r = await solicitarImpuestos(parsed.data.tramiteIds, ctx);
   await audit(req, { action: 'update', resource: 'flito_tramite', detail: `Solicitud impuestos: ${r.enviados} enviados, ${r.yaEnviados} ya enviados, ${r.noEnviables} no enviables` });
   res.json(r);
 });
@@ -227,7 +243,9 @@ router.post('/solicitar-impuestos', exigirFuncion('tramites.solicitud.pedir_impu
 router.post('/solicitar-ambos', exigirFuncion('tramites.solicitud.pedir_ambos'), async (req: Request, res: Response) => {
   const parsed = soatSchema.safeParse(req.body);
   if (!parsed.success) { bad(res); return; }
-  const r = await solicitarAmbos(parsed.data.tramiteIds, parsed.data.proveedorSoatId, ctxDe(req.user!));
+  const ctx = await ctxDe(req);
+  await exigirTramitesPropios(parsed.data.tramiteIds, ctx.alcance);
+  const r = await solicitarAmbos(parsed.data.tramiteIds, parsed.data.proveedorSoatId, ctx);
   await audit(req, { action: 'update', resource: 'flito_tramite', detail: `Solicitud SOAT+impuestos sobre ${parsed.data.tramiteIds.length} trámites` });
   res.json(r);
 });
@@ -236,7 +254,9 @@ router.post('/solicitar-ambos', exigirFuncion('tramites.solicitud.pedir_ambos'),
 router.post('/entregar', exigirFuncion('tramites.tramite.entregar'), async (req: Request, res: Response) => {
   const parsed = loteSchema.safeParse(req.body);
   if (!parsed.success) { bad(res); return; }
-  const r = await entregar(parsed.data.tramiteIds, ctxDe(req.user!));
+  const ctx = await ctxDe(req);
+  await exigirTramitesPropios(parsed.data.tramiteIds, ctx.alcance);
+  const r = await entregar(parsed.data.tramiteIds, ctx);
   await audit(req, { action: 'update', resource: 'flito_tramite', detail: `Entrega en lote: ${r.entregados} entregados, ${r.noHabilitados.length} no habilitados` });
   res.json(r);
 });
@@ -254,7 +274,8 @@ router.post('/:id/desbloquear-autogestion', exigirFuncion('tramites.autogestion.
   const parsed = excepcionSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' }); return; }
   try {
-    const ctx = ctxDe(req.user!);
+    const ctx = await ctxDe(req);
+    await exigirTramitesPropios([req.params.id], ctx.alcance); // HU #13426 (AC3)
     const e = await desbloquear(req.params.id, parsed.data.concepto, parsed.data.motivo, ctx);
     await audit(req, {
       action: 'update', resource: 'flito_tramite', resourceId: req.params.id,
@@ -271,7 +292,8 @@ router.post('/:id/revocar-autogestion', exigirFuncion('tramites.autogestion.revo
   const parsed = excepcionSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' }); return; }
   try {
-    const ctx = ctxDe(req.user!);
+    const ctx = await ctxDe(req);
+    await exigirTramitesPropios([req.params.id], ctx.alcance);
     await revocar(req.params.id, parsed.data.concepto, parsed.data.motivo, ctx);
     await audit(req, {
       action: 'update', resource: 'flito_tramite', resourceId: req.params.id,

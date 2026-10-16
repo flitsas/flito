@@ -7,19 +7,19 @@
 // No llama a Siigo: todo sale de bitácoras locales.
 
 import { Router, type Request, type Response } from 'express';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { lineaTiempoDeTramite } from './siigo.linea-tiempo.service.js';
 
 const router = Router();
 router.use(authMiddleware);
 
 /** Los mismos que leen el reporte de costos. `auditor` incluido: es su pregunta natural. */
-const LECTURA = requireRole('admin', 'financiera', 'auditor');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // GET /:tramiteId — el relato completo de un trámite.
-router.get('/:tramiteId', LECTURA, async (req: Request, res: Response) => {
+router.get('/:tramiteId', exigirFuncion('siigo.factura.consultar'), async (req: Request, res: Response) => {
   const { tramiteId } = req.params;
   // Un uuid malformado daría un error de sintaxis de PostgreSQL en vez de un 400, y se llevaría
   // la transacción por delante.

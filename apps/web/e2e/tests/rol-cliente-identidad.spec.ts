@@ -152,7 +152,7 @@ test.describe('HU #11913 · AC4 — el legado /soat le queda cerrado', () => {
     await expect(page).toHaveURL(/\/flito\/soat$/);
   });
 
-  test('el proveedor no cambia: conserva el portal, el legado y su «Volver al tablero»', async ({ page }) => {
+  test('el proveedor conserva el portal; su NoAccess lo lleva a SOAT, no al Tablero que su enlace cierra (HU #13452)', async ({ page }) => {
     await loginAs(page, PROVEEDOR_USER);
     await mockSoat(page);
 
@@ -160,9 +160,11 @@ test.describe('HU #11913 · AC4 — el legado /soat le queda cerrado', () => {
     await page.goto('/flito/soat');
     await expect(page.getByRole('heading', { name: 'SOAT', exact: true })).toBeVisible();
 
-    // Y su NoAccess sigue diciendo lo de siempre, palabra por palabra.
+    // HU #13452: el proveedor tiene enlace `proveedor`, y su frontera (ADR-0024) le cierra el Tablero
+    // general: «Volver al tablero» lo mandaría a otra pantalla cerrada. Su salida es su portal.
     await page.goto('/users');
-    await expect(page.getByRole('link', { name: 'Volver al tablero' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Volver al tablero' })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Ir a SOAT' })).toBeVisible();
   });
 });
 

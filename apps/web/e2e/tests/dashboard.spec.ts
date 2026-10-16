@@ -51,11 +51,18 @@ test.describe('Dashboard', () => {
     await expect(page.getByText('Diferencias de valor')).toBeVisible();
   });
 
-  test('proveedor ve saludo minimal sin métricas', async ({ page }) => {
+  test('proveedor: solo lo que su permiso abre, sin métricas de SOAT ni petición a /soat/stats', async ({ page }) => {
+    // HU #12872 (AC6): el tablero ya no decide por `role === 'admin'`. El proveedor abre Vehículos
+    // (pagina.vehicles) → ve su primaria; NO tiene `soat.antiguo.administrar` (la guarda de
+    // `/soat/stats`) → ni métricas ni KpiCards de SOAT, y la consulta ni se dispara.
+    let statsPedidas = 0;
+    await page.route(/\/api\/soat\/stats/, (r) => { statsPedidas += 1; return r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }); });
     await loginAs(page, PROVEEDOR_USER);
     await page.goto('/');
     await expect(page).toHaveURL('/');
-    // El proveedor entra al fast path: greeting + hint de Cmd+K, sin cards de SOAT.
-    await expect(page.getByText(/navegar a tus secciones/i)).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Ver vehículos' })).toBeVisible();
+    await expect(page.getByText('SOAT vigentes')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Ver salud SOAT/ })).toHaveCount(0);
+    expect(statsPedidas).toBe(0);
   });
 });

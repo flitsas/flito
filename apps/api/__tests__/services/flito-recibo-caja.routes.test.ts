@@ -11,13 +11,14 @@ process.env.TZ = 'UTC';
 // Mutante M-D: `exigirFuncion('impuestos.recibos.cargar')` en la ruta → «gestor → 403» deja de serlo
 // (el gestor SÍ tiene esa función de partida) y `permisos-catalogo` cae por montaje ≠ foto.
 
+import { codigosQueConceden, expandir } from '../../src/modules/permisos/arbol/expansion.js';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { getTableName } from 'drizzle-orm';
 import { CampoImpuesto, EstadoImpuesto, TipoSoporte } from '@operaciones/shared-types';
 import { createKeyedDb } from '../helpers/keyed-db.js';
-import { testToken, operacionesDePartida, fuenteDePrueba, type TestRole } from '../helpers/auth.js';
+import { testToken, operacionesDePartida, fuenteDePrueba, type TestRole, conCadenaEnFuente } from '../helpers/auth.js';
 
 const kdb = createKeyedDb();
 vi.mock('../../src/db/client.js', () => ({ db: kdb.db, getPoolStats: vi.fn().mockResolvedValue({ utilization: 0, total: 0, idle: 0, waiting: 0 }) }));
@@ -88,13 +89,16 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
-  app.use('/api/flito/impuestos', router);
+  const { conAlcance } = await import('../../src/shared/middleware/frontera-enlace.js');
+  app.use('/api/flito/impuestos', conAlcance('impuestos', router)); // HU #13426: como en app.ts
   // 500 a propósito: un 400 solo puede venir de la ruta.
   app.use((err: { message?: string }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     res.status(500).json({ error: 'fallback', detalle: err.message });
   });
   return app;
 }
+// HU #12875: Impuestos está cerrado por la frontera al enlace `organismos_transito` hasta la #13426;
+// aquí se mide el filtro del SERVICIO del gestor, así que su sesión lleva el enlace neutralizado.
 const auth = async (role: TestRole, sub = 7) => `Bearer ${await testToken({ sub, username: 'u@flitsas.io', role })}`;
 
 beforeEach(() => {
@@ -121,8 +125,9 @@ describe('AC2 — acceso por función `impuestos.recibos.cargar_caja`', () => {
   });
 
   it('gestor_impuestos (que SÍ tiene impuestos.recibos.cargar de partida) → 403 del motor; nada se consulta ni escribe (M-D)', async () => {
-    expect(operacionesDePartida('gestor_impuestos')).toContain('impuestos.recibos.cargar');
-    expect(operacionesDePartida('gestor_impuestos')).not.toContain(CODIGO);
+    // HU #12873: de partida tiene ACCIONES; lo que cuenta es lo que expanden.
+    expect(expandir(operacionesDePartida('gestor_impuestos'))).toContain('impuestos.recibos.cargar');
+    expect(expandir(operacionesDePartida('gestor_impuestos'))).not.toContain(CODIGO);
     const app = await buildApp();
     const res = await request(app).post(RUTA).set('Authorization', await auth('gestor_impuestos')).attach('archivo', PDF, 'caja.pdf');
     expect(res.status).toBe(403);
@@ -148,13 +153,14 @@ describe('AC2 — acceso por función `impuestos.recibos.cargar_caja`', () => {
     const app = await buildApp();
     const bearer = await auth('admin', 9);
     // Fuente propia y MUTABLE: quitar la función después no vacía la caché (a diferencia de re-registrar).
-    const filas = { rol: 'admin', tipoPrincipal: 'interno' as const, funcionesDelRol: [...operacionesDePartida('admin')], excepciones: [] };
-    fijarFuenteDePermisos(async (sub) => (sub === 9 ? filas : null));
+    const filas = { rol: 'admin', tipoEnlace: 'ninguno', funcionesDelRol: [...operacionesDePartida('admin')], excepciones: [] };
+    fijarFuenteDePermisos(conCadenaEnFuente(async (sub) => (sub === 9 ? filas : null)));
 
     armarCarga();
     expect((await request(app).post(RUTA).set('Authorization', bearer).attach('archivo', PDF, 'caja.pdf')).status).toBe(200);
 
-    filas.funcionesDelRol = filas.funcionesDelRol.filter((c) => c !== CODIGO);
+    // HU #12873: quitar la función es quitar lo que la concede (la acción «Cargar recibo de caja»).
+    filas.funcionesDelRol = filas.funcionesDelRol.filter((c) => !codigosQueConceden(CODIGO).includes(c));
     armarCarga();
     expect((await request(app).post(RUTA).set('Authorization', bearer).attach('archivo', PDF, 'caja.pdf')).status).toBe(200);
 

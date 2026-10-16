@@ -77,7 +77,7 @@ const POR_DEFECTO = umbralPara(null);
 const campo = (valor: string | null, confianza: number) => ({ valor, confianza, confiable: confianza >= POR_DEFECTO });
 const UUID = '00000000-0000-0000-0000-0000000000dd';
 const UUID_2 = '00000000-0000-0000-0000-0000000000de';
-const ADMIN = { userId: 5, username: 'ops@flito.co', role: 'admin', organismos: [] as string[] };
+const ADMIN = { userId: 5, username: 'ops@flito.co', role: 'admin', organismos: [] as string[], alcance: { enlace: 'ninguno' as const } };
 const pdf = (nombre: string, contenido: string) => ({ originalname: nombre, mimetype: 'application/pdf', buffer: Buffer.from(contenido), size: contenido.length });
 const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 
@@ -272,7 +272,7 @@ describe('AC4 — sello ilegible o bajo el umbral: se respeta la fase declarada,
   describe('el umbral del sello es el del ORGANISMO del candidato (gestor), no el por defecto', () => {
     const ORG_LAXO = '05001';
     const ORG_ESTRICTO = '11001';
-    const GESTOR = { userId: 5, username: 'gestor@flito.co', role: 'gestor_impuestos', organismos: [ORG_LAXO, ORG_ESTRICTO] };
+    const GESTOR = { userId: 5, username: 'gestor@flito.co', role: 'gestor_impuestos', organismos: [ORG_LAXO, ORG_ESTRICTO], alcance: { enlace: 'organismos_transito' as const, organismos: [ORG_LAXO, ORG_ESTRICTO] } };
     const umbralesDelLote = () => chain([{ codigo: ORG_LAXO, u: '0.600' }, { codigo: ORG_ESTRICTO, u: '0.950' }]);
     const reciboMedio = (sello: ReturnType<typeof campo>) => recibo(sello, {
       [CampoImpuesto.PLACA]: campo('QTQ100', 0.9), [CampoImpuesto.VALOR_TOTAL]: campo('634900', 0.9),

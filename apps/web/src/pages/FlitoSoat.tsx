@@ -22,6 +22,7 @@ import {
 import { AvisoSoportesZip, ZIP_SOAT, useDescargaZip } from '../components/flito/DescargarSoportesZip';
 import { useDescargaComprobante } from '../components/flito/DescargarComprobanteSoat';
 import useDebounce from '../lib/useDebounce';
+import { conEnlace, vacioConEnlace } from '../lib/copyEnlace';
 import {
   FlitCard, FlitEmpty, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary,
 } from '../components/flit/flitPageKit';
@@ -33,7 +34,7 @@ import {
 } from '../components/flito/soat/tipos';
 import BarraFiltrosSoat, { type PresetSoat } from '../components/flito/soat/BarraFiltrosSoat';
 import TablaColaSoat from '../components/flito/soat/TablaColaSoat';
-import DetalleSoat from '../components/flito/soat/DetalleSoat';
+import DetalleSoat, { FUNCION_ACCION_SOAT, type PermisosDetalleSoat } from '../components/flito/soat/DetalleSoat';
 import CargaMasiva from '../components/flito/soat/CargaMasivaSoat';
 import DetalleIncompletaSoat from '../components/flito/soat/DetalleIncompletaSoat';
 import useIncompletasSoat from '../components/flito/soat/useIncompletasSoat';
@@ -49,7 +50,7 @@ const VACIO_INCOMPLETAS = {
 const ACCION_CABECERA = 'w-full justify-center sm:w-auto';
 
 export default function FlitoSoat() {
-  const { user, hasFuncion, funciones } = useAuth();
+  const { user, hasFuncion, funciones, tipoEnlace } = useAuth();
   // HU #12170: modos de UI derivados de funciones del catálogo, no de `role ===`.
   const esOperaciones = hasFuncion('soat.solicitud.enviar');
   const esGestor = hasFuncion('soat.comprobante.cargar') && !esOperaciones;
@@ -72,6 +73,16 @@ export default function FlitoSoat() {
   const puedeVerIncompleta = hasFuncion('soat.incompleta.ver');
   // HU #12998: sin la función el botón no se pinta (ni en la fila ni en el detalle).
   const puedeReintentar = hasFuncion(FUNCION_REINTENTAR_RUNT);
+  // HU #12872 (AC4): cada acción del detalle por la función de su endpoint, una por una.
+  // HU #13452: el catálogo de proveedores vive en parametrización, cerrada a todo enlace (#12875).
+  // Enviar, cambiar o devolver al proveedor eligen de ese catálogo y son operación interna: con
+  // enlace no se pintan y el catálogo no se pide. `null` = «aún no se sabe»: tampoco se pide.
+  const sinEnlace = tipoEnlace === 'ninguno';
+  const puedeEnviarProveedor = esOperaciones && sinEnlace;
+  const puedeDetalle = Object.fromEntries(
+    Object.entries(FUNCION_ACCION_SOAT).map(([accion, codigo]) => [accion, hasFuncion(codigo)]),
+  ) as unknown as PermisosDetalleSoat;
+  if (!sinEnlace) { puedeDetalle.cambiarProveedor = false; puedeDetalle.devolver = false; }
   // Con las pastillas nuevas el orden es el del Cliente también para Operaciones (UX §3.2).
   const estadosDisponibles = esGestor ? ESTADOS_GESTOR : esCliente || conIncompletas ? ESTADOS_CLIENTE : ESTADOS_ADMIN;
   // AC9: «Ir a mis SOAT» de la tarjeta de la solicitud guardada abre «Por validar». Llega por el
@@ -236,9 +247,9 @@ export default function FlitoSoat() {
   }, []);
 
   useEffect(() => {
-    if (!esOperaciones) return;
+    if (!puedeEnviarProveedor) return;
     api.get<Proveedor[]>('/flito/parametrizacion/proveedores-soat').then(setProveedores).catch(() => setProveedores([]));
-  }, [esOperaciones]);
+  }, [puedeEnviarProveedor]);
 
   // Llegada desde el modal del AC4 con «Ver la solicitud» (HU #11914). El uuid viaja en el ESTADO de
   // navegación y NO en la URL: el detalle de esta cola es un modal y no tiene dirección propia, y
@@ -270,6 +281,9 @@ export default function FlitoSoat() {
   // del cuerpo que se manda, igual que cualquier otro filtro. La función es aparte de la del
   // export: quien puede descargar el archivo del gestor no necesariamente puede ver el pago.
   const puedeExportarPago = hasFuncion('soat.excel.exportar_pago');
+  // HU #13452: «Incluir datos de pago y trazabilidad» es de uso interno («Solo para Operaciones»): con
+  // enlace no se ofrece aunque el rol tenga la función marcada.
+  const ofrecerExportarPago = puedeExportarPago && sinEnlace;
   const [incluirPago, setIncluirPago] = useState(false);
   const filtrosExport: FiltrosExportCola = {
     ...(estado !== 'todos' && !vistaIncompletas ? { estados: [estado] } : {}),
@@ -290,7 +304,7 @@ export default function FlitoSoat() {
     ...(vigenciaSel ? { vigencia: vigenciaSel } : {}),
     // Bug #12642: la clave viaja SOLO marcada —y solo si se tiene la función, que es lo que pinta la
     // casilla—: ausente, el cuerpo es el mismo de siempre. Sin la función no hay forma de marcarla.
-    ...(puedeExportarPago && incluirPago ? { incluirPago: true } : {}),
+    ...(ofrecerExportarPago && incluirPago ? { incluirPago: true } : {}),
   };
   // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
   const exportacion = useExportCola(COLA_SOAT, filtrosExport);
@@ -299,7 +313,10 @@ export default function FlitoSoat() {
   // el proveedor, quién despachó y lo que FLITO pagó—: eso sería otra HU, no una condición más.
   // En «Por validar»/«Descartadas» no se pinta: el Excel es de SOAT y no cambia (HU #12997), así
   // que ahí no sería «lo que estoy viendo».
-  const puedeExportar = (esOperaciones || esGestor) && !vistaIncompletas;
+  // HU #12872 (AC3): cada botón por la función de SU endpoint (`POST /export` exige
+  // `soat.excel.exportar`; `POST /facturas`, `soat.masiva.cargar`), no por el «modo» de la pantalla.
+  const puedeExportar = hasFuncion('soat.excel.exportar') && !vistaIncompletas;
+  const puedeCargaMasiva = hasFuncion('soat.masiva.cargar');
   // Quién DESCARGA SOPORTES: la función que exige el POST del ZIP (HU #12815), no el rol. La casilla
   // sirve también para «Enviar al gestor»: sin ninguna de las dos, no hay columna (AC7).
   const puedeDescargar = hasFuncion('soat.soportes.descargar');
@@ -398,7 +415,8 @@ export default function FlitoSoat() {
           : 'Cola de adquisición del SOAT: de Pendiente a Pagado.'}
         actions={(
           <>
-            {(esOperaciones || esGestor) && (
+            {/* HU #12872 (AC3): la carga masiva por la función de SU endpoint (POST /facturas). */}
+            {puedeCargaMasiva && (
               <button type="button" className={`${flitBtnPrimary} ${ACCION_CABECERA}`} style={flitBtnPrimaryStyle} onClick={() => setCargaMasiva(true)}>
                 <Upload size={16} aria-hidden="true" className="shrink-0" />
                 Cargar facturas (masivo)
@@ -421,7 +439,7 @@ export default function FlitoSoat() {
               <BotonExportarCola
                 ocupado={exportacion.ocupado}
                 onExportar={exportacion.exportar}
-                incluirPago={puedeExportarPago ? { marcado: incluirPago, onCambio: setIncluirPago } : undefined}
+                incluirPago={ofrecerExportarPago ? { marcado: incluirPago, onCambio: setIncluirPago } : undefined}
               />
             )}
           </>
@@ -512,7 +530,7 @@ export default function FlitoSoat() {
       {conCasillas && seleccion.size > 0 && (
         <div className="sticky top-[calc(var(--flit-topbar-height)+0.5rem)] z-20">
           <BarraEnvioSoat marcadas={seleccion.size} enviables={enviables.map((f) => f.id)} descargables={descargables}
-            puedeEnviar={esOperaciones} puedeDescargar={puedeDescargar} proveedores={proveedores} zip={descargaZip}
+            puedeEnviar={puedeEnviarProveedor} puedeDescargar={puedeDescargar} proveedores={proveedores} zip={descargaZip}
             onQuitar={() => setSeleccion(new Set())}
             onEnviado={(n, aOperaciones) => {
               toastOk(`${n} SOAT enviados ${aOperaciones ? 'a Operaciones' : 'al gestor'}.`);
@@ -552,13 +570,14 @@ export default function FlitoSoat() {
                   </>
                 )
                 // HU #12819: el gestor no sincroniza el Tablero (no es suyo) y el auditor no trae nada.
-                : esGestor
+                // HU #13452: con enlace el vacío dice de quién son los SOAT, sin mandar a sincronizar.
+                : vacioConEnlace('SOAT', tipoEnlace) ?? (esGestor
                   ? 'No tienes SOAT en esta vista. Aparecerán aquí cuando Operaciones te los envíe.'
                   : soloLectura
                     ? 'No hay SOAT en esta vista. Prueba con otro estado en las pastillas de arriba.'
-                    : 'No hay SOAT en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.'}
+                    : 'No hay SOAT en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.')}
             {(hayFiltros || texto.trim()) && (
-              <p className="mt-1">{esCliente ? 'Quite algún filtro o use «Limpiar filtros».' : 'Quita algún filtro o usa «Limpiar filtros».'}</p>
+              <p className="mt-1">{esCliente || conEnlace(tipoEnlace) ? 'Quite algún filtro o use «Limpiar filtros».' : 'Quita algún filtro o usa «Limpiar filtros».'}</p>
             )}
           </FlitEmpty>
         </FlitCard>
@@ -587,7 +606,7 @@ export default function FlitoSoat() {
       )}
 
       {detalle && (
-        <DetalleSoat soat={detalle} esOperaciones={esOperaciones} esGestor={esGestor} soloLectura={soloLectura}
+        <DetalleSoat soat={detalle} puede={puedeDetalle} soloLectura={soloLectura && !Object.values(puedeDetalle).some(Boolean)}
           esCliente={esCliente} restoreFocusRef={refPills}
           descarga={puedeDescargar ? descargaComprobante : null}
           proveedores={proveedores} onClose={() => setDetalleId(null)}

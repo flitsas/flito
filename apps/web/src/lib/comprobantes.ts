@@ -74,7 +74,8 @@ export const horaCarga = (iso: string): string =>
 
 /** «Carga 16 sep 2026 · 10:42 · Ana Pérez». */
 export const textoCarga = (c: Pick<ComprobanteListaDto, 'createdAt' | 'subidoPorNombre'>): string =>
-  `Carga ${fechaCarga(c.createdAt)} · ${horaCarga(c.createdAt)} · ${c.subidoPorNombre}`;
+  // Sin nombre para la compañía (HU #13426, Habeas Data): el API lo emite vacío.
+  `Carga ${fechaCarga(c.createdAt)} · ${horaCarga(c.createdAt)}${c.subidoPorNombre ? ` · ${c.subidoPorNombre}` : ''}`;
 
 /** El chip de filtro por carga: «Carga de hoy 10:42» si es de hoy, si no fecha · hora. */
 export function etiquetaChipCarga(iso: string): string {

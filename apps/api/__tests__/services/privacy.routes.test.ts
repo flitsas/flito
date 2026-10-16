@@ -258,7 +258,8 @@ describe('privacy — auth & roles', () => {
     expect(r.status).toBe(403);
   });
 
-  it('compliance puede preview (200) pero NO forget (403 — segregation of duties)', async () => {
+  // HU #13429 (AC3, P-24 aprobado): el ítem antiguo «Privacidad» concede el derecho al olvido; compliance lo gana.
+  it('compliance puede preview (200) y pasa la guarda de forget (ganancia aprobada AC3 de la #13429)', async () => {
     // Preview con compliance: requiere mocks de todos los counts
     selectMock.mockImplementation(() => chain([{ c: 0 }]));
     const token = await testToken({ sub: 1, role: 'compliance' });
@@ -267,9 +268,10 @@ describe('privacy — auth & roles', () => {
     const rPreview = await request(app).get('/api/privacy/preview/123456').set('Authorization', `Bearer ${token}`);
     expect(rPreview.status).toBe(200);
 
+    // Cuerpo inválido a propósito: el 400 de Zod prueba que la guarda dejó pasar sin tocar datos.
     const rForget = await request(app).post('/api/privacy/forget').set('Authorization', `Bearer ${token}`)
-      .send({ docNumber: '123456', reason: 'derecho al olvido formal' });
-    expect(rForget.status).toBe(403);
+      .send({ docNumber: '12', reason: 'derecho al olvido formal' });
+    expect(rForget.status).toBe(400);
   });
 });
 

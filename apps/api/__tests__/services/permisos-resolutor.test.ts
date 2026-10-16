@@ -10,6 +10,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
+import { conCadena, conCadenaEnFuente } from '../helpers/auth.js';
 
 const selectMock = vi.fn();
 const warnMock = vi.fn();
@@ -55,25 +56,33 @@ const render = (c: unknown) => new PgDialect().sqlToQuery(c as never);
  * pagina.<slug>` de `permisos_usuario_funcion`, en `propias` como cualquier otra excepción.
  */
 function base(opts: {
-  usuario?: { rol: string; tipoPrincipal?: string } | null;
+  usuario?: { rol: string; tipoEnlace?: string } | null;
   rol?: string[];
   propias?: { codigo: string; efecto: string }[];
 }) {
   const u = opts.usuario === null ? [] : [{
     rol: opts.usuario?.rol ?? 'gestor',
-    tipoPrincipal: opts.usuario?.tipoPrincipal ?? 'interno',
+    tipoEnlace: opts.usuario?.tipoEnlace ?? 'ninguno',
   }];
-  respuestas = [u, (opts.rol ?? []).map((codigo) => ({ codigo })), opts.propias ?? []];
+  // HU #13429: con el resolutor en cadena, lo del rol y lo concedido llegan con su cadena (`conCadena`, como tras la
+  // 0239); lo que este fichero mide —la regla (R ∪ C) \ V— se lee sobre los códigos que nombra el caso.
+  const propias = opts.propias ?? [];
+  mencionados = new Set([...(opts.rol ?? []), ...propias.map((p) => p.codigo)]);
+  respuestas = [u, conCadena(opts.rol ?? []).map((codigo) => ({ codigo })), [
+    ...conCadena(propias.filter((p) => p.efecto === 'conceder').map((p) => p.codigo)).map((codigo) => ({ codigo, efecto: 'conceder' })),
+    ...propias.filter((p) => p.efecto !== 'conceder'),
+  ]];
 }
+let mencionados: Set<string> | null = null;
 
 const conjunto = async (userId: number) => {
   const p = await resolverPermisos(userId);
   if (!p.ok) throw new Error(`no resolvió: ${p.motivo}`);
-  return [...p.funciones].sort();
+  return [...p.funciones].filter((c) => !mencionados || mencionados.has(c)).sort();
 };
 
 beforeEach(() => {
-  condiciones = []; selecciones = []; respuestas = [];
+  condiciones = []; selecciones = []; respuestas = []; mencionados = null;
   selectMock.mockReset().mockImplementation(chainEspia);
   warnMock.mockReset();
   // Cada caso parte sin caché: la fuente real, recién fijada, la vacía.
@@ -122,12 +131,12 @@ describe('TC #12258 AC1 — resolverPermisos: (rol ∪ conceder) \\ revocar, con
     base({ usuario: { rol: 'gestor' } });
     await resolverPermisos(7);
     const columnas = selecciones.map((s) => Object.keys(s as object));
-    expect(columnas[0]).toEqual(['rol', 'tipoPrincipal', 'tipoEnlace']);
+    expect(columnas[0]).toEqual(['rol', 'tipoEnlace']); // HU #12875: el tipo retirado ya no se lee
     expect(columnas[1]).toEqual(['codigo']);
     expect(columnas[2]).toEqual(['codigo', 'efecto']);
     // Las columnas reales que cada campo del select apunta, por si alguien renombra el alias.
     const sql = selecciones.map((s) => Object.values(s as Record<string, { name?: string }>).map((c) => c.name)).flat();
-    expect(sql).toEqual(['role', 'tipo_principal', 'tipo_enlace', 'funcion_codigo', 'funcion_codigo', 'efecto']);
+    expect(sql).toEqual(['role', 'tipo_enlace', 'funcion_codigo', 'funcion_codigo', 'efecto']);
     for (const prohibida of ['allowed_pages', 'email', 'name', 'username', 'password_hash', 'documento', 'telefono']) {
       expect(sql).not.toContain(prohibida);
     }
@@ -177,11 +186,19 @@ describe('TC #12259 AC1 — borde: rol sin funciones devuelve vacío sin lanzar;
     expect(await resolverPermisos(99)).toEqual({ ok: false, userId: 99, motivo: 'sin_usuario' });
   });
 
-  it('devuelve el rol y el tipo_principal LEÍDOS de la base junto al conjunto', async () => {
-    base({ usuario: { rol: 'aseguradora_x', tipoPrincipal: 'externo' }, rol: ['pagina.flito_soat'] });
+  it('devuelve el rol y el ENLACE leídos de la base junto al conjunto, y no el tipo retirado (HU #12875)', async () => {
+    base({ usuario: { rol: 'aseguradora_x', tipoEnlace: 'compania' }, rol: ['pagina.flito_soat'] });
     const p = await resolverPermisos(16);
     expect(p.ok && p.rol).toBe('aseguradora_x');
-    expect(p.ok && p.tipoPrincipal).toBe('externo');
+    expect(p.ok && p.tipoEnlace).toBe('compania');
+    expect(p).not.toHaveProperty('tipoPrincipal');
+  });
+
+  it('HU #12875 (alias transitorio): el valor previo `proveedor_soat` se resuelve como `proveedor`; un valor desconocido, `null`', async () => {
+    base({ usuario: { rol: 'gestor_x', tipoEnlace: 'proveedor_soat' } });
+    expect((await resolverPermisos(17)) as { tipoEnlace?: unknown }).toMatchObject({ ok: true, tipoEnlace: 'proveedor' });
+    base({ usuario: { rol: 'gestor_y', tipoEnlace: 'inventado' } });
+    expect((await resolverPermisos(18)) as { tipoEnlace?: unknown }).toMatchObject({ ok: true, tipoEnlace: null });
   });
 });
 
@@ -288,7 +305,7 @@ describe('TC #12263 AC4 — el fallo de base NO abre la puerta: niega de forma d
   });
 
   it('un fallo en la SEGUNDA o TERCERA consulta también niega (no se decide con media tanda)', async () => {
-    respuestas = [[{ rol: 'gestor', tipoPrincipal: 'interno' }], new Error('timeout') as unknown as unknown[]];
+    respuestas = [[{ rol: 'gestor', tipoEnlace: 'ninguno' }], new Error('timeout') as unknown as unknown[]];
     expect(await resolverPermisos(7)).toEqual({ ok: false, userId: 7, motivo: 'resolucion' });
   });
 
@@ -310,10 +327,11 @@ describe('el seam de pruebas', () => {
   });
 
   it('sustituye las FILAS y no la regla: la resta sigue ganando sobre el double', async () => {
-    fijarFuenteDePermisos(async () => ({
-      rol: 'gestor', tipoPrincipal: 'interno',
+    mencionados = new Set(['soat.cola.ver', 'pagina.fleet']);
+    fijarFuenteDePermisos(conCadenaEnFuente(async () => ({
+      rol: 'gestor', tipoEnlace: 'ninguno',
       funcionesDelRol: ['soat.cola.ver', 'pagina.fleet'], excepciones: [{ codigo: 'pagina.fleet', efecto: 'revocar' }],
-    }));
+    })));
     expect(await conjunto(7)).toEqual(['soat.cola.ver']);
     expect(selectMock).not.toHaveBeenCalled();
   });

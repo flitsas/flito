@@ -24,7 +24,7 @@ import {
 } from '../components/flit/flitPageKit';
 import { isValidPage } from '../lib/permissions';
 
-const GRUPOS_ORDEN: AyudaGrupo[] = ['gestion', 'finanzas', 'administracion'];
+const GRUPOS_ORDEN: AyudaGrupo[] = ['general', 'gestion', 'finanzas', 'administracion'];
 type EstadoCarga = 'cargando' | 'error' | 'listo';
 
 function SkeletonFicha() {
@@ -209,8 +209,8 @@ function Indice() {
                 {GRUPO_AYUDA_LABEL[grupo]}
               </h2>
               <div
-                className="overflow-hidden bg-white"
-                style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}
+                className="overflow-hidden"
+                style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)', background: 'var(--flit-bg-card)' }}
               >
                 <ul>
                   {items.map((entrada, idx) => (

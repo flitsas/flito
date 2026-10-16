@@ -36,7 +36,7 @@ beforeEach(() => { kdb.reset(); espia.reiniciar(); });
 describe('TC-19 — soportesDeSoat() no devuelve documentos adicionales', () => {
   it.each([['admin'], ['proveedor'], ['auditor']])('rol interno %s: la consulta lleva `tipo NOT IN (documento_adicional_soat)`', async (rol) => {
     kdb.when.select('flito_soportes', []);
-    await soportesDeSoat(SOAT_ID, { rol, externo: false, estadoSoat: 'solicitado' } as never);
+    await soportesDeSoat(SOAT_ID, { rol, proyeccionCliente: false, estadoSoat: 'solicitado' } as never);
     const [q] = lecturasDeSoportes();
     expect(q, 'la lectura por soat_id se emitió').toBeDefined();
     const m = /"flito_soportes"\."tipo" not in \(\$(\d+)\)/.exec(q.sql);
@@ -46,7 +46,7 @@ describe('TC-19 — soportesDeSoat() no devuelve documentos adicionales', () => 
 
   it('rol externo (cliente): sigue la allowlist Y también la exclusión', async () => {
     kdb.when.select('flito_soportes', []);
-    await soportesDeSoat(SOAT_ID, { rol: 'cliente', externo: true, estadoSoat: 'pagado' } as never);
+    await soportesDeSoat(SOAT_ID, { rol: 'cliente', proyeccionCliente: true, estadoSoat: 'pagado' } as never);
     const [q] = lecturasDeSoportes();
     expect(q, 'en `pagado` el cliente sí tiene tipos visibles: la lectura se emite').toBeDefined();
     expect(q.sql).toMatch(/"flito_soportes"\."tipo" not in/);

@@ -4,6 +4,7 @@ import AppShell from './flit/AppShell';
 import CommandPalette from './shell/CommandPalette';
 import ErrorBoundary from './ErrorBoundary';
 import { prefetchCoreRoutes } from '../lib/prefetchCoreRoutes';
+import { useRefrescoPermisos } from '../lib/useRefrescoPermisos';
 
 // Layout FLIT 2026 — AppShell sin sidebar (decisión PO 2026-06-12): topbar +
 // FlitNavBar (dock flotante al pie) en desktop, drawer en mobile. El CommandPalette (⌘K)
@@ -11,6 +12,8 @@ import { prefetchCoreRoutes } from '../lib/prefetchCoreRoutes';
 export default function Layout() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const location = useLocation();
+  // HU #12872 (AC7): páginas y funciones se refrescan al volver a la pestaña o al navegar.
+  useRefrescoPermisos();
 
   // SPRINT-PERF-UX-NAV-2026: Layout solo monta dentro de ProtectedRoute (usuario
   // autenticado), así que prefetcheamos los chunks de rutas core en idle una vez.

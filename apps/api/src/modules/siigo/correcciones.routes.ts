@@ -3,13 +3,12 @@
 // AC7 — quién entra. Registrar una corrección es afirmar que un documento ante la DIAN se tocó, así
 // que escriben `admin` y `financiera`; `auditor` lee y no escribe, que es lo que significa auditar.
 //
-// **La guarda es la de la HU #11342, ya integrada.** Esta ruta nació con `requireRole` porque el
-// catálogo de acciones iba en paralelo y no estaba en su rama; inventar una clave allí habría dejado
-// dos fuentes de verdad sobre quién puede tocar una factura. Ya existe la única: `corregir` en
-// `ACCIONES_SIIGO`, que hoy resuelve a los mismos `admin` y `financiera` — así que sustituirla no
-// cambia quién entra, cambia DÓNDE se decide. A partir de aquí, cambiar quién corrige es editar una
-// fila de `ROLES_POR_ACCION`, y el intento denegado queda en la bitácora como el de cualquier otra
-// acción, cosa que `requireRole` no hacía.
+// **La guarda es la de la HU #11342, ya integrada.** Esta ruta nació con una guarda de rol propia
+// porque el catálogo de acciones iba en paralelo y no estaba en su rama. Ya existe la única fuente:
+// `corregir` en `ACCIONES_SIIGO`, que desde la HU #13423 decide el motor con la función
+// `siigo.factura.corregir` (sembrada a `admin` y `financiera`). Cambiar quién corrige es repartir esa
+// función desde el panel de roles, y el intento denegado queda en la bitácora como el de cualquier
+// otra acción.
 //
 // Las guardas van como middleware ANTES del handler, nunca dentro: así una ruta nueva que se olvide
 // de la guarda se nota leyendo el `router.<verbo>`.

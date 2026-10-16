@@ -27,6 +27,7 @@ import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
 import { renderizar } from '../helpers/sql-ligado.js';
 import { registrarUsuarioDePrueba } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 const kdb = createKeyedDb();
 const espia = crearEspia(kdb);
@@ -109,7 +110,7 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   router = (await import('../../src/modules/flito-soat/flito-soat-incompletas.routes.js')).default;
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
 
@@ -404,7 +405,7 @@ describe('AC7 — permiso, alcance y límite', () => {
 
   it('fuera de alcance → 404 (no 403): la lectura va acotada a la compañía del enlace', async () => {
     kdb.when.selectOnce('users', [{ c: COMPANIA, p: null }]).selectOnce('flito_soat_incompletas', []);
-    const token = await auth({ tipoPrincipal: 'externo', tipoEnlace: 'compania', funciones: ['soat.solicitud.reintentar_runt'] });
+    const token = await auth({ tipoEnlace: 'compania', funciones: ['soat.solicitud.reintentar_runt'] });
     const r = await reintentar(await buildApp(), token);
     expect(r.status).toBe(404);
     expect(consultarMock).not.toHaveBeenCalled();
@@ -417,7 +418,7 @@ describe('AC7 — permiso, alcance y límite', () => {
 
   it('un gestor (enlace proveedor) no ve ninguna incompleta → 404 sin leer la tabla', async () => {
     kdb.when.selectOnce('users', [{ c: null, p: PROVEEDOR }]);
-    const token = await auth({ tipoEnlace: 'proveedor_soat', funciones: ['soat.solicitud.reintentar_runt'] });
+    const token = await auth({ tipoEnlace: 'proveedor', funciones: ['soat.solicitud.reintentar_runt'] });
     const r = await reintentar(await buildApp(), token);
     expect(r.status).toBe(404);
     expect(consultarMock).not.toHaveBeenCalled();

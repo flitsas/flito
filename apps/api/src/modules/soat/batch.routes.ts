@@ -5,7 +5,8 @@ import rateLimit from 'express-rate-limit';
 import { eq } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { vehicles } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { consultarVehiculoRunt } from '../runt/runt.service.js';
 import { loggerFor } from '../../shared/logger.js';
@@ -83,7 +84,7 @@ function recibirXlsx(req: Request, res: Response, next: (e?: unknown) => void): 
   });
 }
 
-router.use(authMiddleware, requireRole('admin'));
+router.use(authMiddleware);
 
 interface BatchResult {
   vin: string; plate: string | null; ownerName: string | null;
@@ -98,7 +99,7 @@ interface BatchResult {
 const batchLimiter = rateLimit({ windowMs: 300000, max: 3, message: { ok: false, message: 'Máximo 3 validaciones batch cada 5 minutos' } });
 
 // C1: NDJSON streaming — envía progreso línea por línea para evitar timeout
-router.post('/batch-validate', batchLimiter, recibirXlsx, async (req: Request, res: Response) => {
+router.post('/batch-validate', exigirFuncion('soat.antiguo.administrar'), batchLimiter, recibirXlsx, async (req: Request, res: Response) => {
   if (!req.file) { res.status(400).json({ ok: false, message: 'Archivo requerido' }); return; }
 
   // ANTES de abrir el libro: `load` descomprime y materializa el archivo entero en el heap, así que
@@ -206,7 +207,7 @@ router.post('/batch-validate', batchLimiter, recibirXlsx, async (req: Request, r
 });
 
 // POST /export-provider — Genera Excel para enviar al proveedor
-router.post('/export-provider', async (req: Request, res: Response) => {
+router.post('/export-provider', exigirFuncion('soat.antiguo.administrar'), async (req: Request, res: Response) => {
   const { items } = req.body as { items: BatchResult[] };
   if (!items || !items.length) { res.status(400).json({ error: 'Sin datos' }); return; }
 

@@ -3,12 +3,15 @@
 // Spec UX: docs/ux/perfil.md. Todo el API se mockea: `/auth/me` lo siembra `loginAs` y aquí se
 // sobrescribe cuando el AC lo pide; `PATCH /users/:id/password` se espía para afirmar cuándo NO sale.
 //
-// El permiso es de PÁGINA (`pagina.perfil`, 0218: solo `admin` por defecto), no de función: el
-// fixture de admin la trae por `ADMIN_ALLOWED_PAGES`, y el conductor sirve de control negativo
-// porque ningún rol, salvo admin, la recibe por defecto.
+// HU #13431: el permiso es la FUNCIÓN «Ver mis datos» (`perfil.datos.ver`, que implica la cadena
+// elemento Perfil → ítem Perfil), repartida a todos los roles (P-22). Los datos llegan de
+// `GET /auth/perfil` (lo siembra `loginAs`); el control negativo es una sesión sin esa función.
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, sobreDeMe, ADMIN_USER, CONDUCTOR_USER } from '../helpers/auth';
+import { loginAs, ADMIN_USER, CONDUCTOR_USER, FUNCIONES_POR_ROL, FUNCIONES_PERFIL } from '../helpers/auth';
+
+/** Funciones del rol SIN las de Perfil: el control negativo de AC2 (HU #13431). */
+const sinPerfil = (rol: string) => FUNCIONES_POR_ROL[rol].filter((f) => !(FUNCIONES_PERFIL as readonly string[]).includes(f));
 
 const YO = { ...ADMIN_USER, email: 'admin.e2e@flito.test', rolNombre: 'Administrador del sistema' };
 const RUTA_PASSWORD = /\/api\/users\/1\/password$/;
@@ -38,7 +41,7 @@ async function llenar(page: Page, actual: string, nueva: string, confirma: strin
 }
 
 test.describe('Perfil — menú de sesión (AC1-AC3)', () => {
-  test('AC1: con pagina.perfil, «Perfil» va encima de «Cerrar sesión» en el mismo bloque y navega a /perfil', async ({ page }) => {
+  test('AC1: con «Ver mis datos», «Perfil» va encima de «Cerrar sesión» en el mismo bloque y navega a /perfil', async ({ page }) => {
     await loginAs(page, YO);
     await page.goto('/');
     await page.getByRole('button', { name: /Menú de usuario/ }).click();
@@ -55,9 +58,8 @@ test.describe('Perfil — menú de sesión (AC1-AC3)', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Mi perfil' })).toBeVisible();
   });
 
-  test('AC2: sin pagina.perfil el ítem no se pinta y /perfil directo muestra la pantalla de sin acceso', async ({ page }) => {
-    expect(sobreDeMe(CONDUCTOR_USER).allowedPages).not.toContain('perfil');
-    await loginAs(page, CONDUCTOR_USER);
+  test('AC2 (HU #13431): sin «Ver mis datos» el ítem no se pinta y /perfil directo muestra la pantalla de sin acceso', async ({ page }) => {
+    await loginAs(page, { ...CONDUCTOR_USER, allowedPages: ['perfil'] }, { funciones: sinPerfil('conductor') });
     await page.goto('/');
     await page.getByRole('button', { name: /Menú de usuario/ }).click();
     const menu = page.getByRole('menu', { name: 'Opciones de usuario' });
@@ -68,6 +70,13 @@ test.describe('Perfil — menú de sesión (AC1-AC3)', () => {
     // Copy real de `components/NoAccess.tsx` con la etiqueta de PAGES.perfil.
     await expect(page.getByRole('heading', { level: 1, name: 'No tienes acceso a Perfil' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Mi perfil' })).toHaveCount(0);
+    await expect(page.getByLabel('Contraseña actual')).toHaveCount(0);
+  });
+
+  test('HU #13431: con «Ver mis datos» y sin «Cambiar mi contraseña» se ven los datos, no el formulario', async ({ page }) => {
+    await loginAs(page, YO, { funciones: FUNCIONES_POR_ROL.admin.filter((f) => f !== 'perfil.contrasena.cambiar') });
+    await page.goto('/perfil');
+    await expect(page.getByRole('region', { name: 'Su cuenta' }).getByText('admin.e2e@flito.test')).toBeVisible();
     await expect(page.getByLabel('Contraseña actual')).toHaveCount(0);
   });
 
@@ -109,9 +118,9 @@ test.describe('Perfil — página (AC4, AC8)', () => {
     await loginAs(page, YO);
     await page.goto('/');
     await expect(page.getByRole('button', { name: /Menú de usuario/ })).toBeVisible();
-    await page.route('**/api/auth/me', (route) => route.fulfill({
+    await page.route('**/api/auth/perfil', (route) => route.fulfill({
       status: 200, contentType: 'application/json',
-      body: JSON.stringify({ ...sobreDeMe(YO), username: '', name: null, email: null }),
+      body: JSON.stringify({ username: '', name: null, email: null, rolNombre: YO.rolNombre }),
     }));
     await abrirPerfilDesdeMenu(page);
     await expect(page.getByText('Su cuenta no tiene datos de identidad registrados. Pida a su administrador de FLITO que los complete.')).toBeVisible();
@@ -127,10 +136,12 @@ test.describe('Perfil — página (AC4, AC8)', () => {
     let fallar = true;
     let soltar: () => void = () => {};
     const retenida = new Promise<void>((r) => { soltar = r; });
-    await page.route('**/api/auth/me', async (route) => {
+    await page.route('**/api/auth/perfil', async (route) => {
       if (fallar) return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'boom interno' }) });
       await retenida;
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(sobreDeMe(YO)) });
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        username: YO.username, name: YO.name, email: YO.email, rolNombre: YO.rolNombre,
+      }) });
     });
     await abrirPerfilDesdeMenu(page);
     await expect(page.getByText('No pudimos cargar sus datos.')).toBeVisible();

@@ -1,6 +1,6 @@
 // Siigo — envío y reenvío de la factura por correo (HU #11334). Montado en /api/siigo/envios.
 //
-// Las guardas salen del catálogo de acciones de la HU #11342 y no de un `requireRole` propio:
+// Las guardas salen del catálogo de acciones de la HU #11342 y no de una guarda de rol propia:
 // `reenviar_correo` ya está en `ACCIONES_SIIGO` con su fila de roles, así que quién puede reenviar
 // se cambia editando esa fila y el intento denegado queda en la bitácora como el de cualquier otra
 // acción. Van como middleware ANTES del handler, nunca dentro: así una ruta nueva que se olvide de

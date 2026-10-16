@@ -36,6 +36,7 @@ import { getTableName } from 'drizzle-orm';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
 import { testToken, type TestRole } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 const kdb = createKeyedDb();
 const espia = crearEspia(kdb);
@@ -92,7 +93,7 @@ async function appAlta() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat-cliente.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
 
@@ -474,7 +475,7 @@ describe('AC2e — el destino del SOAT POR TRÁMITE no depende de la configuraci
 
     const r = await enviarAlGestor(
       ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
-      { userId: 1, username: 'ops@flito.co', role: 'admin', externo: false, alcance: 'todo' as const, proveedorSoatId: null, companiaId: null },
+      { userId: 1, username: 'ops@flito.co', role: 'admin', proyeccionCliente: false, alcance: 'todo' as const, proveedorSoatId: null, companiaId: null },
       { proveedorSoatId: OTRO_GESTOR },
     );
 

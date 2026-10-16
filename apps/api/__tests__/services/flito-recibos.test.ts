@@ -106,7 +106,8 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
-  app.use('/api/flito/impuestos', router);
+  const { conAlcance } = await import('../../src/shared/middleware/frontera-enlace.js');
+  app.use('/api/flito/impuestos', conAlcance('impuestos', router)); // HU #13426: como en app.ts
   return app;
 }
 const auth = async (role: string) => `Bearer ${await testToken({ sub: 5, username: 'g@x.io', role: role as never })}`;
@@ -226,7 +227,7 @@ const UMBRAL_LAXO = 0.6;
 const UMBRAL_ESTRICTO = 0.95;
 const POR_DEFECTO = umbralPara(null); // OCR_UMBRAL_DEFECTO: con el que se EXTRAE siempre
 
-const GESTOR = { userId: 5, username: 'gestor@flito.co', role: 'gestor_impuestos', organismos: [ORG_LAXO, ORG_ESTRICTO] };
+const GESTOR = { userId: 5, username: 'gestor@flito.co', role: 'gestor_impuestos', organismos: [ORG_LAXO, ORG_ESTRICTO], alcance: { enlace: 'organismos_transito' as const, organismos: [ORG_LAXO, ORG_ESTRICTO] } };
 
 /** Filas de `organismos_transito_config` como las devuelve `abrirLote` (numeric → string). */
 const umbralesDelLote = () => chain([{ codigo: ORG_LAXO, u: '0.600' }, { codigo: ORG_ESTRICTO, u: '0.950' }]);

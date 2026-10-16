@@ -71,7 +71,7 @@ export const COLUMNAS_LISTADO = {
   soatAutogestionable: clients.soatAutogestionable,
   // Feature #11912. Sale por AQUÍ y no por `/flito/parametrizacion/companias` porque `Clients.tsx`
   // pinta su columna en la misma tabla: cruzar dos rutas para una casilla dejaba a `financiera` —que
-  // ve esta pantalla pero NO entra a parametrización (`requireRole('admin','auditor')`)— con un «—»
+  // ve esta pantalla pero NO entra a parametrización (hoy una función que de partida solo tienen `admin` y `auditor`)— con un «—»
   // permanente que no distingue «apagado» de «no lo puedo leer».
   soatSinTramite: clients.soatSinTramite,
   impuestosAutogestionable: clients.impuestosAutogestionable,
@@ -155,7 +155,7 @@ export const CAMPOS_PII_LISTADO: readonly string[] = Object.entries(COLUMNAS_LIS
 // pintar: la ficha de la compañía tiene que decir A QUIÉN despacha ese canal y avisar si ese gestor
 // está apagado —porque entonces sus solicitudes caen en la contingencia de Operaciones—. Resolverlo
 // en el cliente exigiría leer `GET /flito/parametrizacion/proveedores-soat`, que es
-// `requireRole('admin','auditor')`: `financiera` ve esta pantalla y NO esa ruta, así que por ahí la
+// de partida solo de `admin` y `auditor`: `financiera` ve esta pantalla y NO esa ruta, así que por ahí la
 // columna le quedaría en blanco sin poder distinguir «sin configurar» de «no lo puedo leer». Es
 // palabra por palabra el argumento por el que `soatSinTramite` ya sale por AQUÍ y no por
 // parametrización, y la respuesta es la misma puerta: un `LEFT JOIN` en la consulta que la pantalla

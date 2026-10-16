@@ -45,8 +45,8 @@ type KpiTone = 'neutral' | 'warning' | 'danger';
 const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-3 py-2 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
 
 export default function Fleet() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const { hasFuncion } = useAuth();
+  const isAdmin = hasFuncion('fleet.flota.administrar');
   const [vehicles, setVehicles] = useState<FleetVehicle[]>([]);
   const [expiring, setExpiring] = useState<ExpiringDoc[]>([]);
   const [search, setSearch] = useState('');

@@ -11,7 +11,7 @@
 // de Terceros las convierte en su fuente de datos: pasan de consulta puntual a barrido rutinario de
 // hasta 500 fichas identificadas por llamada, y las de ciudad ni siquiera tenían tope hasta la
 // segunda tanda de esta HU. El control de acceso ya estaba bien
-// (`requireRole('admin','auditor','financiera')`); lo que faltaba era poder reconstruir QUIÉN leyó
+// (hoy `siigo.parametrizacion.ver`, antes una guarda de rol de admin, auditor y financiera); lo que faltaba era poder reconstruir QUIÉN leyó
 // el padrón.
 //
 // El corte del alcance: este archivo cubre las rutas **del módulo `siigo/`** que el panel de esta

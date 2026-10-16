@@ -17,8 +17,8 @@
 // existen: eso es la tabla `permisos_roles`, y `users.role` es un varchar con FK a
 // ella. Lo que esta tupla sigue siendo —y por eso no se toca— es la lista de los
 // doce códigos que el CÓDIGO conoce por su nombre, y la que da exhaustividad en
-// compilación a los tres `Record<UserRole, …>` (ROLE_LABELS, ROLE_DEFAULT_PAGES y
-// ROLES_POR_ACCION de siigo-permisos.ts).
+// compilación a los `Record<UserRole, …>` (ROLE_LABELS y ROLE_DEFAULT_PAGES; la tabla
+// de roles por acción de Siigo se retiró con la HU #13423).
 //
 // Añadir aquí un rol nuevo NO lo crea: crearlo es insertar una fila (CF-03). Esta
 // tupla solo crece cuando el código va a tratar ese rol por su nombre, y entonces
@@ -121,8 +121,37 @@ export const PAGES = {
   transito_organismos: 'Organismos de tránsito',
   privacy: 'Privacidad y datos',
   fleet: 'Flota',
+  // HU #13422 (ADR-0023): `maintenance` dejó de abrir nada —ninguna ruta del API ni ítem del menú la
+  // pide— y cada ítem del menú Mantenimiento tiene su página, con el label LITERAL de `navItems.ts`.
+  // Se conserva en el catálogo (con su reparto) hasta que se decida su retiro.
   maintenance: 'Mantenimiento',
-  pesv: 'PESV — Conductores',
+  maintenance_inicio: 'Mantenimiento — Mantenimiento',
+  maintenance_ordenes: 'Mantenimiento — Órdenes de trabajo',
+  maintenance_indicadores: 'Mantenimiento — Indicadores mant.',
+  // HU #13421 (ADR-0023): `pesv` dejó de ser «todo PESV» y es el ítem raíz del menú («Tablero PESV»);
+  // cada ítem del menú PESV tiene su propia página, con el label LITERAL de `navItems.ts`.
+  pesv: 'PESV — Tablero PESV',
+  pesv_conductores: 'PESV — Conductores',
+  pesv_capacitaciones: 'PESV — Capacitaciones',
+  pesv_incidentes: 'PESV — Incidentes',
+  pesv_siniestralidad: 'PESV — Estadística siniestros',
+  pesv_checklists: 'PESV — Checklists',
+  pesv_alcoholimetria: 'PESV — Alcoholimetría',
+  pesv_emergencias: 'PESV — Emergencias',
+  pesv_indicadores_operacion: 'PESV — Indicadores op.',
+  pesv_politica: 'PESV — Política PSV',
+  pesv_comite: 'PESV — Comité Seguridad Vial',
+  pesv_plan: 'PESV — Plan Anual PESV',
+  pesv_diagnostico: 'PESV — Diagnóstico PESV',
+  pesv_tablero_ejecutivo: 'PESV — Tablero ejecutivo PESV',
+  pesv_reportar_incidente: 'PESV — Reportar incidente',
+  pesv_auditorias: 'PESV — Auditorías PESV',
+  pesv_comunicaciones: 'PESV — Comunicaciones',
+  pesv_contratistas: 'PESV — Contratistas',
+  pesv_jornadas: 'PESV — Control Jornada (admin)',
+  pesv_mi_jornada: 'PESV — Mi Jornada',
+  pesv_rutas: 'PESV — Rutas operativas',
+  pesv_pernocta: 'PESV — Zonas de pernocta',
   rndc: 'RNDC y manifiestos',
   rndc_admin: 'Catálogos RNDC',
   pesv_raci: 'PESV — Matriz RACI',
@@ -235,6 +264,11 @@ export const PAGES = {
   // conceder la página a otro rol sería regalarle una pantalla que responde 403 en cada petición.
   // Lo siembra la 0187 (`pagina.roles_permisos`, reparto `admin`).
   roles_permisos: 'Roles y permisos',
+  // HU #13588 (P-37, decisión de David del 2026-10-15): «Rendimiento» (`/admin/rendimiento`, el resumen RUM)
+  // pasa a ser ítem de Administración y concede `rum.resumen.ver`, que deja de ser un permiso suelto. Lo
+  // siembra la 0240 (a quien hoy tiene `rum.resumen.ver`, más `admin` como toda página); la pantalla la gatea
+  // la HU FRONTEND #13589. Sin fila en `ROLE_DEFAULT_PAGES`.
+  admin_rendimiento: 'Rendimiento',
   // Ayuda FLITO (HU #11893): contenedor del índice in-app. El slug existe SOLO para el label de
   // NoAccess y el ítem de nav. NO entra en `PAGE_GROUPS` (Users no debe ofrecer concederlo a mano)
   // ni en ninguna fila de `ROLE_DEFAULT_PAGES`: la visibilidad es derivada (`hasPage` de ≥1 slug
@@ -247,12 +281,32 @@ export const PAGES = {
 
 export type PageSlug = keyof typeof PAGES;
 
+/**
+ * HU #13421 (ADR-0023): las páginas de los ítems del menú PESV que antes compartían `pesv`, en el
+ * orden del menú. Quien tenía `pesv` por defecto las tiene todas (paridad); la base real la da la
+ * copia viva de la migración, no esta lista.
+ */
+export const PAGINAS_PESV_POR_ITEM = [
+  'pesv_conductores', 'pesv_capacitaciones', 'pesv_incidentes', 'pesv_siniestralidad', 'pesv_checklists',
+  'pesv_alcoholimetria', 'pesv_emergencias', 'pesv_indicadores_operacion', 'pesv_politica', 'pesv_comite',
+  'pesv_plan', 'pesv_diagnostico', 'pesv_tablero_ejecutivo', 'pesv_reportar_incidente', 'pesv_auditorias',
+  'pesv_comunicaciones', 'pesv_contratistas', 'pesv_jornadas', 'pesv_mi_jornada', 'pesv_rutas', 'pesv_pernocta',
+] as const satisfies readonly PageSlug[];
+
+/**
+ * HU #13422 (ADR-0023): las páginas de los ítems del menú Mantenimiento que antes compartían
+ * `maintenance`, en el orden del menú. Misma regla que `PAGINAS_PESV_POR_ITEM`.
+ */
+export const PAGINAS_MANTENIMIENTO_POR_ITEM = [
+  'maintenance_inicio', 'maintenance_ordenes', 'maintenance_indicadores',
+] as const satisfies readonly PageSlug[];
+
 export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   { label: 'General', pages: ['dashboard', 'perfil'] },
   { label: 'Operaciones', pages: ['vehicles', 'soat', 'tramite', 'tax_reader', 'transito', 'drive'] },
   { label: 'Flota', pages: ['fleet'] },
-  { label: 'Mantenimiento', pages: ['maintenance'] },
-  { label: 'PESV', pages: ['pesv', 'pesv_raci', 'pesv_normativa', 'pesv_retencion'] },
+  { label: 'Mantenimiento', pages: ['maintenance', ...PAGINAS_MANTENIMIENTO_POR_ITEM] },
+  { label: 'PESV', pages: ['pesv', ...PAGINAS_PESV_POR_ITEM, 'pesv_raci', 'pesv_normativa', 'pesv_retencion'] },
   { label: 'RNDC', pages: ['rndc', 'rndc_admin'] },
   { label: 'Cumplimiento LAFT', pages: ['laft', 'laft_unusual', 'laft_trainings', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard'] },
   { label: 'Tránsito', pages: ['transito', 'transito_organismos'] },
@@ -261,7 +315,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   // grupos —una rareza que nadie sabía explicar— porque el portal la tenía prestada.
   { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'flito_soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta', 'flito_bolsas', 'flito_comparendos', 'flito_conciliacion'] },
   { label: 'Finanzas', pages: ['finanzas_reporte_costos', 'finanzas_gastos_diarios', 'siigo_parametrizacion', 'siigo_operacion', 'flito_tarifas', 'flito_servicios_adicionales', 'flito_comprobantes'] },
-  { label: 'Administración', pages: ['users', 'privacy', 'siigo_credenciales', 'roles_permisos'] },
+  { label: 'Administración', pages: ['users', 'privacy', 'siigo_credenciales', 'roles_permisos', 'admin_rendimiento'] },
 ];
 
 // ============================================================================
@@ -278,13 +332,13 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
 // especial de `admin`.
 // ============================================================================
 const DEFAULTS_POR_ROL: Record<Exclude<UserRole, 'admin'>, readonly PageSlug[]> = {
-  compliance: ['dashboard', 'laft', 'laft_unusual', 'laft_trainings', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard', 'privacy', 'pesv', 'pesv_raci', 'pesv_normativa', 'pesv_retencion'],
+  compliance: ['dashboard', 'laft', 'laft_unusual', 'laft_trainings', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard', 'privacy', 'pesv', ...PAGINAS_PESV_POR_ITEM, 'pesv_raci', 'pesv_normativa', 'pesv_retencion'],
   // Líder PESV: gestión completa del PESV pero NO acceso a SOAT/RNDC/LAFT.
-  lider_pesv: ['dashboard', 'pesv', 'fleet', 'maintenance', 'pesv_raci', 'pesv_normativa', 'pesv_retencion'],
+  lider_pesv: ['dashboard', 'pesv', ...PAGINAS_PESV_POR_ITEM, 'fleet', 'maintenance', ...PAGINAS_MANTENIMIENTO_POR_ITEM, 'pesv_raci', 'pesv_normativa', 'pesv_retencion'],
   // Supervisor de flota: ve flota+PESV+mantenimiento, opera incidentes/checklists.
-  supervisor_flota: ['dashboard', 'pesv', 'fleet', 'maintenance', 'vehicles'],
+  supervisor_flota: ['dashboard', 'pesv', ...PAGINAS_PESV_POR_ITEM, 'fleet', 'maintenance', ...PAGINAS_MANTENIMIENTO_POR_ITEM, 'vehicles'],
   // Conductor: ve solo su jornada propia + reporta incidentes desde móvil.
-  conductor: ['dashboard', 'pesv'],
+  conductor: ['dashboard', 'pesv', ...PAGINAS_PESV_POR_ITEM],
   transito: ['dashboard', 'transito'],
   // Proveedor = Gestor SOAT de FLITO: ve su cola SOAT (filtrada por proveedor en el servidor).
   // `flito_soat` se SUMA a `soat` (Feature #11912): conserva las dos pantallas que ya abría, así

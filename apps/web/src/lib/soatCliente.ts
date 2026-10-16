@@ -377,8 +377,38 @@ export type ReaccionCanal =
   | { tipo: 'runt'; desenlace: DesenlaceRunt }
   /** `status === 0`: ni respondió ni se sabe si llegó. Cada superficie lo dice a su manera. */
   | { tipo: 'incierto' }
+  /**
+   * HU #12874: el rechazo es de la COMPAÑÍA escogida (o de su ausencia). Su sitio es el campo
+   * «Compañía», con este copy y nunca el `error` crudo del servidor. `recargar` = la lista quedó vieja.
+   */
+  | { tipo: 'compania'; mensaje: string; recargar: boolean }
   /** Todo lo demás, **incluido un código desconocido o retirado**. Ver `reaccionA`. */
   | { tipo: 'otro'; mensaje: string };
+
+/** HU #12874 — copy de los rechazos de la compañía. Literales: los afirma el E2E. */
+export const MENSAJE_COMPANIA_REQUERIDA = 'Escoja la compañía a nombre de la que se radica la solicitud.';
+export const MENSAJE_COMPANIA_NO_PERMITIDA = 'Solo puede radicar a nombre de su compañía. Recargue la página e intente de nuevo.';
+export const MENSAJE_COMPANIA_SIN_CANAL = 'Esa compañía ya no tiene habilitado el SOAT sin trámite. Escoja otra.';
+
+/**
+ * HU #12874: ¿el fallo es de la compañía? `escogida` = quien radica la escoge en el formulario (sin
+ * enlace). Solo entonces `canal_desactivado` es de ESA compañía y no del canal de la suya: con enlace
+ * compañía sigue siendo la tarjeta del canal apagado de siempre.
+ */
+export function reaccionCompania(
+  f: FalloCanal, escogida: boolean,
+): Extract<ReaccionCanal, { tipo: 'compania' }> | null {
+  switch (f.codigo) {
+    case CodigoErrorSolicitudSoat.COMPANIA_REQUERIDA:
+      return { tipo: 'compania', mensaje: MENSAJE_COMPANIA_REQUERIDA, recargar: false };
+    case CodigoErrorSolicitudSoat.COMPANIA_NO_PERMITIDA:
+      return { tipo: 'compania', mensaje: MENSAJE_COMPANIA_NO_PERMITIDA, recargar: true };
+    case CodigoErrorSolicitudSoat.CANAL_DESACTIVADO:
+      return escogida ? { tipo: 'compania', mensaje: MENSAJE_COMPANIA_SIN_CANAL, recargar: true } : null;
+    default:
+      return null;
+  }
+}
 
 /**
  * Los cuatro desenlaces del RUNT, con su copy.
@@ -462,8 +492,10 @@ export const DESENLACE_SIN_RED: DesenlaceRunt = {
  * `if (/revise/i.test(mensaje))` se rompe con la primera corrección de una tilde y clasifica al
  * revés un 503 cuyo texto hable de datos.
  */
-export function reaccionA(f: FalloCanal): ReaccionCanal {
+export function reaccionA(f: FalloCanal, companiaEscogida = false): ReaccionCanal {
   if (f.status === 0) return { tipo: 'incierto' };
+  const deCompania = reaccionCompania(f, companiaEscogida);
+  if (deCompania) return deCompania;
   switch (f.codigo) {
     case CodigoErrorSolicitudSoat.CANAL_DESACTIVADO:
     case CodigoErrorSolicitudSoat.SIN_COMPANIA:
@@ -805,6 +837,8 @@ export const MENSAJE_ARCHIVO_NO_PDF = 'Ese archivo no es un PDF válido, aunque 
 export type ReaccionLectura =
   /** `400 archivo_no_pdf`: no es un fallo de la lectura sino del ARCHIVO, y su sitio es la caja. */
   | { tipo: 'archivo' }
+  /** HU #12874: el rechazo es de la compañía; su sitio es el campo «Compañía». */
+  | Extract<ReaccionCanal, { tipo: 'compania' }>
   /** Todo lo demás: banda dentro del bloque 2, con «Volver a leer la factura». */
   | { tipo: 'fallo'; desenlace: DesenlaceLectura };
 
@@ -816,8 +850,10 @@ export type ReaccionLectura =
  * LECTURA —el suyo propio desde la HU #12214, ya no el compartido del canal—, que tampoco pone
  * código.
  */
-export function reaccionALectura(f: FalloCanal): ReaccionLectura {
+export function reaccionALectura(f: FalloCanal, companiaEscogida = false): ReaccionLectura {
   if (f.codigo === CodigoErrorSolicitudSoat.ARCHIVO_NO_PDF) return { tipo: 'archivo' };
+  const deCompania = reaccionCompania(f, companiaEscogida);
+  if (deCompania) return deCompania;
   if (f.status === 0) return { tipo: 'fallo', desenlace: LECTURA_SIN_RED };
   if (f.status === 429) return { tipo: 'fallo', desenlace: LECTURA_LIMITE };
   if (f.status === 503) return { tipo: 'fallo', desenlace: LECTURA_NO_DISPONIBLE };

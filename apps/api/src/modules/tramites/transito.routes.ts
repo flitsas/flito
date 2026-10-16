@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { eq, sql, and, inArray } from 'drizzle-orm';
-import { ORGANISMOS_TRANSITO, isEstadoSttTraspaso } from '@operaciones/shared-types';
+import { isEstadoSttTraspaso } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { tramitesDigitales, vehicles, soatRequests } from '../../db/schema.js';
 import { authMiddleware } from '../../shared/middleware/auth.js';
@@ -9,36 +9,41 @@ import { audit } from '../../shared/middleware/audit.js';
 import { emitEvento } from './eventos.js';
 import { notifyEstado } from './notificaciones.js';
 import { appendEventoSafe } from '../vehicles/vehiculo-historial.js';
-import { resolveTransitoScope } from './transito-scope.js';
+import { resolveTransitoScope, organismoEnAlcance, secretariasAsignadas } from './transito-scope.js';
 import { soatVigenteDeRunt } from './soat-vigencia.js';
 
 /**
  * TRAM-13 + TRAM-MT-01 — Bandeja de tránsito multitenant por organismo.
  * - Router: `authMiddleware`; cada ruta exige su función `transito.*` (de partida, `admin` | `transito`).
- * - Scope: usuario tránsito solo ve su organismo; admin ve todos (o ?organismo=).
+ * - Scope por ENLACE (HU #13426): `organismos_transito` ve UNA de sus secretarías a la vez en las listas
+ *   (`?organismo=` del selector, o la por defecto); detalle y escrituras validan contra todas las
+ *   asignadas. Sin enlace, todas (o ?organismo=). Nunca por nombre de rol.
  * - POST tomar/asignar/confirmar: validación de scope + recibidoPor donde aplica.
  */
 const router = Router();
 router.use(authMiddleware);
 
-function organismoFilter(scopeCodigo: string | null) {
-  if (!scopeCodigo) return undefined;
-  return eq(tramitesDigitales.organismoCodigo, scopeCodigo);
+/** HU #13426: todas las secretarías del alcance (`inArray`), no solo la primera. */
+function organismoFilter(codigos: string[] | null) {
+  if (!codigos) return undefined;
+  return inArray(tramitesDigitales.organismoCodigo, codigos);
 }
 
-// GET /organismos — Catálogo nacional (autenticado tránsito/admin).
-router.get('/organismos', exigirFuncion('transito.organismos.listar'), (_req: Request, res: Response) => {
-  res.json(ORGANISMOS_TRANSITO);
+// GET /organismos — Catálogo nacional; con enlace `organismos_transito`, solo sus secretarías (AC7),
+// por código ascendente y con `porDefecto: true` en la que muestran las listas sin `?organismo=`
+// (selector de la Bandeja, corrección de #13426). Código + nombre + ciudad del catálogo: sin PII.
+router.get('/organismos', exigirFuncion('transito.organismos.listar'), async (req: Request, res: Response) => {
+  res.json(await secretariasAsignadas(req));
 });
 
 // GET /pendientes — Trámites enviados a tránsito (sin tomar), filtrados por organismo.
 router.get('/pendientes', exigirFuncion('transito.bandeja.ver_pendientes'), async (req: Request, res: Response) => {
   try {
-    const scope = await resolveTransitoScope(req);
+    const scope = await resolveTransitoScope(req, { unaSecretaria: true });
     if (!scope.ok) { res.status(scope.status).json({ error: scope.error }); return; }
 
     const conditions = [eq(tramitesDigitales.estado, 'enviado_transito')];
-    const orgFilter = organismoFilter(scope.codigo);
+    const orgFilter = organismoFilter(scope.codigos);
     if (orgFilter) conditions.push(orgFilter);
 
     const result = await db.select().from(tramitesDigitales)
@@ -51,14 +56,14 @@ router.get('/pendientes', exigirFuncion('transito.bandeja.ver_pendientes'), asyn
 // GET /mis-tramites — Trámites tomados por este usuario de tránsito (scope organismo).
 router.get('/mis-tramites', exigirFuncion('transito.bandeja.ver_propios'), async (req: Request, res: Response) => {
   try {
-    const scope = await resolveTransitoScope(req);
+    const scope = await resolveTransitoScope(req, { unaSecretaria: true });
     if (!scope.ok) { res.status(scope.status).json({ error: scope.error }); return; }
 
     const conditions = [
       eq(tramitesDigitales.recibidoPor, req.user!.sub),
       sql`${tramitesDigitales.estado} IN ('recibido_transito', 'placa_preasignada')`,
     ];
-    const orgFilter = organismoFilter(scope.codigo);
+    const orgFilter = organismoFilter(scope.codigos);
     if (orgFilter) conditions.push(orgFilter);
 
     const result = await db.select().from(tramitesDigitales)
@@ -71,7 +76,7 @@ router.get('/mis-tramites', exigirFuncion('transito.bandeja.ver_propios'), async
 // GET /traspasos — Bandeja STT de traspasos (modalidad traspaso + estados STT activos).
 router.get('/traspasos', exigirFuncion('transito.traspasos.listar'), async (req: Request, res: Response) => {
   try {
-    const scope = await resolveTransitoScope(req);
+    const scope = await resolveTransitoScope(req, { unaSecretaria: true });
     if (!scope.ok) { res.status(scope.status).json({ error: scope.error }); return; }
 
     const estadoQ = typeof req.query.estado === 'string' ? req.query.estado.trim() : '';
@@ -79,7 +84,7 @@ router.get('/traspasos', exigirFuncion('transito.traspasos.listar'), async (req:
       eq(tramitesDigitales.modalidadEntrada, 'traspaso'),
       sql`${tramitesDigitales.estado} NOT IN ('entregado', 'anulado', 'rechazado')`,
     ];
-    const orgFilter = organismoFilter(scope.codigo);
+    const orgFilter = organismoFilter(scope.codigos);
     if (orgFilter) conditions.push(orgFilter);
     if (estadoQ && isEstadoSttTraspaso(estadoQ)) {
       conditions.push(eq(tramitesDigitales.estado, estadoQ));
@@ -130,12 +135,9 @@ router.get('/traspasos/:id', exigirFuncion('transito.traspasos.ver'), async (req
       createdAt: tramitesDigitales.createdAt,
       updatedAt: tramitesDigitales.updatedAt,
     }).from(tramitesDigitales).where(eq(tramitesDigitales.id, id)).limit(1);
-    if (!row || row.modalidadEntrada !== 'traspaso') {
+    // HU #13426 (AC2): un traspaso de otra secretaría responde igual que uno inexistente (404).
+    if (!row || row.modalidadEntrada !== 'traspaso' || !organismoEnAlcance(scope.codigos, row.organismoCodigo)) {
       res.status(404).json({ error: 'Traspaso no encontrado' });
-      return;
-    }
-    if (scope.codigo && row.organismoCodigo && row.organismoCodigo !== scope.codigo) {
-      res.status(403).json({ error: 'Este traspaso pertenece a otro organismo de tránsito' });
       return;
     }
     res.json(row);
@@ -160,7 +162,7 @@ router.post('/tomar/:id', exigirFuncion('transito.tramite.tomar'), async (req: R
       res.status(404).json({ error: 'Trámite no encontrado o ya fue tomado' });
       return;
     }
-    if (scope.codigo && existing.organismoCodigo !== scope.codigo) {
+    if (!organismoEnAlcance(scope.codigos, existing.organismoCodigo)) {
       res.status(403).json({ error: 'Este trámite pertenece a otro organismo de tránsito' });
       return;
     }
@@ -173,7 +175,7 @@ router.post('/tomar/:id', exigirFuncion('transito.tramite.tomar'), async (req: R
     }).where(and(
       eq(tramitesDigitales.id, id),
       eq(tramitesDigitales.estado, 'enviado_transito'),
-      scope.codigo ? eq(tramitesDigitales.organismoCodigo, scope.codigo) : sql`true`,
+      organismoFilter(scope.codigos) ?? sql`true`,
     )).returning();
 
     if (!updated) { res.status(404).json({ error: 'Trámite no encontrado o ya fue tomado' }); return; }
@@ -202,7 +204,8 @@ router.post('/asignar-placa/:id', exigirFuncion('transito.placa.asignar'), async
       eq(tramitesDigitales.recibidoPor, req.user!.sub),
       eq(tramitesDigitales.estado, 'recibido_transito'),
     ];
-    if (scope.codigo) where.push(eq(tramitesDigitales.organismoCodigo, scope.codigo));
+    const orgWhere = organismoFilter(scope.codigos);
+    if (orgWhere) where.push(orgWhere);
 
     const [updated] = await db.update(tramitesDigitales).set({
       estado: 'placa_preasignada',
@@ -240,7 +243,8 @@ router.post('/confirmar-placa/:id', exigirFuncion('transito.placa.confirmar'), a
         eq(tramitesDigitales.recibidoPor, req.user!.sub),
         eq(tramitesDigitales.estado, 'placa_preasignada'),
       ];
-      if (scope.codigo) confirmWhere.push(eq(tramitesDigitales.organismoCodigo, scope.codigo));
+      const orgWhere = organismoFilter(scope.codigos);
+      if (orgWhere) confirmWhere.push(orgWhere);
 
       // Decidir según SOAT vigente del RUNT (antes de fijar el estado).
       const [pre] = await tx.select({ vehiculo: tramitesDigitales.vehiculo })

@@ -13,12 +13,11 @@
 //      factura aceptada por la DIAN no se deshace. El esquema es `.strict()` para que intentarlo
 //      falle con un 400 ruidoso en vez de ignorarse en silencio — un campo ignorado deja al que
 //      llama convencido de que se le hizo caso.
-//   2. **Quién emite lo decide UNA constante compartida** (AC6): `ROLES_POR_ACCION.emitir` en
-//      `@operaciones/shared-types`. Esta ruta no sabe qué roles son; pide `exigirAccionSiigo`.
+//   2. **Quién emite lo decide UNA función del motor** (AC6; HU #13423): `siigo.factura.emitir`,
+//      sembrada como la tabla de roles que vivía en shared-types. Esta ruta no sabe qué roles son; pide `exigirAccionSiigo`.
 //      La lectura del estado es `consultar`, que sí incluye a `auditor`: mirar la cola es auditar,
 //      llenarla no. (La HU pedía una constante nueva `ROLES_EMISION_FE` en `permissions.ts`; no se
-//      creó y el porqué está escrito en `siigo-permisos.ts`, junto a la que ya existía: dos
-//      definiciones de «quién puede emitir» es exactamente lo que el AC6 quiere evitar.)
+//      creó: dos definiciones de «quién puede emitir» es exactamente lo que el AC6 quiere evitar.)
 //   3. **Con el freno puesto no se encola** (503). Llenar una cola que nadie va a vaciar no ayuda:
 //      deja a quien envió creyendo que hay trabajo en marcha, y al operador con una cola que crece
 //      mientras diagnostica. Consultar el estado sí se permite: es justo lo que hace falta mirar.

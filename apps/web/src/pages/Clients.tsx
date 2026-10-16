@@ -587,7 +587,7 @@ function TabProveedores({ editable }: { editable: boolean }) {
     <>
       {editable && <div><button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setCrear(true)}>Nuevo proveedor</button></div>}
       <FlitCard>
-        {data.length === 0 ? <FlitEmpty>No hay proveedores SOAT.</FlitEmpty> : (
+        {data.length === 0 ? <FlitEmpty>No hay proveedores. Crea el primero con «Nuevo proveedor».</FlitEmpty> : (
           <FlitTable>
             <thead><FlitTr><FlitTh>Nombre</FlitTh><FlitTh>Estrategia</FlitTh><FlitTh>Umbral OCR</FlitTh><FlitTh>ANS pactado (h)</FlitTh><FlitTh>Estado</FlitTh><FlitTh /></FlitTr></thead>
             <tbody>
@@ -642,7 +642,7 @@ function FormProveedor({ proveedor, onClose, onGuardado }: { proveedor?: Proveed
   };
 
   return (
-    <FlitModal title={proveedor ? 'Editar proveedor' : 'Nuevo proveedor SOAT'} onClose={onClose}>
+    <FlitModal title={proveedor ? 'Editar proveedor' : 'Nuevo proveedor'} onClose={onClose}>
       <div className="space-y-3">
         <FlitField label="Nombre *"><input className={flitInp} value={nombre} onChange={(e) => setNombre(e.target.value)} /></FlitField>
         <FlitField label="Estrategia"><input className={flitInp} value={estrategia} onChange={(e) => setEstrategia(e.target.value)} placeholder="p.ej. portal, correo" /></FlitField>
