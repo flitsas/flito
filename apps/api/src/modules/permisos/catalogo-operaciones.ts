@@ -301,6 +301,9 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // HU #13237 — interruptor por fuente (módulo tramites; migración 0217, solo admin). El GET /interruptores
   // reutiliza el mismo código.
   op(`${SYI} PUT /interruptores/:fuente`, 'tramites.sincronizacion.configurar', 'Configurar la sincronización con FLIT', 'Encender o apagar, en este ambiente, la entrada de trámites desde FLIT 1 y desde FLIT 2.'),
+  // HU #13628 — parámetros de la lectura automática de FLIT 1 (0241, sin siembra: reutiliza la función de
+  // la 0217 con sus textos byte a byte). Los GET /flit1/* van fuera de la lista, como GET /interruptores.
+  op(`${SYI} PUT /flit1/parametros-lectura`, 'tramites.sincronizacion.configurar', 'Configurar la sincronización con FLIT', 'Encender o apagar, en este ambiente, la entrada de trámites desde FLIT 1 y desde FLIT 2.'),
 
   // ── Trámite Digital ───────────────────────────────────────────────────────────────────────────
   op(`${TRD} GET /`, 'tramite.cola.ver', 'Ver la cola de Trámite Digital', 'Abrir la bandeja de trámites de tránsito.'),
