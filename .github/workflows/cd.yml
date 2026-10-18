@@ -104,6 +104,8 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
 
     steps:
       - name: Checkout
@@ -144,6 +146,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref_name == 'release' }}
 
       - name: Build and push api
+        id: build
         uses: docker/build-push-action@v6
         with:
           # Contexto = raíz del repo (npm workspaces necesita el lockfile raíz).
@@ -160,6 +163,8 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
 
     steps:
       - name: Checkout
@@ -199,6 +204,7 @@ jobs:
       # El frontend usa rutas RELATIVAS /api (proxy nginx del contenedor web),
       # por eso la MISMA imagen sirve para los 3 ambientes: sin build-args de URL.
       - name: Build and push web
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -209,8 +215,13 @@ jobs:
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
 
+  # DEV y QA ya no corren en docker compose: desde el 2026-10-18 viven en el k3s de la 177
+  # (namespaces flito-dev / flito-qa) y se despliegan con deploy-gitops (abajo). Si este job
+  # corriera en develop/staging, volveria a levantar el stack viejo de docker (crons de SIIGO y
+  # sync duplicados contra la misma base).
   deploy-to-vps:
     name: Deploy to VPS (${{ needs.setup.outputs.env_name }})
+    if: github.ref_name == 'release'
     needs: [setup, build-api, build-web]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -336,3 +347,68 @@ jobs:
           echo "Deploy a ${{ needs.setup.outputs.env_name }} FALLIDO. Revisa los logs arriba."
           echo "Rollback manual: ssh al VPS y ejecuta:"
           echo "  cd <deploy-path> && export API_TAG=<tag-anterior> WEB_TAG=<tag-anterior> && docker compose -f docker-compose.prod.yml up -d"
+
+  # ── DEV / QA por GitOps (k3s de la 177) ─────────────────────────────────────
+  # Escribe los digests recien construidos en flit-gitops/services/flito-<env>/kustomization.yaml;
+  # Argo CD de la 177 los aplica (las migraciones corren en el initContainer db-apply de la api).
+  # Rollback = revertir ese commit.
+  # OJO: la CONFIGURACION ya no sale del .env del servidor ni de docker-compose.prod.yml; vive en
+  # flit-gitops/services/flito-<env>/ (configmaps.yaml + sealed-secrets.yaml).
+  deploy-gitops:
+    name: Deploy ${{ needs.setup.outputs.env_name }} (GitOps → k3s 177)
+    if: github.ref_name == 'develop' || github.ref_name == 'staging'
+    needs: [setup, build-api, build-web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: ${{ needs.setup.outputs.gh_env }}
+      url: https://${{ needs.setup.outputs.front_domain }}
+    env:
+      API_DIGEST: ${{ needs.build-api.outputs.digest }}
+      WEB_DIGEST: ${{ needs.build-web.outputs.digest }}
+      NS: flito-${{ needs.setup.outputs.env_name }}
+    steps:
+      - name: Actualizar digests en flit-gitops
+        env:
+          GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -n "$GITOPS_TOKEN" ] || { echo "::error::Falta el secret GITOPS_TOKEN (secret de la organizacion; dar acceso a este repo)"; exit 1; }
+          for v in API_DIGEST WEB_DIGEST; do
+            [[ "${!v}" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::$v invalido: '${!v}'"; exit 1; }
+          done
+          git clone --depth 1 "https://x-access-token:${GITOPS_TOKEN}@github.com/${{ github.repository_owner }}/flit-gitops.git" gitops
+          cd gitops
+          K="services/${NS}/kustomization.yaml"
+          set_digest() {
+            yq -e "(.images[] | select(.name == \"$1\"))" "$K" > /dev/null
+            yq -i "(.images[] | select(.name == \"$1\")).digest = \"$2\"" "$K"
+          }
+          set_digest "${{ env.API_IMAGE }}" "$API_DIGEST"
+          set_digest "${{ env.WEB_IMAGE }}" "$WEB_DIGEST"
+          git config user.name "flit-ci"
+          git config user.email "ci@flitsas.com"
+          git add "$K"
+          if git diff --cached --quiet; then echo "Los digests ya eran estos: nada que desplegar."; exit 0; fi
+          git commit -m "${NS}: despliegue ${GITHUB_SHA::7} (${{ github.repository }} ${{ github.ref_name }})" \
+                     -m "api ${API_DIGEST}" -m "web ${WEB_DIGEST}"
+          for i in 1 2 3; do
+            git push && exit 0
+            echo "Push rechazado (intento $i); rebase y reintento..."
+            git pull --rebase
+          done
+          echo "::error::No se pudo empujar a flit-gitops tras 3 intentos"; exit 1
+
+      # Argo CD sondea el repo cada ~3 min. Comprueba que el ambiente SIGUE SANO tras el despliegue.
+      - name: Comprobar que responde
+        run: |
+          sleep 180
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 10 -o /dev/null "https://${{ needs.setup.outputs.front_domain }}/" \
+               && curl -fsS --max-time 10 "https://${{ needs.setup.outputs.api_domain }}/api/health" > /dev/null; then
+              echo "Responde (intento $i)."; exit 0
+            fi
+            echo "Intento $i: aun no responde; reintento en 15 s"; sleep 15
+          done
+          echo "::error::No responde 10 min despues del despliegue. Revisar Argo CD ($NS) en la 177; rollback = revertir el commit de flit-gitops."
+          exit 1
