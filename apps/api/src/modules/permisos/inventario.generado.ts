@@ -98,6 +98,7 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "tramites", fichero: "flito-tramites/flito-tramites.routes.ts", metodo: "POST", ruta: "/solicitar-soat", roles: ["admin"], heredada: false },
   { modulo: "tramites", fichero: "flito-tramites/flito-tramites.routes.ts", metodo: "POST", ruta: "/solicitar-impuestos", roles: ["admin"], heredada: false },
   { modulo: "tramites", fichero: "flito-tramites/flito-tramites.routes.ts", metodo: "POST", ruta: "/solicitar-ambos", roles: ["admin"], heredada: false },
+  { modulo: "tramites", fichero: "flito-tramites/flito-tramites.routes.ts", metodo: "POST", ruta: "/novedades/buscar", roles: ["admin","auditor"], heredada: false },
   { modulo: "tramites", fichero: "flito-tramites/flito-tramites.routes.ts", metodo: "POST", ruta: "/entregar", roles: ["admin"], heredada: false },
   { modulo: "tramites", fichero: "flito-tramites/flito-tramites.routes.ts", metodo: "POST", ruta: "/:id/desbloquear-autogestion", roles: ["admin"], heredada: false },
   { modulo: "tramites", fichero: "flito-tramites/flito-tramites.routes.ts", metodo: "POST", ruta: "/:id/revocar-autogestion", roles: ["admin"], heredada: false },
