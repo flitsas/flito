@@ -25,6 +25,8 @@ import {
   registrosZipTramites, solicitarAmbos, solicitarImpuestos, solicitarSoat,
   type FiltrosListado, type TramitesCtx,
 } from './flito-tramites.service.js';
+import { MAX_VISIBLES_NOVEDADES, novedades } from './flito-tramites-novedades.service.js';
+import { novedadesTramitesLimiter } from '../../shared/middleware/rateLimiter.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -52,9 +54,9 @@ const lista = (v: unknown): string[] | undefined => {
 const fecha = (v: unknown): string | undefined =>
   typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined;
 
-router.get('/', exigirFuncion('tramites.cola.ver'), async (req: Request, res: Response) => {
-  const q = req.query;
-  const filtros: FiltrosListado = {
+/** Filtros del listado desde la query del GET o desde `filtros` de novedades (HU #13684): un solo parseo. */
+function filtrosDesdeQuery(q: Record<string, unknown>): FiltrosListado {
+  return {
     buscar: str(q.buscar), estados: lista(q.estados), transitos: lista(q.transitos), ciudades: lista(q.ciudades),
     empresas: lista(q.empresas), soat: lista(q.soat), impuesto: lista(q.impuesto),
     autogestion: q.autogestion === 'si' || q.autogestion === 'no' ? q.autogestion : undefined,
@@ -69,7 +71,28 @@ router.get('/', exigirFuncion('tramites.cola.ver'), async (req: Request, res: Re
     aprobadoDesde: fecha(q.aprobadoDesde), aprobadoHasta: fecha(q.aprobadoHasta),
     page: Number(q.page) || 1, pageSize: Number(q.pageSize) || 50,
   };
-  res.json(await listar(filtros, await alcanceDe(req)));
+}
+
+router.get('/', exigirFuncion('tramites.cola.ver'), async (req: Request, res: Response) => {
+  res.json(await listar(filtrosDesdeQuery(req.query), await alcanceDe(req)));
+});
+
+// POST /novedades (HU #13684) — ¿hay trámites nuevos o visibles actualizados desde `marca` (la del GET)?
+// Mismo permiso y alcance que el listado. `filtros` va en el BODY (puede traer placa/NIT en `buscar`,
+// regla 14). Responde solo dos contadores, sin ids ni PII; no se loguea el body.
+const novedadesSchema = z.object({
+  filtros: z.record(z.string().max(200)).default({}),
+  marca: z.string().datetime({ offset: true }),
+  visibles: z.array(z.string().uuid()).max(MAX_VISIBLES_NOVEDADES).default([]),
+}).strict();
+
+router.post('/novedades', exigirFuncion('tramites.cola.ver'), novedadesTramitesLimiter, async (req: Request, res: Response) => {
+  const parsed = novedadesSchema.safeParse(req.body);
+  if (!parsed.success) { bad(res); return; }
+  const { filtros, marca, visibles } = parsed.data;
+  const { nuevos, actualizados } = await novedades(filtrosDesdeQuery(filtros), marca, visibles, await alcanceDe(req));
+  res.set('Cache-Control', 'no-store');
+  res.json({ nuevos, actualizados });
 });
 
 // GET /facetas — valores distintos para los dropdowns de filtro.
