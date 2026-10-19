@@ -167,7 +167,7 @@ export default function SincronizacionTramites() {
           <div className={GRUPO} style={ESTILO_GRUPO} data-testid="grupo-flit2">
             <CabeceraFuente fuente="flit2" uso={inter} editable={editable} idMotivo={motivo2 ? ID_MOTIVO_2 : undefined}
               efectiva={d2 ? d2.habilitada : null} />
-            <LineaEstadoFlit2 estado={estadoFlit2} />
+            <LineaEstadoFlit2 estado={estadoFlit2} detenida={motivo2} />
             {motivo2 && (
               <div id={ID_MOTIVO_2} role="status" className={AVISO} style={ESTILO_AVISO} data-testid="motivo-flit2">
                 {motivo2 === 'maestro'

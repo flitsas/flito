@@ -1,104 +1,47 @@
-// FLITO — Gestión Trámites · indicador en vivo de la lectura automática de FLIT 2 (HU #13189,
-// Feature #13060). Spec UX: `docs/ux/hu-13189-flit2-en-vivo.md` (delta sobre la de la HU #13098).
-// Contrato: `Flit2EstadoConexion.automatica` (HU #13188).
+// FLITO — Gestión Trámites · «Conexión» de FLIT 2 (HU #13678, Feature #13613; antes indicador en vivo
+// de la HU #13189). Spec UX: `docs/ux/flito-tramites-sincronizacion-simplificada.md` (sección #13678).
+// Contrato: `Flit2EstadoConexion` (shared-types).
 //
 // Reglas:
-//   · la cuenta se corrige con el reloj del servidor: `restante = proximaEn − (Date.now() + desfase)`,
-//     con `desfase = generadoEn − hora local al recibir` (lo mide el hook del estado);
-//   · `restante ≤ 0` → «en unos segundos»: nunca negativos ni un «0:00» congelado;
-//   · el tic de 1 s existe solo si lo visible lleva `m:ss`, y se pausa con la pestaña oculta;
-//   · la línea visible es `aria-hidden`: la región viva lleva solo la frase del ESTADO (no cambia con
-//     la cuenta) y la hora absoluta va en un sr-only fuera de la región (se lee, no se anuncia);
-//   · el punto es estático (sin pulso) y usa tokens `-text`, que tienen par oscuro;
+//   · el grupo FLIT 2 ya no muestra la mecánica de la lectura (frecuencia, próxima lectura, cuenta
+//     regresiva, reintentos): solo si hay conexión y cuándo fue lo último;
+//   · «Conexión» con precedencia (gana la primera fila): sin configurar → apagada en el servidor
+//     (maestro o `automatica.activa=false`) → apagada (interruptor) → sin conexión (`problema` o
+//     `alerta`) → conectado. Una lectura en curso no cambia el valor;
+//   · el punto es estático (sin pulso), `aria-hidden` y usa tokens `-text`, que tienen par oscuro;
 //   · jamás se pinta un código ni el texto del API.
 
-import { useEffect, useState, type ReactNode } from 'react';
 import type { Flit2EstadoConexion } from '@operaciones/shared-types';
 
-const ZONA = 'America/Bogota';
-const fmtDia = new Intl.DateTimeFormat('es-CO', { timeZone: ZONA, day: 'numeric', month: 'short', year: 'numeric' });
-const fmtHora = new Intl.DateTimeFormat('es-CO', { timeZone: ZONA, hour: 'numeric', minute: '2-digit' });
-const fmtClaveDia = new Intl.DateTimeFormat('en-CA', { timeZone: ZONA, year: 'numeric', month: '2-digit', day: '2-digit' });
+export type ConexionFlit2 = 'Conectado' | 'Sin conexión' | 'Sin configurar' | 'Apagada' | 'Apagada en el servidor';
 
-function instante(iso: string | null | undefined): number | null {
-  if (!iso) return null;
-  const t = Date.parse(iso);
-  return Number.isNaN(t) ? null : t;
+/** Cómo está detenida la fuente según la sección Sincronización (interruptor o maestro), si lo está. */
+export type DetenidaFlit2 = 'maestro' | 'interruptor' | null;
+
+/** Valor de «Conexión» según la regla de la spec. `detenida` suma lo que sabe la sección de interruptores. */
+export function conexionFlit2(d: Flit2EstadoConexion, detenida: DetenidaFlit2 = null): ConexionFlit2 {
+  if (!d.configurado) return 'Sin configurar';
+  const maestro = detenida === 'maestro' || (d.habilitada === false && d.motivoDeshabilitada === 'maestro');
+  if (maestro || d.automatica?.activa === false) return 'Apagada en el servidor';
+  if (detenida === 'interruptor' || d.habilitada === false) return 'Apagada';
+  if (d.problema || d.alerta) return 'Sin conexión';
+  return 'Conectado';
 }
 
-/** «las 9:45 a. m.» si es de hoy en Bogotá; si no, «el 1 oct. 2026 a las 9:45 a. m.». */
-function lasHora(t: number): { art: 'las' | 'el'; texto: string } {
-  const d = new Date(t);
-  const hoy = fmtClaveDia.format(new Date()) === fmtClaveDia.format(d);
-  return hoy ? { art: 'las', texto: `las ${fmtHora.format(d)}` } : { art: 'el', texto: `el ${fmtDia.format(d)} a las ${fmtHora.format(d)}` };
-}
-
-/** Cierra con punto sin duplicarlo: la hora de es-CO ya termina en «p. m.». */
-const fin = (t: string) => (t.endsWith('.') ? t : `${t}.`);
-
-/** `m:ss` con redondeo hacia arriba (0,3 s → 0:01); null si ya venció. */
-export function mss(restanteMs: number | null): string | null {
-  if (restanteMs === null || restanteMs <= 0) return null;
-  const s = Math.ceil(restanteMs / 1000);
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-}
-
-/**
- * Milisegundos hasta `objetivo` en el reloj del servidor, recalculados cada segundo mientras `activo`
- * y la pestaña esté visible. null sin objetivo o inactivo (sin tic).
- */
-export function useRestante(objetivo: string | null | undefined, desfaseMs: number, activo: boolean): number | null {
-  const [ahora, setAhora] = useState(() => Date.now());
-  const meta = activo ? instante(objetivo) : null;
-
-  useEffect(() => {
-    if (meta === null) return undefined;
-    let timer: ReturnType<typeof setInterval> | null = null;
-    const parar = () => { if (timer) { clearInterval(timer); timer = null; } };
-    const arrancar = () => {
-      parar();
-      setAhora(Date.now());
-      timer = setInterval(() => setAhora(Date.now()), 1000);
-    };
-    const alCambiar = () => { if (document.visibilityState === 'visible') arrancar(); else parar(); };
-    if (document.visibilityState === 'visible') arrancar();
-    document.addEventListener('visibilitychange', alCambiar);
-    return () => { parar(); document.removeEventListener('visibilitychange', alCambiar); };
-  }, [meta]);
-
-  return meta === null ? null : meta - (ahora + desfaseMs);
-}
-
-/** Cuenta visible: el `m:ss` con cifras tabulares, o «unos segundos» si ya venció. */
-function Cuenta({ restante }: { restante: number | null }) {
-  const c = mss(restante);
-  return c ? <span className="whitespace-nowrap tabular-nums">{c}</span> : <>unos segundos</>;
-}
-
-type Tono = 'blue' | 'muted' | 'danger' | 'warning' | 'success';
-const COLOR_PUNTO: Record<Tono, string> = {
-  blue: 'var(--flit-blue-text)',
-  muted: 'var(--flit-text-muted)',
-  danger: 'var(--flit-danger-text)',
-  warning: 'var(--flit-warning-text)',
-  success: 'var(--flit-success-text)',
+const COLOR_PUNTO: Record<ConexionFlit2, string> = {
+  Conectado: 'var(--flit-success-text)',
+  'Sin conexión': 'var(--flit-danger-text)',
+  'Sin configurar': 'var(--flit-text-muted)',
+  Apagada: 'var(--flit-text-muted)',
+  'Apagada en el servidor': 'var(--flit-text-muted)',
 };
 
-interface Vista {
-  tono: Tono;
-  /** La línea visible (aria-hidden). */
-  linea: ReactNode;
-  /** Frase de la región viva: solo cambia con el estado. */
-  anuncio: string;
-  /** sr-only fuera de la región viva (hora absoluta de la próxima). */
-  lector?: string;
-}
-
-/** Tramo de la frecuencia: «cada 5 min», o nada si no da un entero ≥ 1. */
-export function cada(intervaloMs: number | null): string {
-  if (intervaloMs === null) return '';
-  const min = Math.round(intervaloMs / 60_000);
-  return Number.isFinite(min) && min >= 1 ? ` cada ${min} min` : '';
+/** Punto estático junto al valor de «Conexión»: el texto lleva el significado, el punto solo acompaña. */
+export function PuntoFlit2({ conexion }: { conexion: ConexionFlit2 }) {
+  return (
+    <span aria-hidden="true" className="inline-block h-2 w-2 shrink-0 rounded-full"
+      style={{ background: COLOR_PUNTO[conexion] }} data-testid="punto-flit2" />
+  );
 }
 
 /**
@@ -110,119 +53,10 @@ export function umbralMin(intervaloMs: number | null | undefined): number | null
   return Math.round((2 * intervaloMs + 5 * 60_000) / 60_000);
 }
 
-/** «15 minutos» (largo) o «15 min» (corto); desde 60 min, «2 h» o «2 h 5 min» en los dos. */
-export function duracionUmbral(min: number, corto: boolean): string {
-  if (min < 60) return corto ? `${min} min` : `${min} minutos`;
+/** «15 minutos»; desde 60 min, «2 h» o «2 h 5 min». */
+export function duracionUmbral(min: number): string {
+  if (min < 60) return `${min} minutos`;
   const h = Math.floor(min / 60);
   const r = min % 60;
   return r === 0 ? `${h} h` : `${h} h ${r} min`;
-}
-
-type Caso =
-  | 'curso' | 'detenida_maestro' | 'detenida_interruptor' | 'apagada' | 'rechazado' | 'bloqueado_hasta' | 'bloqueado'
-  | 'avisos_rechazados' | 'lectura' | 'desconocido' | 'alerta' | 'encendida';
-
-/** Precedencia de la spec (gana la primera que aplique). */
-function casoDe(d: Flit2EstadoConexion, hastaBloqueo: number | null): Caso {
-  const a = d.automatica;
-  // HU #13238: con la fuente apagada no hay cuenta ni alerta; se dice que está apagada y por qué.
-  if (d.habilitada === false) return d.motivoDeshabilitada === 'maestro' ? 'detenida_maestro' : 'detenida_interruptor';
-  if (a.enCurso) return 'curso';
-  if (!a.activa) return 'apagada';
-  if (d.problema?.tipo === 'rechazado') return 'rechazado';
-  if (d.problema?.tipo === 'bloqueado') return hastaBloqueo !== null && hastaBloqueo > Date.now() ? 'bloqueado_hasta' : 'bloqueado';
-  // HU #13634: los avisos con firma rechazada no detienen la lectura; un tipo nuevo no es «falló la lectura».
-  if (d.problema?.tipo === 'avisos_firma') return 'avisos_rechazados';
-  if (d.problema?.tipo === 'lectura') return 'lectura';
-  if (d.problema) return 'desconocido';
-  if (d.alerta) return 'alerta';
-  return 'encendida';
-}
-
-const CON_CUENTA: ReadonlySet<Caso> = new Set<Caso>(['bloqueado', 'avisos_rechazados', 'lectura', 'desconocido', 'alerta', 'encendida']);
-/** Casos en los que la cuenta es la de la próxima lectura normal, no la de un reintento. */
-const PROXIMA_NORMAL: ReadonlySet<Caso> = new Set<Caso>(['avisos_rechazados', 'desconocido', 'encendida']);
-
-function lectorProxima(caso: Caso, proxima: number | null, restante: number | null): string | undefined {
-  if (!CON_CUENTA.has(caso) || proxima === null) return undefined;
-  const sujeto = PROXIMA_NORMAL.has(caso) ? 'Próxima lectura' : 'Nuevo intento';
-  if (restante === null || restante <= 0) return `${sujeto} en unos segundos.`;
-  const h = lasHora(proxima);
-  return fin(h.art === 'las' ? `${sujeto} a ${h.texto}` : `${sujeto} ${h.texto}`);
-}
-
-function vistaDe(caso: Caso, d: Flit2EstadoConexion, restante: number | null, hastaBloqueo: number | null): Vista {
-  const a = d.automatica;
-  const cuenta = <Cuenta restante={restante} />;
-  switch (caso) {
-    case 'curso':
-      return { tono: 'blue', linea: 'Leyendo FLIT 2 ahora…', anuncio: 'Leyendo FLIT 2 ahora.' };
-    case 'detenida_maestro':
-      return { tono: 'muted', linea: 'Lectura automática apagada en el servidor', anuncio: 'La lectura automática de FLIT 2 está apagada en el servidor.' };
-    case 'detenida_interruptor':
-      return { tono: 'muted', linea: 'Lectura automática apagada desde Sincronización', anuncio: 'La lectura automática de FLIT 2 está apagada desde Sincronización.' };
-    case 'apagada':
-      return { tono: 'muted', linea: 'La lectura automática está apagada en este ambiente', anuncio: 'La lectura automática de FLIT 2 está apagada en este ambiente.' };
-    case 'rechazado':
-      return {
-        tono: 'danger',
-        linea: <>Acceso rechazado · revisa <strong className="font-semibold">Acceso a FLIT 2</strong></>,
-        anuncio: 'FLIT 2 rechazó el acceso guardado.',
-      };
-    case 'bloqueado_hasta': {
-      const h = lasHora(hastaBloqueo ?? Date.now());
-      // «después de las 9:45 a. m.» / «después del 1 oct. 2026 a las 9:45 a. m.» («de» + «el» = «del»).
-      const despues = h.art === 'las' ? `después de ${h.texto}` : `después del ${h.texto.slice('el '.length)}`;
-      return { tono: 'warning', linea: `Acceso bloqueado · vuelve a leer ${despues}`, anuncio: 'FLIT 2 bloqueó el acceso por un tiempo.' };
-    }
-    case 'bloqueado':
-      return { tono: 'warning', linea: <>Acceso bloqueado · reintenta en {cuenta}</>, anuncio: 'FLIT 2 bloqueó el acceso por un tiempo.' };
-    case 'avisos_rechazados':
-      // `warning` y no `danger`: la lectura automática sigue trayendo trámites (spec HU #13634).
-      return {
-        tono: 'warning',
-        linea: <>Avisos con firma no válida · próxima lectura en {cuenta}</>,
-        anuncio: 'FLIT 2 está enviando avisos con firma no válida.',
-      };
-    case 'lectura':
-      return { tono: 'warning', linea: <>Falló la última lectura · reintenta en {cuenta}</>, anuncio: 'La última lectura de FLIT 2 falló.' };
-    case 'desconocido':
-      return { tono: 'warning', linea: <>Conexión por revisar · próxima lectura en {cuenta}</>, anuncio: 'La conexión con FLIT 2 necesita revisión.' };
-    case 'alerta': {
-      const u = umbralMin(a.intervaloMs);
-      return u === null
-        ? { tono: 'danger', linea: <>Sin leer en el tiempo esperado · reintenta en {cuenta}</>, anuncio: 'FLIT 2 no ha leído trámites en el tiempo esperado.' }
-        : {
-          tono: 'danger',
-          linea: <>Sin leer hace más de {duracionUmbral(u, true)} · reintenta en {cuenta}</>,
-          anuncio: `FLIT 2 lleva más de ${duracionUmbral(u, false)} sin leer.`,
-        };
-    }
-    default:
-      return {
-        tono: 'success',
-        linea: a.proximaEn ? <>Lectura automática{cada(a.intervaloMs)} · próxima en {cuenta}</> : <>Lectura automática{cada(a.intervaloMs)}</>,
-        anuncio: 'Lectura automática de FLIT 2 encendida.',
-      };
-  }
-}
-
-/** Línea bajo «Última lectura buena» · «Último aviso». Solo con el estado cargado y configurado. */
-export function IndicadorFlit2({ dato, desfaseMs }: { dato: Flit2EstadoConexion; desfaseMs: number }) {
-  const hastaBloqueo = dato.problema?.tipo === 'bloqueado' ? instante(dato.problema.hasta) : null;
-  const caso = casoDe(dato, hastaBloqueo);
-  const proxima = instante(dato.automatica.proximaEn);
-  const restante = useRestante(dato.automatica.proximaEn, desfaseMs, CON_CUENTA.has(caso));
-  const v = vistaDe(caso, dato, restante, hastaBloqueo);
-  const lector = lectorProxima(caso, proxima, restante);
-  return (
-    <div className="mt-0.5 flex items-baseline gap-1.5" style={{ color: 'var(--flit-text-secondary)' }}
-      data-testid="indicador-flit2" data-caso={caso}>
-      <span aria-hidden="true" className="mt-[3px] inline-block h-2 w-2 shrink-0 self-start rounded-full"
-        style={{ background: COLOR_PUNTO[v.tono] }} data-testid="punto-flit2" />
-      <span aria-hidden="true" data-testid="texto-indicador-flit2">{v.linea}</span>
-      <span role="status" className="sr-only">{v.anuncio}</span>
-      {lector && <span className="sr-only">{lector}</span>}
-    </div>
-  );
 }
