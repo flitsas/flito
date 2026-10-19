@@ -1,4 +1,4 @@
-// HU #13684 — aviso de trámites nuevos o actualizados: `POST /api/flito/tramites/novedades` y la
+// HU #13684 — aviso de trámites nuevos o actualizados: `POST /api/flito/tramites/novedades/buscar` y la
 // `marca` del listado.
 //
 // AC1: el conteo de nuevos usa el MISMO filtro del listado y no depende de página ni orden.
@@ -27,7 +27,7 @@ vi.mock('../../src/modules/flito-soat/flito-soat.service.js', () => ({ enviarAlG
 vi.mock('../../src/modules/flito-impuestos/flito-impuestos.service.js', () => ({ enviarAlGestor: vi.fn() }));
 await import('../../src/db/client.js'); // evalúa la factory del doble y deja `h.cap` listo
 
-const URL = '/api/flito/tramites/novedades';
+const URL = '/api/flito/tramites/novedades/buscar';
 const MARCA = '2026-10-19T15:04:05.123456Z';
 const T1 = '00000000-0000-0000-0000-0000000000a1';
 const T2 = '00000000-0000-0000-0000-0000000000a2';
@@ -54,7 +54,7 @@ const wheres = () => h.cap.sqlDeWheres().filter((w) => !w.sql.includes('"users"'
 
 beforeEach(() => { h.cap.reset(); });
 
-describe('HU #13684 · POST /novedades — autenticación y permiso (AC4)', () => {
+describe('HU #13684 · POST /novedades/buscar — autenticación y permiso (AC4)', () => {
   it('401 sin token y sin tocar la BD', async () => {
     const r = await request(await app()).post(URL).send({ marca: MARCA });
     expect(r.status).toBe(401);
@@ -69,7 +69,7 @@ describe('HU #13684 · POST /novedades — autenticación y permiso (AC4)', () =
   });
 });
 
-describe('HU #13684 · POST /novedades — body estricto (AC4)', () => {
+describe('HU #13684 · POST /novedades/buscar — body estricto (AC4)', () => {
   const casos: Array<[string, unknown]> = [
     ['marca no ISO', { marca: 'ayer' }],
     ['marca sin zona horaria válida', { marca: '2026-10-19 10:00' }],
@@ -89,7 +89,7 @@ describe('HU #13684 · POST /novedades — body estricto (AC4)', () => {
   }
 });
 
-describe('HU #13684 · POST /novedades — conteos', () => {
+describe('HU #13684 · POST /novedades/buscar — conteos', () => {
   it('AC1: nuevos = COUNT con el filtro del listado y created_at > marca; sin página ni orden', async () => {
     h.cap.responder([{ total: 3, marca: 'x' }]);
     const r = await request(await app()).post(URL).set('Authorization', await admin()).send({
@@ -177,7 +177,7 @@ describe('HU #13684 · GET / — la marca del listado', () => {
   });
 });
 
-describe('HU #13684 · POST /novedades — limitador por usuario', () => {
+describe('HU #13684 · POST /novedades/buscar — limitador por usuario', () => {
   it('429 a partir de la 7.ª consulta del mismo usuario en el minuto', async () => {
     const a = await app();
     const tok = await admin();

@@ -77,7 +77,7 @@ router.get('/', exigirFuncion('tramites.cola.ver'), async (req: Request, res: Re
   res.json(await listar(filtrosDesdeQuery(req.query), await alcanceDe(req)));
 });
 
-// POST /novedades (HU #13684) — ¿hay trámites nuevos o visibles actualizados desde `marca` (la del GET)?
+// POST /novedades/buscar (HU #13684; lectura por POST: los filtros pueden llevar PII, AGENTS.md §14) — ¿hay trámites nuevos o visibles actualizados desde `marca` (la del GET)?
 // Mismo permiso y alcance que el listado. `filtros` va en el BODY (puede traer placa/NIT en `buscar`,
 // regla 14). Responde solo dos contadores, sin ids ni PII; no se loguea el body.
 const novedadesSchema = z.object({
@@ -86,7 +86,7 @@ const novedadesSchema = z.object({
   visibles: z.array(z.string().uuid()).max(MAX_VISIBLES_NOVEDADES).default([]),
 }).strict();
 
-router.post('/novedades', exigirFuncion('tramites.cola.ver'), novedadesTramitesLimiter, async (req: Request, res: Response) => {
+router.post('/novedades/buscar', exigirFuncion('tramites.cola.ver'), novedadesTramitesLimiter, async (req: Request, res: Response) => {
   const parsed = novedadesSchema.safeParse(req.body);
   if (!parsed.success) { bad(res); return; }
   const { filtros, marca, visibles } = parsed.data;

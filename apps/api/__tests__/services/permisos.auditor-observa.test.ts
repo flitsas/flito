@@ -97,6 +97,16 @@ const LECTURAS_POR_POST = ['soat.incompletas.buscar'] as const;
  */
 const EXPORTACIONES_POR_POST = ['finanzas.reporte_costos.ver'] as const;
 
+/**
+ * HU #13684 — códigos de LECTURA COMPARTIDOS entre un GET y un `POST …/buscar`: a diferencia de
+ * `LECTURAS_POR_POST` (código exclusivo de su ruta POST), aquí el código es el del listado GET y la
+ * ruta POST es la misma lectura con los filtros en el CUERPO (AGENTS.md §14). `tramites.cola.ver`
+ * guarda `GET /` de flito-tramites y `POST /novedades/buscar` (¿hay trámites nuevos o actualizados?).
+ * El aserto exige al menos una guarda GET y que TODAS sus guardas no-GET sean `POST …/buscar` sin
+ * condición y con `auditor`; cualquier otro código no-GET del auditor sigue fallando en (2).
+ */
+const LECTURAS_GET_CON_BUSCAR_POR_POST = ['tramites.cola.ver'] as const;
+
 const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
 // HU #13427: este archivo mide el mundo PLANO (seed ≤ 0231): una guarda que hoy pide una operación nueva se lee
 // con su código de PARTIDA (la de página, `finanzas.gastos_diarios.ver`, no es operación del mundo plano).
@@ -142,6 +152,24 @@ describe('AC6 — el auditor conserva todas las lecturas y ninguna ejecución', 
     }
   });
 
+  it('HU #13684 — las lecturas GET con `POST …/buscar`: guarda GET + guardas no-GET todas `POST …/buscar` con `auditor`', () => {
+    for (const c of LECTURAS_GET_CON_BUSCAR_POR_POST) {
+      expect(esperadas, c).toContain(c);
+      const gs = GUARDAS_MEDIDAS.filter((g) => codigoDe(g) === c);
+      // Ninguna guarda en línea (ni GET ni POST): la excepción del aserto (2) exime el código entero.
+      expect(gs.filter((g) => g.condicion).map(llaveDe), c).toEqual([]);
+      expect(gs.some((g) => g.metodo === 'GET'), c).toBe(true);
+      const noGet = gs.filter((g) => g.metodo !== 'GET');
+      expect(noGet.length, c).toBeGreaterThan(0);
+      for (const g of noGet) {
+        expect(g.metodo, llaveDe(g)).toBe('POST');
+        expect(g.ruta, llaveDe(g)).toMatch(/\/buscar$/);
+        expect(g.condicion, llaveDe(g)).toBeUndefined();
+        expect(g.roles, llaveDe(g)).toContain('auditor');
+      }
+    }
+  });
+
   it('(1) el seed le da EXACTAMENTE esos 50 más las lecturas por POST: ni uno más, ni uno menos', () => {
     const suyas = operacionesDe('auditor').filter((c) => !porPost.has(c));
     for (const c of LECTURAS_POR_POST) expect(operacionesDe('auditor'), c).toContain(c);
@@ -153,7 +181,8 @@ describe('AC6 — el auditor conserva todas las lecturas y ninguna ejecución', 
 
   it('(2) ninguno de sus códigos es de una ruta no-GET de la foto ni de una guarda en línea', () => {
     const noLectura = new Set(GUARDAS_MEDIDAS.filter((g) => g.metodo !== 'GET' || g.condicion).map(codigoDe));
-    expect(operacionesDe('auditor').filter((c) => noLectura.has(c) && !porPost.has(c) && !exportan.has(c))).toEqual([]);
+    const conBuscar = new Set<string>(LECTURAS_GET_CON_BUSCAR_POR_POST);
+    expect(operacionesDe('auditor').filter((c) => noLectura.has(c) && !porPost.has(c) && !exportan.has(c) && !conBuscar.has(c))).toEqual([]);
   });
 
   it('(3) ninguno de sus códigos termina en verbo de ejecución', () => {

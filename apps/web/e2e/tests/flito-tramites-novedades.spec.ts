@@ -5,7 +5,7 @@ import { loginAs, OPERACIONES_USER } from '../helpers/auth';
 // HU #13684 — Aviso de trámites nuevos o actualizados sin recargar (Gestión Trámites).
 // El backend está mockeado y el reloj es de Playwright (`page.clock`): el sondeo de ~50 s se adelanta
 // con `runFor` en vez de esperarlo. Contrato: `GET /flito/tramites` trae `marca` (línea base) y
-// `POST /flito/tramites/novedades` responde `{ nuevos, actualizados }`.
+// `POST /flito/tramites/novedades/buscar` responde `{ nuevos, actualizados }`.
 
 const SONDEO = 50_000;
 const MARCA = '2026-10-19T15:00:00.123456Z';
@@ -30,7 +30,7 @@ type Respuesta = { status: number; body?: unknown };
 interface Escenario {
   /** Qué devuelve el GET del listado; se puede cambiar a mitad del test. */
   lista: { items: unknown[]; total: number; marca: string };
-  /** Cola de respuestas de `/novedades`; la última se repite. */
+  /** Cola de respuestas de `/novedades/buscar`; la última se repite. */
   novedades: Respuesta[];
   urlsLista: URL[];
   cuerpos: Array<{ filtros: Record<string, string>; marca: string; visibles: string[] }>;
@@ -49,7 +49,7 @@ async function montar(page: Page, lista: Escenario['lista'], novedades: Respuest
       ...esc.lista, page: Number(url.searchParams.get('page') ?? 1), pageSize: 50,
     }) });
   });
-  await page.route(/\/api\/flito\/tramites\/novedades/, (r) => {
+  await page.route(/\/api\/flito\/tramites\/novedades\/buscar(?:\?|$)/, (r) => {
     esc.urlsNovedades.push(r.request().url());
     esc.cuerpos.push(r.request().postDataJSON());
     const res = esc.novedades.length > 1 ? esc.novedades.shift()! : esc.novedades[0];
@@ -258,7 +258,7 @@ test.describe('HU #13684 — aviso de trámites nuevos o actualizados', () => {
       body: JSON.stringify({ estados: [], tramites: [], ciudades: [], transitos: [] }) }));
     await page.route(/\/api\/flito\/tramites\?/, (r) => r.fulfill({ status: 200, contentType: 'application/json',
       body: JSON.stringify({ items: [], total: 0, page: 1, pageSize: 50, marca: MARCA }) }));
-    await page.route(/\/api\/flito\/tramites\/novedades/, (r) => r.fulfill({ status: 200, contentType: 'application/json',
+    await page.route(/\/api\/flito\/tramites\/novedades\/buscar(?:\?|$)/, (r) => r.fulfill({ status: 200, contentType: 'application/json',
       body: JSON.stringify({ nuevos: 1, actualizados: 0 }) }));
     await page.clock.install({ time: new Date('2026-10-19T10:00:00-05:00') });
     await page.goto('/flito/tramites');

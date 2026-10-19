@@ -14,7 +14,7 @@ Hay dos opciones.
 - **Coste y Habeas Data.** Descarga cada 45-60 s, por pestaña, la página completa (hasta 200 filas con compradores: documento, correo, celular y dirección), solo para saber si cambió algo. Eso es PII viajando sin que nadie la vea.
 - **La huella sí detecta cambios en la página visible (AC2)**, pero el costo de lo anterior no lo compensa.
 
-**(B) `POST /api/flito/tramites/novedades`** devuelve dos contadores sin PII. Es la recomendada.
+**(B) `POST /api/flito/tramites/novedades/buscar`** devuelve dos contadores sin PII. Es la recomendada.
 - Reusa `construirCondiciones` y los joins del COUNT de `listar`, así que la lógica de filtros es una sola.
 - Esfuerzo: **S** en backend y **S** en frontend.
 - **No necesita migración**, por lo que no aplica `db-review-agent`.
@@ -31,7 +31,7 @@ Hay dos opciones.
 GET  /api/flito/tramites            (aditivo) respuesta { items, total, page, pageSize, marca }
      marca: string ISO-8601 — hora del servidor de BD tomada en la misma sentencia del COUNT.
 
-POST /api/flito/tramites/novedades   auth + exigirFuncion('tramites.cola.ver') + novedadesLimiter
+POST /api/flito/tramites/novedades/buscar   auth + exigirFuncion('tramites.cola.ver') + novedadesLimiter
   body (Zod .strict()):
     filtros:  z.record(z.string().max(200)).default({})   // MISMAS claves/forma string que la query del GET
     marca:    z.string().datetime({ offset: true })        // la `marca` recibida del GET vigente
@@ -76,7 +76,7 @@ Semántica (todo bajo `and(...construirCondiciones(f), condicionAlcanceTramites(
 Backend (`backend-agent`):
 - `apps/api/src/modules/flito-tramites/flito-tramites.routes.ts`:
   - extraer `filtrosDesdeQuery`;
-  - agregar la ruta `POST /novedades` con su Zod;
+  - agregar la ruta `POST /novedades/buscar` con su Zod;
   - `res.set('Cache-Control','no-store')`.
 - `apps/api/src/modules/flito-tramites/flito-tramites.service.ts`:
   - `export` de `construirCondiciones`;

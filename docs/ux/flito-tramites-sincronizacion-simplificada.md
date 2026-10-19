@@ -442,7 +442,7 @@ Hoy no hay una forma barata de preguntar «¿hay algo nuevo para este filtro?».
 `GET /api/flito/tramites?…` cada 60 s y comparar no detecta los nuevos que caen en otra página
 (por ejemplo, con orden «antiguos»), y además cuesta una página completa. Se pide:
 
-- `POST /api/flito/tramites/novedades` (autenticado, mismos roles que el listado). Recibe en el
+- `POST /api/flito/tramites/novedades/buscar` (autenticado, mismos roles que el listado). Recibe en el
   **body** los filtros y la búsqueda actuales (la búsqueda puede llevar placa o nombre: van en el
   body por AGENTS §14, no en la query), la marca de la línea base y los `{tramiteId, version |
   actualizadoEn}` de la página visible.

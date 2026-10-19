@@ -468,7 +468,7 @@ export const flit2AvisosFallidosLimiter = rateLimit({
 });
 
 /**
- * HU #13684 — sondeo de novedades de Gestión Trámites (`POST /api/flito/tramites/novedades`): 6 / min por
+ * HU #13684 — sondeo de novedades de Gestión Trámites (`POST /api/flito/tramites/novedades/buscar`): 6 / min por
  * usuario. El cliente pregunta cada ~50 s solo con la pestaña visible; 6 cubre varias pestañas y una
  * recarga. Va DETRÁS de `exigirFuncion` (quien no tiene la función no gasta cupo). Llave y store propios.
  * Cota revisable y sin telemetría.

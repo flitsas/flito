@@ -1,7 +1,7 @@
 // HU #13684 — Aviso de trámites nuevos o actualizados sin recargar la lista de Gestión Trámites.
 //
 // La página fija la LÍNEA BASE con la `marca` (hora de la BD) de cada GET visible; este hook pregunta
-// cada ~50 s a `POST /flito/tramites/novedades` si desde esa marca entró algo que cumple los mismos
+// cada ~50 s a `POST /flito/tramites/novedades/buscar` si desde esa marca entró algo que cumple los mismos
 // filtros (nuevos) o cambió algo de la página visible (actualizados). La tabla no se toca: solo se
 // enciende el aviso, y es el operador quien decide recargar con «Ver».
 //
@@ -96,7 +96,7 @@ export function useNovedadesTramites(pausado: boolean, tablaRef: RefObject<HTMLE
     if (document.visibilityState !== 'visible' || hayDialogoAbierto()) return;
     enVuelo.current = true;
     try {
-      const r = await api.post<Novedades>('/flito/tramites/novedades', { filtros: b.filtros, marca: b.marca, visibles: b.visibles });
+      const r = await api.post<Novedades>('/flito/tramites/novedades/buscar', { filtros: b.filtros, marca: b.marca, visibles: b.visibles });
       // Si mientras tanto hubo otra carga, la respuesta es de una línea base vieja: se descarta.
       if (base.current !== b) return;
       if (r.nuevos > 0 || r.actualizados > 0) { setAviso({ nuevos: r.nuevos, actualizados: r.actualizados }); setAnuncio(''); }
