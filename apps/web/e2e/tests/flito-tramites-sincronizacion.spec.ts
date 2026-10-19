@@ -168,7 +168,7 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
     await expect(grupo(page, 'flit1').getByRole('button', { name: 'Guardar parámetros', exact: true })).toHaveCount(0);
     await expect(grupo(page, 'flit2').getByRole('button', { name: 'Acceso a FLIT 2', exact: true })).toBeVisible();
     await expect(grupo(page, 'flit2').getByTestId('linea-estado-flit2')).toBeVisible();
-    await expect(grupo(page, 'flit2').getByTestId('indicador-flit2')).toBeVisible();
+    await expect(grupo(page, 'flit2').getByTestId('conexion-flit2')).toBeVisible();
     // HU #13680: la sección se queda sin primaria (dos secundarios gemelos; «Guardar» vive en la modal).
     const primarias = await seccion(page).locator('button').evaluateAll(
       (bs) => bs.filter((b) => (b as HTMLElement).style.background.includes('gradient')).length,
@@ -342,15 +342,16 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
     expect(ctl.posts).toBe(0);
   });
 
-  test('AC5: FLIT 2 apagada por interruptor: indicador y panel dicen que está apagada y por qué, sin alerta de atraso', async ({ page }) => {
+  test('AC5: FLIT 2 apagada por interruptor: «Conexión» y panel dicen que está apagada y por qué, sin alerta de atraso', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockear(page, {
       f2: false,
       e2: estado2({ habilitada: false, motivoDeshabilitada: 'interruptor', alerta: true, problema: { tipo: 'lectura', codigo: null, motivo: null, en: hace(2), hasta: null } }),
     });
     await abrir(page);
-    await expect(page.getByTestId('texto-indicador-flit2')).toHaveText('Lectura automática apagada desde Sincronización');
-    await expect(page.getByTestId('texto-indicador-flit2')).not.toContainText(/\d+:\d{2}/);
+    // HU #13678: «Conexión» dice «Apagada», sin cuentas ni motivo de conexión.
+    await expect(page.getByTestId('conexion-flit2')).toHaveText('Apagada');
+    await expect(page.getByTestId('grupo-flit2')).not.toContainText(/reintenta en|próxima en/);
     await expect(page.getByTestId('motivo-flit2')).toContainText('FLIT 2 está apagada: FLITO no lee trámites nuevos de FLIT 2.');
     await expect(page.getByTestId('aviso-estado-flit2')).toHaveCount(0);
     await expect(page.getByText('Falló la última lectura de FLIT 2.')).toHaveCount(0);
@@ -363,7 +364,7 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
     await expect(page.getByTestId('estado-fuente-flit2')).toHaveText('Encendida · apagada en el servidor');
     await expect(page.getByTestId('motivo-flit2')).toHaveText('La lectura automática de FLIT 2 está apagada en el servidor; este interruptor no tendrá efecto hasta que se encienda allí.');
     await expect(page.getByTestId('motivo-flit2')).toHaveAttribute('role', 'status');
-    await expect(page.getByTestId('texto-indicador-flit2')).toHaveText('Lectura automática apagada en el servidor');
+    await expect(page.getByTestId('conexion-flit2')).toHaveText('Apagada en el servidor');
   });
 
   for (const tema of ['claro', 'oscuro'] as const) {
