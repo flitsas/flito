@@ -167,6 +167,7 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${TRA} POST /solicitar-soat`, 'tramites.solicitud.pedir_soat', 'Solicitar SOAT para un vehículo', 'Radicar un trámite de SOAT desde Operaciones.'),
   op(`${TRA} POST /solicitar-impuestos`, 'tramites.solicitud.pedir_impuestos', 'Solicitar impuestos para un vehículo', 'Radicar un trámite de impuesto vehicular desde Operaciones.'),
   op(`${TRA} POST /solicitar-ambos`, 'tramites.solicitud.pedir_ambos', 'Solicitar SOAT e impuestos a la vez', 'Radicar los dos trámites del vehículo en una sola operación.'),
+  op(`${TRA} POST /novedades`, 'tramites.cola.ver', 'Ver la cola de trámites FLITO', 'Abrir la bandeja de trámites de SOAT e impuestos.'),
   op(`${TRA} POST /entregar`, 'tramites.tramite.entregar', 'Entregar trámites FLITO', 'Marcar como entregados los trámites seleccionados.'),
   op(`${TRA} POST /:id/desbloquear-autogestion`, 'tramites.autogestion.desbloquear', 'Desbloquear la autogestión del cliente', 'Permitir que el cliente vuelva a radicar por su cuenta.'),
   op(`${TRA} POST /:id/revocar-autogestion`, 'tramites.autogestion.revocar', 'Revocar la autogestión del cliente', 'Quitarle al cliente la posibilidad de radicar por su cuenta.'),

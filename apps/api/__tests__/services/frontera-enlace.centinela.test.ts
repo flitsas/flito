@@ -294,6 +294,7 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['GET /api/flito/derechos/candidatos/:placa',                                'soloSinEnlace'],
   ['GET /api/flito/derechos/soporte/:id',                                      'filtra'],
   ['GET /api/flito/tramites',                                                  'filtra'],
+  ['POST /api/flito/tramites/novedades',                                       'filtra'],
   ['GET /api/flito/tramites/facetas',                                          'filtra'],
   ['GET /api/flito/tramites/:id/historial',                                    'filtra'],
   ['GET /api/flito/tramites/:id/soportes',                                     'filtra'],
