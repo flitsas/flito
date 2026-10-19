@@ -5,16 +5,16 @@
 // · motivo/aviso · barra de acciones (`mt-auto`, alineada entre grupos).
 //
 // Reglas:
-//   · HU #13630: FLIT 1 se lee sola. Sin «Sincronizar FLIT» ni fecha inicial; el grupo dice cuándo leyó, cuándo
-//     vuelve a leer y si falló (aviso de página), y quien configura ajusta los parámetros (`LecturaFlit1.tsx`).
-//     La única primaria de la zona es «Guardar parámetros»; «Acceso a FLIT 2» va con peso secundario;
+//   · HU #13630/#13680: FLIT 1 se lee sola. El grupo dice cuándo leyó y si falló (aviso de página); los
+//     parámetros pasan a una modal tras el secundario «Parámetros de lectura», que solo existe con `configurar`
+//     (`LecturaFlit1.tsx`). La sección no tiene primaria: «Parámetros de lectura» y «Acceso a FLIT 2» son
+//     secundarios gemelos, uno en la barra de cada grupo;
 //   · visible con `configurar`, `sync.sync.ver_estado` o `tramites.flit2.ver_acceso` (la función de lanzar
 //     la sincronización ya no pinta nada: no hay qué lanzar);
 //   · los errores de la zona nunca pintan el texto crudo del API (ni en toast ni en aviso);
 //   · acordeón (2.º PR de la HU #13238): contraído en CADA visita (no se recuerda), con un resumen por fuente
 //     en la cabecera que no inventa valores mientras carga, y el distintivo «Requiere atención» con la misma
-//     regla del aviso de cada grupo. Contraído, el cuerpo no se monta; el borrador de parámetros vive aquí,
-//     fuera del panel, y sobrevive a contraer y abrir.
+//     regla del aviso de cada grupo. Contraído, el cuerpo no se monta.
 
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
@@ -26,8 +26,7 @@ import AccesoFlit2 from './AccesoFlit2';
 import { AvisoEstadoFlit2, LineaEstadoFlit2, alertaFlit2, automaticaActivaFlit2, useEstadoFlit2 } from './EstadoFlit2';
 import { CabeceraFuente, FUNCION_CONFIGURAR, useInterruptores } from './InterruptorSincronizacion';
 import {
-  AvisoFalloFlit1, LineaLecturaFlit1, ParametrosLecturaFlit1Form, Reintentar, falloVigenteFlit1,
-  useEstadoLecturaFlit1, useParametrosFlit1,
+  AvisoFalloFlit1, LineaLecturaFlit1, ParametrosLecturaFlit1, Reintentar, falloVigenteFlit1, useEstadoLecturaFlit1,
 } from './LecturaFlit1';
 
 type FaseFlit1 = { fase: 'cargando' } | { fase: 'error' } | { fase: 'listo'; dato: SyncEstadoFlit1 };
@@ -71,7 +70,6 @@ export default function SincronizacionTramites() {
   const visible = configura || verEstado || hasFuncion('tramites.flit2.ver_acceso');
   const estadoFlit2 = useEstadoFlit2();
   const lectura1 = useEstadoLecturaFlit1(visible && (configura || verEstado));
-  const parametros1 = useParametrosFlit1(visible && configura, lectura1.refrescar);
 
   const [flit1, setFlit1] = useState<FaseFlit1>({ fase: 'cargando' });
   const cargarFlit1 = useCallback(async (silencioso: boolean) => {
@@ -121,7 +119,6 @@ export default function SincronizacionTramites() {
           : { tipo: 'error' };
   const alerta2 = alertaFlit2(estadoFlit2, motivo2 !== null);
   const alerta1 = !apagada1 && falloVigenteFlit1(lectura1);
-  const n1 = parametros1.fase.fase === 'listo' ? parametros1.fase.dato.frecuenciaMinutos : null;
 
   const resumen = (
     <span className="flex flex-wrap items-center gap-x-4 gap-y-1" data-testid="resumen-sincronizacion">
@@ -150,9 +147,6 @@ export default function SincronizacionTramites() {
           <div className={GRUPO} style={ESTILO_GRUPO} data-testid="grupo-flit1">
             <CabeceraFuente fuente="flit1" uso={inter} editable={editable} idMotivo={apagada1 ? ID_MOTIVO_1 : undefined}
               efectiva={d1 ? d1.habilitada : null} />
-            <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }} data-testid="explicacion-flit1">
-              {n1 !== null ? `FLITO lee FLIT 1 automáticamente cada ${n1} minutos.` : 'FLITO lee FLIT 1 automáticamente.'}
-            </p>
             <LineaLecturaFlit1 uso={lectura1} apagada={apagada1} />
             {apagada1 && (
               <div id={ID_MOTIVO_1} role="status" className={AVISO} style={ESTILO_AVISO} data-testid="motivo-flit1">
@@ -162,7 +156,11 @@ export default function SincronizacionTramites() {
               </div>
             )}
             <AvisoFalloFlit1 uso={lectura1} apagada={apagada1} />
-            <ParametrosLecturaFlit1Form uso={parametros1} barra={BARRA} />
+            {configura && (
+              <div className={BARRA}>
+                <ParametrosLecturaFlit1 onGuardado={lectura1.refrescar} claseBoton="w-full justify-center sm:w-auto" />
+              </div>
+            )}
           </div>
 
           {/* ── FLIT 2 ── */}

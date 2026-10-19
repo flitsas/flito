@@ -1,25 +1,27 @@
-// FLITO — Gestión Trámites · lectura automática de FLIT 1 (HU #13630, Feature #13612, Épica #13576).
-// Spec UX: `docs/ux/flito-tramites-sincronizacion-interruptores.md`, sección «Delta HU #13630». Contrato:
+// FLITO — Gestión Trámites · lectura automática de FLIT 1 (HU #13630 y #13680, Feature #13612, Épica #13576).
+// Spec UX: `docs/ux/flito-tramites-sincronizacion-simplificada.md` (HU #13680). Contrato:
 // HU #13628 (`GET/PUT /api/flito/sync/flit1/parametros-lectura`, `GET …/flit1/estado-lectura`).
 //
 // Reglas:
-//   · ya no hay nada que lanzar: FLIT 1 se lee sola. El grupo dice cuándo leyó, cuándo vuelve a leer y si
-//     la última lectura falló (aviso de página, nunca toast);
-//   · el estado lo pide quien tiene `configurar` o `sync.sync.ver_estado`; los parámetros, solo `configurar`
-//     (sin ella ni se pintan ni sale el GET). Ninguno de los dos bloquea el interruptor (AC4);
+//   · ya no hay nada que lanzar: FLIT 1 se lee sola. El grupo dice cuándo leyó y si la última lectura falló
+//     (aviso de página, nunca toast). «Próxima lectura» y «cada N minutos» salieron de la vista (#13680);
+//   · el estado lo pide quien tiene `configurar` o `sync.sync.ver_estado`. Los parámetros viven en una modal
+//     (`FlitModal` lateral, gemela de «Acceso a FLIT 2») y su botón solo existe con `configurar`; el GET sale
+//     al abrirla, no al montar la página. Ninguno de los dos bloquea el interruptor;
 //   · fallo VIGENTE = posterior a la última lectura buena (o sin ninguna) y con FLIT 1 encendida; un fallo
 //     superado es una línea muted. Jamás se pinta el código ni el status: cada código tiene su frase;
 //   · los rangos salen de `LIMITES_PARAMETROS_LECTURA_FLIT1`, no se escriben a mano. Validación local al salir
-//     del campo y al guardar: con errores no sale el PUT y el foco va al primero inválido (AC3);
-//   · el borrador vive en el hook, que monta `SincronizacionTramites` fuera del panel del acordeón: contraer
-//     y volver a abrir conserva lo escrito.
+//     del campo y al guardar: con errores no sale el PUT y el foco va al primero inválido;
+//   · el borrador vive en la modal: cerrar sin guardar lo descarta y al reabrir se ven los valores vigentes.
+//     Los errores del guardado van en `role="alert"` dentro de la modal (no en toast) y conservan lo escrito.
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { LIMITES_PARAMETROS_LECTURA_FLIT1 } from '@operaciones/shared-types';
 import type { EstadoLecturaFlit1, ParametrosLecturaFlit1, ParametrosLecturaFlit1Input } from '@operaciones/shared-types';
 import { ApiError, api } from '../../../lib/api';
-import { flitBtnPrimary, flitBtnPrimaryStyle, flitInp } from '../../flit/flitPageKit';
-import { toastError, toastOk } from '../../flit/ToastFlito';
+import FlitModal from '../../flit/FlitModal';
+import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle, flitInp } from '../../flit/flitPageKit';
+import { toastOk } from '../../flit/ToastFlito';
 import { ALas, fin, momento, type Momento } from './EstadoFlit2';
 
 const RUTA_ESTADO = '/flito/sync/flit1/estado-lectura';
@@ -132,7 +134,7 @@ function Par({ rotulo, children }: { rotulo: string; children: ReactNode }) {
   );
 }
 
-/** «Última lectura» · «Próxima lectura» + líneas muted (vacío útil, fallo superado). */
+/** «Última lectura» + líneas muted (vacío útil, fallo superado). */
 export function LineaLecturaFlit1({ uso, apagada }: { uso: UsoEstadoLectura; apagada: boolean }) {
   const e = uso.estado;
   if (e.fase === 'oculto') return null;
@@ -146,17 +148,11 @@ export function LineaLecturaFlit1({ uso, apagada }: { uso: UsoEstadoLectura; apa
   }
   const hueco = <span aria-hidden="true" className="mt-1 block h-3 w-28 animate-pulse rounded" style={HUECO} />;
   let ultima: ReactNode = hueco;
-  let proxima: ReactNode = hueco;
   let notas: ReactNode = null;
   if (e.fase === 'listo') {
     const d = e.dato;
     const mu = momento(d.ultimaLecturaBuenaEn);
     ultima = mu ? hoyOEl(mu) : 'Aún sin lecturas';
-    const mp = momento(d.proximaLecturaPrevistaEn);
-    proxima = apagada ? 'Lectura detenida'
-      : !mp ? 'En unos minutos'
-        : Date.parse(d.proximaLecturaPrevistaEn ?? '') <= Date.now() ? 'En cualquier momento'
-          : mp.dia ? `hacia el ${mp.dia} a las ${mp.hora}` : `hacia las ${mp.hora}`;
     const vigente = falloVigenteFlit1(uso);
     const mf = d.ultimoFallo ? momento(d.ultimoFallo.en) : null;
     notas = (
@@ -171,7 +167,6 @@ export function LineaLecturaFlit1({ uso, apagada }: { uso: UsoEstadoLectura; apa
     <div className="flex flex-col gap-1" data-testid="linea-lectura-flit1">
       <div className="flex flex-wrap gap-x-6 gap-y-2">
         <Par rotulo="Última lectura">{ultima}</Par>
-        <Par rotulo="Próxima lectura">{proxima}</Par>
       </div>
       {notas && <div className="break-words text-[11px] leading-tight" style={MUTED}>{notas}</div>}
     </div>
@@ -232,7 +227,9 @@ function validar(b: Borrador, hoy: string): Errores {
   return e;
 }
 
-export type FaseParametros = { fase: 'oculto' } | { fase: 'cargando' } | { fase: 'error' } | { fase: 'listo'; dato: ParametrosLecturaFlit1 };
+export type FaseParametros = { fase: 'cargando' } | { fase: 'error' } | { fase: 'listo'; dato: ParametrosLecturaFlit1 };
+/** Fallo del último guardado: se pinta como aviso `role="alert"` dentro de la modal, nunca como toast. */
+export type FalloGuardado = null | 'permiso' | 'red';
 
 export interface UsoParametrosFlit1 {
   fase: FaseParametros;
@@ -240,7 +237,7 @@ export interface UsoParametrosFlit1 {
   errores: Errores;
   sucio: boolean;
   guardando: boolean;
-  soloLectura: boolean;
+  fallo: FalloGuardado;
   alertaCampos: boolean;
   cambiar: (c: Campo, v: string) => void;
   salir: (c: Campo) => void;
@@ -250,13 +247,14 @@ export interface UsoParametrosFlit1 {
 
 const BORRADOR_VACIO: Borrador = { frecuenciaMinutos: '', ventanaDias: '', ventanaNocturnaDias: '', arranque: '' };
 
-export function useParametrosFlit1(puede: boolean, alGuardar: () => void): UsoParametrosFlit1 {
+/** Vive dentro de la modal: se monta al abrirla (sale el GET) y al cerrarla se descarta el borrador. */
+export function useParametrosFlit1(alGuardar: () => void): UsoParametrosFlit1 {
   const [fase, setFase] = useState<FaseParametros>({ fase: 'cargando' });
   const [borrador, setBorrador] = useState<Borrador>(BORRADOR_VACIO);
   const [errores, setErrores] = useState<Errores>({});
   const [nocturnaTocada, setNocturnaTocada] = useState(false);
   const [guardando, setGuardando] = useState(false);
-  const [soloLectura, setSoloLectura] = useState(false);
+  const [fallo, setFallo] = useState<FalloGuardado>(null);
   const [alertaCampos, setAlertaCampos] = useState(false);
 
   const cargar = useCallback(async () => {
@@ -268,7 +266,7 @@ export function useParametrosFlit1(puede: boolean, alGuardar: () => void): UsoPa
       setErrores({});
     } catch { setFase({ fase: 'error' }); }
   }, []);
-  useEffect(() => { if (puede) void cargar(); }, [puede, cargar]);
+  useEffect(() => { void cargar(); }, [cargar]);
 
   const vigente = fase.fase === 'listo' ? aBorrador(fase.dato) : null;
   const sucio = !!vigente && CAMPOS.some((c) => vigente[c] !== borrador[c]);
@@ -298,10 +296,11 @@ export function useParametrosFlit1(puede: boolean, alGuardar: () => void): UsoPa
   };
 
   const guardar = async () => {
-    if (fase.fase !== 'listo' || guardando || !sucio || soloLectura) return;
+    if (fase.fase !== 'listo' || guardando || !sucio) return;
     const locales = validar(borrador, hoyBogota());
     setErrores(locales);
     setAlertaCampos(false);
+    setFallo(null);
     if (enfocar(locales)) return;
     const cuerpo: ParametrosLecturaFlit1Input = {
       frecuenciaMinutos: Number(borrador.frecuenciaMinutos), ventanaDias: Number(borrador.ventanaDias),
@@ -324,17 +323,14 @@ export function useParametrosFlit1(puede: boolean, alGuardar: () => void): UsoPa
         setErrores(es);
         setAlertaCampos(true);
         enfocar(es);
-      } else if (e instanceof ApiError && e.status === 403) {
-        setSoloLectura(true);
-        toastError('No tienes permiso para cambiar los parámetros de lectura. Pídeselo a un administrador.', undefined, { id: 'sync-parametros-flit1' });
       } else {
-        toastError('No se pudieron guardar los parámetros de lectura. Inténtalo de nuevo.', () => { void guardar(); }, { id: 'sync-parametros-flit1' });
+        setFallo(e instanceof ApiError && e.status === 403 ? 'permiso' : 'red');
       }
     } finally { setGuardando(false); }
   };
 
   return {
-    fase: puede ? fase : { fase: 'oculto' }, borrador, errores, sucio, guardando, soloLectura, alertaCampos,
+    fase, borrador, errores, sucio, guardando, fallo, alertaCampos,
     cambiar, salir, guardar: () => { void guardar(); }, reintentar: () => { void cargar(); },
   };
 }
@@ -347,37 +343,39 @@ function Etiqueta({ c }: { c: Campo }) {
   );
 }
 
-const SubTitulo = () => <h4 className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Parámetros de lectura</h4>;
-const SEPARADOR = 'border-t pt-3';
-const ESTILO_SEPARADOR = { borderColor: 'var(--flit-border-soft)' } as const;
-const REJILLA = 'grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2';
+const INTRO = 'Cómo y desde cuándo FLITO lee los trámites de FLIT 1.';
+const Intro = () => <p className="text-sm" style={VALOR}>{INTRO}</p>;
+const COLUMNA = 'flex flex-col gap-4';
 
-/** Bloque «Parámetros de lectura» (solo con `configurar`). Sus hijos van directos al grupo: la barra usa `mt-auto`. */
-export function ParametrosLecturaFlit1Form({ uso, barra }: { uso: UsoParametrosFlit1; barra: string }) {
+/** Cuerpo de la modal: 4 estados (cargando · error con Reintentar · «vacío» = valores por defecto · lleno). */
+function CuerpoParametrosFlit1({ uso }: { uso: UsoParametrosFlit1 }) {
   const f = uso.fase;
-  if (f.fase === 'oculto') return null;
+  const primero = useRef(false);
+  // Al quedar lista, el foco va al primer campo editable (una sola vez por apertura).
+  useEffect(() => {
+    if (f.fase === 'listo' && !primero.current) { primero.current = true; document.getElementById(idCampo(CAMPOS[0]))?.focus(); }
+  }, [f.fase]);
+
   if (f.fase === 'cargando') {
     return (
-      <div className={`${SEPARADOR} flex flex-col gap-3`} style={ESTILO_SEPARADOR} aria-busy="true" data-testid="parametros-flit1">
-        <SubTitulo />
-        <div className={REJILLA}>
-          {CAMPOS.map((c) => (
-            <div key={c} className="min-w-0">
-              <span className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{ETIQUETA[c]}</span>
-              <span aria-hidden="true" className="block h-10 w-full animate-pulse rounded-[10px]" style={HUECO} />
-            </div>
-          ))}
-        </div>
-        <div className="flex justify-end"><span aria-hidden="true" className="block h-10 w-40 animate-pulse rounded-[999px]" style={HUECO} /></div>
+      <div className={COLUMNA} aria-busy="true" data-testid="parametros-flit1">
+        <Intro />
+        {CAMPOS.map((c) => (
+          <div key={c} className="min-w-0">
+            <span className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{ETIQUETA[c]}</span>
+            <span aria-hidden="true" className="block h-10 w-full animate-pulse rounded-[10px]" style={HUECO} />
+          </div>
+        ))}
+        <div className="flex justify-end"><span aria-hidden="true" className="block h-10 w-full animate-pulse rounded-[999px] sm:w-40" style={HUECO} /></div>
       </div>
     );
   }
   if (f.fase === 'error') {
     return (
-      <div className={`${SEPARADOR} flex flex-col gap-2`} style={ESTILO_SEPARADOR} data-testid="parametros-flit1">
-        <SubTitulo />
-        <p role="alert" className="text-sm" style={PELIGRO}>
-          No se pudieron cargar los parámetros de lectura.{' '}
+      <div className={COLUMNA} data-testid="parametros-flit1">
+        <Intro />
+        <p role="alert" className="text-sm" style={PELIGRO} data-testid="parametros-flit1-error-carga">
+          No se pudieron cargar los parámetros de lectura. Vuelve a intentarlo.{' '}
           <Reintentar onClick={uso.reintentar} etiqueta="Reintentar la carga de los parámetros de lectura de FLIT 1" />
         </p>
       </div>
@@ -395,21 +393,16 @@ export function ParametrosLecturaFlit1Form({ uso, barra }: { uso: UsoParametrosF
     ventanaNocturnaDias: `Cada noche, a las 02:00, FLITO relee los trámites creados en los últimos ${nNoche} días para recoger cambios de trámites más antiguos. De ${L.ventanaNocturnaDias.min} a ${L.ventanaNocturnaDias.max} y no menos que la ventana.`,
     arranque: `FLITO no lee trámites anteriores a esta fecha. Hoy o antes.${d.arranquePorDefecto ? ' Por defecto, un mes antes de hoy.' : ''}`,
   };
-  const ro = uso.guardando || uso.soloLectura;
+  const ro = uso.guardando;
   const inactivo = !uso.sucio || uso.guardando;
 
   return (
-    <>
-      <div className={`${SEPARADOR} flex flex-col gap-3`} style={ESTILO_SEPARADOR} data-testid="parametros-flit1">
-        <div>
-          <SubTitulo />
-          <p className="mt-0.5 break-words text-[11px] leading-tight" style={MUTED} data-testid="parametros-flit1-quien">{quien}</p>
-          {uso.soloLectura && (
-            <p className="mt-0.5 text-[11px] leading-tight" style={MUTED}>Solo lectura: pídele a un administrador si hay que cambiarlos.</p>
-          )}
-        </div>
-        <div className={REJILLA}>
-          {CAMPOS.map((c) => {
+    <div className={COLUMNA} data-testid="parametros-flit1">
+      <div>
+        <Intro />
+        <p className="mt-0.5 break-words text-[11px] leading-tight" style={MUTED} data-testid="parametros-flit1-quien">{quien}</p>
+      </div>
+      {CAMPOS.map((c) => {
             const err = uso.errores[c];
             const idAyuda = `${idCampo(c)}-ayuda`;
             const idError = `${idCampo(c)}-error`;
@@ -430,22 +423,60 @@ export function ParametrosLecturaFlit1Form({ uso, barra }: { uso: UsoParametrosF
               </div>
             );
           })}
-        </div>
-        {uso.alertaCampos && (
-          <p role="alert" className="text-sm" style={PELIGRO} data-testid="parametros-flit1-alerta">No se guardó: revisa los campos marcados.</p>
-        )}
-      </div>
-      {!uso.soloLectura && (
-        <div className={barra}>
-          <span id="flit1-param-sin-cambios" className="sr-only">Cambia un valor para guardar.</span>
-          <button type="button" className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle}
-            aria-disabled={inactivo ? true : undefined} aria-busy={uso.guardando ? true : undefined}
-            aria-describedby={!uso.sucio && !uso.guardando ? 'flit1-param-sin-cambios' : undefined}
-            onClick={() => { if (!inactivo) uso.guardar(); }}>
-            {uso.guardando ? 'Guardando…' : 'Guardar parámetros'}
-          </button>
+      {uso.alertaCampos && (
+        <p role="alert" className="text-sm" style={PELIGRO} data-testid="parametros-flit1-alerta">No se guardó: revisa los campos marcados.</p>
+      )}
+      {uso.fallo && (
+        <div role="alert" className={AVISO} style={ESTILO_AVISO} data-testid="parametros-flit1-fallo">
+          {uso.fallo === 'permiso'
+            ? <p style={PELIGRO}>No tienes permiso para cambiar los parámetros de lectura. Pídeselo a un administrador.</p>
+            : (
+              <p>
+                <span style={PELIGRO}>No se pudieron guardar los parámetros de lectura. Revisa la conexión y vuelve a intentarlo.</span>{' '}
+                <Reintentar onClick={uso.guardar} etiqueta="Reintentar el guardado de los parámetros de lectura de FLIT 1" />
+              </p>
+            )}
         </div>
       )}
+      <div className="flex justify-end pt-1">
+        <span id="flit1-param-sin-cambios" className="sr-only">Cambia un valor para guardar.</span>
+        <button type="button" className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle}
+          aria-disabled={inactivo ? true : undefined} aria-busy={uso.guardando ? true : undefined}
+          aria-describedby={!uso.sucio && !uso.guardando ? 'flit1-param-sin-cambios' : undefined}
+          onClick={() => { if (!inactivo) uso.guardar(); }}>
+          {uso.guardando ? 'Guardando…' : 'Guardar parámetros'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PanelParametrosFlit1({ onCerrar, onGuardado, restoreFocusRef }: {
+  onCerrar: () => void; onGuardado: () => void; restoreFocusRef: RefObject<HTMLButtonElement | null>;
+}) {
+  const uso = useParametrosFlit1(() => { onGuardado(); onCerrar(); });
+  return (
+    <FlitModal title="Parámetros de lectura de FLIT 1" onClose={onCerrar} lateral cierreBloqueado={uso.guardando}
+      restoreFocusRef={restoreFocusRef}>
+      <CuerpoParametrosFlit1 uso={uso} />
+    </FlitModal>
+  );
+}
+
+/**
+ * Botón secundario de la barra del grupo FLIT 1 (gemelo de «Acceso a FLIT 2»). Quien lo monta decide el
+ * permiso: solo con `configurar` (HU #13680, opción a). La modal se monta al pulsarlo, y con ella el GET.
+ */
+export function ParametrosLecturaFlit1({ onGuardado, claseBoton = '' }: { onGuardado: () => void; claseBoton?: string }) {
+  const [abierto, setAbierto] = useState(false);
+  const boton = useRef<HTMLButtonElement | null>(null);
+  return (
+    <>
+      <button ref={boton} type="button" className={`${flitBtnSecondary} ${claseBoton}`} style={flitBtnSecondaryStyle}
+        onClick={() => setAbierto(true)} data-testid="boton-parametros-flit1">
+        Parámetros de lectura
+      </button>
+      {abierto && <PanelParametrosFlit1 onCerrar={() => setAbierto(false)} onGuardado={onGuardado} restoreFocusRef={boton} />}
     </>
   );
 }

@@ -6,9 +6,10 @@ import { cabeceraSincronizacion, expandirSincronizacion } from '../helpers/sincr
 // FLITO — Gestión Trámites · sección «Sincronización» con interruptor por fuente (HU #13238, Feature
 // #13236). Backend mockeado: se verifica el cableado de la UI contra el contrato de la HU #13237
 // (`GET/PUT /api/flito/sync/interruptores`, `GET /api/flito/sync/estado`, `GET …/flit2/estado`).
-// HU #13630: FLIT 1 se lee sola. Sin «Sincronizar FLIT»; el grupo FLIT 1 muestra la última y la próxima lectura,
-// el último fallo (aviso de página) y, con `configurar`, los parámetros de lectura (`GET/PUT
-// …/flit1/parametros-lectura`, `GET …/flit1/estado-lectura`, contrato de la HU #13628).
+// HU #13630: FLIT 1 se lee sola. Sin «Sincronizar FLIT»; el grupo FLIT 1 muestra la última lectura y el último
+// fallo (aviso de página). HU #13680: sin «cada N minutos» ni «Próxima lectura»; con `configurar`, el secundario
+// «Parámetros de lectura» abre una modal lateral (`GET/PUT …/flit1/parametros-lectura`, `GET
+// …/flit1/estado-lectura`, contrato de la HU #13628). Sin `configurar` el botón no existe.
 
 const RUTA_INTER = /\/api\/flito\/sync\/interruptores$/;
 const RUTA_PUT = /\/api\/flito\/sync\/interruptores\/(flit1|flit2)$/;
@@ -128,6 +129,15 @@ const sw = (page: Page, f: Fuente) => page.getByRole('switch', { name: `Recibir 
 const botonSync = (page: Page) => page.getByRole('button', { name: 'Sincronizar FLIT', exact: true });
 const botonGuardar = (page: Page) => page.getByRole('button', { name: 'Guardar parámetros', exact: true });
 const botonAcceso = (page: Page) => page.getByRole('button', { name: 'Acceso a FLIT 2', exact: true });
+const botonParams = (page: Page) => page.getByRole('button', { name: 'Parámetros de lectura', exact: true });
+const modalParams = (page: Page) => page.getByRole('dialog', { name: 'Parámetros de lectura de FLIT 1' });
+
+/** Abre la modal de parámetros de FLIT 1 y espera a que cargue (o falle). */
+async function abrirParams(page: Page) {
+  await botonParams(page).click();
+  await expect(modalParams(page)).toBeVisible();
+  await expect(modalParams(page).getByTestId('parametros-flit1')).not.toHaveAttribute('aria-busy', 'true');
+}
 
 /** Abre la página y, salvo `expandir: false`, despliega el acordeón (contraído en cada visita). */
 async function abrir(page: Page, { expandir = true } = {}) {
@@ -152,19 +162,20 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
       await expect(page.getByTestId(`estado-fuente-${f}`)).toHaveText('Encendida');
       await expect(page.getByTestId(`quien-cuando-${f}`)).toHaveText(/^Encendida por Ana Pérez hoy a las /);
     }
-    // HU #13630: sin «Sincronizar FLIT»; la única acción de FLIT 1 es guardar los parámetros.
+    // HU #13630/#13680: sin «Sincronizar FLIT»; la acción de FLIT 1 es el secundario «Parámetros de lectura».
     await expect(botonSync(page)).toHaveCount(0);
-    await expect(grupo(page, 'flit1').getByRole('button', { name: 'Guardar parámetros', exact: true })).toBeVisible();
+    await expect(grupo(page, 'flit1').getByRole('button', { name: 'Parámetros de lectura', exact: true })).toBeVisible();
+    await expect(grupo(page, 'flit1').getByRole('button', { name: 'Guardar parámetros', exact: true })).toHaveCount(0);
     await expect(grupo(page, 'flit2').getByRole('button', { name: 'Acceso a FLIT 2', exact: true })).toBeVisible();
     await expect(grupo(page, 'flit2').getByTestId('linea-estado-flit2')).toBeVisible();
     await expect(grupo(page, 'flit2').getByTestId('indicador-flit2')).toBeVisible();
-    // Una sola primaria (gradiente) en toda la zona.
+    // HU #13680: la sección se queda sin primaria (dos secundarios gemelos; «Guardar» vive en la modal).
     const primarias = await seccion(page).locator('button').evaluateAll(
       (bs) => bs.filter((b) => (b as HTMLElement).style.background.includes('gradient')).length,
     );
-    expect(primarias).toBe(1);
+    expect(primarias).toBe(0);
     // Lado a lado y con las barras alineadas (mismo borde inferior), una sola altura de control.
-    const b1 = (await botonGuardar(page).boundingBox())!;
+    const b1 = (await botonParams(page).boundingBox())!;
     const b2 = (await botonAcceso(page).boundingBox())!;
     expect(b1.height).toBe(40);
     expect(b2.height).toBe(40);
@@ -175,9 +186,11 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
     expect((await sw(page, 'flit1').boundingBox())!.height).toBe(40);
     await expect(grupo(page, 'flit1').getByText('Elegir fecha')).toHaveCount(0);
     await expect(grupo(page, 'flit1').getByText('Desde', { exact: true })).toHaveCount(0);
+    await abrirParams(page);
     for (const c of ['Frecuencia (minutos)', 'Ventana (días)', 'Ventana nocturna (días)', 'Fecha de arranque']) {
-      expect((await grupo(page, 'flit1').getByLabel(c, { exact: true }).boundingBox())!.height).toBe(40);
+      expect((await modalParams(page).getByLabel(c, { exact: true }).boundingBox())!.height).toBe(40);
     }
+    expect((await modalParams(page).getByRole('button', { name: 'Guardar parámetros', exact: true }).boundingBox())!.height).toBe(40);
   });
 
   test('AC1: apagar FLIT 1 pide confirmación con el foco en Cancelar; confirma tras la respuesta con «Guardando…» y un toast cerrable', async ({ page }) => {
@@ -217,10 +230,10 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
     await expect(toast).toBeVisible();
     await toast.getByRole('button', { name: 'Cerrar aviso' }).click();
     await expect(toast).toHaveCount(0);
-    // El motivo y la próxima lectura quedan al día; los parámetros siguen editables.
+    // El motivo queda al día; «Parámetros de lectura» sigue disponible con la fuente apagada.
     await expect(page.getByTestId('motivo-flit1')).toContainText('FLIT 1 está apagada: FLITO no lee trámites de FLIT 1.');
-    await expect(page.getByTestId('linea-lectura-flit1')).toContainText('Lectura detenida');
-    await expect(page.getByLabel('Frecuencia (minutos)')).not.toHaveAttribute('readonly', /.*/);
+    await expect(page.getByTestId('linea-lectura-flit1')).not.toContainText('Próxima lectura');
+    await expect(botonParams(page)).toBeVisible();
   });
 
   test('AC1 + AC7: encender con teclado (Espacio) no pide confirmación', async ({ page }) => {
@@ -261,7 +274,7 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
     await expect(page.getByTestId('resumen-flit1')).toHaveText('FLIT 1: estado no disponible');
     await expect(page.getByTestId('resumen-flit2')).toHaveText('FLIT 2: estado no disponible');
     // El resto de la zona sigue funcionando.
-    await expect(botonGuardar(page)).toBeVisible();
+    await expect(botonParams(page)).toBeVisible();
     ctl.getStatus = 200;
     await error.getByRole('button', { name: /Reintentar/ }).click();
     await expect(sw(page, 'flit1')).toHaveAttribute('aria-checked', 'true');
@@ -311,18 +324,19 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
     expect(ctl.getsParams).toBe(0);
   });
 
-  test('AC4 (HU #13630): FLIT 1 apagada dice el motivo nuevo, «Lectura detenida» y deja editar los parámetros', async ({ page }) => {
+  test('AC4 (HU #13630/#13680): FLIT 1 apagada dice el motivo nuevo y deja editar los parámetros en la modal', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     const ctl = await mockear(page, { f1: false, e1: estado1(false), lectura: lectura({ ultimoFallo: { en: hace(0.5), codigo: 'flit1_timeout' } }) });
     await abrir(page);
     const motivo = page.getByTestId('motivo-flit1');
     await expect(motivo).toHaveAttribute('role', 'status');
     await expect(motivo).toHaveText('FLIT 1 está apagada: FLITO no lee trámites de FLIT 1. Enciéndela con el interruptor para que la lectura automática siga.');
-    await expect(page.getByTestId('linea-lectura-flit1')).toContainText('Lectura detenida');
+    await expect(page.getByTestId('linea-lectura-flit1')).not.toContainText('Lectura detenida');
     // Con la fuente apagada gana el aviso de apagada; el fallo vigente baja a línea muted.
     await expect(page.getByTestId('aviso-fallo-flit1')).toHaveCount(0);
     await expect(page.getByTestId('fallo-superado-flit1')).toHaveText(/^Último fallo: hoy a las .+\.$/);
-    await page.getByLabel('Frecuencia (minutos)').fill('3');
+    await abrirParams(page);
+    await modalParams(page).getByLabel('Frecuencia (minutos)').fill('3');
     await botonGuardar(page).click();
     await expect.poll(() => ctl.paramsPuts.length).toBe(1);
     expect(ctl.posts).toBe(0);
@@ -363,7 +377,8 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
       const reposo = await fondo();
       await s.hover();
       await expect.poll(fondo).not.toBe(reposo);
-      // Foco por teclado: anillo visible en el interruptor, en «Guardar parámetros» y en un campo.
+      // Foco por teclado: anillo visible en el interruptor, en «Parámetros de lectura» y, en la modal, en
+      // «Guardar parámetros» y en un campo.
       await s.focus();
       await page.keyboard.press('Tab');
       await page.keyboard.press('Shift+Tab');
@@ -373,9 +388,18 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
         return (c.outlineStyle !== 'none' && c.outlineWidth !== '0px') || c.boxShadow !== 'none';
       });
       expect(await anillo(s)).toBe(true);
+      // HU #13680 (AC2): «Parámetros de lectura» con hover sutil y foco visible.
+      const bp = botonParams(page);
+      const aspecto = () => bp.evaluate((e) => { const c = getComputedStyle(e); return `${c.backgroundColor}|${c.borderColor}|${c.color}`; });
+      const aspectoReposo = await aspecto();
+      await bp.hover();
+      await expect.poll(aspecto).not.toBe(aspectoReposo);
+      await bp.focus();
+      expect(await anillo(bp)).toBe(true);
+      await abrirParams(page);
       await botonGuardar(page).focus();
       expect(await anillo(botonGuardar(page))).toBe(true);
-      const campo = page.getByLabel('Ventana (días)');
+      const campo = modalParams(page).getByLabel('Ventana (días)');
       const borde = () => campo.evaluate((e) => getComputedStyle(e).borderColor);
       const bordeReposo = await borde();
       await campo.hover();
@@ -383,6 +407,8 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
       await campo.focus();
       expect(await anillo(campo)).toBe(true);
       // Los colores del carril salen de tokens (con par oscuro), nunca de HEX.
+      await page.keyboard.press('Escape');
+      await expect(modalParams(page)).toHaveCount(0);
       const carril = await s.locator('span').first().getAttribute('style');
       expect(carril).toContain('var(--flit-blue-text)');
     });
@@ -405,11 +431,16 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
     expect(g2.y).toBeGreaterThanOrEqual(g1.y + g1.height);
     const b = (await botonAcceso(page).boundingBox())!;
     expect(b.width).toBeGreaterThan(g2.width - 40);
-    // HU #13630: parámetros en una columna y «Guardar parámetros» a ancho completo.
-    const f = (await page.getByLabel('Frecuencia (minutos)').boundingBox())!;
-    const v = (await page.getByLabel('Ventana (días)').boundingBox())!;
+    // HU #13680: «Parámetros de lectura» a ancho completo; en la modal, una columna y la primaria a ancho completo.
+    expect((await botonParams(page).boundingBox())!.width).toBeGreaterThan(g1.width - 40);
+    await abrirParams(page);
+    const m = modalParams(page);
+    const f = (await m.getByLabel('Frecuencia (minutos)').boundingBox())!;
+    const v = (await m.getByLabel('Ventana (días)').boundingBox())!;
     expect(v.y).toBeGreaterThan(f.y + f.height);
-    expect((await botonGuardar(page).boundingBox())!.width).toBeGreaterThan(g1.width - 40);
+    const mb = (await m.boundingBox())!;
+    expect(mb.x + mb.width).toBeLessThanOrEqual(375.5);
+    expect((await botonGuardar(page).boundingBox())!.width).toBeGreaterThan(mb.width - 80);
   });
 
   test.describe('Acordeón (HU #13238, 2.º PR)', () => {
@@ -424,7 +455,7 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
       await expect(cab).toHaveAttribute('aria-expanded', 'false');
       await expect(seccion(page).getByRole('heading', { level: 2, name: /Sincronización/ })).toBeVisible();
       await expect(page.getByRole('switch')).toHaveCount(0);
-      await expect(botonGuardar(page)).toHaveCount(0);
+      await expect(botonParams(page)).toHaveCount(0);
       await expect(botonAcceso(page)).toHaveCount(0);
       await expect(page.getByTestId('linea-estado-flit2')).toHaveCount(0);
       // Se despliega y, al volver a entrar, arranca contraída otra vez (no se recuerda).
@@ -444,7 +475,7 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
       await expect(page.getByTestId('alerta-resumen-flit2')).toHaveCount(0);
     });
 
-    test('(c) clic y Enter despliegan: aparecen interruptores y «Guardar parámetros»; contraer los quita', async ({ page }) => {
+    test('(c) clic y Enter despliegan: aparecen interruptores y «Parámetros de lectura»; contraer los quita', async ({ page }) => {
       await loginAs(page, OPERACIONES_USER);
       await mockear(page);
       await abrir(page, { expandir: false });
@@ -455,16 +486,16 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
       await expect(panel(page)).toHaveAttribute('id', id!);
       await expect(sw(page, 'flit1')).toBeVisible();
       await expect(sw(page, 'flit2')).toBeVisible();
-      await expect(botonGuardar(page)).toBeVisible();
+      await expect(botonParams(page)).toBeVisible();
       await cab.click();
       await expect(cab).toHaveAttribute('aria-expanded', 'false');
       await expect(page.getByRole('switch')).toHaveCount(0);
-      await expect(botonGuardar(page)).toHaveCount(0);
+      await expect(botonParams(page)).toHaveCount(0);
       // Teclado: Enter despliega, Espacio contrae; foco visible en la cabecera.
       await cab.focus();
       await page.keyboard.press('Enter');
       await expect(cab).toHaveAttribute('aria-expanded', 'true');
-      await expect(botonGuardar(page)).toBeVisible();
+      await expect(botonParams(page)).toBeVisible();
       expect(await cab.evaluate((e) => {
         const c = getComputedStyle(e);
         return (c.outlineStyle !== 'none' && c.outlineWidth !== '0px') || c.boxShadow !== 'none';
@@ -511,15 +542,41 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
     });
   });
 
-  test.describe('Lectura automática de FLIT 1 (HU #13630)', () => {
-    const campo = (page: Page, c: string) => grupo(page, 'flit1').getByLabel(c, { exact: true });
+  test.describe('Lectura automática de FLIT 1 (HU #13630) · parámetros en modal (HU #13680)', () => {
+    const campo = (page: Page, c: string) => modalParams(page).getByLabel(c, { exact: true });
 
-    test('AC1 + AC6: con configurar, los cuatro campos con su valor vigente, su etiqueta y su rango; sin «Sincronizar FLIT»', async ({ page }) => {
+    test('#13680 AC1: el grupo muestra interruptor y «Última lectura»; sin «cada N minutos», «Próxima lectura» ni formulario en línea', async ({ page }) => {
       await loginAs(page, OPERACIONES_USER);
       const ctl = await mockear(page);
       await abrir(page);
-      await expect(page.getByTestId('explicacion-flit1')).toHaveText('FLITO lee FLIT 1 automáticamente cada 2 minutos.');
+      const g = grupo(page, 'flit1');
+      await expect(sw(page, 'flit1')).toBeVisible();
+      await expect(page.getByTestId('linea-lectura-flit1')).toContainText(/Última lectura\s*hoy a las /);
+      await expect(page.getByTestId('explicacion-flit1')).toHaveCount(0);
+      await expect(g).not.toContainText('automáticamente');
+      await expect(g).not.toContainText(/cada \d+ minutos/);
+      for (const t of ['Próxima lectura', 'Lectura detenida', 'En unos minutos', 'En cualquier momento', 'hacia las']) {
+        await expect(g).not.toContainText(t);
+      }
+      await expect(g.locator('input')).toHaveCount(0);
+      await expect(g.getByRole('button', { name: 'Guardar parámetros', exact: true })).toHaveCount(0);
+      await expect(page.getByTestId('parametros-flit1')).toHaveCount(0);
+      // El GET de parámetros sale al abrir la modal, no al montar la página.
+      expect(ctl.getsParams).toBe(0);
+      await expect(botonSync(page)).toHaveCount(0);
+      expect(ctl.posts).toBe(0);
+    });
+
+    test('#13680 AC2: la modal trae los cuatro campos con valor, ayuda y tope; Esc y ✕ la cierran y el foco vuelve al botón', async ({ page }) => {
+      await loginAs(page, OPERACIONES_USER);
+      const ctl = await mockear(page);
+      await abrir(page);
+      await abrirParams(page);
+      expect(ctl.getsParams).toBeGreaterThan(0); // dev: StrictMode monta dos veces
+      const m = modalParams(page);
+      await expect(m).toContainText('Cómo y desde cuándo FLITO lee los trámites de FLIT 1.');
       await expect(campo(page, 'Frecuencia (minutos)')).toHaveValue('2');
+      await expect(campo(page, 'Frecuencia (minutos)')).toBeFocused();
       await expect(campo(page, 'Ventana (días)')).toHaveValue('7');
       await expect(campo(page, 'Ventana nocturna (días)')).toHaveValue('60');
       await expect(campo(page, 'Fecha de arranque')).toHaveValue(ctl.params.arranque);
@@ -528,63 +585,49 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
       await expect(campo(page, 'Ventana (días)')).toHaveAccessibleDescription(/De 1 a 90\./);
       await expect(campo(page, 'Ventana nocturna (días)')).toHaveAccessibleDescription(
         'Cada noche, a las 02:00, FLITO relee los trámites creados en los últimos 60 días para recoger cambios de trámites más antiguos. De 7 a 90 y no menos que la ventana.');
+      await expect(campo(page, 'Fecha de arranque')).toHaveAccessibleDescription(/FLITO no lee trámites anteriores a esta fecha\./);
       await expect(campo(page, 'Frecuencia (minutos)')).toHaveAttribute('min', '2');
       await expect(campo(page, 'Frecuencia (minutos)')).toHaveAttribute('max', '60');
       await expect(page.getByTestId('parametros-flit1-quien')).toHaveText(/^Cambiados por Ana Pérez hoy a las .+\.$/);
-      await expect(page.getByTestId('linea-lectura-flit1')).toContainText('Última lectura');
-      await expect(page.getByTestId('linea-lectura-flit1')).toContainText(/Próxima lectura\s*hacia las /);
       // Sin cambios, Guardar está inactivo pero enfocable.
       await expect(botonGuardar(page)).toHaveAttribute('aria-disabled', 'true');
       await expect(botonGuardar(page)).toHaveAccessibleDescription('Cambia un valor para guardar.');
       await botonGuardar(page).click({ force: true });
       expect(ctl.paramsPuts).toHaveLength(0);
-      await expect(botonSync(page)).toHaveCount(0);
-      expect(ctl.posts).toBe(0);
+      // Esc cierra y devuelve el foco al botón.
+      await page.keyboard.press('Escape');
+      await expect(m).toHaveCount(0);
+      await expect(botonParams(page)).toBeFocused();
+      // ✕ cierra y devuelve el foco; lo escrito sin guardar se descarta al reabrir.
+      await abrirParams(page);
+      await campo(page, 'Frecuencia (minutos)').fill('9');
+      await m.getByRole('button', { name: 'Cerrar', exact: true }).click();
+      await expect(m).toHaveCount(0);
+      await expect(botonParams(page)).toBeFocused();
+      await abrirParams(page);
+      await expect(campo(page, 'Frecuencia (minutos)')).toHaveValue('2');
+      expect(ctl.paramsPuts).toHaveLength(0);
     });
 
-    test('AC4: vacío útil con valores por defecto y sin lecturas', async ({ page }) => {
-      await loginAs(page, OPERACIONES_USER);
-      await mockear(page, {
-        params: parametros({ arranquePorDefecto: true, actualizadoEn: null, actualizadoPor: null }),
-        lectura: lectura({ ultimaLecturaBuenaEn: null, proximaLecturaPrevistaEn: null }),
-      });
+    test('#13680 AC3: sin configurar no hay botón ni GET de parámetros; el grupo muestra solo el estado', async ({ page }) => {
+      const sinConfigurar = FUNCIONES_POR_ROL.admin.filter((f) => f !== 'tramites.sincronizacion.configurar');
+      await loginAs(page, { ...OPERACIONES_USER, funciones: sinConfigurar });
+      const ctl = await mockear(page);
       await abrir(page);
-      await expect(page.getByTestId('parametros-flit1-quien')).toHaveText('Valores por defecto: nadie los ha cambiado en este ambiente.');
-      await expect(campo(page, 'Fecha de arranque')).toHaveAccessibleDescription(/Por defecto, un mes antes de hoy\.$/);
-      const linea = page.getByTestId('linea-lectura-flit1');
-      await expect(linea).toContainText('Aún sin lecturas');
-      await expect(linea).toContainText('En unos minutos');
-      await expect(linea).toContainText('La primera lectura trae los trámites desde la fecha de arranque.');
+      await expect(page.getByTestId('linea-lectura-flit1')).toContainText('Última lectura');
+      await expect(botonParams(page)).toHaveCount(0);
+      await expect(botonGuardar(page)).toHaveCount(0);
+      await expect(grupo(page, 'flit1').locator('input')).toHaveCount(0);
+      expect(ctl.getsParams).toBe(0);
     });
 
-    test('AC2: guardar manda el PUT, deja un toast cerrable y el valor se mantiene al recargar', async ({ page }) => {
+    test('#13680 AC3: fuera de tope marca el campo, no envía, el foco va al primero inválido y la modal sigue abierta', async ({ page }) => {
       await loginAs(page, OPERACIONES_USER);
       const ctl = await mockear(page);
       await abrir(page);
-      const antes = ctl.getsLectura;
-      await campo(page, 'Frecuencia (minutos)').fill('5');
-      await expect(botonGuardar(page)).not.toHaveAttribute('aria-disabled', 'true');
-      await botonGuardar(page).click();
-      await expect.poll(() => ctl.paramsPuts.length).toBe(1);
-      expect(ctl.paramsPuts[0]).toEqual({ frecuenciaMinutos: 5, ventanaDias: 7, ventanaNocturnaDias: 60, arranque: ctl.params.arranque });
-      const toast = page.getByRole('status').filter({ hasText: 'Parámetros de lectura guardados. FLITO los usa desde la próxima lectura.' });
-      await expect(toast).toBeVisible();
-      await expect(page.getByTestId('explicacion-flit1')).toHaveText('FLITO lee FLIT 1 automáticamente cada 5 minutos.');
-      await expect(page.getByTestId('parametros-flit1-quien')).toHaveText(/^Cambiados por Operaciones E2E hoy a las /);
-      await expect(botonGuardar(page)).toHaveAttribute('aria-disabled', 'true');
-      await expect.poll(() => ctl.getsLectura).toBeGreaterThan(antes);
-      await toast.getByRole('button', { name: 'Cerrar aviso' }).click();
-      await expect(toast).toHaveCount(0);
-      await abrir(page);
-      await expect(campo(page, 'Frecuencia (minutos)')).toHaveValue('5');
-    });
-
-    test('AC3: fuera de rango marca el campo y no envía; el foco va al primero inválido', async ({ page }) => {
-      await loginAs(page, OPERACIONES_USER);
-      const ctl = await mockear(page);
-      await abrir(page);
+      await abrirParams(page);
       const frec = campo(page, 'Frecuencia (minutos)');
-      await frec.fill('1');
+      await frec.fill('61');
       await frec.blur();
       await expect(frec).toHaveAttribute('aria-invalid', 'true');
       await expect(frec).toHaveAccessibleDescription(/Debe ser un número entero de 2 a 60\.$/);
@@ -603,6 +646,7 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
       await expect(frec).toBeFocused();
       await page.waitForTimeout(200);
       expect(ctl.paramsPuts).toHaveLength(0);
+      await expect(modalParams(page)).toBeVisible();
       // Vacío y fecha futura.
       await frec.fill('');
       await frec.blur();
@@ -611,12 +655,40 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
       await campo(page, 'Fecha de arranque').blur();
       await expect(campo(page, 'Fecha de arranque')).toHaveAccessibleDescription(/No puede ser una fecha futura\.$/);
       expect(ctl.paramsPuts).toHaveLength(0);
+      await expect(modalParams(page)).toBeVisible();
     });
 
-    test('AC3: un 400 marca el campo sin toast ni texto técnico; un 500 da toast con Reintentar y conserva lo escrito', async ({ page }) => {
+    test('#13680 AC4: guardar OK cierra la modal, da un toast cerrable, devuelve el foco y refresca el estado', async ({ page }) => {
       await loginAs(page, OPERACIONES_USER);
       const ctl = await mockear(page);
       await abrir(page);
+      const antes = ctl.getsLectura;
+      await abrirParams(page);
+      await campo(page, 'Frecuencia (minutos)').fill('5');
+      await expect(botonGuardar(page)).not.toHaveAttribute('aria-disabled', 'true');
+      await botonGuardar(page).click();
+      await expect.poll(() => ctl.paramsPuts.length).toBe(1);
+      expect(ctl.paramsPuts[0]).toEqual({ frecuenciaMinutos: 5, ventanaDias: 7, ventanaNocturnaDias: 60, arranque: ctl.params.arranque });
+      await expect(modalParams(page)).toHaveCount(0);
+      await expect(botonParams(page)).toBeFocused();
+      const toast = page.getByRole('status').filter({ hasText: 'Parámetros de lectura guardados. FLITO los usa desde la próxima lectura.' });
+      await expect(toast).toBeVisible();
+      await expect.poll(() => ctl.getsLectura).toBeGreaterThan(antes);
+      await toast.getByRole('button', { name: 'Cerrar aviso' }).click();
+      await expect(toast).toHaveCount(0);
+      // Al reabrir, los vigentes son los guardados.
+      await abrirParams(page);
+      await expect(campo(page, 'Frecuencia (minutos)')).toHaveValue('5');
+      await expect(page.getByTestId('parametros-flit1-quien')).toHaveText(/^Cambiados por Operaciones E2E hoy a las /);
+    });
+
+    test('#13680 AC4: un error del API deja la modal abierta con aviso claro, conserva lo escrito y reintenta; sin toast', async ({ page }) => {
+      await loginAs(page, OPERACIONES_USER);
+      const ctl = await mockear(page);
+      await abrir(page);
+      await abrirParams(page);
+      const m = modalParams(page);
+      // 400 con campos: marca el campo, sin texto técnico.
       ctl.paramsPutStatus = 400;
       ctl.paramsPutBody = { error: 'datos_invalidos', campos: ['arranque'], faltantes: CRUDO };
       await campo(page, 'Ventana (días)').fill('9');
@@ -626,44 +698,77 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
       await expect(campo(page, 'Fecha de arranque')).toHaveAccessibleDescription(/Revisa este valor\.$/);
       await expect(campo(page, 'Fecha de arranque')).toBeFocused();
       await expect(page.getByText(CRUDO)).toHaveCount(0);
-      await expect(page.getByRole('alert').filter({ hasText: 'No se pudieron guardar' })).toHaveCount(0);
+      // 500: aviso role=alert dentro de la modal, lo escrito se conserva y no hay toast.
       ctl.paramsPutStatus = 500;
       ctl.paramsPutBody = null;
       await botonGuardar(page).click();
-      const toast = page.getByRole('alert').filter({ hasText: 'No se pudieron guardar los parámetros de lectura. Inténtalo de nuevo.' });
-      await expect(toast).toBeVisible();
+      const aviso = m.getByTestId('parametros-flit1-fallo');
+      await expect(aviso).toHaveAttribute('role', 'alert');
+      await expect(aviso).toContainText('No se pudieron guardar los parámetros de lectura. Revisa la conexión y vuelve a intentarlo.');
+      await expect(m).toBeVisible();
       await expect(campo(page, 'Ventana (días)')).toHaveValue('9');
       await expect(page.getByText(CRUDO)).toHaveCount(0);
+      await expect(page.getByRole('alert').filter({ hasText: 'No se pudieron guardar' })).toHaveCount(1);
+      // 403: aviso de permiso, sin reintento ni toast.
+      ctl.paramsPutStatus = 403;
+      await botonGuardar(page).click();
+      await expect(aviso).toHaveText('No tienes permiso para cambiar los parámetros de lectura. Pídeselo a un administrador.');
+      await expect(aviso.getByRole('button', { name: /Reintentar/ })).toHaveCount(0);
+      await expect(m).toBeVisible();
+      // Reintentar desde el aviso de red reenvía lo escrito y, al ir bien, cierra.
+      ctl.paramsPutStatus = 500;
+      await botonGuardar(page).click();
+      await expect(aviso).toContainText('Revisa la conexión');
       ctl.paramsPutStatus = 200;
-      await toast.getByRole('button', { name: 'Reintentar' }).click();
+      await aviso.getByRole('button', { name: 'Reintentar el guardado de los parámetros de lectura de FLIT 1' }).click();
+      await expect(m).toHaveCount(0);
       await expect(page.getByRole('status').filter({ hasText: 'Parámetros de lectura guardados.' })).toBeVisible();
       expect(ctl.paramsPuts.at(-1)).toMatchObject({ ventanaDias: 9 });
     });
 
-    test('AC4: si fallan los parámetros o el estado, hay Reintentar y el interruptor sigue funcionando', async ({ page }) => {
+    test('#13680: vacío útil (valores por defecto, sin lecturas) y error al cargar la modal con Reintentar', async ({ page }) => {
       await loginAs(page, OPERACIONES_USER);
-      const ctl = await mockear(page, { f2: false, e2: estado2({ habilitada: false, motivoDeshabilitada: 'interruptor' }) });
-      ctl.paramsGetStatus = 500;
-      ctl.lecturaStatus = 500;
+      const ctl = await mockear(page, {
+        params: parametros({ arranquePorDefecto: true, actualizadoEn: null, actualizadoPor: null }),
+        lectura: lectura({ ultimaLecturaBuenaEn: null, proximaLecturaPrevistaEn: null }),
+      });
       await abrir(page);
-      const params = page.getByTestId('parametros-flit1');
-      await expect(params.getByRole('alert')).toContainText('No se pudieron cargar los parámetros de lectura.');
+      const linea = page.getByTestId('linea-lectura-flit1');
+      await expect(linea).toContainText('Aún sin lecturas');
+      await expect(linea).not.toContainText('En unos minutos');
+      await expect(linea).toContainText('La primera lectura trae los trámites desde la fecha de arranque.');
+      await abrirParams(page);
+      await expect(page.getByTestId('parametros-flit1-quien')).toHaveText('Valores por defecto: nadie los ha cambiado en este ambiente.');
+      await expect(campo(page, 'Fecha de arranque')).toHaveAccessibleDescription(/Por defecto, un mes antes de hoy\.$/);
+      await page.keyboard.press('Escape');
+      // Error al cargar: aviso con Reintentar, sin campos ni primaria; el interruptor sigue funcionando.
+      ctl.paramsGetStatus = 500;
+      await abrirParams(page);
+      const m = modalParams(page);
+      await expect(m.getByRole('alert')).toHaveText(/^No se pudieron cargar los parámetros de lectura\. Vuelve a intentarlo\./);
       await expect(campo(page, 'Frecuencia (minutos)')).toHaveCount(0);
       await expect(botonGuardar(page)).toHaveCount(0);
+      await expect(page.getByText(CRUDO)).toHaveCount(0);
+      ctl.paramsGetStatus = 200;
+      await m.getByRole('button', { name: 'Reintentar la carga de los parámetros de lectura de FLIT 1' }).click();
+      await expect(campo(page, 'Frecuencia (minutos)')).toHaveValue('2');
+    });
+
+    test('AC4 (HU #13630): si falla el estado, hay Reintentar y el interruptor sigue funcionando', async ({ page }) => {
+      await loginAs(page, OPERACIONES_USER);
+      const ctl = await mockear(page, { f2: false, e2: estado2({ habilitada: false, motivoDeshabilitada: 'interruptor' }) });
+      ctl.lecturaStatus = 500;
+      await abrir(page);
       await expect(page.getByTestId('linea-lectura-flit1')).toContainText('No se pudo consultar');
-      await expect(page.getByTestId('explicacion-flit1')).toHaveText('FLITO lee FLIT 1 automáticamente.');
       await expect(page.getByText(CRUDO)).toHaveCount(0);
       await sw(page, 'flit2').click();
       await expect(sw(page, 'flit2')).toHaveAttribute('aria-checked', 'true');
-      ctl.paramsGetStatus = 200;
       ctl.lecturaStatus = 200;
-      await page.getByRole('button', { name: 'Reintentar la carga de los parámetros de lectura de FLIT 1' }).click();
-      await expect(campo(page, 'Frecuencia (minutos)')).toHaveValue('2');
       await page.getByRole('button', { name: 'Reintentar la consulta del estado de la lectura de FLIT 1' }).click();
       await expect(page.getByTestId('linea-lectura-flit1')).toContainText('Última lectura');
     });
 
-    test('AC5: con ver_estado sin configurar, solo lectura: última, próxima y fallo vigente como aviso; nunca el código', async ({ page }) => {
+    test('AC5: con ver_estado sin configurar: última lectura y fallo vigente como aviso, sin botón de parámetros; nunca el código', async ({ page }) => {
       const sinConfigurar = FUNCIONES_POR_ROL.admin.filter((f) => f !== 'tramites.sincronizacion.configurar');
       await loginAs(page, { ...OPERACIONES_USER, funciones: sinConfigurar });
       const ctl = await mockear(page, { lectura: lectura({ ultimaLecturaBuenaEn: hace(10), ultimoFallo: { en: hace(2), codigo: 'flit1_timeout' } }) });
@@ -674,7 +779,8 @@ test.describe('FLITO — Gestión Trámites · sección Sincronización (HU #132
       expect(ctl.getsParams).toBe(0);
       await expect(page.getByTestId('parametros-flit1')).toHaveCount(0);
       await expect(botonGuardar(page)).toHaveCount(0);
-      await expect(page.getByTestId('explicacion-flit1')).toHaveText('FLITO lee FLIT 1 automáticamente.');
+      await expect(botonParams(page)).toHaveCount(0);
+      await expect(page.getByTestId('explicacion-flit1')).toHaveCount(0);
       const aviso = page.getByTestId('aviso-fallo-flit1');
       await expect(aviso).toHaveAttribute('role', 'status');
       await expect(aviso).toContainText('Falló la última lectura de FLIT 1.');
