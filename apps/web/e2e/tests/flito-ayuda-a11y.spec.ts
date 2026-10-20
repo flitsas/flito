@@ -91,12 +91,13 @@ test.describe('FLITO — Ayuda · AC5 accesibilidad', () => {
     await sinViolacionesGraves(page, 'ficha publicada Bolsas');
   });
 
-  test('AC5 — NoAccess: axe no se corre (CTA del shell); ficha inexistente: axe + vacío', async ({ page }) => {
+  test('HU #13704 AC7 — sin fichas visibles por URL directa: vacío con contraste y axe', async ({ page }) => {
     await abrirAyuda(page, CONDUCTOR_USER);
-    const h1 = page.getByRole('heading', { name: /no tienes acceso a ayuda flito/i });
-    await expect(h1).toBeVisible();
-    await expect(h1).toBeFocused();
-    await expect(page.getByRole('link', { name: 'Volver al tablero' })).toBeVisible();
+    const titulo = page.getByRole('heading', { name: 'Su usuario aún no tiene módulos con ayuda' });
+    await expect(titulo).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Volver al inicio' })).toBeVisible();
+    expect(await ratioDe(page, titulo)).toBeGreaterThanOrEqual(MINIMO);
+    await sinViolacionesGraves(page, 'índice sin módulos');
   });
 
   test('AC5 — ficha inexistente: axe + Volver al índice (el catálogo de 18 no tiene pendientes)', async ({ page }) => {
@@ -123,13 +124,13 @@ test.describe('FLITO — Ayuda · AC5 accesibilidad', () => {
 test.describe('FLITO — Ayuda · AC6 búsqueda (HU #11901)', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('TC-11901-11 AC6 — label «Buscar capítulos», type=search, foco visible', async ({ page }) => {
+  test('TC-11901-11 AC6 — label «Buscar fichas», type=search, foco visible', async ({ page }) => {
     await abrirAyuda(page, PROVEEDOR_USER);
-    const campo = page.getByRole('searchbox', { name: 'Buscar capítulos' });
+    const campo = page.getByRole('searchbox', { name: 'Buscar fichas' });
     await expect(campo).toBeVisible();
     await expect(campo).toHaveAttribute('type', 'search');
     const etiqueta = page.locator('label').filter({ has: campo }).locator('span');
-    await expect(etiqueta).toHaveText('Buscar capítulos');
+    await expect(etiqueta).toHaveText('Buscar fichas');
     expect(await ratioDe(page, etiqueta)).toBeGreaterThanOrEqual(MINIMO);
     await campo.focus();
     await expect(campo).toBeFocused();
@@ -141,11 +142,12 @@ test.describe('FLITO — Ayuda · AC6 búsqueda (HU #11901)', () => {
 
   test('TC-11901-12 AC6 — 0 coincidencias: contraste copy/campo, aria-live polite, axe', async ({ page }) => {
     await abrirAyuda(page, OPERACIONES_USER);
-    const campo = page.getByRole('searchbox', { name: 'Buscar capítulos' });
+    const campo = page.getByRole('searchbox', { name: 'Buscar fichas' });
     await campo.fill('zzz-sin-capitulo-11901');
-    const mensaje = page.getByText('Ningún capítulo coincide con su búsqueda.');
-    await expect(mensaje).toBeVisible();
-    await expect(mensaje).toHaveAttribute('aria-live', 'polite');
+    const region = page.getByRole('status').filter({ hasText: 'Ninguna ficha coincide con "zzz-sin-capitulo-11901"' });
+    await expect(region).toBeVisible();
+    await expect(region).toHaveAttribute('aria-live', 'polite');
+    const mensaje = region.getByText(/Ninguna ficha coincide/);
     await expect(page.getByRole('alert')).toHaveCount(0);
     const limpiar = page.getByRole('button', { name: 'Limpiar búsqueda' });
     await expect(limpiar).toBeVisible();
@@ -159,7 +161,7 @@ test.describe('FLITO — Ayuda · AC6 búsqueda (HU #11901)', () => {
 
   test('TC-11901-13 AC6 — coincidencia: contraste de fila filtrada y controles con nombre', async ({ page }) => {
     await abrirAyuda(page, PROVEEDOR_USER);
-    const campo = page.getByRole('searchbox', { name: 'Buscar capítulos' });
+    const campo = page.getByRole('searchbox', { name: 'Buscar fichas' });
     await campo.fill('Cargar factura');
     const fila = page.getByRole('link', { name: 'Abrir ficha de SOAT' });
     await expect(fila).toBeVisible();

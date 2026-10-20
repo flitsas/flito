@@ -72,9 +72,9 @@ export async function abrirAyuda(page: Page, user: Parameters<typeof loginAs>[1]
   await page.goto('/flito/ayuda');
 }
 
-/** Campo de búsqueda del índice (HU #11901). No vive en la ficha ni en la URL. */
-export async function buscarCapitulos(page: Page, consulta: string) {
-  const campo = page.getByRole('searchbox', { name: 'Buscar capítulos' });
+/** Campo de búsqueda del índice (HU #11901; copy «ficha» HU #13704). No vive en la ficha ni en la URL. */
+export async function buscarFichas(page: Page, consulta: string) {
+  const campo = page.getByRole('searchbox', { name: 'Buscar fichas' });
   await expect(campo).toBeVisible();
   await campo.fill(consulta);
 }

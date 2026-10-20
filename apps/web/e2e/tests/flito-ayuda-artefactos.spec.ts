@@ -86,6 +86,16 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     expect(catalogo).not.toMatch(/clave: 'siigo_credenciales'[^}]*permiso: 'siigo_parametrizacion'/);
   });
 
+  // HU #13704 AC4: el +100 de «título igual a la consulta» deja cada ficha primera al buscar su
+  // etiqueta. Dos etiquetas iguales (sin tildes ni mayúsculas) romperían esa garantía.
+  test('HU #13704 AC4 — claves y etiquetas del catálogo son únicas', () => {
+    const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+    const claves = CATALOGO_AYUDA.map((e) => e.clave);
+    const etiquetas = CATALOGO_AYUDA.map((e) => norm(e.etiqueta));
+    expect(new Set(claves).size, 'claves únicas').toBe(claves.length);
+    expect(new Set(etiquetas).size, 'etiquetas únicas').toBe(etiquetas.length);
+  });
+
   // Feature #13691 · HU #13703 AC4/AC5: encabezado obligatorio y estricto en cada ficha.
   const dirFichas = resolve(raiz, 'apps/web/src/content/ayuda');
   const fichas = readdirSync(dirFichas).filter((f) => f.endsWith('.md') && !f.startsWith('_'));
