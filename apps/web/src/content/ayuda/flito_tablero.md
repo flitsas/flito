@@ -1,3 +1,17 @@
+---
+resumen: Retenciones, estancamientos y diferencias de operación.
+palabras_clave:
+  - tablero
+  - retenciones
+  - estancamientos
+  - diferencias
+consultas:
+  - qué muestra el tablero
+  - dónde veo los trámites retenidos
+  - por qué un trámite está estancado
+version: 1.0
+fecha: 2026-10-20
+---
 ## Qué es
 
 Es el **Tablero** de General, la pantalla de inicio. Resume las retenciones, los estancamientos y las diferencias de la operación que el proceso por Excel y correo no dejaba ver. Los indicadores llevan a **Gestión Trámites** con el filtro de alerta ya aplicado, para que usted no rearme la búsqueda.

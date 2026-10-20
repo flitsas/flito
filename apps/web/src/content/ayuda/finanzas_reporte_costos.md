@@ -1,3 +1,16 @@
+---
+resumen: Costos por trámite para contabilidad y cobros.
+palabras_clave:
+  - reporte de costos
+  - costos por trámite
+  - contabilidad
+  - cobros
+consultas:
+  - cuánto costó un trámite
+  - cómo exporto el reporte de costos
+version: 1.0
+fecha: 2026-10-20
+---
 ## Qué es
 
 Costos reales por trámite para contabilidad y cobros. Las filas **Liquidadas** muestran valores sellados; el resto, un **Estimado** con las tarifas vigentes. Desde aquí usted **Liquida** (sella), **Factura** en sentido FLITO (congela la liquidación ya sellada) y puede **Enviar a facturación** (emisión electrónica hacia Siigo/DIAN). Son tres verbos distintos: no los mezcle. La vista **Consolidado** pliega el mismo reporte por cliente y periodo para cerrar el mes.

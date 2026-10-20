@@ -1,3 +1,16 @@
+---
+resumen: Una frase que dice para qué sirve la pantalla. Es el subtítulo del índice y de la ficha.
+palabras_clave:
+  - término que un usuario escribiría
+  - otro término
+consultas:
+  - cómo hago la tarea principal de la pantalla
+  - por qué no veo lo que esperaba
+version: 1.0
+fecha: 2026-10-20
+---
+El bloque `---` de arriba es obligatorio: resumen, palabras_clave (al menos una), consultas (al menos una), version (1.0) y fecha (AAAA-MM-DD). Cada vez que usted cambie esta ficha, suba la version y ponga la fecha del día. Borre este párrafo al copiar la plantilla.
+
 ## Qué es
 
 Una o dos frases: para qué existe la pantalla. Escriba en tono de usted, en español de producto.

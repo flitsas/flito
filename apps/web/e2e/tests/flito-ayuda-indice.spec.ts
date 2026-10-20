@@ -94,6 +94,23 @@ test.describe('FLITO — Ayuda · índice', () => {
     await expect(page.getByRole('button', { name: 'Reintentar' })).toHaveCount(0);
   });
 
+  test('HU #13703 AC1/AC2 — versión y fecha del encabezado en la ficha; el resumen es el subtítulo; el encabezado no se pinta', async ({ page }) => {
+    const resumen = 'Saldos, recargas y cierres.';
+    await abrirAyuda(page, FINANCIERA_USER);
+    const fila = page.getByRole('link', { name: 'Abrir ficha de Bolsas' });
+    await expect(fila).toContainText(resumen);
+    await expect(page.getByText(/^Versión \d+\.\d+ · /)).toHaveCount(0);
+
+    await fila.click();
+    await expect(page).toHaveURL(/\/flito\/ayuda\/flito_bolsas$/);
+    await expect(page.getByText('Versión 1.0 · 20/10/2026', { exact: true })).toBeVisible();
+    await expect(page.getByText(resumen, { exact: true })).toHaveCount(1);
+    for (const fuga of ['palabras_clave', 'consultas:', 'version: 1.0', 'fecha: 2026-10-20', 'resumen:']) {
+      await expect(page.getByText(fuga)).toHaveCount(0);
+    }
+    await expect(page.getByRole('heading', { name: 'Qué es', exact: true })).toBeVisible();
+  });
+
   test('AC4 — error del índice: Reintentar; ausencia de .md no es este estado', async ({ page }) => {
     await loginAs(page, PROVEEDOR_USER);
     await page.route('**/content/ayuda/_plantilla.md**', (route) => route.abort('failed'));

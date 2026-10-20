@@ -1,3 +1,16 @@
+---
+resumen: Catálogos, mapeo de conceptos y emisión.
+palabras_clave:
+  - facturación electrónica
+  - Siigo
+  - parametrización
+  - mapeo de conceptos
+consultas:
+  - cómo mapeo un concepto en Siigo
+  - cómo configuro la emisión de facturas
+version: 1.0
+fecha: 2026-10-20
+---
 ## Qué es
 
 Parametrización de la **emisión electrónica** con Siigo: a qué producto corresponde cada concepto de la liquidación, y revisión de terceros. Encabeza la pregunta de si se puede emitir en producción. Usted no **Factura** trámites aquí (eso congela la liquidación en **Reporte de costos**).

@@ -1,3 +1,16 @@
+---
+resumen: Rastro de movimientos de un trámite.
+palabras_clave:
+  - bitácora
+  - historial
+  - movimientos
+  - trazabilidad
+consultas:
+  - dónde veo el historial de un trámite
+  - quién cambió el estado de un trámite
+version: 1.0
+fecha: 2026-10-20
+---
 ## Qué es
 
 Consulta de solo lectura del rastro de movimientos de un trámite: toda transición deja huella, incluidas las automáticas del sistema (actor **sistema**). Usted consulta; no edita.

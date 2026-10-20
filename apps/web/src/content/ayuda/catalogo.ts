@@ -49,7 +49,12 @@ export interface EntradaAyuda {
   clave: ClaveAyuda;
   grupo: AyudaGrupo;
   etiqueta: string;
-  resumen: string;
+  /**
+   * Solo para entradas **sin** `.md` (ficha pendiente). Con `.md`, el resumen vive en el
+   * encabezado de la ficha (Feature #13691 · HU #13703, fuente única); la prueba de artefactos
+   * prohíbe tenerlo en los dos sitios.
+   */
+  resumenPendiente?: string;
   /** Ruta de producto. Ausente = no se pinta «Ir a la pantalla». */
   to?: string;
   /**
@@ -67,29 +72,29 @@ export const GRUPO_AYUDA_LABEL: Record<AyudaGrupo, string> = {
 };
 
 export const CATALOGO_AYUDA: readonly EntradaAyuda[] = [
-  { clave: 'flito_tablero', grupo: 'general', etiqueta: 'Tablero', resumen: 'Retenciones, estancamientos y diferencias de operación.', to: '/', permiso: 'flito_tablero' },
-  { clave: 'clients', grupo: 'gestion', etiqueta: 'Clientes y proveedores', resumen: 'Empresas, autogestión y datos comerciales.', to: '/clients', permiso: 'clients' },
-  { clave: 'flito_tramites', grupo: 'gestion', etiqueta: 'Gestión Trámites', resumen: 'Cómo despachar SOAT, impuestos y entregas.', to: '/flito/tramites', permiso: 'flito_tramites' },
-  { clave: 'flito_derechos', grupo: 'gestion', etiqueta: 'Derechos', resumen: 'Lo que el organismo cobra por radicar.', to: '/flito/derechos', permiso: 'flito_derechos' },
-  { clave: 'flito_revisiones', grupo: 'gestion', etiqueta: 'Revisiones OCR', resumen: 'Cola de confirmación de campos leídos.', to: '/flito/revisiones', permiso: 'flito_revisiones' },
-  { clave: 'flito_bitacora', grupo: 'gestion', etiqueta: 'Bitácora', resumen: 'Rastro de movimientos de un trámite.', to: '/flito/bitacora', permiso: 'flito_bitacora' },
-  { clave: 'flito_comparendos', grupo: 'gestion', etiqueta: 'Comparendos', resumen: 'Lo que SIMIT y los municipios reportan de los NIT vigilados.', to: '/flito/comparendos', permiso: 'flito_comparendos' },
-  { clave: 'flito_logistica', grupo: 'gestion', etiqueta: 'Logística', resumen: 'Actas, despacho y trazabilidad por documento.', to: '/flito/logistica', permiso: 'flito_logistica' },
-  { clave: 'flito_logistica_ruta', grupo: 'gestion', etiqueta: 'Mi ruta', resumen: 'Recogidas y entregas asignadas al mensajero.', to: '/flito/ruta', permiso: 'flito_logistica_ruta' },
+  { clave: 'flito_tablero', grupo: 'general', etiqueta: 'Tablero', to: '/', permiso: 'flito_tablero' },
+  { clave: 'clients', grupo: 'gestion', etiqueta: 'Clientes y proveedores', to: '/clients', permiso: 'clients' },
+  { clave: 'flito_tramites', grupo: 'gestion', etiqueta: 'Gestión Trámites', to: '/flito/tramites', permiso: 'flito_tramites' },
+  { clave: 'flito_derechos', grupo: 'gestion', etiqueta: 'Derechos', to: '/flito/derechos', permiso: 'flito_derechos' },
+  { clave: 'flito_revisiones', grupo: 'gestion', etiqueta: 'Revisiones OCR', to: '/flito/revisiones', permiso: 'flito_revisiones' },
+  { clave: 'flito_bitacora', grupo: 'gestion', etiqueta: 'Bitácora', to: '/flito/bitacora', permiso: 'flito_bitacora' },
+  { clave: 'flito_comparendos', grupo: 'gestion', etiqueta: 'Comparendos', to: '/flito/comparendos', permiso: 'flito_comparendos' },
+  { clave: 'flito_logistica', grupo: 'gestion', etiqueta: 'Logística', to: '/flito/logistica', permiso: 'flito_logistica' },
+  { clave: 'flito_logistica_ruta', grupo: 'gestion', etiqueta: 'Mi ruta', to: '/flito/ruta', permiso: 'flito_logistica_ruta' },
   // La ficha describe `/flito/soat`, y desde el Feature #11912 esa pantalla tiene llave propia:
   // `flito_soat`, no la `soat` del módulo legacy (`/soat`, `Soat.tsx`). Dejar `permiso: 'soat'`
   // ataría la ayuda de una pantalla al permiso de OTRA (ADR-0008 §4).
-  { clave: 'soat', grupo: 'gestion', etiqueta: 'SOAT', resumen: 'Cola de pólizas del proveedor.', to: '/flito/soat', permiso: 'flito_soat' },
-  { clave: 'flito_impuestos', grupo: 'gestion', etiqueta: 'Impuestos', resumen: 'Cola de recibos del gestor de impuestos.', to: '/flito/impuestos', permiso: 'flito_impuestos' },
-  { clave: 'finanzas_reporte_costos', grupo: 'finanzas', etiqueta: 'Reporte de costos', resumen: 'Costos por trámite para contabilidad y cobros.', to: '/finanzas/reporte-costos', permiso: 'finanzas_reporte_costos' },
-  { clave: 'finanzas_gastos_diarios', grupo: 'finanzas', etiqueta: 'Gastos diarios', resumen: 'Cuánto se pagó cada día por SOAT, impuestos, derechos, logística y servicios adicionales.', to: '/finanzas/gastos-diarios', permiso: 'finanzas_gastos_diarios' },
-  { clave: 'flito_bolsas', grupo: 'finanzas', etiqueta: 'Bolsas', resumen: 'Saldos, recargas y cierres.', to: '/flito/bolsas', permiso: 'flito_bolsas' },
-  { clave: 'flito_tarifas', grupo: 'finanzas', etiqueta: 'Tarifas', resumen: 'Cuánto se le cobra a cada cliente por trámite y logística.', to: '/flito/tarifas', permiso: 'flito_tarifas' },
-  { clave: 'flito_servicios_adicionales', grupo: 'finanzas', etiqueta: 'Servicios adicionales', resumen: 'Catálogo de servicios cobrados aparte del trámite y su valor.', to: '/flito/servicios-adicionales', permiso: 'flito_servicios_adicionales' },
-  { clave: 'flito_comprobantes', grupo: 'finanzas', etiqueta: 'Comprobantes', resumen: 'Cargue cualquier comprobante y revise lo que FLITO leyó.', to: '/flito/comprobantes', permiso: 'flito_comprobantes' },
-  { clave: 'flito_conciliacion', grupo: 'finanzas', etiqueta: 'Conciliación', resumen: 'Cruce del recaudo SOAT contra lo emitido.', to: '/flito/conciliacion', permiso: 'flito_conciliacion' },
-  { clave: 'siigo_parametrizacion', grupo: 'finanzas', etiqueta: 'Facturación electrónica · Parametrización', resumen: 'Catálogos, mapeo de conceptos y emisión.', to: '/siigo/parametrizacion', permiso: 'siigo_parametrizacion' },
-  { clave: 'siigo_operacion', grupo: 'finanzas', etiqueta: 'Facturación electrónica · Operación', resumen: 'Bandeja de facturas y acciones del día a día.', to: '/siigo/operacion', permiso: 'siigo_operacion' },
-  { clave: 'roles_permisos', grupo: 'administracion', etiqueta: 'Roles y permisos', resumen: 'Qué puede hacer cada rol dentro de FLITO.', to: '/roles-permisos', permiso: 'roles_permisos' },
-  { clave: 'siigo_credenciales', grupo: 'administracion', etiqueta: 'Integración con Siigo', resumen: 'Credenciales de la integración. Solo administración.', to: '/siigo/credenciales', permiso: 'siigo_credenciales' },
+  { clave: 'soat', grupo: 'gestion', etiqueta: 'SOAT', to: '/flito/soat', permiso: 'flito_soat' },
+  { clave: 'flito_impuestos', grupo: 'gestion', etiqueta: 'Impuestos', to: '/flito/impuestos', permiso: 'flito_impuestos' },
+  { clave: 'finanzas_reporte_costos', grupo: 'finanzas', etiqueta: 'Reporte de costos', to: '/finanzas/reporte-costos', permiso: 'finanzas_reporte_costos' },
+  { clave: 'finanzas_gastos_diarios', grupo: 'finanzas', etiqueta: 'Gastos diarios', to: '/finanzas/gastos-diarios', permiso: 'finanzas_gastos_diarios' },
+  { clave: 'flito_bolsas', grupo: 'finanzas', etiqueta: 'Bolsas', to: '/flito/bolsas', permiso: 'flito_bolsas' },
+  { clave: 'flito_tarifas', grupo: 'finanzas', etiqueta: 'Tarifas', to: '/flito/tarifas', permiso: 'flito_tarifas' },
+  { clave: 'flito_servicios_adicionales', grupo: 'finanzas', etiqueta: 'Servicios adicionales', to: '/flito/servicios-adicionales', permiso: 'flito_servicios_adicionales' },
+  { clave: 'flito_comprobantes', grupo: 'finanzas', etiqueta: 'Comprobantes', to: '/flito/comprobantes', permiso: 'flito_comprobantes' },
+  { clave: 'flito_conciliacion', grupo: 'finanzas', etiqueta: 'Conciliación', to: '/flito/conciliacion', permiso: 'flito_conciliacion' },
+  { clave: 'siigo_parametrizacion', grupo: 'finanzas', etiqueta: 'Facturación electrónica · Parametrización', to: '/siigo/parametrizacion', permiso: 'siigo_parametrizacion' },
+  { clave: 'siigo_operacion', grupo: 'finanzas', etiqueta: 'Facturación electrónica · Operación', to: '/siigo/operacion', permiso: 'siigo_operacion' },
+  { clave: 'roles_permisos', grupo: 'administracion', etiqueta: 'Roles y permisos', to: '/roles-permisos', permiso: 'roles_permisos' },
+  { clave: 'siigo_credenciales', grupo: 'administracion', etiqueta: 'Integración con Siigo', to: '/siigo/credenciales', permiso: 'siigo_credenciales' },
 ];

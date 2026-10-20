@@ -1,3 +1,17 @@
+---
+resumen: Cola de pólizas del proveedor.
+palabras_clave:
+  - SOAT
+  - pólizas
+  - factura
+  - VIN
+consultas:
+  - cómo solicito un SOAT
+  - cuándo pasa un SOAT a pagado
+  - cómo cargo la factura del SOAT
+version: 1.0
+fecha: 2026-10-20
+---
 ## Qué es
 
 Cola FLITO de adquisición del SOAT. El SOAT se ancla al VIN y solo pasa a **Pagado** cuando usted carga una factura validada. Esta es la cola con rótulo **SOAT** en Gestión (`/flito/soat`). No es el módulo legado de pólizas.

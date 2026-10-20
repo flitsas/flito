@@ -1,3 +1,17 @@
+---
+resumen: Saldos, recargas y cierres.
+palabras_clave:
+  - bolsas
+  - saldos
+  - recargas
+  - cierres
+consultas:
+  - cómo recargo una bolsa
+  - cuál es el saldo de una bolsa
+  - cómo cierro una bolsa
+version: 1.0
+fecha: 2026-10-20
+---
 ## Qué es
 
 El saldo que cada cliente tiene precargado con FLIT y el que FLIT mantiene ante las secretarías. Los KPI de **Saldo total**, **Bolsas en riesgo** y **Conciliación pendiente** encabezan la pantalla; debajo, dos acordeones (**Clientes** y **Tránsitos**). Usted recarga, mueve, corrige y cierra periodos. No **Factura** la liquidación ni hace **emisión electrónica**.

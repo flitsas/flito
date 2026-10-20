@@ -49,9 +49,26 @@ Un archivo por clave del catálogo. Prefijo `_` no es ficha. Ausencia = pendient
 
 `siigo_credenciales` se lista solo si `user.role === 'admin'`. **No** aliasar a `siigo_parametrizacion`.
 
+## Encabezado de la ficha (obligatorio — Feature #13691 · HU #13703)
+
+Toda ficha empieza con un bloque `---` (subconjunto de YAML, parseado a mano en
+`apps/web/src/lib/ayudaFicha.ts`). Cinco claves, ninguna más (clave desconocida = error):
+
+| Clave | Regla |
+|---|---|
+| `resumen` | Una línea, sin comillas. Es el subtítulo del índice y de la ficha (fuente única: el catálogo **no** lleva `resumen`; solo `resumenPendiente` en entradas sin `.md`) |
+| `palabras_clave` | Lista `  - item`, al menos 1 (términos que un usuario escribiría) |
+| `consultas` | Lista `  - item`, al menos 1 (preguntas reales: «cómo…», «por qué…») |
+| `version` | `MAYOR.MENOR` (`1.0`) |
+| `fecha` | `AAAA-MM-DD` válida |
+
+**`version` y `fecha` se actualizan en cada cambio de la ficha (D7)**: cualquier delta de
+contenido sube la `version` (`1.0` → `1.1`; cambio de fondo → `2.0`) y pone la `fecha` del día.
+Sin eso, el delta de ayuda no cuenta. Lo vigila `e2e/tests/flito-ayuda-artefactos.spec.ts`.
+
 ## Plantilla de ficha (obligatoria)
 
-Copiar `_plantilla.md`. Secciones, en este orden, tono **usted**:
+Copiar `_plantilla.md` (incluido su encabezado). Secciones, en este orden, tono **usted**:
 
 1. **Qué es**
 2. **Para quién**

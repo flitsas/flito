@@ -1,8 +1,10 @@
 // Ayuda FLITO — plantilla, skill y cableado de matriz (HU #11893, AC6 y AC7).
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect } from '../helpers/fixtures';
+import { parsearFicha, fechaFichaLegible } from '../../src/lib/ayudaFicha';
+import { CATALOGO_AYUDA } from '../../src/content/ayuda/catalogo';
 
 const raiz = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../..');
 
@@ -82,5 +84,68 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     expect(catalogo).toMatch(/clave: 'siigo_credenciales'[^}]*to: '\/siigo\/credenciales'/);
     expect(catalogo).toMatch(/clave: 'siigo_credenciales'[^}]*permiso: 'siigo_credenciales'/);
     expect(catalogo).not.toMatch(/clave: 'siigo_credenciales'[^}]*permiso: 'siigo_parametrizacion'/);
+  });
+
+  // Feature #13691 · HU #13703 AC4/AC5: encabezado obligatorio y estricto en cada ficha.
+  const dirFichas = resolve(raiz, 'apps/web/src/content/ayuda');
+  const fichas = readdirSync(dirFichas).filter((f) => f.endsWith('.md') && !f.startsWith('_'));
+
+  test('HU #13703 AC4 — toda ficha trae encabezado válido (resumen, palabras_clave, consultas, version, fecha)', () => {
+    expect(fichas.length).toBeGreaterThanOrEqual(22);
+    for (const f of fichas) {
+      const { encabezado, errores } = parsearFicha(readFileSync(resolve(dirFichas, f), 'utf8'));
+      expect(errores, f).toEqual([]);
+      expect(encabezado, f).not.toBeNull();
+      expect(encabezado!.resumen.length, f).toBeGreaterThan(0);
+      expect(encabezado!.palabrasClave.length, f).toBeGreaterThanOrEqual(1);
+      expect(encabezado!.consultas.length, f).toBeGreaterThanOrEqual(1);
+      expect(encabezado!.version, f).toMatch(/^\d+\.\d+$/);
+      // El encabezado no se filtra al cuerpo: nada de `---` ni claves al inicio.
+      expect(parsearFicha(readFileSync(resolve(dirFichas, f), 'utf8')).cuerpo, f).not.toMatch(/^---|^resumen:/);
+    }
+  });
+
+  test('HU #13703 AC4 — el parser es estricto: falta, clave desconocida, versión o fecha inválidas', () => {
+    const ok = [
+      '---', 'resumen: Uno: con dos puntos, y coma.', 'palabras_clave:', '  - a', 'consultas:', '  - b',
+      'version: 1.0', 'fecha: 2026-10-20', '---', '## Qué es', '',
+    ].join('\n');
+    const p = parsearFicha(ok);
+    expect(p.errores).toEqual([]);
+    expect(p.encabezado?.resumen).toBe('Uno: con dos puntos, y coma.');
+    expect(p.cuerpo).toBe('## Qué es\n');
+    expect(fechaFichaLegible('2026-10-20')).toBe('20/10/2026');
+
+    const conCambio = (de: string, a: string) => parsearFicha(ok.replace(de, a)).errores;
+    expect(conCambio('version: 1.0', 'version: 1')).not.toEqual([]);
+    expect(conCambio('fecha: 2026-10-20', 'fecha: 2026-02-30')).not.toEqual([]);
+    expect(conCambio('fecha: 2026-10-20', 'fecha: 20/10/2026')).not.toEqual([]);
+    expect(conCambio('resumen: Uno: con dos puntos, y coma.', 'resumen:')).not.toEqual([]);
+    expect(conCambio('  - a\n', '')).not.toEqual([]);
+    expect(conCambio('  - b\n', '')).not.toEqual([]);
+    expect(conCambio('version: 1.0', 'version: 1.0\nautor: x')).toEqual(expect.arrayContaining([expect.stringMatching(/desconocida/)]));
+    const sinBloque = parsearFicha('## Qué es\n');
+    expect(sinBloque.encabezado).toBeNull();
+    expect(sinBloque.cuerpo).toBe('## Qué es\n');
+    expect(sinBloque.errores).not.toEqual([]);
+  });
+
+  test('HU #13703 AC2/AC3 — resumen de fuente única: con .md no hay resumenPendiente; sin .md es obligatorio', () => {
+    for (const e of CATALOGO_AYUDA) {
+      const tieneMd = existsSync(resolve(dirFichas, `${e.clave}.md`));
+      if (tieneMd) expect(e.resumenPendiente, e.clave).toBeUndefined();
+      else expect(e.resumenPendiente?.trim().length ?? 0, e.clave).toBeGreaterThan(0);
+    }
+  });
+
+  test('HU #13703 AC6 — plantilla y skill documentan el encabezado y que version y fecha suben en cada cambio', () => {
+    const plantilla = leer('apps/web/src/content/ayuda/_plantilla.md');
+    expect(parsearFicha(plantilla).errores).toEqual([]);
+    expect(plantilla).toMatch(/suba la version y ponga la fecha/);
+    const skill = leer('.claude/skills/flit-ayuda-flito/SKILL.md');
+    for (const clave of ['resumen', 'palabras_clave', 'consultas', 'version', 'fecha']) {
+      expect(skill).toContain(`\`${clave}\``);
+    }
+    expect(skill).toMatch(/se actualizan en cada cambio de la ficha/);
   });
 });

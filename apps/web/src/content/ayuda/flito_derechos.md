@@ -1,3 +1,16 @@
+---
+resumen: Lo que el organismo cobra por radicar.
+palabras_clave:
+  - derechos
+  - organismo de tránsito
+  - radicar
+  - pago de derechos
+consultas:
+  - cuánto cobra el organismo por radicar
+  - cómo registro el pago de derechos
+version: 1.0
+fecha: 2026-10-20
+---
 ## Qué es
 
 Registro de los recibos de derecho de tránsito que emite el organismo. El sistema lee placa, fecha y valor, y los asocia al trámite. El resultado de una carga no es un simple «ok»: cada archivo que usted sube cae en una canasta (Registrados, En revisión, Sin trámite asociado, Duplicados, Páginas omitidas, Fallidos).

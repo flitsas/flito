@@ -1,3 +1,16 @@
+---
+resumen: Cargue cualquier comprobante y revise lo que FLITO leyó.
+palabras_clave:
+  - comprobantes
+  - cargar comprobante
+  - lectura
+  - OCR
+consultas:
+  - cómo cargo un comprobante
+  - qué leyó FLITO del comprobante
+version: 1.0
+fecha: 2026-10-20
+---
 ## Qué es
 
 La puerta única para los comprobantes de pago y los soportes de un trámite: facturas de SOAT,

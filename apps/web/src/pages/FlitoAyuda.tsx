@@ -11,9 +11,10 @@ import {
   puedeEnlazarFichaAyuda,
   puedeVerEntradaAyuda,
 } from '../lib/ayudaFlito';
-import { leerFichaMd, leerFichasMd, verificarBundleAyuda } from '../content/ayuda/cargarFichas';
+import { leerFichaParseada, leerFichasParseadas, verificarBundleAyuda } from '../content/ayuda/cargarFichas';
+import { fechaFichaLegible, type FichaParseada } from '../lib/ayudaFicha';
 import { GRUPO_AYUDA_LABEL, type AyudaGrupo, type EntradaAyuda } from '../content/ayuda/catalogo';
-import { entradaCoincideBusqueda } from '../lib/ayudaBusqueda';
+import { entradaCoincideBusqueda, resumenDeEntrada } from '../lib/ayudaBusqueda';
 import NoAccess from '../components/NoAccess';
 import AyudaMarkdown from '../components/ayuda/AyudaMarkdown';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
@@ -82,7 +83,7 @@ function Indice() {
   const [estado, setEstado] = useState<EstadoCarga>('cargando');
   const [error, setError] = useState('');
   const [nonce, setNonce] = useState(0);
-  const [cuerpos, setCuerpos] = useState<ReadonlyMap<string, string | null>>(() => new Map());
+  const [cuerpos, setCuerpos] = useState<ReadonlyMap<string, FichaParseada | null>>(() => new Map());
   const [consulta, setConsulta] = useState('');
   const inputBuscarRef = useRef<HTMLInputElement>(null);
 
@@ -94,7 +95,7 @@ function Indice() {
     setError('');
     const slugs = capitulos.map((c) => c.clave);
     verificarBundleAyuda()
-      .then(() => leerFichasMd(slugs))
+      .then(() => leerFichasParseadas(slugs))
       .then((map) => {
         if (cancel) return;
         setCuerpos(map);
@@ -215,7 +216,7 @@ function Indice() {
                 <ul>
                   {items.map((entrada, idx) => (
                     <li key={entrada.clave} style={idx > 0 ? { borderTop: '1px solid var(--flit-border-soft)' } : undefined}>
-                      <FilaCapitulo entrada={entrada} pendiente={cuerpos.get(entrada.clave) == null} />
+                      <FilaCapitulo entrada={entrada} ficha={cuerpos.get(entrada.clave) ?? null} />
                     </li>
                   ))}
                 </ul>
@@ -228,7 +229,8 @@ function Indice() {
   );
 }
 
-function FilaCapitulo({ entrada, pendiente }: { entrada: EntradaAyuda; pendiente: boolean }) {
+function FilaCapitulo({ entrada, ficha }: { entrada: EntradaAyuda; ficha: FichaParseada | null }) {
+  const pendiente = ficha == null;
   const nombre = pendiente ? `Ficha pendiente de ${entrada.etiqueta}` : `Abrir ficha de ${entrada.etiqueta}`;
   return (
     <Link
@@ -238,7 +240,7 @@ function FilaCapitulo({ entrada, pendiente }: { entrada: EntradaAyuda; pendiente
     >
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>{entrada.etiqueta}</span>
-        <span className="mt-0.5 block text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{entrada.resumen}</span>
+        <span className="mt-0.5 block text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{resumenDeEntrada(entrada, ficha)}</span>
       </span>
       {pendiente && <StatusChip tone="active">Ficha pendiente</StatusChip>}
       <span aria-hidden="true" className="text-lg" style={{ color: 'var(--flit-text-muted)' }}>→</span>
@@ -252,7 +254,7 @@ function Ficha({ slug }: { slug: string }) {
   const entrada = entradaAyudaPorClave(slug);
   const [estado, setEstado] = useState<EstadoCarga>('cargando');
   const [error, setError] = useState('');
-  const [fuente, setFuente] = useState<string | null>(null);
+  const [fuente, setFuente] = useState<FichaParseada | null>(null);
   const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
@@ -265,10 +267,10 @@ function Ficha({ slug }: { slug: string }) {
     setEstado('cargando');
     setError('');
     setFuente(null);
-    leerFichaMd(entrada.clave)
-      .then((md) => {
+    leerFichaParseada(entrada.clave)
+      .then((ficha) => {
         if (cancel) return;
-        setFuente(md);
+        setFuente(ficha);
         setEstado('listo');
       })
       .catch((e) => {
@@ -281,6 +283,7 @@ function Ficha({ slug }: { slug: string }) {
 
   const reintentar = useCallback(() => setNonce((n) => n + 1), []);
   const enlazar = useCallback((href: string) => puedeEnlazarFichaAyuda(user, href), [user]);
+  const resumen = entrada ? resumenDeEntrada(entrada, fuente) : '';
 
   if (!entrada) {
     return (
@@ -316,7 +319,7 @@ function Ficha({ slug }: { slug: string }) {
   if (estado === 'cargando') {
     return (
       <div className="space-y-4">
-        <PageHeaderCard title={entrada.etiqueta} subtitle={entrada.resumen} leading={<VolverIndice />} titleRef={titleRef} />
+        <PageHeaderCard title={entrada.etiqueta} subtitle={resumen || undefined} leading={<VolverIndice />} titleRef={titleRef} />
         <SkeletonFicha />
       </div>
     );
@@ -325,7 +328,7 @@ function Ficha({ slug }: { slug: string }) {
   if (estado === 'error') {
     return (
       <div className="space-y-4">
-        <PageHeaderCard title={entrada.etiqueta} subtitle={entrada.resumen} leading={<VolverIndice />} titleRef={titleRef} actions={irPantalla} />
+        <PageHeaderCard title={entrada.etiqueta} subtitle={resumen || undefined} leading={<VolverIndice />} titleRef={titleRef} actions={irPantalla} />
         <ErrorAyuda titulo="No se pudo cargar esta ficha." detalle={error} onReintentar={reintentar} volver />
       </div>
     );
@@ -334,11 +337,11 @@ function Ficha({ slug }: { slug: string }) {
   if (!fuente) {
     return (
       <div className="space-y-4">
-        <PageHeaderCard title={entrada.etiqueta} subtitle={entrada.resumen} leading={<VolverIndice />} titleRef={titleRef} actions={irPantalla} />
+        <PageHeaderCard title={entrada.etiqueta} subtitle={resumen || undefined} leading={<VolverIndice />} titleRef={titleRef} actions={irPantalla} />
         <FlitEmpty>
           <p className="text-base font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Esta ficha está pendiente.</p>
           <p className="mx-auto mt-2 max-w-lg">
-            El capítulo ya figura en el índice; el contenido se publicará en una entrega siguiente. No es un error.
+            La ficha ya figura en el índice; el contenido se publicará en una entrega siguiente. No es un error.
           </p>
           <Link to="/flito/ayuda" className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle}>Volver al índice</Link>
         </FlitEmpty>
@@ -350,13 +353,18 @@ function Ficha({ slug }: { slug: string }) {
     <div className="space-y-4">
       <PageHeaderCard
         title={entrada.etiqueta}
-        subtitle={entrada.resumen}
+        subtitle={resumen || undefined}
         leading={<VolverIndice />}
         titleRef={titleRef}
         actions={irPantalla}
       />
       <FlitCard>
-        <AyudaMarkdown source={fuente} puedeEnlazar={enlazar} label={entrada.etiqueta} />
+        {fuente.encabezado && (
+          <p className="mb-4 text-xs" style={{ color: 'var(--flit-text-secondary)' }} data-testid="ayuda-ficha-version">
+            Versión {fuente.encabezado.version} · {fechaFichaLegible(fuente.encabezado.fecha)}
+          </p>
+        )}
+        <AyudaMarkdown source={fuente.cuerpo} puedeEnlazar={enlazar} label={entrada.etiqueta} />
       </FlitCard>
     </div>
   );

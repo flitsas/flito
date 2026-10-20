@@ -1,3 +1,17 @@
+---
+resumen: Actas, despacho y trazabilidad por documento.
+palabras_clave:
+  - logística
+  - actas
+  - despacho
+  - mensajería
+  - trazabilidad
+consultas:
+  - cómo genero un acta de despacho
+  - dónde está un documento enviado
+version: 1.0
+fecha: 2026-10-20
+---
 ## Qué es
 
 Consola de las licencias de tránsito de trámites **Aprobado**: de la recogida en el organismo a la entrega firmada. Aquí usted genera actas por compañía y despacha al Mensajero.
