@@ -2,13 +2,13 @@
 // `POST /api/flito/sync/flit2/sincronizar`.
 //
 // Frontera HTTP con los servicios sustituidos por espías: `guardarAcceso` (el guardado real se prueba en
-// `flito-sync.flit2-acceso.test.ts`) y `leerConCandado` / `auditarLecturaProgramada` (la lectura real, su
-// candado, su anotación de errores en la fila —lo que el estado muestra como problema— y el detalle de
-// auditoría se prueban en `flito-sync.flit2-lectura.test.ts`). Aquí: si se lanza, cuándo, con qué
+// `flito-sync.flit2-acceso.test.ts`) y `leerConCandado` (la lectura real, su candado, su anotación de
+// errores en la fila —lo que el estado muestra como problema— y la Bitácora por trámite se prueban en
+// `flito-sync.flit2-lectura.test.ts`). HU #13626: la corrida ya no se audita (RN-13 retirada). Aquí: si se lanza, cuándo, con qué
 // origen, que la respuesta no la espera y que ningún desenlace escapa sin capturar.
 //
 // Mapa AC → casos: AC1 «encendida» · AC2 «apagada» · AC3 «candado tomado» · AC4 «falla en segundo
-// plano» · AC5 «PUT que no responde 200» · AC6 «auditoría con origen acceso» · AC7 «ruta retirada».
+// plano» · AC5 «PUT que no responde 200» · AC7 «ruta retirada».
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
@@ -54,9 +54,8 @@ vi.mock('../../src/modules/flito-sync/flit2-acceso.service.js', async (orig) => 
   ...(await orig() as Record<string, unknown>), guardarAcceso: guardarMock,
 }));
 const leerMock = vi.fn();
-const auditarMock = vi.fn();
 vi.mock('../../src/modules/flito-sync/flit2-lectura.service.js', async (orig) => ({
-  ...(await orig() as Record<string, unknown>), leerConCandado: leerMock, auditarLecturaProgramada: auditarMock,
+  ...(await orig() as Record<string, unknown>), leerConCandado: leerMock,
 }));
 
 const {
@@ -102,7 +101,6 @@ beforeEach(() => {
   entorno.cron = true;
   guardarMock.mockReset().mockResolvedValue({ id: 3, meta: META });
   leerMock.mockReset().mockResolvedValue(RESULTADO);
-  auditarMock.mockReset().mockResolvedValue(undefined);
   for (const f of Object.values(logFlit2)) f.mockReset();
 });
 
@@ -118,12 +116,11 @@ describe('AC1 · lectura automática encendida', () => {
     expect(r.body).toEqual(META);
     expect(leerMock).toHaveBeenCalledTimes(1);
     expect(leerMock).toHaveBeenCalledWith('acceso');
-    expect(auditarMock).not.toHaveBeenCalled();
 
     lectura.resolver(RESULTADO);
     await drenar();
-    // AC6: terminada bien, se audita como la programada con el origen que la distingue.
-    expect(auditarMock).toHaveBeenCalledWith(RESULTADO, 'acceso');
+    // HU #13626: terminada bien no deja auditoría de corrida ni error en el log.
+    expect(logFlit2.error).not.toHaveBeenCalled();
   });
 });
 
@@ -148,7 +145,6 @@ describe('AC3 · candado tomado', () => {
     expect(logFlit2.info).toHaveBeenCalledWith(expect.stringMatching(/otra corrida tiene el candado/));
     expect(logFlit2.warn).not.toHaveBeenCalled();
     expect(logFlit2.error).not.toHaveBeenCalled();
-    expect(auditarMock).not.toHaveBeenCalled();
   });
 });
 
@@ -157,13 +153,12 @@ describe('AC4 · la lectura de fondo falla', () => {
     ['rechazado', new Flit2RechazadoError('credenciales'), 'rechazado'],
     ['no responde', new Flit2NoRespondeError(), 'no_responde'],
     ['respuesta inesperada', new Flit2RespuestaError(500, null), 'flit2_respuesta'],
-  ])('%s → PUT 200, warn con el código (sin PII) y sin auditar', async (_n, error, codigo) => {
+  ])('%s → PUT 200, warn con el código (sin PII) ', async (_n, error, codigo) => {
     leerMock.mockRejectedValue(error);
     const r = await request(await buildApp()).put(RUTA).set('Authorization', await auth()).send(CUERPO);
     await drenar();
     expect(r.status).toBe(200);
     expect(logFlit2.warn).toHaveBeenCalledWith({ codigo }, expect.stringMatching(/tras guardar el acceso interrumpida/));
-    expect(auditarMock).not.toHaveBeenCalled();
     const logueado = JSON.stringify(logFlit2.warn.mock.calls);
     expect(logueado).not.toContain(CUERPO.clientSecret);
   });
@@ -175,11 +170,6 @@ describe('AC4 · la lectura de fondo falla', () => {
     expect(JSON.stringify(logFlit2.error.mock.calls)).not.toContain('1020304050');
   });
 
-  it('si la auditoría fallara, la corrida tampoco rechaza', async () => {
-    auditarMock.mockRejectedValue(new Error('audit caído'));
-    await expect(correrLecturaTrasAcceso()).resolves.toBeUndefined();
-    expect(logFlit2.error).toHaveBeenCalledWith({ err: 'Error' }, expect.any(String));
-  });
 });
 
 describe('AC5 · PUT que no responde 200 no lanza lectura', () => {

@@ -8,10 +8,14 @@
 // RN-02  Sin configurar (`FLIT2_BASE_URL`/`FLIT2_ENC_KEY` ausentes → 'ambiente'; sin fila activa →
 //        'sin_acceso'): `alerta = false` y `problema = null`. 'ambiente' manda sobre 'sin_acceso'
 //        porque sin llave ni siquiera se puede guardar el acceso.
-// RN-03  Un solo `problema`, con precedencia rechazado > bloqueado > lectura. Un bloqueo cuyo
-//        `bloqueado_hasta` ya pasó no es problema. `lectura_concurrente` y `sin_acceso` tampoco.
-// RN-04  `alerta` = configurado && (rechazado || bloqueado || ahora − (última exitosa ?? alta del
-//        acceso) ≥ 30 min). Una lectura exitosa la apaga porque renueva `ultima_exitosa_en`.
+// RN-03  Un solo `problema`, con precedencia rechazado > bloqueado > avisos_firma > lectura (HU #13633).
+//        Un bloqueo cuyo `bloqueado_hasta` ya pasó no es problema. `lectura_concurrente` y `sin_acceso`
+//        tampoco. `avisos_firma` va sobre `lectura` porque es persistente y pide acción humana; el código
+//        de lectura se borra con la siguiente lectura buena.
+// RN-04  `alerta` = configurado && (rechazado || bloqueado || avisos_firma || ahora − (última exitosa ??
+//        alta del acceso) ≥ umbral de RN-08). Una lectura exitosa (respaldo, acceso o la que agenda un
+//        aviso) la apaga porque renueva `ultima_exitosa_en`. `ultimo_aviso_en` NO cuenta como lectura
+//        exitosa: recibir un aviso no trae datos.
 // RN-05  Nada sensible sale: la consulta no selecciona `client_id`, cipher, cursores ni motivos crudos;
 //        el motivo de rechazo se normaliza a una lista cerrada y el código de lectura solo pasa si
 //        tiene forma de código (snake_case); cualquier otro texto se sustituye por `flit2_respuesta`.
@@ -23,6 +27,13 @@
 //        gana sobre el interruptor de la pantalla (`flito_sync_interruptor`, fila flit2). Con
 //        `habilitada=false`, `alerta=false`: un apagado intencional no es una falla (decisión del hilo
 //        sobre el riesgo 1 del diseño). El `problema` se sigue informando tal cual.
+// RN-08  (HU #13633) Umbral de la alerta = 2·R + 5 min, con R = `FLIT2_RESPALDO_MIN` del ambiente (no el
+//        pulso del proceso). Un solo respaldo fallido no alerta: la última exitosa tiene a lo sumo R + 4 min
+//        (tope de una corrida) < 2R + 5. R=5 → 15 min; R=60 → 125 min.
+// RN-09  (HU #13633) `avisos_firma`: ≥ 3 firmas rechazadas seguidas (`rechazos_firma_seguidos`, leído de la
+//        base en la misma consulta de la fila de lectura). Solo cuenta con `FLIT2_AVISOS_HABILITADO=true`:
+//        con el canal apagado ningún aviso válido podría volver el contador a 0. Sale sin hora (`en` null):
+//        la 0244 no guarda la del último rechazo y `ultimo_aviso_en` es la del último aviso VÁLIDO.
 
 import { count, eq, sql } from 'drizzle-orm';
 import type {
@@ -34,8 +45,16 @@ import { env } from '../../config/env.js';
 import { leerPrograma, type EstadoPrograma } from './flit2-programa.js';
 import { fuenteHabilitada, habilitacionDe } from './flito-sync-interruptor.service.js';
 
-/** Umbral de la alerta (AC5). */
-export const UMBRAL_ALERTA_MS = 30 * 60_000;
+/** Respaldo por defecto (min) cuando el llamador no pasa `respaldoMs` (mismo default que el env). */
+const RESPALDO_DEFECTO_MS = 5 * 60_000;
+
+/** Firmas rechazadas seguidas a partir de las cuales hay problema `avisos_firma` (RN-09). */
+export const RECHAZOS_FIRMA_ALERTA = 3;
+
+/** HU #13633 (RN-08): umbral de la alerta = 2·respaldo + 5 min. */
+export function umbralAlertaMs(respaldoMs: number): number {
+  return 2 * respaldoMs + 5 * 60_000;
+}
 
 /** Códigos de lectura que no describen un problema de la conexión (RN-03). */
 const CODIGOS_NO_PROBLEMA = new Set(['lectura_concurrente', 'sin_acceso']);
@@ -58,6 +77,10 @@ export interface LecturaParaEstado {
   ultimoErrorCodigo: string | null;
   atrasada: boolean;
   piiEnmascaradaDesde: Date | null;
+  /** HU #13633: firmas rechazadas seguidas (0244). Ausente = 0 (llamadores previos a la HU). */
+  rechazosFirmaSeguidos?: number;
+  /** HU #13633: último aviso válido de FLIT 2 (0244). Ausente = null. */
+  ultimoAvisoEn?: Date | null;
 }
 
 export interface EntradaEstado {
@@ -70,6 +93,10 @@ export interface EntradaEstado {
   maestro?: boolean;
   /** HU #13237: interruptor de FLIT 2 encendido. Ausente = true. */
   interruptorFlit2?: boolean;
+  /** HU #13633: intervalo del respaldo (ms), de `FLIT2_RESPALDO_MIN`. Ausente = 5 min. */
+  respaldoMs?: number;
+  /** HU #13633: `FLIT2_AVISOS_HABILITADO`. Ausente = false (RN-09). */
+  avisosHabilitados?: boolean;
 }
 
 const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString() : null);
@@ -87,7 +114,7 @@ export function codigoPublico(codigo: string): string {
 }
 
 function problemaDe(
-  acceso: AccesoParaEstado, lectura: LecturaParaEstado | null, ahora: Date,
+  acceso: AccesoParaEstado, lectura: LecturaParaEstado | null, ahora: Date, avisosHabilitados: boolean,
 ): Flit2EstadoProblema | null {
   if (acceso.rechazadoEn) {
     return {
@@ -102,6 +129,10 @@ function problemaDe(
       tipo: 'bloqueado', codigo: null, motivo: null,
       en: iso(lectura?.ultimoIntentoEn), hasta: iso(acceso.bloqueadoHasta),
     };
+  }
+  // RN-09: persistente y de seguridad; va antes que `lectura`, que se cura con la siguiente lectura buena.
+  if (avisosHabilitados && (lectura?.rechazosFirmaSeguidos ?? 0) >= RECHAZOS_FIRMA_ALERTA) {
+    return { tipo: 'avisos_firma', codigo: null, motivo: null, en: null, hasta: null };
   }
   const codigo = lectura?.ultimoErrorCodigo ?? null;
   if (codigo && !CODIGOS_NO_PROBLEMA.has(codigo)) {
@@ -120,10 +151,12 @@ export function componerEstado(e: EntradaEstado, ahora: Date): Flit2EstadoConexi
   let problema: Flit2EstadoProblema | null = null;
   let alerta = false;
   if (configurado && e.acceso) {
-    problema = problemaDe(e.acceso, l, ahora);
+    problema = problemaDe(e.acceso, l, ahora, e.avisosHabilitados ?? false);
     const referencia = l?.ultimaExitosaEn ?? e.acceso.createdAt;
-    const sinLecturaDemasiado = ahora.getTime() - referencia.getTime() >= UMBRAL_ALERTA_MS;
-    alerta = sinLecturaDemasiado || problema?.tipo === 'rechazado' || problema?.tipo === 'bloqueado';
+    const umbral = umbralAlertaMs(e.respaldoMs ?? RESPALDO_DEFECTO_MS);
+    const sinLecturaDemasiado = ahora.getTime() - referencia.getTime() >= umbral;
+    alerta = sinLecturaDemasiado || problema?.tipo === 'rechazado' || problema?.tipo === 'bloqueado'
+      || problema?.tipo === 'avisos_firma';
   }
   // RN-07: apagada a propósito no es una falla.
   if (!habilitacion.habilitada) alerta = false;
@@ -133,6 +166,7 @@ export function componerEstado(e: EntradaEstado, ahora: Date): Flit2EstadoConexi
     motivoSinConfigurar,
     ultimaExitosaEn: iso(l?.ultimaExitosaEn),
     ultimoIntentoEn: iso(l?.ultimoIntentoEn),
+    ultimoAvisoEn: iso(l?.ultimoAvisoEn),
     atrasada: l?.atrasada ?? false,
     alerta,
     problema,
@@ -163,6 +197,9 @@ export async function obtenerEstadoConexion(reloj: () => Date = () => new Date()
       ultimoErrorCodigo: flitoSyncFlit2Lectura.ultimoErrorCodigo,
       atrasada: flitoSyncFlit2Lectura.atrasada,
       piiEnmascaradaDesde: flitoSyncFlit2Lectura.piiEnmascaradaDesde,
+      // HU #13633 (RN-09): en la misma consulta; las marcas en memoria de los avisos son por proceso.
+      rechazosFirmaSeguidos: flitoSyncFlit2Lectura.rechazosFirmaSeguidos,
+      ultimoAvisoEn: flitoSyncFlit2Lectura.ultimoAvisoEn,
     }).from(flitoSyncFlit2Lectura).where(eq(flitoSyncFlit2Lectura.id, 1)).limit(1),
     // `WHERE flit2_pii_enmascarada` a secas: coincide con el predicado del índice parcial de la 0216.
     db.select({ n: count() }).from(flitoTramites).where(sql`${flitoTramites.flit2PiiEnmascarada}`),
@@ -177,5 +214,7 @@ export async function obtenerEstadoConexion(reloj: () => Date = () => new Date()
     programa: leerPrograma(),
     maestro: Boolean(env.FLIT2_SYNC_CRON),
     interruptorFlit2,
+    respaldoMs: env.FLIT2_RESPALDO_MIN * 60_000,
+    avisosHabilitados: env.FLIT2_AVISOS_HABILITADO,
   }, reloj());
 }

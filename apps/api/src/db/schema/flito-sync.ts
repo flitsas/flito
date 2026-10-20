@@ -5,7 +5,7 @@
 // Import circular a propósito (mismo patrón que `schema/permisos.ts`): las FK de Drizzle son callbacks
 // perezosos, así que el ciclo ESM resuelve sin problema.
 import {
-  pgTable, smallserial, varchar, uuid, smallint, boolean, timestamp, integer, uniqueIndex, check, customType, text,
+  pgTable, smallserial, varchar, uuid, smallint, boolean, timestamp, integer, uniqueIndex, check, customType, text, date,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { users } from '../schema.js';
@@ -67,9 +67,14 @@ export const flitoSyncFlit2Lectura = pgTable('flito_sync_flit2_lectura', {
   // HU #13094 (0216): desde cuándo llega enmascarada (null = nada que recuperar) y cursor de la relectura.
   piiEnmascaradaDesde: timestamp('pii_enmascarada_desde', { withTimezone: true }),
   cursorRelectura: text('cursor_relectura'),
+  // HU #13632 (0244): último aviso válido de FLIT 2 y rechazos de firma seguidos (0 tras una firma válida).
+  // Los vuelca la agenda de avisos como mucho cada 5 s por proceso (flit2-avisos.service.ts, decisión C2).
+  ultimoAvisoEn: timestamp('ultimo_aviso_en', { withTimezone: true }),
+  rechazosFirmaSeguidos: integer('rechazos_firma_seguidos').notNull().default(0),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   unaFila: check('ck_flito_sync_flit2_lectura_una_fila', sql`${t.id} = 1`),
+  rechazosNoNegativo: check('ck_flito_sync_flit2_lectura_rechazos_firma', sql`${t.rechazosFirmaSeguidos} >= 0`),
   cursorLen: check('ck_flito_sync_flit2_lectura_cursor_len',
     sql`${t.cursor} IS NULL OR length(${t.cursor}) BETWEEN 1 AND 2000`),
   cursorRelecturaLen: check('ck_flito_sync_flit2_lectura_cursor_relectura_len',
@@ -89,4 +94,39 @@ export const flitoSyncInterruptor = pgTable('flito_sync_interruptor', {
   updatedBy: integer('updated_by').references(() => users.id),
 }, (t) => ({
   fuente: check('ck_flito_sync_interruptor_fuente', sql`${t.fuente} IN ('flit1', 'flit2')`),
+}));
+
+/**
+ * HU #13628 (migración 0241): parámetros de la lectura automática de FLIT 1 y estado de la lectura (este
+ * último lo escribe la HU #13629). Una fila (`id = 1`) sembrada con los defaults; el código solo hace
+ * upsert por PK. `arranque` null = hoy − 1 mes en America/Bogota, calculado al leer.
+ * Sin `updated_at` genérico: quién y cuándo (`parametros_actualizados_*`) solo los mueve el PUT.
+ */
+export const flitoSyncFlit1Lectura = pgTable('flito_sync_flit1_lectura', {
+  id: smallint('id').primaryKey().default(1),
+  frecuenciaMinutos: smallint('frecuencia_minutos').notNull().default(2),
+  ventanaDias: smallint('ventana_dias').notNull().default(7),
+  ventanaNocturnaDias: smallint('ventana_nocturna_dias').notNull().default(60),
+  arranque: date('arranque', { mode: 'string' }),
+  parametrosActualizadosEn: timestamp('parametros_actualizados_en', { withTimezone: true }),
+  parametrosActualizadosPor: integer('parametros_actualizados_por').references(() => users.id),
+  ultimaBuenaEn: timestamp('ultima_buena_en', { withTimezone: true }),
+  proximaPrevistaEn: timestamp('proxima_prevista_en', { withTimezone: true }),
+  ultimoFalloEn: timestamp('ultimo_fallo_en', { withTimezone: true }),
+  ultimoFalloCodigo: varchar('ultimo_fallo_codigo', { length: 40 }),
+  // HU #13629 (0242): marcas de la lectura automática. Inicio de la última corrida (buena o fallida) y
+  // día Bogotá de la última nocturna buena.
+  ultimaCorridaEn: timestamp('ultima_corrida_en', { withTimezone: true }),
+  nocturnaBuenaDia: date('nocturna_buena_dia', { mode: 'string' }),
+}, (t) => ({
+  unaFila: check('ck_flito_sync_flit1_lectura_una_fila', sql`${t.id} = 1`),
+  frecuencia: check('ck_flito_sync_flit1_lectura_frecuencia', sql`${t.frecuenciaMinutos} BETWEEN 2 AND 60`),
+  ventana: check('ck_flito_sync_flit1_lectura_ventana', sql`${t.ventanaDias} BETWEEN 1 AND 90`),
+  nocturna: check('ck_flito_sync_flit1_lectura_nocturna', sql`${t.ventanaNocturnaDias} BETWEEN 7 AND 90`),
+  nocturnaGeVentana: check('ck_flito_sync_flit1_lectura_nocturna_ge_ventana',
+    sql`${t.ventanaNocturnaDias} >= ${t.ventanaDias}`),
+  falloPar: check('ck_flito_sync_flit1_lectura_fallo_par',
+    sql`(${t.ultimoFalloEn} IS NULL) = (${t.ultimoFalloCodigo} IS NULL)`),
+  falloCodigo: check('ck_flito_sync_flit1_lectura_fallo_codigo',
+    sql`${t.ultimoFalloCodigo} IS NULL OR ${t.ultimoFalloCodigo} ~ '^[a-z0-9_]{1,40}$'`),
 }));

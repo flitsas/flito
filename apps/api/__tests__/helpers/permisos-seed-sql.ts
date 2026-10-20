@@ -70,15 +70,23 @@ export const MIGRACIONES_CON_REPARTO = [
   '0238_permisos_arbol_legado_siembra.sql', // HU #13429: elementos `menu.*`, cadena de las páginas y «Administrar» de PESV
   '0239_permisos_arbol_legado_reparto.sql', // HU #13429: «Administrar» PESV (A1), cadena de roles y retiro del legado
   '0240_permisos_sueltos_a_su_item.sql', // HU #13588: ítem «Rendimiento» (copia de `rum.resumen.ver`) y retiro de los 5 sueltos
+  '0243_permisos_retirar_sync_lanzar.sql', // HU #13631: retiro de `sync.sync.lanzar` (sincronización manual de FLIT 1)
 ] as const;
 
 /**
- * HU #12873 — Las migraciones del mundo PLANO (antes del árbol, ≤ 0231). Los tests de cada migración
+ * HU #13631 — Retiros POSTERIORES al árbol de operaciones que desaparecen del todo (su ruta ya no existe):
+ * salen también del catálogo plano (`catalogoPlano()`, la foto `inventario.generado.ts`), así que el
+ * pliegue del mundo plano tiene que verlos para seguir cuadrando con el generador de hoy.
+ */
+const RETIROS_DEL_MUNDO_PLANO: ReadonlySet<string> = new Set(['0243_permisos_retirar_sync_lanzar.sql']);
+
+/**
+ * HU #12873 — Las migraciones del mundo PLANO (antes del árbol, ≤ 0231, más `RETIROS_DEL_MUNDO_PLANO`). Los tests de cada migración
  * histórica comparan su archivo con `catalogoPlano()` sobre este pliegue: la 0233 absorbe después
  * muchas de sus operaciones, y eso no cambia lo que cada una sembró. La paridad del mundo de HOY
  * (todas las migraciones contra `catalogoCompleto()`) la vigila `migracion-0233.test.ts`.
  */
-export const MIGRACIONES_ANTES_DEL_ARBOL = MIGRACIONES_CON_REPARTO.filter((m) => m < '0232');
+export const MIGRACIONES_ANTES_DEL_ARBOL = MIGRACIONES_CON_REPARTO.filter((m) => m < '0232' || RETIROS_DEL_MUNDO_PLANO.has(m));
 
 function sinComentariosSql(sql: string): string {
   return sql.replace(/--[^\n]*/g, '');
@@ -361,7 +369,10 @@ export function leerRetirosSembrados(archivos: readonly string[] = MIGRACIONES_C
       for (const [codigo] of tuplas(bloque)) retiros.funciones.add(codigo!);
     }
     for (const bloque of bloquesDelete(sql, 'permisos_rol_funcion')) {
-      for (const [rol, codigo] of tuplas(bloque)) retiros.reparto.add(`${rol} ${codigo}`);
+      // HU #13631: `WHERE funcion_codigo IN ('a', …)` (una columna) retira el código de TODOS los roles;
+      // sin base no se sabe cuáles, así que no hay par que anotar: queda en `funciones` si también sale
+      // de `permisos_funciones` (la forma canónica de la 0240 y la 0243 retira de las tres tablas).
+      for (const [rol, codigo] of tuplas(bloque)) if (codigo !== undefined) retiros.reparto.add(`${rol} ${codigo}`);
     }
   }
   return retiros;

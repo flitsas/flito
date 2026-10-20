@@ -167,6 +167,7 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${TRA} POST /solicitar-soat`, 'tramites.solicitud.pedir_soat', 'Solicitar SOAT para un vehículo', 'Radicar un trámite de SOAT desde Operaciones.'),
   op(`${TRA} POST /solicitar-impuestos`, 'tramites.solicitud.pedir_impuestos', 'Solicitar impuestos para un vehículo', 'Radicar un trámite de impuesto vehicular desde Operaciones.'),
   op(`${TRA} POST /solicitar-ambos`, 'tramites.solicitud.pedir_ambos', 'Solicitar SOAT e impuestos a la vez', 'Radicar los dos trámites del vehículo en una sola operación.'),
+  op(`${TRA} POST /novedades/buscar`, 'tramites.cola.ver', 'Ver la cola de trámites FLITO', 'Abrir la bandeja de trámites de SOAT e impuestos.'),
   op(`${TRA} POST /entregar`, 'tramites.tramite.entregar', 'Entregar trámites FLITO', 'Marcar como entregados los trámites seleccionados.'),
   op(`${TRA} POST /:id/desbloquear-autogestion`, 'tramites.autogestion.desbloquear', 'Desbloquear la autogestión del cliente', 'Permitir que el cliente vuelva a radicar por su cuenta.'),
   op(`${TRA} POST /:id/revocar-autogestion`, 'tramites.autogestion.revocar', 'Revocar la autogestión del cliente', 'Quitarle al cliente la posibilidad de radicar por su cuenta.'),
@@ -294,13 +295,15 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
 
   // ── Sincronización FLITO ──────────────────────────────────────────────────────────────────────
   op(`${SYN} GET /estado`, 'sync.sync.ver_estado', 'Ver el estado de la sincronización', 'Consultar cuándo corrió la última sincronización y cómo fue.'),
-  op(`${SYN} POST /sincronizar`, 'sync.sync.lanzar', 'Lanzar la sincronización', 'Disparar a mano la sincronización de datos FLITO.'),
   // HU #13061 — acceso de FLITO a FLIT 2 (módulo tramites; migración 0214, solo admin).
   op(`${FL2} GET /acceso`, 'tramites.flit2.ver_acceso', 'Ver el acceso a FLIT 2', 'Consultar con qué usuario de servicio se conecta FLITO a FLIT 2, quién lo guardó y desde cuándo.'),
   op(`${FL2} PUT /acceso`, 'tramites.flit2.guardar_acceso', 'Guardar el acceso a FLIT 2', 'Registrar o reemplazar el usuario de servicio y la contraseña con los que FLITO se conecta a FLIT 2.'),
   // HU #13237 — interruptor por fuente (módulo tramites; migración 0217, solo admin). El GET /interruptores
   // reutiliza el mismo código.
   op(`${SYI} PUT /interruptores/:fuente`, 'tramites.sincronizacion.configurar', 'Configurar la sincronización con FLIT', 'Encender o apagar, en este ambiente, la entrada de trámites desde FLIT 1 y desde FLIT 2.'),
+  // HU #13628 — parámetros de la lectura automática de FLIT 1 (0241, sin siembra: reutiliza la función de
+  // la 0217 con sus textos byte a byte). Los GET /flit1/* van fuera de la lista, como GET /interruptores.
+  op(`${SYI} PUT /flit1/parametros-lectura`, 'tramites.sincronizacion.configurar', 'Configurar la sincronización con FLIT', 'Encender o apagar, en este ambiente, la entrada de trámites desde FLIT 1 y desde FLIT 2.'),
 
   // ── Trámite Digital ───────────────────────────────────────────────────────────────────────────
   op(`${TRD} GET /`, 'tramite.cola.ver', 'Ver la cola de Trámite Digital', 'Abrir la bandeja de trámites de tránsito.'),

@@ -152,7 +152,7 @@ async function main(): Promise<void> {
     mensajero        Logística — mensajero de campo (PWA Fase 2)
 
   NO hay trámites (son de FLIT). Entra como operaciones y sincroniza desde el Tablero
-  (o POST /api/flito/sync/sincronizar) contra FLIT real. Barranquilla (${ORG.BARRANQUILLA})
+  (la lectura automática de FLIT 1; el POST manual se retiró en la HU #13631) contra FLIT real. Barranquilla (${ORG.BARRANQUILLA})
   quedó SIN clasificar: sus trámites se RETIENEN (CA-03).\n${linea}\n`);
   process.exit(0);
 }

@@ -5,16 +5,21 @@
 // Reglas:
 //   · existe solo con `sync.sync.ver_estado`: sin ella ni se pinta ni sale el GET (un 403 se trata
 //     igual y detiene el polling);
-//   · `alerta` la calcula el servidor (rechazo, bloqueo o ≥30 min sin lectura exitosa). El título de
-//     la tarjeta dice la causa (Bug #13198): rechazo y bloqueo ganan; «más de 30 minutos» solo si de
-//     verdad pasaron, medido con el reloj corregido por `automatica.generadoEn`; si no, el fallo de
-//     lectura. Una alerta sin problema conserva el título de los 30 minutos (lo decidió el servidor);
+//   · `alerta` la calcula el servidor (rechazo, bloqueo, avisos con firma rechazada o sin lectura buena
+//     en `U = 2 · intervaloMs + 5 min`). El título de la tarjeta dice la causa (Bug #13198, HU #13634):
+//     rechazo y bloqueo ganan; el atraso solo si de verdad pasó `U`, medido con el reloj corregido por
+//     `automatica.generadoEn`; luego los avisos con firma no válida, el fallo de lectura y un tipo
+//     desconocido. La web no fija el umbral: lo saca del pulso (`automatica.intervaloMs`);
+//   · HU #13678: el grupo dice solo «Conexión» y «Última actualización» (la más reciente entre
+//     `ultimoAvisoEn` y `ultimaExitosaEn`). Sin frecuencia, próxima lectura, cuentas ni reintentos: si
+//     no hay conexión, el aviso da el motivo y la acción. Spec:
+//     `docs/ux/flito-tramites-sincronizacion-simplificada.md` (sección #13678);
 //   · refrescos silenciosos (polling, vuelta a la pestaña, tras guardar el acceso, y el ritmo rápido
 //     de la HU #13189: ~10 s tras vencer la cuenta y cada 15 s con una lectura en curso): si fallan se
 //     conserva el último dato; el estado de error es solo del primer GET o de un [Reintentar];
-//   · HU #13189: sin botón «Sincronizar FLIT 2»; la lectura es automática y la cabecera la muestra en
-//     vivo (`IndicadorFlit2.tsx`, spec `docs/ux/hu-13189-flit2-en-vivo.md`);
-//   · el aviso es de página (nunca toast) y no lleva botones: la acción ya está en la cabecera;
+//   · HU #13189: sin botón «Sincronizar FLIT 2»; la lectura es automática;
+//   · región viva solo en el valor de «Conexión» (cambia pocas veces): el polling no re-anuncia nada;
+//   · el aviso es de página (nunca toast) y no lleva botones: la acción ya está en la barra;
 //   · título de la alerta en `--flit-danger-text` (par oscuro legible), no `-ink` (~2,5:1 en oscuro);
 //   · jamás se pinta el `codigo`, el `status` ni el texto del API: cada código tiene su frase.
 
@@ -22,7 +27,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Flit2EstadoConexion, Flit2EstadoProblema } from '@operaciones/shared-types';
 import { ApiError, api } from '../../../lib/api';
 import { useAuth } from '../../../lib/auth';
-import { IndicadorFlit2, mss, useRestante } from './IndicadorFlit2';
+import { PuntoFlit2, conexionFlit2, duracionUmbral, umbralMin, type DetenidaFlit2 } from './IndicadorFlit2';
 
 const RUTA_ESTADO = '/flito/sync/flit2/estado';
 /** La lectura automática corre cada 5 min: con 2 min el aviso llega con ~2 min de retraso máximo. */
@@ -35,9 +40,6 @@ const EN_CURSO_MS = 15_000;
 const VENCIDA_MAX_MS = 60_000;
 const ZONA = 'America/Bogota';
 
-const fmtFechaHora = new Intl.DateTimeFormat('es-CO', {
-  timeZone: ZONA, day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit',
-});
 const fmtDia = new Intl.DateTimeFormat('es-CO', { timeZone: ZONA, day: 'numeric', month: 'short', year: 'numeric' });
 const fmtHora = new Intl.DateTimeFormat('es-CO', { timeZone: ZONA, hour: 'numeric', minute: '2-digit' });
 /** Clave de día en Bogotá (AAAA-MM-DD) para saber si un instante es de hoy. */
@@ -49,27 +51,21 @@ function fecha(iso: string | null): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function fechaHora(iso: string | null): string | null {
-  const d = fecha(iso);
-  return d ? fmtFechaHora.format(d) : null;
-}
-
 /** Hora sola si es de hoy en Bogotá; si no, también el día. */
-interface Momento { dia: string | null; hora: string }
+export interface Momento { dia: string | null; hora: string }
 
-function momento(iso: string | null): Momento | null {
+export function momento(iso: string | null): Momento | null {
   const d = fecha(iso);
   if (!d) return null;
   const hoy = fmtClaveDia.format(new Date()) === fmtClaveDia.format(d);
   return { dia: hoy ? null : fmtDia.format(d), hora: fmtHora.format(d) };
 }
 
-const aLas = (m: Momento | null) => (!m ? 'hace poco' : m.dia ? `el ${m.dia} a las ${m.hora}` : `a las ${m.hora}`);
-const ALas = (m: Momento | null) => { const t = aLas(m); return t.charAt(0).toUpperCase() + t.slice(1); };
-const deLas = (m: Momento | null) => (!m ? 'más reciente' : m.dia ? `del ${m.dia} a las ${m.hora}` : `de las ${m.hora}`);
+export const aLas = (m: Momento | null) => (!m ? 'hace poco' : m.dia ? `el ${m.dia} a las ${m.hora}` : `a las ${m.hora}`);
+export const ALas = (m: Momento | null) => { const t = aLas(m); return t.charAt(0).toUpperCase() + t.slice(1); };
 
 /** Cierra con punto sin duplicarlo: la hora de es-CO ya termina en «p. m.». */
-const fin = (t: string) => (t.endsWith('.') ? t : `${t}.`);
+export const fin = (t: string) => (t.endsWith('.') ? t : `${t}.`);
 
 function B({ children }: { children: ReactNode }) {
   return <strong className="font-semibold">{children}</strong>;
@@ -182,103 +178,166 @@ export function automaticaActivaFlit2(uso: UsoEstadoFlit2): boolean | null {
 
 // ── Cabecera ────────────────────────────────────────────────────────────────────────────────────
 
-export function LineaEstadoFlit2({ estado }: { estado: UsoEstadoFlit2 }) {
+const MUTED = { color: 'var(--flit-text-muted)' } as const;
+const VALOR = { color: 'var(--flit-text-secondary)' } as const;
+const HUECO = { background: 'var(--flit-bg-hover)' } as const;
+
+/** Rótulo + valor, el mismo `Par` del grupo FLIT 1 (`LecturaFlit1.tsx`). */
+function Par({ rotulo, testId, children }: { rotulo: string; testId?: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0 text-[11px] leading-tight" style={MUTED}>
+      <div>{rotulo}</div>
+      <div className="font-semibold" style={VALOR} data-testid={testId}>{children}</div>
+    </div>
+  );
+}
+
+const PARES = 'flex flex-wrap gap-x-6 gap-y-2';
+
+/** Lo más reciente entre el último aviso y la última lectura buena; null si no hay ninguno. */
+function ultimaActualizacion(d: Flit2EstadoConexion): string | null {
+  const aviso = fecha(d.ultimoAvisoEn ?? null);
+  const lectura = fecha(d.ultimaExitosaEn);
+  const max = aviso && lectura ? (aviso > lectura ? aviso : lectura) : aviso ?? lectura;
+  if (!max) return null;
+  const m = momento(max.toISOString());
+  return !m ? null : m.dia ? `el ${m.dia} a las ${m.hora}` : `hoy a las ${m.hora}`;
+}
+
+/**
+ * Par «Conexión» + «Última actualización» (HU #13678). `detenida` viene de la sección Sincronización
+ * (interruptor o maestro) para que «Apagada» coincida con el aviso `motivo-flit2`.
+ */
+export function LineaEstadoFlit2({ estado, detenida = null }: { estado: UsoEstadoFlit2; detenida?: DetenidaFlit2 }) {
   const e = estado.estado;
   if (e.fase === 'oculto') return null;
-  let valor: ReactNode;
+  let cuerpo: ReactNode;
   if (e.fase === 'cargando') {
-    valor = (
-      <>
-        <div className="mt-0.5 h-3 w-24 animate-pulse rounded" style={{ background: 'var(--flit-bg-hover)' }} aria-hidden="true" />
-        <div className="mt-1 h-3 w-32 animate-pulse rounded" style={{ background: 'var(--flit-bg-hover)' }} aria-hidden="true" />
-      </>
+    const hueco = <div className="mt-0.5 h-3 w-28 animate-pulse rounded" style={HUECO} aria-hidden="true" />;
+    cuerpo = (
+      <div className={PARES}>
+        <Par rotulo="Conexión">{hueco}</Par>
+        <Par rotulo="Última actualización">{hueco}</Par>
+      </div>
     );
   } else if (e.fase === 'error') {
-    valor = (
-      <>
-        No se pudo consultar{' '}
+    cuerpo = (
+      <div className="font-semibold" style={VALOR}>
+        No se pudo consultar ·{' '}
         <button type="button" onClick={estado.reintentar} aria-label="Reintentar la consulta del estado de FLIT 2"
           className="flit-focus rounded font-semibold underline-offset-2 transition-colors hover:underline"
           style={{ color: 'var(--flit-blue-text)' }}>
           Reintentar
         </button>
-      </>
+      </div>
     );
-  } else if (!e.dato.configurado) {
-    valor = 'Sin configurar';
-  } else if (!e.dato.ultimaExitosaEn) {
-    valor = 'Aún sin lecturas';
   } else {
-    valor = (
-      <>
-        {fechaHora(e.dato.ultimaExitosaEn) ?? 'Aún sin lecturas'}
-        {e.dato.atrasada && (
-          <>
-            {' · lectura atrasada'}
-            <span className="sr-only"> Quedan trámites por leer; la lectura automática sigue donde quedó.</span>
-          </>
+    const d = e.dato;
+    const conexion = conexionFlit2(d, detenida);
+    cuerpo = (
+      <div className={PARES}>
+        <Par rotulo="Conexión">
+          <span className="inline-flex items-center gap-1.5">
+            <PuntoFlit2 conexion={conexion} />
+            <span role="status" data-testid="conexion-flit2">{conexion}</span>
+          </span>
+        </Par>
+        {/* Sin configurar no se habla de actualizaciones: el aviso da el siguiente paso. */}
+        {d.configurado && (
+          <Par rotulo="Última actualización" testId="ultima-actualizacion-flit2">{ultimaActualizacion(d) ?? 'Aún sin datos'}</Par>
         )}
-      </>
+      </div>
     );
   }
   return (
-    <div className="text-left text-[11px] leading-tight" style={{ color: 'var(--flit-text-muted)' }}
+    <div className="min-w-0 text-left text-[11px] leading-tight" style={MUTED}
       aria-busy={e.fase === 'cargando' ? true : undefined} data-testid="linea-estado-flit2">
-      <div>Última lectura FLIT 2</div>
-      <div className="font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>{valor}</div>
-      {e.fase === 'listo' && e.dato.configurado && e.dato.automatica && <IndicadorFlit2 dato={e.dato} desfaseMs={e.desfaseMs} />}
+      {cuerpo}
     </div>
   );
 }
 
-// ── Frases ──────────────────────────────────────────────────────────────────────────────────────
+// ── Motivo y acción ─────────────────────────────────────────────────────────────────────────────
 
 const ACCESO = <B>Acceso a FLIT 2</B>;
+const ADMIN = 'Avísale a quien administra el ambiente.';
+const SOPORTE = 'Si sigue así, avísale a soporte técnico.';
 
-/** Frase del problema. Nunca el código ni el texto del API: un código desconocido cae en el genérico. */
-export function fraseProblema(p: Flit2EstadoProblema): ReactNode {
-  const m = momento(p.en);
+interface Motivo { motivo: string; accion: ReactNode }
+
+/** Atraso por umbral `U` del pulso; sin intervalo no se afirma un tiempo. */
+function motivoAtraso(u: number | null): Motivo {
+  return {
+    motivo: u === null
+      ? 'FLITO no ha leído trámites de FLIT 2 en el tiempo esperado.'
+      : `FLITO lleva más de ${duracionUmbral(u)} sin leer trámites de FLIT 2.`,
+    accion: <>Revisa {ACCESO}; si el acceso está bien, avísale a quien administra el ambiente.</>,
+  };
+}
+
+/**
+ * Motivo y acción del problema. Nunca el tipo, el código ni el texto del API: un código de lectura
+ * desconocido cae en el genérico de lectura, y un tipo desconocido en la frase de reserva.
+ */
+function motivoProblema(p: Flit2EstadoProblema): Motivo {
   if (p.tipo === 'rechazado') {
-    if (p.motivo === 'credenciales') return <>FLIT 2 rechazó el acceso guardado {fin(aLas(m))} Revisa el usuario y la contraseña en {ACCESO}.</>;
+    if (p.motivo === 'credenciales') return { motivo: 'FLIT 2 rechazó el usuario y la contraseña guardados.', accion: <>Revísalos en {ACCESO}.</> };
     if (p.motivo === 'cambio_clave') {
-      return <>FLIT 2 pide cambiar la contraseña del usuario de servicio (aviso {deLas(m)}). Cámbiala en FLIT 2 y guárdala de nuevo en {ACCESO}.</>;
+      return { motivo: 'FLIT 2 pide cambiar la contraseña del usuario de servicio.', accion: <>Cámbiala en FLIT 2 y guárdala de nuevo en {ACCESO}.</> };
     }
-    return <>FLIT 2 rechazó el acceso guardado {fin(aLas(m))} Revísalo en {ACCESO}; «Probar conexión» te dice la causa.</>;
+    return { motivo: 'FLIT 2 rechazó el acceso de FLITO.', accion: <>Revisa {ACCESO}; «Probar conexión» te dice la causa.</> };
   }
   if (p.tipo === 'bloqueado') {
     const hasta = fecha(p.hasta);
     const h = hasta && hasta.getTime() > Date.now() ? momento(p.hasta) : null;
     if (h) {
       const hastaTxt = h.dia ? `hasta el ${h.dia} a las ${h.hora}` : `hasta las ${h.hora}`;
-      return <>FLIT 2 bloqueó el acceso por intentos fallidos {aLas(m)}, {fin(hastaTxt)} FLITO vuelve a leer solo después; no hace falta hacer nada.</>;
+      return { motivo: `FLIT 2 bloqueó el acceso por intentos fallidos ${fin(hastaTxt)}`, accion: 'No hace falta hacer nada: FLITO vuelve a leer solo después.' };
     }
-    return <>FLIT 2 bloqueó el acceso por intentos fallidos {fin(aLas(m))} FLITO vuelve a intentarlo en la siguiente lectura automática.</>;
+    return { motivo: 'FLIT 2 bloqueó el acceso por intentos fallidos.', accion: <>FLITO lo vuelve a intentar solo. Si no se resuelve, revisa {ACCESO}.</> };
   }
+  if (p.tipo === 'avisos_firma') {
+    return {
+      motivo: 'FLIT 2 está enviando avisos con firma no válida y FLITO los rechaza.',
+      accion: 'Avísale a quien administra el ambiente: la clave compartida de los avisos debe ser la misma en FLIT 2 y en FLITO.',
+    };
+  }
+  if (p.tipo !== 'lectura') return { motivo: 'Hay un problema con la conexión a FLIT 2.', accion: SOPORTE };
   switch (p.codigo) {
     case 'invalid_cursor':
-      return <>La lectura {deLas(m)} falló: FLIT 2 no reconoció el punto donde iba la lectura. FLITO no avanza para no perder trámites. Avísale a soporte técnico.</>;
+      return { motivo: 'FLIT 2 no reconoció el punto donde iba la lectura; FLITO no avanza para no perder trámites.', accion: 'Avísale a soporte técnico.' };
     case 'insufficient_scope':
-      return <>La lectura {deLas(m)} falló: el usuario de servicio no tiene permiso para leer trámites en FLIT 2. Pídele a FLIT 2 que lo habilite.</>;
+      return { motivo: 'El usuario de servicio no tiene permiso para leer trámites en FLIT 2.', accion: 'Pídele a FLIT 2 que lo habilite.' };
     case 'espera':
-      return <>{ALas(m)}, FLIT 2 pidió esperar antes de seguir. La lectura automática continúa donde quedó.</>;
+      return { motivo: 'FLIT 2 pidió esperar antes de seguir.', accion: 'No hace falta hacer nada: la lectura sigue donde quedó.' };
     case 'no_responde':
-      return <>{ALas(m)}, FLIT 2 no respondió. FLITO vuelve a intentarlo solo cada pocos minutos.</>;
+      return { motivo: 'FLIT 2 no respondió.', accion: 'FLITO lo vuelve a intentar solo. Si sigue así, avísale a quien administra el ambiente.' };
     case 'flit2_respuesta':
-      return <>{ALas(m)}, FLIT 2 respondió de forma inesperada. FLITO vuelve a intentarlo solo; si se repite, avísale a soporte técnico.</>;
+      return { motivo: 'FLIT 2 respondió de forma inesperada.', accion: SOPORTE };
     case 'llave_maestra':
     case 'acceso_descifrado':
-      return <>{ALas(m)}, el servidor no pudo leer el acceso guardado. Avísale a quien administra el ambiente.</>;
+      return { motivo: 'El servidor no pudo leer el acceso guardado.', accion: ADMIN };
     default:
-      return <>La lectura {deLas(m)} falló en FLITO. Se reintenta sola; si se repite, avísale a soporte técnico.</>;
+      return { motivo: 'Falló la última lectura de FLIT 2 en FLITO.', accion: SOPORTE };
   }
 }
 
-const MEDIA_HORA_MS = 30 * 60 * 1000;
-const TITULO_SIN_LEER = 'FLIT 2 lleva más de 30 minutos sin leer trámites.';
+/**
+ * Motivo de «Sin conexión», con la precedencia del Bug #13198: rechazo y bloqueo ganan; el atraso solo
+ * si de verdad pasó `U` (reloj corregido con `desfaseMs`); luego el problema; sin problema, el atraso.
+ */
+function motivoSinConexion(d: Flit2EstadoConexion, desfaseMs: number): Motivo {
+  const p = d.problema;
+  if (p?.tipo === 'rechazado' || p?.tipo === 'bloqueado') return motivoProblema(p);
+  const u = umbralMin(d.automatica?.intervaloMs);
+  const ultima = fecha(d.ultimaExitosaEn);
+  if (d.alerta && u !== null && ultima && Date.now() + desfaseMs - ultima.getTime() >= u * 60_000) return motivoAtraso(u);
+  return p ? motivoProblema(p) : motivoAtraso(u);
+}
 
 /**
- * ¿FLIT 2 está en alerta a la vista? La decide el servidor (rechazo, bloqueo o ≥30 min sin lectura
- * exitosa); aquí solo se anula con la fuente detenida (AC5) o sin configurar (aunque llegue marcada por
+ * ¿FLIT 2 está en alerta a la vista? La decide el servidor (rechazo, bloqueo, avisos con firma
+ * rechazada o sin lectura buena en `U`); aquí solo se anula con la fuente detenida (AC5) o sin configurar (aunque llegue marcada por
  * datos viejos). Única regla: la usan la tarjeta de aviso y el distintivo de la cabecera del acordeón.
  */
 export function alertaFlit2(uso: UsoEstadoFlit2, apagada = false): boolean {
@@ -286,35 +345,6 @@ export function alertaFlit2(uso: UsoEstadoFlit2, apagada = false): boolean {
   if (e.fase !== 'listo') return false;
   const detenida = apagada || e.dato.habilitada === false;
   return !detenida && e.dato.configurado && e.dato.alerta;
-}
-
-/**
- * Título de la tarjeta de alerta según la causa (Bug #13198). `desfaseMs` corrige el reloj local con
- * el del servidor. Sin lectura exitosa y con problema, gana el título del problema.
- */
-function tituloAlerta(d: Flit2EstadoConexion, desfaseMs: number): string {
-  const p = d.problema;
-  if (p?.tipo === 'rechazado') return 'FLIT 2 rechazó el acceso de FLITO.';
-  if (p?.tipo === 'bloqueado') return 'FLIT 2 bloqueó el acceso por un tiempo.';
-  const ultima = fecha(d.ultimaExitosaEn);
-  if (ultima && Date.now() + desfaseMs - ultima.getTime() >= MEDIA_HORA_MS) return TITULO_SIN_LEER;
-  if (p) return 'Falló la última lectura de FLIT 2.';
-  return TITULO_SIN_LEER;
-}
-
-/**
- * La cuenta dentro de la tarjeta (`role="alert"`): el `m:ss` va aria-hidden y el lector oye «unos
- * minutos», así el texto accesible no cambia cada segundo y no se re-anuncia.
- */
-function CuentaAviso({ restante }: { restante: number | null }) {
-  const c = mss(restante);
-  if (!c) return <>unos segundos</>;
-  return (
-    <>
-      <span aria-hidden="true" className="whitespace-nowrap tabular-nums">{c}</span>
-      <span className="sr-only">unos minutos</span>
-    </>
-  );
 }
 
 function frasePii(n: number): string {
@@ -328,25 +358,19 @@ function frasePii(n: number): string {
 
 /**
  * `apagada` (HU #13238): la fuente está apagada (interruptor o maestro). El aviso «apagada» lo pinta la
- * sección Sincronización y SUSTITUYE a las frases de alerta y de problema; aquí solo queda lo que sigue
- * siendo cierto (sin configurar y el párrafo de PII). Con `habilitada=false` nunca hay alerta (AC5).
+ * sección Sincronización y SUSTITUYE al motivo de conexión; aquí solo queda lo que sigue siendo cierto
+ * (sin configurar y el párrafo de PII). Con «Sin conexión» (HU #13678): motivo en la primera línea
+ * (`--flit-danger-text` solo con alerta) y la acción en la segunda.
  */
 export function AvisoEstadoFlit2({ estado, apagada = false }: { estado: UsoEstadoFlit2; apagada?: boolean }) {
   const { hasFuncion } = useAuth();
   const e = estado.estado;
-  // AC7: la frase de «alerta sin problema» lleva la cuenta hasta el próximo intento automático.
-  const detenida = apagada || (e.fase === 'listo' && e.dato.habilitada === false);
-  const conCuenta = !detenida && e.fase === 'listo' && e.dato.configurado && e.dato.alerta && !e.dato.problema && !!e.dato.automatica?.activa;
-  const restante = useRestante(
-    e.fase === 'listo' ? e.dato.automatica?.proximaEn : null, e.fase === 'listo' ? e.desfaseMs : 0, conCuenta,
-  );
   if (e.fase !== 'listo') return null;
   const d = e.dato;
   const alerta = alertaFlit2(estado, apagada);
   const pii = typeof d.piiEnmascarada?.tramites === 'number' && d.piiEnmascarada.tramites > 0 ? d.piiEnmascarada.tramites : 0;
 
-  let titulo: string | null = null;
-  let fechaLinea: string | null = null;
+  let motivo: Motivo | null = null;
   let cuerpo: ReactNode = null;
   if (!d.configurado) {
     cuerpo = d.motivoSinConfigurar === 'ambiente'
@@ -354,29 +378,27 @@ export function AvisoEstadoFlit2({ estado, apagada = false }: { estado: UsoEstad
       : hasFuncion('tramites.flit2.guardar_acceso')
         ? <>FLIT 2 sin configurar: FLITO aún no lee trámites de FLIT 2. Configura el acceso en {ACCESO}.</>
         : 'FLIT 2 sin configurar: FLITO aún no lee trámites de FLIT 2. Pídele a un administrador que configure el acceso.';
-  } else if (alerta) {
-    titulo = tituloAlerta(d, e.desfaseMs);
-    const ultima = fechaHora(d.ultimaExitosaEn);
-    fechaLinea = ultima ? `Última lectura exitosa: ${fin(ultima)}` : 'Todavía no hay ninguna lectura exitosa.';
-    cuerpo = d.problema
-      ? fraseProblema(d.problema)
-      : d.automatica && !d.automatica.activa
-        ? 'La lectura automática está apagada en este ambiente. Avísale a quien administra el ambiente.'
-        : <>La lectura automática vuelve a intentarlo en <CuentaAviso restante={restante} />; si no lee, revisa {ACCESO}.</>;
-  } else if (d.problema && !detenida) {
-    cuerpo = fraseProblema(d.problema);
+  } else if (conexionFlit2(d, apagada ? 'interruptor' : null) === 'Sin conexión') {
+    motivo = motivoSinConexion(d, e.desfaseMs);
   }
-  if (!cuerpo && pii === 0) return null;
+  const hayTexto = !!motivo || !!cuerpo;
+  if (!hayTexto && pii === 0) return null;
 
   return (
     <div role={alerta ? 'alert' : 'status'} data-testid="aviso-estado-flit2"
       className="break-words rounded-lg px-3 py-2.5 text-sm"
       style={{ border: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-card)', color: 'var(--flit-text-primary)' }}>
-      {titulo && <p className="font-semibold" style={{ color: 'var(--flit-danger-text)' }}>{titulo}</p>}
-      {fechaLinea && <p className="mt-0.5" style={{ color: 'var(--flit-text-secondary)' }}>{fechaLinea}</p>}
-      {cuerpo && <p className={titulo ? 'mt-1' : undefined}>{cuerpo}</p>}
+      {motivo && (
+        <>
+          <p className="font-semibold" style={alerta ? { color: 'var(--flit-danger-text)' } : undefined} data-testid="motivo-conexion-flit2">
+            {motivo.motivo}
+          </p>
+          <p className="mt-0.5" data-testid="accion-conexion-flit2">{motivo.accion}</p>
+        </>
+      )}
+      {cuerpo && <p>{cuerpo}</p>}
       {pii > 0 && (
-        <p className={cuerpo ? 'mt-2 border-t pt-2' : undefined} style={cuerpo ? { borderColor: 'var(--flit-border-soft)' } : undefined}>
+        <p className={hayTexto ? 'mt-2 border-t pt-2' : undefined} style={hayTexto ? { borderColor: 'var(--flit-border-soft)' } : undefined}>
           {frasePii(pii)}
         </p>
       )}

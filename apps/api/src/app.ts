@@ -23,6 +23,7 @@ import clientsRoutes from './modules/clients/clients.routes.js';
 import flitoParametrizacionRoutes from './modules/flito-parametrizacion/flito-parametrizacion.routes.js';
 import flitoSyncRoutes from './modules/flito-sync/flito-sync.routes.js';
 import flit2Routes from './modules/flito-sync/flit2.routes.js';
+import flit2AvisosRoutes, { RUTA_AVISOS_FLIT2 } from './modules/flito-sync/flit2-avisos.routes.js';
 import permisosRoutes from './modules/permisos/permisos.routes.js';
 import flitoSoatRoutes from './modules/flito-soat/flito-soat.routes.js';
 import { conAlcance } from './shared/middleware/frontera-enlace.js';
@@ -198,6 +199,10 @@ export function createApp() {
   app.use('/api/validacion-identidad/completar', express.json({ limit: '15mb' }));
   // TRAM-INNOV-B3: el webhook de firma necesita el body RAW para validar HMAC.
   app.use('/api/webhooks/firma', express.raw({ type: '*/*', limit: '2mb' }));
+  // HU #13632: avisos firmados de FLIT 2. RUTA PÚBLICA (sin authMiddleware, aprobada en la HU): la
+  // confianza es el HMAC del cuerpo crudo. Va antes del json global y del apiLimiter: trae su propio
+  // `express.raw`, su limitador por IP y su 404; nunca llama next() hacia `flit2Routes`.
+  app.use(RUTA_AVISOS_FLIT2, flit2AvisosRoutes);
   app.use(express.json({ limit: '5mb' }));
 
   // Request ID for traceability (ISO 27001 A.8.15)

@@ -45,7 +45,6 @@ export const AGRUPACION_DE_PAGINA: Readonly<Partial<Record<PageSlug, string>>> =
 /** Código de operación (exacto, no prefijo) → módulo de agrupación. */
 export const AGRUPACION_DE_OPERACION: Readonly<Record<string, string>> = {
   // El sincronizador vive con los trámites, que es lo que sincroniza.
-  'sync.sync.lanzar': 'tramites',
   'sync.sync.ver_estado': 'tramites',
   // Compañías y proveedores: con la pantalla de clientes.
   'parametrizacion.companias.editar': 'clientes',

@@ -1,5 +1,7 @@
 # UX slim: estado de la conexión con FLIT 2 y aviso a los 30 minutos (HU #13098)
 
+> Delta HU #13634 (Último aviso, Última lectura buena, avisos_firma, umbral 2R+5): ver `docs/ux/hu-13634-ultimo-aviso-flit2.md`; sustituye las menciones a «30 minutos».
+
 Feature #13060 · Épica #12736. Público: operador interno (administradores y Operaciones) en Gestión
 Trámites. Módulo `flito-sync` (`/api/flito/sync/flit2/*`), no el legacy `tramites`.
 HU backend hermana: #13097 (`GET /api/flito/sync/flit2/estado`). El contrato que la UI necesita está
