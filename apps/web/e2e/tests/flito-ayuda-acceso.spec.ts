@@ -1,26 +1,8 @@
 // Ayuda FLITO — menú y NoAccess (HU #11893, AC1 y AC2).
-import type { Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import {
-  loginAs, abrirAyuda, OPERACIONES_USER, PROVEEDOR_USER, CONDUCTOR_USER, SIN_CATALOGO,
+  loginAs, OPERACIONES_USER, PROVEEDOR_USER, CONDUCTOR_USER, SIN_CATALOGO,
 } from '../helpers/ayuda-fixtures';
-
-const CANARIO = '/api/__qa_canary';
-
-async function reposo(page: Page): Promise<void> {
-  const salida = page.waitForRequest((r) => r.url().includes('__qa_canary'), { timeout: 10_000 });
-  await page.evaluate((ruta) => { void fetch(ruta).catch(() => {}); }, CANARIO);
-  await salida;
-}
-
-function espiarChunk(page: Page): string[] {
-  const alChunk: string[] = [];
-  page.on('request', (req) => {
-    const { pathname } = new URL(req.url());
-    if (pathname.includes('FlitoAyuda')) alChunk.push(pathname);
-  });
-  return alChunk;
-}
 
 test.describe('FLITO — Ayuda · acceso', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
@@ -59,9 +41,10 @@ test.describe('FLITO — Ayuda · acceso', () => {
   });
 
   for (const usuario of SIN_CATALOGO) {
-    test(`AC2 — ${usuario.role} no ve el ítem y /flito/ayuda es NoAccess`, async ({ page }) => {
+    // HU #13704 AC7 (P9-3a): el ítem sigue oculto; la URL directa ya no es NoAccess sino el vacío
+    // «Su usuario aún no tiene módulos con ayuda» con salida al inicio.
+    test(`AC2 — ${usuario.role} no ve el ítem; /flito/ayuda muestra el vacío sin módulos (HU #13704 AC7)`, async ({ page }) => {
       await loginAs(page, usuario);
-      const alChunk = espiarChunk(page);
       await page.goto('/');
       await expect(page.getByRole('navigation', { name: 'Navegación principal' })).toBeVisible();
       await expect(page.getByRole('link', { name: 'Ayuda', exact: true })).toHaveCount(0);
@@ -72,17 +55,20 @@ test.describe('FLITO — Ayuda · acceso', () => {
       await page.keyboard.press('Escape');
 
       await page.goto('/flito/ayuda');
-      await expect(page.getByRole('heading', { name: /no tienes acceso a ayuda flito/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: 'Volver al tablero' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Su usuario aún no tiene módulos con ayuda' })).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Volver al inicio' })).toHaveAttribute('href', '/');
+      await expect(page.getByRole('heading', { name: /no tienes acceso a ayuda flito/i })).toHaveCount(0);
+      await expect(page.getByRole('searchbox', { name: 'Buscar fichas' })).toHaveCount(0);
       await expect(page).toHaveURL(/\/flito\/ayuda$/);
-      await reposo(page);
-      expect(alChunk).toEqual([]);
+      // El menú sigue sin el ítem en la página del vacío.
+      await expect(page.getByRole('link', { name: 'Ayuda', exact: true })).toHaveCount(0);
     });
   }
 
-  test('AC2 — conductor no confunde NoAccess con el vacío del índice', async ({ page }) => {
-    await abrirAyuda(page, CONDUCTOR_USER);
-    await expect(page.getByText(/no hay capítulos de ayuda/i)).toHaveCount(0);
-    await expect(page.getByRole('heading', { name: /no tienes acceso a ayuda flito/i })).toBeVisible();
+  test('AC2 — conductor: la ficha de otra pantalla por URL sigue en NoAccess de esa pantalla', async ({ page }) => {
+    await loginAs(page, CONDUCTOR_USER);
+    await page.goto('/flito/ayuda/flito_bolsas');
+    await expect(page.getByRole('heading', { name: /no tienes acceso a flito — bolsas/i })).toBeVisible();
+    await expect(page.getByText('Su usuario aún no tiene módulos con ayuda')).toHaveCount(0);
   });
 });
