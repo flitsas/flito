@@ -1,3 +1,16 @@
+---
+resumen: Lo que SIMIT y los municipios reportan de los NIT vigilados.
+palabras_clave:
+  - comparendos
+  - SIMIT
+  - multas
+  - NIT vigilados
+consultas:
+  - cómo consulto los comparendos de una empresa
+  - qué reporta SIMIT de un NIT
+version: 1.0
+fecha: 2026-10-20
+---
 ## Qué es
 
 Monitoreo de lo que SIMIT y los municipios reportan de los NIT vigilados. Los datos de fuente no se editan aquí: lo único que usted registra es la causal y la observación de gestión. No es el gate SIMIT de un traspaso ni un incidente PESV.

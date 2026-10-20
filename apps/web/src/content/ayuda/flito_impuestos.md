@@ -1,3 +1,16 @@
+---
+resumen: Cola de recibos del gestor de impuestos.
+palabras_clave:
+  - impuestos
+  - recibos
+  - gestor de impuestos
+  - impuesto vehicular
+consultas:
+  - cómo cargo un recibo de impuestos
+  - qué recibos están pendientes
+version: 1.0
+fecha: 2026-10-20
+---
 ## Qué es
 
 Cola del impuesto vehicular por organismo. La factura de venta del trámite es precondición del envío; el pago se reconoce cuando usted valida el recibo. **Facturar** en FLITO (congelar la liquidación) no es esta pantalla, y tampoco es **emisión electrónica**.

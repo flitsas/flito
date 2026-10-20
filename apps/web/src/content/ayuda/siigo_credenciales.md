@@ -1,3 +1,15 @@
+---
+resumen: Credenciales de la integración. Solo administración.
+palabras_clave:
+  - Siigo
+  - credenciales
+  - integración
+consultas:
+  - cómo configuro las credenciales de Siigo
+  - por qué falla la conexión con Siigo
+version: 1.0
+fecha: 2026-10-20
+---
 ## Qué es
 
 Pantalla **Integración con Siigo**: con qué usuario se conecta FLITO a Siigo en cada ambiente (pruebas y producción) para la **emisión electrónica**. Es la pantalla del entorno, no la del día a día: se abre al conectar pruebas, al conectar producción y cuando Siigo rota una llave. La access key se cifra al guardar y no se puede volver a consultar desde aquí.

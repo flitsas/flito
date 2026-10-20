@@ -1,3 +1,17 @@
+---
+resumen: Empresas, autogestión y datos comerciales.
+palabras_clave:
+  - clientes
+  - proveedores
+  - empresas
+  - autogestión
+consultas:
+  - cómo creo un cliente
+  - dónde cambio los datos comerciales de una empresa
+  - qué es la autogestión
+version: 1.0
+fecha: 2026-10-20
+---
 ## Qué es
 
 Ficha de las compañías (clientes FLITO) con su autogestión y sus datos comerciales, y de los proveedores de SOAT a los que se enrutan los trámites. La columna **Facturación** indica si la compañía está lista para una **emisión electrónica** posterior; no es **Facturar** en sentido FLITO (congelar la liquidación). Usted parametriza; no despacha.

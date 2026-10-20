@@ -1,3 +1,16 @@
+---
+resumen: Recogidas y entregas asignadas al mensajero.
+palabras_clave:
+  - mi ruta
+  - recogidas
+  - entregas
+  - mensajero
+consultas:
+  - qué entregas tengo asignadas
+  - cómo marco una recogida como hecha
+version: 1.0
+fecha: 2026-10-20
+---
 ## Qué es
 
 Pantalla de campo del Mensajero: escanear las licencias de tránsito en el organismo y entregarlas firmadas en la compañía. Con señal envía al momento; sin señal encola el cambio.

@@ -1,3 +1,16 @@
+---
+resumen: Cuánto se le cobra a cada cliente por trámite y logística.
+palabras_clave:
+  - tarifas
+  - precios
+  - cobro por trámite
+  - logística
+consultas:
+  - cuánto se le cobra a un cliente
+  - cómo cambio la tarifa de un cliente
+version: 1.0
+fecha: 2026-10-20
+---
 ## Qué es
 
 La pantalla donde se fija cuánto cobra FLITO a cada cliente por el trámite digital —Matrícula, Traspaso y Otros— y por la logística. Cada valor tiene una vigencia: rige desde el momento en que usted lo guarda y hasta que lo cambie o deje de cobrarlo.
