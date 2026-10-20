@@ -1,3 +1,16 @@
+---
+resumen: Cola de confirmación de campos leídos.
+palabras_clave:
+  - revisiones
+  - OCR
+  - confirmar campos
+  - lectura de documentos
+consultas:
+  - cómo confirmo los campos que leyó el OCR
+  - por qué un documento quedó en revisión
+version: 1.0
+fecha: 2026-10-20
+---
 ## Qué es
 
 Cola de confirmación humana: todo documento leído por OCR que no superó la coincidencia cae aquí. Nada se da por válido sin que usted lo confirme.

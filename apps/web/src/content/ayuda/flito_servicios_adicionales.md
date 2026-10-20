@@ -1,3 +1,15 @@
+---
+resumen: Catálogo de servicios cobrados aparte del trámite y su valor.
+palabras_clave:
+  - servicios adicionales
+  - catálogo de servicios
+  - valor del servicio
+consultas:
+  - cómo creo un servicio adicional
+  - cuánto vale un servicio adicional
+version: 1.0
+fecha: 2026-10-20
+---
 ## Qué es
 
 El catálogo de lo que FLITO cobra aparte del trámite: paz y salvo de impuestos, diagnóstico, derecho de petición y los tipos que Financiera añada, cada uno con su valor en pesos. Es el mismo catálogo para todas las compañías: el valor no se fija por cliente.

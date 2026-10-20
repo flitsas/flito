@@ -1,3 +1,18 @@
+---
+resumen: Cómo despachar SOAT, impuestos y entregas.
+palabras_clave:
+  - trámites
+  - despachar
+  - SOAT
+  - impuestos
+  - entregas
+consultas:
+  - cómo despacho un trámite
+  - dónde entrego los trámites
+  - por qué no veo un trámite
+version: 1.0
+fecha: 2026-10-20
+---
 ## Qué es
 
 Centro de despacho de los trámites de FLIT: usted consulta el estado de los trámites que FLITO trae solo de FLIT y FLIT 2, y solicita SOAT e impuestos. Solo los trámites **Asignados** —con compañía y secretaría emparejadas— habilitan esas gestiones.

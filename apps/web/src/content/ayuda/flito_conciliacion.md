@@ -1,3 +1,16 @@
+---
+resumen: Cruce del recaudo SOAT contra lo emitido.
+palabras_clave:
+  - conciliación
+  - recaudo
+  - SOAT emitido
+  - cruce
+consultas:
+  - cómo concilio el recaudo SOAT
+  - por qué no cuadra la conciliación
+version: 1.0
+fecha: 2026-10-20
+---
 ## Qué es
 
 Bandeja de las boletas que Financiera pagó en el portal SOAT, cruzadas contra los SOAT pagados en FLITO. **Cargar una boleta no mueve dinero**: el descuento de las bolsas ocurre al conciliar, y solo si todo cuadra. Usted carga el Excel, revisa el cuadre y confirma. No es **Facturar** ni **emisión electrónica**.

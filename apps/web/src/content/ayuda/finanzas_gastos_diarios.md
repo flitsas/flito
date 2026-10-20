@@ -1,3 +1,17 @@
+---
+resumen: Cuánto se pagó cada día por SOAT, impuestos, derechos, logística y servicios adicionales.
+palabras_clave:
+  - gastos diarios
+  - pagos del día
+  - SOAT
+  - derechos
+  - logística
+consultas:
+  - cuánto se pagó hoy
+  - dónde veo los gastos de un día
+version: 1.0
+fecha: 2026-10-20
+---
 ## Qué es
 
 Cuánto se pagó cada día por SOAT, impuestos, derechos, logística y servicios adicionales, y cuánto suma el periodo con el GMF estimado. Es una pantalla de lectura: no liquida, no exporta y no abre trámites. Sirve para que usted cuadre caja o responda «¿cuánto salió esta semana?» sin reconstruirlo desde el **Reporte de costos**.

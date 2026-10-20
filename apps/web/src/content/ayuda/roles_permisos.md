@@ -1,3 +1,16 @@
+---
+resumen: Qué puede hacer cada rol dentro de FLITO.
+palabras_clave:
+  - roles
+  - permisos
+  - acceso
+  - usuarios
+consultas:
+  - qué puede hacer cada rol
+  - cómo doy acceso a una pantalla
+version: 1.0
+fecha: 2026-10-20
+---
 ## Qué es
 
 La pantalla donde se decide **qué puede ver y hacer cada rol** dentro de FLITO. Muestra la lista de roles con cuántos permisos tiene cada uno y, al lado, los **Permisos del rol** seleccionado, ordenados igual que el menú: cada **elemento del menú** (Gestión, Finanzas, Administración…) contiene sus **ítems** (las pantallas), y cada ítem sus **acciones** (ver, crear, exportar…). Todo lo que se reparte está dentro del menú: no hay permisos sueltos aparte. Desde aquí también se crean, editan y borran roles.

@@ -1,3 +1,16 @@
+---
+resumen: Bandeja de facturas y acciones del día a día.
+palabras_clave:
+  - facturación electrónica
+  - Siigo
+  - bandeja de facturas
+  - facturas
+consultas:
+  - cómo emito una factura
+  - por qué falló una factura en Siigo
+version: 1.0
+fecha: 2026-10-20
+---
 ## Qué es
 
 Bandeja de lo que quedó detenido en el camino a la DIAN, con qué hacer en cada caso. Aquí usted reintenta, da por perdido o registra una corrección. No hay columnas de costos ni el listado completo de trámites: para buscar **una** factura concreta vaya al **Reporte de costos**. No es **Facturar** en sentido FLITO (congelar la liquidación): la **emisión electrónica** se dispara desde el reporte; esta pantalla arregla lo que no salió.
