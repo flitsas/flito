@@ -1,251 +1,34 @@
 // Ayuda FLITO (HU #11893): índice por permiso y superficie de ficha.
 // El gate de ruta vive en App.tsx (`AyudaFlitoGate`), no `ProtectedRoute page="flito_ayuda"`.
+// HU #13704: el índice y los estados viven en `components/ayuda/` (diseño slim §7).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import {
-  capitulosVisibles,
   entradaAyudaPorClave,
   puedeEnlazarFichaAyuda,
   puedeVerEntradaAyuda,
 } from '../lib/ayudaFlito';
-import { leerFichaParseada, leerFichasParseadas, verificarBundleAyuda } from '../content/ayuda/cargarFichas';
+import { leerFichaParseada } from '../content/ayuda/cargarFichas';
 import { fechaFichaLegible, type FichaParseada } from '../lib/ayudaFicha';
-import { GRUPO_AYUDA_LABEL, type AyudaGrupo, type EntradaAyuda } from '../content/ayuda/catalogo';
-import { entradaCoincideBusqueda, resumenDeEntrada } from '../lib/ayudaBusqueda';
+import { resumenDeEntrada } from '../lib/ayudaBusqueda';
 import NoAccess from '../components/NoAccess';
 import AyudaMarkdown from '../components/ayuda/AyudaMarkdown';
+import AyudaIndice from '../components/ayuda/AyudaIndice';
+import { ErrorAyuda, SkeletonFicha } from '../components/ayuda/AyudaEstados';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
-import PageContentSkeleton from '../components/flit/PageContentSkeleton';
-import StatusChip from '../components/flit/StatusChip';
 import {
-  FlitCard, FlitEmpty, FlitField, flitBtnSecondary, flitBtnSecondaryStyle, flitInp,
+  FlitCard, FlitEmpty, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../components/flit/flitPageKit';
 import { isValidPage } from '../lib/permissions';
 
-const GRUPOS_ORDEN: AyudaGrupo[] = ['general', 'gestion', 'finanzas', 'administracion'];
 type EstadoCarga = 'cargando' | 'error' | 'listo';
-
-function SkeletonFicha() {
-  const bar = (w: string) => ({ background: 'var(--flit-border-soft)', borderRadius: 8, width: w, height: 12 });
-  return (
-    <div aria-busy="true" aria-label="Cargando ficha" role="status" className="animate-pulse motion-reduce:animate-none">
-      <FlitCard>
-        <div className="space-y-3">
-          <div style={bar('35%')} />
-          <div style={bar('90%')} />
-          <div style={bar('75%')} />
-          <div style={bar('60%')} />
-        </div>
-      </FlitCard>
-    </div>
-  );
-}
-
-function ErrorAyuda(
-  { titulo, detalle, onReintentar, volver }: {
-    titulo: string;
-    detalle: string;
-    onReintentar: () => void;
-    volver?: boolean;
-  },
-) {
-  return (
-    <FlitCard>
-      <div role="alert">
-        <h2 className="text-base font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>{titulo}</h2>
-        <p className="mt-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{detalle}</p>
-        <div className="mt-4 flex flex-wrap gap-3">
-          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onReintentar}>
-            Reintentar
-          </button>
-          {volver && (
-            <Link to="/flito/ayuda" className={flitBtnSecondary} style={flitBtnSecondaryStyle}>
-              Volver al índice
-            </Link>
-          )}
-        </div>
-      </div>
-    </FlitCard>
-  );
-}
 
 export default function FlitoAyuda() {
   const { slug } = useParams<{ slug?: string }>();
   if (slug) return <Ficha slug={slug} />;
-  return <Indice />;
-}
-
-function Indice() {
-  const { user } = useAuth();
-  const [estado, setEstado] = useState<EstadoCarga>('cargando');
-  const [error, setError] = useState('');
-  const [nonce, setNonce] = useState(0);
-  const [cuerpos, setCuerpos] = useState<ReadonlyMap<string, FichaParseada | null>>(() => new Map());
-  const [consulta, setConsulta] = useState('');
-  const inputBuscarRef = useRef<HTMLInputElement>(null);
-
-  const capitulos = useMemo(() => capitulosVisibles(user), [user]);
-
-  useEffect(() => {
-    let cancel = false;
-    setEstado('cargando');
-    setError('');
-    const slugs = capitulos.map((c) => c.clave);
-    verificarBundleAyuda()
-      .then(() => leerFichasParseadas(slugs))
-      .then((map) => {
-        if (cancel) return;
-        setCuerpos(map);
-        setEstado('listo');
-      })
-      .catch((e) => {
-        if (cancel) return;
-        setError(errorMessage(e));
-        setEstado('error');
-      });
-    return () => { cancel = true; };
-  }, [nonce, capitulos]);
-
-  const reintentar = useCallback(() => setNonce((n) => n + 1), []);
-
-  const filtrados = useMemo(
-    () => capitulos.filter((c) => entradaCoincideBusqueda(c, cuerpos.get(c.clave), consulta)),
-    [capitulos, cuerpos, consulta],
-  );
-
-  const agrupados = useMemo(() => GRUPOS_ORDEN
-    .map((grupo) => ({ grupo, items: filtrados.filter((c) => c.grupo === grupo) }))
-    .filter((g) => g.items.length > 0), [filtrados]);
-
-  const limpiarBusqueda = useCallback(() => {
-    setConsulta('');
-    inputBuscarRef.current?.focus();
-  }, []);
-
-  if (estado === 'cargando') {
-    return (
-      <div className="space-y-4">
-        <PageHeaderCard title="Ayuda FLITO" subtitle="Guías de las pantallas que usted ya puede abrir." />
-        <PageContentSkeleton />
-      </div>
-    );
-  }
-
-  if (estado === 'error') {
-    return (
-      <div className="space-y-4">
-        <PageHeaderCard title="Ayuda FLITO" subtitle="Guías de las pantallas que usted ya puede abrir." />
-        <ErrorAyuda titulo="No se pudo cargar el índice de ayuda." detalle={error} onReintentar={reintentar} />
-      </div>
-    );
-  }
-
-  if (capitulos.length === 0) {
-    return (
-      <div className="space-y-4">
-        <PageHeaderCard title="Ayuda FLITO" subtitle="Guías de las pantallas que usted ya puede abrir." />
-        <FlitEmpty>
-          <p className="text-base font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
-            No hay capítulos de ayuda para las pantallas que usted puede abrir.
-          </p>
-          <p className="mx-auto mt-2 max-w-lg">
-            Si cree que debería ver una guía, pídale a un administrador que le habilite esa pantalla. La ayuda no se concede aparte.
-          </p>
-          <Link to="/" className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle}>Volver al tablero</Link>
-        </FlitEmpty>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <PageHeaderCard title="Ayuda FLITO" subtitle="Guías de las pantallas que usted ya puede abrir." />
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="min-w-[240px] max-w-xl flex-1">
-          <FlitField label="Buscar capítulos">
-            <input
-              ref={inputBuscarRef}
-              id="ayuda-buscar-capitulos"
-              type="search"
-              className={flitInp}
-              placeholder="Buscar capítulos…"
-              value={consulta}
-              onChange={(e) => setConsulta(e.target.value)}
-              aria-label="Buscar capítulos"
-              autoComplete="off"
-            />
-          </FlitField>
-        </div>
-        {consulta !== '' && (
-          <button
-            type="button"
-            className={flitBtnSecondary}
-            style={flitBtnSecondaryStyle}
-            onClick={limpiarBusqueda}
-          >
-            Limpiar búsqueda
-          </button>
-        )}
-      </div>
-      {agrupados.length === 0 ? (
-        <p
-          className="text-sm font-semibold"
-          style={{ color: 'var(--flit-text-primary)' }}
-          aria-live="polite"
-        >
-          Ningún capítulo coincide con su búsqueda.
-        </p>
-      ) : (
-        <nav aria-label="Capítulos de ayuda" className="space-y-6">
-          {agrupados.map(({ grupo, items }) => (
-            <section key={grupo} aria-labelledby={`ayuda-grupo-${grupo}`}>
-              <h2
-                id={`ayuda-grupo-${grupo}`}
-                className="mb-2 text-xs font-semibold uppercase tracking-[0.18em]"
-                style={{ color: 'var(--flit-text-muted)' }}
-              >
-                {GRUPO_AYUDA_LABEL[grupo]}
-              </h2>
-              <div
-                className="overflow-hidden"
-                style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)', background: 'var(--flit-bg-card)' }}
-              >
-                <ul>
-                  {items.map((entrada, idx) => (
-                    <li key={entrada.clave} style={idx > 0 ? { borderTop: '1px solid var(--flit-border-soft)' } : undefined}>
-                      <FilaCapitulo entrada={entrada} ficha={cuerpos.get(entrada.clave) ?? null} />
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </section>
-          ))}
-        </nav>
-      )}
-    </div>
-  );
-}
-
-function FilaCapitulo({ entrada, ficha }: { entrada: EntradaAyuda; ficha: FichaParseada | null }) {
-  const pendiente = ficha == null;
-  const nombre = pendiente ? `Ficha pendiente de ${entrada.etiqueta}` : `Abrir ficha de ${entrada.etiqueta}`;
-  return (
-    <Link
-      to={`/flito/ayuda/${entrada.clave}`}
-      aria-label={nombre}
-      className="flit-focus flex items-center gap-3 px-5 py-4 transition-colors hover:bg-[color:var(--flit-bg-app)]"
-    >
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>{entrada.etiqueta}</span>
-        <span className="mt-0.5 block text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{resumenDeEntrada(entrada, ficha)}</span>
-      </span>
-      {pendiente && <StatusChip tone="active">Ficha pendiente</StatusChip>}
-      <span aria-hidden="true" className="text-lg" style={{ color: 'var(--flit-text-muted)' }}>→</span>
-    </Link>
-  );
+  return <AyudaIndice />;
 }
 
 function Ficha({ slug }: { slug: string }) {
@@ -253,7 +36,6 @@ function Ficha({ slug }: { slug: string }) {
   const titleRef = useRef<HTMLHeadingElement>(null);
   const entrada = entradaAyudaPorClave(slug);
   const [estado, setEstado] = useState<EstadoCarga>('cargando');
-  const [error, setError] = useState('');
   const [fuente, setFuente] = useState<FichaParseada | null>(null);
   const [nonce, setNonce] = useState(0);
 
@@ -265,7 +47,6 @@ function Ficha({ slug }: { slug: string }) {
     if (!entrada || !puedeVerEntradaAyuda(user, entrada)) return undefined;
     let cancel = false;
     setEstado('cargando');
-    setError('');
     setFuente(null);
     leerFichaParseada(entrada.clave)
       .then((ficha) => {
@@ -273,9 +54,8 @@ function Ficha({ slug }: { slug: string }) {
         setFuente(ficha);
         setEstado('listo');
       })
-      .catch((e) => {
+      .catch(() => {
         if (cancel) return;
-        setError(errorMessage(e));
         setEstado('error');
       });
     return () => { cancel = true; };
@@ -291,7 +71,7 @@ function Ficha({ slug }: { slug: string }) {
         <PageHeaderCard title="Ayuda FLITO" leading={<VolverIndice />} />
         <FlitEmpty>
           <p className="text-base font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Esta ficha no existe.</p>
-          <p className="mx-auto mt-2 max-w-lg">Ese capítulo no forma parte de la ayuda FLITO.</p>
+          <p className="mx-auto mt-2 max-w-lg">Esa ficha no forma parte de la Ayuda FLITO.</p>
           <Link to="/flito/ayuda" className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle}>Volver al índice</Link>
         </FlitEmpty>
       </div>
@@ -329,7 +109,7 @@ function Ficha({ slug }: { slug: string }) {
     return (
       <div className="space-y-4">
         <PageHeaderCard title={entrada.etiqueta} subtitle={resumen || undefined} leading={<VolverIndice />} titleRef={titleRef} actions={irPantalla} />
-        <ErrorAyuda titulo="No se pudo cargar esta ficha." detalle={error} onReintentar={reintentar} volver />
+        <ErrorAyuda titulo="No se pudo cargar esta ficha." onReintentar={reintentar} volver />
       </div>
     );
   }
