@@ -38,9 +38,17 @@ function Inline({ nodes, puedeEnlazar }: { nodes: MdInline[]; puedeEnlazar: (hre
 
 function Bloque({ block, puedeEnlazar }: { block: MdBlock; puedeEnlazar: (href: string) => boolean }): ReactNode {
   const hStyle = { color: 'var(--flit-blue-text)' };
-  if (block.type === 'h1') return <h2 className="text-lg font-semibold" style={hStyle}><Inline nodes={block.children} puedeEnlazar={puedeEnlazar} /></h2>;
-  if (block.type === 'h2') return <h2 className="text-lg font-semibold" style={hStyle}><Inline nodes={block.children} puedeEnlazar={puedeEnlazar} /></h2>;
-  if (block.type === 'h3') return <h3 className="text-base font-semibold" style={hStyle}><Inline nodes={block.children} puedeEnlazar={puedeEnlazar} /></h3>;
+  // HU #13705 (AC7): id = ancla del encabezado (`anclaDeEncabezado`), foco de programa al saltar a él y
+  // margen de scroll para no quedar bajo la topbar. El `h1` del .md baja a `h2`: el h1 es el del header.
+  const hProps = (id: string) => ({ id, tabIndex: -1, className: 'flit-focus scroll-mt-24 rounded-sm' });
+  if (block.type === 'h1' || block.type === 'h2') {
+    const p = hProps(block.id);
+    return <h2 {...p} className={`${p.className} text-lg font-semibold`} style={hStyle}><Inline nodes={block.children} puedeEnlazar={puedeEnlazar} /></h2>;
+  }
+  if (block.type === 'h3') {
+    const p = hProps(block.id);
+    return <h3 {...p} className={`${p.className} text-base font-semibold`} style={hStyle}><Inline nodes={block.children} puedeEnlazar={puedeEnlazar} /></h3>;
+  }
   if (block.type === 'p') {
     return (
       <p className="text-sm leading-6" style={{ color: 'var(--flit-text-primary)' }}>
@@ -77,13 +85,15 @@ function Bloque({ block, puedeEnlazar }: { block: MdBlock; puedeEnlazar: (href: 
 }
 
 export default function AyudaMarkdown(
-  { source, puedeEnlazar, label }: {
-    source: string;
+  { source, bloques, puedeEnlazar, label }: {
+    source?: string;
+    /** AST ya parseado (la ficha lo comparte con la tabla de contenido). Gana sobre `source`. */
+    bloques?: MdBlock[];
     puedeEnlazar: (href: string) => boolean;
     label: string;
   },
 ) {
-  const ast = parseMarkdown(source);
+  const ast = bloques ?? parseMarkdown(source ?? '');
   return (
     <article className="space-y-4" aria-label={label}>
       {ast.map((block, i) => (
