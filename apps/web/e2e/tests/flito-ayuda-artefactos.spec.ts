@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { test, expect } from '../helpers/fixtures';
 import { parsearFicha, fechaFichaLegible } from '../../src/lib/ayudaFicha';
 import { CATALOGO_AYUDA } from '../../src/content/ayuda/catalogo';
+import { SRC_IMAGEN } from '../../src/lib/ayudaMarkdown';
 
 const raiz = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../..');
 
@@ -13,13 +14,16 @@ function leer(rel: string): string {
 }
 
 test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
-  test('AC6 — la plantilla trae las seis secciones, tono usted, sin capturas ni endpoints', () => {
+  test('AC6 — la plantilla trae las seis secciones, tono usted, sin endpoints; imágenes solo con datos demo', () => {
     const plantilla = leer('apps/web/src/content/ayuda/_plantilla.md');
     for (const h of ['## Qué es', '## Para quién', '## Cómo se entra', '## Pasos', '## Estados', '## Qué no hace']) {
       expect(plantilla, h).toContain(h);
     }
     expect(plantilla).toMatch(/\busted\b/i);
-    expect(plantilla).not.toMatch(/!\[[^\]]*\]\(/);
+    // HU #13707 AC7: ya no prohíbe imágenes; las permite con datos demo y en la carpeta de la ficha.
+    expect(plantilla).toMatch(/solo con datos demo/);
+    expect(plantilla).toMatch(/sin cédulas, placas, nombres ni teléfonos reales/);
+    expect(plantilla).toContain('apps/web/public/ayuda/<clave>/');
     expect(plantilla).not.toMatch(/\/api\//);
     expect(plantilla).not.toMatch(/\b(CREATE TABLE|FROM public\.|pg_)/i);
   });
@@ -34,6 +38,10 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     expect(skill).toMatch(/BACKEND-only/);
     expect(skill).toMatch(/CHORE/);
     expect(skill.split('\n').length).toBeLessThan(500);
+    // HU #13707 AC7: capturas y diagramas permitidos solo con datos demo.
+    expect(skill).not.toMatch(/Prohibido: capturas, diagramas como imagen/);
+    expect(skill).toMatch(/Capturas y diagramas[^\n]*solo con datos demo/);
+    expect(skill).toMatch(/sin cédulas, placas,\s+nombres\s+ni teléfonos reales/);
   });
 
   test('AC7 — fila nueva en la matriz de AGENTS.md', () => {
@@ -157,5 +165,27 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
       expect(skill).toContain(`\`${clave}\``);
     }
     expect(skill).toMatch(/se actualizan en cada cambio de la ficha/);
+  });
+
+  // HU #13707 AC2/AC7 (diseño slim §6): toda imagen de ficha trae alt, `src` válido, carpeta = clave y
+  // archivo en disco. Evita además que el servidor devuelva index.html con 200 y el SW lo cachee.
+  test('HU #13707 AC2/AC7 — imágenes de las fichas: alt, src válido, carpeta de la ficha y archivo existente', () => {
+    const dirPublico = resolve(raiz, 'apps/web/public/ayuda');
+    let total = 0;
+    for (const f of fichas) {
+      const clave = f.replace(/\.md$/, '');
+      const md = readFileSync(resolve(dirFichas, f), 'utf8');
+      for (const [, alt, src] of md.matchAll(/!\[([^\]]*)\]\(([^)]*)\)/g)) {
+        total += 1;
+        const donde = `${f} · imagen ${src}`;
+        expect(alt.trim(), `${donde}: falta el texto alternativo`).not.toBe('');
+        const m = SRC_IMAGEN.exec(src.trim());
+        expect(m, `${donde}: src fuera de ./<clave>/<archivo>.(png|jpg|jpeg|webp|svg)`).not.toBeNull();
+        expect(m![1], `${donde}: la carpeta debe ser la clave de la ficha (${clave})`).toBe(clave);
+        expect(existsSync(resolve(dirPublico, m![1], m![2])), `${donde}: no existe en public/ayuda/`).toBe(true);
+      }
+    }
+    // Al menos la imagen demo de la HU #13707 (siigo_operacion) está cubierta.
+    expect(total).toBeGreaterThanOrEqual(1);
   });
 });

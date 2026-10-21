@@ -77,7 +77,15 @@ Copiar `_plantilla.md` (incluido su encabezado). Secciones, en este orden, tono 
 5. **Estados** (cargando / error / vacío / lleno de ESA pantalla)
 6. **Qué no hace**
 
-Prohibido: capturas, diagramas como imagen, endpoints, nombres de tablas, PII de ejemplo.
+Prohibido: endpoints, nombres de tablas, PII de ejemplo.
+
+**Capturas y diagramas (HU #13707): permitidos solo con datos demo** — sin cédulas, placas, nombres
+ni teléfonos reales. El archivo va en `apps/web/public/ayuda/<clave>/<archivo>` (carpeta = clave de
+la ficha; nombre en minúsculas, `png`, `jpg`, `jpeg`, `webp` o `svg`) y se cita con
+`![texto alternativo](./<clave>/<archivo>)`. El texto alternativo es obligatorio y describe lo que
+muestra. Cualquier otro origen (`http…`, `data:`, `/…`, `..`) no se carga: solo se ve el texto
+alternativo. Diagramas exportados a SVG o PNG (sin Mermaid). Añadir o cambiar una imagen es cambio
+de la ficha: sube `version` y `fecha`. Lo vigila `e2e/tests/flito-ayuda-artefactos.spec.ts`.
 
 ## Qué no hacer
 

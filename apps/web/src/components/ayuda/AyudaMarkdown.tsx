@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { AlertCircle, AlertTriangle, Info, type LucideIcon } from 'lucide-react';
+import AyudaImagen from './AyudaImagen';
 import { parseMarkdown, type MdBlock, type MdInline, type TipoAviso } from '../../lib/ayudaMarkdown';
 
 // AST → React. Cero dangerouslySetInnerHTML. HTML crudo del .md llega como texto.
@@ -19,6 +20,7 @@ function Inline({ nodes, puedeEnlazar }: { nodes: MdInline[]; puedeEnlazar: (hre
         </code>
       );
     }
+    if (n.type === 'img') return <AyudaImagen key={i} alt={n.alt} src={n.src} en="span" />;
     if (!puedeEnlazar(n.href)) {
       return <span key={i}><Inline nodes={n.children} puedeEnlazar={puedeEnlazar} /></span>;
     }
@@ -69,6 +71,11 @@ function Bloque({ block, puedeEnlazar }: { block: MdBlock; puedeEnlazar: (href: 
     return <h3 {...p} className={`${p.className} text-base font-semibold`} style={hStyle}><Inline nodes={block.children} puedeEnlazar={puedeEnlazar} /></h3>;
   }
   if (block.type === 'p') {
+    // HU #13707: una imagen sola en su párrafo es una figura (fuera del `<p>`).
+    const [unica] = block.children;
+    if (block.children.length === 1 && unica.type === 'img') {
+      return <AyudaImagen alt={unica.alt} src={unica.src} en="figure" />;
+    }
     return (
       <p className="text-sm leading-6" style={{ color: 'var(--flit-text-primary)' }}>
         <Inline nodes={block.children} puedeEnlazar={puedeEnlazar} />

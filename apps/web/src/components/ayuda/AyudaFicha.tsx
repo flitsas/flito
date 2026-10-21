@@ -90,7 +90,11 @@ export default function AyudaFicha({ slug }: { slug: string }) {
   // vuelve a fallar sin pedir nada a la red, así que nunca tenía éxito.
   const reintentar = useCallback(() => window.location.reload(), []);
   const enlazar = useCallback((href: string) => puedeEnlazarFichaAyuda(user, href), [user]);
-  const bloques = useMemo(() => (fuente ? parseMarkdown(fuente.cuerpo) : []), [fuente]);
+  // HU #13707: la `version` del encabezado versiona la URL de las imágenes (`?v=`, diseño slim §6).
+  const bloques = useMemo(
+    () => (fuente ? parseMarkdown(fuente.cuerpo, { versionFicha: fuente.encabezado?.version }) : []),
+    [fuente],
+  );
   const secciones = useMemo(() => seccionesDeFicha(bloques), [bloques]);
   const vecinas = useMemo(() => vecinasVisibles(capitulosEnOrdenDeIndice(user), slug), [user, slug]);
   const resumen = entrada ? resumenDeEntrada(entrada, fuente) : '';
