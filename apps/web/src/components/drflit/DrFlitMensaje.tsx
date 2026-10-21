@@ -5,12 +5,14 @@ import StatusChip from '../flit/StatusChip';
 import { flitBtnSecondarySm } from '../flit/flitPageKit';
 import { entradaAyudaPorClave, puedeVerEntradaAyuda, type UsuarioAyuda } from '../../lib/ayudaFlito';
 import type { FichaParseada } from '../../lib/ayudaFicha';
-import { explicacionDeModulo, type MensajeDrFlit } from '../../lib/drFlitConversacion';
+import { explicacionDeModulo, type MensajeDrFlit, type RefFicha } from '../../lib/drFlitConversacion';
+import { seccionesDeFicha } from '../../lib/drFlitBusqueda';
 
 // Dr. Flit — pinta cada mensaje de la conversación (HU #13765; slim §4, spec UX «Explícame un
 // módulo»). Viven dentro del `role="log"` del panel: la respuesta se anuncia sin mover el foco (AC5).
 // Títulos y resúmenes se derivan aquí desde el catálogo y la ficha ya cargada, nunca del mensaje.
-// #13766 añade aquí `citas` / `sinResultados` (y F5 cuelga «Necesito soporte» de este archivo).
+// HU #13766: `pregunta` / `citas` / `sinResultados`; F5 (#13695) cuelga «Necesito soporte» como
+// segundo hijo de la fila de acciones de «sin resultados» (`DrFlitSinResultados`).
 
 export const ENLACE_DRFLIT =
   'flit-focus inline-flex items-center gap-1 rounded-md font-medium text-[color:var(--flit-blue-text)] underline-offset-2 transition-colors hover:text-flit-ink hover:underline';
@@ -43,12 +45,21 @@ export interface DrFlitMensajeProps {
   /** Fichas ya cargadas en esta sesión de panel (`null` = pendiente). */
   fichas: ReadonlyMap<string, FichaParseada | null>;
   onNavegar: () => void;
+  /** Texto de la pregunta a la que responde un `sinResultados` (se lee, no se copia al mensaje). */
+  textoRespondeA?: string;
 }
 
-export default function DrFlitMensaje({ mensaje, user, fichas, onNavegar }: DrFlitMensajeProps) {
+export default function DrFlitMensaje({ mensaje, user, fichas, onNavegar, textoRespondeA }: DrFlitMensajeProps) {
   if (mensaje.tipo === 'modulo') {
     const entrada = entradaAyudaPorClave(mensaje.clave);
     return <BurbujaUsuario>Explíqueme {entrada?.etiqueta ?? 'un módulo'}</BurbujaUsuario>;
+  }
+  if (mensaje.tipo === 'pregunta') return <BurbujaUsuario>{mensaje.texto}</BurbujaUsuario>;
+  if (mensaje.tipo === 'citas') {
+    return <DrFlitCitas refs={mensaje.refs} user={user} fichas={fichas} onNavegar={onNavegar} />;
+  }
+  if (mensaje.tipo === 'sinResultados') {
+    return <DrFlitSinResultados consulta={textoRespondeA} onNavegar={onNavegar} />;
   }
 
   const entrada = entradaAyudaPorClave(mensaje.ref.clave);
@@ -99,6 +110,94 @@ export function DrFlitErrorModulo({ etiqueta, onReintentar }: { etiqueta: string
         <AlertCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--flit-danger-ink)]" />
         <div className="min-w-0">
           <p className="break-words">No pude cargar la ficha de {etiqueta}.</p>
+          <p className="mt-1 text-flit-secondary">Revise su conexión e intente de nuevo.</p>
+          <button type="button" onClick={onReintentar} className={`${flitBtnSecondarySm} mt-3`}>
+            Reintentar
+          </button>
+        </div>
+      </div>
+    </BurbujaDrFlit>
+  );
+}
+
+const NO_DISPONIBLE = 'Esta referencia ya no está disponible';
+
+const CITA_DRFLIT =
+  'flit-focus flex min-h-11 w-full items-center gap-3 rounded-flit-lg border border-flit-soft px-3 py-2 transition-colors hover:bg-[var(--flit-bg-hover)] group';
+
+/** Una cita: título de ficha y de sección derivados de la ficha ya cargada; fail-closed sin permiso o ancla. */
+function CitaDrFlit({ refFicha, user, fichas, onNavegar }: {
+  refFicha: RefFicha; user: UsuarioAyuda | null; fichas: ReadonlyMap<string, FichaParseada | null>; onNavegar: () => void;
+}) {
+  const entrada = entradaAyudaPorClave(refFicha.clave);
+  const ficha = entrada && puedeVerEntradaAyuda(user, entrada) ? fichas.get(entrada.clave) : undefined;
+  const seccion = entrada && ficha && refFicha.ancla
+    ? seccionesDeFicha(entrada, ficha).find((s) => s.ancla === refFicha.ancla)
+    : undefined;
+  if (!entrada || !seccion) return <p className="px-3 py-2 text-flit-muted">{NO_DISPONIBLE}</p>;
+  return (
+    <Link to={`/flito/ayuda/${entrada.clave}#${seccion.ancla}`} onClick={onNavegar} className={CITA_DRFLIT}>
+      <span className="min-w-0 flex-1">
+        <span className="block break-words text-xs text-flit-muted">{seccion.tituloFicha}</span>
+        <span className="sr-only">, </span>
+        <span className="block break-words font-medium text-flit-ink underline-offset-2 group-hover:underline">
+          {seccion.tituloSeccion}
+        </span>
+      </span>
+      <span aria-hidden="true" className="shrink-0 text-[color:var(--flit-blue-text)]">→</span>
+    </Link>
+  );
+}
+
+function DrFlitCitas({ refs, user, fichas, onNavegar }: {
+  refs: RefFicha[]; user: UsuarioAyuda | null; fichas: ReadonlyMap<string, FichaParseada | null>; onNavegar: () => void;
+}) {
+  return (
+    <BurbujaDrFlit>
+      <p>Esto es lo que encontré en sus manuales:</p>
+      <ul className="mt-3 flex flex-col gap-2">
+        {refs.map((r) => (
+          <li key={`${r.clave}#${r.ancla ?? ''}`}>
+            <CitaDrFlit refFicha={r} user={user} fichas={fichas} onNavegar={onNavegar} />
+          </li>
+        ))}
+      </ul>
+    </BurbujaDrFlit>
+  );
+}
+
+const MAX_CONSULTA_VISIBLE = 60;
+
+/** «Sin resultados» (AC5). La fila de acciones es el hueco de F5: hoy un solo hijo. */
+function DrFlitSinResultados({ consulta, onNavegar }: { consulta?: string; onNavegar: () => void }) {
+  const corta = consulta && consulta.length > MAX_CONSULTA_VISIBLE
+    ? `${consulta.slice(0, MAX_CONSULTA_VISIBLE)}…`
+    : consulta;
+  return (
+    <BurbujaDrFlit>
+      <p className="break-words">
+        {corta ? `No encontré nada sobre "${corta}" en sus manuales.` : 'No encontré nada sobre su pregunta en sus manuales.'}
+      </p>
+      <p className="mt-1 text-flit-secondary">
+        Pruebe con otras palabras, por ejemplo el nombre del módulo o de la pantalla.
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Link to="/flito/ayuda" onClick={onNavegar} className={flitBtnSecondarySm}>
+          Abrir la Ayuda FLITO
+        </Link>
+      </div>
+    </BurbujaDrFlit>
+  );
+}
+
+/** Error al revisar los manuales (AC8): «Reintentar» reenvía la misma pregunta. */
+export function DrFlitErrorPregunta({ onReintentar }: { onReintentar: () => void }) {
+  return (
+    <BurbujaDrFlit>
+      <div className="flex items-start gap-2">
+        <AlertCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--flit-danger-ink)]" />
+        <div className="min-w-0">
+          <p>No pude revisar sus manuales en este momento.</p>
           <p className="mt-1 text-flit-secondary">Revise su conexión e intente de nuevo.</p>
           <button type="button" onClick={onReintentar} className={`${flitBtnSecondarySm} mt-3`}>
             Reintentar

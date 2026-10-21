@@ -9,6 +9,8 @@ import type { FichaParseada } from './ayudaFicha';
 import { resumenDeEntrada } from './ayudaBusqueda';
 
 export const MAX_MENSAJES = 50;
+/** Tope de la pregunta del usuario (HU #13766 AC6). */
+export const MAX_PREGUNTA = 300;
 
 /** Referencia a una ficha; sin `ancla` = la ficha completa. */
 export interface RefFicha {
@@ -19,10 +21,16 @@ export interface RefFicha {
 type Base = { id: string; ts: number };
 
 export type MensajeDrFlit =
+  /** «Tengo una pregunta»: el texto tal cual (≤ `MAX_PREGUNTA`). Nunca sale del navegador. */
+  | (Base & { de: 'usuario'; tipo: 'pregunta'; texto: string })
   /** «Explícame X»: la etiqueta se deriva del catálogo. */
   | (Base & { de: 'usuario'; tipo: 'modulo'; clave: string })
   /** Respuesta a «Explícame X»: el resumen se deriva al pintar, no se guarda. */
-  | (Base & { de: 'drflit'; tipo: 'explicacion'; ref: RefFicha });
+  | (Base & { de: 'drflit'; tipo: 'explicacion'; ref: RefFicha })
+  /** Respuesta a una pregunta: 1..3 referencias `{clave, ancla}`; los títulos se derivan al pintar. */
+  | (Base & { de: 'drflit'; tipo: 'citas'; respondeA: string; refs: RefFicha[] })
+  /** Sin coincidencias: la consulta se lee del mensaje `respondeA`, no se copia. */
+  | (Base & { de: 'drflit'; tipo: 'sinResultados'; respondeA: string });
 
 let secuencia = 0;
 
