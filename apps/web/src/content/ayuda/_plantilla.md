@@ -29,6 +29,17 @@ Cómo se llega con el menú o, si la pantalla no es un ítem de menú, desde qu�
 2. No invente un control que la pantalla no tiene.
 3. Una acción por paso.
 
+Para destacar algo, use un aviso: un bloque `>` cuya primera línea es el tipo. Hay tres y solo tres; cualquier otro `>` se muestra como cita normal.
+
+> [!NOTA]
+> Dato útil que no cambia el resultado. Ejemplo: el filtro se conserva al volver a la pantalla.
+
+> [!IMPORTANTE]
+> Algo que la persona debe saber para que la tarea salga bien. Ejemplo: guarde antes de cambiar de pestaña.
+
+> [!PRECAUCION]
+> Una acción que no se puede deshacer o que afecta dinero o datos. Ejemplo: al anular, el comprobante no se recupera.
+
 ## Estados
 
 Qué ve la persona en cargando, error, vacío y lleno de ESA pantalla (no de Ayuda).

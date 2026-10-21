@@ -2,7 +2,9 @@ import { CATALOGO_AYUDA, GRUPOS_ORDEN, type ClaveAyuda, type EntradaAyuda } from
 // HU #12087: se mira `allowedPages` del sobre `/me` (ya resuelto). NO se importa `hasPage` de
 // `lib/permissions`: desde la HU #11913 ese módulo consume `NAV_ITEMS` para `rutaInicio`, y
 // `navItems.ts` consume este — importar `hasPage` cerraría el ciclo en tiempo de ejecución.
-import { isValidPage, type TipoEnlace } from '@operaciones/shared-types';
+import {
+  isValidPage, paginasPorDefecto, ROLE_DEFAULT_PAGES, USER_ROLES, type PageSlug, type TipoEnlace, type UserRole,
+} from '@operaciones/shared-types';
 
 /**
  * HU #12875: `tipoEnlace` (de `/permisos/mios`) es la frontera, no el nombre del rol. Ausente = aún no
@@ -72,6 +74,37 @@ export function vecinasVisibles(
     anterior: i > 0 ? visibles[i - 1] : undefined,
     siguiente: i < visibles.length - 1 ? visibles[i + 1] : undefined,
   };
+}
+
+/**
+ * Roles de ENLACE: no ven la Ayuda (D2 del Feature #13691 — `puedeVerEntradaAyuda` devuelve `false` con
+ * `tipoEnlace` distinto de `ninguno`). Listarlos en «Aplica para» prometería una ficha que no abren.
+ * Decisión del humano (HU #13706 AC3). No es la lista de roles que se muestran: esa sale de la matriz.
+ * El tipo de enlace por rol vive en la base (`permisos_roles.tipo_enlace`) sin espejo en shared-types,
+ * por eso se nombran aquí. Texto informativo: NO decide acceso. Es la «Excepción declarada» de
+ * `scripts/check-roles-web.mjs` (2 hallazgos: esta constante y su `.has(rol)` de abajo).
+ */
+const ROLES_ENLACE_SIN_AYUDA: ReadonlySet<UserRole> = new Set<UserRole>(['cliente', 'proveedor']);
+
+/**
+ * ¿El rol tiene TODAS las páginas? Es el que no tiene fila en `ROLE_DEFAULT_PAGES` (`admin`: su tabla
+ * es total sobre los demás roles y sus páginas las siembra la migración 0179 en
+ * `permisos_rol_funcion`; ver el comentario de `ROLE_DEFAULT_PAGES` en `permissions.ts`). Se deriva de
+ * la matriz, no del nombre del rol.
+ */
+const sinFilaPorDefecto = (rol: UserRole): boolean => !(rol in ROLE_DEFAULT_PAGES);
+
+/**
+ * «Aplica para» (HU #13706 AC3, diseño slim §5, P9-2c): roles de `USER_ROLES`, EN SU ORDEN, que tienen
+ * `slug` por defecto o que no tienen fila en `ROLE_DEFAULT_PAGES` (todas las páginas), menos los de
+ * enlace. «Administrador primero» sale de ahí sin literal: `admin` es `USER_ROLES[0]` y es el único rol
+ * sin fila. `operaciones` no puede salir: no está en `USER_ROLES`. Puro: sin red ni estado.
+ */
+export function rolesPorDefectoDePagina(slug: PageSlug): UserRole[] {
+  return USER_ROLES.filter(
+    (rol) => !ROLES_ENLACE_SIN_AYUDA.has(rol)
+      && (sinFilaPorDefecto(rol) || paginasPorDefecto(rol).includes(slug)),
+  );
 }
 
 const RAIZ_AYUDA = '/flito/ayuda';
