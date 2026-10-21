@@ -8,7 +8,7 @@ palabras_clave:
 consultas:
   - cómo emito una factura
   - por qué falló una factura en Siigo
-version: 1.0
+version: 1.1
 fecha: 2026-10-20
 ---
 ## Qué es
@@ -30,6 +30,10 @@ En el menú lateral, sección **Finanzas**, ítem **Facturación electrónica ·
 3. En **Casos detenidos**, pulse **Ver**. Según la fuente: **Reintentar la emisión** o **Reenviar el correo**; **Dar por perdido**; **Registrar una corrección** (un rechazo de la DIAN no se reintenta: emitiría un segundo documento); **Copiar enlace**.
 4. Para varios casos: marque, pulse **Reintentar N casos**. **Quitar la selección** limpia las casillas.
 5. Un caso dado por perdido se devuelve a la cola con **Volver a intentarlo**, no con «reactivar».
+
+El camino de un caso detenido, de un vistazo:
+
+![Diagrama: un caso detenido se reintenta, se corrige o se da por perdido; un caso dado por perdido vuelve a la cola con Volver a intentarlo](./siigo_operacion/camino-caso-detenido.svg)
 
 ## Estados
 
