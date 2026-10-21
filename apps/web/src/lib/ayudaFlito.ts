@@ -1,4 +1,4 @@
-import { CATALOGO_AYUDA, type ClaveAyuda, type EntradaAyuda } from '../content/ayuda/catalogo';
+import { CATALOGO_AYUDA, GRUPOS_ORDEN, type ClaveAyuda, type EntradaAyuda } from '../content/ayuda/catalogo';
 // HU #12087: se mira `allowedPages` del sobre `/me` (ya resuelto). NO se importa `hasPage` de
 // `lib/permissions`: desde la HU #11913 ese módulo consume `NAV_ITEMS` para `rutaInicio`, y
 // `navItems.ts` consume este — importar `hasPage` cerraría el ciclo en tiempo de ejecución.
@@ -51,10 +51,48 @@ export function esClaveAyuda(clave: string): clave is ClaveAyuda {
   return CATALOGO_AYUDA.some((entrada) => entrada.clave === clave);
 }
 
-/** Enlaces internos a otra ficha: solo si el usuario puede ver ese capítulo. */
+/** Fichas visibles en el orden del índice sin búsqueda: grupo (orden del menú) y, dentro, el del catálogo. */
+export function capitulosEnOrdenDeIndice(user: UsuarioAyuda | null): EntradaAyuda[] {
+  const visibles = capitulosVisibles(user);
+  return GRUPOS_ORDEN.flatMap((g) => visibles.filter((c) => c.grupo === g));
+}
+
+/**
+ * Anterior/Siguiente de la ficha (HU #13705 AC5, diseño slim §7). Puro: recibe la lista ya filtrada
+ * por permiso y ordenada como el índice, así que las no visibles se saltan por construcción. Una
+ * clave que no está en la lista no tiene vecinas.
+ */
+export function vecinasVisibles(
+  visibles: readonly EntradaAyuda[],
+  clave: string,
+): { anterior?: EntradaAyuda; siguiente?: EntradaAyuda } {
+  const i = visibles.findIndex((e) => e.clave === clave);
+  if (i < 0) return {};
+  return {
+    anterior: i > 0 ? visibles[i - 1] : undefined,
+    siguiente: i < visibles.length - 1 ? visibles[i + 1] : undefined,
+  };
+}
+
+const RAIZ_AYUDA = '/flito/ayuda';
+const FICHA_AYUDA = /^\/flito\/ayuda\/([^/?#]+)(?:[?#].*)?$/;
+
+/**
+ * Enlaces internos a la Ayuda dentro de una ficha (HU #13705 AC4, diseño slim §4). Falla cerrada para
+ * todo lo que empiece por `/flito/ayuda`:
+ * 1) fuera de la Ayuda → true (los esquemas ya los filtró `hrefPermitido`);
+ * 2) el índice, con o sin `?…`/`#…` → `puedeVerAyudaFlito`;
+ * 3) una ficha, con o sin `?…`/`#…` → esa ficha existe y el usuario la ve;
+ * 4) cualquier otra forma (segmentos extra, `/flito/ayudaX`) → false.
+ */
 export function puedeEnlazarFichaAyuda(user: UsuarioAyuda | null, href: string): boolean {
-  const match = /^\/flito\/ayuda\/([^/?#]+)$/.exec(href);
-  if (!match) return true;
+  if (!href.startsWith(RAIZ_AYUDA)) return true;
+  const resto = href.slice(RAIZ_AYUDA.length);
+  if (resto === '' || resto[0] === '?' || resto[0] === '#' || /^\/(?:[?#].*)?$/.test(resto)) {
+    return puedeVerAyudaFlito(user);
+  }
+  const match = FICHA_AYUDA.exec(href);
+  if (!match) return false;
   const entrada = entradaAyudaPorClave(match[1]);
   if (!entrada) return false;
   return puedeVerEntradaAyuda(user, entrada);

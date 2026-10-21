@@ -64,6 +64,12 @@ export interface EntradaAyuda {
   permiso?: PageSlug;
 }
 
+/**
+ * Orden de los grupos en el índice, igual al del menú (HU #13431). Lo comparten el índice y
+ * Anterior/Siguiente de la ficha (Feature #13691 · HU #13705, diseño slim §7).
+ */
+export const GRUPOS_ORDEN: readonly AyudaGrupo[] = ['general', 'gestion', 'finanzas', 'administracion'];
+
 export const GRUPO_AYUDA_LABEL: Record<AyudaGrupo, string> = {
   general: 'General',
   gestion: 'Gestión',

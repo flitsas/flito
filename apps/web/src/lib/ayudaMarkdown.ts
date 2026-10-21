@@ -8,11 +8,32 @@ export type MdInline =
   | { type: 'a'; href: string; children: MdInline[] };
 
 export type MdBlock =
-  | { type: 'h1' | 'h2' | 'h3'; children: MdInline[] }
+  | { type: 'h1' | 'h2' | 'h3'; id: string; children: MdInline[] }
   | { type: 'p'; children: MdInline[] }
   | { type: 'ul'; items: MdInline[][] }
   | { type: 'ol'; items: MdInline[][] }
   | { type: 'pre'; lang: string; code: string };
+
+/** Texto visible de una línea inline (sin marcas). Base de las anclas y de la tabla de contenido. */
+export function textoPlano(nodes: MdInline[]): string {
+  return nodes.map((n) => (n.type === 'text' || n.type === 'code' ? n.value : textoPlano(n.children))).join('');
+}
+
+/**
+ * Ancla de un encabezado (Feature #13691 · HU #13705, diseño slim §4). Contrato hacia Dr. Flit:
+ * `/flito/ayuda/<clave>#<ancla>`. Solo depende del texto: NFD, sin diacríticos, minúsculas,
+ * `[^a-z0-9]+` → `-`, sin `-` en los extremos; vacío → `seccion`. Los repetidos los numera
+ * `parseMarkdown` (`x`, `x-2`, `x-3`…), en orden de aparición.
+ */
+export function anclaDeEncabezado(texto: string): string {
+  const slug = texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'seccion';
+}
 
 const HREF_OK = /^(https?:\/\/|\/)/i;
 
@@ -112,7 +133,16 @@ function esOl(line: string): boolean {
 export function parseMarkdown(source: string): MdBlock[] {
   const lines = source.replace(/\r\n/g, '\n').split('\n');
   const blocks: MdBlock[] = [];
+  const usadas = new Map<string, number>();
   let i = 0;
+
+  const encabezado = (type: 'h1' | 'h2' | 'h3', raw: string): MdBlock => {
+    const children = parseInline(raw);
+    const base = anclaDeEncabezado(textoPlano(children));
+    const n = (usadas.get(base) ?? 0) + 1;
+    usadas.set(base, n);
+    return { type, id: n === 1 ? base : `${base}-${n}`, children };
+  };
 
   const tomarParrafo = (primera: string): MdInline[] => {
     const partes = [primera];
@@ -151,15 +181,15 @@ export function parseMarkdown(source: string): MdBlock[] {
     }
 
     if (line.startsWith('### ')) {
-      blocks.push({ type: 'h3', children: parseInline(line.slice(4)) });
+      blocks.push(encabezado('h3', line.slice(4)));
       continue;
     }
     if (line.startsWith('## ')) {
-      blocks.push({ type: 'h2', children: parseInline(line.slice(3)) });
+      blocks.push(encabezado('h2', line.slice(3)));
       continue;
     }
     if (line.startsWith('# ')) {
-      blocks.push({ type: 'h1', children: parseInline(line.slice(2)) });
+      blocks.push(encabezado('h1', line.slice(2)));
       continue;
     }
 
