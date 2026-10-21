@@ -5,7 +5,9 @@ import StatusChip from '../flit/StatusChip';
 import { flitBtnSecondarySm } from '../flit/flitPageKit';
 import { entradaAyudaPorClave, puedeVerEntradaAyuda, type UsuarioAyuda } from '../../lib/ayudaFlito';
 import type { FichaParseada } from '../../lib/ayudaFicha';
-import { explicacionDeModulo, type MensajeDrFlit, type RefFicha } from '../../lib/drFlitConversacion';
+import {
+  estadoReferencia, explicacionDeModulo, type MensajeDrFlit, type RefFicha,
+} from '../../lib/drFlitConversacion';
 import { seccionesDeFicha } from '../../lib/drFlitBusqueda';
 
 // Dr. Flit — pinta cada mensaje de la conversación (HU #13765; slim §4, spec UX «Explícame un
@@ -47,24 +49,37 @@ export interface DrFlitMensajeProps {
   onNavegar: () => void;
   /** Texto de la pregunta a la que responde un `sinResultados` (se lee, no se copia al mensaje). */
   textoRespondeA?: string;
+  /**
+   * HU #13767: el panel está cargando las fichas de una conversación restaurada. Una respuesta cuyas
+   * referencias aún no se pueden comprobar pinta «Dr. Flit está buscando…» mientras tanto, y nada si
+   * la carga falló (el error con «Reintentar» va al final de la conversación).
+   */
+  verificando?: boolean;
 }
 
-export default function DrFlitMensaje({ mensaje, user, fichas, onNavegar, textoRespondeA }: DrFlitMensajeProps) {
+export default function DrFlitMensaje({
+  mensaje, user, fichas, onNavegar, textoRespondeA, verificando = false,
+}: DrFlitMensajeProps) {
   if (mensaje.tipo === 'modulo') {
     const entrada = entradaAyudaPorClave(mensaje.clave);
     return <BurbujaUsuario>Explíqueme {entrada?.etiqueta ?? 'un módulo'}</BurbujaUsuario>;
   }
   if (mensaje.tipo === 'pregunta') return <BurbujaUsuario>{mensaje.texto}</BurbujaUsuario>;
   if (mensaje.tipo === 'citas') {
+    if (mensaje.refs.some((r) => estadoReferencia(user, r, fichas) === 'por-verificar')) {
+      return verificando ? <DrFlitBuscando /> : null;
+    }
     return <DrFlitCitas refs={mensaje.refs} user={user} fichas={fichas} onNavegar={onNavegar} />;
   }
   if (mensaje.tipo === 'sinResultados') {
     return <DrFlitSinResultados consulta={textoRespondeA} onNavegar={onNavegar} />;
   }
 
+  // Fail-closed: si el permiso cambió o el ancla ya no existe, no se cita nada de esa ficha (AC5).
+  const estado = estadoReferencia(user, mensaje.ref, fichas);
+  if (estado === 'por-verificar') return verificando ? <DrFlitBuscando /> : null;
   const entrada = entradaAyudaPorClave(mensaje.ref.clave);
-  // Fail-closed: si el permiso cambió (o la ficha no se cargó), no se cita nada de esa ficha.
-  if (!entrada || !puedeVerEntradaAyuda(user, entrada) || !fichas.has(entrada.clave)) {
+  if (estado === 'no-disponible' || !entrada) {
     return (
       <BurbujaDrFlit>
         <p>Esta referencia ya no está disponible.</p>
@@ -198,6 +213,24 @@ export function DrFlitErrorPregunta({ onReintentar }: { onReintentar: () => void
         <AlertCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--flit-danger-ink)]" />
         <div className="min-w-0">
           <p>No pude revisar sus manuales en este momento.</p>
+          <p className="mt-1 text-flit-secondary">Revise su conexión e intente de nuevo.</p>
+          <button type="button" onClick={onReintentar} className={`${flitBtnSecondarySm} mt-3`}>
+            Reintentar
+          </button>
+        </div>
+      </div>
+    </BurbujaDrFlit>
+  );
+}
+
+/** Falla la carga de las fichas al restaurar la conversación (HU #13767, spec UX). */
+export function DrFlitErrorRestaurar({ onReintentar }: { onReintentar: () => void }) {
+  return (
+    <BurbujaDrFlit>
+      <div className="flex items-start gap-2">
+        <AlertCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--flit-danger-ink)]" />
+        <div className="min-w-0">
+          <p>No pude recuperar las referencias de esta conversación.</p>
           <p className="mt-1 text-flit-secondary">Revise su conexión e intente de nuevo.</p>
           <button type="button" onClick={onReintentar} className={`${flitBtnSecondarySm} mt-3`}>
             Reintentar
