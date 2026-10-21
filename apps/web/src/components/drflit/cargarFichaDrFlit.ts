@@ -1,4 +1,4 @@
-// Dr. Flit — carga de UNA ficha para «Explícame un módulo» (HU #13765 AC4). El llamador solo pasa
+// Dr. Flit — carga de fichas para «Explícame un módulo» (HU #13765 AC4) y «Tengo una pregunta» (HU #13766). El llamador solo pasa
 // claves visibles para el usuario: una ficha sin permiso no se pide nunca.
 //
 // Chromium cachea el fallo de un `import()` dinámico (mismo motivo que `DrFlitMontaje`): repetir
@@ -39,4 +39,17 @@ export async function cargarFichaDrFlit(clave: string, intento: number): Promise
     if (url && esDeEsteOrigen(url)) urlsFallidas.set(clave, url.split(/[?&]reintento=/)[0]);
     throw e;
   }
+}
+
+/**
+ * Fichas de las claves VISIBLES (HU #13766 AC4/AC8: «Tengo una pregunta» las carga una vez por
+ * sesión de panel). Mismo reintento por ficha que `cargarFichaDrFlit`; un fallo = error de toda la
+ * carga (no se responde con fichas a medias).
+ */
+export async function cargarFichasDrFlit(
+  claves: readonly string[],
+  intento: number,
+): Promise<Map<string, FichaParseada | null>> {
+  const pares = await Promise.all(claves.map(async (clave) => [clave, await cargarFichaDrFlit(clave, intento)] as const));
+  return new Map(pares);
 }
