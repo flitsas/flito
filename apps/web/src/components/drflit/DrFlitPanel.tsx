@@ -1,15 +1,21 @@
-import { useEffect, useMemo, useRef, useState, type Ref } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type Ref } from 'react';
 import { Link } from 'react-router-dom';
 import { flitBtnSecondarySm } from '../flit/flitPageKit';
 import { useAuth } from '../../lib/auth';
 import { capitulosEnOrdenDeIndice, entradaAyudaPorClave, puedeVerEntradaAyuda } from '../../lib/ayudaFlito';
 import type { FichaParseada } from '../../lib/ayudaFicha';
 import type { EntradaAyuda } from '../../content/ayuda/catalogo';
-import { agregar, nuevoIdMensaje, type MensajeDrFlit } from '../../lib/drFlitConversacion';
+import {
+  agregar, estadoReferencia, nuevoIdMensaje, referenciasDe, restaurarConversacion, serializar, type MensajeDrFlit,
+} from '../../lib/drFlitConversacion';
+import { escribirCrudo, limpiarConversacionDrFlit } from '../../lib/drFlitAlmacen';
+import type { UsuarioAyuda } from '../../lib/ayudaFlito';
 import { buscarSecciones, MAX_CITAS } from '../../lib/drFlitBusqueda';
 import DrFlitMensaje, {
-  BurbujaDrFlit, DrFlitBuscando, DrFlitErrorModulo, DrFlitErrorPregunta, ENLACE_DRFLIT,
+  BurbujaDrFlit, DrFlitBuscando, DrFlitErrorModulo, DrFlitErrorPregunta, DrFlitErrorRestaurar, ENLACE_DRFLIT,
 } from './DrFlitMensaje';
+import { DRFLIT_TITULO_ID } from './DrFlitMarco';
+import { DrFlitBotonTerminar, DrFlitConfirmarTerminar } from './DrFlitTerminar';
 import DrFlitModulos, { DRFLIT_MODULOS_ID } from './DrFlitModulos';
 import DrFlitPregunta from './DrFlitPregunta';
 import { cargarFichaDrFlit, cargarFichasDrFlit } from './cargarFichaDrFlit';
@@ -22,7 +28,9 @@ import { cargarFichaDrFlit, cargarFichasDrFlit } from './cargarFichaDrFlit';
 // Enganches pendientes (`docs/diseno/feature-13694-dr-flit-panel-slim.md`):
 // HU #13766: «Tengo una pregunta» (saludo) + caja «Escriba su pregunta» en el pie; la primera
 // pregunta carga las fichas VISIBLES una vez (nunca una sin permiso) y cita hasta 3 secciones.
-// - HU #13767: conversación restaurada de `sessionStorage` en lugar de la memoria del panel.
+// HU #13767: la conversación se restaura de `sessionStorage` al montar (`lib/drFlitAlmacen.ts`) y se
+// guarda tras cada cambio; las referencias restauradas se verifican cargando SOLO las fichas visibles
+// que citan (permiso primero, sin descargar las demás). «Terminar chat» la borra con confirmación.
 
 export interface DrFlitPanelProps {
   /** Se llama al seguir un enlace del panel: en <lg el montaje cierra el panel para ver la página. */
@@ -37,13 +45,39 @@ type Pendiente =
   | { tipo: 'modulo'; clave: string; estado: 'cargando' | 'error'; intento: number }
   | { tipo: 'pregunta'; id: string; texto: string; estado: 'cargando' | 'error'; intento: number };
 
+/** Verificación de una conversación restaurada: carga las fichas visibles que cita (HU #13767 AC5). */
+type Verificacion = { claves: string[]; estado: 'cargando' | 'error'; intento: number };
+
+/** Claves visibles referenciadas y aún sin cargar (las sin permiso ya son «no disponible»). */
+function clavesPorVerificar(
+  user: UsuarioAyuda | null, mensajes: readonly MensajeDrFlit[], fichas: ReadonlyMap<string, unknown>,
+): string[] {
+  const claves = referenciasDe(mensajes)
+    .filter((r) => !fichas.has(r.clave) && estadoReferencia(user, r) === 'por-verificar')
+    .map((r) => r.clave);
+  return [...new Set(claves)];
+}
+
 export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
   const { user } = useAuth();
   const modulos = useMemo(() => capitulosEnOrdenDeIndice(user), [user]);
-  const [mensajes, setMensajes] = useState<MensajeDrFlit[]>([]);
+  const userId = user?.id;
+  // AC1/AC6: lo guardado en la pestaña (o nada, si está ilegible o el almacenamiento está bloqueado).
+  const [mensajes, setMensajes] = useState<MensajeDrFlit[]>(() =>
+    userId === undefined ? [] : restaurarConversacion(userId),
+  );
   const [fichas, setFichas] = useState<ReadonlyMap<string, FichaParseada | null>>(() => new Map());
   const [listaAbierta, setListaAbierta] = useState(false);
   const [pendiente, setPendiente] = useState<Pendiente | null>(null);
+  const [verificacion, setVerificacion] = useState<Verificacion | null>(() => {
+    const claves = clavesPorVerificar(user, mensajes, new Map());
+    return claves.length ? { claves, estado: 'cargando', intento: 0 } : null;
+  });
+  const [confirmando, setConfirmando] = useState(false);
+  const [anuncio, setAnuncio] = useState('');
+  const botonTerminarRef = useRef<HTMLButtonElement>(null);
+  /** Sube al terminar el chat: una carga en vuelo de la conversación anterior ya no responde. */
+  const turno = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const botonPieRef = useRef<HTMLButtonElement>(null);
   const cajaRef = useRef<HTMLInputElement>(null);
@@ -55,19 +89,46 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
     };
   }, []);
 
+  // Guardado tras cada cambio (AC1/AC7: `serializar` recorta a los 50 más recientes). Sin mensajes no
+  // se escribe: «Terminar chat» ya barrió la clave.
+  useEffect(() => {
+    if (userId !== undefined && mensajes.length > 0) escribirCrudo(userId, serializar(mensajes));
+  }, [userId, mensajes]);
+
+  // Verificación de las referencias restauradas: solo fichas visibles citadas (AC5).
+  useEffect(() => {
+    if (verificacion?.estado !== 'cargando') return;
+    let activo = true;
+    cargarFichasDrFlit(verificacion.claves, verificacion.intento).then(
+      (cargadas) => {
+        if (!activo) return;
+        setFichas((prev) => new Map([...prev, ...cargadas]));
+        setVerificacion(null);
+      },
+      () => {
+        if (activo) setVerificacion((v) => (v ? { ...v, estado: 'error' } : v));
+      },
+    );
+    return () => {
+      activo = false;
+    };
+  }, [verificacion]);
+
   // La respuesta nueva queda a la vista sin mover el foco (AC5).
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [mensajes.length, pendiente, listaAbierta]);
+  }, [mensajes.length, pendiente, listaAbierta, verificacion]);
 
-  const buscando = pendiente?.estado === 'cargando';
+  const verificando = verificacion?.estado === 'cargando';
+  const buscando = pendiente?.estado === 'cargando' || verificando;
 
   const cargar = (clave: string, intento: number) => {
     setPendiente({ tipo: 'modulo', clave, estado: 'cargando', intento });
+    const t = turno.current;
     cargarFichaDrFlit(clave, intento).then(
       (ficha) => {
-        if (!vivo.current) return;
+        if (!vivo.current || t !== turno.current) return;
         setFichas((prev) => new Map(prev).set(clave, ficha));
         setMensajes((prev) =>
           agregar(prev, { id: nuevoIdMensaje(), ts: Date.now(), de: 'drflit', tipo: 'explicacion', ref: { clave } }),
@@ -75,7 +136,7 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
         setPendiente(null);
       },
       () => {
-        if (vivo.current) setPendiente({ tipo: 'modulo', clave, estado: 'error', intento });
+        if (vivo.current && t === turno.current) setPendiente({ tipo: 'modulo', clave, estado: 'error', intento });
       },
     );
   };
@@ -105,16 +166,19 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
       return;
     }
     setPendiente({ tipo: 'pregunta', id, texto, estado: 'cargando', intento });
+    const t = turno.current;
     // Solo claves visibles (AC4): una ficha sin permiso no se descarga nunca.
     cargarFichasDrFlit(modulos.map((e) => e.clave), intento).then(
       (cargadas) => {
-        if (!vivo.current) return;
+        if (!vivo.current || t !== turno.current) return;
         setFichas((prev) => new Map([...prev, ...cargadas]));
         setPendiente(null);
         responder(id, texto, cargadas);
       },
       () => {
-        if (vivo.current) setPendiente({ tipo: 'pregunta', id, texto, estado: 'error', intento });
+        if (vivo.current && t === turno.current) {
+          setPendiente({ tipo: 'pregunta', id, texto, estado: 'error', intento });
+        }
       },
     );
   };
@@ -154,6 +218,41 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
     else buscarPregunta(pendiente.id, pendiente.texto, pendiente.intento + 1);
   };
 
+  const reintentarRestaurar = () => {
+    setVerificacion((v) => (v ? { ...v, estado: 'cargando', intento: v.intento + 1 } : v));
+  };
+
+  const pedirTerminar = () => {
+    setListaAbierta(false);
+    setAnuncio('');
+    setConfirmando(true);
+  };
+
+  const cancelarTerminar = () => {
+    setConfirmando(false);
+    botonTerminarRef.current?.focus();
+  };
+
+  /** AC2: borra el almacén y la memoria; vuelve el saludo. Sin toast: se anuncia en el panel. */
+  const terminar = () => {
+    turno.current += 1;
+    limpiarConversacionDrFlit();
+    setMensajes([]);
+    setPendiente(null);
+    setVerificacion(null);
+    setListaAbierta(false);
+    setConfirmando(false);
+    setAnuncio('Conversación terminada.');
+    document.getElementById(DRFLIT_TITULO_ID)?.focus();
+  };
+
+  // Esc cierra primero la confirmación (lo transitorio) y solo después el marco cierra el panel.
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Escape' || e.defaultPrevented || !confirmando) return;
+    e.preventDefault();
+    cancelarTerminar();
+  };
+
   const cancelarLista = () => {
     setListaAbierta(false);
     botonPieRef.current?.focus();
@@ -183,7 +282,14 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
   const textos = new Map(mensajes.flatMap((m) => (m.tipo === 'pregunta' ? [[m.id, m.texto] as const] : [])));
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col" onKeyDown={onKeyDown}>
+      {mensajes.length > 0 && (
+        <DrFlitBotonTerminar onPedir={pedirTerminar} expandido={confirmando} botonRef={botonTerminarRef} />
+      )}
+      {confirmando && mensajes.length > 0 && (
+        <DrFlitConfirmarTerminar onConfirmar={terminar} onCancelar={cancelarTerminar} />
+      )}
+      <p role="status" className="sr-only">{anuncio}</p>
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {/* Conversación: los mensajes nuevos se anuncian por esta región, sin mover el foco. */}
         <div
@@ -217,8 +323,10 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
               fichas={fichas}
               onNavegar={onNavegar}
               textoRespondeA={m.tipo === 'sinResultados' ? textos.get(m.respondeA) : undefined}
+              verificando={verificando}
             />
           ))}
+          {verificacion?.estado === 'error' && <DrFlitErrorRestaurar onReintentar={reintentarRestaurar} />}
           {pendiente?.estado === 'cargando' && <DrFlitBuscando />}
           {pendiente?.estado === 'error' && pendiente.tipo === 'modulo' && (
             <DrFlitErrorModulo etiqueta={etiquetaPendiente} onReintentar={reintentar} />

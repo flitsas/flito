@@ -2,6 +2,7 @@ import { Component, Suspense, lazy, useCallback, useEffect, useRef, useState, ty
 import DrFlitBoton from '../drflit/DrFlitBoton';
 import DrFlitMarco, { DRFLIT_PANEL_ID, DrFlitCargando, DrFlitErrorCarga } from '../drflit/DrFlitMarco';
 import { useDrFlitVisible } from '../drflit/useDrFlitVisible';
+import { useAuth } from '../../lib/auth';
 
 // Montaje global de Dr. Flit (HU #13764, Feature #13694). Va en `Layout.tsx` FUERA del `div` con
 // `key={location.pathname}`, así el panel sobrevive a la navegación (AC6). Botón y marco son eager
@@ -60,6 +61,7 @@ export default function DrFlitMontaje() {
 }
 
 function DrFlitVisible() {
+  const { user } = useAuth();
   const [abierto, setAbierto] = useState(false);
   const [Panel, setPanel] = useState<PanelLazy | null>(null);
   const [intento, setIntento] = useState(0);
@@ -102,7 +104,8 @@ function DrFlitVisible() {
         <DrFlitMarco ref={tituloRef} abierto={abierto} onCerrar={cerrar}>
           <LimiteCargaPanel key={intento} fallback={<DrFlitErrorCarga onReintentar={reintentar} />}>
             <Suspense fallback={<DrFlitCargando />}>
-              <Panel onNavegar={alNavegar} />
+              {/* Una instancia por usuario: el panel hidrata su conversación al montar (HU #13767). */}
+              <Panel key={user?.id ?? 'sin-usuario'} onNavegar={alNavegar} />
             </Suspense>
           </LimiteCargaPanel>
         </DrFlitMarco>
