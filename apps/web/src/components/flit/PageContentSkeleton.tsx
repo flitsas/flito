@@ -14,6 +14,10 @@ const bar = (w: string, extra?: React.CSSProperties): React.CSSProperties => ({
   background: 'var(--flit-border-soft)',
   borderRadius: 8,
   width: w,
+  // Las barras de ancho fijo (22rem) no caben en un teléfono: sin este tope desbordaban la tarjeta,
+  // ensanchaban el layout viewport del móvil y el panel de Dr. Flit quedaba más ancho que la pantalla
+  // (retrabajo HU #13764, AC7). En ≥ sm no cambia nada: ahí las barras ya caben.
+  maxWidth: '100%',
   ...extra,
 });
 
