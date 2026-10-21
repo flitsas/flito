@@ -11,6 +11,8 @@ import { X } from 'lucide-react';
 
 export const DRFLIT_PANEL_ID = 'drflit-panel';
 export const DRFLIT_TITULO_ID = 'drflit-titulo';
+/** Hueco de la cabecera donde el panel (lazy) monta «Terminar chat» con un portal (HU #13767). */
+export const DRFLIT_ACCIONES_ID = 'drflit-acciones';
 
 export interface DrFlitMarcoProps {
   abierto: boolean;
@@ -55,15 +57,18 @@ const DrFlitMarco = forwardRef<HTMLHeadingElement, DrFlitMarcoProps>(function Dr
           </h2>
           <p className="text-xs text-flit-secondary">Le respondo con la Ayuda FLITO.</p>
         </div>
-        <button
-          type="button"
-          aria-label="Cerrar"
-          title="Cerrar"
-          onClick={onCerrar}
-          className="flit-focus inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-flit-secondary transition-colors hover:bg-[var(--flit-bg-hover)] hover:text-flit-ink lg:h-8 lg:w-8"
-        >
-          <X size={18} aria-hidden="true" />
-        </button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <div id={DRFLIT_ACCIONES_ID} className="contents" />
+          <button
+            type="button"
+            aria-label="Cerrar"
+            title="Cerrar"
+            onClick={onCerrar}
+            className="flit-focus inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-flit-secondary transition-colors hover:bg-[var(--flit-bg-hover)] hover:text-flit-ink lg:h-8 lg:w-8"
+          >
+            <X size={18} aria-hidden="true" />
+          </button>
+        </div>
       </header>
       {children}
     </aside>
