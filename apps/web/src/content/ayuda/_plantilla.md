@@ -40,6 +40,8 @@ Para destacar algo, use un aviso: un bloque `>` cuya primera línea es el tipo. 
 > [!PRECAUCION]
 > Una acción que no se puede deshacer o que afecta dinero o datos. Ejemplo: al anular, el comprobante no se recupera.
 
+Puede añadir una captura o un diagrama **solo con datos demo** (sin cédulas, placas, nombres ni teléfonos reales). Guarde el archivo en `apps/web/public/ayuda/<clave>/` y cítelo así, con un texto alternativo que diga lo que muestra: `![Bandeja con el filtro Pendientes](./<clave>/bandeja.png)`. Solo se cargan imágenes de esa carpeta; un enlace externo muestra únicamente el texto alternativo.
+
 ## Estados
 
 Qué ve la persona en cargando, error, vacío y lleno de ESA pantalla (no de Ayuda).
