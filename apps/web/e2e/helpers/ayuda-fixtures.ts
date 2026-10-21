@@ -12,6 +12,7 @@ import {
   GESTOR_IMPUESTOS_USER,
   MENSAJERO_USER,
   CONDUCTOR_USER,
+  CLIENTE_USER,
 } from './auth';
 
 export {
@@ -24,6 +25,7 @@ export {
   GESTOR_IMPUESTOS_USER,
   MENSAJERO_USER,
   CONDUCTOR_USER,
+  CLIENTE_USER,
 };
 
 export const COMPLIANCE_USER = {
