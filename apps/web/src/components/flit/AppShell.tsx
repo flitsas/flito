@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import FlitSidebar from './FlitSidebar';
 import FlitTopbar from './FlitTopbar';
 import FlitNavBar from './FlitNavBar';
+import { useDrFlitVisible } from '../drflit/useDrFlitVisible';
 
 // AppShell — composición FLIT del shell SIN sidebar (decisión PO 2026-06-12,
 // patrón Academy ADR-0023 / CIA NavBar): topbar + contenido a ancho completo
@@ -17,6 +18,8 @@ interface AppShellProps {
 export default function AppShell({ onOpenPalette, children }: AppShellProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const location = useLocation();
+  // HU #13764: en <lg el último bloque de la página debe poder subir por encima del botón de Dr. Flit.
+  const reservaDrFlit = useDrFlitVisible();
 
   // Cerrar drawer al navegar.
   useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
@@ -35,7 +38,7 @@ export default function AppShell({ onOpenPalette, children }: AppShellProps) {
 
       <FlitTopbar onOpenPalette={onOpenPalette} onOpenSidebar={() => setDrawerOpen(true)} />
       <FlitNavBar />
-      <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
+      <main className={`min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8 ${reservaDrFlit ? 'max-lg:pb-20' : ''}`}>
         {children}
       </main>
 
