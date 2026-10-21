@@ -55,6 +55,12 @@ jobs:
           node --test scripts/check-roles-web.test.mjs
           npm run check:roles-web
 
+      # HU #13769 (AC3) — las capturas de la Ayuda FLITO se generan sobre fixtures demo. Esta prueba
+      # exige que placas, cédulas, NIT, teléfonos, correos, VIN y nombres de esos fixtures cumplan las
+      # reglas de datos ficticios de `e2e/helpers/datos-demo.ts`. Sin build ni navegador (node:test).
+      - name: Datos demo de las capturas de Ayuda sin PII real (web)
+        run: node --experimental-strip-types --test apps/web/e2e/helpers/datos-demo.test.ts
+
       # Contraste, DOS invariantes distintas en el mismo script:
       #   · Bug #11720 (oscuro) · Bug #11767 (claro) — la CommandPalette en LOS DOS temas. El
       #     claro es el de por defecto y estuvo sin cubrir hasta el #11767: se medía sólo el

@@ -1,5 +1,5 @@
 // Ayuda FLITO — plantilla, skill y cableado de matriz (HU #11893, AC6 y AC7).
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect } from '../helpers/fixtures';
@@ -187,5 +187,40 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     }
     // Al menos la imagen demo de la HU #13707 (siigo_operacion) está cubierta.
     expect(total).toBeGreaterThanOrEqual(1);
+  });
+  // HU #13769 AC4 — ficha piloto con una captura por paso clave, todas con alt y en disco (el test de
+  // arriba ya valida src/carpeta/archivo) y ≤ 200 KB.
+  test('HU #13769 AC4 — flito_logistica_ruta cita sus 5 capturas NN-<paso>.png con alt y ≤ 200 KB', () => {
+    const md = leer('apps/web/src/content/ayuda/flito_logistica_ruta.md');
+    const imgs = [...md.matchAll(/!\[([^\]]+)\]\(\.\/flito_logistica_ruta\/(\d{2}-[a-z0-9-]+\.png)\)/g)];
+    expect(imgs.map((m) => m[2])).toEqual([
+      '01-recoger-licencias.png', '02-resultado-validacion.png', '03-confirmar-recogida.png', '04-entregar.png', '05-sin-conexion.png',
+    ]);
+    for (const [, alt, archivo] of imgs) {
+      expect(alt.trim().length, archivo).toBeGreaterThan(10);
+      expect(statSync(resolve(raiz, 'apps/web/public/ayuda/flito_logistica_ruta', archivo)).size, archivo).toBeLessThanOrEqual(200 * 1024);
+    }
+    const { encabezado } = parsearFicha(md);
+    expect(encabezado!.version).not.toBe('1.0');
+  });
+
+  test('HU #13769 AC5 — la skill exige el delta de capturas regeneradas o un N/A justificado', () => {
+    const skill = leer('.claude/skills/flit-ayuda-flito/SKILL.md');
+    expect(skill).toContain('npm run capturas:ayuda -w apps/web -- --grep <clave>');
+    expect(skill).toMatch(/capturas: N\/A — /);
+    expect(skill).toMatch(/Sin delta de\s+capturas ni N\/A justificado → \*\*no se abre el PR\*\*/);
+    expect(leer('apps/web/package.json')).toMatch(/"capturas:ayuda": "AYUDA_CAPTURAS=1 playwright test --project=capturas/);
+  });
+
+  test('HU #13769 AC6 — la matriz de cobertura lista al menos una ficha existente por cada una de las 5 áreas', () => {
+    const matriz = leer('docs/ayuda/matriz-cobertura.md');
+    for (const area of ['Corredor SOAT', 'Corredor Impuestos', 'Mensajero y Logística', 'Facturación', 'Super Admin']) {
+      // La fila de la matriz (5 columnas), no la de equivalencia área ↔ rol.
+      const fila = matriz.split('\n').find((l) => l.startsWith(`| ${area} |`) && l.split('|').length === 6);
+      expect(fila, area).toBeTruthy();
+      const fichas = fila!.split('|')[2].match(/`([a-z_]+)`/g)!.map((c) => c.slice(1, -1));
+      expect(fichas.length, area).toBeGreaterThanOrEqual(1);
+      for (const c of fichas) expect(existsSync(resolve(dirFichas, `${c}.md`)), `${area}: ${c}.md`).toBe(true);
+    }
   });
 });
