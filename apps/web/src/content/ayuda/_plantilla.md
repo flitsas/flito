@@ -40,7 +40,7 @@ Para destacar algo, use un aviso: un bloque `>` cuya primera línea es el tipo. 
 > [!PRECAUCION]
 > Una acción que no se puede deshacer o que afecta dinero o datos. Ejemplo: al anular, el comprobante no se recupera.
 
-Puede añadir una captura o un diagrama **solo con datos demo** (sin cédulas, placas, nombres ni teléfonos reales). Guarde el archivo en `apps/web/public/ayuda/<clave>/` y cítelo así, con un texto alternativo que diga lo que muestra: `![Bandeja con el filtro Pendientes](./<clave>/bandeja.png)`. Solo se cargan imágenes de esa carpeta; un enlace externo muestra únicamente el texto alternativo.
+Puede añadir una captura o un diagrama **solo con datos demo** (sin cédulas, placas, nombres ni teléfonos reales). Guarde el archivo en `apps/web/public/ayuda/<clave>/` y cítelo así, con un texto alternativo que diga lo que muestra: `![Bandeja con el filtro Pendientes](./<clave>/bandeja.png)`. Solo se cargan imágenes de esa carpeta; un enlace externo muestra únicamente el texto alternativo. Las capturas de pantalla no se toman a mano: se generan con `npm run capturas:ayuda -w apps/web -- --grep <clave>` sobre datos demo y se llaman `NN-<paso>.png`; si la pantalla cambia, vuelva a correr el comando.
 
 ## Estados
 
