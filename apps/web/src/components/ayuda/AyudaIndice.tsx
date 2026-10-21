@@ -5,10 +5,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../lib/auth';
-import { capitulosVisibles } from '../../lib/ayudaFlito';
+import { capitulosEnOrdenDeIndice } from '../../lib/ayudaFlito';
 import { leerFichasParseadas, verificarBundleAyuda } from '../../content/ayuda/cargarFichas';
 import type { FichaParseada } from '../../lib/ayudaFicha';
-import { GRUPO_AYUDA_LABEL, type AyudaGrupo, type EntradaAyuda } from '../../content/ayuda/catalogo';
+import { GRUPO_AYUDA_LABEL, GRUPOS_ORDEN, type EntradaAyuda } from '../../content/ayuda/catalogo';
 import { documentoDeEntrada, ordenarPorRelevancia, resumenDeEntrada } from '../../lib/ayudaBusqueda';
 import PageHeaderCard from '../flit/PageHeaderCard';
 import PageContentSkeleton from '../flit/PageContentSkeleton';
@@ -16,7 +16,6 @@ import StatusChip from '../flit/StatusChip';
 import { FlitField, flitBtnSecondary, flitBtnSecondaryStyle, flitInp } from '../flit/flitPageKit';
 import { AyudaSinModulos, AyudaSinResultados, ErrorAyuda } from './AyudaEstados';
 
-const GRUPOS_ORDEN: AyudaGrupo[] = ['general', 'gestion', 'finanzas', 'administracion'];
 const SUBTITULO = 'Guías de las pantallas que usted ya puede abrir.';
 const ANUNCIO_MS = 300;
 
@@ -44,10 +43,7 @@ export default function AyudaIndice() {
   const inputBuscarRef = useRef<HTMLInputElement>(null);
 
   // Orden del índice: grupo (orden del menú) y, dentro, el del catálogo. Es el desempate del ranking.
-  const capitulos = useMemo(() => {
-    const visibles = capitulosVisibles(user);
-    return GRUPOS_ORDEN.flatMap((g) => visibles.filter((c) => c.grupo === g));
-  }, [user]);
+  const capitulos = useMemo(() => capitulosEnOrdenDeIndice(user), [user]);
 
   useEffect(() => {
     if (capitulos.length === 0) {
