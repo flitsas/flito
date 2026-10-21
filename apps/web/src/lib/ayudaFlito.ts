@@ -2,7 +2,9 @@ import { CATALOGO_AYUDA, GRUPOS_ORDEN, type ClaveAyuda, type EntradaAyuda } from
 // HU #12087: se mira `allowedPages` del sobre `/me` (ya resuelto). NO se importa `hasPage` de
 // `lib/permissions`: desde la HU #11913 ese módulo consume `NAV_ITEMS` para `rutaInicio`, y
 // `navItems.ts` consume este — importar `hasPage` cerraría el ciclo en tiempo de ejecución.
-import { isValidPage, type TipoEnlace } from '@operaciones/shared-types';
+import {
+  isValidPage, paginasPorDefecto, USER_ROLES, type PageSlug, type TipoEnlace, type UserRole,
+} from '@operaciones/shared-types';
 
 /**
  * HU #12875: `tipoEnlace` (de `/permisos/mios`) es la frontera, no el nombre del rol. Ausente = aún no
@@ -72,6 +74,27 @@ export function vecinasVisibles(
     anterior: i > 0 ? visibles[i - 1] : undefined,
     siguiente: i < visibles.length - 1 ? visibles[i + 1] : undefined,
   };
+}
+
+/**
+ * Roles de ENLACE: no ven la Ayuda (D2 del Feature #13691 — `puedeVerEntradaAyuda` devuelve `false` con
+ * `tipoEnlace` distinto de `ninguno`). Listarlos en «Aplica para» prometería una ficha que no abren.
+ * Decisión del humano (HU #13706 AC3). No es la lista de roles que se muestran: esa sale de la matriz.
+ */
+const ROLES_SIN_AYUDA: ReadonlySet<UserRole> = new Set<UserRole>(['cliente', 'proveedor']);
+
+/**
+ * «Aplica para» (HU #13706 AC3, diseño slim §5, P9-2c): roles que tienen `slug` POR DEFECTO, en el
+ * orden de `USER_ROLES`, con `admin` SIEMPRE primero. `admin` no tiene fila en `ROLE_DEFAULT_PAGES`
+ * (sus páginas las siembra la migración 0179 en `permisos_rol_funcion` y tiene todas; ver el
+ * comentario de `siigo_credenciales` en `permissions.ts`), así que `paginasPorDefecto('admin')` es `[]`
+ * y se antepone aquí. `operaciones` no puede salir: no está en `USER_ROLES`. Puro: sin red ni estado.
+ */
+export function rolesPorDefectoDePagina(slug: PageSlug): UserRole[] {
+  const resto = USER_ROLES.filter(
+    (rol) => rol !== 'admin' && !ROLES_SIN_AYUDA.has(rol) && paginasPorDefecto(rol).includes(slug),
+  );
+  return ['admin', ...resto];
 }
 
 const RAIZ_AYUDA = '/flito/ayuda';

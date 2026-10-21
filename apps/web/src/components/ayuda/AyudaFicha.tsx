@@ -19,6 +19,7 @@ import { resumenDeEntrada } from '../../lib/ayudaBusqueda';
 import { parseMarkdown } from '../../lib/ayudaMarkdown';
 import NoAccess from '../NoAccess';
 import AyudaMarkdown from './AyudaMarkdown';
+import AyudaAplicaPara from './AyudaAplicaPara';
 import { ErrorAyuda, SkeletonFicha } from './AyudaEstados';
 import {
   TablaContenidoLateral, TablaContenidoPlegable, fichaConTabla, seccionesDeFicha,
@@ -184,6 +185,7 @@ export default function AyudaFicha({ slug }: { slug: string }) {
         )}
         <AyudaMarkdown bloques={bloques} puedeEnlazar={enlazar} label={entrada.etiqueta} />
       </div>
+      <AyudaAplicaPara entrada={entrada} />
     </FlitCard>
   );
 

@@ -1,4 +1,4 @@
-// Parser mínimo de Markdown → AST. Sin HTML embebido, sin imágenes, sin tablas.
+// Parser mínimo de Markdown → AST. Sin HTML embebido, sin imágenes, sin tablas. Avisos `> [!TIPO]` (HU #13706).
 // El renderer (AyudaMarkdown) solo crea elementos React: cero dangerouslySetInnerHTML.
 
 export type MdInline =
@@ -12,7 +12,39 @@ export type MdBlock =
   | { type: 'p'; children: MdInline[] }
   | { type: 'ul'; items: MdInline[][] }
   | { type: 'ol'; items: MdInline[][] }
-  | { type: 'pre'; lang: string; code: string };
+  | { type: 'pre'; lang: string; code: string }
+  // HU #13706 (diseño slim §7 · UX HU-4): `> [!NOTA|IMPORTANTE|PRECAUCION]` en la 1.ª línea del bloque
+  // `>`. Cada párrafo del cuerpo (separado por una línea `>` vacía) es un `MdInline[]`.
+  | { type: 'callout'; tipo: TipoAviso; parrafos: MdInline[][] }
+  // `> texto` o `> [!OTRO] …`: cita simple, texto tal cual (AC2). Nunca HTML.
+  | { type: 'quote'; parrafos: MdInline[][] };
+
+export type TipoAviso = 'nota' | 'importante' | 'precaucion';
+
+const AVISO = /^\[!(NOTA|IMPORTANTE|PRECAUCION)\]\s*(.*)$/;
+
+function esCita(line: string): boolean {
+  return line.startsWith('>');
+}
+
+/** Bloque `>` ya sin el marcador → aviso (tipo conocido en la 1.ª línea) o cita simple. */
+function bloqueDeCita(lineas: string[]): MdBlock {
+  const m = AVISO.exec(lineas[0].trim());
+  const cuerpo = m ? [m[2], ...lineas.slice(1)] : lineas;
+  const parrafos: MdInline[][] = [];
+  let actual: string[] = [];
+  const cerrar = (): void => {
+    if (actual.length) parrafos.push(parseInline(actual.join(' ')));
+    actual = [];
+  };
+  for (const l of cuerpo) {
+    if (l.trim()) actual.push(l.trim());
+    else cerrar();
+  }
+  cerrar();
+  if (m) return { type: 'callout', tipo: m[1].toLowerCase() as TipoAviso, parrafos };
+  return { type: 'quote', parrafos };
+}
 
 /** Texto visible de una línea inline (sin marcas). Base de las anclas y de la tabla de contenido. */
 export function textoPlano(nodes: MdInline[]): string {
@@ -148,7 +180,7 @@ export function parseMarkdown(source: string): MdBlock[] {
     const partes = [primera];
     while (i < lines.length) {
       const n = lines[i];
-      if (!n.trim() || n.startsWith('#') || esUl(n) || esOl(n) || n.startsWith('```') || esTabla(n)) break;
+      if (!n.trim() || n.startsWith('#') || esUl(n) || esOl(n) || n.startsWith('```') || esTabla(n) || esCita(n)) break;
       partes.push(n);
       i += 1;
     }
@@ -170,6 +202,16 @@ export function parseMarkdown(source: string): MdBlock[] {
       }
       if (i < lines.length && lines[i].startsWith('```')) i += 1;
       blocks.push({ type: 'pre', lang, code: body.join('\n') });
+      continue;
+    }
+
+    if (esCita(line)) {
+      const lineas = [line.replace(/^> ?/, '')];
+      while (i < lines.length && esCita(lines[i])) {
+        lineas.push(lines[i].replace(/^> ?/, ''));
+        i += 1;
+      }
+      blocks.push(bloqueDeCita(lineas));
       continue;
     }
 

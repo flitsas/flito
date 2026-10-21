@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { parseMarkdown, type MdBlock, type MdInline } from '../../lib/ayudaMarkdown';
+import { AlertCircle, AlertTriangle, Info, type LucideIcon } from 'lucide-react';
+import { parseMarkdown, type MdBlock, type MdInline, type TipoAviso } from '../../lib/ayudaMarkdown';
 
 // AST → React. Cero dangerouslySetInnerHTML. HTML crudo del .md llega como texto.
 
@@ -36,6 +37,24 @@ function Inline({ nodes, puedeEnlazar }: { nodes: MdInline[]; puedeEnlazar: (hre
   });
 }
 
+// HU #13706 (UX HU-4): el tipo se lee en el RÓTULO (texto), con icono y tinta de apoyo. Fondo neutro
+// común (`--flit-bg-table-header`, con par oscuro); tintas `*-text`, que tienen par oscuro (las
+// `*-ink` y los `--flit-chip-*-bg` no). `role="note"`: contenido estático, no alerta; el rótulo no es
+// encabezado, así que no entra en la tabla de contenido.
+const AVISOS: Record<TipoAviso, { rotulo: string; tinta: string; Icono: LucideIcon }> = {
+  nota: { rotulo: 'Nota', tinta: 'var(--flit-blue-text)', Icono: Info },
+  importante: { rotulo: 'Importante', tinta: 'var(--flit-warning-text)', Icono: AlertCircle },
+  precaucion: { rotulo: 'Precaución', tinta: 'var(--flit-danger-text)', Icono: AlertTriangle },
+};
+
+function Parrafos({ parrafos, puedeEnlazar }: { parrafos: MdInline[][]; puedeEnlazar: (href: string) => boolean }): ReactNode {
+  return parrafos.map((p, i) => (
+    <p key={i} className="break-words text-sm leading-6" style={{ color: 'var(--flit-text-primary)' }}>
+      <Inline nodes={p} puedeEnlazar={puedeEnlazar} />
+    </p>
+  ));
+}
+
 function Bloque({ block, puedeEnlazar }: { block: MdBlock; puedeEnlazar: (href: string) => boolean }): ReactNode {
   const hStyle = { color: 'var(--flit-blue-text)' };
   // HU #13705 (AC7): id = ancla del encabezado (`anclaDeEncabezado`), foco de programa al saltar a él y
@@ -54,6 +73,31 @@ function Bloque({ block, puedeEnlazar }: { block: MdBlock; puedeEnlazar: (href: 
       <p className="text-sm leading-6" style={{ color: 'var(--flit-text-primary)' }}>
         <Inline nodes={block.children} puedeEnlazar={puedeEnlazar} />
       </p>
+    );
+  }
+  if (block.type === 'callout') {
+    const { rotulo, tinta, Icono } = AVISOS[block.tipo];
+    return (
+      <div
+        role="note"
+        aria-label={rotulo}
+        data-testid={`ayuda-aviso-${block.tipo}`}
+        className="space-y-1 rounded-lg px-4 py-3"
+        style={{ background: 'var(--flit-bg-table-header)', borderLeft: `3px solid ${tinta}` }}
+      >
+        <p className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: tinta }}>
+          <Icono aria-hidden="true" className="h-4 w-4 shrink-0" />
+          <strong>{rotulo}</strong>
+        </p>
+        <Parrafos parrafos={block.parrafos} puedeEnlazar={puedeEnlazar} />
+      </div>
+    );
+  }
+  if (block.type === 'quote') {
+    return (
+      <blockquote className="space-y-1 pl-4" style={{ borderLeft: '3px solid var(--flit-border-soft)' }}>
+        <Parrafos parrafos={block.parrafos} puedeEnlazar={puedeEnlazar} />
+      </blockquote>
     );
   }
   if (block.type === 'ul') {
