@@ -422,3 +422,171 @@ test.describe('HU #13837 · Dr. Flit — consultas de gestión (SOAT)', () => {
     await expect(panel(page).getByText(VIN_G2)).toHaveCount(0);
   });
 });
+
+// ── HU #13838 (G3) · Impuestos y Derechos ────────────────────────────────────────────────────────
+const BUSCAR_IMPUESTOS = '**/api/flito/impuestos/buscar';
+const BUSCAR_DERECHOS = '**/api/flito/derechos/buscar';
+const CON_LOS_CUATRO = {
+  ...FINANCIERA_USER,
+  allowedPages: ['flito_tramites', 'flito_soat', 'flito_impuestos', 'flito_derechos'],
+  funciones: ['tramites.cola.ver', 'soat.cola.ver', 'impuestos.cola.ver', 'derechos.cola.ver'],
+};
+const SOLO_DERECHOS = { ...FINANCIERA_USER, allowedPages: ['flito_derechos'], funciones: ['derechos.cola.ver'] };
+
+function tarjetasImpuesto(n: number) {
+  return Array.from({ length: n }, (_, i) => ({
+    id: `00000000-0000-4000-a000-00000000000${i}`,
+    placa: 'ABC123',
+    idFlit: `FLIT-02000${10 + i}`,
+    estado: i === 0 ? 'pagado' : 'solicitado',
+    organismo: 'Tránsito de Envigado',
+    liquidado: 1_250_000,
+    pagado: i === 0 ? '2026-10-12T15:00:00.000Z' : null,
+  }));
+}
+
+function tarjetasDerecho(n: number, advertidas: number[] = []) {
+  return Array.from({ length: n }, (_, i) => ({
+    id: `00000000-0000-4000-b000-00000000000${i}`,
+    placa: 'ABC123',
+    idFlit: `FLIT-03000${10 + i}`,
+    conAdvertencia: advertidas.includes(i),
+    concepto: 'Traspaso de propiedad',
+    valor: 345_600,
+    fechaPago: '2026-10-23',
+  }));
+}
+
+/** Mock genérico de un `POST …/buscar` que registra las peticiones. */
+async function mockModulo(page: Page, ruta: string, respuestas: { status: number; body?: unknown }[]) {
+  const pedidas: Request[] = [];
+  let i = 0;
+  await page.route(ruta, async (route) => {
+    pedidas.push(route.request());
+    const r = respuestas[Math.min(i, respuestas.length - 1)];
+    i += 1;
+    await route.fulfill({ status: r.status, contentType: 'application/json', body: JSON.stringify(r.body) });
+  });
+  return pedidas;
+}
+
+const okImp = (total: number) => ({ status: 200, body: { total, items: tarjetasImpuesto(Math.min(total, 5)) } });
+const okDer = (total: number, advertidas: number[] = []) =>
+  ({ status: 200, body: { total, items: tarjetasDerecho(Math.min(total, 5), advertidas) } });
+
+test.describe('HU #13838 · Dr. Flit — consultas de gestión (Impuestos y Derechos)', () => {
+  test('AC6 · placa → 4 grupos en orden; Impuestos y Derechos con ≤5 tarjetas, total y enlace sin query', async ({ page }) => {
+    const pt = await mockBuscar(page, [ok(2)]);
+    const ps = await mockSoat(page, [okSoat(1)]);
+    const pi = await mockModulo(page, BUSCAR_IMPUESTOS, [okImp(7)]);
+    const pd = await mockModulo(page, BUSCAR_DERECHOS, [okDer(3, [1])]);
+    await entrar(page, CON_LOS_CUATRO);
+    const bloque = await consultar(page, 'ABC123');
+    await expect(bloque.getByText('Encontré 13 coincidencias en 4 módulos.')).toBeVisible();
+    await expect(bloque.getByRole('heading', { level: 4 })).toHaveText(['Trámites', 'SOAT', 'Impuestos', 'Derechos']);
+
+    const imp = bloque.getByRole('region', { name: 'Impuestos' });
+    await expect(imp.getByText('7 en total')).toBeVisible();
+    await expect(imp.getByRole('list', { name: 'Impuestos encontrados' }).getByRole('listitem')).toHaveCount(5);
+    await expect(imp.getByText('Mostrando 5 de 7.')).toBeVisible();
+    await expect(imp.getByRole('link', { name: 'Ver más en la pantalla' })).toHaveAttribute('href', '/flito/impuestos');
+    await expect(imp.getByRole('list').getByRole('link')).toHaveCount(0);
+    const primeraImp = imp.getByRole('listitem').first();
+    await expect(primeraImp.getByRole('term')).toHaveText(['Organismo', 'Liquidado', 'Fecha pago']);
+    await expect(primeraImp.getByText('Tránsito de Envigado')).toBeVisible();
+    await expect(primeraImp.getByText(/1\.250\.000/)).toBeVisible();
+
+    const der = bloque.getByRole('region', { name: 'Derechos' });
+    await expect(der.getByText('3 en total')).toBeVisible();
+    await expect(der.getByRole('list', { name: 'Derechos encontrados' }).getByRole('listitem')).toHaveCount(3);
+    await expect(der.getByText(/Mostrando/)).toHaveCount(0);
+    await expect(der.getByRole('link', { name: 'Abrir la pantalla de Derechos' })).toHaveAttribute('href', '/flito/derechos');
+    const primeraDer = der.getByRole('listitem').first();
+    await expect(primeraDer.getByRole('term')).toHaveText(['Concepto', 'Valor', 'Fecha de pago']);
+    await expect(primeraDer.getByText('$ 345.600')).toBeVisible();
+    // Fecha sin hora: el día no retrocede por zona horaria (mismo formateador de la cola).
+    await expect(primeraDer.getByText('23/10/2026')).toBeVisible();
+
+    for (const p of [pt, ps, pi, pd]) {
+      expect(p).toHaveLength(1);
+      expect(p[0].postDataJSON()).toEqual({ valor: 'ABC123' });
+      expect(new URL(p[0].url()).search).toBe('');
+    }
+  });
+
+  test('F6.6 · chip «Con advertencia» solo en la tarjeta de Derechos que la trae', async ({ page }) => {
+    await mockBuscar(page, [{ status: 200, body: { total: 0, items: [] } }]);
+    await mockSoat(page, [{ status: 200, body: { total: 0, items: [] } }]);
+    await mockModulo(page, BUSCAR_IMPUESTOS, [{ status: 200, body: { total: 0, items: [] } }]);
+    await mockModulo(page, BUSCAR_DERECHOS, [okDer(3, [1])]);
+    await entrar(page, CON_LOS_CUATRO);
+    const bloque = await consultar(page, 'ABC123');
+    const tarjetas = bloque.getByRole('region', { name: 'Derechos' }).getByRole('listitem');
+    await expect(tarjetas).toHaveCount(3);
+    await expect(tarjetas.nth(0).getByText('Con advertencia')).toHaveCount(0);
+    await expect(tarjetas.nth(1).getByText('Con advertencia')).toBeVisible();
+    await expect(tarjetas.nth(2).getByText('Con advertencia')).toHaveCount(0);
+    await expect(bloque.getByText('Con advertencia')).toHaveCount(1);
+  });
+
+  test('AC3 · un VIN consulta Impuestos pero no Derechos, y el grupo Derechos no aparece', async ({ page }) => {
+    await mockBuscar(page, [ok(1)]);
+    await mockSoat(page, [okSoat(1)]);
+    const pi = await mockModulo(page, BUSCAR_IMPUESTOS, [okImp(2)]);
+    const pd = await mockModulo(page, BUSCAR_DERECHOS, [okDer(2)]);
+    await entrar(page, CON_LOS_CUATRO);
+    const bloque = await consultar(page, VIN_G2);
+    await expect(bloque.getByRole('heading', { level: 4 })).toHaveText(['Trámites', 'SOAT', 'Impuestos']);
+    await expect(bloque.getByRole('region', { name: 'Impuestos' }).getByRole('listitem')).toHaveCount(2);
+    await expect(bloque.getByRole('region', { name: 'Derechos' })).toHaveCount(0);
+    expect(pi).toHaveLength(1);
+    expect(pd).toHaveLength(0);
+  });
+
+  test('AC8 · un id FLIT consulta Impuestos y Derechos, no SOAT', async ({ page }) => {
+    await mockBuscar(page, [ok(1)]);
+    const ps = await mockSoat(page, [okSoat(1)]);
+    const pi = await mockModulo(page, BUSCAR_IMPUESTOS, [okImp(1)]);
+    const pd = await mockModulo(page, BUSCAR_DERECHOS, [okDer(1)]);
+    await entrar(page, CON_LOS_CUATRO);
+    const bloque = await consultar(page, 'FLIT-0132456');
+    await expect(bloque.getByRole('heading', { level: 4 })).toHaveText(['Trámites', 'Impuestos', 'Derechos']);
+    await expect(bloque.getByRole('region', { name: 'SOAT' })).toHaveCount(0);
+    expect(ps).toHaveLength(0);
+    expect(pi).toHaveLength(1);
+    expect(pd).toHaveLength(1);
+  });
+
+  test('AC7 · con Derechos pero sin Impuestos → solo se llama Derechos y no aparece Impuestos', async ({ page }) => {
+    const pt = await mockBuscar(page, [ok(1)]);
+    const ps = await mockSoat(page, [okSoat(1)]);
+    const pi = await mockModulo(page, BUSCAR_IMPUESTOS, [okImp(1)]);
+    const pd = await mockModulo(page, BUSCAR_DERECHOS, [okDer(2)]);
+    await entrar(page, SOLO_DERECHOS);
+    const bloque = await consultar(page, 'ABC123');
+    await expect(bloque.getByRole('heading', { level: 4 })).toHaveText(['Derechos']);
+    await expect(bloque.getByRole('region', { name: 'Derechos' }).getByRole('listitem')).toHaveCount(2);
+    await expect(bloque.getByRole('region', { name: 'Impuestos' })).toHaveCount(0);
+    expect(pd).toHaveLength(1);
+    expect(pi).toHaveLength(0);
+    expect(pt).toHaveLength(0);
+    expect(ps).toHaveLength(0);
+  });
+
+  test('AC8 (G1) · tras recargar, el almacén no guarda placa, organismo ni concepto', async ({ page }) => {
+    await mockBuscar(page, [{ status: 200, body: { total: 0, items: [] } }]);
+    await mockSoat(page, [{ status: 200, body: { total: 0, items: [] } }]);
+    await mockModulo(page, BUSCAR_IMPUESTOS, [okImp(2)]);
+    await mockModulo(page, BUSCAR_DERECHOS, [okDer(2)]);
+    await entrar(page, CON_LOS_CUATRO);
+    const bloque = await consultar(page, 'ABC123');
+    await expect(bloque.getByRole('region', { name: 'Derechos' }).getByRole('listitem')).toHaveCount(2);
+    await page.reload();
+    await abrirPanel(page);
+    const guardado = await page.evaluate(() => JSON.stringify(Object.entries(sessionStorage)));
+    for (const prohibido of ['ABC123', 'Tránsito de Envigado', 'Traspaso de propiedad', 'FLIT-0200010', 'FLIT-0300010']) {
+      expect(guardado).not.toContain(prohibido);
+    }
+    await expect(panel(page).getByText('ABC123')).toHaveCount(0);
+  });
+});

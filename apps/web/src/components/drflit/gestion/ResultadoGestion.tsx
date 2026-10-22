@@ -2,7 +2,8 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertCircle } from 'lucide-react';
 import {
-  TARJETAS_POR_MODULO, type ModuloGestion, type TarjetaSoatGestion, type TarjetaTramiteGestion,
+  TARJETAS_POR_MODULO, type ModuloGestion, type TarjetaDerechoGestion, type TarjetaImpuestoGestion,
+  type TarjetaSoatGestion, type TarjetaTramiteGestion,
 } from '@operaciones/shared-types';
 import { flitBtnSecondarySm } from '../../flit/flitPageKit';
 import {
@@ -10,6 +11,8 @@ import {
 } from '../../../lib/drFlitGestion';
 import type { GruposResultado } from '../../../lib/drFlitGestionConsulta';
 import { BurbujaDrFlit, ENLACE_DRFLIT } from '../DrFlitMensaje';
+import TarjetaDerecho from './TarjetaDerecho';
+import TarjetaImpuesto from './TarjetaImpuesto';
 import TarjetaSoat from './TarjetaSoat';
 import TarjetaTramite from './TarjetaTramite';
 
@@ -18,10 +21,12 @@ import TarjetaTramite from './TarjetaTramite';
 // 403 no aparece. Sin toast ni animación. El cuerpo va con `aria-live="off"`: las tarjetas no se
 // dictan solas; el panel anuncia «Consultando sus módulos…» y el resumen por su `role="status"`.
 
-/** Tarjeta de cada módulo. G3 añade impuestos y derechos. */
+/** Tarjeta de cada módulo (G1 trámites, G2 SOAT, G3 impuestos y derechos). */
 const TARJETA: Partial<Record<ModuloGestion, (item: unknown) => ReactNode>> = {
   tramites: (item) => <TarjetaTramite tarjeta={item as TarjetaTramiteGestion} />,
   soat: (item) => <TarjetaSoat tarjeta={item as TarjetaSoatGestion} />,
+  impuestos: (item) => <TarjetaImpuesto tarjeta={item as TarjetaImpuestoGestion} />,
+  derechos: (item) => <TarjetaDerecho tarjeta={item as TarjetaDerechoGestion} />,
 };
 
 const TEXTO_ERROR = 'text-[color:var(--flit-danger-text)]';

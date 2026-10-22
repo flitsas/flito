@@ -111,6 +111,8 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
 
   // ── Impuestos ─────────────────────────────────────────────────────────────────────────────────
   op(`${IMP} GET /`, 'impuestos.cola.ver', 'Ver la cola de impuestos', 'Abrir la bandeja de trámites de impuesto vehicular.'),
+  // HU #13838: consulta de gestión de Dr. Flit (valor en el body); misma lectura que la cola.
+  op(`${IMP} POST /buscar`, 'impuestos.cola.ver', 'Ver la cola de impuestos', 'Abrir la bandeja de trámites de impuesto vehicular.'),
   op(`${IMP} GET /facetas`, 'impuestos.cola.filtrar', 'Filtrar la cola de impuestos', 'Leer los contadores y las facetas con las que se acota la bandeja.'),
   op(`${IMP} POST /export`, 'impuestos.excel.exportar', 'Exportar la cola de impuestos a Excel', 'Descargar el listado filtrado como archivo de Excel.'),
   // Bug #12642: guarda EN LÍNEA (`tieneFuncion` con `incluirPago: true`); textos byte a byte con la 0203.
@@ -138,6 +140,8 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
 
   // ── Derechos de tránsito ──────────────────────────────────────────────────────────────────────
   op(`${DER} GET /`, 'derechos.cola.ver', 'Ver los derechos de tránsito', 'Abrir el listado de recibos de derechos cobrados por el organismo.'),
+  // HU #13838: consulta de gestión de Dr. Flit (valor en el body); misma lectura que el listado.
+  op(`${DER} POST /buscar`, 'derechos.cola.ver', 'Ver los derechos de tránsito', 'Abrir el listado de recibos de derechos cobrados por el organismo.'),
   op(`${DER} GET /facetas`, 'derechos.cola.filtrar', 'Filtrar los derechos de tránsito', 'Leer los contadores y las facetas del listado de derechos.'),
   op(`${DER} POST /cargar`, 'derechos.recibos.cargar', 'Cargar recibos de derechos de tránsito', 'Subir los archivos de recibos para que el sistema los lea y los cruce.'),
   op(`${DER} GET /drive/archivos`, 'derechos.drive.listar', 'Ver los archivos de derechos en Drive', 'Listar los recibos que esperan proceso en la carpeta de Drive.'),

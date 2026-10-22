@@ -79,6 +79,24 @@ export const MODULOS_GESTION_WEB: readonly ModuloGestionWeb[] = [
     etiqueta: 'SOAT',
     ruta: '/flito/soat',
   },
+  {
+    // HU #13838 (G3): Impuestos acepta los tres tipos de valor (UX F6.3).
+    modulo: 'impuestos',
+    page: 'flito_impuestos',
+    funcion: 'impuestos.cola.ver',
+    acepta: ['placa', 'vin', 'idFlit'],
+    etiqueta: 'Impuestos',
+    ruta: '/flito/impuestos',
+  },
+  {
+    // HU #13838 (G3): Derechos no tiene VIN (UX F6.3) → un VIN no lo consulta (AC3).
+    modulo: 'derechos',
+    page: 'flito_derechos',
+    funcion: 'derechos.cola.ver',
+    acepta: ['placa', 'idFlit'],
+    etiqueta: 'Derechos',
+    ruta: '/flito/derechos',
+  },
 ];
 
 export function moduloGestionWeb(

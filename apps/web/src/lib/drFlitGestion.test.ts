@@ -50,10 +50,10 @@ describe('detectarValorGestion (AC1/AC2)', () => {
 
 describe('modulosAConsultar (AC7 y tabla del despachador)', () => {
   const todo = () => true;
-  it('G1+G2: placa y VIN consultan Trámites y SOAT, en ese orden; id FLIT solo Trámites (AC8)', () => {
-    assert.deepEqual(modulosAConsultar('placa', todo), ['tramites', 'soat']);
-    assert.deepEqual(modulosAConsultar('vin', todo), ['tramites', 'soat']);
-    assert.deepEqual(modulosAConsultar('idFlit', todo), ['tramites']);
+  it('G1+G2+G3: placa → los 4; VIN → Trámites, SOAT, Impuestos (AC3); id FLIT → Trámites, Impuestos, Derechos (AC8)', () => {
+    assert.deepEqual(modulosAConsultar('placa', todo), ['tramites', 'soat', 'impuestos', 'derechos']);
+    assert.deepEqual(modulosAConsultar('vin', todo), ['tramites', 'soat', 'impuestos']);
+    assert.deepEqual(modulosAConsultar('idFlit', todo), ['tramites', 'impuestos', 'derechos']);
   });
 
   it('sin página o sin la función tramites.cola.ver → no se consulta Trámites', () => {
@@ -63,18 +63,37 @@ describe('modulosAConsultar (AC7 y tabla del despachador)', () => {
       return page === 'flito_tramites' && funcion !== 'tramites.cola.ver';
     };
     assert.deepEqual(modulosAConsultar('placa', sinFuncion), []);
-    assert.deepEqual(vistos, ['flito_tramites|tramites.cola.ver', 'flito_soat|soat.cola.ver']);
+    assert.deepEqual(vistos, [
+      'flito_tramites|tramites.cola.ver', 'flito_soat|soat.cola.ver',
+      'flito_impuestos|impuestos.cola.ver', 'flito_derechos|derechos.cola.ver',
+    ]);
     assert.deepEqual(modulosAConsultar('placa', () => false), []);
   });
 
   it('AC6 G2: sin la página flito_soat o sin soat.cola.ver → SOAT no se consulta', () => {
     const sinPaginaSoat = (page: string) => page !== 'flito_soat';
-    assert.deepEqual(modulosAConsultar('vin', sinPaginaSoat), ['tramites']);
+    assert.deepEqual(modulosAConsultar('vin', sinPaginaSoat), ['tramites', 'impuestos']);
     const sinFuncionSoat = (_p: string, funcion: string) => funcion !== 'soat.cola.ver';
-    assert.deepEqual(modulosAConsultar('placa', sinFuncionSoat), ['tramites']);
+    assert.deepEqual(modulosAConsultar('placa', sinFuncionSoat), ['tramites', 'impuestos', 'derechos']);
     const soloSoat = (page: string, funcion: string) => page === 'flito_soat' && funcion === 'soat.cola.ver';
     assert.deepEqual(modulosAConsultar('vin', soloSoat), ['soat']);
     assert.deepEqual(modulosAConsultar('idFlit', soloSoat), []);
+  });
+
+  it('G3: permisos parciales de Impuestos y Derechos (página o función faltante → no se consulta)', () => {
+    const sinPaginaImp = (page: string) => page !== 'flito_impuestos';
+    assert.deepEqual(modulosAConsultar('placa', sinPaginaImp), ['tramites', 'soat', 'derechos']);
+    const sinFuncionImp = (_p: string, funcion: string) => funcion !== 'impuestos.cola.ver';
+    assert.deepEqual(modulosAConsultar('idFlit', sinFuncionImp), ['tramites', 'derechos']);
+    const sinFuncionDer = (_p: string, funcion: string) => funcion !== 'derechos.cola.ver';
+    assert.deepEqual(modulosAConsultar('placa', sinFuncionDer), ['tramites', 'soat', 'impuestos']);
+    // AC7: solo Derechos (página + función) → solo se llama Derechos; un VIN no consulta nada.
+    const soloDer = (page: string, funcion: string) => page === 'flito_derechos' && funcion === 'derechos.cola.ver';
+    assert.deepEqual(modulosAConsultar('placa', soloDer), ['derechos']);
+    assert.deepEqual(modulosAConsultar('idFlit', soloDer), ['derechos']);
+    assert.deepEqual(modulosAConsultar('vin', soloDer), []);
+    // La página sin la función (o al revés) no basta.
+    assert.deepEqual(modulosAConsultar('placa', (p, f) => p === 'flito_derechos' && f === 'impuestos.cola.ver'), []);
   });
 
   it('registro extensible: VIN no consulta derechos, id FLIT no consulta SOAT; orden fijo', () => {
