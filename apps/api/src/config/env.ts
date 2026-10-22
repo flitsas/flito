@@ -419,6 +419,10 @@ const envSchema = z.object({
   // Tag extra en DEV y QA, para no ensuciar la bandeja de soporte con casos de prueba.
   DRFLIT_ADO_TAGS_PRUEBAS: z.preprocess(vacioComoAusente, z.string().max(128).regex(/^[\w ;.-]+$/).default('FLITO-PRUEBAS')),
   // `drflitCasosLimiter`: radicaciones por hora por usuario (cuenta 2xx y 5xx, no los 4xx).
+  // HU #13805 — adjuntos del caso: cuántos archivos (0 = sin adjuntos) y cuántos MB por archivo. Los
+  // TIPOS no son configurables (PNG, JPG, PDF; P9-4). Viajan en memoria a ADO; FLITO no los guarda.
+  DRFLIT_ADJUNTOS_MAX: z.preprocess(vacioComoAusente, z.coerce.number().int().min(0).max(10).default(3)),
+  DRFLIT_ADJUNTO_MAX_MB: z.preprocess(vacioComoAusente, z.coerce.number().int().min(1).max(25).default(5)),
   DRFLIT_RADICACIONES_POR_HORA: z.preprocess(vacioComoAusente, z.coerce.number().int().min(1).max(60).default(5)),
   // Puerta POSITIVA de la purga de intentos a 12 meses (RN-DRF3): solo con =1.
   DRFLIT_PURGA_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),

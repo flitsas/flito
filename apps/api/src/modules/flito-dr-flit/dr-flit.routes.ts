@@ -6,9 +6,18 @@
 //   GET  /autorizacion?finalidad=soporte|ia  — estado de la autorización VIGENTE del propio usuario,
 //                                              texto vigente y disponibilidad del soporte.
 //   POST /autorizacion                       — registra la aceptación (201 nueva · 200 ya existía).
-//   POST /casos-soporte                      — radica el caso (201 nuevo · 200 repetido). HU-2 lo recibe
-//                                              como JSON; HU-3 (#13805) lo pasa a multipart (parte `caso`
-//                                              con este mismo JSON + `adjuntos`). El cuerpo no cambia.
+//   POST /casos-soporte                      — radica el caso (201 nuevo · 200 repetido). Dos formas:
+//                                              · `application/json` = `CasoSoporteDrFlit` sin adjuntos
+//                                                (HU-2; se mantiene para no romper clientes).
+//                                              · `multipart/form-data` (HU-3, #13805): parte de texto
+//                                                `caso` = el mismo JSON, y 0..DRFLIT_ADJUNTOS_MAX partes
+//                                                de archivo `adjuntos` (o `adjuntos[]`), PNG/JPG/PDF de
+//                                                hasta DRFLIT_ADJUNTO_MAX_MB cada una. Reintento = la
+//                                                misma petición con la misma clave.
+//                                              Errores de adjuntos (sin nombre ni contenido del archivo):
+//                                                400 `adjunto-invalido` { adjunto: { indice, motivo } }
+//                                                413 `adjunto-muy-grande` { adjunto, limite.maxBytesArchivo }
+//                                                413 `adjuntos-limite` { limite.maxArchivos }
 //
 // ── Frontera por enlace (ADR-0024, D3) ──────────────────────────────────────────────────────────
 // Dr. Flit es un panel de sesión: sus rutas solo leen o escriben datos DEL PROPIO usuario (`sub` del
@@ -30,15 +39,22 @@
 // RN-DRF-R4  Nada de esta ruta se loguea con datos del usuario (IP y user agent van solo a la tabla).
 // RN-DRF-R5  POST /casos-soporte: … → drflitCasosLimiter → exigirSoporteDisponible (503) →
 //            exigirAutorizacionVigente (403 `autorizacion-requerida`, sin llamar a ADO) → Zod → servicio.
+// RN-DRF-R7  multer (HU #13805) va DESPUÉS de las guardas y del limiter: no se parsea el cuerpo de
+//            quien no puede radicar. `memoryStorage` (nada a disco ni a MinIO), `limits` (files,
+//            fileSize, fields=1, fieldSize) y un `fileFilter` que solo descarta lo obvio (ni tipo
+//            declarado ni extensión admitidos). El MIME REAL lo verifica el servicio por bytes. Un
+//            rechazo nombra el archivo por POSICIÓN (0-based) y nunca por su nombre (AC4).
 // RN-DRF-R6  Ninguna respuesta lleva URLs, `_links` ni mensajes de ADO: solo `{ numero, repetido }` o
 //            el copy propio de `CasoSoporteError`. Un error que no es propio sigue al errorHandler.
 // Las reglas del servicio están en `dr-flit.service.ts` (A1..A4) y `dr-flit-casos.service.ts` (S1..S5).
 import { isIP } from 'node:net';
 import { Router, type Request, type Response, type NextFunction } from 'express';
+import multer from 'multer';
 import { z } from 'zod';
 import {
   AREAS_SOPORTE, FINALIDADES_DRFLIT, FRECUENCIAS_SOPORTE, LIMITES_CASO_SOPORTE, PAGINAS_AYUDA_DRFLIT,
-  PRIORIDADES_SOPORTE, type CasoSoporteDrFlit, type EstadoAutorizacionDrFlit,
+  PARTE_ADJUNTOS_MULTIPART, PARTE_CASO_MULTIPART, PRIORIDADES_SOPORTE,
+  type CasoSoporteDrFlit, type ErrorAdjuntoDrFlit, type EstadoAutorizacionDrFlit,
 } from '@operaciones/shared-types';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { funcionesConcedidas } from '../../shared/middleware/exigir-funcion.js';
@@ -48,7 +64,9 @@ import { ADJUNTOS_DRFLIT, ambienteDespliegue, etiquetaAmbiente, soporteDisponibl
 import {
   AutorizacionDrFlitError, aceptarAutorizacion, estadoAutorizacion, repoAutorizaciones, textoVigente, versionVigente,
 } from './dr-flit.service.js';
-import { CasoSoporteError, radicarCaso } from './dr-flit-casos.service.js';
+import {
+  AdjuntoInvalidoError, CasoSoporteError, mensajeAdjuntoRechazado, radicarCaso, type AdjuntoCaso,
+} from './dr-flit-casos.service.js';
 
 const router = Router();
 
@@ -234,15 +252,127 @@ export async function exigirAutorizacionVigente(req: Request, res: Response, nex
   }
 }
 
+// ── HU #13805: adjuntos en el mismo POST multipart ──────────────────────────────────────────────
+
+const PARTES_ADJUNTO: ReadonlySet<string> = new Set([PARTE_ADJUNTOS_MULTIPART, `${PARTE_ADJUNTOS_MULTIPART}[]`]);
+const EXTENSION_ADMITIDA = /\.(png|jpe?g|pdf)$/i;
+/** Tope de la parte `caso` (JSON). Holgado frente a `LIMITES_CASO_SOPORTE`, que Zod aplica después. */
+export const MAX_BYTES_PARTE_CASO = 64 * 1024;
+const MSG_CAMPOS_NO_PERMITIDOS = 'La solicitud trae campos no permitidos.';
+
+/** Una parte de archivo con otro nombre que `adjuntos`: es contrato, no un archivo inválido. */
+class ParteNoPermitidaError extends Error {
+  constructor() { super(MSG_CAMPOS_NO_PERMITIDOS); this.name = 'ParteNoPermitidaError'; }
+}
+
+/** Posición del archivo en curso dentro del multipart: la fija `fileFilter`, la leen los errores. */
+const archivosVistos = new WeakMap<object, number>();
+
+const subidaAdjuntos = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    files: ADJUNTOS_DRFLIT.maxArchivos,
+    fileSize: ADJUNTOS_DRFLIT.maxBytesArchivo,
+    fields: 1,
+    fieldSize: MAX_BYTES_PARTE_CASO,
+    fieldNameSize: 32,
+  },
+  fileFilter: (req, file, cb) => {
+    const indice = archivosVistos.get(req) ?? 0;
+    archivosVistos.set(req, indice + 1);
+    if (!PARTES_ADJUNTO.has(file.fieldname)) { cb(new ParteNoPermitidaError()); return; }
+    // Solo lo obvio: ni el tipo declarado ni la extensión son admitidos. El MIME real va en el servicio.
+    if ((ADJUNTOS_DRFLIT.tipos as readonly string[]).includes(file.mimetype) || EXTENSION_ADMITIDA.test(file.originalname)) {
+      cb(null, true);
+      return;
+    }
+    cb(new AdjuntoInvalidoError(indice, 'tipo-no-permitido'));
+  },
+}).any();
+
+function responderAdjunto(res: Response, status: 400 | 413, cuerpo: ErrorAdjuntoDrFlit): void {
+  res.status(status).json(cuerpo);
+}
+
+/** Traduce el error del parseo multipart sin eco de nombres ni valores (RN-DRF-R3, AC4). */
+function responderErrorMultipart(res: Response, err: unknown, indice: number): void {
+  if (err instanceof AdjuntoInvalidoError) {
+    responderAdjunto(res, 400, {
+      error: err.message, codigo: 'adjunto-invalido', adjunto: { indice: err.indice, motivo: err.motivo },
+    });
+    return;
+  }
+  if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+    const { maxBytesArchivo } = ADJUNTOS_DRFLIT;
+    responderAdjunto(res, 413, {
+      error: mensajeAdjuntoRechazado(indice, 'muy-grande', maxBytesArchivo), codigo: 'adjunto-muy-grande',
+      adjunto: { indice, motivo: 'muy-grande' }, limite: { maxBytesArchivo },
+    });
+    return;
+  }
+  if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_COUNT') {
+    const { maxArchivos } = ADJUNTOS_DRFLIT;
+    responderAdjunto(res, 413, {
+      error: maxArchivos === 0 ? 'Este caso no admite adjuntos.' : `Puede adjuntar hasta ${maxArchivos} archivos.`,
+      codigo: 'adjuntos-limite', limite: { maxArchivos },
+    });
+    return;
+  }
+  if (err instanceof multer.MulterError && err.code === 'LIMIT_FIELD_VALUE') {
+    res.status(400).json({ error: 'El caso es demasiado largo.', codigo: 'campo-invalido', campo: PARTE_CASO_MULTIPART });
+    return;
+  }
+  if (err instanceof multer.MulterError || err instanceof ParteNoPermitidaError) {
+    res.status(400).json({ error: MSG_CAMPOS_NO_PERMITIDOS, codigo: 'campo-invalido' });
+    return;
+  }
+  // Multipart mal formado (corte del cuerpo, frontera inválida): es del cliente, no un 500.
+  res.status(400).json({ error: 'Solicitud inválida.', codigo: 'campo-invalido' });
+}
+
+/** multer solo si el cuerpo es multipart; un JSON (HU-2) sigue de largo. */
+export function recibirAdjuntos(req: Request, res: Response, next: NextFunction): void {
+  if (!req.is('multipart/form-data')) { next(); return; }
+  subidaAdjuntos(req, res, (err?: unknown) => {
+    const indice = Math.max((archivosVistos.get(req) ?? 1) - 1, 0);
+    archivosVistos.delete(req);
+    if (!err) { next(); return; }
+    req.files = undefined; // suelta lo que alcanzó a entrar
+    responderErrorMultipart(res, err, indice);
+  });
+}
+
+/** Cuerpo del caso y adjuntos, del JSON o del multipart. `null` = la parte `caso` falta o no es JSON. */
+function leerEntrada(req: Request): { cuerpo: unknown; adjuntos: AdjuntoCaso[] } | null {
+  if (!req.is('multipart/form-data')) return { cuerpo: req.body ?? {}, adjuntos: [] };
+  const archivos = Array.isArray(req.files) ? req.files : [];
+  req.files = undefined;
+  const adjuntos = archivos.map((f) => ({ contenido: f.buffer, tipoDeclarado: f.mimetype }));
+  const crudo: unknown = (req.body as Record<string, unknown> | undefined)?.[PARTE_CASO_MULTIPART];
+  if (typeof crudo !== 'string') return null;
+  try {
+    return { cuerpo: JSON.parse(crudo) as unknown, adjuntos };
+  } catch {
+    return null;
+  }
+}
+
 const ESTADO_CASO: Readonly<Record<CasoSoporteError['codigo'], number>> = Object.freeze({
   'radicacion-en-curso': 409,
   'ado-error': 502,
   'ado-no-disponible': 503,
 });
 
-router.post('/casos-soporte', drflitCasosLimiter, exigirSoporteDisponible, exigirAutorizacionVigente,
+router.post('/casos-soporte', drflitCasosLimiter, exigirSoporteDisponible, exigirAutorizacionVigente, recibirAdjuntos,
   async (req: Request, res: Response) => {
-    const b = casoSchema.safeParse(req.body ?? {});
+    const entrada = leerEntrada(req);
+    if (!entrada) {
+      res.status(400).json({
+        error: 'Falta el caso o no es un JSON válido.', codigo: 'campo-invalido', campo: PARTE_CASO_MULTIPART,
+      });
+      return;
+    }
+    const b = casoSchema.safeParse(entrada.cuerpo);
     if (!b.success) { responderCasoInvalido(res, b.error); return; }
     try {
       const r = await radicarCaso(req, {
@@ -250,9 +380,16 @@ router.post('/casos-soporte', drflitCasosLimiter, exigirSoporteDisponible, exigi
         autorizacionId: res.locals.autorizacionId as number,
         ambiente: ambienteDespliegue()!,
         caso: b.data,
+        adjuntos: entrada.adjuntos,
       });
       res.status(r.repetido ? 200 : 201).json({ numero: r.numero, repetido: r.repetido });
     } catch (e) {
+      if (e instanceof AdjuntoInvalidoError) {
+        responderAdjunto(res, 400, {
+          error: e.message, codigo: 'adjunto-invalido', adjunto: { indice: e.indice, motivo: e.motivo },
+        });
+        return;
+      }
       if (e instanceof CasoSoporteError) {
         const reintentable = e.codigo === 'ado-error' || e.codigo === 'ado-no-disponible';
         res.status(ESTADO_CASO[e.codigo]).json({

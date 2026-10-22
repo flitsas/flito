@@ -115,7 +115,8 @@ export interface AutorizacionAceptadaDrFlit {
 export type CodigoErrorDrFlit =
   | 'finalidad-invalida' | 'version-no-vigente' | 'campo-invalido'
   | 'autorizacion-requerida' | 'radicacion-en-curso' | 'soporte-no-disponible'
-  | 'ado-error' | 'ado-no-disponible';
+  | 'ado-error' | 'ado-no-disponible'
+  | 'adjunto-invalido' | 'adjunto-muy-grande' | 'adjuntos-limite';
 
 // ── HU #13804: el caso de soporte ────────────────────────────────────────────────────────────────
 
@@ -159,7 +160,11 @@ export const AREA_SOPORTE_POR_ROL: Readonly<Partial<Record<UserRole, AreaSoporte
 
 /**
  * Cuerpo de `POST /api/flito/dr-flit/casos-soporte` (HU-2). Fecha y ambiente los pone el SERVIDOR.
- * HU-2 lo recibe como JSON; HU-3 (#13805) lo llevará en la parte `caso` de un multipart con adjuntos.
+ * Dos formas (HU-3, #13805):
+ *   · `application/json` con este objeto (sin adjuntos; igual que HU-2).
+ *   · `multipart/form-data` con la parte de texto `caso` (este objeto en JSON) y de 0 a
+ *     `soporte.adjuntos.maxArchivos` partes de archivo `adjuntos` (también se admite `adjuntos[]`).
+ * Para reintentar se reenvía la MISMA petición (con los mismos archivos) y la misma `claveIdempotencia`.
  */
 export interface CasoSoporteDrFlit {
   /** UUID del cliente; se REUTILIZA al reintentar el mismo caso (idempotencia). */
@@ -171,6 +176,25 @@ export interface CasoSoporteDrFlit {
   resultadoEsperado: string;
   frecuencia: FrecuenciaSoporte;
   prioridad: PrioridadSoporte;
+}
+
+/** Nombres de las partes del multipart de `POST /casos-soporte` (HU-3). */
+export const PARTE_CASO_MULTIPART = 'caso';
+export const PARTE_ADJUNTOS_MULTIPART = 'adjuntos';
+
+/** Por qué se rechazó un adjunto (HU-3). El servidor nunca devuelve el nombre ni el contenido del archivo. */
+export type MotivoAdjuntoRechazado = 'tipo-no-permitido' | 'contenido-no-coincide' | 'vacio' | 'muy-grande';
+
+/**
+ * Cuerpo de un 400 `adjunto-invalido` o un 413 `adjunto-muy-grande` / `adjuntos-limite` (HU-3).
+ * `adjunto.indice` = posición 0-based del archivo entre las partes `adjuntos` (anexo UX §F5.17);
+ * `limite` = el límite superado.
+ */
+export interface ErrorAdjuntoDrFlit {
+  error: string;
+  codigo: Extract<CodigoErrorDrFlit, 'adjunto-invalido' | 'adjunto-muy-grande' | 'adjuntos-limite'>;
+  adjunto?: { indice: number; motivo: MotivoAdjuntoRechazado };
+  limite?: { maxArchivos?: number; maxBytesArchivo?: number };
 }
 
 /** 201 (nuevo) o 200 (`repetido`: la misma clave ya estaba radicada). Sin URLs ni enlaces de ADO. */

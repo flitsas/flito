@@ -32,6 +32,40 @@ solo los **nombres** de los campos enviados, `pii_access_log` con `resource_tipo
 | Nunca se toca | `flito_drflit_autorizaciones` (prueba del consentimiento; su retención es otra HU, P9-10) |
 | Traza | Log con conteo, corte, día y host. Ningún identificador de persona |
 
+## Adjuntos del caso (HU #13805)
+
+**Contenido.** El usuario puede adjuntar hasta `DRFLIT_ADJUNTOS_MAX` archivos PNG, JPG o PDF. Son
+capturas de pantalla o documentos y **pueden contener PII**: cédulas, placas, datos de terceros o
+cualquier otra cosa visible en la pantalla o en el documento. Se tratan como datos personales.
+
+**Dónde viven.** Solo en FLIT - SOPORTE (Azure DevOps), como adjuntos del Bug. Su vida es la del Bug y
+los depura el equipo de soporte, con la misma política del caso (sección siguiente).
+
+**Qué guarda FLITO.** Nada del archivo: ni el contenido, ni el nombre, ni la url de ADO. Viajan en
+memoria en la misma petición (`memoryStorage`, sin disco ni MinIO), se suben con un nombre genérico
+(`adjunto-<n>.<ext>`) y se sueltan al terminar. La tabla solo registra `adjuntos_cantidad`; los logs y
+`pii_access_log` registran la cantidad y el nombre del campo `adjuntos`, nunca el nombre del archivo.
+
+### Adjuntos huérfanos
+
+**Cuándo se producen.** Los adjuntos se suben a ADO uno por uno **antes** de crear el Bug. Si una de las
+subidas o el create del Bug fallan después de haber subido alguno, esos adjuntos quedan en ADO sin Bug
+que los vincule. Cuando el usuario reintenta con la misma clave, se suben de nuevo, así que los del
+intento fallido quedan huérfanos.
+
+**Permanencia: indeterminada.** FLITO no puede borrarlos: Azure DevOps no expone un DELETE de attachments
+y FLITO no guarda las urls (AC4 de la HU #13805: nada queda en FLITO). No hay fuente que establezca
+que ADO los depure ni en qué plazo.
+
+**Quién puede verlos.** Cualquiera con permiso de lectura sobre el proyecto FLIT - SOPORTE puede
+descargarlos si conoce su GUID.
+
+**Mitigación vigente.** El acceso está limitado a quienes leen FLIT - SOPORTE (equipo de soporte), y el
+GUID no se publica en ningún lado: FLITO no lo guarda ni lo devuelve al usuario.
+
+**Pendiente** (fuera de esta HU): acordar con soporte un procedimiento de depuración o retiro de los
+adjuntos huérfanos en Azure DevOps.
+
 ## Lo que queda en Azure DevOps
 
 El Bug radicado en FLIT - SOPORTE vive bajo la política de ese proyecto y la gestiona el equipo de

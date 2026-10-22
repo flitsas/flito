@@ -16,6 +16,10 @@
 // RN-DRF-C4  NUNCA se loguean ni viajan en un error: cabeceras (el PAT), URL, cuerpo enviado ni cuerpo
 //            recibido. Los mensajes de los errores son fijos y sin `cause`. La URL de ADO no sale de
 //            este archivo (la respuesta de la API no lleva URLs ni `_links`).
+// RN-DRF-C5  Adjuntos (HU #13805): `POST {org}/{proyecto}/_apis/wit/attachments?fileName=adjunto-<n>.<ext>
+//            &api-version=7.1` con `application/octet-stream`. El nombre es GENÉRICO (nunca el del
+//            usuario). De la respuesta solo se lee `url` (https). La url viaja al create del Bug como
+//            relación `AttachedFile` en el MISMO json-patch; no se guarda en FLITO. Sin reintentos.
 import { env } from '../../config/env.js';
 import { RUTA_TAGS, RUTA_TITULO, type OperacionAdo } from './dr-flit-ado.mapeo.js';
 
@@ -24,7 +28,12 @@ export interface BugSoporteAdo { operaciones: ReadonlyArray<OperacionAdo> }
 export interface ClienteSoporteAdo {
   readonly modo: 'real' | 'simulado';
   crearBug(b: BugSoporteAdo): Promise<{ numero: number; tagOmitido: boolean }>;
+  /** Sube un adjunto y devuelve su url de ADO. `nombreGenerico` = `adjunto-<n>.<ext>` (RN-DRF-C5). */
+  subirAdjunto(nombreGenerico: string, contentType: string, contenido: Buffer): Promise<{ url: string }>;
 }
+
+/** Nombre genérico del adjunto n-ésimo (1-based). Nunca el nombre que trajo el usuario (AC4). */
+export const RE_NOMBRE_ADJUNTO = /^adjunto-[1-9]\d{0,2}\.(png|jpg|pdf)$/;
 
 export type ClaseNoDisponible = 'timeout' | 'red' | 'ado-5xx' | 'ado-429';
 export type ClaseRechazo = 'ado-4xx' | 'ado-auth';
@@ -61,6 +70,15 @@ export function urlCrearBug(c: Pick<ConfigClienteAdoReal, 'orgUrl' | 'proyecto' 
   return u;
 }
 
+/** URL de la subida de adjuntos. El nombre ya es genérico; igual se codifica. */
+export function urlSubirAdjunto(c: Pick<ConfigClienteAdoReal, 'orgUrl' | 'proyecto'>, nombreGenerico: string): URL {
+  const base = c.orgUrl.endsWith('/') ? c.orgUrl : `${c.orgUrl}/`;
+  const u = new URL(`${encodeURIComponent(c.proyecto)}/_apis/wit/attachments`, base);
+  u.searchParams.set('fileName', nombreGenerico);
+  u.searchParams.set('api-version', '7.1');
+  return u;
+}
+
 const esTimeout = (e: unknown) => e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError');
 
 export class ClienteSoporteAdoReal implements ClienteSoporteAdo {
@@ -81,37 +99,70 @@ export class ClienteSoporteAdoReal implements ClienteSoporteAdo {
     throw new AdoRechazoError('ado-4xx');
   }
 
+  async subirAdjunto(nombreGenerico: string, _contentType: string, contenido: Buffer): Promise<{ url: string }> {
+    // El nombre lo construye el servicio; si no es genérico es un defecto propio, no algo que enviar.
+    if (!RE_NOMBRE_ADJUNTO.test(nombreGenerico)) throw new AdoRechazoError('ado-4xx');
+    const { status, cuerpo } = await this.#post(
+      urlSubirAdjunto(this.#c, nombreGenerico), 'application/octet-stream', Uint8Array.from(contenido),
+    );
+    this.#clasificar(status);
+    if (status < 200 || status >= 300) throw new AdoRechazoError('ado-4xx');
+    const url = leerUrl(cuerpo);
+    if (url === null) throw new AdoRechazoError('ado-auth');
+    return { url };
+  }
+
   async #crear(ops: ReadonlyArray<OperacionAdo>): Promise<{ tipo: 'ok'; numero: number } | { tipo: 'tag' }> {
+    const { status, cuerpo } = await this.#post(urlCrearBug(this.#c), 'application/json-patch+json', JSON.stringify(ops));
+    this.#clasificar(status);
+    if (status === 400 && cuerpo.includes('TF401289')) return { tipo: 'tag' };
+    if (status < 200 || status >= 300) throw new AdoRechazoError('ado-4xx');
+    const numero = leerId(cuerpo);
+    if (numero === null) throw new AdoRechazoError('ado-auth');
+    return { tipo: 'ok', numero };
+  }
+
+  /** 203/401/403 → credenciales; 429 y 5xx → no disponible (RN-DRF-C2). El resto lo decide quien llama. */
+  #clasificar(status: number): void {
+    if (status === 203 || status === 401 || status === 403) throw new AdoRechazoError('ado-auth');
+    if (status === 429) throw new AdoNoDisponibleError('ado-429');
+    if (status >= 500) throw new AdoNoDisponibleError('ado-5xx');
+  }
+
+  /** POST sin reintentos, sin seguir redirecciones y con timeout. Ningún error lleva url, cabeceras ni cuerpo. */
+  async #post(url: URL, contentType: string, body: string | Uint8Array<ArrayBuffer>): Promise<{ status: number; cuerpo: string }> {
     let res: Response;
     try {
-      res = await fetch(urlCrearBug(this.#c), {
+      res = await fetch(url, {
         method: 'POST',
         headers: {
           Authorization: `Basic ${Buffer.from(`:${this.#c.pat}`).toString('base64')}`,
-          'Content-Type': 'application/json-patch+json',
+          'Content-Type': contentType,
           Accept: 'application/json',
         },
-        body: JSON.stringify(ops),
+        body,
         redirect: 'error',
         signal: AbortSignal.timeout(this.#c.timeoutMs),
       });
     } catch (e) {
       throw new AdoNoDisponibleError(esTimeout(e) ? 'timeout' : 'red');
     }
-    let cuerpo: string;
     try {
-      cuerpo = await res.text();
+      return { status: res.status, cuerpo: await res.text() };
     } catch (e) {
       throw new AdoNoDisponibleError(esTimeout(e) ? 'timeout' : 'red');
     }
-    if (res.status === 203 || res.status === 401 || res.status === 403) throw new AdoRechazoError('ado-auth');
-    if (res.status === 429) throw new AdoNoDisponibleError('ado-429');
-    if (res.status >= 500) throw new AdoNoDisponibleError('ado-5xx');
-    if (res.status === 400 && cuerpo.includes('TF401289')) return { tipo: 'tag' };
-    if (res.status < 200 || res.status >= 300) throw new AdoRechazoError('ado-4xx');
-    const numero = leerId(cuerpo);
-    if (numero === null) throw new AdoRechazoError('ado-auth');
-    return { tipo: 'ok', numero };
+  }
+}
+
+/** Solo `url` (https). Cualquier otra cosa (HTML de inicio de sesión, JSON sin url) → `null`. */
+function leerUrl(cuerpo: string): string | null {
+  try {
+    const json: unknown = JSON.parse(cuerpo);
+    const url = (json as { url?: unknown } | null)?.url;
+    return typeof url === 'string' && url.startsWith('https://') ? url : null;
+  } catch {
+    return null;
   }
 }
 
@@ -132,6 +183,7 @@ export const PRIMER_NUMERO_SIMULADO = 900_000;
 export class ClienteSoporteAdoSimulado implements ClienteSoporteAdo {
   readonly modo = 'simulado' as const;
   #siguiente = PRIMER_NUMERO_SIMULADO;
+  #adjunto = 0;
 
   constructor(private readonly campoDetalle: string) {}
 
@@ -143,7 +195,17 @@ export class ClienteSoporteAdoSimulado implements ClienteSoporteAdo {
     this.#siguiente += 1;
     return { numero, tagOmitido: false };
   }
+
+  /** Url falsa y reconocible (dominio `.invalid`, RFC 2606): nada sale de FLITO en modo simulado. */
+  async subirAdjunto(nombreGenerico: string, _contentType: string, contenido: Buffer): Promise<{ url: string }> {
+    if (!RE_NOMBRE_ADJUNTO.test(nombreGenerico) || contenido.length === 0) throw new AdoRechazoError('ado-4xx');
+    this.#adjunto += 1;
+    return { url: `${URL_ADJUNTO_SIMULADO}${this.#adjunto}` };
+  }
 }
+
+/** Prefijo de las urls que devuelve el simulado. */
+export const URL_ADJUNTO_SIMULADO = 'https://ado-simulado.invalid/_apis/wit/attachments/simulado-';
 
 let memo: ClienteSoporteAdo | null = null;
 let deTests: ClienteSoporteAdo | null = null;
