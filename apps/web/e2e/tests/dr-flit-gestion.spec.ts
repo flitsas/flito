@@ -273,3 +273,152 @@ test.describe('HU #13836 · Dr. Flit — consultas de gestión (Trámites)', () 
     expect(despues.texto).not.toContain('FLIT-0132450');
   });
 });
+
+// ── HU #13837 (G2) · SOAT ────────────────────────────────────────────────────────────────────────
+const BUSCAR_SOAT = '**/api/flito/soat/buscar';
+const CON_TRAMITES_Y_SOAT = {
+  ...FINANCIERA_USER,
+  allowedPages: ['flito_tramites', 'flito_soat'],
+  funciones: ['tramites.cola.ver', 'soat.cola.ver'],
+};
+const VIN_G2 = '9BWZZZ377VT004251';
+
+function tarjetasSoat(n: number, conPlaca = true) {
+  return Array.from({ length: n }, (_, i) => ({
+    id: `00000000-0000-4000-9000-00000000000${i}`,
+    placa: conPlaca ? 'ABC123' : null,
+    ...(conPlaca ? {} : { vin: VIN_G2 }),
+    estado: i === 0 ? 'pagado' : 'solicitado',
+    compania: 'Seguros Andinos',
+    solicitado: '2026-10-10T15:00:00.000Z',
+    pagado: i === 0 ? '2026-10-12T15:00:00.000Z' : null,
+  }));
+}
+
+async function mockSoat(page: Page, respuestas: { status: number; body?: unknown }[]) {
+  const pedidas: Request[] = [];
+  let i = 0;
+  await page.route(BUSCAR_SOAT, async (route) => {
+    pedidas.push(route.request());
+    const r = respuestas[Math.min(i, respuestas.length - 1)];
+    i += 1;
+    await route.fulfill({
+      status: r.status, contentType: 'application/json',
+      body: JSON.stringify(r.body ?? { error: 'Detalle interno que no debe verse' }),
+    });
+  });
+  return pedidas;
+}
+
+const okSoat = (total: number, conPlaca = true) =>
+  ({ status: 200, body: { total, items: tarjetasSoat(Math.min(total, 5), conPlaca) } });
+
+async function consultar(page: Page, valor: string) {
+  await enviar(page, valor);
+  await conversacion(page).getByRole('button', { name: `Consultar ${valor} en sus módulos` }).click();
+  return conversacion(page).getByRole('region', { name: `Resultados para ${valor}` });
+}
+
+test.describe('HU #13837 · Dr. Flit — consultas de gestión (SOAT)', () => {
+  test('AC5 · Trámites y SOAT en ese orden; SOAT con ≤5 tarjetas, total y enlace a la cola sin query', async ({ page }) => {
+    const pt = await mockBuscar(page, [ok(2)]);
+    const ps = await mockSoat(page, [okSoat(7)]);
+    await entrar(page, CON_TRAMITES_Y_SOAT);
+    const bloque = await consultar(page, 'ABC123');
+    await expect(bloque.getByText('Encontré 9 coincidencias en 2 módulos.')).toBeVisible();
+    const grupos = bloque.getByRole('heading', { level: 4 });
+    await expect(grupos).toHaveText(['Trámites', 'SOAT']);
+    const soat = bloque.getByRole('region', { name: 'SOAT' });
+    await expect(soat.getByText('7 en total')).toBeVisible();
+    await expect(soat.getByRole('list', { name: 'SOAT encontrados' }).getByRole('listitem')).toHaveCount(5);
+    await expect(soat.getByText('Mostrando 5 de 7.')).toBeVisible();
+    await expect(soat.getByRole('link', { name: 'Ver más en la pantalla' })).toHaveAttribute('href', '/flito/soat');
+    await expect(soat.getByRole('list').getByRole('link')).toHaveCount(0);
+    const primera = soat.getByRole('listitem').first();
+    await expect(primera.getByText('Seguros Andinos')).toBeVisible();
+    await expect(primera.getByRole('term')).toHaveText(['Compañía', 'Solicitado', 'Pagado']);
+    expect(ps).toHaveLength(1);
+    expect(ps[0].postDataJSON()).toEqual({ valor: 'ABC123' });
+    expect(new URL(ps[0].url()).search).toBe('');
+    expect(pt).toHaveLength(1);
+  });
+
+  test('F6.6 · sin placa el título es el VIN; sin compañía en el DTO no hay fila Compañía', async ({ page }) => {
+    await mockBuscar(page, [{ status: 200, body: { total: 0, items: [] } }]);
+    const sinCompania = { status: 200, body: { total: 1, items: [{ ...tarjetasSoat(1, false)[0], compania: undefined }] } };
+    await mockSoat(page, [sinCompania]);
+    await entrar(page, CON_TRAMITES_Y_SOAT);
+    const bloque = await consultar(page, VIN_G2);
+    const tarjeta = bloque.getByRole('region', { name: 'SOAT' }).getByRole('listitem');
+    await expect(tarjeta).toHaveCount(1);
+    await expect(tarjeta.getByText(VIN_G2, { exact: true })).toBeVisible();
+    await expect(tarjeta.getByRole('term')).toHaveText(['Solicitado', 'Pagado']);
+    await expect(bloque.getByRole('region', { name: 'Trámites' })).toHaveCount(0);
+  });
+
+  test('AC5 · SOAT con 0 resultados no aparece; Trámites se muestra lleno', async ({ page }) => {
+    await mockBuscar(page, [ok(2)]);
+    await mockSoat(page, [{ status: 200, body: { total: 0, items: [] } }]);
+    await entrar(page, CON_TRAMITES_Y_SOAT);
+    const bloque = await consultar(page, 'ABC123');
+    await expect(bloque.getByRole('region', { name: 'Trámites' }).getByRole('listitem')).toHaveCount(2);
+    await expect(bloque.getByRole('region', { name: 'SOAT' })).toHaveCount(0);
+    await expect(bloque.getByText('Encontré 2 coincidencias en 1 módulo.')).toBeVisible();
+  });
+
+  test('AC7 · SOAT falla y Trámites responde: error solo en SOAT y «Reintentar» repite solo SOAT', async ({ page }) => {
+    const pt = await mockBuscar(page, [ok(2)]);
+    const ps = await mockSoat(page, [{ status: 500 }, okSoat(1)]);
+    await entrar(page, CON_TRAMITES_Y_SOAT);
+    const bloque = await consultar(page, 'ABC123');
+    await expect(bloque.getByRole('region', { name: 'Trámites' }).getByRole('listitem')).toHaveCount(2);
+    const soat = bloque.getByRole('region', { name: 'SOAT' });
+    await expect(soat.getByText('No pude consultar SOAT.')).toBeVisible();
+    await expect(bloque.getByRole('alert')).toHaveCount(0);
+    await expect(bloque.getByText('Detalle interno que no debe verse')).toHaveCount(0);
+    await expect(bloque.getByRole('button', { name: 'Reintentar' })).toHaveCount(1);
+    await soat.getByRole('button', { name: 'Reintentar' }).click();
+    await expect(soat.getByRole('listitem')).toHaveCount(1);
+    await expect(soat.getByText('No pude consultar SOAT.')).toHaveCount(0);
+    expect(ps).toHaveLength(2);
+    expect(pt).toHaveLength(1);
+  });
+
+  test('AC8 · un id FLIT no consulta SOAT ni lo muestra', async ({ page }) => {
+    await mockBuscar(page, [ok(1)]);
+    const ps = await mockSoat(page, [okSoat(1)]);
+    await entrar(page, CON_TRAMITES_Y_SOAT);
+    const bloque = await consultar(page, 'FLIT-0132456');
+    await expect(bloque.getByRole('region', { name: 'Trámites' }).getByRole('listitem')).toHaveCount(1);
+    await expect(bloque.getByRole('region', { name: 'SOAT' })).toHaveCount(0);
+    expect(ps).toHaveLength(0);
+  });
+
+  for (const [caso, usuario] of [
+    ['sin la página flito_soat', { ...CON_TRAMITES_Y_SOAT, allowedPages: ['flito_tramites'] }],
+    ['sin la función soat.cola.ver', { ...CON_TRAMITES_Y_SOAT, funciones: ['tramites.cola.ver'] }],
+  ] as const) {
+    test(`AC6 · ${caso} → SOAT no se llama ni aparece`, async ({ page }) => {
+      await mockBuscar(page, [ok(1)]);
+      const ps = await mockSoat(page, [okSoat(1)]);
+      await entrar(page, usuario);
+      const bloque = await consultar(page, 'ABC123');
+      await expect(bloque.getByRole('region', { name: 'Trámites' }).getByRole('listitem')).toHaveCount(1);
+      await expect(bloque.getByRole('region', { name: 'SOAT' })).toHaveCount(0);
+      expect(ps).toHaveLength(0);
+    });
+  }
+
+  test('AC8 (G1) · tras consultar un VIN con SOAT, el almacén no guarda el VIN ni la placa', async ({ page }) => {
+    await mockBuscar(page, [ok(1)]);
+    await mockSoat(page, [okSoat(2, false)]);
+    await entrar(page, CON_TRAMITES_Y_SOAT);
+    const bloque = await consultar(page, VIN_G2);
+    await expect(bloque.getByRole('region', { name: 'SOAT' }).getByRole('listitem')).toHaveCount(2);
+    await page.reload();
+    await abrirPanel(page);
+    const guardado = await page.evaluate(() => JSON.stringify(Object.entries(sessionStorage)));
+    for (const prohibido of [VIN_G2, 'ABC123', 'Seguros Andinos']) expect(guardado).not.toContain(prohibido);
+    await expect(panel(page).getByText(VIN_G2)).toHaveCount(0);
+  });
+});

@@ -102,10 +102,11 @@ const EXPORTACIONES_POR_POST = ['finanzas.reporte_costos.ver'] as const;
  * `LECTURAS_POR_POST` (código exclusivo de su ruta POST), aquí el código es el del listado GET y la
  * ruta POST es la misma lectura con los filtros en el CUERPO (AGENTS.md §14). `tramites.cola.ver`
  * guarda `GET /` de flito-tramites y `POST /novedades/buscar` (¿hay trámites nuevos o actualizados?).
+ * HU #13837: `soat.cola.ver` guarda `GET /` de flito-soat y `POST /buscar` (consulta de gestión de Dr. Flit).
  * El aserto exige al menos una guarda GET y que TODAS sus guardas no-GET sean `POST …/buscar` sin
  * condición y con `auditor`; cualquier otro código no-GET del auditor sigue fallando en (2).
  */
-const LECTURAS_GET_CON_BUSCAR_POR_POST = ['tramites.cola.ver'] as const;
+const LECTURAS_GET_CON_BUSCAR_POR_POST = ['tramites.cola.ver', 'soat.cola.ver'] as const;
 
 const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
 // HU #13427: este archivo mide el mundo PLANO (seed ≤ 0231): una guarda que hoy pide una operación nueva se lee

@@ -70,6 +70,15 @@ export const MODULOS_GESTION_WEB: readonly ModuloGestionWeb[] = [
     etiqueta: 'Trámites',
     ruta: '/flito/tramites',
   },
+  {
+    // HU #13837 (G2): SOAT no tiene id FLIT (UX F6.3) → un id FLIT no lo consulta (AC8).
+    modulo: 'soat',
+    page: 'flito_soat',
+    funcion: 'soat.cola.ver',
+    acepta: ['placa', 'vin'],
+    etiqueta: 'SOAT',
+    ruta: '/flito/soat',
+  },
 ];
 
 export function moduloGestionWeb(
