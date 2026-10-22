@@ -147,3 +147,5 @@ export * from './flito-gastos-diarios.js';
 export * from './flito-tramite-fuente.js';
 // Expediente documental de la compañía en bolsas (HU #13889, Feature #13888, ADR-0028).
 export * from './flito-bolsas-documentos.js';
+// Dr. Flit — autorización de tratamiento de datos y soporte (HU #13803, Feature #13695).
+export * from './flito-dr-flit.js';

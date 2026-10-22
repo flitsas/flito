@@ -107,6 +107,17 @@ export const RUTAS_TRANSVERSALES: readonly RutaTransversal[] = congelar([
     porque: '«Ver mis datos» de Perfil (HU #13428, P-22: a todos los roles). Devuelve SOLO los datos del '
       + 'propio usuario (`sub` del token, sin `:id`), como `/auth/me`, y exige `perfil.datos.ver`.',
   },
+  {
+    metodo: 'GET', patron: '/api/flito/dr-flit/autorizacion',
+    porque: 'Dr. Flit (HU #13803, diseño F5 §D3): el panel de sesión consulta si EL PROPIO usuario aceptó '
+      + 'la autorización de datos (Ley 1581) para mostrar «Necesito soporte» a Corredor SOAT/Impuestos. '
+      + 'El router cierra el enlace `compania` (el del `cliente`) y exige ≥1 página con ficha de Ayuda FLITO.',
+  },
+  {
+    metodo: 'POST', patron: '/api/flito/dr-flit/autorizacion',
+    porque: 'Dr. Flit (HU #13803): registra la aceptación del PROPIO usuario (sub del token, solo inserción). '
+      + 'Sin esto un corredor con enlace no puede autorizar y no alcanza el soporte. Mismas guardas que el GET.',
+  },
 ]);
 
 function congelar(lista: RutaTransversal[]): readonly RutaTransversal[] {
