@@ -9,8 +9,8 @@ palabras_clave:
 consultas:
   - cuánto se pagó hoy
   - dónde veo los gastos de un día
-version: 1.0
-fecha: 2026-10-20
+version: 1.1
+fecha: 2026-10-21
 ---
 ## Qué es
 
@@ -26,17 +26,17 @@ En el menú lateral, sección **Finanzas**, ítem **Gastos diarios**, justo desp
 
 ## Pasos
 
-1. Al entrar, la pantalla muestra los **últimos 30 días** (hoy incluido) para **Todas las empresas**. La línea sobre las tarjetas dice el rango cubierto y la empresa.
+1. Al entrar, la pantalla muestra los **últimos 30 días** (hoy incluido) para **Todas las empresas**. La línea sobre las tarjetas dice el rango cubierto y la empresa. Si duda de qué cuenta cada tarjeta, el enlace **¿Qué cuenta cada categoría?** de la cabecera lo explica.
 2. Lea las cinco tarjetas, siempre en este orden y con la cantidad y el valor en la misma línea (por ejemplo **12 · $ 3.450.000**). Qué cuenta cada una y qué día se toma:
    - **SOAT pagados**: pólizas pagadas, el día del pago del SOAT.
    - **Impuestos pagados**: recibos pagados, el día del pago del impuesto.
    - **Derechos pagados**: derechos de trámite con fecha de pago, ese día.
    - **Trámites con logística**: trámites que llevan logística, el día de aprobación del trámite, con la tarifa vigente ese día.
    - **Servicios asignados**: cada servicio adicional asignado a un trámite, el día en que se asignó, con su valor de entonces.
-3. Lea el bloque **Total del periodo**: **Suma de categorías**, **GMF (4×1000) estimado** y **Total con GMF**. El GMF es un estimado calculado sobre la suma del periodo; el banco lo causa por movimiento, no por trámite, y el valor real está en el extracto. La liquidación lo calcula por trámite, así que puede diferir.
+3. Lea el bloque **Total del periodo**: **Suma de categorías**, **GMF (4×1000) estimado** y **Total con GMF**. El GMF es un estimado calculado sobre la suma del periodo; el banco lo causa por movimiento, no por trámite, y el valor real está en el extracto. La liquidación lo calcula por trámite, así que puede diferir. ![Filtros Empresa, Periodo y Tipo de gasto; las cinco tarjetas con cantidad y valor, y el bloque Total del periodo con la suma, el GMF estimado y el total con GMF](./finanzas_gastos_diarios/01-tarjetas-y-total.png)
 4. Filtre con **Empresa** (la misma lista del Reporte de costos) y **Periodo** (un solo calendario, con atajos de 7 y 30 días). Cambiar cualquiera de los dos vuelve a consultar. El periodo no puede superar 366 días ni terminar antes de empezar: si pasa, el aviso sale bajo el campo y no se consulta.
 5. Use **Tipo de gasto** para ocultar tarjetas: desmarcar **Impuestos** esconde su tarjeta sin consultar de nuevo. El **Total del periodo** sigue sumando las cinco categorías y lo dice: **Incluye todas las categorías**. Con las cinco desmarcadas, **Ver los cinco** las devuelve.
-6. Lea la gráfica **Evolución diaria**: una barra por día del periodo (los días sin gasto quedan vacíos en su sitio), apilada en el orden de las tarjetas. Pase el puntero por una barra —o entre con Tab y muévase con las flechas— para ver el día, la cantidad y el valor de cada categoría y la suma del día. Los botones de la leyenda hacen lo mismo que **Tipo de gasto**: ocultar una categoría la quita de las barras y reajusta el eje, sin consultar de nuevo. **Ver como tabla** abre la misma información en una tabla (día por fila); **Ocultar tabla** la cierra.
+6. Lea la gráfica **Evolución diaria**: una barra por día del periodo (los días sin gasto quedan vacíos en su sitio), apilada en el orden de las tarjetas. Pase el puntero por una barra —o entre con Tab y muévase con las flechas— para ver el día, la cantidad y el valor de cada categoría y la suma del día. Los botones de la leyenda hacen lo mismo que **Tipo de gasto**: ocultar una categoría la quita de las barras y reajusta el eje, sin consultar de nuevo. **Ver como tabla** abre la misma información en una tabla (día por fila); **Ocultar tabla** la cierra. ![Gráfica Evolución diaria con una barra apilada por día, la leyenda de las cinco categorías y el botón Ver como tabla](./finanzas_gastos_diarios/02-evolucion-diaria.png)
 7. **Limpiar filtros** vuelve a **Todas las empresas**, los últimos 30 días y las cinco categorías. Los filtros van en la dirección de la página: usted puede compartir el enlace y quien lo abra verá la misma vista.
 
 De dónde sale el dato: de cada pago o evento, **no de la liquidación**. Por eso puede no coincidir con el **Reporte de costos**, que agrupa por fecha de aprobación del trámite y usa los valores sellados: si una liquidación corrigió un valor, aquí sigue el del pago.

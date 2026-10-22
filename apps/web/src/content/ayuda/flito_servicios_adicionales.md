@@ -7,8 +7,8 @@ palabras_clave:
 consultas:
   - cómo creo un servicio adicional
   - cuánto vale un servicio adicional
-version: 1.0
-fecha: 2026-10-20
+version: 1.1
+fecha: 2026-10-21
 ---
 ## Qué es
 
@@ -24,11 +24,15 @@ En el menú, **Finanzas → Servicios adicionales**, junto a **Tarifas**.
 
 ## Pasos
 
-1. Pulse **Editar** en la fila de un tipo para cambiar su nombre, su descripción o su valor, y luego **Guardar cambios**. Solo se envía lo que usted cambió; si no cambió nada, el botón queda apagado y la pantalla lo dice.
-2. Pulse **Nuevo tipo** para crear uno: escriba el nombre, una descripción si hace falta y el valor en pesos, y pulse **Crear tipo**. No puede haber dos tipos activos con el mismo nombre, aunque cambien tildes o mayúsculas: si ya existe, la pantalla se lo indica bajo el campo **Nombre** y conserva lo escrito.
+1. Pulse **Editar** en la fila de un tipo para cambiar su nombre, su descripción o su valor, y luego **Guardar cambios**. Solo se envía lo que usted cambió; si no cambió nada, el botón queda apagado y la pantalla lo dice (**No has cambiado nada.**). ![Ventana Editar tipo con Nombre, Descripción (opcional) y Valor, y el botón Guardar cambios apagado porque no hay cambios](./flito_servicios_adicionales/02-editar.png)
+2. Pulse **Nuevo tipo** para crear uno: escriba el nombre, una descripción si hace falta y el valor en pesos, y pulse **Crear tipo**. No puede haber dos tipos activos con el mismo nombre, aunque cambien tildes o mayúsculas: si ya existe, la pantalla se lo indica bajo el campo **Nombre** y conserva lo escrito. ![Ventana Nuevo tipo con los campos vacíos y el botón Crear tipo](./flito_servicios_adicionales/03-nuevo-tipo.png)
 3. Pulse **Dar de baja** en la fila y confirme con **Dar de baja** para retirar un tipo. Desde ese momento deja de ofrecerse y no se puede reactivar; el nombre queda libre para un tipo nuevo.
-4. Marque **Mostrar dados de baja** para ver los tipos retirados junto a los activos, con su fecha de baja y sin acciones. Desmárquelo para volver a la lista de activos.
-5. Los tres tipos iniciales aparecen a **$ 0** con la marca **Por tarifar** hasta que usted les ponga valor con **Editar**.
+4. Marque **Mostrar dados de baja** para ver los tipos retirados junto a los activos, con su fecha de baja y sin acciones. Desmárquelo para volver a la lista de activos. ![Catálogo con Mostrar dados de baja marcado: los cuatro tipos activos y uno Dado de baja con su fecha y sin botones](./flito_servicios_adicionales/04-dados-de-baja.png)
+5. Los tres tipos iniciales aparecen a **$ 0** con la marca **Por tarifar** hasta que usted les ponga valor con **Editar**; sobre la tabla, la pantalla dice cuántos siguen a $ 0. ![Catálogo de tipos activos con su descripción, valor y estado; uno a $ 0 con la marca Por tarifar](./flito_servicios_adicionales/01-catalogo.png)
+
+El ciclo de un tipo de servicio, de un vistazo:
+
+![Diagrama: un tipo nuevo queda activo y se ofrece al asignar; se puede editar; al darlo de baja queda dado de baja de forma definitiva, sin reactivar, y su nombre queda libre para un tipo nuevo](./flito_servicios_adicionales/ciclo-tipo.svg)
 
 ## Estados
 
