@@ -35,7 +35,12 @@ export type MensajeDrFlit =
   /** Respuesta a una pregunta: 1..3 referencias `{clave, ancla}`; los títulos se derivan al pintar. */
   | (Base & { de: 'drflit'; tipo: 'citas'; respondeA: string; refs: RefFicha[] })
   /** Sin coincidencias: la consulta se lee del mensaje `respondeA`, no se copia. */
-  | (Base & { de: 'drflit'; tipo: 'sinResultados'; respondeA: string });
+  | (Base & { de: 'drflit'; tipo: 'sinResultados'; respondeA: string })
+  /**
+   * HU #13806: caso de soporte radicado. SOLO el número (nada del formulario, P9-6). Tipo nuevo sin
+   * subir `VERSION_CONVERSACION`: un código anterior lo descarta al restaurar.
+   */
+  | (Base & { de: 'drflit'; tipo: 'casoRadicado'; numero: number });
 
 let secuencia = 0;
 
@@ -119,6 +124,9 @@ function mensajeValido(x: unknown): MensajeDrFlit | null {
     case 'sinResultados':
       return x.de === 'drflit' && esTexto(x.respondeA)
         ? { ...base, de: 'drflit', tipo: 'sinResultados', respondeA: x.respondeA } : null;
+    case 'casoRadicado':
+      return x.de === 'drflit' && typeof x.numero === 'number' && Number.isSafeInteger(x.numero) && x.numero > 0
+        ? { ...base, de: 'drflit', tipo: 'casoRadicado', numero: x.numero } : null;
     default:
       return null;
   }
