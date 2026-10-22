@@ -37,6 +37,7 @@ import flitoRevisionesRoutes from './modules/flito-revisiones/flito-revisiones.r
 import flitoCompuertaRoutes from './modules/flito-compuerta/flito-compuerta.routes.js';
 import flitoTramitesRoutes from './modules/flito-tramites/flito-tramites.routes.js';
 import flitoTableroRoutes from './modules/flito-tablero/flito-tablero.routes.js';
+import flitoDrFlitRoutes from './modules/flito-dr-flit/dr-flit.routes.js';
 import flitoBitacoraRoutes from './modules/flito-bitacora/flito-bitacora.routes.js';
 import flitoLogisticaRoutes from './modules/flito-logistica/flito-logistica.routes.js';
 import flitoLogisticaViajesRoutes from './modules/flito-logistica/flito-logistica-viajes.routes.js';
@@ -278,6 +279,10 @@ export function createApp() {
   app.use('/api/flito/compuerta', flitoCompuertaRoutes);
   app.use('/api/flito/tramites', conAlcance('tramites', flitoTramitesRoutes));
   app.use('/api/flito/tablero', conAlcance('tablero', flitoTableroRoutes));
+  // HU #13803 (Feature #13695) — Dr. Flit. SIN `conAlcance` a propósito (diseño F5 §D3): sus rutas son
+  // de sesión (datos del propio usuario) y se declaran en `RUTAS_TRANSVERSALES`; el router cierra el
+  // enlace `compania` con `rechazarEnlaceCompania` además de `requireRole`.
+  app.use('/api/flito/dr-flit', flitoDrFlitRoutes);
   app.use('/api/flito/bitacora', flitoBitacoraRoutes);
   app.use('/api/flito/logistica', conAlcance('logistica', flitoLogisticaRoutes));
   // Viajes adicionales de logística por trámite (HU #12619): misma URL base, fichero hermano
