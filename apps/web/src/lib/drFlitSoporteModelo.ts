@@ -4,19 +4,21 @@
 
 import {
   AREA_SOPORTE_POR_ROL, LIMITES_CASO_SOPORTE as L,
-  type AreaSoporte, type CasoSoporteDrFlit, type FrecuenciaSoporte, type PrioridadSoporte, type UserRole,
+  type AreaSoporte, type CasoSoporteDrFlit, type EstadoAutorizacionDrFlit, type FrecuenciaSoporte,
+  type MotivoAdjuntoRechazado, type PrioridadSoporte, type TipoAdjuntoSoporte, type UserRole,
 } from '@operaciones/shared-types';
 
 /**
- * Pasos del asistente. HU #13806 entrega Contacto → Caso → Resumen; el paso «Archivos» del anexo (F5.4 F)
- * lo añade la HU #13807 con los adjuntos (multipart, #13805). Insertarlo aquí actualiza «Paso N de M».
+ * Pasos del asistente: Contacto → Caso → Archivos → Resumen (anexo F5.4). «Archivos» (F5.4 F) llegó con la
+ * HU #13807 (adjuntos, multipart #13805). El orden de este array fija «Paso N de M».
  */
-export const PASOS_SOPORTE = ['contacto', 'caso', 'resumen'] as const;
+export const PASOS_SOPORTE = ['contacto', 'caso', 'archivos', 'resumen'] as const;
 export type PasoSoporte = (typeof PASOS_SOPORTE)[number];
 
 export const TITULOS_PASO: Readonly<Record<PasoSoporte, string>> = Object.freeze({
   contacto: 'Sus datos de contacto',
   caso: 'Su caso',
+  archivos: 'Archivos',
   resumen: 'Revise y confirme',
 });
 
@@ -37,9 +39,11 @@ export type CampoSoporte = keyof CamposSoporte;
 export const CAMPOS_POR_PASO: Readonly<Record<Exclude<PasoSoporte, 'resumen'>, readonly CampoSoporte[]>> = Object.freeze({
   contacto: ['nombre', 'correo', 'telefono'],
   caso: ['area', 'titulo', 'detalle', 'resultadoEsperado', 'frecuencia', 'prioridad'],
+  // «Archivos» no tiene campos de texto: su validación es `errorDeArchivos`.
+  archivos: [],
 });
 
-export function pasoDeCampo(campo: CampoSoporte): Exclude<PasoSoporte, 'resumen'> {
+export function pasoDeCampo(campo: CampoSoporte): 'contacto' | 'caso' {
   return CAMPOS_POR_PASO.contacto.includes(campo) ? 'contacto' : 'caso';
 }
 
@@ -176,4 +180,96 @@ export function nuevaClaveIdempotencia(): string {
 /** Fecha del resumen, formato `es-CO` (la definitiva la sella el servidor). */
 export function fechaDelReporte(ahora = new Date()): string {
   return new Intl.DateTimeFormat('es-CO', { dateStyle: 'medium', timeStyle: 'short' }).format(ahora);
+}
+
+// ── Adjuntos (HU #13807; anexo F5.4 F, F5.7, F5.9) ───────────────────────────────────────────────────
+// Los `File` viven SOLO en memoria (en el borrador). Su nombre se pinta en la UI local y nunca va a
+// almacenamiento, a logs ni a la consola.
+
+export type LimitesAdjuntos = EstadoAutorizacionDrFlit['soporte']['adjuntos'];
+
+/** Si el `GET` aún no los trae: los del contrato de HU-3 (el servidor manda en cualquier caso). */
+export const LIMITES_ADJUNTOS_POR_DEFECTO: LimitesAdjuntos = Object.freeze({
+  maxArchivos: 3,
+  maxBytesArchivo: 5 * 1024 * 1024,
+  tipos: Object.freeze(['image/png', 'image/jpeg', 'application/pdf'] as const),
+});
+
+/** `accept` del selector (sugerencia del diálogo; la validación es `validarSeleccion`). */
+export const ACCEPT_ADJUNTOS = '.png,.jpg,.jpeg,.pdf';
+
+const EXTENSIONES: Readonly<Record<TipoAdjuntoSoporte, readonly string[]>> = Object.freeze({
+  'image/png': ['png'],
+  'image/jpeg': ['jpg', 'jpeg'],
+  'application/pdf': ['pdf'],
+});
+
+export interface AdjuntoSoporte {
+  /** Id local estable (clave de la lista y destino del foco); no sale del navegador. */
+  id: number;
+  file: File;
+  /** Motivo con el que el SERVIDOR lo rechazó al confirmar; se limpia solo quitándolo. */
+  rechazo: MotivoAdjuntoRechazado | null;
+}
+
+const MB = 1024 * 1024;
+
+/** «1,2 MB», «340 KB» (F5.11: coma decimal y unidad). */
+export function formatoTamano(bytes: number): string {
+  if (bytes >= MB) {
+    return `${(bytes / MB).toLocaleString('es-CO', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} MB`;
+  }
+  return `${Math.max(1, Math.round(bytes / 1024)).toLocaleString('es-CO')} KB`;
+}
+
+/** Tope en MB para el copy («5 MB»). */
+export function topeEnMb(maxBytes: number): string {
+  return `${(maxBytes / MB).toLocaleString('es-CO', { maximumFractionDigits: 1 })} MB`;
+}
+
+/** Tipo por extensión **y** `File.type` (F5.7). Un `type` vacío se acepta por extensión: los bytes los verifica el servidor. */
+function tipoPermitido(file: File, tipos: readonly TipoAdjuntoSoporte[]): boolean {
+  const ext = (file.name.split('.').pop() ?? '').toLowerCase();
+  return tipos.some((t) => EXTENSIONES[t]?.includes(ext) && (file.type === '' || file.type === t));
+}
+
+/**
+ * Valida una selección contra lo ya adjuntado (F5.7, HU-5 AC2). Devuelve los aceptados y una línea por
+ * archivo descartado; lo ya adjuntado no se toca.
+ */
+export function validarSeleccion(
+  actuales: number, nuevos: readonly File[], l: LimitesAdjuntos,
+): { aceptados: File[]; avisos: string[] } {
+  const aceptados: File[] = [];
+  const avisos: string[] = [];
+  for (const f of nuevos) {
+    if (!tipoPermitido(f, l.tipos)) {
+      avisos.push(`"${f.name}" no se adjuntó: solo se aceptan PNG, JPG o PDF.`);
+    } else if (f.size > l.maxBytesArchivo) {
+      avisos.push(`"${f.name}" no se adjuntó: pesa ${formatoTamano(f.size)} y el máximo es ${topeEnMb(l.maxBytesArchivo)}.`);
+    } else if (actuales + aceptados.length >= l.maxArchivos) {
+      avisos.push(`"${f.name}" no se adjuntó: ya tiene ${l.maxArchivos} archivos, el máximo.`);
+    } else {
+      aceptados.push(f);
+    }
+  }
+  return { aceptados, avisos };
+}
+
+/** Motivo del servidor en la fila del archivo (F5.9). Nunca el mensaje del servidor. */
+export function textoRechazo(motivo: MotivoAdjuntoRechazado, l: LimitesAdjuntos): string {
+  if (motivo === 'muy-grande') return `Este archivo supera los ${topeEnMb(l.maxBytesArchivo)}. Quítelo para continuar.`;
+  if (motivo === 'vacio') return 'El archivo está vacío. Quítelo para continuar.';
+  return 'El contenido no corresponde a un PNG, JPG o PDF. Quítelo para continuar.';
+}
+
+/** Error del paso «Archivos» (F5.7), o `null`. Con «No» nunca hay error (lo elegido no se envía). */
+export function errorDeArchivos(
+  adjuntar: boolean, adjuntos: readonly AdjuntoSoporte[], l: LimitesAdjuntos,
+): string | null {
+  if (!adjuntar) return null;
+  if (adjuntos.length === 0) return 'Adjunte al menos un archivo o elija "No".';
+  if (adjuntos.some((a) => a.rechazo)) return 'Quite el archivo marcado para continuar.';
+  if (adjuntos.length > l.maxArchivos) return `Puede adjuntar hasta ${l.maxArchivos} archivos. Quite uno para continuar.`;
+  return null;
 }
