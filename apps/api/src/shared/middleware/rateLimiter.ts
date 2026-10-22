@@ -255,6 +255,29 @@ export const soatClienteLimiter = rateLimit({
 });
 
 /**
+ * HU #13804 (AC9) — Dr. Flit: radicar un caso en FLIT - SOPORTE (`POST /api/flito/dr-flit/casos-soporte`).
+ * `DRFLIT_RADICACIONES_POR_HORA` (5) por usuario y hora. Cuenta lo que llama (o pudo llamar) a un
+ * tercero: las radicaciones (2xx) y los fallos (5xx, incluidos los de ADO). NO cuenta los 4xx de
+ * validación, autorización ni `radicacion-en-curso`. Va DESPUÉS de auth/rol/enlace y ANTES de la
+ * autorización y del handler. Con ADO caído el usuario tiene ~4 reintentos en la hora (declarado).
+ */
+export const drflitCasosLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: env.DRFLIT_RADICACIONES_POR_HORA,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('drflit-casos:'),
+  handler: frenoConRastro('drflit-casos'),
+  skipFailedRequests: true,
+  requestWasSuccessful: (_req, res) => res.statusCode < 400 || res.statusCode >= 500,
+  message: {
+    error: 'Ya radicó varios casos en la última hora. Espere un rato e intente de nuevo.',
+    codigo: 'demasiadas-radicaciones',
+  },
+  store: makeStore('rl:drflit-casos:'),
+});
+
+/**
  * HU #13364 (AC10) — carga posterior de documentos adicionales (`POST /api/flito/soat/:id/documentos-adicionales`).
  * 30 envíos / 15 min por usuario + IP. Presupuesto PROPIO: otro público (operación y proveedor) y
  * otra ruta que el canal Cliente. Va DESPUÉS de `exigirFuncion` y ANTES de multer: quien no tiene la

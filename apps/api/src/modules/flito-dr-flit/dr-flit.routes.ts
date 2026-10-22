@@ -1,10 +1,14 @@
 // FLITO — Dr. Flit (Feature #13695). HU #13803: autorización de tratamiento de datos (Ley 1581).
+// HU #13804: radicar el caso de soporte como Bug en FLIT - SOPORTE y devolver solo su número.
 // Montado en `/api/flito/dr-flit` SIN `conAlcance`. Diseño: docs/diseno/feature-13695-dr-flit-soporte.md
 // (contrato, D3) y ADR-0026.
 //
 //   GET  /autorizacion?finalidad=soporte|ia  — estado de la autorización VIGENTE del propio usuario,
 //                                              texto vigente y disponibilidad del soporte.
 //   POST /autorizacion                       — registra la aceptación (201 nueva · 200 ya existía).
+//   POST /casos-soporte                      — radica el caso (201 nuevo · 200 repetido). HU-2 lo recibe
+//                                              como JSON; HU-3 (#13805) lo pasa a multipart (parte `caso`
+//                                              con este mismo JSON + `adjuntos`). El cuerpo no cambia.
 //
 // ── Frontera por enlace (ADR-0024, D3) ──────────────────────────────────────────────────────────
 // Dr. Flit es un panel de sesión: sus rutas solo leen o escriben datos DEL PROPIO usuario (`sub` del
@@ -24,20 +28,27 @@
 // RN-DRF-R2  El único query param (`finalidad`) es un enum sin PII (AGENTS.md §14).
 // RN-DRF-R3  Los 400 no repiten el valor recibido: mensajes propios, `campo` es la ruta, nunca el valor.
 // RN-DRF-R4  Nada de esta ruta se loguea con datos del usuario (IP y user agent van solo a la tabla).
-// Las reglas del servicio (RN-DRF-A1..A4) están en `dr-flit.service.ts`.
+// RN-DRF-R5  POST /casos-soporte: … → drflitCasosLimiter → exigirSoporteDisponible (503) →
+//            exigirAutorizacionVigente (403 `autorizacion-requerida`, sin llamar a ADO) → Zod → servicio.
+// RN-DRF-R6  Ninguna respuesta lleva URLs, `_links` ni mensajes de ADO: solo `{ numero, repetido }` o
+//            el copy propio de `CasoSoporteError`. Un error que no es propio sigue al errorHandler.
+// Las reglas del servicio están en `dr-flit.service.ts` (A1..A4) y `dr-flit-casos.service.ts` (S1..S5).
 import { isIP } from 'node:net';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import {
-  FINALIDADES_DRFLIT, PAGINAS_AYUDA_DRFLIT, type EstadoAutorizacionDrFlit,
+  AREAS_SOPORTE, FINALIDADES_DRFLIT, FRECUENCIAS_SOPORTE, LIMITES_CASO_SOPORTE, PAGINAS_AYUDA_DRFLIT,
+  PRIORIDADES_SOPORTE, type CasoSoporteDrFlit, type EstadoAutorizacionDrFlit,
 } from '@operaciones/shared-types';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { funcionesConcedidas } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { drflitCasosLimiter } from '../../shared/middleware/rateLimiter.js';
 import { ADJUNTOS_DRFLIT, ambienteDespliegue, etiquetaAmbiente, soporteDisponible } from './dr-flit.config.js';
 import {
-  AutorizacionDrFlitError, aceptarAutorizacion, estadoAutorizacion, textoVigente,
+  AutorizacionDrFlitError, aceptarAutorizacion, estadoAutorizacion, repoAutorizaciones, textoVigente, versionVigente,
 } from './dr-flit.service.js';
+import { CasoSoporteError, radicarCaso } from './dr-flit-casos.service.js';
 
 const router = Router();
 
@@ -146,5 +157,111 @@ router.post('/autorizacion', async (req: Request, res: Response) => {
     throw e;
   }
 });
+
+// ── HU #13804: POST /casos-soporte ──────────────────────────────────────────────────────────────
+
+/** Mensaje propio por campo (AC3): nunca el de Zod, que en un enum incluye `received`. */
+export const MENSAJES_CAMPO_CASO: Readonly<Record<string, string>> = Object.freeze({
+  claveIdempotencia: 'Falta la clave del envío. Recargue el asistente e intente de nuevo.',
+  contacto: 'Faltan los datos de contacto.',
+  'contacto.nombre': `Escriba su nombre (máximo ${LIMITES_CASO_SOPORTE.nombre.max} caracteres).`,
+  'contacto.correo': 'Escriba un correo válido, por ejemplo nombre@empresa.com.',
+  'contacto.telefono': `El teléfono solo admite números, espacios, +, ( ) y guiones (máximo ${LIMITES_CASO_SOPORTE.telefono.max}).`,
+  area: 'Elija el área del caso.',
+  titulo: `Escriba un título de ${LIMITES_CASO_SOPORTE.titulo.min} a ${LIMITES_CASO_SOPORTE.titulo.max} caracteres.`,
+  detalle: `Describa el caso con ${LIMITES_CASO_SOPORTE.detalle.min} a ${LIMITES_CASO_SOPORTE.detalle.max} caracteres.`,
+  resultadoEsperado: `Escriba el resultado esperado (máximo ${LIMITES_CASO_SOPORTE.resultadoEsperado.max} caracteres).`,
+  frecuencia: 'Elija con qué frecuencia ocurre: Siempre, A veces o Solo una vez.',
+  prioridad: 'Elija la prioridad: Alta, Media o Baja.',
+});
+
+const texto = (l: { min: number; max: number }) => z.string().trim().min(Math.max(l.min, 1)).max(l.max);
+const L = LIMITES_CASO_SOPORTE;
+const casoSchema: z.ZodType<CasoSoporteDrFlit> = z.object({
+  claveIdempotencia: z.string().uuid(),
+  contacto: z.object({
+    nombre: texto(L.nombre),
+    correo: z.string().trim().min(L.correo.min).max(L.correo.max).email(),
+    telefono: z.string().trim().max(L.telefono.max).regex(/^[0-9+() -]*$/).optional()
+      .transform((v) => (v ? v : undefined)),
+  }).strict(),
+  area: z.enum(AREAS_SOPORTE),
+  titulo: texto(L.titulo),
+  detalle: texto(L.detalle),
+  resultadoEsperado: texto(L.resultadoEsperado),
+  frecuencia: z.enum(FRECUENCIAS_SOPORTE),
+  prioridad: z.enum(PRIORIDADES_SOPORTE),
+}).strict() as z.ZodType<CasoSoporteDrFlit>;
+
+/** 400 `campo-invalido` sin eco del valor (AC3): `campo` es la ruta, el mensaje es propio. */
+function responderCasoInvalido(res: Response, error: z.ZodError): void {
+  const issue = error.issues[0];
+  if (!issue || issue.code === 'unrecognized_keys') {
+    res.status(400).json({ error: 'La solicitud trae campos no permitidos.', codigo: 'campo-invalido' });
+    return;
+  }
+  const campo = issue.path.join('.');
+  const mensaje = MENSAJES_CAMPO_CASO[campo] ?? MENSAJES_CAMPO_CASO[String(issue.path[0])] ?? 'Solicitud inválida.';
+  res.status(400).json({ error: mensaje, codigo: 'campo-invalido', ...(campo ? { campo } : {}) });
+}
+
+/** 503 `soporte-no-disponible` si el ambiente o el cliente de ADO no están configurados. */
+export function exigirSoporteDisponible(_req: Request, res: Response, next: NextFunction): void {
+  if (!soporteDisponible() || ambienteDespliegue() === null) {
+    res.status(503).json({
+      error: 'El soporte desde Dr. Flit no está disponible en este momento.', codigo: 'soporte-no-disponible',
+    });
+    return;
+  }
+  next();
+}
+
+/** 403 `autorizacion-requerida` sin la autorización VIGENTE de soporte (AC2). Deja su id en `res.locals`. */
+export async function exigirAutorizacionVigente(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const fila = await repoAutorizaciones.buscar(req.user!.sub, 'soporte', versionVigente('soporte'));
+    if (!fila) {
+      res.status(403).json({
+        error: 'Para radicar un caso primero debe aceptar la autorización de tratamiento de datos.',
+        codigo: 'autorizacion-requerida',
+      });
+      return;
+    }
+    res.locals.autorizacionId = fila.id;
+    next();
+  } catch (e) {
+    next(e);
+  }
+}
+
+const ESTADO_CASO: Readonly<Record<CasoSoporteError['codigo'], number>> = Object.freeze({
+  'radicacion-en-curso': 409,
+  'ado-error': 502,
+  'ado-no-disponible': 503,
+});
+
+router.post('/casos-soporte', drflitCasosLimiter, exigirSoporteDisponible, exigirAutorizacionVigente,
+  async (req: Request, res: Response) => {
+    const b = casoSchema.safeParse(req.body ?? {});
+    if (!b.success) { responderCasoInvalido(res, b.error); return; }
+    try {
+      const r = await radicarCaso(req, {
+        usuarioId: req.user!.sub,
+        autorizacionId: res.locals.autorizacionId as number,
+        ambiente: ambienteDespliegue()!,
+        caso: b.data,
+      });
+      res.status(r.repetido ? 200 : 201).json({ numero: r.numero, repetido: r.repetido });
+    } catch (e) {
+      if (e instanceof CasoSoporteError) {
+        const reintentable = e.codigo === 'ado-error' || e.codigo === 'ado-no-disponible';
+        res.status(ESTADO_CASO[e.codigo]).json({
+          error: e.message, codigo: e.codigo, ...(reintentable ? { reintentable: true } : {}),
+        });
+        return;
+      }
+      throw e;
+    }
+  });
 
 export default router;

@@ -253,17 +253,20 @@ describe('AC5 — catálogos y configuración cerrados; la sesión, abierta', ()
     }
   });
 
-  it('TC-05c: las transversales son un array congelado de siete, cada una con su porqué; su forma es exacta', () => {
+  it('TC-05c: las transversales son un array congelado de ocho, cada una con su porqué; su forma es exacta', () => {
     // HU #13428 (P-22): «Ver mis datos» (`GET /api/auth/perfil`, solo datos propios) se suma a las de sesión.
     expect(RUTAS_TRANSVERSALES.map((r) => `${r.metodo} ${r.patron}`)).toEqual([
       'GET /api/auth/me', 'GET /api/permisos/mios', 'POST /api/auth/logout', 'PATCH /api/users/:id/password',
       'GET /api/auth/perfil',
       // HU #13803 (Feature #13695, D3): autorización de Dr. Flit, datos del propio usuario.
       'GET /api/flito/dr-flit/autorizacion', 'POST /api/flito/dr-flit/autorizacion',
+      // HU #13804: radicar el caso propio en FLIT - SOPORTE (mismas guardas + limitador + autorización).
+      'POST /api/flito/dr-flit/casos-soporte',
     ]);
     expect(esRutaTransversal('GET', '/api/flito/dr-flit/autorizacion')).toBe(true);
     expect(esRutaTransversal('POST', '/api/flito/dr-flit/autorizacion')).toBe(true);
-    expect(esRutaTransversal('POST', '/api/flito/dr-flit/casos-soporte')).toBe(false);
+    expect(esRutaTransversal('POST', '/api/flito/dr-flit/casos-soporte')).toBe(true);
+    expect(esRutaTransversal('GET', '/api/flito/dr-flit/casos-soporte')).toBe(false);
     expect(esRutaTransversal('GET', '/api/auth/perfil')).toBe(true);
     expect(esRutaTransversal('GET', '/api/auth/perfil/7')).toBe(false);
     expect(Object.isFrozen(RUTAS_TRANSVERSALES)).toBe(true);

@@ -118,6 +118,12 @@ export const RUTAS_TRANSVERSALES: readonly RutaTransversal[] = congelar([
     porque: 'Dr. Flit (HU #13803): registra la aceptación del PROPIO usuario (sub del token, solo inserción). '
       + 'Sin esto un corredor con enlace no puede autorizar y no alcanza el soporte. Mismas guardas que el GET.',
   },
+  {
+    metodo: 'POST', patron: '/api/flito/dr-flit/casos-soporte',
+    porque: 'Dr. Flit (HU #13804): el PROPIO usuario radica su caso en FLIT - SOPORTE (sub del token; '
+      + 'el intento solo guarda metadatos). Corredor SOAT/Impuestos deben poder pedir soporte. Mismas '
+      + 'guardas que /autorizacion, más `drflitCasosLimiter` y autorización de soporte vigente.',
+  },
 ]);
 
 function congelar(lista: RutaTransversal[]): readonly RutaTransversal[] {

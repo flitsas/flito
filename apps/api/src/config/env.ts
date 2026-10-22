@@ -20,6 +20,8 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') });
  * boot, que es justo lo contrario del defecto seguro.
  */
 const vacioComoAusente = (v: unknown) => (v === '' ? undefined : v);
+/** HU #13804: nombre de campo de ADO (`Microsoft.VSTS.TCM.ReproSteps`, `Custom.Environment`). */
+const RE_CAMPO_ADO = /^[A-Za-z][A-Za-z0-9]*(\.[A-Za-z][A-Za-z0-9]*)+$/;
 /** HU #13803: origen permitido para la organización de Azure DevOps de Dr. Flit (https y host de ADO). */
 export function esOrigenAdoPermitido(valor: string): boolean {
   try {
@@ -401,6 +403,30 @@ const envSchema = z.object({
     }).optional(),
   ),
   DRFLIT_ADO_PROJECT: z.preprocess(vacioComoAusente, z.string().min(1).max(64).default('FLIT - SOPORTE')),
+  // ── HU #13804: radicación en FLIT - SOPORTE ─────────────────────────────────────────────────
+  // Tiempo de espera POR LLAMADA a ADO (AbortSignal.timeout).
+  DRFLIT_ADO_TIMEOUT_MS: z.preprocess(vacioComoAusente, z.coerce.number().int().min(1000).max(30_000).default(15_000)),
+  // Un intento `pendiente` más viejo que esto (s) se puede reclamar (la petición que lo tomó murió).
+  DRFLIT_ADO_PENDIENTE_VENCE_S: z.preprocess(vacioComoAusente, z.coerce.number().int().min(60).max(86_400).default(120)),
+  // Tipo de work item y nombres de campo del mapeo (P9-2). Validados con regex: la configuración no
+  // puede inyectar rutas en el json-patch ni en la URL.
+  DRFLIT_ADO_TIPO: z.preprocess(vacioComoAusente, z.string().regex(/^[A-Za-z][\w ]*$/).max(64).default('Bug')),
+  DRFLIT_ADO_CAMPO_DETALLE: z.preprocess(vacioComoAusente,
+    z.string().regex(RE_CAMPO_ADO).max(128).default('Microsoft.VSTS.TCM.ReproSteps')),
+  DRFLIT_ADO_CAMPO_PRIORIDAD: z.preprocess(vacioComoAusente,
+    z.string().regex(RE_CAMPO_ADO).max(128).default('Microsoft.VSTS.Common.Priority')),
+  // Vacío = no se envía. Ausente = `Custom.Environment` (verificado en el Bug #13713 de FLIT - SOPORTE).
+  DRFLIT_ADO_CAMPO_AMBIENTE: z.string().max(128).default('Custom.Environment')
+    .refine((v) => v === '' || RE_CAMPO_ADO.test(v), { message: 'DRFLIT_ADO_CAMPO_AMBIENTE no es un nombre de campo' }),
+  // Vacío (default) = no se envía `System.AreaPath` (queda la raíz del proyecto).
+  DRFLIT_ADO_AREA_PATH: z.preprocess(vacioComoAusente, z.string().max(256).regex(/^[^<>;]*$/).optional()),
+  DRFLIT_ADO_TAGS: z.preprocess(vacioComoAusente, z.string().max(128).regex(/^[\w ;.-]+$/).default('FLITO')),
+  // Tag extra en DEV y QA, para no ensuciar la bandeja de soporte con casos de prueba.
+  DRFLIT_ADO_TAGS_PRUEBAS: z.preprocess(vacioComoAusente, z.string().max(128).regex(/^[\w ;.-]+$/).default('FLITO-PRUEBAS')),
+  // `drflitCasosLimiter`: radicaciones por hora por usuario (cuenta 2xx y 5xx, no los 4xx).
+  DRFLIT_RADICACIONES_POR_HORA: z.preprocess(vacioComoAusente, z.coerce.number().int().min(1).max(60).default(5)),
+  // Puerta POSITIVA de la purga de intentos a 12 meses (RN-DRF3): solo con =1.
+  DRFLIT_PURGA_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
 }).superRefine((data, ctx) => {
   // HU #13803 (P9-1): el cliente simulado de FLIT - SOPORTE no puede arrancar en PDN, ni en una
   // producción que no declaró su ambiente (fallo cerrado).

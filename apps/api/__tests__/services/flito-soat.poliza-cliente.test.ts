@@ -289,6 +289,8 @@ describe('AC2 · B — `GET /:id/soportes` con el token del cliente', () => {
       // HU #13803 (ADR-0024, diseño F5 §D3): autorización Ley 1581 de Dr. Flit, solo del propio usuario.
       'GET /api/flito/dr-flit/autorizacion',
       'POST /api/flito/dr-flit/autorizacion',
+      // HU #13804: radicar el caso de soporte; solo datos del propio usuario (`sub`), nada del montaje SOAT.
+      'POST /api/flito/dr-flit/casos-soporte',
     ]);
   });
 });
