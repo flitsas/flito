@@ -2,7 +2,7 @@
 // (`dr-flit.config.ts`). `env.ts` hace `parse` al importar: cada caso recarga el módulo con el entorno
 // del caso (`vi.resetModules` + `vi.stubEnv`).
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { ambienteDespliegue, etiquetaAmbiente, soporteDisponible, type ConfigDrFlit } from '../../../src/modules/flito-dr-flit/dr-flit.config.js';
+import { ambienteDespliegue, etiquetaAmbiente, limitesAdjuntos, soporteDisponible, type ConfigDrFlit } from '../../../src/modules/flito-dr-flit/dr-flit.config.js';
 
 async function cargarEnv(vars: Record<string, string | undefined>) {
   vi.resetModules();
@@ -81,4 +81,20 @@ describe('dr-flit.config — disponibilidad', () => {
     expect(soporteDisponible({ ...base, DRFLIT_ADO_MODO: 'simulado', NODE_ENV: 'development' })).toBe(true);
     expect(soporteDisponible({ ...base, DRFLIT_ADO_MODO: 'simulado', DEPLOY_ENVIRONMENT: 'PDN' })).toBe(false);
   });
+});
+
+describe('HU #13805 — límites de adjuntos configurables (AC3)', () => {
+  it('defaults 3 archivos de 5 MB; en blanco = default; los valores llegan a los límites', async () => {
+    const { env } = await cargarEnv({ DRFLIT_ADJUNTOS_MAX: '', DRFLIT_ADJUNTO_MAX_MB: '' });
+    expect([env.DRFLIT_ADJUNTOS_MAX, env.DRFLIT_ADJUNTO_MAX_MB]).toEqual([3, 5]);
+    const otro = await cargarEnv({ DRFLIT_ADJUNTOS_MAX: '1', DRFLIT_ADJUNTO_MAX_MB: '2' });
+    expect(limitesAdjuntos(otro.env)).toEqual({
+      maxArchivos: 1, maxBytesArchivo: 2 * 1024 * 1024, tipos: ['image/png', 'image/jpeg', 'application/pdf'],
+    });
+  });
+
+  it.each([['DRFLIT_ADJUNTOS_MAX', '11'], ['DRFLIT_ADJUNTOS_MAX', '-1'], ['DRFLIT_ADJUNTO_MAX_MB', '0'], ['DRFLIT_ADJUNTO_MAX_MB', '26']])(
+    '%s=%s fuera de rango → no arranca', async (k, v) => {
+      await expect(cargarEnv({ [k]: v })).rejects.toThrow(new RegExp(k));
+    });
 });

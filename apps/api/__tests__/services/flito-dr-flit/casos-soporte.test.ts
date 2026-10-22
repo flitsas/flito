@@ -118,9 +118,16 @@ const AUTORIZADOS = new Set([10, 11, 12]);
 let llamadas: BugSoporteAdo[] = [];
 let siguiente = 13_900;
 let comportamiento: () => Promise<{ numero: number; tagOmitido: boolean }>;
+/** HU #13805: subidas de adjuntos vistas por el cliente (nombre genérico, tipo, bytes). */
+let subidas: Array<{ nombre: string; tipo: string; bytes: number }> = [];
+let subir: (n: number) => Promise<{ url: string }>;
 const clienteFalso: ClienteSoporteAdo = {
   modo: 'real',
   async crearBug(b) { llamadas.push(b); return comportamiento(); },
+  async subirAdjunto(nombre, tipo, contenido) {
+    subidas.push({ nombre, tipo, bytes: contenido.length });
+    return subir(subidas.length);
+  },
 };
 const op = (b: BugSoporteAdo, path: string) => b.operaciones.find((o) => o.path === path)?.value;
 
@@ -133,6 +140,8 @@ beforeEach(() => {
   piiMock.mockReset().mockResolvedValue(undefined);
   Object.assign(CFG, { NODE_ENV: 'production', DRFLIT_ADO_MODO: 'simulado', DEPLOY_ENVIRONMENT: 'QA' });
   comportamiento = async () => ({ numero: siguiente++, tagOmitido: false });
+  subidas = [];
+  subir = async (n) => ({ url: `https://dev.azure.com/flitsas/_apis/wit/attachments/a-${n}` });
   fijarClienteSoporteAdoParaTests(clienteFalso);
   resolverMock.mockReset().mockImplementation(async (id) => {
     const u = USUARIOS[id];
@@ -423,5 +432,223 @@ describe('AC10 — modo simulado acotado', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+// ── HU #13805 — adjuntos en el mismo POST multipart (AC1–AC6) ───────────────────────────────────
+const relleno = (n: number) => Buffer.alloc(n, 0x20);
+// Firma PNG + cabecera del chunk IHDR: `file-type` recorre los chunks, la firma sola no le basta.
+const PNG = Buffer.concat([
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]), Buffer.alloc(64),
+]);
+const JPG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00]), relleno(64)]);
+const PDF = Buffer.concat([Buffer.from('%PDF-1.4\n%âãÏÓ\n1 0 obj\n<<>>\nendobj\n'), relleno(64)]);
+const NO_PNG = Buffer.from('esto es texto plano y no una imagen PNG, aunque se llame .png');
+/** Nombres que NO deben aparecer en respuestas, logs ni auditoría (AC4). */
+const NOMBRE_PNG = 'pantallazo-cedula-1032456789.png';
+const NOMBRE_PDF = 'factura-ana-perez.pdf';
+
+interface Archivo { buf: Buffer; nombre: string; tipo: string; campo?: string }
+const png = (nombre = NOMBRE_PNG): Archivo => ({ buf: PNG, nombre, tipo: 'image/png' });
+const pdf = (nombre = NOMBRE_PDF): Archivo => ({ buf: PDF, nombre, tipo: 'application/pdf' });
+
+async function postMultipart(sub: number, c: unknown, archivos: Archivo[], extra?: (r: request.Test) => request.Test) {
+  let r = request(app()).post(RUTA).set('Authorization', `Bearer ${await token(sub)}`);
+  if (c !== undefined) r = r.field('caso', JSON.stringify(c));
+  for (const a of archivos) r = r.attach(a.campo ?? 'adjuntos', a.buf, { filename: a.nombre, contentType: a.tipo });
+  return extra ? extra(r) : r;
+}
+
+/** Nada del nombre del archivo en respuesta, logs ni `logPiiAccess` (AC4). */
+function sinNombres(r: { body: unknown }) {
+  const visto = `${JSON.stringify(r.body)} ${lineasLog.join(' ')} ${JSON.stringify(piiMock.mock.calls.map((c) => c[1]))}`;
+  for (const n of [NOMBRE_PNG, NOMBRE_PDF, 'pantallazo', 'factura-ana', '1032456789']) expect(visto).not.toContain(n);
+}
+
+describe('HU #13805 AC1 — adjuntos válidos', () => {
+  it('PNG + PDF → 201 solo con el número; subidos con nombre genérico y vinculados al Bug en el mismo json-patch', async () => {
+    const insertar = vi.mocked(repoCasos.insertar);
+    const r = await postMultipart(11, caso(), [png(), pdf()]);
+    expect(r.status).toBe(201);
+    expect(r.body).toEqual({ numero: siguiente - 1, repetido: false });
+    expect(Object.keys(r.body)).toEqual(['numero', 'repetido']);
+    expect(subidas).toEqual([
+      { nombre: 'adjunto-1.png', tipo: 'image/png', bytes: PNG.length },
+      { nombre: 'adjunto-2.pdf', tipo: 'application/pdf', bytes: PDF.length },
+    ]);
+    expect(llamadas).toHaveLength(1);
+    const rel = llamadas[0]!.operaciones.filter((o) => o.path === '/relations/-');
+    expect(rel.map((o) => o.value)).toEqual([
+      { rel: 'AttachedFile', url: 'https://dev.azure.com/flitsas/_apis/wit/attachments/a-1' },
+      { rel: 'AttachedFile', url: 'https://dev.azure.com/flitsas/_apis/wit/attachments/a-2' },
+    ]);
+    expect(String(op(llamadas[0]!, '/fields/Microsoft.VSTS.TCM.ReproSteps'))).toContain('Sí (2)');
+    expect(insertar.mock.calls[0]![0]).toMatchObject({ adjuntosCantidad: 2 });
+    expect(intentos[0]).toMatchObject({ estado: 'creado' });
+    sinNombres(r);
+  });
+
+  it('JPG declarado como application/octet-stream se acepta por contenido (adjunto-1.jpg); también `adjuntos[]`', async () => {
+    const r = await postMultipart(10, caso(), [{ buf: JPG, nombre: 'foto.jpeg', tipo: 'application/octet-stream', campo: 'adjuntos[]' }]);
+    expect(r.status).toBe(201);
+    expect(subidas).toEqual([{ nombre: 'adjunto-1.jpg', tipo: 'image/jpeg', bytes: JPG.length }]);
+  });
+
+  it('modo simulado: urls falsas .invalid en las relaciones', async () => {
+    fijarClienteSoporteAdoParaTests(new ClienteSoporteAdoSimulado('Microsoft.VSTS.TCM.ReproSteps'));
+    const r = await postMultipart(11, caso(), [png()]);
+    expect(r.status).toBe(201);
+    expect(r.body.numero).toBe(PRIMER_NUMERO_SIMULADO);
+  });
+});
+
+describe('HU #13805 AC2 — MIME real por bytes', () => {
+  it('.png que no es PNG → 400 adjunto-invalido con su posición y motivo; sin intento ni ADO; sin el nombre', async () => {
+    const r = await postMultipart(11, caso(), [pdf(), { buf: NO_PNG, nombre: NOMBRE_PNG, tipo: 'image/png' }]);
+    expect(r.status).toBe(400);
+    expect(r.body).toEqual({
+      error: expect.stringContaining('archivo 2'), codigo: 'adjunto-invalido',
+      adjunto: { indice: 1, motivo: 'contenido-no-coincide' },
+    });
+    expect(intentos).toHaveLength(0);
+    expect(subidas).toHaveLength(0);
+    expect(llamadas).toHaveLength(0);
+    expect(piiMock).not.toHaveBeenCalled();
+    sinNombres(r);
+  });
+
+  it('un PDF declarado como image/png → 400 contenido-no-coincide (el tipo declarado no coincide)', async () => {
+    const r = await postMultipart(11, caso(), [{ buf: PDF, nombre: 'x.png', tipo: 'image/png' }]);
+    expect(r.status).toBe(400);
+    expect(r.body.adjunto).toEqual({ indice: 0, motivo: 'contenido-no-coincide' });
+  });
+
+  it('tipo y extensión no admitidos (fileFilter) → 400 tipo-no-permitido en su posición, sin intento', async () => {
+    const r = await postMultipart(11, caso(), [png(), { buf: Buffer.from('MZ'), nombre: 'programa.exe', tipo: 'application/x-msdownload' }]);
+    expect(r.status).toBe(400);
+    expect(r.body).toMatchObject({ codigo: 'adjunto-invalido', adjunto: { indice: 1, motivo: 'tipo-no-permitido' } });
+    expect(JSON.stringify(r.body)).not.toContain('programa');
+    expect(intentos).toHaveLength(0);
+  });
+
+  it('archivo vacío → 400 vacio', async () => {
+    const r = await postMultipart(11, caso(), [{ buf: Buffer.alloc(0), nombre: 'a.pdf', tipo: 'application/pdf' }]);
+    expect(r.status).toBe(400);
+    expect(r.body.adjunto).toEqual({ indice: 0, motivo: 'vacio' });
+  });
+});
+
+describe('HU #13805 AC3 — límites (3 archivos, 5 MB por defecto)', () => {
+  it('4 archivos → 413 adjuntos-limite con el máximo; sin intento ni ADO', async () => {
+    const r = await postMultipart(11, caso(), [png(), png(), pdf(), pdf()]);
+    expect(r.status).toBe(413);
+    expect(r.body).toEqual({ error: 'Puede adjuntar hasta 3 archivos.', codigo: 'adjuntos-limite', limite: { maxArchivos: 3 } });
+    expect(intentos).toHaveLength(0);
+    expect(subidas).toHaveLength(0);
+  });
+
+  it('uno de 6 MB → 413 adjunto-muy-grande con su posición y el máximo en bytes; sin intento', async () => {
+    const grande = Buffer.concat([PDF, Buffer.alloc(6 * 1024 * 1024)]);
+    const r = await postMultipart(11, caso(), [png(), { buf: grande, nombre: NOMBRE_PDF, tipo: 'application/pdf' }]);
+    expect(r.status).toBe(413);
+    expect(r.body).toEqual({
+      error: 'El archivo 2 supera el máximo de 5 MB por archivo.', codigo: 'adjunto-muy-grande',
+      adjunto: { indice: 1, motivo: 'muy-grande' }, limite: { maxBytesArchivo: 5 * 1024 * 1024 },
+    });
+    expect(intentos).toHaveLength(0);
+    sinNombres(r);
+  });
+
+  it('parte de archivo con otro nombre o un campo de texto de más → 400 campo-invalido', async () => {
+    const r1 = await postMultipart(11, caso(), [{ ...png(), campo: 'otro' }]);
+    expect(r1.status).toBe(400);
+    expect(r1.body.codigo).toBe('campo-invalido');
+    const r2 = await postMultipart(11, caso(), [], (r) => r.field('extra', 'x'));
+    expect(r2.status).toBe(400);
+    expect(r2.body.codigo).toBe('campo-invalido');
+    expect(intentos).toHaveLength(0);
+  });
+
+  it('multipart sin la parte `caso` o con JSON roto → 400 campo caso', async () => {
+    const r = await postMultipart(11, undefined, [png()]);
+    expect(r.status).toBe(400);
+    expect(r.body).toMatchObject({ codigo: 'campo-invalido', campo: 'caso' });
+    const r2 = await postMultipart(11, undefined, [], (x) => x.field('caso', '{no-json'));
+    expect(r2.body).toMatchObject({ codigo: 'campo-invalido', campo: 'caso' });
+  });
+
+  it('multer va después de las guardas: sin autorización → 403 aunque el archivo sea inválido', async () => {
+    const r = await postMultipart(16, caso(), [{ buf: NO_PNG, nombre: 'x.png', tipo: 'image/png' }]);
+    expect(r.status).toBe(403);
+    expect(r.body.codigo).toBe('autorizacion-requerida');
+  });
+});
+
+describe('HU #13805 AC4 — nada queda en FLITO', () => {
+  it('la tabla recibe solo la cantidad; logPiiAccess nombra `adjuntos` sin nombres; los logs no traen nombres', async () => {
+    const r = await postMultipart(11, caso(), [png(), pdf()]);
+    expect(r.status).toBe(201);
+    const fila = vi.mocked(repoCasos.insertar).mock.calls[0]![0];
+    expect(Object.keys(fila).sort()).toEqual(['adjuntosCantidad', 'ambiente', 'autorizacionId', 'claveIdempotencia', 'usuarioId']);
+    expect(piiMock).toHaveBeenCalledTimes(1);
+    expect(piiMock.mock.calls[0]![1].camposAccedidos).toContain('adjuntos');
+    expect(lineasLog.join(' ')).toContain('"adjuntosCantidad":2');
+    sinNombres(r);
+  });
+
+  it('el servicio no conoce el nombre y suelta los buffers al terminar', async () => {
+    const { radicarCaso } = await import('../../../src/modules/flito-dr-flit/dr-flit-casos.service.js');
+    const adjuntos = [{ contenido: PNG, tipoDeclarado: 'image/png' }];
+    await radicarCaso({ user: { sub: 11 } } as never, {
+      usuarioId: 11, autorizacionId: 511, ambiente: 'QA', caso: caso() as never, adjuntos,
+    });
+    expect(adjuntos).toHaveLength(0);
+  });
+});
+
+describe('HU #13805 AC5 — fallo de la subida a ADO', () => {
+  it('falla el 2.º adjunto → 503 reintentable, sin Bug, intento fallido; la misma clave reintenta y radica', async () => {
+    subir = async (n) => { if (n === 2) throw new AdoNoDisponibleError('timeout'); return { url: `https://x/a-${n}` }; };
+    const c = caso();
+    const r = await postMultipart(11, c, [png(), pdf()]);
+    expect(r.status).toBe(503);
+    expect(r.body).toMatchObject({ codigo: 'ado-no-disponible', reintentable: true });
+    expect(llamadas).toHaveLength(0);
+    expect(intentos[0]).toMatchObject({ estado: 'fallido', errorCodigo: 'timeout' });
+    expect(piiMock).toHaveBeenCalledTimes(1); // los datos pudieron salir: se audita igual
+    sinNombres(r);
+
+    subir = async (n) => ({ url: `https://x/b-${n}` });
+    const r2 = await postMultipart(11, c, [png(), pdf()]);
+    expect(r2.status).toBe(201);
+    expect(intentos).toHaveLength(1);
+    expect(intentos[0]).toMatchObject({ estado: 'creado', reintentos: 1 });
+    expect(llamadas[0]!.operaciones.filter((o) => o.path === '/relations/-')).toHaveLength(2);
+  });
+
+  it('ADO rechaza la subida → 502 ado-error reintentable, sin Bug', async () => {
+    subir = async () => { throw new AdoRechazoError('ado-4xx'); };
+    const r = await postMultipart(11, caso(), [pdf()]);
+    expect(r.status).toBe(502);
+    expect(r.body).toMatchObject({ codigo: 'ado-error', reintentable: true });
+    expect(llamadas).toHaveLength(0);
+    expect(intentos[0]).toMatchObject({ estado: 'fallido', errorCodigo: 'ado-4xx' });
+  });
+});
+
+describe('HU #13805 AC6 — caso sin adjuntos', () => {
+  it('multipart solo con `caso` → 201 igual que HU-2: sin subidas ni relaciones, Adjuntos «No»', async () => {
+    const r = await postMultipart(12, caso(), []);
+    expect(r.status).toBe(201);
+    expect(subidas).toHaveLength(0);
+    expect(llamadas[0]!.operaciones.some((o) => o.path.startsWith('/relations'))).toBe(false);
+    expect(String(op(llamadas[0]!, '/fields/Microsoft.VSTS.TCM.ReproSteps'))).toContain('<td><b>Adjuntos</b></td><td>No</td>');
+    expect(piiMock.mock.calls[0]![1].camposAccedidos).not.toContain('adjuntos');
+  });
+
+  it('JSON sin archivos sigue funcionando (compatibilidad HU-2)', async () => {
+    const r = await post(12, caso());
+    expect(r.status).toBe(201);
+    expect(subidas).toHaveLength(0);
   });
 });

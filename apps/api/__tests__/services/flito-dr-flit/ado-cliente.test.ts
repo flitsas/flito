@@ -7,6 +7,7 @@ vi.mock('../../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedi
 
 const {
   ClienteSoporteAdoReal, ClienteSoporteAdoSimulado, AdoNoDisponibleError, AdoRechazoError, urlCrearBug, PRIMER_NUMERO_SIMULADO,
+  urlSubirAdjunto, URL_ADJUNTO_SIMULADO,
 } = await import('../../../src/modules/flito-dr-flit/dr-flit-ado.client.js');
 
 const PAT = 'pat-ultra-secreto-123';
@@ -145,6 +146,63 @@ describe('ClienteSoporteAdoSimulado', () => {
     expect((await c.crearBug({ operaciones: OPS })).numero).toBe(PRIMER_NUMERO_SIMULADO + 1);
     const e = await fallo(c.crearBug({ operaciones: OPS.slice(1) }));
     expect(e).toBeInstanceOf(AdoRechazoError);
+    expect(f).not.toHaveBeenCalled();
+  });
+});
+
+// ── HU #13805 — subida de adjuntos (RN-DRF-C5) ──────────────────────────────────────────────────
+describe('subirAdjunto — adaptador real', () => {
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+  const URL_ADO = 'https://dev.azure.com/flitsas/_apis/wit/attachments/abc-123?fileName=adjunto-1.png';
+
+  it('POST a /_apis/wit/attachments con fileName genérico, api-version 7.1 y octet-stream; devuelve solo la url', async () => {
+    const f = stub(json(201, { id: 'abc-123', url: URL_ADO }));
+    const r = await new ClienteSoporteAdoReal(CFG).subirAdjunto('adjunto-1.png', 'image/png', PNG);
+    expect(r).toEqual({ url: URL_ADO });
+    const [url, init] = f.mock.calls[0]! as [URL, RequestInit];
+    expect(String(url)).toBe('https://dev.azure.com/flitsas/FLIT%20-%20SOPORTE/_apis/wit/attachments?fileName=adjunto-1.png&api-version=7.1');
+    expect(String(url)).toBe(String(urlSubirAdjunto(CFG, 'adjunto-1.png')));
+    expect(init.method).toBe('POST');
+    expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/octet-stream');
+    expect(init.redirect).toBe('error');
+    expect(Buffer.from(init.body as Uint8Array).equals(PNG)).toBe(true);
+  });
+
+  it('un nombre que no es genérico no sale (ado-4xx sin llamar a fetch)', async () => {
+    const f = stub();
+    const e = await fallo(new ClienteSoporteAdoReal(CFG).subirAdjunto('captura de Ana.png', 'image/png', PNG));
+    expect((e as InstanceType<typeof AdoRechazoError>).clase).toBe('ado-4xx');
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [() => html(203), AdoRechazoError, 'ado-auth'],
+    [() => json(401, {}), AdoRechazoError, 'ado-auth'],
+    [() => json(200, { id: 'x' }), AdoRechazoError, 'ado-auth'],
+    [() => json(200, { url: 'http://inseguro/x' }), AdoRechazoError, 'ado-auth'],
+    [() => json(413, { message: 'too big' }), AdoRechazoError, 'ado-4xx'],
+    [() => json(429, {}), AdoNoDisponibleError, 'ado-429'],
+    [() => json(503, {}), AdoNoDisponibleError, 'ado-5xx'],
+    [() => new TypeError('fetch failed'), AdoNoDisponibleError, 'red'],
+  ] as const)('respuesta %# → %o (%s), sin fuga del PAT ni de la URL', async (r, clase, codigo) => {
+    stub(r());
+    const e = await fallo(new ClienteSoporteAdoReal(CFG).subirAdjunto('adjunto-2.pdf', 'application/pdf', PNG));
+    expect(e).toBeInstanceOf(clase);
+    expect((e as { clase: string }).clase).toBe(codigo);
+    sinFuga(e);
+  });
+});
+
+describe('subirAdjunto — simulado', () => {
+  it('sin red, url falsa en dominio .invalid; vacío o nombre no genérico → ado-4xx', async () => {
+    const f = stub();
+    const c = new ClienteSoporteAdoSimulado('Microsoft.VSTS.TCM.ReproSteps');
+    expect(await c.subirAdjunto('adjunto-1.jpg', 'image/jpeg', Buffer.from([0xff, 0xd8, 0xff])))
+      .toEqual({ url: `${URL_ADJUNTO_SIMULADO}1` });
+    expect((await c.subirAdjunto('adjunto-2.pdf', 'application/pdf', Buffer.from('%PDF-'))).url).toBe(`${URL_ADJUNTO_SIMULADO}2`);
+    expect(URL_ADJUNTO_SIMULADO).toMatch(/^https:\/\/[^/]+\.invalid\//);
+    await expect(c.subirAdjunto('adjunto-3.pdf', 'application/pdf', Buffer.alloc(0))).rejects.toBeInstanceOf(AdoRechazoError);
+    await expect(c.subirAdjunto('mi-cedula.pdf', 'application/pdf', Buffer.from('%PDF-'))).rejects.toBeInstanceOf(AdoRechazoError);
     expect(f).not.toHaveBeenCalled();
   });
 });
