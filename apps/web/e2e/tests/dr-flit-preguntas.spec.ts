@@ -129,6 +129,15 @@ test.describe('HU #13766 · Dr. Flit — Tengo una pregunta', () => {
 
   test('AC5 · «xyzzy» → sin resultados, reformular y «Abrir la Ayuda FLITO» a /flito/ayuda sin la pregunta', async ({ page }) => {
     expect(buscarSecciones(fichasDe(FINANCIERA_CON_TRAMITES), 'xyzzy')).toEqual([]);
+    // HU #13806 (F5) cuelga «Necesito soporte» en esta fila cuando el soporte está disponible; aquí no lo
+    // está, y la respuesta vacía sigue siendo la de F3 (su caso con soporte: dr-flit-soporte.spec.ts).
+    await page.route('**/api/flito/dr-flit/autorizacion**', (route) => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({
+        finalidad: 'soporte', autorizado: false, versionVigente: 'v', textoVigente: 't', aceptadaEn: null,
+        soporte: { disponible: false, ambiente: null, ambienteEtiqueta: null, adjuntos: { maxArchivos: 0, maxBytesArchivo: 0, tipos: [] } },
+      }),
+    }));
     await abrirPanel(page);
     await preguntar(page, 'xyzzy');
     await expect(conversacion(page).getByText('No encontré nada sobre "xyzzy" en sus manuales.')).toBeVisible();

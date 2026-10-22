@@ -12,8 +12,14 @@ import { escribirCrudo, limpiarConversacionDrFlit } from '../../lib/drFlitAlmace
 import type { UsuarioAyuda } from '../../lib/ayudaFlito';
 import { buscarSecciones, MAX_CITAS } from '../../lib/drFlitBusqueda';
 import DrFlitMensaje, {
-  BurbujaDrFlit, DrFlitBuscando, DrFlitErrorModulo, DrFlitErrorPregunta, DrFlitErrorRestaurar, ENLACE_DRFLIT,
+  ATRIBUTO_ABRIDOR_SOPORTE, BotonNecesitoSoporte, BurbujaDrFlit, DrFlitBuscando, DrFlitErrorModulo,
+  DrFlitErrorPregunta, DrFlitErrorRestaurar, ENLACE_DRFLIT,
 } from './DrFlitMensaje';
+import DrFlitSoporte from './DrFlitSoporte';
+import {
+  abrirSoporte, asegurarUsuarioSoporte, consultarEstadoSoporte, consumirRadicado, useSoporteDrFlit,
+} from '../../lib/drFlitSoporte';
+import { camposIniciales } from '../../lib/drFlitSoporteModelo';
 import { DRFLIT_TITULO_ID } from './DrFlitMarco';
 import { DrFlitBotonTerminar, DrFlitConfirmarTerminar } from './DrFlitTerminar';
 import DrFlitModulos, { DRFLIT_MODULOS_ID } from './DrFlitModulos';
@@ -31,6 +37,9 @@ import { cargarFichaDrFlit, cargarFichasDrFlit } from './cargarFichaDrFlit';
 // HU #13767: la conversación se restaura de `sessionStorage` al montar (`lib/drFlitAlmacen.ts`) y se
 // guarda tras cada cambio; las referencias restauradas se verifican cargando SOLO las fichas visibles
 // que citan (permiso primero, sin descargar las demás). «Terminar chat» la borra con confirmación.
+// HU #13806 (Feature #13695): «Necesito soporte» (saludo y «sin resultados») abre el asistente de
+// soporte, que toma el cuerpo del panel (`DrFlitSoporte`); su estado vive en memoria por encima del
+// panel (`lib/drFlitSoporte.ts`). Al radicar, la conversación recibe `casoRadicado` con el número.
 
 export interface DrFlitPanelProps {
   /** Se llama al seguir un enlace del panel: en <lg el montaje cierra el panel para ver la página. */
@@ -89,6 +98,50 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
     };
   }, []);
 
+  // HU #13806: estado de soporte al montar el panel (el botón no se pinta mientras carga).
+  const soporte = useSoporteDrFlit();
+  const raizRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    asegurarUsuarioSoporte(userId);
+    consultarEstadoSoporte();
+  }, [userId]);
+  // F5.8: si la consulta falla el botón SÍ se pinta (al pulsarlo se reconsulta con estados visibles).
+  const soporteVisible = soporte.consulta.fase === 'error' || soporte.consulta.datos?.soporte.disponible === true;
+  const abrirAsistente = (abridor: string) => {
+    setListaAbierta(false);
+    setConfirmando(false);
+    abrirSoporte(abridor, camposIniciales(user));
+  };
+
+  // Caso radicado (aunque el panel estuviera cerrado): solo el número entra en la conversación.
+  useEffect(() => {
+    if (soporte.radicado === null) return;
+    const numero = consumirRadicado();
+    if (numero === null) return;
+    setMensajes((prev) =>
+      agregar(prev, { id: nuevoIdMensaje(), ts: Date.now(), de: 'drflit', tipo: 'casoRadicado', numero }),
+    );
+  }, [soporte.radicado]);
+
+  // Foco al volver del asistente (F5.6): la caja o el «Necesito soporte» que lo abrió. Solo ante una
+  // petición NUEVA: al montar el panel el foco es del marco.
+  const focoVisto = useRef(soporte.foco.n);
+  useEffect(() => {
+    if (focoVisto.current === soporte.foco.n) return;
+    focoVisto.current = soporte.foco.n;
+    if (soporte.vista !== 'chat') return;
+    if (soporte.foco.a === 'abridor' && soporte.abridor) {
+      const abridor = raizRef.current?.querySelector<HTMLElement>(
+        `[${ATRIBUTO_ABRIDOR_SOPORTE}="${CSS.escape(soporte.abridor)}"]`,
+      );
+      if (abridor) {
+        abridor.focus();
+        return;
+      }
+    }
+    if (soporte.foco.a === 'abridor' || soporte.foco.a === 'caja') cajaRef.current?.focus();
+  }, [soporte.foco, soporte.vista, soporte.abridor]);
+
   // Guardado tras cada cambio (AC1/AC7: `serializar` recorta a los 50 más recientes). Sin mensajes no
   // se escribe: «Terminar chat» ya barrió la clave.
   useEffect(() => {
@@ -118,7 +171,7 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [mensajes.length, pendiente, listaAbierta, verificacion]);
+  }, [mensajes.length, pendiente, listaAbierta, verificacion, soporte.vista]);
 
   const verificando = verificacion?.estado === 'cargando';
   const buscando = pendiente?.estado === 'cargando' || verificando;
@@ -282,73 +335,86 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
   const textos = new Map(mensajes.flatMap((m) => (m.tipo === 'pregunta' ? [[m.id, m.texto] as const] : [])));
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" onKeyDown={onKeyDown}>
-      {mensajes.length > 0 && (
+    <div ref={raizRef} className="flex min-h-0 min-w-0 flex-1 flex-col" onKeyDown={onKeyDown}>
+      {/* «Terminar chat» se oculta mientras el asistente de soporte está a la vista (F5.1). */}
+      {mensajes.length > 0 && soporte.vista === 'chat' && (
         <DrFlitBotonTerminar onPedir={pedirTerminar} expandido={confirmando} botonRef={botonTerminarRef} />
       )}
-      {confirmando && mensajes.length > 0 && (
-        <DrFlitConfirmarTerminar onConfirmar={terminar} onCancelar={cancelarTerminar} />
+      {confirmando && mensajes.length > 0 && soporte.vista === 'chat' && (
+        <DrFlitConfirmarTerminar
+          onConfirmar={terminar}
+          onCancelar={cancelarTerminar}
+          conBorrador={soporte.borrador !== null}
+        />
       )}
       <p role="status" className="sr-only">{anuncio}</p>
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        {/* Conversación: los mensajes nuevos se anuncian por esta región, sin mover el foco. */}
-        <div
-          role="log"
-          aria-live="polite"
-          aria-relevant="additions"
-          aria-label="Conversación con Dr. Flit"
-          className="flex flex-col gap-3"
-        >
-          <BurbujaDrFlit>
-            <p className="break-words">
-              Hola, soy Dr. Flit. Le ayudo a encontrar respuestas en los manuales de los módulos que usted usa.
-            </p>
-            <p className="mt-2">¿Por dónde empezamos?</p>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              {botonExplicame()}
-              <button type="button" onClick={() => cajaRef.current?.focus()} className={flitBtnSecondarySm}>
-                Tengo una pregunta
-              </button>
-              <Link to="/flito/ayuda" onClick={onNavegar} className={ENLACE_DRFLIT}>
-                Abrir la Ayuda FLITO
-                <span aria-hidden="true">→</span>
-              </Link>
+      {soporte.vista === 'soporte' ? <DrFlitSoporte /> : (
+        <>
+          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+            {/* Conversación: los mensajes nuevos se anuncian por esta región, sin mover el foco. */}
+            <div
+              role="log"
+              aria-live="polite"
+              aria-relevant="additions"
+              aria-label="Conversación con Dr. Flit"
+              className="flex flex-col gap-3"
+            >
+              <BurbujaDrFlit>
+                <p className="break-words">
+                  Hola, soy Dr. Flit. Le ayudo a encontrar respuestas en los manuales de los módulos que usted usa.
+                </p>
+                <p className="mt-2">¿Por dónde empezamos?</p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {botonExplicame()}
+                  <button type="button" onClick={() => cajaRef.current?.focus()} className={flitBtnSecondarySm}>
+                    Tengo una pregunta
+                  </button>
+                  <Link to="/flito/ayuda" onClick={onNavegar} className={ENLACE_DRFLIT}>
+                    Abrir la Ayuda FLITO
+                    <span aria-hidden="true">→</span>
+                  </Link>
+                  {soporteVisible && (
+                    <BotonNecesitoSoporte abridor="saludo" onClick={() => abrirAsistente('saludo')} />
+                  )}
+                </div>
+              </BurbujaDrFlit>
+              {mensajes.map((m) => (
+                <DrFlitMensaje
+                  key={m.id}
+                  mensaje={m}
+                  user={user}
+                  fichas={fichas}
+                  onNavegar={onNavegar}
+                  textoRespondeA={m.tipo === 'sinResultados' ? textos.get(m.respondeA) : undefined}
+                  verificando={verificando}
+                  onSoporte={soporteVisible ? abrirAsistente : undefined}
+                />
+              ))}
+              {verificacion?.estado === 'error' && <DrFlitErrorRestaurar onReintentar={reintentarRestaurar} />}
+              {pendiente?.estado === 'cargando' && <DrFlitBuscando />}
+              {pendiente?.estado === 'error' && pendiente.tipo === 'modulo' && (
+                <DrFlitErrorModulo etiqueta={etiquetaPendiente} onReintentar={reintentar} />
+              )}
+              {pendiente?.estado === 'error' && pendiente.tipo === 'pregunta' && (
+                <DrFlitErrorPregunta onReintentar={reintentar} />
+              )}
             </div>
-          </BurbujaDrFlit>
-          {mensajes.map((m) => (
-            <DrFlitMensaje
-              key={m.id}
-              mensaje={m}
-              user={user}
-              fichas={fichas}
-              onNavegar={onNavegar}
-              textoRespondeA={m.tipo === 'sinResultados' ? textos.get(m.respondeA) : undefined}
-              verificando={verificando}
-            />
-          ))}
-          {verificacion?.estado === 'error' && <DrFlitErrorRestaurar onReintentar={reintentarRestaurar} />}
-          {pendiente?.estado === 'cargando' && <DrFlitBuscando />}
-          {pendiente?.estado === 'error' && pendiente.tipo === 'modulo' && (
-            <DrFlitErrorModulo etiqueta={etiquetaPendiente} onReintentar={reintentar} />
-          )}
-          {pendiente?.estado === 'error' && pendiente.tipo === 'pregunta' && (
-            <DrFlitErrorPregunta onReintentar={reintentar} />
-          )}
-        </div>
-        {/* Paso transitorio, fuera del `log`: no se anuncia ni se guarda como mensaje. */}
-        {listaAbierta && (
-          <div className="mt-3">
-            <DrFlitModulos modulos={modulos} onElegir={elegir} onCancelar={cancelarLista} />
+            {/* Paso transitorio, fuera del `log`: no se anuncia ni se guarda como mensaje. */}
+            {listaAbierta && (
+              <div className="mt-3">
+                <DrFlitModulos modulos={modulos} onElegir={elegir} onCancelar={cancelarLista} />
+              </div>
+            )}
           </div>
-        )}
-      </div>
-      <div
-        className="flex flex-col gap-3 border-t border-flit-soft px-4 pt-3"
-        style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
-      >
-        <div className="flex flex-wrap items-center gap-2">{botonExplicame(botonPieRef)}</div>
-        <DrFlitPregunta onEnviar={preguntar} ocupado={buscando} inputRef={cajaRef} />
-      </div>
+          <div
+            className="flex flex-col gap-3 border-t border-flit-soft px-4 pt-3"
+            style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+          >
+            <div className="flex flex-wrap items-center gap-2">{botonExplicame(botonPieRef)}</div>
+            <DrFlitPregunta onEnviar={preguntar} ocupado={buscando} inputRef={cajaRef} />
+          </div>
+        </>
+      )}
     </div>
   );
 }

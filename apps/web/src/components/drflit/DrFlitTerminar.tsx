@@ -35,9 +35,11 @@ export function DrFlitBotonTerminar({ onPedir, expandido, botonRef }: {
   );
 }
 
-export function DrFlitConfirmarTerminar({ onConfirmar, onCancelar }: {
+export function DrFlitConfirmarTerminar({ onConfirmar, onCancelar, conBorrador = false }: {
   onConfirmar: () => void;
   onCancelar: () => void;
+  /** HU #13806: hay un caso de soporte sin enviar; también se borra (anexo UX F5.11). */
+  conBorrador?: boolean;
 }) {
   const cancelarRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -59,7 +61,11 @@ export function DrFlitConfirmarTerminar({ onConfirmar, onCancelar }: {
       className="border-b border-flit-soft bg-flit-app px-4 py-3 text-sm text-flit-ink"
     >
       <p id={CONFIRMAR_TITULO_ID} className="font-semibold">¿Terminar el chat?</p>
-      <p className="mt-1 text-flit-secondary">Se borrará esta conversación y no podrá recuperarla.</p>
+      <p className="mt-1 text-flit-secondary">
+        {conBorrador
+          ? 'Se borrarán esta conversación y el caso que no ha enviado, y no podrá recuperarlos.'
+          : 'Se borrará esta conversación y no podrá recuperarla.'}
+      </p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button
           type="button"

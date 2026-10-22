@@ -57,7 +57,20 @@ export function borrarCrudo(userId: string | number): void {
  * Barre toda clave `flito:drflit:` de la pestaña. Las claves se recogen ANTES de borrar
  * (`key(i)` se reindexa en cada `removeItem`) y cada borrado va en su propio `try`. No lanza nunca.
  */
+/**
+ * Limpiezas en MEMORIA que se suman al barrido (HU #13806: el borrador del caso de soporte). Las
+ * registra el módulo que las tiene —ya cargado con el panel—, así este archivo sigue sin imports.
+ */
+const limpiezasEnMemoria = new Set<() => void>();
+
+export function alLimpiarDrFlit(limpieza: () => void): void {
+  limpiezasEnMemoria.add(limpieza);
+}
+
 export function limpiarConversacionDrFlit(): void {
+  for (const limpieza of limpiezasEnMemoria) {
+    try { limpieza(); } catch { /* sigue con el barrido */ }
+  }
   if (descargando) return;
   const claves: string[] = [];
   try {

@@ -81,3 +81,49 @@ test.describe('HU #13764 · AC7 en teléfono · esqueleto de carga (iPhone 12)',
     await expect(page.getByRole('heading', { name: 'Ayuda FLITO' })).toBeVisible();
   });
 });
+
+// HU #13806 — asistente «Necesito soporte» a 320 px (anexo UX F5.12): sin scroll horizontal en ninguna
+// pantalla, la fila «Frecuencia» envuelve, inputs a 16 px y pie alcanzable. API de soporte mockeada.
+test.describe('HU #13806 · asistente de soporte · 320 px', () => {
+  test.use({ ...IPHONE_12, viewport: { width: 320, height: 640 } });
+  test('autorización, Contacto y paso Caso con errores caben en 320 px sin scroll horizontal', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await page.route('**/api/flito/dr-flit/autorizacion**', (route) => route.fulfill({
+      status: route.request().method() === 'GET' ? 200 : 201,
+      contentType: 'application/json',
+      body: JSON.stringify(route.request().method() === 'GET'
+        ? {
+          finalidad: 'soporte', autorizado: false, versionVigente: 'v-e2e-1', aceptadaEn: null,
+          textoVigente: 'Texto de prueba de la autorización de soporte (E2E), largo para envolver en 320 px.',
+          soporte: { disponible: true, ambiente: 'DEV', ambienteEtiqueta: 'Otro (DEV)', adjuntos: { maxArchivos: 3, maxBytesArchivo: 1, tipos: [] } },
+        }
+        : { finalidad: 'soporte', version: 'v-e2e-1', aceptadaEn: '2026-10-22T10:00:00.000Z' }),
+    }));
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Abrir Dr. Flit' }).click();
+    const panel = page.getByRole('complementary', { name: 'Dr. Flit' });
+    const sinDesborde = async (paso: string) => {
+      const m = await page.evaluate(() => {
+        const p = document.getElementById('drflit-panel')!;
+        return { doc: document.documentElement.scrollWidth, panel: p.scrollWidth - p.clientWidth };
+      });
+      expect(m.doc, `${paso}: sin scroll horizontal en la página`).toBeLessThanOrEqual(320);
+      expect(m.panel, `${paso}: sin scroll horizontal en el panel`).toBeLessThanOrEqual(0);
+    };
+    await panel.getByRole('button', { name: 'Necesito soporte' }).click();
+    await expect(panel.getByRole('heading', { name: 'Antes de radicar su caso' })).toBeVisible();
+    await sinDesborde('autorización');
+    await panel.getByRole('button', { name: 'Acepto' }).click();
+    // La sesión del fixture no trae correo: se escribe (el campo es editable).
+    await panel.getByLabel('Correo').fill('financiera.e2e@empresa.co');
+    await sinDesborde('paso Contacto');
+    await panel.getByRole('button', { name: 'Siguiente' }).click();
+    await panel.getByRole('button', { name: 'Siguiente' }).click();
+    await expect(panel.getByText('Escriba un título para su caso.')).toBeVisible();
+    await sinDesborde('paso Caso con errores');
+    expect(await panel.getByLabel('Título').evaluate((el) => getComputedStyle(el).fontSize)).toBe('16px');
+    const pie = await panel.getByRole('button', { name: 'Siguiente' }).boundingBox();
+    expect(pie!.x + pie!.width).toBeLessThanOrEqual(320);
+    expect(pie!.height).toBeGreaterThanOrEqual(44);
+  });
+});

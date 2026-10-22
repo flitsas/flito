@@ -62,6 +62,11 @@ export interface DrFlitMensajeProps {
   /** Texto de la pregunta a la que responde un `sinResultados` (se lee, no se copia al mensaje). */
   textoRespondeA?: string;
   /**
+   * HU #13806: «Necesito soporte» en «sin resultados». Sin él (soporte no disponible o aún sin saber)
+   * el botón no se pinta. Recibe el id del mensaje para devolverle el foco con «Ahora no».
+   */
+  onSoporte?: (abridor: string) => void;
+  /**
    * HU #13767: el panel está cargando las fichas de una conversación restaurada. Una respuesta cuyas
    * referencias aún no se pueden comprobar pinta «Dr. Flit está buscando…» mientras tanto, y nada si
    * la carga falló (el error con «Reintentar» va al final de la conversación).
@@ -70,8 +75,9 @@ export interface DrFlitMensajeProps {
 }
 
 export default function DrFlitMensaje({
-  mensaje, user, fichas, onNavegar, textoRespondeA, verificando = false,
+  mensaje, user, fichas, onNavegar, textoRespondeA, verificando = false, onSoporte,
 }: DrFlitMensajeProps) {
+  if (mensaje.tipo === 'casoRadicado') return <DrFlitCasoRadicado numero={mensaje.numero} />;
   if (mensaje.tipo === 'modulo') {
     const entrada = entradaAyudaPorClave(mensaje.clave);
     return <BurbujaUsuario>Explíqueme {entrada?.etiqueta ?? 'un módulo'}</BurbujaUsuario>;
@@ -84,7 +90,14 @@ export default function DrFlitMensaje({
     return <DrFlitCitas refs={mensaje.refs} user={user} fichas={fichas} onNavegar={onNavegar} />;
   }
   if (mensaje.tipo === 'sinResultados') {
-    return <DrFlitSinResultados consulta={textoRespondeA} onNavegar={onNavegar} />;
+    return (
+      <DrFlitSinResultados
+        consulta={textoRespondeA}
+        onNavegar={onNavegar}
+        onSoporte={onSoporte ? () => onSoporte(mensaje.id) : undefined}
+        abridor={mensaje.id}
+      />
+    );
   }
 
   // Fail-closed: si el permiso cambió o el ancla ya no existe, no se cita nada de esa ficha (AC5).
@@ -195,8 +208,36 @@ function DrFlitCitas({ refs, user, fichas, onNavegar }: {
 
 const MAX_CONSULTA_VISIBLE = 60;
 
-/** «Sin resultados» (AC5). La fila de acciones es el hueco de F5: hoy un solo hijo. */
-function DrFlitSinResultados({ consulta, onNavegar }: { consulta?: string; onNavegar: () => void }) {
+/** Marca del botón que abrió el asistente de soporte: «Ahora no» le devuelve el foco (F5.6). */
+export const ATRIBUTO_ABRIDOR_SOPORTE = 'data-drflit-soporte-abridor';
+
+/** HU #13806: «Necesito soporte» (anexo UX F5.1), mismo botón en el saludo y en «sin resultados». */
+export function BotonNecesitoSoporte({ abridor, onClick }: { abridor: string; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className={flitBtnSecondarySm} {...{ [ATRIBUTO_ABRIDOR_SOPORTE]: abridor }}>
+      Necesito soporte
+    </button>
+  );
+}
+
+/** HU #13806: el caso quedó radicado. Solo el número: sin enlace ni nombre del proyecto (F5.4 J). */
+function DrFlitCasoRadicado({ numero }: { numero: number }) {
+  return (
+    <BurbujaDrFlit>
+      <p className="break-words">
+        Su caso <span className="font-semibold">#{numero}</span> quedó radicado.
+      </p>
+      <p className="mt-1 break-words text-flit-secondary">
+        El equipo de soporte lo revisará. Guarde este número: es la referencia de su caso.
+      </p>
+    </BurbujaDrFlit>
+  );
+}
+
+/** «Sin resultados» (AC5). HU #13806 cuelga «Necesito soporte» como segundo hijo de la fila. */
+function DrFlitSinResultados({ consulta, onNavegar, onSoporte, abridor }: {
+  consulta?: string; onNavegar: () => void; onSoporte?: () => void; abridor: string;
+}) {
   const corta = consulta && consulta.length > MAX_CONSULTA_VISIBLE
     ? `${consulta.slice(0, MAX_CONSULTA_VISIBLE)}…`
     : consulta;
@@ -212,6 +253,7 @@ function DrFlitSinResultados({ consulta, onNavegar }: { consulta?: string; onNav
         <Link to="/flito/ayuda" onClick={onNavegar} className={flitBtnSecondarySm}>
           Abrir la Ayuda FLITO
         </Link>
+        {onSoporte && <BotonNecesitoSoporte abridor={abridor} onClick={onSoporte} />}
       </div>
     </BurbujaDrFlit>
   );
