@@ -9,7 +9,7 @@ consultas:
   - cómo creo un cliente
   - dónde cambio los datos comerciales de una empresa
   - qué es la autogestión
-version: 1.1
+version: 1.2
 fecha: 2026-10-22
 ---
 ## Qué es
@@ -28,18 +28,10 @@ En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el pa
 
 1. Elija la pestaña **Clientes** o **Proveedores**.
 2. En **Clientes**, pulse **Nuevo cliente**, complete **Nombre o razón social** (obligatorio) y, si los tiene, **NIT / Cédula**, **Teléfono** y **Email**, y pulse **Guardar** (o **Cancelar**).
-3. En cada fila, marque autogestión **SOAT**, **Impuestos**, **Logística** y **Parcial** (entregas parciales). Eso decide qué gestiona FLITO y qué queda en autogestión de la compañía. Debajo de la tabla, dos notas recuerdan qué significa cada casilla.
-
-   ![Pestaña Clientes con tres compañías demo, sus casillas de autogestión, la columna SOAT sin trámite y el chip de Facturación](./clients/01-clientes.png)
-
-4. Al final de las casillas, la columna **SOAT sin trámite** dice si el canal de esa compañía está **Cerrado** o **Abierto** y, si lo está, a qué gestor salen sus solicitudes (por ejemplo, **Abierto · Aseguradora Demo Uno**). Púlselo para abrir el cuadro **SOAT sin trámite · (compañía)**: marque **Canal abierto** para que los usuarios **Cliente** de esa compañía puedan pedirle un SOAT a FLITO sin que haya un trámite abierto, elija el **Gestor por defecto** de la lista y pulse **Guardar**. Las dos cosas se guardan juntas; si abre el canal sin elegir gestor, el cuadro se lo pide y no guarda nada. Es independiente de **SOAT**: marcar o desmarcar una no cambia la otra, y una compañía nueva nace con el canal **Cerrado**. **Financiera** y **Auditor** leen la columna pero no la cambian.
-
-   ![Cuadro SOAT sin trámite de una compañía con la casilla Canal abierto marcada y el gestor por defecto elegido](./clients/02-soat-sin-tramite.png)
-
+3. En cada fila, marque autogestión **SOAT**, **Impuestos**, **Logística** y **Parcial** (entregas parciales). Eso decide qué gestiona FLITO y qué queda en autogestión de la compañía. Debajo de la tabla, dos notas recuerdan qué significa cada casilla. ![Pestaña Clientes con tres compañías demo, sus casillas de autogestión, la columna SOAT sin trámite y el chip de Facturación](./clients/01-clientes.png)
+4. Al final de las casillas, la columna **SOAT sin trámite** dice si el canal de esa compañía está **Cerrado** o **Abierto** y, si lo está, a qué gestor salen sus solicitudes (por ejemplo, **Abierto · Aseguradora Demo Uno**). Púlselo para abrir el cuadro **SOAT sin trámite · (compañía)**: marque **Canal abierto** para que los usuarios **Cliente** de esa compañía puedan pedirle un SOAT a FLITO sin que haya un trámite abierto, elija el **Gestor por defecto** de la lista y pulse **Guardar**. Las dos cosas se guardan juntas; si abre el canal sin elegir gestor, el cuadro se lo pide y no guarda nada. Es independiente de **SOAT**: marcar o desmarcar una no cambia la otra, y una compañía nueva nace con el canal **Cerrado**. **Financiera** y **Auditor** leen la columna pero no la cambian. ![Cuadro SOAT sin trámite de una compañía con la casilla Canal abierto marcada y el gestor por defecto elegido](./clients/02-soat-sin-tramite.png)
 5. Desplace la tabla a la derecha para ver las acciones de la fila. Pulse **Tarifas** para ir al configurador de valores de esa compañía (en Finanzas, **Tarifas**), con la compañía ya elegida; el botón solo lo ven quienes entran a esa pantalla. Pulse **Datos fiscales** para los datos de **emisión electrónica**. El chip de la columna **Facturación** (**Lista**, **Por clasificar** o **Faltan** con el número de datos que faltan) resume si la compañía puede emitirse después.
-6. En **Proveedores**, **Nuevo proveedor** (o **Editar** en la fila): **Nombre**, **Estrategia**, **Umbral OCR (0–1)**, **ANS pactado con el proveedor (horas)** y **Activo**. **Guardar**. El ANS de gestión es único para toda la operación: estas horas quedan como referencia de lo pactado.
-
-   ![Pestaña Proveedores con dos gestores demo, su estrategia, umbral OCR, ANS pactado, estado y el botón Editar](./clients/03-proveedores.png)
+6. En **Proveedores**, **Nuevo proveedor** (o **Editar** en la fila): **Nombre**, **Estrategia**, **Umbral OCR (0–1)**, **ANS pactado con el proveedor (horas)** y **Activo**. **Guardar**. El ANS de gestión es único para toda la operación: estas horas quedan como referencia de lo pactado. ![Pestaña Proveedores con dos gestores demo, su estrategia, umbral OCR, ANS pactado, estado y el botón Editar](./clients/03-proveedores.png)
 
 ![Diagrama: el canal nace Cerrado; al abrirlo hay que elegir gestor por defecto o no se guarda; con gestor, las solicitudes nuevas salen a él; si el gestor está inactivo o falta, quedan Gestionado por Operaciones](./clients/canal-soat-sin-tramite.svg)
 

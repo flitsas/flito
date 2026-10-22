@@ -8,7 +8,7 @@ palabras_clave:
 consultas:
   - dónde veo el historial de un trámite
   - quién cambió el estado de un trámite
-version: 1.1
+version: 1.2
 fecha: 2026-10-22
 ---
 ## Qué es
@@ -27,9 +27,7 @@ En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el pa
 
 1. Elija el recurso con las pastillas: **Todas**, **SOAT**, **Impuesto**, **Trámite** o **Revisión**. La tabla se vuelve a consultar con ese filtro.
 2. Ajuste **Límite** (de 1 a 500 filas; de partida, 100) si necesita una ventana más amplia o más corta.
-3. Lea **Fecha**, **Recurso**, **Acción**, **Actor** y **Detalle**, del más reciente al más antiguo. Un movimiento automático muestra el chip **sistema** en la columna **Actor**. El recurso y la acción se muestran con el nombre corto que guarda el sistema (por ejemplo, *soat* y *update*).
-
-   ![Bitácora con las pastillas de recurso, el campo Límite y la tabla de movimientos, varios con el actor sistema](./flito_bitacora/01-movimientos.png)
+3. Lea **Fecha**, **Recurso**, **Acción**, **Actor** y **Detalle**, del más reciente al más antiguo. Un movimiento automático muestra el chip **sistema** en la columna **Actor**. El recurso y la acción se muestran con el nombre corto que guarda el sistema (por ejemplo, *soat* y *update*). ![Bitácora con las pastillas de recurso, el campo Límite y la tabla de movimientos, varios con el actor sistema](./flito_bitacora/01-movimientos.png)
 
 ## Estados
 

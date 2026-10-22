@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { test, expect } from '../helpers/fixtures';
 import { parsearFicha, fechaFichaLegible } from '../../src/lib/ayudaFicha';
 import { CATALOGO_AYUDA } from '../../src/content/ayuda/catalogo';
-import { SRC_IMAGEN } from '../../src/lib/ayudaMarkdown';
+import { SRC_IMAGEN, parseMarkdown } from '../../src/lib/ayudaMarkdown';
 
 const raiz = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../..');
 
@@ -283,18 +283,18 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // exactas, capturas citadas en orden con alt y ≤ 200 KB, diagrama SVG con alt o ninguno). Tablero y Bitácora
   // son de solo lectura y de tres pasos o menos: sin diagrama.
   const SOAT_13771: Record<string, { version: string; capturas: string[]; diagrama: string | null }> = {
-    soat: { version: '1.1', diagrama: 'ciclo-soat.svg', capturas: [
+    soat: { version: '1.2', diagrama: 'ciclo-soat.svg', capturas: [
       '01-cola.png', '02-enviar-al-gestor.png', '03-detalle.png', '04-solicitar-soat.png'] },
-    flito_tramites: { version: '1.1', diagrama: 'camino-a-entregar.svg', capturas: [
+    flito_tramites: { version: '1.2', diagrama: 'camino-a-entregar.svg', capturas: [
       '01-sincronizacion.png', '02-filtros-y-tabla.png', '03-seleccion.png', '04-documentos-del-zip.png'] },
-    flito_revisiones: { version: '1.1', diagrama: 'resolver-o-descartar.svg', capturas: [
+    flito_revisiones: { version: '1.2', diagrama: 'resolver-o-descartar.svg', capturas: [
       '01-cola-y-documento.png', '02-revisar-campos.png', '03-constancia.png'] },
-    flito_bitacora: { version: '1.1', diagrama: null, capturas: ['01-movimientos.png'] },
-    flito_comparendos: { version: '1.1', diagrama: 'ciclo-monitoreo.svg', capturas: [
+    flito_bitacora: { version: '1.2', diagrama: null, capturas: ['01-movimientos.png'] },
+    flito_comparendos: { version: '1.2', diagrama: 'ciclo-monitoreo.svg', capturas: [
       '01-registros.png', '02-detalle.png', '03-sincronizacion.png', '04-configuracion.png'] },
-    clients: { version: '1.1', diagrama: 'canal-soat-sin-tramite.svg', capturas: [
+    clients: { version: '1.2', diagrama: 'canal-soat-sin-tramite.svg', capturas: [
       '01-clientes.png', '02-soat-sin-tramite.png', '03-proveedores.png'] },
-    flito_tablero: { version: '1.1', diagrama: null, capturas: ['01-indicadores-y-alertas.png', '02-por-estado.png'] },
+    flito_tablero: { version: '1.2', diagrama: null, capturas: ['01-indicadores-y-alertas.png', '02-por-estado.png'] },
   };
 
   for (const [clave, esperado] of Object.entries(SOAT_13771)) {
@@ -317,7 +317,15 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
         const ruta = resolve(dir, archivo);
         expect(existsSync(ruta), `${clave}/${archivo} en disco`).toBe(true);
         expect(statSync(ruta).size, `${clave}/${archivo} ≤ 200 KB`).toBeLessThanOrEqual(200 * 1024);
+        // AC2 — pasos numerados: la captura va al final de su paso; en un párrafo aparte, la lista reinicia en «1.».
+        const linea = md.split('\n').find((l) => l.includes(`(./${clave}/${archivo})`));
+        expect(linea, `${clave}/${archivo} · dentro de su paso`).toMatch(/^\d+\. /);
       }
+
+      // AC2 — la sección Pasos es UNA sola lista ordenada (el renderizador reinicia la numeración en cada <ol>).
+      const pasos = md.slice(md.indexOf('## Pasos')).split(/\n(?=## )/)[0];
+      const listas = parseMarkdown(pasos).filter((b) => b.type === 'ol');
+      expect(listas.length, `${clave} · listas ordenadas en Pasos`).toBe(1);
 
       // AC3 — diagrama SVG estático con alt (o ninguno, si la ficha no describe un proceso).
       const diagramas = [...md.matchAll(new RegExp(`!\\[([^\\]]*)\\]\\(\\./${clave}/([a-z0-9-]+\\.svg)\\)`, 'g'))];
