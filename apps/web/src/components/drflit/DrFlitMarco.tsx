@@ -1,5 +1,6 @@
 import { forwardRef, type KeyboardEvent, type ReactNode } from 'react';
 import { X } from 'lucide-react';
+import { DR_FLIT_ASSETS } from './drFlitAssets';
 
 // Marco del panel de Dr. Flit (HU #13764). Va EAGER en el chunk del Layout junto al botón: así la
 // cabecera, «Cerrar» y los estados de carga y error del contenido están disponibles desde el
@@ -39,25 +40,35 @@ const DrFlitMarco = forwardRef<HTMLHeadingElement, DrFlitMarcoProps>(function Dr
       className={[
         'fixed inset-x-0 bottom-0 top-[var(--flit-topbar-height)] z-20 flex min-w-0 flex-col',
         'border-t border-flit-soft bg-flit-card text-flit-ink shadow-[var(--flit-shadow-modal)]',
-        'lg:left-auto lg:right-6 lg:top-[calc(var(--flit-topbar-height)+1rem)] lg:bottom-[5.5rem] lg:w-[25rem]',
+        'lg:left-auto lg:right-6 lg:top-[calc(var(--flit-topbar-height)+1rem)] lg:bottom-[6rem] lg:w-[25rem]',
         'lg:rounded-flit-lg lg:border',
         // `hidden` del atributo debe ganarle a `flex`.
         '[&[hidden]]:hidden',
       ].join(' ')}
     >
-      <header className="flex flex-wrap items-start justify-between gap-2 border-b border-flit-soft px-4 py-3">
-        <div className="min-w-0">
-          <h2
-            ref={tituloRef}
-            id={DRFLIT_TITULO_ID}
-            tabIndex={-1}
-            className="flit-focus rounded-md text-base font-semibold text-flit-ink"
-          >
-            Dr. Flit
-          </h2>
-          <p className="text-xs text-flit-secondary">Le respondo con la Ayuda FLITO.</p>
+      <header className="flex flex-wrap items-start justify-between gap-2 sm:flex-nowrap border-b border-flit-soft px-4 py-3">
+        <div className="flex min-w-0 items-center gap-3 sm:flex-1">
+          <img
+            src={DR_FLIT_ASSETS.header}
+            alt=""
+            aria-hidden="true"
+            width={40}
+            height={40}
+            className="h-10 w-10 shrink-0 rounded-full object-cover"
+          />
+          <div className="min-w-0">
+            <h2
+              ref={tituloRef}
+              id={DRFLIT_TITULO_ID}
+              tabIndex={-1}
+              className="flit-focus rounded-md text-base font-semibold text-flit-ink"
+            >
+              Dr. Flit
+            </h2>
+            <p className="text-xs text-flit-secondary">Le respondo con la Ayuda FLITO.</p>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <div id={DRFLIT_ACCIONES_ID} className="contents" />
           <button
             type="button"
