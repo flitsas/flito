@@ -521,3 +521,21 @@ export const novedadesTramitesLimiter = rateLimit({
   message: { error: 'Demasiadas consultas de novedades. Espera un minuto.' },
   store: makeStore('rl:flito-tramites-novedades:'),
 });
+
+/**
+ * HU #13836 (Feature #13834) — consultas de gestión de Dr. Flit (`POST /api/flito/<modulo>/buscar`): 40 / min
+ * por usuario, UNA bolsa compartida por los cuatro módulos (una consulta completa son hasta 4 POST, así que
+ * 40 ≈ 10 consultas por minuto). Va DETRÁS de `exigirFuncion` (quien no tiene la función no gasta cupo).
+ * No comparte bolsa con `drflit-casos` ni con el cupo de IA. Cota revisable y sin telemetría (decisión
+ * humana Q4 del diseño). `frenoConRastro` registra la ruta, nunca el body con el valor buscado.
+ */
+export const drFlitGestionLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('drflit-gestion:'),
+  handler: frenoConRastro('drflit-gestion'),
+  message: { error: 'Hizo muchas consultas seguidas; intente en un momento' },
+  store: makeStore('rl:drflit-gestion:'),
+});
