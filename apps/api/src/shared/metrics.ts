@@ -40,6 +40,16 @@ export const pesvEvidenciaUploadInflight = new Gauge({
   registers: [registry],
 });
 
+// HU #13410 — borrados de objetos del almacenamiento pendientes (abiertos) por origen. Lo refresca
+// la instancia que gana el candado del cron `flito-storage-borrados-pendientes`: con varias
+// instancias, alertar con `max()` en Prometheus.
+export const flitoStorageBorradosPendientesAbiertos = new Gauge({
+  name: 'flito_storage_borrados_pendientes_abiertos',
+  help: 'Borrados de objetos de storage pendientes (abiertos) tras la última corrida del cron (HU #13410).',
+  labelNames: ['origen'] as const,
+  registers: [registry],
+});
+
 // TRAM-10/11 — resiliencia integraciones de trámites.
 export const tramFurRequestTotal = new Counter({
   name: 'tram_fur_request_total',

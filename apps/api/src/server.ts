@@ -21,6 +21,10 @@ import { startRumPurgeCron, stopRumPurgeCron } from './modules/rum/purge.cron.js
 import { startAnthropicHealthCron, stopAnthropicHealthCron } from './modules/ai/anthropic-health.cron.js';
 import { startPortalReminderCron, stopPortalReminderCron } from './modules/tramites/portal-reminder.cron.js';
 import { startValidacionStaleCron, stopValidacionStaleCron } from './modules/tramites/validacion-stale.cron.js';
+import { startImpuestosAnalisisCron, stopImpuestosAnalisisCron } from './modules/flito-impuestos/flito-impuestos-analisis.cron.js';
+import { startImpuestosEnvioFlit2Cron, stopImpuestosEnvioFlit2Cron } from './modules/flito-impuestos/flito-impuestos-envio-flit2.cron.js';
+import { startImpuestosEnvioFlit1Cron, stopImpuestosEnvioFlit1Cron } from './modules/flito-impuestos/flito-impuestos-envio-flit1.cron.js';
+import { registrarPasosAnalisisImpuestos } from './modules/flito-impuestos/flito-impuestos.analisis.pasos.js';
 import { startFlitSync, stopFlitSync } from './modules/flito-sync/flito-sync.cron.js';
 import { startSiigoArchivoCron, stopSiigoArchivoCron } from './modules/siigo/siigo.archivo.cron.js';
 import { startSiigoColaCron, stopSiigoColaCron } from './modules/siigo/siigo.cola.cron.js';
@@ -30,6 +34,12 @@ import {
 import {
   startSoatVigenciaCron, stopSoatVigenciaCron,
 } from './modules/flito-soat/flito-soat-vigencia.cron.js';
+import {
+  startSoatRetencionCron, stopSoatRetencionCron,
+} from './modules/flito-soat/flito-soat-retencion.cron.js';
+import {
+  startSoatBorradosPendientesCron, stopSoatBorradosPendientesCron,
+} from './modules/flito-soat/flito-soat-borrados-pendientes.cron.js';
 import { verificarCatalogoAlArrancar } from './modules/permisos/permisos.service.js';
 import { closeRedis } from './shared/redis.js';
 import { loggerFor } from './shared/logger.js';
@@ -48,6 +58,10 @@ const app = createApp();
 verificarCatalogoAlArrancar()
   .then(() => log.info('catálogo de permisos verificado'))
   .catch((e: Error) => log.error({ err: e.message }, 'CATÁLOGO DE PERMISOS INCOHERENTE (HU #12081 AC6)'));
+
+// HU #12826: pasos del análisis post-envío de Impuestos, en TODOS los ambientes (un envío en DEV o
+// local también encola) y antes de `listen`, para que ningún job corra con la lista vacía.
+registrarPasosAnalisisImpuestos();
 
 const server = app.listen(env.PORT, () => {
   log.info({ port: env.PORT, env: env.NODE_ENV }, 'Operaciones API running');
@@ -76,6 +90,10 @@ const server = app.listen(env.PORT, () => {
     // TRAM-COMMS-02: recordatorios portal (noop si TRAM_PORTAL_REMINDER_CRON_ENABLED!=1).
     startPortalReminderCron();
     startValidacionStaleCron();
+    startImpuestosAnalisisCron();
+    // HU #13268: envío del comprobante de pago a FLIT 2 (no toma nada con FLIT2_ADJUNTOS_ENVIO_HABILITADO apagada).
+    startImpuestosEnvioFlit2Cron();
+    startImpuestosEnvioFlit1Cron();
     // FLITO: sincronización desde FLIT (noop si SYNC_HABILITADO=false).
     startFlitSync();
     // FLITO/Siigo (Bug #11649): estado efectivo de los tres crons, en UNA línea y SIEMPRE, encendidos
@@ -102,6 +120,14 @@ const server = app.listen(env.PORT, () => {
     // SOAT_VIGENCIA_CRON_ENABLED!=1. Un solo servidor la ejecuta (candado `flito-soat-vigencia`) y
     // un intento que deja vehículos sin verificar se reprograma cada hora, hasta tres veces.
     startSoatVigenciaCron();
+    // FLITO SOAT: retención (HU #13409, Ley 1581) — borra la factura y los adicionales de las
+    // solicitudes por validar descartadas hace 30 días o más (03:00 de Colombia). Noop si
+    // SOAT_RETENCION_CRON_ENABLED!=1. Candado `flito-soat-retencion`.
+    startSoatRetencionCron();
+    // FLITO SOAT: borrados pendientes del almacenamiento (HU #13410) — reintenta cada hora el borrado
+    // de los objetos de adicionales eliminados. Noop si SOAT_BORRADOS_PENDIENTES_CRON_ENABLED!=1.
+    // Candado `flito-storage-borrados-pendientes`.
+    startSoatBorradosPendientesCron();
   }
 });
 
@@ -134,6 +160,9 @@ function shutdown(signal: string) {
   stopAnthropicHealthCron();
   stopPortalReminderCron();
   stopValidacionStaleCron();
+  stopImpuestosAnalisisCron();
+  stopImpuestosEnvioFlit2Cron();
+  stopImpuestosEnvioFlit1Cron();
   stopDerechosDriveCron();
   stopFlitSync();
   stopSiigoArchivoCron();
@@ -141,6 +170,8 @@ function shutdown(signal: string) {
   stopSiigoColaCron();
   stopComparendosPurgaCron();
   stopSoatVigenciaCron();
+  stopSoatRetencionCron();
+  stopSoatBorradosPendientesCron();
 
   const forceExitTimer = setTimeout(() => {
     log.error('grace expirado — forzando salida');

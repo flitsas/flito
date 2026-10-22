@@ -137,3 +137,35 @@ npx vitest run apps/api/__tests__/services/permisos*.test.ts
 - ADR-0017: guarda «no sellado» con `FOR UPDATE` sobre `flito_tramites`; su invariante `Σ items == columna` de servicios adicionales queda intacto porque en SA el comprobante solo marca la diferencia.
 - ADR-0008 §1.2 / ADR-0012: `extraccion` no sale en listados; el prompt universal no pide datos de persona.
 - ADR-DB-001: migraciones sin `BEGIN/COMMIT`, idempotentes.
+
+## Addendum — Bug #12913 (2026-09-24): el comprobante de servicios adicionales SÍ suma, vía la puente
+
+**Estado: Propuesto** (pendiente del Líder Técnico). Revierte, solo para servicios adicionales (SA), la frase de D2 «el comprobante SOLO marca la diferencia y el catálogo sigue mandando» y el párrafo «Servicios adicionales» de §5. Decisión de producto de David (2026-09-24), no se rediscute aquí. Bug [#12913](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/12913), Feature #12607. Habla con `flito-comprobantes` y `finanzas-servicios-adicionales` (FLITO, no legacy).
+
+**Idea:** el valor del comprobante de pago SA **entra a la puente** `flito_tramite_servicios_adicionales` (su dueño, §4). Reporte (`EXPR_SERVICIOS_ADICIONALES`), liquidación (`conceptoServicios`) y Siigo **no cambian**: siguen leyendo Σ puente; sin línea «ajuste». El invariante de ADR-0017 `Σ items == columna` se mantiene porque el valor viaja como item.
+
+**a. Contrato.** `aplicarSchema` gana `servicioTipoId: z.string().uuid().optional()` con refine doble: `esPago && concepto === 'servicios_adicionales'` ⇒ obligatorio (`path: ['servicioTipoId']`); en cualquier otro caso ⇒ prohibido (400, nunca se ignora en silencio). `AplicarComprobanteBody.servicioTipoId?: string` en `packages/shared-types/src/flito-comprobantes.ts`. Tipo inexistente o inactivo → 400 `datos_invalidos` («El servicio elegido ya no está disponible»), comprobado antes de S3 y otra vez en la tx.
+
+**b. Enlace.** Una sola columna: `flito_comprobantes.servicio_tipo_id uuid NULL → flito_servicios_adicionales_tipos(id) ON DELETE RESTRICT`, con CHECK `servicio_tipo_id IS NULL OR (concepto = 'servicios_adicionales' AND es_pago)`. La necesitan el índice único (c), la tarifa por tipo (d) y la guarda de quitar (e). **Sin** `comprobante_id` en la puente: «esta asignación vino de un comprobante» se deriva por `(tramite_id, tipo_id)` contra el comprobante aplicado, sin FK cruzada y sin tocar `schema.ts` (techo 3400, hoy 3380).
+
+**Escritura** (dentro de la tx de `aplicar`, tras `bloquearComprobantePendiente` → `bloquearTramite` → `exigirNoLiquidado`): `fijarDesdeComprobante(tx, tramiteId, tipo, valor, actorId)` exportada por `finanzas-servicios-adicionales.service.ts` = `INSERT … ON CONFLICT (tramite_id, tipo_id) DO UPDATE SET valor = EXCLUDED.valor` (el snapshot nombre/descripción solo se escribe al insertar; `asignado_por` no se reescribe: quien aplicó queda en `aplicado_por_id`). Luego `cerrarComoPago` con `servicio_tipo_id`.
+
+**c. Índice único.** Migración: `DROP INDEX IF EXISTS idx_flito_comprobantes_valor_documental`; `CREATE UNIQUE INDEX IF NOT EXISTS idx_flito_comprobantes_valor_documental_td_lg ON (tramite_id, concepto) WHERE estado='aplicado' AND es_pago AND concepto IN ('tramite_digital','logistica')`; `CREATE UNIQUE INDEX IF NOT EXISTS idx_flito_comprobantes_valor_documental_sa ON (tramite_id, servicio_tipo_id) WHERE estado='aplicado' AND es_pago AND concepto='servicios_adicionales' AND servicio_tipo_id IS NOT NULL`. `esDuplicadoDocumental` reconoce los dos nombres; `traducirDuplicado` en SA busca el anterior por `(tramite, 'servicios_adicionales', servicio_tipo_id)`. Los SA ya aplicados sin tipo (fuera de alcance) quedan como están.
+
+**Lectores con N filas SA** (hoy `documental(...) … limit 1`). En `flito-comprobantes.expr.ts`, dos fábricas SA sin parámetros (Bug #12058):
+- `sumaSa(col)` = `(select sum(col) … where filaDocumental(SA))` → `EXPR_DIF_SA`, `tarifaReferencia` y `valor` SA (este último sigue sin mandar dinero).
+- `EXPR_MARCADO_SA` = `bool_or(marcado_por_diferencia)`; aceptada SA = `NOT coalesce(bool_or(marcado_por_diferencia AND diferencia_aceptada_en IS NULL), false)` (aceptada solo si TODAS las marcadas lo están).
+- `representanteSa(col)` = la misma subconsulta con `order by (marcado_por_diferencia AND diferencia_aceptada_en IS NULL) desc, aplicado_en desc limit 1` → `ComprobanteId/Numero/Fecha/AceptadaPor*/Motivo`. El botón «Aceptar diferencia» apunta al primer pendiente; al aceptarlo pasa al siguiente. DTOs sin cambio de forma.
+Usan esto: `finanzas.valores-documentales.ts` (rama `sa`), `PROYECCION_DOCUMENTAL` de `flito-liquidacion.service.ts:318-327`. `cruce.ts`: SA deja de mirar `documentado(SA)` → `admiteHonorario(liquidado, false)` (el duplicado por tipo lo decide el índice al aplicar). `aceptarDiferencia` no cambia (ya es por comprobante).
+
+**d. Tarifa de referencia SA** = `flito_servicios_adicionales_tipos.valor` del tipo elegido (leído en la tx), ya no Σ puente. `tarifaReferenciaDe(tx, tramiteId, concepto, servicioTipoId?)`. Diferencia = valor − catálogo, informativa y aceptable con motivo.
+
+**e. Quitar una asignación que vino de un comprobante** → **409** `asignacion_de_comprobante` («Este servicio viene de un comprobante de pago aplicado; no se puede quitar desde aquí»), comprobado en la tx de `quitar` antes del DELETE. Permitirlo reabriría el bug al revés (comprobante aplicado, costo ausente). **A confirmar con David:** hoy no hay «des-aplicar» comprobante, así que la asignación queda fija salvo re-aplicar otro comprobante del mismo tipo (corrige el valor).
+
+**f. Migración** `0209_flito_comprobantes_servicio_tipo.sql`: `ADD COLUMN IF NOT EXISTS`, CHECK por `DO $$ … IF NOT EXISTS (pg_constraint) …`, los índices de (c). Sin `BEGIN/COMMIT` (ADR-DB-001), sin drizzle-kit. Drizzle: `servicioTipoId` + CHECK + dos `uniqueIndex` en `apps/api/src/db/schema/flito-comprobantes.ts`.
+
+**g. Auto-aplicación.** `decidirAutoAplicar` devuelve `{ razon: 'requiere_tipo_servicio' }` para SA con pago: queda pendiente.
+
+**h. Permisos.** Basta `comprobantes.comprobante.aplicar`; no se exige `finanzas.servicios_adicionales.asignar` (sería un AND oculto sobre un acto que ya es financiero y auditado en el comprobante). Sin ruta nueva (contadores de reconducción intactos). El panel lee el catálogo por `GET /flito/parametrizacion/servicios-adicionales`: verificar que su guarda admite a los roles con `aplicar`.
+
+**Verificación.** `grep -n "limit 1" …/flito-comprobantes.expr.ts` no aparece en `sumaSa`; `grep -rn "Ajuste por comprobante" apps/api/src/modules` vacío; `EXPR_SERVICIOS_ADICIONALES` sin diff.

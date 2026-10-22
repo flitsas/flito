@@ -86,6 +86,9 @@ export interface RegistroZip {
   impuestoId?: string | null;
   /** Ancla de la factura de venta de FLIT (`flito_tramites.factura_venta_flit_id`, S3 de FLIT). */
   facturaVentaFlitId?: string | null;
+  /** Bug #13230: `'flit2'` pide la factura al puerto de FLIT 2 con `idFlit2`; si no, FLIT 1. */
+  fuente?: string | null;
+  idFlit2?: string | null;
 }
 
 /**
@@ -516,7 +519,9 @@ export async function resolverEntradasZip(
           // Cupo declarado: el tamaño real de la factura de FLIT no se conoce sin ir a buscarla, y
           // para cuando llega el 422 ya no se podría emitir (ver `FLITO_ZIP_FACTURA_CUPO_BYTES`).
           bytes: cupoFactura,
-          abrir: () => abrirFacturaFlit(facturaId),
+          abrir: () => (reg.fuente === 'flit2'
+            ? abrirFacturaFlit2(reg.impuestoId ?? reg.registroId, reg.idFlit2 ?? null, facturaId)
+            : abrirFacturaFlit(facturaId)),
         });
         continue;
       }
@@ -569,6 +574,20 @@ async function abrirFacturaFlit(facturaId: string): Promise<{ stream: Readable; 
   return { stream, extension: tipoPorBytes(cabeza ?? Buffer.alloc(0)).extension };
 }
 
+/**
+ * Bug #13230. La factura de un trámite de FLIT 2 por la MISMA vía que la extracción de impuestos
+ * (allowlist de hosts, sin `Authorization`, `redirect: 'error'`, tope y un reintento). Llega en
+ * memoria con el tope de esa vía. Si no se obtiene LANZA, igual que `abrirFacturaFlit`: el ZIP la
+ * cuenta como omitida. Import diferido: el módulo de extracción importa `tipoPorBytes` de aquí.
+ */
+async function abrirFacturaFlit2(
+  impuestoId: string, idFlit2: string | null, adjuntoId: string,
+): Promise<{ stream: Readable; extension: string }> {
+  const { descargarFacturaVentaFlit2 } = await import('../../modules/flito-impuestos/flito-impuestos.extraccion.js');
+  const { bytes } = await descargarFacturaVentaFlit2(impuestoId, idFlit2, adjuntoId);
+  return { stream: Readable.from([bytes], { objectMode: false }), extension: tipoPorBytes(bytes).extension };
+}
+
 // ── El archivo ───────────────────────────────────────────────────────────────────────────────────
 
 const FORMATO_SELLO = new Intl.DateTimeFormat('en-CA', {
@@ -585,10 +604,11 @@ const FORMATO_SELLO = new Intl.DateTimeFormat('en-CA', {
  * sistema de archivos de quien descarga, en el historial del navegador y en cualquier adjunto que
  * reenvíe. La placa va DENTRO, en los nombres de las entradas, que es exactamente lo que pide el AC5.
  */
-export function nombreArchivoZipSoportes(ahora: Date = new Date()): string {
+// `prefijo` (HU #13205): el ZIP de certificados RUNT reutiliza el sello en hora de Colombia.
+export function nombreArchivoZipSoportes(ahora: Date = new Date(), prefijo = 'soportes'): string {
   const p: Record<string, string> = {};
   for (const parte of FORMATO_SELLO.formatToParts(ahora)) p[parte.type] = parte.value;
-  return `soportes_${p.year}${p.month}${p.day}-${p.hour}${p.minute}.zip`;
+  return `${prefijo}_${p.year}${p.month}${p.day}-${p.hour}${p.minute}.zip`;
 }
 
 /**

@@ -12,6 +12,7 @@ import type { TramiteServicioAdicional } from '@operaciones/shared-types';
 import { api } from '../../lib/api';
 import { falloDeEscritura, rutaServiciosDeTramite, type FalloEscritura } from '../../lib/serviciosAdicionalesTramite';
 import { fechaHoraCorta } from '../../lib/tarifas';
+import StatusChip from '../flit/StatusChip';
 import { flitBtnSecondarySm } from '../flit/flitPageKit';
 import { pesos } from './tiposReporteCostos';
 
@@ -100,7 +101,15 @@ export default function FilaServicioAdicional({
   return (
     <li className="py-3" data-id={item.id}>
       <div className="flex items-baseline justify-between gap-3">
-        <span className="text-sm font-semibold">{item.nombre}</span>
+        {/* Bug #12913: la asignación que escribió un comprobante de pago lo dice; el chip envuelve bajo el nombre. */}
+        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-sm font-semibold">{item.nombre}</span>
+          {item.origen === 'comprobante' && (
+            <span title="Asignado al aplicar un comprobante de pago">
+              <StatusChip tone="neutral">Desde comprobante<span className="sr-only"> · asignado al aplicar un comprobante de pago</span></StatusChip>
+            </span>
+          )}
+        </span>
         <span className="text-sm tabular-nums">{pesos(item.valor)}</span>
       </div>
       <div className="mt-0.5 flex items-center justify-between gap-3">

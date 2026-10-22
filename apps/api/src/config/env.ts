@@ -19,6 +19,7 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') });
  * boot, que es justo lo contrario del defecto seguro.
  */
 const vacioComoAusente = (v: unknown) => (v === '' ? undefined : v);
+const MSG_FLIT2_RESPALDO_MIN = 'FLIT2_RESPALDO_MIN debe ser un entero de 1 a 120 (minutos)';
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production']).default('development'),
@@ -160,6 +161,39 @@ const envSchema = z.object({
   // 'false'/'0' la apaga. Aun encendida, sin acceso vigente la corrida no llama a FLIT 2.
   // Transform explícito: z.coerce.boolean vería "false" como true.
   FLIT2_SYNC_CRON: z.string().optional().transform((v) => v !== 'false' && v !== '0'),
+  // HU #13633 (AC1–AC3): cada cuántos minutos corre el respaldo de FLIT 2 (lectura programada). Entero de 1 a
+  // 120; ausente o vacía = 5 (QA y PDN). DEV usa 60 porque allí los avisos firmados traen los cambios. El
+  // umbral de la alerta del estado se deriva de este valor (2·R + 5 min, RN-08 de flit2-estado.service.ts).
+  FLIT2_RESPALDO_MIN: z.preprocess(
+    vacioComoAusente,
+    z.coerce.number({ invalid_type_error: MSG_FLIT2_RESPALDO_MIN })
+      .int(MSG_FLIT2_RESPALDO_MIN).min(1, MSG_FLIT2_RESPALDO_MIN).max(120, MSG_FLIT2_RESPALDO_MIN).default(5),
+  ),
+  // HU #13268 (ADR-0020): envío del comprobante de pago a FLIT 2. APAGADA por defecto en todos los
+  // ambientes: se enciende cuando FLIT 2 tenga la ruta de adjuntos desplegada allí (D-9). Apagada, el
+  // pago sigue programando la fila del outbox y el cron no toma nada ni gasta intentos.
+  FLIT2_ADJUNTOS_ENVIO_HABILITADO: z.string().optional().transform((v) => v === 'true' || v === '1'),
+  // HU #13632: avisos firmados de FLIT 2 (`POST /api/flito/sync/flit2/avisos`). APAGADOS por defecto; solo
+  // el literal 'true' los enciende (AC3: a diferencia de los flags vecinos, '1' no vale).
+  FLIT2_AVISOS_HABILITADO: z.string().optional().transform((v) => v === 'true'),
+  // Clave HMAC compartida con FLIT 2 (una por ambiente, fuera de banda). NUNCA se loguea. Sin trim: FLIT 2
+  // firma con los bytes UTF-8 del string tal cual. Con menos de 32 caracteres se trata como ausente (404 y
+  // un warn al arrancar), sin tumbar el arranque. No lleva validación de Zod para que el valor no
+  // aparezca en un error de arranque.
+  FLIT2_AVISOS_SECRETO: z.preprocess(vacioComoAusente, z.string().optional()),
+  // Limitador de avisos en dos niveles por IP real, ambos antes del HMAC (HU #13632, AC9; decisión de David).
+  // General (todas las peticiones, anti-saturación): FLIT 2 manda hasta ~3000 avisos/min desde una IP.
+  FLIT2_AVISOS_LIMITE_MIN: z.preprocess(vacioComoAusente, z.coerce.number().int().min(1).default(3000)),
+  // Fallidos: solo cuentan las respuestas 401 (firma) y 400 (cuerpo). Las 200 no consumen este cupo.
+  FLIT2_AVISOS_LIMITE_FALLIDOS_MIN: z.preprocess(vacioComoAusente, z.coerce.number().int().min(1).default(120)),
+  // HU #13310 (ADR-0021): envío del comprobante de pago a FLIT 1 en tres pasos. Bases solo por env (el
+  // repo es público; sin host por defecto). Se validan en `baseFlit1Valida` (https, sin credenciales,
+  // sin query/hash): ausente o inválida = envío FLIT 1 apagado, sin tumbar el arranque. La URL de subida
+  // (paso 2) NO es variable: sale de la respuesta del paso 1 y se valida en código (ajuste A-1).
+  FLIT1_ARCHIVOS_BASE_URL: z.preprocess(vacioComoAusente, z.string().optional()),
+  FLIT1_TRAMITES_BASE_URL: z.preprocess(vacioComoAusente, z.string().optional()),
+  // APAGADA por defecto: se enciende tras probar un envío real en el ambiente.
+  FLIT1_ADJUNTOS_ENVIO_HABILITADO: z.string().optional().transform((v) => v === 'true' || v === '1'),
   // `mock` por defecto: sin credenciales reales, un test o un dev no deben salir a la red.
   COMPARENDOS_SIMIT_MODE: z.enum(['mock', 'real']).default('mock'),
   // Retención del histórico de registros/timeline (CF Habeas Data, Ley 1581). 24 meses por defecto,
@@ -262,6 +296,13 @@ const envSchema = z.object({
   // acabará consultando una fuente externa por cada vehículo con comprobante cargado (HU #12096), y
   // un contenedor mal configurado no debe ser suficiente para desatarla.
   SOAT_VIGENCIA_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
+  // HU #13409 — purga por retención de los archivos de las solicitudes de SOAT por validar
+  // DESCARTADAS (30 días tras el descarte, Ley 1581). Puerta POSITIVA como las de arriba: un job que
+  // BORRA no se enciende por desplegarse; sin el '1' explícito no arranca y lo dice en el log.
+  SOAT_RETENCION_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
+  // HU #13410 — reintento horario de los borrados pendientes del almacenamiento (documentos
+  // adicionales del SOAT eliminados cuyo objeto no se pudo borrar). Puerta POSITIVA: borra objetos.
+  SOAT_BORRADOS_PENDIENTES_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
   // HU #12096 — cuántos vehículos se consultan al RUNT A LA VEZ dentro de la corrida de vigencia.
   //
   // **Default 2 y no 5, al revés que COMPARENDOS_SYNC_CONCURRENCIA de arriba**, y la diferencia no

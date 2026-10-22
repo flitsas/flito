@@ -48,6 +48,10 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   // flito-soat/flito-soat-incompletas.routes.ts (HU #12997)
   { fichero: 'flito-soat/flito-soat-incompletas.routes.ts', metodo: 'POST', ruta: '/cliente/incompletas/buscar', codigo: 'soat.incompletas.buscar' },
   { fichero: 'flito-soat/flito-soat-incompletas.routes.ts', metodo: 'GET', ruta: '/cliente/incompletas/:id', codigo: 'soat.incompleta.ver' },
+  // HU #13362: sub-router propio de la lectura de documentos adicionales.
+  { fichero: 'flito-soat/flito-soat-documentos.routes.ts', metodo: 'GET', ruta: '/:id/documentos-adicionales', codigo: 'soat.documentos_adicionales.ver' },
+  { fichero: 'flito-soat/flito-soat-documentos.routes.ts', metodo: 'POST', ruta: '/:id/documentos-adicionales', codigo: 'soat.documentos_adicionales.cargar' },
+  { fichero: 'flito-soat/flito-soat-documentos.routes.ts', metodo: 'DELETE', ruta: '/:id/documentos-adicionales/:soporteId', codigo: 'soat.documentos_adicionales.eliminar' },
   // HU #12998
   { fichero: 'flito-soat/flito-soat-incompletas.routes.ts', metodo: 'POST', ruta: '/cliente/incompletas/:id/reintentar', codigo: 'soat.solicitud.reintentar_runt' },
   // HU #13061: acceso de FLITO a FLIT 2 (0214, solo admin).
@@ -55,6 +59,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-sync/flit2.routes.ts', metodo: 'PUT', ruta: '/acceso', codigo: 'tramites.flit2.guardar_acceso' },
   // HU #13237: interruptor por fuente (0217, solo admin). El GET reutiliza el código fuera de la lista.
   { fichero: 'flito-sync/flito-sync-interruptores.routes.ts', metodo: 'PUT', ruta: '/interruptores/:fuente', codigo: 'tramites.sincronizacion.configurar' },
+  // HU #13628: parámetros de la lectura de FLIT 1 (0241, sin siembra). Reutiliza el código del interruptor; los GET /flit1/* van fuera de la lista.
+  { fichero: 'flito-sync/flito-sync-interruptores.routes.ts', metodo: 'PUT', ruta: '/flit1/parametros-lectura', codigo: 'tramites.sincronizacion.configurar' },
   // flito-parametrizacion/flito-parametrizacion.routes.ts
   { fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts', metodo: 'GET', ruta: '/companias', codigo: 'parametrizacion.companias.listar' },
   // HU #13428 (§5-ter.1 punto 2): el PATCH decide en línea por grupo de campos.
@@ -110,7 +116,6 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-revisiones/flito-revisiones.routes.ts', metodo: 'POST', ruta: '/:id/descartar', codigo: 'revisiones.revision.descartar' },
   // flito-sync/flito-sync.routes.ts
   { fichero: 'flito-sync/flito-sync.routes.ts', metodo: 'GET', ruta: '/estado', codigo: 'sync.sync.ver_estado' },
-  { fichero: 'flito-sync/flito-sync.routes.ts', metodo: 'POST', ruta: '/sincronizar', codigo: 'sync.sync.lanzar' },
 
   // ── Oleada 2 — FLITO sin router.use (72 rutas: 16 + 2 desenrolladas de impuestos) ──
   // flito-impuestos/flito-impuestos.routes.ts
@@ -137,6 +142,7 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/:id/devolver-gestor', codigo: 'impuestos.tramite.devolver' },
   // HU #12833: sub-router propio de la corrección de dirección.
   { fichero: 'flito-impuestos/flito-impuestos.direccion.routes.ts', metodo: 'PATCH', ruta: '/:id/direccion', codigo: 'impuestos.tramite.corregir_direccion' },
+  { fichero: 'flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts', metodo: 'POST', ruta: '/:id/recibos/reemplazar-pago', codigo: 'impuestos.recibos.reemplazar' },
   // flito-derechos/flito-derechos.routes.ts
   { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'POST', ruta: '/cargar', codigo: 'derechos.recibos.cargar' },
   { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'GET', ruta: '/', codigo: 'derechos.cola.ver' },
@@ -157,6 +163,7 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/solicitar-soat', codigo: 'tramites.solicitud.pedir_soat' },
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/solicitar-impuestos', codigo: 'tramites.solicitud.pedir_impuestos' },
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/solicitar-ambos', codigo: 'tramites.solicitud.pedir_ambos' },
+  { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/novedades/buscar', codigo: 'tramites.cola.ver' },
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/entregar', codigo: 'tramites.tramite.entregar' },
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/:id/desbloquear-autogestion', codigo: 'tramites.autogestion.desbloquear' },
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/:id/revocar-autogestion', codigo: 'tramites.autogestion.revocar' },

@@ -554,3 +554,31 @@ describe('permisos y limitador de «Probar conexión»', () => {
     expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 });
+
+describe('Bug #13198 · el error dice si FLIT 2 acaba de responder o si es la marca guardada', () => {
+  it('423 recibido → `respondioFlit2 = true`; durante la pausa (sin llamar) → `false`', async () => {
+    fetchMock.mockResolvedValueOnce(problema(423, 'client_locked', { 'Retry-After': '300' }));
+    const recibido = await obtenerPase().catch((x: unknown) => x);
+    expect(recibido).toBeInstanceOf(Flit2BloqueadoError);
+    expect((recibido as InstanceType<typeof Flit2BloqueadoError>).respondioFlit2).toBe(true);
+
+    kdb.when.select(TABLA, [filaVigente({ bloqueadoHasta: new Date(AHORA.getTime() + 300_000), bloqueoMotivo: 'client_locked' })]);
+    const guardado = await obtenerPase().catch((x: unknown) => x);
+    expect(guardado).toBeInstanceOf(Flit2BloqueadoError);
+    expect((guardado as InstanceType<typeof Flit2BloqueadoError>).respondioFlit2).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('401 recibido → `respondioFlit2 = true`; con la marca de rechazo guardada → `false`', async () => {
+    fetchMock.mockResolvedValueOnce(problema(401, 'invalid_client'));
+    const recibido = await obtenerPase().catch((x: unknown) => x);
+    expect(recibido).toBeInstanceOf(Flit2RechazadoError);
+    expect((recibido as InstanceType<typeof Flit2RechazadoError>).respondioFlit2).toBe(true);
+
+    kdb.when.select(TABLA, [filaVigente({ rechazadoEn: AHORA, rechazoMotivo: 'invalid_client' })]);
+    const guardado = await obtenerPase().catch((x: unknown) => x);
+    expect(guardado).toBeInstanceOf(Flit2RechazadoError);
+    expect((guardado as InstanceType<typeof Flit2RechazadoError>).respondioFlit2).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});

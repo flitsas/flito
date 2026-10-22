@@ -68,7 +68,9 @@ Solo consulta ADO si faltan AC o hay duda de producto (P9). Densidad de tabla, v
 7. Copy en español colombiano de producto. El nombre de la app es **FLITO**. Glosario: `docs/dominio.md`. Un solo tratamiento (usted o tú) por pantalla: Cliente y Ayuda usan **usted**; en operador, calca el tono de **esa** pantalla. No unifiques el producto en una HU.
 8. NUNCA entregues spec que complete el template y falle el **oficio** de `_principios-flito.md`: qué se ve primero, una primaria, vacío/error con siguiente paso, sin efectos vistosos.
 9. NUNCA clones la densidad del vecino para salir del paso. Componer el kit no es pegar la pantalla más cargada. Si el dato nuevo no es de esa visita, va al detalle o se pregunta.
-10. NUNCA añadas animaciones, sombras extra, gradientes decorativos, ilustraciones o microinteracciones de adorno. El carácter es claridad + tokens que ya existen.
+10. NUNCA añadas animaciones, sombras extra, gradientes decorativos, ilustraciones o microinteracciones de adorno. El carácter es claridad + tokens que ya existen. **El feedback de interacción NO es adorno:** todo control interactivo lleva hover sutil + foco visible, y dejarlo plano es fallo de oficio, no prudencia.
+11. NUNCA entregues una spec sin decir qué pasa en móvil (<`lg`): una línea basta («la barra envuelve; la rejilla cae a una columna»), pero tiene que estar escrita. Lo que no se escribe, el implementador no lo adivina.
+12. NUNCA dejes la notificación al azar: cada acción con resultado lleva la decisión toast (cerrable, una frase) vs aviso en página, con el copy pulido — nunca el error crudo del API.
 
 ---
 
@@ -83,6 +85,9 @@ Antes de cerrar el doc, responde por escrito (no de memoria):
 | ¿Cuál es la **única** primaria? | Hay dos CTA o ninguna |
 | ¿El vacío y el error dicen el siguiente paso? | Copy incompleto |
 | ¿Hay efectos o un patrón nuevo injustificado? | Recorta |
+| ¿Qué pasa en móvil (<`lg`)? | Falta el comportamiento responsive |
+| ¿Todo control interactivo tiene feedback (hover sutil + foco)? | La spec deja controles planos |
+| ¿Cómo se entera el usuario del resultado (toast cerrable vs aviso)? | Falta la notificación |
 
 Canal **Cliente**: menos columnas, sin jerga interna (ANS, bolsa, proveedor, valor pagado, quién despachó) salvo AC explícito.
 
@@ -135,6 +140,8 @@ Entregables (`docs/ux/<modulo>-<flujo>.md`):
 ### Acciones y validaciones
 ### Permiso y comportamiento por rol
 ### Datos (endpoint / requerimiento nuevo)
+## Responsive (<lg) — qué pasa en móvil, pantalla por pantalla (una línea basta)
+## Interacción y notificaciones — feedback de controles (hover/focus) y toast vs aviso por acción
 ## Accesibilidad
 ## Notas para QA
 ## Decisiones y descartes
@@ -148,6 +155,7 @@ Entregables (`docs/ux/<modulo>-<flujo>.md`):
 ## Superficie tocada
 ## Delta de claridad (qué se ve / qué se calla)
 ## Estados (4) + copy
+## Responsive + feedback del delta (qué pasa <lg; hover/focus de lo nuevo; toast vs aviso)
 ## Permiso/slug
 ## Notas para QA (≤10)
 ```
@@ -174,7 +182,7 @@ HANDOFF
   Modo: slim | full
   Resultado: OK | BLOQUEADO
   Entrega: docs/ux/<archivo>.md | delta PR
-  Oficio: primaria única | jerarquía dicha | vacío con siguiente paso | sin efectos
+  Oficio: primaria única | jerarquía dicha | vacío con siguiente paso | responsive dicho | feedback dicho | notificación elegida | sin efectos
   Densidad: sin cambio | aliviada | empeora (pregunta al PO)
   Pantallas: <n> | Requerimientos nuevos de datos: <n | ninguno>
   Siguiente: [architecture-agent si pedí endpoints nuevos | frontend-agent | pregunta al PO]

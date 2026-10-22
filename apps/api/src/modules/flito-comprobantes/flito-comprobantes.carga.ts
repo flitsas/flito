@@ -17,7 +17,7 @@
 // Ningún log lleva contenido leído (Habeas Data): cuentas, motivos y banderas.
 
 import { createHash } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import {
   CONCEPTO_COSTO_LABEL, MOTIVO_PENDIENTE_COMPROBANTE_LABEL, TipoSoporte, type ConceptoCosto, type ItemCargaComprobante,
   type MotivoPendienteComprobante, type ResultadoCargaComprobantes, type TipoDocumentoComprobante,
@@ -127,7 +127,11 @@ async function duplicadoEnBase(hash: string): Promise<ItemCargaComprobante | nul
   const [dup] = await db.select({
     id: flitoSoportes.id, tipo: flitoSoportes.tipo, subidoEn: flitoSoportes.subidoEn,
     soatId: flitoSoportes.soatId, impuestoId: flitoSoportes.impuestoId, derechoId: flitoSoportes.derechoId,
-  }).from(flitoSoportes).where(and(eq(flitoSoportes.hash, hash), eq(flitoSoportes.descartado, false))).limit(1);
+  }).from(flitoSoportes).where(and(
+    eq(flitoSoportes.hash, hash), eq(flitoSoportes.descartado, false),
+    // HU #13362: un documento adicional del alta de SOAT no es un comprobante; no puede bloquear uno legítimo.
+    ne(flitoSoportes.tipo, TipoSoporte.DOCUMENTO_ADICIONAL_SOAT),
+  )).limit(1);
   if (!dup) return null;
   const [original] = await db.select({ id: flitoComprobantes.id }).from(flitoComprobantes)
     .where(eq(flitoComprobantes.soporteId, dup.id)).limit(1);

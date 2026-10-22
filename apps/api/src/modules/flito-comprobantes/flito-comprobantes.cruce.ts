@@ -111,7 +111,6 @@ export const PROYECCION_CANDIDATO = {
   liquidacionId: flitoLiquidaciones.id,
   docTramiteDigital: documentado(ConceptoCosto.TRAMITE_DIGITAL),
   docLogistica: documentado(ConceptoCosto.LOGISTICA),
-  docServiciosAdicionales: documentado(ConceptoCosto.SERVICIOS_ADICIONALES),
   createdAt: flitoTramites.createdAt,
 } as const;
 
@@ -131,7 +130,6 @@ export interface FilaCandidato {
   liquidacionId: string | null;
   docTramiteDigital: boolean | null;
   docLogistica: boolean | null;
-  docServiciosAdicionales: boolean | null;
   createdAt: Date | string | null;
 }
 
@@ -179,7 +177,9 @@ export function admiteDe(f: FilaCandidato): Record<ConceptoCosto, AdmisionConcep
     derecho: hayDerecho ? 'ya_pagado' : aprobado ? 'admite' : 'estado_no_permitido',
     tramite_digital: admiteHonorario(liquidado, f.docTramiteDigital === true),
     logistica: admiteHonorario(liquidado, f.docLogistica === true),
-    servicios_adicionales: admiteHonorario(liquidado, f.docServiciosAdicionales === true),
+    // Bug #12913: un trámite admite varios servicios adicionales pagados (uno por TIPO); el duplicado
+    // por tipo lo decide el índice `…_valor_documental_sa` al aplicar, no el candidato.
+    servicios_adicionales: admiteHonorario(liquidado, false),
   };
 }
 

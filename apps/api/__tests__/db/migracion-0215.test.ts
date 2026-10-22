@@ -63,13 +63,15 @@ describe('0215 — análisis estático', () => {
     expect(t.checks.map((c) => c.name)).toEqual(expect.arrayContaining(['ck_flito_tramites_fuente_id_flit2', 'ck_flito_tramites_flit2_sync_version']));
     const l = getTableConfig(flitoSyncFlit2Lectura);
     expect(l.name).toBe('flito_sync_flit2_lectura');
-    // `pii_enmascarada_desde`, `cursor_relectura` y su CHECK los añade la 0216 (HU #13094).
+    // `pii_enmascarada_desde`, `cursor_relectura` y su CHECK los añade la 0216 (HU #13094);
+    // `rechazos_firma_seguidos`, `ultimo_aviso_en` y su CHECK, la 0244 (HU #13632).
     expect(l.columns.map((c) => c.name).sort()).toEqual([
-      'atrasada', 'cursor', 'cursor_relectura', 'id', 'pii_enmascarada_desde', 'since_arranque', 'ultima_exitosa_en',
-      'ultimo_error_codigo', 'ultimo_intento_en', 'updated_at',
+      'atrasada', 'cursor', 'cursor_relectura', 'id', 'pii_enmascarada_desde', 'rechazos_firma_seguidos', 'since_arranque',
+      'ultima_exitosa_en', 'ultimo_aviso_en', 'ultimo_error_codigo', 'ultimo_intento_en', 'updated_at',
     ]);
     expect(l.checks.map((c) => c.name).sort()).toEqual([
-      'ck_flito_sync_flit2_lectura_cursor_len', 'ck_flito_sync_flit2_lectura_cursor_relectura_len', 'ck_flito_sync_flit2_lectura_una_fila',
+      'ck_flito_sync_flit2_lectura_cursor_len', 'ck_flito_sync_flit2_lectura_cursor_relectura_len',
+      'ck_flito_sync_flit2_lectura_rechazos_firma', 'ck_flito_sync_flit2_lectura_una_fila',
     ]);
   });
 });

@@ -37,6 +37,7 @@ vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: 
 const {
   listar, asignar, quitar, serviciosAsignadosDe, tramiteLiquidado, aDto,
   TramiteNoEncontradoError, TipoNoDisponibleError, ServicioYaAsignadoError, TramiteLiquidadoError, AsignacionNoEncontradaError,
+  AsignacionDeComprobanteError, fijarDesdeComprobante,
 } = await import('../../src/modules/finanzas-servicios-adicionales/finanzas-servicios-adicionales.service.js');
 
 interface Espia { where?: SQL; orderBy?: SQL[]; values?: unknown; for?: string; joins: string[] }
@@ -77,8 +78,11 @@ describe('aDto — numeric a número, fecha a ISO, nulos explícitos', () => {
   it('convierte la fila del contrato', () => {
     expect(aDto(asignacion({ descripcion: null, asignadoPorId: null, asignadoPorNombre: null }))).toEqual({
       id: ASIGNACION, tipoId: TIPO, nombre: 'Diagnóstico', descripcion: null, valor: 85000,
-      asignadoPorId: null, asignadoPorNombre: null, asignadoEn: '2026-09-14T15:00:00.000Z',
+      asignadoPorId: null, asignadoPorNombre: null, asignadoEn: '2026-09-14T15:00:00.000Z', origen: 'manual',
     });
+    // Bug #12913: `origen` sale del EXISTS del comprobante aplicado (`deComprobante`).
+    expect(aDto(asignacion({ deComprobante: true })).origen).toBe('comprobante');
+    expect(aDto(asignacion({ deComprobante: false })).origen).toBe('manual');
   });
 });
 
@@ -99,7 +103,7 @@ describe('listar — el GET lee la puente (nunca el catálogo), ordena por asign
     expect(r.liquidado).toBe(false);
     expect(r.total).toBe(125000);
     expect(r.items).toHaveLength(2);
-    expect(Object.keys(r.items[0]!).sort()).toEqual(['asignadoEn', 'asignadoPorId', 'asignadoPorNombre', 'descripcion', 'id', 'nombre', 'tipoId', 'valor']);
+    expect(Object.keys(r.items[0]!).sort()).toEqual(['asignadoEn', 'asignadoPorId', 'asignadoPorNombre', 'descripcion', 'id', 'nombre', 'origen', 'tipoId', 'valor']);
     expect(r.items[0]).toMatchObject({ nombre: 'Diagnóstico', valor: 85000, asignadoPorNombre: 'Ana Pérez', asignadoEn: T0.toISOString() });
     // Predicado por trámite y orden estable, sobre el SQL renderizado (M2 por el lado del GET: sin JOIN al catálogo).
     const w = renderizar(espia.where!);
@@ -108,6 +112,19 @@ describe('listar — el GET lee la puente (nunca el catálogo), ordena por asign
     expect(espia.orderBy!.map((o) => renderizar(o).sql)).toEqual([`${SA}."asignado_en" asc`, `${SA}."id" asc`]);
     expect(espia.joins).toEqual(['users']);
     expect(espia.joins).not.toContain('flito_servicios_adicionales_tipos');
+  });
+
+  it('Bug #12913 — `origen` en el GET: comprobante si el EXISTS del comprobante aplicado da true, manual si no; la proyección lo calcula sin parámetros', async () => {
+    const proyecciones: unknown[] = [];
+    selectMock
+      .mockReturnValueOnce(chain([FILA_TRAMITE]))
+      .mockImplementationOnce((p: unknown) => { proyecciones.push(p); return chain([asignacion({ deComprobante: true }), asignacion({ id: 'b', tipoId: TIPO_2, deComprobante: false })]); })
+      .mockReturnValueOnce(chain([]));
+    const r = await listar(TRAMITE);
+    expect(r.items.map((i) => i.origen)).toEqual(['comprobante', 'manual']);
+    const existe = renderizar((proyecciones[0] as { deComprobante: SQL }).deComprobante);
+    expect(existe.params).toEqual([]);
+    expect(existe.sql).toContain('"flito_comprobantes"."servicio_tipo_id" = "flito_tramite_servicios_adicionales"."tipo_id"');
   });
 
   it('liquidado: true cuando hay fila en flito_liquidaciones, y el predicado es por tramite_id', async () => {
@@ -246,7 +263,7 @@ describe('quitar — bloqueo, guarda de liquidado y DELETE por (id, tramite_id) 
   it('204: el DELETE liga asignacionId Y tramiteId; devuelve tipoId, nombre y valor (número) para auditar, e idFlit', async () => {
     const espiaTramite = espiaVacio();
     const espiaDelete = espiaVacio();
-    txSelect.mockReturnValueOnce(espiando([FILA_TRAMITE], espiaTramite)).mockReturnValueOnce(chain([]));
+    txSelect.mockReturnValueOnce(espiando([FILA_TRAMITE], espiaTramite)).mockReturnValueOnce(chain([])).mockReturnValueOnce(chain([{ deComprobante: false }]));
     txDelete.mockReturnValueOnce(espiando([{ tipoId: TIPO, nombre: 'Diagnóstico', valor: '85000.00' }], espiaDelete));
     const r = await quitar(TRAMITE, ASIGNACION);
     expect(r).toEqual({ tipoId: TIPO, nombre: 'Diagnóstico', valor: 85000, idFlit: 'FLIT-0001' });
@@ -260,9 +277,34 @@ describe('quitar — bloqueo, guarda de liquidado y DELETE por (id, tramite_id) 
   });
 
   it('0 filas borradas (id inexistente o de OTRO trámite) → AsignacionNoEncontradaError', async () => {
-    txSelect.mockReturnValueOnce(chain([FILA_TRAMITE])).mockReturnValueOnce(chain([]));
+    txSelect.mockReturnValueOnce(chain([FILA_TRAMITE])).mockReturnValueOnce(chain([])).mockReturnValueOnce(chain([]));
     txDelete.mockReturnValueOnce(chain([]));
     await expect(quitar(TRAMITE, ASIGNACION)).rejects.toBeInstanceOf(AsignacionNoEncontradaError);
+  });
+
+  // Bug #12913 (mutante M4: quitar sin la guarda). La guarda va en la tx, tras el bloqueo y la de liquidado, ANTES del DELETE.
+  it('Bug #12913 — 409 AsignacionDeComprobanteError si la asignación viene de un comprobante de pago aplicado: no se borra; el EXISTS liga (tramite, tipo) de ESA asignación contra el comprobante aplicado, es_pago, SA', async () => {
+    const espiaOrigen = espiaVacio();
+    const proyecciones: unknown[] = [];
+    txSelect.mockReturnValueOnce(chain([FILA_TRAMITE])).mockReturnValueOnce(chain([]))
+      .mockImplementationOnce((p: unknown) => { proyecciones.push(p); return espiando([{ deComprobante: true }], espiaOrigen); });
+    await expect(quitar(TRAMITE, ASIGNACION)).rejects.toBeInstanceOf(AsignacionDeComprobanteError);
+    expect(txDelete).not.toHaveBeenCalled();
+    expect(deleteMock).not.toHaveBeenCalled();
+    const w = renderizar(espiaOrigen.where!);
+    expect(w.sql).toBe(`(${SA}."id" = $1 and ${SA}."tramite_id" = $2)`);
+    expect(w.params).toEqual([ASIGNACION, TRAMITE]);
+    const existe = renderizar((proyecciones[0] as { deComprobante: SQL }).deComprobante);
+    expect(existe.params).toEqual([]);
+    expect(existe.sql.replace(/\s+/g, ' ')).toBe(`exists (select 1 from "flito_comprobantes" where "flito_comprobantes"."tramite_id" = ${SA}."tramite_id" and "flito_comprobantes"."servicio_tipo_id" = ${SA}."tipo_id" and "flito_comprobantes"."estado" = 'aplicado' and "flito_comprobantes"."es_pago" = true and "flito_comprobantes"."concepto" = 'servicios_adicionales')`);
+    expect(new AsignacionDeComprobanteError().message).toBe('Este servicio viene de un comprobante de pago aplicado; no se puede quitar desde el panel');
+  });
+
+  it('Bug #12913 — asignación MANUAL (sin comprobante) se sigue quitando', async () => {
+    txSelect.mockReturnValueOnce(chain([FILA_TRAMITE])).mockReturnValueOnce(chain([])).mockReturnValueOnce(chain([{ deComprobante: false }]));
+    txDelete.mockReturnValueOnce(chain([{ tipoId: TIPO, nombre: 'Diagnóstico', valor: '85000.00' }]));
+    await expect(quitar(TRAMITE, ASIGNACION)).resolves.toMatchObject({ tipoId: TIPO, valor: 85000 });
+    expect(txDelete).toHaveBeenCalledTimes(1);
   });
 
   it('409 TramiteLiquidadoError si hay liquidación: no se borra nada (M1 por el lado del DELETE)', async () => {
@@ -275,5 +317,23 @@ describe('quitar — bloqueo, guarda de liquidado y DELETE por (id, tramite_id) 
     txSelect.mockReturnValueOnce(chain([]));
     await expect(quitar(TRAMITE, ASIGNACION)).rejects.toBeInstanceOf(TramiteNoEncontradoError);
     expect(txDelete).not.toHaveBeenCalled();
+  });
+});
+
+describe('Bug #12913 — fijarDesdeComprobante: upsert por (tramite_id, tipo_id) con el valor del COMPROBANTE', () => {
+  it('values con el snapshot del tipo y el valor recibido; ON CONFLICT (tramite_id, tipo_id) DO UPDATE SET valor = excluded.valor (nunca el del catálogo: mutante M1)', async () => {
+    const grabado: { values?: unknown; conflicto?: { target: unknown[]; set: Record<string, unknown> } } = {};
+    const c = chain([]) as unknown as Record<string, (...a: unknown[]) => unknown>;
+    c.values = (v: unknown) => { grabado.values = v; return c; };
+    c.onConflictDoUpdate = (cfg: unknown) => { grabado.conflicto = cfg as never; return c; };
+    txInsert.mockReturnValueOnce(c);
+    await fijarDesdeComprobante(tx as never, TRAMITE, FILA_TIPO, '120000', 7);
+    expect(grabado.values).toEqual({ tramiteId: TRAMITE, tipoId: TIPO, nombre: 'Diagnóstico', descripcion: 'Revisión técnica', valor: '120000', asignadoPorId: 7 });
+    expect(Object.keys(grabado.conflicto!.set)).toEqual(['valor']);
+    const set = renderizar(grabado.conflicto!.set.valor as SQL);
+    expect(set).toEqual({ sql: 'excluded.valor', params: [] });
+    const { flitoTramiteServiciosAdicionales: P } = await import('../../src/db/schema.js');
+    expect(grabado.conflicto!.target).toEqual([P.tramiteId, P.tipoId]);
+    expect(insertMock).not.toHaveBeenCalled();
   });
 });

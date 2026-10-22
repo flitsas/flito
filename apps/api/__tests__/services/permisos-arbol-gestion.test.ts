@@ -96,7 +96,9 @@ describe('AC1 — el catálogo de Gestión y Tránsito es la lista aprobada', ()
     // Control: lo absorbido existía en el mundo plano (si no, la intersección vacía no prueba nada).
     const plano = new Set(catalogoPlano().map((f) => f.codigo));
     expect([...ABSORBIDOS_GESTION].filter((c) => !plano.has(c))).toEqual([]);
-    expect(ABSORBIDOS_GESTION.size).toBe(125); // 132 operaciones del área menos los 7 opcionales (PO, 2026-10-13)
+    // 132 operaciones del área menos los 7 opcionales (PO, 2026-10-13) = 125; menos `sync.sync.lanzar`,
+    // retirada en la HU #13631 (migración 0243) = 124.
+    expect(ABSORBIDOS_GESTION.size).toBe(124);
     // Y el paso no deja ninguna marca (rol ni usuario) sobre lo absorbido, aunque la tuviera antes.
     const todo = [...ABSORBIDOS_GESTION];
     const r = repartirPorTodos([{ id: 1, rol: 'r' }], {

@@ -3518,7 +3518,7 @@ test.describe('HU #12655 · diferencias documentales', () => {
     await expect(sa.getByText('$ 125.000')).toBeVisible();
     await expect(sa.getByText('$ 105.000')).toHaveCount(0);
     await expect(marcaDe(page, 'FLIT-2104')).toHaveText('Difiere del catálogo −$20.000');
-    await expect(marcaDe(page, 'FLIT-2104')).toHaveAttribute('aria-label', /el catálogo suma \$\s125\.000\. Diferencia −\$20\.000\. Sin aceptar\. El cobro sigue siendo el del catálogo\./);
+    await expect(marcaDe(page, 'FLIT-2104')).toHaveAttribute('aria-label', /el catálogo suma \$\s125\.000\. Diferencia −\$20\.000\. Sin aceptar\. El costo usa el valor del comprobante; el catálogo queda como referencia\./);
 
     // Sin tarifa: rótulo sin importe (mutante: «Sin tarifa +$95.000»); el importe de la celda es el documental.
     const sinTarifa = filaDe(page, 'FLIT-2105');
@@ -3741,7 +3741,7 @@ test.describe('HU #12655 · diferencias documentales', () => {
     await botonAceptar(page, 'FLIT-2104').click();
     modal = page.getByRole('dialog');
     await expect(modal.getByText('Comprobante $ 105.000 · Catálogo $ 125.000')).toBeVisible();
-    await expect(modal.getByText(/El cobro sigue siendo el del catálogo\./)).toBeVisible();
+    await expect(modal.getByText(/El costo usa el valor del comprobante; el catálogo queda como referencia\./)).toBeVisible();
     await modal.getByLabel('Por qué se acepta (obligatorio)').fill('Motivo válido');
     await modal.getByRole('button', { name: 'Aceptar diferencia', exact: true }).click();
     await expect(modal.getByRole('alert')).toHaveText('El motivo va entre 5 y 500 caracteres');
@@ -3829,5 +3829,38 @@ test.describe('HU #12655 · diferencias documentales', () => {
     await expect(page.getByRole('button', { name: /Aceptar diferencia/ })).toHaveCount(0);
     await page.getByRole('checkbox', { name: 'Con diferencias' }).check();
     await expect.poll(() => gets[gets.length - 1]).toContain('conDiferencias=si');
+  });
+});
+
+// ═══════════════ Bug #12913 — la asignación que escribió un comprobante de pago ═══════════════
+test.describe('Bug #12913 · panel de servicios — asignación «Desde comprobante»', () => {
+  /** Mutantes: chip por `origen !== 'manual'` o sin chip (la manual lo pintaría / la de comprobante no); copy crudo del 409. */
+  test('la asignación de comprobante lleva el chip neutral y quitarla da el 409 con copy pulido', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const deComprobante = { ...ASIGNADO_DIAGNOSTICO, origen: 'comprobante' as const };
+    const manual = { ...ASIGNADO_PETICION, origen: 'manual' as const };
+    const estado: EstadoPanel = {
+      items: [deComprobante, manual], total: 125000, liquidado: false,
+      borrarStatus: 409, borrarCuerpo: { error: 'asignacion_de_comprobante', codigo: 'ASIGNACION_DE_COMPROBANTE' },
+    };
+    await mockReporteDelPanel(page, estado);
+    const peticiones = await mockPanelServicios(page, estado);
+    await page.goto('/finanzas/reporte-costos');
+    await botonServicios(page, 'FLIT-2001').click();
+    const panel = panelServicios(page);
+    await expect(panel.getByText('Diagnóstico', { exact: true })).toBeVisible();
+
+    const filaComprobante = panel.locator('li', { has: page.getByText('Diagnóstico', { exact: true }) });
+    await expect(filaComprobante.getByText('Desde comprobante')).toBeVisible();
+    await expect(filaComprobante.locator('[title="Asignado al aplicar un comprobante de pago"]')).toHaveCount(1);
+    await expect(panel.getByText('Desde comprobante')).toHaveCount(1);
+
+    await panel.getByRole('button', { name: 'Quitar · Diagnóstico' }).click();
+    await panel.getByRole('button', { name: 'Quitar', exact: true }).click();
+    await expect.poll(() => peticiones.borrar).toBe(1);
+    await expect(panel.getByRole('alert')).toContainText('Este servicio viene de un comprobante de pago aplicado; no se puede quitar desde el panel.');
+    await expect(panel.getByRole('alert')).not.toContainText('ASIGNACION_DE_COMPROBANTE');
+    // La fila sigue: el 409 dice la verdad sobre lo que hay.
+    await expect(panel.getByText('Diagnóstico', { exact: true })).toBeVisible();
   });
 });

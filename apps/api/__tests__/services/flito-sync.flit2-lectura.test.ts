@@ -21,6 +21,9 @@ const mem = vi.hoisted(() => ({
   tablas: new Map<string, Record<string, unknown>[]>(),
   secuencia: 1,
   fallarInsertDe: new Set<string>(),
+  // HU #13627: error propio por radicado (p. ej. con PII en el mensaje) y fallo del insert de la Bitácora.
+  errorInsertDe: new Map<string, Error>(),
+  fallarAudit: false,
   escrituras: [] as { op: 'insert' | 'update' | 'delete'; tabla: string }[],
 }));
 
@@ -40,6 +43,18 @@ function filtro(t: PgTable, cond: SQL | undefined): (f: Fila) => boolean {
   for (const m of q.matchAll(/"(\w+)" is null/gi)) {
     const k = porNombre[m[1]]; reconocidos++;
     preds.push((f) => f[k] == null);
+  }
+  // HU #13627: LIKE con `%`, `_` y el escape `\` de PostgreSQL.
+  for (const m of q.matchAll(/"(\w+)" like \$(\d+)/gi)) {
+    const k = porNombre[m[1]]; const patron = String(params[Number(m[2]) - 1]); reconocidos++;
+    let re = '';
+    for (let i = 0; i < patron.length; i++) {
+      const ch = patron[i];
+      if (ch === '\\') { re += patron[++i].replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); continue; }
+      re += ch === '%' ? '.*' : ch === '_' ? '.' : ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+    const rx = new RegExp(`^${re}$`, 's');
+    preds.push((f) => typeof f[k] === 'string' && rx.test(f[k] as string));
   }
   for (const m of q.matchAll(/"(\w+)" IS NOT DISTINCT FROM \$(\d+)/g)) {
     const k = porNombre[m[1]]; const v = params[Number(m[2]) - 1] ?? null; reconocidos++;
@@ -93,13 +108,35 @@ function thenable<T>(run: () => T): Record<string, unknown> {
 const memDb = vi.hoisted(() => ({}) as Record<string, unknown>);
 function montarDb(): void {
   memDb.select = (campos?: Record<string, unknown>) => {
-    let t: PgTable; let cond: SQL | undefined; let lim = Infinity;
+    let t: PgTable; let cond: SQL | undefined; let lim = Infinity; let orden: SQL[] = [];
     const c: Record<string, unknown> = {
       from: (tb: PgTable) => { t = tb; return c; },
       where: (w: SQL) => { cond = w; return c; },
       limit: (n: number) => { lim = n; return c; },
-      orderBy: () => { throw new Error('orderBy no soportado por el mock'); },
-      ...thenable(() => filas(t).filter(filtro(t, cond)).slice(0, lim).map((f) => proyectar(t, campos, f))),
+      // HU #13627: `orderBy` de columnas simples (`"col" asc|desc`), evaluado de verdad.
+      orderBy: (...os: SQL[]) => { orden = os; return c; },
+      ...thenable(() => {
+        const sel = filas(t).filter(filtro(t, cond));
+        if (orden.length) {
+          const porNombre = Object.fromEntries(Object.entries(columnas(t)).map(([k, col]) => [col.name, k]));
+          const claves = orden.map((o) => {
+            const m = /"(\w+)" (asc|desc)$/i.exec(dialecto.sqlToQuery(o).sql);
+            if (!m || !porNombre[m[1]]) throw new Error('orderBy no soportado por el mock');
+            return { k: porNombre[m[1]], dir: m[2].toLowerCase() === 'desc' ? -1 : 1 };
+          });
+          const val = (v: unknown) => (v instanceof Date ? v.getTime() : (v as number | string | null));
+          sel.sort((a, b) => {
+            for (const { k, dir } of claves) {
+              const x = val(a[k]); const y = val(b[k]);
+              if (x === y) continue;
+              if (x == null) return dir; if (y == null) return -dir;
+              return (x < y ? -1 : 1) * dir;
+            }
+            return 0;
+          });
+        }
+        return sel.slice(0, lim).map((f) => proyectar(t, campos, f));
+      }),
     };
     return c;
   };
@@ -114,6 +151,8 @@ function montarDb(): void {
         const out: Fila[] = [];
         for (const v of vals) {
           if (n === 'flito_tramites' && mem.fallarInsertDe.has(String(v.idFlit))) throw new Error('fallo simulado de BD');
+          if (n === 'flito_tramites' && mem.errorInsertDe.has(String(v.idFlit))) throw mem.errorInsertDe.get(String(v.idFlit));
+          if (n === 'audit_logs' && mem.fallarAudit) throw new Error('fallo simulado de la Bitácora');
           const f = nuevaFila(t, v);
           const todas = filas(t);
           if (ignorarConflicto && 'id' in f && todas.some((o) => o.id === f.id)) continue;
@@ -323,6 +362,7 @@ const cuadra = (r: Record<string, unknown>) => {
 
 beforeEach(() => {
   mem.tablas = new Map(); mem.secuencia = 1; mem.fallarInsertDe = new Set(); mem.escrituras = [];
+  mem.errorInsertDe = new Map(); mem.fallarAudit = false;
   montarDb();
   for (const m of Object.values(logMock)) m.mockClear();
   companiaPorNitMock.mockReset().mockImplementation(async (nit: string) => (nit === '901000000' ? { id: 7, document: nit } : null));
@@ -512,7 +552,11 @@ describe('AC3 · identidad y versión', () => {
     expect(historial().filter((h) => h.campo === 'flit_estado')).toEqual([
       expect.objectContaining({ tramiteId: previo.id, valorAnterior: 'Entregado', valorNuevo: 'Aprobado', origen: 'api' }),
     ]);
-    expect(filas(S.auditLogs)).toHaveLength(1);
+    // HU #13626 AC1: UNA entrada de Bitácora (no la vieja «Estado FLIT: …»).
+    expect(filas(S.auditLogs)).toEqual([expect.objectContaining({
+      resource: 'flito_tramite', resourceId: previo.id, action: 'update', userEmail: 'sistema',
+      detail: '[FLIT 2] cambio de estado · radicado FT1-0001234 · estado: Entregado → Aprobado; compradores: 0 → 2 · aplicado',
+    })]);
     expect(r.actualizados).toBe(1);
   });
 
@@ -789,7 +833,7 @@ describe('AC10 · sin datos personales de más, FLIT 1 intacto', () => {
 
 // ═══ HU #13092 · lectura programada: candado, topes de tiempo y esperas ═══════════════════════════
 const {
-  leerConCandado, auditarLecturaProgramada, LIMITE_CRON_MS, MAX_PAGINAS_SEGURIDAD, ESPERA_429_MAX_S,
+  leerConCandado, LIMITE_CRON_MS, MAX_PAGINAS_SEGURIDAD, ESPERA_429_MAX_S,
 } = await import('../../src/modules/flito-sync/flit2-lectura.service.js');
 const { Flit2EsperaFeedError, Flit2LecturaEnCursoError, Flit2RechazadoError } =
   await import('../../src/modules/flito-sync/flit2.errors.js');
@@ -970,32 +1014,13 @@ describe('HU #13092 · topes y esperas', () => {
     expect(candado).toMatchObject({ tomado: false, tomas: 1, sueltas: 1 });
   });
 
-  it('AC8: la corrida programada con ítems se audita como «sistema» con totales y sin PII; la vacía no', async () => {
+  it('HU #13626 AC5: la corrida programada con ítems ya no se audita como corrida (RN-13 retirada); solo queda la creación del trámite', async () => {
     sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
-    const r = await leerConCandado('cron', puerto([pagina([crudo()], 'c1', false)]).port, { ahora: reloj() });
-    await auditarLecturaProgramada(r);
+    await leerConCandado('cron', puerto([pagina([crudo()], 'c1', false)]).port, { ahora: reloj() });
+    await leerConCandado('acceso', puerto([pagina([], 'c2', false)]).port, { ahora: reloj() });
     const logs = filas(S.auditLogs);
-    expect(logs).toHaveLength(1);
-    expect(logs[0]).toMatchObject({ userId: null, userEmail: 'sistema', action: 'update', resource: 'flito_sincronizacion_flit2' });
-    expect(logs[0].detail).toMatch(/^Sync FLIT 2 programada \(cursor\): 1 leídos, 1 nuevos/);
-    const texto = JSON.stringify(logs[0]);
-    for (const pii of ['FT1-0001234', 'ZZZ001', DOC_1, DOC_2, CORREO, CELULAR, '9FKTEST0000000001']) expect(texto).not.toContain(pii);
-
-    const vacia = await leerConCandado('cron', puerto([pagina([], 'c2', false)]).port, { ahora: reloj() });
-    await auditarLecturaProgramada(vacia);
-    expect(filas(S.auditLogs)).toHaveLength(1);
-  });
-
-  it('HU #13190 AC6: la de tras guardar el acceso se audita igual, con detalle que la distingue y sin PII', async () => {
-    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
-    const r = await leerConCandado('acceso', puerto([pagina([crudo()], 'c1', false)]).port, { ahora: reloj() });
-    await auditarLecturaProgramada(r, 'acceso');
-    const logs = filas(S.auditLogs);
-    expect(logs).toHaveLength(1);
-    expect(logs[0]).toMatchObject({ userId: null, userEmail: 'sistema', action: 'update', resource: 'flito_sincronizacion_flit2' });
-    expect(logs[0].detail).toMatch(/^Sync FLIT 2 tras guardar el acceso \(cursor\): 1 leídos, 1 nuevos/);
-    const texto = JSON.stringify(logs[0]);
-    for (const pii of ['FT1-0001234', 'ZZZ001', DOC_1, DOC_2, CORREO, CELULAR, '9FKTEST0000000001']) expect(texto).not.toContain(pii);
+    expect(logs.filter((l) => l.resource === 'flito_sincronizacion_flit2')).toEqual([]);
+    expect(logs.map((l) => [l.resource, l.action])).toEqual([['flito_tramite', 'create']]);
   });
 });
 
@@ -1052,7 +1077,7 @@ describe('HU #13093 · compradores y arranque', () => {
     expect(t.soatId).toBe(soat.id);
     expect(filas(S.flitoImpuestos)).toEqual([expect.objectContaining({ tramiteId: t.id, estado: 'pendiente', modalidadAplicada: 'requiere_gestion' })]);
     expect(impuestoBloqueanteMock).toHaveBeenCalledWith(expect.anything(), t.vehiculoId, expect.any(Number), t.id);
-    expect(filas(S.auditLogs).map((a) => a.resource).sort()).toEqual(['flito_impuesto', 'flito_soat']);
+    expect(filas(S.auditLogs).map((a) => a.resource).sort()).toEqual(['flito_impuesto', 'flito_soat', 'flito_tramite']);
   });
 
   it('AC4: mismas reglas que FLIT 1 — compañía que autogestiona SOAT y organismo autogestionado no crean nada; un SOAT del VIN se enlaza', async () => {
@@ -1368,11 +1393,10 @@ describe('HU #13094 · PII enmascarada', () => {
   it('AC5: ni los logs ni la auditoría llevan datos personales, enmascarados o no, en la lectura y en la relectura', async () => {
     sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
     const primera = puerto([pagina([crudo({ compradores: enmascarados() })], 'c1')], sinPii);
-    const r1 = await leerIncremental({ ahora: reloj() }, primera.port);
+    await leerIncremental({ ahora: reloj() }, primera.port);
     const segunda = puerto([pagina([], 'c1'), pagina([crudo({ estado: 'asignado' })], 'r1')], conPii);
     await leerIncremental({ ahora: reloj() }, segunda.port);
     expect(tramite(U1)!.flit2PiiEnmascarada).toBe(false);
-    await auditarLecturaProgramada(r1);
     const todo = JSON.stringify([logMock.info.mock.calls, logMock.warn.mock.calls, logMock.error.mock.calls, filas(S.auditLogs)]);
     for (const x of [DOC_1, DOC_2, CORREO, CELULAR, DIRECCION, 'PERSONA EJEMPLO', 'EMPRESA EJEMPLO', '****', '***@']) {
       expect(todo).not.toContain(x);
@@ -1667,5 +1691,258 @@ describe('HU #13237 · interruptor de FLIT 2', () => {
     await leerConCandado('cron', port, { ahora: reloj() });
     expect(llamadas).toHaveLength(1);
     expect(logMock.warn).toHaveBeenCalledWith({ fuente: 'flit2' }, expect.stringContaining('sin fila'));
+  });
+});
+
+// ── Bug #13585 · RN-26 ──────────────────────────────────────────────────────────────────────────
+// Un VIN anulado y recreado: el ítem anulado/revocado (otro radicado, mismo VIN, otra marca y otro
+// titular) no modifica el vehículo del trámite vigente. Asertos sobre la fila real de `vehicles`.
+describe('Bug #13585 · RN-26 — un anulado/revocado no modifica el vehículo existente', () => {
+  const VIN = '9FKTEST0000000001';
+  const vehiculo = () => filas(S.vehicles).find((v) => v.vin === VIN);
+  const otroTitular = () => [{ ...compradores()[1], ordinal: 1, porcentajeParticipacion: 100 }];
+  const anuladoMismoVin = (estado: string, over: Fila = {}) => crudo({
+    id: U2, radicado: 'FT1-0000002', estado, compradores: otroTitular(),
+    vehiculo: { ...crudo().vehiculo as Fila, placa: null, marca: 'MARCA ANULADA', linea: 'LINEA ANULADA', carroceria: 'SEDAN', cilindraje: 999 },
+    ...over,
+  });
+
+  it.each(['revocado', 'anulado'])('vigente y luego %s del mismo VIN → el vehículo no recibe UPDATE y conserva los datos del vigente', async (estado) => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([crudo({ estado: 'aprobado' })], 'c1')]).port);
+    const antes = structuredClone(vehiculo()!);
+    expect(antes).toMatchObject({ plate: 'ZZZ001', brand: 'MARCA EJEMPLO', ownerDocument: DOC_1 });
+    mem.escrituras = [];
+
+    const r = await leerIncremental({ ahora: reloj() }, puerto([pagina([anuladoMismoVin(estado)], 'c2')]).port);
+    expect(r.nuevos).toBe(1);
+    expect(mem.escrituras.filter((w) => w.tabla === 'vehicles')).toEqual([]);
+    expect(vehiculo()).toEqual(antes);
+    expect(filas(S.vehicles)).toHaveLength(1);
+    // El trámite anulado sí se guarda, colgado del mismo vehículo, pero SIN la placa del vehículo
+    // (retrabajo 2): no trae placa propia ni tenía una antes → null. El vigente conserva la suya.
+    expect(tramite(U2)).toMatchObject({ estado: 'anulado', vehiculoId: antes.id, plateComplete: null });
+    expect(tramite(U1)).toMatchObject({ plateComplete: 'ZZZ001' });
+  });
+
+  it('anulado del mismo VIN que SÍ trae placa propia → guarda la suya, no la del vehículo', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([crudo({ estado: 'aprobado' })], 'c1')]).port);
+    const propio = anuladoMismoVin('anulado');
+    propio.vehiculo = { ...propio.vehiculo as Fila, placa: 'ANU123' };
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([propio], 'c2')]).port);
+    expect(tramite(U2)).toMatchObject({ estado: 'anulado', plateComplete: 'ANU123' });
+    expect(vehiculo()).toMatchObject({ plate: 'ZZZ001' });
+  });
+
+  it('el mismo trámite que pasa a revocado tampoco modifica su vehículo', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([crudo({ estado: 'aprobado' })], 'c1')]).port);
+    const antes = structuredClone(vehiculo()!);
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([anuladoMismoVin('revocado', { id: U1, radicado: 'FT1-0001234', syncVersion: 11 })], 'c2')]).port);
+    expect(vehiculo()).toEqual(antes);
+    // Sin placa en el ítem, el revocado conserva la que ESE trámite ya tenía (no la pierde).
+    expect(tramite(U1)).toMatchObject({ estado: 'anulado', flitEstado: 'Revocado', plateComplete: 'ZZZ001' });
+  });
+
+  it('anulado con VIN que no existe → SÍ da de alta el vehículo', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([anuladoMismoVin('anulado')], 'c1')]).port);
+    expect(vehiculo()).toMatchObject({ brand: 'MARCA ANULADA' });
+    expect(tramite(U2)).toMatchObject({ estado: 'anulado', vehiculoId: vehiculo()!.id });
+  });
+
+  it('orden inverso: anulado (crea el vehículo sin placa) y luego vigente del mismo VIN → quedan los datos del vigente', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([anuladoMismoVin('anulado')], 'c1')]).port);
+    expect(vehiculo()).toMatchObject({ brand: 'MARCA ANULADA' });
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([crudo({ estado: 'aprobado' })], 'c2')]).port);
+    expect(vehiculo()).toMatchObject({ plate: 'ZZZ001', brand: 'MARCA EJEMPLO', ownerDocument: DOC_1 });
+    expect(filas(S.vehicles)).toHaveLength(1);
+  });
+
+  it('control: un vigente posterior del mismo VIN sí actualiza el vehículo', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([crudo({ estado: 'aprobado' })], 'c1')]).port);
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([anuladoMismoVin('asignado')], 'c2')]).port);
+    expect(vehiculo()).toMatchObject({ brand: 'MARCA ANULADA', plate: 'ZZZ001' });
+    // RN-04 intacta para los vigentes: sin placa en el ítem, toma la conocida del vehículo.
+    expect(tramite(U2)).toMatchObject({ estado: 'asignado', plateComplete: 'ZZZ001' });
+  });
+});
+
+// ═══ HU #13626 · Bitácora de cada trámite creado o cambiado por FLIT 2 ══════════════════════════════
+// Diseño: `docs/diseno/hu-13626-bitacora-cambios-sync.md`. Datos SINTÉTICOS.
+describe('HU #13626 · Bitácora por trámite (FLIT 2)', () => {
+  const PII = [DOC_1, DOC_2, CORREO, CELULAR, DIRECCION, 'PERSONA EJEMPLO', 'EMPRESA EJEMPLO', 'ZZZ001', '3000000000', '3999999999'];
+  const bitacora = () => filas(S.auditLogs).filter((a) => a.resource === 'flito_tramite');
+  const leer = async (items: Fila[], cursor: string) => leerIncremental({ ahora: reloj() }, puerto([pagina(items, cursor)]).port);
+  /** La BD devuelve el numeric como '60.00': se deja así para que la relectura lo compare con 60. */
+  const comoBd = () => {
+    for (const c of filas(S.flitoCompradores)) {
+      if (c.porcentajeParticipacion !== null) c.porcentajeParticipacion = Number(c.porcentajeParticipacion).toFixed(2);
+    }
+  };
+
+  it('AC4: la creación deja UNA entrada «creación» con fuente, radicado y «aplicado», sin PII de compradores', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leer([crudo()], 'c1');
+    const t = tramite(U1)!;
+    expect(bitacora()).toEqual([expect.objectContaining({
+      action: 'create', resourceId: t.id, userId: null, userEmail: 'sistema',
+      detail: '[FLIT 2] creación · radicado FT1-0001234 · aplicado',
+    })]);
+    const texto = JSON.stringify(filas(S.auditLogs));
+    for (const x of PII) expect(texto).not.toContain(x);
+  });
+
+  it('AC2: cambia el celular del comprador 2 → «cambió celular», tipo «cambio de datos», sin el valor anterior ni el nuevo', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leer([crudo()], 'c1');
+    comoBd();
+    filas(S.auditLogs).length = 0;
+    const cs = compradores(); cs[1].celular = '3999999999';
+    await leer([crudo({ syncVersion: 11, compradores: cs })], 'c2');
+    expect(bitacora()).toEqual([expect.objectContaining({
+      action: 'update', resourceId: tramite(U1)!.id,
+      detail: '[FLIT 2] cambio de datos · radicado FT1-0001234 · cambió celular (comprador 2) · aplicado',
+    })]);
+    const texto = JSON.stringify(filas(S.auditLogs));
+    for (const x of PII) expect(texto).not.toContain(x);
+  });
+
+  it('AC6 + riesgo de normalización: solo cambian versión y crudo (y la BD devuelve el porcentaje como «60.00») → 0 entradas', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    await leer([crudo()], 'c1');
+    comoBd();
+    filas(S.auditLogs).length = 0;
+    const r = await leer([crudo({ syncVersion: 11, fechaUltimoCambio: '2026-09-22T10:00:00-05:00' })], 'c2');
+    expect(tramite(U1)!.syncVersion).toBe(11);
+    expect(filas(S.auditLogs)).toEqual([]);
+    expect(r.sinCambios).toBe(1);
+  });
+
+  it('AC5: 566 trámites releídos sin cambios → 0 entradas en audit_logs (ni de trámite ni de corrida)', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    const N = 566;
+    const id = (i: number) => `0192b7c4-5e6a-7d10-9f21-${String(1000 + i).padStart(12, '0')}`;
+    const lote = (version: number) => Array.from({ length: N }, (_, i) => crudo({
+      id: id(i), radicado: `FT1-${String(100000 + i)}`, syncVersion: version,
+      vehiculo: { ...(crudo().vehiculo as Fila), vin: `9FKLOTE${String(i).padStart(10, '0')}`, placa: `LOT${String(i).padStart(3, '0')}` },
+    }));
+    const r1 = await leerConCandado('cron', puerto([pagina(lote(10), 'c1', false)]).port, { ahora: reloj() });
+    expect(r1.nuevos).toBe(N);
+    expect(bitacora()).toHaveLength(N);
+    comoBd();
+    filas(S.auditLogs).length = 0;
+    const r2 = await leerConCandado('cron', puerto([pagina(lote(11), 'c2', false)]).port, { ahora: reloj() });
+    expect(r2).toMatchObject({ leidos: N, sinCambios: N });
+    expect(filas(S.auditLogs)).toEqual([]);
+  });
+});
+
+// ═══ HU #13627 · Bitácora de los trámites de FLIT 2 que fallan al aplicarse ═════════════════════════
+// Decisión de David (2026-10-16, opción B): la transacción sigue siendo por página y la lectura se frena
+// en el ítem que falla. Solo ESE ítem deja su «falló», fuera de la transacción y deduplicado. Sintéticos.
+describe('HU #13627 · Bitácora de fallos (FLIT 2)', () => {
+  const CEDULA = '1023456789'; const CORREO_ERR = 'titular.sintetico@ejemplo.test';
+  const errorConPii = (code = '23505') =>
+    Object.assign(new Error(`duplicate key (numero_documento)=(${CEDULA}) correo ${CORREO_ERR}`), { code });
+  const bitacora = () => filas(S.auditLogs).filter((a) => a.resource === 'flito_tramite');
+  const R2 = 'FT1-0000002';
+  const item2 = (over: Fila = {}) => crudo({ id: U2, radicado: R2, vehiculo: { ...crudo().vehiculo as Fila, vin: '9FKTEST0000000002' }, ...over });
+  const item3 = () => crudo({ id: U3, radicado: 'FT1-0000003', vehiculo: { ...crudo().vehiculo as Fila, vin: '9FKTEST0000000003' } });
+  const leer = (items: Fila[]) => leerIncremental({ ahora: reloj() }, puerto([pagina(items, 'c1')]).port);
+
+  it('AC2/AC3: el ítem que lanza deja «[FLIT 2] fallo · radicado · error <código> · falló», sin el mensaje ni su PII', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    mem.errorInsertDe.set(R2, errorConPii());
+    await expect(leer([item2()])).rejects.toThrow('duplicate key');
+    expect(bitacora()).toEqual([expect.objectContaining({
+      action: 'update', resource: 'flito_tramite', resourceId: null, userId: null, userEmail: 'sistema',
+      detail: `[FLIT 2] fallo · radicado ${R2} · error 23505 · falló`,
+    })]);
+    const todo = JSON.stringify([filas(S.auditLogs), logMock.info.mock.calls, logMock.warn.mock.calls, logMock.error.mock.calls]);
+    for (const x of [CEDULA, CORREO_ERR, 'duplicate key']) expect(todo).not.toContain(x);
+  });
+
+  it('AC4 acotado (opción B): página de 3 con el 2.º fallando → nada aplicado, cursor quieto, solo el 2.º con «falló»', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    mem.errorInsertDe.set(R2, errorConPii());
+    await expect(leer([crudo(), item2(), item3()])).rejects.toThrow();
+    expect(tramites()).toEqual([]);
+    expect(lectura().cursor).toBeNull();
+    expect(bitacora().map((a) => a.detail)).toEqual([`[FLIT 2] fallo · radicado ${R2} · error 23505 · falló`]);
+  });
+
+  it('RN-B6: dos corridas con el mismo fallo dejan UNA entrada; si cambia el error, se escribe otra', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    mem.errorInsertDe.set(R2, errorConPii('23505'));
+    await expect(leer([item2()])).rejects.toThrow();
+    await expect(leer([item2()])).rejects.toThrow();
+    expect(bitacora()).toHaveLength(1);
+    mem.errorInsertDe.set(R2, errorConPii('23514'));
+    await expect(leer([item2()])).rejects.toThrow();
+    expect(bitacora().map((a) => a.detail)).toEqual([
+      `[FLIT 2] fallo · radicado ${R2} · error 23505 · falló`,
+      `[FLIT 2] fallo · radicado ${R2} · error 23514 · falló`,
+    ]);
+  });
+
+  it('RN-B6: la deduplicación mira la ÚLTIMA entrada del radicado: aplicado en medio → el mismo fallo se vuelve a escribir, con el UUID', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    mem.errorInsertDe.set(R2, errorConPii());
+    await expect(leer([item2()])).rejects.toThrow();
+    mem.errorInsertDe.clear();
+    await leer([item2()]);
+    const t = tramite(U2)!;
+    // Ya existe: el siguiente fallo es de un UPDATE. Se simula en la escritura del trámite existente.
+    const upd = memDb.update as (t: PgTable) => unknown;
+    memDb.update = (tb: PgTable) => {
+      if (getTableName(tb) === 'flito_tramites') throw errorConPii();
+      return upd(tb);
+    };
+    await expect(leerIncremental({ ahora: reloj() }, puerto([pagina([item2({ syncVersion: 11, estado: 'aprobado' })], 'c2')]).port)).rejects.toThrow();
+    expect(bitacora().map((a) => [a.detail, a.resourceId])).toEqual([
+      [`[FLIT 2] fallo · radicado ${R2} · error 23505 · falló`, null],
+      [`[FLIT 2] creación · radicado ${R2} · aplicado`, t.id],
+      [`[FLIT 2] fallo · radicado ${R2} · error 23505 · falló`, t.id],
+    ]);
+  });
+
+  it('RN-B6: la deduplicación filtra por radicado: un fallo de OTRO radicado en medio no hace repetir el de R2', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    const R3 = 'FT1-0000003';
+    mem.errorInsertDe.set(R2, errorConPii('23505'));
+    mem.errorInsertDe.set(R3, errorConPii('23505'));
+    await expect(leer([item2()])).rejects.toThrow();
+    await expect(leer([item3()])).rejects.toThrow(); // la entrada más reciente es ahora de R3
+    await expect(leer([item2()])).rejects.toThrow();
+    expect(bitacora().map((a) => a.detail)).toEqual([
+      `[FLIT 2] fallo · radicado ${R2} · error 23505 · falló`,
+      `[FLIT 2] fallo · radicado ${R3} · error 23505 · falló`,
+    ]);
+  });
+
+  it('AC5: si la entrada de fallo tampoco se escribe, la lectura termina como siempre (mismo error, código anotado) y el log no lleva PII', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    mem.errorInsertDe.set(R2, errorConPii());
+    mem.fallarAudit = true;
+    await expect(leer([item2()])).rejects.toThrow('duplicate key');
+    expect(bitacora()).toEqual([]);
+    expect(lectura().ultimoErrorCodigo).toBe('error_interno');
+    expect(logMock.error).toHaveBeenCalledWith(
+      expect.objectContaining({ fuente: 'FLIT 2', radicado: R2, err: 'Error' }), expect.stringContaining('Bitácora'),
+    );
+    const todo = JSON.stringify(logMock.error.mock.calls);
+    for (const x of [CEDULA, CORREO_ERR, 'fallo simulado de la Bitácora']) expect(todo).not.toContain(x);
+  });
+
+  it('decisión de David: conflicto, «sin vehículo» y un fallo del feed NO dejan «falló»', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE });
+    sembrarTramite({ idFlit: R2 });
+    await leer([item2(), crudo({ vehiculo: null })]);
+    await expect(leerIncremental({ ahora: reloj() }, puerto([new Flit2Error('error_interno', 502, 'feed caído')]).port)).rejects.toThrow();
+    expect(bitacora().filter((a) => String(a.detail).includes('falló'))).toEqual([]);
   });
 });

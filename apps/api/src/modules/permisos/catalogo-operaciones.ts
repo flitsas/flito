@@ -37,8 +37,10 @@ const op = (llave: string, codigo: string, nombre: string, descripcion: string):
 const SOAT = 'flito-soat/flito-soat.routes.ts';
 const SOAT_CLI = 'flito-soat/flito-soat-cliente.routes.ts';
 const SOAT_INC = 'flito-soat/flito-soat-incompletas.routes.ts';
+const SOAT_DOC = 'flito-soat/flito-soat-documentos.routes.ts';
 const IMP = 'flito-impuestos/flito-impuestos.routes.ts';
 const IMP_DIR = 'flito-impuestos/flito-impuestos.direccion.routes.ts';
+const IMP_REEMP = 'flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts';
 const DER = 'flito-derechos/flito-derechos.routes.ts';
 const REV = 'flito-revisiones/flito-revisiones.routes.ts';
 const COMP = 'flito-compuerta/flito-compuerta.routes.ts';
@@ -101,6 +103,9 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // por la 0212 (P-8); el administrador la reparte. Textos byte a byte con la 0212.
   op(`${SOAT_INC} POST /cliente/incompletas/:id/reintentar`, 'soat.solicitud.reintentar_runt', 'Reintentar la consulta al RUNT de una solicitud de SOAT por validar', 'Volver a consultar el RUNT para completar, descartar o dejar por validar una solicitud que se guardó porque el RUNT no respondió.'),
   op(`${SOAT_INC} GET /cliente/incompletas/:id`, 'soat.incompleta.ver', 'Ver una solicitud de SOAT por validar o descartada', 'Abrir el detalle de una solicitud guardada sin validar con el RUNT: propietario, factura y motivo del descarte.'),
+  op(`${SOAT_DOC} GET /:id/documentos-adicionales`, 'soat.documentos_adicionales.ver', 'Ver los documentos adicionales de una solicitud de SOAT', 'Abrir y descargar los documentos adicionales que el cliente adjuntó a la solicitud de SOAT.'),
+  op(`${SOAT_DOC} POST /:id/documentos-adicionales`, 'soat.documentos_adicionales.cargar', 'Cargar documentos adicionales en una solicitud de SOAT', 'Adjuntar documentos adicionales a una solicitud de SOAT existente, en cualquier estado.'),
+  op(`${SOAT_DOC} DELETE /:id/documentos-adicionales/:soporteId`, 'soat.documentos_adicionales.eliminar', 'Eliminar documentos adicionales de una solicitud de SOAT', 'Borrar definitivamente un documento adicional de una solicitud de SOAT, en cualquier estado, aunque lo haya cargado otra persona.'),
 
   // ── Impuestos ─────────────────────────────────────────────────────────────────────────────────
   op(`${IMP} GET /`, 'impuestos.cola.ver', 'Ver la cola de impuestos', 'Abrir la bandeja de trámites de impuesto vehicular.'),
@@ -126,6 +131,8 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${IMP} POST /:id/recibo-caja`, 'impuestos.recibos.cargar_caja', 'Cargar recibo de caja', 'Cargar sobre un impuesto con liquidación el recibo de caja del pago en ventanilla y dejarlo pagado.'),
   // HU #12833: textos byte a byte con la 0208.
   op(`${IMP_DIR} PATCH /:id/direccion`, 'impuestos.tramite.corregir_direccion', 'Corregir dirección del comprador', 'Guardar la dirección, municipio y departamento correctos del comprador de un trámite de impuestos.'),
+  // HU #13269: textos byte a byte con la 0220. Nace sin rol (AC7).
+  op(`${IMP_REEMP} POST /:id/recibos/reemplazar-pago`, 'impuestos.recibos.reemplazar', 'Reemplazar el comprobante de pago de un impuesto', 'Sustituir el comprobante de pago ya cargado en un impuesto por otro corregido y, si el trámite viene de FLIT 2, reenviarlo allá.'),
 
   // ── Derechos de tránsito ──────────────────────────────────────────────────────────────────────
   op(`${DER} GET /`, 'derechos.cola.ver', 'Ver los derechos de tránsito', 'Abrir el listado de recibos de derechos cobrados por el organismo.'),
@@ -160,6 +167,7 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${TRA} POST /solicitar-soat`, 'tramites.solicitud.pedir_soat', 'Solicitar SOAT para un vehículo', 'Radicar un trámite de SOAT desde Operaciones.'),
   op(`${TRA} POST /solicitar-impuestos`, 'tramites.solicitud.pedir_impuestos', 'Solicitar impuestos para un vehículo', 'Radicar un trámite de impuesto vehicular desde Operaciones.'),
   op(`${TRA} POST /solicitar-ambos`, 'tramites.solicitud.pedir_ambos', 'Solicitar SOAT e impuestos a la vez', 'Radicar los dos trámites del vehículo en una sola operación.'),
+  op(`${TRA} POST /novedades/buscar`, 'tramites.cola.ver', 'Ver la cola de trámites FLITO', 'Abrir la bandeja de trámites de SOAT e impuestos.'),
   op(`${TRA} POST /entregar`, 'tramites.tramite.entregar', 'Entregar trámites FLITO', 'Marcar como entregados los trámites seleccionados.'),
   op(`${TRA} POST /:id/desbloquear-autogestion`, 'tramites.autogestion.desbloquear', 'Desbloquear la autogestión del cliente', 'Permitir que el cliente vuelva a radicar por su cuenta.'),
   op(`${TRA} POST /:id/revocar-autogestion`, 'tramites.autogestion.revocar', 'Revocar la autogestión del cliente', 'Quitarle al cliente la posibilidad de radicar por su cuenta.'),
@@ -287,13 +295,15 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
 
   // ── Sincronización FLITO ──────────────────────────────────────────────────────────────────────
   op(`${SYN} GET /estado`, 'sync.sync.ver_estado', 'Ver el estado de la sincronización', 'Consultar cuándo corrió la última sincronización y cómo fue.'),
-  op(`${SYN} POST /sincronizar`, 'sync.sync.lanzar', 'Lanzar la sincronización', 'Disparar a mano la sincronización de datos FLITO.'),
   // HU #13061 — acceso de FLITO a FLIT 2 (módulo tramites; migración 0214, solo admin).
   op(`${FL2} GET /acceso`, 'tramites.flit2.ver_acceso', 'Ver el acceso a FLIT 2', 'Consultar con qué usuario de servicio se conecta FLITO a FLIT 2, quién lo guardó y desde cuándo.'),
   op(`${FL2} PUT /acceso`, 'tramites.flit2.guardar_acceso', 'Guardar el acceso a FLIT 2', 'Registrar o reemplazar el usuario de servicio y la contraseña con los que FLITO se conecta a FLIT 2.'),
   // HU #13237 — interruptor por fuente (módulo tramites; migración 0217, solo admin). El GET /interruptores
   // reutiliza el mismo código.
   op(`${SYI} PUT /interruptores/:fuente`, 'tramites.sincronizacion.configurar', 'Configurar la sincronización con FLIT', 'Encender o apagar, en este ambiente, la entrada de trámites desde FLIT 1 y desde FLIT 2.'),
+  // HU #13628 — parámetros de la lectura automática de FLIT 1 (0241, sin siembra: reutiliza la función de
+  // la 0217 con sus textos byte a byte). Los GET /flit1/* van fuera de la lista, como GET /interruptores.
+  op(`${SYI} PUT /flit1/parametros-lectura`, 'tramites.sincronizacion.configurar', 'Configurar la sincronización con FLIT', 'Encender o apagar, en este ambiente, la entrada de trámites desde FLIT 1 y desde FLIT 2.'),
 
   // ── Trámite Digital ───────────────────────────────────────────────────────────────────────────
   op(`${TRD} GET /`, 'tramite.cola.ver', 'Ver la cola de Trámite Digital', 'Abrir la bandeja de trámites de tránsito.'),

@@ -274,8 +274,12 @@ describe('AC4 — duplicado por contenido', () => {
     const { createHash } = await import('node:crypto');
     expect(ligadoA(q, '"flito_soportes"."hash"')).toBe(createHash('sha256').update(PDF).digest('hex'));
     expect(ligadoA(q, '"flito_soportes"."descartado"')).toBe(false);
-    // Sin ningún filtro por `tipo`: el hash cuenta venga de la puerta que venga.
-    expect(q.sql).not.toMatch(/"flito_soportes"\."tipo"/);
+    // El hash cuenta venga de la puerta que venga, SALVO un documento adicional del alta de SOAT
+    // (HU #13362): única condición por `tipo`, un `<>` ligado a ese valor.
+    const tipo = /"flito_soportes"\."tipo" <> \$(\d+)/.exec(q.sql);
+    expect(tipo, q.sql).not.toBeNull();
+    expect(q.params[Number(tipo![1]) - 1]).toBe(TipoSoporte.DOCUMENTO_ADICIONAL_SOAT);
+    expect(q.sql.match(/"flito_soportes"\."tipo"/g)).toHaveLength(1);
   });
 
   it.each([
@@ -498,6 +502,17 @@ describe('HU #12632 — auto-aplicación con COMPROBANTES_AUTO_APLICAR', () => {
     expect(razon(lecturaSoatAprobable(), null)).toBe('sin_cruce_unico');
     // El umbral VIGENTE manda sobre el flag `confiable` que trajo el OCR: con umbral 0.96 nada de 0.95 pasa.
     expect((decidirAutoAplicar(lecturaSoatAprobable() as never, cruceUnico() as never, 0.96) as { razon: string }).razon).toBe('tipo_no_confiable');
+  });
+
+  it('Bug #12913 — un PAGO de servicios adicionales confiable y con destino que admite NO se auto-aplica: `requiere_tipo_servicio` (una persona elige el tipo); el trámite digital sí', () => {
+    const cruce = {
+      tramiteId: TRAMITE, cruce: 'id_flit' as const, motivo: null,
+      candidatos: [{ tramiteId: TRAMITE, idFlit: 'FLIT-ARHZZ1', placa: 'ABC123', vin: null, tipoTramite: null, empresa: null, flitEstado: 'Aprobado', liquidado: false,
+        admite: { soat: 'admite', impuesto: 'no_gestionado', derecho: 'admite', tramite_digital: 'admite', logistica: 'admite', servicios_adicionales: 'admite' } }],
+    };
+    const sa = lecturaCompleta({ [CampoComprobante.TIPO_DOCUMENTO]: campo('cuenta_cobro', 0.95), [CampoComprobante.CONCEPTO]: campo('servicios_adicionales', 0.95) });
+    expect(decidirAutoAplicar(sa as never, cruce as never, 0.85)).toEqual({ razon: 'requiere_tipo_servicio' });
+    expect(decidirAutoAplicar(lecturaHonorario() as never, cruce as never, 0.85)).toMatchObject({ body: { concepto: 'tramite_digital', esPago: true } });
   });
 
   it('AC2-M — flag \'0\': todo pendiente con la sugerencia (tramite_id y cruce escritos, motivo leido); aplicar no se invoca', async () => {

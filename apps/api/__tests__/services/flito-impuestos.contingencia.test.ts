@@ -19,6 +19,11 @@ vi.mock('../../src/db/client.js', () => ({
   db: { select: selectMock, update: updateMock, insert: vi.fn(), delete: vi.fn(), transaction: transactionMock, execute: vi.fn() },
   getPoolStats: vi.fn(),
 }));
+// HU #12825: el análisis post-envío se aísla; su tx.update extra y su cola tienen spec propio
+// (flito-impuestos.enviar-analisis.test.ts) y aquí descuadrarían los conteos del mock.
+vi.mock('../../src/modules/flito-impuestos/flito-impuestos.analisis.service.js', () => ({
+  encolarAnalisis: vi.fn(), marcarEnCursoEnTx: vi.fn().mockResolvedValue([]), reanalizarImpuesto: vi.fn(),
+}));
 vi.mock('../../src/shared/middleware/audit.js', () => ({ audit: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
 

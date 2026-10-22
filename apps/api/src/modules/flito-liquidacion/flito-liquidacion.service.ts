@@ -34,7 +34,9 @@ import {
 // HU #12654 — la fila documental se lee SOLO por el leaf de comprobantes (ADR-0018 §5): «qué
 // comprobante cuenta» tiene una única respuesta, la de `documental()`; aquí no se filtra por estado
 // ni por es_pago, ni se hace join con `flito_comprobantes`.
-import { documental, type ConceptoHonorario } from '../flito-comprobantes/flito-comprobantes.expr.js';
+import {
+  documental, EXPR_ACEPTADA_SA, EXPR_DIF_SA, EXPR_VALOR_SA, representanteSa, type ConceptoHonorario,
+} from '../flito-comprobantes/flito-comprobantes.expr.js';
 import { tarifaDe, type ValorTarifa } from '../flito-parametrizacion/flito-tarifas.service.js';
 import { excepcionLogisticaViva, gestionaLogistica as flitoGestionaLogistica } from './gestiona-logistica.js';
 import {
@@ -315,16 +317,17 @@ const aceptada = (concepto: ConceptoHonorario) => sql<boolean | null>`(${documen
 const PROYECCION_DOCUMENTAL = {
   docTramiteDigital: documental(flitoComprobantes.valor, ConceptoCosto.TRAMITE_DIGITAL),
   docLogistica: documental(flitoComprobantes.valor, ConceptoCosto.LOGISTICA),
-  docServiciosAdicionales: documental(flitoComprobantes.valor, ConceptoCosto.SERVICIOS_ADICIONALES),
+  // Servicios adicionales: N pagos por trámite (uno por tipo, Bug #12913) → suma / representante / bool_or.
+  docServiciosAdicionales: EXPR_VALOR_SA,
   docComprobanteTdId: documental(flitoComprobantes.id, ConceptoCosto.TRAMITE_DIGITAL),
   docComprobanteLgId: documental(flitoComprobantes.id, ConceptoCosto.LOGISTICA),
-  docComprobanteSaId: documental(flitoComprobantes.id, ConceptoCosto.SERVICIOS_ADICIONALES),
+  docComprobanteSaId: representanteSa(flitoComprobantes.id),
   docDiferenciaTd: documental(flitoComprobantes.diferenciaTarifa, ConceptoCosto.TRAMITE_DIGITAL),
   docDiferenciaLg: documental(flitoComprobantes.diferenciaTarifa, ConceptoCosto.LOGISTICA),
-  docDiferenciaSa: documental(flitoComprobantes.diferenciaTarifa, ConceptoCosto.SERVICIOS_ADICIONALES),
+  docDiferenciaSa: EXPR_DIF_SA,
   docAceptadaTd: aceptada(ConceptoCosto.TRAMITE_DIGITAL),
   docAceptadaLg: aceptada(ConceptoCosto.LOGISTICA),
-  docAceptadaSa: aceptada(ConceptoCosto.SERVICIOS_ADICIONALES),
+  docAceptadaSa: sql<boolean | null>`${EXPR_ACEPTADA_SA}`,
 } as const;
 
 type FilaDocumentales = Pick<FilaCalculo, keyof typeof PROYECCION_DOCUMENTAL>;

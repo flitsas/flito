@@ -38,15 +38,15 @@ vi.mock('../../src/shared/pii-audit.js', () => ({ logPiiAccess: vi.fn().mockReso
 
 const gd = await import('../../src/modules/finanzas/finanzas.gastos-diarios.js');
 const {
-  aCentavos, CANTIDAD_LOGISTICA, deCentavos, DIA_DERECHO, DIA_IMPUESTO, DIA_LOGISTICA, DIA_SOAT,
-  empresasIds, ensamblarDerecho, ensamblarImpuesto, ensamblarLogistica, ensamblarSoat,
+  aCentavos, CANTIDAD_LOGISTICA, deCentavos, DIA_DERECHO, DIA_IMPUESTO, DIA_LOGISTICA, DIA_SERVICIOS, DIA_SOAT,
+  empresasIds, ensamblarDerecho, ensamblarImpuesto, ensamblarLogistica, ensamblarServicios, ensamblarSoat,
   gastosDiarios, resolverRango, seleccion, serieDe, sumarDias, totalesDe,
 } = gd;
 const servicio = await import('../../src/modules/finanzas/finanzas.service.js');
 const { EXPR_LOGISTICA, EXPR_LOGISTICA_ESTIMADA, conJoins } = servicio;
 const { TASA_GMF } = await import('../../src/modules/flito-liquidacion/flito-liquidacion.service.js');
 const schema = await import('../../src/db/schema.js');
-const { flitoDerechosTramite, flitoImpuestos, flitoSoat, flitoTramites } = schema;
+const { flitoDerechosTramite, flitoImpuestos, flitoSoat, flitoTramites, flitoTramiteServiciosAdicionales } = schema;
 const { logPiiAccess } = await import('../../src/shared/pii-audit.js');
 const { GASTOS_DIARIOS_RANGO_DEFAULT_DIAS, GASTOS_DIARIOS_RANGO_MAX_DIAS } = await import('@operaciones/shared-types');
 
@@ -69,10 +69,12 @@ const SQL_IMPUESTO = (r = RANGO, e?: string[]) =>
   ensamblarImpuesto(abrir(seleccion(DIA_IMPUESTO, flitoImpuestos.valorPagado), flitoImpuestos), r, e).toSQL();
 const SQL_DERECHO = (r = RANGO, e?: string[]) =>
   ensamblarDerecho(abrir(seleccion(DIA_DERECHO, flitoDerechosTramite.valor), flitoDerechosTramite), r, e).toSQL();
+const SQL_SERVICIOS = (r = RANGO, e?: string[]) =>
+  ensamblarServicios(abrir(seleccion(DIA_SERVICIOS, flitoTramiteServiciosAdicionales.valor), flitoTramiteServiciosAdicionales), r, e).toSQL();
 const SQL_LOGISTICA = (r = RANGO, e?: string[]) =>
   ensamblarLogistica(abrir(seleccion(DIA_LOGISTICA, EXPR_LOGISTICA_ESTIMADA, CANTIDAD_LOGISTICA), flitoTramites), r, e).toSQL();
 const LAS_CINCO = () => ({
-  soat: SQL_SOAT(), impuesto: SQL_IMPUESTO(), derecho: SQL_DERECHO(), logistica: SQL_LOGISTICA(),
+  soat: SQL_SOAT(), impuesto: SQL_IMPUESTO(), derecho: SQL_DERECHO(), servicios: SQL_SERVICIOS(), logistica: SQL_LOGISTICA(),
 });
 
 /** El SQL de una expresión suelta, para afirmar que la sub-consulta lo contiene tal cual. */
@@ -149,13 +151,12 @@ describe('AC4 — cada categoría cuenta su evento, en día colombiano', () => {
     expect(params).toEqual(['2026-09-01', '2026-09-16']);
   });
 
-  it('Servicios adicionales (variante de release): la tabla no existe en producción, la categoría sale en cero sin consultarla', () => {
-    // La Épica #12246 aún no está en `release`: nombrar `flito_tramite_servicios_adicionales` daría
-    // 42P01 en PDN y un 500 en toda llamada. La merge completa `staging → release` restituye la consulta.
-    const fuente = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src/modules/finanzas/finanzas.gastos-diarios.ts'), 'utf8');
-    const codigo = fuente.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
-    expect(codigo).not.toMatch(/flitoTramiteServiciosAdicionales|servicios_adicionales/);
-    expect(codigo).toContain('serviciosAdicionales: []');
+  it('Servicios adicionales: asignado_en en Bogotá y una fila por servicio (COUNT(*) sobre la puente)', () => {
+    const { sql } = SQL_SERVICIOS();
+    const dia = DIA('"flito_tramite_servicios_adicionales"."asignado_en"');
+    expect(sql).toContain(`select ${pelada(dia)}, COUNT(*)::int, COALESCE(SUM("valor"), 0) from "flito_tramite_servicios_adicionales"`);
+    expect(sql.endsWith(`group by ${dia}`)).toBe(true);
+    expect(sql).not.toContain('distinct');
   });
 
   it('Logística: fecha_aprobacion en Bogotá, IS NOT NULL, SUM(EXPR_LOGISTICA_ESTIMADA), COUNT FILTER, joins lg + excepción vigente', () => {
@@ -181,11 +182,12 @@ describe('AC4 — cada categoría cuenta su evento, en día colombiano', () => {
   });
 
   it('el rango de los timestamptz es inclusivo por día colombiano: >= desde::date en Bogotá y < (hasta + 1 día) en Bogotá', () => {
-    const { soat, impuesto, logistica } = LAS_CINCO();
+    const { soat, impuesto, servicios, logistica } = LAS_CINCO();
     const rango = (col: string) =>
       `${col} >= ($1::date AT TIME ZONE $2) and ${col} < (($3::date + interval '1 day') AT TIME ZONE $4)`;
     expect(soat.sql).toContain(rango('"flito_soat"."pagado_en"'));
     expect(impuesto.sql).toContain(rango('"flito_impuestos"."pagado_en"'));
+    expect(servicios.sql).toContain(rango('"flito_tramite_servicios_adicionales"."asignado_en"'));
     // La logística lleva `$1` en el join de la excepción: sus marcadores van corridos en uno.
     expect(logistica.sql).toContain(
       `"flito_tramites"."fecha_aprobacion" >= ($2::date AT TIME ZONE $3) and "flito_tramites"."fecha_aprobacion" < (($4::date + interval '1 day') AT TIME ZONE $5)`,
@@ -202,7 +204,7 @@ describe('AC4 — cada categoría cuenta su evento, en día colombiano', () => {
 });
 
 describe('AC6 — filtro de cliente por empresa (RN-07)', () => {
-  it('impuesto y derecho filtran con EXISTS al trámite por tramite_id y compania_nit IN (...)', () => {
+  it('impuesto, derecho y servicios filtran con EXISTS al trámite por tramite_id y compania_nit IN (...)', () => {
     const exists = (tabla: string) =>
       `EXISTS (SELECT 1 FROM "flito_tramites" WHERE "flito_tramites"."id" = "${tabla}"."tramite_id" AND "flito_tramites"."compania_nit" in ($3, $4))`;
     const imp = SQL_IMPUESTO(RANGO, EMPRESAS);
@@ -211,6 +213,9 @@ describe('AC6 — filtro de cliente por empresa (RN-07)', () => {
     const der = SQL_DERECHO(RANGO, EMPRESAS);
     expect(der.sql).toContain(exists('flito_derechos_tramite'));
     expect(der.params).toEqual(['2026-09-01', '2026-09-16', ...EMPRESAS]);
+    const srv = SQL_SERVICIOS(RANGO, EMPRESAS);
+    expect(srv.sql.replace(/\$5, \$6/, '$3, $4')).toContain(exists('flito_tramite_servicios_adicionales'));
+    expect(srv.params.slice(-2)).toEqual(EMPRESAS);
   });
 
   it('la logística filtra sobre el propio trámite: "flito_tramites"."compania_nit" in (...)', () => {
@@ -233,7 +238,7 @@ describe('AC6 — filtro de cliente por empresa (RN-07)', () => {
     for (const vacio of [undefined, []]) {
       for (const [nombre, { sql }] of Object.entries({
         soat: SQL_SOAT(RANGO, empresasIds(vacio, MAESTRO)), impuesto: SQL_IMPUESTO(RANGO, vacio),
-        derecho: SQL_DERECHO(RANGO, vacio), logistica: SQL_LOGISTICA(RANGO, vacio),
+        derecho: SQL_DERECHO(RANGO, vacio), servicios: SQL_SERVICIOS(RANGO, vacio), logistica: SQL_LOGISTICA(RANGO, vacio),
       })) {
         expect(sql, nombre).not.toContain('compania_nit');
         expect(sql, nombre).not.toContain('compania_id" in');
@@ -448,6 +453,7 @@ describe('AC2 — la ruta y su guarda', () => {
       .select('flito_soat', [{ dia: '2026-09-02', cantidad: 2, valor: '100000.00' }])
       .select('flito_impuestos', [{ dia: '2026-09-03', cantidad: '1', valor: '50000.00' }])
       .select('flito_derechos_tramite', [{ dia: '2026-09-03', cantidad: 1, valor: '30000.00' }])
+      .select('flito_tramite_servicios_adicionales', [{ dia: '2026-09-01', cantidad: 3, valor: '15000.00' }])
       .select('flito_tramites', [{ dia: '2026-09-16', cantidad: 1, valor: '20000.00' }]);
     const app = await buildApp();
     const res = await request(app)
@@ -463,7 +469,7 @@ describe('AC2 — la ruta y su guarda', () => {
     expect(res.body.totales).toEqual({
       soat: { cantidad: 2, valor: '100000.00' }, impuesto: { cantidad: 1, valor: '50000.00' },
       derecho: { cantidad: 1, valor: '30000.00' }, logistica: { cantidad: 1, valor: '20000.00' },
-      serviciosAdicionales: { cantidad: 0, valor: '0.00' }, base: '200000.00', gmfEstimado: '800.00', total: '200800.00',
+      serviciosAdicionales: { cantidad: 3, valor: '15000.00' }, base: '215000.00', gmfEstimado: '860.00', total: '215860.00',
     });
     // AC8: la respuesta son días, cantidades y valores; nada más.
     expect(Object.keys(res.body).sort()).toEqual(['desde', 'hasta', 'serie', 'totales']);
@@ -530,10 +536,9 @@ describe('AC8 — sin PII y sin escritura', () => {
     expect(fuente).toMatch(/Sin registro PII/);
   });
 
-  it('gastosDiarios() dispara las cuatro sub-consultas y el maestro, y nada más (con el mock keyed-db)', async () => {
+  it('gastosDiarios() dispara las cinco sub-consultas y el maestro, y nada más (con el mock keyed-db)', async () => {
     const r = await gastosDiarios(RANGO, EMPRESAS);
     expect(r.serie).toHaveLength(16);
     expect(r.totales.total).toBe('0.00');
-    expect(r.totales.serviciosAdicionales).toEqual({ cantidad: 0, valor: '0.00' });
   });
 });

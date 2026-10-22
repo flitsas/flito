@@ -130,7 +130,7 @@ test.describe('HU #13452 · sin copy interno para usuarios con enlace', () => {
   });
 });
 
-const VACIO_TRAMITES = 'No hay trámites. Sincroniza desde FLIT para traer trámites.';
+const VACIO_TRAMITES = 'No hay trámites. FLITO los trae de FLIT automáticamente.';
 const VACIO_LOGISTICA = 'No hay trámites aprobados. Sincroniza desde FLIT: los trámites en estado «Aprobado» aparecen aquí a la espera de su licencia de tránsito.';
 const seccionSync = (page: Page) => page.getByTestId('seccion-sincronizacion');
 
@@ -271,20 +271,12 @@ test.describe('HU #13452 · el Tablero de General sigue abierto al enlace Compa�
     await expect(page.getByRole('main').getByText(/Auditoría|Operaciones|Sincroniz/)).toHaveCount(0);
   });
 
-  test('compañía con `sync.sync.lanzar` en el rol: sin «Sincronizar desde FLIT» (la sincronización le queda cerrada)', async ({ page }) => {
-    await mockTablero(page);
-    const u = conTablero('compania');
-    await loginAs(page, { ...u, funciones: [...u.funciones, 'sync.sync.lanzar'] });
-    await page.goto('/');
-    await expect(page.getByText('Revisiones pendientes')).toBeVisible();
-    await expect(page.getByRole('button', { name: /Sincronizar/ })).toHaveCount(0);
-  });
-
-  test('control: sin enlace, el Tablero conserva la nota de Auditoría', async ({ page }) => {
+  test('sin enlace, el Tablero tampoco lleva la nota de Auditoría (HU #13630 AC7)', async ({ page }) => {
     await mockTablero(page);
     await loginAs(page, conTablero('ninguno'));
     await page.goto('/');
-    await expect(page.getByText(NOTA_AUDITORIA)).toBeVisible();
+    await expect(page.getByText('Revisiones pendientes')).toBeVisible();
+    await expect(page.getByText(NOTA_AUDITORIA)).toHaveCount(0);
   });
 
   for (const enlace of ['proveedor', 'organismos_transito']) {

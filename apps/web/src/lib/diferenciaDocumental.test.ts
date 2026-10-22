@@ -54,12 +54,12 @@ describe('textoDiferencia (AC2)', () => {
     assert.match(c.accesible, /^Trámite digital: el comprobante dice \$\s?95\.000 y la tarifa \$\s?80\.000\. Diferencia \+\$15\.000\. Sin aceptar\.$/);
     assert.match(c.globo, /Comprobante \$\s?95\.000 · Tarifa \$\s?80\.000 · N\.º FS-1023/);
   });
-  it('SA dice Difiere del catálogo −$20.000 y que el cobro sigue siendo el del catálogo', () => {
+  it('SA dice Difiere del catálogo −$20.000 y que lo que suma es aplicar el comprobante con su tipo (Bug #12913)', () => {
     const c = textoDiferencia('serviciosAdicionales', vd({ tarifaReferencia: 125000, diferencia: -20000 }));
     assert.ok(c);
     assert.equal(c.texto, 'Difiere del catálogo −$20.000');
     assert.match(c.accesible, /el catálogo suma \$\s?125\.000/);
-    assert.match(c.accesible, /El cobro sigue siendo el del catálogo\.$/);
+    assert.match(c.accesible, /El costo usa el valor del comprobante; el catálogo queda como referencia\.$/);
     assert.match(c.globo, /Catálogo \$\s?125\.000/);
   });
   it('sin tarifa: «Sin tarifa configurada» sin importe en el chip, warning, y el importe en el nombre accesible', () => {
@@ -137,7 +137,7 @@ describe('textos del botón, el modal y el aviso (AC5)', () => {
     assert.match(lineaModal('logistica', vd({ tarifaReferencia: null, diferencia: 95000 })).linea1, /· Sin tarifa configurada$/);
     const sa = lineaModal('serviciosAdicionales', vd({ tarifaReferencia: 125000, diferencia: -20000, numero: null, fecha: null }));
     assert.match(sa.linea1, /· Catálogo \$\s?125\.000$/);
-    assert.equal(sa.linea2, 'El cobro sigue siendo el del catálogo.');
+    assert.equal(sa.linea2, 'El costo usa el valor del comprobante; el catálogo queda como referencia.');
   });
   it('5 es el mínimo del motivo y 500 el máximo, sin contar espacios en los bordes', () => {
     assert.equal(motivoDiferenciaValido('abcd'), false);

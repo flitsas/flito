@@ -51,14 +51,12 @@ describe('0200 — reglas del archivo y lo que siembra (análisis estático)', (
     expect(cabecera).toMatch(/HU #12623/);
   });
 
-  it('el número es 0200, sigue a la 0199 de la HU #12620 (0190 en release) y no colisiona', () => {
+  it('el número es 0200, sigue a la 0199 de la HU #12620 sin hueco y no colisiona', () => {
     // No exige «es la última»: eso congela el tip y caería con la siguiente migración de otra HU.
     // La convención pide max+1 EN SU MOMENTO: la anterior es la 0199 y nadie más lleva el 0200.
-    // En `release` (promoción selectiva de la Épica #12248) las 0191-0199 aún no existen: la anterior
-    // es la 0190. El runner aplica por nombre, así que el hueco es inocuo (precedente: la 0204).
     const sqls = readdirSync(path.dirname(RUTA)).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
     expect(sqls.filter((f) => f.startsWith('0200_'))).toEqual([ARCHIVO]);
-    expect(sqls[sqls.indexOf(ARCHIVO) - 1]).toMatch(/^(0199_tramite_viajes_logistica|0190_users_baja_logica)\.sql$/);
+    expect(sqls[sqls.indexOf(ARCHIVO) - 1]).toMatch(/^0199_tramite_viajes_logistica\.sql$/);
   });
 
   it('el slug está en PAGES, en el grupo «Finanzas» de PAGE_GROUPS (una sola vez, tras `finanzas_reporte_costos`) y en los defaults de NINGÚN rol', () => {
@@ -97,12 +95,12 @@ describe('0200 — reglas del archivo y lo que siembra (análisis estático)', (
     expect(f.roles).toEqual(['admin']);
   });
 
-  it('no retira nada, y el helper de paridad la lee (está en MIGRACIONES_CON_REPARTO, después de la 0199 —0190 en release—)', () => {
+  it('no retira nada, y el helper de paridad la lee (está en MIGRACIONES_CON_REPARTO, después de la 0199)', () => {
     const retiros = leerRetirosSembrados([ARCHIVO]);
     expect(retiros.funciones.size).toBe(0);
     expect(retiros.reparto.size).toBe(0);
     expect(MIGRACIONES_CON_REPARTO).toContain(ARCHIVO);
-    expect(MIGRACIONES_CON_REPARTO[MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO) - 1]).toMatch(/^(0199_tramite_viajes_logistica|0190_users_baja_logica)\.sql$/);
+    expect(MIGRACIONES_CON_REPARTO.indexOf(ARCHIVO)).toBe(MIGRACIONES_CON_REPARTO.indexOf('0199_tramite_viajes_logistica.sql') + 1);
     // Plegadas todas las migraciones con reparto, la página sigue concedida solo a admin.
     const total = leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL);
     expect(total.get('admin')!.has(CODIGO)).toBe(true);

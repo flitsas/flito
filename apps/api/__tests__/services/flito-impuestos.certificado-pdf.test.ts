@@ -13,13 +13,15 @@
 // una frase está o no está en el documento basta, y no añade una dependencia.
 
 import zlib from 'zlib';
+import { PDFDocument } from 'pdf-lib';
 import { describe, it, expect } from 'vitest';
 import {
   CampoCertificacion, ResultadoCampo, type ComparacionCampo,
 } from '@operaciones/shared-types';
 import {
-  construirCertificadoPdf, fechaHoraColombia, sanitize, type CertificadoPdfDatos,
+  construirCertificadoPdf, fechaHoraColombia, fechaRuntLegible, sanitize, type CertificadoPdfDatos,
 } from '../../src/modules/flito-impuestos/certificado-pdf.js';
+import type { RegistroRuntCertificado } from '../../src/modules/flito-impuestos/certificacion-runt.js';
 
 const INICIO = Buffer.from('stream');
 const FIN = Buffer.from('endstream');
@@ -69,6 +71,21 @@ const CAMPOS: ComparacionCampo[] = [
   { campo: CampoCertificacion.CLASE, resultado: ResultadoCampo.NO_VERIFICABLE, bloqueante: false, valorFlito: 'CAMIONETA', valorRunt: null },
 ];
 
+// Valores con forma del payload real (QIU744, 2026-07-31). Todos presentes: así el «No reportado por
+// el RUNT» de los tests de la tabla de comparación sigue saliendo SOLO de la tabla.
+const REGISTRO: RegistroRuntCertificado = {
+  clasificacion: 'AUTOMOVIL',
+  color: 'GRIS TITANIO',
+  cilindraje: '1598',
+  tipoServicio: 'Particular',
+  organismoTransito: 'STRIA TTEyMOV MEDELLIN',
+  estadoAutomotor: 'ACTIVO',
+  fechaMatricula: '2015-03-10',
+  numMotor: 'G4FGSU123456',
+  numChasis: '3KPFF51ABTE156687',
+  numSerie: 'SER998877',
+};
+
 const BASE: CertificadoPdfDatos = {
   placaConsultada: 'QIU744',
   documentoConsultado: '43902633',
@@ -77,6 +94,7 @@ const BASE: CertificadoPdfDatos = {
   campos: CAMPOS,
   certificadoPorNombre: 'gestor@flit.io',
   certificadoEn: new Date('2026-07-31T14:05:00.000Z'),
+  registroRunt: REGISTRO,
   generadoPor: 'auditor@flit.io',
   generadoEn: new Date('2026-08-03T15:30:45.000Z'),
 };
@@ -216,6 +234,116 @@ describe('AC6 — tildes y eñes', () => {
     const pdf = await construirCertificadoPdf({ ...BASE, campos: raros });
 
     expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
+  });
+});
+
+describe('HU #13204 AC1 — bloque «Registro del vehículo (RUNT)»', () => {
+  it('trae el título y las diez etiquetas con sus valores', async () => {
+    const texto = textoDelPdf(await construirCertificadoPdf(BASE));
+
+    expect(texto).toContain('Registro del vehiculo (RUNT)');
+    for (const etiqueta of [
+      'Clasificacion:', 'Color:', 'Cilindraje:', 'Tipo de servicio:', 'Organismo de transito:',
+      'Estado del automotor:', 'Fecha de matricula:', 'Numero de motor:', 'Numero de chasis:', 'Numero de serie:',
+    ]) {
+      expect(texto.split('\n')).toContain(etiqueta);
+    }
+    for (const valor of ['AUTOMOVIL', 'GRIS TITANIO', '1598', 'Particular', 'STRIA TTEyMOV MEDELLIN', 'ACTIVO',
+      'G4FGSU123456', 'SER998877']) {
+      expect(texto.split('\n')).toContain(valor);
+    }
+  });
+
+  it('la fecha de matrícula YYYY-MM-DD sale DD/MM/YYYY sin correrse un día', async () => {
+    const texto = textoDelPdf(await construirCertificadoPdf(BASE));
+
+    expect(texto.split('\n')).toContain('10/03/2015');
+    expect(texto).not.toContain('09/03/2015');
+  });
+
+  it('la fila «Consulta RUNT y certificación» lleva la hora de Colombia y no se duplica con «Certificado el»', async () => {
+    const texto = textoDelPdf(await construirCertificadoPdf(BASE));
+
+    expect(texto).toContain('Consulta RUNT y certificacion:');
+    // 14:05 UTC = 09:05 en Bogotá.
+    expect(texto).toContain('31/07/2026 09:05:00 (hora de Colombia)');
+    expect(texto).not.toContain('Certificado el');
+  });
+
+  it('la tabla de comparación se mantiene', async () => {
+    const texto = textoDelPdf(await construirCertificadoPdf(BASE));
+
+    expect(texto).toContain('DATOS DEL VEHICULO VERIFICADOS');
+    expect(texto).toContain('K3 CROSS');
+  });
+});
+
+describe('HU #13204 AC2 — campo ausente', () => {
+  it('un campo null dice «No reportado por el RUNT», nunca guion ni vacío', async () => {
+    const soloLaTabla = textoDelPdf(await construirCertificadoPdf({ ...BASE, campos: [] }));
+    expect(soloLaTabla).not.toContain('No reportado por el RUNT');
+
+    const texto = textoDelPdf(await construirCertificadoPdf({
+      ...BASE, campos: [], registroRunt: { ...REGISTRO, numSerie: null },
+    }));
+    const lineas = texto.split('\n');
+    const i = lineas.indexOf('Numero de serie:');
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(lineas[i + 1]).toBe('No reportado por el RUNT');
+  });
+
+  it('con los diez en null genera el PDF sin fallar', async () => {
+    const vacio = Object.fromEntries(Object.keys(REGISTRO).map((k) => [k, null])) as unknown as RegistroRuntCertificado;
+    const texto = textoDelPdf(await construirCertificadoPdf({ ...BASE, campos: [], registroRunt: vacio }));
+
+    expect(texto.split('\n').filter((l) => l === 'No reportado por el RUNT')).toHaveLength(10);
+  });
+});
+
+describe('HU #13204 AC7 — tildes, comillas y celdas que no se solapan', () => {
+  it('valores con «»“”—ñ no lanzan y salen saneados', async () => {
+    const pdf = await construirCertificadoPdf({
+      ...BASE, registroRunt: { ...REGISTRO, color: '«GRIS» “PLATA” — ÑANDÚ', organismoTransito: 'SECRETARÍA DE MOVILIDAD' },
+    });
+
+    const texto = textoDelPdf(pdf);
+    expect(texto).toContain('"GRIS" "PLATA" - NANDU');
+    expect(texto).toContain('SECRETARIA DE MOVILIDAD');
+  });
+
+  it('un valor de 200 caracteres se recorta con «...» y el texto completo no aparece', async () => {
+    const largo = 'ORGANISMO '.repeat(20).trim();
+    const texto = textoDelPdf(await construirCertificadoPdf({
+      ...BASE, registroRunt: { ...REGISTRO, organismoTransito: largo },
+    }));
+
+    expect(texto).not.toContain(largo);
+    expect(texto.split('\n').some((l) => l.startsWith('ORGANISMO') && l.endsWith('...'))).toBe(true);
+  });
+
+  it('con 40 campos de comparación el documento pasa a una segunda página sin lanzar', async () => {
+    const muchos = Array.from({ length: 40 }, () => CAMPOS[2]);
+    const pdf = await construirCertificadoPdf({ ...BASE, campos: muchos });
+
+    expect((await PDFDocument.load(pdf)).getPageCount()).toBeGreaterThan(1);
+    const texto = textoDelPdf(pdf);
+    expect(texto).toContain('Registro del vehiculo (RUNT)');
+    expect(texto).toContain('PROPIETARIO');
+  });
+
+  it('con los seis campos habituales cabe en una página', async () => {
+    expect((await PDFDocument.load(await construirCertificadoPdf(BASE))).getPageCount()).toBe(1);
+  });
+});
+
+describe('fechaRuntLegible', () => {
+  it('corta la cadena ISO sin pasar por Date', () => {
+    expect(fechaRuntLegible('2015-03-10')).toBe('10/03/2015');
+    expect(fechaRuntLegible('2015-03-10T00:00:00')).toBe('10/03/2015');
+  });
+
+  it('cualquier otro formato sale tal cual', () => {
+    expect(fechaRuntLegible('10/03/2015')).toBe('10/03/2015');
   });
 });
 

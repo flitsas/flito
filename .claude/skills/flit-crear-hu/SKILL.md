@@ -20,7 +20,7 @@ idempotencia, con `Microsoft.VSTS.TCM.ReproSteps` + `Severity` en lugar de Descr
 | **Acceptance Criteria** | `Microsoft.VSTS.Common.AcceptanceCriteria` | **Sí** | **Gherkin** en HTML (+ notas técnicas opcionales) |
 | **Discussion** | `System.History` | **Sí** | Comentario HTML de trazabilidad del agente |
 | **Commits** | `Custom.Commits` | **No** | Se completa en integración de PR a `develop` (ver `flit-integration-ado`) |
-| **Evidences** | `Custom.Evidences` | **No** | Se completa con evidencias de tests (unitarios / E2E) — **nunca** en Discussion |
+| **Evidences** | `Custom.Evidences` | **No** | Las evidencias de **flujo en DEV** van al **Feature** (`flit-evidencias-dev`), no al crear |
 
 ### Prohibido al crear
 
@@ -32,7 +32,7 @@ idempotencia, con `Microsoft.VSTS.TCM.ReproSteps` + `Severity` en lugar de Descr
 
 ## Requisitos previos
 
-1. Feature padre existente (idealmente `Active` o superior).
+1. Feature padre existente (idealmente `Active` o superior), que a su vez cuelga de una Épica del PO (la Épica no se crea ni se edita desde aquí).
 2. Capa: **FRONTEND** o **BACKEND**.
 3. Identidad del usuario autenticado en Azure DevOps confirmada (para `AssignedTo` y trazabilidad — ver `flit-azure-devops`).
 
@@ -150,7 +150,7 @@ Tras obtener el `id` del `POST`, enviar `PATCH` con:
 ## Crear un **Bug** (mismo contrato, otros campos)
 
 Un Bug es un work item de desarrollo de pleno derecho: se crea aquí y **se trabaja con el mismo
-ciclo que una HU** (`flit-gestion-hu` Active → impl → qa-agent B pre-PR → PR → merge → Resolved; regla «Paridad HU ↔ Bug»
+ciclo que una HU** (`flit-gestion-hu` Active → impl → qa-agent B pre-PR → PR → merge a `develop` (sigue Active) → promoción a `staging` → Resolved + cascada; regla «Paridad HU ↔ Bug»
 de `AGENTS.md`). Vía habitual de radicación desde QA: `qa-agent` **modo C**, con pedido explícito.
 
 `POST $Bug` con JSON Patch. Mapeo verificado contra el proyecto real (2026-08-22):
@@ -199,6 +199,7 @@ de `AGENTS.md`). Vía habitual de radicación desde QA: `qa-agent` **modo C**, c
 - Anti-duplicado: WIQL por título exacto antes de crear (ver `flit-azure-devops`).
 - **El ID que devuelve ADO es el que amarra toda la trazabilidad**: rama `HU/<ID>-<desarrollador>-<desc>` y título de PR `HU <ID>: <descripción>` (`.cursor/rules/convenciones-rama-pr.mdc`). Confirmárselo al usuario junto con la URL — sin ese ID no puede empezar el desarrollo.
 - Plantilla de referencia: `.claude/skills/flit-crear-hu/assets/user-story.template.md`
+- Los **Features** no los crea esta skill (los redacta `tech-lead-agent` Modo A desde la Épica), pero su plantilla vive aquí por vecindad: `assets/feature.template.md` — con techo de largo (objetivo ~3.000 caracteres visibles, máximo 6.000; por encima se parte) y tope de 10 ACs por HU al descomponer.
 
 ## Checklist de salida
 

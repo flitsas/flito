@@ -3,8 +3,8 @@
 // Es la vista de quien despacha (Operaciones); Auditoría entra en solo lectura. Los gestores NO entran:
 // cada uno sigue en su propia cola. Las reglas viven en el backend; aquí solo se orquesta y reporta.
 
-import { useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   ESTADO_IMPUESTO_LABEL, ESTADO_SOAT_LABEL, EstadoImpuesto, EstadoSoat,
 } from '@operaciones/shared-types';
@@ -29,6 +29,8 @@ import RangoFechas from '../components/flit/RangoFechas';
 import VisorSoportes from '../components/flit/VisorSoportes';
 import ModalFacturaVenta, { esNombrePlacaOrganismo, nombreFacturaVenta } from '../components/flit/ModalFacturaVenta';
 import SincronizacionTramites from '../components/flito/tramites/SincronizacionTramites';
+import AvisoNovedadesTramites from '../components/flito/tramites/AvisoNovedadesTramites';
+import { queryTramites, useNovedadesTramites } from '../components/flito/tramites/useNovedadesTramites';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty,
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -76,13 +78,12 @@ interface TramiteFila {
 const esAccionable = (f: TramiteFila) => f.asignado && f.empresaExiste && f.secretariaEmparejada;
 // Listado paginado en servidor: se piden PAGE_SIZE filas por página con los filtros aplicados en SQL.
 const PAGE_SIZE = 50;
-interface Paginado { items: TramiteFila[]; total: number; page: number; pageSize: number }
+interface Paginado { items: TramiteFila[]; total: number; page: number; pageSize: number; marca: string }
 interface Facetas { estados: string[]; tramites: string[]; ciudades: string[]; transitos: string[] }
 interface Proveedor { id: string; nombre: string; activo: boolean }
 interface HistorialItem { id: string; campo: string; valorAnterior: string | null; valorNuevo: string | null; origen: string; usuarioNombre: string | null; creadoEn: string }
 
 interface ResSoat { enviados: number; yaEnviados: number; autogestionados: number; sinRegistro: number }
-interface Ref { tramiteId: string; idFlit: string; placa: string | null }
 interface ResImpuestos { enviados: number; yaEnviados: number; noEnviables: number }
 interface ResEntrega { entregados: number; noHabilitados: Array<{ tramiteId: string; idFlit: string; placa: string; motivo: string }> }
 type Resultado =
@@ -145,6 +146,7 @@ export default function FlitoTramites() {
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [enProceso, setEnProceso] = useState(false);
   const [recarga, setRecarga] = useState(0);
+  const tablaRef = useRef<HTMLDivElement>(null);
 
   // Dos rangos independientes: creación (fecha de FLIT) y aprobación (HU #11026).
   const [creado, setCreado] = useState({ desde: '', hasta: '' });
@@ -192,32 +194,25 @@ export default function FlitoTramites() {
   const soatKey = soatSel.join(','); const impKey = impSel.join(','); const empresasKey = empresasSel.join(',');
   const estadosKey = estadosSel.join(','); const ciudadesKey = ciudadesSel.join(','); const transitosKey = transitosSel.join(',');
 
+  // HU #13684: el sondeo se pausa con cualquier diálogo propio abierto o una acción en curso.
+  const nov = useNovedadesTramites(!!(dialogo || resultado || historial || factura || soportesDe || desbloqueo || crearEmpresa || crearDemo) || enProceso, tablaRef);
   // Cualquier cambio de filtro/búsqueda vuelve a la página 1 (evita quedar en una página vacía).
   useEffect(() => { setPage(1); }, [buscar, estadosKey, ciudadesKey, transitosKey, empresasKey, soatKey, impKey, autogestionSel, fuenteSel, ordenSel, alertaSel]);
 
-  // Carga la página actual desde el servidor con todos los filtros aplicados en SQL.
+  // Carga la página actual desde el servidor con todos los filtros aplicados en SQL. Su `marca` es la
+  // línea base del aviso de novedades (HU #13684); si viene de «Ver», la selección se conserva.
   useEffect(() => {
-    setError(null); setSeleccion(new Set());
-    const q = new URLSearchParams();
-    if (buscar.trim()) q.set('buscar', buscar.trim());
-    if (estadosSel.length) q.set('estados', estadosSel.join(','));
-    if (transitosSel.length) q.set('transitos', transitosSel.join(','));
-    if (ciudadesSel.length) q.set('ciudades', ciudadesSel.join(','));
-    if (empresasSel.length) q.set('empresas', empresasSel.join(','));
-    if (soatSel.length) q.set('soat', soatSel.join(','));
-    if (impSel.length) q.set('impuesto', impSel.join(','));
-    if (autogestionSel) q.set('autogestion', autogestionSel);
-    if (fuenteSel) q.set('fuente', fuenteSel);
-    if (ordenSel !== 'recientes') q.set('orden', ordenSel);
-    if (alertaSel) q.set('alerta', alertaSel);
-    if (creado.desde) q.set('creadoDesde', creado.desde);
-    if (creado.hasta) q.set('creadoHasta', creado.hasta);
-    if (aprobado.desde) q.set('aprobadoDesde', aprobado.desde);
-    if (aprobado.hasta) q.set('aprobadoHasta', aprobado.hasta);
-    q.set('page', String(page)); q.set('pageSize', String(PAGE_SIZE));
+    const deVer = nov.iniciarCarga(); setError(null); if (!deVer) setSeleccion(new Set());
+    const q = queryTramites({ buscar, estados: estadosSel, transitos: transitosSel, ciudades: ciudadesSel, empresas: empresasSel, soat: soatSel,
+      impuesto: impSel, autogestion: autogestionSel, fuente: fuenteSel, orden: ordenSel, alerta: alertaSel, creado, aprobado }, page, PAGE_SIZE);
     api.get<Paginado>(`/flito/tramites?${q}`)
-      .then((r) => { setData(r.items); setTotal(r.total); })
-      .catch((e) => setError(errorMessage(e)));
+      .then((r) => {
+        const ultima = Math.max(1, Math.ceil(r.total / PAGE_SIZE));
+        if (page > ultima) { if (deVer) nov.ver(); setPage(ultima); return; } // la página dejó de existir
+        nov.fijarBase(r.marca, r.items.map((i) => i.tramiteId), q, deVer); setData(r.items); setTotal(r.total);
+        if (deVer) setSeleccion((s) => new Set(r.items.map((i) => i.tramiteId).filter((id) => s.has(id))));
+      })
+      .catch((e) => { nov.falloCarga(); setError(errorMessage(e)); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buscar, estadosKey, transitosKey, ciudadesKey, empresasKey, soatKey, impKey, autogestionSel, fuenteSel, ordenSel, alertaSel,
     creado.desde, creado.hasta, aprobado.desde, aprobado.hasta, page, recarga]);
@@ -361,7 +356,7 @@ export default function FlitoTramites() {
         ) : undefined} />
 
       {/* HU #13452: sincronizar con FLIT 1/FLIT 2 es operación interna: con enlace el bloque no se pinta. */}
-      {sinEnlace && <SincronizacionTramites esOperaciones={esOperaciones} onSincronizado={refrescar} />}
+      {sinEnlace && <SincronizacionTramites />}
 
       {error && <FlitCard><p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p></FlitCard>}
 
@@ -425,7 +420,8 @@ export default function FlitoTramites() {
 
       {data !== null && !hayTramitesSistema && !hayFiltros && !buscar.trim() && (
         <FlitCard>
-          <FlitEmpty>{vacioConEnlace('trámites', tipoEnlace) ?? 'No hay trámites. Sincroniza desde FLIT para traer trámites.'}</FlitEmpty>
+          <AvisoNovedadesTramites aviso={nov.aviso} anuncio={nov.anuncio} onVer={() => { nov.ver(); refrescar(); }} />
+          <FlitEmpty>{vacioConEnlace('trámites', tipoEnlace) ?? 'No hay trámites. FLITO los trae de FLIT automáticamente.'}</FlitEmpty>
         </FlitCard>
       )}
 
@@ -477,6 +473,8 @@ export default function FlitoTramites() {
                 onClick={limpiarFiltros}>Limpiar filtros</button>
             )}
           </div>
+          <AvisoNovedadesTramites aviso={nov.aviso} anuncio={nov.anuncio} onVer={() => { nov.ver(); refrescar(); }} />
+          <div ref={tablaRef} tabIndex={-1} aria-label="Trámites" className="flit-focus rounded-lg">
           {filas.length === 0 ? (fuenteSel
             ? <VacioFuenteTramite fuente={fuenteSel} onVerTodas={() => setFuenteSel('')}
                 otrosFiltros={!!buscar.trim() || hayFiltrosSinFuente || !!(creado.desde || creado.hasta || aprobado.desde || aprobado.hasta)} />
@@ -662,6 +660,7 @@ export default function FlitoTramites() {
             </tbody>
           </FlitTable>
           )}
+          </div>
         </FlitCard>
       )}
 
