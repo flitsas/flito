@@ -102,7 +102,8 @@ test.describe('FLITO — Ayuda · AC5 accesibilidad', () => {
 
   test('AC5 — ficha inexistente: axe + Volver al índice (el catálogo de 18 no tiene pendientes)', async ({ page }) => {
     await loginAs(page, PROVEEDOR_USER);
-    await page.goto('/flito/ayuda/privacy');
+    // HU #13774: `privacy` ya es una ficha del catálogo; la clave fuera de catálogo es la antigua compuerta.
+    await page.goto('/flito/ayuda/flito_compuerta');
     await expect(page.getByText('Esta ficha no existe.')).toBeVisible();
     await expect(page.getByRole('link', { name: 'Volver al índice' }).first()).toBeVisible();
     await sinViolacionesGraves(page, 'ficha no existe');

@@ -96,7 +96,21 @@ import {
   TABLERO_DEMO,
   TRAMITES_DEMO,
   TRAMITES_FACETAS_DEMO,
+  DRIVE_CARPETA_DEMO,
+  DRIVE_PROCESO_DEMO,
+  DRIVE_RAIZ_DEMO,
+  LOG_PII_DEMO,
+  LOG_PII_STATS_DEMO,
+  PRIVACY_PREVIEW_DEMO,
+  ROLES_DEMO,
+  SIIGO_CREDENCIALES_DEMO,
+  SIIGO_PRUEBA_DEMO,
+  USUARIOS_DEMO,
+  USUARIOS_HISTORIAL_DEMO,
+  USUARIOS_RESUMEN_DEMO,
+  USUARIOS_TITULARES_DEMO,
 } from '../helpers/datos-demo';
+import { accion, arbolRol, codigosDe, elemento, item, opcional, type NodoDef } from '../helpers/arbolPermisos';
 
 const DIR_PUBLICO = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../public/ayuda');
 const MAX_BYTES = 200 * 1024;
@@ -178,6 +192,28 @@ function comprobarCierre(api: RegistroApi, dir: string, archivos: string[]) {
   expect(fueraDeFixture, 'peticiones /api que no respondió ningún fixture').toEqual([]);
   expect(readdirSync(dir).filter((f) => NOMBRE_CAPTURA.test(f)).sort()).toEqual(archivos);
 }
+
+/** Árbol de permisos demo de Roles y permisos y del formulario de Usuarios (HU #13774). Sin datos personales. */
+const ARBOL_DEMO: NodoDef[] = [
+  elemento('general', 'General', [item('dashboard', 'Tablero', [accion('accion.tablero.ver', 'Ver el tablero')])]),
+  elemento('gestion', 'Gestión', [
+    item('flito_tramites', 'Gestión Trámites', [accion('accion.tramites.ver', 'Ver la bandeja'), accion('accion.tramites.entregar', 'Entregar trámites')]),
+    item('flito_soat', 'SOAT', [
+      accion('accion.soat.ver_listado', 'Ver el listado', [], 'Consultar la cola de SOAT.'),
+      accion('accion.soat.exportar', 'Exportar a Excel', [opcional('soat.descarga.reintentar', 'Reintentar la descarga')]),
+    ]),
+  ]),
+  elemento('finanzas', 'Finanzas', [item('flito_bolsas', 'Bolsas', [accion('accion.bolsas.ver', 'Ver bolsas')])]),
+  elemento('administracion', 'Administración', [
+    item('users', 'Usuarios', [accion('accion.usuarios.ver', 'Ver usuarios'), accion('accion.usuarios.editar', 'Editar usuario')]),
+    item('roles_permisos', 'Roles y permisos', [accion('accion.roles_permisos.ver', 'Ver roles'), accion('accion.roles_permisos.asignar', 'Asignar permisos')]),
+  ]),
+  elemento('ayuda', 'Ayuda', [], { derivado: true }),
+];
+const MARCAS_GESTOR = [
+  'menu.general', 'pagina.dashboard', 'accion.tablero.ver',
+  'menu.gestion', 'pagina.flito_tramites', 'accion.tramites.ver', 'pagina.flito_soat', 'accion.soat.ver_listado',
+];
 
 test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
   test('flito_logistica_ruta @capturas', async ({ page, context }) => {
@@ -331,6 +367,246 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     comprobarCierre(api, dir, [
       '01-tramites.png', '02-detalle.png', '03-registrar-viaje.png', '04-generacion-de-actas.png', '05-actas.png', '06-firmar-y-despachar.png',
     ]);
+  });
+
+  // ── Área Super Admin (HU #13774) ──────────────────────────────────────────
+  test('privacy_log_pii @capturas', async ({ page }) => {
+    const dir = prepararCarpeta('privacy_log_pii');
+    const api = await interceptarApiDemo(page, [
+      [/\/api\/privacy\/pii-access-log\/stats$/, () => ({ body: LOG_PII_STATS_DEMO })],
+      [/\/api\/privacy\/pii-access-log$/, (route) => {
+        const accionFiltro = new URL(route.request().url()).searchParams.get('accion');
+        const rows = accionFiltro ? LOG_PII_DEMO.rows.filter((r) => r.accion === accionFiltro) : LOG_PII_DEMO.rows;
+        return { body: { rows, total: rows.length } };
+      }],
+    ]);
+    await entrarComoAdminDemo(page);
+    await page.goto('/privacy/log-pii');
+    await expect(page.getByText('Top usuarios (últimos 30 días)')).toBeVisible();
+    await expect(page.getByText(LOG_PII_DEMO.rows[0].ipOrigen).first()).toBeVisible();
+
+    // Paso 1 — Resumen de los últimos 30 días: quién y qué recurso concentran los accesos.
+    await sinFoco(page);
+    await capturar(page, dir, '01-resumen');
+
+    // Paso 2 — Filtro por acción (lectura) y la tabla con fecha, usuario, recurso, campos e IP de documentación.
+    await page.locator('select').selectOption('read');
+    await expect(page.getByText(/^Total: 2 · página 1 de 1$/)).toBeVisible();
+    await page.locator('select').evaluate((el) => el.scrollIntoView({ block: 'start' }));
+    const mostrarBarra = await sinBarraFlotante(page);
+    await sinFoco(page);
+    await capturar(page, dir, '02-filtros');
+    await mostrarBarra();
+
+    comprobarCierre(api, dir, ['01-resumen.png', '02-filtros.png']);
+  });
+
+  test('privacy @capturas', async ({ page }) => {
+    const dir = prepararCarpeta('privacy');
+    // AC4 (HU #13774): solo la previsualización tiene fixture. La anonimización no se pulsa ni se mockea: si la
+    // captura la disparara, `comprobarCierre` la vería como petición sin fixture.
+    const api = await interceptarApiDemo(page, [
+      [/\/api\/privacy\/preview\/[^/]+$/, () => ({ body: PRIVACY_PREVIEW_DEMO })],
+    ]);
+    await entrarComoAdminDemo(page);
+    await page.goto('/privacy');
+    await expect(page.getByText('Política de anonimización')).toBeVisible();
+
+    // Paso 1 — Política y documento demo escrito (sin previsualizar todavía).
+    await page.locator('form input').first().fill(PRIVACY_PREVIEW_DEMO.docNumber);
+    await sinFoco(page);
+    await capturar(page, dir, '01-documento');
+
+    // Paso 2 — Previsualizar: registros que tocaría, por tipo. Estado previo: nadie pulsa «Anonimizar este documento».
+    await page.getByRole('button', { name: 'Previsualizar' }).click();
+    await expect(page.getByText(/7 registros afectados/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Anonimizar este documento' })).toBeVisible();
+    const mostrarBarra = await sinBarraFlotante(page);
+    await sinFoco(page);
+    await capturar(page, dir, '02-registros-afectados');
+    await mostrarBarra();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+
+    comprobarCierre(api, dir, ['01-documento.png', '02-registros-afectados.png']);
+  });
+
+  test('drive @capturas', async ({ page }) => {
+    const dir = prepararCarpeta('drive');
+    const api = await interceptarApiDemo(page, [
+      [/\/api\/drive\/procesar-cuentas$/, () => ({ body: DRIVE_PROCESO_DEMO })],
+      [/\/api\/drive$/, (route) => ({
+        body: new URL(route.request().url()).searchParams.get('folder') ? DRIVE_CARPETA_DEMO : DRIVE_RAIZ_DEMO,
+      })],
+    ]);
+    await entrarComoAdminDemo(page);
+    await page.goto('/drive');
+    await expect(page.getByText(DRIVE_RAIZ_DEMO.folders[0].name)).toBeVisible();
+
+    // Paso 1 — Carpeta raíz: carpetas y archivos.
+    await sinFoco(page);
+    await capturar(page, dir, '01-carpeta-raiz');
+
+    // Paso 2 — Dentro de una carpeta: Atrás, la ruta y los PDF con Descargar y Procesar.
+    await page.getByRole('button', { name: DRIVE_RAIZ_DEMO.folders[0].name }).click();
+    await expect(page.getByText(DRIVE_CARPETA_DEMO.files[0].name)).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '02-carpeta');
+
+    // Paso 5 — Resultado del procesamiento de un PDF de cuentas de cobro demo.
+    await page.getByRole('button', { name: 'Procesar', exact: true }).first().click();
+    const resultado = page.getByRole('heading', { name: 'Resultado del procesamiento' });
+    await expect(resultado).toBeVisible();
+    await resultado.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+    const mostrarBarra = await sinBarraFlotante(page);
+    await sinFoco(page);
+    await capturar(page, dir, '03-resultado');
+    await mostrarBarra();
+
+    comprobarCierre(api, dir, ['01-carpeta-raiz.png', '02-carpeta.png', '03-resultado.png']);
+  });
+
+  test('users @capturas', async ({ page }) => {
+    const dir = prepararCarpeta('users');
+    const api = await interceptarApiDemo(page, [
+      [/\/api\/users\/resumen$/, () => ({ body: USUARIOS_RESUMEN_DEMO })],
+      [/\/api\/users\/auditoria\/titulares$/, () => ({ body: USUARIOS_TITULARES_DEMO })],
+      [/\/api\/users\/auditoria$/, () => ({ body: USUARIOS_HISTORIAL_DEMO })],
+      [/\/api\/users$/, () => ({ body: USUARIOS_DEMO })],
+      [/\/api\/permisos\/roles$/, () => ({ body: { roles: ROLES_DEMO } })],
+      [/\/api\/permisos\/funciones$/, () => ({ body: { grupos: [] } })],
+      [/\/api\/permisos\/roles\/[^/]+\/arbol$/, (route) => {
+        const codigo = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-2) ?? '');
+        const rol = ROLES_DEMO.find((r) => r.codigo === codigo);
+        return { body: { rol: { codigo, nombre: rol?.nombre ?? codigo, tipoEnlace: 'ninguno' }, arbol: arbolRol(ARBOL_DEMO, new Set(MARCAS_GESTOR)) } };
+      }],
+      [/\/api\/flito\/parametrizacion\/companias$/, () => ({ body: COMPANIAS_DEMO })],
+      [/\/api\/flito\/parametrizacion\/proveedores-soat$/, () => ({ body: [] })],
+      [/\/api\/flito\/parametrizacion\/organismos$/, () => ({ body: [] })],
+    ]);
+    await entrarComoAdminDemo(page);
+    await page.goto('/users');
+    await expect(page.getByRole('cell', { name: USUARIOS_DEMO[1].name })).toBeVisible();
+
+    // Paso 1 — Lista: filtros, conteo por rol, Descargar Excel y las acciones de cada fila.
+    const mostrarBarra = await sinBarraFlotante(page);
+    await sinFoco(page);
+    await capturar(page, dir, '01-usuarios');
+    await mostrarBarra();
+
+    // Paso 2 — Nuevo usuario: el formulario vacío (no se crea nadie).
+    await page.getByRole('button', { name: 'Nuevo usuario' }).click();
+    const nuevo = page.getByRole('dialog');
+    await expect(nuevo).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '02-nuevo-usuario', nuevo);
+    await page.keyboard.press('Escape');
+    await expect(nuevo).toBeHidden();
+
+    // Paso 6 — Historial: quién cambió qué y cuándo.
+    await page.getByRole('tab', { name: 'Historial' }).click();
+    await expect(page.getByText(USUARIOS_TITULARES_DEMO[0].username).first()).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '03-historial');
+
+    comprobarCierre(api, dir, ['01-usuarios.png', '02-nuevo-usuario.png', '03-historial.png']);
+  });
+
+  test('roles_permisos @capturas', async ({ page }) => {
+    const dir = prepararCarpeta('roles_permisos');
+    const api = await interceptarApiDemo(page, [
+      [/\/api\/permisos\/roles$/, () => ({ body: { roles: ROLES_DEMO } })],
+      [/\/api\/permisos\/funciones$/, () => ({ body: { grupos: [] } })],
+      [/\/api\/permisos\/roles\/[^/]+\/arbol$/, (route) => {
+        const codigo = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-2) ?? '');
+        const rol = ROLES_DEMO.find((r) => r.codigo === codigo);
+        const marcas = codigo === 'admin' ? codigosDe(ARBOL_DEMO) : MARCAS_GESTOR;
+        return { body: { rol: { codigo, nombre: rol?.nombre ?? codigo, tipoEnlace: 'ninguno' }, arbol: arbolRol(ARBOL_DEMO, new Set(marcas)) } };
+      }],
+      [/\/api\/permisos\/roles\/[^/]+\/funciones$/, (route) => {
+        const codigo = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-2) ?? '');
+        return { body: { codigo, tipoEnlace: 'ninguno', funciones: codigo === 'admin' ? codigosDe(ARBOL_DEMO) : MARCAS_GESTOR } };
+      }],
+    ]);
+    await entrarComoAdminDemo(page);
+    await page.goto('/roles-permisos');
+    await expect(page.getByRole('heading', { name: 'Roles y permisos', level: 1 })).toBeVisible();
+
+    // Paso 1 — Elegir el rol en la lista: a la derecha, sus permisos.
+    await page.getByRole('button', { name: /^Gestor demo/ }).click();
+    await expect(page.getByRole('heading', { name: 'Gestor demo', level: 2 })).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '01-roles');
+
+    // Paso 2 — Desplegar el elemento y el ítem: casillas de acción, una parcial.
+    await page.getByRole('button', { name: 'Contenido de Gestión', exact: true }).click();
+    await page.getByRole('button', { name: 'Contenido de SOAT', exact: true }).click();
+    await expect(page.locator('input[type="checkbox"][data-codigo="accion.soat.ver_listado"]')).toBeChecked();
+    await sinFoco(page);
+    await capturar(page, dir, '02-arbol');
+
+    // Paso 4 — Una marca cambiada: la barra «Sin guardar» con Descartar y Guardar cambios (no se guarda).
+    await page.locator('input[type="checkbox"][data-codigo="accion.soat.exportar"]').click();
+    await expect(page.getByText(/^Sin guardar/)).toBeVisible();
+    const mostrarBarra = await sinBarraFlotante(page);
+    await sinFoco(page);
+    await capturar(page, dir, '03-sin-guardar');
+    await mostrarBarra();
+    await page.getByRole('button', { name: 'Descartar' }).click();
+    const confirmar = page.getByRole('dialog');
+    if (await confirmar.isVisible().catch(() => false)) await confirmar.getByRole('button', { name: /Descartar/ }).last().click();
+
+    // Paso 6 — Nuevo rol: el formulario con las cuatro opciones de Enlace (no se crea).
+    await page.getByRole('button', { name: 'Nuevo rol' }).click();
+    const nuevo = page.getByRole('dialog', { name: 'Nuevo rol' });
+    await expect(nuevo).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '04-nuevo-rol', nuevo);
+    await page.keyboard.press('Escape');
+
+    comprobarCierre(api, dir, ['01-roles.png', '02-arbol.png', '03-sin-guardar.png', '04-nuevo-rol.png']);
+  });
+
+  test('siigo_credenciales @capturas', async ({ page }) => {
+    const dir = prepararCarpeta('siigo_credenciales');
+    const api = await interceptarApiDemo(page, [
+      [/\/api\/siigo\/credenciales\/probar-conexion$/, () => ({ body: SIIGO_PRUEBA_DEMO })],
+      [/\/api\/siigo\/credenciales$/, () => ({ body: SIIGO_CREDENCIALES_DEMO })],
+    ]);
+    await entrarComoAdminDemo(page);
+    await page.goto('/siigo/credenciales');
+    await expect(page.getByText(SIIGO_CREDENCIALES_DEMO.data[0].username).first()).toBeVisible();
+
+    // Paso 1 — Una tarjeta por ambiente: pruebas Activa y producción Sin configurar.
+    await sinFoco(page);
+    await capturar(page, dir, '01-ambientes');
+
+    // Paso 2 — Registrar credencial de producción: el formulario vacío (no se guarda nada).
+    await page.getByRole('button', { name: /Registrar nueva credencial/ }).last().click();
+    const registrar = page.getByRole('dialog');
+    await expect(registrar).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '02-registrar', registrar);
+    await page.keyboard.press('Escape');
+    await expect(registrar).toBeHidden();
+
+    // Paso 3 — Probar conexión en pruebas: el resultado en la tarjeta.
+    await page.getByRole('button', { name: /Probar conexión/ }).first().click();
+    await expect(page.getByText(SIIGO_PRUEBA_DEMO.mensaje)).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '03-probar-conexion');
+
+    // Paso 5 — Historial del ambiente de pruebas, abierto.
+    const historial = page.getByRole('button', { name: /^Pruebas: Historial de este ambiente/ });
+    await historial.scrollIntoViewIfNeeded();
+    await historial.click();
+    await expect(historial).toHaveAttribute('aria-expanded', 'true');
+    await historial.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+    const mostrarBarra = await sinBarraFlotante(page);
+    await sinFoco(page);
+    await capturar(page, dir, '04-historial');
+    await mostrarBarra();
+
+    comprobarCierre(api, dir, ['01-ambientes.png', '02-registrar.png', '03-probar-conexion.png', '04-historial.png']);
   });
 
   // ── Área Facturación (HU #13770) ──────────────────────────────────────────

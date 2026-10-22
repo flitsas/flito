@@ -61,7 +61,7 @@ const USUARIOS: Record<number, [string, Enlace, string[]]> = {
   13: ['cliente', 'compania', ['pagina.flito_soat']],                    // tiene página con ficha: lo saca el enlace
   14: ['admin', 'compania', ['pagina.flito_tablero']],                   // rol de sistema con enlace de compañía
   15: ['admin', null, ['pagina.flito_tablero']],                         // enlace que el resolutor no decide
-  16: ['admin', 'ninguno', ['pagina.flito_ayuda', 'pagina.users', 'users.crear']], // ninguna página con ficha
+  16: ['admin', 'ninguno', ['pagina.flito_ayuda', 'pagina.admin_rendimiento']], // ninguna página con ficha (HU #13774: `users` ya tiene ficha)
   17: ['financiera', 'ninguno', []],                                     // sin funciones
 };
 
