@@ -64,3 +64,42 @@ export interface TarjetaSoatGestion {
   /** Fecha de pago (ISO) o null. */
   pagado: string | null;
 }
+
+/**
+ * Tarjeta de Gestión Impuestos (UX F6.6, HU #13838): título placa · id FLIT, chip con el estado de la cola,
+ * Organismo, Liquidado y Fecha de pago. Sin comprador, documento, VIN, valores pagados ni semáforo.
+ */
+export interface TarjetaImpuestoGestion {
+  /** Id opaco del impuesto (uuid): solo para la `key` de la lista, nunca en una URL. */
+  id: string;
+  placa: string | null;
+  idFlit: string;
+  /** Estado del impuesto (`EstadoImpuesto`), el mismo de la cola. */
+  estado: string;
+  /** Nombre del organismo de tránsito, con el código como respaldo. */
+  organismo: string;
+  /** Valor liquidado (pesos) o null. */
+  liquidado: number | null;
+  /** Fecha de pago (ISO) o null. */
+  pagado: string | null;
+}
+
+/**
+ * Tarjeta de Gestión Derechos (UX F6.6, HU #13838): la fila de la pestaña «Registrados» de Derechos. Título
+ * placa · id FLIT; la cola no tiene estado, así que el único chip es «Con advertencia» y solo si la fila la
+ * trae. Filas Concepto (el del recibo), Valor y Fecha de pago. Sin empresa, VIN, radicado ni soportes.
+ */
+export interface TarjetaDerechoGestion {
+  /** Id opaco del registro de derechos (uuid): solo para la `key` de la lista, nunca en una URL. */
+  id: string;
+  placa: string | null;
+  idFlit: string;
+  /** true si el registro trae advertencias: pinta el chip «Con advertencia». */
+  conAdvertencia: boolean;
+  /** Concepto que dice el recibo (`tipoTramiteRecibo`) o null. */
+  concepto: string | null;
+  /** Valor pagado según el recibo (pesos) o null. */
+  valor: number | null;
+  /** Fecha de pago del recibo (`YYYY-MM-DD`) o null. */
+  fechaPago: string | null;
+}

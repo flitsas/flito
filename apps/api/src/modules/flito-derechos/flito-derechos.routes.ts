@@ -21,6 +21,10 @@ import {
   archivosDelDrive, procesarArchivoDrive, registroProcesados, ProcesadorError,
 } from './flito-derechos-drive.service.js';
 import type { ArchivoPlano } from '../../shared/archivos/expandir-zip.js';
+import { logPiiAccess } from '../../shared/pii-audit.js';
+import { drFlitGestionLimiter } from '../../shared/middleware/rateLimiter.js';
+import { busquedaGestionSchema, motivoGestion, PAGINA_GESTION } from '../../shared/dr-flit-gestion.js';
+import type { ResultadoGestion, TarjetaDerechoGestion } from '@operaciones/shared-types';
 
 const router = Router();
 router.use(authMiddleware);
@@ -103,6 +107,32 @@ router.get('/', exigirFuncion('derechos.cola.ver'), async (req: Request, res: Re
     conAdvertencia: req.query.conAdvertencia === 'si',
     pagadoDesde: fechaQ(req.query.pagadoDesde), pagadoHasta: fechaQ(req.query.pagadoHasta),
   }, await alcanceDe(req)));
+});
+
+// POST /buscar — consulta de gestión de Dr. Flit (HU #13838, Feature #13834). El valor (placa o id FLIT) va
+// en el BODY (AGENTS.md §14). Mismo permiso, servicio y alcance (`alcanceDe` → `porOrganismos` dentro de
+// `listarDerechos`) que el GET /; primera página de `TARJETAS_POR_MODULO` filas + total real. NO reutiliza
+// `GET /candidatos/:placa` (placa en la URL, sin alcance y `soloSinEnlace`). Rastro PII con 200 (también con
+// 0 filas) con `filas=N` y SIN el valor; con 400/403 no hay rastro. Tarjeta = la fila de la pestaña
+// «Registrados» (UX F6.6): sin empresa, VIN, radicado, archivo ni soporte.
+type FilaDerecho = Awaited<ReturnType<typeof listarDerechos>>['items'][number];
+
+const aTarjetaDerecho = (f: FilaDerecho): TarjetaDerechoGestion => ({
+  id: f.id, placa: f.placa, idFlit: f.idFlit,
+  conAdvertencia: (f.advertencias?.length ?? 0) > 0,
+  concepto: f.tipoTramiteRecibo, valor: f.valor === null ? null : Number(f.valor), fechaPago: f.fechaPago,
+});
+
+router.post('/buscar', exigirFuncion('derechos.cola.ver'), drFlitGestionLimiter, async (req: Request, res: Response) => {
+  const parsed = busquedaGestionSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+  const { items, total } = await listarDerechos({ buscar: parsed.data.valor, ...PAGINA_GESTION }, await alcanceDe(req));
+  await logPiiAccess(req, {
+    resourceTipo: 'flito_derechos', accion: 'search', camposAccedidos: ['placa'], motivo: motivoGestion(items.length),
+  });
+  const cuerpo: ResultadoGestion<TarjetaDerechoGestion> = { total, items: items.map(aTarjetaDerecho) };
+  res.set('Cache-Control', 'no-store');
+  res.json(cuerpo);
 });
 
 // GET /facetas — organismos y orígenes presentes, para no ofrecer filtros vacíos.

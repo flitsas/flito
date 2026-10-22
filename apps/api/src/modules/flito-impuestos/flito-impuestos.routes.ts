@@ -38,8 +38,11 @@ import { certificacionVigenteConAcceso, certificarImpuesto, certificarLote } fro
 import { construirCertificadoPdf } from './certificado-pdf.js';
 import {
   asumirEnOperaciones, colaImpuestos, devolverAlGestor, facetasColaImpuestos, detalleImpuesto, enviarAlGestor,
-  facturaVentaFlitConAcceso, reactivar, rechazar, registrosZipImpuestos, reversar,
+  facturaVentaFlitConAcceso, reactivar, rechazar, registrosZipImpuestos, reversar, type ImpuestoColaItem,
 } from './flito-impuestos.service.js';
+import { drFlitGestionLimiter } from '../../shared/middleware/rateLimiter.js';
+import { busquedaGestionSchema, PAGINA_GESTION } from '../../shared/dr-flit-gestion.js';
+import type { ResultadoGestion, TarjetaImpuestoGestion } from '@operaciones/shared-types';
 import { soportesDeImpuesto } from '../../shared/soportes/soportes-consulta.js';
 import { cargarReciboCaja, cargarRecibos, normalizarRutas, ReciboCajaError } from './flito-recibos.service.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
@@ -358,6 +361,29 @@ router.get('/', exigirFuncion('impuestos.cola.ver'), async (req: Request, res: R
   });
   await registrarAccesoImpuesto(req, { accion: 'search', filas: pagina.items.length });
   res.json(pagina);
+});
+
+// POST /buscar — consulta de gestión de Dr. Flit (HU #13838, Feature #13834). El valor (placa, VIN o id
+// FLIT) va en el BODY (AGENTS.md §14). Mismo permiso, servicio y alcance (`contextoImpuesto`) que el GET /;
+// primera página de `TARJETAS_POR_MODULO` filas + total real. Rastro PII con 200 (también con 0 filas) por
+// `registrarAccesoImpuesto`, con los campos de la tarjeta y `filas=N`; el valor no entra en el motivo, ni en
+// logs ni en `audit`. Con 400/403 no hay rastro. Tarjeta (UX F6.6): sin comprador, documento ni VIN.
+const CAMPOS_PII_TARJETA_IMPUESTO = ['placa'] as const;
+
+const aTarjetaImpuesto = (f: ImpuestoColaItem): TarjetaImpuestoGestion => ({
+  id: f.id, placa: f.placa, idFlit: f.idFlit, estado: f.estado,
+  organismo: f.organismoNombre ?? f.organismoCodigo, liquidado: f.valorLiquidado, pagado: f.pagadoEn,
+});
+
+router.post('/buscar', exigirFuncion('impuestos.cola.ver'), drFlitGestionLimiter, async (req: Request, res: Response) => {
+  const parsed = busquedaGestionSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+  const ctx = await contextoImpuesto(req.user!);
+  const { items, total } = await colaImpuestos(ctx, { buscar: parsed.data.valor, ...PAGINA_GESTION });
+  await registrarAccesoImpuesto(req, { accion: 'search', filas: items.length, campos: CAMPOS_PII_TARJETA_IMPUESTO });
+  const cuerpo: ResultadoGestion<TarjetaImpuestoGestion> = { total, items: items.map(aTarjetaImpuesto) };
+  res.set('Cache-Control', 'no-store');
+  res.json(cuerpo);
 });
 
 /**
