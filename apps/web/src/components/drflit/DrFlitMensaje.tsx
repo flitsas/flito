@@ -9,6 +9,7 @@ import {
   estadoReferencia, explicacionDeModulo, type MensajeDrFlit, type RefFicha,
 } from '../../lib/drFlitConversacion';
 import { seccionesDeFicha } from '../../lib/drFlitBusqueda';
+import { DR_FLIT_ASSETS } from './drFlitAssets';
 
 // Dr. Flit — pinta cada mensaje de la conversación (HU #13765; slim §4, spec UX «Explícame un
 // módulo»). Viven dentro del `role="log"` del panel: la respuesta se anuncia sin mover el foco (AC5).
@@ -23,9 +24,20 @@ const BURBUJA_DRFLIT = 'rounded-flit-lg border border-flit-soft bg-flit-card p-4
 
 export function BurbujaDrFlit({ children }: { children: ReactNode }) {
   return (
-    <div className={BURBUJA_DRFLIT}>
-      <span className="sr-only">Dr. Flit: </span>
-      {children}
+    <div className="flex items-start gap-2">
+      <img
+        src={DR_FLIT_ASSETS.header}
+        alt=""
+        aria-hidden="true"
+        width={32}
+        height={32}
+        loading="lazy"
+        className="h-8 w-8 shrink-0 rounded-full object-cover"
+      />
+      <div className={`min-w-0 flex-1 ${BURBUJA_DRFLIT}`}>
+        <span className="sr-only">Dr. Flit: </span>
+        {children}
+      </div>
     </div>
   );
 }

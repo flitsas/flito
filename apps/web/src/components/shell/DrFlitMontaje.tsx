@@ -86,6 +86,34 @@ function DrFlitVisible() {
     if (esMovil()) setAbierto(false);
   }, []);
 
+  // Retrabajo #13764: el botón conmuta. Cerrar por el botón devuelve el foco a él, como «Cerrar» y Esc.
+  const alternar = useCallback(() => {
+    if (abierto) cerrar();
+    else abrir();
+  }, [abierto, abrir, cerrar]);
+
+  // Retrabajo #13764: un clic fuera del panel lo cierra. Sin overlay: el clic sigue haciendo su acción
+  // normal (no se cancela) y el foco se queda donde el usuario hizo clic (no vuelve al botón).
+  useEffect(() => {
+    if (!abierto) return;
+    const alPulsar = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      const objetivo = e.target;
+      if (!(objetivo instanceof Node) || !objetivo.isConnected) return;
+      // Clic en la barra de desplazamiento del documento: el objetivo es <html> o cae fuera del área útil.
+      const raiz = document.documentElement;
+      if (objetivo === raiz || e.clientX >= raiz.clientWidth || e.clientY >= raiz.clientHeight) return;
+      const panelEl = document.getElementById(DRFLIT_PANEL_ID);
+      if (panelEl?.contains(objetivo) || botonRef.current?.contains(objetivo)) return;
+      // Portales que el propio panel monte fuera del <aside> se marcan con `data-drflit-portal`.
+      if (objetivo instanceof Element && objetivo.closest('[data-drflit-portal]')) return;
+      setAbierto(false);
+    };
+    // Captura: un `stopPropagation` de la página no impide el cierre.
+    document.addEventListener('pointerdown', alPulsar, true);
+    return () => document.removeEventListener('pointerdown', alPulsar, true);
+  }, [abierto]);
+
   const reintentar = useCallback(() => {
     const siguiente = intento + 1;
     setPanel(crearPanel(siguiente));
@@ -99,7 +127,7 @@ function DrFlitVisible() {
 
   return (
     <>
-      <DrFlitBoton ref={botonRef} abierto={abierto} panelId={DRFLIT_PANEL_ID} onAbrir={abrir} />
+      <DrFlitBoton ref={botonRef} abierto={abierto} panelId={DRFLIT_PANEL_ID} onAlternar={alternar} />
       {Panel && (
         <DrFlitMarco ref={tituloRef} abierto={abierto} onCerrar={cerrar}>
           <LimiteCargaPanel key={intento} fallback={<DrFlitErrorCarga onReintentar={reintentar} />}>
