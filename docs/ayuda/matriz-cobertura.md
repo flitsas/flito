@@ -21,13 +21,13 @@ de contenido de este Feature (#13770–#13775).
 
 | Área | Fichas | También | Nuevas (pendientes) |
 |---|---|---|---|
-| Corredor SOAT | `soat`, `flito_tramites`, `flito_revisiones`, `flito_bitacora`, `flito_comparendos`, `clients`, `flito_tablero` | — | — |
-| Corredor Impuestos | `flito_impuestos`, `flito_derechos` | `flito_tramites`, `flito_revisiones`, `flito_tablero` | — |
-| Mensajero y Logística | `flito_logistica`, `flito_logistica_ruta` | — | Tablero general |
-| Facturación | `siigo_parametrizacion`, `siigo_operacion`, `flito_comprobantes`, `flito_conciliacion`, `flito_bolsas`, `flito_tarifas`, `flito_servicios_adicionales`, `finanzas_reporte_costos`, `finanzas_gastos_diarios` | `clients` | — |
-| Super Admin | `privacy_log_pii`, `users`, `roles_permisos`, `drive`, `privacy`, `siigo_credenciales` | — | Organismos de tránsito, Tablero general |
+| Corredor SOAT | `soat`, `flito_tramites`, `flito_revisiones`, `flito_bitacora`, `flito_comparendos`, `clients`, `flito_tablero` | `dashboard` | — |
+| Corredor Impuestos | `flito_impuestos`, `flito_derechos` | `flito_tramites`, `flito_revisiones`, `flito_tablero`, `dashboard` | — |
+| Mensajero y Logística | `flito_logistica`, `flito_logistica_ruta`, `dashboard` | — | — |
+| Facturación | `siigo_parametrizacion`, `siigo_operacion`, `flito_comprobantes`, `flito_conciliacion`, `flito_bolsas`, `flito_tarifas`, `flito_servicios_adicionales`, `finanzas_reporte_costos`, `finanzas_gastos_diarios` | `clients`, `dashboard` | — |
+| Super Admin | `privacy_log_pii`, `users`, `roles_permisos`, `drive`, `privacy`, `siigo_credenciales`, `dashboard`, `transito_organismos` | — | — |
 
-Las cinco áreas listan al menos una ficha publicada.
+Las cinco áreas listan al menos una ficha publicada. `dashboard` (Tablero de control, HU #13775) lo tienen de partida todos los roles del sistema salvo `cliente`.
 
 ## Capturas
 
@@ -68,3 +68,5 @@ Escriben `apps/web/public/ayuda/<clave>/NN-<paso>.png` (1280 px, tema claro, ≤
 | `drive` | 3 (HU #13774) |
 | `privacy` | 2 (HU #13774; solo el estado previo a anonimizar, AC4) |
 | `siigo_credenciales` | 4 (HU #13774) |
+| `dashboard` | 2 (HU #13775) |
+| `transito_organismos` | 4 (HU #13775) |

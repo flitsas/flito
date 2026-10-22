@@ -19,7 +19,7 @@ import type { PageSlug } from '../../lib/permissions';
 // Prohibido aliasarla a `siigo_parametrizacion`: Financiera tiene parametrización y no debe ver el
 // capítulo de credenciales.
 
-export type AyudaGrupo = 'general' | 'gestion' | 'finanzas' | 'administracion';
+export type AyudaGrupo = 'general' | 'gestion' | 'transito' | 'finanzas' | 'administracion';
 
 export type ClaveAyuda =
   | 'flito_tramites'
@@ -47,7 +47,9 @@ export type ClaveAyuda =
   | 'users'
   | 'privacy'
   | 'privacy_log_pii'
-  | 'drive';
+  | 'drive'
+  | 'dashboard'
+  | 'transito_organismos';
 
 export interface EntradaAyuda {
   clave: ClaveAyuda;
@@ -72,17 +74,21 @@ export interface EntradaAyuda {
  * Orden de los grupos en el índice, igual al del menú (HU #13431). Lo comparten el índice y
  * Anterior/Siguiente de la ficha (Feature #13691 · HU #13705, diseño slim §7).
  */
-export const GRUPOS_ORDEN: readonly AyudaGrupo[] = ['general', 'gestion', 'finanzas', 'administracion'];
+export const GRUPOS_ORDEN: readonly AyudaGrupo[] = ['general', 'gestion', 'transito', 'finanzas', 'administracion'];
 
 export const GRUPO_AYUDA_LABEL: Record<AyudaGrupo, string> = {
   general: 'General',
   gestion: 'Gestión',
+  transito: 'Tránsito',
   finanzas: 'Finanzas',
   administracion: 'Administración',
 };
 
 export const CATALOGO_AYUDA: readonly EntradaAyuda[] = [
   { clave: 'flito_tablero', grupo: 'general', etiqueta: 'Tablero', to: '/', permiso: 'flito_tablero' },
+  // HU #13775 — el Panel operativo de `/` (permiso `dashboard`). Etiqueta «Tablero de control»: es el
+  // nombre de `PAGES.dashboard` en el menú. Va después de «Tablero» (`flito_tablero` conserva su sitio).
+  { clave: 'dashboard', grupo: 'general', etiqueta: 'Tablero de control', to: '/', permiso: 'dashboard' },
   { clave: 'clients', grupo: 'gestion', etiqueta: 'Clientes y proveedores', to: '/clients', permiso: 'clients' },
   { clave: 'flito_tramites', grupo: 'gestion', etiqueta: 'Gestión Trámites', to: '/flito/tramites', permiso: 'flito_tramites' },
   { clave: 'flito_derechos', grupo: 'gestion', etiqueta: 'Derechos', to: '/flito/derechos', permiso: 'flito_derechos' },
@@ -96,6 +102,8 @@ export const CATALOGO_AYUDA: readonly EntradaAyuda[] = [
   // ataría la ayuda de una pantalla al permiso de OTRA (ADR-0008 §4).
   { clave: 'soat', grupo: 'gestion', etiqueta: 'SOAT', to: '/flito/soat', permiso: 'flito_soat' },
   { clave: 'flito_impuestos', grupo: 'gestion', etiqueta: 'Impuestos', to: '/flito/impuestos', permiso: 'flito_impuestos' },
+  // HU #13775 — grupo Tránsito, entre Gestión y Finanzas (docs/ux/flito-ayuda-transito.md).
+  { clave: 'transito_organismos', grupo: 'transito', etiqueta: 'Organismos de tránsito', to: '/transito/organismos', permiso: 'transito_organismos' },
   { clave: 'finanzas_reporte_costos', grupo: 'finanzas', etiqueta: 'Reporte de costos', to: '/finanzas/reporte-costos', permiso: 'finanzas_reporte_costos' },
   { clave: 'finanzas_gastos_diarios', grupo: 'finanzas', etiqueta: 'Gastos diarios', to: '/finanzas/gastos-diarios', permiso: 'finanzas_gastos_diarios' },
   { clave: 'flito_bolsas', grupo: 'finanzas', etiqueta: 'Bolsas', to: '/flito/bolsas', permiso: 'flito_bolsas' },

@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 420" width="1000" height="420" role="img" aria-labelledby="t">
+  <title id="t">Cambio de modalidad de un organismo: se elige la modalidad, se escribe el motivo y se pulsa Cambiar modalidad; la vigencia anterior se cierra, la nueva queda en el historial y decide si FLITO gestiona ante el organismo (diagrama demo, sin datos reales)</title>
+  <rect width="1000" height="420" fill="#ffffff"/>
+  <defs>
+    <marker id="f" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0L10 5L0 10z" fill="#4a5568"/>
+    </marker>
+  </defs>
+  <g font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#1a202c">
+    <rect x="10" y="60" width="200" height="84" rx="12" fill="#e0ecff" stroke="#2b6cb0" stroke-width="2"/>
+    <text x="110" y="98" font-size="16">Elegir modalidad</text>
+    <text x="110" y="120" font-size="13">pestaña Autogestión</text>
+    <rect x="260" y="60" width="200" height="84" rx="12" fill="#e0ecff" stroke="#2b6cb0" stroke-width="2"/>
+    <text x="360" y="98" font-size="16">Motivo del cambio</text>
+    <text x="360" y="120" font-size="13">mínimo 5 caracteres</text>
+    <rect x="510" y="60" width="200" height="84" rx="12" fill="#e0ecff" stroke="#2b6cb0" stroke-width="2"/>
+    <text x="610" y="98" font-size="16">Cambiar modalidad</text>
+    <text x="610" y="120" font-size="13">cierra la vigencia anterior</text>
+    <rect x="760" y="60" width="230" height="84" rx="12" fill="#edf2f7" stroke="#4a5568" stroke-width="2"/>
+    <text x="875" y="98" font-size="16">Historial de vigencias</text>
+    <text x="875" y="120" font-size="13">desde, hasta, quién y motivo</text>
+    <line x1="210" y1="102" x2="258" y2="102" stroke="#4a5568" stroke-width="2" marker-end="url(#f)"/>
+    <line x1="460" y1="102" x2="508" y2="102" stroke="#4a5568" stroke-width="2" marker-end="url(#f)"/>
+    <line x1="710" y1="102" x2="758" y2="102" stroke="#4a5568" stroke-width="2" marker-end="url(#f)"/>
+    <path d="M610 144 L610 190 L300 190 L300 238" fill="none" stroke="#4a5568" stroke-width="2" marker-end="url(#f)"/>
+    <path d="M610 190 L760 190 L760 238" fill="none" stroke="#4a5568" stroke-width="2" marker-end="url(#f)"/>
+    <rect x="160" y="240" width="280" height="84" rx="12" fill="#e6f6ec" stroke="#2f855a" stroke-width="2"/>
+    <text x="300" y="278" font-size="16">Requiere gestión FLITO</text>
+    <text x="300" y="300" font-size="13">FLITO gestiona ante el organismo</text>
+    <rect x="620" y="240" width="280" height="84" rx="12" fill="#fff4e0" stroke="#b7791f" stroke-width="2"/>
+    <text x="760" y="278" font-size="16">Autogestionado por el organismo</text>
+    <text x="760" y="300" font-size="13">el organismo lo hace por su cuenta</text>
+    <text x="500" y="390" font-size="13" fill="#4a5568">Sin modalidad registrada, el organismo se muestra como Autogestionado. Sin el permiso de editar, la pestaña es de solo lectura.</text>
+  </g>
+</svg>

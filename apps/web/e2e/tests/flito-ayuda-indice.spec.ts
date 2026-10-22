@@ -7,12 +7,16 @@ import type { Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import {
   loginAs, abrirAyuda, buscarFichas, PROVEEDOR_USER, FINANCIERA_USER, GESTOR_IMPUESTOS_USER,
-  MENSAJERO_USER, OPERACIONES_USER, CONDUCTOR_USER,
+  MENSAJERO_USER, OPERACIONES_USER, TRANSITO_USER,
 } from '../helpers/ayuda-fixtures';
 
 const raiz = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../..');
 
 const COPY_CERO = /Ninguna ficha coincide con/;
+/** Rol creado por el administrador sin ninguna pantalla con ficha (sin `dashboard`; HU #13775). */
+const ROL_PROPIO_SIN_FICHAS = {
+  id: 25, username: 'e2e_ayuda_rol_propio', name: 'Rol propio Ayuda E2E', role: 'rol_propio_e2e', allowedPages: ['pesv'],
+};
 const COPY_PERMISO = 'Su usuario aún no tiene módulos con ayuda';
 const COPY_ERROR = 'No se pudo cargar el índice de ayuda.';
 
@@ -62,7 +66,9 @@ test.describe('FLITO — Ayuda · índice', () => {
     await expect(page.getByRole('link', { name: /SOAT/ })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /Comparendos/ })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /Clientes/ })).toHaveCount(0);
-    await expect(page.getByRole('link', { name: /ficha de Tablero/ })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Abrir ficha de Tablero', exact: true })).toHaveCount(0);
+    // HU #13775: `dashboard` es de partida del gestor, así que ve «Tablero de control» (no el Tablero FLITO).
+    await expect(page.getByRole('link', { name: 'Abrir ficha de Tablero de control', exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: /Compuerta/ })).toHaveCount(0);
   });
 
@@ -143,7 +149,7 @@ test.describe('FLITO — Ayuda · índice', () => {
     await abrirAyuda(page, OPERACIONES_USER);
     // HU #13431: «Entregar trámites» es una acción de Gestión Trámites, no un ítem del menú.
     await expect(page.getByRole('link', { name: /Compuerta/ })).toHaveCount(0);
-    await expect(page.getByRole('link', { name: 'Abrir ficha de Tablero' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Abrir ficha de Tablero', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Administración', exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Abrir ficha de Integración con Siigo', exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: /Facturación electrónica · Credenciales/ })).toHaveCount(0);
@@ -178,7 +184,7 @@ test.describe('FLITO — Ayuda · índice', () => {
     const capitulos = [...cat.matchAll(/clave: '(\w+)', grupo: '(\w+)', etiqueta: '([^']+)'(?:, to: '([^']*)')?[^}]*permiso: '(\w+)'/g)]
       .map((m) => ({ clave: m[1], grupo: m[2], etiqueta: m[3], to: m[4], permiso: m[5] }));
     expect(capitulos.length).toBeGreaterThan(15);
-    const SECCION: Record<string, string> = { general: 'general', gestion: 'gestion', finanzas: 'finanzas', administracion: 'admin' };
+    const SECCION: Record<string, string> = { general: 'general', gestion: 'gestion', transito: 'transito', finanzas: 'finanzas', administracion: 'admin' };
     // El Tablero de General es el ítem `dashboard` del menú (P-11): su ficha cuelga de `flito_tablero`.
     const itemDelMenu = (permiso: string) => (permiso === 'flito_tablero' ? 'dashboard' : permiso);
     const esperado: Record<string, string[]> = {};
@@ -213,6 +219,61 @@ test.describe('FLITO — Ayuda · índice', () => {
       'Abrir ficha de Log accesos PII', 'Abrir ficha de Usuarios', 'Abrir ficha de Roles y permisos',
       'Abrir ficha de Google Drive', 'Abrir ficha de Privacidad y datos', 'Abrir ficha de Integración con Siigo',
     ]);
+  });
+
+  // HU #13775 — grupo Tránsito y ficha «Tablero de control» (docs/ux/flito-ayuda-transito.md).
+  test('HU #13775 — admin ve los 5 grupos en orden: General, Gestión, Tránsito, Finanzas, Administración', async ({ page }) => {
+    await abrirAyuda(page, OPERACIONES_USER);
+    const grupos = page.locator('section[aria-labelledby^="ayuda-grupo-"]');
+    await expect(grupos).toHaveCount(5);
+    expect(await grupos.evaluateAll((els) => els.map((e) => e.getAttribute('aria-labelledby')))).toEqual([
+      'ayuda-grupo-general', 'ayuda-grupo-gestion', 'ayuda-grupo-transito', 'ayuda-grupo-finanzas', 'ayuda-grupo-administracion',
+    ]);
+    await expect(page.getByRole('heading', { name: 'Tránsito', exact: true })).toBeVisible();
+    expect(await page.locator('section[aria-labelledby="ayuda-grupo-transito"] a').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label'))))
+      .toEqual(['Abrir ficha de Organismos de tránsito']);
+    // «Tablero de control» va en General, después de «Tablero».
+    expect(await page.locator('section[aria-labelledby="ayuda-grupo-general"] a').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label'))))
+      .toEqual(['Abrir ficha de Tablero', 'Abrir ficha de Tablero de control']);
+  });
+
+  test('HU #13775 — sin `transito_organismos` no se pinta el grupo Tránsito', async ({ page }) => {
+    // Financiera tiene `dashboard` y fichas de Finanzas, pero no Organismos de tránsito.
+    await abrirAyuda(page, FINANCIERA_USER);
+    await expect(page.getByRole('link', { name: 'Abrir ficha de Tablero de control' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Tránsito', exact: true })).toHaveCount(0);
+    await expect(page.locator('section[aria-labelledby="ayuda-grupo-transito"]')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Abrir ficha de Organismos de tránsito' })).toHaveCount(0);
+  });
+
+  test('HU #13775 AC1 — con `dashboard` y sin `flito_tablero` se ve la ficha «Tablero de control»', async ({ page }) => {
+    // Rol `transito` de partida: `dashboard` y `transito`; ni `flito_tablero` ni `transito_organismos`.
+    await abrirAyuda(page, TRANSITO_USER);
+    const general = page.locator('section[aria-labelledby="ayuda-grupo-general"] a');
+    await expect(general).toHaveCount(1);
+    expect(await general.evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))).toEqual(['Abrir ficha de Tablero de control']);
+    await general.first().click();
+    await expect(page).toHaveURL(/\/flito\/ayuda\/dashboard$/);
+    await expect(page.getByRole('heading', { name: 'Qué es', exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Ir a la pantalla Tablero de control' })).toHaveAttribute('href', '/');
+    // Sin `flito_tablero` el aviso se lee igual, pero «Tablero» queda como texto, sin enlace.
+    await expect(page.getByText(/Si su usuario también tiene el Tablero FLITO/)).toBeVisible();
+    await expect(page.getByTestId('ayuda-aviso-nota').getByRole('link')).toHaveCount(0);
+    await expect(page.locator('a[href="/flito/ayuda/flito_tablero"]')).toHaveCount(0);
+  });
+
+  test('HU #13775 AC2 — con `dashboard` y `flito_tablero` la ficha avisa y enlaza a «Tablero»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await page.goto('/flito/ayuda/dashboard');
+    await expect(page.getByRole('heading', { name: 'Cómo se entra', exact: true })).toBeVisible();
+    const aviso = page.getByText(/Si su usuario también tiene el Tablero FLITO, al entrar a FLITO verá ese tablero en lugar del Panel operativo/);
+    await expect(aviso).toBeVisible();
+    // El enlace va dentro del aviso «Nota» (el menú también tiene un «Tablero», que lleva a `/`).
+    const enlace = page.getByTestId('ayuda-aviso-nota').getByRole('link', { name: 'Tablero', exact: true });
+    await expect(enlace).toHaveAttribute('href', '/flito/ayuda/flito_tablero');
+    await enlace.click();
+    await expect(page).toHaveURL(/\/flito\/ayuda\/flito_tablero$/);
+    await expect(page.getByRole('heading', { name: 'Qué es', exact: true })).toBeVisible();
   });
 
   test('HU #13431 — en 375 px el índice no desborda y las tarjetas usan el token de tarjeta', async ({ page }) => {
@@ -319,7 +380,9 @@ test.describe('FLITO — Ayuda · buscar fichas (HU #11901; relevancia HU #13704
     await expect(page.getByText(COPY_CERO)).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Gestión', exact: true })).toBeVisible();
 
-    await loginAs(page, CONDUCTOR_USER);
+    // HU #13775: el conductor ya tiene ficha («Tablero de control», por `dashboard`); el usuario sin fichas es un
+    // rol creado por el administrador sin `dashboard`.
+    await loginAs(page, ROL_PROPIO_SIN_FICHAS);
     await page.goto('/flito/ayuda');
     // HU #13704 AC7 (P9-3a): sin fichas visibles, vacío propio (no NoAccess, no copy de filtro).
     await expect(page.getByText(COPY_PERMISO)).toBeVisible();
