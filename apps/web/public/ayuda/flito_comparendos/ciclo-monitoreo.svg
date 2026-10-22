@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 440" width="820" height="440" role="img" aria-labelledby="t">
+  <title id="t">Ciclo de Comparendos: configurar, sincronizar, consultar y registrar la gestión (diagrama demo, sin datos reales)</title>
+  <rect width="820" height="440" fill="#ffffff"/>
+  <defs>
+    <marker id="f" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0L10 5L0 10z" fill="#4a5568"/>
+    </marker>
+  </defs>
+  <g font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#1a202c">
+    <rect x="30" y="40" width="220" height="90" rx="12" fill="#edf2f7" stroke="#4a5568" stroke-width="2"/>
+    <text x="140" y="79" font-size="17">Configuración</text>
+    <text x="140" y="101" font-size="14">NIT, municipios, causales, token</text>
+    <rect x="300" y="40" width="220" height="90" rx="12" fill="#e0ecff" stroke="#2b6cb0" stroke-width="2"/>
+    <text x="410" y="79" font-size="17">Sincronización</text>
+    <text x="410" y="101" font-size="14">pulse Sincronizar</text>
+    <rect x="570" y="40" width="220" height="90" rx="12" fill="#e0ecff" stroke="#2b6cb0" stroke-width="2"/>
+    <text x="680" y="79" font-size="17">Registros</text>
+    <text x="680" y="101" font-size="14">buscar por N.º, NIT o placa</text>
+    <rect x="570" y="260" width="220" height="90" rx="12" fill="#e6f6ec" stroke="#2f855a" stroke-width="2"/>
+    <text x="680" y="299" font-size="17">Detalle</text>
+    <text x="680" y="321" font-size="14">causal y observación</text>
+    <rect x="300" y="260" width="220" height="90" rx="12" fill="#fef3c7" stroke="#b7791f" stroke-width="2"/>
+    <text x="410" y="299" font-size="17">Historial</text>
+    <text x="410" y="321" font-size="14">Ver detalle de la corrida</text>
+    <text x="615" y="215" font-size="13" fill="#4a5568">otra vez</text>
+  </g>
+  <g stroke="#4a5568" stroke-width="2.5" fill="none" marker-end="url(#f)">
+    <path d="M250 85L295 85"/>
+    <path d="M520 85L565 85"/>
+    <path d="M680 130L680 255"/>
+    <path d="M410 130L410 255"/>
+    <path d="M570 290Q410 230 520 130"/>
+  </g>
+</svg>

@@ -52,3 +52,10 @@ Escriben `apps/web/public/ayuda/<clave>/NN-<paso>.png` (1280 px, tema claro, ≤
 | `flito_servicios_adicionales` | 4 (HU #13770) |
 | `finanzas_reporte_costos` | 4 (HU #13770) |
 | `finanzas_gastos_diarios` | 2 (HU #13770) |
+| `soat` | 4 (HU #13771) |
+| `flito_tramites` | 4 (HU #13771) |
+| `flito_revisiones` | 3 (HU #13771) |
+| `flito_bitacora` | 1 (HU #13771) |
+| `flito_comparendos` | 4 (HU #13771) |
+| `clients` | 3 (HU #13771) |
+| `flito_tablero` | 2 (HU #13771) |

@@ -20,8 +20,8 @@
 import { mkdirSync, readdirSync, statSync, unlinkSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { test, expect, type Page } from '@playwright/test';
-import { ADMIN_USER, loginAs, MENSAJERO_USER } from '../helpers/auth';
+import { test, expect, type Locator, type Page } from '@playwright/test';
+import { ADMIN_USER, CLIENTE_CON_CANAL, loginAs, MENSAJERO_USER } from '../helpers/auth';
 import {
   BOLSAS_DEMO,
   BOLSAS_RIESGO_DEMO,
@@ -36,6 +36,7 @@ import {
   MI_RUTA_DEMO,
   NOMBRE_ADMIN_DEMO,
   NOMBRE_USUARIO_DEMO,
+  NOMBRES_DEMO,
   RECEPTOR_DEMO,
   SIIGO_BANDEJA_DEMO,
   SIIGO_COMPUERTA_DEMO,
@@ -56,6 +57,32 @@ import {
   elegibilidadDemo,
   GASTOS_DIARIOS_DEMO,
   EMPRESAS_DEMO,
+  ASEGURADORAS_DEMO,
+  BITACORA_DEMO,
+  CLIENTES_FICHA_DEMO,
+  COMPANIAS_DEMO,
+  COMPARENDO_DETALLE_DEMO,
+  COMPARENDOS_CAUSALES_DEMO,
+  COMPARENDOS_MUNICIPIOS_DEMO,
+  COMPARENDOS_NITS_DEMO,
+  COMPARENDOS_REGISTROS_DEMO,
+  COMPARENDOS_RUNS_DEMO,
+  COMPARENDOS_TOKEN_DEMO,
+  DATOS_DEMO,
+  PDF_DEMO,
+  PROVEEDORES_SOAT_DEMO,
+  REVISION_CAMPOS_SOAT,
+  REVISION_CANDIDATOS_SOAT,
+  REVISIONES_DEMO,
+  SOAT_COLA_DEMO,
+  SOAT_FACETAS_DEMO,
+  SOAT_COMPANIAS_CANAL_DEMO,
+  SOAT_DOCUMENTOS_ADICIONALES_DEMO,
+  SOAT_POR_VALIDAR_DEMO,
+  SYNC_DEMO,
+  TABLERO_DEMO,
+  TRAMITES_DEMO,
+  TRAMITES_FACETAS_DEMO,
 } from '../helpers/datos-demo';
 
 const DIR_PUBLICO = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../public/ayuda');
@@ -72,11 +99,15 @@ function prepararCarpeta(clave: string): string {
   return dir;
 }
 
-async function capturar(page: Page, dir: string, nombre: string) {
+async function capturar(page: Page, dir: string, nombre: string, recorte?: Locator) {
   expect(`${nombre}.png`).toMatch(NOMBRE_CAPTURA);
   await page.evaluate(() => document.fonts.ready);
   const path = resolve(dir, `${nombre}.png`);
-  await page.screenshot({ path, animations: 'disabled', caret: 'hide', scale: 'css' });
+  // `recorte` (HU #13771): solo la ventana y un margen. El fondo desenfocado de un modal sobre una tabla
+  // ancha no comprime y pasa de 200 KB; lo que el paso ilustra es la ventana.
+  const caja = recorte ? await recorte.boundingBox() : null;
+  const clip = caja ? { x: Math.max(0, caja.x - 24), y: Math.max(0, caja.y - 24), width: caja.width + 48, height: caja.height + 48 } : undefined;
+  await page.screenshot({ path, animations: 'disabled', caret: 'hide', scale: 'css', clip });
   expect(statSync(path).size, `${nombre}.png supera 200 KB`).toBeLessThanOrEqual(MAX_BYTES);
 }
 
@@ -557,5 +588,255 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await capturar(page, dir, '02-evolucion-diaria');
 
     comprobarCierre(api, dir, ['01-tarjetas-y-total.png', '02-evolucion-diaria.png']);
+  });
+
+  // ── Área Corredor SOAT (HU #13771) ──────────────────────────────────────────────────────────────
+
+  test('flito_tablero @capturas', async ({ page }) => {
+    const dir = prepararCarpeta('flito_tablero');
+    const api = await interceptarApiDemo(page, [
+      [/\/api\/flito\/tablero$/, () => ({ body: TABLERO_DEMO })],
+    ]);
+    await entrarComoAdminDemo(page);
+
+    await page.goto('/flito/tablero');
+    await expect(page.getByText('Revisiones pendientes')).toBeVisible();
+
+    // Pasos 1 y 2 — Los cuatro indicadores y las alertas operativas.
+    await capturar(page, dir, '01-indicadores-y-alertas');
+
+    // Paso 3 — SOAT e Impuestos por estado.
+    await page.getByText('SOAT por estado').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await capturar(page, dir, '02-por-estado');
+
+    comprobarCierre(api, dir, ['01-indicadores-y-alertas.png', '02-por-estado.png']);
+  });
+
+  test('flito_bitacora @capturas', async ({ page }) => {
+    const dir = prepararCarpeta('flito_bitacora');
+    const api = await interceptarApiDemo(page, [
+      [/\/api\/flito\/bitacora$/, () => ({ body: BITACORA_DEMO })],
+    ]);
+    await entrarComoAdminDemo(page);
+
+    await page.goto('/flito/bitacora');
+    await expect(page.getByText('Pago confirmado por factura')).toBeVisible();
+
+    // Pasos 1 a 3 — Recurso, límite y la tabla de movimientos.
+    await capturar(page, dir, '01-movimientos');
+
+    comprobarCierre(api, dir, ['01-movimientos.png']);
+  });
+
+  test('flito_revisiones @capturas', async ({ page }) => {
+    const dir = prepararCarpeta('flito_revisiones');
+    const api = await interceptarApiDemo(page, [
+      [/\/api\/flito\/revisiones$/, (route) => ({
+        body: new URL(route.request().url()).searchParams.get('modulo') === 'soat' ? REVISIONES_DEMO : [],
+      })],
+      [/\/api\/flito\/revisiones\/campos\/soat$/, () => ({ body: REVISION_CAMPOS_SOAT })],
+      [/\/api\/flito\/soat$/, () => ({ body: REVISION_CANDIDATOS_SOAT })],
+      [/\/api\/flito\/revisiones\/soporte\/[^/]+\/archivo$/, () => ({ body: PDF_DEMO, contentType: 'application/pdf' })],
+    ]);
+    await entrarComoAdminDemo(page);
+
+    await page.goto('/flito/revisiones');
+    await expect(page.getByText(`poliza-${DATOS_DEMO.placas[0]}.pdf`).first()).toBeVisible();
+    await expect(page.getByText('Número de póliza')).toBeVisible();
+
+    // Pasos 1 y 2 — Grupo, cola y documento.
+    await capturar(page, dir, '01-cola-y-documento');
+
+    // Paso 3 — Elegir el trámite y revisar los campos.
+    await page.getByLabel('Trámite contra el que se concilia *').selectOption('soat-demo-1');
+    await expect(page.getByText('Leído del PDF')).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '02-revisar-campos');
+
+    // Paso 4 — Confirmar y resolver deja constancia.
+    await page.getByRole('button', { name: 'Confirmar y resolver' }).click();
+    await page.getByText('Deja constancia de qué validaste').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await sinFoco(page);
+    await capturar(page, dir, '03-constancia');
+
+    comprobarCierre(api, dir, ['01-cola-y-documento.png', '02-revisar-campos.png', '03-constancia.png']);
+  });
+
+  test('clients @capturas', async ({ page }) => {
+    const dir = prepararCarpeta('clients');
+    const api = await interceptarApiDemo(page, [
+      [/\/api\/clients$/, () => ({ body: CLIENTES_FICHA_DEMO })],
+      [/\/api\/flito\/parametrizacion\/proveedores-soat$/, () => ({ body: PROVEEDORES_SOAT_DEMO })],
+      [/\/api\/siigo\/clientes\/validacion\/detalle$/, () => ({ body: SIIGO_VALIDACION_DETALLE_DEMO })],
+    ]);
+    await entrarComoAdminDemo(page);
+
+    await page.goto('/clients');
+    await expect(page.getByText(EMPRESAS_DEMO[0]).first()).toBeVisible();
+
+    // Pasos 1 a 3 — Clientes con su autogestión.
+    await capturar(page, dir, '01-clientes');
+
+    // Paso 4 — SOAT sin trámite: canal y gestor por defecto.
+    await page.getByRole('button', { name: new RegExp(`^SOAT sin trámite de ${EMPRESAS_DEMO[0]}`) }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await capturar(page, dir, '02-soat-sin-tramite', page.getByRole('dialog'));
+    await page.keyboard.press('Escape');
+    await sinFoco(page);
+
+    // Paso 6 — Proveedores.
+    await page.getByRole('button', { name: 'Proveedores', exact: true }).click();
+    await expect(page.getByText(ASEGURADORAS_DEMO[1])).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '03-proveedores');
+
+    comprobarCierre(api, dir, ['01-clientes.png', '02-soat-sin-tramite.png', '03-proveedores.png']);
+  });
+
+  test('flito_comparendos @capturas', async ({ page }) => {
+    const dir = prepararCarpeta('flito_comparendos');
+    const api = await interceptarApiDemo(page, [
+      [/\/api\/flito\/comparendos\/registros(\/buscar)?$/, () => ({ body: COMPARENDOS_REGISTROS_DEMO })],
+      [/\/api\/flito\/comparendos\/registros\/cmp-demo-1$/, () => ({ body: COMPARENDO_DETALLE_DEMO })],
+      [/\/api\/flito\/comparendos\/nits$/, () => ({ body: COMPARENDOS_NITS_DEMO })],
+      [/\/api\/flito\/comparendos\/municipios$/, () => ({ body: COMPARENDOS_MUNICIPIOS_DEMO })],
+      [/\/api\/flito\/comparendos\/causales$/, () => ({ body: COMPARENDOS_CAUSALES_DEMO })],
+      [/\/api\/flito\/comparendos\/config\/token-simit$/, () => ({ body: COMPARENDOS_TOKEN_DEMO })],
+      [/\/api\/flito\/comparendos\/sync\/runs$/, () => ({ body: COMPARENDOS_RUNS_DEMO })],
+      [/\/api\/flito\/comparendos\/sync\/runs\/run-demo-\d$/, () => ({ body: { ...COMPARENDOS_RUNS_DEMO[0], steps: [] } })],
+    ]);
+    await entrarComoAdminDemo(page);
+
+    await page.goto('/flito/comparendos');
+    await expect(page.getByText('99999000000001').first()).toBeVisible();
+
+    // Paso 1 — Registros: buscar por N.º, NIT o placa y la tabla consolidada.
+    await page.getByText('N.º de comparendo', { exact: true }).first().evaluate((el) => el.scrollIntoView({ block: 'start' }));
+    await page.evaluate(() => window.scrollBy(0, -90)); // bajo la cabecera fija
+    const mostrarBarraC = await sinBarraFlotante(page);
+    await capturar(page, dir, '01-registros');
+    await mostrarBarraC();
+
+    // Paso 2 — Detalle del comparendo con causal y observación.
+    await page.getByText('99999000000001').first().click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await capturar(page, dir, '02-detalle');
+    await page.keyboard.press('Escape');
+
+    // Paso 4 — Sincronización.
+    await page.goto('/flito/comparendos?vista=sincronizacion');
+    await expect(page.getByRole('heading', { name: 'Sincronizar ahora' })).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '03-sincronizacion');
+
+    // Paso 5 — Configuración.
+    await page.goto('/flito/comparendos?vista=configuracion');
+    await expect(page.getByText(EMPRESAS_DEMO[0]).first()).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '04-configuracion');
+
+    comprobarCierre(api, dir, ['01-registros.png', '02-detalle.png', '03-sincronizacion.png', '04-configuracion.png']);
+  });
+
+  test('flito_tramites @capturas', async ({ page }) => {
+    const dir = prepararCarpeta('flito_tramites');
+    const api = await interceptarApiDemo(page, [
+      [/\/api\/flito\/tramites$/, () => ({ body: TRAMITES_DEMO })],
+      [/\/api\/flito\/tramites\/facetas$/, () => ({ body: TRAMITES_FACETAS_DEMO })],
+      [/\/api\/flito\/parametrizacion\/companias$/, () => ({ body: COMPANIAS_DEMO })],
+      [/\/api\/flito\/parametrizacion\/proveedores-soat$/, () => ({ body: PROVEEDORES_SOAT_DEMO })],
+      [/\/api\/flito\/sync\/interruptores$/, () => ({ body: SYNC_DEMO.interruptores })],
+      [/\/api\/flito\/sync\/estado$/, () => ({ body: SYNC_DEMO.estado1 })],
+      [/\/api\/flito\/sync\/flit2\/estado$/, () => ({ body: SYNC_DEMO.estado2 })],
+      [/\/api\/flito\/sync\/flit1\/estado-lectura$/, () => ({ body: SYNC_DEMO.lectura1 })],
+    ]);
+    await entrarComoAdminDemo(page);
+
+    await page.goto('/flito/tramites');
+    await expect(page.getByText('FLIT-DEMO-101')).toBeVisible();
+
+    // Pasos 1 y 2 — La tarjeta Sincronización desplegada, con sus dos grupos.
+    const cabecera = page.getByTestId('cabecera-sincronizacion');
+    await cabecera.click();
+    await expect(cabecera).toHaveAttribute('aria-expanded', 'true');
+    await sinFoco(page);
+    await capturar(page, dir, '01-sincronizacion');
+    await cabecera.click();
+    await sinFoco(page);
+
+    // Paso 3 — Buscar, filtrar y la tabla.
+    await page.getByText('FLIT-DEMO-101').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    const mostrarBarra = await sinBarraFlotante(page);
+    await capturar(page, dir, '02-filtros-y-tabla');
+
+    // Pasos 4 y 5 — Marcar trámites: los botones dicen sobre cuántos actúan.
+    for (const placa of DATOS_DEMO.placas) await page.getByLabel(`Seleccionar ${placa}`).check();
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.getByText('FLIT-DEMO-101').evaluate((el) => el.scrollIntoView({ block: 'end' }));
+    await sinFoco(page);
+    await capturar(page, dir, '03-seleccion');
+    await mostrarBarra();
+
+    // Paso 6 — Descargar soportes: elegir los documentos del ZIP.
+    await page.getByRole('button', { name: /^Descargar soportes \(/ }).click();
+    const zip = page.getByRole('dialog', { name: 'Documentos del ZIP' });
+    await expect(zip).toBeVisible();
+    await capturar(page, dir, '04-documentos-del-zip', zip);
+    await page.keyboard.press('Escape');
+
+    comprobarCierre(api, dir, ['01-sincronizacion.png', '02-filtros-y-tabla.png', '03-seleccion.png', '04-documentos-del-zip.png']);
+  });
+
+  test('soat @capturas', async ({ page }) => {
+    const dir = prepararCarpeta('soat');
+    const api = await interceptarApiDemo(page, [
+      [/\/api\/flito\/soat$/, () => ({ body: { items: SOAT_COLA_DEMO, total: SOAT_COLA_DEMO.length, page: 1, pageSize: 50 } })],
+      [/\/api\/flito\/soat\/facetas$/, () => ({ body: SOAT_FACETAS_DEMO })],
+      [/\/api\/flito\/soat\/cliente\/incompletas\/buscar$/, (route) => {
+        const { estados } = route.request().postDataJSON() as { estados: string[] };
+        const items = estados.includes('incompleta') ? [SOAT_POR_VALIDAR_DEMO] : [];
+        return { body: { items, total: items.length, conteos: { incompleta: 1, descartada: 0 } } };
+      }],
+      [/\/api\/flito\/parametrizacion\/proveedores-soat$/, () => ({ body: PROVEEDORES_SOAT_DEMO })],
+      [/\/api\/flito\/soat\/soat-demo-2\/documentos-adicionales$/, () => ({ body: SOAT_DOCUMENTOS_ADICIONALES_DEMO })],
+    ]);
+    await entrarComoAdminDemo(page);
+
+    await page.goto('/flito/soat');
+    await expect(page.getByText(DATOS_DEMO.placas[0]).first()).toBeVisible();
+
+    // Pasos 1 y 2 — Pastillas, buscador, Más filtros y vistas rápidas; arriba, la solicitud por validar.
+    await capturar(page, dir, '01-cola');
+
+    // Paso 4 — Marcar filas y enviar al gestor: el botón dice sobre cuántas actúa.
+    for (const placa of DATOS_DEMO.placas.slice(0, 3)) await page.getByLabel(new RegExp(`Seleccionar.*${placa}`)).first().check();
+    await sinFoco(page);
+    await capturar(page, dir, '02-enviar-al-gestor');
+    await page.getByRole('button', { name: 'Quitar selección' }).click();
+
+    // Pasos 6 y 7 — El detalle de un SOAT pagado: estado, comprobante y correcciones.
+    await page.getByRole('row', { name: new RegExp(`Seleccionar ${DATOS_DEMO.placas[1]}`) }).getByRole('button', { name: 'Ver', exact: true }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await page.waitForTimeout(500);
+    await capturar(page, dir, '03-detalle', page.getByRole('dialog'));
+    await page.keyboard.press('Escape');
+
+    // Paso 8 — Solicitar SOAT (Cliente con el canal abierto): compañía fija, VIN y lo que falta para enviar.
+    // Se ilustra antes de consultar el RUNT: el VIN demo lleva «O» (imposible en un VIN real) y el
+    // formulario lo rechaza, así que la ficha del RUNT no se puede capturar con datos del registro.
+    const cliente = await page.context().newPage();
+    const apiCliente = await interceptarApiDemo(cliente, [
+      [/\/api\/flito\/soat\/cliente\/companias$/, () => ({ body: SOAT_COMPANIAS_CANAL_DEMO })],
+    ]);
+    await entrarComoDemo(cliente, { ...CLIENTE_CON_CANAL, username: 'cliente_demo', name: NOMBRES_DEMO[0], companiaId: 901 });
+    await cliente.goto('/flito/soat/solicitud');
+    await expect(cliente.getByText(EMPRESAS_DEMO[0]).first()).toBeVisible();
+    await expect(cliente.getByRole('button', { name: 'Consultar el RUNT' })).toBeVisible();
+    await sinFoco(cliente);
+    await capturar(cliente, dir, '04-solicitar-soat');
+    expect(apiCliente.noMockeados, 'endpoints /api sin fixture demo (Cliente)').toEqual([]);
+    await cliente.close();
+
+    comprobarCierre(api, dir, ['01-cola.png', '02-enviar-al-gestor.png', '03-detalle.png', '04-solicitar-soat.png']);
   });
 });

@@ -47,20 +47,26 @@ export const NOMBRES_DEMO = [
 
 export const EMPRESAS_DEMO = ['Concesionario Demo Norte', 'Concesionario Demo Sur', 'Concesionario Demo Centro'] as const;
 
+/** Proveedores (gestores) de SOAT ficticios del área Corredor SOAT (HU #13771). Lista aparte: los fixtures de
+ *  Facturación recorren `EMPRESAS_DEMO` entera y sus capturas ya están tomadas. */
+export const ASEGURADORAS_DEMO = ['Aseguradora Demo Uno', 'Aseguradora Demo Dos'] as const;
+
 /** Organismos de tránsito: nombre real permitido (entidad pública). */
 export const ORGANISMOS_REALES = ['Secretaría de Movilidad de Manizales', 'Secretaría de Movilidad de Bogotá'] as const;
 
 export const DATOS_DEMO = {
-  placas: ['ZZA101', 'ZZB202', 'ZZC303'],
+  placas: ['ZZA101', 'ZZB202', 'ZZC303', 'ZZD404'],
   cedulas: ['9900000101', '9900000202', '9900000303'],
   nits: ['999000001-7', '999000002-5', '999000003-3'],
-  telefonos: ['3000000101'],
-  correos: ['mensajero@ejemplo.test'],
-  vins: ['9ZZDEMO0000000101', '9ZZDEMO0000000202', '9ZZDEMO0000000303'],
+  telefonos: ['3000000101', '3000000102', '3000000103'],
+  correos: ['mensajero@ejemplo.test', 'norte@ejemplo.test', 'sur@ejemplo.test'],
+  vins: ['9ZZDEMO0000000101', '9ZZDEMO0000000202', '9ZZDEMO0000000303', '9ZZDEMO0000000404'],
   nombres: NOMBRES_DEMO as readonly string[],
-  empresas: EMPRESAS_DEMO as readonly string[],
+  empresas: [...EMPRESAS_DEMO, ...ASEGURADORAS_DEMO] as readonly string[],
   /** `nombre`/`name` en las respuestas de clientes es el de una compañía o el de una persona: ambos demo. */
-  nombresOEmpresas: [...NOMBRES_DEMO, ...EMPRESAS_DEMO] as readonly string[],
+  nombresOEmpresas: [...NOMBRES_DEMO, ...EMPRESAS_DEMO, ...ASEGURADORAS_DEMO] as readonly string[],
+  /** Actor de la Bitácora: una persona demo o el actor automático `sistema` (no es un dato personal). */
+  actores: [...NOMBRES_DEMO, 'sistema'] as readonly string[],
   /** `documento` de un tercero: cédula si es persona, NIT si es compañía. Ambos del registro. */
   documentos: ['9900000101', '9900000202', '9900000303', '999000001-7', '999000002-5', '999000003-3'] as readonly string[],
 } as const;
@@ -72,6 +78,8 @@ export const DATOS_DEMO = {
  */
 export const CLAVES_SENSIBLES: Record<string, keyof typeof DATOS_DEMO> = {
   placa: 'placas',
+  phone: 'telefonos',
+  aseguradora: 'empresas',
   documento: 'documentos',
   receptorDocumento: 'cedulas',
   propietarioDocumento: 'cedulas',
@@ -100,6 +108,18 @@ export const CLAVES_SENSIBLES: Record<string, keyof typeof DATOS_DEMO> = {
   contactoNombre: 'nombres',
   receptorNombre: 'nombres',
   propietarioNombre: 'nombres',
+  // Área Corredor SOAT (HU #13771)
+  nombreCompleto: 'nombres',
+  numeroDocumento: 'documentos',
+  empresaNit: 'nits',
+  nitMonitoreado: 'nits',
+  alias: 'empresas',
+  proveedorSoatNombre: 'empresas',
+  enviadoPorNombre: 'nombres',
+  solicitadoPorNombre: 'nombres',
+  titular: 'nombres',
+  placaSugerida: 'placas',
+  actorNombre: 'actores',
 };
 
 // ── Licencia de tránsito (PDF417) ficticia ───────────────────────────────────
@@ -597,6 +617,244 @@ export const GASTOS_DIARIOS_DEMO = (() => {
   };
 })();
 
+// ── Área Corredor SOAT (HU #13771) ───────────────────────────────────────────
+// Trámites `FLIT-DEMO-…`, pólizas `DEMO-POL-…`, comparendos `99999…`: identificadores sintéticos.
+// Vehículos: placas, VIN y compradores del registro; marcas y organismos con su nombre real.
+
+const P = DATOS_DEMO.placas;
+const V = DATOS_DEMO.vins;
+const C = DATOS_DEMO.cedulas;
+const N = DATOS_DEMO.nits;
+
+/** `GET /api/flito/parametrizacion/proveedores-soat`: gestores de SOAT. */
+export const PROVEEDORES_SOAT_DEMO = [
+  { id: 'prov-demo-1', nombre: ASEGURADORAS_DEMO[0], estrategia: 'portal', umbralOcr: 0.85, slaHoras: 24, activo: true },
+  { id: 'prov-demo-2', nombre: ASEGURADORAS_DEMO[1], estrategia: 'correo', umbralOcr: 0.9, slaHoras: 48, activo: true },
+];
+
+// ── Tablero ──
+export const TABLERO_DEMO = {
+  soat: { pendiente: 4, solicitado: 6, con_novedad: 1, pagado: 12 },
+  impuestos: { pendiente: 3, solicitado: 5, con_novedad: 0, pagado: 9 },
+  revisionesPendientes: { soat: 2, impuestos: 1 },
+  estancados: { soat: 1, impuestos: 0 },
+  diferenciasDeValor: 1,
+  compuertaHabilitados: 3,
+  alertas: { borrador_5d: 2, sin_aprobar_ans: 0, soat_sin_gestion: 1, impuesto_sin_gestion: 0 },
+};
+
+// ── Bitácora ──
+export const BITACORA_DEMO = [
+  { id: 5, resource: 'flito_soat', resourceId: 'soat-demo-3', action: 'update', actorNombre: NOMBRES_DEMO[2], actorId: 1, detalle: 'Pago confirmado por factura', creadoEn: '2026-10-21T14:40:00Z' },
+  { id: 4, resource: 'flito_tramite', resourceId: 'tra-demo-2', action: 'update', actorNombre: 'sistema', actorId: null, detalle: 'Compuerta habilitada', creadoEn: '2026-10-21T14:05:00Z' },
+  { id: 3, resource: 'flito_impuesto', resourceId: 'imp-demo-2', action: 'update', actorNombre: NOMBRES_DEMO[3], actorId: 2, detalle: 'Recibo del impuesto cargado', creadoEn: '2026-10-21T13:30:00Z' },
+  { id: 2, resource: 'flito_revision', resourceId: 'rev-demo-1', action: 'create', actorNombre: 'sistema', actorId: null, detalle: 'Documento enviado a revisión por baja confianza', creadoEn: '2026-10-21T13:20:00Z' },
+  { id: 1, resource: 'flito_tramite', resourceId: 'tra-demo-1', action: 'create', actorNombre: 'sistema', actorId: null, detalle: 'Trámite leído de FLIT', creadoEn: '2026-10-21T12:00:00Z' },
+];
+
+// ── Revisiones OCR ──
+const campo = (valor: string, confianza: number) => ({ valor, confianza, confiable: confianza >= 0.85 });
+export const REVISIONES_DEMO = [
+  {
+    id: 'rev-demo-1', modulo: 'soat', motivo: 'confianza_insuficiente',
+    detalle: 'Algunos campos quedaron bajo el umbral de confianza del gestor.', registroId: null, placaSugerida: P[0],
+    extraccion: {
+      placa: campo(P[0], 0.97), vin: campo(V[0], 0.93), numeroPoliza: campo('DEMO-POL-0001', 0.62),
+      vigenciaDesde: campo('2026-10-15', 0.9), vigenciaHasta: campo('2027-10-14', 0.9), valorTotal: campo('740800', 0.88),
+      aseguradora: campo(ASEGURADORAS_DEMO[0], 0.71),
+    },
+    resuelto: false, creadoEn: '2026-10-21T13:20:00Z', soporte: { id: 'sop-demo-1', nombreArchivo: `poliza-${P[0]}.pdf` },
+  },
+  {
+    id: 'rev-demo-2', modulo: 'soat', motivo: 'llave_no_cruza',
+    detalle: 'La placa leída no corresponde a ningún SOAT de la cola.', registroId: null, placaSugerida: P[1],
+    extraccion: { placa: campo(P[1], 0.95), vin: campo(V[1], 0.9), numeroPoliza: campo('DEMO-POL-0002', 0.91) },
+    resuelto: false, creadoEn: '2026-10-21T11:05:00Z', soporte: { id: 'sop-demo-2', nombreArchivo: `poliza-${P[1]}.pdf` },
+  },
+];
+export const REVISION_CAMPOS_SOAT = ['placa', 'vin', 'numeroPoliza', 'vigenciaDesde', 'vigenciaHasta', 'valorTotal', 'aseguradora'];
+/** Candidatos del selector «Trámite contra el que se concilia» (lista corta de la cola SOAT). */
+export const REVISION_CANDIDATOS_SOAT = [
+  { id: 'soat-demo-1', vin: V[0], placa: P[0], marca: 'Chevrolet', linea: 'Onix' },
+  { id: 'soat-demo-2', vin: V[2], placa: P[2], marca: 'Renault', linea: 'Duster' },
+];
+/** PDF mínimo del soporte (una página con texto «documento demo»). */
+export const PDF_DEMO = '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n'
+  + '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n'
+  + '4 0 obj<</Length 52>>stream\nBT /F1 14 Tf 40 100 Td (Poliza SOAT - documento demo) Tj ET\nendstream endobj\n'
+  + '5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF';
+
+// ── Comparendos ──
+const FECHA_CONF = '2026-09-01T15:00:00Z';
+export const COMPARENDOS_NITS_DEMO = [
+  { id: 'nit-demo-1', nit: N[0], alias: EMPRESAS_DEMO[0], activo: true, creadoEn: FECHA_CONF, actualizadoEn: FECHA_CONF },
+  { id: 'nit-demo-2', nit: N[1], alias: EMPRESAS_DEMO[1], activo: true, creadoEn: FECHA_CONF, actualizadoEn: FECHA_CONF },
+];
+export const COMPARENDOS_MUNICIPIOS_DEMO = [
+  { id: 'mun-demo-1', codigoFuente: 'MANIZALES', nombre: 'Manizales', activo: true, creadoEn: FECHA_CONF, actualizadoEn: FECHA_CONF },
+  { id: 'mun-demo-2', codigoFuente: 'BOGOTA', nombre: 'Bogotá', activo: true, creadoEn: FECHA_CONF, actualizadoEn: FECHA_CONF },
+];
+export const COMPARENDOS_CAUSALES_DEMO = [
+  { id: 'cau-demo-1', nombre: 'Notificado al cliente', activo: true, orden: 1, creadoEn: FECHA_CONF, actualizadoEn: FECHA_CONF },
+  { id: 'cau-demo-2', nombre: 'En descargos', activo: true, orden: 2, creadoEn: FECHA_CONF, actualizadoEn: FECHA_CONF },
+];
+export const COMPARENDOS_TOKEN_DEMO = { configurado: true, actualizadoEn: FECHA_CONF, actualizadoPor: { id: 1, nombre: NOMBRES_DEMO[2] }, keyVersion: 1 };
+function comparendo(i: number, p: Record<string, unknown>) {
+  return {
+    id: `cmp-demo-${i}`, numeroComparendo: `9999900000000${i}`, nitMonitoreado: N[(i - 1) % 2], placa: P[(i - 1) % 3],
+    codigoInfraccion: 'C02', descripcionInfraccion: 'Estacionar en sitio prohibido', fechaComparendo: '2026-09-12',
+    fechaNotificacion: '2026-09-20', organismo: ORGANISMOS_REALES[0], municipioFuente: 'MANIZALES', municipioComparendo: 'MANIZALES',
+    monto: '604100.00', estadoFuente: 'PENDIENTE DE PAGO', tipoRegistro: 'comparendo', numeroResolucion: null,
+    origenMerge: 'ambos', vistoEnSimit: true, vistoEnMunicipal: true, estado: 'activo',
+    primeraVistoEn: '2026-09-21T13:00:00Z', ultimoVistoEn: '2026-10-21T13:00:00Z', inactivadoEn: null, ultimoSyncRunId: 'run-demo-1',
+    causalId: null, observacion: null, gestionActualizadaEn: null, gestionActualizadaPor: null,
+    creadoEn: '2026-09-21T13:00:00Z', actualizadoEn: '2026-10-21T13:00:00Z', ...p,
+  };
+}
+export const COMPARENDOS_REGISTROS_DEMO = {
+  nextCursor: null,
+  items: [
+    comparendo(1, { causalId: 'cau-demo-1', observacion: 'Se avisó al concesionario por correo.' }),
+    comparendo(2, { codigoInfraccion: 'C29', descripcionInfraccion: 'Exceder la velocidad permitida', monto: '1209100.00', organismo: ORGANISMOS_REALES[1], municipioFuente: 'BOGOTA', municipioComparendo: 'BOGOTA' }),
+    comparendo(3, { origenMerge: 'simit', vistoEnMunicipal: false, estado: 'inactivo', inactivadoEn: '2026-10-14T13:00:00Z', estadoFuente: null }),
+  ],
+};
+export const COMPARENDO_DETALLE_DEMO = {
+  ...COMPARENDOS_REGISTROS_DEMO.items[0],
+  eventos: [
+    { id: 'ev-demo-1', tipo: 'primera_llegada', syncRunId: 'run-demo-0', detalle: null, ocurridoEn: '2026-09-21T13:00:00Z' },
+  ],
+};
+const RESUMEN_SYNC = {
+  modo: 'real', nitsProcesados: 2, llamadasSimitOk: 2, llamadasSimitError: 0, llamadasMunicipalOk: 4, llamadasMunicipalError: 0,
+  upserts: 3, inactivados: 1, reactivados: 0, primeraLlegada: 1, itemsIgnorados: 0, nitsSinInactivacion: 0,
+  abortadaPorTiempo: false, inactivacionOmitida: null,
+};
+export const COMPARENDOS_RUNS_DEMO = [
+  { runId: 'run-demo-1', estado: 'completed', iniciadoEn: '2026-10-21T13:00:00Z', finalizadoEn: '2026-10-21T13:01:10Z', scopeNits: [N[0], N[1]], resumen: RESUMEN_SYNC, iniciadoPor: 1 },
+  { runId: 'run-demo-0', estado: 'completed', iniciadoEn: '2026-10-14T13:00:00Z', finalizadoEn: '2026-10-14T13:01:02Z', scopeNits: [N[0], N[1]], resumen: RESUMEN_SYNC, iniciadoPor: 1 },
+];
+
+// ── Clientes y proveedores ──
+export const CLIENTES_FICHA_DEMO = [
+  { soatSinTramite: true, gestorSoatSinTramite: { id: 'prov-demo-1', nombre: ASEGURADORAS_DEMO[0], activo: true } },
+  { soatSinTramite: false, gestorSoatSinTramite: null },
+  { soatSinTramite: true, gestorSoatSinTramite: null },
+].map((canal, i) => ({
+  id: 901 + i, name: EMPRESAS_DEMO[i], document: N[i], documentType: 'NIT',
+  phone: DATOS_DEMO.telefonos[i], email: i < 2 ? DATOS_DEMO.correos[i + 1] : null, address: null,
+  city: ['Manizales', 'Pereira', 'Bogotá'][i],
+  soatAutogestionable: i === 1, impuestosAutogestionable: false, logisticaAutogestionable: i === 2, logisticaPermiteParcial: i === 0,
+  ...canal,
+}));
+
+// ── Gestión Trámites ──
+function tramite(i: number, p: Record<string, unknown>) {
+  const k = (i - 1) % 3;
+  return {
+    fechaCreacion: '2026-10-20T15:00:00Z', tramiteId: `tra-demo-${i}`, idFlit: `FLIT-DEMO-${100 + i}`, estado: 'Asignado', asignado: true,
+    tipoTramite: 'Matricula', ciudad: 'Manizales', empresaExiste: true, empresaNit: N[k], secretariaEmparejada: true,
+    transitoNombre: ORGANISMOS_REALES[0], facturaVentaFlitId: null, companiaNombre: EMPRESAS_DEMO[k], organismoNombre: ORGANISMOS_REALES[0],
+    fuente: 'flit', vehiculo: { vin: V[k], placa: P[k], marca: 'Chevrolet', linea: 'Onix' },
+    compradorPrincipal: { nombreCompleto: NOMBRES_DEMO[k], numeroDocumento: C[k], tipoDocumento: 'CC', correo: null },
+    compradores: [{ nombreCompleto: NOMBRES_DEMO[k], numeroDocumento: C[k] }],
+    soat: { id: `soat-demo-${i}`, estado: 'pendiente', proveedorSoatNombre: null, valorPagado: null },
+    excepcionesAutogestion: [], soatAutogestionado: false,
+    impuesto: { id: `imp-demo-${i}`, estado: 'pendiente', tieneFacturaVenta: false, valorPagado: null },
+    listoParaEntregar: false, ...p,
+  };
+}
+export const TRAMITES_DEMO = {
+  items: [
+    tramite(1, {}),
+    tramite(2, {
+      tipoTramite: 'Traspaso', ciudad: 'Pereira', fuente: 'flit2', facturaVentaFlitId: 'fac-demo-2',
+      vehiculo: { vin: V[1], placa: P[1], marca: 'Renault', linea: 'Duster' },
+      soat: { id: 'soat-demo-2', estado: 'pagado', proveedorSoatNombre: ASEGURADORAS_DEMO[0], valorPagado: 740800 },
+      impuesto: { id: 'imp-demo-2', estado: 'pagado', tieneFacturaVenta: true, valorPagado: 120000 }, listoParaEntregar: true,
+    }),
+    tramite(3, {
+      fechaCreacion: '2026-10-19T15:00:00Z', vehiculo: { vin: V[2], placa: P[2], marca: 'Mazda', linea: 'CX-30' },
+      soat: { id: 'soat-demo-3', estado: 'solicitado', proveedorSoatNombre: ASEGURADORAS_DEMO[1], valorPagado: null },
+      impuesto: { id: 'imp-demo-3', estado: 'solicitado', tieneFacturaVenta: true, valorPagado: null },
+    }),
+    // Secretaría sin emparejar: se puede marcar (para descargar), pero Solicitar y Entregar no la cuentan.
+    tramite(4, {
+      fechaCreacion: '2026-10-18T15:00:00Z', secretariaEmparejada: false, transitoNombre: 'STT Villamaría', organismoNombre: null,
+      vehiculo: { vin: V[3], placa: P[3], marca: 'Kia', linea: 'Picanto' },
+    }),
+  ],
+  total: 4, page: 1, pageSize: 50,
+};
+export const TRAMITES_FACETAS_DEMO = {
+  estados: ['Asignado'], tramites: ['Matricula', 'Traspaso'], ciudades: ['Manizales', 'Pereira'], transitos: [...ORGANISMOS_REALES],
+};
+export const COMPANIAS_DEMO = CLIENTE_DEMO.map((c) => ({ id: c.id, nit: c.nit, nombre: c.name, logisticaAutogestionable: false }));
+const hora = (iso: string) => iso;
+export const SYNC_DEMO = {
+  interruptores: {
+    maestroFlit2: true,
+    fuentes: [
+      { fuente: 'flit1', encendido: true, actualizadoEn: hora('2026-10-20T13:00:00Z'), actualizadoPor: { id: 1, nombre: NOMBRES_DEMO[2] } },
+      { fuente: 'flit2', encendido: true, actualizadoEn: hora('2026-10-20T13:00:00Z'), actualizadoPor: { id: 1, nombre: NOMBRES_DEMO[2] } },
+    ],
+  },
+  estado1: { habilitada: true, motivoDeshabilitada: null, ultimaSincronizacion: '2026-10-21T14:58:00Z', hayTramites: true },
+  estado2: {
+    habilitada: true, motivoDeshabilitada: null, configurado: true, motivoSinConfigurar: null,
+    ultimaExitosaEn: '2026-10-21T14:57:00Z', ultimoIntentoEn: '2026-10-21T14:57:00Z', atrasada: false, alerta: false, problema: null,
+    piiEnmascarada: { tramites: 0, desde: null },
+    automatica: { activa: true, intervaloMs: 300_000, proximaEn: '2026-10-21T15:02:00Z', enCurso: false, generadoEn: '2026-10-21T15:00:00Z' },
+  },
+  lectura1: { ultimaLecturaBuenaEn: '2026-10-21T14:58:00Z', proximaLecturaPrevistaEn: '2026-10-21T15:00:00Z', ultimoFallo: null },
+};
+
+// ── Cola SOAT ──
+function soat(i: number, p: Record<string, unknown>) {
+  const k = (i - 1) % 3;
+  return {
+    id: `soat-demo-${i}`, vin: V[k], placa: P[k], marca: 'Chevrolet', linea: 'Onix', cilindraje: '1389', carroceria: 'SEDAN',
+    tipoServicio: 'Particular', estado: 'pendiente', esMultiplePropietario: false, companiaNombre: EMPRESAS_DEMO[k],
+    organismoNombre: ORGANISMOS_REALES[0], proveedorSoatId: null, proveedorSoatNombre: null,
+    compradores: [{ nombreCompleto: NOMBRES_DEMO[k], numeroDocumento: C[k], tipoDocumento: 'CC', orden: 0, porcentajeParticipacion: null }],
+    tramitesFlit: [`FLIT-DEMO-${100 + i}`], tipoTramite: 'Matricula', fechaAprobacion: null, fechaCreacion: '2026-10-20T15:00:00Z',
+    enviadoPorNombre: null, enviadoEn: null, pagadoEn: null, valorPagado: null, estancado: false, motivoRechazo: null,
+    creadoEn: '2026-10-20T15:10:00Z', gestionOperaciones: false, ...p,
+  };
+}
+export const SOAT_COLA_DEMO = [
+  soat(1, {}),
+  soat(2, {
+    estado: 'pagado', marca: 'Renault', linea: 'Duster', proveedorSoatId: 'prov-demo-1', proveedorSoatNombre: ASEGURADORAS_DEMO[0],
+    enviadoPorNombre: NOMBRES_DEMO[2], enviadoEn: '2026-10-20T16:00:00Z', pagadoEn: '2026-10-21T13:00:00Z', valorPagado: 740800,
+  }),
+  soat(3, {
+    estado: 'solicitado', marca: 'Mazda', linea: 'CX-30', carroceria: 'SUV', proveedorSoatId: 'prov-demo-2', proveedorSoatNombre: ASEGURADORAS_DEMO[1],
+    enviadoPorNombre: NOMBRES_DEMO[2], enviadoEn: '2026-10-21T12:00:00Z',
+  }),
+];
+export const SOAT_FACETAS_DEMO = {
+  companias: CLIENTE_DEMO.map((c) => ({ id: c.id, nombre: c.name })),
+  organismos: [{ codigo: '17001', nombre: ORGANISMOS_REALES[0] }, { codigo: '11001', nombre: ORGANISMOS_REALES[1] }],
+  proveedores: PROVEEDORES_SOAT_DEMO.map((p) => ({ id: p.id, nombre: p.nombre })),
+};
+/** Una solicitud del canal SOAT sin trámite guardada «por validar» (el RUNT no respondió). */
+export const SOAT_POR_VALIDAR_DEMO = {
+  id: 'inc-demo-1', estado: 'incompleta', vin: V[2], companiaId: 903, companiaNombre: EMPRESAS_DEMO[2],
+  placa: null, marca: null, linea: null, titular: NOMBRES_DEMO[1], solicitadoPorNombre: NOMBRES_DEMO[3],
+  solicitadoEn: '2026-10-21T13:40:00Z', intentos: 1, ultimoIntentoRuntEn: '2026-10-21T13:41:00Z', descarte: null, soatId: null,
+};
+
+/** `GET /api/flito/soat/cliente/companias` para un Cliente con enlace: su compañía, fija. */
+export const SOAT_COMPANIAS_CANAL_DEMO = { fija: true, companias: [{ id: 901, nombre: EMPRESAS_DEMO[0] }] };
+/** Documentos adicionales de un SOAT (detalle): `{ documentos }`. La URL es un marcador sin destino. */
+export const SOAT_DOCUMENTOS_ADICIONALES_DEMO = {
+  documentos: [
+    { id: 'doc-demo-1', etiqueta: 'Tarjeta de propiedad', tipoContenido: 'application/pdf', tamanoBytes: 245760,
+      subidoEn: '2026-10-20T16:05:00Z', subidoPorNombre: NOMBRES_DEMO[3], url: '/api/files?demo=1' },
+  ],
+};
+
 /** Usuario de sesión de las capturas del área Facturación (HU #13770): Administrador demo. */
 export const NOMBRE_ADMIN_DEMO = NOMBRES_DEMO[2];
 
@@ -618,8 +876,9 @@ export const FIXTURES_DEMO: Record<string, unknown> = {
   SIIGO_TERCEROS_DEMO,
   // El `nombre` de un producto de Siigo no es de una persona: se recorre con otra clave.
   // El `nombre` de un archivo no es de una persona: se recorre con otra clave.
-  COMPROBANTES_DEMO: COMPROBANTES_DEMO.items.map(({ archivo, ...c }) => ({ ...c, archivoNombre: archivo.nombre })),
-  COMPROBANTE_DETALLE_DEMO: (({ archivo, ...c }) => ({ ...c, archivoNombre: archivo.nombre }))(COMPROBANTE_DETALLE_DEMO),
+  // El `numeroDocumento` de un comprobante es el número de la factura (`DEMO-…`), no el de una persona (HU #13771).
+  COMPROBANTES_DEMO: COMPROBANTES_DEMO.items.map(({ archivo, numeroDocumento, ...c }) => ({ ...c, archivoNombre: archivo.nombre, numeroComprobante: numeroDocumento })),
+  COMPROBANTE_DETALLE_DEMO: (({ archivo, numeroDocumento, ...c }) => ({ ...c, archivoNombre: archivo.nombre, numeroComprobante: numeroDocumento }))(COMPROBANTE_DETALLE_DEMO),
   CONCILIACION_BOLETAS_DEMO,
   CONCILIACION_DETALLE_DEMO,
   BOLSAS_RIESGO_DEMO,
@@ -635,6 +894,28 @@ export const FIXTURES_DEMO: Record<string, unknown> = {
   // `nombre` de una faceta es el de una empresa demo o el de un organismo (nombre real permitido).
   REPORTE_FACETAS_DEMO: { ...REPORTE_FACETAS_DEMO, organismos: REPORTE_FACETAS_DEMO.organismos.map(({ nombre, ...o }) => ({ ...o, organismo: nombre })) },
   SIIGO_PRODUCTOS_DEMO: SIIGO_PRODUCTOS_DEMO.items.map(({ nombre, ...p }) => ({ ...p, nombreProducto: nombre })),
+  // ── Área Corredor SOAT (HU #13771) ──
+  PROVEEDORES_SOAT_DEMO,
+  BITACORA_DEMO,
+  // `extraccion` trae objetos {valor, confianza}: se recorre el valor leído bajo la misma clave.
+  REVISIONES_DEMO: REVISIONES_DEMO.map((r) => ({
+    ...r, extraccion: Object.fromEntries(Object.entries(r.extraccion).map(([k, c]) => [k, c.valor])),
+  })),
+  REVISION_CANDIDATOS_SOAT,
+  COMPARENDOS_NITS_DEMO,
+  COMPARENDOS_TOKEN_DEMO,
+  COMPARENDOS_REGISTROS_DEMO,
+  COMPARENDO_DETALLE_DEMO,
+  CLIENTES_FICHA_DEMO,
+  TRAMITES_DEMO,
+  COMPANIAS_DEMO,
+  SYNC_DEMO,
+  SOAT_COLA_DEMO,
+  // `nombre` de un organismo de tránsito: nombre real permitido; se recorre con otra clave.
+  SOAT_FACETAS_DEMO: { ...SOAT_FACETAS_DEMO, organismos: SOAT_FACETAS_DEMO.organismos.map(({ nombre, ...o }) => ({ ...o, organismo: nombre })) },
+  SOAT_POR_VALIDAR_DEMO,
+  SOAT_COMPANIAS_CANAL_DEMO,
+  SOAT_DOCUMENTOS_ADICIONALES_DEMO,
 };
 
 // ── Interceptación de /api ───────────────────────────────────────────────────
