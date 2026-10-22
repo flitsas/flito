@@ -498,4 +498,49 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
       }
     });
   }
+
+  // HU #13775 — Tablero de control (General) y Organismos de tránsito (grupo Tránsito): misma comprobación que
+  // ADMIN_13774. Las dos nacen en 1.0. «Sin rutas» admite solo el enlace interno a otra ficha de la Ayuda
+  // (`/flito/ayuda/<clave>`), que es el aviso de AC2 en «Cómo se entra» del Tablero de control.
+  const TRANSITO_13775: Record<string, { version: string; capturas: string[]; diagrama: string | null }> = {
+    dashboard: { version: '1.0', diagrama: 'que-ve-al-entrar.svg', capturas: ['01-estado-operativo.png', '02-atencion-y-atajos.png'] },
+    transito_organismos: { version: '1.0', diagrama: 'cambio-de-modalidad.svg', capturas: [
+      '01-organismos.png', '02-general.png', '03-autogestion.png', '04-plantilla.png'] },
+  };
+
+  for (const [clave, esperado] of Object.entries(TRANSITO_13775)) {
+    test(`HU #13775 — ${clave}: versión ${esperado.version} del 2026-10-22, capturas y diagrama con alt`, () => {
+      const md = leer(`apps/web/src/content/ayuda/${clave}.md`);
+      const { encabezado, errores } = parsearFicha(md);
+      expect(errores, clave).toEqual([]);
+      expect(encabezado!.version, `${clave} · version`).toBe(esperado.version);
+      expect(String(encabezado!.fecha), `${clave} · fecha`).toBe('2026-10-22');
+      // AC4 — sin rutas de API ni rutas de la app en el texto (salvo el enlace interno a otra ficha).
+      const sinEnlacesAyuda = md.replace(/\]\(\/flito\/ayuda\/[a-z_]+(#[a-z0-9-]+)?\)/g, ']()');
+      expect(sinEnlacesAyuda, `${clave} · sin rutas`).not.toMatch(/`\/|\/api\/|\/flito\//);
+
+      const dir = resolve(raiz, 'apps/web/public/ayuda', clave);
+      const capturas = [...md.matchAll(new RegExp(`!\\[([^\\]]*)\\]\\(\\./${clave}/(\\d{2}-[a-z0-9-]+\\.png)\\)`, 'g'))];
+      expect(capturas.map((m) => m[2]), `${clave} · capturas`).toEqual(esperado.capturas);
+      for (const [, alt, archivo] of capturas) {
+        expect(alt.trim().length, `${clave}/${archivo} · alt`).toBeGreaterThan(10);
+        const ruta = resolve(dir, archivo);
+        expect(existsSync(ruta), `${clave}/${archivo} en disco`).toBe(true);
+        expect(statSync(ruta).size, `${clave}/${archivo} ≤ 200 KB`).toBeLessThanOrEqual(200 * 1024);
+        const linea = md.split('\n').find((l) => l.includes(`(./${clave}/${archivo})`));
+        expect(linea, `${clave}/${archivo} · dentro de su paso`).toMatch(/^\d+\. /);
+      }
+
+      const pasos = md.slice(md.indexOf('## Pasos')).split(/\n(?=## )/)[0];
+      const listas = parseMarkdown(pasos).filter((b) => b.type === 'ol');
+      expect(listas.length, `${clave} · listas ordenadas en Pasos`).toBe(1);
+
+      const diagramas = [...md.matchAll(new RegExp(`!\\[([^\\]]*)\\]\\(\\./${clave}/([a-z0-9-]+\\.svg)\\)`, 'g'))];
+      expect(diagramas.map((m) => m[2]), `${clave} · diagramas`).toEqual(esperado.diagrama ? [esperado.diagrama] : []);
+      for (const [, alt, archivo] of diagramas) {
+        expect(alt.trim().length, `${clave}/${archivo} · alt`).toBeGreaterThan(10);
+        expect(existsSync(resolve(dir, archivo)), `${clave}/${archivo} en disco`).toBe(true);
+      }
+    });
+  }
 });

@@ -1186,6 +1186,52 @@ export const SIIGO_PRUEBA_DEMO = {
 /** Usuario de sesión de las capturas del área Facturación (HU #13770): Administrador demo. */
 export const NOMBRE_ADMIN_DEMO = NOMBRES_DEMO[2];
 
+// ── Tablero de control y Organismos de tránsito (HU #13775) ──
+
+/** Panel operativo (`/`): solo conteos, sin datos personales. */
+export const PANEL_SOAT_STATS_DEMO = { totalVehicles: 48, pendiente: 3, enviado: 2, comprado: 5, verificado: 36, rechazado: 1 };
+export const PANEL_VENCIMIENTOS_DEMO = {
+  count: 4,
+  data: [{ estado: 'vencido' }, { estado: 'por_vencer' }, { estado: 'por_vencer' }, { estado: 'por_vencer' }],
+};
+export const PANEL_RNDC_DEMO = { total: 2, data: [{ id: 1 }, { id: 2 }] };
+
+/**
+ * Organismos de tránsito: nombre, ciudad y código reales (entidad pública, códigos públicos); alias y
+ * logo de demo. Sin correos, teléfonos, NIT ni direcciones. `nombre` y `alias` del organismo se recorren
+ * con otra clave en `FIXTURES_DEMO` (no son de una persona ni de una empresa).
+ */
+export const ORGANISMOS_CONFIG_DEMO = [
+  {
+    codigo: '17001000', nombre: ORGANISMOS_REALES[0], ciudad: 'Manizales', alias: 'Movilidad Manizales',
+    logoUrl: null, logoUrlExterno: null, logoStorageKey: null, activo: true, userCount: 2, updatedAt: '2026-10-15T15:00:00.000Z',
+  },
+  {
+    codigo: '11001000', nombre: ORGANISMOS_REALES[1], ciudad: 'Bogotá', alias: null,
+    logoUrl: null, logoUrlExterno: null, logoStorageKey: null, activo: true, userCount: 0, updatedAt: null,
+  },
+];
+export const ORGANISMOS_MODALIDAD_DEMO = [
+  {
+    codigo: '17001000', nombre: ORGANISMOS_REALES[0], alias: 'Movilidad Manizales', activo: true,
+    modalidadVigente: 'requiere_gestion', umbralOcr: 0.85, slaHoras: 48, diferenciaValorActiva: true, tramitesRetenidos: 0,
+  },
+];
+/** Historial de modalidad: actor = persona demo; el motivo es texto de operación, sin datos personales. */
+export const ORGANISMO_VIGENCIAS_DEMO = [
+  {
+    id: 'vig-demo-2', modalidad: 'requiere_gestion', desde: '2026-09-01T05:00:00.000Z', hasta: null,
+    motivo: 'El organismo pidió que FLITO radique los trámites', actorNombre: NOMBRES_DEMO[2], creadoEn: '2026-09-01T15:00:00.000Z',
+  },
+  {
+    id: 'vig-demo-1', modalidad: 'autogestionado', desde: '2026-03-01T05:00:00.000Z', hasta: '2026-09-01T05:00:00.000Z',
+    motivo: 'Modalidad inicial', actorNombre: NOMBRES_DEMO[3], creadoEn: '2026-03-01T15:00:00.000Z',
+  },
+];
+export const ORGANISMO_PLANTILLA_DEMO = {
+  override: { hide: [], require: [], add: [{ id: 'paz_y_salvo_municipal', label: 'Paz y salvo municipal', obligatorio: true }] },
+};
+
 /** Todos los fixtures que pinta alguna captura. La prueba de datos ficticios los recorre. */
 export const FIXTURES_DEMO: Record<string, unknown> = {
   MI_RUTA_DEMO,
@@ -1284,6 +1330,15 @@ export const FIXTURES_DEMO: Record<string, unknown> = {
   DRIVE_PROCESO_DEMO,
   SIIGO_CREDENCIALES_DEMO,
   SIIGO_PRUEBA_DEMO,
+  // ── Tablero de control y Organismos de tránsito (HU #13775) ──
+  PANEL_SOAT_STATS_DEMO,
+  PANEL_VENCIMIENTOS_DEMO,
+  PANEL_RNDC_DEMO,
+  // `nombre` y `alias` de un organismo de tránsito: nombre real permitido (entidad pública); se recorren con otra clave.
+  ORGANISMOS_CONFIG_DEMO: ORGANISMOS_CONFIG_DEMO.map(({ nombre, alias, ...o }) => ({ ...o, organismo: nombre, aliasOrganismo: alias })),
+  ORGANISMOS_MODALIDAD_DEMO: ORGANISMOS_MODALIDAD_DEMO.map(({ nombre, alias, ...o }) => ({ ...o, organismo: nombre, aliasOrganismo: alias })),
+  ORGANISMO_VIGENCIAS_DEMO,
+  ORGANISMO_PLANTILLA_DEMO,
 };
 
 // ── Interceptación de /api ───────────────────────────────────────────────────

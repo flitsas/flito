@@ -21,7 +21,7 @@ import { mkdirSync, readdirSync, statSync, unlinkSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { ADMIN_USER, CLIENTE_CON_CANAL, loginAs, MENSAJERO_USER } from '../helpers/auth';
+import { ADMIN_USER, CLIENTE_CON_CANAL, FUNCIONES_POR_ROL, loginAs, MENSAJERO_USER } from '../helpers/auth';
 import {
   BOLSAS_DEMO,
   BOLSAS_RIESGO_DEMO,
@@ -109,6 +109,13 @@ import {
   USUARIOS_HISTORIAL_DEMO,
   USUARIOS_RESUMEN_DEMO,
   USUARIOS_TITULARES_DEMO,
+  ORGANISMO_PLANTILLA_DEMO,
+  ORGANISMO_VIGENCIAS_DEMO,
+  ORGANISMOS_CONFIG_DEMO,
+  ORGANISMOS_MODALIDAD_DEMO,
+  PANEL_RNDC_DEMO,
+  PANEL_SOAT_STATS_DEMO,
+  PANEL_VENCIMIENTOS_DEMO,
 } from '../helpers/datos-demo';
 import { accion, arbolRol, codigosDe, elemento, item, opcional, type NodoDef } from '../helpers/arbolPermisos';
 
@@ -169,7 +176,7 @@ const ADMIN_DEMO = { ...ADMIN_USER, username: 'admin_demo', name: NOMBRE_ADMIN_D
  * Entra como el Administrador demo con el reloj fijo (21-oct-2026, 10:00 hora de Colombia): periodos,
  * «últimos 30 días» y fechas por defecto salen iguales en cada corrida.
  */
-async function entrarComoAdminDemo(page: Page) {
+async function entrarComoAdminDemo(page: Page, user: Parameters<typeof loginAs>[1] = ADMIN_DEMO) {
   // Desplaza `Date` (no lo congela: los temporizadores siguen corriendo con normalidad).
   await page.addInitScript({ content: `(() => {
     const Real = Date;
@@ -180,7 +187,7 @@ async function entrarComoAdminDemo(page: Page) {
     }
     window.Date = Demo;
   })();` });
-  await entrarComoDemo(page, ADMIN_DEMO);
+  await entrarComoDemo(page, user);
 }
 
 type RegistroApi = Awaited<ReturnType<typeof interceptarApiDemo>>;
@@ -970,6 +977,78 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await capturar(page, dir, '02-por-estado');
 
     comprobarCierre(api, dir, ['01-indicadores-y-alertas.png', '02-por-estado.png']);
+  });
+
+  // HU #13775 — Tablero de control: el Panel operativo de `/`. Lo ve quien NO tiene el Tablero FLITO
+  // (`tablero.tablero.ver`), así que el Administrador demo entra sin esa función.
+  test('dashboard @capturas', async ({ page }) => {
+    const dir = prepararCarpeta('dashboard');
+    const api = await interceptarApiDemo(page, [
+      [/\/api\/soat\/stats$/, () => ({ body: PANEL_SOAT_STATS_DEMO })],
+      [/\/api\/fleet\/documents\/expiring$/, () => ({ body: PANEL_VENCIMIENTOS_DEMO })],
+      [/\/api\/rndc\/manifiestos$/, () => ({ body: PANEL_RNDC_DEMO })],
+    ]);
+    const sinTableroFlito = { ...ADMIN_DEMO, funciones: FUNCIONES_POR_ROL.admin.filter((f) => f !== 'tablero.tablero.ver') };
+    await entrarComoAdminDemo(page, sinTableroFlito);
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: 'Estado operativo' })).toBeVisible();
+    await expect(page.getByText('36 de 45')).toBeVisible();
+
+    // Paso 1 — Estado operativo con sus cuatro indicadores y las tarjetas Flota y Salud SOAT.
+    await page.waitForTimeout(1500); // los contadores animados terminan de subir
+    const mostrarBarra = await sinBarraFlotante(page);
+    await sinFoco(page);
+    await capturar(page, dir, '01-estado-operativo');
+
+    // Paso 3 — Atención operativa y la fila de atajos.
+    await page.getByRole('region', { name: 'Atención operativa' }).evaluate((el) => el.scrollIntoView({ block: 'start' }));
+    await sinFoco(page);
+    await capturar(page, dir, '02-atencion-y-atajos');
+    await mostrarBarra();
+
+    comprobarCierre(api, dir, ['01-estado-operativo.png', '02-atencion-y-atajos.png']);
+  });
+
+  // HU #13775 — Organismos de tránsito: tabla y las tres pestañas de Editar. No se guarda nada.
+  test('transito_organismos @capturas', async ({ page }) => {
+    const dir = prepararCarpeta('transito_organismos');
+    const api = await interceptarApiDemo(page, [
+      [/\/api\/transito\/organismos-config\/[^/]+\/checklist\/[^/]+$/, () => ({ body: ORGANISMO_PLANTILLA_DEMO })],
+      [/\/api\/transito\/organismos-config$/, () => ({ body: ORGANISMOS_CONFIG_DEMO })],
+      [/\/api\/flito\/parametrizacion\/organismos\/[^/]+\/vigencias$/, () => ({ body: ORGANISMO_VIGENCIAS_DEMO })],
+      [/\/api\/flito\/parametrizacion\/organismos$/, () => ({ body: ORGANISMOS_MODALIDAD_DEMO })],
+    ]);
+    await entrarComoAdminDemo(page);
+    await page.goto('/transito/organismos');
+    await expect(page.getByText(ORGANISMOS_CONFIG_DEMO[0].codigo)).toBeVisible();
+
+    // Paso 1 — La tabla con el buscador.
+    await sinFoco(page);
+    await capturar(page, dir, '01-organismos');
+
+    // Paso 2 — Editar, pestaña General.
+    await page.getByRole('button', { name: 'Editar' }).first().click();
+    const editar = page.getByRole('dialog');
+    await expect(editar).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '02-general', editar);
+
+    // Paso 3 — Pestaña Autogestión con el historial de vigencias.
+    await editar.getByRole('button', { name: 'Autogestión' }).click();
+    const vigencia = editar.getByText(ORGANISMO_VIGENCIAS_DEMO[0].motivo, { exact: false });
+    await expect(vigencia).toBeVisible();
+    // La ventana se desplaza hasta el historial: es lo que el paso explica junto al cambio de modalidad.
+    await vigencia.evaluate((el) => el.scrollIntoView({ block: 'end' }));
+    await sinFoco(page);
+    await capturar(page, dir, '03-autogestion', editar);
+
+    // Paso 5 — Pestaña Plantilla documentos con un anexo propio del organismo.
+    await editar.getByRole('button', { name: 'Plantilla documentos' }).click();
+    await expect(editar.getByText(ORGANISMO_PLANTILLA_DEMO.override.add[0].label)).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '04-plantilla', editar);
+
+    comprobarCierre(api, dir, ['01-organismos.png', '02-general.png', '03-autogestion.png', '04-plantilla.png']);
   });
 
   test('flito_bitacora @capturas', async ({ page }) => {

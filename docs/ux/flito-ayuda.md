@@ -22,6 +22,8 @@
 > en la URL directa del **índice** sin fichas visibles (HU-2, P9-3a); (3) el copy «capítulo» → «ficha».
 > Lo demás de este documento sigue vigente.
 
+> **Anexo HU #13775.** Grupo Tránsito y ficha «Tablero de control»: [flito-ayuda-transito.md](flito-ayuda-transito.md).
+
 ---
 
 ## Contexto y roles
