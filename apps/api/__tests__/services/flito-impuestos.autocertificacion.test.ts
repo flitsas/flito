@@ -216,6 +216,24 @@ describe('idempotencia y guardas', () => {
   });
 });
 
+describe('RN-12827-M — la vía se recalcula con la regla compartida (argumentosConsultaRunt)', () => {
+  it('matrícula con documento Y VIN, consultada por VIN → certifica (repro FLIT-0132399)', async () => {
+    escenario({ fila: { tipoTramite: 'Matrícula' } });
+    const certs = capturar('insert', T_CERT, 'values');
+    await pasoAutocertificacion(ctx({ consultaRunt: consultaOk(dataRunt(), 'vin') }));
+    expect(consultarVehiculoRunt).not.toHaveBeenCalled();
+    expect(certs).toHaveLength(1);
+    expect(certs[0]).toMatchObject({ impuestoId: ID, vigente: true, documentoConsultado: null, vinConsultado: VIN });
+  });
+
+  it('traspaso con documento pero consulta por VIN → no certifica (el mismatch sigue protegiendo)', async () => {
+    escenario({ fila: { tipoTramite: 'Traspaso' } });
+    await pasoAutocertificacion(ctx({ consultaRunt: consultaOk(dataRunt(), 'vin') }));
+    expect(kdb.insert).not.toHaveBeenCalled();
+    expect(kdb.update).not.toHaveBeenCalled();
+  });
+});
+
 describe('carrera con una certificación manual (23505 del índice único parcial)', () => {
   const pii = `Failed query: insert params: ${PLACA},${DOC},${VIN}`;
   it.each([

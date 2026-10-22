@@ -46,6 +46,12 @@ const estado = {
   soltar: true,
   reintentos: 0,
   descargas: 0,
+  /** Páginas de la cola pedidas (HU #12827: el sondeo pide la misma página, una vez por tick). */
+  paginas: [] as string[],
+  /** Cuántos GET de detalle por id (HU #12827: el sondeo NO pide el detalle fila por fila). */
+  detalles: 0,
+  /** Próximas peticiones de la cola que fallan con 500 (HU #12827: el sondeo las ignora). */
+  falloCola: 0,
 };
 
 async function mock(page: import('@playwright/test').Page) {
@@ -54,12 +60,17 @@ async function mock(page: import('@playwright/test').Page) {
   estado.soltar = true;
   estado.reintentos = 0;
   estado.descargas = 0;
+  estado.paginas = [];
+  estado.detalles = 0;
+  estado.falloCola = 0;
   await page.route(/\/api\/flito\/impuestos\/facetas/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ companias: [], organismos: [] }) }));
-  await page.route(/\/api\/flito\/impuestos\?/, (route) => route.fulfill({
+  await page.route(/\/api\/flito\/impuestos\?/, (route) => estado.falloCola > 0
+    ? (estado.falloCola -= 1, route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'boom interno' }) }))
+    : (estado.paginas.push(new URL(route.request().url()).searchParams.get('page') ?? ''), route.fulfill({
     status: 200, contentType: 'application/json',
     body: JSON.stringify({ items: estado.filas, total: estado.filas.length, page: 1, pageSize: 50 }),
-  }));
+  })));
   await page.route(/\/api\/flito\/impuestos\/[a-z0-9]+\/certificado$/, (route) => {
     estado.descargas += 1;
     return route.fulfill({ status: 200, contentType: 'application/pdf', body: '%PDF-1.4\n%%EOF' });
@@ -67,6 +78,13 @@ async function mock(page: import('@playwright/test').Page) {
   await page.route(/\/api\/flito\/impuestos\/[a-z0-9]+\/reanalizar$/, async (route) => {
     estado.reintentos += 1;
     while (!estado.soltar) await new Promise((r) => setTimeout(r, 50));
+    // Como el API: encolar (202) o encontrarlo ya encolado deja la fila `en_curso` en el servidor,
+    // que es lo que el sondeo de la HU #12827 lee después.
+    const code = (estado.reanalizar.body as { code?: string } | null)?.code;
+    if (estado.reanalizar.status === 202 || code === 'ANALISIS_EN_CURSO') {
+      const id = new URL(route.request().url()).pathname.split('/').slice(-2)[0];
+      estado.filas = estado.filas.map((f) => f.id === id ? { ...f, analisisEstado: 'en_curso' } : f);
+    }
     await route.fulfill({
       status: estado.reanalizar.status, contentType: 'application/json', body: JSON.stringify(estado.reanalizar.body),
     });
@@ -75,6 +93,7 @@ async function mock(page: import('@playwright/test').Page) {
     const id = new URL(route.request().url()).pathname.split('/').pop()!;
     const f = estado.filas.find((x) => x.id === id);
     if (!f) return route.fallback();
+    estado.detalles += 1;
     const motivo = f.analisisEstado === 'error_analisis' ? null : (f.motivoSemaforo as string | null);
     return route.fulfill({
       status: 200, contentType: 'application/json',
@@ -167,7 +186,7 @@ test.describe('FLITO — Impuestos · reintentar validación (HU #12832)', () =>
     await expect(seccion.getByRole('button', { name: 'Reintentar validación' })).toHaveCount(0);
   });
 
-  test('AC3 · 202: botón ocupado, fila a «Analizando», toast cerrable y al refrescar el semáforo nuevo', async ({ page }) => {
+  test('AC3 · 202: botón ocupado, fila a «Analizando», toast cerrable y el semáforo nuevo llega solo, sin recargar', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page);
     await page.goto('/flito/impuestos');
@@ -183,20 +202,54 @@ test.describe('FLITO — Impuestos · reintentar validación (HU #12832)', () =>
     await expect(modal).toHaveCount(0);
     expect(estado.reintentos).toBe(1);
     await expect(filaDe(page, 'ROJ001').getByTestId('validacion-analizando')).toBeVisible();
-    const toast = page.getByRole('status').filter({ hasText: 'Validación en cola. El semáforo nuevo aparece al actualizar la cola.' });
+    const toast = page.getByRole('status').filter({ hasText: 'Validación en cola. El semáforo se actualiza solo en cuanto termine.' });
     await expect(toast).toBeVisible();
     await toast.getByRole('button', { name: 'Cerrar aviso' }).click();
     await expect(toast).toHaveCount(0);
 
-    // El job terminó: al refrescar la cola llegan el semáforo y la certificación nuevos.
+    // El job terminó: el sondeo en segundo plano (HU #12827) trae el semáforo y la certificación
+    // nuevos SIN recargar la página ni la cola.
     estado.filas = estado.filas.map((f) => f.id === 'r1'
       ? { ...f, analisisEstado: 'completado', semaforo: 'verde', motivoSemaforo: null, certificacion: CERT_AUTO }
       : f);
-    await page.reload();
+    const filas = page.getByRole('row');
+    const orden = await filas.allInnerTexts().then((t) => t.map((x) => x.split('\t')[0]));
+    const detalles = estado.detalles;
     const r1 = filaDe(page, 'ROJ001');
-    await expect(r1.locator('[data-semaforo="verde"]')).toBeVisible();
+    await expect(r1.locator('[data-semaforo="verde"]')).toBeVisible({ timeout: 20_000 });
     await expect(r1.getByRole('button', { name: 'Descargar certificado en PDF' })).toBeVisible();
+    // Una sola petición por tick: la misma página de la cola, nunca el detalle de cada fila en curso.
+    expect(estado.detalles).toBe(detalles);
+    expect(new Set(estado.paginas)).toEqual(new Set(['1']));
+    expect(estado.paginas.length).toBeGreaterThan(1);
+    // Parche en sitio: ni reordena ni repagina la tabla.
+    expect(await filas.allInnerTexts().then((t) => t.map((x) => x.split('\t')[0]))).toEqual(orden);
     await expect(r1.getByRole('button', { name: 'Certificar' })).toHaveCount(0);
+  });
+
+  test('HU #12827 · un error del sondeo no rompe la vista: se ignora y el resultado llega en un tick posterior', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/impuestos');
+
+    const modal = await abrirModal(page, 'ROJ001');
+    await modal.getByRole('button', { name: 'Reintentar validación' }).click();
+    await expect(modal).toHaveCount(0);
+    const r1 = filaDe(page, 'ROJ001');
+    await expect(r1.getByTestId('validacion-analizando')).toBeVisible();
+
+    // Los dos próximos ticks del sondeo reciben 500: la tabla sigue igual, sin aviso ni texto crudo.
+    estado.falloCola = 2;
+    await expect.poll(() => estado.falloCola, { timeout: 25_000 }).toBe(0);
+    await expect(r1.getByTestId('validacion-analizando')).toBeVisible();
+    await expect(page.getByText('boom interno')).toHaveCount(0);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+
+    // El API vuelve a responder con el job terminado: el semáforo llega solo en el tick siguiente.
+    estado.filas = estado.filas.map((f) => f.id === 'r1'
+      ? { ...f, analisisEstado: 'completado', semaforo: 'verde', motivoSemaforo: null }
+      : f);
+    await expect(r1.locator('[data-semaforo="verde"]')).toBeVisible({ timeout: 20_000 });
   });
 
   test('AC3 · 202 desde el detalle: la sección pasa a «en curso» y el botón se va', async ({ page }) => {
@@ -210,6 +263,17 @@ test.describe('FLITO — Impuestos · reintentar validación (HU #12832)', () =>
     await expect(seccion).toContainText('La validación está en curso.');
     await expect(seccion.getByRole('button', { name: 'Reintentar validación' })).toHaveCount(0);
     await expect(page.getByRole('status').filter({ hasText: 'Validación en cola.' })).toBeVisible();
+    await expect(seccion).toContainText('El resultado aparece aquí en cuanto termine.');
+
+    // HU #12827: con el detalle abierto, el resultado llega solo (sin cerrar ni recargar).
+    estado.filas = estado.filas.map((f) => f.id === 'e1'
+      ? { ...f, analisisEstado: 'completado', semaforo: 'verde', motivoSemaforo: null }
+      : f);
+    await expect(seccion).not.toContainText('La validación está en curso.', { timeout: 20_000 });
+    await expect(page.getByRole('row').filter({ hasText: 'ERR001' }).locator('[data-semaforo="verde"]')).toBeVisible();
+    // HU #12827: el detalle abierto muestra el resultado nuevo, no vuelve al rojo con los datos viejos.
+    await expect(seccion.getByTestId('validacion-sin-validar')).toHaveCount(0);
+    await expect(seccion.getByRole('button', { name: 'Reintentar validación' })).toHaveCount(0);
   });
 
   test('AC3 · 409 SIN_ANALISIS: copy claro dentro del modal, sin toast ni texto crudo', async ({ page }) => {
@@ -239,7 +303,7 @@ test.describe('FLITO — Impuestos · reintentar validación (HU #12832)', () =>
 
     const modal = await abrirModal(page, 'ROJ001');
     await modal.getByRole('button', { name: 'Reintentar validación' }).click();
-    await expect(modal.getByRole('alert')).toHaveText('Esta validación ya está en curso. Actualiza la cola en unos minutos.');
+    await expect(modal.getByRole('alert')).toHaveText('Esta validación ya está en curso. El semáforo se actualiza solo en cuanto termine.');
     await expect(modal.getByRole('button', { name: 'Reintentar validación' })).toHaveCount(0);
     await expect(filaDe(page, 'ROJ001').getByTestId('validacion-analizando')).toBeVisible();
   });
