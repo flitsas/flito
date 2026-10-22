@@ -50,21 +50,31 @@ describe('detectarValorGestion (AC1/AC2)', () => {
 
 describe('modulosAConsultar (AC7 y tabla del despachador)', () => {
   const todo = () => true;
-  it('G1: trámites acepta placa, VIN e id FLIT con página + función', () => {
-    assert.deepEqual(modulosAConsultar('placa', todo), ['tramites']);
-    assert.deepEqual(modulosAConsultar('vin', todo), ['tramites']);
+  it('G1+G2: placa y VIN consultan Trámites y SOAT, en ese orden; id FLIT solo Trámites (AC8)', () => {
+    assert.deepEqual(modulosAConsultar('placa', todo), ['tramites', 'soat']);
+    assert.deepEqual(modulosAConsultar('vin', todo), ['tramites', 'soat']);
     assert.deepEqual(modulosAConsultar('idFlit', todo), ['tramites']);
   });
 
-  it('sin página o sin la función tramites.cola.ver → no se consulta', () => {
+  it('sin página o sin la función tramites.cola.ver → no se consulta Trámites', () => {
     const vistos: string[] = [];
     const sinFuncion = (page: string, funcion: string) => {
       vistos.push(`${page}|${funcion}`);
       return page === 'flito_tramites' && funcion !== 'tramites.cola.ver';
     };
     assert.deepEqual(modulosAConsultar('placa', sinFuncion), []);
-    assert.deepEqual(vistos, ['flito_tramites|tramites.cola.ver']);
+    assert.deepEqual(vistos, ['flito_tramites|tramites.cola.ver', 'flito_soat|soat.cola.ver']);
     assert.deepEqual(modulosAConsultar('placa', () => false), []);
+  });
+
+  it('AC6 G2: sin la página flito_soat o sin soat.cola.ver → SOAT no se consulta', () => {
+    const sinPaginaSoat = (page: string) => page !== 'flito_soat';
+    assert.deepEqual(modulosAConsultar('vin', sinPaginaSoat), ['tramites']);
+    const sinFuncionSoat = (_p: string, funcion: string) => funcion !== 'soat.cola.ver';
+    assert.deepEqual(modulosAConsultar('placa', sinFuncionSoat), ['tramites']);
+    const soloSoat = (page: string, funcion: string) => page === 'flito_soat' && funcion === 'soat.cola.ver';
+    assert.deepEqual(modulosAConsultar('vin', soloSoat), ['soat']);
+    assert.deepEqual(modulosAConsultar('idFlit', soloSoat), []);
   });
 
   it('registro extensible: VIN no consulta derechos, id FLIT no consulta SOAT; orden fijo', () => {
