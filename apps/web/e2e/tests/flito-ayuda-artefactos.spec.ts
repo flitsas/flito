@@ -390,4 +390,57 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
       }
     });
   }
+
+  // HU #13773 — manuales del área Mensajero y Logística: misma comprobación que Facturación, Corredor SOAT y
+  // Corredor Impuestos (versión y fecha exactas, sin rutas, capturas citadas en orden y dentro de su paso, una
+  // sola lista ordenada en Pasos, diagrama SVG con alt). Las dos fichas describen procesos de más de 3 pasos.
+  // flito_logistica_ruta conserva sus 5 capturas de la piloto (HU #13769): el texto cambió, la pantalla no.
+  const LOGISTICA_13773: Record<string, { version: string; capturas: string[]; diagrama: string | null }> = {
+    flito_logistica: { version: '1.1', diagrama: 'ciclo-licencia.svg', capturas: [
+      '01-tramites.png', '02-detalle.png', '03-registrar-viaje.png', '04-generacion-de-actas.png', '05-actas.png',
+      '06-firmar-y-despachar.png'] },
+    flito_logistica_ruta: { version: '1.2', diagrama: 'recorrido-mensajero.svg', capturas: [
+      '01-recoger-licencias.png', '02-resultado-validacion.png', '03-confirmar-recogida.png', '04-entregar.png',
+      '05-sin-conexion.png'] },
+  };
+
+  for (const [clave, esperado] of Object.entries(LOGISTICA_13773)) {
+    test(`HU #13773 — ${clave}: versión ${esperado.version} del 2026-10-22, capturas y diagrama con alt`, () => {
+      const md = leer(`apps/web/src/content/ayuda/${clave}.md`);
+      const { encabezado, errores } = parsearFicha(md);
+      expect(errores, clave).toEqual([]);
+      // AC5 — la ficha cambió: sube la versión menor y la fecha.
+      expect(encabezado!.version, `${clave} · version`).toBe(esperado.version);
+      expect(String(encabezado!.fecha), `${clave} · fecha`).toBe('2026-10-22');
+      // AC4 — sin rutas de API ni rutas de la app en el texto.
+      expect(md, `${clave} · sin rutas`).not.toMatch(/`\/|\/api\/|\/flito\//);
+
+      // AC2 — lista exacta de capturas NN-<paso>.png, con alt, en disco y ≤ 200 KB.
+      const dir = resolve(raiz, 'apps/web/public/ayuda', clave);
+      const capturas = [...md.matchAll(new RegExp(`!\\[([^\\]]*)\\]\\(\\./${clave}/(\\d{2}-[a-z0-9-]+\\.png)\\)`, 'g'))];
+      expect(capturas.map((m) => m[2]), `${clave} · capturas`).toEqual(esperado.capturas);
+      for (const [, alt, archivo] of capturas) {
+        expect(alt.trim().length, `${clave}/${archivo} · alt`).toBeGreaterThan(10);
+        const ruta = resolve(dir, archivo);
+        expect(existsSync(ruta), `${clave}/${archivo} en disco`).toBe(true);
+        expect(statSync(ruta).size, `${clave}/${archivo} ≤ 200 KB`).toBeLessThanOrEqual(200 * 1024);
+        // AC2 — pasos numerados: la captura va al final de su paso; en un párrafo aparte, la lista reinicia en «1.».
+        const linea = md.split('\n').find((l) => l.includes(`(./${clave}/${archivo})`));
+        expect(linea, `${clave}/${archivo} · dentro de su paso`).toMatch(/^\d+\. /);
+      }
+
+      // AC2 — la sección Pasos es UNA sola lista ordenada (el renderizador reinicia la numeración en cada <ol>).
+      const pasos = md.slice(md.indexOf('## Pasos')).split(/\n(?=## )/)[0];
+      const listas = parseMarkdown(pasos).filter((b) => b.type === 'ol');
+      expect(listas.length, `${clave} · listas ordenadas en Pasos`).toBe(1);
+
+      // AC3 — diagrama SVG estático con alt (o ninguno, si la ficha no describe un proceso).
+      const diagramas = [...md.matchAll(new RegExp(`!\\[([^\\]]*)\\]\\(\\./${clave}/([a-z0-9-]+\\.svg)\\)`, 'g'))];
+      expect(diagramas.map((m) => m[2]), `${clave} · diagramas`).toEqual(esperado.diagrama ? [esperado.diagrama] : []);
+      for (const [, alt, archivo] of diagramas) {
+        expect(alt.trim().length, `${clave}/${archivo} · alt`).toBeGreaterThan(10);
+        expect(existsSync(resolve(dir, archivo)), `${clave}/${archivo} en disco`).toBe(true);
+      }
+    });
+  }
 });
