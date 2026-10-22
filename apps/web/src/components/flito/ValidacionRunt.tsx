@@ -175,18 +175,20 @@ export type Carga =
  * Pide el detalle al abrirse. El error nunca muestra el mensaje del API: la vista pinta su propio
  * copy con un botón para volver a pedirlo.
  */
-export function useDetalleValidacion(id: string, activo: boolean) {
+export function useDetalleValidacion(id: string, activo: boolean, version?: string | null) {
   const [carga, setCarga] = useState<Carga>({ fase: 'cargando' });
   const [intento, setIntento] = useState(0);
   useEffect(() => {
     if (!activo) return;
     let vivo = true;
-    setCarga({ fase: 'cargando' });
+    // HU #12827: si cambia `version` (el `analisisEstado` de la fila que parchea el sondeo) se vuelve
+    // a pedir SIN pasar por «cargando»: lo ya pintado se queda hasta que llega lo nuevo.
+    setCarga((c) => c.fase === 'listo' ? c : { fase: 'cargando' });
     api.get<DetalleValidacion>(`/flito/impuestos/${id}`)
       .then((datos) => { if (vivo) setCarga({ fase: 'listo', datos }); })
       .catch(() => { if (vivo) setCarga({ fase: 'error' }); });
     return () => { vivo = false; };
-  }, [id, activo, intento]);
+  }, [id, activo, intento, version]);
   const recargar = useCallback(() => setIntento((n) => n + 1), []);
   return { carga, recargar };
 }
@@ -314,7 +316,7 @@ function CuerpoValidacion({ datos, accionReintento, sinPermiso }: {
     return (
       <div className="flex flex-wrap items-center gap-2">
         <LineaValidacion fila={{ analisisEstado: 'en_curso' }} />
-        <p style={texto('var(--flit-text-secondary)')}>La validación está en curso. Cierra y actualiza la cola en unos minutos.</p>
+        <p style={texto('var(--flit-text-secondary)')}>La validación está en curso. El resultado aparece aquí en cuanto termine.</p>
       </div>
     );
   }
@@ -382,7 +384,7 @@ export interface FilaValidacion extends ValidacionFila { id: string; placa: stri
 export function ModalValidacion({ imp, onClose, onVerDetalle, accionReintento, sinPermiso }: {
   imp: FilaValidacion; onClose: () => void; onVerDetalle: () => void; accionReintento?: ReactNode; sinPermiso?: boolean;
 }) {
-  const { carga, recargar } = useDetalleValidacion(imp.id, true);
+  const { carga, recargar } = useDetalleValidacion(imp.id, true, imp.analisisEstado);
   return (
     <FlitModal title={`Validación factura ↔ RUNT · ${imp.placa ?? imp.vin}`} onClose={onClose} wide>
       <div className="space-y-4 text-sm" data-testid="modal-validacion">
@@ -413,7 +415,7 @@ export function SeccionValidacion({ imp, accionReintento, sinPermiso, detalle }:
 }) {
   const estado = imp.analisisEstado ?? null;
   const terminado = estado === 'completado' || estado === 'error_analisis';
-  const propio = useDetalleValidacion(imp.id, terminado && !detalle);
+  const propio = useDetalleValidacion(imp.id, terminado && !detalle, imp.analisisEstado);
   const { carga, recargar } = detalle ?? propio;
   return (
     <section aria-labelledby={`validacion-${imp.id}`} className="space-y-2" data-testid="seccion-validacion">
@@ -446,7 +448,7 @@ export function ofreceReintento(f: FilaReintento): boolean {
 type FalloReintento = { texto: string; efecto?: 'en_curso' | 'certificado' };
 
 const FALLO_409: Record<string, FalloReintento> = {
-  ANALISIS_EN_CURSO: { texto: 'Esta validación ya está en curso. Actualiza la cola en unos minutos.', efecto: 'en_curso' },
+  ANALISIS_EN_CURSO: { texto: 'Esta validación ya está en curso. El semáforo se actualiza solo en cuanto termine.', efecto: 'en_curso' },
   YA_CERTIFICADO: { texto: 'Este impuesto ya está certificado; no hace falta validarlo de nuevo.', efecto: 'certificado' },
   NO_SOLICITADO: { texto: 'Solo se valida un impuesto enviado al gestor.' },
   SIN_ANALISIS: { texto: 'Este impuesto no tiene una validación que reintentar.' },
@@ -464,7 +466,7 @@ export function falloReintento(e: unknown): FalloReintento {
   return { texto: FALLO_GENERICO };
 }
 
-export const TOAST_REINTENTO = 'Validación en cola. El semáforo nuevo aparece al actualizar la cola.';
+export const TOAST_REINTENTO = 'Validación en cola. El semáforo se actualiza solo en cuanto termine.';
 
 /**
  * Botón «Reintentar validación» (AC2, AC3). Primario en el modal rojo (única acción de esa visita),
