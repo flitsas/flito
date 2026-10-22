@@ -107,9 +107,9 @@ test.describe('FLITO — Ayuda · índice', () => {
 
     await fila.click();
     await expect(page).toHaveURL(/\/flito\/ayuda\/flito_bolsas$/);
-    await expect(page.getByText('Versión 1.0 · 20/10/2026', { exact: true })).toBeVisible();
+    await expect(page.getByText('Versión 1.1 · 21/10/2026', { exact: true })).toBeVisible();
     await expect(page.getByText(resumen, { exact: true })).toHaveCount(1);
-    for (const fuga of ['palabras_clave', 'consultas:', 'version: 1.0', 'fecha: 2026-10-20', 'resumen:']) {
+    for (const fuga of ['palabras_clave', 'consultas:', 'version: 1.1', 'fecha: 2026-10-21', 'resumen:']) {
       await expect(page.getByText(fuga)).toHaveCount(0);
     }
     await expect(page.getByRole('heading', { name: 'Qué es', exact: true })).toBeVisible();
@@ -133,7 +133,8 @@ test.describe('FLITO — Ayuda · índice', () => {
 
   test('AC4 — slug fuera del catálogo: esta ficha no existe', async ({ page }) => {
     await loginAs(page, PROVEEDOR_USER);
-    await page.goto('/flito/ayuda/privacy');
+    // HU #13774: `privacy` ya es una ficha del catálogo; la clave fuera de catálogo es la antigua compuerta.
+    await page.goto('/flito/ayuda/flito_compuerta');
     await expect(page.getByText('Esta ficha no existe.')).toBeVisible();
     await expect(page.getByRole('link', { name: 'Volver al índice' }).first()).toBeVisible();
   });
@@ -169,10 +170,13 @@ test.describe('FLITO — Ayuda · índice', () => {
   test('HU #13431 — cada grupo del índice sigue el orden del menú (NAV_ENTRADAS)', async ({ page }) => {
     // Fuente: el orden de `page:` en navEntradas.ts por sección, y el de `permiso:` en el catálogo.
     const nav = readFileSync(resolve(raiz, 'apps/web/src/components/shell/navEntradas.ts'), 'utf8');
-    const ordenMenu = [...nav.matchAll(/\{ page: '(\w+)',[^}]*section: '(\w+)'/g)].map((m) => ({ page: m[1], section: m[2] }));
+    // HU #13774: `privacy` es el PageSlug de dos ítems del menú (Log accesos PII y Privacidad y datos); se
+    // distinguen por su `to`, que el catálogo copia del menú.
+    const ordenMenu = [...nav.matchAll(/\{ page: '(\w+)',(?:\s+to: '([^']+)',)?[^}]*section: '(\w+)'/g)]
+      .map((m) => ({ page: m[1], to: m[2], section: m[3] }));
     const cat = readFileSync(resolve(raiz, 'apps/web/src/content/ayuda/catalogo.ts'), 'utf8');
-    const capitulos = [...cat.matchAll(/clave: '(\w+)', grupo: '(\w+)', etiqueta: '([^']+)'[^}]*permiso: '(\w+)'/g)]
-      .map((m) => ({ clave: m[1], grupo: m[2], etiqueta: m[3], permiso: m[4] }));
+    const capitulos = [...cat.matchAll(/clave: '(\w+)', grupo: '(\w+)', etiqueta: '([^']+)'(?:, to: '([^']*)')?[^}]*permiso: '(\w+)'/g)]
+      .map((m) => ({ clave: m[1], grupo: m[2], etiqueta: m[3], to: m[4], permiso: m[5] }));
     expect(capitulos.length).toBeGreaterThan(15);
     const SECCION: Record<string, string> = { general: 'general', gestion: 'gestion', finanzas: 'finanzas', administracion: 'admin' };
     // El Tablero de General es el ítem `dashboard` del menú (P-11): su ficha cuelga de `flito_tablero`.
@@ -181,7 +185,8 @@ test.describe('FLITO — Ayuda · índice', () => {
     for (const grupo of Object.keys(SECCION)) {
       const delGrupo = capitulos.filter((c) => c.grupo === grupo);
       const posiciones = delGrupo.map((c) => {
-        const i = ordenMenu.findIndex((e) => e.page === itemDelMenu(c.permiso));
+        const exacto = ordenMenu.findIndex((e) => e.page === itemDelMenu(c.permiso) && e.to === c.to);
+        const i = exacto >= 0 ? exacto : ordenMenu.findIndex((e) => e.page === itemDelMenu(c.permiso));
         expect(i, `${c.clave} es un ítem del menú`).toBeGreaterThanOrEqual(0);
         expect(ordenMenu[i].section, `${c.clave} va en la sección de su grupo`).toBe(SECCION[grupo]);
         return i;
@@ -198,6 +203,16 @@ test.describe('FLITO — Ayuda · índice', () => {
       const nombres = await enlaces.evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')));
       expect(nombres, `índice · ${grupo}`).toEqual(esperado[grupo]);
     }
+  });
+
+  test('HU #13774 AC1 — Administración lista las fichas de Super Admin en el orden del menú', async ({ page }) => {
+    await abrirAyuda(page, OPERACIONES_USER);
+    const enlaces = page.locator('section[aria-labelledby="ayuda-grupo-administracion"] a');
+    await expect(enlaces).toHaveCount(6);
+    expect(await enlaces.evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))).toEqual([
+      'Abrir ficha de Log accesos PII', 'Abrir ficha de Usuarios', 'Abrir ficha de Roles y permisos',
+      'Abrir ficha de Google Drive', 'Abrir ficha de Privacidad y datos', 'Abrir ficha de Integración con Siigo',
+    ]);
   });
 
   test('HU #13431 — en 375 px el índice no desborda y las tarjetas usan el token de tarjeta', async ({ page }) => {

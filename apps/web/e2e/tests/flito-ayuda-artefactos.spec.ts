@@ -443,4 +443,59 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
       }
     });
   }
+
+  // HU #13774 — manuales del área Super Admin: misma comprobación que LOGISTICA_13773. Las 4 fichas nuevas nacen en
+  // 1.0; Roles y permisos e Integración con Siigo suben a 1.1 (Roles tenía 3 listas ordenadas en Pasos). Log de
+  // accesos PII describe una consulta de 3 pasos: sin diagrama. Privacidad no tiene captura del diálogo de
+  // anonimización ni de su resultado (AC4).
+  const ADMIN_13774: Record<string, { version: string; capturas: string[]; diagrama: string | null }> = {
+    privacy_log_pii: { version: '1.0', diagrama: null, capturas: ['01-resumen.png', '02-filtros.png'] },
+    users: { version: '1.0', diagrama: 'ciclo-usuario.svg', capturas: ['01-usuarios.png', '02-nuevo-usuario.png', '03-historial.png'] },
+    roles_permisos: { version: '1.1', diagrama: 'reparto-de-permisos.svg', capturas: [
+      '01-roles.png', '02-arbol.png', '03-sin-guardar.png', '04-nuevo-rol.png'] },
+    drive: { version: '1.0', diagrama: 'procesar-cuentas.svg', capturas: ['01-carpeta-raiz.png', '02-carpeta.png', '03-resultado.png'] },
+    privacy: { version: '1.0', diagrama: 'derecho-al-olvido.svg', capturas: ['01-documento.png', '02-registros-afectados.png'] },
+    siigo_credenciales: { version: '1.1', diagrama: 'ciclo-credencial.svg', capturas: [
+      '01-ambientes.png', '02-registrar.png', '03-probar-conexion.png', '04-historial.png'] },
+  };
+
+  for (const [clave, esperado] of Object.entries(ADMIN_13774)) {
+    test(`HU #13774 — ${clave}: versión ${esperado.version} del 2026-10-22, capturas y diagrama con alt`, () => {
+      const md = leer(`apps/web/src/content/ayuda/${clave}.md`);
+      const { encabezado, errores } = parsearFicha(md);
+      expect(errores, clave).toEqual([]);
+      // AC5 — la ficha cambió: sube la versión menor y la fecha.
+      expect(encabezado!.version, `${clave} · version`).toBe(esperado.version);
+      expect(String(encabezado!.fecha), `${clave} · fecha`).toBe('2026-10-22');
+      // AC4 — sin rutas de API ni rutas de la app en el texto.
+      expect(md, `${clave} · sin rutas`).not.toMatch(/`\/|\/api\/|\/flito\//);
+
+      // AC2 — lista exacta de capturas NN-<paso>.png, con alt, en disco y ≤ 200 KB.
+      const dir = resolve(raiz, 'apps/web/public/ayuda', clave);
+      const capturas = [...md.matchAll(new RegExp(`!\\[([^\\]]*)\\]\\(\\./${clave}/(\\d{2}-[a-z0-9-]+\\.png)\\)`, 'g'))];
+      expect(capturas.map((m) => m[2]), `${clave} · capturas`).toEqual(esperado.capturas);
+      for (const [, alt, archivo] of capturas) {
+        expect(alt.trim().length, `${clave}/${archivo} · alt`).toBeGreaterThan(10);
+        const ruta = resolve(dir, archivo);
+        expect(existsSync(ruta), `${clave}/${archivo} en disco`).toBe(true);
+        expect(statSync(ruta).size, `${clave}/${archivo} ≤ 200 KB`).toBeLessThanOrEqual(200 * 1024);
+        // AC2 — pasos numerados: la captura va al final de su paso; en un párrafo aparte, la lista reinicia en «1.».
+        const linea = md.split('\n').find((l) => l.includes(`(./${clave}/${archivo})`));
+        expect(linea, `${clave}/${archivo} · dentro de su paso`).toMatch(/^\d+\. /);
+      }
+
+      // AC2 — la sección Pasos es UNA sola lista ordenada (el renderizador reinicia la numeración en cada <ol>).
+      const pasos = md.slice(md.indexOf('## Pasos')).split(/\n(?=## )/)[0];
+      const listas = parseMarkdown(pasos).filter((b) => b.type === 'ol');
+      expect(listas.length, `${clave} · listas ordenadas en Pasos`).toBe(1);
+
+      // AC3 — diagrama SVG estático con alt (o ninguno, si la ficha no describe un proceso).
+      const diagramas = [...md.matchAll(new RegExp(`!\\[([^\\]]*)\\]\\(\\./${clave}/([a-z0-9-]+\\.svg)\\)`, 'g'))];
+      expect(diagramas.map((m) => m[2]), `${clave} · diagramas`).toEqual(esperado.diagrama ? [esperado.diagrama] : []);
+      for (const [, alt, archivo] of diagramas) {
+        expect(alt.trim().length, `${clave}/${archivo} · alt`).toBeGreaterThan(10);
+        expect(existsSync(resolve(dir, archivo)), `${clave}/${archivo} en disco`).toBe(true);
+      }
+    });
+  }
 });
