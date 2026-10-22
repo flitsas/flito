@@ -34,13 +34,29 @@ export function soporteDisponible(c: ConfigDrFlit = env): boolean {
   return Boolean(c.DRFLIT_ADO_PAT && c.DRFLIT_ADO_ORG_URL);
 }
 
-/**
- * Límites de adjuntos que el GET expone al panel. HU-3 (#13805) los hará configurables
- * (`DRFLIT_ADJUNTOS_MAX` / `DRFLIT_ADJUNTO_MAX_MB`); los TIPOS no son configurables (P9-4).
- */
-export const ADJUNTOS_DRFLIT: Readonly<{ maxArchivos: number; maxBytesArchivo: number; tipos: readonly TipoAdjuntoSoporte[] }> =
-  Object.freeze({
-    maxArchivos: 3,
-    maxBytesArchivo: 5 * 1024 * 1024,
-    tipos: Object.freeze(['image/png', 'image/jpeg', 'application/pdf'] as const),
+/** Tipos de adjunto admitidos (P9-4: NO configurables). Se verifican por bytes, no por extensión. */
+export const TIPOS_ADJUNTO_DRFLIT: readonly TipoAdjuntoSoporte[] =
+  Object.freeze(['image/png', 'image/jpeg', 'application/pdf'] as const);
+
+export interface LimitesAdjuntosDrFlit {
+  maxArchivos: number;
+  maxBytesArchivo: number;
+  tipos: readonly TipoAdjuntoSoporte[];
+}
+
+/** Límites de adjuntos desde la configuración (HU #13805, AC3): `DRFLIT_ADJUNTOS_MAX` y `DRFLIT_ADJUNTO_MAX_MB`. */
+export function limitesAdjuntos(
+  c: { DRFLIT_ADJUNTOS_MAX: number; DRFLIT_ADJUNTO_MAX_MB: number } = env,
+): Readonly<LimitesAdjuntosDrFlit> {
+  return Object.freeze({
+    maxArchivos: c.DRFLIT_ADJUNTOS_MAX,
+    maxBytesArchivo: c.DRFLIT_ADJUNTO_MAX_MB * 1024 * 1024,
+    tipos: TIPOS_ADJUNTO_DRFLIT,
   });
+}
+
+/**
+ * Límites vigentes del proceso. El GET de autorización los expone al panel y el multer de
+ * `POST /casos-soporte` los aplica: una sola fuente para lo que se anuncia y lo que se exige.
+ */
+export const ADJUNTOS_DRFLIT: Readonly<LimitesAdjuntosDrFlit> = limitesAdjuntos();

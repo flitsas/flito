@@ -18,9 +18,24 @@
 //            haber salido.
 // RN-DRF-S5  Logs: id del intento, estado, clase de error, duración, `repetido`, `tagOmitido`. Nunca
 //            valores del caso, la URL de ADO, cabeceras ni la respuesta de ADO.
+// RN-DRF-S6  Adjuntos (HU #13805, P9-4 a): llegan en memoria en el mismo POST y se verifican por BYTES
+//            (`detectMime`, el helper de PESV que ya usa Corredor SOAT) ANTES de crear el intento: un
+//            archivo rechazado → 400 `adjunto-invalido` con su POSICIÓN y el motivo, sin intento, sin
+//            ADO. Si el tipo declarado es uno de los admitidos tiene que coincidir con el detectado
+//            (un `.png` que es un PDF se rechaza); `application/octet-stream` se acepta por contenido.
+// RN-DRF-S7  Se suben a ADO con nombre genérico `adjunto-<n>.<ext>` y luego se crea el Bug con sus
+//            `AttachedFile` en el mismo json-patch. Si falla la subida de CUALQUIERA: no se crea el
+//            Bug, el intento queda `fallido` y la misma clave reintenta (AC5). Las urls de ADO no se
+//            guardan; si el reintento sube de nuevo, las del intento fallido quedan huérfanas en ADO.
+//            Su tratamiento está en docs/privacy/retencion-flito-dr-flit.md («Adjuntos huérfanos»).
+// RN-DRF-S8  Nada queda en FLITO (AC4): ni disco ni MinIO ni base; la tabla guarda solo
+//            `adjuntos_cantidad`. Los buffers se sueltan al terminar (éxito o fallo). El nombre del
+//            archivo no entra al servicio: ni logs, ni auditoría, ni errores lo ven.
 import type { Request } from 'express';
 import { and, eq, or, sql } from 'drizzle-orm';
-import type { AmbienteDespliegue, CasoRadicadoDrFlit, CasoSoporteDrFlit } from '@operaciones/shared-types';
+import type {
+  AmbienteDespliegue, CasoRadicadoDrFlit, CasoSoporteDrFlit, MotivoAdjuntoRechazado, TipoAdjuntoSoporte,
+} from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { flitoDrflitCasosSoporte as t, type EstadoIntentoDrFlit } from '../../db/schema/flito-drflit.js';
 import { env } from '../../config/env.js';
@@ -28,6 +43,8 @@ import { loggerFor } from '../../shared/logger.js';
 import { logPiiAccess } from '../../shared/pii-audit.js';
 import { AdoNoDisponibleError, AdoRechazoError, obtenerClienteSoporteAdo } from './dr-flit-ado.client.js';
 import { construirBugSoporte, type ConfigMapeoAdo } from './dr-flit-ado.mapeo.js';
+import { ADJUNTOS_DRFLIT } from './dr-flit.config.js';
+import { detectMime } from '../pesv/magic-number.js';
 
 const log = loggerFor('flito-dr-flit');
 
@@ -46,6 +63,65 @@ export const MENSAJES_CASO: Readonly<Record<CodigoCasoSoporte, string>> = Object
   'ado-error': 'Soporte no pudo registrar su caso. Intente de nuevo en unos minutos; no perderá lo que escribió.',
   'ado-no-disponible': 'El servicio de soporte no responde en este momento. Intente de nuevo en unos minutos; no perderá lo que escribió.',
 });
+
+// ── Adjuntos (HU #13805) ─────────────────────────────────────────────────────────────────────────
+
+/** Un adjunto tal como entra al servicio: bytes y tipo DECLARADO. Sin nombre a propósito (RN-DRF-S8). */
+export interface AdjuntoCaso {
+  contenido: Buffer;
+  tipoDeclarado: string;
+}
+
+/** Archivo rechazado (400). `indice` = posición 0-based del archivo en el multipart (anexo UX §F5.17). */
+export class AdjuntoInvalidoError extends Error {
+  constructor(readonly indice: number, readonly motivo: MotivoAdjuntoRechazado) {
+    super(mensajeAdjuntoRechazado(indice, motivo));
+    this.name = 'AdjuntoInvalidoError';
+  }
+}
+
+/** Copy del rechazo: posición 1-based para la persona; nunca el nombre ni el contenido del archivo. */
+export function mensajeAdjuntoRechazado(
+  indice: number, motivo: MotivoAdjuntoRechazado, maxBytesArchivo: number = ADJUNTOS_DRFLIT.maxBytesArchivo,
+): string {
+  const n = indice + 1;
+  switch (motivo) {
+    case 'vacio': return `El archivo ${n} está vacío.`;
+    case 'muy-grande': return `El archivo ${n} supera el máximo de ${Math.floor(maxBytesArchivo / (1024 * 1024))} MB por archivo.`;
+    case 'tipo-no-permitido': return `El archivo ${n} no es de un tipo permitido. Solo se aceptan PNG, JPG y PDF.`;
+    case 'contenido-no-coincide':
+      return `El contenido del archivo ${n} no corresponde a una imagen PNG o JPG ni a un PDF, o no coincide con su tipo.`;
+  }
+}
+
+const EXTENSION: Readonly<Record<TipoAdjuntoSoporte, string>> = Object.freeze({
+  'image/png': 'png', 'image/jpeg': 'jpg', 'application/pdf': 'pdf',
+});
+const esTipoAdmitido = (t: string | undefined): t is TipoAdjuntoSoporte =>
+  t !== undefined && (ADJUNTOS_DRFLIT.tipos as readonly string[]).includes(t);
+
+/**
+ * MIME REAL por bytes (AC2). Devuelve el tipo detectado de cada adjunto, en orden; el primero que no
+ * pasa lanza `AdjuntoInvalidoError` con su posición.
+ */
+export async function verificarAdjuntos(adjuntos: readonly AdjuntoCaso[]): Promise<TipoAdjuntoSoporte[]> {
+  const tipos: TipoAdjuntoSoporte[] = [];
+  for (const [i, a] of adjuntos.entries()) {
+    if (a.contenido.length === 0) throw new AdjuntoInvalidoError(i, 'vacio');
+    const detectado = await detectMime(a.contenido);
+    if (!esTipoAdmitido(detectado)) throw new AdjuntoInvalidoError(i, 'contenido-no-coincide');
+    if (esTipoAdmitido(a.tipoDeclarado) && a.tipoDeclarado !== detectado) {
+      throw new AdjuntoInvalidoError(i, 'contenido-no-coincide');
+    }
+    tipos.push(detectado);
+  }
+  return tipos;
+}
+
+/** Nombre genérico que viaja a ADO (RN-DRF-C5): `adjunto-<n>.<ext>`, n 1-based. */
+export function nombreGenericoAdjunto(indice: number, tipo: TipoAdjuntoSoporte): string {
+  return `adjunto-${indice + 1}.${EXTENSION[tipo]}`;
+}
 
 export interface IntentoCaso {
   id: number;
@@ -148,11 +224,26 @@ export interface EntradaRadicacion {
   autorizacionId: number;
   ambiente: AmbienteDespliegue;
   caso: CasoSoporteDrFlit;
+  /** HU #13805. Ausente o vacío = caso sin adjuntos (igual que HU-2, AC6). Se vacía al terminar. */
+  adjuntos?: AdjuntoCaso[];
 }
 
 /** Radica el caso (RN-DRF-S1..S5). `repetido=true` → la clave ya estaba radicada (200, sin ADO). */
 export async function radicarCaso(req: Request, e: EntradaRadicacion): Promise<CasoRadicadoDrFlit> {
-  const adjuntosCantidad = 0; // HU-3 (#13805) los suma.
+  const adjuntos = e.adjuntos ?? [];
+  try {
+    // Antes del intento (RN-DRF-S6): un archivo inválido no deja fila ni llama a ADO.
+    const tipos = await verificarAdjuntos(adjuntos);
+    return await radicarVerificado(req, e, adjuntos, tipos);
+  } finally {
+    adjuntos.splice(0); // RN-DRF-S8: suelta las referencias a los buffers.
+  }
+}
+
+async function radicarVerificado(
+  req: Request, e: EntradaRadicacion, adjuntos: readonly AdjuntoCaso[], tipos: readonly TipoAdjuntoSoporte[],
+): Promise<CasoRadicadoDrFlit> {
+  const adjuntosCantidad = adjuntos.length;
   const clave = e.caso.claveIdempotencia;
   let intento = await repoCasos.insertar({
     usuarioId: e.usuarioId, autorizacionId: e.autorizacionId, claveIdempotencia: clave,
@@ -173,9 +264,6 @@ export async function radicarCaso(req: Request, e: EntradaRadicacion): Promise<C
     }
   }
 
-  const operaciones = construirBugSoporte(e.caso, {
-    intentoId: intento.id, ambiente: e.ambiente, fecha: new Date(), adjuntosCantidad,
-  }, configMapeoDesdeEnv());
   const inicio = Date.now();
   const auditar = () => logPiiAccess(req, {
     resourceTipo: 'drflit_caso_soporte', resourceId: intento.id, accion: 'export',
@@ -183,7 +271,17 @@ export async function radicarCaso(req: Request, e: EntradaRadicacion): Promise<C
   });
 
   try {
-    const { numero, tagOmitido } = await obtenerClienteSoporteAdo().crearBug({ operaciones });
+    const cliente = obtenerClienteSoporteAdo();
+    // Secuencial: el primero que falla corta (AC5) y no se crea el Bug.
+    const urlsAdjuntos: string[] = [];
+    for (const [i, a] of adjuntos.entries()) {
+      const { url } = await cliente.subirAdjunto(nombreGenericoAdjunto(i, tipos[i]!), tipos[i]!, a.contenido);
+      urlsAdjuntos.push(url);
+    }
+    const operaciones = construirBugSoporte(e.caso, {
+      intentoId: intento.id, ambiente: e.ambiente, fecha: new Date(), adjuntosCantidad, urlsAdjuntos,
+    }, configMapeoDesdeEnv());
+    const { numero, tagOmitido } = await cliente.crearBug({ operaciones });
     await repoCasos.marcarCreado(intento.id, numero, tagOmitido ? 'tag-rechazado' : null);
     await auditar();
     log.info({

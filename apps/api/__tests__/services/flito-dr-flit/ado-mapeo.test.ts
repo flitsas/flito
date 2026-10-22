@@ -71,3 +71,17 @@ describe('mapeo a ADO', () => {
     expect(fechaBogota(new Date('2026-01-01T04:30:00Z'))).toMatch(/31\/12\/2025.*23:30/);
   });
 });
+
+describe('HU #13805 — adjuntos en el mismo json-patch (RN-DRF-M7)', () => {
+  it('una relación AttachedFile por url, sin comment ni nombre; ReproSteps «Sí (n)»', () => {
+    const urls = ['https://dev.azure.com/o/_apis/wit/attachments/a', 'https://dev.azure.com/o/_apis/wit/attachments/b'];
+    const ops = construirBugSoporte(CASO, { ...CTX, adjuntosCantidad: 2, urlsAdjuntos: urls }, CFG);
+    const rel = ops.filter((o) => o.path === '/relations/-');
+    expect(rel).toEqual(urls.map((url) => ({ op: 'add', path: '/relations/-', value: { rel: 'AttachedFile', url } })));
+    expect(String(valor(ops, '/fields/Microsoft.VSTS.TCM.ReproSteps'))).toContain('Sí (2)');
+  });
+
+  it('sin urls → sin relaciones (AC6)', () => {
+    expect(construirBugSoporte(CASO, CTX, CFG).some((o) => o.path.startsWith('/relations'))).toBe(false);
+  });
+});

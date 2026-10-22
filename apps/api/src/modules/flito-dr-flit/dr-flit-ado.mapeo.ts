@@ -14,6 +14,8 @@
 // RN-DRF-M5  `System.Tags` = tags base (`FLITO`) + tags de pruebas (`FLITO-PRUEBAS`) en DEV y QA.
 // RN-DRF-M6  El ÁREA va en el ReproSteps. No se envían `Custom.SolutionArea`, `Custom.AffectedModule`
 //            ni `System.AssignedTo` (sin asignar, D3). `System.AreaPath` solo si se configuró.
+// RN-DRF-M7  Adjuntos (HU #13805): una relación `AttachedFile` por url ya subida, en el MISMO json-patch
+//            del create (`/relations/-`). Sin `comment` ni nombre del usuario: solo la url de ADO.
 import {
   ETIQUETAS_AREA_SOPORTE, ETIQUETAS_FRECUENCIA_SOPORTE, ETIQUETAS_PRIORIDAD_SOPORTE,
   ETIQUETAS_AMBIENTE_DESPLIEGUE, type AmbienteDespliegue, type CasoSoporteDrFlit, type PrioridadSoporte,
@@ -23,6 +25,7 @@ export const PREFIJO_TITULO_DRFLIT = '[ DR. FLIT FLITO ]';
 export const RUTA_TITULO = '/fields/System.Title';
 export const RUTA_TAGS = '/fields/System.Tags';
 export const RUTA_AREA_PATH = '/fields/System.AreaPath';
+export const RUTA_RELACIONES = '/relations/-';
 
 export const PRIORIDAD_ADO: Readonly<Record<PrioridadSoporte, number>> = Object.freeze({ alta: 1, media: 2, baja: 3 });
 
@@ -44,6 +47,8 @@ export interface ContextoMapeo {
   ambiente: AmbienteDespliegue;
   fecha: Date;
   adjuntosCantidad: number;
+  /** Urls de ADO de los adjuntos ya subidos (HU #13805). Ausente o vacío = Bug sin adjuntos. */
+  urlsAdjuntos?: readonly string[];
 }
 
 /** Escapa los cinco caracteres con significado en HTML. Todo valor del usuario pasa por aquí. */
@@ -112,5 +117,8 @@ export function construirBugSoporte(
   const tags = tagsPara(ctx.ambiente, cfg);
   if (tags) ops.push({ op: 'add', path: RUTA_TAGS, value: tags });
   if (cfg.areaPath) ops.push({ op: 'add', path: RUTA_AREA_PATH, value: cfg.areaPath });
+  for (const url of ctx.urlsAdjuntos ?? []) {
+    ops.push({ op: 'add', path: RUTA_RELACIONES, value: { rel: 'AttachedFile', url } });
+  }
   return ops;
 }
