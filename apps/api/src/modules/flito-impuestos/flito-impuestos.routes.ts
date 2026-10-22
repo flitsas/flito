@@ -16,7 +16,7 @@ import {
   RESULTADO_EXPORT_AMPLIADO,
 } from '../../shared/export/cola-flito-excel.js';
 import {
-  CAMPOS_PII_IMPUESTO_EXPORT, registrarAccesoImpuesto,
+  CAMPOS_PII_CERTIFICADO, CAMPOS_PII_IMPUESTO_EXPORT, registrarAccesoImpuesto,
 } from './flito-impuestos.pii.js';
 import {
   CAMPOS_PII_ZIP_SOPORTES, comprobarTopeRegistrosZip, nombrePorPlaca,
@@ -31,7 +31,7 @@ import { alcanceDeUsuario, soloSinEnlace } from '../../shared/middleware/fronter
 import { esProyeccionCliente } from '../../shared/alcance-filas.js';
 import {
   CARGA_MASIVA_ARCHIVOS_POR_PETICION, CARGA_MASIVA_MAX_BYTES_ARCHIVO, CodigoErrorReciboCaja, EstadoImpuesto, FASES_RECIBO,
-  FaseRecibo, ResultadoCertificacion, TipoSoporteZip,
+  FaseRecibo, ResultadoCertificacion, TipoSoporteZip, CABECERA_DIRECCIONES_SIN_CONFIRMAR, SEMAFOROS_IMPUESTO,
 } from '@operaciones/shared-types';
 import { ImpuestoError, type ArchivoSubido, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import { certificacionVigenteConAcceso, certificarImpuesto, certificarLote } from './certificacion.service.js';
@@ -44,9 +44,21 @@ import { soportesDeImpuesto } from '../../shared/soportes/soportes-consulta.js';
 import { cargarReciboCaja, cargarRecibos, normalizarRutas, ReciboCajaError } from './flito-recibos.service.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { getFlitAdapter } from '../flito-sync/flit.adapter.js';
+import { descargarFacturaVentaFlit2, FacturaNoDisponibleError } from './flito-impuestos.extraccion.js';
+import analisisRouter from './flito-impuestos.analisis.routes.js';
+import direccionRouter from './flito-impuestos.direccion.routes.js';
+import certificadosRouter from './flito-impuestos.certificados.routes.js';
+import reciboFaseRouter from './flito-impuestos.recibo-fase.routes.js';
+import reciboReemplazoRouter from './flito-impuestos.recibo-reemplazo.routes.js';
+import { contarDireccionesSinConfirmar } from './flito-impuestos.export-pago.js';
 
 const router = Router();
 router.use(authMiddleware);
+router.use(analisisRouter(contextoImpuesto)); // HU #12825: hereda authMiddleware
+router.use(direccionRouter(contextoImpuesto)); // HU #12833: PATCH /:id/direccion
+router.use(certificadosRouter(contextoImpuesto)); // HU #13205: POST /certificados/zip
+router.use(reciboFaseRouter(contextoImpuesto)); // HU #13208: POST /:id/recibos (carga por fase)
+router.use(reciboReemplazoRouter(contextoImpuesto)); // HU #13269: POST /:id/recibos/reemplazar-pago
 
 const ESTADOS = ['pendiente', 'solicitado', 'con_novedad', 'pagado'] as const;
 
@@ -141,12 +153,10 @@ router.get('/:id/factura-venta', exigirFuncion('impuestos.factura.ver'), async (
   const ctx = await contextoImpuesto(req.user!);
   const factura = await facturaVentaFlitConAcceso(req.params.id, ctx);
   if (!factura) { res.status(404).json({ error: 'El trámite no tiene factura de venta en FLIT' }); return; }
-  const url = await getFlitAdapter().obtenerUrlFactura(factura.facturaId);
-  if (!url) { res.status(404).json({ error: 'La factura de venta no está disponible en FLIT' }); return; }
-
-  const upstream = await fetch(url).catch(() => null);
-  if (!upstream || !upstream.ok) { res.status(502).json({ error: 'No se pudo descargar la factura de venta desde FLIT' }); return; }
-  const cuerpo = Buffer.from(await upstream.arrayBuffer());
+  const cuerpo = factura.fuente === 'flit2'
+    ? await facturaFlit2(req.params.id, factura.idFlit2, factura.facturaId, res)
+    : await facturaFlit1(factura.facturaId, res);
+  if (!cuerpo) return;
 
   const { contentType, extension } = tipoPorBytes(cuerpo);
   res.setHeader('Content-Type', contentType);
@@ -157,6 +167,35 @@ router.get('/:id/factura-venta', exigirFuncion('impuestos.factura.ver'), async (
   res.setHeader('Content-Disposition', `inline; filename="${base}.${extension}"`);
   res.send(cuerpo);
 });
+
+/** FLIT 1: sin cambios (Bug #13230). `null` = la respuesta de error ya se envió. */
+async function facturaFlit1(facturaId: string, res: Response): Promise<Buffer | null> {
+  const url = await getFlitAdapter().obtenerUrlFactura(facturaId);
+  if (!url) { res.status(404).json({ error: 'La factura de venta no está disponible en FLIT' }); return null; }
+  const upstream = await fetch(url).catch(() => null);
+  if (!upstream || !upstream.ok) { res.status(502).json({ error: 'No se pudo descargar la factura de venta desde FLIT' }); return null; }
+  return Buffer.from(await upstream.arrayBuffer());
+}
+
+/**
+ * Bug #13230. FLIT 2 por la MISMA vía que la extracción (allowlist de hosts, sin `Authorization`,
+ * `redirect: 'error'`, tope y un reintento). Sin URL (404 del puerto, sin `idFlit2`) → 404; cualquier
+ * otro desenlace (host no permitido, descarga, tope, pase) → 502. Nunca el error crudo ni la URL.
+ */
+async function facturaFlit2(
+  impuestoId: string, idFlit2: string | null, facturaId: string, res: Response,
+): Promise<Buffer | null> {
+  try {
+    return (await descargarFacturaVentaFlit2(impuestoId, idFlit2, facturaId)).bytes;
+  } catch (e) {
+    if (e instanceof FacturaNoDisponibleError && e.motivo === 'url_nula') {
+      res.status(404).json({ error: 'La factura de venta no está disponible en FLIT' });
+    } else {
+      res.status(502).json({ error: 'No se pudo descargar la factura de venta desde FLIT' });
+    }
+    return null;
+  }
+}
 
 /**
  * POST /soportes/zip — factura de venta y/o recibo de impuesto de los marcados, en UN ZIP (AC3).
@@ -271,6 +310,13 @@ const fecha = (v: unknown): string | undefined => {
  */
 const fechaSchema = z.string().regex(FORMATO_FECHA, 'La fecha debe ser yyyy-mm-dd');
 
+/**
+ * HU #12830: filtro por semáforo (preset «Con alertas» = `naranja,rojo`). A diferencia de los demás
+ * filtros del listado, un valor fuera del vocabulario es 400 y no se ignora: descartarlo en silencio
+ * dejaría el filtro vacío y la pantalla diría «con alertas» mostrando la cola entera.
+ */
+const semaforosSchema = z.array(z.enum(SEMAFOROS_IMPUESTO)).min(1);
+
 // GET / — cola con las 2 fronteras, filtrada y paginada.
 //
 // Deja rastro en `pii_access_log` desde la HU #11909 (Ley 1581 art. 17, AGENTS.md §16): cada fila
@@ -279,6 +325,12 @@ const fechaSchema = z.string().regex(FORMATO_FECHA, 'La fecha debe ser yyyy-mm-d
 // la ruta interactiva sin rastro mientras la de al lado lo escribe todo. Va DESPUÉS de la consulta y
 // con `await`, como en SOAT: `filas` no se sabe antes.
 router.get('/', exigirFuncion('impuestos.cola.ver'), async (req: Request, res: Response) => {
+  const semaforoRaw = lista(req.query.semaforo);
+  const semaforo = semaforoRaw ? semaforosSchema.safeParse(semaforoRaw) : undefined;
+  if (semaforo && !semaforo.success) {
+    res.status(400).json({ error: `semaforo admite solo: ${SEMAFOROS_IMPUESTO.join(', ')}` });
+    return;
+  }
   const ctx = await contextoImpuesto(req.user!);
   const estadoRaw = typeof req.query.estado === 'string' ? req.query.estado : undefined;
   const estados = estadoRaw
@@ -300,6 +352,7 @@ router.get('/', exigirFuncion('impuestos.cola.ver'), async (req: Request, res: R
     estancado: req.query.estancado === 'si',
     // HU #12590: liquidado y pendiente de pago con marca. Booleano en texto, como el resto.
     liquidadoPendientePago: req.query.liquidadoPendientePago === 'true',
+    semaforo: semaforo?.data,
     page: Number(req.query.page) || 1,
     pageSize: Number(req.query.pageSize) || 50,
   });
@@ -351,6 +404,7 @@ const colaFiltrosCampos = z.object({
   creadoDesde: fechaSchema.optional(), creadoHasta: fechaSchema.optional(),
   estancado: z.boolean().optional(),
   liquidadoPendientePago: z.boolean().optional(),
+  semaforo: semaforosSchema.optional(), // HU #12830
   page: z.number().int().positive().optional(),
   pageSize: z.number().int().positive().optional(),
   cursor: z.string().optional(),
@@ -439,6 +493,7 @@ router.post('/export', exigirFuncion('impuestos.excel.exportar'), exportColaLimi
     });
 
     res.set('Cache-Control', 'no-store');
+    if (incluirPago) res.set(CABECERA_DIRECCIONES_SIN_CONFIRMAR, String(contarDireccionesSinConfirmar(filas))); // HU #12833 AC4
     await sendExcel(res, nombreArchivoExportImpuestos(), columnasColaExport('impuestos', incluirPago), filas);
   } catch (e) {
     // Con la respuesta ya empezada, responder reventaría con ERR_HTTP_HEADERS_SENT y taparía la
@@ -628,8 +683,15 @@ router.get('/:id/certificado', exigirFuncion('impuestos.certificado.descargar'),
       campos: cert.campos,
       certificadoPorNombre: cert.certificadoPorNombre,
       certificadoEn: new Date(cert.createdAt),
+      registroRunt: cert.registroRunt,
       generadoPor: ctx.username,
       generadoEn: new Date(),
+    });
+
+    // Registro PII antes del primer byte (HU #13204): el PDF entrega documento, placa, VIN, motor,
+    // chasis y serie. Si `construirCertificadoPdf` hubiera lanzado, no se entregó nada que registrar.
+    await registrarAccesoImpuesto(req, {
+      accion: 'export', archivo: 'certificado_runt', impuestoId: req.params.id, filas: 1, campos: CAMPOS_PII_CERTIFICADO,
     });
 
     // Auditar ANTES de escribir la respuesta: `audit` se traga sus errores, pero si algo se cayera

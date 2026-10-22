@@ -12,12 +12,12 @@
 //        lanza ni deja una promesa rechazada sin capturar.
 // RN-03  Desenlace como el del cron (`correrLecturaFlit2Programada`): el error queda en la fila de lectura
 //        (lo anota `leerIncremental`, y el estado lo muestra como problema) y en el log, sin PII. El
-//        candado tomado es un aviso de log, no un error. Si termina bien, se audita como la programada,
-//        con detalle «tras guardar el acceso».
+//        candado tomado es un aviso de log, no un error. La corrida no se audita (HU #13626): cada
+//        trámite creado o cambiado deja su entrada en la Bitácora.
 
 import { env } from '../../config/env.js';
 import { loggerFor } from '../../shared/logger.js';
-import { auditarLecturaProgramada, leerConCandado } from './flit2-lectura.service.js';
+import { leerConCandado } from './flit2-lectura.service.js';
 import {
   Flit2Error, Flit2LecturaEnCursoError, Flit2NoConfiguradoError, Flit2SinAccesoError,
 } from './flit2.errors.js';
@@ -28,8 +28,8 @@ const log = loggerFor('flito-sync-flit2');
 /** La corrida en sí. Nunca rechaza (RN-02, RN-03). Exportada para el test. */
 export async function correrLecturaTrasAcceso(): Promise<void> {
   try {
-    const r = await leerConCandado('acceso');
-    await auditarLecturaProgramada(r, 'acceso');
+    // HU #13626: la corrida no se audita; cada trámite creado o cambiado deja su entrada en la Bitácora.
+    await leerConCandado('acceso');
   } catch (e) {
     if (e instanceof FuenteApagadaError) {
       // HU #13237: apagado intencional, no es falla (cada 5 min no debe ensuciar el log en warn).

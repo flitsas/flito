@@ -1,0 +1,11 @@
+{
+  "//": "Solo para el proceso hijo de la medición de exports (Bug #13030). tsx no lee vitest.config.ts: este mapeo replica su alias de @operaciones/shared-types a la FUENTE, para que el hijo no dependa de un dist compilado (que puede estar viejo) y mida el mismo código que la suite.",
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "../..",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@operaciones/shared-types": ["../../packages/shared-types/src/index.ts"]
+    }
+  }
+}

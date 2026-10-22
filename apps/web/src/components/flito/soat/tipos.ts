@@ -104,3 +104,26 @@ export const ESTADOS_ADMIN: EstadoSoat[] = [
 export const ESTADOS_CLIENTE: EstadoSoat[] = [
   EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.CON_NOVEDAD, EstadoSoat.PAGADO,
 ];
+
+/**
+ * El filtro de estado de la cola (HU #12997). A los cuatro estados del SOAT se suman las dos
+ * pastillas de las solicitudes APARCADAS porque el RUNT no respondió (Feature #12841): `incompleta`
+ * («Por validar») y `descartada` («Descartadas»). No son estados del SOAT —viven en otra tabla y
+ * llegan por otro endpoint—, así que nunca viajan a la query de la cola ni al cuerpo del Excel.
+ */
+export type PastillaIncompleta = 'incompleta' | 'descartada';
+export type FiltroEstadoSoat = EstadoSoat | 'todos' | PastillaIncompleta;
+export const esPastillaIncompleta = (e: FiltroEstadoSoat): e is PastillaIncompleta =>
+  e === 'incompleta' || e === 'descartada';
+
+/** Rótulos visibles de la solicitud aparcada (P-1 del UX): la pastilla y el chip dicen lo mismo. */
+export const ESTADO_INCOMPLETA_LABEL = {
+  incompleta: 'Por validar', descartada: 'Descartada', completada: 'Completada',
+} as const;
+/** El rótulo de la PASTILLA (plural en «Descartadas», como el resto del grupo). */
+export const PASTILLA_INCOMPLETA_LABEL: Record<PastillaIncompleta, string> = {
+  incompleta: 'Por validar', descartada: 'Descartadas',
+};
+/** Fecha larga del detalle: «28 de septiembre de 2026, 9:14 a. m.». */
+export const fechaLarga = (iso: string | null) => iso
+  ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'long', timeStyle: 'short' }) : '—';

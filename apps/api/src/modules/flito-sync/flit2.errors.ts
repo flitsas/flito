@@ -71,7 +71,12 @@ export class Flit2NoConfiguradoError extends Flit2Error {
 /** FLIT 2 rechazó el acceso vigente. Mientras la fila siga marcada, no se vuelve a llamar. */
 export class Flit2RechazadoError extends Flit2Error {
   readonly motivo: Flit2MotivoRechazo;
-  constructor(motivo: Flit2MotivoRechazo) {
+  /**
+   * Bug #13198: true si FLIT 2 acaba de responder el rechazo al pedir el pase; false si es la marca
+   * ya guardada en la fila (no se llamó a FLIT 2).
+   */
+  readonly respondioFlit2: boolean;
+  constructor(motivo: Flit2MotivoRechazo, respondioFlit2 = false) {
     super(
       'rechazado',
       503,
@@ -80,6 +85,7 @@ export class Flit2RechazadoError extends Flit2Error {
         : 'Usuario o contraseña rechazados por FLIT 2.',
     );
     this.motivo = motivo;
+    this.respondioFlit2 = respondioFlit2;
   }
 }
 
@@ -87,7 +93,9 @@ export class Flit2RechazadoError extends Flit2Error {
 export class Flit2BloqueadoError extends Flit2Error {
   readonly motivo: Flit2MotivoBloqueo;
   readonly hasta: Date;
-  constructor(motivo: Flit2MotivoBloqueo, hasta: Date) {
+  /** Bug #13198: true si el 423/429 acaba de llegar de FLIT 2; false si es la pausa ya guardada. */
+  readonly respondioFlit2: boolean;
+  constructor(motivo: Flit2MotivoBloqueo, hasta: Date, respondioFlit2 = false) {
     super(
       motivo === 'rate_limited' ? 'espera' : 'bloqueado',
       503,
@@ -97,6 +105,7 @@ export class Flit2BloqueadoError extends Flit2Error {
     );
     this.motivo = motivo;
     this.hasta = hasta;
+    this.respondioFlit2 = respondioFlit2;
   }
 }
 

@@ -1,4 +1,4 @@
-// FLITO Impuestos — las ONCE celdas de pago y trazabilidad del archivo AMPLIADO (Bug #12642).
+// FLITO Impuestos — las DOCE celdas de pago y trazabilidad del archivo AMPLIADO (Bug #12642).
 //
 // Gemelo de `flito-soat.export-pago.ts` y con la misma frontera: la proyección de las 27 columnas del
 // gestor (`COLUMNAS_CONSULTA` del servicio) NO cambia, y lo que aquí se declara solo entra en la
@@ -11,7 +11,7 @@
 //
 // El registro de acceso (Ley 1581 art. 17) lo pone la RUTA. Este archivo no toca `req`.
 
-import { ESTADO_IMPUESTO_LABEL, type EstadoImpuesto } from '@operaciones/shared-types';
+import { AnalisisEstadoImpuesto, ESTADO_IMPUESTO_LABEL, type EstadoImpuesto } from '@operaciones/shared-types';
 import { flitoImpuestos } from '../../db/schema.js';
 import {
   celdaInstante, celdaNumero, celdaTexto, type CeldasPagoImpuestos,
@@ -25,6 +25,7 @@ import {
 export const COLUMNAS_PAGO_IMPUESTOS = {
   estado: flitoImpuestos.estado,
   enviadoEn: flitoImpuestos.enviadoEn,
+  liquidadoEn: flitoImpuestos.liquidadoEn,
   valorLiquidado: flitoImpuestos.valorLiquidado,
   valorPagado: flitoImpuestos.valorPagado,
   pagadoEn: flitoImpuestos.pagadoEn,
@@ -33,12 +34,16 @@ export const COLUMNAS_PAGO_IMPUESTOS = {
   gestionOperaciones: flitoImpuestos.gestionOperaciones,
   motivoRechazo: flitoImpuestos.motivoRechazo,
   createdAt: flitoImpuestos.createdAt,
+  // HU #12833 (AC4/AC8): solo para decidir la marca «Dirección sin confirmar»; no son celdas.
+  analisisEstado: flitoImpuestos.analisisEstado,
+  direccionPendienteRevision: flitoImpuestos.direccionPendienteRevision,
 } as const;
 
 /** Lo que devuelve esa proyección; a mano por la nullabilidad (ver `Comprador` en el servicio). */
 export interface FilaConsultaPagoImpuestos {
   estado: string;
   enviadoEn: Date | string | null;
+  liquidadoEn: Date | string | null;
   valorLiquidado: string | null;
   valorPagado: string | null;
   pagadoEn: Date | string | null;
@@ -47,6 +52,8 @@ export interface FilaConsultaPagoImpuestos {
   gestionOperaciones: boolean;
   motivoRechazo: string | null;
   createdAt: Date | string | null;
+  analisisEstado: string | null;
+  direccionPendienteRevision: boolean;
 }
 
 /** Los dos textos de la celda `Gestor`: quién lleva el impuesto según `gestion_operaciones`. */
@@ -59,7 +66,7 @@ function etiquetaEstado(estado: string): string {
 }
 
 /**
- * Las once celdas de pago de UNA fila. Sin liquidar ni pagar (`pendiente`, `solicitado`) las de
+ * Las doce celdas de pago de UNA fila. Sin liquidar ni pagar (`pendiente`, `solicitado`) las de
  * importe y fecha de pago van VACÍAS —nunca `0`—; estado, modalidad, gestor, marca y creación
  * siempre se llenan porque siempre existen.
  */
@@ -67,9 +74,7 @@ export function celdasPagoImpuestos(f: FilaConsultaPagoImpuestos): CeldasPagoImp
   return {
     estado: etiquetaEstado(f.estado),
     fechaSolicitud: celdaInstante(f.enviadoEn),
-    // En esta rama `flito_impuestos` aún no tiene `liquidado_en` (llega con la migración 0196 del
-    // Feature 12589): la celda sale vacía y la cabecera se conserva, así el archivo no cambia de forma.
-    fechaLiquidacion: null,
+    fechaLiquidacion: celdaInstante(f.liquidadoEn),
     valorLiquidado: celdaNumero(f.valorLiquidado),
     valorPagado: celdaNumero(f.valorPagado),
     fechaPago: celdaInstante(f.pagadoEn),
@@ -79,5 +84,24 @@ export function celdasPagoImpuestos(f: FilaConsultaPagoImpuestos): CeldasPagoImp
     gestor: f.gestionOperaciones ? GESTOR_OPERACIONES : GESTOR_ORGANISMO,
     motivoNovedad: celdaTexto(f.motivoRechazo),
     fechaCreacion: celdaInstante(f.createdAt),
+    direccionSinConfirmar: marcaDireccionSinConfirmar(f),
   };
+}
+
+const ANALISIS_TERMINADO: readonly (string | null)[] = [AnalisisEstadoImpuesto.COMPLETADO, AnalisisEstadoImpuesto.ERROR];
+
+/**
+ * HU #12833 (AC4/AC8): «Sí» solo si el análisis TERMINÓ (`completado`/`error_analisis`) y la
+ * dirección quedó pendiente. Nunca analizado o en curso → vacía (`null`, nunca «No»: un «No» parecería
+ * afirmar que la dirección está confirmada). Ninguna fila se filtra.
+ */
+export function marcaDireccionSinConfirmar(
+  f: Pick<FilaConsultaPagoImpuestos, 'analisisEstado' | 'direccionPendienteRevision'>,
+): string | null {
+  return ANALISIS_TERMINADO.includes(f.analisisEstado) && f.direccionPendienteRevision ? 'Sí' : null;
+}
+
+/** HU #12833 (AC4): cuántas filas del archivo ampliado llevan la marca. Va en la cabecera de la respuesta. */
+export function contarDireccionesSinConfirmar(filas: ReadonlyArray<Record<string, unknown>>): number {
+  return filas.filter((f) => f.direccionSinConfirmar === 'Sí').length;
 }

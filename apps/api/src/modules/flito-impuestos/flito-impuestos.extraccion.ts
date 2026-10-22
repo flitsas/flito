@@ -88,11 +88,7 @@ export async function descargarFacturaDeImpuesto(impuestoId: string): Promise<{ 
     .innerJoin(flitoTramites, eq(flitoImpuestos.tramiteId, flitoTramites.id))
     .where(eq(flitoImpuestos.id, impuestoId)).limit(1);
   if (!fila?.facturaId) noDisponible(impuestoId, 'sin_factura');
-  if (fila.fuente === 'flit2') {
-    // Un trámite de FLIT 2 sin su id no puede pedir el adjunto: mismo desenlace que un 404.
-    if (!fila.idFlit2) noDisponible(impuestoId, 'url_nula');
-    return descargarFacturaFlit2(impuestoId, fila.idFlit2, fila.facturaId);
-  }
+  if (fila.fuente === 'flit2') return descargarFacturaVentaFlit2(impuestoId, fila.idFlit2, fila.facturaId);
   // FLIT 1: sin cambios (HU #13095, AC5).
 
   const url = await getFlitAdapter().obtenerUrlFactura(fila.facturaId);
@@ -158,6 +154,19 @@ async function leerConTope(impuestoId: string, resp: Response): Promise<Buffer> 
     partes.push(paso.value);
   }
   return Buffer.concat(partes, total);
+}
+
+/**
+ * Bug #13230. Única vía para la factura de venta de un trámite de FLIT 2: la usan la extracción, el
+ * visor (`GET /:id/factura-venta`) y el ZIP de soportes. Lanza `FacturaNoDisponibleError` con el
+ * motivo; el log solo lleva `impuestoId` y motivo (nunca la URL firmada).
+ */
+export async function descargarFacturaVentaFlit2(
+  impuestoId: string, idFlit2: string | null | undefined, adjuntoId: string,
+): Promise<{ bytes: Buffer; contentType: string }> {
+  // Un trámite de FLIT 2 sin su id no puede pedir el adjunto: mismo desenlace que un 404.
+  if (!idFlit2) noDisponible(impuestoId, 'url_nula');
+  return descargarFacturaFlit2(impuestoId, idFlit2, adjuntoId);
 }
 
 /**

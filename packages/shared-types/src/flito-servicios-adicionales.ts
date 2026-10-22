@@ -71,7 +71,15 @@ export interface TramiteServicioAdicional {
   asignadoPorNombre: string | null;
   /** ISO. */
   asignadoEn: string;
+  /**
+   * Bug #12913: `comprobante` si la asignación la escribió un comprobante de pago aplicado de ese tipo
+   * (no se puede quitar desde el panel: 409 `asignacion_de_comprobante`); `manual` si la asignó una persona.
+   */
+  origen: OrigenServicioAdicional;
 }
+
+/** Bug #12913: de dónde viene una asignación de servicio adicional. */
+export type OrigenServicioAdicional = 'manual' | 'comprobante';
 
 /** Cuerpo de `POST /api/finanzas/tramites/:id/servicios-adicionales`. */
 export interface AsignarServicioAdicionalInput {
@@ -102,6 +110,8 @@ export const CODIGO_SERVICIO_ADICIONAL_TRAMITE = {
   SERVICIO_YA_ASIGNADO: 'SERVICIO_YA_ASIGNADO',
   /** 409: el trámite está liquidado; hay que reversar la liquidación para cambiar los servicios. */
   TRAMITE_LIQUIDADO: 'TRAMITE_LIQUIDADO',
+  /** 409 (Bug #12913): la asignación la escribió un comprobante de pago aplicado; no se quita desde el panel. */
+  ASIGNACION_DE_COMPROBANTE: 'ASIGNACION_DE_COMPROBANTE',
 } as const;
 export type CodigoServicioAdicionalTramite =
   (typeof CODIGO_SERVICIO_ADICIONAL_TRAMITE)[keyof typeof CODIGO_SERVICIO_ADICIONAL_TRAMITE];

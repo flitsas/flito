@@ -4,6 +4,13 @@
 // compuerta. NO duplica lógica de negocio: cada acción resuelve tramiteId → soatId/impuestoId y DELEGA
 // en el servicio dueño de la regla (SOAT/Impuestos para el envío al gestor, Compuerta para el veredicto
 // y la entrega). Aquí solo vive el mapeo y el reporte agregado.
+//
+// RN-13585-P (Bug #13585, retrabajo 2 — decisión del humano): el trámite muestra SUS datos, no los del
+//            vehículo enlazado. La placa de la bandeja es SOLO `flito_tramites.plate_complete`, en
+//            cualquier estado y sin caer a `vehicles.plate`: dos trámites del mismo VIN comparten
+//            vehículo, y leer su placa le ponía al anulado la del aprobado. La búsqueda por placa usa la
+//            MISMA columna. `registrosZipTramites`, `solicitarImpuestos` y `entregar` siguen con
+//            `vehicles.plate` a propósito: son operativos sobre trámites vigentes.
 
 import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import {
@@ -277,7 +284,8 @@ export const ORDENES_LISTADO = ['recientes', 'antiguos'] as const;
 export type OrdenListado = (typeof ORDENES_LISTADO)[number];
 export const esOrdenListado = (v: unknown): v is OrdenListado =>
   typeof v === 'string' && (ORDENES_LISTADO as readonly string[]).includes(v);
-export interface ListadoTramites { items: TramiteFila[]; total: number; page: number; pageSize: number }
+/** `marca` (HU #13684): hora de la BD tomada en el mismo SELECT del COUNT; línea base del sondeo de novedades. */
+export interface ListadoTramites { items: TramiteFila[]; total: number; page: number; pageSize: number; marca: string }
 export interface FacetasTramites { estados: string[]; tramites: string[]; ciudades: string[]; transitos: string[] }
 
 function proyeccion() {
@@ -287,7 +295,8 @@ function proyeccion() {
     idFlit: flitoTramites.idFlit,
     fuente: flitoTramites.fuente,
     estadoTramite: flitoTramites.estado,
-    placa: vehicles.plate,
+    // RN-13585-P: la placa es la del trámite, no la del vehículo (ver cabecera).
+    placa: flitoTramites.plateComplete,
     companiaNombre: clients.name,
     soatAutogestionable: clients.soatAutogestionable,
     impuestosAutogestionable: clients.impuestosAutogestionable,
@@ -541,7 +550,7 @@ export function condicionAlerta(alerta: AlertaOperativa): SQL {
 // en silencio los que no tienen equivalente en el enum interno: `estado` es nullable y
 // `NULL NOT IN (...)` evalúa a NULL, no a true, así que Borrador y Enviado a OT desaparecían del
 // listado, del contador y de las facetas sin que nada lo delatara.
-function construirCondiciones(f: FiltrosListado): SQL[] {
+export function construirCondiciones(f: FiltrosListado): SQL[] {
   const conds: SQL[] = [];
 
   const termino = f.buscar?.trim();
@@ -555,7 +564,7 @@ function construirCondiciones(f: FiltrosListado): SQL[] {
       ));
     conds.push(or(
       sql`UPPER(${flitoTramites.idFlit}) LIKE ${patronTexto}`,
-      sql`UPPER(REPLACE(${vehicles.plate}, '-', '')) LIKE ${patron}`,
+      sql`UPPER(REPLACE(${flitoTramites.plateComplete}, '-', '')) LIKE ${patron}`, // RN-13585-P: la que se muestra
       sql`UPPER(${vehicles.vin}) LIKE ${patron}`,
       inArray(flitoTramites.id, compradorMatch),
     )!);
@@ -599,6 +608,22 @@ function construirCondiciones(f: FiltrosListado): SQL[] {
   return conds;
 }
 
+// COUNT del listado (joins 1-0..1 → count(distinct) exacto), compartido con las novedades (HU #13684). `marca`:
+// hora de la BD en UTC con µs. El proveedor lo pide la alerta `soat_sin_gestion` («missing FROM-clause entry»).
+export function conteoBase() {
+  return db.select({
+    total: sql<number>`count(distinct ${flitoTramites.id})::int`,
+    marca: sql<string>`to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+  })
+    .from(flitoTramites)
+    .leftJoin(clients, eq(flitoTramites.companiaId, clients.id))
+    .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
+    .leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
+    .leftJoin(flitoSoat, eq(flitoTramites.soatId, flitoSoat.id))
+    .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
+    .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id));
+}
+
 /**
  * Listado paginado de la tabla unificada. Filtros y paginación se resuelven EN SQL (LIMIT/OFFSET +
  * COUNT); el cliente ya no descarga todos los trámites. Devuelve la página + el total para paginar.
@@ -611,18 +636,8 @@ export async function listar(filtros: FiltrosListado = {}, alcance: AlcanceResue
   const porAlcance = condicionAlcanceTramites(alcance);
   if (porAlcance) conds.push(porAlcance);
 
-  // Total con los mismos joins que gobiernan los filtros (todos 1-0..1 → count(distinct) exacto).
-  const countRows = await db.select({ total: sql<number>`count(distinct ${flitoTramites.id})::int` })
-    .from(flitoTramites)
-    .leftJoin(clients, eq(flitoTramites.companiaId, clients.id))
-    .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
-    .leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
-    .leftJoin(flitoSoat, eq(flitoTramites.soatId, flitoSoat.id))
-    // El proveedor entra aquí porque la alerta `soat_sin_gestion` lo necesita para su SLA. Sin este
-    // join, filtrar por esa alerta rompería el COUNT con «missing FROM-clause entry».
-    .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
-    .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id))
-    .where(and(...conds));
+  // Total con los mismos joins que gobiernan los filtros; `marca` sale en la misma sentencia (HU #13684).
+  const countRows = await conteoBase().where(and(...conds));
   const total = Number(countRows[0]?.total ?? 0);
 
   // Se ordena por la fecha de FLIT con created_at de respaldo, igual que la columna que se muestra:
@@ -635,7 +650,8 @@ export async function listar(filtros: FiltrosListado = {}, alcance: AlcanceResue
 
   const rows = await proyeccion().where(and(...conds))
     .orderBy(...orden).limit(pageSize).offset((page - 1) * pageSize);
-  if (rows.length === 0) return { items: [], total, page, pageSize };
+  const marca = String(countRows[0]?.marca ?? '');
+  if (rows.length === 0) return { items: [], total, page, pageSize, marca };
 
   const ids = rows.map((r) => r.tramiteId);
   const compradoresRows = await db.select({
@@ -686,7 +702,7 @@ export async function listar(filtros: FiltrosListado = {}, alcance: AlcanceResue
       ...aFila(r, porTramite.get(r.tramiteId) ?? []),
       excepcionesAutogestion: excPorTramite.get(r.tramiteId) ?? [],
     })),
-    total, page, pageSize,
+    total, page, pageSize, marca,
   };
 }
 

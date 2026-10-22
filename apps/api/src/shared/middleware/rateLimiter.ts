@@ -5,6 +5,7 @@ import { getRedis } from '../redis.js';
 import type { Request, Response } from 'express';
 import { loggerFor } from '../logger.js';
 import { rateLimitBloqueadoTotal } from '../metrics.js';
+import { env } from '../../config/env.js';
 
 // Helper: keyGenerator que prefiere userId si está autenticado, sino normaliza IP (IPv6 /64).
 // Sin esta normalización, atacantes con IPv6 pueden bypassear los límites cambiando los bits bajos.
@@ -254,6 +255,23 @@ export const soatClienteLimiter = rateLimit({
 });
 
 /**
+ * HU #13364 (AC10) — carga posterior de documentos adicionales (`POST /api/flito/soat/:id/documentos-adicionales`).
+ * 30 envíos / 15 min por usuario + IP. Presupuesto PROPIO: otro público (operación y proveedor) y
+ * otra ruta que el canal Cliente. Va DESPUÉS de `exigirFuncion` y ANTES de multer: quien no tiene la
+ * función no gasta presupuesto, y quien lo agotó no escribe nada a disco.
+ */
+export const soatDocumentosAdicionalesLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('soat-doc-adic:'),
+  handler: frenoConRastro('soat-doc-adic'),
+  message: { error: 'Demasiadas cargas de documentos adicionales. Espera unos minutos e intenta de nuevo.' },
+  store: makeStore('rl:soat-doc-adic:'),
+});
+
+/**
  * Sub-límite SOLO de `POST /cliente/preconsulta`: 15 / 15 min / usuario (HU #12090, bloqueante 3;
  * el techo sube de 8 a 15 en la HU #12214).
  *
@@ -407,4 +425,61 @@ export const passwordChangeLimiter = rateLimit({
   handler: frenoConRastro('password-change'),
   message: { error: 'Demasiados intentos de cambio de contraseña. Espera unos minutos e intenta de nuevo.' },
   store: makeStore('rl:password-change:'),
+});
+
+/**
+ * HU #13632 (AC9): avisos firmados de FLIT 2 (`POST /api/flito/sync/flit2/avisos`, ruta pública). Dos niveles,
+ * los dos por IP real (`req.ip` con `trust proxy`; la ruta no autentica, así que la llave nunca lleva usuario)
+ * y los dos ANTES de la verificación HMAC: acotan la CPU de la firma y los logs de rechazo. Stores y llaves
+ * propios: no comparten cupo entre sí ni con el `apiLimiter` global, que esta ruta no pasa. Los cupos se leen
+ * del entorno en cada petición.
+ *
+ *   1. General (`FLIT2_AVISOS_LIMITE_MIN`, por defecto 3000/min): cuenta todas las peticiones. Anti-saturación;
+ *      el despachador de FLIT 2 manda hasta ~3000 avisos/min desde una sola IP en operaciones masivas.
+ *   2. Fallidos (`FLIT2_AVISOS_LIMITE_FALLIDOS_MIN`, por defecto 120/min): solo cuentan las respuestas 401
+ *      (firma) y 400 (cuerpo); las 200 (válidos, duplicados, otro tipo, fuente apagada) se descuentan al
+ *      terminar. Excedido, el 429 sale antes de mirar la firma.
+ */
+export const flit2AvisosLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: () => env.FLIT2_AVISOS_LIMITE_MIN,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('flit2-avisos:'),
+  handler: frenoConRastro('flit2-avisos'),
+  message: { error: 'Demasiadas solicitudes' },
+  store: makeStore('rl:flit2-avisos:'),
+});
+
+/** Respuestas que consumen el cupo de fallidos (HU #13632): solo 401 y 400. */
+export const esAvisoFallido = (status: number): boolean => status === 401 || status === 400;
+
+export const flit2AvisosFallidosLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: () => env.FLIT2_AVISOS_LIMITE_FALLIDOS_MIN,
+  standardHeaders: false,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  requestWasSuccessful: (_req, res) => !esAvisoFallido(res.statusCode),
+  keyGenerator: userOrIpKey('flit2-avisos-fallidos:'),
+  handler: frenoConRastro('flit2-avisos-fallidos'),
+  message: { error: 'Demasiadas solicitudes' },
+  store: makeStore('rl:flit2-avisos-fallidos:'),
+});
+
+/**
+ * HU #13684 — sondeo de novedades de Gestión Trámites (`POST /api/flito/tramites/novedades/buscar`): 6 / min por
+ * usuario. El cliente pregunta cada ~50 s solo con la pestaña visible; 6 cubre varias pestañas y una
+ * recarga. Va DETRÁS de `exigirFuncion` (quien no tiene la función no gasta cupo). Llave y store propios.
+ * Cota revisable y sin telemetría.
+ */
+export const novedadesTramitesLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 6,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('flito-tramites-novedades:'),
+  handler: frenoConRastro('flito-tramites-novedades'),
+  message: { error: 'Demasiadas consultas de novedades. Espera un minuto.' },
+  store: makeStore('rl:flito-tramites-novedades:'),
 });

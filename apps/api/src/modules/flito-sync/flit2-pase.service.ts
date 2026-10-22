@@ -126,12 +126,12 @@ async function marcar(accion: () => Promise<void>, filaId: number): Promise<void
 async function rechazar(acceso: Flit2AccesoVigente, motivo: Flit2MotivoRechazo): Promise<never> {
   invalidarPase();
   await marcar(() => marcarRechazo(acceso.id, motivo), acceso.id);
-  throw new Flit2RechazadoError(motivo);
+  throw new Flit2RechazadoError(motivo, true);
 }
 
 async function pausar(acceso: Flit2AccesoVigente, motivo: Flit2MotivoBloqueo, hasta: Date): Promise<never> {
   await marcar(() => marcarBloqueo(acceso.id, hasta, motivo), acceso.id);
-  throw new Flit2BloqueadoError(motivo, hasta);
+  throw new Flit2BloqueadoError(motivo, hasta, true);
 }
 
 /** Pide un token a FLIT 2 con el acceso dado y traduce la respuesta (RN-02). No toca la caché. */

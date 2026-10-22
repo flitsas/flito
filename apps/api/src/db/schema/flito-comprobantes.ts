@@ -15,7 +15,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import type { ExtraccionComprobante } from '@operaciones/shared-types';
-import { flitoSoportes, flitoTramites, users } from '../schema.js';
+import { flitoServiciosAdicionalesTipos, flitoSoportes, flitoTramites, users } from '../schema.js';
 
 export const flitoComprobantes = pgTable('flito_comprobantes', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -43,6 +43,12 @@ export const flitoComprobantes = pgTable('flito_comprobantes', {
   /** `ConceptoCosto`. NULL mientras no se conozca. */
   concepto: varchar('concepto', { length: 30 }),
   tramiteId: uuid('tramite_id').references(() => flitoTramites.id, { onDelete: 'cascade' }),
+  /**
+   * Bug #12913 (0209): el TIPO de servicio adicional que paga este comprobante. Solo en pagos de
+   * servicios adicionales (CHECK); obligatorio al aplicarlos (Zod). Con él el valor entra a la puente
+   * `flito_tramite_servicios_adicionales` por (trámite, tipo) y el índice único va por tipo.
+   */
+  servicioTipoId: uuid('servicio_tipo_id').references(() => flitoServiciosAdicionalesTipos.id, { onDelete: 'restrict' }),
   /** 'id_flit' | 'vin' | 'placa' | 'manual'. Cómo se llegó al trámite. */
   cruce: varchar('cruce', { length: 10 }),
   placaLeida: varchar('placa_leida', { length: 10 }),
@@ -84,15 +90,20 @@ export const flitoComprobantes = pgTable('flito_comprobantes', {
     .where(sql`${t.tramiteId} IS NOT NULL`),
   soporteIdx: index('idx_flito_comprobantes_soporte').on(t.soporteId),
   /**
-   * D2: UNA verdad documental viva por (trámite, concepto) en los tres honorarios. Es lo que permite
-   * que el reporte la lea por subconsulta escalar sin `LIMIT`. SOAT/impuesto/derecho no entran: su
-   * verdad es la columna del destino, y ahí sí puede haber varios comprobantes (complementos).
-   * Servicios adicionales entra AUNQUE su documental no mande (cierre (a)): la subconsulta de la
-   * diferencia también necesita ≤ 1 fila. Consistencia > excepción.
+   * D2: UNA verdad documental viva por (trámite, concepto) en trámite digital y logística. SOAT/
+   * impuesto/derecho no entran: su verdad es la columna del destino (puede haber complementos).
+   * Bug #12913 (0209): servicios adicionales sale de este índice y va por (trámite, TIPO): un trámite
+   * puede tener varios servicios pagados, pero no dos comprobantes aplicados del mismo tipo.
    */
-  valorDocumentalUq: uniqueIndex('idx_flito_comprobantes_valor_documental').on(t.tramiteId, t.concepto)
+  valorDocumentalUq: uniqueIndex('idx_flito_comprobantes_valor_documental_td_lg').on(t.tramiteId, t.concepto)
     .where(sql`${t.estado} = 'aplicado' AND ${t.esPago} = true
-      AND ${t.concepto} IN ('tramite_digital', 'logistica', 'servicios_adicionales')`),
+      AND ${t.concepto} IN ('tramite_digital', 'logistica')`),
+  valorDocumentalSaUq: uniqueIndex('idx_flito_comprobantes_valor_documental_sa').on(t.tramiteId, t.servicioTipoId)
+    .where(sql`${t.estado} = 'aplicado' AND ${t.esPago} = true
+      AND ${t.concepto} = 'servicios_adicionales' AND ${t.servicioTipoId} IS NOT NULL`),
+  /** Bug #12913: el tipo de servicio solo en un PAGO de servicios adicionales. */
+  servicioTipoChk: check('flito_comprobantes_servicio_tipo_chk',
+    sql`${t.servicioTipoId} IS NULL OR (${t.concepto} = 'servicios_adicionales' AND ${t.esPago} = true)`),
   estadoChk: check('flito_comprobantes_estado_chk',
     sql`${t.estado} IN ('pendiente', 'aplicado', 'descartado')`),
   conceptoChk: check('flito_comprobantes_concepto_chk',

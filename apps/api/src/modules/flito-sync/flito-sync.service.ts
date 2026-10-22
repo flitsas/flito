@@ -10,6 +10,23 @@
 // ni su vehículo: se cuenta en `tramitesOmitidosOtraFuente`. `escribirTramite`, `upsertVehiculo` y
 // `setVehiculoDesdeFlit` se exportan para que la lectura de FLIT 2 herede historial y audit sin copiarlos.
 // HU #13093: también `arrancarSoatEImpuesto`, `reemplazarCompradores` y `registrarDiferencias`, por lo mismo.
+//
+// Bug #13585: un trámite ANULADO (FLIT 1 «Anulado»; FLIT 2 `anulado`/`revocado`) no modifica el vehículo
+// que ya existe con su VIN: `upsertVehiculo(…, { soloAlta: true })` devuelve su id sin UPDATE. Un VIN
+// anulado y recreado convive con el trámite vigente, y el anulado (sin placa, con otro titular) pisaba
+// los datos del vigente según el orden del reporte. Si el VIN no existe, el alta se hace igual.
+//
+// HU #13626: cada trámite creado o cambiado deja UNA entrada en la Bitácora (`audit_logs`,
+// `flito_tramite`) desde `bitacora-sync.ts`, la misma función para FLIT 1 y FLIT 2. Reemplaza el audit
+// «Estado FLIT: …» de `escribirTramite`; el historial campo por campo no cambia.
+// HU #13627: un trámite que falla deja su entrada «falló» (RN-B5…B8 de `bitacora-sync.ts`) y el resto sigue.
+//
+// HU #13629 (lectura automática de FLIT 1, diseño §D5/§D6):
+//   - `sincronizar` cuenta los trámites que fallaron (`tramitesFallidos`, tipo local `ResultadoCorrida`):
+//     la corrida sigue siendo «buena», pero el estado marca `tramites_con_fallo`.
+//   - FLIT 1 escribe con `soloSiCambia`: vehículo, trámite y compradores idénticos no se reescriben (no
+//     mueven `updated_at` ni dejan historial). El vehículo se decide DESPUÉS de `soloAlta` (Bug #13585).
+//     Consecuencia: `flito_tramites.sincronizado_en` pasa a ser «última vez que cambió». FLIT 2 no cambia.
 
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
@@ -31,7 +48,12 @@ import {
 } from '../flito-impuestos/impuesto-por-vehiculo.js';
 import { getFlitAdapter } from './flit.adapter.js';
 import { mapearCompradores, type CompradorMapeado } from './mapeo-compradores.js';
+import {
+  diferenciasCompradores, diferenciasTramite, registrarBitacoraSync, registrarFalloBitacoraSync, tipoDeError, vistaHistorial,
+  vistaTramite, type Diferencia,
+} from './bitacora-sync.js';
 import type { FlitPort, RangoSync, ResultadoSync, TramiteFlit } from './flit.port.js';
+import { compradoresIguales, parcheVehiculo, tramiteCambia } from './solo-si-cambia.js';
 
 const log = loggerFor('flito-sync');
 
@@ -112,17 +134,24 @@ function nuevoResultado(): ResultadoSync {
   };
 }
 
-export async function sincronizar(rango: RangoSync, flit: FlitPort = getFlitAdapter()): Promise<ResultadoSync> {
+/** Resultado de una corrida de FLIT 1: el de siempre + cuántos trámites fallaron (HU #13629, D5). */
+export type ResultadoCorrida = ResultadoSync & { tramitesFallidos: number };
+
+export async function sincronizar(rango: RangoSync, flit: FlitPort = getFlitAdapter()): Promise<ResultadoCorrida> {
   const inicio = Date.now();
   const tramites = await flit.obtenerTramites(rango);
-  const r = nuevoResultado();
+  const r: ResultadoCorrida = { ...nuevoResultado(), tramitesFallidos: 0 };
   r.tramitesLeidos = tramites.length;
 
   for (const tf of tramites) {
     try {
       await db.transaction(async (tx) => { await sincronizarUno(tx, tf, r); });
     } catch (error) {
-      log.error({ idFlit: tf.idFlit, err: (error as Error).message }, 'no se pudo sincronizar el trámite');
+      // HU #13627: el tipo del error, nunca su mensaje (puede llevar PII); y la entrada de fallo en la
+      // Bitácora, con `db` porque la transacción del trámite ya se revirtió. No lanza: la corrida sigue.
+      r.tramitesFallidos += 1;
+      log.error({ idFlit: tf.idFlit, err: tipoDeError(error) }, 'no se pudo sincronizar el trámite');
+      await registrarFalloBitacoraSync(db, { fuente: 'FLIT 1', radicado: tf.idFlit, error });
     }
   }
 
@@ -168,7 +197,10 @@ async function sincronizarUno(tx: Tx, tf: TramiteFlit, r: ResultadoSync): Promis
   const organismo = await resolverOrganismoDeFlit(tf);
   if ((tf.organismoCodigo || tf.ciudad || tf.transitoNombre) && !organismo) r.organismosSinEmparejar += 1;
 
-  const vehiculoId = await upsertVehiculo(tx, tf, compania?.id ?? null);
+  // Bug #13585: un anulado no modifica el vehículo (solo lo da de alta si no existe).
+  const anulado = estadoEnumDesdeFlit(tf.estadoFlit) === EstadoTramiteFlito.ANULADO;
+  // HU #13629: FLIT 1 solo escribe lo que cambió (`soloSiCambia`), siempre después de `soloAlta`.
+  const vehiculoId = await upsertVehiculo(tx, tf, compania?.id ?? null, { soloAlta: anulado, soloSiCambia: true });
   const { tramiteId, esNuevo, huboCambios, soatId } = await upsertTramite(tx, tf, vehiculoId, compania?.id ?? null, organismo?.codigo ?? null);
 
   // Nuevo / actualizado (llegó con diferencias, deja rastro) / sin cambios (idéntico, sin rastro).
@@ -218,8 +250,11 @@ function titularDe(tf: VehiculoFlit): { nombre: string | null; documento: string
  * condicionales y no asignaciones. Una asignación directa convierte «FLIT no me lo mandó esta vez»
  * en un `SET columna = NULL`, es decir, en borrar el dato que ya teníamos.
  *
- * `plate` es la excepción y ya lo era: FLIT siempre la trae y es la clave por la que el resto del
- * sistema reconoce el vehículo.
+ * `plate` sigue la misma política (Bug #13585). Antes era la excepción con la premisa de que «FLIT
+ * siempre la trae», y es falsa: un trámite anulado y recreado sobre el mismo VIN llega anulado y SIN
+ * placa, y si el reporte lo traía después del vigente, `vehicles.plate` quedaba en NULL y la bandeja
+ * perdía la placa. Además, un anulado ya ni llega aquí con un VIN existente (`soloAlta` de
+ * `upsertVehiculo`); el spread protege igual contra cualquier otro reporte sin placa.
  *
  * `updatedAt` lo pone `upsertVehiculo`, no esta función, para que el valor sea comparable en test.
  *
@@ -230,7 +265,7 @@ function titularDe(tf: VehiculoFlit): { nombre: string | null; documento: string
 export function setVehiculoDesdeFlit(tf: VehiculoFlit): Partial<typeof vehicles.$inferInsert> {
   const titular = titularDe(tf);
   return {
-    plate: tf.placa,
+    ...(tf.placa ? { plate: tf.placa } : {}),
     ...(tf.marca ? { brand: tf.marca } : {}),
     ...(tf.linea ? { model: tf.linea } : {}),
     // El titular solo se escribe cuando FLIT lo trae: un reporte sin comprador no puede borrar el
@@ -249,6 +284,14 @@ export function setVehiculoDesdeFlit(tf: VehiculoFlit): Partial<typeof vehicles.
     ...(tf.numSerie ? { numSerie: tf.numSerie } : {}),
   };
 }
+
+/** Las 10 columnas que puede escribir `setVehiculoDesdeFlit`: lo que `soloSiCambia` compara. */
+const COLUMNAS_VEHICULO_FLIT = {
+  plate: vehicles.plate, brand: vehicles.brand, model: vehicles.model,
+  ownerName: vehicles.ownerName, ownerDocument: vehicles.ownerDocument,
+  cilindraje: vehicles.cilindraje, carroceria: vehicles.carroceria, tipoServicio: vehicles.tipoServicio,
+  numMotor: vehicles.numMotor, numSerie: vehicles.numSerie,
+};
 
 /**
  * Alta o actualización del vehículo del trámite, por VIN.
@@ -273,12 +316,31 @@ export function setVehiculoDesdeFlit(tf: VehiculoFlit): Partial<typeof vehicles.
  * borra con cada reporte incompleto lo que ya sabíamos, que es exactamente lo que el bloque del
  * propietario existe para impedir. Y no queda rastro: `registrarDiferencias` solo lleva historial de
  * `flito_tramites`, no de `vehicles`; corregir un valor a vacío es hoy trabajo manual sobre la fila.
+ *
+ * `soloAlta` (Bug #13585): lo pasan FLIT 1 y FLIT 2 cuando el trámite está ANULADO. Con el VIN ya
+ * existente devuelve su id SIN UPDATE: el vehículo es del trámite vigente que comparte VIN, no del
+ * anulado. Sin vehículo previo, el alta se hace igual, porque el trámite necesita su `vehiculo_id`.
+ *
+ * `soloSiCambia` (HU #13629, solo FLIT 1): tras `soloAlta` (que va primero y no lee más), se leen las
+ * columnas que escribe `setVehiculoDesdeFlit` y se actualizan SOLO las que difieren; sin diferencias, no
+ * hay UPDATE ni se mueve `updated_at`.
  */
-export async function upsertVehiculo(tx: Tx, tf: VehiculoFlit, companiaId: number | null): Promise<number> {
+export async function upsertVehiculo(
+  tx: Tx, tf: VehiculoFlit, companiaId: number | null, opciones: { soloAlta?: boolean; soloSiCambia?: boolean } = {},
+): Promise<number> {
   const [existente] = await tx.select({ id: vehicles.id }).from(vehicles).where(eq(vehicles.vin, tf.vin)).limit(1);
   const titular = titularDe(tf);
   if (existente) {
-    await tx.update(vehicles).set({ ...setVehiculoDesdeFlit(tf), updatedAt: new Date() }).where(eq(vehicles.id, existente.id));
+    if (opciones.soloAlta) return existente.id;
+    const set = setVehiculoDesdeFlit(tf);
+    if (opciones.soloSiCambia) {
+      const [guardado] = await tx.select(COLUMNAS_VEHICULO_FLIT).from(vehicles).where(eq(vehicles.id, existente.id)).limit(1);
+      const parche = guardado ? parcheVehiculo(guardado, set) : set;
+      if (Object.keys(parche).length === 0) return existente.id;
+      await tx.update(vehicles).set({ ...parche, updatedAt: new Date() }).where(eq(vehicles.id, existente.id));
+      return existente.id;
+    }
+    await tx.update(vehicles).set({ ...set, updatedAt: new Date() }).where(eq(vehicles.id, existente.id));
     return existente.id;
   }
   const [creado] = await tx.insert(vehicles)
@@ -309,6 +371,18 @@ export async function reemplazarCompradores(tx: Tx, tramiteId: string, comprador
   }
 }
 
+/** Compradores guardados de un trámite, para compararlos con los de la fuente (FLIT 1 y FLIT 2). */
+export async function leerCompradores(tx: Tx, tramiteId: string): Promise<{
+  orden: number; numeroDocumento: string; nombreCompleto: string; correo: string | null; celular: string | null;
+  direccion: string | null; porcentajeParticipacion: string | null;
+}[]> {
+  return tx.select({
+    orden: flitoCompradores.orden, numeroDocumento: flitoCompradores.numeroDocumento,
+    nombreCompleto: flitoCompradores.nombreCompleto, correo: flitoCompradores.correo, celular: flitoCompradores.celular,
+    direccion: flitoCompradores.direccion, porcentajeParticipacion: flitoCompradores.porcentajeParticipacion,
+  }).from(flitoCompradores).where(eq(flitoCompradores.tramiteId, tramiteId));
+}
+
 // Diferencias que quedan en el historial (auditoría campo por campo, origen 'api').
 export async function registrarDiferencias(tx: Tx, tramiteId: string, previo: Record<string, string | null>, nuevo: Record<string, string | null>): Promise<string[]> {
   const cambios: string[] = [];
@@ -325,39 +399,33 @@ export async function registrarDiferencias(tx: Tx, tramiteId: string, previo: Re
 /** Valores de `flito_tramites` que arma cada fuente (FLIT 1 o FLIT 2) antes de escribir. */
 export type ValorTramite = Omit<typeof flitoTramites.$inferInsert, 'id' | 'createdAt' | 'idFlit'>;
 
-const fechaIso = (d: Date | null | undefined): string | null => (d ? d.toISOString() : null);
-
 /**
- * Escritura del trámite común a FLIT 1 y FLIT 2: historial de diferencias (origen 'api'), UPDATE o
- * INSERT, y audit del cambio de `flit_estado`. Las columnas del historial se leen de `valores`, así
- * que cada fuente hereda el mismo rastro sin copiarlo. El INSERT es `{ idFlit, ...valores }`: FLIT 1
- * no manda `fuente`/`idFlit2`/`syncVersion` y la fila nace con el default `'flit'`.
+ * Escritura del trámite común a FLIT 1 y FLIT 2: historial de diferencias (origen 'api') y UPDATE o
+ * INSERT. Las columnas del historial se leen de `valores`, así que cada fuente hereda el mismo rastro
+ * sin copiarlo. El INSERT es `{ idFlit, ...valores }`: FLIT 1 no manda `fuente`/`idFlit2`/`syncVersion`
+ * y la fila nace con el default `'flit'`. Devuelve las diferencias para la Bitácora (HU #13626), que
+ * escribe quien llama tras comparar también los compradores; aquí ya no se audita el «Estado FLIT».
+ *
+ * `soloSiCambia` (HU #13629, solo FLIT 1): si ninguna columna de `valores` difiere de lo guardado (salvo
+ * `sincronizadoEn`), no hay UPDATE, ni historial, ni diferencias para la Bitácora.
  */
 export async function escribirTramite(
   tx: Tx, existente: typeof flitoTramites.$inferSelect | null, idFlit: string, valores: ValorTramite,
-): Promise<{ row: typeof flitoTramites.$inferSelect; esNuevo: boolean; huboCambios: boolean }> {
+  opciones: { soloSiCambia?: boolean } = {},
+): Promise<{ row: typeof flitoTramites.$inferSelect; esNuevo: boolean; huboCambios: boolean; diferencias: Diferencia[] }> {
   if (!existente) {
     const [row] = await tx.insert(flitoTramites).values({ idFlit, ...valores }).returning();
-    return { row, esNuevo: true, huboCambios: false };
+    return { row, esNuevo: true, huboCambios: false, diferencias: [] };
   }
-  const nuevoEstado = valores.flitEstado ?? null;
-  // Historial de campos observables antes de pisar (origen 'api').
-  const cambios = await registrarDiferencias(tx, existente.id, {
-    flit_estado: existente.flitEstado, factura_venta_flit_id: existente.facturaVentaFlitId,
-    fecha_aprobacion: fechaIso(existente.fechaAprobacion),
-    compania_id: existente.companiaId === null ? null : String(existente.companiaId),
-    organismo_codigo: existente.organismoCodigo, tipo_tramite: existente.tipoTramite, ciudad: existente.ciudad,
-  }, {
-    flit_estado: nuevoEstado, factura_venta_flit_id: valores.facturaVentaFlitId ?? null,
-    fecha_aprobacion: fechaIso(valores.fechaAprobacion),
-    compania_id: valores.companiaId == null ? null : String(valores.companiaId),
-    organismo_codigo: valores.organismoCodigo ?? null, tipo_tramite: valores.tipoTramite ?? null, ciudad: valores.ciudad ?? null,
-  });
+  if (opciones.soloSiCambia && !tramiteCambia(existente, valores)) {
+    return { row: existente, esNuevo: false, huboCambios: false, diferencias: [] };
+  }
+  const antes = vistaTramite(existente);
+  const despues = vistaTramite(valores);
+  // Historial de campos observables antes de pisar (origen 'api'): las 7 claves de siempre (AC8).
+  const cambios = await registrarDiferencias(tx, existente.id, vistaHistorial(antes), vistaHistorial(despues));
   const [row] = await tx.update(flitoTramites).set({ ...valores, updatedAt: new Date() }).where(eq(flitoTramites.id, existente.id)).returning();
-  if (cambios.includes('flit_estado')) {
-    await auditSistema(tx, { action: 'update', resource: 'flito_tramite', resourceId: row.id, detail: `Estado FLIT: "${existente.flitEstado ?? '—'}" → "${nuevoEstado ?? '—'}" (trámite ${idFlit}).` });
-  }
-  return { row, esNuevo: false, huboCambios: cambios.length > 0 };
+  return { row, esNuevo: false, huboCambios: cambios.length > 0, diferencias: diferenciasTramite(antes, despues) };
 }
 
 async function upsertTramite(
@@ -386,10 +454,18 @@ async function upsertTramite(
     sincronizadoEn: new Date(),
   };
 
-  const { row, esNuevo, huboCambios } = await escribirTramite(tx, existente ?? null, tf.idFlit, valores);
+  const { row, esNuevo, huboCambios, diferencias } = await escribirTramite(tx, existente ?? null, tf.idFlit, valores, { soloSiCambia: true });
 
-  // Compradores se reemplazan en bloque: FLIT es la fuente de verdad.
-  await reemplazarCompradores(tx, row.id, mapearCompradores(tf));
+  // Compradores se reemplazan en bloque: FLIT es la fuente de verdad. Los guardados se leen antes, en
+  // la misma tx, para que la Bitácora diga qué cambió (HU #13626). HU #13629: si son exactamente los
+  // mismos, no se borran ni se insertan.
+  const nuevos = mapearCompradores(tf);
+  const guardados = esNuevo ? [] : await leerCompradores(tx, row.id);
+  if (esNuevo || !compradoresIguales(guardados, nuevos)) await reemplazarCompradores(tx, row.id, nuevos);
+  await registrarBitacoraSync(tx, {
+    fuente: 'FLIT 1', radicado: tf.idFlit, tramiteId: row.id, esNuevo,
+    diferencias: [...diferencias, ...diferenciasCompradores(guardados, nuevos)],
+  });
 
   return { tramiteId: row.id, esNuevo, huboCambios, soatId: row.soatId };
 }

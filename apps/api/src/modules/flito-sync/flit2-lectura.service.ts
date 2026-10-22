@@ -41,8 +41,11 @@
 // RN-12  400 (`invalid_cursor` u otro) o 403 (`insufficient_scope`) del feed: la posición no avanza, el
 //        código de FLIT 2 queda en `ultimo_error_codigo` y no se reintenta en la corrida. La posición
 //        nunca se reinicia sola. Las pausas del pase (423, rechazo) las aplica `flit2-pase.service.ts`.
-// RN-13  Auditoría solo de las corridas que terminan bien y trajeron ítems (`leidos > 0`), con totales y
-//        sin PII. Las vacías o fallidas solo dejan su rastro en la fila de lectura.
+// RN-13  La corrida no se audita; cada trámite creado o cambiado deja su entrada en la Bitácora
+//        (`bitacora-sync.ts`, HU #13626). Las vacías o fallidas solo dejan su rastro en la fila de lectura.
+//        HU #13627: si la página falla por un ÍTEM que lanza, ese ítem deja además su entrada «falló»
+//        (fuera de la transacción, deduplicada). La página entera se revierte y la lectura se frena en
+//        él (decisión de David, 2026-10-16): los demás ítems de la página no quedan aplicados.
 //
 // ── HU #13093 (compradores y arranque). Diseño: `docs/diseno/hu-13093-compradores-soat-flit2.md` ──
 //
@@ -114,21 +117,35 @@
 //        página (nunca dentro). La página en vuelo termina y mueve su cursor; la siguiente no se pide
 //        (`detenidaPor = 'fuente_apagada'`) y la corrida cierra por el camino normal, soltando el
 //        candado. La relectura (RN-20) tiene la misma guarda y no se lanza si la normal se detuvo (AC7).
+//
+// ── Bug #13585 (VIN anulado y recreado) ──────────────────────────────────────────────────────────
+//
+// RN-26  Un ítem cuyo estado FLITO es `anulado` (FLIT 2 `anulado` o `revocado`) NO modifica el vehículo
+//        que ya existe con su VIN: el vehículo es del trámite vigente con el que comparte VIN, y el
+//        anulado (otra marca, otro titular) lo pisaba según el orden del feed. Si el VIN no existe, el
+//        alta se hace igual (el trámite necesita `vehiculo_id`). El trámite anulado se guarda como
+//        siempre (estado, historial, compradores, `vehiculo_id`). La regla vive en `upsertVehiculo`
+//        (`soloAlta`), la misma que usa FLIT 1.
+//        `plate_complete` del anulado (retrabajo 2): la placa PROPIA del ítem, o la que ese mismo
+//        trámite ya tenía; NUNCA la del vehículo (`placaConocida` cae a ella y le pegaba al anulado la
+//        placa del vigente del mismo VIN). Sin ninguna de las dos queda null. Los vigentes siguen RN-04.
+//        Sin backfill: un anulado que ya heredó la placa la conserva hasta su próxima versión en el feed.
 
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import type { Flit2LecturaResultado } from '@operaciones/shared-types';
+import { EstadoTramiteFlito, type Flit2LecturaResultado } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import { auditLogs, flitoCompradores, flitoSyncFlit2Lectura, flitoTramites, vehicles } from '../../db/schema.js';
+import { flitoSyncFlit2Lectura, flitoTramites, vehicles } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
 import { companiaPorNit } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import {
-  arrancarSoatEImpuesto, escribirTramite, esAsignado, fechaValida, reemplazarCompradores, registrarDiferencias,
+  arrancarSoatEImpuesto, escribirTramite, esAsignado, fechaValida, leerCompradores, reemplazarCompradores, registrarDiferencias,
   resolverOrganismoDeFlit, upsertVehiculo, type ContadoresArranque, type ValorTramite, type VehiculoFlit,
 } from './flito-sync.service.js';
 import {
   compradoresDesdeFlit2, ESTADOS_SIN_ESTADO_FLITO, estadoDesdeFlit2, familiaATipoTramite, tipoPropiedadPorConteo,
 } from './flit2-mapeo.js';
 import type { CompradorMapeado } from './mapeo-compradores.js';
+import { diferenciasCompradores, registrarBitacoraSync, registrarFalloBitacoraSync, type Diferencia } from './bitacora-sync.js';
 import { getFlit2SyncAdapter } from './flit2-sync.adapter.js';
 import type { Flit2SyncPort, ItemFlit2, PaginaFlit2, PosicionLectura } from './flit2-sync.port.js';
 import { conCandadoLectura } from './flit2-candado.js';
@@ -160,7 +177,8 @@ export const ESPERA_429_MAX_S = 60;
 const REINTENTOS_429_MAX = 3;
 
 /** `acceso`: la que arranca sola tras guardar un acceso válido (HU #13190; sustituye al botón). */
-export type OrigenLectura = 'cron' | 'acceso';
+/** `aviso`: la que agenda un aviso firmado de FLIT 2 (HU #13632); mismo contrato, solo cambia el log. */
+export type OrigenLectura = 'cron' | 'acceso' | 'aviso';
 
 export interface OpcionesLectura {
   pageSize?: number;
@@ -221,28 +239,25 @@ const huella = (c: {
 }): string => JSON.stringify([c.orden, c.numeroDocumento, c.nombreCompleto, c.correo, c.celular, c.direccion, pct(c.porcentajeParticipacion)]);
 
 /**
- * Escribe los compradores de un trámite de FLIT 2 (RN-14…RN-16). Devuelve si cambiaron y si, tras
- * escribir o conservar, el trámite tiene comprador principal (condición de arranque, RN-17).
+ * Escribe los compradores de un trámite de FLIT 2 (RN-14…RN-16). Devuelve si cambiaron, sus diferencias
+ * para la Bitácora (HU #13626) y si, tras escribir o conservar, el trámite tiene comprador principal
+ * (condición de arranque, RN-17).
  */
 async function escribirCompradoresFlit2(
   tx: Tx, tramiteId: string, esNuevo: boolean, nuevos: CompradorMapeado[],
-): Promise<{ cambiaron: boolean; tienePrincipal: boolean }> {
+): Promise<{ cambiaron: boolean; tienePrincipal: boolean; diferencias: Diferencia[] }> {
   const tienePrincipalNuevo = nuevos.some((c) => c.orden === 0);
   if (esNuevo) {
     if (nuevos.length > 0) await reemplazarCompradores(tx, tramiteId, nuevos);
-    return { cambiaron: false, tienePrincipal: tienePrincipalNuevo };
+    return { cambiaron: false, tienePrincipal: tienePrincipalNuevo, diferencias: [] };
   }
-  const guardados = await tx.select({
-    orden: flitoCompradores.orden, numeroDocumento: flitoCompradores.numeroDocumento,
-    nombreCompleto: flitoCompradores.nombreCompleto, correo: flitoCompradores.correo, celular: flitoCompradores.celular,
-    direccion: flitoCompradores.direccion, porcentajeParticipacion: flitoCompradores.porcentajeParticipacion,
-  }).from(flitoCompradores).where(eq(flitoCompradores.tramiteId, tramiteId));
+  const guardados = await leerCompradores(tx, tramiteId);
   // RN-15: sin compradores escribibles, se conservan los guardados.
-  if (nuevos.length === 0) return { cambiaron: false, tienePrincipal: guardados.some((c) => c.orden === 0) };
+  if (nuevos.length === 0) return { cambiaron: false, tienePrincipal: guardados.some((c) => c.orden === 0), diferencias: [] };
 
   const antes = guardados.map(huella).sort().join('|');
   const despues = nuevos.map(huella).sort().join('|');
-  if (antes === despues) return { cambiaron: false, tienePrincipal: tienePrincipalNuevo };
+  if (antes === despues) return { cambiaron: false, tienePrincipal: tienePrincipalNuevo, diferencias: [] };
 
   await reemplazarCompradores(tx, tramiteId, nuevos);
   const resumenAntes = resumenCompradores(guardados);
@@ -250,7 +265,7 @@ async function escribirCompradoresFlit2(
   // Mismo resumen y otra persona o contacto: el rastro dice que cambió sin decir qué dato (RN-16).
   if (resumenDespues === resumenAntes) resumenDespues += ' (cambian datos de persona)';
   await registrarDiferencias(tx, tramiteId, { compradores: resumenAntes }, { compradores: resumenDespues });
-  return { cambiaron: true, tienePrincipal: tienePrincipalNuevo };
+  return { cambiaron: true, tienePrincipal: tienePrincipalNuevo, diferencias: diferenciasCompradores(guardados, nuevos) };
 }
 
 /**
@@ -304,6 +319,8 @@ async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date, mo
   // El titular solo sale del principal (orden 0): sin él, los spreads conservan el que había (RN-14).
   const paraTitular = compradores[0]?.orden === 0 ? compradores : [];
 
+  // Antes del vehículo: RN-26 decide si el ítem puede modificarlo.
+  const mapeo = estadoDesdeFlit2(it.estado);
   let vehiculoId: number;
   let plateComplete: string | null;
   let vin: string | null;
@@ -311,8 +328,12 @@ async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date, mo
     vin = it.vehiculo.vin;
     const placa = await placaConocida(tx, it.vehiculo.vin, it.vehiculo.placa);
     const vf: VehiculoFlit = { ...it.vehiculo, placa, compradores: paraTitular };
-    vehiculoId = await upsertVehiculo(tx, vf, compania?.id ?? null);
-    plateComplete = placa ?? porId?.plateComplete ?? null;
+    // RN-26 (Bug #13585): un anulado/revocado no modifica el vehículo existente; solo lo da de alta.
+    vehiculoId = await upsertVehiculo(tx, vf, compania?.id ?? null, { soloAlta: mapeo.estado === EstadoTramiteFlito.ANULADO });
+    // RN-26: el anulado no hereda la placa del vehículo (es la del vigente del mismo VIN).
+    plateComplete = mapeo.estado === EstadoTramiteFlito.ANULADO
+      ? it.vehiculo.placa ?? porId?.plateComplete ?? null
+      : placa ?? porId?.plateComplete ?? null;
   } else {
     // Solo llega aquí un trámite existente (el nuevo sin vehículo salió arriba): conserva el suyo.
     vehiculoId = porId!.vehiculoId;
@@ -320,7 +341,6 @@ async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date, mo
     vin = null; // se lee solo si hace falta arrancar (RN-17)
   }
 
-  const mapeo = estadoDesdeFlit2(it.estado);
   const retrocede = ESTADOS_SIN_ESTADO_FLITO.has(it.estado) || mapeo.desconocido;
   const facturaAdjuntoId = acotado(it.facturaAdjuntoId, 120);
   if (it.facturaAdjuntoId && !facturaAdjuntoId) {
@@ -353,8 +373,13 @@ async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date, mo
     syncVersion: it.syncVersion,
   };
 
-  const { row, esNuevo, huboCambios } = await escribirTramite(tx, porId ?? null, it.radicado, valores);
-  const { cambiaron, tienePrincipal } = await escribirCompradoresFlit2(tx, row.id, esNuevo, compradores);
+  const { row, esNuevo, huboCambios, diferencias } = await escribirTramite(tx, porId ?? null, it.radicado, valores);
+  const esc = await escribirCompradoresFlit2(tx, row.id, esNuevo, compradores);
+  const { cambiaron, tienePrincipal } = esc;
+  // HU #13626: una entrada por trámite creado o cambiado, con la misma función que FLIT 1.
+  await registrarBitacoraSync(tx, {
+    fuente: 'FLIT 2', radicado: it.radicado, tramiteId: row.id, esNuevo, diferencias: [...diferencias, ...esc.diferencias],
+  });
   // RN-18: la marca sigue al scope de ESTA entrega; solo se escribe si cambia.
   const marca = !modo.conPii;
   const cambiaMarca = marca !== marcadoAntes;
@@ -380,11 +405,31 @@ async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date, mo
   }
 }
 
+/**
+ * HU #13627: radicado del ítem cuya escritura lanzó, por error. El error se propaga intacto (la página se
+ * revierte y la lectura se frena en él, como siempre); el `catch` de la corrida lo lee para dejar la
+ * entrada de fallo fuera de la transacción. Conflictos, inválidos y «sin vehículo» no lanzan: no son fallos.
+ */
+const radicadoDelFallo = new WeakMap<object, string>();
+
 /** Aplica los ítems de una página. Los desenlaces esperados se cuentan; solo un fallo de BD lanza. */
 export async function aplicarPagina(
   tx: Tx, items: ItemFlit2[], r: Contadores, ahora: Date = new Date(), modo: ModoAplicar = MODO_NORMAL,
 ): Promise<void> {
-  for (const it of items) await aplicarItem(tx, it, r, ahora, modo);
+  for (const it of items) {
+    try {
+      await aplicarItem(tx, it, r, ahora, modo);
+    } catch (e) {
+      if (e !== null && typeof e === 'object' && !radicadoDelFallo.has(e)) radicadoDelFallo.set(e, it.radicado);
+      throw e;
+    }
+  }
+}
+
+/** Entrada «falló» del ítem que lanzó, si fue un ítem (no el cursor ni el feed). Nunca lanza. */
+async function registrarFalloDelItem(e: unknown): Promise<void> {
+  const radicado = e !== null && typeof e === 'object' ? radicadoDelFallo.get(e) : undefined;
+  if (radicado !== undefined) await registrarFalloBitacoraSync(db, { fuente: 'FLIT 2', radicado, error: e });
 }
 
 /** Scope de la página: el que dijo el adaptador o, si no lo sabe, el del acceso (RN-18). */
@@ -542,6 +587,7 @@ export async function leerIncremental(
     }
     return r;
   } catch (e) {
+    await registrarFalloDelItem(e); // HU #13627: tras el rollback de la página, con `db`
     const codigo = codigoAnotado(e);
     // Solo se sabe que queda feed si alguna página se guardó (su `hasMore`) o si FLIT 2 pidió esperar.
     const atrasada = e instanceof Flit2EsperaFeedError ? true : r.paginas > 0 ? r.hasMore : undefined;
@@ -620,6 +666,7 @@ export async function releerEnmascarados(port: Flit2SyncPort, op: OpcionesRelect
     }
     log.info({ ...res }, 'relectura FLIT 2 de trámites enmascarados');
   } catch (e) {
+    await registrarFalloDelItem(e); // HU #13627: igual que la lectura normal
     log.warn({ codigo: codigoAnotado(e), paginas: res.paginas }, 'relectura FLIT 2 interrumpida: la siguiente corrida la retoma');
   }
   return res;
@@ -648,35 +695,4 @@ export async function leerConCandado(
   });
   if (!res.tomado) throw new Flit2LecturaEnCursoError();
   return res.valor;
-}
-
-/** ¿Se audita esta corrida? Solo si terminó bien y trajo ítems (RN-13). */
-export const debeAuditarse = (r: Flit2LecturaResultado): boolean => r.leidos > 0;
-
-/** Detalle de `audit_logs`: solo totales, ningún radicado ni dato de persona (RN-13). */
-export function detalleAuditoria(r: Flit2LecturaResultado, origen: OrigenLectura): string {
-  return `Sync FLIT 2 ${origen === 'cron' ? 'programada' : 'tras guardar el acceso'} (${r.modo}): ${r.leidos} leídos, ${r.nuevos} nuevos, `
-    + `${r.actualizados} actualizados, ${r.sinCambios} sin cambios, ${r.conflictos} conflictos, `
-    + `${r.sinVehiculo} sin vehículo, ${r.eliminadosIgnorados} eliminados, ${r.invalidos} inválidos; `
-    + `${r.paginas} páginas${r.hasMore ? ' (quedan más)' : ''}${r.detenidaPor ? '; detenida: fuente apagada' : ''}.`;
-}
-
-/**
- * Auditoría de una corrida en segundo plano (cron o tras guardar el acceso): no hay `req`, así que va
- * como los demás procesos del sistema (`userId` null, `userEmail` 'sistema', como la vigencia SOAT).
- * Un fallo al auditar no tumba la corrida.
- */
-export async function auditarLecturaProgramada(r: Flit2LecturaResultado, origen: OrigenLectura = 'cron'): Promise<void> {
-  if (!debeAuditarse(r)) return;
-  try {
-    await db.insert(auditLogs).values({
-      userId: null,
-      userEmail: 'sistema',
-      action: 'update',
-      resource: 'flito_sincronizacion_flit2',
-      detail: detalleAuditoria(r, origen),
-    });
-  } catch (e) {
-    log.error({ err: e instanceof Error ? e.name : typeof e }, 'no se pudo auditar la lectura de FLIT 2');
-  }
 }
