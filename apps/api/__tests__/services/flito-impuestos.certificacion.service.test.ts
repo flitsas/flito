@@ -714,3 +714,48 @@ describe('HU #13205 — certificacionesVigentesLoteConAcceso', () => {
     expect(JSON.stringify(r)).not.toMatch(/CENTINELA/);
   });
 });
+
+describe('HU #12827 (RN-12827-M) — en matrícula el RUNT se consulta SOLO por VIN', () => {
+  const VIN = '9BWZZZ377VT004251';
+
+  it.each(['Matricula', 'Matrícula'])('matrícula (%s) con documento y VIN → consulta (undefined, VIN, undefined) y certifica', async (tipo) => {
+    escenarioBase({ vehiculo: vehiculoOk({ tipoTramite: tipo }) });
+    const insertado = capturarInserts(T_CERT);
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk());
+
+    const r = await certificarImpuesto(ID, CTX);
+
+    // En matrícula inicial el RUNT aún no tiene propietario: placa + documento y placa + VIN se
+    // rechazan; solo el VIN sin placa ni documento responde.
+    expect(consultarVehiculoRuntMock).toHaveBeenCalledTimes(1);
+    expect(consultarVehiculoRuntMock).toHaveBeenCalledWith(undefined, VIN, undefined);
+    expect(r.resultado).toBe(ResultadoCertificacion.CERTIFICADO);
+    // Se guarda el identificador que REALMENTE se usó: el VIN, no el documento.
+    expect(insertado[0]).toMatchObject({ placaConsultada: 'QIU744', vinConsultado: VIN, documentoConsultado: null });
+  });
+
+  it('matrícula sin VIN → NO_ELEGIBLE con mensaje de matrícula, y NO consulta el RUNT (no cae a placa + documento)', async () => {
+    escenarioBase({ vehiculo: vehiculoOk({ tipoTramite: 'Matricula', vin: null }) });
+
+    const r = await certificarImpuesto(ID, CTX);
+
+    expect(r.resultado).toBe(ResultadoCertificacion.NO_ELEGIBLE);
+    if (r.resultado === ResultadoCertificacion.NO_ELEGIBLE) {
+      expect(r.motivo).toBe(MotivoNoElegible.SIN_DOCUMENTO_PROPIETARIO);
+      expect(r.mensaje).toMatch(/^Matrícula sin VIN/);
+    }
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
+  });
+
+  it('traspaso con documento → sigue por placa + documento (regresión)', async () => {
+    escenarioBase({ vehiculo: vehiculoOk({ tipoTramite: 'Traspaso' }) });
+    const insertado = capturarInserts(T_CERT);
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk());
+
+    const r = await certificarImpuesto(ID, CTX);
+
+    expect(consultarVehiculoRuntMock).toHaveBeenCalledWith('QIU744', undefined, '43902633');
+    expect(r.resultado).toBe(ResultadoCertificacion.CERTIFICADO);
+    expect(insertado[0]).toMatchObject({ documentoConsultado: '43902633', vinConsultado: null });
+  });
+});

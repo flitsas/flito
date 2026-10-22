@@ -30,7 +30,7 @@ import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
 import { consultarVehiculoRunt } from '../runt/runt.service.js';
 import { motorYSerieParaVehiculo, type MotorYSerieRunt } from '../runt/vehiculo-motor-serie.js';
 import {
-  compararConRunt, esTraspasoEnSincronizacion, extraerRegistroRunt, extraerVehiculoRunt, runtSinRegistro,
+  argumentosConsultaRunt, compararConRunt, esTramiteMatricula, esTraspasoEnSincronizacion, extraerRegistroRunt, extraerVehiculoRunt, runtSinRegistro,
   type RegistroRuntCertificado,
 } from './certificacion-runt.js';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
@@ -89,6 +89,8 @@ export interface DatosImpuesto extends DatosVehiculoFlito {
   vehiculoId: typeof vehicles.$inferSelect['id'];
   ownerName: string | null;
   ownerDocument: string | null;
+  /** `flito_tramites.tipo_tramite` ('Matricula' | 'Traspaso' | 'Otros'): decide cómo se consulta el RUNT. */
+  tipoTramite: string | null;
 }
 
 /** Exportada para la consulta RUNT del análisis post-envío (HU #12827), sin cambio de lógica. */
@@ -107,6 +109,7 @@ export async function datosDelVehiculo(impuestoId: string): Promise<DatosImpuest
     clase: vehicles.vehicleClass,
     ownerName: vehicles.ownerName,
     ownerDocument: vehicles.ownerDocument,
+    tipoTramite: flitoTramites.tipoTramite,
     // El titular del TRÁMITE es el respaldo del titular del vehículo. Son el mismo dato por dos
     // caminos: FLIT lo manda como `cedulanit` y el sync lo guarda en ambos sitios, pero el vehículo
     // solo lo tiene desde que eso se corrigió. Leer los dos hace que la certificación funcione
@@ -131,6 +134,7 @@ export async function datosDelVehiculo(impuestoId: string): Promise<DatosImpuest
     modelo: vehiculo.modelo === null ? null : String(vehiculo.modelo),
     ownerName: vehiculo.ownerName ?? compradorNombre ?? null,
     ownerDocument: vehiculo.ownerDocument ?? compradorDocumento ?? null,
+    tipoTramite: vehiculo.tipoTramite ?? null,
   };
 }
 
@@ -188,24 +192,32 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
       mensaje: 'El vehículo no tiene placa registrada.',
     };
   }
-  // El RUNT admite dos formas de identificar el vehículo: placa + documento del propietario, o VIN.
-  // Se prefiere la primera porque ese par es además la prueba de propiedad en la que se apoya la
-  // certificación (RN-02); el VIN es el respaldo cuando no hay documento, y sirve igual porque la
-  // identidad del vehículo es placa/VIN (RN-01). Solo faltando los dos no hay consulta posible.
-  const documento = datos.ownerDocument?.trim() || null;
-  const vin = datos.vin?.trim() || null;
-  if (!documento && !vin) {
+  // Cómo se consulta: regla única en `argumentosConsultaRunt` (`certificacion-runt.ts`).
+  // RN-12827-M: en MATRÍCULA solo por VIN (sin placa ni documento), porque el RUNT aún no tiene
+  // propietario y rechaza las otras dos vías; sin VIN no hay consulta posible y NO se cae a placa +
+  // documento. En traspaso/otros se prefiere placa + documento, que es además la prueba de propiedad
+  // (RN-02); el VIN es el respaldo sin documento (RN-01). Solo faltando los dos no hay consulta.
+  const args = argumentosConsultaRunt({
+    tipoTramite: datos.tipoTramite, placa: datos.placa, documento: datos.ownerDocument, vin: datos.vin,
+  });
+  if (!args) {
     return {
       resultado: ResultadoCertificacion.NO_ELEGIBLE,
       motivo: MotivoNoElegible.SIN_DOCUMENTO_PROPIETARIO,
-      mensaje: 'El vehículo no tiene documento de propietario ni VIN: no hay forma de consultar el RUNT.',
+      mensaje: esTramiteMatricula(datos.tipoTramite)
+        ? 'Matrícula sin VIN: el RUNT solo puede consultarse por VIN mientras el vehículo no tenga propietario registrado.'
+        : 'El vehículo no tiene documento de propietario ni VIN: no hay forma de consultar el RUNT.',
     };
   }
 
   const placa = datos.placa.trim();
 
   log.info(
-    { impuestoId: id, via: documento ? 'documento' : 'vin', docPrefix: documento?.slice(0, 4) },
+    {
+      impuestoId: id,
+      via: args.matricula ? 'vin-matricula' : args.via,
+      docPrefix: args.documento?.slice(0, 4),
+    },
     'certificacion: consultando runt',
   );
 
@@ -213,11 +225,9 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
   try {
     // Con documento se consulta por placa; sin él, por VIN. No se mandan los dos: `runt-direct`
     // ignora el tipo de documento cuando hay VIN y probaría un único tipo, así que mezclarlos
-    // desaprovecharía el barrido de tipos que sí hace la consulta por placa.
+    // desaprovecharía el barrido de tipos que sí hace la consulta por placa. En matrícula, solo VIN.
     // HU #12825 (AC3): la consulta pasa por el tope global del RUNT, compartido con la cola.
-    runt = await limitadorRunt.ejecutar(() => (documento
-      ? consultarVehiculoRunt(placa, undefined, documento)
-      : consultarVehiculoRunt(placa, vin ?? undefined, undefined)));
+    runt = await limitadorRunt.ejecutar(() => consultarVehiculoRunt(args.placa, args.vin, args.documento));
   } catch (e) {
     // `consultarVehiculoRunt` ya atrapa casi todo y devuelve `{ ok:false }`; esto cubre lo que se le
     // escape (p. ej. el rechazo del circuit breaker) para que un lote nunca muera por un registro.
@@ -274,16 +284,20 @@ export type ResultadoCertificarConRunt = Extract<ResultadoCertificar, {
  * cambio de lógica de `certificarImpuesto`): motor/serie en `vehicles`, y si es certificable la fila
  * vigente en `flito_impuesto_certificaciones` (con el snapshot) + `audit_logs`, en una transacción.
  *
- * Precondiciones del llamador: `datos.placa` no vacía y documento o VIN presentes (el mismo par con
- * el que se consultó: con documento se consultó por documento, sin él por VIN), y `runtData` ya pasó
- * por `runtSinRegistro`. Así la reutiliza la autocertificación sin volver a consultar el RUNT.
+ * Precondiciones del llamador: `datos.placa` no vacía y `argumentosConsultaRunt(datos)` no nulo (el
+ * identificador consultado se deriva de esa misma regla: en matrícula solo VIN; si no, documento o,
+ * sin él, VIN), y `runtData` ya pasó por `runtSinRegistro`. Así la reutiliza la autocertificación sin volver a consultar el RUNT.
  */
 export async function certificarConRespuestaRunt(
   id: string, datos: DatosImpuesto, runtData: unknown, actor: ActorCertificacion,
 ): Promise<ResultadoCertificarConRunt> {
   const placa = (datos.placa ?? '').trim();
-  const documento = datos.ownerDocument?.trim() || null;
-  const vin = datos.vin?.trim() || null;
+  // El identificador que REALMENTE se usó, por la misma regla con la que se consultó (RN-12827-M).
+  const args = argumentosConsultaRunt({
+    tipoTramite: datos.tipoTramite, placa: datos.placa, documento: datos.ownerDocument, vin: datos.vin,
+  });
+  const documento = args?.documento ?? null;
+  const vin = args?.vin ?? null;
 
   const vehiculoRunt = extraerVehiculoRunt(runtData);
   await guardarMotorYSerie(id, datos.vehiculoId, vehiculoRunt);
@@ -320,7 +334,7 @@ export async function certificarConRespuestaRunt(
       // Se guarda el identificador que REALMENTE se usó, no los dos: el certificado tiene que poder
       // decir con qué se le preguntó al RUNT.
       documentoConsultado: documento,
-      vinConsultado: documento ? null : vin,
+      vinConsultado: vin,
       tipoDocPropietario: typeof tipoDocPropietario === 'string' ? tipoDocPropietario : null,
       // Se congela el nombre aunque no se compare: el certificado lo imprime, y un certificado que
       // cambia de contenido después de emitido no sirve como evidencia (HU #11167, AC2/AC4).
