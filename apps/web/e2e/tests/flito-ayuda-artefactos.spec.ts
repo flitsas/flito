@@ -227,36 +227,36 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // HU #13770 — manuales del área Facturación: versión y fecha subidas (AC5), una captura por paso clave
   // con alt y ≤ 200 KB, en el orden en que la ficha las cita (AC2), y diagrama SVG con alt donde el
   // proceso tiene más de 3 pasos o decisiones (AC3). Gastos diarios es de solo lectura: sin diagrama.
-  const FACTURACION_13770: Record<string, { version: string; capturas: string[]; diagrama: string | null }> = {
-    siigo_parametrizacion: { version: '1.1', diagrama: 'camino-a-produccion.svg', capturas: [
+  const FACTURACION_13770: Record<string, { version: string; fecha: string; capturas: string[]; diagrama: string | null }> = {
+    siigo_parametrizacion: { version: '1.1', fecha: '2026-10-21', diagrama: 'camino-a-produccion.svg', capturas: [
       '01-compuerta.png', '02-mapeo-de-conceptos.png', '03-editar-concepto.png', '04-terceros.png', '05-sincronizar-terceros.png'] },
-    siigo_operacion: { version: '1.2', diagrama: 'camino-caso-detenido.svg', capturas: [
+    siigo_operacion: { version: '1.2', fecha: '2026-10-21', diagrama: 'camino-caso-detenido.svg', capturas: [
       '01-bandeja.png', '02-ver-caso.png', '03-reintentar-varios.png'] },
-    flito_comprobantes: { version: '1.1', diagrama: 'camino-comprobante.svg', capturas: [
+    flito_comprobantes: { version: '1.2', fecha: '2026-10-22', diagrama: 'camino-comprobante.svg', capturas: [
       '01-cargar.png', '02-cola.png', '03-asociar.png'] },
-    flito_conciliacion: { version: '1.1', diagrama: 'ciclo-boleta.svg', capturas: [
+    flito_conciliacion: { version: '1.1', fecha: '2026-10-21', diagrama: 'ciclo-boleta.svg', capturas: [
       '01-cargar-boleta.png', '02-bandeja.png', '03-detalle-sin-cuadrar.png', '04-conciliar.png', '05-comprobante-pse.png'] },
-    flito_bolsas: { version: '1.1', diagrama: 'ciclo-periodo.svg', capturas: [
+    flito_bolsas: { version: '1.1', fecha: '2026-10-21', diagrama: 'ciclo-periodo.svg', capturas: [
       '01-periodo-y-kpi.png', '02-clientes.png', '03-detalle-cliente.png'] },
-    flito_tarifas: { version: '1.1', diagrama: 'vigencias.svg', capturas: [
+    flito_tarifas: { version: '1.1', fecha: '2026-10-21', diagrama: 'vigencias.svg', capturas: [
       '01-elegir-compania.png', '02-fijar-valor.png', '03-historial.png'] },
     // Citadas en el orden de los pasos de la ficha (la 01 ilustra el paso 5, «Por tarifar»).
-    flito_servicios_adicionales: { version: '1.1', diagrama: 'ciclo-tipo.svg', capturas: [
+    flito_servicios_adicionales: { version: '1.1', fecha: '2026-10-21', diagrama: 'ciclo-tipo.svg', capturas: [
       '02-editar.png', '03-nuevo-tipo.png', '04-dados-de-baja.png', '01-catalogo.png'] },
-    finanzas_reporte_costos: { version: '1.1', diagrama: 'tres-verbos.svg', capturas: [
+    finanzas_reporte_costos: { version: '1.1', fecha: '2026-10-21', diagrama: 'tres-verbos.svg', capturas: [
       '01-filtros-y-periodo.png', '02-tabla.png', '03-acciones-de-fila.png', '04-consolidado.png'] },
-    finanzas_gastos_diarios: { version: '1.1', diagrama: null, capturas: [
+    finanzas_gastos_diarios: { version: '1.2', fecha: '2026-10-22', diagrama: null, capturas: [
       '01-tarjetas-y-total.png', '02-evolucion-diaria.png'] },
   };
 
   for (const [clave, esperado] of Object.entries(FACTURACION_13770)) {
-    test(`HU #13770 — ${clave}: versión ${esperado.version} del 2026-10-21, capturas y diagrama con alt`, () => {
+    test(`HU #13770 — ${clave}: versión ${esperado.version} del ${esperado.fecha}, capturas y diagrama con alt`, () => {
       const md = leer(`apps/web/src/content/ayuda/${clave}.md`);
       const { encabezado, errores } = parsearFicha(md);
       expect(errores, clave).toEqual([]);
       // AC5 — la ficha cambió: sube la versión menor y la fecha.
       expect(encabezado!.version, `${clave} · version`).toBe(esperado.version);
-      expect(String(encabezado!.fecha), `${clave} · fecha`).toBe('2026-10-21');
+      expect(String(encabezado!.fecha), `${clave} · fecha`).toBe(esperado.fecha);
 
       // AC2 — lista exacta de capturas NN-<paso>.png, con alt, en disco y ≤ 200 KB.
       const dir = resolve(raiz, 'apps/web/public/ayuda', clave);
@@ -267,7 +267,16 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
         const ruta = resolve(dir, archivo);
         expect(existsSync(ruta), `${clave}/${archivo} en disco`).toBe(true);
         expect(statSync(ruta).size, `${clave}/${archivo} ≤ 200 KB`).toBeLessThanOrEqual(200 * 1024);
+        // AC2 — pasos numerados: la captura va al final de su paso; en un párrafo aparte, la lista reinicia en «1.».
+        const linea = md.split('\n').find((l) => l.includes(`(./${clave}/${archivo})`));
+        expect(linea, `${clave}/${archivo} · dentro de su paso`).toMatch(/^\d+\. /);
       }
+
+      // AC2 — la sección Pasos es UNA sola lista ordenada (el renderizador reinicia la numeración en cada <ol>).
+      // En flito_comprobantes el segundo procedimiento vive en su propio h2 («Asociar y aplicar»), fuera de Pasos.
+      const pasos = md.slice(md.indexOf('## Pasos')).split(/\n(?=## )/)[0];
+      const listas = parseMarkdown(pasos).filter((b) => b.type === 'ol');
+      expect(listas.length, `${clave} · listas ordenadas en Pasos`).toBe(1);
 
       // AC3 — diagrama SVG estático con alt (o ninguno, si la ficha no describe un proceso).
       const diagramas = [...md.matchAll(new RegExp(`!\\[([^\\]]*)\\]\\(\\./${clave}/([a-z0-9-]+\\.svg)\\)`, 'g'))];

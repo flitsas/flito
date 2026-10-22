@@ -9,8 +9,8 @@ palabras_clave:
 consultas:
   - cuánto se pagó hoy
   - dónde veo los gastos de un día
-version: 1.1
-fecha: 2026-10-21
+version: 1.2
+fecha: 2026-10-22
 ---
 ## Qué es
 
@@ -27,12 +27,7 @@ En el menú lateral, sección **Finanzas**, ítem **Gastos diarios**, justo desp
 ## Pasos
 
 1. Al entrar, la pantalla muestra los **últimos 30 días** (hoy incluido) para **Todas las empresas**. La línea sobre las tarjetas dice el rango cubierto y la empresa. Si duda de qué cuenta cada tarjeta, el enlace **¿Qué cuenta cada categoría?** de la cabecera lo explica.
-2. Lea las cinco tarjetas, siempre en este orden y con la cantidad y el valor en la misma línea (por ejemplo **12 · $ 3.450.000**). Qué cuenta cada una y qué día se toma:
-   - **SOAT pagados**: pólizas pagadas, el día del pago del SOAT.
-   - **Impuestos pagados**: recibos pagados, el día del pago del impuesto.
-   - **Derechos pagados**: derechos de trámite con fecha de pago, ese día.
-   - **Trámites con logística**: trámites que llevan logística, el día de aprobación del trámite, con la tarifa vigente ese día.
-   - **Servicios asignados**: cada servicio adicional asignado a un trámite, el día en que se asignó, con su valor de entonces.
+2. Lea las cinco tarjetas, siempre en este orden y con la cantidad y el valor en la misma línea (por ejemplo **12 · $ 3.450.000**). Qué cuenta cada una y qué día se toma: **SOAT pagados**, pólizas pagadas, el día del pago del SOAT; **Impuestos pagados**, recibos pagados, el día del pago del impuesto; **Derechos pagados**, derechos de trámite con fecha de pago, ese día; **Trámites con logística**, trámites que llevan logística, el día de aprobación del trámite, con la tarifa vigente ese día; y **Servicios asignados**, cada servicio adicional asignado a un trámite, el día en que se asignó, con su valor de entonces.
 3. Lea el bloque **Total del periodo**: **Suma de categorías**, **GMF (4×1000) estimado** y **Total con GMF**. El GMF es un estimado calculado sobre la suma del periodo; el banco lo causa por movimiento, no por trámite, y el valor real está en el extracto. La liquidación lo calcula por trámite, así que puede diferir. ![Filtros Empresa, Periodo y Tipo de gasto; las cinco tarjetas con cantidad y valor, y el bloque Total del periodo con la suma, el GMF estimado y el total con GMF](./finanzas_gastos_diarios/01-tarjetas-y-total.png)
 4. Filtre con **Empresa** (la misma lista del Reporte de costos) y **Periodo** (un solo calendario, con atajos de 7 y 30 días). Cambiar cualquiera de los dos vuelve a consultar. El periodo no puede superar 366 días ni terminar antes de empezar: si pasa, el aviso sale bajo el campo y no se consulta.
 5. Use **Tipo de gasto** para ocultar tarjetas: desmarcar **Impuestos** esconde su tarjeta sin consultar de nuevo. El **Total del periodo** sigue sumando las cinco categorías y lo dice: **Incluye todas las categorías**. Con las cinco desmarcadas, **Ver los cinco** las devuelve.
