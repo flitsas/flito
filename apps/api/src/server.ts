@@ -37,6 +37,7 @@ import {
 import {
   startSoatRetencionCron, stopSoatRetencionCron,
 } from './modules/flito-soat/flito-soat-retencion.cron.js';
+import { startDrflitPurgaCron, stopDrflitPurgaCron } from './modules/flito-dr-flit/dr-flit.cron.js';
 import {
   startSoatBorradosPendientesCron, stopSoatBorradosPendientesCron,
 } from './modules/flito-soat/flito-soat-borrados-pendientes.cron.js';
@@ -124,6 +125,9 @@ const server = app.listen(env.PORT, () => {
     // solicitudes por validar descartadas hace 30 días o más (03:00 de Colombia). Noop si
     // SOAT_RETENCION_CRON_ENABLED!=1. Candado `flito-soat-retencion`.
     startSoatRetencionCron();
+    // Dr. Flit (HU #13804, D6): purga a 12 meses de los intentos de radicación en FLIT - SOPORTE
+    // (03:00 de Colombia). Noop si DRFLIT_PURGA_CRON_ENABLED!=1. Candado `flito-drflit-purga`.
+    startDrflitPurgaCron();
     // FLITO SOAT: borrados pendientes del almacenamiento (HU #13410) — reintenta cada hora el borrado
     // de los objetos de adicionales eliminados. Noop si SOAT_BORRADOS_PENDIENTES_CRON_ENABLED!=1.
     // Candado `flito-storage-borrados-pendientes`.
@@ -171,6 +175,7 @@ function shutdown(signal: string) {
   stopComparendosPurgaCron();
   stopSoatVigenciaCron();
   stopSoatRetencionCron();
+  stopDrflitPurgaCron();
   stopSoatBorradosPendientesCron();
 
   const forceExitTimer = setTimeout(() => {

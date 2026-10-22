@@ -2,7 +2,8 @@
 //
 //   · Estática (siempre corre): sin control de transacción propio, dollar-quoting etiquetado, triggers.
 //   · Contra PostgreSQL (solo con TEST_DATABASE_URL, en tx con ROLLBACK): el archivo dos veces; INSERT
-//     sí; UPDATE, DELETE y TRUNCATE → P0001; la misma versión dos veces → 23505; finalidad fuera → 23514.
+//     sí; UPDATE y DELETE → P0001; TRUNCATE → P0001 (trigger) o 0A000 (FK de la 0246), sin borrar filas;
+//     la misma versión dos veces → 23505; finalidad fuera → 23514.
 //   · `repoAutorizaciones` con la consulta Drizzle REAL (AC2/AC4/AC5): el test HTTP usa un almacén en
 //     memoria; aquí se prueba que el `where` filtra por usuario, finalidad Y versión (retrabajo QA B, M1).
 import { describe, it, expect, vi } from 'vitest';
@@ -57,7 +58,13 @@ describe.skipIf(!URL_BASE)('0245 — contra PostgreSQL (tx con ROLLBACK)', () =>
         };
         expect(await codigo(() => tx`UPDATE flito_drflit_autorizaciones SET version = 'otra' WHERE id = ${fila!.id}`)).toBe('P0001');
         expect(await codigo(() => tx`DELETE FROM flito_drflit_autorizaciones WHERE id = ${fila!.id}`)).toBe('P0001');
-        expect(await codigo(() => tx`TRUNCATE flito_drflit_autorizaciones`)).toBe('P0001');
+        // TRUNCATE nunca borra: lo frena el trigger (P0001) o, con la 0246 aplicada, la FK de
+        // `flito_drflit_casos_soporte` → autorizaciones (0A000), que PostgreSQL evalúa antes que el trigger.
+        const [{ n: antes }] = await tx`SELECT count(*)::int AS n FROM flito_drflit_autorizaciones`;
+        expect(['P0001', '0A000']).toContain(await codigo(() => tx`TRUNCATE flito_drflit_autorizaciones`));
+        const [{ n: despues }] = await tx`SELECT count(*)::int AS n FROM flito_drflit_autorizaciones`;
+        expect(despues).toBe(antes);
+        expect(despues).toBeGreaterThan(0);
         expect(await codigo(() => tx`
           INSERT INTO flito_drflit_autorizaciones (usuario_id, finalidad, version, texto_sha256)
           VALUES (${u.id}, 'soporte', 'v-test-0245', ${SHA})`)).toBe('23505');

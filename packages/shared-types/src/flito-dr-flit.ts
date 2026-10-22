@@ -1,11 +1,11 @@
-// Dr. Flit — soporte y autorización de tratamiento de datos (Feature #13695, HU #13803).
+// Dr. Flit — soporte y autorización de tratamiento de datos (Feature #13695, HU #13803 y #13804).
 // Diseño: docs/diseno/feature-13695-dr-flit-soporte.md (D5) y ADR-0026.
 //
 // La versión y el TEXTO de cada autorización viven aquí, y solo aquí: la API valida la versión y guarda
 // el SHA-256 del texto junto a ella (prueba de qué texto exacto se aceptó, Ley 1581); la web pinta este
 // mismo texto. Cambiar el texto sin cambiar la versión lo detecta el test de este paquete (hash fijado
 // por versión).
-import type { PageSlug } from './permissions.js';
+import type { PageSlug, UserRole } from './permissions.js';
 
 export const FINALIDADES_DRFLIT = ['soporte', 'ia'] as const;
 export type FinalidadDrFlit = (typeof FINALIDADES_DRFLIT)[number];
@@ -108,5 +108,73 @@ export interface AutorizacionAceptadaDrFlit {
   aceptadaEn: string;
 }
 
-/** Códigos de error de la autorización (HU-1). HU-2/HU-3 amplían la unión con los del caso. */
-export type CodigoErrorDrFlit = 'finalidad-invalida' | 'version-no-vigente' | 'campo-invalido';
+/**
+ * Códigos de error de Dr. Flit soporte. HU-1: autorización. HU-2 (#13804): radicación del caso.
+ * HU-3 (#13805) amplía la unión con los de adjuntos.
+ */
+export type CodigoErrorDrFlit =
+  | 'finalidad-invalida' | 'version-no-vigente' | 'campo-invalido'
+  | 'autorizacion-requerida' | 'radicacion-en-curso' | 'soporte-no-disponible'
+  | 'ado-error' | 'ado-no-disponible';
+
+// ── HU #13804: el caso de soporte ────────────────────────────────────────────────────────────────
+
+export const AREAS_SOPORTE = [
+  'operaciones', 'facturacion', 'corredor_soat', 'corredor_impuestos', 'mensajero_logistica',
+] as const;
+export type AreaSoporte = (typeof AREAS_SOPORTE)[number];
+
+export const FRECUENCIAS_SOPORTE = ['siempre', 'a_veces', 'solo_una_vez'] as const;
+export type FrecuenciaSoporte = (typeof FRECUENCIAS_SOPORTE)[number];
+
+export const PRIORIDADES_SOPORTE = ['alta', 'media', 'baja'] as const;
+export type PrioridadSoporte = (typeof PRIORIDADES_SOPORTE)[number];
+
+/** Etiquetas visibles: las pinta la web y las escribe la API en el ReproSteps (una sola fuente). */
+export const ETIQUETAS_AREA_SOPORTE: Readonly<Record<AreaSoporte, string>> = Object.freeze({
+  operaciones: 'Operaciones',
+  facturacion: 'Facturación',
+  corredor_soat: 'Corredor SOAT',
+  corredor_impuestos: 'Corredor Impuestos',
+  mensajero_logistica: 'Mensajero y Logística',
+});
+export const ETIQUETAS_FRECUENCIA_SOPORTE: Readonly<Record<FrecuenciaSoporte, string>> = Object.freeze({
+  siempre: 'Siempre',
+  a_veces: 'A veces',
+  solo_una_vez: 'Solo una vez',
+});
+export const ETIQUETAS_PRIORIDAD_SOPORTE: Readonly<Record<PrioridadSoporte, string>> = Object.freeze({
+  alta: 'Alta',
+  media: 'Media',
+  baja: 'Baja',
+});
+
+/** Área sugerida por rol (prellenado del asistente, D5). Un rol sin entrada elige el área. */
+export const AREA_SOPORTE_POR_ROL: Readonly<Partial<Record<UserRole, AreaSoporte>>> = Object.freeze({
+  proveedor: 'corredor_soat',
+  gestor_impuestos: 'corredor_impuestos',
+  mensajero: 'mensajero_logistica',
+  financiera: 'facturacion',
+});
+
+/**
+ * Cuerpo de `POST /api/flito/dr-flit/casos-soporte` (HU-2). Fecha y ambiente los pone el SERVIDOR.
+ * HU-2 lo recibe como JSON; HU-3 (#13805) lo llevará en la parte `caso` de un multipart con adjuntos.
+ */
+export interface CasoSoporteDrFlit {
+  /** UUID del cliente; se REUTILIZA al reintentar el mismo caso (idempotencia). */
+  claveIdempotencia: string;
+  contacto: { nombre: string; correo: string; telefono?: string };
+  area: AreaSoporte;
+  titulo: string;
+  detalle: string;
+  resultadoEsperado: string;
+  frecuencia: FrecuenciaSoporte;
+  prioridad: PrioridadSoporte;
+}
+
+/** 201 (nuevo) o 200 (`repetido`: la misma clave ya estaba radicada). Sin URLs ni enlaces de ADO. */
+export interface CasoRadicadoDrFlit {
+  numero: number;
+  repetido: boolean;
+}
