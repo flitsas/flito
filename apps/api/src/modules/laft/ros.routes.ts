@@ -4,12 +4,13 @@ import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import rateLimit from 'express-rate-limit';
 import { db } from '../../db/client.js';
 import { laftRosDrafts, laftUnusualOperations, laftCounterparties } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { laftAudit } from './audit.service.js';
 
 const router = Router();
-router.use(authMiddleware, requireRole('admin', 'compliance'));
+router.use(authMiddleware);
 
 const writeLimiter = rateLimit({
   windowMs: 60_000, max: 20,
@@ -68,7 +69,7 @@ function buildSirelPayload(args: {
 }
 
 // === Listar borradores ROS ==================================================
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', exigirFuncion('laft.ros.operar'), async (_req: Request, res: Response) => {
   const rows = await db.select({
     id: laftRosDrafts.id,
     operationId: laftRosDrafts.operationId,
@@ -87,7 +88,7 @@ router.get('/', async (_req: Request, res: Response) => {
 });
 
 // === Detalle ================================================================
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', exigirFuncion('laft.ros.operar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [r] = await db.select().from(laftRosDrafts).where(eq(laftRosDrafts.id, id));
@@ -96,7 +97,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 });
 
 // === Generar borrador desde una operación inusual ============================
-router.post('/from-operation/:opId', writeLimiter, async (req: Request, res: Response) => {
+router.post('/from-operation/:opId', exigirFuncion('laft.ros.operar'), writeLimiter, async (req: Request, res: Response) => {
   const opId = parseInt(req.params.opId, 10);
   if (!Number.isFinite(opId) || opId <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
 
@@ -136,7 +137,7 @@ router.post('/from-operation/:opId', writeLimiter, async (req: Request, res: Res
 // === Clasificar (arranca timer SLA 24h) =====================================
 // Idempotency-Key obligatorio: doble click del oficial NO debe duplicar el evento
 // de clasificación. FOR UPDATE garantiza que dos requests concurrentes serializan.
-router.post('/:id/clasificar', writeLimiter, async (req: Request, res: Response) => {
+router.post('/:id/clasificar', exigirFuncion('laft.ros.operar'), writeLimiter, async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const idempKey = req.header('Idempotency-Key');
@@ -177,7 +178,7 @@ const sentSchema = z.object({
   notes: z.string().max(2000).optional(),
 });
 
-router.post('/:id/sent', writeLimiter, async (req: Request, res: Response) => {
+router.post('/:id/sent', exigirFuncion('laft.ros.operar'), writeLimiter, async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = sentSchema.safeParse(req.body);
@@ -214,7 +215,7 @@ const radicadoSchema = z.object({
   notes: z.string().max(2000).optional(),
 });
 
-router.post('/:id/sirel-radicado', writeLimiter, async (req: Request, res: Response) => {
+router.post('/:id/sirel-radicado', exigirFuncion('laft.ros.operar'), writeLimiter, async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const idempKey = req.header('Idempotency-Key');
@@ -257,7 +258,7 @@ router.post('/:id/sirel-radicado', writeLimiter, async (req: Request, res: Respo
 // === Lista SLA pendiente ====================================================
 // Para el dashboard del oficial: ROS clasificados pero aún sin radicado, ordenados
 // por urgencia. Incluye el flag breached para resaltar en UI.
-router.get('/sla/abiertos', async (_req: Request, res: Response) => {
+router.get('/sla/abiertos', exigirFuncion('laft.ros.operar'), async (_req: Request, res: Response) => {
   const rows = await db.select({
     id: laftRosDrafts.id,
     operationId: laftRosDrafts.operationId,

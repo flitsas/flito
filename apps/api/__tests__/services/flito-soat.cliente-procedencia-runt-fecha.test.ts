@@ -33,6 +33,7 @@ import { CAMPOS_COMPRADOR_FACTURA, PROCEDENCIAS_DATO } from '@operaciones/shared
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
 import { testToken, type TestRole } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 const kdb = createKeyedDb();
 const espia = crearEspia(kdb);
@@ -86,7 +87,7 @@ async function appAlta() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat-cliente.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
 
@@ -94,7 +95,7 @@ async function appDetalle() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
 
@@ -117,6 +118,8 @@ function escenarioAlta(over: Partial<Record<string, unknown[]>> = {}) {
     ...(over as Record<string, unknown[]>),
   });
   kdb.when.insert('vehicles', [{ id: VEHICULO_ID }]);
+  // HU #12996: con el RUNT caído el alta APARCA la solicitud en `flito_soat_incompletas` (202).
+  kdb.when.insert('flito_soat_incompletas', [{ id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }]);
 }
 
 /** El formulario, tal como lo manda el `multipart` del navegador: todo texto. */
@@ -343,12 +346,13 @@ describe('AC4 — `runt_consultado_en` guarda cuándo RESPONDIÓ el RUNT', () =>
     expect(espia.ultimoInsertEn('flito_compradores')).not.toHaveProperty('runtConsultadoEn');
   });
 
-  it('si el RUNT no respondió no hay alta, así que no hay fecha que anotar', async () => {
+  it('si el RUNT no respondió no hay alta despachada, así que no hay fecha que anotar', async () => {
     escenarioAlta();
     consultarVehiculoRuntMock.mockResolvedValue({ ok: false, message: 'Timeout 90s' });
 
     const r = await alta(await appAlta(), await auth('cliente', siguienteUsuario()));
-    expect(r.status).toBe(503);
+    // HU #12996: la solicitud se aparca (202) y no nace satélite ni `runt_consultado_en`.
+    expect(r.status).toBe(202);
     expect(espia.insertsEn('flito_soat_solicitud')).toHaveLength(0);
   });
 });

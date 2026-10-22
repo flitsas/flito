@@ -37,6 +37,9 @@ model: inherit
 
 Smoke/synthetic de **PDN** siguen requiriendo autorización humana explícita (`AGENTS.md`); eso no exime invocar M1 (puedo devolver checks públicos + `SIN-ACCESO` en lo que falte).
 
+Tras M1 en **DEV**, el hilo encadena **`flit-evidencias-dev`** (sesión conjunta; no es mi trabajo).
+Yo no subo capturas ni escribo `Custom.Evidences`.
+
 ---
 
 ## Mapa de ambientes (de `cd.yml` — si cambia ahí, cambia aquí)

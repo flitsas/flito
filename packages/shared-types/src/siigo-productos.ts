@@ -177,8 +177,9 @@ export const PREFIJO_CODIGO_PRODUCTO_FLIT = 'FLIT-';
  * catálogo en Siigo a buscar por qué una factura salió con ese producto. Se deriva del concepto
  * en mayúsculas y con guion, que es lo que `CODIGO_PRODUCTO_SIIGO_RE` admite.
  *
- * El más largo de los seis conceptos es `impuesto_vehicular` → `FLIT-IMPUESTO-VEHICULAR`, 23
- * caracteres: cabe de sobra. El recorte final está por si algún día se añade un concepto largo.
+ * Los más largos de los siete conceptos empatan en 23 caracteres: `impuesto_vehicular` →
+ * `FLIT-IMPUESTO-VEHICULAR` y `servicio_adicional` → `FLIT-SERVICIO-ADICIONAL` (HU #12547). Caben
+ * de sobra. El recorte final está por si algún día se añade un concepto largo.
  */
 export function codigoSugeridoDeConcepto(concepto: string): string {
   const cuerpo = concepto.toUpperCase().replace(/_/g, '-').replace(/[^A-Z0-9.-]/g, '');

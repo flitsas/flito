@@ -4,8 +4,6 @@ import { AuthProvider, useAuth } from './lib/auth';
 import { ThemeProvider } from './lib/theme';
 import { hasPage, rutaInicio, PageSlug } from './lib/permissions';
 import { puedeVerAyudaFlito } from './lib/ayudaFlito';
-import Layout from './components/Layout';
-import NoAccess from './components/NoAccess';
 import PageContentSkeleton from './components/flit/PageContentSkeleton';
 import Login from './pages/Login';
 import { lazy, Suspense } from 'react';
@@ -24,6 +22,7 @@ const FlitoLogistica = lazy(() => import('./pages/FlitoLogistica'));
 const FlitoRuta = lazy(() => import('./pages/FlitoRuta'));
 const FlitoBolsas = lazy(() => import('./pages/FlitoBolsas'));
 const FlitoTarifas = lazy(() => import('./pages/FlitoTarifas'));
+const FlitoServiciosAdicionales = lazy(() => import('./pages/FlitoServiciosAdicionales'));
 const FlitoConciliacion = lazy(() => import('./pages/FlitoConciliacion'));
 const FlitoConciliacionBoleta = lazy(() => import('./pages/FlitoConciliacionBoleta'));
 const FlitoComparendos = lazy(() => import('./pages/FlitoComparendos'));
@@ -36,8 +35,10 @@ const FlitoRevisiones = lazy(() => import('./pages/FlitoRevisiones'));
 const FlitoSoat = lazy(() => import('./pages/FlitoSoat'));
 const FlitoSoatSolicitud = lazy(() => import('./pages/FlitoSoatSolicitud'));
 const FlitoImpuestos = lazy(() => import('./pages/FlitoImpuestos'));
+const FlitoComprobantes = lazy(() => import('./pages/FlitoComprobantes'));
 const FlitoDerechos = lazy(() => import('./pages/FlitoDerechos'));
 const Users = lazy(() => import('./pages/Users'));
+const Perfil = lazy(() => import('./pages/Perfil'));
 const RolesPermisos = lazy(() => import('./pages/RolesPermisos'));
 const Clients = lazy(() => import('./pages/Clients'));
 const TaxReader = lazy(() => import('./pages/TaxReader'));
@@ -109,14 +110,38 @@ const PublicTramiteVerify = lazy(() => import('./pages/PublicTramiteVerify'));
 const PublicTramitePortal = lazy(() => import('./pages/PublicTramitePortal'));
 const FlitoAyuda = lazy(() => import('./pages/FlitoAyuda'));
 
-function ProtectedRoute({ children, page }: { children: React.ReactNode; page?: PageSlug }) {
-  const { user, loading } = useAuth();
+// Presupuesto del entry de /login (`check:bundle`): `NoAccess` y el aviso de permisos solo se pintan
+// con sesión, y arrastran `flitPageKit`. Van en su chunk; la guarda de ruta los envuelve en Suspense.
+const NoAccessPantalla = lazy(() => import('./components/NoAccess'));
+// HU #13431: el shell (barra, drawer, ⌘K, topbar) es post-login y desde esta HU rotula el menú con
+// `ARBOL_PERMISOS` (~4,6 KB gzip). Estático, ese peso caía en el chunk de /login y rompía
+// `check:bundle`; lazy, /login no lo descarga y el resto de la app lo pide al cuajar la sesión.
+const Layout = lazy(() => import('./components/Layout'));
+const AvisoPermisosNoComprobadosLazy = lazy(() => import('./components/AvisoPermisosNoComprobados'));
 
-  if (loading) return <div className="flex items-center justify-center h-screen text-text-tertiary">Cargando...</div>;
+function NoAccess(props: { page?: PageSlug; label?: string }) {
+  return <Suspense fallback={<PageContentSkeleton />}><NoAccessPantalla {...props} /></Suspense>;
+}
+
+function AvisoPermisosNoComprobados() {
+  return <Suspense fallback={null}><AvisoPermisosNoComprobadosLazy /></Suspense>;
+}
+
+function ProtectedRoute({ children, page }: { children: React.ReactNode; page?: PageSlug }) {
+  const { user, loading, permisosError } = useAuth();
+
+  if (loading) return page ? <PageContentSkeleton /> : <div className="flex items-center justify-center h-screen text-text-tertiary">Cargando...</div>;
   if (!user) return <Navigate to="/login" />;
+  // HU #12872 (AC7): `user.allowedPages` se refresca en sesión (`useRefrescoPermisos`); al perder la
+  // página, esta guarda re-evalúa y pinta «sin acceso» en el sitio, sin redirigir ni toast.
   if (page && !hasPage(user, page)) return <NoAccess page={page} />;
 
-  return <>{children}</>;
+  return (
+    <>
+      {page && permisosError && <AvisoPermisosNoComprobados />}
+      {children}
+    </>
+  );
 }
 
 // Ayuda FLITO: el gate es la intersección con el catálogo, NO hasPage('flito_ayuda').
@@ -124,6 +149,16 @@ function ProtectedRoute({ children, page }: { children: React.ReactNode; page?: 
 function AyudaFlitoGate({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   if (!puedeVerAyudaFlito(user)) return <NoAccess page="flito_ayuda" />;
+  return <>{children}</>;
+}
+
+// HU #13431 (AC2): ruta que exige una función del catálogo (no solo la página). Perfil se abre con
+// «Ver mis datos», que ya implica su cadena (elemento Perfil → ítem Perfil). Mientras las funciones
+// no llegan (`null`) se espera con el esqueleto; si no la tiene, «sin acceso» en el sitio.
+function FuncionGate({ children, funcion, page }: { children: React.ReactNode; funcion: string; page: PageSlug }) {
+  const { funciones, hasFuncion, permisosError } = useAuth();
+  if (funciones === null && !permisosError) return <PageContentSkeleton />;
+  if (!hasFuncion(funcion)) return <NoAccess page={page} />;
   return <>{children}</>;
 }
 
@@ -137,22 +172,23 @@ function AyudaFlitoGate({ children }: { children: React.ReactNode }) {
 // exactamente lo de siempre. Y si `rutaInicio` no encuentra destino devuelve `/`, así que el
 // `Navigate` no puede apuntarse a sí mismo: se cae al `NoAccess` de siempre.
 function InicioGate() {
-  const { user } = useAuth();
+  const { user, funciones } = useAuth();
   if (user && !hasPage(user, 'dashboard')) {
-    const { to } = rutaInicio(user);
+    const { to } = rutaInicio(user, funciones);
     if (to !== '/') return <Navigate to={to} replace />;
   }
   return <ProtectedRoute page="dashboard"><Lazy><Dashboard /></Lazy></ProtectedRoute>;
 }
 
-// TRAM-TRASPASO-F5 — gate del wizard de traspaso: el operador STT (role
-// `transito`) no usa el wizard del gestor CEA; se le redirige a su expediente
-// STT (/transito/traspaso?id=N) o a la bandeja si entra sin id.
+// TRAM-TRASPASO-F5 — gate del wizard de traspaso: el operador STT no usa el wizard del gestor CEA;
+// se le redirige a su expediente STT (/transito/traspaso?id=N) o a la bandeja si entra sin id.
+// HU #12872: «operador STT» = la misma regla por función que `TramiteTraspaso.tsx` (`isTransito`),
+// no el nombre del rol.
 function TramiteTraspasoGate() {
-  const { user } = useAuth();
+  const { user, hasFuncion } = useAuth();
   const [searchParams] = useSearchParams();
   const id = searchParams.get('id');
-  if (user?.role === 'transito') {
+  if (hasFuncion('transito.tramite.tomar') && !hasFuncion('tramite.tramite.forzar_continuar')) {
     return id ? <Navigate to={`/transito/traspaso?id=${id}`} replace /> : <Navigate to="/transito" replace />;
   }
   if (!user || !hasPage(user, 'tramite')) return <NoAccess page="tramite" />;
@@ -182,7 +218,7 @@ function AppRoutes() {
       <Route path="/m/:token" element={<Lazy fallback={fullScreenLoading}><PublicManifiesto /></Lazy>} />
       <Route path="/tramite/verificar" element={<Lazy fallback={fullScreenLoading}><PublicTramiteVerify /></Lazy>} />
       <Route path="/tramite/portal/:token" element={<Lazy fallback={fullScreenLoading}><PublicTramitePortal /></Lazy>} />
-      <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+      <Route element={<ProtectedRoute><Lazy fallback={fullScreenLoading}><Layout /></Lazy></ProtectedRoute>}>
         <Route path="/" element={<InicioGate />} />
         <Route path="/vehicles" element={<ProtectedRoute page="vehicles"><Lazy><Vehicles /></Lazy></ProtectedRoute>} />
         <Route path="/clients" element={<ProtectedRoute page="clients"><Lazy><Clients /></Lazy></ProtectedRoute>} />
@@ -217,6 +253,7 @@ function AppRoutes() {
             justo lo que el AC5 pide separar. */}
         <Route path="/flito/soat/solicitud" element={<ProtectedRoute page="flito_soat"><Lazy><FlitoSoatSolicitud /></Lazy></ProtectedRoute>} />
         <Route path="/flito/impuestos" element={<ProtectedRoute page="flito_impuestos"><Lazy><FlitoImpuestos /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/comprobantes" element={<ProtectedRoute page="flito_comprobantes"><Lazy><FlitoComprobantes /></Lazy></ProtectedRoute>} />
         <Route path="/flito/derechos" element={<ProtectedRoute page="flito_derechos"><Lazy><FlitoDerechos /></Lazy></ProtectedRoute>} />
         <Route path="/flito/revisiones" element={<ProtectedRoute page="flito_revisiones"><Lazy><FlitoRevisiones /></Lazy></ProtectedRoute>} />
         <Route path="/flito/compuerta" element={<ProtectedRoute page="flito_compuerta"><Lazy><FlitoCompuerta /></Lazy></ProtectedRoute>} />
@@ -233,6 +270,7 @@ function AppRoutes() {
             enlazar a una boleta, y un modal no es enlazable. */}
         <Route path="/flito/tarifas" element={<ProtectedRoute page="flito_tarifas"><Lazy><FlitoTarifas /></Lazy></ProtectedRoute>} />
         <Route path="/flito/tarifas/:companiaId" element={<ProtectedRoute page="flito_tarifas"><Lazy><FlitoTarifas /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/servicios-adicionales" element={<ProtectedRoute page="flito_servicios_adicionales"><Lazy><FlitoServiciosAdicionales /></Lazy></ProtectedRoute>} />
         <Route path="/flito/conciliacion" element={<ProtectedRoute page="flito_conciliacion"><Lazy><FlitoConciliacion /></Lazy></ProtectedRoute>} />
         <Route path="/flito/conciliacion/:boletaId" element={<ProtectedRoute page="flito_conciliacion"><Lazy><FlitoConciliacionBoleta /></Lazy></ProtectedRoute>} />
         <Route path="/siigo/parametrizacion" element={<ProtectedRoute page="siigo_parametrizacion"><Lazy><SiigoParametrizacion /></Lazy></ProtectedRoute>} />
@@ -249,6 +287,9 @@ function AppRoutes() {
             solo a `admin`: es lectura de caja, no del reporte, y el admin la concede desde Roles y permisos. */}
         <Route path="/finanzas/gastos-diarios" element={<ProtectedRoute page="finanzas_gastos_diarios"><Lazy><FinanzasGastosDiarios /></Lazy></ProtectedRoute>} />
         <Route path="/users" element={<ProtectedRoute page="users"><Lazy><Users /></Lazy></ProtectedRoute>} />
+        {/* Mi perfil (HU #13256). Slug `perfil` (0218 de la HU #13255). Sin datos de persona en la URL:
+            el id sale de `/auth/me`. Solo se llega por el menú de sesión del Topbar o por URL. */}
+        <Route path="/perfil" element={<ProtectedRoute><FuncionGate funcion="perfil.datos.ver" page="perfil"><Lazy><Perfil /></Lazy></FuncionGate></ProtectedRoute>} />
         {/* Roles y permisos (HU #12085). Slug PROPIO `roles_permisos`, que solo reparte la 0187 a `admin`:
             es la pantalla que reparte todas las demás. Sin identificador de rol en la URL (ficha, decisión 13). */}
         <Route path="/roles-permisos" element={<ProtectedRoute page="roles_permisos"><Lazy><RolesPermisos /></Lazy></ProtectedRoute>} />
@@ -266,40 +307,42 @@ function AppRoutes() {
         <Route path="/privacy" element={<ProtectedRoute page="privacy"><Lazy><Privacy /></Lazy></ProtectedRoute>} />
         <Route path="/fleet" element={<ProtectedRoute page="fleet"><Lazy><Fleet /></Lazy></ProtectedRoute>} />
         <Route path="/fleet/:id" element={<ProtectedRoute page="fleet"><Lazy><FleetVehicleDetail /></Lazy></ProtectedRoute>} />
-        <Route path="/maintenance" element={<ProtectedRoute page="maintenance"><Lazy><Maintenance /></Lazy></ProtectedRoute>} />
-        <Route path="/maintenance/routines" element={<ProtectedRoute page="maintenance"><Lazy><Routines /></Lazy></ProtectedRoute>} />
-        <Route path="/maintenance/schedule" element={<ProtectedRoute page="maintenance"><Lazy><Schedule /></Lazy></ProtectedRoute>} />
-        <Route path="/parts" element={<ProtectedRoute page="maintenance"><Lazy><Parts /></Lazy></ProtectedRoute>} />
-        <Route path="/maintenance/work-orders" element={<ProtectedRoute page="maintenance"><Lazy><WorkOrders /></Lazy></ProtectedRoute>} />
-        <Route path="/maintenance/work-orders/:id" element={<ProtectedRoute page="maintenance"><Lazy><WorkOrderDetail /></Lazy></ProtectedRoute>} />
-        <Route path="/maintenance/indicators" element={<ProtectedRoute page="maintenance"><Lazy><MaintenanceIndicators /></Lazy></ProtectedRoute>} />
+        {/* HU #13422 (ADR-0023): cada ítem del menú Mantenimiento con su página; rutinas, programación
+            y repuestos se abren desde el ítem «Mantenimiento». */}
+        <Route path="/maintenance" element={<ProtectedRoute page="maintenance_inicio"><Lazy><Maintenance /></Lazy></ProtectedRoute>} />
+        <Route path="/maintenance/routines" element={<ProtectedRoute page="maintenance_inicio"><Lazy><Routines /></Lazy></ProtectedRoute>} />
+        <Route path="/maintenance/schedule" element={<ProtectedRoute page="maintenance_inicio"><Lazy><Schedule /></Lazy></ProtectedRoute>} />
+        <Route path="/parts" element={<ProtectedRoute page="maintenance_inicio"><Lazy><Parts /></Lazy></ProtectedRoute>} />
+        <Route path="/maintenance/work-orders" element={<ProtectedRoute page="maintenance_ordenes"><Lazy><WorkOrders /></Lazy></ProtectedRoute>} />
+        <Route path="/maintenance/work-orders/:id" element={<ProtectedRoute page="maintenance_ordenes"><Lazy><WorkOrderDetail /></Lazy></ProtectedRoute>} />
+        <Route path="/maintenance/indicators" element={<ProtectedRoute page="maintenance_indicadores"><Lazy><MaintenanceIndicators /></Lazy></ProtectedRoute>} />
         <Route path="/pesv" element={<ProtectedRoute page="pesv"><Lazy><PesvDashboard /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/conductores" element={<ProtectedRoute page="pesv"><Lazy><Drivers /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/conductores/:id" element={<ProtectedRoute page="pesv"><Lazy><DriverDetail /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/capacitaciones" element={<ProtectedRoute page="pesv"><Lazy><SafetyTrainings /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/incidentes" element={<ProtectedRoute page="pesv"><Lazy><RoadIncidents /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/incidentes/stats" element={<ProtectedRoute page="pesv"><Lazy><RoadIncidentsStats /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/checklists" element={<ProtectedRoute page="pesv"><Lazy><Checklists /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/checklists/nuevo" element={<ProtectedRoute page="pesv"><Lazy><ChecklistRun /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/alcoholimetria" element={<ProtectedRoute page="pesv"><Lazy><AlcoholTests /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/emergencias" element={<ProtectedRoute page="pesv"><Lazy><Emergency /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/operacion-indicadores" element={<ProtectedRoute page="pesv"><Lazy><OperationalIndicators /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/politica" element={<ProtectedRoute page="pesv"><Lazy><PesvPolicy /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/comite" element={<ProtectedRoute page="pesv"><Lazy><PesvComite /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/plan" element={<ProtectedRoute page="pesv"><Lazy><PesvPlan /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/diagnostico" element={<ProtectedRoute page="pesv"><Lazy><PesvDiagnostico /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/diagnostico/:id" element={<ProtectedRoute page="pesv"><Lazy><PesvDiagnostico /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/diagnostico/:id/auditoria" element={<ProtectedRoute page="pesv"><Lazy><PesvDiagnosticoAuditoria /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/tablero" element={<ProtectedRoute page="pesv"><Lazy><PesvTablero /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/reportar" element={<ProtectedRoute page="pesv"><Lazy><ReportarIncidente /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/auditorias" element={<ProtectedRoute page="pesv"><Lazy><PesvAuditorias /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/comunicaciones" element={<ProtectedRoute page="pesv"><Lazy><PesvComunicaciones /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/contratistas" element={<ProtectedRoute page="pesv"><Lazy><PesvContratistas /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/conductores" element={<ProtectedRoute page="pesv_conductores"><Lazy><Drivers /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/conductores/:id" element={<ProtectedRoute page="pesv_conductores"><Lazy><DriverDetail /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/capacitaciones" element={<ProtectedRoute page="pesv_capacitaciones"><Lazy><SafetyTrainings /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/incidentes" element={<ProtectedRoute page="pesv_incidentes"><Lazy><RoadIncidents /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/incidentes/stats" element={<ProtectedRoute page="pesv_siniestralidad"><Lazy><RoadIncidentsStats /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/checklists" element={<ProtectedRoute page="pesv_checklists"><Lazy><Checklists /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/checklists/nuevo" element={<ProtectedRoute page="pesv_checklists"><Lazy><ChecklistRun /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/alcoholimetria" element={<ProtectedRoute page="pesv_alcoholimetria"><Lazy><AlcoholTests /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/emergencias" element={<ProtectedRoute page="pesv_emergencias"><Lazy><Emergency /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/operacion-indicadores" element={<ProtectedRoute page="pesv_indicadores_operacion"><Lazy><OperationalIndicators /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/politica" element={<ProtectedRoute page="pesv_politica"><Lazy><PesvPolicy /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/comite" element={<ProtectedRoute page="pesv_comite"><Lazy><PesvComite /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/plan" element={<ProtectedRoute page="pesv_plan"><Lazy><PesvPlan /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/diagnostico" element={<ProtectedRoute page="pesv_diagnostico"><Lazy><PesvDiagnostico /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/diagnostico/:id" element={<ProtectedRoute page="pesv_diagnostico"><Lazy><PesvDiagnostico /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/diagnostico/:id/auditoria" element={<ProtectedRoute page="pesv_diagnostico"><Lazy><PesvDiagnosticoAuditoria /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/tablero" element={<ProtectedRoute page="pesv_tablero_ejecutivo"><Lazy><PesvTablero /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/reportar" element={<ProtectedRoute page="pesv_reportar_incidente"><Lazy><ReportarIncidente /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/auditorias" element={<ProtectedRoute page="pesv_auditorias"><Lazy><PesvAuditorias /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/comunicaciones" element={<ProtectedRoute page="pesv_comunicaciones"><Lazy><PesvComunicaciones /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/contratistas" element={<ProtectedRoute page="pesv_contratistas"><Lazy><PesvContratistas /></Lazy></ProtectedRoute>} />
         <Route path="/privacy/log-pii" element={<ProtectedRoute page="privacy"><Lazy><PesvLogPii /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/jornadas" element={<ProtectedRoute page="pesv"><Lazy><JornadasConductor /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/mi-jornada" element={<ProtectedRoute page="pesv"><Lazy><MiJornada /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/rutas" element={<ProtectedRoute page="pesv"><Lazy><PesvRoutes /></Lazy></ProtectedRoute>} />
-        <Route path="/pesv/pernocta" element={<ProtectedRoute page="pesv"><Lazy><PesvPernocta /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/jornadas" element={<ProtectedRoute page="pesv_jornadas"><Lazy><JornadasConductor /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/mi-jornada" element={<ProtectedRoute page="pesv_mi_jornada"><Lazy><MiJornada /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/rutas" element={<ProtectedRoute page="pesv_rutas"><Lazy><PesvRoutes /></Lazy></ProtectedRoute>} />
+        <Route path="/pesv/pernocta" element={<ProtectedRoute page="pesv_pernocta"><Lazy><PesvPernocta /></Lazy></ProtectedRoute>} />
         <Route path="/pesv/raci" element={<ProtectedRoute page="pesv_raci"><Lazy><PesvRaci /></Lazy></ProtectedRoute>} />
         <Route path="/pesv/normativa" element={<ProtectedRoute page="pesv_normativa"><Lazy><PesvNormativa /></Lazy></ProtectedRoute>} />
         <Route path="/pesv/retencion" element={<ProtectedRoute page="pesv_retencion"><Lazy><PesvRetencion /></Lazy></ProtectedRoute>} />
@@ -312,7 +355,7 @@ function AppRoutes() {
         <Route path="/rndc/manifiestos/nuevo" element={<ProtectedRoute page="rndc"><Lazy><RndcManifiestoWizard /></Lazy></ProtectedRoute>} />
         <Route path="/rndc/manifiestos/:id" element={<ProtectedRoute page="rndc"><Lazy><RndcManifiestoDetail /></Lazy></ProtectedRoute>} />
         <Route path="/rndc/admin/credenciales" element={<ProtectedRoute page="rndc_admin"><Lazy><RndcAdminCredenciales /></Lazy></ProtectedRoute>} />
-        <Route path="/admin/rendimiento" element={<Lazy><RumSummary /></Lazy>} />
+        <Route path="/admin/rendimiento" element={<ProtectedRoute page="admin_rendimiento"><Lazy><RumSummary /></Lazy></ProtectedRoute>} />
         <Route path="/admin/tramites-metricas" element={<Lazy><TramitesMetricas /></Lazy>} />
       </Route>
       <Route path="*" element={<Navigate to="/" />} />

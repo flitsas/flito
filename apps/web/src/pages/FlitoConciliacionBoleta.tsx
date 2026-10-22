@@ -21,7 +21,7 @@ import { useAuth } from '../lib/auth';
 import { fechaDia, pesos } from '../lib/bolsas';
 import {
   ETIQUETA_ESTADO_BOLETA, TONO_ESTADO_BOLETA, avisoDeRespuesta, avisoReconstruido, guardarAviso,
-  leerAviso, puedeConciliar, type AvisoConciliacion,
+  leerAviso, type AvisoConciliacion,
 } from '../lib/conciliacion';
 import NoAccess from '../components/NoAccess';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
@@ -37,8 +37,9 @@ import { FlitCard, flitBtnSecondary, flitBtnSecondaryStyle } from '../components
 const VOLVER = '/flito/conciliacion';
 
 export default function FlitoConciliacionBoleta() {
-  const { user } = useAuth();
-  if (!user || !puedeConciliar(user.role)) return <NoAccess page="flito_conciliacion" />;
+  const { user, hasFuncion } = useAuth();
+  // HU #12872: la función de la guarda del detalle, no el nombre del rol.
+  if (!user || !hasFuncion('conciliacion.boleta.ver')) return <NoAccess page="flito_conciliacion" />;
   // El id baja como prop —y no se vuelve a pedir con `useAuth` abajo— porque es lo que namespacia
   // el aviso guardado: sin usuario no hay pantalla, así que aquí ya está garantizado que existe.
   return <Boleta userId={user.id} />;

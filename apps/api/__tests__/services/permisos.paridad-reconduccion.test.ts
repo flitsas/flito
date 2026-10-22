@@ -24,13 +24,31 @@
 // leyendo `permisos_rol_funcion` de la base real en vez del SQL; en CI (sin Postgres) solo corre el
 // primero.
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import postgres from 'postgres';
 import { USER_ROLES } from '@operaciones/shared-types';
 import { RUTAS_RECONDUCIDAS, type RutaReconducida } from '../fixtures/permisos-rutas-reconducidas.js';
-import { leerRepartoSembrado } from '../helpers/permisos-seed-sql.js';
+// HU #12873: el seed de la reconducción es el del mundo PLANO (≤ 0231); el árbol (0232/0233) y sus
+// pérdidas por la regla «todos» los vigilan `migracion-0233.test.ts` y el reporte en seco de la HU.
+import { leerRepartoSembrado, MIGRACIONES_ANTES_DEL_ARBOL } from '../helpers/permisos-seed-sql.js';
 import { montajesDeFunciones, llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
+import {
+  ACCIONES_UNIVERSALES, expandirSinCadena, operacionesDe, PARTIDAS_DE_OPERACIONES_NUEVAS as PARTIDA_DE_OPERACION_NUEVA,
+} from '../../src/modules/permisos/arbol/expansion.js';
+
+/**
+ * HU #13427: en el mundo PLANO (seed ≤ 0231) una operación nueva que parte una guarda vieja se decide con su código de
+ * PARTIDA (`finanzas.reporte_costos.exportar` → `finanzas.reporte_costos.ver`; gastos diarios → su página).
+ */
+const enPlano = (codigo: string) => PARTIDA_DE_OPERACION_NUEVA[codigo] ?? codigo;
+
+/**
+ * HU #13428 (P-22): las guardas de Perfil no tienen equivalente en el mundo plano — antes NO había guarda y las
+ * pasaba cualquiera; su partida (`pagina.perfil`) solo la tenía admin. Su paridad no es la de la foto sino la
+ * del reparto universal: plegado hasta la 0237, cada rol tiene la acción que las concede (caso propio, abajo).
+ */
+const DE_TODOS = new Set(ACCIONES_UNIVERSALES.flatMap((u) => operacionesDe(u.accion)));
 import {
   fijarFuenteDePermisos, invalidarPermisosDe, resolverPermisos, type FilasPermisos,
 } from '../../src/shared/permisos-efectivos.js';
@@ -62,21 +80,21 @@ function antesDe(r: RutaReconducida): string[] {
   return g.roles;
 }
 
-function matriz(nombre: string, reparto: () => Map<string, Set<string>>) {
+/**
+ * HU #13429: el mundo PLANO (≤ 0231) no tiene elementos, ítems en cadena ni acciones; con el resolutor en cadena sus
+ * operaciones sueltas ya no entrarían (fallo cerrado). Esta matriz mide una propiedad HISTÓRICA —el SQL de la
+ * reconducción reproduce el `requireRole`— y la decide con la regla que regía ese mundo: `(R ∪ C) \ V` sin cadena
+ * (`expandirSinCadena`). Que el mundo de HOY (0001..0239) no pierde nada con la cadena lo vigilan, rol a rol,
+ * `permisos-arbol-legado.test.ts` (paridad del pliegue) y el reporte en seco de la #13429.
+ */
+function matriz(nombre: string, reparto: () => Map<string, Set<string>>, codigoDe: (c: string) => string = (c) => c) {
   describe(nombre, () => {
-    beforeAll(() => {
-      fijarFuenteDePermisos(fuenteDesde(reparto()));
-      for (const rol of ROLES) invalidarPermisosDe(subDe(rol));
-    });
-    afterAll(() => { fijarFuenteDePermisos(null); });
-
-    for (const fila of RUTAS_RECONDUCIDAS) {
+    for (const fila of RUTAS_RECONDUCIDAS.filter((f) => !DE_TODOS.has(f.codigo))) {
       it(`${etiqueta(fila)} → ${fila.codigo}: los 12 roles deciden como antes`, async () => {
         const antes = antesDe(fila);
         const desacuerdos: string[] = [];
         for (const rol of ROLES) {
-          const p = await resolverPermisos(subDe(rol));
-          const motor = p.ok && p.funciones.has(fila.codigo);
+          const motor = expandirSinCadena(reparto().get(rol) ?? []).has(codigoDe(fila.codigo));
           const previo = antes.includes(rol);
           if (motor !== previo) {
             desacuerdos.push(`${etiqueta(fila)} · rol ${rol}: antes ${previo ? 'SÍ' : 'NO'}, motor ${motor ? 'SÍ' : 'NO'}`);
@@ -114,15 +132,38 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
   });
 
   it('el SQL sembrado conoce cada código de la lista (0179 ∪ 0181)', () => {
-    const sembrados = new Set([...leerRepartoSembrado().values()].flatMap((s) => [...s]));
-    const desconocidos = RUTAS_RECONDUCIDAS.filter((r) => !sembrados.has(r.codigo)).map(etiqueta);
-    // Un código que NINGÚN rol tiene sembrado sería una guarda que responde 403 a todo el mundo; hoy
-    // no existe ninguna (todas tienen al menos `admin` o `cliente`).
-    expect(desconocidos).toEqual([]);
+    const sembrados = new Set([...leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL).values()].flatMap((s) => [...s]));
+    const desconocidos = RUTAS_RECONDUCIDAS.filter((r) => !sembrados.has(enPlano(r.codigo))).map(etiqueta);
+    // Un código que NINGÚN rol tiene sembrado es una guarda que responde 403 a todo el mundo. Solo hay
+    // una, a propósito: el reemplazo del comprobante de pago nace sin rol (AC7 de la HU #13269) y el
+    // administrador lo concede desde el panel. Cualquier otra es un olvido.
+    expect(desconocidos).toEqual(['flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts POST /:id/recibos/reemplazar-pago']);
   });
 });
 
-matriz('AC7 — el motor alimentado con el SQL de la 0179 + 0181 decide, ruta a ruta y rol a rol, lo mismo que el requireRole de antes', () => leerRepartoSembrado());
+describe('HU #13428 (P-22) — las guardas de Perfil: antes las pasaba cualquiera; después, cada rol por su acción', () => {
+  it('las dos filas de Perfil están en la lista y en la foto con los 12 roles', () => {
+    const filas = RUTAS_RECONDUCIDAS.filter((f) => DE_TODOS.has(f.codigo));
+    expect(filas.map((f) => f.codigo).sort()).toEqual(['perfil.contrasena.cambiar', 'perfil.datos.ver']);
+    for (const f of filas) expect([...antesDe(f)].sort()).toEqual([...ROLES].sort());
+  });
+
+  it('plegadas las migraciones hasta la 0237, el motor se las concede a los 12 roles', async () => {
+    fijarFuenteDePermisos(fuenteDesde(leerRepartoSembrado()));
+    try {
+      for (const rol of ROLES) invalidarPermisosDe(subDe(rol));
+      for (const rol of ROLES) {
+        const p = await resolverPermisos(subDe(rol));
+        for (const op of DE_TODOS) expect(p.ok && p.funciones.has(op), `${rol} ${op}`).toBe(true);
+      }
+    } finally {
+      fijarFuenteDePermisos(null);
+      for (const rol of ROLES) invalidarPermisosDe(subDe(rol));
+    }
+  });
+});
+
+matriz('AC7 — el motor alimentado con el SQL de la 0179 + 0181 decide, ruta a ruta y rol a rol, lo mismo que el requireRole de antes', () => leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL), enPlano);
 
 // ── Variante contra la base real ─────────────────────────────────────────────────────────────────
 const URL_BASE = process.env.TEST_DATABASE_URL;

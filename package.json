@@ -19,6 +19,7 @@
     "check:contraste": "node scripts/check-contraste-paleta.mjs",
     "check:favicon": "node scripts/check-favicon.mjs",
     "check:hooks": "node scripts/scan-rules-of-hooks.mjs",
+    "check:roles-web": "node scripts/check-roles-web.mjs",
     "check:pdf-worker": "node scripts/check-pdf-worker.mjs",
     "check:exemptions": "node scripts/check-exemptions.mjs",
     "lint": "eslint .",

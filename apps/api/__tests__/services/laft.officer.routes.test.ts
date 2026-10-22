@@ -78,8 +78,10 @@ describe('LAFT F5 · /laft/officer', () => {
     expect(r.body.data).toHaveLength(2);
   });
 
-  it('compliance no puede designar (solo admin) → 403', async () => {
-    const tok = await testToken({ role: 'compliance', sub: 9 });
+  // HU #13429 (AC3, P-24): `laft.oficial.administrar` lo expande el ítem «Oficial cumplimiento»; compliance y auditor,
+  // que lo tienen, GANAN designar (ganancia aprobada). El 403 se mide con un rol sin el ítem.
+  it('sin el ítem del oficial (financiera) no puede designar → 403', async () => {
+    const tok = await testToken({ role: 'financiera', sub: 9 });
     const r = await request(app).post('/api/laft/officer').set('Authorization', `Bearer ${tok}`)
       .field('userId', '5')
       .field('rol', 'principal')

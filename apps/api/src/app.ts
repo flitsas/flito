@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import cors from 'cors';
 import helmet from 'helmet';
 import { sql } from 'drizzle-orm';
-import { CABECERAS_ZIP_SOPORTES } from '@operaciones/shared-types';
+import { CABECERA_CERTIFICADOS_OMITIDOS, CABECERAS_ZIP_SOPORTES } from '@operaciones/shared-types';
 import { env, corsOrigins } from './config/env.js';
 import { db, getPoolStats } from './db/client.js';
 import { errorHandler } from './shared/middleware/errorHandler.js';
@@ -22,9 +22,14 @@ import ocrRoutes from './modules/vehicles/ocr.routes.js';
 import clientsRoutes from './modules/clients/clients.routes.js';
 import flitoParametrizacionRoutes from './modules/flito-parametrizacion/flito-parametrizacion.routes.js';
 import flitoSyncRoutes from './modules/flito-sync/flito-sync.routes.js';
+import flit2Routes from './modules/flito-sync/flit2.routes.js';
+import flit2AvisosRoutes, { RUTA_AVISOS_FLIT2 } from './modules/flito-sync/flit2-avisos.routes.js';
 import permisosRoutes from './modules/permisos/permisos.routes.js';
 import flitoSoatRoutes from './modules/flito-soat/flito-soat.routes.js';
+import { conAlcance } from './shared/middleware/frontera-enlace.js';
 import flitoSoatClienteRoutes from './modules/flito-soat/flito-soat-cliente.routes.js';
+import flitoSoatIncompletasRoutes from './modules/flito-soat/flito-soat-incompletas.routes.js';
+import flitoSoatDocumentosRoutes from './modules/flito-soat/flito-soat-documentos.routes.js';
 import flitoImpuestosRoutes from './modules/flito-impuestos/flito-impuestos.routes.js';
 import flitoDerechosRoutes from './modules/flito-derechos/flito-derechos.routes.js';
 import flitoLiquidacionRoutes from './modules/flito-liquidacion/flito-liquidacion.routes.js';
@@ -34,10 +39,13 @@ import flitoTramitesRoutes from './modules/flito-tramites/flito-tramites.routes.
 import flitoTableroRoutes from './modules/flito-tablero/flito-tablero.routes.js';
 import flitoBitacoraRoutes from './modules/flito-bitacora/flito-bitacora.routes.js';
 import flitoLogisticaRoutes from './modules/flito-logistica/flito-logistica.routes.js';
+import flitoLogisticaViajesRoutes from './modules/flito-logistica/flito-logistica-viajes.routes.js';
 import flitoBolsasRoutes from './modules/flito-bolsas/flito-bolsas.routes.js';
 import flitoComparendosRoutes from './modules/flito-comparendos/flito-comparendos.routes.js';
 import flitoConciliacionRoutes from './modules/flito-conciliacion/flito-conciliacion.routes.js';
 import finanzasRoutes from './modules/finanzas/finanzas.routes.js';
+import finanzasServiciosAdicionalesRoutes from './modules/finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.js';
+import flitoComprobantesRoutes from './modules/flito-comprobantes/flito-comprobantes.routes.js';
 import siigoCredencialesRoutes from './modules/siigo/credenciales.routes.js';
 import siigoCompuertaRoutes from './modules/siigo/compuerta.routes.js';
 import siigoMapeoConceptosRoutes from './modules/siigo/mapeo-conceptos.routes.js';
@@ -181,13 +189,20 @@ export function createApp() {
     // `X-Total-Count` (HU #12172): el listado de usuarios sigue devolviendo un array plano y el
     // total de coincidencias del filtro viaja en la cabecera. Sin exponerla, la paginación del
     // front cross-origin no tendría de dónde leer el total.
-    exposedHeaders: [CABECERAS_ZIP_SOPORTES.incluidos, CABECERAS_ZIP_SOPORTES.registros, 'X-Total-Count'],
+    exposedHeaders: [
+      CABECERAS_ZIP_SOPORTES.incluidos, CABECERAS_ZIP_SOPORTES.registros, CABECERAS_ZIP_SOPORTES.omitidos,
+      'X-Total-Count', CABECERA_CERTIFICADOS_OMITIDOS,
+    ],
   }));
 
   // F6: Limite mayor para validacion biometrica (3 fotos base64) — debe ir ANTES del global
   app.use('/api/validacion-identidad/completar', express.json({ limit: '15mb' }));
   // TRAM-INNOV-B3: el webhook de firma necesita el body RAW para validar HMAC.
   app.use('/api/webhooks/firma', express.raw({ type: '*/*', limit: '2mb' }));
+  // HU #13632: avisos firmados de FLIT 2. RUTA PÚBLICA (sin authMiddleware, aprobada en la HU): la
+  // confianza es el HMAC del cuerpo crudo. Va antes del json global y del apiLimiter: trae su propio
+  // `express.raw`, su limitador por IP y su 404; nunca llama next() hacia `flit2Routes`.
+  app.use(RUTA_AVISOS_FLIT2, flit2AvisosRoutes);
   app.use(express.json({ limit: '5mb' }));
 
   // Request ID for traceability (ISO 27001 A.8.15)
@@ -220,17 +235,14 @@ export function createApp() {
   app.use('/api/auth/login', authLimiter);
   app.use('/api', apiLimiter);
 
-  // ── Dónde está la frontera del rol `cliente` (Feature #11912) ───────────────────────────────
+  // ── Dónde está la frontera por enlace (HU #12875, ADR-0024) ─────────────────────────────────
   //
-  // No hay un `app.use` de negación aquí, y no es un olvido: en esta aplicación la autenticación
-  // NO vive en `app.ts` —cada router monta `authMiddleware`—, así que un middleware colocado en
-  // esta lista vería `req.user === undefined` y no podría decidir nada sin verificar el JWT por
-  // segunda vez en cada petición de toda la API.
-  //
-  // La negación por defecto para `cliente` —el primer principal externo a FLIT— se aplica desde el
-  // final de `authMiddleware`, que es el único punto donde la autenticación termina, con la
-  // allowlist de `shared/middleware/canal-cliente.ts`. Un router nuevo montado en esta lista nace
-  // CERRADO para ese rol; para abrirle una ruta hay que escribirla allí con su motivo.
+  // No hay un `app.use` de negación aquí, y no es un olvido: la autenticación NO vive en `app.ts`
+  // —cada router monta `authMiddleware`— y la frontera corre al final de `authMiddleware`
+  // (`shared/middleware/frontera-enlace.ts`). Lo que SÍ vive aquí es la DECLARACIÓN: un montaje
+  // envuelto en `conAlcance('<modulo>', router)` queda abierto a los enlaces que `FRONTERA_POR_ENLACE`
+  // (shared-types) le asigna a ese módulo. Un montaje sin `conAlcance` nace CERRADO para todo usuario
+  // con enlace (compañía, proveedor, organismos); el enlace `ninguno` lo decide el permiso.
 
   // Routes
   app.use('/api/rum', rumRoutes); // RUM Web Vitals — público (se reporta pre-login)
@@ -246,29 +258,43 @@ export function createApp() {
   app.use('/api/vehicles', ocrRoutes);
   app.use('/api/clients', clientsRoutes);
   app.use('/api/flito/parametrizacion', flitoParametrizacionRoutes);
+  // HU #13061: acceso a FLIT 2. Antes de `/api/flito/sync` para no pasar dos veces por su authMiddleware.
+  app.use('/api/flito/sync/flit2', flit2Routes);
   app.use('/api/flito/sync', flitoSyncRoutes);
   // Las dos rutas de ESCRITURA del canal Cliente (Feature #11912, HU #11914) van en su propio router
   // y montadas ANTES: el recurso es el mismo (`flito_soat`) y por eso comparten base, pero el router
   // del módulo tiene el techo de líneas congelado y estas rutas traen consigo su rate limit, su
   // validación de MIME real y su `requireRole('cliente')`. Primero el específico: hoy ningún patrón
   // del router de abajo casa con `/cliente`, y si mañana alguien añadiera uno, gana este.
-  app.use('/api/flito/soat', flitoSoatClienteRoutes);
-  app.use('/api/flito/soat', flitoSoatRoutes);
-  app.use('/api/flito/impuestos', flitoImpuestosRoutes);
-  app.use('/api/flito/derechos', flitoDerechosRoutes);
+  app.use('/api/flito/soat', conAlcance('soat', flitoSoatClienteRoutes));
+  // Lectura de las incompletas por RUNT caído (HU #12997): `/cliente/incompletas/…`, antes del módulo.
+  app.use('/api/flito/soat', conAlcance('soat', flitoSoatIncompletasRoutes));
+  app.use('/api/flito/soat', conAlcance('soat', flitoSoatDocumentosRoutes)); // HU #13362: GET /:id/documentos-adicionales
+  app.use('/api/flito/soat', conAlcance('soat', flitoSoatRoutes));
+  app.use('/api/flito/impuestos', conAlcance('impuestos', flitoImpuestosRoutes));
+  app.use('/api/flito/derechos', conAlcance('derechos', flitoDerechosRoutes));
   app.use('/api/flito/liquidacion', flitoLiquidacionRoutes);
   app.use('/api/flito/revisiones', flitoRevisionesRoutes);
   app.use('/api/flito/compuerta', flitoCompuertaRoutes);
-  app.use('/api/flito/tramites', flitoTramitesRoutes);
-  app.use('/api/flito/tablero', flitoTableroRoutes);
+  app.use('/api/flito/tramites', conAlcance('tramites', flitoTramitesRoutes));
+  app.use('/api/flito/tablero', conAlcance('tablero', flitoTableroRoutes));
   app.use('/api/flito/bitacora', flitoBitacoraRoutes);
-  app.use('/api/flito/logistica', flitoLogisticaRoutes);
-  app.use('/api/flito/bolsas', flitoBolsasRoutes);
+  app.use('/api/flito/logistica', conAlcance('logistica', flitoLogisticaRoutes));
+  // Viajes adicionales de logística por trámite (HU #12619): misma URL base, fichero hermano
+  // (`/tramites/:tramiteId/viajes` no choca con el `GET /:id` del router legado).
+  app.use('/api/flito/logistica', conAlcance('logistica', flitoLogisticaViajesRoutes));
+  app.use('/api/flito/bolsas', conAlcance('bolsas', flitoBolsasRoutes));
   app.use('/api/flito/conciliacion', flitoConciliacionRoutes);
   // Monitoreo de comparendos (Feature #11492). Módulo propio: no es el gate SIMIT del traspaso ni
   // el incidente PESV `comparendo` — ver ADR-0001.
   app.use('/api/flito/comparendos', flitoComparendosRoutes);
+  // Puerta universal de comprobantes (Épica #12245, HU #12611): carga en lotes, cola, detalle,
+  // archivo y relectura. Módulo propio reconducido al motor de permisos (ADR-0018).
+  app.use('/api/flito/comprobantes', conAlcance('comprobantes', flitoComprobantesRoutes));
   app.use('/api/finanzas', finanzasRoutes);
+  // Servicios adicionales de un trámite (HU #12545): misma URL base, módulo propio reconducido al
+  // motor de permisos (finanzas/ es legacy y no admite exigirFuncion; ADR-0017).
+  app.use('/api/finanzas', finanzasServiciosAdicionalesRoutes);
   app.use('/api/siigo/credenciales', siigoCredencialesRoutes);
   app.use('/api/siigo/compuerta', siigoCompuertaRoutes);
   app.use('/api/siigo/mapeo-conceptos', siigoMapeoConceptosRoutes);
@@ -302,7 +328,9 @@ export function createApp() {
   app.use('/api/webhooks/firma', firmaWebhookRoutes); // TRAM-INNOV-B3: webhook HMAC (body raw)
   app.use('/api/validacion-identidad', identidadRoutes);
   app.use('/api/tramites', ocrDocsRoutes);
-  app.use('/api/transito', transitoRoutes);
+  // HU #13426 (AC6): la página Tránsito antigua se abre a `organismos_transito` (filtra por TODAS sus
+  // secretarías). La configuración (`transitoConfigRoutes`) queda SIN envolver: cerrada a todo enlace.
+  app.use('/api/transito', conAlcance('transito', transitoRoutes));
   app.use('/api/transito', transitoConfigRoutes);
   app.use('/api/public/tramite-verificar', tramiteVerifyPublicRoutes); // Público — verificación QR sin auth
   app.use('/api/tramite-portal', tramitePortalPublicRoutes); // Público — portal participantes (magic link)

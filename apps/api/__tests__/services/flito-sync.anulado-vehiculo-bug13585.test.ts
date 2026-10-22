@@ -9,7 +9,7 @@
  * la fila que devuelve el mock: el mock keyed devuelve la fila configurada y no aplicaría el SET.
  * Para el «estado final» del vehículo se aplican los SET capturados, en orden, sobre la fila previa.
  *
- * Backport a release: solo FLIT 1 (release no tiene la lectura de FLIT 2).
+ * FLIT 2 (RN-26) se prueba en `flito-sync.flit2-lectura.test.ts` («Bug #13585 · RN-26»).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getTableName } from 'drizzle-orm';

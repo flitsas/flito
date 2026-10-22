@@ -3,7 +3,8 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import rateLimit from 'express-rate-limit';
 import { db } from '../../../db/client.js';
 import { laftReportesUiaf } from '../../../db/schema.js';
-import { authMiddleware, requireRole } from '../../../shared/middleware/auth.js';
+import { authMiddleware } from '../../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../../shared/middleware/exigir-funcion.js';
 import { userOrIpKey } from '../../../shared/middleware/rateLimiter.js';
 import { laftAudit } from '../audit.service.js';
 import { loggerFor } from '../../../shared/logger.js';
@@ -13,7 +14,7 @@ import { generarAros } from './aros.service.js';
 const log = loggerFor('laft-aros');
 
 const router = Router();
-router.use(authMiddleware, requireRole('admin', 'compliance'));
+router.use(authMiddleware);
 
 const generateLimiter = rateLimit({
   windowMs: 60_000, max: 10,
@@ -32,14 +33,17 @@ function parseAnioTrim(req: Request): { anio: number; trimestre: number } | null
 }
 
 // === POST /generar/:anio/:trimestre =========================================
-router.post('/generar/:anio/:trimestre', generateLimiter, async (req: Request, res: Response) => {
+router.post('/generar/:anio/:trimestre', exigirFuncion('laft.efectivo.operar'), generateLimiter, async (req: Request, res: Response) => {
   const p = parseAnioTrim(req);
   if (!p) { res.status(400).json({ error: 'Año o trimestre inválido' }); return; }
   // Anti-overlap: no generar AROS de un trimestre que aún no termina.
-  // Trimestre N termina el último día del mes 3*N.
-  const lastMonthZero = p.trimestre * 3 - 1;
-  const lastDay = new Date(Date.UTC(p.anio, lastMonthZero + 1, 0));
-  if (new Date() < lastDay) {
+  // Trimestre N sigue en curso hasta el FIN de su último día en hora de Colombia
+  // (America/Bogota, UTC-5 sin DST). Se permite generar desde las 00:00 Bogotá
+  // del primer día del trimestre siguiente = 05:00 UTC (Bug #13192: antes el
+  // límite eran las 00:00 UTC del último día, 19:00 del penúltimo en Colombia).
+  // Date.UTC normaliza el mes 12 (T4) a enero del año siguiente.
+  const inicioTrimestreSiguiente = new Date(Date.UTC(p.anio, p.trimestre * 3, 1, 5));
+  if (new Date() < inicioTrimestreSiguiente) {
     res.status(422).json({ error: 'No se puede generar AROS de un trimestre en curso' });
     return;
   }
@@ -69,7 +73,7 @@ router.post('/generar/:anio/:trimestre', generateLimiter, async (req: Request, r
 });
 
 // === GET /:anio/:trimestre/download — descargar PDF ==========================
-router.get('/:anio/:trimestre/download', async (req: Request, res: Response) => {
+router.get('/:anio/:trimestre/download', exigirFuncion('laft.efectivo.operar'), async (req: Request, res: Response) => {
   const p = parseAnioTrim(req);
   if (!p) { res.status(400).json({ error: 'Año o trimestre inválido' }); return; }
   const [row] = await db.select().from(laftReportesUiaf).where(and(
@@ -92,7 +96,7 @@ router.get('/:anio/:trimestre/download', async (req: Request, res: Response) => 
 });
 
 // === GET / — list paginado ==================================================
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('laft.efectivo.operar'), async (req: Request, res: Response) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
   const rows = await db.select().from(laftReportesUiaf)

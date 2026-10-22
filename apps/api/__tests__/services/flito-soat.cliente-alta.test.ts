@@ -87,6 +87,7 @@ import express from 'express';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
 import { testToken } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 const kdb = createKeyedDb();
 const espia = crearEspia(kdb);
@@ -164,7 +165,7 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat-cliente.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
 
@@ -191,6 +192,8 @@ function escenario(over: Partial<Record<string, unknown[]>> = {}) {
     ...(over as Record<string, unknown[]>),
   });
   kdb.when.insert('vehicles', [{ id: VEHICULO_ID }]);
+  // HU #12996: con el RUNT caído el alta APARCA la solicitud en `flito_soat_incompletas` (202).
+  kdb.when.insert('flito_soat_incompletas', [{ id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }]);
 }
 
 /**
@@ -254,16 +257,20 @@ describe('AC1 — el alta crea la fila del canal y la DESPACHA (invertido por la
     expect(soat.id).toBe(r.body.id);
   });
 
-  it('la compañía es la del USUARIO, no la del formulario', async () => {
+  it('**la compañía es la del USUARIO, no la del formulario** (INVERTIDO por la #12874: ya no se ignora, es 403)', async () => {
     escenario();
-    // El cuerpo intenta radicar para otra compañía. Se ignora: `companiaId` no está en el schema de
-    // Zod y el servicio lo toma de `contextoSoat()`.
-    await alta(await buildApp(), await auth('cliente', siguienteUsuario()), { campos: { companiaId: '99' } });
+    // Decía «se ignora: `companiaId` no está en el schema». Desde la #12874 el campo existe (sin
+    // enlace se escoge la compañía), así que con enlace `compania` otra compañía es un intento de
+    // radicar a nombre ajeno y sale como 403 visible, sin crear nada.
+    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()), { campos: { companiaId: '99' } });
 
-    expect(espia.ultimoInsertEn('flito_soat').companiaId).toBe(COMPANIA);
+    expect(r.status).toBe(403);
+    expect(r.body.codigo).toBe('compania_no_permitida');
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
   });
 
-  it('**el alta ESPERA a Kyverum: si el RUNT no responde, NO hay fila** (INVERTIDO por la #11966)', async () => {
+  it('**el alta ESPERA a Kyverum: si el RUNT no responde, NO hay SOAT** (INVERTIDO por la #11966; 202 desde la #12996)', async () => {
     // Este caso decía «201 aunque `consultarVehiculoRunt` nunca se resuelve», que era el AC1 de la
     // #11935. Con ADR-0010 el RUNT es compuerta otra vez, así que la afirmación se invierte: el alta
     // no puede terminar sin el desenlace, y el desenlace por defecto —no respondió— es un 503 que no
@@ -273,8 +280,9 @@ describe('AC1 — el alta crea la fila del canal y la DESPACHA (invertido por la
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
 
-    expect(r.status).toBe(503);
-    expect(r.body.codigo).toBe('runt_no_disponible');
+    // HU #12996: el desenlace «no respondió» aparca la solicitud (202) en vez de un 503.
+    expect(r.status).toBe(202);
+    expect(r.body.desenlace).toBe('incompleta');
     expect(espia.insertsEn('flito_soat')).toHaveLength(0);
     expect(consultarVehiculoRuntMock).toHaveBeenCalledTimes(1);
   });
@@ -572,13 +580,13 @@ describe('tenencia del vehículo — la ficha de otra compañía no se toca', ()
 // compuerta. Los casos se conservan uno a uno para que se vea qué afirmaba cada uno antes.
 
 describe('AC2 y AC4 — el RUNT falla o responde que no: NO se crea la fila', () => {
-  it('**RUNT caído → 503 `runt_no_disponible` (antes 201); ni una fila**', async () => {
+  it('**RUNT caído → 202 `incompleta` (antes 503, y antes 201); ni SOAT, ni satélite, ni vehículo**', async () => {
     escenario();
     consultarVehiculoRuntMock.mockResolvedValue(RUNT_CAIDO);
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
-    expect(r.status).toBe(503);
-    expect(r.body.codigo).toBe('runt_no_disponible');
+    expect(r.status).toBe(202);
+    expect(r.body.desenlace).toBe('incompleta');
     expect(espia.insertsEn('flito_soat')).toHaveLength(0);
     expect(espia.insertsEn('flito_soat_solicitud')).toHaveLength(0);
     expect(espia.insertsEn('vehicles')).toHaveLength(0);
@@ -918,11 +926,19 @@ describe('el canal es del rol `cliente`, y su ruta está inscrita en la allowlis
     expect((await alta(await buildApp(), 'Bearer no-es-un-token')).status).toBe(401);
   });
 
-  it('admin → 403: radicar es un acto de la compañía, y un admin no tiene compañía', async () => {
+  it('un rol SIN la función (auditor) → 403: radicar exige `soat.solicitud.crear`', async () => {
     escenario();
-    const r = await alta(await buildApp(), await auth('admin', siguienteUsuario()));
+    const r = await alta(await buildApp(), await auth('auditor', siguienteUsuario()));
     expect(r.status).toBe(403);
     expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+  });
+
+  it('HU #12873 AC8: `admin` tiene «Solicitar SOAT sin trámite» y ya no lo frena la guarda de la función', async () => {
+    // Decisión del PO del 2026-10-13: la exclusión de la 0226 era temporal hasta la #12874.
+    escenario();
+    const r = await alta(await buildApp(), await auth('admin', siguienteUsuario()));
+    expect(r.body.motivo).not.toBe('sin_funcion');
+    expect(r.status).not.toBe(403);
   });
 
   it('proveedor (el gestor) → 403', async () => {
@@ -930,18 +946,11 @@ describe('el canal es del rol `cliente`, y su ruta está inscrita en la allowlis
     expect((await alta(await buildApp(), await auth('proveedor', siguienteUsuario()))).status).toBe(403);
   });
 
-  it('**el `cliente` LLEGA a la ruta: si no estuviera en `RUTAS_PERMITIDAS_CLIENTE`, el guarda de negación por defecto la cortaría antes**', async () => {
+  it('**el `cliente` LLEGA a la ruta: el montaje SOAT está declarado y abierto a su enlace (HU #12875)**', async () => {
     escenario();
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
-    // 201 y no 403: el guarda de `authMiddleware` corre de verdad en este test.
+    // 201 y no 403: la frontera de `authMiddleware` corre de verdad en este test.
     expect(r.status).toBe(201);
-
-    const { rutaPermitidaParaCliente } = await import('../../src/shared/middleware/canal-cliente.js');
-    expect(rutaPermitidaParaCliente('POST', '/api/flito/soat/cliente')).toBe(true);
-    expect(rutaPermitidaParaCliente('POST', '/api/flito/soat/cliente/preconsulta')).toBe(true);
-    // Y no abre de paso las mutaciones del router hermano.
-    expect(rutaPermitidaParaCliente('POST', '/api/flito/soat/enviar')).toBe(false);
-    expect(rutaPermitidaParaCliente('POST', '/api/flito/soat/aaaa/factura')).toBe(false);
   });
 });
 
@@ -1154,5 +1163,137 @@ describe('catálogo RUNT de tipos de documento: lo que el producto ofrece y lo q
     for (const tipo of TIPOS_DOCUMENTO_RUNT) {
       expect(mapTipoDocUiToRunt(tipo), `${tipo} no tiene código RUNT`).not.toBeNull();
     }
+  });
+});
+
+// ───────────────── HU #12874 — compañía fija (enlace) o escogida (sin enlace) ─────────────────
+
+describe('HU #12874 — a nombre de qué compañía se radica, en el alta, la preconsulta y la lectura', () => {
+  /** Un rol SIN enlace con las tres funciones del formulario (lo que el PO concede por configuración). */
+  const sinEnlace = async (id: number, tipoEnlace = 'ninguno') => `Bearer ${await testToken({
+    sub: id, username: 'interno@flit.io', role: 'admin', tipoEnlace,
+    funciones: ['soat.solicitud.crear', 'soat.runt.preconsultar', 'soat.factura.leer'],
+  })}`;
+  const preconsultar = async (token: string, extra: Record<string, unknown> = {}) =>
+    request(await buildApp()).post('/api/flito/soat/cliente/preconsulta').set('Authorization', token)
+      .send({ vin: '9FKRG2222T2042405', ...extra });
+  const leerFactura = async (token: string, campos: Record<string, string> = {}) => {
+    const req = request(await buildApp()).post('/api/flito/soat/cliente/factura/lectura').set('Authorization', token);
+    for (const [k, v] of Object.entries(campos)) req.field(k, v);
+    return req.attach('facturaVenta', PDF, { filename: 'factura.pdf', contentType: 'application/pdf' });
+  };
+
+  it('**AC2 — sin enlace + compañía escogida con canal → 201, la fila es de ESA compañía y la Bitácora la nombra**', async () => {
+    escenario();
+    const r = await alta(await buildApp(), await sinEnlace(siguienteUsuario()), { campos: { companiaId: String(COMPANIA) } });
+
+    expect(r.status).toBe(201);
+    expect(espia.ultimoInsertEn('flito_soat').companiaId).toBe(COMPANIA);
+    const entrada = auditMock.mock.calls.find((c) => c[1].resource === 'flito_soat')![1];
+    expect(entrada.detail).toContain(`compania=${COMPANIA}`);
+    // Ni el body del 201 ni nada que vea el cliente lleva la compañía: solo Bitácora (decisión del PO).
+    expect(r.body.companiaId).toBeUndefined();
+  });
+
+  it('**AC3 — sin enlace y SIN compañía → 400 `compania_requerida`, sin RUNT ni INSERT**', async () => {
+    escenario();
+    const r = await alta(await buildApp(), await sinEnlace(siguienteUsuario()));
+
+    expect(r.status).toBe(400);
+    expect(r.body.codigo).toBe('compania_requerida');
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+  });
+
+  it('**sin enlace + compañía con el canal APAGADO → 403 `canal_desactivado`**', async () => {
+    escenario({ clients: [{ id: COMPANIA, sinTramite: false, carpeta: null }] });
+    const r = await alta(await buildApp(), await sinEnlace(siguienteUsuario()), { campos: { companiaId: String(COMPANIA) } });
+
+    expect(r.status).toBe(403);
+    expect(r.body.codigo).toBe('canal_desactivado');
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+  });
+
+  it('**sin enlace + compañía INEXISTENTE → la MISMA respuesta que canal apagado** (sin oráculo)', async () => {
+    escenario({ clients: [{ id: COMPANIA, sinTramite: false, carpeta: null }] });
+    const apagada = await alta(await buildApp(), await sinEnlace(siguienteUsuario()), { campos: { companiaId: String(COMPANIA) } });
+    escenario({ clients: [] });
+    const inexistente = await alta(await buildApp(), await sinEnlace(siguienteUsuario()), { campos: { companiaId: '424242' } });
+
+    expect(inexistente.status).toBe(403);
+    expect(inexistente.body).toEqual(apagada.body);
+  });
+
+  it('**AC1 — enlace compañía sin `companiaId` → 201 con la suya, y la Bitácora la nombra**', async () => {
+    escenario();
+    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
+
+    expect(r.status).toBe(201);
+    const entrada = auditMock.mock.calls.find((c) => c[1].resource === 'flito_soat')![1];
+    expect(entrada.detail).toContain(`compania=${COMPANIA}`);
+  });
+
+  it('enlace compañía mandando SU MISMA compañía → 201 (no es manipulación)', async () => {
+    escenario();
+    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()), { campos: { companiaId: String(COMPANIA) } });
+    expect(r.status).toBe(201);
+  });
+
+  it('`companiaId` que no es entero positivo → 400 de Zod', async () => {
+    escenario();
+    for (const malo of ['abc', '0', '-3', '1.5']) {
+      const r = await alta(await buildApp(), await sinEnlace(siguienteUsuario()), { campos: { companiaId: malo } });
+      expect(r.status).toBe(400);
+    }
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+  });
+
+  it('**proveedor con `soat.solicitud.crear` → 403**, sin RUNT ni INSERT', async () => {
+    escenario();
+    const token = `Bearer ${await testToken({ sub: siguienteUsuario(), role: 'proveedor', funciones: ['soat.solicitud.crear'] })}`;
+    const r = await alta(await buildApp(), token, { campos: { companiaId: String(COMPANIA) } });
+
+    expect(r.status).toBe(403);
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+  });
+
+  it('**organismos de tránsito con `soat.solicitud.crear` → 403**, sin RUNT ni INSERT', async () => {
+    escenario();
+    const r = await alta(await buildApp(), await sinEnlace(siguienteUsuario(), 'organismos_transito'), { campos: { companiaId: String(COMPANIA) } });
+
+    expect(r.status).toBe(403);
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+  });
+
+  it('**preconsulta**: sin enlace con compañía → 200; sin compañía → 400 `compania_requerida`', async () => {
+    escenario();
+    expect((await preconsultar(await sinEnlace(siguienteUsuario()), { companiaId: COMPANIA })).status).toBe(200);
+
+    const sinCompania = await preconsultar(await sinEnlace(siguienteUsuario()));
+    expect(sinCompania.status).toBe(400);
+    expect(sinCompania.body.codigo).toBe('compania_requerida');
+  });
+
+  it('**preconsulta**: enlace compañía con compañía ajena → 403 `compania_no_permitida` y el RUNT no se consulta', async () => {
+    escenario();
+    consultarVehiculoRuntMock.mockClear();
+    const r = await preconsultar(await auth('cliente', siguienteUsuario()), { companiaId: COMPANIA + 1 });
+
+    expect(r.status).toBe(403);
+    expect(r.body.codigo).toBe('compania_no_permitida');
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
+  });
+
+  it('**lectura de factura**: sin enlace sin compañía → 400; enlace compañía con ajena → 403', async () => {
+    escenario();
+    const sinCompania = await leerFactura(await sinEnlace(siguienteUsuario()));
+    expect(sinCompania.status).toBe(400);
+    expect(sinCompania.body.codigo).toBe('compania_requerida');
+
+    const ajena = await leerFactura(await auth('cliente', siguienteUsuario()), { companiaId: String(COMPANIA + 1) });
+    expect(ajena.status).toBe(403);
+    expect(ajena.body.codigo).toBe('compania_no_permitida');
   });
 });

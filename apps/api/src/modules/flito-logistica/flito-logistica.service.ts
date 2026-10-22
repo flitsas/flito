@@ -24,11 +24,19 @@ import {
   users, vehicles,
 } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
+import { usuariosConFuncion } from '../../shared/permisos-efectivos.js';
 import { getEntityDocumentStream, presignedGetEntityDocument, uploadEntityDocument } from '../../services/storage.js';
+import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
+import { condicionActasLogistica, condicionDocumentosLogistica, condicionTramitesLogistica } from './flito-logistica.alcance.js';
 
 const log = loggerFor('flito-logistica');
 
-export interface LogisticaCtx { userId: number; username: string; role: string }
+/**
+ * HU #13425: `operaAjenas` = el usuario tiene `logistica.actas.operar_ajenas` (lo calcula la ruta con
+ * `tieneFuncion`; el servicio no consulta permisos). Sin ella, solo opera SUS actas (CA-11). Ninguna
+ * regla de este servicio lee el nombre del rol: `role` viaja solo como dato de auditoría.
+ */
+export interface LogisticaCtx { userId: number; username: string; role: string; operaAjenas: boolean }
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type DbOrTx = typeof db | Tx;
@@ -299,10 +307,12 @@ function aFila(f: FilaCruda): TramiteFila {
   };
 }
 
-export async function listar(filtros: FiltrosLogistica = {}): Promise<ListadoLogistica> {
+export async function listar(filtros: FiltrosLogistica = {}, alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<ListadoLogistica> {
   const page = Math.max(1, Math.floor(filtros.page ?? 1));
   const pageSize = Math.min(200, Math.max(1, Math.floor(filtros.pageSize ?? 50)));
   const conds = construirCondiciones(filtros);
+  const porAlcance = condicionTramitesLogistica(alcance); // HU #13426: página y COUNT
+  if (porAlcance) conds.push(porAlcance);
 
   const countRows = await db.select({ total: sql<number>`count(distinct ${flitoTramites.id})::int` })
     .from(flitoTramites)
@@ -495,7 +505,7 @@ export async function entregar(actaId: string, datos: EntregaInput, ctx: Logisti
 
   const acta0 = await cargarActa(db, actaId);
   if (acta0.estado !== EstadoActaLogistica.DESPACHADA) throw new LogisticaError(`El acta no se puede entregar en estado "${acta0.estado}"`);
-  if (ctx.role === 'mensajero' && acta0.mensajeroId !== ctx.userId) throw new LogisticaError('Solo puedes entregar tus propias actas', 403);
+  if (!ctx.operaAjenas && acta0.mensajeroId !== ctx.userId) throw new LogisticaError('Solo puedes entregar tus propias actas', 403);
 
   const firmaKey = await uploadEntityDocument('flito-logistica-firmas', actaId, 'firma.png', bufDesdeDataUrl(datos.firma), 'image/png');
   const fotoKey = datos.foto?.trim() ? await uploadEntityDocument('flito-logistica-evidencia', actaId, 'evidencia.jpg', bufDesdeDataUrl(datos.foto), 'image/jpeg') : null;
@@ -524,7 +534,7 @@ export async function registrarDevolucion(actaId: string, motivo: string, ctx: L
   return db.transaction(async (tx) => {
     const acta = await cargarActa(tx, actaId);
     if (acta.estado !== EstadoActaLogistica.DESPACHADA) throw new LogisticaError(`El acta no se puede devolver en estado "${acta.estado}"`);
-    if (ctx.role === 'mensajero' && acta.mensajeroId !== ctx.userId) throw new LogisticaError('Solo puedes registrar devoluciones de tus propias actas', 403);
+    if (!ctx.operaAjenas && acta.mensajeroId !== ctx.userId) throw new LogisticaError('Solo puedes registrar devoluciones de tus propias actas', 403);
     await tx.update(flitoLogisticaActas).set({ estado: EstadoActaLogistica.DEVUELTA, motivoDevolucion: m, updatedAt: new Date() }).where(eq(flitoLogisticaActas.id, actaId));
     const docs = await docsDeActa(tx, actaId);
     for (const d of docs) await transicionar(tx, d, EstadoDocumentoLogistica.DEVUELTO, ctx, { motivo: m });
@@ -553,9 +563,25 @@ export interface FacetasLogistica {
   companiasCerrables: Array<{ companiaId: number; nombre: string | null; disponibles: number }>;
   mensajeros: Array<{ id: number; nombre: string }>;
 }
-export async function facetas(): Promise<FacetasLogistica> {
+/** Función que deja operar actas de otros (HU #13425). Sin ella, cada usuario solo opera las suyas. */
+export const FUNCION_OPERAR_AJENAS = 'logistica.actas.operar_ajenas';
+
+/**
+ * Candidatos a mensajero de un acta (HU #13425): usuarios activos que entregan actas y NO operan las
+ * ajenas — hoy, exactamente los del rol `mensajero` —, decidido por sus funciones efectivas.
+ */
+async function mensajerosAsignables(): Promise<Array<{ id: number; nombre: string }>> {
+  const ids = await usuariosConFuncion('logistica.actas.entregar', { sin: FUNCION_OPERAR_AJENAS });
+  if (ids.length === 0) return [];
+  return db.select({ id: users.id, nombre: users.name }).from(users)
+    .where(and(inArray(users.id, ids), isNull(users.deletedAt)));
+}
+
+export async function facetas(alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<FacetasLogistica> {
   // Todas las facetas se restringen a compañías gestionadas por FLITO (logisticaAutogestionable = false).
-  const gestionable = eq(clients.logisticaAutogestionable, false);
+  // HU #13426 (AC7): y al alcance del enlace; los mensajeros (personal de FLITO) no se listan a una compañía.
+  const gestionable = and(eq(clients.logisticaAutogestionable, false), condicionTramitesLogistica(alcance))!;
+  const gestionableDocs = and(eq(clients.logisticaAutogestionable, false), condicionDocumentosLogistica(alcance))!;
   const [empresas, organismos, cerrables, mensajeros] = await Promise.all([
     db.selectDistinct({ nit: flitoTramites.companiaNit, nombre: clients.name })
       .from(flitoTramites).leftJoin(clients, eq(flitoTramites.companiaId, clients.id))
@@ -567,10 +593,11 @@ export async function facetas(): Promise<FacetasLogistica> {
       .where(and(aprobadoSql, gestionable, sql`${flitoTramites.organismoCodigo} is not null`)),
     db.select({ companiaId: flitoLogisticaDocumentos.companiaId, nombre: clients.name, disponibles: sql<number>`count(*)::int` })
       .from(flitoLogisticaDocumentos).leftJoin(clients, eq(flitoLogisticaDocumentos.companiaId, clients.id))
-      .where(and(eq(flitoLogisticaDocumentos.estado, EstadoDocumentoLogistica.CLASIFICADO), gestionable, sql`${flitoLogisticaDocumentos.companiaId} is not null`))
+      .where(and(eq(flitoLogisticaDocumentos.estado, EstadoDocumentoLogistica.CLASIFICADO), gestionableDocs, sql`${flitoLogisticaDocumentos.companiaId} is not null`))
       .groupBy(flitoLogisticaDocumentos.companiaId, clients.name),
-    db.select({ id: users.id, nombre: users.name }).from(users)
-      .where(and(eq(users.role, 'mensajero'), isNull(users.deletedAt))),
+    // HU #13425: asignable = quien entrega actas y NO opera las ajenas (hoy: el rol mensajero), leído
+    // de sus funciones efectivas y no del nombre del rol.
+    alcance.enlace === 'ninguno' ? mensajerosAsignables() : Promise.resolve([]),
   ]);
   return {
     // Vocabulario SIMPLE (5 estados) para los filtros de la consola.
@@ -590,7 +617,7 @@ export interface ActaFila {
   mensajeroId: number | null; mensajeroNombre: string | null; documentos: number;
   receptorNombre: string | null; entregadoEn: string | null; creadoEn: string;
 }
-export async function listarActas(): Promise<ActaFila[]> {
+export async function listarActas(alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<ActaFila[]> {
   const rows = await db.select({
     id: flitoLogisticaActas.id, companiaId: flitoLogisticaActas.companiaId, companiaNombre: clients.name,
     estado: flitoLogisticaActas.estado, mensajeroId: flitoLogisticaActas.mensajeroId, mensajeroNombre: users.name,
@@ -600,6 +627,7 @@ export async function listarActas(): Promise<ActaFila[]> {
   }).from(flitoLogisticaActas)
     .leftJoin(clients, eq(flitoLogisticaActas.companiaId, clients.id))
     .leftJoin(users, eq(flitoLogisticaActas.mensajeroId, users.id))
+    .where(condicionActasLogistica(alcance)) // HU #13426
     .orderBy(desc(flitoLogisticaActas.createdAt));
   return rows.map((r) => ({
     ...r,
@@ -624,7 +652,7 @@ export interface MiRuta { entregas: RutaEntrega[] }
  * admin ve todas (seguimiento).
  */
 export async function miRuta(ctx: LogisticaCtx): Promise<MiRuta> {
-  const soloMias = ctx.role === 'mensajero';
+  const soloMias = !ctx.operaAjenas;
   const actaCond = soloMias
     ? and(eq(flitoLogisticaActas.estado, EstadoActaLogistica.DESPACHADA), eq(flitoLogisticaActas.mensajeroId, ctx.userId))
     : eq(flitoLogisticaActas.estado, EstadoActaLogistica.DESPACHADA);

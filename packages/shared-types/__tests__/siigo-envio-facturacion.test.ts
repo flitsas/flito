@@ -13,7 +13,7 @@ import {
   type SiigoEnvioTramite, type SiigoResultadoEnvio,
 } from '../src/siigo-cola.js';
 import { SIIGO_ESTADOS_REPORTE, SIIGO_ESTADO_REPORTE_ETIQUETA } from '../src/siigo-factura.js';
-import { ROLES_POR_ACCION } from '../src/siigo-permisos.js';
+import * as siigoPermisos from '../src/siigo-permisos.js';
 
 const item = (
   resultado: SiigoResultadoEnvio, tramiteId = 't1',
@@ -72,14 +72,13 @@ describe('El resumen del envío cuadra siempre', () => {
   });
 });
 
-describe('AC6 — una sola constante decide quién emite', () => {
-  it('`emitir` hereda la guarda de «Facturar»: admin y financiera', () => {
-    // La HU pedía crear `ROLES_EMISION_FE` en `permissions.ts`. No se creó a propósito: esta tabla
-    // ya ES esa constante, y dos definiciones de «quién puede emitir» es lo que el AC6 prohíbe.
-    expect([...ROLES_POR_ACCION.emitir].sort()).toEqual(['admin', 'financiera']);
-    // Y no coincide con la lectura por casualidad: `auditor` mira la cola y no la llena.
-    expect(ROLES_POR_ACCION.consultar).toContain('auditor');
-    expect(ROLES_POR_ACCION.emitir).not.toContain('auditor');
+describe('AC6 — quién emite ya no se decide aquí (HU #13423)', () => {
+  it('shared-types solo declara las acciones: el reparto es la función `siigo.factura.emitir` del motor', () => {
+    // La tabla de roles por acción se retiró: su reparto (emitir → admin y financiera; consultar añade
+    // auditor) lo sembró la 0230 y lo prueban los tests del API contra el catálogo.
+    expect(siigoPermisos.ACCIONES_SIIGO).toContain('emitir');
+    expect('ROLES_POR_ACCION' in siigoPermisos).toBe(false);
+    expect('puedeEjecutar' in siigoPermisos).toBe(false);
   });
 });
 

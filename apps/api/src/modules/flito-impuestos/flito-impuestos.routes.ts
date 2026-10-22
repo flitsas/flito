@@ -16,21 +16,22 @@ import {
   RESULTADO_EXPORT_AMPLIADO,
 } from '../../shared/export/cola-flito-excel.js';
 import {
-  CAMPOS_PII_IMPUESTO_EXPORT, registrarAccesoImpuesto,
+  CAMPOS_PII_CERTIFICADO, CAMPOS_PII_IMPUESTO_EXPORT, registrarAccesoImpuesto,
 } from './flito-impuestos.pii.js';
 import {
-  CAMPOS_PII_ZIP_SOPORTES, comprobarTopeRegistrosZip, emitirZipSoportes, nombrePlacaOrganismo,
+  CAMPOS_PII_ZIP_SOPORTES, comprobarTopeRegistrosZip, nombrePorPlaca,
   resolverEntradasZip, tipoPorBytes, ZipError, zipSoportesLimiter,
 } from '../../shared/soportes/soportes-zip.js';
+import { consolidarPorRegistro, emitirZipConsolidado } from '../../shared/soportes/soportes-zip-consolidar.js';
 import {
   construirFilasExportImpuestos, nombreArchivoExportImpuestos,
 } from './flito-impuestos.export.service.js';
-import { db } from '../../db/client.js';
-import { flitoGestorOrganismos } from '../../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { resolverPermisos } from '../../shared/permisos-efectivos.js';
+import { alcanceDeUsuario, soloSinEnlace } from '../../shared/middleware/frontera-enlace.js';
+import { esProyeccionCliente } from '../../shared/alcance-filas.js';
 import {
-  CARGA_MASIVA_ARCHIVOS_POR_PETICION, CARGA_MASIVA_MAX_BYTES_ARCHIVO, EstadoImpuesto, ResultadoCertificacion,
-  TipoSoporteZip,
+  CARGA_MASIVA_ARCHIVOS_POR_PETICION, CARGA_MASIVA_MAX_BYTES_ARCHIVO, CodigoErrorReciboCaja, EstadoImpuesto, FASES_RECIBO,
+  FaseRecibo, ResultadoCertificacion, TipoSoporteZip, CABECERA_DIRECCIONES_SIN_CONFIRMAR, SEMAFOROS_IMPUESTO,
 } from '@operaciones/shared-types';
 import { ImpuestoError, type ArchivoSubido, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import { certificacionVigenteConAcceso, certificarImpuesto, certificarLote } from './certificacion.service.js';
@@ -40,12 +41,24 @@ import {
   facturaVentaFlitConAcceso, reactivar, rechazar, registrosZipImpuestos, reversar,
 } from './flito-impuestos.service.js';
 import { soportesDeImpuesto } from '../../shared/soportes/soportes-consulta.js';
-import { cargarRecibos, normalizarRutas } from './flito-recibos.service.js';
+import { cargarReciboCaja, cargarRecibos, normalizarRutas, ReciboCajaError } from './flito-recibos.service.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { getFlitAdapter } from '../flito-sync/flit.adapter.js';
+import { descargarFacturaVentaFlit2, FacturaNoDisponibleError } from './flito-impuestos.extraccion.js';
+import analisisRouter from './flito-impuestos.analisis.routes.js';
+import direccionRouter from './flito-impuestos.direccion.routes.js';
+import certificadosRouter from './flito-impuestos.certificados.routes.js';
+import reciboFaseRouter from './flito-impuestos.recibo-fase.routes.js';
+import reciboReemplazoRouter from './flito-impuestos.recibo-reemplazo.routes.js';
+import { contarDireccionesSinConfirmar } from './flito-impuestos.export-pago.js';
 
 const router = Router();
 router.use(authMiddleware);
+router.use(analisisRouter(contextoImpuesto)); // HU #12825: hereda authMiddleware
+router.use(direccionRouter(contextoImpuesto)); // HU #12833: PATCH /:id/direccion
+router.use(certificadosRouter(contextoImpuesto)); // HU #13205: POST /certificados/zip
+router.use(reciboFaseRouter(contextoImpuesto)); // HU #13208: POST /:id/recibos (carga por fase)
+router.use(reciboReemplazoRouter(contextoImpuesto)); // HU #13269: POST /:id/recibos/reemplazar-pago
 
 const ESTADOS = ['pendiente', 'solicitado', 'con_novedad', 'pagado'] as const;
 
@@ -61,22 +74,51 @@ const upload = multer({
 
 const aArchivo = (f: Express.Multer.File): ArchivoSubido => ({ originalname: f.originalname, mimetype: f.mimetype, buffer: f.buffer, size: f.size });
 
+// ── Recibo de caja (HU #12591): un archivo, PDF o imagen, sin ZIP ────────────────────────────────
+// Multer propio y no `upload`: el compartido acepta ZIP (la masiva lo expande) y aquí un ZIP es 400.
+const MIMES_RECIBO_CAJA: readonly string[] = ['application/pdf', 'image/jpeg', 'image/png'];
+const uploadReciboCaja = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: CARGA_MASIVA_MAX_BYTES_ARCHIVO, files: 1 },
+  // Sin este filtro, el content-type que declara el cliente viaja hasta `flito_soportes` y quien
+  // luego descargue el archivo lo recibiría con ese tipo (XSS almacenado con un .html).
+  fileFilter: (_req, file, cb) => {
+    if (MIMES_RECIBO_CAJA.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Tipo de archivo no permitido: solo PDF, JPEG o PNG'));
+  },
+});
+/** Motivos de multer traducidos, sin eco del nombre ni del MIME que mandó el cliente. */
+const MOTIVO_MULTER_RECIBO_CAJA: Record<string, string> = {
+  LIMIT_FILE_SIZE: 'El archivo supera el tamaño máximo permitido',
+  LIMIT_FILE_COUNT: 'Solo se admite un archivo',
+  LIMIT_UNEXPECTED_FILE: 'Solo se admite un archivo, en el campo "archivo"',
+};
 /**
- * Contexto del gestor de impuestos: la atadura de visibilidad por organismo vive en
- * `flito_gestor_organismos` (HU #12053), leída de BD, no del JWT — así un cambio de ámbito surte
- * efecto sin re-emitir el token. Para el resto de roles la lista queda vacía.
- *
- * Vacía significa **no ve nada** en el caso del gestor; los demás roles ni siquiera la consultan
- * (`esGestor(ctx)` decide antes).
+ * Envuelve a multer para que sus rechazos —más de un archivo, tipo no permitido, tamaño— salgan como
+ * 400 con `codigo`, y no como el 500 genérico del error handler (que no traduce `MulterError`).
+ */
+function recibirReciboCaja(req: Request, res: Response, next: (e?: unknown) => void): void {
+  uploadReciboCaja.single('archivo')(req, res, (err: unknown) => {
+    if (err) {
+      const motivo = err instanceof multer.MulterError ? MOTIVO_MULTER_RECIBO_CAJA[err.code] : err instanceof Error ? err.message : undefined;
+      res.status(400).json({ error: motivo ?? 'Archivo inválido', codigo: CodigoErrorReciboCaja.ARCHIVO_INVALIDO });
+      return;
+    }
+    next();
+  });
+}
+
+/**
+ * Contexto del actor en Impuestos. HU #13426 (AC8/AC9): el alcance sale del ENLACE del usuario
+ * (`alcanceDeUsuario`, leído de BD en cada petición — un cambio de ámbito surte efecto sin re-emitir
+ * el token), nunca del nombre del rol. Con enlace `organismos_transito` la lista son sus secretarías
+ * (`flito_gestor_organismos`, HU #12053); vacía significa **no ve nada**. Sin enlace no se consulta.
  */
 export async function contextoImpuesto(user: { sub: number; username: string; role: string }): Promise<ImpuestoCtx> {
-  let organismos: string[] = [];
-  if (user.role === 'gestor_impuestos') {
-    const filas = await db.select({ codigo: flitoGestorOrganismos.organismoCodigo })
-      .from(flitoGestorOrganismos).where(eq(flitoGestorOrganismos.userId, user.sub));
-    organismos = filas.map((f) => f.codigo);
-  }
-  return { userId: user.sub, username: user.username, role: user.role, organismos };
+  const p = await resolverPermisos(user.sub);
+  const alcance = await alcanceDeUsuario(user.sub, p.ok ? p.tipoEnlace : null);
+  const organismos = alcance.enlace === 'organismos_transito' ? alcance.organismos : [];
+  return { userId: user.sub, username: user.username, role: user.role, organismos, alcance };
 }
 
 function handleError(res: Response, e: unknown): void {
@@ -98,12 +140,12 @@ function handleError(res: Response, e: unknown): void {
  * es un PDF aunque venga rotulado como octet-stream, y si resulta ser una imagen se sirve como
  * imagen en vez de mentir con un `.pdf` que ningún visor podría abrir.
  *
- * **El NOMBRE cambia en la HU #11910: `PLACA-ORGANISMO.<ext>`, no `factura-venta-<idFlit>.pdf`.**
+ * **El NOMBRE es `PLACA.<ext>`** (HU #12817, AC7; antes `PLACA-ORGANISMO`, HU #11910), no `factura-venta-<idFlit>.pdf`.
  * El AC5 pide ese nombre «también en la descarga individual», y el motivo es de conciliación: quien
  * baja un ZIP y luego una factura suelta acaba con dos convenciones en la misma carpeta y no puede
  * emparejarlas. El id de FLIT sale del nombre —no es lo que la operación usa para cuadrar— y con él
  * se va el único texto libre del origen que llegaba a una cabecera HTTP; lo que entra ahora está
- * normalizado a `[A-Z0-9-]` por `nombrePlacaOrganismo`.
+ * normalizado a `[A-Z0-9-]` por `nombrePorPlaca`. La individual NO consolida: conserva su extensión.
  *
  * Operaciones o gestor de impuestos (respeta la frontera del gestor). Integración FLIT.
  */
@@ -111,22 +153,49 @@ router.get('/:id/factura-venta', exigirFuncion('impuestos.factura.ver'), async (
   const ctx = await contextoImpuesto(req.user!);
   const factura = await facturaVentaFlitConAcceso(req.params.id, ctx);
   if (!factura) { res.status(404).json({ error: 'El trámite no tiene factura de venta en FLIT' }); return; }
-  const url = await getFlitAdapter().obtenerUrlFactura(factura.facturaId);
-  if (!url) { res.status(404).json({ error: 'La factura de venta no está disponible en FLIT' }); return; }
-
-  const upstream = await fetch(url).catch(() => null);
-  if (!upstream || !upstream.ok) { res.status(502).json({ error: 'No se pudo descargar la factura de venta desde FLIT' }); return; }
-  const cuerpo = Buffer.from(await upstream.arrayBuffer());
+  const cuerpo = factura.fuente === 'flit2'
+    ? await facturaFlit2(req.params.id, factura.idFlit2, factura.facturaId, res)
+    : await facturaFlit1(factura.facturaId, res);
+  if (!cuerpo) return;
 
   const { contentType, extension } = tipoPorBytes(cuerpo);
   res.setHeader('Content-Type', contentType);
   res.setHeader('Content-Length', String(cuerpo.length));
   // `inline` para que el visor de la aplicación lo pinte; el nombre es el que usa el navegador al
   // guardarlo, así que lleva extensión pase lo que pase.
-  const base = nombrePlacaOrganismo(factura.placa, factura.organismoAlias, factura.organismoCodigo);
+  const base = nombrePorPlaca(factura.placa);
   res.setHeader('Content-Disposition', `inline; filename="${base}.${extension}"`);
   res.send(cuerpo);
 });
+
+/** FLIT 1: sin cambios (Bug #13230). `null` = la respuesta de error ya se envió. */
+async function facturaFlit1(facturaId: string, res: Response): Promise<Buffer | null> {
+  const url = await getFlitAdapter().obtenerUrlFactura(facturaId);
+  if (!url) { res.status(404).json({ error: 'La factura de venta no está disponible en FLIT' }); return null; }
+  const upstream = await fetch(url).catch(() => null);
+  if (!upstream || !upstream.ok) { res.status(502).json({ error: 'No se pudo descargar la factura de venta desde FLIT' }); return null; }
+  return Buffer.from(await upstream.arrayBuffer());
+}
+
+/**
+ * Bug #13230. FLIT 2 por la MISMA vía que la extracción (allowlist de hosts, sin `Authorization`,
+ * `redirect: 'error'`, tope y un reintento). Sin URL (404 del puerto, sin `idFlit2`) → 404; cualquier
+ * otro desenlace (host no permitido, descarga, tope, pase) → 502. Nunca el error crudo ni la URL.
+ */
+async function facturaFlit2(
+  impuestoId: string, idFlit2: string | null, facturaId: string, res: Response,
+): Promise<Buffer | null> {
+  try {
+    return (await descargarFacturaVentaFlit2(impuestoId, idFlit2, facturaId)).bytes;
+  } catch (e) {
+    if (e instanceof FacturaNoDisponibleError && e.motivo === 'url_nula') {
+      res.status(404).json({ error: 'La factura de venta no está disponible en FLIT' });
+    } else {
+      res.status(502).json({ error: 'No se pudo descargar la factura de venta desde FLIT' });
+    }
+    return null;
+  }
+}
 
 /**
  * POST /soportes/zip — factura de venta y/o recibo de impuesto de los marcados, en UN ZIP (AC3).
@@ -146,9 +215,10 @@ router.get('/:id/factura-venta', exigirFuncion('impuestos.factura.ver'), async (
  * creyendo que pidió lo que marcó.
  *
  * **`recibo_impuesto` NO es un alias de la columna `tipo`**: resuelve a
- * `recibo_impuesto_sin_marca_agua` con caída a `recibo_impuesto` (ver `soportes-zip.ts`). Hoy el
- * único productor es `flito-recibos.service.ts`, que escribe siempre el marcado, así que **el camino
- * real es la caída** — la preferencia está para cuando el limpio exista.
+ * `recibo_impuesto_sin_marca_agua` (la liquidación del impuesto, sin marca) con caída a
+ * `recibo_impuesto` (el pago con marca); ver `soportes-zip.ts`. Desde la HU #12590 el productor,
+ * `flito-recibos.service.ts`, escribe los dos con el literal del catálogo, así que la preferencia
+ * por el limpio se cumple cuando la liquidación se cargó y la caída cubre al resto.
  *
  * ── La función: `impuestos.soportes.descargar` (admin + gestor de partida), no la de ver ─────────
  *
@@ -174,22 +244,28 @@ router.post('/soportes/zip', exigirFuncion('impuestos.soportes.descargar'), zipS
     comprobarTopeRegistrosZip(parsed.data.ids);
     const registros = await registrosZipImpuestos(parsed.data.ids, ctx);
     const entradas = await resolverEntradasZip(registros, parsed.data.tipos);
-
-    // ANTES del primer byte, y esto es la deuda que la HU #11909 dejó abierta en este endpoint: el
-    // zip de facturas auditaba con `audit()` pero NO llamaba a `registrarAccesoImpuesto`, así que un
-    // lote de cien facturas con los datos del titular dentro no dejaba una sola línea del artículo 17.
-    await registrarAccesoImpuesto(req, {
-      accion: 'export',
-      archivo: 'zip_soportes',
-      campos: CAMPOS_PII_ZIP_SOPORTES,
-      filas: entradas.length,
-    });
-    await audit(req, {
-      action: 'export', resource: 'flito_impuesto',
-      detail: `Descarga zip de soportes (${parsed.data.tipos.join(', ')}): ${entradas.length} documento(s)`,
-    });
-
-    await emitirZipSoportes(res, entradas);
+    // HU #12817: un PDF por impuesto, consolidado en disco ANTES del primer byte, aunque se pida
+    // un solo tipo (el nombre y el aviso de ilegibles se comportan igual pase lo que pase).
+    const zc = await consolidarPorRegistro(entradas);
+    try {
+      // ANTES del primer byte, y esto es la deuda que la HU #11909 dejó abierta en este endpoint: el
+      // zip de facturas auditaba con `audit()` pero NO llamaba a `registrarAccesoImpuesto`, así que un
+      // lote de cien facturas con los datos del titular dentro no dejaba una sola línea del artículo 17.
+      await registrarAccesoImpuesto(req, {
+        accion: 'export',
+        archivo: 'zip_soportes',
+        campos: CAMPOS_PII_ZIP_SOPORTES,
+        filas: zc.entradas.length,
+      });
+      await audit(req, {
+        action: 'export', resource: 'flito_impuesto',
+        detail: `Descarga zip de soportes (${parsed.data.tipos.join(', ')}): ${zc.incluidos} documento(s)`
+          + ` en ${zc.entradas.length} PDF, ${zc.omitidos} omitido(s)`,
+      });
+      await emitirZipConsolidado(res, zc);
+    } finally {
+      await zc.limpiar();
+    }
   } catch (e) {
     if (res.headersSent) throw e;
     if (e instanceof ZipError) {
@@ -234,6 +310,13 @@ const fecha = (v: unknown): string | undefined => {
  */
 const fechaSchema = z.string().regex(FORMATO_FECHA, 'La fecha debe ser yyyy-mm-dd');
 
+/**
+ * HU #12830: filtro por semáforo (preset «Con alertas» = `naranja,rojo`). A diferencia de los demás
+ * filtros del listado, un valor fuera del vocabulario es 400 y no se ignora: descartarlo en silencio
+ * dejaría el filtro vacío y la pantalla diría «con alertas» mostrando la cola entera.
+ */
+const semaforosSchema = z.array(z.enum(SEMAFOROS_IMPUESTO)).min(1);
+
 // GET / — cola con las 2 fronteras, filtrada y paginada.
 //
 // Deja rastro en `pii_access_log` desde la HU #11909 (Ley 1581 art. 17, AGENTS.md §16): cada fila
@@ -242,6 +325,12 @@ const fechaSchema = z.string().regex(FORMATO_FECHA, 'La fecha debe ser yyyy-mm-d
 // la ruta interactiva sin rastro mientras la de al lado lo escribe todo. Va DESPUÉS de la consulta y
 // con `await`, como en SOAT: `filas` no se sabe antes.
 router.get('/', exigirFuncion('impuestos.cola.ver'), async (req: Request, res: Response) => {
+  const semaforoRaw = lista(req.query.semaforo);
+  const semaforo = semaforoRaw ? semaforosSchema.safeParse(semaforoRaw) : undefined;
+  if (semaforo && !semaforo.success) {
+    res.status(400).json({ error: `semaforo admite solo: ${SEMAFOROS_IMPUESTO.join(', ')}` });
+    return;
+  }
   const ctx = await contextoImpuesto(req.user!);
   const estadoRaw = typeof req.query.estado === 'string' ? req.query.estado : undefined;
   const estados = estadoRaw
@@ -261,6 +350,9 @@ router.get('/', exigirFuncion('impuestos.cola.ver'), async (req: Request, res: R
     // pantalla, el usuario no podría estar viendo lo que se descarga.
     creadoDesde: fecha(req.query.creadoDesde), creadoHasta: fecha(req.query.creadoHasta),
     estancado: req.query.estancado === 'si',
+    // HU #12590: liquidado y pendiente de pago con marca. Booleano en texto, como el resto.
+    liquidadoPendientePago: req.query.liquidadoPendientePago === 'true',
+    semaforo: semaforo?.data,
     page: Number(req.query.page) || 1,
     pageSize: Number(req.query.pageSize) || 50,
   });
@@ -311,6 +403,8 @@ const colaFiltrosCampos = z.object({
   pagadoDesde: fechaSchema.optional(), pagadoHasta: fechaSchema.optional(),
   creadoDesde: fechaSchema.optional(), creadoHasta: fechaSchema.optional(),
   estancado: z.boolean().optional(),
+  liquidadoPendientePago: z.boolean().optional(),
+  semaforo: semaforosSchema.optional(), // HU #12830
   page: z.number().int().positive().optional(),
   pageSize: z.number().int().positive().optional(),
   cursor: z.string().optional(),
@@ -399,6 +493,7 @@ router.post('/export', exigirFuncion('impuestos.excel.exportar'), exportColaLimi
     });
 
     res.set('Cache-Control', 'no-store');
+    if (incluirPago) res.set(CABECERA_DIRECCIONES_SIN_CONFIRMAR, String(contarDireccionesSinConfirmar(filas))); // HU #12833 AC4
     await sendExcel(res, nombreArchivoExportImpuestos(), columnasColaExport('impuestos', incluirPago), filas);
   } catch (e) {
     // Con la respuesta ya empezada, responder reventaría con ERR_HTTP_HEADERS_SENT y taparía la
@@ -449,7 +544,10 @@ router.get('/:id/historial', exigirFuncion('impuestos.tramite.ver_historial'), a
   const ctx = await contextoImpuesto(req.user!);
   const d = await detalleImpuesto(req.params.id, ctx);
   if (!d) { res.status(404).json({ error: 'El impuesto no existe' }); return; }
-  res.json(await historialDe('impuesto', req.params.id));
+  // HU #13426 (Habeas Data): la compañía no recibe quién de FLIT movió el impuesto (`usuario` → null;
+  // `historialDe` ya resuelve nombre-o-correo en ese único campo). `organismos_transito` sigue igual.
+  const filas = await historialDe('impuesto', req.params.id);
+  res.json(esProyeccionCliente(ctx.alcance) ? filas.map((f) => ({ ...f, usuario: null })) : filas);
 });
 
 /**
@@ -585,8 +683,15 @@ router.get('/:id/certificado', exigirFuncion('impuestos.certificado.descargar'),
       campos: cert.campos,
       certificadoPorNombre: cert.certificadoPorNombre,
       certificadoEn: new Date(cert.createdAt),
+      registroRunt: cert.registroRunt,
       generadoPor: ctx.username,
       generadoEn: new Date(),
+    });
+
+    // Registro PII antes del primer byte (HU #13204): el PDF entrega documento, placa, VIN, motor,
+    // chasis y serie. Si `construirCertificadoPdf` hubiera lanzado, no se entregó nada que registrar.
+    await registrarAccesoImpuesto(req, {
+      accion: 'export', archivo: 'certificado_runt', impuestoId: req.params.id, filas: 1, campos: CAMPOS_PII_CERTIFICADO,
     });
 
     // Auditar ANTES de escribir la respuesta: `audit` se traga sus errores, pero si algo se cayera
@@ -615,6 +720,9 @@ router.post('/enviar', exigirFuncion('impuestos.tramite.enviar'), async (req: Re
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   const ctx = await contextoImpuesto(req.user!);
   const { ids, gestionOperaciones } = parsed.data;
+  // HU #13426 (P-3): enviar directo a la gestión de Operaciones es la misma contingencia interna que
+  // `asumir-operaciones` → cerrada a todo enlace.
+  if (gestionOperaciones && ctx.alcance.enlace !== 'ninguno') { res.status(403).json({ error: 'Sin permisos' }); return; }
   const resultado = await enviarAlGestor(ids, ctx, gestionOperaciones);
   if (resultado.enviados.length > 0) {
     const destino = gestionOperaciones ? 'gestión de Operaciones' : 'gestor del organismo';
@@ -646,8 +754,9 @@ const traspaso = (
     await responderDetalle(res, ctx, imp);
   } catch (e) { handleError(res, e); }
 };
-router.post('/:id/asumir-operaciones', exigirFuncion('impuestos.tramite.asumir'), traspaso(asumirEnOperaciones, 'Gestión asumida por Operaciones'));
-router.post('/:id/devolver-gestor', exigirFuncion('impuestos.tramite.devolver'), traspaso(devolverAlGestor, 'Gestión devuelta al gestor del organismo'));
+// HU #13426 (P-3): la contingencia de Operaciones es interna de FLIT → cerrada a todo enlace.
+router.post('/:id/asumir-operaciones', soloSinEnlace(), exigirFuncion('impuestos.tramite.asumir'), traspaso(asumirEnOperaciones, 'Gestión asumida por Operaciones'));
+router.post('/:id/devolver-gestor', soloSinEnlace(), exigirFuncion('impuestos.tramite.devolver'), traspaso(devolverAlGestor, 'Gestión devuelta al gestor del organismo'));
 
 const motivoSchema = z.object({ motivo: z.string().min(1, 'El motivo es obligatorio') });
 
@@ -691,9 +800,12 @@ router.post('/:id/reversar', exigirFuncion('impuestos.tramite.reversar'), async 
   } catch (e) { handleError(res, e); }
 });
 
-// POST /recibos — carga MASIVA de recibos de pago → Pagado (con/sin marca de agua). Operaciones o
-// gestor. `sinMarcaDeAgua` (campo del form) es el defecto para archivos sueltos; en ZIP la copia se
-// deduce de la carpeta.
+// POST /recibos — carga MASIVA de recibos por fase (HU #12590). Operaciones o gestor. `fase` (campo
+// del form: 'liquidacion' | 'pago') es la fase por defecto para archivos sueltos; en ZIP se deduce
+// de la carpeta. La liquidación del impuesto deja `liquidado_en` sobre el `solicitado`; el pago con
+// marca es la única vía a Pagado. `sinMarcaDeAgua` ('true' = liquidación) se sigue aceptando por
+// compatibilidad con el navegador de hoy; si viene `fase`, manda `fase`. Un valor de `fase` fuera
+// del catálogo es 400 ANTES de resolver el contexto o de llamar al OCR.
 //
 // `rutas` (HU #12056) es OPCIONAL: cuando el navegador abre el ZIP y manda las entradas por tandas,
 // viaja un valor de texto por archivo, en el mismo orden, con la ruta relativa dentro del ZIP
@@ -702,15 +814,53 @@ router.post('/:id/reversar', exigirFuncion('impuestos.tramite.reversar'), async 
 router.post('/recibos', exigirFuncion('impuestos.recibos.cargar'), upload.array('archivos', CARGA_MASIVA_ARCHIVOS_POR_PETICION), async (req: Request, res: Response) => {
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (files.length === 0) { res.status(400).json({ error: 'No se adjuntó ningún archivo' }); return; }
-  const sinMarca = req.body?.sinMarcaDeAgua === 'true' || req.body?.sinMarcaDeAgua === true;
-  // Texto del cliente: solo decide con/sin marca. No nombra el archivo ni la llave de storage.
+  const faseCruda = typeof req.body?.fase === 'string' && req.body.fase !== '' ? req.body.fase : undefined;
+  const fase: string = faseCruda
+    ?? (req.body?.sinMarcaDeAgua === 'true' || req.body?.sinMarcaDeAgua === true ? FaseRecibo.LIQUIDACION : FaseRecibo.PAGO);
+  if (!(FASES_RECIBO as readonly string[]).includes(fase)) { res.status(400).json({ error: "fase inválida: 'liquidacion' | 'pago'" }); return; }
+  // Texto del cliente: solo decide la fase. No nombra el archivo ni la llave de storage.
   const rutas = normalizarRutas(req.body?.rutas);
   try {
     const ctx = await contextoImpuesto(req.user!);
-    const resultado = await cargarRecibos(files.map(aArchivo), sinMarca, ctx, rutas);
-    await audit(req, { action: 'upload', resource: 'flito_impuesto', detail: `Carga masiva recibos: ${resultado.conciliados.length} conciliados, ${resultado.enRevision.length} en revisión, ${resultado.complementos.length} complementos, ${resultado.duplicados.length} duplicados, ${resultado.noAsociados.length} sin asociar` });
+    const resultado = await cargarRecibos(files.map(aArchivo), fase as FaseRecibo, ctx, rutas);
+    await audit(req, { action: 'upload', resource: 'flito_impuesto', detail: `Carga masiva recibos (fase ${fase}): ${resultado.liquidados.length} liquidados, ${resultado.conciliados.length} conciliados, ${resultado.enRevision.length} en revisión, ${resultado.complementos.length} complementos, ${resultado.duplicados.length} duplicados, ${resultado.noAsociados.length} sin asociar, ${resultado.faseNoCoincide.length} fase no coincide` });
     res.json(resultado);
   } catch (e) { handleError(res, e); }
+});
+
+/**
+ * POST /:id/recibo-caja — el recibo de caja del pago en ventanilla, uno a uno desde el detalle del
+ * impuesto (HU #12591). Solo Operaciones de partida (`impuestos.recibos.cargar_caja`; el gestor NO la
+ * tiene aunque cargue recibos en masa). Multipart con UN archivo en el campo `archivo` (PDF/JPEG/PNG).
+ *
+ * Ocho desenlaces, con `codigo` propio en los que la pantalla distingue:
+ *
+ *   403                          → sin la función (cuerpo de `exigirFuncion`)
+ *   400 archivo_invalido         → sin archivo, más de uno, tipo fuera de la lista o tamaño
+ *   404 no_encontrado            → no existe o fuera de la frontera del actor
+ *   409 sin_liquidacion          → falta la liquidación (`liquidado_en`); cargarla primero
+ *   409 estado_no_permitido      → el impuesto no está en gestión
+ *   409 duplicado                → el mismo archivo ya está cargado (en este impuesto o en otro)
+ *   503                          → el OCR no respondió; nada escrito, reintentar
+ *   200 pagado | en_revision     → `ResultadoReciboCaja`
+ *
+ * El valor pagado va a `audit_logs` (Habeas Data), nunca al log de aplicación.
+ */
+router.post('/:id/recibo-caja', exigirFuncion('impuestos.recibos.cargar_caja'), recibirReciboCaja, async (req: Request, res: Response) => {
+  const file = req.file;
+  if (!file) { res.status(400).json({ error: 'No se adjuntó ningún archivo', codigo: CodigoErrorReciboCaja.ARCHIVO_INVALIDO }); return; }
+  try {
+    const ctx = await contextoImpuesto(req.user!);
+    const resultado = await cargarReciboCaja(req.params.id, aArchivo(file), ctx);
+    const valor = resultado.resultado === 'pagado' ? resultado.valorPagado ?? '—' : '—';
+    await audit(req, { action: 'upload', resource: 'flito_impuesto', resourceId: req.params.id,
+      detail: `Recibo de caja (recibo_caja_impuesto): ${resultado.resultado}, valor ${valor}. Soporte ${resultado.soporteId}.` });
+    res.json(resultado);
+  } catch (e) {
+    // `codigo` se emite AQUÍ: `handleError` responde `{ error }` sin él (mismo trato que /export).
+    if (e instanceof ReciboCajaError) { res.status(e.status).json({ error: e.message, codigo: e.codigo }); return; }
+    handleError(res, e);
+  }
 });
 
 export default router;

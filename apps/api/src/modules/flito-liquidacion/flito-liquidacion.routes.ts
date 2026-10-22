@@ -19,9 +19,9 @@ router.use(authMiddleware);
 // Quién puede liquidar y facturar lo decide el motor (`exigirFuncion`, HU #12083) con el reparto
 // sembrado: de partida, `admin` y `financiera` (`liquidacion.liquidacion.liquidar`, `.facturar`) y
 // solo `admin` para deshacer un sellado (`.reversar`). La emisión electrónica (HU #11328) hereda de
-// «facturar»: `siigo-facturacion.routes.test.ts` compara `ROLES_POR_ACCION.emitir` con los roles de
-// partida de `liquidacion.liquidacion.facturar` en la foto, para que las dos definiciones no se
-// separen en silencio.
+// «facturar»: `siigo-facturacion.routes.test.ts` compara los roles de partida de `siigo.factura.emitir`
+// con los de `liquidacion.liquidacion.facturar` en la foto, para que los dos repartos no se separen
+// en silencio.
 
 /**
  * LiquidacionError es de negocio (400); lo demás sube al error handler.

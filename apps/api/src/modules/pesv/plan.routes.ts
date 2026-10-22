@@ -3,12 +3,13 @@ import { z } from 'zod';
 import { eq, and, desc } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { pesvPlanAnual, pesvPlanObjetivos, pesvPlanAcciones } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('pesv'));
+router.use(authMiddleware);
 
 const ACCION_ESTADOS = ['pendiente', 'en_proceso', 'cumplida', 'vencida'] as const;
 const numericish = z.union([z.string(), z.number()]).transform((v) => String(v));
@@ -41,12 +42,12 @@ const accionSchema = z.object({
   evidenciaKeys: z.array(z.string()).default([]),
 });
 
-router.get('/', async (_req, res) => {
+router.get('/', requirePage('pesv_plan'), async (_req, res) => {
   const rows = await db.select().from(pesvPlanAnual).orderBy(desc(pesvPlanAnual.anio));
   res.json({ data: rows });
 });
 
-router.get('/anio/:anio', async (req, res) => {
+router.get('/anio/:anio', requirePage('pesv_plan'), async (req, res) => {
   const anio = parseInt(req.params.anio, 10);
   if (!Number.isFinite(anio)) return res.status(400).json({ error: 'año inválido' });
   const [plan] = await db.select().from(pesvPlanAnual).where(eq(pesvPlanAnual.anio, anio)).limit(1);
@@ -62,7 +63,7 @@ router.get('/anio/:anio', async (req, res) => {
   res.json({ ...plan, objetivos: objetivos.map((o) => ({ ...o, acciones: accionesPorObj.get(o.id) ?? [] })) });
 });
 
-router.post('/', requireRole('admin', 'lider_pesv'), async (req: Request, res: Response) => {
+router.post('/', requirePage('pesv_plan'), exigirFuncion('pesv.plan.administrar'), async (req: Request, res: Response) => {
   const parsed = planCreateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
   try {
@@ -80,7 +81,7 @@ router.post('/', requireRole('admin', 'lider_pesv'), async (req: Request, res: R
   }
 });
 
-router.patch('/:id', requireRole('admin', 'lider_pesv'), async (req: Request, res: Response) => {
+router.patch('/:id', requirePage('pesv_plan'), exigirFuncion('pesv.plan.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = planUpdateSchema.safeParse(req.body);
@@ -100,7 +101,7 @@ router.patch('/:id', requireRole('admin', 'lider_pesv'), async (req: Request, re
   res.json(row);
 });
 
-router.post('/:id/aprobar', requireRole('admin', 'lider_pesv'), async (req: Request, res: Response) => {
+router.post('/:id/aprobar', requirePage('pesv_plan'), exigirFuncion('pesv.plan.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const result = await db.transaction(async (tx) => {
@@ -122,7 +123,7 @@ router.post('/:id/aprobar', requireRole('admin', 'lider_pesv'), async (req: Requ
 
 // ============ OBJETIVOS / ACCIONES ============
 
-router.post('/:id/objetivos', requireRole('admin', 'lider_pesv'), async (req: Request, res: Response) => {
+router.post('/:id/objetivos', requirePage('pesv_plan'), exigirFuncion('pesv.plan.administrar'), async (req: Request, res: Response) => {
   const planId = parseInt(req.params.id, 10);
   if (!Number.isFinite(planId) || planId <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = objetivoSchema.safeParse(req.body);
@@ -146,7 +147,7 @@ router.post('/:id/objetivos', requireRole('admin', 'lider_pesv'), async (req: Re
   }
 });
 
-router.post('/objetivos/:objId/acciones', requireRole('admin', 'lider_pesv'), async (req: Request, res: Response) => {
+router.post('/objetivos/:objId/acciones', requirePage('pesv_plan'), exigirFuncion('pesv.plan.administrar'), async (req: Request, res: Response) => {
   const objId = parseInt(req.params.objId, 10);
   if (!Number.isFinite(objId) || objId <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = accionSchema.safeParse(req.body);
@@ -171,7 +172,7 @@ router.post('/objetivos/:objId/acciones', requireRole('admin', 'lider_pesv'), as
   }
 });
 
-router.patch('/acciones/:accId', requireRole('admin', 'lider_pesv'), async (req: Request, res: Response) => {
+router.patch('/acciones/:accId', requirePage('pesv_plan'), exigirFuncion('pesv.plan.administrar'), async (req: Request, res: Response) => {
   const accId = parseInt(req.params.accId, 10);
   if (!Number.isFinite(accId) || accId <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = accionSchema.partial().safeParse(req.body);

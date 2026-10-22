@@ -12,7 +12,7 @@
  * era.
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import {
   CONCURRENCIA_CERTIFICACION,
   ESTADOS_IMPUESTO_CERTIFICABLES,
@@ -29,9 +29,14 @@ import { loggerFor } from '../../shared/logger.js';
 import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
 import { consultarVehiculoRunt } from '../runt/runt.service.js';
 import { motorYSerieParaVehiculo, type MotorYSerieRunt } from '../runt/vehiculo-motor-serie.js';
-import { compararConRunt, esTraspasoEnSincronizacion, extraerVehiculoRunt, runtSinRegistro } from './certificacion-runt.js';
+import {
+  compararConRunt, esTraspasoEnSincronizacion, extraerRegistroRunt, extraerVehiculoRunt, runtSinRegistro,
+  type RegistroRuntCertificado,
+} from './certificacion-runt.js';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
-import { buscarConAcceso } from './flito-impuestos.service.js';
+import { buscarConAcceso, condicionesColaImpuestos, conJoinsColaImpuestos } from './flito-impuestos.service.js';
+import { exigirCompaniaPropia } from './flito-impuestos.alcance.js';
+import { limitadorRunt } from './runt-limitador.js';
 
 const log = loggerFor('flito.impuestos.certificacion');
 
@@ -60,6 +65,18 @@ export interface CertificacionVigente {
   createdAt: string;
 }
 
+/**
+ * Certificación vigente MÁS los datos de registro del vehículo que imprime el PDF (HU #13204).
+ *
+ * Tipo aparte y no un campo más de {@link CertificacionVigente}: esa forma viaja también en la
+ * respuesta JSON de `POST /:id/certificar`, y ampliarla publicaría motor/chasis/serie en una ruta que
+ * no los declara en su registro PII. `registroRunt` ya pasó por la lista blanca; el `snapshot_runt`
+ * crudo NO sale del servicio. Certificaciones sin snapshot → los diez en `null`.
+ */
+export interface CertificacionConRegistro extends CertificacionVigente {
+  registroRunt: RegistroRuntCertificado;
+}
+
 export type ResultadoCertificar =
   | { resultado: typeof ResultadoCertificacion.CERTIFICADO; certificacion: CertificacionVigente }
   | { resultado: typeof ResultadoCertificacion.CON_DIFERENCIAS; campos: ComparacionCampo[]; diferenciasBloqueantes: ComparacionCampo[] }
@@ -68,13 +85,14 @@ export type ResultadoCertificar =
   | { resultado: typeof ResultadoCertificacion.ERROR_SERVICIO; mensaje: string };
 
 /** Datos del vehículo del trámite, que son los que se contrastan con el RUNT. */
-interface DatosImpuesto extends DatosVehiculoFlito {
+export interface DatosImpuesto extends DatosVehiculoFlito {
   vehiculoId: typeof vehicles.$inferSelect['id'];
   ownerName: string | null;
   ownerDocument: string | null;
 }
 
-async function datosDelVehiculo(impuestoId: string): Promise<DatosImpuesto | null> {
+/** Exportada para la consulta RUNT del análisis post-envío (HU #12827), sin cambio de lógica. */
+export async function datosDelVehiculo(impuestoId: string): Promise<DatosImpuesto | null> {
   const [row] = await db.select({
     // El id va aparte de lo que se compara: es la llave con la que se le devuelve al vehículo lo
     // que el RUNT sabe de él (motor y serie, HU #12402).
@@ -147,6 +165,7 @@ async function guardarMotorYSerie(impuestoId: string, vehiculoId: DatosImpuesto[
  * `ImpuestoError` para lo que sí es excepcional: que el impuesto no exista o no sea accesible.
  */
 export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<ResultadoCertificar> {
+  await exigirCompaniaPropia([id], ctx); // HU #13426 (AC3)
   const imp = await buscarConAcceso(id, ctx);
   // 404 y no 403 a propósito: la frontera del gestor no debe revelar que el registro existe.
   if (!imp) throw new ImpuestoError(404, 'El impuesto no existe');
@@ -195,9 +214,10 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
     // Con documento se consulta por placa; sin él, por VIN. No se mandan los dos: `runt-direct`
     // ignora el tipo de documento cuando hay VIN y probaría un único tipo, así que mezclarlos
     // desaprovecharía el barrido de tipos que sí hace la consulta por placa.
-    runt = documento
-      ? await consultarVehiculoRunt(placa, undefined, documento)
-      : await consultarVehiculoRunt(placa, vin ?? undefined, undefined);
+    // HU #12825 (AC3): la consulta pasa por el tope global del RUNT, compartido con la cola.
+    runt = await limitadorRunt.ejecutar(() => (documento
+      ? consultarVehiculoRunt(placa, undefined, documento)
+      : consultarVehiculoRunt(placa, vin ?? undefined, undefined)));
   } catch (e) {
     // `consultarVehiculoRunt` ya atrapa casi todo y devuelve `{ ok:false }`; esto cubre lo que se le
     // escape (p. ej. el rechazo del circuit breaker) para que un lote nunca muera por un registro.
@@ -232,7 +252,40 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
     };
   }
 
-  const vehiculoRunt = extraerVehiculoRunt(runt.data);
+  return certificarConRespuestaRunt(id, datos, runt.data, { userId: ctx.userId, username: ctx.username });
+}
+
+/**
+ * Quién firma una certificación. En `POST /:id/certificar` y en el lote es el usuario de la sesión;
+ * en la autocertificación del análisis post-envío (HU #12828) es el sistema: `userId` nulo (la FK a
+ * `users` lo admite) y un nombre fijo que el certificado imprime como «certificado por».
+ */
+export interface ActorCertificacion {
+  userId: ImpuestoCtx['userId'] | null;
+  username: string;
+}
+
+export type ResultadoCertificarConRunt = Extract<ResultadoCertificar, {
+  resultado: typeof ResultadoCertificacion.CERTIFICADO | typeof ResultadoCertificacion.CON_DIFERENCIAS;
+}>;
+
+/**
+ * DADA una respuesta válida del RUNT (con registro), compara y persiste (HU #12828, extraído sin
+ * cambio de lógica de `certificarImpuesto`): motor/serie en `vehicles`, y si es certificable la fila
+ * vigente en `flito_impuesto_certificaciones` (con el snapshot) + `audit_logs`, en una transacción.
+ *
+ * Precondiciones del llamador: `datos.placa` no vacía y documento o VIN presentes (el mismo par con
+ * el que se consultó: con documento se consultó por documento, sin él por VIN), y `runtData` ya pasó
+ * por `runtSinRegistro`. Así la reutiliza la autocertificación sin volver a consultar el RUNT.
+ */
+export async function certificarConRespuestaRunt(
+  id: string, datos: DatosImpuesto, runtData: unknown, actor: ActorCertificacion,
+): Promise<ResultadoCertificarConRunt> {
+  const placa = (datos.placa ?? '').trim();
+  const documento = datos.ownerDocument?.trim() || null;
+  const vin = datos.vin?.trim() || null;
+
+  const vehiculoRunt = extraerVehiculoRunt(runtData);
   await guardarMotorYSerie(id, datos.vehiculoId, vehiculoRunt);
 
   const veredicto = compararConRunt(datos, vehiculoRunt);
@@ -247,7 +300,7 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
     };
   }
 
-  const tipoDocPropietario = (runt.data as { tipoDocPropietario?: unknown }).tipoDocPropietario;
+  const tipoDocPropietario = (runtData as { tipoDocPropietario?: unknown }).tipoDocPropietario;
 
   const fila = await db.transaction(async (tx: Tx) => {
     // Recertificar apaga la vigente antes de insertar. El índice único parcial de la migración 0121
@@ -273,13 +326,13 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
       // cambia de contenido después de emitido no sirve como evidencia (HU #11167, AC2/AC4).
       propietarioNombre: datos.ownerName?.trim() || null,
       campos: veredicto.campos,
-      snapshotRunt: runt.data as Record<string, unknown>,
-      certificadoPorId: ctx.userId,
-      certificadoPorNombre: ctx.username,
+      snapshotRunt: runtData as Record<string, unknown>,
+      certificadoPorId: actor.userId,
+      certificadoPorNombre: actor.username,
     }).returning();
 
     await tx.insert(auditLogs).values({
-      userId: ctx.userId, userEmail: ctx.username, action: 'update',
+      userId: actor.userId, userEmail: actor.username, action: 'update',
       resource: 'flito_impuesto', resourceId: id,
       detail: `Certificación contra RUNT (placa ${placa}, ${documento ? `doc ${documento.slice(0, 4)}***` : `VIN ${vin}`})`,
     });
@@ -349,6 +402,8 @@ export async function certificarLote(ids: string[], ctx: ImpuestoCtx): Promise<R
     throw new ImpuestoError(400, `Máximo ${TOPE_LOTE_CERTIFICACION} impuestos por lote. Seleccionaste ${unicos.length}.`);
   }
 
+  // HU #13426 (AC3): un lote de compañía con un id ajeno → 403 y no se certifica nada.
+  await exigirCompaniaPropia(unicos, ctx);
   log.info({ total: unicos.length }, 'certificacion masiva: inicio');
 
   return conConcurrencia(unicos, CONCURRENCIA_CERTIFICACION, async (id): Promise<ResultadoLoteItem> => {
@@ -381,14 +436,17 @@ export async function certificarLote(ids: string[], ctx: ImpuestoCtx): Promise<R
  * está certificado devuelve `null`, y eso es un 409 en la ruta. Colapsar ambas en un 404 le diría al
  * gestor «no existe» de un registro que está viendo en pantalla.
  */
-export async function certificacionVigenteConAcceso(impuestoId: string, ctx: ImpuestoCtx): Promise<CertificacionVigente | null> {
+export async function certificacionVigenteConAcceso(impuestoId: string, ctx: ImpuestoCtx): Promise<CertificacionConRegistro | null> {
   const imp = await buscarConAcceso(impuestoId, ctx);
   if (!imp) throw new ImpuestoError(404, 'El impuesto no existe');
   return certificacionVigente(impuestoId);
 }
 
-/** Certificación vigente de un impuesto, o `null`. La usa el detalle y el certificado PDF. */
-export async function certificacionVigente(impuestoId: string): Promise<CertificacionVigente | null> {
+/**
+ * Certificación vigente de un impuesto, o `null`. Solo la consume el certificado PDF, que registra el
+ * acceso PII: `registroRunt` trae motor, chasis y serie, así que no se sirve por JSON sin ese registro.
+ */
+export async function certificacionVigente(impuestoId: string): Promise<CertificacionConRegistro | null> {
   const [row] = await db.select()
     .from(flitoImpuestoCertificaciones)
     .where(and(
@@ -397,7 +455,14 @@ export async function certificacionVigente(impuestoId: string): Promise<Certific
     ))
     .limit(1);
 
-  if (!row) return null;
+  return row ? aCertificacion(row) : null;
+}
+
+/**
+ * Fila → {@link CertificacionConRegistro}. UNA sola lista blanca para el individual y el lote
+ * (HU #13205): el `snapshot_runt` crudo no sale del servicio, solo lo que `extraerRegistroRunt` deja.
+ */
+function aCertificacion(row: typeof flitoImpuestoCertificaciones.$inferSelect): CertificacionConRegistro {
   return {
     id: row.id,
     impuestoId: row.impuestoId,
@@ -409,5 +474,61 @@ export async function certificacionVigente(impuestoId: string): Promise<Certific
     campos: row.campos as ComparacionCampo[],
     certificadoPorNombre: row.certificadoPorNombre,
     createdAt: row.createdAt.toISOString(),
+    registroRunt: extraerRegistroRunt(row.snapshotRunt),
   };
+}
+
+/** Un impuesto AUTORIZADO del lote del ZIP, con su certificación vigente o `null` (HU #13205). */
+export interface CertificacionLoteItem {
+  impuestoId: string;
+  /** `vehicles.plate` (dato actual de FLITO), no `placaConsultada`: nombra la entrada del ZIP. */
+  placa: string | null;
+  idFlit: string;
+  createdAt: Date;
+  cert: CertificacionConRegistro | null;
+}
+
+/**
+ * Certificaciones vigentes de un LOTE respetando la frontera del gestor (HU #13205, D1).
+ *
+ * Dos consultas, cero N+1: la frontera es exactamente la de `registrosZipImpuestos`
+ * (`condicionesColaImpuestos` con todos los estados + `conJoinsColaImpuestos`) — no se reimplementa,
+ * porque es la vía por la que un gestor descargaría lo de otro. «No existe» y «no es tuyo» no
+ * vuelven: quien llama los calcula como pedidos − devueltos, sin distinguirlos.
+ *
+ * El ORDEN se hace aquí en JS (`createdAt ASC, impuestoId ASC`) y no con `orderBy`: decide el
+ * desempate `-2`/`-3` de los nombres y tiene que ser comprobable.
+ *
+ * Solo la consume `POST /certificados/zip`, que registra el acceso PII: no se sirve por JSON.
+ */
+export async function certificacionesVigentesLoteConAcceso(ids: readonly string[], ctx: ImpuestoCtx): Promise<CertificacionLoteItem[]> {
+  const idsUnicos = [...new Set(ids)];
+  if (idsUnicos.length === 0) return [];
+  const conds = condicionesColaImpuestos(ctx, { estados: [...Object.values(EstadoImpuesto)] });
+  if (conds === null) return []; // gestor sin organismo → nada, nunca la tabla entera
+
+  const autorizados = await conJoinsColaImpuestos(db.select({
+    id: flitoImpuestos.id,
+    createdAt: flitoImpuestos.createdAt,
+    placa: vehicles.plate,
+    idFlit: flitoTramites.idFlit,
+  }).from(flitoImpuestos).$dynamic())
+    .where(and(...conds, inArray(flitoImpuestos.id, idsUnicos)));
+  if (autorizados.length === 0) return [];
+
+  const certs = await db.select()
+    .from(flitoImpuestoCertificaciones)
+    .where(and(
+      inArray(flitoImpuestoCertificaciones.impuestoId, autorizados.map((a) => a.id)),
+      eq(flitoImpuestoCertificaciones.vigente, true),
+    ));
+  // El índice único parcial (impuesto_id WHERE vigente) garantiza ≤1 por impuesto.
+  const porImpuesto = new Map(certs.map((c) => [c.impuestoId, c]));
+
+  return autorizados
+    .map((a) => {
+      const row = porImpuesto.get(a.id);
+      return { impuestoId: a.id, placa: a.placa, idFlit: a.idFlit, createdAt: a.createdAt, cert: row ? aCertificacion(row) : null };
+    })
+    .sort((x, y) => (x.createdAt.getTime() - y.createdAt.getTime()) || (x.impuestoId < y.impuestoId ? -1 : x.impuestoId > y.impuestoId ? 1 : 0));
 }

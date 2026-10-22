@@ -64,8 +64,8 @@ export interface FicheroEnAlcance {
  *
  * `clients` queda FUERA a propósito (el Feature lo excluye) y también todo lo legacy que no es ni
  * FLITO ni trámites: PESV, mantenimiento, LAFT, flota, conductores, rutas, SOAT legacy, RNDC,
- * privacidad, Siigo y vehículos. Sus guardas siguen siendo `requireRole` cableado hasta que otra
- * oleada las traiga; que no estén aquí no es un olvido, es el alcance (AC4/AC5 de la #12083).
+ * privacidad, Siigo y vehículos. Esos los trajeron después las HU #13421, #13422 y #13423 (ADR-0023)
+ * a `FICHEROS_LEGADO_EN_ALCANCE`; que no estén aquí no es un olvido, es el alcance (AC4/AC5 de la #12083).
  */
 export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'soat', fichero: 'flito-soat/flito-soat.routes.ts' },
@@ -92,6 +92,115 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'usuarios', fichero: 'users/users.routes.ts' },
   // HU #12084: el mantenimiento de roles entra al alcance con sus siete guardas.
   { modulo: 'permisos', fichero: 'permisos/permisos.routes.ts' },
+  // HU #12545: servicios adicionales por trámite; módulo propio bajo /api/finanzas (finanzas/ sigue legacy).
+  { modulo: 'finanzas', fichero: 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts' },
+  // HU #12611: la puerta universal de comprobantes; módulo propio bajo /api/flito/comprobantes.
+  { modulo: 'comprobantes', fichero: 'flito-comprobantes/flito-comprobantes.routes.ts' },
+  // HU #12619: viajes adicionales de logística; fichero hermano bajo /api/flito/logistica.
+  { modulo: 'logistica', fichero: 'flito-logistica/flito-logistica-viajes.routes.ts' },
+  // HU #13061: el acceso de FLITO a FLIT 2; fichero hermano bajo /api/flito/sync, funciones del módulo tramites.
+  { modulo: 'tramites', fichero: 'flito-sync/flit2.routes.ts' },
+  // HU #13237: interruptor por fuente (PUT); el GET, que reutiliza el código, vive en
+  // `flito-sync-interruptores-lectura.routes.ts`, fuera de la lista (como `flit2-probar.routes.ts`).
+  { modulo: 'tramites', fichero: 'flito-sync/flito-sync-interruptores.routes.ts' },
+  // HU #12833: corrección de la dirección del comprador; sub-router propio de impuestos (así el
+  // inventario no arrastra `POST /:id/reanalizar`, cuyo código ya es de `POST /:id/certificar`).
+  { modulo: 'impuestos', fichero: 'flito-impuestos/flito-impuestos.direccion.routes.ts' },
+  // HU #13269: reemplazo del comprobante de pago; sub-router propio de impuestos (solo esta ruta).
+  { modulo: 'impuestos', fichero: 'flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts' },
+  // HU #12997: lectura de las solicitudes SOAT incompletas (RUNT caído); fichero hermano de soat.
+  { modulo: 'soat', fichero: 'flito-soat/flito-soat-incompletas.routes.ts' },
+  { modulo: 'soat', fichero: 'flito-soat/flito-soat-documentos.routes.ts' }, // HU #13362
+];
+
+/**
+ * HU #13421 (ADR-0023): los ficheros LEGACY reconducidos que montan `exigirFuncion` (transitorios
+ * «Administrar <ítem>» y operaciones permanentes). Lista aparte de `FICHEROS_EN_ALCANCE` porque su
+ * forma es otra: cada ruta lleva su página por ítem (`requirePage('pesv_<item>')`) y solo las que
+ * hoy exigían rol llevan además `exigirFuncion`; las de solo lectura no son operaciones del catálogo.
+ * Su red de cierre está en `permisos.reconduccion-cierre.test.ts` (FICHEROS_LEGADO_DE_RUTAS).
+ */
+export const FICHEROS_LEGADO_EN_ALCANCE: FicheroEnAlcance[] = [
+  { modulo: 'pesv', fichero: 'pesv/export.routes.ts' },
+  { modulo: 'pesv', fichero: 'pesv/export-diagnostico.routes.ts' },
+  { modulo: 'pesv', fichero: 'pesv/diagnostico.routes.ts' },
+  { modulo: 'pesv', fichero: 'pesv/diagnostico-evidencias.routes.ts' },
+  { modulo: 'pesv', fichero: 'pesv/comite.routes.ts' },
+  { modulo: 'pesv', fichero: 'pesv/plan.routes.ts' },
+  { modulo: 'pesv', fichero: 'pesv/policy.routes.ts' },
+  { modulo: 'pesv', fichero: 'pesv/huerfanos.routes.ts' },
+  { modulo: 'pesv', fichero: 'pesv/raci.routes.ts' },
+  { modulo: 'pesv', fichero: 'pesv/normativa.routes.ts' },
+  { modulo: 'pesv', fichero: 'pesv/retencion.routes.ts' },
+  { modulo: 'drivers', fichero: 'drivers/drivers.routes.ts' },
+  { modulo: 'drivers', fichero: 'drivers/documents.routes.ts' },
+  { modulo: 'drivers', fichero: 'drivers/trainings.routes.ts' },
+  { modulo: 'drivers', fichero: 'drivers/incidents.routes.ts' },
+  { modulo: 'drivers', fichero: 'drivers/checklists.routes.ts' },
+  { modulo: 'drivers', fichero: 'drivers/alcohol.routes.ts' },
+  { modulo: 'drivers', fichero: 'drivers/emergency.routes.ts' },
+  { modulo: 'jornadas', fichero: 'jornadas/jornadas.routes.ts' },
+  { modulo: 'rum', fichero: 'rum/rum.routes.ts' },  // HU #13422 (ADR-0023): los ocho directorios de operación.
+  { modulo: 'maintenance', fichero: 'maintenance/catalog.routes.ts' },
+  { modulo: 'maintenance', fichero: 'maintenance/routines.routes.ts' },
+  { modulo: 'maintenance', fichero: 'maintenance/schedule.routes.ts' },
+  { modulo: 'maintenance', fichero: 'maintenance/parts.routes.ts' },
+  { modulo: 'maintenance', fichero: 'maintenance/preorders.routes.ts' },
+  { modulo: 'maintenance', fichero: 'maintenance/workorders.routes.ts' },
+  { modulo: 'vehicles', fichero: 'vehicles/vehicles.routes.ts' },
+  { modulo: 'vehicles', fichero: 'vehicles/ocr.routes.ts' },
+  { modulo: 'fleet', fichero: 'fleet/vehicles.routes.ts' },
+  { modulo: 'fleet', fichero: 'fleet/links.routes.ts' },
+  { modulo: 'fleet', fichero: 'fleet/documents.routes.ts' },
+  { modulo: 'rndc', fichero: 'rndc/credenciales.routes.ts' },
+  { modulo: 'rndc', fichero: 'rndc/manifiestos.routes.ts' },
+  { modulo: 'rutas', fichero: 'rutas/routes.routes.ts' },
+  { modulo: 'rutas', fichero: 'rutas/risk.routes.ts' },
+  { modulo: 'rutas', fichero: 'rutas/pernocta.routes.ts' },
+  { modulo: 'liquidacion', fichero: 'liquidacion/liquidacion.routes.ts' },
+  { modulo: 'finanzas', fichero: 'finanzas/finanzas.routes.ts' },
+  { modulo: 'clients', fichero: 'clients/clients.routes.ts' },
+  // HU #13423 (ADR-0023): los seis directorios sensibles (siigo/ con sus acciones, en línea en
+  // `siigo.permisos.ts`) y las cuatro operaciones que solo pedían sesión (runt/, integraciones/).
+  { modulo: 'laft', fichero: 'laft/lists.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/counterparties.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/audit.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/trainings.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/unusual.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/audit-plan/audit-plan.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/ros.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/sirel/ros-export.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/cash/aros.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/cash/rte.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/cash/cash.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/employees/employees.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/manual/manual.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/retencion/retencion.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/dashboard/dashboard.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/sync/sync.routes.ts' },
+  { modulo: 'laft', fichero: 'laft/officer/officer.routes.ts' },
+  { modulo: 'privacy', fichero: 'privacy/privacy.routes.ts' },
+  { modulo: 'privacy', fichero: 'privacy/pii-access.routes.ts' },
+  { modulo: 'firma', fichero: 'firma/firma.routes.ts' },
+  { modulo: 'drive', fichero: 'drive/drive.routes.ts' },
+  { modulo: 'drive', fichero: 'drive/procesador.routes.ts' },
+  { modulo: 'soat', fichero: 'soat/batch.routes.ts' },
+  { modulo: 'soat', fichero: 'soat/soat.routes.ts' },
+  { modulo: 'siigo', fichero: 'siigo/credenciales.routes.ts' },
+  { modulo: 'siigo', fichero: 'siigo/compuerta.routes.ts' },
+  { modulo: 'siigo', fichero: 'siigo/ciudades-mapeo.routes.ts' },
+  { modulo: 'siigo', fichero: 'siigo/ciudades.routes.ts' },
+  { modulo: 'siigo', fichero: 'siigo/mapeo-conceptos.routes.ts' },
+  { modulo: 'siigo', fichero: 'siigo/linea-tiempo.routes.ts' },
+  { modulo: 'siigo', fichero: 'siigo/freno.routes.ts' },
+  { modulo: 'siigo', fichero: 'siigo/parametrizacion.routes.ts' },
+  { modulo: 'siigo', fichero: 'siigo/validador-cliente.routes.ts' },
+  { modulo: 'siigo', fichero: 'siigo/siigo.permisos.ts' },
+  { modulo: 'runt', fichero: 'runt/runt.routes.ts' },
+  { modulo: 'integraciones', fichero: 'integraciones/integraciones.routes.ts' },
+  // HU #13428 (AC3): `GET /api/auth/perfil` («Ver mis datos»). El resto de `auth/` (login, `/me`, logout) no
+  // lleva guarda de función: es la entrada a la sesión y el shell de todos.
+  { modulo: 'perfil', fichero: 'auth/auth.routes.ts' },
 ];
 
 /** Quita comentarios de bloque y de línea sin tocar el contenido de las cadenas simples. */
@@ -109,7 +218,8 @@ export function sinComentarios(fuente: string): string {
  */
 const RUTAS = /router\.(get|post|put|patch|delete)\(\s*'([^']*)'\s*,([\s\S]{0,500}?)(?:async\s*\(|\(\s*_?req\b|\(\s*\)\s*=>|\);)/g;
 
-const CODIGO = /^'([a-z_]+\.[a-z_]+\.[a-z_]+)'$/;
+// El objeto admite dígitos desde la HU #13061 (`tramites.flit2.*`); módulo y acción siguen sin ellos.
+const CODIGO = /^'([a-z_]+\.[a-z0-9_]+\.[a-z_]+)'$/;
 
 function codigoDe(argumentos: string, fichero: string, forma: string): string {
   const literal = CODIGO.exec(argumentos.trim());
@@ -152,7 +262,7 @@ export function leerMontajes({ fichero }: FicheroEnAlcance, raiz = RAIZ_MODULOS)
 
 /** Todos los montajes del alcance, en orden estable (fichero, posición en el fuente). */
 export function montajesDeFunciones(raiz = RAIZ_MODULOS): MontajeLeido[] {
-  return FICHEROS_EN_ALCANCE.flatMap((f) => leerMontajes(f, raiz));
+  return [...FICHEROS_EN_ALCANCE, ...FICHEROS_LEGADO_EN_ALCANCE].flatMap((f) => leerMontajes(f, raiz));
 }
 
 /**

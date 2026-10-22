@@ -36,6 +36,8 @@ vi.mock('../../src/modules/siigo/siigo.diagnostico.service.js', () => ({
 const guardarCredencialMock = vi.fn();
 const listarCredencialesMock = vi.fn();
 const desactivarCredencialMock = vi.fn();
+// HU #13427: el DELETE lee el ambiente de la credencial antes de decidir el permiso.
+const ambienteDeCredencialMock = vi.fn();
 vi.mock('../../src/modules/siigo/credenciales.service.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/modules/siigo/credenciales.service.js')>();
   return {
@@ -43,6 +45,7 @@ vi.mock('../../src/modules/siigo/credenciales.service.js', async (importOriginal
     guardarCredencial: guardarCredencialMock,
     listarCredenciales: listarCredencialesMock,
     desactivarCredencial: desactivarCredencialMock,
+    ambienteDeCredencial: ambienteDeCredencialMock,
   };
 });
 
@@ -206,15 +209,18 @@ describe('desactivación', () => {
     expect(desactivarCredencialMock).not.toHaveBeenCalled();
   });
 
-  it('responde 404 si no existía', async () => {
+  it('responde 404 si no existía (HU #13427: lo sabe al leer su ambiente, sin desactivar nada)', async () => {
+    ambienteDeCredencialMock.mockResolvedValue(null);
     desactivarCredencialMock.mockResolvedValue(false);
     const r = await request(app)
       .delete('/api/siigo/credenciales/999')
       .set('Authorization', await adminAuth());
     expect(r.status).toBe(404);
+    expect(desactivarCredencialMock).not.toHaveBeenCalled();
   });
 
   it('responde 200 y delega con el usuario que la desactiva', async () => {
+    ambienteDeCredencialMock.mockResolvedValue('pruebas');
     desactivarCredencialMock.mockResolvedValue(true);
     const r = await request(app)
       .delete('/api/siigo/credenciales/5')

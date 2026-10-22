@@ -6,8 +6,8 @@
 // COMPACTA —lo que hace falta para decidir «abro esta fila / liquido / no»— y se amplía con UN solo
 // control («Mostrar todas las columnas» / «Compactar columnas») en la línea del conteo. Quien
 // concilia no necesita el VIN ni el documento del titular en cada fila; quien quiere todos los campos
-// los tiene en el Excel (las 31 columnas de Financiero, HU #12536) o a un clic (las 28 de la
-// tabla). La preferencia es una sola clave de `localStorage`; su ausencia —o cualquier valor que no
+// los tiene en el Excel (las 32 columnas de Financiero, HU #12536 + #12546) o a un clic (las 30 de
+// la tabla). La preferencia es una sola clave de `localStorage`; su ausencia —o cualquier valor que no
 // sea `todas`— es compacta. Las tres claves por sección de la #12434 se ignoran: no se migran ni se
 // borran.
 //
@@ -30,6 +30,7 @@ import StatusChip from '../flit/StatusChip';
 import { CeldaFechas, documentoConTipo, fechaCorta } from '../flit/columnasComunes';
 import { FlitTable, FlitTh, FlitTr, flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
 import CeldaFacturacion from './CeldaFacturacion';
+import CeldaHonorario, { ChipsDocumentales } from './CeldaHonorario';
 import MarcaSoatConciliado from './MarcaSoatConciliado';
 import Monto from './Monto';
 import TotalesReporteCostos from './TotalesReporteCostos';
@@ -38,6 +39,9 @@ import {
   CONCEPTO, CONCEPTOS_REINTEGRO, CONCEPTOS_SERVICIO, faltaDe, faltaDeSubtotal, faltantes,
   type Fila, type Reporte, type Totales,
 } from './tiposReporteCostos';
+import { TITULO_SIN_DATO, textoCeldaServicios } from '../../lib/serviciosAdicionalesTramite';
+import { nombreAccesibleBotonViajes, rotuloBotonViajes, textoCeldaViajes } from '../../lib/viajesLogisticaReporte';
+import { nombreAccesibleAceptar, pendientesDe, ROTULO_ACEPTAR, tituloAceptar } from '../../lib/diferenciaDocumental';
 import type { SiigoEstadoReporte } from '@operaciones/shared-types';
 
 export type Grupo = 'identificacion' | 'datos' | 'valores';
@@ -109,6 +113,58 @@ const celdaAprobacion = (f: Fila) => (
   </td>
 );
 
+/**
+ * La celda «Serv. adic.» (HU #12548, AC6). Dos renglones —importe arriba, cuántos debajo—, que es el
+ * gesto que esta tabla ya usa tres veces: `$ 125.000 · 2` en una línea se lee como un número roto.
+ *
+ * Lo que decide QUÉ se pinta es la CANTIDAD, no el importe, y los tres desenlaces son afirmaciones
+ * distintas que la pantalla no puede confundir (`textoCeldaServicios`): «—» es «no lleva ninguno»,
+ * «Sin dato» es «se selló antes de que esto existiera» y un importe con su conteo es el cobro —que
+ * puede ser de «$ 0» si los servicios valen cero, y ahí el cero SÍ es el dato.
+ */
+const celdaServiciosAdicionales = (f: Fila) => {
+  const celda = textoCeldaServicios(f);
+  if (celda.clase === 'vacio') return monto(<Monto v={null} />);
+  if (celda.clase === 'sin_dato') {
+    return (
+      <td className="px-3 py-2 text-right">
+        {/* Misma pinta que el guion, y un texto propio: `title` explica, no lo hace el color. */}
+        <span className="text-xs italic" style={TENUE} title={TITULO_SIN_DATO}>Sin dato</span>
+      </td>
+    );
+  }
+  return (
+    // El nombre accesible completo, porque la cabecera va abreviada y la celda tiene dos renglones.
+    <td className="px-3 py-2 text-right tabular-nums" aria-label={celda.accesible}>
+      <div><Monto v={celda.valor} /></div>
+      <div className="text-xs" style={SECUNDARIO}>{celda.etiqueta}</div>
+      {/* Solo la diferencia contra el catálogo (HU #12655): el importe de arriba SIGUE siendo el
+          catálogo y aquí no hay chip de origen. */}
+      <ChipsDocumentales fila={f} concepto="serviciosAdicionales" />
+    </td>
+  );
+};
+
+/**
+ * La celda «Viajes» (HU #12628, AC2): cuántos viajes de logística lleva el trámite, el 1 incluido,
+ * al lado del importe que explica. Lo que decide QUÉ se pinta es `logisticaViajesCantidad`, nunca
+ * `items.length` de nada (`textoCeldaViajes`): «—» es «esta compañía autogestiona», «Sin dato» es
+ * «se selló antes de que esto existiera» y un número es un número. NUNCA «0» para `null`.
+ */
+const celdaViajes = (f: Fila) => {
+  const celda = textoCeldaViajes(f.logisticaViajesCantidad);
+  if (celda.clase === 'vacio') return monto(<Monto v={null} title={celda.title} />);
+  if (celda.clase === 'sin_dato') {
+    return (
+      <td className="px-3 py-2 text-right">
+        <span className="text-xs italic" style={TENUE} title={celda.title}>{celda.texto}</span>
+      </td>
+    );
+  }
+  // La cabecera es corta y la celda un número suelto: el nombre accesible dice el concepto entero.
+  return <td className="px-3 py-2 text-right tabular-nums" aria-label={celda.accesible}>{celda.texto}</td>;
+};
+
 /** Un subtotal en null se dice con su motivo y con qué falta en el `title` (RN-02), nunca «$ 0». */
 function subtotal(f: Fila, v: number | null, conceptos: readonly string[]): ReactNode {
   const { falta, faltan } = faltaDeSubtotal(f, conceptos);
@@ -173,9 +229,20 @@ export const COLUMNAS: Columna[] = [
   // de tránsito» en los motivos, que es como lo nombra el API.
   { titulo: 'Trámite', grupo: 'valores', center: true, total: (t) => pie(<Monto v={t.derechoTramite} />), celda: (f) => monto(<Monto v={f.derechoTramite} falta={faltaDe(f, CONCEPTO.derecho)} />) },
   { titulo: 'GMF', grupo: 'valores', center: true, total: (t) => pie(<Monto v={t.gmf} />), celda: (f) => monto(<Monto v={f.gmf} />) },
-  { titulo: CONCEPTO.logistica, grupo: 'valores', center: true, total: (t) => pie(<Monto v={t.logistica} />), celda: (f) => monto(<Monto v={f.logistica} falta={faltaDe(f, CONCEPTO.logistica)} />) },
+  // Logística y trámite digital: importe y, debajo, de dónde salió y si difiere de la tarifa
+  // (HU #12655). Sin importe («Autogestiona», «No configurado») la celda es la de siempre.
+  { titulo: CONCEPTO.logistica, grupo: 'valores', center: true, total: (t) => pie(<Monto v={t.logistica} />), celda: (f) => <CeldaHonorario fila={f} concepto="logistica" valor={f.logistica} falta={faltaDe(f, CONCEPTO.logistica)} /> },
+  // Inmediatamente tras «Logística» porque es la explicación de ese importe (HU #12628). NO entra en
+  // la compacta (D-14: el conteo no decide «liquido / no») y NO lleva pie: un conteo de viajes sumado
+  // por página no es un dato de cierre; el dinero ya está en el pie de Logística.
+  { titulo: 'Viajes', grupo: 'valores', center: true, celda: celdaViajes },
   { titulo: 'Total reintegro', grupo: 'valores', compacta: true, center: true, total: (t) => pie(<Monto v={t.totalReintegro} />), celda: (f) => monto(subtotal(f, f.totalReintegro, CONCEPTOS_REINTEGRO)) },
-  { titulo: CONCEPTO.digital, grupo: 'valores', center: true, total: (t) => pie(<Monto v={t.tramiteDigital} />), celda: (f) => monto(<Monto v={f.tramiteDigital} falta={faltaDe(f, CONCEPTO.digital)} />) },
+  { titulo: CONCEPTO.digital, grupo: 'valores', center: true, total: (t) => pie(<Monto v={t.tramiteDigital} />), celda: (f) => <CeldaHonorario fila={f} concepto="tramiteDigital" valor={f.tramiteDigital} falta={faltaDe(f, CONCEPTO.digital)} /> },
+  // Entre «Trámite digital» y «Servicio» porque así la fila se lee como la cuenta que es:
+  // trámite digital + servicios adicionales = Servicio. NO entra en la compacta (AC6, D-09): las
+  // nueve son las que caben en 1366 px y las midió la #12539. En el pie el cero SÍ se pinta, como
+  // en SOAT o GMF: `Totales.serviciosAdicionales` es un número, no un concepto que pueda faltar.
+  { titulo: 'Serv. adic.', grupo: 'valores', center: true, total: (t) => pie(<Monto v={t.serviciosAdicionales} />), celda: celdaServiciosAdicionales },
   { titulo: 'Servicio', grupo: 'valores', compacta: true, center: true, total: (t) => pie(<Monto v={t.totalServicio} />), celda: (f) => monto(subtotal(f, f.totalServicio, CONCEPTOS_SERVICIO)) },
   { titulo: 'Total', grupo: 'valores', compacta: true, center: true, total: (t) => pie(<Monto v={t.total} />, AZUL), celda: (f) => monto(<Monto v={f.total} negrita />, AZUL) },
   {
@@ -228,11 +295,15 @@ function useColumnas(anunciar: (texto: string) => void) {
 }
 
 export default function TablaReporteCostos({
-  data, puedeLiquidar, puedeReversar, enProceso, seleccion, onSeleccion, accionable,
-  fichasFe, estadoFeDe, onAbrirDetalle, onLiquidar, onFacturar, onReversar, onSoportes, accionEnvio,
+  data, puedeLiquidar, puedeReversar, puedeVerServicios, puedeAceptarDiferencia, enProceso, seleccion, onSeleccion, accionable,
+  fichasFe, estadoFeDe, onAbrirDetalle, onLiquidar, onFacturar, onReversar, onSoportes, onServicios, onViajes, onAceptarDiferencia, accionEnvio,
   onPrev, onNext, anunciar,
 }: {
   data: Reporte; puedeLiquidar: boolean; puedeReversar: boolean; enProceso: boolean;
+  /** `finanzas.servicios_adicionales.ver`. Sin ella el botón «Servicios» NO se pinta, ni apagado. */
+  puedeVerServicios: boolean;
+  /** `comprobantes.diferencia.aceptar` (HU #12655). Sin ella el chip es informativo y el botón NO se pinta, ni apagado. */
+  puedeAceptarDiferencia: boolean;
   seleccion: Set<string>; onSeleccion: (s: Set<string>) => void;
   /** Sobre qué filas hay alguna acción: solo esas llevan casilla. */
   accionable: (f: Fila) => boolean;
@@ -240,6 +311,12 @@ export default function TablaReporteCostos({
   onAbrirDetalle: (f: Fila) => void;
   onLiquidar: (f: Fila) => void; onFacturar: (f: Fila) => void; onReversar: (f: Fila, motivo: string) => void;
   onSoportes: (f: Fila) => void;
+  /** Abre el panel de solo lectura de viajes de logística (HU #12628). En TODAS las filas, sin función propia. */
+  onViajes: (f: Fila) => void;
+  /** Abre el panel de servicios adicionales de esa fila (HU #12548). */
+  onServicios: (f: Fila) => void;
+  /** Abre el modal «Aceptar diferencia» de esa fila (HU #12655). */
+  onAceptarDiferencia: (f: Fila) => void;
   /** La acción de facturación electrónica de la fila, cuando aplica (HU #11329). */
   accionEnvio: (f: Fila) => ReactNode;
   onPrev: () => void; onNext: () => void;
@@ -343,9 +420,12 @@ export default function TablaReporteCostos({
               )}
               {visibles.map((c) => <Fragment key={c.titulo}>{(ampliada ? c.celda : (c.celdaCompacta ?? c.celda))(f, ctx)}</Fragment>)}
               <td className="px-3 py-2">
-                <Acciones fila={f} puedeLiquidar={puedeLiquidar} puedeReversar={puedeReversar} enProceso={enProceso}
+                <Acciones fila={f} puedeLiquidar={puedeLiquidar} puedeReversar={puedeReversar}
+                  puedeVerServicios={puedeVerServicios} puedeAceptarDiferencia={puedeAceptarDiferencia} enProceso={enProceso}
                   onLiquidar={() => onLiquidar(f)} onFacturar={() => onFacturar(f)}
                   onReversar={(m) => onReversar(f, m)} onSoportes={() => onSoportes(f)}
+                  onServicios={() => onServicios(f)} onViajes={() => onViajes(f)}
+                  onAceptarDiferencia={() => onAceptarDiferencia(f)}
                   accionEnvio={accionEnvio(f)} />
               </td>
             </FlitTr>
@@ -356,6 +436,12 @@ export default function TablaReporteCostos({
       <div className="mt-3">{paginacion()}</div>
     </>
   );
+}
+
+/** «2 asignados» · «1 asignado» · «ninguno» (también con `null`: no se sabe, no se cuenta). */
+function nombreDeCantidad(n: number | null): string {
+  if (n === null || n <= 0) return 'ninguno';
+  return n === 1 ? '1 asignado' : `${n} asignados`;
 }
 
 /**
@@ -374,9 +460,10 @@ function ThGrupo({ children, scope, colSpan, rowSpan }: {
   );
 }
 
-function Acciones({ fila, puedeLiquidar, puedeReversar, enProceso, onLiquidar, onFacturar, onReversar, onSoportes, accionEnvio }: {
-  fila: Fila; puedeLiquidar: boolean; puedeReversar: boolean; enProceso: boolean;
+function Acciones({ fila, puedeLiquidar, puedeReversar, puedeVerServicios, puedeAceptarDiferencia, enProceso, onLiquidar, onFacturar, onReversar, onSoportes, onServicios, onViajes, onAceptarDiferencia, accionEnvio }: {
+  fila: Fila; puedeLiquidar: boolean; puedeReversar: boolean; puedeVerServicios: boolean; puedeAceptarDiferencia: boolean; enProceso: boolean;
   onLiquidar: () => void; onFacturar: () => void; onReversar: (motivo: string) => void; onSoportes: () => void;
+  onServicios: () => void; onViajes: () => void; onAceptarDiferencia: () => void;
   accionEnvio?: ReactNode;
 }) {
   const [reversando, setReversando] = useState(false);
@@ -385,10 +472,45 @@ function Acciones({ fila, puedeLiquidar, puedeReversar, enProceso, onLiquidar, o
   // tarifa, un recibo o un pago, lo que necesita saber es qué le impide liquidar.
   const falta = faltantes(fila);
   const bloqueado = falta.length > 0;
+  const pendientes = pendientesDe(fila);
 
   return (
     <div className="flex flex-wrap items-center gap-1">
       <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onSoportes}>Soporte</button>
+      {/* Pegado a «Soporte» y con su MISMO peso (AC1): consultar antes que operar, y sin competir
+          con Liquidar/Facturar. Se pinta en TODAS las filas, selladas incluidas: el panel de una
+          liquidada es la única forma de ver qué se le cobró. El contador no cuesta una petición —
+          `serviciosAdicionalesCantidad` ya viaja en la fila— y con 0 o con null no se pinta: «· 0»
+          sería una cuenta, y `null` no sabe cuántos hubo. */}
+      {puedeVerServicios && (
+        <button className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+          aria-label={`Servicios adicionales de ${fila.idFlit}: ${nombreDeCantidad(fila.serviciosAdicionalesCantidad)}`}
+          onClick={onServicios}>
+          {fila.serviciosAdicionalesCantidad && fila.serviciosAdicionalesCantidad > 0
+            ? `Servicios · ${fila.serviciosAdicionalesCantidad}`
+            : 'Servicios'}
+        </button>
+      )}
+      {/* Tras «Servicios» (o tras «Soporte» si no se pinta) y con su mismo peso: consultar antes que
+          operar. En TODAS las filas y sin función propia (HU #12628, AC3): quien ve el reporte ve
+          los viajes, selladas incluidas. El contador sale de la fila —no cuesta petición— y solo
+          con n ≥ 2: «· 1» sería contar el incluido y `null` no sabe cuántos hubo. */}
+      <button className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+        aria-label={nombreAccesibleBotonViajes(fila.idFlit, fila.logisticaViajesCantidad)}
+        onClick={onViajes}>
+        {rotuloBotonViajes(fila.logisticaViajesCantidad)}
+      </button>
+      {/* Tras «Viajes» y antes de la primaria, con el mismo peso (HU #12655, AC5): decidir antes que
+          operar. Solo con la función Y con alguna diferencia sin aceptar; sin la función no se pinta
+          ni apagado (el chip de la celda ya informa). También en filas selladas: aceptar es
+          constancia, no dinero. Liquidar NO cambia por tener diferencias. */}
+      {puedeAceptarDiferencia && pendientes.length > 0 && (
+        <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enProceso}
+          aria-label={nombreAccesibleAceptar(fila.idFlit, pendientes)} title={tituloAceptar(fila, pendientes)}
+          onClick={onAceptarDiferencia}>
+          {ROTULO_ACEPTAR}
+        </button>
+      )}
 
       {puedeLiquidar && !fila.sellada && (
         <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enProceso || bloqueado}

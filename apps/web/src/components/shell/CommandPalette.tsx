@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { NAV_ITEMS, SECTION_LABEL, navItemPermitido, type NavItem } from './navItems';
+import { NAV_ITEMS, SECTION_LABEL, SECTION_ORDER, navItemPermitido, type NavItem } from './navItems';
 import { effectivePages } from '../../lib/permissions';
 import { useAuth } from '../../lib/auth';
 import { startViewTransition } from '../../lib/viewTransitions';
@@ -26,7 +26,7 @@ interface Props {
 // paleta; si mueves un `kbd` de contenedor, cambia el fondo que compone y hay que remedirlo
 // (`scripts/check-contraste-paleta.mjs` y `e2e/tests/command-palette-oscuro.spec.ts`).
 export default function CommandPalette({ open, onClose }: Props) {
-  const { user } = useAuth();
+  const { user, funciones } = useAuth();
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
@@ -36,7 +36,15 @@ export default function CommandPalette({ open, onClose }: Props) {
   const optionId = (idx: number): string => `${listboxId}-opt-${idx}`;
 
   const allowed = useMemo(() => effectivePages(user), [user]);
-  const items = useMemo(() => NAV_ITEMS.filter((it) => navItemPermitido(it, user, allowed)), [allowed, user]);
+  // En el orden del menú (SECTION_ORDER, sort estable): «Ayuda» va al final, como en la barra y el
+  // drawer (HU #13431), aunque su ítem se declare antes en NAV_ITEMS. Enter y el índice activo leen
+  // esta misma lista, así que lo pintado y lo ejecutado no se desalinean.
+  const items = useMemo(
+    () => NAV_ITEMS
+      .filter((it) => navItemPermitido(it, user, allowed, funciones))
+      .sort((a, b) => SECTION_ORDER.indexOf(a.section) - SECTION_ORDER.indexOf(b.section)),
+    [allowed, user, funciones],
+  );
 
   const filtered = useMemo<NavItem[]>(() => {
     if (!query.trim()) return items;
@@ -49,7 +57,7 @@ export default function CommandPalette({ open, onClose }: Props) {
     );
   }, [items, query]);
 
-  // Agrupar por sección preservando orden de aparición.
+  // Agrupar por sección preservando orden de aparición (`items` ya viene en SECTION_ORDER).
   const grouped = useMemo<Array<[NavItem['section'], NavItem[]]>>(() => {
     const map = new Map<NavItem['section'], NavItem[]>();
     filtered.forEach((it) => {

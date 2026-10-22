@@ -18,6 +18,7 @@ import { db } from '../../db/client.js';
 import { auditLogs, flitoImpuestos, flitoRevisiones, flitoSoat, flitoSoportes } from '../../db/schema.js';
 import { marcarPagado } from '../flito-soat/flito-soat.service.js';
 import { registrarDesdeRevision } from '../flito-derechos/flito-derechos.service.js';
+import { programarEnvioComprobante } from '../flito-impuestos/flito-impuestos.envio-flit2.service.js';
 
 export interface RevisionCtx { userId: number; username: string; role: string }
 
@@ -183,6 +184,19 @@ export async function resolver(id: string, registroId: string, campos: Record<st
 }
 
 async function resolverSoat(revisionId: string, soporteId: string, soatId: string, extraccion: ExtraccionSoat, motivo: string, ctx: RevisionCtx): Promise<void> {
+  await aplicarFacturaSoat(soporteId, soatId, extraccion, motivo, ctx, `Revisión resuelta a mano (${revisionId}): documento atado al SOAT.`);
+}
+
+/**
+ * La ÚNICA vía manual a `pagado` de un SOAT (ADR-0018 §4, D1 de la Épica #12245): la usa la cola de
+ * revisión (`resolverSoat`) y el módulo de comprobantes universales (HU #12630). Ata el soporte al SOAT
+ * y delega el pago en `marcarPagado` —historial, auditoría y RN-03 viven allí, no aquí—. El SOAT tiene
+ * que estar `solicitado`; `nota` encabeza el audit del atado (cada llamante dice de dónde viene).
+ */
+export async function aplicarFacturaSoat(
+  soporteId: string, soatId: string, extraccion: ExtraccionSoat, motivo: string, ctx: RevisionCtx,
+  nota = 'Comprobante aplicado: documento atado al SOAT.',
+): Promise<void> {
   const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, soatId)).limit(1);
   if (!soat) throw new RevisionError(404, 'El SOAT indicado no existe');
   if (soat.estado !== EstadoSoat.SOLICITADO) {
@@ -193,12 +207,15 @@ async function resolverSoat(revisionId: string, soporteId: string, soatId: strin
   // a su SOAT; marcarPagado lo localiza por soatId+tipo y hace el pago atómico en su propia tx.
   await db.transaction(async (tx) => {
     await tx.update(flitoSoportes).set({ soatId }).where(eq(flitoSoportes.id, soporteId));
-    await auditEnTx(tx, ctx, 'flito_soat', soatId, `Revisión resuelta a mano (${revisionId}): documento atado al SOAT. ${motivo.trim()}`);
+    await auditEnTx(tx, ctx, 'flito_soat', soatId, `${nota} ${motivo.trim()}`);
   });
 
   // `companiaId: null` — quien resuelve una revisión es Operaciones, no un usuario de compañía
-  // (Feature #11912). Sin proveedor ni compañía, este contexto no aplica ninguna frontera.
-  await marcarPagado(soatId, extraccion, { userId: ctx.userId, username: ctx.username, role: ctx.role, proveedorSoatId: null, companiaId: null });
+  // (Feature #11912). Sin proveedor ni compañía, este contexto no aplica ninguna frontera;
+  // `proyeccionCliente: false` por lo mismo: la bandeja de revisiones no se abre a ningún enlace.
+  await marcarPagado(soatId, extraccion, {
+    userId: ctx.userId, username: ctx.username, role: ctx.role, proyeccionCliente: false, alcance: 'todo' as const, proveedorSoatId: null, companiaId: null,
+  });
 }
 
 /**
@@ -269,6 +286,8 @@ async function resolverImpuesto(revisionId: string, soporteId: string, motivoOri
     await auditEnTx(tx, ctx, 'flito_impuesto', impuestoId,
       `Revisión resuelta (en_gestion→pagado). Valor pagado ${valorPagado ?? '—'}, liquidado ${impuesto.valorLiquidado ?? '—'}. ` +
       `Revisión ${revisionId} (${motivoOriginal}). Soporte ${soporteId}. ${motivo.trim()}`);
+    // HU #13268 (AC1): pagado por revisión OCR → programa el envío a FLIT 2 dentro de la misma tx.
+    await programarEnvioComprobante(tx, impuestoId);
   });
 }
 

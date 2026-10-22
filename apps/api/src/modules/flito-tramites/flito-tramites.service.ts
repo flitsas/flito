@@ -17,6 +17,7 @@ import {
   EstadoImpuesto, EstadoTramiteFlito, ESTADOS_TRAMITE_FLITO_TERMINADOS,
   ANS_OPERATIVO, type AlertaOperativa,
 } from '@operaciones/shared-types';
+import type { FuenteTramite } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
   clients, flitoCompradores, flitoExcepcionesAutogestion, flitoImpuestos, flitoLogisticaDocumentos, flitoProveedoresSoat, flitoSoat,
@@ -28,13 +29,26 @@ import { decidir, entregar as entregarCompuerta } from '../flito-compuerta/flito
 import { enviarAlGestor as enviarSoat } from '../flito-soat/flito-soat.service.js';
 import { enviarAlGestor as enviarImpuestos } from '../flito-impuestos/flito-impuestos.service.js';
 import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
+import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
+import type { SoatCtx } from '../flito-soat/flito-soat.service.js';
+import type { ImpuestoCtx } from '../flito-impuestos/flito-factura-venta.service.js';
+import { condicionAlcanceTramites } from './flito-tramites.alcance.js';
 
-export interface TramitesCtx { userId: number; username: string; role: string }
+export interface TramitesCtx { userId: number; username: string; role: string; alcance: AlcanceResuelto }
 
-// Ni proveedor ni compañía: el actor de Gestión Trámites es Operaciones, así que este contexto no
-// activa la frontera del gestor ni la del canal Cliente (Feature #11912).
-const soatCtx = (ctx: TramitesCtx) => ({ userId: ctx.userId, username: ctx.username, role: ctx.role, proveedorSoatId: null, companiaId: null });
-const impuestoCtx = (ctx: TramitesCtx) => ({ userId: ctx.userId, username: ctx.username, role: ctx.role, organismos: [] });
+// HU #13426 (riesgo §7.4): el contexto que se REENVÍA a SOAT e Impuestos lleva el ALCANCE del actor.
+// Si no viajara, Gestión Trámites abriría por la puerta de atrás lo que SOAT e Impuestos cierran.
+// Para una compañía: su `companiaId` y la proyección del canal Cliente (sin nombres de empleados).
+// Cualquier enlace que no sea `ninguno` ni `compania` → `nada` (falla cerrado).
+export function soatCtx(ctx: TramitesCtx): SoatCtx {
+  const a = ctx.alcance;
+  const alcance = a.enlace === 'ninguno' ? 'todo' as const : a.enlace === 'compania' ? 'compania' as const : 'nada' as const;
+  const companiaId = a.enlace === 'compania' ? a.companiaId : null;
+  return { userId: ctx.userId, username: ctx.username, role: ctx.role, proyeccionCliente: alcance !== 'todo', alcance, proveedorSoatId: null, companiaId };
+}
+export function impuestoCtx(ctx: TramitesCtx): ImpuestoCtx {
+  return { userId: ctx.userId, username: ctx.username, role: ctx.role, organismos: [], alcance: ctx.alcance };
+}
 
 export interface Comprador {
   nombreCompleto: string; numeroDocumento: string; correo: string | null; celular: string | null;
@@ -75,6 +89,8 @@ export type SemaforoTramite = 'autogestionada' | 'rojo' | 'amarillo' | 'verde';
 
 export interface TramiteFila {
   tramiteId: string; idFlit: string;
+  /** Sistema del que llegó el trámite: FLIT (sync de FLIT 1) o FLIT 2 (HU #13070). */
+  fuente: FuenteTramite;
   semaforo: SemaforoTramite;
   /** Estado crudo de FLIT (todos los estados se muestran). */
   estado: string;
@@ -112,6 +128,7 @@ export interface HistorialItem {
 
 /** Historial de cambios de un trámite (auditoría campo por campo). Más reciente primero. */
 export async function historial(tramiteId: string): Promise<HistorialItem[]> {
+  // HU #13426: el alcance lo comprueba la ruta (`tramiteEnAlcance`, 404) antes de llamar.
   const rows = await db.select({
     id: flitoTramiteHistorial.id, campo: flitoTramiteHistorial.campo,
     valorAnterior: flitoTramiteHistorial.valorAnterior, valorNuevo: flitoTramiteHistorial.valorNuevo,
@@ -244,6 +261,8 @@ export interface FiltrosListado {
   empresas?: string[]; soat?: string[]; impuesto?: string[];
   /** Autogestión de la empresa: 'si' = autogestiona SOAT E impuestos; 'no' = FLITO gestiona al menos uno. */
   autogestion?: 'si' | 'no';
+  /** Fuente del trámite (HU #13070). Sin valor = todas; la ruta descarta los desconocidos. */
+  fuente?: FuenteTramite;
   /**
    * Orden cronológico por fecha de creación. 'antiguos' primero es el orden de trabajo del gestor
    * (lo que lleva más tiempo esperando se atiende antes); 'recientes' es el default histórico.
@@ -265,7 +284,8 @@ export const ORDENES_LISTADO = ['recientes', 'antiguos'] as const;
 export type OrdenListado = (typeof ORDENES_LISTADO)[number];
 export const esOrdenListado = (v: unknown): v is OrdenListado =>
   typeof v === 'string' && (ORDENES_LISTADO as readonly string[]).includes(v);
-export interface ListadoTramites { items: TramiteFila[]; total: number; page: number; pageSize: number }
+/** `marca` (HU #13684): hora de la BD tomada en el mismo SELECT del COUNT; línea base del sondeo de novedades. */
+export interface ListadoTramites { items: TramiteFila[]; total: number; page: number; pageSize: number; marca: string }
 export interface FacetasTramites { estados: string[]; tramites: string[]; ciudades: string[]; transitos: string[] }
 
 function proyeccion() {
@@ -273,6 +293,7 @@ function proyeccion() {
     // Campos que consume decidir() (compuerta) — mismos nombres que FilaCompuerta.
     tramiteId: flitoTramites.id,
     idFlit: flitoTramites.idFlit,
+    fuente: flitoTramites.fuente,
     estadoTramite: flitoTramites.estado,
     // RN-13585-P: la placa es la del trámite, no la del vehículo (ver cabecera).
     placa: flitoTramites.plateComplete,
@@ -392,6 +413,7 @@ function aFila(f: FilaCruda, compradores: Omit<Comprador, 'tipoDocumento'>[]): T
   return {
     tramiteId: f.tramiteId,
     idFlit: f.idFlit,
+    fuente: f.fuente,
     // El listado la rellena en una tanda aparte; el detalle de un trámite suelto no la necesita.
     excepcionesAutogestion: [],
     semaforo,
@@ -528,7 +550,7 @@ export function condicionAlerta(alerta: AlertaOperativa): SQL {
 // en silencio los que no tienen equivalente en el enum interno: `estado` es nullable y
 // `NULL NOT IN (...)` evalúa a NULL, no a true, así que Borrador y Enviado a OT desaparecían del
 // listado, del contador y de las facetas sin que nada lo delatara.
-function construirCondiciones(f: FiltrosListado): SQL[] {
+export function construirCondiciones(f: FiltrosListado): SQL[] {
   const conds: SQL[] = [];
 
   const termino = f.buscar?.trim();
@@ -548,7 +570,15 @@ function construirCondiciones(f: FiltrosListado): SQL[] {
     )!);
   }
   // Filtros multiselect: cualquiera de los valores seleccionados coincide (IN).
-  if (f.estados?.length) conds.push(inArray(flitoTramites.flitEstado, f.estados));
+  // RN-13091-AC7 (HU #13091, AC7): un trámite revocado en FLIT 2 es anulado en FLITO y conserva
+  // «Revocado» como estado de origen, así que filtrar por «Anulado» también trae los revocados.
+  // Expansión de un solo sentido: elegir solo «Revocado» trae solo los revocados (la opción sigue
+  // en las facetas), ningún otro estado cambia, y si vienen los dos no se duplica.
+  if (f.estados?.length) {
+    const estados = f.estados.includes('Anulado') && !f.estados.includes('Revocado')
+      ? [...f.estados, 'Revocado'] : f.estados;
+    conds.push(inArray(flitoTramites.flitEstado, estados));
+  }
   if (f.ciudades?.length) conds.push(inArray(flitoTramites.ciudad, f.ciudades));
   // Tránsito por el nombre mostrado (el Transito crudo de FLIT; alias solo como respaldo).
   if (f.transitos?.length) {
@@ -562,6 +592,8 @@ function construirCondiciones(f: FiltrosListado): SQL[] {
     const ambos = sql`COALESCE(${clients.soatAutogestionable}, false) AND COALESCE(${clients.impuestosAutogestionable}, false)`;
     conds.push(f.autogestion === 'si' ? ambos : sql`NOT (${ambos})`);
   }
+  // Fuente (HU #13070): columna de la propia tabla, así que vale igual en la página y en el conteo.
+  if (f.fuente) conds.push(eq(flitoTramites.fuente, f.fuente));
   // Los valores llegan como texto libre del cliente; se castean al enum de la columna (drizzle es estricto).
   if (f.soat?.length) conds.push(inArray(flitoSoat.estado, f.soat as Array<(typeof flitoSoat.estado.enumValues)[number]>));
   if (f.impuesto?.length) conds.push(inArray(flitoImpuestos.estado, f.impuesto as Array<(typeof flitoImpuestos.estado.enumValues)[number]>));
@@ -576,27 +608,36 @@ function construirCondiciones(f: FiltrosListado): SQL[] {
   return conds;
 }
 
-/**
- * Listado paginado de la tabla unificada. Filtros y paginación se resuelven EN SQL (LIMIT/OFFSET +
- * COUNT); el cliente ya no descarga todos los trámites. Devuelve la página + el total para paginar.
- */
-export async function listar(filtros: FiltrosListado = {}): Promise<ListadoTramites> {
-  const page = Math.max(1, Math.floor(filtros.page ?? 1));
-  const pageSize = Math.min(200, Math.max(1, Math.floor(filtros.pageSize ?? 50)));
-  const conds = construirCondiciones(filtros);
-
-  // Total con los mismos joins que gobiernan los filtros (todos 1-0..1 → count(distinct) exacto).
-  const countRows = await db.select({ total: sql<number>`count(distinct ${flitoTramites.id})::int` })
+// COUNT del listado (joins 1-0..1 → count(distinct) exacto), compartido con las novedades (HU #13684). `marca`:
+// hora de la BD en UTC con µs. El proveedor lo pide la alerta `soat_sin_gestion` («missing FROM-clause entry»).
+export function conteoBase() {
+  return db.select({
+    total: sql<number>`count(distinct ${flitoTramites.id})::int`,
+    marca: sql<string>`to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+  })
     .from(flitoTramites)
     .leftJoin(clients, eq(flitoTramites.companiaId, clients.id))
     .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
     .leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
     .leftJoin(flitoSoat, eq(flitoTramites.soatId, flitoSoat.id))
-    // El proveedor entra aquí porque la alerta `soat_sin_gestion` lo necesita para su SLA. Sin este
-    // join, filtrar por esa alerta rompería el COUNT con «missing FROM-clause entry».
     .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
-    .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id))
-    .where(and(...conds));
+    .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id));
+}
+
+/**
+ * Listado paginado de la tabla unificada. Filtros y paginación se resuelven EN SQL (LIMIT/OFFSET +
+ * COUNT); el cliente ya no descarga todos los trámites. Devuelve la página + el total para paginar.
+ */
+export async function listar(filtros: FiltrosListado = {}, alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<ListadoTramites> {
+  const page = Math.max(1, Math.floor(filtros.page ?? 1));
+  const pageSize = Math.min(200, Math.max(1, Math.floor(filtros.pageSize ?? 50)));
+  const conds = construirCondiciones(filtros);
+  // HU #13426 (AC2): la condición de alcance va en las condiciones COMPARTIDAS por página y COUNT.
+  const porAlcance = condicionAlcanceTramites(alcance);
+  if (porAlcance) conds.push(porAlcance);
+
+  // Total con los mismos joins que gobiernan los filtros; `marca` sale en la misma sentencia (HU #13684).
+  const countRows = await conteoBase().where(and(...conds));
   const total = Number(countRows[0]?.total ?? 0);
 
   // Se ordena por la fecha de FLIT con created_at de respaldo, igual que la columna que se muestra:
@@ -609,7 +650,8 @@ export async function listar(filtros: FiltrosListado = {}): Promise<ListadoTrami
 
   const rows = await proyeccion().where(and(...conds))
     .orderBy(...orden).limit(pageSize).offset((page - 1) * pageSize);
-  if (rows.length === 0) return { items: [], total, page, pageSize };
+  const marca = String(countRows[0]?.marca ?? '');
+  if (rows.length === 0) return { items: [], total, page, pageSize, marca };
 
   const ids = rows.map((r) => r.tramiteId);
   const compradoresRows = await db.select({
@@ -660,7 +702,7 @@ export async function listar(filtros: FiltrosListado = {}): Promise<ListadoTrami
       ...aFila(r, porTramite.get(r.tramiteId) ?? []),
       excepcionesAutogestion: excPorTramite.get(r.tramiteId) ?? [],
     })),
-    total, page, pageSize,
+    total, page, pageSize, marca,
   };
 }
 
@@ -671,13 +713,16 @@ export async function listar(filtros: FiltrosListado = {}): Promise<ListadoTrami
  * estados, ofrecer un desplegable que no incluye Borrador ni los terminados deja al usuario sin
  * forma de filtrar justo lo que sí está viendo.
  */
-export async function facetas(): Promise<FacetasTramites> {
+export async function facetas(alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<FacetasTramites> {
+  // HU #13426 (AC7): las listas de apoyo salen del universo del alcance, no de la tabla entera.
+  const a = condicionAlcanceTramites(alcance);
   const [estados, tramites, ciudades, transitos] = await Promise.all([
-    db.selectDistinct({ v: flitoTramites.flitEstado }).from(flitoTramites).where(sql`${flitoTramites.flitEstado} is not null`),
-    db.selectDistinct({ v: flitoTramites.tipoTramite }).from(flitoTramites).where(sql`${flitoTramites.tipoTramite} is not null`),
-    db.selectDistinct({ v: flitoTramites.ciudad }).from(flitoTramites).where(sql`${flitoTramites.ciudad} is not null`),
+    db.selectDistinct({ v: flitoTramites.flitEstado }).from(flitoTramites).where(and(sql`${flitoTramites.flitEstado} is not null`, a)),
+    db.selectDistinct({ v: flitoTramites.tipoTramite }).from(flitoTramites).where(and(sql`${flitoTramites.tipoTramite} is not null`, a)),
+    db.selectDistinct({ v: flitoTramites.ciudad }).from(flitoTramites).where(and(sql`${flitoTramites.ciudad} is not null`, a)),
     db.selectDistinct({ v: sql<string | null>`COALESCE(${flitoTramites.transitoNombreFlit}, ${organismosTransitoConfig.alias})` })
-      .from(flitoTramites).leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo)),
+      .from(flitoTramites).leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
+      .where(a),
   ]);
   const vals = (rows: { v: string | null }[]) => rows.map((r) => r.v).filter((v): v is string => !!v).sort();
   return { estados: vals(estados), tramites: vals(tramites), ciudades: vals(ciudades), transitos: vals(transitos) };
@@ -710,7 +755,7 @@ export async function facetas(): Promise<FacetasTramites> {
  * nullable cuando el cruce por nombre no encontró la secretaría—, así que el nombre puede caer a
  * `SIN-ORGANISMO`, que es lo que el AC5 prevé.
  */
-export async function registrosZipTramites(ids: string[]): Promise<RegistroZip[]> {
+export async function registrosZipTramites(ids: string[], alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<RegistroZip[]> {
   if (ids.length === 0) return [];
   const filas = await db.select({
     id: flitoTramites.id,
@@ -721,11 +766,15 @@ export async function registrosZipTramites(ids: string[]): Promise<RegistroZip[]
     soatId: flitoTramites.soatId,
     impuestoId: flitoImpuestos.id,
     facturaVentaFlitId: flitoTramites.facturaVentaFlitId,
+    // Bug #13230: la factura de un trámite de FLIT 2 se pide al puerto de FLIT 2.
+    fuente: flitoTramites.fuente,
+    idFlit2: flitoTramites.idFlit2,
   }).from(flitoTramites)
     .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
     .leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
     .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id))
-    .where(inArray(flitoTramites.id, ids));
+    // HU #13426: un id fuera del alcance se OMITE sin avisar (sin oráculo), como `certificados-zip`.
+    .where(and(inArray(flitoTramites.id, ids), condicionAlcanceTramites(alcance)));
 
   return filas.map((f) => ({
     registroId: f.id,
@@ -736,6 +785,8 @@ export async function registrosZipTramites(ids: string[]): Promise<RegistroZip[]
     soatId: f.soatId,
     impuestoId: f.impuestoId,
     facturaVentaFlitId: f.facturaVentaFlitId,
+    fuente: f.fuente ?? null,
+    idFlit2: f.idFlit2 ?? null,
   }));
 }
 

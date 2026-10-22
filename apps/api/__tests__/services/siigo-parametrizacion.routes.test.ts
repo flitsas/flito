@@ -9,7 +9,12 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
-import { adminAuth, proveedorAuth, testToken } from '../helpers/auth.js';
+import { adminAuth, proveedorAuth, testToken, neutralizarEnlaceDe } from '../helpers/auth.js';
+
+// HU #12875: este fichero mide la regla del MÓDULO con roles de fábrica que la frontera por enlace
+// cierra hasta la #13426 (decisión (b) del PO); su enlace se neutraliza aquí, a la vista. El cierre lo
+// prueban `frontera-por-enlace.test.ts` y `frontera-enlace.centinela.test.ts`.
+neutralizarEnlaceDe('gestor_impuestos', 'transito', 'proveedor');
 
 vi.mock('../../src/db/client.js', () => ({
   db: {
@@ -94,7 +99,8 @@ describe('AC7 — solo quien administra la parametrización sincroniza', () => {
       .send({});
 
     expect(r.status).toBe(403);
-    expect(r.body.error).toBe('Sin permisos');
+    // HU #13423: decide el motor, no la guarda de rol. HU #13427: la operación de «Mapeo de conceptos».
+    expect(r.body).toMatchObject({ funcion: 'siigo.catalogos.sincronizar' });
     nadieLlamoASiigo();
   });
 
@@ -108,13 +114,23 @@ describe('AC7 — solo quien administra la parametrización sincroniza', () => {
     nadieLlamoASiigo();
   });
 
-  it('auditor tampoco: leer la parametrización no es su función aquí', async () => {
+  it('HU #13427 (P-15): auditor SÍ lee la copia local de catálogos — «Ver la parametrización» se recibe con alguna lectura (ganancia aprobada)', async () => {
     const r = await request(app)
       .get('/api/siigo/parametrizacion/catalogos')
       .set('Authorization', await auditorAuth());
 
+    expect(r.status).toBe(200);
+    expect(resumenCatalogosMock).toHaveBeenCalled();
+  });
+
+  it('auditor tampoco sincroniza: «Mapeo de conceptos» no es suya', async () => {
+    const r = await request(app)
+      .post('/api/siigo/parametrizacion/catalogos/sincronizar')
+      .set('Authorization', await auditorAuth())
+      .send({});
+
     expect(r.status).toBe(403);
-    expect(resumenCatalogosMock).not.toHaveBeenCalled();
+    nadieLlamoASiigo();
   });
 
   it('admin sí sincroniza', async () => {

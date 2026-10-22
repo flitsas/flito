@@ -2,10 +2,11 @@
 //
 // Nació en la HU #12081 resolviendo solo las páginas (`paginasEfectivasDeUsuario`) y desde esta HU
 // es el motor entero: `resolverPermisos(userId)` devuelve el conjunto efectivo de funciones
-// (`pagina.*` y `operacion.*`), el rol y el `tipo_principal` del rol, y lo cachea 60 s por usuario.
+// (`pagina.*` y `operacion.*`), el rol y su `tipo_enlace` (Bug #12869; desde la HU #12875 la única
+// frontera, ADR-0024), y lo cachea 60 s por usuario.
 // Lo consumen `exigirFuncion` (la guarda HTTP), `requirePage` (que es `exigirFuncion('pagina.<slug>')`),
-// `guardiaCanalCliente` (la frontera del canal externo, que lee `tipoPrincipal` de aquí y no del
-// literal del rol), `GET /api/permisos/mios`, el login y `/me`. No hay una segunda definición de
+// `guardiaFrontera` (la frontera por enlace, que lee `tipoEnlace` de aquí y no del literal del rol),
+// `GET /api/permisos/mios`, el login y `/me`. No hay una segunda definición de
 // «quién puede»: la pantalla y el servidor leen la misma foto.
 //
 // ── La regla: (R ∪ C) \ V, y qué fuente decide cada familia ─────────────────────────────────────
@@ -44,25 +45,45 @@
 // importarse, para que los ~172 ficheros que firman tokens de prueba no consuman tres `selectMock` por
 // petición. No es una bandera de entorno a propósito (§10 del diseño).
 import { createHash } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { permisosRoles, permisosRolFuncion, permisosUsuarioFuncion, users } from '../db/schema.js';
-import { isValidPage, type PageSlug } from '@operaciones/shared-types';
+import { isValidPage, TIPOS_ENLACE, type PageSlug, type TipoEnlace as TipoEnlaceContrato } from '@operaciones/shared-types';
 import { loggerFor } from './logger.js';
+import { alternativasDe, expandir } from '../modules/permisos/arbol/expansion.js';
 
 const log = loggerFor('permisos');
 
 const PREFIJO = 'pagina.';
 
-export type TipoPrincipal = 'interno' | 'externo';
+/**
+ * Bug #12869 / HU #12875 — `permisos_roles.tipo_enlace`: a qué entidad ata el rol a sus usuarios.
+ * Decide la FRONTERA (qué módulos alcanza, `frontera-enlace.ts`) y el ALCANCE de datos (qué filas ve).
+ * `null` = un valor que este código no conoce: quien lo consuma debe tratarlo como «nada» (fallo
+ * cerrado), nunca como `ninguno` (que significa «decide el permiso»).
+ */
+export type TipoEnlace = TipoEnlaceContrato;
+
+/**
+ * Alias TRANSITORIO (HU #12875, diseño §7.2): `'proveedor_soat'` es el valor previo a la 0231. Si la
+ * imagen nueva arranca antes de que alguien aplique la 0231 a mano (PDN), los gestores no pierden
+ * SOAT. Se retira con la columna del tipo interno/externo (retirada) en el WI de contracción.
+ */
+const ALIAS_ENLACE: Readonly<Record<string, TipoEnlace>> = Object.freeze({ proveedor_soat: 'proveedor' });
+
+export function enlaceConocido(v: string | null | undefined): TipoEnlace | null {
+  if (v == null) return null;
+  if ((TIPOS_ENLACE as readonly string[]).includes(v)) return v as TipoEnlace;
+  return ALIAS_ENLACE[v] ?? null;
+}
 
 export interface PermisosOk {
   ok: true;
   userId: number;
   /** `users.role` leído de la base, NO del token. */
   rol: string;
-  /** `permisos_roles.tipo_principal` del rol. */
-  tipoPrincipal: TipoPrincipal;
+  /** `permisos_roles.tipo_enlace` del rol (Bug #12869); `null` si el valor no es uno conocido. */
+  tipoEnlace: TipoEnlace | null;
   /** El conjunto efectivo: (R ∪ C) \ V. */
   funciones: ReadonlySet<string>;
   /** Hash del conjunto: cambia si y solo si cambia lo que este usuario puede. */
@@ -77,7 +98,8 @@ export type PermisosResueltos =
 /** Las filas crudas de las que sale la decisión. Es lo que el double de pruebas sustituye. */
 export interface FilasPermisos {
   rol: string;
-  tipoPrincipal: TipoPrincipal;
+  /** Crudo, como viene de la base; `resolverPermisos` lo normaliza (desconocido → `null`). */
+  tipoEnlace: string | null;
   funcionesDelRol: string[];
   excepciones: { codigo: string; efecto: 'conceder' | 'revocar' }[];
 }
@@ -97,7 +119,7 @@ const cache = new Map<number, { valor: PermisosOk; expiraEn: number }>();
 async function leerFilasDePermisos(userId: number): Promise<FilasPermisos | null> {
   const [fila] = await db.select({
     rol: users.role,
-    tipoPrincipal: permisosRoles.tipoPrincipal,
+    tipoEnlace: permisosRoles.tipoEnlace,
   })
     .from(users)
     .innerJoin(permisosRoles, eq(permisosRoles.codigo, users.role))
@@ -118,7 +140,7 @@ async function leerFilasDePermisos(userId: number): Promise<FilasPermisos | null
 
   return {
     rol: fila.rol,
-    tipoPrincipal: fila.tipoPrincipal === 'externo' ? 'externo' : 'interno',
+    tipoEnlace: fila.tipoEnlace,
     funcionesDelRol: delRol.map((r) => r.codigo),
     excepciones: propias.map((p) => ({
       codigo: p.codigo,
@@ -151,7 +173,12 @@ function esPaginaViva(codigo: string): boolean {
   return codigo.startsWith(PREFIJO) && isValidPage(codigo.slice(PREFIJO.length));
 }
 
-/** (R ∪ C) \ V. La resta es lo último: revocar gana ante cualquier colisión. */
+/**
+ * (R ∪ C) \ V, y desde la HU #12873 (ADR-0025) EXPANDIDO: cada `accion.*` efectiva aporta sus
+ * operaciones (`arbol/expansion.ts`). La resta va al final también sobre lo expandido: revocar gana.
+ * HU #13429 (P-25, opción A): la excepción del usuario entra en M y DESPUÉS manda la cadena: conceder una
+ * acción cuyo ítem (o elemento) no tiene ni su rol ni él no la habilita.
+ */
 function conjuntoEfectivo(filas: FilasPermisos): Set<string> {
   const conjunto = new Set<string>();
   for (const codigo of filas.funcionesDelRol) {
@@ -164,15 +191,14 @@ function conjuntoEfectivo(filas: FilasPermisos): Set<string> {
     if (e.codigo.startsWith(PREFIJO)) { if (esPaginaViva(e.codigo)) conjunto.add(e.codigo); }
     else conjunto.add(e.codigo);
   }
-  for (const e of filas.excepciones) {
-    if (e.efecto === 'revocar') conjunto.delete(e.codigo);
-  }
-  return conjunto;
+  const revocados = filas.excepciones.filter((e) => e.efecto === 'revocar').map((e) => e.codigo);
+  for (const r of revocados) conjunto.delete(r);
+  return expandir(conjunto, revocados);
 }
 
-function versionDe(rol: string, tipoPrincipal: TipoPrincipal, funciones: Set<string>): string {
+function versionDe(rol: string, tipoEnlace: TipoEnlace | null, funciones: Set<string>): string {
   return createHash('sha256')
-    .update(`${rol}|${tipoPrincipal}|${[...funciones].sort().join(',')}`)
+    .update(`${rol}|${tipoEnlace ?? '?'}|${[...funciones].sort().join(',')}`)
     .digest('hex')
     .slice(0, 16);
 }
@@ -196,13 +222,14 @@ export async function resolverPermisos(userId: number): Promise<PermisosResuelto
   if (!filas) return { ok: false, userId, motivo: 'sin_usuario' };
 
   const funciones = conjuntoEfectivo(filas);
+  const tipoEnlace = enlaceConocido(filas.tipoEnlace);
   const valor: PermisosOk = {
     ok: true,
     userId,
     rol: filas.rol,
-    tipoPrincipal: filas.tipoPrincipal,
+    tipoEnlace,
     funciones,
-    version: versionDe(filas.rol, filas.tipoPrincipal, funciones),
+    version: versionDe(filas.rol, tipoEnlace, funciones),
     resueltoEn: new Date(ahora),
   };
   cache.set(userId, { valor, expiraEn: ahora + PERMISOS_CACHE_TTL_MS });
@@ -234,4 +261,66 @@ export async function paginasEfectivasDeUsuario(userId: number): Promise<PageSlu
     if (esPaginaViva(codigo)) paginas.push(codigo.slice(PREFIJO.length) as PageSlug);
   }
   return paginas;
+}
+
+/**
+ * HU #13425 — Quién tiene HOY una función (y, opcionalmente, no tiene otra), para reglas del tipo
+ * «a quién se le puede asignar» o «quién recibe el aviso» que antes filtraban por `users.role`.
+ *
+ * Misma semántica que `resolverPermisos` por construcción: lee las mismas filas (rol ∪ conceder ∖
+ * revocar, rol presente en `permisos_roles`) y las pliega con el MISMO `conjuntoEfectivo`; lo único
+ * que cambia es que son tres consultas para todos los usuarios activos, no N resoluciones. Solo
+ * usuarios sin baja lógica. `permisos.usuarios-con-funcion.test.ts` lo compara contra el resolutor
+ * sobre el mismo fixture.
+ */
+export async function usuariosConFuncion(codigo: string, opts: { sin?: string } = {}): Promise<number[]> {
+  // HU #12873: una operación absorbida por el árbol ya no tiene filas propias; la dan sus acciones.
+  // HU #13429: y con la cadena hacen falta también sus ancestros (ítem y elemento), o el pliegue los cortaría.
+  const filasDe = (c: string) => [c, ...alternativasDe(c).flat()];
+  const codigos = [...new Set([...filasDe(codigo), ...(opts.sin ? filasDe(opts.sin) : [])])];
+  const principales = await db.select({
+    id: users.id,
+    rol: users.role,
+    tipoEnlace: permisosRoles.tipoEnlace,
+  })
+    .from(users)
+    .innerJoin(permisosRoles, eq(permisosRoles.codigo, users.role))
+    .where(isNull(users.deletedAt));
+  if (principales.length === 0) return [];
+
+  const delRol = await db.select({ rol: permisosRolFuncion.rolCodigo, codigo: permisosRolFuncion.funcionCodigo })
+    .from(permisosRolFuncion)
+    .where(inArray(permisosRolFuncion.funcionCodigo, codigos));
+  const propias = await db.select({
+    userId: permisosUsuarioFuncion.userId,
+    codigo: permisosUsuarioFuncion.funcionCodigo,
+    efecto: permisosUsuarioFuncion.efecto,
+  })
+    .from(permisosUsuarioFuncion)
+    .where(and(inArray(permisosUsuarioFuncion.funcionCodigo, codigos)));
+
+  const filas = new Map<number, FilasPermisos>();
+  for (const p of principales) {
+    filas.set(p.id, {
+      rol: p.rol,
+      tipoEnlace: p.tipoEnlace,
+      funcionesDelRol: delRol.filter((r) => r.rol === p.rol).map((r) => r.codigo),
+      excepciones: propias.filter((e) => e.userId === p.id)
+        .map((e) => ({ codigo: e.codigo, efecto: e.efecto === 'revocar' ? 'revocar' : 'conceder' })),
+    });
+  }
+  return filtrarPorFuncion(filas, codigo, opts.sin);
+}
+
+/**
+ * El pliegue puro de `usuariosConFuncion`, exportado para la prueba de equivalencia con el resolutor.
+ * Devuelve los ids ordenados de menor a mayor.
+ */
+export function filtrarPorFuncion(filas: ReadonlyMap<number, FilasPermisos>, codigo: string, sin?: string): number[] {
+  const ids: number[] = [];
+  for (const [id, f] of filas) {
+    const conjunto = conjuntoEfectivo(f);
+    if (conjunto.has(codigo) && !(sin && conjunto.has(sin))) ids.push(id);
+  }
+  return ids.sort((a, b) => a - b);
 }

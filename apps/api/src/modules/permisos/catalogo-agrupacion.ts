@@ -30,6 +30,7 @@ export const AGRUPACION_DE_PAGINA: Readonly<Partial<Record<PageSlug, string>>> =
   flito_bolsas: 'bolsas',
   flito_comparendos: 'comparendos',
   flito_conciliacion: 'conciliacion',
+  flito_comprobantes: 'comprobantes',
   finanzas_reporte_costos: 'liquidacion',
   users: 'usuarios',
   roles_permisos: 'permisos',
@@ -38,12 +39,12 @@ export const AGRUPACION_DE_PAGINA: Readonly<Partial<Record<PageSlug, string>>> =
   transito_organismos: 'transito',
   clients: 'clientes',
   flito_tarifas: 'tarifas',
+  flito_servicios_adicionales: 'servicios_adicionales',
 };
 
 /** Código de operación (exacto, no prefijo) → módulo de agrupación. */
 export const AGRUPACION_DE_OPERACION: Readonly<Record<string, string>> = {
   // El sincronizador vive con los trámites, que es lo que sincroniza.
-  'sync.sync.lanzar': 'tramites',
   'sync.sync.ver_estado': 'tramites',
   // Compañías y proveedores: con la pantalla de clientes.
   'parametrizacion.companias.editar': 'clientes',
@@ -55,6 +56,15 @@ export const AGRUPACION_DE_OPERACION: Readonly<Record<string, string>> = {
   'parametrizacion.tarifas.historial': 'tarifas',
   'parametrizacion.tarifas.listar': 'tarifas',
   'parametrizacion.tarifas.ver_por_cliente': 'tarifas',
+  // Servicios adicionales: el catálogo (parametrizacion.*) y la asignación al trámite (finanzas.*)
+  // se conceden desde la misma pantalla.
+  'parametrizacion.servicios_adicionales.crear': 'servicios_adicionales',
+  'parametrizacion.servicios_adicionales.dar_de_baja': 'servicios_adicionales',
+  'parametrizacion.servicios_adicionales.editar': 'servicios_adicionales',
+  'parametrizacion.servicios_adicionales.listar': 'servicios_adicionales',
+  'finanzas.servicios_adicionales.asignar': 'servicios_adicionales',
+  'finanzas.servicios_adicionales.quitar': 'servicios_adicionales',
+  'finanzas.servicios_adicionales.ver': 'servicios_adicionales',
   // Organismos de tránsito: con la pantalla de tránsito.
   'parametrizacion.organismos.editar': 'transito',
   'parametrizacion.organismos.fijar_modalidad': 'transito',
@@ -65,12 +75,85 @@ export const AGRUPACION_DE_OPERACION: Readonly<Record<string, string>> = {
   'parametrizacion.organismos.listar': 'catalogos_compartidos',
 };
 
+/**
+ * HU #13421 (ADR-0023): las operaciones legacy cuyo prefijo (módulo del fichero) no es el de su
+ * pantalla. Mapa APARTE de `AGRUPACION_DE_OPERACION` porque aquel es la fuente congelada de la 0205
+ * (`reagrupaciones()`): estas funciones nacen ya con su módulo agrupado en la migración que las
+ * siembra, no hay nada que reagrupar. Códigos exactos, mismas reglas (entrada muerta = error).
+ */
+export const AGRUPACION_DE_OPERACION_LEGADO: Readonly<Record<string, string>> = {
+  // Conductores, capacitaciones, incidentes, checklists, alcoholimetría, emergencias y jornada viven
+  // en el menú PESV aunque sus rutas estén bajo /api/drivers y /api/jornadas.
+  'drivers.conductores.administrar': 'pesv',
+  'drivers.capacitaciones.administrar': 'pesv',
+  'drivers.incidentes.administrar': 'pesv',
+  'drivers.incidentes_registro.administrar': 'pesv',
+  'drivers.checklists.administrar': 'pesv',
+  'drivers.alcoholimetria.administrar': 'pesv',
+  'drivers.emergencias.administrar': 'pesv',
+  'jornadas.control.administrar': 'pesv',  // HU #13422: cada operación con la pantalla (y el módulo de su página) donde se usa.
+  'maintenance.inicio.administrar': 'mantenimiento',
+  'maintenance.ordenes.administrar': 'mantenimiento',
+  'liquidacion.pago_manual.administrar': 'mantenimiento', // el panel de liquidación vive en la orden de trabajo
+  'vehicles.vehiculos.administrar': 'operaciones',
+  'vehicles.propietario.ver_documento': 'operaciones',
+  'fleet.flota.administrar': 'flota',
+  'rutas.rutas.administrar': 'pesv',
+  'rutas.pernocta.administrar': 'pesv',
+  'finanzas.reporte_costos.ver': 'liquidacion', // como `pagina.finanzas_reporte_costos`
+  'clients.clientes.ver': 'clientes',
+  'clients.clientes.administrar': 'clientes',
+  // HU #13423: cada operación con el módulo de la página donde se usa.
+  'laft.listas.operar': 'cumplimiento_laft',
+  'laft.listas.administrar': 'cumplimiento_laft',
+  'laft.contrapartes.operar': 'cumplimiento_laft',
+  'laft.bitacora.ver': 'cumplimiento_laft',
+  'laft.capacitaciones.operar': 'cumplimiento_laft',
+  'laft.inusuales.operar': 'cumplimiento_laft',
+  'laft.plan_auditoria.administrar': 'cumplimiento_laft',
+  'laft.ros.operar': 'cumplimiento_laft',
+  'laft.ros.exportar': 'cumplimiento_laft',
+  'laft.efectivo.operar': 'cumplimiento_laft',
+  'laft.empleados.operar': 'cumplimiento_laft',
+  'laft.manual.administrar': 'cumplimiento_laft',
+  'laft.manual.firmar': 'cumplimiento_laft',
+  'laft.retencion.administrar': 'cumplimiento_laft',
+  'laft.tablero.ver': 'cumplimiento_laft',
+  'laft.sincronizacion.ver': 'cumplimiento_laft',
+  'laft.sincronizacion.administrar': 'cumplimiento_laft',
+  'laft.oficial.administrar': 'cumplimiento_laft',
+  'privacy.titulares.operar': 'administracion',
+  'privacy.olvido.administrar': 'administracion',
+  'privacy.accesos_pii.ver': 'administracion',
+  'firma.solicitud.administrar': 'tramite',
+  'firma.estado.ver': 'tramite',
+  'drive.archivos.administrar': 'derechos',
+  'soat.antiguo.administrar': 'operaciones',
+  'soat.antiguo.operar': 'operaciones',
+  'siigo.factura.consultar': 'finanzas',
+  'siigo.factura.emitir': 'finanzas',
+  'siigo.factura.reintentar': 'finanzas',
+  'siigo.factura.reenviar_correo': 'finanzas',
+  'siigo.factura.marcar_fallido': 'finanzas',
+  'siigo.factura.reactivar': 'finanzas',
+  'siigo.factura.corregir': 'finanzas',
+  'siigo.factura.anular': 'finanzas',
+  'siigo.parametrizacion.ver': 'finanzas',
+  'siigo.parametrizacion.administrar': 'finanzas',
+  'siigo.conceptos.confirmar': 'finanzas',
+  'siigo.emision.ver': 'finanzas',
+  'vehicles.vehiculos.consultar': 'operaciones',
+  'runt.persona.consultar': 'tramite',
+  'runt.cedula.leer': 'tramite',
+  'integraciones.fasecolda.buscar': 'tramite',
+};
+
 /** El módulo de agrupación de un código, o el estructural si el código no está en ningún mapa. */
 export function moduloAgrupado(codigo: string, moduloEstructural: string): string {
   if (codigo.startsWith('pagina.')) {
     return AGRUPACION_DE_PAGINA[codigo.slice('pagina.'.length) as PageSlug] ?? moduloEstructural;
   }
-  return AGRUPACION_DE_OPERACION[codigo] ?? moduloEstructural;
+  return AGRUPACION_DE_OPERACION[codigo] ?? AGRUPACION_DE_OPERACION_LEGADO[codigo] ?? moduloEstructural;
 }
 
 /** Los pares `[codigo, modulo]` de los dos mapas, ordenados por código: lo que la 0205 escribe. */

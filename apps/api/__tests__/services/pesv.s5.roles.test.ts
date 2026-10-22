@@ -88,12 +88,17 @@ describe('PESV-S5 · Roles granulares — lider_pesv', () => {
     expect(r.status).toBe(403);
   });
 
-  it('lider_pesv NO puede generar export SISI → 403 (admin only por seguridad)', async () => {
+  // HU #13429 (AC3, P-24 A1 aprobado): lider_pesv tiene el Tablero ejecutivo y ya administraba PESV → gana su
+  // «Administrar», que es la guarda del export SISI. El conductor (sin administración PESV previa) sigue en 403.
+  it('lider_pesv pasa la guarda del export SISI (ganancia aprobada AC3); conductor → 403', async () => {
     const tok = await testToken({ role: 'lider_pesv', sub: 5 });
     const r = await request(app).post('/api/pesv/export/sisi')
       .set('Authorization', `Bearer ${tok}`)
       .send({});
-    expect(r.status).toBe(403);
+    expect(r.status).not.toBe(403);
+    const cond = await testToken({ role: 'conductor', sub: 6 });
+    const c = await request(app).post('/api/pesv/export/sisi').set('Authorization', `Bearer ${cond}`).send({});
+    expect(c.status).toBe(403);
   });
 });
 

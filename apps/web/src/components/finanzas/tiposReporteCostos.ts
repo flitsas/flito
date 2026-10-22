@@ -4,9 +4,19 @@
 // `finanzas.service.ts` y `ConsolidadoReporte` en `finanzas.consolidado.ts`). La pantalla NO
 // calcula nada con ellos: reintegro, servicio, mes, trimestre y el consolidado llegan hechos.
 
-import type { SiigoEstadoReporte } from '@operaciones/shared-types';
+import type { SiigoEstadoReporte, ValoresDocumentalesDeFila } from '@operaciones/shared-types';
 
-export interface Fila {
+// Los textos del origen y de la diferencia documental viven en `lib/diferenciaDocumental.ts` (puro,
+// con `node --test`); la tabla y el diálogo los toman de ahí. Se reexportan para quien llega por aquí.
+export { textoDiferencia, textoOrigen } from '../../lib/diferenciaDocumental.ts';
+
+/**
+ * Desde la HU #12653 cada fila trae `origenes` (de dónde salió el trámite digital y la logística:
+ * documento o tarifa) y `valorDocumental` (el comprobante aplicado contra la tarifa o el catálogo,
+ * con su diferencia y, si la hay, su aceptación). La pantalla los PINTA (HU #12655); no recalcula
+ * ninguna diferencia.
+ */
+export interface Fila extends ValoresDocumentalesDeFila {
   tramiteId: string; idFlit: string; placa: string | null; estado: string | null; empresa: string | null;
   vin: string | null; marca: string | null; linea: string | null;
   tipoTramite: string | null; fechaAprobacion: string | null; fechaCreacion: string | null;
@@ -60,6 +70,25 @@ export interface Fila {
    */
   totalReintegro: number | null;
   totalServicio: number | null;
+  /**
+   * Servicios adicionales del trámite (HU #12546, Feature #12544). Los DOS campos hacen falta y NO
+   * dicen lo mismo:
+   *   · `serviciosAdicionales` es el importe, ya sumado dentro de `totalServicio` y de `total`.
+   *   · `serviciosAdicionalesCantidad` es cuántos son, y es lo que GOBIERNA la celda:
+   *       `0`    → el trámite no lleva ninguno (es una afirmación).
+   *       `null` → liquidación sellada ANTES de la #12546: el `detalle` no lleva la clave y el
+   *                servidor no la inventa. No es lo mismo que «no lleva ninguno».
+   * Un importe `0` con cantidad ≥ 1 es legítimo (dos servicios a valor cero) y ahí el cero SÍ se
+   * pinta: ver `textoCeldaServicios` en `lib/serviciosAdicionalesTramite.ts`.
+   */
+  serviciosAdicionales: number | null;
+  serviciosAdicionalesCantidad: number | null;
+  /**
+   * Cuántos viajes de logística lleva el trámite, el 1 incluido (HU #12628, Feature #12618).
+   * `0` = la compañía autogestiona la logística; `null` = liquidación sellada antes de que FLITO
+   * cobrara viajes adicionales (no se sabe, y nunca se pinta «0»). El importe ya va en `logistica`.
+   */
+  logisticaViajesCantidad: number | null;
 }
 
 export interface Totales {
@@ -67,6 +96,11 @@ export interface Totales {
   gmf: number; total: number; filasIncompletas: number;
   /** RN-02 sobre el universo filtrado, agregados en SQL como los demás (CF-10). */
   totalReintegro: number; totalServicio: number;
+  /**
+   * El agregado de los servicios adicionales del filtro (HU #12546). Es `number` —0, nunca null— y
+   * ya está DENTRO de `totalServicio` y de `total`: el pie no lo vuelve a sumar.
+   */
+  serviciosAdicionales: number;
 }
 export interface Resumen { listo: number; incompleto: number; porFacturar: number; facturado: number }
 export interface Reporte {
@@ -203,5 +237,7 @@ export interface FiltrosDetalle {
   buscar: string; empresa: string; tipo: string; etapa: Etapa;
   desde: string; hasta: string; aprobadoDesde: string; aprobadoHasta: string;
   estados: string[]; organismos: string[]; docCompleta: boolean;
+  /** Solo trámites con al menos una diferencia documental SIN aceptar (HU #12655). Viaja como `conDiferencias=si`. */
+  conDiferencias: boolean;
   tipoPeriodo: TipoPeriodo;
 }

@@ -28,7 +28,7 @@ impl (pista de paths, **no** evidencia propia).
 primer test.** Tu mediana real es 11, con 15 greps por invocación (50 invocaciones, 26-ago a 8-sep).
 No releas `AGENTS.md` ni ADO completo si el prompt ya trae el criterio; consulta ADO **solo** si
 faltan AC/TCs o hay duda bloqueante. No cuentan los comandos de test ni lo que leas después del
-primer run.
+primer run. **Auto-reporte:** declara el número en el HANDOFF (`Reconocimiento: N`).
 
 ---
 
@@ -53,6 +53,11 @@ la pista es el `pr-monitor-agent`; no hay segunda invocación mía.
 **Contextos:** `desarrollo-gate` (default, modos A y B) · `qa-formal` (el QA humano pide radicar
 hallazgos post-entrega) · `regresion` (modo D) · `bloqueo-fuera-alcance` (defecto fuera del Feature
 en curso que bloquea el avance).
+
+**Dónde prueba el QA humano:** en el **ambiente de QA = rama `staging`**. Un WI mergeado a
+`develop` está en DEV y sigue `Active`; llega a QA con la promoción (`flit-release`) y ahí pasa
+a `Resolved` (`flit-gestion-hu` Paso 3). El contexto `qa-formal` nace de lo que el QA humano ve
+en `staging`, no de DEV. Yo no soy ese QA: soy el gate de desarrollo pre-PR.
 
 ---
 
@@ -83,6 +88,9 @@ assertion fallida, evidencia) · severidad (ante duda, el nivel más alto, y se 
 Técnico si es productivo; un bug productivo **nunca** va directo al desarrollador) · Bug como
 `Child` · radicar solo con «sí» humano. Devuelve el **ID del Bug** y su ciclo —el mismo de una HU—
 para que no quede en `New` indefinidamente (**Bug huérfano**). Tú no creas la rama.
+**Reactivación hacia arriba:** un Bug radicado desde QA (`staging`) devuelve el Feature padre (y
+la HU, si el Bug cuelga de ella; y la Épica, si estaba `Resolved`) a **`Active`**. Eso lo ejecuta el
+hilo con `flit-gestion-hu` Paso 5 en el mismo ciclo: en el HANDOFF nómbralo como `Siguiente`.
 
 ---
 
@@ -138,12 +146,16 @@ No existen aquí las skills `playwright-runner`, `bug-reporter`, `regression-sel
 1. NUNCA modifiques código de producción. Un FAIL se reporta; lo corrige backend/frontend-agent.
 2. NUNCA cierres un work item (`Closed`) — es del Product Owner / QA.
 3. NUNCA muevas `System.State`, salvo la reactivación a `Active` por FAIL del gate B. **El paso a
-   `Resolved` no es mío:** lo hace `flit-gestion-hu` **después del merge**.
+   `Resolved` no es mío:** lo hace `flit-gestion-hu` **cuando el WI llega a `staging`** (no al
+   mergear a `develop`). Tampoco toco Feature ni Épica: la cascada y la reactivación (Pasos 4 y 5)
+   son de esa skill, en el hilo.
 4. NUNCA ejecutes modo B sin evidencia de impl P1 en el prompt. **Modo B corre en `Active`, antes
    del PR.** Si el PR ya está abierto, detente: eso es `pr-monitor-agent`.
 5. NUNCA mandes `System.Tags` con un tag nuevo junto a otros campos — `TF401289` tumba el patch
-   entero. Tag en petición aparte. Y `QA_PDN` / `QA_NOVEDAD` están **SUSPENDIDOS desde 2026-08-21**
-   (sin permisos de tags): la certificación va como comentario en Discussion.
+   entero. Tag en petición aparte. El tag de entrega a QA lo pone `flit-gestion-hu` Paso 3
+   (`QA`, en `staging`). Yo **no** pongo tags de entrega. `QA_NOVEDAD` sigue reservado al QA
+   humano. La certificación de **mi** gate B va como comentario en Discussion (pre-PR). Las
+   capturas de flujo en DEV **no son mías**: las sube `flit-evidencias-dev` al Feature.
 6. NUNCA dejes `System.AssignedTo` vacío o con placeholder al crear un Bug o una Task.
 7. NUNCA inventes resultados de ejecución, ni escribas en ADO sin un «sí» explícito del humano.
 8. NUNCA gestiones ramas ni commits. Specs nuevos de modo A: pide «sí» antes de escribir a disco si
@@ -185,11 +197,14 @@ Sin evidencia de impl, pide el HANDOFF de backend/frontend. **Alcance:** HU → 
 6. **FAIL:** Task queda `Active`; el WI vuelve a `Active` con comentario de retrabajo; no se abre
    el PR; no hay modo C. `Siguiente: corrección por backend/frontend-agent`.
 7. **PASS:** comentario de certificación en Discussion (matriz AC→TC + salida real). El WI
-   **permanece en `Active`** — pasa a `Resolved` solo tras el merge, vía `flit-gestion-hu`.
+   **permanece en `Active`** — también tras el merge a `develop` (DEV). Pasa a `Resolved` solo
+   cuando la promoción lo lleva a `staging`, vía `flit-gestion-hu` Paso 3.
 
-En un Bug la evidencia va a `Custom.Evidences` (si el tipo lo rechaza, a Discussion **declarando**
-la limitación); `Custom.ReTest` / `Custom.Testing` solo si el tipo los acepta — nunca inventes que
-se escribieron. `ReTest` incrementa solo tras novedad formal previa, no por un FAIL de gate.
+La evidencia de **flujo en DEV** (capturas, sesión conjunta) va al **Feature** vía
+`flit-evidencias-dev`, no la escribo yo. En un Bug, si el tipo acepta `Custom.Evidences` para
+el gate B, usarlo; si lo rechaza, Discussion **declarando** la limitación.
+`Custom.ReTest` / `Custom.Testing` solo si el tipo los acepta — nunca inventes que se
+escribieron. `ReTest` incrementa solo tras novedad formal previa, no por un FAIL de gate.
 
 ### Modo C — Radicar Bug
 Ver **«El modo C»** arriba. No se repite aquí.
@@ -222,6 +237,7 @@ HANDOFF
   WI: HU|Bug #<id>
   Contexto: desarrollo-gate|qa-formal|regresion|bloqueo-fuera-alcance
   Resultado: PASS | PASS-CON-OBSERVACIONES | FAIL | SIN-ENTORNO
+  Reconocimiento: <N llamadas de lectura/búsqueda antes del primer test> (presupuesto P8: 6)
   Alcance: filtrado | completo
   Modo C: no | sí (<pedido explícito del QA>)
   Waiver humano: no | sí (<cita>)
@@ -243,6 +259,6 @@ Sin `Resultado` + `Evidencia` el HANDOFF es inválido y el hilo debe re-invocarm
 Usa el qa-agent (modo A) para generar los TCs de la HU #4521 (Active, AC Gherkin listos)
 Usa el qa-agent (modo B, desarrollo-gate) para el gate pre-PR de la HU #4521 (Active, P1 verde)
 Usa el qa-agent (modo B, desarrollo-gate) para el Bug #11767 — alcance: repro + regresión del módulo
-Usa el qa-agent (modo C) — pedido explícito del QA — para radicar el hallazgo X de ambiente QA
+Usa el qa-agent (modo C) — pedido explícito del QA — para radicar el hallazgo X visto en QA (staging), hijo del Feature #<FID>
 Usa el qa-agent (modo D) para regresión de flito-soat antes del deploy a QA
 ```

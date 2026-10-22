@@ -16,7 +16,12 @@ import request from 'supertest';
 import express from 'express';
 import { CampoCertificacion, ResultadoCampo } from '@operaciones/shared-types';
 import { createKeyedDb } from '../helpers/keyed-db.js';
-import { testToken, type TestRole } from '../helpers/auth.js';
+import { testToken, type TestRole, neutralizarEnlaceDe } from '../helpers/auth.js';
+
+// HU #12875: este fichero mide la regla del MÓDULO con roles de fábrica que la frontera por enlace
+// cierra hasta la #13426 (decisión (b) del PO); su enlace se neutraliza aquí, a la vista. El cierre lo
+// prueban `frontera-por-enlace.test.ts` y `frontera-enlace.centinela.test.ts`.
+neutralizarEnlaceDe('proveedor'); // HU #13426: gestor y tránsito llevan su enlace real (organismos_transito)
 
 const kdb = createKeyedDb();
 
@@ -27,6 +32,14 @@ vi.mock('../../src/db/client.js', () => ({
 
 const auditMock = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../src/shared/middleware/audit.js', () => ({ audit: (...a: unknown[]) => auditMock(...a) }));
+
+// Registro de acceso a datos personales (HU #13204). Mockeado: si no, escribiría en la base y
+// rompería la negativa de AC5 («descargar no inserta nada»), que habla del PDF, no del rastro PII.
+const logPiiMock = vi.fn().mockResolvedValue(undefined);
+vi.mock('../../src/shared/pii-audit.js', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  logPiiAccess: (...a: unknown[]) => logPiiMock(...a),
+}));
 
 vi.mock('../../src/shared/redis.js', () => ({
   getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false),
@@ -77,13 +90,19 @@ const CERTIFICACION = {
   ],
   certificadoPorNombre: 'gestor@flit.io',
   createdAt: '2026-07-31T14:05:00.000Z',
+  registroRunt: {
+    clasificacion: 'AUTOMOVIL', color: 'GRIS', cilindraje: '1598', tipoServicio: 'Particular',
+    organismoTransito: 'STRIA MEDELLIN', estadoAutomotor: 'ACTIVO', fechaMatricula: '2015-03-10',
+    numMotor: 'G4FGSU123456', numChasis: '3KPFF51ABTE156687', numSerie: null,
+  },
 };
 
 async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
-  app.use('/api/flito/impuestos', router);
+  const { conAlcance } = await import('../../src/shared/middleware/frontera-enlace.js');
+  app.use('/api/flito/impuestos', conAlcance('impuestos', router)); // HU #13426: como en app.ts
   return app;
 }
 
@@ -96,6 +115,7 @@ beforeEach(() => {
   kdb.reset();
   vigenteMock.mockReset();
   auditMock.mockClear();
+  logPiiMock.mockClear();
   runtVehiculoMock.mockReset();
   runtPersonaMock.mockReset();
   subirMock.mockReset();
@@ -205,6 +225,65 @@ describe('AC7 — auditoría de la descarga', () => {
     await get('gestor_impuestos');
 
     expect(auditMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('HU #13204 AC5 — registro de acceso a datos personales', () => {
+  it('registra el export del certificado con CAMPOS_PII_CERTIFICADO, el archivo y el uuid', async () => {
+    const { CAMPOS_PII_CERTIFICADO } = await import('../../src/modules/flito-impuestos/flito-impuestos.pii.js');
+    vigenteMock.mockResolvedValue(CERTIFICACION);
+
+    const r = await get('gestor_impuestos');
+
+    expect(r.status).toBe(200);
+    expect(logPiiMock).toHaveBeenCalledTimes(1);
+    const [, entrada] = logPiiMock.mock.calls[0];
+    expect(entrada).toMatchObject({ resourceTipo: 'flito_impuesto', accion: 'export' });
+    expect(entrada.camposAccedidos).toEqual([...CAMPOS_PII_CERTIFICADO]);
+    expect(entrada.camposAccedidos).toEqual(expect.arrayContaining(['num_motor', 'num_chasis', 'num_serie']));
+    expect(entrada.motivo).toContain('archivo=certificado_runt');
+    expect(entrada.motivo).toContain(ID);
+    // La placa no puede ser el motivo de su propia lectura.
+    expect(entrada.motivo).not.toContain('QIU744');
+  });
+
+  it('el registro PII va antes de audit()', async () => {
+    vigenteMock.mockResolvedValue(CERTIFICACION);
+
+    await get('gestor_impuestos');
+
+    expect(logPiiMock.mock.invocationCallOrder[0]).toBeLessThan(auditMock.mock.invocationCallOrder[0]);
+  });
+
+  it('el registro PII termina antes de que salga el primer byte', async () => {
+    vigenteMock.mockResolvedValue(CERTIFICACION);
+    let resolver!: () => void;
+    logPiiMock.mockImplementationOnce(() => new Promise<void>((ok) => { resolver = ok; }));
+
+    let respondio = false;
+    const peticion = get('gestor_impuestos').then((r) => { respondio = true; return r; });
+    await vi.waitFor(() => expect(logPiiMock).toHaveBeenCalledTimes(1));
+    await new Promise((ok) => setTimeout(ok, 50));
+    expect(respondio).toBe(false);
+    expect(auditMock).not.toHaveBeenCalled();
+
+    resolver();
+    expect((await peticion).status).toBe(200);
+  });
+
+  it('un 409 sin certificación no registra acceso PII', async () => {
+    vigenteMock.mockResolvedValue(null);
+
+    await get('gestor_impuestos');
+
+    expect(logPiiMock).not.toHaveBeenCalled();
+  });
+
+  it('sin la función impuestos.certificado.descargar es 403 y no registra nada', async () => {
+    const r = await get('auditor');
+
+    expect(r.status).toBe(403);
+    expect(logPiiMock).not.toHaveBeenCalled();
   });
 });
 

@@ -505,7 +505,7 @@ const btnEnviar = (page: Page) => page.getByRole('button', { name: 'Enviar al ge
 async function consultarRunt(page: Page) {
   await page.getByLabel('VIN').fill(VIN);
   await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
-  await expect(page.getByText('✓ Consultado')).toBeVisible();
+  await expect(page.getByText('Consultado', { exact: true })).toBeVisible();
 }
 
 test.describe('HU #12079 · AC1 — el botón bloqueado enumera lo que falta', () => {
@@ -603,7 +603,8 @@ test.describe('HU #12079 · AC1 — el botón bloqueado enumera lo que falta', (
 
     await page.getByLabel('VIN').fill(VIN);
     await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
-    await page.getByRole('dialog').getByRole('button', { name: 'Cerrar' }).click();
+    // HU #12844: ya no hay modal que cerrar; la tarjeta de bloqueo queda en la página.
+    await expect(page.getByRole('region', { name: 'Este vehículo ya tiene SOAT activo' })).toBeVisible();
 
     await expect(linea(page)).toHaveText('Este vehículo tiene SOAT vigente según el RUNT: no se puede radicar la solicitud.');
     await expect(linea(page)).not.toContainText('Para enviar falta');
@@ -658,8 +659,9 @@ test.describe('HU #12079 · AC2 — las TRES frases que prometían revisión', (
 
     // El subtítulo de la página y la tarjeta de envío, antes de enviar.
     await expect(page.getByText(/revisión de FLITO/)).toHaveCount(0);
-    await expect(page.getByText('Al enviarla, su SOAT entra en gestión de inmediato. No se guarda como borrador.')).toBeVisible();
-    await expect(page.getByText('Al enviarla, su SOAT entra en gestión de inmediato.', { exact: false }).first()).toBeVisible();
+    // HU #12819 (§12.2): la frase vive solo en la barra de envío, con el copy nuevo.
+    await expect(page.getByText('No se guarda como borrador: al enviarla, entra en gestión.')).toBeVisible();
+    await expect(page.getByText('entra en gestión', { exact: false }).first()).toBeVisible();
 
     await llenarTodo(page);
     await btnEnviar(page).click();
@@ -754,7 +756,9 @@ test.describe('HU #12079 · AC4 — la cola, los filtros y la reversa no ofrecen
     await loginAs(page, CLIENTE_CON_CANAL);
     await montarCola(page, [filaSoat()]);
     await page.getByRole('button', { name: 'Ver' }).first().click();
-    await expect(page.getByRole('dialog').getByText('Motivo de rechazo: La factura no corresponde al vehículo')).toBeVisible();
+    // HU #12819 (§7.1, zona 2): el motivo va en su tarjeta, con el rótulo «Motivo de la novedad».
+    await expect(page.getByRole('dialog').getByText('Motivo de la novedad')).toBeVisible();
+    await expect(page.getByRole('dialog').getByText('La factura no corresponde al vehículo')).toBeVisible();
     // Es lo único que se AÑADE al retirar «Corregir y reenviar»: sin esto queda una caja roja sin
     // siguiente paso, que es exactamente lo que la retirada dejaba.
     await expect(page.getByRole('dialog').getByText(FRASE)).toBeVisible();
@@ -845,7 +849,8 @@ async function llenarPropietario(page: Page) {
 }
 
 async function adjuntarFactura(page: Page) {
-  await page.locator('input[type="file"]').setInputFiles({
+  // HU #13363: el bloque 4 suma otro input de archivo; la factura se busca en su bloque.
+  await page.getByRole('region', { name: '2 · Factura de venta' }).locator('input[type="file"]').setInputFiles({
     name: 'factura.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 e2e'),
   });
 }

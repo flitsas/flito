@@ -2,6 +2,9 @@ import { Client } from 'minio';
 import { env } from '../config/env.js';
 import crypto from 'crypto';
 import { loggerFor } from '../shared/logger.js';
+import { esObjetoInexistente, huellaClave, nombreDeError } from './storage-errores.js';
+
+export { esObjetoInexistente, huellaClave, nombreDeError };
 
 const log = loggerFor('storage');
 
@@ -227,9 +230,27 @@ export async function getEntityDocumentStream(key: string) {
   return client.getObject(BUCKET, key);
 }
 
-export async function deleteEntityDocument(key: string): Promise<void> {
-  const client = getClient();
-  try { await client.removeObject(BUCKET, key); } catch (e) { log.warn({ err: e, key }, 'delete entity doc failed'); }
+/** Borra el objeto y LANZA si storage falla: para quien necesita saberlo (reintento, rastro). */
+export async function removeEntityDocument(key: string): Promise<void> {
+  await getClient().removeObject(BUCKET, key);
+}
+
+/**
+ * Borrado best-effort (HU #13410 AC9). `true` si quedó borrado (incluido «no existía»); `false` si
+ * el almacenamiento falló. NUNCA lanza por el borrado: los llamadores que hacen `await` sin `.catch`
+ * (drivers, transito-config) siguen respondiendo igual, y quien quiera saber del fallo lee el valor.
+ * El log lleva la huella de la clave y el código del error, nunca la clave ni el mensaje.
+ */
+export async function deleteEntityDocument(key: string): Promise<boolean> {
+  getClient(); // como antes: un cliente mal configurado SÍ rechaza; solo se traga el fallo del borrado
+  try {
+    await removeEntityDocument(key);
+    return true;
+  } catch (e) {
+    if (esObjetoInexistente(e)) return true;
+    log.warn({ claveHash: huellaClave(key), err: nombreDeError(e) }, 'delete entity doc failed');
+    return false;
+  }
 }
 
 // URL de descarga temporal firmada por NOSOTROS, servida por la API (GET /api/files).

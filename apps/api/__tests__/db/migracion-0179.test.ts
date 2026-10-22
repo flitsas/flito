@@ -36,11 +36,19 @@ import {
   permisosFunciones, permisosRolFuncion, permisosUsuarioFuncion,
 } from '../../src/db/schema.js';
 import { USER_ROLES, paginasPorDefecto, isValidPage } from '@operaciones/shared-types';
-import { catalogoCompleto, repartoDePartida, PAGINAS_NO_CONCEDIBLES } from '../../src/modules/permisos/catalogo.js';
-import { FUNCIONES_SIN_ADMIN } from '../../src/modules/permisos/permisos.service.js';
+import { catalogoPlano, repartoDePartida, PAGINAS_NO_CONCEDIBLES } from '../../src/modules/permisos/catalogo.js';
+/**
+ * HU #13424 (ADR-0022): `FUNCIONES_SIN_ADMIN` salió del servicio con el check de arranque. Tras la
+ * 0226 las únicas funciones sin `admin` son las tres del canal SOAT sin trámite (sus rutas no tienen
+ * otra guarda que la función; motivo y lista vigilada en `permisos-siembra-admin.test.ts`).
+ */
+//
+// HU #12873 AC8 (decisión del PO del 2026-10-13): desde la 0233 esas tres las absorbe «Solicitar SOAT sin
+// trámite», que `admin` recibe como TODAS las acciones. Con la base al día, `admin` no carece de ninguna.
+const FUNCIONES_SIN_ADMIN: readonly string[] = [];
 import {
-  funcionesDeSql, leerFuncionesSembradas, leerReagrupacionesSembradas, leerRepartoSembrado,
-  leerRetirosSembrados, repartoDeSql,
+  funcionesDeSql, leerFuncionesSembradas, leerReagrupacionesSembradas, leerRenombresSembrados, leerRepartoSembrado,
+  leerRetirosSembrados, repartoDeSql, MIGRACIONES_ANTES_DEL_ARBOL,
 } from '../helpers/permisos-seed-sql.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -49,7 +57,7 @@ const RUTA = path.resolve(__dirname, '../../src/db/migrations', ARCHIVO);
 const SQL_0179 = readFileSync(RUTA, 'utf8');
 const SIN_COMENTARIOS = SQL_0179.replace(/--[^\n]*/g, '');
 
-const CATALOGO = catalogoCompleto();
+const CATALOGO = catalogoPlano();
 const REPARTO = repartoDePartida(CATALOGO);
 
 describe('0179 — el archivo dice lo mismo que schema.ts (análisis estático)', () => {
@@ -118,31 +126,45 @@ describe('0179 — el archivo dice lo mismo que schema.ts (análisis estático)'
     const repartoGenerado = repartoDeSql([salida]);
     const aPares = (m: Map<string, Set<string>>) => [...m.entries()].flatMap(([r, cs]) => [...cs].map((c) => `${r} ${c}`)).sort();
 
-    const funcionesSembradas = leerFuncionesSembradas();
+    const funcionesSembradas = leerFuncionesSembradas(MIGRACIONES_ANTES_DEL_ARBOL);
     expect([...funcionesSembradas.keys()].sort()).toEqual([...funcionesGeneradas.keys()].sort());
     for (const [codigo, f] of funcionesSembradas) expect(f, codigo).toEqual(funcionesGeneradas.get(codigo));
-    expect(aPares(leerRepartoSembrado())).toEqual(aPares(repartoGenerado));
+    expect(aPares(leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL))).toEqual(aPares(repartoGenerado));
 
     // Y cada fila de la 0179 SOLA sigue en lo generado, o la retiró una migración posterior con nombre,
     // o le cambió el MÓDULO una migración posterior con nombre (la 0205, HU #12716): nadie reescribió
     // la 0179 (una migración aplicada no se edita). El módulo se sustituye solo donde la 0205 lo dice;
     // nombre, descripción y tipo se siguen comparando byte a byte contra lo generado.
-    const retiros = leerRetirosSembrados();
-    const reagrupadas = leerReagrupacionesSembradas();
+    const retiros = leerRetirosSembrados(MIGRACIONES_ANTES_DEL_ARBOL);
+    const reagrupadas = leerReagrupacionesSembradas(MIGRACIONES_ANTES_DEL_ARBOL);
     expect(reagrupadas.size).toBe(47);
+    // HU #13421: la 0227 RENOMBRA `pagina.pesv` («PESV — Conductores» → «PESV — Tablero PESV»); el
+    // nombre y la descripción se sustituyen solo donde una migración con nombre lo dice.
+    const renombradas = leerRenombresSembrados(MIGRACIONES_ANTES_DEL_ARBOL);
+    expect([...renombradas.keys()]).toEqual(['pagina.pesv']);
     for (const [codigo, f] of leerFuncionesSembradas([ARCHIVO])) {
       if (retiros.funciones.has(codigo)) continue;
-      expect(funcionesGeneradas.get(codigo), codigo).toEqual({ ...f, modulo: reagrupadas.get(codigo) ?? f.modulo });
+      const r = renombradas.get(codigo);
+      expect(funcionesGeneradas.get(codigo), codigo).toEqual({
+        ...f, modulo: reagrupadas.get(codigo) ?? f.modulo, ...(r ? { nombre: r.nombre, descripcion: r.descripcion } : {}),
+      });
     }
     for (const par of aPares(leerRepartoSembrado([ARCHIVO]))) {
-      if (retiros.reparto.has(par)) continue;
+      // HU #13631: retirar una función (0243) retira también todas sus marcas.
+      if (retiros.reparto.has(par) || retiros.funciones.has(par.slice(par.indexOf(' ') + 1))) continue;
       expect(aPares(repartoGenerado), par).toContain(par);
     }
-    expect(retiros.funciones).toEqual(new Set(['parametrizacion.tarifas.borrar']));
+    expect(retiros.funciones).toEqual(new Set(['parametrizacion.tarifas.borrar', 'sync.sync.lanzar'])); // 0182 y 0243 (HU #13631)
   }, 60_000);
 });
 
 const URL_BASE = process.env.TEST_DATABASE_URL;
+/**
+ * Orden por PUNTO DE CÓDIGO, que es lo que devuelve el `ORDER BY` de Postgres con la colación de la
+ * base (C). `CATALOGO` y `REPARTO` vienen ordenados con `localeCompare`, que pone `pagina.pesv_raci`
+ * y `pesv.*` en otro orden: comparar contra ellos sin reordenar es un falso rojo (QA, HU #13421).
+ */
+const porPuntoDeCodigo = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const ROLLBACK = Symbol('rollback');
 
 describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idempotencia)', () => {
@@ -183,7 +205,7 @@ describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idemp
     const filas = await sql`
       SELECT codigo, modulo, nombre_negocio, descripcion, tipo, activo
         FROM permisos_funciones ORDER BY codigo`;
-    expect(filas.map((f) => f.codigo)).toEqual(CATALOGO.map((f) => f.codigo));
+    expect(filas.map((f) => f.codigo)).toEqual(CATALOGO.map((f) => f.codigo).sort(porPuntoDeCodigo));
     for (const f of filas) {
       const enCodigo = CATALOGO.find((c) => c.codigo === f.codigo)!;
       expect(f.modulo).toBe(enCodigo.modulo);
@@ -194,12 +216,15 @@ describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idemp
     }
   });
 
-  it('46 funciones de tipo `pagina` y ninguna es `flito_ayuda` (AC2-bis)', async () => {
+  it('70 funciones de tipo `pagina` y ninguna es `flito_ayuda` (AC2-bis)', async () => {
     // 43 → 44 desde la HU #12375 (0184 siembra `pagina.flito_tarifas`); 44 → 45 desde la HU #12085 (0187
-    // siembra `pagina.roles_permisos`); 45 → 46 desde la HU #12623 (0200 siembra
-    // `pagina.finanzas_gastos_diarios`): la base ya migrada las tiene todas.
+    // siembra `pagina.roles_permisos`); 45 → 46 desde la HU #12542 (0192 siembra
+    // `pagina.flito_servicios_adicionales`); 46 → 47 desde la HU #12611 (0198 siembra
+    // `pagina.flito_comprobantes`); 47 → 48 desde la HU #12623 (0200 siembra
+    // `pagina.finanzas_gastos_diarios`); 48 → 49 con la 0218 (`pagina.perfil`); 49 → 70 con la 0227
+    // (HU #13421, 21 páginas por ítem del menú PESV): la base ya migrada las tiene todas.
     const [{ n }] = await sql`SELECT count(*)::int AS n FROM permisos_funciones WHERE tipo = 'pagina'`;
-    expect(n).toBe(46);
+    expect(n).toBe(70);
     const [{ hay }] = await sql`
       SELECT count(*)::int AS hay FROM permisos_funciones WHERE codigo = 'pagina.flito_ayuda'`;
     expect(hay).toBe(0);
@@ -234,12 +259,12 @@ describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idemp
     }
   });
 
-  it('AC4 — `admin` tiene las 46 páginas marcadas UNA A UNA (lo que hace neutro retirar los atajos)', async () => {
+  it('AC4 — `admin` tiene las 70 páginas marcadas UNA A UNA (lo que hace neutro retirar los atajos)', async () => {
     const suyas = (await sql`
       SELECT funcion_codigo FROM permisos_rol_funcion
        WHERE rol_codigo = 'admin' AND funcion_codigo LIKE 'pagina.%'
        ORDER BY funcion_codigo`).map((f) => f.funcion_codigo as string);
-    expect(suyas).toHaveLength(46);
+    expect(suyas).toHaveLength(70); // HU #13255: +`pagina.perfil` (0218); HU #13421: +21 (0227)
     const todas = (await sql`
       SELECT codigo FROM permisos_funciones WHERE tipo = 'pagina' ORDER BY codigo`)
       .map((f) => f.codigo as string);
@@ -248,7 +273,7 @@ describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idemp
     for (const c of suyas) expect(isValidPage(c.replace('pagina.', ''))).toBe(true);
   });
 
-  it('AC6 — `admin` no se queda fuera en silencio: solo las tres del canal Cliente', async () => {
+  it('AC6 — `admin` no se queda fuera en silencio: con la base al día lo tiene TODO (HU #12873 AC8, tras la 0233)', async () => {
     const sinAdmin = (await sql`
       SELECT f.codigo FROM permisos_funciones f
        WHERE NOT EXISTS (
@@ -262,7 +287,7 @@ describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idemp
     const enBase = (await sql`
       SELECT rol_codigo, funcion_codigo FROM permisos_rol_funcion
        ORDER BY rol_codigo, funcion_codigo`).map((f) => `${f.rol_codigo}|${f.funcion_codigo}`);
-    expect(enBase).toEqual(REPARTO.map(([r, c]) => `${r}|${c}`));
+    expect(enBase).toEqual(REPARTO.map(([r, c]) => `${r}|${c}`).sort(porPuntoDeCodigo));
   });
 
   it('AC4 — el backfill por usuario copia `allowed_pages`, y solo lo válido', async () => {

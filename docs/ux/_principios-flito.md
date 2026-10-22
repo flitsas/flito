@@ -21,10 +21,12 @@ Minimalista y claro. Distintivo por **orden y contraste del kit**, no por adorno
 | Tokens, pills, `PageHeaderCard`, `FlitTable`, `StatusChip` | HEX suelto, `bg-white`, componente nuevo «más bonito» |
 | Copy corto que dice qué hacer | Vacío «No hay datos» / error «Ocurrió un problema» |
 | Aire, agrupación, rótulos que se leen | Sombras extra, animaciones, ilustraciones, confetti, glass, hover teatrales |
+| Hover **sutil** en todo control interactivo | Controles planos que parecen deshabilitados |
 
 **Efectos vistosos: no.** Sin transiciones de página, sin microinteracciones de «wow», sin
 gradientes decorativos fuera de los tokens de CTA/shell que ya existen. El carácter de FLITO
-es una pantalla que se entiende en un vistazo.
+es una pantalla que se entiende en un vistazo. **Ojo:** «sin efectos vistosos» nunca quiso decir
+«sin respuesta» — el feedback de interacción es claridad, no adorno (ver la sección siguiente).
 
 ---
 
@@ -56,6 +58,72 @@ secundario (`flitBtnSecondary`) o está en la fila.
 
 Excepción escrita: un wizard con «Siguiente» y «Cancelar» (Cancelar no es primaria). Dos
 primarias en el mismo encabezado es un fallo de oficio, no una preferencia.
+
+---
+
+## Feedback de interacción (affordance)
+
+Un control que no reacciona al puntero parece deshabilitado. El feedback sutil **es** claridad:
+dice «esto se puede pulsar» antes de pulsarlo. No confundir con el adorno, que sigue prohibido.
+
+| Adorno (prohibido) | Feedback (obligatorio) |
+|---|---|
+| Escalas, rebotes, rotaciones, «wow» | Hover sutil: velo `--flit-bg-hover`, o cambio de tono de fondo/borde del token propio |
+| Sombras o gradientes nuevos por moda | `transition-colors` corta (≤ `--flit-duration-base`) |
+| Animación que retrasa la acción | `active` / `disabled` distinguibles; foco del kit (`flit-focus`) |
+
+**Todo** control interactivo (botón, pill, fila clicable, ✕, ítem de menú, casilla) tiene hover
+visible al puntero y foco visible al teclado. Si el kit no lo da en ese control, la spec lo dice
+y se añade con tokens — no se entrega plano. La medida de «sutil»: quien lo mira nota que el
+control está vivo; quien no lo busca no lo ve.
+
+---
+
+## Responsive — la pantalla también existe en móvil
+
+Toda superficie se especifica y se implementa para **dos anchos**: escritorio (≥ `lg`) y móvil
+(360–390 px). «Que quepa» no basta: tiene que poder **usarse**.
+
+- Grids de varias columnas llevan breakpoints (`grid-cols-1` en móvil, `sm:`/`md:` al subir);
+  ninguna rejilla de 3–4 columnas fijas.
+- Barras de filtros y de acciones **envuelven** (`flex-wrap`); ningún control lleva `min-w` que
+  desborde un móvil.
+- Tablas: scroll horizontal del kit (`FlitTable`) — nunca desborde de página ni `<table>` suelta
+  sin contenedor.
+- Las acciones del encabezado se apilan bajo el título cuando no caben a su lado.
+- La spec escribe el comportamiento <lg aunque sea una línea («la barra envuelve; el detalle pasa
+  a acordeón»). Lo que no se escribe, quien implementa no lo adivina.
+
+---
+
+## Tema oscuro — toda superficie se revisa en los dos temas
+
+El oscuro no es una variante opcional: es la mitad de las sesiones. Las reglas:
+
+- Todo color por **token `--flit-*` con par oscuro**. Prohibido en superficies: `'white'`, `#fff`,
+  `bg-white`, `slate-*` / `gray-*` / `red-*` crudos — en oscuro quedan ilegibles o fosforescentes.
+  (Excepción legítima: el lienzo de un PDF, que es blanco como el papel.)
+- Error/peligro sobre tarjeta: `--flit-danger-ink`. `text-red-600` da ~2,3:1 en oscuro: no cumple.
+- Activo/seleccionado: velo `--flit-bg-app` / `--flit-bg-hover` o tinta `--flit-blue-text` (ambos
+  con par oscuro). Un fondo de acento claro sin par queda fosforescente en oscuro.
+- Referenciar un token que **no existe** (`var(--flit-x)` sin definir) deja el fondo sin pintar en
+  los dos temas: antes de usarlo, verificar que está definido en `flit-tokens.css`.
+- La verificación visual cubre **los dos temas**, no solo el claro. Un token de color nuevo exige
+  su par oscuro y pasar `check:contraste` en ambos.
+
+---
+
+## Notificaciones — toast o aviso, nunca los dos por costumbre
+
+| Situación | Patrón |
+|---|---|
+| Resultado de una acción puntual (guardó, falló, se envió) | **Toast**: cerrable (✕ o clic), una frase; éxito ~4 s, error hasta cerrarlo o ≥ 6 s |
+| Estado que sigue siendo cierto al mirar la página (filtro aplicado, registro actualizado, borrador) | **Aviso en página** (`role="status"` / tarjeta), no toast |
+| Error de un campo o de un modal | En línea junto al campo, o `role="alert"` en el modal — no toast |
+
+El mensaje se escribe para quien opera: qué pasó y qué sigue. **Nunca** el error crudo del API
+(`e.message`, códigos, volcados de variables) ni telemetría interna («3 insertados de 10 (2s)»).
+Un toast por acción, no uno por paso del flujo.
 
 ---
 
@@ -117,5 +185,8 @@ Una spec o una implementación **no** está OK si falla alguno:
 - [ ] Lo que no es de esa visita está en detalle o fuera
 - [ ] Vacío y error tienen siguiente paso
 - [ ] Sin efectos vistosos ni patrón visual nuevo injustificado
-- [ ] Copy: FLITO, glosario, un solo tratamiento (usted o tú) en la pantalla
+- [ ] Dicho qué pasa en móvil (<`lg`), aunque sea una línea
+- [ ] Todo control interactivo con feedback (hover sutil + foco); ninguno plano
+- [ ] Notificación elegida: toast cerrable vs aviso en página, con copy pulido (sin errores crudos)
+- [ ] Copy: FLITO, glosario, un solo tratamiento (usted o tú) en la pantalla; subtítulo de cabecera de una frase, sin mecánica interna
 - [ ] Canal Cliente ≠ cola interna si el público no es el mismo

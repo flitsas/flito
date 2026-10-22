@@ -1,4 +1,6 @@
-import type { CrearRolInput, CuadroRol, EditarRolInput, RespuestaGuardarCuadro, RolCatalogo, TipoPrincipalRol } from '@operaciones/shared-types';
+import type {
+  ArbolRolRespuesta, ArbolUsuarioRespuesta, CrearRolInput, CuadroRol, EditarRolInput, RespuestaGuardarCuadro, RespuestaReemplazoComprobante, RolCatalogo, TipoEnlace,
+} from '@operaciones/shared-types';
 
 const BASE = '/api';
 
@@ -233,6 +235,13 @@ async function pedirYLeer<T>(path: string, opts: RequestInit, alRecibir?: Gancho
   if (res.status === 401 && !path.startsWith('/auth/login')) {
     const data = await res.json().catch(() => ({} as Record<string, unknown>));
     const backendMsg = typeof data?.error === 'string' ? data.error : '';
+    // EXCEPCIÓN 2 (HU #13256): `PATCH /users/:id/password` responde 401 «Contraseña actual
+    // incorrecta» cuando falla la contraseña actual, con la sesión intacta. Cerrar la sesión ahí
+    // echaría de /perfil a quien solo se equivocó al teclear. Se exige ruta Y mensaje: un token
+    // vencido en esa misma ruta trae otro texto y sigue cerrando la sesión.
+    if (/^\/users\/\d+\/password$/.test(path) && /contraseña actual/i.test(backendMsg)) {
+      throw new ApiError(401, backendMsg);
+    }
     // El backend distingue "Sesión invalidada…" (permisos cambiados por admin) del
     // resto (token expirado/ inválido). Mapeamos a un motivo legible para Login.
     endSession(/invalidad/i.test(backendMsg) ? 'invalidated' : 'expired');
@@ -467,6 +476,11 @@ export const api = {
    * no el `Response` entero: con el objeto en la mano cualquier llamador podría intentar volver a
    * leer el cuerpo —que aquí ya se está consumiendo como blob— y quedarse con un stream a medias.
    * Se invoca también en las respuestas de ERROR, igual que el resto de este gancho.
+   *
+   * `timeoutMs` (HU #12817) deja que UNA descarga pida más que el tope compartido, con el mismo
+   * techo que `postConTimeout` (`TIMEOUT_MAX_MS`, por debajo del `proxy_read_timeout` de nginx). Lo
+   * pide el ZIP de soportes: desde la #12817 el servidor lee y une los PDF de cada registro ANTES
+   * del primer byte, y con 300 registros eso pasa de los 90 s de siempre. Sin él, el de siempre.
    */
   downloadPostNamed: async (
     path: string,
@@ -474,6 +488,7 @@ export const api = {
     body?: unknown,
     aceptaNombre?: (nombre: string) => boolean,
     alLeerCabeceras?: (leer: (cabecera: string) => string | null) => void,
+    timeoutMs?: number,
   ): Promise<string> => {
     let nombre = respaldo;
     let respuesta = { ok: true, status: 200 };
@@ -482,7 +497,7 @@ export const api = {
       const declarado = nombreDeContentDisposition(res.headers.get('content-disposition'));
       nombre = declarado && (!aceptaNombre || aceptaNombre(declarado)) ? declarado : respaldo;
       alLeerCabeceras?.((cabecera) => res.headers.get(cabecera));
-    });
+    }, timeoutMs);
     if (!respuesta.ok) throw await errorVestidoDeArchivo(respuesta.status, blob);
     entregarArchivo(blob, nombre);
     return nombre;
@@ -529,7 +544,8 @@ export interface GrupoDeFunciones {
 export interface PermisosMios {
   funciones: string[];
   rol: string;
-  tipoPrincipal: TipoPrincipalRol;
+  /** HU #12875: el enlace del rol (el tipo interno/externo se retiró). */
+  tipoEnlace: TipoEnlace | null;
   version: number;
   resueltoEn: string;
 }
@@ -546,4 +562,30 @@ export const permisosApi = {
   guardarCuadro: (codigo: string, funciones: string[]) =>
     api.put<RespuestaGuardarCuadro>(`/permisos/roles/${encodeURIComponent(codigo)}/funciones`, { funciones }),
   mios: () => api.get<PermisosMios>('/permisos/mios'),
+  // HU #13430 (Feature #13416): el árbol de tres niveles que entregó la #13429. El guardado sigue por
+  // `guardarCuadro` (rol) y `PATCH /users/:id` (usuario): el árbol solo cambia cómo se pinta.
+  arbolDelRol: (codigo: string) => api.get<ArbolRolRespuesta>(`/permisos/roles/${encodeURIComponent(codigo)}/arbol`),
+  /** Guarda del módulo `usuarios` (§5-quater.10): la usa el modal de usuario con el rol que ya tiene. */
+  arbolDelUsuario: (id: number) => api.get<ArbolUsuarioRespuesta>(`/users/${id}/arbol`),
+};
+
+/** Cuerpo del 409 anti-bloqueo (ADR-0022 + #13429): `nodo` = el más alto que hay que volver a marcar. */
+export interface CuerpoAntiBloqueo { funcion?: string; nodo?: string }
+
+/** Lee el cuerpo del 409 sin fiarse de su forma; `null` si el error no es un 409. Nunca devuelve el texto del API. */
+export function cuerpoAntiBloqueo(e: unknown): CuerpoAntiBloqueo | null {
+  if (!(e instanceof ApiError) || e.status !== 409) return null;
+  const raw = (e.rawDetails ?? {}) as Record<string, unknown>;
+  const texto = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+  return { funcion: texto(raw.funcion), nodo: texto(raw.nodo) };
+}
+
+/** FLITO Impuestos — acciones del detalle que no caben en el CRUD genérico. */
+export const impuestosApi = {
+  /**
+   * HU #13270: reemplaza el comprobante de pago vigente (`POST …/recibos/reemplazar-pago`, HU #13269).
+   * Multipart `archivo`, mismo patrón que la carga por fase. Solo el id opaco va en la URL.
+   */
+  reemplazarComprobantePago: (impuestoId: string, archivo: File) =>
+    api.upload<RespuestaReemplazoComprobante>(`/flito/impuestos/${encodeURIComponent(impuestoId)}/recibos/reemplazar-pago`, archivo, 'archivo'),
 };

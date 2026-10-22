@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { QueryBuilder, type PgSelect } from 'drizzle-orm/pg-core';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { testToken, type TestRole } from '../helpers/auth.js';
+import { indicePrimerNivel } from '../helpers/sql-ligado.js';
 
 const kdb = createKeyedDb();
 
@@ -37,15 +38,15 @@ vi.mock('../../src/shared/pii-audit.js', () => ({ logPiiAccess: vi.fn().mockReso
 
 const gd = await import('../../src/modules/finanzas/finanzas.gastos-diarios.js');
 const {
-  aCentavos, CANTIDAD_LOGISTICA, deCentavos, DIA_DERECHO, DIA_IMPUESTO, DIA_LOGISTICA, DIA_SOAT,
-  empresasIds, ensamblarDerecho, ensamblarImpuesto, ensamblarLogistica, ensamblarSoat,
+  aCentavos, CANTIDAD_LOGISTICA, deCentavos, DIA_DERECHO, DIA_IMPUESTO, DIA_LOGISTICA, DIA_SERVICIOS, DIA_SOAT,
+  empresasIds, ensamblarDerecho, ensamblarImpuesto, ensamblarLogistica, ensamblarServicios, ensamblarSoat,
   gastosDiarios, resolverRango, seleccion, serieDe, sumarDias, totalesDe,
 } = gd;
 const servicio = await import('../../src/modules/finanzas/finanzas.service.js');
 const { EXPR_LOGISTICA, EXPR_LOGISTICA_ESTIMADA, conJoins } = servicio;
 const { TASA_GMF } = await import('../../src/modules/flito-liquidacion/flito-liquidacion.service.js');
 const schema = await import('../../src/db/schema.js');
-const { flitoDerechosTramite, flitoImpuestos, flitoSoat, flitoTramites } = schema;
+const { flitoDerechosTramite, flitoImpuestos, flitoSoat, flitoTramites, flitoTramiteServiciosAdicionales } = schema;
 const { logPiiAccess } = await import('../../src/shared/pii-audit.js');
 const { GASTOS_DIARIOS_RANGO_DEFAULT_DIAS, GASTOS_DIARIOS_RANGO_MAX_DIAS } = await import('@operaciones/shared-types');
 
@@ -68,15 +69,21 @@ const SQL_IMPUESTO = (r = RANGO, e?: string[]) =>
   ensamblarImpuesto(abrir(seleccion(DIA_IMPUESTO, flitoImpuestos.valorPagado), flitoImpuestos), r, e).toSQL();
 const SQL_DERECHO = (r = RANGO, e?: string[]) =>
   ensamblarDerecho(abrir(seleccion(DIA_DERECHO, flitoDerechosTramite.valor), flitoDerechosTramite), r, e).toSQL();
+const SQL_SERVICIOS = (r = RANGO, e?: string[]) =>
+  ensamblarServicios(abrir(seleccion(DIA_SERVICIOS, flitoTramiteServiciosAdicionales.valor), flitoTramiteServiciosAdicionales), r, e).toSQL();
 const SQL_LOGISTICA = (r = RANGO, e?: string[]) =>
   ensamblarLogistica(abrir(seleccion(DIA_LOGISTICA, EXPR_LOGISTICA_ESTIMADA, CANTIDAD_LOGISTICA), flitoTramites), r, e).toSQL();
 const LAS_CINCO = () => ({
-  soat: SQL_SOAT(), impuesto: SQL_IMPUESTO(), derecho: SQL_DERECHO(), logistica: SQL_LOGISTICA(),
+  soat: SQL_SOAT(), impuesto: SQL_IMPUESTO(), derecho: SQL_DERECHO(), servicios: SQL_SERVICIOS(), logistica: SQL_LOGISTICA(),
 });
 
 /** El SQL de una expresión suelta, para afirmar que la sub-consulta lo contiene tal cual. */
-const render = (expr: unknown, tabla: Tabla = flitoTramites) =>
-  new QueryBuilder().select({ x: expr as never }).from(tabla).toSQL().sql.replace(/^select /, '').replace(/ from .*$/s, '');
+// El corte es en el ` from ` de PRIMER NIVEL: desde la HU #12653 la logística estimada lleva una
+// subconsulta escalar con su propio `from "flito_comprobantes"`.
+const render = (expr: unknown, tabla: Tabla = flitoTramites) => {
+  const sql = new QueryBuilder().select({ x: expr as never }).from(tabla).toSQL().sql.replace(/^select /, '');
+  return sql.slice(0, indicePrimerNivel(sql, ' from '));
+};
 
 const TZ = "AT TIME ZONE 'America/Bogota'";
 // Drizzle renderiza la lista del SELECT de una consulta SIN joins con los nombres de columna pelados
@@ -94,8 +101,13 @@ async function buildApp() {
   return app;
 }
 let sub = 6100;
-const auth = async (role: TestRole = 'financiera', allowedPages?: string[]) =>
-  `Bearer ${await testToken({ sub: sub++, username: `${role}@flit.io`, role, allowedPages })}`;
+// HU #13427 (P-19): quien tiene la página recibe en la 0235 la acción «Ver los gastos diarios» (predecesor =
+// la página); el double lo replica. `sinAccion` mide la guarda nueva por separado.
+const auth = async (role: TestRole = 'financiera', allowedPages?: string[], sinAccion = false) =>
+  `Bearer ${await testToken({
+    sub: sub++, username: `${role}@flit.io`, role, allowedPages,
+    funciones: !sinAccion && allowedPages?.includes('finanzas_gastos_diarios') ? ['accion.gastos_diarios.ver'] : [],
+  })}`;
 const CON_PAGINA = ['finanzas_gastos_diarios'];
 
 beforeEach(() => {
@@ -139,13 +151,12 @@ describe('AC4 — cada categoría cuenta su evento, en día colombiano', () => {
     expect(params).toEqual(['2026-09-01', '2026-09-16']);
   });
 
-  it('Servicios adicionales (variante de release): la tabla no existe en producción, la categoría sale en cero sin consultarla', () => {
-    // La Épica #12246 aún no está en `release`: nombrar `flito_tramite_servicios_adicionales` daría
-    // 42P01 en PDN y un 500 en toda llamada. La merge completa `staging → release` restituye la consulta.
-    const fuente = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src/modules/finanzas/finanzas.gastos-diarios.ts'), 'utf8');
-    const codigo = fuente.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
-    expect(codigo).not.toMatch(/flitoTramiteServiciosAdicionales|servicios_adicionales/);
-    expect(codigo).toContain('serviciosAdicionales: []');
+  it('Servicios adicionales: asignado_en en Bogotá y una fila por servicio (COUNT(*) sobre la puente)', () => {
+    const { sql } = SQL_SERVICIOS();
+    const dia = DIA('"flito_tramite_servicios_adicionales"."asignado_en"');
+    expect(sql).toContain(`select ${pelada(dia)}, COUNT(*)::int, COALESCE(SUM("valor"), 0) from "flito_tramite_servicios_adicionales"`);
+    expect(sql.endsWith(`group by ${dia}`)).toBe(true);
+    expect(sql).not.toContain('distinct');
   });
 
   it('Logística: fecha_aprobacion en Bogotá, IS NOT NULL, SUM(EXPR_LOGISTICA_ESTIMADA), COUNT FILTER, joins lg + excepción vigente', () => {
@@ -171,11 +182,12 @@ describe('AC4 — cada categoría cuenta su evento, en día colombiano', () => {
   });
 
   it('el rango de los timestamptz es inclusivo por día colombiano: >= desde::date en Bogotá y < (hasta + 1 día) en Bogotá', () => {
-    const { soat, impuesto, logistica } = LAS_CINCO();
+    const { soat, impuesto, servicios, logistica } = LAS_CINCO();
     const rango = (col: string) =>
       `${col} >= ($1::date AT TIME ZONE $2) and ${col} < (($3::date + interval '1 day') AT TIME ZONE $4)`;
     expect(soat.sql).toContain(rango('"flito_soat"."pagado_en"'));
     expect(impuesto.sql).toContain(rango('"flito_impuestos"."pagado_en"'));
+    expect(servicios.sql).toContain(rango('"flito_tramite_servicios_adicionales"."asignado_en"'));
     // La logística lleva `$1` en el join de la excepción: sus marcadores van corridos en uno.
     expect(logistica.sql).toContain(
       `"flito_tramites"."fecha_aprobacion" >= ($2::date AT TIME ZONE $3) and "flito_tramites"."fecha_aprobacion" < (($4::date + interval '1 day') AT TIME ZONE $5)`,
@@ -192,7 +204,7 @@ describe('AC4 — cada categoría cuenta su evento, en día colombiano', () => {
 });
 
 describe('AC6 — filtro de cliente por empresa (RN-07)', () => {
-  it('impuesto y derecho filtran con EXISTS al trámite por tramite_id y compania_nit IN (...)', () => {
+  it('impuesto, derecho y servicios filtran con EXISTS al trámite por tramite_id y compania_nit IN (...)', () => {
     const exists = (tabla: string) =>
       `EXISTS (SELECT 1 FROM "flito_tramites" WHERE "flito_tramites"."id" = "${tabla}"."tramite_id" AND "flito_tramites"."compania_nit" in ($3, $4))`;
     const imp = SQL_IMPUESTO(RANGO, EMPRESAS);
@@ -201,6 +213,9 @@ describe('AC6 — filtro de cliente por empresa (RN-07)', () => {
     const der = SQL_DERECHO(RANGO, EMPRESAS);
     expect(der.sql).toContain(exists('flito_derechos_tramite'));
     expect(der.params).toEqual(['2026-09-01', '2026-09-16', ...EMPRESAS]);
+    const srv = SQL_SERVICIOS(RANGO, EMPRESAS);
+    expect(srv.sql.replace(/\$5, \$6/, '$3, $4')).toContain(exists('flito_tramite_servicios_adicionales'));
+    expect(srv.params.slice(-2)).toEqual(EMPRESAS);
   });
 
   it('la logística filtra sobre el propio trámite: "flito_tramites"."compania_nit" in (...)', () => {
@@ -223,7 +238,7 @@ describe('AC6 — filtro de cliente por empresa (RN-07)', () => {
     for (const vacio of [undefined, []]) {
       for (const [nombre, { sql }] of Object.entries({
         soat: SQL_SOAT(RANGO, empresasIds(vacio, MAESTRO)), impuesto: SQL_IMPUESTO(RANGO, vacio),
-        derecho: SQL_DERECHO(RANGO, vacio), logistica: SQL_LOGISTICA(RANGO, vacio),
+        derecho: SQL_DERECHO(RANGO, vacio), servicios: SQL_SERVICIOS(RANGO, vacio), logistica: SQL_LOGISTICA(RANGO, vacio),
       })) {
         expect(sql, nombre).not.toContain('compania_nit');
         expect(sql, nombre).not.toContain('compania_id" in');
@@ -257,9 +272,15 @@ describe('AC5 — EXPR_LOGISTICA_ESTIMADA compartida con el reporte (RN-02)', ()
   // compartida `RAMAS_LOGISTICA_ESTIMADA`— saldría `"lg"."valor"` donde antes salía `"valor"`; ese
   // contexto no existe en producción (la expresión referencia `clients`, `lg` y `flito_liquidaciones`,
   // que solo están tras `conJoins`).
+  // Desde la HU #12627 el ELSE sin sellar es tarifa + Σ viajes adicionales (D5, Épica #12244), y entra
+  // en la instancia compartida a propósito: gastos diarios y reporte siguen estimando lo mismo (RN-02).
+  // Desde la HU #12653 (F3, decisión 5 del 2026-09-17) el viaje 1 es COALESCE(documental, tarifa): la
+  // instancia compartida hace que gastos diarios también estime con el comprobante de pago aplicado.
+  // El COALESCE envuelve SOLO el viaje 1; la Σ de viajes adicionales queda fuera. Render exacto.
+  const DOC_LG = `(select "flito_comprobantes"."valor" from "flito_comprobantes" where "flito_comprobantes"."tramite_id" = "flito_tramites"."id" and "flito_comprobantes"."concepto" = 'logistica' and "flito_comprobantes"."estado" = 'aplicado' and "flito_comprobantes"."es_pago" = true limit 1)`;
   const EXPR_LOGISTICA_BASE = `select CASE WHEN "flito_liquidaciones"."id" IS NOT NULL THEN "flito_liquidaciones"."valor_logistica"
   WHEN NOT (NOT COALESCE("clients"."logistica_autogestionable", false) OR ("flito_excepciones_autogestion"."id" IS NOT NULL)) THEN NULL
-  ELSE "lg"."valor" END`;
+  ELSE COALESCE(${DOC_LG}, "lg"."valor") + COALESCE((SELECT SUM("flito_tramite_viajes_logistica"."valor") FROM "flito_tramite_viajes_logistica" WHERE "flito_tramite_viajes_logistica"."tramite_id" = "flito_tramites"."id"), 0) END`;
 
   it('EXPR_LOGISTICA renderiza EXACTAMENTE igual que antes del refactor en el contexto del reporte (no regresión)', () => {
     const sql = conJoins(abrir({ x: EXPR_LOGISTICA }, flitoTramites)).toSQL().sql;
@@ -267,11 +288,12 @@ describe('AC5 — EXPR_LOGISTICA_ESTIMADA compartida con el reporte (RN-02)', ()
     // Mutante «cambiar el salto de línea o el orden de las ramas»: cae aquí byte a byte.
   });
 
-  it('EXPR_LOGISTICA_ESTIMADA es la rama sin sellar: CASE WHEN NOT gestiona THEN NULL ELSE lg.valor END', () => {
+  it('EXPR_LOGISTICA_ESTIMADA es la rama sin sellar: CASE WHEN NOT gestiona THEN NULL ELSE COALESCE(documental, lg.valor) + Σ viajes END (HU #12653: la estimada hereda el COALESCE del viaje 1)', () => {
     expect(render(EXPR_LOGISTICA_ESTIMADA)).toBe(
       `CASE WHEN NOT (NOT COALESCE("clients"."logistica_autogestionable", false) OR ("flito_excepciones_autogestion"."id" IS NOT NULL)) THEN NULL
-  ELSE "lg"."valor" END`,
+  ELSE COALESCE(${DOC_LG}, "lg"."valor") + COALESCE((SELECT SUM("flito_tramite_viajes_logistica"."valor") FROM "flito_tramite_viajes_logistica" WHERE "flito_tramite_viajes_logistica"."tramite_id" = "flito_tramites"."id"), 0) END`,
     );
+    // Mutante «COALESCE(documental, tarifa + Σ viajes)» o «sin Σ viajes tras el COALESCE»: cae arriba byte a byte.
     expect(render(EXPR_LOGISTICA_ESTIMADA)).not.toContain('flito_liquidaciones');
     // Y es la MISMA instancia que compone EXPR_LOGISTICA: su render está contenido en el del reporte.
     expect(EXPR_LOGISTICA_BASE).toContain(render(EXPR_LOGISTICA_ESTIMADA).replace(/^CASE /, ''));
@@ -279,8 +301,9 @@ describe('AC5 — EXPR_LOGISTICA_ESTIMADA compartida con el reporte (RN-02)', ()
 
   it('el dashboard suma exactamente esa constante (el SQL de la sub-consulta contiene su render)', () => {
     // Con `lg` en los joins, `"valor"` se califica como `"lg"."valor"`: se compara el render en el mismo contexto.
-    const enContexto = ensamblarLogistica(abrir({ x: EXPR_LOGISTICA_ESTIMADA }, flitoTramites), RANGO, undefined).toSQL().sql
-      .replace(/^select /, '').replace(/ from .*$/s, '');
+    const conJoinsSql = ensamblarLogistica(abrir({ x: EXPR_LOGISTICA_ESTIMADA }, flitoTramites), RANGO, undefined).toSQL().sql
+      .replace(/^select /, '');
+    const enContexto = conJoinsSql.slice(0, indicePrimerNivel(conJoinsSql, ' from '));
     expect(SQL_LOGISTICA().sql).toContain(`COALESCE(SUM(${enContexto}), 0)`);
     expect(enContexto).toContain('"lg"."valor"');
   });
@@ -413,6 +436,13 @@ describe('AC2 — la ruta y su guarda', () => {
     expect(res.body.error).toEqual(expect.any(String));
   });
 
+  it('HU #13427 (P-19): con la página y sin la acción «Ver los gastos diarios» → 403 de la operación nueva', async () => {
+    const app = await buildApp();
+    const res = await request(app).get('/api/finanzas/gastos-diarios').set('Authorization', await auth('financiera', CON_PAGINA, true));
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({ funcion: 'finanzas.gastos_diarios.ver' });
+  });
+
   it('401 sin token', async () => {
     const app = await buildApp();
     expect((await request(app).get('/api/finanzas/gastos-diarios')).status).toBe(401);
@@ -423,6 +453,7 @@ describe('AC2 — la ruta y su guarda', () => {
       .select('flito_soat', [{ dia: '2026-09-02', cantidad: 2, valor: '100000.00' }])
       .select('flito_impuestos', [{ dia: '2026-09-03', cantidad: '1', valor: '50000.00' }])
       .select('flito_derechos_tramite', [{ dia: '2026-09-03', cantidad: 1, valor: '30000.00' }])
+      .select('flito_tramite_servicios_adicionales', [{ dia: '2026-09-01', cantidad: 3, valor: '15000.00' }])
       .select('flito_tramites', [{ dia: '2026-09-16', cantidad: 1, valor: '20000.00' }]);
     const app = await buildApp();
     const res = await request(app)
@@ -438,7 +469,7 @@ describe('AC2 — la ruta y su guarda', () => {
     expect(res.body.totales).toEqual({
       soat: { cantidad: 2, valor: '100000.00' }, impuesto: { cantidad: 1, valor: '50000.00' },
       derecho: { cantidad: 1, valor: '30000.00' }, logistica: { cantidad: 1, valor: '20000.00' },
-      serviciosAdicionales: { cantidad: 0, valor: '0.00' }, base: '200000.00', gmfEstimado: '800.00', total: '200800.00',
+      serviciosAdicionales: { cantidad: 3, valor: '15000.00' }, base: '215000.00', gmfEstimado: '860.00', total: '215860.00',
     });
     // AC8: la respuesta son días, cantidades y valores; nada más.
     expect(Object.keys(res.body).sort()).toEqual(['desde', 'hasta', 'serie', 'totales']);
@@ -454,21 +485,22 @@ describe('AC2 — la ruta y su guarda', () => {
     expect(res.body.serie.map((d: { dia: string }) => d.dia)).toEqual(['2026-09-10', '2026-09-11', '2026-09-12']);
   });
 
-  it('la pila de middlewares de la ruta lleva requirePage y NO requireRole/LECTURA (y el archivo sigue con un solo requireRole)', async () => {
+  it('la pila de middlewares de la ruta lleva requirePage + la acción propia (HU #13427) y NO la lectura del reporte (y el archivo ya no tiene requireRole, HU #13422)', async () => {
     const { default: router } = await import('../../src/modules/finanzas/finanzas.routes.js');
     const capa = (router as unknown as { stack: Array<{ route?: { path: string; stack: Array<{ handle: () => void }> } }> }).stack
       .find((l) => l.route?.path === '/gastos-diarios')!.route!;
     // Los handlers son closures anónimos: se compara su CÓDIGO con el que fabrican `requirePage` y
     // `requireRole` (cada llamada crea una closure nueva, así que la identidad no sirve).
-    expect(capa.stack).toHaveLength(2);
+    expect(capa.stack).toHaveLength(3);
     const { requireRole } = await import('../../src/shared/middleware/auth.js');
     const { requirePage } = await import('../../src/shared/permissions.js');
     const guarda = capa.stack[0]!.handle.toString();
     expect(guarda).toBe(requirePage('finanzas_gastos_diarios').toString());
     expect(guarda).not.toBe(requireRole('admin').toString());
     const fuente = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src/modules/finanzas/finanzas.routes.ts'), 'utf8');
-    expect(fuente.match(/requireRole\(/g)).toHaveLength(1);
-    expect(fuente).toMatch(/router\.get\('\/gastos-diarios', requirePage\('finanzas_gastos_diarios'\)/);
+    expect(fuente.match(/requireRole\(/g)).toBeNull();
+    expect(fuente).toMatch(/router\.get\('\/gastos-diarios', requirePage\('finanzas_gastos_diarios'\), exigirFuncion\('finanzas\.gastos_diarios\.ver'\),/);
+    expect(fuente).not.toMatch(/router\.get\('\/gastos-diarios',[^\n]*reporte_costos/);
   });
 
   it('400 de rango con el nombre del parámetro (no 500 ni «todo el histórico»)', async () => {
@@ -504,10 +536,9 @@ describe('AC8 — sin PII y sin escritura', () => {
     expect(fuente).toMatch(/Sin registro PII/);
   });
 
-  it('gastosDiarios() dispara las cuatro sub-consultas y el maestro, y nada más (con el mock keyed-db)', async () => {
+  it('gastosDiarios() dispara las cinco sub-consultas y el maestro, y nada más (con el mock keyed-db)', async () => {
     const r = await gastosDiarios(RANGO, EMPRESAS);
     expect(r.serie).toHaveLength(16);
     expect(r.totales.total).toBe('0.00');
-    expect(r.totales.serviciosAdicionales).toEqual({ cantidad: 0, valor: '0.00' });
   });
 });

@@ -2,10 +2,12 @@
 // ruta de carpeta dentro del ZIP deja de ser un dato que solo el API conoce: viaja en el campo
 // opcional `rutas` del multipart, uno por archivo y en el mismo orden.
 //
-// Lo que se vigila aquí es justo el fallo silencioso que este cambio puede provocar: que la marca
-// de agua se deduzca del checkbox en vez de la carpeta y NADIE se entere (200, sin error, y
-// mintiendo). Por eso el aserto no mira la respuesta —que no dice nada de la marca— sino el `tipo`
-// con el que el soporte se PERSISTE: `recibo_impuesto_sin_marca` vs `recibo_impuesto`.
+// Lo que se vigila aquí es justo el fallo silencioso que este cambio puede provocar: que la fase
+// (HU #12590: liquidación del impuesto = sin marca; pago con marca) se deduzca del defecto en vez
+// de la carpeta y NADIE se entere (200, sin error, y mintiendo). Por eso el aserto no mira la
+// respuesta sino el `tipo` con el que el soporte se PERSISTE, con las constantes del catálogo:
+// `TipoSoporte.RECIBO_IMPUESTO_SIN_MARCA_AGUA` (liquidación) vs `TipoSoporte.RECIBO_IMPUESTO` (pago).
+// El defecto sigue viajando como `sinMarcaDeAgua` por compatibilidad con el navegador de hoy.
 //
 // Cubre: (a) rutas emparejadas → manda la carpeta, en las dos direcciones; (b) sin rutas → defecto
 // del checkbox, como hoy; (c) cardinalidad desalineada → defecto, sin excepción; (d) ZIP subido al
@@ -18,7 +20,7 @@ import express from 'express';
 import JSZip from 'jszip';
 import { chain } from '../helpers/db.js';
 import { testToken } from '../helpers/auth.js';
-import { CampoImpuesto, CampoSoat } from '@operaciones/shared-types';
+import { CampoImpuesto, CampoSoat, TipoSoporte } from '@operaciones/shared-types';
 
 const selectMock = vi.fn();
 const insertMock = vi.fn();
@@ -51,14 +53,15 @@ beforeEach(() => {
   insertados = [];
 });
 
-const TIPO_CON_MARCA = 'recibo_impuesto';
-const TIPO_SIN_MARCA = 'recibo_impuesto_sin_marca';
+const TIPO_CON_MARCA: string = TipoSoporte.RECIBO_IMPUESTO;
+const TIPO_SIN_MARCA: string = TipoSoporte.RECIBO_IMPUESTO_SIN_MARCA_AGUA;
 
 const campo = (valor: string | null, confianza: number) => ({ valor, confianza, confiable: confianza >= 0.85 });
 const UUID = '00000000-0000-0000-0000-0000000000dd';
 const candidato = {
   impuestoId: UUID, estado: 'solicitado', organismoCodigo: '08001', tramiteIdFlit: 'FLIT-1', tramiteId: 't1',
   placa: 'QTQ100', companiaId: 1, carpeta: null, valorLiquidado: '500000', diferenciaActiva: false, tolerancia: '0',
+  liquidadoEn: null,
 };
 const reciboOk = {
   [CampoImpuesto.PLACA]: campo('QTQ100', 0.95),
@@ -179,7 +182,10 @@ describe('HU #12056 — la ruta del ZIP viaja en la tanda', () => {
 
   it('(c) menos rutas que archivos: defecto del checkbox para TODOS, sin excepción', async () => {
     mockHashesLibresLuegoCandidato(2);
-    extraerMock.mockResolvedValue(reciboOk);
+    // Dos placas: con la misma y la misma fase, la HU #12614 (AC5) los trataría como par de un impuesto.
+    extraerMock.mockImplementation(async (doc: { nombreArchivo: string }) => ({
+      ...reciboOk, [CampoImpuesto.PLACA]: campo(doc.nombreArchivo === 'ABC123.pdf' ? 'QTQ100' : 'QTQ200', 0.95),
+    }));
     mockTxOk();
     const r = await postRecibos({
       nombres: ['ABC123.pdf', 'ABC123-2.pdf'],
@@ -244,6 +250,103 @@ describe('HU #12056 — la ruta del ZIP viaja en la tanda', () => {
     expect(JSON.stringify(uploadMock.mock.calls[0])).not.toContain('etc/passwd');
     expect(JSON.stringify(insertados)).not.toContain('etc/passwd');
     expect(JSON.stringify(r.body)).not.toContain('etc/passwd');
+  });
+});
+
+// ═════════════════ HU #12614 (AC6) · vocabulario de carpetas y carpetas sin fase ═════════════════
+// La regla de carpetas vive en `faseDeCarpeta` (flito-recibos.fase.ts) y se prueba en tabla aparte;
+// aquí se comprueba POR HTTP que es esa la que decide el `tipo` persistido y que `carpetasSinFase`
+// llega en el body. `extraerMock` no trae `selloPagado` → duda (AC4) → la vigilancia no interfiere.
+// Mutante M4 del AC7: si la regla evaluara liquidación antes que pago, `liquidaciones_pagadas/`
+// caería a `recibo_impuesto_sin_marca_agua` en el primer caso.
+describe('HU #12614 (AC6) — la carpeta declara la fase; pago manda; carpetas sin fase se avisan', () => {
+  it.each([
+    ['liquidaciones_pagadas/ABC123.pdf', true, TIPO_CON_MARCA],   // M4: pago antes que liquidación
+    ['originales_pagadas/ABC123.pdf', true, TIPO_CON_MARCA],
+    ['pagos/ABC123.pdf', true, TIPO_CON_MARCA],
+    ['marca de agua/ABC123.pdf', true, TIPO_CON_MARCA],
+    ['liquidaciones_originales/ABC123.pdf', false, TIPO_SIN_MARCA],
+    ['liquidaciones/ABC123.pdf', false, TIPO_SIN_MARCA],           // vocabulario nuevo: antes caía al defecto
+    ['originales/ABC123.pdf', false, TIPO_SIN_MARCA],
+    ['SIN MARCA DE AGUA/ABC123.pdf', false, TIPO_SIN_MARCA],        // TC-24: la negación va antes que «marca de agua»
+    ['sin_marca_de_agua/ABC123.pdf', false, TIPO_SIN_MARCA],
+  ])('ruta %s (defecto sinMarca=%s) → tipo %s y carpetasSinFase []', async (ruta, sinMarca, tipo) => {
+    mockHashesLibresLuegoCandidato(1);
+    extraerMock.mockResolvedValue(reciboOk);
+    mockTxOk();
+    const r = await postRecibos({ nombres: ['ABC123.pdf'], sinMarca, rutas: [ruta] });
+    expect(r.status).toBe(200);
+    expect(tiposPersistidos().get('ABC123.pdf')).toBe(tipo);
+    expect(r.body.carpetasSinFase).toEqual([]);
+  });
+
+  it('carpeta sin palabra de fase → fase declarada, y `carpetasSinFase` con el primer segmento SIN repetidos', async () => {
+    mockHashesLibresLuegoCandidato(3);
+    // Tres placas: con la misma, la HU #12614 (AC5) los agruparía como par de un impuesto.
+    extraerMock.mockImplementation(async (doc: { nombreArchivo: string }) => ({
+      ...reciboOk, [CampoImpuesto.PLACA]: campo(`QTQ10${doc.nombreArchivo.replace(/\D/g, '').slice(-1)}`, 0.95),
+    }));
+    mockTxOk();
+    const r = await postRecibos({
+      nombres: ['ABC121.pdf', 'ABC122.pdf', 'ABC123.pdf'],
+      sinMarca: true,
+      rutas: ['otros/2026/ABC121.pdf', 'otros/ABC122.pdf', 'varios/ABC123.pdf'],
+    });
+    expect(r.status).toBe(200);
+    const tipos = tiposPersistidos();
+    for (const n of ['ABC121.pdf', 'ABC122.pdf', 'ABC123.pdf']) expect(tipos.get(n), n).toBe(TIPO_SIN_MARCA);
+    expect(r.body.carpetasSinFase).toEqual(['otros', 'varios']);
+  });
+
+  it('un suelto sin ruta (o en la raíz del ZIP) no es una carpeta: `carpetasSinFase` vacío', async () => {
+    mockHashesLibresLuegoCandidato(1);
+    extraerMock.mockResolvedValue(reciboOk);
+    mockTxOk();
+    const r = await postRecibos({ nombres: ['ABC123.pdf'], sinMarca: false });
+    expect(r.status).toBe(200);
+    expect(r.body.carpetasSinFase).toEqual([]);
+    expect(r.body.faseNoCoincide).toEqual([]);
+  });
+
+  it('contrato HTTP: `faseNoCoincide` viaja en el body con la forma de ItemRecibo', async () => {
+    selectMock.mockReturnValueOnce(chain([]));          // hash
+    selectMock.mockReturnValueOnce(chain([candidato])); // candidato; el rechazo no llega al dedup nº
+    insertMock.mockReturnValue(chain([]));              // auditoría del rechazo (db.insert, sin tx)
+    extraerMock.mockResolvedValue({ ...reciboOk, [CampoImpuesto.SELLO_PAGADO]: campo('false', 0.95) });
+    mockTxOk();
+    const r = await postRecibos({ nombres: ['ABC123.pdf'], sinMarca: false, rutas: ['otros/ABC123.pdf'] });
+    expect(r.status).toBe(200);
+    expect(r.body.faseNoCoincide).toHaveLength(1);
+    expect(r.body.faseNoCoincide[0]).toEqual({
+      archivo: 'ABC123.pdf', placa: 'QTQ100', idFlit: 'FLIT-1', registroId: UUID, detalle: 'No se ve el sello PAGADO; súbelo con la fase Liquidación.',
+    });
+    expect(r.body.carpetasSinFase).toEqual(['otros']);
+    for (const k of ['conciliados', 'enRevision', 'duplicados', 'complementos', 'noAsociados', 'liquidados']) expect(r.body[k], k).toEqual([]);
+    expect(insertados).toHaveLength(0);
+    expect(uploadMock).not.toHaveBeenCalled();
+  });
+
+  it('ZIP con liquidaciones_originales/ y liquidaciones_pagadas/ de la misma placa, sellos coherentes → 1 conciliado', async () => {
+    selectMock.mockReturnValueOnce(chain([]));   // hash liq
+    selectMock.mockReturnValueOnce(chain([]));   // hash pago
+    selectMock.mockReturnValueOnce(chain([{ ...candidato, valorLiquidado: null }]));  // liq: candidato
+    selectMock.mockReturnValueOnce(chain([]));                                          // liq: dedup nº
+    selectMock.mockReturnValueOnce(chain([{ ...candidato, liquidadoEn: new Date() }])); // pago: candidato ya liquidado
+    selectMock.mockReturnValueOnce(chain([]));                                          // pago: dedup nº
+    extraerMock.mockImplementation(async (doc: { contenido: Buffer }) => (doc.contenido.toString() === '%PDF-liq'
+      ? { ...reciboOk, [CampoImpuesto.NUMERO_RECIBO]: campo('L-1', 0.95), [CampoImpuesto.SELLO_PAGADO]: campo('false', 0.95) }
+      : { ...reciboOk, [CampoImpuesto.NUMERO_RECIBO]: campo('P-1', 0.95), [CampoImpuesto.SELLO_PAGADO]: campo('true', 0.95) }));
+    mockTxOk();
+    const zip = await zipCon({ 'liquidaciones_originales/ABC123.pdf': '%PDF-liq', 'liquidaciones_pagadas/ABC123.pdf': '%PDF-pag' });
+    const r = await postRecibos({ nombres: ['lote.zip'], buffers: [zip], sinMarca: false });
+    expect(r.status).toBe(200);
+    // Mismo nombreArchivo en las dos entradas: se asertan los tipos como lista, no por nombre.
+    const tipos = insertados.filter((v) => typeof v.tipo === 'string' && typeof v.nombreArchivo === 'string').map((v) => v.tipo).sort();
+    expect(tipos).toEqual([TIPO_CON_MARCA, TIPO_SIN_MARCA].sort());
+    expect(r.body.conciliados).toHaveLength(1);
+    expect(r.body.liquidados).toHaveLength(0);
+    expect(r.body.faseNoCoincide).toHaveLength(0);
+    expect(r.body.carpetasSinFase).toEqual([]);
   });
 });
 

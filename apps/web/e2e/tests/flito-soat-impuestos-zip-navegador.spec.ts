@@ -132,15 +132,18 @@ function zipMentirosoDe200MB(): Promise<Buffer> {
  * `archivos` (por su `filename`) y `rutas` (por su valor), CADA UNO EN SU ORDEN DE APARICIÓN en el
  * cuerpo multipart. Emparejarlos por índice es exactamente lo que hace multer al otro lado.
  */
-function multipart(postData: string | null): { archivos: string[]; rutas: string[]; sinMarca: string } {
+function multipart(postData: string | null): { archivos: string[]; rutas: string[]; fase: string; sinMarca: string | null } {
   const cuerpo = postData ?? '';
   const archivos = [...cuerpo.matchAll(/name="archivos";\s*filename="([^"]*)"/g)].map((m) => m[1]);
   // `([^\r\n]*)` con `*`, no `+`: el valor de un archivo suelto es la cadena VACÍA y tiene que
   // contarse como un valor más, no desaparecer del array. Si desapareciera, este helper mentiría
   // justo en el caso que más duele: la cardinalidad.
   const rutas = [...cuerpo.matchAll(/name="rutas"\r?\n\r?\n([^\r\n]*)/g)].map((m) => m[1]);
-  const sinMarca = /name="sinMarcaDeAgua"\r?\n\r?\n([^\r\n]*)/.exec(cuerpo)?.[1] ?? '';
-  return { archivos, rutas, sinMarca };
+  // HU #12592: la fase viaja en `fase`; `sinMarcaDeAgua` ya no se manda y se devuelve como
+  // `null` cuando no viene, para poder asertar que NO viene.
+  const fase = /name="fase"\r?\n\r?\n([^\r\n]*)/.exec(cuerpo)?.[1] ?? '';
+  const sinMarca = /name="sinMarcaDeAgua"\r?\n\r?\n([^\r\n]*)/.exec(cuerpo)?.[1] ?? null;
+  return { archivos, rutas, fase, sinMarca };
 }
 
 async function mockSoat(page: import('@playwright/test').Page) {
@@ -174,7 +177,13 @@ for (let i = 1; i <= 12; i++) {
   const carpeta = i % 2 === 0 ? 'CON MARCA' : 'SIN MARCA';
   DOCE_RECIBOS[`${carpeta}/recibo-${i}.pdf`] = `%PDF-1.4 recibo ${i}`;
 }
-const RUTAS_ESPERADAS = Object.keys(DOCE_RECIBOS);
+// HU #12615 (AC1): Impuestos manda el lote con las liquidaciones DELANTE, estable. Con el selector
+// en Pago (defecto), «SIN MARCA» (liquidación) sale primero y «CON MARCA» después, cada grupo en
+// el orden del índice. SOAT no reordena (ver «SOAT: el mismo ZIP…»).
+const RUTAS_ESPERADAS = [
+  ...Object.keys(DOCE_RECIBOS).filter((r) => r.startsWith('SIN MARCA/')),
+  ...Object.keys(DOCE_RECIBOS).filter((r) => r.startsWith('CON MARCA/')),
+];
 
 test.describe('HU #12056 — el ZIP se abre en el navegador', () => {
   test('Impuestos: UN ZIP de 12 recibos sale en 3 POST de 5, 5 y 2', async ({ page }) => {
@@ -221,6 +230,113 @@ test.describe('HU #12056 — el ZIP se abre en el navegador', () => {
     expect(tandas.flatMap((t) => t.rutas)).toEqual(RUTAS_ESPERADAS);
   });
 
+  // HU #12615 — AC1. El API ya ordena DENTRO de cada tanda, pero una tanda es de 5: si el índice del
+  // ZIP lista «liquidaciones_pagadas/» antes que «liquidaciones_originales/», el pago de una placa
+  // llegaría en la tanda 1 y su liquidación en la 3, y el pago se rechazaría por no tener
+  // liquidación previa. El lote entero se ordena en el navegador antes de partirlo.
+  // *Mutante M-orden:* quitar `liquidacionesPrimero` de `enviarCargaEnTandas` → la tanda 1 lleva las pagadas.
+  test('HU #12615 TC-01 · Impuestos: con «liquidaciones_pagadas/» ANTES en el índice, la tanda 1 lleva las originales', async ({ page }) => {
+    const modal = await abrirModalImpuestos(page);
+    const tandas: ReturnType<typeof multipart>[] = [];
+    await page.route(/\/api\/flito\/impuestos\/recibos$/, async (route) => {
+      tandas.push(multipart(route.request().postData()));
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(OK_RECIBOS) });
+    });
+
+    const entradas: Record<string, string> = {};
+    for (let i = 1; i <= 6; i++) entradas[`liquidaciones_pagadas/recibo-${i}.pdf`] = `%PDF-1.4 pago ${i}`;
+    for (let i = 1; i <= 6; i++) entradas[`liquidaciones_originales/recibo-${i}.pdf`] = `%PDF-1.4 liq ${i}`;
+    await modal.locator('input[type="file"]').setInputFiles([archivoZip('agosto.zip', await zipCon(entradas))]);
+    await expect(modal.getByText(/^12 archivos de «agosto\.zip» · /)).toBeVisible();
+    // Las dos carpetas declaran fase: ningún aviso de carpeta sin fase.
+    await expect(modal.getByText(/no dice si son liquidaciones o pagos/)).toHaveCount(0);
+    await modal.getByRole('button', { name: 'Subir y procesar' }).click();
+    await expect(modal.getByRole('button', { name: 'Listo' })).toBeVisible();
+
+    expect(tandas.map((t) => t.archivos.length)).toEqual([5, 5, 2]);
+    expect(tandas[0].rutas).toEqual([1, 2, 3, 4, 5].map((i) => `liquidaciones_originales/recibo-${i}.pdf`));
+    expect(tandas[1].rutas).toEqual([
+      'liquidaciones_originales/recibo-6.pdf',
+      ...[1, 2, 3, 4].map((i) => `liquidaciones_pagadas/recibo-${i}.pdf`),
+    ]);
+    expect(tandas[2].rutas).toEqual([5, 6].map((i) => `liquidaciones_pagadas/recibo-${i}.pdf`));
+    // Cardinalidad y emparejamiento sobreviven al reorden.
+    for (const tanda of tandas) {
+      expect(tanda.rutas).toHaveLength(tanda.archivos.length);
+      for (const [i, ruta] of tanda.rutas.entries()) expect(ruta.endsWith(`/${tanda.archivos[i]}`)).toBe(true);
+    }
+    expect(tandas.every((t) => t.fase === 'pago')).toBe(true);
+  });
+
+  // *Mutante M6:* ordenar alfabéticamente por ruta → «2026/d.pdf» saldría primero; aquí sale con su
+  // grupo (el de la fase del selector) y en el orden del índice.
+  test('HU #12615 TC-02 · Impuestos: la carpeta no reconocida va con el grupo de la fase seleccionada, en el orden del índice (no alfabético)', async ({ page }) => {
+    const modal = await abrirModalImpuestos(page);
+    const tandas: ReturnType<typeof multipart>[] = [];
+    await page.route(/\/api\/flito\/impuestos\/recibos$/, async (route) => {
+      tandas.push(multipart(route.request().postData()));
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(OK_RECIBOS) });
+    });
+    const zip = await zipCon({
+      'liquidaciones_pagadas/a.pdf': '%PDF-1.4 a', 'otros/b.pdf': '%PDF-1.4 b',
+      'liquidaciones_originales/c.pdf': '%PDF-1.4 c', '2026/d.pdf': '%PDF-1.4 d',
+      'liquidaciones_pagadas/e.pdf': '%PDF-1.4 e', 'liquidaciones_originales/f.pdf': '%PDF-1.4 f',
+    });
+    await modal.locator('input[type="file"]').setInputFiles([archivoZip('agosto.zip', zip)]);
+    await modal.getByRole('radio', { name: 'Liquidación' }).check();
+    await modal.getByRole('button', { name: 'Subir y procesar' }).click();
+    await expect(modal.getByRole('button', { name: 'Listo' })).toBeVisible();
+
+    expect(tandas.map((t) => t.archivos.length)).toEqual([5, 1]);
+    // Con Liquidación: «otros» y «2026» van con las originales, estable (b antes que c, d antes que f).
+    expect(tandas.flatMap((t) => t.rutas)).toEqual([
+      'otros/b.pdf', 'liquidaciones_originales/c.pdf', '2026/d.pdf', 'liquidaciones_originales/f.pdf',
+      'liquidaciones_pagadas/a.pdf', 'liquidaciones_pagadas/e.pdf',
+    ]);
+  });
+
+  test('HU #12615 TC-02b · Impuestos: con Pago, la misma carpeta no reconocida va con las pagadas', async ({ page }) => {
+    const modal = await abrirModalImpuestos(page);
+    const tandas: ReturnType<typeof multipart>[] = [];
+    await page.route(/\/api\/flito\/impuestos\/recibos$/, async (route) => {
+      tandas.push(multipart(route.request().postData()));
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(OK_RECIBOS) });
+    });
+    const zip = await zipCon({
+      'liquidaciones_pagadas/a.pdf': '%PDF-1.4 a', 'otros/b.pdf': '%PDF-1.4 b',
+      'liquidaciones_originales/c.pdf': '%PDF-1.4 c', '2026/d.pdf': '%PDF-1.4 d',
+      'liquidaciones_pagadas/e.pdf': '%PDF-1.4 e', 'liquidaciones_originales/f.pdf': '%PDF-1.4 f',
+    });
+    await modal.locator('input[type="file"]').setInputFiles([archivoZip('agosto.zip', zip)]);
+    await modal.getByRole('button', { name: 'Subir y procesar' }).click();
+    await expect(modal.getByRole('button', { name: 'Listo' })).toBeVisible();
+    expect(tandas.flatMap((t) => t.rutas)).toEqual([
+      'liquidaciones_originales/c.pdf', 'liquidaciones_originales/f.pdf',
+      'liquidaciones_pagadas/a.pdf', 'otros/b.pdf', '2026/d.pdf', 'liquidaciones_pagadas/e.pdf',
+    ]);
+  });
+
+  test('HU #12615 TC-03 · Impuestos: en selección mixta los sueltos van con el grupo de la fase seleccionada y siguen con ruta vacía', async ({ page }) => {
+    const modal = await abrirModalImpuestos(page);
+    const tandas: ReturnType<typeof multipart>[] = [];
+    await page.route(/\/api\/flito\/impuestos\/recibos$/, async (route) => {
+      tandas.push(multipart(route.request().postData()));
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(OK_RECIBOS) });
+    });
+    const zip = await zipCon({ 'SIN MARCA/1.pdf': '%PDF-1.4', 'CON MARCA/2.pdf': '%PDF-1.4', 'SIN MARCA/3.pdf': '%PDF-1.4' });
+    await modal.getByRole('radio', { name: 'Liquidación' }).check();
+    await modal.locator('input[type="file"]').setInputFiles([
+      archivoZip('agosto.zip', zip),
+      { name: 'pagado.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 suelto') },
+      { name: 'otro.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 otro') },
+    ]);
+    await modal.getByRole('button', { name: 'Subir y procesar' }).click();
+    await expect(modal.getByRole('button', { name: 'Listo' })).toBeVisible();
+    expect(tandas.map((t) => t.archivos.length)).toEqual([5]);
+    expect(tandas[0].rutas).toEqual(['SIN MARCA/1.pdf', 'SIN MARCA/3.pdf', '', '', 'CON MARCA/2.pdf']);
+    expect(tandas[0].archivos).toEqual(['1.pdf', '3.pdf', 'pagado.pdf', 'otro.pdf', '2.pdf']);
+  });
+
   // AC3 — el checkbox es el defecto de lo que NO trae carpeta, y un suelto no trae carpeta.
   test('Impuestos: en selección mixta el suelto manda ruta VACÍA, no su nombre', async ({ page }) => {
     const modal = await abrirModalImpuestos(page);
@@ -234,10 +350,10 @@ test.describe('HU #12056 — el ZIP se abre en el navegador', () => {
       'SIN MARCA/recibo-1.pdf': '%PDF-1.4 uno', 'SIN MARCA/recibo-2.pdf': '%PDF-1.4 dos',
       'SIN MARCA/recibo-3.pdf': '%PDF-1.4 tres', 'SIN MARCA/recibo-4.pdf': '%PDF-1.4 cuatro',
     });
-    await modal.getByRole('checkbox', { name: /sin marca de agua/i }).check();
-    // «pagado.pdf» es un nombre corriente de recibo y casa con la regex /pagad/ de
-    // `esSinMarcaDeAgua`. Si su nombre viajara como ruta, el API lo archivaría CON marca de agua
-    // pese al checkbox: 200, sin error, y el comprobante en la carpeta equivocada.
+    await modal.getByRole('radio', { name: 'Liquidación' }).check();
+    // «pagado.pdf» es un nombre corriente de recibo y casa con la regex /pagad/ de la carpeta
+    // en el API. Si su nombre viajara como ruta, el API lo archivaría como Pago pese al selector
+    // en Liquidación: 200, sin error, y el comprobante en la carpeta equivocada.
     await modal.locator('input[type="file"]').setInputFiles([
       archivoZip('agosto.zip', zip),
       { name: 'pagado.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 suelto') },
@@ -258,13 +374,15 @@ test.describe('HU #12056 — el ZIP se abre en el navegador', () => {
     expect(tandas[0].rutas).toEqual([
       'SIN MARCA/recibo-1.pdf', 'SIN MARCA/recibo-2.pdf',
       'SIN MARCA/recibo-3.pdf', 'SIN MARCA/recibo-4.pdf',
-      '', // ← pagado.pdf: sin carpeta que declarar, decide el checkbox
+      '', // ← pagado.pdf: sin carpeta que declarar, decide el selector de fase
     ]);
     expect(tandas[1].rutas).toEqual(['']);
 
-    // Lo que persiste el recibo suelto: `esSinMarcaDeAgua('', true) === true` (ninguna regex casa,
-    // cae al defecto), así que con el checkbox encendido se archiva SIN marca de agua.
-    expect(tandas.every((t) => t.sinMarca === 'true')).toBe(true);
+    // Lo que persiste el recibo suelto: con `''` ninguna regex de carpeta casa y el API cae a la
+    // fase del selector, así que con «Liquidación» elegida se archiva como liquidación. Y
+    // `sinMarcaDeAgua` no viaja (HU #12592): el API lo toleraría por compat, solo esto lo detecta.
+    expect(tandas.every((t) => t.fase === 'liquidacion')).toBe(true);
+    expect(tandas.every((t) => t.sinMarca === null)).toBe(true);
     expect(tandas.flatMap((t) => t.rutas)).not.toContain('pagado.pdf');
   });
 
@@ -287,6 +405,8 @@ test.describe('HU #12056 — el ZIP se abre en el navegador', () => {
     expect(tandas.map((t) => t.archivos.length)).toEqual([5, 5, 2]);
     // SOAT no lee `req.body`: mandar rutas ahí sería peso muerto en cada una de las tandas.
     expect(tandas.flatMap((t) => t.rutas)).toEqual([]);
+    // HU #12615 (TC-05): SOAT no tiene fases y NO reordena: el orden es el del índice del ZIP.
+    expect(tandas.flatMap((t) => t.archivos)).toEqual(Array.from({ length: 12 }, (_, i) => `recibo-${i + 1}.pdf`));
   });
 
   test('Impuestos: el ruido del ZIP no se cuenta y lo no procesable se avisa antes de enviar', async ({ page }) => {
@@ -400,8 +520,10 @@ test.describe('HU #12056 — el ZIP se abre en el navegador', () => {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(OK_RECIBOS) });
     });
 
+    // HU #12615 (TC-16): índice con las pagadas primero; el progreso cuenta sobre la lista reordenada.
     const entradas: Record<string, string> = {};
-    for (let i = 1; i <= 20; i++) entradas[`SIN MARCA/recibo-${i}.pdf`] = `%PDF-1.4 recibo ${i}`;
+    for (let i = 1; i <= 10; i++) entradas[`liquidaciones_pagadas/recibo-${i}.pdf`] = `%PDF-1.4 recibo ${i}`;
+    for (let i = 11; i <= 20; i++) entradas[`liquidaciones_originales/recibo-${i}.pdf`] = `%PDF-1.4 recibo ${i}`;
     await modal.locator('input[type="file"]').setInputFiles([archivoZip('agosto.zip', await zipCon(entradas))]);
     await modal.getByRole('button', { name: 'Subir y procesar' }).click();
 

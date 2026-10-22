@@ -8,12 +8,13 @@ import multer from 'multer';
 import { z } from 'zod';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
+import { alcanceDe, soloSinEnlace } from '../../shared/middleware/frontera-enlace.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { firmarDescargaEntidad } from '../../services/storage.js';
 import { storageKeySoporte } from '../flito-revisiones/flito-revisiones.service.js';
 import {
-  DerechoError, cargarDerechos, candidatosDePlaca, facetasDerechos, listarDerechos,
+  DerechoError, cargarDerechos, candidatosDePlaca, facetasDerechos, listarDerechos, soporteEnAlcance,
   type DerechoCtx,
 } from './flito-derechos.service.js';
 import {
@@ -44,8 +45,8 @@ const aArchivo = (f: Express.Multer.File): ArchivoPlano => ({
   originalname: f.originalname, mimetype: f.mimetype, buffer: f.buffer, size: f.size,
 });
 
-const contexto = (req: Request): DerechoCtx => ({
-  userId: req.user!.sub, username: req.user!.username, role: req.user!.role,
+const contexto = async (req: Request): Promise<DerechoCtx> => ({
+  userId: req.user!.sub, username: req.user!.username, role: req.user!.role, alcance: await alcanceDe(req),
 });
 
 function handleError(res: Response, e: unknown): void {
@@ -62,8 +63,16 @@ router.post('/cargar', exigirFuncion('derechos.recibos.cargar'), upload.array('a
   const organismoCodigo = typeof req.body?.organismoCodigo === 'string' && req.body.organismoCodigo.trim()
     ? req.body.organismoCodigo.trim()
     : null;
+  // HU #13426 (AC3/AC6): con enlace de organismos, la secretaría es OBLIGATORIA y tiene que ser una de
+  // las suyas; si no, 403 antes de procesar ni subir nada a storage.
+  const ctx = await contexto(req);
+  if (ctx.alcance?.enlace !== 'ninguno'
+    && !(ctx.alcance?.enlace === 'organismos_transito' && organismoCodigo && ctx.alcance.organismos.includes(organismoCodigo))) {
+    res.status(403).json({ error: 'Sin permisos' });
+    return;
+  }
   try {
-    const resultado = await cargarDerechos(files.map(aArchivo), { organismoCodigo, origen: 'manual' }, contexto(req));
+    const resultado = await cargarDerechos(files.map(aArchivo), { organismoCodigo, origen: 'manual' }, ctx);
     await audit(req, {
       action: 'upload', resource: 'flito_derecho_tramite',
       detail: `Carga de derechos de tránsito: ${resultado.registrados.length} registrados, ` +
@@ -93,12 +102,12 @@ router.get('/', exigirFuncion('derechos.cola.ver'), async (req: Request, res: Re
     organismos: listaQ(req.query.organismos), origenes: listaQ(req.query.origenes),
     conAdvertencia: req.query.conAdvertencia === 'si',
     pagadoDesde: fechaQ(req.query.pagadoDesde), pagadoHasta: fechaQ(req.query.pagadoHasta),
-  }));
+  }, await alcanceDe(req)));
 });
 
 // GET /facetas — organismos y orígenes presentes, para no ofrecer filtros vacíos.
-router.get('/facetas', exigirFuncion('derechos.cola.filtrar'), async (_req: Request, res: Response) => {
-  res.json(await facetasDerechos());
+router.get('/facetas', exigirFuncion('derechos.cola.filtrar'), async (req: Request, res: Response) => {
+  res.json(await facetasDerechos(await alcanceDe(req)));
 });
 
 
@@ -110,7 +119,8 @@ router.get('/facetas', exigirFuncion('derechos.cola.filtrar'), async (_req: Requ
 // aplicación. El resto cargan sus recibos a mano, que es lo que hacen hoy.
 
 // GET /drive/archivos — los PDF consolidados de la carpeta, para elegir el día.
-router.get('/drive/archivos', exigirFuncion('derechos.drive.listar'), async (_req: Request, res: Response) => {
+// HU #13426: la integración Drive de FLIT es operación interna → cerrada a todo enlace.
+router.get('/drive/archivos', soloSinEnlace(), exigirFuncion('derechos.drive.listar'), async (_req: Request, res: Response) => {
   try {
     res.json(await archivosDelDrive());
   } catch (e) {
@@ -124,14 +134,14 @@ router.get('/drive/archivos', exigirFuncion('derechos.drive.listar'), async (_re
 //
 // Es el motivo de que el registro exista: la carpeta la manejan personas del organismo y un
 // consolidado puede desaparecer. Consultar el Drive en vivo no serviría justo cuando importa.
-router.get('/drive/registro', exigirFuncion('derechos.drive.ver_registro'), async (_req: Request, res: Response) => {
+router.get('/drive/registro', soloSinEnlace(), exigirFuncion('derechos.drive.ver_registro'), async (_req: Request, res: Response) => {
   res.json(await registroProcesados());
 });
 
 // POST /drive/procesar — lee un consolidado y asocia sus recibos a los trámites. Bajo demanda:
 // quien opera elige el día. Un barrido automático se comería el OCR de la carpeta entera.
 const procesarSchema = z.object({ fileId: z.string().min(5) });
-router.post('/drive/procesar', exigirFuncion('derechos.drive.procesar'), async (req: Request, res: Response) => {
+router.post('/drive/procesar', soloSinEnlace(), exigirFuncion('derechos.drive.procesar'), async (req: Request, res: Response) => {
   const parsed = procesarSchema.safeParse(req.body ?? {});
   if (!parsed.success) { res.status(400).json({ error: 'Falta el archivo a procesar' }); return; }
 
@@ -141,7 +151,7 @@ router.post('/drive/procesar', exigirFuncion('derechos.drive.procesar'), async (
   if (procesando.has(fileId)) { res.status(409).json({ error: 'Ese archivo ya se está procesando' }); return; }
   procesando.add(fileId);
   try {
-    const r = await procesarArchivoDrive(fileId, contexto(req));
+    const r = await procesarArchivoDrive(fileId, await contexto(req));
     await audit(req, {
       action: 'update', resource: 'flito_derecho_tramite',
       detail: `Drive «${r.archivo}»: ${r.placasUnicas} placa(s), ${r.registrados.length} registrado(s), `
@@ -158,7 +168,8 @@ router.post('/drive/procesar', exigirFuncion('derechos.drive.procesar'), async (
 
 // GET /candidatos/:placa — trámites vivos de una placa, para elegir en la cola de revisión.
 const placaSchema = z.string().min(4).max(10);
-router.get('/candidatos/:placa', exigirFuncion('derechos.candidatos.ver'), async (req: Request, res: Response) => {
+// HU #13426 (P-2): búsqueda por placa entre todos los trámites → cerrada a todo enlace (sin oráculo).
+router.get('/candidatos/:placa', soloSinEnlace(), exigirFuncion('derechos.candidatos.ver'), async (req: Request, res: Response) => {
   const parsed = placaSchema.safeParse(req.params.placa);
   if (!parsed.success) { res.status(400).json({ error: 'Placa inválida' }); return; }
   res.json(await candidatosDePlaca(parsed.data));
@@ -166,6 +177,7 @@ router.get('/candidatos/:placa', exigirFuncion('derechos.candidatos.ver'), async
 
 // GET /soporte/:id — URL firmada para ver el PDF del recibo sin exponer el storage.
 router.get('/soporte/:id', exigirFuncion('derechos.soporte.descargar'), async (req: Request, res: Response) => {
+  if (!await soporteEnAlcance(req.params.id, await alcanceDe(req))) { res.status(404).json({ error: 'El soporte no existe' }); return; }
   const s = await storageKeySoporte(req.params.id);
   if (!s) { res.status(404).json({ error: 'El soporte no existe' }); return; }
   res.json({ url: firmarDescargaEntidad(s.storageKey), nombreArchivo: s.nombreArchivo, contentType: s.contentType });

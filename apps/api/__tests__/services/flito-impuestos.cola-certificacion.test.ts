@@ -31,7 +31,7 @@ const T_CERT = getTableName(flitoImpuestoCertificaciones);
 const T_COMPRADORES = getTableName(flitoCompradores);
 const T_SOPORTES = getTableName(flitoSoportes);
 
-const CTX = { userId: 1, username: 'ops@flitsas.io', role: 'admin', organismos: [] };
+const CTX = { userId: 1, username: 'ops@flitsas.io', role: 'admin', organismos: [], alcance: { enlace: 'ninguno' as const } };
 const ID = '71030cce-1a4c-4fb6-855d-fcc80aadc4e9';
 
 /** Fila del impuesto tal como la devuelve `buscarConAcceso` (con la frontera ya resuelta). */
@@ -98,6 +98,7 @@ describe('la cola expone la certificación vigente', () => {
       id: 'cert-1',
       certificadoEn: '2026-08-01T15:00:00.000Z',
       certificadoPorNombre: 'gestor@flitsas.io',
+      automatica: false, // HU #12830: la firmó una persona
     });
   });
 

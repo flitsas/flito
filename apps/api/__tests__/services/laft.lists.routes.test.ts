@@ -122,8 +122,10 @@ describe('GET / — catálogo de listas', () => {
 });
 
 describe('POST /:code/sync — sync automático (admin only)', () => {
-  it('compliance → 403 (sync requiere admin)', async () => {
-    const token = await testToken({ sub: 1, role: 'compliance' });
+  // HU #13429 (AC3, P-24): `laft.listas.administrar` lo expande el ítem antiguo «Cumplimiento LAFT»; compliance, que
+  // tiene el ítem, GANA el sync (ganancia aprobada). El 403 se mide con un rol sin el ítem.
+  it('sin el ítem LAFT (financiera) → 403 (sync requiere la administración de listas)', async () => {
+    const token = await testToken({ sub: 1, role: 'financiera' });
     const app = await buildApp();
     const r = await request(app).post('/api/laft/lists/OFAC/sync').set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(403);

@@ -25,6 +25,7 @@ import request from 'supertest';
 import express from 'express';
 import { chain } from '../helpers/db.js';
 import { testToken } from '../helpers/auth.js';
+import { conAlcance } from '../helpers/frontera.js';
 
 const selectMock = vi.fn();
 
@@ -46,7 +47,7 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-soat/flito-soat.routes.js');
-  app.use('/api/flito/soat', router);
+  app.use('/api/flito/soat', conAlcance('soat', router));
   return app;
 }
 const auth = async (role: string, sub = 1) => `Bearer ${await testToken({ sub, username: 'u', role: role as never })}`;

@@ -20,8 +20,8 @@ interface Location { id: number; codigo: string; nombre: string; }
 const UNIDADES = ['und', 'lt', 'gal', 'kg', 'mt', 'cm'];
 
 export default function Parts() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const { hasFuncion } = useAuth();
+  const isAdmin = hasFuncion('maintenance.inicio.administrar');
   const [items, setItems] = useState<Part[]>([]);
   const [search, setSearch] = useState('');
   const [conStockBajo, setConStockBajo] = useState(false);

@@ -234,6 +234,22 @@ const CAMPO_PROPIETARIO = 'nombre_completo';
 const CAMPO_VENCIMIENTO_SOAT = 'fecha_vencimiento_soat';
 
 /**
+ * Los datos del SOAT activo que publican el aviso `vigenciaProxima` y el `409 soat_vigente`
+ * (HU #12842, RN-05 del Feature #12840): póliza, aseguradora, fechas de expedición e inicio y estado.
+ *
+ * El vencimiento NO está en la lista porque ya tiene su campo, {@link CAMPO_VENCIMIENTO_SOAT}, y se
+ * declara aparte: en el 409 solo viaja cuando el RUNT trae la fecha.
+ *
+ * Consultados por VIN son dato personal (Ley 1581, art. 3.c): el RUNT liga el VIN a un propietario
+ * determinable, y la póliza con sus fechas dice de ese propietario cuándo y con quién aseguró su
+ * vehículo. Publicarlos sin declararlos en `campos_accedidos` dejaría el registro del artículo 17
+ * sub-declarando justo en las respuestas que dicen más.
+ */
+export const CAMPOS_PII_SOAT_ACTIVO = [
+  'poliza_soat', 'aseguradora_soat', 'fecha_expedicion_soat', 'inicio_vigencia_soat', 'estado_soat',
+] as const;
+
+/**
  * De cuál de los DOS endpoints salió la consulta al RUNT (HU #11966).
  *
  * Hasta esa HU solo la preconsulta hablaba con Kyverum dentro de la petición; el alta lo hacía
@@ -243,9 +259,12 @@ const CAMPO_VENCIMIENTO_SOAT = 'fecha_vencimiento_soat';
  * escribieran la misma línea, «¿cuántas veces consultaron mi vehículo sin llegar a radicar nada?»
  * dejaría de tener respuesta.
  */
-const MOTIVO_RUNT: Record<'preconsulta' | 'alta', string> = {
+const MOTIVO_RUNT: Record<'preconsulta' | 'alta' | 'reintento', string> = {
   preconsulta: 'Preconsulta RUNT del canal Cliente (paso previo al alta de solicitud de SOAT)',
   alta: 'Consulta RUNT del canal Cliente durante el alta de la solicitud de SOAT',
+  // HU #12998: el reintento manual de una solicitud pendiente de validar. Es una tercera consulta al
+  // registro nacional con su propia consecuencia (completa, descarta o sigue esperando).
+  reintento: 'Consulta RUNT del canal Cliente al reintentar una solicitud SOAT pendiente de validar',
 };
 
 /**
@@ -301,7 +320,17 @@ export async function registrarAccesoRuntCliente(
      * `false`, y `false` es «no se divulgó», que es el defecto seguro para una lista de divulgaciones.
      */
     conVigenciaProxima?: boolean;
-    motivo?: 'preconsulta' | 'alta';
+    /**
+     * Solo para un INTENTO (`resultado` presente): ¿el error publicó ADEMÁS el SOAT activo?
+     * (HU #12842, RN-05 del Feature #12840).
+     *
+     * Es el `409 soat_vigente`: no entrega ni placa, ni VIN, ni nombre, pero sí `soatActivo` —y la
+     * fecha de vencimiento cuando el RUNT la trae—. La ruta lo deriva del CÓDIGO del error, nunca
+     * del mensaje. `'sin_fecha'` declara los cinco datos del SOAT activo; `'con_fecha'` suma
+     * `fecha_vencimiento_soat`. Ausente, el intento sigue declarando `[]`.
+     */
+    soatActivoEnIntento?: 'con_fecha' | 'sin_fecha';
+    motivo?: 'preconsulta' | 'alta' | 'reintento';
     /**
      * El desenlace cuando la consulta **no entregó nada** (409, 422, 503).
      *
@@ -322,8 +351,9 @@ export async function registrarAccesoRuntCliente(
     // motivo: un 503 del RUNT caído, un 422 o un 409 no entregaron ni la placa, ni el VIN, ni el
     // nombre del propietario. Escribir la lista de siempre en esas líneas convertiría el registro en
     // una cuenta de divulgaciones que nunca ocurrieron — y es con ese registro con el que se
-    // responde al artículo 17.
-    camposAccedidos: intento ? [] : camposDeLaEntrega(opciones),
+    // responde al artículo 17. La única excepción es el `409 soat_vigente`, que sí publica el SOAT
+    // activo (HU #12842): lo declara `camposDelIntento`, y solo lo que viajó.
+    camposAccedidos: intento ? camposDelIntento(opciones.soatActivoEnIntento) : camposDeLaEntrega(opciones),
     motivo: motivoRunt(opciones),
   });
 }
@@ -338,7 +368,19 @@ export async function registrarAccesoRuntCliente(
 function camposDeLaEntrega(opciones: { conPropietario: boolean; conVigenciaProxima?: boolean }): string[] {
   const campos: string[] = [...CAMPOS_PII_PRECONSULTA];
   if (opciones.conPropietario) campos.push(CAMPO_PROPIETARIO);
-  if (opciones.conVigenciaProxima) campos.push(CAMPO_VENCIMIENTO_SOAT);
+  // El aviso `vigenciaProxima` lleva `venceEl` y, desde la HU #12842, los datos del SOAT activo.
+  if (opciones.conVigenciaProxima) campos.push(CAMPO_VENCIMIENTO_SOAT, ...CAMPOS_PII_SOAT_ACTIVO);
+  return campos;
+}
+
+/**
+ * Los campos que un intento fallido divulgó: ninguno, salvo el SOAT activo del `409 soat_vigente`
+ * (HU #12842, RN-05 del Feature #12840).
+ */
+function camposDelIntento(soatActivo: 'con_fecha' | 'sin_fecha' | undefined): string[] {
+  if (soatActivo === undefined) return [];
+  const campos: string[] = [...CAMPOS_PII_SOAT_ACTIVO];
+  if (soatActivo === 'con_fecha') campos.push(CAMPO_VENCIMIENTO_SOAT);
   return campos;
 }
 
@@ -382,7 +424,7 @@ function camposDeLaEntrega(opciones: { conPropietario: boolean; conVigenciaProxi
  * incumplimiento — la misma distinción que `pii-audit.ts` ya tiene escrita en su `catch`.
  */
 function motivoRunt(opciones: {
-  vin: string; placa?: string | null; motivo?: 'preconsulta' | 'alta'; resultado?: string;
+  vin: string; placa?: string | null; motivo?: 'preconsulta' | 'alta' | 'reintento'; resultado?: string;
 }): string {
   const partes: string[] = [];
   try {
@@ -470,5 +512,52 @@ export async function registrarLecturaFacturaCliente(
     accion: 'read',
     camposAccedidos: [...CAMPOS_PII_LECTURA_FACTURA],
     motivo: motivo.slice(0, MOTIVO_MAX),
+  });
+}
+
+// ── Canal Cliente: solicitudes incompletas por RUNT caído (Feature #12841, HU #12997) ────────────
+
+/**
+ * `resource_tipo` PROPIO de una lectura de `flito_soat_incompletas` (diseño §7): la incompleta no es
+ * un SOAT, y anotarla como `flito_soat` mezclaría en el registro dos recursos con ids distintos.
+ */
+export const RECURSO_SOAT_INCOMPLETA = 'flito_soat_incompleta';
+
+/** Lo que entrega cada fila de `…/incompletas/buscar`: el VIN y el nombre del titular (como la cola). */
+export const CAMPOS_PII_INCOMPLETA_FILA = ['nombre_completo', 'vin'] as const;
+
+/** Lo que entrega `GET …/incompletas/:id`: el propietario completo, como el detalle SOAT del canal. */
+export const CAMPOS_PII_INCOMPLETA_DETALLE = [
+  'nombre_completo', 'numero_documento', 'tipo_documento', 'vin',
+  'nombres', 'apellidos', 'razon_social', 'correo', 'celular', 'direccion', 'municipio', 'departamento',
+] as const;
+
+/**
+ * Deja constancia de una lectura de incompletas (AC3). Si hay VIN (el detalle), va como HMAC y
+ * DELANTE, por la misma razón que en `motivoRunt`: el `slice` corta por el final. Si el token no se
+ * puede calcular se escribe `vin=?` y la línea se escribe igual.
+ */
+export async function registrarAccesoIncompleta(req: Request, acceso: {
+  accion: 'read' | 'search';
+  incompletaId?: string;
+  vin?: string;
+  filas: number;
+  campos: readonly string[];
+}): Promise<void> {
+  const partes: string[] = [];
+  if (acceso.vin) {
+    try { partes.push(`vin=${tokenPii(hmacVin(acceso.vin))}`); } catch { partes.push('vin=?'); }
+  }
+  if (acceso.incompletaId) partes.push(`incompleta ${acceso.incompletaId}`);
+  partes.push(`filas=${acceso.filas}`);
+  partes.push('Lectura de solicitud SOAT pendiente de validar');
+
+  await logPiiAccess(req, {
+    resourceTipo: RECURSO_SOAT_INCOMPLETA,
+    // uuid: no cabe en la columna integer; va en el motivo, como en `registrarAccesoSoat`.
+    resourceId: null,
+    accion: acceso.accion,
+    camposAccedidos: [...acceso.campos],
+    motivo: partes.join(' · ').slice(0, MOTIVO_MAX),
   });
 }

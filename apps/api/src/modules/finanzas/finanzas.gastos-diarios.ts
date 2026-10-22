@@ -19,16 +19,13 @@
 // Sin registro PII (`logPiiAccess`): la respuesta son días, cantidades y sumas. No viaja placa, VIN,
 // titular, documento ni id de trámite, así que no hay acceso a datos personales que auditar (AC8).
 // Solo lecturas: ningún INSERT/UPDATE/DELETE ni `db.transaction`.
-//
-// Variante de `release` (promoción selectiva de la Épica #12248): los servicios adicionales (Épica
-// #12246, tabla `flito_tramite_servicios_adicionales`) aún no existen en producción, así que su
-// categoría sale en cero sin consultar. La merge completa `staging → release` restituye la sub-consulta.
 
 import { and, inArray, sql, type SQL } from 'drizzle-orm';
 import type { PgColumn, PgSelect } from 'drizzle-orm/pg-core';
 import { db } from '../../db/client.js';
 import {
   clients, flitoDerechosTramite, flitoExcepcionesAutogestion, flitoImpuestos, flitoSoat, flitoTramites,
+  flitoTramiteServiciosAdicionales,
 } from '../../db/schema.js';
 import { createdInRangeCondition, hoyColombia, parseFechaQuery } from '../../shared/utils/fecha-rango.js';
 import { TASA_GMF } from '../flito-liquidacion/flito-liquidacion.service.js';
@@ -93,6 +90,7 @@ export const DIA_SOAT = diaBogota(flitoSoat.pagadoEn);
 export const DIA_IMPUESTO = diaBogota(flitoImpuestos.pagadoEn);
 /** `fecha_pago` es `date`: un día civil sin instante, así que no hay huso que convertir. */
 export const DIA_DERECHO = sql<string>`to_char(${flitoDerechosTramite.fechaPago}, 'YYYY-MM-DD')`;
+export const DIA_SERVICIOS = diaBogota(flitoTramiteServiciosAdicionales.asignadoEn);
 export const DIA_LOGISTICA = diaBogota(flitoTramites.fechaAprobacion);
 
 /** Lo que devuelve cada sub-consulta: `numeric` sumado llega como texto. */
@@ -158,6 +156,16 @@ export function ensamblarDerecho<Q extends PgSelect>(q: Q, r: RangoDias, empresa
       deEmpresas(flitoDerechosTramite.tramiteId, empresas),
     ))
     .groupBy(DIA_DERECHO);
+}
+
+/** Una fila por servicio asignado (un trámite con tres servicios suma 3), con su valor snapshot. */
+export function ensamblarServicios<Q extends PgSelect>(q: Q, r: RangoDias, empresas: string[] | undefined) {
+  return q
+    .where(and(
+      enRango(flitoTramiteServiciosAdicionales.asignadoEn, r),
+      deEmpresas(flitoTramiteServiciosAdicionales.tramiteId, empresas),
+    ))
+    .groupBy(DIA_SERVICIOS);
 }
 
 /** La cantidad de logística: trámites cuya estimación no es NULL (los que FLITO gestiona y tienen tarifa). */
@@ -265,17 +273,21 @@ export function totalesDe(serie: GastosDiariosDia[]): GastosDiariosTotales {
 export async function gastosDiarios(r: RangoDias, empresas?: string[]): Promise<GastosDiariosRespuesta> {
   // El maestro va primero: los ids de compañía del SOAT salen de él.
   const maestro = await db.select({ id: clients.id, nombre: clients.name, documento: clients.document }).from(clients);
-  const [soat, impuesto, derecho, logistica] = await Promise.all([
+  const [soat, impuesto, derecho, serviciosAdicionales, logistica] = await Promise.all([
     ensamblarSoat(db.select(seleccion(DIA_SOAT, flitoSoat.valorPagado)).from(flitoSoat).$dynamic(), r, empresasIds(empresas, maestro)),
     ensamblarImpuesto(db.select(seleccion(DIA_IMPUESTO, flitoImpuestos.valorPagado)).from(flitoImpuestos).$dynamic(), r, empresas),
     ensamblarDerecho(db.select(seleccion(DIA_DERECHO, flitoDerechosTramite.valor)).from(flitoDerechosTramite).$dynamic(), r, empresas),
+    ensamblarServicios(
+      db.select(seleccion(DIA_SERVICIOS, flitoTramiteServiciosAdicionales.valor)).from(flitoTramiteServiciosAdicionales).$dynamic(),
+      r, empresas,
+    ),
     ensamblarLogistica(
       db.select(seleccion(DIA_LOGISTICA, EXPR_LOGISTICA_ESTIMADA, CANTIDAD_LOGISTICA)).from(flitoTramites).$dynamic(), r, empresas,
     ),
   ]);
   const serie = serieDe(r, {
     soat: soat as FilaSerie[], impuesto: impuesto as FilaSerie[], derecho: derecho as FilaSerie[],
-    logistica: logistica as FilaSerie[], serviciosAdicionales: [],
+    logistica: logistica as FilaSerie[], serviciosAdicionales: serviciosAdicionales as FilaSerie[],
   });
   return { desde: r.desde, hasta: r.hasta, serie, totales: totalesDe(serie) };
 }

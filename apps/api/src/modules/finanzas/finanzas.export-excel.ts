@@ -35,6 +35,13 @@
 // Salen del archivo: Marca, Creado, Estado factura, Trámite digital, Total, Liquidación, Qué falta
 // para liquidar, SOAT conciliado y Razón social como columna aparte (va dentro de Nombre completo).
 // El consolidado (13 columnas) no cambia.
+//
+// ── La 32.ª: «Servicios adicionales» (HU #12546) ──────────────────────────────────────────────────
+//
+// Va inmediatamente después de «Modelo», con el importe (`serviciosAdicionales`) y NO con la
+// cantidad: lo que Financiero cuadra es dinero. Ya está incluida en «Servicio» y en el total de la
+// fila —los servicios entran en la base del GMF—, así que esta columna es el desglose de un sumando
+// que ya estaba, no un cobro nuevo que sumar aparte.
 
 import type { ExcelColumn } from '../../shared/utils/excel.js';
 import { SIN_APROBAR, type ConsolidadoReporte } from './finanzas.consolidado.js';
@@ -58,8 +65,8 @@ export const HOJA_CONSOLIDADO = 'Consolidado';
 const dinero = (header: string, key: string): ExcelColumn => ({ header, key, width: 16, numFmt: FORMATO_DINERO });
 
 /**
- * Las 31 columnas del detalle, con las cabeceras LITERALES del Excel de Financiero y en su orden
- * (HU #12536). Las claves son únicas aunque la fuente se repita —`placa`/`placa2`,
+ * Las 32 columnas del detalle, con las cabeceras LITERALES del Excel de Financiero y en su orden
+ * (HU #12536), más «Servicios adicionales» (HU #12546). Las claves son únicas aunque la fuente se repita —`placa`/`placa2`,
  * `tipoTramite`/`tramiteCategoria`— porque ExcelJS pisa las claves repetidas en `addRow`.
  * Exportada para que el test afirme el orden entero como un solo array.
  */
@@ -74,6 +81,12 @@ export const COLUMNAS_EXPORT_DETALLE: readonly ExcelColumn[] = [
   { header: 'Apellidos', key: 'apellidos', width: 22 },
   { header: 'Nombre completo', key: 'nombreCompleto', width: 32 },
   { header: 'Modelo', key: 'modelo', width: 14 },
+  // La 32.ª, y va justo DESPUÉS de «Modelo» porque ahí la quiere Financiero (CF-10): el archivo se
+  // sigue pegando sobre el suyo y la columna nueva cae donde la esperan, no al final. Lleva el
+  // IMPORTE, no la cantidad: el desglose por tipo se consulta en el trámite, no en el reporte.
+  // Una fila sin servicios va VACÍA y no en cero — un 0 diría «se le cobraron $0 de servicios» y
+  // cuadraría un promedio que no existe; es la misma regla que el resto de celdas nulas del libro.
+  dinero('Servicios adicionales', 'serviciosAdicionales'),
   { header: 'Estado', key: 'estado', width: 14 },
   { header: 'Correo', key: 'correo', width: 26 },
   { header: 'OT', key: 'ot', width: 18 },
@@ -136,7 +149,8 @@ export function filasExcelDetalle(filas: FilaReporte[]): Record<string, unknown>
     cliente: f.empresa, mesTrimestre: f.trimestre, flit: f.idFlit, placa: f.placa,
     tipo: f.titularTipoDocumento, ccNit: f.titularDocumento,
     nombres: f.titularNombres, apellidos: f.titularApellidos, nombreCompleto: nombreCompletoTitular(f),
-    modelo: f.linea, estado: f.estado, correo: f.titularCorreo, ot: f.organismoNombre,
+    modelo: f.linea, serviciosAdicionales: f.serviciosAdicionales,
+    estado: f.estado, correo: f.titularCorreo, ot: f.organismoNombre,
     tipoTramite: f.tipoTramite, telefono: f.titularTelefono, direccion: f.titularDireccion,
     soat: f.soat, tramite: f.derechoTramite, impuesto: f.impuesto, columna1: f.logistica, columna2: null,
     gmf: f.gmf, totalReintegro: f.totalReintegro, servicio: f.totalServicio,

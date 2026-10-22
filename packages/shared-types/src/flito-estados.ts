@@ -5,6 +5,8 @@
 // Módulo PURO (sin zod ni side-effects): lo consumen API y web. Las reglas caras
 // (RN-01, CA-03/04, compuerta) se apoyan en estos catálogos.
 
+import type { SoatActivoRunt, VigenciaProximaSoat } from './flito-soat-activo.js';
+
 /**
  * Estado del trámite en FLIT (fuente externa, sincronizada; FLITO no es dueño).
  *
@@ -208,6 +210,62 @@ export const ESTADO_IMPUESTO_LABEL: Record<EstadoImpuesto, string> = {
   pagado: 'Pagado',
 };
 
+/**
+ * HU #12825: ciclo del análisis post-envío de un impuesto (OCR de la factura + RUNT + semáforo), que
+ * corre en segundo plano tras el envío al gestor. `null` en el registro = nunca encolado (histórico).
+ */
+export const AnalisisEstadoImpuesto = {
+  EN_CURSO: 'en_curso',
+  COMPLETADO: 'completado',
+  ERROR: 'error_analisis',
+} as const;
+
+export type AnalisisEstadoImpuesto = (typeof AnalisisEstadoImpuesto)[keyof typeof AnalisisEstadoImpuesto];
+
+export const ANALISIS_ESTADO_IMPUESTO_LABEL: Record<AnalisisEstadoImpuesto, string> = {
+  en_curso: 'Analizando',
+  completado: 'Validada',
+  error_analisis: 'Error al validar',
+};
+
+/**
+ * Desenlace de `POST /api/flito/impuestos/:id/reanalizar` (AC5). ENCOLADO → 202; NO_ENCONTRADO → 404;
+ * el resto → 409 con `code` igual al resultado.
+ */
+export type ResultadoReanalisis =
+  | { resultado: 'ENCOLADO'; id: string; analisisEstado: 'en_curso' }
+  | { resultado: 'ANALISIS_EN_CURSO' | 'NO_SOLICITADO' | 'YA_CERTIFICADO' | 'SIN_ANALISIS' | 'NO_ENCONTRADO' };
+
+/**
+ * HU #12833 — dirección del comprador de un impuesto, ya resuelta con su precedencia: la confirmada
+ * (de la factura o corregida a mano) gana sobre la de FLIT; municipio/departamento confirmados vacíos
+ * caen a los de FLIT campo a campo. `origen` dice de dónde salió la `direccion`.
+ * `propuesta` = lo leído de la factura SIN confirmar; solo con `pendienteRevision`.
+ */
+export interface DireccionCompradorImpuesto {
+  direccion: string | null;
+  municipio: string | null;
+  departamento: string | null;
+  origen: 'factura' | 'manual' | 'flit';
+  pendienteRevision: boolean;
+  propuesta: { direccion: string | null; municipio: string | null; departamento: string | null } | null;
+  confirmadaPor: string | null;
+  confirmadaEn: string | null;
+}
+
+/** Body de `PATCH /api/flito/impuestos/:id/direccion` (HU #12833). La PII va en el body, nunca en la URL. */
+export interface CorregirDireccionImpuestoBody {
+  direccion: string;
+  municipio: string;
+  departamento: string;
+}
+
+/**
+ * HU #12833 (AC4): cabecera de la respuesta del Excel AMPLIADO de impuestos con cuántas filas llevan
+ * la marca «Dirección sin confirmar». Solo se envía con `incluirPago: true`.
+ */
+export const CABECERA_DIRECCIONES_SIN_CONFIRMAR = 'X-Direcciones-Sin-Confirmar';
+
 /** Estados de Impuestos visibles para el gestor (nunca `Pendiente`). */
 export const ESTADOS_IMPUESTO_VISIBLES_GESTOR: readonly EstadoImpuesto[] = [
   'solicitado', 'pagado',
@@ -275,9 +333,107 @@ export const TipoSoporte = {
   // BOLETA (`flito_soportes.conciliacion_boleta_id`), no de un SOAT ni de un trámite: la financiera
   // paga una boleta que agrupa N SOAT y el portal emite UN solo comprobante por ese pago.
   COMPROBANTE_PSE: 'comprobante_pse',
+  // Feature #12589, HU #12591 — el recibo de caja del pago en ventanilla, cargado UNO A UNO desde el
+  // detalle del impuesto sobre una liquidación ya registrada. Es la segunda vía a `pagado` (la
+  // primera es el pago con marca de la carga masiva). No entra en el ZIP de soportes (`TipoSoporteZip`).
+  RECIBO_CAJA_IMPUESTO: 'recibo_caja_impuesto',
+  // Épica #12245, HU #12611 — la puerta universal de comprobantes. Un soporte por ARCHIVO cargado:
+  // `comprobante_pago` cuando el archivo es un solo documento; `consolidado_comprobantes` cuando un
+  // PDF trae varios (N filas de `flito_comprobantes` comparten el soporte y se distinguen por
+  // `paginas`); `documento_tramite` cuando se adjunta como documentación (es_pago = false) a un
+  // honorario, que no tiene destino con soportes. Sin CHECK en la base (la columna no lo tiene) y
+  // fuera de `TipoSoporteZip`.
+  CONSOLIDADO_COMPROBANTES: 'consolidado_comprobantes',
+  COMPROBANTE_PAGO: 'comprobante_pago',
+  DOCUMENTO_TRAMITE: 'documento_tramite',
+  // Épica #13201, HU #13362 — documento adicional que el cliente adjunta al alta de SOAT (PDF o
+  // imagen, con etiqueta). Fuera de la lista general de soportes, del ZIP y de las exportaciones:
+  // se lee solo por `GET /api/flito/soat/:id/documentos-adicionales`.
+  DOCUMENTO_ADICIONAL_SOAT: 'documento_adicional_soat',
 } as const;
 
 export type TipoSoporte = (typeof TipoSoporte)[keyof typeof TipoSoporte];
+
+/**
+ * HU #12591 — Códigos de error de `POST /api/flito/impuestos/:id/recibo-caja`. La pantalla decide
+ * por `codigo`, no por el texto (calco de `CodigoErrorConciliacion`).
+ */
+export const CodigoErrorReciboCaja = {
+  /** 400: sin archivo, más de uno, MIME fuera de PDF/JPEG/PNG o por encima del tope. */
+  ARCHIVO_INVALIDO: 'archivo_invalido',
+  /** 404: el impuesto no existe o queda fuera de la frontera del actor. */
+  NO_ENCONTRADO: 'no_encontrado',
+  /** 409: el impuesto no tiene liquidación cargada (`liquidado_en` vacío). */
+  SIN_LIQUIDACION: 'sin_liquidacion',
+  /** 409: el impuesto no está en gestión (`solicitado`). */
+  ESTADO_NO_PERMITIDO: 'estado_no_permitido',
+  /** 409: el archivo es idéntico a un recibo ya cargado (de este impuesto o de otro). */
+  DUPLICADO: 'duplicado',
+} as const;
+
+export type CodigoErrorReciboCaja = (typeof CodigoErrorReciboCaja)[keyof typeof CodigoErrorReciboCaja];
+
+/**
+ * HU #12591 — Respuesta 200 de la carga del recibo de caja. `pagado` cuando el OCR leyó el valor con
+ * confianza y el impuesto quedó pagado; `en_revision` cuando el soporte quedó guardado y la lectura
+ * fue a la cola de revisión sin tocar el impuesto.
+ */
+export type ResultadoReciboCaja =
+  | { resultado: 'pagado'; valorPagado: string | null; pagadoEn: string; marcadoPorDiferencia: boolean; soporteId: string }
+  | { resultado: 'en_revision'; soporteId: string; revisionId: string };
+
+/**
+ * HU #12590 — Fase con la que se carga un recibo de impuestos. La declara quien carga (o la carpeta
+ * del ZIP); NUNCA se infiere por la marca de agua del documento.
+ *
+ *   · `LIQUIDACION`: la liquidación del impuesto, el documento de la hacienda SIN marca. Deja el
+ *     impuesto `solicitado` con la marca `liquidado_en` y el valor liquidado. No es la «Liquidación»
+ *     de FLITO (el total a cobrar).
+ *   · `PAGO`: el mismo documento con el sello PAGADO. Es la única vía a `pagado`.
+ */
+export const FaseRecibo = {
+  LIQUIDACION: 'liquidacion',
+  PAGO: 'pago',
+} as const;
+
+export type FaseRecibo = (typeof FaseRecibo)[keyof typeof FaseRecibo];
+
+export const FASES_RECIBO: readonly FaseRecibo[] = [FaseRecibo.LIQUIDACION, FaseRecibo.PAGO];
+
+/**
+ * HU #13208 — Códigos de error de la carga de un comprobante por fase desde el impuesto
+ * (`POST /api/flito/impuestos/:id/recibos`). La pantalla decide por `codigo`, no por el texto.
+ */
+export const CodigoErrorCargaPorFase = {
+  /** 400: sin archivo, más de uno, campo distinto, tipo no permitido, bytes que no cuadran o > 15 MiB. */
+  ARCHIVO_INVALIDO: 'archivo_invalido',
+  /** 400: `fase` ausente o fuera de `FASES_RECIBO`. */
+  FASE_INVALIDA: 'fase_invalida',
+  /** 404: el impuesto no existe o queda fuera de la frontera del actor. */
+  NO_ENCONTRADO: 'no_encontrado',
+  /** 409: el impuesto no está ni en gestión (`solicitado`) ni `pagado`. */
+  ESTADO_NO_PERMITIDO: 'estado_no_permitido',
+} as const;
+
+export type CodigoErrorCargaPorFase = (typeof CodigoErrorCargaPorFase)[keyof typeof CodigoErrorCargaPorFase];
+
+/**
+ * HU #13208 — Respuesta 200 de la carga por fase. Los cuatro primeros escribieron (soporte guardado);
+ * `duplicado`, `fase_no_coincide` y `placa_no_coincide` no escribieron nada y traen el `detalle`.
+ */
+export type RespuestaCargaPorFase =
+  | { resultado: 'liquidado'; soporteId: string; valorLiquidado: string | null }
+  | { resultado: 'pagado'; soporteId: string; valorPagado: string | null; marcadoPorDiferencia: boolean }
+  | { resultado: 'en_revision'; soporteId: string; revisionId: string }
+  | { resultado: 'complemento'; soporteId: string }
+  | { resultado: 'duplicado' | 'fase_no_coincide' | 'placa_no_coincide'; detalle: string };
+
+/**
+ * Qué documentos de la hacienda tiene un impuesto, derivado de los tipos de soporte presentes
+ * (`RECIBO_IMPUESTO_SIN_MARCA_AGUA` → liquidación; `RECIBO_IMPUESTO` o `RECIBO_CAJA_IMPUESTO` → pago,
+ * HU #12591). `null` = ninguno.
+ */
+export type DocumentosImpuesto = 'liquidacion' | 'pago' | 'ambos';
 
 /**
  * Los tipos de documento que se pueden pedir en el ZIP de soportes (Feature #11908, HU #11910).
@@ -317,7 +473,7 @@ export type TipoSoporteZip = (typeof TipoSoporteZip)[keyof typeof TipoSoporteZip
 /**
  * El ORDEN FIJO del catálogo, y no es decoración: es la mitad del desempate del AC5.
  *
- * Todas las entradas de un mismo registro se llaman igual (`PLACA-ORGANISMO`), así que el sufijo
+ * Todas las entradas de un mismo registro se llaman igual (`PLACA`, HU #12817), así que el sufijo
  * `-2`/`-3` lo decide el orden en que se recorren. Si ese orden fuera el del array que mandó la
  * pantalla —o el de `Object.keys` de un mapa—, el mismo lote pedido dos veces produciría dos
  * repartos distintos de los sufijos y dos ZIP no comparables. Aquí está escrito una vez y el
@@ -379,6 +535,43 @@ export const CODIGO_ZIP_DEMASIADOS_REGISTROS = 'zip_demasiados_registros';
  */
 export const ZIP_SOPORTES_MAX_REGISTROS = 300;
 
+// ── ZIP de certificados RUNT (HU #13205) ─────────────────────────────────────────────────────────
+
+/**
+ * Cabecera con el conteo de certificados que NO entraron en el ZIP (siempre presente, también `0`).
+ * Nombre compartido por lo mismo que `CABECERAS_ZIP_SOPORTES`: el nombre de la cabecera ES el contrato.
+ */
+export const CABECERA_CERTIFICADOS_OMITIDOS = 'X-Certificados-Omitidos';
+
+/** `codigo` del 409 cuando ninguno de los ids pedidos tiene certificado que entregar. */
+export const CODIGO_ZIP_SIN_CERTIFICADOS = 'zip_sin_certificados';
+
+/**
+ * Por qué un id pedido no entró en el ZIP. Solo dos causas (decisión 2026-09-30): «no disponible»
+ * cubre a la vez «no existe» y «fuera de tu alcance», para no revelar la existencia del registro.
+ */
+export const CausaCertificadoOmitido = {
+  SIN_CERTIFICACION_VIGENTE: 'sin_certificacion_vigente',
+  NO_DISPONIBLE: 'no_disponible',
+} as const;
+export type CausaCertificadoOmitido = typeof CausaCertificadoOmitido[keyof typeof CausaCertificadoOmitido];
+
+/**
+ * Un omitido. `identificador` = placa (o id FLIT sin placa) si es «sin certificación vigente»; el
+ * uuid ENVIADO si es «no disponible» (nunca placa ni id FLIT de algo fuera del alcance).
+ */
+export interface CertificadoOmitido {
+  identificador: string;
+  causa: CausaCertificadoOmitido;
+}
+
+/** Cuerpo del 409 de `POST /api/flito/impuestos/certificados/zip`. */
+export interface ZipSinCertificadosRespuesta {
+  error: string;
+  codigo: typeof CODIGO_ZIP_SIN_CERTIFICADOS;
+  omitidos: CertificadoOmitido[];
+}
+
 /**
  * Cabeceras con las que el ZIP dice CUÁNTO trae, para el aviso del caso parcial.
  *
@@ -402,10 +595,19 @@ export const ZIP_SOPORTES_MAX_REGISTROS = 300;
  * pertenencia, que es justo lo que evita el 409 cuando no queda ninguno.
  */
 export const CABECERAS_ZIP_SOPORTES = {
-  /** Cuántos DOCUMENTOS lleva el archivo. */
+  /**
+   * Cuántos DOCUMENTOS lleva el archivo. En Trámites e Impuestos (HU #12817) cuenta los documentos
+   * legibles consolidados DENTRO de los PDF por registro, más los originales cifrados que van aparte.
+   */
   incluidos: 'X-Soportes-Incluidos',
   /** De cuántos REGISTROS marcados salió al menos un documento. */
   registros: 'X-Soportes-Registros',
+  /**
+   * Cuántos documentos se encontraron y NO entraron por dañados o ilegibles (HU #12817, AC5). Solo
+   * la envían Trámites e Impuestos, y siempre (`0` si no se omitió nada); SOAT no consolida y no la
+   * manda. Tampoco dice DE QUÉ registro era el omitido: mismo silencio que las otras dos.
+   */
+  omitidos: 'X-Soportes-Omitidos',
 } as const;
 
 /** Módulos parametrizables por compañía (FLITO.md). */
@@ -469,6 +671,16 @@ export const CodigoErrorSolicitudSoat = {
   SIN_COMPANIA: 'sin_compania',
   /** La compañía tiene el flag «SOAT sin trámite» APAGADO (AC5). */
   CANAL_DESACTIVADO: 'canal_desactivado',
+  /**
+   * HU #12874: un usuario SIN enlace radica a nombre de una compañía que escoge en el formulario y
+   * no mandó `companiaId` (400). Con enlace `compania` la compañía es fija y no hace falta.
+   */
+  COMPANIA_REQUERIDA: 'compania_requerida',
+  /**
+   * HU #12874: un usuario con enlace `compania` mandó un `companiaId` distinto del suyo (403). No se
+   * ignora en silencio: el intento de radicar a nombre de otra compañía queda visible.
+   */
+  COMPANIA_NO_PERMITIDA: 'compania_no_permitida',
   /** El RUNT no respondió o respondió un fallo (AC2) → el formulario puede reintentar. */
   RUNT_NO_DISPONIBLE: 'runt_no_disponible',
   /** El RUNT respondió, pero no tiene ese vehículo registrado (AC2). */
@@ -544,10 +756,201 @@ export const CodigoErrorSolicitudSoat = {
    * obligatorio el proveedor en el envío masivo.
    */
   DESTINO_REQUERIDO: 'destino_requerido',
+
+  // ── Solicitud incompleta por RUNT caído (Feature #12841, HU #12996, ADR-0019) ────────────────────
+
+  /**
+   * El VIN ya tiene una solicitud INCOMPLETA abierta (`flito_soat_incompletas.estado = 'incompleta'`)
+   * y por eso no se puede preconsultar ni radicar otra (P-5 del UX: la incompleta ocupa el VIN; la
+   * descartada no). Misma forma que la RN-01: `propia: true` + `id` para el dueño del alcance;
+   * `propia: false`, sin id ni estado, para un tercero.
+   */
+  SOLICITUD_INCOMPLETA_EXISTENTE: 'solicitud_incompleta_existente',
+
+  /**
+   * El reintento de consulta al RUNT llegó a una incompleta que YA no está `incompleta` (HU #12998):
+   * otro usuario la completó o la descartó antes —o mientras— se consultaba. `409 { estado }` con el
+   * estado actual; la fila no se toca (AC6/AC7).
+   */
+  INCOMPLETA_YA_RESUELTA: 'incompleta_ya_resuelta',
 } as const;
 
 export type CodigoErrorSolicitudSoat =
   (typeof CodigoErrorSolicitudSoat)[keyof typeof CodigoErrorSolicitudSoat];
+
+/**
+ * HU #12874 — `GET /api/flito/soat/cliente/companias`: a nombre de qué compañía puede radicar quien
+ * pide la lista. `fija: true` (enlace `compania`) → solo la suya, de solo lectura; `fija: false` (sin
+ * enlace) → todas las compañías con el canal «SOAT sin trámite» activo, para escoger una. Solo `id` y
+ * `nombre`: nunca el NIT ni las banderas de la compañía.
+ */
+export interface CompaniasCanalSoat {
+  fija: boolean;
+  companias: { id: number; nombre: string }[];
+}
+
+/**
+ * Estados de una solicitud del canal Cliente APARCADA porque el RUNT no respondió (Feature #12841,
+ * ADR-0019). Viven en `flito_soat_incompletas.estado`, NO en `flito_soat`: la incompleta no es un
+ * SOAT y ningún lector de la cola la ve. Rótulos visibles (P-1 del UX): «Por validar» / «Descartada».
+ */
+export const EstadoSolicitudIncompletaSoat = {
+  INCOMPLETA: 'incompleta',
+  COMPLETADA: 'completada',
+  DESCARTADA: 'descartada',
+} as const;
+
+export type EstadoSolicitudIncompletaSoat =
+  (typeof EstadoSolicitudIncompletaSoat)[keyof typeof EstadoSolicitudIncompletaSoat];
+
+/**
+ * Por qué se descartó una incompleta (HU #12997). Los valores son EXACTAMENTE los del CHECK
+ * `flito_soat_incompletas_motivo_chk` de la migración 0210: si uno cambia, cambia el otro.
+ */
+export const MOTIVOS_DESCARTE_SOAT = [
+  'soat_vigente', 'runt_no_cuadra', 'runt_sin_registro', 'runt_sin_vin', 'solicitud_existente',
+] as const;
+
+export type MotivoDescarteSoat = (typeof MOTIVOS_DESCARTE_SOAT)[number];
+
+/**
+ * Autor que ve quien mira un descarte hecho por alguien FUERA de su enlace de compañía (Q6 / P-4 del
+ * UX). En base se guarda el nombre real; esto es solo la proyección.
+ */
+export const AUTOR_DESCARTE_FLITO = 'FLITO';
+
+/**
+ * Una fila de `POST /api/flito/soat/cliente/incompletas/buscar` (HU #12997, diseño §4.1).
+ *
+ * `placa`, `marca` y `linea` son SIEMPRE `null` (R5 del UX): el RUNT no respondió y no hay de dónde
+ * sacarlas. Viajan igualmente para que la tabla de la cola no tenga que distinguir la forma.
+ * `descarte` solo en `estado = 'descartada'`; `soatId` solo en `completada`.
+ */
+export interface SolicitudIncompletaFila {
+  id: string;
+  estado: EstadoSolicitudIncompletaSoat;
+  vin: string;
+  companiaId: number;
+  companiaNombre: string | null;
+  placa: null;
+  marca: null;
+  linea: null;
+  /** Nombre del titular (derivado, como el de la cola): el mismo dato personal que la cola ya muestra. */
+  titular: string | null;
+  solicitadoPorNombre: string;
+  /** ISO 8601. */
+  solicitadoEn: string;
+  intentos: number;
+  /** ISO 8601. */
+  ultimoIntentoRuntEn: string;
+  /** `porNombre` ya proyectado: «FLITO» si quien descartó no comparte el enlace de compañía del que mira. */
+  descarte: { motivo: MotivoDescarteSoat; en: string; porNombre: string } | null;
+  soatId: string | null;
+}
+
+/** Propietario de una incompleta: el mismo shape del alta del canal (y del `propietarioCanal` del detalle SOAT). */
+export interface PropietarioSolicitudIncompleta {
+  tipoDocumento: string | null;
+  nombres: string | null;
+  apellidos: string | null;
+  razonSocial: string | null;
+  numeroDocumento: string;
+  correo: string | null;
+  celular: string | null;
+  direccion: string | null;
+  municipio: string | null;
+  departamento: string | null;
+}
+
+/** `GET /api/flito/soat/cliente/incompletas/:id` (HU #12997). */
+export interface SolicitudIncompletaDetalle extends SolicitudIncompletaFila {
+  propietario: PropietarioSolicitudIncompleta | null;
+  factura: { nombreArchivo: string; contentType: string; tamanoBytes: number };
+  /**
+   * HU #13409: ISO de cuándo la retención (30 días tras el descarte) borró la factura y los
+   * documentos adicionales del almacenamiento. `null` = no purgada.
+   */
+  archivosPurgadosEn: string | null;
+}
+
+/** Respuesta de `POST /api/flito/soat/cliente/incompletas/buscar`. `conteos` alimenta las pastillas. */
+export interface RespuestaBuscarIncompletas {
+  items: SolicitudIncompletaFila[];
+  total: number;
+  conteos: { incompleta: number; descartada: number };
+}
+
+/**
+ * Respuesta de `POST /api/flito/soat/cliente` (HU #12996). Unión discriminada por `desenlace`:
+ *
+ *   · **201** `creada` — el RUNT respondió y la solicitud se despachó: el `{ id, estado }` de siempre
+ *     más `desenlace` (aditivo).
+ *   · **202** `incompleta` — el RUNT no respondió en el servidor: la solicitud quedó guardada
+ *     «pendiente de validar» con su factura y su propietario, sin llegar al gestor. `id` es el de la
+ *     fila de `flito_soat_incompletas`, no un id de SOAT.
+ */
+export type RespuestaAltaSolicitudSoat =
+  | { desenlace: 'creada'; id: string; estado: EstadoSoat; documentosAdicionales?: ResultadoDocumentosAdicionales }
+  | {
+    desenlace: 'incompleta';
+    id: string;
+    estado: typeof EstadoSolicitudIncompletaSoat.INCOMPLETA;
+    mensaje: string;
+    documentosAdicionales?: ResultadoDocumentosAdicionales;
+  };
+
+/**
+ * HU #13362 — por qué se descartó un documento adicional del alta de SOAT. La primera regla que
+ * falla decide, en este orden: tamaño (>15 MB), formato (por bytes), repetido (incluye la factura de
+ * venta del mismo envío), cantidad (>20 aceptados) y total (>250 MB acumulados). Un descarte nunca
+ * tumba el alta.
+ */
+export const MotivoDescarteDocumentoAdicional = {
+  SUPERA_TAMANO: 'supera_tamano',
+  FORMATO_NO_PERMITIDO: 'formato_no_permitido',
+  DOCUMENTO_REPETIDO: 'documento_repetido',
+  SUPERA_CANTIDAD: 'supera_cantidad',
+  SUPERA_TOTAL: 'supera_total',
+} as const;
+export type MotivoDescarteDocumentoAdicional =
+  (typeof MotivoDescarteDocumentoAdicional)[keyof typeof MotivoDescarteDocumentoAdicional];
+
+/**
+ * HU #13362 — `documentosAdicionales` del 201/202 de `POST /api/flito/soat/cliente`. Solo viaja si
+ * se envió al menos un adicional; sin adicionales, el cuerpo es el de siempre.
+ */
+export interface ResultadoDocumentosAdicionales {
+  aceptados: { id: string; etiqueta: string; nombreArchivo: string; tipoContenido: string; tamanoBytes: number }[];
+  descartados: { nombreArchivo: string; codigo: MotivoDescarteDocumentoAdicional; motivo: string }[];
+}
+
+/** HU #13362 — fila de `GET /api/flito/soat/:id/documentos-adicionales`. `subidoEn` en ISO 8601. */
+export interface DocumentoAdicionalSoat {
+  id: string;
+  etiqueta: string;
+  tipoContenido: string;
+  tamanoBytes: number;
+  subidoEn: string;
+  subidoPorNombre: string;
+  /** URL de descarga firmada y temporal (`/api/files?...`). Nunca la clave de storage. */
+  url: string;
+}
+
+/**
+ * `200` de `POST /api/flito/soat/cliente/incompletas/:id/reintentar` (HU #12998, diseño §4 y §4.1).
+ * Unión discriminada por `resultado`: la operación (reintentar) SÍ ocurrió y cambió la fila en los
+ * tres casos; el `409 incompleta_ya_resuelta` / `404` / `429` son «no pasó nada».
+ *
+ *   · `completada` — el RUNT respondió y no bloquea: nació el SOAT con `id = soatId` en `solicitado`.
+ *     `vigenciaProxima` = aviso de renovación anticipada (regla de 30 días, HU #12842), o `null`.
+ *   · `descartada` — el RUNT respondió que no se puede: SOAT vigente (`soatActivo` con sus seis
+ *     datos), la familia 422 (`soatActivo: null`) o el VIN ya tenía solicitud (`solicitud_existente`).
+ *   · `sigue_incompleta` — el RUNT sigue sin responder: `intentos` ya incrementado. ISO 8601.
+ */
+export type ResultadoReintentoRunt =
+  | { resultado: 'completada'; soatId: string; estado: 'solicitado'; vigenciaProxima: VigenciaProximaSoat | null }
+  | { resultado: 'descartada'; motivo: MotivoDescarteSoat; soatActivo: SoatActivoRunt | null }
+  | { resultado: 'sigue_incompleta'; intentos: number; ultimoIntentoRuntEn: string };
 
 /**
  * La familia «revise los datos»: los tres desenlaces en los que el RUNT **sí respondió** y la
@@ -662,4 +1065,41 @@ export type MotivoCaidaRunt = (typeof MOTIVOS_CAIDA_RUNT)[number];
 export type ResumenMotivosCorrida = Partial<Record<MotivoCaidaRunt, number>> & {
   /** Consultas repetidas por un mismo vehículo dentro de la corrida (tope `MAX_REINTENTOS_VEHICULO`). */
   reintentos?: number;
+};
+
+/**
+ * Semáforo factura de venta vs RUNT del análisis post-envío (HU #12827). `flito_impuestos.semaforo`;
+ * `NULL` = sin calcular (análisis pendiente o fallo técnico reintentable).
+ */
+export const SemaforoImpuesto = {
+  VERDE: 'verde',
+  NARANJA: 'naranja',
+  ROJO: 'rojo',
+} as const;
+
+export type SemaforoImpuesto = (typeof SemaforoImpuesto)[keyof typeof SemaforoImpuesto];
+
+/** Los tres valores, derivados del objeto: el filtro `semaforo` de la cola (HU #12830) los valida con Zod. */
+export const SEMAFOROS_IMPUESTO = Object.values(SemaforoImpuesto) as [SemaforoImpuesto, ...SemaforoImpuesto[]];
+
+export const SEMAFORO_IMPUESTO_LABEL: Record<SemaforoImpuesto, string> = {
+  verde: 'Coincide con el RUNT',
+  naranja: 'Con diferencias',
+  rojo: 'Sin validar',
+};
+
+/** Por qué un semáforo quedó en rojo (HU #12827, AC2). El traspaso en sincronización cae en `runt_sin_respuesta`. */
+export const MotivoSemaforoRojo = {
+  RUNT_SIN_RESPUESTA: 'runt_sin_respuesta',
+  ERROR_LECTURA_FACTURA: 'error_lectura_factura',
+} as const;
+
+export type MotivoSemaforoRojo = (typeof MotivoSemaforoRojo)[keyof typeof MotivoSemaforoRojo];
+
+export const esMotivoSemaforoRojo = (v: unknown): v is MotivoSemaforoRojo =>
+  typeof v === 'string' && (Object.values(MotivoSemaforoRojo) as string[]).includes(v);
+
+export const MOTIVO_SEMAFORO_ROJO_LABEL: Record<MotivoSemaforoRojo, string> = {
+  runt_sin_respuesta: 'El RUNT no respondió o no tiene registro del vehículo',
+  error_lectura_factura: 'No se pudo leer la factura',
 };

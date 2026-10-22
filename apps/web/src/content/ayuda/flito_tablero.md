@@ -1,21 +1,23 @@
 ## Qué es
 
-Resumen operativo de retenciones, estancamientos y diferencias: lo que el proceso por Excel y correo no dejaba ver. Los indicadores llevan a **Gestión Trámites** con el filtro de alerta ya aplicado, para que usted no rearme la búsqueda.
+Es el **Tablero** de General, la pantalla de inicio. Resume las retenciones, los estancamientos y las diferencias de la operación que el proceso por Excel y correo no dejaba ver. Los indicadores llevan a **Gestión Trámites** con el filtro de alerta ya aplicado, para que usted no rearme la búsqueda.
 
 ## Para quién
 
-Administrador (consulta y puede **Sincronizar desde FLIT**). Auditor (solo lectura: **Solo lectura · Auditoría observa el tablero; no ejecuta acciones sobre él.**).
+Quien tiene asignado el ítem **Tablero** en **Roles y permisos**: lo ve como pantalla de inicio. **Sincronizar desde FLIT** aparece solo si además tiene el permiso de sincronizar; sin él, la pantalla muestra **Solo lectura · Auditoría observa el tablero; no ejecuta acciones sobre él.** y usted consulta sin ejecutar acciones. Los bloques de **SOAT** e **Impuestos** aparecen según las colas que usted puede ver.
+
+Si su rol tiene enlace **Compañía**, el tablero cuenta solo los trámites de su compañía y no muestra **Sincronizar desde FLIT** ni la nota de solo lectura. Con enlace **Proveedor** u **Organismos** el Tablero no está disponible.
 
 ## Cómo se entra
 
-Esta pantalla no aparece en la navegación lateral. Escriba `/flito/tablero` en la barra de direcciones, o ábrala desde un enlace interno (por ejemplo, desde esta ficha con **Ir a la pantalla**). No la confunda con **Tablero** de General (el inicio) ni con **Tablero ejecutivo PESV**.
+En el menú lateral, sección **General**, ítem **Tablero**. Es también lo primero que ve al iniciar sesión. No lo confunda con **Tablero ejecutivo PESV**.
 
 ## Pasos
 
 1. El Administrador puede pulsar **Sincronizar desde FLIT** (el botón pasa a **Sincronizando…**). El recuento de **Trámites nuevos**, **SOAT creados** e **Impuestos creados** aparece debajo.
 2. Lea los indicadores **Revisiones pendientes**, **Fuera de ANS**, **Diferencias de valor** y **Habilitados para entrega**. Un valor en riesgo muestra el chip **atención**.
 3. En **Alertas operativas**, pulse una tarjeta (**Más de N días en borrador**, **SOAT solicitado sin gestión**, etc.) para abrir **Gestión Trámites** filtrado. El chip **Requiere atención** marca las que tienen trámites.
-4. Revise **SOAT por estado** e **Impuestos por estado** (Pendiente, Solicitado, Con novedad, Pagado).
+4. Revise **SOAT por estado** e **Impuestos por estado** (Pendiente, Solicitado, Con novedad, Pagado). Cada bloque aparece solo si su rol puede ver esa cola; si no, el tablero lo omite y los indicadores que se parten por módulo cuentan solo el que usted ve.
 
 ## Estados
 
@@ -29,4 +31,4 @@ Esta pantalla no aparece en la navegación lateral. Escriba `/flito/tablero` en 
 - No es el listado para despachar: use **Gestión Trámites**.
 - No es la cola **SOAT** ni **Impuestos**.
 - No **Factura** ni hace **emisión electrónica**.
-- No afirma un ítem de menú: hoy no está en la navegación lateral.
+- No es el **Tablero ejecutivo PESV**.

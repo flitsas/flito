@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { chain } from '../helpers/db.js';
-import { testToken, registrarUsuarioDePrueba } from '../helpers/auth.js';
+import { testToken, registrarUsuarioDePrueba, conCadena, operacionesDePartida } from '../helpers/auth.js';
+import { expandir } from '../../src/modules/permisos/arbol/expansion.js';
 import { decodeJwt } from 'jose';
 
 const selectMock = vi.fn();
@@ -164,7 +165,7 @@ describe('POST /api/auth/login — éxito', () => {
     // HU #12082: `allowedPages` es una vista del resolutor único. Aquí el resolutor lee del registro
     // del helper (no de `selectMock`): el reparto del rol trae `pagina.dashboard` justo para comprobar
     // que el sobre lleva el SLUG y no el código de la función.
-    await registrarUsuarioDePrueba(42, { rol: 'admin', tipoPrincipal: 'interno', funcionesDelRol: ['pagina.dashboard'], excepciones: [] });
+    await registrarUsuarioDePrueba(42, { rol: 'admin', tipoEnlace: 'ninguno', funcionesDelRol: ['pagina.dashboard'], excepciones: [] });
     argonVerifyMock.mockResolvedValueOnce(true);
     const app = await buildApp();
     const r = await request(app).post('/api/auth/login').send({ username: 'admin', password: 'OK' });
@@ -216,7 +217,7 @@ const CLIENTE_LOGIN = {
 
 describe('POST /api/auth/login — `puedeSolicitarSoat` (Bug #11937)', () => {
   it('cliente cuya compañía tiene el flag ENCENDIDO → true y la clave viene', async () => {
-    await registrarUsuarioDePrueba(5, { rol: 'cliente', tipoPrincipal: 'externo', allowedPages: [], funcionesDelRol: ['pagina.flito_soat'], excepciones: [] });
+    await registrarUsuarioDePrueba(5, { rol: 'cliente', tipoEnlace: 'compania', allowedPages: [], funcionesDelRol: ['pagina.flito_soat', 'soat.solicitud.crear'], excepciones: [] });
     selectMock
       .mockReturnValueOnce(chain([CLIENTE_LOGIN]))
       .mockReturnValueOnce(chain([])) // puente #12088
@@ -233,7 +234,7 @@ describe('POST /api/auth/login — `puedeSolicitarSoat` (Bug #11937)', () => {
   });
 
   it('flag APAGADO → false, y no es «no vino el campo»', async () => {
-    await registrarUsuarioDePrueba(5, { rol: 'cliente', tipoPrincipal: 'externo', allowedPages: [], funcionesDelRol: ['pagina.flito_soat'], excepciones: [] });
+    await registrarUsuarioDePrueba(5, { rol: 'cliente', tipoEnlace: 'compania', allowedPages: [], funcionesDelRol: ['pagina.flito_soat', 'soat.solicitud.crear'], excepciones: [] });
     selectMock
       .mockReturnValueOnce(chain([CLIENTE_LOGIN]))
       .mockReturnValueOnce(chain([])) // puente #12088
@@ -261,7 +262,10 @@ describe('GET /api/auth/me', () => {
       .mockReturnValueOnce(chain([{
         id: 1, username: 'admin', name: 'A', role: 'admin', allowedPages: null,
       }]))
-      .mockReturnValueOnce(chain([])); // puente #12088 → transitoCodigo null
+      .mockReturnValueOnce(chain([])) // puente #12088 → transitoCodigo null
+      // HU #12873 AC8: `admin` tiene «Solicitar SOAT sin trámite» → `/me` mira si alguna compañía tiene el
+      // canal (#12874, admin sin enlace). Ninguna → `puedeSolicitarSoat: false`.
+      .mockReturnValueOnce(chain([]));
     // HU #12082: las páginas las sirve el resolutor (el registro del helper); `allowedPages` del helper
     // es `users.allowed_pages`, y el admin no tiene fila de defaults, así que sale exactamente esto.
     const token = await testToken({ sub: 1, role: 'admin', allowedPages: ['dashboard'] });
@@ -271,8 +275,16 @@ describe('GET /api/auth/me', () => {
     expect(r.body.id).toBe(1);
     expect(Array.isArray(r.body.allowedPages)).toBe(true);
     // Lo que viaja son SLUGS, resueltos por el mismo resolutor que decide en el servidor.
-    expect(r.body.allowedPages).toEqual(['dashboard']);
-    expect(selectMock).toHaveBeenCalledTimes(2); // usuario + puente
+    // HU #12873 (P-10): la Compuerta la abre «Entregar trámites», que el admin tiene de partida.
+    // HU #13428 (P-11): el Tablero FLITO lo abre «Ver el tablero» de General, que el admin tiene de partida.
+    // HU #13429: el admin de prueba tiene su partida ENTERA (páginas y `menu.*`, como tras la 0239), así que viajan
+    // todas sus páginas efectivas; entre ellas, las dos que abren sus acciones y no son ítem.
+    const esperado = [...expandir(conCadena([...operacionesDePartida('admin'), 'pagina.dashboard']))]
+      .filter((c) => c.startsWith('pagina.')).map((c) => c.slice('pagina.'.length)).sort();
+    expect([...r.body.allowedPages].sort()).toEqual(esperado);
+    for (const s of ['dashboard', 'flito_tablero', 'flito_compuerta']) expect(r.body.allowedPages).toContain(s);
+    expect(r.body.puedeSolicitarSoat).toBe(false);
+    expect(selectMock).toHaveBeenCalledTimes(3); // usuario + puente + compañías con el canal (AC8)
   });
 
   it('token válido pero user no existe en BD → 404', async () => {

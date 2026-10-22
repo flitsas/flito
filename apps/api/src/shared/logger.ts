@@ -1,6 +1,20 @@
 import pino from 'pino';
 import { env } from '../config/env.js';
 
+/**
+ * Campos que jamás deben aparecer en logs (ISO 27001 A.8.11). Exportado para que un test pueda
+ * comprobar la redacción real con un pino propio (el de aquí usa pino-pretty en un worker).
+ *
+ * `*.x` en fast-redact solo cubre UN nivel de anidamiento: `log.info({ clientSecret })` lo dejaba en
+ * claro. Las claves del acceso a FLIT 2 (HU #13061) van por eso también en la raíz.
+ */
+export const REDACT_PATHS: readonly string[] = [
+  '*.password', '*.passwordHash', '*.claveQR', '*.token', '*.jwt', '*.secret', '*.apiKey',
+  // Acceso a FLIT 2 (HU #13061): la contraseña del usuario de servicio, el bearer y la cabecera.
+  'clientSecret', 'secret', 'accessToken', 'authorization',
+  '*.clientSecret', '*.accessToken', '*.authorization', '*.headers.authorization',
+];
+
 // Logger estructurado centralizado (ISO 27001 A.8.15 — registro de eventos).
 // JSON en producción para ingestión por agregadores (fluent-bit, vector, datadog).
 // pino-pretty solo en desarrollo para legibilidad en terminal.
@@ -10,7 +24,7 @@ export const logger = pino({
   timestamp: pino.stdTimeFunctions.isoTime,
   redact: {
     // Campos que jamás deben aparecer en logs (ISO 27001 A.8.11 — protección PII).
-    paths: ['*.password', '*.passwordHash', '*.claveQR', '*.token', '*.jwt', '*.secret', '*.apiKey'],
+    paths: [...REDACT_PATHS],
     censor: '[REDACTED]',
   },
   ...(env.NODE_ENV !== 'production'

@@ -24,7 +24,8 @@ const log = loggerFor('flito-ocr-local');
 const LANG_DIR = fileURLToPath(new URL('../../../vendor/tesseract/', import.meta.url)); // eng.traineddata.gz
 
 // ── Ejecutar un binario de poppler (stdin opcional, stdout capturado) ─────────
-function ejecutar(cmd: string, args: string[], input?: Buffer, timeoutMs = 25000): Promise<Buffer> {
+/** Exportado como `ejecutarBinario` para la compresión de comprobantes (HU #13207); mismo comportamiento. */
+export function ejecutarBinario(cmd: string, args: string[], input?: Buffer, timeoutMs = 25000): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const p = spawn(cmd, args);
     const out: Buffer[] = []; const err: Buffer[] = [];
@@ -61,8 +62,13 @@ async function ocrImagen(buf: Buffer): Promise<string> {
 }
 
 // ── PDF → texto ──────────────────────────────────────────────────────────────
-async function pdfATexto(buf: Buffer): Promise<string> {
-  try { return (await ejecutar('pdftotext', ['-layout', '-', '-'], buf)).toString('utf8'); }
+/**
+ * Texto de la capa de texto de un PDF con `pdftotext` (sin Tesseract: un escaneado da `''`).
+ * Exportada para el parser de la factura FLIT (HU #12826), que necesita `-layout` (Notas Finales,
+ * columnas del adquiriente) y `-raw` (la «Descripción» del producto, que `-layout` parte).
+ */
+export async function textoPdf(buf: Buffer, modo: '-layout' | '-raw' = '-layout'): Promise<string> {
+  try { return (await ejecutarBinario('pdftotext', [modo, '-', '-'], buf)).toString('utf8'); }
   catch (e) { log.warn({ err: (e as Error).message }, 'pdftotext falló'); return ''; }
 }
 
@@ -70,7 +76,7 @@ async function pdfEscaneadoAImagen(buf: Buffer): Promise<Buffer | null> {
   // pdftoppm escribe a un archivo con prefijo (no a stdout en esta versión): usamos uno temporal.
   const base = path.join(os.tmpdir(), `flitocr-${randomUUID()}`);
   try {
-    await ejecutar('pdftoppm', ['-png', '-singlefile', '-r', '200', '-f', '1', '-l', '1', '-', base], buf);
+    await ejecutarBinario('pdftoppm', ['-png', '-singlefile', '-r', '200', '-f', '1', '-l', '1', '-', base], buf);
     return await fs.readFile(`${base}.png`);
   } catch (e) { log.warn({ err: (e as Error).message }, 'pdftoppm/rasterización falló'); return null; }
   finally { await fs.rm(`${base}.png`, { force: true }).catch(() => {}); }
@@ -80,7 +86,7 @@ async function pdfEscaneadoAImagen(buf: Buffer): Promise<Buffer | null> {
 export async function textoDocumento(doc: { contentType: string; contenido: Buffer }): Promise<string> {
   const ct = doc.contentType.toLowerCase();
   if (ct.includes('pdf')) {
-    const texto = await pdfATexto(doc.contenido);
+    const texto = await textoPdf(doc.contenido);
     if (texto.replace(/\s/g, '').length >= 40) return texto; // tiene capa de texto → exacto
     const png = await pdfEscaneadoAImagen(doc.contenido);     // escaneado → rasterizar + OCR
     return png ? await ocrImagen(png) : texto;

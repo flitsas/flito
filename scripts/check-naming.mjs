@@ -31,6 +31,22 @@ const TITLE_PROMOCION = /^RELEASE: (\S.*)$/;
 // Un cambio bajo estas rutas es desarrollo y exige HU o Bug en Azure DevOps.
 const RUTAS_DE_PRODUCTO = ['apps/', 'packages/'];
 
+// Excepción acotada: configs de tooling en la raíz de cada app. No son código de
+// producto (no cambian comportamiento visible ni lógica) y AGENTS.md los cuenta
+// como «tooling»: un CHORE puede tocarlos. Rutas exactas, sin globs — añadir una
+// entrada exige justificarla en el PR. package.json queda FUERA a propósito:
+// las dependencias son superficie de security-agent y no son un ajuste neutro.
+const TOOLING_DE_APP = new Set([
+  'apps/api/Dockerfile',
+  'apps/api/drizzle.config.ts',
+  'apps/api/tsconfig.json',
+  'apps/api/vitest.config.ts',
+  'apps/web/Dockerfile',
+  'apps/web/playwright.config.ts',
+  'apps/web/tsconfig.json',
+  'apps/web/vite.config.ts',
+]);
+
 function parseArgs(argv) {
   const args = { warnOnly: false };
   for (let i = 0; i < argv.length; i++) {
@@ -137,13 +153,16 @@ function validarCoherencia(rama, titulo, errores) {
 
 function validarTrazabilidad(rama, cambios, errores) {
   if (!rama || rama.id || !cambios) return; // solo aplica a CHORE/DOCS con lista de cambios disponible
-  const producto = cambios.filter((f) => RUTAS_DE_PRODUCTO.some((r) => f.startsWith(r)));
+  const producto = cambios.filter(
+    (f) => RUTAS_DE_PRODUCTO.some((r) => f.startsWith(r)) && !TOOLING_DE_APP.has(f),
+  );
   if (producto.length === 0) return;
 
   errores.push(
     `Una rama ${rama.tipo}/ no puede tocar código de producto (apps/, packages/): ` +
       `todo desarrollo va ligado a una HU o un Bug de Azure DevOps.\n` +
       `  Archivos: ${producto.slice(0, 5).join(', ')}${producto.length > 5 ? `, … (+${producto.length - 5})` : ''}\n` +
+      `  (Los configs de tooling listados en TOOLING_DE_APP sí están permitidos en un CHORE.)\n` +
       `  Crea la HU o el Bug (skill flit-crear-hu) y renombra: git branch -m HU/<ID>-<desarrollador>-<desc>`,
   );
 }

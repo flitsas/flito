@@ -8,8 +8,8 @@
 // Reglas que conviene no revertir sin pensarlo:
 //
 //   1. NINGUNA condición sobre un concepto concreto. En este archivo no aparece escrito el nombre
-//      de ninguno de los seis: viven en `CONCEPTOS_FACTURABLES` (shared-types) y en la semilla de
-//      la migración 0128. El test de AC3 lo verifica leyendo este fuente, porque es el tipo de
+//      de ninguno de ellos: viven en `CONCEPTOS_FACTURABLES` (shared-types) y en las semillas de
+//      las migraciones 0128 y 0195. El test de AC3 lo verifica leyendo este fuente, porque es el tipo de
 //      regla que se rompe sola en el primer «arreglo rápido».
 //   2. `ambiente` entra en toda consulta. El código de producto y los ids de impuesto pertenecen a
 //      UNA empresa de Siigo; leer el mapeo sin ambiente devolvería la configuración de la empresa

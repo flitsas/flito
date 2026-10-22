@@ -239,7 +239,26 @@ const panelRango = (page: Page, etiqueta: string) =>
   page.locator('details').filter({ has: page.locator('summary').filter({ hasText: etiqueta }) });
 
 /** Deja puesto el rango del filtro nuevo, pinchando los dos extremos del mes visible. */
+/**
+ * HU #12819: en la cola SOAT los filtros secundarios viven en el panel plegable «Más filtros»;
+ * Impuestos no lo tiene y ahí no hace nada. Idempotente: si ya está abierto no lo cierra.
+ */
+async function abrirMasFiltrosSoat(page: Page) {
+  if (!new URL(page.url()).pathname.startsWith('/flito/soat')) return;
+  const boton = page.getByRole('button', { name: /^Más filtros/ });
+  // Primero que la cola haya pintado: durante la carga inicial la pantalla se vuelve a montar
+  // (sesión y permisos) y un panel abierto antes se cerraría con ella.
+  await expect(page.getByRole('region', { name: 'Pólizas SOAT' })).toBeVisible();
+  // `toPass`: un clic antes de que React enganche el manejador no abre nada; se reintenta hasta
+  // que el botón DIGA que está abierto, que es lo que se comprueba y no el clic.
+  await expect(async () => {
+    if ((await boton.getAttribute('aria-expanded')) !== 'true') await boton.click();
+    await expect(boton).toHaveAttribute('aria-expanded', 'true', { timeout: 1_000 });
+  }).toPass();
+}
+
 async function ponerRangoCreado(page: Page) {
+  await abrirMasFiltrosSoat(page);
   await rango(page, 'Creado en FLITO').click();
   const panel = panelRango(page, 'Creado en FLITO');
   await panel.getByRole('button', { name: DESDE, exact: true }).click();
@@ -285,6 +304,7 @@ test.describe('HU #11909 — quién ve «Exportar a Excel» (AC6)', () => {
 
       // **El segundo aserto es el que impide «esconder toda la barra de filtros»**, que haría pasar
       // al primero sin cumplir nada: filtrar es leer, y el auditor lee.
+      await abrirMasFiltrosSoat(page);
       await expect(rango(page, 'Creado en FLITO')).toBeVisible();
       await expect(rango(page, 'Creado en FLITO')).toContainText('Cualquier fecha');
     });
@@ -515,6 +535,7 @@ test.describe('HU #11909 — qué manda el export', () => {
       // `hasText` y no `has: getByRole(...)`: con el `<details>` cerrado la casilla está en el DOM
       // pero fuera del árbol de accesibilidad, así que un localizador por rol no la encuentra —y el
       // filtro se quedaría esperando al elemento que tiene que abrir.
+      await abrirMasFiltrosSoat(page);
       const compania = page.locator('details').filter({ hasText: 'Concesionario Norte' });
       await compania.locator('summary').click();
       await page.getByRole('checkbox', { name: 'Concesionario Norte' }).check();

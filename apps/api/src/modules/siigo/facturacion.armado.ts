@@ -30,6 +30,7 @@ import {
   SIIGO_IDEMPOTENCY_KEY_MAX,
   SIIGO_IDEMPOTENCY_KEY_RE,
   type ConceptoFacturable,
+  type ItemServicioSellado,
   type ValoresLiquidacion,
 } from '@operaciones/shared-types';
 import type { MapeoConcepto } from './mapeo-conceptos.service.js';
@@ -51,6 +52,16 @@ export interface TramiteFacturable {
   placa: string | null;
   tipoTramite: string | null;
   liquidacion: ValoresLiquidacion;
+  /**
+   * El desglose SELLADO de los servicios adicionales (HU #12547), tal como quedó en
+   * `detalle->'serviciosAdicionales'->'items'` al liquidar. Vacío cuando no hubo ninguno.
+   *
+   * **Campo aparte y no dentro de `ValoresLiquidacion`**: aquella describe UN valor por concepto y
+   * de aquí salen VARIAS líneas de factura. Y es lo sellado, nunca una relectura de la tabla puente
+   * `flito_tramite_servicios_adicionales`: un servicio quitado después del sello no se factura, y
+   * la liquidación es la única que sabe qué se cobró.
+   */
+  serviciosAdicionales: ItemServicioSellado[];
 }
 
 /**
@@ -132,7 +143,14 @@ export type MotivoRechazoArmado =
   | 'total_no_positivo'
   | 'importe_negativo'
   | 'parametro_no_numerico'
-  | 'grupo_vacio';
+  | 'grupo_vacio'
+  /**
+   * HU #12547 — la suma de los items sellados no coincide con `valor_servicios_adicionales`, o hay
+   * valor sellado sin items. Son datos que se contradicen a sí mismos dentro de la MISMA
+   * liquidación: facturar cualquiera de las dos versiones sería elegir al azar cuál miente ante la
+   * DIAN.
+   */
+  | 'servicios_no_cuadran';
 
 export class FacturaNoArmableError extends Error {
   constructor(
@@ -282,6 +300,67 @@ export function conceptosFacturados(
   return aplicables.filter((c) => permitidos.has(c));
 }
 
+/**
+ * Medio centavo. Por debajo de eso la diferencia es redondeo, no un descuadre.
+ *
+ * El mismo criterio y el mismo número que `TOLERANCIA_TOTAL` de `facturacion.emision.service.ts`,
+ * que compara nuestro total con el que devuelve Siigo. **No es celo excesivo**: lo sellado llega
+ * como cadena de `numeric(14,2)` y los `items[].valor` son números JS, así que `85000.1 + 40000.1`
+ * vale `125000.20000000001164` mientras que `Number('125000.20')` vale `125000.19999999999709`:
+ * se separan en 1.45e-11. Con `!==` esa factura —correcta— se caía con `servicios_no_cuadran`.
+ * (Ojo con el ejemplo: `85000.1 + 40000.2` NO sirve para ilustrarlo, porque da bit a bit el mismo
+ * double que `Number('125000.30')`. El spec tiene un caso por cada borde de esta constante.)
+ */
+const TOLERANCIA_SERVICIOS = 0.005;
+
+/**
+ * Las líneas de los servicios adicionales de un trámite: **una por item sellado** (HU #12547).
+ *
+ * Es la única forma de un concepto que trae DESGLOSE: `valor_servicios_adicionales` es la suma, y
+ * lo que el cliente reconoce en su factura es «Cambio de placa 85.000 / Duplicado de licencia
+ * 40.000», no un renglón agregado que obliga a pedir el detalle por correo. Si mañana otro concepto
+ * gana desglose sellado, este es el patrón —no un `if` más sobre un nombre de concepto—.
+ *
+ * `description` es el NOMBRE DEL SERVICIO tal como se selló, no `nombreProducto` del mapeo: el
+ * producto de Siigo es uno solo para todos los servicios (por eso `code` se repite) y usarlo como
+ * descripción borraría justo la distinción que estas líneas existen para mostrar. No se recorta:
+ * `nombre` es `varchar(120)` y por esta misma ruta ya viaja `nombreProducto` de `varchar(200)`.
+ *
+ * El cuadre va aquí y no en la elegibilidad porque es el armado el que convierte los items en
+ * dinero facturado. Dos datos de la MISMA liquidación que se contradicen no se promedian ni se
+ * elige uno: se rechaza la factura. **El caso «valor sellado > 0 con items vacíos» lo atrapa esta
+ * misma comparación** (suma 0 contra un valor positivo); un `if` aparte sería un camino que un
+ * mutante puede borrar sin poner nada en rojo.
+ */
+function lineasDeServicios(
+  tramite: TramiteFacturable, codigoProducto: string, valorSellado: number,
+): LineaFactura[] {
+  // `aNumero` PRIMERO, cuadre después. Con un `Number(item.valor)` a secas, un valor sucio da
+  // `NaN`, `Math.abs(NaN - v) > 0.005` es **false** —toda comparación con NaN lo es— y la factura
+  // saldría con un `price: NaN` sin que nada lanzara. `aNumero` corta antes con
+  // `parametro_no_numerico`, que además es el motivo correcto: el problema es el dato del item, no
+  // que el desglose no cuadre.
+  const lineas = tramite.serviciosAdicionales.map((item) => ({
+    code: codigoProducto,
+    description: item.nombre,
+    quantity: 1,
+    price: aNumero(item.valor, `el servicio adicional ${item.nombre} del trámite ${tramite.idFlit}`),
+  }));
+
+  const suma = lineas.reduce((acc, l) => acc + l.price, 0);
+  if (Math.abs(suma - valorSellado) > TOLERANCIA_SERVICIOS) {
+    throw new FacturaNoArmableError(
+      'servicios_no_cuadran',
+      `El desglose de ${CONCEPTO_FACTURABLE_LABEL.servicio_adicional} no cuadra con el valor `
+      + 'sellado de la liquidación.',
+      `${tramite.idFlit}: items ${suma.toFixed(2)} vs liquidación ${valorSellado.toFixed(2)} `
+      + `(${lineas.length} item(s))`,
+    );
+  }
+
+  return lineas;
+}
+
 function lineasDe(
   tramite: TramiteFacturable, mapeo: MapeoPorConcepto, elegidos: readonly ConceptoFacturable[],
 ): LineaFactura[] {
@@ -322,6 +401,20 @@ function lineasDe(
         `El concepto ${CONCEPTO_FACTURABLE_LABEL[concepto]} tiene un importe negativo.`,
         `${tramite.idFlit}: ${price}`,
       );
+    }
+
+    // HU #12547 — un concepto con DESGLOSE sellado produce una línea por item, no una sola.
+    //
+    // El criterio, para que el siguiente concepto con desglose no copie a ciegas: aquí se bifurca
+    // porque la liquidación selló un detalle (`detalle->'serviciosAdicionales'->'items'`) que el
+    // cliente tiene que ver renglón a renglón, y `price` —la suma— pasa a ser lo que se CUADRA
+    // contra ese detalle en vez de lo que se factura. Va después del descarte por
+    // `facturaLineaPropia` y de las guardas de mapeo y producto a propósito: esas reglas son las
+    // mismas para todos los conceptos y duplicarlas aquí sería un segundo sitio donde puedan
+    // divergir.
+    if (concepto === 'servicio_adicional') {
+      lineas.push(...lineasDeServicios(tramite, m.codigoProducto, price));
+      continue;
     }
 
     // A7 — SIN `taxes`. Es campo opcional del contrato, y omitirlo hace que Siigo aplique los del

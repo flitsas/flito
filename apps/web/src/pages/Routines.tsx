@@ -11,8 +11,8 @@ import { flitInp, FlitTh, FlitTr, FlitTable, FlitField, flitBtnPrimary, flitBtnP
 interface Routine { id: number; codigo: string; nombre: string; descripcion: string | null; activo: boolean; }
 
 export default function Routines() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const { hasFuncion } = useAuth();
+  const isAdmin = hasFuncion('maintenance.inicio.administrar');
   const [items, setItems] = useState<Routine[]>([]);
   const [showCreate, setShowCreate] = useState(false);
 

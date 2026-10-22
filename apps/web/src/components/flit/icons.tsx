@@ -32,6 +32,10 @@ export const IconWrench = (p: IconProps) => (
 export const IconShield = (p: IconProps) => (
   <svg {...base} {...p}><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3Z" /><path d="m9 12 2 2 4-4" /></svg>
 );
+/** Persona — ítem «Perfil» del menú de sesión (HU #13256). */
+export const IconUser = (p: IconProps) => (
+  <svg {...base} {...p}><circle cx="12" cy="8" r="3.5" /><path d="M5 20a7 7 0 0 1 14 0" /></svg>
+);
 export const IconPackage = (p: IconProps) => (
   <svg {...base} {...p}><path d="M12 3 4 7v10l8 4 8-4V7l-8-4Z" /><path d="m4 7 8 4 8-4M12 11v10" /></svg>
 );
@@ -66,4 +70,8 @@ export const IconDot = (p: IconProps) => (
 // mostrar iconos de módulo en la navegación desktop).
 export const IconWallet = (p: IconProps) => (
   <svg {...base} {...p}><path d="M3 8a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v1" /><path d="M3 8v9a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-2" /><path d="M21 10v5h-4a2.5 2.5 0 0 1 0-5z" /></svg>
+);
+// Ayuda (HU #13431) — el «circle-help» de Lucide, mismo trazo que el resto del set.
+export const IconHelp = (p: IconProps) => (
+  <svg {...base} {...p}><circle cx="12" cy="12" r="9" /><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" /><path d="M12 17h.01" /></svg>
 );

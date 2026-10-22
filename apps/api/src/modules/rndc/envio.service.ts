@@ -10,6 +10,7 @@ import { getActiveCredenciales } from './credenciales.service.js';
 import { isTransientError, isBusinessError, isDuplicate, RndcResponse } from './client/types.js';
 import { hashRequest } from '../../shared/utils/crypto.js';
 import { env } from '../../config/env.js';
+import { usuariosConFuncion } from '../../shared/permisos-efectivos.js';
 
 // ============================================================================
 // Servicio de envío RNDC.
@@ -373,9 +374,12 @@ function redactClaveQR(payload: string): string {
 async function encolarNotificacion(
   entidadTipo: 'manifiesto' | 'remesa', entidadId: number, codigo: string, mensaje: string,
 ): Promise<void> {
-  // Buscar admins activos.
+  // Destinatarios: quien puede reintentar el envío (`rndc.manifiestos.administrar`). La 0229 la siembra
+  // solo a `admin`, así que el conjunto es el mismo de antes sin depender del nombre del rol (HU #13422).
+  const ids = await usuariosConFuncion('rndc.manifiestos.administrar');
+  if (ids.length === 0) return;
   const admins = await db.select({ email: users.email })
-    .from(users).where(and(eq(users.role, 'admin'), eq(users.active, true), isNull(users.deletedAt)));
+    .from(users).where(and(inArray(users.id, ids), eq(users.active, true), isNull(users.deletedAt)));
   const emails = admins.map((a) => a.email).filter(Boolean);
   if (emails.length === 0) return;
 

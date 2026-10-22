@@ -15,9 +15,9 @@ import { requirePage } from '../../shared/permissions.js';
 import { JORNADA_LIMITS } from '../jornadas/limits.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('pesv'));
+router.use(authMiddleware);
 
-router.get('/tablero', async (_req: Request, res: Response) => {
+router.get('/tablero', requirePage('pesv_tablero_ejecutivo'), async (_req: Request, res: Response) => {
   const anio = new Date().getUTCFullYear();
   const trimestre = `${anio}-Q${Math.floor(new Date().getUTCMonth() / 3) + 1}`;
   const inicioMes = new Date(Date.UTC(anio, new Date().getUTCMonth(), 1));

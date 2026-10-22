@@ -9,11 +9,11 @@
 //
 // Todas las URLs son enlaces firmados y con caducidad (`/api/files?...`): el storage no se expone.
 
-import { and, eq, inArray, isNotNull } from 'drizzle-orm';
-import { EstadoSoat, TipoSoporte } from '@operaciones/shared-types';
+import { and, eq, inArray, isNotNull, notInArray, sql } from 'drizzle-orm';
+import { EstadoComprobante, EstadoSoat, TipoSoporte } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
-  flitoConciliacionLineas, flitoDerechosTramite, flitoImpuestos, flitoLogisticaActas,
+  flitoComprobantes, flitoConciliacionLineas, flitoDerechosTramite, flitoImpuestos, flitoLogisticaActas,
   flitoLogisticaDocumentos, flitoSoat, flitoSoportes, flitoTramites, siigoFacturaTramites,
 } from '../../db/schema.js';
 import { firmarDescargaEntidad } from '../../services/storage.js';
@@ -21,7 +21,10 @@ import { firmarDescargaEntidad } from '../../services/storage.js';
 /** Un documento listo para enseñar: con su enlace ya firmado. */
 export interface SoporteVista {
   id: string;
-  /** De qué flujo viene: soat · impuesto · derecho · logistica. Lo usa la UI para agrupar. */
+  /**
+   * De qué flujo viene: soat · impuesto · derecho · logistica · factura_electronica · conciliacion ·
+   * comprobante. Lo usa la UI para agrupar.
+   */
   origen: string;
   tipo: string;
   nombreArchivo: string;
@@ -33,6 +36,12 @@ export interface SoporteVista {
 function ordenar(soportes: SoporteVista[]): SoporteVista[] {
   return soportes.sort((a, b) => b.subidoEn.localeCompare(a.subidoEn));
 }
+
+/**
+ * HU #13362 (AC9) — tipos que NUNCA salen en la lista general de soportes, para ningún rol ni origen:
+ * los documentos adicionales del alta de SOAT se leen solo por su propia ruta, con su propia función.
+ */
+export const TIPOS_SOPORTE_FUERA_DE_LISTA: readonly string[] = [TipoSoporte.DOCUMENTO_ADICIONAL_SOAT];
 
 /**
  * Soportes de `flito_soportes` que cuelgan de un registro concreto (SOAT, impuesto o derecho).
@@ -59,10 +68,59 @@ async function porRegistro(
     .where(and(
       eq(columna, registroId),
       eq(flitoSoportes.descartado, false),
+      notInArray(flitoSoportes.tipo, [...TIPOS_SOPORTE_FUERA_DE_LISTA]),
       ...(tipos === null ? [] : [inArray(flitoSoportes.tipo, [...tipos])]),
     ));
   return filas.map((f) => ({
     id: f.id, origen, tipo: f.tipo, nombreArchivo: f.nombreArchivo,
+    url: firmarDescargaEntidad(f.storageKey), subidoEn: f.subidoEn.toISOString(),
+  }));
+}
+
+/**
+ * Soportes que un comprobante de la puerta universal APLICÓ a este trámite (Feature #12606, HU #12633).
+ *
+ * Es el camino por el que llegan los documentos que NO tienen columna propia en `flito_soportes`:
+ * los honorarios y la documentación adjunta de logística no cuelgan de un `soat_id`, un `impuesto_id`
+ * ni un `derecho_id`, así que `porRegistro` no los alcanza y, sin esta consulta, un pago aplicado
+ * existía y no se veía — el mismo síntoma que la cabecera de este archivo advierte.
+ *
+ * **Qué fila se enseña.** `COALESCE(soporte_aplicado_id, soporte_id)`: si el comprobante venía en un
+ * consolidado y se recortó, el HIJO (la página que se aplicó); si no, el original. Consultar solo
+ * `soporte_id` mostraría el archivo entero de N pagos en vez de la página de este trámite (AC1).
+ *
+ * **Solo `aplicado`.** Un comprobante pendiente todavía no es de nadie y uno descartado no es
+ * evidencia de nada; ninguno de los dos tiene `tramite_id` firme (AC3). El `descartado = false` de
+ * `flito_soportes` se mantiene además por coherencia con `porRegistro`.
+ *
+ * **Lo que ya sale por FK NO se repite.** Un SOAT aplicado por comprobante deja `soat_id` en el
+ * soporte hijo (HU #12629), así que `porRegistro` ya lo devuelve con `origen: 'soat'`; quien llama
+ * deduplica por `id` antes de sumar lo de aquí (AC2). Esta función no lo sabe ni debe saberlo: solo
+ * responde «qué aplicó un comprobante».
+ *
+ * `tipos` acota la lectura en la CONSULTA, con la misma firma y por la misma razón que `porRegistro`:
+ * no se lee lo que no se va a devolver. `null` = sin recorte (los roles internos).
+ */
+export async function soportesDeComprobantesAplicados(
+  tramiteId: string,
+  tipos: readonly string[] | null = null,
+): Promise<SoporteVista[]> {
+  const filas = await db.select({
+    id: flitoSoportes.id, tipo: flitoSoportes.tipo, nombreArchivo: flitoSoportes.nombreArchivo,
+    storageKey: flitoSoportes.storageKey, subidoEn: flitoSoportes.subidoEn,
+  }).from(flitoComprobantes)
+    .innerJoin(
+      flitoSoportes,
+      eq(flitoSoportes.id, sql`COALESCE(${flitoComprobantes.soporteAplicadoId}, ${flitoComprobantes.soporteId})`),
+    )
+    .where(and(
+      eq(flitoComprobantes.tramiteId, tramiteId),
+      eq(flitoComprobantes.estado, EstadoComprobante.APLICADO),
+      eq(flitoSoportes.descartado, false),
+      ...(tipos === null ? [] : [inArray(flitoSoportes.tipo, [...tipos])]),
+    ));
+  return filas.map((f) => ({
+    id: f.id, origen: 'comprobante', tipo: f.tipo, nombreArchivo: f.nombreArchivo,
     url: firmarDescargaEntidad(f.storageKey), subidoEn: f.subidoEn.toISOString(),
   }));
 }
@@ -134,7 +192,7 @@ export interface SoporteVisibleCliente {
    * acabado en un `if` de la ruta —lejos de la lista, donde nadie la ve al revisar qué se abrió—.
    */
   soloEn: EstadoSoat | null;
-  /** Qué se rompe si se quita. Mismo gesto que `RutaCliente.porque` en `canal-cliente.ts`. */
+  /** Qué se rompe si se quita. Mismo gesto que `RutaTransversal.porque` en `frontera-enlace.ts`. */
   porque: string;
 }
 
@@ -194,9 +252,6 @@ export const TIPOS_SOPORTE_VISIBLES_CLIENTE: readonly SoporteVisibleCliente[] = 
   },
 ];
 
-/** El rol del canal Cliente. Mismo literal que `shared/middleware/canal-cliente.ts`. */
-const ROL_CLIENTE = 'cliente';
-
 /**
  * Los tipos que este cliente puede ver AHORA, resueltos contra el estado de la solicitud.
  *
@@ -212,6 +267,13 @@ function tiposVisiblesCliente(estadoSoat: string): readonly string[] {
 /** Lo que la ruta sabe del actor y esta consulta necesita para decidir qué bloques devuelve. */
 export interface ActorSoporte {
   rol: string;
+  /**
+   * La proyección del canal Cliente (`SoatCtx.proyeccionCliente`, HU #12875: por ENLACE). Decide la
+   * allowlist `TIPOS_SOPORTE_VISIBLES_CLIENTE` para todo rol con esa proyección, no solo para el
+   * literal `'cliente'` (HU #12815). Obligatorio por lo mismo que `rol`: un opcional se olvida y el
+   * olvido abre.
+   */
+  proyeccionCliente: boolean;
   /**
    * El estado del SOAT que se está mirando, tal como lo devolvió la consulta que ya autorizó el
    * acceso (`detalle()` → `buscarConAcceso()`). **Obligatorio**, por lo mismo que `rol`: un campo
@@ -250,12 +312,13 @@ export async function soportesDeSoat(
   // ni se emite — no se lee lo que no se va a devolver, el mismo criterio que ya aplica la línea de
   // abajo con el comprobante PSE. Esa rama no es teórica: basta con vaciar la lista, o con que un
   // día todas las entradas lleven `soloEn`.
-  const tiposVisibles = actor.rol === ROL_CLIENTE ? tiposVisiblesCliente(actor.estadoSoat) : null;
+  const tiposVisibles = actor.proyeccionCliente ? tiposVisiblesCliente(actor.estadoSoat) : null;
   const [propios, conciliacion] = await Promise.all([
     tiposVisibles !== null && tiposVisibles.length === 0
       ? Promise.resolve([] as SoporteVista[])
       : porRegistro(flitoSoportes.soatId, soatId, 'soat', tiposVisibles),
-    ROLES_COMPROBANTE_PSE.includes(actor.rol) ? comprobanteDeConciliacion(soatId) : [],
+    // Un rol externo nunca, aunque su código coincidiera con uno de la lista (HU #12815).
+    !actor.proyeccionCliente && ROLES_COMPROBANTE_PSE.includes(actor.rol) ? comprobanteDeConciliacion(soatId) : [],
   ]);
   const visibles = tiposVisibles === null ? propios : propios.filter((s) => tiposVisibles.includes(s.tipo));
   return ordenar([...visibles, ...conciliacion]);
@@ -272,7 +335,7 @@ export async function soportesDeDerecho(derechoId: string): Promise<SoporteVista
 }
 
 /**
- * TODOS los documentos de un trámite, de los cuatro orígenes, en una sola respuesta.
+ * TODOS los documentos de un trámite, vengan del origen que vengan, en una sola respuesta.
  *
  * Aquí no se elige: se devuelve lo que haya. Lo que no exista simplemente no aparece. Devuelve
  * `null` —y no una lista vacía— cuando el trámite no existe, para que la ruta pueda distinguir
@@ -344,6 +407,15 @@ export async function soportesDeTramite(tramiteId: string): Promise<SoporteVista
     ));
   for (const f of facturas) {
     salida.push(...await porRegistro(flitoSoportes.siigoFacturaId, f.facturaId, 'factura_electronica'));
+  }
+
+  // Lo que un comprobante de la puerta universal aplicó a este trámite (HU #12633). Va DESPUÉS de
+  // los bloques por FK y deduplicado por `id` a propósito: un SOAT aplicado por comprobante ya salió
+  // arriba con `origen: 'soat'` porque su soporte hijo lleva `soat_id`, y debe seguir saliendo así
+  // —una vez— (AC2). Lo que entra por aquí es lo que ninguna FK alcanza: honorarios y documentación.
+  const yaListados = new Set(salida.map((s) => s.id));
+  for (const s of await soportesDeComprobantesAplicados(tramiteId)) {
+    if (!yaListados.has(s.id)) salida.push(s);
   }
 
   return ordenar(salida);

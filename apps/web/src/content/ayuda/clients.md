@@ -23,7 +23,7 @@ En el menú lateral, sección **Gestión**, ítem **Clientes y proveedores**. Ru
 
 - Cargando: **Cargando compañías…** mientras llega el listado de clientes; **Cargando…** en el listado de proveedores.
 - Error: si el listado de compañías no llega, mensaje en rojo con **Reintentar** sobre la tarjeta; además, aviso al fallar el guardado (el listado no se cae si falla el informe de facturación).
-- Vacío: **No hay clientes.** / **No hay proveedores SOAT.**
+- Vacío: **No hay clientes.** / **No hay proveedores. Crea el primero con «Nuevo proveedor».**
 - Lleno: tabla **Empresa**, documento, ciudad, autogestión, **SOAT sin trámite**, **Facturación** y acciones. Si el gestor por defecto de una compañía está desactivado, la columna lo dice: **Abierto · SURA (inactivo)**, y sus solicitudes nuevas quedan **Gestionado por Operaciones**.
 - La columna también puede decir **Abierto · sin gestor**: el canal está abierto pero esa compañía no tiene **Gestor por defecto** configurado. Son compañías a las que se les abrió el canal antes de que elegir gestor fuera obligatorio. Mientras siga así, sus solicitudes nuevas quedan **Gestionado por Operaciones**, igual que si el gestor estuviera desactivado. Púlselo, elija el **Gestor por defecto** y **Guardar**.
 - En el cuadro de **SOAT sin trámite**, la lista de gestores tiene sus propios estados: **Cargando gestores…**, **No se pudieron cargar los gestores.** con **Volver a cargar gestores**, y **No hay gestores de SOAT activos. Cree uno en la pestaña Proveedores antes de abrir el canal de esta compañía.**

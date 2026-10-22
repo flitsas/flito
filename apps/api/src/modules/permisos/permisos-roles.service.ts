@@ -1,9 +1,9 @@
 // HU #12084 (Feature #12072) — Mantenimiento de roles (CF-03, CF-04, CF-05) y guardado del cuadro
 // rol × función (CF-02). Lo que la ruta no debe saber: transacciones, candados, invariante y auditoría.
 //
-// RN-A1 — Marcarle funciones a un rol EXTERNO fuera de su canal no lo saca de la frontera: la guarda de
-//   canal corre antes que `exigirFuncion` y no mira el conjunto. Aquí se GUARDA igual (el
-//   administrador decide) y se AVISA con la lista de `FUNCIONES_DEL_CANAL_EXTERNO` (§3.3 del diseño).
+// RN-A1 — Marcarle a un rol CON ENLACE funciones de un módulo que la frontera no le abre no lo saca de
+//   ella: `guardiaFrontera` corre antes que `exigirFuncion` y no mira el conjunto. Aquí se GUARDA igual
+//   (el administrador decide) y se AVISA con `funcionesAlcanzables(enlace)` (HU #12875, ADR-0024).
 // RN-A8 — Un rol con usuarios asignados no se borra: 409 con el conteo. Y `es_sistema` (solo `admin`)
 //   es candado aunque N = 0. Los dos motivos los produce `motivoNoBorrable`, la MISMA función que
 //   alimenta `borrable`/`motivoNoBorrable` del listado: un solo texto para la pantalla y para el 409.
@@ -15,31 +15,33 @@
 //   · `tipoEnlace` se cambia SOLO con 0 usuarios: los triggers de la 0178 revalidan al escribir `users`,
 //     no al escribir `permisos_roles`, y cambiar el enlace de un rol con usuarios dejaría filas
 //     incumplidoras que nadie detecta.
-//   · `tipoPrincipal` se cambia con el invariante (`admin → externo` con dos admins responde 409) y con
-//     `invalidarPermisosDeRol` post-commit en la ruta.
+//   · El tipo interno/externo se RETIRÓ (HU #12875, AC6): ni se lee, ni se escribe, ni se devuelve.
+//     Como el enlace se cambia solo con 0 usuarios, editar un rol no mueve la población administradora
+//     (`tipo_enlace = 'ninguno'`, ADR-0022 modificado por ADR-0024) y `editarRol` no toma el invariante.
 //   · `operaciones` está RESERVADO: sigue siendo etiqueta del tipo obsoleto `user_role` y ADR-0015 §2 lo
 //     deja fuera de todo lo asignable. Sin esta guarda el panel lo resucitaría.
 import { asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type {
   CrearRolInput, CuadroRol, EditarRolInput, RespuestaGuardarCuadro, RolCatalogo, TipoEnlace,
-  TipoPrincipalRol,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { permisosFunciones, permisosRoles, permisosRolFuncion, users } from '../../db/schema.js';
 import {
   diffConjunto, mismoConjunto, registrarCambiosPermisos, type ActorAuditoria, type CambioAuditable,
 } from '../../shared/historial/permisos-auditoria.js';
-import { FUNCIONES_DEL_CANAL_EXTERNO } from '../../shared/middleware/canal-cliente.js';
-import { conSeguroAntiBloqueo } from '../../shared/permisos-anti-bloqueo.js';
+import { funcionesAlcanzables } from '../../shared/middleware/frontera-enlace.js';
+import { enlaceConocido } from '../../shared/permisos-efectivos.js';
+import { BloqueoAdministracionError, conSeguroAntiBloqueo } from '../../shared/permisos-anti-bloqueo.js';
 import { esCodigoPg } from '../../shared/utils/pg-error.js';
+import { ACCIONES_UNIVERSALES, ancestrosDe, nodoDesmarcado } from './arbol/expansion.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /** Códigos que no se pueden crear. `operaciones`: ADR-0015 §Decisión 2 lo deja fuera de lo asignable. */
 export const RESERVADOS: readonly string[] = ['operaciones'];
 
-export const MENSAJE_FUERA_DEL_CANAL =
-  'El rol es externo: la guarda de canal sigue mandando y estas funciones no tendrán efecto por HTTP';
+export const MENSAJE_FUERA_DEL_ENLACE =
+  'El rol tiene enlace: la frontera solo le abre los módulos de ese enlace y estas funciones no tendrán efecto por HTTP';
 
 // ── Errores de dominio: la ruta los mapea a 400 / 404 / 409 ─────────────────────────────────────
 
@@ -91,7 +93,6 @@ function aRolCatalogo(r: FilaRol, usuarios: number): RolCatalogo {
     nombre: r.nombre,
     descripcion: r.descripcion,
     tipoEnlace: r.tipoEnlace as TipoEnlace,
-    tipoPrincipal: r.tipoPrincipal as TipoPrincipalRol,
     esSistema: r.esSistema,
     activo: r.activo,
     usuarios,
@@ -135,10 +136,10 @@ export async function listarRoles(): Promise<RolCatalogo[]> {
 
 /** CF-02: el cuadro de un rol. */
 export async function cuadroDe(codigo: string): Promise<CuadroRol> {
-  const [rol] = await db.select({ codigo: permisosRoles.codigo, tipoPrincipal: permisosRoles.tipoPrincipal })
+  const [rol] = await db.select({ codigo: permisosRoles.codigo, tipoEnlace: permisosRoles.tipoEnlace })
     .from(permisosRoles).where(eq(permisosRoles.codigo, codigo)).limit(1);
   if (!rol) throw new RolNoEncontradoError(codigo);
-  return { codigo: rol.codigo, tipoPrincipal: rol.tipoPrincipal as TipoPrincipalRol, funciones: await funcionesDelRol(db, codigo) };
+  return { codigo: rol.codigo, tipoEnlace: rol.tipoEnlace as TipoEnlace, funciones: await funcionesDelRol(db, codigo) };
 }
 
 // ── Escrituras ──────────────────────────────────────────────────────────────────────────────────
@@ -148,11 +149,25 @@ export async function cuadroDe(codigo: string): Promise<CuadroRol> {
  * dice la PK (`23505`), no un «consultar y luego insertar»: dos POST simultáneos pasarían los dos la
  * consulta. `es_sistema` nace `false` y `activo` nace `true` (asignable de inmediato).
  */
+/**
+ * HU #13428 (decisión de David, 2026-10-13) — un rol NUEVO nace con Perfil: las acciones de reparto universal
+ * («Ver mis datos», «Cambiar mi contraseña»; P-22) y la página de su ítem se le marcan por defecto, sin literales
+ * de rol ni de acción (salen de `ACCIONES_UNIVERSALES`, la misma fuente del paso 1b de la 0237). Quedan desmarcables: el cuadro (`guardarCuadro`) reescribe el conjunto
+ * entero, así que quitarlas después no las devuelve. Si la base aún no las tiene (antes de la 0236), no se marcan.
+ */
+// También la PÁGINA de su ítem (`pagina.perfil`), como el paso 1b de la 0237: sin ella el rol no abre Perfil en la web.
+// HU #13429 (§5-quater.6): la CADENA completa (acción + ítem + elemento, `menu.perfil`), derivada del árbol: con el
+// resolver en cadena, sin el elemento el rol nuevo no podría cambiar su contraseña.
+const ACCIONES_POR_DEFECTO_DE_ROL_NUEVO: readonly string[] = [...new Set(ACCIONES_UNIVERSALES.flatMap((u) => [u.accion, ...ancestrosDe(u.accion)]))];
+
 export async function crearRol(input: CrearRolInput, actor: ActorAuditoria): Promise<RolCatalogo> {
   if (RESERVADOS.includes(input.codigo)) throw new CodigoReservadoError(input.codigo);
-  const funciones = conjunto(input.funciones ?? []);
-  const inexistentes = await funcionesInexistentes(funciones);
+  const pedidas = conjunto(input.funciones ?? []);
+  // Una sola consulta para lo pedido y lo de por defecto: solo lo PEDIDO inexistente es error.
+  const faltan = new Set(await funcionesInexistentes(conjunto([...pedidas, ...ACCIONES_POR_DEFECTO_DE_ROL_NUEVO])));
+  const inexistentes = pedidas.filter((c) => faltan.has(c));
   if (inexistentes.length) throw new FuncionesInexistentesError(inexistentes);
+  const funciones = conjunto([...pedidas, ...ACCIONES_POR_DEFECTO_DE_ROL_NUEVO.filter((c) => !faltan.has(c))]);
 
   try {
     return await db.transaction(async (tx) => {
@@ -161,7 +176,6 @@ export async function crearRol(input: CrearRolInput, actor: ActorAuditoria): Pro
         nombre: input.nombre,
         descripcion: input.descripcion ?? null,
         tipoEnlace: input.tipoEnlace,
-        tipoPrincipal: input.tipoPrincipal,
       }).returning();
       if (funciones.length) {
         await tx.insert(permisosRolFuncion).values(funciones.map((f) => ({ rolCodigo: input.codigo, funcionCodigo: f })));
@@ -172,7 +186,6 @@ export async function crearRol(input: CrearRolInput, actor: ActorAuditoria): Pro
           ? [{ entidad: 'rol', accion: 'crear', campo: 'descripcion', valorAntes: null, valorDespues: input.descripcion, rolAfectadoCodigo: input.codigo } as CambioAuditable]
           : []),
         { entidad: 'rol', accion: 'crear', campo: 'tipo_enlace', valorAntes: null, valorDespues: input.tipoEnlace, rolAfectadoCodigo: input.codigo },
-        { entidad: 'rol', accion: 'crear', campo: 'tipo_principal', valorAntes: null, valorDespues: input.tipoPrincipal, rolAfectadoCodigo: input.codigo },
         { entidad: 'rol', accion: 'crear', campo: 'activo', valorAntes: null, valorDespues: true, rolAfectadoCodigo: input.codigo },
         ...(funciones.length
           ? [{ entidad: 'rol_funcion', accion: 'crear', campo: 'conjunto', valorAntes: null, valorDespues: { conjunto: funciones }, rolAfectadoCodigo: input.codigo } as CambioAuditable]
@@ -191,21 +204,14 @@ export type ResultadoEditarRol = { estado: 'sin_cambios' } | { estado: 'ok'; rol
 
 /** Columna auditable ↔ propiedad del cuerpo. */
 const CAMPOS_ROL = [
-  ['nombre', 'nombre'], ['descripcion', 'descripcion'], ['tipoEnlace', 'tipo_enlace'],
-  ['tipoPrincipal', 'tipo_principal'], ['activo', 'activo'],
+  ['nombre', 'nombre'], ['descripcion', 'descripcion'], ['tipoEnlace', 'tipo_enlace'], ['activo', 'activo'],
 ] as const;
 
 /**
- * CF-04. Bloquea la fila del rol, escribe solo lo que cambió y audita un par por campo. Con
- * `tipoPrincipal` en el cuerpo, TODA la transacción va dentro del invariante: `admin → externo` no
- * puede dejar la administración sin rol interno. `tipoEnlace` exige 0 usuarios (cabecera).
- *
- * Orden de locks (db-review de la HU #12084): la población administradora (P) se bloquea ANTES que la
- * fila del rol, como en `guardarCuadro` y en el `UPDATE users SET role` de `users.service.ts`. Por eso
- * se decide por `cambios.tipoPrincipal` (lo que pide el cuerpo) y no por «cambió de verdad»: saberlo
- * exige leer el rol, y leerlo con `FOR UPDATE` antes de P es el cruce `40P01` que se corrige. Un
- * `tipoPrincipal` igual al actual paga dos `select` de más y responde «sin cambios» igual. Sin
- * `tipoPrincipal` no hay invariante que comprobar y P no se toma: el `FOR UPDATE` del rol va solo.
+ * CF-04. Bloquea la fila del rol, escribe solo lo que cambió y audita un par por campo. `tipoEnlace`
+ * exige 0 usuarios (cabecera), así que ningún campo editable mueve la población administradora
+ * (usuarios activos de roles con enlace `ninguno`, HU #12875): no hay invariante que comprobar y P no
+ * se toma; el `FOR UPDATE` del rol va solo.
  */
 export async function editarRol(codigo: string, cambios: EditarRolInput, actor: ActorAuditoria): Promise<ResultadoEditarRol> {
   const cuerpo = async (tx: Tx): Promise<ResultadoEditarRol> => {
@@ -236,8 +242,7 @@ export async function editarRol(codigo: string, cambios: EditarRolInput, actor: 
     await registrarCambiosPermisos(tx, actor, filas);
     return { estado: 'ok', rol: aRolCatalogo(despues!, usuarios), campos: filas.map((f) => f.campo!) };
   };
-  return db.transaction(async (tx) =>
-    (cambios.tipoPrincipal !== undefined ? conSeguroAntiBloqueo(tx, () => cuerpo(tx)) : cuerpo(tx)));
+  return db.transaction(async (tx) => cuerpo(tx));
 }
 
 /**
@@ -269,7 +274,6 @@ export async function borrarRol(codigo: string, actor: ActorAuditoria): Promise<
         par('nombre', rol.nombre),
         par('descripcion', rol.descripcion),
         par('tipo_enlace', rol.tipoEnlace),
-        par('tipo_principal', rol.tipoPrincipal),
         par('activo', rol.activo),
         // Orden estable por código, como `diffConjunto`: el orden de lectura no es un dato.
         { ...par('conjunto', { conjunto: [...cuadro].sort() }), entidad: 'rol_funcion' },
@@ -295,8 +299,18 @@ export async function guardarCuadro(codigo: string, pedidas: string[], actor: Ac
   const inexistentes = await funcionesInexistentes(despues);
   if (inexistentes.length) throw new FuncionesInexistentesError(inexistentes);
 
+  try {
+    return await guardarCuadroEnTx(codigo, despues, actor);
+  } catch (e) {
+    // HU #13429 (AC8): el 409 dice además QUÉ eslabón de la cadena quedó desmarcado en lo pedido (sin consulta extra).
+    if (e instanceof BloqueoAdministracionError) e.nodo = nodoDesmarcado(e.funcion, new Set(despues));
+    throw e;
+  }
+}
+
+function guardarCuadroEnTx(codigo: string, despues: string[], actor: ActorAuditoria): Promise<RespuestaGuardarCuadro> {
   return db.transaction(async (tx) => conSeguroAntiBloqueo(tx, async (): Promise<RespuestaGuardarCuadro> => {
-    const [rol] = await tx.select({ tipoPrincipal: permisosRoles.tipoPrincipal }).from(permisosRoles)
+    const [rol] = await tx.select({ tipoEnlace: permisosRoles.tipoEnlace }).from(permisosRoles)
       .where(eq(permisosRoles.codigo, codigo)).limit(1).for('update');
     if (!rol) throw new RolNoEncontradoError(codigo);
     const antes = await funcionesDelRol(tx, codigo);
@@ -314,17 +328,20 @@ export async function guardarCuadro(codigo: string, pedidas: string[], actor: Ac
       }]);
     }
 
-    return { codigo, funciones: d.conjunto, concedidas: d.concedidas, revocadas: d.revocadas, aviso: avisoFueraDelCanal(rol.tipoPrincipal, despues) };
+    return { codigo, funciones: d.conjunto, concedidas: d.concedidas, revocadas: d.revocadas, aviso: avisoFueraDelEnlace(rol.tipoEnlace, despues) };
   }));
 }
 
 /**
- * RN-A1: para un rol externo, las funciones de operación que la guarda de canal no dejará pasar. Las
- * `pagina.*` no cuentan: la guarda limita la API, no el menú.
+ * RN-A1 (HU #12875): para un rol con enlace, las funciones de operación de módulos que la frontera no
+ * le abre a ese enlace. Las `pagina.*` no cuentan: la frontera limita la API, no el menú. `ninguno` (o
+ * un valor que el CHECK de la 0231 ya no admite) no lleva aviso: el aviso informa, no decide.
  */
-export function avisoFueraDelCanal(tipoPrincipal: string, funciones: string[]): RespuestaGuardarCuadro['aviso'] {
-  if (tipoPrincipal !== 'externo') return null;
-  const fuera = funciones.filter((f) => !f.startsWith('pagina.') && !FUNCIONES_DEL_CANAL_EXTERNO.has(f));
+export function avisoFueraDelEnlace(tipoEnlace: string, funciones: string[]): RespuestaGuardarCuadro['aviso'] {
+  const enlace = enlaceConocido(tipoEnlace);
+  if (enlace === null || enlace === 'ninguno') return null;
+  const alcanzable = funcionesAlcanzables(enlace);
+  const fuera = funciones.filter((f) => !f.startsWith('pagina.') && !alcanzable(f));
   if (fuera.length === 0) return null;
-  return { tipo: 'fuera_del_canal', mensaje: MENSAJE_FUERA_DEL_CANAL, funciones: fuera };
+  return { tipo: 'fuera_del_enlace', tipoEnlace: enlace, mensaje: MENSAJE_FUERA_DEL_ENLACE, funciones: fuera };
 }

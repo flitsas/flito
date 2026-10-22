@@ -398,8 +398,9 @@ export const CATALOGOS_SIMULADOS: Record<string, unknown[]> = {
 // cualquier código que no esté en esta lista.
 //
 // Los códigos siguen la forma que admite Siigo (alfanumérico con `.`, `_` y `-`, hasta 30) y cubren
-// los seis conceptos facturables, para que la parametrización completa se pueda configurar y
-// validar en modo simulado de punta a punta.
+// los conceptos facturables que ya tenían producto de ejemplo, para que la parametrización se
+// pueda configurar y validar en modo simulado de punta a punta. `servicio_adicional` (HU #12547)
+// no trae código de ejemplo: en simulado se crea con `POST /v1/products` y se revalida.
 //
 // **La FORMA es la de la respuesta real, contrastada contra la cuenta de FLIT.** Antes estas
 // fixtures tenían una forma inventada —`unit: '94'` en vez de `{ code, name }`, `account_group`

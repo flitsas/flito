@@ -2,13 +2,14 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import argon2 from 'argon2';
 import { SignJWT } from 'jose';
-import { asc, eq, sql } from 'drizzle-orm';
+import { asc, eq, getTableColumns, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
-import { clients, flitoGestorOrganismos, users } from '../../db/schema.js';
+import { clients, flitoGestorOrganismos, permisosRoles, users } from '../../db/schema.js';
 import { env } from '../../config/env.js';
 import { authMiddleware, blacklistToken } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
-import { paginasEfectivasDeUsuario } from '../../shared/permisos-efectivos.js';
+import { paginasEfectivasDeUsuario, resolverPermisos, type PermisosResueltos } from '../../shared/permisos-efectivos.js';
 import { checkLockout, registerFailed, clearLockout } from './loginLockout.js';
 import { isUserLaftBlocked } from '../laft/employees/auth-block.service.js';
 import { laftAudit } from '../laft/audit.service.js';
@@ -53,7 +54,12 @@ router.post('/login', async (req: Request, res: Response) => {
 
   // Username case-insensitive: 'edison' debe matchear 'Edison'/'EDISON'/etc.
   // Los conductores tipean en móvil y los usernames se crearon con mayúsculas mixtas.
-  const [user] = await db.select().from(users).where(sql`lower(${users.username}) = lower(${username})`).limit(1);
+  // HU #13255 (D1): `rolNombre` = `permisos_roles.nombre` en la MISMA consulta (LEFT JOIN, sin una
+  // lectura de más por login); `null` si el rol no tiene fila en el catálogo.
+  const [user] = await db.select({ ...getTableColumns(users), rolNombre: permisosRoles.nombre })
+    .from(users)
+    .leftJoin(permisosRoles, eq(permisosRoles.codigo, users.role))
+    .where(sql`lower(${users.username}) = lower(${username})`).limit(1);
 
   if (!user || !user.active || user.deletedAt) {
     await audit(req, { action: 'login_failed', resource: 'auth', detail: `Username: ${username.slice(0, 3)}*** - no encontrado, inactivo o de baja` });
@@ -94,9 +100,10 @@ router.post('/login', async (req: Request, res: Response) => {
   // Las páginas EFECTIVAS, como vista del resolutor único (HU #12082). Ya no viajan en el token:
   // cada petición resuelve contra la base (`resolverPermisos`, RN-A5). El sobre las lleva solo para
   // pintar el menú; la decisión la toma `exigirFuncion` en cada ruta.
-  const paginas = await paginasEfectivasDeUsuario(user.id);
   // HU #12088: el código del token sale de la puente, no de users.transito_codigo (obsoleta).
   const transitoCodigo = await transitoCodigoDesdePuente(user.id);
+  // HU #13425: páginas, funciones e indicador del canal SOAT, de la misma foto que `/me`.
+  const sobre = await sobreDePermisos(user.id, user.companiaId);
 
   const token = await new SignJWT({
     sub: String(user.id),
@@ -114,13 +121,16 @@ router.post('/login', async (req: Request, res: Response) => {
   // Devolvemos allowedPages "efectivas" (rol defaults ∪ custom) y `puedeSolicitarSoat`
   // igual que /me, para que el frontend pinte la navegación y el canal de SOAT
   // SIN esperar un reload que dispare /me (Bug #11937).
+  // HU #13255: `rolNombre`, con la misma forma que en `/me` para que los dos sobres no diverjan.
+  // HU #13431: `email` ya NO sale en ninguno de los dos sobres de sesión (la SPA lo guardaba en la
+  // sesión sin usarlo); Perfil lo lee de `GET /auth/perfil`, con su propio permiso.
   res.json({
     token,
     user: {
       id: user.id, name: user.name, username: user.username, role: user.role,
-      allowedPages: paginas,
+      rolNombre: user.rolNombre ?? null,
       transitoCodigo,
-      puedeSolicitarSoat: await puedeSolicitarSoat({ role: user.role, companiaId: user.companiaId }),
+      ...sobre,
     },
   });
 });
@@ -138,14 +148,43 @@ router.post('/login', async (req: Request, res: Response) => {
  * `allowedPages`: la SPA usa ese sobre hasta el reload, y un flag ausente pinta el canal apagado
  * (Bug #11937). `companiaId` no sale en ninguna de las dos respuestas.
  *
- * `false` para los otros once roles SIN consultar nada: el JOIN a `clients` es solo para `cliente`
- * con `companiaId`. Un JOIN aquí lo pagarían todos los logins del producto por un dato que solo usa uno.
+ * HU #13425: se decide por la FUNCIÓN `soat.solicitud.crear` del conjunto efectivo (la misma foto
+ * que guarda los endpoints del canal), por el ENLACE `compania` del rol (HU #12875: el tipo
+ * interno/externo se retiró; una regla por enlace) y por la compañía enlazada y su flag — nunca por el nombre del rol. Si falta algo, `false` sin consultar `clients`:
+ * el JOIN solo lo paga quien puede radicar. HU #12874: sin enlace (`ninguno`) basta con que exista una
+ * compañía con el canal, porque la escoge en el formulario.
  */
-async function puedeSolicitarSoat(user: { role: string; companiaId: number | null }): Promise<boolean> {
-  if (user.role !== 'cliente' || !user.companiaId) return false;
-  const [compania] = await db.select({ sinTramite: clients.soatSinTramite })
-    .from(clients).where(eq(clients.id, user.companiaId)).limit(1);
-  return compania?.sinTramite === true;
+async function puedeSolicitarSoat(p: PermisosResueltos, companiaId: number | null): Promise<boolean> {
+  if (!p.ok || !p.funciones.has('soat.solicitud.crear')) return false;
+  if (p.tipoEnlace === 'compania') {
+    if (!companiaId) return false;
+    const [compania] = await db.select({ sinTramite: clients.soatSinTramite })
+      .from(clients).where(eq(clients.id, companiaId)).limit(1);
+    return compania?.sinTramite === true;
+  }
+  // HU #12874: sin enlace se radica a nombre de una compañía escogida en el formulario, así que la
+  // acción existe si hay AL MENOS UNA con el canal. Sin ninguna se oculta (decisión del PO).
+  if (p.tipoEnlace === 'ninguno') {
+    const [alguna] = await db.select({ id: clients.id })
+      .from(clients).where(eq(clients.soatSinTramite, true)).limit(1);
+    return alguna !== undefined;
+  }
+  return false; // proveedor, organismos: no radican
+}
+
+/**
+ * HU #13425 — Lo que la sesión sabe de los permisos del usuario, de UNA lectura del resolutor
+ * (cacheado 60 s): páginas, funciones efectivas (códigos, ordenados) y el indicador del canal SOAT.
+ * Con el resolutor en `ok:false` todo sale vacío/`false` (falla cerrado; el servidor decide igual).
+ */
+async function sobreDePermisos(userId: number, companiaId: number | null) {
+  const p = await resolverPermisos(userId);
+  const funciones: ReadonlySet<string> = p.ok ? p.funciones : new Set<string>();
+  return {
+    allowedPages: await paginasEfectivasDeUsuario(userId),
+    funciones: [...funciones].sort(),
+    puedeSolicitarSoat: await puedeSolicitarSoat(p, companiaId),
+  };
 }
 
 router.get('/me', authMiddleware, async (req: Request, res: Response) => {
@@ -153,10 +192,16 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
     id: users.id,
     username: users.username,
     name: users.name,
+    // HU #13255: `rolNombre` del catálogo (LEFT JOIN: misma consulta). `email` ya NO se pide (HU #13431):
+    // Perfil lo lee de `GET /auth/perfil` con su propio permiso; `/me` corre en cada carga de pantalla y
+    // no debe arrastrar un dato personal que nadie más usa.
     role: users.role,
+    rolNombre: permisosRoles.nombre,
     allowedPages: users.allowedPages,
     companiaId: users.companiaId,
-  }).from(users).where(eq(users.id, req.user!.sub)).limit(1);
+  }).from(users)
+    .leftJoin(permisosRoles, eq(permisosRoles.codigo, users.role))
+    .where(eq(users.id, req.user!.sub)).limit(1);
 
   if (!user) {
     res.status(404).json({ error: 'Usuario no encontrado' });
@@ -175,10 +220,30 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   // que decide en el servidor: el menú y el 403 no pueden divergir.
   res.json({
     ...publico,
+    // Normalizados: un mock o una fila sin el dato no deben dejar la clave fuera del sobre.
+    rolNombre: publico.rolNombre ?? null,
     transitoCodigo,
-    allowedPages: await paginasEfectivasDeUsuario(req.user!.sub),
-    puedeSolicitarSoat: await puedeSolicitarSoat({ role: user.role, companiaId }),
+    ...(await sobreDePermisos(req.user!.sub, companiaId)),
   });
+});
+
+// HU #13428 (AC3) — «Ver mis datos»: lo que pinta Perfil, del PROPIO usuario (`sub` del token; sin `:id`
+// ni PII en la URL). `/me` no se guarda (lo pide el shell de todos); este sí, con `perfil.datos.ver`
+// (repartida a todos los roles en la 0237, P-22). Sin ella → 403 con fila en la bitácora de denegados.
+router.get('/perfil', authMiddleware, exigirFuncion('perfil.datos.ver'), async (req: Request, res: Response) => {
+  const [user] = await db.select({
+    name: users.name,
+    username: users.username,
+    email: users.email,
+    rolNombre: permisosRoles.nombre,
+  }).from(users)
+    .leftJoin(permisosRoles, eq(permisosRoles.codigo, users.role))
+    .where(eq(users.id, req.user!.sub)).limit(1);
+  if (!user) {
+    res.status(404).json({ error: 'Usuario no encontrado' });
+    return;
+  }
+  res.json({ name: user.name, username: user.username, email: user.email ?? null, rolNombre: user.rolNombre ?? null });
 });
 
 // VUL-07: Endpoint logout con revocación de token (Redis-backed con fallback in-memory).

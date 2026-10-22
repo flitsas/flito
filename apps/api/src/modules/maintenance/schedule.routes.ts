@@ -3,20 +3,21 @@ import { z } from 'zod';
 import { eq, and, asc, desc, gte, lte } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { maintenanceSchedule, vehicles, maintenanceRoutines, maintenanceJobs } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { runScheduleOnce } from './schedule.cron.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('maintenance'));
+router.use(authMiddleware);
 
 function parseId(raw: string): number | null {
   const n = parseInt(raw, 10);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requirePage('maintenance_inicio'), async (req: Request, res: Response) => {
   const vehicleId = req.query.vehicleId ? parseId(String(req.query.vehicleId)) : null;
   const estado = req.query.estado as string | undefined;
   const desde = req.query.desde as string | undefined;
@@ -64,7 +65,7 @@ const manualSchema = z.object({
   message: 'Debe especificar routineId o jobId',
 });
 
-router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/', requirePage('maintenance_inicio'), exigirFuncion('maintenance.inicio.administrar'), async (req: Request, res: Response) => {
   const parsed = manualSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validación', details: parsed.error.flatten() }); return; }
   const data = parsed.data;
@@ -83,7 +84,7 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
   res.status(201).json({ data: created });
 });
 
-router.patch('/:id/cancel', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/:id/cancel', requirePage('maintenance_inicio'), exigirFuncion('maintenance.inicio.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [updated] = await db.update(maintenanceSchedule)
@@ -96,7 +97,7 @@ router.patch('/:id/cancel', requireRole('admin'), async (req: Request, res: Resp
 });
 
 // Disparo manual del cron (admin) — útil para refrescar tras cambios masivos.
-router.post('/recompute', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/recompute', requirePage('maintenance_inicio'), exigirFuncion('maintenance.inicio.administrar'), async (req: Request, res: Response) => {
   const stats = await runScheduleOnce();
   await audit(req, { action: 'update', resource: 'maintenance_schedule', detail: `recompute manual: ${JSON.stringify(stats)}` });
   res.json({ ok: true, stats });

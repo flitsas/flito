@@ -261,7 +261,8 @@ describe('el catálogo de proveedores NO se abre a nadie nuevo', () => {
    * La otra mitad de la decisión: el gestor viaja resuelto POR `GET /clients` precisamente para no
    * tener que darle a `financiera` la lista completa de gestores con sus umbrales de OCR y sus SLA.
    * Si alguien «simplificara» abriendo esa ruta, esta HU dejaría de tener sentido y nada más se
-   * pondría rojo.
+   * pondría rojo. HU #13428 (David, 2026-10-13): por eso `parametrizacion.proveedores.listar` es OPCIONAL
+   * de «Ver clientes y proveedores»: financiera recibe la acción y aun así no gana esta ruta.
    */
   async function appParametrizacion() {
     const app = express();

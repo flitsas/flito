@@ -6,7 +6,7 @@
 // Import circular a propósito: `users.role` referencia `permisosRoles.codigo` y `permisos_usuario_funcion`
 // / `permisos_intentos_denegados` referencian `users.id`. Las FK de Drizzle son callbacks perezosos,
 // así que el ciclo ESM resuelve sin problema (`migracion-0178.test.ts` lo comprueba con `getTableConfig`).
-import { pgTable, varchar, text, boolean, timestamp, integer, index, uniqueIndex, bigserial, primaryKey, check, jsonb, uuid } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, text, boolean, timestamp, integer, smallint, index, uniqueIndex, bigserial, primaryKey, check, jsonb, uuid, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { sql, desc } from 'drizzle-orm';
 import { CAMPOS_AUDITABLES } from '@operaciones/shared-types';
 import { users } from '../schema.js';
@@ -22,12 +22,14 @@ export const permisosRoles = pgTable('permisos_roles', {
   codigo: varchar('codigo', { length: 40 }).primaryKey(),
   nombre: varchar('nombre', { length: 80 }).notNull(),
   descripcion: text('descripcion'),
-  // 'ninguno' | 'compania' | 'proveedor_soat' | 'organismos_transito'. El ROL dice si se enlaza y a
-  // QUÉ tipo (RN-A3); el usuario dice a cuál. Lo hacen cumplir los dos triggers de la 0178
+  // 'ninguno' | 'compania' | 'proveedor' | 'organismos_transito' (`proveedor_soat` → `proveedor` en la
+  // 0231). El ROL dice si se enlaza y a QUÉ tipo (RN-A3); el usuario dice a cuál. Desde la HU #12875 es
+  // la ÚNICA frontera (`frontera-enlace.ts`, ADR-0024). Lo hacen cumplir los dos triggers de la 0178
   // (`users_ambito_trg` y `users_ambito_organismos_trg`), que Drizzle no sabe declarar.
   tipoEnlace: varchar('tipo_enlace', { length: 24 }).notNull().default('ninguno'),
-  // 'interno' | 'externo'. Lo consume el motor (HU #12082): `resolverPermisos` lo devuelve cacheado y
-  // `guardiaCanalCliente` dispara la frontera del canal externo por este valor, no por el literal del rol.
+  /** @deprecated HU #12875 — RETIRADA (expand/contract): sin lectores ni escritores en el código. Se
+   * conserva para no abrir deriva schema↔BD y para que un rollback de imagen arranque; DROP en el WI
+   * de contracción, cuando la versión sin lectores esté en PDN. */
   tipoPrincipal: varchar('tipo_principal', { length: 10 }).notNull().default('interno'),
   // Candado de BORRADO (ADR-0015 §Decisión 5), no marca de origen: true ⇒ el rol no se borra. Solo
   // `admin`: el candado temporal de `cliente` lo retiró la 0180 (HU #12082 AC8). Editar sigue permitido (CF-04).
@@ -38,7 +40,7 @@ export const permisosRoles = pgTable('permisos_roles', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   tipoEnlaceChk: check('permisos_roles_tipo_enlace_chk',
-    sql`${t.tipoEnlace} IN ('ninguno','compania','proveedor_soat','organismos_transito')`),
+    sql`${t.tipoEnlace} IN ('ninguno','compania','proveedor','organismos_transito')`),
   tipoPrincipalChk: check('permisos_roles_tipo_principal_chk',
     sql`${t.tipoPrincipal} IN ('interno','externo')`),
 }));
@@ -59,9 +61,19 @@ export const permisosFunciones = pgTable('permisos_funciones', {
   descripcion: text('descripcion').notNull(),
   tipo: varchar('tipo', { length: 10 }).notNull(),
   activo: boolean('activo').notNull().default(true),
+  // HU #12873 (ADR-0025, migración 0232) — el árbol de permisos: elemento (`menu.*`, nivel 1) → ítem
+  // (`pagina.*`, nivel 2) → acción (`accion.*`, nivel 3; la anidada cuelga de su acción madre).
+  // `nivel` NULL = operación aún concedible de un área no migrada. `padre_codigo` RESTRICT: no se
+  // borra un nodo con hijos; CASCADE en UPDATE por simetría con el diseño (la PK es inmutable igual).
+  padreCodigo: varchar('padre_codigo', { length: 80 })
+    .references((): AnyPgColumn => permisosFunciones.codigo, { onDelete: 'restrict', onUpdate: 'cascade' }),
+  nivel: smallint('nivel'),
+  orden: integer('orden').notNull().default(0),
 }, (t) => ({
-  tipoChk: check('permisos_funciones_tipo_chk', sql`${t.tipo} IN ('pagina','operacion')`),
+  tipoChk: check('permisos_funciones_tipo_chk', sql`${t.tipo} IN ('pagina','operacion','elemento','accion')`),
   moduloIdx: index('idx_permisos_funciones_modulo').on(t.modulo),
+  nivelChk: check('permisos_funciones_nivel_chk', sql`${t.nivel} IS NULL OR ${t.nivel} BETWEEN 1 AND 3`),
+  padreIdx: index('permisos_funciones_padre_idx').on(t.padreCodigo),
 }));
 
 /** Lo que un ROL concede: el reparto de partida del AC4, y lo que edita la #12082. */

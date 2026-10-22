@@ -6,7 +6,8 @@ import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db/client.js';
 import { vehicles as vehiclesTable } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { env } from '../../config/env.js';
 import { extractSinglePage, flattenToLegacyShape } from './ocr.pipeline.js';
@@ -30,7 +31,7 @@ const handleUploadError = (req: Request, res: Response, next: NextFunction) => {
   });
 };
 
-router.use(authMiddleware, requireRole('admin'));
+router.use(authMiddleware);
 
 function callAnthropic(content: any[]): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -117,7 +118,7 @@ async function ocrSingleDocument(b64: string, mediaType: string): Promise<any[]>
   }
 }
 
-router.post('/ocr', handleUploadError, async (req: Request, res: Response) => {
+router.post('/ocr', exigirFuncion('vehicles.vehiculos.administrar'), handleUploadError, async (req: Request, res: Response) => {
   if (!req.file) {
     res.status(400).json({ ok: false, message: 'Archivo PDF requerido' });
     return;
@@ -262,7 +263,7 @@ router.post('/ocr', handleUploadError, async (req: Request, res: Response) => {
 });
 
 // Exportar datos OCR a Excel
-router.post('/ocr-export', async (req: Request, res: Response) => {
+router.post('/ocr-export', exigirFuncion('vehicles.vehiculos.administrar'), async (req: Request, res: Response) => {
   const { vehicles } = req.body;
   if (!vehicles || !Array.isArray(vehicles) || vehicles.length === 0) {
     res.status(400).json({ error: 'Sin datos para exportar' });
@@ -348,7 +349,7 @@ const ocrImportSchema = z.object({
   })).min(1),
 });
 
-router.post('/ocr-import', async (req: Request, res: Response) => {
+router.post('/ocr-import', exigirFuncion('vehicles.vehiculos.administrar'), async (req: Request, res: Response) => {
   const parsed = ocrImportSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ ok: false, message: 'Datos inválidos' }); return; }
 

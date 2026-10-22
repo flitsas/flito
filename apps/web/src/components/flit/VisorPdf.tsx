@@ -19,11 +19,21 @@ import { PDF_WORKER_SRC } from '../../lib/pdfWorker';
 /** Ancho al que se rasteriza cada página. Suficiente para leer sin que el canvas pese de más. */
 const ANCHO_OBJETIVO = 1400;
 
-export default function VisorPdf({ url, nombre }: { url: string; nombre?: string }) {
+export default function VisorPdf({ url, nombre, paginaInicial }: {
+  url: string;
+  nombre?: string;
+  /**
+   * Página (base 1) a la que se desplaza el visor al terminar de renderizar (HU #12612): un
+   * documento que vive en las páginas 3-4 de un consolidado se abre en la 3, no en la 1. Sin la
+   * prop —o con 1— el comportamiento es el de siempre. Sin animación (D21).
+   */
+  paginaInicial?: number;
+}) {
   const [paginas, setPaginas] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Evita pintar el resultado de una carga que ya no interesa cuando se cambia de documento rápido.
   const vigente = useRef(0);
+  const contenedor = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const token = ++vigente.current;
@@ -64,6 +74,22 @@ export default function VisorPdf({ url, nombre }: { url: string; nombre?: string
     })();
   }, [url]);
 
+  // Después de pintar las páginas, no antes: `scrollIntoView` sobre una imagen que aún no existe no
+  // hace nada. Solo cuando hay una página inicial distinta de la primera.
+  useEffect(() => {
+    if (!paginas || !paginaInicial || paginaInicial <= 1 || !contenedor.current) return undefined;
+    // Las imágenes son data-URL y se decodifican después de montarse: hasta entonces miden 0 y la
+    // página N está en lo alto. Se espera a que TODAS estén decodificadas (la posición de la N
+    // depende del alto de las anteriores) y solo entonces se desplaza.
+    let vivo = true;
+    const raiz = contenedor.current;
+    const imagenes = Array.from(raiz.querySelectorAll('img'));
+    Promise.all(imagenes.map((img) => img.decode().catch(() => undefined))).then(() => {
+      if (vivo) raiz.querySelector(`[data-pagina="${paginaInicial}"]`)?.scrollIntoView({ block: 'start' });
+    });
+    return () => { vivo = false; };
+  }, [paginas, paginaInicial]);
+
   if (error) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-sm">
@@ -85,11 +111,13 @@ export default function VisorPdf({ url, nombre }: { url: string; nombre?: string
   }
 
   return (
-    <div className="h-full overflow-auto rounded-md" style={{ background: 'var(--flit-border-soft)' }}>
+    // `tabIndex=0`: una región que desplaza tiene que poder recibir foco para recorrerla con el teclado (axe `scrollable-region-focusable`, WCAG 2.1.1).
+    <div ref={contenedor} tabIndex={0} role="region" aria-label={`Páginas de ${nombre ?? 'el documento'}`} className="flit-focus h-full overflow-auto rounded-md" style={{ background: 'var(--flit-border-soft)' }}>
       <div className="flex flex-col items-center gap-3 p-3">
         {paginas.map((src, i) => (
           <img
             key={i}
+            data-pagina={i + 1}
             src={src}
             alt={`${nombre ?? 'Documento'} — página ${i + 1} de ${paginas.length}`}
             className="w-full max-w-4xl rounded-sm bg-white shadow"

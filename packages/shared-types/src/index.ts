@@ -54,6 +54,8 @@ export type SoatStatus = z.infer<typeof SoatStatus>;
 export * from './flito-estados.js';
 // Tarifas como vigencias (HU #12373): catálogo cerrado de tipos y reglas del valor.
 export * from './flito-tarifas.js';
+// Catálogo de tipos de servicio adicional con baja lógica (HU #12541).
+export * from './flito-servicios-adicionales.js';
 // Dominio del módulo de Logística: estados por documento, actas, tipos y proveedores.
 export * from './flito-logistica.js';
 export * from './flito-logistica-barcode.js';
@@ -61,10 +63,16 @@ export * from './flito-logistica-barcode.js';
 export * from './flito-ocr.js';
 // Canal Cliente del SOAT: de dónde salió cada dato del propietario (factura / RUNT / manual).
 export * from './flito-soat-procedencia.js';
+export * from './flito-soat-activo.js';
 // Mapeo de roles FLITO → roles Operaciones y ataduras de visibilidad del gestor.
 export * from './flito-roles.js';
+// Conceptos de costo de un trámite (Épica #12245): base de `ConceptoBolsa` y de los comprobantes.
+export * from './flito-conceptos.js';
 // Bolsas prepago del cliente: tipos de movimiento, conceptos que consumen saldo y periodo contable.
 export * from './flito-bolsas.js';
+// Comprobantes universales (Feature #12605): tipos de documento, campos de la lectura universal y
+// sub-documentos de un consolidado.
+export * from './flito-comprobantes.js';
 // Bolsa prepago que FLIT mantiene en cada Organismo de Tránsito. Es la inversa de la del cliente:
 // FLIT carga el saldo y el organismo lo consume con cada derecho de trámite.
 export * from './flito-bolsas-transito.js';
@@ -106,6 +114,11 @@ export * from './siigo-cola.js';
 export * from './siigo-bandeja.js';
 // Monitoreo de comparendos: catálogos, token, sync y lectura del consolidado (Feature #11492).
 export * from './flito-comparendos.js';
+// Acceso de FLITO a FLIT 2 (Feature #13057, HU #13061).
+export * from './flito-flit2.js';
+export * from './flito-sync-flit1.js';
+export * from './flito-envio-flit2.js';
+export * from './flito-envio-comprobante.js';
 // Conciliación de boletas de pago externo contra los SOAT: estados, desenlaces del cruce y la
 // normalización del número de póliza, que tiene que ser la misma en la base, el API y la pantalla.
 export * from './flito-conciliacion.js';
@@ -114,12 +127,21 @@ export * from './flito-conciliacion.js';
 export * from './flito-cola-export.js';
 // Carga masiva SOAT/impuestos: topes de archivos, bytes, cuerpo HTTP y tandas (HU #12050 / #12051).
 export * from './carga-masiva.js';
+// La carpeta del ZIP declara la fase del recibo de impuesto (HU #12614 / #12615): la MISMA regla en el API y en el navegador.
+export * from './flito-recibos-carpetas.js';
 // Historial consultable de cambios de usuarios, roles y permisos (HU #12171, ADR-0014): lista
 // blanca de campos, forma del par antes/después y el DTO que sirve `GET /api/users/auditoria`.
 export * from './permisos-auditoria.js';
 // Mantenimiento de roles y cuadro rol × función (HU #12084): tipos de enlace y principal, la fila
 // del listado de roles (con `borrable`/`motivoNoBorrable`) y las respuestas del cuadro.
 export * from './permisos-roles.js';
+// Árbol de permisos en tres niveles (HU #12873, ADR-0025): estructura y nombres que lee la web.
+export * from './permisos-arbol/index.js';
+// Viajes adicionales de logística por trámite (HU #12619): modos de precio, motivos, la fila y el
+// cuerpo del GET, y los códigos de error de sus rutas.
+export * from './flito-viajes-logistica.js';
 // Gastos diarios de Finanzas (HU #12623): serie por día del evento y totales por categoría con GMF
 // estimado; contrato del `GET /api/finanzas/gastos-diarios` y los topes del rango.
 export * from './flito-gastos-diarios.js';
+// Fuente del trámite (HU #13070, Épica #12736): FLIT o FLIT 2, su etiqueta y la guarda de tipo.
+export * from './flito-tramite-fuente.js';

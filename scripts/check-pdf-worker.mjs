@@ -52,7 +52,7 @@ const targets = args.length ? args : ['apps/web/src'];
 //                fijar el worker que este escáner no reconoce, y entonces hay visores sin vigilar.
 //   · si SUBE  → hay un visor nuevo; que un humano confirme que toma la URL de `lib/pdfWorker.ts`
 //                y suba el número. Ése es el caso que convierte esto en función de forzado.
-const ESPERADAS = 5;
+const ESPERADAS = 6;
 
 /** Único módulo del front autorizado a nombrar el fichero del worker. */
 const MODULO = 'apps/web/src/lib/pdfWorker.ts';

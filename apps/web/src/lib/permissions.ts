@@ -3,11 +3,12 @@
 // la HU #12170, `effectiveFunctions`/`hasFuncion` sobre el conjunto que entrega
 // `GET /api/permisos/mios` (HU #12082). La SPA no recalcula (R ∪ C) \ V: obedece lo ya resuelto.
 
-import { isValidPage, type PageSlug, type UserRole } from '@operaciones/shared-types';
+import { isValidPage, paginaAbiertaAlEnlace, type PageSlug, type TipoEnlace } from '@operaciones/shared-types';
 // `rutaInicio` (abajo) deriva el destino del catálogo de navegación. El import es de VALOR y va en
-// este sentido; el que `navItems.ts` hace de este módulo es `import type` y se borra al compilar,
-// así que no hay ciclo en ejecución. Ver la nota de `lib/ayudaFlito.ts`.
-import { NAV_ITEMS, navItemPermitido } from '../components/shell/navItems';
+// este sentido; el que `navEntradas.ts` hace de este módulo es `import type` y se borra al compilar,
+// así que no hay ciclo en ejecución. Ver la nota de `lib/ayudaFlito.ts`. Se importan las ENTRADAS
+// sin nombres (HU #13431): los nombres del catálogo no caben en el chunk de /login.
+import { NAV_ENTRADAS, navItemPermitido } from '../components/shell/navEntradas';
 import {
   COPY_SIN_FUNCIONES_PANTALLA,
   effectiveFunctions,
@@ -36,15 +37,22 @@ export {
 export type { FuncionesEfectivas };
 
 /** Lo mínimo que hay que saber de un usuario para resolver sus páginas. */
-export type UsuarioPermisos = { role: string; allowedPages?: string[] | null };
+export type UsuarioPermisos = { allowedPages?: string[] | null; tipoEnlace?: TipoEnlace | null };
 
 /**
  * Páginas efectivas en el menú: exactamente lo que trajo `/me` (ya resuelto en servidor).
  * Sin unión con defaults compilados — eso tapaba `revocar` / cuadros editados (#12085+#12087).
+ *
+ * HU #13452: menos las que el ENLACE del usuario cierra (`FRONTERA_POR_ENLACE`, ADR-0024). El API
+ * las cierra con 403 aunque el rol las tenga marcadas; ofrecerlas en el menú, en ⌘K o dejar que su
+ * ruta monte la pantalla era un callejón («Sin permisos» + «Reintentar»). Como todo pasa por aquí,
+ * `hasPage`, la guarda de ruta, el menú y `rutaInicio` lo heredan. Sin enlace, nada cambia.
  */
 export function effectivePages(user: UsuarioPermisos | null): Set<PageSlug> {
   if (!user) return new Set();
-  return new Set((user.allowedPages ?? []).filter(isValidPage));
+  return new Set(
+    (user.allowedPages ?? []).filter(isValidPage).filter((p) => paginaAbiertaAlEnlace(p, user.tipoEnlace)),
+  );
 }
 
 export function hasPage(user: UsuarioPermisos | null, page: PageSlug): boolean {
@@ -74,20 +82,24 @@ export function hasPage(user: UsuarioPermisos | null, page: PageSlug): boolean {
  * Se deriva de `NAV_ITEMS` en vez de escribir un mapa rol → ruta: un mapa habría que acordarse de
  * ampliarlo con cada rol nuevo, y el día que nadie se acuerde el bucle vuelve en silencio.
  */
-export interface DestinoInicio { to: string; etiqueta: string }
+/** Destino de inicio. Su nombre («Ir a SOAT») lo pone `NoAccess` con `etiquetaDeRuta` (HU #13431). */
+export interface DestinoInicio { to: string }
 
-export function rutaInicio(user: UsuarioPermisos | null): DestinoInicio {
-  const TABLERO: DestinoInicio = { to: '/', etiqueta: 'Tablero' };
+export function rutaInicio(
+  user: UsuarioPermisos | null,
+  funciones: readonly string[] | null = null,
+): DestinoInicio {
+  const TABLERO: DestinoInicio = { to: '/' };
   if (!user || hasPage(user, 'dashboard')) return TABLERO;
 
   const permitidas = effectivePages(user);
-  const destino = NAV_ITEMS.find((it) =>
+  const destino = NAV_ENTRADAS.find((it) =>
     // «Ayuda FLITO» nunca es el sitio donde se trabaja: es documentación, y su visibilidad además
     // es derivada. Aterrizar ahí sería mandar a alguien a leer sobre pantallas que no tiene.
     it.page !== 'flito_ayuda'
-    && navItemPermitido(it, user as { role: UserRole; allowedPages?: string[] | null }, permitidas),
+    && navItemPermitido(it, user, permitidas, funciones),
   );
   // Sin ninguna entrada permitida no hay a dónde ir: se devuelve `/` a propósito para que el
   // `InicioGate` acabe en el `NoAccess` de siempre en vez de en un `Navigate` sobre sí mismo.
-  return destino ? { to: destino.to, etiqueta: destino.label } : TABLERO;
+  return destino ? { to: destino.to } : TABLERO;
 }

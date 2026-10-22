@@ -4,7 +4,8 @@ import { and, desc, eq, ilike, or, sql } from 'drizzle-orm';
 import rateLimit from 'express-rate-limit';
 import { db } from '../../db/client.js';
 import { laftCounterparties, laftBeneficialOwners, laftListChecks } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { laftAudit } from './audit.service.js';
 import { assessRisk, isValidFactor, nextReviewDate } from './risk.service.js';
 import { checkAllLists, decideFromMatches, normalizeDoc, normalizeName } from './match.service.js';
@@ -14,7 +15,7 @@ import { loggerFor } from '../../shared/logger.js';
 const log = loggerFor('laft-counterparties');
 
 const router = Router();
-router.use(authMiddleware, requireRole('admin', 'compliance'));
+router.use(authMiddleware);
 
 // Rate limit específico LAFT — más estricto que el global porque maneja PII sensible.
 const laftWriteLimiter = rateLimit({
@@ -67,7 +68,7 @@ const updateSchema = createSchema.partial().extend({
 });
 
 // === Listado con filtros y paginación ========================================
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('laft.contrapartes.operar'), async (req: Request, res: Response) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
   const status = req.query.status as string | undefined;
@@ -105,7 +106,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // === Detalle (incluye beneficiarios) =========================================
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', exigirFuncion('laft.contrapartes.operar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
 
@@ -122,7 +123,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 });
 
 // === Crear contraparte =======================================================
-router.post('/', laftWriteLimiter, async (req: Request, res: Response) => {
+router.post('/', exigirFuncion('laft.contrapartes.operar'), laftWriteLimiter, async (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   const data = parsed.data;
@@ -275,7 +276,7 @@ router.post('/', laftWriteLimiter, async (req: Request, res: Response) => {
 });
 
 // === Actualizar (con optimistic lock) ========================================
-router.patch('/:id', laftWriteLimiter, async (req: Request, res: Response) => {
+router.patch('/:id', exigirFuncion('laft.contrapartes.operar'), laftWriteLimiter, async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = updateSchema.safeParse(req.body);
@@ -344,7 +345,7 @@ const statusChangeSchema = z.object({
   version: z.number().int().min(1),
 });
 
-router.post('/:id/status', laftWriteLimiter, async (req: Request, res: Response) => {
+router.post('/:id/status', exigirFuncion('laft.contrapartes.operar'), laftWriteLimiter, async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = statusChangeSchema.safeParse(req.body);

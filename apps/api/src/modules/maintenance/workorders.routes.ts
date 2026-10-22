@@ -7,20 +7,21 @@ import {
   vehicles, maintenanceJobs, parts, partsStock, partsMovements,
   vehicleMeasurements, maintenanceSchedule,
 } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { nextWorkOrderNumero } from './preorders.routes.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('maintenance'));
+router.use(authMiddleware);
 
 function parseId(raw: string): number | null {
   const n = parseInt(raw, 10);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requirePage('maintenance_ordenes'), async (req: Request, res: Response) => {
   const estado = req.query.estado as string | undefined;
   const vehicleId = req.query.vehicleId ? parseId(String(req.query.vehicleId)) : null;
   const tipo = req.query.tipo as string | undefined;
@@ -48,7 +49,7 @@ router.get('/', async (req: Request, res: Response) => {
   res.json({ data: rows });
 });
 
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', requirePage('maintenance_ordenes'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [wo] = await db.select().from(workOrders).where(eq(workOrders.id, id)).limit(1);
@@ -82,7 +83,7 @@ const createWoSchema = z.object({
   medicionIngreso: z.number().int().min(0).optional().nullable(),
 });
 
-router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/', requirePage('maintenance_ordenes'), exigirFuncion('maintenance.ordenes.administrar'), async (req: Request, res: Response) => {
   const parsed = createWoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validación', details: parsed.error.flatten() }); return; }
   const numero = await nextWorkOrderNumero();
@@ -101,7 +102,7 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
   res.status(201).json({ data: created });
 });
 
-router.post('/:id/jobs', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/jobs', requirePage('maintenance_ordenes'), exigirFuncion('maintenance.ordenes.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const schema = z.object({
@@ -124,7 +125,7 @@ router.post('/:id/jobs', requireRole('admin'), async (req: Request, res: Respons
   res.status(201).json({ data: created });
 });
 
-router.post('/:id/parts', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/parts', requirePage('maintenance_ordenes'), exigirFuncion('maintenance.ordenes.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const schema = z.object({
@@ -148,7 +149,7 @@ router.post('/:id/parts', requireRole('admin'), async (req: Request, res: Respon
   res.status(201).json({ data: created });
 });
 
-router.post('/:id/otros-gastos', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/otros-gastos', requirePage('maintenance_ordenes'), exigirFuncion('maintenance.ordenes.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const schema = z.object({ concepto: z.string().min(1).max(150), monto: z.number().min(0) });
@@ -160,7 +161,7 @@ router.post('/:id/otros-gastos', requireRole('admin'), async (req: Request, res:
   res.status(201).json({ data: created });
 });
 
-router.post('/:id/seguimiento', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/seguimiento', requirePage('maintenance_ordenes'), exigirFuncion('maintenance.ordenes.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const schema = z.object({ texto: z.string().min(1).max(2000) });
@@ -172,7 +173,7 @@ router.post('/:id/seguimiento', requireRole('admin'), async (req: Request, res: 
   res.status(201).json({ data: created });
 });
 
-router.post('/:id/close-tecnica', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/close-tecnica', requirePage('maintenance_ordenes'), exigirFuncion('maintenance.ordenes.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [updated] = await db.update(workOrders)
@@ -195,7 +196,7 @@ router.post('/:id/close-tecnica', requireRole('admin'), async (req: Request, res
 //   7. UPDATE wo.estado = cerrada_final + costo_total
 // Idempotente: si se reintenta, encuentra estado=cerrada_final → 409 con mismo costo.
 // Concurrencia: orden de adquisición de locks por part_id ASC para evitar deadlocks.
-router.post('/:id/close-final', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/close-final', requirePage('maintenance_ordenes'), exigirFuncion('maintenance.ordenes.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
 
@@ -322,7 +323,7 @@ router.post('/:id/close-final', requireRole('admin'), async (req: Request, res: 
   }
 });
 
-router.post('/:id/anular', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/anular', requirePage('maintenance_ordenes'), exigirFuncion('maintenance.ordenes.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [updated] = await db.update(workOrders)

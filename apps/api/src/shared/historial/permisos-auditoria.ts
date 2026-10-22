@@ -38,6 +38,7 @@ import type {
 } from '@operaciones/shared-types';
 import type { db } from '../../db/client.js';
 import { permisosAuditoria } from '../../db/schema.js';
+import { audit } from '../middleware/audit.js';
 
 /** Cualquier cosa con `.insert()`: la conexión o una transacción abierta. */
 export type Ejecutor = Pick<typeof db, 'insert'>;
@@ -156,4 +157,37 @@ export function actorDeRequest(req: Request): ActorAuditoria {
     ip,
     userAgent: (req.headers['user-agent'] as string | undefined) ?? null,
   };
+}
+
+// ── HU #13424 (ADR-0022 §D4, AC8): el rechazo del seguro anti-bloqueo ──────────────────────────
+//
+// El 409 de `BloqueoAdministracionError` llega con la transacción YA revertida: nada escrito dentro
+// sobrevive, así que el rechazo se registra después, en el `catch` de la ruta. Va a `audit_logs` (vía
+// `audit()`) y no a `permisos_auditoria` porque NO es un cambio: no hay antes/después, y esa tabla
+// solo admite las acciones y campos de un acto confirmado. Por eso aquí el criterio es el de
+// `audit()` y no el del escritor de arriba: si el registro falla se loguea (sin PII) y el 409 sigue.
+//
+// Sin PII del titular: del objetivo solo viaja su id opaco (usuario) o el código del rol. El actor
+// lo pone `audit()` desde `req.user` (RN-A10: el autor del acto sí se registra).
+
+export type OperacionAntiBloqueo =
+  'guardar_cuadro' | 'editar_rol' | 'borrar_rol' | 'actualizar_usuario' | 'desactivar' | 'baja';
+
+export type ObjetivoAntiBloqueo = { tipo: 'rol'; codigo: string } | { tipo: 'usuario'; id: number };
+
+export const RESULTADO_RECHAZO_ANTI_BLOQUEO = 'rechazado_anti_bloqueo';
+
+/** Registra, fuera de la transacción revertida, que el seguro anti-bloqueo rechazó una escritura. */
+export async function registrarRechazoAntiBloqueo(
+  req: Request,
+  rechazo: { operacion: OperacionAntiBloqueo; objetivo: ObjetivoAntiBloqueo; funcion: string },
+): Promise<void> {
+  const { operacion, objetivo, funcion } = rechazo;
+  const objetivoTexto = objetivo.tipo === 'rol' ? `rol:${objetivo.codigo}` : `usuario:${objetivo.id}`;
+  await audit(req, {
+    action: operacion === 'borrar_rol' ? 'delete' : 'update',
+    resource: objetivo.tipo === 'rol' ? 'permisos_rol' : 'user',
+    resourceId: objetivo.tipo === 'rol' ? objetivo.codigo : String(objetivo.id),
+    detail: `resultado=${RESULTADO_RECHAZO_ANTI_BLOQUEO} operacion=${operacion} objetivo=${objetivoTexto} funcion=${funcion}`,
+  });
 }

@@ -11,14 +11,13 @@ import { tipoEnlaceDe, type RolOpcion } from './types';
 import { Field, Footer, formatErrors, inputCls, PASSWORD_PATTERN, PASSWORD_TITLE } from './UserFormShared';
 import { COMPANIA_REQUERIDA, type CatalogoCompanias } from './CompaniaField';
 import { AmbitoCampos } from './Ambito';
-import PermissionsPicker, { type CatalogoFuncionesEstado } from './PermissionsPicker';
+import PermissionsPicker from './PermissionsPicker';
 import { ORGANISMOS_REQUERIDO, PROVEEDOR_REQUERIDO, type CatalogoOrganismos, type CatalogoProveedores } from './AtaduraFields';
 
-export default function CreateForm({ companias, proveedores, organismos, catalogo, rolesCatalogo, onClose, onCreated }: {
+export default function CreateForm({ companias, proveedores, organismos, rolesCatalogo, onClose, onCreated }: {
   companias: CatalogoCompanias;
   proveedores: CatalogoProveedores;
   organismos: CatalogoOrganismos;
-  catalogo: CatalogoFuncionesEstado;
   /** Catálogo completo (mapa tipoEnlace); el select solo lista activos. */
   rolesCatalogo: RolOpcion[] | null;
   onClose: () => void;
@@ -63,7 +62,7 @@ export default function CreateForm({ companias, proveedores, organismos, catalog
     e.preventDefault();
     if (submitting) return;
     if (enlace === 'compania' && !f.companiaId) { setErrorCompania(COMPANIA_REQUERIDA); return; }
-    if (enlace === 'proveedor_soat' && !f.flitoProveedorSoatId) { setErrorProveedor(PROVEEDOR_REQUERIDO); return; }
+    if (enlace === 'proveedor' && !f.flitoProveedorSoatId) { setErrorProveedor(PROVEEDOR_REQUERIDO); return; }
     if (enlace === 'organismos_transito' && f.organismosCodigos.length === 0) { setErrorOrganismos(ORGANISMOS_REQUERIDO); return; }
     setErrorCompania(null); setErrorProveedor(null); setErrorOrganismos(null);
     setSubmitting(true);
@@ -72,7 +71,7 @@ export default function CreateForm({ companias, proveedores, organismos, catalog
       if (f.email.trim()) body.email = f.email.trim();
       if (funcionesOk && f.excepciones.length > 0) body.funciones = f.excepciones;
       if (enlace === 'compania') body.companiaId = Number(f.companiaId);
-      if (enlace === 'proveedor_soat') body.flitoProveedorSoatId = f.flitoProveedorSoatId;
+      if (enlace === 'proveedor') body.flitoProveedorSoatId = f.flitoProveedorSoatId;
       if (enlace === 'organismos_transito') body.organismosCodigos = f.organismosCodigos;
       await api.post('/users', body);
       toast.success('Usuario creado');
@@ -139,7 +138,8 @@ export default function CreateForm({ companias, proveedores, organismos, catalog
         />
         <PermissionsPicker
           role={f.role}
-          catalogo={catalogo}
+          rolNombre={rolesCatalogo?.find((r) => r.value === f.role)?.label}
+          quien={f.username.trim() || 'nuevo'}
           excepciones={f.excepciones}
           onChange={(exc) => setF({ ...f, excepciones: exc })}
           onDisponibleChange={onDisponible}

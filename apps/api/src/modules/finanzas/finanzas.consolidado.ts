@@ -111,18 +111,23 @@ export interface GrupoConsolidado {
   tramites: number | string;
   soat: string | number; impuesto: string | number; derechoTramite: string | number;
   tramiteDigital: string | number; logistica: string | number; gmf: string | number;
+  serviciosAdicionales: string | number;
   total: string | number; totalReintegro: string | number; totalServicio: string | number;
   filasIncompletas: number | string;
 }
 
+// `serviciosAdicionales` está en las dos listas por la MISMA razón (HU #12546): la de arriba es la
+// que se pliega —sin ella el consolidado no sumaría la columna— y la de abajo es el punto de partida
+// del pliegue, donde una clave que falte deja `Number(undefined)` = NaN en todo un grupo. `build:api`
+// no typechequea los tests, así que aquí no hay red: las dos se editan juntas.
 const NUMERICOS = [
-  'soat', 'impuesto', 'derechoTramite', 'logistica', 'tramiteDigital', 'gmf', 'total',
-  'totalReintegro', 'totalServicio', 'filasIncompletas',
+  'soat', 'impuesto', 'derechoTramite', 'logistica', 'tramiteDigital', 'serviciosAdicionales',
+  'gmf', 'total', 'totalReintegro', 'totalServicio', 'filasIncompletas',
 ] as const satisfies ReadonlyArray<keyof TotalesConsolidado>;
 
 const totalesEnCero = (): TotalesConsolidado => ({
-  soat: 0, impuesto: 0, derechoTramite: 0, logistica: 0, tramiteDigital: 0, gmf: 0, total: 0,
-  totalReintegro: 0, totalServicio: 0, filasIncompletas: 0,
+  soat: 0, impuesto: 0, derechoTramite: 0, logistica: 0, tramiteDigital: 0, serviciosAdicionales: 0,
+  gmf: 0, total: 0, totalReintegro: 0, totalServicio: 0, filasIncompletas: 0,
 });
 
 /** Las sumas vienen de `numeric`; al sumarlas en JS se redondea a centavos como `subtotalesDe`. */

@@ -147,3 +147,84 @@ test.describe('Tránsito · Bandeja (flujo matrícula)', () => {
     expect(postReached).toBeFalsy();
   });
 });
+
+// HU #13426 — usuario con enlace `organismos_transito` a varias secretarías: la bandeja muestra una a
+// la vez, con selector, y la consulta lleva `?organismo=`. `GET /transito/organismos` es el
+// contrato: con enlace trae `porDefecto`; sin enlace, el catálogo sin `porDefecto`.
+test.describe('Tránsito · Bandeja con selector de secretaría (HU #13426)', () => {
+  const FUNCIONES_TRANSITO = [
+    'transito.tramite.tomar', 'transito.bandeja.ver_pendientes', 'transito.organismos.listar', 'firma.estado.ver',
+  ];
+  const USUARIO_ENLACE = { ...TRANSITO_USER, funciones: FUNCIONES_TRANSITO };
+  const MEDELLIN = { codigo: '05001', nombre: 'STRIA TTEyTTO MEDELLIN', ciudad: 'Medellín' };
+  const ENVIGADO = { codigo: '05266', nombre: 'STRIA TTEyTTO ENVIGADO', ciudad: 'Envigado' };
+
+  /** Mocks de las listas (con o sin query) y registro de las URLs pedidas. */
+  async function mockListas(page: import('@playwright/test').Page, organismos: unknown[]) {
+    const pedidas: string[] = [];
+    await page.route(/\/api\/transito\/organismos-config\/\d+$/, (route) =>
+      jsonRoute(200, { alias: null, logoUrl: null })(route));
+    await page.route(/\/api\/transito\/organismos$/, (route) => jsonRoute(200, organismos)(route));
+    await page.route(/\/api\/transito\/(pendientes|mis-tramites|traspasos)(\?.*)?$/, (route) => {
+      pedidas.push(route.request().url());
+      return jsonRoute(200, [])(route);
+    });
+    return pedidas;
+  }
+
+  test('2 secretarías: selector, la cabecera cambia y la consulta lleva ?organismo=05266', async ({ page }) => {
+    await loginAs(page, USUARIO_ENLACE);
+    const pedidas = await mockListas(page, [{ ...MEDELLIN, porDefecto: true }, ENVIGADO]);
+    await page.evaluate(() => localStorage.removeItem('flit.transito.secretaria'));
+    await page.goto('/transito');
+
+    await expect(page.getByRole('heading', { name: 'Bandeja de tránsito — Medellín' })).toBeVisible();
+    const selector = page.getByLabel('Secretaría');
+    await expect(selector).toHaveValue('05001');
+    await expect.poll(() => pedidas.some((u) => /pendientes\?organismo=05001$/.test(u))).toBe(true);
+
+    await selector.selectOption('05266');
+    await expect(page.getByRole('heading', { name: 'Bandeja de tránsito — Envigado' })).toBeVisible();
+    await expect.poll(() => pedidas.some((u) => /pendientes\?organismo=05266$/.test(u))).toBe(true);
+    await expect.poll(() => pedidas.some((u) => /mis-tramites\?organismo=05266$/.test(u))).toBe(true);
+    await expect(page.getByText('Sin pendientes en Envigado')).toBeVisible();
+
+    // Traspasos combina la misma secretaría.
+    await page.getByRole('tab', { name: /traspasos stt/i }).click();
+    await expect.poll(() => pedidas.some((u) => /traspasos\?organismo=05266/.test(u))).toBe(true);
+  });
+
+  test('1 secretaría: sin selector y esa secretaría en la cabecera', async ({ page }) => {
+    await loginAs(page, USUARIO_ENLACE);
+    await mockListas(page, [{ ...ENVIGADO, porDefecto: true }]);
+    await page.goto('/transito');
+
+    await expect(page.getByRole('heading', { name: 'Bandeja de tránsito — Envigado' })).toBeVisible();
+    await expect(page.getByLabel('Secretaría')).toHaveCount(0);
+  });
+
+  test('sin enlace (catálogo sin porDefecto): sin selector, como hoy', async ({ page }) => {
+    await loginAs(page, USUARIO_ENLACE);
+    const pedidas = await mockListas(page, [MEDELLIN, ENVIGADO]);
+    await page.goto('/transito');
+
+    await expect(page.getByRole('heading', { name: 'Bandeja de tránsito — Medellín' })).toBeVisible();
+    await expect(page.getByLabel('Secretaría')).toHaveCount(0);
+    await expect.poll(() => pedidas.length).toBeGreaterThan(0);
+    expect(pedidas.every((u) => !u.includes('organismo='))).toBe(true);
+  });
+
+  test('error al cargar secretarías: aviso con reintento', async ({ page }) => {
+    await loginAs(page, USUARIO_ENLACE);
+    await mockListas(page, []);
+    let fallar = true;
+    await page.route(/\/api\/transito\/organismos$/, (route) =>
+      fallar ? jsonRoute(500, { error: 'x' })(route) : jsonRoute(200, [{ ...MEDELLIN, porDefecto: true }, ENVIGADO])(route));
+    await page.goto('/transito');
+
+    await expect(page.getByText(/No pudimos cargar sus secretarías/)).toBeVisible();
+    fallar = false;
+    await page.getByRole('button', { name: 'Reintentar secretarías' }).click();
+    await expect(page.getByLabel('Secretaría')).toBeVisible();
+  });
+});

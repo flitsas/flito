@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { ESTADO_LOGISTICA_SIMPLE_LABEL, type EstadoLogisticaSimple } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { vacioConEnlace } from '../lib/copyEnlace';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, FlitField, flitInp, flitBtnPrimary, flitBtnPrimaryStyle,
@@ -19,6 +20,7 @@ import {
 import FlitModal from '../components/flit/FlitModal';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import FirmaCanvas from '../components/flito/FirmaCanvas';
+import ViajesLogistica from '../components/flito/logistica/ViajesLogistica';
 
 interface TramiteFila {
   tramiteId: string; idFlit: string; placa: string | null; vin: string | null; propietario: string | null;
@@ -54,8 +56,16 @@ const fecha = (iso: string | null) => (iso ? new Date(iso).toLocaleString('es-CO
 
 type Tab = 'tramites' | 'actas-gen' | 'actas';
 
+/** HU #13452: con enlace el vacío dice de quién son los trámites y no manda a sincronizar (operación interna). */
+function vacioLogistica(tipoEnlace: Parameters<typeof vacioConEnlace>[1]): string {
+  const conEnlace = vacioConEnlace('trámites aprobados', tipoEnlace);
+  return conEnlace
+    ? `${conEnlace} Los trámites en estado «Aprobado» aparecen aquí a la espera de su licencia de tránsito.`
+    : 'No hay trámites aprobados. Sincroniza desde FLIT: los trámites en estado «Aprobado» aparecen aquí a la espera de su licencia de tránsito.';
+}
+
 export default function FlitoLogistica() {
-  const { hasFuncion } = useAuth();
+  const { hasFuncion, tipoEnlace } = useAuth();
   // HU #12170
   const esOperaciones = hasFuncion('logistica.lote.cerrar');
 
@@ -167,7 +177,7 @@ export default function FlitoLogistica() {
           </FlitCard>
 
           {data && filas.length === 0 && (
-            <FlitCard><FlitEmpty>No hay trámites aprobados. Sincroniza desde FLIT: los trámites en estado «Aprobado» aparecen aquí a la espera de su licencia de tránsito.</FlitEmpty></FlitCard>
+            <FlitCard><FlitEmpty>{vacioLogistica(tipoEnlace)}</FlitEmpty></FlitCard>
           )}
 
           {filas.length > 0 && (
@@ -304,6 +314,7 @@ export default function FlitoLogistica() {
 }
 
 function DetalleModal({ doc, onClose }: { doc: TramiteDetalle; onClose: () => void }) {
+  const { hasFuncion } = useAuth();
   return (
     <FlitModal title={`Licencia · ${doc.placa ?? doc.vin ?? ''}`} onClose={onClose} wide>
       <div className="mb-4 grid grid-cols-2 gap-2 text-sm">
@@ -314,6 +325,11 @@ function DetalleModal({ doc, onClose }: { doc: TramiteDetalle; onClose: () => vo
         <div><span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Propietario</span><div>{doc.propietario ?? '—'}{doc.propietarioDocumento ? ` · ${doc.propietarioDocumento}` : ''}</div></div>
         <div><span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>N.º licencia / N.º LT</span><div className="tabular-nums">{doc.numeroLicencia ?? '—'} / {doc.numeroLt ?? '—'}</div></div>
       </div>
+      {/* HU #12620: sin `logistica.viajes.ver` la sección no existe ni pide nada al API. */}
+      {hasFuncion('logistica.viajes.ver') && (
+        <ViajesLogistica tramiteId={doc.tramiteId} idFlit={doc.idFlit} fecha={fecha}
+          puedeRegistrar={hasFuncion('logistica.viajes.registrar')} puedeQuitar={hasFuncion('logistica.viajes.quitar')} />
+      )}
       {doc.docId ? (
         <>
           <h3 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>Bitácora</h3>

@@ -4,7 +4,8 @@ import { eq, desc } from 'drizzle-orm';
 import multer from 'multer';
 import { db } from '../../db/client.js';
 import { laftCounterparties, laftListChecks, laftRestrictiveLists, laftListEntries } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { laftAudit } from './audit.service.js';
 import { checkAllLists, decideFromMatches, getListsWithCounts, normalizeName, normalizeDoc } from './match.service.js';
@@ -27,19 +28,19 @@ const csvUpload = multer({
 });
 
 const router = Router();
-router.use(authMiddleware, requireRole('admin', 'compliance'));
+router.use(authMiddleware);
 
 // Sync de listas: máximo 2 por hora (descarga pesada).
 const syncLimiter = rateLimit({ windowMs: 3_600_000, max: 2, keyGenerator: userOrIpKey('laft-sync'), message: { error: 'Sincronización limitada a 2 por hora' } });
 
 // === Catálogo de listas =====================================================
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', exigirFuncion('laft.listas.operar'), async (_req: Request, res: Response) => {
   const lists = await getListsWithCounts();
   res.json(lists);
 });
 
 // === Sync automático de listas vinculantes (solo admin) =====================
-router.post('/:code/sync', syncLimiter, requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:code/sync', exigirFuncion('laft.listas.administrar'), syncLimiter, async (req: Request, res: Response) => {
   const code = req.params.code.toUpperCase();
   const syncers: Record<string, () => Promise<{ listCode: string; fetched: number; inserted: number; errors: number; durationMs: number }>> = {
     OFAC: syncOfacSdn,
@@ -68,7 +69,7 @@ router.post('/:code/sync', syncLimiter, requireRole('admin'), async (req: Reques
 });
 
 // === Upload manual CSV para listas de referencia ============================
-router.post('/:code/upload-csv', requireRole('admin'), csvUpload.single('file'), async (req: Request, res: Response) => {
+router.post('/:code/upload-csv', exigirFuncion('laft.listas.administrar'), csvUpload.single('file'), async (req: Request, res: Response) => {
   const code = req.params.code.toUpperCase();
   if (!isManualListCode(code)) {
     res.status(400).json({ error: `Código "${code}" no acepta upload manual. Listas válidas: PROCURADURIA, CONTRALORIA, POLICIA, INTERPOL, CLINTON.` });
@@ -92,7 +93,7 @@ router.post('/:code/upload-csv', requireRole('admin'), csvUpload.single('file'),
 });
 
 // === Consultar listas para una contraparte ==================================
-router.post('/check/:counterpartyId', async (req: Request, res: Response) => {
+router.post('/check/:counterpartyId', exigirFuncion('laft.listas.operar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.counterpartyId, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
 
@@ -147,7 +148,7 @@ router.post('/check/:counterpartyId', async (req: Request, res: Response) => {
 });
 
 // === Historial de consultas de una contraparte ==============================
-router.get('/checks/:counterpartyId', async (req: Request, res: Response) => {
+router.get('/checks/:counterpartyId', exigirFuncion('laft.listas.operar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.counterpartyId, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
@@ -174,7 +175,7 @@ router.get('/checks/:counterpartyId', async (req: Request, res: Response) => {
 });
 
 // === Detalle de un entry específico (cuando match) =========================
-router.get('/entry/:id', async (req: Request, res: Response) => {
+router.get('/entry/:id', exigirFuncion('laft.listas.operar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const [entry] = await db.select().from(laftListEntries).where(eq(laftListEntries.id, id));

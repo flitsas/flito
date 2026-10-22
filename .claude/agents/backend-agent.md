@@ -51,6 +51,9 @@ Agotado el presupuesto sin haber editado, solo hay dos salidas legítimas:
 recorrer módulos vecinos «para ver cómo se hace» más allá del que el prompt nombra. Si te falta un
 vecino de referencia, pide **uno** concreto y sigue.
 
+**Auto-reporte:** declara el número en el HANDOFF (`Reconocimiento: N`). El hilo lo contrasta con
+el presupuesto y lo registra en el ledger del WI — un presupuesto que nadie reporta no existe.
+
 ---
 
 ## CUÁNDO INVOCAR — HARD-STOP (hilo principal / modo auto)
@@ -161,6 +164,7 @@ Tipos: `@operaciones/shared-types`.
 HANDOFF
   Estado: implementado | bloqueado
   Resultado: OK | BLOQUEADO
+  Reconocimiento: <N llamadas de lectura/búsqueda antes del primer Edit> (presupuesto P8: 8)
   Archivos: <lista>
   Alcance verificación: filtrado | completo
   Tests: <comando exacto + resultado real>

@@ -307,7 +307,6 @@ export default function UsersGestion({ puedeExportar }: {
           companias={companias}
           proveedores={proveedores}
           organismos={organismos}
-          catalogo={catalogo}
           rolesCatalogo={rolesCatalogo}
           onClose={() => setShowCreate(false)}
           onCreated={recargar}

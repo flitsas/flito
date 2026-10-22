@@ -3,12 +3,13 @@ import { z } from 'zod';
 import { eq, and, asc, desc, sql, gte, lte, ilike, or } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { parts, partsLocations, partsStock, partsMovements } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('maintenance'));
+router.use(authMiddleware);
 
 function parseId(raw: string): number | null {
   const n = parseInt(raw, 10);
@@ -17,12 +18,12 @@ function parseId(raw: string): number | null {
 
 // ------ Ubicaciones ------
 
-router.get('/locations', async (_req, res: Response) => {
+router.get('/locations', requirePage('maintenance_inicio'), async (_req, res: Response) => {
   const rows = await db.select().from(partsLocations).where(eq(partsLocations.activo, true)).orderBy(asc(partsLocations.codigo));
   res.json({ data: rows });
 });
 
-router.post('/locations', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/locations', requirePage('maintenance_inicio'), exigirFuncion('maintenance.inicio.administrar'), async (req: Request, res: Response) => {
   const schema = z.object({
     codigo: z.string().min(1).max(20).regex(/^[A-Z0-9_-]+$/),
     nombre: z.string().min(1).max(80),
@@ -37,7 +38,7 @@ router.post('/locations', requireRole('admin'), async (req: Request, res: Respon
 
 // ------ Repuestos ------
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requirePage('maintenance_inicio'), async (req: Request, res: Response) => {
   const q = req.query.q ? String(req.query.q).slice(0, 100) : null;
   const systemId = req.query.systemId ? parseId(String(req.query.systemId)) : null;
   const conStockBajo = req.query.conStockBajo === '1';
@@ -86,7 +87,7 @@ const partSchema = partBaseSchema.refine(
   { message: 'existenciaMax debe ser >= existenciaMin', path: ['existenciaMax'] },
 );
 
-router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/', requirePage('maintenance_inicio'), exigirFuncion('maintenance.inicio.administrar'), async (req: Request, res: Response) => {
   const parsed = partSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validación', details: parsed.error.flatten() }); return; }
   const data = parsed.data as any;
@@ -99,7 +100,7 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
   res.status(201).json({ data: created });
 });
 
-router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/:id', requirePage('maintenance_inicio'), exigirFuncion('maintenance.inicio.administrar'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = partBaseSchema.partial().safeParse(req.body);
@@ -113,7 +114,7 @@ router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) =
   res.json({ data: updated });
 });
 
-router.get('/:id/stock', async (req: Request, res: Response) => {
+router.get('/:id/stock', requirePage('maintenance_inicio'), async (req: Request, res: Response) => {
   const id = parseId(req.params.id);
   if (!id) { res.status(400).json({ error: 'ID inválido' }); return; }
   const rows = await db.select({
@@ -132,7 +133,7 @@ router.get('/:id/stock', async (req: Request, res: Response) => {
 
 // ------ Movimientos ------
 
-router.get('/movements', async (req: Request, res: Response) => {
+router.get('/movements', requirePage('maintenance_inicio'), async (req: Request, res: Response) => {
   const partId = req.query.partId ? parseId(String(req.query.partId)) : null;
   const tipo = req.query.tipo as string | undefined;
   const desde = req.query.desde as string | undefined;
@@ -170,7 +171,7 @@ const movementSchema = z.object({
   return true;
 }, { message: 'Combinación de ubicaciones inválida para el tipo de movimiento' });
 
-router.post('/movements', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/movements', requirePage('maintenance_inicio'), exigirFuncion('maintenance.inicio.administrar'), async (req: Request, res: Response) => {
   const parsed = movementSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Validación', details: parsed.error.flatten() }); return; }
   const data = parsed.data;

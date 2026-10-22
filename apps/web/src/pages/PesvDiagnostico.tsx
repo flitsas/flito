@@ -162,7 +162,7 @@ function SkeletonGrid() {
 // ══════════════════════════════════════════════════════════════════════════
 function DetalleDiagnostico({ id }: { id: number }) {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, hasFuncion } = useAuth();
   const [detail, setDetail] = useState<DiagDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [faseFiltro, setFaseFiltro] = useState<FasePhva | null>(null);
@@ -180,12 +180,13 @@ function DetalleDiagnostico({ id }: { id: number }) {
   }, [id]);
   useEffect(() => { load(); }, [load]);
 
-  // Redirect compliance → /auditoria — el backend ya emite header X-Redirect-To,
-  // pero `lib/api.ts` no lo intercepta. Manejamos el redirect aquí por rol.
+  // Redirect a /auditoria de quien solo CONSULTA (HU #12872: por función, no por rol) — el backend
+  // ya emite header X-Redirect-To, pero `lib/api.ts` no lo intercepta.
+  const soloConsulta = hasFuncion('pesv.diagnostico_consulta.administrar') && !hasFuncion('pesv.diagnostico.administrar');
   useEffect(() => {
     if (!user) return;
-    if (user.role === 'compliance') navigate(`/pesv/diagnostico/${id}/auditoria`, { replace: true });
-  }, [user, id, navigate]);
+    if (soloConsulta) navigate(`/pesv/diagnostico/${id}/auditoria`, { replace: true });
+  }, [user, soloConsulta, id, navigate]);
 
   const stats = useMemo(() => computeStats(detail?.items ?? []), [detail]);
   const itemsVisibles = useMemo(() => filterItems(detail?.items ?? [], faseFiltro, search), [detail, faseFiltro, search]);

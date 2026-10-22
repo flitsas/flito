@@ -51,6 +51,8 @@ export interface CuerpoExportReporteCostos {
   /** Por CÓDIGO, que es la identidad del organismo en el API (CF-04); el nombre es para leer. */
   organismos?: string[];
   documentacionCompleta?: boolean;
+  /** Calco de `documentacionCompleta` (HU #12655, AC4): `true` viaja como `conDiferencias=si` en los GET. */
+  conDiferencias?: boolean;
   estadoFacturacion?: SiigoEstadoReporte;
   /** Solo el consolidado: el eje del agrupado. El detalle no lo manda (esquema `.strict()`). */
   periodo?: TipoPeriodo;
@@ -76,6 +78,7 @@ export function cuerpoDeExport(f: FiltrosDetalle, estadoFe: SiigoEstadoReporte |
   if (f.estados.length) c.estados = f.estados;
   if (f.organismos.length) c.organismos = f.organismos;
   if (f.docCompleta) c.documentacionCompleta = true;
+  if (f.conDiferencias) c.conDiferencias = true;
   if (estadoFe) c.estadoFacturacion = estadoFe;
   return c;
 }

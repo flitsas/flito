@@ -2,7 +2,8 @@
 
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { solicitarFirma, listarFirmas } from './firma.service.js';
 
@@ -15,7 +16,7 @@ const solicitarSchema = z.object({
 }).strict();
 
 // POST /tramites/:id/firma/solicitar — el gestor (admin) dispara la firma.
-router.post('/:id/firma/solicitar', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/firma/solicitar', exigirFuncion('firma.solicitud.administrar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = solicitarSchema.safeParse(req.body);
@@ -38,7 +39,7 @@ router.post('/:id/firma/solicitar', requireRole('admin'), async (req: Request, r
 });
 
 // GET /tramites/:id/firma — lista de firmas del trámite (admin o transito).
-router.get('/:id/firma', requireRole('admin', 'transito'), async (req: Request, res: Response) => {
+router.get('/:id/firma', exigirFuncion('firma.estado.ver'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   try {

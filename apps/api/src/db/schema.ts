@@ -5,15 +5,17 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
 });
 import { sql, desc } from 'drizzle-orm';
 // FLITO (migración): tipos de extracción OCR persistidos en columnas jsonb.
-import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVenta, ExtraccionDerechoTramite } from '@operaciones/shared-types';
+import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVentaImpuesto, ExtraccionDerechoTramite, ComparacionFacturaRunt } from '@operaciones/shared-types';
 // Certificación de impuestos contra el RUNT (Feature #11159): detalle por campo en columna jsonb.
-import type { ComparacionCampo } from '@operaciones/shared-types';
 // Entrega de la factura por correo (HU #11334): destinatarios con su procedencia, en columna jsonb.
-import type { SiigoDestinatario } from '@operaciones/shared-types';
+// (Un solo import para los dos: HU #13410 necesitó la línea por el techo de max-lines.)
+import type { ComparacionCampo, SiigoDestinatario } from '@operaciones/shared-types';
 // SOAT canal Cliente (HU #12093): de dónde salió cada dato del propietario, en columna jsonb.
 import type { ProcedenciaCompradorPersistida } from '@operaciones/shared-types';
 // Verificación diaria de vigencia del SOAT (HU #12096): motivos de caída de una corrida, en jsonb.
 import type { ResumenMotivosCorrida } from '@operaciones/shared-types';
+// Fuente del trámite (HU #13070): los valores del CHECK de la 0213.
+import type { FuenteTramite } from '@operaciones/shared-types';
 
 // OBSOLETO desde la migración 0178 (HU #12169): la fuente de verdad de qué roles existen es la tabla
 // `permisosRoles`, no este tipo. Ninguna columna lo usa ya — `users.role` pasó a varchar(40) con FK
@@ -31,6 +33,22 @@ export const roleEnum = pgEnum('user_role', ['admin', 'proveedor', 'transito', '
 // Import (y no solo `export … from`) porque `users.role` referencia `permisosRoles.codigo` aquí abajo.
 import { permisosRoles, permisosFunciones, permisosRolFuncion, permisosUsuarioFuncion, permisosIntentosDenegados, permisosAuditoria } from './schema/permisos.js';
 export { permisosRoles, permisosFunciones, permisosRolFuncion, permisosUsuarioFuncion, permisosIntentosDenegados, permisosAuditoria };
+// Épica #12245: `flito_comprobantes` vive en `./schema/flito-comprobantes.ts` por el mismo techo (HU #12611).
+import { flitoComprobantes } from './schema/flito-comprobantes.js';
+export { flitoComprobantes };
+// HU #12996: `flito_soat_incompletas` vive en `./schema/flito-soat-incompletas.ts` por el mismo techo.
+import { flitoSoatIncompletas } from './schema/flito-soat-incompletas.js';
+export { flitoSoatIncompletas };
+// HU #13410: `flito_storage_borrados_pendientes` vive en `./schema/flito-storage-borrados-pendientes.ts`.
+export { flitoStorageBorradosPendientes } from './schema/flito-storage-borrados-pendientes.js';
+// HU #13268: `flito_impuesto_envios_flit2` (outbox del envío a FLIT 2) vive en `./schema/` por el mismo techo.
+import { flitoImpuestoEnviosFlit2 } from './schema/flito-impuesto-envios-flit2.js';
+export { flitoImpuestoEnviosFlit2 };
+// HU #12619: `flito_tramite_viajes_logistica` vive en `./schema/flito-logistica-viajes.ts` por el mismo techo.
+import { flitoTramiteViajesLogistica } from './schema/flito-logistica-viajes.js';
+export { flitoTramiteViajesLogistica };
+// HU #13061: `flito_sync_flit2_acceso` vive en `./schema/flito-sync.ts` por el mismo techo.
+export { flitoSyncFlit2Acceso, flitoSyncFlit2Lectura, flitoSyncInterruptor, flitoSyncFlit1Lectura } from './schema/flito-sync.js';
 
 export const laftKindEnum = pgEnum('laft_kind', ['PN', 'PJ']);
 export const laftRiskLevelEnum = pgEnum('laft_risk_level', ['bajo', 'medio', 'alto']);
@@ -2632,6 +2650,10 @@ export const laftAuditPlans = pgTable('laft_audit_plans', {
 // residuo deprecado: ya no existen en la base y escribirlos es un 22P02.
 export const flitoSoatEstadoEnum = pgEnum('flito_soat_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado']);
 export const flitoImpuestoEstadoEnum = pgEnum('flito_impuesto_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado']);
+/** HU #12825: ciclo del análisis post-envío. NULL en la columna = nunca encolado (histórico). */
+export const flitoImpuestoAnalisisEstadoEnum = pgEnum('flito_impuesto_analisis_estado', ['en_curso', 'completado', 'error_analisis']);
+/** HU #12827: semáforo factura vs RUNT. NULL en la columna = sin calcular. */
+export const flitoImpuestoSemaforoEnum = pgEnum('flito_impuesto_semaforo', ['verde', 'naranja', 'rojo']);
 export const flitoTramiteEstadoEnum = pgEnum('flito_tramite_estado', ['asignado', 'entregado', 'aprobado', 'anulado', 'rechazado']);
 // Modalidad del organismo: requiere_gestion | autogestionado (default). 'sin_clasificar' se deprecó.
 export const flitoModalidadEnum = pgEnum('flito_modalidad_organismo', ['requiere_gestion', 'autogestionado']);
@@ -3070,6 +3092,13 @@ export const flitoTramites = pgTable('flito_tramites', {
   flitRaw: jsonb('flit_raw'),
   processStatus: integer('process_status'),
   plateComplete: varchar('plate_complete', { length: 20 }),
+  // Sistema del que llegó el trámite (HU #13070): 'flit' (sync de FLIT 1) o 'flit2'. CHECK en la
+  // migración 0213 (flito_tramites_fuente_chk). El sync de FLIT no la escribe: nace con el default.
+  fuente: varchar('fuente', { length: 10 }).$type<FuenteTramite>().notNull().default('flit'),
+  // HU #13091 (0215): identidad y versión del trámite en FLIT 2. Null en los de FLIT 1.
+  idFlit2: uuid('id_flit2'), syncVersion: bigint('sync_version', { mode: 'number' }),
+  // HU #13094 (0216): leído de FLIT 2 sin el scope de datos personales; espera la relectura.
+  flit2PiiEnmascarada: boolean('flit2_pii_enmascarada').notNull().default(false),
   sincronizadoEn: timestamp('sincronizado_en', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -3080,6 +3109,10 @@ export const flitoTramites = pgTable('flito_tramites', {
   // Orden cronológico y filtros de antigüedad (HU #10959): antes se ordenaba por created_at sin índice.
   fechaCreacionFlitIdx: index('idx_flito_tramites_fecha_creacion_flit').on(t.fechaCreacionFlit),
   createdAtIdx: index('idx_flito_tramites_created_at').on(t.createdAt),
+  idFlit2Uq: uniqueIndex('uq_flito_tramites_id_flit2').on(t.idFlit2).where(sql`${t.idFlit2} IS NOT NULL`),
+  fuenteIdFlit2Ck: check('ck_flito_tramites_fuente_id_flit2', sql`(${t.fuente} = 'flit2') = (${t.idFlit2} IS NOT NULL)`),
+  syncVersionCk: check('ck_flito_tramites_flit2_sync_version', sql`${t.idFlit2} IS NULL OR ${t.syncVersion} IS NOT NULL`),
+  flit2PiiIdx: index('idx_flito_tramites_flit2_pii_enmascarada').on(t.id).where(sql`${t.flit2PiiEnmascarada}`),
 }));
 
 // Historial de cambios del trámite (auditoría campo por campo, Fase 8 / integración FLIT). Cada
@@ -3117,7 +3150,7 @@ export const flitoImpuestos = pgTable('flito_impuestos', {
   // Factura de venta = precondición del envío. Referencia por id (sin FK dura: evita
   // ciclo con flito_soportes, igual que en el modelo original).
   facturaVentaSoporteId: uuid('factura_venta_soporte_id'),
-  extraccionFacturaVenta: jsonb('extraccion_factura_venta').$type<ExtraccionFacturaVenta>(),
+  extraccionFacturaVenta: jsonb('extraccion_factura_venta').$type<ExtraccionFacturaVentaImpuesto>(),
   /**
    * Gemelo del de `flito_soat` (HU #11152 trae la columna; #11155 la usa). Aquí pesa más: el
    * destinatario del impuesto no es un proveedor sino el gestor de `organismo_codigo`, así que esta
@@ -3130,13 +3163,47 @@ export const flitoImpuestos = pgTable('flito_impuestos', {
   enviadoPorId: integer('enviado_por_id').references(() => users.id),
   enviadoEn: timestamp('enviado_en', { withTimezone: true }),
   pagadoEn: timestamp('pagado_en', { withTimezone: true }),
+  /**
+   * HU #12590: fecha-hora en que se cargó la liquidación del impuesto (el documento de la hacienda
+   * sin marca). Marca «liquidado» sobre `solicitado`; el estado NO cambia. No es
+   * `flito_liquidaciones.liquidado_en` (esa es la Liquidación de FLITO, el total a cobrar).
+   */
+  liquidadoEn: timestamp('liquidado_en', { withTimezone: true }),
   motivoRechazo: text('motivo_rechazo'),
   extraccion: jsonb('extraccion').$type<ExtraccionImpuesto>(),
+  /**
+   * HU #12825 (migración 0206): análisis post-envío en segundo plano. `analizadoEn` solo se escribe
+   * si corrió al menos un paso; con él poblado y posterior al encolado, el job no re-ejecuta (AC2).
+   * `analisisReencolados` lo sube solo la recuperación de huérfanos (AC4: una vez).
+   */
+  analisisEstado: flitoImpuestoAnalisisEstadoEnum('analisis_estado'),
+  analisisEncoladoEn: timestamp('analisis_encolado_en', { withTimezone: true }),
+  analisisReencolados: smallint('analisis_reencolados').notNull().default(0),
+  analizadoEn: timestamp('analizado_en', { withTimezone: true }),
+  /** HU #12827 (migración 0207): semáforo factura de venta vs RUNT y su detalle (motivo en el jsonb). */
+  semaforo: flitoImpuestoSemaforoEnum('semaforo'),
+  comparacionFacturaRunt: jsonb('comparacion_factura_runt').$type<ComparacionFacturaRunt>(),
+  /**
+   * HU #12833 (migración 0208): dirección del comprador CONFIRMADA (de la factura o corregida a mano).
+   * Vive aquí y no en `flito_compradores` porque el sync con FLIT borra y reinserta esa tabla.
+   * `direccionFuente` es el discriminante: NULL = se lee la de FLIT; 'factura' | 'manual'.
+   * La propuesta sin confirmar sigue en `extraccionFacturaVenta` (no se duplica).
+   */
+  direccionFactura: text('direccion_factura'),
+  municipioFactura: text('municipio_factura'),
+  departamentoFactura: text('departamento_factura'),
+  direccionFuente: text('direccion_fuente').$type<'factura' | 'manual'>(),
+  direccionPendienteRevision: boolean('direccion_pendiente_revision').notNull().default(false),
+  direccionConfirmadaPorId: integer('direccion_confirmada_por_id').references(() => users.id, { onDelete: 'set null' }),
+  direccionConfirmadaPorNombre: text('direccion_confirmada_por_nombre'),
+  direccionConfirmadaEn: timestamp('direccion_confirmada_en', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   estadoIdx: index('idx_flito_impuestos_estado').on(t.estado),
   organismoIdx: index('idx_flito_impuestos_organismo').on(t.organismoCodigo),
+  analisisEnCursoIdx: index('idx_flito_impuestos_analisis_en_curso').on(t.analisisEncoladoEn)
+    .where(sql`${t.analisisEstado} = 'en_curso'`),
 }));
 
 /**
@@ -3212,6 +3279,12 @@ export const flitoCompradores = pgTable('flito_compradores', {
   // El otro padre. `CASCADE` como el de arriba: el propietario no sobrevive a la solicitud.
   soatId: uuid('soat_id').references(() => flitoSoat.id, { onDelete: 'cascade' }),
   /**
+   * El tercer padre (HU #12996, migración 0210): la solicitud del canal Cliente APARCADA en
+   * `flito_soat_incompletas` porque el RUNT no respondió. Sin `CASCADE`: las incompletas no se
+   * borran (las descartadas se conservan, CF-06), así que no hay borrado que propagar.
+   */
+  soatIncompletaId: uuid('soat_incompleta_id').references(() => flitoSoatIncompletas.id),
+  /**
    * El nombre en UNA cadena. Lo escribe el sync fundiendo lo que FLIT manda separado
    * (`flit-http.adapter.ts:74`), y desde la HU #11966 el canal Cliente lo escribe **derivado** de
    * las columnas partidas de abajo (`razon_social ?? "nombres apellidos"`).
@@ -3278,8 +3351,14 @@ export const flitoCompradores = pgTable('flito_compradores', {
   // «Uno y solo uno», el patrón literal que `flitoSoportes` ya usa con sus FK. Sin él, una fila
   // podría colgar de los dos padres —y desaparecer con el CASCADE del que no la creó— o de ninguno,
   // que es un propietario huérfano que nadie vuelve a encontrar.
+  //
+  // Desde la 0210 (HU #12996, ADR-0019) hay un tercer padre: la solicitud INCOMPLETA del canal
+  // Cliente. La regla pasa a «trámite XOR (SOAT o incompleta)»: la fila de una incompleta cuelga de
+  // ella mientras espera y, al completarse, gana también `soat_id` sin perder el rastro.
   padreChk: check('flito_compradores_padre_chk',
-    sql`(${t.tramiteId} IS NOT NULL) <> (${t.soatId} IS NOT NULL)`),
+    sql`(${t.tramiteId} IS NOT NULL) <> (${t.soatId} IS NOT NULL OR ${t.soatIncompletaId} IS NOT NULL)`),
+  soatIncompletaIdx: index('idx_flito_compradores_soat_incompleta').on(t.soatIncompletaId)
+    .where(sql`${t.soatIncompletaId} IS NOT NULL`),
   // «Nunca las dos cosas a la vez» (HU #11966, migración 0172). Las filas legacy lo cumplen: los
   // tres campos NULL. NO se añade el recíproco (`tipo_documento='NIT' ⇒ razon_social IS NOT NULL`):
   // bloquearía a un futuro escritor del sync que rellene `tipo_documento` sin razón social, y la
@@ -3322,8 +3401,13 @@ export const flitoSoportes = pgTable('flito_soportes', {
   // Descartado en la cola de revisión OCR: libera su hash para permitir recargar el mismo archivo
   // (un documento rechazado no debe contar como duplicado). Se excluye del dedup y de los listados.
   descartado: boolean('descartado').notNull().default(false),
+  // HU #13362 (0222): documento adicional del alta de SOAT — etiqueta, y la por validar de la que cuelga (sin CASCADE).
+  etiqueta: varchar('etiqueta', { length: 150 }),
+  soatIncompletaId: uuid('soat_incompleta_id').references(() => flitoSoatIncompletas.id),
 }, (t) => ({
   hashIdx: index('idx_flito_soportes_hash').on(t.hash),
+  soatIncompletaIdx: index('idx_flito_soportes_soat_incompleta').on(t.soatIncompletaId).where(sql`${t.soatIncompletaId} IS NOT NULL`),
+  documentoAdicionalChk: check('flito_soportes_documento_adicional_chk', sql`${t.tipo} <> 'documento_adicional_soat' OR (${t.etiqueta} IS NOT NULL AND (${t.soatId} IS NOT NULL OR ${t.soatIncompletaId} IS NOT NULL))`),
   // AC3 — un solo documento de cada tipo por factura. La garantía es de la base y no del servicio:
   // entre el «¿ya está?» y el INSERT de un barrido periódico cabe otro ciclo.
   facturaTipoUq: uniqueIndex('idx_flito_soportes_factura_tipo').on(t.siigoFacturaId, t.tipo)
@@ -3343,8 +3427,12 @@ export const flitoSoportes = pgTable('flito_soportes', {
   // de `factura_venta`, justo encima). Hasta aquí esta tabla no tenía NINGÚN índice por `soat_id`
   // solo: los tres de arriba son parciales sobre otras FK o sobre otro tipo, así que el `EXISTS`
   // del censo recorría `flito_soportes` entera una vez por SOAT candidato.
-  soatTipoIdx: index('idx_flito_soportes_soat_tipo').on(t.soatId, t.tipo)
-    .where(sql`${t.soatId} IS NOT NULL AND ${t.descartado} = false`),
+  soatTipoIdx: index('idx_flito_soportes_soat_tipo').on(t.soatId, t.tipo).where(sql`${t.soatId} IS NOT NULL AND ${t.descartado} = false`),
+  // HU #13364 (migración 0223): un adicional vivo por contenido y solicitud; cierra la carrera de dos cargas simultáneas.
+  adicionalSoatHashUq: uniqueIndex('uq_flito_soportes_adicional_soat_hash').on(t.soatId, t.hash).where(sql`${t.tipo} = 'documento_adicional_soat' AND ${t.descartado} = false AND ${t.soatId} IS NOT NULL`),
+  // HU #12590 (migración 0196): calcado del anterior para `impuesto_id` — la cola de impuestos lee los documentos de cada página con `impuesto_id IN (...) AND tipo IN (...)`.
+  impuestoTipoIdx: index('idx_flito_soportes_impuesto_tipo').on(t.impuestoId, t.tipo)
+    .where(sql`${t.impuestoId} IS NOT NULL AND ${t.descartado} = false`),
   // «Uno y solo uno» para las DOS FK nuevas del patrón. Lo escribió la 0139 para `siigo_factura_id`
   // y lo ensancha la 0157 con `conciliacion_boleta_id`: sin ensancharlo, un soporte podía colgar de
   // una factura Y de una boleta a la vez, contar como comprobante vivo en los dos índices parciales
@@ -3543,6 +3631,58 @@ export const flitoTarifasVigencias = pgTable('flito_tarifas_vigencias', {
 }));
 
 /**
+ * Catálogo de tipos de servicio adicional (HU #12541, Feature #12540). Baja LÓGICA: un tipo se da de
+ * baja (`activo=false` + `dadoDeBajaEn` + actor) y nunca se borra ni se reactiva; el índice único
+ * parcial sobre el nombre PLEGADO (minúsculas, sin tilde, `translate()` y no `unaccent()`) solo cuenta
+ * los activos, así que dar de baja libera el nombre. La misma expresión vive en `nombrePlegado()` del
+ * servicio y en la 0191. FKs a users RESTRICT (ADR-0005: FK en pareja con marca de tiempo).
+ */
+export const flitoServiciosAdicionalesTipos = pgTable('flito_servicios_adicionales_tipos', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  nombre: varchar('nombre', { length: 120 }).notNull(),
+  descripcion: text('descripcion'),
+  valor: numeric('valor', { precision: 14, scale: 2 }).notNull(),
+  activo: boolean('activo').notNull().default(true),
+  dadoDeBajaEn: timestamp('dado_de_baja_en', { withTimezone: true }),
+  dadoDeBajaPorId: integer('dado_de_baja_por_id').references(() => users.id, { onDelete: 'restrict' }),
+  creadoPorId: integer('creado_por_id').references(() => users.id, { onDelete: 'restrict' }),
+  creadoEn: timestamp('creado_en', { withTimezone: true }).notNull().defaultNow(),
+  actualizadoPorId: integer('actualizado_por_id').references(() => users.id, { onDelete: 'restrict' }),
+  actualizadoEn: timestamp('actualizado_en', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  nombreActivoUq: uniqueIndex('idx_flito_serv_adic_tipos_nombre_activo')
+    .on(sql`lower(translate(${t.nombre}, 'áéíóúÁÉÍÓÚñÑüÜ', 'aeiouAEIOUnNuU'))`).where(sql`${t.activo}`),
+  valorChk: check('flito_serv_adic_tipos_valor_chk', sql`${t.valor} >= 0`),
+  nombreChk: check('flito_serv_adic_tipos_nombre_chk', sql`btrim(${t.nombre}) <> ''`),
+  bajaChk: check('flito_serv_adic_tipos_baja_chk', sql`${t.activo} = (${t.dadoDeBajaEn} IS NULL)`),
+}));
+
+/**
+ * Servicios adicionales ASIGNADOS a un trámite (HU #12545, Feature #12544). Fila VIVA: se crea al
+ * asignar y se borra físicamente al quitar (CF-04); mientras el trámite no está liquidado nadie la
+ * referencia, y al sellar la liquidación copia nombre/valor a su propio `detalle`. `nombre`,
+ * `descripcion` y `valor` son el SNAPSHOT del tipo en el instante de asignar: editar o dar de baja el
+ * tipo después no los cambia (CF-03). FK al tipo RESTRICT (el catálogo no borra: baja lógica) y a
+ * users RESTRICT por ADR-0005 (`asignado_por_id` va en pareja con `asignado_en`). El UNIQUE
+ * (tramite_id, tipo_id) es una CONSTRAINT en la 0193 (`flito_tramite_serv_adic_tramite_tipo_uq`):
+ * su 23505 es lo que el servicio traduce a 409 SERVICIO_YA_ASIGNADO.
+ */
+export const flitoTramiteServiciosAdicionales = pgTable('flito_tramite_servicios_adicionales', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tramiteId: uuid('tramite_id').notNull().references(() => flitoTramites.id, { onDelete: 'cascade' }),
+  tipoId: uuid('tipo_id').notNull().references(() => flitoServiciosAdicionalesTipos.id, { onDelete: 'restrict' }),
+  nombre: varchar('nombre', { length: 120 }).notNull(),
+  descripcion: text('descripcion'),
+  valor: numeric('valor', { precision: 14, scale: 2 }).notNull(),
+  asignadoPorId: integer('asignado_por_id').references(() => users.id, { onDelete: 'restrict' }),
+  asignadoEn: timestamp('asignado_en', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  tramiteTipoUq: uniqueIndex('flito_tramite_serv_adic_tramite_tipo_uq').on(t.tramiteId, t.tipoId),
+  tramiteIdx: index('idx_flito_tramite_serv_adic_tramite').on(t.tramiteId),
+  valorChk: check('flito_tramite_serv_adic_valor_chk', sql`${t.valor} >= 0`),
+}));
+
+/**
  * Liquidación SELLADA de un trámite (HU #10965). Sellar es congelar: si mañana cambia la tarifa de
  * la compañía o la tasa del GMF, un trámite ya liquidado sigue mostrando lo que se cobró.
  *
@@ -3562,6 +3702,12 @@ export const flitoLiquidaciones = pgTable('flito_liquidaciones', {
   valorDerecho: numeric('valor_derecho', { precision: 14, scale: 2 }),
   valorTramiteDigital: numeric('valor_tramite_digital', { precision: 14, scale: 2 }),
   valorLogistica: numeric('valor_logistica', { precision: 14, scale: 2 }),
+  /**
+   * Suma de los servicios adicionales sellados (HU #12546, 0194). NULL = «no aplica»: el trámite se
+   * selló sin servicios, o se selló ANTES de esta HU. Nunca cero implícito. El desglose por tipo va
+   * en `detalle.serviciosAdicionales.items`.
+   */
+  valorServiciosAdicionales: numeric('valor_servicios_adicionales', { precision: 14, scale: 2 }),
   baseGmf: numeric('base_gmf', { precision: 14, scale: 2 }).notNull(),
   tasaGmf: numeric('tasa_gmf', { precision: 6, scale: 5 }).notNull().default('0.004'),
   valorGmf: numeric('valor_gmf', { precision: 14, scale: 2 }).notNull(),

@@ -22,7 +22,9 @@
 //   · **El nombre del archivo lo pone el servidor** (`Content-Disposition`), con sello en hora de
 //     Colombia. Uno fabricado aquí llevaría la hora del equipo de quien descarga.
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { FileSpreadsheet, RotateCw, TriangleAlert, X } from 'lucide-react';
+import { CABECERA_DIRECCIONES_SIN_CONFIRMAR } from '@operaciones/shared-types';
 import { ApiError, api } from '../../lib/api';
 import { flitBtnSecondary, flitBtnSecondarySm, flitBtnSecondaryStyle } from '../flit/flitPageKit';
 
@@ -55,6 +57,8 @@ export interface FiltrosExportCola {
   creadoDesde?: string;
   creadoHasta?: string;
   estancado?: boolean;
+  /** Solo Impuestos: Solicitados con liquidación cargada y sin pagar (HU #12592). */
+  liquidadoPendientePago?: boolean;
   /**
    * Vigencia frente al RUNT (HU #12097). Solo SOAT, y **valor máquina**
    * (`vencido|sin_registro|no_verificado`), que es lo que valida el esquema del endpoint.
@@ -64,6 +68,8 @@ export interface FiltrosExportCola {
    * las que la pantalla enseña, que en un archivo de datos personales es peor que un error.
    */
   vigencia?: string;
+  /** Solo Impuestos: preset «Con alertas» (HU #12830), valores máquina `naranja|rojo`. */
+  semaforo?: string[];
   /**
    * Excel ampliado con datos de pago y trazabilidad (Bug #12642). **Solo viaja cuando está marcado**:
    * el esquema del endpoint es `.strict()` pero admite la clave ausente, y no mandarla es lo que
@@ -148,13 +154,35 @@ export function esNombreDeExport(prefijo: string, nombre: string, extension = 'x
  * descargas: `request()` mira el `content-type` antes que `res.ok`, así que un 422 con cabecera de
  * xlsx sale por la rama del blob. Ese guardia vive en `lib/api.ts`; aquí solo hay que usarlo.
  */
-export async function exportarCola(cola: ColaExportable, filtros: FiltrosExportCola): Promise<string> {
+export async function exportarCola(
+  cola: ColaExportable,
+  filtros: FiltrosExportCola,
+  alLeerCabeceras?: (leer: (cabecera: string) => string | null) => void,
+): Promise<string> {
   return api.downloadPostNamed(
     cola.ruta,
     `${cola.prefijo}.xlsx`,
     filtros,
     (nombre) => esNombreDeExport(cola.prefijo, nombre),
+    alLeerCabeceras,
   );
+}
+
+/**
+ * Cuántas filas del archivo llevan la dirección del comprador sin confirmar (HU #12834, AC4). Solo
+ * la manda el export ampliado de Impuestos; sin cabecera, vacía o no numérica es `0` y la banda no
+ * cambia. SOAT nunca la recibe, así que para SOAT esto siempre es `0`.
+ */
+export function direccionesSinConfirmar(valor: string | null): number {
+  const n = Number.parseInt(valor ?? '', 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** Copy del aviso de la descarga ampliada (spec UX, HU #12834). */
+export function textoDireccionesSinConfirmar(n: number): string {
+  return n === 1
+    ? 'El archivo incluye 1 impuesto con dirección sin confirmar. Revísalo en su detalle antes de usar el archivo.'
+    : `El archivo incluye ${n} impuestos con dirección sin confirmar. Revísalos en su detalle antes de usar el archivo.`;
 }
 
 /** `codigo` estable del cuerpo de error. NO se mira el texto para DECIDIR nada. */
@@ -178,7 +206,11 @@ function textoDelServidor(e: ApiError): string | null {
 }
 
 export interface AvisoExport {
-  tono: 'ok' | 'error';
+  /**
+   * `aviso` (HU #12834): descarga correcta con algo que revisar dentro del archivo. Hoy solo lo
+   * emite el export ampliado de Impuestos; SOAT y el ZIP siguen emitiendo `ok` / `error`.
+   */
+  tono: 'ok' | 'error' | 'aviso';
   texto: string;
   /** ¿Tiene sentido repetir la misma petición? El 422 del tope, por ejemplo, no lo tiene. */
   reintentable: boolean;
@@ -287,8 +319,13 @@ export function useExportCola(cola: ColaExportable, filtros: FiltrosExportCola):
     setOcupado(true);
     setAviso(null);
 
-    exportarCola(cola, ultimosFiltros.current)
-      .then((nombre) => setAviso({ tono: 'ok', reintentable: false, texto: `Archivo descargado: ${nombre}` }))
+    let sinConfirmar = 0;
+    exportarCola(cola, ultimosFiltros.current, (leer) => {
+      sinConfirmar = direccionesSinConfirmar(leer(CABECERA_DIRECCIONES_SIN_CONFIRMAR));
+    })
+      .then((nombre) => setAviso(sinConfirmar > 0
+        ? { tono: 'aviso', reintentable: false, texto: `Archivo descargado: ${nombre}. ${textoDireccionesSinConfirmar(sinConfirmar)}` }
+        : { tono: 'ok', reintentable: false, texto: `Archivo descargado: ${nombre}` }))
       .catch((e) => setAviso(avisoDeError(e)))
       .finally(() => {
         enVuelo.current = false;
@@ -325,15 +362,17 @@ export function BotonExportarCola(
   },
 ) {
   return (
-    <div className="flex flex-col items-end gap-1">
+    // A ancho completo por debajo de `sm` (HU #12819): en 375 px el bloque se apila bajo el título.
+    <div className="flex w-full flex-col items-stretch gap-1 sm:w-auto sm:items-end">
       <button
         type="button"
-        className={flitBtnSecondary}
+        className={`${flitBtnSecondary} justify-center`}
         style={flitBtnSecondaryStyle}
         onClick={onExportar}
         disabled={ocupado}
         aria-busy={ocupado || undefined}
       >
+        <FileSpreadsheet size={16} aria-hidden="true" className="shrink-0" />
         {ocupado ? 'Preparando el archivo…' : 'Exportar a Excel'}
       </button>
       {/* Lo que el usuario no puede deducir del botón: que la descarga NO es la página que está
@@ -347,7 +386,7 @@ export function BotonExportarCola(
            nombre accesible («Incluir datos… Añade al final…»), que es lo que el lector anunciaría
            entero y lo que rompería a quien la busque por su rótulo. Desmarcada por defecto: el
            archivo de siempre sigue siendo lo que sale con un solo clic. */
-        <div className="flex flex-col items-end">
+        <div className="flex flex-col items-start sm:items-end">
           <label className="flex cursor-pointer items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -360,7 +399,7 @@ export function BotonExportarCola(
           </label>
           <span
             id="export-incluir-pago-ayuda"
-            className="text-right text-xs"
+            className="text-xs sm:text-right"
             style={{ color: 'var(--flit-text-secondary)' }}
           >
             Añade al final del archivo estado, fechas, valor pagado y gestor. Solo para Operaciones.
@@ -420,13 +459,31 @@ export function AvisoExportCola(
  * sin que el nombre del módulo mienta.
  */
 export function AvisoVisible(
-  { aviso, onReintentar, onDescartar }:
-  { aviso: AvisoExport; onReintentar: () => void; onDescartar: () => void },
+  { aviso, onReintentar, onDescartar, children }:
+  {
+    aviso: AvisoExport; onReintentar: () => void; onDescartar: () => void;
+    /** Detalle bajo el texto (HU #13206: la lista de omitidos del 409 de certificados). */
+    children?: ReactNode;
+  },
 ) {
   const esError = aviso.tono === 'error';
+  const esAviso = aviso.tono === 'aviso';
+  const cuerpo = (
+    <p
+      className="flex items-start gap-2 text-sm"
+      style={{ color: esError ? 'var(--flit-danger-ink)' : 'var(--flit-text-primary)' }}
+    >
+      {/* `aviso` lleva forma además de color (△), con la tinta del kit que tiene par oscuro. */}
+      {esAviso && (
+        <TriangleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: 'var(--flit-warning-text)' }} />
+      )}
+      <span>{aviso.texto}</span>
+    </p>
+  );
   return (
     <div
       role={esError ? 'alert' : undefined}
+      data-tono={aviso.tono}
       className="flex flex-wrap items-center justify-between gap-3 bg-flit-card px-6 py-4"
       style={{
         borderRadius: 'var(--flit-radius-card)',
@@ -436,12 +493,9 @@ export function AvisoVisible(
     >
       {/* Tinta y no color de superficie: `--flit-danger` como letra de 14px sobre blanco se queda
           en 4,19 y axe lo marca `serious` (Bug #11604). */}
-      <p
-        className="text-sm"
-        style={{ color: esError ? 'var(--flit-danger-ink)' : 'var(--flit-text-primary)' }}
-      >
-        {aviso.texto}
-      </p>
+      {children
+        ? <div className="min-w-0 flex-1 basis-full sm:basis-auto">{cuerpo}{children}</div>
+        : cuerpo}
       <div className="flex items-center gap-2">
         {aviso.reintentable && (
           <button
@@ -453,6 +507,7 @@ export function AvisoVisible(
             {/* «Reintentar» a secas colisionaría con el de la banda de error de la COLA, que en SOAT
                 puede estar en pantalla a la vez: dos botones con el mismo nombre accesible y dos
                 efectos distintos. */}
+            <RotateCw size={16} aria-hidden="true" className="shrink-0" />
             Reintentar la descarga
           </button>
         )}
@@ -462,6 +517,7 @@ export function AvisoVisible(
           style={flitBtnSecondaryStyle}
           onClick={onDescartar}
         >
+          <X size={16} aria-hidden="true" className="shrink-0" />
           Cerrar el aviso
         </button>
       </div>

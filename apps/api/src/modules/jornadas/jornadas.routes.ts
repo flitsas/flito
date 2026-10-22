@@ -6,14 +6,26 @@ import {
   jornadasConductor, jornadasPausas, jornadasAlarmas, jornadasReportesMensuales,
   jornadasIdempotencyKeys, users,
 } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { requirePage } from '../../shared/permissions.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { JORNADA_LIMITS, computarAlarmasCierre } from './limits.js';
 import { notifyJornadaAlarmas } from './notify.js';
 
 const router = Router();
-router.use(authMiddleware, requirePage('pesv'));
+router.use(authMiddleware);
+
+/**
+ * HU #13425 — Operar la jornada de OTRO conductor (abrirla en su nombre, cerrarla, pausarla, verla,
+ * leer su reporte mensual) lo decide la función `jornadas.control.administrar` («Administrar Control
+ * Jornada»), no el nombre del rol: es la misma que guarda el listado, el ack y la regeneración, y la
+ * 0227 la siembra solo a `admin` (equivalencia con la regla por nombre de rol de antes). La propia jornada
+ * no la exige. Única guarda en línea del fichero (`inventario-guardas.ts` cuenta cada `tieneFuncion`).
+ */
+async function operaJornadaAjena(req: Request): Promise<boolean> {
+  return tieneFuncion(req, 'jornadas.control.administrar');
+}
 
 const abrirSchema = z.object({
   vehicleId: z.number().int().positive().optional().nullable(),
@@ -38,7 +50,7 @@ const pausaCerrarSchema = z.object({
 
 // ============ ABRIR JORNADA ============
 
-router.post('/abrir', async (req: Request, res: Response) => {
+router.post('/abrir', requirePage('pesv_mi_jornada'), async (req: Request, res: Response) => {
   const idempKey = req.header('Idempotency-Key');
   if (!idempKey || idempKey.length < 8 || idempKey.length > 80) {
     return res.status(400).json({ error: 'Idempotency-Key requerido (8-80 chars)' });
@@ -47,10 +59,9 @@ router.post('/abrir', async (req: Request, res: Response) => {
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
 
   const userId = req.user!.sub;
-  const role = req.user!.role;
   const conductorId = parsed.data.conductorId ?? userId;
-  // Solo admin puede abrir jornada en nombre de otro conductor.
-  if (conductorId !== userId && role !== 'admin') return res.status(403).json({ error: 'Solo admin puede abrir jornada para otro conductor' });
+  // Abrir en nombre de otro conductor exige «Administrar Control Jornada» (HU #13425).
+  if (conductorId !== userId && !(await operaJornadaAjena(req))) return res.status(403).json({ error: 'Sin permiso para abrir jornada para otro conductor' });
 
   const inicioAt = parsed.data.inicioAt ? new Date(parsed.data.inicioAt) : new Date();
 
@@ -103,7 +114,7 @@ router.post('/abrir', async (req: Request, res: Response) => {
 
 // ============ CERRAR JORNADA ============
 
-router.post('/:id/cerrar', async (req: Request, res: Response) => {
+router.post('/:id/cerrar', requirePage('pesv_mi_jornada'), async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const idempKey = req.header('Idempotency-Key');
@@ -112,7 +123,8 @@ router.post('/:id/cerrar', async (req: Request, res: Response) => {
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
 
   const userId = req.user!.sub;
-  const role = req.user!.role;
+  // Fuera de la transacción: la foto de permisos no debe alargar el FOR UPDATE (HU #13425).
+  const operaAjenas = await operaJornadaAjena(req);
   const finAt = parsed.data.finAt ? new Date(parsed.data.finAt) : new Date();
 
   const result = await db.transaction(async (tx) => {
@@ -128,7 +140,7 @@ router.post('/:id/cerrar', async (req: Request, res: Response) => {
     const [j] = await tx.select().from(jornadasConductor).where(eq(jornadasConductor.id, id)).for('update').limit(1);
     if (!j) return { code: 404 as const };
     if (j.cerrada) return { code: 409 as const, msg: 'Jornada ya cerrada' };
-    if (j.conductorId !== userId && role !== 'admin') return { code: 403 as const, msg: 'No autorizado' };
+    if (j.conductorId !== userId && !operaAjenas) return { code: 403 as const, msg: 'No autorizado' };
     if (finAt.getTime() <= new Date(j.inicioAt).getTime()) return { code: 400 as const, msg: 'fin_at debe ser posterior al inicio' };
 
     // Cerrar pausa abierta si la hay.
@@ -195,18 +207,19 @@ router.post('/:id/cerrar', async (req: Request, res: Response) => {
 
 // ============ PAUSAS ============
 
-router.post('/:id/pausa/abrir', async (req: Request, res: Response) => {
+router.post('/:id/pausa/abrir', requirePage('pesv_mi_jornada'), async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = pausaAbrirSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'datos inválidos' });
   const userId = req.user!.sub;
+  const operaAjenas = await operaJornadaAjena(req);
 
   const result = await db.transaction(async (tx) => {
     const [j] = await tx.select().from(jornadasConductor).where(eq(jornadasConductor.id, id)).for('update').limit(1);
     if (!j) return { code: 404 as const };
     if (j.cerrada) return { code: 409 as const, msg: 'Jornada cerrada' };
-    if (j.conductorId !== userId && req.user!.role !== 'admin') return { code: 403 as const, msg: 'No autorizado' };
+    if (j.conductorId !== userId && !operaAjenas) return { code: 403 as const, msg: 'No autorizado' };
 
     try {
       const inicioAt = parsed.data.inicioAt ? new Date(parsed.data.inicioAt) : new Date();
@@ -224,7 +237,7 @@ router.post('/:id/pausa/abrir', async (req: Request, res: Response) => {
   res.status(201).json(result.row);
 });
 
-router.post('/:id/pausa/cerrar', async (req: Request, res: Response) => {
+router.post('/:id/pausa/cerrar', requirePage('pesv_mi_jornada'), async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const parsed = pausaCerrarSchema.safeParse(req.body);
@@ -238,9 +251,9 @@ router.post('/:id/pausa/cerrar', async (req: Request, res: Response) => {
 
 // ============ READ ============
 
-router.get('/abierta', async (req: Request, res: Response) => {
+router.get('/abierta', requirePage('pesv_mi_jornada'), async (req: Request, res: Response) => {
   const conductorId = Number(req.query.conductorId) || req.user!.sub;
-  if (conductorId !== req.user!.sub && req.user!.role !== 'admin') return res.status(403).json({ error: 'No autorizado' });
+  if (conductorId !== req.user!.sub && !(await operaJornadaAjena(req))) return res.status(403).json({ error: 'No autorizado' });
   const [j] = await db.select().from(jornadasConductor)
     .where(and(eq(jornadasConductor.conductorId, conductorId), eq(jornadasConductor.cerrada, false)))
     .limit(1);
@@ -249,7 +262,7 @@ router.get('/abierta', async (req: Request, res: Response) => {
   res.json({ ...j, pausas });
 });
 
-router.get('/', requireRole('admin'), async (req: Request, res: Response) => {
+router.get('/', requirePage('pesv_jornadas'), exigirFuncion('jornadas.control.administrar'), async (req: Request, res: Response) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
   const conductorId = req.query.conductorId ? Number(req.query.conductorId) : undefined;
@@ -262,12 +275,12 @@ router.get('/', requireRole('admin'), async (req: Request, res: Response) => {
   res.json({ data: rows, limit, offset });
 });
 
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', requirePage('pesv_jornadas'), async (req: Request, res: Response) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
   const [j] = await db.select().from(jornadasConductor).where(eq(jornadasConductor.id, id)).limit(1);
   if (!j) return res.status(404).json({ error: 'No encontrada' });
-  if (j.conductorId !== req.user!.sub && req.user!.role !== 'admin') return res.status(403).json({ error: 'No autorizado' });
+  if (j.conductorId !== req.user!.sub && !(await operaJornadaAjena(req))) return res.status(403).json({ error: 'No autorizado' });
   const pausas = await db.select().from(jornadasPausas).where(eq(jornadasPausas.jornadaId, id));
   const alarmas = await db.select().from(jornadasAlarmas).where(eq(jornadasAlarmas.jornadaId, id));
   res.json({ ...j, pausas, alarmas });
@@ -275,7 +288,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 // ============ ALARMAS — ack ============
 
-router.post('/alarmas/:alarmaId/ack', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/alarmas/:alarmaId/ack', requirePage('pesv_jornadas'), exigirFuncion('jornadas.control.administrar'), async (req: Request, res: Response) => {
   const alarmaId = Number(req.params.alarmaId);
   if (!Number.isFinite(alarmaId) || alarmaId <= 0) return res.status(400).json({ error: 'id inválido' });
   const obs = typeof req.body?.observaciones === 'string' ? String(req.body.observaciones).slice(0, 1000) : null;
@@ -288,21 +301,21 @@ router.post('/alarmas/:alarmaId/ack', requireRole('admin'), async (req: Request,
 
 // ============ REPORTES MENSUALES ============
 
-router.get('/reporte-mensual', async (req: Request, res: Response) => {
+router.get('/reporte-mensual', requirePage('pesv_jornadas'), async (req: Request, res: Response) => {
   const conductorId = Number(req.query.conductorId);
   const anio = Number(req.query.anio);
   const mes = Number(req.query.mes);
   if (!Number.isFinite(conductorId) || !Number.isFinite(anio) || !Number.isFinite(mes)) {
     return res.status(400).json({ error: 'conductorId, anio, mes requeridos' });
   }
-  if (conductorId !== req.user!.sub && req.user!.role !== 'admin') return res.status(403).json({ error: 'No autorizado' });
+  if (conductorId !== req.user!.sub && !(await operaJornadaAjena(req))) return res.status(403).json({ error: 'No autorizado' });
   const [r] = await db.select().from(jornadasReportesMensuales)
     .where(and(eq(jornadasReportesMensuales.conductorId, conductorId), eq(jornadasReportesMensuales.anio, anio), eq(jornadasReportesMensuales.mes, mes))).limit(1);
   if (!r) return res.status(404).json({ error: 'sin reporte para ese período' });
   res.json(r);
 });
 
-router.post('/reporte-mensual/regenerar', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/reporte-mensual/regenerar', requirePage('pesv_jornadas'), exigirFuncion('jornadas.control.administrar'), async (req: Request, res: Response) => {
   const conductorId = Number(req.body?.conductorId);
   const anio = Number(req.body?.anio);
   const mes = Number(req.body?.mes);

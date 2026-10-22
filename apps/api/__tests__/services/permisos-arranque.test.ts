@@ -25,7 +25,8 @@ vi.mock('../../src/db/client.js', () => ({
   getPoolStats: vi.fn(),
 }));
 
-const { verificarCatalogoAlArrancar, ArranquePermisosError, FUNCIONES_SIN_ADMIN } =
+const permisosService = await import('../../src/modules/permisos/permisos.service.js');
+const { verificarCatalogoAlArrancar, ArranquePermisosError } =
   await import('../../src/modules/permisos/permisos.service.js');
 const { catalogoCompleto } = await import('../../src/modules/permisos/catalogo.js');
 
@@ -34,24 +35,17 @@ const CODIGOS = CATALOGO.map((f) => f.codigo);
 const MODULO_DE = new Map(CATALOGO.map((f) => [f.codigo, f.modulo]));
 
 /**
- * Encola las tres consultas de la comprobación en su orden: el catálogo de la base, y las dos de
- * `funcionesSinAdmin()` (el catálogo otra vez y el reparto entero).
- *
- * `repartoAdmin` por defecto le concede a `admin` todo el catálogo menos las tres del canal Cliente,
- * que es el estado sano — así los casos de desajuste de catálogo fallan por el catálogo y no por
- * arrastrar de paso un `admin` incompleto.
+ * Encola la única consulta de la comprobación: el catálogo de la base (código y módulo).
+ * HU #13424 (ADR-0022 §D1): ya no hay segunda ni tercera —el reparto de `admin`—, porque el arranque
+ * dejó de exigir nada a `admin`.
  */
 function conBase(
   codigosEnBase: string[],
-  repartoAdmin = codigosEnBase.filter((c) => !FUNCIONES_SIN_ADMIN.includes(c)),
   /** HU #12716: el módulo que la BASE declara por código; por defecto el del catálogo (base al día). */
   moduloEnBase: (codigo: string) => string = (codigo) => MODULO_DE.get(codigo) ?? 'inventado',
 ) {
   const filasCatalogo = codigosEnBase.map((codigo) => ({ codigo, modulo: moduloEnBase(codigo) }));
-  selectMock
-    .mockReturnValueOnce(chain(filasCatalogo))
-    .mockReturnValueOnce(chain(filasCatalogo))
-    .mockReturnValueOnce(chain(repartoAdmin.map((codigo) => ({ rol: 'admin', codigo }))));
+  selectMock.mockReturnValueOnce(chain(filasCatalogo));
 }
 
 beforeEach(() => { selectMock.mockReset(); });
@@ -64,15 +58,15 @@ describe('AC6 — la comprobación de arranque detecta el desajuste de catálogo
 
   // ── Sentido 1: el código exige algo que la base no declara ────────────────────────────────────
   it('una guarda que exige una función AUSENTE del catálogo se detecta y se nombra', async () => {
-    // La base se quedó en la versión anterior: la guarda `POST /flito/soat/enviar` existe en el
-    // código y su función no está sembrada. Es el caso real de desplegar el API sin aplicar la
-    // migración que la trae.
-    conBase(CODIGOS.filter((c) => c !== 'soat.solicitud.enviar'));
+    // La base se quedó en la versión anterior: la acción que concede `POST /flito/soat/enviar`
+    // (HU #12873) existe en el código y no está sembrada. Es el caso real de desplegar el API sin
+    // aplicar la migración que la trae (la 0232).
+    conBase(CODIGOS.filter((c) => c !== 'accion.soat.gestionar_solicitudes'));
 
     await expect(verificarCatalogoAlArrancar()).rejects.toThrow(ArranquePermisosError);
-    conBase(CODIGOS.filter((c) => c !== 'soat.solicitud.enviar'));
+    conBase(CODIGOS.filter((c) => c !== 'accion.soat.gestionar_solicitudes'));
     await expect(verificarCatalogoAlArrancar())
-      .rejects.toThrow(/El código exige y la base no declara \(1\): soat\.solicitud\.enviar/);
+      .rejects.toThrow(/El código exige y la base no declara \(1\): accion\.soat\.gestionar_solicitudes/);
   });
 
   // ── Sentido 2: la base declara algo que ninguna guarda usa ────────────────────────────────────
@@ -92,11 +86,11 @@ describe('AC6 — la comprobación de arranque detecta el desajuste de catálogo
     // Si una de las dos direcciones dejara de calcularse, este caso seguiría en verde por la otra…
     // salvo que se exijan LAS DOS frases. Ese es el mutante que mata: borrar `faltan` o borrar
     // `sobran` deja aquí media verdad.
-    conBase([...CODIGOS.filter((c) => c !== 'impuestos.cola.ver'), 'tramite.ocr.inventado']);
+    conBase([...CODIGOS.filter((c) => c !== 'accion.impuestos.ver_listado'), 'tramite.ocr.inventado']);
     const error = await verificarCatalogoAlArrancar().catch((e: Error) => e);
 
     expect(error).toBeInstanceOf(ArranquePermisosError);
-    expect((error as Error).message).toMatch(/El código exige y la base no declara \(1\): impuestos\.cola\.ver/);
+    expect((error as Error).message).toMatch(/El código exige y la base no declara \(1\): accion\.impuestos\.ver_listado/);
     expect((error as Error).message).toMatch(/La base declara y el código no usa \(1\): tramite\.ocr\.inventado/);
     // Y dice dónde se arregla, que es la mitad útil de un error de arranque.
     expect((error as Error).message).toMatch(/npm run permisos:seed -w apps\/api/);
@@ -115,7 +109,7 @@ describe('HU #12716 AC7 — el arranque compara también el módulo de agrupaci�
     // que la comparación de códigos NO lo ve; solo la de módulo. Mutante nombrado: quitar la
     // comparación de `modulo` en `verificarCatalogoAlArrancar` → este caso resuelve en vez de caer.
     const viejo = (c: string) => (c === 'pagina.flito_soat' ? 'flito_soat_e_impuestos' : MODULO_DE.get(c)!);
-    conBase(CODIGOS, undefined, viejo);
+    conBase(CODIGOS, viejo);
     const error = await verificarCatalogoAlArrancar().catch((e: Error) => e);
 
     expect(error).toBeInstanceOf(ArranquePermisosError);
@@ -134,17 +128,20 @@ describe('HU #12716 AC7 — el arranque compara también el módulo de agrupaci�
       if (!reagrupadas.has(c)) return MODULO_DE.get(c)!;
       return c.startsWith('pagina.') ? 'grupo_viejo' : c.slice(0, c.indexOf('.'));
     };
-    conBase(CODIGOS, undefined, viejo);
+    conBase(CODIGOS, viejo);
     const error = await verificarCatalogoAlArrancar().catch((e: Error) => e);
 
     expect(error).toBeInstanceOf(ArranquePermisosError);
     // 47 pares en el mapa; `pagina.transito_organismos` se simula con `grupo_viejo`, así que aquí
-    // difieren las 47 (es la simulación, no la 0205: la 0205 cambia 46).
-    // En release (promoción selectiva del Feature 12072) el mapa tiene 38 (faltan los 9 códigos de
-    // servicios adicionales y comprobantes): difieren 38, se listan 10 y se cuentan 28.
-    expect(reagrupadas.size).toBe(38);
-    expect((error as Error).message).toMatch(/difiere entre la base y el código en 38 funciones/);
-    expect((error as Error).message).toMatch(/… y 28 más/);
+    // difieren todas las que siguen en el catálogo (es la simulación, no la 0205: la 0205 cambia 46).
+    // HU #12873: las que absorbió el árbol (`sync.sync.*`, `pagina.flito_compuerta`) ya no están; HU #13427:
+    // tampoco las 12 de Finanzas que absorbió (servicios adicionales, tarifas, reporte, liquidación, transitorio de Siigo…);
+    // HU #13428: ni las 4 de Clientes y proveedores que absorbió (compañías y proveedores editar/crear, `clients.clientes.*`);
+    // `parametrizacion.companias.listar` y `.proveedores.listar` siguen vivas: son OPCIONALES de «Ver clientes y proveedores».
+    const vivas = [...reagrupadas].filter((c) => MODULO_DE.has(c)).length;
+    expect(vivas).toBe(24);
+    expect((error as Error).message).toMatch(new RegExp(`difiere entre la base y el código en ${vivas} funciones`));
+    expect((error as Error).message).toMatch(new RegExp(`… y ${vivas - 10} más`));
     expect(((error as Error).message.match(/^\s+«/gm) ?? [])).toHaveLength(10);
   });
 
@@ -152,46 +149,41 @@ describe('HU #12716 AC7 — el arranque compara también el módulo de agrupaci�
     conBase(CODIGOS);
     await expect(verificarCatalogoAlArrancar()).resolves.toBeUndefined();
     // Si además falta un código, se reporta la falta de código (la comparación de módulo va después).
-    conBase(CODIGOS.filter((c) => c !== 'soat.solicitud.enviar'), undefined, () => 'lo_que_sea');
+    conBase(CODIGOS.filter((c) => c !== 'accion.soat.gestionar_solicitudes'), () => 'lo_que_sea');
     await expect(verificarCatalogoAlArrancar())
-      .rejects.toThrow(/El código exige y la base no declara \(1\): soat\.solicitud\.enviar/);
+      .rejects.toThrow(/El código exige y la base no declara \(1\): accion\.soat\.gestionar_solicitudes/);
   });
 });
 
-describe('AC6 — añadir una función obliga a decidir sobre `admin`', () => {
-  it('una función que `admin` no tiene concedida se detecta y se nombra', async () => {
-    // El catálogo y la base coinciden; lo que falta es la marca de `admin`. Es el desajuste que no
-    // rompe nada visible el día del despliegue y deja al administrador sin una pantalla.
-    const sinUna = CODIGOS.filter((c) => !FUNCIONES_SIN_ADMIN.includes(c) && c !== 'pagina.users');
-    conBase(CODIGOS, sinUna);
-
-    const error = await verificarCatalogoAlArrancar().catch((e: Error) => e);
-    expect(error).toBeInstanceOf(ArranquePermisosError);
-    expect((error as Error).message).toMatch(/El rol admin no tiene concedidas 1 funciones del catálogo: pagina\.users/);
-    expect((error as Error).message).toMatch(/FUNCIONES_SIN_ADMIN/);
-  });
-
-  it('las tres del canal Cliente NO protestan: están declaradas con su motivo', async () => {
+describe('HU #13424 AC1 — `admin` es editable: el arranque no exige nada de su reparto', () => {
+  it('con la base al día arranca leyendo SOLO el catálogo, sin consultar qué tiene `admin`', async () => {
+    // Antes: una segunda y tercera lectura (`funcionesSinAdmin`) y un `ArranquePermisosError` si al
+    // rol `admin` le faltaba una función en la base viva — desmarcarle P desde el panel dejaba la API
+    // sin arrancar en el siguiente reinicio. Mutante nombrado: volver a leer `permisos_rol_funcion`
+    // aquí → `selectMock` se llama dos veces (y la cola, vacía, rompe la comprobación).
     conBase(CODIGOS);
     await expect(verificarCatalogoAlArrancar()).resolves.toBeUndefined();
-    // Y son exactamente las tres, no «las que falten»: el reparto encolado no incluye ninguna.
-    expect([...FUNCIONES_SIN_ADMIN].sort())
-      .toEqual(['soat.factura.leer', 'soat.runt.preconsultar', 'soat.solicitud.crear']);
+    expect(selectMock).toHaveBeenCalledTimes(1);
   });
 
-  it('las filas de OTROS roles no cuentan como concesión a `admin`', async () => {
-    // `funcionesSinAdmin` filtra por `rol === 'admin'`. Sin ese filtro, el reparto de `auditor`
-    // taparía el hueco de `admin` y el aviso no llegaría nunca.
-    const filasCatalogo = CODIGOS.map((codigo) => ({ codigo, modulo: MODULO_DE.get(codigo) }));
-    selectMock
-      .mockReturnValueOnce(chain(filasCatalogo))
-      .mockReturnValueOnce(chain(filasCatalogo))
-      .mockReturnValueOnce(chain(CODIGOS.map((codigo) => ({ rol: 'auditor', codigo }))));
-
-    // Todas las del catálogo menos las tres del canal Cliente: el número sale del catálogo, no se
-    // escribe a mano (la HU #12083 lo subió de 257 a 268 al añadir 11 funciones).
-    const esperadas = CODIGOS.length - FUNCIONES_SIN_ADMIN.length;
-    await expect(verificarCatalogoAlArrancar())
-      .rejects.toThrow(new RegExp(`El rol admin no tiene concedidas ${esperadas} funciones del catálogo`));
+  it('el servicio ya no exporta la lista de excepciones de `admin` ni su lector', () => {
+    expect(permisosService).not.toHaveProperty('FUNCIONES_SIN_ADMIN');
+    expect(permisosService).not.toHaveProperty('funcionesSinAdmin');
   });
+});
+
+describe('HU #12873 AC9 — una operación absorbida por el árbol que sigue en la base se detecta', () => {
+  // TC-09d. El caso real: se despliega el código del árbol y la base conserva lo que la 0233 borra
+  // (operaciones del grupo de una acción, o la página de la Compuerta que dejó de ser ítem). Si el
+  // arranque las tolerase, la pantalla de permisos seguiría ofreciendo conceder casillas muertas.
+  it.each(['soat.cola.ver', 'compuerta.tramite.entregar', 'pagina.flito_compuerta'])(
+    '«%s» en la base y fuera del código se nombra', async (absorbida) => {
+      expect(CODIGOS).not.toContain(absorbida);
+      conBase([...CODIGOS, absorbida]);
+      const error = await verificarCatalogoAlArrancar().catch((e: Error) => e);
+      expect(error).toBeInstanceOf(ArranquePermisosError);
+      const escapado = absorbida.replace(/\./g, '\\.');
+      expect((error as Error).message).toMatch(new RegExp(`La base declara y el código no usa \\(1\\): ${escapado}`));
+    },
+  );
 });

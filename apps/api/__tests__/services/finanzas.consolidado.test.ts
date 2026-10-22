@@ -49,7 +49,7 @@ const { agruparEmpresas, claveEmpresa, condiciones, conJoins, indiceEmpresas, SE
 type FiltrosReporte = Parameters<typeof condiciones>[0];
 const { flitoTramites } = await import('../../src/db/schema.js');
 const { and } = await import('drizzle-orm');
-const { renderizar, gruposHuerfanos } = await import('../helpers/sql-ligado.js');
+const { renderizar, gruposHuerfanos, indicePrimerNivel } = await import('../helpers/sql-ligado.js');
 const { logPiiAccess } = await import('../../src/shared/pii-audit.js');
 
 const consolidadoMock = vi.mocked(consolidadoReporte);
@@ -80,9 +80,10 @@ const SQL_JOINS = () => conJoins(abrir({ id: flitoTramites.id })).toSQL();
 
 /** Trozos de la consulta renderizada, por sus cláusulas de primer nivel. */
 function trozos(sql: string) {
-  const iFrom = sql.indexOf(' from "flito_tramites"');
-  const iWhere = sql.indexOf(' where ');
-  const iGroup = sql.indexOf(' group by ');
+  // De PRIMER NIVEL: las subconsultas documentales (HU #12653) llevan su propio `from … where`.
+  const iFrom = indicePrimerNivel(sql, ' from "flito_tramites"');
+  const iWhere = indicePrimerNivel(sql, ' where ');
+  const iGroup = indicePrimerNivel(sql, ' group by ');
   if (iFrom < 0 || iGroup < 0) throw new Error(`Sin FROM o sin GROUP BY:\n${sql}`);
   return {
     select: sql.slice(0, iFrom),
@@ -97,7 +98,8 @@ function grupo(over: Partial<GrupoConsolidado> = {}): GrupoConsolidado {
   return {
     companiaId: 7, companiaNit: '811011779', periodo: '2026-09', tramites: 2,
     soat: '900000', impuesto: '240000', derechoTramite: '160000', gmf: '6920', logistica: '30000',
-    tramiteDigital: '400000', totalReintegro: '1336920', totalServicio: '400000', total: '1736920',
+    tramiteDigital: '400000', serviciosAdicionales: '0', totalReintegro: '1336920',
+    totalServicio: '400000', total: '1736920',
     filasIncompletas: 0,
     ...over,
   };
@@ -138,7 +140,23 @@ describe('AC1 — consolidado por cliente y mes (CF-12, RN-02, RN-06)', () => {
       expect(sel[k], k).toBe(SELECT_TOTALES[k]);
     }
     const { select } = trozos(SQL_CONSOLIDADO('mes').sql);
-    expect(select.match(/SUM\(/g)!.length).toBeGreaterThanOrEqual(9);
+    // Número EXACTO, no «≥ 9» (un centinela débil que ni ve una suma que desaparece): 22.
+    //   · 10 agregados de `SELECT_TOTALES` (los seis conceptos —con `serviciosAdicionales` de la
+    //     HU #12546—, el GMF, el total y los dos subtotales de RN-02);
+    //   · 6 `SUM("valor")` de la SUBCONSULTA correlacionada de servicios, que se renderiza una vez
+    //     por cada expresión que la embebe: la propia columna, `gmf` (vía la base), `totalReintegro`
+    //     (que lleva el GMF, y con él la base), `total` (que lleva la base DOS veces) y
+    //     `totalServicio`;
+    //   · 6 `SUM("valor")` de la SUBCONSULTA correlacionada de VIAJES de logística (HU #12627), por
+    //     el mismo camino: la propia columna, `gmf`, `total` (dos veces) y `totalReintegro` (que
+    //     lleva la logística DOS veces: como término propio y dentro del GMF). No entra en
+    //     `totalServicio`: la logística es reintegro.
+    // Si alguien convierte una de las subconsultas en un LEFT JOIN + GROUP BY, este número baja y el
+    // aserto de joins byte a byte de más abajo también cae.
+    expect(select.match(/SUM\(/g)!.length).toBe(22);
+    // Y las seis de viajes son exactamente seis: ni una copia de `EXPR_LOGISTICA` sin viajes
+    // (bajaría) ni un join (subiría a 0 aquí y cambiaría la lista de joins).
+    expect(select.match(/SUM\("flito_tramite_viajes_logistica"\."valor"\)/g)!.length).toBe(6);
     expect(select).toContain('COUNT(*) FILTER (WHERE');
   });
 
@@ -238,7 +256,7 @@ describe('AC3 — mismo predicado que el detalle (CF-13)', () => {
     const t = trozos(q.sql);
     expect(t.where).not.toBeNull();
     // Cuántos `$n` consume el SELECT (la tasa del GMF) antes de que empiece el WHERE.
-    const antes = (q.sql.slice(0, q.sql.indexOf(' where ')).match(/\$\d+/g) ?? []).length;
+    const antes = (q.sql.slice(0, indicePrimerNivel(q.sql, ' where ')).match(/\$\d+/g) ?? []).length;
     // Mutante «predicado propio» (p. ej. filtrar por fecha de creación en vez de aprobación).
     expect(renumerar(t.where!, antes)).toBe(detalle.sql);
     expect(q.params.slice(antes, antes + detalle.params.length)).toEqual(detalle.params);
@@ -290,13 +308,18 @@ describe('AC4 — sin filas en cero y sin fecha de aprobación (CF-15)', () => {
   it('la suma de totales del consolidado incluye el grupo Sin aprobar (periodo null), y va al final del cliente', () => {
     const { items, totales } = plegarConsolidado([
       grupo({ periodo: '2026-10', tramites: 1, total: '100', totalReintegro: '100', totalServicio: '0', soat: '100', impuesto: '0', derechoTramite: '0', gmf: '0', logistica: '0', tramiteDigital: '0' }),
-      grupo({ periodo: null, tramites: 3, total: '250.5', totalReintegro: '50.5', totalServicio: '200', soat: '50.5', impuesto: '0', derechoTramite: '0', gmf: '0', logistica: '0', tramiteDigital: '200', filasIncompletas: 2 }),
+      // Este grupo lleva servicios adicionales (HU #12546): 120 que van DENTRO de `totalServicio`
+      // (200 = 80 de trámite digital + 120), no aparte, y que por tanto no cambian el total.
+      grupo({ periodo: null, tramites: 3, total: '250.5', totalReintegro: '50.5', totalServicio: '200', soat: '50.5', impuesto: '0', derechoTramite: '0', gmf: '0', logistica: '0', tramiteDigital: '80', serviciosAdicionales: '120', filasIncompletas: 2 }),
       grupo({ periodo: '2026-09', tramites: 1, total: '1000', totalReintegro: '1000', totalServicio: '0', soat: '1000', impuesto: '0', derechoTramite: '0', gmf: '0', logistica: '0', tramiteDigital: '0' }),
     ], MAESTRO);
     // Mutante «descartar periodo null»: faltarían 250,5 y 3 trámites.
     expect(items.map((i) => i.periodo)).toEqual(['2026-09', '2026-10', null]);
+    // Mutante «`serviciosAdicionales` fuera de NUMERICOS o de `totalesEnCero`»: `Number(undefined)`
+    // deja NaN en la columna y el `toEqual` cae (los tests no los typechequea `build:api`).
     expect(totales).toEqual({
-      soat: 1150.5, impuesto: 0, derechoTramite: 0, gmf: 0, logistica: 0, tramiteDigital: 200,
+      soat: 1150.5, impuesto: 0, derechoTramite: 0, gmf: 0, logistica: 0, tramiteDigital: 80,
+      serviciosAdicionales: 120,
       totalReintegro: 1150.5, totalServicio: 200, total: 1350.5, filasIncompletas: 2,
     });
     expect(items.reduce((s, i) => s + i.tramites, 0)).toBe(5);
@@ -473,14 +496,19 @@ describe('AC7 — misma guarda de lectura (CF-19)', () => {
     }
   });
 
-  it('las dos rutas se registran bajo LECTURA y el archivo no añade otro requireRole( ni exigirFuncion', () => {
+  // HU #13422: la guarda de lectura del reporte pasó de `LECTURA = requireRole(…)` a la función
+  // `finanzas.reporte_costos.ver`; sigue siendo UNA guarda para todo el reporte.
+  it('las dos rutas se registran bajo la lectura del reporte y el archivo no añade otra guarda', () => {
     const fuente = readFileSync(new URL('../../src/modules/finanzas/finanzas.routes.ts', import.meta.url), 'utf8');
-    expect(fuente).toMatch(/router\.get\('\/reporte-costos\/consolidado', LECTURA,/);
-    // HU #12531: POST, bajo la misma guarda y con la bolsa compartida del limitador delante del handler.
-    expect(fuente).toMatch(/router\.post\('\/reporte-costos\/consolidado\/export', LECTURA, exportColaLimiter,/);
+    expect(fuente).toMatch(/router\.get\('\/reporte-costos\/consolidado', exigirFuncion\('finanzas\.reporte_costos\.ver'\),/);
+    // HU #12531: POST con la bolsa compartida del limitador delante del handler. HU #13427: bajo «Exportar a Excel».
+    expect(fuente).toMatch(/router\.post\('\/reporte-costos\/consolidado\/export', exigirFuncion\('finanzas\.reporte_costos\.exportar'\), exportColaLimiter,/);
     expect(fuente).not.toMatch(/router\.get\('\/reporte-costos\/consolidado\/export'/);
-    expect(fuente.match(/requireRole\(/g)).toHaveLength(1);
-    expect(fuente).not.toContain('exigirFuncion');
-    expect(fuente).not.toContain('exigir-funcion');
+    expect(fuente.match(/requireRole\(/g)).toBeNull();
+    expect(new Set(fuente.match(/exigirFuncion\('[a-z0-9_.]+'\)/g))).toEqual(new Set([
+      "exigirFuncion('finanzas.reporte_costos.ver')", "exigirFuncion('finanzas.reporte_costos.exportar')",
+      "exigirFuncion('finanzas.reporte_costos.ver_soportes')", "exigirFuncion('finanzas.reporte_costos.ver_viajes')",
+      "exigirFuncion('finanzas.gastos_diarios.ver')",
+    ]));
   });
 });

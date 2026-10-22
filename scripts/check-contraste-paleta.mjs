@@ -253,6 +253,17 @@ const PARES_OBLIGATORIOS = [
   '--flit-shadow-card',
   '--flit-shadow-modal',
   '--flit-shadow-button',
+  // HU #12819: texto de error, tinta de la pill activa y chips de estado del kit.
+  '--flit-danger-text',
+  '--flit-pill-active-ink',
+  '--flit-chip-success-bg',
+  '--flit-chip-active-bg',
+  '--flit-chip-warning-bg',
+  '--flit-chip-danger-bg',
+  '--flit-chip-draft-bg',
+  '--flit-chip-neutral-bg',
+  '--flit-chip-draft-ink',
+  '--flit-chip-neutral-ink',
   // `--flit-shadow-desborde` (HU #11900) NO está en esta lista, y no por olvido: se mide con
   // UMBRAL más abajo, en AVISO_DESBORDE. Esta lista es la de presencia —«tiene par oscuro»— y un
   // token que sólo declara eso no está medido. La medida con umbral además la subsume: sin par
@@ -547,6 +558,10 @@ const TINTAS = [
   ['--flit-muted', null],
   ['--flit-draft', null],
   ['--flit-text-brand-title', ['tarjeta']],
+  // HU #12819. El error se escribe sobre cualquier superficie; la pill activa, solo sobre su fondo
+  // de tarjeta (`flitPillBtn(true)`).
+  ['--flit-danger-text', null],
+  ['--flit-pill-active-ink', ['tarjeta']],
 ];
 
 // Indicador de foco: 3:1 (SC 1.4.11). Éste sí es un elemento gráfico con umbral propio, y es el
@@ -653,6 +668,25 @@ for (const [clave, rClaro] of medidasSeparador.claro) {
   console.log(
     `${ok ? '✓' : '✗'} ${clave.padEnd(38)} oscuro ${rOscuro.toFixed(2)} ≥ claro ${rClaro.toFixed(2)}`,
   );
+}
+
+// ── Chips de estado (HU #12819) ──────────────────────────────────────────────────────────
+// Tinta sobre el fondo OPACO del propio chip, en los dos temas: el chip no depende de la superficie
+// padre (Bug #11604), así que ésta es la única medida que importa.
+const CHIPS = [
+  ['success', '--flit-success-ink'], ['active', '--flit-blue-ink'], ['warning', '--flit-warning-ink'],
+  ['danger', '--flit-danger-ink'], ['draft', '--flit-chip-draft-ink'], ['neutral', '--flit-chip-neutral-ink'],
+];
+console.log('');
+for (const tema of TEMAS) {
+  for (const [tono, tinta] of CHIPS) {
+    const bg = parsear(`var(--flit-chip-${tono}-bg)`, tono, tema).color;
+    const fg = opaco(parsear(`var(${tinta})`, tinta, tema), bg);
+    const r = ratio(fg, bg);
+    const ok = r >= MINIMO;
+    if (!ok) fallosPares++;
+    console.log(`${ok ? '✓' : '✗'} chip ${tono.padEnd(8)} tema ${tema.padEnd(6)} ${hex(fg)} sobre ${hex(bg)} → ${r.toFixed(2)} (mín ${MINIMO})`);
+  }
 }
 
 if (fallosPares > 0) {
@@ -909,6 +943,26 @@ console.log(
   `${anilloOk ? '✓' : '✗'} ${'.flit-focus-light'.padEnd(26)} peor ${peorAnillo.r.toFixed(2)} en `
     + `${peorAnillo.pos.toFixed(0).padStart(3)}% (${hex(peorAnillo.fondo)}) — anillo ${hex(sobre(anillo.color, anillo.alfa, peorAnillo.fondo))} sobre el gradiente del drawer, mínimo ${MINIMO_NO_TEXTO}`,
 );
+
+// ── Velo de la primaria al pasar el puntero y al pulsar (HU #12819) ──────────────────────
+// `flitBtnPrimary` oscurece su degradado con un `box-shadow` inset de `--flit-veil-press-*`. El
+// velo es OSCURO a propósito —sube el contraste del texto blanco—, pero eso es una afirmación y
+// aquí se mide: el velo compuesto sobre cada parada de `--flit-gradient-primary` (la composición
+// alfa es lineal, así que componer las paradas equivale a componer cada muestra), en los dos temas.
+const rampaPrimaria = rampas.find((r) => r.token === '--flit-gradient-primary');
+for (const tema of TEMAS) {
+  for (const velo of ['--flit-veil-press-hover', '--flit-veil-press-active']) {
+    const v = parsear(tokenFlit(velo, tema), velo, tema);
+    const paradas = rampaPrimaria.paradas.map((p) => ({ ...p, color: sobre(v.color, v.alfa, p.color) }));
+    const peor = peorDelGradiente(paradas, () => BLANCO);
+    const ok = peor.r >= MINIMO;
+    if (!ok) fallosGradiente++;
+    console.log(
+      `${ok ? '✓' : '✗'} ${velo.padEnd(26)} peor ${peor.r.toFixed(2)} en ${peor.pos.toFixed(0).padStart(3)}% `
+        + `(${hex(peor.fondo)}) — texto blanco sobre la primaria con el velo, tema ${tema}`,
+    );
+  }
+}
 
 if (fallos + fallosGradiente + fallosPares > 0) {
   console.error(

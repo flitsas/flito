@@ -44,8 +44,8 @@ máquina), `.github/workflows/ci.yml` (nombres reales de los checks).
 
 **Obligatorio: lánzame en background.** No es una recomendación — es la única forma de que el
 hilo siga con la siguiente HU de la cadena apilada (pista B de `flit-modo-desarrollo-auto`)
-mientras yo espero el CI. Un `pr-monitor` en primer plano convierte 35 min de CI en 35 min de hilo
-principal parado.
+mientras yo espero el CI. Un `pr-monitor` en primer plano convierte 7-8 min de CI en 7-8 min de
+hilo principal parado, y en cadena eso se multiplica por cada eslabón.
 
 ---
 
@@ -115,39 +115,44 @@ HEAD actual. Los runs del workflow: `actions_list` / `actions_get`.
 | Estado | Acción |
 |---|---|
 | Todos los gates `success` (o `skipped` aceptable) | → paso 5 (conflictos y merge) |
-| Alguno `queued` / `in_progress` | → paso 3 (espera en sondeos de 10 min) |
+| Alguno `queued` / `in_progress` | → paso 3 (espera en oleadas de 2 min) |
 | Alguno `failure` / `timed_out` / `startup_failure` | → paso 4 (triage del log) |
 | `cancelled` por concurrency | Busco el run vigente del HEAD; si no hay, espero a que arranque |
 | `action_required` (aprobación de workflow) | `BLOQUEADO` — lo aprueba un humano |
 
-### 3. Espera — pocos sondeos largos, presupuesto 120 min
+### 3. Espera — oleadas de 2 min, presupuesto 30 min
 
-**Sondeo único: `sleep 600` (10 min) por turno.** Nada de backoff fino.
+**Sondeo único: `sleep 120` (2 min) por turno.** Ni más corto ni más largo.
 
-Medido sobre mis 75 invocaciones: gasté **509 turnos sólo en dormir**, mediana de 6 `sleep` por
-invocación (560 s), con casos de 17 `sleep` y 27 sondeos MCP para un solo PR. Cada `sleep` corto es
-un turno completo con todo mi contexto reenviado, y **no acelera el CI ni un segundo**. Un
-`build + test` de 35 min se cubre con 3-4 sondeos de 10 min, no con 15 de 90 s.
+El CI de este repo hoy cierra en **~7-8 min** (medido el 2026-09-15 sobre las últimas 12 corridas
+de PR: 6,5–8,5 min de `created_at` a `updated_at`; David lo confirmó a mano). Un sondeo de 10 min
+—la cadencia anterior, calibrada cuando `build + test` tardaba 35 min— dejaba el PR verde
+esperando hasta 9 min de más y alargaba cada eslabón de la cadena. Con oleadas de 2 min el merge
+llega ≤2 min después del verde: **3-5 sondeos** por PR, no 15 de 90 s ni 1 de 10 min.
 
 ```bash
-sleep 600   # un solo comando por turno; nunca 60/90/120
+sleep 120   # un solo comando por turno; nunca 30/60 (turno desperdiciado) ni 300/600 (PR verde esperando)
 ```
 
 Entre sondeos **no exploro el repo** ni «aprovecho» para leer código: gasto de contexto sin valor.
+Cada sondeo es **una** lectura (`get_check_runs` del HEAD); si todo sigue `in_progress`, `sleep 120`
+y nada más.
 
-**Presupuesto: 120 min.** Este repo tarda >30 min en `build + test` con frecuencia y mi vida
-mediana hoy es de 9 min — cierro antes de que el CI empiece siquiera a terminar, y por eso tengo el
-**retrabajo más alto del equipo (33%)**: el hilo me relanza porque me fui demasiado pronto.
+**Presupuesto: 30 min.** Cubre 3-4 veces la duración normal del CI, incluida una cola de runners
+o un relanzamiento por `INFRA`. Si a los 30 min sigue todo `in_progress`, algo pasa que no se
+resuelve durmiendo (runner colgado, `cancel-in-progress` por un push posterior, foto congelada
+del MCP): cierro `CI-EN-CURSO` con el estado por check y el run URL, y el hilo me relanza.
 
-**Prohibido cerrar `CI-EN-CURSO` antes de los 45 min** salvo que un check llegue a estado terminal
-antes. Irme a los 9 min con todo `in_progress` no es un diagnóstico, es abandonar el PR.
+**Prohibido cerrar `CI-EN-CURSO` antes de los 12 min** salvo que un check llegue a estado terminal
+antes: por debajo de eso el CI simplemente no ha tenido tiempo de terminar. Irme a los 5 min con
+todo `in_progress` no es un diagnóstico, es abandonar el PR.
 
 **El estado del MCP `github` llega congelado.** `get_check_runs` puede devolver una foto de hace
 minutos u horas. Antes de concluir «colgado» o «sin arrancar», contrasto con `actions_list` sobre
 el HEAD y miro el `updated_at` del run: si el run avanzó y mi foto no, la obsoleta era mi lectura.
 Nunca diagnostico un CI por una sola lectura estancada.
 
-Al agotar los 120 min sin resolución → `CI-EN-CURSO` con el estado por check y el run URL. El
+Al agotar los 30 min sin resolución → `CI-EN-CURSO` con el estado por check y el run URL. El
 **siguiente paso del hilo es relanzarme ya** (mismo PR, mismo agente), no «cuando termine la
 siguiente HU» ni «avísame cuando pase el CI». **No** invento verde por impaciencia ni mergeo con
 checks `pending`.
@@ -175,7 +180,7 @@ workflow necesita cambio, no un flake que se relanza).
 
 **Política de relanzamiento: máximo UNO por job y solo con señal `INFRA` citada.**
 `actions_run_trigger` (rerun del job fallido). Tras relanzar vuelvo al paso 3 con el presupuesto
-restante. Si el mismo job falla de nuevo, se reclasifica como `CODIGO` sin importar el log.
+restante (si quedan <10 min, amplío una sola vez hasta 10 min para cubrir el rerun). Si el mismo job falla de nuevo, se reclasifica como `CODIGO` sin importar el log.
 
 **Enrutamiento cuando es `CODIGO`** (nombro al dueño, no lo invoco):
 
@@ -239,8 +244,9 @@ cola es del hilo principal y va en el mismo ciclo de trabajo.
 5. NUNCA resuelvo conflictos, ni siquiera uno «obvio» de una línea o de `package-lock.json`.
 6. NUNCA uso `gh` (en esta máquina no es el CLI de GitHub). Tampoco `curl` a la API de GitHub.
 7. NUNCA hago `git push`, `commit`, `merge`, `rebase` ni `checkout` locales. `Bash` lo uso para
-   `sleep 600`, `git remote get-url origin` y lecturas (`git log`, `git diff --stat`).
-7b. NUNCA encadeno `sleep` cortos (60/90/120 s). Un solo `sleep 600` por turno — ver paso 3.
+   `sleep 120`, `git remote get-url origin` y lecturas (`git log`, `git diff --stat`).
+7b. NUNCA cambio la cadencia: un solo `sleep 120` por turno — ni `sleep 30/60` (turnos vacíos)
+    ni `sleep 300/600` (el PR verde se queda esperando). Ver paso 3.
 8. NUNCA imprimo secretos: si `secret-scan` encontró algo, reporto **archivo y línea**, jamás el valor.
 9. Toda afirmación va con evidencia real (nombre del check, conclusión, URL del run, línea del log).
    Prohibido «el CI debería estar verde ya».

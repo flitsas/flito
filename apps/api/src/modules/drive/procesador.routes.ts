@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import {
   analizarPdfDeDrive, etiquetaTipoTramite, extraccionDeCuenta, ProcesadorError, type CuentaCobro,
 } from './procesador.service.js';
@@ -50,7 +51,7 @@ function verifyFileToken(dir: string, filename: string, token: string): boolean 
 }
 
 const router = Router();
-router.use(authMiddleware, requireRole('admin'));
+router.use(authMiddleware);
 
 const processLimiter = rateLimit({ windowMs: 300000, max: 5, keyGenerator: userOrIpKey('cuentas'), message: { error: 'Máximo 5 procesamientos cada 5 minutos' } });
 
@@ -78,7 +79,7 @@ function safeDownloadName(base: string, ext: string): string {
 }
 
 // POST /procesar-cuentas — Procesa un PDF de Drive, separa por placa, genera Excel
-router.post('/procesar-cuentas', processLimiter, async (req: Request, res: Response) => {
+router.post('/procesar-cuentas', exigirFuncion('drive.archivos.administrar'), processLimiter, async (req: Request, res: Response) => {
   const { fileId } = req.body;
   if (!fileId) { res.status(400).json({ error: 'fileId requerido' }); return; }
 
@@ -289,7 +290,7 @@ router.post('/procesar-cuentas', processLimiter, async (req: Request, res: Respo
 // Endpoint authenticated (Bearer JWT) para descarga desde el frontend logueado.
 // Equivale al público pero NO requiere token HMAC porque la auth ya valida.
 // Útil para frontend que olvida el token (cache de browser) o para acceso programático.
-router.get('/cuentas-archivo/:dir/:filename', async (req: Request, res: Response) => {
+router.get('/cuentas-archivo/:dir/:filename', exigirFuncion('drive.archivos.administrar'), async (req: Request, res: Response) => {
   try {
     const dir = req.params.dir.replace(/[^0-9]/g, '');
     const filename = req.params.filename.replace(/[^a-zA-Z0-9._-]/g, '');

@@ -4,12 +4,13 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import rateLimit from 'express-rate-limit';
 import { db } from '../../db/client.js';
 import { laftUnusualOperations, laftCounterparties } from '../../db/schema.js';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { laftAudit } from './audit.service.js';
 
 const router = Router();
-router.use(authMiddleware, requireRole('admin', 'compliance'));
+router.use(authMiddleware);
 
 const writeLimiter = rateLimit({
   windowMs: 60_000, max: 30,
@@ -36,7 +37,7 @@ const updateSchema = z.object({
 });
 
 // === Listado con filtros y paginación =======================================
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', exigirFuncion('laft.inusuales.operar'), async (req: Request, res: Response) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
   const decisionFilter = req.query.decision as string | undefined;
@@ -70,7 +71,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // === Detalle ================================================================
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', exigirFuncion('laft.inusuales.operar'), async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
 
@@ -80,7 +81,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 });
 
 // === Crear (registrar señal de alerta) ======================================
-router.post('/', writeLimiter, async (req: Request, res: Response) => {
+router.post('/', exigirFuncion('laft.inusuales.operar'), writeLimiter, async (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   const data = parsed.data;
@@ -109,7 +110,7 @@ router.post('/', writeLimiter, async (req: Request, res: Response) => {
 });
 
 // === Actualizar análisis y decisión =========================================
-router.patch('/:id', writeLimiter, async (req: Request, res: Response) => {
+router.patch('/:id', exigirFuncion('laft.inusuales.operar'), writeLimiter, async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
   const parsed = updateSchema.safeParse(req.body);

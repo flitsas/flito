@@ -61,8 +61,9 @@ export default function PesvComunicaciones() {
     } catch (e) { toast.error(errorMessage(e)); }
   };
 
-  const toggleRol = (rol: string) => {
-    setForm((f) => ({ ...f, destinatariosRoles: f.destinatariosRoles.includes(rol) ? f.destinatariosRoles.filter((r) => r !== rol) : [...f.destinatariosRoles, rol] }));
+  // Destinatarios de la comunicación (dato del formulario, no acceso).
+  const toggleRol = (destinatario: string) => {
+    setForm((f) => ({ ...f, destinatariosRoles: f.destinatariosRoles.includes(destinatario) ? f.destinatariosRoles.filter((r) => r !== destinatario) : [...f.destinatariosRoles, destinatario] }));
   };
 
   return (

@@ -1,19 +1,29 @@
 // FLITO Impuestos — carga de recibos → Pagado (Fase 4 P3). Verifica evaluarReciboImpuesto (puro),
 // dedup CA-08 por hash, cruce contra EN_GESTION, conciliación → PAGADO y revisión. drizzle + OCR +
 // storage mockeados; invariantes de BD además con smoke.
+//
+// Desde la HU #12590 la conciliación es la fase PAGO (el pago con marca): los casos de aquí llaman
+// a `cargarRecibos` con `FaseRecibo.PAGO`. La fase LIQUIDACION vive en flito-recibos.fases.test.ts;
+// aquí solo el dedup por hash en esa fase (AC7).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createHash } from 'node:crypto';
 import request from 'supertest';
 import express from 'express';
 import { chain } from '../helpers/db.js';
 import { testToken } from '../helpers/auth.js';
-import { CampoImpuesto, MotivoRevision, type ExtraccionImpuesto } from '@operaciones/shared-types';
+import { CampoImpuesto, FaseRecibo, MotivoRevision, type ExtraccionImpuesto } from '@operaciones/shared-types';
 
 const selectMock = vi.fn();
 const insertMock = vi.fn();
 const updateMock = vi.fn();
 const transactionMock = vi.fn();
 
+// HU #13268: el enganche al outbox de FLIT 2 se prueba en flito-impuestos.envio-flit2.test.ts; el stub
+// de `tx` de este spec no trae `select`, así que el módulo se sustituye.
+vi.mock('../../src/modules/flito-impuestos/flito-impuestos.envio-flit2.service.js', () => ({
+  programarEnvioComprobante: vi.fn(async () => 'sin_destino'), completarComprobanteFlit2: vi.fn(async () => {}), envioDeImpuesto: vi.fn(async () => ({ envioComprobante: null, envioFlit2: null })),
+}));
 vi.mock('../../src/db/client.js', () => ({
   db: { select: selectMock, insert: insertMock, update: updateMock, delete: vi.fn(), transaction: transactionMock, execute: vi.fn() },
   getPoolStats: vi.fn(),
@@ -29,7 +39,18 @@ vi.mock('../../src/modules/flito-ocr/flito-ocr.service.js', async (orig) => {
 const uploadMock = vi.fn().mockResolvedValue('flito/impuestos/recibos/k.pdf');
 vi.mock('../../src/services/storage.js', () => ({ uploadEntityDocument: uploadMock }));
 
+// HU #13207: la compresión real corre por defecto (los buffers de estos specs pesan bytes → BAJO_META);
+// los casos de la HU la sustituyen con `mockResolvedValueOnce` para ver qué se guarda.
+const comprimirMock = vi.fn();
+vi.mock('../../src/modules/flito-impuestos/flito-recibos.compresion.js', async (orig) => {
+  const real = await orig() as typeof import('../../src/modules/flito-impuestos/flito-recibos.compresion.js');
+  comprimirMock.mockImplementation(real.comprimirComprobante);
+  return { ...real, comprimirComprobante: comprimirMock };
+});
+
 const { evaluarReciboImpuesto, evaluarDiferencia, cargarRecibos } = await import('../../src/modules/flito-impuestos/flito-recibos.service.js');
+// HU #13268: el módulo del outbox está sustituido arriba; aquí se comprueba la LLAMADA.
+const envio = await import('../../src/modules/flito-impuestos/flito-impuestos.envio-flit2.service.js');
 const { umbralPara } = await import('../../src/modules/flito-parametrizacion/flito-parametrizacion.service.js');
 
 beforeEach(() => { selectMock.mockReset(); insertMock.mockReset(); updateMock.mockReset(); transactionMock.mockReset(); extraerMock.mockReset(); uploadMock.mockClear(); });
@@ -85,7 +106,8 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
-  app.use('/api/flito/impuestos', router);
+  const { conAlcance } = await import('../../src/shared/middleware/frontera-enlace.js');
+  app.use('/api/flito/impuestos', conAlcance('impuestos', router)); // HU #13426: como en app.ts
   return app;
 }
 const auth = async (role: string) => `Bearer ${await testToken({ sub: 5, username: 'g@x.io', role: role as never })}`;
@@ -93,7 +115,7 @@ const UUID = '00000000-0000-0000-0000-0000000000dd';
 
 const candidato = {
   impuestoId: UUID, estado: 'solicitado', organismoCodigo: '08001', tramiteIdFlit: 'FLIT-1', placa: 'QTQ100',
-  companiaId: 1, document: '900', carpeta: null, valorLiquidado: '500000',
+  companiaId: 1, document: '900', carpeta: null, valorLiquidado: '500000', liquidadoEn: null,
 };
 const reciboOk = { [CampoImpuesto.PLACA]: campo('QTQ100', 0.95), [CampoImpuesto.VALOR_TOTAL]: campo('634900', 0.95), [CampoImpuesto.NUMERO_RECIBO]: campo('R-1', 0.95) };
 
@@ -111,6 +133,18 @@ describe('recibos — flujo', () => {
     expect(r.status).toBe(200);
     expect(r.body.duplicados).toHaveLength(1);
     expect(extraerMock).not.toHaveBeenCalled();
+  });
+
+  it("AC7 (HU #12590): el mismo hash con fase='liquidacion' también es duplicado, sin OCR ni transacción", async () => {
+    selectMock.mockReturnValueOnce(chain([{ impuestoId: UUID }])); // dedup por hash, antes de bifurcar por fase
+    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin'))
+      .field('fase', 'liquidacion').attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
+    expect(r.status).toBe(200);
+    expect(r.body.duplicados).toHaveLength(1);
+    expect(r.body.liquidados).toHaveLength(0);
+    expect(extraerMock).not.toHaveBeenCalled();
+    expect(transactionMock).not.toHaveBeenCalled();
+    expect(uploadMock).not.toHaveBeenCalled();
   });
 
   it('placa que no cruza con ningún en gestión (ni pagado) → se DESCARTA', async () => {
@@ -138,20 +172,26 @@ describe('recibos — flujo', () => {
     // este test por una razón que no tiene que ver con lo que comprueba.
     const txInsert = vi.fn().mockReturnValueOnce(chain([{ id: 'sop1' }])).mockReturnValue(chain([]));
     const txUpdate = vi.fn().mockReturnValue(chain([]));
-    transactionMock.mockImplementation(async (cb: (tx: unknown) => unknown) => cb({ insert: txInsert, update: txUpdate }));
+    const tx = { insert: txInsert, update: txUpdate };
+    transactionMock.mockImplementation(async (cb: (tx: unknown) => unknown) => cb(tx));
+    vi.mocked(envio.programarEnvioComprobante).mockClear();
 
     const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin')).attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
     expect(r.status).toBe(200);
     expect(r.body.conciliados).toHaveLength(1);
     expect(txUpdate).toHaveBeenCalledTimes(1); // → PAGADO
+    // HU #13268 (AC1): la carga masiva programa el envío a FLIT 2 DENTRO de la tx del pago.
+    expect(vi.mocked(envio.programarEnvioComprobante).mock.calls).toEqual([[tx, candidato.impuestoId]]);
   });
 
   it('cruza pero baja confianza en valorTotal → revisión (CA-06), no paga', async () => {
+    vi.mocked(envio.programarEnvioComprobante).mockClear();
     selectMock.mockReturnValueOnce(chain([]));           // dedup hash
     extraerMock.mockResolvedValueOnce({ ...reciboOk, [CampoImpuesto.VALOR_TOTAL]: campo('634900', 0.3) });
     selectMock.mockReturnValueOnce(chain([candidato]));  // candidato EN_GESTION
     selectMock.mockReturnValueOnce(chain([]));           // dedup por número de recibo
-    const txInsert = vi.fn().mockReturnValueOnce(chain([{ id: 'sop1' }])).mockReturnValueOnce(chain([])).mockReturnValueOnce(chain([])); // soporte + revisión + audit
+    // HU #12591: `aRevision` devuelve el id de la revisión (RETURNING), como el soporte.
+    const txInsert = vi.fn().mockReturnValueOnce(chain([{ id: 'sop1' }])).mockReturnValueOnce(chain([{ id: 'rev1' }])).mockReturnValueOnce(chain([])); // soporte + revisión + audit
     const txUpdate = vi.fn().mockReturnValue(chain([]));
     transactionMock.mockImplementation(async (cb: (tx: unknown) => unknown) => cb({ insert: txInsert, update: txUpdate }));
 
@@ -187,7 +227,7 @@ const UMBRAL_LAXO = 0.6;
 const UMBRAL_ESTRICTO = 0.95;
 const POR_DEFECTO = umbralPara(null); // OCR_UMBRAL_DEFECTO: con el que se EXTRAE siempre
 
-const GESTOR = { userId: 5, username: 'gestor@flito.co', role: 'gestor_impuestos', organismos: [ORG_LAXO, ORG_ESTRICTO] };
+const GESTOR = { userId: 5, username: 'gestor@flito.co', role: 'gestor_impuestos', organismos: [ORG_LAXO, ORG_ESTRICTO], alcance: { enlace: 'organismos_transito' as const, organismos: [ORG_LAXO, ORG_ESTRICTO] } };
 
 /** Filas de `organismos_transito_config` como las devuelve `abrirLote` (numeric → string). */
 const umbralesDelLote = () => chain([{ codigo: ORG_LAXO, u: '0.600' }, { codigo: ORG_ESTRICTO, u: '0.950' }]);
@@ -195,7 +235,7 @@ const umbralesDelLote = () => chain([{ codigo: ORG_LAXO, u: '0.600' }, { codigo:
 const candidatoDe = (organismoCodigo: string, impuestoId = UUID) => ({
   impuestoId, estado: 'solicitado', organismoCodigo, tramiteIdFlit: 'FLIT-1', tramiteId: 'TR-1',
   placa: 'QTQ100', companiaId: 1, carpeta: null, valorLiquidado: '500000',
-  diferenciaActiva: false, tolerancia: '0',
+  diferenciaActiva: false, tolerancia: '0', liquidadoEn: null,
 });
 
 const pdf = (nombre: string, contenido: string) => ({ originalname: nombre, mimetype: 'application/pdf', buffer: Buffer.from(contenido), size: contenido.length });
@@ -251,7 +291,7 @@ describe('recibos — el umbral de OCR es el del organismo del candidato (HU #12
     extraerMock.mockResolvedValueOnce(reciboMedio());
     const { update, persistida } = txQueCaptura();
 
-    const res = await cargarRecibos([pdf('QTQ100.pdf', '%PDF-estricto')], true, GESTOR);
+    const res = await cargarRecibos([pdf('QTQ100.pdf', '%PDF-estricto')], FaseRecibo.PAGO, GESTOR);
 
     // Con el umbral por defecto (0.85) este recibo se habría pagado solo. El organismo que emite el
     // documento pide 0.95, así que va a revisión: es dinero que no se mueve sin que alguien mire.
@@ -279,7 +319,7 @@ describe('recibos — el umbral de OCR es el del organismo del candidato (HU #12
     extraerMock.mockResolvedValueOnce(reciboMedio());
     const { update, persistida } = txQueCaptura();
 
-    const res = await cargarRecibos([pdf('QTQ100.pdf', '%PDF-laxo')], true, GESTOR);
+    const res = await cargarRecibos([pdf('QTQ100.pdf', '%PDF-laxo')], FaseRecibo.PAGO, GESTOR);
 
     expect(res.enRevision).toHaveLength(0);
     expect(res.conciliados).toHaveLength(1);
@@ -307,7 +347,7 @@ describe('recibos — el umbral de OCR es el del organismo del candidato (HU #12
     });
     const { update, persistida } = txQueCaptura();
 
-    const res = await cargarRecibos([pdf('QTQ100.pdf', '%PDF-bajo-defecto')], true, GESTOR);
+    const res = await cargarRecibos([pdf('QTQ100.pdf', '%PDF-bajo-defecto')], FaseRecibo.PAGO, GESTOR);
 
     expect(res.enRevision).toHaveLength(0);
     expect(res.conciliados).toHaveLength(1);
@@ -327,10 +367,13 @@ describe('recibos — el umbral de OCR es el del organismo del candidato (HU #12
     selectMock.mockReturnValueOnce(chain([]));                          // archivo 1: dedup nº recibo
     selectMock.mockReturnValueOnce(chain([candidatoDe(ORG_ESTRICTO, '00000000-0000-0000-0000-0000000000de')]));
     selectMock.mockReturnValueOnce(chain([]));                          // archivo 2: dedup nº recibo
-    extraerMock.mockResolvedValue(reciboMedio());
+    // Dos placas distintas: con la misma, la HU #12614 (AC5) los trataría como el par de un impuesto.
+    extraerMock.mockImplementation(async (doc: { nombreArchivo: string }) => ({
+      ...reciboMedio(), [CampoImpuesto.PLACA]: campo(doc.nombreArchivo === 'a.pdf' ? 'QTQ100' : 'QTQ200', 0.9),
+    }));
     txQueCaptura();
 
-    const res = await cargarRecibos([pdf('a.pdf', '%PDF-a'), pdf('b.pdf', '%PDF-b')], true, GESTOR);
+    const res = await cargarRecibos([pdf('a.pdf', '%PDF-a'), pdf('b.pdf', '%PDF-b')], FaseRecibo.PAGO, GESTOR);
 
     // Los dos archivos se procesaron —y con umbral distinto cada uno, que es lo que hace que el
     // conteo signifique algo: el mapa sirvió para los dos sin volver a la BD.
@@ -341,5 +384,114 @@ describe('recibos — el umbral de OCR es el del organismo del candidato (HU #12
     const consultasDeUmbral = selectMock.mock.calls.filter(([cols]) => cols !== null && typeof cols === 'object' && 'u' in cols);
     expect(consultasDeUmbral).toHaveLength(1);
     expect(selectMock).toHaveBeenCalledTimes(7); // 1 del lote + 3 por archivo
+  });
+});
+
+// ═════════════════ HU #12630 · lo que comprobantes reutiliza de recibos (ADR-0018 §4, D1) ═══════════
+
+describe('HU #12630 — candidatoPorImpuestoId, conciliar y remarcarConfiable exportadas para comprobantes', () => {
+  it('candidatoPorImpuestoId(id): la consulta de candidatos (flito_impuestos ⋈ trámite ⋈ vehículo ⋈ compañía ⋈ organismo) filtrada por flito_impuestos.id = $; null si no hay fila', async () => {
+    const { candidatoPorImpuestoId, conciliar, remarcarConfiable } = await import('../../src/modules/flito-impuestos/flito-recibos.service.js');
+    const { renderizar, ligadoA } = await import('../helpers/sql-ligado.js');
+    expect(typeof conciliar).toBe('function');
+    expect(typeof remarcarConfiable).toBe('function');
+    const joins: string[] = [];
+    let condicion: unknown;
+    const fila = { impuestoId: 'imp-9', estado: 'solicitado', organismoCodigo: 'BOG', tramiteIdFlit: 'FLIT-1', tramiteId: 't-1', placa: 'QTQ100', companiaId: 1, carpeta: null, valorLiquidado: '10', diferenciaActiva: false, tolerancia: '0', liquidadoEn: null };
+    const armar = (rows: unknown[]) => {
+      const c: Record<string, unknown> = {
+        from: () => c, innerJoin: () => { joins.push('inner'); return c; }, leftJoin: () => { joins.push('left'); return c; },
+        where: (w: unknown) => { condicion = w; return c; }, limit: () => Promise.resolve(rows),
+      };
+      return c;
+    };
+    selectMock.mockReturnValueOnce(armar([fila]));
+    expect(await candidatoPorImpuestoId('imp-9')).toEqual(fila);
+    expect(joins).toEqual(['inner', 'inner', 'inner', 'inner']);
+    const q = renderizar(condicion as never);
+    expect(q.sql).toContain('"flito_impuestos"."id" = $');
+    expect(ligadoA(q, '"flito_impuestos"."id"')).toBe('imp-9');
+
+    selectMock.mockReturnValueOnce(armar([]));
+    expect(await candidatoPorImpuestoId('imp-0')).toBeNull();
+  });
+});
+
+/** Lo que devolvería la compresión de un original grande: otro buffer, más chico. */
+const comprimido = (original: Buffer) => {
+  const buffer = Buffer.from('%PDF-comprimido-hu-13207');
+  return { buffer, escalon: 1 as const, bytesAntes: original.length, bytesDespues: buffer.length, motivo: 'MAS_LIVIANO' as const };
+};
+
+describe('HU #13207 — carga masiva: se guarda lo comprimido; hash y OCR sobre el original', () => {
+  beforeEach(() => { comprimirMock.mockClear(); });
+  const ORIGINAL = Buffer.from('%PDF-original-grande-hu-13207');
+
+  it('AC6/AC8 — storage recibe el comprimido; el soporte lleva sha256(original) y tamanoBytes del comprimido', async () => {
+    selectMock.mockReturnValueOnce(chain([]));           // dedup hash
+    extraerMock.mockResolvedValueOnce(reciboOk);
+    selectMock.mockReturnValueOnce(chain([candidato]));  // candidato EN_GESTION
+    selectMock.mockReturnValueOnce(chain([]));           // dedup por número de recibo
+    const c = comprimido(ORIGINAL);
+    comprimirMock.mockResolvedValueOnce(c);
+    const { escrituras } = txQueCaptura();
+
+    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin')).attach('archivos', ORIGINAL, 'QTQ100.pdf');
+    expect(r.status).toBe(200);
+    expect(r.body.conciliados).toHaveLength(1);
+
+    expect(comprimirMock).toHaveBeenCalledTimes(1);
+    expect((comprimirMock.mock.calls[0]![0] as { buffer: Buffer }).buffer.equals(ORIGINAL)).toBe(true);
+    // El OCR vio el original, no el comprimido.
+    expect((extraerMock.mock.calls[0]![0] as { contenido: Buffer }).contenido.equals(ORIGINAL)).toBe(true);
+    expect(uploadMock).toHaveBeenCalledTimes(1);
+    expect((uploadMock.mock.calls[0]![3] as Buffer).equals(c.buffer)).toBe(true);
+
+    const soporte = escrituras.find((e) => 'storageKey' in e);
+    expect(soporte, 'no se escribió el soporte').toBeDefined();
+    expect(soporte).toMatchObject({
+      storageKey: 'flito/impuestos/recibos/k.pdf',
+      hash: createHash('sha256').update(ORIGINAL).digest('hex'),
+      tamanoBytes: c.buffer.length,
+    });
+    expect(c.buffer.length).not.toBe(ORIGINAL.length); // premisa: si coincidieran, el aserto no distinguiría
+  });
+
+  it('AC7 — duplicado por hash: no se comprime ni se guarda', async () => {
+    selectMock.mockReturnValueOnce(chain([{ impuestoId: UUID }]));
+    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin')).attach('archivos', ORIGINAL, 'QTQ100.pdf');
+    expect(r.body.duplicados).toHaveLength(1);
+    expect(comprimirMock).not.toHaveBeenCalled();
+    expect(uploadMock).not.toHaveBeenCalled();
+  });
+
+  it('AC7 — liquidación con el mismo hash (fase): no se comprime', async () => {
+    selectMock.mockReturnValueOnce(chain([{ impuestoId: UUID }]));
+    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin'))
+      .field('fase', 'liquidacion').attach('archivos', ORIGINAL, 'QTQ100.pdf');
+    expect(r.body.duplicados).toHaveLength(1);
+    expect(comprimirMock).not.toHaveBeenCalled();
+  });
+
+  it('AC7 — recibo que no cruza (se descarta): no se comprime', async () => {
+    selectMock.mockReturnValueOnce(chain([]));  // dedup hash
+    extraerMock.mockResolvedValueOnce(reciboOk);
+    selectMock.mockReturnValueOnce(chain([]));  // candidato EN_GESTION
+    selectMock.mockReturnValueOnce(chain([]));  // adjuntarComplemento: PAGADO
+    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin')).attach('archivos', ORIGINAL, 'QTQ100.pdf');
+    expect(r.body.noAsociados).toHaveLength(1);
+    expect(comprimirMock).not.toHaveBeenCalled();
+  });
+
+  it('AC1 — PDF pequeño por la vía real (sin mock): se guarda el MISMO contenido', async () => {
+    selectMock.mockReturnValueOnce(chain([]));
+    extraerMock.mockResolvedValueOnce(reciboOk);
+    selectMock.mockReturnValueOnce(chain([candidato]));
+    selectMock.mockReturnValueOnce(chain([]));
+    const { escrituras } = txQueCaptura();
+    await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin')).attach('archivos', ORIGINAL, 'QTQ100.pdf');
+    expect(comprimirMock).toHaveBeenCalledTimes(1);
+    expect((uploadMock.mock.calls[0]![3] as Buffer).equals(ORIGINAL)).toBe(true);
+    expect(escrituras.find((e) => 'storageKey' in e)).toMatchObject({ tamanoBytes: ORIGINAL.length });
   });
 });

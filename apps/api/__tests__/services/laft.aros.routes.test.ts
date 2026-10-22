@@ -1,7 +1,7 @@
 // LAFT F3 · aros.routes — generar PDF trimestral (con/sin actividad) + download.
 // OPS-02b r2: mock KEYED por tabla. Los SELECT (download + listado) van a
 // laft_reportes_uiaf vía `kdb.selectOnce` (FIFO por tabla) → orden irrelevante.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { createKeyedDb } from '../helpers/keyed-db.js';
@@ -72,15 +72,68 @@ describe('LAFT F3 · aros.routes — POST /generar/:anio/:trimestre', () => {
     expect(r.status).toBe(400);
   });
 
-  it('trimestre en curso → 422', async () => {
-    const today = new Date();
-    const anio = today.getUTCFullYear();
-    // Trimestre que contiene hoy = mes futuro o no terminado
-    const trimestre = Math.floor(today.getUTCMonth() / 3) + 1;
-    const token = await testToken({ sub: 1, role: 'admin' });
-    const app = await buildApp();
-    const r = await request(app).post(`/api/laft/aros/generar/${anio}/${trimestre}`).set('Authorization', `Bearer ${token}`);
-    expect(r.status).toBe(422);
+  // Bug #13192: el trimestre está en curso hasta el fin de su último día en
+  // hora de Colombia (UTC-5). Reloj fijo: solo se falsea Date, no los timers
+  // (supertest los necesita).
+  describe('trimestre en curso (reloj fijo, America/Bogota)', () => {
+    afterEach(() => { vi.useRealTimers(); });
+
+    function fijarReloj(isoUtc: string) {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date(isoUtc));
+    }
+
+    async function generar(anio: number, trimestre: number) {
+      const token = await testToken({ sub: 1, role: 'admin' });
+      const app = await buildApp();
+      return request(app).post(`/api/laft/aros/generar/${anio}/${trimestre}`).set('Authorization', `Bearer ${token}`);
+    }
+
+    it('(a) último día del trimestre a las 12:00 Bogotá → 422', async () => {
+      fijarReloj('2026-09-30T17:00:00.000Z'); // 30-sep 12:00 Bogotá
+      const r = await generar(2026, 3);
+      expect(r.status).toBe(422);
+      expect(r.body.error).toBe('No se puede generar AROS de un trimestre en curso');
+      expect(generarArosMock).not.toHaveBeenCalled();
+    });
+
+    it('(b) último día del trimestre a las 23:59:59 Bogotá → 422', async () => {
+      fijarReloj('2026-10-01T04:59:59.999Z'); // 30-sep 23:59:59.999 Bogotá
+      const r = await generar(2026, 3);
+      expect(r.status).toBe(422);
+      expect(generarArosMock).not.toHaveBeenCalled();
+    });
+
+    it('(c) 00:00 Bogotá del primer día del trimestre siguiente → llega al servicio', async () => {
+      fijarReloj('2026-10-01T05:00:00.000Z'); // 1-oct 00:00 Bogotá
+      generarArosMock.mockResolvedValueOnce({
+        reporte: { id: 9, tipo: 'AROS', sha256: 'h9' },
+        resumen: { esAusencia: true, totalRosEnviados: 0, totalUnusualReportadas: 0, totalCashBreaches: 0 },
+        idempotent: false,
+      });
+      const r = await generar(2026, 3);
+      expect(r.status).toBe(201);
+      expect(generarArosMock).toHaveBeenCalledWith(2026, 3, 1);
+    });
+
+    it('(c-T4) T4 cruza de año: 1-ene 00:00 Bogotá del año siguiente → llega al servicio', async () => {
+      fijarReloj('2027-01-01T05:00:00.000Z');
+      generarArosMock.mockResolvedValueOnce({
+        reporte: { id: 10, tipo: 'AROS', sha256: 'h10' },
+        resumen: { esAusencia: true, totalRosEnviados: 0, totalUnusualReportadas: 0, totalCashBreaches: 0 },
+        idempotent: false,
+      });
+      const r = await generar(2026, 4);
+      expect(r.status).toBe(201);
+      expect(generarArosMock).toHaveBeenCalledWith(2026, 4, 1);
+    });
+
+    it('(d) trimestre futuro → 422', async () => {
+      fijarReloj('2026-09-30T17:00:00.000Z');
+      const r = await generar(2026, 4);
+      expect(r.status).toBe(422);
+      expect(generarArosMock).not.toHaveBeenCalled();
+    });
   });
 
   it('AROS de ausencia (sin ROS, sin reportadas) → 201 y resumen.esAusencia=true', async () => {

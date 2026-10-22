@@ -19,6 +19,11 @@ vi.mock('../../src/db/client.js', () => ({
   db: { select: selectMock, update: updateMock, insert: vi.fn(), delete: vi.fn(), transaction: transactionMock, execute: vi.fn() },
   getPoolStats: vi.fn(),
 }));
+// HU #12825: el análisis post-envío se aísla; su tx.update extra y su cola tienen spec propio
+// (flito-impuestos.enviar-analisis.test.ts) y aquí descuadrarían los conteos del mock.
+vi.mock('../../src/modules/flito-impuestos/flito-impuestos.analisis.service.js', () => ({
+  encolarAnalisis: vi.fn(), marcarEnCursoEnTx: vi.fn().mockResolvedValue([]), reanalizarImpuesto: vi.fn(),
+}));
 vi.mock('../../src/shared/middleware/audit.js', () => ({ audit: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
 
@@ -31,10 +36,18 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
-  app.use('/api/flito/impuestos', router);
+  const { conAlcance } = await import('../../src/shared/middleware/frontera-enlace.js');
+  app.use('/api/flito/impuestos', conAlcance('impuestos', router)); // HU #13426: como en app.ts
   return app;
 }
-const auth = async (role: string) => `Bearer ${await testToken({ sub: USER_ID, username: 'ops@flitsas.com', role: role as never })}`;
+// HU #13426: Impuestos está abierto al enlace organismos; el gestor lleva su enlace REAL y el router se
+// monta con `conAlcance('impuestos', …)` como en `app.ts`.
+const auth = async (role: string, funciones?: string[]) => `Bearer ${await testToken({ sub: USER_ID, username: 'ops@flitsas.com', role: role as never, funciones })}`;
+/**
+ * HU #12873 (pérdida aprobada, regla «todos»): el gestor_impuestos no tenía todo «Gestionar solicitudes» y pierde
+ * rechazar; lo recupera si se le marca la acción. Los casos de frontera que rechazan la marcan.
+ */
+const CON_GESTIONAR = ['accion.impuestos.gestionar_solicitudes'];
 
 /** Igual que en SOAT: el helper `chain` no registra argumentos, así que se envuelve para capturarlos. */
 function montarTx(filasBloqueadas: { id: string }[] = [{ id: IMP_ID }], filaActualizada: unknown = { id: IMP_ID }) {
@@ -294,7 +307,7 @@ const ORGANISMO = '08001';
 describe('flito-impuestos — frontera del gestor del organismo (HU #11156)', () => {
   const comoGestor = (impFila: Record<string, unknown>) => {
     // `contextoImpuesto` lee `flito_gestor_organismos` desde la HU #12053.
-    selectMock.mockReturnValueOnce(chain([{ codigo: ORGANISMO }]));
+    selectMock.mockReturnValueOnce(chain([{ c: ORGANISMO }]));
     selectMock.mockReturnValueOnce(chain([{ imp: impFila, dentroDeFrontera: true }])); // buscarConAcceso
     selectMock.mockReturnValue(chain([]));
   };
@@ -302,7 +315,7 @@ describe('flito-impuestos — frontera del gestor del organismo (HU #11156)', ()
     impuestoEn({ organismoCodigo: ORGANISMO, ...over });
 
   it('AC1 — la cola del gestor filtra por la bandera, en la condición compartida con el conteo', async () => {
-    selectMock.mockReturnValueOnce(chain([{ codigo: ORGANISMO }]));
+    selectMock.mockReturnValueOnce(chain([{ c: ORGANISMO }]));
     const { wheres, columnas } = capturarCola();
 
     const r = await request(await buildApp()).get('/api/flito/impuestos')
@@ -366,7 +379,7 @@ describe('flito-impuestos — frontera del gestor del organismo (HU #11156)', ()
     comoGestor(suyo({ gestionOperaciones: true }));
     const { txUpdate } = montarTx();
     const r = await request(await buildApp()).post(`/api/flito/impuestos/${IMP_ID}/rechazar`)
-      .set('Authorization', await auth('gestor_impuestos')).send({ motivo: 'no me consta' });
+      .set('Authorization', await auth('gestor_impuestos', CON_GESTIONAR)).send({ motivo: 'no me consta' });
     expect(r.status).toBe(404);
     expect(txUpdate).not.toHaveBeenCalled();
   });
@@ -375,9 +388,19 @@ describe('flito-impuestos — frontera del gestor del organismo (HU #11156)', ()
     comoGestor(suyo({ gestionOperaciones: false }));
     const { txUpdate } = montarTx();
     const r = await request(await buildApp()).post(`/api/flito/impuestos/${IMP_ID}/rechazar`)
-      .set('Authorization', await auth('gestor_impuestos')).send({ motivo: 'el recibo no corresponde' });
+      .set('Authorization', await auth('gestor_impuestos', CON_GESTIONAR)).send({ motivo: 'el recibo no corresponde' });
     expect(r.status).toBe(200);
     expect(txUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('HU #12873 (pérdida aprobada): SIN «Gestionar solicitudes», el gestor de partida ya no rechaza (403, sin tocar nada)', async () => {
+    comoGestor(suyo({ gestionOperaciones: false }));
+    const { txUpdate } = montarTx();
+    const r = await request(await buildApp()).post(`/api/flito/impuestos/${IMP_ID}/rechazar`)
+      .set('Authorization', await auth('gestor_impuestos')).send({ motivo: 'el recibo no corresponde' });
+    expect(r.status).toBe(403);
+    expect(r.body).toMatchObject({ funcion: 'impuestos.tramite.rechazar', motivo: 'sin_funcion' });
+    expect(txUpdate).not.toHaveBeenCalled();
   });
 
   it('la bandera decide, no el organismo: sigue siendo el suyo y aun así no lo ve', async () => {

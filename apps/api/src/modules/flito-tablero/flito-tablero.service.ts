@@ -6,7 +6,7 @@
 // que contara registros que ninguna cola muestra estaría mintiendo (CA-01). El SQL de estancados vive
 // en la BD para no traer toda la tabla a memoria.
 
-import { and, count, eq, isNotNull, notInArray, sql } from 'drizzle-orm';
+import { and, count, eq, isNotNull, notInArray, sql, type SQL } from 'drizzle-orm';
 import { ANS_OPERATIVO,
   ALERTAS_OPERATIVAS, EstadoImpuesto, EstadoSoat, ESTADOS_TRAMITE_FLITO_TERMINADOS, FlujoRevision,
   type AlertaOperativa,
@@ -18,12 +18,18 @@ import {
 } from '../../db/schema.js';
 import { listar as listarCompuerta } from '../flito-compuerta/flito-compuerta.service.js';
 import { condicionAlerta } from '../flito-tramites/flito-tramites.service.js';
+import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
+import { condicionPorCompania } from '../../shared/alcance-filas.js';
 
+/**
+ * HU #13428 (AC4): los bloques de SOAT y de Impuestos son OPCIONALES — la ruta omite el del módulo que el
+ * usuario no ve (`sinBloquesAjenos`). `resumen()` sigue devolviéndolos todos.
+ */
 export interface TableroResumen {
-  soat: Record<string, number>;
-  impuestos: Record<string, number>;
-  revisionesPendientes: { soat: number; impuestos: number };
-  estancados: { soat: number; impuestos: number };
+  soat?: Record<string, number>;
+  impuestos?: Record<string, number>;
+  revisionesPendientes: { soat?: number; impuestos?: number };
+  estancados: { soat?: number; impuestos?: number };
   diferenciasDeValor: number;
   compuertaHabilitados: number;
   /** Alertas operativas (Feature #10942). Cada conteo es el total del listado con esa alerta. */
@@ -37,7 +43,7 @@ export interface TableroResumen {
  * tarjeta del tablero y la tabla filtrada no pueden discrepar (AC4). Los joins son los mismos que
  * usa el COUNT del listado, porque las condiciones referencian el proveedor SOAT y el organismo.
  */
-async function contarAlertas(): Promise<Record<AlertaOperativa, number>> {
+async function contarAlertas(porCompania?: SQL): Promise<Record<AlertaOperativa, number>> {
   const conteos = await Promise.all(ALERTAS_OPERATIVAS.map(async (alerta) => {
     const [r] = await db.select({ n: sql<number>`count(distinct ${flitoTramites.id})::int` })
       .from(flitoTramites)
@@ -47,25 +53,25 @@ async function contarAlertas(): Promise<Record<AlertaOperativa, number>> {
       .leftJoin(flitoSoat, eq(flitoTramites.soatId, flitoSoat.id))
       .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
       .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id))
-      .where(condicionAlerta(alerta));
+      .where(and(condicionAlerta(alerta), porCompania));
     return [alerta, Number(r?.n ?? 0)] as const;
   }));
   return Object.fromEntries(conteos) as Record<AlertaOperativa, number>;
 }
 
-async function contarSoat(): Promise<Record<string, number>> {
+async function contarSoat(porCompania?: SQL): Promise<Record<string, number>> {
   const filas = await db.select({ estado: flitoSoat.estado, total: count() })
     .from(flitoSoat).innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
-    .where(eq(clients.soatAutogestionable, false)).groupBy(flitoSoat.estado);
+    .where(and(eq(clients.soatAutogestionable, false), porCompania)).groupBy(flitoSoat.estado);
   const r = Object.fromEntries(Object.values(EstadoSoat).map((e) => [e, 0]));
   for (const f of filas) r[f.estado] = Number(f.total);
   return r;
 }
 
-async function contarImpuestos(): Promise<Record<string, number>> {
+async function contarImpuestos(porCompania?: SQL): Promise<Record<string, number>> {
   const filas = await db.select({ estado: flitoImpuestos.estado, total: count() })
     .from(flitoImpuestos).innerJoin(clients, eq(flitoImpuestos.companiaId, clients.id))
-    .where(eq(clients.impuestosAutogestionable, false)).groupBy(flitoImpuestos.estado);
+    .where(and(eq(clients.impuestosAutogestionable, false), porCompania)).groupBy(flitoImpuestos.estado);
   const r = Object.fromEntries(Object.values(EstadoImpuesto).map((e) => [e, 0]));
   for (const f of filas) r[f.estado] = Number(f.total);
   return r;
@@ -112,8 +118,30 @@ async function contarEstancados(): Promise<{ soat: number; impuestos: number }> 
   return { soat: Number(soat.n), impuestos: Number(impuestos.n) };
 }
 
-/** Resumen del tablero de Operaciones. */
-export async function resumen(): Promise<TableroResumen> {
+/**
+ * HU #13426 (AC4, decisión P-5 del PO): con enlace `compania` el tablero solo trae los bloques que
+ * tienen filas de SU compañía —SOAT, Impuestos y las alertas de Trámites—, filtrados. Los indicadores
+ * globales de operación (revisiones pendientes, fuera de ANS, diferencias, habilitados para entrega)
+ * se OMITEN: van a 0 sin consultarse, para no cambiar la forma del DTO que la pantalla valida.
+ */
+async function resumenDeCompania(a: AlcanceResuelto): Promise<TableroResumen> {
+  const [soat, impuestos] = await Promise.all([
+    contarSoat(condicionPorCompania(flitoSoat.companiaId, a)),
+    contarImpuestos(condicionPorCompania(flitoImpuestos.companiaId, a)),
+  ]);
+  const alertas = await contarAlertas(condicionPorCompania(flitoTramites.companiaId, a));
+  return {
+    soat, impuestos, alertas,
+    revisionesPendientes: { soat: 0, impuestos: 0 },
+    estancados: { soat: 0, impuestos: 0 },
+    diferenciasDeValor: 0,
+    compuertaHabilitados: 0,
+  };
+}
+
+/** Resumen del tablero de Operaciones. Con enlace, solo lo de su compañía (HU #13426). */
+export async function resumen(alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<TableroResumen> {
+  if (alcance.enlace !== 'ninguno') return resumenDeCompania(alcance);
   const [soat, impuestos] = await Promise.all([contarSoat(), contarImpuestos()]);
   const [revisionSoat, revisionImpuestos, habilitados, diferencias, estancados] = await Promise.all([
     contarRevisiones(FlujoRevision.SOAT),
@@ -135,4 +163,22 @@ export async function resumen(): Promise<TableroResumen> {
     compuertaHabilitados: habilitados.length,
     alertas,
   };
+}
+
+/** Qué módulos del tablero ve el usuario (HU #13428, AC4). */
+export interface ModulosVisibles { soat: boolean; impuestos: boolean }
+
+/**
+ * HU #13428 (AC4) — Quita del resumen el bloque de cada módulo que el usuario no ve: el conteo por estado
+ * y su parte de «revisiones pendientes» y de «fuera de ANS». Puro: no consulta nada.
+ */
+export function sinBloquesAjenos(r: TableroResumen, ve: ModulosVisibles): TableroResumen {
+  const salida: TableroResumen = { ...r, revisionesPendientes: { ...r.revisionesPendientes }, estancados: { ...r.estancados } };
+  for (const m of ['soat', 'impuestos'] as const) {
+    if (ve[m]) continue;
+    delete salida[m];
+    delete salida.revisionesPendientes[m];
+    delete salida.estancados[m];
+  }
+  return salida;
 }
