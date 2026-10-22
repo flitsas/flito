@@ -197,13 +197,15 @@ test.describe('FLITO — Ayuda · fichas de gestión (HU #11894)', () => {
 
   test('TC-11894-09 AC4 — SOAT es la cola /flito/soat, no el legacy /soat', async ({ page }) => {
     const md = leerFicha('soat');
-    expect(md).toMatch(/\/flito\/soat/);
-    expect(md.replaceAll('/flito/soat', '')).not.toMatch(/\/soat\b/);
-    expect(seccion(md, 'Cómo se entra')).toMatch(/\/flito\/soat/);
+    // HU #13771 AC4: la ficha ya no escribe rutas en el texto; que es la cola `/flito/soat` lo prueba el enlace
+    // «Ir a la pantalla SOAT» de abajo. Lo que sigue prohibido es mencionar el legacy `/soat`.
+    // Las imágenes de la propia ficha viven en `./soat/…` (HU #13771): esa carpeta no es una ruta.
+    expect(md.replaceAll('/flito/soat', '').replaceAll('](./soat/', '](./')).not.toMatch(/\/soat\b/);
+    expect(seccion(md, 'Cómo se entra')).toMatch(/\*\*SOAT e Impuestos\*\*[^.]*el ítem \*\*SOAT\*\*/);
 
     await loginAs(page, PROVEEDOR_USER);
     await page.goto('/flito/ayuda/soat');
-    await expect(page.getByRole('article', { name: 'SOAT' }).getByText('/flito/soat').first()).toBeVisible();
+    await expect(page.getByRole('article', { name: 'SOAT' }).getByText('/flito/soat')).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Ir a la pantalla SOAT' })).toHaveAttribute('href', '/flito/soat');
     await expect(page.getByRole('link', { name: 'Ir a la pantalla SOAT' })).not.toHaveAttribute('href', '/soat');
   });
