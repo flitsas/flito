@@ -5,22 +5,27 @@
 // borrador, el paso, la clave de idempotencia y la petición en vuelo tienen que sobrevivir a cerrar el
 // panel y a navegar. NUNCA toca `sessionStorage` ni `localStorage` y nunca se envía a un servicio de IA:
 // sale del navegador una sola vez, en `POST /casos-soporte`, al pulsar «Confirmar» o «Reintentar».
-// Se borra al radicar, con «Terminar chat» y en las 4 salidas de sesión (`alLimpiarDrFlit`); recargar la
+// Los `File` adjuntos (HU #13807) viven aquí también, solo en memoria, para que «Reintentar» reenvíe los
+// mismos sin volver a elegirlos; su nombre nunca va a logs ni a la consola. Se borra al radicar, con «Terminar chat» y en las 4 salidas de sesión (`alLimpiarDrFlit`); recargar la
 // página lo pierde (memoria).
 
 import { useSyncExternalStore } from 'react';
-import type {
-  CasoRadicadoDrFlit, EstadoAutorizacionDrFlit, AutorizacionAceptadaDrFlit,
+import {
+  PARTE_ADJUNTOS_MULTIPART, PARTE_CASO_MULTIPART,
+  type CasoRadicadoDrFlit, type EstadoAutorizacionDrFlit, type AutorizacionAceptadaDrFlit, type ErrorAdjuntoDrFlit,
 } from '@operaciones/shared-types';
 import { api, ApiError } from './api';
 import { alLimpiarDrFlit } from './drFlitAlmacen';
 import {
-  PASOS_SOPORTE, campoDeRutaServidor, cuerpoDelCaso, fechaDelReporte, nuevaClaveIdempotencia, pasoDeCampo,
-  primerError, type CampoSoporte, type CamposSoporte, type PasoSoporte,
+  LIMITES_ADJUNTOS_POR_DEFECTO, PASOS_SOPORTE, campoDeRutaServidor, cuerpoDelCaso, errorDeArchivos,
+  fechaDelReporte, nuevaClaveIdempotencia, pasoDeCampo, primerError, validarSeleccion,
+  type AdjuntoSoporte, type CampoSoporte, type CamposSoporte, type LimitesAdjuntos, type PasoSoporte,
 } from './drFlitSoporteModelo';
 
 export type PantallaSoporte = 'preparando' | 'errorPreparar' | 'noDisponible' | 'autorizacion' | 'paso';
-export type FocoSoporte = 'h3' | 'primerError' | 'primerCampo' | 'primaria' | 'volver' | 'caja' | 'abridor';
+/** `archivos` = el selector de archivos; `quitar` = el «Quitar» de la fila `foco.i` (F5.14). */
+export type FocoSoporte = 'h3' | 'primerError' | 'primerCampo' | 'primaria' | 'volver' | 'caja' | 'abridor'
+  | 'archivos' | 'quitar';
 type PasoConCampos = Exclude<PasoSoporte, 'resumen'>;
 
 export interface BorradorSoporte {
@@ -36,6 +41,12 @@ export interface BorradorSoporte {
   validados: ReadonlySet<PasoConCampos>;
   /** Campos que el servidor rechazó (400) y el usuario aún no ha editado. */
   rechazados: ReadonlySet<CampoSoporte>;
+  /** «¿Quiere adjuntar…?»: empieza en «No» (F5.16). Con «No» la lista se oculta pero no se borra. */
+  adjuntar: boolean;
+  /** Los `File` elegidos, en memoria y en el orden en que se envían (el `indice` del servidor). */
+  adjuntos: readonly AdjuntoSoporte[];
+  /** Una línea por archivo descartado en la última selección (F5.7); o el tope del servidor (413). */
+  avisosAdjuntos: readonly string[];
 }
 
 export interface EstadoSoporteDrFlit {
@@ -57,7 +68,7 @@ export interface EstadoSoporteDrFlit {
   radicado: number | null;
   /** Qué abrió el asistente («saludo» o el id del mensaje «sin resultados»), para «Ahora no». */
   abridor: string | null;
-  foco: { a: FocoSoporte; n: number };
+  foco: { a: FocoSoporte; n: number; i?: number };
 }
 
 const INICIAL: EstadoSoporteDrFlit = Object.freeze({
@@ -85,9 +96,16 @@ function fijar(cambio: Partial<EstadoSoporteDrFlit>): void {
   for (const oyente of oyentes) oyente();
 }
 
-function enfocar(a: FocoSoporte): Pick<EstadoSoporteDrFlit, 'foco'> {
-  return { foco: { a, n: estado.foco.n + 1 } };
+function enfocar(a: FocoSoporte, i?: number): Pick<EstadoSoporteDrFlit, 'foco'> {
+  return { foco: { a, n: estado.foco.n + 1, i } };
 }
+
+/** Límites del servidor (`GET /autorizacion` → `soporte.adjuntos`). */
+export function limitesAdjuntos(): LimitesAdjuntos {
+  return estado.consulta.datos?.soporte.adjuntos ?? LIMITES_ADJUNTOS_POR_DEFECTO;
+}
+
+let siguienteIdAdjunto = 1;
 
 export function leerSoporteDrFlit(): EstadoSoporteDrFlit {
   return estado;
@@ -160,6 +178,9 @@ function asegurarBorrador(): BorradorSoporte {
     fecha: null,
     validados: new Set(),
     rechazados: new Set(),
+    adjuntar: false,
+    adjuntos: [],
+    avisosAdjuntos: [],
   };
 }
 
@@ -298,6 +319,10 @@ export function siguientePaso(): void {
   if (!b || b.paso === 'resumen') return;
   const paso = b.paso;
   const validados = new Set(b.validados).add(paso);
+  if (paso === 'archivos' && errorDeArchivos(b.adjuntar, b.adjuntos, limitesAdjuntos())) {
+    cambiarBorrador({ validados }, enfocar('primerError'));
+    return;
+  }
   if (primerError(paso, b.campos, b.rechazados)) {
     cambiarBorrador({ validados }, enfocar('primerError'));
     return;
@@ -335,9 +360,26 @@ export function confirmarCaso(): void {
       return;
     }
   }
+  if (errorDeArchivos(b.adjuntar, b.adjuntos, limitesAdjuntos())) {
+    cambiarBorrador(
+      { paso: 'archivos', desdeResumen: true, validados: new Set(b.validados).add('archivos') }, enfocar('primerError'),
+    );
+    return;
+  }
   const gen = generacion;
+  // Con «No» los archivos elegidos NO se envían (F5.4 F). `enviados` fija el orden de las partes: el
+  // `adjunto.indice` de un rechazo apunta a esta lista, no a la que haya en pantalla después.
+  const enviados = b.adjuntar ? b.adjuntos.map((a) => a.id) : [];
+  const caso = cuerpoDelCaso(b.campos, b.clave);
+  let cuerpo: unknown = caso;
+  if (enviados.length > 0) {
+    const form = new FormData();
+    form.append(PARTE_CASO_MULTIPART, JSON.stringify(caso));
+    for (const a of b.adjuntos) form.append(PARTE_ADJUNTOS_MULTIPART, a.file, a.file.name);
+    cuerpo = form;
+  }
   fijar({ envio: { fase: 'enviando', tope: false } });
-  api.post<CasoRadicadoDrFlit>('/flito/dr-flit/casos-soporte', cuerpoDelCaso(b.campos, b.clave)).then(
+  api.post<CasoRadicadoDrFlit>('/flito/dr-flit/casos-soporte', cuerpo).then(
     (r) => {
       if (gen !== generacion) return;
       fijar({
@@ -351,9 +393,70 @@ export function confirmarCaso(): void {
     },
     (e) => {
       if (gen !== generacion) return;
+      if (tratarErrorDeAdjunto(e, enviados)) return;
       tratarErrorDeEnvio(e);
     },
   );
+}
+
+/**
+ * 400 `adjunto-invalido` / 413 `adjunto-muy-grande` | `adjuntos-limite` (F5.9): lleva al paso «Archivos»
+ * con el motivo en la fila de ESE archivo (`indice` → posición en lo enviado). `true` si lo trató.
+ */
+function tratarErrorDeAdjunto(e: unknown, enviados: readonly number[]): boolean {
+  if (!(e instanceof ApiError) || (e.status !== 400 && e.status !== 413)) return false;
+  const raw = e.rawDetails as Partial<ErrorAdjuntoDrFlit> | null;
+  const codigo = raw?.codigo;
+  if (codigo !== 'adjunto-invalido' && codigo !== 'adjunto-muy-grande' && codigo !== 'adjuntos-limite') return false;
+  const b = estado.borrador;
+  if (!b) return false;
+  const indice = raw?.adjunto?.indice;
+  const id = typeof indice === 'number' ? enviados[indice] : undefined;
+  const motivo = codigo === 'adjunto-muy-grande' ? 'muy-grande' : (raw?.adjunto?.motivo ?? 'contenido-no-coincide');
+  const tope = raw?.limite?.maxArchivos ?? limitesAdjuntos().maxArchivos;
+  const adjuntos = id === undefined ? b.adjuntos : b.adjuntos.map((a) => (a.id === id ? { ...a, rechazo: motivo } : a));
+  const avisosAdjuntos = codigo === 'adjuntos-limite'
+    ? [`Puede adjuntar hasta ${tope} archivos. Quite uno para continuar.`]
+    : b.avisosAdjuntos;
+  cambiarBorrador(
+    { paso: 'archivos', desdeResumen: true, validados: new Set(b.validados).add('archivos'), adjuntos, avisosAdjuntos },
+    { envio: { fase: 'inactivo', tope: false }, ...enfocar('primerError') },
+  );
+  return true;
+}
+
+/** Cambiar algo de los archivos tras un error de envío vuelve el pie a «Confirmar» (como un campo). */
+function cambiarAdjuntos(cambio: Partial<BorradorSoporte>, extra: Partial<EstadoSoporteDrFlit> = {}): void {
+  if (!estado.borrador || estado.envio.fase === 'enviando') return;
+  cambiarBorrador(cambio, { ...(estado.envio.fase === 'error' ? { envio: { fase: 'inactivo', tope: false } } : {}), ...extra });
+}
+
+/** Sí / No de «¿Quiere adjuntar capturas o documentos?». «No» oculta la lista sin borrarla. */
+export function elegirAdjuntar(adjuntar: boolean): void {
+  cambiarAdjuntos({ adjuntar });
+}
+
+/** Archivos elegidos en el selector: se validan contra los límites del servidor y se suman a la lista. */
+export function agregarArchivos(nuevos: readonly File[]): void {
+  const b = estado.borrador;
+  if (!b) return;
+  const { aceptados, avisos } = validarSeleccion(b.adjuntos.length, nuevos, limitesAdjuntos());
+  const agregados = aceptados.map((file) => ({ id: siguienteIdAdjunto++, file, rechazo: null }));
+  cambiarAdjuntos({ adjuntos: [...b.adjuntos, ...agregados], avisosAdjuntos: avisos });
+}
+
+/** «Quitar»: el foco va al «Quitar» siguiente, al anterior o, si no quedan, al selector (F5.14). */
+export function quitarArchivo(id: number): void {
+  const b = estado.borrador;
+  if (!b) return;
+  const i = b.adjuntos.findIndex((a) => a.id === id);
+  if (i < 0) return;
+  const adjuntos = b.adjuntos.filter((a) => a.id !== id);
+  const tope = limitesAdjuntos().maxArchivos;
+  const avisosAdjuntos = adjuntos.length <= tope && b.avisosAdjuntos.some((t) => t.startsWith('Puede adjuntar hasta'))
+    ? [] : b.avisosAdjuntos;
+  const foco = adjuntos.length === 0 ? enfocar('archivos') : enfocar('quitar', Math.min(i, adjuntos.length - 1));
+  cambiarAdjuntos({ adjuntos, avisosAdjuntos }, foco);
 }
 
 function tratarErrorDeEnvio(e: unknown): void {

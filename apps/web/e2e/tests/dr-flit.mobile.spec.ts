@@ -126,4 +126,50 @@ test.describe('HU #13806 · asistente de soporte · 320 px', () => {
     expect(pie!.x + pie!.width).toBeLessThanOrEqual(320);
     expect(pie!.height).toBeGreaterThanOrEqual(44);
   });
+  // HU #13807 — paso «Archivos» a 320 px: nombres largos con `break-all`, «Quitar» de 44 px dentro del ancho.
+  test('paso Archivos con nombres largos y un rechazo cabe en 320 px sin scroll horizontal', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await page.route('**/api/flito/dr-flit/autorizacion**', (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        finalidad: 'soporte', autorizado: true, versionVigente: 'v-e2e-1', aceptadaEn: '2026-10-22T10:00:00.000Z',
+        textoVigente: 'Texto E2E.',
+        soporte: {
+          disponible: true, ambiente: 'DEV', ambienteEtiqueta: 'Otro (DEV)',
+          adjuntos: { maxArchivos: 3, maxBytesArchivo: 5_242_880, tipos: ['image/png', 'image/jpeg', 'application/pdf'] },
+        },
+      }),
+    }));
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Abrir Dr. Flit' }).click();
+    const panel = page.getByRole('complementary', { name: 'Dr. Flit' });
+    await panel.getByRole('button', { name: 'Necesito soporte' }).click();
+    await panel.getByLabel('Correo').fill('financiera.e2e@empresa.co');
+    await panel.getByRole('button', { name: 'Siguiente' }).click();
+    await panel.getByLabel('Título').fill('No puedo descargar la factura');
+    await panel.getByLabel('Detalle').fill('Al pulsar Descargar no pasa nada.');
+    await panel.getByLabel('Resultado esperado').fill('Que se descargue.');
+    await panel.getByRole('group', { name: 'Frecuencia' }).getByText('Siempre', { exact: true }).click();
+    await panel.getByRole('group', { name: 'Prioridad' }).getByText('Alta', { exact: true }).click();
+    await panel.getByRole('button', { name: 'Siguiente' }).click();
+    await expect(panel.getByRole('heading', { level: 3 })).toContainText('Paso 3 de 4');
+    await panel.getByRole('group', { name: '¿Quiere adjuntar capturas o documentos?' }).getByText('Sí', { exact: true }).click();
+    const png = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.alloc(2000, 1)]);
+    await panel.getByLabel(/Elegir archivos/).setInputFiles([
+      { name: 'captura-del-error-en-facturacion-octubre-de-2026-pantalla-completa.png', mimeType: 'image/png', buffer: png },
+      { name: 'informe-de-conciliacion-largo-sin-espacios.docx', mimeType: 'application/msword', buffer: Buffer.from('x') },
+    ]);
+    await expect(panel.getByRole('list', { name: 'Archivos adjuntos' }).getByRole('listitem')).toHaveCount(1);
+    await expect(panel.getByText(/informe-de-conciliacion.*no se adjuntó/)).toBeVisible();
+    const m = await page.evaluate(() => {
+      const p = document.getElementById('drflit-panel')!;
+      return { doc: document.documentElement.scrollWidth, panel: p.scrollWidth - p.clientWidth };
+    });
+    expect(m.doc, 'paso Archivos: sin scroll horizontal en la página').toBeLessThanOrEqual(320);
+    expect(m.panel, 'paso Archivos: sin scroll horizontal en el panel').toBeLessThanOrEqual(0);
+    const quitar = await panel.getByRole('button', { name: /^Quitar captura-del-error/ }).boundingBox();
+    expect(quitar!.x + quitar!.width).toBeLessThanOrEqual(320);
+    expect(quitar!.height).toBeGreaterThanOrEqual(44);
+  });
 });

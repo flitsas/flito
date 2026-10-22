@@ -7,20 +7,21 @@ import {
   flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondarySm,
 } from '../flit/flitPageKit';
 import {
-  aceptarAutorizacion, ahoraNo, confirmarCaso, corregir, pasoAnterior, reintentarPreparar, siguientePaso,
-  useSoporteDrFlit, volverAlChat, type BorradorSoporte, type EstadoSoporteDrFlit, type FocoSoporte,
+  aceptarAutorizacion, ahoraNo, confirmarCaso, corregir, limitesAdjuntos, pasoAnterior, reintentarPreparar,
+  siguientePaso, useSoporteDrFlit, volverAlChat, type BorradorSoporte, type EstadoSoporteDrFlit, type FocoSoporte,
 } from '../../lib/drFlitSoporte';
 import {
   CAMPOS_POR_PASO, PASOS_SOPORTE, TITULOS_PASO, primerError, type CampoSoporte,
 } from '../../lib/drFlitSoporteModelo';
 import { PasoCaso, PasoContacto, idCampoSoporte } from './DrFlitSoporteCampos';
+import { PasoArchivos, enfocarArchivos } from './DrFlitSoporteArchivos';
 import { DRFLIT_PANEL_ID } from './DrFlitMarco';
 
 // Dr. Flit — asistente «Necesito soporte» (HU #13806, Feature #13695; anexo UX F5). Toma el cuerpo del
 // panel mientras dura (sustituye la conversación y el pie); el marco no cambia. Todo su estado vive en
 // `lib/drFlitSoporte.ts` (memoria, por encima del panel): este componente solo pinta y despacha.
-// Pantallas: preparando · error de preparación · no disponible · autorización · Contacto → Caso → Resumen.
-// El paso «Archivos» del anexo (F5.4 F) llega con la HU #13807 (adjuntos, multipart #13805).
+// Pantallas: preparando · error de preparación · no disponible · autorización · Contacto → Caso → Archivos
+// (HU #13807, multipart #13805) → Resumen.
 
 const TITULO_ID = 'drflit-soporte-encabezado';
 /** Botones que en <lg suben a 44 px de alto (objetivo táctil, F5.12); en lg+ la altura del kit. */
@@ -52,7 +53,7 @@ function Dato({ rotulo, valor }: { rotulo: string; valor: string }) {
 }
 
 function Bloque({ titulo, corregirPaso, inactivo, children }: {
-  titulo: string; corregirPaso?: 'contacto' | 'caso'; inactivo: boolean; children: ReactNode;
+  titulo: string; corregirPaso?: 'contacto' | 'caso' | 'archivos'; inactivo: boolean; children: ReactNode;
 }) {
   return (
     <div className="border-t border-flit-soft pt-3 first:border-t-0 first:pt-0">
@@ -91,6 +92,26 @@ function Resumen({ b, ambiente, inactivo }: { b: BorradorSoporte; ambiente: stri
         <Dato rotulo="Resultado esperado" valor={c.resultadoEsperado.trim()} />
         <Dato rotulo="Frecuencia" valor={c.frecuencia ? ETIQUETAS_FRECUENCIA_SOPORTE[c.frecuencia] : ''} />
         <Dato rotulo="Prioridad" valor={c.prioridad ? ETIQUETAS_PRIORIDAD_SOPORTE[c.prioridad] : ''} />
+      </Bloque>
+      <Bloque titulo="Archivos" corregirPaso="archivos" inactivo={inactivo}>
+        {b.adjuntar && b.adjuntos.length > 0 ? (
+          <>
+            <Dato
+              rotulo="Adjuntos"
+              valor={`Sí · ${b.adjuntos.length} ${b.adjuntos.length === 1 ? 'archivo' : 'archivos'}`}
+            />
+            <div className="min-w-0">
+              <dt className="sr-only">Nombres</dt>
+              <dd>
+                <ul aria-label="Archivos que se enviarán" className="flex flex-col gap-0.5 text-sm text-flit-ink">
+                  {b.adjuntos.map((a) => <li key={a.id} className="break-all">{a.file.name}</li>)}
+                </ul>
+              </dd>
+            </div>
+          </>
+        ) : (
+          <Dato rotulo="Adjuntos" valor="No" />
+        )}
       </Bloque>
       <Bloque titulo="Datos del reporte" inactivo={inactivo}>
         <Dato rotulo="Fecha" valor={b.fecha ?? ''} />
@@ -131,6 +152,9 @@ export default function DrFlitSoporte() {
         primariaRef.current?.focus();
       }
       else if (a === 'volver') volverRef.current?.focus();
+      else if (b && b.paso === 'archivos' && (a === 'primerError' || a === 'primerCampo' || a === 'archivos' || a === 'quitar')) {
+        enfocarArchivos(b, a, s.foco.i);
+      }
       else if ((a === 'primerError' || a === 'primerCampo') && b && b.paso !== 'resumen') {
         const campo = a === 'primerError' ? primerError(b.paso, b.campos, b.rechazados) : CAMPOS_POR_PASO[b.paso][0];
         if (campo) enfocarCampo(campo);
@@ -300,7 +324,11 @@ function cuerpoDe(
     contenido: (
       <>
         {titulo}
-        {b.paso === 'contacto' ? <PasoContacto b={b} mostrar={mostrar} /> : <PasoCaso b={b} mostrar={mostrar} />}
+        {b.paso === 'contacto' && <PasoContacto b={b} mostrar={mostrar} />}
+        {b.paso === 'caso' && <PasoCaso b={b} mostrar={mostrar} />}
+        {b.paso === 'archivos' && (
+          <PasoArchivos b={b} mostrar={mostrar} limites={limitesAdjuntos()} inactivo={enviando} />
+        )}
       </>
     ),
     pie: (
