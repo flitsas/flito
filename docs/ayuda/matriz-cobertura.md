@@ -42,7 +42,8 @@ Escriben `apps/web/public/ayuda/<clave>/NN-<paso>.png` (1280 px, tema claro, ≤
 
 | Ficha | Capturas |
 |---|---|
-| `flito_logistica_ruta` | 5 (piloto, HU #13769) |
+| `flito_logistica` | 6 (HU #13773) |
+| `flito_logistica_ruta` | 5 (piloto, HU #13769; texto revisado y diagrama en la HU #13773) |
 | `siigo_parametrizacion` | 5 (HU #13770) |
 | `siigo_operacion` | 3 (HU #13770) |
 | `flito_comprobantes` | 3 (HU #13770) |

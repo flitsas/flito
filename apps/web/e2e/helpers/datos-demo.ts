@@ -126,6 +126,10 @@ export const CLAVES_SENSIBLES: Record<string, keyof typeof DATOS_DEMO> = {
   empresa: 'empresas',
   modificadoPor: 'nombres',
   certificadoPorNombre: 'nombres',
+  // Área Mensajero y Logística (HU #13773)
+  propietario: 'nombres',
+  companiaNit: 'nits',
+  mensajeroNombre: 'nombres',
 };
 
 // ── Licencia de tránsito (PDF417) ficticia ───────────────────────────────────
@@ -965,6 +969,75 @@ export const DERECHOS_DRIVE_REGISTRO_DEMO = [
     error: null, procesadoEn: '2026-10-20T14:00:00Z', sigueEnDrive: true },
 ];
 
+// ── Área Mensajero y Logística (HU #13773) ──────────────────────────────────
+// Consola Logística del Administrador: una licencia por estado, sus actas y el detalle con viajes.
+// La bitácora del detalle no lleva coordenadas (`lat`/`lng` en null): la ubicación es dato personal.
+
+const ORG_LOGISTICA = { organismoCodigo: '17001', organismoNombre: ORGANISMOS_REALES[0] };
+
+const filaLogistica = (i: 0 | 1 | 2 | 3, estadoSimple: string, estadoSimpleLabel: string, estado: string, conLt: boolean, empresa: 0 | 1 | 2) => ({
+  tramiteId: `tram-log-demo-${i + 1}`, idFlit: `FLIT-DEMO-30${i + 1}`,
+  placa: DATOS_DEMO.placas[i], vin: DATOS_DEMO.vins[i], propietario: NOMBRES_DEMO[i % 2],
+  companiaId: 901 + empresa, companiaNombre: EMPRESAS_DEMO[empresa], companiaNit: DATOS_DEMO.nits[empresa],
+  ...ORG_LOGISTICA,
+  docId: conLt ? `doc-log-demo-${i + 1}` : null, estado, estadoLabel: estadoSimpleLabel,
+  estadoSimple, estadoSimpleLabel,
+  numeroLicencia: conLt ? `1000000000${i + 1}` : null, numeroLt: conLt ? `LT9000000010${i + 1}` : null,
+  actaId: null, motivo: null, actualizadoEn: '2026-10-21T14:00:00.000Z',
+});
+
+export const LOGISTICA_TRAMITES_DEMO = {
+  items: [
+    filaLogistica(0, 'pendiente', 'Pendiente de recogida', 'pendiente', false, 0),
+    filaLogistica(1, 'registrada', 'Registrada', 'recogido', true, 0),
+    filaLogistica(2, 'despachada', 'Despachada', 'despachado', true, 1),
+    filaLogistica(3, 'entregada', 'Entregada', 'entregado', true, 2),
+  ],
+  total: 4, page: 1, pageSize: 50,
+};
+
+export const LOGISTICA_FACETAS_DEMO = {
+  estados: ['pendiente', 'registrada', 'despachada', 'entregada', 'novedad'],
+  empresas: EMPRESAS_DEMO.map((nombre, i) => ({ nit: DATOS_DEMO.nits[i], nombre })),
+  organismos: [],
+  companiasCerrables: [
+    { companiaId: 901, nombre: EMPRESAS_DEMO[0], disponibles: 2 },
+    { companiaId: 902, nombre: EMPRESAS_DEMO[1], disponibles: 1 },
+  ],
+  mensajeros: [{ id: 51, nombre: NOMBRES_DEMO[4] }],
+};
+
+export const LOGISTICA_ACTAS_DEMO = [
+  { id: 'acta-log-demo-1', companiaId: 901, companiaNombre: EMPRESAS_DEMO[0], estado: 'generada', estadoLabel: 'Generada',
+    mensajeroId: null, mensajeroNombre: null, documentos: 2, receptorNombre: null, entregadoEn: null, creadoEn: '2026-10-21T13:00:00.000Z' },
+  { id: 'acta-log-demo-2', companiaId: 902, companiaNombre: EMPRESAS_DEMO[1], estado: 'despachada', estadoLabel: 'Despachada',
+    mensajeroId: 51, mensajeroNombre: NOMBRES_DEMO[4], documentos: 1, receptorNombre: null, entregadoEn: null, creadoEn: '2026-10-20T13:00:00.000Z' },
+  { id: 'acta-log-demo-3', companiaId: 903, companiaNombre: EMPRESAS_DEMO[2], estado: 'entregada', estadoLabel: 'Entregada',
+    mensajeroId: 51, mensajeroNombre: NOMBRES_DEMO[4], documentos: 1, receptorNombre: NOMBRES_DEMO[3],
+    entregadoEn: '2026-10-20T20:00:00.000Z', creadoEn: '2026-10-19T13:00:00.000Z' },
+];
+
+/** Detalle de la licencia Registrada (fila 2): datos del trámite y su bitácora. */
+export const LOGISTICA_DETALLE_DEMO = {
+  ...LOGISTICA_TRAMITES_DEMO.items[1],
+  propietarioDocumento: DATOS_DEMO.cedulas[1], combustible: 'GASOLINA', tieneFoto: false,
+  eventos: [
+    { id: 'ev-log-demo-1', estadoAnterior: 'pendiente', estadoNuevo: 'recogido', actorNombre: NOMBRES_DEMO[4],
+      lat: null, lng: null, motivo: null, origen: 'pwa', creadoEn: '2026-10-21T14:00:00.000Z' },
+  ],
+};
+
+/** Viajes adicionales del trámite de la fila 2: un viaje a tarifa vigente. */
+export const LOGISTICA_VIAJES_DEMO = {
+  tramiteId: LOGISTICA_DETALLE_DEMO.tramiteId, idFlit: LOGISTICA_DETALLE_DEMO.idFlit,
+  gestionaLogistica: true, liquidado: false, tarifaVigente: 25000,
+  items: [
+    { id: 'viaje-log-demo-2', numero: 2, modo: 'inicial', valor: 25000, tarifaVigente: 25000, motivo: 'segunda_entrega',
+      motivoDetalle: null, registradoPorId: 7, registradoPorNombre: NOMBRES_DEMO[2], registradoEn: '2026-10-21T15:00:00.000Z' },
+  ],
+  totalViajes: 2, totalAdicionales: 25000,
+};
+
 /** Usuario de sesión de las capturas del área Facturación (HU #13770): Administrador demo. */
 export const NOMBRE_ADMIN_DEMO = NOMBRES_DEMO[2];
 
@@ -1044,6 +1117,12 @@ export const FIXTURES_DEMO: Record<string, unknown> = {
   // El `nombre` de un archivo del Drive no es de una persona: se recorre con otra clave.
   DERECHOS_DRIVE_DEMO: DERECHOS_DRIVE_DEMO.map(({ nombre, ...a }) => ({ ...a, nombreArchivo: nombre })),
   DERECHOS_DRIVE_REGISTRO_DEMO,
+  // ── Área Mensajero y Logística (HU #13773) ──
+  LOGISTICA_TRAMITES_DEMO,
+  LOGISTICA_FACETAS_DEMO,
+  LOGISTICA_ACTAS_DEMO,
+  LOGISTICA_DETALLE_DEMO,
+  LOGISTICA_VIAJES_DEMO,
 };
 
 // ── Interceptación de /api ───────────────────────────────────────────────────
