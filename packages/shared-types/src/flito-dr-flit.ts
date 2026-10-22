@@ -5,7 +5,7 @@
 // el SHA-256 del texto junto a ella (prueba de qué texto exacto se aceptó, Ley 1581); la web pinta este
 // mismo texto. Cambiar el texto sin cambiar la versión lo detecta el test de este paquete (hash fijado
 // por versión).
-import { USER_ROLES, type UserRole } from './permissions.js';
+import type { PageSlug } from './permissions.js';
 
 export const FINALIDADES_DRFLIT = ['soporte', 'ia'] as const;
 export type FinalidadDrFlit = (typeof FINALIDADES_DRFLIT)[number];
@@ -52,16 +52,21 @@ export const ETIQUETAS_AMBIENTE_DESPLIEGUE: Readonly<Record<AmbienteDespliegue, 
   DEV: 'Otro (DEV)',
 });
 
-/** Roles que NO alcanzan Dr. Flit soporte (P9-7). */
-export const ROLES_SIN_SOPORTE_DRFLIT = ['cliente'] as const satisfies readonly UserRole[];
-
 /**
- * Derivada de `USER_ROLES`: un rol nuevo entra por defecto. El test de este paquete fija la lista
- * actual para que un rol nuevo obligue a decidir.
+ * Quién alcanza Dr. Flit: «lo usa quien lo ve». En la web Dr. Flit se pinta con `puedeVerAyudaFlito`
+ * (≥1 ficha de la Ayuda FLITO visible), y una ficha es visible si el usuario tiene la PÁGINA de su
+ * `permiso`. Estas son esas páginas: la del permiso de cada ficha de
+ * `apps/web/src/content/ayuda/catalogo.ts`, sin repetir. El servidor exige al menos una
+ * (`pagina.<slug>` del motor de permisos), nunca el nombre del rol (HU #13425 AC6).
+ * Un test del API compara esta lista con el catálogo de la web: una ficha nueva obliga a añadirla aquí.
  */
-export const ROLES_SOPORTE_DRFLIT: readonly UserRole[] = Object.freeze(
-  USER_ROLES.filter((r) => !(ROLES_SIN_SOPORTE_DRFLIT as readonly string[]).includes(r)),
-);
+export const PAGINAS_AYUDA_DRFLIT = Object.freeze([
+  'clients', 'finanzas_gastos_diarios', 'finanzas_reporte_costos', 'flito_bitacora', 'flito_bolsas',
+  'flito_comparendos', 'flito_comprobantes', 'flito_conciliacion', 'flito_derechos', 'flito_impuestos',
+  'flito_logistica', 'flito_logistica_ruta', 'flito_revisiones', 'flito_servicios_adicionales',
+  'flito_soat', 'flito_tablero', 'flito_tarifas', 'flito_tramites', 'roles_permisos',
+  'siigo_credenciales', 'siigo_operacion', 'siigo_parametrizacion', 'soat',
+] as const satisfies readonly PageSlug[]);
 
 /** Topes de longitud de los campos del caso (anexo UX F5). Los consumen HU-2 (API) y HU-4 (web). */
 export const LIMITES_CASO_SOPORTE = Object.freeze({

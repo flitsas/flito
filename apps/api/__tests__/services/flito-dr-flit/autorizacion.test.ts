@@ -3,13 +3,16 @@
 // `__tests__/db/migracion-0245.test.ts` (contra PostgreSQL) y en la verificación P6 del HANDOFF.
 //
 // App mínima con el router REAL montado como en `app.ts` (sin `conAlcance`), el `authMiddleware` REAL
-// (que llama a la `guardiaFrontera` real con las `RUTAS_TRANSVERSALES` reales) y `requireRole` real.
-// Dobles: `resolverPermisos` (el enlace, por `sub`), el repositorio (almacén en memoria con la misma
+// (que llama a la `guardiaFrontera` real con las `RUTAS_TRANSVERSALES` reales) y la guarda real de páginas
+// con ficha de Ayuda (`exigirPaginaConAyuda`, motor de permisos). Dobles: `resolverPermisos` (enlace y
+// funciones, por `sub`), el repositorio (almacén en memoria con la misma
 // clave única usuario × finalidad × versión que la 0245), `audit` y la configuración del ambiente.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express, { type Express } from 'express';
 import request from 'supertest';
 import { SignJWT } from 'jose';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import type { PermisosResueltos } from '../../../src/shared/permisos-efectivos.js';
 import type { ConfigDrFlit } from '../../../src/modules/flito-dr-flit/dr-flit.config.js';
 
@@ -40,24 +43,26 @@ vi.mock('../../../src/modules/flito-dr-flit/dr-flit.config.js', async (importOri
 
 const { default: drFlitRoutes } = await import('../../../src/modules/flito-dr-flit/dr-flit.routes.js');
 const { repoAutorizaciones, sha256Texto } = await import('../../../src/modules/flito-dr-flit/dr-flit.service.js');
-const { AUTORIZACIONES_DRFLIT } = await import('@operaciones/shared-types');
+const { AUTORIZACIONES_DRFLIT, PAGINAS_AYUDA_DRFLIT } = await import('@operaciones/shared-types');
 
 const VIGENTE = AUTORIZACIONES_DRFLIT.soporte.version;
 const RUTA = '/api/flito/dr-flit/autorizacion';
 
 type Enlace = 'ninguno' | 'compania' | 'proveedor' | 'organismos_transito' | null;
-const ok = (userId: number, rol: string, tipoEnlace: Enlace): PermisosResueltos => ({
-  ok: true, userId, rol, tipoEnlace, funciones: new Set(), version: `v${userId}`, resueltoEn: new Date(),
+const ok = (userId: number, rol: string, tipoEnlace: Enlace, funciones: string[]): PermisosResueltos => ({
+  ok: true, userId, rol, tipoEnlace, funciones: new Set(funciones), version: `v${userId}`, resueltoEn: new Date(),
 });
 
-/** Por `sub`: [rol del token, enlace resuelto en base]. */
-const USUARIOS: Record<number, [string, Enlace]> = {
-  10: ['financiera', 'ninguno'],
-  11: ['proveedor', 'proveedor'],              // Corredor SOAT
-  12: ['gestor_impuestos', 'organismos_transito'], // Corredor Impuestos
-  13: ['cliente', 'compania'],
-  14: ['admin', 'compania'],                   // rol de sistema con enlace de compañía
-  15: ['admin', null],                         // enlace que el resolutor no decide
+/** Por `sub`: [rol del token, enlace resuelto en base, funciones efectivas]. */
+const USUARIOS: Record<number, [string, Enlace, string[]]> = {
+  10: ['financiera', 'ninguno', ['pagina.finanzas_gastos_diarios']],
+  11: ['proveedor', 'proveedor', ['pagina.flito_soat']],                 // Corredor SOAT
+  12: ['gestor_impuestos', 'organismos_transito', ['pagina.flito_impuestos']], // Corredor Impuestos
+  13: ['cliente', 'compania', ['pagina.flito_soat']],                    // tiene página con ficha: lo saca el enlace
+  14: ['admin', 'compania', ['pagina.flito_tablero']],                   // rol de sistema con enlace de compañía
+  15: ['admin', null, ['pagina.flito_tablero']],                         // enlace que el resolutor no decide
+  16: ['admin', 'ninguno', ['pagina.flito_ayuda', 'pagina.users', 'users.crear']], // ninguna página con ficha
+  17: ['financiera', 'ninguno', []],                                     // sin funciones
 };
 
 const secret = () => new TextEncoder().encode(process.env.JWT_SECRET);
@@ -91,7 +96,7 @@ beforeEach(() => {
   Object.assign(CFG, { NODE_ENV: 'production', DRFLIT_ADO_MODO: 'simulado', DEPLOY_ENVIRONMENT: 'QA' });
   resolverMock.mockReset().mockImplementation(async (id) => {
     const u = USUARIOS[id];
-    return u ? ok(id, u[0], u[1]) : { ok: false, userId: id, motivo: 'sin_usuario' };
+    return u ? ok(id, u[0], u[1], u[2]) : { ok: false, userId: id, motivo: 'sin_usuario' };
   });
   vi.spyOn(repoAutorizaciones, 'buscar').mockImplementation(async (usuarioId, finalidad, version) => {
     const f = filas.find((x) => x.usuarioId === usuarioId && x.finalidad === finalidad && x.version === version);
@@ -242,6 +247,8 @@ describe('AC7 — quién no pasa (y quién sí)', () => {
     [13, 'cliente (enlace compañía)'],
     [14, 'admin con enlace de compañía'],
     [15, 'enlace que el resolutor no decide'],
+    [16, 'sin enlace pero sin ninguna página con ficha de Ayuda (aunque tenga `flito_ayuda`)'],
+    [17, 'sin enlace y sin funciones'],
   ])('sub %i — %s → 403 en GET y POST y no se guarda nada', async (sub) => {
     expect((await get(sub)).status).toBe(403);
     const r = await post(sub, { finalidad: 'soporte', version: VIGENTE });
@@ -257,6 +264,21 @@ describe('AC7 — quién no pasa (y quién sí)', () => {
     expect((await get(sub)).status).toBe(200);
     expect((await post(sub, { finalidad: 'soporte', version: VIGENTE })).status).toBe(201);
     expect(filas.map((f) => f.usuarioId)).toEqual([sub]);
+  });
+
+  it('resolutor caído (ok:false) → 403, falla cerrado, y no se guarda nada', async () => {
+    resolverMock.mockResolvedValue({ ok: false, userId: 10, motivo: 'resolucion' });
+    expect((await get(10)).status).toBe(403);
+    expect((await post(10, { finalidad: 'soporte', version: VIGENTE })).status).toBe(403);
+    expect(filas).toHaveLength(0);
+  });
+
+  it('las páginas de `PAGINAS_AYUDA_DRFLIT` son exactamente los `permiso` del catálogo de Ayuda de la web', () => {
+    const catalogo = readFileSync(
+      fileURLToPath(new URL('../../../../web/src/content/ayuda/catalogo.ts', import.meta.url)), 'utf8');
+    const permisos = [...new Set([...catalogo.matchAll(/permiso:\s*'([a-z_]+)'/g)].map((m) => m[1]))].sort();
+    expect(permisos.length).toBeGreaterThan(0);
+    expect([...PAGINAS_AYUDA_DRFLIT].sort()).toEqual(permisos);
   });
 
   it('una ruta del módulo que NO es transversal queda cerrada por la frontera a un enlace de proveedor', async () => {

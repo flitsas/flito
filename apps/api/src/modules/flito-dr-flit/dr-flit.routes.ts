@@ -10,11 +10,17 @@
 // Dr. Flit es un panel de sesión: sus rutas solo leen o escriben datos DEL PROPIO usuario (`sub` del
 // token; nunca un id en la ruta ni en el cuerpo). Por eso no se declara un módulo de frontera: las
 // rutas están en `RUTAS_TRANSVERSALES` (`shared/middleware/frontera-enlace.ts`) y así las alcanzan
-// Corredor SOAT (`proveedor`) y Corredor Impuestos (`organismos_transito`). El enlace `compania` se
-// cierra AQUÍ con `rechazarEnlaceCompania`, además de `requireRole` (todos los `USER_ROLES` menos
-// `cliente`, P9-7), para no depender de que hoy solo `cliente` tenga ese enlace.
+// Corredor SOAT (`proveedor`) y Corredor Impuestos (`organismos_transito`). El enlace `compania` (el
+// del `cliente`, P9-7) se cierra AQUÍ con `rechazarEnlaceCompania`: la exclusión es por ENLACE, no por
+// el nombre del rol (HU #13425 AC6; ningún módulo usa `requireRole`, valla de la HU #13423 AC9).
 //
-// RN-DRF-R1  Toda ruta: authMiddleware → requireRole(ROLES_SOPORTE_DRFLIT) → rechazarEnlaceCompania.
+// ── Quién lo usa: «quien ve a Dr. Flit» ─────────────────────────────────────────────────────────
+// La web pinta Dr. Flit con `puedeVerAyudaFlito` (≥1 ficha de la Ayuda FLITO visible = tener la página
+// del `permiso` de alguna ficha). El servidor exige lo mismo con el motor de permisos: al menos una
+// `pagina.<slug>` de `PAGINAS_AYUDA_DRFLIT` en el conjunto efectivo (`funcionesConcedidas`). No hay
+// página ni función propia de Dr. Flit: `flito_ayuda` no sirve (solo la tiene `admin`).
+//
+// RN-DRF-R1  Toda ruta: authMiddleware → rechazarEnlaceCompania → exigirPaginaConAyuda.
 // RN-DRF-R2  El único query param (`finalidad`) es un enum sin PII (AGENTS.md §14).
 // RN-DRF-R3  Los 400 no repiten el valor recibido: mensajes propios, `campo` es la ruta, nunca el valor.
 // RN-DRF-R4  Nada de esta ruta se loguea con datos del usuario (IP y user agent van solo a la tabla).
@@ -23,9 +29,10 @@ import { isIP } from 'node:net';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import {
-  FINALIDADES_DRFLIT, ROLES_SOPORTE_DRFLIT, type EstadoAutorizacionDrFlit,
+  FINALIDADES_DRFLIT, PAGINAS_AYUDA_DRFLIT, type EstadoAutorizacionDrFlit,
 } from '@operaciones/shared-types';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
+import { funcionesConcedidas } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { ADJUNTOS_DRFLIT, ambienteDespliegue, etiquetaAmbiente, soporteDisponible } from './dr-flit.config.js';
 import {
@@ -47,7 +54,25 @@ export function rechazarEnlaceCompania(req: Request, res: Response, next: NextFu
   next();
 }
 
-router.use(authMiddleware, requireRole(...ROLES_SOPORTE_DRFLIT), rechazarEnlaceCompania);
+const CODIGOS_PAGINA_AYUDA: readonly string[] = PAGINAS_AYUDA_DRFLIT.map((slug) => `pagina.${slug}`);
+
+/**
+ * «Lo usa quien lo ve»: al menos una página con ficha de Ayuda FLITO (la misma regla que
+ * `puedeVerAyudaFlito` en la web). Falla cerrado: sin resolver los permisos el conjunto es vacío.
+ */
+export async function exigirPaginaConAyuda(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    if ((await funcionesConcedidas(req, CODIGOS_PAGINA_AYUDA)).size === 0) {
+      res.status(403).json({ error: 'Sin permisos' });
+      return;
+    }
+    next();
+  } catch (e) {
+    next(e);
+  }
+}
+
+router.use(authMiddleware, rechazarEnlaceCompania, exigirPaginaConAyuda);
 
 const MSG_FINALIDAD = 'La finalidad debe ser «soporte» o «ia».';
 const finalidadSchema = z.enum(FINALIDADES_DRFLIT, { errorMap: () => ({ message: MSG_FINALIDAD }) });

@@ -1,10 +1,11 @@
 // HU #13803 (Feature #13695) — Contrato de la autorización de Dr. Flit en shared-types.
-// D5: el texto no puede cambiar sin cambiar la versión (hash fijado por versión). P9-7: `cliente` fuera.
+// D5: el texto no puede cambiar sin cambiar la versión (hash fijado por versión). Quién lo usa: las
+// páginas con ficha de Ayuda FLITO (`PAGINAS_AYUDA_DRFLIT`), nunca una lista de roles.
 import { createHash } from 'node:crypto';
 import { describe, it, expect } from 'vitest';
 import {
   AUTORIZACIONES_DRFLIT, ETIQUETAS_AMBIENTE_DESPLIEGUE, FINALIDADES_DRFLIT, LIMITES_CASO_SOPORTE,
-  ROLES_SOPORTE_DRFLIT, USER_ROLES,
+  PAGINAS_AYUDA_DRFLIT, PAGES,
 } from '../src/index.js';
 
 /**
@@ -40,14 +41,12 @@ describe('AUTORIZACIONES_DRFLIT', () => {
   });
 });
 
-describe('ROLES_SOPORTE_DRFLIT', () => {
-  it('todos los roles salvo cliente (lista fijada: un rol nuevo obliga a decidir)', () => {
-    expect([...ROLES_SOPORTE_DRFLIT]).toEqual([
-      'admin', 'proveedor', 'transito', 'compliance', 'lider_pesv', 'supervisor_flota', 'conductor',
-      'auditor', 'gestor_impuestos', 'mensajero', 'financiera',
-    ]);
-    expect(ROLES_SOPORTE_DRFLIT).not.toContain('cliente');
-    expect(USER_ROLES).toContain('cliente');
+describe('PAGINAS_AYUDA_DRFLIT', () => {
+  it('son páginas existentes, sin repetir, congeladas y sin `flito_ayuda` (que solo tiene admin)', () => {
+    for (const p of PAGINAS_AYUDA_DRFLIT) expect(Object.keys(PAGES)).toContain(p);
+    expect(new Set(PAGINAS_AYUDA_DRFLIT).size).toBe(PAGINAS_AYUDA_DRFLIT.length);
+    expect(PAGINAS_AYUDA_DRFLIT).not.toContain('flito_ayuda');
+    expect(Object.isFrozen(PAGINAS_AYUDA_DRFLIT)).toBe(true);
   });
 });
 
