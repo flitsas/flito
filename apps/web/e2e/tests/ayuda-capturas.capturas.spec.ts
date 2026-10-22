@@ -32,6 +32,11 @@ import {
   CONCILIACION_BOLETAS_DEMO,
   CONCILIACION_DETALLE_DEMO,
   interceptarApiDemo,
+  LOGISTICA_ACTAS_DEMO,
+  LOGISTICA_DETALLE_DEMO,
+  LOGISTICA_FACETAS_DEMO,
+  LOGISTICA_TRAMITES_DEMO,
+  LOGISTICA_VIAJES_DEMO,
   LT_DEMO,
   MI_RUTA_DEMO,
   NOMBRE_ADMIN_DEMO,
@@ -254,6 +259,77 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
       '03-confirmar-recogida.png',
       '04-entregar.png',
       '05-sin-conexion.png',
+    ]);
+  });
+
+  // ── Área Mensajero y Logística (HU #13773) ────────────────────────────────
+  test('flito_logistica @capturas', async ({ page }) => {
+    const dir = prepararCarpeta('flito_logistica');
+    const api = await interceptarApiDemo(page, [
+      [/\/api\/flito\/logistica$/, () => ({ body: LOGISTICA_TRAMITES_DEMO })],
+      [/\/api\/flito\/logistica\/facetas$/, () => ({ body: LOGISTICA_FACETAS_DEMO })],
+      [/\/api\/flito\/logistica\/actas$/, () => ({ body: LOGISTICA_ACTAS_DEMO })],
+      [/\/api\/flito\/logistica\/tramites\/tram-log-demo-2\/viajes$/, () => ({ body: LOGISTICA_VIAJES_DEMO })],
+      [/\/api\/flito\/logistica\/tram-log-demo-2$/, () => ({ body: LOGISTICA_DETALLE_DEMO })],
+    ]);
+    await entrarComoAdminDemo(page);
+
+    await page.goto('/flito/logistica');
+    await expect(page.getByText('FLIT-DEMO-302')).toBeVisible();
+
+    // Paso 1 — Trámites: buscador, empresa, los cinco estados y la tabla.
+    const mostrarBarra = await sinBarraFlotante(page);
+    await sinFoco(page);
+    await capturar(page, dir, '01-tramites');
+    await mostrarBarra();
+
+    // Paso 2 — Detalle de la licencia Registrada: datos, Viajes adicionales y Bitácora.
+    await page.getByRole('row', { name: /FLIT-DEMO-302/ }).getByRole('button', { name: 'Detalle' }).click();
+    const detalle = page.getByRole('dialog', { name: /^Licencia · / });
+    await expect(detalle.getByText('Viajes: 2 (incluye el viaje 1)')).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '02-detalle', detalle);
+
+    // Paso 3 — Registrar viaje: motivo y Precio inicial con la tarifa vigente (sin confirmar).
+    await detalle.getByRole('button', { name: 'Registrar viaje' }).click();
+    const registrar = page.getByRole('dialog', { name: /^Registrar viaje · / });
+    await registrar.locator('select').selectOption('segunda_entrega');
+    await expect(registrar.getByText(/Se copiará la tarifa vigente/)).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '03-registrar-viaje', registrar);
+    await registrar.getByRole('button', { name: 'Cancelar' }).click();
+    await page.keyboard.press('Escape');
+    await expect(detalle).toBeHidden();
+
+    // Paso 5 — Generación de actas: empresas con LT registradas y Generar acta.
+    await page.getByRole('button', { name: /^Generación de actas/ }).click();
+    await expect(page.getByText('2 LT registrada(s)')).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '04-generacion-de-actas');
+
+    // Paso 6 — Actas: Generada, Despachada y Entregada con sus acciones.
+    await page.getByRole('button', { name: /^Actas/ }).click();
+    await expect(page.getByRole('button', { name: 'Firmar y despachar' })).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '05-actas');
+
+    // Paso 7 — Firmar entrega y despachar: mensajero y firma (sin confirmar).
+    await page.getByRole('button', { name: 'Firmar y despachar' }).click();
+    const despachar = page.getByRole('dialog', { name: 'Firmar entrega y despachar' });
+    await despachar.locator('select').selectOption('51');
+    await despachar.locator('canvas').evaluate((el: HTMLCanvasElement) => {
+      const r = el.getBoundingClientRect();
+      const pe = (type: string, x: number, y: number) =>
+        el.dispatchEvent(new PointerEvent(type, { clientX: r.left + x, clientY: r.top + y, bubbles: true, pointerId: 1 }));
+      pe('pointerdown', 20, 40); pe('pointermove', 70, 15); pe('pointermove', 120, 55); pe('pointermove', 170, 20); pe('pointerup', 170, 20);
+    });
+    await expect(despachar.getByRole('button', { name: 'Firmar y despachar' })).toBeEnabled();
+    await sinFoco(page);
+    await capturar(page, dir, '06-firmar-y-despachar', despachar);
+    await page.keyboard.press('Escape');
+
+    comprobarCierre(api, dir, [
+      '01-tramites.png', '02-detalle.png', '03-registrar-viaje.png', '04-generacion-de-actas.png', '05-actas.png', '06-firmar-y-despachar.png',
     ]);
   });
 
