@@ -8,8 +8,8 @@ palabras_clave:
 consultas:
   - cuánto se le cobra a un cliente
   - cómo cambio la tarifa de un cliente
-version: 1.0
-fecha: 2026-10-20
+version: 1.1
+fecha: 2026-10-21
 ---
 ## Qué es
 
@@ -25,11 +25,15 @@ En el menú, **Finanzas → Tarifas**. También desde **Clientes y proveedores**
 
 ## Pasos
 
-1. Elija la compañía en la lista de la izquierda. Las que tienen valores sin configurar muestran **Faltan N**; con la pestaña **Con faltantes** ve solo esas.
-2. Pulse **Fijar valor** en una fila que diga **Sin configurar**, o **Cambiar** en una que ya tenga valor. Escriba el número y pulse **Guardar**. El tipo de trámite ya está en la fila: no se escribe.
+1. Elija la compañía en la lista **Clientes** de la izquierda (o búsquela en **Buscar cliente…**). Las que tienen valores sin configurar muestran **Falta 1** o **Faltan N**; con la pestaña **Con faltantes** ve solo esas. A la derecha, sus cuatro filas —**Matrícula**, **Traspaso** y **Otros** del trámite digital, y **Logística**— con el valor vigente, desde cuándo y quién lo fijó. ![Lista de clientes con Falta 1 y Faltan 4, y las cuatro filas de tarifas de un cliente: tres con valor y Logística Sin configurar](./flito_tarifas/01-elegir-compania.png)
+2. Pulse **Fijar valor** en una fila que diga **Sin configurar**, o **Cambiar** en una que ya tenga valor. Escriba el número y pulse **Guardar** (o **Cancelar**). El tipo de trámite ya está en la fila: no se escribe. ![Fila Logística en edición con el valor escrito y los botones Guardar y Cancelar](./flito_tarifas/02-fijar-valor.png)
 3. Si escribe **0**, FLITO le pide confirmar: cero significa que el trámite **se cobra a $0**, no que está sin configurar.
 4. Para no cobrar un concepto, pulse **Dejar de cobrar** y confirme. La fila vuelve a **Sin configurar** y la vigencia queda cerrada en el historial, con su nombre y la hora.
-5. Pulse **Historial** en una fila, o **Historial del cliente** arriba, para ver cada vigencia: valor, desde, hasta (o **Vigente**), quién la fijó y quién la cerró. El filtro **Fijadas entre** acota por fecha.
+5. Pulse **Historial** en una fila, o **Historial del cliente** arriba, para abrir **Historial de vigencias**: valor, desde, hasta (o **Vigente**), quién la fijó y quién la cerró. Las pastillas filtran por trámite y **Fijadas entre** acota por fecha. ![Historial de vigencias con una tarifa Vigente y la anterior cerrada, con quién la fijó y quién la cerró](./flito_tarifas/03-historial.png)
+
+Cómo cambia un valor y qué queda guardado, de un vistazo:
+
+![Diagrama: una fila sin configurar pasa a vigente al fijar valor y guardar; cambiarla cierra la vigencia anterior y abre otra; dejar de cobrar la devuelve a sin configurar; todo queda en el historial con quién la fijó y quién la cerró](./flito_tarifas/vigencias.svg)
 
 ## Estados
 

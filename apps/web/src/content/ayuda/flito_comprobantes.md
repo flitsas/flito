@@ -8,8 +8,8 @@ palabras_clave:
 consultas:
   - cómo cargo un comprobante
   - qué leyó FLITO del comprobante
-version: 1.0
-fecha: 2026-10-20
+version: 1.1
+fecha: 2026-10-21
 ---
 ## Qué es
 
@@ -31,10 +31,11 @@ En el menú lateral, sección **Finanzas**, ítem **Comprobantes**.
 ## Pasos
 
 1. Pulse **Cargar comprobantes**. Elija PDF o imágenes (JPG, PNG, WEBP). En una carga caben hasta
-   **150 archivos**, cada uno de hasta **15 MB** y hasta **200 MB** en total. El modal le muestra el
-   peso; si se pasa, FLITO se lo dice y no envía nada: quite archivos y vuelva a intentar. Un PDF que
-   traiga varios documentos seguidos se lee **documento por documento**: cada uno aparece con sus
-   páginas (por ejemplo **p. 3-4**).
+   **150 archivos**, cada uno de hasta **15 MB**. El modal le muestra cuántos archivos eligió y cuánto
+   pesan frente al tope (por ejemplo **2 archivos · 0.0 MB de 250 MB**); si se pasa, FLITO se lo dice y
+   no envía nada: quite archivos y vuelva a intentar. Un PDF que traiga varios documentos seguidos se
+   lee **documento por documento**: cada uno aparece con sus páginas (por ejemplo **p. 3-4**).
+   ![Ventana Cargar comprobantes con dos imágenes elegidas, el contador de archivos y peso, y los botones Subir y procesar y Cancelar](./flito_comprobantes/01-cargar.png)
 2. Pulse **Subir y procesar**. Con muchos archivos verá **enviando X de N archivos**. No cierre la
    ventana: lo que ya se envió queda guardado aunque cierre.
 3. Al terminar, lea el resultado por documento: **Aplicado** (FLITO lo cruzó con un único trámite y
@@ -44,19 +45,26 @@ En el menú lateral, sección **Finanzas**, ítem **Comprobantes**.
    (ese archivo ya se había cargado; **Ver el original** lo abre) o **Fallido** (no es PDF ni imagen,
    o el PDF pasa de 150 páginas). Pulse **Listo**: la cola queda filtrada por esa carga; la ✕ del
    chip la quita.
-4. En la cola, cada carga va agrupada con su fecha, hora y quién la subió. **Solo esta carga** filtra
+4. En la cola, cada carga va agrupada con su fecha, hora y quién la subió. Las pastillas
+   **Pendientes**, **Aplicados**, **Descartados** y **Todos** cambian lo que ve; **Solo esta carga** filtra
    por esa carga; el selector **Estado de asociación** separa los pendientes de asociar de los
    rechazados como pago, y los aplicados automáticos de los manuales y de los adjuntados como
    documentación; los selectores **Concepto** y **Motivo** afinan lo que ve. En una fila con
    trámite, **Ver trámite** abre Gestión Trámites filtrada por esa placa en otra pestaña.
+   ![Cola de comprobantes agrupada por carga: tres pendientes de asociar con su motivo y uno aplicado automático, con los filtros arriba](./flito_comprobantes/02-cola.png)
 5. Pulse **Asociar** en un pendiente (o **Ver** en un aplicado o descartado). A la izquierda verá
    el documento (abierto en su primera página); a la derecha, lo que FLITO leyó con la confianza de
    cada dato: **Alta**, **Media**, **Baja** o **Sin lectura**. FLITO nunca inventa un dato: si no lo
    leyó, el campo va vacío. **Abrir el archivo original** muestra el archivo completo en otra pestaña.
    En la cabecera, **Ver soportes** muestra todos los documentos que ese trámite ya tiene (SOAT,
    impuesto, derecho, logística y comprobantes), si su usuario puede verlos.
+   ![Panel de asociación: a la izquierda el documento demo; a la derecha lo leído con su confianza, el trámite sugerido por placa, el concepto y los botones Descartar y Aplicar](./flito_comprobantes/03-asociar.png)
 6. Si un documento quedó **Sin lectura (OCR no disponible)**, pulse **Releer**: FLITO vuelve a
    intentarlo. Si el lector sigue sin estar disponible, se lo dice y el documento no cambia.
+
+El camino de un comprobante, de un vistazo:
+
+![Diagrama: se cargan los comprobantes y FLITO lee cada documento; si cruza con un único trámite queda aplicado automático; si no, queda pendiente y se asocia para aplicarlo como pago o adjuntarlo como documentación, o se descarta con motivo](./flito_comprobantes/camino-comprobante.svg)
 
 ## Asociar y aplicar
 
