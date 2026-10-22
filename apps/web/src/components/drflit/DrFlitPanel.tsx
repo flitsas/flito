@@ -8,7 +8,9 @@ import type { EntradaAyuda } from '../../content/ayuda/catalogo';
 import {
   agregar, estadoReferencia, nuevoIdMensaje, referenciasDe, restaurarConversacion, serializar, type MensajeDrFlit,
 } from '../../lib/drFlitConversacion';
-import { escribirCrudo, limpiarConversacionDrFlit } from '../../lib/drFlitAlmacen';
+import { escribirCrudo, leerCrudo, limpiarConversacionDrFlit } from '../../lib/drFlitAlmacen';
+import { detectarValorGestion } from '../../lib/drFlitGestion';
+import { mensajesEnMemoria, olvidarGestion, recordarMensajes } from '../../lib/drFlitGestionConsulta';
 import type { UsuarioAyuda } from '../../lib/ayudaFlito';
 import { buscarSecciones, MAX_CITAS } from '../../lib/drFlitBusqueda';
 import DrFlitMensaje, {
@@ -25,6 +27,9 @@ import { DrFlitBotonTerminar, DrFlitConfirmarTerminar } from './DrFlitTerminar';
 import DrFlitModulos, { DRFLIT_MODULOS_ID } from './DrFlitModulos';
 import DrFlitPregunta from './DrFlitPregunta';
 import { cargarFichaDrFlit, cargarFichasDrFlit } from './cargarFichaDrFlit';
+import { MarcadorGestion, OfertaGestion } from './gestion/OfertaGestion';
+import ResultadoGestion from './gestion/ResultadoGestion';
+import { useGestionDrFlit } from './gestion/useGestionDrFlit';
 
 // Dr. Flit — contenido del panel (HU #13764, Feature #13694). Se carga con `lazy()` solo tras el
 // primer clic en «Abrir Dr. Flit» (AC8); el marco (cabecera, «Cerrar», carga y error) vive en el
@@ -40,6 +45,9 @@ import { cargarFichaDrFlit, cargarFichasDrFlit } from './cargarFichaDrFlit';
 // HU #13806 (Feature #13695): «Necesito soporte» (saludo y «sin resultados») abre el asistente de
 // soporte, que toma el cuerpo del panel (`DrFlitSoporte`); su estado vive en memoria por encima del
 // panel (`lib/drFlitSoporte.ts`). Al radicar, la conversación recibe `casoRadicado` con el número.
+// HU #13836 (Feature #13834, F6): un mensaje con placa, VIN o id FLIT recibe la oferta «Consultar … en
+// sus módulos» en vez de la Ayuda; el resultado vive en memoria (`lib/drFlitGestionConsulta.ts`) y el
+// almacén solo guarda un marcador sin valor (`serializar`).
 
 export interface DrFlitPanelProps {
   /** Se llama al seguir un enlace del panel: en <lg el montaje cierra el panel para ver la página. */
@@ -68,12 +76,14 @@ function clavesPorVerificar(
 }
 
 export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
-  const { user } = useAuth();
+  const { user, hasFuncion } = useAuth();
   const modulos = useMemo(() => capitulosEnOrdenDeIndice(user), [user]);
   const userId = user?.id;
   // AC1/AC6: lo guardado en la pestaña (o nada, si está ilegible o el almacenamiento está bloqueado).
+  // HU #13836: si la conversación en memoria sigue siendo la guardada, se retoma con sus valores y
+  // resultados (cerrar y abrir el panel, cambiar de pantalla); si no, vale lo restaurado.
   const [mensajes, setMensajes] = useState<MensajeDrFlit[]>(() =>
-    userId === undefined ? [] : restaurarConversacion(userId),
+    userId === undefined ? [] : mensajesEnMemoria(userId, leerCrudo(userId)) ?? restaurarConversacion(userId),
   );
   const [fichas, setFichas] = useState<ReadonlyMap<string, FichaParseada | null>>(() => new Map());
   const [listaAbierta, setListaAbierta] = useState(false);
@@ -84,6 +94,8 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
   });
   const [confirmando, setConfirmando] = useState(false);
   const [anuncio, setAnuncio] = useState('');
+  /** «Volver a consultar»: pista sobre la caja hasta el próximo envío (UX F6.9). */
+  const [pista, setPista] = useState(false);
   const botonTerminarRef = useRef<HTMLButtonElement>(null);
   /** Sube al terminar el chat: una carga en vuelo de la conversación anterior ya no responde. */
   const turno = useRef(0);
@@ -145,8 +157,13 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
   // Guardado tras cada cambio (AC1/AC7: `serializar` recorta a los 50 más recientes). Sin mensajes no
   // se escribe: «Terminar chat» ya barrió la clave.
   useEffect(() => {
-    if (userId !== undefined && mensajes.length > 0) escribirCrudo(userId, serializar(mensajes));
+    if (userId === undefined || mensajes.length === 0) return;
+    const guardado = serializar(mensajes);
+    escribirCrudo(userId, guardado);
+    recordarMensajes(userId, mensajes, guardado);
   }, [userId, mensajes]);
+
+  const gestion = useGestionDrFlit({ userId, user, hasFuncion, mensajes, setMensajes, anunciar: setAnuncio });
 
   // Verificación de las referencias restauradas: solo fichas visibles citadas (AC5).
   useEffect(() => {
@@ -239,9 +256,40 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
   const preguntar = (texto: string) => {
     if (buscando) return;
     setListaAbierta(false);
+    setPista(false);
     const id = nuevoIdMensaje();
-    setMensajes((prev) => agregar(prev, { id, ts: Date.now(), de: 'usuario', tipo: 'pregunta', texto }));
-    buscarPregunta(id, texto, 0);
+    // HU #13836 AC1/AC7: placa, VIN o id FLIT con algún módulo de consulta → oferta, nada se ejecuta.
+    const detectado = detectarValorGestion(texto);
+    const oferta: MensajeDrFlit | null = detectado && gestion.modulosPara(detectado.tipo).length > 0
+      ? {
+        id: nuevoIdMensaje(), ts: Date.now(), de: 'drflit', tipo: 'ofertaGestion',
+        respondeA: id, valor: detectado.valor, tipoValor: detectado.tipo, estado: 'viva',
+      }
+      : null;
+    setMensajes((prev) => {
+      // Una sola oferta viva (F6.3): la anterior pierde sus botones y queda «No consulté …».
+      const previos = prev.map((m) =>
+        (m.tipo === 'ofertaGestion' && m.estado === 'viva' ? { ...m, estado: 'ignorada' as const } : m));
+      const conPregunta = agregar(previos, { id, ts: Date.now(), de: 'usuario', tipo: 'pregunta', texto });
+      return oferta ? agregar(conPregunta, oferta) : conPregunta;
+    });
+    if (!oferta) buscarPregunta(id, texto, 0);
+  };
+
+  /** «Buscar en los manuales»: la oferta pierde sus botones y corre la Ayuda con el mismo texto. */
+  const aManuales = (ofertaId: string) => {
+    if (buscando) return;
+    const oferta = mensajes.find((m) => m.id === ofertaId);
+    if (!oferta || oferta.tipo !== 'ofertaGestion' || oferta.estado !== 'viva') return;
+    const pregunta = mensajes.find((m) => m.id === oferta.respondeA);
+    setMensajes((prev) => prev.map((m) => (m.id === ofertaId && m.tipo === 'ofertaGestion' ? { ...m, estado: 'manuales' as const } : m)));
+    botonPieRef.current?.focus();
+    if (pregunta?.tipo === 'pregunta') buscarPregunta(pregunta.id, pregunta.texto, 0);
+  };
+
+  const volverAConsultar = () => {
+    setPista(true);
+    cajaRef.current?.focus();
   };
 
   const elegir = (entrada: EntradaAyuda) => {
@@ -290,6 +338,8 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
   const terminar = () => {
     turno.current += 1;
     limpiarConversacionDrFlit();
+    olvidarGestion();
+    setPista(false);
     setMensajes([]);
     setPendiente(null);
     setVerificacion(null);
@@ -378,7 +428,19 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
                   )}
                 </div>
               </BurbujaDrFlit>
-              {mensajes.map((m) => (
+              {mensajes.map((m) => (m.tipo === 'ofertaGestion' ? (
+                <OfertaGestion key={m.id} mensaje={m} onConsultar={gestion.consultar} onManuales={aManuales} />
+              ) : m.tipo === 'resultadoGestion' ? (
+                <ResultadoGestion
+                  key={m.id}
+                  mensaje={m}
+                  grupos={gestion.resultados.get(m.id) ?? {}}
+                  onReintentar={gestion.reintentar}
+                  onNavegar={onNavegar}
+                />
+              ) : m.tipo === 'marcadorGestion' ? (
+                <MarcadorGestion key={m.id} mensaje={m} onVolver={volverAConsultar} />
+              ) : (
                 <DrFlitMensaje
                   key={m.id}
                   mensaje={m}
@@ -389,7 +451,7 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
                   verificando={verificando}
                   onSoporte={soporteVisible ? abrirAsistente : undefined}
                 />
-              ))}
+              )))}
               {verificacion?.estado === 'error' && <DrFlitErrorRestaurar onReintentar={reintentarRestaurar} />}
               {pendiente?.estado === 'cargando' && <DrFlitBuscando />}
               {pendiente?.estado === 'error' && pendiente.tipo === 'modulo' && (
@@ -411,7 +473,12 @@ export default function DrFlitPanel({ onNavegar }: DrFlitPanelProps) {
             style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
           >
             <div className="flex flex-wrap items-center gap-2">{botonExplicame(botonPieRef)}</div>
-            <DrFlitPregunta onEnviar={preguntar} ocupado={buscando} inputRef={cajaRef} />
+            <DrFlitPregunta
+              onEnviar={preguntar}
+              ocupado={buscando}
+              inputRef={cajaRef}
+              pista={pista ? 'Escriba la placa, el VIN o el id FLIT que quiere consultar.' : undefined}
+            />
           </div>
         </>
       )}

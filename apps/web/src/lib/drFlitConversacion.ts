@@ -10,6 +10,7 @@ import { resumenDeEntrada } from './ayudaBusqueda';
 import { entradaAyudaPorClave, esClaveAyuda, puedeVerEntradaAyuda, type UsuarioAyuda } from './ayudaFlito';
 import { anclaExiste, MAX_CITAS } from './drFlitBusqueda';
 import { borrarCrudo, leerCrudo } from './drFlitAlmacen';
+import { sinValoresDeGestion, type MensajeGestion } from './drFlitGestion';
 
 /** Versión de la forma guardada. Un `tipo` nuevo NO la sube (se descarta al restaurar). */
 export const VERSION_CONVERSACION = 1;
@@ -40,7 +41,12 @@ export type MensajeDrFlit =
    * HU #13806: caso de soporte radicado. SOLO el número (nada del formulario, P9-6). Tipo nuevo sin
    * subir `VERSION_CONVERSACION`: un código anterior lo descarta al restaurar.
    */
-  | (Base & { de: 'drflit'; tipo: 'casoRadicado'; numero: number });
+  | (Base & { de: 'drflit'; tipo: 'casoRadicado'; numero: number })
+  /**
+   * HU #13836 (F6): oferta, resultado y marcador de una consulta de gestión. Oferta y resultado
+   * solo viven en memoria; `serializar` los quita y cambia el mensaje con el valor por el marcador.
+   */
+  | MensajeGestion;
 
 let secuencia = 0;
 
@@ -83,9 +89,13 @@ export interface ConversacionGuardada {
   mensajes: MensajeDrFlit[];
 }
 
-/** `{ v: 1, mensajes }` con los `MAX_MENSAJES` más recientes (AC7). */
+/**
+ * `{ v: 1, mensajes }` con los `MAX_MENSAJES` más recientes (AC7). HU #13836 AC8: ningún valor de
+ * gestión (placa, VIN, id FLIT) ni campo de tarjeta entra al almacén — el turno queda como marcador.
+ */
 export function serializar(mensajes: readonly MensajeDrFlit[]): string {
-  const guardada: ConversacionGuardada = { v: VERSION_CONVERSACION, mensajes: mensajes.slice(-MAX_MENSAJES) };
+  const guardables = sinValoresDeGestion(mensajes) as MensajeDrFlit[];
+  const guardada: ConversacionGuardada = { v: VERSION_CONVERSACION, mensajes: guardables.slice(-MAX_MENSAJES) };
   return JSON.stringify(guardada);
 }
 
@@ -127,6 +137,9 @@ function mensajeValido(x: unknown): MensajeDrFlit | null {
     case 'casoRadicado':
       return x.de === 'drflit' && typeof x.numero === 'number' && Number.isSafeInteger(x.numero) && x.numero > 0
         ? { ...base, de: 'drflit', tipo: 'casoRadicado', numero: x.numero } : null;
+    case 'marcadorGestion':
+      return x.de === 'drflit' && typeof x.consulta === 'boolean'
+        ? { ...base, de: 'drflit', tipo: 'marcadorGestion', consulta: x.consulta } : null;
     default:
       return null;
   }

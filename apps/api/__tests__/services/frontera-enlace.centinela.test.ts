@@ -295,6 +295,7 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['GET /api/flito/derechos/soporte/:id',                                      'filtra'],
   ['GET /api/flito/tramites',                                                  'filtra'],
   ['POST /api/flito/tramites/novedades/buscar',                                'filtra'],
+  ['POST /api/flito/tramites/buscar',                                          'filtra'], // HU #13836: Dr. Flit gestión, alcance del listado
   ['GET /api/flito/tramites/facetas',                                          'filtra'],
   ['GET /api/flito/tramites/:id/historial',                                    'filtra'],
   ['GET /api/flito/tramites/:id/soportes',                                     'filtra'],

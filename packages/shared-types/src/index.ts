@@ -147,3 +147,6 @@ export * from './flito-gastos-diarios.js';
 export * from './flito-tramite-fuente.js';
 // Dr. Flit — autorización de tratamiento de datos y soporte (HU #13803, Feature #13695).
 export * from './flito-dr-flit.js';
+// Dr. Flit — consultas de gestión sin IA (HU #13836, Feature #13834): body `{ valor }`, `{ total, items }`
+// y las tarjetas por módulo.
+export * from './flito-dr-flit-gestion.js';

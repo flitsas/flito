@@ -1251,3 +1251,7 @@ una ruta. Nada del caso va a la URL (regla 14).
 | ¿Móvil? | F5.12: ancho completo, una columna, envoltura a 320, sin `min-w`, 16 px en los inputs |
 | ¿Feedback? | F5.13: todos los controles con hover y foco, incluidos los radios con cara de pill |
 | ¿Notificación? | Sin toast: éxito en la conversación, error `role="alert"` en el asistente, errores de campo en línea |
+
+# Anexo F6 — Consultas de gestión
+
+Ver [`flito-dr-flit-f6.md`](flito-dr-flit-f6.md) (Feature #13834).
