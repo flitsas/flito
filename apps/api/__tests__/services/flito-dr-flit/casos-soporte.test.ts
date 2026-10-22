@@ -75,7 +75,7 @@ const USUARIOS: Record<number, [string, Enlace, string[]]> = {
   12: ['gestor_impuestos', 'organismos_transito', ['pagina.flito_impuestos']], // Corredor Impuestos
   13: ['cliente', 'compania', ['pagina.flito_soat']],                          // tiene página con ficha: lo saca el enlace
   16: ['admin', 'ninguno', ['pagina.flito_tablero']],                          // sin autorización aceptada
-  17: ['admin', 'ninguno', ['pagina.flito_ayuda', 'pagina.users']],            // ninguna página con ficha
+  17: ['admin', 'ninguno', ['pagina.flito_ayuda', 'pagina.admin_rendimiento']], // ninguna página con ficha (HU #13774: `users` ya tiene ficha)
 };
 const secret = () => new TextEncoder().encode(process.env.JWT_SECRET);
 const token = (sub: number) => new SignJWT({ username: 'u', role: USUARIOS[sub]![0] })
