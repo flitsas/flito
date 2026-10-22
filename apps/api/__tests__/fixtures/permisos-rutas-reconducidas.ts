@@ -164,6 +164,7 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/solicitar-impuestos', codigo: 'tramites.solicitud.pedir_impuestos' },
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/solicitar-ambos', codigo: 'tramites.solicitud.pedir_ambos' },
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/novedades/buscar', codigo: 'tramites.cola.ver' },
+  { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/buscar', codigo: 'tramites.cola.ver' },
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/entregar', codigo: 'tramites.tramite.entregar' },
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/:id/desbloquear-autogestion', codigo: 'tramites.autogestion.desbloquear' },
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/:id/revocar-autogestion', codigo: 'tramites.autogestion.revocar' },

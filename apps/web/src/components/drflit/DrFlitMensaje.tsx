@@ -9,6 +9,7 @@ import {
   estadoReferencia, explicacionDeModulo, type MensajeDrFlit, type RefFicha,
 } from '../../lib/drFlitConversacion';
 import { seccionesDeFicha } from '../../lib/drFlitBusqueda';
+import { esMensajeGestion } from '../../lib/drFlitGestion';
 import { DR_FLIT_ASSETS } from './drFlitAssets';
 
 // Dr. Flit — pinta cada mensaje de la conversación (HU #13765; slim §4, spec UX «Explícame un
@@ -77,6 +78,8 @@ export interface DrFlitMensajeProps {
 export default function DrFlitMensaje({
   mensaje, user, fichas, onNavegar, textoRespondeA, verificando = false, onSoporte,
 }: DrFlitMensajeProps) {
+  // HU #13836: oferta, resultado y marcador de gestión los pinta el panel (`gestion/`).
+  if (esMensajeGestion(mensaje)) return null;
   if (mensaje.tipo === 'casoRadicado') return <DrFlitCasoRadicado numero={mensaje.numero} />;
   if (mensaje.tipo === 'modulo') {
     const entrada = entradaAyudaPorClave(mensaje.clave);
