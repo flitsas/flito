@@ -43,3 +43,12 @@ Escriben `apps/web/public/ayuda/<clave>/NN-<paso>.png` (1280 px, tema claro, ≤
 | Ficha | Capturas |
 |---|---|
 | `flito_logistica_ruta` | 5 (piloto, HU #13769) |
+| `siigo_parametrizacion` | 5 (HU #13770) |
+| `siigo_operacion` | 3 (HU #13770) |
+| `flito_comprobantes` | 3 (HU #13770) |
+| `flito_conciliacion` | 5 (HU #13770) |
+| `flito_bolsas` | 3 (HU #13770) |
+| `flito_tarifas` | 3 (HU #13770) |
+| `flito_servicios_adicionales` | 4 (HU #13770) |
+| `finanzas_reporte_costos` | 4 (HU #13770) |
+| `finanzas_gastos_diarios` | 2 (HU #13770) |
