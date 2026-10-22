@@ -345,4 +345,49 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
       }
     });
   }
+
+  // HU #13772 — manuales del área Corredor Impuestos: misma comprobación que los bloques de Facturación y Corredor
+  // SOAT (versión y fecha exactas, sin rutas, capturas citadas en orden con alt y ≤ 200 KB, diagrama SVG con alt).
+  // Las dos fichas describen procesos de más de 3 pasos o con decisiones: las dos llevan diagrama.
+  const IMPUESTOS_13772: Record<string, { version: string; capturas: string[]; diagrama: string | null }> = {
+    flito_impuestos: { version: '1.1', diagrama: 'ciclo-impuesto.svg', capturas: [
+      '01-cola.png', '02-seleccion.png', '03-carga-masiva.png', '04-validacion-runt.png', '05-detalle.png'] },
+    flito_derechos: { version: '1.1', diagrama: 'canastas-de-carga.svg', capturas: [
+      '01-resultado-de-la-carga.png', '02-drive.png', '03-registrados.png'] },
+  };
+
+  for (const [clave, esperado] of Object.entries(IMPUESTOS_13772)) {
+    test(`HU #13772 — ${clave}: versión ${esperado.version} del 2026-10-22, capturas y diagrama con alt`, () => {
+      const md = leer(`apps/web/src/content/ayuda/${clave}.md`);
+      const { encabezado, errores } = parsearFicha(md);
+      expect(errores, clave).toEqual([]);
+      // AC5 — la ficha cambió: sube la versión menor y la fecha.
+      expect(encabezado!.version, `${clave} · version`).toBe(esperado.version);
+      expect(String(encabezado!.fecha), `${clave} · fecha`).toBe('2026-10-22');
+      // AC4 — sin rutas de API ni rutas de la app en el texto.
+      expect(md, `${clave} · sin rutas`).not.toMatch(/`\/|\/api\/|\/flito\//);
+
+      // AC2 — lista exacta de capturas NN-<paso>.png, con alt, en disco y ≤ 200 KB.
+      const dir = resolve(raiz, 'apps/web/public/ayuda', clave);
+      const capturas = [...md.matchAll(new RegExp(`!\\[([^\\]]*)\\]\\(\\./${clave}/(\\d{2}-[a-z0-9-]+\\.png)\\)`, 'g'))];
+      expect(capturas.map((m) => m[2]), `${clave} · capturas`).toEqual(esperado.capturas);
+      for (const [, alt, archivo] of capturas) {
+        expect(alt.trim().length, `${clave}/${archivo} · alt`).toBeGreaterThan(10);
+        const ruta = resolve(dir, archivo);
+        expect(existsSync(ruta), `${clave}/${archivo} en disco`).toBe(true);
+        expect(statSync(ruta).size, `${clave}/${archivo} ≤ 200 KB`).toBeLessThanOrEqual(200 * 1024);
+        // AC2 — pasos numerados: la captura va al final de su paso; en un párrafo aparte, la lista reinicia en «1.».
+        const linea = md.split('\n').find((l) => l.includes(`(./${clave}/${archivo})`));
+        expect(linea, `${clave}/${archivo} · dentro de su paso`).toMatch(/^\d+\. /);
+      }
+
+      // AC3 — diagrama SVG estático con alt (o ninguno, si la ficha no describe un proceso).
+      const diagramas = [...md.matchAll(new RegExp(`!\\[([^\\]]*)\\]\\(\\./${clave}/([a-z0-9-]+\\.svg)\\)`, 'g'))];
+      expect(diagramas.map((m) => m[2]), `${clave} · diagramas`).toEqual(esperado.diagrama ? [esperado.diagrama] : []);
+      for (const [, alt, archivo] of diagramas) {
+        expect(alt.trim().length, `${clave}/${archivo} · alt`).toBeGreaterThan(10);
+        expect(existsSync(resolve(dir, archivo)), `${clave}/${archivo} en disco`).toBe(true);
+      }
+    });
+  }
 });

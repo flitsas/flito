@@ -59,3 +59,5 @@ Escriben `apps/web/public/ayuda/<clave>/NN-<paso>.png` (1280 px, tema claro, ≤
 | `flito_comparendos` | 4 (HU #13771) |
 | `clients` | 3 (HU #13771) |
 | `flito_tablero` | 2 (HU #13771) |
+| `flito_impuestos` | 5 (HU #13772) |
+| `flito_derechos` | 3 (HU #13772) |
