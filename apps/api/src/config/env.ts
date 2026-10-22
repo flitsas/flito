@@ -19,6 +19,17 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') });
  * boot, que es justo lo contrario del defecto seguro.
  */
 const vacioComoAusente = (v: unknown) => (v === '' ? undefined : v);
+/** HU #13803: origen permitido para la organización de Azure DevOps de Dr. Flit (https y host de ADO). */
+export function esOrigenAdoPermitido(valor: string): boolean {
+  try {
+    const u = new URL(valor);
+    const host = u.hostname.toLowerCase();
+    return u.protocol === 'https:' && u.username === '' && u.password === ''
+      && (host === 'dev.azure.com' || /^[a-z0-9-]+\.visualstudio\.com$/.test(host));
+  } catch {
+    return false;
+  }
+}
 const MSG_FLIT2_RESPALDO_MIN = 'FLIT2_RESPALDO_MIN debe ser un entero de 1 a 120 (minutos)';
 
 const envSchema = z.object({
@@ -368,7 +379,40 @@ const envSchema = z.object({
   SYNC_CRON: z.string().default('0 */5 * * * *'),
   // Habilita el job de sincronización FLITO. Default true; 'false'/'0' lo apaga.
   SYNC_HABILITADO: z.string().optional().transform((v) => v !== 'false' && v !== '0'),
+  // ── Dr. Flit soporte (Feature #13695, HU #13803) ─────────────────────────────────────────────
+  // Ambiente del despliegue. NUNCA se deriva de NODE_ENV (salvo el fallback DEV de `development` en
+  // `dr-flit.config.ts`). Ausente en producción → soporte no disponible (fallo cerrado).
+  DEPLOY_ENVIRONMENT: z.preprocess(vacioComoAusente, z.enum(['DEV', 'QA', 'PDN']).optional()),
+  // Adaptador del cliente de FLIT - SOPORTE. `simulado` no hace red y está PROHIBIDO en PDN (superRefine).
+  DRFLIT_ADO_MODO: z.preprocess(vacioComoAusente, z.enum(['real', 'simulado']).default('real')),
+  // SECRETO: PAT con alcance «Work Items (Read & Write)». Nunca en logs ni en `.env.example` con valor.
+  DRFLIT_ADO_PAT: z.preprocess(vacioComoAusente, z.string().min(1).optional()),
+  // Organización de ADO. Solo `https://dev.azure.com/...` o `https://<org>.visualstudio.com` (cierra SSRF
+  // por configuración).
+  DRFLIT_ADO_ORG_URL: z.preprocess(
+    vacioComoAusente,
+    z.string().url().refine(esOrigenAdoPermitido, {
+      message: 'DRFLIT_ADO_ORG_URL debe ser https://dev.azure.com/<org> o https://<org>.visualstudio.com',
+    }).optional(),
+  ),
+  DRFLIT_ADO_PROJECT: z.preprocess(vacioComoAusente, z.string().min(1).max(64).default('FLIT - SOPORTE')),
 }).superRefine((data, ctx) => {
+  // HU #13803 (P9-1): el cliente simulado de FLIT - SOPORTE no puede arrancar en PDN, ni en una
+  // producción que no declaró su ambiente (fallo cerrado).
+  if (data.DRFLIT_ADO_MODO === 'simulado' && data.DEPLOY_ENVIRONMENT === 'PDN') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['DRFLIT_ADO_MODO'],
+      message: 'DRFLIT_ADO_MODO=simulado no está permitido con DEPLOY_ENVIRONMENT=PDN',
+    });
+  }
+  if (data.DRFLIT_ADO_MODO === 'simulado' && data.NODE_ENV === 'production' && !data.DEPLOY_ENVIRONMENT) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['DRFLIT_ADO_MODO'],
+      message: 'DRFLIT_ADO_MODO=simulado en producción exige DEPLOY_ENVIRONMENT (DEV o QA)',
+    });
+  }
   // Bloquea CORS_ORIGIN='*' en producción (XSS cross-origin).
   if (data.NODE_ENV === 'production' && data.FLIT2_SYNC_ADAPTER === 'fake') {
     ctx.addIssue({
