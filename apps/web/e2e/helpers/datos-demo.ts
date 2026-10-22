@@ -120,6 +120,12 @@ export const CLAVES_SENSIBLES: Record<string, keyof typeof DATOS_DEMO> = {
   titular: 'nombres',
   placaSugerida: 'placas',
   actorNombre: 'actores',
+  // Área Corredor Impuestos (HU #13772)
+  compradorNombre: 'nombres',
+  compradorDocumento: 'cedulas',
+  empresa: 'empresas',
+  modificadoPor: 'nombres',
+  certificadoPorNombre: 'nombres',
 };
 
 // ── Licencia de tránsito (PDF417) ficticia ───────────────────────────────────
@@ -855,6 +861,110 @@ export const SOAT_DOCUMENTOS_ADICIONALES_DEMO = {
   ],
 };
 
+// ── Área Corredor Impuestos (HU #13772) ─────────────────────────────────────
+// Trámites `FLIT-DEMO-…` e impuestos `imp-demo-…`: identificadores sintéticos. Compradores, placas y VIN
+// del registro; organismo con su nombre real (entidad pública) y marcas reales.
+
+// ── Cola de Impuestos ──
+function impuesto(i: number, p: Record<string, unknown>) {
+  const k = (i - 1) % 3;
+  return {
+    id: `imp-demo-${i}`, tramiteId: `tra-demo-${i}`, idFlit: `FLIT-DEMO-${100 + i}`, placa: P[i - 1], vin: V[i - 1],
+    marca: 'Chevrolet', linea: 'Onix', tipoTramite: 'Matricula', fechaAprobacion: null, fechaCreacion: '2026-10-20T15:00:00Z',
+    estado: 'pendiente', compradorNombre: NOMBRES_DEMO[k], compradorDocumento: C[k], compradorTipoDocumento: 'CC',
+    companiaNombre: EMPRESAS_DEMO[k], organismoCodigo: '17001', organismoNombre: ORGANISMOS_REALES[0],
+    valorLiquidado: null, valorPagado: null, marcadoPorDiferencia: false, tieneFacturaVenta: true,
+    enviadoPorNombre: null, enviadoEn: null, pagadoEn: null, estancado: false, motivoRechazo: null,
+    creadoEn: '2026-10-20T15:10:00Z', gestionOperaciones: false, certificacion: null, liquidadoEn: null, documentos: null,
+    analisisEstado: null, semaforo: null, motivoSemaforo: null, ...p,
+  };
+}
+export const IMPUESTOS_COLA_DEMO = [
+  impuesto(1, {}),
+  impuesto(2, {
+    estado: 'solicitado', marca: 'Renault', linea: 'Duster', enviadoPorNombre: NOMBRES_DEMO[2], enviadoEn: '2026-10-19T16:00:00Z',
+    valorLiquidado: 412000, liquidadoEn: '2026-10-20T14:00:00Z', documentos: 'liquidacion',
+    analisisEstado: 'completado', semaforo: 'naranja',
+  }),
+  impuesto(3, {
+    estado: 'pagado', marca: 'Mazda', linea: 'CX-30', enviadoPorNombre: NOMBRES_DEMO[2], enviadoEn: '2026-10-16T16:00:00Z',
+    valorLiquidado: 385000, valorPagado: 385000, liquidadoEn: '2026-10-17T14:00:00Z', pagadoEn: '2026-10-20T13:00:00Z', documentos: 'ambos',
+    analisisEstado: 'completado', semaforo: 'verde',
+    certificacion: { id: 'cert-demo-3', certificadoEn: '2026-10-17T15:00:00Z', certificadoPorNombre: null, automatica: true },
+  }),
+  impuesto(4, {
+    estado: 'solicitado', marca: 'Kia', linea: 'Picanto', enviadoPorNombre: NOMBRES_DEMO[2], enviadoEn: '2026-10-08T16:00:00Z',
+    estancado: true, gestionOperaciones: true, analisisEstado: 'completado', semaforo: 'rojo', motivoSemaforo: 'runt_sin_respuesta',
+  }),
+];
+export const IMPUESTOS_FACETAS_DEMO = {
+  companias: CLIENTE_DEMO.map((c) => ({ id: c.id, nombre: c.name })),
+  organismos: [{ codigo: '17001', nombre: ORGANISMOS_REALES[0] }],
+};
+/** Detalle del impuesto en naranja (`imp-demo-2`): la factura y el RUNT no coinciden en color y cilindraje. */
+export const IMPUESTO_DETALLE_DEMO = {
+  ...IMPUESTOS_COLA_DEMO[1],
+  comparacion: {
+    version: 1, motivo: null, calculadoEn: '2026-10-19T16:05:00Z',
+    resumen: { coinciden: 4, difieren: 2, noVerificables: 0 },
+    campos: [
+      { campo: 'vin', resultado: 'coincide', valorFactura: V[1], valorRunt: V[1] },
+      { campo: 'marca', resultado: 'coincide', valorFactura: 'RENAULT', valorRunt: 'RENAULT' },
+      { campo: 'linea', resultado: 'coincide', valorFactura: 'DUSTER', valorRunt: 'DUSTER' },
+      { campo: 'anio', resultado: 'coincide', valorFactura: '2027', valorRunt: '2027' },
+      { campo: 'color', resultado: 'difiere', valorFactura: 'GRIS ESTRELLA', valorRunt: 'GRIS COMETA' },
+      { campo: 'cilindrada', resultado: 'difiere', valorFactura: '1598', valorRunt: '1600' },
+    ],
+  },
+  // Sin dirección: la captura no la necesita y así ningún fixture lleva una dirección.
+  direccionComprador: null, envioFlit2: null, envioComprobante: null,
+  soportes: [{ id: 'sop-demo-2', tipo: 'liquidacion' }],
+};
+
+// ── Derechos de tránsito ──
+function derecho(i: number, p: Record<string, unknown>) {
+  const k = (i - 1) % 3;
+  return {
+    id: `der-demo-${i}`, tramiteId: `tra-demo-${i}`, idFlit: `FLIT-DEMO-${100 + i}`, placa: P[i - 1], organismoCodigo: '17001',
+    empresa: EMPRESAS_DEMO[k], valor: '186500', fechaPago: '2026-10-20', numeroRadicado: null, tipoTramiteRecibo: 'Matrícula inicial',
+    origen: 'manual', advertencias: null, soporteId: `sop-der-demo-${i}`, createdAt: '2026-10-20T16:00:00Z',
+    archivoOrigen: `recibo-demo-${i}.pdf`, paginas: [1], procesamientoId: null, procesamientoArchivo: null,
+    vin: V[i - 1], marca: 'Chevrolet', linea: 'Onix', tipoTramite: 'Matricula', fechaAprobacion: null, fechaCreacion: '2026-10-19T15:00:00Z',
+    ...p,
+  };
+}
+export const DERECHOS_DEMO = {
+  items: [
+    derecho(1, {}),
+    derecho(2, { marca: 'Renault', linea: 'Duster', origen: 'drive', archivoOrigen: null, procesamientoId: 7,
+      procesamientoArchivo: 'consolidado-demo-2026-10-20.pdf', paginas: [3, 4] }),
+    // `advertencias` es un arreglo de textos del sistema (no lleva datos de personas): el guard no lo recorre.
+    derecho(3, { marca: 'Mazda', linea: 'CX-30', tipoTramite: 'Traspaso',
+      advertencias: ['El concepto del recibo (Matrícula inicial) no coincide con el del trámite (Traspaso).'] }),
+  ],
+  total: 3,
+};
+export const DERECHOS_FACETAS_DEMO = { organismos: ['17001'], origenes: ['manual', 'drive'] };
+/** Resultado de una carga manual: una canasta por desenlace. */
+export const DERECHOS_RESULTADO_DEMO = {
+  registrados: [{ archivo: 'recibo-demo-1.pdf', placa: P[0], idFlit: 'FLIT-DEMO-101', registroId: 'der-demo-1', valor: '186500', detalle: 'Registrado en el trámite.' }],
+  enRevision: [{ archivo: 'recibo-demo-4.pdf', placa: P[3], idFlit: null, registroId: null, valor: '186500', detalle: 'La placa tiene varios trámites: se resuelve en Revisiones OCR.' }],
+  duplicados: [{ archivo: 'recibo-demo-2.pdf', placa: P[1], idFlit: 'FLIT-DEMO-102', registroId: 'der-demo-2', valor: '186500', detalle: 'Ya estaba registrado.' }],
+  pendientes: [], omitidas: [], fallidos: [],
+};
+/** Pestaña «Drive · Medellín»: consolidados del día y el registro de pasadas. `modificadoPor` es una persona demo. */
+export const DERECHOS_DRIVE_DEMO = [
+  { fileId: 'drv-demo-1', nombre: 'consolidado-demo-2026-10-21.pdf', tamanoBytes: 1_258_291, modificadoEn: '2026-10-21T12:30:00Z',
+    modificadoPor: NOMBRES_DEMO[3], procesadoEn: null, omitidoEn: null },
+  { fileId: 'drv-demo-2', nombre: 'consolidado-demo-2026-10-20.pdf', tamanoBytes: 1_048_000, modificadoEn: '2026-10-20T12:10:00Z',
+    modificadoPor: NOMBRES_DEMO[3], procesadoEn: '2026-10-20T14:00:00Z', omitidoEn: null },
+];
+export const DERECHOS_DRIVE_REGISTRO_DEMO = [
+  { id: 7, fileId: 'drv-demo-2', nombreArchivo: 'consolidado-demo-2026-10-20.pdf', estado: 'completado', modificadoPor: NOMBRES_DEMO[3],
+    modificadoEn: '2026-10-20T12:10:00Z', totalPaginas: 13, cuentasDetectadas: 12, placasUnicas: 11, valorTotal: '2238000',
+    error: null, procesadoEn: '2026-10-20T14:00:00Z', sigueEnDrive: true },
+];
+
 /** Usuario de sesión de las capturas del área Facturación (HU #13770): Administrador demo. */
 export const NOMBRE_ADMIN_DEMO = NOMBRES_DEMO[2];
 
@@ -916,6 +1026,24 @@ export const FIXTURES_DEMO: Record<string, unknown> = {
   SOAT_POR_VALIDAR_DEMO,
   SOAT_COMPANIAS_CANAL_DEMO,
   SOAT_DOCUMENTOS_ADICIONALES_DEMO,
+  // ── Área Corredor Impuestos (HU #13772) ──
+  IMPUESTOS_COLA_DEMO,
+  // `nombre` de un organismo de tránsito: nombre real permitido; se recorre con otra clave.
+  IMPUESTOS_FACETAS_DEMO: { ...IMPUESTOS_FACETAS_DEMO, organismos: IMPUESTOS_FACETAS_DEMO.organismos.map(({ nombre, ...o }) => ({ ...o, organismo: nombre })) },
+  // `comparacion.campos` trae {campo, valorFactura, valorRunt}: se aplana a {<campo>: valor} por lado para que
+  // el VIN leído de la factura y el del RUNT se recorran bajo la clave `vin`.
+  IMPUESTO_DETALLE_DEMO: {
+    ...IMPUESTO_DETALLE_DEMO,
+    comparacion: {
+      factura: Object.fromEntries(IMPUESTO_DETALLE_DEMO.comparacion.campos.map((c) => [c.campo, c.valorFactura])),
+      runt: Object.fromEntries(IMPUESTO_DETALLE_DEMO.comparacion.campos.map((c) => [c.campo, c.valorRunt])),
+    },
+  },
+  DERECHOS_DEMO,
+  DERECHOS_RESULTADO_DEMO,
+  // El `nombre` de un archivo del Drive no es de una persona: se recorre con otra clave.
+  DERECHOS_DRIVE_DEMO: DERECHOS_DRIVE_DEMO.map(({ nombre, ...a }) => ({ ...a, nombreArchivo: nombre })),
+  DERECHOS_DRIVE_REGISTRO_DEMO,
 };
 
 // ── Interceptación de /api ───────────────────────────────────────────────────
