@@ -40,32 +40,42 @@ test.describe('FLITO — Ayuda · acceso', () => {
     await expect(nav.getByRole('link', { name: 'Ayuda', exact: true })).toBeVisible();
   });
 
-  // HU #13774: Cumplimiento tiene `privacy` de partida, así que desde las fichas de Privacidad y Log PII ya
-  // tiene módulos con ayuda (lo comprueba el bloque AC2 de abajo); deja de ser un rol «sin catálogo».
+  // HU #13775: la ficha «Tablero de control» cuelga de `dashboard`, que todos los roles del sistema salvo `cliente`
+  // tienen de partida (`ROLE_DEFAULT_PAGES`). Los que eran «sin catálogo» (conductor, tránsito, líder PESV y
+  // supervisor de flota; Cumplimiento ya salió en la HU #13774) pasan a ver Ayuda, con esa ficha en General.
   for (const usuario of SIN_CATALOGO.filter((u) => u.role !== COMPLIANCE_USER.role)) {
-    // HU #13704 AC7 (P9-3a): el ítem sigue oculto; la URL directa ya no es NoAccess sino el vacío
-    // «Su usuario aún no tiene módulos con ayuda» con salida al inicio.
-    test(`AC2 — ${usuario.role} no ve el ítem; /flito/ayuda muestra el vacío sin módulos (HU #13704 AC7)`, async ({ page }) => {
+    test(`HU #13775 — ${usuario.role} ya ve Ayuda: el ítem y la ficha «Tablero de control»`, async ({ page }) => {
       await loginAs(page, usuario);
-      await page.goto('/');
-      await expect(page.getByRole('navigation', { name: 'Navegación principal' })).toBeVisible();
-      await expect(page.getByRole('link', { name: 'Ayuda', exact: true })).toHaveCount(0);
-
-      await page.keyboard.press('Control+k');
-      await page.getByPlaceholder('Buscar o ir a…').fill('ayuda');
-      await expect(page.getByRole('option', { name: /^Ayuda/ })).toHaveCount(0);
-      await page.keyboard.press('Escape');
-
       await page.goto('/flito/ayuda');
-      await expect(page.getByRole('heading', { name: 'Su usuario aún no tiene módulos con ayuda' })).toBeVisible();
-      await expect(page.getByRole('link', { name: 'Volver al inicio' })).toHaveAttribute('href', '/');
-      await expect(page.getByRole('heading', { name: /no tienes acceso a ayuda flito/i })).toHaveCount(0);
-      await expect(page.getByRole('searchbox', { name: 'Buscar fichas' })).toHaveCount(0);
-      await expect(page).toHaveURL(/\/flito\/ayuda$/);
-      // El menú sigue sin el ítem en la página del vacío.
-      await expect(page.getByRole('link', { name: 'Ayuda', exact: true })).toHaveCount(0);
+      const nav = page.getByRole('navigation', { name: 'Navegación principal' });
+      await expect(nav.getByRole('link', { name: 'Ayuda', exact: true })).toBeVisible();
+      await expect(page.getByText('Su usuario aún no tiene módulos con ayuda')).toHaveCount(0);
+      await expect(page.getByRole('link', { name: 'Abrir ficha de Tablero de control' })).toBeVisible();
     });
   }
+
+  // HU #13704 AC7 (P9-3a): quien no tiene ninguna pantalla con ficha no ve el ítem, y la URL directa da el vacío
+  // «Su usuario aún no tiene módulos con ayuda» con salida al inicio. Desde la HU #13775 ningún rol del sistema
+  // llega aquí de partida; el caso es un rol creado por el administrador sin `dashboard` (sus páginas son solo
+  // las que se le dieron).
+  const ROL_PROPIO_SIN_FICHAS = {
+    id: 25, username: 'e2e_ayuda_rol_propio', name: 'Rol propio Ayuda E2E', role: 'rol_propio_e2e', allowedPages: ['pesv'],
+  };
+  test('AC2 — sin ninguna pantalla con ficha no ve el ítem; /flito/ayuda muestra el vacío sin módulos (HU #13704 AC7)', async ({ page }) => {
+    await loginAs(page, ROL_PROPIO_SIN_FICHAS);
+    await page.goto('/flito/ayuda');
+    await expect(page.getByRole('navigation', { name: 'Navegación principal' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Su usuario aún no tiene módulos con ayuda' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Volver al inicio' })).toHaveAttribute('href', '/');
+    await expect(page.getByRole('heading', { name: /no tienes acceso a ayuda flito/i })).toHaveCount(0);
+    await expect(page.getByRole('searchbox', { name: 'Buscar fichas' })).toHaveCount(0);
+    await expect(page).toHaveURL(/\/flito\/ayuda$/);
+    await expect(page.getByRole('link', { name: 'Ayuda', exact: true })).toHaveCount(0);
+
+    await page.keyboard.press('Control+k');
+    await page.getByPlaceholder('Buscar o ir a…').fill('ayuda');
+    await expect(page.getByRole('option', { name: /^Ayuda/ })).toHaveCount(0);
+  });
 
   test('AC2 — conductor: la ficha de otra pantalla por URL sigue en NoAccess de esa pantalla', async ({ page }) => {
     await loginAs(page, CONDUCTOR_USER);

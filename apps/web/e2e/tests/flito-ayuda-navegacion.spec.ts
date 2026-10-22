@@ -89,7 +89,7 @@ test.describe('FLITO — Ayuda · navegación, unidad pura (HU #13705)', () => {
   });
 
   test('GRUPOS_ORDEN vive en el catálogo y cubre todos los grupos', () => {
-    expect([...GRUPOS_ORDEN]).toEqual(['general', 'gestion', 'finanzas', 'administracion']);
+    expect([...GRUPOS_ORDEN]).toEqual(['general', 'gestion', 'transito', 'finanzas', 'administracion']); // HU #13775: Tránsito
     for (const e of CATALOGO_AYUDA) expect(GRUPOS_ORDEN).toContain(e.grupo);
   });
 
@@ -214,6 +214,35 @@ Texto.
     await page.goto(`/flito/ayuda/${ultima}`);
     await expect(nav.getByRole('link', { name: `Ficha anterior: ${etiqueta(claves[claves.length - 2])}` })).toBeVisible();
     await expect(nav.getByRole('link', { name: /^Ficha siguiente/ })).toHaveCount(0);
+  });
+
+  // HU #13775 — el grupo Tránsito entra entre Gestión y Finanzas en Anterior/Siguiente (docs/ux/flito-ayuda-transito.md).
+  test('HU #13775 — Siguiente y Anterior cruzan Gestión → Tránsito → Finanzas', async ({ page }) => {
+    const ultimaGestion = CATALOGO_AYUDA.filter((c) => c.grupo === 'gestion').at(-1)!;
+    const primeraFinanzas = CATALOGO_AYUDA.find((c) => c.grupo === 'finanzas')!;
+    expect(GRUPOS_ORDEN.slice(1, 4)).toEqual(['gestion', 'transito', 'finanzas']);
+    await loginAs(page, OPERACIONES_USER); // admin: ve todas las fichas
+    await page.goto(`/flito/ayuda/${ultimaGestion.clave}`);
+    const nav = page.getByRole('navigation', { name: 'Navegación entre fichas' });
+    await nav.getByRole('link', { name: 'Ficha siguiente: Organismos de tránsito' }).click();
+    await expect(page).toHaveURL(/\/flito\/ayuda\/transito_organismos$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Organismos de tránsito' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: `Ficha anterior: ${ultimaGestion.etiqueta}` })).toBeVisible();
+
+    await nav.getByRole('link', { name: `Ficha siguiente: ${primeraFinanzas.etiqueta}` }).click();
+    await expect(page).toHaveURL(new RegExp(`/flito/ayuda/${primeraFinanzas.clave}$`));
+    await nav.getByRole('link', { name: 'Ficha anterior: Organismos de tránsito' }).click();
+    await expect(page).toHaveURL(/\/flito\/ayuda\/transito_organismos$/);
+    await nav.getByRole('link', { name: `Ficha anterior: ${ultimaGestion.etiqueta}` }).click();
+    await expect(page).toHaveURL(new RegExp(`/flito/ayuda/${ultimaGestion.clave}$`));
+  });
+
+  test('HU #13775 AC4 — /flito/ayuda/transito_organismos sin el permiso: NoAccess, sin la ficha', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await page.goto('/flito/ayuda/transito_organismos');
+    await expect(page.getByRole('heading', { name: /no tienes acceso a organismos de tránsito/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Qué es', exact: true })).toHaveCount(0);
+    await expect(page.getByText('Configuración de cada secretaría de tránsito', { exact: false })).toHaveCount(0);
   });
 
   test('AC6 — bajo lg: TOC plegada arriba del cuerpo, sin desborde; Anterior/Siguiente apilados', async ({ page }) => {

@@ -10,7 +10,7 @@ import { CATALOGO_AYUDA } from '../../src/content/ayuda/catalogo';
 import { parsearFicha } from '../../src/lib/ayudaFicha';
 import { documentoDeEntrada, ordenarPorRelevancia, type DocumentoAyuda } from '../../src/lib/ayudaBusqueda';
 import {
-  loginAs, abrirAyuda, buscarFichas, FINANCIERA_USER, OPERACIONES_USER, CONDUCTOR_USER,
+  loginAs, abrirAyuda, buscarFichas, FINANCIERA_USER, OPERACIONES_USER,
 } from '../helpers/ayuda-fixtures';
 
 const raiz = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../..');
@@ -150,11 +150,12 @@ test.describe('FLITO — Ayuda · búsqueda por relevancia en la UI (HU #13704)'
   });
 
   test('AC7 — sin fichas visibles por URL directa: vacío con enlace al inicio; ítem del menú oculto', async ({ page }) => {
-    await loginAs(page, CONDUCTOR_USER);
-    await page.goto('/');
+    // HU #13775: el conductor ya tiene ficha («Tablero de control», por `dashboard`). Sin fichas queda un rol creado
+    // por el administrador sin `dashboard`; se entra directo a la Ayuda (su inicio sería otra pantalla).
+    await loginAs(page, { id: 25, username: 'e2e_ayuda_rol_propio', name: 'Rol propio Ayuda E2E', role: 'rol_propio_e2e', allowedPages: ['pesv'] });
+    await page.goto('/flito/ayuda');
     await expect(page.getByRole('navigation', { name: 'Navegación principal' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Ayuda', exact: true })).toHaveCount(0);
-    await page.goto('/flito/ayuda');
     await expect(page.getByRole('heading', { name: COPY_SIN_MODULOS })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Volver al inicio' })).toHaveAttribute('href', '/');
     await expect(campo(page)).toHaveCount(0);
