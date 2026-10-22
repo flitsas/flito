@@ -25,7 +25,7 @@ de contenido de este Feature (#13770–#13775).
 | Corredor Impuestos | `flito_impuestos`, `flito_derechos` | `flito_tramites`, `flito_revisiones`, `flito_tablero` | — |
 | Mensajero y Logística | `flito_logistica`, `flito_logistica_ruta` | — | Tablero general |
 | Facturación | `siigo_parametrizacion`, `siigo_operacion`, `flito_comprobantes`, `flito_conciliacion`, `flito_bolsas`, `flito_tarifas`, `flito_servicios_adicionales`, `finanzas_reporte_costos`, `finanzas_gastos_diarios` | `clients` | — |
-| Super Admin | `roles_permisos`, `siigo_credenciales` | — | Usuarios, Privacidad y datos, Log de accesos PII, Google Drive, Organismos de tránsito, Tablero general |
+| Super Admin | `privacy_log_pii`, `users`, `roles_permisos`, `drive`, `privacy`, `siigo_credenciales` | — | Organismos de tránsito, Tablero general |
 
 Las cinco áreas listan al menos una ficha publicada.
 
@@ -62,3 +62,9 @@ Escriben `apps/web/public/ayuda/<clave>/NN-<paso>.png` (1280 px, tema claro, ≤
 | `flito_tablero` | 2 (HU #13771) |
 | `flito_impuestos` | 5 (HU #13772) |
 | `flito_derechos` | 3 (HU #13772) |
+| `privacy_log_pii` | 2 (HU #13774) |
+| `users` | 3 (HU #13774) |
+| `roles_permisos` | 4 (HU #13774) |
+| `drive` | 3 (HU #13774) |
+| `privacy` | 2 (HU #13774; solo el estado previo a anonimizar, AC4) |
+| `siigo_credenciales` | 4 (HU #13774) |

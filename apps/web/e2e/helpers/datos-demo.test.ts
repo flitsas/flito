@@ -35,6 +35,11 @@ const REGLA_POR_CATEGORIA: Partial<Record<keyof typeof DATOS_DEMO, RegExp>> = {
   telefonos: REGLAS_DATOS_DEMO.telefono,
   correos: REGLAS_DATOS_DEMO.correo,
   vins: REGLAS_DATOS_DEMO.vin,
+  // Área Super Admin (HU #13774): login con «demo» (y, si es correo, de `ejemplo.test`); IP de documentación
+  // (RFC 5737: 192.0.2.0/24 y 198.51.100.0/24); navegador sintético.
+  usuarios: /^[a-z0-9.]*demo[a-z0-9.]*(@ejemplo\.test)?$/,
+  ips: /^(192\.0\.2|198\.51\.100)\.\d{1,3}$/,
+  agentesUsuario: /Demo/,
 };
 
 function recorrer(valor: unknown, ruta: string, visitar: (clave: string, v: unknown, ruta: string) => void) {

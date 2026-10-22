@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 440" width="1000" height="440" role="img" aria-labelledby="t">
+  <title id="t">Derecho al olvido en Privacidad y datos: escribir el documento, previsualizar, decidir si hay registros y si usted puede anonimizar, confirmar con motivo y documento, y anonimización registrada (diagrama demo, sin datos reales)</title>
+  <rect width="1000" height="440" fill="#ffffff"/>
+  <defs>
+    <marker id="f" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0L10 5L0 10z" fill="#4a5568"/>
+    </marker>
+  </defs>
+  <g font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#1a202c">
+    <rect x="10" y="60" width="170" height="84" rx="12" fill="#edf2f7" stroke="#4a5568" stroke-width="2"/>
+    <text x="95" y="98" font-size="16">Documento</text>
+    <text x="95" y="120" font-size="13">del titular</text>
+    <rect x="215" y="60" width="170" height="84" rx="12" fill="#e0ecff" stroke="#2b6cb0" stroke-width="2"/>
+    <text x="300" y="98" font-size="16">Previsualizar</text>
+    <text x="300" y="120" font-size="13">no cambia nada</text>
+    <rect x="420" y="60" width="170" height="84" rx="12" fill="#fff4e0" stroke="#b7791f" stroke-width="2"/>
+    <text x="505" y="108" font-size="16">¿Hay registros?</text>
+    <rect x="625" y="60" width="170" height="84" rx="12" fill="#fff4e0" stroke="#b7791f" stroke-width="2"/>
+    <text x="710" y="98" font-size="16">Confirmar</text>
+    <text x="710" y="120" font-size="13">motivo y documento</text>
+    <rect x="830" y="60" width="160" height="84" rx="12" fill="#e6f6ec" stroke="#2f855a" stroke-width="2"/>
+    <text x="910" y="98" font-size="16">Anonimizado</text>
+    <text x="910" y="120" font-size="13">queda en auditoría</text>
+    <line x1="180" y1="102" x2="213" y2="102" stroke="#4a5568" stroke-width="2" marker-end="url(#f)"/>
+    <line x1="385" y1="102" x2="418" y2="102" stroke="#4a5568" stroke-width="2" marker-end="url(#f)"/>
+    <line x1="590" y1="102" x2="623" y2="102" stroke="#4a5568" stroke-width="2" marker-end="url(#f)"/>
+    <line x1="795" y1="102" x2="828" y2="102" stroke="#4a5568" stroke-width="2" marker-end="url(#f)"/>
+    <text x="607" y="40" font-size="13">Anonimizar este</text>
+    <text x="607" y="55" font-size="12">documento</text>
+    <text x="812" y="40" font-size="13">Confirmar</text>
+    <text x="812" y="55" font-size="12">anonimización</text>
+    <rect x="330" y="290" width="180" height="84" rx="12" fill="#edf2f7" stroke="#4a5568" stroke-width="2" stroke-dasharray="6 4"/>
+    <text x="420" y="328" font-size="16">Nada que</text>
+    <text x="420" y="350" font-size="13">anonimizar</text>
+    <rect x="560" y="290" width="220" height="84" rx="12" fill="#fde8e8" stroke="#c53030" stroke-width="2" stroke-dasharray="6 4"/>
+    <text x="670" y="328" font-size="16">Solo previsualiza</text>
+    <text x="670" y="350" font-size="13">sin permiso de anonimizar</text>
+    <path d="M505 144 L505 230 L420 230 L420 288" fill="none" stroke="#4a5568" stroke-width="2" marker-end="url(#f)"/>
+    <text x="430" y="220" font-size="13" text-anchor="end">No: 0 registros</text>
+    <path d="M520 144 L520 250 L670 250 L670 288" fill="none" stroke="#c53030" stroke-width="2" marker-end="url(#f)"/>
+    <text x="680" y="240" font-size="13" text-anchor="start">Sí, pero sin permiso</text>
+    <text x="500" y="420" font-size="13" fill="#4a5568">Previsualizar: Administrador y Cumplimiento. Anonimizar: solo quien tenga la acción de olvido (de partida, el Administrador).</text>
+  </g>
+</svg>

@@ -43,7 +43,11 @@ export type ClaveAyuda =
   | 'siigo_parametrizacion'
   | 'siigo_operacion'
   | 'siigo_credenciales'
-  | 'roles_permisos';
+  | 'roles_permisos'
+  | 'users'
+  | 'privacy'
+  | 'privacy_log_pii'
+  | 'drive';
 
 export interface EntradaAyuda {
   clave: ClaveAyuda;
@@ -101,6 +105,13 @@ export const CATALOGO_AYUDA: readonly EntradaAyuda[] = [
   { clave: 'flito_conciliacion', grupo: 'finanzas', etiqueta: 'Conciliación', to: '/flito/conciliacion', permiso: 'flito_conciliacion' },
   { clave: 'siigo_parametrizacion', grupo: 'finanzas', etiqueta: 'Facturación electrónica · Parametrización', to: '/siigo/parametrizacion', permiso: 'siigo_parametrizacion' },
   { clave: 'siigo_operacion', grupo: 'finanzas', etiqueta: 'Facturación electrónica · Operación', to: '/siigo/operacion', permiso: 'siigo_operacion' },
+  // HU #13774 — área Super Admin, en el orden del menú (`NAV_ENTRADAS`, sección `admin`).
+  // «Log accesos PII» no tiene PageSlug propio: en el menú y en `App.tsx` (`/privacy/log-pii`) cuelga de
+  // `privacy`, así que su ficha también. Quien tiene `privacy` ve las dos fichas; quien no, ninguna (AC2).
+  { clave: 'privacy_log_pii', grupo: 'administracion', etiqueta: 'Log accesos PII', to: '/privacy/log-pii', permiso: 'privacy' },
+  { clave: 'users', grupo: 'administracion', etiqueta: 'Usuarios', to: '/users', permiso: 'users' },
   { clave: 'roles_permisos', grupo: 'administracion', etiqueta: 'Roles y permisos', to: '/roles-permisos', permiso: 'roles_permisos' },
+  { clave: 'drive', grupo: 'administracion', etiqueta: 'Google Drive', to: '/drive', permiso: 'drive' },
+  { clave: 'privacy', grupo: 'administracion', etiqueta: 'Privacidad y datos', to: '/privacy', permiso: 'privacy' },
   { clave: 'siigo_credenciales', grupo: 'administracion', etiqueta: 'Integración con Siigo', to: '/siigo/credenciales', permiso: 'siigo_credenciales' },
 ];

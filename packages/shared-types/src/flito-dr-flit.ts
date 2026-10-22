@@ -61,11 +61,11 @@ export const ETIQUETAS_AMBIENTE_DESPLIEGUE: Readonly<Record<AmbienteDespliegue, 
  * Un test del API compara esta lista con el catálogo de la web: una ficha nueva obliga a añadirla aquí.
  */
 export const PAGINAS_AYUDA_DRFLIT = Object.freeze([
-  'clients', 'finanzas_gastos_diarios', 'finanzas_reporte_costos', 'flito_bitacora', 'flito_bolsas',
+  'clients', 'drive', 'finanzas_gastos_diarios', 'finanzas_reporte_costos', 'flito_bitacora', 'flito_bolsas',
   'flito_comparendos', 'flito_comprobantes', 'flito_conciliacion', 'flito_derechos', 'flito_impuestos',
   'flito_logistica', 'flito_logistica_ruta', 'flito_revisiones', 'flito_servicios_adicionales',
-  'flito_soat', 'flito_tablero', 'flito_tarifas', 'flito_tramites', 'roles_permisos',
-  'siigo_credenciales', 'siigo_operacion', 'siigo_parametrizacion', 'soat',
+  'flito_soat', 'flito_tablero', 'flito_tarifas', 'flito_tramites', 'privacy', 'roles_permisos',
+  'siigo_credenciales', 'siigo_operacion', 'siigo_parametrizacion', 'soat', 'users',
 ] as const satisfies readonly PageSlug[]);
 
 /** Topes de longitud de los campos del caso (anexo UX F5). Los consumen HU-2 (API) y HU-4 (web). */

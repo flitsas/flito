@@ -59,7 +59,7 @@ export const DATOS_DEMO = {
   cedulas: ['9900000101', '9900000202', '9900000303'],
   nits: ['999000001-7', '999000002-5', '999000003-3'],
   telefonos: ['3000000101', '3000000102', '3000000103'],
-  correos: ['mensajero@ejemplo.test', 'norte@ejemplo.test', 'sur@ejemplo.test'],
+  correos: ['mensajero@ejemplo.test', 'norte@ejemplo.test', 'sur@ejemplo.test', 'ana.demo@ejemplo.test', 'carlos.demo@ejemplo.test', 'laura.demo@ejemplo.test', 'cuenta-servicio-demo@ejemplo.test'],
   vins: ['9ZZDEMO0000000101', '9ZZDEMO0000000202', '9ZZDEMO0000000303', '9ZZDEMO0000000404'],
   nombres: NOMBRES_DEMO as readonly string[],
   empresas: [...EMPRESAS_DEMO, ...ASEGURADORAS_DEMO] as readonly string[],
@@ -69,6 +69,13 @@ export const DATOS_DEMO = {
   actores: [...NOMBRES_DEMO, 'sistema'] as readonly string[],
   /** `documento` de un tercero: cédula si es persona, NIT si es compañía. Ambos del registro. */
   documentos: ['9900000101', '9900000202', '9900000303', '999000001-7', '999000002-5', '999000003-3'] as readonly string[],
+  // ── Área Super Admin (HU #13774) ──
+  /** Usuarios de acceso (login) y cuentas de integración: todos llevan «demo»; los que son correo, de `ejemplo.test`. */
+  usuarios: ['ana.demo', 'carlos.demo', 'laura.demo', 'andres.demo', 'siigo.pruebas.demo@ejemplo.test', 'siigo.produccion.demo@ejemplo.test'] as readonly string[],
+  /** IP de origen del Log de accesos PII: solo rangos de documentación (RFC 5737), que no se enrutan en internet. */
+  ips: ['192.0.2.10', '192.0.2.24', '198.51.100.7'] as readonly string[],
+  /** Navegador del Log de accesos PII: texto sintético, nunca el de un equipo real. */
+  agentesUsuario: ['Navegador Demo 1.0 (equipo de oficina demo)'] as readonly string[],
 } as const;
 
 /**
@@ -130,6 +137,14 @@ export const CLAVES_SENSIBLES: Record<string, keyof typeof DATOS_DEMO> = {
   propietario: 'nombres',
   companiaNit: 'nits',
   mensajeroNombre: 'nombres',
+  // Área Super Admin (HU #13774)
+  username: 'usuarios',
+  docNumber: 'cedulas',
+  ipOrigen: 'ips',
+  ip: 'ips',
+  userAgent: 'agentesUsuario',
+  cuentaServicio: 'correos',
+  cedulaDemo: 'cedulas',
 };
 
 // ── Licencia de tránsito (PDF417) ficticia ───────────────────────────────────
@@ -1038,6 +1053,136 @@ export const LOGISTICA_VIAJES_DEMO = {
   totalViajes: 2, totalAdicionales: 25000,
 };
 
+// ── Área Super Admin (HU #13774) ────────────────────────────────────────────
+// Usuarios, Log de accesos PII, Privacidad y datos, Google Drive, Roles y permisos e Integración con Siigo.
+// Ningún fixture representa una anonimización ejecutada: Privacidad solo tiene la previsualización (AC4).
+
+const usuarioDemo = (id: number, i: 0 | 1 | 2 | 3, role: string, extra: Record<string, unknown> = {}) => ({
+  id, username: DATOS_DEMO.usuarios[i], name: NOMBRES_DEMO[i], email: i === 3 ? null : DATOS_DEMO.correos[3 + i],
+  role, active: true, funciones: [], transitoCodigo: null, companiaId: null, flitoProveedorSoatId: null,
+  organismosCodigos: [], createdAt: '2026-09-01T15:00:00.000Z', deletedAt: null, ...extra,
+});
+
+export const USUARIOS_DEMO = [
+  usuarioDemo(1, 2, 'admin'),
+  usuarioDemo(2, 0, 'financiera'),
+  usuarioDemo(3, 1, 'auditor', { active: false }),
+  usuarioDemo(4, 3, 'mensajero'),
+];
+
+export const USUARIOS_RESUMEN_DEMO = { porRol: { admin: 1, financiera: 1, auditor: 1, mensajero: 1 }, activos: 3, inactivos: 1 };
+
+/** Historial de Usuarios: cambio de rol y desactivación hechos por el Administrador demo. */
+const ACTOR_DEMO = { userId: 1, email: DATOS_DEMO.correos[5], rol: 'admin' };
+export const USUARIOS_HISTORIAL_DEMO = {
+  total: 2, limite: 50, offset: 0, desdeCuando: '2026-09-01T15:00:00.000Z',
+  items: [
+    { id: 72, loteId: 'lote-demo-2', entidad: 'usuario', accion: 'desactivar', campo: 'active', valorAntes: true, valorDespues: false,
+      titular: { userId: 3, username: DATOS_DEMO.usuarios[1], rol: 'auditor' }, rolAfectado: null, actor: ACTOR_DEMO,
+      origen: 'usuario', motivo: null, creadoEn: '2026-10-21T14:20:00.000Z' },
+    { id: 71, loteId: 'lote-demo-1', entidad: 'usuario', accion: 'editar', campo: 'role', valorAntes: 'mensajero', valorDespues: 'financiera',
+      titular: { userId: 2, username: DATOS_DEMO.usuarios[0], rol: 'financiera' }, rolAfectado: null, actor: ACTOR_DEMO,
+      origen: 'usuario', motivo: null, creadoEn: '2026-10-20T16:05:00.000Z' },
+  ],
+};
+export const USUARIOS_TITULARES_DEMO = [{ userId: 2, username: DATOS_DEMO.usuarios[0] }, { userId: 3, username: DATOS_DEMO.usuarios[1] }];
+
+/** Catálogo de roles de las pantallas Usuarios y Roles y permisos (sin datos personales). */
+export const ROLES_DEMO = [
+  ['admin', 'Administrador', 1], ['financiera', 'Financiera', 1], ['auditor', 'Auditor', 1], ['mensajero', 'Mensajero', 1],
+  ['gestor_demo', 'Gestor demo', 0],
+].map(([codigo, nombre, usuarios]) => ({
+  codigo, nombre, descripcion: codigo === 'gestor_demo' ? 'Rol de ejemplo para la ayuda.' : null, tipoEnlace: 'ninguno',
+  esSistema: codigo === 'admin', activo: true, usuarios, borrable: usuarios === 0 && codigo !== 'admin',
+  motivoNoBorrable: usuarios === 0 ? null : 'Hay usuarios con este rol.',
+  createdAt: '2026-09-01T15:00:00.000Z', updatedAt: '2026-09-01T15:00:00.000Z',
+}));
+
+/** Log de accesos PII: quién (número de usuario y rol), qué recurso, qué campos y desde qué IP de documentación. */
+const accesoPii = (id: number, userId: number, userRole: string, resourceTipo: string, resourceId: number, accion: string,
+  campos: string[], ip: 0 | 1 | 2, hora: string) => ({
+  id, userId, userRole, resourceTipo, resourceId, accion, camposAccedidos: campos, motivo: null,
+  ipOrigen: DATOS_DEMO.ips[ip], userAgent: DATOS_DEMO.agentesUsuario[0], requestId: `req-demo-${id}`, accessedAt: `2026-10-21T${hora}.000Z`,
+});
+
+export const LOG_PII_DEMO = {
+  total: 5,
+  rows: [
+    accesoPii(905, 1, 'admin', 'conductor', 12, 'read', ['documento', 'telefono'], 0, '14:52:10'),
+    accesoPii(904, 2, 'financiera', 'propietario', 7, 'decrypt', ['documento'], 1, '14:31:44'),
+    accesoPii(903, 1, 'admin', 'conductor', 12, 'export', ['nombre', 'documento', 'telefono'], 0, '13:05:02'),
+    accesoPii(902, 3, 'auditor', 'cliente', 31, 'search', ['documento'], 2, '11:47:29'),
+    accesoPii(901, 2, 'financiera', 'propietario', 7, 'read', ['nombre'], 1, '09:12:55'),
+  ],
+};
+
+export const LOG_PII_STATS_DEMO = {
+  desde: '2026-09-21T15:00:00.000Z',
+  porUsuario: [{ user_id: 1, user_role: 'admin', accesos: 2 }, { user_id: 2, user_role: 'financiera', accesos: 2 }, { user_id: 3, user_role: 'auditor', accesos: 1 }],
+  porRecurso: [{ resource_tipo: 'conductor', accion: 'read', accesos: 1 }, { resource_tipo: 'propietario', accion: 'decrypt', accesos: 1 }, { resource_tipo: 'conductor', accion: 'export', accesos: 1 }, { resource_tipo: 'cliente', accion: 'search', accesos: 1 }, { resource_tipo: 'propietario', accion: 'read', accesos: 1 }],
+};
+
+/** Privacidad y datos: SOLO la previsualización de un documento demo. La anonimización no tiene fixture (AC4). */
+export const PRIVACY_PREVIEW_DEMO = {
+  docNumber: DATOS_DEMO.cedulas[0],
+  affected: { clients: 1, vehicles: 2, soat_requests: 3, tramites_digitales: 1, laft_counterparties: 0, laft_beneficial_owners: 0 },
+};
+
+/** Google Drive: nombres de carpeta y de archivo `*-demo-*`; ningún archivo real. */
+const archivoDrive = (id: string, nombre: string, mimeType: string, size: string, dia: string) => ({
+  id, name: nombre, mimeType, size, createdTime: `2026-10-${dia}T14:00:00.000Z`, modifiedTime: `2026-10-${dia}T15:30:00.000Z`,
+  webViewLink: `https://drive.ejemplo.test/${id}`,
+});
+
+const CARPETA = 'application/vnd.google-apps.folder';
+export const DRIVE_RAIZ_DEMO = {
+  ok: true,
+  folders: [
+    archivoDrive('carpeta-demo-1', 'cuentas-cobro-demo-octubre', CARPETA, '0', '01'),
+    archivoDrive('carpeta-demo-2', 'tramites-demo-2026', CARPETA, '0', '02'),
+  ],
+  files: [archivoDrive('arch-demo-1', 'instructivo-demo-carpetas.pdf', 'application/pdf', '48213', '03')],
+};
+export const DRIVE_CARPETA_DEMO = {
+  ok: true,
+  folders: [],
+  files: [
+    archivoDrive('arch-demo-2', 'cuentas-cobro-demo-semana-42.pdf', 'application/pdf', '312400', '20'),
+    archivoDrive('arch-demo-3', 'cuentas-cobro-demo-semana-41.pdf', 'application/pdf', '298760', '13'),
+    archivoDrive('arch-demo-4', 'soporte-demo-pago.png', 'image/png', '91200', '13'),
+  ],
+};
+
+const cuentaDemo = (i: 0 | 1 | 2, tipoTramite: string, valorTotal: number) => ({
+  placa: DATOS_DEMO.placas[i], propietario: NOMBRES_DEMO[i], cedula: DATOS_DEMO.cedulas[i],
+  vehiculo: ['AUTOMÓVIL DEMO', 'CAMIONETA DEMO', 'MOTOCICLETA DEMO'][i], tipoTramite, valorTotal,
+  downloadUrl: `/api/drive/descargas/cuenta-demo-${i + 1}.pdf`, pdfFile: `cuenta-demo-${i + 1}.pdf`,
+});
+export const DRIVE_PROCESO_DEMO = {
+  ok: true, totalPaginas: 3, cuentasDetectadas: 3, placasUnicas: 3, valorTotal: 1_386_000,
+  excelDownloadUrl: '/api/drive/descargas/cuentas-demo-semana-42.xlsx', excelFile: 'cuentas-demo-semana-42.xlsx',
+  zipFile: null, zipDownloadUrl: null,
+  cuentas: [cuentaDemo(0, 'Traspaso', 512000), cuentaDemo(1, 'Matrícula inicial', 618000), cuentaDemo(2, 'Traspaso', 256000)],
+};
+
+/** Integración con Siigo: credenciales con usuario demo; la access key solo sale enmascarada, como del servidor. */
+const credencialSiigo = (id: number, ambiente: 'pruebas' | 'produccion', usuario: 4 | 5, activo: boolean, keyVersion: number, notas: string | null, dia: string) => ({
+  id, ambiente, username: DATOS_DEMO.usuarios[usuario], accessKey: '••••••••', activo, keyVersion, notas,
+  descifradoFallidoEn: null, descifradoFallidoMotivo: null,
+  createdAt: `2026-${dia}T15:00:00.000Z`, updatedAt: `2026-${dia}T15:00:00.000Z`,
+});
+export const SIIGO_CREDENCIALES_DEMO = {
+  llaveMaestraConfigurada: true,
+  data: [
+    credencialSiigo(11, 'pruebas', 4, true, 2, 'Cuenta de pruebas demo', '10-01'),
+    credencialSiigo(10, 'pruebas', 4, false, 1, null, '08-15'),
+  ],
+};
+export const SIIGO_PRUEBA_DEMO = {
+  ok: true, codigo: 'ok', mensaje: 'Conexión correcta con Siigo: el usuario demo obtuvo su token.', ambiente: 'pruebas', modo: 'real',
+  username: DATOS_DEMO.usuarios[4], tokenObtenido: true, duracionMs: 640,
+};
+
 /** Usuario de sesión de las capturas del área Facturación (HU #13770): Administrador demo. */
 export const NOMBRE_ADMIN_DEMO = NOMBRES_DEMO[2];
 
@@ -1123,6 +1268,22 @@ export const FIXTURES_DEMO: Record<string, unknown> = {
   LOGISTICA_ACTAS_DEMO,
   LOGISTICA_DETALLE_DEMO,
   LOGISTICA_VIAJES_DEMO,
+  // ── Área Super Admin (HU #13774) ──
+  USUARIOS_DEMO,
+  // `titular` y `actor` del historial son objetos: se recorren sus campos (`username`, `email`) bajo otra clave.
+  USUARIOS_HISTORIAL_DEMO: USUARIOS_HISTORIAL_DEMO.items.map(({ titular, actor, ...i }) => ({ ...i, titularUsuario: titular, actorDatos: actor })),
+  USUARIOS_TITULARES_DEMO,
+  // El `nombre` de un rol no es de una persona: se recorre con otra clave.
+  ROLES_DEMO: ROLES_DEMO.map(({ nombre, ...r }) => ({ ...r, nombreRol: nombre })),
+  LOG_PII_DEMO,
+  LOG_PII_STATS_DEMO,
+  PRIVACY_PREVIEW_DEMO,
+  // El `name` de una carpeta o archivo del Drive no es de una persona: se recorre con otra clave.
+  DRIVE_RAIZ_DEMO: [...DRIVE_RAIZ_DEMO.folders, ...DRIVE_RAIZ_DEMO.files].map(({ name, ...a }) => ({ ...a, nombreArchivo: name })),
+  DRIVE_CARPETA_DEMO: DRIVE_CARPETA_DEMO.files.map(({ name, ...a }) => ({ ...a, nombreArchivo: name })),
+  DRIVE_PROCESO_DEMO,
+  SIIGO_CREDENCIALES_DEMO,
+  SIIGO_PRUEBA_DEMO,
 };
 
 // ── Interceptación de /api ───────────────────────────────────────────────────

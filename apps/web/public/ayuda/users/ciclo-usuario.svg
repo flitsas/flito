@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 440" width="1000" height="440" role="img" aria-labelledby="t">
+  <title id="t">Ciclo de un usuario: nuevo usuario activo, desactivar y activar, dar de baja y reactivar, con cada cambio registrado en el historial (diagrama demo, sin datos reales)</title>
+  <rect width="1000" height="440" fill="#ffffff"/>
+  <defs>
+    <marker id="f" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0L10 5L0 10z" fill="#4a5568"/>
+    </marker>
+  </defs>
+  <g font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#1a202c">
+    <rect x="10" y="60" width="190" height="84" rx="12" fill="#e0ecff" stroke="#2b6cb0" stroke-width="2"/>
+    <text x="105" y="98" font-size="16">Nuevo usuario</text>
+    <text x="105" y="120" font-size="13">rol, ámbito y permisos</text>
+    <rect x="260" y="60" width="170" height="84" rx="12" fill="#e6f6ec" stroke="#2f855a" stroke-width="2"/>
+    <text x="345" y="98" font-size="16">Activo</text>
+    <text x="345" y="120" font-size="13">puede entrar</text>
+    <rect x="500" y="60" width="170" height="84" rx="12" fill="#fff4e0" stroke="#b7791f" stroke-width="2"/>
+    <text x="585" y="98" font-size="16">Inactivo</text>
+    <text x="585" y="120" font-size="13">no puede entrar</text>
+    <rect x="260" y="290" width="170" height="84" rx="12" fill="#fde8e8" stroke="#c53030" stroke-width="2" stroke-dasharray="6 4"/>
+    <text x="345" y="328" font-size="16">Dado de baja</text>
+    <text x="345" y="350" font-size="13">fuera de En alta</text>
+    <rect x="740" y="60" width="250" height="84" rx="12" fill="#edf2f7" stroke="#4a5568" stroke-width="2"/>
+    <text x="865" y="98" font-size="16">Historial</text>
+    <text x="865" y="120" font-size="13">quién, qué, cuándo y el cambio</text>
+    <line x1="200" y1="102" x2="258" y2="102" stroke="#4a5568" stroke-width="2" marker-end="url(#f)"/>
+    <path d="M430 88 L498 88" fill="none" stroke="#4a5568" stroke-width="2" marker-end="url(#f)"/>
+    <path d="M500 116 L432 116" fill="none" stroke="#4a5568" stroke-width="2" marker-end="url(#f)"/>
+    <text x="465" y="78" font-size="12">Desactivar</text>
+    <text x="465" y="136" font-size="12">Activar</text>
+    <path d="M320 144 L320 288" fill="none" stroke="#c53030" stroke-width="2" marker-end="url(#f)"/>
+    <path d="M370 288 L370 146" fill="none" stroke="#2f855a" stroke-width="2" marker-end="url(#f)"/>
+    <text x="310" y="220" font-size="13" text-anchor="end">Dar de baja</text>
+    <text x="380" y="220" font-size="13" text-anchor="start">Reactivar</text>
+    <path d="M670 102 L738 102" fill="none" stroke="#4a5568" stroke-width="2" marker-end="url(#f)"/>
+    <text x="704" y="92" font-size="12">cada cambio</text>
+    <text x="500" y="420" font-size="13" fill="#4a5568">Editar y Contraseña no cambian el estado. Nadie puede desactivarse ni darse de baja a sí mismo.</text>
+  </g>
+</svg>
