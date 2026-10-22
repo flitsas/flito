@@ -9,7 +9,7 @@ consultas:
   - qué muestra el tablero
   - dónde veo los trámites retenidos
   - por qué un trámite está estancado
-version: 1.1
+version: 1.2
 fecha: 2026-10-22
 ---
 ## Qué es
@@ -29,13 +29,8 @@ Es lo primero que ve al iniciar sesión. Para volver a él, en la barra de naveg
 ## Pasos
 
 1. Lea los cuatro indicadores: **Revisiones pendientes** y **Fuera de ANS** (cada uno dice debajo cuántos son de SOAT y cuántos de Impuestos), **Diferencias de valor** (pagados cuyo recibo no cuadra con lo liquidado) y **Habilitados para entrega** (SOAT e impuestos resueltos; falta ejecutar la entrega). Un indicador con valor en riesgo muestra el chip **atención**.
-2. En la segunda fila están las alertas operativas: **Más de 5 días en borrador**, **Más de 2 días sin aprobar (ANS)**, **SOAT solicitado sin gestión** e **Impuesto solicitado sin gestión**. El chip **Requiere atención** marca las que tienen trámites. Pulse una tarjeta para abrir **Gestión Trámites** filtrado por esa alerta.
-
-   ![Tablero con los cuatro indicadores arriba y las cuatro alertas operativas debajo, dos de ellas con el chip Requiere atención](./flito_tablero/01-indicadores-y-alertas.png)
-
-3. Más abajo, revise **SOAT por estado** e **Impuestos por estado** (**Pendiente**, **Solicitado**, **Con novedad**, **Pagado**), con el total de cada bloque. Cada bloque aparece solo si su rol puede ver esa cola; si no, el tablero lo omite y los indicadores que se parten por módulo cuentan solo el que usted ve.
-
-   ![Bloques SOAT por estado e Impuestos por estado con el recuento de Pendiente, Solicitado, Con novedad y Pagado y el total de cada uno](./flito_tablero/02-por-estado.png)
+2. En la segunda fila están las alertas operativas: **Más de 5 días en borrador**, **Más de 2 días sin aprobar (ANS)**, **SOAT solicitado sin gestión** e **Impuesto solicitado sin gestión**. El chip **Requiere atención** marca las que tienen trámites. Pulse una tarjeta para abrir **Gestión Trámites** filtrado por esa alerta. ![Tablero con los cuatro indicadores arriba y las cuatro alertas operativas debajo, dos de ellas con el chip Requiere atención](./flito_tablero/01-indicadores-y-alertas.png)
+3. Más abajo, revise **SOAT por estado** e **Impuestos por estado** (**Pendiente**, **Solicitado**, **Con novedad**, **Pagado**), con el total de cada bloque. Cada bloque aparece solo si su rol puede ver esa cola; si no, el tablero lo omite y los indicadores que se parten por módulo cuentan solo el que usted ve. ![Bloques SOAT por estado e Impuestos por estado con el recuento de Pendiente, Solicitado, Con novedad y Pagado y el total de cada uno](./flito_tablero/02-por-estado.png)
 
 ## Estados
 
