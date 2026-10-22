@@ -270,6 +270,7 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['GET /api/flito/impuestos/:id/factura-venta',                               'filtra'],
   ['POST /api/flito/impuestos/soportes/zip',                                   'filtra'],
   ['GET /api/flito/impuestos',                                                 'filtra'],
+  ['POST /api/flito/impuestos/buscar',                                         'filtra'], // HU #13838: Dr. Flit gestión, alcance de la cola
   ['POST /api/flito/impuestos/export',                                         'filtra'],
   ['GET /api/flito/impuestos/facetas',                                         'filtra'],
   ['GET /api/flito/impuestos/:id',                                             'filtra'],
@@ -288,6 +289,7 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['POST /api/flito/impuestos/:id/recibo-caja',                                'filtra'],
   ['POST /api/flito/derechos/cargar',                                          'filtra'],
   ['GET /api/flito/derechos',                                                  'filtra'],
+  ['POST /api/flito/derechos/buscar',                                          'filtra'], // HU #13838: Dr. Flit gestión, alcance por organismos
   ['GET /api/flito/derechos/facetas',                                          'filtra'],
   ['GET /api/flito/derechos/drive/archivos',                                   'soloSinEnlace'],
   ['GET /api/flito/derechos/drive/registro',                                   'soloSinEnlace'],

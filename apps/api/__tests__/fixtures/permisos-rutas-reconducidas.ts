@@ -155,6 +155,7 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'GET', ruta: '/:id/factura-venta', codigo: 'impuestos.factura.ver' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/soportes/zip', codigo: 'impuestos.soportes.descargar' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'GET', ruta: '/', codigo: 'impuestos.cola.ver' },
+  { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/buscar', codigo: 'impuestos.cola.ver' },
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/export', codigo: 'impuestos.excel.exportar' },
   // Bug #12642: guarda en línea del archivo ampliado (`incluirPago: true`).
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/export', condicion: 'incluirPago', codigo: 'impuestos.excel.exportar_pago' },
@@ -179,6 +180,7 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   // flito-derechos/flito-derechos.routes.ts
   { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'POST', ruta: '/cargar', codigo: 'derechos.recibos.cargar' },
   { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'GET', ruta: '/', codigo: 'derechos.cola.ver' },
+  { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'POST', ruta: '/buscar', codigo: 'derechos.cola.ver' },
   { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'GET', ruta: '/facetas', codigo: 'derechos.cola.filtrar' },
   { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'GET', ruta: '/drive/archivos', codigo: 'derechos.drive.listar' },
   { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'GET', ruta: '/drive/registro', codigo: 'derechos.drive.ver_registro' },

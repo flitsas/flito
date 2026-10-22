@@ -198,6 +198,7 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     // `bolsas.transito.inactivar`.
     // HU #13836: `POST /buscar` de flito-tramites (Dr. Flit) reutiliza `tramites.cola.ver` del listado (sin función nueva ni siembra).
     // HU #13837: `POST /buscar` de flito-soat (Dr. Flit) reutiliza `soat.cola.ver` de la cola (sin función nueva ni siembra).
+    // HU #13838: `POST /buscar` de flito-impuestos y de flito-derechos (Dr. Flit) reutilizan `impuestos.cola.ver` y `derechos.cola.ver`.
     expect(compartidosFlito.sort()).toEqual([
       ['bolsas.bolsa.inactivar', 2], ['bolsas.bolsa.ver', 3], ['bolsas.cierre.crear', 2], ['bolsas.cierres.ver', 2],
       ['bolsas.documentos.cargar', 2], ['bolsas.documentos.ver', 4],
