@@ -145,6 +145,90 @@ test.describe('HU #13764 · Dr. Flit — botón y panel', () => {
     await expect(boton(page)).toHaveAttribute('aria-expanded', 'true');
   });
 
+  // Retrabajo #13764 (pedido del humano): el botón conmuta, el clic fuera cierra, avatar oficial.
+  test('Retrabajo · el botón conmuta: abre y cierra con el mismo botón; el foco vuelve a él', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await entrar(page);
+    await abrirDrFlit(page);
+    await expect(boton(page)).toHaveAttribute('aria-expanded', 'true');
+    await expect(boton(page)).toHaveAttribute('aria-controls', 'drflit-panel');
+    await boton(page).click();
+    await expect(panel(page)).toBeHidden();
+    await expect(boton(page)).toHaveAttribute('aria-expanded', 'false');
+    await expect(boton(page)).toBeFocused();
+  });
+
+  test('Retrabajo · clic fuera (en <main>) cierra el panel, sin devolver el foco, y la conversación sigue', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await entrar(page);
+    await abrirDrFlit(page);
+    await expect(panel(page).getByText(SALUDO)).toBeVisible();
+    // Un turno propio (clic dentro del panel, que no lo cierra) para que haya conversación que perder.
+    const log = panel(page).getByRole('log');
+    const inicial = await log.textContent();
+    const caja = panel(page).getByLabel('Escriba su pregunta');
+    await caja.click();
+    await caja.fill('¿cómo se entra a la ayuda?');
+    await caja.press('Enter');
+    await expect.poll(() => log.textContent()).not.toBe(inicial);
+    await expect(log.getByText('¿cómo se entra a la ayuda?')).toBeVisible();
+    await expect(panel(page)).toBeVisible();
+    const mensajes = (await log.textContent()) ?? '';
+    // Clic en el buscador de la página: además de cerrar, hace su acción normal (enfoca el campo).
+    const busqueda = page.getByRole('searchbox', { name: 'Buscar fichas' });
+    await busqueda.click();
+    await expect(panel(page)).toBeHidden();
+    await expect(boton(page)).toHaveAttribute('aria-expanded', 'false');
+    await expect(busqueda).toBeFocused();
+    // Clic en una zona vacía de <main>: con el panel cerrado no pasa nada raro.
+    await boton(page).click();
+    await expect(panel(page)).toBeVisible();
+    await page.locator('main').first().click({ position: { x: 10, y: 10 } });
+    await expect(panel(page)).toBeHidden();
+    await expect(boton(page)).not.toBeFocused();
+    await boton(page).click();
+    await expect(panel(page)).toBeVisible();
+    expect(await log.textContent()).toBe(mensajes);
+  });
+
+  test('Retrabajo · clic dentro del panel no lo cierra', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await entrar(page);
+    await abrirDrFlit(page);
+    await panel(page).getByText(SALUDO).click();
+    await panel(page).getByRole('heading', { name: 'Dr. Flit' }).click();
+    await expect(panel(page)).toBeVisible();
+    await expect(boton(page)).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  test('Retrabajo · avatar oficial: botón y cabecera usan /assets/dr-flit/ con alt vacío', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await entrar(page);
+    const imgBoton = boton(page).locator('img');
+    await expect(imgBoton).toHaveAttribute('src', '/assets/dr-flit/fab-launcher.webp');
+    await expect(imgBoton).toHaveAttribute('alt', '');
+    await expect(imgBoton).toHaveAttribute('aria-hidden', 'true');
+    await abrirDrFlit(page);
+    const imgCabecera = panel(page).locator('header img');
+    await expect(imgCabecera).toHaveAttribute('src', '/assets/dr-flit/header-avatar.webp');
+    await expect(imgCabecera).toHaveAttribute('alt', '');
+    // Las imágenes cargan de verdad (no un 404 con el alt vacío).
+    expect(await imgBoton.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth > 0)).toBe(true);
+    await expect.poll(() => imgCabecera.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth > 0)).toBe(true);
+    // Avatar de los mensajes del bot (el saludo ya es un mensaje del bot).
+    const imgMensaje = panel(page).getByRole('log').locator('img').first();
+    await expect(imgMensaje).toHaveAttribute('src', '/assets/dr-flit/header-avatar.webp');
+    await expect(imgMensaje).toHaveAttribute('alt', '');
+    await expect(imgMensaje).toHaveAttribute('aria-hidden', 'true');
+    await expect.poll(() => imgMensaje.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth > 0)).toBe(true);
+    // Tamaños: botón 64, cabecera 40, mensaje 32.
+    expect(Math.round((await boton(page).boundingBox())!.width)).toBe(64);
+    expect(Math.round((await imgCabecera.boundingBox())!.width)).toBe(40);
+    expect(Math.round((await imgMensaje.boundingBox())!.width)).toBe(32);
+    // El nombre accesible del botón no cambia al abrir.
+    await expect(boton(page)).toHaveAttribute('aria-label', 'Abrir Dr. Flit');
+  });
+
   test('AC5 · panel recién abierto: saludo + «Abrir la Ayuda FLITO» hacia /flito/ayuda', async ({ page }) => {
     await entrar(page, FINANCIERA_USER, '/');
     await abrirDrFlit(page);
@@ -168,7 +252,10 @@ test.describe('HU #13764 · Dr. Flit — botón y panel', () => {
       destino = page.getByRole('navigation', { name: 'Navegación principal' }).getByRole('link').first();
     }
     const href = await destino.getAttribute('href');
-    await destino.click();
+    // Por teclado: desde el retrabajo de #13764 un clic con el ratón fuera del panel lo cierra a
+    // propósito. Lo que prueba AC6 es que el panel sobrevive al cambio de ruta.
+    await destino.focus();
+    await page.keyboard.press('Enter');
     await expect(page).toHaveURL(new RegExp(`${href}$`));
     expect(href).not.toBe('/flito/ayuda');
     await expect(panel(page)).toBeVisible();
