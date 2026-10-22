@@ -69,6 +69,14 @@ import {
   COMPARENDOS_RUNS_DEMO,
   COMPARENDOS_TOKEN_DEMO,
   DATOS_DEMO,
+  DERECHOS_DEMO,
+  DERECHOS_DRIVE_DEMO,
+  DERECHOS_DRIVE_REGISTRO_DEMO,
+  DERECHOS_FACETAS_DEMO,
+  DERECHOS_RESULTADO_DEMO,
+  IMPUESTO_DETALLE_DEMO,
+  IMPUESTOS_COLA_DEMO,
+  IMPUESTOS_FACETAS_DEMO,
   PDF_DEMO,
   PROVEEDORES_SOAT_DEMO,
   REVISION_CAMPOS_SOAT,
@@ -838,5 +846,112 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await cliente.close();
 
     comprobarCierre(api, dir, ['01-cola.png', '02-enviar-al-gestor.png', '03-detalle.png', '04-solicitar-soat.png']);
+  });
+
+  test('flito_impuestos @capturas', async ({ page }) => {
+    const dir = prepararCarpeta('flito_impuestos');
+    const api = await interceptarApiDemo(page, [
+      [/\/api\/flito\/impuestos$/, () => ({ body: { items: IMPUESTOS_COLA_DEMO, total: IMPUESTOS_COLA_DEMO.length, page: 1, pageSize: 50 } })],
+      [/\/api\/flito\/impuestos\/facetas$/, () => ({ body: IMPUESTOS_FACETAS_DEMO })],
+      [/\/api\/flito\/impuestos\/imp-demo-2$/, () => ({ body: IMPUESTO_DETALLE_DEMO })],
+    ]);
+    await entrarComoAdminDemo(page);
+
+    await page.goto('/flito/impuestos');
+    await expect(page.getByText('FLIT-DEMO-101')).toBeVisible();
+
+    // Pasos 1 y 2 — Pastillas de estado, buscador, filtros y la tabla con el semáforo de cada trámite.
+    await page.getByRole('button', { name: 'Todos', exact: true }).evaluate((el) => el.scrollIntoView({ block: 'start' }));
+    await page.evaluate(() => window.scrollBy(0, -90)); // deja ver el borde superior de la tarjeta de filtros
+    const mostrarBarraCola = await sinBarraFlotante(page);
+    await sinFoco(page);
+    await capturar(page, dir, '01-cola');
+    await mostrarBarraCola();
+
+    // Paso 4 — Marcar filas: cada acción dice sobre cuántas de las marcadas actúa.
+    for (const placa of DATOS_DEMO.placas) await page.getByLabel(`Seleccionar ${placa}`).check();
+    await expect(page.getByRole('button', { name: /^Enviar al gestor \(1 de 4\)$/ })).toBeVisible();
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await sinFoco(page);
+    await capturar(page, dir, '02-seleccion');
+    for (const placa of DATOS_DEMO.placas) await page.getByLabel(`Seleccionar ${placa}`).uncheck();
+
+    // Paso 7 — Carga masiva de recibos: la fase del recibo se elige antes de enviar.
+    await page.getByRole('button', { name: 'Cargar recibos (masivo)' }).click();
+    const carga = page.getByRole('dialog');
+    await expect(carga).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '03-carga-masiva', carga);
+    await page.keyboard.press('Escape');
+    await expect(carga).toBeHidden();
+
+    // Paso 15 — El semáforo naranja abre la validación factura ↔ RUNT sin salir de la cola.
+    await page.getByRole('row', { name: new RegExp(`Seleccionar ${DATOS_DEMO.placas[1]}`) })
+      .getByRole('button', { name: /Con diferencias/ }).click();
+    const validacion = page.getByRole('dialog');
+    await expect(validacion.getByText('2 datos no coinciden: Color, Cilindraje.')).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '04-validacion-runt', validacion);
+    await page.keyboard.press('Escape');
+    await expect(validacion).toBeHidden();
+
+    // Pasos 11 y 16 — El detalle (Ver): factura de venta, liquidación y la validación contra el RUNT.
+    await page.getByRole('row', { name: new RegExp(`Seleccionar ${DATOS_DEMO.placas[1]}`) }).getByRole('button', { name: 'Ver', exact: true }).click();
+    const detalle = page.getByRole('dialog');
+    await expect(detalle.getByText('2 datos no coinciden: Color, Cilindraje.')).toBeVisible();
+    await sinFoco(page);
+    await capturar(page, dir, '05-detalle', detalle);
+    await page.keyboard.press('Escape');
+
+    comprobarCierre(api, dir, ['01-cola.png', '02-seleccion.png', '03-carga-masiva.png', '04-validacion-runt.png', '05-detalle.png']);
+  });
+
+  test('flito_derechos @capturas', async ({ page }) => {
+    const dir = prepararCarpeta('flito_derechos');
+    const api = await interceptarApiDemo(page, [
+      [/\/api\/flito\/derechos$/, () => ({ body: DERECHOS_DEMO })],
+      [/\/api\/flito\/derechos\/facetas$/, () => ({ body: DERECHOS_FACETAS_DEMO })],
+      [/\/api\/flito\/derechos\/cargar$/, () => ({ body: DERECHOS_RESULTADO_DEMO })],
+      [/\/api\/flito\/derechos\/drive\/archivos$/, () => ({ body: DERECHOS_DRIVE_DEMO })],
+      [/\/api\/flito\/derechos\/drive\/registro$/, () => ({ body: DERECHOS_DRIVE_REGISTRO_DEMO })],
+    ]);
+    await entrarComoAdminDemo(page);
+
+    await page.goto('/flito/derechos');
+    await expect(page.getByText('FLIT-DEMO-101')).toBeVisible();
+
+    // Pasos 1 y 2 — Cargar un recibo (archivo sintético) y leer el resultado por canastas.
+    await page.locator('input[type="file"]').setInputFiles({ name: 'recibo-demo.png', mimeType: 'image/png', buffer: PNG_DEMO });
+    await page.getByRole('button', { name: 'Cargar (1)' }).click();
+    await expect(page.getByText(/Resultado de la carga/)).toBeVisible();
+    await page.waitForTimeout(4500); // deja que se vaya el aviso de la carga: el paso ilustra el panel
+    await page.getByText(/Resultado de la carga/).evaluate((el) => el.scrollIntoView({ block: 'start' }));
+    await page.evaluate(() => window.scrollBy(0, -200)); // el panel con la tarjeta de carga encima
+    const mostrarBarraCarga = await sinBarraFlotante(page);
+    await sinFoco(page);
+    await capturar(page, dir, '01-resultado-de-la-carga');
+    await page.getByRole('button', { name: 'Cerrar', exact: true }).click();
+    await mostrarBarraCarga();
+
+    // Paso 4 — Drive · Medellín: consolidados del día, Procesar o Reprocesar y el registro de pasadas.
+    await page.getByRole('button', { name: 'Drive · Medellín' }).click();
+    await page.getByRole('button', { name: /^Ver el registro/ }).click();
+    await expect(page.getByText('Registro de procesamientos')).toBeVisible();
+    await page.getByRole('button', { name: 'Reprocesar' }).evaluate((el) => el.scrollIntoView({ block: 'end' }));
+    await page.evaluate(() => window.scrollBy(0, 40));
+    const mostrarBarraDrive = await sinBarraFlotante(page);
+    await sinFoco(page);
+    await capturar(page, dir, '02-drive');
+    await mostrarBarraDrive();
+
+    // Paso 5 — Registrados: buscar, filtrar, abrir el soporte o los documentos; la fila con advertencia.
+    await page.getByRole('button', { name: /^Registrados/ }).click();
+    await page.getByText('FLIT-DEMO-103').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    const mostrarBarra = await sinBarraFlotante(page);
+    await sinFoco(page);
+    await capturar(page, dir, '03-registrados');
+    await mostrarBarra();
+
+    comprobarCierre(api, dir, ['01-resultado-de-la-carga.png', '02-drive.png', '03-registrados.png']);
   });
 });

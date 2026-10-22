@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 560" width="860" height="560" role="img" aria-labelledby="t">
+  <title id="t">Ciclo de un impuesto en la cola: de Pendiente a Pagado en dos fases, con la novedad y la validación factura contra RUNT (diagrama demo, sin datos reales)</title>
+  <rect width="860" height="560" fill="#ffffff"/>
+  <defs>
+    <marker id="f" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0L10 5L0 10z" fill="#4a5568"/>
+    </marker>
+  </defs>
+  <g font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#1a202c">
+    <rect x="20" y="60" width="190" height="84" rx="12" fill="#edf2f7" stroke="#4a5568" stroke-width="2"/>
+    <text x="115" y="95" font-size="17">Pendiente</text>
+    <text x="115" y="118" font-size="14">con factura de venta</text>
+    <rect x="320" y="60" width="210" height="84" rx="12" fill="#e0ecff" stroke="#2b6cb0" stroke-width="2"/>
+    <text x="425" y="95" font-size="17">Solicitado</text>
+    <text x="425" y="118" font-size="14">gestor u Operaciones</text>
+    <rect x="640" y="60" width="200" height="84" rx="12" fill="#e6f6ec" stroke="#2f855a" stroke-width="2"/>
+    <text x="740" y="95" font-size="17">Pagado</text>
+    <text x="740" y="118" font-size="14">recibo con sello</text>
+    <rect x="320" y="250" width="210" height="84" rx="12" fill="#e0ecff" stroke="#2b6cb0" stroke-width="2" stroke-dasharray="6 4"/>
+    <text x="425" y="285" font-size="17">Liquidación cargada</text>
+    <text x="425" y="308" font-size="14">sigue Solicitado</text>
+    <rect x="20" y="250" width="190" height="84" rx="12" fill="#fde2e2" stroke="#c53030" stroke-width="2"/>
+    <text x="115" y="285" font-size="17">Con novedad</text>
+    <text x="115" y="308" font-size="14">Rechazar · Reactivar</text>
+    <rect x="20" y="430" width="250" height="84" rx="12" fill="#e6f6ec" stroke="#2f855a" stroke-width="2"/>
+    <text x="145" y="465" font-size="17">Semáforo verde</text>
+    <text x="145" y="488" font-size="14">puede quedar Certificado</text>
+    <rect x="305" y="430" width="250" height="84" rx="12" fill="#fef3c7" stroke="#b7791f" stroke-width="2"/>
+    <text x="430" y="465" font-size="17">Semáforo naranja</text>
+    <text x="430" y="488" font-size="14">con diferencias: revisar</text>
+    <rect x="590" y="430" width="250" height="84" rx="12" fill="#fde2e2" stroke="#c53030" stroke-width="2"/>
+    <text x="715" y="465" font-size="17">Semáforo rojo</text>
+    <text x="715" y="488" font-size="14">Reintentar validación</text>
+    <text x="265" y="48" font-size="13" fill="#4a5568">Enviar al gestor</text>
+    <text x="585" y="48" font-size="13" fill="#4a5568">fase Pago</text>
+    <text x="365" y="200" font-size="13" fill="#4a5568">fase Liquidación</text>
+    <text x="640" y="235" font-size="13" fill="#4a5568">fase Pago</text>
+    <text x="225" y="178" font-size="13" fill="#4a5568">Rechazar</text>
+    <text x="430" y="400" font-size="13" fill="#4a5568">Al enviar: la factura se compara con el RUNT (Analizando)</text>
+  </g>
+  <g stroke="#4a5568" stroke-width="2.5" fill="none" marker-end="url(#f)">
+    <path d="M210 102L315 102"/>
+    <path d="M530 102L635 102"/>
+    <path d="M425 144L425 245"/>
+    <path d="M530 292Q640 292 700 149"/>
+    <path d="M330 144L190 245"/>
+    <path d="M145 410L145 425"/>
+    <path d="M430 410L430 425"/>
+    <path d="M715 410L715 425"/>
+  </g>
+  <path d="M60 410L800 410" stroke="#4a5568" stroke-width="2" fill="none"/>
+</svg>
