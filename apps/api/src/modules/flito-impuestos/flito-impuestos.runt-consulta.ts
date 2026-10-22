@@ -3,17 +3,18 @@
 // UNA consulta por análisis: el paso `comparacion` la hace y la deja en `job.consultaRunt`; el paso
 // `autocertificacion` (HU 12828) la reutiliza con `certificarConRespuestaRunt`, sin volver al RUNT.
 //
-// Replica la regla de `certificarImpuesto` (`certificacion.service.ts`): con documento del
-// propietario se consulta placa + documento (prueba de propiedad, RN-02); sin él, placa + VIN. Sin
-// placa, o sin documento ni VIN, NO se consulta. Todo por `limitadorRunt` (AC3 de la 12825). El
-// traspaso en sincronización se reconoce ANTES de dar por caído el servicio. Nota: la duplicación de
-// ~15 líneas con `certificarImpuesto` es deliberada; unificar es natural en la 12828.
+// Misma regla que `certificarImpuesto` (`certificacion.service.ts`), compartida en
+// `argumentosConsultaRunt` (`certificacion-runt.ts`): en MATRÍCULA se consulta SIEMPRE solo por VIN
+// (RN-12827-M: el RUNT aún no tiene propietario y rechaza placa + documento y placa + VIN); sin VIN
+// no se consulta. En traspaso/otros, placa + documento (prueba de propiedad, RN-02); sin él, placa +
+// VIN. Sin placa NO se consulta (requisito sin cambio). Todo por `limitadorRunt` (AC3 de la 12825).
+// El traspaso en sincronización se reconoce ANTES de dar por caído el servicio.
 //
 // Nada del RUNT crudo se persiste desde aquí (`data` vive solo en memoria del job). Sin PII en logs.
 
 import { consultarVehiculoRunt } from '../runt/runt.service.js';
 import {
-  esTraspasoEnSincronizacion, extraerColorCilindrajeRunt, extraerVehiculoRunt, runtSinRegistro,
+  argumentosConsultaRunt, esTraspasoEnSincronizacion, extraerColorCilindrajeRunt, extraerVehiculoRunt, runtSinRegistro,
   type ColorCilindrajeRunt, type DatosVehiculoRuntExtraido,
 } from './certificacion-runt.js';
 import { datosDelVehiculo } from './certificacion.service.js';
@@ -26,15 +27,15 @@ export type ConsultaRuntAnalisis =
 export async function consultarRuntDeImpuesto(impuestoId: string, runt: LimitadorRunt): Promise<ConsultaRuntAnalisis> {
   const datos = await datosDelVehiculo(impuestoId);
   const placa = datos?.placa?.trim() || null;
-  const documento = datos?.ownerDocument?.trim() || null;
-  const vin = datos?.vin?.trim() || null;
-  if (!placa || (!documento && !vin)) return { estado: 'sin_identificador' };
+  if (!datos || !placa) return { estado: 'sin_identificador' };
+  const args = argumentosConsultaRunt({
+    tipoTramite: datos.tipoTramite, placa, documento: datos.ownerDocument, vin: datos.vin,
+  });
+  if (!args) return { estado: 'sin_identificador' };
 
   let resp: { ok?: boolean; data?: unknown; message?: string };
   try {
-    resp = await runt.ejecutar(() => (documento
-      ? consultarVehiculoRunt(placa, undefined, documento)
-      : consultarVehiculoRunt(placa, vin ?? undefined, undefined)));
+    resp = await runt.ejecutar(() => consultarVehiculoRunt(args.placa, args.vin, args.documento));
   } catch {
     return { estado: 'sin_respuesta' };
   }
@@ -44,7 +45,7 @@ export async function consultarRuntDeImpuesto(impuestoId: string, runt: Limitado
   if (runtSinRegistro(resp.data)) return { estado: 'sin_registro' };
   return {
     estado: 'ok',
-    via: documento ? 'documento' : 'vin',
+    via: args.via,
     data: resp.data,
     vehiculo: { ...extraerVehiculoRunt(resp.data), ...extraerColorCilindrajeRunt(resp.data) },
   };

@@ -286,3 +286,55 @@ export function compararConRunt(flito: DatosVehiculoFlito, runt: DatosVehiculoRu
 export function esTraspasoEnSincronizacion(mensaje: string | null | undefined): boolean {
   return /propietari/i.test(mensaje ?? '');
 }
+
+/**
+ * ¿El trámite del impuesto es una matrícula inicial? (HU #12827, reactivada 2026-10-22).
+ *
+ * `flito_tramites.tipo_tramite` llega hoy como 'Matricula' | 'Traspaso' | 'Otros', pero se compara
+ * sin tildes ni mayúsculas para que 'Matrícula' o 'MATRICULA' cuenten igual.
+ */
+export function esTramiteMatricula(tipoTramite: string | null | undefined): boolean {
+  const t = (tipoTramite ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+  return t === 'matricula';
+}
+
+/** Con qué se le pregunta al RUNT: los tres argumentos de `consultarVehiculoRunt`, en ese orden. */
+export interface ArgumentosConsultaRunt {
+  placa: string | undefined;
+  vin: string | undefined;
+  documento: string | undefined;
+  /** Identificador de la consulta: 'documento' (placa + documento) o 'vin' (con o sin placa). */
+  via: 'documento' | 'vin';
+  /** true si se consultó solo por VIN por ser matrícula (RN-12827-M). */
+  matricula: boolean;
+}
+
+/**
+ * Regla ÚNICA de cómo se consulta el RUNT para un impuesto; la usan la certificación manual/lote
+ * (`certificarImpuesto`) y el análisis post-envío (`consultarRuntDeImpuesto`). PURA.
+ *
+ * RN-12827-M (matrícula): en matrícula inicial el RUNT aún no tiene propietario asociado, así que
+ *   placa + documento y placa + VIN se rechazan («no corresponden con los propietarios activos»).
+ *   Solo la consulta por VIN SIN placa ni documento responde. Por eso en matrícula se consulta
+ *   SIEMPRE solo por VIN; sin VIN no hay consulta (null) y NO se cae a placa + documento.
+ * Traspaso / Otros: placa + documento (prueba de propiedad, RN-02); sin documento, placa + VIN
+ *   (identidad del vehículo, RN-01). Sin ninguno de los dos → null.
+ *
+ * El requisito de placa lo sigue aplicando cada llamador antes de llegar aquí (sin cambio).
+ */
+export function argumentosConsultaRunt(d: {
+  tipoTramite: string | null | undefined;
+  placa: string | null | undefined;
+  documento: string | null | undefined;
+  vin: string | null | undefined;
+}): ArgumentosConsultaRunt | null {
+  const placa = d.placa?.trim() || undefined;
+  const documento = d.documento?.trim() || undefined;
+  const vin = d.vin?.trim() || undefined;
+  if (esTramiteMatricula(d.tipoTramite)) {
+    return vin ? { placa: undefined, vin, documento: undefined, via: 'vin', matricula: true } : null;
+  }
+  if (documento) return { placa, vin: undefined, documento, via: 'documento', matricula: false };
+  if (vin) return { placa, vin, documento: undefined, via: 'vin', matricula: false };
+  return null;
+}
