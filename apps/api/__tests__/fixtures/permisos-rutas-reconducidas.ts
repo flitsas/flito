@@ -22,6 +22,7 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   // ── Oleada 1 — cadena SOAT (60 rutas) ──
   // flito-soat/flito-soat.routes.ts
   { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'GET', ruta: '/', codigo: 'soat.cola.ver' },
+  { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'POST', ruta: '/buscar', codigo: 'soat.cola.ver' },
   { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'POST', ruta: '/export', codigo: 'soat.excel.exportar' },
   // Bug #12642: guarda en línea del archivo ampliado (`incluirPago: true`).
   { fichero: 'flito-soat/flito-soat.routes.ts', metodo: 'POST', ruta: '/export', condicion: 'incluirPago', codigo: 'soat.excel.exportar_pago' },

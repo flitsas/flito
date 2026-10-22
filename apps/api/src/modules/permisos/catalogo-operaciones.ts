@@ -73,6 +73,8 @@ const BDOC = 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts'; // HU 
 const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // ── SOAT (portal FLITO) ───────────────────────────────────────────────────────────────────────
   op(`${SOAT} GET /`, 'soat.cola.ver', 'Ver la cola de SOAT', 'Abrir la bandeja de solicitudes de SOAT y recorrer su listado.'),
+  // HU #13837: consulta de gestión de Dr. Flit (valor en el body); misma lectura que la cola.
+  op(`${SOAT} POST /buscar`, 'soat.cola.ver', 'Ver la cola de SOAT', 'Abrir la bandeja de solicitudes de SOAT y recorrer su listado.'),
   op(`${SOAT} GET /facetas`, 'soat.cola.filtrar', 'Filtrar la cola de SOAT', 'Leer los contadores y las facetas con las que se acota la bandeja.'),
   op(`${SOAT} POST /export`, 'soat.excel.exportar', 'Exportar la cola de SOAT a Excel', 'Descargar el listado filtrado como archivo de Excel.'),
   // Bug #12642: guarda EN LÍNEA dentro del mismo handler (`tieneFuncion` cuando el cuerpo trae
