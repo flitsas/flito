@@ -71,3 +71,23 @@ adjuntos huérfanos en Azure DevOps.
 El Bug radicado en FLIT - SOPORTE vive bajo la política de ese proyecto y la gestiona el equipo de
 soporte. **Pendiente** (fuera de esta HU): acordar con soporte el plazo de retención de los casos y el
 procedimiento de supresión a pedido del titular en Azure DevOps.
+
+## Contador del cupo diario de la IA (HU #13854)
+
+Tabla `flito_drflit_cupo_ia` (migración `0247`). Cuenta los mensajes que cada usuario envía a la IA de
+Dr. Flit por día calendario de Colombia (`America/Bogota`), para aplicar el tope diario
+(`DRFLIT_IA_TOPE_DIARIO`, 30 por defecto) y controlar el costo.
+
+**Qué se guarda — y nada más:** usuario (`usuario_id`), día (`dia`), mensajes usados (`usados`) y fecha de
+la última actualización (`actualizado_en`). **Sin contenido:** ni el texto del mensaje ni la respuesta del
+modelo, ni IP, ni user agent, ni el intent clasificado. FLITO no guarda texto del chat en la base ni en
+los logs.
+
+**Retención: 90 días** contados por `dia`. La purga borra las filas con `dia` anterior a «hoy en Colombia
+menos 90 días» (`ejecutarPurgaCupoIaDrFlit` en `dr-flit-purga.service.ts`) y corre en el **mismo cron** de
+la purga de intentos (`dr-flit.cron.ts`, 03:00 de Colombia, puerta `DRFLIT_PURGA_CRON_ENABLED=1`, con
+candado). El plazo sirve para el control de costo y para atender reclamos de «me quedé sin cupo»; pasado
+ese tiempo el dato no tiene uso.
+
+**Supresión del titular:** la llave foránea a `users` es `ON DELETE CASCADE`; al contador no se le
+atribuye valor probatorio (a diferencia de las autorizaciones y de los intentos de radicación).

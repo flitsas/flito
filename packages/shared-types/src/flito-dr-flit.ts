@@ -95,6 +95,22 @@ export interface EstadoAutorizacionDrFlit {
     ambienteEtiqueta: string | null;
     adjuntos: { maxArchivos: number; maxBytesArchivo: number; tipos: readonly TipoAdjuntoSoporte[] };
   };
+  /** HU #13854: presente solo con `finalidad=ia`. Permite al panel no llamar al chat si está apagada o agotada. */
+  ia?: EstadoIaDrFlit;
+}
+
+/** Cupo diario de mensajes a la IA del propio usuario (día calendario America/Bogota). */
+export interface CupoIaDrFlit {
+  usados: number;
+  tope: number;
+  restantes: number;
+}
+
+export interface EstadoIaDrFlit {
+  /** `DRFLIT_IA_HABILITADA=1` y `ANTHROPIC_API_KEY` configurada. */
+  disponible: boolean;
+  /** `null` cuando la IA no está disponible. */
+  cupo: CupoIaDrFlit | null;
 }
 
 export interface AceptarAutorizacionDrFlit {

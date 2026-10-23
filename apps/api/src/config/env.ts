@@ -433,6 +433,15 @@ const envSchema = z.object({
   // Caracteres de secciones por mensaje (el índice va aparte, siempre) y tope por sección (recorte).
   DRFLIT_IA_CONTEXTO_MAX_CHARS: z.preprocess(vacioComoAusente, z.coerce.number().int().min(4000).max(120_000).default(32_000)),
   DRFLIT_IA_SECCION_MAX_CHARS: z.preprocess(vacioComoAusente, z.coerce.number().int().min(500).max(20_000).default(6000)),
+  // ── HU #13854 (Feature #13696, IA-2): interruptor y cupo diario de la IA ────────────────────────
+  // Puerta POSITIVA: la IA solo se enciende con =1 (y además exige ANTHROPIC_API_KEY, `iaDisponible`).
+  DRFLIT_IA_HABILITADA: z.string().optional().transform((v) => v === '1'),
+  // Mensajes a la IA por usuario y día America/Bogota. 0 = IA sin cupo (ninguna reserva se concede).
+  DRFLIT_IA_TOPE_DIARIO: z.preprocess(vacioComoAusente, z.coerce.number({
+    invalid_type_error: 'DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500',
+  }).int('DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500')
+    .min(0, 'DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500')
+    .max(500, 'DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500').default(30)),
   // Puerta POSITIVA de la purga de intentos a 12 meses (RN-DRF3): solo con =1.
   DRFLIT_PURGA_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
 }).superRefine((data, ctx) => {

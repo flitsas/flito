@@ -3,6 +3,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const purgaMock = vi.fn();
+const purgaCupoMock = vi.fn();
 const lockMock = vi.fn();
 vi.mock('../../../src/db/client.js', () => ({ db: {}, getPoolStats: vi.fn() }));
 vi.mock('../../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn() }));
@@ -10,10 +11,11 @@ vi.mock('../../../src/shared/utils/lock.js', () => ({ withLock: (...a: unknown[]
 vi.mock('../../../src/modules/flito-dr-flit/dr-flit-purga.service.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/modules/flito-dr-flit/dr-flit-purga.service.js')>()),
   ejecutarPurgaDrFlit: (...a: unknown[]) => purgaMock(...a),
+  ejecutarPurgaCupoIaDrFlit: (...a: unknown[]) => purgaCupoMock(...a),
 }));
 
 const cron = await import('../../../src/modules/flito-dr-flit/dr-flit.cron.js');
-const { cortePurgaDrFlit } = await import('../../../src/modules/flito-dr-flit/dr-flit-purga.service.js');
+const { cortePurgaDrFlit, corteCupoIaDrFlit } = await import('../../../src/modules/flito-dr-flit/dr-flit-purga.service.js');
 
 // 03:15 en Bogotá = 08:15 UTC.
 const EN_VENTANA = new Date('2026-10-22T08:15:00Z');
@@ -22,12 +24,24 @@ const FUERA = new Date('2026-10-22T09:15:00Z');
 beforeEach(() => {
   cron.reiniciarEstadoPurgaDrFlit();
   purgaMock.mockReset().mockResolvedValue({ borrados: 3, lotes: 1, corte: '2025-10-22T08:15:00.000Z' });
+  purgaCupoMock.mockReset().mockResolvedValue({ borrados: 2, corte: '2026-07-24' });
   lockMock.mockReset().mockImplementation(async (_n: string, _t: number, fn: () => Promise<unknown>) => fn());
 });
 
 describe('RN-DRF1 — corte de 12 meses', () => {
   it('ahora − 12 meses de calendario', () => {
     expect(cortePurgaDrFlit(new Date('2026-10-22T08:15:00Z')).toISOString()).toBe('2025-10-22T08:15:00.000Z');
+  });
+});
+
+describe('RN-DRF1b (HU #13854, AC8) — corte de 90 días del cupo de IA, en día de Bogotá', () => {
+  it('hoy en America/Bogota − 90 días (calendario)', () => {
+    expect(corteCupoIaDrFlit(new Date('2026-10-22T08:15:00Z'))).toBe('2026-07-24');
+  });
+
+  it('a las 23:30 de Bogotá (04:30 UTC del día siguiente) el «hoy» sigue siendo el de Bogotá', () => {
+    expect(corteCupoIaDrFlit(new Date('2026-10-23T04:30:00Z'))).toBe('2026-07-24');
+    expect(corteCupoIaDrFlit(new Date('2026-10-23T05:00:00Z'))).toBe('2026-07-25');
   });
 });
 
@@ -41,6 +55,7 @@ describe('RN-DRF2/4 — latido', () => {
     expect(await cron.latidoPurgaDrFlit(EN_VENTANA)).toBe('corrida');
     expect(lockMock.mock.calls[0]![0]).toBe(cron.NOMBRE_LOCK_PURGA_DRFLIT);
     expect(purgaMock).toHaveBeenCalledWith({ ahora: EN_VENTANA });
+    expect(purgaCupoMock).toHaveBeenCalledWith({ ahora: EN_VENTANA });   // HU #13854: mismo cron y candado
     expect(await cron.latidoPurgaDrFlit(new Date('2026-10-22T08:25:00Z'))).toBe('ya_corrio_hoy');
     expect(purgaMock).toHaveBeenCalledTimes(1);
   });
@@ -49,6 +64,7 @@ describe('RN-DRF2/4 — latido', () => {
     lockMock.mockResolvedValue(null);
     expect(await cron.latidoPurgaDrFlit(EN_VENTANA)).toBe('otra_instancia');
     expect(purgaMock).not.toHaveBeenCalled();
+    expect(purgaCupoMock).not.toHaveBeenCalled();
   });
 
   it('fallo → no marca el día: el latido siguiente lo reintenta', async () => {

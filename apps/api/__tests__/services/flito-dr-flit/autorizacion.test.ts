@@ -19,6 +19,9 @@ import type { ConfigDrFlit } from '../../../src/modules/flito-dr-flit/dr-flit.co
 const resolverMock = vi.fn<(userId: number) => Promise<PermisosResueltos>>();
 const auditMock = vi.fn();
 const CFG: ConfigDrFlit = { NODE_ENV: 'production', DRFLIT_ADO_MODO: 'simulado', DEPLOY_ENVIRONMENT: 'QA' };
+// HU #13854: interruptor de la IA y cupo del día (el UPSERT real se prueba en `db/migracion-0247.test.ts`).
+const CFG_IA: { DRFLIT_IA_HABILITADA: boolean; ANTHROPIC_API_KEY?: string } = { DRFLIT_IA_HABILITADA: false };
+const cupoMock = vi.fn();
 
 vi.mock('../../../src/db/client.js', () => ({
   db: { select: vi.fn(), insert: vi.fn(), update: vi.fn(), delete: vi.fn(), execute: vi.fn() },
@@ -38,8 +41,12 @@ vi.mock('../../../src/modules/flito-dr-flit/dr-flit.config.js', async (importOri
     ...real,
     ambienteDespliegue: () => real.ambienteDespliegue(CFG),
     soporteDisponible: () => real.soporteDisponible(CFG),
+    iaDisponible: () => real.iaDisponible(CFG_IA),
   };
 });
+vi.mock('../../../src/modules/flito-dr-flit/dr-flit-ia.cupo.js', () => ({
+  consultarCupoIa: (...a: unknown[]) => cupoMock(...a),
+}));
 
 const { default: drFlitRoutes } = await import('../../../src/modules/flito-dr-flit/dr-flit.routes.js');
 const { repoAutorizaciones, sha256Texto } = await import('../../../src/modules/flito-dr-flit/dr-flit.service.js');
@@ -94,6 +101,8 @@ beforeEach(() => {
   vi.restoreAllMocks();
   auditMock.mockReset().mockResolvedValue(undefined);
   Object.assign(CFG, { NODE_ENV: 'production', DRFLIT_ADO_MODO: 'simulado', DEPLOY_ENVIRONMENT: 'QA' });
+  Object.assign(CFG_IA, { DRFLIT_IA_HABILITADA: false, ANTHROPIC_API_KEY: undefined });
+  cupoMock.mockReset().mockResolvedValue({ usados: 4, tope: 30, restantes: 26 });
   resolverMock.mockReset().mockImplementation(async (id) => {
     const u = USUARIOS[id];
     return u ? ok(id, u[0], u[1], u[2]) : { ok: false, userId: id, motivo: 'sin_usuario' };
@@ -158,6 +167,38 @@ describe('AC1 — GET de un financiera que nunca aceptó', () => {
     expect(r.status).toBe(400);
     expect(r.body.codigo).toBe('finalidad-invalida');
     expect(JSON.stringify(r.body)).not.toContain('ABC123');
+  });
+});
+
+describe('HU #13854 — bloque `ia` del GET (AC6, AC7)', () => {
+  it('AC6: IA disponible → ia: { disponible: true, cupo } del propio usuario', async () => {
+    Object.assign(CFG_IA, { DRFLIT_IA_HABILITADA: true, ANTHROPIC_API_KEY: 'sk-prueba' });
+    const r = await get(10, 'ia');
+    expect(r.status).toBe(200);
+    expect(r.body.finalidad).toBe('ia');
+    expect(r.body.ia).toEqual({ disponible: true, cupo: { usados: 4, tope: 30, restantes: 26 } });
+    expect(cupoMock).toHaveBeenCalledTimes(1);
+    expect(cupoMock.mock.calls[0]![0]).toBe(10);
+  });
+
+  it('AC6: `finalidad=soporte` responde igual que hoy (sin bloque `ia`), aunque la IA esté encendida', async () => {
+    Object.assign(CFG_IA, { DRFLIT_IA_HABILITADA: true, ANTHROPIC_API_KEY: 'sk-prueba' });
+    const r = await get(10, 'soporte');
+    expect(r.status).toBe(200);
+    expect(r.body).not.toHaveProperty('ia');
+    expect(Object.keys(r.body).sort()).toEqual(['aceptadaEn', 'autorizado', 'finalidad', 'soporte', 'textoVigente', 'versionVigente']);
+    expect(cupoMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['interruptor apagado', { DRFLIT_IA_HABILITADA: false, ANTHROPIC_API_KEY: 'sk-prueba' }],
+    ['sin ANTHROPIC_API_KEY', { DRFLIT_IA_HABILITADA: true, ANTHROPIC_API_KEY: undefined }],
+  ])('AC7: %s → ia: { disponible: false, cupo: null } y no consulta el cupo', async (_n, cfg) => {
+    Object.assign(CFG_IA, cfg);
+    const r = await get(10, 'ia');
+    expect(r.status).toBe(200);
+    expect(r.body.ia).toEqual({ disponible: false, cupo: null });
+    expect(cupoMock).not.toHaveBeenCalled();
   });
 });
 
