@@ -102,6 +102,12 @@ export default tseslint.config(
     files: ['**/__tests__/**', '**/e2e/**', '**/*.test.ts', '**/*.spec.ts'],
     rules: { 'max-lines': 'off' },
   },
+  {
+    // HU #13853 (ADR-0027): artefactos generados por script (fichas de Ayuda para Dr. Flit). Solo
+    // `*.generated.ts`: no amplía la exclusión a otro código de producto.
+    files: ['**/*.generated.ts'],
+    rules: { 'max-lines': 'off' },
+  },
   ...Object.entries(FROZEN_CEILINGS).map(([file, max]) => ({
     files: [file],
     rules: { 'max-lines': ['error', { max, skipBlankLines: true, skipComments: true }] },

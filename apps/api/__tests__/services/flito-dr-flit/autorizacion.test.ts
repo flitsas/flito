@@ -281,6 +281,13 @@ describe('AC7 — quién no pasa (y quién sí)', () => {
     expect([...PAGINAS_AYUDA_DRFLIT].sort()).toEqual(permisos);
   });
 
+  it('HU #13853: `PAGINAS_AYUDA_DRFLIT` cubre todos los `permiso` del artefacto de fichas del API', async () => {
+    const { FICHAS_AYUDA } = await import('../../../src/modules/flito-dr-flit/ayuda/fichas-ayuda.generated.js');
+    const permisos = [...new Set(FICHAS_AYUDA.map((f) => f.permiso))];
+    expect(permisos.length).toBeGreaterThan(0);
+    for (const p of permisos) expect(PAGINAS_AYUDA_DRFLIT as readonly string[]).toContain(p);
+  });
+
   it('una ruta del módulo que NO es transversal queda cerrada por la frontera a un enlace de proveedor', async () => {
     const r = await request(app()).post('/api/flito/dr-flit/otra').set('Authorization', `Bearer ${await token(11)}`).send({});
     expect(r.status).toBe(403);
