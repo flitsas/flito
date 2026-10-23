@@ -442,6 +442,12 @@ const envSchema = z.object({
   }).int('DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500')
     .min(0, 'DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500')
     .max(500, 'DRFLIT_IA_TOPE_DIARIO debe ser un entero entre 0 y 500').default(30)),
+  // ── HU #13856 (Feature #13696, IA-4): modelo y límites de la llamada del chat ──────────────────
+  // Modelo de Dr. Flit IA (lo revisa también el probe diario de `modules/ai`). En blanco = default.
+  ANTHROPIC_MODEL_DRFLIT: z.preprocess(vacioComoAusente, z.string().min(1).max(100).default('claude-haiku-5-5')),
+  // Timeout de UNA llamada (sin reintentos) y tope de tokens de salida.
+  DRFLIT_IA_TIMEOUT_MS: z.preprocess(vacioComoAusente, z.coerce.number().int().min(2000).max(30_000).default(12_000)),
+  DRFLIT_IA_MAX_TOKENS: z.preprocess(vacioComoAusente, z.coerce.number().int().min(100).max(2000).default(600)),
   // Puerta POSITIVA de la purga de intentos a 12 meses (RN-DRF3): solo con =1.
   DRFLIT_PURGA_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
 }).superRefine((data, ctx) => {

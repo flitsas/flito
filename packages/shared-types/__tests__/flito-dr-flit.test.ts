@@ -14,7 +14,8 @@ import {
  */
 const HASH_POR_VERSION: Record<string, Record<string, string>> = {
   soporte: { '2026-10-provisional-1': 'e737476539b3577b3048cb6d0bc3e5e73c3112d6197b3f84fda19d7f1d9fd38e' },
-  ia: { '2026-10-provisional-1': '61f3309410ccc8462030f53e0017bc88cebe12f7707d535e5cbe610e65941883' },
+  // HU #13856 (IA-4, AC10): texto ampliado (proveedor, transferencia internacional, qué se oculta y qué no).
+  ia: { '2026-11-v1': '61de596ca5abfc27cecf9a22dbd613cd0bbdcf7c6df57995439841ac978b5212' },
 };
 
 const sha = (t: string) => createHash('sha256').update(t, 'utf8').digest('hex');
@@ -24,6 +25,16 @@ describe('AUTORIZACIONES_DRFLIT', () => {
     const { version, texto } = AUTORIZACIONES_DRFLIT[f];
     expect(HASH_POR_VERSION[f]?.[version], `versión sin hash fijado: ${version}`).toBeDefined();
     expect(sha(texto)).toBe(HASH_POR_VERSION[f]![version]);
+  });
+
+  it('IA-4 AC10: el texto «ia» 2026-11-v1 informa proveedor externo, transferencia, qué se oculta y qué no', () => {
+    const { version, texto } = AUTORIZACIONES_DRFLIT.ia;
+    expect(version).toBe('2026-11-v1');
+    expect(texto).toMatch(/proveedor externo de inteligencia artificial \(Anthropic\)/);
+    expect(texto).toMatch(/transferencia internacional/);
+    for (const oculto of ['placas', 'VIN', 'documento', 'correos']) expect(texto).toContain(oculto);
+    expect(texto).toMatch(/nombres de personas, las direcciones .* NO se pueden ocultar/);
+    expect(texto).toMatch(/FLITO no guarda el texto/);
   });
 
   it('las dos finalidades son exactamente soporte e ia', () => {

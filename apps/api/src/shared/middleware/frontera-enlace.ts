@@ -124,6 +124,12 @@ export const RUTAS_TRANSVERSALES: readonly RutaTransversal[] = congelar([
       + 'el intento solo guarda metadatos). Corredor SOAT/Impuestos deben poder pedir soporte. Mismas '
       + 'guardas que /autorizacion, más `drflitCasosLimiter` y autorización de soporte vigente.',
   },
+  {
+    metodo: 'POST', patron: '/api/flito/dr-flit/chat',
+    porque: 'Dr. Flit IA (HU #13856): el PROPIO usuario pregunta al asistente (sub del token; nada se guarda '
+      + 'salvo su contador diario). Corredor SOAT/Impuestos también ven a Dr. Flit. Mismas guardas que '
+      + '/autorizacion, más `drflitChatLimiter`, autorización `ia` vigente (428) y cupo diario.',
+  },
 ]);
 
 function congelar(lista: RutaTransversal[]): readonly RutaTransversal[] {

@@ -539,3 +539,20 @@ export const drFlitGestionLimiter = rateLimit({
   message: { error: 'Hizo muchas consultas seguidas; intente en un momento' },
   store: makeStore('rl:drflit-gestion:'),
 });
+
+/**
+ * HU #13856 (Feature #13696, IA-4) — ráfaga del chat con IA de Dr. Flit (`POST /api/flito/dr-flit/chat`):
+ * 10 / min por usuario. Va PRIMERO en la cadena del chat (antes de Zod y del cupo): es un freno de ráfaga,
+ * no el control de costo (ese es el cupo diario en PostgreSQL, `dr-flit-ia.cupo.ts`). Bolsa propia: no
+ * comparte con `drflit-casos` ni con `drflit-gestion`. `frenoConRastro` no registra el cuerpo (el mensaje).
+ */
+export const drflitChatLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('drflit-chat:'),
+  handler: frenoConRastro('drflit-chat'),
+  message: { error: 'Envió muchos mensajes seguidos. Espere un momento e intente de nuevo.', codigo: 'demasiados-mensajes' },
+  store: makeStore('rl:drflit-chat:'),
+});

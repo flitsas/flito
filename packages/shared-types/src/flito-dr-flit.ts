@@ -31,15 +31,92 @@ export const AUTORIZACIONES_DRFLIT: Readonly<Record<FinalidadDrFlit, Readonly<Au
       + 'herramienta de gestión de casos de soporte de FLIT (Microsoft Azure DevOps) y que puedo '
       + 'conocer, actualizar, rectificar y suprimir mis datos y revocar esta autorización.',
   }),
+  // HU #13856 (IA-4, AC10): texto ampliado. Sigue PROVISIONAL: si jurídico lo cambia se sube la versión
+  // y todos vuelven a aceptar. La IA no se enciende en PDN sin el texto aprobado.
   ia: Object.freeze({
-    version: '2026-10-provisional-1',
+    version: '2026-11-v1',
     texto:
       '[TEXTO PROVISIONAL — pendiente de aprobación por PO y jurídico] '
       + 'Autorizo a FLIT S.A.S. a tratar la información que escriba en Dr. Flit con herramientas de '
-      + 'inteligencia artificial, con la única finalidad de responder mis consultas, conforme a la '
-      + 'Ley 1581 de 2012 y a la política de tratamiento de datos de FLIT.',
+      + 'inteligencia artificial, con la única finalidad de clasificar y responder mis consultas de uso '
+      + 'de FLITO, conforme a la Ley 1581 de 2012 y a la política de tratamiento de datos de FLIT. '
+      + 'Entiendo que mi mensaje y el historial reciente de la conversación se envían a un proveedor '
+      + 'externo de inteligencia artificial (Anthropic), que los procesa fuera de Colombia (Estados '
+      + 'Unidos), por lo que hay transferencia internacional de datos. Antes de enviarlos, FLITO oculta '
+      + 'las placas, los VIN, los números de documento (cédula, NIT o teléfono), los correos y los '
+      + 'números de trámite. Los nombres de personas, las direcciones y cualquier otro dato que yo '
+      + 'escriba NO se pueden ocultar y llegan al proveedor tal como los escriba. FLITO no guarda el '
+      + 'texto de mis mensajes ni de las respuestas; solo cuenta cuántos mensajes envío al día. Puedo '
+      + 'conocer, actualizar, rectificar y suprimir mis datos y revocar esta autorización.',
   }),
 });
+
+// ── HU #13856 (Feature #13696, IA-4): chat con IA ───────────────────────────────────────────────
+// Diseño: docs/diseno/feature-13696-dr-flit-ia.md («Contrato de endpoints») · ADR-0027.
+
+export const INTENTS_DRFLIT = ['duda', 'soporte', 'gestion', 'no_claro'] as const;
+export type IntentDrFlit = (typeof INTENTS_DRFLIT)[number];
+
+export const GESTION_TARGETS_DRFLIT = ['placa', 'vin', 'tramite', 'cliente'] as const;
+export type GestionTargetDrFlit = (typeof GESTION_TARGETS_DRFLIT)[number];
+
+export const MOTIVOS_DEGRADADO_DRFLIT = [
+  'ia-apagada', 'cupo-agotado', 'ia-timeout', 'ia-error', 'respuesta-invalida',
+] as const;
+export type MotivoDegradadoDrFlit = (typeof MOTIVOS_DEGRADADO_DRFLIT)[number];
+
+/** Límites del contrato del chat. El web recorta el historial a los más recientes. */
+export const LIMITES_CHAT_DRFLIT = Object.freeze({
+  mensaje: Object.freeze({ min: 1, max: 2000 }),
+  turno: Object.freeze({ min: 1, max: 2000 }),
+  historialMax: 12,
+  replyMax: 1200,
+  citasMax: 3,
+});
+
+export const ROLES_HISTORIAL_DRFLIT = ['usuario', 'drflit'] as const;
+export type RolHistorialDrFlit = (typeof ROLES_HISTORIAL_DRFLIT)[number];
+
+export interface TurnoHistorialDrFlit {
+  rol: RolHistorialDrFlit;
+  /** YA enmascarado en el navegador (el servidor re-enmascara como defensa). */
+  texto: string;
+}
+
+/** Cuerpo de `POST /api/flito/dr-flit/chat`. Cualquier otro campo → 400 `campo-invalido`. */
+export interface ChatDrFlitRequest {
+  /** 1..2000 caracteres, YA enmascarado. */
+  mensaje: string;
+  /** 0..12 turnos. */
+  historial: TurnoHistorialDrFlit[];
+}
+
+export interface CitaDrFlit {
+  /** Clave de la ficha de Ayuda FLITO. */
+  clave: string;
+  /** Ancla de la sección; `null` si el modelo no dio una que exista (la cita enlaza a la ficha). */
+  ancla: string | null;
+  tituloFicha: string;
+  tituloSeccion: string | null;
+}
+
+/** Respuesta 200 del chat (nunca 5xx por la IA). `intent === null` ⇔ `degradado` presente. */
+export interface RespuestaChatDrFlit {
+  intent: IntentDrFlit | null;
+  /** Texto plano ≤1200; `null` en gestion, soporte y degradado. */
+  reply: string | null;
+  /** duda: `true` = respaldada por citas; `false` = «no está en los manuales». */
+  enManuales: boolean | null;
+  /** Claves (únicas) de las fichas citadas. */
+  citedSlugs: string[];
+  citas: CitaDrFlit[];
+  gestionTarget: GestionTargetDrFlit | null;
+  /** Token de máscara del valor (p. ej. `[PLACA_1]`), presente en la petición. */
+  gestionRef: string | null;
+  degradado?: MotivoDegradadoDrFlit;
+  /** `null` si la IA está apagada. */
+  cupo: CupoIaDrFlit | null;
+}
 
 /** Valor de `DEPLOY_ENVIRONMENT`. Nunca se deriva de `NODE_ENV` salvo el fallback de desarrollo. */
 export const AMBIENTES_DESPLIEGUE = ['DEV', 'QA', 'PDN'] as const;
