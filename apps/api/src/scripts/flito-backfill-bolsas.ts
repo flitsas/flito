@@ -30,7 +30,7 @@
 import { eq, inArray, lte } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import {
-  flitoBolsaMovimientos, flitoBolsaTransitoCobertura, flitoDerechosTramite, flitoImpuestos,
+  flitoBolsasUnicasMovimientos, flitoBolsaTransitoCobertura, flitoDerechosTramite, flitoImpuestos,
   flitoLiquidaciones, flitoSoat, flitoTramites,
 } from '../db/schema.js';
 import { ConceptoBolsaTransito } from '@operaciones/shared-types';
@@ -153,9 +153,9 @@ async function llavesExistentes(llaves: string[]): Promise<Set<string>> {
   // En lotes: `IN` con decenas de miles de parámetros revienta el driver.
   for (let i = 0; i < llaves.length; i += 500) {
     filas.push(...await db
-      .select({ llave: flitoBolsaMovimientos.llaveIdempotencia })
-      .from(flitoBolsaMovimientos)
-      .where(inArray(flitoBolsaMovimientos.llaveIdempotencia, llaves.slice(i, i + 500))));
+      .select({ llave: flitoBolsasUnicasMovimientos.llaveIdempotencia })
+      .from(flitoBolsasUnicasMovimientos)
+      .where(inArray(flitoBolsasUnicasMovimientos.llaveIdempotencia, llaves.slice(i, i + 500))));
   }
   return new Set(filas.map((f) => f.llave).filter((l): l is string => l !== null));
 }
@@ -282,6 +282,8 @@ async function aplicar(reporte: Reporte): Promise<void> {
       // Se imputa al periodo del movimiento más antiguo, para que el mes que recibe el cargo reciba
       // también su compensación y ninguno quede descuadrado por su cuenta.
       const primeraFecha = plan.liquidaciones[0].fecha;
+      // HU #13899 (D6): ya no se autocrea la bolsa. Sin bolsa activa, la apertura lanza 409 y la
+      // transacción de ESE cliente se deshace entera (ni apertura ni salidas): nunca queda a medias.
       await asentarMovimiento(tx, plan.companiaId, {
         tipo: 'entrada',
         origen: 'manual',

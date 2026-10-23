@@ -37,6 +37,8 @@ export * from './schema/flito-bolsas-documentos.js'; // HU #13889 (ADR-0028): ex
 // Épica #12245: `flito_comprobantes` vive en `./schema/flito-comprobantes.ts` por el mismo techo (HU #12611).
 import { flitoComprobantes } from './schema/flito-comprobantes.js';
 export { flitoComprobantes };
+// HU #13899 (ADR-0029): modelo único de bolsa en `./schema/flito-bolsas-unicas.ts` por el mismo techo.
+export * from './schema/flito-bolsas-unicas.js'; import { flitoBolsasUnicasMovimientos } from './schema/flito-bolsas-unicas.js';
 // HU #12996: `flito_soat_incompletas` vive en `./schema/flito-soat-incompletas.ts` por el mismo techo.
 import { flitoSoatIncompletas } from './schema/flito-soat-incompletas.js';
 export { flitoSoatIncompletas };
@@ -4209,8 +4211,7 @@ export const flitoConciliacionLineas = pgTable('flito_conciliacion_lineas', {
   resultado: varchar('resultado', { length: 24 }).notNull(),
   /** Motivo legible. SIN placa ni póliza en claro: el dato ya está en sus propias columnas. */
   detalle: text('detalle'),
-  movimientoBolsaId: uuid('movimiento_bolsa_id')
-    .references(() => flitoBolsaMovimientos.id, { onDelete: 'restrict' }),
+  movimientoBolsaId: uuid('movimiento_bolsa_id').references(() => flitoBolsasUnicasMovimientos.id, { onDelete: 'restrict' }), // HU #13899
   movimientoTransitoId: uuid('movimiento_transito_id')
     .references(() => flitoBolsaTransitoMovimientos.id, { onDelete: 'restrict' }),
   /** Se sella al conciliar. Es lo que hace única la conciliación de un SOAT (índice de abajo). */

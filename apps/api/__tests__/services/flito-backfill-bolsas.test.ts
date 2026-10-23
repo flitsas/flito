@@ -60,9 +60,9 @@ const consultaCierres: Resolver = () =>
 function escenario(liquidaciones: Fila[]): void {
   kdb.when
     .select('flito_liquidaciones', liquidaciones)
-    .select('flito_bolsa_movimientos', consultaLlaves)
+    .select('flito_bolsas_unicas_movimientos', consultaLlaves)
     .select('flito_bolsa_transito_cobertura', consultaOrganismos)
-    .select('flito_bolsa_cierres', consultaCierres);
+    .select('flito_bolsas_unicas_cierres', consultaCierres);
 }
 
 beforeEach(() => {

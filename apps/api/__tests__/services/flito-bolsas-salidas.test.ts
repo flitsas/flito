@@ -122,13 +122,13 @@ const CTX = { userId: 9, nombre: 'sistema' };
 
 /** Refleja en la simulación lo que el UPDATE acaba de escribir. */
 function aplicarEnSimulacion(tabla: string, datos: Record<string, unknown>): void {
-  if (tabla === 'flito_bolsas' && typeof datos.saldo === 'string') {
+  if (tabla === 'flito_bolsas_unicas' && typeof datos.saldo === 'string') {
     saldoBolsa = Number(datos.saldo);
     return;
   }
   // Reverso: la llave original se reescribe con el prefijo `rev:`. El mock no ve el `where`, pero la
   // llave nueva contiene la vieja, así que la fila se identifica sin ambigüedad.
-  if (tabla === 'flito_bolsa_movimientos' && typeof datos.llaveIdempotencia === 'string') {
+  if (tabla === 'flito_bolsas_unicas_movimientos' && typeof datos.llaveIdempotencia === 'string') {
     const nueva = datos.llaveIdempotencia;
     const anterior = nueva.replace(/^rev:/, '');
     const fila = libro.find((f) => f.llaveIdempotencia === anterior);
@@ -137,10 +137,10 @@ function aplicarEnSimulacion(tabla: string, datos: Record<string, unknown>): voi
 }
 
 /** La bolsa que devuelve el SELECT ... FOR UPDATE, con el saldo vigente de la simulación. */
-const bolsaVigente: Resolver = () => [{ id: BOLSA_ID, saldo: String(saldoBolsa) }];
+const bolsaVigente: Resolver = () => [{ id: BOLSA_ID, saldo: String(saldoBolsa), companiaId: COMPANIA, activa: true }];
 
 /**
- * Resuelve las consultas a `flito_bolsa_movimientos` contra el libro simulado, mirando por qué se
+ * Resuelve las consultas a `flito_bolsas_unicas_movimientos` contra el libro simulado, mirando por qué se
  * está filtrando. Son dos:
  *   · pre-chequeo de idempotencia — un `eq` por llave: devuelve la fila solo si de verdad se asentó
  *     antes, que es lo que hace significativos el reintento (AC6) y el cobro único por VIN (AC4);
@@ -252,8 +252,8 @@ function escenarioSellado(calculo: Fila = {}, ids: Fila = {}, servicios: Fila[] 
     // DENTRO de la transacción antes de releer los servicios adicionales. Sin esta entrada la cola
     // se agota, `bloquearTramite` no encuentra el trámite y ningún sellado llega a la bolsa.
     .selectOnce('flito_tramites', [{ id: TRAMITE, idFlit: 'FLIT-1' }])
-    .select('flito_bolsa_movimientos', consultaMovimientos)
-    .select('flito_bolsas', bolsaVigente)
+    .select('flito_bolsas_unicas_movimientos', consultaMovimientos)
+    .select('flito_bolsas_unicas', bolsaVigente)
     .insert('flito_liquidaciones', [filaLiquidacion])
     .insert('flito_liquidacion_eventos', []);
 }
@@ -262,8 +262,8 @@ function escenarioSellado(calculo: Fila = {}, ids: Fila = {}, servicios: Fila[] 
 function escenarioReverso(): void {
   kdb.when
     .select('flito_liquidaciones', [filaLiquidacion])
-    .select('flito_bolsa_movimientos', consultaMovimientos)
-    .select('flito_bolsas', bolsaVigente);
+    .select('flito_bolsas_unicas_movimientos', consultaMovimientos)
+    .select('flito_bolsas_unicas', bolsaVigente);
 }
 
 beforeEach(() => {
@@ -278,8 +278,8 @@ beforeEach(() => {
   espiarMutaciones();
   // `returning()` devuelve la fila que el servicio acaba de escribir y la deja en el libro: los
   // pre-chequeos y el reverso trabajan luego sobre ella, igual que harían contra la tabla real.
-  kdb.when.insert('flito_bolsa_movimientos', () => {
-    const datos = insertsEn('flito_bolsa_movimientos').at(-1)?.datos ?? {};
+  kdb.when.insert('flito_bolsas_unicas_movimientos', () => {
+    const datos = insertsEn('flito_bolsas_unicas_movimientos').at(-1)?.datos ?? {};
     const fila: Fila = { id: `mov-${++secuenciaMovimiento}`, createdAt: AHORA, ...datos };
     libro.push(fila);
     return [fila];
@@ -287,8 +287,8 @@ beforeEach(() => {
 });
 
 // Movimientos escritos, por dirección.
-const salidasEscritas = () => insertsEn('flito_bolsa_movimientos').filter((m) => m.datos.tipo === 'salida').map((m) => m.datos);
-const entradasEscritas = () => insertsEn('flito_bolsa_movimientos').filter((m) => m.datos.tipo === 'entrada').map((m) => m.datos);
+const salidasEscritas = () => insertsEn('flito_bolsas_unicas_movimientos').filter((m) => m.datos.tipo === 'salida').map((m) => m.datos);
+const entradasEscritas = () => insertsEn('flito_bolsas_unicas_movimientos').filter((m) => m.datos.tipo === 'entrada').map((m) => m.datos);
 
 // ─────────────────────────── AC1 ─────────────────────────────────────────────
 
@@ -354,7 +354,7 @@ describe('liquidar — AC1: sellar descuenta los cinco conceptos y el GMF de la 
     escenarioSellado();
     await liquidar(TRAMITE, 9);
 
-    for (const u of updatesEn('flito_bolsas')) {
+    for (const u of updatesEn('flito_bolsas_unicas')) {
       expect(u.datos).not.toHaveProperty('ultimaRecargaValor');
       expect(u.datos).not.toHaveProperty('ultimaRecargaEn');
     }
@@ -571,8 +571,8 @@ describe('liquidar — un concepto que vale cero no consume bolsa ni impide sell
     const dto = await liquidar(TRAMITE, 9);
 
     expect(dto.estado).toBe('liquidado');
-    expect(insertsEn('flito_bolsa_movimientos')).toHaveLength(0);
-    expect(updatesEn('flito_bolsas')).toHaveLength(0);
+    expect(insertsEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
+    expect(updatesEn('flito_bolsas_unicas')).toHaveLength(0);
     expect(saldoBolsa).toBe(1_000_000);
   });
 });
@@ -693,8 +693,8 @@ describe('liquidar — trámite que todavía no cruzó con un cliente', () => {
     const dto = await liquidar(TRAMITE, 9);
 
     expect(dto.estado).toBe('liquidado');
-    expect(insertsEn('flito_bolsa_movimientos')).toHaveLength(0);
-    expect(updatesEn('flito_bolsas')).toHaveLength(0);
+    expect(insertsEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
+    expect(updatesEn('flito_bolsas_unicas')).toHaveLength(0);
   });
 });
 
@@ -715,8 +715,8 @@ describe('registrarSalidasLiquidacion — AC6: reintentar el sellado no duplica'
 
   it('la segunda pasada no asienta nada y el saldo no se mueve', async () => {
     kdb.when
-      .select('flito_bolsas', bolsaVigente)
-      .select('flito_bolsa_movimientos', consultaMovimientos);
+      .select('flito_bolsas_unicas', bolsaVigente)
+      .select('flito_bolsas_unicas_movimientos', consultaMovimientos);
 
     const primera = await registrarSalidasLiquidacion(tx, datos, CTX);
     const saldoTrasPrimera = saldoBolsa;
@@ -725,7 +725,7 @@ describe('registrarSalidasLiquidacion — AC6: reintentar el sellado no duplica'
     expect(primera).toHaveLength(3);
     // Devuelve solo lo realmente asentado: la segunda no aporta ninguna línea nueva.
     expect(segunda).toEqual([]);
-    expect(insertsEn('flito_bolsa_movimientos')).toHaveLength(3);
+    expect(insertsEn('flito_bolsas_unicas_movimientos')).toHaveLength(3);
     expect(saldoBolsa).toBe(saldoTrasPrimera);
   });
 
@@ -733,8 +733,8 @@ describe('registrarSalidasLiquidacion — AC6: reintentar el sellado no duplica'
     // Reintento parcial: la primera pasada murió después del derecho. La segunda completa el resto
     // en vez de rechazarlo todo.
     kdb.when
-      .select('flito_bolsas', bolsaVigente)
-      .select('flito_bolsa_movimientos', consultaMovimientos);
+      .select('flito_bolsas_unicas', bolsaVigente)
+      .select('flito_bolsas_unicas_movimientos', consultaMovimientos);
 
     await registrarSalidasLiquidacion(tx, { ...datos, conceptos: [conceptos[0]] }, CTX);
     const segunda = await registrarSalidasLiquidacion(tx, datos, CTX);
@@ -802,7 +802,7 @@ describe('reversar — AC5: el reverso devuelve el dinero con contramovimientos'
     escenarioReverso();
     await reversar(TRAMITE, 'Error en el valor del derecho', 9);
 
-    const reescrituras = updatesEn('flito_bolsa_movimientos');
+    const reescrituras = updatesEn('flito_bolsas_unicas_movimientos');
     expect(reescrituras).toHaveLength(6);
     expect(reescrituras.map((u) => u.datos.llaveIdempotencia))
       .toEqual(llavesDelSellado().map((ll) => `rev:${ll}`));
@@ -830,12 +830,12 @@ describe('reversar — AC5: el reverso devuelve el dinero con contramovimientos'
     // Trámite de una compañía sin bolsa, o liquidado antes de esta HU.
     kdb.when
       .select('flito_liquidaciones', [filaLiquidacion])
-      .select('flito_bolsa_movimientos', [])
-      .select('flito_bolsas', bolsaVigente);
+      .select('flito_bolsas_unicas_movimientos', [])
+      .select('flito_bolsas_unicas', bolsaVigente);
 
     await reversar(TRAMITE, 'Motivo suficiente', 9);
 
-    expect(insertsEn('flito_bolsa_movimientos')).toHaveLength(0);
+    expect(insertsEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
     expect(saldoBolsa).toBe(1_000_000);
   });
 });
@@ -867,14 +867,14 @@ describe('reversarSalidasLiquidacion — un movimiento de conciliación queda fu
     libro.push(movimientoConciliado());
     saldoBolsa = 550000;
     kdb.when
-      .select('flito_bolsa_movimientos', consultaMovimientos)
-      .select('flito_bolsas', bolsaVigente);
+      .select('flito_bolsas_unicas_movimientos', consultaMovimientos)
+      .select('flito_bolsas_unicas', bolsaVigente);
 
     const contras = await reversarSalidasLiquidacion(kdb.db as never, TRAMITE, CTX);
 
     expect(contras).toEqual([]);
-    expect(insertsEn('flito_bolsa_movimientos')).toHaveLength(0);
-    expect(updatesEn('flito_bolsa_movimientos')).toHaveLength(0);
+    expect(insertsEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
+    expect(updatesEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
     // El dinero de ese SOAT se pagó de verdad en un portal externo: no vuelve (CF-07).
     expect(saldoBolsa).toBe(550000);
     expect(libro[0].llaveIdempotencia).toBe(`salida:soat:${SOAT_ID}`);
@@ -907,7 +907,7 @@ describe('reversarSalidasLiquidacion — un movimiento de conciliación queda fu
       c.where = (cond: unknown) => { condicion = cond; return original(cond); };
       return c;
     });
-    kdb.when.select('flito_bolsa_movimientos', []).select('flito_bolsas', bolsaVigente);
+    kdb.when.select('flito_bolsas_unicas_movimientos', []).select('flito_bolsas_unicas', bolsaVigente);
 
     await reversarSalidasLiquidacion(kdb.db as never, TRAMITE, CTX);
 
@@ -924,8 +924,8 @@ describe('reversarSalidasLiquidacion — devuelve lo que asentó', () => {
     await liquidar(TRAMITE, 9);
 
     kdb.when
-      .select('flito_bolsa_movimientos', consultaMovimientos)
-      .select('flito_bolsas', bolsaVigente);
+      .select('flito_bolsas_unicas_movimientos', consultaMovimientos)
+      .select('flito_bolsas_unicas', bolsaVigente);
 
     const contras = await reversarSalidasLiquidacion(kdb.db as never, TRAMITE, CTX);
     expect(contras.map((c) => c.concepto))
@@ -969,5 +969,45 @@ describe('liquidar → reversar → liquidar: el reverso libera las llaves', () 
     // Las seis primeras siguen ahí, con su llave reversada: el reverso no borró ninguna línea.
     expect(libro.slice(0, 6).map((f) => f.llaveIdempotencia))
       .toEqual(llavesDelSellado().map((ll) => `rev:${ll}`));
+  });
+});
+
+// ─────────────── HU #13899 (AC6, AC8): la liquidación ya no crea bolsas ───────────────
+
+describe('liquidar — HU #13899 AC6/AC8: sin bolsa activa sella pero no asienta', () => {
+  it('TC-16 · liquidar a una compañía sin bolsa no crea bolsa ni movimientos y la liquidación termina', async () => {
+    escenarioSellado();
+    kdb.when.select('flito_bolsas_unicas', []);
+
+    await expect(liquidar(TRAMITE, 9)).resolves.toBeDefined();
+
+    expect(insertsEn('flito_liquidaciones')).toHaveLength(1);
+    expect(insertsEn('flito_bolsas_unicas')).toHaveLength(0);
+    expect(insertsEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
+    expect(updatesEn('flito_bolsas_unicas')).toHaveLength(0);
+  });
+
+  it('TC-18 · con la bolsa inactiva no asienta', async () => {
+    escenarioSellado();
+    kdb.when.select('flito_bolsas_unicas', [{ id: BOLSA_ID, saldo: '1000000', companiaId: COMPANIA, activa: false }]);
+
+    await liquidar(TRAMITE, 9);
+
+    expect(insertsEn('flito_liquidaciones')).toHaveLength(1);
+    expect(insertsEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
+    expect(updatesEn('flito_bolsas_unicas')).toHaveLength(0);
+  });
+
+  it('TC-17 · con bolsa activa asienta en el libro único, colgado de la bolsa de la compañía', async () => {
+    escenarioSellado();
+    await liquidar(TRAMITE, 9);
+
+    const salidas = salidasEscritas();
+    expect(salidas.length).toBeGreaterThan(0);
+    for (const s of salidas) {
+      expect(s.bolsaId).toBe(BOLSA_ID);
+      expect(s.origen).toBe('automatico');
+      expect(String(s.llaveIdempotencia)).toMatch(/^salida:/);
+    }
   });
 });
