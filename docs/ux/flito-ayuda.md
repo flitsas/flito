@@ -24,6 +24,12 @@
 
 > **Anexo HU #13775.** Grupo Tránsito y ficha «Tablero de control»: [flito-ayuda-transito.md](flito-ayuda-transito.md).
 
+> **Anexo HU #13896 (slim, 2026-10-23).** Árbol lateral de fichas en la vista de ficha:
+> [§ HU #13896](#hu-13896--árbol-lateral-de-fichas-slim). Corrige, y lo marca en línea, la
+> justificación «la TOC va a la derecha porque el menú del shell ocupa la izquierda»: el menú del
+> shell es hoy una barra flotante inferior. La TOC **se queda** a la derecha; la izquierda es del
+> árbol. La rejilla de la ficha pasa de 2 a 3 columnas en `≥ lg`.
+
 ---
 
 ## Contexto y roles
@@ -232,6 +238,8 @@ Grupos vacíos: **no se renderizan**. `proveedor` ve un solo grupo (Gestión) co
 y copy: [`docs/ux/flito-ayuda-buscar.md`](flito-ayuda-buscar.md). **v2 (HU-2):** con búsqueda
 escrita, la lista deja de agruparse (ver delta en ese archivo).
 
+**HU #13896:** el índice **no** lleva árbol lateral: ya es la lista de fichas.
+
 ### Estados (4) + copy
 
 | Estado | Cuándo | Qué se ve | Copy (usted) | Control |
@@ -273,7 +281,8 @@ Catálogo estático en el cliente (slugs, grupo, etiqueta, ruta de pantalla, arc
 
 Segunda superficie obligatoria: abrir un capítulo desde el índice. **v2:** el wireframe vigente
 del lleno es el de [HU-3 + HU-1/4/5](#hu-3--tabla-de-contenido-enlace-a-sección-anteriorsiguiente);
-este queda como base.
+este queda como base. **HU #13896:** la disposición vigente en `≥ lg` (3 columnas con el árbol de
+fichas a la izquierda) es la de [§ HU #13896](#hu-13896--árbol-lateral-de-fichas-slim).
 
 ### Wireframe (lleno)
 
@@ -502,6 +511,7 @@ cuerpo de la ficha. Todo lo nuevo de v2 es **orientación**, no contenido: va en
 | Imágenes (HU-5) | En el flujo del cuerpo | Ancho máximo del texto, marco `--flit-border-soft` |
 | «Aplica para» (HU-4) | Pie del artículo, tras una línea divisoria | `text-sm`, `--flit-text-secondary` |
 | Anterior / Siguiente (HU-3) | Debajo de la tarjeta del artículo | Dos enlaces-tarjeta, sin peso de botón |
+| Árbol de fichas (HU #13896) | Columna izquierda pegajosa en `lg+`; acordeón «Fichas de ayuda» cerrado arriba en `<lg` | Grupos plegados salvo el de la ficha abierta; enlaces `text-sm` |
 
 **Qué se calla:** la versión y la fecha **no** van en el índice ni en los resultados de búsqueda
 (el índice es para elegir ficha, no para auditar su vigencia). «Aplica para» no va arriba: quien
@@ -514,6 +524,9 @@ lectura). TOC, copiar enlace y Anterior/Siguiente son navegación, no CTA. En el
 primario: el control dominante es el buscador. Ningún `flitBtnPrimary`/`GradientButton` en la Ayuda.
 
 ### Wireframe — ficha llena v2 (escritorio, ≥ `lg`)
+
+> **HU #13896:** este wireframe de 2 columnas queda como foto de v2. El vigente en `≥ lg` es el de
+> 3 columnas de [§ HU #13896](#hu-13896--árbol-lateral-de-fichas-slim).
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────┐
@@ -546,10 +559,14 @@ primario: el control dominante es el buscador. Ningún `flitBtnPrimary`/`Gradien
 └─────────────────────────────┘   └────────────────────────────────────┘
 ```
 
-Rejilla: `lg:grid lg:grid-cols-[minmax(0,1fr)_15rem] lg:gap-6`; el artículo `min-w-0`. Anterior /
-Siguiente ocupan solo la columna del artículo.
+Rejilla: ~~`lg:grid lg:grid-cols-[minmax(0,1fr)_15rem] lg:gap-6`~~ **HU #13896:**
+`lg:grid-cols-[15rem_minmax(0,1fr)_15rem]` (con TOC) o `lg:grid-cols-[15rem_minmax(0,1fr)]` (sin
+TOC); el artículo `min-w-0`. Anterior / Siguiente ocupan solo la columna del artículo.
 
 ### Wireframe — ficha llena v2 (móvil, < `lg`)
+
+> **HU #13896:** encima de «Contenido de la ficha» va el acordeón «Fichas de ayuda» (ver su
+> wireframe `< lg`).
 
 ```
 ┌──────────────────────────────┐
@@ -627,10 +644,15 @@ temas (verificar con `check:contraste`). No usar `--flit-text-muted` aquí.
 - Solo se pinta si la ficha tiene **≥ 2** `h2`. Con menos, la columna no existe y el artículo ocupa
   el ancho.
 - `≥ lg`: columna derecha, `position: sticky` con `top` = alto de la topbar + `1rem`, y
-  `max-h-[calc(100vh-…)] overflow-y-auto` propia si la lista es larga. Derecha y no izquierda: el
-  menú del shell ya ocupa la izquierda y la TOC es secundaria a la lectura.
+  `max-h-[calc(100vh-…)] overflow-y-auto` propia si la lista es larga. Derecha y no izquierda:
+  ~~el menú del shell ya ocupa la izquierda y~~ la TOC es secundaria a la lectura y se lee después
+  del artículo (de lo general a lo particular: qué ficha → qué dice → a qué sección salto).
+  **HU #13896 (2026-10-23):** la justificación tachada ya no es cierta — el menú del shell es una
+  barra flotante inferior (verificado en DEV). La izquierda la ocupa ahora el árbol de fichas; la
+  TOC se queda a la derecha, sin cambios de comportamiento.
 - `< lg`: `FlitAcordeon` (kit) con `titulo="Contenido de la ficha"` y `cantidad` = número de
   secciones, **cerrado** por defecto, arriba del artículo. Al elegir una sección se cierra.
+  **HU #13896:** queda **debajo** del acordeón «Fichas de ayuda».
 - Enlaces: `text-sm`, `--flit-text-secondary`; hover velo `--flit-bg-hover` + `transition-colors`;
   `flit-focus`. El enlace de la sección del `#ancla` actual lleva `aria-current="location"` y tinta
   `--flit-blue-text` + `font-semibold` (sin barra de color nueva).
@@ -818,7 +840,9 @@ interactiva. **Notificación:** ninguna.
 
 - Esquema: `h1` ficha → `h2`/`h3` del cuerpo (con `id` estable). Rótulos de TOC, avisos y «Aplica
   para» **no** son encabezados.
-- Dos `nav` con nombre propio: «Contenido de la ficha» y «Navegación entre fichas».
+- ~~Dos `nav` con nombre propio: «Contenido de la ficha» y «Navegación entre fichas».~~
+  **HU #13896:** tres `nav` con nombre propio: «Fichas de ayuda», «Contenido de la ficha» y
+  «Navegación entre fichas».
 - Foco: `h1` al montar; encabezado de la sección si hay `#ancla` válido; encabezado al usar la TOC.
 - Todo control con nombre accesible, hover sutil (`--flit-bg-hover`, `transition-colors` corta) y
   `flit-focus`. Ningún icono solo sin `aria-label`.
@@ -830,7 +854,7 @@ interactiva. **Notificación:** ninguna.
 | Decisión | Por qué | Descartado |
 |---|---|---|
 | Versión/fecha dentro del artículo | No tocar `PageHeaderCard` (compartido) por una línea | Ranura `meta` nueva en el kit; chip de versión |
-| TOC a la derecha, pegajosa; acordeón cerrado en móvil | Lectura primero; el shell ya usa la izquierda | TOC arriba también en escritorio (empuja el contenido); scrollspy (efecto + complejidad) |
+| TOC a la derecha, pegajosa; acordeón cerrado en móvil | Lectura primero; ~~el shell ya usa la izquierda~~ **HU #13896:** la TOC es lo último que se consulta (después del artículo) y la izquierda es del árbol de fichas; el shell ya no ocupa la izquierda (barra flotante inferior) | TOC arriba también en escritorio (empuja el contenido); scrollspy (efecto + complejidad); **HU #13896:** TOC a la izquierda y árbol a la derecha (invierte el orden general → particular) |
 | Copiar enlace solo en `h2`, siempre visible | Menos ruido; en táctil no hay hover | Icono que aparece al hover; en cada `h3` |
 | Toast al copiar | Resultado de acción puntual (principios) | Cambiar el icono a ✓ (efecto, invisible al lector) |
 | Avisos con fondo neutro + rótulo y tinta | Par oscuro garantizado; no depende del color | `--flit-chip-*-bg` (sin par oscuro); `StatusChip` como rótulo (es para estados, no para avisos) |
@@ -841,3 +865,309 @@ interactiva. **Notificación:** ninguna.
 **Nota para PO / F2 (no bloquea):** la sección escrita «## Para quién» y el bloque calculado
 «Aplica para» pueden contradecirse. Recomendación para F2: que «Para quién» hable de la tarea
 («quien concilia el periodo»), no de la lista de roles.
+
+---
+---
+
+## HU #13896 · Árbol lateral de fichas (slim)
+
+> **Modo slim** (Feature #13691). Extiende la vista de ficha `/flito/ayuda/:slug`; sin ruta ni
+> `PageSlug` nuevos, sin endpoint. Decisiones cerradas con el humano el 2026-10-23 (no reabrir):
+> árbol grupo → fichas a la izquierda, solo el grupo actual desplegado, memoria en la SPA, TOC y
+> Anterior/Siguiente se quedan, acordeón en `< lg`, sin árbol en el índice. Referencia visual del
+> humano: manual de FLIT Trámites (grupos plegables con artículos a la izquierda, «En este
+> artículo» a la derecha) — se toma la **disposición**, no la estética ni los componentes.
+> Público: operador interno. Tono: **usted** (aunque el árbol no lleva frases: solo rótulos).
+
+### Superficie tocada
+
+Vista de ficha (`components/ayuda/AyudaFicha.tsx`) en los estados **Cargando**, **Error**,
+**Vacío (pendiente)** y **Lleno**. Componente nuevo del dominio Ayuda (no del kit): el árbol, en
+dos presentaciones — columna lateral `≥ lg` y acordeón `< lg` (reusa `FlitAcordeon`).
+
+**No se toca:** el índice `/flito/ayuda` (sin árbol: ya es la lista de fichas), «Esta ficha no
+existe» y `NoAccess` (sin árbol: no hay ficha visible que ubicar), la TOC (comportamiento igual),
+Anterior/Siguiente, `PageHeaderCard`, el kit.
+
+### Delta de claridad (qué se ve / qué se calla)
+
+**Qué vino a hacer quien abre la ficha** no cambia: leer cómo se usa una pantalla. El árbol
+responde a la pregunta que la ficha sola no contesta: **«¿qué más hay cerca y cómo salto ahí sin
+volver al índice?»**. Es orientación, no contenido: va en la periferia izquierda y nunca encima
+del primer párrafo.
+
+- **Siempre visible (≥ lg):** el rótulo «Fichas de ayuda», los nombres de **todos** los grupos con
+  fichas visibles, y **solo** las fichas del grupo de la ficha abierta, con la actual resaltada.
+  Así el árbol arranca corto (5 grupos como máximo + las fichas de un grupo).
+- **A un clic:** las fichas de los otros grupos (botón del grupo).
+- **No está:** contadores por grupo, badge «Ficha pendiente», iconos de carpeta/documento,
+  buscador, versión al pie, secciones de la ficha (eso es la TOC). Ver descartes.
+- **Densidad:** la ficha pasa de 2 a 3 columnas en `≥ lg`. Se contiene porque (a) los grupos
+  ajenos arrancan plegados, (b) el árbol no tiene caja de color ni tarjeta — mismo peso visual que
+  la TOC — y (c) en `< lg` es una sola fila plegada. El artículo sigue siendo la columna dominante
+  (`minmax(0,1fr)`); ver Nota de ancho en QA.
+- **Una primaria:** sin cambio. La única acción con forma de botón sigue siendo **Ir a la pantalla**
+  (`flitBtnSecondary`) en el header. El árbol es navegación: botones de grupo y enlaces, sin peso
+  de CTA.
+
+### Wireframe — ficha llena con TOC (≥ `lg`, 3 columnas)
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│ [PageHeaderCard]   ← Volver al índice                                                    │
+│  Reporte de costos                                                   [ Ir a la pantalla ] │
+│  Costo por trámite y por cliente en el periodo.                                          │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────┐ ┌──────────────────────────────────────────────┐ ┌─────────────────┐
+│ FICHAS DE AYUDA │ │ Versión 1.0 · 20/10/2026                     │ │ CONTENIDO DE LA │
+│                 │ │                                              │ │ FICHA           │
+│ › General       │ │ Qué es                                 [🔗]  │ │ Qué es          │
+│ › Gestión       │ │ …                                            │ │ Para quién      │
+│ › Tránsito      │ │ Pasos                                  [🔗]  │ │ Cómo se entra   │
+│ ⌄ Finanzas      │ │ 1. …                                         │ │ Pasos           │
+│    Bolsas       │ │ ┃ Importante                                 │ │   Paso avanzado │
+│    Conciliación │ │ ┃ El cierre del periodo no se puede deshacer.│ │ Estados         │
+│  ▌ Reporte de   │ │ …                                            │ │ Qué no hace     │
+│  ▌ costos   ◀ ① │ │ ──────────────────────────────────────────── │ └─────────────────┘
+│    Facturación  │ │ Aplica para: Por defecto Administrador, …    │    ↑ sticky, scroll
+│    electrónica ·│ └──────────────────────────────────────────────┘      propio (sin cambio)
+│    Parametriz.  │ ┌ ← Anterior ───────────┐ ┌──────── Siguiente → ┐
+│ › Administración│ │ Finanzas · Conciliac. │ │ Finanzas · Factura… │
+└─────────────────┘ └───────────────────────┘ └─────────────────────┘
+  ↑ sticky (top = topbar + 1rem), scroll propio
+① ficha actual: aria-current="page", velo --flit-bg-hover + tinta --flit-blue-text + semibold
+  (el «▌» del dibujo marca el velo, no es una barra de color)
+› / ⌄ chevron decorativo (aria-hidden); el estado lo dice aria-expanded
+```
+
+Rejilla: `lg:grid lg:grid-cols-[15rem_minmax(0,1fr)_15rem] lg:items-start lg:gap-6`. La columna
+central contiene **el artículo y debajo Anterior/Siguiente** (para que el árbol y la TOC sigan
+pegajosos a su lado mientras se lee hasta el final). Header a ancho completo, encima de la rejilla.
+
+### Wireframe — ficha sin TOC (≥ `lg`, 2 columnas)
+
+Aplica a: ficha llena con < 2 `h2`, **pendiente** y **error**.
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ [PageHeaderCard]   ← Volver al índice                                        │
+│  Impuestos                                               [ Ir a la pantalla ] │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────┐ ┌──────────────────────────────────────────────────────────┐
+│ FICHAS DE AYUDA │ │ [FlitEmpty]  Esta ficha está pendiente.                  │
+│                 │ │  La ficha ya figura en el índice; el contenido se        │
+│ › General       │ │  publicará en una entrega siguiente. No es un error.     │
+│ ⌄ Gestión       │ │  [ Volver al índice ]                                    │
+│    Gestión      │ └──────────────────────────────────────────────────────────┘
+│    Trámites     │ ┌ ← Anterior ──────────┐            ┌────────── Siguiente → ┐
+│    SOAT         │ │ Gestión · SOAT       │            │ Gestión · Derechos …  │
+│  ▌ Impuestos ◀  │ └──────────────────────┘            └───────────────────────┘
+│    …            │
+│ › Finanzas      │   (en Error: tarjeta de error con Reintentar / Volver al índice,
+└─────────────────┘    sin Anterior/Siguiente — sin cambio)
+```
+
+Rejilla: `lg:grid-cols-[15rem_minmax(0,1fr)]`. **No** se reserva una columna derecha vacía: el
+artículo toma ese ancho (regla de HU-3: «sin TOC ni columna vacía»).
+
+**Cargando (≥ lg):** 3 columnas — el árbol **real** a la izquierda (sus datos son locales y
+síncronos: catálogo + permisos, no dependen del `.md`), el skeleton del artículo en el centro y la
+reserva estática de la TOC a la derecha (sin cambio de HU-3). Así nada salta al cargar.
+
+### Wireframe — `< lg`
+
+```
+┌──────────────────────────────┐
+│ ← Volver al índice           │
+│ Reporte de costos            │
+│ Costo por trámite y …        │
+│ [ Ir a la pantalla ]         │
+└──────────────────────────────┘
+┌──────────────────────────────┐ ┐
+│ › Fichas de ayuda       (14) │ │ un solo bloque de navegación:
+└──────────────────────────────┘ │ gap 0.5rem entre los dos acordeones
+┌──────────────────────────────┐ │ (1rem con el resto de la página)
+│ › Contenido de la ficha  (7) │ │
+└──────────────────────────────┘ ┘
+┌──────────────────────────────┐
+│ Versión 1.0 · 20/10/2026     │
+│ Qué es                  [🔗] │
+│ …                            │
+└──────────────────────────────┘
+  Anterior / Siguiente apilados (sin cambio)
+
+Abierto «Fichas de ayuda»:
+┌──────────────────────────────┐
+│ ⌄ Fichas de ayuda       (14) │
+├──────────────────────────────┤
+│ › General                    │
+│ › Gestión                    │
+│ ⌄ Finanzas                   │
+│    Bolsas                    │
+│  ▌ Reporte de costos     ◀   │
+│    …                         │
+│ › Administración             │
+└──────────────────────────────┘
+```
+
+- **Orden:** «Fichas de ayuda» **encima** de «Contenido de la ficha» — mismo orden que en escritorio
+  de izquierda a derecha (qué ficha → qué sección). Ambos **cerrados** por defecto: el bloque ocupa
+  dos filas y el artículo empieza en el primer pliegue.
+- **Para que no saturen:** los dos acordeones van juntos en un contenedor `lg:hidden` con
+  `space-y-2`, con la misma envoltura visual que ya usa `TablaContenidoPlegable` (borde
+  `--flit-border-soft`, radio del kit, fondo `--flit-bg-card`) — gemelos, no dos estilos.
+  Sin TOC (pendiente, error, < 2 `h2`) queda solo «Fichas de ayuda».
+- `FlitAcordeon` con `titulo="Fichas de ayuda"`, `cantidad` = número de fichas visibles del usuario
+  (`capitulosEnOrdenDeIndice(user).length`). Dentro, **el mismo árbol** (grupos plegables con la
+  misma memoria que en escritorio).
+- El acordeón exterior arranca **cerrado en cada carga de ficha**; al elegir una ficha se navega y la
+  ficha nueva lo pinta cerrado. Su apertura **no** se recuerda (sí la de los grupos internos).
+- Se pinta en los cuatro estados de la ficha (una fila; en Cargando ya tiene sus datos).
+
+### Spec del árbol
+
+**Datos (sin endpoint, sin requerimiento nuevo)**
+- Fichas = `capitulosEnOrdenDeIndice(user)` (`lib/ayudaFlito.ts`): ya filtradas por permiso y en el
+  orden del índice. Agrupadas por `entrada.grupo` en el orden de `GRUPOS_ORDEN`
+  (`general, gestion, transito, finanzas, administracion`); rótulo del grupo =
+  `GRUPO_AYUDA_LABEL[grupo]`; etiqueta de la ficha = `entrada.etiqueta` (igual que el índice).
+- Grupo sin fichas visibles → **no aparece**. Fichas pendientes **sí** aparecen (están en el índice y
+  en Anterior/Siguiente), sin marca.
+- Destino de cada enlace: `/flito/ayuda/<clave>` (sin `#ancla`). Solo PageSlug en la URL; sin PII.
+
+**Marcado**
+```
+<nav aria-label="Fichas de ayuda">
+  <p>Fichas de ayuda</p>                       ← rótulo visible, NO encabezado
+  <ul>
+    <li>
+      <button type="button" aria-expanded="true" aria-controls="<id-único>">
+        <ChevronRight aria-hidden="true" /> Finanzas
+      </button>
+      <ul id="<id-único>">                     ← plegado: atributo `hidden`
+        <li><Link to="/flito/ayuda/flito_bolsas">Bolsas</Link></li>
+        <li><Link … aria-current="page">Reporte de costos</Link></li>
+```
+- `aria-label="Fichas de ayuda"` — distinto de «Contenido de la ficha» y de «Navegación entre
+  fichas». Rótulo visible como `<p>` (mismo estilo que el rótulo de la TOC: `text-xs font-semibold
+  uppercase tracking-[0.18em]`, `--flit-text-secondary`); los grupos **no** son encabezados (no
+  ensucian el esquema `h1 → h2` de la ficha).
+- Un `<button>` por grupo, con el **texto** del grupo como nombre accesible, `aria-expanded` y
+  `aria-controls` apuntando a su lista. IDs con `useId` (conviven la instancia lateral y la del
+  acordeón). Lista plegada con `hidden` (fuera del orden de tabulación; `aria-controls` sigue
+  apuntando a un nodo que existe).
+- Chevron `ChevronRight` de `lucide-react`, `aria-hidden`, `--flit-text-muted`, rota 90° abierto —
+  el mismo gesto de `FlitAcordeon` (`transition-transform motion-reduce:transition-none`); nada más
+  se anima.
+- Sin `role="tree"` ni flechas de teclado: es una navegación con botones de despliegue (patrón
+  *disclosure*). Tab recorre botones de grupo y enlaces visibles; Enter/Espacio pliega/despliega.
+
+**Estilo (tokens del kit; nada nuevo)**
+| Pieza | Reposo | Hover (sutil) | Foco | Actual |
+|---|---|---|---|---|
+| Botón de grupo | `text-sm font-semibold`, `--flit-text-primary`, `rounded-md px-2 py-1.5`, ancho completo, alineado a la izquierda | velo `--flit-bg-hover` + `transition-colors` | `flit-focus` | — |
+| Enlace de ficha | `text-sm`, `--flit-text-secondary`, `rounded-md px-2 py-1.5`, sangría para alinear con el texto del grupo (pasado el chevron), `break-words` (etiquetas largas envuelven, **no** se truncan) | velo `--flit-bg-hover` + `transition-colors` | `flit-focus` | `aria-current="page"` + velo `--flit-bg-hover` fijo + tinta `--flit-blue-text` + `font-semibold` |
+
+- El resaltado de la ficha actual **no** usa barra de color nueva ni fondo de acento: velo + tinta +
+  peso (tres canales, ninguno solo el color). Se distingue del `aria-current="location"` de la TOC
+  (que no lleva velo).
+- Contraste ≥ 4.5:1 de `--flit-text-primary`, `--flit-text-secondary` y `--flit-blue-text` sobre el
+  fondo de página **y** sobre `--flit-bg-hover`, en claro y oscuro (`check:contraste`). Foco ≥ 3:1.
+- Sin tarjeta, sin sombra, sin borde de caja en `≥ lg`: el árbol pesa lo mismo que la TOC.
+
+**Posición (≥ lg)** — mismo patrón que `TablaContenidoLateral`: `hidden lg:block lg:sticky lg:top-24
+lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto` (top = topbar + 1rem; scroll propio si la lista es
+larga, p. ej. `admin` con Gestión desplegado). Si la ficha actual queda fuera de la zona visible del
+árbol al cargar, se lleva a la vista **dentro del árbol** (`scrollTop` del contenedor) **sin mover
+la página** ni robar el foco del `h1`.
+
+**Plegado y memoria**
+1. Primera ficha abierta en la sesión: solo su grupo desplegado.
+2. El conjunto de grupos desplegados vive **en memoria de la SPA** (estado de módulo o contexto que
+   sobreviva al cambio de `:slug` y a ir al índice y volver). Se pierde al recargar. **No**
+   `localStorage` ni `sessionStorage`.
+3. Al abrir una ficha, su grupo **se fuerza desplegado** (se añade al conjunto), aunque el usuario lo
+   hubiera plegado antes. Los demás conservan lo que el usuario dejó.
+4. El usuario **puede** plegar el grupo de la ficha actual (la ficha queda oculta en el árbol; el
+   resaltado vuelve al desplegar). No se lo impedimos.
+5. La misma memoria sirve a la columna `≥ lg` y al árbol dentro del acordeón `< lg`.
+
+**Navegación:** clic en una ficha → ruta nueva; foco al `h1` de la ficha nueva (regla vigente, sin
+cambio). El árbol no se re-pliega.
+
+### Estados (4) + copy
+
+**Del árbol en sí:** sus datos son locales y síncronos (catálogo + permisos del usuario).
+| Estado | Árbol |
+|---|---|
+| Cargando | No aplica como estado propio: se pinta completo de inmediato (no hay skeleton del árbol). |
+| Error | No aplica: no hay lectura que pueda fallar. |
+| Vacío | No alcanzable: si se pinta, el usuario ve al menos la ficha abierta. Defensivo: lista vacía → no se pinta la columna (la rejilla cae a la variante sin árbol). Sin copy. |
+| Lleno | Grupos con fichas visibles; grupo actual desplegado; ficha actual resaltada. |
+
+**De la ficha, con el árbol:**
+| Estado de la ficha | Árbol ≥ lg | Acordeón «Fichas de ayuda» < lg | Copy |
+|---|---|---|---|
+| Cargando | Sí (real; reserva la columna) | Sí, cerrado | Sin cambio |
+| Error | Sí | Sí, cerrado | Sin cambio: «No se pudo cargar esta ficha.» / «Revise su conexión y vuelva a intentarlo.» + **Reintentar** / **Volver al índice**. El árbol es una salida más: otra ficha sí puede cargar. |
+| Vacío (pendiente) | Sí | Sí, cerrado | Sin cambio |
+| Lleno | Sí | Sí, cerrado | Sin cambio |
+| «Esta ficha no existe» / `NoAccess` | **No** | **No** | Sin cambio |
+
+### Responsive + feedback + notificación
+
+- **< lg:** el árbol pasa al acordeón «Fichas de ayuda» cerrado, encima de «Contenido de la ficha»,
+  ambos en un bloque con `space-y-2`; ninguna columna fija; etiquetas largas envuelven; nada
+  desborda a 360–390 px.
+- **Entre `lg` y `xl`** la rejilla de 3 columnas estrecha el artículo (ver Nota en QA). No se cambia
+  el breakpoint sin preguntar al PO.
+- **Feedback:** botones de grupo y enlaces con hover `--flit-bg-hover` + `transition-colors` corta y
+  `flit-focus`; el disparador del acordeón ya lo trae `FlitAcordeon`. Ningún control plano.
+- **Notificación:** ninguna. Plegar/desplegar y navegar no producen toast ni aviso.
+
+### Permiso/slug
+
+Sin cambio: misma guarda de la ficha (`puedeVerAyudaFlito` + `hasPage` del slug). El árbol solo
+lista lo que `capitulosEnOrdenDeIndice(user)` ya devuelve; no añade gate ni `PageSlug`.
+
+### Notas para QA (≤ 10)
+
+1. `admin` en «Reporte de costos» (`≥ lg`): 3 columnas; árbol con General, Gestión, Tránsito,
+   Finanzas, Administración en ese orden; solo Finanzas desplegado; «Reporte de costos» con
+   `aria-current="page"` y resaltado visible.
+2. `proveedor`: árbol con un solo grupo (Gestión) y una ficha (SOAT); sin grupos vacíos.
+3. Desplegar Gestión, ir a SOAT por el árbol, volver a Finanzas por el árbol: Gestión y Finanzas
+   siguen desplegados; plegar Gestión y abrir una ficha de Gestión lo despliega de nuevo. Recargar
+   (F5): solo el grupo de la ficha actual queda desplegado. Nada en `localStorage`/`sessionStorage`.
+4. Ficha con un solo `h2`, ficha pendiente y error: 2 columnas (árbol + artículo), sin columna
+   derecha vacía. Cargando: 3 columnas, sin salto al terminar.
+5. «Esta ficha no existe» (`/flito/ayuda/privacy`), `NoAccess` (`proveedor` en `flito_bolsas`) e
+   índice `/flito/ayuda`: **sin** árbol.
+6. 390 px: «Fichas de ayuda (n)» cerrado encima de «Contenido de la ficha (n)», juntos; abrir el
+   primero muestra el árbol con el grupo actual desplegado; elegir otra ficha la abre con el
+   acordeón cerrado. Nada desborda.
+7. Teclado y lector: tres `nav` con nombres distintos; cada grupo es un botón con su nombre y
+   `aria-expanded` correcto; Tab no entra en grupos plegados; foco visible en todo.
+8. Árbol largo (`admin`, Gestión desplegado) en ventana baja: el árbol hace scroll propio y la
+   ficha actual queda visible dentro de él al cargar, sin mover la página.
+9. Claro y oscuro: contraste ≥ 4.5:1 de grupo, ficha y ficha actual (también sobre el velo de hover).
+10. **Nota de ancho (no bloquea):** a 1024 px medir el ancho útil del artículo. Si baja de ~28rem y
+    la lectura se resiente, se reporta al PO (opción a evaluar: 3 columnas solo desde `xl`). No lo
+    decide el implementador.
+
+### Decisiones y descartes HU #13896
+
+| Decisión | Por qué | Descartado |
+|---|---|---|
+| Árbol a la izquierda, TOC se queda a la derecha | Lectura de lo general a lo particular (qué ficha → qué dice → qué sección); la izquierda quedó libre (menú del shell = barra flotante inferior); misma disposición que el manual de FLIT Trámites que dio el humano | Invertir (TOC izquierda, árbol derecha); fusionar árbol y TOC en una sola columna |
+| Dos niveles: grupo → fichas | Responde a «qué más hay»; las secciones ya están en la TOC | Árbol de 3 niveles con las secciones de cada ficha (duplica la TOC y triplica la altura) |
+| Solo el grupo actual desplegado al empezar | Árbol corto al primer vistazo; ubica sin saturar | Todo desplegado (22+ enlaces de `admin` compitiendo con la lectura); todo plegado (obliga a buscar la ficha actual) |
+| Memoria en la SPA, grupo actual forzado | Quien explora no pierde lo que abrió al saltar de ficha; la ficha abierta siempre se ubica | `sessionStorage`/`localStorage` (persistencia que nadie pidió y estado que sobrevive a otro usuario en el mismo equipo); sin memoria (se re-pliega en cada salto) |
+| Sin árbol en el índice | El índice **es** la lista de fichas; duplicarla es ruido | Árbol también en `/flito/ayuda` |
+| `< lg`: acordeón del kit cerrado, encima de la TOC plegable | Una fila; patrón ya presente en la misma pantalla; no tapa el contenido | Panel deslizable/drawer en móvil (patrón nuevo, trampa de foco, overlay); árbol desplegado arriba (empuja la ficha fuera del primer pliegue) |
+| `nav` + botones *disclosure*, no `role="tree"` | Correcto y simple; el patrón ARIA *tree* exige gestión de flechas y foco itinerante sin beneficio aquí | `role="tree"`/`treeitem`; grupos como `h2`/`h3` (ensuciaría el esquema de la ficha) |
+| Resaltado = velo + tinta + semibold | Tokens con par oscuro; tres canales; distinto del actual de la TOC | Barra de color lateral nueva; fondo de acento sin par oscuro |
+| Sin contador por grupo, sin badge pendiente, sin iconos | Menos ruido en 15rem; la ficha pendiente se explica al abrirla | Contadores «Gestión (12)»; badge «Ficha pendiente» en el árbol; iconos carpeta/documento (fuera de alcance) |
+| Etiquetas largas envuelven | No esconder el nombre | Truncar con «…» + tooltip (patrón nuevo, ilegible en táctil) |
+| Sin buscador ni versión en el árbol | Fuera de alcance; el buscador vive en el índice | Buscador en el árbol; versión al pie del árbol |
+| Sin efectos | Principios: claridad sin adorno | Animar altura al desplegar, transición de página, sombra en la columna |
