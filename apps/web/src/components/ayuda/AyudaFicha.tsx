@@ -1,8 +1,9 @@
 // Ficha de Ayuda FLITO (HU #11893 · versión y fecha HU #13703 · Feature #13691 HU #13705).
 // Extraída de `pages/FlitoAyuda.tsx` (diseño slim §7): 4 estados, foco en el `#ancla`, tabla de
-// contenido y Anterior/Siguiente dentro de lo visible.
+// contenido y Anterior/Siguiente dentro de lo visible. HU #13896: árbol lateral de fichas a la
+// izquierda (`AyudaArbolFichas`), rejilla de 3 columnas con TOC o de 2 sin ella.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../lib/auth';
 import {
@@ -24,6 +25,7 @@ import { ErrorAyuda, SkeletonFicha } from './AyudaEstados';
 import {
   TablaContenidoLateral, TablaContenidoPlegable, fichaConTabla, seccionesDeFicha,
 } from './AyudaTablaContenido';
+import { ArbolFichasLateral, ArbolFichasPlegable, forzarGrupoDesplegado } from './AyudaArbolFichas';
 import PageHeaderCard from '../flit/PageHeaderCard';
 import {
   FlitCard, FlitEmpty, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -96,7 +98,12 @@ export default function AyudaFicha({ slug }: { slug: string }) {
     [fuente],
   );
   const secciones = useMemo(() => seccionesDeFicha(bloques), [bloques]);
-  const vecinas = useMemo(() => vecinasVisibles(capitulosEnOrdenDeIndice(user), slug), [user, slug]);
+  const fichasVisibles = useMemo(() => capitulosEnOrdenDeIndice(user), [user]);
+  const vecinas = useMemo(() => vecinasVisibles(fichasVisibles, slug), [fichasVisibles, slug]);
+  // HU #13896: el grupo de la ficha recién abierta queda desplegado en el árbol (antes de pintar).
+  useLayoutEffect(() => {
+    if (entrada && visible) forzarGrupoDesplegado(entrada.grupo);
+  }, [entrada, visible]);
   const resumen = entrada ? resumenDeEntrada(entrada, fuente) : '';
 
   if (!entrada) {
@@ -140,15 +147,25 @@ export default function AyudaFicha({ slug }: { slug: string }) {
     />
   );
 
+  const rejilla = (centro: ReactNode, derecha?: ReactNode, tocPlegable?: ReactNode) => (
+    <RejillaFicha
+      fichas={fichasVisibles}
+      actual={entrada.clave}
+      centro={centro}
+      derecha={derecha}
+      tocPlegable={tocPlegable}
+    />
+  );
+
   if (estado === 'cargando') {
     return (
       <div className="space-y-4">
         {header(false)}
-        <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_15rem] lg:items-start lg:gap-6">
-          <SkeletonFicha />
-          {/* Reserva la columna de la TOC en `lg+` para que el artículo no salte al cargar. */}
-          <div aria-hidden="true" className="hidden h-40 lg:block" style={{ background: 'var(--flit-border-soft)', borderRadius: 8 }} />
-        </div>
+        {rejilla(
+          <SkeletonFicha />,
+          // Reserva la columna de la TOC en `lg+` para que el artículo no salte al cargar.
+          <div aria-hidden="true" className="hidden h-40 lg:block" style={{ background: 'var(--flit-border-soft)', borderRadius: 8 }} />,
+        )}
       </div>
     );
   }
@@ -157,7 +174,7 @@ export default function AyudaFicha({ slug }: { slug: string }) {
     return (
       <div className="space-y-4">
         {header(true)}
-        <ErrorAyuda titulo="No se pudo cargar esta ficha." onReintentar={reintentar} volver />
+        {rejilla(<ErrorAyuda titulo="No se pudo cargar esta ficha." onReintentar={reintentar} volver />)}
       </div>
     );
   }
@@ -166,14 +183,18 @@ export default function AyudaFicha({ slug }: { slug: string }) {
     return (
       <div className="space-y-4">
         {header(true)}
-        <FlitEmpty>
-          <p className="text-base font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Esta ficha está pendiente.</p>
-          <p className="mx-auto mt-2 max-w-lg">
-            La ficha ya figura en el índice; el contenido se publicará en una entrega siguiente. No es un error.
-          </p>
-          <Link to="/flito/ayuda" className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle}>Volver al índice</Link>
-        </FlitEmpty>
-        <AnteriorSiguiente {...vecinas} />
+        {rejilla(
+          <>
+            <FlitEmpty>
+              <p className="text-base font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Esta ficha está pendiente.</p>
+              <p className="mx-auto mt-2 max-w-lg">
+                La ficha ya figura en el índice; el contenido se publicará en una entrega siguiente. No es un error.
+              </p>
+              <Link to="/flito/ayuda" className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle}>Volver al índice</Link>
+            </FlitEmpty>
+            <AnteriorSiguiente {...vecinas} />
+          </>,
+        )}
       </div>
     );
   }
@@ -196,14 +217,47 @@ export default function AyudaFicha({ slug }: { slug: string }) {
   return (
     <div className="space-y-4">
       {header(true)}
-      {conTabla ? (
-        <div className="space-y-4 lg:grid lg:grid-cols-[minmax(0,1fr)_15rem] lg:items-start lg:gap-6 lg:space-y-0">
-          <TablaContenidoPlegable secciones={secciones} actual={ancla} />
-          <div className="min-w-0">{articulo}</div>
-          <TablaContenidoLateral secciones={secciones} actual={ancla} />
+      {rejilla(
+        <>
+          {articulo}
+          <AnteriorSiguiente {...vecinas} />
+        </>,
+        conTabla ? <TablaContenidoLateral secciones={secciones} actual={ancla} /> : undefined,
+        conTabla ? <TablaContenidoPlegable secciones={secciones} actual={ancla} /> : undefined,
+      )}
+    </div>
+  );
+}
+
+/**
+ * Rejilla de la ficha (HU #13896). `≥ lg`: árbol | centro | TOC (o reserva) — sin derecha, 2 columnas
+ * y ninguna vacía. `< lg`: «Fichas de ayuda» y «Contenido de la ficha» plegados y juntos, arriba.
+ * Sin fichas que listar (defensivo) el árbol no se pinta y la rejilla pierde esa columna.
+ */
+function RejillaFicha({
+  fichas, actual, centro, derecha, tocPlegable,
+}: {
+  fichas: readonly EntradaAyuda[];
+  actual: string;
+  centro: ReactNode;
+  derecha?: ReactNode;
+  tocPlegable?: ReactNode;
+}) {
+  const conArbol = fichas.length > 0;
+  const columnas = conArbol
+    ? (derecha ? 'lg:grid-cols-[15rem_minmax(0,1fr)_15rem]' : 'lg:grid-cols-[15rem_minmax(0,1fr)]')
+    : (derecha ? 'lg:grid-cols-[minmax(0,1fr)_15rem]' : 'lg:grid-cols-1');
+  return (
+    <div className={`space-y-4 lg:grid ${columnas} lg:items-start lg:gap-6 lg:space-y-0`}>
+      {(conArbol || tocPlegable) && (
+        <div className="space-y-2 lg:hidden">
+          {conArbol && <ArbolFichasPlegable key={actual} fichas={fichas} actual={actual} />}
+          {tocPlegable}
         </div>
-      ) : articulo}
-      <AnteriorSiguiente {...vecinas} />
+      )}
+      {conArbol && <ArbolFichasLateral fichas={fichas} actual={actual} />}
+      <div className="min-w-0 space-y-4">{centro}</div>
+      {derecha}
     </div>
   );
 }

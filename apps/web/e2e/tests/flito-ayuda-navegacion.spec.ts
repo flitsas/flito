@@ -3,12 +3,12 @@
 // Reintentar de la ficha (defecto heredado: el reintento por nonce no salía nunca del error).
 import type { Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
-import { CATALOGO_AYUDA, GRUPOS_ORDEN, type EntradaAyuda } from '../../src/content/ayuda/catalogo';
+import { CATALOGO_AYUDA, GRUPOS_ORDEN, GRUPO_AYUDA_LABEL, type EntradaAyuda } from '../../src/content/ayuda/catalogo';
 import { anclaDeEncabezado, parseMarkdown } from '../../src/lib/ayudaMarkdown';
 import { puedeEnlazarFichaAyuda, vecinasVisibles } from '../../src/lib/ayudaFlito';
 import { correrAxe, esperarSinViolacionesGraves } from '../helpers/axe';
 import { contraste, fondoPintado, tintaEfectiva } from '../helpers/pixeles';
-import { loginAs, FINANCIERA_USER, OPERACIONES_USER } from '../helpers/ayuda-fixtures';
+import { loginAs, CLIENTE_USER, CONDUCTOR_USER, FINANCIERA_USER, OPERACIONES_USER } from '../helpers/ayuda-fixtures';
 
 const ENCABEZADO = [
   '---',
@@ -344,5 +344,231 @@ Texto.
     await alerta.getByRole('button', { name: 'Reintentar' }).click();
     await expect(page.getByRole('heading', { level: 2, name: 'Qué es' })).toBeVisible();
     await expect(page.getByRole('alert')).toHaveCount(0);
+  });
+});
+
+// ── HU #13896 · Árbol lateral de fichas (docs/ux/flito-ayuda.md § HU #13896) ─────────────────────
+
+const arbol = (page: Page) => page.getByTestId('ayuda-arbol-lateral');
+const arbolPlegable = (page: Page) => page.getByTestId('ayuda-arbol-plegable');
+const grupoBtn = (page: Page, grupo: string) => arbol(page).getByRole('button', { name: grupo, exact: true });
+
+/** Claves visibles del usuario, en el orden del índice (la fuente de verdad que el árbol replica). */
+async function clavesDelIndice(page: Page): Promise<string[]> {
+  await page.goto('/flito/ayuda');
+  const filas = page.getByRole('navigation', { name: 'Fichas de ayuda' }).getByRole('link');
+  await expect(filas.first()).toBeVisible();
+  return (await filas.evaluateAll((els) => els.map((a) => a.getAttribute('href') ?? '')))
+    .map((h) => h.replace('/flito/ayuda/', ''));
+}
+
+function gruposDe(claves: string[]): string[] {
+  const presentes = new Set(claves.map((c) => entrada(c).grupo));
+  return GRUPOS_ORDEN.filter((g) => presentes.has(g)).map((g) => GRUPO_AYUDA_LABEL[g]);
+}
+
+test.describe('FLITO — Ayuda · árbol lateral de fichas (HU #13896)', () => {
+  test('AC1/AC2 — ≥ lg: 3 columnas, grupos en orden del índice, solo el grupo actual desplegado, ficha actual marcada', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await loginAs(page, OPERACIONES_USER); // admin: varios grupos
+    const claves = await clavesDelIndice(page);
+    await servirFicha(page, 'flito_bolsas', FICHA_TOC);
+    await page.goto('/flito/ayuda/flito_bolsas');
+    await expect(toc(page)).toBeVisible();
+    await expect(arbol(page)).toBeVisible();
+    await expect(arbol(page)).toHaveAttribute('aria-label', 'Fichas de ayuda');
+    const columnas = await arbol(page).locator('xpath=..').evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length);
+    expect(columnas).toBe(3);
+
+    const grupos = gruposDe(claves);
+    await expect(arbol(page).getByRole('button')).toHaveText(grupos);
+    for (const g of grupos) {
+      await expect(grupoBtn(page, g)).toHaveAttribute('aria-expanded', g === 'Finanzas' ? 'true' : 'false');
+    }
+    const actual = arbol(page).locator('[aria-current]');
+    await expect(actual).toHaveCount(1);
+    await expect(actual).toHaveAttribute('aria-current', 'page');
+    await expect(actual).toHaveText('Bolsas');
+    await expect(actual).toHaveClass(/font-semibold/);
+
+    // Desplegado todo, el árbol lista exactamente las fichas del índice, en su orden.
+    for (const g of grupos) {
+      if (await grupoBtn(page, g).getAttribute('aria-expanded') === 'false') await grupoBtn(page, g).click();
+    }
+    const hrefs = await arbol(page).getByRole('link').evaluateAll((els) => els.map((a) => a.getAttribute('href')));
+    expect(hrefs).toEqual(claves.map((c) => `/flito/ayuda/${c}`));
+  });
+
+  test('AC1 — ficha con un solo h2: 2 columnas (árbol + artículo), sin columna derecha vacía', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await loginAs(page, FINANCIERA_USER);
+    await servirFicha(page, 'flito_bolsas', `${ENCABEZADO}\n## Qué es\n\nSolo una sección.\n`);
+    await page.goto('/flito/ayuda/flito_bolsas');
+    await expect(page.getByRole('heading', { level: 2, name: 'Qué es' })).toBeVisible();
+    await expect(arbol(page)).toBeVisible();
+    await expect(toc(page)).toHaveCount(0);
+    const columnas = await arbol(page).locator('xpath=..').evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length);
+    expect(columnas).toBe(2);
+  });
+
+  test('AC3 — navegar desde el árbol sin recarga; Volver al índice y Anterior/Siguiente con las vecinas correctas', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await loginAs(page, OPERACIONES_USER);
+    const claves = await clavesDelIndice(page);
+    const destino = claves.find((c) => entrada(c).grupo === 'finanzas' && c !== 'flito_bolsas')!;
+    expect(destino).toBeTruthy();
+    await servirFicha(page, 'flito_bolsas', FICHA_TOC);
+    await page.goto('/flito/ayuda/flito_bolsas');
+    await expect(arbol(page)).toBeVisible();
+    await page.evaluate(() => { (window as unknown as { __sinRecarga?: number }).__sinRecarga = 1; });
+
+    await arbol(page).getByRole('link', { name: entrada(destino).etiqueta, exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/flito/ayuda/${destino}$`));
+    await expect(page.getByRole('heading', { level: 1, name: entrada(destino).etiqueta })).toBeFocused();
+    expect(await page.evaluate(() => (window as unknown as { __sinRecarga?: number }).__sinRecarga)).toBe(1);
+    await expect(arbol(page).locator('[aria-current="page"]')).toHaveText(entrada(destino).etiqueta);
+
+    await expect(page.getByRole('link', { name: '← Volver al índice' })).toBeVisible();
+    const i = claves.indexOf(destino);
+    const nav = page.getByRole('navigation', { name: 'Navegación entre fichas' });
+    if (i > 0) await expect(nav.getByRole('link', { name: `Ficha anterior: ${entrada(claves[i - 1]).etiqueta}` })).toBeVisible();
+    if (i < claves.length - 1) await expect(nav.getByRole('link', { name: `Ficha siguiente: ${entrada(claves[i + 1]).etiqueta}` })).toBeVisible();
+
+    // Enter sobre un enlace del árbol también navega.
+    const otro = arbol(page).getByRole('link', { name: 'Bolsas', exact: true });
+    await otro.focus();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/flito\/ayuda\/flito_bolsas$/);
+    expect(await page.evaluate(() => (window as unknown as { __sinRecarga?: number }).__sinRecarga)).toBe(1);
+  });
+
+  test('AC4 — Enter/Espacio despliegan; la memoria sobrevive al cambio de ficha e ir al índice; el grupo de la ficha nueva se fuerza', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await loginAs(page, OPERACIONES_USER);
+    const claves = await clavesDelIndice(page);
+    const gestion = claves.find((c) => entrada(c).grupo === 'gestion')!;
+    await servirFicha(page, 'flito_bolsas', FICHA_TOC);
+    await page.goto('/flito/ayuda/flito_bolsas');
+    const btnGestion = grupoBtn(page, 'Gestión');
+    await expect(btnGestion).toHaveAttribute('aria-expanded', 'false');
+    // Plegado: sus enlaces no están en el orden de tabulación.
+    await expect(arbol(page).getByRole('link', { name: entrada(gestion).etiqueta, exact: true })).toBeHidden();
+
+    await btnGestion.focus();
+    await page.keyboard.press('Enter');
+    await expect(btnGestion).toHaveAttribute('aria-expanded', 'true');
+    await expect(btnGestion).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(btnGestion).toHaveAttribute('aria-expanded', 'false');
+    await page.keyboard.press('Space');
+    await expect(btnGestion).toHaveAttribute('aria-expanded', 'true');
+
+    // Saltar a una ficha de Gestión: Gestión y Finanzas siguen desplegados.
+    await arbol(page).getByRole('link', { name: entrada(gestion).etiqueta, exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/flito/ayuda/${gestion}$`));
+    await expect(grupoBtn(page, 'Gestión')).toHaveAttribute('aria-expanded', 'true');
+    await expect(grupoBtn(page, 'Finanzas')).toHaveAttribute('aria-expanded', 'true');
+
+    // Plegar el grupo actual está permitido; al volver a abrir una ficha de Gestión se fuerza desplegado.
+    await grupoBtn(page, 'Gestión').click();
+    await expect(grupoBtn(page, 'Gestión')).toHaveAttribute('aria-expanded', 'false');
+    await page.getByRole('link', { name: '← Volver al índice' }).click();
+    await expect(arbol(page)).toHaveCount(0);
+    await page.getByRole('link', { name: `Abrir ficha de ${entrada(gestion).etiqueta}`, exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/flito/ayuda/${gestion}$`));
+    await expect(grupoBtn(page, 'Gestión')).toHaveAttribute('aria-expanded', 'true');
+    await expect(grupoBtn(page, 'Finanzas')).toHaveAttribute('aria-expanded', 'true');
+
+    // Memoria solo de la SPA: recargar deja desplegado solo el grupo actual; nada en el storage.
+    await page.reload();
+    await expect(grupoBtn(page, 'Gestión')).toHaveAttribute('aria-expanded', 'true');
+    await expect(grupoBtn(page, 'Finanzas')).toHaveAttribute('aria-expanded', 'false');
+    const persistido = await page.evaluate(() => [...Object.keys(localStorage), ...Object.keys(sessionStorage)]
+      .filter((k) => /arbol|grupo|desplegad/i.test(k)));
+    expect(persistido).toEqual([]);
+  });
+
+  test('AC5 — < lg: acordeón «Fichas de ayuda» cerrado encima de la TOC, sin desborde; abierto marca la actual', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await loginAs(page, FINANCIERA_USER);
+    const claves = await clavesDelIndice(page);
+    await servirFicha(page, 'flito_bolsas', FICHA_TOC);
+    await page.goto('/flito/ayuda/flito_bolsas');
+    await expect(page.getByRole('heading', { level: 2, name: 'Qué es' })).toBeVisible();
+    await expect(arbol(page)).toBeHidden();
+    const toggle = arbolPlegable(page);
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(toggle).toContainText('Fichas de ayuda');
+    await expect(toggle).toContainText(`(${claves.length})`);
+    const yArbol = (await toggle.boundingBox())!.y;
+    const yToc = (await page.getByTestId('ayuda-toc-plegable').boundingBox())!.y;
+    expect(yArbol).toBeLessThan(yToc);
+
+    await toggle.click();
+    const nav = page.getByRole('navigation', { name: 'Fichas de ayuda' });
+    await expect(nav).toBeVisible();
+    await expect(nav.locator('[aria-current="page"]')).toHaveText('Bolsas');
+
+    const desborde = await page.evaluate(() => {
+      const w = window.innerWidth;
+      const raices = ['[data-ayuda-cuerpo]', 'nav[aria-label="Fichas de ayuda"]', '[data-testid="ayuda-arbol-plegable"]'];
+      return raices.flatMap((sel) => [...document.querySelectorAll(`${sel}, ${sel} *`)])
+        .filter((el) => el.getBoundingClientRect().right > w + 0.5)
+        .map((el) => el.tagName);
+    });
+    expect(desborde).toEqual([]);
+
+    const otra = claves.find((c) => entrada(c).grupo === 'finanzas' && c !== 'flito_bolsas');
+    if (otra) {
+      await nav.getByRole('link', { name: entrada(otra).etiqueta, exact: true }).click();
+      await expect(page).toHaveURL(new RegExp(`/flito/ayuda/${otra}$`));
+      await expect(arbolPlegable(page)).toHaveAttribute('aria-expanded', 'false');
+    }
+  });
+
+  test('AC6 — el índice no tiene árbol', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await page.goto('/flito/ayuda');
+    await expect(page.getByRole('heading', { level: 1, name: 'Ayuda FLITO' })).toBeVisible();
+    await expect(arbol(page)).toHaveCount(0);
+    await expect(arbolPlegable(page)).toHaveCount(0);
+  });
+
+  test('AC7 — usuario con una sola ficha: un grupo desplegado y una ficha marcada', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await loginAs(page, CONDUCTOR_USER);
+    await page.goto('/flito/ayuda/dashboard');
+    await expect(arbol(page)).toBeVisible();
+    const botones = arbol(page).getByRole('button');
+    await expect(botones).toHaveCount(1);
+    await expect(botones).toHaveText('General');
+    await expect(botones).toHaveAttribute('aria-expanded', 'true');
+    const enlaces = arbol(page).locator('a');
+    await expect(enlaces).toHaveCount(1);
+    await expect(enlaces).toHaveAttribute('aria-current', 'page');
+  });
+
+  test('AC7 — rol con enlace en una URL de ficha: NoAccess como hoy, sin árbol', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await loginAs(page, CLIENTE_USER);
+    await page.goto('/flito/ayuda/flito_bolsas');
+    await expect(page.getByRole('heading', { name: /no tienes acceso/i })).toBeVisible();
+    await expect(arbol(page)).toHaveCount(0);
+    await expect(arbolPlegable(page)).toHaveCount(0);
+  });
+
+  test('AC8 — slug inexistente: mensaje de hoy, sin árbol ni etiquetas ajenas', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await loginAs(page, FINANCIERA_USER);
+    await page.goto('/flito/ayuda/flito_compuerta'); // clave fuera del catálogo (HU #13774)
+    await expect(page.getByText('Esta ficha no existe.')).toBeVisible();
+    await expect(arbol(page)).toHaveCount(0);
+    await expect(arbolPlegable(page)).toHaveCount(0);
+    await expect(page.getByText('Fichas de ayuda', { exact: true })).toHaveCount(0);
+
+    await page.goto('/flito/ayuda/transito_organismos');
+    await expect(page.getByRole('heading', { name: /no tienes acceso a organismos de tránsito/i })).toBeVisible();
+    await expect(arbol(page)).toHaveCount(0);
+    await expect(page.getByText('Bolsas', { exact: true })).toHaveCount(0);
   });
 });
